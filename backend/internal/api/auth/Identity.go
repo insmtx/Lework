@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/gin-gonic/gin"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // AuthState 认证状态
@@ -99,4 +100,13 @@ func FromGinContext(ctx *gin.Context) (*Caller, *Trace) {
 	}
 
 	return caller, trace
+}
+
+// SystemIdentity 返回一个预定义的系统身份，通常用于系统内部调用或没有特定用户上下文的场景。
+func SystemIdentity() *Caller {
+	return &Caller{
+		Uin:   types.SystemUin,
+		OrgID: types.SystemOrgID,
+		State: AuthStateSucc,
+	}
 }

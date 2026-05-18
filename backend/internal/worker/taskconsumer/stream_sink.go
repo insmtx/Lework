@@ -101,7 +101,7 @@ func (s *MQStreamSink) emitCompleted(ctx context.Context, event *events.Event) e
 		return nil
 	}
 
-	topic, err := dm.SessionCompletedSubject(s.task.Route.OrgID, s.task.Route.SessionID)
+	topic, err := dm.SessionMessageCompletedSubject(s.task.Route.OrgID, s.task.Route.SessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session completed subject: %w", err)
 	}

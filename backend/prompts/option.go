@@ -25,11 +25,18 @@ func WithBaseURL(url string) RunOption {
 }
 
 var defaultLLMConfigOption = func(ctx context.Context, cfg *config.LLMConfig) {
+	defer func() {
+		if r := recover(); r != nil {
+			logs.WarnContextf(ctx, "[prompts] DB not available: %v", r)
+		}
+	}()
+
 	orgID := types.SystemOrgID
 	caller, _ := auth.FromContext(ctx)
 	if caller != nil {
 		orgID = caller.OrgID
 	}
+
 	lm, err := db.GetDefaultLLMModel(ctx, db.GetDB(), orgID)
 	if err != nil {
 		logs.ErrorContextf(ctx, "[prompts] get default LLM model failed: org_id=%d error=%v", orgID, err)
@@ -39,6 +46,6 @@ var defaultLLMConfigOption = func(ctx context.Context, cfg *config.LLMConfig) {
 		cfg.Provider = lm.Provider
 		cfg.Model = lm.ModelName
 		cfg.BaseURL = lm.BaseURL
-		cfg.APIKey = lm.APIKeyMasked
+		cfg.APIKey = lm.APIKeyEncrypted
 	}
 }

@@ -5,6 +5,7 @@
 package types
 
 const (
+	SystemUin   uint = 1
 	SystemOrgID uint = 1
 )
 

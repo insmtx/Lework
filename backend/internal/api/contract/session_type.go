@@ -57,6 +57,7 @@ type Session struct {
 	AssistantCode        string                 `json:"assistant_code"`
 	Status               string                 `json:"status"`
 	Title                string                 `json:"title"`
+	TitleManuallySet     bool                   `json:"title_manually_set,omitempty"`
 	Metadata             *types.SessionMetadata `json:"metadata,omitempty"`
 	MessageCount         int                    `json:"message_count"`
 	LastMessageAt        *time.Time             `json:"last_message_at,omitempty"`
@@ -105,6 +106,12 @@ type CompleteSessionMessageRequest struct {
 	Metadata  *types.MessageMetadata `json:"metadata,omitempty"`
 	Seq       int64                  `json:"seq"`
 	CreatedAt time.Time              `json:"created_at"`
+}
+
+// SessionTitleRequest 会话标题更新请求（异步处理）
+type SessionTitleRequest struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
 }
 
 // FailedSessionMessageRequest 处理 session 失败事件请求

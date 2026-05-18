@@ -84,6 +84,9 @@ type Session struct {
 	// session - 会话标题，VARCHAR(500)，允许为空
 	Title string `gorm:"column:title;type:varchar(500)"`
 
+	// session - 用户是否手动修改过标题
+	TitleManuallySet bool `gorm:"column:title_manually_set;type:boolean;default:false;not null"`
+
 	// session - 元数据，JSON格式存储额外信息，JSONB，允许为空
 	Metadata SessionMetadata `gorm:"column:metadata;type:jsonb"`
 

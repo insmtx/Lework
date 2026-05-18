@@ -15,12 +15,13 @@ import (
 )
 
 // StartSessionCompleted subscribes to session completed events and dispatches to the service.
-func StartSessionCompleted(ctx context.Context, service contract.SessionService, eb eventbus.EventBus) {
-	topic := dm.SessionCompletedWildcardSubject()
+func StartSessionCompleted(ictx context.Context, service contract.SessionService, eb eventbus.EventBus) {
+	ctx := logs.WithContextFields(ictx, "runnable", "session_completed")
+	topic := dm.SessionMessageCompletedWildcardSubject()
 	logs.InfoContextf(ctx, "starting session completed runnable: %s", topic)
 
 	Run(ctx, "session_completed", func(ctx context.Context) {
-		if err := eb.Subscribe(ctx, topic, func(msg *nats.Msg) {
+		if err := eb.SubscribeFrom(ctx, topic, 0, func(msg *nats.Msg) {
 			handleSessionCompletedMessage(ctx, service, msg)
 		}); err != nil {
 			logs.ErrorContextf(ctx, "subscribe to %s failed: %v", topic, err)
@@ -57,7 +58,7 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 			req.Metadata = &types.MessageMetadata{Tokens: u.TotalTokens}
 		}
 		if err := service.CompleteSessionMessage(ctx, req); err != nil {
-			logs.ErrorContextf(ctx, "complete session message: %v", err)
+			logs.WarnContextf(ctx, "complete session message: %v", err)
 		}
 
 	case events.StreamEventRunFailed:
@@ -75,7 +76,7 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 			req.ErrorCode = streamMsg.Body.Error.Code
 		}
 		if err := service.FailedSessionMessage(ctx, req); err != nil {
-			logs.ErrorContextf(ctx, "failed session message: %v", err)
+			logs.WarnContextf(ctx, "failed session message: %v", err)
 		}
 
 	default:

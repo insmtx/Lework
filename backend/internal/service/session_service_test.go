@@ -248,6 +248,73 @@ func TestUpdateSession(t *testing.T) {
 	}
 }
 
+func TestUpdateSession_MarksTitleManuallySet(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	createReq := &contract.CreateSessionRequest{
+		Type:  string(types.SessionTypeUserChat),
+		Title: "Original Title",
+	}
+
+	session, err := service.CreateSession(ctx, createReq)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	updateReq := &contract.UpdateSessionRequest{
+		Title: "Updated Title",
+	}
+
+	_, err = service.UpdateSession(ctx, session.ID, updateReq)
+	if err != nil {
+		t.Fatalf("UpdateSession failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+
+	if !retrieved.TitleManuallySet {
+		t.Error("expected TitleManuallySet to be true after manual update")
+	}
+}
+
+func TestHandleSessionTitleRequest_AfterManualRename(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	_, err = service.UpdateSession(ctx, session.ID, &contract.UpdateSessionRequest{Title: "用户手动设置的标题"})
+	if err != nil {
+		t.Fatalf("UpdateSession failed: %v", err)
+	}
+
+	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
+		SessionID: session.SessionID,
+		Content:   "这是一条消息",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if retrieved.Title != "用户手动设置的标题" {
+		t.Errorf("expected title to remain '用户手动设置的标题', got '%s'", retrieved.Title)
+	}
+	if !retrieved.TitleManuallySet {
+		t.Error("expected TitleManuallySet to be true")
+	}
+}
+
 func TestDeleteSession(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)
@@ -464,6 +531,155 @@ func TestAddMessage_MissingContent(t *testing.T) {
 
 	if err.Error() != "content is required" {
 		t.Errorf("expected 'content is required' error, got %s", err.Error())
+	}
+}
+
+func TestHandleSessionTitleRequest_EmptyTitle(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
+		SessionID: session.SessionID,
+		Content:   "这是我的第一条消息",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if retrieved.Title != "这是我的第一条消息" {
+		t.Errorf("expected title '%s', got '%s'", "这是我的第一条消息", retrieved.Title)
+	}
+}
+
+func TestHandleSessionTitleRequest_XinSessionTitle(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
+		Type:  string(types.SessionTypeUserChat),
+		Title: "新会话",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
+		SessionID: session.SessionID,
+		Content:   "我的第一条消息",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if retrieved.Title != "我的第一条消息" {
+		t.Errorf("expected title '%s', got '%s'", "我的第一条消息", retrieved.Title)
+	}
+}
+
+func TestHandleSessionTitleRequest_Truncated(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	longContent := ""
+	for i := 0; i < 150; i++ {
+		longContent += "a"
+	}
+
+	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
+		SessionID: session.SessionID,
+		Content:   longContent,
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if len([]rune(retrieved.Title)) != 100 {
+		t.Errorf("expected title length 100, got %d", len([]rune(retrieved.Title)))
+	}
+}
+
+func TestHandleSessionTitleRequest_CustomTitleUnchanged(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
+		Type:  string(types.SessionTypeUserChat),
+		Title: "自定义标题",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
+		SessionID: session.SessionID,
+		Content:   "一条消息",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if retrieved.Title != "自定义标题" {
+		t.Errorf("expected title to remain '自定义标题', got '%s'", retrieved.Title)
+	}
+}
+
+func TestHandleSessionTitleRequest_ManuallySetFlag(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{Type: string(types.SessionTypeUserChat)})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	_, err = service.UpdateSession(ctx, session.ID, &contract.UpdateSessionRequest{Title: "手动标题"})
+	if err != nil {
+		t.Fatalf("UpdateSession failed: %v", err)
+	}
+
+	err = service.HandleSessionTitleRequest(ctx, &contract.SessionTitleRequest{
+		SessionID: session.SessionID,
+		Content:   "新消息内容",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionTitleRequest failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if retrieved.Title != "手动标题" {
+		t.Errorf("expected title to remain '手动标题', got '%s'", retrieved.Title)
+	}
+	if !retrieved.TitleManuallySet {
+		t.Error("expected TitleManuallySet to be true")
 	}
 }
 

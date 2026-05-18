@@ -109,7 +109,7 @@ func TestMQStreamSinkPublishesCompletedEventToSessionCompletedTopic(t *testing.T
 			}
 
 			streamTopic, _ := dm.SessionResultStreamSubject(orgID, sessionID)
-			completedTopic, _ := dm.SessionCompletedSubject(orgID, sessionID)
+			completedTopic, _ := dm.SessionMessageCompletedSubject(orgID, sessionID)
 			if len(publisher.calls) != 2 {
 				t.Fatalf("expected 2 publishes (stream + completed), got %d", len(publisher.calls))
 			}

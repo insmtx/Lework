@@ -84,9 +84,11 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterSessionRoutes(v1, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		// Start session completed consumer in background
+		// Start background consumers
 		go runnable.StartSessionCompleted(context.Background(), sessionService, eventbus)
 		logs.Info("Session completed runnable started")
+		go runnable.StartSessionTitleHandler(context.Background(), sessionService, eventbus)
+		logs.Info("Session title handler runnable started")
 	}
 
 	// Swagger UI 路由
