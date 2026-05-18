@@ -3,6 +3,9 @@ package claude
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/insmtx/Leros/backend/engines"
 )
@@ -35,6 +38,33 @@ func (a *Adapter) RegisterMCP(ctx context.Context, cfg engines.MCPServerConfig) 
 		args = append(args, "--header", "Authorization: Bearer "+cfg.BearerToken)
 	}
 	return engines.RunCLICommand(ctx, a.invoker.binary, args, nil)
+}
+
+// GetSkillDir returns the skill directory path for Claude Code.
+func (a *Adapter) GetSkillDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "skills")
+}
+
+func expandPath(pathValue string) string {
+	pathValue = strings.TrimSpace(pathValue)
+	if pathValue == "" {
+		return ""
+	}
+	if pathValue == "~" || strings.HasPrefix(pathValue, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return pathValue
+		}
+		if pathValue == "~" {
+			return home
+		}
+		return filepath.Join(home, strings.TrimPrefix(pathValue, "~/"))
+	}
+	return pathValue
 }
 
 // Run 启动 Claude Code 并返回进程句柄。

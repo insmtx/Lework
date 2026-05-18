@@ -52,14 +52,22 @@ func (p *PostProcessor) run(action string) {
 	if p == nil {
 		return
 	}
-	if p.sourceDir != "" {
-		if err := engines.SyncLerosSkillsFrom(p.sourceDir, nil); err != nil {
-			logs.Warnf("Sync Leros skills after %s failed: %v", action, err)
-		}
-	}
+
+	// Reload the in-memory catalog to pick up new/changed skills
 	if p.catalog != nil {
 		if err := p.catalog.Reload(context.Background()); err != nil {
 			logs.Warnf("Reload Leros skill catalog after %s failed: %v", action, err)
+		} else {
+			logs.Infof("Reloaded skill catalog after %s", action)
 		}
+	}
+
+	// After skill mutation, sync from ~/.leros/skills to external CLI directories
+	// This ensures external CLI tools can see the newly created/modified skills
+	// Default target directories: ~/.claude/skills, ~/.agents/skills
+	if err := engines.SyncFromLerosToExternal(nil); err != nil {
+		logs.Warnf("Sync Leros skills to external CLI after %s failed: %v", action, err)
+	} else {
+		logs.Infof("Synced skills to external CLI after %s", action)
 	}
 }

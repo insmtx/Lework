@@ -10,6 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/engines"
+	"github.com/insmtx/Leros/backend/engines/builtin"
 	agentruntime "github.com/insmtx/Leros/backend/internal/agent/runtime"
 	runtimemcp "github.com/insmtx/Leros/backend/internal/agent/runtime/mcp"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
@@ -131,6 +133,32 @@ func runTaskWorker(defaultRuntime string) {
 		_ = bus.Close()
 		logs.Fatalf("Failed to create agent runtime service: %v", err)
 		return
+	}
+
+	// Bootstrap external CLI engines: sync skills and register MCP
+	if cfg.CLI != nil {
+		var mcpCfg engines.MCPServerConfig
+		if cfg.CLI.MCP != nil {
+			mcpCfg = engines.MCPServerConfig{
+				URL:         cfg.CLI.MCP.URL,
+				BearerToken: cfg.CLI.MCP.BearerToken,
+			}
+		}
+		// Construct MCP URL from worker listen address if not explicitly configured
+		if mcpCfg.URL == "" && workerListenAddr != "" {
+			// Use the worker's MCP server address
+			mcpCfg.URL = "http://" + workerListenAddr + "/v1/mcp"
+		}
+
+		// 使用新的分层架构 BootstrapService
+		bootstrapSvc := builtin.NewBootstrapService()
+		_, err := bootstrapSvc.Bootstrap(ctx, cfg.CLI, builtin.BootstrapOptions{
+			SkillsSourceDir: cfg.SkillsDir,
+			MCP:             mcpCfg,
+		})
+		if err != nil {
+			logs.Warnf("Bootstrap CLI engines failed: %v", err)
+		}
 	}
 
 	consumer, err := taskconsumer.New(taskconsumer.Config{

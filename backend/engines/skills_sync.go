@@ -15,89 +15,99 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-var defaultBuiltinSkillDirs = []string{
-	"./backend/skills",
-	"/app/backend/skills",
-}
-
-var defaultSkillTargetDirs = []string{
-	"~/.claude/skills",
-	"~/.agents/skills",
-}
-
 const skillManifestFile = "SKILL.md"
 
 var errNoSkillDirs = errors.New("no skill directories found")
 
-// SyncBuiltinSkills copies Leros built-in and user-managed skills into external agent skill directories.
-func SyncBuiltinSkills(sourceDir string, targetDirs []string) error {
+// SyncToLerosDir copies built-in skills from sourceDir to Leros user skills directory (~/.leros/skills).
+// This is the first step in the new sync flow: internal skills -> ~/.leros/skills.
+func SyncToLerosDir(sourceDir string) error {
 	sourceDir, err := resolveBuiltinSkillsSource(sourceDir)
 	if err != nil {
 		return err
 	}
 
-	sourceDirs := []string{sourceDir}
-	if userDir, err := resolveLerosSkillsSource(); err == nil {
-		sourceDirs = append(sourceDirs, userDir)
-	}
-
-	return syncSkillDirs(sourceDirs, targetDirs)
-}
-
-// SyncLerosSkills copies all available Leros skills into external agent skill directories.
-func SyncLerosSkills(targetDirs []string) error {
 	userDir, err := defaultLerosSkillsDir()
 	if err != nil {
 		return err
 	}
-	return SyncLerosSkillsFrom(userDir, targetDirs)
+
+	// Resolve the user directory path (expand ~)
+	resolvedUserDir, err := expandPath(userDir)
+	if err != nil {
+		return err
+	}
+
+	// Create the user skills directory if it doesn't exist
+	if err := os.MkdirAll(resolvedUserDir, 0o755); err != nil {
+		return fmt.Errorf("create user skills directory: %w", err)
+	}
+
+	logs.Infof("Syncing built-in skills from %s to %s", sourceDir, resolvedUserDir)
+	return syncSkillDir(sourceDir, resolvedUserDir)
 }
 
-// SyncLerosSkillsFrom copies built-in skills and the given user skill directory into external agent skill directories.
-func SyncLerosSkillsFrom(userSkillDir string, targetDirs []string) error {
-	sourceDirs := make([]string, 0, 2)
-	if builtinDir, err := resolveBuiltinSkillsSource(""); err == nil {
-		sourceDirs = append(sourceDirs, builtinDir)
+// SyncFromLerosToExternal copies skills from Leros user directory (~/.leros/skills) to external CLI skill directories.
+// This is the second step in the new sync flow: ~/.leros/skills -> external CLI skill dirs.
+func SyncFromLerosToExternal(cliSkillDirs []string) error {
+	userDir, err := defaultLerosSkillsDir()
+	if err != nil {
+		return err
 	}
-	if userDir, err := resolveSkillSourceDir(userSkillDir); err == nil {
-		sourceDirs = append(sourceDirs, userDir)
+
+	resolvedUserDir, err := expandPath(userDir)
+	if err != nil {
+		return err
 	}
-	if len(sourceDirs) == 0 {
+
+	// Check if user skills directory exists
+	if _, err := os.Stat(resolvedUserDir); os.IsNotExist(err) {
+		logs.Debugf("Leros user skills directory does not exist, skipping sync to external CLI: %s", resolvedUserDir)
 		return nil
 	}
-	return syncSkillDirs(sourceDirs, targetDirs)
-}
 
-func syncSkillDirs(sourceDirs []string, targetDirs []string) error {
-	if len(targetDirs) == 0 {
-		targetDirs = defaultSkillTargetDirs
+	if len(cliSkillDirs) == 0 {
+		logs.Debug("No external CLI skill directories provided, skipping sync")
+		return nil
 	}
-	for _, targetDir := range targetDirs {
-		resolvedTargetDir, err := expandPath(targetDir)
+
+	for _, cliDir := range cliSkillDirs {
+		resolvedCliDir, err := expandPath(cliDir)
 		if err != nil {
-			return err
+			logs.Warnf("Failed to resolve CLI skill directory %s: %v", cliDir, err)
+			continue
 		}
-		for _, sourceDir := range sourceDirs {
-			if err := syncSkillDir(sourceDir, resolvedTargetDir); err != nil {
-				if errors.Is(err, errNoSkillDirs) {
-					continue
-				}
-				return err
+
+		logs.Infof("Syncing skills from %s to %s", resolvedUserDir, resolvedCliDir)
+		if err := syncSkillDir(resolvedUserDir, resolvedCliDir); err != nil {
+			if errors.Is(err, errNoSkillDirs) {
+				logs.Debugf("No skills found in %s to sync to %s", resolvedUserDir, resolvedCliDir)
+				continue
 			}
-			logs.Infof("Synced skills from %s to %s", sourceDir, resolvedTargetDir)
+			logs.Warnf("Failed to sync skills to %s: %v", resolvedCliDir, err)
 		}
 	}
+
 	return nil
 }
 
+// resolveBuiltinSkillsSource resolves the built-in skills directory from various sources.
+// Priority: 1. sourceDir param, 2. LEROS_SKILLS_DIR env, 3. default locations.
 func resolveBuiltinSkillsSource(sourceDir string) (string, error) {
-	candidates := defaultBuiltinSkillDirs
+	var candidates []string
 	if strings.TrimSpace(sourceDir) != "" {
 		candidates = append([]string{sourceDir}, candidates...)
 	}
 	if configured := strings.TrimSpace(os.Getenv("LEROS_SKILLS_DIR")); configured != "" {
 		candidates = append([]string{configured}, candidates...)
 	}
+	if workingDir, err := os.Getwd(); err == nil {
+		candidates = append(candidates, findParentDirCandidates(workingDir, filepath.Join("backend", "skills"))...)
+	}
+	if executablePath, err := os.Executable(); err == nil {
+		candidates = append(candidates, findParentDirCandidates(filepath.Dir(executablePath), filepath.Join("backend", "skills"))...)
+	}
+	candidates = append(candidates, filepath.Join(string(os.PathSeparator), "app", "backend", "skills"))
 
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)
@@ -113,27 +123,18 @@ func resolveBuiltinSkillsSource(sourceDir string) (string, error) {
 	return "", fmt.Errorf("built-in skills directory not found")
 }
 
-func resolveLerosSkillsSource() (string, error) {
-	skillsDir, err := defaultLerosSkillsDir()
-	if err != nil {
-		return "", err
+func findParentDirCandidates(startDir string, relativePath string) []string {
+	var candidates []string
+	current := filepath.Clean(startDir)
+	for {
+		candidates = append(candidates, filepath.Join(current, relativePath))
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
 	}
-	return resolveSkillSourceDir(skillsDir)
-}
-
-func resolveSkillSourceDir(skillsDir string) (string, error) {
-	skillsDir = strings.TrimSpace(skillsDir)
-	if skillsDir == "" {
-		return "", fmt.Errorf("skill source path is empty")
-	}
-	info, err := os.Stat(skillsDir)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("skill source path is not a directory: %s", skillsDir)
-	}
-	return skillsDir, nil
+	return candidates
 }
 
 func defaultLerosSkillsDir() (string, error) {

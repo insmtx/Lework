@@ -15,6 +15,10 @@ func (stubEngine) RegisterMCP(context.Context, MCPServerConfig) error {
 	return nil
 }
 
+func (stubEngine) GetSkillDir() string {
+	return ""
+}
+
 func (stubEngine) Run(context.Context, RunRequest) (*RunHandle, error) {
 	return &RunHandle{}, nil
 }

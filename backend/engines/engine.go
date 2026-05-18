@@ -64,6 +64,9 @@ type Engine interface {
 	Prepare(ctx context.Context, req PrepareRequest) error
 	// RegisterMCP registers a Model Context Protocol server with the engine CLI.
 	RegisterMCP(ctx context.Context, cfg MCPServerConfig) error
+	// GetSkillDir returns the skill directory path for this CLI engine.
+	// Returns empty string if the engine does not support skills.
+	GetSkillDir() string
 	// Run 运行引擎并返回进程句柄
 	Run(ctx context.Context, req RunRequest) (*RunHandle, error)
 }

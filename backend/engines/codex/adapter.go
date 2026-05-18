@@ -3,6 +3,8 @@ package codex
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/insmtx/Leros/backend/engines"
 )
@@ -50,6 +52,15 @@ func (a *Adapter) Run(ctx context.Context, req engines.RunRequest) (*engines.Run
 		Process: proc,
 		Events:  events,
 	}, nil
+}
+
+// GetSkillDir returns the skill directory path for Codex CLI.
+func (a *Adapter) GetSkillDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "codex", "skills")
 }
 
 var _ engines.Engine = (*Adapter)(nil)

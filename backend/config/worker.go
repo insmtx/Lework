@@ -17,5 +17,12 @@ type WorkerConfig struct {
 
 // CLIEnginesConfig is the configuration for external AI coding CLIs.
 type CLIEnginesConfig struct {
-	Default string `yaml:"default,omitempty" json:"default,omitempty"`
+	Default string     `yaml:"default,omitempty" json:"default,omitempty"`
+	MCP     *MCPConfig `yaml:"mcp,omitempty" json:"mcp,omitempty"`
+}
+
+// MCPConfig is the configuration for MCP server registration with external CLI tools.
+type MCPConfig struct {
+	URL         string `yaml:"url,omitempty" json:"url,omitempty"`
+	BearerToken string `yaml:"bearer_token,omitempty" json:"bearer_token,omitempty"`
 }
