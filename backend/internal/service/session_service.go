@@ -18,6 +18,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/dm"
+	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -119,9 +120,7 @@ func (s *sessionService) UpdateSession(ctx context.Context, id uint, req *contra
 
 	if req.Title != "" {
 		session.TitleManuallySet = true
-		if err := s.renameSession(ctx, session, req.Title); err != nil {
-			return nil, err
-		}
+		session.Title = req.Title
 	}
 	if req.Metadata != nil {
 		session.Metadata = *req.Metadata
@@ -366,10 +365,16 @@ func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.
 	}
 }
 
-func (s *sessionService) renameSession(ctx context.Context, session *types.Session, title string) error {
-	runes := []rune(title)
-	if len(runes) > 100 {
-		title = string(runes[:100])
+func (s *sessionService) renameSession(ctx context.Context, session *types.Session, content string) error {
+	title, err := prompts.Run(ctx, prompts.KeySessionTitle, map[string]any{"content": content})
+	if err != nil {
+		logs.WarnContextf(ctx, "LLM title generation failed, fallback to truncation: %v", err)
+		runes := []rune(content)
+		if len(runes) > 100 {
+			title = string(runes[:100])
+		} else {
+			title = content
+		}
 	}
 	session.Title = title
 	session.UpdatedAt = time.Now()
@@ -384,6 +389,8 @@ func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, req *con
 	if session == nil {
 		return nil
 	}
+
+	ctx = auth.WithContext(ctx, &auth.Caller{OrgID: session.OrgID}, nil)
 	s.tryAutoUpdateTitle(ctx, session, req.Content)
 	return nil
 }

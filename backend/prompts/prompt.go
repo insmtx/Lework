@@ -22,6 +22,9 @@ type Manager struct {
 }
 
 func New(executor Executor) *Manager {
+	if executor == nil {
+		panic("prompts: executor must not be nil")
+	}
 	return &Manager{
 		templates: make(map[string]string),
 		executor:  executor,
