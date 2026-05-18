@@ -1,0 +1,130 @@
+package prompts
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"sync"
+
+	"github.com/valyala/fasttemplate"
+
+	"github.com/insmtx/Leros/backend/config"
+)
+
+type Executor interface {
+	Execute(ctx context.Context, prompt string, cfg config.LLMConfig) (string, error)
+}
+
+type Manager struct {
+	mu        sync.RWMutex
+	templates map[string]string
+	executor  Executor
+}
+
+func New(executor Executor) *Manager {
+	return &Manager{
+		templates: make(map[string]string),
+		executor:  executor,
+	}
+}
+
+// SetExecutor sets the Executor for the Manager. It is not safe to call this concurrently with Run.
+func (m *Manager) SetExecutor(exec Executor) {
+	if exec == nil {
+		panic("prompts: executor must not be nil")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.executor = exec
+}
+
+func (m *Manager) Register(key, template string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.templates[key]; ok {
+		panic(fmt.Sprintf("prompts: duplicate registration key %q", key))
+	}
+	m.templates[key] = template
+}
+
+func (m *Manager) Get(key string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	tpl, ok := m.templates[key]
+	if !ok {
+		panic(fmt.Sprintf("prompts: unknown key %q", key))
+	}
+	return tpl
+}
+
+func (m *Manager) Keys() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	keys := make([]string, 0, len(m.templates))
+	for k := range m.templates {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func (m *Manager) Run(ctx context.Context, key string, params map[string]any, opts ...RunOption) (string, error) {
+	tpl := m.Get(key)
+
+	if m.executor == nil {
+		return "", fmt.Errorf("prompts: executor not set on Manager")
+	}
+
+	var cfg config.LLMConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	rendered := fasttemplate.New(tpl, "{", "}").ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
+		v, ok := params[tag]
+		if !ok {
+			return w.Write([]byte("{" + tag + "}"))
+		}
+		return w.Write([]byte(fmt.Sprint(v)))
+	})
+
+	return m.executor.Execute(ctx, rendered, cfg)
+}
+
+var (
+	globalManager = &Manager{
+		templates: make(map[string]string),
+	}
+)
+
+func SetDefaultExecutor(exec Executor) {
+	if exec == nil {
+		panic("prompts: executor must not be nil")
+	}
+	m := globalManager
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.executor = exec
+}
+
+func Register(key, template string) {
+	globalManager.Register(key, template)
+}
+
+func Get(key string) string {
+	return globalManager.Get(key)
+}
+
+func Keys() []string {
+	return globalManager.Keys()
+}
+
+func Run(ctx context.Context, key string, params map[string]any, opts ...RunOption) (string, error) {
+	m := globalManager
+	m.mu.RLock()
+	exec := m.executor
+	m.mu.RUnlock()
+	if exec == nil {
+		return "", fmt.Errorf("prompts: default executor not set; call SetDefaultExecutor first")
+	}
+	return m.Run(ctx, key, params, opts...)
+}
