@@ -88,6 +88,7 @@ export type BackendDigitalAssistant = {
 	org_id: number;
 	owner_id: number;
 	status: string;
+	system_prompt?: string;
 	config?: BackendAssistantConfig;
 	version: number;
 	created_at: string;

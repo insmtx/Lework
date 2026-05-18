@@ -293,19 +293,34 @@ export class ChatActionImpl {
 									...msg,
 									metadata: {
 										...msg.metadata,
-										tokens: (payload as { input_tokens?: number; output_tokens?: number; total_tokens?: number }).total_tokens,
+										tokens: (
+											payload as {
+												input_tokens?: number;
+												output_tokens?: number;
+												total_tokens?: number;
+											}
+										).total_tokens,
 									},
 								},
 							});
 						}
-					} else if (eventType === "tool_call.started" || eventType === "tool_call.arguments" || eventType === "tool_call.output" || eventType === "tool_call.completed" || eventType === "tool_call.failed") {
+					} else if (
+						eventType === "tool_call.started" ||
+						eventType === "tool_call.arguments" ||
+						eventType === "tool_call.output" ||
+						eventType === "tool_call.completed" ||
+						eventType === "tool_call.failed"
+					) {
 						if (data.tool_calls ?? data.payload?.tool_calls) {
 							const msg = this.#get().messagesMap[assistantMsgId];
 							if (msg) {
 								this.#dispatchChat({
 									type: "updateMessage",
 									id: assistantMsgId,
-									value: { ...msg, toolCalls: mapToolCalls(data.tool_calls ?? data.payload?.tool_calls) },
+									value: {
+										...msg,
+										toolCalls: mapToolCalls(data.tool_calls ?? data.payload?.tool_calls),
+									},
 								});
 							}
 						}
@@ -317,7 +332,10 @@ export class ChatActionImpl {
 								this.#dispatchChat({
 									type: "updateMessage",
 									id: assistantMsgId,
-									value: { ...msg, thinking: (msg.thinking ?? "") + (payload.content ?? data.content) },
+									value: {
+										...msg,
+										thinking: (msg.thinking ?? "") + (payload.content ?? data.content),
+									},
 								});
 							}
 						}
@@ -551,5 +569,11 @@ function chatReducer(state: ChatState, action: ChatActionType): ChatState {
 
 export const chatSlice: SliceCreator<ChatStore> = (...params) => ({
 	..._initialState,
-	...flattenActions<ChatAction>([new ChatActionImpl(params[0] as SetState, params[1] as () => ChatStore, params[1] as FullStoreGet)]),
+	...flattenActions<ChatAction>([
+		new ChatActionImpl(
+			params[0] as SetState,
+			params[1] as () => ChatStore,
+			params[1] as FullStoreGet,
+		),
+	]),
 });

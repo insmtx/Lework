@@ -2,8 +2,14 @@ export { API_BASE_URL } from "./api/config";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
 export { sessionApi } from "./api/sessionApi";
 export type { AppAction, AppStore } from "./appStore";
-export { useAppStore, useChatStore, useLayoutStore, useTopicStore } from "./appStore";
+export { useAppStore, useChatStore, useDAStore, useLayoutStore, useTopicStore } from "./appStore";
 export type { ChatAction, ChatState, ChatStore } from "./slices/chatSlice";
+export type {
+	DAStore,
+	DigitalAssistantAction,
+	DigitalAssistantItem,
+	DigitalAssistantState,
+} from "./slices/digitalAssistantSlice";
 export type {
 	Conversation,
 	LayoutAction,
@@ -11,6 +17,7 @@ export type {
 	LayoutStore,
 	NavGroup,
 	NavItem,
+	ViewMode,
 	Workspace,
 	WorkspaceMode,
 } from "./slices/layoutSlice";

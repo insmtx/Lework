@@ -4,7 +4,6 @@ export type {
 	CreateDAParams,
 	GetDAParams,
 	ListDAParams,
-	UpdateDAConfigParams,
 	UpdateDAParams,
 	UpdateDAStatusParams,
 } from "./digitalAssistantApi";
@@ -36,6 +35,6 @@ export type {
 	BackendSessionMetadata,
 	BackendSkillRef,
 	BackendToolCall,
-	SSEMessageEvent,
 	SSEEventPayload,
+	SSEMessageEvent,
 } from "./types";
