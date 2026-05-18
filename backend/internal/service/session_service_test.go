@@ -467,6 +467,194 @@ func TestAddMessage_MissingContent(t *testing.T) {
 	}
 }
 
+func TestAddMessage_AutoUpdateDefaultTitle(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	createReq := &contract.CreateSessionRequest{
+		Type: string(types.SessionTypeUserChat),
+	}
+
+	session, err := service.CreateSession(ctx, createReq)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if session.Title != "" {
+		t.Fatal("expected empty title for new session")
+	}
+
+	addReq := &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: "这是我的第一条消息",
+	}
+
+	_, err = service.AddMessage(ctx, session.ID, addReq)
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+
+	if retrieved.Title != "这是我的第一条消息" {
+		t.Errorf("expected title to be auto-updated to '%s', got '%s'", "这是我的第一条消息", retrieved.Title)
+	}
+}
+
+func TestAddMessage_AutoUpdateDefaultTitle_XinSession(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	createReq := &contract.CreateSessionRequest{
+		Type:  string(types.SessionTypeUserChat),
+		Title: "新会话",
+	}
+
+	session, err := service.CreateSession(ctx, createReq)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if session.Title != "新会话" {
+		t.Fatal("expected title to be '新会话'")
+	}
+
+	addReq := &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: "我的第一条消息",
+	}
+
+	_, err = service.AddMessage(ctx, session.ID, addReq)
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+
+	if retrieved.Title != "我的第一条消息" {
+		t.Errorf("expected title to be auto-updated to '%s', got '%s'", "我的第一条消息", retrieved.Title)
+	}
+}
+
+func TestAddMessage_AutoUpdateTitle_Truncated(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	createReq := &contract.CreateSessionRequest{
+		Type: string(types.SessionTypeUserChat),
+	}
+
+	session, err := service.CreateSession(ctx, createReq)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	longContent := ""
+	for i := 0; i < 150; i++ {
+		longContent += "a"
+	}
+
+	addReq := &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: longContent,
+	}
+
+	_, err = service.AddMessage(ctx, session.ID, addReq)
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+
+	if len([]rune(retrieved.Title)) != 100 {
+		t.Errorf("expected title length to be 100, got %d", len([]rune(retrieved.Title)))
+	}
+}
+
+func TestAddMessage_NotUpdateCustomTitle(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	createReq := &contract.CreateSessionRequest{
+		Type:  string(types.SessionTypeUserChat),
+		Title: "自定义标题",
+	}
+
+	session, err := service.CreateSession(ctx, createReq)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	addReq := &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: "一条消息",
+	}
+
+	_, err = service.AddMessage(ctx, session.ID, addReq)
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+
+	if retrieved.Title != "自定义标题" {
+		t.Errorf("expected title to remain '自定义标题', got '%s'", retrieved.Title)
+	}
+}
+
+func TestAddMessage_NotUpdateOnSecondMessage(t *testing.T) {
+	service := setupTestService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	createReq := &contract.CreateSessionRequest{
+		Type: string(types.SessionTypeUserChat),
+	}
+
+	session, err := service.CreateSession(ctx, createReq)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	addReq1 := &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: "第一条消息",
+	}
+	_, err = service.AddMessage(ctx, session.ID, addReq1)
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	addReq2 := &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: "第二条消息",
+	}
+	_, err = service.AddMessage(ctx, session.ID, addReq2)
+	if err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	retrieved, err := service.GetSession(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+
+	if retrieved.Title != "第一条消息" {
+		t.Errorf("expected title to be '第一条消息', got '%s'", retrieved.Title)
+	}
+}
+
 func TestDeleteMessage_UpdatesSession(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)

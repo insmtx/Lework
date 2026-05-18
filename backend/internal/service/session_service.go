@@ -118,7 +118,9 @@ func (s *sessionService) UpdateSession(ctx context.Context, id uint, req *contra
 	}
 
 	if req.Title != "" {
-		session.Title = req.Title
+		if err := s.renameSession(ctx, session, req.Title); err != nil {
+			return nil, err
+		}
 	}
 	if req.Metadata != nil {
 		session.Metadata = *req.Metadata
@@ -273,14 +275,39 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID uint, req *co
 		return nil, err
 	}
 
+	message := s.buildMessage(req, sequence)
+	message.SessionID = session.SessionID
+
+	if err := db.CreateMessage(ctx, s.db, message); err != nil {
+		return nil, err
+	}
+
+	s.tryAutoUpdateTitle(ctx, session, req)
+
+	now := time.Now()
+	if err := db.IncrementMessageCount(ctx, s.db, sessionID); err != nil {
+		return nil, err
+	}
+	if err := db.UpdateLastMessageAt(ctx, s.db, sessionID, now); err != nil {
+		return nil, err
+	}
+
+	if err := s.publishWorkerTask(ctx, session, message); err != nil {
+		return nil, err
+	}
+
+	return convertToContractSessionMessage(message), nil
+}
+
+func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence int64) *types.SessionMessage {
 	message := &types.SessionMessage{
-		SessionID:   session.SessionID,
+		SessionID:   "", // filled by caller
 		Role:        req.Role,
 		Content:     req.Content,
 		MessageType: req.MessageType,
 		Status:      req.Status,
 		Sequence:    sequence,
-		Timestamp:   time.Now().UnixMilli(), // Unix 毫秒时间戳
+		Timestamp:   time.Now().UnixMilli(),
 	}
 
 	if req.Chunks != nil && len(req.Chunks) > 0 {
@@ -309,18 +336,33 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID uint, req *co
 		message.Status = string(types.MessageStatusComplete)
 	}
 
-	if err := db.CreateMessage(ctx, s.db, message); err != nil {
-		return nil, err
+	return message
+}
+
+func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.Session, req *contract.AddMessageRequest) {
+	if session.MessageCount > 0 || req.Role != string(types.MessageRoleUser) {
+		return
+	}
+	if session.Title != "" && session.Title != "新会话" {
+		return
 	}
 
-	now := time.Now()
-	if err := db.IncrementMessageCount(ctx, s.db, sessionID); err != nil {
-		return nil, err
+	if err := s.renameSession(ctx, session, req.Content); err != nil {
+		logs.WarnContextf(ctx, "failed to auto-update session title: %v", err)
 	}
-	if err := db.UpdateLastMessageAt(ctx, s.db, sessionID, now); err != nil {
-		return nil, err
-	}
+}
 
+func (s *sessionService) renameSession(ctx context.Context, session *types.Session, title string) error {
+	runes := []rune(title)
+	if len(runes) > 100 {
+		title = string(runes[:100])
+	}
+	session.Title = title
+	session.UpdatedAt = time.Now()
+	return db.UpdateSession(ctx, s.db, session)
+}
+
+func (s *sessionService) publishWorkerTask(ctx context.Context, session *types.Session, message *types.SessionMessage) error {
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
 	if orgID == 0 && caller != nil {
@@ -332,62 +374,61 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID uint, req *co
 		if assignedAssistantID > 0 {
 			session.AllocatedAssistantID = assignedAssistantID
 			if err := db.UpdateAllocatedAssistantID(ctx, s.db, session.ID, assignedAssistantID); err != nil {
-				return nil, fmt.Errorf("failed to update allocated_assistant_id: %w", err)
+				return fmt.Errorf("failed to update allocated_assistant_id: %w", err)
 			}
 		}
 	}
 
-	// Only publish task if we have a worker ID
-	if session.AllocatedAssistantID > 0 {
-		topic, err := dm.WorkerTaskSubject(orgID, session.AllocatedAssistantID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to construct worker task topic: %w", err)
-		}
-
-		messagePayload := events.WorkerTaskMessage{
-			ID:        fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
-			Type:      events.MessageTypeWorkerTask,
-			CreatedAt: time.Now().UTC(),
-			Trace: events.TraceContext{
-				TraceID:   session.SessionID,
-				RequestID: fmt.Sprintf("req_%d", message.ID),
-				TaskID:    fmt.Sprintf("task_%d", message.ID),
-			},
-			Route: events.RouteContext{
-				OrgID:     orgID,
-				SessionID: session.SessionID,
-				WorkerID:  session.AllocatedAssistantID,
-			},
-			Body: events.WorkerTaskBody{
-				TaskType: events.TaskTypeAgentRun,
-				Actor: events.ActorContext{
-					UserID:      fmt.Sprintf("%d", session.Uin),
-					DisplayName: "",
-					Channel:     "session",
-				},
-				Input: events.TaskInput{
-					Type: events.InputTypeMessage,
-					Text: message.Content,
-				},
-			},
-			Metadata: map[string]any{
-				"session_id":   session.SessionID,
-				"message_type": message.MessageType,
-				"sequence":     message.Sequence,
-				"timestamp":    message.Timestamp,
-			},
-		}
-
-		if err := s.eventbus.Publish(ctx, topic, messagePayload); err != nil {
-			logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", session.AllocatedAssistantID, err)
-			return nil, fmt.Errorf("failed to publish message to assistant: %w", err)
-		}
-		logs.DebugContextf(ctx, "Published message to topic %s: session_id=%s sequence=%d", topic, session.SessionID, message.Sequence)
-	} else {
+	if session.AllocatedAssistantID == 0 {
 		logs.DebugContextf(ctx, "Skipping task publish: no worker allocated for session %s", session.SessionID)
+		return nil
 	}
 
-	return convertToContractSessionMessage(message), nil
+	topic, err := dm.WorkerTaskSubject(orgID, session.AllocatedAssistantID)
+	if err != nil {
+		return fmt.Errorf("failed to construct worker task topic: %w", err)
+	}
+
+	messagePayload := events.WorkerTaskMessage{
+		ID:        fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
+		Type:      events.MessageTypeWorkerTask,
+		CreatedAt: time.Now().UTC(),
+		Trace: events.TraceContext{
+			TraceID:   session.SessionID,
+			RequestID: fmt.Sprintf("req_%d", message.ID),
+			TaskID:    fmt.Sprintf("task_%d", message.ID),
+		},
+		Route: events.RouteContext{
+			OrgID:     orgID,
+			SessionID: session.SessionID,
+			WorkerID:  session.AllocatedAssistantID,
+		},
+		Body: events.WorkerTaskBody{
+			TaskType: events.TaskTypeAgentRun,
+			Actor: events.ActorContext{
+				UserID:      fmt.Sprintf("%d", session.Uin),
+				DisplayName: "",
+				Channel:     "session",
+			},
+			Input: events.TaskInput{
+				Type: events.InputTypeMessage,
+				Text: message.Content,
+			},
+		},
+		Metadata: map[string]any{
+			"session_id":   session.SessionID,
+			"message_type": message.MessageType,
+			"sequence":     message.Sequence,
+			"timestamp":    message.Timestamp,
+		},
+	}
+
+	if err := s.eventbus.Publish(ctx, topic, messagePayload); err != nil {
+		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", session.AllocatedAssistantID, err)
+		return fmt.Errorf("failed to publish message to assistant: %w", err)
+	}
+	logs.DebugContextf(ctx, "Published message to topic %s: session_id=%s sequence=%d", topic, session.SessionID, message.Sequence)
+	return nil
 }
 
 func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID uint, page, perPage int) (*contract.MessageList, error) {
