@@ -108,6 +108,12 @@ type CompleteSessionMessageRequest struct {
 	CreatedAt time.Time              `json:"created_at"`
 }
 
+// SessionTitleRequest 会话标题更新请求（异步处理）
+type SessionTitleRequest struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
+}
+
 // FailedSessionMessageRequest 处理 session 失败事件请求
 type FailedSessionMessageRequest struct {
 	SessionID string `json:"session_id"`

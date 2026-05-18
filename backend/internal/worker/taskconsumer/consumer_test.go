@@ -43,7 +43,7 @@ func TestPublishWorkerTaskMessageToNATS(t *testing.T) {
 
 	topic, _ := dm.WorkerTaskSubject(orgID, workerID)
 	streamTopic, _ := dm.SessionResultStreamSubject(orgID, sessionID)
-	completedTopic, _ := dm.SessionCompletedSubject(orgID, sessionID)
+	completedTopic, _ := dm.SessionMessageCompletedSubject(orgID, sessionID)
 
 	task := newTestWorkerTaskMessage(t, orgID, workerID, sessionID)
 

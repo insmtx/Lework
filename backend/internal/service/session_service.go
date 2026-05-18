@@ -283,14 +283,27 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID uint, req *co
 		return nil, err
 	}
 
-	s.tryAutoUpdateTitle(ctx, session, req)
-
 	now := time.Now()
 	if err := db.IncrementMessageCount(ctx, s.db, sessionID); err != nil {
 		return nil, err
 	}
 	if err := db.UpdateLastMessageAt(ctx, s.db, sessionID, now); err != nil {
 		return nil, err
+	}
+
+	if session.OrgID > 0 {
+		topic, err := dm.SessionMessageRequestSubject(session.OrgID, session.SessionID)
+		if err != nil {
+			logs.WarnContextf(ctx, "failed to build title request subject: %v", err)
+		} else {
+			titleReq := &contract.SessionTitleRequest{
+				SessionID: session.SessionID,
+				Content:   req.Content,
+			}
+			if err := s.eventbus.Publish(ctx, topic, titleReq); err != nil {
+				logs.WarnContextf(ctx, "failed to publish title update request: %v", err)
+			}
+		}
 	}
 
 	if err := s.publishWorkerTask(ctx, session, message); err != nil {
@@ -340,10 +353,7 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 	return message
 }
 
-func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.Session, req *contract.AddMessageRequest) {
-	if session.MessageCount > 0 || req.Role != string(types.MessageRoleUser) {
-		return
-	}
+func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.Session, content string) {
 	if session.TitleManuallySet {
 		return
 	}
@@ -351,7 +361,7 @@ func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.
 		return
 	}
 
-	if err := s.renameSession(ctx, session, req.Content); err != nil {
+	if err := s.renameSession(ctx, session, content); err != nil {
 		logs.WarnContextf(ctx, "failed to auto-update session title: %v", err)
 	}
 }
@@ -364,6 +374,18 @@ func (s *sessionService) renameSession(ctx context.Context, session *types.Sessi
 	session.Title = title
 	session.UpdatedAt = time.Now()
 	return db.UpdateSession(ctx, s.db, session)
+}
+
+func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, req *contract.SessionTitleRequest) error {
+	session, err := db.GetSessionBySessionID(ctx, s.db, req.SessionID)
+	if err != nil {
+		return fmt.Errorf("get session %s: %w", req.SessionID, err)
+	}
+	if session == nil {
+		return nil
+	}
+	s.tryAutoUpdateTitle(ctx, session, req.Content)
+	return nil
 }
 
 func (s *sessionService) publishWorkerTask(ctx context.Context, session *types.Session, message *types.SessionMessage) error {

@@ -34,4 +34,7 @@ type SessionService interface {
 	CompleteSessionMessage(ctx context.Context, req *CompleteSessionMessageRequest) error
 	// FailedSessionMessage 处理 session 失败事件，将错误消息入库
 	FailedSessionMessage(ctx context.Context, req *FailedSessionMessageRequest) error
+
+	// HandleSessionTitleRequest 异步处理会话标题更新请求
+	HandleSessionTitleRequest(ctx context.Context, req *SessionTitleRequest) error
 }
