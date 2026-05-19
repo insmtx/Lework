@@ -135,6 +135,8 @@ export class ChatActionImpl {
 				const conv = {
 					id: session.session_id,
 					title: session.title || "未命名会话",
+					sessionDbId: session.id,
+					sessionId: session.session_id,
 					type: session.type,
 					status: session.status,
 					createdAt: new Date(session.created_at).getTime(),
