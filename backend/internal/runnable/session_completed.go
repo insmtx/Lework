@@ -52,6 +52,7 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 			SessionID: sessionID,
 			Content:   completed.Result.Message,
 			Chunks:    runEventChunks(completed.Events),
+			Metadata:  messageMetadataFromRunCompleted(completed),
 			Usage:     messageUsageFromRuntime(completed.Usage),
 			Seq:       streamMsg.Body.Seq,
 			CreatedAt: streamMsg.CreatedAt,
@@ -62,8 +63,12 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 
 	case events.StreamEventRunFailed:
 		errMsg := streamMsg.Body.Payload.Content
+		status := string(types.MessageStatusFailed)
 		if streamMsg.Body.RunCompleted != nil && streamMsg.Body.RunCompleted.Result.Message != "" {
 			errMsg = streamMsg.Body.RunCompleted.Result.Message
+			if streamMsg.Body.RunCompleted.Status == string(types.MessageStatusCancelled) {
+				status = string(types.MessageStatusCancelled)
+			}
 		}
 		if streamMsg.Body.Error != nil {
 			errMsg = streamMsg.Body.Error.Message
@@ -71,6 +76,8 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 		req := &contract.FailedSessionMessageRequest{
 			SessionID: sessionID,
 			ErrorMsg:  errMsg,
+			Status:    status,
+			Metadata:  messageMetadataFromRunCompleted(streamMsg.Body.RunCompleted),
 			Seq:       streamMsg.Body.Seq,
 			CreatedAt: streamMsg.CreatedAt,
 		}
@@ -110,4 +117,25 @@ func messageUsageFromRuntime(usage *events.UsagePayload) *types.MessageUsage {
 		OutputTokens: usage.OutputTokens,
 		TotalTokens:  usage.TotalTokens,
 	}
+}
+
+func messageMetadataFromRunCompleted(completed *events.RunCompletedPayload) *types.MessageMetadata {
+	if completed == nil {
+		return nil
+	}
+	src := completed.Metadata
+	if src == nil {
+		return nil
+	}
+
+	// 直接序列化为 MessageMetadata，不匹配的字段会被忽略
+	data, err := json.Marshal(src)
+	if err != nil {
+		return nil
+	}
+	msgMetadata := &types.MessageMetadata{}
+	if err := json.Unmarshal(data, msgMetadata); err != nil {
+		return nil
+	}
+	return msgMetadata
 }

@@ -56,7 +56,6 @@ export type AddMessageParams = {
 	role: string;
 	content: string;
 	message_type?: string;
-	status?: string;
 	thinking?: string;
 	metadata?: {
 		model?: string;

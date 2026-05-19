@@ -39,7 +39,6 @@ export type {
 	Message,
 	MessageMetadata,
 	MessageRole,
-	MessageStatus,
 	ModelOption,
 	ToolCall,
 	ToolCallStatus,

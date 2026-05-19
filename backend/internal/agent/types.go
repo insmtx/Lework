@@ -111,9 +111,6 @@ type ConversationContext struct {
 	// ID 是对话或会话标识。
 	ID string `json:"id,omitempty"`
 
-	// Title 是对话标题，主要用于提示或审计展示。
-	Title string `json:"title,omitempty"`
-
 	// Messages 是传入 runtime 的最近对话消息快照。
 	Messages []InputMessage `json:"messages,omitempty"`
 }

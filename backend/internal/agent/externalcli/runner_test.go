@@ -205,6 +205,10 @@ func (e *fakeEngine) Prepare(_ context.Context, _ engines.PrepareRequest) error 
 	return nil
 }
 
+func (e *fakeEngine) GetSkillDir() string {
+	return ""
+}
+
 func (e *fakeEngine) RegisterMCP(_ context.Context, _ engines.MCPServerConfig) error {
 	return nil
 }

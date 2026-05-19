@@ -12,6 +12,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	einoschema "github.com/cloudwego/eino/schema"
+	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -20,6 +21,7 @@ type Flow struct {
 	agent        adk.Agent
 	runner       *adk.Runner
 	streamRunner *adk.Runner
+	messages     []adk.Message // 历史消息上下文
 }
 
 type FlowConfig struct {
@@ -27,6 +29,7 @@ type FlowConfig struct {
 	Tools        []einotool.BaseTool
 	SystemPrompt string
 	MaxStep      int
+	Messages     []adk.Message // 对话历史消息，用于注入上下文
 }
 
 func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
@@ -73,7 +76,58 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent})
 	streamRunner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: true})
 
-	return &Flow{agent: agent, runner: runner, streamRunner: streamRunner}, nil
+	return &Flow{
+		agent:        agent,
+		runner:       runner,
+		streamRunner: streamRunner,
+		messages:     cfg.Messages,
+	}, nil
+}
+
+// BuildMessagesFromConversation 将 RequestContext.Conversation.Messages 转换为 ADK 消息数组。
+func BuildMessagesFromConversation(convMessages []agent.InputMessage) []adk.Message {
+	if len(convMessages) == 0 {
+		return nil
+	}
+
+	result := make([]adk.Message, 0, len(convMessages))
+	for _, msg := range convMessages {
+		if strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+
+		role := msg.Role
+		if role == "" {
+			role = "user"
+		}
+
+		var adkMsg adk.Message
+		switch role {
+		case "system":
+			adkMsg = einoschema.SystemMessage(msg.Content)
+		case "assistant":
+			adkMsg = einoschema.AssistantMessage(msg.Content, nil)
+		case "tool":
+			adkMsg = einoschema.ToolMessage(msg.Content, "")
+		default:
+			adkMsg = einoschema.UserMessage(msg.Content)
+		}
+		result = append(result, adkMsg)
+	}
+
+	return result
+}
+
+// AppendUserMessage 将新的用户消息追加到现有消息历史并返回。
+func AppendUserMessage(existing []adk.Message, userInput string) []adk.Message {
+	if strings.TrimSpace(userInput) == "" {
+		return existing
+	}
+
+	msgs := make([]adk.Message, 0, len(existing)+1)
+	msgs = append(msgs, existing...)
+	msgs = append(msgs, einoschema.UserMessage(userInput))
+	return msgs
 }
 
 func (f *Flow) Generate(ctx context.Context, userInput string) (*einoschema.Message, error) {
@@ -90,7 +144,10 @@ func (f *Flow) GenerateWithUsage(ctx context.Context, userInput string) (*einosc
 		return nil, nil, fmt.Errorf("user input is required")
 	}
 
-	iter := f.runner.Query(ctx, userInput)
+	// 构建消息列表：历史消息 + 当前用户消息
+	messages := AppendUserMessage(f.messages, userInput)
+
+	iter := f.runner.Run(ctx, messages)
 	var result *einoschema.Message
 	usage := &usageAccumulator{}
 
@@ -140,7 +197,10 @@ func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink event
 		sink = events.NewNoopSink()
 	}
 
-	iter := f.streamRunner.Query(ctx, userInput)
+	// 构建消息列表：历史消息 + 当前用户消息
+	messages := AppendUserMessage(f.messages, userInput)
+
+	iter := f.streamRunner.Run(ctx, messages)
 
 	var lastMsg *einoschema.Message
 	var currentMessageID string

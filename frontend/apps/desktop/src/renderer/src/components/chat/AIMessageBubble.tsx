@@ -80,7 +80,7 @@ export function AIMessageBubble({
 					</div>
 				)}
 
-				{message.status === "complete" && !isStreaming && (
+				{!isStreaming && (
 					<div className="mt-2 flex items-center gap-3">
 						{message.metadata && (
 							<div className="flex items-center gap-1.5 text-xs text-slate-400">

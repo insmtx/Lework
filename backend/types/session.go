@@ -51,10 +51,11 @@ const (
 type MessageStatus string
 
 const (
-	MessageStatusSending   MessageStatus = "sending"
-	MessageStatusStreaming MessageStatus = "streaming"
-	MessageStatusComplete  MessageStatus = "complete"
-	MessageStatusError     MessageStatus = "error"
+	MessageStatusPending    MessageStatus = "pending"
+	MessageStatusProcessing MessageStatus = "processing"
+	MessageStatusCompleted  MessageStatus = "completed"
+	MessageStatusFailed     MessageStatus = "failed"
+	MessageStatusCancelled  MessageStatus = "cancelled"
 )
 
 // Session 会话结构体定义了用户与数字助手之间的会话信息

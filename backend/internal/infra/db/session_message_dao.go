@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -94,6 +95,44 @@ func GetNextSequence(ctx context.Context, db *gorm.DB, sessionID string) (int64,
 // UpdateMessageSequence 更新消息序号
 func UpdateMessageSequence(ctx context.Context, db *gorm.DB, messageID uint, sequence int64) error {
 	return db.WithContext(ctx).Model(&types.SessionMessage{}).Where("id = ?", messageID).Update("sequence", sequence).Error
+}
+
+// ClaimSessionMessagesByStatus 原子占位匹配状态的会话消息，并更新为目标状态。
+func ClaimSessionMessagesByStatus(ctx context.Context, db *gorm.DB, sessionID string, role string, fromStatus string, toStatus string) ([]*types.SessionMessage, error) {
+	var claimed []*types.SessionMessage
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("session_id = ? AND role = ? AND status = ?", sessionID, role, fromStatus).
+			Order("created_at ASC").
+			Find(&claimed).Error; err != nil {
+			return err
+		}
+		if len(claimed) == 0 {
+			return nil
+		}
+		ids := make([]uint, 0, len(claimed))
+		for _, message := range claimed {
+			ids = append(ids, message.ID)
+			message.Status = toStatus
+		}
+		return tx.Model(&types.SessionMessage{}).
+			Where("id IN ? AND status = ?", ids, fromStatus).
+			Update("status", toStatus).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return claimed, nil
+}
+
+// UpdateMessagesStatus 批量更新指定消息的状态。
+func UpdateMessagesStatus(ctx context.Context, db *gorm.DB, ids []uint, status string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return db.WithContext(ctx).Model(&types.SessionMessage{}).
+		Where("id IN ?", ids).
+		Update("status", status).Error
 }
 
 // GetRecentSessionMessages 获取会话最近的 N 条消息（按时间顺序）

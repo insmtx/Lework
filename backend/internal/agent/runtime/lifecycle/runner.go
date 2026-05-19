@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,10 +67,6 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 		journal = NewRunJournal(req, req.EventSink)
 		req.EventSink = journal
 	}
-	if err := appendLifecycleEvent(ctx, journal, req, events.EventStarted, ""); err != nil {
-		result, runErr := emitFailed(ctx, journal, req, RunPhasePrepare, err, nil)
-		return result, journal, runErr
-	}
 
 	logs.InfoContextf(ctx, "Agent lifecycle run started: run_id=%s trace_id=%s task_id=%s runtime=%s assistant_id=%s input_type=%s",
 		requestRunID(req),
@@ -82,12 +79,29 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 
 	prepared, err := r.builder.Prepare(ctx, req)
 	if err != nil {
+		if errors.Is(err, ErrNoPendingSessionMessages) {
+			logs.InfoContextf(ctx, "Agent lifecycle run skipped: run_id=%s trace_id=%s reason=no_pending_messages",
+				requestRunID(req), requestTraceID(req))
+			return nil, journal, nil
+		}
 		logs.WarnContextf(ctx, "Agent lifecycle context prepare failed: run_id=%s trace_id=%s error=%v",
 			requestRunID(req), requestTraceID(req), err)
 		result, runErr := emitFailed(ctx, journal, req, RunPhasePrepare, err, nil)
 		return result, journal, runErr
 	}
 	prepared.EventSink = journal
+	defer func() {
+		if r.builder.SessionMessages != nil {
+			if err := r.builder.SessionMessages.CompleteClaimed(ctx, prepared); err != nil {
+				logs.WarnContextf(ctx, "Agent lifecycle complete claimed messages failed: run_id=%s trace_id=%s error=%v",
+					prepared.RunID, prepared.TraceID, err)
+			}
+		}
+	}()
+	if err := appendLifecycleEvent(ctx, journal, prepared, events.EventStarted, ""); err != nil {
+		result, runErr := emitFailed(ctx, journal, prepared, RunPhasePrepare, err, nil)
+		return result, journal, runErr
+	}
 	logs.InfoContextf(ctx, "Agent lifecycle context prepared: run_id=%s trace_id=%s system_prompt_len=%d skills=%d tools=%d messages=%d attachments=%d",
 		prepared.RunID,
 		prepared.TraceID,
@@ -113,7 +127,7 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 		prepared.Model.BaseURL != "",
 	)
 
-	// logs.InfoContextf(ctx, "system prompt:%s", prepared.SystemPrompt)
+	logs.InfoContextf(ctx, "system prompt:%s", prepared.SystemPrompt)
 
 	delegateStartedAt := time.Now()
 	logs.InfoContextf(ctx, "Agent lifecycle delegate run started: run_id=%s trace_id=%s runtime=%s",
@@ -133,7 +147,6 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 			return result, journal, err
 		}
 	}
-
 	if err := r.AfterRunLearning(ctx, prepared, result, journal.Trace()); err != nil {
 		logs.WarnContextf(ctx, "Leros lifecycle learning check failed: %v", err)
 	}

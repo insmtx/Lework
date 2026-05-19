@@ -13,7 +13,6 @@ export const mockMessages: Record<string, Message[]> = {
 			conversationId: "conv-1",
 			role: "user",
 			content: "帮我审查这个 Pull Request，检查代码质量和潜在问题。",
-			status: "complete",
 			timestamp: Date.now() - 120000,
 		},
 		{
@@ -21,7 +20,6 @@ export const mockMessages: Record<string, Message[]> = {
 			conversationId: "conv-1",
 			role: "assistant",
 			content: "",
-			status: "streaming",
 			timestamp: Date.now() - 90000,
 			toolCalls: [
 				{
@@ -59,7 +57,6 @@ export const mockMessages: Record<string, Message[]> = {
 | config.ts | 0 | - |
 
 整体代码质量良好，建议处理上述问题后合并。`,
-			status: "complete",
 			timestamp: Date.now() - 60000,
 			toolCalls: [
 				{
@@ -82,7 +79,6 @@ export const mockMessages: Record<string, Message[]> = {
 			conversationId: "conv-1",
 			role: "user",
 			content: "请把第二个建议的具体实现代码给我。",
-			status: "complete",
 			timestamp: Date.now() - 30000,
 		},
 		{
@@ -109,7 +105,6 @@ export const mockMessages: Record<string, Message[]> = {
 				"",
 				"这样 `renderItem` 只会在 `onSelect` 变化时重新创建，避免了每次渲染都生成新回调导致的列表项重渲染。",
 			].join("\n"),
-			status: "complete",
 			timestamp: Date.now() - 10000,
 			metadata: {
 				model: "GPT-4",
@@ -124,7 +119,6 @@ export const mockMessages: Record<string, Message[]> = {
 			conversationId: "conv-2",
 			role: "user",
 			content: "将 INS-1034 需求指派给张三，优先级设为高。",
-			status: "complete",
 			timestamp: Date.now() - 7200000,
 		},
 		{
@@ -132,7 +126,6 @@ export const mockMessages: Record<string, Message[]> = {
 			conversationId: "conv-2",
 			role: "assistant",
 			content: "",
-			status: "streaming",
 			timestamp: Date.now() - 7200000 + 1000,
 			toolCalls: [
 				{
@@ -154,7 +147,6 @@ export const mockMessages: Record<string, Message[]> = {
 - **状态**：已更新为"进行中"
 
 张三已收到通知，预计明天开始处理。`,
-			status: "complete",
 			timestamp: Date.now() - 7200000 + 2000,
 			toolCalls: [
 				{
@@ -179,7 +171,6 @@ export const mockMessages: Record<string, Message[]> = {
 			conversationId: "conv-3",
 			role: "user",
 			content: "解释一下 React 中 useEffect 的清理函数什么时候执行？",
-			status: "complete",
 			timestamp: Date.now() - 14400000,
 		},
 		{
@@ -212,7 +203,6 @@ useEffect(() => {
 \`\`\`
 
 当 \`id\` 变化时：先 unsubscribe 旧订阅 → 再 subscribe 新订阅。`,
-			status: "complete",
 			timestamp: Date.now() - 14400000 + 5000,
 			metadata: {
 				model: "DeepSeek",

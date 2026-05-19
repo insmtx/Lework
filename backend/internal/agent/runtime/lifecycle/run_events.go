@@ -74,6 +74,7 @@ func emitTerminalRunEvent(ctx context.Context, journal *RunJournal, req *agent.R
 		return nil
 	}
 	normalizeTerminalResult(journal, result)
+	result.Metadata = mergeRunMetadata(req, result.Metadata)
 	payload := terminalRunPayload(journal, result)
 	event := events.NewRunCompleted(payload, resultMessage(result))
 	event.Type = eventType
@@ -166,4 +167,23 @@ func metadataWithLifecyclePhase(metadata map[string]any, phase RunPhase) map[str
 	}
 	metadata["phase"] = string(phase)
 	return metadata
+}
+
+func mergeRunMetadata(req *agent.RequestContext, resultMetadata map[string]any) map[string]any {
+	if req == nil && len(resultMetadata) == 0 {
+		return nil
+	}
+	merged := map[string]any{}
+	if req != nil {
+		for key, value := range req.Metadata {
+			merged[key] = value
+		}
+	}
+	for key, value := range resultMetadata {
+		merged[key] = value
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }

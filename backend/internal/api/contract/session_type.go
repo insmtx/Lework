@@ -38,7 +38,6 @@ type AddMessageRequest struct {
 	Role        string                 `json:"role" binding:"required"`
 	Content     string                 `json:"content" binding:"required"`
 	MessageType string                 `json:"message_type,omitempty"`
-	Status      string                 `json:"status,omitempty"`
 	Chunks      []string               `json:"chunks,omitempty"`
 	Thinking    string                 `json:"thinking,omitempty"`
 	ToolCalls   []types.ToolCall       `json:"tool_calls,omitempty"`
@@ -74,7 +73,6 @@ type SessionMessage struct {
 	Role        string                 `json:"role"`
 	Content     string                 `json:"content"`
 	Chunks      []string               `json:"chunks,omitempty"` // 流式片段
-	Status      string                 `json:"status"`           // sending/streaming/complete/error
 	Timestamp   int64                  `json:"timestamp"`        // Unix 毫秒时间戳
 	ToolCalls   []types.ToolCall       `json:"tool_calls,omitempty"`
 	Thinking    string                 `json:"thinking,omitempty"` // 思维链
@@ -114,9 +112,11 @@ type CompleteSessionMessageRequest struct {
 
 // FailedSessionMessageRequest 处理 session 失败事件请求
 type FailedSessionMessageRequest struct {
-	SessionID string    `json:"session_id"`
-	ErrorMsg  string    `json:"error_msg"`
-	ErrorCode string    `json:"error_code,omitempty"`
-	Seq       int64     `json:"seq"`
-	CreatedAt time.Time `json:"created_at"`
+	SessionID string                 `json:"session_id"`
+	ErrorMsg  string                 `json:"error_msg"`
+	ErrorCode string                 `json:"error_code,omitempty"`
+	Status    string                 `json:"status,omitempty"`
+	Metadata  *types.MessageMetadata `json:"metadata,omitempty"`
+	Seq       int64                  `json:"seq"`
+	CreatedAt time.Time              `json:"created_at"`
 }

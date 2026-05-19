@@ -67,6 +67,7 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 	lifecycleBuilder := lifecycle.NewContextBuilder(lifecycle.ContextBuilder{
 		BaseSystemPrompt: leros.DefaultSystemPrompt(),
 		Runtime:          s.env,
+		SessionMessages:  lifecycle.NewDBSessionMessageProvider(infradb.GetDB(), 20),
 	})
 	router := lifecycle.NewRuntimeRouter(agent.RuntimeKindLeros, lifecycleBuilder, s.env)
 

@@ -132,28 +132,28 @@ type recordingSessionService struct {
 func (s *recordingSessionService) CreateSession(context.Context, *contract.CreateSessionRequest) (*contract.Session, error) {
 	return nil, nil
 }
-func (s *recordingSessionService) GetSession(context.Context, uint, string) (*contract.Session, error) {
+func (s *recordingSessionService) GetSession(context.Context, string) (*contract.Session, error) {
 	return nil, nil
 }
-func (s *recordingSessionService) UpdateSession(context.Context, uint, *contract.UpdateSessionRequest) (*contract.Session, error) {
+func (s *recordingSessionService) UpdateSession(context.Context, string, *contract.UpdateSessionRequest) (*contract.Session, error) {
 	return nil, nil
 }
-func (s *recordingSessionService) DeleteSession(context.Context, uint) error { return nil }
+func (s *recordingSessionService) DeleteSession(context.Context, string) error { return nil }
 func (s *recordingSessionService) ListSessions(context.Context, *contract.ListSessionsRequest) (*contract.SessionList, error) {
 	return nil, nil
 }
-func (s *recordingSessionService) ActivateSession(context.Context, uint) error { return nil }
-func (s *recordingSessionService) PauseSession(context.Context, uint) error    { return nil }
-func (s *recordingSessionService) EndSession(context.Context, uint) error      { return nil }
-func (s *recordingSessionService) ResumeSession(context.Context, uint) error   { return nil }
-func (s *recordingSessionService) AddMessage(context.Context, uint, *contract.AddMessageRequest) (*contract.SessionMessage, error) {
+func (s *recordingSessionService) ActivateSession(context.Context, string) error { return nil }
+func (s *recordingSessionService) PauseSession(context.Context, string) error    { return nil }
+func (s *recordingSessionService) EndSession(context.Context, string) error      { return nil }
+func (s *recordingSessionService) ResumeSession(context.Context, string) error   { return nil }
+func (s *recordingSessionService) AddMessage(context.Context, string, *contract.AddMessageRequest) (*contract.SessionMessage, error) {
 	return nil, nil
 }
-func (s *recordingSessionService) GetSessionMessages(context.Context, uint, int, int) (*contract.MessageList, error) {
+func (s *recordingSessionService) GetSessionMessages(context.Context, string, int, int) (*contract.MessageList, error) {
 	return nil, nil
 }
-func (s *recordingSessionService) DeleteMessage(context.Context, uint) error        { return nil }
-func (s *recordingSessionService) ClearSessionMessages(context.Context, uint) error { return nil }
+func (s *recordingSessionService) DeleteMessage(context.Context, uint) error          { return nil }
+func (s *recordingSessionService) ClearSessionMessages(context.Context, string) error { return nil }
 func (s *recordingSessionService) StreamSessionEvents(context.Context, string, int64, events.Sink) error {
 	return nil
 }
@@ -165,7 +165,7 @@ func (s *recordingSessionService) FailedSessionMessage(_ context.Context, req *c
 	s.failedReq = req
 	return nil
 }
-func (s *recordingSessionService) HandleSessionTitleRequest(context.Context, *contract.SessionTitleRequest) error {
+func (s *recordingSessionService) HandleSessionTitleRequest(context.Context, string) error {
 	return nil
 }
 

@@ -8,7 +8,6 @@ import type {
 	Attachment,
 	Message,
 	MessageRole,
-	MessageStatus,
 	ModelOption,
 	ToolCall,
 	ToolCallStatus,
@@ -74,7 +73,6 @@ function mapBackendMessage(msg: BackendMessage): Message {
 		conversationId: msg.conversation_id,
 		role: msg.role as MessageRole,
 		content: msg.content ?? "",
-		status: (msg.status as MessageStatus) ?? "complete",
 		timestamp: msg.timestamp ?? new Date(msg.created_at).getTime(),
 		toolCalls,
 		thinking: msg.thinking,
@@ -175,7 +173,6 @@ export class ChatActionImpl {
 			conversationId: activeSessionId,
 			role: "user",
 			content,
-			status: "complete",
 			timestamp: now,
 		};
 
@@ -184,7 +181,6 @@ export class ChatActionImpl {
 			conversationId: activeSessionId,
 			role: "assistant",
 			content: "",
-			status: "streaming",
 			timestamp: now + 100,
 		};
 
@@ -249,7 +245,6 @@ export class ChatActionImpl {
 								id: assistantMsgId,
 								value: {
 									...msg,
-									status: "complete",
 									thinking: data.thinking ?? msg.thinking,
 									toolCalls: mapToolCalls(data.tool_calls ?? data.payload?.tool_calls),
 									metadata: data.metadata
@@ -271,7 +266,7 @@ export class ChatActionImpl {
 							this.#dispatchChat({
 								type: "updateMessage",
 								id: assistantMsgId,
-								value: { ...msg, status: "error" },
+								value: { ...msg },
 							});
 						}
 						this.#finishStream();
@@ -353,7 +348,7 @@ export class ChatActionImpl {
 				this.#dispatchChat({
 					type: "updateMessage",
 					id: streamingId,
-					value: { ...msg, status: "complete" },
+				value: { ...msg },
 				});
 			}
 		}
@@ -373,7 +368,6 @@ export class ChatActionImpl {
 			const maps: Record<string, Message> = {};
 			const ids: string[] = [];
 			for (const m of messages) {
-				if (m.status === "streaming") continue;
 				maps[m.id] = m;
 				ids.push(m.id);
 			}
@@ -436,7 +430,6 @@ export class ChatActionImpl {
 			conversationId: oldMsg.conversationId,
 			role: "assistant",
 			content: "",
-			status: "streaming",
 			timestamp: now,
 		};
 

@@ -17,6 +17,7 @@ import (
 type ContextBuilder struct {
 	BaseSystemPrompt string
 	Runtime          RuntimeProvider
+	SessionMessages  SessionMessageProvider
 }
 
 // RuntimeProvider 聚合运行时依赖供 ContextBuilder 使用。
@@ -33,6 +34,7 @@ func NewContextBuilder(cfg ContextBuilder) *ContextBuilder {
 	return &ContextBuilder{
 		BaseSystemPrompt: base,
 		Runtime:          cfg.Runtime,
+		SessionMessages:  cfg.SessionMessages,
 	}
 }
 
@@ -63,6 +65,13 @@ func (b *ContextBuilder) Prepare(ctx context.Context, req *agent.RequestContext)
 	)
 
 	cloned := cloneRequest(req)
+	if b.SessionMessages != nil {
+		if err := b.SessionMessages.Prepare(ctx, cloned); err != nil {
+			logs.WarnContextf(ctx, "Agent session context prepare failed: run_id=%s trace_id=%s error=%v",
+				req.RunID, req.TraceID, err)
+			return nil, err
+		}
+	}
 	systemPrompt, err := b.BuildSystemPrompt(ctx, cloned)
 	if err != nil {
 		logs.WarnContextf(ctx, "Agent context build system prompt failed: run_id=%s trace_id=%s error=%v",
@@ -91,10 +100,6 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agent.Reque
 	if memory := strings.TrimSpace(buildMemoryContext(ctx)); memory != "" {
 		sections = append(sections, memory)
 		sectionNames = append(sectionNames, "memory")
-	}
-	if summary := strings.TrimSpace(buildSessionSummaryContext(req)); summary != "" {
-		sections = append(sections, summary)
-		sectionNames = append(sectionNames, "session_summary")
 	}
 	if guidance := strings.TrimSpace(learningGuidance()); guidance != "" {
 		sections = append(sections, guidance)

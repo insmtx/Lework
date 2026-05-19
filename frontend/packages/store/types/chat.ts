@@ -1,7 +1,5 @@
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
-export type MessageStatus = "sending" | "streaming" | "complete" | "error";
-
 export type ToolCallStatus = "pending" | "running" | "success" | "error";
 
 export type ToolCall = {
@@ -24,7 +22,6 @@ export type Message = {
 	conversationId: string;
 	role: MessageRole;
 	content: string;
-	status: MessageStatus;
 	timestamp: number;
 	toolCalls?: ToolCall[];
 	thinking?: string;

@@ -48,7 +48,6 @@ export type BackendMessage = {
 	conversation_id: string;
 	role: string;
 	content: string;
-	status: string;
 	timestamp: number;
 	message_type: string;
 	sequence: number;

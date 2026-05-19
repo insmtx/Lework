@@ -89,11 +89,15 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 		return nil, fmt.Errorf("build eino tools: %w", err)
 	}
 
+	// 构建对话历史消息
+	historyMessages := einoadapter.BuildMessagesFromConversation(req.Conversation.Messages)
+
 	flow, err := einoadapter.NewFlow(ctx, &einoadapter.FlowConfig{
 		Model:        chatModel,
 		Tools:        einoTools,
 		SystemPrompt: state.systemPrompt,
 		MaxStep:      state.maxStep,
+		Messages:     historyMessages,
 	})
 	if err != nil {
 		return nil, err
@@ -214,6 +218,7 @@ func buildUserInput(req *agent.RequestContext) string {
 		return ""
 	}
 
+	// 构建当前输入
 	switch {
 	case strings.TrimSpace(req.Input.Text) != "":
 		return strings.TrimSpace(req.Input.Text)

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
@@ -17,8 +19,9 @@ import (
 
 // Config controls one standalone worker task consumer.
 type Config struct {
-	OrgID    uint
-	WorkerID uint
+	OrgID          uint
+	WorkerID       uint
+	DebounceWindow time.Duration
 }
 
 // Consumer subscribes to one worker task topic and dispatches tasks to an agent runtime.
@@ -27,6 +30,11 @@ type Consumer struct {
 	subscriber eventbus.Subscriber
 	publisher  ResultPublisher
 	runner     agent.Runner
+	mu         sync.Mutex
+	pending    map[string]events.WorkerTaskMessage
+	timers     map[string]*time.Timer
+	running    map[string]bool
+	dirty      map[string]bool
 }
 
 // New creates a worker task consumer.
@@ -51,6 +59,10 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 		subscriber: subscriber,
 		publisher:  publisher,
 		runner:     runner,
+		pending:    map[string]events.WorkerTaskMessage{},
+		timers:     map[string]*time.Timer{},
+		running:    map[string]bool{},
+		dirty:      map[string]bool{},
 	}, nil
 }
 
@@ -98,6 +110,83 @@ func (c *Consumer) handleEvent(ctx context.Context, msg *nats.Msg) error {
 		taskMsg.Body.TaskType,
 	)
 
+	c.schedule(ctx, taskMsg)
+	return nil
+}
+
+func (c *Consumer) schedule(ctx context.Context, taskMsg events.WorkerTaskMessage) {
+	key := sessionTaskKey(taskMsg)
+	if key == "" {
+		go func() {
+			if err := c.runTask(ctx, taskMsg); err != nil {
+				logs.ErrorContextf(ctx, "Failed to run worker task: %v", err)
+			}
+		}()
+		return
+	}
+
+	window := c.cfg.DebounceWindow
+	if window <= 0 {
+		window = time.Second
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.pending[key] = taskMsg
+	if c.running[key] {
+		c.dirty[key] = true
+		return
+	}
+	if timer := c.timers[key]; timer != nil {
+		timer.Stop()
+	}
+	c.timers[key] = time.AfterFunc(window, func() {
+		c.flush(ctx, key)
+	})
+}
+
+func (c *Consumer) flush(ctx context.Context, key string) {
+	c.mu.Lock()
+	if c.running[key] {
+		c.dirty[key] = true
+		c.mu.Unlock()
+		return
+	}
+	taskMsg, ok := c.pending[key]
+	if !ok {
+		delete(c.timers, key)
+		c.mu.Unlock()
+		return
+	}
+	delete(c.pending, key)
+	delete(c.timers, key)
+	c.running[key] = true
+	c.mu.Unlock()
+
+	if err := c.runTask(ctx, taskMsg); err != nil {
+		logs.ErrorContextf(ctx, "Failed to run worker task: %v", err)
+	}
+
+	c.mu.Lock()
+	c.running[key] = false
+	if c.dirty[key] {
+		delete(c.dirty, key)
+		if latest, ok := c.pending[key]; ok {
+			window := c.cfg.DebounceWindow
+			if window <= 0 {
+				window = time.Second
+			}
+			c.timers[key] = time.AfterFunc(window, func() {
+				c.flush(ctx, key)
+			})
+			c.pending[key] = latest
+		}
+	}
+	c.mu.Unlock()
+}
+
+func (c *Consumer) runTask(ctx context.Context, taskMsg events.WorkerTaskMessage) error {
 	req := RequestFromWorkerTask(taskMsg)
 	req.EventSink = NewMQStreamSink(c.publisher, taskMsg)
 
@@ -118,6 +207,13 @@ func (c *Consumer) handleEvent(ctx context.Context, msg *nats.Msg) error {
 		logs.InfoContextf(ctx, "Worker task completed: task_id=%s run_id=%s status=%s", req.TaskID, result.RunID, result.Status)
 	}
 	return nil
+}
+
+func sessionTaskKey(msg events.WorkerTaskMessage) string {
+	if msg.Route.OrgID == 0 || msg.Route.WorkerID == 0 || strings.TrimSpace(msg.Route.SessionID) == "" {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d:%s", msg.Route.OrgID, msg.Route.WorkerID, strings.TrimSpace(msg.Route.SessionID))
 }
 
 func decodeWorkerTask(msg *nats.Msg) (events.WorkerTaskMessage, error) {

@@ -872,7 +872,7 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 		t.Fatalf("CompleteSessionMessage failed: %v", err)
 	}
 
-	result, err := service.GetSessionMessages(ctx, session.ID, 1, 20)
+	result, err := service.GetSessionMessages(ctx, session.SessionID, 1, 20)
 	if err != nil {
 		t.Fatalf("GetSessionMessages failed: %v", err)
 	}
