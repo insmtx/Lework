@@ -20,7 +20,7 @@ func StartSessionTitleHandler(ctx context.Context, service contract.SessionServi
 	logs.InfoContextf(ctx, "starting session title handler runnable: %s", topic)
 
 	Run(ctx, "session_title_handler", func(ctx context.Context) {
-		if err := eb.SubscribeFrom(ctx, topic, 0, func(msg *nats.Msg) {
+		if err := eb.Subscribe(ctx, topic, dm.SessionTitleConsumer(), func(msg *nats.Msg) {
 			handleSessionTitleRequest(ctx, service, msg)
 		}); err != nil {
 			logs.ErrorContextf(ctx, "subscribe to %s failed: %v", topic, err)

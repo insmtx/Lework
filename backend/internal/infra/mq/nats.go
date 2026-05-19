@@ -16,17 +16,17 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// natsPublisher 表示一个 NATS 客户端，实现 Publisher 和 Subscriber 接口
-type natsPublisher struct {
+// natsBus 表示一个 NATS 客户端，实现 Publisher 和 Subscriber 接口
+type natsBus struct {
 	conn   *nats.Conn
 	js     nats.JetStreamContext
 	closed bool
 	mu     sync.Mutex
 }
 
-// NewPublisher 创建一个新的 NATS JetStream 发布者实例
+// NewNATS 创建一个新的 NATS JetStream 客户端实例
 // 在初始化阶段创建所有预配置的 Streams
-func NewPublisher(url string) (*natsPublisher, error) {
+func NewNATS(url string) (*natsBus, error) {
 	conn, err := nats.Connect(url)
 	if err != nil {
 		logs.Errorf("Failed to connect to NATS: %v", err)
@@ -40,24 +40,24 @@ func NewPublisher(url string) (*natsPublisher, error) {
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	publisher := &natsPublisher{
+	bus := &natsBus{
 		conn:   conn,
 		js:     js,
 		closed: false,
 	}
 
-	if err := publisher.initStreams(); err != nil {
+	if err := bus.initStreams(); err != nil {
 		conn.Close()
 		logs.Errorf("Failed to initialize NATS streams: %v", err)
 		return nil, fmt.Errorf("failed to initialize NATS streams: %w", err)
 	}
 
 	logs.Infof("Successfully connected to NATS at %s with JetStream", url)
-	return publisher, nil
+	return bus, nil
 }
 
 // initStreams 在初始化阶段创建或更新所有预配置的 Stream
-func (p *natsPublisher) initStreams() error {
+func (p *natsBus) initStreams() error {
 	// 先清理可能冲突的旧 streams
 	existingStreamsCh := p.js.StreamNames()
 	var existingStreams []string
@@ -177,8 +177,8 @@ func partialMatch(p1, p2 []string) bool {
 	return false
 }
 
-// PublishWithContext 在给定上下文环境中发布消息到指定主题
-func (p *natsPublisher) PublishWithContext(ctx context.Context, topic string, message any) error {
+// publishWithContext 在给定上下文环境中发布消息到指定主题
+func (p *natsBus) publishWithContext(ctx context.Context, topic string, message any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -201,9 +201,9 @@ func (p *natsPublisher) PublishWithContext(ctx context.Context, topic string, me
 	return nil
 }
 
-// SubscribeWithContext 在给定上下文环境中订阅特定主题的消息。
+// subscribeWithContext 在给定上下文环境中订阅特定主题的消息。
 // 该函数会阻塞直到 context 被取消或订阅返回错误。
-func (p *natsPublisher) SubscribeWithContext(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
+func (p *natsBus) subscribeWithContext(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
 	// 使用 OrderedConsumer 不依赖 durable consumer，避免重启时 "consumer already bound" 错误。
 	// OrderedConsumer 使用 AckNone 策略，无需手动 ack。
 	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
@@ -225,27 +225,62 @@ func (p *natsPublisher) SubscribeWithContext(ctx context.Context, topic string, 
 }
 
 // Publish implements the eventbus.Publisher interface
-func (p *natsPublisher) Publish(ctx context.Context, topic string, event any) error {
-	return p.PublishWithContext(ctx, topic, event)
+func (p *natsBus) Publish(ctx context.Context, topic string, event any) error {
+	return p.publishWithContext(ctx, topic, event)
 }
 
 // Subscribe implements the eventbus.Subscriber interface.
-func (p *natsPublisher) Subscribe(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
-	return p.SubscribeWithContext(ctx, topic, handler)
+// consumer 为空时使用临时消费者（OrderedConsumer, AckNone），非空时创建持久化消费者并自动 ACK/NAK。
+func (p *natsBus) Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
+	if consumer == "" {
+		return p.subscribeWithContext(ctx, topic, handler)
+	}
+	return p.subscribeWithDurable(ctx, topic, consumer, handler)
+}
+
+// subscribeWithDurable 使用持久化消费者订阅，handler 正常返回后自动 Ack，panic 时自动 Nak（不传播 panic）。
+func (p *natsBus) subscribeWithDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
+	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
+		acked := false
+		defer func() {
+			if r := recover(); r != nil {
+				logs.ErrorContextf(ctx, "Panic in handler for topic '%s', consumer '%s': %v", topic, consumer, r)
+				_ = msg.Nak()
+				return
+			}
+			if !acked {
+				_ = msg.Ack()
+			}
+		}()
+		handler(msg)
+		acked = true
+	}, nats.Durable(consumer), nats.ManualAck(), nats.Context(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to topic '%s' with consumer '%s': %w", topic, consumer, err)
+	}
+
+	<-ctx.Done()
+
+	if err := sub.Unsubscribe(); err != nil {
+		logs.WarnContextf(ctx, "Failed to unsubscribe from topic '%s': %v", topic, err)
+	}
+	logs.InfoContextf(ctx, "Unsubscribed from topic: %s (consumer: %s)", topic, consumer)
+
+	return ctx.Err()
 }
 
 // SubscribeFrom implements the eventbus.Subscriber interface.
 // startSeq == 0 时使用 DeliverNew 仅投递新消息；
 // startSeq > 0 时使用 OrderedConsumer（DeliverAll），由 handler 自行过滤。
-func (p *natsPublisher) SubscribeFrom(ctx context.Context, topic string, startSeq int64, handler func(msg *nats.Msg)) error {
+func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int64, handler func(msg *nats.Msg)) error {
 	if startSeq == 0 {
 		return p.subscribeNewOnly(ctx, topic, handler)
 	}
-	return p.SubscribeWithContext(ctx, topic, handler)
+	return p.subscribeWithContext(ctx, topic, handler)
 }
 
 // subscribeNewOnly 使用 JetStream DeliverNew 策略订阅，仅接收订阅之后的新消息。
-func (p *natsPublisher) subscribeNewOnly(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
+func (p *natsBus) subscribeNewOnly(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -269,7 +304,7 @@ func (p *natsPublisher) subscribeNewOnly(ctx context.Context, topic string, hand
 }
 
 // Close 关闭 NATS 连接并释放资源
-func (p *natsPublisher) Close() error {
+func (p *natsBus) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

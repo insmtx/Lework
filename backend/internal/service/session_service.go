@@ -559,7 +559,7 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID stri
 			logs.WarnContextf(ctx, "failed to unmarshal to MessageStreamMessage: %v", err)
 			return
 		}
-		logs.DebugContextf(ctx, "received message from topic %s: session_id=%s event=%s seq=%d", topic, streamMsg.Route.SessionID, streamMsg.Body.Event, streamMsg.Body.Seq)
+		// logs.DebugContextf(ctx, "received message from topic %s: session_id=%s event=%s seq=%d", topic, streamMsg.Route.SessionID, streamMsg.Body.Event, streamMsg.Body.Seq)
 
 		if streamMsg.Body.Seq <= lastSequence {
 			logs.DebugContextf(ctx, "skipping old message for session %s: seq=%d lastSequence=%d", sessionID, streamMsg.Body.Seq, lastSequence)

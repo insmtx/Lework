@@ -42,7 +42,7 @@ var serverCmd = &cobra.Command{
 			natsUrl = cfg.NATS.URL
 		}
 
-		publisher, err := mq.NewPublisher(natsUrl)
+		publisher, err := mq.NewNATS(natsUrl)
 		if err != nil {
 			logs.Fatalf("Failed to create event publisher: %v", err)
 			return

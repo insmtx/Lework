@@ -35,7 +35,7 @@ func TestPublishWorkerTaskMessageToNATS(t *testing.T) {
 
 	checkWorkerHealthOrSkip(t, healthURL, orgID, workerID)
 
-	bus, err := mq.NewPublisher(natsURL)
+	bus, err := mq.NewNATS(natsURL)
 	if err != nil {
 		t.Skipf("skip real NATS publish test: %v", err)
 	}

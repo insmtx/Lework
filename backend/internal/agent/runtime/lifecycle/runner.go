@@ -113,7 +113,7 @@ func (r *Runner) run(ctx context.Context, req *agent.RequestContext, startedAt t
 		prepared.Model.BaseURL != "",
 	)
 
-	logs.InfoContextf(ctx, "system prompt:%s", prepared.SystemPrompt)
+	// logs.InfoContextf(ctx, "system prompt:%s", prepared.SystemPrompt)
 
 	delegateStartedAt := time.Now()
 	logs.InfoContextf(ctx, "Agent lifecycle delegate run started: run_id=%s trace_id=%s runtime=%s",

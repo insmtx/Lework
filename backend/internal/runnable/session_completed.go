@@ -21,7 +21,7 @@ func StartSessionCompleted(ictx context.Context, service contract.SessionService
 	logs.InfoContextf(ctx, "starting session completed runnable: %s", topic)
 
 	Run(ctx, "session_completed", func(ctx context.Context) {
-		if err := eb.SubscribeFrom(ctx, topic, 0, func(msg *nats.Msg) {
+		if err := eb.Subscribe(ctx, topic, dm.SessionCompletedConsumer(), func(msg *nats.Msg) {
 			handleSessionCompletedMessage(ctx, service, msg)
 		}); err != nil {
 			logs.ErrorContextf(ctx, "subscribe to %s failed: %v", topic, err)

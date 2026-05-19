@@ -36,7 +36,7 @@ func (m *mockEventBus) Publish(ctx context.Context, topic string, event any) err
 	return nil
 }
 
-func (m *mockEventBus) Subscribe(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
+func (m *mockEventBus) Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
 	return nil
 }
 

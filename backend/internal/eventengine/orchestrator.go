@@ -58,7 +58,7 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	for topic, handler := range o.handlers {
 		go func(t string, h EventHandlerFunc) {
 			logs.InfoContextf(ctx, "Starting subscription for topic: %s", t)
-			err := o.subscriber.Subscribe(ctx, t, func(msg *nats.Msg) {
+			err := o.subscriber.SubscribeFrom(ctx, t, 0, func(msg *nats.Msg) {
 				// 将 nats.Msg 转换为 interactionevent.Event
 				var interactionEvent interactionevent.Event
 				if err := json.Unmarshal(msg.Data, &interactionEvent); err != nil {

@@ -71,7 +71,7 @@ func TestOrchestratorRegisterAndGet(t *testing.T) {
 // 简单的mock subscriber实现
 type mockSubscriber struct{}
 
-func (ms *mockSubscriber) Subscribe(ctx context.Context, topic string, handler func(msg *nats.Msg)) error {
+func (ms *mockSubscriber) Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
 	return nil
 }
 

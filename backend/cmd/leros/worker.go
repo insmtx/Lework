@@ -111,7 +111,7 @@ func runTaskWorker(defaultRuntime string) {
 		natsURL = cfg.NATS.URL
 	}
 
-	bus, err := mq.NewPublisher(natsURL)
+	bus, err := mq.NewNATS(natsURL)
 	if err != nil {
 		logs.Fatalf("Failed to create NATS client: %v", err)
 		return
