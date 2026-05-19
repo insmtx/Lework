@@ -10,22 +10,22 @@ import (
 type SessionService interface {
 	// Session CRUD
 	CreateSession(ctx context.Context, req *CreateSessionRequest) (*Session, error)
-	GetSession(ctx context.Context, id uint, sessionID string) (*Session, error)
-	UpdateSession(ctx context.Context, id uint, req *UpdateSessionRequest) (*Session, error)
-	DeleteSession(ctx context.Context, id uint) error
+	GetSession(ctx context.Context, sessionID string) (*Session, error)
+	UpdateSession(ctx context.Context, sessionID string, req *UpdateSessionRequest) (*Session, error)
+	DeleteSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context, req *ListSessionsRequest) (*SessionList, error)
 
 	// Lifecycle management
-	ActivateSession(ctx context.Context, id uint) error
-	PauseSession(ctx context.Context, id uint) error
-	EndSession(ctx context.Context, id uint) error
-	ResumeSession(ctx context.Context, id uint) error
+	ActivateSession(ctx context.Context, sessionID string) error
+	PauseSession(ctx context.Context, sessionID string) error
+	EndSession(ctx context.Context, sessionID string) error
+	ResumeSession(ctx context.Context, sessionID string) error
 
 	// Message management
-	AddMessage(ctx context.Context, sessionID uint, req *AddMessageRequest) (*SessionMessage, error)
-	GetSessionMessages(ctx context.Context, sessionID uint, page, perPage int) (*MessageList, error)
+	AddMessage(ctx context.Context, sessionID string, req *AddMessageRequest) (*SessionMessage, error)
+	GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*MessageList, error)
 	DeleteMessage(ctx context.Context, messageID uint) error
-	ClearSessionMessages(ctx context.Context, sessionID uint) error
+	ClearSessionMessages(ctx context.Context, sessionID string) error
 
 	// Event streaming
 	StreamSessionEvents(ctx context.Context, sessionID string, lastSequence int64, sink events.Sink) error
