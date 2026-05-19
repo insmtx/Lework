@@ -8,7 +8,6 @@ export type WorkspaceMode = "remote" | "local";
 export type Conversation = {
 	id: string;
 	title: string;
-	sessionDbId: number;
 	type: string;
 	status: string;
 	createdAt: number;
@@ -61,7 +60,6 @@ function mapSessionToConversation(s: BackendSession): Conversation {
 	return {
 		id: s.session_id,
 		title: s.title || "未命名会话",
-		sessionDbId: s.id,
 		type: s.type,
 		status: s.status,
 		createdAt: new Date(s.created_at).getTime(),
@@ -206,7 +204,7 @@ export class LayoutActionImpl {
 		if (!conv) return;
 
 		try {
-			await sessionApi.delete(conv.sessionDbId);
+			await sessionApi.delete(conv.id);
 			this.#set((state) => ({
 				conversations: state.conversations.filter((c) => c.id !== conversationId),
 				activeConversationId:
@@ -223,7 +221,7 @@ export class LayoutActionImpl {
 		if (!conv) return;
 
 		try {
-			await sessionApi.update({ id: conv.sessionDbId, title });
+			await sessionApi.update({ session_id: conv.id, title });
 			this.#set((state) => ({
 				conversations: state.conversations.map((c) =>
 					c.id === conversationId ? { ...c, title, updatedAt: Date.now() } : c,

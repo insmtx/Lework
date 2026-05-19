@@ -24,7 +24,7 @@ export type CreateSessionParams = {
 };
 
 export type UpdateSessionParams = {
-	id: number;
+	session_id: string;
 	title?: string;
 	expired_at?: string;
 	metadata?: {
@@ -52,7 +52,7 @@ export type GetSessionParams = {
 };
 
 export type AddMessageParams = {
-	session_id: number;
+	session_id: string;
 	role: string;
 	content: string;
 	message_type?: string;
@@ -105,13 +105,13 @@ export const sessionApi = {
 	update: (params: UpdateSessionParams) =>
 		apiClient.post<BackendDataResponse<BackendSession>>(SESSION_ENDPOINTS.update, params),
 
-	delete: (id: number) =>
-		apiClient.post<BackendDataResponse<null>>(SESSION_ENDPOINTS.delete, { id }),
+	delete: (sessionId: string) =>
+		apiClient.post<BackendDataResponse<null>>(SESSION_ENDPOINTS.delete, { session_id: sessionId }),
 
 	addMessage: (params: AddMessageParams) =>
 		apiClient.post<BackendDataResponse<BackendMessage>>(SESSION_ENDPOINTS.addMessage, params),
 
-	getMessages: (sessionId: number, page?: number, perPage?: number) =>
+	getMessages: (sessionId: string, page?: number, perPage?: number) =>
 		apiClient.post<BackendPaginatedResponse<BackendMessage>>(SESSION_ENDPOINTS.getMessages, {
 			session_id: sessionId,
 			page: page ?? 1,
@@ -123,7 +123,7 @@ export const sessionApi = {
 			message_id: messageId,
 		}),
 
-	clearMessages: (sessionId: number) =>
+	clearMessages: (sessionId: string) =>
 		apiClient.post<BackendDataResponse<null>>(SESSION_ENDPOINTS.clearMessages, {
 			session_id: sessionId,
 		}),

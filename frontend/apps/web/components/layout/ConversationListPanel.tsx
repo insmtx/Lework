@@ -52,18 +52,18 @@ export function ConversationListPanel() {
 			)
 		: conversations;
 
-	const handleConversationClick = (id: string, sessionDbId: number) => {
+	const handleConversationClick = (id: string) => {
 		switchConversation(id);
-		setActiveSession(sessionDbId, id);
-		loadConversationMessages(sessionDbId);
+		setActiveSession(id);
+		loadConversationMessages(id);
 	};
 
 	const handleCreateConversation = async () => {
 		const conv = await createConversation("新会话");
 		if (conv) {
 			switchConversation(conv.id);
-			setActiveSession(conv.sessionDbId, conv.id);
-			loadConversationMessages(conv.sessionDbId);
+			setActiveSession(conv.id);
+			loadConversationMessages(conv.id);
 		}
 	};
 
@@ -127,7 +127,7 @@ export function ConversationListPanel() {
 										? "bg-blue-50 text-blue-700"
 										: "text-slate-600 hover:bg-slate-50",
 								)}
-								onClick={() => handleConversationClick(conv.id, conv.sessionDbId)}
+								onClick={() => handleConversationClick(conv.id)}
 							>
 								<span className="truncate flex-1">{conv.title}</span>
 								<DropdownMenu>

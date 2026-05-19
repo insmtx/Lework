@@ -27,7 +27,6 @@ export type ChatState = {
 	inputFocused: boolean;
 	selectedModel: string;
 	modelOptions: ModelOption[];
-	activeSessionDbId: number | null;
 	activeSessionId: string | null;
 
 	tokenUsage: { total: number; currentSession: number };
@@ -48,7 +47,6 @@ const _initialState: ChatState = {
 	inputFocused: false,
 	selectedModel: "gpt-4",
 	modelOptions: mockModelOptions,
-	activeSessionDbId: null,
 	activeSessionId: null,
 
 	tokenUsage: { total: 0, currentSession: 0 },
@@ -118,27 +116,25 @@ export class ChatActionImpl {
 		this.#set((state) => chatReducer(state, action));
 	};
 
-	setActiveSession = (sessionDbId: number, sessionId: string) => {
-		this.#set({ activeSessionDbId: sessionDbId, activeSessionId: sessionId });
+	setActiveSession = (sessionId: string) => {
+		this.#set({ activeSessionId: sessionId });
 	};
 
 	sendMessage = async (content: string, attachments?: Attachment[]) => {
 		if (!content.trim() && !attachments?.length) return;
 
 		const state = this.#get();
-		let { activeSessionDbId, activeSessionId } = state;
+		let { activeSessionId } = state;
 
-		if (!activeSessionDbId || !activeSessionId) {
+		if (!activeSessionId) {
 			try {
 				const res = await sessionApi.create({ type: "chat", title: "新会话" });
 				const session = res.data.data;
 				if (!session) return;
-				activeSessionDbId = session.id;
 				activeSessionId = session.session_id;
 				const conv = {
 					id: session.session_id,
 					title: session.title || "未命名会话",
-					sessionDbId: session.id,
 					type: session.type,
 					status: session.status,
 					createdAt: new Date(session.created_at).getTime(),
@@ -150,7 +146,6 @@ export class ChatActionImpl {
 					conversationsLoaded: boolean;
 				};
 				(this.#set as (partial: Record<string, unknown>) => void)({
-					activeSessionDbId,
 					activeSessionId,
 					conversations: [conv, ...prevState.conversations],
 					activeConversationId: conv.id,
@@ -164,7 +159,7 @@ export class ChatActionImpl {
 
 		try {
 			await sessionApi.addMessage({
-				session_id: activeSessionDbId,
+				session_id: activeSessionId,
 				role: "user",
 				content,
 				message_type: "text",
@@ -391,9 +386,9 @@ export class ChatActionImpl {
 		this.#finishStream();
 	};
 
-	loadConversationMessages = async (sessionDbId: number) => {
+	loadConversationMessages = async (sessionId: string) => {
 		try {
-			const res = await sessionApi.getMessages(sessionDbId, 1, 100);
+			const res = await sessionApi.getMessages(sessionId, 1, 100);
 			const items = res.data.data?.items ?? [];
 			const messages = items.map(mapBackendMessage);
 
@@ -485,9 +480,9 @@ export class ChatActionImpl {
 		}
 	};
 
-	clearMessages = async (sessionDbId: number) => {
+	clearMessages = async (sessionId: string) => {
 		try {
-			await sessionApi.clearMessages(sessionDbId);
+			await sessionApi.clearMessages(sessionId);
 			this.#set({ messagesMap: {}, messageIds: [] });
 		} catch (err) {
 			console.error("clearMessages error:", err);

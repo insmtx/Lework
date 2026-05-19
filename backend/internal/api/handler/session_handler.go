@@ -67,12 +67,11 @@ func (h *SessionHandler) CreateSession(ctx *gin.Context) {
 }
 
 type GetSessionRequest struct {
-	ID        *uint   `json:"id,omitempty"`
-	SessionID *string `json:"session_id,omitempty"`
+	SessionID string `json:"session_id" binding:"required"`
 }
 
 // @Summary 获取会话详情
-// @Description 根据ID或SessionID获取会话详情
+// @Description 根据SessionID获取会话详情
 // @Tags Session
 // @Accept json
 // @Produce json
@@ -90,20 +89,7 @@ func (h *SessionHandler) GetSession(ctx *gin.Context) {
 		return
 	}
 
-	if req.ID == nil && req.SessionID == nil {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "id or session_id is required"))
-		return
-	}
-
-	var result interface{}
-	var err error
-
-	if req.ID != nil {
-		result, err = h.service.GetSession(ctx, *req.ID, "")
-	} else {
-		result, err = h.service.GetSession(ctx, 0, *req.SessionID)
-	}
-
+	result, err := h.service.GetSession(ctx, req.SessionID)
 	if err != nil {
 		handleSessionServiceError(ctx, err)
 		return
@@ -113,7 +99,7 @@ func (h *SessionHandler) GetSession(ctx *gin.Context) {
 }
 
 type UpdateSessionRequest struct {
-	ID uint `json:"id" binding:"required"`
+	SessionID string `json:"session_id" binding:"required"`
 	contract.UpdateSessionRequest
 }
 
@@ -136,7 +122,7 @@ func (h *SessionHandler) UpdateSession(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.UpdateSession(ctx, req.ID, &req.UpdateSessionRequest)
+	result, err := h.service.UpdateSession(ctx, req.SessionID, &req.UpdateSessionRequest)
 	if err != nil {
 		handleSessionServiceError(ctx, err)
 		return
@@ -146,7 +132,7 @@ func (h *SessionHandler) UpdateSession(ctx *gin.Context) {
 }
 
 type DeleteSessionRequest struct {
-	ID uint `json:"id" binding:"required"`
+	SessionID string `json:"session_id" binding:"required"`
 }
 
 // @Summary 删除会话
@@ -168,7 +154,7 @@ func (h *SessionHandler) DeleteSession(ctx *gin.Context) {
 		return
 	}
 
-	err := h.service.DeleteSession(ctx, req.ID)
+	err := h.service.DeleteSession(ctx, req.SessionID)
 	if err != nil {
 		handleSessionServiceError(ctx, err)
 		return
@@ -267,7 +253,7 @@ func (h *SessionHandler) SessionEvents(ctx *gin.Context) {
 }
 
 type AddMessageRequest struct {
-	SessionID uint `json:"session_id" binding:"required"`
+	SessionID string `json:"session_id" binding:"required"`
 	contract.AddMessageRequest
 }
 
@@ -300,9 +286,9 @@ func (h *SessionHandler) AddMessage(ctx *gin.Context) {
 }
 
 type GetSessionMessagesRequest struct {
-	SessionID uint `json:"session_id" binding:"required"`
-	Page      int  `json:"page,omitempty"`
-	PerPage   int  `json:"per_page,omitempty"`
+	SessionID string `json:"session_id" binding:"required"`
+	Page      int    `json:"page,omitempty"`
+	PerPage   int    `json:"per_page,omitempty"`
 }
 
 // @Summary 获取会话消息列表
@@ -375,7 +361,7 @@ func (h *SessionHandler) DeleteMessage(ctx *gin.Context) {
 }
 
 type ClearSessionMessagesRequest struct {
-	SessionID uint `json:"session_id" binding:"required"`
+	SessionID string `json:"session_id" binding:"required"`
 }
 
 // @Summary 清空会话消息
