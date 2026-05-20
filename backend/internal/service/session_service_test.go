@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
+	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
+	"github.com/insmtx/Leros/backend/internal/api/dto"
 	"github.com/nats-io/nats.go"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -858,10 +861,21 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
+	payload, err := json.Marshal(events.MessageDeltaPayload{
+		MessageID: "msg_1",
+		Role:      string(events.MessageRoleAssistant),
+		Content:   "done",
+	})
+	if err != nil {
+		t.Fatalf("marshal chunk payload: %v", err)
+	}
+
 	err = service.CompleteSessionMessage(ctx, &contract.CompleteSessionMessageRequest{
 		SessionID: session.SessionID,
 		Content:   "done",
-		Chunks:    []string{`{"seq":1,"type":"message.delta"}`},
+		Chunks: []types.MessageChunk{
+			{Seq: 1, Type: "message.delta", Timestamp: 1779243000000, Payload: payload},
+		},
 		Usage: &types.MessageUsage{
 			InputTokens:  10,
 			OutputTokens: 20,
@@ -886,8 +900,29 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 	if len(msg.Chunks) != 1 {
 		t.Fatalf("expected one chunk, got %#v", msg.Chunks)
 	}
+	if msg.Chunks[0].Sequence != 1 || msg.Chunks[0].Type != "message.delta" || msg.Chunks[0].Timestamp != 1779243000000 {
+		t.Fatalf("unexpected chunk: %#v", msg.Chunks[0])
+	}
+	deltaPayload, ok := msg.Chunks[0].Payload.(dto.MessageDeltaPayload)
+	if !ok || deltaPayload.Content != "done" || deltaPayload.MessageID != "msg_1" {
+		t.Fatalf("unexpected projected payload: %#v", msg.Chunks[0].Payload)
+	}
 	if msg.Usage == nil || msg.Usage.InputTokens != 10 || msg.Usage.OutputTokens != 20 || msg.Usage.TotalTokens != 30 {
 		t.Fatalf("unexpected usage: %#v", msg.Usage)
+	}
+	body, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("unmarshal message: %v", err)
+	}
+	if _, ok := raw["thinking"]; ok {
+		t.Fatalf("history message should not include top-level thinking: %s", body)
+	}
+	if _, ok := raw["tool_calls"]; ok {
+		t.Fatalf("history message should not include top-level tool_calls: %s", body)
 	}
 }
 

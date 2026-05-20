@@ -3,6 +3,7 @@ import { API_BASE_URL } from "./config";
 import type {
 	BackendDataResponse,
 	BackendMessage,
+	BackendMessageChunk,
 	BackendPaginatedResponse,
 	BackendSession,
 } from "./types";
@@ -75,7 +76,7 @@ export type AddMessageParams = {
 		result?: Record<string, unknown>;
 		duration?: number;
 	}[];
-	chunks?: string[];
+	chunks?: BackendMessageChunk[];
 };
 
 const SESSION_ENDPOINTS = {

@@ -156,13 +156,7 @@ type SessionMessage struct {
 	Status string `gorm:"column:status;type:varchar(50);default:'complete'"`
 
 	// session_message - 流式片段（JSON数组），JSONB，允许为空
-	Chunks StringSlice `gorm:"column:chunks;type:jsonb"`
-
-	// session_message - 思维链 / reasoning，TEXT，允许为空
-	Thinking string `gorm:"column:thinking;type:text"`
-
-	// session_message - 工具调用信息（JSON数组），JSONB，允许为空
-	ToolCalls ToolCallSlice `gorm:"column:tool_calls;type:jsonb"`
+	Chunks MessageChunkSlice `gorm:"column:chunks;type:jsonb"`
 
 	// session_message - 消息元数据，JSONB，允许为空
 	Metadata MessageMetadata `gorm:"column:metadata;type:jsonb"`
@@ -183,26 +177,13 @@ func (SessionMessage) TableName() string {
 
 // MessageMetadata 消息元数据结构
 type MessageMetadata struct {
-	// 图片URL（当 MessageType 为 image 时）
-	ImageURL string `json:"image_url,omitempty"`
-	// 代码语言（当 MessageType 为 code 时）
-	Language string `json:"language,omitempty"`
-	// 文件URL（当 MessageType 为 file 时）
-	FileURL string `json:"file_url,omitempty"`
-	// 文件名
-	FileName string `json:"file_name,omitempty"`
 	// LLM 模型名称
 	Model string `json:"model,omitempty"`
-	// Token 数量
-	Tokens int `json:"tokens,omitempty"`
 	// 延迟（毫秒）
 	Latency int `json:"latency,omitempty"`
 	// 其他扩展字段
 	Extra map[string]interface{} `json:"extra,omitempty"`
 }
-
-// ToolCallStatus 工具调用状态常量
-type ToolCallStatus string
 
 // MessageUsage stores model token usage for a session message.
 type MessageUsage struct {
@@ -211,91 +192,45 @@ type MessageUsage struct {
 	TotalTokens  int `json:"total_tokens,omitempty"`
 }
 
-const (
-	ToolCallStatusPending ToolCallStatus = "pending"
-	ToolCallStatusRunning ToolCallStatus = "running"
-	ToolCallStatusSuccess ToolCallStatus = "success"
-	ToolCallStatusError   ToolCallStatus = "error"
-)
-
-// ToolCall 工具调用结构
-type ToolCall struct {
-	// 工具调用ID
-	ID string `json:"id"`
-	// 工具名称
-	Name string `json:"name"`
-	// 工具参数
-	Arguments map[string]interface{} `json:"arguments"`
-	// 工具调用状态
-	Status ToolCallStatus `json:"status"`
-	// 工具调用结果
-	Result interface{} `json:"result,omitempty"`
-	// 持续时间（毫秒）
-	Duration int `json:"duration,omitempty"`
+// MessageChunk stores one archived runtime event for a completed session message.
+type MessageChunk struct {
+	Seq       int64           `json:"seq,omitempty"`
+	LastSeq   int64           `json:"last_seq,omitempty"`
+	Type      string          `json:"type"`
+	Timestamp int64           `json:"timestamp,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
-// StringSlice 自定义字符串切片类型，支持 JSONB 存储
-type StringSlice []string
+// MessageChunkSlice stores structured message chunks in JSONB.
+type MessageChunkSlice []MessageChunk
 
 // Scan 实现 sql.Scanner 接口
-func (s *StringSlice) Scan(value interface{}) error {
+func (m *MessageChunkSlice) Scan(value interface{}) error {
 	if value == nil {
-		*s = StringSlice{}
+		*m = MessageChunkSlice{}
 		return nil
 	}
 
 	bytes, ok := value.([]byte)
 	if !ok {
-		return fmt.Errorf("cannot scan %T into StringSlice", value)
+		return fmt.Errorf("cannot scan %T into MessageChunkSlice", value)
 	}
 
-	var result []string
+	var result []MessageChunk
 	if err := json.Unmarshal(bytes, &result); err != nil {
 		return err
 	}
 
-	*s = StringSlice(result)
+	*m = MessageChunkSlice(result)
 	return nil
 }
 
 // Value 实现 driver.Valuer 接口
-func (s StringSlice) Value() (driver.Value, error) {
-	if len(s) == 0 {
+func (m MessageChunkSlice) Value() (driver.Value, error) {
+	if len(m) == 0 {
 		return nil, nil
 	}
-	return json.Marshal([]string(s))
-}
-
-// ToolCallSlice 自定义 ToolCall 切片类型，支持 JSONB 存储
-type ToolCallSlice []ToolCall
-
-// Scan 实现 sql.Scanner 接口
-func (t *ToolCallSlice) Scan(value interface{}) error {
-	if value == nil {
-		*t = ToolCallSlice{}
-		return nil
-	}
-
-	bytes, ok := value.([]byte)
-	if !ok {
-		return fmt.Errorf("cannot scan %T into ToolCallSlice", value)
-	}
-
-	var result []ToolCall
-	if err := json.Unmarshal(bytes, &result); err != nil {
-		return err
-	}
-
-	*t = ToolCallSlice(result)
-	return nil
-}
-
-// Value 实现 driver.Valuer 接口
-func (t ToolCallSlice) Value() (driver.Value, error) {
-	if len(t) == 0 {
-		return nil, nil
-	}
-	return json.Marshal([]ToolCall(t))
+	return json.Marshal([]MessageChunk(m))
 }
 
 // Scan 实现 sql.Scanner 接口

@@ -258,13 +258,10 @@ func archiveEventsLocked(source []events.Event) []events.RunEventRecord {
 
 func eventRecord(event events.Event) events.RunEventRecord {
 	return events.RunEventRecord{
-		ID:        event.ID,
-		RunID:     event.RunID,
-		TraceID:   event.TraceID,
 		Seq:       event.Seq,
 		LastSeq:   event.Seq,
 		Type:      event.Type,
-		CreatedAt: event.CreatedAt,
+		Timestamp: event.CreatedAt.UnixMilli(),
 		Payload:   archivedPayload(event),
 	}
 }

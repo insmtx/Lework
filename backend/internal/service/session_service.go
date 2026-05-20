@@ -15,7 +15,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/dm"
@@ -318,14 +317,6 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 		message.Chunks = req.Chunks
 	}
 
-	if req.Thinking != "" {
-		message.Thinking = req.Thinking
-	}
-
-	if req.ToolCalls != nil && len(req.ToolCalls) > 0 {
-		message.ToolCalls = req.ToolCalls
-	}
-
 	if req.Metadata != nil {
 		message.Metadata = *req.Metadata
 	} else {
@@ -575,49 +566,8 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID stri
 			return
 		}
 
-		se := dto.SessionEvent{
-			SessionID: streamMsg.Route.SessionID,
-			Sequence:  streamMsg.Body.Seq,
-			Timestamp: streamMsg.CreatedAt.UnixMilli(),
-		}
-
-		switch streamMsg.Body.Event {
-		case events.StreamEventMessageDelta:
-			se.Type = dto.SessionEventTypeMessageDelta
-			se.Payload = dto.MessageDeltaPayload{
-				MessageID: streamMsg.Body.Payload.MessageID,
-				Role:      string(streamMsg.Body.Payload.Role),
-				Content:   streamMsg.Body.Payload.Content,
-			}
-		case events.StreamEventToolCallStarted:
-			se.Type = dto.SessionEventTypeToolCallStarted
-			if tc := streamMsg.Body.Payload.ToolCall; tc != nil {
-				se.Payload = dto.ToolCallDeltaPayload{
-					ID:   tc.ID,
-					Name: tc.Name,
-				}
-			}
-		case events.StreamEventRunStarted:
-			se.Type = dto.SessionEventTypeRunStarted
-		case events.StreamEventRunCompleted:
-			se.Type = dto.SessionEventTypeRunCompleted
-			if streamMsg.Body.RunCompleted != nil {
-				se.Payload = streamMsg.Body.RunCompleted
-			} else {
-				se.Payload = dto.RunStatusPayload{
-					Status:  "completed",
-					RunID:   streamMsg.Trace.RunID,
-					Message: streamMsg.Body.Payload.Content,
-				}
-			}
-		case events.StreamEventRunFailed:
-			se.Type = dto.SessionEventTypeRunFailed
-			se.Payload = dto.RunStatusPayload{
-				Status:  "failed",
-				RunID:   streamMsg.Trace.RunID,
-				Message: streamMsg.Body.Payload.Content,
-			}
-		default:
+		se, ok := ProjectStreamMessage(streamMsg)
+		if !ok {
 			logs.WarnContextf(ctx, "unknown stream event type: %v", streamMsg.Body.Event)
 			return
 		}
@@ -677,20 +627,21 @@ func convertToContractSessionMessage(message *types.SessionMessage) *contract.Se
 	}
 
 	if message.Chunks != nil && len(message.Chunks) > 0 {
-		result.Chunks = message.Chunks
+		result.Chunks = make([]contract.SessionEvent, 0, len(message.Chunks))
+		for _, chunk := range message.Chunks {
+			event, ok := ProjectRunEventRecord(message.SessionID, chunk)
+			if !ok {
+				logs.Warnf("skipping unknown or invalid session message chunk: session_id=%s message_id=%d type=%s seq=%d", message.SessionID, message.ID, chunk.Type, chunk.Seq)
+				continue
+			}
+			result.Chunks = append(result.Chunks, *event)
+		}
 	}
 
-	if message.Thinking != "" {
-		result.Thinking = message.Thinking
-	}
-
-	if message.ToolCalls != nil && len(message.ToolCalls) > 0 {
-		result.ToolCalls = message.ToolCalls
-	}
-
-	if message.Metadata.ImageURL != "" || message.Metadata.Language != "" || message.Metadata.FileURL != "" || message.Metadata.FileName != "" || message.Metadata.Model != "" || message.Metadata.Extra != nil {
+	if message.Metadata.Model != "" || message.Metadata.Latency != 0 || message.Metadata.Extra != nil {
 		result.Metadata = &message.Metadata
 	}
+
 	if hasMessageUsage(message.Usage) {
 		result.Usage = &message.Usage
 	}
@@ -728,13 +679,6 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 
 	if req.Chunks != nil && len(req.Chunks) > 0 {
 		msgEntity.Chunks = req.Chunks
-	}
-
-	if req.ToolCalls != nil && len(req.ToolCalls) > 0 {
-		msgEntity.ToolCalls = req.ToolCalls
-		for i := range msgEntity.ToolCalls {
-			msgEntity.ToolCalls[i].Status = types.ToolCallStatusSuccess
-		}
 	}
 
 	if req.Metadata != nil {

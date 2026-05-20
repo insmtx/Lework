@@ -52,11 +52,19 @@ export type BackendMessage = {
 	message_type: string;
 	sequence: number;
 	metadata?: BackendMessageMetadata;
-	thinking?: string;
-	tool_calls?: BackendToolCall[];
-	chunks?: string[];
+	chunks?: BackendMessageChunk[];
 	created_at: string;
 };
+
+export type BackendSessionEvent = {
+	type: string;
+	session_id?: string;
+	sequence?: number;
+	timestamp?: number;
+	payload?: BackendSessionEventPayload;
+};
+
+export type BackendMessageChunk = BackendSessionEvent;
 
 export type BackendMessageMetadata = {
 	model?: string;
@@ -135,10 +143,7 @@ export type BackendRuntimeConfig = {
 	type?: string;
 };
 
-export type SSEMessageEvent = {
-	type: string;
-	session_id?: string;
-	payload?: SSEEventPayload;
+export type SSEMessageEvent = BackendSessionEvent & {
 	message_id?: string;
 	conversation_id?: string;
 	role?: string;
@@ -148,17 +153,25 @@ export type SSEMessageEvent = {
 	thinking?: string;
 	tool_calls?: BackendToolCall[];
 	metadata?: BackendMessageMetadata;
-	sequence?: number;
-	timestamp?: number;
 };
 
-export type SSEEventPayload = {
+export type BackendSessionEventPayload = {
+	message_id?: string;
+	tool_call_id?: string;
 	role?: string;
 	content?: string;
 	thinking?: string;
 	tool_calls?: BackendToolCall[];
+	name?: string;
+	arguments?: Record<string, unknown>;
+	result?: unknown;
+	status?: string;
+	run_id?: string;
+	message?: string;
 	input_tokens?: number;
 	output_tokens?: number;
 	total_tokens?: number;
 	model?: string;
 };
+
+export type SSEEventPayload = BackendSessionEventPayload;

@@ -32,9 +32,9 @@ func TestHandleSessionCompletedMessageUsesRunCompletedPayload(t *testing.T) {
 				},
 				Events: []events.RunEventRecord{
 					{
-						ID:   "evt_1",
-						Seq:  1,
-						Type: events.EventMessageDelta,
+						Seq:       1,
+						Type:      events.EventMessageDelta,
+						Timestamp: 1779243000000,
 					},
 				},
 			},
@@ -55,6 +55,10 @@ func TestHandleSessionCompletedMessageUsesRunCompletedPayload(t *testing.T) {
 	}
 	if len(service.completeReq.Chunks) != 1 {
 		t.Fatalf("expected one chunk, got %#v", service.completeReq.Chunks)
+	}
+	if service.completeReq.Chunks[0].Seq != 1 || service.completeReq.Chunks[0].Type != string(events.EventMessageDelta) ||
+		service.completeReq.Chunks[0].Timestamp != 1779243000000 {
+		t.Fatalf("unexpected chunk: %#v", service.completeReq.Chunks[0])
 	}
 	if service.completeReq.Usage == nil || service.completeReq.Usage.TotalTokens != 33 {
 		t.Fatalf("expected usage to be forwarded, got %#v", service.completeReq.Usage)

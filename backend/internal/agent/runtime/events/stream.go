@@ -8,6 +8,8 @@ const (
 	StreamEventRunStarted StreamEventType = "run.started"
 	// StreamEventMessageDelta indicates incremental text output from assistant.
 	StreamEventMessageDelta StreamEventType = "message.delta"
+	// StreamEventReasoningDelta indicates incremental reasoning output from assistant.
+	StreamEventReasoningDelta StreamEventType = "reasoning.delta"
 	// StreamEventToolCallStarted indicates a tool call has started.
 	StreamEventToolCallStarted StreamEventType = "tool_call.started"
 	// StreamEventToolCallFinished indicates a tool call has finished.
@@ -35,26 +37,12 @@ type StreamBody struct {
 
 // StreamPayload carries the specific content of streaming events.
 type StreamPayload struct {
-	MessageID  string           `json:"message_id,omitempty"`
-	Role       MessageRole      `json:"role,omitempty"`
-	Content    string           `json:"content,omitempty"`
-	Usage      *UsagePayload    `json:"usage,omitempty"`
-	ToolCall   *ToolCallEvent   `json:"tool_call,omitempty"`
-	ToolResult *ToolResultEvent `json:"tool_result,omitempty"`
-}
-
-// ToolCallEvent describes a tool call in streaming events.
-type ToolCallEvent struct {
-	ID        string         `json:"id"`
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-}
-
-// ToolResultEvent describes a tool execution result in streaming events.
-type ToolResultEvent struct {
-	ToolCallID string         `json:"tool_call_id"`
-	Name       string         `json:"name,omitempty"`
-	Result     map[string]any `json:"result,omitempty"`
+	MessageID  string                 `json:"message_id,omitempty"`
+	Role       MessageRole            `json:"role,omitempty"`
+	Content    string                 `json:"content,omitempty"`
+	Usage      *UsagePayload          `json:"usage,omitempty"`
+	ToolCall   *ToolCallPayload       `json:"tool_call,omitempty"`
+	ToolResult *ToolCallResultPayload `json:"tool_result,omitempty"`
 }
 
 // StreamError describes terminal or recoverable errors in streaming execution.

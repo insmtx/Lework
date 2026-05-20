@@ -114,7 +114,6 @@ func TestMQStreamSinkPublishesCompletedEventToSessionCompletedTopic(t *testing.T
 				},
 				Events: []events.RunEventRecord{
 					{
-						ID:   "event_started",
 						Seq:  1,
 						Type: events.EventStarted,
 					},

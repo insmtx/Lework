@@ -121,13 +121,10 @@ type RunResultPayload struct {
 
 // RunEventRecord is a normalized, archived runtime event.
 type RunEventRecord struct {
-	ID        string     `json:"id,omitempty"`
-	RunID     string     `json:"run_id,omitempty"`
-	TraceID   string     `json:"trace_id,omitempty"`
 	Seq       int64      `json:"seq,omitempty"`
 	LastSeq   int64      `json:"last_seq,omitempty"`
 	Type      EventType  `json:"type"`
-	CreatedAt time.Time  `json:"created_at,omitempty"`
+	Timestamp int64      `json:"timestamp,omitempty"`
 	Payload   RawPayload `json:"payload,omitempty"`
 }
 

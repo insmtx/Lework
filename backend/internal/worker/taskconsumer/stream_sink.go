@@ -168,21 +168,12 @@ func streamPayload(event *events.Event) events.StreamPayload {
 	case events.EventToolCallStarted:
 		toolPayload, err := events.DecodePayload[events.ToolCallPayload](event)
 		if err == nil {
-			payload.ToolCall = &events.ToolCallEvent{
-				ID:        toolPayload.ToolCallID,
-				Name:      toolPayload.Name,
-				Arguments: toolPayload.Arguments,
-			}
+			payload.ToolCall = &toolPayload
 		}
-	case events.EventToolCallCompleted:
+	case events.EventToolCallCompleted, events.EventToolCallFailed:
 		resultPayload, err := events.DecodePayload[events.ToolCallResultPayload](event)
 		if err == nil {
-			result, _ := resultPayload.Result.(map[string]any)
-			payload.ToolResult = &events.ToolResultEvent{
-				ToolCallID: resultPayload.ToolCallID,
-				Name:       resultPayload.Name,
-				Result:     result,
-			}
+			payload.ToolResult = &resultPayload
 		}
 	case events.EventCompleted, events.EventFailed, events.EventCancelled:
 		completedPayload, err := events.DecodePayload[events.RunCompletedPayload](event)
@@ -202,8 +193,10 @@ func streamEventType(eventType events.EventType) events.StreamEventType {
 		return events.StreamEventRunCompleted
 	case events.EventFailed, events.EventCancelled:
 		return events.StreamEventRunFailed
-	case events.EventMessageDelta, events.EventReasoningDelta:
+	case events.EventMessageDelta:
 		return events.StreamEventMessageDelta
+	case events.EventReasoningDelta:
+		return events.StreamEventReasoningDelta
 	case events.EventResult:
 		return events.StreamEventMessageCompleted
 	case events.EventToolCallStarted:

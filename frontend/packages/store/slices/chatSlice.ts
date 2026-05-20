@@ -59,23 +59,12 @@ type SetState = (
 type FullStoreGet = () => Record<string, unknown>;
 
 function mapBackendMessage(msg: BackendMessage): Message {
-	const toolCalls: ToolCall[] | undefined = msg.tool_calls?.map((tc: BackendToolCall) => ({
-		id: tc.id,
-		name: tc.name,
-		arguments: tc.arguments ?? {},
-		status: (tc.status as ToolCallStatus) ?? "pending",
-		result: tc.result,
-		duration: tc.duration,
-	}));
-
 	return {
 		id: String(msg.id),
 		conversationId: msg.conversation_id,
 		role: msg.role as MessageRole,
 		content: msg.content ?? "",
 		timestamp: msg.timestamp ?? new Date(msg.created_at).getTime(),
-		toolCalls,
-		thinking: msg.thinking,
 		metadata: msg.metadata
 			? {
 					model: msg.metadata.model,

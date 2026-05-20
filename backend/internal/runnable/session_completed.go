@@ -96,17 +96,19 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 	}
 }
 
-func runEventChunks(records []events.RunEventRecord) []string {
+func runEventChunks(records []events.RunEventRecord) []types.MessageChunk {
 	if len(records) == 0 {
 		return nil
 	}
-	chunks := make([]string, 0, len(records))
+	chunks := make([]types.MessageChunk, 0, len(records))
 	for _, record := range records {
-		body, err := json.Marshal(record)
-		if err != nil {
-			continue
-		}
-		chunks = append(chunks, string(body))
+		chunks = append(chunks, types.MessageChunk{
+			Seq:       record.Seq,
+			LastSeq:   record.LastSeq,
+			Type:      string(record.Type),
+			Timestamp: record.Timestamp,
+			Payload:   append([]byte(nil), record.Payload...),
+		})
 	}
 	return chunks
 }
