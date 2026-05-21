@@ -13,11 +13,11 @@ const (
 const (
 
 	// TableNameUser 用户表名
-	TableNameUser = tablenamePrefix + "users"
+	TableNameUser = tablenamePrefix + "user"
 	// TableNameOrganization 组织表名
-	TableNameOrganization = tablenamePrefix + "organizations"
+	TableNameOrganization = tablenamePrefix + "organization"
 	// TableNameUserOrg 用户组织关联表名
-	TableNameUserOrg = tablenamePrefix + "user_orgs"
+	TableNameUserOrg = tablenamePrefix + "user_org"
 
 	// TableNameDigitalAssistant 数字助手表名
 	TableNameDigitalAssistant = tablenamePrefix + "digital_assistant"
@@ -41,4 +41,9 @@ const (
 
 	// TableNameLLMModel LLM模型配置表名
 	TableNameLLMModel = tablenamePrefix + "llm_model"
+
+	// TableNameProject 项目表名
+	TableNameProject = tablenamePrefix + "project"
+	// TableNameProjectMember 项目成员表名
+	TableNameProjectMember = tablenamePrefix + "project_member"
 )

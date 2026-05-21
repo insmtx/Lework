@@ -68,7 +68,7 @@ type Session struct {
 // SessionMessage is the API response shape for a persisted conversation message.
 type SessionMessage struct {
 	ID          string                 `json:"id"`
-	SessionID   string                 `json:"conversation_id"`
+	SessionID   string                 `json:"session_id"`
 	Role        string                 `json:"role"`
 	Content     string                 `json:"content"`
 	Chunks      []SessionEvent         `json:"chunks,omitempty"`

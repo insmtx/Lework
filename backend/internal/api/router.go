@@ -87,7 +87,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		// Start background consumers
 		go runnable.StartSessionCompleted(context.Background(), sessionService, eventbus)
 		logs.Info("Session completed runnable started")
-		go runnable.StartSessionTitleHandler(context.Background(), sessionService, eventbus)
+		go runnable.StartSessionTitleHandler(context.Background(), sessionService, eventbus, db)
 		logs.Info("Session title handler runnable started")
 	}
 

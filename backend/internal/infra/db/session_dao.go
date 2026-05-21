@@ -28,10 +28,10 @@ func GetSessionByID(ctx context.Context, db *gorm.DB, id uint) (*types.Session, 
 	return &entity, nil
 }
 
-// GetSessionBySessionID 根据SessionID获取会话
-func GetSessionBySessionID(ctx context.Context, db *gorm.DB, sessionID string) (*types.Session, error) {
+// GetSessionByPublicID 根据PublicID获取会话
+func GetSessionByPublicID(ctx context.Context, db *gorm.DB, publicID string) (*types.Session, error) {
 	var entity types.Session
-	err := db.WithContext(ctx).Where("session_id = ?", sessionID).First(&entity).Error
+	err := db.WithContext(ctx).Where("public_id = ?", publicID).First(&entity).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -106,7 +106,7 @@ func ListSessions(ctx context.Context, db *gorm.DB, sessionType *string, status 
 		query = query.Where("assistant_code = ?", *assistantCode)
 	}
 	if keyword != nil && *keyword != "" {
-		query = query.Where("title LIKE ? OR session_id LIKE ?", "%"+*keyword+"%", "%"+*keyword+"%")
+		query = query.Where("title LIKE ? OR public_id LIKE ?", "%"+*keyword+"%", "%"+*keyword+"%")
 	}
 
 	err := query.Count(&total).Error
@@ -122,10 +122,10 @@ func ListSessions(ctx context.Context, db *gorm.DB, sessionType *string, status 
 	return entities, total, nil
 }
 
-// SessionIDExists 检查session_id是否存在（排除指定ID）
-func SessionIDExists(ctx context.Context, db *gorm.DB, sessionID string, excludeID uint) (bool, error) {
+// PublicIDExists 检查public_id是否存在（排除指定ID）
+func PublicIDExists(ctx context.Context, db *gorm.DB, publicID string, excludeID uint) (bool, error) {
 	var count int64
-	query := db.WithContext(ctx).Model(&types.Session{}).Where("session_id = ?", sessionID)
+	query := db.WithContext(ctx).Model(&types.Session{}).Where("public_id = ?", publicID)
 	if excludeID > 0 {
 		query = query.Where("id != ?", excludeID)
 	}

@@ -191,7 +191,7 @@ func TestCreateSession_DuplicateSessionID(t *testing.T) {
 		t.Error("expected error for duplicate session_id")
 	}
 
-	if err.Error() != "session with this session_id already exists" {
+	if err.Error() != "session with this public_id already exists" {
 		t.Errorf("expected 'session already exists' error, got %s", err.Error())
 	}
 }

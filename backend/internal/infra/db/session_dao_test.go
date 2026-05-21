@@ -31,7 +31,7 @@ func TestCreateSession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "test_session_1",
+		PublicID: "test_session_1",
 		Type:      string(types.SessionTypeUserChat),
 		Uin:       1,
 		Title:     "Test Session",
@@ -51,12 +51,12 @@ func TestCreateSession(t *testing.T) {
 	}
 }
 
-func TestCreateSession_DuplicateSessionID(t *testing.T) {
+func TestCreateSession_DuplicatePublicID(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 
 	session1 := &types.Session{
-		SessionID: "duplicate_id",
+		PublicID: "duplicate_id",
 		Type:      string(types.SessionTypeUserChat),
 	}
 
@@ -66,7 +66,7 @@ func TestCreateSession_DuplicateSessionID(t *testing.T) {
 	}
 
 	session2 := &types.Session{
-		SessionID: "duplicate_id",
+		PublicID: "duplicate_id",
 		Type:      string(types.SessionTypeUserChat),
 	}
 
@@ -81,7 +81,7 @@ func TestGetSessionByID(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "get_by_id_test",
+		PublicID: "get_by_id_test",
 		Type:      string(types.SessionTypeUserChat),
 		Uin:       1,
 		Title:     "Get By ID Test",
@@ -100,8 +100,8 @@ func TestGetSessionByID(t *testing.T) {
 		t.Fatal("expected session to be found")
 	}
 
-	if retrieved.SessionID != session.SessionID {
-		t.Errorf("expected SessionID %s, got %s", session.SessionID, retrieved.SessionID)
+	if retrieved.PublicID != session.PublicID {
+		t.Errorf("expected PublicID %s, got %s", session.PublicID, retrieved.PublicID)
 	}
 }
 
@@ -119,23 +119,23 @@ func TestGetSessionByID_NotFound(t *testing.T) {
 	}
 }
 
-func TestGetSessionBySessionID(t *testing.T) {
+func TestGetSessionByPublicID(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "get_by_session_id_test",
+		PublicID: "get_by_session_id_test",
 		Type:      string(types.SessionTypeUserChat),
-		Title:     "Get By SessionID Test",
+		Title:     "Get By PublicID Test",
 	}
 
 	if err := CreateSession(ctx, db, session); err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
 
-	retrieved, err := GetSessionBySessionID(ctx, db, session.SessionID)
+	retrieved, err := GetSessionByPublicID(ctx, db, session.PublicID)
 	if err != nil {
-		t.Fatalf("GetSessionBySessionID failed: %v", err)
+		t.Fatalf("GetSessionByPublicID failed: %v", err)
 	}
 
 	if retrieved == nil {
@@ -152,7 +152,7 @@ func TestUpdateSession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "update_test",
+		PublicID: "update_test",
 		Type:      string(types.SessionTypeUserChat),
 		Title:     "Original Title",
 	}
@@ -182,7 +182,7 @@ func TestDeleteSession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "delete_test",
+		PublicID: "delete_test",
 		Type:      string(types.SessionTypeUserChat),
 	}
 
@@ -210,7 +210,7 @@ func TestActivateSession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "activate_test",
+		PublicID: "activate_test",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusEnded),
 	}
@@ -239,7 +239,7 @@ func TestPauseSession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "pause_test",
+		PublicID: "pause_test",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusActive),
 	}
@@ -268,7 +268,7 @@ func TestEndSession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "end_test",
+		PublicID: "end_test",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusActive),
 	}
@@ -297,7 +297,7 @@ func TestResumeSession(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "resume_test",
+		PublicID: "resume_test",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusPaused),
 	}
@@ -327,7 +327,7 @@ func TestExpireSessions(t *testing.T) {
 
 	expiredAt := time.Now().Add(-1 * time.Hour)
 	session := &types.Session{
-		SessionID: "expire_test",
+		PublicID: "expire_test",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusActive),
 		ExpiredAt: &expiredAt,
@@ -357,11 +357,11 @@ func TestListSessions_ByType(t *testing.T) {
 	ctx := context.Background()
 
 	session1 := &types.Session{
-		SessionID: "type_test_1",
+		PublicID: "type_test_1",
 		Type:      string(types.SessionTypeUserChat),
 	}
 	session2 := &types.Session{
-		SessionID: "type_test_2",
+		PublicID: "type_test_2",
 		Type:      string(types.SessionTypeAssistantInstance),
 	}
 
@@ -396,12 +396,12 @@ func TestListSessions_ByStatus(t *testing.T) {
 	ctx := context.Background()
 
 	session1 := &types.Session{
-		SessionID: "status_test_1",
+		PublicID: "status_test_1",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusActive),
 	}
 	session2 := &types.Session{
-		SessionID: "status_test_2",
+		PublicID: "status_test_2",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusPaused),
 	}
@@ -433,12 +433,12 @@ func TestListSessions_ByKeyword(t *testing.T) {
 	ctx := context.Background()
 
 	session1 := &types.Session{
-		SessionID: "keyword_test_1",
+		PublicID: "keyword_test_1",
 		Type:      string(types.SessionTypeUserChat),
 		Title:     "Project Alpha",
 	}
 	session2 := &types.Session{
-		SessionID: "keyword_test_2",
+		PublicID: "keyword_test_2",
 		Type:      string(types.SessionTypeUserChat),
 		Title:     "Project Beta",
 	}
@@ -471,7 +471,7 @@ func TestListSessions_Pagination(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		session := &types.Session{
-			SessionID: "pagination_test_" + string(rune(i)),
+			PublicID: "pagination_test_" + string(rune(i)),
 			Type:      string(types.SessionTypeUserChat),
 		}
 		if err := CreateSession(ctx, db, session); err != nil {
@@ -498,7 +498,7 @@ func TestIncrementMessageCount(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID:    "increment_test",
+		PublicID:    "increment_test",
 		Type:         string(types.SessionTypeUserChat),
 		MessageCount: 0,
 	}
@@ -527,7 +527,7 @@ func TestUpdateLastMessageAt(t *testing.T) {
 	ctx := context.Background()
 
 	session := &types.Session{
-		SessionID: "last_message_test",
+		PublicID: "last_message_test",
 		Type:      string(types.SessionTypeUserChat),
 	}
 

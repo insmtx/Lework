@@ -61,8 +61,8 @@ const (
 // Session 会话结构体定义了用户与数字助手之间的会话信息
 type Session struct {
 	gorm.Model
-	// session - 会话唯一标识，格式如：sess_xxx，VARCHAR(255)，NOT NULL，UNIQUE
-	SessionID string `gorm:"column:session_id;type:varchar(255);not null;uniqueIndex"`
+	// session - 会话对外唯一标识，格式如：sess_xxx，VARCHAR(255)，NOT NULL，UNIQUE
+	PublicID string `gorm:"column:public_id;type:varchar(255);not null;uniqueIndex"`
 
 	// session - 会话类型，VARCHAR(50)，NOT NULL
 	Type string `gorm:"column:type;type:varchar(50);not null"`
@@ -140,8 +140,8 @@ func (sm SessionMetadata) Value() (driver.Value, error) {
 // SessionMessage 会话消息结构体
 type SessionMessage struct {
 	gorm.Model
-	// session_message - 关联会话ID，VARCHAR(255)，NOT NULL，INDEX
-	SessionID string `gorm:"column:session_id;type:varchar(255);not null;index"`
+	// session_message - 关联会话ID（FK -> Session.ID），BIGINT，NOT NULL，INDEX
+	SessionID uint `gorm:"column:session_id;type:bigint;not null;index"`
 
 	// session_message - 消息角色（user/assistant/system/tool），VARCHAR(50)，NOT NULL
 	Role string `gorm:"column:role;type:varchar(50);not null"`

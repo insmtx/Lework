@@ -45,13 +45,18 @@ func (p *dbSessionMessageProvider) Prepare(ctx context.Context, req *agent.Reque
 	if req.Input.Type != agent.InputTypeMessage {
 		return nil
 	}
-	sessionID := strings.TrimSpace(req.Conversation.ID)
-	if sessionID == "" {
+	publicID := strings.TrimSpace(req.Conversation.ID)
+	if publicID == "" {
 		return nil
 	}
 
+	session, err := infradb.GetSessionByPublicID(ctx, p.db, publicID)
+	if err != nil || session == nil {
+		return fmt.Errorf("find session by public id %s: %w", publicID, err)
+	}
+
 	// 历史上下文和本轮输入都以数据库中的 session_id 为准，避免依赖 MQ 中的单条消息内容。
-	recentMessages, err := infradb.GetRecentSessionMessages(ctx, p.db, sessionID, p.contextLimit)
+	recentMessages, err := infradb.GetRecentSessionMessages(ctx, p.db, session.ID, p.contextLimit)
 	if err != nil {
 		return fmt.Errorf("load session context messages: %w", err)
 	}
@@ -59,7 +64,7 @@ func (p *dbSessionMessageProvider) Prepare(ctx context.Context, req *agent.Reque
 	claimed, err := infradb.ClaimSessionMessagesByStatus(
 		ctx,
 		p.db,
-		sessionID,
+		session.ID,
 		string(types.MessageRoleUser),
 		string(types.MessageStatusPending),
 		string(types.MessageStatusProcessing),

@@ -27,7 +27,7 @@ func TestSessionMetadataProviderSessionStoreUpsertAndGet(t *testing.T) {
 	db := setupSessionStoreTestDB(t)
 	ctx := context.Background()
 	session := &types.Session{
-		SessionID: "sess_external_cli",
+		PublicID: "sess_external_cli",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusActive),
 		Metadata: types.SessionMetadata{
@@ -68,7 +68,7 @@ func TestSessionMetadataProviderSessionStoreUpsertAndGet(t *testing.T) {
 	}
 
 	var persisted types.Session
-	if err := db.WithContext(ctx).Where("session_id = ?", "sess_external_cli").First(&persisted).Error; err != nil {
+	if err := db.WithContext(ctx).Where("public_id = ?", "sess_external_cli").First(&persisted).Error; err != nil {
 		t.Fatalf("load persisted session: %v", err)
 	}
 	if persisted.Metadata.Extra["source"] != "test" {
@@ -98,7 +98,7 @@ func TestSessionMetadataProviderSessionStoreUpsertAndGet(t *testing.T) {
 		t.Fatalf("update provider session: %v", err)
 	}
 	var updated types.Session
-	if err := db.WithContext(ctx).Where("session_id = ?", "sess_external_cli").First(&updated).Error; err != nil {
+	if err := db.WithContext(ctx).Where("public_id = ?", "sess_external_cli").First(&updated).Error; err != nil {
 		t.Fatalf("load updated session: %v", err)
 	}
 	updatedSessions, err := providerSessionsFromMetadata(updated.Metadata)
@@ -118,7 +118,7 @@ func TestSessionMetadataProviderSessionStoreMarkFailedPreservesBinding(t *testin
 	db := setupSessionStoreTestDB(t)
 	ctx := context.Background()
 	session := &types.Session{
-		SessionID: "sess_failed_preserve",
+		PublicID: "sess_failed_preserve",
 		Type:      string(types.SessionTypeUserChat),
 		Status:    string(types.SessionStatusActive),
 	}

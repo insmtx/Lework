@@ -68,7 +68,7 @@ func (s *SessionMetadataProviderSessionStore) Upsert(ctx context.Context, bindin
 		if tx.Dialector.Name() != "sqlite" {
 			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 		}
-		err := query.Where("session_id = ?", binding.InternalSessionID).First(&session).Error
+		err := query.Where("public_id = ?", binding.InternalSessionID).First(&session).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
@@ -107,7 +107,7 @@ func (s *SessionMetadataProviderSessionStore) MarkFailed(_ context.Context, _ Pr
 
 func getSessionByInternalSessionID(ctx context.Context, db *gorm.DB, sessionID string) (*types.Session, error) {
 	var session types.Session
-	err := db.WithContext(ctx).Where("session_id = ?", sessionID).First(&session).Error
+	err := db.WithContext(ctx).Where("public_id = ?", sessionID).First(&session).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

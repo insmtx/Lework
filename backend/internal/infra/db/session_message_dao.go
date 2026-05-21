@@ -29,7 +29,7 @@ func GetMessageByID(ctx context.Context, db *gorm.DB, id uint) (*types.SessionMe
 }
 
 // GetSessionMessages 查询会话的所有消息（按 sequence 排序，支持分页）
-func GetSessionMessages(ctx context.Context, db *gorm.DB, sessionID string, page, perPage int) ([]*types.SessionMessage, int64, error) {
+func GetSessionMessages(ctx context.Context, db *gorm.DB, sessionID uint, page, perPage int) ([]*types.SessionMessage, int64, error) {
 	var entities []*types.SessionMessage
 	var total int64
 
@@ -55,12 +55,12 @@ func DeleteMessage(ctx context.Context, db *gorm.DB, id uint) error {
 }
 
 // ClearSessionMessages 清空会话的所有消息（软删除）
-func ClearSessionMessages(ctx context.Context, db *gorm.DB, sessionID string) error {
+func ClearSessionMessages(ctx context.Context, db *gorm.DB, sessionID uint) error {
 	return db.WithContext(ctx).Where("session_id = ?", sessionID).Delete(&types.SessionMessage{}).Error
 }
 
 // GetLatestMessage 获取会话的最新消息
-func GetLatestMessage(ctx context.Context, db *gorm.DB, sessionID string) (*types.SessionMessage, error) {
+func GetLatestMessage(ctx context.Context, db *gorm.DB, sessionID uint) (*types.SessionMessage, error) {
 	var entity types.SessionMessage
 	err := db.WithContext(ctx).Where("session_id = ?", sessionID).Order("sequence DESC").First(&entity).Error
 	if err != nil {
@@ -73,7 +73,7 @@ func GetLatestMessage(ctx context.Context, db *gorm.DB, sessionID string) (*type
 }
 
 // GetMessageCount 获取会话的消息数量
-func GetMessageCount(ctx context.Context, db *gorm.DB, sessionID string) (int64, error) {
+func GetMessageCount(ctx context.Context, db *gorm.DB, sessionID uint) (int64, error) {
 	var count int64
 	err := db.WithContext(ctx).Model(&types.SessionMessage{}).Where("session_id = ?", sessionID).Count(&count).Error
 	if err != nil {
@@ -83,7 +83,7 @@ func GetMessageCount(ctx context.Context, db *gorm.DB, sessionID string) (int64,
 }
 
 // GetNextSequence 获取会话的下一个消息序号
-func GetNextSequence(ctx context.Context, db *gorm.DB, sessionID string) (int64, error) {
+func GetNextSequence(ctx context.Context, db *gorm.DB, sessionID uint) (int64, error) {
 	var maxSequence int64
 	err := db.WithContext(ctx).Model(&types.SessionMessage{}).Where("session_id = ?", sessionID).Select("COALESCE(MAX(sequence), 0)").Scan(&maxSequence).Error
 	if err != nil {
@@ -98,7 +98,7 @@ func UpdateMessageSequence(ctx context.Context, db *gorm.DB, messageID uint, seq
 }
 
 // ClaimSessionMessagesByStatus 原子占位匹配状态的会话消息，并更新为目标状态。
-func ClaimSessionMessagesByStatus(ctx context.Context, db *gorm.DB, sessionID string, role string, fromStatus string, toStatus string) ([]*types.SessionMessage, error) {
+func ClaimSessionMessagesByStatus(ctx context.Context, db *gorm.DB, sessionID uint, role string, fromStatus string, toStatus string) ([]*types.SessionMessage, error) {
 	var claimed []*types.SessionMessage
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -136,7 +136,7 @@ func UpdateMessagesStatus(ctx context.Context, db *gorm.DB, ids []uint, status s
 }
 
 // GetRecentSessionMessages 获取会话最近的 N 条消息（按时间顺序）
-func GetRecentSessionMessages(ctx context.Context, db *gorm.DB, sessionID string, limit int) ([]*types.SessionMessage, error) {
+func GetRecentSessionMessages(ctx context.Context, db *gorm.DB, sessionID uint, limit int) ([]*types.SessionMessage, error) {
 	var entities []*types.SessionMessage
 	err := db.WithContext(ctx).
 		Where("session_id = ?", sessionID).

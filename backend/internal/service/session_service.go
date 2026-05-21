@@ -55,16 +55,16 @@ func (s *sessionService) CreateSession(ctx context.Context, req *contract.Create
 		sessionID = fmt.Sprintf("sess_%s", snowflake.GenerateIDBase58())
 	}
 
-	exists, err := db.SessionIDExists(ctx, s.db, sessionID, 0)
+	exists, err := db.PublicIDExists(ctx, s.db, sessionID, 0)
 	if err != nil {
 		return nil, err
 	}
 	if exists {
-		return nil, errors.New("session with this session_id already exists")
+		return nil, errors.New("session with this public_id already exists")
 	}
 
 	session := &types.Session{
-		SessionID:            sessionID,
+		PublicID:             sessionID,
 		Type:                 req.Type,
 		Uin:                  caller.Uin,
 		OrgID:                caller.OrgID,
@@ -92,7 +92,7 @@ func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*con
 		return nil, errors.New("session_id is required")
 	}
 
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*con
 }
 
 func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, req *contract.UpdateSessionRequest) (*contract.Session, error) {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, re
 }
 
 func (s *sessionService) DeleteSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 }
 
 func (s *sessionService) ActivateSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -201,7 +201,7 @@ func (s *sessionService) ActivateSession(ctx context.Context, sessionID string) 
 }
 
 func (s *sessionService) PauseSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func (s *sessionService) PauseSession(ctx context.Context, sessionID string) err
 }
 
 func (s *sessionService) EndSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ func (s *sessionService) EndSession(ctx context.Context, sessionID string) error
 }
 
 func (s *sessionService) ResumeSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -256,7 +256,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		return nil, errors.New("content is required")
 	}
 
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -264,13 +264,13 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		return nil, errors.New("session not found")
 	}
 
-	sequence, err := db.GetNextSequence(ctx, s.db, session.SessionID)
+	sequence, err := db.GetNextSequence(ctx, s.db, session.ID)
 	if err != nil {
 		return nil, err
 	}
 
 	message := s.buildMessage(req, sequence)
-	message.SessionID = session.SessionID
+	message.SessionID = session.ID
 
 	if err := db.CreateMessage(ctx, s.db, message); err != nil {
 		return nil, err
@@ -285,7 +285,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 	}
 
 	if session.OrgID > 0 {
-		topic, err := dm.SessionMessageRequestSubject(session.OrgID, session.SessionID)
+		topic, err := dm.SessionMessageRequestSubject(session.OrgID, session.PublicID)
 		if err != nil {
 			logs.WarnContextf(ctx, "failed to build message request subject: %v", err)
 		} else {
@@ -299,12 +299,12 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		return nil, err
 	}
 
-	return convertToContractSessionMessage(message), nil
+	return convertToContractSessionMessage(message, session.PublicID), nil
 }
 
 func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence int64) *types.SessionMessage {
 	message := &types.SessionMessage{
-		SessionID:   "", // filled by caller
+		SessionID:   0, // filled by caller
 		Role:        req.Role,
 		Content:     req.Content,
 		MessageType: req.MessageType,
@@ -347,7 +347,7 @@ func (s *sessionService) tryAutoUpdateTitle(ctx context.Context, session *types.
 }
 
 func (s *sessionService) renameSession(ctx context.Context, session *types.Session) error {
-	recentMessages := s.buildRecentMessages(ctx, session.SessionID)
+	recentMessages := s.buildRecentMessages(ctx, session.ID)
 
 	title, err := prompts.Run(ctx, prompts.KeySessionTitle, map[string]any{
 		"current_title":   session.Title,
@@ -359,7 +359,7 @@ func (s *sessionService) renameSession(ctx context.Context, session *types.Sessi
 		if session.Title != "" && session.Title != "新会话" {
 			return nil
 		}
-		latestMsg, _ := db.GetLatestMessage(ctx, s.db, session.SessionID)
+		latestMsg, _ := db.GetLatestMessage(ctx, s.db, session.ID)
 		if latestMsg != nil {
 			runes := []rune(latestMsg.Content)
 			if len(runes) > 100 {
@@ -380,7 +380,7 @@ func (s *sessionService) renameSession(ctx context.Context, session *types.Sessi
 	return db.UpdateSession(ctx, s.db, session)
 }
 
-func (s *sessionService) buildRecentMessages(ctx context.Context, sessionID string) string {
+func (s *sessionService) buildRecentMessages(ctx context.Context, sessionID uint) string {
 	const maxMessages = 10
 	messages, err := db.GetRecentSessionMessages(ctx, s.db, sessionID, maxMessages)
 	if err != nil || len(messages) == 0 {
@@ -394,7 +394,7 @@ func (s *sessionService) buildRecentMessages(ctx context.Context, sessionID stri
 }
 
 func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return fmt.Errorf("get session %s: %w", sessionID, err)
 	}
@@ -425,7 +425,7 @@ func (s *sessionService) publishWorkerTask(ctx context.Context, session *types.S
 	}
 
 	if session.AllocatedAssistantID == 0 {
-		logs.DebugContextf(ctx, "Skipping task publish: no worker allocated for session %s", session.SessionID)
+		logs.DebugContextf(ctx, "Skipping task publish: no worker allocated for session %s", session.PublicID)
 		return nil
 	}
 
@@ -439,13 +439,13 @@ func (s *sessionService) publishWorkerTask(ctx context.Context, session *types.S
 		Type:      events.MessageTypeWorkerTask,
 		CreatedAt: time.Now().UTC(),
 		Trace: events.TraceContext{
-			TraceID:   session.SessionID,
+			TraceID:   session.PublicID,
 			RequestID: fmt.Sprintf("req_%d", message.ID),
 			TaskID:    fmt.Sprintf("task_%d", message.ID),
 		},
 		Route: events.RouteContext{
 			OrgID:     orgID,
-			SessionID: session.SessionID,
+			SessionID: session.PublicID,
 			WorkerID:  session.AllocatedAssistantID,
 		},
 		Body: events.WorkerTaskBody{
@@ -460,7 +460,7 @@ func (s *sessionService) publishWorkerTask(ctx context.Context, session *types.S
 			},
 		},
 		Metadata: map[string]any{
-			"session_id":   session.SessionID,
+			"session_id":   session.PublicID,
 			"message_type": message.MessageType,
 			"sequence":     message.Sequence,
 			"timestamp":    message.Timestamp,
@@ -471,12 +471,12 @@ func (s *sessionService) publishWorkerTask(ctx context.Context, session *types.S
 		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", session.AllocatedAssistantID, err)
 		return fmt.Errorf("failed to publish message to assistant: %w", err)
 	}
-	logs.DebugContextf(ctx, "Published message to topic %s: session_id=%s sequence=%d", topic, session.SessionID, message.Sequence)
+	logs.DebugContextf(ctx, "Published message to topic %s: session_id=%s sequence=%d", topic, session.PublicID, message.Sequence)
 	return nil
 }
 
 func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*contract.MessageList, error) {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -484,14 +484,14 @@ func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID strin
 		return nil, errors.New("session not found")
 	}
 
-	messages, total, err := db.GetSessionMessages(ctx, s.db, session.SessionID, page, perPage)
+	messages, total, err := db.GetSessionMessages(ctx, s.db, session.ID, page, perPage)
 	if err != nil {
 		return nil, err
 	}
 
 	items := make([]contract.SessionMessage, 0, len(messages))
 	for _, message := range messages {
-		items = append(items, *convertToContractSessionMessage(message))
+		items = append(items, *convertToContractSessionMessage(message, session.PublicID))
 	}
 
 	return &contract.MessageList{
@@ -518,7 +518,7 @@ func (s *sessionService) DeleteMessage(ctx context.Context, messageID uint) erro
 }
 
 func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionBySessionID(ctx, s.db, sessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {
 		return err
 	}
@@ -526,7 +526,7 @@ func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID str
 		return errors.New("session not found")
 	}
 
-	if err := db.ClearSessionMessages(ctx, s.db, session.SessionID); err != nil {
+	if err := db.ClearSessionMessages(ctx, s.db, session.ID); err != nil {
 		return err
 	}
 
@@ -542,13 +542,13 @@ func toJSONString(v interface{}) string {
 	return string(b)
 }
 
-func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID string, lastSequence int64, sink events.Sink) error {
+func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, lastSequence int64, sink events.Sink) error {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.OrgID == 0 {
 		return errors.New("user not authenticated or org not set")
 	}
 
-	topic, err := dm.SessionResultStreamSubject(caller.OrgID, sessionID)
+	topic, err := dm.SessionResultStreamSubject(caller.OrgID, sessionPID)
 	if err != nil {
 		return fmt.Errorf("failed to construct session result stream topic: %w", err)
 	}
@@ -562,7 +562,7 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID stri
 		// logs.DebugContextf(ctx, "received message from topic %s: session_id=%s event=%s seq=%d", topic, streamMsg.Route.SessionID, streamMsg.Body.Event, streamMsg.Body.Seq)
 
 		if streamMsg.Body.Seq <= lastSequence {
-			logs.DebugContextf(ctx, "skipping old message for session %s: seq=%d lastSequence=%d", sessionID, streamMsg.Body.Seq, lastSequence)
+			logs.DebugContextf(ctx, "skipping old message for session %s: seq=%d lastSequence=%d", sessionPID, streamMsg.Body.Seq, lastSequence)
 			return
 		}
 
@@ -575,7 +575,7 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID stri
 			Type:    events.EventType(se.Type),
 			Content: toJSONString(se),
 		}); err != nil {
-			logs.ErrorContextf(ctx, "failed to emit session event for session %s: %v", sessionID, err)
+			logs.ErrorContextf(ctx, "failed to emit session event for session %s: %v", sessionPID, err)
 		}
 	})
 }
@@ -583,7 +583,7 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionID stri
 func convertToContractSession(session *types.Session) *contract.Session {
 	result := &contract.Session{
 		ID:                   session.ID,
-		SessionID:            session.SessionID,
+		SessionID:            session.PublicID,
 		Type:                 session.Type,
 		Uin:                  session.Uin,
 		OrgID:                session.OrgID,
@@ -614,10 +614,10 @@ func hasMessageUsage(usage types.MessageUsage) bool {
 	return usage.InputTokens != 0 || usage.OutputTokens != 0 || usage.TotalTokens != 0
 }
 
-func convertToContractSessionMessage(message *types.SessionMessage) *contract.SessionMessage {
+func convertToContractSessionMessage(message *types.SessionMessage, publicID string) *contract.SessionMessage {
 	result := &contract.SessionMessage{
 		ID:          fmt.Sprintf("%d", message.ID),
-		SessionID:   message.SessionID,
+		SessionID:   publicID,
 		Role:        message.Role,
 		Content:     message.Content,
 		MessageType: message.MessageType,
@@ -629,9 +629,9 @@ func convertToContractSessionMessage(message *types.SessionMessage) *contract.Se
 	if message.Chunks != nil && len(message.Chunks) > 0 {
 		result.Chunks = make([]contract.SessionEvent, 0, len(message.Chunks))
 		for _, chunk := range message.Chunks {
-			event, ok := ProjectRunEventRecord(message.SessionID, chunk)
+			event, ok := ProjectRunEventRecord(publicID, chunk)
 			if !ok {
-				logs.Warnf("skipping unknown or invalid session message chunk: session_id=%s message_id=%d type=%s seq=%d", message.SessionID, message.ID, chunk.Type, chunk.Seq)
+				logs.Warnf("skipping unknown or invalid session message chunk: public_id=%s message_id=%d type=%s seq=%d", publicID, message.ID, chunk.Type, chunk.Seq)
 				continue
 			}
 			result.Chunks = append(result.Chunks, *event)
@@ -654,7 +654,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		return errors.New("session_id is required")
 	}
 
-	session, err := db.GetSessionBySessionID(ctx, s.db, req.SessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, req.SessionID)
 	if err != nil {
 		return fmt.Errorf("find session %s: %w", req.SessionID, err)
 	}
@@ -662,13 +662,13 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		return fmt.Errorf("session %s not found", req.SessionID)
 	}
 
-	sequence, err := db.GetNextSequence(ctx, s.db, req.SessionID)
+	sequence, err := db.GetNextSequence(ctx, s.db, session.ID)
 	if err != nil {
 		return fmt.Errorf("get sequence for %s: %w", req.SessionID, err)
 	}
 
 	msgEntity := &types.SessionMessage{
-		SessionID:   req.SessionID,
+		SessionID:   session.ID,
 		Role:        string(types.MessageRoleAssistant),
 		Content:     req.Content,
 		MessageType: string(types.MessageTypeText),
@@ -706,7 +706,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 		return errors.New("session_id is required")
 	}
 
-	session, err := db.GetSessionBySessionID(ctx, s.db, req.SessionID)
+	session, err := db.GetSessionByPublicID(ctx, s.db, req.SessionID)
 	if err != nil {
 		return fmt.Errorf("find session %s: %w", req.SessionID, err)
 	}
@@ -714,7 +714,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 		return fmt.Errorf("session %s not found", req.SessionID)
 	}
 
-	sequence, err := db.GetNextSequence(ctx, s.db, req.SessionID)
+	sequence, err := db.GetNextSequence(ctx, s.db, session.ID)
 	if err != nil {
 		return fmt.Errorf("get sequence for %s: %w", req.SessionID, err)
 	}
@@ -725,7 +725,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	}
 
 	msgEntity := &types.SessionMessage{
-		SessionID:   req.SessionID,
+		SessionID:   session.ID,
 		Role:        string(types.MessageRoleAssistant),
 		Content:     req.ErrorMsg,
 		MessageType: string(types.MessageTypeText),
