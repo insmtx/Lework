@@ -204,7 +204,10 @@ Complete documentation is available in the `docs/` directory:
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | AI OS architecture design (v2 - Three-Plane Model) |
 | [DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md) | Core design philosophy and principles |
-| [PRD.md](docs/PRD.md) | Product requirements (Employee View/AI Workbench) |
+| [PRD.md](docs/PRD.md) | 产品需求文档 — AI 工作协作系统 |
+| [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | 系统架构设计 — 实体关系、平台引擎、外部连接 |
+| [TECH_DESIGN.md](docs/TECH_DESIGN.md) | 技术设计 — 技能 Schema、渲染引擎、模板规格 |
+| [PLANNING.md](docs/PLANNING.md) | 规划项 — 业务板块路线图（文档撰写/研发/AIOps） |
 | [GITHUB_AUTH_SETUP.md](docs/GITHUB_AUTH_SETUP.md) | GitHub OAuth integration guide |
 | [GITHUB_WEBHOOK_TROUBLESHOOTING.md](docs/GITHUB_WEBHOOK_TROUBLESHOOTING.md) | GitHub webhook troubleshooting |
 | [PR_EVENT_FLOW.md](docs/PR_EVENT_FLOW.md) | GitHub PR event processing verification |

@@ -131,7 +131,10 @@ import (
 项目文档位于 `docs/` 目录：
 
 - `ARCHITECTURE.md` - AI OS 架构设计（核心架构文档）
-- `PRD.md` - 产品需求文档（员工视图/AI工作台）
+- `PRD.md` - 产品需求文档（AI 工作协作系统）
+- `SYSTEM_DESIGN.md` - 系统架构设计（平台引擎、知识检索、外部连接）
+- `TECH_DESIGN.md` - 技术设计（技能 Schema、渲染引擎）
+- `PLANNING.md` - 规划项（业务板块路线图）
 - `TODO.md` - 后端开发 TODO（2周 MVP 计划）
 - `TODO_v1.md` - 后端开发 TODO 清单（详细任务分解）
 - `GITHUB_AUTH_SETUP.md` - GitHub OAuth 集成配置指南
