@@ -7,7 +7,7 @@
 
 ```
 项目（长期上下文）
- ├── 会话（scope=project，可多个）
+ ├── 会话（scope=project）
  ├── 任务
  │     └── 会话（scope=task）
  ├── AI队友
