@@ -61,7 +61,7 @@ logs:
 .PHONY: swagger swagger-clean
 
 swagger:
-	cd backend/cmd/leros && swag init --generalInfo server.go --dir .,../../internal/api/handler,../../internal/api --output ../../../docs/swagger --exclude example
+	swag init --generalInfo server.go --dir backend/cmd/leros,backend/internal/api/handler,backend/internal/api,backend/types --output docs/swagger --exclude example
 
 swagger-clean:
 	rm -rf docs/swagger

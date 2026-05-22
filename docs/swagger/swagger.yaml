@@ -42,7 +42,34 @@ definitions:
     - base_url
     - model
     type: object
+  contract.CreateProjectRequest:
+    properties:
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+    required:
+    - name
+    type: object
   contract.CreateSessionRequest:
+    properties:
+      assistant_id:
+        type: integer
+      expired_at:
+        type: string
+      metadata:
+        $ref: '#/definitions/types.ObjectMetadata'
+      session_id:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+    required:
+    - type
     type: object
   contract.DigitalAssistant:
     properties:
@@ -99,6 +126,19 @@ definitions:
       status:
         type: string
     type: object
+  contract.ListProjectsRequest:
+    properties:
+      keyword:
+        type: string
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+      status:
+        type: string
+    type: object
   contract.ListSessionsRequest:
     properties:
       assistant_code:
@@ -117,6 +157,21 @@ definitions:
         type: string
       type:
         type: string
+    type: object
+  contract.NewMessageRequest:
+    properties:
+      assistant_id:
+        type: integer
+      content:
+        type: string
+      message_type:
+        type: string
+      project_id:
+        type: string
+      task_id:
+        type: string
+    required:
+    - content
     type: object
   contract.TestLLMModelRequest:
     properties:
@@ -167,11 +222,34 @@ definitions:
         type: string
     type: object
   handler.AddMessageRequest:
+    properties:
+      chunks:
+        items:
+          $ref: '#/definitions/types.MessageChunk'
+        type: array
+      content:
+        type: string
+      message_type:
+        type: string
+      metadata:
+        $ref: '#/definitions/types.ObjectMetadata'
+      role:
+        type: string
+      session_id:
+        type: string
+      thinking:
+        type: string
+      usage:
+        $ref: '#/definitions/types.MessageUsage'
+    required:
+    - content
+    - role
+    - session_id
     type: object
   handler.ClearSessionMessagesRequest:
     properties:
       session_id:
-        type: integer
+        type: string
     required:
     - session_id
     type: object
@@ -196,12 +274,19 @@ definitions:
     required:
     - message_id
     type: object
+  handler.DeleteProjectRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
   handler.DeleteSessionRequest:
     properties:
-      id:
-        type: integer
+      session_id:
+        type: string
     required:
-    - id
+    - session_id
     type: object
   handler.GetDigitalAssistantRequest:
     properties:
@@ -217,6 +302,11 @@ definitions:
       id:
         type: integer
     type: object
+  handler.GetProjectRequest:
+    properties:
+      public_id:
+        type: string
+    type: object
   handler.GetSessionMessagesRequest:
     properties:
       page:
@@ -224,16 +314,16 @@ definitions:
       per_page:
         type: integer
       session_id:
-        type: integer
+        type: string
     required:
     - session_id
     type: object
   handler.GetSessionRequest:
     properties:
-      id:
-        type: integer
       session_id:
         type: string
+    required:
+    - session_id
     type: object
   handler.SessionEventsRequest:
     properties:
@@ -295,7 +385,73 @@ definitions:
     required:
     - id
     type: object
+  handler.UpdateProjectRequest:
+    properties:
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      owner_id:
+        type: integer
+      public_id:
+        type: string
+      status:
+        type: string
+    required:
+    - public_id
+    type: object
   handler.UpdateSessionRequest:
+    properties:
+      expired_at:
+        type: string
+      metadata:
+        $ref: '#/definitions/types.ObjectMetadata'
+      session_id:
+        type: string
+      title:
+        type: string
+    required:
+    - session_id
+    type: object
+  types.MessageChunk:
+    properties:
+      last_seq:
+        type: integer
+      payload:
+        type: object
+      seq:
+        type: integer
+      timestamp:
+        type: integer
+      type:
+        type: string
+    type: object
+  types.MessageUsage:
+    properties:
+      input_tokens:
+        type: integer
+      output_tokens:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
+  types.ObjectMetadata:
+    properties:
+      extra:
+        additionalProperties: true
+        description: 元数据 - 其他扩展字段
+        type: object
+      tags:
+        description: 元数据 - 项目标签
+        items:
+          type: string
+        type: array
+      type:
+        description: 元数据 - 项目类型/模板标识
+        type: string
     type: object
 host: localhost:8080
 info:
@@ -448,6 +604,40 @@ paths:
       summary: 创建LLM模型
       tags:
       - LLMModel
+  /CreateProject:
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新项目
+      parameters:
+      - description: 创建项目请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建项目
+      tags:
+      - Project
   /CreateSession:
     post:
       consumes:
@@ -604,6 +794,44 @@ paths:
       summary: 删除会话消息
       tags:
       - Session
+  /DeleteProject:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicId删除项目（软删除）
+      parameters:
+      - description: 删除项目请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DeleteProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 删除项目
+      tags:
+      - Project
   /DeleteSession:
     post:
       consumes:
@@ -753,11 +981,49 @@ paths:
       summary: 获取LLM模型详情
       tags:
       - LLMModel
+  /GetProject:
+    post:
+      consumes:
+      - application/json
+      description: 根据PublicId获取项目详情
+      parameters:
+      - description: 获取项目请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.GetProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取项目详情
+      tags:
+      - Project
   /GetSession:
     post:
       consumes:
       - application/json
-      description: 根据ID或SessionID获取会话详情
+      description: 根据SessionID获取会话详情
       parameters:
       - description: 获取会话请求
         in: body
@@ -897,6 +1163,40 @@ paths:
       summary: 查询LLM模型列表
       tags:
       - LLMModel
+  /ListProjects:
+    post:
+      consumes:
+      - application/json
+      description: 分页查询项目列表
+      parameters:
+      - description: 查询列表请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListProjectsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询项目列表
+      tags:
+      - Project
   /ListSessions:
     post:
       consumes:
@@ -931,6 +1231,44 @@ paths:
       summary: 查询会话列表
       tags:
       - Session
+  /NewMessage:
+    post:
+      consumes:
+      - application/json
+      description: 原子创建 Project + Task + Session 并分配 AgentWorker
+      parameters:
+      - description: 新建消息请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.NewMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.BaseResponse'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 首页新建消息
+      tags:
+      - Work
   /SessionEvents:
     post:
       consumes:
@@ -1125,6 +1463,44 @@ paths:
       summary: 更新LLM模型
       tags:
       - LLMModel
+  /UpdateProject:
+    post:
+      consumes:
+      - application/json
+      description: 更新项目信息
+      parameters:
+      - description: 更新项目请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新项目
+      tags:
+      - Project
   /UpdateSession:
     post:
       consumes:

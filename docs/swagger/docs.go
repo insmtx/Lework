@@ -235,6 +235,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/CreateProject": {
+            "post": {
+                "description": "创建一个新项目",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project"
+                ],
+                "summary": "创建项目",
+                "parameters": [
+                    {
+                        "description": "创建项目请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.CreateProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/CreateSession": {
             "post": {
                 "description": "创建一个新的会话实例",
@@ -444,6 +496,64 @@ const docTemplate = `{
                         "description": "成功响应",
                         "schema": {
                             "$ref": "#/definitions/dto.BaseResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/DeleteProject": {
+            "post": {
+                "description": "根据PublicId删除项目（软删除）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project"
+                ],
+                "summary": "删除项目",
+                "parameters": [
+                    {
+                        "description": "删除项目请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.DeleteProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
                         }
                     },
                     "400": {
@@ -700,9 +810,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/GetProject": {
+            "post": {
+                "description": "根据PublicId获取项目详情",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project"
+                ],
+                "summary": "获取项目详情",
+                "parameters": [
+                    {
+                        "description": "获取项目请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.GetProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/GetSession": {
             "post": {
-                "description": "根据ID或SessionID获取会话详情",
+                "description": "根据SessionID获取会话详情",
                 "consumes": [
                     "application/json"
                 ],
@@ -920,6 +1088,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/ListProjects": {
+            "post": {
+                "description": "分页查询项目列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project"
+                ],
+                "summary": "查询项目列表",
+                "parameters": [
+                    {
+                        "description": "查询列表请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.ListProjectsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/ListSessions": {
             "post": {
                 "description": "分页查询会话列表",
@@ -959,6 +1179,64 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/NewMessage": {
+            "post": {
+                "description": "原子创建 Project + Task + Session 并分配 AgentWorker",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Work"
+                ],
+                "summary": "首页新建消息",
+                "parameters": [
+                    {
+                        "description": "新建消息请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.NewMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.BaseResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -1268,6 +1546,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/UpdateProject": {
+            "post": {
+                "description": "更新项目信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project"
+                ],
+                "summary": "更新项目",
+                "parameters": [
+                    {
+                        "description": "更新项目请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.UpdateProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/UpdateSession": {
             "post": {
                 "description": "更新会话基本信息",
@@ -1390,8 +1726,49 @@ const docTemplate = `{
                 }
             }
         },
+        "contract.CreateProjectRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.CreateSessionRequest": {
-            "type": "object"
+            "type": "object",
+            "required": [
+                "type"
+            ],
+            "properties": {
+                "assistant_id": {
+                    "type": "integer"
+                },
+                "expired_at": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/types.ObjectMetadata"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
         },
         "contract.DigitalAssistant": {
             "type": "object",
@@ -1477,6 +1854,26 @@ const docTemplate = `{
                 }
             }
         },
+        "contract.ListProjectsRequest": {
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "list_all": {
+                    "type": "boolean"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.ListSessionsRequest": {
             "type": "object",
             "properties": {
@@ -1502,6 +1899,29 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.NewMessageRequest": {
+            "type": "object",
+            "required": [
+                "content"
+            ],
+            "properties": {
+                "assistant_id": {
+                    "type": "integer"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "message_type": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "task_id": {
                     "type": "string"
                 }
             }
@@ -1581,7 +2001,41 @@ const docTemplate = `{
             }
         },
         "handler.AddMessageRequest": {
-            "type": "object"
+            "type": "object",
+            "required": [
+                "content",
+                "role",
+                "session_id"
+            ],
+            "properties": {
+                "chunks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.MessageChunk"
+                    }
+                },
+                "content": {
+                    "type": "string"
+                },
+                "message_type": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/types.ObjectMetadata"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "thinking": {
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/definitions/types.MessageUsage"
+                }
+            }
         },
         "handler.ClearSessionMessagesRequest": {
             "type": "object",
@@ -1590,7 +2044,7 @@ const docTemplate = `{
             ],
             "properties": {
                 "session_id": {
-                    "type": "integer"
+                    "type": "string"
                 }
             }
         },
@@ -1627,14 +2081,25 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.DeleteProjectRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.DeleteSessionRequest": {
             "type": "object",
             "required": [
-                "id"
+                "session_id"
             ],
             "properties": {
-                "id": {
-                    "type": "integer"
+                "session_id": {
+                    "type": "string"
                 }
             }
         },
@@ -1660,6 +2125,14 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.GetProjectRequest": {
+            "type": "object",
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.GetSessionMessagesRequest": {
             "type": "object",
             "required": [
@@ -1673,16 +2146,16 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "session_id": {
-                    "type": "integer"
+                    "type": "string"
                 }
             }
         },
         "handler.GetSessionRequest": {
             "type": "object",
+            "required": [
+                "session_id"
+            ],
             "properties": {
-                "id": {
-                    "type": "integer"
-                },
                 "session_id": {
                     "type": "string"
                 }
@@ -1779,8 +2252,107 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.UpdateProjectRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "integer"
+                },
+                "public_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.UpdateSessionRequest": {
-            "type": "object"
+            "type": "object",
+            "required": [
+                "session_id"
+            ],
+            "properties": {
+                "expired_at": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/types.ObjectMetadata"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.MessageChunk": {
+            "type": "object",
+            "properties": {
+                "last_seq": {
+                    "type": "integer"
+                },
+                "payload": {
+                    "type": "object"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.MessageUsage": {
+            "type": "object",
+            "properties": {
+                "input_tokens": {
+                    "type": "integer"
+                },
+                "output_tokens": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ObjectMetadata": {
+            "type": "object",
+            "properties": {
+                "extra": {
+                    "description": "元数据 - 其他扩展字段",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "tags": {
+                    "description": "元数据 - 项目标签",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "description": "元数据 - 项目类型/模板标识",
+                    "type": "string"
+                }
+            }
         }
     }
 }`

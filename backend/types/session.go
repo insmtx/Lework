@@ -164,7 +164,7 @@ type MessageChunk struct {
 	LastSeq   int64           `json:"last_seq,omitempty"`
 	Type      string          `json:"type"`
 	Timestamp int64           `json:"timestamp,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty" swaggertype:"object"`
 }
 
 // MessageChunkSlice stores structured message chunks in JSONB.
