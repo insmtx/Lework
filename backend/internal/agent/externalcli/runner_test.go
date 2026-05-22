@@ -194,6 +194,55 @@ func TestRunnerForwardsExternalToolEvents(t *testing.T) {
 	}
 }
 
+func TestRunnerNormalizesTodoEventsThroughTracker(t *testing.T) {
+	SetDefaultProviderSessionStore(NewInMemoryProviderSessionStore())
+	engine := &fakeEngine{
+		events: []events.Event{
+			{Type: events.EventStarted},
+			*events.NewTodoUpdated([]events.RuntimeTodoItem{{Title: "Inspect", Status: "unknown"}}),
+			{Type: events.EventResult, Content: "done"},
+			{Type: events.EventCompleted},
+		},
+	}
+	runner, err := NewRunner(engines.EngineCodex, engine)
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+
+	var emitted []events.Event
+	sink := events.SinkFunc(func(_ context.Context, event *events.Event) error {
+		emitted = append(emitted, *event)
+		return nil
+	})
+	_, err = runner.Run(context.Background(), &agent.RequestContext{
+		RunID:     "run_todo",
+		TraceID:   "trace_todo",
+		EventSink: sink,
+		Input: agent.InputContext{
+			Type: agent.InputTypeMessage,
+			Text: "hello",
+		},
+		Runtime: agent.RuntimeOptions{WorkDir: "/tmp"},
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	event := findEvent(emitted, events.EventTodoUpdated)
+	if event == nil {
+		t.Fatalf("expected todo.updated event, got %#v", emitted)
+	}
+	items, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
+	if err != nil {
+		t.Fatalf("decode todo payload: %v", err)
+	}
+	if len(items) != 1 || items[0].ID == "" || items[0].Title != "Inspect" || items[0].Status != "pending" {
+		t.Fatalf("unexpected normalized todo payload: %#v", items)
+	}
+	if event.RunID != "run_todo" || event.TraceID != "trace_todo" {
+		t.Fatalf("expected run metadata, got %#v", event)
+	}
+}
+
 type fakeEngine struct {
 	runReq            engines.RunRequest
 	result            string

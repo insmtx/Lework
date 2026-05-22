@@ -175,6 +175,11 @@ func streamPayload(event *events.Event) events.StreamPayload {
 		if err == nil {
 			payload.ToolResult = &resultPayload
 		}
+	case events.EventTodoSnapshot, events.EventTodoUpdated:
+		todos, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
+		if err == nil {
+			payload.Todos = todos
+		}
 	case events.EventCompleted, events.EventFailed, events.EventCancelled:
 		completedPayload, err := events.DecodePayload[events.RunCompletedPayload](event)
 		if err == nil {
@@ -205,6 +210,10 @@ func streamEventType(eventType events.EventType) events.StreamEventType {
 		return events.StreamEventToolCallFinished
 	case events.EventToolCallFailed:
 		return events.StreamEventToolCallFinished
+	case events.EventTodoSnapshot:
+		return events.StreamEventTodoSnapshot
+	case events.EventTodoUpdated:
+		return events.StreamEventTodoUpdated
 	default:
 		return events.StreamEventMessageDelta
 	}

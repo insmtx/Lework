@@ -10,6 +10,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	einoschema "github.com/cloudwego/eino/schema"
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
+	runtimetodo "github.com/insmtx/Leros/backend/internal/agent/runtime/todo"
 	"github.com/insmtx/Leros/backend/tools"
 )
 
@@ -46,6 +47,7 @@ type ToolAdapter struct {
 type ToolBinding struct {
 	ToolContext  tools.ToolContext
 	AllowedTools []string
+	TodoReporter runtimetodo.Reporter
 }
 
 // NewToolAdapter creates a new adapter over the shared tool registry.
@@ -165,10 +167,10 @@ func (a *ToolAdapter) Invoke(ctx context.Context, req *ToolCallRequest) (*ToolCa
 		return nil, err
 	}
 
-	return invokeTool(ctx, tool, req.Arguments, req.ToolContext)
+	return invokeTool(ctx, tool, req.Arguments, req.ToolContext, nil)
 }
 
-func invokeTool(ctx context.Context, tool tools.Tool, arguments map[string]interface{}, toolCtx tools.ToolContext) (*ToolCallResult, error) {
+func invokeTool(ctx context.Context, tool tools.Tool, arguments map[string]interface{}, toolCtx tools.ToolContext, reporter runtimetodo.Reporter) (*ToolCallResult, error) {
 	if tool == nil {
 		return nil, fmt.Errorf("tool is required")
 	}
@@ -180,7 +182,9 @@ func invokeTool(ctx context.Context, tool tools.Tool, arguments map[string]inter
 		}
 	}
 
-	output, err := tool.Execute(tools.ContextWithToolContext(ctx, toolCtx), input)
+	toolCtxValue := tools.ContextWithToolContext(ctx, toolCtx)
+	toolCtxValue = runtimetodo.ContextWithReporter(toolCtxValue, reporter)
+	output, err := tool.Execute(toolCtxValue, input)
 	if err != nil {
 		return nil, err
 	}
@@ -220,17 +224,28 @@ func (t *invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string
 
 	startedAt := time.Now()
 	toolCallID := fmt.Sprintf("tool_%d", startedAt.UnixNano())
-	_ = t.emitToolEvent(ctx, events.NewToolCallStarted(toolCallID, t.tool.Name(), cloneArguments(input)))
+	suppressToolEvents := isTodoTool(t.tool)
+	if !suppressToolEvents {
+		_ = t.emitToolEvent(ctx, events.NewToolCallStarted(toolCallID, t.tool.Name(), cloneArguments(input)))
+	}
 
-	result, err := invokeTool(ctx, t.tool, input, t.binding.ToolContext)
+	result, err := invokeTool(ctx, t.tool, input, t.binding.ToolContext, t.binding.TodoReporter)
 	if err != nil {
-		_ = t.emitToolEvent(ctx, events.NewToolCallFailed(toolCallID, t.tool.Name(), err.Error(), time.Since(startedAt).Milliseconds()))
+		if !suppressToolEvents {
+			_ = t.emitToolEvent(ctx, events.NewToolCallFailed(toolCallID, t.tool.Name(), err.Error(), time.Since(startedAt).Milliseconds()))
+		}
 		return errorOutput(err.Error(), t.tool.Name()), nil
 	}
 
-	_ = t.emitToolEvent(ctx, events.NewToolCallCompleted(toolCallID, t.tool.Name(), result.Output, time.Since(startedAt).Milliseconds()))
+	if !suppressToolEvents {
+		_ = t.emitToolEvent(ctx, events.NewToolCallCompleted(toolCallID, t.tool.Name(), result.Output, time.Since(startedAt).Milliseconds()))
+	}
 
 	return result.Output, nil
+}
+
+func isTodoTool(tool tools.Tool) bool {
+	return tool != nil && tool.Name() == "todo"
 }
 
 func errorOutput(detail, toolName string) string {

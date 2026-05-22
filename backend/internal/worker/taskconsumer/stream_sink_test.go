@@ -193,6 +193,47 @@ func TestMQStreamSinkPublishesCompletedEventToSessionCompletedTopic(t *testing.T
 	}
 }
 
+func TestMQStreamSinkPublishesTodoPayload(t *testing.T) {
+	orgID := uint(1)
+	sessionID := "session_test"
+	task := events.WorkerTaskMessage{
+		Trace: events.TraceContext{
+			TraceID: "trace_test",
+			RunID:   "run_test",
+		},
+		Route: events.RouteContext{
+			OrgID:     orgID,
+			SessionID: sessionID,
+			WorkerID:  2,
+		},
+	}
+	publisher := &recordingPublisher{}
+	sink := NewMQStreamSink(publisher, task)
+	event := events.NewTodoSnapshot([]events.RuntimeTodoItem{
+		{ID: "t1", Title: "Inspect code", Status: "pending"},
+	})
+	event.RunID = "run_test"
+	event.TraceID = "trace_test"
+	event.Seq = 4
+
+	if err := sink.Emit(context.Background(), event); err != nil {
+		t.Fatalf("Emit() error = %v", err)
+	}
+	if len(publisher.calls) != 1 {
+		t.Fatalf("expected one stream publish, got %d", len(publisher.calls))
+	}
+	streamMsg, ok := publisher.calls[0].event.(events.MessageStreamMessage)
+	if !ok {
+		t.Fatalf("expected stream publish event type MessageStreamMessage, got %T", publisher.calls[0].event)
+	}
+	if streamMsg.Body.Event != events.StreamEventTodoSnapshot {
+		t.Fatalf("expected event %q, got %q", events.StreamEventTodoSnapshot, streamMsg.Body.Event)
+	}
+	if len(streamMsg.Body.Payload.Todos) != 1 || streamMsg.Body.Payload.Todos[0].ID != "t1" {
+		t.Fatalf("unexpected todo payload: %#v", streamMsg.Body.Payload.Todos)
+	}
+}
+
 type recordingPublisher struct {
 	calls []publishCall
 }

@@ -42,7 +42,7 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 
 	maxStep := cfg.MaxStep
 	if maxStep <= 0 {
-		maxStep = 20
+		maxStep = 90
 	}
 
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{

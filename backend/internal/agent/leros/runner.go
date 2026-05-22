@@ -13,12 +13,14 @@ import (
 	einoadapter "github.com/insmtx/Leros/backend/internal/agent/eino"
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/deps"
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
+	runtimetodo "github.com/insmtx/Leros/backend/internal/agent/runtime/todo"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/tools"
 	memorytools "github.com/insmtx/Leros/backend/tools/memory"
 	nodetools "github.com/insmtx/Leros/backend/tools/node"
 	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
 	skillusetools "github.com/insmtx/Leros/backend/tools/skill_use"
+	todotools "github.com/insmtx/Leros/backend/tools/todo"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -26,6 +28,7 @@ var defaultToolNames = []string{
 	memorytools.ToolNameMemory,
 	skillusetools.ToolNameSkillUse,
 	skillmanagetools.ToolNameSkillManage,
+	todotools.ToolNameTodo,
 	nodetools.ToolNameNodeShell,
 	nodetools.ToolNameNodeFileRead,
 	nodetools.ToolNameNodeFileWrite,
@@ -162,6 +165,7 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 		return nil, err
 	}
 
+	eventSink := sinkForRequest(req)
 	toolCtx := tools.ToolContext{
 		RunID:          req.RunID,
 		TraceID:        req.TraceID,
@@ -176,12 +180,17 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 	}
 	return &runState{
 		req:          req,
-		eventSink:    sinkForRequest(req),
+		eventSink:    eventSink,
 		userInput:    userInput,
 		systemPrompt: systemPrompt,
 		toolBinding: einoadapter.ToolBinding{
 			ToolContext:  toolCtx,
 			AllowedTools: mergeToolNames(r.availableDefaultToolNames(), req.Capability.AllowedTools),
+			TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
+				RunID:   req.RunID,
+				TraceID: req.TraceID,
+				Sink:    eventSink,
+			}),
 		},
 		maxStep: maxStepForRequest(req),
 	}, nil
@@ -269,7 +278,7 @@ func maxStepForRequest(req *agent.RequestContext) int {
 	if req != nil && req.Runtime.MaxStep > 0 {
 		return req.Runtime.MaxStep
 	}
-	return 12
+	return 90
 }
 
 func sinkForRequest(req *agent.RequestContext) events.Sink {

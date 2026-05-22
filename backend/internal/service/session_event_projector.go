@@ -48,6 +48,12 @@ func ProjectStreamMessage(streamMsg events.MessageStreamMessage) (*dto.SessionEv
 		}
 		event.Type = dto.SessionEventTypeToolCallResult
 		event.Payload = toolCallResultPayload(streamMsg.Body.Payload.ToolResult)
+	case events.StreamEventTodoSnapshot:
+		event.Type = dto.SessionEventTypeTodoSnapshot
+		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
+	case events.StreamEventTodoUpdated:
+		event.Type = dto.SessionEventTypeTodoUpdated
+		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
 	case events.StreamEventRunStarted:
 		event.Type = dto.SessionEventTypeRunStarted
 	case events.StreamEventRunCompleted:
@@ -140,6 +146,20 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 		}
 		event.Type = string(dto.SessionEventTypeToolCallResult)
 		event.Payload = toolCallResultPayload(&payload)
+	case events.EventTodoSnapshot:
+		payload, ok := decodeChunkPayload[[]events.RuntimeTodoItem](chunk)
+		if !ok {
+			return nil, false
+		}
+		event.Type = string(dto.SessionEventTypeTodoSnapshot)
+		event.Payload = todoPayload(payload)
+	case events.EventTodoUpdated:
+		payload, ok := decodeChunkPayload[[]events.RuntimeTodoItem](chunk)
+		if !ok {
+			return nil, false
+		}
+		event.Type = string(dto.SessionEventTypeTodoUpdated)
+		event.Payload = todoPayload(payload)
 	default:
 		return nil, false
 	}
@@ -173,4 +193,20 @@ func toolCallResultPayload(result *events.ToolCallResultPayload) dto.ToolCallRes
 		Result:     value,
 		Status:     status,
 	}
+}
+
+func todoPayload(items []events.RuntimeTodoItem) []dto.RuntimeTodoItemPayload {
+	if len(items) == 0 {
+		return []dto.RuntimeTodoItemPayload{}
+	}
+	result := make([]dto.RuntimeTodoItemPayload, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.RuntimeTodoItemPayload{
+			ID:       item.ID,
+			Title:    item.Title,
+			Status:   item.Status,
+			Priority: item.Priority,
+		})
+	}
+	return result
 }

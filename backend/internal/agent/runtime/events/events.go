@@ -39,6 +39,11 @@ const (
 	EventToolCallCompleted EventType = "tool_call.completed"
 	// EventToolCallFailed indicates that a tool call failed.
 	EventToolCallFailed EventType = "tool_call.failed"
+
+	// EventTodoSnapshot contains the full runtime todo list for the current run.
+	EventTodoSnapshot EventType = "todo.snapshot"
+	// EventTodoUpdated contains the full runtime todo list after an update.
+	EventTodoUpdated EventType = "todo.updated"
 )
 
 // Event is the stable runtime event envelope for streaming execution.
@@ -117,6 +122,14 @@ type MessageResultPayload struct {
 // RunResultPayload describes the final assistant result archived in run.completed.
 type RunResultPayload struct {
 	Message string `json:"message,omitempty"`
+}
+
+// RuntimeTodoItem describes one runtime-local planning step.
+type RuntimeTodoItem struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Priority string `json:"priority,omitempty"`
 }
 
 // RunEventRecord is a normalized, archived runtime event.
@@ -199,6 +212,16 @@ func NewMessageResult(message string, usage *UsagePayload) *Event {
 // NewRunCompleted creates a standard completed run archive event.
 func NewRunCompleted(payload RunCompletedPayload, contentFallback string) *Event {
 	return newPayloadEvent(EventCompleted, payload, contentFallback)
+}
+
+// NewTodoSnapshot creates a standard full todo snapshot event.
+func NewTodoSnapshot(items []RuntimeTodoItem) *Event {
+	return newPayloadEvent(EventTodoSnapshot, items, "")
+}
+
+// NewTodoUpdated creates a standard full todo update event.
+func NewTodoUpdated(items []RuntimeTodoItem) *Event {
+	return newPayloadEvent(EventTodoUpdated, items, "")
 }
 
 // DecodePayload decodes a structured payload from an event.

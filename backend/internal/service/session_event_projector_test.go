@@ -70,3 +70,34 @@ func TestProjectRunEventRecordMatchesSessionEventShape(t *testing.T) {
 		t.Fatalf("unexpected tool result payload: %#v", payload)
 	}
 }
+
+func TestProjectStreamMessageProjectsTodoSnapshotPayloadAsArray(t *testing.T) {
+	streamMsg := events.MessageStreamMessage{
+		CreatedAt: time.UnixMilli(1779243000000).UTC(),
+		Route:     events.RouteContext{SessionID: "sess_test"},
+		Body: events.StreamBody{
+			Seq:   9,
+			Event: events.StreamEventTodoSnapshot,
+			Payload: events.StreamPayload{
+				Todos: []events.RuntimeTodoItem{
+					{ID: "t1", Title: "Inspect code", Status: "completed"},
+				},
+			},
+		},
+	}
+
+	event, ok := ProjectStreamMessage(streamMsg)
+	if !ok {
+		t.Fatal("expected todo event to project")
+	}
+	if event.Type != dto.SessionEventTypeTodoSnapshot {
+		t.Fatalf("got type %q, want %q", event.Type, dto.SessionEventTypeTodoSnapshot)
+	}
+	payload, ok := event.Payload.([]dto.RuntimeTodoItemPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %#v", event.Payload)
+	}
+	if len(payload) != 1 || payload[0].ID != "t1" || payload[0].Title != "Inspect code" || payload[0].Status != "completed" {
+		t.Fatalf("unexpected todo payload: %#v", payload)
+	}
+}
