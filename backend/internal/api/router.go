@@ -84,6 +84,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterSessionRoutes(v1, sessionService)
 		logs.Info("Session routes registered successfully")
 
+		projectService := service.NewProjectService(db)
+		handler.RegisterProjectRoutes(v1, projectService)
+		logs.Info("Project routes registered successfully")
+
 		// Start background consumers
 		go runnable.StartSessionCompleted(context.Background(), sessionService, eventbus)
 		logs.Info("Session completed runnable started")
