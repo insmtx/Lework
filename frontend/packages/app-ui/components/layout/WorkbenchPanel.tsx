@@ -88,9 +88,9 @@ export function WorkbenchPanel() {
 										value={activeProjectId ?? ""}
 										onChange={(event) => selectWorkbenchProject(event.target.value || null)}
 										className="h-10 min-w-[164px] appearance-none rounded-full border border-slate-200 bg-white pl-11 pr-10 text-sm font-semibold text-slate-700 outline-none transition-colors hover:border-slate-300"
-										aria-label="选择项目"
+										aria-label="新项目"
 									>
-										<option value="">选择项目</option>
+										<option value="">新项目</option>
 										{projects.map((project) => (
 											<option key={project.id} value={project.id}>
 												{project.name}
