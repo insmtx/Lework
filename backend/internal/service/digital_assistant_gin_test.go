@@ -33,12 +33,12 @@ func TestCreateDigitalAssistantViaGin(t *testing.T) {
 
 	// Simulate the middleware setting the caller via WithGinContext
 	router.Use(func(ctx *gin.Context) {
-		caller := &auth.Caller{
+		caller := &types.Caller{
 			Uin:   1,
 			OrgID: 1,
-			State: auth.AuthStateSucc,
+			State: types.AuthStateSucc,
 		}
-		trace := &auth.Trace{
+		trace := &types.Trace{
 			RequestID: "test-request-id",
 			TraceID:   "test-trace-id",
 		}
@@ -82,12 +82,12 @@ func TestCreateDigitalAssistantViaGin_NoCaller(t *testing.T) {
 
 	// Simulate middleware behavior when no Authorization header is present
 	router.Use(func(ctx *gin.Context) {
-		caller := &auth.Caller{
+		caller := &types.Caller{
 			Uin:   0,
 			OrgID: 0,
-			State: auth.AuthStateNil,
+			State: types.AuthStateNil,
 		}
-		trace := &auth.Trace{
+		trace := &types.Trace{
 			RequestID: "test-request-id",
 			TraceID:   "test-trace-id",
 		}

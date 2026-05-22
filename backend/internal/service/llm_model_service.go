@@ -353,7 +353,7 @@ func (s *llmModelService) TestLLMModel(ctx context.Context, req *contract.TestLL
 	}, nil
 }
 
-func requireCallerOrg(ctx context.Context) (*auth.Caller, error) {
+func requireCallerOrg(ctx context.Context) (*types.Caller, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.OrgID == 0 {
 		return nil, errors.New("user not authenticated or org not set")

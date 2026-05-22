@@ -74,7 +74,7 @@ func TestCallerMiddleware_NoAuthHeader(t *testing.T) {
 	if caller.Uin != 0 {
 		t.Errorf("expected Uin 0, got %d", caller.Uin)
 	}
-	if caller.State != localauth.AuthStateNil {
+	if caller.State != types.AuthStateNil {
 		t.Errorf("expected State AuthStateNil, got %v", caller.State)
 	}
 }
@@ -93,7 +93,7 @@ func TestCallerMiddleware_EmptyAuthHeader(t *testing.T) {
 	if caller == nil {
 		t.Fatal("caller should not be nil")
 	}
-	if caller.State != localauth.AuthStateNil {
+	if caller.State != types.AuthStateNil {
 		t.Errorf("expected State AuthStateNil, got %v", caller.State)
 	}
 }
@@ -112,7 +112,7 @@ func TestCallerMiddleware_InvalidToken(t *testing.T) {
 	if caller == nil {
 		t.Fatal("caller should not be nil")
 	}
-	if caller.State != localauth.AuthStateFailed {
+	if caller.State != types.AuthStateFailed {
 		t.Errorf("expected State AuthStateFailed, got %v", caller.State)
 	}
 }
@@ -146,7 +146,7 @@ func TestCallerMiddleware_ValidToken(t *testing.T) {
 	if caller.OrgID != testOrgID {
 		t.Errorf("expected OrgID %d, got %d", testOrgID, caller.OrgID)
 	}
-	if caller.State != localauth.AuthStateSucc {
+	if caller.State != types.AuthStateSucc {
 		t.Errorf("expected State AuthStateSucc, got %v", caller.State)
 	}
 }
@@ -248,7 +248,7 @@ func TestCallerMiddleware_WrongSecret(t *testing.T) {
 	if caller == nil {
 		t.Fatal("caller should not be nil")
 	}
-	if caller.State != localauth.AuthStateFailed {
+	if caller.State != types.AuthStateFailed {
 		t.Errorf("expected State AuthStateFailed with wrong secret, got %v", caller.State)
 	}
 }
@@ -269,7 +269,7 @@ func TestCallerMiddleware_ZeroUin(t *testing.T) {
 	if caller == nil {
 		t.Fatal("caller should not be nil")
 	}
-	if caller.State != localauth.AuthStateFailed {
+	if caller.State != types.AuthStateFailed {
 		t.Errorf("expected State AuthStateFailed for zero Uin, got %v", caller.State)
 	}
 }

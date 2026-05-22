@@ -15,6 +15,7 @@ import (
 
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 const (
@@ -36,7 +37,7 @@ func CallerMiddleware(jwtSecret string, database *gorm.DB) gin.HandlerFunc {
 
 		caller := parseCallerFromRequest(ctx, jwtSecret, database, reqID)
 
-		localauth.WithGinContext(ctx, caller, &localauth.Trace{
+		localauth.WithGinContext(ctx, caller, &types.Trace{
 			RequestID: reqID,
 			TraceID:   traceID,
 			SpanID:    []string{},
@@ -45,48 +46,48 @@ func CallerMiddleware(jwtSecret string, database *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.DB, reqID string) *localauth.Caller {
+func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.DB, reqID string) *types.Caller {
 	if os.Getenv("LEROS_DEV") == "true" {
-		return &localauth.Caller{
+		return &types.Caller{
 			Uin:   1,
 			OrgID: 1,
-			State: localauth.AuthStateSucc,
+			State: types.AuthStateSucc,
 		}
 	}
 	authHeader := ctx.Request.Header.Get("Authorization")
 	if authHeader == "" {
-		return &localauth.Caller{
+		return &types.Caller{
 			Uin:   0,
 			OrgID: 0,
-			State: localauth.AuthStateNil,
+			State: types.AuthStateNil,
 		}
 	}
 
 	tokenStr := extractTokenFromHeader(authHeader)
 	if tokenStr == "" {
 		logs.Debugw("no valid token found in request", "authHeader", authHeader, "reqID", reqID)
-		return &localauth.Caller{
+		return &types.Caller{
 			Uin:   0,
 			OrgID: 0,
-			State: localauth.AuthStateNil,
+			State: types.AuthStateNil,
 		}
 	}
 
 	userClaims, err := parseJWTToken(tokenStr, jwtSecret)
 	if err != nil {
 		logs.Warnw("parse jwt token failed", "error", err)
-		return &localauth.Caller{
+		return &types.Caller{
 			Uin:   0,
 			OrgID: 0,
-			State: localauth.AuthStateFailed,
+			State: types.AuthStateFailed,
 		}
 	}
 
 	if userClaims.Uin == 0 {
-		return &localauth.Caller{
+		return &types.Caller{
 			Uin:   0,
 			OrgID: 0,
-			State: localauth.AuthStateFailed,
+			State: types.AuthStateFailed,
 		}
 	}
 
@@ -96,26 +97,26 @@ func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.D
 	userOrg, err := db.GetUserOrgByUin(queryCtx, database, userClaims.Uin)
 	if err != nil {
 		logs.Warnw("get user org by uin failed, db error", "error", err, "uin", userClaims.Uin, "reqID", ctx.Request.Header.Get(headerKeyRequestID))
-		return &localauth.Caller{
+		return &types.Caller{
 			Uin:   userClaims.Uin,
 			OrgID: 0,
-			State: localauth.AuthStateFailed,
+			State: types.AuthStateFailed,
 		}
 	}
 
 	if userOrg == nil {
 		logs.Warnw("user org not found", "uin", userClaims.Uin)
-		return &localauth.Caller{
+		return &types.Caller{
 			Uin:   userClaims.Uin,
 			OrgID: 0,
-			State: localauth.AuthStateFailed,
+			State: types.AuthStateFailed,
 		}
 	}
 
-	return &localauth.Caller{
+	return &types.Caller{
 		Uin:   userClaims.Uin,
 		OrgID: userOrg.OrgID,
-		State: localauth.AuthStateSucc,
+		State: types.AuthStateSucc,
 	}
 }
 

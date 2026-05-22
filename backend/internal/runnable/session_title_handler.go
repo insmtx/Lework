@@ -46,7 +46,7 @@ func handleSessionTitleRequest(ctx context.Context, service contract.SessionServ
 		logs.WarnContextf(ctx, "find session by id %d: %v", message.SessionID, err)
 		return
 	}
-	ctx = auth.WithContext(ctx, auth.SystemIdentity(), nil)
+	ctx = auth.WithContext(ctx, types.SystemIdentity(), nil)
 	if err := service.HandleSessionTitleRequest(ctx, session.PublicID); err != nil {
 		logs.WarnContextf(ctx, "handle session title request: %v", err)
 	}

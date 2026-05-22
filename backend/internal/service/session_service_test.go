@@ -85,12 +85,12 @@ func setupTestContextWithoutCaller(t *testing.T) context.Context {
 
 func setupTestContextWithCaller(t *testing.T) context.Context {
 	t.Helper()
-	caller := &auth.Caller{
+	caller := &types.Caller{
 		Uin:   1,
 		OrgID: 1,
-		State: auth.AuthStateSucc,
+		State: types.AuthStateSucc,
 	}
-	trace := &auth.Trace{
+	trace := &types.Trace{
 		RequestID: "test-request-id",
 		TraceID:   "test-trace-id",
 	}

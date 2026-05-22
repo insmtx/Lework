@@ -66,12 +66,13 @@ func (p *Pagination) Fill() {
 
 // PageQuery 通用分页查询参数
 type PageQuery struct {
-	Filters    []Filter `json:"filters,omitempty"`
-	OrderBy    []string `json:"order_by,omitempty"`
-	Pagination `json:",inline"`
-
-	OrgID uint `json:"-"`
-	Uin   uint `json:"-"`
+	Filters []Filter
+	OrderBy []string
+	OrgID   uint
+	Uin     uint
+	Offset  int
+	Limit   int
+	ListAll bool
 }
 
 // Filter 过滤条件
