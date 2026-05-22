@@ -130,6 +130,8 @@ import (
 
 项目文档位于 `docs/` 目录：
 
+> 重要参考：**[docs/PROJECT_STRUCTURE.md](./docs/PROJECT_STRUCTURE.md)** 包含完整的目录层级、关键文件说明和按任务场景的快速索引。处理不熟悉的任务时，建议先查阅该文件快速定位。
+
 - `ARCHITECTURE.md` - AI OS 架构设计（核心架构文档）
 - `PRD.md` - 产品需求文档（AI 工作协作系统）
 - `SYSTEM_DESIGN.md` - 系统架构设计（平台引擎、知识检索、外部连接）
