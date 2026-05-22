@@ -2,6 +2,8 @@
 
 import { useChatStore } from "@leros/store";
 import type { Message } from "@leros/store/types/chat";
+import { cn } from "@leros/ui/lib/utils";
+import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { AIMessageBubble } from "./AIMessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
@@ -16,7 +18,15 @@ function formatTime(timestamp: number): string {
 	});
 }
 
-export function MessageTimeline() {
+export function MessageTimeline({
+	emptyState,
+	className,
+	contentClassName,
+}: {
+	emptyState?: ReactNode;
+	className?: string;
+	contentClassName?: string;
+} = {}) {
 	const { messagesMap, messageIds, isGenerating, streamingMessageId } = useChatStore((s) => s);
 
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -48,11 +58,20 @@ export function MessageTimeline() {
 	const isEmpty = messages.length === 0 && !isGenerating;
 
 	return (
-		<div ref={scrollRef} data-slot="message-timeline" className="min-h-0 flex-1 overflow-y-auto">
+		<div
+			ref={scrollRef}
+			data-slot="message-timeline"
+			className={cn("min-h-0 flex-1 overflow-y-auto", className)}
+		>
 			{isEmpty ? (
-				<WelcomeScreen />
+				(emptyState ?? <WelcomeScreen />)
 			) : (
-				<div className="mx-auto flex w-full max-w-[1040px] flex-col gap-4 px-5 py-5 sm:px-6 lg:px-8">
+				<div
+					className={cn(
+						"mx-auto flex w-full max-w-[1040px] flex-col gap-4 px-5 py-5 sm:px-6 lg:px-8",
+						contentClassName,
+					)}
+				>
 					{messages.length > 0 && (
 						<div className="flex items-center justify-center py-1">
 							<span className="rounded-full bg-white/70 px-3 py-1 text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/50">

@@ -1,6 +1,6 @@
 "use client";
 
-import type { NavItem, ViewMode } from "@leros/store";
+import type { NavItem, Project, ViewMode } from "@leros/store";
 import { useLayoutStore } from "@leros/store";
 import {
 	DropdownMenu,
@@ -34,16 +34,16 @@ const iconMap: Record<string, React.ReactNode> = {
 };
 
 const navIdToView: Record<string, ViewMode> = {
-	workbench: "chat",
-	tasks: "workbench",
+	workbench: "workbench",
+	tasks: "tasks",
 	knowledge: "knowledge",
 	skills: "skills",
-	"project-1": "chat",
 	"ai-1": "digitalAssistant",
 };
 
 export function LeftRail({ logoSrc = "/logo.svg" }: { logoSrc?: string }) {
-	const { navGroups, currentView, switchView } = useLayoutStore((s) => s);
+	const { navGroups, projects, currentView, activeProjectId, switchView, switchProject } =
+		useLayoutStore((s) => s);
 
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
@@ -75,29 +75,38 @@ export function LeftRail({ logoSrc = "/logo.svg" }: { logoSrc?: string }) {
 				</div>
 			</div>
 
-			<ScrollArea className="flex-1">
+			<ScrollArea className="min-h-0 flex-1">
 				<nav className="leros-nav" aria-label="主导航">
 					{navGroups.map((group) => {
 						return (
 							<div key={group.id} className="leros-nav-section">
 								{group.label && <div className="leros-nav-section-label">{group.label}</div>}
-								<div className="space-y-1">
-									{group.items.map((item: NavItem) => (
-										<NavItemButton
-											key={item.id}
-											item={item}
-											active={isItemActive(item)}
-											onClick={() => handleNavClick(item)}
-										/>
-									))}
-								</div>
+								{group.id === "projects" ? (
+									<ProjectList
+										projects={projects}
+										activeProjectId={activeProjectId}
+										currentView={currentView}
+										onProjectClick={switchProject}
+									/>
+								) : (
+									<div className="space-y-1">
+										{group.items.map((item: NavItem) => (
+											<NavItemButton
+												key={item.id}
+												item={item}
+												active={isItemActive(item)}
+												onClick={() => handleNavClick(item)}
+											/>
+										))}
+									</div>
+								)}
 							</div>
 						);
 					})}
 				</nav>
 			</ScrollArea>
 
-			<div className="leros-sidebar-footer">
+			<div className="leros-sidebar-footer shrink-0">
 				<DropdownMenu>
 					<DropdownMenuTrigger
 						render={
@@ -137,6 +146,37 @@ export function LeftRail({ logoSrc = "/logo.svg" }: { logoSrc?: string }) {
 				</DropdownMenu>
 			</div>
 		</aside>
+	);
+}
+
+function ProjectList({
+	projects,
+	activeProjectId,
+	currentView,
+	onProjectClick,
+}: {
+	projects: Project[];
+	activeProjectId: string | null;
+	currentView: ViewMode;
+	onProjectClick: (projectId: string) => void;
+}) {
+	return (
+		<div className="space-y-1">
+			{projects.map((project) => (
+				<button
+					key={project.id}
+					type="button"
+					onClick={() => onProjectClick(project.id)}
+					data-active={currentView === "project" && activeProjectId === project.id}
+					className="leros-nav-item"
+				>
+					<span className="leros-nav-icon leros-nav-icon-text">
+						<Hash className="size-4" />
+					</span>
+					<span className="truncate font-medium">{project.name}</span>
+				</button>
+			))}
+		</div>
 	);
 }
 

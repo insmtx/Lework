@@ -4,6 +4,7 @@ import { useLayoutStore } from "@leros/store";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { CenterCanvas } from "./CenterCanvas";
 import { LeftRail } from "./LeftRail";
+import { ProjectPage } from "./ProjectPage";
 import { WorkbenchPanel } from "./WorkbenchPanel";
 
 export function Shell({ logoSrc }: { logoSrc?: string }) {
@@ -14,7 +15,13 @@ export function Shell({ logoSrc }: { logoSrc?: string }) {
 			<LeftRail logoSrc={logoSrc} />
 			{currentView === "chat" && <CenterCanvas />}
 			{currentView === "workbench" && <WorkbenchPanel />}
+			{currentView === "tasks" && <EmptyPage />}
+			{currentView === "project" && <ProjectPage />}
 			{currentView === "digitalAssistant" && <AssistantListView />}
 		</div>
 	);
+}
+
+function EmptyPage() {
+	return <div data-slot="empty-page" className="min-h-0 flex-1 bg-[#f7f8fd]" />;
 }
