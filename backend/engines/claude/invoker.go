@@ -150,10 +150,11 @@ func claudeModelEnv(model engines.ModelConfig) map[string]string {
 }
 
 type claudeStreamState struct {
-	result            string
-	isError           bool
-	lastAssistantText string
-	toolNames         map[string]string
+	result             string
+	isError            bool
+	lastAssistantText  string
+	toolNames          map[string]string
+	pendingTaskCreates map[string]events.RuntimeTodoItem
 }
 
 func scanClaudeStdout(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- events.Event, state *claudeStreamState) {
@@ -224,7 +225,12 @@ func parseClaudeLineEvents(line string, state *claudeStreamState) []events.Event
 					parsed = append(parsed, *events.NewMessageDelta(messageID, b.String()))
 					b.Reset()
 				}
-				parsed = append(parsed, claudeToolCallStartedEvent(block, state))
+				if isClaudeTodoTool(block.Name) {
+					rememberClaudeToolName(block, state)
+				} else {
+					parsed = append(parsed, claudeToolCallStartedEvent(block, state))
+				}
+				parsed = append(parsed, claudeTodoEventsFromToolUse(block, state)...)
 			}
 		}
 		if b.Len() > 0 {
@@ -238,7 +244,10 @@ func parseClaudeLineEvents(line string, state *claudeStreamState) []events.Event
 		var parsed []events.Event
 		for _, block := range event.Message.Content {
 			if block.Type == "tool_result" {
-				parsed = append(parsed, claudeToolCallCompletedEvent(block, state))
+				if !isClaudeTodoTool(claudeToolName(block.ToolUseID, state)) {
+					parsed = append(parsed, claudeToolCallCompletedEvent(block, state))
+				}
+				parsed = append(parsed, claudeTodoEventsFromToolResult(block, state)...)
 			}
 		}
 		return parsed
@@ -271,24 +280,261 @@ func usagePayloadFromClaudeUsage(usage *streamUsage) *events.UsagePayload {
 }
 
 func claudeToolCallStartedEvent(block streamContent, state *claudeStreamState) events.Event {
+	rememberClaudeToolName(block, state)
+	return *events.NewToolCallStarted(block.ID, block.Name, block.Input)
+}
+
+func rememberClaudeToolName(block streamContent, state *claudeStreamState) {
 	if state != nil && block.ID != "" && block.Name != "" {
 		if state.toolNames == nil {
 			state.toolNames = make(map[string]string)
 		}
 		state.toolNames[block.ID] = block.Name
 	}
-	return *events.NewToolCallStarted(block.ID, block.Name, block.Input)
+}
+
+func claudeToolName(toolUseID string, state *claudeStreamState) string {
+	if state == nil || state.toolNames == nil {
+		return ""
+	}
+	return state.toolNames[toolUseID]
 }
 
 func claudeToolCallCompletedEvent(block streamContent, state *claudeStreamState) events.Event {
-	name := ""
-	if state != nil && state.toolNames != nil {
-		name = state.toolNames[block.ToolUseID]
-	}
+	name := claudeToolName(block.ToolUseID, state)
 	if block.IsError {
 		return *events.NewToolCallFailed(block.ToolUseID, name, fmt.Sprintf("%v", block.Content), 0)
 	}
 	return *events.NewToolCallCompleted(block.ToolUseID, name, block.Content, 0)
+}
+
+func isClaudeTodoTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "TodoWrite", "TaskCreate", "TaskUpdate", "TaskList":
+		return true
+	default:
+		return false
+	}
+}
+
+func claudeTodoEventsFromToolUse(block streamContent, state *claudeStreamState) []events.Event {
+	name := strings.TrimSpace(block.Name)
+	switch name {
+	case "TodoWrite":
+		items := todoItemsFromClaudeTodos(block.Input["todos"])
+		if len(items) == 0 {
+			return nil
+		}
+		return []events.Event{*events.NewTodoSnapshot(items)}
+	case "TaskCreate":
+		item := todoItemFromClaudeTaskCreate(block.Input)
+		if item.Title == "" {
+			return nil
+		}
+		if item.ID == "" {
+			item.ID = strings.TrimSpace(block.ID)
+		}
+		if state != nil && block.ID != "" {
+			if state.pendingTaskCreates == nil {
+				state.pendingTaskCreates = make(map[string]events.RuntimeTodoItem)
+			}
+			state.pendingTaskCreates[block.ID] = item
+		}
+		return []events.Event{*events.NewTodoUpdated([]events.RuntimeTodoItem{item})}
+	case "TaskUpdate":
+		item := todoItemFromClaudeTaskUpdate(block.Input)
+		if item.ID == "" && item.Title == "" {
+			return nil
+		}
+		return []events.Event{*events.NewTodoUpdated([]events.RuntimeTodoItem{item})}
+	}
+	return nil
+}
+
+func claudeTodoEventsFromToolResult(block streamContent, state *claudeStreamState) []events.Event {
+	name := ""
+	if state != nil && state.toolNames != nil {
+		name = state.toolNames[block.ToolUseID]
+	}
+	switch strings.TrimSpace(name) {
+	case "TaskCreate":
+		item, ok := claudeTaskItemFromResult(block.Content)
+		if state != nil && state.pendingTaskCreates != nil {
+			if pending, exists := state.pendingTaskCreates[block.ToolUseID]; exists {
+				if item.ID == "" {
+					item.ID = pending.ID
+				}
+				if item.Title == "" {
+					item.Title = pending.Title
+				}
+				if item.Status == "" {
+					item.Status = pending.Status
+				}
+				if item.Priority == "" {
+					item.Priority = pending.Priority
+				}
+				delete(state.pendingTaskCreates, block.ToolUseID)
+				ok = true
+			}
+		}
+		if !ok || (item.ID == "" && item.Title == "") {
+			return nil
+		}
+		return []events.Event{*events.NewTodoUpdated([]events.RuntimeTodoItem{item})}
+	case "TaskList":
+		items := claudeTaskListFromResult(block.Content)
+		if len(items) == 0 {
+			return nil
+		}
+		return []events.Event{*events.NewTodoSnapshot(items)}
+	}
+	return nil
+}
+
+func todoItemsFromClaudeTodos(value any) []events.RuntimeTodoItem {
+	list, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	items := make([]events.RuntimeTodoItem, 0, len(list))
+	for index, raw := range list {
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		title := firstNonEmptyString(anyString(obj["content"]), anyString(obj["title"]), anyString(obj["description"]))
+		if title == "" {
+			continue
+		}
+		id := firstNonEmptyString(anyString(obj["id"]), fmt.Sprintf("todo_%d", index+1))
+		items = append(items, events.RuntimeTodoItem{
+			ID:       id,
+			Title:    title,
+			Status:   anyString(obj["status"]),
+			Priority: anyString(obj["priority"]),
+		})
+	}
+	return items
+}
+
+func todoItemFromClaudeTaskCreate(input map[string]any) events.RuntimeTodoItem {
+	return events.RuntimeTodoItem{
+		ID:       anyString(input["id"]),
+		Title:    firstNonEmptyString(anyString(input["title"]), anyString(input["subject"]), anyString(input["description"]), anyString(input["content"])),
+		Status:   firstNonEmptyString(anyString(input["status"]), "pending"),
+		Priority: anyString(input["priority"]),
+	}
+}
+
+func todoItemFromClaudeTaskUpdate(input map[string]any) events.RuntimeTodoItem {
+	return events.RuntimeTodoItem{
+		ID:       firstNonEmptyString(anyString(input["id"]), anyString(input["task_id"]), anyString(input["taskId"])),
+		Title:    firstNonEmptyString(anyString(input["title"]), anyString(input["subject"]), anyString(input["description"]), anyString(input["content"])),
+		Status:   anyString(input["status"]),
+		Priority: anyString(input["priority"]),
+	}
+}
+
+func claudeTaskItemFromResult(content any) (events.RuntimeTodoItem, bool) {
+	value, ok := decodedJSONValue(content)
+	if !ok {
+		return events.RuntimeTodoItem{}, false
+	}
+	if obj, ok := value.(map[string]any); ok {
+		if task, ok := obj["task"].(map[string]any); ok {
+			obj = task
+		}
+		item := events.RuntimeTodoItem{
+			ID:       firstNonEmptyString(anyString(obj["id"]), anyString(obj["task_id"]), anyString(obj["taskId"])),
+			Title:    firstNonEmptyString(anyString(obj["title"]), anyString(obj["subject"]), anyString(obj["description"]), anyString(obj["content"])),
+			Status:   anyString(obj["status"]),
+			Priority: anyString(obj["priority"]),
+		}
+		return item, item.ID != "" || item.Title != ""
+	}
+	return events.RuntimeTodoItem{}, false
+}
+
+func claudeTaskListFromResult(content any) []events.RuntimeTodoItem {
+	value, ok := decodedJSONValue(content)
+	if !ok {
+		return nil
+	}
+	var rawTasks []any
+	switch typed := value.(type) {
+	case []any:
+		rawTasks = typed
+	case map[string]any:
+		for _, key := range []string{"tasks", "todos", "items"} {
+			if list, ok := typed[key].([]any); ok {
+				rawTasks = list
+				break
+			}
+		}
+	}
+	if len(rawTasks) == 0 {
+		return nil
+	}
+	items := make([]events.RuntimeTodoItem, 0, len(rawTasks))
+	for index, raw := range rawTasks {
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		title := firstNonEmptyString(anyString(obj["title"]), anyString(obj["subject"]), anyString(obj["description"]), anyString(obj["content"]))
+		if title == "" {
+			continue
+		}
+		items = append(items, events.RuntimeTodoItem{
+			ID:       firstNonEmptyString(anyString(obj["id"]), anyString(obj["task_id"]), fmt.Sprintf("task_%d", index+1)),
+			Title:    title,
+			Status:   anyString(obj["status"]),
+			Priority: anyString(obj["priority"]),
+		})
+	}
+	return items
+}
+
+func decodedJSONValue(content any) (any, bool) {
+	switch typed := content.(type) {
+	case nil:
+		return nil, false
+	case string:
+		text := strings.TrimSpace(typed)
+		if text == "" {
+			return nil, false
+		}
+		var value any
+		if err := json.Unmarshal([]byte(text), &value); err != nil {
+			return nil, false
+		}
+		return value, true
+	default:
+		return typed, true
+	}
+}
+
+func anyString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case fmt.Stringer:
+		return strings.TrimSpace(typed.String())
+	default:
+		if value == nil {
+			return ""
+		}
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func scanPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- events.Event, eventType events.EventType) string {
@@ -323,6 +569,8 @@ func sendEvent(ctx context.Context, evtChan chan<- events.Event, event events.Ev
 func buildArgs(req engines.RunRequest) []string {
 	args := []string{
 		"--dangerously-skip-permissions",
+		"--permission-mode", "bypassPermissions",
+		"--disallowedTools", "AskUserQuestion",
 		"--verbose",
 		"--output-format", "stream-json",
 	}

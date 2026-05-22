@@ -13,6 +13,7 @@ import (
 	nodetools "github.com/insmtx/Leros/backend/tools/node"
 	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
 	skillusetools "github.com/insmtx/Leros/backend/tools/skill_use"
+	todotools "github.com/insmtx/Leros/backend/tools/todo"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -106,6 +107,9 @@ func registerTools(registry *tools.Registry, catalogProvider *skillcatalog.FileC
 	}
 	if err := memorytools.Register(registry); err != nil {
 		return fmt.Errorf("register memory tool: %w", err)
+	}
+	if err := todotools.Register(registry); err != nil {
+		return fmt.Errorf("register todo tool: %w", err)
 	}
 	if err := nodetools.Register(registry); err != nil {
 		return fmt.Errorf("register node tools: %w", err)

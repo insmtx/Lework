@@ -12,6 +12,8 @@ const (
 	SessionEventTypeToolCallStarted SessionEventType = "tool_call.started"
 	SessionEventTypeToolCallDelta   SessionEventType = "tool_call.delta"
 	SessionEventTypeToolCallResult  SessionEventType = "tool_call.result"
+	SessionEventTypeTodoSnapshot    SessionEventType = "todo.snapshot"
+	SessionEventTypeTodoUpdated     SessionEventType = "todo.updated"
 )
 
 type SessionEvent struct {
@@ -45,4 +47,11 @@ type ToolCallResultPayload struct {
 	Name       string      `json:"name"`
 	Result     interface{} `json:"result"`
 	Status     string      `json:"status"` // success | error
+}
+
+type RuntimeTodoItemPayload struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Priority string `json:"priority,omitempty"`
 }

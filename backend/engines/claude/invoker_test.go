@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
 )
@@ -123,6 +122,26 @@ func TestBuildArgsAppendsSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildArgsBypassesPermissionsAndDisallowsInteractiveQuestions(t *testing.T) {
+	args := buildArgs(engines.RunRequest{})
+
+	value, ok := argValue(args, "--permission-mode")
+	if !ok {
+		t.Fatalf("expected --permission-mode in args: %#v", args)
+	}
+	if value != "bypassPermissions" {
+		t.Fatalf("expected bypassPermissions permission mode, got %q", value)
+	}
+
+	value, ok = argValue(args, "--disallowedTools")
+	if !ok {
+		t.Fatalf("expected --disallowedTools in args: %#v", args)
+	}
+	if value != "AskUserQuestion" {
+		t.Fatalf("expected AskUserQuestion to be disallowed, got %q", value)
+	}
+}
+
 func TestBuildArgsSkipsEmptySystemPrompt(t *testing.T) {
 	args := buildArgs(engines.RunRequest{
 		SystemPrompt: "   ",
@@ -145,28 +164,6 @@ func TestParseClaudeLineTracksAssistantFallback(t *testing.T) {
 	}
 }
 
-func TestParseClaudeLineMapsMessageIDToUUID(t *testing.T) {
-	state := &claudeStreamState{}
-	parsed := parseClaudeLineEvents(`{"type":"assistant","message":{"id":"msg_provider_1","content":[{"type":"text","text":"answer"},{"type":"thinking","thinking":"reason"}]}}`, state)
-	if len(parsed) != 2 {
-		t.Fatalf("expected two events, got %+v", parsed)
-	}
-	messagePayload, err := events.DecodePayload[events.MessageDeltaPayload](&parsed[0])
-	if err != nil {
-		t.Fatalf("decode message payload: %v", err)
-	}
-	reasoningPayload, err := events.DecodePayload[events.MessageDeltaPayload](&parsed[1])
-	if err != nil {
-		t.Fatalf("decode reasoning payload: %v", err)
-	}
-	if _, err := uuid.Parse(messagePayload.MessageID); err != nil {
-		t.Fatalf("message id should be uuid, got %q: %v", messagePayload.MessageID, err)
-	}
-	if reasoningPayload.MessageID != messagePayload.MessageID {
-		t.Fatalf("expected text and reasoning to share message id, got %q and %q", messagePayload.MessageID, reasoningPayload.MessageID)
-	}
-}
-
 func TestParseClaudeLineEmitsToolCallStarted(t *testing.T) {
 	state := &claudeStreamState{}
 	event := parseClaudeLine(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_123","name":"Bash","input":{"command":"date","description":"查询当前系统时间"}}]}}`, state)
@@ -181,6 +178,63 @@ func TestParseClaudeLineEmitsToolCallStarted(t *testing.T) {
 	args, ok := content["arguments"].(map[string]any)
 	if !ok || args["command"] != "date" {
 		t.Fatalf("unexpected tool call arguments: %#v", content["arguments"])
+	}
+}
+
+func TestParseClaudeLineEmitsTodoSnapshotFromTodoWrite(t *testing.T) {
+	state := &claudeStreamState{}
+	parsed := parseClaudeLineEvents(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_todo","name":"TodoWrite","input":{"todos":[{"id":"t1","content":"Inspect code","status":"in_progress","priority":"high"},{"id":"t2","content":"Run tests","status":"pending"}]}}]}}`, state)
+	event := findClaudeTestEvent(parsed, events.EventTodoSnapshot)
+	if event == nil {
+		t.Fatalf("expected todo snapshot event, got %#v", parsed)
+	}
+	if findClaudeTestEvent(parsed, events.EventToolCallStarted) != nil {
+		t.Fatalf("todo write should not emit tool call event: %#v", parsed)
+	}
+	items, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
+	if err != nil {
+		t.Fatalf("decode todo snapshot: %v", err)
+	}
+	if len(items) != 2 || items[0].ID != "t1" || items[0].Title != "Inspect code" || items[0].Status != "in_progress" || items[0].Priority != "high" {
+		t.Fatalf("unexpected todo items: %#v", items)
+	}
+}
+
+func TestParseClaudeLineEmitsTodoUpdateFromTaskUpdate(t *testing.T) {
+	state := &claudeStreamState{}
+	parsed := parseClaudeLineEvents(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_task","name":"TaskUpdate","input":{"id":"task_1","title":"Implement parser","status":"completed"}}]}}`, state)
+	event := findClaudeTestEvent(parsed, events.EventTodoUpdated)
+	if event == nil {
+		t.Fatalf("expected todo update event, got %#v", parsed)
+	}
+	if findClaudeTestEvent(parsed, events.EventToolCallStarted) != nil {
+		t.Fatalf("task update should not emit tool call event: %#v", parsed)
+	}
+	items, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
+	if err != nil {
+		t.Fatalf("decode todo update: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "task_1" || items[0].Title != "Implement parser" || items[0].Status != "completed" {
+		t.Fatalf("unexpected todo update items: %#v", items)
+	}
+}
+
+func TestParseClaudeLineSuppressesToolCallForTaskListResult(t *testing.T) {
+	state := &claudeStreamState{toolNames: map[string]string{"call_tasks": "TaskList"}}
+	parsed := parseClaudeLineEvents(`{"type":"user","message":{"role":"user","content":[{"tool_use_id":"call_tasks","type":"tool_result","content":{"tasks":[{"id":"task_1","title":"Inspect","status":"completed"}]},"is_error":false}]}}`, state)
+	event := findClaudeTestEvent(parsed, events.EventTodoSnapshot)
+	if event == nil {
+		t.Fatalf("expected todo snapshot event, got %#v", parsed)
+	}
+	if findClaudeTestEvent(parsed, events.EventToolCallCompleted) != nil || findClaudeTestEvent(parsed, events.EventToolCallFailed) != nil {
+		t.Fatalf("task list should not emit tool result event: %#v", parsed)
+	}
+	items, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
+	if err != nil {
+		t.Fatalf("decode todo snapshot: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "task_1" || items[0].Title != "Inspect" || items[0].Status != "completed" {
+		t.Fatalf("unexpected task list items: %#v", items)
 	}
 }
 
@@ -250,4 +304,13 @@ func decodeEventContent(t *testing.T, content string) map[string]any {
 		t.Fatalf("decode event content: %v", err)
 	}
 	return decoded
+}
+
+func findClaudeTestEvent(eventList []events.Event, eventType events.EventType) *events.Event {
+	for i := range eventList {
+		if eventList[i].Type == eventType {
+			return &eventList[i]
+		}
+	}
+	return nil
 }

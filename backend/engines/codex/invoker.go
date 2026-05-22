@@ -38,11 +38,18 @@ type codexItem struct {
 	ID          string          `json:"id,omitempty"`
 	Type        string          `json:"type"`
 	Text        json.RawMessage `json:"text,omitempty"`
+	Items       []codexTodoItem `json:"items,omitempty"`
 	Command     string          `json:"command,omitempty"`
 	CommandLine string          `json:"command_line,omitempty"`
 	Name        string          `json:"name,omitempty"`
 	Output      string          `json:"output,omitempty"`
 	Aggregated  string          `json:"aggregated_output,omitempty"`
+}
+
+type codexTodoItem struct {
+	ID        string `json:"id,omitempty"`
+	Text      string `json:"text"`
+	Completed bool   `json:"completed"`
 }
 
 // Run 启动 Codex CLI 进程并将 stdout/stderr 直接转换为引擎事件。
@@ -184,8 +191,36 @@ func parseCodexLineWithState(line string, state *codexStreamState) events.Event 
 		if output != "" {
 			return *events.NewMessageDelta(item.ID, truncateOutput(output, 300))
 		}
+	case "todo_list":
+		items := todoItemsFromCodex(item.Items)
+		if len(items) != 0 {
+			return *events.NewTodoSnapshot(items)
+		}
 	}
 	return events.Event{}
+}
+
+func todoItemsFromCodex(items []codexTodoItem) []events.RuntimeTodoItem {
+	if len(items) == 0 {
+		return nil
+	}
+	result := make([]events.RuntimeTodoItem, 0, len(items))
+	for _, item := range items {
+		title := strings.TrimSpace(item.Text)
+		if title == "" {
+			continue
+		}
+		status := "pending"
+		if item.Completed {
+			status = "completed"
+		}
+		result = append(result, events.RuntimeTodoItem{
+			ID:     strings.TrimSpace(item.ID),
+			Title:  title,
+			Status: status,
+		})
+	}
+	return result
 }
 
 func decodeCodexText(raw json.RawMessage) string {

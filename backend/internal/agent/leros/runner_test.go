@@ -20,6 +20,7 @@ import (
 	nodetools "github.com/insmtx/Leros/backend/tools/node"
 	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
 	skillusetools "github.com/insmtx/Leros/backend/tools/skill_use"
+	todotools "github.com/insmtx/Leros/backend/tools/todo"
 	"github.com/ygpkg/yg-go/logs"
 	"go.uber.org/zap/zapcore"
 )
@@ -74,6 +75,9 @@ func TestRunnerBuildRunStateMergesDefaultAndRequestTools(t *testing.T) {
 	if err := skillmanagetools.Register(registry); err != nil {
 		t.Fatalf("register skill manage tools: %v", err)
 	}
+	if err := todotools.Register(registry); err != nil {
+		t.Fatalf("register todo tools: %v", err)
+	}
 	if err := nodetools.Register(registry); err != nil {
 		t.Fatalf("register node tools: %v", err)
 	}
@@ -103,6 +107,7 @@ func TestRunnerBuildRunStateMergesDefaultAndRequestTools(t *testing.T) {
 		memorytools.ToolNameMemory,
 		skillusetools.ToolNameSkillUse,
 		skillmanagetools.ToolNameSkillManage,
+		todotools.ToolNameTodo,
 		nodetools.ToolNameNodeShell,
 		nodetools.ToolNameNodeFileRead,
 		nodetools.ToolNameNodeFileWrite,

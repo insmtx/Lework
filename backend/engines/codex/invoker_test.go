@@ -81,6 +81,20 @@ func TestParseCodexLineCapturesThread(t *testing.T) {
 	}
 }
 
+func TestParseCodexLineEmitsTodoSnapshot(t *testing.T) {
+	event := parseCodexLine(`{"type":"item.updated","item":{"id":"todo_list_1","type":"todo_list","items":[{"text":"Inspect code","completed":false},{"text":"Run tests","completed":true}]}}`)
+	if event.Type != events.EventTodoSnapshot {
+		t.Fatalf("expected todo snapshot, got %#v", event)
+	}
+	items, err := events.DecodePayload[[]events.RuntimeTodoItem](&event)
+	if err != nil {
+		t.Fatalf("decode todo snapshot: %v", err)
+	}
+	if len(items) != 2 || items[0].Title != "Inspect code" || items[0].Status != "pending" || items[1].Status != "completed" {
+		t.Fatalf("unexpected todo items: %#v", items)
+	}
+}
+
 func firstNonEmptyEnv(keys ...string) string {
 	for _, key := range keys {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {

@@ -12,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/agent/runtime/events"
+	runtimetodo "github.com/insmtx/Leros/backend/internal/agent/runtime/todo"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -85,7 +86,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		logs.InfoContextf(ctx, "External runtime %s started with pid %d", r.name, handle.Process.PID())
 	}
 
-	consumeResult, err := consumeEvents(ctx, eventSink, handle)
+	consumeResult, err := consumeEvents(ctx, eventSink, handle, req.RunID, req.TraceID)
 	if err != nil {
 		r.markProviderSessionFailed(ctx, sessionPlan, err)
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
@@ -117,7 +118,7 @@ type consumeResult struct {
 	Usage             *events.UsagePayload
 }
 
-func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHandle) (consumeResult, error) {
+func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHandle, runID string, traceID string) (consumeResult, error) {
 	if handle == nil || handle.Events == nil {
 		return consumeResult{}, nil
 	}
@@ -128,6 +129,7 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 	resultSeen := false
 	consumed := consumeResult{}
 	messageIDs := events.NewMessageIDMapper()
+	todoTracker := runtimetodo.NewTracker(runtimetodo.Options{RunID: runID, TraceID: traceID, Sink: sink})
 	for event := range handle.Events {
 		switch event.Type {
 		case events.EventStarted:
@@ -172,6 +174,14 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
 		case events.EventToolCallStarted, events.EventToolCallCompleted, events.EventToolCallFailed:
 			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+		case events.EventTodoSnapshot:
+			if items, err := events.DecodePayload[[]events.RuntimeTodoItem](&event); err == nil {
+				_ = todoTracker.Snapshot(ctx, items)
+			}
+		case events.EventTodoUpdated:
+			if items, err := events.DecodePayload[[]events.RuntimeTodoItem](&event); err == nil {
+				_ = todoTracker.Update(ctx, items, true)
+			}
 		default:
 			if strings.TrimSpace(event.Content) != "" {
 				if !resultSeen {
