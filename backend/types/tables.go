@@ -49,4 +49,7 @@ const (
 
 	// TableNameTask 任务表名
 	TableNameTask = tablenamePrefix + "task"
+
+	// TableNameArtifact 任务产出物表名
+	TableNameArtifact = tablenamePrefix + "artifact"
 )

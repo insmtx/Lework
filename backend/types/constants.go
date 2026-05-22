@@ -215,3 +215,29 @@ const (
 	TaskTypeGeneral TaskType = "general"
 	TaskTypeCron    TaskType = "cron"
 )
+
+// ArtifactType 表示产出物的类型
+type ArtifactType string
+
+const (
+	// ArtifactTypeText 文本内容（文档、代码、报告等）
+	ArtifactTypeText ArtifactType = "text"
+	// ArtifactTypeStructuredData 结构化数据（JSON、表格、CSV）
+	ArtifactTypeStructuredData ArtifactType = "structured_data"
+	// ArtifactTypeFile 文件附件（图片、压缩包、二进制）
+	ArtifactTypeFile ArtifactType = "file"
+	// ArtifactTypeComposite 复合产物（多种类型混合）
+	ArtifactTypeComposite ArtifactType = "composite"
+)
+
+// ArtifactStatus 表示产出物的状态
+type ArtifactStatus string
+
+const (
+	// ArtifactStatusGenerating 产出物生成中
+	ArtifactStatusGenerating ArtifactStatus = "generating"
+	// ArtifactStatusCompleted 产出物已完成
+	ArtifactStatusCompleted ArtifactStatus = "completed"
+	// ArtifactStatusFailed 产出物生成失败
+	ArtifactStatusFailed ArtifactStatus = "failed"
+)
