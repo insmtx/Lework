@@ -106,15 +106,23 @@ import { useMobile } from "@leros/ui/hooks/use-mobile";
 import { useSSE } from "@leros/ui/hooks/use-sse";
 ```
 
+应用入口 CSS 通过样式包导入共享全局样式：
+
+```css
+@import "@leros/styles/globals.css";
+```
+
 ### 共享包职责边界
 
 | 包 | 职责 | 可依赖 |
 |----|------|--------|
 | `@leros/app-ui` | Leros 产品级业务组合组件，如 Shell、Chat、DigitalAssistant | `@leros/ui`, `@leros/store` |
+| `@leros/styles` | 双端共享全局样式入口，集中维护 Tailwind/shadcn/token/base/app shell 样式和共享包 `@source` | `@leros/ui`, CSS 依赖 |
 | `@leros/ui` | 基础 UI 原语、通用 hooks、lib 工具、设计系统样式 | 第三方 UI/工具库 |
 | `@leros/store` | Zustand 状态、领域类型、API client、mock 数据 | `@leros/ui` 中的纯工具（如需要） |
 
 新增双端共享业务组件时，优先放入 `packages/app-ui`。仅 Web 或 Desktop 独有的入口、路由、资源路径或平台能力适配，才放在对应 `apps/*` 目录。
+新增跨端全局样式、设计 token 接入或共享包 Tailwind 扫描规则时，优先放入 `packages/styles/globals.css`，避免 Web 与 Desktop 各自维护一份 CSS。
 
 ### @leros/app-ui 导出路径
 
@@ -132,6 +140,34 @@ import { useSSE } from "@leros/ui/hooks/use-sse";
 
 ```ts
 import { Shell } from "@leros/app-ui/components/layout/Shell";
+```
+
+### @leros/styles 导出路径
+
+共享样式包只导出 CSS 入口，并显式提供 `style` condition，确保 Next.js/Turbopack 与 Vite 都能通过包名解析样式文件：
+
+```json
+// packages/styles/package.json exports
+{
+  "./globals.css": {
+    "style": "./globals.css",
+    "default": "./globals.css"
+  }
+}
+```
+
+应用入口 CSS 只负责导入共享样式和声明应用本地源码扫描：
+
+```css
+/* apps/web/app/globals.css */
+@import "@leros/styles/globals.css";
+
+@source "./**/*.{ts,tsx}";
+
+/* apps/desktop/src/renderer/src/globals.css */
+@import "@leros/styles/globals.css";
+
+@source "./**/*.{ts,tsx}";
 ```
 
 ### @leros/ui 导出路径
@@ -263,7 +299,7 @@ catalog:
 }
 ```
 
- Vorteil：
+优势：
 - 避免各包 React/TS 版本不一致
 - 升级时只需修改 `catalog` 一处
 - pnpm 自动解析为实际版本写入 lockfile
@@ -283,27 +319,36 @@ strict-peer-dependencies=false
 
 ### TailwindCSS 4 配置
 
-Web 应用使用 PostCSS 方式：
+Web 应用使用 PostCSS 方式，Desktop 应用使用 Vite 插件方式（`@tailwindcss/vite`）。两端的全局样式入口保持一致，都导入 `@leros/styles/globals.css`：
 
 ```css
 /* apps/web/app/globals.css */
-@import "tailwindcss";
-@import "@leros/ui/styles/tokens.css";
-@import "@leros/ui/styles/base.css";
-@source "../../../packages/app-ui/**/*.tsx";
-```
+@import "@leros/styles/globals.css";
 
-Desktop 应用使用 Vite 插件方式（`@tailwindcss/vite`），在 `electron.vite.config.ts` 中配置。
-
-TailwindCSS 4 需要通过 `@source` 扫描 workspace 里的应用级组件。若 `@leros/app-ui` 中新增了 Tailwind class，需要确认 Web 与 Desktop 的全局 CSS 都包含对应 `@source`：
-
-```css
-/* apps/web/app/globals.css */
-@source "../../../packages/app-ui/**/*.tsx";
+@source "./**/*.{ts,tsx}";
 
 /* apps/desktop/src/renderer/src/globals.css */
-@source "../../../../../packages/app-ui/**/*.tsx";
+@import "@leros/styles/globals.css";
+
+@source "./**/*.{ts,tsx}";
 ```
+
+共享样式包负责导入 Tailwind、shadcn、动画样式和设计系统基础样式：
+
+```css
+/* packages/styles/globals.css */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@leros/ui/styles/tokens.css";
+@import "@leros/ui/styles/base.css";
+
+@source "../ui/**/*.tsx";
+@source "../store/**/*.ts";
+@source "../app-ui/**/*.tsx";
+```
+
+如果 `@leros/app-ui`、`@leros/ui` 或新的共享包中新增 Tailwind class，不需要再分别修改 Web/Desktop 的相对路径；只在 `packages/styles/globals.css` 中维护共享包扫描范围。
 
 ### 设计系统
 

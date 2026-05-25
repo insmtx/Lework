@@ -360,6 +360,7 @@ GitHub/GitLab Webhook → Server → NATS → Event Engine → Agent Runner
 | `packages/ui/` | 共享 UI 组件库（shadcn/ui 40+ 组件 + hooks + lib） |
 | `packages/store/` | Zustand 状态管理（chat/digital assistant/topic/layout）|
 | `packages/app-ui/` | 应用级 UI 组件（chat/assistant/layout/input）|
+| `packages/styles/` | 双端共享全局样式入口（Tailwind/shadcn/token/base + app shell styles）|
 
 ---
 

@@ -64,6 +64,10 @@ frontend/
 │   │   ├── index.ts               # 统一导出应用级组件
 │   │   └── package.json           # 子路径 exports
 │   │
+│   ├── styles/                    # @leros/styles — 双端共享全局样式入口
+│   │   ├── globals.css            # Tailwind/shadcn/token/base + shared @source + app shell styles
+│   │   └── package.json           # CSS package exports
+│   │
 │   ├── store/                     # @leros/store — Zustand 状态管理
 │   │   ├── appStore.ts            # 合并 layoutSlice + topicSlice + chatSlice
 │   │   ├── slices/                # layout / topic / chat 状态切片
@@ -97,6 +101,7 @@ frontend/
 ├──────────────────────────────────────────────────────────┤
 │              Packages (共享层)                              │
 │  @leros/app-ui (应用级业务UI)    @leros/store (状态) │
+│  @leros/styles (共享全局样式入口)                           │
 │  @leros/ui (基础UI+Hooks+工具库)                           │
 │  @leros/tsconfig (TS配置)  @leros/biome (Lint配置)   │
 ├──────────────────────────────────────────────────────────┤
@@ -142,6 +147,8 @@ const nextConfig: NextConfig = {
 };
 ```
 
+`@leros/styles` 是 CSS-only 包，通过 CSS import 和 package `exports` 的 `style` condition 解析，不需要加入 `transpilePackages`。
+
 ### 应用级 UI 共享包
 
 `@leros/app-ui` 承载 Web 与 Desktop 共用的业务组合组件：
@@ -152,6 +159,25 @@ const nextConfig: NextConfig = {
 - `components/digitalAssistant`：列表、详情、创建/编辑/删除弹窗
 
 该包位于 `packages/app-ui`，依赖 `@leros/ui` 与 `@leros/store`。应用入口只负责路由、主题、平台资源注入和运行时差异；双端复用的业务 UI 不应再在 `apps/web` 与 `apps/desktop` 中重复实现。
+
+### 全局样式共享包
+
+`@leros/styles` 承载 Web 与 Desktop 共用的全局 CSS 入口：
+
+- 导入 TailwindCSS 4、`tw-animate-css`、`shadcn/tailwind.css`
+- 导入 `@leros/ui/styles/tokens.css` 与 `@leros/ui/styles/base.css`
+- 集中维护 `packages/ui`、`packages/store`、`packages/app-ui` 的 Tailwind `@source`
+- 承载 Leros app shell、侧边栏、聊天区域等跨端一致的全局 class
+
+两个应用的 `globals.css` 只保留薄入口：
+
+```css
+@import "@leros/styles/globals.css";
+
+@source "./**/*.{ts,tsx}";
+```
+
+新增跨端共享样式或共享包扫描范围时，应修改 `packages/styles/globals.css`，避免 Web 和 Desktop 各自维护相对路径。
 
 ### Electron-Vite React 去重
 

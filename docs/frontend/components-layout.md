@@ -62,7 +62,7 @@ packages/app-ui/components/layout/
 └── index.ts            # barrel 导出
 ```
 
-`Shell`、`LeftRail`、`CenterCanvas`、`ChatInput`、消息时间轴和 DigitalAssistant 相关组件位于 `@leros/app-ui`，由 Web 与 Desktop 共同复用。应用目录只保留入口、路由、全局样式和必要的平台适配。
+`Shell`、`LeftRail`、`CenterCanvas`、`ChatInput`、消息时间轴和 DigitalAssistant 相关组件位于 `@leros/app-ui`，由 Web 与 Desktop 共同复用。应用目录只保留入口、路由、薄样式入口和必要的平台适配；跨端全局样式统一维护在 `@leros/styles`。
 
 ## UI 原语组件层 (`components/ui/`)
 
@@ -105,6 +105,26 @@ packages/app-ui/components/
 
 新增双端共享业务组件时，优先放入 `packages/app-ui/components`。只有平台专属能力（如 Electron 资源路径、Web 专属路由入口）才放入 `apps/web` 或 `apps/desktop`。
 
+## 全局样式包 (`packages/styles/`)
+
+`@leros/styles` 是 Web 与 Desktop 的共享 CSS 入口，用于集中维护跨端一致的全局样式：
+
+```
+packages/styles/
+├── globals.css   # Tailwind/shadcn/token/base + shared @source + app shell styles
+└── package.json  # 导出 ./globals.css
+```
+
+两个应用的入口 CSS 只导入共享样式，并声明自身本地源码扫描：
+
+```css
+@import "@leros/styles/globals.css";
+
+@source "./**/*.{ts,tsx}";
+```
+
+`packages/styles/globals.css` 内部负责扫描 `packages/ui`、`packages/store`、`packages/app-ui`。新增共享组件或全局 class 时，优先更新该文件，避免 Web/Desktop 产生重复 CSS 配置。
+
 ## AI 浮动助手组件 (`components/ai-float/`)
 
 全局侧边 AI 助手组件：
@@ -135,4 +155,11 @@ apps/desktop/src/renderer/src/routes.tsx
 @leros/app-ui
   └─ @leros/store (状态)
   └─ @leros/ui (基础 UI 原语)
+
+apps/web/app/globals.css
+apps/desktop/src/renderer/src/globals.css
+  └─ @leros/styles/globals.css
+      ├─ @leros/ui/styles/tokens.css
+      ├─ @leros/ui/styles/base.css
+      └─ Tailwind @source: ui / store / app-ui
 ```
