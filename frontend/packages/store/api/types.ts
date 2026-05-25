@@ -200,3 +200,16 @@ export type BackendSessionEventPayload = {
 export type BackendSessionEventPayloadLike = BackendSessionEventPayload | BackendRuntimeTodoItem[];
 
 export type SSEEventPayload = BackendSessionEventPayloadLike;
+
+export type BackendProject = {
+	id: number;
+	public_id: string;
+	name: string;
+	description?: string;
+	status?: string;
+	owner_id?: number;
+	org_id?: number;
+	metadata?: Record<string, unknown>;
+	created_at: string;
+	updated_at: string;
+};

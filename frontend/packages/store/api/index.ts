@@ -9,6 +9,14 @@ export type {
 } from "./digitalAssistantApi";
 export { digitalAssistantApi } from "./digitalAssistantApi";
 export type {
+	CreateProjectParams,
+	DeleteProjectParams,
+	GetProjectParams,
+	ListProjectsParams,
+	UpdateProjectParams,
+} from "./projectApi";
+export { projectApi } from "./projectApi";
+export type {
 	AddMessageParams,
 	CreateSessionParams,
 	GetSessionParams,
@@ -30,6 +38,7 @@ export type {
 	BackendMessageMetadata,
 	BackendPaginatedResponse,
 	BackendPolicyConfig,
+	BackendProject,
 	BackendRuntimeConfig,
 	BackendRuntimeTodoItem,
 	BackendSession,

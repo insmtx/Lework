@@ -4,8 +4,8 @@ import { useLayoutStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
-import { Bell, Check, ChevronDown, Folder, Plus, Search, SendHorizonal, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Bell, Check, ChevronDown, Folder, ListTodo, Plus, Search, SendHorizonal, X } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
 
 const mockActivities = [
 	{
@@ -29,11 +29,17 @@ const mockActivities = [
 ];
 
 export function WorkbenchPanel() {
-	const { projects, activeProjectId, selectWorkbenchProject, sendWorkbenchMessage, switchProject } =
+	const { projects, activeProjectId, activeWorkbenchTaskId, selectWorkbenchProject, selectWorkbenchTask, sendWorkbenchMessage, fetchProjects } =
 		useLayoutStore((s) => s);
 	const [input, setInput] = useState("");
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
+	const [taskMenuOpen, setTaskMenuOpen] = useState(false);
+	const [taskSearch, setTaskSearch] = useState("");
+
+	useEffect(() => {
+		fetchProjects();
+	}, [fetchProjects]);
 
 	const handleSend = () => {
 		if (!input.trim()) return;
@@ -48,10 +54,28 @@ export function WorkbenchPanel() {
 		return projects.filter((project) => project.name.toLowerCase().includes(keyword));
 	}, [projectSearch, projects]);
 
+	const activeTask = activeProject?.tasks.find((t) => t.id === activeWorkbenchTaskId);
+	const filteredTasks = useMemo(() => {
+		const keyword = taskSearch.trim().toLowerCase();
+		if (!activeProject) return [];
+		if (!keyword) return activeProject.tasks;
+		return activeProject.tasks.filter(
+			(t) =>
+				t.title.toLowerCase().includes(keyword) ||
+				t.meta.toLowerCase().includes(keyword),
+		);
+	}, [taskSearch, activeProject]);
+
 	const handleSelectProject = (projectId: string | null) => {
 		selectWorkbenchProject(projectId);
 		setProjectMenuOpen(false);
 		setProjectSearch("");
+	};
+
+	const handleSelectTask = (taskId: string | null) => {
+		selectWorkbenchTask(taskId);
+		setTaskMenuOpen(false);
+		setTaskSearch("");
 	};
 
 	return (
@@ -190,13 +214,88 @@ export function WorkbenchPanel() {
 										</PopoverContent>
 									</Popover>
 									{activeProject && (
-										<button
-											type="button"
-											onClick={() => switchProject(activeProject.id)}
-											className="text-xs font-semibold text-[var(--leros-primary)] hover:underline"
-										>
-											打开项目
-										</button>
+										<Popover open={taskMenuOpen} onOpenChange={setTaskMenuOpen}>
+											<PopoverTrigger
+												type="button"
+												className="flex h-8 min-w-[140px] items-center gap-2 rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3 text-xs font-semibold text-[var(--leros-text)] outline-none transition-colors hover:border-[var(--leros-focus-ring)] data-[open]:border-[var(--leros-primary)]"
+												aria-label="选择任务"
+											>
+												<ListTodo className="size-4 shrink-0 text-[var(--leros-text-muted)]" />
+												<span className="max-w-[120px] truncate">
+													{activeTask?.title ?? "选择任务"}
+												</span>
+												{activeTask && (
+													<button
+														type="button"
+														onClick={(e) => {
+															e.stopPropagation();
+															handleSelectTask(null);
+														}}
+														className="shrink-0 rounded-full p-0.5 text-[var(--leros-text-subtle)] hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
+													>
+														<X className="size-3.5" />
+													</button>
+												)}
+												<ChevronDown className="ml-auto size-3.5 shrink-0 text-[var(--leros-text-subtle)]" />
+											</PopoverTrigger>
+											<PopoverContent
+												align="start"
+												side="bottom"
+												sideOffset={10}
+												className="w-[260px] gap-0 rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-2.5 shadow-[0_18px_45px_rgba(30,41,59,0.18)] ring-0"
+											>
+												<div className="flex h-10 items-center gap-2 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-[var(--leros-text-muted)]">
+													<Search className="size-4 shrink-0" />
+													<input
+														value={taskSearch}
+														onChange={(event) => setTaskSearch(event.target.value)}
+														placeholder="搜索任务"
+														className="h-full min-w-0 flex-1 bg-transparent text-sm text-[var(--leros-text)] outline-none placeholder:text-[var(--leros-text-subtle)]"
+													/>
+												</div>
+
+												<div className="mt-2.5 max-h-[200px] space-y-1 overflow-y-auto pr-1">
+													{filteredTasks.map((task) => {
+														const selected = activeWorkbenchTaskId === task.id;
+
+														return (
+															<button
+																key={task.id}
+																type="button"
+																onClick={() => handleSelectTask(task.id)}
+																className={cn(
+																	"flex h-auto w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left transition-colors",
+																	selected
+																		? "bg-[var(--leros-primary)] text-white"
+																		: "text-[var(--leros-text)] hover:bg-[var(--leros-chat-control-bg)]",
+																)}
+															>
+																<div className="flex w-full items-center gap-2.5">
+																	<span className="flex size-4 shrink-0 items-center justify-center">
+																		{selected && <Check className="size-4" />}
+																	</span>
+																	<span className="text-sm font-semibold">{task.title}</span>
+																</div>
+																<span
+																	className={cn(
+																		"ml-[26px] text-xs",
+																		selected ? "text-white/70" : "text-[var(--leros-text-muted)]",
+																	)}
+																>
+																	{task.meta}
+																</span>
+															</button>
+														);
+													})}
+
+													{filteredTasks.length === 0 && (
+														<div className="px-3 py-6 text-center text-sm text-[var(--leros-text-muted)]">
+															没有匹配的任务
+														</div>
+													)}
+												</div>
+											</PopoverContent>
+										</Popover>
 									)}
 								</div>
 								<div className="flex items-center gap-2">

@@ -1,5 +1,6 @@
+import { projectApi } from "../api/projectApi";
 import { sessionApi } from "../api/sessionApi";
-import type { BackendSession } from "../api/types";
+import type { BackendProject, BackendSession } from "../api/types";
 import type { SliceCreator } from "../types";
 import { flattenActions } from "../utils";
 
@@ -94,6 +95,7 @@ export type LayoutState = {
 	activeConversationId: string | null;
 	activeWorkspaceId: string | null;
 	activeProjectId: string | null;
+	activeWorkbenchTaskId: string | null;
 	activeProjectTab: "chat" | "tasks" | "files" | "memory";
 	workspaces: Workspace[];
 	projects: Project[];
@@ -120,169 +122,19 @@ function mapSessionToConversation(s: BackendSession): Conversation {
 	};
 }
 
-const now = Date.now();
-
-const mockProjects: Project[] = [
-	{
-		id: "backend-v2",
-		name: "backend-v2",
-		description: "后端 API 与数据库性能优化",
-		updatedAt: now - 2 * 60 * 1000,
-		messages: [
-			{
-				id: "backend-v2-msg-1",
-				role: "assistant",
-				content:
-					"我已经分析了 backend-v2 当前数据库 schema，建议为高频访问的用户会话加入 Redis 缓存层，以降低 PostgreSQL 负载。",
-				timestamp: now - 12 * 60 * 1000,
-			},
-			{
-				id: "backend-v2-msg-2",
-				role: "user",
-				content: "听起来不错。可以说明 Docker 配置需要如何调整吗？",
-				timestamp: now - 10 * 60 * 1000,
-			},
-		],
-		tasks: [
-			{ id: "task-1", title: "更新 session TTL", meta: "2 小时内到期 · 高优先级", status: "todo" },
-			{ id: "task-2", title: "Docker 配置优化", meta: "等待 AI 草稿", status: "in_progress" },
-			{ id: "task-3", title: "实现 Redis cache", meta: "已分配给 AI", status: "todo" },
-			{ id: "task-4", title: "数据库查询压测", meta: "等待评审", status: "done" },
-		],
-		artifacts: [
-			{
-				id: "artifact-1",
-				name: "schema_v2.json",
-				type: "document",
-				size: "4.2 KB",
-				updatedAt: "12 分钟前",
-			},
-			{
-				id: "artifact-2",
-				name: "load_metrics.csv",
-				type: "spreadsheet",
-				size: "128 KB",
-				updatedAt: "1 小时前",
-			},
-			{
-				id: "artifact-3",
-				name: "architecture_v1.png",
-				type: "image",
-				size: "1.8 MB",
-				updatedAt: "3 小时前",
-			},
-		],
-		files: [
-			{
-				id: "file-1",
-				name: "api-contract.md",
-				type: "document",
-				size: "9.6 KB",
-				updatedAt: "昨天",
-			},
-			{
-				id: "file-2",
-				name: "docker-compose.yml",
-				type: "document",
-				size: "3.1 KB",
-				updatedAt: "2 天前",
-			},
-		],
-		memories: [
-			{
-				id: "memory-1",
-				title: "性能目标",
-				content: "查询链路 P95 需要低于 180ms，缓存命中率目标 70% 以上。",
-			},
-		],
-	},
-	{
-		id: "frontend-core",
-		name: "frontend-core",
-		description: "前端 UI 组件化重构",
-		updatedAt: now - 45 * 60 * 1000,
-		messages: [
-			{
-				id: "frontend-msg-1",
-				role: "assistant",
-				content: "我会把桌面端与 Web 端共用的组件收敛到 app-ui，并保持 store 与 UI 的边界清晰。",
-				timestamp: now - 45 * 60 * 1000,
-			},
-		],
-		tasks: [
-			{ id: "task-5", title: "前端 UI 组件化重构", meta: "进行中", status: "in_progress" },
-			{ id: "task-6", title: "更新 app-ui 文档", meta: "已完成", status: "done" },
-		],
-		artifacts: [
-			{
-				id: "artifact-4",
-				name: "app-ui-plan.md",
-				type: "document",
-				size: "7.4 KB",
-				updatedAt: "45 分钟前",
-			},
-		],
-		files: [
-			{
-				id: "file-3",
-				name: "component-map.md",
-				type: "document",
-				size: "6.3 KB",
-				updatedAt: "今天",
-			},
-		],
-		memories: [
-			{
-				id: "memory-2",
-				title: "组件边界",
-				content: "app-ui 负责跨端视图，store 负责状态与后端契约。",
-			},
-		],
-	},
-	{
-		id: "incidents",
-		name: "incidents",
-		description: "热点故障复盘与报告",
-		updatedAt: now - 3 * 60 * 60 * 1000,
-		messages: [
-			{
-				id: "incidents-msg-1",
-				role: "assistant",
-				content: "我已经整理出最近 24 小时的故障时间线，并标记了需要补充根因证据的节点。",
-				timestamp: now - 3 * 60 * 60 * 1000,
-			},
-		],
-		tasks: [{ id: "task-7", title: "热点故障复盘报告", meta: "进行中", status: "in_progress" }],
-		artifacts: [
-			{
-				id: "artifact-5",
-				name: "incident-review.md",
-				type: "document",
-				size: "15 KB",
-				updatedAt: "3 小时前",
-			},
-		],
-		files: [],
-		memories: [
-			{
-				id: "memory-3",
-				title: "复盘格式",
-				content: "复盘报告需要包含影响范围、检测时间、恢复时间和预防动作。",
-			},
-		],
-	},
-	{
-		id: "infra",
-		name: "infra",
-		description: "基础设施安全审计",
-		updatedAt: now - 8 * 60 * 60 * 1000,
+function mapBackendProject(bp: BackendProject): Project {
+	return {
+		id: bp.public_id,
+		name: bp.name,
+		description: bp.description ?? "",
+		updatedAt: new Date(bp.updated_at).getTime(),
 		messages: [],
-		tasks: [{ id: "task-8", title: "基础设施安全审计", meta: "待处理", status: "todo" }],
+		tasks: [],
 		artifacts: [],
 		files: [],
 		memories: [],
-	},
-];
+	};
+}
 
 const _initialState: LayoutState = {
 	leftRailCollapsed: false,
@@ -292,12 +144,13 @@ const _initialState: LayoutState = {
 	activeConversationId: null,
 	activeWorkspaceId: null,
 	activeProjectId: null,
+	activeWorkbenchTaskId: null,
 	activeProjectTab: "chat",
 	workspaces: [
 		{ id: "remote-1", name: "远程工作区", mode: "remote", collapsed: false },
 		{ id: "local-1", name: "本地工作区", mode: "local", collapsed: false },
 	],
-	projects: mockProjects,
+	projects: [],
 	conversations: [],
 	conversationsLoaded: false,
 	inputFocused: false,
@@ -379,7 +232,11 @@ export class LayoutActionImpl {
 	};
 
 	selectWorkbenchProject = (projectId: string | null) => {
-		this.#set({ activeProjectId: projectId });
+		this.#set({ activeProjectId: projectId, activeWorkbenchTaskId: null });
+	};
+
+	selectWorkbenchTask = (taskId: string | null) => {
+		this.#set({ activeWorkbenchTaskId: taskId });
 	};
 
 	setActiveProjectTab = (tab: "chat" | "tasks" | "files" | "memory") => {
@@ -465,6 +322,71 @@ export class LayoutActionImpl {
 				projects: [newProject, ...state.projects],
 			};
 		});
+	};
+
+	fetchProjects = async () => {
+		const state = this.#get();
+		if (state.projects.length > 0) return;
+		try {
+			const res = await projectApi.list({ list_all: true, limit: 100 });
+			const items = res.data.data?.items ?? [];
+			this.#set({
+				projects: items.map(mapBackendProject),
+			});
+		} catch (err) {
+			console.error("fetchProjects error:", err);
+		}
+	};
+
+	createProject = async (params: { name: string; description?: string; metadata?: Record<string, unknown> }) => {
+		try {
+			const res = await projectApi.create(params);
+			const bp = res.data.data;
+			if (!bp) throw new Error("No data returned");
+			const item = mapBackendProject(bp);
+			this.#set((state) => ({
+				projects: [item, ...state.projects],
+			}));
+			return item;
+		} catch (err) {
+			console.error("createProject error:", err);
+			return null;
+		}
+	};
+
+	updateProject = async (params: {
+		public_id: string;
+		name?: string;
+		description?: string;
+		status?: string;
+		owner_id?: number;
+		metadata?: Record<string, unknown>;
+	}) => {
+		try {
+			const res = await projectApi.update(params);
+			const bp = res.data.data;
+			if (!bp) throw new Error("No data returned");
+			const item = mapBackendProject(bp);
+			this.#set((state) => ({
+				projects: state.projects.map((p) => (p.id === item.id ? { ...p, ...item } : p)),
+			}));
+			return item;
+		} catch (err) {
+			console.error("updateProject error:", err);
+			return null;
+		}
+	};
+
+	deleteProject = async (publicId: string) => {
+		try {
+			await projectApi.delete({ public_id: publicId });
+			this.#set((state) => ({
+				projects: state.projects.filter((p) => p.id !== publicId),
+				activeProjectId: state.activeProjectId === publicId ? null : state.activeProjectId,
+			}));
+		} catch (err) {
+			console.error("deleteProject error:", err);
+		}
 	};
 
 	toggleRightRail = () => {
