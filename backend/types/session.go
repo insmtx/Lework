@@ -81,10 +81,10 @@ type Session struct {
 	AllocatedAssistantID uint `gorm:"column:allocated_assistant_id;type:bigint;default:0;index"`
 
 	// session - 关联任务ID，允许为空，BIGINT，INDEX（scope=task时绑定）
-	TaskID *uint `gorm:"column:task_id;type:bigint;index"`
+	TaskID *uint `gorm:"column:task_id;type:bigint;uniqueIndex:uni_session_project_task"`
 
 	// session - 关联项目ID，允许为空，BIGINT，INDEX（scope=project时绑定）
-	ProjectID *uint `gorm:"column:project_id;type:bigint;index"`
+	ProjectID *uint `gorm:"column:project_id;type:bigint;uniqueIndex:uni_session_project_task"`
 
 	// session - 会话状态，VARCHAR(50)，NOT NULL，DEFAULT 'active'
 	Status string `gorm:"column:status;type:varchar(50);not null;default:'active'"`

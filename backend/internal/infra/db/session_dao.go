@@ -7,15 +7,33 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/Leros/backend/types"
 )
 
-// CreateSession 创建会话
+// CreateSession 创建会话（冲突时更新）
 func CreateSession(ctx context.Context, db *gorm.DB, session *types.Session) error {
-	return db.WithContext(ctx).Create(session).Error
+	return db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "project_id"}, {Name: "task_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"updated_at",
+			"type",
+			"uin",
+			"org_id",
+			"assistant_id",
+			"allocated_assistant_id",
+			"status",
+			"title",
+			"title_manually_set",
+			"metadata",
+			"message_count",
+			"last_message_at",
+			"expired_at",
+		}),
+	}).Create(session).Error
 }
 
 // GetSessionByID 根据ID获取会话
@@ -44,9 +62,27 @@ func GetSessionByPublicID(ctx context.Context, db *gorm.DB, publicID string) (*t
 	return &entity, nil
 }
 
-// UpdateSession 更新会话
+// UpdateSession 更新会话（冲突时更新）
 func UpdateSession(ctx context.Context, db *gorm.DB, session *types.Session) error {
-	return db.WithContext(ctx).Save(session).Error
+	return db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "project_id"}, {Name: "task_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"public_id",
+			"updated_at",
+			"type",
+			"uin",
+			"org_id",
+			"assistant_id",
+			"allocated_assistant_id",
+			"status",
+			"title",
+			"title_manually_set",
+			"metadata",
+			"message_count",
+			"last_message_at",
+			"expired_at",
+		}),
+	}).Save(session).Error
 }
 
 // DeleteSession 删除会话（软删除）
