@@ -2,22 +2,6 @@ package dto
 
 import "github.com/insmtx/Leros/backend/internal/runtime/events"
 
-type SessionEventType = events.EventType
-
-const (
-	SessionEventTypeMessageDelta    = events.EventMessageDelta
-	SessionEventTypeReasoningDelta  = events.EventReasoningDelta
-	SessionEventTypeMessageComplete = events.EventMessageComplete
-	SessionEventTypeRunStarted      = events.EventStarted
-	SessionEventTypeRunCompleted    = events.EventCompleted
-	SessionEventTypeRunFailed       = events.EventFailed
-	SessionEventTypeToolCallStarted = events.EventToolCallStarted
-	SessionEventTypeToolCallDelta   = events.EventToolCallDelta
-	SessionEventTypeToolCallResult  = events.EventToolCallResult
-	SessionEventTypeTodoSnapshot    = events.EventTodoSnapshot
-	SessionEventTypeTodoUpdated     = events.EventTodoUpdated
-)
-
 type SessionEvent struct {
 	Type      events.EventType `json:"type"`
 	SessionID string           `json:"session_id"`

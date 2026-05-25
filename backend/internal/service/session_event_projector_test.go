@@ -30,8 +30,8 @@ func TestProjectStreamMessageKeepsReasoningDeltaSeparate(t *testing.T) {
 	if !ok {
 		t.Fatal("expected reasoning event to project")
 	}
-	if event.Type != dto.SessionEventTypeReasoningDelta {
-		t.Fatalf("got type %q, want %q", event.Type, dto.SessionEventTypeReasoningDelta)
+	if event.Type != events.EventReasoningDelta {
+		t.Fatalf("got type %q, want %q", event.Type, events.EventReasoningDelta)
 	}
 	payload, ok := event.Payload.(dto.MessageDeltaPayload)
 	if !ok || payload.Content != "thinking" || payload.MessageID != "msg_1" {
@@ -60,7 +60,7 @@ func TestProjectRunEventRecordMatchesSessionEventShape(t *testing.T) {
 	if !ok {
 		t.Fatal("expected tool result event to project")
 	}
-	if event.Type != string(dto.SessionEventTypeToolCallResult) || event.SessionID != "sess_test" || event.Sequence != 8 {
+	if event.Type != string(events.EventToolCallResult) || event.SessionID != "sess_test" || event.Sequence != 8 {
 		t.Fatalf("unexpected projected event: %#v", event)
 	}
 	payload, ok := event.Payload.(dto.ToolCallResultPayload)
@@ -91,8 +91,8 @@ func TestProjectStreamMessageProjectsTodoSnapshotPayloadAsArray(t *testing.T) {
 	if !ok {
 		t.Fatal("expected todo event to project")
 	}
-	if event.Type != dto.SessionEventTypeTodoSnapshot {
-		t.Fatalf("got type %q, want %q", event.Type, dto.SessionEventTypeTodoSnapshot)
+	if event.Type != events.EventTodoSnapshot {
+		t.Fatalf("got type %q, want %q", event.Type, events.EventTodoSnapshot)
 	}
 	payload, ok := event.Payload.([]dto.RuntimeTodoItemPayload)
 	if !ok {

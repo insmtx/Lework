@@ -20,14 +20,14 @@ func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.Session
 
 	switch streamMsg.Body.Event {
 	case protocol.StreamEventMessageDelta:
-		event.Type = dto.SessionEventTypeMessageDelta
+		event.Type = events.EventMessageDelta
 		event.Payload = dto.MessageDeltaPayload{
 			MessageID: streamMsg.Body.Payload.MessageID,
 			Role:      string(streamMsg.Body.Payload.Role),
 			Content:   streamMsg.Body.Payload.Content,
 		}
 	case protocol.StreamEventReasoningDelta:
-		event.Type = dto.SessionEventTypeReasoningDelta
+		event.Type = events.EventReasoningDelta
 		event.Payload = dto.MessageDeltaPayload{
 			MessageID: streamMsg.Body.Payload.MessageID,
 			Role:      string(streamMsg.Body.Payload.Role),
@@ -37,7 +37,7 @@ func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.Session
 		if streamMsg.Body.Payload.ToolCall == nil {
 			return nil, false
 		}
-		event.Type = dto.SessionEventTypeToolCallStarted
+		event.Type = events.EventToolCallStarted
 		event.Payload = dto.ToolCallDeltaPayload{
 			ToolCallID: streamMsg.Body.Payload.ToolCall.ToolCallID,
 			Name:       streamMsg.Body.Payload.ToolCall.Name,
@@ -47,18 +47,18 @@ func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.Session
 		if streamMsg.Body.Payload.ToolResult == nil {
 			return nil, false
 		}
-		event.Type = dto.SessionEventTypeToolCallResult
+		event.Type = events.EventToolCallResult
 		event.Payload = toolCallResultPayload(streamMsg.Body.Payload.ToolResult)
 	case protocol.StreamEventTodoSnapshot:
-		event.Type = dto.SessionEventTypeTodoSnapshot
+		event.Type = events.EventTodoSnapshot
 		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
 	case protocol.StreamEventTodoUpdated:
-		event.Type = dto.SessionEventTypeTodoUpdated
+		event.Type = events.EventTodoUpdated
 		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
 	case protocol.StreamEventRunStarted:
-		event.Type = dto.SessionEventTypeRunStarted
+		event.Type = events.EventStarted
 	case protocol.StreamEventRunCompleted:
-		event.Type = dto.SessionEventTypeRunCompleted
+		event.Type = events.EventCompleted
 		if streamMsg.Body.RunCompleted != nil {
 			event.Payload = streamMsg.Body.RunCompleted
 		} else {
@@ -69,7 +69,7 @@ func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.Session
 			}
 		}
 	case protocol.StreamEventRunFailed:
-		event.Type = dto.SessionEventTypeRunFailed
+		event.Type = events.EventFailed
 		message := streamMsg.Body.Payload.Content
 		if streamMsg.Body.Error != nil {
 			message = streamMsg.Body.Error.Message
@@ -96,14 +96,14 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 
 	switch events.EventType(chunk.Type) {
 	case events.EventStarted:
-		event.Type = string(dto.SessionEventTypeRunStarted)
+		event.Type = string(events.EventStarted)
 	case events.EventCompleted:
-		event.Type = string(dto.SessionEventTypeRunCompleted)
+		event.Type = string(events.EventCompleted)
 		if payload, ok := decodeChunkPayload[events.RunCompletedPayload](chunk); ok {
 			event.Payload = payload
 		}
 	case events.EventFailed, events.EventCancelled:
-		event.Type = string(dto.SessionEventTypeRunFailed)
+		event.Type = string(events.EventFailed)
 		if payload, ok := decodeChunkPayload[events.RunCompletedPayload](chunk); ok {
 			event.Payload = payload
 		}
@@ -112,7 +112,7 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 		if !ok {
 			return nil, false
 		}
-		event.Type = string(dto.SessionEventTypeMessageDelta)
+		event.Type = string(events.EventMessageDelta)
 		event.Payload = dto.MessageDeltaPayload{
 			MessageID: payload.MessageID,
 			Role:      payload.Role,
@@ -123,7 +123,7 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 		if !ok {
 			return nil, false
 		}
-		event.Type = string(dto.SessionEventTypeReasoningDelta)
+		event.Type = string(events.EventReasoningDelta)
 		event.Payload = dto.MessageDeltaPayload{
 			MessageID: payload.MessageID,
 			Role:      payload.Role,
@@ -134,7 +134,7 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 		if !ok {
 			return nil, false
 		}
-		event.Type = string(dto.SessionEventTypeToolCallStarted)
+		event.Type = string(events.EventToolCallStarted)
 		event.Payload = dto.ToolCallDeltaPayload{
 			ToolCallID: payload.ToolCallID,
 			Name:       payload.Name,
@@ -145,21 +145,21 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 		if !ok {
 			return nil, false
 		}
-		event.Type = string(dto.SessionEventTypeToolCallResult)
+		event.Type = string(events.EventToolCallResult)
 		event.Payload = toolCallResultPayload(&payload)
 	case events.EventTodoSnapshot:
 		payload, ok := decodeChunkPayload[[]events.RuntimeTodoItem](chunk)
 		if !ok {
 			return nil, false
 		}
-		event.Type = string(dto.SessionEventTypeTodoSnapshot)
+		event.Type = string(events.EventTodoSnapshot)
 		event.Payload = todoPayload(payload)
 	case events.EventTodoUpdated:
 		payload, ok := decodeChunkPayload[[]events.RuntimeTodoItem](chunk)
 		if !ok {
 			return nil, false
 		}
-		event.Type = string(dto.SessionEventTypeTodoUpdated)
+		event.Type = string(events.EventTodoUpdated)
 		event.Payload = todoPayload(payload)
 	default:
 		return nil, false
