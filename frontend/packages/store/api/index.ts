@@ -25,6 +25,14 @@ export type {
 } from "./sessionApi";
 export { sessionApi } from "./sessionApi";
 export type {
+	CreateTaskParams,
+	DeleteTaskParams,
+	GetTaskParams,
+	ListTasksParams,
+	UpdateTaskParams,
+} from "./taskApi";
+export { taskApi } from "./taskApi";
+export type {
 	BackendAssistantConfig,
 	BackendBaseResponse,
 	BackendChannelRef,
@@ -44,6 +52,7 @@ export type {
 	BackendSession,
 	BackendSessionMetadata,
 	BackendSkillRef,
+	BackendTask,
 	BackendTodoStatus,
 	BackendToolCall,
 	SSEEventPayload,

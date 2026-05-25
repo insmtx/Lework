@@ -213,3 +213,18 @@ export type BackendProject = {
 	created_at: string;
 	updated_at: string;
 };
+
+export type BackendTask = {
+	id: number;
+	public_id: string;
+	title: string;
+	description?: string;
+	status?: string;
+	project_id: number;
+	assignee_id?: number;
+	task_type?: string;
+	deadline?: string;
+	metadata?: Record<string, unknown>;
+	created_at: string;
+	updated_at: string;
+};

@@ -29,7 +29,7 @@ const mockActivities = [
 ];
 
 export function WorkbenchPanel() {
-	const { projects, activeProjectId, activeWorkbenchTaskId, selectWorkbenchProject, selectWorkbenchTask, sendWorkbenchMessage, fetchProjects } =
+	const { projects, activeProjectId, activeWorkbenchTaskId, selectWorkbenchProject, selectWorkbenchTask, sendWorkbenchMessage, fetchProjects, fetchTasks } =
 		useLayoutStore((s) => s);
 	const [input, setInput] = useState("");
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
@@ -40,6 +40,12 @@ export function WorkbenchPanel() {
 	useEffect(() => {
 		fetchProjects();
 	}, [fetchProjects]);
+
+	useEffect(() => {
+		if (activeProjectId) {
+			fetchTasks(activeProjectId);
+		}
+	}, [activeProjectId, fetchTasks]);
 
 	const handleSend = () => {
 		if (!input.trim()) return;

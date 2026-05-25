@@ -1,6 +1,7 @@
 import { projectApi } from "../api/projectApi";
 import { sessionApi } from "../api/sessionApi";
-import type { BackendProject, BackendSession } from "../api/types";
+import { taskApi } from "../api/taskApi";
+import type { BackendProject, BackendSession, BackendTask } from "../api/types";
 import type { SliceCreator } from "../types";
 import { flattenActions } from "../utils";
 
@@ -57,6 +58,7 @@ export type Project = {
 	name: string;
 	description: string;
 	updatedAt: number;
+	_backendId?: number;
 	messages: ProjectMessage[];
 	tasks: ProjectTask[];
 	artifacts: ProjectArtifact[];
@@ -125,6 +127,7 @@ function mapSessionToConversation(s: BackendSession): Conversation {
 function mapBackendProject(bp: BackendProject): Project {
 	return {
 		id: bp.public_id,
+		_backendId: bp.id,
 		name: bp.name,
 		description: bp.description ?? "",
 		updatedAt: new Date(bp.updated_at).getTime(),
@@ -133,6 +136,15 @@ function mapBackendProject(bp: BackendProject): Project {
 		artifacts: [],
 		files: [],
 		memories: [],
+	};
+}
+
+function mapBackendTask(bt: BackendTask): ProjectTask {
+	return {
+		id: bt.public_id,
+		title: bt.title,
+		meta: bt.description ?? bt.task_type ?? "",
+		status: (bt.status as ProjectTaskStatus) ?? "todo",
 	};
 }
 
@@ -267,8 +279,9 @@ export class LayoutActionImpl {
 			content: `已收到，我会围绕「${projectName}」拆解任务、同步上下文，并把后续产物沉淀到项目中。`,
 			timestamp: timestamp + 1,
 		};
+		const localTaskId = `${targetProjectId}-task-${timestamp}`;
 		const nextTask: ProjectTask = {
-			id: `${targetProjectId}-task-${timestamp}`,
+			id: localTaskId,
 			title: createTaskTitle(trimmed),
 			meta: "由工作台消息生成 · 待处理",
 			status: "todo",
@@ -322,6 +335,54 @@ export class LayoutActionImpl {
 				projects: [newProject, ...state.projects],
 			};
 		});
+
+		this.#persistTask(targetProject, targetProjectId, localTaskId, trimmed);
+	};
+
+	#persistTask = async (
+		targetProject: Project | null,
+		targetProjectId: string,
+		localTaskId: string,
+		trimmed: string,
+	) => {
+		try {
+			let backendProjectId: number | null = targetProject?._backendId ?? null;
+			let publicId: string | null = null;
+
+			if (!backendProjectId) {
+				const name = targetProject?.name ?? createProjectName(trimmed, this.#get().projects.length + 1);
+				const projectRes = await projectApi.create({ name });
+				const bp = projectRes.data.data;
+				if (!bp) throw new Error("Failed to create project");
+				backendProjectId = bp.id;
+				publicId = bp.public_id;
+			}
+
+			const taskRes = await taskApi.create({
+				project_id: backendProjectId,
+				title: createTaskTitle(trimmed),
+			});
+			const bt = taskRes.data.data;
+			if (!bt) throw new Error("Failed to create task");
+			const backendTask = mapBackendTask(bt);
+
+			this.#set((s) => ({
+				projects: s.projects.map((p) =>
+					p.id === targetProjectId
+						? {
+								...p,
+								...(publicId ? { id: publicId, _backendId: backendProjectId } : {}),
+								tasks: p.tasks.map((t) =>
+									t.id === localTaskId ? backendTask : t,
+								),
+							}
+						: p,
+				),
+				activeProjectId: publicId ?? s.activeProjectId,
+			}));
+		} catch (err) {
+			console.error("persistTask error:", err);
+		}
 	};
 
 	fetchProjects = async () => {
@@ -386,6 +447,101 @@ export class LayoutActionImpl {
 			}));
 		} catch (err) {
 			console.error("deleteProject error:", err);
+		}
+	};
+
+	fetchTasks = async (projectId: string) => {
+		const state = this.#get();
+		const project = state.projects.find((p) => p.id === projectId);
+		if (!project || !project._backendId) return;
+
+		try {
+			const res = await taskApi.list({ project_id: project._backendId, list_all: true, limit: 100 });
+			const items = res.data.data?.items ?? [];
+			this.#set((s) => ({
+				projects: s.projects.map((p) =>
+					p.id === projectId
+						? { ...p, tasks: items.map(mapBackendTask) }
+						: p,
+				),
+			}));
+		} catch (err) {
+			console.error("fetchTasks error:", err);
+		}
+	};
+
+	createTask = async (projectId: string, params: {
+		title: string;
+		description?: string;
+		assignee_id?: number;
+		task_type?: string;
+		deadline?: string;
+		metadata?: Record<string, unknown>;
+	}) => {
+		const state = this.#get();
+		const project = state.projects.find((p) => p.id === projectId);
+		if (!project || !project._backendId) return null;
+
+		try {
+			const res = await taskApi.create({ project_id: project._backendId, ...params });
+			const bt = res.data.data;
+			if (!bt) throw new Error("No data returned");
+			const item = mapBackendTask(bt);
+			this.#set((s) => ({
+				projects: s.projects.map((p) =>
+					p.id === projectId
+						? { ...p, tasks: [item, ...p.tasks], updatedAt: Date.now() }
+						: p,
+				),
+			}));
+			return item;
+		} catch (err) {
+			console.error("createTask error:", err);
+			return null;
+		}
+	};
+
+	updateTask = async (params: {
+		public_id: string;
+		title?: string;
+		description?: string;
+		status?: string;
+		assignee_id?: number;
+		task_type?: string;
+		deadline?: string;
+		metadata?: Record<string, unknown>;
+	}) => {
+		try {
+			const res = await taskApi.update(params);
+			const bt = res.data.data;
+			if (!bt) throw new Error("No data returned");
+			const item = mapBackendTask(bt);
+			this.#set((s) => ({
+				projects: s.projects.map((p) => ({
+					...p,
+					tasks: p.tasks.map((t) => (t.id === item.id ? item : t)),
+				})),
+			}));
+			return item;
+		} catch (err) {
+			console.error("updateTask error:", err);
+			return null;
+		}
+	};
+
+	deleteTask = async (publicId: string) => {
+		try {
+			await taskApi.delete({ public_id: publicId });
+			this.#set((s) => ({
+				projects: s.projects.map((p) => ({
+					...p,
+					tasks: p.tasks.filter((t) => t.id !== publicId),
+				})),
+				activeWorkbenchTaskId:
+					this.#get().activeWorkbenchTaskId === publicId ? null : this.#get().activeWorkbenchTaskId,
+			}));
+		} catch (err) {
+			console.error("deleteTask error:", err);
 		}
 	};
 
