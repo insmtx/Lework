@@ -1,6 +1,7 @@
 import { projectApi } from "../api/projectApi";
 import { sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
+import { workApi } from "../api/workApi";
 import type { BackendProject, BackendSession, BackendTask } from "../api/types";
 import type { SliceCreator } from "../types";
 import { flattenActions } from "../utils";
@@ -256,133 +257,24 @@ export class LayoutActionImpl {
 		this.#set({ activeProjectTab: tab });
 	};
 
-	sendWorkbenchMessage = (content: string, projectId?: string | null) => {
+	sendWorkbenchMessage = async (content: string, projectId?: string | null) => {
 		const trimmed = content.trim();
 		if (!trimmed) return;
 
 		const state = this.#get();
-		const targetProject = projectId
-			? state.projects.find((project) => project.id === projectId)
-			: null;
-		const targetProjectId = targetProject?.id ?? `project-${Date.now()}`;
-		const projectName =
-			targetProject?.name ?? createProjectName(trimmed, state.projects.length + 1);
-		const timestamp = Date.now();
-		const userMessage: ProjectMessage = {
-			id: `${targetProjectId}-user-${timestamp}`,
-			role: "user",
-			content: trimmed,
-			timestamp,
-		};
-		const assistantMessage: ProjectMessage = {
-			id: `${targetProjectId}-assistant-${timestamp}`,
-			role: "assistant",
-			content: `已收到，我会围绕「${projectName}」拆解任务、同步上下文，并把后续产物沉淀到项目中。`,
-			timestamp: timestamp + 1,
-		};
-		const localTaskId = `${targetProjectId}-task-${timestamp}`;
-		const nextTask: ProjectTask = {
-			id: localTaskId,
-			title: createTaskTitle(trimmed),
-			meta: "由工作台消息生成 · 待处理",
-			status: "todo",
-		};
+		const params: { content: string; project_id?: string; task_id?: string } = { content: trimmed };
 
-		this.#set((state) => {
-			if (targetProject) {
-				return {
-					activeProjectId: targetProjectId,
-					projects: state.projects.map((project) =>
-						project.id === targetProjectId
-							? {
-									...project,
-									updatedAt: timestamp,
-									messages: [...project.messages, userMessage, assistantMessage],
-									tasks: [nextTask, ...project.tasks],
-								}
-							: project,
-					),
-				};
-			}
+		if (projectId) {
+			params.project_id = projectId;
+		}
+		if (state.activeWorkbenchTaskId) {
+			params.task_id = state.activeWorkbenchTaskId;
+		}
 
-			const newProject: Project = {
-				id: targetProjectId,
-				name: projectName,
-				description: "由工作台消息自动创建",
-				updatedAt: timestamp,
-				messages: [userMessage, assistantMessage],
-				tasks: [nextTask],
-				artifacts: [
-					{
-						id: `${targetProjectId}-artifact-${timestamp}`,
-						name: "project-brief.md",
-						type: "document",
-						size: "2.4 KB",
-						updatedAt: "刚刚",
-					},
-				],
-				files: [],
-				memories: [
-					{
-						id: `${targetProjectId}-memory-${timestamp}`,
-						title: "初始需求",
-						content: trimmed,
-					},
-				],
-			};
-
-			return {
-				activeProjectId: targetProjectId,
-				projects: [newProject, ...state.projects],
-			};
-		});
-
-		this.#persistTask(targetProject, targetProjectId, localTaskId, trimmed);
-	};
-
-	#persistTask = async (
-		targetProject: Project | null,
-		targetProjectId: string,
-		localTaskId: string,
-		trimmed: string,
-	) => {
 		try {
-			let projectId = targetProject?.id ?? null;
-			let publicId: string | null = null;
-
-			if (!projectId) {
-				const name = targetProject?.name ?? createProjectName(trimmed, this.#get().projects.length + 1);
-				const projectRes = await projectApi.create({ name });
-				const bp = projectRes.data.data;
-				if (!bp) throw new Error("Failed to create project");
-				projectId = bp.public_id;
-				publicId = bp.public_id;
-			}
-
-			const taskRes = await taskApi.create({
-				project_id: projectId,
-				title: createTaskTitle(trimmed),
-			});
-			const bt = taskRes.data.data;
-			if (!bt) throw new Error("Failed to create task");
-			const backendTask = mapBackendTask(bt);
-
-			this.#set((s) => ({
-				projects: s.projects.map((p) =>
-					p.id === targetProjectId
-						? {
-								...p,
-								...(publicId ? { id: publicId } : {}),
-								tasks: p.tasks.map((t) =>
-									t.id === localTaskId ? backendTask : t,
-								),
-							}
-						: p,
-				),
-				activeProjectId: publicId ?? s.activeProjectId,
-			}));
+			await workApi.newMessage(params);
 		} catch (err) {
-			console.error("persistTask error:", err);
+			console.error("sendWorkbenchMessage error:", err);
 		}
 	};
 
@@ -656,18 +548,6 @@ export class LayoutActionImpl {
 	setConversationSearchQuery = (query: string) => {
 		this.#set({ conversationSearchQuery: query });
 	};
-}
-
-function createProjectName(content: string, index: number): string {
-	const firstLine = content.split(/\n/)[0]?.trim();
-	if (!firstLine) return `project-${index}`;
-	return firstLine.length > 18 ? firstLine.slice(0, 18) : firstLine;
-}
-
-function createTaskTitle(content: string): string {
-	const firstLine = content.split(/\n/)[0]?.trim();
-	if (!firstLine) return "跟进工作台请求";
-	return firstLine.length > 24 ? `${firstLine.slice(0, 24)}...` : firstLine;
 }
 
 export const layoutSlice: SliceCreator<LayoutStore> = (...params) => ({

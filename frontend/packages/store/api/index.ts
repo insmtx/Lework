@@ -33,6 +33,10 @@ export type {
 } from "./taskApi";
 export { taskApi } from "./taskApi";
 export type {
+	NewMessageParams,
+} from "./workApi";
+export { workApi } from "./workApi";
+export type {
 	BackendAssistantConfig,
 	BackendBaseResponse,
 	BackendChannelRef,
