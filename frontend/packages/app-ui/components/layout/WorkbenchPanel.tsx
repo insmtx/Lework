@@ -29,7 +29,7 @@ const mockActivities = [
 ];
 
 export function WorkbenchPanel() {
-	const { projects, activeProjectId, activeWorkbenchTaskId, selectWorkbenchProject, selectWorkbenchTask, sendWorkbenchMessage, fetchProjects, fetchTasks } =
+	const { projects, activeProjectId, activeWorkbenchTaskId, selectWorkbenchProject, selectWorkbenchTask, sendWorkbenchMessage, fetchProjects } =
 		useLayoutStore((s) => s);
 	const [input, setInput] = useState("");
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
@@ -40,12 +40,6 @@ export function WorkbenchPanel() {
 	useEffect(() => {
 		fetchProjects();
 	}, [fetchProjects]);
-
-	useEffect(() => {
-		if (activeProjectId) {
-			fetchTasks(activeProjectId);
-		}
-	}, [activeProjectId, fetchTasks]);
 
 	const handleSend = () => {
 		if (!input.trim()) return;
@@ -158,16 +152,24 @@ export function WorkbenchPanel() {
 												{activeProject?.name ?? "新项目"}
 											</span>
 											{activeProject && (
-												<button
-													type="button"
+												<span
+													role="button"
+													tabIndex={0}
 													onClick={(e) => {
 														e.stopPropagation();
 														handleSelectProject(null);
 													}}
+													onKeyDown={(e) => {
+														if (e.key === "Enter" || e.key === " ") {
+															e.preventDefault();
+															e.stopPropagation();
+															handleSelectProject(null);
+														}
+													}}
 													className="shrink-0 rounded-full p-0.5 text-[var(--leros-text-subtle)] hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
 												>
 													<X className="size-3.5" />
-												</button>
+												</span>
 											)}
 											<ChevronDown className="ml-auto size-3.5 shrink-0 text-[var(--leros-text-subtle)]" />
 										</PopoverTrigger>
@@ -231,16 +233,24 @@ export function WorkbenchPanel() {
 													{activeTask?.title ?? "选择任务"}
 												</span>
 												{activeTask && (
-													<button
-														type="button"
+													<span
+														role="button"
+														tabIndex={0}
 														onClick={(e) => {
 															e.stopPropagation();
 															handleSelectTask(null);
 														}}
+														onKeyDown={(e) => {
+															if (e.key === "Enter" || e.key === " ") {
+																e.preventDefault();
+																e.stopPropagation();
+																handleSelectTask(null);
+															}
+														}}
 														className="shrink-0 rounded-full p-0.5 text-[var(--leros-text-subtle)] hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
 													>
 														<X className="size-3.5" />
-													</button>
+													</span>
 												)}
 												<ChevronDown className="ml-auto size-3.5 shrink-0 text-[var(--leros-text-subtle)]" />
 											</PopoverTrigger>

@@ -245,6 +245,10 @@ export class LayoutActionImpl {
 
 	selectWorkbenchProject = (projectId: string | null) => {
 		this.#set({ activeProjectId: projectId, activeWorkbenchTaskId: null });
+		if (projectId) {
+			console.log("[selectWorkbenchProject] projectId:", projectId, "projects:", this.#get().projects.map(p => ({ id: p.id, name: p.name, _backendId: p._backendId })));
+			this.fetchTasks(projectId);
+		}
 	};
 
 	selectWorkbenchTask = (taskId: string | null) => {
@@ -386,13 +390,19 @@ export class LayoutActionImpl {
 	};
 
 	fetchProjects = async () => {
-		const state = this.#get();
-		if (state.projects.length > 0) return;
 		try {
 			const res = await projectApi.list({ list_all: true, limit: 100 });
 			const items = res.data.data?.items ?? [];
-			this.#set({
-				projects: items.map(mapBackendProject),
+			console.log("[fetchProjects] raw res.data:", JSON.stringify(res.data));
+			console.log("[fetchProjects] items count:", items.length, "first item keys:", items[0] ? Object.keys(items[0]) : "none");
+			if (items.length === 0) return;
+			const apiProjects = items.map(mapBackendProject);
+			console.log("[fetchProjects] mapped projects:", apiProjects.map(p => ({ id: p.id, name: p.name, _backendId: p._backendId })));
+			this.#set((state) => {
+				const localProjects = state.projects.filter((p) => !p._backendId);
+				const existingIds = new Set(apiProjects.map((p) => p.id));
+				const uniqueLocal = localProjects.filter((p) => !existingIds.has(p.id));
+				return { projects: [...apiProjects, ...uniqueLocal] };
 			});
 		} catch (err) {
 			console.error("fetchProjects error:", err);
@@ -451,13 +461,26 @@ export class LayoutActionImpl {
 	};
 
 	fetchTasks = async (projectId: string) => {
-		const state = this.#get();
-		const project = state.projects.find((p) => p.id === projectId);
-		if (!project || !project._backendId) return;
+		let project = this.#get().projects.find((p) => p.id === projectId);
+		console.log("[fetchTasks] start, projectId:", projectId, "found:", !!project, "_backendId:", project?._backendId);
+		if (!project) return;
+
+		if (!project._backendId) {
+			console.log("[fetchTasks] no _backendId, calling fetchProjects...");
+			await this.fetchProjects();
+			project = this.#get().projects.find((p) => p.id === projectId);
+			console.log("[fetchTasks] after fetchProjects, found:", !!project, "_backendId:", project?._backendId);
+		}
+		if (!project?._backendId) {
+			console.warn("[fetchTasks] still no _backendId, aborting");
+			return;
+		}
 
 		try {
+			console.log("[fetchTasks] calling taskApi.list with project_id:", project._backendId);
 			const res = await taskApi.list({ project_id: project._backendId, list_all: true, limit: 100 });
 			const items = res.data.data?.items ?? [];
+			console.log("[fetchTasks] got", items.length, "tasks");
 			this.#set((s) => ({
 				projects: s.projects.map((p) =>
 					p.id === projectId
