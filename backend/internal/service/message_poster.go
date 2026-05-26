@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -189,6 +190,7 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		OwnerID:     o.caller.Uin,
 		Name:        title,
 		Description: "",
+		Objective:   strings.TrimSpace(o.req.Objective),
 		Status:      string(types.ProjectStatusActive),
 	}
 	if err := db.CreateProject(o.ctx, o.poster.db, o.project); err != nil {

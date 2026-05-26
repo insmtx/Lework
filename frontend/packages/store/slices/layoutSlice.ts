@@ -55,6 +55,7 @@ export type Project = {
 	id: string;
 	name: string;
 	description: string;
+	objective?: string;
 	updatedAt: number;
 	messages: ProjectMessage[];
 	tasks: ProjectTask[];

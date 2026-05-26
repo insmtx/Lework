@@ -30,6 +30,9 @@ type Project struct {
 	// project - 项目描述，TEXT，允许为空
 	Description string `gorm:"column:description;type:text"`
 
+	// project - 项目目标，TEXT，允许为空
+	Objective string `gorm:"column:objective;type:text"`
+
 	// project - 项目状态，VARCHAR(50)，NOT NULL，DEFAULT 'active'
 	Status string `gorm:"column:status;type:varchar(50);not null;default:'active';index"`
 

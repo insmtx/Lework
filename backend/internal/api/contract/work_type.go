@@ -8,6 +8,7 @@ type NewMessageRequest struct {
 	TaskID      string `json:"task_id,omitempty"`
 	AssistantID uint   `json:"assistant_id,omitempty"`
 	MessageType string `json:"message_type,omitempty"`
+	Objective   string `json:"objective,omitempty"`
 }
 
 // NewMessageResponse is the homepage new-message response containing IDs of all

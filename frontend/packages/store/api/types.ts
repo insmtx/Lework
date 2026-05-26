@@ -205,6 +205,7 @@ export type BackendProject = {
 	public_id: string;
 	name: string;
 	description?: string;
+	objective?: string;
 	status?: string;
 	owner_id?: number;
 	org_id?: number;

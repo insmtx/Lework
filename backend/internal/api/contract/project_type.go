@@ -11,6 +11,7 @@ type Project struct {
 	PublicID    string                 `json:"public_id"`
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
+	Objective   string                 `json:"objective,omitempty"`
 	OwnerID     uint                   `json:"owner_id"`
 	Status      string                 `json:"status"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
@@ -22,6 +23,7 @@ type Project struct {
 type CreateProjectRequest struct {
 	Name        string                 `json:"name" binding:"required"`
 	Description string                 `json:"description,omitempty"`
+	Objective   string                 `json:"objective,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -29,6 +31,7 @@ type CreateProjectRequest struct {
 type UpdateProjectRequest struct {
 	Name        *string                 `json:"name,omitempty"`
 	Description *string                 `json:"description,omitempty"`
+	Objective   *string                 `json:"objective,omitempty"`
 	OwnerID     *uint                   `json:"owner_id,omitempty"`
 	Status      *string                 `json:"status,omitempty"`
 	Metadata    *map[string]interface{} `json:"metadata,omitempty"`

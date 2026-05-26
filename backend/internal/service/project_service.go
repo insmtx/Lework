@@ -42,6 +42,7 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 		OwnerID:     caller.Uin,
 		Name:        strings.TrimSpace(req.Name),
 		Description: strings.TrimSpace(req.Description),
+		Objective:   strings.TrimSpace(req.Objective),
 		Status:      "active",
 	}
 	if req.Metadata != nil {
@@ -113,6 +114,9 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 		}
 		if req.Description != nil {
 			project.Description = strings.TrimSpace(*req.Description)
+		}
+		if req.Objective != nil {
+			project.Objective = strings.TrimSpace(*req.Objective)
 		}
 		if req.OwnerID != nil {
 			project.OwnerID = *req.OwnerID
@@ -225,6 +229,7 @@ func convertToContractProject(project *types.Project) *contract.Project {
 		PublicID:    project.PublicID,
 		Name:        project.Name,
 		Description: project.Description,
+		Objective:   project.Objective,
 		OwnerID:     project.OwnerID,
 		Status:      project.Status,
 		Metadata:    metadata,

@@ -4,6 +4,7 @@ import type { BackendDataResponse, BackendPaginatedResponse, BackendProject } fr
 export type CreateProjectParams = {
 	name: string;
 	description?: string;
+	objective?: string;
 	metadata?: Record<string, unknown>;
 };
 
@@ -23,6 +24,7 @@ export type UpdateProjectParams = {
 	public_id: string;
 	name?: string;
 	description?: string;
+	objective?: string;
 	status?: string;
 	owner_id?: number;
 	metadata?: Record<string, unknown>;
