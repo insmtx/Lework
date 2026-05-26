@@ -5,16 +5,23 @@ import { useLayoutStore } from "@leros/store";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Bot,
+	Calendar,
 	CheckCircle2,
+	Circle,
 	FileImage,
 	FileText,
 	LayoutPanelLeft,
+	LoaderCircle,
 	Search,
 	Settings,
 	Table2,
+	Tag,
+	Trash2,
 } from "lucide-react";
+import { useState } from "react";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { ChatInput } from "../input/ChatInput";
+import { TaskDeleteDialog } from "./TaskDeleteDialog";
 
 const projectTabs = [
 	{ id: "chat" as const, label: "会话" },
@@ -164,43 +171,121 @@ function ProjectEmptyState() {
 }
 
 function ProjectTasks({ tasks }: { tasks: ProjectTask[] }) {
+	const { updateTask } = useLayoutStore((s) => s);
+	const [deleteTarget, setDeleteTarget] = useState<ProjectTask | null>(null);
+
+	const handleStatusToggle = async (task: ProjectTask) => {
+		await updateTask({ public_id: task.id, status: NEXT_STATUS[task.status] ?? "todo" });
+	};
+
 	return (
 		<div className="mx-auto w-full max-w-[720px]">
 			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务</h2>
 			<div className="mt-4">
-				<ProjectTaskList tasks={tasks} />
+				<ProjectTaskList tasks={tasks} onStatusToggle={handleStatusToggle} onDelete={setDeleteTarget} />
 			</div>
+			{deleteTarget && (
+				<TaskDeleteDialog
+					task={deleteTarget}
+					open={true}
+					onOpenChange={(open) => {
+						if (!open) setDeleteTarget(null);
+					}}
+				/>
+			)}
 		</div>
 	);
 }
 
-function ProjectTaskList({ tasks, compact = false }: { tasks: ProjectTask[]; compact?: boolean }) {
+const NEXT_STATUS: Record<string, string> = {
+	todo: "in_progress",
+	in_progress: "done",
+	done: "todo",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+	todo: "待办",
+	in_progress: "进行中",
+	done: "已完成",
+};
+
+function ProjectTaskList({
+	tasks,
+	compact = false,
+	onStatusToggle,
+	onDelete,
+}: {
+	tasks: ProjectTask[];
+	compact?: boolean;
+	onStatusToggle?: (task: ProjectTask) => void;
+	onDelete?: (task: ProjectTask) => void;
+}) {
+	if (tasks.length === 0) {
+		return (
+			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
+				暂无任务
+			</div>
+		);
+	}
+
 	return (
 		<div className={cn("w-full", compact ? "mx-auto max-w-[250px] space-y-3" : "space-y-3")}>
 			{tasks.map((task) => (
 				<div
 					key={task.id}
 					className={cn(
-						"flex items-start border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm",
+						"group flex items-start border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm",
 						compact ? "gap-3 rounded-lg px-3.5 py-3" : "gap-3.5 rounded-lg px-4 py-3.5",
 					)}
 				>
-					<CheckCircle2
-						className={cn(
-							"mt-0.5 size-4 shrink-0",
-							task.status === "done"
-								? "text-[var(--leros-primary)]"
-								: "text-[var(--leros-text-muted)]",
+					<button
+						type="button"
+						className="mt-0.5 shrink-0 cursor-pointer"
+						onClick={() => onStatusToggle?.(task)}
+						title={`切换状态（当前：${STATUS_LABEL[task.status] ?? task.status}）`}
+					>
+						{task.status === "done" ? (
+							<CheckCircle2 className="size-4 text-[var(--leros-primary)]" />
+						) : task.status === "in_progress" ? (
+							<LoaderCircle className="size-4 text-[var(--leros-warning)]" />
+						) : (
+							<Circle className="size-4 text-[var(--leros-text-muted)]" />
 						)}
-					/>
-					<div className="min-w-0">
+					</button>
+					<div className="min-w-0 flex-1">
 						<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
 							{task.title}
 						</div>
 						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
 							{task.meta}
 						</div>
+						{!compact && (task.taskType || task.deadline) && (
+							<div className="mt-2 flex flex-wrap items-center gap-2">
+								{task.taskType && (
+									<span className="inline-flex items-center gap-1 rounded-md bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--leros-primary)]">
+										<Tag className="size-3" />
+										{task.taskType}
+									</span>
+								)}
+								{task.deadline && (
+									<span className="inline-flex items-center gap-1 rounded-md bg-[var(--leros-chat-control-bg)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
+										<Calendar className="size-3" />
+										{task.deadline}
+									</span>
+								)}
+							</div>
+						)}
 					</div>
+					{!compact && onDelete && (
+						<button
+							type="button"
+							className="mt-0.5 shrink-0 rounded p-0.5 text-[var(--leros-text-muted)] opacity-0 transition-opacity hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)] group-hover:opacity-100"
+							onClick={() => onDelete(task)}
+							title="删除任务"
+						>
+							<Trash2 className="size-4" />
+						</button>
+					)}
 				</div>
 			))}
 		</div>

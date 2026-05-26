@@ -38,6 +38,9 @@ export type ProjectTask = {
 	title: string;
 	meta: string;
 	status: ProjectTaskStatus;
+	taskType?: string;
+	deadline?: string;
+	description?: string;
 };
 
 export type ProjectArtifact = {
@@ -136,6 +139,9 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 		title: bt.title,
 		meta: bt.description ?? bt.task_type ?? "",
 		status: (bt.status as ProjectTaskStatus) ?? "todo",
+		taskType: bt.task_type,
+		deadline: bt.deadline,
+		description: bt.description,
 	};
 }
 
