@@ -277,6 +277,28 @@ func pipeConvertedSSE(c *gin.Context, reader io.Reader, entryProto, upstreamProt
 						c.Writer.Flush()
 					}
 				}
+				if entryProto == ProtocolAnthropicMessages {
+					for _, event := range state.closeAnthropicOpenBlocks() {
+						encoded := encodeAnthropicStreamEvent(event)
+						for _, evt := range encoded {
+							payload := mustMarshalStreamEvent(evt)
+							logs.Infof("modelrouter: stream converted anthropic done prelude data=%s", string(payload))
+							formatted := formatSSE(entryProto, convertedEventType("content_block_stop", payload), payload)
+							if _, err := c.Writer.Write(formatted); err != nil {
+								return
+							}
+							c.Writer.Flush()
+						}
+					}
+					messageStop := mustMarshalStreamEvent(map[string]interface{}{"type": "message_stop"})
+					logs.Infof("modelrouter: stream converted anthropic message_stop data=%s", string(messageStop))
+					formatted := formatSSE(entryProto, convertedEventType("message_stop", messageStop), messageStop)
+					if _, err := c.Writer.Write(formatted); err != nil {
+						return
+					}
+					c.Writer.Flush()
+					return
+				}
 				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
 				return

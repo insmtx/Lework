@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+
+	"github.com/ygpkg/yg-go/logs"
 )
 
 var errInvalidRequestBody = errors.New("parse request body")
@@ -146,7 +149,11 @@ func convertStreamEventWithState(data []byte, entryProtocol, upstreamProtocol Pr
 }
 
 type streamConversionState struct {
-	responses responsesStreamState
+	responses   responsesStreamState
+	textStarted map[int]bool
+	textStopped map[int]bool
+	toolStarted map[int]bool
+	toolStopped map[int]bool
 }
 
 func newStreamConversionState() *streamConversionState {
@@ -154,9 +161,19 @@ func newStreamConversionState() *streamConversionState {
 }
 
 func (s *streamConversionState) prepareIRStreamEvents(entryProtocol Protocol, events []*IRStreamEvent) []*IRStreamEvent {
-	if s == nil || entryProtocol != ProtocolOpenAIResponses {
+	if s == nil {
 		return events
 	}
+	if entryProtocol == ProtocolOpenAIResponses {
+		return s.prepareResponsesIRStreamEvents(events)
+	}
+	if entryProtocol == ProtocolAnthropicMessages {
+		return s.prepareAnthropicIRStreamEvents(events)
+	}
+	return events
+}
+
+func (s *streamConversionState) prepareResponsesIRStreamEvents(events []*IRStreamEvent) []*IRStreamEvent {
 	var prepared []*IRStreamEvent
 	for _, event := range events {
 		if event == nil {
@@ -174,4 +191,188 @@ func (s *streamConversionState) prepareIRStreamEvents(entryProtocol Protocol, ev
 		prepared = append(prepared, event)
 	}
 	return prepared
+}
+
+func (s *streamConversionState) prepareAnthropicIRStreamEvents(events []*IRStreamEvent) []*IRStreamEvent {
+	var prepared []*IRStreamEvent
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		switch event.Type {
+		case IRStreamContentStart:
+			prepared = append(prepared, s.prepareAnthropicContentStart(event)...)
+		case IRStreamContentDelta:
+			prepared = append(prepared, s.prepareAnthropicContentDelta(event)...)
+		case IRStreamContentStop:
+			prepared = append(prepared, s.prepareAnthropicContentStop(event)...)
+		case IRStreamMessageDelta:
+			prepared = append(prepared, s.closeAnthropicOpenBlocks()...)
+			prepared = append(prepared, event)
+		default:
+			prepared = append(prepared, event)
+		}
+	}
+	return prepared
+}
+
+func (s *streamConversionState) prepareAnthropicContentStart(event *IRStreamEvent) []*IRStreamEvent {
+	if event.ContentBlock != nil && event.ContentBlock.Type == IRBlockToolUse {
+		s.markToolStarted(event.Index)
+		s.clearToolStopped(event.Index)
+		logs.Infof("modelrouter: anthropic tool block started index=%d", event.Index)
+		return []*IRStreamEvent{event}
+	}
+	s.markTextStarted(event.Index)
+	s.clearTextStopped(event.Index)
+	logs.Infof("modelrouter: anthropic text block started index=%d", event.Index)
+	return []*IRStreamEvent{event}
+}
+
+func (s *streamConversionState) prepareAnthropicContentDelta(event *IRStreamEvent) []*IRStreamEvent {
+	var prepared []*IRStreamEvent
+	switch event.DeltaType {
+	case "text":
+		if !s.hasTextStarted(event.Index) || s.hasTextStopped(event.Index) {
+			prepared = append(prepared, &IRStreamEvent{
+				Type:         IRStreamContentStart,
+				Index:        event.Index,
+				ContentBlock: &IRContentBlock{Type: IRBlockText},
+			})
+			s.markTextStarted(event.Index)
+			s.clearTextStopped(event.Index)
+			logs.Infof("modelrouter: anthropic text block auto-started before delta index=%d", event.Index)
+		}
+	case "input_json":
+		if !s.hasToolStarted(event.Index) || s.hasToolStopped(event.Index) {
+			prepared = append(prepared, &IRStreamEvent{
+				Type:  IRStreamContentStart,
+				Index: event.Index,
+				ContentBlock: &IRContentBlock{
+					Type:        IRBlockToolUse,
+					ToolUseID:   ensureToolBlockID(event.Index),
+					ToolUseName: "",
+				},
+			})
+			s.markToolStarted(event.Index)
+			s.clearToolStopped(event.Index)
+			logs.Infof("modelrouter: anthropic tool block auto-started before delta index=%d", event.Index)
+		}
+	}
+	prepared = append(prepared, event)
+	return prepared
+}
+
+func (s *streamConversionState) prepareAnthropicContentStop(event *IRStreamEvent) []*IRStreamEvent {
+	if s.hasToolStarted(event.Index) && !s.hasToolStopped(event.Index) {
+		s.markToolStopped(event.Index)
+		logs.Infof("modelrouter: anthropic tool block stopped index=%d", event.Index)
+		return []*IRStreamEvent{event}
+	}
+	if s.hasTextStarted(event.Index) && !s.hasTextStopped(event.Index) {
+		s.markTextStopped(event.Index)
+		logs.Infof("modelrouter: anthropic text block stopped index=%d", event.Index)
+		return []*IRStreamEvent{event}
+	}
+	return nil
+}
+
+func (s *streamConversionState) closeAnthropicOpenBlocks() []*IRStreamEvent {
+	var pending []*IRStreamEvent
+	for _, index := range s.openToolIndexes() {
+		pending = append(pending, &IRStreamEvent{Type: IRStreamContentStop, Index: index})
+		s.markToolStopped(index)
+		logs.Infof("modelrouter: anthropic tool block auto-stopped before message_delta index=%d", index)
+	}
+	for _, index := range s.openTextIndexes() {
+		pending = append(pending, &IRStreamEvent{Type: IRStreamContentStop, Index: index})
+		s.markTextStopped(index)
+		logs.Infof("modelrouter: anthropic text block auto-stopped before message_delta index=%d", index)
+	}
+	return pending
+}
+
+func (s *streamConversionState) hasTextStarted(index int) bool {
+	return s != nil && s.textStarted != nil && s.textStarted[index]
+}
+
+func (s *streamConversionState) markTextStarted(index int) {
+	if s.textStarted == nil {
+		s.textStarted = make(map[int]bool)
+	}
+	s.textStarted[index] = true
+}
+
+func (s *streamConversionState) hasTextStopped(index int) bool {
+	return s != nil && s.textStopped != nil && s.textStopped[index]
+}
+
+func (s *streamConversionState) markTextStopped(index int) {
+	if s.textStopped == nil {
+		s.textStopped = make(map[int]bool)
+	}
+	s.textStopped[index] = true
+}
+
+func (s *streamConversionState) clearTextStopped(index int) {
+	if s == nil || s.textStopped == nil {
+		return
+	}
+	delete(s.textStopped, index)
+}
+
+func (s *streamConversionState) hasToolStarted(index int) bool {
+	return s != nil && s.toolStarted != nil && s.toolStarted[index]
+}
+
+func (s *streamConversionState) markToolStarted(index int) {
+	if s.toolStarted == nil {
+		s.toolStarted = make(map[int]bool)
+	}
+	s.toolStarted[index] = true
+}
+
+func (s *streamConversionState) hasToolStopped(index int) bool {
+	return s != nil && s.toolStopped != nil && s.toolStopped[index]
+}
+
+func (s *streamConversionState) markToolStopped(index int) {
+	if s.toolStopped == nil {
+		s.toolStopped = make(map[int]bool)
+	}
+	s.toolStopped[index] = true
+}
+
+func (s *streamConversionState) clearToolStopped(index int) {
+	if s == nil || s.toolStopped == nil {
+		return
+	}
+	delete(s.toolStopped, index)
+}
+
+func (s *streamConversionState) openTextIndexes() []int {
+	return collectOpenIndexes(s.textStarted, s.textStopped)
+}
+
+func (s *streamConversionState) openToolIndexes() []int {
+	return collectOpenIndexes(s.toolStarted, s.toolStopped)
+}
+
+func collectOpenIndexes(started, stopped map[int]bool) []int {
+	if len(started) == 0 {
+		return nil
+	}
+	indexes := make([]int, 0, len(started))
+	for index := range started {
+		if stopped != nil && stopped[index] {
+			continue
+		}
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	return indexes
+}
+
+func ensureToolBlockID(index int) string {
+	return fmt.Sprintf("toolu_stream_%d", index)
 }
