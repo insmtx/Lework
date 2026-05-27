@@ -31,16 +31,8 @@ RUN --mount=type=cache,target=/go/ \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
 
-FROM registry.yygu.cn/library/ubuntu:24.04
+FROM registry.yygu.cn/insmtx/leros-base:latest
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    tzdata \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -r -s /bin/false appuser
-
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /build/leros /leros
 COPY --from=builder /build/backend/skills /app/backend/skills
 

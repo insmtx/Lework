@@ -1,0 +1,30 @@
+FROM registry.yygu.cn/library/ubuntu:24.04
+
+# Configure aliyun apt mirrors
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    tzdata \
+    curl \
+    xz-utils \
+    python3.12 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure pip aliyun mirror and install Python dependencies
+RUN pip3 install --break-system-packages -i https://mirrors.aliyun.com/pypi/simple/ requests
+
+# Install Node.js 22 LTS from npmmirror
+ENV NODE_VERSION=22.14.0
+RUN curl -fsSL https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz -o /tmp/node.tar.xz \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz
+
+# Configure npm npmmirror and install claude-code
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install -g @anthropic-ai/claude-code \
+    && npm cache clean --force
+
+RUN useradd -r -s /bin/false appuser
