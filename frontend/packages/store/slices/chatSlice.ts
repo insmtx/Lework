@@ -572,6 +572,10 @@ export class ChatActionImpl {
 		}
 	};
 
+	clearMessages = () => {
+		this.#set({ messagesMap: {}, messageIds: [], activeSessionId: null });
+	};
+
 	setInputText = (text: string) => {
 		this.#set({ inputText: text });
 	};

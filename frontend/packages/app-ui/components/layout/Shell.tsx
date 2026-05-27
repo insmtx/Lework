@@ -5,6 +5,7 @@ import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { CenterCanvas } from "./CenterCanvas";
 import { LeftRail } from "./LeftRail";
 import { ProjectPage } from "./ProjectPage";
+import { TaskDetailPage } from "./TaskDetailPage";
 import { WorkbenchPanel } from "./WorkbenchPanel";
 
 export function Shell({ logoSrc }: { logoSrc?: string }) {
@@ -17,6 +18,7 @@ export function Shell({ logoSrc }: { logoSrc?: string }) {
 			{currentView === "workbench" && <WorkbenchPanel />}
 			{currentView === "tasks" && <EmptyPage />}
 			{currentView === "project" && <ProjectPage />}
+			{currentView === "taskDetail" && <TaskDetailPage />}
 			{currentView === "digitalAssistant" && <AssistantListView />}
 		</div>
 	);

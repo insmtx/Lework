@@ -81,6 +81,7 @@ export type ViewMode =
 	| "workbench"
 	| "tasks"
 	| "project"
+	| "taskDetail"
 	| "digitalAssistant"
 	| "knowledge"
 	| "skills"
@@ -105,6 +106,9 @@ export type LayoutState = {
 	navGroups: NavGroup[];
 	collapsedNavGroups: Set<string>;
 	conversationSearchQuery: string;
+	activeTaskDetailProjectId: string | null;
+	activeTaskDetailTaskId: string | null;
+	activeTaskDetailSessionId: string | null;
 };
 
 export type LayoutAction = Pick<LayoutActionImpl, keyof LayoutActionImpl>;
@@ -193,6 +197,9 @@ const _initialState: LayoutState = {
 	],
 	collapsedNavGroups: new Set(),
 	conversationSearchQuery: "",
+	activeTaskDetailProjectId: null,
+	activeTaskDetailTaskId: null,
+	activeTaskDetailSessionId: null,
 };
 
 type SetState = (
@@ -271,10 +278,23 @@ export class LayoutActionImpl {
 		}
 
 		try {
-			await workApi.newMessage(params);
+			const res = await workApi.newMessage(params);
+			const data = res.data.data;
+			if (data?.project_id && data?.task_id && data?.session_id) {
+				this.openTaskDetail(data.project_id, data.task_id, data.session_id);
+			}
 		} catch (err) {
 			console.error("sendWorkbenchMessage error:", err);
 		}
+	};
+
+	openTaskDetail = (projectId: string, taskId: string, sessionId: string) => {
+		this.#set({
+			activeTaskDetailProjectId: projectId,
+			activeTaskDetailTaskId: taskId,
+			activeTaskDetailSessionId: sessionId,
+			currentView: "taskDetail",
+		});
 	};
 
 	fetchProjects = async () => {

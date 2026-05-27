@@ -228,3 +228,9 @@ export type BackendTask = {
 	created_at: string;
 	updated_at: string;
 };
+
+export type BackendNewMessageData = {
+	project_id: string;
+	task_id: string;
+	session_id: string;
+};

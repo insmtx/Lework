@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { BackendBaseResponse } from "./types";
+import type { BackendDataResponse, BackendNewMessageData } from "./types";
 
 export type NewMessageParams = {
 	content: string;
@@ -15,5 +15,5 @@ const WORK_ENDPOINTS = {
 
 export const workApi = {
 	newMessage: (params: NewMessageParams) =>
-		apiClient.post<BackendBaseResponse>(WORK_ENDPOINTS.newMessage, params),
+		apiClient.post<BackendDataResponse<BackendNewMessageData>>(WORK_ENDPOINTS.newMessage, params),
 };
