@@ -1,7 +1,7 @@
 "use client";
 
 import type { ProjectArtifact, ProjectTask } from "@leros/store";
-import { useLayoutStore } from "@leros/store";
+import { useChatStore, useLayoutStore } from "@leros/store";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Bot,
@@ -18,7 +18,7 @@ import {
 	Tag,
 	Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { ChatInput } from "../input/ChatInput";
 import { TaskDeleteDialog } from "./TaskDeleteDialog";
@@ -30,10 +30,36 @@ const projectTabs = [
 ];
 
 export function ProjectPage() {
-	const { projects, activeProjectId, activeProjectTab, switchView, setActiveProjectTab } =
+	const { projects, activeProjectId, activeProjectTab, projectDetailLoading, projectDetailError, activeProjectSessionId, projectSessionId, switchView, setActiveProjectTab, fetchProjectDetail } =
 		useLayoutStore((s) => s);
 
+	const { setActiveSession, loadConversationMessages, clearMessages } = useChatStore((s) => s);
+
 	const project = projects.find((item) => item.id === activeProjectId) ?? projects[0];
+
+	useEffect(() => {
+		if (activeProjectId) {
+			fetchProjectDetail(activeProjectId);
+		}
+	}, [activeProjectId]);
+
+	useEffect(() => {
+		if (!activeProjectSessionId) return;
+		setActiveSession(activeProjectSessionId);
+		loadConversationMessages(activeProjectSessionId);
+	}, [activeProjectSessionId, setActiveSession, loadConversationMessages]);
+
+	useEffect(() => {
+		if (!projectSessionId || activeProjectSessionId) return;
+		setActiveSession(projectSessionId);
+		loadConversationMessages(projectSessionId);
+	}, [projectSessionId, activeProjectSessionId, setActiveSession, loadConversationMessages]);
+
+	useEffect(() => {
+		return () => {
+			clearMessages();
+		};
+	}, [clearMessages]);
 
 	if (!project) {
 		return (
@@ -43,18 +69,31 @@ export function ProjectPage() {
 		);
 	}
 
+	if (projectDetailLoading) {
+		return (
+			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-surface)]">
+				<div className="flex flex-col items-center gap-3">
+					<LoaderCircle className="size-8 animate-spin text-[var(--leros-text-muted)]" />
+					<p className="text-sm text-[var(--leros-text-muted)]">加载项目详情…</p>
+				</div>
+			</div>
+		);
+	}
+
+	if (projectDetailError) {
+		return (
+			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-surface)]">
+				<div className="flex flex-col items-center gap-3">
+					<p className="text-sm text-[var(--leros-text-muted)]">{projectDetailError}</p>
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<div data-slot="project-page" className="flex h-full flex-1 flex-col bg-[var(--leros-surface)]">
 			<header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
 				<div className="flex items-center gap-3 text-[var(--leros-text-muted)]">
-					<button
-						type="button"
-						onClick={() => switchView("workbench")}
-						className="text-xs font-semibold uppercase tracking-widest hover:text-[var(--leros-text-strong)]"
-					>
-						Projects
-					</button>
-					<span className="text-[var(--leros-text-subtle)]">/</span>
 					<h1 className="text-base font-bold text-[var(--leros-text-strong)]">{project.name}</h1>
 				</div>
 				<div className="flex items-center gap-6 text-[var(--leros-text)]">

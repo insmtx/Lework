@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { BackendDataResponse, BackendPaginatedResponse, BackendProject } from "./types";
+import type { BackendDataResponse, BackendPaginatedResponse, BackendProject, BackendProjectDetail } from "./types";
 
 export type CreateProjectParams = {
 	name: string;
@@ -38,6 +38,7 @@ const PROJECT_ENDPOINTS = {
 	create: "/CreateProject",
 	list: "/ListProjects",
 	get: "/GetProject",
+	detail: "/DetailProject",
 	update: "/UpdateProject",
 	delete: "/DeleteProject",
 };
@@ -54,6 +55,9 @@ export const projectApi = {
 
 	update: (params: UpdateProjectParams) =>
 		apiClient.post<BackendDataResponse<BackendProject>>(PROJECT_ENDPOINTS.update, params),
+
+	detail: (params: GetProjectParams) =>
+		apiClient.post<BackendDataResponse<BackendProjectDetail>>(PROJECT_ENDPOINTS.detail, params),
 
 	delete: (params: DeleteProjectParams) =>
 		apiClient.post<BackendDataResponse<null>>(PROJECT_ENDPOINTS.delete, params),

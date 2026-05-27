@@ -230,8 +230,8 @@ func TestGetSession_ByID(t *testing.T) {
 		t.Fatalf("GetSession failed: %v", err)
 	}
 
-	if retrieved.ID != session.ID {
-		t.Errorf("expected ID %d, got %d", session.ID, retrieved.ID)
+	if retrieved.SessionID != session.SessionID {
+		t.Errorf("expected SessionID %s, got %s", session.SessionID, retrieved.SessionID)
 	}
 }
 

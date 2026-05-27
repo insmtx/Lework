@@ -492,7 +492,6 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 
 func convertToContractSession(session *types.Session) *contract.Session {
 	result := &contract.Session{
-		ID:                   session.ID,
 		SessionID:            session.PublicID,
 		Type:                 string(session.Type),
 		Uin:                  session.Uin,

@@ -11,7 +11,8 @@
     ".": "./index.ts",
     "./types/chat": "./types/chat.ts",
     "./types/layout": "./types/layout.ts",
-    "./types/topic": "./types/topic.ts"
+    "./types/topic": "./types/topic.ts",
+    "./api/taskApi": "./api/taskApi.ts"
   },
   "dependencies": {
     "zustand": "^5.0.11",

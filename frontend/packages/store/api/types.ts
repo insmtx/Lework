@@ -20,7 +20,6 @@ export type BackendDataResponse<T> = BackendBaseResponse & {
 };
 
 export type BackendSession = {
-	id: number;
 	session_id: string;
 	type: string;
 	user_id: number;
@@ -227,4 +226,41 @@ export type BackendTask = {
 	metadata?: Record<string, unknown>;
 	created_at: string;
 	updated_at: string;
+};
+
+export type BackendArtifact = {
+	artifact_id: string;
+	title: string;
+	filename?: string;
+	description?: string;
+	artifact_type: string;
+	mime_type?: string;
+	file_size?: number;
+	sha256?: string;
+};
+
+export type BackendProjectMemberItem = {
+	member_id: number;
+	member_type: string;
+	member_role: string;
+	joined_at: string;
+	name?: string;
+	avatar_url?: string;
+};
+
+export type BackendProjectTaskItem = BackendTask & {
+	session?: BackendSession;
+};
+
+export type BackendProjectDetail = BackendProject & {
+	session?: BackendSession;
+	tasks: BackendProjectTaskItem[];
+	artifacts: BackendArtifact[];
+	members: BackendProjectMemberItem[];
+};
+
+export type BackendNewMessageData = {
+	project_id: string;
+	task_id: string;
+	session_id: string;
 };

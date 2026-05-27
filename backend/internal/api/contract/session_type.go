@@ -46,7 +46,6 @@ type AddMessageRequest struct {
 
 // Session is the API response shape for a conversation.
 type Session struct {
-	ID                   uint                  `json:"id"`
 	SessionID            string                `json:"session_id"`
 	Type                 string                `json:"type"`
 	Uin                  uint                  `json:"uin"`
