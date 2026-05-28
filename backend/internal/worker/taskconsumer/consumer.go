@@ -24,7 +24,6 @@ type Config struct {
 	OrgID          uint
 	WorkerID       uint
 	DebounceWindow time.Duration
-	ModelStore     *modelrouter.Store
 }
 
 // Consumer subscribes to one worker task topic and dispatches tasks to an agent runtime.
@@ -52,9 +51,6 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 	}
 	if runner == nil {
 		return nil, fmt.Errorf("agent runner is required")
-	}
-	if cfg.ModelStore == nil {
-		return nil, fmt.Errorf("model store is required")
 	}
 	window := cfg.DebounceWindow
 	if window <= 0 {
@@ -111,7 +107,7 @@ func (c *Consumer) handleEvent(ctx context.Context, msg *nats.Msg) error {
 	if err := validateModelConfig(taskMsg.Body.Model); err != nil {
 		return err
 	}
-	c.cfg.ModelStore.Put(modelConfigFromTask(taskMsg.Body.Model))
+	modelrouter.DefaultStore().Put(modelConfigFromTask(taskMsg.Body.Model))
 
 	logs.InfoContextf(ctx,
 		"Received worker task: msg_id=%s task_id=%s run_id=%s org_id=%s worker_id=%s session_id=%s task_type=%s",

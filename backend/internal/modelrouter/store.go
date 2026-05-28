@@ -12,9 +12,19 @@ type Store struct {
 	byModel map[string]*UpstreamConfig
 }
 
-// NewStore creates an empty worker-local model store.
-func NewStore() *Store {
+var defaultStore = newStore()
+
+func newStore() *Store {
 	return &Store{byModel: make(map[string]*UpstreamConfig)}
+}
+
+// DefaultStore returns the worker-local singleton model store.
+func DefaultStore() *Store {
+	return defaultStore
+}
+
+func resetDefaultStoreForTest() {
+	defaultStore = newStore()
 }
 
 // Put stores an upstream config as the current task model config.

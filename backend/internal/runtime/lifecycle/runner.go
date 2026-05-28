@@ -16,21 +16,18 @@ type Runner struct {
 	delegate         agent.Runner
 	builder          *lifecyclecontext.ContextBuilder
 	toolAvailability ToolAvailability
-	modelResolver    ModelResolver
 	artifactRecorder steps.ArtifactRecorder
 	learning         *steps.LearningService
 	pipeline         Pipeline
 }
 
 type ToolAvailability = steps.ToolAvailability
-type ModelResolver = steps.ModelResolver
 
-func NewRunner(delegate agent.Runner, builder *lifecyclecontext.ContextBuilder, toolAvailability ToolAvailability, modelResolver ModelResolver) *Runner {
+func NewRunner(delegate agent.Runner, builder *lifecyclecontext.ContextBuilder, toolAvailability ToolAvailability) *Runner {
 	r := &Runner{
 		delegate:         delegate,
 		builder:          builder,
 		toolAvailability: toolAvailability,
-		modelResolver:    modelResolver,
 	}
 	r.learning = &steps.LearningService{
 		Builder:          builder,
@@ -52,7 +49,6 @@ func (r *Runner) defaultPipeline() Pipeline {
 		steps.ContextStep{Builder: r.builder},
 		steps.AuthorizeStep{},
 		steps.StartEventStep{},
-		steps.ModelStep{Resolver: r.modelResolver},
 		steps.ExecuteStep{Delegate: r.delegate},
 		steps.ArtifactStep{Recorder: r.artifactRecorder},
 		steps.PersistStep{},

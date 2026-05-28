@@ -129,7 +129,7 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 	}
 	router.SetDefault(selectedDefault)
 
-	runner := lifecycle.NewRunner(router, lifecycleBuilder, s.env, nil)
+	runner := lifecycle.NewRunner(router, lifecycleBuilder, s.env)
 	runner.SetArtifactRecorder(steps.NewDBArtifactRecorder(infradb.GetDB()))
 	return runner, nil
 }

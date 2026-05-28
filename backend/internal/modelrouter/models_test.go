@@ -13,7 +13,7 @@ func TestRegisterRoutesDoesNotExposeModelsEndpoint(t *testing.T) {
 
 	r := gin.New()
 	v1 := r.Group("/v1")
-	RegisterRoutes(v1, NewStore())
+	RegisterRoutes(v1)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
@@ -25,8 +25,8 @@ func TestRegisterRoutesDoesNotExposeModelsEndpoint(t *testing.T) {
 }
 
 func TestResolverUsesWorkerCache(t *testing.T) {
-	store := NewStore()
-	store.Put(UpstreamConfig{
+	resetDefaultStoreForTest()
+	DefaultStore().Put(UpstreamConfig{
 		ModelName:    "gpt-4.1",
 		Provider:     "openai",
 		BaseURL:      "https://api.openai.com",
@@ -34,7 +34,7 @@ func TestResolverUsesWorkerCache(t *testing.T) {
 		APIKey:       "sk-test",
 	})
 
-	cfg, err := NewResolver(store).Resolve(t.Context(), 1, "gpt-4.1")
+	cfg, err := NewResolver().Resolve(t.Context(), 1, "gpt-4.1")
 	if err != nil {
 		t.Fatalf("resolve cached model: %v", err)
 	}
@@ -44,14 +44,14 @@ func TestResolverUsesWorkerCache(t *testing.T) {
 }
 
 func TestResolverUsesCurrentCachedModelWhenRequestModelIsEmpty(t *testing.T) {
-	store := NewStore()
-	store.Put(UpstreamConfig{
+	resetDefaultStoreForTest()
+	DefaultStore().Put(UpstreamConfig{
 		ModelName: "claude-sonnet-4",
 		Provider:  "anthropic",
 		APIKey:    "anthropic-test",
 	})
 
-	cfg, err := NewResolver(store).Resolve(t.Context(), 1, "")
+	cfg, err := NewResolver().Resolve(t.Context(), 1, "")
 	if err != nil {
 		t.Fatalf("resolve current cached model: %v", err)
 	}

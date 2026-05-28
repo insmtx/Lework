@@ -14,7 +14,7 @@ func TestRunnerEmitsSuccessResultAndCompletedArchiveThroughSink(t *testing.T) {
 	sink := &recordingSink{}
 	runner := NewRunner(successRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
 		BaseSystemPrompt: "base",
-	}), nil, nil)
+	}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if err != nil {
@@ -71,7 +71,7 @@ func TestRunnerEmitsFailureThroughSink(t *testing.T) {
 	sink := &recordingSink{}
 	runner := NewRunner(&errorRuntime{err: errors.New("runtime unavailable")}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
 		BaseSystemPrompt: "base",
-	}), nil, nil)
+	}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if err == nil {
@@ -128,7 +128,7 @@ func TestRunnerEmitsArtifactsBeforeCompletedArchive(t *testing.T) {
 	sink := &recordingSink{}
 	runner := NewRunner(successRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
 		BaseSystemPrompt: "base",
-	}), nil, nil)
+	}), nil)
 	runner.SetArtifactRecorder(fakeArtifactRecorder{
 		artifacts: []events.ArtifactPayload{
 			{ArtifactID: "art_test", Title: "Report", Filename: "report.md", MimeType: "text/markdown", ArtifactType: "file"},
@@ -174,7 +174,7 @@ func TestRunnerEmitsCancelledThroughSink(t *testing.T) {
 	sink := &recordingSink{}
 	runner := NewRunner(&errorRuntime{err: context.DeadlineExceeded}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
 		BaseSystemPrompt: "base",
-	}), nil, nil)
+	}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -199,7 +199,7 @@ func TestRunnerRecoversPanicThroughSink(t *testing.T) {
 	sink := &recordingSink{}
 	runner := NewRunner(panicRuntime{}, lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
 		BaseSystemPrompt: "base",
-	}), nil, nil)
+	}), nil)
 
 	result, err := runner.Run(context.Background(), lifecycleTestRequest(sink))
 	if err == nil {

@@ -21,14 +21,14 @@ import (
 //   - /v1/chat/completions — OpenAI Chat Completions 模型路由
 //   - /v1/messages — Anthropic Messages 模型路由
 //   - /v1/responses — OpenAI Responses 模型路由
-func SetupRouter(modelStore *modelrouter.Store) *gin.Engine {
+func SetupRouter() *gin.Engine {
 	r := gin.New()
 
 	r.GET("/health", workerHealth)
 
 	v1 := r.Group("/v1")
 	runtimemcp.RegisterRoutes(v1, runtimemcp.NewServer())
-	modelrouter.RegisterRoutes(v1, modelStore)
+	modelrouter.RegisterRoutes(v1)
 
 	logs.Infof("Worker router initialized: health, /v1/mcp, /v1/chat/completions, /v1/messages, /v1/responses")
 	return r

@@ -7,23 +7,23 @@ import (
 	"strings"
 )
 
-type Resolver struct {
-	store *Store
+type Resolver struct{}
+
+// NewResolver creates a model resolver backed by the worker-local singleton store.
+func NewResolver() *Resolver {
+	return &Resolver{}
 }
 
-func NewResolver(store *Store) *Resolver {
-	return &Resolver{store: store}
-}
-
+// Resolve returns the cached upstream model configuration for one model name.
 func (r *Resolver) Resolve(ctx context.Context, orgID uint, modelName string) (*UpstreamConfig, error) {
 	_ = ctx
 	_ = orgID
 
-	if r == nil || r.store == nil {
+	if r == nil || DefaultStore() == nil {
 		return nil, errors.New("llm model cache is not initialized")
 	}
 
-	cfg, ok := r.store.resolve(modelName)
+	cfg, ok := DefaultStore().resolve(modelName)
 	if !ok {
 		if modelName != "" {
 			return nil, fmt.Errorf("llm model %q not found in worker cache", modelName)

@@ -15,8 +15,9 @@ import (
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 )
 
-func RegisterRoutes(r gin.IRouter, store *Store) {
-	resolver := NewResolver(store)
+// RegisterRoutes registers model routing endpoints backed by the worker-local model store.
+func RegisterRoutes(r gin.IRouter) {
+	resolver := NewResolver()
 
 	r.POST("/chat/completions", handleModelRoute(resolver, ProtocolOpenAIChat))
 	r.POST("/messages", handleModelRoute(resolver, ProtocolAnthropicMessages))
