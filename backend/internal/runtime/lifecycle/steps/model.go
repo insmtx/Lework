@@ -98,12 +98,20 @@ func workerModelProxyBaseURL() string {
 	}
 	addr = strings.TrimRight(addr, "/")
 	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
-		return addr
+		return ensureV1Suffix(addr)
 	}
 	if strings.HasPrefix(addr, ":") {
-		return "http://127.0.0.1" + addr
+		return ensureV1Suffix("http://127.0.0.1" + addr)
 	}
-	return "http://" + addr
+	return ensureV1Suffix("http://" + addr)
+}
+
+func ensureV1Suffix(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" || strings.HasSuffix(baseURL, "/v1") {
+		return baseURL
+	}
+	return baseURL + "/v1"
 }
 
 // EnsureModelConfig 在需要时将解析后的模型配置应用到 req。

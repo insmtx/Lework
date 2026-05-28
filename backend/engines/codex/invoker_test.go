@@ -132,7 +132,7 @@ func TestBuildArgsResumeReadsPromptFromStdin(t *testing.T) {
 func TestCodexModelEnvUsesOpenAIEnvKeys(t *testing.T) {
 	env := codexModelEnv(engines.ModelConfig{
 		APIKey:  "sk-test",
-		BaseURL: "http://127.0.0.1:8081",
+		BaseURL: "http://127.0.0.1:8081/v1/",
 	})
 	if env["OPENAI_API_KEY"] != "sk-test" {
 		t.Fatalf("unexpected api key env: %#v", env)

@@ -305,11 +305,12 @@ func lerosProviderConfigArgs(req engines.RunRequest) []string {
 
 // ensureV1Suffix appends /v1 when it is missing.
 func ensureV1Suffix(url string) string {
+	url = strings.TrimRight(strings.TrimSpace(url), "/")
 	if url == "" {
 		return url
 	}
 	if !strings.HasSuffix(url, "/v1") {
-		url = strings.TrimSuffix(url, "/") + "/v1"
+		url += "/v1"
 	}
 	return url
 }

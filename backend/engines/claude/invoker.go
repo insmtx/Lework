@@ -144,9 +144,14 @@ func claudeModelEnv(model engines.ModelConfig) map[string]string {
 	return map[string]string{
 		"ANTHROPIC_AUTH_TOKEN":                     model.APIKey,
 		"ANTHROPIC_API_KEY":                        model.APIKey,
-		"ANTHROPIC_BASE_URL":                       model.BaseURL,
+		"ANTHROPIC_BASE_URL":                       withoutV1Suffix(model.BaseURL),
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 	}
+}
+
+func withoutV1Suffix(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	return strings.TrimSuffix(baseURL, "/v1")
 }
 
 type claudeStreamState struct {
