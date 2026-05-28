@@ -153,6 +153,19 @@ func TestBuildArgsSkipsEmptySystemPrompt(t *testing.T) {
 	}
 }
 
+func TestClaudeModelEnvStripsV1Suffix(t *testing.T) {
+	env := claudeModelEnv(engines.ModelConfig{
+		APIKey:  "sk-test",
+		BaseURL: "http://127.0.0.1:8081/v1/",
+	})
+	if env["ANTHROPIC_API_KEY"] != "sk-test" {
+		t.Fatalf("unexpected api key env: %#v", env)
+	}
+	if env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:8081" {
+		t.Fatalf("unexpected base url env: %#v", env)
+	}
+}
+
 func TestParseClaudeLineTracksAssistantFallback(t *testing.T) {
 	state := &claudeStreamState{}
 	event := parseClaudeLine(`{"type":"assistant","message":{"content":[{"type":"text","text":"answer"}]}}`, state)
