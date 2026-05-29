@@ -49,14 +49,14 @@ func JoinWorkspace(elem ...string) (string, error) {
 	return filepath.Join(parts...), nil
 }
 
-// SkillsDir returns the default Leros skills directory.
+// SkillsDir returns the default Leros skills directory under workspace_root/.leros.
 func SkillsDir() (string, error) {
-	return JoinWorkspace("skills")
+	return JoinWorkspace(stateDirName, "skills")
 }
 
-// MemoryDir returns the default Leros memory directory.
+// MemoryDir returns the default Leros memory directory under workspace_root/.leros.
 func MemoryDir() (string, error) {
-	return JoinWorkspace("memory")
+	return JoinWorkspace(stateDirName, "memory")
 }
 
 // EnsureStateDir 确保 workspace_root/.leros 目录存在并返回其路径。

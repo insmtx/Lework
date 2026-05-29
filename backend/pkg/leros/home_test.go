@@ -80,7 +80,7 @@ func TestWorkspaceSubdirs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("skills dir: %v", err)
 	}
-	if skillsDir != filepath.Join(root, "skills") {
+	if skillsDir != filepath.Join(root, ".leros", "skills") {
 		t.Fatalf("unexpected skills dir: %s", skillsDir)
 	}
 
@@ -88,7 +88,7 @@ func TestWorkspaceSubdirs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("memory dir: %v", err)
 	}
-	if memoryDir != filepath.Join(root, "memory") {
+	if memoryDir != filepath.Join(root, ".leros", "memory") {
 		t.Fatalf("unexpected memory dir: %s", memoryDir)
 	}
 
