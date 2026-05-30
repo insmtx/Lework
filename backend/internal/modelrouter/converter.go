@@ -9,6 +9,32 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
+// Decoder converts protocol-specific messages to canonical IR.
+type Decoder interface {
+	DecodeRequest(body map[string]interface{}) (*IRRequest, error)
+	DecodeResponse(body map[string]interface{}) (*IRResponse, error)
+}
+
+// Encoder converts canonical IR to protocol-specific messages.
+type Encoder interface {
+	EncodeRequest(ir *IRRequest) (map[string]interface{}, error)
+	EncodeResponse(ir *IRResponse) (map[string]interface{}, error)
+}
+
+// decoders maps entry protocols to their decoder implementations.
+var decoders = map[Protocol]Decoder{
+	ProtocolOpenAIChat:        &openAIChatDecoder{},
+	ProtocolOpenAIResponses:   &openAIResponsesDecoder{},
+	ProtocolAnthropicMessages: &anthropicDecoder{},
+}
+
+// encoders maps entry protocols to their encoder implementations.
+var encoders = map[Protocol]Encoder{
+	ProtocolOpenAIChat:        &openAIChatEncoder{},
+	ProtocolOpenAIResponses:   &openAIResponsesEncoder{},
+	ProtocolAnthropicMessages: &anthropicEncoder{},
+}
+
 var errInvalidRequestBody = errors.New("parse request body")
 
 func convertRequest(body []byte, entryProtocol, upstreamProtocol Protocol, upstreamModel string) ([]byte, error) {
@@ -154,10 +180,17 @@ type streamConversionState struct {
 	textStopped map[int]bool
 	toolStarted map[int]bool
 	toolStopped map[int]bool
+
+	// 记录上游 Anthropic 流中真实 tool block 的 ID 和名称
+	toolBlockIDs   map[int]string
+	toolBlockNames map[int]string
 }
 
 func newStreamConversionState() *streamConversionState {
-	return &streamConversionState{}
+	return &streamConversionState{
+		toolBlockIDs:   make(map[int]string),
+		toolBlockNames: make(map[int]string),
+	}
 }
 
 func (s *streamConversionState) prepareIRStreamEvents(entryProtocol Protocol, events []*IRStreamEvent) []*IRStreamEvent {
@@ -199,6 +232,15 @@ func (s *streamConversionState) prepareAnthropicIRStreamEvents(events []*IRStrea
 		if event == nil {
 			continue
 		}
+		// 捕获上游真实的 tool block ID 和名称
+		if event.Type == IRStreamContentStart && event.ContentBlock != nil && event.ContentBlock.Type == IRBlockToolUse {
+			if event.ContentBlock.ToolUseID != "" {
+				s.toolBlockIDs[event.Index] = event.ContentBlock.ToolUseID
+			}
+			if event.ContentBlock.ToolUseName != "" {
+				s.toolBlockNames[event.Index] = event.ContentBlock.ToolUseName
+			}
+		}
 		switch event.Type {
 		case IRStreamContentStart:
 			prepared = append(prepared, s.prepareAnthropicContentStart(event)...)
@@ -219,21 +261,21 @@ func (s *streamConversionState) prepareAnthropicIRStreamEvents(events []*IRStrea
 func (s *streamConversionState) prepareAnthropicContentStart(event *IRStreamEvent) []*IRStreamEvent {
 	if event.ContentBlock != nil && event.ContentBlock.Type == IRBlockToolUse {
 		if s.hasToolStarted(event.Index) && !s.hasToolStopped(event.Index) {
-			logs.Infof("modelrouter: anthropic duplicate tool block start ignored index=%d", event.Index)
+			logs.Debugf("modelrouter: anthropic duplicate tool block start ignored index=%d", event.Index)
 			return nil
 		}
 		s.markToolStarted(event.Index)
 		s.clearToolStopped(event.Index)
-		logs.Infof("modelrouter: anthropic tool block started index=%d", event.Index)
+		logs.Debugf("modelrouter: anthropic tool block started index=%d id=%s name=%s", event.Index, event.ContentBlock.ToolUseID, event.ContentBlock.ToolUseName)
 		return []*IRStreamEvent{event}
 	}
 	if s.hasTextStarted(event.Index) && !s.hasTextStopped(event.Index) {
-		logs.Infof("modelrouter: anthropic duplicate text block start ignored index=%d", event.Index)
+		logs.Debugf("modelrouter: anthropic duplicate text block start ignored index=%d", event.Index)
 		return nil
 	}
 	s.markTextStarted(event.Index)
 	s.clearTextStopped(event.Index)
-	logs.Infof("modelrouter: anthropic text block started index=%d", event.Index)
+	logs.Debugf("modelrouter: anthropic text block started index=%d", event.Index)
 	return []*IRStreamEvent{event}
 }
 
@@ -249,22 +291,30 @@ func (s *streamConversionState) prepareAnthropicContentDelta(event *IRStreamEven
 			})
 			s.markTextStarted(event.Index)
 			s.clearTextStopped(event.Index)
-			logs.Infof("modelrouter: anthropic text block auto-started before delta index=%d", event.Index)
+			logs.Debugf("modelrouter: anthropic text block auto-started before delta index=%d", event.Index)
 		}
 	case "input_json":
 		if !s.hasToolStarted(event.Index) || s.hasToolStopped(event.Index) {
+			// 使用上游真实的 tool ID（如果已收集到），否则 fallback
+			toolID := s.toolBlockIDs[event.Index]
+			if toolID == "" {
+				toolID = ensureToolBlockID(event.Index)
+				logs.Debugf("modelrouter: anthropic using fallback tool ID for index=%d", event.Index)
+			}
+			toolName := s.toolBlockNames[event.Index]
+
 			prepared = append(prepared, &IRStreamEvent{
 				Type:  IRStreamContentStart,
 				Index: event.Index,
 				ContentBlock: &IRContentBlock{
 					Type:        IRBlockToolUse,
-					ToolUseID:   ensureToolBlockID(event.Index),
-					ToolUseName: "",
+					ToolUseID:   toolID,
+					ToolUseName: toolName,
 				},
 			})
 			s.markToolStarted(event.Index)
 			s.clearToolStopped(event.Index)
-			logs.Infof("modelrouter: anthropic tool block auto-started before delta index=%d", event.Index)
+			logs.Debugf("modelrouter: anthropic tool block auto-started before delta index=%d id=%s", event.Index, toolID)
 		}
 	}
 	prepared = append(prepared, event)
@@ -274,12 +324,12 @@ func (s *streamConversionState) prepareAnthropicContentDelta(event *IRStreamEven
 func (s *streamConversionState) prepareAnthropicContentStop(event *IRStreamEvent) []*IRStreamEvent {
 	if s.hasToolStarted(event.Index) && !s.hasToolStopped(event.Index) {
 		s.markToolStopped(event.Index)
-		logs.Infof("modelrouter: anthropic tool block stopped index=%d", event.Index)
+		logs.Debugf("modelrouter: anthropic tool block stopped index=%d", event.Index)
 		return []*IRStreamEvent{event}
 	}
 	if s.hasTextStarted(event.Index) && !s.hasTextStopped(event.Index) {
 		s.markTextStopped(event.Index)
-		logs.Infof("modelrouter: anthropic text block stopped index=%d", event.Index)
+		logs.Debugf("modelrouter: anthropic text block stopped index=%d", event.Index)
 		return []*IRStreamEvent{event}
 	}
 	return nil
@@ -290,12 +340,12 @@ func (s *streamConversionState) closeAnthropicOpenBlocks() []*IRStreamEvent {
 	for _, index := range s.openToolIndexes() {
 		pending = append(pending, &IRStreamEvent{Type: IRStreamContentStop, Index: index})
 		s.markToolStopped(index)
-		logs.Infof("modelrouter: anthropic tool block auto-stopped before message_delta index=%d", index)
+		logs.Debugf("modelrouter: anthropic tool block auto-stopped before message_delta index=%d", index)
 	}
 	for _, index := range s.openTextIndexes() {
 		pending = append(pending, &IRStreamEvent{Type: IRStreamContentStop, Index: index})
 		s.markTextStopped(index)
-		logs.Infof("modelrouter: anthropic text block auto-stopped before message_delta index=%d", index)
+		logs.Debugf("modelrouter: anthropic text block auto-stopped before message_delta index=%d", index)
 	}
 	return pending
 }

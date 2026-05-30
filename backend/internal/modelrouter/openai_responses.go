@@ -37,6 +37,8 @@ func (d *openAIResponsesDecoder) DecodeRequest(body map[string]interface{}) (*IR
 		ir.Seed = &s
 	}
 
+	ir.ReasoningEffort = getString(body, "reasoning_effort")
+
 	if tools, ok := getList(body, "tools"); ok {
 		ir.Tools = decodeResponsesTools(tools)
 	}
@@ -46,6 +48,18 @@ func (d *openAIResponsesDecoder) DecodeRequest(body map[string]interface{}) (*IR
 	}
 
 	ir.User = getString(body, "user")
+
+	// 提取 Preserved：OpenAI Responses API 特有字段
+	for k, v := range body {
+		switch k {
+		case "model", "input", "instructions", "stream", "temperature", "top_p",
+			"max_output_tokens", "stop", "seed", "tools", "tool_choice",
+			"user", "reasoning_effort", "metadata":
+			// handled
+		default:
+			ir.Preserved[k] = v
+		}
+	}
 
 	return ir, nil
 }
@@ -205,7 +219,9 @@ func (d *openAIResponsesDecoder) DecodeResponse(body map[string]interface{}) (*I
 			InputTokens:  getIntDefault(u, "input_tokens"),
 			OutputTokens: getIntDefault(u, "output_tokens"),
 		}
-		ir.Usage.TotalTokens = ir.Usage.InputTokens + ir.Usage.OutputTokens
+		if promptDetails, ok := u["prompt_tokens_details"].(map[string]interface{}); ok {
+			ir.Usage.CachedInputTokens = getIntDefault(promptDetails, "cached_tokens")
+		}
 	}
 
 	return ir, nil
@@ -280,6 +296,17 @@ func (e *openAIResponsesEncoder) EncodeRequest(ir *IRRequest) (map[string]interf
 
 	if ir.ToolChoice != nil {
 		body["tool_choice"] = encodeResponsesToolChoice(ir.ToolChoice)
+	}
+
+	if ir.ReasoningEffort != "" {
+		body["reasoning_effort"] = ir.ReasoningEffort
+	}
+
+	// 回传 Preserved 字段
+	for k, v := range ir.Preserved {
+		if _, exists := body[k]; !exists {
+			body[k] = v
+		}
 	}
 
 	return body, nil
@@ -440,11 +467,17 @@ func (e *openAIResponsesEncoder) EncodeResponse(ir *IRResponse) (map[string]inte
 	}
 
 	if ir.Usage != nil {
-		resp["usage"] = map[string]interface{}{
+		usage := map[string]interface{}{
 			"input_tokens":  ir.Usage.InputTokens,
 			"output_tokens": ir.Usage.OutputTokens,
 			"total_tokens":  ir.Usage.InputTokens + ir.Usage.OutputTokens,
 		}
+		if ir.Usage.CachedInputTokens > 0 {
+			usage["prompt_tokens_details"] = map[string]interface{}{
+				"cached_tokens": ir.Usage.CachedInputTokens,
+			}
+		}
+		resp["usage"] = usage
 	}
 
 	return resp, nil
@@ -519,6 +552,9 @@ func decodeResponsesStreamEvent(data map[string]interface{}) []*IRStreamEvent {
 				InputTokens:  getIntDefault(u, "input_tokens"),
 				OutputTokens: getIntDefault(u, "output_tokens"),
 			}
+			if promptDetails, ok := u["prompt_tokens_details"].(map[string]interface{}); ok {
+				usage.CachedInputTokens = getIntDefault(promptDetails, "cached_tokens")
+			}
 		}
 		return []*IRStreamEvent{{
 			Type:       IRStreamMessageDelta,
@@ -531,6 +567,8 @@ func decodeResponsesStreamEvent(data map[string]interface{}) []*IRStreamEvent {
 		return []*IRStreamEvent{{
 			Type:         IRStreamError,
 			ErrorMessage: fmt.Sprintf("%s: %s", getString(err, "type"), getString(err, "message")),
+			ErrorType:    getString(err, "type"),
+			ErrorCode:    getString(err, "code"),
 		}}
 	}
 
@@ -792,6 +830,11 @@ func encodeResponsesStreamEventWithState(event *IRStreamEvent, state *streamConv
 				"output_tokens": eventUsage.OutputTokens,
 				"total_tokens":  totalTokens,
 			}
+			if eventUsage.CachedInputTokens > 0 {
+				usage["prompt_tokens_details"] = map[string]interface{}{
+					"cached_tokens": eventUsage.CachedInputTokens,
+				}
+			}
 		}
 		status := "completed"
 		if responseState != nil && responseState.stopReason == IRStopMaxTokens {
@@ -824,13 +867,20 @@ func encodeResponsesStreamEventWithState(event *IRStreamEvent, state *streamConv
 		}}
 
 	case IRStreamError:
-		return []map[string]interface{}{{
+		evt := map[string]interface{}{
 			"type": "error",
 			"error": map[string]interface{}{
 				"type":    "error",
 				"message": event.ErrorMessage,
 			},
-		}}
+		}
+		if event.ErrorType != "" {
+			evt["error"].(map[string]interface{})["type"] = event.ErrorType
+		}
+		if event.ErrorCode != "" {
+			evt["error"].(map[string]interface{})["code"] = event.ErrorCode
+		}
+		return []map[string]interface{}{evt}
 	}
 
 	return nil

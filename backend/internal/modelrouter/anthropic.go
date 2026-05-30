@@ -1,6 +1,8 @@
 package modelrouter
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type anthropicDecoder struct{}
 
@@ -58,6 +60,18 @@ func (d *anthropicDecoder) DecodeRequest(body map[string]interface{}) (*IRReques
 		}
 	}
 
+	// 提取 Preserved：Anthropic 特有字段
+	for k, v := range body {
+		switch k {
+		case "model", "messages", "system", "max_tokens", "temperature", "top_p",
+			"stop_sequences", "stream", "tools", "tool_choice", "metadata",
+			"thinking":
+			// handled or explicitly excluded
+		default:
+			ir.Preserved[k] = v
+		}
+	}
+
 	return ir, nil
 }
 
@@ -92,6 +106,22 @@ func decodeAnthropicContent(content interface{}) []IRContentBlock {
 				switch getString(m, "type") {
 				case "text":
 					blocks = append(blocks, IRContentBlock{Type: IRBlockText, Text: getString(m, "text")})
+				case "thinking":
+					blocks = append(blocks, IRContentBlock{
+						Type: IRBlockThinking,
+						Thinking: &IRThinkingBlock{
+							Content:   getString(m, "thinking"),
+							Signature: getString(m, "signature"),
+						},
+					})
+				case "redacted_thinking":
+					blocks = append(blocks, IRContentBlock{
+						Type: IRBlockThinking,
+						Thinking: &IRThinkingBlock{
+							Content:   "[REDACTED]",
+							Signature: getString(m, "signature"),
+						},
+					})
 				case "tool_use":
 					input, _ := m["input"].(map[string]interface{})
 					blocks = append(blocks, IRContentBlock{
@@ -162,7 +192,12 @@ func (d *anthropicDecoder) DecodeResponse(body map[string]interface{}) (*IRRespo
 			InputTokens:  getIntDefault(u, "input_tokens"),
 			OutputTokens: getIntDefault(u, "output_tokens"),
 		}
-		ir.Usage.TotalTokens = ir.Usage.InputTokens + ir.Usage.OutputTokens
+		if cct, ok := getInt(u, "cache_creation_input_tokens"); ok {
+			ir.Usage.CachedInputTokens = cct
+		}
+		if cct, ok := getInt(u, "cache_read_input_tokens"); ok {
+			ir.Usage.CachedInputTokens += cct
+		}
 	}
 
 	return ir, nil
@@ -227,6 +262,13 @@ func (e *anthropicEncoder) EncodeRequest(ir *IRRequest) (map[string]interface{},
 		body["tool_choice"] = encodeAnthropicToolChoice(ir.ToolChoice)
 	}
 
+	// 回传 Preserved 字段
+	for k, v := range ir.Preserved {
+		if _, exists := body[k]; !exists {
+			body[k] = v
+		}
+	}
+
 	return body, nil
 }
 
@@ -255,53 +297,52 @@ func (e *anthropicEncoder) encodeMessages(msgs []IRMessage) []map[string]interfa
 				em["content"] = content
 			}
 			result = append(result, em)
-			continue
-		}
-
-		role := "user"
-		if m.Role == IRRoleAssistant {
-			role = "assistant"
-		}
-
-		em := map[string]interface{}{"role": role}
-
-		var content []map[string]interface{}
-		for _, block := range m.Content {
-			switch block.Type {
-			case IRBlockText:
-				content = append(content, map[string]interface{}{"type": "text", "text": block.Text})
-			case IRBlockToolUse:
-				content = append(content, map[string]interface{}{
-					"type":  "tool_use",
-					"id":    block.ToolUseID,
-					"name":  block.ToolUseName,
-					"input": block.ToolUseInput,
-				})
-			}
-		}
-
-		if len(content) == 1 && content[0]["type"] == "text" {
-			em["content"] = content[0]["text"]
-		} else if len(content) > 0 {
-			em["content"] = content
 		} else {
-			em["content"] = ""
+			em := map[string]interface{}{"role": "assistant"}
+			if m.Role == IRRoleUser {
+				em["role"] = "user"
+			}
+			var content []map[string]interface{}
+			for _, block := range m.Content {
+				switch block.Type {
+				case IRBlockText:
+					content = append(content, map[string]interface{}{
+						"type": "text",
+						"text": block.Text,
+					})
+				case IRBlockThinking:
+					tb := map[string]interface{}{"type": "thinking", "thinking": block.Thinking.Content}
+					if block.Thinking.Signature != "" {
+						tb["signature"] = block.Thinking.Signature
+					}
+					content = append(content, tb)
+				case IRBlockToolUse:
+					content = append(content, map[string]interface{}{
+						"type":  "tool_use",
+						"id":    block.ToolUseID,
+						"name":  block.ToolUseName,
+						"input": block.ToolUseInput,
+					})
+				}
+			}
+			if len(content) > 0 {
+				em["content"] = content
+			}
+			result = append(result, em)
 		}
-
-		result = append(result, em)
 	}
 
 	return result
 }
 
-func encodeAnthropicToolChoice(tc *IRToolChoice) map[string]interface{} {
+func encodeAnthropicToolChoice(tc *IRToolChoice) interface{} {
 	switch tc.Type {
 	case "auto":
 		return map[string]interface{}{"type": "auto"}
+	case "any", "required":
+		return map[string]interface{}{"type": "any"}
 	case "none":
 		return map[string]interface{}{"type": "none"}
-	case "required":
-		return map[string]interface{}{"type": "any"}
 	case "specific":
 		return map[string]interface{}{"type": "tool", "name": tc.Name}
 	}
@@ -309,39 +350,14 @@ func encodeAnthropicToolChoice(tc *IRToolChoice) map[string]interface{} {
 }
 
 func (e *anthropicEncoder) EncodeResponse(ir *IRResponse) (map[string]interface{}, error) {
-	var content []map[string]interface{}
-
-	for _, block := range ir.Content {
-		switch block.Type {
-		case IRBlockText:
-			content = append(content, map[string]interface{}{"type": "text", "text": block.Text})
-		case IRBlockToolUse:
-			content = append(content, map[string]interface{}{
-				"type":  "tool_use",
-				"id":    block.ToolUseID,
-				"name":  block.ToolUseName,
-				"input": block.ToolUseInput,
-			})
-		}
-	}
-
-	stopReason := "end_turn"
-	switch ir.StopReason {
-	case IRStopMaxTokens:
-		stopReason = "max_tokens"
-	case IRStopToolUse:
-		stopReason = "tool_use"
-	case IRStopStopSequence:
-		stopReason = "stop_sequence"
-	}
-
 	resp := map[string]interface{}{
-		"id":          ensurePrefix(ir.ID, "msg"),
-		"type":        "message",
-		"role":        "assistant",
-		"model":       ir.Model,
-		"content":     content,
-		"stop_reason": stopReason,
+		"id":         ir.ID,
+		"type":       "message",
+		"role":       "assistant",
+		"model":      ir.Model,
+		"content":    e.encodeResponseContent(ir.Content),
+		"stop_reason": mapAnthropicEncodedStopReason(ir.StopReason),
+		"stop_sequence": nil,
 	}
 
 	if ir.Usage != nil {
@@ -349,32 +365,101 @@ func (e *anthropicEncoder) EncodeResponse(ir *IRResponse) (map[string]interface{
 			"input_tokens":  ir.Usage.InputTokens,
 			"output_tokens": ir.Usage.OutputTokens,
 		}
+		if ir.Usage.CachedInputTokens > 0 {
+			resp["usage"].(map[string]interface{})["cache_creation_input_tokens"] = ir.Usage.CachedInputTokens
+		}
+		if ir.Usage.ReasoningTokens > 0 {
+			// Anthropic reports reasoning tokens as part of output_tokens,
+			// but include as separate field for clarity
+		}
 	}
 
 	return resp, nil
+}
+
+func (e *anthropicEncoder) encodeResponseContent(content []IRContentBlock) []map[string]interface{} {
+	var blocks []map[string]interface{}
+	for _, block := range content {
+		switch block.Type {
+		case IRBlockText:
+			blocks = append(blocks, map[string]interface{}{"type": "text", "text": block.Text})
+		case IRBlockThinking:
+			tb := map[string]interface{}{"type": "thinking", "thinking": block.Thinking.Content}
+			if block.Thinking.Signature != "" {
+				tb["signature"] = block.Thinking.Signature
+			}
+			blocks = append(blocks, tb)
+		case IRBlockToolUse:
+			blocks = append(blocks, map[string]interface{}{
+				"type":  "tool_use",
+				"id":    block.ToolUseID,
+				"name":  block.ToolUseName,
+				"input": block.ToolUseInput,
+			})
+		}
+	}
+	return blocks
+}
+
+func mapAnthropicEncodedStopReason(reason IRStopReason) string {
+	switch reason {
+	case IRStopEndTurn:
+		return "end_turn"
+	case IRStopMaxTokens:
+		return "max_tokens"
+	case IRStopStopSequence:
+		return "stop_sequence"
+	case IRStopToolUse:
+		return "tool_use"
+	}
+	return "end_turn"
 }
 
 func decodeAnthropicStreamEvent(eventType string, data map[string]interface{}) []*IRStreamEvent {
 	switch eventType {
 	case "message_start":
 		msg, _ := data["message"].(map[string]interface{})
-		return []*IRStreamEvent{{
+		event := &IRStreamEvent{
 			Type:          IRStreamMessageStart,
 			ResponseID:    getString(msg, "id"),
 			ResponseModel: getString(msg, "model"),
-		}}
+		}
+		if u, ok := msg["usage"].(map[string]interface{}); ok {
+			event.Usage = &IRUsage{
+				InputTokens:  getIntDefault(u, "input_tokens"),
+				OutputTokens: getIntDefault(u, "output_tokens"),
+			}
+		}
+		return []*IRStreamEvent{event}
 
 	case "content_block_start":
 		block, _ := data["content_block"].(map[string]interface{})
 		idx := getIntDefault(data, "index")
 		var cb *IRContentBlock
-		if getString(block, "type") == "tool_use" {
+		switch getString(block, "type") {
+		case "tool_use":
 			cb = &IRContentBlock{
 				Type:        IRBlockToolUse,
 				ToolUseID:   getString(block, "id"),
 				ToolUseName: getString(block, "name"),
 			}
-		} else {
+		case "thinking":
+			cb = &IRContentBlock{
+				Type: IRBlockThinking,
+				Thinking: &IRThinkingBlock{
+					Content:   getString(block, "thinking"),
+					Signature: getString(block, "signature"),
+				},
+			}
+		case "redacted_thinking":
+			cb = &IRContentBlock{
+				Type: IRBlockThinking,
+				Thinking: &IRThinkingBlock{
+					Content:   "[REDACTED]",
+					Signature: getString(block, "signature"),
+				},
+			}
+		default:
 			cb = &IRContentBlock{Type: IRBlockText}
 		}
 		return []*IRStreamEvent{{
@@ -401,6 +486,13 @@ func decodeAnthropicStreamEvent(eventType string, data map[string]interface{}) [
 				DeltaType: "input_json",
 				DeltaJSON: getString(delta, "partial_json"),
 			}}
+		} else if deltaType == "thinking_delta" {
+			return []*IRStreamEvent{{
+				Type:      IRStreamContentDelta,
+				Index:     idx,
+				DeltaType: "thinking",
+				DeltaText: getString(delta, "thinking"),
+			}}
 		}
 
 	case "content_block_stop":
@@ -410,7 +502,10 @@ func decodeAnthropicStreamEvent(eventType string, data map[string]interface{}) [
 		delta, _ := data["delta"].(map[string]interface{})
 		var usage *IRUsage
 		if u, ok := data["usage"].(map[string]interface{}); ok {
-			usage = &IRUsage{OutputTokens: getIntDefault(u, "output_tokens")}
+			usage = &IRUsage{
+				InputTokens:  getIntDefault(u, "input_tokens"),
+				OutputTokens: getIntDefault(u, "output_tokens"),
+			}
 		}
 		return []*IRStreamEvent{{
 			Type:       IRStreamMessageDelta,
@@ -426,6 +521,8 @@ func decodeAnthropicStreamEvent(eventType string, data map[string]interface{}) [
 		return []*IRStreamEvent{{
 			Type:         IRStreamError,
 			ErrorMessage: fmt.Sprintf("%s: %s", getString(err, "type"), getString(err, "message")),
+			ErrorType:    getString(err, "type"),
+			ErrorCode:    getString(err, "type"),
 		}}
 	}
 
@@ -458,6 +555,20 @@ func encodeAnthropicStreamEvent(event *IRStreamEvent) []map[string]interface{} {
 				},
 			}}
 		}
+		if event.ContentBlock != nil && event.ContentBlock.Type == IRBlockThinking {
+			tb := map[string]interface{}{
+				"type":     "thinking",
+				"thinking": event.ContentBlock.Thinking.Content,
+			}
+			if event.ContentBlock.Thinking.Signature != "" {
+				tb["signature"] = event.ContentBlock.Thinking.Signature
+			}
+			return []map[string]interface{}{{
+				"type":  "content_block_start",
+				"index": event.Index,
+				"content_block": tb,
+			}}
+		}
 		return []map[string]interface{}{{
 			"type":  "content_block_start",
 			"index": event.Index,
@@ -486,6 +597,15 @@ func encodeAnthropicStreamEvent(event *IRStreamEvent) []map[string]interface{} {
 					"partial_json": event.DeltaJSON,
 				},
 			}}
+		} else if event.DeltaType == "thinking" {
+			return []map[string]interface{}{{
+				"type":  "content_block_delta",
+				"index": event.Index,
+				"delta": map[string]interface{}{
+					"type":     "thinking_delta",
+					"thinking": event.DeltaText,
+				},
+			}}
 		}
 
 	case IRStreamContentStop:
@@ -503,9 +623,13 @@ func encodeAnthropicStreamEvent(event *IRStreamEvent) []map[string]interface{} {
 			},
 		}
 		if event.Usage != nil {
-			evt["usage"] = map[string]interface{}{
+			usageMap := map[string]interface{}{
 				"output_tokens": event.Usage.OutputTokens,
 			}
+			if event.Usage.InputTokens > 0 {
+				usageMap["input_tokens"] = event.Usage.InputTokens
+			}
+			evt["usage"] = usageMap
 		}
 		return []map[string]interface{}{evt}
 
@@ -513,13 +637,17 @@ func encodeAnthropicStreamEvent(event *IRStreamEvent) []map[string]interface{} {
 		return []map[string]interface{}{{"type": "message_stop"}}
 
 	case IRStreamError:
-		return []map[string]interface{}{{
+		evt := map[string]interface{}{
 			"type": "error",
 			"error": map[string]interface{}{
 				"type":    "error",
 				"message": event.ErrorMessage,
 			},
-		}}
+		}
+		if event.ErrorType != "" {
+			evt["error"].(map[string]interface{})["type"] = event.ErrorType
+		}
+		return []map[string]interface{}{evt}
 	}
 
 	return nil

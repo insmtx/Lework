@@ -298,33 +298,187 @@ func handleUpstreamError(c *gin.Context, entryProtocol Protocol, err error) {
 		statusCode = http.StatusBadGateway
 	}
 
-	if len(upErr.Body) > 0 {
-		var respBody map[string]interface{}
-		if json.Unmarshal(upErr.Body, &respBody) == nil {
-			c.JSON(statusCode, respBody)
-			return
-		}
-	}
-
-	c.JSON(statusCode, newEntryError(entryProtocol, fmt.Sprintf("upstream returned status %d", upErr.StatusCode)))
+	// 将上游错误转换为入口协议格式
+	irErr := parseUpstreamError(upErr.Body, upErr.StatusCode)
+	entryBody := encodeIRError(irErr, entryProtocol)
+	c.JSON(statusCode, entryBody)
 }
 
-func newEntryError(proto Protocol, message string) interface{} {
-	switch proto {
+// parseUpstreamError parses an upstream error body into a canonical IRError.
+func parseUpstreamError(body []byte, statusCode int) *IRError {
+	irErr := &IRError{
+		StatusCode:  statusCode,
+		Type:        IRErrorUpstreamError,
+		UpstreamBody: body,
+	}
+
+	if len(body) == 0 {
+		irErr.Message = fmt.Sprintf("upstream returned status %d", statusCode)
+		return irErr
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		irErr.Message = string(body)
+		return irErr
+	}
+
+	// Anthropic 格式: {"type": "error", "error": {"type": "...", "message": "..."}}
+	if getString(raw, "type") == "error" {
+		if errObj, ok := raw["error"].(map[string]interface{}); ok {
+			irErr.Type = mapAnthropicErrorType(getString(errObj, "type"))
+			irErr.Message = getString(errObj, "message")
+			irErr.Code = getString(errObj, "type")
+		} else {
+			irErr.Message = getString(raw, "message")
+		}
+		return irErr
+	}
+
+	// OpenAI 格式: {"error": {"type": "...", "message": "...", "code": "..."}}
+	if errObj, ok := raw["error"].(map[string]interface{}); ok {
+		irErr.Type = mapOpenAIErrorType(getString(errObj, "type"))
+		irErr.Message = getString(errObj, "message")
+		irErr.Code = getString(errObj, "code")
+		return irErr
+	}
+
+	// 兜底: 取 message 字段或序列化整个 body
+	irErr.Message = getString(raw, "message")
+	if irErr.Message == "" {
+		irErr.Message = string(body)
+	}
+	return irErr
+}
+
+// encodeIRError encodes a canonical IRError into the entry protocol's error format.
+func encodeIRError(irErr *IRError, entryProtocol Protocol) interface{} {
+	switch entryProtocol {
 	case ProtocolAnthropicMessages:
 		return map[string]interface{}{
 			"type": "error",
 			"error": map[string]interface{}{
-				"type":    "invalid_request_error",
-				"message": message,
+				"type":    anthropicErrorTypeFromIR(irErr.Type),
+				"message": irErr.Message,
 			},
 		}
 	default:
-		return map[string]interface{}{
+		body := map[string]interface{}{
 			"error": map[string]interface{}{
-				"message": message,
-				"type":    "invalid_request_error",
+				"message": irErr.Message,
+				"type":    openAIErrorTypeFromIR(irErr.Type),
 			},
 		}
+		if irErr.Code != "" {
+			body["error"].(map[string]interface{})["code"] = irErr.Code
+		}
+		return body
 	}
+}
+
+// mapAnthropicErrorType maps Anthropic error types to canonical IRErrorType.
+func mapAnthropicErrorType(typ string) IRErrorType {
+	switch typ {
+	case "invalid_request_error":
+		return IRErrorInvalidRequest
+	case "authentication_error":
+		return IRErrorAuthentication
+	case "permission_error":
+		return IRErrorPermission
+	case "not_found_error":
+		return IRErrorNotFound
+	case "rate_limit_error":
+		return IRErrorRateLimit
+	case "api_error":
+		return IRErrorServerError
+	case "overloaded_error":
+		return IRErrorServiceUnavailable
+	default:
+		return IRErrorUpstreamError
+	}
+}
+
+// mapOpenAIErrorType maps OpenAI error types to canonical IRErrorType.
+func mapOpenAIErrorType(typ string) IRErrorType {
+	switch typ {
+	case "invalid_request_error":
+		return IRErrorInvalidRequest
+	case "authentication_error":
+		return IRErrorAuthentication
+	case "permission_error":
+		return IRErrorPermission
+	case "not_found_error":
+		return IRErrorNotFound
+	case "rate_limit_error":
+		return IRErrorRateLimit
+	case "insufficient_quota":
+		return IRErrorQuotaExceeded
+	case "server_error":
+		return IRErrorServerError
+	case "service_unavailable_error":
+		return IRErrorServiceUnavailable
+	case "content_filter":
+		return IRErrorContentFilter
+	case "context_length_exceeded":
+		return IRErrorContextLength
+	default:
+		return IRErrorUpstreamError
+	}
+}
+
+// anthropicErrorTypeFromIR maps canonical IRErrorType back to Anthropic error type string.
+func anthropicErrorTypeFromIR(typ IRErrorType) string {
+	switch typ {
+	case IRErrorInvalidRequest:
+		return "invalid_request_error"
+	case IRErrorAuthentication:
+		return "authentication_error"
+	case IRErrorPermission:
+		return "permission_error"
+	case IRErrorNotFound:
+		return "not_found_error"
+	case IRErrorRateLimit:
+		return "rate_limit_error"
+	case IRErrorServerError:
+		return "api_error"
+	case IRErrorServiceUnavailable:
+		return "overloaded_error"
+	default:
+		return "invalid_request_error"
+	}
+}
+
+// openAIErrorTypeFromIR maps canonical IRErrorType back to OpenAI error type string.
+func openAIErrorTypeFromIR(typ IRErrorType) string {
+	switch typ {
+	case IRErrorInvalidRequest:
+		return "invalid_request_error"
+	case IRErrorAuthentication:
+		return "authentication_error"
+	case IRErrorPermission:
+		return "permission_error"
+	case IRErrorNotFound:
+		return "not_found_error"
+	case IRErrorRateLimit:
+		return "rate_limit_error"
+	case IRErrorQuotaExceeded:
+		return "insufficient_quota"
+	case IRErrorServerError:
+		return "server_error"
+	case IRErrorServiceUnavailable:
+		return "service_unavailable_error"
+	case IRErrorContentFilter:
+		return "content_filter"
+	case IRErrorContextLength:
+		return "context_length_exceeded"
+	default:
+		return "invalid_request_error"
+	}
+}
+
+func newEntryError(proto Protocol, message string) interface{} {
+	return encodeIRError(&IRError{
+		Type:    IRErrorInvalidRequest,
+		Message: message,
+	}, proto)
 }

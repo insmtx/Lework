@@ -52,6 +52,34 @@ func (d *openAIChatDecoder) DecodeRequest(body map[string]interface{}) (*IRReque
 	}
 	ir.User = getString(body, "user")
 
+	ir.ReasoningEffort = getString(body, "reasoning_effort")
+
+	if rf, ok := body["response_format"]; ok {
+		if rfMap, ok := rf.(map[string]interface{}); ok {
+			irf := &IRResponseFormat{Type: getString(rfMap, "type")}
+			if irf.Type == "json_schema" {
+				if schema, ok := rfMap["json_schema"].(map[string]interface{}); ok {
+					irf.JSONSchema = schema
+				}
+			}
+			ir.ResponseFormat = irf
+		}
+	}
+
+	// 提取 Preserved：OpenAI Chat 特有字段
+	for k, v := range body {
+		switch k {
+		case "model", "messages", "stream", "temperature", "top_p",
+			"max_tokens", "max_completion_tokens", "stop", "tools",
+			"tool_choice", "seed", "user", "reasoning_effort", "response_format",
+			"frequency_penalty", "presence_penalty", "logit_bias", "n", "logprobs",
+			"top_logprobs", "stream_options":
+			// handled or explicitly allowed to pass through
+		default:
+			ir.Preserved[k] = v
+		}
+	}
+
 	return ir, nil
 }
 
@@ -216,7 +244,12 @@ func (d *openAIChatDecoder) DecodeResponse(body map[string]interface{}) (*IRResp
 			InputTokens:  getIntDefault(u, "prompt_tokens"),
 			OutputTokens: getIntDefault(u, "completion_tokens"),
 		}
-		ir.Usage.TotalTokens = ir.Usage.InputTokens + ir.Usage.OutputTokens
+		if promptDetails, ok := u["prompt_tokens_details"].(map[string]interface{}); ok {
+			ir.Usage.CachedInputTokens = getIntDefault(promptDetails, "cached_tokens")
+		}
+		if completionDetails, ok := u["completion_tokens_details"].(map[string]interface{}); ok {
+			ir.Usage.ReasoningTokens = getIntDefault(completionDetails, "reasoning_tokens")
+		}
 	}
 
 	return ir, nil
@@ -283,6 +316,25 @@ func (e *openAIChatEncoder) EncodeRequest(ir *IRRequest) (map[string]interface{}
 
 	if ir.ToolChoice != nil {
 		body["tool_choice"] = encodeOpenAIChatToolChoice(ir.ToolChoice)
+	}
+
+	if ir.ReasoningEffort != "" {
+		body["reasoning_effort"] = ir.ReasoningEffort
+	}
+
+	if ir.ResponseFormat != nil {
+		rf := map[string]interface{}{"type": ir.ResponseFormat.Type}
+		if ir.ResponseFormat.Type == "json_schema" && ir.ResponseFormat.JSONSchema != nil {
+			rf["json_schema"] = ir.ResponseFormat.JSONSchema
+		}
+		body["response_format"] = rf
+	}
+
+	// 回传 Preserved 字段（不同协议转换时保留的原始参数）
+	for k, v := range ir.Preserved {
+		if _, exists := body[k]; !exists {
+			body[k] = v
+		}
 	}
 
 	return body, nil
@@ -459,11 +511,7 @@ func (e *openAIChatEncoder) EncodeResponse(ir *IRResponse) (map[string]interface
 	}
 
 	if ir.Usage != nil {
-		resp["usage"] = map[string]interface{}{
-			"prompt_tokens":     ir.Usage.InputTokens,
-			"completion_tokens": ir.Usage.OutputTokens,
-			"total_tokens":      ir.Usage.InputTokens + ir.Usage.OutputTokens,
-		}
+		resp["usage"] = encodeOpenAIUsage(ir.Usage)
 	}
 
 	return resp, nil
@@ -474,6 +522,30 @@ func ensurePrefix(id, prefix string) string {
 		return id
 	}
 	return prefix + "-" + id
+}
+
+// encodeOpenAIUsage encodes IRUsage into OpenAI Chat API format.
+func encodeOpenAIUsage(u *IRUsage) map[string]interface{} {
+	usage := map[string]interface{}{
+		"prompt_tokens":     u.InputTokens,
+		"completion_tokens": u.OutputTokens,
+		"total_tokens":      u.InputTokens + u.OutputTokens,
+	}
+	if u.CachedInputTokens > 0 {
+		usage["prompt_tokens_details"] = map[string]interface{}{
+			"cached_tokens": u.CachedInputTokens,
+		}
+	}
+	if u.ReasoningTokens > 0 {
+		if details, ok := usage["completion_tokens_details"].(map[string]interface{}); ok {
+			details["reasoning_tokens"] = u.ReasoningTokens
+		} else {
+			usage["completion_tokens_details"] = map[string]interface{}{
+				"reasoning_tokens": u.ReasoningTokens,
+			}
+		}
+	}
+	return usage
 }
 
 func encodeOpenAIChatStreamEvent(event *IRStreamEvent) []map[string]interface{} {
@@ -529,11 +601,12 @@ func encodeOpenAIChatStreamEvent(event *IRStreamEvent) []map[string]interface{} 
 		}
 		if event.Usage != nil {
 			chunk["choices"] = []map[string]interface{}{}
-			chunk["usage"] = map[string]interface{}{
-				"prompt_tokens":     event.Usage.InputTokens,
-				"completion_tokens": event.Usage.OutputTokens,
-				"total_tokens":      event.Usage.InputTokens + event.Usage.OutputTokens,
-			}
+			chunk["usage"] = encodeOpenAIUsage(event.Usage)
+		}
+
+	case IRStreamError:
+		chunk["choices"] = []map[string]interface{}{
+			{"index": 0, "delta": map[string]interface{}{}, "finish_reason": "error"},
 		}
 	}
 
@@ -547,12 +620,19 @@ func decodeOpenAIChatStreamEvent(data map[string]interface{}) []*IRStreamEvent {
 	choices, ok := getList(data, "choices")
 	if !ok || len(choices) == 0 {
 		if usage, ok := data["usage"].(map[string]interface{}); ok {
+			irUsage := &IRUsage{
+				InputTokens:  getIntDefault(usage, "prompt_tokens"),
+				OutputTokens: getIntDefault(usage, "completion_tokens"),
+			}
+			if promptDetails, ok := usage["prompt_tokens_details"].(map[string]interface{}); ok {
+				irUsage.CachedInputTokens = getIntDefault(promptDetails, "cached_tokens")
+			}
+			if completionDetails, ok := usage["completion_tokens_details"].(map[string]interface{}); ok {
+				irUsage.ReasoningTokens = getIntDefault(completionDetails, "reasoning_tokens")
+			}
 			return []*IRStreamEvent{{
-				Type: IRStreamMessageDelta,
-				Usage: &IRUsage{
-					InputTokens:  getIntDefault(usage, "prompt_tokens"),
-					OutputTokens: getIntDefault(usage, "completion_tokens"),
-				},
+				Type:  IRStreamMessageDelta,
+				Usage: irUsage,
 			}}
 		}
 		return nil
