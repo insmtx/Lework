@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ygpkg/yg-go/logs"
 
-	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter/v2"
+	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	runtimemcp "github.com/insmtx/Leros/backend/internal/runtime/mcp"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 )

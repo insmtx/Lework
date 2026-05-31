@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
-	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter/v2"
+	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 )
 
