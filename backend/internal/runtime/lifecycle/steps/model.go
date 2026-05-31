@@ -6,11 +6,15 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
-	"github.com/insmtx/Leros/backend/internal/modelrouter"
+	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 )
 
-// ModelStep initializes model routing based on the current request configuration.
+// modelStore caches the modelrouter store for this process.
+// modelrouter.DefaultStore() creates a new instance each call, so we hold
+// the reference here to ensure the same store is used by both the lifecycle
+// step (writer) and the model router handler (reader).
+var modelStore = modelrouter.DefaultStore()
 // It writes the real upstream configuration to modelrouter store and modifies the
 // request's BaseURL to use the built-in worker model proxy.
 type ModelStep struct{}
@@ -51,7 +55,7 @@ func initModelRouting(_ context.Context, req *agent.RequestContext) error {
 		Protocol:     modelrouter.DefaultProtocolForProvider(req.Model.Provider),
 		Temperature:  req.Model.Temperature,
 	}
-	modelrouter.DefaultStore().Put(upstreamCfg)
+	modelStore.Put(upstreamCfg)
 
 	// Change the request's BaseURL to use the built-in worker model proxy
 	// Keep BaseURLHasV1 as the original value from the request

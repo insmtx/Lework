@@ -50,3 +50,5 @@ docs/swagger.yaml
 frontend/.pnpm-store
 .pnpm-store
 leros
+logs/
+.omo/

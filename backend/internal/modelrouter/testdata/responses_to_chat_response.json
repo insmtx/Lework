@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-resp_def456",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "gpt-5",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Quantum computing uses quantum bits (qubits) that can exist in multiple states simultaneously, enabling exponentially faster computation for certain problems than classical computers."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 50,
+    "completion_tokens": 30,
+    "total_tokens": 80
+  }
+}

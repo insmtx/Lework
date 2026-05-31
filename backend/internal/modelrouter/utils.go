@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// getString safely extracts a string from a map.
 func getString(m map[string]interface{}, key string) string {
 	if v, ok := m[key]; ok {
 		if s, ok := v.(string); ok {
@@ -14,6 +15,7 @@ func getString(m map[string]interface{}, key string) string {
 	return ""
 }
 
+// getBool safely extracts a bool from a map.
 func getBool(m map[string]interface{}, key string) bool {
 	if v, ok := m[key]; ok {
 		if b, ok := v.(bool); ok {
@@ -23,6 +25,7 @@ func getBool(m map[string]interface{}, key string) bool {
 	return false
 }
 
+// getFloat safely extracts a float64 from a map.
 func getFloat(m map[string]interface{}, key string) (float64, bool) {
 	if v, ok := m[key]; ok {
 		switch n := v.(type) {
@@ -35,6 +38,7 @@ func getFloat(m map[string]interface{}, key string) (float64, bool) {
 	return 0, false
 }
 
+// getInt safely extracts an int from a map.
 func getInt(m map[string]interface{}, key string) (int, bool) {
 	if v, ok := m[key]; ok {
 		switch n := v.(type) {
@@ -49,6 +53,7 @@ func getInt(m map[string]interface{}, key string) (int, bool) {
 	return 0, false
 }
 
+// getIntDefault extracts an int or returns 0.
 func getIntDefault(m map[string]interface{}, key string) int {
 	if v, ok := getInt(m, key); ok {
 		return v
@@ -56,6 +61,7 @@ func getIntDefault(m map[string]interface{}, key string) int {
 	return 0
 }
 
+// getInt64 safely extracts an int64 from a map.
 func getInt64(m map[string]interface{}, key string) int64 {
 	if v, ok := m[key]; ok {
 		switch n := v.(type) {
@@ -70,6 +76,7 @@ func getInt64(m map[string]interface{}, key string) int64 {
 	return 0
 }
 
+// getList safely extracts a []interface{} from a map.
 func getList(m map[string]interface{}, key string) ([]interface{}, bool) {
 	if v, ok := m[key]; ok {
 		if l, ok := v.([]interface{}); ok {
@@ -79,6 +86,7 @@ func getList(m map[string]interface{}, key string) ([]interface{}, bool) {
 	return nil, false
 }
 
+// getStringList safely extracts a []string from a map.
 func getStringList(m map[string]interface{}, key string) ([]string, bool) {
 	if v, ok := m[key]; ok {
 		switch l := v.(type) {
@@ -97,8 +105,9 @@ func getStringList(m map[string]interface{}, key string) ([]string, bool) {
 	return nil, false
 }
 
-func contentToString(content interface{}) string {
-	switch v := content.(type) {
+// contentToString converts content to string (handles string, []interface{}, etc).
+func contentToString(v interface{}) string {
+	switch v := v.(type) {
 	case string:
 		return v
 	case []interface{}:
@@ -112,26 +121,66 @@ func contentToString(content interface{}) string {
 		}
 		return s
 	default:
-		b, _ := marshalJSON(content)
+		b, _ := marshalJSON(v)
 		return string(b)
 	}
 }
 
-func parseJSONString(s string, target interface{}) {
-	_ = json.Unmarshal([]byte(s), target)
+// parseJSONString parses a JSON string into a target.
+func parseJSONString(s string, target interface{}) error {
+	return json.Unmarshal([]byte(s), target)
 }
 
+// marshalJSON marshals to JSON bytes.
 func marshalJSON(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
 }
 
+// now returns current Unix timestamp.
 func now() int64 {
 	return time.Now().Unix()
 }
 
-func maybeNow(t int64) int64 {
-	if t > 0 {
-		return t
+// maybeNow returns ts if > 0, otherwise current time.
+func maybeNow(ts int64) int64 {
+	if ts > 0 {
+		return ts
 	}
 	return now()
+}
+
+// compactJSON returns compact JSON string for logging.
+func compactJSON(body []byte) string {
+	if body == nil {
+		return ""
+	}
+	var v interface{}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return string(body)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return string(body)
+	}
+	return string(b)
+}
+
+// getStringFromMap safely gets string from nested map.
+func getStringFromMap(m map[string]interface{}, keys ...string) string {
+	current := m
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			return getString(current, key)
+		}
+		if v, ok := current[key]; ok {
+			if next, ok := v.(map[string]interface{}); ok {
+				current = next
+			} else {
+				return ""
+			}
+		} else {
+			return ""
+		}
+	}
+	return ""
 }

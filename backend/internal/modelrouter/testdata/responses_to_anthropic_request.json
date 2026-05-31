@@ -1,0 +1,17 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "max_tokens": 4096,
+  "system": "You are a helpful assistant.",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Tell me a short joke."
+        }
+      ]
+    }
+  ],
+  "temperature": 0.8
+}

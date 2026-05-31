@@ -1,0 +1,23 @@
+{
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "What is the capital of France?"
+        }
+      ]
+    }
+  ],
+  "systemInstruction": {
+    "parts": [
+      {
+        "text": "You are a helpful geography expert."
+      }
+    ]
+  },
+  "generationConfig": {
+    "temperature": 0.7,
+    "maxOutputTokens": 4096
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "model": "gpt-5",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Explain quantum computing in one sentence."
+        }
+      ]
+    }
+  ],
+  "instructions": "You are a helpful assistant.",
+  "max_output_tokens": 4096,
+  "temperature": 0.6
+}

@@ -1,0 +1,31 @@
+{
+  "id": "chatcmpl-msg_012345",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "gpt-5",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "I'll search for the project status for you.",
+        "tool_calls": [
+          {
+            "id": "toolu_abc123",
+            "type": "function",
+            "function": {
+              "name": "search_project",
+              "arguments": "{\"query\":\"status\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 45,
+    "total_tokens": 145
+  }
+}

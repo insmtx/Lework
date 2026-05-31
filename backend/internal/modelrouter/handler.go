@@ -2,29 +2,88 @@ package modelrouter
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ygpkg/yg-go/logs"
 )
 
-// RegisterRoutes registers model routing endpoints backed by the worker-local model store.
-func RegisterRoutes(r gin.IRouter) {
-	resolver := NewResolver()
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ModelStore — minimal in-handler model config resolution
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-	r.POST("/chat/completions", handleModelRoute(resolver, ProtocolOpenAIChat))
-	r.POST("/messages", handleModelRoute(resolver, ProtocolAnthropicMessages))
-	r.POST("/responses", handleModelRoute(resolver, ProtocolOpenAIResponses))
-
-	logs.Info("modelrouter: model routing endpoints registered at /v1/chat/completions, /v1/messages, /v1/responses")
+// ModelStore holds UpstreamConfig entries keyed by model name.
+// It is safe for concurrent use.
+type ModelStore struct {
+	configs map[string]*UpstreamConfig
+	mu      sync.RWMutex
 }
 
-func handleModelRoute(resolver *Resolver, entryProtocol Protocol) gin.HandlerFunc {
+// Put registers an upstream configuration for a model.
+func (s *ModelStore) Put(cfg UpstreamConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.configs == nil {
+		s.configs = make(map[string]*UpstreamConfig)
+	}
+	cp := cfg
+	s.configs[cfg.ModelName] = &cp
+}
+
+// Resolve returns the UpstreamConfig for the given model name.
+func (s *ModelStore) Resolve(model string) (*UpstreamConfig, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cfg, ok := s.configs[model]
+	if !ok {
+		return nil, fmt.Errorf("modelrouter: no upstream config for model %q", model)
+	}
+	return cfg, nil
+}
+
+// defaultStore is the package-level singleton ModelStore.
+// RegisterRoutes and lifecycle steps share this same instance.
+var defaultStore = &ModelStore{configs: make(map[string]*UpstreamConfig)}
+
+// DefaultStore returns the singleton ModelStore.
+func DefaultStore() *ModelStore {
+	return defaultStore
+}
+
+// ResetStore replaces the singleton store with a fresh instance. Use only in tests.
+func ResetStore() {
+	defaultStore = &ModelStore{configs: make(map[string]*UpstreamConfig)}
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Route Registration
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// RegisterRoutes registers model routing endpoints on the given Gin router.
+// Each endpoint supports all entry protocols and transparently converts
+// between protocols when upstream targets a different protocol.
+func RegisterRoutes(r gin.IRouter) {
+	store := DefaultStore()
+
+	// NOTE: caller (worker/router) already mounts under /v1/ prefix.
+	// Register directly on the given router to avoid double-wrapping.
+	r.POST("/chat/completions", handleModelRoute(store, ProtocolOpenAIChat))
+	r.POST("/messages", handleModelRoute(store, ProtocolAnthropicMessages))
+	r.POST("/responses", handleModelRoute(store, ProtocolOpenAIResponses))
+	// Gemini: use wildcard because Gin cannot handle ":model:generateContent" in one segment
+	r.POST("/models/*modelAction", handleModelRoute(store, ProtocolGemini))
+}
+
+// handleModelRoute returns a Gin handler that routes model requests through protocol conversion.
+func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
@@ -32,62 +91,155 @@ func handleModelRoute(resolver *Resolver, entryProtocol Protocol) gin.HandlerFun
 			return
 		}
 
-		modelName := extractModelField(body)
+		// 调试日志器 — 通过环境变量 LEROS_MODELROUTER_DEBUG=true 启用
+		debugEnabled := os.Getenv("LEROS_MODELROUTER_DEBUG") == "true"
+		dl := NewDebugLogger(debugEnabled)
+		defer dl.Close()
 
-		cfg, err := resolver.Resolve(c.Request.Context(), modelName)
+		dl.LogOriginalRequest(body)
+
+		model := extractModelField(body)
+		// Gemini: model name may come from URL path instead of request body
+		if model == "" && entryProtocol == ProtocolGemini {
+			model = extractGeminiModelFromPath(c.Param("modelAction"))
+		}
+		if model == "" {
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, "model field is required"))
+			return
+		}
+
+		cfg, err := store.Resolve(model)
 		if err != nil {
-			logs.Warnf("modelrouter: resolve model failed: %v", err)
 			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, err.Error()))
 			return
 		}
 
 		isStream := isStreamRequest(body)
+		dl.LogRequestMeta(entryProtocol, cfg.Protocol, model, isStream)
 
-		// logs.Infof("modelrouter: request before protocol conversion entry_protocol=%s upstream_protocol=%s body=%s",
-		// entryProtocol, cfg.Protocol, compactJSONForLog(body))
-
-		upstreamBody, err := convertRequest(body, entryProtocol, cfg.Protocol, cfg.ModelName)
-		if err != nil {
-			logs.Errorf("modelrouter: convert request failed: %v", err)
-			status := http.StatusInternalServerError
-			if errors.Is(err, errInvalidRequestBody) {
-				status = http.StatusBadRequest
-			}
-			c.JSON(status, newEntryError(entryProtocol, fmt.Sprintf("request conversion failed: %v", err)))
+		// ── Normalize request against target capabilities ──
+		var raw map[string]interface{}
+		if err := json.Unmarshal(body, &raw); err != nil {
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, "invalid JSON request body"))
 			return
 		}
 
-		// logs.Infof("modelrouter: request after protocol conversion entry_protocol=%s upstream_protocol=%s body=%s",
-		// entryProtocol, cfg.Protocol, compactJSONForLog(upstreamBody))
+		entryAdapter, err := GetAdapter(entryProtocol)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "entry protocol adapter not available"))
+			return
+		}
+
+		ir, err := entryAdapter.DecodeRequest(raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, fmt.Sprintf("decode request: %v", err)))
+			return
+		}
+		dl.LogIRDecoded(ir)
+
+		upstreamProtocol := cfg.Protocol
+		targetCaps := capabilitiesForProtocol(upstreamProtocol)
+		normalizedIR, _, err := NormalizeRequest(ir, targetCaps)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, fmt.Sprintf("request incompatible with target protocol: %v", err)))
+			return
+		}
+		dl.LogIRNormalized(normalizedIR)
+
+		// Set upstream model name
+		normalizedIR.Model = cfg.ModelName
+
+		upstreamAdapter, err := GetAdapter(upstreamProtocol)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "upstream protocol adapter not available"))
+			return
+		}
+
+		upstreamBody, err := upstreamAdapter.EncodeRequest(normalizedIR)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, fmt.Sprintf("encode upstream request: %v", err)))
+			return
+		}
+
+		upstreamBodyBytes, err := marshalJSON(upstreamBody)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "marshal upstream body failed"))
+			return
+		}
+		dl.LogUpstreamRequest(upstreamBodyBytes)
 
 		if isStream {
-			handleStreamResponse(c, cfg, upstreamBody, entryProtocol)
+			handleStreamResponse(c, cfg, upstreamBodyBytes, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
 		} else {
-			handleNonStreamResponse(c, cfg, upstreamBody, entryProtocol)
+			handleNonStreamResponse(c, cfg, upstreamBodyBytes, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
 		}
 	}
 }
 
-func handleNonStreamResponse(c *gin.Context, cfg *UpstreamConfig, body []byte, entryProtocol Protocol) {
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Non-stream response handling
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+func handleNonStreamResponse(
+	c *gin.Context,
+	cfg *UpstreamConfig,
+	body []byte,
+	entryProtocol, upstreamProtocol Protocol,
+	entryAdapter, upstreamAdapter ProtocolAdapter,
+	dl *DebugLogger,
+) {
 	respBody, err := doUpstreamCall(c.Request.Context(), cfg, body)
 	if err != nil {
+		dl.LogError("upstream_call", err)
 		handleUpstreamError(c, entryProtocol, err)
 		return
 	}
 
-	converted, err := convertResponse(respBody, entryProtocol, cfg.Protocol)
-	if err != nil {
-		logs.Errorf("modelrouter: convert response failed: %v", err)
-		c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "response conversion failed"))
+	dl.LogUpstreamResponse(respBody)
+
+	var rawResp map[string]interface{}
+	if err := json.Unmarshal(respBody, &rawResp); err != nil {
+		c.JSON(http.StatusBadGateway, newEntryError(entryProtocol, "invalid upstream response"))
 		return
 	}
 
-	c.Data(http.StatusOK, "application/json", converted)
+	irResp, err := upstreamAdapter.DecodeResponse(rawResp)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, fmt.Sprintf("decode upstream response: %v", err)))
+		return
+	}
+
+	entryBody, err := entryAdapter.EncodeResponse(irResp)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, fmt.Sprintf("encode entry response: %v", err)))
+		return
+	}
+
+	entryBytes, err := marshalJSON(entryBody)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "marshal entry response failed"))
+		return
+	}
+
+	dl.LogEntryResponse(entryBytes)
+	c.Data(http.StatusOK, "application/json", entryBytes)
 }
 
-func handleStreamResponse(c *gin.Context, cfg *UpstreamConfig, body []byte, entryProtocol Protocol) {
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Stream response handling
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+func handleStreamResponse(
+	c *gin.Context,
+	cfg *UpstreamConfig,
+	body []byte,
+	entryProtocol, upstreamProtocol Protocol,
+	entryAdapter, upstreamAdapter ProtocolAdapter,
+	dl *DebugLogger,
+) {
 	reader, err := doUpstreamStreamCall(c.Request.Context(), cfg, body)
 	if err != nil {
+		dl.LogError("upstream_stream_call", err)
 		handleUpstreamError(c, entryProtocol, err)
 		return
 	}
@@ -102,20 +254,25 @@ func handleStreamResponse(c *gin.Context, cfg *UpstreamConfig, body []byte, entr
 	c.Writer.Flush()
 
 	if entryProtocol == cfg.Protocol {
-		pipeRawSSE(c, reader)
+		pipeRawSSE(c, reader, dl)
 	} else {
-		pipeConvertedSSE(c, reader, entryProtocol, cfg.Protocol)
+		pipeConvertedSSE(c, reader, entryProtocol, upstreamProtocol, entryAdapter, upstreamAdapter, dl)
 	}
 }
 
-func pipeRawSSE(c *gin.Context, reader io.Reader) {
+func pipeRawSSE(c *gin.Context, reader io.Reader, dl *DebugLogger) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			dl.LogStreamChunkSeparator()
+			dl.LogUpstreamStreamChunk(chunk)
 			if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
 				return
 			}
+			dl.LogEntryStreamChunk(chunk)
 			c.Writer.Flush()
 		}
 		if err != nil {
@@ -124,45 +281,92 @@ func pipeRawSSE(c *gin.Context, reader io.Reader) {
 	}
 }
 
-func pipeConvertedSSE(c *gin.Context, reader io.Reader, entryProto, upstreamProto Protocol) {
+func pipeConvertedSSE(
+	c *gin.Context,
+	reader io.Reader,
+	entryProtocol, upstreamProtocol Protocol,
+	entryAdapter, upstreamAdapter ProtocolAdapter,
+	dl *DebugLogger,
+) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-	state := newStreamConversionState()
+	upstreamState := upstreamAdapter.NewStreamState()
+	entryState := entryAdapter.NewStreamState()
+	aggregator := NewStreamAggregator()
+
 	var currentEventType string
 	var currentData strings.Builder
+
+	// writeIREvents encodes a slice of IR stream events through the entry
+	// adapter and writes the resulting SSE payloads to the client.
+	// All writes are logged via the debug logger.  If an IRStreamDone event
+	// is encountered and the entry protocol is Chat, a trailing [DONE] is
+	// appended automatically.
+	writeIREvents := func(events []*IRStreamEvent) {
+		for _, evt := range events {
+			payloads, err := entryAdapter.EncodeStreamEvent(evt, entryState)
+			if err != nil {
+				continue
+			}
+			for _, payload := range payloads {
+				payloadBytes, err := marshalJSON(payload)
+				if err != nil {
+					continue
+				}
+				evtType := currentEventType
+				if evtType == "" {
+					if v, ok := payload["type"].(string); ok {
+						evtType = v
+					}
+				}
+				formatted := formatSSE(entryProtocol, evtType, payloadBytes)
+				dl.LogEntryStreamChunk(formatted)
+				if _, err := c.Writer.Write(formatted); err != nil {
+					return
+				}
+				c.Writer.Flush()
+			}
+
+			if evt.Type == IRStreamDone && entryProtocol == ProtocolOpenAIChat {
+				dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
+				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+				c.Writer.Flush()
+			}
+		}
+	}
 
 	flushEvent := func() {
 		if currentData.Len() == 0 {
 			return
 		}
 
-		data := []byte(currentData.String())
+		dataStr := currentData.String()
 		currentData.Reset()
 
-		converted, err := convertStreamEventWithState(data, entryProto, upstreamProto, state)
-		if err != nil || len(converted) == 0 {
+		var rawUpstream map[string]interface{}
+		if err := json.Unmarshal([]byte(dataStr), &rawUpstream); err != nil {
 			return
 		}
 
-		var raw struct {
-			Type string `json:"type"`
+		irEvents, err := upstreamAdapter.DecodeStreamEvent(rawUpstream, upstreamState)
+		if err != nil {
+			return
 		}
-		var evtType string
-		if json.Unmarshal(data, &raw) == nil && raw.Type != "" {
-			evtType = raw.Type
-		} else if currentEventType != "" {
-			evtType = currentEventType
-		}
-		currentEventType = ""
 
-		for _, evt := range converted {
-			formatted := formatSSE(entryProto, convertedEventType(evtType, evt), evt)
-			if _, err := c.Writer.Write(formatted); err != nil {
-				return
-			}
-			c.Writer.Flush()
+		for _, irEvt := range irEvents {
+			fixedEvents := aggregator.ProcessIREvent(irEvt)
+			writeIREvents(fixedEvents)
 		}
+
+		currentEventType = ""
+	}
+
+	// finalizeStream commits the target protocol stream.
+	// The [DONE] marker (if needed) is emitted by writeIREvents when it
+	// encounters IRStreamDone for a Chat entry protocol.
+	finalizeStream := func() {
+		writeIREvents(aggregator.Finalize())
 	}
 
 	for scanner.Scan() {
@@ -177,40 +381,19 @@ func pipeConvertedSSE(c *gin.Context, reader io.Reader, entryProto, upstreamProt
 			data := strings.TrimPrefix(line, "data: ")
 
 			if data == "[DONE]" {
+				dl.LogStreamChunkSeparator()
+				dl.LogUpstreamStreamChunk([]byte("data: [DONE]\n\n"))
+				dl.LogStreamChunkSeparator()
 				flushEvent()
-				if entryProto == ProtocolOpenAIResponses && upstreamProto != ProtocolOpenAIResponses {
-					for _, evt := range encodeResponsesStreamEventWithState(&IRStreamEvent{Type: IRStreamDone}, state) {
-						formatted := formatSSE(entryProto, convertedEventType("response.completed", mustMarshalStreamEvent(evt)), mustMarshalStreamEvent(evt))
-						if _, err := c.Writer.Write(formatted); err != nil {
-							return
-						}
-						c.Writer.Flush()
-					}
-				}
-				if entryProto == ProtocolAnthropicMessages {
-					for _, event := range state.closeAnthropicOpenBlocks() {
-						encoded := encodeAnthropicStreamEvent(event)
-						for _, evt := range encoded {
-							payload := mustMarshalStreamEvent(evt)
-							logs.Infof("modelrouter: stream converted anthropic done prelude data=%s", string(payload))
-							formatted := formatSSE(entryProto, convertedEventType("content_block_stop", payload), payload)
-							if _, err := c.Writer.Write(formatted); err != nil {
-								return
-							}
-							c.Writer.Flush()
-						}
-					}
-					messageStop := mustMarshalStreamEvent(map[string]interface{}{"type": "message_stop"})
-					logs.Infof("modelrouter: stream converted anthropic message_stop data=%s", string(messageStop))
-					formatted := formatSSE(entryProto, convertedEventType("message_stop", messageStop), messageStop)
-					if _, err := c.Writer.Write(formatted); err != nil {
-						return
-					}
+				finalizeStream()
+
+				// Upstream is Chat SSE — client expects [DONE] regardless
+				// of entry protocol.
+				if upstreamProtocol == ProtocolOpenAIChat {
+					dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
+					_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 					c.Writer.Flush()
-					return
 				}
-				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
-				c.Writer.Flush()
 				return
 			}
 
@@ -219,40 +402,235 @@ func pipeConvertedSSE(c *gin.Context, reader io.Reader, entryProto, upstreamProt
 		}
 
 		if line == "" && currentData.Len() > 0 {
+			dl.LogStreamChunkSeparator()
+			dl.LogUpstreamStreamChunk([]byte("data: " + currentData.String() + "\n\n"))
+			dl.LogStreamChunkSeparator()
 			flushEvent()
+			dl.LogStreamChunkSeparator()
 		}
 	}
+
+	// Upstream stream ended without [DONE] (e.g. connection dropped).
+	// Finalize is idempotent — safe to call even if [DONE] was already processed.
+	if !aggregator.IsDone() {
+		finalizeStream()
+	}
 }
 
-func mustMarshalStreamEvent(event map[string]interface{}) []byte {
-	data, err := json.Marshal(event)
-	if err != nil {
-		return nil
-	}
-	return data
-}
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SSE formatting
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-func convertedEventType(fallback string, data []byte) string {
-	var raw struct {
-		Type string `json:"type"`
-	}
-	if json.Unmarshal(data, &raw) == nil && raw.Type != "" {
-		return raw.Type
-	}
-	return fallback
-}
-
+// formatSSE formats an SSE message according to the protocol.
 func formatSSE(proto Protocol, eventType string, data []byte) []byte {
 	switch proto {
 	case ProtocolOpenAIChat:
 		return []byte(fmt.Sprintf("data: %s\n\n", string(data)))
-	case ProtocolOpenAIResponses:
-		return []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, string(data)))
-	case ProtocolAnthropicMessages:
+	default: // Anthropic, Responses, Gemini use event: header
 		return []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, string(data)))
 	}
-	return data
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Upstream HTTP calls
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// setUpstreamRequest creates an HTTP request for the upstream call.
+func setUpstreamRequest(ctx context.Context, cfg *UpstreamConfig, body []byte) (*http.Request, error) {
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	apiPath := UpstreamAPIPath(cfg.Protocol, cfg.BaseURLHasV1)
+	url := baseURL + apiPath
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create upstream request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	switch cfg.Protocol {
+	case ProtocolAnthropicMessages:
+		req.Header.Set("x-api-key", cfg.APIKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	default:
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	}
+
+	return req, nil
+}
+
+// doUpstreamCall executes a non-streaming upstream call.
+func doUpstreamCall(ctx context.Context, cfg *UpstreamConfig, body []byte) ([]byte, error) {
+	timeout := time.Duration(cfg.TimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+
+	client := &http.Client{Timeout: timeout}
+	req, err := setUpstreamRequest(ctx, cfg, body)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("upstream request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read upstream response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, &upstreamError{
+			StatusCode: resp.StatusCode,
+			Body:       respBody,
+		}
+	}
+
+	return respBody, nil
+}
+
+// doUpstreamStreamCall executes a streaming upstream call.
+func doUpstreamStreamCall(ctx context.Context, cfg *UpstreamConfig, body []byte) (io.ReadCloser, error) {
+	timeout := time.Duration(cfg.TimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 180 * time.Second
+	}
+
+	client := &http.Client{Timeout: timeout}
+	req, err := setUpstreamRequest(ctx, cfg, body)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("upstream stream request failed: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, &upstreamError{
+			StatusCode: resp.StatusCode,
+			Body:       respBody,
+		}
+	}
+
+	return resp.Body, nil
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Error handling
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// upstreamError represents an error from an upstream provider.
+type upstreamError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e *upstreamError) Error() string {
+	return fmt.Sprintf("upstream returned status %d: %s", e.StatusCode, string(e.Body))
+}
+
+// handleUpstreamError maps upstream errors to entry protocol error responses.
+func handleUpstreamError(c *gin.Context, entryProtocol Protocol, err error) {
+	var upErr *upstreamError
+	if !isUpstreamError(err, &upErr) {
+		c.JSON(http.StatusBadGateway, newEntryError(entryProtocol, fmt.Sprintf("upstream request failed: %v", err)))
+		return
+	}
+
+	statusCode := upErr.StatusCode
+	if statusCode >= 500 {
+		statusCode = http.StatusBadGateway
+	}
+
+	entryBody := parseAndEncodeError(upErr.Body, upErr.StatusCode, entryProtocol)
+	c.JSON(statusCode, entryBody)
+}
+
+func isUpstreamError(err error, target **upstreamError) bool {
+	if target == nil {
+		return false
+	}
+	var ue *upstreamError
+	ok := fmt.Sprintf("%T", err) == "*modelrouter.upstreamError"
+	if !ok {
+		return false
+	}
+	ue = err.(*upstreamError)
+	*target = ue
+	return true
+}
+
+// parseAndEncodeError parses an upstream error body and encodes it for the entry protocol.
+func parseAndEncodeError(body []byte, statusCode int, entryProtocol Protocol) interface{} {
+	message := fmt.Sprintf("upstream returned status %d", statusCode)
+	errType := "upstream_error"
+
+	if len(body) > 0 {
+		var raw map[string]interface{}
+		if err := json.Unmarshal(body, &raw); err == nil {
+			// Anthropic format: {"type": "error", "error": {"type": "...", "message": "..."}}
+			if getString(raw, "type") == "error" {
+				if errObj, ok := raw["error"].(map[string]interface{}); ok {
+					message = getString(errObj, "message")
+					errType = getString(errObj, "type")
+				}
+			} else if errObj, ok := raw["error"].(map[string]interface{}); ok {
+				// OpenAI format: {"error": {"type": "...", "message": "...", "code": "..."}}
+				message = getString(errObj, "message")
+				errType = getString(errObj, "type")
+			} else if msg := getString(raw, "message"); msg != "" {
+				message = msg
+			}
+		}
+	}
+
+	if message == "" {
+		message = string(body)
+	}
+	if errType == "" {
+		errType = "upstream_error"
+	}
+
+	return encodeErrorForProtocol(message, errType, entryProtocol)
+}
+
+// encodeErrorForProtocol encodes an error message and type into the entry protocol's error format.
+func encodeErrorForProtocol(message, errType string, proto Protocol) interface{} {
+	switch proto {
+	case ProtocolAnthropicMessages:
+		return map[string]interface{}{
+			"type": "error",
+			"error": map[string]interface{}{
+				"type":    errType,
+				"message": message,
+			},
+		}
+	default:
+		return map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": message,
+				"type":    errType,
+			},
+		}
+	}
+}
+
+// newEntryError creates an entry protocol error response.
+func newEntryError(proto Protocol, message string) interface{} {
+	return encodeErrorForProtocol(message, "invalid_request_error", proto)
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Request parsing helpers
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 func extractModelField(body []byte) string {
 	var raw struct {
@@ -262,6 +640,17 @@ func extractModelField(body []byte) string {
 		return ""
 	}
 	return strings.TrimSpace(raw.Model)
+}
+
+// extractGeminiModelFromPath extracts the model name from a Gemini URL action parameter.
+// e.g., "/gemini-2.0-flash:generateContent" → "gemini-2.0-flash"
+func extractGeminiModelFromPath(action string) string {
+	action = strings.TrimPrefix(action, "/")
+	colonIdx := strings.LastIndex(action, ":")
+	if colonIdx < 0 {
+		return ""
+	}
+	return action[:colonIdx]
 }
 
 func isStreamRequest(body []byte) bool {
@@ -274,57 +663,21 @@ func isStreamRequest(body []byte) bool {
 	return raw.Stream
 }
 
-func compactJSONForLog(body []byte) string {
-	var raw interface{}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return string(body)
-	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return string(body)
-	}
-	return string(encoded)
-}
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Protocol capability helpers
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-func handleUpstreamError(c *gin.Context, entryProtocol Protocol, err error) {
-	var upErr *upstreamError
-	if !errors.As(err, &upErr) {
-		c.JSON(http.StatusBadGateway, newEntryError(entryProtocol, fmt.Sprintf("upstream request failed: %v", err)))
-		return
-	}
-
-	statusCode := upErr.StatusCode
-	if statusCode >= 500 {
-		statusCode = http.StatusBadGateway
-	}
-
-	if len(upErr.Body) > 0 {
-		var respBody map[string]interface{}
-		if json.Unmarshal(upErr.Body, &respBody) == nil {
-			c.JSON(statusCode, respBody)
-			return
-		}
-	}
-
-	c.JSON(statusCode, newEntryError(entryProtocol, fmt.Sprintf("upstream returned status %d", upErr.StatusCode)))
-}
-
-func newEntryError(proto Protocol, message string) interface{} {
+func capabilitiesForProtocol(proto Protocol) CapabilitySet {
 	switch proto {
+	case ProtocolOpenAIChat:
+		return OpenAIChatCapabilities
+	case ProtocolOpenAIResponses:
+		return OpenAIResponsesCapabilities
 	case ProtocolAnthropicMessages:
-		return map[string]interface{}{
-			"type": "error",
-			"error": map[string]interface{}{
-				"type":    "invalid_request_error",
-				"message": message,
-			},
-		}
+		return AnthropicMessagesCapabilities
+	case ProtocolGemini:
+		return GeminiCapabilities
 	default:
-		return map[string]interface{}{
-			"error": map[string]interface{}{
-				"message": message,
-				"type":    "invalid_request_error",
-			},
-		}
+		return OpenAIChatCapabilities
 	}
 }

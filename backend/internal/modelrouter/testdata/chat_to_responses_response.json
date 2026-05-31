@@ -1,0 +1,33 @@
+{
+  "id": "resp-chatcmpl-abc123",
+  "object": "response",
+  "created_at": 1700000000,
+  "model": "gpt-5",
+  "status": "completed",
+  "output": [
+    {
+      "id": "msg_001",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I'll search for the project status for you."
+        }
+      ]
+    },
+    {
+      "id": "call_search_project_abc123",
+      "call_id": "call_search_project_abc123",
+      "type": "function_call",
+      "name": "search_project",
+      "arguments": "{\"query\":\"status\"}",
+      "status": "completed"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 45,
+    "total_tokens": 145
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "model": "gpt-5",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "What is the capital of France?"
+        }
+      ]
+    }
+  ],
+  "instructions": "You are a helpful geography expert.",
+  "max_output_tokens": 4096,
+  "temperature": 0.7
+}

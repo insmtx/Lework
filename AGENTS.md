@@ -152,6 +152,8 @@ import (
   - `/docs/swagger/` - Swagger API 文档（唯一生成位置）
 - `/frontend` - 前端应用
 
+> **modelrouter 版本说明：** `backend/internal/modelrouter` (v1) 已废弃，请使用 `backend/internal/modelrouter/v2`。
+
 ## 贡献说明
 
 - 查阅 CONTRIBUTING.md 了解提交消息风格指导
@@ -203,7 +205,7 @@ docs/swagger/swagger.yaml   # YAML 格式文档
 4. **DigitalAssistant** - 表示 AI worker 的顶级抽象（✅ 类型已定义）
 5. **Agent** - DigitalAssistant 中的决策实体（🔄 计划中）
 6. **Skill** - 可调用的可重用功能（✅ 接口和基础实现已完成）
-7. **Model Router** - 多提供商 LLM 路由（🔄 计划中）
+7. **Model Router** - 多提供商 LLM 路由（🔄 计划中。注：`backend/internal/modelrouter/v2` 已可用，v1 已废弃）
 8. **Memory System** - 短期和长期记忆（🔄 计划中）
 
 ## 技能系统定义
@@ -347,6 +349,8 @@ MVP 特性：
 | 数据库 | Postgres | 🔄 计划中 |
 | 向量存储 | Qdrant | 🔄 计划中 |
 | LLM | OpenAI / Claude / DeepSeek | 🔄 计划中 |
+
+> **modelrouter 版本说明：** `backend/internal/modelrouter` (v1) 已废弃，请使用 `backend/internal/modelrouter/v2`。
 
 ## 开发工作流程
 

@@ -1,0 +1,13 @@
+{"type":"response.created","response":{"id":"resp_stream_001","object":"response","created_at":1700000000,"model":"gpt-5","status":"in_progress","output":[]}}
+{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_001","type":"message","status":"in_progress","role":"assistant","content":[]}}
+{"type":"response.content_part.added","item_id":"msg_001","output_index":0,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}
+{"type":"response.output_text.delta","item_id":"msg_001","output_index":0,"content_index":0,"delta":"The"}
+{"type":"response.output_text.delta","item_id":"msg_001","output_index":0,"content_index":0,"delta":" capital"}
+{"type":"response.output_text.delta","item_id":"msg_001","output_index":0,"content_index":0,"delta":" of"}
+{"type":"response.output_text.delta","item_id":"msg_001","output_index":0,"content_index":0,"delta":" France"}
+{"type":"response.output_text.delta","item_id":"msg_001","output_index":0,"content_index":0,"delta":" is"}
+{"type":"response.output_text.delta","item_id":"msg_001","output_index":0,"content_index":0,"delta":" Paris."}
+{"type":"response.output_text.done","item_id":"msg_001","output_index":0,"content_index":0,"text":"The capital of France is Paris."}
+{"type":"response.content_part.done","item_id":"msg_001","output_index":0,"content_index":0,"part":{"type":"output_text","text":"The capital of France is Paris.","annotations":[]}}
+{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_001","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"The capital of France is Paris.","annotations":[]}]}}
+{"type":"response.completed","response":{"id":"resp_stream_001","object":"response","created_at":1700000000,"model":"gpt-5","status":"completed","output":[{"id":"msg_001","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"The capital of France is Paris.","annotations":[]}]}],"usage":{"input_tokens":15,"output_tokens":7,"total_tokens":22}}}

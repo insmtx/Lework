@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
-	"github.com/insmtx/Leros/backend/internal/modelrouter"
+	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 )
 
@@ -37,7 +37,7 @@ func TestWorkerModelProxyBaseURLAppendsV1(t *testing.T) {
 
 func TestModelStepWritesUpstreamConfigAndProxiesRequest(t *testing.T) {
 	// Reset store before test
-	modelrouter.DefaultStore().Put(modelrouter.UpstreamConfig{})
+	modelStore.Put(modelrouter.UpstreamConfig{})
 
 	oldProfile := identity.Get()
 	defer identity.Set(oldProfile)
@@ -85,7 +85,7 @@ func TestModelStepWritesUpstreamConfigAndProxiesRequest(t *testing.T) {
 	}
 
 	// Verify upstream config in store has original BaseURL
-	cfg, err := modelrouter.NewResolver().Resolve(context.Background(), "gpt-4.1")
+	cfg, err := modelStore.Resolve("gpt-4.1")
 	if err != nil {
 		t.Fatalf("failed to resolve upstream config: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestModelStepValidatesRequiredFields(t *testing.T) {
 
 func TestModelStepWithEmptyWorkerAddress(t *testing.T) {
 	// Reset store before test
-	modelrouter.DefaultStore().Put(modelrouter.UpstreamConfig{})
+	modelStore.Put(modelrouter.UpstreamConfig{})
 
 	oldProfile := identity.Get()
 	defer identity.Set(oldProfile)
@@ -166,7 +166,7 @@ func TestModelStepWithEmptyWorkerAddress(t *testing.T) {
 	}
 
 	// Verify upstream config still written to store with original BaseURL
-	cfg, err := modelrouter.NewResolver().Resolve(context.Background(), "gpt-4.1")
+	cfg, err := modelStore.Resolve("gpt-4.1")
 	if err != nil {
 		t.Fatalf("failed to resolve upstream config: %v", err)
 	}

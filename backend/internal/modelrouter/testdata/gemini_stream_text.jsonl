@@ -1,0 +1,7 @@
+{"candidates":[{"content":{"role":"model","parts":[{"text":""}]},"finishReason":null}],"usageMetadata":{"promptTokenCount":5}}
+{"candidates":[{"content":{"role":"model","parts":[{"text":"The"}]},"finishReason":null}],"usageMetadata":{"promptTokenCount":5}}
+{"candidates":[{"content":{"role":"model","parts":[{"text":" capital"}]},"finishReason":null}],"usageMetadata":{"promptTokenCount":5}}
+{"candidates":[{"content":{"role":"model","parts":[{"text":" of"}]},"finishReason":null}],"usageMetadata":{"promptTokenCount":5}}
+{"candidates":[{"content":{"role":"model","parts":[{"text":" France"}]},"finishReason":null}],"usageMetadata":{"promptTokenCount":5}}
+{"candidates":[{"content":{"role":"model","parts":[{"text":" is"}]},"finishReason":null}],"usageMetadata":{"promptTokenCount":5}}
+{"candidates":[{"content":{"role":"model","parts":[{"text":" Paris."}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8}}
