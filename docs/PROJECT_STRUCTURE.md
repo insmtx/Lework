@@ -454,11 +454,11 @@ GitHub/GitLab Webhook → Server → NATS → Event Engine → Agent Runner
 
 | 目录 | 说明 |
 |------|------|
-| `apps/web/` | Next.js Web 应用（App Router, Tailwind） |
-| `apps/desktop/` | Electron 桌面应用 |
+| `apps/web/` | Next.js Web 应用（App Router, Tailwind；`app/(shell)` 承载应用壳路由） |
+| `apps/desktop/` | Electron 桌面应用（React Router 维护内部页面位置） |
 | `packages/ui/` | 共享 UI 组件库（shadcn/ui 40+ 组件 + hooks + lib） |
 | `packages/store/` | Zustand 状态管理（chat/digital assistant/topic/layout） |
-| `packages/app-ui/` | 应用级 UI 组件（chat/assistant/layout/input） |
+| `packages/app-ui/` | 应用级 UI 组件（chat/assistant/layout/input；通过 AppNavigation 接收平台导航） |
 | `packages/styles/` | 双端共享全局样式入口（Tailwind/shadcn/token/base + app shell styles） |
 | `packages/tsconfig/` | TypeScript 配置共享包 |
 | `packages/biome/` | Biome 配置共享包 |
