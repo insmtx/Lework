@@ -90,7 +90,7 @@ func TestRunnerBuildRunStateMergesDefaultAndRequestTools(t *testing.T) {
 		RunID: "run_tools",
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Capability: agent.CapabilityContext{
 			AllowedTools: []string{
@@ -129,7 +129,7 @@ func TestRunnerBuildRunStateUsesWorkspaceTempWhenWorkDirMissing(t *testing.T) {
 		RunID: "run_temp",
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: expected},
 	})
@@ -157,7 +157,7 @@ func TestRunnerBuildRunStateUsesRequestWorkDir(t *testing.T) {
 		RunID: "run_project",
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: projectDir},
 	})
@@ -198,7 +198,7 @@ func TestAgentRunRealModel(t *testing.T) {
 		},
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "Reply with exactly this text: Leros agent runtime ok",
+			Messages: []agent.InputMessage{{Role: "user", Content: "Reply with exactly this text: Leros agent runtime ok"}},
 		},
 		Model:     realModelOptions(apiKey),
 		Runtime:   agent.RuntimeOptions{MaxStep: 2},
@@ -264,7 +264,7 @@ func TestAgentRunNodeTool(t *testing.T) {
 		Model: realModelOptions(apiKey),
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "Use a tool to query the current system time.",
+			Messages: []agent.InputMessage{{Role: "user", Content: "Use a tool to query the current system time."}},
 		},
 		Runtime: agent.RuntimeOptions{MaxStep: 6},
 		Capability: agent.CapabilityContext{
@@ -342,7 +342,7 @@ func TestAgentRunWeatherSkillQuery(t *testing.T) {
 		Model: realModelOptions(apiKey),
 		Input: agent.InputContext{
 			Type: agent.InputTypeTaskInstruction,
-			Text: "Use the weather skill to query the weather in Shanghai.",
+			Messages: []agent.InputMessage{{Role: "user", Content: "Use the weather skill to query the weather in Shanghai."}},
 		},
 		Runtime: agent.RuntimeOptions{MaxStep: 20},
 		Capability: agent.CapabilityContext{

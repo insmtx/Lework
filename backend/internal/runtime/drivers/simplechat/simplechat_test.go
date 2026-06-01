@@ -56,7 +56,7 @@ func TestSimpleChat_Run_RequiresAPIKey(t *testing.T) {
 	req := &agent.RequestContext{
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "Hello, how are you?",
+			Messages: []agent.InputMessage{{Role: "user", Content: "Hello, how are you?"}},
 		},
 	}
 
@@ -90,7 +90,7 @@ func TestSimpleChat_Run_EmptyInput(t *testing.T) {
 	req := &agent.RequestContext{
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "",
+			Messages: []agent.InputMessage{{Role: "user", Content: ""}},
 		},
 	}
 

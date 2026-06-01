@@ -32,6 +32,7 @@ type TaskWorkspace struct {
 	TurnTmpDir           string
 	TurnLogDir           string
 	ArtifactManifestPath string
+	BaselinePath         string
 	EffectiveWorkDir     string
 }
 
@@ -53,6 +54,9 @@ func PrepareTaskWorkspace(ctx context.Context, req TaskWorkspaceRequest) (*TaskW
 		_ = file.Close()
 	}
 	if err := ensureGitRepo(ctx, plan.RepoDir); err != nil {
+		return nil, err
+	}
+	if err := ensureGitignore(plan.RepoDir); err != nil {
 		return nil, err
 	}
 	if err := ensureLerosExcluded(plan.RepoDir); err != nil {
@@ -119,6 +123,7 @@ func ResolveTaskWorkspace(req TaskWorkspaceRequest) (*TaskWorkspace, error) {
 		TurnTmpDir:           filepath.Join(turnDir, "tmp"),
 		TurnLogDir:           filepath.Join(turnDir, "logs"),
 		ArtifactManifestPath: filepath.Join(turnDir, "artifacts.jsonl"),
+		BaselinePath:         filepath.Join(turnDir, "baseline.jsonl"),
 		EffectiveWorkDir:     effectiveWorkDir,
 	}, nil
 }
@@ -288,6 +293,54 @@ func ensureGitRepo(ctx context.Context, repoDir string) error {
 	cmd.Dir = repoDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git init workspace: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+// defaultGitignore 定义项目仓库初始化时创建的默认 .gitignore 内容。
+const defaultGitignore = `# Leros runtime
+.leros/
+
+# Dependency directories
+node_modules/
+vendor/
+
+# Build/cache outputs
+dist/
+build/
+target/
+.cache/
+.cache*/
+tmp/
+temp/
+logs/
+log/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Runtime logs
+*.log
+
+# Environment/secrets
+.env
+.env.*
+!.env.example
+`
+
+func ensureGitignore(repoDir string) error {
+	gitignorePath := filepath.Join(repoDir, ".gitignore")
+	if _, err := os.Stat(gitignorePath); err == nil {
+		// 文件已存在，不覆盖用户自定义的 .gitignore 规则
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat gitignore: %w", err)
+	}
+	if err := os.WriteFile(gitignorePath, []byte(defaultGitignore), 0o644); err != nil {
+		return fmt.Errorf("write default gitignore: %w", err)
 	}
 	return nil
 }

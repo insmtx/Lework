@@ -163,10 +163,7 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 	if req == nil {
 		return nil, errors.New("request context is required")
 	}
-	userInput := buildUserInput(req)
-	if userInput == "" {
-		userInput = string(req.Input.Type)
-	}
+	userInput := agent.BuildUserInput(req)
 
 	systemPrompt, err := r.buildSystemPrompt(req)
 	if err != nil {
@@ -182,7 +179,6 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 		UserID:         req.Actor.UserID,
 		AccountID:      req.Actor.AccountID,
 		Channel:        req.Actor.Channel,
-		ChatID:         req.Conversation.ID,
 		ConversationID: req.Conversation.ID,
 		ExternalID:     req.Actor.ExternalID,
 		WorkDir:        workDir,
@@ -237,28 +233,6 @@ func mergeToolNames(values ...[]string) []string {
 		}
 	}
 	return result
-}
-
-func buildUserInput(req *agent.RequestContext) string {
-	if req == nil {
-		return ""
-	}
-
-	if len(req.Input.Messages) > 0 {
-		lines := make([]string, 0, len(req.Input.Messages))
-		for _, message := range req.Input.Messages {
-			if strings.TrimSpace(message.Content) == "" {
-				continue
-			}
-			role := message.Role
-			if role == "" {
-				role = "user"
-			}
-			lines = append(lines, fmt.Sprintf("%s: %s", role, message.Content))
-		}
-		return strings.Join(lines, "\n")
-	}
-	return ""
 }
 
 func (r *Runner) buildSystemPrompt(req *agent.RequestContext) (string, error) {

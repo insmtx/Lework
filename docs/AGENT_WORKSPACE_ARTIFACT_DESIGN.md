@@ -8,7 +8,7 @@
 
 - 为每个 `org/project/task/request` 准备隔离的 Agent 工作区。
 - 同一个 task 内按 `request_id` 拆分 turn 目录，保证每轮产物声明可单独收集。
-- 最终产物通过 manifest 或 `artifact_declare` 显式声明，不通过扫描目录猜测。
+- 最终产物通过 manifest / `artifact_declare` 显式声明，并辅以执行前后文件变更自动兜底扫描。
 - Artifact 持久化后通过任务维度接口返回给前端，下载接口只暴露 `artifact_id`。
 - 内部真实路径不通过对外 API 暴露。
 
@@ -32,6 +32,9 @@
 | Manifest 读取和 artifact 校验 | `backend/internal/workspace/artifacts.go` |
 | 内置 runtime 注入工具上下文 | `backend/internal/runtime/drivers/native/runner.go` |
 | `artifact_declare` 工具 | `backend/tools/artifact_declare/tool.go` |
+| File 扫描与 ignore 规则 | `backend/internal/workspace/scanner.go` |
+| Baseline 捕获 (执行前) | `backend/internal/runtime/lifecycle/steps/baseline.go` |
+| Reconcile 兜底扫描 (执行后) | `backend/internal/runtime/lifecycle/steps/reconcile.go` |
 | Artifact 持久化 | `backend/internal/runtime/lifecycle/steps/artifact.go` |
 | Server 侧 artifact 下载路径解析 | `backend/internal/workspace/server_paths.go` |
 | Artifact 查询和下载服务 | `backend/internal/service/artifact_service.go` |
@@ -56,6 +59,7 @@ Worker 本地 workspace root 使用 `LEROS_WORKSPACE_ROOT`。如果未设置，L
                   {request_id}/
                     tmp/
                     logs/
+                    baseline.jsonl
                     artifacts.jsonl
 ```
 
@@ -68,6 +72,7 @@ Worker 本地 workspace root 使用 `LEROS_WORKSPACE_ROOT`。如果未设置，L
 | `repo/.leros/` | Leros 运行态目录，写入 `repo/.git/info/exclude`，不进入项目 Git |
 | `repo/.leros/tasks/{task_id}/turns/{request_id}/tmp/` | 当前 turn 临时目录 |
 | `repo/.leros/tasks/{task_id}/turns/{request_id}/logs/` | 当前 turn 日志目录 |
+| `repo/.leros/tasks/{task_id}/turns/{request_id}/baseline.jsonl` | 执行前文件基线快照，用于 diff 检测新增/修改文件 |
 | `repo/.leros/tasks/{task_id}/turns/{request_id}/artifacts.jsonl` | 当前 turn 最终产物 manifest |
 
 没有 project 上下文时，Worker 不创建上述 project/task/turn 目录，而是使用：
@@ -113,7 +118,7 @@ type TaskWorkspace struct {
 `PrepareTaskWorkspace` 的职责：
 
 - 根据 `org_id/project_id/task_id/request_id` 计算路径。
-- 创建 turn 的 `tmp`、`logs` 和 `artifacts.jsonl`。
+- 创建 turn 的 `tmp`、`logs`、`baseline.jsonl` 和 `artifacts.jsonl`。
 - 初始化 `repo/.git`。
 - 将 `.leros/` 写入 `repo/.git/info/exclude`。
 - 校验和解析请求传入的 `runtime.work_dir`。
@@ -296,9 +301,41 @@ Runtime 完成任务前读取当前 turn 的 `artifacts.jsonl`。
 
 未声明文件：
 
-- 不进入最终产物列表。
-- 不展示给用户。
-- 不作为 artifact 持久化。
+- 如果 `artifacts.jsonl` 中没有 `is_final: true` 的记录，系统会自动通过 baseline diff 检测执行期间的新增/修改文件。
+- 自动检测到的文件会补写入 `artifacts.jsonl`，后续按正常 manifest 流程处理。
+
+### 10.1 文件变更自动检测 (Baseline & Reconcile)
+
+Pipeline 在执行前后各插入一个新步骤，用于自动检测 Agent 执行期间产生但未显式声明的新文件。
+
+**步骤顺序：**
+```
+NormalizeStep → ... → ArtifactBaselineStep → ExecuteStep → ArtifactReconcileStep → ArtifactStep → ...
+```
+
+**ArtifactBaselineStep：**
+- 扫描 `repo/` 下所有文件，应用忽略规则后写入 `baseline.jsonl`。
+- 每条记录：`{"path":"src/report.md","size":1234,"mtime_unix_nano":1780000000000}`
+
+**ArtifactReconcileStep：**
+- 再次扫描 `repo/`，读取 `baseline.jsonl`，对比执行前后文件状态。
+- 若 `artifacts.jsonl` 已有 `is_final:true` 的显式声明 → 跳过 diff（显式声明优先）。
+- 若无显式声明 → 将新增或变更文件作为候选补写入 `artifacts.jsonl`。
+- 删除的文件、未变化文件、被忽略文件不进入候选。
+
+**忽略规则：**
+1. Git 标准 ignore：`.gitignore`、`.git/info/exclude`，通过 `git check-ignore --stdin --no-index` 实现。
+2. Leros 内置排除：`.git/`、`.leros/`、`tmp/`、`temp/`、`logs/`、`log/`、`.cache/`、`node_modules/`、`vendor/`、`dist/`、`build/`、`target/`。
+3. 文件级排除：`.DS_Store`、`Thumbs.db`、`*.swp`、`*.swo`、`*.log`。
+
+**变更检测：**
+- baseline 中不存在的文件 → 新增。
+- size 或 mtime 不同 → 候选修改。
+- size 和 mtime 都相同 → 跳过。
+
+**source 标记：**
+- 显式声明产物：`artifact_source = "agent_declared"`（不变）。
+- 自动检测产物：`artifact_source = "diff"`（新增常量 `types.ArtifactSourceDiff`）。
 
 ## 11. 持久化模型
 
@@ -341,7 +378,7 @@ created_at
 | `relative_path` | 相对 project repo 的路径 |
 | `storage_key` | 相对 Worker workspace root 的路径，用于 Server 下载映射 |
 | `sha256` | 文件内容 hash |
-| `source` | 当前默认为 `agent_declared` |
+| `source` | `agent_declared`（显式声明）或 `diff`（自动检测） |
 | `status` | 当前完成态为 `completed` |
 
 注意：

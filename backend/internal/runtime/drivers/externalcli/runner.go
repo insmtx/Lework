@@ -63,7 +63,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
 	}
 
-	prompt := buildPrompt(req)
+	prompt := agent.BuildUserInput(req)
 	sessionPlan := r.resolveProviderSession(ctx, req, workDir)
 
 	handle, err := r.engine.Run(ctx, engines.RunRequest{

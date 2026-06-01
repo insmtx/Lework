@@ -113,7 +113,10 @@ func TestRuntimeRouterClaudeRunnerCallsLerosEchoTool(t *testing.T) {
 		},
 		Input: agent.InputContext{
 			Type: agent.InputTypeTaskInstruction,
-			Text: `Call the configured Leros MCP tool leros_echo with message "hello from claude runner", then return the tool result JSON.`,
+			Messages: []agent.InputMessage{{
+				Role:    "user",
+				Content: `Call the configured Leros MCP tool leros_echo with message "hello from claude runner", then return the tool result JSON.`,
+			}},
 		},
 		Runtime: agent.RuntimeOptions{
 			Kind:    engines.EngineClaude,

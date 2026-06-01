@@ -10,6 +10,7 @@ import (
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/runtime/drivers/native"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -86,11 +87,15 @@ func (b *ContextBuilder) Prepare(ctx context.Context, req *agent.RequestContext)
 
 // BuildSystemPrompt 生成统一系统提示词，供所有运行时复用。
 func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agent.RequestContext) (string, error) {
-	sections := make([]string, 0, 6)
-	sectionNames := make([]string, 0, 5)
+	sections := make([]string, 0, 7)
+	sectionNames := make([]string, 0, 6)
 	if base := strings.TrimSpace(b.basePromptForRequest(req)); base != "" {
 		sections = append(sections, base)
 		sectionNames = append(sectionNames, "base")
+	}
+	if workspace := strings.TrimSpace(buildWorkspaceContext(req)); workspace != "" {
+		sections = append(sections, workspace)
+		sectionNames = append(sectionNames, "workspace")
 	}
 	if skills := strings.TrimSpace(b.buildSkillsContext()); skills != "" {
 		sections = append(sections, skills)
@@ -240,28 +245,6 @@ func buildSessionSummaryContext(req *agent.RequestContext) string {
 	return strings.Join(lines, "\n")
 }
 
-// BuildUserInput 将请求中的用户输入消息拼接为格式化文本。
-func BuildUserInput(req *agent.RequestContext) string {
-	if req == nil {
-		return ""
-	}
-	if len(req.Input.Messages) > 0 {
-		lines := make([]string, 0, len(req.Input.Messages))
-		for _, message := range req.Input.Messages {
-			if strings.TrimSpace(message.Content) == "" {
-				continue
-			}
-			role := message.Role
-			if role == "" {
-				role = "user"
-			}
-			lines = append(lines, fmt.Sprintf("%s: %s", role, message.Content))
-		}
-		return strings.Join(lines, "\n")
-	}
-	return ""
-}
-
 // CloneRequest 深拷贝一份 RequestContext，防止 Prepare 过程污染原始请求。
 func CloneRequest(req *agent.RequestContext) *agent.RequestContext {
 	if req == nil {
@@ -326,4 +309,19 @@ func requestTraceID(req *agent.RequestContext) string {
 		return ""
 	}
 	return req.TraceID
+}
+
+// buildWorkspaceContext 从请求中解析 workspace 信息并构建提示上下文。
+func buildWorkspaceContext(req *agent.RequestContext) string {
+	if req == nil {
+		return ""
+	}
+	plan, ok, err := agentworkspace.FromAgentRequest(req)
+	if err != nil || !ok {
+		return ""
+	}
+	return fmt.Sprintf(`## 工作区信息
+- 项目工作目录: %s
+- 本次请求临时目录: %s
+- 会话日志目录: %s`, plan.RepoDir, plan.TurnTmpDir, plan.TurnLogDir)
 }

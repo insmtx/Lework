@@ -35,6 +35,7 @@ type LearningService struct {
 	ToolAvailability ToolAvailability
 }
 
+// AfterRunLearning 在主任务完成后触发学习检查，让 agent 判断是否需要沉淀长期记忆或技能流程。
 func (s *LearningService) AfterRunLearning(ctx context.Context, req *agent.RequestContext, result *agent.RunResult, trace *lifecyclejournal.RunTrace) error {
 	if s == nil || s.Builder == nil || s.Delegate == nil || req == nil || result == nil || !ShouldRunLearningCheck(req, result, trace) {
 		return nil
@@ -48,7 +49,10 @@ func (s *LearningService) AfterRunLearning(ctx context.Context, req *agent.Reque
 	learningReq := lifecyclecontext.CloneRequest(req)
 	learningReq.Input = agent.InputContext{
 		Type: agent.InputTypeTaskInstruction,
-		Text: buildLearningPrompt(req, result, trace),
+		Messages: []agent.InputMessage{{
+			Role:    "user",
+			Content: buildLearningPrompt(req, result, trace),
+		}},
 	}
 	learningReq.Capability.AllowedTools = allowedTools
 	learningReq.Runtime.MaxStep = 3
@@ -63,14 +67,17 @@ func (s *LearningService) AfterRunLearning(ctx context.Context, req *agent.Reque
 	return err
 }
 
+// BeforeCompact 在上下文压缩前尝试刷新长期记忆，避免稳定偏好或项目事实随上下文丢失。
 func (s *LearningService) BeforeCompact(ctx context.Context, req *agent.RequestContext) error {
 	return s.runMemoryFlush(ctx, req, "compact")
 }
 
+// BeforeReset 在会话重置前尝试刷新长期记忆，保留后续会话仍有价值的信息。
 func (s *LearningService) BeforeReset(ctx context.Context, req *agent.RequestContext) error {
 	return s.runMemoryFlush(ctx, req, "reset")
 }
 
+// runMemoryFlush 构造一次只允许调用 memory 工具的内部请求，用于在生命周期边界保存稳定信息。
 func (s *LearningService) runMemoryFlush(ctx context.Context, req *agent.RequestContext, reason string) error {
 	if s == nil || s.Builder == nil || s.Delegate == nil || req == nil {
 		return nil
@@ -83,7 +90,10 @@ func (s *LearningService) runMemoryFlush(ctx context.Context, req *agent.Request
 	flushReq := lifecyclecontext.CloneRequest(req)
 	flushReq.Input = agent.InputContext{
 		Type: agent.InputTypeTaskInstruction,
-		Text: memoryFlushPrompt + "\n\nReason: " + strings.TrimSpace(reason),
+		Messages: []agent.InputMessage{{
+			Role:    "user",
+			Content: memoryFlushPrompt + "\n\nReason: " + strings.TrimSpace(reason),
+		}},
 	}
 	flushReq.Capability.AllowedTools = allowedTools
 	flushReq.Runtime.MaxStep = 2
@@ -106,6 +116,7 @@ func (LearningStep) Name() string {
 	return "learning"
 }
 
+// Run 执行生命周期学习步骤；学习失败只记录告警，不阻断主任务返回。
 func (s LearningStep) Run(ctx context.Context, state *State) error {
 	if s.Service == nil || state == nil || state.Err != nil {
 		return nil
@@ -123,6 +134,7 @@ func availableToolNames(availability ToolAvailability, names []string) []string 
 	return availability.AvailableToolNames(names)
 }
 
+// ShouldRunLearningCheck 根据运行结果和 trace 判断是否值得启动一次学习检查。
 func ShouldRunLearningCheck(req *agent.RequestContext, result *agent.RunResult, trace *lifecyclejournal.RunTrace) bool {
 	if req == nil || result == nil || result.Status != agent.RunStatusCompleted {
 		return false
@@ -133,7 +145,7 @@ func ShouldRunLearningCheck(req *agent.RequestContext, result *agent.RunResult, 
 	if alreadyCalledLearningTool(trace.ToolNames) {
 		return false
 	}
-	if containsLearningCue(lifecyclecontext.BuildUserInput(req)) {
+	if containsLearningCue(agent.BuildUserInput(req)) {
 		return true
 	}
 	if trace.ToolFailures > 0 {
@@ -148,6 +160,7 @@ func ShouldRunLearningCheck(req *agent.RequestContext, result *agent.RunResult, 
 	return false
 }
 
+// buildLearningPrompt 汇总输入、工具调用、过程 trace 和最终回答，交给 agent 判断是否需要写记忆。
 func buildLearningPrompt(req *agent.RequestContext, result *agent.RunResult, trace *lifecyclejournal.RunTrace) string {
 	if trace == nil {
 		trace = &lifecyclejournal.RunTrace{}
@@ -187,6 +200,7 @@ func buildLearningPrompt(req *agent.RequestContext, result *agent.RunResult, tra
 	return builder.String()
 }
 
+// alreadyCalledLearningTool 避免主任务已经调用过学习类工具时再次触发学习检查。
 func alreadyCalledLearningTool(names []string) bool {
 	for _, name := range names {
 		switch name {
@@ -197,6 +211,7 @@ func alreadyCalledLearningTool(names []string) bool {
 	return false
 }
 
+// containsLearningCue 识别用户输入中明确要求记住偏好或后续行为的提示。
 func containsLearningCue(text string) bool {
 	text = strings.ToLower(strings.TrimSpace(text))
 	if text == "" {
@@ -230,6 +245,7 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
+// hasToolEvents 判断 trace 中是否包含工具调用事件，用于决定是否追加工具轨迹摘要。
 func hasToolEvents(records []events.RunEventRecord) bool {
 	for _, record := range records {
 		switch record.Type {
@@ -240,6 +256,7 @@ func hasToolEvents(records []events.RunEventRecord) bool {
 	return false
 }
 
+// formatToolTrace 将工具调用事件压缩成 name(status) 形式，减少学习提示词长度。
 func formatToolTrace(records []events.RunEventRecord) string {
 	if len(records) == 0 {
 		return ""
@@ -256,6 +273,7 @@ func formatToolTrace(records []events.RunEventRecord) string {
 	return strings.Join(parts, ", ")
 }
 
+// toolEventStatus 把生命周期事件类型映射为学习提示词中更短的工具状态。
 func toolEventStatus(eventType events.EventType) string {
 	switch eventType {
 	case events.EventToolCallFailed:
@@ -267,6 +285,7 @@ func toolEventStatus(eventType events.EventType) string {
 	}
 }
 
+// formatProcessTrace 提取消息、推理、结果和工具事件的关键信息，形成可读的过程摘要。
 func formatProcessTrace(records []events.RunEventRecord) string {
 	if len(records) == 0 {
 		return ""
@@ -291,6 +310,7 @@ func formatProcessTrace(records []events.RunEventRecord) string {
 	return strings.Join(parts, " | ")
 }
 
+// toolNameFromEventRecord 复用 journal 的解析逻辑，从事件 payload 中取得工具名称。
 func toolNameFromEventRecord(record events.RunEventRecord) string {
 	event := &events.Event{
 		Type:    record.Type,
@@ -299,6 +319,7 @@ func toolNameFromEventRecord(record events.RunEventRecord) string {
 	return lifecyclejournal.ToolNameFromEvent(event)
 }
 
+// contentFromEventRecord 从可展示的事件 payload 中提取文本内容，解析失败时返回空字符串。
 func contentFromEventRecord(record events.RunEventRecord) string {
 	switch record.Type {
 	case events.EventMessageDelta, events.EventReasoningDelta:

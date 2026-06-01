@@ -248,4 +248,6 @@ type ArtifactSource string
 const (
 	// ArtifactSourceAgentDeclared 表示 Agent 通过 manifest 显式声明的产物。
 	ArtifactSourceAgentDeclared ArtifactSource = "agent_declared"
+	// ArtifactSourceDiff 表示通过执行前后文件变更自动检测到的产物。
+	ArtifactSourceDiff ArtifactSource = "diff"
 )

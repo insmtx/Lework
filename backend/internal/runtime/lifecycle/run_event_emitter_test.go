@@ -228,7 +228,7 @@ func lifecycleTestRequest(sink events.Sink) *agent.RequestContext {
 		RunID: "run_lifecycle_error",
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Model: agent.ModelOptions{
 			Provider: "test",

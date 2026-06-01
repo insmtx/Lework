@@ -1,5 +1,10 @@
 package agent
 
+import (
+	"fmt"
+	"strings"
+)
+
 // InputType describes the primary shape of the run input.
 type InputType string
 
@@ -65,7 +70,6 @@ type WorkspaceContext struct {
 // InputContext is the normalized input passed to the agent.
 type InputContext struct {
 	Type        InputType      `json:"type"`
-	Text        string         `json:"text,omitempty"`
 	Messages    []InputMessage `json:"messages,omitempty"`
 	Attachments []Attachment   `json:"attachments,omitempty"`
 }
@@ -109,4 +113,26 @@ type CapabilityContext struct {
 // PolicyContext carries policy knobs for one run.
 type PolicyContext struct {
 	RequireApproval bool `json:"require_approval,omitempty"`
+}
+
+// BuildUserInput joins the user-side messages from the request into a formatted text.
+func BuildUserInput(req *RequestContext) string {
+	if req == nil {
+		return ""
+	}
+	if len(req.Input.Messages) > 0 {
+		lines := make([]string, 0, len(req.Input.Messages))
+		for _, message := range req.Input.Messages {
+			if strings.TrimSpace(message.Content) == "" {
+				continue
+			}
+			role := message.Role
+			if role == "" {
+				role = "user"
+			}
+			lines = append(lines, fmt.Sprintf("%s: %s", role, message.Content))
+		}
+		return strings.Join(lines, "\n")
+	}
+	return ""
 }

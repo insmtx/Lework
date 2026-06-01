@@ -28,7 +28,10 @@ func requestFromInteractionEvent(event *interactionevent.Event) *agent.RequestCo
 		},
 		Input: agent.InputContext{
 			Type: agent.InputTypeEvent,
-			Text: buildInteractionEventInput(event),
+			Messages: []agent.InputMessage{{
+				Role:    "user",
+				Content: buildInteractionEventInput(event),
+			}},
 		},
 		Metadata: map[string]any{
 			"channel":       event.Channel,

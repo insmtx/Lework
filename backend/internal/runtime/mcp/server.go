@@ -34,7 +34,6 @@ func NewServer() *Server {
 // NewTools 返回当前通过 MCP 暴露的 Leros 工具。
 func NewTools() []tools.Tool {
 	return []tools.Tool{
-		// testtools.NewEchoTool(),
 		memorytools.NewTool(),
 		skillmanagetools.NewTool(),
 		artifactdeclaretools.NewTool(),

@@ -74,7 +74,7 @@ func (s *SimpleChat) Run(ctx context.Context, req *agent.RequestContext) (*agent
 		req.TraceID = req.RunID
 	}
 
-	userInput := buildUserInput(req)
+	userInput := agent.BuildUserInput(req)
 	if userInput == "" {
 		return nil, fmt.Errorf("empty user input")
 	}
@@ -127,15 +127,4 @@ func (s *SimpleChat) Run(ctx context.Context, req *agent.RequestContext) (*agent
 		req.RunID, result.Status, len(resultMessage))
 
 	return result, nil
-}
-
-func buildUserInput(req *agent.RequestContext) string {
-	if req == nil {
-		return ""
-	}
-
-	if len(req.Input.Messages) > 0 {
-		return req.Input.Messages[len(req.Input.Messages)-1].Content
-	}
-	return ""
 }

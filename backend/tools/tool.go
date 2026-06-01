@@ -78,20 +78,30 @@ func JSONString(value interface{}) (string, error) {
 	return string(encoded), nil
 }
 
-// ToolContext carries run-scoped identity and conversation metadata injected by the agent runtime.
+// ToolContext 携带 agent runtime 注入的 run 级身份与会话元数据。
 type ToolContext struct {
-	RunID          string
-	TraceID        string
-	AssistantID    string
-	UserID         string
-	AccountID      string
-	Channel        string
-	ChatID         string
+	// RunID 是本次 agent 运行的唯一标识。
+	RunID string
+	// TraceID 是跨服务关联的分布式追踪标识。
+	TraceID string
+	// AssistantID 是执行本次运行的助手标识。
+	AssistantID string
+	// UserID 是发起本次运行的人类用户标识。
+	UserID string
+	// AccountID 是租户或组织账号标识。
+	AccountID string
+	// Channel 是接收请求的交互渠道（如 "github"、"slack"）。
+	Channel string
+	// ConversationID 是本次运行所属的会话标识。
 	ConversationID string
-	ExternalID     string
-	WorkNodeID     string
-	WorkDir        string
-	Metadata       map[string]any
+	// ExternalID 是外部渠道中的发起者标识。
+	ExternalID string
+	// WorkNodeID 是执行本次运行时的工作节点标识。
+	WorkNodeID string
+	// WorkDir 是本次运行隔离工作区的绝对路径。
+	WorkDir string
+	// Metadata 携带从请求透传的任意键值对。
+	Metadata map[string]any
 }
 
 type toolContextKey struct{}

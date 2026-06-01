@@ -11,19 +11,19 @@ func TestShouldRunLearningCheck(t *testing.T) {
 	result := &agent.RunResult{Status: agent.RunStatusCompleted}
 
 	if !ShouldRunLearningCheck(&agent.RequestContext{
-		Input: agent.InputContext{Type: agent.InputTypeMessage, Text: "remember this preference"},
+		Input: agent.InputContext{Type: agent.InputTypeMessage, Messages: []agent.InputMessage{{Role: "user", Content: "remember this preference"}}},
 	}, result, &lifecyclejournal.RunTrace{}) {
 		t.Fatalf("expected learning check for explicit user learning cue")
 	}
 
 	if !ShouldRunLearningCheck(&agent.RequestContext{
-		Input: agent.InputContext{Type: agent.InputTypeMessage, Text: "handle this complex task"},
+		Input: agent.InputContext{Type: agent.InputTypeMessage, Messages: []agent.InputMessage{{Role: "user", Content: "handle this complex task"}}},
 	}, result, &lifecyclejournal.RunTrace{ToolCalls: 5}) {
 		t.Fatalf("expected learning check after complex tool run")
 	}
 
 	if ShouldRunLearningCheck(&agent.RequestContext{
-		Input: agent.InputContext{Type: agent.InputTypeMessage, Text: "handle this complex task"},
+		Input: agent.InputContext{Type: agent.InputTypeMessage, Messages: []agent.InputMessage{{Role: "user", Content: "handle this complex task"}}},
 	}, result, &lifecyclejournal.RunTrace{ToolCalls: 5, ToolNames: []string{ToolNameMemory}}) {
 		t.Fatalf("did not expect learning check after memory was already called")
 	}

@@ -35,7 +35,7 @@ func TestRunnerAdaptsEngineResult(t *testing.T) {
 		SystemPrompt: "system only",
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: "/tmp"},
 	})
@@ -80,7 +80,7 @@ func TestRunnerDefaultsEmptyWorkDirToWorkspaceTemp(t *testing.T) {
 		RunID: "run_temp",
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: expected},
 	})
@@ -113,7 +113,7 @@ func TestRunnerStoresProviderSessionAndResumes(t *testing.T) {
 		},
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: "/tmp"},
 	}
@@ -155,7 +155,7 @@ func TestRunnerDoesNotPreallocateClaudeProviderSession(t *testing.T) {
 		},
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: "/tmp"},
 	})
@@ -197,7 +197,7 @@ func TestRunnerForwardsExternalToolEvents(t *testing.T) {
 		EventSink: sink,
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: "/tmp"},
 	})
@@ -249,7 +249,7 @@ func TestRunnerNormalizesTodoEventsThroughTracker(t *testing.T) {
 		EventSink: sink,
 		Input: agent.InputContext{
 			Type: agent.InputTypeMessage,
-			Text: "hello",
+			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: "/tmp"},
 	})
