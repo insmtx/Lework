@@ -19,8 +19,7 @@ func TestSyncToLerosDirCreatesUserSkillsDirectory(t *testing.T) {
 		t.Fatalf("sync to leros dir: %v", err)
 	}
 
-	// Verify the skill was synced to the workspace skills directory.
-	userSkillsDir := filepath.Join(workspaceRoot, "skills", "review-flow")
+	userSkillsDir := filepath.Join(workspaceRoot, ".leros", "skills", "review-flow")
 	targetBody, err := os.ReadFile(filepath.Join(userSkillsDir, skillManifestFile))
 	if err != nil {
 		t.Fatalf("read synced skill: %v", err)
@@ -30,27 +29,24 @@ func TestSyncToLerosDirCreatesUserSkillsDirectory(t *testing.T) {
 	}
 }
 
-func TestSyncFromLerosToExternalNoopsWhenNoSourcesExist(t *testing.T) {
+func TestReconcileExternalSkillLinksNoopsWhenNoSourcesExist(t *testing.T) {
 	t.Setenv(leros.EnvWorkspaceRoot, filepath.Join(t.TempDir(), "missing"))
 
-	// Should not error when source doesn't exist
-	if err := SyncFromLerosToExternal([]string{t.TempDir()}); err != nil {
+	if err := ReconcileExternalSkillLinks([]string{t.TempDir()}); err != nil {
 		t.Fatalf("sync from missing sources should no-op: %v", err)
 	}
 }
 
-func TestSyncFromLerosToExternalSkipsEmptyDirs(t *testing.T) {
+func TestReconcileExternalSkillLinksSkipsEmptySkillsDir(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
 
-	// Create workspace skills directory (empty).
-	userSkillsDir := filepath.Join(workspaceRoot, "skills")
+	userSkillsDir := filepath.Join(workspaceRoot, ".leros", "skills")
 	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	// Should not error when no skills exist
-	if err := SyncFromLerosToExternal([]string{t.TempDir()}); err != nil {
+	if err := ReconcileExternalSkillLinks([]string{t.TempDir()}); err != nil {
 		t.Fatalf("sync with no skills should no-op: %v", err)
 	}
 }
@@ -84,6 +80,237 @@ func TestResolveBuiltinSkillsSourceFindsProjectParent(t *testing.T) {
 	expected := filepath.Join(root, "backend", "skills")
 	if sourceDir != expected {
 		t.Fatalf("expected %s, got %s", expected, sourceDir)
+	}
+}
+
+func TestReconcileExternalSkillLinksCreatesExternalRootAndSymlinks(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	externalDir := filepath.Join(t.TempDir(), "cli-skills")
+	if err := ReconcileExternalSkillLinks([]string{externalDir}); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	target := filepath.Join(externalDir, "review-flow")
+	fi, err := os.Lstat(target)
+	if err != nil {
+		t.Fatalf("lstat external symlink: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlink, got non-symlink")
+	}
+
+	linkTarget, err := os.Readlink(target)
+	if err != nil {
+		t.Fatalf("readlink: %v", err)
+	}
+	expected := filepath.Join(lerosSkills, "review-flow")
+	if linkTarget != expected {
+		t.Fatalf("expected symlink target %s, got %s", expected, linkTarget)
+	}
+}
+
+func TestReconcileExternalSkillLinksRemovesExistingRealDir(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	externalDir := t.TempDir()
+	realDir := filepath.Join(externalDir, "review-flow")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir real dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "old.md"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+
+	if err := ReconcileExternalSkillLinks([]string{externalDir}); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	fi, err := os.Lstat(filepath.Join(externalDir, "review-flow"))
+	if err != nil {
+		t.Fatalf("lstat after sync: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected real dir to be replaced by symlink")
+	}
+}
+
+func TestReconcileExternalSkillLinksRemovesExistingFile(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	externalDir := t.TempDir()
+	oldFile := filepath.Join(externalDir, "review-flow")
+	if err := os.WriteFile(oldFile, []byte("old file"), 0o644); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+
+	if err := ReconcileExternalSkillLinks([]string{externalDir}); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	fi, err := os.Lstat(oldFile)
+	if err != nil {
+		t.Fatalf("lstat after sync: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected file to be replaced by symlink")
+	}
+}
+
+func TestReconcileExternalSkillLinksReplacesWrongSymlink(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	externalDir := t.TempDir()
+	wrongTarget := filepath.Join(t.TempDir(), "nowhere")
+	wrongSymlink := filepath.Join(externalDir, "review-flow")
+	if err := os.Symlink(wrongTarget, wrongSymlink); err != nil {
+		t.Fatalf("create wrong symlink: %v", err)
+	}
+
+	if err := ReconcileExternalSkillLinks([]string{externalDir}); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	linkTarget, err := os.Readlink(wrongSymlink)
+	if err != nil {
+		t.Fatalf("readlink after sync: %v", err)
+	}
+	expected := filepath.Join(lerosSkills, "review-flow")
+	if linkTarget != expected {
+		t.Fatalf("expected symlink target %s, got %s", expected, linkTarget)
+	}
+}
+
+func TestReconcileExternalSkillLinksIdempotentOnCorrectSymlink(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	externalDir := t.TempDir()
+	if err := ReconcileExternalSkillLinks([]string{externalDir}); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+
+	if err := ReconcileExternalSkillLinks([]string{externalDir}); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+
+	linkTarget, err := os.Readlink(filepath.Join(externalDir, "review-flow"))
+	if err != nil {
+		t.Fatalf("readlink after second sync: %v", err)
+	}
+	expected := filepath.Join(lerosSkills, "review-flow")
+	if linkTarget != expected {
+		t.Fatalf("expected symlink to remain %s, got %s", expected, linkTarget)
+	}
+}
+
+func TestReconcileExternalSkillLinksNoopsWithNilDirs(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	if err := ReconcileExternalSkillLinks(nil); err != nil {
+		t.Fatalf("sync with nil: %v", err)
+	}
+	if err := ReconcileExternalSkillLinks([]string{}); err != nil {
+		t.Fatalf("sync with empty: %v", err)
+	}
+}
+
+func TestReconcileExternalSkillLinksDefaultSkillPathIsLerosSkills(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	dir, err := defaultLerosSkillsDir()
+	if err != nil {
+		t.Fatalf("default workspace skills dir: %v", err)
+	}
+
+	expected := filepath.ToSlash(filepath.Join(workspaceRoot, ".leros", "skills"))
+	if dir != filepath.ToSlash(expected) {
+		t.Fatalf("expected %s, got %s", expected, dir)
+	}
+}
+
+func TestEnsureExternalSkillLinkCreatesSymlink(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	externalDir := t.TempDir()
+	if err := EnsureExternalSkillLink("review-flow", []string{externalDir}); err != nil {
+		t.Fatalf("sync skill link: %v", err)
+	}
+
+	target := filepath.Join(externalDir, "review-flow")
+	fi, err := os.Lstat(target)
+	if err != nil {
+		t.Fatalf("lstat: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlink")
+	}
+	linkTarget, err := os.Readlink(target)
+	if err != nil {
+		t.Fatalf("readlink: %v", err)
+	}
+	if linkTarget != filepath.Join(lerosSkills, "review-flow") {
+		t.Fatalf("wrong symlink target: %s", linkTarget)
+	}
+}
+
+func TestEnsureExternalSkillLinkReplacesRealDir(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	lerosSkills := filepath.Join(workspaceRoot, ".leros", "skills")
+	writeSyncTestSkill(t, filepath.Join(lerosSkills, "review-flow"), "review-flow", "test body")
+
+	externalDir := t.TempDir()
+	realDir := filepath.Join(externalDir, "review-flow")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := EnsureExternalSkillLink("review-flow", []string{externalDir}); err != nil {
+		t.Fatalf("sync skill link: %v", err)
+	}
+
+	fi, err := os.Lstat(filepath.Join(externalDir, "review-flow"))
+	if err != nil {
+		t.Fatalf("lstat: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected real dir replaced by symlink")
+	}
+	}
+
+func TestEnsureExternalSkillLinkRejectsEmptyName(t *testing.T) {
+	if err := EnsureExternalSkillLink("", []string{t.TempDir()}); err == nil {
+		t.Fatal("expected error for empty skill name")
 	}
 }
 

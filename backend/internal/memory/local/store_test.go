@@ -83,7 +83,7 @@ func TestDefaultMemoryRootUsesWorkspaceRoot(t *testing.T) {
 		t.Fatalf("default root: %v", err)
 	}
 
-	expected := filepath.Join(tempDir, "memory")
+	expected := filepath.Join(tempDir, ".leros", "memory")
 	if root != expected {
 		t.Fatalf("got %q, want %q", root, expected)
 	}

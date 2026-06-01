@@ -180,9 +180,7 @@ func TestAgentRunRealModel(t *testing.T) {
 	ctx, cancel := realModelTestContext(t)
 	defer cancel()
 
-	runtimeDeps, err := deps.New(ctx, deps.Options{
-		ToolsEnabled: false,
-	})
+	runtimeDeps, err := deps.New(ctx, deps.Options{})
 	if err != nil {
 		t.Fatalf("new runtime env: %v", err)
 	}
@@ -238,9 +236,7 @@ func TestAgentRunNodeTool(t *testing.T) {
 		t.Fatalf("register node tools: %v", err)
 	}
 
-	runtimeDeps, err := deps.New(ctx, deps.Options{
-		ToolsEnabled: true,
-	})
+	runtimeDeps, err := deps.New(ctx, deps.Options{})
 	if err != nil {
 		t.Fatalf("new runtime env: %v", err)
 	}
@@ -318,9 +314,7 @@ func TestAgentRunWeatherSkillQuery(t *testing.T) {
 		t.Fatalf("register node tools: %v", err)
 	}
 
-	runtimeDeps, err := deps.New(ctx, deps.Options{
-		ToolsEnabled: true,
-	})
+	runtimeDeps, err := deps.New(ctx, deps.Options{})
 	if err != nil {
 		t.Fatalf("new runtime env: %v", err)
 	}

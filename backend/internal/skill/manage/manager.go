@@ -7,21 +7,31 @@ import (
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
 )
 
-// Manager 执行 Skill 变更，并调度非阻塞的运行时后处理。
+// Manager 协调 SkillStore 写入和 mutation 后处理。
+//
+// 架构：
+//
+//	Manager.Create/Patch/WriteFile/RemoveFile
+//	  → SkillStore 写入 .leros/skills
+//	  → after() 构建 Mutation
+//	  → MutationHandler.Handle()
+//	    ├── ProjectionHandler（create 时维护外部 CLI symlink）
+//	    └── DebouncedHandler（500ms 防抖）
+//	         └── CatalogReloadHandler（刷新只读快照）
+//
+// Manager 自身不知道 catalog、projection、debounce 细节，只发布 mutation 事件。
 type Manager struct {
-	store *skillstore.SkillStore
-	post  *PostProcessor
+	store           *skillstore.SkillStore
+	mutationHandler MutationHandler
 }
 
-// NewManager 基于 SkillStore 创建 Manager。
-func NewManager(store *skillstore.SkillStore, post *PostProcessor) (*Manager, error) {
+func NewManager(store *skillstore.SkillStore, handler MutationHandler) (*Manager, error) {
 	if store == nil {
 		return nil, fmt.Errorf("skill store is required")
 	}
-	return &Manager{store: store, post: post}, nil
+	return &Manager{store: store, mutationHandler: handler}, nil
 }
 
-// RootDir 返回当前管理的 Skill 根目录。
 func (m *Manager) RootDir() string {
 	if m == nil || m.store == nil {
 		return ""
@@ -29,7 +39,6 @@ func (m *Manager) RootDir() string {
 	return m.store.RootDir()
 }
 
-// Create 写入新 Skill，并在成功后调度后处理。
 func (m *Manager) Create(ctx context.Context, req skillstore.CreateRequest) (*skillstore.Result, error) {
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -39,7 +48,6 @@ func (m *Manager) Create(ctx context.Context, req skillstore.CreateRequest) (*sk
 	return result, err
 }
 
-// Patch 替换 Skill 文件中的文本，并在成功后调度后处理。
 func (m *Manager) Patch(ctx context.Context, req skillstore.PatchRequest) (*skillstore.Result, error) {
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -49,7 +57,6 @@ func (m *Manager) Patch(ctx context.Context, req skillstore.PatchRequest) (*skil
 	return result, err
 }
 
-// WriteFile 写入 Skill supporting file，并在成功后调度后处理。
 func (m *Manager) WriteFile(ctx context.Context, req skillstore.WriteFileRequest) (*skillstore.Result, error) {
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -59,7 +66,6 @@ func (m *Manager) WriteFile(ctx context.Context, req skillstore.WriteFileRequest
 	return result, err
 }
 
-// RemoveFile 删除 Skill supporting file，并在成功后调度后处理。
 func (m *Manager) RemoveFile(ctx context.Context, req skillstore.RemoveFileRequest) (*skillstore.Result, error) {
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -76,9 +82,33 @@ func (m *Manager) validate() error {
 	return nil
 }
 
+// after 在 Store 操作成功后构建 Mutation 并通知 handler 链。
+// handler 可为 nil（standalone / 测试场景），此时只写 store 不做后处理。
+// handler.Handle 使用 context.Background() 异步执行，不阻塞 mutation 结果返回。
 func (m *Manager) after(result *skillstore.Result, err error) {
-	if err != nil || m == nil || m.post == nil {
+	if err != nil || m == nil || m.mutationHandler == nil || result == nil {
 		return
 	}
-	m.post.AfterMutation(result)
+	if !result.Success {
+		return
+	}
+
+	mutation := Mutation{
+		Kind:   actionToMutationKind(result.Action),
+		Name:   result.Name,
+		Action: result.Action,
+	}
+	_ = m.mutationHandler.Handle(context.Background(), mutation)
+}
+
+// actionToMutationKind 将 Store 的 action 字符串映射为 MutationKind。
+// create → MutationCreate（触发投影）
+// patch / write_file / remove_file → MutationModify（仅 catalog reload）
+func actionToMutationKind(action string) SkillMutationKind {
+	switch action {
+	case skillstore.ActionCreate:
+		return MutationCreate
+	default:
+		return MutationModify
+	}
 }

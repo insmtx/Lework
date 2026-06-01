@@ -47,9 +47,20 @@ func SyncToLerosDir(sourceDir string) error {
 	return syncSkillDir(sourceDir, resolvedUserDir)
 }
 
-// SyncFromLerosToExternal copies skills from workspace skills to external CLI skill directories.
-// This is the second step in the sync flow: workspace skills -> external CLI skill dirs.
-func SyncFromLerosToExternal(cliSkillDirs []string) error {
+// ReconcileExternalSkillLinks 全量对齐外部 CLI skill 目录与 .leros/skills。
+// 遍历 .leros/skills 下所有合法 skill 子目录，在每个外部 CLI skill 根目录下创建
+// {skillName} → .leros/skills/{skillName} 的 symlink。
+//
+// 同名目标处理规则（由 ensureSymlink 实现）：
+//   - 不存在：创建 symlink。
+//   - 正确 symlink：跳过（幂等）。
+//   - 错误 symlink：删除并重建。
+//   - 真实目录或文件：删除并替换为 symlink。
+//
+// 安全：删除前使用 Lstat，不跟随 symlink。仅删除 external/{skillName} 子路径，
+// 不删除外部根目录或 .leros/skills 源目录。
+// 适用场景：worker 启动 / bootstrap 时的全量初始化。
+func ReconcileExternalSkillLinks(cliSkillDirs []string) error {
 	userDir, err := defaultLerosSkillsDir()
 	if err != nil {
 		return err
@@ -71,6 +82,15 @@ func SyncFromLerosToExternal(cliSkillDirs []string) error {
 		return nil
 	}
 
+	skillNames, err := listSkillDirs(resolvedUserDir)
+	if err != nil {
+		if errors.Is(err, errNoSkillDirs) {
+			logs.Debugf("No skills found in %s, skipping sync to external CLI", resolvedUserDir)
+			return nil
+		}
+		return err
+	}
+
 	for _, cliDir := range cliSkillDirs {
 		resolvedCliDir, err := expandPath(cliDir)
 		if err != nil {
@@ -78,13 +98,67 @@ func SyncFromLerosToExternal(cliSkillDirs []string) error {
 			continue
 		}
 
-		logs.Infof("Syncing skills from %s to %s", resolvedUserDir, resolvedCliDir)
-		if err := syncSkillDir(resolvedUserDir, resolvedCliDir); err != nil {
-			if errors.Is(err, errNoSkillDirs) {
-				logs.Debugf("No skills found in %s to sync to %s", resolvedUserDir, resolvedCliDir)
+		logs.Infof("Syncing skills from %s to %s via symlinks", resolvedUserDir, resolvedCliDir)
+
+		if err := os.MkdirAll(resolvedCliDir, 0o755); err != nil {
+			logs.Warnf("Failed to create external CLI skill directory %s: %v", resolvedCliDir, err)
+			continue
+		}
+
+		for _, skillName := range skillNames {
+			sourcePath := filepath.Join(resolvedUserDir, skillName)
+			targetPath := filepath.Join(resolvedCliDir, skillName)
+
+			if err := ensureSymlink(sourcePath, targetPath); err != nil {
+				logs.Warnf("Failed to sync skill %s to %s: %v", skillName, targetPath, err)
 				continue
 			}
-			logs.Warnf("Failed to sync skills to %s: %v", resolvedCliDir, err)
+		}
+	}
+
+	return nil
+}
+
+// EnsureExternalSkillLink 为单个 skill 在所有外部 CLI 目录下创建或替换 symlink。
+// 与 ReconcileExternalSkillLinks 不同，本函数只处理一个 skill，用于 create 后增量维护。
+// 限定条件：skillName 不能包含路径分隔符、不能是绝对路径、不能是 ".."。
+// 若 .leros/skills/{skillName} 不存在，返回错误。
+func EnsureExternalSkillLink(skillName string, cliSkillDirs []string) error {
+	if strings.TrimSpace(skillName) == "" {
+		return fmt.Errorf("skill name is required")
+	}
+	if strings.ContainsAny(skillName, "/\\") || filepath.IsAbs(skillName) || skillName == ".." {
+		return fmt.Errorf("invalid skill name %q: must not contain path separators or be absolute", skillName)
+	}
+
+	userDir, err := defaultLerosSkillsDir()
+	if err != nil {
+		return err
+	}
+	resolvedUserDir, err := expandPath(userDir)
+	if err != nil {
+		return err
+	}
+
+	sourcePath := filepath.Join(resolvedUserDir, skillName)
+	if _, err := os.Stat(sourcePath); err != nil {
+		return fmt.Errorf("source skill %s does not exist in .leros/skills: %w", skillName, err)
+	}
+
+	for _, cliDir := range cliSkillDirs {
+		resolvedCliDir, err := expandPath(cliDir)
+		if err != nil {
+			logs.Warnf("Failed to resolve CLI skill directory %s: %v", cliDir, err)
+			continue
+		}
+		if err := os.MkdirAll(resolvedCliDir, 0o755); err != nil {
+			logs.Warnf("Failed to create external CLI skill directory %s: %v", resolvedCliDir, err)
+			continue
+		}
+		targetPath := filepath.Join(resolvedCliDir, skillName)
+		if err := ensureSymlink(sourcePath, targetPath); err != nil {
+			logs.Warnf("Failed to sync skill %s to %s: %v", skillName, targetPath, err)
+			continue
 		}
 	}
 
@@ -139,6 +213,29 @@ func findParentDirCandidates(startDir string, relativePath string) []string {
 
 func defaultLerosSkillsDir() (string, error) {
 	return leros.SkillsDir()
+}
+
+// ensureSymlink ensures target is a symlink pointing to source.
+func ensureSymlink(sourcePath string, targetPath string) error {
+	fi, err := os.Lstat(targetPath)
+	if err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			existingTarget, readErr := os.Readlink(targetPath)
+			if readErr == nil && existingTarget == sourcePath {
+				return nil
+			}
+		}
+		if removeErr := os.RemoveAll(targetPath); removeErr != nil {
+			return fmt.Errorf("remove existing %s: %w", targetPath, removeErr)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("lstat %s: %w", targetPath, err)
+	}
+
+	if err := os.Symlink(sourcePath, targetPath); err != nil {
+		return fmt.Errorf("symlink %s -> %s: %w", targetPath, sourcePath, err)
+	}
+	return nil
 }
 
 func syncSkillDir(sourceDir string, targetDir string) error {

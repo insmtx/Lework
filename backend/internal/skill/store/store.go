@@ -21,6 +21,11 @@ const (
 	maxDescriptionLength   = 1024
 	maxSkillContentChars   = 100_000
 	maxSupportingFileBytes = 1_048_576
+
+	ActionCreate     = "create"
+	ActionPatch      = "patch"
+	ActionWriteFile  = "write_file"
+	ActionRemoveFile = "remove_file"
 )
 
 var (
@@ -126,7 +131,7 @@ func (s *SkillStore) Create(ctx context.Context, req CreateRequest) (*Result, er
 	}
 
 	if existing, err := s.Find(ctx, name); err == nil && existing != nil {
-		return failure("create", name, fmt.Sprintf("skill %q already exists at %s", name, existing.Path)), nil
+		return failure(ActionCreate, name, fmt.Sprintf("skill %q already exists at %s", name, existing.Path)), nil
 	}
 
 	skillDir := filepath.Join(s.rootDir, name)
@@ -141,7 +146,7 @@ func (s *SkillStore) Create(ctx context.Context, req CreateRequest) (*Result, er
 
 	result := &Result{
 		Success: true,
-		Action:  "create",
+		Action:  ActionCreate,
 		Name:    name,
 		Message: fmt.Sprintf("Skill %q created.", name),
 		Path:    skillDir,
@@ -171,7 +176,7 @@ func (s *SkillStore) Patch(ctx context.Context, req PatchRequest) (*Result, erro
 
 	skill, err := s.Find(ctx, name)
 	if err != nil {
-		return failure("patch", name, err.Error()), nil
+		return failure(ActionPatch, name, err.Error()), nil
 	}
 
 	targetPath := filepath.Join(skill.Path, skillFileName)
@@ -187,21 +192,21 @@ func (s *SkillStore) Patch(ctx context.Context, req PatchRequest) (*Result, erro
 
 	contentBytes, err := os.ReadFile(targetPath)
 	if err != nil {
-		return failure("patch", name, fmt.Sprintf("read target file: %v", err)), nil
+		return failure(ActionPatch, name, fmt.Sprintf("read target file: %v", err)), nil
 	}
 	content := string(contentBytes)
 	count := strings.Count(content, req.OldText)
 	if count == 0 {
-		return failure("patch", name, "old_text was not found"), nil
+		return failure(ActionPatch, name, "old_text was not found"), nil
 	}
 	if count > 1 && !req.ReplaceAll {
-		return failure("patch", name, "old_text matched multiple locations; pass replace_all=true or provide a more unique old_text"), nil
+		return failure(ActionPatch, name, "old_text matched multiple locations; pass replace_all=true or provide a more unique old_text"), nil
 	}
 
 	newContent := strings.Replace(content, req.OldText, req.NewText, replacementCount(req.ReplaceAll))
 	if strings.TrimSpace(req.FilePath) == "" {
 		if err := validateSkillDocument(newContent); err != nil {
-			return failure("patch", name, fmt.Sprintf("patch would break SKILL.md: %v", err)), nil
+			return failure(ActionPatch, name, fmt.Sprintf("patch would break SKILL.md: %v", err)), nil
 		}
 	} else {
 		if err := validateSupportingFileContent(req.FilePath, newContent); err != nil {
@@ -215,7 +220,7 @@ func (s *SkillStore) Patch(ctx context.Context, req PatchRequest) (*Result, erro
 
 	result := &Result{
 		Success: true,
-		Action:  "patch",
+		Action:  ActionPatch,
 		Name:    name,
 		Message: fmt.Sprintf("Patched skill %q with %d replacement(s).", name, count),
 		Path:    targetPath,
@@ -245,7 +250,7 @@ func (s *SkillStore) WriteFile(ctx context.Context, req WriteFileRequest) (*Resu
 
 	skill, err := s.Find(ctx, name)
 	if err != nil {
-		return failure("write_file", name, err.Error()), nil
+		return failure(ActionWriteFile, name, err.Error()), nil
 	}
 	targetPath, err := resolveInside(skill.Path, req.FilePath)
 	if err != nil {
@@ -257,7 +262,7 @@ func (s *SkillStore) WriteFile(ctx context.Context, req WriteFileRequest) (*Resu
 
 	result := &Result{
 		Success: true,
-		Action:  "write_file",
+		Action:  ActionWriteFile,
 		Name:    name,
 		Message: fmt.Sprintf("File %q written to skill %q.", req.FilePath, name),
 		Path:    targetPath,
@@ -284,7 +289,7 @@ func (s *SkillStore) RemoveFile(ctx context.Context, req RemoveFileRequest) (*Re
 
 	skill, err := s.Find(ctx, name)
 	if err != nil {
-		return failure("remove_file", name, err.Error()), nil
+		return failure(ActionRemoveFile, name, err.Error()), nil
 	}
 	targetPath, err := resolveInside(skill.Path, req.FilePath)
 	if err != nil {
@@ -292,7 +297,7 @@ func (s *SkillStore) RemoveFile(ctx context.Context, req RemoveFileRequest) (*Re
 	}
 	if err := os.Remove(targetPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return failure("remove_file", name, fmt.Sprintf("file %q not found", req.FilePath)), nil
+			return failure(ActionRemoveFile, name, fmt.Sprintf("file %q not found", req.FilePath)), nil
 		}
 		return nil, fmt.Errorf("remove skill file: %w", err)
 	}
@@ -300,7 +305,7 @@ func (s *SkillStore) RemoveFile(ctx context.Context, req RemoveFileRequest) (*Re
 
 	result := &Result{
 		Success: true,
-		Action:  "remove_file",
+		Action:  ActionRemoveFile,
 		Name:    name,
 		Message: fmt.Sprintf("File %q removed from skill %q.", req.FilePath, name),
 		Path:    targetPath,

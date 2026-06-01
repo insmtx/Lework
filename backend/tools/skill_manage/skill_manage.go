@@ -12,13 +12,12 @@ import (
 )
 
 const (
-	// ToolNameSkillManage is the stable runtime tool name for skill management.
 	ToolNameSkillManage = "skill_manage"
 
-	actionCreate     = "create"
-	actionPatch      = "patch"
-	actionWriteFile  = "write_file"
-	actionRemoveFile = "remove_file"
+	actionCreate     = skillstore.ActionCreate
+	actionPatch      = skillstore.ActionPatch
+	actionWriteFile  = skillstore.ActionWriteFile
+	actionRemoveFile = skillstore.ActionRemoveFile
 )
 
 const skillManageDescription = `管理技能（创建和更新）。技能是你的流程性记忆，用于保存 recurring task 的可复用做法。
@@ -45,10 +44,12 @@ func NewTool() *Tool {
 }
 
 // NewToolWithStore creates skill_manage with an explicit store.
+// No post-processing (catalog reload or projection) is attached.
+// For production use, prefer registering via deps.Container which wires the full handler chain.
 func NewToolWithStore(store *skillstore.SkillStore) *Tool {
 	var manager *skillmanageinternal.Manager
 	if store != nil {
-		manager, _ = skillmanageinternal.NewManager(store, skillmanageinternal.NewPostProcessor(store.RootDir(), nil))
+		manager, _ = skillmanageinternal.NewManager(store, nil)
 	}
 	return NewToolWithManager(manager)
 }

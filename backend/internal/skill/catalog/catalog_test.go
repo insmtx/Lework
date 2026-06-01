@@ -169,7 +169,7 @@ func TestDefaultLerosSkillsDirUsesWorkspaceRoot(t *testing.T) {
 		t.Fatalf("default workspace skills dir: %v", err)
 	}
 
-	expected := filepath.ToSlash(filepath.Join(workspaceRoot, "skills"))
+	expected := filepath.ToSlash(filepath.Join(workspaceRoot, ".leros", "skills"))
 	if dir != expected {
 		t.Fatalf("expected %s, got %s", expected, dir)
 	}
@@ -184,11 +184,11 @@ func TestLoadDefaultCatalogCreatesMissingSkillsDir(t *testing.T) {
 		t.Fatalf("load default catalog: %v", err)
 	}
 
-	expected := filepath.ToSlash(filepath.Join(workspaceRoot, "skills"))
+	expected := filepath.ToSlash(filepath.Join(workspaceRoot, ".leros", "skills"))
 	if rootDir != expected {
 		t.Fatalf("expected root dir %s, got %s", expected, rootDir)
 	}
-	if _, err := os.Stat(filepath.Join(workspaceRoot, "skills")); err != nil {
+	if _, err := os.Stat(filepath.Join(workspaceRoot, ".leros", "skills")); err != nil {
 		t.Fatalf("expected skills dir to be created: %v", err)
 	}
 	if summaries := catalog.List(); len(summaries) != 0 {

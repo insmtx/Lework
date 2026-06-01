@@ -133,19 +133,11 @@ func runTaskWorker(defaultRuntime string) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	runtimeService, err := agentruntime.NewService(ctx, agentruntime.Options{
-		CLIConfig:      cfg.CLI,
-		ToolsEnabled:   true,
-		DefaultRuntime: defaultRuntime,
-	})
-	if err != nil {
-		cancel()
-		_ = bus.Close()
-		logs.Fatalf("Failed to create agent runtime service: %v", err)
-		return
-	}
 
-	// Bootstrap external CLI engines: sync skills and register MCP
+	var cliSkillDirs []string
+
+	// Bootstrap external CLI engines before runtime initialization:
+	// sync built-in skills to .leros/skills so the runtime catalog loads non-empty.
 	if cfg.CLI != nil {
 		var mcpCfg engines.MCPServerConfig
 		if cfg.CLI.MCP != nil {
@@ -154,13 +146,10 @@ func runTaskWorker(defaultRuntime string) {
 				BearerToken: cfg.CLI.MCP.BearerToken,
 			}
 		}
-		// Construct MCP URL from worker listen address if not explicitly configured
 		if mcpCfg.URL == "" && workerListenAddr != "" {
-			// Use the worker's MCP server address
 			mcpCfg.URL = buildWorkerMCPURL(workerListenAddr)
 		}
 
-		// 使用新的分层架构 BootstrapService
 		bootstrapSvc := builtin.NewBootstrapService()
 		_, err := bootstrapSvc.Bootstrap(ctx, cfg.CLI, builtin.BootstrapOptions{
 			MCP: mcpCfg,
@@ -168,6 +157,19 @@ func runTaskWorker(defaultRuntime string) {
 		if err != nil {
 			logs.Warnf("Bootstrap CLI engines failed: %v", err)
 		}
+		cliSkillDirs = bootstrapSvc.GetSkillDirs()
+	}
+
+	runtimeService, err := agentruntime.NewService(ctx, agentruntime.Options{
+		CLIConfig:      cfg.CLI,
+		DefaultRuntime: defaultRuntime,
+		CLISkillDirs:   cliSkillDirs,
+	})
+	if err != nil {
+		cancel()
+		_ = bus.Close()
+		logs.Fatalf("Failed to create agent runtime service: %v", err)
+		return
 	}
 
 	consumer, err := taskconsumer.New(taskconsumer.Config{

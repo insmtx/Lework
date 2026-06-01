@@ -40,6 +40,14 @@ func NewBootstrapService() *BootstrapService {
 	}
 }
 
+// GetSkillDirs 返回所有已发现 CLI 的 skill 目录。
+func (s *BootstrapService) GetSkillDirs() []string {
+	if s == nil || s.cliDiscovery == nil {
+		return nil
+	}
+	return s.cliDiscovery.GetSkillDirs()
+}
+
 // Bootstrap 执行完整的外部 CLI 启动流程。
 // 执行顺序: 发现 CLI → 同步 Skill → 注册 MCP
 func (s *BootstrapService) Bootstrap(ctx context.Context, cfg *config.CLIEnginesConfig, opts BootstrapOptions) (*config.CLIEnginesConfig, error) {
@@ -212,7 +220,7 @@ func (s *SkillSyncService) SyncBuiltinToLeros(sourceDir string) error {
 
 // SyncToExternal 将 workspace skills 同步到外部 CLI 目录。
 func (s *SkillSyncService) SyncToExternal(dirs []string) error {
-	return engines.SyncFromLerosToExternal(dirs)
+	return engines.ReconcileExternalSkillLinks(dirs)
 }
 
 // ============================================================

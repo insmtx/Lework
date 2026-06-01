@@ -155,7 +155,7 @@ func TestDefaultSkillRootUsesWorkspaceRoot(t *testing.T) {
 		t.Fatalf("default root: %v", err)
 	}
 
-	expected := filepath.Join(workspaceRoot, "skills")
+	expected := filepath.Join(workspaceRoot, ".leros", "skills")
 	if root != expected {
 		t.Fatalf("expected %s, got %s", expected, root)
 	}

@@ -20,8 +20,8 @@ import (
 type Options struct {
 	LLMConfig      *config.LLMConfig
 	CLIConfig      *config.CLIEnginesConfig
-	ToolsEnabled   bool
 	DefaultRuntime string
+	CLISkillDirs   []string
 }
 
 type Service struct {
@@ -31,7 +31,7 @@ type Service struct {
 
 func NewService(ctx context.Context, opts Options) (*Service, error) {
 	env, err := deps.New(ctx, deps.Options{
-		ToolsEnabled: opts.ToolsEnabled,
+		CLISkillDirs: opts.CLISkillDirs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create runtime dependencies: %w", err)
