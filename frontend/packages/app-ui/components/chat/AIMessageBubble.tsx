@@ -11,7 +11,18 @@ import { artifactApi } from "@leros/store/api/artifactApi";
 import type { Message, MessageArtifact } from "@leros/store/types/chat";
 import { Avatar, AvatarFallback } from "@leros/ui/components/ui/avatar";
 import { Button } from "@leros/ui/components/ui/button";
-import { Check, Copy, FileImage, FileText, LoaderCircle, RefreshCw, Table2 } from "lucide-react";
+import {
+	Brain,
+	Check,
+	ChevronDown,
+	ChevronRight,
+	Copy,
+	FileImage,
+	FileText,
+	LoaderCircle,
+	RefreshCw,
+	Table2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -48,6 +59,7 @@ export function AIMessageBubble({
 	const { resendMessage } = useChatStore((s) => s);
 	const content = message.content;
 	const hasContent = content.trim().length > 0;
+	const hasThinking = (message.thinking ?? "").trim().length > 0;
 	const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
 	const hasTodos = message.todos && message.todos.length > 0;
 	const hasArtifacts = message.artifacts && message.artifacts.length > 0;
@@ -64,15 +76,28 @@ export function AIMessageBubble({
 					{isStreaming && <span className="text-xs text-blue-500 animate-pulse">生成中</span>}
 				</div>
 
+				{hasThinking && (
+					<div className="mb-3">
+						<ThinkingBlock thinking={message.thinking ?? ""} isStreaming={isStreaming} />
+					</div>
+				)}
+
 				{hasToolCalls && message.toolCalls && (
 					<div className="mb-3">
 						<ToolCallBlock toolCalls={message.toolCalls} />
 					</div>
 				)}
 
-				{hasTodos && message.todos && (
+				{hasContent && (
 					<div className="mb-3">
-						<TodoListBlock todos={message.todos} />
+						<div className="w-fit max-w-[min(780px,92%)] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-7 text-slate-800 shadow-md ring-1 ring-slate-200/70">
+							<div className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5">
+								<Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+							</div>
+							{isStreaming && (
+								<span className="inline-block w-1.5 h-4 bg-slate-400 animate-pulse ml-0.5 rounded-sm" />
+							)}
+						</div>
 					</div>
 				)}
 
@@ -82,26 +107,26 @@ export function AIMessageBubble({
 					</div>
 				)}
 
-				{hasContent && (
-					<div className="w-fit max-w-[min(780px,92%)] rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 text-sm leading-7 text-slate-700 shadow-sm ring-1 ring-slate-200/50">
-						<div className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5">
-							<Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
-						</div>
-						{isStreaming && (
-							<span className="inline-block w-1.5 h-4 bg-slate-400 animate-pulse ml-0.5 rounded-sm" />
-						)}
+				{hasTodos && message.todos && (
+					<div className="mb-3">
+						<TodoListBlock todos={message.todos} />
 					</div>
 				)}
 
-				{!hasContent && !hasToolCalls && !hasTodos && !hasArtifacts && isStreaming && (
-					<div className="w-fit rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 shadow-sm ring-1 ring-slate-200/50">
-						<div className="flex items-center gap-1">
-							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse" />
-							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:200ms]" />
-							<span className="size-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:400ms]" />
+				{!hasContent &&
+					!hasThinking &&
+					!hasToolCalls &&
+					!hasTodos &&
+					!hasArtifacts &&
+					isStreaming && (
+						<div className="w-fit rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 shadow-sm ring-1 ring-slate-200/50">
+							<div className="flex items-center gap-1">
+								<span className="size-1.5 rounded-full bg-slate-400 animate-pulse" />
+								<span className="size-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:200ms]" />
+								<span className="size-1.5 rounded-full bg-slate-400 animate-pulse [animation-delay:400ms]" />
+							</div>
 						</div>
-					</div>
-				)}
+					)}
 
 				{!isStreaming && (
 					<div className="mt-2 flex items-center gap-3">
@@ -130,6 +155,59 @@ export function AIMessageBubble({
 			</div>
 		</div>
 	);
+}
+
+function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming: boolean }) {
+	const [expanded, setExpanded] = useState(false);
+	const trimmedThinking = thinking.trim();
+	const preview = compactText(trimmedThinking);
+
+	if (!trimmedThinking) return null;
+
+	return (
+		<div
+			data-slot="thinking-block"
+			className="max-w-[min(780px,92%)] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-sm"
+		>
+			<button
+				type="button"
+				onClick={() => setExpanded(!expanded)}
+				className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50/90"
+			>
+				<div className="flex min-w-0 items-center gap-2">
+					{expanded ? (
+						<ChevronDown className="size-3.5 shrink-0 text-slate-400" />
+					) : (
+						<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
+					)}
+					<Brain className="size-3.5 shrink-0 text-blue-500" />
+					<span className="truncate font-medium text-slate-600">
+						{isStreaming ? "正在思考" : "思考过程"}
+					</span>
+					{isStreaming && (
+						<span className="relative flex size-2 shrink-0">
+							<span className="absolute inline-flex size-full rounded-full bg-blue-400 opacity-75 animate-ping" />
+							<span className="relative inline-flex size-2 rounded-full bg-blue-500" />
+						</span>
+					)}
+				</div>
+				{!expanded && (
+					<span className="max-w-[54%] truncate text-xs text-slate-500">{preview}</span>
+				)}
+			</button>
+			{expanded && (
+				<div className="border-t border-slate-200 px-3 py-2">
+					<div className="max-h-48 overflow-y-auto whitespace-pre-wrap border-l-2 border-blue-100 pl-3 text-xs leading-6 text-slate-500">
+						{trimmedThinking}
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function compactText(value: string): string {
+	return value.replace(/\s+/g, " ").trim();
 }
 
 function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {

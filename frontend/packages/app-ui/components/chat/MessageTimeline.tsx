@@ -31,7 +31,7 @@ export function MessageTimeline({
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const prevMessageCountRef = useRef(0);
-	const prevStreamContentRef = useRef("");
+	const prevStreamSignatureRef = useRef("");
 
 	const messages = messageIds
 		.map((id) => messagesMap[id])
@@ -47,10 +47,19 @@ export function MessageTimeline({
 		prevMessageCountRef.current = messages.length;
 
 		const streamingMsg = streamingMessageId ? messagesMap[streamingMessageId] : null;
-		const contentChanged = streamingMsg && streamingMsg.content !== prevStreamContentRef.current;
-		prevStreamContentRef.current = streamingMsg?.content ?? "";
+		const streamSignature = streamingMsg
+			? [
+					streamingMsg.content,
+					streamingMsg.thinking,
+					streamingMsg.toolCalls?.map((toolCall) => `${toolCall.id}:${toolCall.status}`).join("|"),
+					streamingMsg.todos?.map((todo) => `${todo.id}:${todo.status}`).join("|"),
+					streamingMsg.artifacts?.map((artifact) => artifact.id).join("|"),
+				].join("\n")
+			: "";
+		const streamChanged = streamSignature !== prevStreamSignatureRef.current;
+		prevStreamSignatureRef.current = streamSignature;
 
-		if (nearBottom || messageCountIncreased || contentChanged) {
+		if (nearBottom || messageCountIncreased || streamChanged) {
 			container.scrollTop = container.scrollHeight;
 		}
 	}, [messages.length, streamingMessageId, messagesMap]);

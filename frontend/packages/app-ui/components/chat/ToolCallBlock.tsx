@@ -14,19 +14,22 @@ export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
 	const runningCount = toolCalls.filter((tc) => tc.status === "running").length;
 
 	return (
-		<div data-slot="tool-call-block" className="rounded-lg border border-slate-200 bg-slate-50">
+		<div
+			data-slot="tool-call-block"
+			className="max-w-[min(780px,92%)] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-sm"
+		>
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
-				className="flex w-full items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-slate-100 transition-colors"
+				className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-sm transition-colors hover:bg-slate-50/90"
 			>
 				<div className="flex items-center gap-2">
 					{expanded ? (
-						<ChevronDown className="size-3.5 text-slate-500" />
+						<ChevronDown className="size-3.5 text-slate-400" />
 					) : (
-						<ChevronRight className="size-3.5 text-slate-500" />
+						<ChevronRight className="size-3.5 text-slate-400" />
 					)}
-					<span className="text-slate-600 font-medium">工具调用 ({totalCalls})</span>
+					<span className="font-medium text-slate-600">工具调用 ({totalCalls})</span>
 					{runningCount > 0 && (
 						<span className="relative flex size-2">
 							<span className="absolute inline-flex size-full rounded-full bg-yellow-400 opacity-75 animate-ping" />
@@ -43,7 +46,7 @@ export function ToolCallBlock({ toolCalls }: { toolCalls: ToolCall[] }) {
 			</button>
 
 			{expanded && (
-				<div className="border-t border-slate-200 px-3 py-2 space-y-2">
+				<div className="space-y-2 border-t border-slate-200 px-3 py-2">
 					{toolCalls.map((tc) => (
 						<ToolCallItem key={tc.id} toolCall={tc} />
 					))}

@@ -187,9 +187,12 @@ function getEventContent(
 	);
 }
 
-function getRunResultMessage(result: unknown): string | undefined {
-	if (!result || typeof result !== "object") return undefined;
-	const value = result as { message?: unknown };
+function getRunResultMessage(payload: BackendSessionEventPayload): string | undefined {
+	if (typeof payload.message === "string" && payload.message.trim()) {
+		return payload.message;
+	}
+	if (!payload.result || typeof payload.result !== "object") return undefined;
+	const value = payload.result as { message?: unknown };
 	return typeof value.message === "string" ? value.message : undefined;
 }
 
@@ -395,7 +398,7 @@ function applySessionEventToMessage(
 			return { ...message, toolCalls: upsertToolCall(message.toolCalls, toolCall) };
 		}
 		case "run.completed": {
-			const resultMessage = getRunResultMessage(payload.result);
+			const resultMessage = getRunResultMessage(payload);
 			const metadata = metadataFromPayload(payload);
 			const artifacts = payload.artifacts
 				?.map(mapArtifactPayload)
