@@ -1,0 +1,14 @@
+{
+  "page_size": "A4",
+  "margin_left_mm": 28,
+  "margin_right_mm": 28,
+  "margin_top_mm": 37,
+  "margin_bottom_mm": 22,
+  "red_head_color": "#E60000",
+  "body_font": "FandolFang-Regular.otf",
+  "title_font": "FandolHei-Regular.otf",
+  "body_font_size": 16,
+  "title_font_size": 20,
+  "line_spacing": 30,
+  "engine": "html-chrome-first"
+}
