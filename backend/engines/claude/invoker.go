@@ -35,6 +35,10 @@ type streamEvent struct {
 	Result    string         `json:"result,omitempty"`
 	IsError   bool           `json:"is_error,omitempty"`
 	Usage     *streamUsage   `json:"usage,omitempty"`
+	// control_request fields
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     map[string]any `json:"input,omitempty"`
 }
 
 type streamMessage struct {
@@ -63,7 +67,7 @@ type streamUsage struct {
 }
 
 // Run starts the CLI process and converts stdout/stderr into engine events.
-func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Process, <-chan events.Event, error) {
+func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
 	args := buildArgs(req)
 
 	execCtx := ctx
@@ -75,33 +79,66 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Pr
 	cmd := exec.CommandContext(execCtx, inv.binary, args...)
 	cmd.Dir = req.WorkDir
 	cmd.Env = engines.BuildRunEnv(inv.baseEnv, req.ExtraEnv, claudeModelEnv(req.Model))
+
+	// Create stdin pipe for bidirectional communication
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("create claude stdin pipe: %w", err)
+	}
+
+	// Write initial prompt if present
 	if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
-		cmd.Stdin = strings.NewReader(prompt)
+		if _, err := fmt.Fprintln(stdinPipe, prompt); err != nil {
+			stdinPipe.Close()
+			cancel()
+			return nil, fmt.Errorf("write initial prompt to claude stdin: %w", err)
+		}
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		stdinPipe.Close()
 		cancel()
-		return nil, nil, fmt.Errorf("open claude stdout: %w", err)
+		return nil, fmt.Errorf("open claude stdout: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		stdinPipe.Close()
 		cancel()
-		return nil, nil, fmt.Errorf("open claude stderr: %w", err)
+		return nil, fmt.Errorf("open claude stderr: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		stdinPipe.Close()
 		cancel()
-		return nil, nil, fmt.Errorf("start claude: %w", err)
+		return nil, fmt.Errorf("start claude: %w", err)
 	}
 
-	evtChan := make(chan events.Event, 16)
+	evtChan := make(chan events.Event, 32)
 	proc := engines.NewCmdProcess(cmd)
 	evtChan <- events.Event{Type: events.EventStarted}
+
+	// decisionCh carries approval decisions to the stdin writer goroutine
+	decisionCh := make(chan string, 8)
 
 	go func() {
 		defer close(evtChan)
 		defer cancel()
+		defer close(decisionCh)
+		defer stdinPipe.Close()
+
+		// Stdin writer goroutine: writes approval decisions as they arrive
+		var stdinWriteMu sync.Mutex
+		go func() {
+			for decision := range decisionCh {
+				stdinWriteMu.Lock()
+				if _, err := fmt.Fprintln(stdinPipe, decision); err != nil {
+					logs.WarnContextf(ctx, "write decision to claude stdin: %v", err)
+				}
+				stdinWriteMu.Unlock()
+			}
+		}()
 
 		parseState := &claudeStreamState{}
 		var stderrText string
@@ -137,7 +174,29 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Pr
 		evtChan <- events.Event{Type: events.EventCompleted}
 	}()
 
-	return proc, evtChan, nil
+	return &engines.RunHandle{
+		Process:     proc,
+		Events:      evtChan,
+		StdinWriter: &decisionWriter{ch: decisionCh},
+	}, nil
+}
+
+// decisionWriter adapts io.Writer to the decisionCh channel.
+type decisionWriter struct {
+	ch chan<- string
+}
+
+func (w *decisionWriter) Write(p []byte) (int, error) {
+	line := strings.TrimSpace(string(p))
+	if line == "" {
+		return len(p), nil
+	}
+	select {
+	case w.ch <- line:
+		return len(p), nil
+	default:
+		return 0, fmt.Errorf("decision channel full, dropping: %s", line)
+	}
 }
 
 func claudeModelEnv(model engines.ModelConfig) map[string]string {
@@ -263,8 +322,73 @@ func parseClaudeLineEvents(line string, state *claudeStreamState) []events.Event
 			return nil
 		}
 		return []events.Event{*events.NewMessageResult(event.Result, usagePayloadFromClaudeUsage(event.Usage))}
+	case "control_request":
+		if event.ToolUseID == "" || event.Name == "" {
+			return nil
+		}
+		desc := fmt.Sprintf("%s: %s", event.Name, summarizeInput(event.Input))
+		payload := events.ApprovalRequestPayload{
+			RequestID:   event.ToolUseID,
+			Engine:      "claude",
+			ActionType:  "tool_use",
+			Description: desc,
+			ToolCallID:  event.ToolUseID,
+			ToolName:    event.Name,
+			Arguments:   event.Input,
+		}
+		return []events.Event{*events.NewApprovalRequested(payload)}
 	}
 	return nil
+}
+
+// summarizeInput creates a human-readable summary of tool input for the approval prompt.
+func summarizeInput(input map[string]any) string {
+	if len(input) == 0 {
+		return ""
+	}
+	// Try common keys used by Claude Code tools
+	for _, key := range []string{"command", "file_path", "path", "content", "url"} {
+		if v, ok := input[key]; ok {
+			s := fmt.Sprintf("%v", v)
+			if len(s) > 120 {
+				s = s[:120] + "..."
+			}
+			return s
+		}
+	}
+	return ""
+}
+
+func buildArgs(req engines.RunRequest) []string {
+	args := []string{
+		"--verbose",
+		"--output-format", "stream-json",
+		"--disallowedTools", "AskUserQuestion",
+	}
+
+	// Permission mode determines whether to bypass approvals
+	switch req.PermissionMode {
+	case engines.PermissionModeBypass, "":
+		args = append(args, "--dangerously-skip-permissions", "--permission-mode", "bypassPermissions")
+	case engines.PermissionModeOnRequest, engines.PermissionModeAuto:
+		// on-request and auto both use default mode; auto is handled by ApprovalHandler
+		args = append(args, "--permission-mode", "default")
+	}
+
+	if req.Model.Model != "" {
+		args = append(args, "--model", req.Model.Model)
+	}
+	if systemPrompt := strings.TrimSpace(req.SystemPrompt); systemPrompt != "" {
+		args = append(args, "--append-system-prompt", systemPrompt)
+	}
+	if req.SessionID != "" {
+		if req.Resume {
+			args = append(args, "--resume", req.SessionID)
+		} else {
+			args = append(args, "--session-id", req.SessionID)
+		}
+	}
+	return append(args, "--print")
 }
 
 func usagePayloadFromClaudeUsage(usage *streamUsage) *events.UsagePayload {
@@ -569,30 +693,6 @@ func sendEvent(ctx context.Context, evtChan chan<- events.Event, event events.Ev
 	case evtChan <- event:
 		return true
 	}
-}
-
-func buildArgs(req engines.RunRequest) []string {
-	args := []string{
-		"--dangerously-skip-permissions",
-		"--permission-mode", "bypassPermissions",
-		"--disallowedTools", "AskUserQuestion",
-		"--verbose",
-		"--output-format", "stream-json",
-	}
-	if req.Model.Model != "" {
-		args = append(args, "--model", req.Model.Model)
-	}
-	if systemPrompt := strings.TrimSpace(req.SystemPrompt); systemPrompt != "" {
-		args = append(args, "--append-system-prompt", systemPrompt)
-	}
-	if req.SessionID != "" {
-		if req.Resume {
-			args = append(args, "--resume", req.SessionID)
-		} else {
-			args = append(args, "--session-id", req.SessionID)
-		}
-	}
-	return append(args, "--print")
 }
 
 func claudeFailureContent(err error, state *claudeStreamState, stderrText string) string {

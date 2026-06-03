@@ -112,7 +112,8 @@ type CapabilityContext struct {
 
 // PolicyContext carries policy knobs for one run.
 type PolicyContext struct {
-	RequireApproval bool `json:"require_approval,omitempty"`
+	RequireApproval bool   `json:"require_approval,omitempty"`
+	PermissionMode  string `json:"permission_mode,omitempty"` // "bypass" | "on-request" | "auto"; empty defaults to bypass
 }
 
 // BuildUserInput joins the user-side messages from the request into a formatted text.

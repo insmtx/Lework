@@ -17,7 +17,7 @@ import (
 // Invoker starts an external CLI process.
 type Invoker struct {
 	binary  string
-	baseEnv []string // 鍩虹鐜鍙橀噺
+	baseEnv []string
 }
 
 // NewInvoker creates a CLI invoker.
@@ -32,6 +32,19 @@ type codexEvent struct {
 	Type     string     `json:"type"`
 	ThreadID string     `json:"thread_id,omitempty"`
 	Item     *codexItem `json:"item,omitempty"`
+	// JSON-RPC 2.0 fields for approval requests
+	JSONRPC string          `json:"jsonrpc,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type codexApprovalParams struct {
+	RequestID  string `json:"request_id"`
+	Type       string `json:"type"`
+	Command    string `json:"command,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type codexItem struct {
@@ -53,7 +66,7 @@ type codexTodoItem struct {
 }
 
 // Run starts the CLI process and converts stdout into engine events.
-func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Process, <-chan events.Event, error) {
+func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
 	threadID, resume := resolveThread(req.SessionID, req.Resume)
 	args := buildArgs(threadID, resume, req)
 
@@ -66,33 +79,63 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Pr
 	cmd := exec.CommandContext(execCtx, inv.binary, args...)
 	cmd.Dir = req.WorkDir
 	cmd.Env = engines.BuildRunEnv(inv.baseEnv, req.ExtraEnv, codexModelEnv(req.Model))
-	if req.Prompt != "" {
-		cmd.Stdin = strings.NewReader(req.Prompt)
+
+	// Create stdin pipe for bidirectional communication
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("create codex stdin pipe: %w", err)
+	}
+
+	// Write initial prompt if present (Codex reads prompt from stdin in exec mode)
+	if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
+		if _, err := fmt.Fprintln(stdinPipe, prompt); err != nil {
+			stdinPipe.Close()
+			cancel()
+			return nil, fmt.Errorf("write initial prompt to codex stdin: %w", err)
+		}
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		stdinPipe.Close()
 		cancel()
-		return nil, nil, fmt.Errorf("open codex stdout: %w", err)
+		return nil, fmt.Errorf("open codex stdout: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		stdinPipe.Close()
 		cancel()
-		return nil, nil, fmt.Errorf("open codex stderr: %w", err)
+		return nil, fmt.Errorf("open codex stderr: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		stdinPipe.Close()
 		cancel()
-		return nil, nil, fmt.Errorf("start codex: %w", err)
+		return nil, fmt.Errorf("start codex: %w", err)
 	}
 
-	evtChan := make(chan events.Event, 16)
+	evtChan := make(chan events.Event, 32)
 	proc := engines.NewCmdProcess(cmd)
 	evtChan <- events.Event{Type: events.EventStarted}
+
+	// decisionCh carries approval decisions to the stdin writer goroutine
+	decisionCh := make(chan string, 8)
 
 	go func() {
 		defer close(evtChan)
 		defer cancel()
+		defer close(decisionCh)
+		defer stdinPipe.Close()
+
+		// Stdin writer goroutine: writes approval decisions as they arrive
+		go func() {
+			for decision := range decisionCh {
+				if _, err := fmt.Fprintln(stdinPipe, decision); err != nil {
+					logs.WarnContextf(ctx, "write decision to codex stdin: %v", err)
+				}
+			}
+		}()
 
 		var wg sync.WaitGroup
 		wg.Add(2)
@@ -114,7 +157,29 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Pr
 		evtChan <- events.Event{Type: events.EventCompleted}
 	}()
 
-	return proc, evtChan, nil
+	return &engines.RunHandle{
+		Process:     proc,
+		Events:      evtChan,
+		StdinWriter: &codexDecisionWriter{ch: decisionCh},
+	}, nil
+}
+
+// codexDecisionWriter adapts io.Writer to the decisionCh channel.
+type codexDecisionWriter struct {
+	ch chan<- string
+}
+
+func (w *codexDecisionWriter) Write(p []byte) (int, error) {
+	line := strings.TrimSpace(string(p))
+	if line == "" {
+		return len(p), nil
+	}
+	select {
+	case w.ch <- line:
+		return len(p), nil
+	default:
+		return 0, fmt.Errorf("decision channel full, dropping: %s", line)
+	}
 }
 
 func codexModelEnv(model engines.ModelConfig) map[string]string {
@@ -154,8 +219,28 @@ func parseCodexLineWithState(line string, state *codexStreamState) events.Event 
 	var event codexEvent
 	if json.Unmarshal([]byte(line), &event) != nil {
 		return events.Event{}
-		// return *events.NewMessageDelta("", line)
 	}
+
+	// JSON-RPC 2.0 approval request detection
+	if event.JSONRPC == "2.0" && event.Method == "approval/request" {
+		var params codexApprovalParams
+		if event.Params != nil && json.Unmarshal(event.Params, &params) == nil && params.RequestID != "" {
+			requestID := params.RequestID
+			if rid := string(event.ID); rid != "" && rid != "null" {
+				requestID = rid
+			}
+			desc := fmt.Sprintf("Approval request: %s", params.Reason)
+			return *events.NewApprovalRequested(events.ApprovalRequestPayload{
+				RequestID:   requestID,
+				Engine:      "codex",
+				ActionType:  params.Type,
+				Description: desc,
+				Command:     params.Command,
+				FilePath:    params.Path,
+			})
+		}
+	}
+
 	if event.Type == "thread.started" && event.ThreadID != "" {
 		return events.Event{Type: engines.EventProviderSessionStarted, Content: event.ThreadID}
 	}
@@ -279,20 +364,37 @@ func buildArgs(threadID string, resume bool, req engines.RunRequest) []string {
 	if req.Model.Model != "" {
 		args = append(args, "--model", req.Model.Model)
 	}
+
+	// Permission mode determines whether to bypass approvals
+	bypassArgs := ""
+	switch req.PermissionMode {
+	case engines.PermissionModeBypass, "":
+		bypassArgs = "--dangerously-bypass-approvals-and-sandbox"
+	case engines.PermissionModeOnRequest, engines.PermissionModeAuto:
+		// on-request and auto: remove bypass; let Codex issue approval/request notifications
+	}
+
 	if resume && threadID != "" {
-		args = append(args, "resume", threadID, "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox")
+		args = append(args, "resume", threadID, "--json", "--skip-git-repo-check")
+		if bypassArgs != "" {
+			args = append(args, bypassArgs)
+		}
 		if req.Prompt != "" {
 			args = append(args, "-")
 		}
 		return args
 	}
-	return append(args, "-", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox")
+
+	args = append(args, "-", "--json", "--skip-git-repo-check")
+	if bypassArgs != "" {
+		args = append(args, bypassArgs)
+	}
+	return args
 }
 
 func lerosProviderConfigArgs(req engines.RunRequest) []string {
 	baseURL := ensureV1Suffix(firstNonEmptyString(
 		req.Model.BaseURL,
-		// os.Getenv("OPENAI_API_BASE"),
 		os.Getenv("OPENAI_BASE_URL"),
 	))
 	return []string{

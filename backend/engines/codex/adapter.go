@@ -44,14 +44,11 @@ func (a *Adapter) RegisterMCP(ctx context.Context, cfg engines.MCPServerConfig) 
 
 // Run 启动 Codex CLI 并返回进程句柄。
 func (a *Adapter) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
-	proc, events, err := a.invoker.Run(ctx, req)
+	handle, err := a.invoker.Run(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return &engines.RunHandle{
-		Process: proc,
-		Events:  events,
-	}, nil
+	return handle, nil
 }
 
 // GetSkillDir returns the skill directory path for Codex CLI.

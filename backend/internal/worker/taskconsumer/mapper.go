@@ -56,6 +56,7 @@ func RequestFromWorkerTask(msg protocol.WorkerTaskMessage) *agent.RequestContext
 		},
 		Policy: agent.PolicyContext{
 			RequireApproval: msg.Body.Policy.RequireApproval,
+			PermissionMode:  msg.Body.Policy.PermissionMode,
 		},
 		Metadata: map[string]any{
 			"message_id": msg.ID,
