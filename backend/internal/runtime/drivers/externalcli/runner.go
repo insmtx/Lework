@@ -193,7 +193,7 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 			}
 		case events.EventApprovalRequested:
 			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
-			if approvalHandler != nil && handle.StdinWriter != nil {
+			if approvalHandler != nil && handle.Responder != nil {
 				req, decErr := events.DecodePayload[events.ApprovalRequestPayload](&event)
 				if decErr != nil {
 					logs.WarnContextf(ctx, "decode approval request: %v", decErr)
@@ -211,8 +211,7 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 					logs.WarnContextf(ctx, "approval handler error: %v", decErr)
 					continue
 				}
-				decisionLine := decision.Action // "approved" or "rejected"
-				if _, wErr := handle.StdinWriter.Write([]byte(decisionLine)); wErr != nil {
+				if wErr := handle.Responder.WriteDecision(req.RequestID, decision.Action); wErr != nil {
 					logs.WarnContextf(ctx, "write approval decision to stdin: %v", wErr)
 				}
 				_ = sink.Emit(ctx, normalizeRuntimeEvent(*events.NewApprovalResolved(events.ApprovalDecisionPayload{
