@@ -42,6 +42,9 @@ export type {
 	WSStatus,
 } from "./types/api";
 export type {
+	ApprovalAction,
+	ApprovalRequest,
+	ApprovalStatus,
 	Attachment,
 	Message,
 	MessageArtifact,

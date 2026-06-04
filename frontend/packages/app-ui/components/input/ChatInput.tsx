@@ -1,30 +1,40 @@
 "use client";
 
 import { useChatStore, useLayoutStore } from "@leros/store";
-import type { Attachment } from "@leros/store/types/chat";
+import type { ApprovalAction, ApprovalRequest, Attachment, Message } from "@leros/store/types/chat";
+import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
+import { Checkbox } from "@leros/ui/components/ui/checkbox";
 import { cn } from "@leros/ui/lib/utils";
 import {
+	AlertCircle,
 	AtSign,
 	ChevronDown,
 	CircleStop,
 	ImageIcon,
+	LoaderCircle,
 	Paperclip,
 	SendHorizonal,
+	ShieldAlert,
 	X,
 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
 
 export function ChatInput({ variant = "default" }: { variant?: "default" | "project" }) {
 	const {
+		activeSessionId,
 		inputText,
 		inputAttachments,
 		isGenerating,
+		messagesMap,
+		messageIds,
 		selectedModel,
 		modelOptions,
 		setInputText,
 		sendMessage,
 		sendProjectMessage,
+		submitApprovalDecision,
 		cancelGeneration,
 		addAttachment,
 		removeAttachment,
@@ -33,20 +43,13 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 	} = useChatStore((s) => s);
 	const { activeProjectId, currentView } = useLayoutStore((s) => s);
 
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const composerRef = useRef<StructuredComposerHandle>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
 	const isProjectVariant = variant === "project";
-
-	const adjustHeight = useCallback(() => {
-		const textarea = textareaRef.current;
-		if (!textarea) return;
-		textarea.style.height = "auto";
-		const maxHeight = 200;
-		textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
-	}, []);
+	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 
 	const submitMessage = useCallback(() => {
 		if (inputText.trim() || inputAttachments.length > 0) {
@@ -54,9 +57,6 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 				sendProjectMessage(inputText, activeProjectId);
 			} else {
 				sendMessage(inputText, inputAttachments);
-			}
-			if (textareaRef.current) {
-				textareaRef.current.style.height = "auto";
 			}
 		}
 	}, [
@@ -69,29 +69,8 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 		sendProjectMessage,
 	]);
 
-	const handleKeyDown = useCallback(
-		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-			const submitByEnter = !isProjectVariant && e.key === "Enter" && !e.shiftKey;
-			const submitByShortcut = isProjectVariant && e.key === "Enter" && (e.metaKey || e.ctrlKey);
-
-			if (submitByEnter || submitByShortcut) {
-				e.preventDefault();
-				submitMessage();
-			}
-		},
-		[isProjectVariant, submitMessage],
-	);
-
-	const handleTextareaChange = useCallback(
-		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-			setInputText(e.target.value);
-			adjustHeight();
-		},
-		[setInputText, adjustHeight],
-	);
-
 	const handlePaste = useCallback(
-		(e: React.ClipboardEvent) => {
+		(e: React.ClipboardEvent<HTMLTextAreaElement>) => {
 			const files = Array.from(e.clipboardData.files);
 			for (const file of files) {
 				if (file.type.startsWith("image/") || file.type.startsWith("text/")) {
@@ -117,6 +96,17 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 		submitMessage();
 	}, [submitMessage]);
 
+	if (pendingApproval) {
+		return (
+			<ApprovalDecisionInput
+				approval={pendingApproval.approval}
+				messageId={pendingApproval.message.id}
+				variant={variant}
+				onDecide={submitApprovalDecision}
+			/>
+		);
+	}
+
 	return (
 		<div
 			data-slot="chat-input"
@@ -135,11 +125,11 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 						isProjectVariant && "rounded-2xl bg-white px-6 py-5 ring-slate-200",
 					)}
 				>
-					<textarea
-						ref={textareaRef}
+					<StructuredComposer
+						ref={composerRef}
 						value={inputText}
-						onChange={handleTextareaChange}
-						onKeyDown={handleKeyDown}
+						onChange={setInputText}
+						onSubmit={submitMessage}
 						onPaste={handlePaste}
 						onFocus={() => setInputFocused(true)}
 						onBlur={() => setInputFocused(false)}
@@ -148,12 +138,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 								? "让 AI 编码、分析或规划..."
 								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
 						}
-						className={cn(
-							"min-h-[116px] max-h-[220px] w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-sm text-slate-700 focus:outline-none placeholder:text-slate-400",
-							isProjectVariant &&
-								"min-h-[92px] rounded-none px-0 py-0 text-base placeholder:text-slate-500",
-						)}
-						rows={1}
+						isProjectVariant={isProjectVariant}
 					/>
 					<input
 						ref={fileInputRef}
@@ -193,6 +178,9 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 										variant="ghost"
 										size="icon-sm"
 										className="text-slate-400 hover:text-slate-600"
+										aria-label="选择 AI 队友"
+										onMouseDown={(event) => event.preventDefault()}
+										onClick={() => composerRef.current?.openAssistantPicker()}
 									>
 										<AtSign className="size-4" />
 									</Button>
@@ -273,6 +261,209 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 			</div>
 		</div>
 	);
+}
+
+type PendingApprovalRef = {
+	message: Message;
+	approval: ApprovalRequest;
+};
+
+function findPendingApproval(
+	messageIds: string[],
+	messagesMap: Record<string, Message>,
+	activeSessionId: string | null,
+): PendingApprovalRef | null {
+	for (let index = messageIds.length - 1; index >= 0; index -= 1) {
+		const message = messagesMap[messageIds[index] ?? ""];
+		if (!message) continue;
+		if (activeSessionId && message.conversationId !== activeSessionId) continue;
+
+		const approval = [...(message.approvals ?? [])]
+			.reverse()
+			.find(
+				(item) =>
+					item.status === "pending" || item.status === "submitting" || item.status === "error",
+			);
+		if (approval) return { message, approval };
+	}
+	return null;
+}
+
+function ApprovalDecisionInput({
+	approval,
+	messageId,
+	variant,
+	onDecide,
+}: {
+	approval: ApprovalRequest;
+	messageId: string;
+	variant: "default" | "project";
+	onDecide: (
+		messageId: string,
+		requestId: string,
+		action: ApprovalAction,
+		reason?: string,
+	) => void | Promise<void>;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const [alwaysAllow, setAlwaysAllow] = useState(false);
+	const isProjectVariant = variant === "project";
+	const isSubmitting = approval.status === "submitting";
+	const argumentText = approval.arguments ? JSON.stringify(approval.arguments, null, 2) : "";
+	const detailText = getApprovalDetail(approval);
+
+	const handleDecision = useCallback(
+		(action: ApprovalAction) => {
+			onDecide(messageId, approval.requestId, action);
+		},
+		[approval.requestId, messageId, onDecide],
+	);
+
+	useEffect(() => {
+		if (isSubmitting) return;
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				handleDecision("deny");
+				return;
+			}
+			if (event.key === "Enter") {
+				event.preventDefault();
+				handleDecision(alwaysAllow ? "always" : "approve");
+			}
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [alwaysAllow, handleDecision, isSubmitting]);
+
+	return (
+		<div
+			data-slot="approval-decision-input"
+			className={cn(
+				"bg-transparent px-5 pb-5 sm:px-6 lg:px-8",
+				isProjectVariant && "bg-white px-8 pb-8 sm:px-8 lg:px-8",
+			)}
+		>
+			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && "max-w-[780px]")}>
+				<div className="overflow-hidden rounded-[18px] border border-slate-200 bg-white text-slate-800 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
+					<div className="px-4 pb-4 pt-3.5">
+						<div className="mb-3 flex items-center gap-2 text-sm text-slate-500">
+							<ShieldAlert className="size-4 text-slate-500" />
+							<span className="font-medium">{approval.toolName}</span>
+							<ApprovalStatusBadge approval={approval} />
+						</div>
+						<div className="text-[15px] leading-6 text-slate-950">
+							允许 Leros 执行
+							<span className="mx-1 font-medium">{approval.description}</span>
+							吗？
+						</div>
+						{detailText && (
+							<div className="mt-1.5 truncate text-sm leading-5 text-slate-500">{detailText}</div>
+						)}
+						{approval.error && (
+							<div className="mt-2 flex items-center gap-1.5 text-xs text-red-600">
+								<AlertCircle className="size-3.5" />
+								<span>{approval.error}</span>
+							</div>
+						)}
+					</div>
+
+					<div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+						<div className="flex min-w-0 items-center gap-2">
+							<Checkbox
+								checked={alwaysAllow}
+								onCheckedChange={(checked) => setAlwaysAllow(checked === true)}
+								disabled={isSubmitting}
+								className="border-slate-300 bg-white data-checked:border-slate-950 data-checked:bg-slate-950"
+							/>
+							<span className="truncate text-sm text-slate-500">以后总是允许此工具</span>
+							{argumentText && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									className="text-slate-400 hover:text-slate-700"
+									onClick={() => setExpanded(!expanded)}
+									title="查看参数"
+								>
+									<ChevronDown
+										className={cn("size-3.5 transition-transform", expanded && "rotate-180")}
+									/>
+								</Button>
+							)}
+						</div>
+						<div className="flex shrink-0 items-center justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								onClick={() => handleDecision("deny")}
+								disabled={isSubmitting}
+								className="text-slate-500 hover:bg-transparent hover:text-slate-950"
+							>
+								取消
+								<span className="rounded-md bg-slate-200/80 px-1.5 py-0.5 text-xs text-slate-700">
+									Esc
+								</span>
+							</Button>
+							<Button
+								type="button"
+								size="sm"
+								onClick={() => handleDecision(alwaysAllow ? "always" : "approve")}
+								disabled={isSubmitting}
+								className="rounded-full bg-slate-950 px-4 text-white hover:bg-slate-800"
+							>
+								{isSubmitting && <LoaderCircle className="size-3.5 animate-spin" />}
+								允许
+								<span className="rounded-md bg-white/15 px-1.5 py-0.5 text-xs text-white/85">
+									↵
+								</span>
+							</Button>
+						</div>
+					</div>
+					{expanded && argumentText && (
+						<div className="border-t border-slate-100 bg-white px-4 py-3">
+							<pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-600">
+								{argumentText}
+							</pre>
+						</div>
+					)}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function ApprovalStatusBadge({ approval }: { approval: ApprovalRequest }) {
+	switch (approval.status) {
+		case "submitting":
+			return (
+				<Badge className="bg-slate-100 text-slate-600">
+					<LoaderCircle className="size-3 animate-spin" />
+					提交中
+				</Badge>
+			);
+		case "error":
+			return <Badge variant="destructive">提交失败</Badge>;
+		default:
+			return <Badge className="bg-slate-100 text-slate-600">等待确认</Badge>;
+	}
+}
+
+function getApprovalDetail(approval: ApprovalRequest): string {
+	const command = approval.arguments?.command;
+	if (typeof command === "string" && command.trim()) return command.trim();
+
+	const url = approval.arguments?.url;
+	if (typeof url === "string" && url.trim()) return url.trim();
+
+	const toolCallId = approval.toolCallId?.trim();
+	if (toolCallId) return toolCallId;
+
+	return "";
 }
 
 function AttachmentPreview({

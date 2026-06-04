@@ -53,6 +53,9 @@ export function MessageTimeline({
 					streamingMsg.thinking,
 					streamingMsg.toolCalls?.map((toolCall) => `${toolCall.id}:${toolCall.status}`).join("|"),
 					streamingMsg.todos?.map((todo) => `${todo.id}:${todo.status}`).join("|"),
+					streamingMsg.approvals
+						?.map((approval) => `${approval.requestId}:${approval.status}`)
+						.join("|"),
 					streamingMsg.artifacts?.map((artifact) => artifact.id).join("|"),
 				].join("\n")
 			: "";

@@ -4,6 +4,10 @@ export type ToolCallStatus = "pending" | "running" | "success" | "error";
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
+export type ApprovalAction = "approve" | "deny" | "always";
+
+export type ApprovalStatus = "pending" | "approved" | "denied" | "always" | "submitting" | "error";
+
 export type ToolCall = {
 	id: string;
 	name: string;
@@ -18,6 +22,19 @@ export type RuntimeTodoItem = {
 	title: string;
 	status: TodoStatus;
 	priority?: string;
+};
+
+export type ApprovalRequest = {
+	requestId: string;
+	toolName: string;
+	toolCallId?: string;
+	description: string;
+	arguments?: Record<string, unknown>;
+	metadata?: Record<string, unknown>;
+	status: ApprovalStatus;
+	action?: ApprovalAction;
+	reason?: string;
+	error?: string;
 };
 
 export type MessageArtifact = {
@@ -49,6 +66,7 @@ export type Message = {
 	sequence?: number;
 	toolCalls?: ToolCall[];
 	todos?: RuntimeTodoItem[];
+	approvals?: ApprovalRequest[];
 	artifacts?: MessageArtifact[];
 	thinking?: string;
 	metadata?: MessageMetadata;

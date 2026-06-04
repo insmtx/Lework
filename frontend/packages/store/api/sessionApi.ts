@@ -79,6 +79,15 @@ export type AddMessageParams = {
 	chunks?: BackendMessageChunk[];
 };
 
+export type ApprovalDecisionAction = "approve" | "deny" | "always";
+
+export type SubmitApprovalDecisionParams = {
+	session_id: string;
+	request_id: string;
+	action: ApprovalDecisionAction;
+	reason?: string;
+};
+
 const SESSION_ENDPOINTS = {
 	create: "/CreateSession",
 	list: "/ListSessions",
@@ -127,6 +136,19 @@ export const sessionApi = {
 		apiClient.post<BackendDataResponse<null>>(SESSION_ENDPOINTS.clearMessages, {
 			session_id: sessionId,
 		}),
+
+	submitApprovalDecision: (params: SubmitApprovalDecisionParams) =>
+		apiClient.post<BackendDataResponse<{ request_id: string; action: string }>>(
+			`/sessions/${encodeURIComponent(params.session_id)}/approvals`,
+			{
+				type: "approval.decide",
+				payload: {
+					request_id: params.request_id,
+					action: params.action,
+					...(params.reason ? { reason: params.reason } : {}),
+				},
+			},
+		),
 
 	getSessionEventsURL: (_sessionId?: string, _lastSequence?: number) =>
 		`${API_BASE_URL}/SessionEvents`,
