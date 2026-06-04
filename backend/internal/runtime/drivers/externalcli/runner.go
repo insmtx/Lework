@@ -18,9 +18,10 @@ import (
 
 // Runner 将外部代理 CLI 引擎适配到代理运行器边界。
 type Runner struct {
-	name         string
-	engine       engines.Engine
-	sessionStore ProviderSessionStore
+	name            string
+	engine          engines.Engine
+	sessionStore    ProviderSessionStore
+	approvalHandler engines.ApprovalHandler
 }
 
 // NewRunner 创建外部 CLI 运行器。
@@ -47,6 +48,14 @@ func (r *Runner) SetSessionStore(store ProviderSessionStore) {
 	r.sessionStore = store
 }
 
+// SetApprovalHandler 设置审批处理器，用于 on-request 和 auto 模式。
+func (r *Runner) SetApprovalHandler(handler engines.ApprovalHandler) {
+	if r == nil {
+		return
+	}
+	r.approvalHandler = handler
+}
+
 // Run 通过外部 CLI 引擎执行标准化请求。
 func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.RunResult, error) {
 	startedAt := time.Now().UTC()
@@ -67,14 +76,16 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 	sessionPlan := r.resolveProviderSession(ctx, req, workDir)
 
 	handle, err := r.engine.Run(ctx, engines.RunRequest{
-		ExecutionID:  req.RunID,
-		SessionID:    sessionPlan.ProviderSessionID,
-		Resume:       sessionPlan.Resume,
-		WorkDir:      workDir,
-		SystemPrompt: strings.TrimSpace(req.SystemPrompt),
-		Prompt:       prompt,
-		Model:        modelForRequest(req),
-		ExtraEnv:     nil,
+		ExecutionID:     req.RunID,
+		SessionID:       sessionPlan.ProviderSessionID,
+		Resume:          sessionPlan.Resume,
+		WorkDir:         workDir,
+		SystemPrompt:    strings.TrimSpace(req.SystemPrompt),
+		Prompt:          prompt,
+		Model:           modelForRequest(req),
+		ExtraEnv:        nil,
+		PermissionMode:  engines.PermissionMode(req.Policy.PermissionMode),
+		ApprovalHandler: r.approvalHandler,
 	})
 	if err != nil {
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
@@ -84,7 +95,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		logs.InfoContextf(ctx, "External runtime %s started with pid %d", r.name, handle.Process.PID())
 	}
 
-	consumeResult, err := consumeEvents(ctx, eventSink, handle, req.RunID, req.TraceID)
+	consumeResult, err := consumeEvents(ctx, eventSink, handle, req.RunID, req.TraceID, r.approvalHandler)
 	if err != nil {
 		r.markProviderSessionFailed(ctx, sessionPlan, err)
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
@@ -116,7 +127,7 @@ type consumeResult struct {
 	Usage             *events.UsagePayload
 }
 
-func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHandle, runID string, traceID string) (consumeResult, error) {
+func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHandle, runID string, traceID string, approvalHandler engines.ApprovalHandler) (consumeResult, error) {
 	if handle == nil || handle.Events == nil {
 		return consumeResult{}, nil
 	}
@@ -180,6 +191,40 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 			if items, err := events.DecodePayload[[]events.RuntimeTodoItem](&event); err == nil {
 				_ = todoTracker.Update(ctx, items, true)
 			}
+		case events.EventApprovalRequested:
+			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if handle.Responder == nil {
+				logs.WarnContextf(ctx, "approval request dropped: no Responder (PermissionMode may need to be on-request/auto)")
+			}
+			if approvalHandler != nil && handle.Responder != nil {
+				req, decErr := events.DecodePayload[events.ApprovalRequestPayload](&event)
+				if decErr != nil {
+					logs.WarnContextf(ctx, "decode approval request: %v", decErr)
+					continue
+				}
+				decision, decErr := approvalHandler.RequestApproval(ctx, &engines.ApprovalRequest{
+					RequestID:   req.RequestID,
+					ToolCallID:  req.ToolCallID,
+					ToolName:    req.ToolName,
+					Arguments:   req.Arguments,
+					Description: req.Description,
+					Engine:      metadataString(req.Metadata, "engine"),
+				})
+				if decErr != nil {
+					logs.WarnContextf(ctx, "approval handler error: %v", decErr)
+					continue
+				}
+				if wErr := handle.Responder.WriteDecision(req.RequestID, decision.Action); wErr != nil {
+					logs.WarnContextf(ctx, "write approval decision to stdin: %v", wErr)
+				}
+				_ = sink.Emit(ctx, normalizeRuntimeEvent(*events.NewApprovalResolved(events.ApprovalDecisionPayload{
+					RequestID: req.RequestID,
+					Action:    decision.Action,
+					Reason:    decision.Reason,
+				}), messageIDs))
+			}
+		case events.EventApprovalResolved:
+			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
 		default:
 			if strings.TrimSpace(event.Content) != "" {
 				if !resultSeen {
@@ -326,6 +371,18 @@ func internalSessionIDFromRequest(req *agent.RequestContext) string {
 		return ""
 	}
 	return strings.TrimSpace(req.Conversation.ID)
+}
+
+func metadataString(meta map[string]any, key string) string {
+	if meta == nil {
+		return ""
+	}
+	if v, ok := meta[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 func firstNonEmptyString(values ...string) string {

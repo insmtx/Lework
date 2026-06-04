@@ -7,6 +7,17 @@ import (
 	"fmt"
 )
 
+// WorkerApprovalSubject 构造 worker 审批 topic，格式为 "org.{org_id}.worker.{worker_id}.approval"。
+func WorkerApprovalSubject(orgid, workerid uint) (string, error) {
+	if orgid == 0 {
+		return "", errors.New("orgid is required")
+	}
+	if workerid == 0 {
+		return "", errors.New("workerid is required")
+	}
+	return fmt.Sprintf("org.%d.worker.%d.approval", orgid, workerid), nil
+}
+
 // WorkerTaskSubject 构造 worker 任务 topic，格式为 "org.{org_id}.worker.{worker_id}.task"。
 func WorkerTaskSubject(orgid, workerid uint) (string, error) {
 	if orgid == 0 {

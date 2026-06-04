@@ -32,6 +32,11 @@ const (
 	StreamEventTodoUpdated StreamEventType = "todo.updated"
 	// StreamEventArtifactDeclared indicates a generated artifact was declared.
 	StreamEventArtifactDeclared StreamEventType = "artifact.declared"
+
+	// StreamEventApprovalRequested indicates the engine needs user approval for a tool call.
+	StreamEventApprovalRequested StreamEventType = "approval.requested"
+	// StreamEventApprovalResolved indicates an approval request has been resolved.
+	StreamEventApprovalResolved StreamEventType = "approval.resolved"
 )
 
 // MessageStreamMessage is the stream message protocol from Worker to Server (forwarded to UI).
@@ -49,14 +54,16 @@ type StreamBody struct {
 
 // StreamPayload carries the specific content of streaming events.
 type StreamPayload struct {
-	MessageID  string                        `json:"message_id,omitempty"`
-	Role       MessageRole                   `json:"role,omitempty"`
-	Content    string                        `json:"content,omitempty"`
-	Usage      *events.UsagePayload          `json:"usage,omitempty"`
-	ToolCall   *events.ToolCallPayload       `json:"tool_call,omitempty"`
-	ToolResult *events.ToolCallResultPayload `json:"tool_result,omitempty"`
-	Todos      []events.RuntimeTodoItem      `json:"todos,omitempty"`
-	Artifact   *events.ArtifactPayload       `json:"artifact,omitempty"`
+	MessageID        string                          `json:"message_id,omitempty"`
+	Role             MessageRole                     `json:"role,omitempty"`
+	Content          string                          `json:"content,omitempty"`
+	Usage            *events.UsagePayload            `json:"usage,omitempty"`
+	ToolCall         *events.ToolCallPayload         `json:"tool_call,omitempty"`
+	ToolResult       *events.ToolCallResultPayload   `json:"tool_result,omitempty"`
+	Todos            []events.RuntimeTodoItem        `json:"todos,omitempty"`
+	Artifact         *events.ArtifactPayload         `json:"artifact,omitempty"`
+	ApprovalRequest  *events.ApprovalRequestPayload  `json:"approval_request,omitempty"`
+	ApprovalDecision *events.ApprovalDecisionPayload `json:"approval_decision,omitempty"`
 }
 
 // StreamError describes terminal or recoverable errors in streaming execution.

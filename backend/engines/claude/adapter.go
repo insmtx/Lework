@@ -69,14 +69,11 @@ func expandPath(pathValue string) string {
 
 // Run 启动 Claude Code 并返回进程句柄。
 func (a *Adapter) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
-	proc, events, err := a.invoker.Run(ctx, req)
+	handle, err := a.invoker.Run(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return &engines.RunHandle{
-		Process: proc,
-		Events:  events,
-	}, nil
+	return handle, nil
 }
 
 var _ engines.Engine = (*Adapter)(nil)

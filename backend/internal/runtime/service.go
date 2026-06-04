@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/engines/builtin"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
@@ -102,6 +103,8 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 			if err != nil {
 				return nil, err
 			}
+			// 注入审批路由器（channel 等待 HTTP 回传）
+			runner.SetApprovalHandler(engines.DefaultApprovalRouter)
 			if err := router.Register(name, runner); err != nil {
 				return nil, err
 			}

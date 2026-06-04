@@ -111,5 +111,6 @@ type RuntimeOptions struct {
 
 // TaskPolicy carries the policy switches that Worker tasks must follow.
 type TaskPolicy struct {
-	RequireApproval bool `json:"require_approval,omitempty"`
+	RequireApproval bool   `json:"require_approval,omitempty"`
+	PermissionMode  string `json:"permission_mode,omitempty"` // "bypass" | "on-request" | "auto"; empty defaults to bypass
 }

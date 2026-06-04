@@ -62,6 +62,11 @@ const (
 
 	// EventArtifactDeclared indicates a generated artifact was declared by the runtime.
 	EventArtifactDeclared EventType = "artifact.declared"
+
+	// EventApprovalRequested indicates the engine needs user approval for a tool call.
+	EventApprovalRequested EventType = "approval.requested"
+	// EventApprovalResolved indicates an approval request has been resolved.
+	EventApprovalResolved EventType = "approval.resolved"
 )
 
 // MessageDeltaPayload 是助手文本增量的标准负载。
@@ -114,6 +119,24 @@ type RunEventRecord struct {
 	Type      EventType  `json:"type"`
 	Timestamp int64      `json:"timestamp,omitempty"`
 	Payload   RawPayload `json:"payload,omitempty"`
+}
+
+// ApprovalRequestPayload describes a tool call that needs user approval.
+// 前端统一结构，不区分引擎类型。引擎特有信息放在 Metadata 中。
+type ApprovalRequestPayload struct {
+	RequestID   string         `json:"request_id"`
+	ToolName    string         `json:"tool_name"`
+	ToolCallID  string         `json:"tool_call_id,omitempty"`
+	Description string         `json:"description"`
+	Arguments   map[string]any `json:"arguments,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+// ApprovalDecisionPayload describes the outcome of an approval request.
+type ApprovalDecisionPayload struct {
+	RequestID string `json:"request_id"`
+	Action    string `json:"action"`  // "approve" | "deny" | "always"
+	Reason    string `json:"reason,omitempty"`
 }
 
 // RunCompletedPayload 归档完整的成功运行时运行。
@@ -219,6 +242,16 @@ func NewTodoSnapshot(items []RuntimeTodoItem) *Event {
 // NewTodoUpdated 创建标准的完整待办更新事件。
 func NewTodoUpdated(items []RuntimeTodoItem) *Event {
 	return newPayloadEvent(EventTodoUpdated, items, "")
+}
+
+// NewApprovalRequested creates an approval request event.
+func NewApprovalRequested(payload ApprovalRequestPayload) *Event {
+	return newPayloadEvent(EventApprovalRequested, payload, payload.Description)
+}
+
+// NewApprovalResolved creates an approval resolution event.
+func NewApprovalResolved(payload ApprovalDecisionPayload) *Event {
+	return newPayloadEvent(EventApprovalResolved, payload, payload.Action)
 }
 
 // DecodePayload 从事件中解码结构化载荷。

@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 
@@ -14,315 +12,484 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// Invoker starts an external CLI process.
-type Invoker struct {
+// ============================================================================
+// Invoker
+// ============================================================================
+
+type AppServerInvoker struct {
 	binary  string
-	baseEnv []string // 鍩虹鐜鍙橀噺
+	baseEnv []string
+	pool    *AppServerPool
 }
 
-// NewInvoker creates a CLI invoker.
-func NewInvoker(binary string, extraEnv map[string]string) *Invoker {
-	return &Invoker{
+func NewAppServerInvoker(binary string, extraEnv map[string]string) *AppServerInvoker {
+	return &AppServerInvoker{
 		binary:  binary,
 		baseEnv: engines.BuildBaseEnv(extraEnv),
+		pool:    NewAppServerPool(binary, engines.BuildBaseEnv(extraEnv)),
 	}
 }
 
-type codexEvent struct {
-	Type     string     `json:"type"`
-	ThreadID string     `json:"thread_id,omitempty"`
-	Item     *codexItem `json:"item,omitempty"`
-}
+func (inv *AppServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
+	workDir := strings.TrimSpace(req.WorkDir)
 
-type codexItem struct {
-	ID          string          `json:"id,omitempty"`
-	Type        string          `json:"type"`
-	Text        json.RawMessage `json:"text,omitempty"`
-	Items       []codexTodoItem `json:"items,omitempty"`
-	Command     string          `json:"command,omitempty"`
-	CommandLine string          `json:"command_line,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	Output      string          `json:"output,omitempty"`
-	Aggregated  string          `json:"aggregated_output,omitempty"`
-}
-
-type codexTodoItem struct {
-	ID        string `json:"id,omitempty"`
-	Text      string `json:"text"`
-	Completed bool   `json:"completed"`
-}
-
-// Run starts the CLI process and converts stdout into engine events.
-func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (engines.Process, <-chan events.Event, error) {
-	threadID, resume := resolveThread(req.SessionID, req.Resume)
-	args := buildArgs(threadID, resume, req)
-
-	execCtx := ctx
-	cancel := func() {}
-	if req.Timeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, req.Timeout)
-	}
-
-	cmd := exec.CommandContext(execCtx, inv.binary, args...)
-	cmd.Dir = req.WorkDir
-	cmd.Env = engines.BuildRunEnv(inv.baseEnv, req.ExtraEnv, codexModelEnv(req.Model))
-	if req.Prompt != "" {
-		cmd.Stdin = strings.NewReader(req.Prompt)
-	}
-
-	stdout, err := cmd.StdoutPipe()
+	srv, err := inv.pool.GetOrCreate(ctx, workDir, req.SessionID, req.Model)
 	if err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("open codex stdout: %w", err)
+		return nil, fmt.Errorf("get app-server for %s: %w", workDir, err)
 	}
-	stderr, err := cmd.StderrPipe()
+
+	srv.Lock()
+
+	evtChan := make(chan events.Event, 64)
+	srv.SetEventChannel(evtChan)
+
+	st := &runState{
+		srv:     srv,
+		evtChan: evtChan,
+	}
+	st.turnDone = make(chan turnResult, 1)
+
+	srv.onNotification = st.handleNotification
+	srv.onServerRequest = st.handleServerRequest
+
+	// -- 会话管理 --
+	threadID, err := st.ensureThread(ctx, req)
 	if err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("open codex stderr: %w", err)
+		srv.Unlock()
+		close(evtChan)
+		return nil, err
 	}
 
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("start codex: %w", err)
+	// -- 开始 turn --
+	tid, err := srv.StartTurn(ctx, threadID, req.Prompt)
+	if err != nil {
+		srv.Unlock()
+		close(evtChan)
+		return nil, fmt.Errorf("start turn: %w", err)
 	}
+	_ = tid
 
-	evtChan := make(chan events.Event, 16)
-	proc := engines.NewCmdProcess(cmd)
-	evtChan <- events.Event{Type: events.EventStarted}
+	sendEventTo(evtChan, events.EventStarted, "")
 
-	go func() {
-		defer close(evtChan)
-		defer cancel()
+	// -- 后台等待 turn 完成 --
+	go st.waitTurnDone(ctx)
 
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			scanStdout(ctx, stdout, evtChan)
-		}()
-		go func() {
-			defer wg.Done()
-			logPlainOutput(ctx, stderr)
-		}()
-
-		err := cmd.Wait()
-		wg.Wait()
-		if err != nil {
-			evtChan <- events.Event{Type: events.EventFailed, Content: err.Error()}
-			return
-		}
-		evtChan <- events.Event{Type: events.EventCompleted}
-	}()
-
-	return proc, evtChan, nil
+	return st.buildHandle(req)
 }
 
-func codexModelEnv(model engines.ModelConfig) map[string]string {
-	baseURL := ensureV1Suffix(model.BaseURL)
-	return map[string]string{
-		"CODEX_QUIET_MODE": "1",
-		"OPENAI_API_KEY":   model.APIKey,
-		"OPENAI_API_BASE":  baseURL,
-		"OPENAI_BASE_URL":  baseURL,
+func (st *runState) buildHandle(req engines.RunRequest) (*engines.RunHandle, error) {
+	// app-server 始终以 on-request 模式运行，始终创建 Responder
+	responder := &appServerResponder{srv: st.srv}
+	return &engines.RunHandle{
+		Process:   st.srv,
+		Events:    (<-chan events.Event)(st.evtChan),
+		Responder: responder,
+	}, nil
+}
+
+// ============================================================================
+// runState — 单次 Run 的上下文
+// ============================================================================
+
+type runState struct {
+	srv     *AppServer
+	evtChan chan events.Event
+
+	mu            sync.Mutex
+	turnID        string
+	assistantText strings.Builder
+	currentDiff   strings.Builder
+	messageID     string
+	tokenUsage    *events.UsagePayload
+	turnDone      chan turnResult
+}
+
+type turnResult struct {
+	completed  bool
+	failed     bool
+	errorMsg   string
+	message    string
+	diff       string
+	tokenUsage any
+}
+
+// ============================================================================
+// 通知处理
+// ============================================================================
+
+func (st *runState) handleNotification(method string, params json.RawMessage) {
+	logs.Infof("Codex notification: method=%s params=%s", method, string(params))
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	switch method {
+	case "thread/started":
+		st.onThreadStarted(params)
+	case "turn/started":
+		st.onTurnStarted(params)
+	case "item/started":
+		st.onItemStarted(params)
+	case "item/completed":
+		st.onItemCompleted(params)
+	case "item/agentMessage/delta":
+		st.onAgentDelta(params)
+	case "turn/diff":
+		st.onTurnDiff(params)
+	case "turn/completed":
+		st.onTurnCompleted(params)
+	case "hook/started", "hook/completed":
+		st.onHook(method, params)
+	case "turn/plan/updated":
+		st.onPlanUpdated(params)
+	case "thread/tokenUsage/updated":
+		st.onTokenUsage(params)
+	case "thread/status/changed":
+		logs.Debugf("Thread status changed: %s", string(params))
 	}
 }
 
-func scanStdout(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- events.Event) {
-	state := &codexStreamState{}
-	engines.ScanJSONLines(r, func(line string) bool {
-		event := parseCodexLineWithState(line, state)
-		if event.Type == "" {
-			return true
-		}
-		return sendEvent(ctx, evtChan, event)
-	})
+func (st *runState) onThreadStarted(params json.RawMessage) {
+	var payload struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+	}
+	if err := json.Unmarshal(params, &payload); err == nil && payload.Thread.ID != "" {
+		st.srv.SetThreadID(payload.Thread.ID)
+		sendEventTo(st.evtChan, engines.EventProviderSessionStarted, payload.Thread.ID)
+	}
 }
 
-type codexStreamState struct {
+func (st *runState) onTurnStarted(params json.RawMessage) {
+	var payload struct {
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	if err := json.Unmarshal(params, &payload); err == nil {
+		st.turnID = payload.Turn.ID
+		st.srv.SetTurnID(st.turnID)
+	}
 }
 
-func parseCodexLine(line string) events.Event {
-	return parseCodexLineWithState(line, &codexStreamState{})
+func (st *runState) onItemStarted(params json.RawMessage) {
+	var payload struct {
+		Item struct {
+			ID      string `json:"id"`
+			Type    string `json:"type"`
+			Command string `json:"command"`
+			CWD     string `json:"cwd"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return
+	}
+	switch payload.Item.Type {
+	case "agentMessage":
+		if payload.Item.ID != "" {
+			st.messageID = payload.Item.ID
+		}
+	case "commandExecution", "fileChange":
+		sendEventPayloadTo(st.evtChan, events.EventToolCallStarted,
+			events.ToolCallPayload{
+				ToolCallID: payload.Item.ID,
+				Name:       "Command",
+				Arguments:  map[string]any{"command": payload.Item.Command, "cwd": payload.Item.CWD},
+			})
+	}
 }
 
-func parseCodexLineWithState(line string, state *codexStreamState) events.Event {
-	logs.Infof("Parse Codex line: %s", line)
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return events.Event{}
+func (st *runState) onItemCompleted(params json.RawMessage) {
+	var payload struct {
+		Item struct {
+			ID               string `json:"id"`
+			Type             string `json:"type"`
+			Output           string `json:"output"`
+			AggregatedOutput string `json:"aggregatedOutput"`
+			Text             string `json:"text"`
+			ExitCode         *int   `json:"exitCode"`
+			DurationMs       *int64 `json:"durationMs"`
+		} `json:"item"`
 	}
-	var event codexEvent
-	if json.Unmarshal([]byte(line), &event) != nil {
-		return events.Event{}
-		// return *events.NewMessageDelta("", line)
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return
 	}
-	if event.Type == "thread.started" && event.ThreadID != "" {
-		return events.Event{Type: engines.EventProviderSessionStarted, Content: event.ThreadID}
+	switch payload.Item.Type {
+	case "agentMessage":
+		if payload.Item.Text != "" {
+			st.assistantText.Reset()
+			st.assistantText.WriteString(payload.Item.Text)
+		}
+	case "commandExecution", "fileChange":
+		st.emitToolResult(payload.Item.ID, payload.Item.AggregatedOutput, payload.Item.Output, payload.Item.ExitCode, payload.Item.DurationMs)
 	}
-	if event.Item == nil {
-		return events.Event{}
-	}
-
-	item := event.Item
-	switch item.Type {
-	case "agent_message":
-		text := decodeCodexText(item.Text)
-		if text == "" {
-			return events.Event{}
-		}
-		messageID := item.ID
-		eventType := events.EventMessageDelta
-		if event.Type == "item.completed" {
-			eventType = events.EventResult
-		}
-		if eventType == events.EventMessageDelta {
-			return *events.NewMessageDelta(messageID, text)
-		}
-		return events.Event{Type: eventType, Content: text}
-	case "command_execution", "tool_call", "shell_command":
-		command := firstNonEmptyString(item.Command, item.CommandLine, item.Name)
-		if command != "" {
-			return *events.NewMessageDelta(item.ID, "$ "+command)
-		}
-		output := firstNonEmptyString(item.Output, item.Aggregated, decodeCodexText(item.Text))
-		if output != "" {
-			return *events.NewMessageDelta(item.ID, truncateOutput(output, 300))
-		}
-	case "command_output", "tool_output", "shell_output":
-		output := firstNonEmptyString(item.Output, item.Aggregated, decodeCodexText(item.Text))
-		if output != "" {
-			return *events.NewMessageDelta(item.ID, truncateOutput(output, 300))
-		}
-	case "todo_list":
-		items := todoItemsFromCodex(item.Items)
-		if len(items) != 0 {
-			return *events.NewTodoSnapshot(items)
-		}
-	}
-	return events.Event{}
 }
 
-func todoItemsFromCodex(items []codexTodoItem) []events.RuntimeTodoItem {
-	if len(items) == 0 {
-		return nil
+func (st *runState) emitToolResult(id, aggregated, output string, exitCode *int, durationMs *int64) {
+	out := firstNonEmpty(aggregated, output)
+	var elapsed int64
+	if durationMs != nil {
+		elapsed = *durationMs
 	}
-	result := make([]events.RuntimeTodoItem, 0, len(items))
-	for _, item := range items {
-		title := strings.TrimSpace(item.Text)
-		if title == "" {
-			continue
+	if exitCode != nil && *exitCode != 0 {
+		sendEventPayloadTo(st.evtChan, events.EventToolCallFailed,
+			events.ToolCallResultPayload{ToolCallID: id, Error: out, ElapsedMS: elapsed})
+	} else {
+		sendEventPayloadTo(st.evtChan, events.EventToolCallCompleted,
+			events.ToolCallResultPayload{ToolCallID: id, Result: out, ElapsedMS: elapsed})
+	}
+}
+
+func (st *runState) onAgentDelta(params json.RawMessage) {
+	var payload struct {
+		ItemID string `json:"itemId"`
+		Delta  string `json:"delta"`
+	}
+	if err := json.Unmarshal(params, &payload); err != nil || payload.Delta == "" {
+		return
+	}
+	if payload.ItemID != "" {
+		st.messageID = payload.ItemID
+	}
+	st.assistantText.WriteString(payload.Delta)
+	emitMessageDelta(st.evtChan, st.messageID, payload.Delta)
+}
+
+func (st *runState) onTurnDiff(params json.RawMessage) {
+	var payload struct {
+		Diff string `json:"diff"`
+	}
+	if err := json.Unmarshal(params, &payload); err == nil && payload.Diff != "" {
+		st.currentDiff.WriteString(payload.Diff)
+		emitMessageDelta(st.evtChan, st.messageID, payload.Diff)
+	}
+}
+
+func (st *runState) onTurnCompleted(params json.RawMessage) {
+	var payload struct {
+		Turn struct {
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"turn"`
+	}
+	if err := json.Unmarshal(params, &payload); err == nil {
+		if payload.Turn.Error != nil && payload.Turn.Error.Message != "" {
+			st.turnDone <- turnResult{failed: true, errorMsg: payload.Turn.Error.Message, message: st.assistantText.String()}
+		} else {
+			st.turnDone <- turnResult{completed: true, message: st.assistantText.String(), diff: st.currentDiff.String()}
 		}
-		status := "pending"
-		if item.Completed {
-			status = "completed"
-		}
-		result = append(result, events.RuntimeTodoItem{
-			ID:     strings.TrimSpace(item.ID),
-			Title:  title,
-			Status: status,
+	} else {
+		st.turnDone <- turnResult{completed: true, message: st.assistantText.String()}
+	}
+}
+
+func (st *runState) onHook(method string, params json.RawMessage) {
+	var payload struct {
+		Run struct {
+			EventName string `json:"eventName"`
+		} `json:"run"`
+	}
+	if err := json.Unmarshal(params, &payload); err == nil && payload.Run.EventName != "" {
+		emitMessageDelta(st.evtChan, st.messageID, fmt.Sprintf("[hook] %s: %s", method, payload.Run.EventName))
+	}
+}
+
+func (st *runState) onPlanUpdated(params json.RawMessage) {
+	var payload struct {
+		Plan []struct {
+			Step   string `json:"step"`
+			Status string `json:"status"`
+		} `json:"plan"`
+	}
+	if err := json.Unmarshal(params, &payload); err != nil || len(payload.Plan) == 0 {
+		return
+	}
+	items := make([]events.RuntimeTodoItem, 0, len(payload.Plan))
+	for i, p := range payload.Plan {
+		items = append(items, events.RuntimeTodoItem{
+			ID:     fmt.Sprintf("plan_%d", i+1),
+			Title:  p.Step,
+			Status: planStatus(p.Status),
 		})
 	}
-	return result
+	sendEventPayloadTo(st.evtChan, events.EventTodoSnapshot, items)
 }
 
-func decodeCodexText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
+func planStatus(s string) string {
+	switch strings.ToLower(s) {
+	case "inprogress":
+		return "in_progress"
+	case "completed":
+		return "completed"
+	default:
+		return "pending"
 	}
-	var text string
-	if json.Unmarshal(raw, &text) == nil {
-		return text
+}
+
+func (st *runState) onTokenUsage(params json.RawMessage) {
+	var payload struct {
+		TokenUsage struct {
+			Total struct {
+				InputTokens  int `json:"inputTokens"`
+				OutputTokens int `json:"outputTokens"`
+			} `json:"total"`
+		} `json:"tokenUsage"`
 	}
-	var parts []any
-	if json.Unmarshal(raw, &parts) == nil {
-		var b strings.Builder
-		for _, part := range parts {
-			if value, ok := part.(string); ok {
-				b.WriteString(value)
+	if err := json.Unmarshal(params, &payload); err == nil {
+		st.tokenUsage = &events.UsagePayload{
+			InputTokens:  payload.TokenUsage.Total.InputTokens,
+			OutputTokens: payload.TokenUsage.Total.OutputTokens,
+			TotalTokens:  payload.TokenUsage.Total.InputTokens + payload.TokenUsage.Total.OutputTokens,
+		}
+	}
+}
+
+// ============================================================================
+// 服务器请求处理（审批）
+// ============================================================================
+
+func (st *runState) handleServerRequest(req ServerRequest) {
+	logs.Infof("Codex server request: method=%s id=%s params=%s", req.Method, string(req.ID), string(req.Params))
+	st.srv.SetPendingApproval(&req)
+
+	switch req.Method {
+	case "item/commandExecution/requestApproval":
+		var params struct {
+			ItemID  string `json:"itemId"`
+			Command string `json:"command"`
+			Reason  string `json:"reason"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err == nil {
+			reqID := params.ItemID
+			if reqID == "" {
+				reqID = string(req.ID)
+			}
+			sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
+				RequestID:   reqID,
+				ToolName:    "Command",
+				ToolCallID:  params.ItemID,
+				Description: firstNonEmpty(params.Reason, params.Command),
+				Arguments:   map[string]any{"command": params.Command},
+				Metadata:    map[string]any{"engine": "codex", "action_type": "command_execution"},
+			})
+		}
+
+	case "item/fileChange/requestApproval":
+		var params struct {
+			ItemID    string `json:"itemId"`
+			GrantRoot string `json:"grantRoot"`
+			Reason    string `json:"reason"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err == nil {
+			reqID := params.ItemID
+			if reqID == "" {
+				reqID = string(req.ID)
+			}
+			sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
+				RequestID:   reqID,
+				ToolName:    "Write",
+				ToolCallID:  params.ItemID,
+				Description: firstNonEmpty(params.Reason, params.GrantRoot),
+				Arguments:   map[string]any{"path": params.GrantRoot},
+				Metadata:    map[string]any{"engine": "codex", "action_type": "file_change"},
+			})
+		}
+
+	case "item/permissions/requestApproval":
+		sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
+			RequestID:   string(req.ID),
+			ToolName:    "Permissions",
+			Description: "Permission approval request",
+			Metadata:    map[string]any{"engine": "codex", "action_type": "permissions"},
+		})
+
+	default:
+		logs.Debugf("Unhandled server request: method=%s id=%s", req.Method, string(req.ID))
+	}
+}
+
+// ============================================================================
+// 会话 & turn 生命周期
+// ============================================================================
+
+func (st *runState) ensureThread(ctx context.Context, req engines.RunRequest) (string, error) {
+	resume := req.Resume && strings.TrimSpace(req.SessionID) != ""
+	if resume {
+		threadID := strings.TrimSpace(req.SessionID)
+		if st.srv.ThreadID() != threadID {
+			if err := st.srv.ResumeThread(ctx, threadID, req.Model); err != nil {
+				return "", fmt.Errorf("resume thread %s: %w", threadID, err)
 			}
 		}
-		return b.String()
+		sendEventTo(st.evtChan, engines.EventProviderSessionStarted, threadID)
+		return threadID, nil
 	}
-	return ""
+	tid, err := st.srv.StartThread(ctx, req.Model)
+	if err != nil {
+		return "", fmt.Errorf("start thread: %w", err)
+	}
+	return tid, nil
 }
 
-func logPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error) }) {
-	engines.ScanJSONLines(r, func(line string) bool {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			return true
-		}
-		logs.WarnContextf(ctx, "Codex stderr: %s", line)
-		return true
-	})
-}
+func (st *runState) waitTurnDone(ctx context.Context) {
+	defer st.srv.Unlock()
+	defer close(st.evtChan)
+	defer func() {
+		st.srv.onNotification = nil
+		st.srv.onServerRequest = nil
+		st.srv.SetEventChannel(nil)
+		st.srv.SetPendingApproval(nil)
+	}()
 
-func sendEvent(ctx context.Context, evtChan chan<- events.Event, event events.Event) bool {
 	select {
 	case <-ctx.Done():
-		return false
-	case evtChan <- event:
-		return true
-	}
-}
+		logs.WarnContextf(ctx, "Turn context done: %v", ctx.Err())
+		sendEventTo(st.evtChan, events.EventFailed, ctx.Err().Error())
 
-func truncateOutput(value string, maxLen int) string {
-	if len(value) <= maxLen {
-		return value
-	}
-	return value[:maxLen] + "..."
-}
-
-func buildArgs(threadID string, resume bool, req engines.RunRequest) []string {
-	args := []string{"exec"}
-	args = append(args, lerosProviderConfigArgs(req)...)
-	if req.Model.Model != "" {
-		args = append(args, "--model", req.Model.Model)
-	}
-	if resume && threadID != "" {
-		args = append(args, "resume", threadID, "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox")
-		if req.Prompt != "" {
-			args = append(args, "-")
-		}
-		return args
-	}
-	return append(args, "-", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox")
-}
-
-func lerosProviderConfigArgs(req engines.RunRequest) []string {
-	baseURL := ensureV1Suffix(firstNonEmptyString(
-		req.Model.BaseURL,
-		// os.Getenv("OPENAI_API_BASE"),
-		os.Getenv("OPENAI_BASE_URL"),
-	))
-	return []string{
-		"-c", `model_provider="leros"`,
-		"-c", `model_providers.leros.name="leros"`,
-		"-c", fmt.Sprintf(`model_providers.leros.base_url=%q`, baseURL),
-		"-c", `model_providers.leros.env_key="OPENAI_API_KEY"`,
-	}
-}
-
-// ensureV1Suffix appends /v1 when it is missing.
-func ensureV1Suffix(url string) string {
-	url = strings.TrimRight(strings.TrimSpace(url), "/")
-	if url == "" {
-		return url
-	}
-	if !strings.HasSuffix(url, "/v1") {
-		url += "/v1"
-	}
-	return url
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
+	case result := <-st.turnDone:
+		if result.failed {
+			sendEventTo(st.evtChan, events.EventFailed, result.errorMsg)
+		} else if result.completed {
+			finalMsg := firstNonEmpty(result.message, result.diff)
+			if finalMsg != "" {
+				sendEventTo(st.evtChan, events.EventResult, finalMsg)
+				sendEventPayloadTo(st.evtChan, events.EventResult, events.MessageResultPayload{Message: finalMsg, Usage: st.tokenUsage})
+			}
+			sendEventTo(st.evtChan, events.EventCompleted, finalMsg)
 		}
 	}
-	return ""
 }
+
+// ============================================================================
+// 审批 Responder
+// ============================================================================
+
+type appServerResponder struct {
+	srv *AppServer
+}
+
+func (r *appServerResponder) WriteDecision(requestID string, action string) error {
+	// Codex app-server: approve→accept, deny→cancel
+	decision := "cancel"
+	if action == engines.ApprovalActionApprove || action == engines.ApprovalActionAlways {
+		decision = "accept"
+	}
+
+	pending := r.srv.PendingApproval()
+	if pending == nil {
+		return fmt.Errorf("no pending approval request")
+	}
+	if err := r.srv.RespondApproval(context.Background(), pending.ID, decision); err != nil {
+		return fmt.Errorf("respond approval: %w", err)
+	}
+	r.srv.SetPendingApproval(nil)
+	return nil
+}
+
+// ============================================================================
+// 辅助
+// ============================================================================
 
 func resolveThread(sessionID string, resume bool) (string, bool) {
 	if !resume {
@@ -330,4 +497,54 @@ func resolveThread(sessionID string, resume bool) (string, bool) {
 	}
 	threadID := strings.TrimSpace(sessionID)
 	return threadID, threadID != ""
+}
+
+func emitMessageDelta(ch chan<- events.Event, messageID, content string) {
+	if ch == nil || content == "" {
+		return
+	}
+	payload, _ := json.Marshal(events.MessageDeltaPayload{MessageID: messageID, Content: content})
+	select {
+	case ch <- events.Event{
+		Type:    events.EventMessageDelta,
+		Content: content,
+		Payload: payload,
+	}:
+	default:
+	}
+}
+
+func sendEventTo(ch chan<- events.Event, eventType events.EventType, content string) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- events.Event{Type: eventType, Content: content}:
+	default:
+	}
+}
+
+func sendEventPayloadTo(ch chan<- events.Event, eventType events.EventType, payload any) {
+	if ch == nil {
+		return
+	}
+	event := events.Event{Type: eventType}
+	if payload != nil {
+		if encoded, err := json.Marshal(payload); err == nil {
+			event.Payload = encoded
+		}
+	}
+	select {
+	case ch <- event:
+	default:
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

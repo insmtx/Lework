@@ -45,6 +45,17 @@ type AddMessageRequest struct {
 }
 
 // Session is the API response shape for a conversation.
+// SubmitApprovalRequest forwards an approval decision to the worker via NATS.
+type SubmitApprovalRequest struct {
+	OrgID     uint   `json:"-"`
+	WorkerID  uint   `json:"-"` // TODO: 由 session 关联的运行时动态获取
+	SessionID string `json:"session_id"`
+	RequestID string `json:"request_id"`
+	Action    string `json:"action"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+
 type Session struct {
 	SessionID            string                `json:"session_id"`
 	Type                 string                `json:"type"`

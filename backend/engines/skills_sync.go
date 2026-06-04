@@ -264,15 +264,18 @@ func listSkillDirs(sourceDir string) ([]string, error) {
 	var skillDirs []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			return nil, fmt.Errorf("invalid skill source entry %s: expected skill directory", filepath.Join(sourceDir, entry.Name()))
+			logs.Debugf("Skipping non-directory entry in skills root: %s", filepath.Join(sourceDir, entry.Name()))
+			continue
 		}
 		manifestPath := filepath.Join(sourceDir, entry.Name(), skillManifestFile)
 		info, err := os.Stat(manifestPath)
 		if err != nil {
-			return nil, fmt.Errorf("invalid skill directory %s: missing %s", filepath.Join(sourceDir, entry.Name()), skillManifestFile)
+			logs.Debugf("Skipping directory without %s: %s", skillManifestFile, filepath.Join(sourceDir, entry.Name()))
+			continue
 		}
 		if info.IsDir() {
-			return nil, fmt.Errorf("invalid skill directory %s: %s must be a file", filepath.Join(sourceDir, entry.Name()), skillManifestFile)
+			logs.Debugf("Skipping directory where %s is a directory: %s", skillManifestFile, filepath.Join(sourceDir, entry.Name()))
+			continue
 		}
 		skillDirs = append(skillDirs, entry.Name())
 	}

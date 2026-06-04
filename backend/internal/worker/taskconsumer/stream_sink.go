@@ -186,6 +186,16 @@ func streamPayload(event *events.Event) protocol.StreamPayload {
 		if err == nil {
 			payload.Artifact = &artifact
 		}
+	case events.EventApprovalRequested:
+		approvalReq, err := events.DecodePayload[events.ApprovalRequestPayload](event)
+		if err == nil {
+			payload.ApprovalRequest = &approvalReq
+		}
+	case events.EventApprovalResolved:
+		approvalDec, err := events.DecodePayload[events.ApprovalDecisionPayload](event)
+		if err == nil {
+			payload.ApprovalDecision = &approvalDec
+		}
 	case events.EventCompleted, events.EventFailed, events.EventCancelled:
 		completedPayload, err := events.DecodePayload[events.RunCompletedPayload](event)
 		if err == nil {
@@ -222,6 +232,10 @@ func streamEventType(eventType events.EventType) protocol.StreamEventType {
 		return protocol.StreamEventTodoUpdated
 	case events.EventArtifactDeclared:
 		return protocol.StreamEventArtifactDeclared
+	case events.EventApprovalRequested:
+		return protocol.StreamEventApprovalRequested
+	case events.EventApprovalResolved:
+		return protocol.StreamEventApprovalResolved
 	default:
 		return protocol.StreamEventMessageDelta
 	}

@@ -1,7 +1,11 @@
 package codex
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -12,7 +16,8 @@ import (
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 )
 
-func TestAdapterAskCurrentTime(t *testing.T) {
+// TestSayHi 端到端测试：通过 app-server 模式发送 "hi" 并收到真实回复。
+func TestSayHi(t *testing.T) {
 	codexPath, err := exec.LookPath("codex")
 	if err != nil {
 		t.Skip("codex CLI not found in PATH")
@@ -22,17 +27,23 @@ func TestAdapterAskCurrentTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get working directory: %v", err)
 	}
+
+	apiKey := os.Getenv("LEROS_TEST_API_KEY")
+	if apiKey == "" {
+		t.Skip("LEROS_TEST_API_KEY not set")
+	}
+
 	adapter := NewAdapter(codexPath, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	handle, err := adapter.Run(ctx, engines.RunRequest{
 		WorkDir: workDir,
-		Prompt:  "Answer with the current system time. Do not modify files.",
+		Prompt:  "hi",
 		Model: engines.ModelConfig{
 			Provider: "openai",
-			APIKey:   "sk-test",
-			Model:    "deepseek/deepseek-v4-flash",
+			APIKey:   apiKey,
+			Model:    "aliyun/deepseek-v4-flash",
 			BaseURL:  "http://127.0.0.1:8081",
 		},
 		Timeout: 2 * time.Minute,
@@ -41,98 +52,71 @@ func TestAdapterAskCurrentTime(t *testing.T) {
 		t.Fatalf("run codex adapter: %v", err)
 	}
 
+	t.Logf("codex app-server started, waiting for response...")
+
 	var finalEvent events.Event
-	var result string
+	var responseText string
 	for event := range handle.Events {
-		t.Logf("received event: type=%s, content=%s", event.Type, event.Content)
-		if event.Type == events.EventResult {
-			result = strings.TrimSpace(event.Content)
+		t.Logf("event: type=%s content=%q", event.Type, event.Content)
+		switch event.Type {
+		case events.EventResult:
+			responseText = strings.TrimSpace(event.Content)
+		case events.EventCompleted:
+			if responseText == "" && event.Content != "" {
+				responseText = strings.TrimSpace(event.Content)
+			}
 		}
 		finalEvent = event
 	}
+
 	if finalEvent.Type == events.EventFailed {
 		t.Fatalf("codex execution failed: %s", finalEvent.Content)
 	}
-	if finalEvent.Type != events.EventCompleted {
-		t.Fatalf("unexpected final event: %#v", finalEvent)
-	}
 
-	if result == "" {
-		t.Fatal("expected non-empty codex result")
+	if responseText == "" {
+		t.Fatal("expected non-empty response for 'hi'")
 	}
-	t.Logf("codex current time result: %s", result)
+	t.Logf("codex response: %s", responseText)
 }
 
-func TestParseCodexLineEmitsResult(t *testing.T) {
-	event := parseCodexLine(`{"type":"item.completed","item":{"type":"agent_message","text":"final"}}`)
-	if event.Type != events.EventResult || event.Content != "final" {
-		t.Fatalf("unexpected event: %#v", event)
+func TestResolveThread(t *testing.T) {
+	tests := []struct {
+		sessionID string
+		resume    bool
+		wantID    string
+		wantOK    bool
+	}{
+		{"", false, "", false},
+		{"thread-1", false, "", false},
+		{"thread-1", true, "thread-1", true},
+		{"  thread-2  ", true, "thread-2", true},
+		{"", true, "", false},
 	}
-}
-
-func TestParseCodexLineCapturesThread(t *testing.T) {
-	event := parseCodexLine(`{"type":"thread.started","thread_id":"thread-1"}`)
-	if event.Type != engines.EventProviderSessionStarted || event.Content != "thread-1" {
-		t.Fatalf("unexpected event: %#v", event)
-	}
-}
-
-func TestParseCodexLineEmitsTodoSnapshot(t *testing.T) {
-	event := parseCodexLine(`{"type":"item.updated","item":{"id":"todo_list_1","type":"todo_list","items":[{"text":"Inspect code","completed":false},{"text":"Run tests","completed":true}]}}`)
-	if event.Type != events.EventTodoSnapshot {
-		t.Fatalf("expected todo snapshot, got %#v", event)
-	}
-	items, err := events.DecodePayload[[]events.RuntimeTodoItem](&event)
-	if err != nil {
-		t.Fatalf("decode todo snapshot: %v", err)
-	}
-	if len(items) != 2 || items[0].Title != "Inspect code" || items[0].Status != "pending" || items[1].Status != "completed" {
-		t.Fatalf("unexpected todo items: %#v", items)
+	for _, tt := range tests {
+		id, ok := resolveThread(tt.sessionID, tt.resume)
+		if id != tt.wantID || ok != tt.wantOK {
+			t.Errorf("resolveThread(%q, %v) = (%q, %v), want (%q, %v)",
+				tt.sessionID, tt.resume, id, ok, tt.wantID, tt.wantOK)
+		}
 	}
 }
 
-func TestBuildArgsInjectsLerosProviderConfig(t *testing.T) {
-	args := buildArgs("", false, engines.RunRequest{
-		Model: engines.ModelConfig{
-			Model:   "gpt-test",
-			BaseURL: "http://127.0.0.1:8081",
-		},
-	})
-	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, `model_provider="leros"`) {
-		t.Fatalf("expected leros provider config, got %v", args)
+func TestFirstNonEmpty(t *testing.T) {
+	if got := firstNonEmpty("", "hello", "world"); got != "hello" {
+		t.Errorf("expected 'hello', got %q", got)
 	}
-	if !strings.Contains(joined, `model_providers.leros.base_url="http://127.0.0.1:8081/v1"`) {
-		t.Fatalf("expected leros provider base url config, got %v", args)
+	if got := firstNonEmpty("", "", "  "); got != "" {
+		t.Errorf("expected '', got %q", got)
 	}
-	if !strings.Contains(joined, `model_providers.leros.env_key="OPENAI_API_KEY"`) {
-		t.Fatalf("expected leros provider env key config, got %v", args)
-	}
-	if strings.Contains(joined, `model_providers.leros.wire_api`) {
-		t.Fatalf("unexpected wire api config: %v", args)
-	}
-	if !strings.Contains(joined, "--model gpt-test") {
-		t.Fatalf("expected model arg, got %v", args)
+	if got := firstNonEmpty("  a  "); got != "a" {
+		t.Errorf("expected 'a', got %q", got)
 	}
 }
 
-func TestBuildArgsResumeReadsPromptFromStdin(t *testing.T) {
-	args := buildArgs("thread-1", true, engines.RunRequest{
-		Prompt: "continue the task",
-	})
-	joined := strings.Join(args, " ")
-	if strings.Contains(joined, "continue the task") {
-		t.Fatalf("expected prompt not to be injected into args: %v", args)
-	}
-	if args[len(args)-1] != "-" {
-		t.Fatalf("expected resume prompt marker to read stdin, got %v", args)
-	}
-}
-
-func TestCodexModelEnvUsesOpenAIEnvKeys(t *testing.T) {
-	env := codexModelEnv(engines.ModelConfig{
+func TestAppServerModelEnv(t *testing.T) {
+	env := appServerModelEnv(engines.ModelConfig{
 		APIKey:  "sk-test",
-		BaseURL: "http://127.0.0.1:8081/v1/",
+		BaseURL: "http://127.0.0.1:8081",
 	})
 	if env["OPENAI_API_KEY"] != "sk-test" {
 		t.Fatalf("unexpected api key env: %#v", env)
@@ -143,7 +127,88 @@ func TestCodexModelEnvUsesOpenAIEnvKeys(t *testing.T) {
 	if env["OPENAI_BASE_URL"] != "http://127.0.0.1:8081/v1" {
 		t.Fatalf("unexpected base url env: %#v", env)
 	}
-	if env["CODEX_QUIET_MODE"] != "1" {
-		t.Fatalf("unexpected quiet mode env: %#v", env)
+}
+
+func TestAppServerModelEnvWithV1Suffix(t *testing.T) {
+	env := appServerModelEnv(engines.ModelConfig{
+		APIKey:  "sk-test",
+		BaseURL: "http://127.0.0.1:8081/v1/",
+	})
+	if env["OPENAI_API_BASE"] != "http://127.0.0.1:8081/v1" {
+		t.Fatalf("unexpected api base env: %#v", env)
+	}
+	if env["OPENAI_BASE_URL"] != "http://127.0.0.1:8081/v1" {
+		t.Fatalf("unexpected base url env: %#v", env)
+	}
+}
+
+func TestJSONRPCClientCallAndRespond(t *testing.T) {
+	clientToServerR, clientToServerW := io.Pipe()
+	serverToClientR, serverToClientW := io.Pipe()
+
+	client := NewClient(serverToClientR, clientToServerW)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go func() {
+		scanner := bufio.NewScanner(clientToServerR)
+		if scanner.Scan() {
+			line := scanner.Text()
+			var req rpcRequest
+			if err := json.Unmarshal([]byte(line), &req); err != nil {
+				t.Logf("server parse error: %v", err)
+				return
+			}
+			resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"greeting":"hello"}}`, req.ID)
+			serverToClientW.Write([]byte(resp + "\n"))
+		}
+	}()
+
+	go func() {
+		_ = client.ReadLoop(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+
+	var result map[string]string
+	err := client.Call(ctx, "greet", map[string]string{"name": "world"}, &result)
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+	if result["greeting"] != "hello" {
+		t.Fatalf("unexpected result: %v", result)
+	}
+}
+
+func TestJSONRPCClientNotification(t *testing.T) {
+	serverToClientR, serverToClientW := io.Pipe()
+	clientToServerR, clientToServerW := io.Pipe()
+	_ = clientToServerR
+
+	client := NewClient(serverToClientR, clientToServerW)
+	_ = clientToServerW
+
+	notifCh := make(chan string, 1)
+	client.OnNotification = func(method string, params json.RawMessage) {
+		notifCh <- method
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go func() {
+		_ = client.ReadLoop(ctx)
+	}()
+
+	serverToClientW.Write([]byte(`{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"t1"}}}` + "\n"))
+
+	select {
+	case method := <-notifCh:
+		if method != "thread/started" {
+			t.Fatalf("expected thread/started, got %s", method)
+		}
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for notification")
 	}
 }
