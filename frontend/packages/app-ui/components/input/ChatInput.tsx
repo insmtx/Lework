@@ -361,7 +361,9 @@ function ApprovalDecisionInput({
 							吗？
 						</div>
 						{detailText && (
-							<div className="mt-1.5 truncate text-sm leading-5 text-slate-500">{detailText}</div>
+							<div className="mt-1.5 overflow-x-auto whitespace-nowrap pb-1 text-sm leading-5 text-slate-500">
+								{detailText}
+							</div>
 						)}
 						{approval.error && (
 							<div className="mt-2 flex items-center gap-1.5 text-xs text-red-600">
@@ -459,9 +461,6 @@ function getApprovalDetail(approval: ApprovalRequest): string {
 
 	const url = approval.arguments?.url;
 	if (typeof url === "string" && url.trim()) return url.trim();
-
-	const toolCallId = approval.toolCallId?.trim();
-	if (toolCallId) return toolCallId;
 
 	return "";
 }
