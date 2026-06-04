@@ -71,6 +71,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		workerManager.RegisterRoutes(r)
 		logs.Info("Worker server routes registered successfully")
 
+		authService := service.NewAuthService(db, cfg.Server.JWT.Secret)
+		handler.RegisterAuthRoutes(v1, authService)
+		logs.Info("Auth routes registered successfully")
+
 		digitalAssistantService := service.NewDigitalAssistantService(db, workerScheduler)
 		handler.RegisterDigitalAssistantRoutes(v1, digitalAssistantService)
 		logs.Info("Digital assistant routes registered successfully")

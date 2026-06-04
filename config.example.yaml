@@ -13,6 +13,10 @@ github:
 # NATS messaging queue configuration
 nats:
   url: "nats://localhost:4222"  # NATS Connection URL
+
+server:
+  jwt:
+    secret: "replace-with-a-strong-secret"
   
 # Database configuration
 database:

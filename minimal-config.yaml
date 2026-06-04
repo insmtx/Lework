@@ -16,6 +16,10 @@ github:
 nats:
   url: "nats://localhost:4222/"
 
+server:
+  jwt:
+    secret: "dev-leros-jwt-secret"
+
 # database:
 #   driver: postgres
 #   url: "host=localhost user=leros password=leros dbname=leros port=5432 sslmode=disable"
