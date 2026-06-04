@@ -46,6 +46,19 @@ func GetUserOrgByUserID(ctx context.Context, db *gorm.DB, userID uint) (*types.U
 	return &userOrg, nil
 }
 
+// GetUserOrgsByUserID 获取用户全部组织关联。
+func GetUserOrgsByUserID(ctx context.Context, db *gorm.DB, userID uint) ([]*types.UserOrg, error) {
+	var userOrgs []*types.UserOrg
+	err := db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("is_default DESC, id ASC").
+		Find(&userOrgs).Error
+	if err != nil {
+		return nil, err
+	}
+	return userOrgs, nil
+}
+
 // CreateUserOrg 创建用户组织
 func CreateUserOrg(ctx context.Context, db *gorm.DB, userOrg *types.UserOrg) error {
 	return db.WithContext(ctx).Create(userOrg).Error

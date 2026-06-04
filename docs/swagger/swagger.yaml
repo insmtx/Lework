@@ -287,6 +287,16 @@ definitions:
       offset:
         type: integer
     type: object
+  contract.LoginByEmailRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
   contract.NewMessageRequest:
     properties:
       assistant_id:
@@ -303,6 +313,28 @@ definitions:
         type: string
     required:
     - content
+    type: object
+  contract.RefreshTokenRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  contract.RegisterByEmailRequest:
+    properties:
+      confirm_password:
+        type: string
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+    required:
+    - confirm_password
+    - email
+    - password
     type: object
   contract.TestLLMModelRequest:
     properties:
@@ -2103,6 +2135,44 @@ paths:
       summary: 查询用户列表
       tags:
       - User
+  /LoginByEmail:
+    post:
+      consumes:
+      - application/json
+      description: 使用邮箱和密码登录并获取访问令牌
+      parameters:
+      - description: 邮箱登录请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.LoginByEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "429":
+          description: 登录失败次数过多
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 邮箱登录
+      tags:
+      - Auth
   /NewMessage:
     post:
       consumes:
@@ -2141,6 +2211,70 @@ paths:
       summary: 首页新建消息
       tags:
       - Work
+  /RefreshToken:
+    post:
+      consumes:
+      - application/json
+      description: 使用 refresh token 换取新的访问令牌
+      parameters:
+      - description: 刷新令牌请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 刷新令牌
+      tags:
+      - Auth
+  /RegisterByEmail:
+    post:
+      consumes:
+      - application/json
+      description: 使用邮箱和密码注册本地用户
+      parameters:
+      - description: 邮箱注册请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.RegisterByEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 邮箱注册
+      tags:
+      - Auth
   /SessionEvents:
     post:
       consumes:

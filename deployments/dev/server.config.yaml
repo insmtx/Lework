@@ -3,6 +3,8 @@ workspace_root:
 
 server:
   port: 8080
+  jwt:
+    secret: "dev-leros-jwt-secret"
   
 database:
   url: "postgres://leros_dev_user:leros_dev_password@localhost:5433/leros_dev_db?sslmode=disable"

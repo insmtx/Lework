@@ -18,6 +18,10 @@ const (
 	TableNameOrganization = tablenamePrefix + "organization"
 	// TableNameUserOrg 用户组织关联表名
 	TableNameUserOrg = tablenamePrefix + "user_org"
+	// TableNameAuthRefreshToken 登录刷新令牌表名
+	TableNameAuthRefreshToken = tablenamePrefix + "auth_refresh_token"
+	// TableNameAuthLoginAttempt 登录失败尝试表名
+	TableNameAuthLoginAttempt = tablenamePrefix + "auth_login_attempt"
 
 	// TableNameDigitalAssistant 数字助手表名
 	TableNameDigitalAssistant = tablenamePrefix + "digital_assistant"

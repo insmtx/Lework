@@ -51,6 +51,18 @@ func GetUserByGithubLogin(ctx context.Context, d *gorm.DB, githubLogin string) (
 	return &entity, nil
 }
 
+func GetUserByEmail(ctx context.Context, d *gorm.DB, email string) (*types.User, error) {
+	var entity types.User
+	err := d.WithContext(ctx).Where("email = ?", email).First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}
+
 func UpdateUser(ctx context.Context, d *gorm.DB, user *types.User) error {
 	return d.WithContext(ctx).Save(user).Error
 }
