@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ type anthropicStreamState struct {
 type anthropicMessagesAdapter struct{}
 
 func init() {
-	RegisterAdapter(&anthropicMessagesAdapter{})
+	registerAdapterOnInit(&anthropicMessagesAdapter{})
 }
 
 func (a *anthropicMessagesAdapter) Protocol() Protocol {
@@ -360,8 +360,8 @@ func encodeAnthropicParts(parts []IRContentPart) []map[string]interface{} {
 			})
 		case IRPartToolResult:
 			tb := map[string]interface{}{
-				"type":         "tool_result",
-				"tool_use_id":  part.ToolResult.ToolCallID,
+				"type":        "tool_result",
+				"tool_use_id": part.ToolResult.ToolCallID,
 			}
 			if len(part.ToolResult.Content) > 0 {
 				resultContent := encodeAnthropicParts(part.ToolResult.Content)
@@ -556,7 +556,7 @@ func (a *anthropicMessagesAdapter) DecodeStreamEvent(raw map[string]interface{},
 			st.toolBlockNames[idx] = getString(block, "name")
 
 			return []*IRStreamEvent{{
-				Type: IRStreamContentStart,
+				Type:  IRStreamContentStart,
 				Index: idx,
 				Part: &IRContentPart{
 					Type: IRPartToolCall,
@@ -573,7 +573,7 @@ func (a *anthropicMessagesAdapter) DecodeStreamEvent(raw map[string]interface{},
 				thinkingContent = "[REDACTED]"
 			}
 			return []*IRStreamEvent{{
-				Type: IRStreamContentStart,
+				Type:  IRStreamContentStart,
 				Index: idx,
 				Part: &IRContentPart{
 					Type: IRPartReasoning,
@@ -587,7 +587,7 @@ func (a *anthropicMessagesAdapter) DecodeStreamEvent(raw map[string]interface{},
 		default: // text
 			st.textStarted[idx] = true
 			return []*IRStreamEvent{{
-				Type: IRStreamContentStart,
+				Type:  IRStreamContentStart,
 				Index: idx,
 				Part: &IRContentPart{
 					Type: IRPartText,
@@ -758,8 +758,8 @@ func (a *anthropicMessagesAdapter) EncodeStreamEvent(ir *IRStreamEvent, state in
 				tb["signature"] = ir.Part.Reasoning.Signature
 			}
 			return []map[string]interface{}{{
-				"type":  "content_block_start",
-				"index": ir.Index,
+				"type":          "content_block_start",
+				"index":         ir.Index,
 				"content_block": tb,
 			}}, nil
 

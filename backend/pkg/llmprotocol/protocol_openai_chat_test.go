@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"github.com/bytedance/sonic"

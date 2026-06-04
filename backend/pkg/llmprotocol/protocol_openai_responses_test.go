@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"github.com/bytedance/sonic"
@@ -749,10 +749,10 @@ func TestOpenAIResponsesEncodeResponse_RoundTrip(t *testing.T) {
 			{Type: IRPartText, Text: "The answer is 42."},
 		},
 		Usage: &IRUsage{
-			InputTokens:       10,
-			OutputTokens:      5,
-			TotalTokens:       15,
-			ReasoningTokens:   2,
+			InputTokens:          10,
+			OutputTokens:         5,
+			TotalTokens:          15,
+			ReasoningTokens:      2,
 			CacheReadInputTokens: 3,
 		},
 		StopReason: IRStopEndTurn,

@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"bufio"
@@ -561,8 +561,8 @@ func TestAnthropicEncodeResponse(t *testing.T) {
 			Model:   "claude-sonnet-4-20250514",
 			Content: []IRContentPart{{Type: IRPartText, Text: "Hello, world!"}},
 			Usage: &IRUsage{
-				InputTokens:       10,
-				OutputTokens:      15,
+				InputTokens:          10,
+				OutputTokens:         15,
 				CacheReadInputTokens: 25,
 			},
 			StopReason: IRStopEndTurn,

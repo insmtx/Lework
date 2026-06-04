@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"github.com/bytedance/sonic"
@@ -285,7 +285,7 @@ func TestIntegration_GeminiToChat_NonStream(t *testing.T) {
 			},
 		},
 		"generationConfig": map[string]interface{}{
-			"temperature":    float64(0.7),
+			"temperature":     float64(0.7),
 			"maxOutputTokens": float64(4096),
 		},
 	}

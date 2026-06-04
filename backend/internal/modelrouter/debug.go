@@ -9,6 +9,8 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
+
+	"github.com/insmtx/Leros/backend/pkg/llmprotocol"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -81,7 +83,7 @@ func (dl *DebugLogger) Close() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // LogRequestMeta 记录请求元信息（入口协议、上游协议、模型名、是否流式）。
-func (dl *DebugLogger) LogRequestMeta(entryProtocol, upstreamProtocol Protocol, model string, stream bool) {
+func (dl *DebugLogger) LogRequestMeta(entryProtocol, upstreamProtocol llmprotocol.Protocol, model string, stream bool) {
 	dl.writeEvent("meta", map[string]interface{}{
 		"entry_protocol":    entryProtocol,
 		"upstream_protocol": upstreamProtocol,
@@ -96,12 +98,12 @@ func (dl *DebugLogger) LogOriginalRequest(body []byte) {
 }
 
 // LogIRDecoded 记录从入口协议解码后的 IR（第 3 步）。
-func (dl *DebugLogger) LogIRDecoded(ir *IRRequest) {
+func (dl *DebugLogger) LogIRDecoded(ir *llmprotocol.IRRequest) {
 	dl.writeStructEvent("ir_decoded", ir)
 }
 
 // LogIRNormalized 记录经过能力裁剪后的归一化 IR（第 4 步）。
-func (dl *DebugLogger) LogIRNormalized(ir *IRRequest) {
+func (dl *DebugLogger) LogIRNormalized(ir *llmprotocol.IRRequest) {
 	dl.writeStructEvent("ir_normalized", ir)
 }
 

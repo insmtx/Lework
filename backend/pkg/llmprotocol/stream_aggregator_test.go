@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"testing"

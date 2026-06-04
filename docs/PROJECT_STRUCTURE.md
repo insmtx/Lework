@@ -392,21 +392,23 @@ GitHub/GitLab Webhook → Server → NATS → Event Engine → Agent Runner
 | `chat.go` | CLI 聊天交互命令 |
 | `lister.go` | 列表功能（项目/任务/会话） |
 
-#### `backend/internal/modelrouter/` — LLM 模型路由
+#### `backend/pkg/llmprotocol/` — LLM 协议转换
 
 | 文件 | 说明 |
 |------|------|
-| `handler.go` | 模型路由处理器 |
-| `protocol.go` | 协议转换（统一上游请求/响应格式） |
-| `resolver.go` | 上游提供商 Resolver（按模型编码路由） |
-| `upstream.go` | 上游连接管理 |
-| `converter.go` | 请求/响应转换器 |
-| `stream_types.go` | 流式响应类型 |
+| `adapter.go` | 协议枚举、协议 Adapter 接口、Adapter 注册 |
 | `ir.go` | 中间表示层 |
-| `utils.go` | 工具函数 |
-| `anthropic.go` | Anthropic 协议适配 |
-| `openai_chat.go` | OpenAI Chat 协议适配 |
-| `openai_responses.go` | OpenAI Responses 协议适配 |
+| `capability.go` | 协议能力声明、请求能力归一化 |
+| `stream_aggregator.go` | 流式 IR 生命周期补齐 |
+| `protocol_*.go` | OpenAI Chat/Responses、Anthropic、Gemini 协议适配 |
+
+#### `backend/internal/modelrouter/` — Worker LLM 模型代理
+
+| 文件 | 说明 |
+|------|------|
+| `config.go` | 上游模型配置 |
+| `handler.go` | Gin 路由、上游 HTTP 转发、SSE 编排 |
+| `debug.go` | 请求级调试日志 |
 
 #### `backend/internal/workspace/` — 工作空间管理
 

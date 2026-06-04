@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"github.com/bytedance/sonic"
@@ -41,7 +41,6 @@ func loadJSONL(t *testing.T, path string) []map[string]interface{} {
 	}
 	return result
 }
-
 
 // TestGeminiDecodeRequest tests all aspects of DecodeRequest.
 func TestGeminiDecodeRequest(t *testing.T) {
@@ -280,7 +279,6 @@ func TestGeminiDecodeRequest_Additional(t *testing.T) {
 	})
 }
 
-
 func TestGeminiDecodeRequest_SystemInstruction(t *testing.T) {
 	adapter := &geminiAdapter{}
 	raw := map[string]interface{}{
@@ -372,7 +370,6 @@ func TestGeminiDecodeRequest_GenerationConfig(t *testing.T) {
 		t.Errorf("Stop = %v", req.Stop)
 	}
 }
-
 
 // TestGeminiEncodeRequest tests EncodeRequest.
 func TestGeminiEncodeRequest(t *testing.T) {
@@ -496,7 +493,6 @@ func TestGeminiEncodeRequest(t *testing.T) {
 		}
 	})
 }
-
 
 // TestGeminiDecodeResponse tests DecodeResponse.
 func TestGeminiDecodeResponse(t *testing.T) {
@@ -647,6 +643,7 @@ func TestGeminiEncodeResponse(t *testing.T) {
 		}
 	})
 }
+
 // TestGeminiDecodeStreamEvent tests streaming event decoding.
 func TestGeminiDecodeStreamEvent(t *testing.T) {
 	adapter := &geminiAdapter{}

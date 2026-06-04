@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"fmt"
@@ -21,7 +21,7 @@ type geminiStreamState struct {
 }
 
 func init() {
-	RegisterAdapter(&geminiAdapter{})
+	registerAdapterOnInit(&geminiAdapter{})
 }
 
 // Protocol returns ProtocolGemini.
@@ -606,8 +606,8 @@ func (a *geminiAdapter) DecodeStreamEvent(raw map[string]interface{}, state inte
 		// Always emit a delta event with the new text
 		if text != "" {
 			events = append(events, &IRStreamEvent{
-				Type:    IRStreamContentDelta,
-				Index:   i,
+				Type:      IRStreamContentDelta,
+				Index:     i,
 				DeltaText: text,
 			})
 		}

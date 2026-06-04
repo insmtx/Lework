@@ -14,6 +14,8 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
+
+	"github.com/insmtx/Leros/backend/pkg/llmprotocol"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -28,7 +30,12 @@ type ModelStore struct {
 }
 
 // Put registers an upstream configuration for a model.
+// If cfg.Protocol is not explicitly set and cfg.Provider is non-empty,
+// the protocol is inferred from the provider.
 func (s *ModelStore) Put(cfg UpstreamConfig) {
+	if cfg.Protocol == "" && cfg.Provider != "" {
+		cfg.Protocol = protocolForProvider(cfg.Provider)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.configs == nil {
@@ -75,15 +82,15 @@ func RegisterRoutes(r gin.IRouter) {
 
 	// NOTE: caller (worker/router) already mounts under /v1/ prefix.
 	// Register directly on the given router to avoid double-wrapping.
-	r.POST("/chat/completions", handleModelRoute(store, ProtocolOpenAIChat))
-	r.POST("/messages", handleModelRoute(store, ProtocolAnthropicMessages))
-	r.POST("/responses", handleModelRoute(store, ProtocolOpenAIResponses))
+	r.POST("/chat/completions", handleModelRoute(store, llmprotocol.ProtocolOpenAIChat))
+	r.POST("/messages", handleModelRoute(store, llmprotocol.ProtocolAnthropicMessages))
+	r.POST("/responses", handleModelRoute(store, llmprotocol.ProtocolOpenAIResponses))
 	// Gemini: use wildcard because Gin cannot handle ":model:generateContent" in one segment
-	r.POST("/models/*modelAction", handleModelRoute(store, ProtocolGemini))
+	r.POST("/models/*modelAction", handleModelRoute(store, llmprotocol.ProtocolGemini))
 }
 
 // handleModelRoute returns a Gin handler that routes model requests through protocol conversion.
-func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc {
+func handleModelRoute(store *ModelStore, entryProtocol llmprotocol.Protocol) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
@@ -100,7 +107,7 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 
 		model := extractModelField(body)
 		// Gemini: model name may come from URL path instead of request body
-		if model == "" && entryProtocol == ProtocolGemini {
+		if model == "" && entryProtocol == llmprotocol.ProtocolGemini {
 			model = extractGeminiModelFromPath(c.Param("modelAction"))
 		}
 		if model == "" {
@@ -124,7 +131,7 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 			return
 		}
 
-		entryAdapter, err := GetAdapter(entryProtocol)
+		entryAdapter, err := llmprotocol.GetAdapter(entryProtocol)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "entry protocol adapter not available"))
 			return
@@ -138,8 +145,8 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 		dl.LogIRDecoded(ir)
 
 		upstreamProtocol := cfg.Protocol
-		targetCaps := capabilitiesForProtocol(upstreamProtocol)
-		normalizedIR, _, err := NormalizeRequest(ir, targetCaps)
+		targetCaps := llmprotocol.CapabilitiesForProtocol(upstreamProtocol)
+		normalizedIR, _, err := llmprotocol.NormalizeRequest(ir, targetCaps)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, newEntryError(entryProtocol, fmt.Sprintf("request incompatible with target protocol: %v", err)))
 			return
@@ -149,7 +156,7 @@ func handleModelRoute(store *ModelStore, entryProtocol Protocol) gin.HandlerFunc
 		// Set upstream model name
 		normalizedIR.Model = cfg.ModelName
 
-		upstreamAdapter, err := GetAdapter(upstreamProtocol)
+		upstreamAdapter, err := llmprotocol.GetAdapter(upstreamProtocol)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, newEntryError(entryProtocol, "upstream protocol adapter not available"))
 			return
@@ -184,8 +191,8 @@ func handleNonStreamResponse(
 	c *gin.Context,
 	cfg *UpstreamConfig,
 	body []byte,
-	entryProtocol, upstreamProtocol Protocol,
-	entryAdapter, upstreamAdapter ProtocolAdapter,
+	entryProtocol, upstreamProtocol llmprotocol.Protocol,
+	entryAdapter, upstreamAdapter llmprotocol.ProtocolAdapter,
 	dl *DebugLogger,
 ) {
 	respBody, err := doUpstreamCall(c.Request.Context(), cfg, body)
@@ -233,8 +240,8 @@ func handleStreamResponse(
 	c *gin.Context,
 	cfg *UpstreamConfig,
 	body []byte,
-	entryProtocol, upstreamProtocol Protocol,
-	entryAdapter, upstreamAdapter ProtocolAdapter,
+	entryProtocol, upstreamProtocol llmprotocol.Protocol,
+	entryAdapter, upstreamAdapter llmprotocol.ProtocolAdapter,
 	dl *DebugLogger,
 ) {
 	reader, err := doUpstreamStreamCall(c.Request.Context(), cfg, body)
@@ -284,8 +291,8 @@ func pipeRawSSE(c *gin.Context, reader io.Reader, dl *DebugLogger) {
 func pipeConvertedSSE(
 	c *gin.Context,
 	reader io.Reader,
-	entryProtocol, upstreamProtocol Protocol,
-	entryAdapter, upstreamAdapter ProtocolAdapter,
+	entryProtocol, upstreamProtocol llmprotocol.Protocol,
+	entryAdapter, upstreamAdapter llmprotocol.ProtocolAdapter,
 	dl *DebugLogger,
 ) {
 	scanner := bufio.NewScanner(reader)
@@ -293,17 +300,17 @@ func pipeConvertedSSE(
 
 	upstreamState := upstreamAdapter.NewStreamState()
 	entryState := entryAdapter.NewStreamState()
-	aggregator := NewStreamAggregator()
+	aggregator := llmprotocol.NewStreamAggregator()
 
 	var currentEventType string
 	var currentData strings.Builder
 
 	// writeIREvents encodes a slice of IR stream events through the entry
 	// adapter and writes the resulting SSE payloads to the client.
-	// All writes are logged via the debug logger.  If an IRStreamDone event
+	// All writes are logged via the debug logger.  If an llmprotocol.IRStreamDone event
 	// is encountered and the entry protocol is Chat, a trailing [DONE] is
 	// appended automatically.
-	writeIREvents := func(events []*IRStreamEvent) {
+	writeIREvents := func(events []*llmprotocol.IRStreamEvent) {
 		for _, evt := range events {
 			payloads, err := entryAdapter.EncodeStreamEvent(evt, entryState)
 			if err != nil {
@@ -328,7 +335,7 @@ func pipeConvertedSSE(
 				c.Writer.Flush()
 			}
 
-			if evt.Type == IRStreamDone && entryProtocol == ProtocolOpenAIChat {
+			if evt.Type == llmprotocol.IRStreamDone && entryProtocol == llmprotocol.ProtocolOpenAIChat {
 				dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
 				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
@@ -364,7 +371,7 @@ func pipeConvertedSSE(
 
 	// finalizeStream commits the target protocol stream.
 	// The [DONE] marker (if needed) is emitted by writeIREvents when it
-	// encounters IRStreamDone for a Chat entry protocol.
+	// encounters llmprotocol.IRStreamDone for a Chat entry protocol.
 	finalizeStream := func() {
 		writeIREvents(aggregator.Finalize())
 	}
@@ -389,7 +396,7 @@ func pipeConvertedSSE(
 
 				// Upstream is Chat SSE — client expects [DONE] regardless
 				// of entry protocol.
-				if upstreamProtocol == ProtocolOpenAIChat {
+				if upstreamProtocol == llmprotocol.ProtocolOpenAIChat {
 					dl.LogEntryStreamChunk([]byte("data: [DONE]\n\n"))
 					_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 					c.Writer.Flush()
@@ -422,9 +429,9 @@ func pipeConvertedSSE(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // formatSSE formats an SSE message according to the protocol.
-func formatSSE(proto Protocol, eventType string, data []byte) []byte {
+func formatSSE(proto llmprotocol.Protocol, eventType string, data []byte) []byte {
 	switch proto {
-	case ProtocolOpenAIChat:
+	case llmprotocol.ProtocolOpenAIChat:
 		return []byte(fmt.Sprintf("data: %s\n\n", string(data)))
 	default: // Anthropic, Responses, Gemini use event: header
 		return []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, string(data)))
@@ -438,7 +445,7 @@ func formatSSE(proto Protocol, eventType string, data []byte) []byte {
 // setUpstreamRequest creates an HTTP request for the upstream call.
 func setUpstreamRequest(ctx context.Context, cfg *UpstreamConfig, body []byte) (*http.Request, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
-	apiPath := UpstreamAPIPath(cfg.Protocol, cfg.BaseURLHasV1)
+	apiPath := llmprotocol.UpstreamAPIPath(cfg.Protocol, cfg.BaseURLHasV1)
 	url := baseURL + apiPath
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -449,7 +456,7 @@ func setUpstreamRequest(ctx context.Context, cfg *UpstreamConfig, body []byte) (
 	req.Header.Set("Content-Type", "application/json")
 
 	switch cfg.Protocol {
-	case ProtocolAnthropicMessages:
+	case llmprotocol.ProtocolAnthropicMessages:
 		req.Header.Set("x-api-key", cfg.APIKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
 	default:
@@ -538,7 +545,7 @@ func (e *upstreamError) Error() string {
 }
 
 // handleUpstreamError maps upstream errors to entry protocol error responses.
-func handleUpstreamError(c *gin.Context, entryProtocol Protocol, err error) {
+func handleUpstreamError(c *gin.Context, entryProtocol llmprotocol.Protocol, err error) {
 	var upErr *upstreamError
 	if !isUpstreamError(err, &upErr) {
 		c.JSON(http.StatusBadGateway, newEntryError(entryProtocol, fmt.Sprintf("upstream request failed: %v", err)))
@@ -569,7 +576,7 @@ func isUpstreamError(err error, target **upstreamError) bool {
 }
 
 // parseAndEncodeError parses an upstream error body and encodes it for the entry protocol.
-func parseAndEncodeError(body []byte, statusCode int, entryProtocol Protocol) interface{} {
+func parseAndEncodeError(body []byte, statusCode int, entryProtocol llmprotocol.Protocol) interface{} {
 	message := fmt.Sprintf("upstream returned status %d", statusCode)
 	errType := "upstream_error"
 
@@ -603,9 +610,9 @@ func parseAndEncodeError(body []byte, statusCode int, entryProtocol Protocol) in
 }
 
 // encodeErrorForProtocol encodes an error message and type into the entry protocol's error format.
-func encodeErrorForProtocol(message, errType string, proto Protocol) interface{} {
+func encodeErrorForProtocol(message, errType string, proto llmprotocol.Protocol) interface{} {
 	switch proto {
-	case ProtocolAnthropicMessages:
+	case llmprotocol.ProtocolAnthropicMessages:
 		return map[string]interface{}{
 			"type": "error",
 			"error": map[string]interface{}{
@@ -624,7 +631,7 @@ func encodeErrorForProtocol(message, errType string, proto Protocol) interface{}
 }
 
 // newEntryError creates an entry protocol error response.
-func newEntryError(proto Protocol, message string) interface{} {
+func newEntryError(proto llmprotocol.Protocol, message string) interface{} {
 	return encodeErrorForProtocol(message, "invalid_request_error", proto)
 }
 
@@ -663,21 +670,17 @@ func isStreamRequest(body []byte) bool {
 	return raw.Stream
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Protocol capability helpers
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+func marshalJSON(v interface{}) ([]byte, error) {
+	return sonic.Marshal(v)
+}
 
-func capabilitiesForProtocol(proto Protocol) CapabilitySet {
-	switch proto {
-	case ProtocolOpenAIChat:
-		return OpenAIChatCapabilities
-	case ProtocolOpenAIResponses:
-		return OpenAIResponsesCapabilities
-	case ProtocolAnthropicMessages:
-		return AnthropicMessagesCapabilities
-	case ProtocolGemini:
-		return GeminiCapabilities
-	default:
-		return OpenAIChatCapabilities
+func getString(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
 	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
 }

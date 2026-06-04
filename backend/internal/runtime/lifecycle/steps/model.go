@@ -11,10 +11,10 @@ import (
 )
 
 // modelStore caches the modelrouter store for this process.
-// modelrouter.DefaultStore() creates a new instance each call, so we hold
-// the reference here to ensure the same store is used by both the lifecycle
-// step (writer) and the model router handler (reader).
+// modelrouter.DefaultStore() returns the process-wide singleton shared by the
+// lifecycle step (writer) and the model router handler (reader).
 var modelStore = modelrouter.DefaultStore()
+
 // It writes the real upstream configuration to modelrouter store and modifies the
 // request's BaseURL to use the built-in worker model proxy.
 type ModelStep struct{}
@@ -52,7 +52,6 @@ func initModelRouting(_ context.Context, req *agent.RequestContext) error {
 		BaseURL:      strings.TrimSpace(req.Model.BaseURL),
 		BaseURLHasV1: req.Model.BaseURLHasV1,
 		APIKey:       strings.TrimSpace(req.Model.APIKey),
-		Protocol:     modelrouter.DefaultProtocolForProvider(req.Model.Provider),
 		Temperature:  req.Model.Temperature,
 	}
 	modelStore.Put(upstreamCfg)

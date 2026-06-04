@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ type responsesStreamState struct {
 type openAIResponsesAdapter struct{}
 
 func init() {
-	RegisterAdapter(&openAIResponsesAdapter{})
+	registerAdapterOnInit(&openAIResponsesAdapter{})
 }
 
 // Protocol returns ProtocolOpenAIResponses.
@@ -490,7 +490,7 @@ func (a *openAIResponsesAdapter) DecodeResponse(raw map[string]interface{}) (*IR
 
 	ir.StopReason = mapResponsesStatus(getString(raw, "status"))
 
-		if output, ok := getList(raw, "output"); ok {
+	if output, ok := getList(raw, "output"); ok {
 		hasFunctionCall := false
 		for _, item := range output {
 			m, _ := item.(map[string]interface{})

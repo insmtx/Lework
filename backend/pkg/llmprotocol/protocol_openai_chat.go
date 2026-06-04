@@ -1,10 +1,10 @@
-package modelrouter
+package llmprotocol
 
 // openAIChatAdapter implements ProtocolAdapter for the OpenAI Chat Completions protocol.
 type openAIChatAdapter struct{}
 
 func init() {
-	RegisterAdapter(&openAIChatAdapter{})
+	registerAdapterOnInit(&openAIChatAdapter{})
 }
 
 func (a *openAIChatAdapter) Protocol() Protocol { return ProtocolOpenAIChat }
@@ -510,8 +510,8 @@ func (a *openAIChatAdapter) EncodeStreamEvent(ir *IRStreamEvent, state interface
 	case IRStreamMessageStart:
 		chunk["choices"] = []interface{}{
 			map[string]interface{}{
-				"index": 0,
-				"delta": map[string]interface{}{"role": "assistant", "content": ""},
+				"index":         0,
+				"delta":         map[string]interface{}{"role": "assistant", "content": ""},
 				"finish_reason": nil,
 			},
 		}
@@ -553,11 +553,11 @@ func (a *openAIChatAdapter) EncodeStreamEvent(ir *IRStreamEvent, state interface
 							map[string]interface{}{
 								"index": ir.Index,
 								"id":    ir.Part.ToolCall.ID,
-							"type":  "function",
-							"function": map[string]interface{}{
-								"name":      ir.Part.ToolCall.Name,
-								"arguments": serializeChatToolCallArgs(ir.Part.ToolCall),
-							},
+								"type":  "function",
+								"function": map[string]interface{}{
+									"name":      ir.Part.ToolCall.Name,
+									"arguments": serializeChatToolCallArgs(ir.Part.ToolCall),
+								},
 							},
 						},
 					},
@@ -711,7 +711,7 @@ func decodeOpenAIChatContent(content interface{}) []IRContentPart {
 					parts = append(parts, IRContentPart{Type: IRPartText, Text: getString(m, "text")})
 				case "refusal":
 					parts = append(parts, IRContentPart{
-						Type: IRPartRefusal,
+						Type:    IRPartRefusal,
 						Refusal: &IRRefusalPart{Text: getString(m, "refusal")},
 					})
 				case "image_url":

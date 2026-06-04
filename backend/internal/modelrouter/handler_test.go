@@ -1,7 +1,6 @@
 package modelrouter
 
 import (
-	"github.com/bytedance/sonic"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,7 +9,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
+
+	"github.com/insmtx/Leros/backend/pkg/llmprotocol"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -22,9 +24,9 @@ func setupTestRouter(store *ModelStore) *gin.Engine {
 	r := gin.New()
 
 	v1 := r.Group("/v1")
-	v1.POST("/chat/completions", handleModelRoute(store, ProtocolOpenAIChat))
-	v1.POST("/messages", handleModelRoute(store, ProtocolAnthropicMessages))
-	v1.POST("/responses", handleModelRoute(store, ProtocolOpenAIResponses))
+	v1.POST("/chat/completions", handleModelRoute(store, llmprotocol.ProtocolOpenAIChat))
+	v1.POST("/messages", handleModelRoute(store, llmprotocol.ProtocolAnthropicMessages))
+	v1.POST("/responses", handleModelRoute(store, llmprotocol.ProtocolOpenAIResponses))
 
 	return r
 }
@@ -109,6 +111,7 @@ func (m *mockUpstreamServer) getLastBody() []byte {
 	defer m.mu.RUnlock()
 	return m.lastBody
 }
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Handler Tests — Non-stream
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -127,7 +130,7 @@ func TestHandler_ChatToChat_NonStream(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "test-key",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -167,7 +170,7 @@ func TestHandler_ChatToChat_AuthHeader(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-test-key",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -202,7 +205,7 @@ func TestHandler_ChatToAnthropic_AuthHeader(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-ant-test",
-		Protocol:     ProtocolAnthropicMessages,
+		Protocol:     llmprotocol.ProtocolAnthropicMessages,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -237,7 +240,7 @@ func TestHandler_ChatToAnthropic_NonStream(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-ant-test",
-		Protocol:     ProtocolAnthropicMessages,
+		Protocol:     llmprotocol.ProtocolAnthropicMessages,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -290,7 +293,7 @@ func TestHandler_AnthropicToChat_NonStream(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-test",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -333,7 +336,7 @@ func TestHandler_ResponsesToChat_NonStream(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-test",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -367,7 +370,7 @@ func TestHandler_InvalidJSON(t *testing.T) {
 		BaseURL:      "http://localhost:1",
 		BaseURLHasV1: true,
 		APIKey:       "sk-test",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -417,7 +420,7 @@ func TestHandler_UpstreamError(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-test",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -465,7 +468,7 @@ func TestHandler_ChatToChat_StreamRaw(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-test",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -511,7 +514,7 @@ func TestHandler_ChatToAnthropic_Stream(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-ant-stream",
-		Protocol:     ProtocolAnthropicMessages,
+		Protocol:     llmprotocol.ProtocolAnthropicMessages,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -556,7 +559,7 @@ func TestHandler_AnthropicToChat_Stream(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-test",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -600,7 +603,7 @@ func TestHandler_ResponsesToChat_Stream(t *testing.T) {
 		BaseURL:      mock.server.URL,
 		BaseURLHasV1: true,
 		APIKey:       "sk-test",
-		Protocol:     ProtocolOpenAIChat,
+		Protocol:     llmprotocol.ProtocolOpenAIChat,
 		MaxTokens:    4096,
 		TimeoutSec:   30,
 	})
@@ -633,7 +636,7 @@ func TestModelStore_PutAndResolve(t *testing.T) {
 		Provider:  "openai",
 		BaseURL:   "https://api.openai.com",
 		APIKey:    "sk-test",
-		Protocol:  ProtocolOpenAIChat,
+		Protocol:  llmprotocol.ProtocolOpenAIChat,
 		MaxTokens: 4096,
 	}
 	store.Put(cfg)
@@ -645,7 +648,7 @@ func TestModelStore_PutAndResolve(t *testing.T) {
 	if resolved.Provider != "openai" {
 		t.Errorf("expected provider openai, got %s", resolved.Provider)
 	}
-	if resolved.Protocol != ProtocolOpenAIChat {
+	if resolved.Protocol != llmprotocol.ProtocolOpenAIChat {
 		t.Errorf("expected protocol openai_chat, got %s", resolved.Protocol)
 	}
 }
@@ -665,35 +668,35 @@ func TestModelStore_ResolveNotFound(t *testing.T) {
 func TestFormatSSE(t *testing.T) {
 	tests := []struct {
 		name      string
-		proto     Protocol
+		proto     llmprotocol.Protocol
 		eventType string
 		data      []byte
 		expected  string
 	}{
 		{
 			name:      "OpenAI Chat format",
-			proto:     ProtocolOpenAIChat,
+			proto:     llmprotocol.ProtocolOpenAIChat,
 			eventType: "",
 			data:      []byte(`{"choices":[]}`),
 			expected:  "data: {\"choices\":[]}\n\n",
 		},
 		{
 			name:      "Anthropic format",
-			proto:     ProtocolAnthropicMessages,
+			proto:     llmprotocol.ProtocolAnthropicMessages,
 			eventType: "content_block_delta",
 			data:      []byte(`{"delta":{"text":"hi"}}`),
 			expected:  "event: content_block_delta\ndata: {\"delta\":{\"text\":\"hi\"}}\n\n",
 		},
 		{
 			name:      "Responses format",
-			proto:     ProtocolOpenAIResponses,
+			proto:     llmprotocol.ProtocolOpenAIResponses,
 			eventType: "response.output_text.delta",
 			data:      []byte(`{"delta":"hi"}`),
 			expected:  "event: response.output_text.delta\ndata: {\"delta\":\"hi\"}\n\n",
 		},
 		{
 			name:      "Gemini format",
-			proto:     ProtocolGemini,
+			proto:     llmprotocol.ProtocolGemini,
 			eventType: "gemini_event",
 			data:      []byte(`{}`),
 			expected:  "event: gemini_event\ndata: {}\n\n",

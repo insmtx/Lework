@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 // IRRole represents a message role in the IR.
 type IRRole string
@@ -28,13 +28,13 @@ const (
 type IRStreamEventType string
 
 const (
-	IRStreamMessageStart  IRStreamEventType = "message_start"
-	IRStreamContentStart  IRStreamEventType = "content_part_start"
-	IRStreamContentDelta  IRStreamEventType = "content_part_delta"
-	IRStreamContentStop   IRStreamEventType = "content_part_stop"
-	IRStreamMessageDelta  IRStreamEventType = "message_delta"
-	IRStreamDone          IRStreamEventType = "done"
-	IRStreamError         IRStreamEventType = "error"
+	IRStreamMessageStart IRStreamEventType = "message_start"
+	IRStreamContentStart IRStreamEventType = "content_part_start"
+	IRStreamContentDelta IRStreamEventType = "content_part_delta"
+	IRStreamContentStop  IRStreamEventType = "content_part_stop"
+	IRStreamMessageDelta IRStreamEventType = "message_delta"
+	IRStreamDone         IRStreamEventType = "done"
+	IRStreamError        IRStreamEventType = "error"
 )
 
 // IRStopReason represents why a response stopped.

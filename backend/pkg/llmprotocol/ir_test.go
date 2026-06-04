@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"github.com/bytedance/sonic"
@@ -26,16 +26,16 @@ func TestIRRequestJSONRoundTrip(t *testing.T) {
 	seed := 42
 
 	orig := IRRequest{
-		ID:         "req_001",
-		Model:      "gpt-4o",
-		Stream:     true,
-		User:       "user_abc",
-		System:     "You are a helpful assistant.",
-		MaxTokens:  4096,
+		ID:          "req_001",
+		Model:       "gpt-4o",
+		Stream:      true,
+		User:        "user_abc",
+		System:      "You are a helpful assistant.",
+		MaxTokens:   4096,
 		Temperature: &temp,
 		TopP:        &topP,
-		Stop:       []string{"\n", "END"},
-		Seed:       &seed,
+		Stop:        []string{"\n", "END"},
+		Seed:        &seed,
 		Messages: []IRMessage{
 			{ID: "msg_1", Role: IRRoleUser, Parts: []IRContentPart{
 				{Type: IRPartText, Text: "Hello"},
@@ -140,11 +140,11 @@ func TestIRResponseJSONRoundTrip(t *testing.T) {
 			{Type: IRPartText, Text: "Hello, world!"},
 		},
 		Usage: &IRUsage{
-			InputTokens:       10,
-			OutputTokens:      20,
-			TotalTokens:       30,
+			InputTokens:          10,
+			OutputTokens:         20,
+			TotalTokens:          30,
 			CacheReadInputTokens: 5,
-			ReasoningTokens:   3,
+			ReasoningTokens:      3,
 		},
 		StopReason: IRStopEndTurn,
 		Extensions: map[string]map[string]interface{}{
@@ -223,8 +223,8 @@ func TestIRContentPartTypes(t *testing.T) {
 		{
 			name: "tool_call",
 			part: IRContentPart{
-				Type:    IRPartToolCall,
-				ID:      "call_abc",
+				Type:     IRPartToolCall,
+				ID:       "call_abc",
 				ToolCall: &IRToolCallPart{ID: "call_abc", Name: "get_weather", ArgumentsRaw: `{"city":"Tokyo"}`},
 			},
 			checkFn: func(t *testing.T, got IRContentPart) {
@@ -245,7 +245,7 @@ func TestIRContentPartTypes(t *testing.T) {
 		{
 			name: "tool_result",
 			part: IRContentPart{
-				Type:       IRPartToolResult,
+				Type: IRPartToolResult,
 				ToolResult: &IRToolResultPart{ToolCallID: "call_abc", Status: "success", Content: []IRContentPart{
 					{Type: IRPartText, Text: "25°C"},
 				}},

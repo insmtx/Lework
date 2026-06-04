@@ -1,4 +1,4 @@
-package modelrouter
+package llmprotocol
 
 import (
 	"fmt"
@@ -72,6 +72,22 @@ var (
 		CapParallelToolCalls: true,
 	}
 )
+
+// CapabilitiesForProtocol returns the capability set for a supported protocol.
+func CapabilitiesForProtocol(proto Protocol) CapabilitySet {
+	switch proto {
+	case ProtocolOpenAIChat:
+		return OpenAIChatCapabilities
+	case ProtocolOpenAIResponses:
+		return OpenAIResponsesCapabilities
+	case ProtocolAnthropicMessages:
+		return AnthropicMessagesCapabilities
+	case ProtocolGemini:
+		return GeminiCapabilities
+	default:
+		return OpenAIChatCapabilities
+	}
+}
 
 // NormalizeRequest adapts an IR request to the constraints of a target protocol.
 func NormalizeRequest(ir *IRRequest, targetCaps CapabilitySet) (*IRRequest, []Warning, error) {

@@ -1,8 +1,10 @@
-// Package modelrouter provides Worker built-in LLM model routing capability.
-package modelrouter
+// Package llmprotocol provides provider protocol conversion for LLM requests and responses.
+package llmprotocol
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -36,18 +38,6 @@ func ProtocolFromPath(path string) (Protocol, error) {
 	}
 }
 
-// DefaultProtocolForProvider returns the default upstream protocol for a provider.
-func DefaultProtocolForProvider(provider string) Protocol {
-	switch strings.ToLower(provider) {
-	case "anthropic":
-		return ProtocolAnthropicMessages
-	case "gemini":
-		return ProtocolGemini
-	default:
-		return ProtocolOpenAIChat
-	}
-}
-
 // UpstreamAPIPath returns the API path suffix for the given protocol.
 func UpstreamAPIPath(proto Protocol, hasV1 bool) string {
 	switch proto {
@@ -75,19 +65,6 @@ func UpstreamAPIPath(proto Protocol, hasV1 bool) string {
 		}
 		return "/chat/completions"
 	}
-}
-
-// UpstreamConfig describes the complete upstream forwarding configuration.
-type UpstreamConfig struct {
-	ModelName    string
-	Provider     string
-	BaseURL      string
-	BaseURLHasV1 bool
-	APIKey       string
-	Protocol     Protocol
-	MaxTokens    int
-	Temperature  float64
-	TimeoutSec   int
 }
 
 // ProtocolAdapter defines the contract for protocol-specific encoding/decoding.
@@ -133,24 +110,52 @@ type StreamContext struct {
 // adapters maps protocol to registered ProtocolAdapter implementations.
 var adapters = map[Protocol]ProtocolAdapter{}
 
+var registrationErr error
+
 // RegisterAdapter registers a ProtocolAdapter for its protocol.
-// Panics if a different adapter is already registered for the same protocol.
-func RegisterAdapter(a ProtocolAdapter) {
+// It returns an error when the adapter is invalid or conflicts with an existing registration.
+func RegisterAdapter(a ProtocolAdapter) error {
+	if isNilAdapter(a) {
+		return errors.New("llmprotocol: ProtocolAdapter is required")
+	}
 	proto := a.Protocol()
+	if proto == "" {
+		return errors.New("llmprotocol: ProtocolAdapter protocol is required")
+	}
 	if existing, ok := adapters[proto]; ok && existing != a {
-		// This is a programming error — different adapter for same protocol.
-		// Using log.Fatal would pull in log dependency; panicking in registration
-		// is acceptable as it's a startup-time programmer error.
-		panic(fmt.Sprintf("modelrouter: ProtocolAdapter already registered for %q", proto))
+		return fmt.Errorf("llmprotocol: ProtocolAdapter already registered for %q", proto)
 	}
 	adapters[proto] = a
+	return nil
+}
+
+func isNilAdapter(a ProtocolAdapter) bool {
+	if a == nil {
+		return true
+	}
+	v := reflect.ValueOf(a)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+func registerAdapterOnInit(a ProtocolAdapter) {
+	if err := RegisterAdapter(a); err != nil {
+		registrationErr = errors.Join(registrationErr, err)
+	}
 }
 
 // GetAdapter returns the registered ProtocolAdapter for the given protocol.
 func GetAdapter(proto Protocol) (ProtocolAdapter, error) {
+	if registrationErr != nil {
+		return nil, registrationErr
+	}
 	a, ok := adapters[proto]
 	if !ok {
-		return nil, fmt.Errorf("modelrouter: no ProtocolAdapter registered for %q", proto)
+		return nil, fmt.Errorf("llmprotocol: no ProtocolAdapter registered for %q", proto)
 	}
 	return a, nil
 }
