@@ -14,7 +14,17 @@ import (
 
 // CreateLLMModel 创建LLM模型配置
 func CreateLLMModel(ctx context.Context, db *gorm.DB, model *types.LLMModel) error {
-	return db.WithContext(ctx).Create(model).Error
+	baseURLHasV1 := model.BaseURLHasV1
+	if err := db.WithContext(ctx).Create(model).Error; err != nil {
+		return err
+	}
+	if !baseURLHasV1 {
+		if err := db.WithContext(ctx).Model(model).UpdateColumn("base_url_has_v1", false).Error; err != nil {
+			return err
+		}
+		model.BaseURLHasV1 = false
+	}
+	return nil
 }
 
 // GetLLMModelByID 根据ID获取LLM模型配置

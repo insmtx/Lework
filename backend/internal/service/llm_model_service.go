@@ -10,11 +10,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
-	agenteino "github.com/insmtx/Leros/backend/internal/runtime/eino"
+	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/insmtx/Leros/backend/pkg/utils"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
@@ -336,7 +335,7 @@ func (s *llmModelService) TestLLMModel(ctx context.Context, req *contract.TestLL
 	endpointURL := buildLLMEndpointURL(baseURL, baseURLHasV1)
 
 	start := time.Now()
-	chatModel, err := agenteino.NewChatModel(ctx, &config.LLMConfig{
+	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
 		Provider: provider,
 		APIKey:   apiKey,
 		Model:    modelName,
@@ -353,7 +352,7 @@ func (s *llmModelService) TestLLMModel(ctx context.Context, req *contract.TestLL
 		}, nil
 	}
 
-	flow, err := agenteino.NewFlow(ctx, &agenteino.FlowConfig{
+	flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
 		Model:        chatModel,
 		SystemPrompt: "You are testing Leros LLM connectivity. Reply with only: ok",
 		MaxStep:      1,
@@ -545,7 +544,7 @@ func probeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL
 	}
 
 	for _, candidate := range candidates {
-		chatModel, err := agenteino.NewChatModel(ctx, &config.LLMConfig{
+		chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
 			Provider: provider,
 			APIKey:   apiKey,
 			Model:    modelName,
@@ -554,7 +553,7 @@ func probeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL
 		if err != nil {
 			continue
 		}
-		flow, err := agenteino.NewFlow(ctx, &agenteino.FlowConfig{
+		flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
 			Model:        chatModel,
 			SystemPrompt: "connectivity test",
 			MaxStep:      1,

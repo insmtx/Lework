@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/config"
+	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
-	einoadapter "github.com/insmtx/Leros/backend/internal/runtime/eino"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
 	"github.com/insmtx/Leros/backend/internal/workspace"
+	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/tools"
 	artifactdeclare "github.com/insmtx/Leros/backend/tools/artifact_declare"
@@ -39,7 +39,7 @@ var defaultToolNames = []string{
 
 // Runner 是 Leros 内置 Eino 运行时入口。
 type Runner struct {
-	toolAdapter  *einoadapter.ToolAdapter
+	toolAdapter  *toolAdapter
 	systemPrompt string
 }
 
@@ -58,7 +58,7 @@ func NewRunner(ctx context.Context, env *deps.Container) (*Runner, error) {
 	}
 
 	return &Runner{
-		toolAdapter:  einoadapter.NewToolAdapter(env.ToolRegistry()),
+		toolAdapter:  newToolAdapter(env.ToolRegistry()),
 		systemPrompt: prompts.Get(prompts.KeyAgentSystemDefault),
 	}, nil
 }
@@ -80,7 +80,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt time.Time) (*agent.RunResult, error) {
 	req := state.req
 
-	chatModel, err := einoadapter.NewChatModel(ctx, &config.LLMConfig{
+	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
 		Provider: req.Model.Provider,
 		APIKey:   req.Model.APIKey,
 		Model:    req.Model.Model,
@@ -90,17 +90,17 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 		return nil, err
 	}
 
-	einoTools, err := r.toolAdapter.EinoTools(state.toolBinding, state.eventSink)
+	toolSpecs, toolInvoker, err := r.toolAdapter.EinoTools(state.toolBinding, state.eventSink)
 	if err != nil {
 		return nil, fmt.Errorf("build eino tools: %w", err)
 	}
+	einoBaseTools := buildEinoTools(toolSpecs, toolInvoker)
 
-	// 构建对话历史消息
-	historyMessages := einoadapter.BuildMessagesFromConversation(req.Conversation.Messages)
+	historyMessages := pkgeino.BuildMessages(messagesFromConversation(req.Conversation.Messages))
 
-	flow, err := einoadapter.NewFlow(ctx, &einoadapter.FlowConfig{
+	flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
 		Model:        chatModel,
-		Tools:        einoTools,
+		Tools:        einoBaseTools,
 		SystemPrompt: state.systemPrompt,
 		MaxStep:      state.maxStep,
 		Messages:     historyMessages,
@@ -115,12 +115,12 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 	var resultMessage string
 	var usage *events.UsagePayload
 	if req.EventSink != nil {
-		streamedMessage, streamedUsage, streamErr := flow.StreamWithUsage(ctx, state.userInput, state.eventSink)
+		streamedMessage, streamedUsage, streamErr := flow.StreamWithUsage(ctx, state.userInput, streamSink{sink: state.eventSink})
 		err = streamErr
 		if streamedMessage != nil {
 			message = streamedMessage
 			resultMessage = strings.TrimSpace(streamedMessage.Content)
-			usage = streamedUsage
+			usage = usagePayload(streamedUsage)
 		}
 	} else {
 		generatedMessage, generatedUsage, generateErr := flow.GenerateWithUsage(ctx, state.userInput)
@@ -128,7 +128,7 @@ func (r *Runner) runWithState(ctx context.Context, state *runState, startedAt ti
 		if generatedMessage != nil {
 			message = generatedMessage
 			resultMessage = strings.TrimSpace(generatedMessage.Content)
-			usage = generatedUsage
+			usage = usagePayload(generatedUsage)
 		}
 	}
 	if err != nil {
@@ -191,7 +191,7 @@ func (r *Runner) buildRunState(req *agent.RequestContext) (*runState, error) {
 		eventSink:    eventSink,
 		userInput:    userInput,
 		systemPrompt: systemPrompt,
-		toolBinding: einoadapter.ToolBinding{
+		toolBinding: toolBinding{
 			ToolContext:  toolCtx,
 			AllowedTools: mergeToolNames(r.availableDefaultToolNames(), req.Capability.AllowedTools),
 			TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
@@ -282,4 +282,58 @@ func formatLLMResultForLog(message interface{ String() string }) string {
 		return formatted[:2000] + "...(truncated)"
 	}
 	return formatted
+}
+
+type streamSink struct {
+	sink events.Sink
+}
+
+func (s streamSink) EmitMessageDelta(ctx context.Context, messageID string, content string) error {
+	if s.sink == nil {
+		return nil
+	}
+	return s.sink.Emit(ctx, events.NewMessageDelta(messageID, content))
+}
+
+func (s streamSink) EmitReasoningDelta(ctx context.Context, messageID string, content string) error {
+	if s.sink == nil {
+		return nil
+	}
+	return s.sink.Emit(ctx, events.NewReasoningDelta(messageID, content))
+}
+
+func messagesFromConversation(messages []agent.InputMessage) []pkgeino.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	result := make([]pkgeino.Message, 0, len(messages))
+	for _, message := range messages {
+		result = append(result, pkgeino.Message{
+			Role:    message.Role,
+			Content: message.Content,
+		})
+	}
+	return result
+}
+
+func usagePayload(usage *pkgeino.Usage) *events.UsagePayload {
+	if usage == nil {
+		return nil
+	}
+	return &events.UsagePayload{
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		TotalTokens:  usage.TotalTokens,
+	}
+}
+
+func buildEinoTools(specs []pkgeino.ToolSpec, invoker pkgeino.ToolInvoker) []einotool.BaseTool {
+	if len(specs) == 0 {
+		return nil
+	}
+	result := make([]einotool.BaseTool, 0, len(specs))
+	for _, spec := range specs {
+		result = append(result, pkgeino.NewTool(spec, invoker))
+	}
+	return result
 }

@@ -7,10 +7,9 @@ import (
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	einoschema "github.com/cloudwego/eino/schema"
-	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/agent"
-	einoadapter "github.com/insmtx/Leros/backend/internal/runtime/eino"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
+	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -42,14 +41,14 @@ func New(ctx context.Context, cfg *Config) (*SimpleChat, error) {
 		return nil, fmt.Errorf("config is required")
 	}
 
-	llmConfig := &config.LLMConfig{
+	llmConfig := &pkgeino.ChatModelConfig{
 		Provider: cfg.LLMProvider,
 		APIKey:   cfg.APIKey,
 		Model:    cfg.Model,
 		BaseURL:  cfg.BaseURL,
 	}
 
-	chatModel, err := einoadapter.NewChatModel(ctx, llmConfig)
+	chatModel, err := pkgeino.NewChatModel(ctx, llmConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create chat model: %w", err)
 	}

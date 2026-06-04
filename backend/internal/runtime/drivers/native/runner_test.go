@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
+	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
-	einoadapter "github.com/insmtx/Leros/backend/internal/runtime/eino"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
+	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/tools"
@@ -84,12 +85,12 @@ func TestRunnerBuildRunStateMergesDefaultAndRequestTools(t *testing.T) {
 	}
 
 	runner := &Runner{
-		toolAdapter: einoadapter.NewToolAdapter(registry),
+		toolAdapter: newToolAdapter(registry),
 	}
 	state, err := runner.buildRunState(&agent.RequestContext{
 		RunID: "run_tools",
 		Input: agent.InputContext{
-			Type: agent.InputTypeMessage,
+			Type:     agent.InputTypeMessage,
 			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Capability: agent.CapabilityContext{
@@ -128,7 +129,7 @@ func TestRunnerBuildRunStateUsesWorkspaceTempWhenWorkDirMissing(t *testing.T) {
 	state, err := runner.buildRunState(&agent.RequestContext{
 		RunID: "run_temp",
 		Input: agent.InputContext{
-			Type: agent.InputTypeMessage,
+			Type:     agent.InputTypeMessage,
 			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: expected},
@@ -156,7 +157,7 @@ func TestRunnerBuildRunStateUsesRequestWorkDir(t *testing.T) {
 	state, err := runner.buildRunState(&agent.RequestContext{
 		RunID: "run_project",
 		Input: agent.InputContext{
-			Type: agent.InputTypeMessage,
+			Type:     agent.InputTypeMessage,
 			Messages: []agent.InputMessage{{Role: "user", Content: "hello"}},
 		},
 		Runtime: agent.RuntimeOptions{WorkDir: projectDir},
@@ -166,6 +167,97 @@ func TestRunnerBuildRunStateUsesRequestWorkDir(t *testing.T) {
 	}
 	if state.toolBinding.ToolContext.WorkDir != projectDir {
 		t.Fatalf("tool work dir = %q, want %q", state.toolBinding.ToolContext.WorkDir, projectDir)
+	}
+}
+
+func TestToolInvokerInjectsTodoReporter(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := todotools.Register(registry); err != nil {
+		t.Fatalf("register todo tool: %v", err)
+	}
+
+	var emitted []events.Event
+	reporter := runtimetodo.NewTracker(runtimetodo.Options{
+		RunID: "run_adapter",
+		Sink: events.SinkFunc(func(_ context.Context, event *events.Event) error {
+			emitted = append(emitted, *event)
+			return nil
+		}),
+	})
+
+	adapter := newToolAdapter(registry)
+	specs, invoker, err := adapter.EinoTools(toolBinding{
+		TodoReporter: reporter,
+		AllowedTools: []string{todotools.ToolNameTodo},
+	}, events.SinkFunc(func(_ context.Context, event *events.Event) error {
+		emitted = append(emitted, *event)
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("build tools: %v", err)
+	}
+	einoTools := buildEinoTools(specs, invoker)
+	if len(einoTools) != 1 {
+		t.Fatalf("expected one tool, got %d", len(einoTools))
+	}
+
+	runnable, ok := einoTools[0].(interface {
+		InvokableRun(context.Context, string, ...einotool.Option) (string, error)
+	})
+	if !ok {
+		t.Fatalf("expected invokable tool, got %T", einoTools[0])
+	}
+
+	output, err := runnable.InvokableRun(context.Background(), `{"todos":[{"content":"Plan","status":"pending"}]}`)
+	if err != nil {
+		t.Fatalf("run tool: %v", err)
+	}
+	if output == "" {
+		t.Fatalf("expected tool output")
+	}
+	if len(emitted) != 1 || emitted[0].Type != events.EventTodoSnapshot {
+		t.Fatalf("expected todo snapshot, got %#v", emitted)
+	}
+}
+
+func TestToolInvokerEmitsToolEventsForNonTodoTool(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(&mockTool{
+		BaseTool: tools.NewBaseTool(
+			"regular_tool",
+			"Regular test tool",
+			tools.Schema{Type: "object"},
+		),
+	}); err != nil {
+		t.Fatalf("register mock tool: %v", err)
+	}
+
+	var emitted []events.Event
+	adapter := newToolAdapter(registry)
+	specs, invoker, err := adapter.EinoTools(toolBinding{
+		AllowedTools: []string{"regular_tool"},
+	}, events.SinkFunc(func(_ context.Context, event *events.Event) error {
+		emitted = append(emitted, *event)
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("build tools: %v", err)
+	}
+	einoTools := buildEinoTools(specs, invoker)
+	runnable, ok := einoTools[0].(interface {
+		InvokableRun(context.Context, string, ...einotool.Option) (string, error)
+	})
+	if !ok {
+		t.Fatalf("expected invokable tool, got %T", einoTools[0])
+	}
+
+	if _, err := runnable.InvokableRun(context.Background(), `{}`); err != nil {
+		t.Fatalf("run tool: %v", err)
+	}
+	if len(emitted) != 2 ||
+		emitted[0].Type != events.EventToolCallStarted ||
+		emitted[1].Type != events.EventToolCallCompleted {
+		t.Fatalf("expected regular tool call events, got %#v", emitted)
 	}
 }
 
@@ -197,7 +289,7 @@ func TestAgentRunRealModel(t *testing.T) {
 			Channel: "test",
 		},
 		Input: agent.InputContext{
-			Type: agent.InputTypeMessage,
+			Type:     agent.InputTypeMessage,
 			Messages: []agent.InputMessage{{Role: "user", Content: "Reply with exactly this text: Leros agent runtime ok"}},
 		},
 		Model:     realModelOptions(apiKey),
@@ -263,7 +355,7 @@ func TestAgentRunNodeTool(t *testing.T) {
 		},
 		Model: realModelOptions(apiKey),
 		Input: agent.InputContext{
-			Type: agent.InputTypeMessage,
+			Type:     agent.InputTypeMessage,
 			Messages: []agent.InputMessage{{Role: "user", Content: "Use a tool to query the current system time."}},
 		},
 		Runtime: agent.RuntimeOptions{MaxStep: 6},
@@ -341,7 +433,7 @@ func TestAgentRunWeatherSkillQuery(t *testing.T) {
 		},
 		Model: realModelOptions(apiKey),
 		Input: agent.InputContext{
-			Type: agent.InputTypeTaskInstruction,
+			Type:     agent.InputTypeTaskInstruction,
 			Messages: []agent.InputMessage{{Role: "user", Content: "Use the weather skill to query the weather in Shanghai."}},
 		},
 		Runtime: agent.RuntimeOptions{MaxStep: 20},
@@ -439,4 +531,18 @@ func (s *recordingEventSink) Emit(ctx context.Context, event *events.Event) erro
 		copied.Type, copied.RunID, copied.Seq, copied.Content)
 	s.events = append(s.events, &copied)
 	return nil
+}
+
+type mockTool struct {
+	tools.BaseTool
+}
+
+func (m *mockTool) Validate(input map[string]interface{}) error {
+	return nil
+}
+
+func (m *mockTool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
+	return tools.JSONString(map[string]interface{}{
+		"tool": m.Name(),
+	})
 }

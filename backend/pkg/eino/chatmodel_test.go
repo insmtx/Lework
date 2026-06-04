@@ -4,16 +4,13 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/types"
 )
 
 func TestNewChatModelRequiresModel(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewChatModel(context.Background(), &config.LLMConfig{
-		Provider: string(types.LLMProviderOpenAI),
+	_, err := NewChatModel(context.Background(), &ChatModelConfig{
+		Provider: ProviderOpenAI,
 		APIKey:   "sk-test",
 	})
 	if err == nil || !strings.Contains(err.Error(), "llm model is required") {
@@ -24,7 +21,7 @@ func TestNewChatModelRequiresModel(t *testing.T) {
 func TestNewChatModelRejectsUnknownProvider(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewChatModel(context.Background(), &config.LLMConfig{
+	_, err := NewChatModel(context.Background(), &ChatModelConfig{
 		Provider: "unknown",
 		APIKey:   "sk-test",
 		Model:    "test-model",

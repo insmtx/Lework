@@ -12,11 +12,33 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	einoschema "github.com/cloudwego/eino/schema"
-	"github.com/insmtx/Leros/backend/internal/agent"
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/ygpkg/yg-go/logs"
 )
 
+// Usage describes model token usage.
+type Usage struct {
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
+}
+
+// StreamSink receives text deltas emitted during streaming.
+type StreamSink interface {
+	EmitMessageDelta(ctx context.Context, messageID string, content string) error
+	EmitReasoningDelta(ctx context.Context, messageID string, content string) error
+}
+
+type noopStreamSink struct{}
+
+func (noopStreamSink) EmitMessageDelta(context.Context, string, string) error {
+	return nil
+}
+
+func (noopStreamSink) EmitReasoningDelta(context.Context, string, string) error {
+	return nil
+}
+
+// Flow runs a tool-calling Eino agent loop.
 type Flow struct {
 	agent        adk.Agent
 	runner       *adk.Runner
@@ -24,6 +46,7 @@ type Flow struct {
 	messages     []adk.Message
 }
 
+// FlowConfig contains Eino Flow dependencies and execution options.
 type FlowConfig struct {
 	Model        einomodel.ToolCallingChatModel
 	Tools        []einotool.BaseTool
@@ -32,6 +55,7 @@ type FlowConfig struct {
 	Messages     []adk.Message
 }
 
+// NewFlow creates a reusable Eino agent flow.
 func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("flow config is required")
@@ -46,8 +70,8 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 	}
 
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "LerosAgent",
-		Description: "Leros runtime agent",
+		Name:        "EinoAgent",
+		Description: "Eino runtime agent",
 		Model:       cfg.Model,
 		Instruction: cfg.SystemPrompt,
 		ToolsConfig: adk.ToolsConfig{
@@ -84,59 +108,14 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 	}, nil
 }
 
-// BuildMessagesFromConversation 将对话消息转换为 Eino ADK 消息。
-func BuildMessagesFromConversation(convMessages []agent.InputMessage) []adk.Message {
-	if len(convMessages) == 0 {
-		return nil
-	}
-
-	result := make([]adk.Message, 0, len(convMessages))
-	for _, msg := range convMessages {
-		if strings.TrimSpace(msg.Content) == "" {
-			continue
-		}
-
-		role := msg.Role
-		if role == "" {
-			role = "user"
-		}
-
-		var adkMsg adk.Message
-		switch role {
-		case "system":
-			adkMsg = einoschema.SystemMessage(msg.Content)
-		case "assistant":
-			adkMsg = einoschema.AssistantMessage(msg.Content, nil)
-		case "tool":
-			adkMsg = einoschema.ToolMessage(msg.Content, "")
-		default:
-			adkMsg = einoschema.UserMessage(msg.Content)
-		}
-		result = append(result, adkMsg)
-	}
-
-	return result
-}
-
-// AppendUserMessage 将用户消息追加到已有历史中。
-func AppendUserMessage(existing []adk.Message, userInput string) []adk.Message {
-	if strings.TrimSpace(userInput) == "" {
-		return existing
-	}
-
-	msgs := make([]adk.Message, 0, len(existing)+1)
-	msgs = append(msgs, existing...)
-	msgs = append(msgs, einoschema.UserMessage(userInput))
-	return msgs
-}
-
+// Generate runs a non-streaming agent flow.
 func (f *Flow) Generate(ctx context.Context, userInput string) (*einoschema.Message, error) {
 	message, _, err := f.GenerateWithUsage(ctx, userInput)
 	return message, err
 }
 
-// GenerateWithUsage 返回最终消息以及跨所有 agent 轮次的累计模型 token 使用量。
-func (f *Flow) GenerateWithUsage(ctx context.Context, userInput string) (*einoschema.Message, *events.UsagePayload, error) {
+// GenerateWithUsage returns the final message and aggregated model token usage.
+func (f *Flow) GenerateWithUsage(ctx context.Context, userInput string) (*einoschema.Message, *Usage, error) {
 	if f == nil || f.runner == nil {
 		return nil, nil, fmt.Errorf("flow is not initialized")
 	}
@@ -144,13 +123,11 @@ func (f *Flow) GenerateWithUsage(ctx context.Context, userInput string) (*einosc
 		return nil, nil, fmt.Errorf("user input is required")
 	}
 
-	// 从历史记录和当前用户输入构建提示消息。
 	messages := AppendUserMessage(f.messages, userInput)
-
 	iter := f.runner.Run(ctx, messages)
+
 	var result *einoschema.Message
 	usage := &usageAccumulator{}
-
 	for {
 		event, ok := iter.Next()
 		if !ok {
@@ -180,13 +157,14 @@ func (f *Flow) GenerateWithUsage(ctx context.Context, userInput string) (*einosc
 	return result, usage.Payload(), nil
 }
 
-func (f *Flow) Stream(ctx context.Context, userInput string, sink events.Sink) (*einoschema.Message, error) {
+// Stream runs a streaming agent flow.
+func (f *Flow) Stream(ctx context.Context, userInput string, sink StreamSink) (*einoschema.Message, error) {
 	message, _, err := f.StreamWithUsage(ctx, userInput, sink)
 	return message, err
 }
 
-// StreamWithUsage 流式输出消息事件并返回跨所有 agent 轮次的累计模型 token 使用量。
-func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink events.Sink) (*einoschema.Message, *events.UsagePayload, error) {
+// StreamWithUsage emits deltas and returns the final message plus aggregated usage.
+func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink StreamSink) (*einoschema.Message, *Usage, error) {
 	if f == nil || f.streamRunner == nil {
 		return nil, nil, fmt.Errorf("flow is not initialized")
 	}
@@ -194,17 +172,15 @@ func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink event
 		return nil, nil, fmt.Errorf("user input is required")
 	}
 	if sink == nil {
-		sink = events.NewNoopSink()
+		sink = noopStreamSink{}
 	}
 
-	// 从历史记录和当前用户输入构建提示消息。
 	messages := AppendUserMessage(f.messages, userInput)
-
 	iter := f.streamRunner.Run(ctx, messages)
 
 	var lastMsg *einoschema.Message
 	var currentMessageID string
-	messageIDs := events.NewMessageIDMapper()
+	messageIDs := newMessageIDMapper()
 	usage := &usageAccumulator{}
 
 	for {
@@ -217,13 +193,11 @@ func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink event
 		}
 		if event.Output != nil && event.Output.MessageOutput != nil {
 			mv := event.Output.MessageOutput
-
 			if mv.Role == einoschema.Tool {
 				continue
 			}
 
 			currentMessageID = messageIDs.StartNew()
-
 			if mv.IsStreaming && mv.MessageStream != nil {
 				streams := mv.MessageStream.Copy(2)
 				emitStream := streams[0]
@@ -238,10 +212,10 @@ func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink event
 						return nil, nil, fmt.Errorf("read stream chunk: %w", err)
 					}
 					if chunk.Content != "" {
-						_ = sink.Emit(ctx, events.NewMessageDelta(currentMessageID, chunk.Content))
+						_ = sink.EmitMessageDelta(ctx, currentMessageID, chunk.Content)
 					}
 					if chunk.ReasoningContent != "" {
-						_ = sink.Emit(ctx, events.NewReasoningDelta(currentMessageID, chunk.ReasoningContent))
+						_ = sink.EmitReasoningDelta(ctx, currentMessageID, chunk.ReasoningContent)
 					}
 				}
 				lastMsg, _ = einoschema.ConcatMessageStream(concatStream)
@@ -252,7 +226,7 @@ func (f *Flow) StreamWithUsage(ctx context.Context, userInput string, sink event
 				}
 				if msg != nil {
 					lastMsg = msg
-					_ = sink.Emit(ctx, events.NewMessageDelta(currentMessageID, msg.Content))
+					_ = sink.EmitMessageDelta(ctx, currentMessageID, msg.Content)
 				}
 			}
 
@@ -294,7 +268,7 @@ func (u *usageAccumulator) AddResponseMeta(meta *einoschema.ResponseMeta) {
 	u.totalTokens += meta.Usage.TotalTokens
 }
 
-func (u *usageAccumulator) Payload() *events.UsagePayload {
+func (u *usageAccumulator) Payload() *Usage {
 	if u == nil || (u.inputTokens == 0 && u.outputTokens == 0 && u.totalTokens == 0) {
 		return nil
 	}
@@ -302,7 +276,7 @@ func (u *usageAccumulator) Payload() *events.UsagePayload {
 	if totalTokens == 0 {
 		totalTokens = u.inputTokens + u.outputTokens
 	}
-	return &events.UsagePayload{
+	return &Usage{
 		InputTokens:  u.inputTokens,
 		OutputTokens: u.outputTokens,
 		TotalTokens:  totalTokens,

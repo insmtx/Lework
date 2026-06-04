@@ -9,7 +9,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/Leros/backend/config"
-	einoadapter "github.com/insmtx/Leros/backend/internal/runtime/eino"
+	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 )
 
 // EinoExecutor implements Executor using the Eino LLM framework.
@@ -23,7 +23,12 @@ func (e *EinoExecutor) Execute(ctx context.Context, prompt string, cfg config.LL
 	logs.DebugContextf(ctx, "[prompts:eino] Execute: provider=%s model=%s prompt_len=%d prompt_head=%s",
 		cfg.Provider, cfg.Model, len(prompt), truncate(prompt, 120))
 
-	chatModel, err := einoadapter.NewChatModel(ctx, &cfg)
+	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
+		Provider: cfg.Provider,
+		APIKey:   cfg.APIKey,
+		Model:    cfg.Model,
+		BaseURL:  cfg.BaseURL,
+	})
 	if err != nil {
 		logs.ErrorContextf(ctx, "[prompts:eino] NewChatModel failed: provider=%s model=%s error=%v",
 			cfg.Provider, cfg.Model, err)

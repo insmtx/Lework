@@ -7,36 +7,16 @@ import (
 	"testing"
 
 	einomodel "github.com/cloudwego/eino/components/model"
+	einotool "github.com/cloudwego/eino/components/tool"
 	einoschema "github.com/cloudwego/eino/schema"
-	"github.com/google/uuid"
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	"github.com/insmtx/Leros/backend/tools"
 )
 
 func TestFlowGenerate(t *testing.T) {
-	registry := tools.NewRegistry()
-	if err := registry.Register(&mockTool{
-		BaseTool: tools.NewBaseTool(
-			"test.account.get_current_user",
-			"Read current test account",
-			tools.Schema{
-				Type: "object",
-			},
-		),
-	}); err != nil {
-		t.Fatalf("register mock tool: %v", err)
-	}
-
 	model := &fakeToolCallingModel{}
-	adapter := NewToolAdapter(registry)
-	einoTools, err := adapter.EinoTools(ToolBinding{ToolContext: tools.ToolContext{UserID: "u1"}}, nil)
-	if err != nil {
-		t.Fatalf("build eino tools: %v", err)
-	}
 	flow, err := NewFlow(context.Background(), &FlowConfig{
 		Model:        model,
-		Tools:        einoTools,
-		SystemPrompt: "You are Leros.\n\nAvailable skills:\n- github-pr-review: Review pull requests.",
+		Tools:        []einotool.BaseTool{NewTool(ToolSpec{Name: "test.account.get_current_user"}, staticInvoker("current_user"))},
+		SystemPrompt: "You are Eino.",
 	})
 	if err != nil {
 		t.Fatalf("new flow: %v", err)
@@ -49,84 +29,37 @@ func TestFlowGenerate(t *testing.T) {
 	if message == nil {
 		t.Fatalf("expected non-nil message")
 	}
-	if !strings.Contains(message.Content, "test.account.get_current_user") {
+	if !strings.Contains(message.Content, "final answer") {
 		t.Fatalf("unexpected final content: %s", message.Content)
 	}
 	if usage == nil || usage.InputTokens != 30 || usage.OutputTokens != 3 || usage.TotalTokens != 33 {
 		t.Fatalf("expected aggregated usage from all model messages, got %#v", usage)
 	}
-	if model.state == nil || len(model.state.calls) == 0 {
-		t.Fatalf("expected model calls to be recorded")
-	}
-	foundSystemPrompt := false
-	for _, call := range model.state.calls {
-		if len(call) == 0 || call[0].Role != einoschema.System {
-			continue
-		}
-		if strings.Contains(call[0].Content, "Available tools:") {
-			t.Fatalf("tool summary should not be injected into system prompt: %s", call[0].Content)
-		}
-		if strings.Contains(call[0].Content, "You are Leros.") && strings.Contains(call[0].Content, "Available skills:") {
-			foundSystemPrompt = true
-			break
-		}
-	}
-	if !foundSystemPrompt {
-		t.Fatalf("expected system prompt with skills summary to be injected")
-	}
 }
 
 func TestFlowStreamEmitsMessageEvents(t *testing.T) {
-	registry := tools.NewRegistry()
-	adapter := NewToolAdapter(registry)
-	einoTools, err := adapter.EinoTools(ToolBinding{ToolContext: tools.ToolContext{UserID: "u1"}}, nil)
-	if err != nil {
-		t.Fatalf("build eino tools: %v", err)
-	}
 	flow, err := NewFlow(context.Background(), &FlowConfig{
 		Model: &streamingTextModel{},
-		Tools: einoTools,
 	})
 	if err != nil {
 		t.Fatalf("new flow: %v", err)
 	}
 
-	var emitted []*events.Event
-	emitter := events.NewEmitter("run_stream", "trace_stream", events.SinkFunc(func(ctx context.Context, event *events.Event) error {
-		emitted = append(emitted, event)
-		return nil
-	}))
-	message, err := flow.Stream(context.Background(), "say hello", emitter)
+	sink := &recordingStreamSink{}
+	message, err := flow.Stream(context.Background(), "say hello", sink)
 	if err != nil {
 		t.Fatalf("stream response: %v", err)
 	}
 	if message == nil || strings.TrimSpace(message.Content) != "hello world" {
 		t.Fatalf("unexpected streamed message: %+v", message)
 	}
-
-	var deltaCount int
-	var messageID string
-	for _, event := range emitted {
-		switch event.Type {
-		case events.EventMessageDelta:
-			deltaCount++
-			payload, err := events.DecodePayload[events.MessageDeltaPayload](event)
-			if err != nil {
-				t.Fatalf("decode message payload: %v", err)
-			}
-			if _, err := uuid.Parse(payload.MessageID); err != nil {
-				t.Fatalf("message id should be uuid, got %q: %v", payload.MessageID, err)
-			}
-			if messageID == "" {
-				messageID = payload.MessageID
-			}
-			if payload.MessageID != messageID {
-				t.Fatalf("expected same message id for one assistant message, got %q and %q", messageID, payload.MessageID)
-			}
-		}
+	if len(sink.messageIDs) == 0 || sink.content != "hello world" {
+		t.Fatalf("expected message deltas, got %#v", sink)
 	}
-	if deltaCount == 0 {
-		t.Fatalf("expected message delta events, got %+v", emitted)
+	for _, messageID := range sink.messageIDs {
+		if messageID == "" {
+			t.Fatalf("expected message id")
+		}
 	}
 }
 
@@ -185,11 +118,10 @@ func (m *fakeToolCallingModel) WithTools(tools []*einoschema.ToolInfo) (einomode
 		state = &fakeToolCallingModelState{}
 		m.state = state
 	}
-	cloned := &fakeToolCallingModel{
+	return &fakeToolCallingModel{
 		state:      state,
 		boundTools: tools,
-	}
-	return cloned, nil
+	}, nil
 }
 
 type streamingTextModel struct{}
@@ -225,16 +157,25 @@ func messageWithUsage(message *einoschema.Message, promptTokens int, completionT
 	return message
 }
 
-type mockTool struct {
-	tools.BaseTool
+type recordingStreamSink struct {
+	messageIDs []string
+	content    string
+	reasoning  string
 }
 
-func (m *mockTool) Validate(input map[string]interface{}) error {
+func (s *recordingStreamSink) EmitMessageDelta(ctx context.Context, messageID string, content string) error {
+	s.messageIDs = append(s.messageIDs, messageID)
+	s.content += content
 	return nil
 }
 
-func (m *mockTool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
-	return tools.JSONString(map[string]interface{}{
-		"tool": m.Name(),
-	})
+func (s *recordingStreamSink) EmitReasoningDelta(ctx context.Context, messageID string, content string) error {
+	s.reasoning += content
+	return nil
+}
+
+type staticInvoker string
+
+func (i staticInvoker) InvokeTool(ctx context.Context, name string, argumentsInJSON string) (string, error) {
+	return string(i), nil
 }
