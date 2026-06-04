@@ -42,10 +42,17 @@ type ApprovalRequest struct {
 	Engine      string // "claude" | "codex"
 }
 
+// 统一审批决策值，前端 API 和引擎 Responder 共用。
+const (
+	ApprovalActionApprove = "approve"
+	ApprovalActionDeny    = "deny"
+	ApprovalActionAlways  = "always"
+)
+
 // ApprovalDecision 包含用户对审批请求的决策。
 type ApprovalDecision struct {
 	RequestID string
-	Action    string // "approved" | "rejected"
+	Action    string // "approve" | "deny" | "always"
 	Reason    string
 }
 

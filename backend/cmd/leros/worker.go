@@ -15,6 +15,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	agentruntime "github.com/insmtx/Leros/backend/internal/runtime"
 	runtimemcp "github.com/insmtx/Leros/backend/internal/runtime/mcp"
+	"github.com/insmtx/Leros/backend/internal/worker/approval"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
 	"github.com/insmtx/Leros/backend/internal/worker/taskconsumer"
@@ -78,7 +79,6 @@ func loadWorkerConfig() (*config.WorkerConfig, error) {
 		cfg.WorkspaceRoot = workerWorkspaceRoot
 		logs.Infof("Using workspace root from flag: %s", workerWorkspaceRoot)
 	}
-
 	return cfg, nil
 }
 
@@ -100,7 +100,6 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to ensure state dir: %v", err)
 		return
 	}
-
 	identity.Set(identity.Profile{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,
@@ -109,12 +108,10 @@ func runTaskWorker(defaultRuntime string) {
 		// WorkerAddr is the worker HTTP service address, for example ":8081" or "127.0.0.1:8081".
 		WorkerAddr: workerListenAddr,
 	})
-
 	// Setup MCP auth token before starting HTTP server so /v1/mcp uses the configured value.
 	if cfg.CLI != nil && cfg.CLI.MCP != nil {
 		runtimemcp.SetAuthToken(cfg.CLI.MCP.BearerToken)
 	}
-
 	httpServer, err := startWorkerHTTPServer(workerListenAddr)
 	if err != nil {
 		logs.Fatalf("Failed to start worker HTTP server: %v", err)
@@ -125,17 +122,13 @@ func runTaskWorker(defaultRuntime string) {
 	if cfg.NATS != nil && strings.TrimSpace(cfg.NATS.URL) != "" {
 		natsURL = cfg.NATS.URL
 	}
-
 	bus, err := mq.NewNATS(natsURL)
 	if err != nil {
 		logs.Fatalf("Failed to create NATS client: %v", err)
 		return
 	}
-
 	ctx, cancel := context.WithCancel(context.Background())
-
 	var cliSkillDirs []string
-
 	// Bootstrap external CLI engines before runtime initialization:
 	// sync built-in skills to .leros/skills so the runtime catalog loads non-empty.
 	if cfg.CLI != nil {
@@ -149,7 +142,6 @@ func runTaskWorker(defaultRuntime string) {
 		if mcpCfg.URL == "" && workerListenAddr != "" {
 			mcpCfg.URL = buildWorkerMCPURL(workerListenAddr)
 		}
-
 		bootstrapSvc := builtin.NewBootstrapService()
 		_, err := bootstrapSvc.Bootstrap(ctx, cfg.CLI, builtin.BootstrapOptions{
 			MCP: mcpCfg,
@@ -159,7 +151,6 @@ func runTaskWorker(defaultRuntime string) {
 		}
 		cliSkillDirs = bootstrapSvc.GetSkillDirs()
 	}
-
 	runtimeService, err := agentruntime.NewService(ctx, agentruntime.Options{
 		CLIConfig:      cfg.CLI,
 		DefaultRuntime: defaultRuntime,
@@ -171,7 +162,6 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create agent runtime service: %v", err)
 		return
 	}
-
 	consumer, err := taskconsumer.New(taskconsumer.Config{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,
@@ -182,12 +172,18 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create worker task consumer: %v", err)
 		return
 	}
-	if err := consumer.Start(ctx); err != nil {
+	// 订阅审批 NATS 消息，由 Server API 转发过来
+	approvalSub, err := approval.New(approval.Config{OrgID: cfg.OrgID, WorkerID: cfg.WorkerID}, bus)
+	if err != nil {
 		cancel()
 		_ = bus.Close()
-		logs.Fatalf("Failed to start worker task consumer: %v", err)
+		logs.Fatalf("Failed to create approval subscriber: %v", err)
 		return
 	}
+
+	// 启动任务消费（阻塞式订阅，独立 goroutine）
+	go func() { _ = consumer.Start(ctx) }()
+	go func() { _ = approvalSub.Start(ctx) }()
 
 	lifecycle.Std().AddCloseFunc(func() error {
 		cancel()
@@ -199,7 +195,6 @@ func runTaskWorker(defaultRuntime string) {
 		return httpServer.Shutdown(shutdownCtx)
 	})
 	lifecycle.Std().AddCloseFunc(bus.Close)
-
 	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, consumer.TaskTopic())
 	lifecycle.Std().WaitExit()
 	logs.Info("Agent worker exited")
@@ -237,26 +232,21 @@ func startWorkerHTTPServer(addr string) (*http.Server, error) {
 	if strings.TrimSpace(addr) == "" {
 		addr = ":8081"
 	}
-
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
-
 	r := router.SetupRouter()
-
 	server := &http.Server{
 		Addr:    addr,
 		Handler: r,
 	}
-
 	go func() {
 		logs.Infof("Worker HTTP server listening on %s", listener.Addr().String())
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			logs.Errorf("Worker HTTP server stopped unexpectedly: %v", err)
 		}
 	}()
-
 	return server, nil
 }
 

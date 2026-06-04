@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+
 	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/wsproto"
 	"github.com/ygpkg/yg-go/logs"
@@ -40,6 +41,7 @@ func (s *WorkerManager) RegisterRoutes(r gin.IRouter) {
 	r.POST("/GetWorkerInfo", s.getWorkerInfo)
 	r.POST("/ShutdownWorker", s.shutdownWorker)
 	r.POST("/CreateWorker", s.createWorker)
+
 }
 
 func (s *WorkerManager) handleWorkerWebSocket(c *gin.Context) {
@@ -403,3 +405,4 @@ func (s *WorkerManager) createWorker(c *gin.Context) {
 
 	c.JSON(http.StatusOK, instance)
 }
+

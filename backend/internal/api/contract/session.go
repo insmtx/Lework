@@ -37,4 +37,7 @@ type SessionService interface {
 
 	// HandleSessionTitleRequest handles an asynchronous session title update request.
 	HandleSessionTitleRequest(ctx context.Context, sessionID string) error
+
+	// SubmitApproval forwards an approval decision to the worker via NATS.
+	SubmitApproval(ctx context.Context, req *SubmitApprovalRequest) error
 }

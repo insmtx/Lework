@@ -328,3 +328,12 @@ func findClaudeTestEvent(eventList []events.Event, eventType events.EventType) *
 	}
 	return nil
 }
+
+// parseClaudeLine 测试辅助：解析单行 claude JSON，返回第一个事件。
+func parseClaudeLine(line string, state *claudeStreamState) events.Event {
+	parsed := parseClaudeLineEvents(line, state)
+	if len(parsed) == 0 {
+		return events.Event{}
+	}
+	return parsed[0]
+}

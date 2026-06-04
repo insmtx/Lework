@@ -89,14 +89,6 @@ func scanClaudeStdout(ctx context.Context, r interface{ Read([]byte) (int, error
 	})
 }
 
-func parseClaudeLine(line string, state *claudeStreamState) events.Event {
-	parsed := parseClaudeLineEvents(line, state)
-	if len(parsed) == 0 {
-		return events.Event{}
-	}
-	return parsed[0]
-}
-
 // ——— 事件解析 ———
 
 func parseClaudeLineEvents(line string, state *claudeStreamState) []events.Event {
@@ -219,12 +211,11 @@ func parseControlRequest(event *streamEvent) []events.Event {
 	desc := fmt.Sprintf("%s: %s", toolName, summarizeInput(input))
 	payload := events.ApprovalRequestPayload{
 		RequestID:   reqID,
-		Engine:      "claude",
-		ActionType:  "tool_use",
-		Description: desc,
-		ToolCallID:  toolUseID,
 		ToolName:    toolName,
+		ToolCallID:  toolUseID,
+		Description: desc,
 		Arguments:   input,
+		Metadata:    map[string]any{"engine": "claude"},
 	}
 	return []events.Event{*events.NewApprovalRequested(payload)}
 }

@@ -385,6 +385,17 @@ func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, sessionI
 	return nil
 }
 
+
+func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.SubmitApprovalRequest) error {
+	if req.WorkerID == 0 {
+		req.WorkerID = 1 // TODO: 由 session 关联的运行时动态获取
+	}
+	topic, err := dm.WorkerApprovalSubject(req.OrgID, req.WorkerID)
+	if err != nil {
+		return fmt.Errorf("build approval topic: %w", err)
+	}
+	return s.eventbus.Publish(ctx, topic, req)
+}
 func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*contract.MessageList, error) {
 	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
 	if err != nil {

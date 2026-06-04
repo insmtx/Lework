@@ -40,17 +40,18 @@ func (r *claudeApprovalResponder) WriteDecision(requestID string, action string)
 		return fmt.Errorf("claude stdin writer is nil")
 	}
 	var responseBody map[string]any
-	if action == "approved" {
-		responseBody = map[string]any{
-			"behavior":     "allow",
-			"updatedInput": map[string]any{},
-		}
-	} else {
+	if action == engines.ApprovalActionDeny {
 		responseBody = map[string]any{
 			"behavior": "deny",
 			"message":  "Permission denied by user",
 		}
+	} else {
+		responseBody = map[string]any{
+			"behavior":     "allow",
+			"updatedInput": map[string]any{},
+		}
 	}
+
 	payload := map[string]any{
 		"type": "control_response",
 		"response": map[string]any{

@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
+	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 )
@@ -23,6 +25,7 @@ func NewSessionHandler(service contract.SessionService) *SessionHandler {
 
 func (h *SessionHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/CreateSession", h.CreateSession)
+	r.POST("/sessions/:session_id/approvals", h.SubmitApproval)
 	r.POST("/GetSession", h.GetSession)
 	r.POST("/UpdateSession", h.UpdateSession)
 	r.POST("/DeleteSession", h.DeleteSession)
@@ -240,7 +243,11 @@ func (h *SessionHandler) SessionEvents(ctx *gin.Context) {
 				logs.WarnContextf(ctx, "event channel closed for session %s", req.SessionID)
 				return
 			}
-			ctx.SSEvent(string(event.Type), event.Content)
+			data := event.Content
+			if len(event.Payload) > 0 {
+				data = string(event.Payload)
+			}
+			ctx.SSEvent(string(event.Type), data)
 			ctx.Writer.Flush()
 		case <-ctx.Writer.CloseNotify():
 			logs.InfoContextf(ctx, "client closed connection for session %s event stream", req.SessionID)
@@ -390,6 +397,56 @@ func (h *SessionHandler) ClearSessionMessages(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, dto.Success(nil))
+}
+
+// SubmitApproval 处理前端提交的审批决策，委托给 service 层通过 NATS 转发。
+// POST /v1/sessions/:session_id/approvals
+func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
+	sessionID := ctx.Param("session_id")
+	var interaction struct {
+		Type    string          `json:"type"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := ctx.ShouldBindJSON(&interaction); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if interaction.Type != "approval.decide" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "unknown interaction type"))
+		return
+	}
+	var payload struct {
+		RequestID string `json:"request_id"`
+		Action    string `json:"action"`
+		Reason    string `json:"reason,omitempty"`
+	}
+	if err := json.Unmarshal(interaction.Payload, &payload); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	caller, _ := auth.FromGinContext(ctx)
+	if caller == nil || caller.OrgID == 0 {
+		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInvalidParams, "not authenticated"))
+		return
+	}
+
+	if err := h.service.SubmitApproval(ctx, &contract.SubmitApprovalRequest{
+		OrgID:     caller.OrgID,
+		SessionID: sessionID,
+		RequestID: payload.RequestID,
+		Action:    payload.Action,
+		Reason:    payload.Reason,
+	}); err != nil {
+		logs.WarnContextf(ctx, "submit approval failed: %v", err)
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, dto.Success(map[string]string{
+		"request_id": payload.RequestID,
+		"action":     payload.Action,
+	}))
 }
 
 func handleSessionServiceError(ctx *gin.Context, err error) {

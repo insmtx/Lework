@@ -193,6 +193,9 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 			}
 		case events.EventApprovalRequested:
 			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if handle.Responder == nil {
+				logs.WarnContextf(ctx, "approval request dropped: no Responder (PermissionMode may need to be on-request/auto)")
+			}
 			if approvalHandler != nil && handle.Responder != nil {
 				req, decErr := events.DecodePayload[events.ApprovalRequestPayload](&event)
 				if decErr != nil {
@@ -205,7 +208,7 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 					ToolName:    req.ToolName,
 					Arguments:   req.Arguments,
 					Description: req.Description,
-					Engine:      req.Engine,
+					Engine:      metadataString(req.Metadata, "engine"),
 				})
 				if decErr != nil {
 					logs.WarnContextf(ctx, "approval handler error: %v", decErr)
@@ -368,6 +371,18 @@ func internalSessionIDFromRequest(req *agent.RequestContext) string {
 		return ""
 	}
 	return strings.TrimSpace(req.Conversation.ID)
+}
+
+func metadataString(meta map[string]any, key string) string {
+	if meta == nil {
+		return ""
+	}
+	if v, ok := meta[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 func firstNonEmptyString(values ...string) string {

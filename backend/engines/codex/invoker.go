@@ -78,10 +78,8 @@ func (inv *AppServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*
 }
 
 func (st *runState) buildHandle(req engines.RunRequest) (*engines.RunHandle, error) {
-	var responder engines.ApprovalResponder
-	if req.PermissionMode == engines.PermissionModeOnRequest || req.PermissionMode == engines.PermissionModeAuto {
-		responder = &appServerResponder{srv: st.srv}
-	}
+	// app-server 始终以 on-request 模式运行，始终创建 Responder
+	responder := &appServerResponder{srv: st.srv}
 	return &engines.RunHandle{
 		Process:   st.srv,
 		Events:    (<-chan events.Event)(st.evtChan),
@@ -358,40 +356,52 @@ func (st *runState) handleServerRequest(req ServerRequest) {
 	switch req.Method {
 	case "item/commandExecution/requestApproval":
 		var params struct {
+			ItemID  string `json:"itemId"`
 			Command string `json:"command"`
 			Reason  string `json:"reason"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err == nil {
+			reqID := params.ItemID
+			if reqID == "" {
+				reqID = string(req.ID)
+			}
 			sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
-				RequestID:   string(req.ID),
-				Engine:      "codex",
-				ActionType:  "command_execution",
-				Description: fmt.Sprintf("Approval request: %s", firstNonEmpty(params.Reason, params.Command)),
-				Command:     params.Command,
+				RequestID:   reqID,
+				ToolName:    "Command",
+				ToolCallID:  params.ItemID,
+				Description: firstNonEmpty(params.Reason, params.Command),
+				Arguments:   map[string]any{"command": params.Command},
+				Metadata:    map[string]any{"engine": "codex", "action_type": "command_execution"},
 			})
 		}
 
 	case "item/fileChange/requestApproval":
 		var params struct {
+			ItemID    string `json:"itemId"`
 			GrantRoot string `json:"grantRoot"`
 			Reason    string `json:"reason"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err == nil {
+			reqID := params.ItemID
+			if reqID == "" {
+				reqID = string(req.ID)
+			}
 			sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
-				RequestID:   string(req.ID),
-				Engine:      "codex",
-				ActionType:  "file_change",
-				Description: fmt.Sprintf("File change approval: %s", firstNonEmpty(params.Reason, params.GrantRoot)),
-				FilePath:    params.GrantRoot,
+				RequestID:   reqID,
+				ToolName:    "Write",
+				ToolCallID:  params.ItemID,
+				Description: firstNonEmpty(params.Reason, params.GrantRoot),
+				Arguments:   map[string]any{"path": params.GrantRoot},
+				Metadata:    map[string]any{"engine": "codex", "action_type": "file_change"},
 			})
 		}
 
 	case "item/permissions/requestApproval":
 		sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
 			RequestID:   string(req.ID),
-			Engine:      "codex",
-			ActionType:  "permissions",
+			ToolName:    "Permissions",
 			Description: "Permission approval request",
+			Metadata:    map[string]any{"engine": "codex", "action_type": "permissions"},
 		})
 
 	default:
@@ -460,9 +470,10 @@ type appServerResponder struct {
 }
 
 func (r *appServerResponder) WriteDecision(requestID string, action string) error {
-	decision := "deny"
-	if action == "approved" {
-		decision = "approve"
+	// Codex app-server: approve→accept, deny→cancel
+	decision := "cancel"
+	if action == engines.ApprovalActionApprove || action == engines.ApprovalActionAlways {
+		decision = "accept"
 	}
 
 	pending := r.srv.PendingApproval()
