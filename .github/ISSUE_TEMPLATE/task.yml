@@ -2,8 +2,8 @@ name: 开发任务
 description: 创建边界明确、可交付、可验收的工程任务。
 title: "[Task]: "
 labels:
-  - "type: task"
-  - "status: needs-triage"
+  - "type/task"
+  - "status/needs-triage"
 body:
   - type: textarea
     id: goal

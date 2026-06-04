@@ -2,8 +2,8 @@ name: 安全问题
 description: 报告安全风险、权限问题或敏感信息泄露线索。请不要公开漏洞利用细节。
 title: "[Security]: "
 labels:
-  - "type: security"
-  - "status: needs-triage"
+  - "type/security"
+  - "status/needs-triage"
 body:
   - type: markdown
     attributes:

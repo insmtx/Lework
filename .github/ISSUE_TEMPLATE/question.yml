@@ -2,8 +2,8 @@ name: 使用问题或讨论
 description: 询问使用方式、设计取舍、集成方式或需要维护者澄清的问题。
 title: "[Question]: "
 labels:
-  - "type: question"
-  - "status: needs-triage"
+  - "type/question"
+  - "status/needs-triage"
 body:
   - type: markdown
     attributes:

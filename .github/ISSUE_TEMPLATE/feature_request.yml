@@ -2,8 +2,8 @@ name: 功能建议
 description: 提出新能力、产品改进或体验优化建议。
 title: "[Feature]: "
 labels:
-  - "type: feature"
-  - "status: needs-triage"
+  - "type/feature"
+  - "status/needs-triage"
 body:
   - type: markdown
     attributes:

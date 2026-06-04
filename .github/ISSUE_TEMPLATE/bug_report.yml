@@ -2,8 +2,8 @@ name: 缺陷报告
 description: 报告可复现的异常行为、错误或回归问题。
 title: "[Bug]: "
 labels:
-  - "type: bug"
-  - "status: needs-triage"
+  - "type/bug"
+  - "status/needs-triage"
 body:
   - type: markdown
     attributes:

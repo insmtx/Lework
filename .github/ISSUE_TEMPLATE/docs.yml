@@ -2,8 +2,8 @@ name: 文档问题
 description: 报告文档缺失、错误、过期或表达不清的问题。
 title: "[Docs]: "
 labels:
-  - "type: docs"
-  - "status: needs-triage"
+  - "type/docs"
+  - "status/needs-triage"
 body:
   - type: input
     id: location
