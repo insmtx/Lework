@@ -36,6 +36,16 @@ else
     echo -e "${GREEN}.env file already exists${NC}"
 fi
 
+for config in server worker; do
+    if [ ! -f "$SCRIPT_DIR/$config.config.yaml" ]; then
+        echo -e "${YELLOW}Creating $config.config.yaml from template...${NC}"
+        cp "$SCRIPT_DIR/$config.config.example.yaml" "$SCRIPT_DIR/$config.config.yaml"
+        echo -e "${GREEN}$config.config.yaml file created${NC}"
+    else
+        echo -e "${GREEN}$config.config.yaml file already exists${NC}"
+    fi
+done
+
 echo ""
 echo -e "${BLUE}Starting infrastructure services...${NC}"
 cd "$SCRIPT_DIR"
@@ -64,6 +74,6 @@ echo -e "${GREEN}Dev environment setup complete!${NC}"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
 echo "  1. Edit .env file and set your LLM_API_KEY"
-echo "  2. Edit server.config.yaml and worker.config.yaml with your GitHub app credentials (if needed)"
+echo "  2. Review server.config.yaml and worker.config.yaml"
 echo "  3. Start server: ./dev-server.sh"
 echo "  4. Start worker: ./dev-worker.sh"

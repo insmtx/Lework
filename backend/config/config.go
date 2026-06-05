@@ -24,8 +24,6 @@ type Config struct {
 		JWT  JWTConfig `yaml:"jwt,omitempty"`  // JWT 认证配置
 	} `yaml:"server,omitempty"` // 服务器地址
 	WorkspaceRoot string           `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
-	Github        *GithubAppConfig `yaml:"github,omitempty"`
-	Gitlab        *GitlabAppConfig `yaml:"gitlab,omitempty"`
 	NATS          *NATSConfig      `yaml:"nats,omitempty"`
 	Database      *DatabaseConfig  `yaml:"database,omitempty"`
 	LLM           *LLMConfig       `yaml:"llm,omitempty"`

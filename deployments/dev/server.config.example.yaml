@@ -1,11 +1,11 @@
 # Leros Development Configuration - Server
-workspace_root: 
+workspace_root:
 
 server:
   port: 8080
   jwt:
     secret: "dev-leros-jwt-secret"
-  
+
 database:
   url: "postgres://leros_dev_user:leros_dev_password@localhost:5433/leros_dev_db?sslmode=disable"
   debug: true
@@ -13,25 +13,11 @@ database:
 nats:
   url: "nats://localhost:4223/"
 
-
 log:
   level: debug
 
-github:
-  app_id: 
-  client_id: ""
-  client_secret: ""
-  private_key: ""
-  webhook_secret: ""
-  base_url: ""
-
-skill_proxy:
-  enabled: true
-  port: 8081
-  
 llm:
   provider: "openai"
   api_key: "${LLM_API_KEY}"
   model: "qwen3.6-plus"
   base_url: "https://api.yygu.cn/v3/llm.chat/"
-

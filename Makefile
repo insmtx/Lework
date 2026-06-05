@@ -80,11 +80,11 @@ swagger-clean:
 dev-setup:
 	cd deployments/dev && ./dev-setup.sh
 
-dev-server: build
-	LEROS_DEV=true ./bundles/leros server --config deployments/dev/server.config.yaml
+dev-server:
+	cd deployments/dev && ./dev-server.sh
 
-dev-worker: build
-	LEROS_DEV=true ./bundles/leros worker --worker-id 1 --config ./deployments/dev/worker.config.yaml
+dev-worker:
+	cd deployments/dev && ./dev-worker.sh
 
 dev-frontend:
 	-docker rm -f leros-dev-frontend || true

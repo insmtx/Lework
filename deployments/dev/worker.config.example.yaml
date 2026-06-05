@@ -2,6 +2,7 @@
 
 worker_id: 1
 org_id: 1
+server_addr: "127.0.0.1:8080"
 workspace_root:
 
 nats:
@@ -9,12 +10,6 @@ nats:
 
 log:
   level: debug
-
-llm:
-  provider: "openai"
-  api_key: "${LLM_API_KEY}"
-  model: "qwen3.6-plus"
-  base_url: "https://api.yygu.cn/v3/llm.chat/"
 
 cli:
   default: "leros"

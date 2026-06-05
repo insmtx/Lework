@@ -7,10 +7,8 @@ type WorkerConfig struct {
 	ServerAddr    string `yaml:"server_addr,omitempty" json:"server_addr,omitempty"`
 	WorkspaceRoot string `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
 
-	NATS     *NATSConfig       `yaml:"nats,omitempty"`
-	Database *DatabaseConfig   `yaml:"database,omitempty"`
-	LLM      *LLMConfig        `yaml:"llm,omitempty" json:"llm,omitempty"`
-	CLI      *CLIEnginesConfig `yaml:"cli,omitempty"`
+	NATS *NATSConfig       `yaml:"nats,omitempty"`
+	CLI  *CLIEnginesConfig `yaml:"cli,omitempty"`
 }
 
 // CLIEnginesConfig is the configuration for external AI coding CLIs.
