@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"strings"
+	"errors"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -109,7 +109,7 @@ func TestAuthServiceLoginAttemptLimit(t *testing.T) {
 			Email:    "limit@example.com",
 			Password: "WrongPassword123",
 		})
-		if err == nil || err.Error() != "invalid email or password" {
+		if !errors.Is(err, errAuthInvalidEmailOrPassword) {
 			t.Fatalf("expected invalid password error on attempt %d, got %v", i+1, err)
 		}
 	}
@@ -118,7 +118,7 @@ func TestAuthServiceLoginAttemptLimit(t *testing.T) {
 		Email:    "limit@example.com",
 		Password: "Password123",
 	})
-	if err == nil || err.Error() != "login attempts exceeded" {
+	if !errors.Is(err, errAuthLoginAttemptsExceeded) {
 		t.Fatalf("expected login attempts exceeded, got %v", err)
 	}
 }
@@ -132,7 +132,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "Password123",
 		ConfirmPassword: "Password123",
 	})
-	if err == nil || err.Error() != "invalid email format" {
+	if !errors.Is(err, errAuthInvalidEmailFormat) {
 		t.Fatalf("expected invalid email format, got %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "short",
 		ConfirmPassword: "short",
 	})
-	if err == nil || !strings.Contains(err.Error(), "password too short") {
+	if !errors.Is(err, errAuthPasswordTooShort) {
 		t.Fatalf("expected password too short, got %v", err)
 	}
 
@@ -150,7 +150,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "Password123",
 		ConfirmPassword: "Password456",
 	})
-	if err == nil || err.Error() != "passwords do not match" {
+	if !errors.Is(err, errAuthPasswordsDoNotMatch) {
 		t.Fatalf("expected passwords do not match, got %v", err)
 	}
 
@@ -159,7 +159,7 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 		Password:        "PasswordOnly",
 		ConfirmPassword: "PasswordOnly",
 	})
-	if err == nil || err.Error() != "password must contain letters and digits" {
+	if !errors.Is(err, errAuthPasswordMustContainLetterDigit) {
 		t.Fatalf("expected password strength error, got %v", err)
 	}
 }

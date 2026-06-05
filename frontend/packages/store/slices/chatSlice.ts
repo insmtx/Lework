@@ -31,6 +31,7 @@ import type {
 	ToolCallStatus,
 } from "../types/chat";
 import { flattenActions } from "../utils";
+import { readStoredJwtToken } from "../utils/authStorage";
 import { formatFileSize } from "../utils/format";
 
 export type ChatState = {
@@ -840,8 +841,10 @@ export class ChatActionImpl {
 		}
 
 		const url = `${API_BASE_URL}/SessionEvents`;
+		const token = readStoredJwtToken();
 		const client = new FetchSSEClient(url, {
 			method: "POST",
+			headers: token ? { Authorization: `Bearer ${token}` } : undefined,
 			body: { session_id: sessionId },
 			onMessage: (event) => {
 				try {

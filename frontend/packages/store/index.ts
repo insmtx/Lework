@@ -1,9 +1,25 @@
 export { artifactApi, getArtifactDownloadUrl } from "./api/artifactApi";
+export type {
+	AuthOrgInfo,
+	AuthTokenResponse,
+	AuthUserInfo,
+	LoginByEmailParams,
+	RegisterByEmailParams,
+} from "./api/authApi";
+export { authApi } from "./api/authApi";
 export { API_BASE_URL } from "./api/config";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
 export { sessionApi } from "./api/sessionApi";
 export type { AppAction, AppStore } from "./appStore";
-export { useAppStore, useChatStore, useDAStore, useLayoutStore, useTopicStore } from "./appStore";
+export {
+	useAppStore,
+	useAuthStore,
+	useChatStore,
+	useDAStore,
+	useLayoutStore,
+	useTopicStore,
+} from "./appStore";
+export type { AuthAction, AuthState, AuthStore, AuthUser } from "./slices/authSlice";
 export type { ChatAction, ChatState, ChatStore } from "./slices/chatSlice";
 export type {
 	DAStore,

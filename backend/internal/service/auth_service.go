@@ -33,6 +33,28 @@ const (
 	loginAttemptMaxFailures = 5
 )
 
+var (
+	errAuthDatabaseRequired               = errors.New("数据库不可用")
+	errAuthEmailRequired                  = errors.New("请输入邮箱")
+	errAuthInvalidEmailFormat             = errors.New("请输入正确的邮箱")
+	errAuthPasswordRequired               = errors.New("请输入密码")
+	errAuthPasswordsDoNotMatch            = errors.New("密码不一致")
+	errAuthPasswordTooShort               = errors.New("密码长度不能少于8位")
+	errAuthPasswordTooLong                = errors.New("密码长度不能超过20位")
+	errAuthPasswordContainsChinese        = errors.New("密码不能包含中文")
+	errAuthPasswordContainsWhitespace     = errors.New("密码不能包含空格")
+	errAuthPasswordMustContainLetterDigit = errors.New("8-20位，数字/大写字母/小写字母/字符至少3种")
+	errAuthEmailAlreadyExists             = errors.New("该邮箱已注册")
+	errAuthInvalidEmailOrPassword         = errors.New("邮箱或密码错误")
+	errAuthLoginAttemptsExceeded          = errors.New("登录失败次数过多，请稍后再试")
+	errAuthRefreshTokenRequired           = errors.New("刷新令牌不能为空")
+	errAuthRefreshTokenInvalid            = errors.New("登录已过期，请重新登录")
+	errAuthUserNotFound                   = errors.New("用户不存在")
+	errAuthUserOrgNotFound                = errors.New("用户组织信息不存在")
+	errAuthOrgNotFound                    = errors.New("用户组织信息不存在")
+	errAuthJWTSecretRequired              = errors.New("登录配置缺失")
+)
+
 var _ contract.AuthService = (*authService)(nil)
 
 type authService struct {
@@ -49,7 +71,7 @@ func NewAuthService(d *gorm.DB, jwtSecret string) contract.AuthService {
 
 func (s *authService) RegisterByEmail(ctx context.Context, req *contract.RegisterByEmailRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errors.New("database is required")
+		return nil, errAuthDatabaseRequired
 	}
 
 	email, err := normalizeEmail(req.Email)
@@ -65,7 +87,7 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 		return nil, err
 	}
 	if existing != nil {
-		return nil, errors.New("email already exists")
+		return nil, errAuthEmailAlreadyExists
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -91,7 +113,7 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 		}
 		if err := db.CreateUser(ctx, tx, user); err != nil {
 			if isUniqueConstraintError(err) {
-				return errors.New("email already exists")
+				return errAuthEmailAlreadyExists
 			}
 			return err
 		}
@@ -121,7 +143,7 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 
 func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEmailRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errors.New("database is required")
+		return nil, errAuthDatabaseRequired
 	}
 
 	email, err := normalizeEmail(req.Email)
@@ -129,7 +151,7 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 		return nil, err
 	}
 	if strings.TrimSpace(req.Password) == "" {
-		return nil, errors.New("password is required")
+		return nil, errAuthPasswordRequired
 	}
 
 	if err := s.ensureLoginAllowed(ctx, email); err != nil {
@@ -142,12 +164,12 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 	}
 	if user == nil || user.Password == "" {
 		s.recordLoginFailure(ctx, email)
-		return nil, errors.New("invalid email or password")
+		return nil, errAuthInvalidEmailOrPassword
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		s.recordLoginFailure(ctx, email)
 		logs.WarnContextf(ctx, "LoginByEmail: password not match for email=%s: %v", email, err)
-		return nil, errors.New("invalid email or password")
+		return nil, errAuthInvalidEmailOrPassword
 	}
 
 	s.clearLoginFailures(ctx, email)
@@ -161,11 +183,11 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 
 func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTokenRequest) (*contract.AuthTokenResponse, error) {
 	if s.db == nil {
-		return nil, errors.New("database is required")
+		return nil, errAuthDatabaseRequired
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
 	if refreshToken == "" {
-		return nil, errors.New("refresh_token is required")
+		return nil, errAuthRefreshTokenRequired
 	}
 
 	now := time.Now()
@@ -177,7 +199,7 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 		return nil, err
 	}
 	if savedToken == nil {
-		return nil, errors.New("refresh token invalid")
+		return nil, errAuthRefreshTokenInvalid
 	}
 
 	user, err := db.GetUserByID(ctx, s.db, savedToken.UserID)
@@ -185,7 +207,7 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 		return nil, err
 	}
 	if user == nil {
-		return nil, errors.New("user not found")
+		return nil, errAuthUserNotFound
 	}
 	userOrg, org, err := s.defaultUserOrg(ctx, user.ID)
 	if err != nil {
@@ -233,7 +255,7 @@ func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, 
 
 func (s *authService) generateJWT(uin uint) (string, int64, error) {
 	if s.jwtSecret == "" {
-		return "", 0, errors.New("jwt secret is required")
+		return "", 0, errAuthJWTSecretRequired
 	}
 	expiredAt := jwt.TimeFunc().Add(accessTokenExpire).Unix()
 	claims := ygauth.UserClaims{
@@ -275,14 +297,14 @@ func (s *authService) defaultUserOrg(ctx context.Context, userID uint) (*types.U
 		return nil, nil, err
 	}
 	if userOrg == nil {
-		return nil, nil, errors.New("user org not found")
+		return nil, nil, errAuthUserOrgNotFound
 	}
 	org, err := db.GetOrgByID(ctx, s.db, userOrg.OrgID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if org == nil {
-		return nil, nil, errors.New("org not found")
+		return nil, nil, errAuthOrgNotFound
 	}
 	return userOrg, org, nil
 }
@@ -299,7 +321,7 @@ func (s *authService) ensureLoginAllowed(ctx context.Context, email string) erro
 		return nil
 	}
 	if attempt.FailureCount >= loginAttemptMaxFailures {
-		return errors.New("login attempts exceeded")
+		return errAuthLoginAttemptsExceeded
 	}
 	return nil
 }
@@ -362,50 +384,65 @@ func createAccountOrg(ctx context.Context, tx *gorm.DB, name string) (*types.Org
 func normalizeEmail(email string) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
-		return "", errors.New("email is required")
+		return "", errAuthEmailRequired
 	}
 	address, err := mail.ParseAddress(email)
 	if err != nil || address.Address != email || !strings.Contains(email, "@") {
-		return "", errors.New("invalid email format")
+		return "", errAuthInvalidEmailFormat
 	}
 	return email, nil
 }
 
 func validateRegisterPassword(password, confirmPassword string) error {
 	if password != confirmPassword {
-		return errors.New("passwords do not match")
+		return errAuthPasswordsDoNotMatch
 	}
 	return validatePasswordStrength(password)
 }
 
 func validatePasswordStrength(password string) error {
 	if strings.TrimSpace(password) == "" {
-		return errors.New("password is required")
+		return errAuthPasswordRequired
 	}
 	if len(password) < 8 {
-		return errors.New("password too short")
+		return errAuthPasswordTooShort
 	}
-	if len(password) > 36 {
-		return errors.New("password too long")
+	if len(password) > 20 {
+		return errAuthPasswordTooLong
 	}
-	hasLetter := false
+	categoryCount := 0
+	hasLower := false
+	hasUpper := false
 	hasDigit := false
+	hasSpecial := false
 	for _, r := range password {
 		if r >= '\u4e00' && r <= '\u9fff' {
-			return errors.New("password cannot contain chinese characters")
+			return errAuthPasswordContainsChinese
 		}
 		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			return errors.New("password cannot contain whitespace")
+			return errAuthPasswordContainsWhitespace
 		}
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-			hasLetter = true
+		if r >= 'a' && r <= 'z' {
+			hasLower = true
+			continue
+		}
+		if r >= 'A' && r <= 'Z' {
+			hasUpper = true
+			continue
 		}
 		if r >= '0' && r <= '9' {
 			hasDigit = true
+			continue
+		}
+		hasSpecial = true
+	}
+	for _, matched := range []bool{hasLower, hasUpper, hasDigit, hasSpecial} {
+		if matched {
+			categoryCount++
 		}
 	}
-	if !hasLetter || !hasDigit {
-		return errors.New("password must contain letters and digits")
+	if categoryCount < 3 {
+		return errAuthPasswordMustContainLetterDigit
 	}
 	return nil
 }

@@ -464,13 +464,12 @@ export class LayoutActionImpl {
 		try {
 			const res = await projectApi.list({ list_all: true, limit: 100 });
 			const items = res.data.data?.items ?? [];
-			if (items.length === 0) return;
 			const apiProjects = items.map(mapBackendProject);
 			this.#set((state) => {
 				const localProjects = state.projects.filter(
 					(p) => !apiProjects.some((ap) => ap.id === p.id),
 				);
-				return { projects: [...apiProjects, ...localProjects] };
+				return { projects: apiProjects.length ? [...apiProjects, ...localProjects] : [] };
 			});
 		} catch (err) {
 			console.error("fetchProjects error:", err);
@@ -783,6 +782,27 @@ export class LayoutActionImpl {
 
 	setConversationSearchQuery = (query: string) => {
 		this.#set({ conversationSearchQuery: query });
+	};
+
+	resetAuthScopedData = () => {
+		this.#set({
+			currentView: "workbench",
+			activeConversationId: null,
+			activeProjectId: null,
+			activeWorkbenchProjectId: null,
+			activeWorkbenchTaskId: null,
+			activeProjectTab: "chat",
+			projects: [],
+			conversations: [],
+			conversationsLoaded: false,
+			activeTaskDetailProjectId: null,
+			activeTaskDetailTaskId: null,
+			activeTaskDetailSessionId: null,
+			projectDetailLoading: false,
+			projectDetailError: null,
+			activeProjectSessionId: null,
+			projectSessionId: null,
+		});
 	};
 }
 

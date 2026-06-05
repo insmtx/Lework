@@ -26,6 +26,7 @@ import {
 	Zap,
 } from "lucide-react";
 import { useEffect } from "react";
+import { useAuth } from "../auth";
 
 export type AppNavigation = {
 	currentPath: string;
@@ -60,6 +61,8 @@ const navIdToView: Record<string, ViewMode> = {
 	"ai-3": "digitalAssistant",
 };
 
+const protectedNavIds = new Set(["tasks", "skills", "knowledge"]);
+
 export function LeftRail({
 	logoSrc = "/logo.svg",
 	navigation,
@@ -76,6 +79,7 @@ export function LeftRail({
 		switchView,
 		switchProject,
 	} = useLayoutStore((s) => s);
+	const { isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 
 	useEffect(() => {
 		fetchProjects();
@@ -83,11 +87,43 @@ export function LeftRail({
 
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
-		if (navigation) {
-			navigation.goToRoute(view);
+		const navigate = () => {
+			if (navigation) {
+				navigation.goToRoute(view);
+				return;
+			}
+			switchView(view);
+		};
+		if (protectedNavIds.has(item.id)) {
+			requireAuth(navigate);
 			return;
 		}
-		switchView(view);
+		navigate();
+	};
+
+	const handleProjectClick = (projectId: string) => {
+		requireAuth(() => {
+			if (navigation) {
+				navigation.goToProject(projectId);
+				return;
+			}
+			switchProject(projectId);
+		});
+	};
+
+	const handleProfileClick = () => {
+		if (!isAuthenticated) {
+			openAuthDialog("login");
+		}
+	};
+
+	const handleLogout = () => {
+		logout();
+		if (navigation) {
+			navigation.goToRoute("workbench");
+			return;
+		}
+		switchView("workbench");
 	};
 
 	const isItemActive = (item: NavItem) => {
@@ -139,13 +175,7 @@ export function LeftRail({
 										activeProjectId={activeProjectId}
 										currentView={currentView}
 										currentPath={navigation?.currentPath}
-										onProjectClick={(projectId) => {
-											if (navigation) {
-												navigation.goToProject(projectId);
-												return;
-											}
-											switchProject(projectId);
-										}}
+										onProjectClick={handleProjectClick}
 									/>
 								) : (
 									<div className="space-y-1">
@@ -166,56 +196,77 @@ export function LeftRail({
 			</ScrollArea>
 
 			<div className="leros-sidebar-footer shrink-0">
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<button type="button" className="leros-profile-trigger">
-								<span className="leros-avatar overflow-hidden object-cover">
-									<img
-										src="https://lh3.googleusercontent.com/aida-public/AB6AXuBF0owbtXZ299YjKA9U1M8sCOv64scrlTj0dggJ4QzZ3LVWiwaw6F2wdlx-pfng186UXwb39pUr6UYaB3TR0VgvyCzHeq_ftW0GiYK6opisJR6rW9cI41epBVwQ01amJW2zeCfuSC4bO9eHQmG3birvJfEvqhddLBP9UAyGwjti4KWyfS5HGYrOGMI1T2aGvaWbAMOO-dYq22Ezmpl3PWzyb7yd1yYy2LEOqAOSuhmadQKH90cgkhBTISnC5mE8jOrwmrdZuF-Fvs4"
-										alt="Avatar"
-										className="w-full h-full object-cover"
-									/>
-								</span>
-								<div className="flex-1 overflow-hidden text-left">
-									<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
-										个人中心
-									</p>
-									<p className="text-[10px] font-bold uppercase tracking-tight text-[var(--leros-primary)]">
-										PREMIUM
-									</p>
-								</div>
-								<MoreVertical className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
-							</button>
-						}
-					/>
-					<DropdownMenuContent
-						align="end"
-						side="top"
-						sideOffset={10}
-						className="leros-profile-menu"
-					>
-						<DropdownMenuItem>
-							<UserRound className="size-4" />
-							<span>个人信息</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem>
-							<Settings className="size-4" />
-							<span>系统设置</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem>
-							<CircleHelp className="size-4" />
-							<span>使用帮助</span>
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem variant="destructive">
-							<LogOut className="size-4" />
-							<span>退出登录</span>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+				{isAuthenticated ? (
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<button type="button" className="leros-profile-trigger">
+									<ProfileAvatar />
+									<div className="flex-1 overflow-hidden text-left">
+										<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
+											{user?.name ?? "个人中心"}
+										</p>
+										<p className="text-[10px] font-bold uppercase tracking-tight text-[var(--leros-primary)]">
+											PREMIUM
+										</p>
+									</div>
+									<MoreVertical className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+								</button>
+							}
+						/>
+						<DropdownMenuContent
+							align="end"
+							side="top"
+							sideOffset={10}
+							className="leros-profile-menu"
+						>
+							<DropdownMenuItem>
+								<UserRound className="size-4" />
+								<span>个人信息</span>
+							</DropdownMenuItem>
+							<DropdownMenuItem>
+								<Settings className="size-4" />
+								<span>系统设置</span>
+							</DropdownMenuItem>
+							<DropdownMenuItem>
+								<CircleHelp className="size-4" />
+								<span>使用帮助</span>
+							</DropdownMenuItem>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem variant="destructive" onClick={handleLogout}>
+								<LogOut className="size-4" />
+								<span>退出登录</span>
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				) : (
+					<button type="button" className="leros-profile-trigger" onClick={handleProfileClick}>
+						<ProfileAvatar />
+						<div className="flex-1 overflow-hidden text-left">
+							<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
+								登录 / 注册
+							</p>
+							<p className="text-[10px] font-bold uppercase tracking-tight text-[var(--leros-primary)]">
+								LEROS
+							</p>
+						</div>
+						<UserRound className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+					</button>
+				)}
 			</div>
 		</aside>
+	);
+}
+
+function ProfileAvatar() {
+	return (
+		<span className="leros-avatar overflow-hidden object-cover">
+			<img
+				src="https://lh3.googleusercontent.com/aida-public/AB6AXuBF0owbtXZ299YjKA9U1M8sCOv64scrlTj0dggJ4QzZ3LVWiwaw6F2wdlx-pfng186UXwb39pUr6UYaB3TR0VgvyCzHeq_ftW0GiYK6opisJR6rW9cI41epBVwQ01amJW2zeCfuSC4bO9eHQmG3birvJfEvqhddLBP9UAyGwjti4KWyfS5HGYrOGMI1T2aGvaWbAMOO-dYq22Ezmpl3PWzyb7yd1yYy2LEOqAOSuhmadQKH90cgkhBTISnC5mE8jOrwmrdZuF-Fvs4"
+				alt="Avatar"
+				className="w-full h-full object-cover"
+			/>
+		</span>
 	);
 }
 

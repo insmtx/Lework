@@ -16,6 +16,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useAuth } from "../auth";
 import type { AppNavigation } from "./LeftRail";
 
 const mockActivities = [
@@ -52,6 +53,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
 	const { startSessionResponseStream, resetLocalMessages } = useChatStore((s) => s);
+	const { isAuthenticated, openAuthDialog, requireAuth, user } = useAuth();
 	const [input, setInput] = useState("");
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
@@ -67,9 +69,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		resetLocalMessages();
 	}, [clearTaskDetailRoute, resetLocalMessages]);
 
-	const handleSend = async () => {
-		const content = input.trim();
-		if (!content) return;
+	const performSend = async (content: string) => {
 		const data = await sendWorkbenchMessage(content, activeWorkbenchProjectId);
 		if (data?.session_id) {
 			await startSessionResponseStream(data.session_id, content);
@@ -78,6 +78,18 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 		}
 		setInput("");
+	};
+
+	const handleSend = async () => {
+		const content = input.trim();
+		if (!content) return;
+		if (!isAuthenticated) {
+			requireAuth(() => {
+				void performSend(content);
+			});
+			return;
+		}
+		await performSend(content);
 	};
 	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
 	const latestProject = projects[0];
@@ -98,25 +110,47 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [taskSearch, activeProject]);
 
 	const handleSelectProject = (projectId: string | null) => {
-		selectWorkbenchProject(projectId);
-		setProjectMenuOpen(false);
-		setProjectSearch("");
+		requireAuth(() => {
+			selectWorkbenchProject(projectId);
+			setProjectMenuOpen(false);
+			setProjectSearch("");
+		});
 	};
 
 	const handleSelectTask = (taskId: string | null) => {
-		selectWorkbenchTask(taskId);
-		setTaskMenuOpen(false);
-		setTaskSearch("");
+		requireAuth(() => {
+			selectWorkbenchTask(taskId);
+			setTaskMenuOpen(false);
+			setTaskSearch("");
+		});
+	};
+
+	const handleProjectMenuOpenChange = (open: boolean) => {
+		if (!open) {
+			setProjectMenuOpen(false);
+			return;
+		}
+		requireAuth(() => setProjectMenuOpen(true));
+	};
+
+	const handleTaskMenuOpenChange = (open: boolean) => {
+		if (!open) {
+			setTaskMenuOpen(false);
+			return;
+		}
+		requireAuth(() => setTaskMenuOpen(true));
 	};
 
 	const handleOpenActivityProject = (projectName: string) => {
 		const project = projects.find((item) => item.id === projectName || item.name === projectName);
 		if (project) {
-			if (navigation) {
-				navigation.goToProject(project.id);
-				return;
-			}
-			switchProject(project.id);
+			requireAuth(() => {
+				if (navigation) {
+					navigation.goToProject(project.id);
+					return;
+				}
+				switchProject(project.id);
+			});
 		}
 	};
 
@@ -140,6 +174,15 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					>
 						<Bell className="size-5" />
 						<span className="absolute right-2 top-2 size-2 rounded-full border-2 border-[var(--leros-app-bg)] bg-destructive" />
+					</button>
+					<button
+						type="button"
+						onClick={() => {
+							if (!isAuthenticated) openAuthDialog("login");
+						}}
+						className="rounded-full bg-[#070d1c] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#182033]"
+					>
+						{isAuthenticated ? (user?.name ?? "已登录") : "登录"}
 					</button>
 				</div>
 			</header>
@@ -183,7 +226,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									>
 										<Plus className="size-5" />
 									</button>
-									<Popover open={projectMenuOpen} onOpenChange={setProjectMenuOpen}>
+									<Popover open={projectMenuOpen} onOpenChange={handleProjectMenuOpenChange}>
 										<PopoverTrigger
 											type="button"
 											className="flex h-8 min-w-[140px] items-center gap-2 rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3 text-xs font-semibold text-[var(--leros-text)] outline-none transition-colors hover:border-[var(--leros-focus-ring)] data-[open]:border-[var(--leros-primary)]"
@@ -256,7 +299,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										</PopoverContent>
 									</Popover>
 									{activeProject && (
-										<Popover open={taskMenuOpen} onOpenChange={setTaskMenuOpen}>
+										<Popover open={taskMenuOpen} onOpenChange={handleTaskMenuOpenChange}>
 											<PopoverTrigger
 												type="button"
 												className="flex h-8 min-w-[140px] items-center gap-2 rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3 text-xs font-semibold text-[var(--leros-text)] outline-none transition-colors hover:border-[var(--leros-focus-ring)] data-[open]:border-[var(--leros-primary)]"
@@ -357,12 +400,14 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						<div className="mt-6 flex items-center justify-center gap-4">
 							<button
 								type="button"
+								onClick={() => requireAuth()}
 								className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-primary)]"
 							>
 								分析 SPRINT
 							</button>
 							<button
 								type="button"
+								onClick={() => requireAuth()}
 								className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-primary)]"
 							>
 								总结报告

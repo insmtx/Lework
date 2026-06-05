@@ -1,4 +1,12 @@
 export { artifactApi, getArtifactDownloadUrl } from "./artifactApi";
+export type {
+	AuthOrgInfo,
+	AuthTokenResponse,
+	AuthUserInfo,
+	LoginByEmailParams,
+	RegisterByEmailParams,
+} from "./authApi";
+export { authApi } from "./authApi";
 export { apiClient } from "./client";
 export { API_BASE_URL } from "./config";
 export type {

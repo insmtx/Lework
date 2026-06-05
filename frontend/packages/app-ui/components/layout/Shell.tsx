@@ -2,6 +2,7 @@
 
 import { useLayoutStore } from "@leros/store";
 import type { ReactNode } from "react";
+import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { CenterCanvas } from "./CenterCanvas";
 import { type AppNavigation, LeftRail } from "./LeftRail";
@@ -21,19 +22,21 @@ export function Shell({
 	const currentView = useLayoutStore((s) => s.currentView);
 
 	return (
-		<div className="leros-app-shell">
-			<LeftRail logoSrc={logoSrc} navigation={navigation} />
-			{children ?? (
-				<>
-					{currentView === "chat" && <CenterCanvas />}
-					{currentView === "workbench" && <WorkbenchPanel />}
-					{currentView === "tasks" && <EmptyPage />}
-					{currentView === "project" && <ProjectPage />}
-					{currentView === "taskDetail" && <TaskDetailPage />}
-					{currentView === "digitalAssistant" && <AssistantListView />}
-				</>
-			)}
-		</div>
+		<AuthProvider logoSrc={logoSrc}>
+			<div className="leros-app-shell">
+				<LeftRail logoSrc={logoSrc} navigation={navigation} />
+				{children ?? (
+					<>
+						{currentView === "chat" && <CenterCanvas />}
+						{currentView === "workbench" && <WorkbenchPanel />}
+						{currentView === "tasks" && <EmptyPage />}
+						{currentView === "project" && <ProjectPage />}
+						{currentView === "taskDetail" && <TaskDetailPage />}
+						{currentView === "digitalAssistant" && <AssistantListView />}
+					</>
+				)}
+			</div>
+		</AuthProvider>
 	);
 }
 

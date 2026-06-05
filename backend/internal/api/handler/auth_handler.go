@@ -109,26 +109,44 @@ func (h *AuthHandler) RefreshToken(ctx *gin.Context) {
 func handleAuthServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()
 
-	switch errMsg {
-	case "email is required",
-		"invalid email format",
-		"password is required",
-		"passwords do not match",
-		"password too short",
-		"password too long",
-		"password cannot contain chinese characters",
-		"password cannot contain whitespace",
-		"password must contain letters and digits",
-		"email already exists",
-		"refresh_token is required":
+	switch {
+	case isAuthBadRequestError(err):
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
-	case "invalid email or password",
-		"refresh token invalid",
-		"user not found":
+	case isAuthUnauthorizedError(err):
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, errMsg))
-	case "login attempts exceeded":
+	case errMsg == "登录失败次数过多，请稍后再试":
 		ctx.JSON(http.StatusTooManyRequests, dto.Error(dto.CodeInternalError, errMsg))
 	default:
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
+	}
+}
+
+func isAuthBadRequestError(err error) bool {
+	switch err.Error() {
+	case "请输入邮箱",
+		"请输入正确的邮箱",
+		"请输入密码",
+		"密码不一致",
+		"密码长度不能少于8位",
+		"密码长度不能超过20位",
+		"密码不能包含中文",
+		"密码不能包含空格",
+		"8-20位，数字/大写字母/小写字母/字符至少3种",
+		"该邮箱已注册",
+		"刷新令牌不能为空":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAuthUnauthorizedError(err error) bool {
+	switch err.Error() {
+	case "邮箱或密码错误",
+		"登录已过期，请重新登录",
+		"用户不存在":
+		return true
+	default:
+		return false
 	}
 }

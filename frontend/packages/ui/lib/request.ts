@@ -109,6 +109,18 @@ class HttpClient {
 					const error: ApiError = new Error(`HTTP Error: ${response.status}`);
 					error.status = response.status;
 					error.statusText = response.statusText;
+					const errorData = await readResponseJSON(response);
+					if (errorData !== undefined) {
+						error.response = {
+							data: errorData,
+							status: response.status,
+							statusText: response.statusText,
+							headers: response.headers,
+						};
+						if (isErrorResponse(errorData)) {
+							error.message = errorData.message;
+						}
+					}
 					throw error;
 				}
 
@@ -200,4 +212,21 @@ export interface ApiError extends Error {
 	status?: number;
 	statusText?: string;
 	response?: ApiResponse;
+}
+
+async function readResponseJSON(response: globalThis.Response): Promise<unknown> {
+	try {
+		return await response.clone().json();
+	} catch {
+		return undefined;
+	}
+}
+
+function isErrorResponse(value: unknown): value is { message: string } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"message" in value &&
+		typeof (value as { message?: unknown }).message === "string"
+	);
 }
