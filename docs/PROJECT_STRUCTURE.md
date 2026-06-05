@@ -1,12 +1,14 @@
 # Leros 项目结构与文件索引
 
+本文档用于快速定位 Leros 代码库中的主要目录、边界和常见开发入口。内容按当前仓库结构整理，处理不熟悉任务时建议先从“快速索引”定位到对应层级，再参考相邻实现。
+
 ## 项目概览
 
-Leros 是一个**企业级数字员工操作系统**，基于 Golang 构建，采用三平面架构：
+Leros 是一个企业级数字员工操作系统，后端基于 Golang，前端采用 pnpm + Turborepo monorepo。当前核心架构按职责分为：
 
-- **控制 平面**（Control Plane）：Gin HTTP 服务，管理 UI API、会话、数字员工 CRUD
-- **事件总线**（Event Bus）：NATS JetStream，解耦组件间通信
-- **工作平面**（Worker Plane）：后台 Worker，执行 Agent 运行时
+- 控制平面：Gin HTTP 服务，负责 UI API、认证、会话、项目、任务、数字员工、模型配置和渠道入口。
+- 事件与消息平面：NATS JetStream，负责外部事件、Worker 任务和运行流事件的解耦。
+- 工作平面：Worker、Agent Runtime、外部 CLI 引擎和工具系统，负责实际执行任务。
 
 Go Module: `github.com/insmtx/Leros` | Go 1.24
 
@@ -14,494 +16,459 @@ Go Module: `github.com/insmtx/Leros` | Go 1.24
 
 | 组件 | 用途 |
 |------|------|
-| Gin | HTTP 框架 |
-| Cobra | CLI 框架 |
-| GORM + PostgreSQL | 数据库 ORM |
-| NATS JetStream | 消息队列 |
-| CloudWeGo Eino | Agent/LLM 框架（ADK） |
-| gorilla/websocket | WebSocket |
-| MCP-Go | Model Context Protocol |
-| swaggo | Swagger 文档 |
-| jupiter | 内部框架（ygpkg/yg-go） |
+| Gin | HTTP API 和 Webhook 路由 |
+| Cobra | `leros` CLI 命令入口 |
+| GORM + PostgreSQL | 数据访问与模型迁移 |
+| NATS JetStream | 消息队列、任务分发、运行事件流 |
+| CloudWeGo Eino | 原生 Agent/LLM 运行时 |
+| gorilla/websocket | WebSocket 连接与 Worker 通信 |
+| MCP-Go | Worker 侧 MCP 服务 |
+| swaggo | Swagger 文档生成 |
+| pnpm + Turborepo | 前端 monorepo 构建与任务编排 |
 
 ### 核心抽象接口
 
 | 接口 | 位置 | 职责 |
 |------|------|------|
-| `agent.Runner` | `backend/internal/agent/runner.go:11` | 数字员工单次运行的执行边界 |
-| `tools.Tool` | `backend/tools/tool.go:29` | 最小工具接口 |
-| `engines.Engine` | `backend/engines/engine.go:65` | 外部 AI CLI 引擎边界 |
-| `mq.EventBus` | `backend/internal/infra/mq/bus.go:32` | 事件总线（发布+订阅） |
-| `Connector` | `backend/internal/api/connectors/connector.go:14` | 外部渠道连接器 |
+| `agent.Runner` | `backend/internal/agent/runner.go` | Agent 单次运行的执行边界 |
+| `tools.Tool` | `backend/tools/tool.go` | Worker 可调用工具的最小接口 |
+| `engines.Engine` | `backend/engines/engine.go` | 外部 AI CLI 引擎边界 |
+| `mq.EventBus` | `backend/internal/infra/mq/bus.go` | 事件总线发布与订阅 |
+| `Connector` | `backend/internal/api/connectors/connector.go` | 外部渠道连接器 |
+| `skill/catalog.CatalogProvider` | `backend/internal/skill/catalog/provider.go` | 技能目录提供者 |
 
-### 数据流
+### 主数据流
 
+```text
+UI Client -> REST/WS -> Server -> NATS -> Worker -> Agent Runtime -> Tools/MCP
+     ^                                                               |
+     |---------------------- Stream Events / Messages ---------------|
+
+GitHub/GitLab Webhook -> Connector -> NATS -> Event Engine -> Agent Runner
+Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 ```
-UI Client → REST/WS → Server → NATS → Worker → Agent Runtime → Tools/MCP → NATS stream → Server → WS → UI
-GitHub/GitLab Webhook → Server → NATS → Event Engine → Agent Runner
-```
 
----
+## 根目录
 
-## 目录树
-
-### 根目录
-
-```
-/ (root)
-├── go.mod / go.sum           # Go 模块定义
-├── Makefile                  # 构建命令（build/docker/run/swagger/dev）
-├── AGENTS.md                 # AI Agent 开发指南（含构建/测试命令）
-├── config.example.yaml       # 示例配置文件
-├── minimal-config.yaml       # 最小启动配置
+```text
+/
+├── AGENTS.md                 # AI Agent 开发指南和项目约束
 ├── CONTRIBUTING.md           # 贡献指南
-├── README.md / README_en.md  # 项目说明（中/英）
-├── LICENSE                   # 许可证
-├── .dockerignore / .gitignore
-├── backend/                  # Go 后端源码（主体）
-├── docs/                     # 文档
-├── deployments/              # 部署配置（Docker/docker-compose）
-├── frontend/                 # 前端应用（Next.js/Electron）
-└── bundles/                  # 构建产物（已 gitignore）
+├── Makefile                  # 构建、运行、Swagger 等命令
+├── README.md / README_en.md  # 项目说明
+├── config.example.yaml       # 完整示例配置
+├── minimal-config.yaml       # 最小启动配置
+├── go.mod / go.sum           # Go 模块定义
+├── backend/                  # Go 后端源码
+├── frontend/                 # 前端 monorepo
+├── docs/                     # 架构、设计、排障与生成文档
+├── deployments/              # Docker、compose、初始化脚本
+├── bundles/                  # 构建产物，已忽略
+└── logs/                     # 本地运行日志，已忽略
 ```
 
-### `backend/` - Go 后端源码
+## `backend/` - Go 后端
 
-#### `backend/cmd/leros/` — 应用入口
+### `backend/cmd/leros/` - 进程入口
 
-| 文件 | 说明 |
-|------|------|
-| `main.go` | Cobra 根命令，设置日志级别 |
-| `server.go` | `leros server` — 启动 HTTP 服务（加载配置、NATS、DB、路由） |
-| `worker.go` | `leros worker` — 启动 Worker（MCP 服务、Agent Runtime、Task Consumer） |
-| `worker_claudecode.go` | `leros worker claude-worker` — Claude Code 专用 Worker |
-| `worker_simplechat.go` | `leros worker simplechat` — Leros 内置运行时 Worker |
-| `chat.go` | CLI 聊天命令（本地调试交互） |
-| `project.go` | Project CLI 命令（本地调试） |
-| `task.go` | Task CLI 命令（本地调试） |
-
-#### `backend/config/` — 配置类型
+该目录是进程生命周期边界，允许 Cobra 命令注册、服务启动、信号等待和 `log.Fatal`。
 
 | 文件 | 说明 |
 |------|------|
-| `config.go` | 主 `Config` 结构体（Server/Github/NATS/DB/LLM/Scheduler） |
-| `worker.go` | `WorkerConfig` — Worker 进程配置 |
-| `scheduler.go` | `SchedulerConfig` — Worker 调度模式配置 |
-| `github.go` | `GithubAppConfig` — GitHub App 集成配置 |
-| `gitlab.go` | `GitlabAppConfig` — GitLab 集成配置 |
+| `main.go` | Cobra 根命令和全局日志配置 |
+| `server.go` | `leros server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
+| `worker.go` | `leros worker`，启动 Worker 相关子命令 |
+| `worker_claudecode.go` | Claude Code 专用 Worker |
+| `worker_simplechat.go` | 内置 SimpleChat Worker |
+| `chat.go` | 本地 CLI 聊天调试 |
+| `project.go` | Project CLI 调试命令 |
+| `session.go` | Session CLI 调试命令 |
+| `task.go` | Task CLI 调试命令 |
 
-#### `backend/types/` — 核心领域类型（GORM Models，表前缀 `leros_`）
+### `backend/config/` - 配置类型
 
-| 文件 | 核心类型 |
+| 文件 | 说明 |
+|------|------|
+| `config.go` | 主配置结构，包含 Server、NATS、DB、LLM、Scheduler 等 |
+| `worker.go` | Worker 进程配置 |
+| `scheduler.go` | Worker 调度配置 |
+| `github.go` | GitHub App 配置 |
+| `gitlab.go` | GitLab 配置 |
+
+### `backend/types/` - 共享领域模型
+
+该目录主要放跨层共享的 GORM 模型、枚举和表名常量，不放业务逻辑。
+
+| 文件 | 核心内容 |
 |------|----------|
-| `digital_assistant.go` | `DigitalAssistant`（编码/组织/名称/状态/版本/系统提示词） |
-| `event.go` | `Event`（消息ID/追踪ID/来源/类型/动作/载荷） |
-| `session.go` | `Session`（公共ID/类型/状态/标题）、`SessionMessage`（角色/内容/块/用量） |
-| `skill.go` | `Skill`（编码/名称/描述/类别/输入输出Schema/权限） |
-| `task.go` | `Task`（公共ID/组织/项目/会话/状态/截止时间） |
+| `digital_assistant.go` | `DigitalAssistant` |
+| `session.go` | `Session`、`SessionMessage` |
+| `task.go` | `Task` |
 | `project.go` | `Project`、`ProjectMember` |
-| `llm_model.go` | `LLMModel`（提供商/模型名/BaseURL/APIKey加密/最大Token/温度） |
+| `artifact.go` | `Artifact` |
+| `llm_model.go` | `LLMModel` |
+| `skill.go` | `Skill` |
+| `skill_registry.go` | `SkillRegistry` |
+| `skill_execution_log.go` | 技能执行审计日志 |
 | `user.go` | `User` |
 | `organization.go` | `Organization` |
-| `artifact.go` | `Artifact`（任务输出产物） |
-| `skill_registry.go` | `SkillRegistry` |
-| `skill_execution_log.go` | `SkillExecutionLog`（审计日志） |
-| `tables.go` | 数据库表名常量 |
-| `constants.go` | 所有类型安全常量：`DigitalAssistantStatus`、`LLMProviderType`（openai/anthropic/deepseek/qwen/gemini/ark/openrouter/custom）、`SessionStatus`、`TaskStatus`、`EventType/Action` 等 |
 | `user_org.go` | 用户与组织关系 |
-| `util.go` | 类型工具函数 |
+| `auth.go` | 第三方账户和认证相关模型 |
+| `event.go` | 持久化事件模型 |
+| `constants.go` | 类型安全常量和枚举 |
+| `tables.go` | 数据库表名常量 |
+| `util.go` | 类型辅助函数 |
 
-#### `backend/pkg/` — 共享工具包
+### `backend/internal/api/` - HTTP API 层
+
+| 路径 | 说明 |
+|------|------|
+| `router.go` | 主路由组装，注册 API、连接器、WS、Swagger、Worker 路由 |
+| `handler/` | HTTP Handler：数字员工、会话、任务、项目、模型、产物、工作流、认证、用户、组织 |
+| `contract/` | API 请求/响应契约 DTO，按资源拆分，同时包含 `_type.go` 类型定义 |
+| `dto/` | 通用 API 响应和部分历史 DTO |
+| `middleware/` | 身份识别、请求上下文等中间件 |
+| `auth/` | OAuth 编排、认证服务、账户解析、认证存储接口和内存实现 |
+| `connectors/github/` | GitHub Webhook、OAuth、事件转换和 API Client |
+| `connectors/gitlab/` | GitLab 连接器与事件转换 |
+| `connectors/wework/` | 企业微信连接器桩代码 |
+
+### `backend/internal/service/` - 业务服务层
 
 | 文件 | 说明 |
 |------|------|
-| `pkg/event/event.go` | 跨模块事件结构体 |
-| `pkg/event/topic.go` | NATS 主题常量（`TopicGithubIssueComment`、`TopicGithubPullRequest`、`TopicGithubPush`） |
-| `pkg/dm/subject.go` | Worker 任务和消息流的 NATS Subject 构建 |
-| `pkg/dm/stream.go` | Stream 消息类型 |
-| `pkg/dm/consumer.go` | 持久化 Consumer 名称生成 |
-| `pkg/leros/home.go` | Leros 主目录和技能目录解析 |
-| `pkg/utils/trailing_debouncer.go` | 尾部去抖器（任务去重） |
-| `pkg/utils/value_fallback.go` | 值回退辅助 |
+| `digital_assistant_service.go` | 数字员工 CRUD 和调度触发 |
+| `session_service.go` | 会话生命周期、消息创建、流式事件处理、任务分发 |
+| `session_event_projector.go` | 运行事件投射为会话消息 |
+| `message_poster.go` | 消息投递抽象 |
+| `assistant_inferrer.go` | 数字员工解析 |
+| `task_service.go` | 任务 CRUD |
+| `project_service.go` | 项目 CRUD |
+| `work_service.go` | 工作流管理 |
+| `artifact_service.go` | 产物管理 |
+| `llm_model_service.go` | LLM 模型配置管理 |
+| `auth_service.go` | 认证业务服务 |
+| `user_service.go` | 用户服务 |
+| `org_service.go` | 组织服务 |
+| `utils.go` | 服务层辅助函数 |
 
-#### `backend/tools/` — 工具系统
+### `backend/internal/infra/` - 基础设施
+
+| 路径 | 说明 |
+|------|------|
+| `mq/bus.go` | `Publisher`、`Subscriber`、`EventBus` 接口 |
+| `mq/nats.go` | NATS JetStream 实现 |
+| `mq/std.go` | 标准 NATS 实现 |
+| `db/database.go` | DB 初始化、自动迁移和种子数据 |
+| `db/*_dao.go` | DAO：会话、消息、数字员工、模型、项目、任务、产物、认证、用户、组织等 |
+| `providers/github/` | GitHub OAuth Provider、Client Factory、Resolver |
+| `websocket/` | WebSocket 连接器、连接管理器和消息类型 |
+
+### `backend/internal/agent/` - Agent 运行边界
 
 | 文件 | 说明 |
 |------|------|
-| `tool.go` | 核心接口：`Tool`（Name/InputSchema/Execute）、`BaseTool`、`Schema`/`Property`、`ToolContext` |
-| `registry.go` | 线程安全的 Tool 注册表 |
-| `tools/memory/memory.go` | 记忆工具（Agent 短期/长期记忆） |
-| `tools/memory/register.go` | 记忆工具注册 |
-| `tools/skill_use/skill_use.go` | 技能使用工具（列出/获取技能） |
-| `tools/skill_use/register.go` | 技能使用工具注册 |
-| `tools/skill_manage/skill_manage.go` | 技能管理工具（安装/卸载） |
-| `tools/skill_manage/register.go` | 技能管理工具注册 |
-| `tools/todo/todo.go` | Todo/计划工具 |
-| `tools/todo/register.go` | Todo 工具注册 |
-| `tools/node/node.go` | 节点执行工具入口 |
-| `tools/node/file_read.go` | 文件读取工具 |
-| `tools/node/file_write.go` | 文件写入工具 |
-| `tools/node/shell.go` | Shell 命令执行工具 |
-| `tools/node/workspace.go` | 工作空间管理工具 |
-| `tools/node/security/` | 安全策略（工作空间限制、审批门禁、环境隔离、写入禁止规则） |
-| `tools/node/util/helpers.go` | 节点工具辅助函数 |
-| `tools/artifact_declare/tool.go` | 产物声明工具 |
-| `tools/test/echo.go` | Echo 测试工具 |
+| `runner.go` | `Runner` 接口 |
+| `router.go` | Runtime Router，按运行时类型分发 |
+| `request.go` | Agent 运行请求 |
+| `result.go` | Agent 运行结果 |
 
-#### `backend/engines/` — 外部 AI CLI 引擎
+### `backend/internal/runtime/` - Agent 运行时基础设施
+
+| 路径 | 说明 |
+|------|------|
+| `service.go` | 顶层 Runtime Service，构建 DI 容器和 Runner Router |
+| `deps/` | 运行时依赖容器 |
+| `events/` | 运行事件类型、Envelope、Sink、Emitter、流事件消息 |
+| `lifecycle/` | 运行生命周期管道：上下文、授权、模型、执行、持久化、学习、状态等步骤 |
+| `drivers/native/` | 原生 Eino Runtime，内置工具和 LLM 适配 |
+| `drivers/externalcli/` | Claude Code/Codex 等外部 CLI Runner |
+| `drivers/simplechat/` | 简单聊天运行时和控制台交互 |
+| `mcp/` | Worker 侧 MCP Server、Router、认证 |
+| `todo/` | 运行时 Todo 跟踪器和上下文 |
+
+### `backend/internal/worker/` - Worker 系统
+
+| 路径 | 说明 |
+|------|------|
+| `worker.go` | Worker 类型别名 |
+| `scheduler.go` | `WorkerScheduler` 接口、`WorkerSpec`、`WorkerInstance` |
+| `scheduler/process_scheduler.go` | 通过本地进程启动 Worker |
+| `scheduler/dockercli_scheduler.go` | 通过 Docker CLI 调度 Worker |
+| `server/` | Worker 服务端和连接管理 |
+| `client/` | Worker Client 和 WebSocket Client |
+| `router/` | Worker 路由 |
+| `taskconsumer/` | NATS Worker 任务订阅、映射、流事件转发 |
+| `approval/` | Worker 审批事件订阅 |
+| `identity/` | Worker 身份配置 |
+| `protocol/` | Worker 领域协议：Envelope、Task、Stream |
+| `wsproto/` | Worker WebSocket 协议类型 |
+
+### `backend/internal/eventengine/` - 事件引擎
 
 | 文件 | 说明 |
 |------|------|
-| `engine.go` | 核心接口：`Engine`（Prepare/RegisterMCP/Run）、`RunRequest`、`Process`、`RunHandle` |
+| `README.md` | 事件引擎说明 |
+| `orchestrator.go` | 订阅交互事件，映射为 Agent 输入并分发 |
+| `mapper.go` | 外部事件到运行请求的映射 |
+
+### `backend/internal/skill/` - 技能系统
+
+| 路径 | 说明 |
+|------|------|
+| `catalog/` | 文件系统技能目录扫描、Manifest 类型和 Provider 接口 |
+| `manage/` | 技能安装、卸载、事件处理和生命周期管理 |
+| `store/` | 技能元数据持久化 |
+
+### `backend/internal/workspace/` - 工作空间管理
+
+| 文件 | 说明 |
+|------|------|
+| `workspace.go` | 工作空间定义与路径隔离 |
+| `artifacts.go` | 产物收集 |
+| `artifact_storage_file.go` | 文件产物存储实现 |
+| `scanner.go` | 工作空间扫描 |
+| `server_paths.go` | 服务端路径解析 |
+
+### 其他 `backend/internal/` 目录
+
+| 路径 | 说明 |
+|------|------|
+| `cli/` | CLI 命令的库实现，不接管进程生命周期 |
+| `memory/local/` | 本地文件记忆存储 |
+| `modelrouter/` | Worker LLM 模型代理和 SSE 转发 |
+| `runnable/` | 后台可运行任务，如会话完成、标题生成 |
+
+### `backend/engines/` - 外部 AI CLI 引擎
+
+| 路径/文件 | 说明 |
+|-----------|------|
+| `engine.go` | `Engine`、`RunRequest`、`RunHandle` 等核心接口 |
 | `registry.go` | 引擎注册表 |
-| `env.go` | 引擎环境配置 |
+| `approval_router.go` | 引擎审批路由 |
+| `env.go` | 引擎环境变量配置 |
 | `process.go` | 进程生命周期事件 |
-| `status.go` | 引擎状态类型 |
-| `cli_discovery.go` | CLI 引擎自动发现（从 PATH） |
+| `status.go` | 引擎状态 |
+| `cli_discovery.go` | 从 PATH 自动发现 CLI |
 | `skills_sync.go` | 技能同步 |
-| `mcp_registration.go` | MCP 服务器注册 |
+| `mcp_registration.go` | MCP Server 注册 |
 | `scan.go` | 引擎扫描 |
 | `workdir.go` | 引擎工作目录管理 |
-| `engines/claude/adapter.go` | Claude Code 适配器 |
-| `engines/claude/invoker.go` | Claude Code 进程调用器 |
-| `engines/codex/adapter.go` | Codex 适配器 |
-| `engines/codex/invoker.go` | Codex 进程调用器 |
-| `engines/builtin/factory.go` | 引擎注册表工厂 |
-| `engines/builtin/bootstrap.go` | `BootstrapService` — CLI 引擎分层引导 |
+| `claude/` | Claude Code 适配器、命令、调用器、输出解析、Todo 写入 |
+| `codex/` | Codex 适配器、App Server、JSON-RPC、Transport、调用器 |
+| `native/` | 原生 Eino 引擎适配、Runner、状态和工具适配 |
+| `builtin/` | 内置引擎工厂和 Bootstrap Service |
 
-#### `backend/prompts/` — 提示词模板系统
+### `backend/tools/` - 工具系统
+
+| 路径/文件 | 说明 |
+|-----------|------|
+| `tool.go` | `Tool`、`BaseTool`、Schema、ToolContext |
+| `registry.go` | 线程安全工具注册表 |
+| `memory/` | 记忆工具 |
+| `skill_use/` | 技能查询和使用工具 |
+| `skill_manage/` | 技能安装/卸载管理工具 |
+| `todo/` | Todo/计划工具 |
+| `artifact_declare/` | 产物声明工具 |
+| `node/` | 文件读写、Shell、工作空间工具 |
+| `node/security/` | 工作空间限制、审批、环境隔离、写入禁止规则 |
+| `node/util/` | Node 工具辅助函数 |
+
+### `backend/pkg/` - 可复用共享包
+
+| 路径 | 说明 |
+|------|------|
+| `dm/` | Worker 任务、消息流 Subject 和 Consumer 名称生成 |
+| `eino/` | Eino ChatModel、Flow、Message、Tool 适配 |
+| `event/` | 跨模块事件结构和 NATS Topic 常量 |
+| `leros/` | Leros home、技能目录等路径解析 |
+| `llmprotocol/` | OpenAI Chat/Responses、Anthropic、Gemini 协议中间表示和转换 |
+| `seqtracker/` | 序列跟踪器 |
+| `utils/` | 去抖器和值回退辅助 |
+| `workerpool/` | Worker Pool 工具 |
+
+### `backend/prompts/` - 提示词模板系统
 
 | 文件 | 说明 |
 |------|------|
-| `prompt.go` | `Manager` — 模板注册表 + 全局单例 `globalManager` |
-| `executor_eino.go` | `EinoExecutor` — 基于 Eino LLM 的执行器 |
-| `prompt_agent.go` | **默认 Agent 系统提示词**（注册为 `KeyAgentSystemDefault`） |
-| `prompt_llm.go` | LLM 相关提示词模板 |
-| `prompt_session.go` | 会话提示词模板 |
-| `prompt_event.go` | 事件提示词模板 |
+| `prompt.go` | 模板管理器和全局注册表 |
+| `executor_eino.go` | 基于 Eino LLM 的提示词执行器 |
+| `prompt_agent.go` | 默认 Agent 系统提示词 |
+| `prompt_llm.go` | LLM 相关提示词 |
+| `prompt_session.go` | 会话提示词 |
+| `prompt_event.go` | 事件提示词 |
 | `key.go` | 模板 Key 常量 |
 | `option.go` | `RunOption` 函数式选项 |
 
-#### `backend/skills/` — 技能定义
+### `backend/skills/` - 内置技能
 
-| 文件 | 说明 |
+| 路径 | 说明 |
 |------|------|
-| `anysearch/SKILL.md` | AnySearch 技能定义（Markdown Manifest 格式） |
-| `anysearch/.env.example` | 环境变量示例 |
-| `anysearch/runtime.conf.example` | 运行时配置示例 |
-| `anysearch/scripts/anysearch_cli.py` | Python CLI 封装 |
-| `anysearch/scripts/anysearch_cli.sh` | Shell CLI 封装 |
-| `anysearch/scripts/anysearch_cli.js` | Node.js CLI 封装 |
-| `anysearch/scripts/anysearch_cli.ps1` | PowerShell CLI 封装 |
+| `anysearch/` | AnySearch 技能定义和 Python/Shell/Node/PowerShell CLI 封装 |
+| `create-word-doc/` | Word 文档生成技能，包含 assets、data、references、scripts |
+| `government-recognition-policy/` | 政府认定类政策文档技能，包含资产、清单、参考资料、脚本 |
 
-#### `backend/internal/agent/` — Agent 系统
+### `backend/tests/`
+
+后端集成或跨包测试入口。新增测试优先放在被测包旁边，只有需要跨多个包或组件协作时才放到这里。
+
+## `frontend/` - 前端 monorepo
+
+根包使用 pnpm 10 和 Turborepo。常用脚本在 `frontend/package.json`：
+
+| 脚本 | 说明 |
+|------|------|
+| `pnpm dev:web` | 启动 Web 应用 |
+| `pnpm dev:desktop` | 启动桌面应用开发模式 |
+| `pnpm build` | 构建所有包 |
+| `pnpm typecheck` | 类型检查 |
+| `pnpm test` | 测试 |
+| `pnpm lint` | 代码检查 |
+| `pnpm ui:add` | 在 `packages/ui` 中添加 shadcn 组件 |
+
+| 路径 | 说明 |
+|------|------|
+| `apps/web/` | Next.js Web 应用，App Router，`app/(shell)` 承载主应用壳 |
+| `apps/web/components/` | Web 应用本地组件 |
+| `apps/web/public/` | Web 静态资源 |
+| `apps/desktop/` | Electron 桌面应用 |
+| `apps/desktop/src/main/` | Electron main 进程 |
+| `apps/desktop/src/preload/` | Electron preload |
+| `apps/desktop/src/renderer/` | 桌面端 React 渲染层 |
+| `packages/app-ui/` | 应用级 UI：auth、chat、digitalAssistant、input、layout |
+| `packages/ui/` | 共享基础 UI、hooks、lib、styles |
+| `packages/store/` | 状态管理、API、mocks、slices、types、utils |
+| `packages/styles/` | 双端共享样式入口 |
+| `packages/tsconfig/` | 共享 TypeScript 配置 |
+| `packages/biome/` | 共享 Biome 配置 |
+
+## `docs/` - 文档
 
 | 文件/目录 | 说明 |
 |-----------|------|
-| `runner.go` | `Runner` 接口定义（Agent 单次运行的执行边界） |
-| `router.go` | `RuntimeRouter` — 按类型分发到具体 Runner（`RuntimeKindLeros`） |
-| `request.go` | Agent 运行请求类型 |
-| `result.go` | Agent 运行结果类型 |
-
-#### `backend/internal/runtime/` — Agent 运行时基础设施
-
-| 文件/目录 | 说明 |
-|-----------|------|
-| `service.go` | `Service` — 顶层运行时服务，构建 DI 容器和 Router |
-| `events/events.go` | 事件系统：`EventType`（run.*/message.*/tool_call.*/todo.*）、Payload 类型、工厂函数 |
-| `events/envelope.go` | 领域消息协议：`Envelope[T]` 泛型信封（ID/Type/Trace/Route/Body） |
-| `events/sink.go` | `Sink` 事件发射接口 |
-| `events/stream.go` | 流转发消息类型 |
-| `events/emitter.go` | 事件发射器 |
-| `events/log_sink.go` | 日志事件 Sink |
-| `events/message_id.go` | 消息 ID 生成 |
-| `lifecycle/pipeline.go` | 运行生命周期管道编排 |
-| `lifecycle/runner.go` | 生命周期 Runner（前置准备 → 委派运行 → 后置学习） |
-| `lifecycle/state.go` | 运行状态管理 |
-| `lifecycle/errors.go` | 生命周期错误定义 |
-| `lifecycle/context/builder.go` | 请求上下文构建器 |
-| `lifecycle/context/session_messages.go` | 会话消息历史加载 |
-| `lifecycle/journal/run_events.go` | 运行事件定义 |
-| `lifecycle/journal/run_journal.go` | 运行事件日志 |
-| `lifecycle/steps/artifact.go` | 产物处理步骤 |
-| `lifecycle/steps/authorize.go` | 授权步骤 |
-| `lifecycle/steps/context.go` | 上下文构建步骤 |
-| `lifecycle/steps/execute.go` | 执行步骤 |
-| `lifecycle/steps/helpers.go` | 步骤辅助函数 |
-| `lifecycle/steps/journal.go` | 日志步骤 |
-| `lifecycle/steps/learning.go` | 运行后学习步骤 |
-| `lifecycle/steps/model.go` | 模型配置步骤 |
-| `lifecycle/steps/normalize.go` | 结果规范化步骤 |
-| `lifecycle/steps/persist.go` | 持久化步骤 |
-| `lifecycle/steps/pipeline.go` | 管道步骤编排 |
-| `lifecycle/steps/session.go` | 会话管理步骤 |
-| `lifecycle/steps/start_event.go` | 启动事件步骤 |
-| `lifecycle/steps/state.go` | 状态管理步骤 |
-| `drivers/native/runner.go` | **内置 Leros 运行时** — 基于 CloudWeGo Eino，8 个 LLM 提供商，绑定默认工具 |
-| `drivers/native/state.go` | 原生运行时状态管理 |
-| `drivers/externalcli/runner.go` | **外部 CLI Runner** — 适配 Claude Code/Codex 为 `agent.Runner` |
-| `drivers/externalcli/prompt.go` | 外部 CLI 提示词构建器 |
-| `drivers/externalcli/session_store.go` | Provider 会话存储接口 |
-| `drivers/externalcli/session_memory_store.go` | 内存会话存储 |
-| `drivers/externalcli/session_metadata_store.go` | DB 会话元数据存储 |
-| `drivers/simplechat/simplechat.go` | 简单聊天 Agent |
-| `drivers/simplechat/console.go` | 控制台聊天 UI |
-| `eino/flow.go` | **Eino Flow** — 封装 `adk.ChatModelAgent`，支持流式/非流式 |
-| `eino/chatmodel.go` | LLM 模型适配器（OpenAI/Anthropic/Qwen/DeepSeek/Gemini/Ark/OpenRouter/Custom） |
-| `eino/tool_adapter.go` | Tool → Eino BaseTool 适配器 |
-| `todo/tracker.go` | 运行时 Todo 跟踪器 |
-| `todo/types.go` | Todo 类型定义 |
-| `todo/context.go` | Todo 上下文 |
-| `deps/container.go` | DI 容器（ToolRegistry/SkillCatalog 等） |
-| `mcp/server.go` | MCP 服务器（Worker 运行时引导） |
-| `mcp/router.go` | MCP 路由 |
-| `mcp/auth.go` | MCP 认证 |
-
-#### `backend/internal/api/` — HTTP API 层
-
-| 文件/目录 | 说明 |
-|-----------|------|
-| `router.go` | `SetupRouter()` — 主路由设置（GitHub/GitLab/WS/Worker/DA/LLM/Session/Project/Swagger） |
-| `connectors/connector.go` | `Connector` 接口（`ChannelCode()` / `RegisterRoutes()`） |
-| `connectors/github/github.go` | GitHub 连接器（Webhook + OAuth） |
-| `connectors/github/webhook.go` | Webhook 签名验证与事件路由 |
-| `connectors/github/converter.go` | GitHub 事件 → Leros 事件转换 |
-| `connectors/github/client.go` | GitHub API 客户端 |
-| `connectors/github/events.go` | GitHub 事件处理 |
-| `connectors/github/types.go` | GitHub 连接器类型 |
-| `connectors/gitlab/gitlab.go` | GitLab 连接器（桩代码） |
-| `connectors/gitlab/converter.go` | GitLab 事件转换 |
-| `connectors/gitlab/types.go` | GitLab 连接器类型 |
-| `connectors/wework/app.go` | 企业微信连接器（桩代码） |
-| `handler/digital_assistant_handler.go` | 数字员工 CRUD 处理器 |
-| `handler/session_handler.go` | 会话和消息 CRUD + 流式端点 |
-| `handler/llm_model_handler.go` | LLM 模型管理端点 |
-| `handler/project_handler.go` | 项目管理端点 |
-| `handler/task_handler.go` | 任务管理端点 |
-| `handler/work_handler.go` | 工作流管理端点 |
-| `handler/artifact_handler.go` | 产物管理端点 |
-| `middleware/identify.go` | 用户身份提取中间件 |
-| `middleware/request_context.go` | 请求上下文中间件 |
-| `auth/auth.go` | OAuth 流程编排 |
-| `auth/resolver.go` | 账户解析器 |
-| `auth/service.go` | 认证服务 |
-| `auth/store.go` | 认证存储接口 |
-| `auth/memory_store.go` | 内存认证存储 |
-| `auth/types.go` | 认证类型 |
-| `auth/constants.go` | 认证常量 |
-| `auth/identity.go` | 身份相关逻辑 |
-| `contract/` | 服务契约 DTO（DigitalAssistant/Session/LLMModel/Project/Task/Work/Artifact/ThirdAuth） |
-| `dto/response.go` | 标准 API 响应格式 |
-| `dto/session.go` | 会话相关 DTO |
-| `dto/digital_assistant.go` | 数字员工 DTO |
-| `dto/code.go` | 代码相关 DTO |
-
-#### `backend/internal/service/` — 业务服务
-
-| 文件 | 说明 |
-|------|------|
-| `digital_assistant_service.go` | 数字员工 CRUD，触发 Worker 调度 |
-| `session_service.go` | 会话生命周期管理（创建/消息/流式/完成），通过 NATS 分发任务 |
-| `llm_model_service.go` | LLM 模型配置 CRUD |
-| `project_service.go` | 项目 CRUD |
-| `task_service.go` | 任务 CRUD |
-| `work_service.go` | 工作流管理 |
-| `artifact_service.go` | 产物管理 |
-| `session_event_projector.go` | 会话事件投射到消息表 |
-| `assistant_inferrer.go` | 员工解析 |
-| `message_poster.go` | 消息投递 |
-| `utils.go` | 服务层工具函数 |
-
-#### `backend/internal/infra/` — 基础设施
-
-| 文件/目录 | 说明 |
-|-----------|------|
-| `mq/bus.go` | `Publisher` / `Subscriber` / `EventBus` 接口 |
-| `mq/nats.go` | NATS JetStream 实现 |
-| `mq/std.go` | 非 JetStream 实现 |
-| `db/database.go` | `InitDB()` — 数据库初始化 + 自动迁移 + 种子数据 |
-| `db/session_dao.go` | 会话 DAO |
-| `db/session_message_dao.go` | 会话消息 DAO |
-| `db/digital_assistant_dao.go` | 数字员工 DAO |
-| `db/llm_model_dao.go` | LLM 模型 DAO |
-| `db/project_dao.go` | 项目 DAO |
-| `db/task_dao.go` | 任务 DAO |
-| `db/user_org_dao.go` | 用户组织 DAO |
-| `db/artifact_dao.go` | 产物 DAO |
-| `providers/github/` | GitHub OAuth 提供商实现 |
-| `websocket/connector.go` | WebSocket 连接器（连接管理/广播/读写泵） |
-| `websocket/manager.go` | 连接管理器 |
-| `websocket/types.go` | WebSocket 消息类型 |
-
-#### `backend/internal/worker/` — Worker 系统
-
-| 文件/目录 | 说明 |
-|-----------|------|
-| `worker.go` | Worker 类型别名 |
-| `scheduler.go` | `WorkerScheduler` 接口 + `WorkerSpec`/`WorkerInstance` |
-| `client/worker_client.go` | Worker 客户端定义 |
-| `client/ws_client.go` | 基于 WebSocket 的 Worker 客户端 |
-| `server/server.go` | Worker 服务端（管理 Worker 进程） |
-| `server/conn.go` | Worker 连接管理 |
-| `router/router.go` | Worker 路由 |
-| `scheduler/process_scheduler.go` | `ProcessScheduler` — 通过 `exec.Command` 启动 Worker 进程 |
-| `scheduler/dockercli_scheduler.go` | `DockerCLIScheduler` — 通过 Docker CLI 调度 |
-| `taskconsumer/consumer.go` | `Consumer` — 订阅 NATS Worker 任务主题，分发到 Agent Runner |
-| `taskconsumer/stream_sink.go` | `MQStreamSink` — 流事件 MQ 转发 |
-| `taskconsumer/mapper.go` | 任务映射器 |
-| `protocol/envelope.go` | 领域消息协议 |
-| `protocol/stream.go` | 协议流 |
-| `protocol/task.go` | 任务协议 |
-| `wsproto/types.go` | WebSocket 协议类型 |
-| `identity/profile.go` | Worker 身份配置文件 |
-
-#### `backend/internal/eventengine/` — 事件引擎
-
-| 文件 | 说明 |
-|------|------|
-| `orchestrator.go` | `Orchestrator` — 订阅 NATS 交互事件，转换为 Agent 输入并分发。默认处理器：issue_comment/pull_request/push |
-
-#### `backend/internal/skill/` — 技能系统
-
-| 文件 | 说明 |
-|------|------|
-| `catalog/catalog.go` | `Catalog` — 基于文件系统的技能索引（扫描 SKILL.md） |
-| `catalog/types.go` | 技能 Manifest 类型 |
-| `catalog/provider.go` | `CatalogProvider` 接口 |
-| `manage/manager.go` | 技能生命周期管理 |
-| `manage/post_processor.go` | 技能后处理器 |
-| `store/store.go` | 技能元数据持久化 |
-
-#### `backend/internal/memory/local/` — 本地记忆存储
-
-| 文件 | 说明 |
-|------|------|
-| `store.go` | 本地文件记忆存储 |
-
-#### `backend/internal/runnable/` — 后台可运行任务
-
-| 文件 | 说明 |
-|------|------|
-| `session_completed.go` | Agent 完成后标记会话为完成 |
-| `session_title_handler.go` | 自动生成会话标题 |
-
-#### `backend/internal/cli/` — CLI 内部实现
-
-| 文件 | 说明 |
-|------|------|
-| `chat.go` | CLI 聊天交互命令 |
-| `lister.go` | 列表功能（项目/任务/会话） |
-
-#### `backend/pkg/llmprotocol/` — LLM 协议转换
-
-| 文件 | 说明 |
-|------|------|
-| `adapter.go` | 协议枚举、协议 Adapter 接口、Adapter 注册 |
-| `ir.go` | 中间表示层 |
-| `capability.go` | 协议能力声明、请求能力归一化 |
-| `stream_aggregator.go` | 流式 IR 生命周期补齐 |
-| `protocol_*.go` | OpenAI Chat/Responses、Anthropic、Gemini 协议适配 |
-
-#### `backend/internal/modelrouter/` — Worker LLM 模型代理
-
-| 文件 | 说明 |
-|------|------|
-| `config.go` | 上游模型配置 |
-| `handler.go` | Gin 路由、上游 HTTP 转发、SSE 编排 |
-| `debug.go` | 请求级调试日志 |
-
-#### `backend/internal/workspace/` — 工作空间管理
-
-| 文件 | 说明 |
-|------|------|
-| `workspace.go` | 工作空间定义与隔离 |
-| `artifacts.go` | 产物收集与清理 |
-| `server_paths.go` | 服务端路径解析 |
-
-### `docs/` — 文档
-
-| 文件 | 说明 |
-|------|------|
-| `ARCHITECTURE.md` | AI OS 架构设计（三平面模型） |
-| `DESIGN_PHILOSOPHY.md` | 核心设计理念 |
-| `PRD.md` | 产品需求文档 |
+| `ARCHITECTURE.md` | AI OS 架构设计 |
+| `ARCHITECTURE_BACKEND.md` | 后端架构 |
+| `ARCHITECTURE_MQ_SUBJECT.md` | MQ Subject 架构 |
 | `SYSTEM_DESIGN.md` | 系统架构设计 |
 | `TECH_DESIGN.md` | 技术设计 |
-| `ARCHITECTURE_BACKEND.md` | 后端架构 |
-| `ARCHITECTURE_MQ_SUBJECT.md` | 消息队列主题架构 |
+| `PRD.md` | 产品需求文档 |
+| `DESIGN_PHILOSOPHY.md` | 设计理念 |
+| `DESIGN_CODER.md` | Coder 设计 |
+| `AGENT_WORKSPACE_ARTIFACT_DESIGN.md` | Agent 工作空间与产物设计 |
+| `AUTH_FOUNDATION_PHASE_TASKS.md` | 认证基础阶段任务 |
 | `PLANNING.md` | 路线图规划 |
-| `TODO.md` | 后端开发 TODO |
-| `PROJECT_STRUCTURE.md` | 本文件 |
+| `TODO.md` | 后端 TODO |
+| `ISSUE_LABELS.md` | Issue Label 约定 |
 | `GITHUB_AUTH_SETUP.md` | GitHub OAuth 配置 |
-| `GITHUB_WEBHOOK_TROUBLESHOOTING.md` | Webhook 排障 |
+| `GITHUB_WEBHOOK_TROUBLESHOOTING.md` | GitHub Webhook 排障 |
 | `PR_EVENT_FLOW.md` | PR 事件流程验证 |
 | `TROUBLESHOOTING.md` | 常见问题排障 |
-| `AGENT_WORKSPACE_ARTIFACT_DESIGN.md` | Agent 工作空间产物设计 |
-| `DESIGN_CODER.md` | Coder 设计文档 |
-| `AUTH_FOUNDATION_PHASE_TASKS.md` | 认证基础阶段任务 |
-| `frontend/` | 前端架构文档 |
-| `swagger/` | 自动生成的 Swagger 文档 |
+| `frontend/` | 前端架构、通信、状态管理、布局、工程规范等文档 |
+| `swagger/` | `make swagger` 生成的 Swagger Go/JSON/YAML 文件 |
 
-### `deployments/` — 部署配置
+## `deployments/` - 部署配置
 
-| 文件 | 说明 |
+| 路径 | 说明 |
 |------|------|
-| `build/Dockerfile.leros` | 多阶段 Docker 构建（Go 1.24 + Ubuntu 24.04） |
-| `env/docker-compose.yml` | 完整栈（PostgreSQL 17 + NATS + Leros Server + Leros Worker） |
+| `build/Dockerfile.leros` | Leros 多阶段 Docker 构建 |
+| `env/docker-compose.yml` | PostgreSQL、NATS、Leros Server、Leros Worker 完整栈 |
 | `env/init.sql` | 数据库初始化 SQL |
 | `env/check-services.sh` | 服务健康检查脚本 |
-| `dev/` | 开发环境（脚本/配置/docker-compose） |
+| `dev/` | 开发环境脚本、配置和 compose 文件 |
 
-### `frontend/` — 前端应用
+## 快速索引
 
-| 目录 | 说明 |
-|------|------|
-| `apps/web/` | Next.js Web 应用（App Router, Tailwind；`app/(shell)` 承载应用壳路由） |
-| `apps/desktop/` | Electron 桌面应用（React Router 维护内部页面位置） |
-| `packages/ui/` | 共享 UI 组件库（shadcn/ui 40+ 组件 + hooks + lib） |
-| `packages/store/` | Zustand 状态管理（chat/digital assistant/topic/layout） |
-| `packages/app-ui/` | 应用级 UI 组件（chat/assistant/layout/input；通过 AppNavigation 接收平台导航） |
-| `packages/styles/` | 双端共享全局样式入口（Tailwind/shadcn/token/base + app shell styles） |
-| `packages/tsconfig/` | TypeScript 配置共享包 |
-| `packages/biome/` | Biome 配置共享包 |
+### 新增 HTTP API
 
----
+1. `backend/types/`：确认或新增共享领域模型。
+2. `backend/internal/infra/db/`：新增 DAO。
+3. `backend/internal/service/`：新增业务服务。
+4. `backend/internal/api/contract/`：新增请求/响应契约。
+5. `backend/internal/api/handler/`：新增 HTTP Handler。
+6. `backend/internal/api/router.go`：注册路由。
 
-## 快速索引（按任务场景）
+### 新增认证、用户或组织能力
 
-### 我要加一个新的 HTTP API
-1. `types/` — 新增领域类型（如新 model struct）
-2. `internal/infra/db/` — 新增 DAO
-3. `internal/service/` — 新增业务服务
-4. `internal/api/handler/` — 新增 HTTP Handler
-5. `internal/api/contract/` — 新增请求/响应 DTO
-6. `internal/api/router.go` — 注册路由
+1. `backend/types/auth.go`、`user.go`、`organization.go`：确认模型。
+2. `backend/internal/infra/db/*_dao.go`：补齐持久化。
+3. `backend/internal/service/auth_service.go`、`user_service.go`、`org_service.go`：实现业务逻辑。
+4. `backend/internal/api/auth/`：如涉及 OAuth 或第三方账户解析，先复用现有结构。
+5. `backend/internal/api/handler/` 和 `contract/`：补齐 API。
 
-### 我要加一个新的 Agent 运行时
-1. `internal/agent/runner.go` — 检查 `Runner` 接口
-2. `internal/runtime/drivers/<runtime_name>/` — 实现新 Runner
-3. `internal/agent/router.go` — 注册新运行时
-4. `internal/runtime/service.go` — 在 Service 中初始化
+### 新增渠道连接器
 
-### 我要加一个新的 Tool
-1. `tools/tool.go` — 检查 `Tool` 接口
-2. `tools/<tool_name>/` — 实现新 Tool
-3. `tools/registry.go` — 注册（或通过 DI 注入）
+1. `backend/internal/api/connectors/connector.go`：实现 `Connector` 接口。
+2. `backend/internal/api/connectors/<channel>/`：路由注册、签名校验、事件转换。
+3. `backend/pkg/event/topic.go`：如需新 Topic，先集中定义。
+4. `backend/internal/api/router.go`：注册连接器。
+5. `backend/config/<channel>.go`：新增配置。
 
-### 我要加一个新的事件处理器
-1. `pkg/event/topic.go` — 定义新 Topic 常量（如需要）
-2. `internal/eventengine/orchestrator.go` — 注册 Handler + 实现处理逻辑
-3. `types/event.go` — 定义新 Event 类型（如需要）
+### 新增事件处理器
 
-### 我要加一个新的渠道连接器
-1. `internal/api/connectors/connector.go` — 实现 `Connector` 接口
-2. `internal/api/connectors/<channel>/` — 路由注册 + 事件转换
-3. `internal/api/router.go` — 在 `SetupRouter` 中注册
-4. `config/<channel>.go` — 添加配置（如需要）
+1. `backend/pkg/event/topic.go`：确认 Topic。
+2. `backend/internal/eventengine/mapper.go`：映射外部事件到运行请求。
+3. `backend/internal/eventengine/orchestrator.go`：注册处理逻辑。
+4. `backend/types/event.go` 或 `types/constants.go`：如需持久化事件类型，补齐类型常量。
 
-### 我要加一个新的外部 CLI 引擎
-1. `engines/engine.go` — 实现 `Engine` 接口
-2. `engines/<engine_name>/adapter.go` — 适配器
-3. `engines/<engine_name>/invoker.go` — 进程调用器
-4. `engines/builtin/factory.go` — 在工厂中注册
-5. `cmd/leros/worker.go` — 添加 Worker 子命令（如需要）
+### 新增 Agent 运行时
+
+1. `backend/internal/agent/runner.go`：确认 Runner 接口。
+2. `backend/internal/runtime/drivers/<runtime_name>/`：实现 Runner。
+3. `backend/internal/agent/router.go`：注册运行时。
+4. `backend/internal/runtime/service.go`：接入依赖初始化。
+
+### 新增外部 CLI 引擎
+
+1. `backend/engines/engine.go`：实现 `Engine` 接口。
+2. `backend/engines/<engine_name>/adapter.go`：实现适配器。
+3. `backend/engines/<engine_name>/invoker.go`：实现进程调用。
+4. `backend/engines/builtin/factory.go`：注册到工厂。
+5. `backend/cmd/leros/worker.go`：如需单独 Worker 子命令，在入口层注册。
+
+### 新增 Tool
+
+1. `backend/tools/tool.go`：确认 `Tool` 接口和 Schema 结构。
+2. `backend/tools/<tool_name>/`：实现工具。
+3. `backend/tools/<tool_name>/register.go`：提供注册入口。
+4. `backend/internal/runtime/deps/` 或相关 Runner 初始化：接入工具注册。
+
+### 新增 Skill
+
+1. `backend/skills/<skill_name>/SKILL.md`：新增技能 Manifest。
+2. `backend/internal/skill/catalog/`：确认 Manifest 解析是否支持新增字段。
+3. `backend/internal/skill/manage/`：如涉及安装/卸载流程，复用 Manager 和事件处理。
+4. `backend/tools/skill_use/`、`skill_manage/`：如需 Agent 调用能力，补齐工具行为。
+
+### 新增 Worker 调度能力
+
+1. `backend/internal/worker/scheduler.go`：确认调度接口。
+2. `backend/internal/worker/scheduler/`：实现具体调度器。
+3. `backend/internal/worker/server/`：如涉及连接生命周期，补齐服务端管理。
+4. `backend/internal/worker/taskconsumer/`：如涉及任务消费，补齐映射和流事件转发。
+5. `backend/config/scheduler.go`、`worker.go`：补齐配置。
+
+### 新增工作空间或产物能力
+
+1. `backend/internal/workspace/`：实现路径、扫描、存储或产物收集逻辑。
+2. `backend/internal/worker/taskconsumer/`：确认运行时工作空间注入。
+3. `backend/internal/service/artifact_service.go`：如涉及 API 产物管理，接入服务层。
+4. `backend/internal/api/handler/artifact_handler.go`：暴露端点。
+
+### 新增前端页面或共享组件
+
+1. `frontend/apps/web/app/(shell)/`：新增 Web 应用壳内页面。
+2. `frontend/packages/app-ui/`：优先沉淀应用级复用组件。
+3. `frontend/packages/ui/`：仅放跨业务的基础 UI 组件。
+4. `frontend/packages/store/`：新增 API、状态 slice、类型和 mocks。
+5. `docs/frontend/`：涉及架构或状态约定时同步文档。
+
+## 分层边界提醒
+
+| 层级 | 路径 | 允许 | 禁止 |
+|------|------|------|------|
+| 进程入口 | `backend/cmd/leros/` | Cobra、进程生命周期、信号处理、`log.Fatal` | 业务逻辑 |
+| 业务与基础设施库 | `backend/internal/*` | 业务逻辑、运行时、DAO、连接器，通过 `error` 向上传递失败 | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、Cobra 依赖 |
+| 共享类型 | `backend/types/`、`backend/config/` | 领域类型、配置结构、常量 | 业务逻辑、外部系统调用 |
+| 可复用包 | `backend/pkg/` | 无业务状态的共享工具和协议转换 | 依赖上层 `internal` 包 |
+
+新增实现前先搜索已有参照，例如新增 Handler 先看 `backend/internal/api/handler/`，新增 DAO 先看 `backend/internal/infra/db/`，新增 Worker 能力先看 `backend/internal/worker/`。优先复用现有骨架和错误处理方式。
