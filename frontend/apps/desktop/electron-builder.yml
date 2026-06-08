@@ -1,5 +1,6 @@
 appId: com.leros.desktop
 productName: Leros
+icon: resources/icon.png
 directories:
   buildResources: build
   output: dist
