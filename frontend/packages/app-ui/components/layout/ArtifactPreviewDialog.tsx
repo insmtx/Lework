@@ -1,6 +1,6 @@
 "use client";
 
-import { getArtifactDownloadUrl } from "@leros/store";
+import { fetchArtifactDownload } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Sheet,
@@ -80,23 +80,19 @@ export function ArtifactPreviewDialog({
 }) {
 	const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
 	const previewKind = useMemo(() => detectPreviewKind(artifact), [artifact]);
-	const downloadUrl = useMemo(
-		() => (artifact ? getArtifactDownloadUrl(artifact.id) : ""),
-		[artifact],
-	);
 
 	useEffect(() => {
 		if (!open || !artifact) {
 			setPreview({ status: "idle" });
 			return;
 		}
-		const currentDownloadUrl = downloadUrl;
 
 		if (previewKind === "unsupported") {
 			setPreview({ status: "ready" });
 			return;
 		}
 
+		const currentArtifact = artifact;
 		let cancelled = false;
 		let objectUrl: string | undefined;
 		const controller = new AbortController();
@@ -104,10 +100,9 @@ export function ArtifactPreviewDialog({
 		async function loadPreview() {
 			setPreview({ status: "loading" });
 			try {
-				const response = await fetch(currentDownloadUrl, { signal: controller.signal });
-				if (!response.ok) {
-					throw new Error(`HTTP ${response.status}`);
-				}
+				const response = await fetchArtifactDownload(currentArtifact.id, {
+					signal: controller.signal,
+				});
 
 				if (previewKind === "markdown" || previewKind === "text") {
 					const text = await response.text();
@@ -138,16 +133,24 @@ export function ArtifactPreviewDialog({
 			controller.abort();
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
-	}, [open, artifact, previewKind, downloadUrl]);
+	}, [open, artifact, previewKind]);
 
-	const handleDownload = () => {
+	const handleDownload = async () => {
 		if (!artifact) return;
-		const link = document.createElement("a");
-		link.href = downloadUrl;
-		link.download = artifact.name;
-		document.body.appendChild(link);
-		link.click();
-		link.remove();
+		try {
+			const response = await fetchArtifactDownload(artifact.id);
+			const blob = await response.blob();
+			const objectUrl = URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = objectUrl;
+			link.download = artifact.name;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+		} catch (err) {
+			console.error("Failed to download artifact", err);
+		}
 	};
 
 	return (

@@ -1,4 +1,4 @@
-export { artifactApi, getArtifactDownloadUrl } from "./api/artifactApi";
+export { artifactApi, fetchArtifactDownload, getArtifactDownloadUrl } from "./api/artifactApi";
 export type {
 	AuthOrgInfo,
 	AuthTokenResponse,
