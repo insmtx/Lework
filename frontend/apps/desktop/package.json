@@ -14,6 +14,7 @@
     "dev": "electron-vite dev",
     "compile": "electron-vite build",
     "build": "pnpm run compile",
+    "icons": "node scripts/generate-icons.mjs",
     "dist": "node scripts/dist-local.mjs",
     "dist:dir": "pnpm run compile && electron-builder --dir --publish never",
     "dist:mac:arm64": "pnpm run compile && electron-builder --mac --arm64 --publish never",
