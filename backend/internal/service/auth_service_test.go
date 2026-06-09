@@ -28,12 +28,21 @@ func setupAuthServiceTest(t *testing.T) (contract.AuthService, *gorm.DB) {
 	); err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
 	}
+	if err := database.Create(&types.Organization{
+		PublicID: "org_default",
+		Code:     "default_org",
+		Name:     "默认组织",
+		Type:     "company",
+		Status:   "active",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed default org: %v", err)
+	}
 
 	return NewAuthService(database, "test-secret"), database
 }
 
 func TestAuthServiceRegisterLoginAndRefreshByEmail(t *testing.T) {
-	service, _ := setupAuthServiceTest(t)
+	service, database := setupAuthServiceTest(t)
 	ctx := context.Background()
 
 	registered, err := service.RegisterByEmail(ctx, &contract.RegisterByEmailRequest{
@@ -57,11 +66,21 @@ func TestAuthServiceRegisterLoginAndRefreshByEmail(t *testing.T) {
 	if registered.Uin == 0 || registered.Org.ID == 0 {
 		t.Fatalf("expected uin and org in response: %+v", registered)
 	}
-	if registered.Org.Name != "New User" {
-		t.Fatalf("expected org name to use user name, got %q", registered.Org.Name)
+	if registered.Org.ID != types.SystemOrgID {
+		t.Fatalf("expected default org ID %d, got %d", types.SystemOrgID, registered.Org.ID)
 	}
-	if registered.Org.Code == "default_org" {
-		t.Fatal("expected a newly created account org, got default_org")
+	if registered.Org.Name != "默认组织" {
+		t.Fatalf("expected default org name, got %q", registered.Org.Name)
+	}
+	if registered.Org.Code != "default_org" {
+		t.Fatalf("expected default org code, got %q", registered.Org.Code)
+	}
+	var orgCount int64
+	if err := database.Model(&types.Organization{}).Count(&orgCount).Error; err != nil {
+		t.Fatalf("count organizations: %v", err)
+	}
+	if orgCount != 1 {
+		t.Fatalf("expected registration not to create organization, got %d organizations", orgCount)
 	}
 
 	loggedIn, err := service.LoginByEmail(ctx, &contract.LoginByEmailRequest{

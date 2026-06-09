@@ -119,7 +119,7 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 		}
 
 		var err error
-		org, err = createAccountOrg(ctx, tx, name)
+		org, err = defaultAccountOrg(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -367,16 +367,13 @@ func (s *authService) cleanupExpiredAuthData(ctx context.Context, now time.Time)
 	}
 }
 
-func createAccountOrg(ctx context.Context, tx *gorm.DB, name string) (*types.Organization, error) {
-	org := &types.Organization{
-		PublicID: fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
-		Type:     "company",
-		Code:     fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
-		Name:     name,
-		Status:   "active",
-	}
-	if err := db.CreateOrg(ctx, tx, org); err != nil {
+func defaultAccountOrg(ctx context.Context, tx *gorm.DB) (*types.Organization, error) {
+	org, err := db.GetOrgByID(ctx, tx, types.SystemOrgID)
+	if err != nil {
 		return nil, err
+	}
+	if org == nil {
+		return nil, errAuthOrgNotFound
 	}
 	return org, nil
 }
