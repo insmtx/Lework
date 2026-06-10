@@ -28,6 +28,7 @@ type Config struct {
 	Database      *DatabaseConfig  `yaml:"database,omitempty"`
 	LLM           *LLMConfig       `yaml:"llm,omitempty"`
 	Scheduler     *SchedulerConfig `yaml:"scheduler,omitempty"`
+	Storage       *StorageConfig   `yaml:"storage,omitempty"`
 }
 
 // JWTConfig JWT 认证配置
@@ -39,4 +40,17 @@ type JWTConfig struct {
 type DatabaseConfig struct {
 	URL   string `yaml:"url,omitempty"`   // 数据库连接地址
 	Debug bool   `yaml:"debug,omitempty"` // 是否启用调试模式
+}
+
+// StorageConfig 是存储的配置结构
+type StorageConfig struct {
+	Driver     string `yaml:"driver"`
+	Endpoint   string `yaml:"endpoint,omitempty"`
+	AccessKey  string `yaml:"access_key,omitempty"`
+	SecretKey  string `yaml:"secret_key,omitempty"`
+	UseSSL     bool   `yaml:"use_ssl,omitempty"`
+	Bucket     string `yaml:"bucket,omitempty"`
+	BaseURL    string `yaml:"base_url,omitempty"`
+	URLStyle   string `yaml:"url_style,omitempty"`
+	LocalDir   string `yaml:"local_dir,omitempty"`
 }
