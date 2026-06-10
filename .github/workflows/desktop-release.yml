@@ -119,8 +119,6 @@ jobs:
             frontend/apps/desktop/dist/*.exe
             frontend/apps/desktop/dist/*.AppImage
             frontend/apps/desktop/dist/*.deb
-            frontend/apps/desktop/dist/*.yml
-            frontend/apps/desktop/dist/*.blockmap
 
   publish:
     name: Publish GitHub Release
