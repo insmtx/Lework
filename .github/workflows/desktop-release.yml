@@ -149,6 +149,11 @@ jobs:
           for attempt in 1 2 3; do
             build_args=()
             if [[ "${{ matrix.name }}" == mac-* && "${MAC_SIGNING_ENABLED:-false}" == "true" ]]; then
+              export CSC_LINK="$MAC_CSC_LINK"
+              export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+              export APPLE_ID="$MAC_APPLE_ID"
+              export APPLE_APP_SPECIFIC_PASSWORD="$MAC_APPLE_APP_SPECIFIC_PASSWORD"
+              export APPLE_TEAM_ID="$MAC_APPLE_TEAM_ID"
               build_args+=(--config.mac.notarize=true)
             fi
 
@@ -158,9 +163,10 @@ jobs:
                 --publish never \
                 "${build_args[@]}"; then
               exit 0
+            else
+              status=$?
             fi
 
-            status=$?
             if [ "$attempt" -eq 3 ]; then
               exit "$status"
             fi
@@ -173,13 +179,14 @@ jobs:
           ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
           electron_config_cache: ${{ runner.temp }}/electron-cache
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
-          CSC_LINK: ${{ startsWith(matrix.name, 'mac-') && secrets.MAC_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ startsWith(matrix.name, 'mac-') && secrets.MAC_CSC_KEY_PASSWORD || '' }}
-          APPLE_ID: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_TEAM_ID || '' }}
+          MAC_CSC_LINK: ${{ startsWith(matrix.name, 'mac-') && secrets.MAC_CSC_LINK || '' }}
+          MAC_CSC_KEY_PASSWORD: ${{ startsWith(matrix.name, 'mac-') && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          MAC_APPLE_ID: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_ID || '' }}
+          MAC_APPLE_APP_SPECIFIC_PASSWORD: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          MAC_APPLE_TEAM_ID: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_TEAM_ID || '' }}
 
       - name: Collect distributable packages
+        if: success()
         working-directory: frontend/apps/desktop
         shell: bash
         run: |
