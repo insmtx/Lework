@@ -10,55 +10,25 @@ permissions:
   contents: write
 
 jobs:
-  prepare-release:
-    name: Prepare GitHub Release
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-
-    steps:
-      - name: Create draft release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} already exists; reusing it."
-            exit 0
-          fi
-
-          prerelease_args=()
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
-            prerelease_args+=(--prerelease)
-          fi
-
-          gh release create "${GITHUB_REF_NAME}" \
-            --draft \
-            --generate-notes \
-            --title "${GITHUB_REF_NAME}" \
-            "${prerelease_args[@]}"
-
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    needs: prepare-release
-    if: always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: mac-arm64
             os: macos-15
-            builder-args: --mac --arm64
+            command: dist:desktop:mac:arm64
           - name: mac-x64
             os: macos-15-intel
-            builder-args: --mac --x64
+            command: dist:desktop:mac:x64
           - name: win-x64
             os: windows-latest
-            builder-args: --win --x64
+            command: dist:desktop:win:x64
           - name: linux-x64
             os: ubuntu-latest
-            builder-args: --linux --x64
+            command: dist:desktop:linux:x64
 
     steps:
       - name: Checkout repository
@@ -94,7 +64,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            if pnpm install --frozen-lockfile --prod=false; then
+            if pnpm install --frozen-lockfile; then
               exit 0
             fi
 
@@ -115,58 +85,16 @@ jobs:
         working-directory: frontend
         run: pnpm --filter @leros/desktop typecheck
 
-      - name: Configure optional macOS signing
-        if: startsWith(matrix.name, 'mac-')
-        shell: bash
-        env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          missing=()
-          for name in MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name}" ]; then
-              missing+=("${name}")
-            fi
-          done
-
-          if [ "${#missing[@]}" -eq 0 ]; then
-            echo "MAC_SIGNING_ENABLED=true" >> "$GITHUB_ENV"
-            echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
-            echo "macOS signing and notarization are enabled."
-          else
-            echo "MAC_SIGNING_ENABLED=false" >> "$GITHUB_ENV"
-            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
-            echo "::warning::Building unsigned macOS packages because these secrets are missing: ${missing[*]}"
-          fi
-
       - name: Build desktop package
         working-directory: frontend
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            build_args=()
-            if [[ "${{ matrix.name }}" == mac-* && "${MAC_SIGNING_ENABLED:-false}" == "true" ]]; then
-              export CSC_LINK="$MAC_CSC_LINK"
-              export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
-              export APPLE_ID="$MAC_APPLE_ID"
-              export APPLE_APP_SPECIFIC_PASSWORD="$MAC_APPLE_APP_SPECIFIC_PASSWORD"
-              export APPLE_TEAM_ID="$MAC_APPLE_TEAM_ID"
-              build_args+=(--config.mac.notarize=true)
-            fi
-
-            if pnpm --filter @leros/desktop run compile &&
-              pnpm --filter @leros/desktop exec electron-builder \
-                ${{ matrix.builder-args }} \
-                --publish never \
-                "${build_args[@]}"; then
+            if pnpm run "${{ matrix.command }}"; then
               exit 0
-            else
-              status=$?
             fi
 
+            status=$?
             if [ "$attempt" -eq 3 ]; then
               exit "$status"
             fi
@@ -179,81 +107,40 @@ jobs:
           ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
           electron_config_cache: ${{ runner.temp }}/electron-cache
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
-          MAC_CSC_LINK: ${{ startsWith(matrix.name, 'mac-') && secrets.MAC_CSC_LINK || '' }}
-          MAC_CSC_KEY_PASSWORD: ${{ startsWith(matrix.name, 'mac-') && secrets.MAC_CSC_KEY_PASSWORD || '' }}
-          MAC_APPLE_ID: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_ID || '' }}
-          MAC_APPLE_APP_SPECIFIC_PASSWORD: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          MAC_APPLE_TEAM_ID: ${{ startsWith(matrix.name, 'mac-') && secrets.APPLE_TEAM_ID || '' }}
 
-      - name: Collect distributable packages
-        if: success()
-        working-directory: frontend/apps/desktop
-        shell: bash
-        run: |
-          mkdir -p release-package
-
-          case "${{ matrix.name }}" in
-            mac-*)
-              cp dist/*.dmg dist/*.zip release-package/
-              ;;
-            win-*)
-              cp dist/*.exe release-package/
-              ;;
-            linux-*)
-              cp dist/*.AppImage dist/*.deb release-package/
-              ;;
-            *)
-              echo "::error::Unsupported build target: ${{ matrix.name }}"
-              exit 1
-              ;;
-          esac
-
-          echo "Packages selected for release:"
-          find release-package -maxdepth 1 -type f -print
-
-      - name: Upload packages directly to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        working-directory: frontend/apps/desktop
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release upload "${GITHUB_REF_NAME}" release-package/* --clobber
-
-      - name: Upload packages for manual workflow
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}
           if-no-files-found: error
-          path: frontend/apps/desktop/release-package/*
+          path: |
+            frontend/apps/desktop/dist/*.dmg
+            frontend/apps/desktop/dist/*.zip
+            frontend/apps/desktop/dist/*.exe
+            frontend/apps/desktop/dist/*.AppImage
+            frontend/apps/desktop/dist/*.deb
 
-  finalize-release:
-    name: Finalize GitHub Release
+  publish:
+    name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - name: Download release packages
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          mkdir -p release-assets
-          gh release download "${GITHUB_REF_NAME}" --dir release-assets
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
 
       - name: Generate checksums
         run: |
           cd release-assets
           find . -type f ! -name "SHA256SUMS.txt" -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
 
-      - name: Upload checksums and publish release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh release upload "${GITHUB_REF_NAME}" release-assets/SHA256SUMS.txt --clobber
-          gh release edit "${GITHUB_REF_NAME}" --draft=false
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
