@@ -153,6 +153,8 @@ jobs:
             release_dir="manual-${GITHUB_RUN_NUMBER}"
           fi
 
+          aws configure set default.s3.addressing_style virtual
+
           aws s3 sync release-assets "s3://${COS_BUCKET}/${COS_PREFIX}/${release_dir}/" \
             --endpoint-url "https://cos.${COS_REGION}.myqcloud.com" \
             --only-show-errors
