@@ -1,11 +1,12 @@
 package handler
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
@@ -24,6 +25,17 @@ func (h *FileHandler) RegisterRoutes(r gin.IRouter) {
 	r.GET("/files/:id/download", h.DownloadFile)
 }
 
+// @Summary 上传文件
+// @Description 上传文件到系统
+// @Tags File
+// @Accept multipart/form-data
+// @Produce json
+// @Param file formData file true "上传文件"
+// @Param purpose formData string false "文件用途（默认 attachment）"
+// @Success 200 {object} dto.Response "上传成功"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Router /files/upload [post]
 func (h *FileHandler) UploadFile(ctx *gin.Context) {
 	fileHeader, err := ctx.FormFile("file")
 	if err != nil {
@@ -66,6 +78,16 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// @Summary 下载文件
+// @Description 流式返回文件内容
+// @Tags File
+// @Produce octet-stream
+// @Param id path string true "文件ID"
+// @Success 200 {file} binary "文件内容"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 404 {object} dto.ErrorResponse "文件不存在"
+// @Router /files/{id}/download [get]
 func (h *FileHandler) DownloadFile(ctx *gin.Context) {
 	fileID := strings.TrimSpace(ctx.Param("id"))
 	if fileID == "" {
@@ -79,15 +101,29 @@ func (h *FileHandler) DownloadFile(ctx *gin.Context) {
 		return
 	}
 
-	downloadURL, err := h.service.GetFileDownloadURL(ctx, caller.OrgID, fileID)
+	reader, info, err := h.service.DownloadFile(ctx, caller.OrgID, fileID)
 	if err != nil {
-		if err.Error() == "file not found" {
+		if err.Error() == "get file download failed" {
 			ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, "file not found"))
 			return
 		}
-		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, "get download url failed"))
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, "get file download failed"))
 		return
 	}
+	defer reader.Close()
 
-	ctx.Redirect(http.StatusFound, downloadURL.URL)
+	mimeType := info.MimeType
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	ctx.Header("Content-Type", mimeType)
+	ctx.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, info.FileName))
+	if info.Size > 0 {
+		ctx.Header("Content-Length", fmt.Sprintf("%d", info.Size))
+	}
+	ctx.Status(http.StatusOK)
+	if _, err := io.Copy(ctx.Writer, reader); err != nil {
+		ctx.Error(err)
+	}
 }

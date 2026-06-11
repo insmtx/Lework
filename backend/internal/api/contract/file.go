@@ -7,7 +7,7 @@ import (
 
 type FileService interface {
 	UploadFile(ctx context.Context, req *UploadFileRequest) (*UploadFileResult, error)
-	GetFileDownloadURL(ctx context.Context, orgID uint, fileID string) (*FileDownloadURL, error)
+	DownloadFile(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *FileDownloadInfo, error)
 }
 
 type UploadFileRequest struct {
@@ -32,12 +32,11 @@ type UploadFileResult struct {
 	URL          string `json:"url"`
 }
 
-type FileDownloadURL struct {
-	URL       string `json:"url"`
-	Filename  string `json:"filename"`
-	MimeType  string `json:"mime_type"`
-	FileSize  int64  `json:"file_size"`
-	ExpiresAt int64  `json:"expires_at,omitempty"`
+type FileDownloadInfo struct {
+	FileName  string
+	MimeType  string
+	Size      int64
+	PublicURL string
 }
 
 type FileObjectInfo struct {

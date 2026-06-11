@@ -7,7 +7,6 @@ import (
 	"mime"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
@@ -82,19 +81,25 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 	}, nil
 }
 
-func (s *fileService) GetFileDownloadURL(ctx context.Context, orgID uint, fileID string) (*contract.FileDownloadURL, error) {
-	ttl := 30 * time.Minute
-	url, fileUpload, err := filestore.PresignDownloadByPublicID(ctx, s.db, orgID, fileID, ttl)
+func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+	reader, fileUpload, err := filestore.OpenFileByPublicID(ctx, s.db, orgID, fileID)
 	if err != nil {
-		logs.ErrorContextf(ctx, "presign url failed: %v", err)
-		return nil, fmt.Errorf("get download url failed")
+		logs.ErrorContextf(ctx, "open file by public id failed: %v", err)
+		return nil, nil, fmt.Errorf("get file download failed")
 	}
 
-	return &contract.FileDownloadURL{
-		URL:       url,
-		Filename:  fileUpload.OriginalName,
+	// TODO: 当存储层支持 HTTP 请求时，直接使用 PublicURL 作为绝对路径或重定向地址，
+	//       当前本地磁盘模式下 PublicURL() 返回的是本地绝对路径，无法通过 HTTP 访问。
+	publicURL := ""
+	fileUpload.StoragePath = strings.TrimSpace(fileUpload.StoragePath)
+	if fileUpload.StoragePath != "" {
+		publicURL = fileUpload.StoragePath
+	}
+
+	return reader, &contract.FileDownloadInfo{
+		FileName:  fileUpload.OriginalName,
 		MimeType:  fileUpload.MimeType,
-		FileSize:  fileUpload.FileSize,
-		ExpiresAt: time.Now().Add(ttl).Unix(),
+		Size:      fileUpload.FileSize,
+		PublicURL: publicURL,
 	}, nil
 }

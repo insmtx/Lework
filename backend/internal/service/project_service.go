@@ -790,6 +790,9 @@ func (s *projectService) AddFile(ctx context.Context, publicID string, filePubli
 		return errors.New("file not found")
 	}
 
+	if file.Metadata.Extra == nil {
+		file.Metadata.Extra = make(map[string]interface{})
+	}
 	file.Metadata.Extra["project_id"] = publicID
 	if err := db.UpdateFileUpload(ctx, s.db, file); err != nil {
 		return fmt.Errorf("update file upload metadata: %w", err)
