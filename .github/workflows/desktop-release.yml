@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  VITE_LEROS_API_BASE_URL: ${{ vars.VITE_LEROS_API_BASE_URL || 'https://leros.insmtx.com/v1' }}
+
 jobs:
   build:
     name: Build ${{ matrix.name }}
