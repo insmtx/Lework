@@ -94,6 +94,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterUserRoutes(v1, userService)
 		logs.Info("User routes registered successfully")
 
+		skillMarketplaceService := service.NewSkillMarketplaceService(db)
+		handler.RegisterSkillMarketplaceRoutes(v1, skillMarketplaceService)
+		logs.Info("Skill marketplace routes registered successfully")
+
 		// Start background consumers
 		go runnable.StartSessionArtifactDeclared(context.Background(), eventbus, db)
 		logs.Info("Session artifact declared runnable started")

@@ -18,11 +18,18 @@ var TrustedRepos = map[string]bool{
 
 // SkillMeta 搜索或检查返回的轻量 Skill 信息。
 type SkillMeta struct {
-	Name        string `json:"name"`
-	Identifier  string `json:"identifier"`
-	Source      string `json:"source"`
-	TrustLevel  string `json:"trust_level"`
-	Description string `json:"description"`
+	SkillID     string   `json:"skill_id"`
+	Name        string   `json:"name,omitempty"`
+	Identifier  string   `json:"identifier"`
+	Source      string   `json:"source"`
+	TrustLevel  string   `json:"trust_level"`
+	Description string   `json:"description"`
+	Version     string   `json:"version,omitempty"`
+	Author      string   `json:"author,omitempty"`
+	Category    string   `json:"category,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Icon        string   `json:"icon,omitempty"`
+	Installs    int64    `json:"installs,omitempty"`
 }
 
 // SkillBundle Fetch 返回的完整 Skill 内容。
@@ -56,6 +63,11 @@ func NewSourceRouter() *SourceRouter {
 			NewSkillsShSource(),
 		},
 	}
+}
+
+// NewSourceRouterWithSources 使用指定源列表创建 SourceRouter。
+func NewSourceRouterWithSources(sources ...SkillSource) *SourceRouter {
+	return &SourceRouter{sources: sources}
 }
 
 // Search 并发向所有源发起搜索，合并结果并去重。

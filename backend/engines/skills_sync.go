@@ -19,10 +19,9 @@ const skillManifestFile = "SKILL.md"
 
 var errNoSkillDirs = errors.New("no skill directories found")
 
-// SyncToLerosDir copies built-in skills from sourceDir to the Leros workspace skills directory.
-// This is the first step in the sync flow: internal skills -> workspace skills.
+// SyncToLerosDir copies worker built-in skills to the Leros workspace skills directory (.leros/skills).
 func SyncToLerosDir(sourceDir string) error {
-	sourceDir, err := resolveBuiltinSkillsSource(sourceDir)
+	sourceDir, err := resolveBuiltinSkillsSource(sourceDir, "worker")
 	if err != nil {
 		return err
 	}
@@ -32,19 +31,42 @@ func SyncToLerosDir(sourceDir string) error {
 		return err
 	}
 
-	// Resolve the workspace skills directory path (expand ~).
 	resolvedUserDir, err := expandPath(userDir)
 	if err != nil {
 		return err
 	}
 
-	// Create the workspace skills directory if it doesn't exist.
 	if err := os.MkdirAll(resolvedUserDir, 0o755); err != nil {
 		return fmt.Errorf("create workspace skills directory: %w", err)
 	}
 
-	logs.Infof("Syncing built-in skills from %s to %s", sourceDir, resolvedUserDir)
+	logs.Infof("Syncing worker built-in skills from %s to %s", sourceDir, resolvedUserDir)
 	return syncSkillDir(sourceDir, resolvedUserDir)
+}
+
+// SyncServerSkillsDir copies server built-in skills to the workspace skills directory ({workspace}/skills).
+func SyncServerSkillsDir(sourceDir string) error {
+	sourceDir, err := resolveBuiltinSkillsSource(sourceDir, "server")
+	if err != nil {
+		return err
+	}
+
+	targetDir, err := leros.JoinWorkspace("skills")
+	if err != nil {
+		return err
+	}
+
+	resolvedTargetDir, err := expandPath(targetDir)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(resolvedTargetDir, 0o755); err != nil {
+		return fmt.Errorf("create server skills directory: %w", err)
+	}
+
+	logs.Infof("Syncing server built-in skills from %s to %s", sourceDir, resolvedTargetDir)
+	return syncSkillDir(sourceDir, resolvedTargetDir)
 }
 
 // ReconcileExternalSkillLinks 全量对齐外部 CLI skill 目录与 .leros/skills。
@@ -204,9 +226,10 @@ func RemoveExternalSkillLink(skillName string, cliSkillDirs []string) error {
 	return nil
 }
 
-// resolveBuiltinSkillsSource resolves the built-in skills directory from various sources.
+// resolveBuiltinSkillsSource resolves the built-in skills directory for a given subdir (e.g. "server" or "worker").
 // Priority: 1. sourceDir param, 2. LEROS_SKILLS_DIR env, 3. default locations.
-func resolveBuiltinSkillsSource(sourceDir string) (string, error) {
+func resolveBuiltinSkillsSource(sourceDir string, subdir string) (string, error) {
+	skillsRelPath := filepath.Join("backend", "skills", subdir)
 	var candidates []string
 	if strings.TrimSpace(sourceDir) != "" {
 		candidates = append([]string{sourceDir}, candidates...)
@@ -215,12 +238,12 @@ func resolveBuiltinSkillsSource(sourceDir string) (string, error) {
 		candidates = append([]string{configured}, candidates...)
 	}
 	if workingDir, err := os.Getwd(); err == nil {
-		candidates = append(candidates, findParentDirCandidates(workingDir, filepath.Join("backend", "skills"))...)
+		candidates = append(candidates, findParentDirCandidates(workingDir, skillsRelPath)...)
 	}
 	if executablePath, err := os.Executable(); err == nil {
-		candidates = append(candidates, findParentDirCandidates(filepath.Dir(executablePath), filepath.Join("backend", "skills"))...)
+		candidates = append(candidates, findParentDirCandidates(filepath.Dir(executablePath), skillsRelPath)...)
 	}
-	candidates = append(candidates, filepath.Join(string(os.PathSeparator), "app", "backend", "skills"))
+	candidates = append(candidates, filepath.Join(string(os.PathSeparator), "app", skillsRelPath))
 
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)

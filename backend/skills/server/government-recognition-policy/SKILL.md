@@ -1,6 +1,8 @@
 ---
 name: government-recognition-policy
 description: Chinese government recognition-policy writing guide for drafting, revising, reviewing, and PDF-formatting official documents about recognition, certification, evaluation, and management of centers, platforms, bases, parks, laboratories, demonstration units, and pilot units. Use when Codex needs to write or improve recognition management measures, red-head issuance notices, application guidelines, application forms, construction-plan templates, capability tables, proof templates, commitment letters, performance evaluation measures, annual assessment notices, and related attachments. Focus on guiding content creation and quality review; use the bundled PDF script only after the agent has drafted the actual document content.
+metadata:
+  tags: [government, policy, pdf, official]
 ---
 
 # 政府认定管理办法写作技能

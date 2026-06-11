@@ -56,4 +56,7 @@ const (
 
 	// TableNameArtifact 任务产出物表名
 	TableNameArtifact = tablenamePrefix + "artifact"
+
+	// TableNameBuiltinSkillMarketplaceItem 内置 Skill 市场条目表名
+	TableNameBuiltinSkillMarketplaceItem = tablenamePrefix + "builtin_skill_marketplace_item"
 )

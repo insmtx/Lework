@@ -141,6 +141,9 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to ensure state dir: %v", err)
 		return
 	}
+	if err := engines.SyncToLerosDir(""); err != nil {
+		logs.Warnf("Sync worker built-in skills failed: %v", err)
+	}
 	identity.Set(identity.Profile{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,

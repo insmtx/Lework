@@ -85,6 +85,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.ProjectMember{},
 		&types.Task{},
 		&types.Artifact{},
+		&types.BuiltinSkillMarketplaceItem{},
 	}
 
 	if err := dbtools.InitModel(db, models...); err != nil {
@@ -212,6 +213,11 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 			return fmt.Errorf("failed to create default LLM model: %w", err)
 		}
 		logs.Infof("Default LLM model created (provider=%s, model=%s)", llmCfg.Provider, modelName)
+	}
+
+	// 初始化内置 Skill 市场条目（从 backend/skills/server/ 下的 SKILL.md 解析）
+	if err := SeedBuiltinSkillMarketplace(db); err != nil {
+		return fmt.Errorf("failed to seed builtin skill marketplace: %w", err)
 	}
 
 	return nil

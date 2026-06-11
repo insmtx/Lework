@@ -53,7 +53,7 @@ func TestReconcileExternalSkillLinksSkipsEmptySkillsDir(t *testing.T) {
 
 func TestResolveBuiltinSkillsSourceFindsProjectParent(t *testing.T) {
 	root := t.TempDir()
-	writeSyncTestSkill(t, filepath.Join(root, "backend", "skills", "review-flow"), "review-flow", "test body")
+	writeSyncTestSkill(t, filepath.Join(root, "backend", "skills", "worker", "review-flow"), "review-flow", "test body")
 
 	nestedDir := filepath.Join(root, "backend", "cmd", "leros")
 	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
@@ -73,11 +73,20 @@ func TestResolveBuiltinSkillsSourceFindsProjectParent(t *testing.T) {
 		t.Fatalf("chdir nested dir: %v", err)
 	}
 
-	sourceDir, err := resolveBuiltinSkillsSource("")
+	sourceDir, err := resolveBuiltinSkillsSource("", "worker")
 	if err != nil {
 		t.Fatalf("resolve builtin skills source: %v", err)
 	}
-	expected := filepath.Join(root, "backend", "skills")
+	expected := filepath.Join(root, "backend", "skills", "worker")
+	// Normalize paths for macOS /var → /private/var symlink.
+	resolvedExpected, err := filepath.EvalSymlinks(expected)
+	if err == nil {
+		expected = resolvedExpected
+	}
+	resolvedSource, err := filepath.EvalSymlinks(sourceDir)
+	if err == nil {
+		sourceDir = resolvedSource
+	}
 	if sourceDir != expected {
 		t.Fatalf("expected %s, got %s", expected, sourceDir)
 	}

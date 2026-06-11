@@ -2,6 +2,8 @@
 name: create-word-doc
 description: 创建、编辑 .docx 文件（报告、合同、提案）。当需要生成 Word 文档、从头创建文档、编辑现有文档、使用模板填充、提取文本时使用。处理报告、备忘录、合同、邀请函、证书等交付物。
 allowed-tools: Bash, Read, Write, Glob, Grep
+metadata:
+  tags: [docx, word, report, document]
 ---
 
 # Create Word Doc

@@ -4,6 +4,8 @@ description: Real-time search engine supporting web search, vertical domain sear
 version: 2.0.0
 authors:
   - AnySearch Team
+metadata:
+  tags: [search, web, api]
 credentials:
   - name: ANYSEARCH_API_KEY
     required: false

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/api"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
@@ -47,6 +48,14 @@ func newServerCommand() *cobra.Command {
 			if err := applyServerWorkspaceRoot(cfg); err != nil {
 				logs.Fatalf("Invalid server workspace config: %v", err)
 				return
+			}
+
+			if _, err := leros.EnsureStateDir(); err != nil {
+				logs.Fatalf("Failed to ensure state dir: %v", err)
+				return
+			}
+			if err := engines.SyncServerSkillsDir(""); err != nil {
+				logs.Warnf("Sync server built-in skills failed: %v", err)
 			}
 
 			natsUrl := "nats://nats:4222"

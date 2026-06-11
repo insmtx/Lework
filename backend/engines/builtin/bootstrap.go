@@ -49,8 +49,8 @@ func (s *BootstrapService) GetSkillDirs() []string {
 }
 
 // Bootstrap 执行完整的引擎启动流程。
-// 始终同步内置 skills 到 .leros/skills（服务于 native engine）；
-// 若检测到外部 CLI 则额外同步 symlink 并注册 MCP。
+// 内置 skill 文件同步已在 server/worker 各自的启动流程中完成；
+// Bootstrap 负责 CLI 发现、workspace skills 到外部 CLI 的 symlink 同步、以及 MCP 注册。
 func (s *BootstrapService) Bootstrap(ctx context.Context, cfg *config.CLIEnginesConfig, opts BootstrapOptions) (*config.CLIEnginesConfig, error) {
 	if cfg == nil {
 		cfg = &config.CLIEnginesConfig{}
@@ -58,17 +58,7 @@ func (s *BootstrapService) Bootstrap(ctx context.Context, cfg *config.CLIEngines
 
 	var bootstrapErr error
 
-	// === Layer 2: Skill Sync (始终执行 — 服务于 native engine) ===
-	// Step 1: 同步内置 skills 到 workspace skills 目录（即为 native engine 的 skill 目录）。
-	logs.Info("Syncing built-in skills to Leros workspace skills directory...")
-	if err := s.skillSync.SyncBuiltinToLeros(opts.SkillsSourceDir); err != nil {
-		bootstrapErr = appendError(bootstrapErr, err)
-		logs.Warnf("Sync built-in skills failed: %v", err)
-	} else {
-		logs.Info("Built-in skills synced to Leros workspace skills directory")
-	}
-
-	// === Layer 3: CLI Discovery ===
+	// === Layer 2: CLI Discovery ===
 	logs.Info("Starting CLI discovery...")
 	clis := s.cliDiscovery.Discover()
 
@@ -207,11 +197,6 @@ type SkillSyncService struct{}
 // NewSkillSyncService 创建 SkillSyncService 实例。
 func NewSkillSyncService() *SkillSyncService {
 	return &SkillSyncService{}
-}
-
-// SyncBuiltinToLeros 将内置 skills 同步到 workspace skills 目录。
-func (s *SkillSyncService) SyncBuiltinToLeros(sourceDir string) error {
-	return engines.SyncToLerosDir(sourceDir)
 }
 
 // SyncToExternal 将 workspace skills 同步到外部 CLI 目录。
