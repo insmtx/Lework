@@ -272,6 +272,22 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 	if startSeq <= 0 {
 		return p.subscribeNewOnly(ctx, topic, handler)
 	}
+	streamName := dm.StreamNameFromTopic(topic)
+	if streamName != "" {
+		info, err := p.js.StreamInfo(streamName)
+		if err != nil {
+			logs.WarnContextf(ctx, "Failed to inspect stream %s before subscribing to %s from seq %d: %v", streamName, topic, startSeq, err)
+		} else if uint64(startSeq) > info.State.LastSeq+1 {
+			logs.WarnContextf(ctx,
+				"Local recovery seq %d for topic %s is beyond stream %s last seq %d; subscribing to new messages only",
+				startSeq,
+				topic,
+				streamName,
+				info.State.LastSeq,
+			)
+			return p.subscribeNewOnly(ctx, topic, handler)
+		}
+	}
 	sub, err := p.js.Subscribe(topic, handler,
 		nats.StartSequence(uint64(startSeq)),
 		nats.Context(ctx),
