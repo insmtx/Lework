@@ -173,6 +173,9 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		if proj == nil {
 			return errors.New("project not found")
 		}
+		if err := verifyUserPermission(proj.OwnerID, o.caller.Uin); err != nil {
+			return err
+		}
 		o.project = proj
 		return nil
 	}
@@ -248,6 +251,9 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 		}
 		if t == nil {
 			return errors.New("task not found")
+		}
+		if err := verifyUserPermission(t.OwnerID, o.caller.Uin); err != nil {
+			return err
 		}
 		o.task = t
 		return nil

@@ -23,6 +23,13 @@ func verifyOrgPermission(daOrgID, orgID uint) error {
 	return nil
 }
 
+func verifyUserPermission(ownerID, uin uint) error {
+	if ownerID != uin {
+		return errors.New("permission denied")
+	}
+	return nil
+}
+
 func getCallerFromContext(ctx context.Context) (*types.Caller, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {

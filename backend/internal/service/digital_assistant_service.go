@@ -81,7 +81,7 @@ func (s *digitalAssistantService) CreateDigitalAssistant(ctx context.Context, re
 }
 
 func (s *digitalAssistantService) GetDigitalAssistantByID(ctx context.Context, id uint) (*contract.DigitalAssistantDetail, error) {
-	orgID, err := getOrgIDFromContext(ctx)
+	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,10 @@ func (s *digitalAssistantService) GetDigitalAssistantByID(ctx context.Context, i
 		return nil, errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, orgID); err != nil {
+	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+		return nil, err
+	}
+	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
 		return nil, err
 	}
 
@@ -104,7 +107,7 @@ func (s *digitalAssistantService) GetDigitalAssistantByID(ctx context.Context, i
 }
 
 func (s *digitalAssistantService) GetDigitalAssistantByCode(ctx context.Context, code string) (*contract.DigitalAssistantDetail, error) {
-	orgID, err := getOrgIDFromContext(ctx)
+	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +120,10 @@ func (s *digitalAssistantService) GetDigitalAssistantByCode(ctx context.Context,
 		return nil, errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, orgID); err != nil {
+	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+		return nil, err
+	}
+	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
 		return nil, err
 	}
 
@@ -127,7 +133,7 @@ func (s *digitalAssistantService) GetDigitalAssistantByCode(ctx context.Context,
 }
 
 func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id uint, req *contract.UpdateDigitalAssistantRequest) (*contract.DigitalAssistant, error) {
-	orgID, err := getOrgIDFromContext(ctx)
+	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +146,10 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 		return nil, errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, orgID); err != nil {
+	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+		return nil, err
+	}
+	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
 		return nil, err
 	}
 
@@ -166,7 +175,7 @@ func (s *digitalAssistantService) UpdateDigitalAssistant(ctx context.Context, id
 }
 
 func (s *digitalAssistantService) DeleteDigitalAssistant(ctx context.Context, id uint) error {
-	orgID, err := getOrgIDFromContext(ctx)
+	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return err
 	}
@@ -179,7 +188,10 @@ func (s *digitalAssistantService) DeleteDigitalAssistant(ctx context.Context, id
 		return errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, orgID); err != nil {
+	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+		return err
+	}
+	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
 		return err
 	}
 
@@ -220,7 +232,7 @@ func (s *digitalAssistantService) ListDigitalAssistant(ctx context.Context, req 
 }
 
 func (s *digitalAssistantService) UpdateDigitalAssistantStatus(ctx context.Context, id uint, req *contract.UpdateDigitalAssistantStatusRequest) error {
-	orgID, err := getOrgIDFromContext(ctx)
+	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return err
 	}
@@ -233,7 +245,10 @@ func (s *digitalAssistantService) UpdateDigitalAssistantStatus(ctx context.Conte
 		return errors.New("digital assistant not found")
 	}
 
-	if err := verifyOrgPermission(da.OrgID, orgID); err != nil {
+	if err := verifyOrgPermission(da.OrgID, caller.OrgID); err != nil {
+		return err
+	}
+	if err := verifyUserPermission(da.OwnerID, caller.Uin); err != nil {
 		return err
 	}
 

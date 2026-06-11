@@ -40,6 +40,9 @@ func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRe
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, err
+	}
 
 	publicID := generateTaskPublicID()
 
@@ -99,6 +102,9 @@ func (s *taskService) GetTask(ctx context.Context, publicID string) (*contract.T
 	if task == nil {
 		return nil, errors.New("task not found")
 	}
+	if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
+		return nil, err
+	}
 
 	projectPublicID, err := s.resolveProjectPublicID(ctx, task.ProjectID)
 	if err != nil {
@@ -124,6 +130,9 @@ func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *cont
 		}
 		if task == nil {
 			return errors.New("task not found")
+		}
+		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
+			return err
 		}
 
 		if req.Title != nil {
@@ -154,6 +163,9 @@ func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *cont
 			}
 			if project == nil {
 				return errors.New("project not found")
+			}
+			if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+				return err
 			}
 			task.ProjectID = project.ID
 		}
@@ -206,6 +218,9 @@ func (s *taskService) DeleteTask(ctx context.Context, publicID string) error {
 		if task == nil {
 			return errors.New("task not found")
 		}
+		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
+			return err
+		}
 		return db.DeleteTask(ctx, tx, task.ID)
 	})
 }
@@ -232,6 +247,9 @@ func (s *taskService) ListTasks(ctx context.Context, req *contract.ListTasksRequ
 		}
 		if project == nil {
 			return nil, errors.New("project not found")
+		}
+		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+			return nil, err
 		}
 		opt.AddExactFilter("project_id", fmt.Sprintf("%d", project.ID))
 	}

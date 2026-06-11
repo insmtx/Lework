@@ -77,6 +77,9 @@ func ListDigitalAssistant(ctx context.Context, db *gorm.DB, opt *types.PageQuery
 	if opt.OrgID > 0 {
 		query = query.Where("org_id = ?", opt.OrgID)
 	}
+	if opt.Uin > 0 {
+		query = query.Where("owner_id = ?", opt.Uin)
+	}
 
 	for _, filter := range opt.Filters {
 		switch filter.Field {

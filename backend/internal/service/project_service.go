@@ -16,8 +16,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
@@ -108,6 +108,9 @@ func (s *projectService) GetProject(ctx context.Context, publicID string) (*cont
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, err
+	}
 	return convertToContractProject(project), nil
 }
 
@@ -128,6 +131,9 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 		}
 		if project == nil {
 			return errors.New("project not found")
+		}
+		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+			return err
 		}
 
 		if req.Name != nil {
@@ -191,6 +197,9 @@ func (s *projectService) DeleteProject(ctx context.Context, publicID string) err
 		}
 		if project == nil {
 			return errors.New("project not found")
+		}
+		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+			return err
 		}
 		return db.DeleteProject(ctx, tx, project.ID)
 	})
@@ -277,6 +286,9 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	}
 	if project == nil {
 		return nil, errors.New("project not found")
+	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, err
 	}
 
 	result := &contract.ProjectDetail{
@@ -408,6 +420,9 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, err
+	}
 
 	// 3. 拼 repo 路径: {workspaceRoot}/projects/{orgID}/{publicID}/repo/
 	workerID := getWorkerIDByProjectID(publicID)
@@ -438,7 +453,7 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 		Entries: entries,
 		Total:   len(entries),
 	}, nil
-	}
+}
 
 func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, parentPath string, depth int) ([]*contract.FileTreeNode, error) {
 	// 1. 鉴权
@@ -457,6 +472,9 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 	}
 	if project == nil {
 		return nil, errors.New("project not found")
+	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, err
 	}
 
 	// 3. 解析 repo 路径
@@ -645,6 +663,9 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	if project == nil {
 		return nil, "", 0, errors.New("project not found")
 	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, "", 0, err
+	}
 
 	// 3. 解析 repo 路径
 	workerID := getWorkerIDByProjectID(publicID)
@@ -718,6 +739,9 @@ func (s *projectService) UploadProjectFile(ctx context.Context, publicID string,
 	}
 	if project == nil {
 		return nil, errors.New("project not found")
+	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, err
 	}
 
 	// 3. 解析 repo 路径

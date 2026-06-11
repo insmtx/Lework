@@ -41,6 +41,9 @@ func (s *artifactService) ListTaskArtifacts(ctx context.Context, taskPublicID st
 	if task == nil {
 		return nil, errors.New("task not found")
 	}
+	if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
+		return nil, err
+	}
 	artifacts, err := db.ListTaskArtifacts(ctx, s.db, caller.OrgID, task.ID)
 	if err != nil {
 		return nil, err
@@ -66,6 +69,9 @@ func (s *artifactService) GetArtifactDownload(ctx context.Context, artifactPubli
 	}
 	if artifact == nil {
 		return nil, errors.New("artifact not found")
+	}
+	if err := verifyUserPermission(artifact.OwnerID, caller.Uin); err != nil {
+		return nil, err
 	}
 	file, err := agentworkspace.OpenArtifactStorageFile(artifact.OrgID, artifactWorkerID(artifact), artifact.StorageKey)
 	if err != nil {

@@ -41,6 +41,27 @@ func NewSessionService(db *gorm.DB, eventbus eventbus.EventBus, inferrer Assista
 	}
 }
 
+func (s *sessionService) getSessionForCaller(ctx context.Context, sessionID string) (*types.Session, *types.Caller, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if session == nil {
+		return nil, nil, errors.New("session not found")
+	}
+	if session.OrgID != caller.OrgID {
+		return nil, nil, errors.New("permission denied")
+	}
+	if err := verifyUserPermission(session.Uin, caller.Uin); err != nil {
+		return nil, nil, err
+	}
+	return session, caller, nil
+}
+
 func (s *sessionService) CreateSession(ctx context.Context, req *contract.CreateSessionRequest) (*contract.Session, error) {
 	if req.Type == "" {
 		return nil, errors.New("type is required")
@@ -93,24 +114,18 @@ func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*con
 		return nil, errors.New("session_id is required")
 	}
 
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return nil, err
-	}
-	if session == nil {
-		return nil, errors.New("session not found")
 	}
 
 	return convertToContractSession(session), nil
 }
 
 func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, req *contract.UpdateSessionRequest) (*contract.Session, error) {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return nil, err
-	}
-	if session == nil {
-		return nil, errors.New("session not found")
 	}
 
 	if req.Title != "" {
@@ -134,12 +149,9 @@ func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, re
 }
 
 func (s *sessionService) DeleteSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	if session == nil {
-		return errors.New("session not found")
 	}
 
 	return db.DeleteSession(ctx, s.db, session.ID)
@@ -190,12 +202,9 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 }
 
 func (s *sessionService) ActivateSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	if session == nil {
-		return errors.New("session not found")
 	}
 
 	if session.Status == string(types.SessionStatusEnded) {
@@ -206,12 +215,9 @@ func (s *sessionService) ActivateSession(ctx context.Context, sessionID string) 
 }
 
 func (s *sessionService) PauseSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	if session == nil {
-		return errors.New("session not found")
 	}
 
 	if session.Status == string(types.SessionStatusEnded) || session.Status == string(types.SessionStatusExpired) {
@@ -222,12 +228,9 @@ func (s *sessionService) PauseSession(ctx context.Context, sessionID string) err
 }
 
 func (s *sessionService) EndSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	if session == nil {
-		return errors.New("session not found")
 	}
 
 	if session.Status == string(types.SessionStatusEnded) {
@@ -238,12 +241,9 @@ func (s *sessionService) EndSession(ctx context.Context, sessionID string) error
 }
 
 func (s *sessionService) ResumeSession(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	if session == nil {
-		return errors.New("session not found")
 	}
 
 	if session.Status != string(types.SessionStatusPaused) {
@@ -261,12 +261,9 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		return nil, errors.New("content is required")
 	}
 
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return nil, err
-	}
-	if session == nil {
-		return nil, errors.New("session not found")
 	}
 
 	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer)
@@ -385,10 +382,17 @@ func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, sessionI
 	return nil
 }
 
-
 func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.SubmitApprovalRequest) error {
+	session, caller, err := s.getSessionForCaller(ctx, req.SessionID)
+	if err != nil {
+		return err
+	}
+	req.OrgID = caller.OrgID
 	if req.WorkerID == 0 {
-		req.WorkerID = 1 // TODO: 由 session 关联的运行时动态获取
+		req.WorkerID = session.AllocatedAssistantID
+	}
+	if req.WorkerID == 0 {
+		req.WorkerID = 1
 	}
 	topic, err := dm.WorkerApprovalSubject(req.OrgID, req.WorkerID)
 	if err != nil {
@@ -397,12 +401,9 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 	return s.eventbus.Publish(ctx, topic, req)
 }
 func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*contract.MessageList, error) {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return nil, err
-	}
-	if session == nil {
-		return nil, errors.New("session not found")
 	}
 
 	messages, total, err := db.GetSessionMessages(ctx, s.db, session.ID, page, perPage)
@@ -430,6 +431,23 @@ func (s *sessionService) DeleteMessage(ctx context.Context, messageID uint) erro
 	if message == nil {
 		return errors.New("message not found")
 	}
+	session, err := db.GetSessionByID(ctx, s.db, message.SessionID)
+	if err != nil {
+		return err
+	}
+	if session == nil {
+		return errors.New("session not found")
+	}
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return err
+	}
+	if session.OrgID != caller.OrgID {
+		return errors.New("permission denied")
+	}
+	if err := verifyUserPermission(session.Uin, caller.Uin); err != nil {
+		return err
+	}
 
 	if err := db.DeleteMessage(ctx, s.db, messageID); err != nil {
 		return err
@@ -439,12 +457,9 @@ func (s *sessionService) DeleteMessage(ctx context.Context, messageID uint) erro
 }
 
 func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID string) error {
-	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	if session == nil {
-		return errors.New("session not found")
 	}
 
 	if err := db.ClearSessionMessages(ctx, s.db, session.ID); err != nil {
@@ -464,9 +479,9 @@ func toJSONString(v interface{}) string {
 }
 
 func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, lastSequence int64, sink events.Sink) error {
-	caller, _ := auth.FromContext(ctx)
-	if caller == nil || caller.OrgID == 0 {
-		return errors.New("user not authenticated or org not set")
+	_, caller, err := s.getSessionForCaller(ctx, sessionPID)
+	if err != nil {
+		return err
 	}
 
 	topic, err := dm.SessionResultStreamSubject(caller.OrgID, sessionPID)
