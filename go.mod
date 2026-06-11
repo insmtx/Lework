@@ -22,7 +22,7 @@ require (
 	github.com/swaggo/gin-swagger v1.6.1
 	github.com/swaggo/swag v1.16.6
 	github.com/valyala/fasttemplate v1.2.2
-	github.com/ygpkg/storage-go v0.0.1
+	github.com/ygpkg/storage-go v0.0.2
 	github.com/ygpkg/yg-go v1.23.66
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.41.0

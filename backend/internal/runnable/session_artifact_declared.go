@@ -1,15 +1,10 @@
 package runnable
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/nats-io/nats.go"
-	"github.com/ygpkg/storage-go"
-	"gorm.io/gorm"
 
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
@@ -19,7 +14,9 @@ import (
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/dm"
 	"github.com/insmtx/Leros/backend/types"
+	"github.com/nats-io/nats.go"
 	"github.com/ygpkg/yg-go/logs"
+	"gorm.io/gorm"
 )
 
 // StartSessionArtifactDeclared 订阅实时产物声明并持久化。
@@ -115,15 +112,20 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 	}
 	rawStorageKey := storageKey
 
-	st := filestore.GetStorage()
-	bucket := filestore.DefaultBucket()
-	putResult, err := st.PutObject(ctx, bucket, rawStorageKey, bytes.NewReader(fileInfo.Data),
-		storage.WithContentType(fileInfo.MimeType),
-	)
+	fileUpload, err := filestore.Upload(ctx, p.db, filestore.UploadParams{
+		Data:         fileInfo.Data,
+		Filename:     fileInfo.Filename,
+		OriginalName: fileInfo.Filename,
+		MimeType:     fileInfo.MimeType,
+		OrgID:        session.OrgID,
+		OwnerID:      session.Uin,
+		ObjectKey:    rawStorageKey,
+		Purpose:      filestore.PurposeArtifact,
+	})
 	if err != nil {
-		return fmt.Errorf("put artifact object: %w", err)
+		return fmt.Errorf("store artifact file: %w", err)
 	}
-	storageKey = putResult.Path.URI()
+
 	filename := strings.TrimSpace(item.Filename)
 	if filename == "" {
 		filename = fileInfo.Filename
@@ -142,15 +144,16 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		FileURL:      "/v1/artifacts/" + artifactID + "/download",
 		MimeType:     fileInfo.MimeType,
 		FileSize:     fileInfo.FileSize,
-		RelativePath: agentworkspace.RepoRelativePathFromStorageKey(storageKey),
-		StorageKey:   storageKey,
+		RelativePath: agentworkspace.RepoRelativePathFromStorageKey(fileUpload.StoragePath),
+		StorageKey:   fileUpload.PublicID,
 		Sha256:       fileInfo.Sha256,
 		Source:       artifactSource(item.Source),
 		Status:       artifactStatus(item.Status),
 		Metadata: types.ObjectMetadata{
 			Extra: map[string]interface{}{
-				"worker_id":        route.WorkerID,
-				"storage_key_raw":  rawStorageKey,
+				"worker_id":       route.WorkerID,
+				"storage_key_raw": rawStorageKey,
+				"storage_path":    fileUpload.StoragePath,
 			},
 		},
 	}

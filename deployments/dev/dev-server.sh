@@ -51,5 +51,8 @@ fi
 
 echo -e "${BLUE}Starting server (port 8080)...${NC}"
 
+LEROS_STORAGE_LOCAL_DIR="$ROOT_DIR/leros-bucket"
+mkdir -p "$LEROS_STORAGE_LOCAL_DIR"
+
 cd "$ROOT_DIR"
-LEROS_DEV=true ./bundles/leros server --config "$CONFIG_FILE" --workspace-root "$ROOT_DIR/.leros-workspace" --listen-addr :8080
+LEROS_DEV=true LEROS_STORAGE_LOCAL_DIR="$LEROS_STORAGE_LOCAL_DIR" ./bundles/leros server --config "$CONFIG_FILE" --workspace-root "$ROOT_DIR/.leros-workspace" --listen-addr :8080

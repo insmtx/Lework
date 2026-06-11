@@ -2,8 +2,10 @@ package filestore
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ygpkg/storage-go"
 	_ "github.com/ygpkg/storage-go/driver/local"
@@ -12,26 +14,40 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 )
 
+const (
+	defaultBucketName = "dev-bucket"
+	defaultDriver     = "local"
+	defaultLocalDir   = "leros-storage"
+)
+
 var (
 	defaultStorage storage.Storage
-	defaultBucket  string
+	defaultBucket  string = defaultBucketName
 )
 
 func Init(cfg *config.StorageConfig) error {
 	if cfg == nil {
-		var root string
-		if exe, err := os.Executable(); err == nil {
-			root = filepath.Dir(exe)
-		} else {
-			root, err = os.Getwd()
-			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+		if dir := strings.TrimSpace(os.Getenv("LEROS_STORAGE_LOCAL_DIR")); dir != "" {
+			cfg = &config.StorageConfig{
+				Driver:   defaultDriver,
+				LocalDir: dir,
+				Bucket:   defaultBucketName,
 			}
-		}
-		cfg = &config.StorageConfig{
-			Driver:   "local",
-			LocalDir: filepath.Join(root, "leros-bucket"),
-			Bucket:   "bucket",
+		} else {
+			var root string
+			if exe, err := os.Executable(); err == nil {
+				root = filepath.Dir(exe)
+			} else {
+				root, err = os.Getwd()
+				if err != nil {
+					return fmt.Errorf("get working directory: %w", err)
+				}
+			}
+			cfg = &config.StorageConfig{
+				Driver:   defaultDriver,
+				LocalDir: filepath.Join(root, defaultLocalDir),
+				Bucket:   defaultBucketName,
+			}
 		}
 	}
 	driver := storage.DriverType(cfg.Driver)
@@ -42,27 +58,16 @@ func Init(cfg *config.StorageConfig) error {
 		Bucket:    cfg.Bucket,
 		UseSSL:    cfg.UseSSL,
 		BaseDir:   cfg.LocalDir,
+		BaseURL:   cfg.BaseURL,
 	}
-	var pb storage.PathBuilder
-	if driver == storage.DriverLocal {
-		pb = &storage.LocalPathBuilder{
-			AbsDir:  cfg.LocalDir,
-			BaseURL: cfg.BaseURL,
-		}
-	} else {
-		urlStyle := storage.URLStylePath
-		if cfg.URLStyle == "virtual-hosted" {
-			urlStyle = storage.URLStyleVirtualHosted
-		}
-		pb = &storage.S3PathBuilder{
-			BaseURL:  cfg.BaseURL,
-			Endpoint: cfg.Endpoint,
-			URLStyle: urlStyle,
-		}
-	}
-	s, err := storage.New(driver, sCfg, pb)
+	s, err := storage.New(driver, sCfg)
 	if err != nil {
 		return fmt.Errorf("init storage: %w", err)
+	}
+	if cfg.Driver == "local" {
+		if abs, e := filepath.Abs(cfg.LocalDir); e == nil {
+			log.Printf("[filestore] local bucket path: %s", abs)
+		}
 	}
 	defaultStorage = s
 	defaultBucket = cfg.Bucket

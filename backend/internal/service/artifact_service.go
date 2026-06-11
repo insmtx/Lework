@@ -4,22 +4,18 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strconv"
 	"strings"
 
-	"gorm.io/gorm"
-
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/types"
+	"gorm.io/gorm"
 )
 
 type artifactService struct {
 	db *gorm.DB
 }
-
-const defaultArtifactWorkerID uint = 1
 
 // NewArtifactService creates a service for generated artifacts.
 func NewArtifactService(db *gorm.DB) contract.ArtifactService {
@@ -34,14 +30,14 @@ func (s *artifactService) ListTaskArtifacts(ctx context.Context, taskPublicID st
 	if strings.TrimSpace(taskPublicID) == "" {
 		return nil, errors.New("task_id is required")
 	}
-	task, err := db.GetTaskByPublicID(ctx, s.db, caller.OrgID, taskPublicID)
+	task, err := infradb.GetTaskByPublicID(ctx, s.db, caller.OrgID, taskPublicID)
 	if err != nil {
 		return nil, err
 	}
 	if task == nil {
 		return nil, errors.New("task not found")
 	}
-	artifacts, err := db.ListTaskArtifacts(ctx, s.db, caller.OrgID, task.ID)
+	artifacts, err := infradb.ListTaskArtifacts(ctx, s.db, caller.OrgID, task.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -60,14 +56,15 @@ func (s *artifactService) GetArtifactDownload(ctx context.Context, artifactPubli
 	if strings.TrimSpace(artifactPublicID) == "" {
 		return nil, errors.New("artifact_id is required")
 	}
-	artifact, err := db.GetArtifactByPublicID(ctx, s.db, caller.OrgID, artifactPublicID)
+	artifact, err := infradb.GetArtifactByPublicID(ctx, s.db, caller.OrgID, artifactPublicID)
 	if err != nil {
 		return nil, err
 	}
 	if artifact == nil {
 		return nil, errors.New("artifact not found")
 	}
-	reader, err := agentworkspace.OpenArtifactStorageFile(ctx, artifact.OrgID, artifactWorkerID(artifact), artifactStorageKey(artifact))
+
+	reader, _, err := filestore.OpenFileByPublicID(ctx, s.db, artifact.OrgID, artifact.StorageKey)
 	if err != nil {
 		return nil, err
 	}
@@ -106,54 +103,6 @@ func artifactDownloadName(artifact *types.Artifact) string {
 		return strings.TrimSpace(artifact.Title)
 	}
 	return filepath.Base(strings.TrimSpace(artifact.RelativePath))
-}
-
-func artifactWorkerID(artifact *types.Artifact) uint {
-	if artifact == nil || artifact.Metadata.Extra == nil {
-		return defaultArtifactWorkerID
-	}
-	value, ok := artifact.Metadata.Extra["worker_id"]
-	if !ok {
-		return defaultArtifactWorkerID
-	}
-	switch typed := value.(type) {
-	case uint:
-		if typed != 0 {
-			return typed
-		}
-	case int:
-		if typed > 0 {
-			return uint(typed)
-		}
-	case int64:
-		if typed > 0 {
-			return uint(typed)
-		}
-	case float64:
-		if typed > 0 {
-			return uint(typed)
-		}
-	case string:
-		parsed, err := strconv.ParseUint(strings.TrimSpace(typed), 10, 64)
-		if err == nil && parsed > 0 {
-			return uint(parsed)
-		}
-	}
-	return defaultArtifactWorkerID
-}
-
-func artifactStorageKey(artifact *types.Artifact) string {
-	if artifact == nil {
-		return ""
-	}
-	if artifact.Metadata.Extra != nil {
-		if raw, ok := artifact.Metadata.Extra["storage_key_raw"]; ok {
-			if s, ok := raw.(string); ok && strings.TrimSpace(s) != "" {
-				return s
-			}
-		}
-	}
-	return artifact.StorageKey
 }
 
 var _ contract.ArtifactService = (*artifactService)(nil)

@@ -1,10 +1,7 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"mime"
@@ -12,16 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/gorm"
-
-	"github.com/ygpkg/storage-go"
-
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
+	"gorm.io/gorm"
 )
 
 type fileService struct {
@@ -50,9 +42,6 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 		return nil, fmt.Errorf("file size exceeds maximum allowed size of %dMB", maxUploadSize/(1<<20))
 	}
 
-	hash := sha256.Sum256(data)
-	sha256Hex := hex.EncodeToString(hash[:])
-
 	detectedMime := http.DetectContentType(data[:min(len(data), 512)])
 	mimeType := req.MimeType
 	if mediaType, _, err := mime.ParseMediaType(detectedMime); err == nil {
@@ -66,63 +55,36 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 	storeFilename := fmt.Sprintf("%s%s", snowflake.GenerateIDBase58(), ext)
 	key := fmt.Sprintf("%s/%d/%s", req.Purpose, caller.OrgID, storeFilename)
 
-	st := filestore.GetStorage()
-	bucket := filestore.DefaultBucket()
-
-	result, err := st.PutObject(ctx, bucket, key, bytes.NewReader(data),
-		storage.WithContentType(mimeType),
-	)
-	if err != nil {
-		logs.ErrorContextf(ctx, "put object failed: %v", err)
-		return nil, fmt.Errorf("upload file failed")
-	}
-
-	publicID := fmt.Sprintf("file_%s", snowflake.GenerateIDBase58())
-	file := &types.FileUpload{
-		PublicID:     publicID,
-		OrgID:        caller.OrgID,
-		OwnerID:      caller.Uin,
+	file, err := filestore.Upload(ctx, s.db, filestore.UploadParams{
+		Data:         data,
 		Filename:     storeFilename,
 		OriginalName: req.Filename,
 		MimeType:     mimeType,
-		FileSize:     int64(len(data)),
-		StoragePath:  result.Path.Path(),
-		Sha256:       sha256Hex,
+		OrgID:        caller.OrgID,
+		OwnerID:      caller.Uin,
+		ObjectKey:    key,
 		Purpose:      req.Purpose,
-		Status:       "active",
-	}
-
-	if err := infradb.CreateFileUpload(ctx, s.db, file); err != nil {
-		return nil, fmt.Errorf("create file upload record: %w", err)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upload file: %w", err)
 	}
 
 	return &contract.UploadFileResult{
-		PublicID:     publicID,
-		FileUploadID: publicID,
-		Filename:     storeFilename,
-		OriginalName: req.Filename,
-		MimeType:     mimeType,
+		PublicID:     file.PublicID,
+		FileUploadID: file.PublicID,
+		Filename:     file.Filename,
+		OriginalName: file.OriginalName,
+		MimeType:     file.MimeType,
 		FileSize:     file.FileSize,
-		Sha256:       sha256Hex,
-		StoragePath:  result.Path.URI(),
-		URL:          result.Path.PublicURL(),
+		Sha256:       file.Sha256,
+		StoragePath:  file.StoragePath,
+		URL:          file.StoragePath,
 	}, nil
 }
 
 func (s *fileService) GetFileDownloadURL(ctx context.Context, orgID uint, fileID string) (*contract.FileDownloadURL, error) {
-	file, err := infradb.GetFileUploadByPublicID(ctx, s.db, orgID, fileID)
-	if err != nil {
-		return nil, err
-	}
-	if file == nil {
-		return nil, fmt.Errorf("file not found")
-	}
-
-	st := filestore.GetStorage()
-	bucket := filestore.DefaultBucket()
-
 	ttl := 30 * time.Minute
-	url, err := st.PresignGetObject(ctx, bucket, file.StoragePath, ttl)
+	url, fileUpload, err := filestore.PresignDownloadByPublicID(ctx, s.db, orgID, fileID, ttl)
 	if err != nil {
 		logs.ErrorContextf(ctx, "presign url failed: %v", err)
 		return nil, fmt.Errorf("get download url failed")
@@ -130,9 +92,9 @@ func (s *fileService) GetFileDownloadURL(ctx context.Context, orgID uint, fileID
 
 	return &contract.FileDownloadURL{
 		URL:       url,
-		Filename:  file.OriginalName,
-		MimeType:  file.MimeType,
-		FileSize:  file.FileSize,
+		Filename:  fileUpload.OriginalName,
+		MimeType:  fileUpload.MimeType,
+		FileSize:  fileUpload.FileSize,
 		ExpiresAt: time.Now().Add(ttl).Unix(),
 	}, nil
 }

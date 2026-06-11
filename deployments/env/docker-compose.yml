@@ -50,8 +50,10 @@ services:
       - DATABASE_URL=postgres://leros_user:leros_password@postgresql:5432/leros_db
       - NATS_URL=nats://nats:4222
       - GIN_MODE=release
+      - LEROS_STORAGE_LOCAL_DIR=/app/leros-storage
     volumes:
       - ./config.yaml:/app/config.yaml
+      - leros_storage:/app/leros-storage
     command: ["server", "--config", "/app/config.yaml"]
     restart: unless-stopped
 
@@ -66,11 +68,14 @@ services:
     environment:
       - DATABASE_URL=postgres://leros_user:leros_password@postgresql:5432/leros_db
       - NATS_URL=nats://nats:4222
+      - LEROS_STORAGE_LOCAL_DIR=/app/leros-storage
     volumes:
       - ./config.yaml:/app/config.yaml
+      - leros_storage:/app/leros-storage
     command: ["worker", "--config", "/app/config.yaml"]
     restart: unless-stopped
 
 volumes:
   postgres_data:
   nats_data:
+  leros_storage:
