@@ -67,4 +67,4 @@ LEROS_STORAGE_LOCAL_DIR="$ROOT_DIR/leros-storage"
 mkdir -p "$LEROS_STORAGE_LOCAL_DIR"
 
 cd "$ROOT_DIR"
-LEROS_STORAGE_LOCAL_DIR="$LEROS_STORAGE_LOCAL_DIR" ./bundles/leros server --config "$CONFIG_FILE" --workspace-root "$ROOT_DIR/.leros-workspace"
+LEROS_STORAGE_LOCAL_DIR="$LEROS_STORAGE_LOCAL_DIR" ./bundles/leros server --config "$CONFIG_FILE" --workspace-root "$ROOT_DIR/.leros-workspace/1/1/workspace"
