@@ -88,6 +88,6 @@ func TestPresignUploadKeyWithSpecialChars(t *testing.T) {
 		t.Fatalf("PresignUpload special chars: %v", err)
 	}
 	if !strings.Contains(url, "file%20with%20spaces.txt") {
-		t.Logf("URL may not contain encoded spaces: %s", url)
+		t.Errorf("URL does not contain encoded spaces: %s", url)
 	}
 }
