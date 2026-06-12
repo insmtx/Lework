@@ -57,12 +57,10 @@ export type AddMessageParams = {
 	role: string;
 	content: string;
 	message_type?: string;
-	file_upload_id?: string;
-	mime_type?: string;
 	attachments?: {
-		url: string;
+		file_upload_id: string;
 		name: string;
-		type: string;
+		mime_type: string;
 	}[];
 	thinking?: string;
 	metadata?: {

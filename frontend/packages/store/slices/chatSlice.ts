@@ -736,21 +736,20 @@ export class ChatActionImpl {
 		}
 
 		try {
-			const uploadedAttachment = attachments?.find((attachment) =>
-				Boolean(attachment.fileUploadId?.trim()),
-			);
 			await sessionApi.addMessage({
 				session_id: activeSessionId,
 				role: "user",
 				content,
 				message_type: "text",
-				file_upload_id: uploadedAttachment?.fileUploadId?.trim(),
-				mime_type: uploadedAttachment?.mimeType || uploadedAttachment?.file?.type || undefined,
-				attachments: attachments?.map((attachment) => ({
-					url: attachment.path || attachment.url || "",
-					name: attachment.name,
-					type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
-				})),
+				attachments: attachments
+					?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
+						Boolean(attachment.fileUploadId?.trim()),
+					)
+					.map((attachment) => ({
+						file_upload_id: attachment.fileUploadId.trim(),
+						name: attachment.name,
+						mime_type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
+					})),
 			});
 		} catch (err) {
 			console.error("sendMessage addMessage error:", err);
