@@ -54,13 +54,14 @@ func Init(cfg *config.StorageConfig) error {
 	driver := storage.DriverType(cfg.Driver)
 	driverType = driver
 	sCfg := storage.Config{
-		Endpoint:  cfg.Endpoint,
-		AccessKey: cfg.AccessKey,
-		SecretKey: cfg.SecretKey,
-		Bucket:    cfg.Bucket,
-		UseSSL:    cfg.UseSSL,
-		BaseDir:   cfg.LocalDir,
-		BaseURL:   cfg.BaseURL,
+		Endpoint:   cfg.Endpoint,
+		AccessKey:  cfg.AccessKey,
+		SecretKey:  cfg.SecretKey,
+		Bucket:     cfg.Bucket,
+		UseSSL:     cfg.UseSSL,
+		BaseDir:    cfg.LocalDir,
+		BaseURL:    cfg.BaseURL,
+		SignSecret: cfg.SignSecret,
 	}
 	s, err := storage.New(driver, sCfg)
 	if err != nil {
