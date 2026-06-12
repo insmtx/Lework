@@ -10,6 +10,7 @@ import (
 )
 
 // WorkerMountedWorkspacePath 返回 server 视角下某个 worker 的 workspace 挂载目录。
+// storageKey 已经是相对于 workspaceRoot 的路径，因此直接返回根目录即可。
 func WorkerMountedWorkspacePath(orgID uint, workerID uint) (string, error) {
 	if orgID == 0 {
 		return "", fmt.Errorf("org_id is required")
@@ -21,15 +22,11 @@ func WorkerMountedWorkspacePath(orgID uint, workerID uint) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(rootAbs, fmt.Sprintf("%d", orgID), fmt.Sprintf("%d", workerID), "workspace"), nil
+	return filepath.Abs(root)
 }
 
 // ProjectRepoPath 返回项目 repo 在 worker workspace 下的绝对路径。
-// 路径格式：{workspaceRoot}/{orgID}/{workerID}/workspace/projects/{orgID}/{publicID}/repo
+// 路径格式：{workspaceRoot}/projects/{orgID}/{publicID}/repo
 func ProjectRepoPath(orgID uint, workerID uint, publicID string) (string, error) {
 	workspacePath, err := WorkerMountedWorkspacePath(orgID, workerID)
 	if err != nil {

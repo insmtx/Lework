@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 type ArtifactStorageFile struct {
@@ -26,14 +29,19 @@ func ResolveArtifactStorageFile(ctx context.Context, orgID uint, workerID uint, 
 		return nil, err
 	}
 
+	wsRoot, _ := leros.WorkspaceRoot()
+	logs.InfoContextf(ctx, "ResolveArtifactStorageFile: LEROS_WORKSPACE_ROOT=%s storageKey=%s orgID=%d workerID=%d", wsRoot, storageKey, orgID, workerID)
+
 	absolutePath, err := ArtifactStoragePath(orgID, workerID, storageKey)
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact storage path: %w", err)
 	}
+	logs.InfoContextf(ctx, "ResolveArtifactStorageFile: resolved absolutePath=%s", absolutePath)
 
 	info, err := os.Stat(absolutePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			logs.WarnContextf(ctx, "ResolveArtifactStorageFile: file not found at absolutePath=%s storageKey=%s", absolutePath, storageKey)
 			return nil, fmt.Errorf("artifact file not found: %s", storageKey)
 		}
 		return nil, fmt.Errorf("stat artifact file: %w", err)

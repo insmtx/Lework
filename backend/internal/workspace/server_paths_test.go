@@ -16,7 +16,7 @@ func TestWorkerMountedWorkspacePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WorkerMountedWorkspacePath failed: %v", err)
 	}
-	want := filepath.Join(serverRoot, "1", "1", "workspace")
+	want := serverRoot
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
@@ -34,7 +34,7 @@ func TestArtifactStoragePathResolvesUnderWorkerWorkspace(t *testing.T) {
 	t.Setenv(leros.EnvWorkspaceRoot, serverRoot)
 
 	storageKey := filepath.Join("projects", "1", "project_1", "repo", "result.txt")
-	absolutePath := filepath.Join(serverRoot, "1", "1", "workspace", storageKey)
+	absolutePath := filepath.Join(serverRoot, storageKey)
 	if err := os.MkdirAll(filepath.Dir(absolutePath), 0o755); err != nil {
 		t.Fatalf("failed to create artifact directory: %v", err)
 	}
