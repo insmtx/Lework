@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	defaultBucketName = "dev-bucket"
-	defaultDriver     = "local"
-	defaultLocalDir   = "leros-storage"
+	defaultBucketName     = "dev-bucket"
+	defaultDriver         = "local"
+	defaultLocalDir       = "leros-storage"
+	defaultSignSecret     = "leros-local-presign"
+	defaultSignBaseURL    = "http://localhost:8080"
 )
 
 var (
@@ -30,9 +32,11 @@ func Init(cfg *config.StorageConfig) error {
 	if cfg == nil {
 		if dir := strings.TrimSpace(os.Getenv("LEROS_STORAGE_LOCAL_DIR")); dir != "" {
 			cfg = &config.StorageConfig{
-				Driver:   defaultDriver,
-				LocalDir: dir,
-				Bucket:   defaultBucketName,
+				Driver:     defaultDriver,
+				LocalDir:   dir,
+				Bucket:     defaultBucketName,
+				SignSecret: defaultSignSecret,
+				BaseURL:    defaultSignBaseURL,
 			}
 		} else {
 			var root string
@@ -45,9 +49,11 @@ func Init(cfg *config.StorageConfig) error {
 				}
 			}
 			cfg = &config.StorageConfig{
-				Driver:   defaultDriver,
-				LocalDir: filepath.Join(root, defaultLocalDir),
-				Bucket:   defaultBucketName,
+				Driver:     defaultDriver,
+				LocalDir:   filepath.Join(root, defaultLocalDir),
+				Bucket:     defaultBucketName,
+				SignSecret: defaultSignSecret,
+				BaseURL:    defaultSignBaseURL,
 			}
 		}
 	}
