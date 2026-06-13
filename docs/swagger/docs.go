@@ -4490,6 +4490,10 @@ const docTemplate = `{
         "types.MessageAttachment": {
             "type": "object",
             "properties": {
+                "PublicURL": {
+                    "description": "resolved at runtime, not exposed to front end",
+                    "type": "string"
+                },
                 "file_upload_id": {
                     "type": "string"
                 },

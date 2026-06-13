@@ -723,6 +723,9 @@ definitions:
     type: object
   types.MessageAttachment:
     properties:
+      PublicURL:
+        description: resolved at runtime, not exposed to front end
+        type: string
       file_upload_id:
         type: string
       mime_type:
