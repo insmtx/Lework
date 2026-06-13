@@ -21,6 +21,21 @@ func RegisterPresignedRoutes(r gin.IRouter) {
 	r.GET("/:bucket/*key", handlePresignedGet)
 }
 
+// handlePresignedPut consumes a presigned upload URL
+// @Summary 预签名上传
+// @Description 消费预签名上传 URL，验证 token 后保存文件内容到指定 bucket/key
+// @Tags Storage
+// @Accept octet-stream
+// @Produce plain
+// @Param bucket path string true "存储桶名称"
+// @Param key path string true "对象 key"
+// @Param token query string true "预签名 token"
+// @Param expires query string true "过期时间戳(秒)"
+// @Success 200 {string} string "uploaded"
+// @Failure 400 {string} string "参数错误"
+// @Failure 403 {string} string "预签名验证失败"
+// @Failure 500 {string} string "上传失败"
+// @Router /presigned/{bucket}/{key} [put]
 func handlePresignedPut(ctx *gin.Context) {
 	token := strings.TrimSpace(ctx.Query(presignTokenQuery))
 	expires := strings.TrimSpace(ctx.Query(presignExpiresQuery))
@@ -65,6 +80,21 @@ func handlePresignedPut(ctx *gin.Context) {
 	ctx.String(http.StatusOK, "uploaded")
 }
 
+// handlePresignedGet consumes a presigned download URL
+// @Summary 预签名下载
+// @Description 消费预签名下载 URL，验证 token 后返回文件内容
+// @Tags Storage
+// @Produce octet-stream
+// @Param bucket path string true "存储桶名称"
+// @Param key path string true "对象 key"
+// @Param token query string true "预签名 token"
+// @Param expires query string true "过期时间戳(秒)"
+// @Success 200 {file} binary "文件内容"
+// @Failure 400 {string} string "参数错误"
+// @Failure 403 {string} string "预签名验证失败"
+// @Failure 404 {string} string "对象不存在"
+// @Failure 500 {string} string "内部错误"
+// @Router /presigned/{bucket}/{key} [get]
 func handlePresignedGet(ctx *gin.Context) {
 	token := strings.TrimSpace(ctx.Query(presignTokenQuery))
 	expires := strings.TrimSpace(ctx.Query(presignExpiresQuery))

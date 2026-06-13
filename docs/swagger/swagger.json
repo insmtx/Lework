@@ -3083,6 +3083,149 @@
                 }
             }
         },
+        "/presigned/{bucket}/{key}": {
+            "get": {
+                "description": "消费预签名下载 URL，验证 token 后返回文件内容",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Storage"
+                ],
+                "summary": "预签名下载",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "存储桶名称",
+                        "name": "bucket",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "对象 key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "预签名 token",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "过期时间戳(秒)",
+                        "name": "expires",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "文件内容",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "预签名验证失败",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "对象不存在",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "消费预签名上传 URL，验证 token 后保存文件内容到指定 bucket/key",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "Storage"
+                ],
+                "summary": "预签名上传",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "存储桶名称",
+                        "name": "bucket",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "对象 key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "预签名 token",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "过期时间戳(秒)",
+                        "name": "expires",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "uploaded",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "预签名验证失败",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "上传失败",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project_id}/AddFile": {
             "post": {
                 "description": "将已通过 /v1/files/upload 上传的文件关联到指定项目",
@@ -3378,6 +3521,114 @@
                         "description": "内部服务器错误",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/static/{bucket}/{key}": {
+            "get": {
+                "description": "为指定 bucket/key 生成一个带过期时间的预签名下载 URL",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "Storage"
+                ],
+                "summary": "生成预签名下载 URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "触发预签名标识(任意值)",
+                        "name": "presign",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "存储桶名称",
+                        "name": "bucket",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "对象 key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "预签名下载 URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "生成预签名 URL 失败",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "为指定 bucket/key 生成一个带过期时间的预签名上传 URL",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "Storage"
+                ],
+                "summary": "生成预签名上传 URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "触发预签名标识(任意值)",
+                        "name": "presign",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "存储桶名称",
+                        "name": "bucket",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "对象 key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "预签名上传 URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "生成预签名 URL 失败",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }

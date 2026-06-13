@@ -2798,6 +2798,103 @@ paths:
       summary: 上传文件
       tags:
       - File
+  /presigned/{bucket}/{key}:
+    get:
+      description: 消费预签名下载 URL，验证 token 后返回文件内容
+      parameters:
+      - description: 存储桶名称
+        in: path
+        name: bucket
+        required: true
+        type: string
+      - description: 对象 key
+        in: path
+        name: key
+        required: true
+        type: string
+      - description: 预签名 token
+        in: query
+        name: token
+        required: true
+        type: string
+      - description: 过期时间戳(秒)
+        in: query
+        name: expires
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: 文件内容
+          schema:
+            type: file
+        "400":
+          description: 参数错误
+          schema:
+            type: string
+        "403":
+          description: 预签名验证失败
+          schema:
+            type: string
+        "404":
+          description: 对象不存在
+          schema:
+            type: string
+        "500":
+          description: 内部错误
+          schema:
+            type: string
+      summary: 预签名下载
+      tags:
+      - Storage
+    put:
+      consumes:
+      - application/octet-stream
+      description: 消费预签名上传 URL，验证 token 后保存文件内容到指定 bucket/key
+      parameters:
+      - description: 存储桶名称
+        in: path
+        name: bucket
+        required: true
+        type: string
+      - description: 对象 key
+        in: path
+        name: key
+        required: true
+        type: string
+      - description: 预签名 token
+        in: query
+        name: token
+        required: true
+        type: string
+      - description: 过期时间戳(秒)
+        in: query
+        name: expires
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: uploaded
+          schema:
+            type: string
+        "400":
+          description: 参数错误
+          schema:
+            type: string
+        "403":
+          description: 预签名验证失败
+          schema:
+            type: string
+        "500":
+          description: 上传失败
+          schema:
+            type: string
+      summary: 预签名上传
+      tags:
+      - Storage
   /projects/{project_id}/AddFile:
     post:
       consumes:
@@ -2997,6 +3094,79 @@ paths:
       summary: 获取项目记忆
       tags:
       - Project
+  /static/{bucket}/{key}:
+    get:
+      description: 为指定 bucket/key 生成一个带过期时间的预签名下载 URL
+      parameters:
+      - description: 触发预签名标识(任意值)
+        in: query
+        name: presign
+        required: true
+        type: string
+      - description: 存储桶名称
+        in: path
+        name: bucket
+        required: true
+        type: string
+      - description: 对象 key
+        in: path
+        name: key
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: 预签名下载 URL
+          schema:
+            type: string
+        "400":
+          description: 参数错误
+          schema:
+            type: string
+        "500":
+          description: 生成预签名 URL 失败
+          schema:
+            type: string
+      summary: 生成预签名下载 URL
+      tags:
+      - Storage
+    put:
+      description: 为指定 bucket/key 生成一个带过期时间的预签名上传 URL
+      parameters:
+      - description: 触发预签名标识(任意值)
+        in: query
+        name: presign
+        required: true
+        type: string
+      - description: 存储桶名称
+        in: path
+        name: bucket
+        required: true
+        type: string
+      - description: 对象 key
+        in: path
+        name: key
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: 预签名上传 URL
+          schema:
+            type: string
+        "400":
+          description: 参数错误
+          schema:
+            type: string
+        "500":
+          description: 生成预签名 URL 失败
+          schema:
+            type: string
+      summary: 生成预签名上传 URL
+      tags:
+      - Storage
 schemes:
 - http
 - https
