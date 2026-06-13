@@ -3162,7 +3162,7 @@
                     "application/octet-stream"
                 ],
                 "produces": [
-                    "text/plain"
+                    "application/json"
                 ],
                 "tags": [
                     "Storage"
@@ -3200,27 +3200,27 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "uploaded",
+                        "description": "成功响应",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/dto.Response"
                         }
                     },
                     "400": {
-                        "description": "参数错误",
+                        "description": "请求参数错误",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "预签名验证失败",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "上传失败",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     }
                 }

@@ -83,14 +83,13 @@ func VerifyPresignedToken(signSecret, bucket, key, op, tokenStr, expiresStr stri
 }
 
 // HandlePresignedPut 处理 presigned PUT 请求，将请求 body 写入 storage。
-func HandlePresignedPut(ctx context.Context, bucket, key string, body io.Reader, contentType string) error {
+func HandlePresignedPut(ctx context.Context, bucket, key string, body io.Reader, contentType string) (*storage.PutObjectResult, error) {
 	st := GetStorage()
 	opts := []storage.PutOption{}
 	if contentType != "" {
 		opts = append(opts, storage.WithContentType(contentType))
 	}
-	_, err := st.PutObject(ctx, bucket, key, body, opts...)
-	return err
+	return st.PutObject(ctx, bucket, key, body, opts...)
 }
 
 // HandlePresignedGet 处理 presigned GET 请求，从 storage 读取并返回数据。
