@@ -517,9 +517,15 @@ function TaskArtifactList({
 					type="button"
 					key={artifact.id}
 					onClick={() => onPreview(artifact)}
-					className="flex w-full items-center gap-3 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
+					className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
 					title="预览产物"
 				>
+					{/* hover 时补一个轻量蒙层，明确提示当前整卡可点击预览 */}
+					<div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+						<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
+							点击预览
+						</span>
+					</div>
 					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-text)]">
 						<TaskArtifactIcon type={artifact.type} />
 					</div>

@@ -36,6 +36,7 @@ FROM registry.yygu.cn/library/ubuntu:24.04
 
 ARG TARGETARCH
 ARG CLAUDE_CODE_VERSION=latest
+ARG CODEX_VERSION=latest
 
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
     && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
@@ -47,6 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     git \
     less \
+    bubblewrap \
     libsqlite3-0 \
     python3.12 \
     python3-pip \
@@ -67,6 +69,9 @@ RUN set -eux; \
 
 RUN npm config set registry https://registry.npmmirror.com \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+        "@openai/codex@${CODEX_VERSION}" \
+    && claude --version \
+    && codex --version \
     && npm cache clean --force
 
 COPY --from=builder /build/leros /leros
