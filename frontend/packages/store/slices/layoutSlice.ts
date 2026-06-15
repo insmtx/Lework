@@ -541,8 +541,10 @@ export class LayoutActionImpl {
 				activeWorkbenchTaskId:
 					state.activeWorkbenchProjectId === publicId ? null : state.activeWorkbenchTaskId,
 			}));
+			return true;
 		} catch (err) {
 			console.error("deleteProject error:", err);
+			return false;
 		}
 	};
 

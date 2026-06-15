@@ -2,6 +2,15 @@
 
 import type { NavItem, Project, ViewMode } from "@leros/store";
 import { useLayoutStore } from "@leros/store";
+import { Button } from "@leros/ui/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@leros/ui/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -11,8 +20,6 @@ import {
 } from "@leros/ui/components/ui/dropdown-menu";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { cn } from "@leros/ui/lib/utils";
-import type { PointerEvent as ReactPointerEvent } from "react";
-import { useEffect, useRef } from "react";
 import {
 	ChevronsLeft,
 	ChevronsRight,
@@ -22,11 +29,16 @@ import {
 	Hash,
 	LayoutGrid,
 	LogOut,
+	MoreHorizontal,
 	Network,
+	Pencil,
 	Settings,
+	Trash2,
 	UserRound,
 	Zap,
 } from "lucide-react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
@@ -83,13 +95,18 @@ export function LeftRail({
 		leftRailCollapsed,
 		leftRailWidth,
 		fetchProjects,
+		deleteProject,
 		setLeftRailCollapsed,
 		setLeftRailWidth,
 		switchView,
 		switchProject,
+		updateProject,
 	} = useLayoutStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 	const hasLoadedPreferenceRef = useRef(false);
+	const [renameProject, setRenameProject] = useState<Project | null>(null);
+	const [renameValue, setRenameValue] = useState("");
+	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 
 	useEffect(() => {
 		fetchProjects();
@@ -150,6 +167,44 @@ export function LeftRail({
 		});
 	};
 
+	const handleOpenRename = (project: Project) => {
+		setRenameProject(project);
+		setRenameValue(project.name);
+	};
+
+	const handleConfirmRename = async () => {
+		const name = renameValue.trim();
+		if (!renameProject || !name) return;
+
+		const updatedProject = await updateProject({ public_id: renameProject.id, name });
+		if (updatedProject) {
+			setRenameProject(null);
+			setRenameValue("");
+		}
+	};
+
+	const handleConfirmDelete = async () => {
+		if (!deleteTarget) return;
+
+		const deletingActiveProject =
+			activeProjectId === deleteTarget.id ||
+			navigation?.currentPath === `/projects/${deleteTarget.id}` ||
+			navigation?.currentPath.startsWith(`/projects/${deleteTarget.id}/`);
+
+		const deleted = await deleteProject(deleteTarget.id);
+		if (!deleted) return;
+
+		setDeleteTarget(null);
+
+		if (deletingActiveProject) {
+			if (navigation) {
+				navigation.goToRoute("workbench");
+				return;
+			}
+			switchView("workbench");
+		}
+	};
+
 	const handleProfileClick = () => {
 		if (!isAuthenticated) {
 			openAuthDialog("login");
@@ -173,7 +228,7 @@ export function LeftRail({
 		return currentView === view;
 	};
 
-	const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+	const handleResizePointerDown = (event: ReactPointerEvent<HTMLHRElement>) => {
 		if (leftRailCollapsed) return;
 
 		const startX = event.clientX;
@@ -254,6 +309,8 @@ export function LeftRail({
 										currentView={currentView}
 										currentPath={navigation?.currentPath}
 										onProjectClick={handleProjectClick}
+										onRenameProject={handleOpenRename}
+										onDeleteProject={setDeleteTarget}
 										collapsed={leftRailCollapsed}
 									/>
 								) : (
@@ -335,13 +392,73 @@ export function LeftRail({
 				)}
 			</div>
 
-			<div
+			<hr
 				className="leros-sidebar-resize-handle"
-				role="separator"
+				tabIndex={0}
 				aria-orientation="vertical"
 				aria-label="调整侧边栏宽度"
+				aria-valuemin={220}
+				aria-valuemax={320}
+				aria-valuenow={leftRailWidth}
 				onPointerDown={handleResizePointerDown}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowLeft") setLeftRailWidth(leftRailWidth - 8);
+					if (event.key === "ArrowRight") setLeftRailWidth(leftRailWidth + 8);
+				}}
 			/>
+			<Dialog
+				open={renameProject !== null}
+				onOpenChange={(open) => !open && setRenameProject(null)}
+			>
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>重命名项目</DialogTitle>
+						<DialogDescription>请输入新的项目名称</DialogDescription>
+					</DialogHeader>
+					<div className="mt-4">
+						<input
+							type="text"
+							value={renameValue}
+							onChange={(event) => setRenameValue(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") {
+									handleConfirmRename();
+								}
+							}}
+							placeholder="项目名称"
+							autoFocus
+							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+						/>
+					</div>
+					<DialogFooter className="mt-4">
+						<Button variant="outline" onClick={() => setRenameProject(null)}>
+							取消
+						</Button>
+						<Button onClick={handleConfirmRename} disabled={!renameValue.trim()}>
+							确认
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>删除项目</DialogTitle>
+						<DialogDescription>
+							确定要删除 <strong>{deleteTarget?.name}</strong> 吗？此操作不可撤销。
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter className="mt-4">
+						<Button variant="outline" onClick={() => setDeleteTarget(null)}>
+							取消
+						</Button>
+						<Button variant="destructive" onClick={handleConfirmDelete}>
+							删除
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</aside>
 	);
 }
@@ -375,6 +492,8 @@ function ProjectList({
 	currentView,
 	currentPath,
 	onProjectClick,
+	onRenameProject,
+	onDeleteProject,
 	collapsed,
 }: {
 	projects: Project[];
@@ -382,6 +501,8 @@ function ProjectList({
 	currentView: ViewMode;
 	currentPath?: string;
 	onProjectClick: (projectId: string) => void;
+	onRenameProject: (project: Project) => void;
+	onDeleteProject: (project: Project) => void;
 	collapsed: boolean;
 }) {
 	return (
@@ -392,17 +513,56 @@ function ProjectList({
 						currentPath.startsWith(`/projects/${project.id}/`)
 					: currentView === "project" && activeProjectId === project.id;
 				return (
-					<button
+					// biome-ignore lint/a11y/useSemanticElements: The row contains a nested menu button, so the row itself cannot be a button.
+					<div
 						key={project.id}
-						type="button"
+						role="button"
+						tabIndex={0}
 						onClick={() => onProjectClick(project.id)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" || event.key === " ") {
+								event.preventDefault();
+								onProjectClick(project.id);
+							}
+						}}
 						data-active={active}
-						className={cn("leros-nav-item text-sm", collapsed && "justify-center")}
+						className={cn(
+							"leros-nav-item group relative cursor-pointer text-sm",
+							collapsed && "justify-center",
+						)}
 						title={collapsed ? project.name : undefined}
 					>
 						<span className="font-mono text-[14px] text-[var(--leros-text-subtle)]">#</span>
-						<span className={cn("truncate", collapsed && "hidden")}>{project.name}</span>
-					</button>
+						<span className={cn("min-w-0 flex-1 truncate", collapsed && "hidden")}>
+							{project.name}
+						</span>
+						{!collapsed && (
+							<DropdownMenu>
+								<DropdownMenuTrigger
+									render={
+										<button
+											type="button"
+											aria-label={`管理项目 ${project.name}`}
+											className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
+											onClick={(event) => event.stopPropagation()}
+										>
+											<MoreHorizontal className="size-4" />
+										</button>
+									}
+								/>
+								<DropdownMenuContent align="end" sideOffset={4}>
+									<DropdownMenuItem onClick={() => onRenameProject(project)}>
+										<Pencil className="size-3.5" />
+										<span>重命名</span>
+									</DropdownMenuItem>
+									<DropdownMenuItem variant="destructive" onClick={() => onDeleteProject(project)}>
+										<Trash2 className="size-3.5" />
+										<span>删除</span>
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						)}
+					</div>
 				);
 			})}
 		</div>
