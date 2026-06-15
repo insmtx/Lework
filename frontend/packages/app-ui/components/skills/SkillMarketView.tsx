@@ -247,7 +247,7 @@ function SkillCard({
   installing: boolean;
   installed: boolean;
 }) {
-  const isLerosAI = skill.author === "Leros AI";
+  const isLerosAI = skill.author === "LerOS AI";
 
   return (
     <div

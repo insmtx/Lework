@@ -278,7 +278,7 @@ export function LeftRail({
 						<Network className="size-5" />
 					</div>
 					<div className="leros-sidebar-expandable min-w-0">
-						<div className="leros-brand-title">Leros AI</div>
+						<div className="leros-brand-title">LerOS AI</div>
 						<div className="leros-brand-version">v0.1</div>
 					</div>
 				</div>

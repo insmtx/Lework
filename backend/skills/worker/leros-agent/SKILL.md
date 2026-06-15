@@ -1,11 +1,11 @@
 ---
 name: leros-agent
-description: 配置、管理 Leros AI agent。
+description: 配置、管理 LerOS AI agent。
 ---
 
 # leros CLI
 
-Leros 命令行工具，用于管理 Leros AI agent 平台。当前支持 skill 的安装与搜索。
+LerOS 命令行工具，用于管理 LerOS AI agent 平台。当前支持 skill 的安装与搜索。
 
 ## Skill 管理
 

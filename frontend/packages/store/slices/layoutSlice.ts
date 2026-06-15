@@ -215,7 +215,7 @@ const _initialState: LayoutState = {
 			items: [
 				{ id: "workbench", label: "工作台", icon: "IconWorkbench" },
 				{ id: "tasks", label: "任务", icon: "IconTask" },
-				{ id: "skills", label: "技能", icon: "IconSkill" },
+				{ id: "skills", label: "技能库", icon: "IconSkill" },
 				{ id: "knowledge", label: "知识库", icon: "IconKnowledge" },
 			],
 		},
