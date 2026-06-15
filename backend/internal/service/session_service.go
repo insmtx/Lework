@@ -631,8 +631,8 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 
 func isHiddenSessionHistoryChunk(eventType string) bool {
 	switch events.EventType(eventType) {
-	case events.EventTodoSnapshot, events.EventTodoUpdated:
-		return true
+	// case events.EventTodoSnapshot, events.EventTodoUpdated:
+	// 	return true
 	default:
 		return false
 	}

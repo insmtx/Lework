@@ -12,16 +12,19 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/cli"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 var (
-	sessionJSON        bool
-	sessionKeyword     string
-	sessionStatus      string
-	sessionType        string
-	sessionAssistantID uint
-	sessionOffset      int
-	sessionLimit       int
+	sessionJSON           bool
+	sessionKeyword        string
+	sessionStatus         string
+	sessionType           string
+	sessionAssistantID    uint
+	sessionOffset         int
+	sessionLimit          int
+	sessionMessagesPage   int
+	sessionMessagesPerPage int
 )
 
 type sessionDetailOutput struct {
@@ -134,6 +137,38 @@ func newSessionCommand() *cobra.Command {
 
 	cmd.PersistentFlags().BoolVar(&sessionJSON, "json", false, "Output in JSON format")
 
+	messagesCmd := &cobra.Command{
+		Use:   "messages <session_id>",
+		Short: "List session messages",
+		Long: `List persisted messages for a session in page-delimited batches.
+
+Requires a session ID argument:
+  leros session messages <session_id> --json --page 1 --per-page 20`,
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			go func() {
+				ctx := lifecycle.Std().Context()
+				sessionID := args[0]
+
+				result, err := cli.GetSessionMessages(
+					ctx, cliServerAddr(), cliAuthToken(),
+					sessionID, sessionMessagesPage, sessionMessagesPerPage,
+				)
+				if err != nil {
+					logs.Errorf("list session messages: %v", err)
+					lifecycle.Std().Exit()
+					return
+				}
+				printSessionMessages(result)
+				lifecycle.Std().Exit()
+			}()
+			lifecycle.Std().WaitExit()
+		},
+	}
+
+	messagesCmd.Flags().IntVar(&sessionMessagesPage, "page", 1, "Page number (1-based)")
+	messagesCmd.Flags().IntVar(&sessionMessagesPerPage, "per-page", 20, "Items per page")
+
 	lsCmd.Flags().StringVar(&sessionKeyword, "keyword", "", "Filter by title or public_id keyword")
 	lsCmd.Flags().StringVar(&sessionStatus, "status", "", "Filter by status")
 	lsCmd.Flags().StringVar(&sessionType, "type", "", "Filter by session type")
@@ -143,6 +178,7 @@ func newSessionCommand() *cobra.Command {
 
 	cmd.AddCommand(lsCmd)
 	cmd.AddCommand(getCmd)
+	cmd.AddCommand(messagesCmd)
 	return cmd
 }
 
@@ -232,4 +268,55 @@ func truncateContent(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+type sessionMessageItem struct {
+	Role        string                    `json:"role"`
+	Content     string                    `json:"content"`
+	MessageType string                    `json:"message_type,omitempty"`
+	Attachments []types.MessageAttachment `json:"attachments,omitempty"`
+}
+
+type sessionMessagesOutput struct {
+	Total int64                 `json:"total"`
+	Page  int                   `json:"page"`
+	Items []sessionMessageItem  `json:"items"`
+}
+
+func printSessionMessages(list *contract.MessageList) {
+	if sessionJSON {
+		out := sessionMessagesOutput{
+			Total: list.Total,
+			Page:  list.Page,
+			Items: make([]sessionMessageItem, len(list.Items)),
+		}
+		for i, m := range list.Items {
+			out.Items[i] = sessionMessageItem{
+				Role:        m.Role,
+				Content:     m.Content,
+				MessageType: m.MessageType,
+				Attachments: m.Attachments,
+			}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(out)
+		return
+	}
+
+	if len(list.Items) == 0 {
+		fmt.Println("No messages found.")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "SEQ\tROLE\tCONTENT\tCREATED")
+	for _, m := range list.Items {
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n",
+			m.Sequence, m.Role,
+			truncateContent(m.Content, 120),
+			m.CreatedAt.Format("2006-01-02T15:04:05Z"))
+	}
+	w.Flush()
+	fmt.Fprintf(os.Stderr, "\nTotal: %d, Page: %d\n", list.Total, list.Page)
 }

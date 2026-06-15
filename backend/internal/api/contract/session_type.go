@@ -116,6 +116,13 @@ type MessageList struct {
 	Items []SessionMessage `json:"items"`
 }
 
+// GetSessionMessagesRequest queries paged session messages.
+type GetSessionMessagesRequest struct {
+	SessionID string `json:"session_id"`
+	Page      int    `json:"page,omitempty"`
+	PerPage   int    `json:"per_page,omitempty"`
+}
+
 // CompleteSessionMessageRequest persists a completed assistant message.
 type CompleteSessionMessageRequest struct {
 	SessionID string                  `json:"session_id"`

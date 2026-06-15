@@ -324,6 +324,12 @@ func (r *Runner) resolveProviderSession(ctx context.Context, req *agent.RequestC
 			AssistantID:       req.Assistant.ID,
 		},
 	}
+		// Native 引擎不使用外部 CLI 会话，直接使用 Leros 内部 session ID。
+		if r.name == engines.EngineNative {
+			plan.ProviderSessionID = internalSessionID
+			return plan
+		}
+
 	if internalSessionID == "" || r.sessionStore == nil {
 		return plan
 	}

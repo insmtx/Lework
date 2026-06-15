@@ -56,10 +56,10 @@ func DetailProject(ctx context.Context, serverAddr, authToken, publicID string) 
 func GetSessionMessages(ctx context.Context, serverAddr, authToken, sessionID string, page, perPage int) (*contract.MessageList, error) {
 	var result contract.MessageList
 	if err := doPostRequest(ctx, serverAddr, authToken, "GetSessionMessages",
-		map[string]interface{}{
-			"session_id": sessionID,
-			"page":       page,
-			"per_page":   perPage,
+		&contract.GetSessionMessagesRequest{
+			SessionID: sessionID,
+			Page:      page,
+			PerPage:   perPage,
 		}, &result); err != nil {
 		return nil, err
 	}

@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/cloudwego/eino/adk"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/insmtx/Leros/backend/engines"
+	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/runtime/deps"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
@@ -136,12 +139,24 @@ func (r *Runner) runWithState(ctx context.Context, req engines.RunRequest, sink 
 	}
 	einoBaseTools := buildEinoTools(toolSpecs, toolInvoker)
 
+	// Load persisted session messages as conversation history.
+	var historyMessages []adk.Message
+	if req.SessionID != "" {
+		msgList, loadErr := loadSessionContext(ctx, req.SessionID, 1, 20)
+		if loadErr != nil {
+			return "", nil, fmt.Errorf("load session context: %w", loadErr)
+		}
+		if msgList != nil && len(msgList.Items) > 0 {
+			historyMessages = buildHistoryMessages(msgList.Items, 20)
+		}
+	}
+
 	flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
 		Model:        chatModel,
 		Tools:        einoBaseTools,
 		SystemPrompt: systemPrompt,
 		MaxStep:      90,
-		Messages:     nil,
+		Messages:     historyMessages,
 	})
 	if err != nil {
 		return "", nil, err
@@ -180,6 +195,41 @@ func (r *Runner) runWithState(ctx context.Context, req engines.RunRequest, sink 
 		req.ExecutionID, formatLLMResultForLog(message))
 
 	return resultMessage, usage, nil
+}
+
+// buildHistoryMessages converts persisted session messages into Eino ADK
+// history messages. It sorts by sequence, skips empty content, and limits
+// to the most recent maxMessages entries.
+func buildHistoryMessages(messages []contract.SessionMessage, maxMessages int) []adk.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	// Sort by sequence number ascending.
+	sorted := make([]contract.SessionMessage, len(messages))
+	copy(sorted, messages)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Sequence < sorted[j].Sequence
+	})
+
+	// Filter empty and build eino.Message slice.
+	einoMessages := make([]pkgeino.Message, 0, len(sorted))
+	for _, msg := range sorted {
+		if strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		einoMessages = append(einoMessages, pkgeino.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+
+	// Limit to most recent maxMessages.
+	if maxMessages > 0 && len(einoMessages) > maxMessages {
+		einoMessages = einoMessages[len(einoMessages)-maxMessages:]
+	}
+
+	return pkgeino.BuildMessages(einoMessages)
 }
 
 func (r *Runner) buildToolBinding(req engines.RunRequest, sink events.Sink) toolBinding {

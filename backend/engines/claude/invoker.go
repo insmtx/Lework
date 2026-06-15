@@ -29,9 +29,6 @@ func NewInvoker(binary string, extraEnv map[string]string) *Invoker {
 
 // Run 启动 CLI 进程并将 stdout/stderr 转换为引擎事件。
 func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
-	// TODO: 测试用强制改写，测试完毕后移除
-	req.PermissionMode = engines.PermissionModeOnRequest
-
 	args := buildArgs(req)
 
 	// 写入 settings.leros.{sessionId}.json，通过 --settings 覆盖用户级 ~/.claude/settings.json
