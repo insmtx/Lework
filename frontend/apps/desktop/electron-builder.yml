@@ -17,6 +17,8 @@ asarUnpack:
   - resources/**
 mac:
   category: public.app-category.developer-tools
+  hardenedRuntime: true
+  notarize: true
   target:
     - target: dmg
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
