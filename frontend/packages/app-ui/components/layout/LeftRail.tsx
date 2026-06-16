@@ -15,7 +15,6 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@leros/ui/components/ui/dropdown-menu";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
@@ -23,7 +22,6 @@ import { cn } from "@leros/ui/lib/utils";
 import {
 	ChevronsLeft,
 	ChevronsRight,
-	CircleHelp,
 	ClipboardList,
 	Database,
 	Hash,
@@ -32,7 +30,6 @@ import {
 	MoreHorizontal,
 	Network,
 	Pencil,
-	Settings,
 	Trash2,
 	UserRound,
 	Zap,
@@ -348,11 +345,13 @@ export function LeftRail({
 							}
 						/>
 						<DropdownMenuContent
-							align="end"
+							align="start"
 							side="top"
 							sideOffset={10}
 							className="leros-profile-menu"
 						>
+							{/* 暂时仅保留退出登录入口，其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
+							{/*
 							<DropdownMenuItem>
 								<UserRound className="size-4" />
 								<span>个人信息</span>
@@ -366,6 +365,7 @@ export function LeftRail({
 								<span>使用帮助</span>
 							</DropdownMenuItem>
 							<DropdownMenuSeparator />
+							*/}
 							<DropdownMenuItem variant="destructive" onClick={handleLogout}>
 								<LogOut className="size-4" />
 								<span>退出登录</span>
