@@ -72,7 +72,7 @@ export function getAssistantMessageFooterSegments(message: Message): string[] {
 		segments.push(formatLatency(metrics.latency));
 	}
 	if (metrics.tokens !== undefined) {
-		segments.push(`${formatTokenCount(metrics.tokens)} tokens`);
+		segments.push(`${formatTokenCount(metrics.tokens)} Tokens`);
 	}
 	return segments;
 }
