@@ -98,6 +98,7 @@ export function ProjectPage({
 	const {
 		activeSessionId,
 		isGenerating,
+		pendingBootstrapSessionId,
 		setActiveSession,
 		loadConversationMessages,
 		resetLocalMessages,
@@ -248,6 +249,8 @@ export function ProjectPage({
 		const nextSessionId = resolvedSessionId;
 		setActiveSession(nextSessionId);
 		if (currentView === "taskDetail" && currentTaskSessionId === nextSessionId) return;
+		// 项目消息刚创建 session 并准备开流时，跳过这次自动拉历史，避免旧数据覆盖 optimistic 消息。
+		if (pendingBootstrapSessionId === nextSessionId) return;
 		if (isGenerating && activeSessionId === nextSessionId) return;
 		loadConversationMessages(nextSessionId);
 	}, [
@@ -256,6 +259,7 @@ export function ProjectPage({
 		projectDetailLoading,
 		currentView,
 		isGenerating,
+		pendingBootstrapSessionId,
 		activeSessionId,
 		setActiveSession,
 		loadConversationMessages,

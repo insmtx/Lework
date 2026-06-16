@@ -45,6 +45,7 @@ export type ChatState = {
 	messageIds: string[];
 	streamingMessageId: string | null;
 	isGenerating: boolean;
+	pendingBootstrapSessionId: string | null;
 	streamCancelRef: (() => void) | null;
 
 	inputText: string;
@@ -65,6 +66,7 @@ const _initialState: ChatState = {
 	messageIds: [],
 	streamingMessageId: null,
 	isGenerating: false,
+	pendingBootstrapSessionId: null,
 	streamCancelRef: null,
 
 	inputText: "",
@@ -670,6 +672,12 @@ function mergeSessionMessages(persistedMessages: Message[], localMessages: Messa
 	return merged.sort(compareMessages);
 }
 
+function getSessionLocalMessages(state: ChatState, sessionId: string): Message[] {
+	return state.messageIds
+		.map((id) => state.messagesMap[id])
+		.filter((message): message is Message => message?.conversationId === sessionId);
+}
+
 export class ChatActionImpl {
 	readonly #set: SetState;
 	readonly #get: () => ChatStore;
@@ -793,6 +801,8 @@ export class ChatActionImpl {
 				activeTaskDetailProjectId: data.project_id,
 				activeTaskDetailTaskId: data.task_id,
 				activeTaskDetailSessionId: data.session_id,
+				// 标记“刚创建并准备开流”的 session，避免切页 useEffect 先把旧历史覆盖进来。
+				pendingBootstrapSessionId: data.session_id,
 				currentView: "taskDetail",
 				activeProjectTab: "chat",
 				conversationListOpen: false,
@@ -816,13 +826,19 @@ export class ChatActionImpl {
 		if (!sessionId || !trimmed) return;
 
 		const state = this.#get();
-		if (state.activeSessionId === sessionId && state.isGenerating) return;
+		if (state.activeSessionId === sessionId && state.isGenerating) {
+			if (state.pendingBootstrapSessionId === sessionId) {
+				this.#set({ pendingBootstrapSessionId: null });
+			}
+			return;
+		}
 
 		const now = Date.now();
 		this.#set({
 			activeSessionId: sessionId,
 			streamingMessageId: null,
 			isGenerating: true,
+			pendingBootstrapSessionId: sessionId,
 			inputText: "",
 			inputAttachments: [],
 		});
@@ -842,19 +858,9 @@ export class ChatActionImpl {
 			timestamp: now + 100,
 		};
 
-		let messages: Message[] = [fallbackUserMsg, assistantMsg];
-		try {
-			const res = await sessionApi.getMessages(sessionId, 1, 100);
-			const persistedMessages = (res.data.data?.items ?? []).map(mapBackendMessage);
-			messages = mergeSessionMessages(persistedMessages, [fallbackUserMsg]);
-			messages.push(assistantMsg);
-		} catch (err) {
-			console.error("startSessionResponseStream load history error:", err);
-		}
-
 		const messagesMap: Record<string, Message> = {};
 		const messageIds: string[] = [];
-		for (const message of messages) {
+		for (const message of [fallbackUserMsg, assistantMsg]) {
 			messagesMap[message.id] = message;
 			messageIds.push(message.id);
 		}
@@ -865,6 +871,7 @@ export class ChatActionImpl {
 			messageIds,
 			streamingMessageId: assistantMsg.id,
 			isGenerating: true,
+			pendingBootstrapSessionId: null,
 			inputText: "",
 			inputAttachments: [],
 		});
@@ -966,6 +973,7 @@ export class ChatActionImpl {
 	};
 
 	loadConversationMessages = async (sessionId: string) => {
+		if (this.#get().pendingBootstrapSessionId === sessionId) return;
 		const loading = this.#messageLoadPromises.get(sessionId);
 		if (loading) return loading;
 
@@ -978,24 +986,37 @@ export class ChatActionImpl {
 
 	#loadConversationMessages = async (sessionId: string) => {
 		try {
+			const stateBeforeLoad = this.#get();
+			const optimisticCountBeforeLoad = getSessionLocalMessages(stateBeforeLoad, sessionId).filter(
+				isOptimisticMessage,
+			).length;
 			const res = await sessionApi.getMessages(sessionId, 1, 100);
 			const items = res.data.data?.items ?? [];
 			const persistedMessages = items.map(mapBackendMessage);
 			const state = this.#get();
-			// 仅在流式生成进行中才合并本地 optimistic 消息；结束后应完全信任后端持久化结果，
-			// 否则 msg-assistant-* 占位消息会与已落库的 assistant 同时保留，造成重复渲染。
+			if (state.pendingBootstrapSessionId === sessionId) return;
+			const localSessionMessages = getSessionLocalMessages(state, sessionId);
+			const optimisticCountAfterLoad = localSessionMessages.filter(isOptimisticMessage).length;
+			// 如果请求发出后，这个 session 在本地新插入了 optimistic 消息，说明当前返回值已经过时，
+			// 直接丢弃，避免把“刚发出去的用户消息”又覆盖没。
+			if (optimisticCountAfterLoad > optimisticCountBeforeLoad) return;
+			// 生成中或刚完成但本地仍有 optimistic 消息时，优先保留本地消息；
+			// 同时过滤掉空内容 assistant 占位，避免在落库后与真实 assistant 重复显示。
 			const shouldPreserveLocalMessages =
-				state.isGenerating &&
-				state.activeSessionId === sessionId &&
-				state.streamingMessageId !== null &&
-				state.messagesMap[state.streamingMessageId]?.conversationId === sessionId;
-			const localSessionMessages = shouldPreserveLocalMessages
-				? state.messageIds
-						.map((id) => state.messagesMap[id])
-						.filter((message): message is Message => message?.conversationId === sessionId)
+				state.activeSessionId === sessionId && (state.isGenerating || optimisticCountAfterLoad > 0);
+			const reconcilingLocalMessages = shouldPreserveLocalMessages
+				? localSessionMessages.filter(
+						(message) =>
+							!isOptimisticMessage(message) ||
+							message.role !== "assistant" ||
+							state.isGenerating ||
+							Boolean(normalizedMessageContent(message)),
+					)
 				: [];
-			const messages = localSessionMessages.length
-				? mergeSessionMessages(persistedMessages, localSessionMessages)
+			// 请求返回时若用户已经切到别的 session，则忽略这次结果，避免旧请求反写当前会话。
+			if (state.activeSessionId !== sessionId) return;
+			const messages = reconcilingLocalMessages.length
+				? mergeSessionMessages(persistedMessages, reconcilingLocalMessages)
 				: persistedMessages;
 
 			const maps: Record<string, Message> = {};
@@ -1008,9 +1029,6 @@ export class ChatActionImpl {
 			this.#set({ messagesMap: maps, messageIds: ids });
 		} catch (err) {
 			console.error("loadConversationMessages error:", err);
-			if (this.#get().activeSessionId !== sessionId) {
-				this.#set({ messagesMap: {}, messageIds: [] });
-			}
 		}
 	};
 
@@ -1025,6 +1043,7 @@ export class ChatActionImpl {
 			activeSessionId: null,
 			streamingMessageId: null,
 			isGenerating: false,
+			pendingBootstrapSessionId: null,
 			streamCancelRef: null,
 		});
 	};

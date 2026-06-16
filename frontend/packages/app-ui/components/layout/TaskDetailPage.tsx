@@ -69,6 +69,7 @@ export function TaskDetailPage({
 		isGenerating,
 		messageIds,
 		messagesMap,
+		pendingBootstrapSessionId,
 		streamingMessageId,
 		setActiveSession,
 		loadConversationMessages,
@@ -156,12 +157,15 @@ export function TaskDetailPage({
 		if (!resolvedSessionId) return;
 
 		setActiveSession(resolvedSessionId);
+		// 项目消息刚切页时，先等 store 完成 optimistic 初始化，避免旧历史抢先覆盖 UI。
+		if (pendingBootstrapSessionId === resolvedSessionId) return;
 		if (activeSessionId === resolvedSessionId && isGenerating) return;
 		loadConversationMessages(resolvedSessionId);
 	}, [
 		resolvedSessionId,
 		activeSessionId,
 		isGenerating,
+		pendingBootstrapSessionId,
 		setActiveSession,
 		loadConversationMessages,
 	]);
