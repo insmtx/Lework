@@ -989,11 +989,13 @@ export class ChatActionImpl {
 			const items = res.data.data?.items ?? [];
 			const persistedMessages = items.map(mapBackendMessage);
 			const state = this.#get();
+			// 仅在流式生成进行中才合并本地 optimistic 消息；结束后应完全信任后端持久化结果，
+			// 否则 msg-assistant-* 占位消息会与已落库的 assistant 同时保留，造成重复渲染。
 			const shouldPreserveLocalMessages =
-				state.activeSessionId === sessionId ||
-				(state.isGenerating &&
-					state.streamingMessageId !== null &&
-					state.messagesMap[state.streamingMessageId]?.conversationId === sessionId);
+				state.isGenerating &&
+				state.activeSessionId === sessionId &&
+				state.streamingMessageId !== null &&
+				state.messagesMap[state.streamingMessageId]?.conversationId === sessionId;
 			const localSessionMessages = shouldPreserveLocalMessages
 				? state.messageIds
 						.map((id) => state.messagesMap[id])
