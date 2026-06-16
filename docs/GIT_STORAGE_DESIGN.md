@@ -99,20 +99,16 @@ storage:
 
 ## 4. URI 体系
 
-### 4.1 设计目标
+**设计目标**：所有文件用带 schema 的 URI 标识，前端/Worker 通过解析 URI 即可判断访问通道。
 
-所有文件用带 schema 的 URI 标识，前端/Worker 通过解析 URI 即可判断访问通道。
-
-### 4.2 URI Schema 定义
+**URI Schema 定义**：
 
 | Schema | 格式 | 示例 | 用途 |
 |--------|------|------|------|
 | `s3://` | `s3://{bucket}/{key}` | `s3://leros-artifacts/projects/org123/prj456/artifacts/art_abc/manual.pdf` | S3 中的大文件原始内容 |
 | `git://` | `git://{repo_full_name}/{path}` | `git://leros/leros-org123-prj456/.leros/artifacts/report.md` | Gitea 仓库内的小文件内容 |
 
-### 4.3 前端下载/预览路由
-
-前端从 gitea contents API 获取文件列表，通过文件名后缀区分文件类型：
+**前端下载/预览路由**：前端从 gitea contents API 获取文件列表，通过文件名后缀区分文件类型：
 
 ```
 文件名以 .lfs-pointer.json 结尾：
@@ -284,11 +280,9 @@ sequenceDiagram
 
 ## 7. gitea 仓库与 project 绑定
 
-### 7.1 绑定时机
+**绑定时机**：在 project 创建（`project_service`）流程中同步创建 gitea 仓库。gitea 仓库创建失败时，project 创建事务回滚。
 
-在 project 创建（`project_service`）流程中同步创建 gitea 仓库。gitea 仓库创建失败时，project 创建事务回滚。
-
-### 7.2 project 新增字段
+**project 新增字段**：
 
 | 字段 | 说明 |
 | --- | --- |
@@ -296,17 +290,11 @@ sequenceDiagram
 | `gitea_repo_full_name` | `org/repo_name`，定位仓库用 |
 | `gitea_default_branch` | 默认分支名，默认 `main` |
 
-### 7.3 仓库命名规则
+**仓库命名规则**：`leros-{org_public_id}-{project_public_id}`。例如 `leros-org123-prj456`。
 
-`leros-{org_public_id}-{project_public_id}`。例如 `leros-org123-prj456`。
+**仓库所有者**：使用 leros 系统 gitea 账号（server config 配 token），保证所有 project 仓库由统一身份管理。gitea 端不允许 org 成员直接访问仓库，全部读写经系统账号代为执行。
 
-### 7.4 仓库所有者
-
-使用 leros 系统 gitea 账号（server config 配 token），保证所有 project 仓库由统一身份管理。gitea 端不允许 org 成员直接访问仓库，全部读写经系统账号代为执行。
-
-### 7.5 仓库初始结构
-
-仓库创建时一次性 init commit：
+**仓库初始结构**：仓库创建时一次性 init commit：
 
 ```
 .leros/
@@ -319,7 +307,7 @@ sequenceDiagram
 README.md             # 仓库说明，写入创建时间、project 名称
 ```
 
-### 7.6 文件命名规则
+**文件命名规则**：
 
 | 文件类型 | gitea 路径 | 说明 |
 |---------|-----------|------|
@@ -397,62 +385,35 @@ Server 后台扫描未完成写入的文件，按策略分批重试 S3/Gitea 写
 
 ## 12. 对现有业务流程的影响
 
-### 12.1 项目创建
+**项目创建**：创建项目时需同步在 gitea 创建对应仓库，含 `.leros/{memory,assets,artifacts}` 初始目录结构和 README。gitea 仓库创建失败时，项目创建事务回滚。Project 需新增 `gitea_repo_full_name` 等字段记录仓库信息。
 
-创建项目时需同步在 gitea 创建对应仓库，含 `.leros/{memory,assets,artifacts}` 初始目录结构和 README。gitea 仓库创建失败时，项目创建事务回滚。Project 需新增 `gitea_repo_full_name` 等字段记录仓库信息。
+**Worker 任务执行**：Worker 工作区准备从 `git init` 裸初始化改为 `git clone` 项目仓库。任务开始前 `git pull` 同步最新代码，任务结束后 `git add` + `git commit` + `git push` 提交 Agent 产物。Agent 现有的文件基线对比（baseline → reconcile）逻辑不变，仍然操作本地文件。
 
-### 12.2 Worker 任务执行
+**文件存储**：当前两套存储（Agent 产物在 workspace 本地文件系统、用户上传在 filestore 对象存储）统一为 gitea 仓库 + S3 双层存储。≤阈值文件直接存 gitea，>阈值文件原始内容存 S3、元数据占位 `.lfs-pointer.json` 存 gitea。
 
-Worker 工作区准备从 `git init` 裸初始化改为 `git clone` 项目仓库。Pipeline 需增加两个步骤：
-- 任务开始前：`git pull` 同步最新代码
-- 任务结束后：`git add` + `git commit` + `git push` 提交 Agent 产物
+**产物下载与预览**：当前通过自定义 API 从本地 workspace 读取文件的方式废弃。≤阈值文件通过 gitea raw API 获取，>阈值文件通过 S3 预签名 URL 直连下载。
 
-Agent 现有的文件基线对比（baseline → reconcile）逻辑不变，仍然操作本地文件。
+**项目记忆**：项目记忆文件 `.leros/memory/` 从本地文件系统迁移至 gitea 仓库，随 git 版本化。Agent 写入后通过 git push 同步。读取可从 gitea raw API 或本地工作区获取。
 
-### 12.3 文件存储
-
-当前两套存储（Agent 产物在 workspace 本地文件系统、用户上传在 filestore 对象存储）统一为 gitea 仓库 + S3 双层存储。≤阈值文件直接存 gitea，>阈值文件原始内容存 S3、元数据占位 `.lfs-pointer.json` 存 gitea。
-
-### 12.4 产物下载与预览
-
-当前通过自定义 API 从本地 workspace 读取文件的方式废弃。≤阈值文件通过 gitea raw API 获取，>阈值文件通过 S3 预签名 URL 直连下载。
-
-### 12.5 项目记忆
-
-项目记忆文件 `.leros/memory/` 从本地文件系统迁移至 gitea 仓库，随 git 版本化。Agent 写入后通过 git push 同步。读取可从 gitea raw API 或本地工作区获取。
-
-### 12.6 前端文件浏览
-
-当前通过自定义 API 获取文件树的方式废弃，改为直接调 gitea contents API。前端页面等同于 gitea 仓库的浏览器视图。
+**前端文件浏览**：当前通过自定义 API 获取文件树的方式废弃，改为直接调 gitea contents API。前端页面等同于 gitea 仓库的浏览器视图。
 
 ## 13. 前端访问协议
 
-### 13.1 文件浏览 — 复用 gitea 原生 API
+**文件浏览**：Leros 不自建文件树接口。前端获取 gitea 短期 token 后直接调 gitea contents API 浏览 project 仓库目录。
 
-Leros 不自建文件树接口。前端获取 gitea 短期 token 后直接调 gitea contents API 浏览 project 仓库目录。
-
-### 13.2 文件展示 — 通过 .lfs-pointer.json 后缀区分
-
-前端从 gitea contents API 拿到目录列表后，按文件名后缀判断：
+**文件展示**：前端从 gitea contents API 拿到目录列表后，按文件名后缀判断文件类型：
 
 | 文件名特征 | 含义 | 前端行为 |
 |-----------|------|---------|
 | `.lfs-pointer.json` 结尾 | >阈值大文件的元数据占位 | 读取 JSON，从中提取 `filename`、`file_size`，按原始文件名展示；下载/预览走 S3 预签名 URL |
 | 其他 | ≤阈值真实文件 | 直接展示文件名；下载/预览走 gitea raw API |
 
-### 13.3 文件下载/预览
+**文件下载/预览**：`.lfs-pointer.json` 文件 → 读 JSON 拿 `content_uri` → 调 Server 获取 S3 预签名 URL → 直连 S3；普通文件 → 调 Server 获取 Gitea 短期 token → 直连 Gitea raw API。
 
-```
-.lfs-pointer.json 文件 → 读 JSON 拿 content_uri → 调 Server 获取 S3 预签名 URL → 直连 S3
-普通文件              → 调 Server 获取 Gitea 短期 token → 直连 Gitea raw API
-```
-
-### 13.4 关键约束
-
-- 不向前端/Worker 返回 s3 / gitea 长期凭证。
-- 短期凭证过期时间 ≤ 5 min。
-- 前端展示给用户的文件名始终是原始文件名（大文件从 `.lfs-pointer.json` 中读取 `filename` 字段展示）。
-- 同一文件的多版本通过 gitea commit history 查看。
+**关键约束**：
+- 不向前端/Worker 返回 s3 / gitea 长期凭证，短期凭证过期时间 ≤ 5 min
+- 前端展示给用户的文件名始终是原始文件名（大文件从 `.lfs-pointer.json` 中读取 `filename` 字段展示）
+- 同一文件的多版本通过 gitea commit history 查看
 
 ## 14. 验收标准
 
@@ -470,7 +431,91 @@ Leros 不自建文件树接口。前端获取 gitea 短期 token 后直接调 gi
 12. 下载/预览操作有审计日志。
 13. `upload_file_size_threshold` 通过配置可调。
 
-## 15. 后续扩展
+## 15. gitea LFS 存储后端选型
+
+当前主方案（第 3-4 节）采用自定义 `.lfs-pointer.json` 指针机制（S3 + Gitea 双层存储）。gitea 自身内置 [Git LFS](https://docs.gitea.com/administration/lfs) 支持，但要求后端存储服务**符合 S3 协议**。本节对比两种后端存储选型。
+
+### 15.1 现有存储驱动现状
+
+Leros 通过 `storage-go` 库（v0.0.5）管理对象存储，`filestore` 模块（`backend/internal/infra/filestore/init.go`）是其业务封装层。`storage-go` 提供以下 driver：
+
+| Driver | S3 协议兼容 | 说明 |
+|--------|-----------|------|
+| `local` | **否** | 本地文件系统独立实现，预签名为自定义 HMAC-SHA256 方案（`SignSecret` 签名），**不含任何 S3 语义** |
+| `minio` | **是** | 复用 `s3driver` 基类，通过 AWS SDK 操作，兼容 S3 协议 |
+| `cos` | **是** | 复用 `s3driver` 基类，S3 兼容（未注册到当前项目） |
+| `seaweedfs` | **是** | 复用 `s3driver` 基类，S3 兼容（未注册到当前项目） |
+
+当前默认 `driver: local`，存储于本地磁盘。`driver: minio` 已通过 `blank import` 注册到项目中，仅需配置切换即可启用。
+
+### 15.2 方案 A：gitea 原生 LFS + minIO（S3 兼容）
+
+#### A1：gitea LFS + `driver: local`（不符合 S3 协议）
+
+| 维度 | 说明 |
+|------|------|
+| S3 兼容性 | `driver: local` 是本地文件系统实现，**不符合 S3 协议**。gitea LFS 要求后端实现 S3 REST API（PutObject/GetObject/HeadObject 等），local driver 无法直接对接 |
+| 改造目标 | 在 local driver 之上增加 S3 兼容网关层，对外暴露 S3 REST API，将 S3 语义操作翻译为 `storage-go` 接口调用 |
+| 改造内容 | 1. 新增 S3 兼容网关（HTTP endpoint，实现 S3 XML 协议解析与响应）<br>2. 预签名从自定义 HMAC 切换为 AWS SigV4 标准签名<br>3. Multipart upload 适配 S3 分段上传协议<br>4. Bucket 操作（ListObjects、HeadBucket 等）适配 |
+| 改造量 | **高**。本质上是在现有存储抽象层之上再构建一层 S3 协议适配，大量代码增量 |
+| 适用场景 | 无外网环境、无法部署 minIO 的极端受限场景（单机离线部署） |
+| 结论 | **不推荐**。为支持 gitea LFS 而改造 local driver 为 S3 兼容代价过高 |
+
+#### A2：gitea LFS + `driver: minio`（符合 S3 协议）
+
+| 维度 | 说明 |
+|------|------|
+| S3 兼容性 | `driver: minio` 原生兼容 S3 协议，底层通过 `s3driver` 基类 + AWS SDK 操作，可直接对接 gitea LFS |
+| 部署增量 | docker-compose 新增 minIO + gitea 两个服务 |
+| 配置 | gitea `[lfs]` 配置块指定 minIO 的 endpoint/bucket/access_key/secret_key；Leros `StorageConfig` 中 `driver` 从 `local` 切换为 `minio`，填写对应 endpoint/access_key/secret_key/bucket |
+| 代码改造 | **零**。`driver: minio` 已在 `init.go` 注册，无需新增任何代码 |
+| Worker 交互 | Worker `git clone` 通过 LFS 协议自动拉取大文件指针，Leros Server 无需感知 LFS 细节 |
+| 前端交互 | 前端通过 gitea LFS API 获取大文件，gitea 内部处理 S3 重定向 |
+| 版本管理 | Git 原生 LFS pointer + commit history，大文件版本完整记录 |
+| 局限性 | 需部署 minIO 服务；LFS 文件不直接出现在 gitea contents API 目录树中 |
+
+#### gitea LFS 配置示例（minIO 后端）
+
+```toml
+# gitea app.ini
+[lfs]
+PATH = /data/git/lfs
+STORAGE_TYPE = minio
+MINIO_ENDPOINT = minio:9000
+MINIO_ACCESS_KEY_ID = <access_key>
+MINIO_SECRET_ACCESS_KEY = <secret_key>
+MINIO_BUCKET = gitea-lfs
+MINIO_USE_SSL = false
+MINIO_LOCATION = us-east-1
+```
+
+minIO 侧需预先创建 bucket `gitea-lfs` 并设置相应访问策略。
+
+### 15.3 方案 B：自定义 leros-lfs-pointer + S3 存储
+
+即本文档第 3-4 节描述的当前方案，Server 侧实现大小阈值路由、`.lfs-pointer.json` 元数据占位、双写编排。
+
+### 15.4 选型对比总表
+
+| | A1: gitea LFS + local | A2: gitea LFS + minIO | B: leros-lfs-pointer + minIO |
+|---|---|---|---|
+| S3 协议兼容 | 否 | 是 | S3 侧是（minIO driver） |
+| 代码增量 | 高（实现 S3 兼容网关） | 零（配置切换） | 高（Server + Worker + 前端全部适配） |
+| 部署增量 | gitea | minIO + gitea | minIO + gitea |
+| Worker 适配 | 零（`git clone` LFS 原生） | 零（`git clone` LFS 原生） | 需适配凭证获取 + 直连 gitea/S3 |
+| 前端适配 | gitea LFS API | gitea LFS API | gitea contents API + S3 presigned URL |
+| 大文件版本管理 | Git LFS 原生历史 | Git LFS 原生历史 | S3 侧无版本，仅占位文件有 Git 历史 |
+| 协议标准化 | 标准 Git LFS | 标准 Git LFS | 自定义协议 |
+| 当前可用性 | local driver 不可用 | minIO driver 已注册 | 需全新实现 |
+| gitea 耦合度 | 紧耦合 | 紧耦合 | 松耦合（Git 服务可替换） |
+
+### 15.5 结论
+
+- **不推荐 A1**：为 gitea LFS 将 `driver: local` 改造为 S3 兼容的代价过高，且当前不存在无法部署 minIO 的硬性约束
+- **推荐 A2（gitea 原生 LFS + driver: minio）作为主方案**：代码零改造，仅需部署 minIO + gitea 并切换配置；Worker 侧 `git clone` 即可自动处理 LFS 文件；大文件版本管理走标准 Git LFS 协议
+- **方案 B（leros-lfs-pointer）保留为备选**：当需要不依赖 gitea LFS 协议独立演进、或需要自定义阈值路由策略时可用
+
+## 16. 后续扩展
 
 - S3 多 bucket 路由（按 project/org 隔离 bucket）。
 - 大文件分片上传 / 断点续传。
