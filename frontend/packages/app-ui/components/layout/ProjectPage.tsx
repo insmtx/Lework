@@ -12,9 +12,7 @@ import { artifactApi } from "@leros/store/api/artifactApi";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Bot,
-	CheckCircle2,
 	ChevronsLeftRightEllipsis,
-	Circle,
 	Download,
 	Eye,
 	FileText,
@@ -436,27 +434,13 @@ function ProjectTasks({
 	tasks: ProjectTask[];
 	onOpenTask?: (task: ProjectTask) => void;
 }) {
-	const { updateTask } = useLayoutStore((s) => s);
 	const [deleteTarget, setDeleteTarget] = useState<ProjectTask | null>(null);
-
-	const handleStatusToggle = async (task: ProjectTask) => {
-		// 固定任务图标和状态切换拆开，避免统一视觉时把原有交互丢掉。
-		await updateTask({
-			public_id: task.id,
-			status: NEXT_STATUS[task.status] ?? "todo",
-		});
-	};
 
 	return (
 		<div className="mx-auto w-full max-w-[720px]">
 			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务</h2>
 			<div className="mt-4">
-				<ProjectTaskList
-					tasks={tasks}
-					onStatusToggle={handleStatusToggle}
-					onDelete={setDeleteTarget}
-					onOpen={onOpenTask}
-				/>
+				<ProjectTaskList tasks={tasks} onDelete={setDeleteTarget} onOpen={onOpenTask} />
 			</div>
 			{deleteTarget && (
 				<TaskDeleteDialog
@@ -471,28 +455,14 @@ function ProjectTasks({
 	);
 }
 
-const NEXT_STATUS: Record<string, string> = {
-	todo: "in_progress",
-	in_progress: "done",
-	done: "todo",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-	todo: "待办",
-	in_progress: "进行中",
-	done: "已完成",
-};
-
 function ProjectTaskList({
 	tasks,
 	compact = false,
-	onStatusToggle,
 	onDelete,
 	onOpen,
 }: {
 	tasks: ProjectTask[];
 	compact?: boolean;
-	onStatusToggle?: (task: ProjectTask) => void;
 	onDelete?: (task: ProjectTask) => void;
 	onOpen?: (task: ProjectTask) => void;
 }) {
@@ -537,25 +507,6 @@ function ProjectTaskList({
 								{task.title}
 							</div>
 						</button>
-						{!compact && onStatusToggle && (
-							<button
-								type="button"
-								className="mt-0.5 shrink-0 rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
-								onClick={(event) => {
-									event.stopPropagation();
-									onStatusToggle(task);
-								}}
-								title={`切换状态（当前：${STATUS_LABEL[task.status] ?? task.status}）`}
-							>
-								{task.status === "done" ? (
-									<CheckCircle2 className="size-4 text-[var(--leros-primary)]" />
-								) : task.status === "in_progress" ? (
-									<LoaderCircle className="size-4 text-[var(--leros-warning)]" />
-								) : (
-									<Circle className="size-4 text-[var(--leros-text-muted)]" />
-								)}
-							</button>
-						)}
 						{!compact && onDelete && (
 							<button
 								type="button"
