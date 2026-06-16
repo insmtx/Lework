@@ -20,19 +20,17 @@ import {
 	Calendar,
 	CheckCircle2,
 	Circle,
-	FileImage,
-	FileText,
 	LoaderCircle,
-	Table2,
 	Tag,
 	Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MessageTimeline } from "../chat/MessageTimeline";
 import { SHOW_TASK_TOKEN_USAGE_CARD } from "../../constants/temporaryUiFlags";
+import { MessageTimeline } from "../chat/MessageTimeline";
 import { ChatInput } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
+import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
 
@@ -349,7 +347,7 @@ export function TaskDetailPage({
 						<section>
 							<div className="mb-3 flex items-center justify-between">
 								<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务产物</h3>
-								<span className="rounded-md bg-[var(--leros-chat-control-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-text)]">
+								<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
 									{artifacts.length} 个
 								</span>
 							</div>
@@ -518,7 +516,7 @@ function TaskArtifactList({
 	}
 
 	return (
-		<div className="space-y-3">
+		<div className={SIDEBAR_COMPACT_LIST_CLASS}>
 			{artifacts.map((artifact) => (
 				<button
 					type="button"
@@ -533,8 +531,8 @@ function TaskArtifactList({
 							点击预览
 						</span>
 					</div>
-					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-text)]">
-						<TaskArtifactIcon type={artifact.type} />
+					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
+						<ProjectFileTypeIcon fileName={artifact.name} artifactType={artifact.type} />
 					</div>
 					<div className="min-w-0">
 						<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
@@ -548,17 +546,4 @@ function TaskArtifactList({
 			))}
 		</div>
 	);
-}
-
-function TaskArtifactIcon({ type }: { type: ProjectArtifact["type"] }) {
-	const className = "size-4";
-
-	switch (type) {
-		case "spreadsheet":
-			return <Table2 className={className} />;
-		case "image":
-			return <FileImage className={className} />;
-		default:
-			return <FileText className={className} />;
-	}
 }
