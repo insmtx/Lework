@@ -543,7 +543,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					}
 				}
 
-				const submitByEnter = !isProjectVariant && event.key === "Enter" && !event.shiftKey;
+				const submitByEnter = event.key === "Enter" && !event.shiftKey;
+				// 项目态保留 Ctrl/Cmd + Enter 作为兼容发送快捷键，避免老用户肌肉记忆突然失效。
 				const submitByShortcut =
 					isProjectVariant && event.key === "Enter" && (event.metaKey || event.ctrlKey);
 				if (submitByEnter || submitByShortcut) {

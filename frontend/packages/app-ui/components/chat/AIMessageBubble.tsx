@@ -20,11 +20,8 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Copy,
-	FileImage,
-	FileText,
 	LoaderCircle,
 	RefreshCw,
-	Table2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -33,6 +30,7 @@ import {
 } from "../../constants/temporaryUiFlags";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ArtifactPreviewDialog } from "../layout/ArtifactPreviewDialog";
+import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { ToolCallBlock } from "./ToolCallBlock";
 
 function CopyButton({ text }: { text: string }) {
@@ -265,7 +263,7 @@ function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
 							{loadingArtifactId === artifact.id ? (
 								<LoaderCircle className="size-4 animate-spin" />
 							) : (
-								<MessageArtifactIcon type={artifact.type} />
+								<MessageArtifactIcon fileName={artifact.name} />
 							)}
 						</div>
 						<div className="min-w-0">
@@ -291,15 +289,6 @@ function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
 	);
 }
 
-function MessageArtifactIcon({ type }: { type: MessageArtifact["type"] }) {
-	const className = "size-4";
-
-	switch (type) {
-		case "spreadsheet":
-			return <Table2 className={className} />;
-		case "image":
-			return <FileImage className={className} />;
-		default:
-			return <FileText className={className} />;
-	}
+function MessageArtifactIcon({ fileName }: { fileName: string }) {
+	return <ProjectFileTypeIcon fileName={fileName} className="size-4 object-contain" />;
 }

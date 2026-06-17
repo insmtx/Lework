@@ -5,7 +5,7 @@ import sharp from "sharp";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(currentDir, "..");
-const sourceLogo = join(appDir, "src/renderer/src/assets/logo.svg");
+const sourceLogo = resolve(appDir, "../../packages/app-ui/assets/logo.svg");
 const resourcesDir = join(appDir, "resources");
 
 await mkdir(resourcesDir, { recursive: true });

@@ -22,7 +22,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
 
-export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv";
+// 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
+export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx";
 
 export function ChatInput({ variant = "default" }: { variant?: "default" | "project" }) {
 	const {
@@ -269,7 +270,15 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 				</div>
 				{isProjectVariant && (
 					<div className="mt-3 text-center text-xs text-slate-500">
-						按 <kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">⌘</kbd> +{" "}
+						按{" "}
+						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
+						发送，按{" "}
+						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Shift</kbd>{" "}
+						+{" "}
+						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
+						换行，也支持{" "}
+						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Ctrl</kbd>/
+						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">⌘</kbd> +{" "}
 						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
 						发送
 					</div>

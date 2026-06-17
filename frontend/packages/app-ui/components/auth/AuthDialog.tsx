@@ -31,6 +31,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { APP_LOGO_SRC } from "../../assets";
 
 type AuthMode = "login" | "register";
 
@@ -46,7 +47,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({
 	children,
-	logoSrc = "/logo.svg",
+	logoSrc = APP_LOGO_SRC,
 }: {
 	children: ReactNode;
 	logoSrc?: string;

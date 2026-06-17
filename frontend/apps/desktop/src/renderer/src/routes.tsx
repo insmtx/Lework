@@ -17,13 +17,12 @@ import {
 	useParams,
 	useSearchParams,
 } from "react-router-dom";
-import logoUrl from "@/assets/logo.svg";
 
 export function AppRoutes() {
 	const navigation = useDesktopNavigation();
 
 	return (
-		<Shell logoSrc={logoUrl} navigation={navigation}>
+		<Shell navigation={navigation}>
 			<Routes>
 				<Route path="/" element={<Navigate to="/workbench" replace />} />
 				<Route path="/workbench" element={<WorkbenchRoutePage />} />

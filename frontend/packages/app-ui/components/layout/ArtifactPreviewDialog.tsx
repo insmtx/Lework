@@ -10,10 +10,10 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@leros/ui/components/ui/sheet";
-import { cn } from "@leros/ui/lib/utils";
-import { Download, FileText, ImageIcon, LoaderCircle, Table2, X } from "lucide-react";
+import { Download, FileText, LoaderCircle, X } from "lucide-react";
 import { type ComponentType, type CSSProperties, useEffect, useMemo, useState } from "react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { ProjectFileTypeIcon } from "./project-file-type-icon";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
 
 type PreviewKind = "docx" | "spreadsheet" | "markdown" | "text" | "image" | "pdf" | "unsupported";
@@ -164,7 +164,7 @@ export function ArtifactPreviewDialog({
 					<>
 						<SheetHeader className="flex-row items-center gap-3 border-b border-[var(--leros-control-border)] px-5 py-4">
 							<div className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-muted)]">
-								<ArtifactIcon type={artifact.type} />
+								<ProjectFileTypeIcon fileName={artifact.name} className="size-4 object-contain" />
 							</div>
 							<div className="h-5 w-px shrink-0 bg-[var(--leros-control-border)]" />
 							<div className="min-w-0 flex-1">
@@ -415,23 +415,4 @@ function detectPreviewKind(artifact: ArtifactPreviewItem | null): PreviewKind {
 	}
 
 	return "unsupported";
-}
-
-function ArtifactIcon({
-	type,
-	className,
-}: {
-	type: ArtifactPreviewItem["type"];
-	className?: string;
-}) {
-	const iconClassName = cn("size-4", className);
-
-	switch (type) {
-		case "spreadsheet":
-			return <Table2 className={iconClassName} />;
-		case "image":
-			return <ImageIcon className={iconClassName} />;
-		default:
-			return <FileText className={iconClassName} />;
-	}
 }

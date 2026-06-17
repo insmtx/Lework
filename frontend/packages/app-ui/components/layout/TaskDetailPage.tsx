@@ -20,19 +20,17 @@ import {
 	Calendar,
 	CheckCircle2,
 	Circle,
-	FileImage,
-	FileText,
 	LoaderCircle,
-	Table2,
 	Tag,
 	Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MessageTimeline } from "../chat/MessageTimeline";
 import { SHOW_TASK_TOKEN_USAGE_CARD } from "../../constants/temporaryUiFlags";
+import { MessageTimeline } from "../chat/MessageTimeline";
 import { ChatInput } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
+import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
 
@@ -41,6 +39,13 @@ const STATUS_LABEL: Record<string, string> = {
 	in_progress: "进行中",
 	done: "已完成",
 };
+
+function truncateBreadcrumbText(text?: string | null, maxLength = 10) {
+	if (!text) {
+		return "";
+	}
+	return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
 
 export function TaskDetailPage({
 	projectId,
@@ -69,6 +74,7 @@ export function TaskDetailPage({
 		isGenerating,
 		messageIds,
 		messagesMap,
+		pendingBootstrapSessionId,
 		streamingMessageId,
 		setActiveSession,
 		loadConversationMessages,
@@ -82,6 +88,9 @@ export function TaskDetailPage({
 	const resolvedTaskId = taskId ?? activeTaskDetailTaskId;
 	const resolvedSessionId = sessionId ?? activeTaskDetailSessionId;
 	const project = projects.find((p) => p.id === resolvedProjectId);
+	// 面包屑只做展示截断，完整名称通过 title 保留，避免超长文本撑开头部布局。
+	const breadcrumbProjectName = truncateBreadcrumbText(project?.name);
+	const breadcrumbTaskTitle = truncateBreadcrumbText(task?.title ?? "浠诲姟");
 
 	const latestTodos = useMemo(
 		() => getLatestAssistantTodos(messagesMap, messageIds, resolvedSessionId, streamingMessageId),
@@ -156,12 +165,15 @@ export function TaskDetailPage({
 		if (!resolvedSessionId) return;
 
 		setActiveSession(resolvedSessionId);
+		// 项目消息刚切页时，先等 store 完成 optimistic 初始化，避免旧历史抢先覆盖 UI。
+		if (pendingBootstrapSessionId === resolvedSessionId) return;
 		if (activeSessionId === resolvedSessionId && isGenerating) return;
 		loadConversationMessages(resolvedSessionId);
 	}, [
 		resolvedSessionId,
 		activeSessionId,
 		isGenerating,
+		pendingBootstrapSessionId,
 		setActiveSession,
 		loadConversationMessages,
 	]);
@@ -224,14 +236,15 @@ export function TaskDetailPage({
 									resolvedProjectId && switchProject(resolvedProjectId);
 								}}
 								className="text-xs font-semibold uppercase tracking-widest hover:text-[var(--leros-text-strong)]"
+								title={project.name}
 							>
-								{project.name}
+								{breadcrumbProjectName}
 							</button>
 							<span className="text-[var(--leros-text-subtle)]">/</span>
 						</>
 					)}
-					<h1 className="text-base font-bold text-[var(--leros-text-strong)]">
-						{task?.title ?? "任务"}
+					<h1 className="text-base font-bold text-[var(--leros-text-strong)]" title={task?.title}>
+						{breadcrumbTaskTitle}
 					</h1>
 				</div>
 				<div className="flex items-center gap-3">
@@ -349,7 +362,7 @@ export function TaskDetailPage({
 						<section>
 							<div className="mb-3 flex items-center justify-between">
 								<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务产物</h3>
-								<span className="rounded-md bg-[var(--leros-chat-control-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-text)]">
+								<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
 									{artifacts.length} 个
 								</span>
 							</div>
@@ -368,7 +381,6 @@ export function TaskDetailPage({
 		</div>
 	);
 }
-
 function TaskTokenUsageCard({
 	totalTokens,
 	inputTokens,
@@ -518,7 +530,7 @@ function TaskArtifactList({
 	}
 
 	return (
-		<div className="space-y-3">
+		<div className={SIDEBAR_COMPACT_LIST_CLASS}>
 			{artifacts.map((artifact) => (
 				<button
 					type="button"
@@ -533,8 +545,8 @@ function TaskArtifactList({
 							点击预览
 						</span>
 					</div>
-					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-text)]">
-						<TaskArtifactIcon type={artifact.type} />
+					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
+						<ProjectFileTypeIcon fileName={artifact.name} />
 					</div>
 					<div className="min-w-0">
 						<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
@@ -548,17 +560,4 @@ function TaskArtifactList({
 			))}
 		</div>
 	);
-}
-
-function TaskArtifactIcon({ type }: { type: ProjectArtifact["type"] }) {
-	const className = "size-4";
-
-	switch (type) {
-		case "spreadsheet":
-			return <Table2 className={className} />;
-		case "image":
-			return <FileImage className={className} />;
-		default:
-			return <FileText className={className} />;
-	}
 }

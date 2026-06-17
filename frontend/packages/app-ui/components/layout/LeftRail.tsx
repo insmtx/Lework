@@ -15,7 +15,6 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@leros/ui/components/ui/dropdown-menu";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
@@ -23,7 +22,6 @@ import { cn } from "@leros/ui/lib/utils";
 import {
 	ChevronsLeft,
 	ChevronsRight,
-	CircleHelp,
 	ClipboardList,
 	Database,
 	Hash,
@@ -32,13 +30,13 @@ import {
 	MoreHorizontal,
 	Network,
 	Pencil,
-	Settings,
 	Trash2,
 	UserRound,
 	Zap,
 } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
+import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
@@ -81,7 +79,7 @@ const navIdToView: Record<string, ViewMode> = {
 const protectedNavIds = new Set(["tasks", "skills", "knowledge"]);
 
 export function LeftRail({
-	logoSrc = "/logo.svg",
+	logoSrc = APP_LOGO_SRC,
 	navigation,
 }: {
 	logoSrc?: string;
@@ -347,11 +345,13 @@ export function LeftRail({
 							}
 						/>
 						<DropdownMenuContent
-							align="end"
+							align="start"
 							side="top"
 							sideOffset={10}
 							className="leros-profile-menu"
 						>
+							{/* 暂时仅保留退出登录入口，其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
+							{/*
 							<DropdownMenuItem>
 								<UserRound className="size-4" />
 								<span>个人信息</span>
@@ -365,6 +365,7 @@ export function LeftRail({
 								<span>使用帮助</span>
 							</DropdownMenuItem>
 							<DropdownMenuSeparator />
+							*/}
 							<DropdownMenuItem variant="destructive" onClick={handleLogout}>
 								<LogOut className="size-4" />
 								<span>退出登录</span>
