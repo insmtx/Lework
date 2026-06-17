@@ -378,7 +378,12 @@ func (c *Consumer) prepareWorkspace(ctx context.Context, taskMsg protocol.Worker
 		orgID := taskMsg.Route.OrgID
 		repoName := fmt.Sprintf("%s-%d-%s", c.cfg.Env, orgID, projectID)
 		endpoint := strings.TrimPrefix(strings.TrimPrefix(c.giteaCfg.Endpoint, "https://"), "http://")
-		cloneURL = fmt.Sprintf("https://%s:%s@%s/%s/%s.git",
+		scheme := "https"
+		if strings.HasPrefix(c.giteaCfg.Endpoint, "http://") {
+			scheme = "http"
+		}
+		cloneURL = fmt.Sprintf("%s://%s:%s@%s/%s/%s.git",
+			scheme,
 			c.giteaCfg.DefaultOwner, c.giteaCfg.AdminToken,
 			endpoint,
 			c.giteaCfg.DefaultOwner, repoName)
