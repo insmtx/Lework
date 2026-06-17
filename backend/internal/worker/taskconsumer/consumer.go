@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/agent"
+	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
@@ -32,6 +34,7 @@ const (
 type Config struct {
 	OrgID          uint
 	WorkerID       uint
+	Env            string
 	DebounceWindow time.Duration
 	MaxConcurrency int    // concurrent worker pool size, default 20
 	SeqTrackerPath string // path to SQLite seq tracker database
@@ -49,10 +52,12 @@ type Consumer struct {
 	sem        chan struct{}
 	pending    map[string][]chan struct{}
 	pendingMu  sync.Mutex
+	giteaClient *gitea.Client
+	giteaCfg    *config.GiteaConfig
 }
 
 // New creates a worker task consumer.
-func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, runner agent.Runner) (*Consumer, error) {
+func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, runner agent.Runner, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig) (*Consumer, error) {
 	if cfg.OrgID == 0 {
 		return nil, fmt.Errorf("worker org_id is required")
 	}
@@ -89,14 +94,16 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 	}
 
 	consumer := &Consumer{
-		cfg:        cfg,
-		subscriber: subscriber,
-		publisher:  publisher,
-		runner:     runner,
-		pool:       workerpool.New(maxConcurrency),
-		seqTracker: tracker,
-		sem:        make(chan struct{}, maxConcurrency*2),
-		pending:    make(map[string][]chan struct{}),
+		cfg:         cfg,
+		subscriber:  subscriber,
+		publisher:   publisher,
+		runner:      runner,
+		pool:        workerpool.New(maxConcurrency),
+		seqTracker:  tracker,
+		sem:         make(chan struct{}, maxConcurrency*2),
+		pending:     make(map[string][]chan struct{}),
+		giteaClient: giteaClient,
+		giteaCfg:    giteaCfg,
 	}
 
 	// Debouncer handler changed from runTask to enqueueTask.
@@ -323,7 +330,7 @@ func (c *Consumer) executeWithTracker(ctx context.Context, taskMsg protocol.Work
 // runTask executes the agent run for a consolidated task message. Existing logic preserved.
 func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessage) error {
 	req := RequestFromWorkerTask(taskMsg)
-	_, err := c.prepareWorkspace(ctx, taskMsg, req)
+	plan, err := c.prepareWorkspace(ctx, taskMsg, req)
 	if err != nil {
 		return err
 	}
@@ -341,6 +348,13 @@ func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessa
 	if err != nil {
 		return err
 	}
+
+	if plan != nil {
+		if pushErr := agentworkspace.PushWorkspace(ctx, plan); pushErr != nil {
+			logs.WarnContextf(ctx, "git push workspace failed: %v", pushErr)
+		}
+	}
+
 	if result != nil {
 		logs.InfoContextf(ctx, "Worker task completed: task_id=%s run_id=%s status=%s", req.TaskID, result.RunID, result.Status)
 	}
@@ -361,12 +375,33 @@ func (c *Consumer) prepareWorkspace(ctx context.Context, taskMsg protocol.Worker
 	if requestID == "" {
 		requestID = strings.TrimSpace(taskMsg.ID)
 	}
+
+	cloneURL := ""
+	if c.giteaClient != nil && c.giteaCfg != nil {
+		orgID := taskMsg.Route.OrgID
+		repoName := fmt.Sprintf("%s-%s-%d-%s", c.giteaCfg.OrgPrefix, c.cfg.Env, orgID, projectID)
+		token, err := c.giteaClient.GenerateAccessToken(ctx,
+			c.giteaCfg.DefaultOwner,
+			fmt.Sprintf("leros-worker-%d-%s", c.cfg.WorkerID, taskMsg.Trace.TaskID),
+			[]string{"write:repository"})
+		if err != nil {
+			logs.WarnContextf(ctx, "generate gitea token failed: %v", err)
+		} else {
+			endpoint := strings.TrimPrefix(strings.TrimPrefix(c.giteaCfg.Endpoint, "https://"), "http://")
+			cloneURL = fmt.Sprintf("https://%s:%s@%s/%s/%s.git",
+				c.giteaCfg.DefaultOwner, token.Token,
+				endpoint,
+				c.giteaCfg.DefaultOwner, repoName)
+		}
+	}
+
 	plan, err := agentworkspace.PrepareTaskWorkspace(ctx, agentworkspace.TaskWorkspaceRequest{
 		OrgID:            taskMsg.Route.OrgID,
 		ProjectID:        projectID,
 		TaskID:           taskMsg.Trace.TaskID,
 		RequestID:        requestID,
 		RequestedWorkDir: taskMsg.Body.Runtime.WorkDir,
+		CloneURL:         cloneURL,
 	})
 	if err != nil {
 		return nil, err

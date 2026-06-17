@@ -328,17 +328,23 @@ func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
 		return nil
 	}
 
-	if strings.TrimSpace(plan.CloneURL) == "" {
-		return fmt.Errorf("clone_url is required for initial workspace setup")
+	if strings.TrimSpace(plan.CloneURL) != "" {
+		parent := filepath.Dir(plan.RepoDir)
+		if err := os.MkdirAll(parent, 0o755); err != nil {
+			return fmt.Errorf("create parent dir: %w", err)
+		}
+		cmd := exec.CommandContext(ctx, "git", "clone", plan.CloneURL, plan.RepoDir)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			os.RemoveAll(plan.RepoDir)
+			return fmt.Errorf("git clone: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return nil
 	}
-	parent := filepath.Dir(plan.RepoDir)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("create parent dir: %w", err)
-	}
-	cmd := exec.CommandContext(ctx, "git", "clone", plan.CloneURL, plan.RepoDir)
+
+	cmd := exec.CommandContext(ctx, "git", "init")
+	cmd.Dir = plan.RepoDir
 	if output, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(plan.RepoDir)
-		return fmt.Errorf("git clone: %w: %s", err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("git init workspace: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
