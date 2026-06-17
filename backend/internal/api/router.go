@@ -39,6 +39,12 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	r.Use(middleware.CallerMiddleware(cfg.Server.JWT.Secret, db))
 	r.Use(middleware.Logger(".Ping", "metrics"))
 	r.Use(ygmiddleware.Recovery())
+
+	var giteaClient *gitea.Client
+	if cfg.Gitea != nil {
+		giteaClient = gitea.NewClient(cfg.Gitea.Endpoint, cfg.Gitea.AdminToken)
+	}
+
 	v1 := r.Group("/v1")
 	{
 		websocket.RegisterWebSocketRoutes(v1, eventbus)
@@ -68,7 +74,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterSessionRoutes(v1, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		projectService := service.NewProjectService(db)
+		projectService := service.NewProjectService(db, giteaClient, cfg.Gitea, cfg.Env)
 		handler.RegisterProjectRoutes(v1, projectService)
 		logs.Info("Project routes registered successfully")
 
@@ -84,8 +90,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterTaskRoutes(v1, taskService)
 		logs.Info("Task routes registered successfully")
 
-		artifactService := service.NewArtifactService(db,
-			gitea.NewClient(cfg.Gitea.Endpoint, cfg.Gitea.AdminToken))
+		artifactService := service.NewArtifactService(db, giteaClient)
 		handler.RegisterArtifactRoutes(v1, artifactService)
 		logs.Info("Artifact routes registered successfully")
 
