@@ -23,12 +23,14 @@ type Config struct {
 		Port string    `yaml:"port,omitempty"` // 服务器端口
 		JWT  JWTConfig `yaml:"jwt,omitempty"`  // JWT 认证配置
 	} `yaml:"server,omitempty"` // 服务器地址
+	Env           string           `yaml:"env,omitempty"`
 	WorkspaceRoot string           `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
 	NATS          *NATSConfig      `yaml:"nats,omitempty"`
 	Database      *DatabaseConfig  `yaml:"database,omitempty"`
 	LLM           *LLMConfig       `yaml:"llm,omitempty"`
 	Scheduler     *SchedulerConfig `yaml:"scheduler,omitempty"`
 	Storage       *StorageConfig   `yaml:"storage,omitempty"`
+	Gitea         *GiteaConfig     `yaml:"gitea,omitempty"`
 }
 
 // JWTConfig JWT 认证配置
@@ -64,4 +66,12 @@ func (s *StorageConfig) GetStaticAPIKey() string {
 		return ""
 	}
 	return s.StaticAPIKey
+}
+
+// GiteaConfig 外部 gitea 实例连接配置
+type GiteaConfig struct {
+	Endpoint     string `yaml:"endpoint"`
+	AdminToken   string `yaml:"admin_token"`
+	DefaultOwner string `yaml:"default_owner"`
+	OrgPrefix    string `yaml:"org_prefix"`
 }
