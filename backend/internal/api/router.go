@@ -13,6 +13,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/runnable"
 	"github.com/insmtx/Leros/backend/internal/service"
@@ -83,7 +84,8 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterTaskRoutes(v1, taskService)
 		logs.Info("Task routes registered successfully")
 
-		artifactService := service.NewArtifactService(db)
+		artifactService := service.NewArtifactService(db,
+			gitea.NewClient(cfg.Gitea.Endpoint, cfg.Gitea.AdminToken))
 		handler.RegisterArtifactRoutes(v1, artifactService)
 		logs.Info("Artifact routes registered successfully")
 
