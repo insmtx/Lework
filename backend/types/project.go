@@ -36,6 +36,15 @@ type Project struct {
 	// project - 项目状态，VARCHAR(50)，NOT NULL，DEFAULT 'active'
 	Status string `gorm:"column:status;type:varchar(50);not null;default:'active';index"`
 
+	// project - gitea 仓库全名（格式：org/repo_name），VARCHAR(255)
+	GiteaRepoFullName string `gorm:"column:gitea_repo_full_name;type:varchar(255)"`
+
+	// project - gitea 内部仓库 ID，BIGINT
+	GiteaRepoID int64 `gorm:"column:gitea_repo_id;type:bigint"`
+
+	// project - gitea 仓库默认分支名，VARCHAR(128)，DEFAULT 'main'
+	GiteaDefaultBranch string `gorm:"column:gitea_default_branch;type:varchar(128);default:'main'"`
+
 	// project - 元数据（JSON格式存储标签等扩展信息），JSONB，允许为空
 	Metadata ObjectMetadata `gorm:"column:metadata;type:jsonb"`
 }
