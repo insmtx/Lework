@@ -13,6 +13,7 @@ import {
 import { Switch } from "@leros/ui/components/ui/switch";
 import { cn } from "@leros/ui/lib/utils";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { AssistantAvatar } from "./AssistantAvatar";
 
 export type AssistantCardProps = {
 	assistant: DigitalAssistantItem;
@@ -51,17 +52,7 @@ export function AssistantCard({ assistant, onSelect, onEdit, onDelete }: Assista
 			)}
 			onClick={() => onSelect(assistant)}
 		>
-			<div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-lg font-semibold">
-				{assistant.avatar ? (
-					<img
-						src={assistant.avatar}
-						alt={assistant.name}
-						className="size-12 rounded-full object-cover"
-					/>
-				) : (
-					assistant.name.charAt(0)
-				)}
-			</div>
+			<AssistantAvatar name={assistant.name} src={assistant.avatar} />
 
 			<div className="flex flex-1 flex-col gap-1 min-w-0">
 				<div className="flex items-center gap-2">
