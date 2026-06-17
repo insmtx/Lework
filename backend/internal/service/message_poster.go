@@ -108,6 +108,8 @@ func (p *MessagePoster) RunNewMessage(
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
 		return nil, err
 	}
+	// 无项目预上传的附件，需要在项目创建完成后回填项目归属，确保后续文件树可见。
+	p.attachFilesToProject(ctx, caller.OrgID, o.project.PublicID, req.Attachments)
 	if err := o.ensureProjectSession(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage ensureProjectSession failed: %v", err)
 		return nil, err
@@ -472,6 +474,37 @@ func (p *MessagePoster) resolveAttachmentURLs(
 			continue
 		}
 		attachments[i].PublicURL = publicURL
+	}
+}
+
+func (p *MessagePoster) attachFilesToProject(
+	ctx context.Context,
+	orgID uint,
+	projectPublicID string,
+	attachments []types.MessageAttachment,
+) {
+	if strings.TrimSpace(projectPublicID) == "" || len(attachments) == 0 {
+		return
+	}
+	for i := range attachments {
+		if attachments[i].FileUploadID == "" {
+			continue
+		}
+		fileUpload, err := db.GetFileUploadByPublicID(ctx, p.db, orgID, attachments[i].FileUploadID)
+		if err != nil {
+			logs.WarnContextf(ctx, "attach file %s to project %s failed: %v", attachments[i].FileUploadID, projectPublicID, err)
+			continue
+		}
+		if fileUpload == nil {
+			continue
+		}
+		if fileUpload.Metadata.Extra == nil {
+			fileUpload.Metadata.Extra = make(map[string]interface{})
+		}
+		fileUpload.Metadata.Extra["project_public_id"] = projectPublicID
+		if err := db.UpdateFileUpload(ctx, p.db, fileUpload); err != nil {
+			logs.WarnContextf(ctx, "persist file %s project_public_id failed: %v", attachments[i].FileUploadID, err)
+		}
 	}
 }
 

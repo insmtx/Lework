@@ -1,6 +1,7 @@
 "use client";
 
-import { useChatStore, useLayoutStore } from "@leros/store";
+import { projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
+import type { Attachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
@@ -10,13 +11,16 @@ import {
 	ChevronDown,
 	Folder,
 	ListTodo,
+	Paperclip,
 	Plus,
 	Search,
 	SendHorizonal,
 	X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useAuth } from "../auth";
+import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import type { AppNavigation } from "./LeftRail";
 
 const mockActivities = [
@@ -52,13 +56,35 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		switchProject,
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
-	const { startSessionResponseStream, resetLocalMessages } = useChatStore((s) => s);
+	const { startSessionResponseStream, resetLocalMessages, addUploadedAttachment } = useChatStore(
+		(s) => s,
+	);
 	const { isAuthenticated, openAuthDialog, requireAuth, user } = useAuth();
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const attachmentsRef = useRef<Attachment[]>([]);
 	const [input, setInput] = useState("");
+	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
 	const [taskMenuOpen, setTaskMenuOpen] = useState(false);
 	const [taskSearch, setTaskSearch] = useState("");
+
+	const revokeAttachmentURLs = (items: Attachment[]) => {
+		for (const attachment of items) {
+			if (attachment.url?.startsWith("blob:")) {
+				URL.revokeObjectURL(attachment.url);
+			}
+		}
+	};
+
+	const clearAttachments = () => {
+		revokeAttachmentURLs(attachmentsRef.current);
+		setAttachments([]);
+	};
+
+	useEffect(() => {
+		attachmentsRef.current = attachments;
+	}, [attachments]);
 
 	useEffect(() => {
 		fetchProjects();
@@ -70,7 +96,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [clearTaskDetailRoute, resetLocalMessages]);
 
 	const performSend = async (content: string) => {
-		const data = await sendWorkbenchMessage(content, activeWorkbenchProjectId);
+		const data = await sendWorkbenchMessage(content, activeWorkbenchProjectId, attachments);
 		if (data?.session_id) {
 			await startSessionResponseStream(data.session_id, content);
 		}
@@ -78,6 +104,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 		}
 		setInput("");
+		clearAttachments();
 	};
 
 	const handleSend = async () => {
@@ -90,6 +117,55 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			return;
 		}
 		await performSend(content);
+	};
+
+	const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(event.target.files ?? []);
+		if (!files.length) return;
+
+		for (const file of files) {
+			try {
+				const uploaded = activeWorkbenchProjectId
+					? await addUploadedAttachment(activeWorkbenchProjectId, file)
+					: await uploadWorkbenchAttachment(file);
+				const { attachment, message } = uploaded;
+				setAttachments((prev) => [...prev, attachment]);
+				toast.success(message || "文件上传成功");
+			} catch (err) {
+				const message = err instanceof Error ? err.message : "文件上传失败";
+				console.error("Workbench upload attachment error:", err);
+				toast.error(message);
+			}
+		}
+		event.target.value = "";
+	};
+
+	const uploadWorkbenchAttachment = async (file: File) => {
+		// 无项目时先走通用上传，后续随 NewMessage 自动关联到新建项目。
+		const response = await projectFileApi.uploadLoose({ file, purpose: "attachment" });
+		const payload = response.data;
+		const attachment: Attachment = {
+			id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+			type: file.type.startsWith("image/") ? "image" : "file",
+			name: payload.original_name || payload.filename || file.name,
+			size: payload.file_size ?? payload.size ?? file.size,
+			url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+			file,
+			path: payload.public_id || payload.storage_path || payload.path,
+			fileUploadId: payload.file_upload_id,
+			mimeType: payload.mime_type || file.type,
+		};
+		return { attachment, message: response.message };
+	};
+
+	const handleRemoveAttachment = (attachmentId: string) => {
+		setAttachments((prev) => {
+			const target = prev.find((attachment) => attachment.id === attachmentId);
+			if (target?.url?.startsWith("blob:")) {
+				URL.revokeObjectURL(target.url);
+			}
+			return prev.filter((attachment) => attachment.id !== attachmentId);
+		});
 	};
 	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
 	const latestProject = projects[0];
@@ -154,6 +230,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		}
 	};
 
+	useEffect(() => () => revokeAttachmentURLs(attachmentsRef.current), []);
+
 	return (
 		<div
 			data-slot="workbench-panel"
@@ -203,6 +281,44 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 
 						{/* Enhanced Command Input Card */}
 						<div className="flex flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-4 shadow-sm transition-all focus-within:border-[var(--leros-primary)] focus-within:shadow-md">
+							<input
+								ref={fileInputRef}
+								type="file"
+								className="hidden"
+								accept={PROJECT_ATTACHMENT_ACCEPT}
+								multiple
+								onChange={handleAttachmentSelect}
+							/>
+							{attachments.length > 0 && (
+								<div className="mb-3 flex flex-wrap gap-2">
+									{attachments.map((attachment) => (
+										<div
+											key={attachment.id}
+											className="flex items-center gap-2 rounded-lg bg-white/90 px-3 py-2 text-sm shadow-sm ring-1 ring-slate-200/70"
+										>
+											{attachment.type === "image" && attachment.url ? (
+												<img
+													src={attachment.url}
+													alt={attachment.name}
+													className="size-8 rounded object-cover"
+												/>
+											) : (
+												<Paperclip className="size-3.5 text-slate-400" />
+											)}
+											<span className="max-w-[160px] truncate text-slate-600">
+												{attachment.name}
+											</span>
+											<button
+												type="button"
+												onClick={() => handleRemoveAttachment(attachment.id)}
+												className="text-slate-400 transition-colors hover:text-slate-600"
+											>
+												<X className="size-3.5" />
+											</button>
+										</div>
+									))}
+								</div>
+							)}
 							<div className="mb-2 flex gap-3">
 								<textarea
 									value={input}
@@ -221,6 +337,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								<div className="flex items-center gap-3">
 									<button
 										type="button"
+										onClick={() => {
+											if (!isAuthenticated) {
+												openAuthDialog("login");
+												return;
+											}
+											fileInputRef.current?.click();
+										}}
 										className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-chat-control-bg)]"
 										aria-label="添加附件"
 									>
@@ -387,7 +510,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									<Button
 										size="icon"
 										onClick={handleSend}
-										disabled={!input.trim()}
+										disabled={!input.trim() && attachments.length === 0}
 										className="size-9 rounded-xl bg-[var(--leros-primary)] text-white shadow-sm hover:bg-[var(--leros-primary-strong)] disabled:bg-[var(--leros-chat-control-bg)] disabled:text-[var(--leros-text-subtle)]"
 									>
 										<SendHorizonal className="size-4" />

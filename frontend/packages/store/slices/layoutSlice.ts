@@ -4,6 +4,7 @@ import { taskApi } from "../api/taskApi";
 import type { BackendArtifact, BackendProject, BackendSession, BackendTask } from "../api/types";
 import { workApi } from "../api/workApi";
 import type { SliceCreator } from "../types";
+import type { Attachment } from "../types/chat";
 import { flattenActions } from "../utils";
 import { formatFileSize } from "../utils/format";
 
@@ -347,7 +348,11 @@ export class LayoutActionImpl {
 		this.#set({ activeProjectTab: tab });
 	};
 
-	sendWorkbenchMessage = async (content: string, projectId?: string | null) => {
+	sendWorkbenchMessage = async (
+		content: string,
+		projectId?: string | null,
+		attachments?: Attachment[],
+	) => {
 		const trimmed = content.trim();
 		if (!trimmed) return;
 
@@ -401,6 +406,16 @@ export class LayoutActionImpl {
 						role: "user",
 						content: trimmed,
 						message_type: "text",
+						attachments: attachments
+							?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
+								Boolean(attachment.fileUploadId?.trim()),
+							)
+							.map((attachment) => ({
+								file_upload_id: attachment.fileUploadId.trim(),
+								name: attachment.name,
+								mime_type:
+									attachment.mimeType || attachment.file?.type || "application/octet-stream",
+							})),
 					});
 					const data = {
 						project_id: workbenchProjectId,
@@ -425,13 +440,33 @@ export class LayoutActionImpl {
 			}
 		}
 
-		const params: { content: string; project_id?: string; task_id?: string } = { content: trimmed };
+		const params: {
+			content: string;
+			project_id?: string;
+			task_id?: string;
+			attachments?: {
+				file_upload_id: string;
+				name: string;
+				mime_type: string;
+			}[];
+		} = { content: trimmed };
 
 		if (workbenchProjectId) {
 			params.project_id = workbenchProjectId;
 		}
 		if (selectedTaskId) {
 			params.task_id = selectedTaskId;
+		}
+		if (attachments?.length) {
+			params.attachments = attachments
+				.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
+					Boolean(attachment.fileUploadId?.trim()),
+				)
+				.map((attachment) => ({
+					file_upload_id: attachment.fileUploadId.trim(),
+					name: attachment.name,
+					mime_type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
+				}));
 		}
 
 		try {
