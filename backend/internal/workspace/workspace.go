@@ -20,6 +20,7 @@ type TaskWorkspaceRequest struct {
 	TaskID           string
 	RequestID        string
 	RequestedWorkDir string
+	CloneURL         string
 }
 
 // TaskWorkspace 描述一次任务 turn 会使用到的文件系统路径。
@@ -34,6 +35,7 @@ type TaskWorkspace struct {
 	ArtifactManifestPath string
 	BaselinePath         string
 	EffectiveWorkDir     string
+	CloneURL             string
 }
 
 // PrepareTaskWorkspace 创建并校验项目任务工作区。
@@ -53,13 +55,10 @@ func PrepareTaskWorkspace(ctx context.Context, req TaskWorkspaceRequest) (*TaskW
 	} else {
 		_ = file.Close()
 	}
-	if err := ensureGitRepo(ctx, plan.RepoDir); err != nil {
+	if err := ensureGitRepo(ctx, plan); err != nil {
 		return nil, err
 	}
 	if err := ensureGitignore(plan.RepoDir); err != nil {
-		return nil, err
-	}
-	if err := ensureLerosExcluded(plan.RepoDir); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(plan.EffectiveWorkDir, 0o755); err != nil {
@@ -125,6 +124,7 @@ func ResolveTaskWorkspace(req TaskWorkspaceRequest) (*TaskWorkspace, error) {
 		ArtifactManifestPath: filepath.Join(turnDir, "artifacts.jsonl"),
 		BaselinePath:         filepath.Join(turnDir, "baseline.jsonl"),
 		EffectiveWorkDir:     effectiveWorkDir,
+		CloneURL:             req.CloneURL,
 	}, nil
 }
 
@@ -314,41 +314,49 @@ func resolveSymlinksUpToExisting(path string) (string, error) {
 	return filepath.Join(parentResolved, filepath.Base(path)), nil
 }
 
-func ensureGitRepo(ctx context.Context, repoDir string) error {
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
+	if err := os.MkdirAll(plan.RepoDir, 0o755); err != nil {
 		return fmt.Errorf("create repo dir: %w", err)
 	}
-	gitDir := filepath.Join(repoDir, ".git")
+	gitDir := filepath.Join(plan.RepoDir, ".git")
 	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+		cmd := exec.CommandContext(ctx, "git", "pull", "origin", "main")
+		cmd.Dir = plan.RepoDir
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git pull: %w: %s", err, strings.TrimSpace(string(output)))
+		}
 		return nil
 	}
-	cmd := exec.CommandContext(ctx, "git", "init")
-	cmd.Dir = repoDir
+
+	if strings.TrimSpace(plan.CloneURL) == "" {
+		return fmt.Errorf("clone_url is required for initial workspace setup")
+	}
+	parent := filepath.Dir(plan.RepoDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return fmt.Errorf("create parent dir: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "git", "clone", plan.CloneURL, plan.RepoDir)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git init workspace: %w: %s", err, strings.TrimSpace(string(output)))
+		os.RemoveAll(plan.RepoDir)
+		return fmt.Errorf("git clone: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
 
 // defaultGitignore 定义项目仓库初始化时创建的默认 .gitignore 内容。
 const defaultGitignore = `# Leros runtime
-.leros/
-!.leros/memory/
+.leros/tasks/
 
 # Dependency directories
 node_modules/
 vendor/
-
-# Build/cache outputs
 dist/
 build/
 target/
 .cache/
-.cache*/
 tmp/
 temp/
 logs/
-log/
 
 # OS/editor noise
 .DS_Store
@@ -379,34 +387,6 @@ func ensureGitignore(repoDir string) error {
 	return nil
 }
 
-func ensureLerosExcluded(repoDir string) error {
-	infoDir := filepath.Join(repoDir, ".git", "info")
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		return fmt.Errorf("create git info dir: %w", err)
-	}
-	excludePath := filepath.Join(infoDir, "exclude")
-	current, err := os.ReadFile(excludePath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read git exclude: %w", err)
-	}
-	content := string(current)
-	// 已配置 .leros/ 排除且包含 .leros/memory/ 例外，无需重复添加
-	if strings.Contains(content, ".leros/") && strings.Contains(content, ".leros/memory/") {
-		return nil
-	}
-	next := content
-	if next != "" && !strings.HasSuffix(next, "\n") {
-		next += "\n"
-	}
-	if !strings.Contains(content, ".leros/") {
-		next += ".leros/\n"
-	}
-	if !strings.Contains(content, ".leros/memory/") {
-		next += "!.leros/memory/\n"
-	}
-	return os.WriteFile(excludePath, []byte(next), 0o644)
-}
-
 func cleanPathID(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.Trim(value, `/\`)
@@ -414,4 +394,31 @@ func cleanPathID(value string) string {
 		return ""
 	}
 	return value
+}
+
+func PushWorkspace(ctx context.Context, plan *TaskWorkspace) error {
+	if plan == nil || plan.RepoDir == "" {
+		return nil
+	}
+	gitDir := filepath.Join(plan.RepoDir, ".git")
+	if _, err := os.Stat(gitDir); err != nil {
+		return nil
+	}
+
+	addCmd := exec.CommandContext(ctx, "git", "add", ".")
+	addCmd.Dir = plan.RepoDir
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run artifacts")
+	commitCmd.Dir = plan.RepoDir
+	commitCmd.CombinedOutput()
+
+	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "main")
+	pushCmd.Dir = plan.RepoDir
+	if output, err := pushCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
