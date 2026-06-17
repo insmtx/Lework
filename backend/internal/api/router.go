@@ -11,8 +11,8 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/runnable"
 	"github.com/insmtx/Leros/backend/internal/service"
@@ -103,6 +103,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		skillMarketplaceService := service.NewSkillMarketplaceService(db, eventbus)
 		handler.RegisterSkillMarketplaceRoutes(v1, skillMarketplaceService)
 		logs.Info("Skill marketplace routes registered successfully")
+
+		desktopPackageDownloadService := service.NewDesktopPackageDownloadService(db)
+		handler.RegisterDesktopPackageDownloadRoutes(v1, desktopPackageDownloadService)
+		logs.Info("Desktop package download stat routes registered successfully")
 
 		// Start background consumers
 		go runnable.StartSessionArtifactDeclared(context.Background(), eventbus, db)

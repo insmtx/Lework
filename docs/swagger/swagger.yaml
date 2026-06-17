@@ -347,6 +347,23 @@ definitions:
     - email
     - password
     type: object
+  contract.ReportDesktopPackageDownloadRequest:
+    properties:
+      arch:
+        type: string
+      channel:
+        type: string
+      package_type:
+        type: string
+      platform:
+        type: string
+      source:
+        type: string
+      version:
+        type: string
+    required:
+    - version
+    type: object
   contract.TestLLMModelRequest:
     properties:
       api_key:
@@ -1550,6 +1567,25 @@ paths:
       summary: 获取默认LLM模型
       tags:
       - LLMModel
+  /GetDesktopPackageDownloadTotal:
+    post:
+      consumes:
+      - application/json
+      description: 查询桌面端安装包累计总下载量。
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询桌面端安装包总下载量
+      tags:
+      - DesktopPackageDownload
   /GetDigitalAssistant:
     post:
       consumes:
@@ -2312,6 +2348,36 @@ paths:
       summary: 邮箱注册
       tags:
       - Auth
+  /ReportDesktopPackageDownload:
+    post:
+      consumes:
+      - application/json
+      description: 上报一次桌面端安装包下载，同一 IP、版本、平台、架构 1 分钟内重复上报不会重复计数。
+      parameters:
+      - description: 下载上报请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ReportDesktopPackageDownloadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 上报桌面端安装包下载
+      tags:
+      - DesktopPackageDownload
   /SessionEvents:
     post:
       consumes:

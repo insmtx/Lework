@@ -1178,6 +1178,35 @@
                 }
             }
         },
+        "/GetDesktopPackageDownloadTotal": {
+            "post": {
+                "description": "查询桌面端安装包累计总下载量。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DesktopPackageDownload"
+                ],
+                "summary": "查询桌面端安装包总下载量",
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/GetDigitalAssistant": {
             "post": {
                 "description": "根据ID或Code获取数字助手详情",
@@ -2317,6 +2346,52 @@
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/contract.RegisterByEmailRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/ReportDesktopPackageDownload": {
+            "post": {
+                "description": "上报一次桌面端安装包下载，同一 IP、版本、平台、架构 1 分钟内重复上报不会重复计数。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DesktopPackageDownload"
+                ],
+                "summary": "上报桌面端安装包下载",
+                "parameters": [
+                    {
+                        "description": "下载上报请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.ReportDesktopPackageDownloadRequest"
                         }
                     }
                 ],
@@ -4157,6 +4232,32 @@
                     "type": "string"
                 },
                 "password": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.ReportDesktopPackageDownloadRequest": {
+            "type": "object",
+            "required": [
+                "version"
+            ],
+            "properties": {
+                "arch": {
+                    "type": "string"
+                },
+                "channel": {
+                    "type": "string"
+                },
+                "package_type": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "version": {
                     "type": "string"
                 }
             }

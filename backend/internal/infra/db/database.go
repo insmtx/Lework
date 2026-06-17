@@ -87,6 +87,8 @@ func runMigrations(db *gorm.DB) error {
 		&types.Artifact{},
 		&types.FileUpload{},
 		&types.BuiltinSkillMarketplaceItem{},
+		&types.DesktopPackageDownloadStat{},
+		&types.DesktopPackageDownloadRateLimit{},
 	}
 
 	if err := dbtools.InitModel(db, models...); err != nil {

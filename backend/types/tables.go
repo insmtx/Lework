@@ -61,4 +61,8 @@ const (
 	TableNameFileUpload = tablenamePrefix + "file_upload"
 	// TableNameBuiltinSkillMarketplaceItem 内置 Skill 市场条目表名
 	TableNameBuiltinSkillMarketplaceItem = tablenamePrefix + "builtin_skill_marketplace_item"
+	// TableNameDesktopPackageDownloadStat 桌面端安装包下载统计表名
+	TableNameDesktopPackageDownloadStat = tablenamePrefix + "desktop_package_download_stat"
+	// TableNameDesktopPackageDownloadRateLimit 桌面端安装包下载限流表名
+	TableNameDesktopPackageDownloadRateLimit = tablenamePrefix + "desktop_package_download_rate_limit"
 )
