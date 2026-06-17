@@ -13,6 +13,8 @@ export { fetchFileDownload, fileApi, getFileDownloadUrl } from "./api/fileApi";
 export { projectFileApi } from "./api/projectFileApi";
 export { sessionApi } from "./api/sessionApi";
 export type {
+	ImportSkillParams,
+	ImportSkillResponse,
 	InstalledSkillsResponse,
 	SearchSkillMarketplaceParams,
 	SearchSkillMarketplaceResponse,

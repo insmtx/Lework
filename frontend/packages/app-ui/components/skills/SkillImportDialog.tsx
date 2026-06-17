@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { authenticatedFetch, API_BASE_URL, formatFileSize } from "@leros/store";
+import { authenticatedFetch, API_BASE_URL, formatFileSize, skillMarketplaceApi } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
   Dialog,
@@ -117,7 +117,7 @@ export function SkillImportDialog({ open, onOpenChange }: SkillImportDialogProps
     }
   }, []);
 
-  // ---- upload ----
+  // ---- upload + import ----
   const handleImport = useCallback(async () => {
     if (!file) return;
 
@@ -125,19 +125,20 @@ export function SkillImportDialog({ open, onOpenChange }: SkillImportDialogProps
     setErrorMessage("");
 
     try {
+      // Step 1: Upload file
       const formData = new FormData();
       formData.append("file", file);
       formData.append("purpose", "project");
 
-      const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
+      const uploadResponse = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        let msg = `HTTP ${response.status}`;
+      if (!uploadResponse.ok) {
+        let msg = `HTTP ${uploadResponse.status}`;
         try {
-          const payload = (await response.json()) as { message?: string };
+          const payload = (await uploadResponse.json()) as { message?: string };
           if (typeof payload.message === "string" && payload.message) {
             msg = payload.message;
           }
@@ -147,11 +148,25 @@ export function SkillImportDialog({ open, onOpenChange }: SkillImportDialogProps
         throw new Error(msg);
       }
 
+      // Step 2: Extract file_upload_id from response
+      const uploadData = (await uploadResponse.json()) as {
+        data?: { file_upload_id?: string };
+      };
+      const fileUploadId = uploadData?.data?.file_upload_id;
+      if (!fileUploadId) {
+        throw new Error("上传接口未返回 file_upload_id");
+      }
+
+      // Step 3: Call import API via store (HttpClient throws ApiError on failure)
+      await skillMarketplaceApi.import({
+        file_upload_id: fileUploadId,
+      });
+
       toast.success("技能导入请求已提交");
       handleClose();
     } catch (err: any) {
       setStatus("error");
-      setErrorMessage(err?.message ?? "上传失败，请重试");
+      setErrorMessage(err?.message ?? "导入失败，请重试");
     }
   }, [file, handleClose]);
 

@@ -80,6 +80,15 @@ export interface SkillDetailData {
   files: string[];
 }
 
+export interface ImportSkillParams {
+  file_upload_id: string;
+}
+
+export interface ImportSkillResponse {
+  status: string;
+  message: string;
+}
+
 /**
  * 将后端 SkillInstalledItem 映射为兼容 SkillCard 组件的 SkillMarketplaceItem。
  * 用 name 作为 skill_id（卸载接口使用 name 作为标识符）。
@@ -138,6 +147,12 @@ export const skillMarketplaceApi = {
   getDetail: (params: SkillDetailParams) =>
     apiClient.post<BackendDataResponse<SkillDetailData>>(
       "/skill-marketplace/skill-detail",
+      params,
+    ),
+
+  import: (params: ImportSkillParams) =>
+    apiClient.post<BackendDataResponse<ImportSkillResponse>>(
+      "/skill-marketplace/import",
       params,
     ),
 };

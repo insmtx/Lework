@@ -18,10 +18,13 @@ type SkillManagementMessage = Envelope[SkillManagementBody]
 
 // SkillManagementBody carries the action and parameters for skill management.
 type SkillManagementBody struct {
-	Action  string `json:"action"`              // "install" | "list" | "uninstall" | "detail"
+	Action  string `json:"action"`              // "install" | "list" | "uninstall" | "detail" | "import"
 	Source  string `json:"source,omitempty"`    // for install: "Leros" | "github" | "skills-sh" | "url"
 	SkillID string `json:"skill_id,omitempty"`  // for install: the CLI install <identifier> argument
 	Name    string `json:"name,omitempty"`      // for uninstall / detail: the skill name
+	// DownloadURL is the URL (or local path) from which the worker downloads
+	// the skill file during an "import" action.
+	DownloadURL string `json:"download_url,omitempty"`
 	// ReplyTo is the NATS inbox for sending the response back to the server.
 	// JetStream does not preserve the NATS Reply header, so the inbox is
 	// injected into the body by the server-side Request method.

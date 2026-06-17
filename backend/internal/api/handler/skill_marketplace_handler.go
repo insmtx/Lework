@@ -10,6 +10,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 // RegisterSkillMarketplaceRoutes 注册 Skill 市场相关路由。
@@ -20,6 +21,7 @@ func RegisterSkillMarketplaceRoutes(r gin.IRouter, service contract.SkillMarketp
 	r.POST("/skill-marketplace/installed", installedSkills(service))
 	r.POST("/skill-marketplace/uninstall", uninstallSkill(service))
 	r.POST("/skill-marketplace/skill-detail", getSkillDetail(service))
+	r.POST("/skill-marketplace/import", importSkill(service))
 }
 
 func downloadBuiltinSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
@@ -45,7 +47,7 @@ func downloadBuiltinSkill(service contract.SkillMarketplaceService) gin.HandlerF
 		ctx.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, download.FileName))
 		ctx.Status(http.StatusOK)
 		if _, err := io.Copy(ctx.Writer, download.Reader); err != nil {
-			ctx.Error(err)
+			logs.ErrorContextf(ctx.Request.Context(), "failed to stream skill download %q: %v", skillID, err)
 		}
 	}
 }
@@ -176,6 +178,43 @@ func getSkillDetail(service contract.SkillMarketplaceService) gin.HandlerFunc {
 				return
 			}
 			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+			return
+		}
+
+		ctx.JSON(http.StatusOK, dto.Success(result))
+	}
+}
+
+func importSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req contract.ImportSkillRequest
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+			return
+		}
+
+		if strings.TrimSpace(req.FileUploadID) == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file_upload_id is required"))
+			return
+		}
+
+		result, err := service.ImportSkill(ctx, &req)
+		if err != nil {
+			if err.Error() == "user not authenticated or org not set" {
+				ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
+				return
+			}
+			msg := err.Error()
+			if strings.Contains(msg, "not found") {
+				ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, msg))
+				return
+			}
+			if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
+				strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") {
+				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, msg))
+				return
+			}
+			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, msg))
 			return
 		}
 

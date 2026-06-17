@@ -23,6 +23,17 @@ type InstallSkillResponse struct {
 	Message string `json:"message"`
 }
 
+// ImportSkillRequest 从已上传文件导入 Skill 的请求。
+type ImportSkillRequest struct {
+	FileUploadID string `json:"file_upload_id" binding:"required"`
+}
+
+// ImportSkillResponse Skill 导入响应（异步，仅表示已接受）。
+type ImportSkillResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
 // SkillMarketplaceService 定义 Skill 市场搜索服务接口。
 type SkillMarketplaceService interface {
 	SearchSkillMarketplace(ctx context.Context, req *SearchSkillMarketplaceRequest) (*SearchSkillMarketplaceResponse, error)
@@ -31,6 +42,7 @@ type SkillMarketplaceService interface {
 	InstalledSkills(ctx context.Context, req *InstalledSkillsRequest) (*InstalledSkillsResponse, error)
 	UninstallSkill(ctx context.Context, req *UninstallSkillRequest) (*UninstallSkillResponse, error)
 	GetSkillDetail(ctx context.Context, req *SkillDetailRequest) (*SkillDetailResponse, error)
+	ImportSkill(ctx context.Context, req *ImportSkillRequest) (*ImportSkillResponse, error)
 }
 
 // SearchSkillMarketplaceRequest Skill 市场搜索请求。

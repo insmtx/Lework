@@ -3,24 +3,35 @@
 package skillmgmt
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/insmtx/Leros/backend/engines"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
+	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/dm"
+	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/ygpkg/yg-go/logs"
 )
 
 const consumerName = "worker-skill-mgmt"
+
+// httpClient is a shared HTTP client with a reasonable timeout for skill file downloads.
+var httpClient = &http.Client{Timeout: 5 * time.Minute}
 
 // Config holds the configuration for a skill management consumer.
 type Config struct {
@@ -95,6 +106,8 @@ func (c *Consumer) handle(ctx context.Context, msg *nats.Msg) error {
 		return c.handleUninstall(ctx, req)
 	case "detail":
 		return c.handleDetail(ctx, req)
+	case "import":
+		return c.handleImport(ctx, req)
 	default:
 		return c.replyError(req.Body.ReplyTo, fmt.Sprintf("unknown action: %s", action), nil)
 	}
@@ -122,7 +135,10 @@ func (c *Consumer) handleInstall(ctx context.Context, req protocol.SkillManageme
 	}
 
 	logs.InfoContextf(ctx, "leros skill install succeeded for %q", skillID)
-	return c.replySuccess(req.Body.ReplyTo, "install", fmt.Sprintf("skill %q installed", skillID))
+	if req.Body.ReplyTo != "" {
+		return c.replySuccess(req.Body.ReplyTo, "install", fmt.Sprintf("skill %q installed", skillID))
+	}
+	return nil
 }
 
 func (c *Consumer) handleList(ctx context.Context, req protocol.SkillManagementMessage) error {
@@ -191,7 +207,10 @@ func (c *Consumer) handleUninstall(ctx context.Context, req protocol.SkillManage
 	}
 
 	logs.InfoContextf(ctx, "leros skill uninstall succeeded for %q", name)
-	return c.replySuccess(req.Body.ReplyTo, "uninstall", fmt.Sprintf("skill %q uninstalled", name))
+	if req.Body.ReplyTo != "" {
+		return c.replySuccess(req.Body.ReplyTo, "uninstall", fmt.Sprintf("skill %q uninstalled", name))
+	}
+	return nil
 }
 
 func (c *Consumer) handleDetail(ctx context.Context, req protocol.SkillManagementMessage) error {
@@ -232,6 +251,201 @@ func (c *Consumer) handleDetail(ctx context.Context, req protocol.SkillManagemen
 		resp.Data = data
 	}
 	return c.publishReply(req.Body.ReplyTo, resp)
+}
+
+// handleImport downloads a skill file from a URL (local path or HTTP), extracts
+// SKILL.md and supporting files, then installs into the skills directory by name.
+func (c *Consumer) handleImport(ctx context.Context, req protocol.SkillManagementMessage) error {
+	// Prefer the dedicated DownloadURL field; fall back to SkillID for
+	// backward compatibility with older server versions.
+	sourceURL := strings.TrimSpace(req.Body.DownloadURL)
+	if sourceURL == "" {
+		sourceURL = strings.TrimSpace(req.Body.SkillID)
+	}
+	if sourceURL == "" {
+		return c.replyError(req.Body.ReplyTo, "download_url (or skill_id) is empty", nil)
+	}
+
+	// 1. Download from URL (supports local paths and HTTP)
+	fileBytes, contentType, err := downloadFromURL(ctx, sourceURL)
+	if err != nil {
+		return c.replyError(req.Body.ReplyTo, "download skill file", err)
+	}
+
+	// 2. Extract SKILL.md content and supporting files
+	var skillContent []byte
+	var supportingFiles map[string][]byte
+
+	if isZipContent(fileBytes, contentType) {
+		sc, sf, err := extractZipSkill(fileBytes)
+		if err != nil {
+			return c.replyError(req.Body.ReplyTo, "extract zip skill", err)
+		}
+		skillContent = sc
+		supportingFiles = sf
+	} else {
+		skillContent = fileBytes
+		supportingFiles = nil
+	}
+
+	// 3. Parse SKILL.md to get the skill name
+	manifest, _, err := catalog.ParseDocument(skillContent)
+	if err != nil {
+		return c.replyError(req.Body.ReplyTo, "parse SKILL.md", err)
+	}
+	name := strings.TrimSpace(manifest.Name)
+	if name == "" {
+		return c.replyError(req.Body.ReplyTo, "SKILL.md has no name", nil)
+	}
+
+	// 4. Install using skill store directly
+	skillsDir, err := leros.SkillsDir()
+	if err != nil {
+		return c.replyError(req.Body.ReplyTo, "resolve skills dir", err)
+	}
+	store, err := skillstore.NewSkillStore(skillsDir)
+	if err != nil {
+		return c.replyError(req.Body.ReplyTo, "create skill store", err)
+	}
+
+	files := make(map[string]string, len(supportingFiles))
+	for relPath, data := range supportingFiles {
+		files[relPath] = string(data)
+	}
+
+	result, err := store.Install(ctx, skillstore.InstallRequest{
+		Name:    name,
+		Content: string(skillContent),
+		Files:   files,
+		Force:   true,
+	})
+	if err != nil {
+		return c.replyError(req.Body.ReplyTo, "install skill", err)
+	}
+	if !result.Success {
+		errMsg := result.Error
+		if errMsg == "" {
+			errMsg = "unknown install error"
+		}
+		return c.replyError(req.Body.ReplyTo, fmt.Sprintf("install skill: %s", errMsg), nil)
+	}
+
+	// 5. Sync to external CLI skill directories
+	knownCLISkillDirs := []string{
+		"~/.claude/skills",
+		"~/.agents/skills",
+	}
+	if err := engines.EnsureExternalSkillLink(name, knownCLISkillDirs); err != nil {
+		logs.WarnContextf(ctx, "Warning: sync external links for %q: %v", name, err)
+	}
+
+	logs.InfoContextf(ctx, "Skill import succeeded for %q", name)
+	if req.Body.ReplyTo != "" {
+		return c.replySuccess(req.Body.ReplyTo, "import", fmt.Sprintf("skill %q imported", name))
+	}
+	return nil
+}
+
+// downloadFromURL downloads file content from a URL or local path.
+func downloadFromURL(ctx context.Context, urlStr string) ([]byte, string, error) {
+	// Local file path
+	if strings.HasPrefix(urlStr, "/") || strings.HasPrefix(urlStr, "file://") {
+		filePath := strings.TrimPrefix(urlStr, "file://")
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, "", fmt.Errorf("read local file %s: %w", filePath, err)
+		}
+		contentType := http.DetectContentType(data)
+		return data, contentType, nil
+	}
+
+	// HTTP(S) URL
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("create request: %w", err)
+	}
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, "", fmt.Errorf("download URL: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("URL returned status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 100_000_000))
+	if err != nil {
+		return nil, "", fmt.Errorf("read response: %w", err)
+	}
+	return data, resp.Header.Get("Content-Type"), nil
+}
+
+const maxPerFileSize = 1_048_576 // 1MB per file — consistent with service validateZipSkill
+
+// isZipContent detects whether the bytes represent a ZIP archive.
+func isZipContent(data []byte, contentType string) bool {
+	if strings.Contains(contentType, "zip") ||
+		strings.Contains(contentType, "application/octet-stream") {
+		return len(data) >= 4 &&
+			data[0] == 0x50 && data[1] == 0x4B &&
+			data[2] == 0x03 && data[3] == 0x04
+	}
+	// Check zip magic bytes regardless of content type
+	return len(data) >= 4 &&
+		data[0] == 0x50 && data[1] == 0x4B &&
+		data[2] == 0x03 && data[3] == 0x04
+}
+
+// extractZipSkill extracts SKILL.md and supporting files from a ZIP archive.
+func extractZipSkill(zipBytes []byte) ([]byte, map[string][]byte, error) {
+	reader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		return nil, nil, fmt.Errorf("open zip: %w", err)
+	}
+
+	var skillContent []byte
+	files := make(map[string][]byte)
+	allowedSubdirs := map[string]bool{
+		"assets": true, "references": true, "scripts": true, "templates": true,
+	}
+
+	for _, f := range reader.File {
+		name := filepath.ToSlash(f.Name)
+
+		// Path traversal protection
+		if filepath.IsAbs(name) || strings.Contains(name, "../") {
+			continue
+		}
+
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(rc, maxPerFileSize))
+		rc.Close()
+		if err != nil {
+			continue
+		}
+
+		base := filepath.Base(name)
+		if strings.EqualFold(base, "SKILL.md") {
+			skillContent = data
+		} else {
+			// Support any nesting depth within allowed subdirectories.
+			topDir, _, hasDir := strings.Cut(name, "/")
+			if hasDir && allowedSubdirs[topDir] {
+				files[name] = data
+			}
+		}
+	}
+
+	if skillContent == nil {
+		return nil, nil, fmt.Errorf("SKILL.md not found in zip")
+	}
+	return skillContent, files, nil
 }
 
 // replySuccess publishes a success response to the reply inbox.
