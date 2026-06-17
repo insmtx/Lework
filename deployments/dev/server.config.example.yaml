@@ -1,4 +1,5 @@
 # Leros Development Configuration - Server
+env: local
 workspace_root:
 
 server:
@@ -21,3 +22,9 @@ llm:
   api_key: "${LLM_API_KEY}"
   model: "qwen3.6-plus"
   base_url: "https://api.yygu.cn/v3/llm.chat/"
+
+gitea:
+  endpoint: "http://49.232.218.218:3009"
+  admin_token: "<your_admin_token>"
+  default_owner: "leros-system"
+  org_prefix: "leros"

@@ -24,6 +24,14 @@ func (c *Client) GetRepo(ctx context.Context, owner, repo string) (*RepoInfo, er
 	return &result, nil
 }
 
+func (c *Client) DeleteRepo(ctx context.Context, owner, repo string) error {
+	apiPath := fmt.Sprintf("/repos/%s/%s", url.PathEscape(owner), url.PathEscape(repo))
+	if err := c.doJSON(ctx, "DELETE", apiPath, nil, nil); err != nil {
+		return fmt.Errorf("delete repo: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) CreateFile(ctx context.Context, owner, repo, filePath, content, message string) error {
 	apiPath := fmt.Sprintf("/repos/%s/%s/contents/%s",
 		url.PathEscape(owner), url.PathEscape(repo), filePath)
