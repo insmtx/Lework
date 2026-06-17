@@ -11,7 +11,6 @@ import (
 
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/agent"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
@@ -52,12 +51,11 @@ type Consumer struct {
 	sem        chan struct{}
 	pending    map[string][]chan struct{}
 	pendingMu  sync.Mutex
-	giteaClient *gitea.Client
-	giteaCfg    *config.GiteaConfig
+	giteaCfg *config.GiteaConfig
 }
 
 // New creates a worker task consumer.
-func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, runner agent.Runner, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig) (*Consumer, error) {
+func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, runner agent.Runner, giteaCfg *config.GiteaConfig) (*Consumer, error) {
 	if cfg.OrgID == 0 {
 		return nil, fmt.Errorf("worker org_id is required")
 	}
@@ -102,7 +100,6 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 		seqTracker:  tracker,
 		sem:         make(chan struct{}, maxConcurrency*2),
 		pending:     make(map[string][]chan struct{}),
-		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 	}
 
@@ -377,22 +374,14 @@ func (c *Consumer) prepareWorkspace(ctx context.Context, taskMsg protocol.Worker
 	}
 
 	cloneURL := ""
-	if c.giteaClient != nil && c.giteaCfg != nil {
+	if c.giteaCfg != nil {
 		orgID := taskMsg.Route.OrgID
 		repoName := fmt.Sprintf("%s-%d-%s", c.cfg.Env, orgID, projectID)
-		token, err := c.giteaClient.GenerateAccessToken(ctx,
-			c.giteaCfg.DefaultOwner,
-			fmt.Sprintf("leros-worker-%d-%s", c.cfg.WorkerID, taskMsg.Trace.TaskID),
-			[]string{"write:repository"})
-		if err != nil {
-			logs.WarnContextf(ctx, "generate gitea token failed: %v", err)
-		} else {
-			endpoint := strings.TrimPrefix(strings.TrimPrefix(c.giteaCfg.Endpoint, "https://"), "http://")
-			cloneURL = fmt.Sprintf("https://%s:%s@%s/%s/%s.git",
-				c.giteaCfg.DefaultOwner, token.Token,
-				endpoint,
-				c.giteaCfg.DefaultOwner, repoName)
-		}
+		endpoint := strings.TrimPrefix(strings.TrimPrefix(c.giteaCfg.Endpoint, "https://"), "http://")
+		cloneURL = fmt.Sprintf("https://%s:%s@%s/%s/%s.git",
+			c.giteaCfg.DefaultOwner, c.giteaCfg.AdminToken,
+			endpoint,
+			c.giteaCfg.DefaultOwner, repoName)
 	}
 
 	plan, err := agentworkspace.PrepareTaskWorkspace(ctx, agentworkspace.TaskWorkspaceRequest{

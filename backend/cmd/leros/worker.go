@@ -13,7 +13,6 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/engines/builtin"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	agentruntime "github.com/insmtx/Leros/backend/internal/runtime"
 	runtimemcp "github.com/insmtx/Leros/backend/internal/runtime/mcp"
@@ -223,7 +222,7 @@ func runTaskWorker(defaultRuntime string) {
 		WorkerID:       cfg.WorkerID,
 		Env:            cfg.Env,
 		SeqTrackerPath: seqTrackerPath,
-	}, bus, bus, runtimeService, newGiteaClient(cfg.Gitea), cfg.Gitea)
+	}, bus, bus, runtimeService, cfg.Gitea)
 	if err != nil {
 		cancel()
 		_ = bus.Close()
@@ -326,9 +325,3 @@ func buildWorkerMCPURL(listenAddr string) string {
 	return "http://" + addr + "/v1/mcp"
 }
 
-func newGiteaClient(cfg *config.GiteaConfig) *gitea.Client {
-	if cfg == nil || strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.AdminToken) == "" {
-		return nil
-	}
-	return gitea.NewClient(cfg.Endpoint, cfg.AdminToken)
-}
