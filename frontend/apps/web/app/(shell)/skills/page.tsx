@@ -1,5 +1,5 @@
-import { SkillMarketView } from "@leros/app-ui";
+import { SkillsRoutePage } from "@/components/route-pages";
 
 export default function SkillsPage() {
-  return <SkillMarketView />;
+	return <SkillsRoutePage />;
 }

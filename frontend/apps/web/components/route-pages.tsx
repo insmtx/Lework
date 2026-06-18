@@ -4,6 +4,7 @@ import {
 	AssistantListView,
 	CenterCanvas,
 	ProjectPage,
+	SkillMarketView,
 	TaskDetailPage,
 	WorkbenchPanel,
 } from "@leros/app-ui";
@@ -62,6 +63,12 @@ export function TaskDetailRoutePage() {
 
 export function AssistantsRoutePage() {
 	return <AssistantListView />;
+}
+
+export function SkillsRoutePage() {
+	const navigation = useWebNavigation();
+
+	return <SkillMarketView navigation={navigation} />;
 }
 
 export function EmptyRoutePage() {

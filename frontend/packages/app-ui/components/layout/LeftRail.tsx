@@ -1,7 +1,7 @@
 "use client";
 
 import type { AuthUser, NavItem, Project, ViewMode } from "@leros/store";
-import { useLayoutStore } from "@leros/store";
+import { useChatStore, useLayoutStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -93,6 +93,7 @@ export function LeftRail({
 		switchProject,
 		updateProject,
 	} = useLayoutStore((s) => s);
+	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const { isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 	const hasLoadedPreferenceRef = useRef(false);
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
@@ -150,6 +151,9 @@ export function LeftRail({
 
 	const handleProjectClick = (projectId: string) => {
 		requireAuth(() => {
+			if (projectId !== activeProjectId) {
+				clearComposerInput();
+			}
 			if (navigation) {
 				navigation.goToProject(projectId);
 				return;
