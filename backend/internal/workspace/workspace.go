@@ -44,6 +44,9 @@ func PrepareTaskWorkspace(ctx context.Context, req TaskWorkspaceRequest) (*TaskW
 	if err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(plan.TurnDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create turn dir: %w", err)
+	}
 	if err := os.MkdirAll(plan.TurnTmpDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create turn tmp dir: %w", err)
 	}
@@ -317,6 +320,16 @@ func resolveSymlinksUpToExisting(path string) (string, error) {
 func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
 	if err := os.MkdirAll(plan.RepoDir, 0o755); err != nil {
 		return fmt.Errorf("create repo dir: %w", err)
+	}
+	entries, readErr := os.ReadDir(plan.RepoDir)
+	if readErr == nil && len(entries) > 0 {
+		gitDir := filepath.Join(plan.RepoDir, ".git")
+		info, statErr := os.Stat(gitDir)
+		if statErr != nil || !info.IsDir() {
+			if err := os.RemoveAll(plan.RepoDir); err != nil {
+				return fmt.Errorf("remove non-git repo dir: %w", err)
+			}
+		}
 	}
 	gitDir := filepath.Join(plan.RepoDir, ".git")
 	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {

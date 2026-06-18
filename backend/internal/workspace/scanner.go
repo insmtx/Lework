@@ -30,6 +30,9 @@ func WriteBaseline(ctx context.Context, plan *TaskWorkspace) error {
 	if err != nil {
 		return fmt.Errorf("scan repo for baseline: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Dir(plan.BaselinePath), 0o755); err != nil {
+		return fmt.Errorf("ensure baseline dir: %w", err)
+	}
 	file, err := os.Create(plan.BaselinePath)
 	if err != nil {
 		return fmt.Errorf("create baseline file: %w", err)
