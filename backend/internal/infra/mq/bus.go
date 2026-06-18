@@ -13,6 +13,10 @@ import (
 type Publisher interface {
 	// Publish 向指定主题发布事件
 	Publish(ctx context.Context, topic string, event any) error
+	// Request 向指定主题发布请求并等待单个回复。
+	// 使用 NATS inbox 模式：发布方订阅唯一 inbox，发布事件时将 Reply 设为该 inbox，然后等待回复。
+	// 返回原始的 NATS 消息，其中包含回复数据。
+	Request(ctx context.Context, topic string, event any) (*nats.Msg, error)
 }
 
 // Subscriber 是事件订阅者接口，定义了订阅指定主题事件的方法。

@@ -46,6 +46,7 @@ export class AuthActionImpl {
 		this.setAuthUser({
 			name: token.user_info.name || token.user_info.email || "Leros 用户",
 			email: token.user_info.email,
+			avatarUrl: token.user_info.avatar_url,
 			jwtToken: token.jwt_token,
 			refreshToken: token.refresh_token,
 			expiredAt: token.expired_at,

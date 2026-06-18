@@ -21,6 +21,11 @@ func SessionArtifactDeclaredConsumer() string {
 	return "session-artifact-declared-handler"
 }
 
+// WorkerSkillConsumer 返回 worker skill 管理消费者的持久化消费者名称。
+func WorkerSkillConsumer() string {
+	return "worker-skill-mgmt"
+}
+
 // SessionRunStartedConsumer constructs the durable consumer for run start state projection.
 func SessionRunStartedConsumer() string {
 	return "session-run-started-handler"

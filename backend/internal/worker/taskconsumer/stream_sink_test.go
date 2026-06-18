@@ -2,8 +2,11 @@ package taskconsumer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
@@ -306,4 +309,8 @@ func (p *recordingPublisher) Publish(_ context.Context, topic string, event any)
 		event: event,
 	})
 	return nil
+}
+
+func (p *recordingPublisher) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
+	return nil, fmt.Errorf("recordingPublisher: Request not supported")
 }

@@ -225,6 +225,76 @@ func TestSkillStoreDeleteRemovesDirectory(t *testing.T) {
 	}
 }
 
+func TestSkillStoreDeleteRejectsSeedSkill(t *testing.T) {
+	store, root := newTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.Create(ctx, CreateRequest{
+		Name:    "builtin-skill",
+		Content: testSkillDocument("builtin-skill", "Built-in", "Body."),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Write a .seed-manifest that includes this skill
+	manifestPath := filepath.Join(root, seedManifestFile)
+	if err := os.WriteFile(manifestPath, []byte("builtin-skill:abc123def456\n"), 0o644); err != nil {
+		t.Fatalf("write seed manifest: %v", err)
+	}
+
+	// Attempt delete — must be rejected
+	result, err := store.Delete(ctx, DeleteRequest{Name: "builtin-skill"})
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("expected delete to be rejected for seed skill")
+	}
+	if result.ErrorCode != ErrSkillIsBuiltin.Code {
+		t.Fatalf("expected error code %q, got %q", ErrSkillIsBuiltin.Code, result.ErrorCode)
+	}
+
+	// Verify skill still exists
+	skill, err := store.Find(ctx, "builtin-skill")
+	if err != nil {
+		t.Fatalf("expected seed skill to still exist after rejected delete: %v", err)
+	}
+	if skill == nil {
+		t.Fatal("expected seed skill to still exist")
+	}
+}
+
+func TestSkillStoreDeleteCaseInsensitiveSeedCheck(t *testing.T) {
+	store, root := newTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.Create(ctx, CreateRequest{
+		Name:    "my-skill",
+		Content: testSkillDocument("my-skill", "My Skill", "Body."),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Seed manifest has uppercase skill name — should still match case-insensitively
+	manifestPath := filepath.Join(root, seedManifestFile)
+	if err := os.WriteFile(manifestPath, []byte("MY-SKILL:abc123def456\n"), 0o644); err != nil {
+		t.Fatalf("write seed manifest: %v", err)
+	}
+
+	result, err := store.Delete(ctx, DeleteRequest{Name: "my-skill"})
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected case-insensitive seed check to block delete")
+	}
+	if result.ErrorCode != ErrSkillIsBuiltin.Code {
+		t.Fatalf("expected error code %q, got %q", ErrSkillIsBuiltin.Code, result.ErrorCode)
+	}
+}
+
 func newTestStore(t *testing.T) (*SkillStore, string) {
 	t.Helper()
 

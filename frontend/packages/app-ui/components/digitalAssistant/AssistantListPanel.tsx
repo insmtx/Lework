@@ -6,6 +6,7 @@ import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { cn } from "@leros/ui/lib/utils";
 import { Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
+import { AssistantAvatar } from "./AssistantAvatar";
 
 const statusDotMap: Record<string, string> = {
 	active: "bg-green-500",
@@ -70,13 +71,7 @@ export function AssistantListPanel({ onCreateClick }: AssistantListPanelProps) {
 							)}
 							onClick={() => switchAssistant(a.id)}
 						>
-							<div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xs font-semibold">
-								{a.avatar ? (
-									<img src={a.avatar} alt={a.name} className="size-7 rounded-full object-cover" />
-								) : (
-									a.name.charAt(0)
-								)}
-							</div>
+							<AssistantAvatar name={a.name} src={a.avatar} size="sm" />
 							<span className="truncate flex-1">{a.name}</span>
 							<span
 								className={`size-2 rounded-full shrink-0 ${statusDotMap[a.status] ?? "bg-slate-300"}`}

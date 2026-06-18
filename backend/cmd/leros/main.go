@@ -7,10 +7,12 @@ import (
 )
 
 func main() {
-	redirectLogsToStderr()
+	waitFlush := redirectLogsToStderr()
 	if err := newRootCommand().Execute(); err != nil {
+		waitFlush()
 		os.Exit(1)
 	}
+	waitFlush()
 }
 
 // redirectLogsToStderr ensures that structured zap log lines emitted by the
@@ -21,7 +23,11 @@ func main() {
 // The redirect only activates when a --json flag is present in the command
 // arguments (e.g. session messages, session ls). Server, worker, chat and
 // other interactive commands are left untouched.
-func redirectLogsToStderr() {
+//
+// Returns a function that MUST be called before the process exits to flush
+// remaining data and wait for the filter goroutine to finish.
+func redirectLogsToStderr() (waitFlush func()) {
+	waitFlush = func() {} // no-op default
 	if !hasJSONFlag() {
 		return
 	}
@@ -35,8 +41,10 @@ func redirectLogsToStderr() {
 	}
 
 	os.Stdout = w
+	done := make(chan struct{})
 
 	go func() {
+		defer close(done)
 		defer r.Close()
 		defer w.Close()
 
@@ -56,6 +64,12 @@ func redirectLogsToStderr() {
 		}
 		_ = scanner.Err()
 	}()
+
+	waitFlush = func() {
+		w.Close()
+		<-done
+	}
+	return
 }
 
 // hasJSONFlag reports whether the --json flag is present in the command
