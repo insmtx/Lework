@@ -92,6 +92,7 @@ type runState struct {
 
 	mu            sync.Mutex
 	turnID        string
+	msgCount      int // agentMessage 类型的 item/started 计数，用于生成跨轮唯一的消息 ID
 	assistantText strings.Builder
 	currentDiff   strings.Builder
 	messageID     string
@@ -106,6 +107,11 @@ type turnResult struct {
 	message    string
 	diff       string
 	tokenUsage any
+}
+
+// makeMessageID 组合 msgCount 和 itemID 生成跨轮唯一的 provider message ID。
+func (st *runState) makeMessageID(itemID string) string {
+	return fmt.Sprintf("%d_%s", st.msgCount, itemID)
 }
 
 // ============================================================================
@@ -182,12 +188,13 @@ func (st *runState) onItemStarted(params sonic.NoCopyRawMessage) {
 	switch payload.Item.Type {
 	case "agentMessage":
 		if payload.Item.ID != "" {
-			st.messageID = payload.Item.ID
+			st.msgCount++
+			st.messageID = st.makeMessageID(payload.Item.ID)
 		}
 	case "commandExecution", "fileChange":
 		sendEventPayloadTo(st.evtChan, events.EventToolCallStarted,
 			events.ToolCallPayload{
-				ToolCallID: payload.Item.ID,
+				ToolCallID: st.makeMessageID(payload.Item.ID),
 				Name:       "Command",
 				Arguments:  map[string]any{"command": payload.Item.Command, "cwd": payload.Item.CWD},
 			})
@@ -216,7 +223,7 @@ func (st *runState) onItemCompleted(params sonic.NoCopyRawMessage) {
 			st.assistantText.WriteString(payload.Item.Text)
 		}
 	case "commandExecution", "fileChange":
-		st.emitToolResult(payload.Item.ID, payload.Item.AggregatedOutput, payload.Item.Output, payload.Item.ExitCode, payload.Item.DurationMs)
+		st.emitToolResult(st.makeMessageID(payload.Item.ID), payload.Item.AggregatedOutput, payload.Item.Output, payload.Item.ExitCode, payload.Item.DurationMs)
 	}
 }
 
@@ -244,7 +251,7 @@ func (st *runState) onAgentDelta(params sonic.NoCopyRawMessage) {
 		return
 	}
 	if payload.ItemID != "" {
-		st.messageID = payload.ItemID
+		st.messageID = st.makeMessageID(payload.ItemID)
 	}
 	st.assistantText.WriteString(payload.Delta)
 	emitMessageDelta(st.evtChan, st.messageID, payload.Delta)
