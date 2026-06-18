@@ -5,6 +5,7 @@ import type { Message, MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Check, Copy, ImageIcon, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { parseLeadingSkillDirectives, SkillDirectiveBadge } from "../common/SkillDirectiveBadge";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { MessageAttachmentPreviewDialog } from "./MessageAttachmentPreviewDialog";
 
@@ -34,6 +35,7 @@ function CopyButton({ text }: { text: string }) {
 export function UserMessageBubble({ message }: { message: Message }) {
 	const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 	const visibleText = message.content.trim();
+	const skillContent = parseLeadingSkillDirectives(visibleText);
 	const attachments = message.attachments ?? [];
 
 	return (
@@ -66,7 +68,18 @@ export function UserMessageBubble({ message }: { message: Message }) {
 					)}
 					{visibleText && (
 						<div className="w-fit rounded-2xl rounded-tr-md bg-blue-600 px-4 py-3 text-sm leading-7 text-white shadow-sm shadow-blue-600/10">
-							{message.content}
+							{skillContent.skills.length > 0 ? (
+								<div className="flex flex-wrap items-center gap-1.5">
+									{skillContent.skills.map((skill) => (
+										<SkillDirectiveBadge key={skill} name={skill} variant="on-blue" />
+									))}
+									{skillContent.rest && (
+										<span className="whitespace-pre-wrap break-words">{skillContent.rest}</span>
+									)}
+								</div>
+							) : (
+								message.content
+							)}
 						</div>
 					)}
 				</div>

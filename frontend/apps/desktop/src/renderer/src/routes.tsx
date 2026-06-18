@@ -33,7 +33,7 @@ export function AppRoutes() {
 				<Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailRoutePage />} />
 				<Route path="/assistants" element={<AssistantListView />} />
 				<Route path="/tasks" element={<EmptyRoutePage />} />
-				<Route path="/skills" element={<SkillMarketView />} />
+				<Route path="/skills" element={<SkillMarketView navigation={navigation} />} />
 				<Route path="/knowledge" element={<EmptyRoutePage />} />
 				<Route path="/settings" element={<EmptyRoutePage />} />
 				<Route path="*" element={<Navigate to="/workbench" replace />} />

@@ -1,5 +1,6 @@
 "use client";
 
+import { type SkillInstalledItem, skillMarketplaceApi } from "@leros/store";
 import {
 	Command,
 	CommandEmpty,
@@ -8,7 +9,7 @@ import {
 	CommandList,
 } from "@leros/ui/components/ui/command";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot } from "lucide-react";
+import { Bot, Sparkles, TerminalSquare } from "lucide-react";
 import {
 	forwardRef,
 	type MouseEvent,
@@ -22,6 +23,8 @@ import {
 import { type ChatCommand, mockAssistants, mockChatCommands } from "./mockDirectiveData";
 
 type DirectiveKind = "assistant" | "command";
+type TokenKind = "assistant" | "skill";
+type SelectionKind = DirectiveKind | "skill";
 
 type ActiveTrigger = {
 	kind: DirectiveKind;
@@ -34,6 +37,7 @@ type InsertedToken = {
 	label: string;
 	start: number;
 	end: number;
+	kind: TokenKind;
 };
 
 type AssistantOption = {
@@ -41,6 +45,23 @@ type AssistantOption = {
 	name: string;
 	description: string;
 };
+
+type SkillOption = {
+	code: string;
+	label: string;
+	description: string;
+	keywords: string[];
+};
+
+type CommandOption =
+	| {
+			kind: "skill";
+			item: SkillOption;
+	  }
+	| {
+			kind: "command";
+			item: ChatCommand;
+	  };
 
 type EditorSnapshot = {
 	text: string;
@@ -93,6 +114,104 @@ function normalizeSearchValue(value: string): string {
 	return value.trim().toLowerCase();
 }
 
+function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
+	return {
+		code: skill.name,
+		label: skill.name,
+		description: skill.description || skill.category || "已安装技能",
+		keywords: [skill.name, skill.description, skill.category, skill.source, skill.trust].filter(
+			Boolean,
+		),
+	};
+}
+
+function matchesCommandQuery(
+	option: Pick<SkillOption, "label" | "code" | "description" | "keywords">,
+	query: string,
+): boolean {
+	if (!query) return true;
+	return [option.label, option.code, option.description, ...option.keywords]
+		.join(" ")
+		.toLowerCase()
+		.includes(query);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function stringFromValue(value: unknown): string {
+	return typeof value === "string" ? value : "";
+}
+
+function skillItemFromValue(value: unknown): SkillInstalledItem | null {
+	if (!isRecord(value)) return null;
+
+	const name = stringFromValue(value.name || value.skill_id || value.id);
+	if (!name) return null;
+
+	return {
+		name,
+		description: stringFromValue(value.description),
+		category: stringFromValue(value.category),
+		source: stringFromValue(value.source || value.source_type),
+		trust: stringFromValue(value.trust),
+	};
+}
+
+function skillItemsFromValue(value: unknown): SkillInstalledItem[] {
+	if (!Array.isArray(value)) return [];
+	return value.map(skillItemFromValue).filter((item): item is SkillInstalledItem => item !== null);
+}
+
+function normalizeInstalledSkillsPayload(value: unknown): SkillInstalledItem[] {
+	if (Array.isArray(value)) return skillItemsFromValue(value);
+	if (!isRecord(value)) return [];
+
+	const nestedData = value.data;
+	if (isRecord(nestedData)) {
+		if (Array.isArray(nestedData.skills)) {
+			return skillItemsFromValue(nestedData.skills);
+		}
+		if (Array.isArray(nestedData.items)) {
+			return skillItemsFromValue(nestedData.items);
+		}
+	}
+
+	if (Array.isArray(value.skills)) return skillItemsFromValue(value.skills);
+	if (Array.isArray(value.items)) return skillItemsFromValue(value.items);
+	return [];
+}
+
+function assistantPickerValue(option: AssistantOption): string {
+	return `assistant:${option.code}`;
+}
+
+function commandPickerValue(option: CommandOption): string {
+	return `${option.kind}:${option.item.code}`;
+}
+
+function inferLeadingSkillTokens(value: string): InsertedToken[] {
+	const leadingOffset = value.length - value.trimStart().length;
+	let cursor = leadingOffset;
+	const tokens: InsertedToken[] = [];
+
+	while (value[cursor] === "/") {
+		const match = value.slice(cursor).match(/^(\/[^\s/]+)(\s+)/);
+		if (!match?.[1]) break;
+
+		tokens.push({
+			label: match[1],
+			start: cursor,
+			end: cursor + match[1].length,
+			kind: "skill",
+		});
+		cursor += match[0].length;
+	}
+
+	return tokens;
+}
+
 function sortTokens(tokens: InsertedToken[]): InsertedToken[] {
 	return [...tokens].sort((a, b) => a.start - b.start);
 }
@@ -105,7 +224,8 @@ function areTokensEqual(left: InsertedToken[], right: InsertedToken[]): boolean 
 			target &&
 			token.label === target.label &&
 			token.start === target.start &&
-			token.end === target.end
+			token.end === target.end &&
+			token.kind === target.kind
 		);
 	});
 }
@@ -129,6 +249,7 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 				label,
 				start: cursor,
 				end: cursor + label.length,
+				kind: node.dataset.mentionKind === "skill" ? "skill" : "assistant",
 			});
 			return { text: label, cursor: cursor + label.length };
 		}
@@ -161,6 +282,33 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 	};
 }
 
+function createSkillSparklesIcon(): SVGElement {
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	svg.setAttribute("class", "size-3");
+
+	const paths = [
+		"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.064 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z",
+		"M20 3v4",
+		"M22 5h-4",
+		"M4 17v2",
+		"M5 18H3",
+	];
+
+	for (const d of paths) {
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		path.setAttribute("d", d);
+		svg.appendChild(path);
+	}
+
+	return svg;
+}
+
 function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedToken[]) {
 	const fragment = document.createDocumentFragment();
 	const orderedTokens = sortTokens(tokens);
@@ -174,10 +322,24 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 		const mention = document.createElement("span");
 		mention.dataset.mentionNode = "true";
 		mention.dataset.mentionLabel = token.label;
+		mention.dataset.mentionKind = token.kind;
 		mention.setAttribute("contenteditable", "false");
-		mention.className =
-			"inline-flex rounded-md bg-blue-100 px-1.5 py-0.5 text-blue-700 align-baseline";
-		mention.textContent = token.label;
+		if (token.kind === "skill") {
+			mention.className =
+				"inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium leading-none text-violet-700 ring-1 ring-violet-100 align-baseline";
+			const iconShell = document.createElement("span");
+			iconShell.className =
+				"inline-flex size-4 shrink-0 items-center justify-center rounded-md bg-white text-violet-600";
+			iconShell.appendChild(createSkillSparklesIcon());
+			const label = document.createElement("span");
+			label.className = "truncate";
+			label.textContent = token.label;
+			mention.append(iconShell, label);
+		} else {
+			mention.className =
+				"inline-flex rounded-md bg-blue-100 px-1.5 py-0.5 text-blue-700 align-baseline";
+			mention.textContent = token.label;
+		}
 		fragment.appendChild(mention);
 		cursor = token.end;
 	}
@@ -373,9 +535,14 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		ref,
 	) {
 		const editorRef = useRef<HTMLDivElement>(null);
+		const pickerRef = useRef<HTMLDivElement>(null);
 		const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
 		const [activeIndex, setActiveIndex] = useState(0);
 		const [tokens, setTokens] = useState<InsertedToken[]>([]);
+		const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
+		const [skillsLoading, setSkillsLoading] = useState(false);
+		const [skillsLoaded, setSkillsLoaded] = useState(false);
+		const [skillsError, setSkillsError] = useState<string | null>(null);
 		const composingRef = useRef(false);
 		const pendingCaretRef = useRef<number | null>(null);
 
@@ -392,23 +559,55 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			);
 		}, [assistantOptions, trigger]);
 
+		const filteredSkills = useMemo(() => {
+			const query = normalizeSearchValue(trigger?.kind === "command" ? trigger.query : "");
+			return skillOptions.filter((skill) => matchesCommandQuery(skill, query));
+		}, [skillOptions, trigger]);
+
 		const filteredCommands = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? trigger.query : "");
-			if (!query) return mockChatCommands;
-			return mockChatCommands.filter((command) =>
-				[command.label, command.code, command.description, ...command.keywords]
-					.join(" ")
-					.toLowerCase()
-					.includes(query),
-			);
+			return mockChatCommands.filter((command) => matchesCommandQuery(command, query));
 		}, [trigger]);
 
+		const commandOptions = useMemo<CommandOption[]>(
+			() => [
+				...filteredSkills.map((item) => ({ kind: "skill" as const, item })),
+				...filteredCommands.map((item) => ({ kind: "command" as const, item })),
+			],
+			[filteredCommands, filteredSkills],
+		);
+
 		const pickerItemCount =
-			trigger?.kind === "assistant" ? filteredAssistants.length : filteredCommands.length;
+			trigger?.kind === "assistant" ? filteredAssistants.length : commandOptions.length;
+
+		const activePickerValue = useMemo(() => {
+			if (!trigger) return "";
+			if (trigger.kind === "assistant") {
+				const assistant = filteredAssistants[activeIndex];
+				return assistant ? assistantPickerValue(assistant) : "";
+			}
+			const option = commandOptions[activeIndex];
+			return option ? commandPickerValue(option) : "";
+		}, [activeIndex, commandOptions, filteredAssistants, trigger]);
 
 		useEffect(() => {
 			setActiveIndex(0);
 		}, [trigger?.kind, trigger?.query]);
+
+		useEffect(() => {
+			if (!activePickerValue) return;
+
+			requestAnimationFrame(() => {
+				const picker = pickerRef.current;
+				if (!picker) return;
+
+				const activeItem = Array.from(
+					picker.querySelectorAll<HTMLElement>("[data-picker-item-value]"),
+				).find((item) => item.dataset.pickerItemValue === activePickerValue);
+
+				activeItem?.scrollIntoView({ block: "nearest" });
+			});
+		}, [activePickerValue]);
 
 		useEffect(() => {
 			const editor = editorRef.current;
@@ -417,11 +616,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			const validTokens = sortTokens(
 				tokens.filter((token) => value.slice(token.start, token.end) === token.label),
 			);
+			const displayTokens = validTokens.length > 0 ? validTokens : inferLeadingSkillTokens(value);
 			const snapshot = extractSnapshot(editor);
 
-			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, validTokens)) {
+			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, displayTokens)) {
 				// 只在纯文本或 mention 结构失配时重建 DOM，避免每次输入都打断用户的光标位置。
-				buildEditorContent(editor, value, validTokens);
+				buildEditorContent(editor, value, displayTokens);
 			}
 
 			if (pendingCaretRef.current !== null) {
@@ -435,6 +635,28 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			setTokens([]);
 			setTrigger(null);
 		}, [value]);
+
+		useEffect(() => {
+			if (trigger?.kind !== "command" || skillsLoaded) return;
+
+			setSkillsLoading(true);
+			setSkillsError(null);
+			skillMarketplaceApi
+				.installed()
+				.then((resp) => {
+					const raw = normalizeInstalledSkillsPayload(resp.data);
+					setSkillOptions(raw.map(installedSkillToOption));
+					setSkillsLoaded(true);
+				})
+				.catch((err: unknown) => {
+					const message = err instanceof Error ? err.message : "技能加载失败";
+					setSkillsError(message);
+					setSkillOptions([]);
+				})
+				.finally(() => {
+					setSkillsLoading(false);
+				});
+		}, [skillsLoaded, trigger?.kind]);
 
 		const focusAt = useCallback((cursor: number) => {
 			requestAnimationFrame(() => {
@@ -528,12 +750,14 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 		const selectToken = useCallback(
 			(
-				kind: DirectiveKind,
-				option: AssistantOption | ChatCommand,
+				kind: SelectionKind,
+				option: AssistantOption | ChatCommand | SkillOption,
 				activeTrigger: ActiveTrigger,
 			) => {
 				const isAssistant = kind === "assistant";
-				const label = `${isAssistant ? "@" : "/"}${isAssistant ? (option as AssistantOption).name : (option as ChatCommand).label}`;
+				const label = isAssistant
+					? `@${(option as AssistantOption).name}`
+					: `/${(option as ChatCommand | SkillOption).label}`;
 				const followingText = value.slice(activeTrigger.end);
 				const trailingSpace = followingText.startsWith(" ") ? "" : " ";
 				const nextValue = `${value.slice(0, activeTrigger.start)}${label}${trailingSpace}${followingText}`;
@@ -542,6 +766,26 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 						label,
 						start: activeTrigger.start,
 						end: activeTrigger.start + label.length,
+						kind: "assistant",
+					};
+					const delta =
+						label.length + trailingSpace.length - (activeTrigger.end - activeTrigger.start);
+
+					setTokens((current) =>
+						shiftTokensForInsert(
+							current,
+							activeTrigger.start,
+							activeTrigger.end,
+							insertedToken,
+							delta,
+						),
+					);
+				} else if (kind === "skill") {
+					const insertedToken: InsertedToken = {
+						label,
+						start: activeTrigger.start,
+						end: activeTrigger.start + label.length,
+						kind: "skill",
 					};
 					const delta =
 						label.length + trailingSpace.length - (activeTrigger.end - activeTrigger.start);
@@ -574,9 +818,28 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				if (assistant) selectToken("assistant", assistant, trigger);
 				return;
 			}
-			const command = filteredCommands[activeIndex];
-			if (command) selectToken("command", command, trigger);
-		}, [activeIndex, filteredAssistants, filteredCommands, selectToken, trigger]);
+			const option = commandOptions[activeIndex];
+			if (option) selectToken(option.kind === "skill" ? "skill" : "command", option.item, trigger);
+		}, [activeIndex, commandOptions, filteredAssistants, selectToken, trigger]);
+
+		const handlePickerValueChange = useCallback(
+			(nextValue: string) => {
+				if (!trigger) return;
+				if (trigger.kind === "assistant") {
+					const index = filteredAssistants.findIndex(
+						(assistant) => assistantPickerValue(assistant) === nextValue,
+					);
+					if (index >= 0) setActiveIndex(index);
+					return;
+				}
+
+				const index = commandOptions.findIndex(
+					(option) => commandPickerValue(option) === nextValue,
+				);
+				if (index >= 0) setActiveIndex(index);
+			},
+			[commandOptions, filteredAssistants, trigger],
+		);
 
 		const handleKeyDown = useCallback(
 			(event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -623,60 +886,119 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		return (
 			<div className="relative">
 				{trigger && (
-					<div className="absolute bottom-full left-0 z-30 mb-2 w-full max-w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_12px_36px_rgba(15,23,42,0.12)] backdrop-blur">
-						<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+					<div
+						ref={pickerRef}
+						className="absolute bottom-full left-0 z-30 mb-2 w-full max-w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_12px_36px_rgba(15,23,42,0.12)] backdrop-blur"
+					>
+						<Command
+							shouldFilter={false}
+							value={activePickerValue}
+							onValueChange={handlePickerValueChange}
+							className="rounded-xl! bg-transparent p-0"
+						>
 							<div className="flex items-center gap-2 px-2.5 pb-1.5 pt-1 text-xs font-medium text-slate-400">
-								{trigger.kind === "assistant" ? <>AI 队友</> : <>命令</>}
+								{trigger.kind === "assistant" ? <>AI 队友</> : <>命令和 Skills</>}
 								{trigger.query && <span className="truncate text-slate-400">{trigger.query}</span>}
 							</div>
 							<CommandList className="max-h-60">
 								<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
-								<CommandGroup className="p-0">
-									{trigger.kind === "assistant"
-										? filteredAssistants.map((assistant, index) => (
+								{trigger.kind === "assistant" ? (
+									<CommandGroup className="p-0">
+										{filteredAssistants.map((assistant, index) => (
+											<CommandItem
+												key={assistant.code}
+												value={assistantPickerValue(assistant)}
+												data-picker-item-value={assistantPickerValue(assistant)}
+												onMouseDown={(event: MouseEvent) => event.preventDefault()}
+												onSelect={() => selectToken("assistant", assistant, trigger)}
+												className={cn(
+													"rounded-xl px-2.5 py-2",
+													index === activeIndex && "bg-slate-100",
+												)}
+											>
+												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+													<Bot className="size-4" />
+												</div>
+												<div className="min-w-0 flex-1">
+													<div className="truncate font-medium text-slate-700">
+														{assistant.name}
+													</div>
+													<div className="truncate text-xs text-slate-400">
+														{assistant.description}
+													</div>
+												</div>
+											</CommandItem>
+										))}
+									</CommandGroup>
+								) : (
+									<>
+										<CommandGroup heading="Skills" className="p-0">
+											{skillsLoading && (
+												<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>
+											)}
+											{!skillsLoading && skillsError && (
+												<div className="px-2.5 py-2 text-xs text-red-400">{skillsError}</div>
+											)}
+											{filteredSkills.map((skill, index) => (
 												<CommandItem
-													key={assistant.code}
-													value={assistant.code}
+													key={`skill-${skill.code}`}
+													value={commandPickerValue({ kind: "skill", item: skill })}
+													data-picker-item-value={commandPickerValue({
+														kind: "skill",
+														item: skill,
+													})}
 													onMouseDown={(event: MouseEvent) => event.preventDefault()}
-													onSelect={() => selectToken("assistant", assistant, trigger)}
+													onSelect={() => selectToken("skill", skill, trigger)}
 													className={cn(
 														"rounded-xl px-2.5 py-2",
 														index === activeIndex && "bg-slate-100",
 													)}
 												>
-													<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-														<Bot className="size-4" />
+													<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+														<Sparkles className="size-3.5" />
 													</div>
 													<div className="min-w-0 flex-1">
-														<div className="truncate font-medium text-slate-700">
-															{assistant.name}
-														</div>
+														<div className="truncate font-medium">/{skill.label}</div>
 														<div className="truncate text-xs text-slate-400">
-															{assistant.description}
-														</div>
-													</div>
-												</CommandItem>
-											))
-										: filteredCommands.map((command, index) => (
-												<CommandItem
-													key={command.code}
-													value={command.code}
-													onMouseDown={(event: MouseEvent) => event.preventDefault()}
-													onSelect={() => selectToken("command", command, trigger)}
-													className={cn(
-														"rounded-xl px-2.5 py-2",
-														index === activeIndex && "bg-slate-100",
-													)}
-												>
-													<div className="min-w-0 flex-1">
-														<div className="font-medium">/{command.label}</div>
-														<div className="truncate text-xs text-slate-400">
-															{command.description}
+															{skill.description}
 														</div>
 													</div>
 												</CommandItem>
 											))}
-								</CommandGroup>
+										</CommandGroup>
+										<CommandGroup heading="命令" className="p-0">
+											{filteredCommands.map((command, index) => {
+												const globalIndex = filteredSkills.length + index;
+												return (
+													<CommandItem
+														key={command.code}
+														value={commandPickerValue({ kind: "command", item: command })}
+														data-picker-item-value={commandPickerValue({
+															kind: "command",
+															item: command,
+														})}
+														onMouseDown={(event: MouseEvent) => event.preventDefault()}
+														onSelect={() => selectToken("command", command, trigger)}
+														className={cn(
+															"rounded-xl px-2.5 py-2",
+															globalIndex === activeIndex && "bg-slate-100",
+														)}
+													>
+														<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+															<TerminalSquare className="size-4" />
+														</div>
+														<div className="min-w-0 flex-1">
+															<div className="font-medium">/{command.label}</div>
+															<div className="truncate text-xs text-slate-400">
+																{command.description}
+															</div>
+														</div>
+													</CommandItem>
+												);
+											})}
+										</CommandGroup>
+									</>
+								)}
 							</CommandList>
 						</Command>
 					</div>
