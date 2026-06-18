@@ -11,7 +11,10 @@ const (
 	// MessageTypeStream represents stream messages from Worker to Server (forwarded to UI).
 	MessageTypeStream MessageType = "message.stream"
 	// MessageTypeSkillInstall represents skill installation requests from Server to Worker.
+	// Deprecated: use MessageTypeSkillManagement instead.
 	MessageTypeSkillInstall MessageType = "skill.install"
+	// MessageTypeSkillManagement represents unified skill management requests from Server to Worker.
+	MessageTypeSkillManagement MessageType = "skill.management"
 )
 
 // TraceContext carries distributed tracing identifiers across UI, Server, Worker, and Runtime.

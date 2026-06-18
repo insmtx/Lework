@@ -19,7 +19,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/worker/approval"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
-	"github.com/insmtx/Leros/backend/internal/worker/skillinstall"
+	"github.com/insmtx/Leros/backend/internal/worker/skillmgmt"
 	"github.com/insmtx/Leros/backend/internal/worker/taskconsumer"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
@@ -135,6 +135,8 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 	go saveEffectiveConfig(cfg)
+	// root.go PersistentPreRunE 已从配置文件设置了 LEROS_WORKSPACE_ROOT。
+	// 这里仅在 CLI flag --workspace-root 显式覆盖时重新设置，确保子进程（如 leros skill list）继承正确的值。
 	if strings.TrimSpace(workerWorkspaceRoot) != "" {
 		os.Setenv(leros.EnvWorkspaceRoot, workerWorkspaceRoot)
 	}
@@ -237,21 +239,21 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 
-	skillInstallConsumer, err := skillinstall.New(skillinstall.Config{
+	skillMgmtConsumer, err := skillmgmt.New(skillmgmt.Config{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,
-	}, bus)
+	}, bus, bus.Conn())
 	if err != nil {
 		cancel()
 		_ = bus.Close()
-		logs.Fatalf("Failed to create skill install consumer: %v", err)
+		logs.Fatalf("Failed to create skill management consumer: %v", err)
 		return
 	}
 
 	// 启动任务消费（阻塞式订阅，独立 goroutine）
 	go func() { _ = consumer.Start(ctx) }()
 	go func() { _ = approvalSub.Start(ctx) }()
-	go func() { _ = skillInstallConsumer.Start(ctx) }()
+	go func() { _ = skillMgmtConsumer.Start(ctx) }()
 
 	lifecycle.Std().AddCloseFunc(func() error {
 		cancel()

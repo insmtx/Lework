@@ -30,6 +30,7 @@ func WorkerTaskSubject(orgid, workerid uint) (string, error) {
 }
 
 // WorkerSkillInstallSubject 构造 worker skill 安装 topic，格式为 "org.{org_id}.worker.{worker_id}.skill.install"。
+// Deprecated: use WorkerSkillSubject instead.
 func WorkerSkillInstallSubject(orgid, workerid uint) (string, error) {
 	if orgid == 0 {
 		return "", errors.New("orgid is required")
@@ -38,6 +39,17 @@ func WorkerSkillInstallSubject(orgid, workerid uint) (string, error) {
 		return "", errors.New("workerid is required")
 	}
 	return fmt.Sprintf("org.%d.worker.%d.skill.install", orgid, workerid), nil
+}
+
+// WorkerSkillSubject 构造统一的 worker skill 管理 topic，格式为 "org.{org_id}.worker.{worker_id}.skill"。
+func WorkerSkillSubject(orgid, workerid uint) (string, error) {
+	if orgid == 0 {
+		return "", errors.New("orgid is required")
+	}
+	if workerid == 0 {
+		return "", errors.New("workerid is required")
+	}
+	return fmt.Sprintf("org.%d.worker.%d.skill", orgid, workerid), nil
 }
 
 // SessionMessageRequestSubject 构造会话请求 topic，格式为 "org.{org_id}.session.{session_id}.request"。

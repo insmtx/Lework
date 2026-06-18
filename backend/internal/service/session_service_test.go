@@ -71,6 +71,10 @@ func (m *mockEventBus) SubscribeFrom(ctx context.Context, topic string, startSeq
 	return nil
 }
 
+func (m *mockEventBus) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
+	return nil, fmt.Errorf("mockEventBus: Request not supported")
+}
+
 // mockInferrer returns a fixed assistant ID.
 type mockInferrer struct {
 	assistantID uint

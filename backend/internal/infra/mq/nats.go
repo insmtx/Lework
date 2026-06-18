@@ -229,6 +229,79 @@ func (p *natsBus) Publish(ctx context.Context, topic string, event any) error {
 	return p.publishWithContext(ctx, topic, event)
 }
 
+// Request implements the eventbus.Publisher interface for request-reply.
+// Publishes the event through JetStream with a Reply inbox set, subscribes to the
+// inbox, and waits for a single reply message.
+//
+// JetStream does not preserve the NATS Reply header on delivered messages, so the
+// inbox is also injected into the JSON body at body.reply_to. Worker handlers must
+// read this field to know where to send their response.
+func (p *natsBus) Request(ctx context.Context, topic string, event any) (*nats.Msg, error) {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("NATS client is closed")
+	}
+	p.mu.Unlock()
+
+	body, err := json.Marshal(event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request event: %w", err)
+	}
+
+	inbox := nats.NewInbox()
+	sub, err := p.conn.SubscribeSync(inbox)
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe to inbox %s: %w", inbox, err)
+	}
+	defer sub.Unsubscribe()
+
+	// JetStream strips the Reply header, so inject the inbox into the JSON body
+	// so the worker knows where to send the response.
+	body = injectReplyTo(body, inbox)
+
+	// Publish through JetStream
+	_, err = p.js.PublishMsg(&nats.Msg{
+		Subject: topic,
+		Data:    body,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish request to topic %s: %w", topic, err)
+	}
+
+	// Wait for a single reply
+	reply, err := sub.NextMsgWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive reply on inbox %s: %w", inbox, err)
+	}
+	return reply, nil
+}
+
+// injectReplyTo sets the reply_to field inside the "body" object of a JSON-encoded
+// Envelope. If the JSON structure is unexpected, the original data is returned unchanged.
+func injectReplyTo(data []byte, inbox string) []byte {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return data
+	}
+	bodyObj, ok := raw["body"].(map[string]any)
+	if !ok {
+		return data
+	}
+	bodyObj["reply_to"] = inbox
+	result, err := json.Marshal(raw)
+	if err != nil {
+		return data
+	}
+	return result
+}
+
+// Conn returns the underlying NATS connection for advanced use cases such as
+// publishing reply messages from a worker consumer.
+func (p *natsBus) Conn() *nats.Conn {
+	return p.conn
+}
+
 // Subscribe implements the eventbus.Subscriber interface.
 // consumer 为空时使用临时消费者（OrderedConsumer, AckNone），非空时创建持久化消费者并自动 ACK/NAK。
 func (p *natsBus) Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {

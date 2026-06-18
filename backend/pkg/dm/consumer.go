@@ -20,3 +20,8 @@ func SessionCompletedConsumer() string {
 func SessionArtifactDeclaredConsumer() string {
 	return "session-artifact-declared-handler"
 }
+
+// WorkerSkillConsumer 返回 worker skill 管理消费者的持久化消费者名称。
+func WorkerSkillConsumer() string {
+	return "worker-skill-mgmt"
+}

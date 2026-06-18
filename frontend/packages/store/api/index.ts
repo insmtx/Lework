@@ -33,11 +33,15 @@ export type {
 	UpdateSessionParams,
 } from "./sessionApi";
 export type {
+	InstalledSkillsResponse,
 	SearchSkillMarketplaceParams,
 	SearchSkillMarketplaceResponse,
+	SkillInstalledItem,
 	SkillMarketplaceItem,
+	UninstallSkillParams,
+	UninstallSkillResponse,
 } from "./skillMarketplaceApi";
-export { skillMarketplaceApi } from "./skillMarketplaceApi";
+export { installedToCardItem, skillMarketplaceApi } from "./skillMarketplaceApi";
 export { sessionApi } from "./sessionApi";
 export type {
 	CreateTaskParams,
