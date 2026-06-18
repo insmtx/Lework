@@ -1,3 +1,9 @@
+// Deprecated: ResolveArtifactStorageFile and OpenArtifactStorageFile are no longer used.
+// Artifacts are now accessed via Gitea API using repo-relative storage keys
+// instead of Server-side local file system resolution.
+//
+// RepoRelativePathFromStorageKey is also deprecated — the new storageKey
+// is already repo-relative.
 package workspace
 
 import (

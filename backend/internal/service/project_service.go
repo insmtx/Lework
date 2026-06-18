@@ -728,7 +728,7 @@ func (s *projectService) initRepoStructure(ctx context.Context, fullName string)
 		msg     string
 	}{
 		{".leros/memory/.gitkeep", emptyContent, "chore: init .leros/memory/"},
-		{"assets/artifacts/.gitkeep", emptyContent, "chore: init assets/artifacts/"},
+		{"artifacts/.gitkeep", emptyContent, "chore: init artifacts/"},
 		{"README.md", base64.StdEncoding.EncodeToString([]byte("# " + repo + "\n")), "chore: init README"},
 	}
 

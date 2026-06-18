@@ -7,11 +7,9 @@ import (
 	"strings"
 
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
-	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/dm"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/nats-io/nats.go"
@@ -130,39 +128,12 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 	}
 	projectPublicID := projects[0].PublicID
 
-	// TODO: 后续改为从远程地址下载产物文件，当前从本地文件系统读取，Data后续也要去掉
-	fileInfo, err := agentworkspace.ResolveArtifactStorageFile(ctx, route.OrgID, route.WorkerID, storageKey, item.MimeType)
-	if err != nil {
-		logs.WarnContextf(ctx, "persist declared artifact: resolve storage file failed, artifact_id=%s storage_key=%s err=%v",
-			artifactID, storageKey, err)
-		return err
-	}
-	rawStorageKey := storageKey
-
-	fileUpload, err := filestore.Upload(ctx, p.db, filestore.UploadParams{
-		Data:         fileInfo.Data,
-		Filename:     fileInfo.Filename,
-		OriginalName: fileInfo.Filename,
-		MimeType:     fileInfo.MimeType,
-		Size:         fileInfo.FileSize,
-		OrgID:        session.OrgID,
-		OwnerID:      session.Uin,
-		ObjectKey:    rawStorageKey,
-		Purpose:      filestore.PurposeArtifact,
-		Metadata: map[string]interface{}{
-			"project_public_id": projectPublicID,
-			"worker_id":         route.WorkerID,
-			"artifact_id":       artifactID,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("store artifact file: %w", err)
-	}
-
 	filename := strings.TrimSpace(item.Filename)
 	if filename == "" {
-		filename = fileInfo.Filename
+		filename = item.Title
 	}
+	giteaArtifactURL := projectPublicID + "/" + storageKey
+
 	artifact := &types.Artifact{
 		PublicID:     artifactID,
 		OrgID:        session.OrgID,
@@ -174,20 +145,18 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		Filename:     filename,
 		Description:  strings.TrimSpace(item.Description),
 		ArtifactType: artifactType(item.ArtifactType),
-		FileURL:      "/v1/artifacts/" + artifactID + "/download",
-		FilePublicID: fileUpload.PublicID,
-		MimeType:     fileInfo.MimeType,
-		FileSize:     fileInfo.FileSize,
+		FileURL:      giteaArtifactURL,
+		FileSize:     item.FileSize,
 		RelativePath: item.Filename,
-		StorageKey:   fileUpload.StoragePath,
-		Sha256:       fileInfo.Sha256,
+		StorageKey:   storageKey,
+		MimeType:     item.MimeType,
+		Sha256:       item.Sha256,
 		Source:       artifactSource(item.Source),
 		Status:       artifactStatus(item.Status),
 		Metadata: types.ObjectMetadata{
 			Extra: map[string]interface{}{
-				"worker_id":       route.WorkerID,
-				"storage_key_raw": rawStorageKey,
-				"storage_path":    fileUpload.StoragePath,
+				"worker_id":         route.WorkerID,
+				"project_public_id": projectPublicID,
 			},
 		},
 	}

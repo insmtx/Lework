@@ -609,7 +609,7 @@ Thumbs.db
 	}{
 		{".gitignore", gitignoreContent, "chore: init .gitignore"},
 		{".leros/memory/.gitkeep", emptyContent, "chore: init .leros/memory/"},
-		{"assets/artifacts/.gitkeep", emptyContent, "chore: init assets/artifacts/"},
+		{"artifacts/.gitkeep", emptyContent, "chore: init artifacts/"},
 		{"README.md", base64.StdEncoding.EncodeToString([]byte("# " + repo + "\n")), "chore: init README"},
 	}
 

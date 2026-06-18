@@ -161,7 +161,7 @@ func FromAgentRequest(req *agent.RequestContext) (*TaskWorkspace, bool, error) {
 	return plan, true, nil
 }
 
-// StorageKey 返回适合持久化的 workspace root 相对路径。
+// StorageKey returns a repo-relative path suitable for persistence and Gitea API access.
 func (p *TaskWorkspace) StorageKey(relativePath string) (string, error) {
 	if p == nil {
 		return "", fmt.Errorf("workspace plan is required")
@@ -170,7 +170,7 @@ func (p *TaskWorkspace) StorageKey(relativePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	key, err := filepath.Rel(p.WorkspaceRoot, absolute)
+	key, err := filepath.Rel(p.RepoDir, absolute)
 	if err != nil {
 		return "", fmt.Errorf("build storage key: %w", err)
 	}
@@ -339,6 +339,9 @@ func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
 			if output, err := cmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("git pull: %w: %s", err, strings.TrimSpace(string(output)))
 			}
+			if err := os.MkdirAll(filepath.Join(plan.RepoDir, "artifacts"), 0o755); err != nil {
+				return fmt.Errorf("create artifacts dir: %w", err)
+			}
 			return nil
 		}
 		if err := os.RemoveAll(plan.RepoDir); err != nil {
@@ -358,6 +361,9 @@ func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		os.RemoveAll(plan.RepoDir)
 		return fmt.Errorf("git clone: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if err := os.MkdirAll(filepath.Join(plan.RepoDir, "assets"), 0o755); err != nil {
+		return fmt.Errorf("create assets dir: %w", err)
 	}
 	return nil
 }
