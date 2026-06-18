@@ -2,8 +2,11 @@ package taskconsumer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
@@ -24,6 +27,14 @@ func TestMQStreamSinkPublishesStreamEventToStreamTopic(t *testing.T) {
 			OrgID:     orgID,
 			SessionID: sessionID,
 			WorkerID:  2,
+		},
+		Body: protocol.WorkerTaskBody{
+			Input: protocol.TaskInput{
+				Messages: []protocol.ChatMessage{
+					{ID: "101", Role: protocol.MessageRoleUser, Content: "one"},
+					{ID: "102", Role: protocol.MessageRoleUser, Content: "two"},
+				},
+			},
 		},
 	}
 	publisher := &recordingPublisher{}
@@ -57,6 +68,9 @@ func TestMQStreamSinkPublishesStreamEventToStreamTopic(t *testing.T) {
 	}
 	if streamMsg.Body.Payload.Content != "hello" {
 		t.Fatalf("expected content %q, got %q", "hello", streamMsg.Body.Payload.Content)
+	}
+	if got := streamMsg.Body.ReplyToMessageIDs; len(got) != 2 || got[0] != "101" || got[1] != "102" {
+		t.Fatalf("reply_to_message_ids = %v, want [101 102]", got)
 	}
 }
 
@@ -295,4 +309,8 @@ func (p *recordingPublisher) Publish(_ context.Context, topic string, event any)
 		event: event,
 	})
 	return nil
+}
+
+func (p *recordingPublisher) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
+	return nil, fmt.Errorf("recordingPublisher: Request not supported")
 }

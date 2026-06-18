@@ -3,6 +3,7 @@ package taskconsumer
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
@@ -55,9 +56,10 @@ func (s *MQStreamSink) Emit(ctx context.Context, event *events.Event) error {
 		},
 		Route: s.task.Route,
 		Body: protocol.StreamBody{
-			Seq:     event.Seq,
-			Event:   streamEventType(event.Type),
-			Payload: streamPayload(event),
+			Seq:               event.Seq,
+			Event:             streamEventType(event.Type),
+			Payload:           streamPayload(event),
+			ReplyToMessageIDs: replyToMessageIDs(s.task),
 		},
 	}
 	if msg.Body.Event == protocol.StreamEventRunFailed {
@@ -115,9 +117,10 @@ func (s *MQStreamSink) emitCompleted(ctx context.Context, event *events.Event) e
 		},
 		Route: s.task.Route,
 		Body: protocol.StreamBody{
-			Seq:          event.Seq,
-			Event:        streamEvent,
-			RunCompleted: completedPayloadFromEvent(event),
+			Seq:               event.Seq,
+			Event:             streamEvent,
+			ReplyToMessageIDs: replyToMessageIDs(s.task),
+			RunCompleted:      completedPayloadFromEvent(event),
 		},
 	}
 	if streamEvent == protocol.StreamEventRunFailed {
@@ -204,6 +207,26 @@ func streamPayload(event *events.Event) protocol.StreamPayload {
 		}
 	}
 	return payload
+}
+
+func replyToMessageIDs(task protocol.WorkerTaskMessage) []string {
+	if len(task.Body.Input.Messages) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	ids := make([]string, 0, len(task.Body.Input.Messages))
+	for _, message := range task.Body.Input.Messages {
+		id := strings.TrimSpace(message.ID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func streamEventType(eventType events.EventType) protocol.StreamEventType {

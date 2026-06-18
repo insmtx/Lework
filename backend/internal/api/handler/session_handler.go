@@ -196,8 +196,8 @@ func (h *SessionHandler) ListSessions(ctx *gin.Context) {
 }
 
 type SessionEventsRequest struct {
-	SessionID    string `json:"session_id" binding:"required"`
-	LastSequence int64  `json:"last_sequence,omitempty"`
+	SessionID string `json:"session_id" binding:"required"`
+	Replay    bool   `json:"replay,omitempty"`
 }
 
 // @Summary 订阅会话事件流
@@ -228,7 +228,7 @@ func (h *SessionHandler) SessionEvents(ctx *gin.Context) {
 
 	go func() {
 		defer close(eventChan)
-		err := h.service.StreamSessionEvents(ctx, req.SessionID, req.LastSequence, sink)
+		err := h.service.StreamSessionEvents(ctx, req.SessionID, req.Replay, sink)
 		if err != nil {
 			logs.ErrorContextf(ctx, "failed to stream session events for session %s: %v", req.SessionID, err)
 			ctx.SSEvent("error", dto.Error(dto.CodeInternalError, err.Error()))

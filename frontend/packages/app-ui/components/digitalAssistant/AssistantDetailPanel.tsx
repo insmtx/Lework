@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/u
 import { cn } from "@leros/ui/lib/utils";
 import { BookOpen, Bot, Brain, Network, Pencil, Settings, Shield, Star } from "lucide-react";
 import { useState } from "react";
+import { AssistantAvatar } from "./AssistantAvatar";
 import { AssistantEditDialog } from "./AssistantEditDialog";
 
 const statusLabelMap: Record<
@@ -49,17 +50,7 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 			className={cn("flex h-full flex-col bg-white", className)}
 		>
 			<div className="flex flex-col items-center gap-3 border-b border-slate-200 px-4 py-6">
-				<div className="flex size-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-2xl font-semibold">
-					{assistant.avatar ? (
-						<img
-							src={assistant.avatar}
-							alt={assistant.name}
-							className="size-16 rounded-full object-cover"
-						/>
-					) : (
-						assistant.name.charAt(0)
-					)}
-				</div>
+				<AssistantAvatar name={assistant.name} src={assistant.avatar} size="lg" />
 				<div className="flex items-center gap-2">
 					<span className="text-base font-semibold text-slate-900">{assistant.name}</span>
 					<Badge variant={statusInfo.variant} className="text-xs">

@@ -12,7 +12,9 @@ import { artifactApi } from "@leros/store/api/artifactApi";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Bot,
+	ChevronsLeft,
 	ChevronsLeftRightEllipsis,
+	ChevronsRight,
 	Download,
 	Eye,
 	FileText,
@@ -61,6 +63,12 @@ const projectTabs = [
 const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
 const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
 const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
+const PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-project-right-sidebar-width";
+const PROJECT_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "leros-project-right-sidebar-collapsed";
+const PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH = 300;
+const PROJECT_RIGHT_SIDEBAR_MIN_WIDTH = 260;
+const PROJECT_RIGHT_SIDEBAR_MAX_WIDTH = 420;
+const PROJECT_RIGHT_SIDEBAR_WIDE_BREAKPOINT = 360;
 
 type ProjectTab = (typeof projectTabs)[number]["id"];
 
@@ -147,6 +155,9 @@ export function ProjectPage({
 
 	const [taskArtifacts, setTaskArtifacts] = useState<ProjectArtifact[]>([]);
 	const [projectFiles, setProjectFiles] = useState<ProjectFileNode[]>([]);
+	const [rightSidebarWidth, setRightSidebarWidth] = useState(PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH);
+	const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+	const hasLoadedRightSidebarPreferenceRef = useRef(false);
 
 	const resolvedProjectId = projectId ?? activeProjectId;
 	const resolvedTab = tab ?? activeProjectTab;
@@ -282,6 +293,39 @@ export function ProjectPage({
 	}, [resolvedProjectId, resolvedTab]);
 
 	useEffect(() => {
+		if (typeof window === "undefined" || hasLoadedRightSidebarPreferenceRef.current) return;
+		hasLoadedRightSidebarPreferenceRef.current = true;
+
+		const savedWidth = window.localStorage.getItem(PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY);
+		const savedCollapsed = window.localStorage.getItem(PROJECT_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY);
+
+		if (savedWidth) {
+			const parsedWidth = Number(savedWidth);
+			if (Number.isFinite(parsedWidth)) {
+				// 右侧栏宽度读取后立即限制范围，避免旧值把布局撑坏。
+				setRightSidebarWidth(clampProjectRightSidebarWidth(parsedWidth));
+			}
+		}
+
+		if (savedCollapsed) {
+			setRightSidebarCollapsed(savedCollapsed === "true");
+		}
+	}, []);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || !hasLoadedRightSidebarPreferenceRef.current) return;
+		window.localStorage.setItem(PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY, String(rightSidebarWidth));
+	}, [rightSidebarWidth]);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || !hasLoadedRightSidebarPreferenceRef.current) return;
+		window.localStorage.setItem(
+			PROJECT_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY,
+			String(rightSidebarCollapsed),
+		);
+	}, [rightSidebarCollapsed]);
+
+	useEffect(() => {
 		if (projectDetailLoading) return;
 		if (!resolvedSessionId) {
 			resetLocalMessages();
@@ -306,6 +350,41 @@ export function ProjectPage({
 		loadConversationMessages,
 		resetLocalMessages,
 	]);
+
+	const handleRightSidebarResizeStart = (event: React.PointerEvent<HTMLHRElement>) => {
+		const startX = event.clientX;
+		const startWidth = rightSidebarWidth;
+		const pointerId = event.pointerId;
+		const target = event.currentTarget;
+
+		target.setPointerCapture(pointerId);
+
+		const handlePointerMove = (moveEvent: PointerEvent) => {
+			setRightSidebarWidth(
+				clampProjectRightSidebarWidth(startWidth - (moveEvent.clientX - startX)),
+			);
+		};
+
+		const handlePointerUp = () => {
+			if (target.hasPointerCapture(pointerId)) {
+				target.releasePointerCapture(pointerId);
+			}
+			target.removeEventListener("pointermove", handlePointerMove);
+			target.removeEventListener("pointerup", handlePointerUp);
+			target.removeEventListener("pointercancel", handlePointerUp);
+		};
+
+		target.addEventListener("pointermove", handlePointerMove);
+		target.addEventListener("pointerup", handlePointerUp);
+		target.addEventListener("pointercancel", handlePointerUp);
+	};
+
+	// 右侧栏达到更宽阈值后，内部列表切换到常规排版，避免继续维持窄栏样式。
+	const showProjectSidebar = resolvedTab !== "files";
+	const isWideRightSidebar = rightSidebarWidth >= PROJECT_RIGHT_SIDEBAR_WIDE_BREAKPOINT;
+	const rightSidebarWidthStyle = !rightSidebarCollapsed
+		? { width: `${rightSidebarWidth}px` }
+		: undefined;
 
 	if (!project) {
 		return (
@@ -352,6 +431,9 @@ export function ProjectPage({
 					<button
 						type="button"
 						className="rounded-full p-1.5 transition-colors hover:bg-[var(--leros-primary-softer)]"
+						aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+						title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+						onClick={() => setRightSidebarCollapsed((collapsed) => !collapsed)}
 					>
 						<LayoutPanelLeft className="size-5" />
 					</button>
@@ -391,7 +473,7 @@ export function ProjectPage({
 				))}
 			</nav>
 
-			<div className="min-h-0 flex flex-1">
+			<div className="relative min-h-0 flex flex-1">
 				<main
 					className={cn(
 						"min-w-0 flex-1",
@@ -415,29 +497,94 @@ export function ProjectPage({
 					)}
 				</main>
 
-				{resolvedTab !== "files" && (
-					<aside className="flex w-[300px] shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6">
-						<div className="min-h-0 flex-1 space-y-8 overflow-y-auto pr-1">
+				{showProjectSidebar && rightSidebarCollapsed && (
+					<button
+						type="button"
+						className="absolute right-6 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						aria-label="展开右侧栏"
+						title="展开右侧栏"
+						onClick={() => setRightSidebarCollapsed(false)}
+					>
+						<ChevronsLeft className="size-4" />
+					</button>
+				)}
+
+				{showProjectSidebar && !rightSidebarCollapsed && (
+					<aside
+						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] transition-[width] duration-200 ease-out"
+						style={rightSidebarWidthStyle}
+					>
+						<div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-5 py-6 pr-4">
+							<div className="flex items-start justify-between gap-3">
+								<div>
+									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目侧栏</p>
+									<p className="mt-1 text-xs text-[var(--leros-text-muted)]">查看任务和产物概览</p>
+								</div>
+								<button
+									type="button"
+									className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
+									aria-label="收起右侧栏"
+									title="收起右侧栏"
+									onClick={() => setRightSidebarCollapsed(true)}
+								>
+									<ChevronsRight className="size-4" />
+								</button>
+							</div>
 							<section>
-								<div className="mx-auto mb-4 flex w-full max-w-[250px] items-center justify-between">
+								<div
+									className={cn(
+										"mb-4 flex w-full items-center justify-between",
+										!isWideRightSidebar && "mx-auto max-w-[250px]",
+									)}
+								>
 									<h2 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务</h2>
 									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
 										{project.tasks.length} 项
 									</span>
 								</div>
-								<ProjectTaskList tasks={project.tasks} compact onOpen={handleOpenTask} />
+								<ProjectTaskList
+									tasks={project.tasks}
+									compact={!isWideRightSidebar}
+									onOpen={handleOpenTask}
+								/>
 							</section>
 
 							<section>
-								<div className="mx-auto mb-4 flex w-full max-w-[250px] items-center justify-between">
+								<div
+									className={cn(
+										"mb-4 flex w-full items-center justify-between",
+										!isWideRightSidebar && "mx-auto max-w-[250px]",
+									)}
+								>
 									<h2 className="text-xs font-semibold text-[var(--leros-text-muted)]">产物</h2>
 									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
 										{taskArtifacts.length} 个
 									</span>
 								</div>
-								<ProjectArtifactList artifacts={taskArtifacts} compact />
+								<ProjectArtifactList artifacts={taskArtifacts} compact={!isWideRightSidebar} />
 							</section>
 						</div>
+						<hr
+							className={cn(
+								"absolute left-0 top-0 z-10 h-full -translate-x-1/2 border-0",
+								"w-3 cursor-col-resize",
+							)}
+							tabIndex={0}
+							aria-orientation="vertical"
+							aria-label="调整右侧栏宽度"
+							aria-valuemin={PROJECT_RIGHT_SIDEBAR_MIN_WIDTH}
+							aria-valuemax={PROJECT_RIGHT_SIDEBAR_MAX_WIDTH}
+							aria-valuenow={rightSidebarWidth}
+							onPointerDown={handleRightSidebarResizeStart}
+							onKeyDown={(event) => {
+								if (event.key === "ArrowLeft") {
+									setRightSidebarWidth(clampProjectRightSidebarWidth(rightSidebarWidth + 8));
+								}
+								if (event.key === "ArrowRight") {
+									setRightSidebarWidth(clampProjectRightSidebarWidth(rightSidebarWidth - 8));
+								}
+							}}
+						/>
 					</aside>
 				)}
 			</div>
@@ -1191,6 +1338,13 @@ function formatTime(timestamp: number): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	}).format(new Date(timestamp * 1000));
+}
+
+function clampProjectRightSidebarWidth(width: number): number {
+	return Math.min(
+		PROJECT_RIGHT_SIDEBAR_MAX_WIDTH,
+		Math.max(PROJECT_RIGHT_SIDEBAR_MIN_WIDTH, Math.round(width)),
+	);
 }
 
 function ProjectArtifactList({

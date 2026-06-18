@@ -44,9 +44,10 @@ type MessageStreamMessage = Envelope[StreamBody]
 
 // StreamBody is a single streaming event payload from Worker to Server to UI.
 type StreamBody struct {
-	Seq     int64           `json:"seq"`
-	Event   StreamEventType `json:"event"`
-	Payload StreamPayload   `json:"payload"`
+	Seq               int64           `json:"seq"`
+	Event             StreamEventType `json:"event"`
+	Payload           StreamPayload   `json:"payload"`
+	ReplyToMessageIDs []string        `json:"reply_to_message_ids,omitempty"`
 
 	RunCompleted *events.RunCompletedPayload `json:"run_completed,omitempty"`
 	Error        *StreamError                `json:"error,omitempty"`

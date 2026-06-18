@@ -1,6 +1,6 @@
 "use client";
 
-import type { NavItem, Project, ViewMode } from "@leros/store";
+import type { AuthUser, NavItem, Project, ViewMode } from "@leros/store";
 import { useLayoutStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -38,6 +38,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
+import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
@@ -48,14 +49,6 @@ export type AppNavigation = {
 	goToRoute: (route: ViewMode) => void;
 	goToProject: (projectId: string) => void;
 	goToTaskDetail: (projectId: string, taskId: string, sessionId?: string | null) => void;
-};
-
-const avatarMap: Record<string, string> = {
-	"Ada AI":
-		"https://lh3.googleusercontent.com/aida-public/AB6AXuDFpBbS4l95muQqtwMYtUuf8WCwNc5sA8OO0-6u1LGuYyluoaArOURURsMTCrMq_NupAuGHz-JOO1FokisXhPwW2YHHw98AiRCPLBB7pnEkJtJ49IFY1oAvXh91Jm-_COCvYzzzLBiaLG-LYG1u2FkKZ0I32-W4xkWSIw9t0g-REw0_7AApPcTHTUs6YXhMUR8CRrgkQwLTEXmTGIXKdTeB49LdA0NLB84cpa3IeofhyuLdIwA_DqEbSLLGdzjPLvMzaF8LprQnlCI",
-	Hopper:
-		"https://lh3.googleusercontent.com/aida-public/AB6AXuBeB5b4oXNn4L2BxiToWnXKcmpiqIOQXHgzr--j9T9_QOXVd9oHi1Fm6w-TFVrtUCrsljLwuZTLgUsQO_bm-5a-pTeEhYiqC-XWGCFm29XVQNzs1K_BZsauTofNldKOlXXqefrOEws7yf2OugGY02bc3tTG6Ar6LK_vtTM0LIGPIUtjF4hXiV6_JC78AZjUIIcQ9ZyIsXqZHT4w005HdcD-k2UMVDi9B4zKpMqsRbKjO_uJgC-cMhnEekpNM3Tao6dm5c2dEHGt1m4",
-	Mia: "https://lh3.googleusercontent.com/aida-public/AB6AXuBF0owbtXZ299YjKA9U1M8sCOv64scrlTj0dggJ4QzZ3LVWiwaw6F2wdlx-pfng186UXwb39pUr6UYaB3TR0VgvyCzHeq_ftW0GiYK6opisJR6rW9cI41epBVwQ01amJW2zeCfuSC4bO9eHQmG3birvJfEvqhddLBP9UAyGwjti4KWyfS5HGYrOGMI1T2aGvaWbAMOO-dYq22Ezmpl3PWzyb7yd1yYy2LEOqAOSuhmadQKH90cgkhBTISnC5mE8jOrwmrdZuF-Fvs4",
 };
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -340,7 +333,15 @@ export function LeftRail({
 									className="leros-profile-trigger"
 									title={user?.name ?? "个人中心"}
 								>
-									<ProfileAvatar />
+									<ProfileAvatar user={user} />
+									<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
+										<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
+											{user?.name ?? "Leros 用户"}
+										</p>
+										<p className="truncate text-[11px] text-[var(--leros-text-subtle)]">
+											{user?.email ?? "已登录"}
+										</p>
+									</div>
 								</button>
 							}
 						/>
@@ -379,7 +380,7 @@ export function LeftRail({
 						onClick={handleProfileClick}
 						title="登录 / 注册"
 					>
-						<ProfileAvatar />
+						<ProfileAvatar user={null} />
 						<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
 							<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
 								登录 / 注册
@@ -464,16 +465,66 @@ export function LeftRail({
 	);
 }
 
-function ProfileAvatar() {
+function ProfileAvatar({ user }: { user: AuthUser | null }) {
+	const fallbackLabel = getAvatarInitial(user?.name ?? user?.email ?? "Leros");
+
 	return (
-		<span className="leros-avatar overflow-hidden object-cover">
-			<img
-				src="https://lh3.googleusercontent.com/aida-public/AB6AXuBF0owbtXZ299YjKA9U1M8sCOv64scrlTj0dggJ4QzZ3LVWiwaw6F2wdlx-pfng186UXwb39pUr6UYaB3TR0VgvyCzHeq_ftW0GiYK6opisJR6rW9cI41epBVwQ01amJW2zeCfuSC4bO9eHQmG3birvJfEvqhddLBP9UAyGwjti4KWyfS5HGYrOGMI1T2aGvaWbAMOO-dYq22Ezmpl3PWzyb7yd1yYy2LEOqAOSuhmadQKH90cgkhBTISnC5mE8jOrwmrdZuF-Fvs4"
-				alt="Avatar"
+		<span
+			className="leros-avatar overflow-hidden text-[11px] font-bold"
+			style={{ background: "var(--leros-primary)", color: "#fff" }}
+		>
+			<ImageWithFallback
+				src={user?.avatarUrl}
+				alt={user?.name ?? "Avatar"}
 				className="h-full w-full object-cover"
+				fallback={
+					user ? (
+						<DiceBearAvatar
+							seed={`user:${user.email || user.name}`}
+							alt={user.name ?? "Avatar"}
+							className="h-full w-full"
+							size={96}
+						/>
+					) : (
+						<span>{fallbackLabel}</span>
+					)
+				}
 			/>
 		</span>
 	);
+}
+
+function ImageWithFallback({
+	src,
+	alt,
+	className,
+	fallback,
+}: {
+	src?: string | null;
+	alt: string;
+	className: string;
+	fallback: React.ReactNode;
+}) {
+	const [failed, setFailed] = useState(false);
+
+	if (!src || failed) return <>{fallback}</>;
+
+	return (
+		<img
+			src={src}
+			alt={alt}
+			className={className}
+			loading="lazy"
+			decoding="async"
+			referrerPolicy="no-referrer"
+			onError={() => setFailed(true)}
+		/>
+	);
+}
+
+function getAvatarInitial(label: string) {
+	const trimmed = label.trim();
+	return (trimmed[0] ?? "L").toUpperCase();
 }
 
 function getRouteActive(path: string, view: ViewMode) {
@@ -581,13 +632,17 @@ function NavItemButton({
 	collapsed: boolean;
 	onClick: () => void;
 }) {
-	const avatarUrl = item.icon === "IconAITeammate" ? avatarMap[item.label] : null;
-
-	const icon = avatarUrl ? (
-		<img src={avatarUrl} alt="" className="h-6 w-6 flex-shrink-0 rounded-full object-cover" />
-	) : (
-		iconMap[item.icon]
-	);
+	const icon =
+		item.icon === "IconAITeammate" ? (
+			<DiceBearAvatar
+				seed={`ai-teammate:${item.label}`}
+				alt=""
+				className="h-full w-full"
+				size={64}
+			/>
+		) : (
+			iconMap[item.icon]
+		);
 
 	return (
 		<button
@@ -597,7 +652,13 @@ function NavItemButton({
 			className={cn("leros-nav-item", collapsed && "justify-center")}
 			title={collapsed ? item.label : undefined}
 		>
-			<span className={cn("leros-nav-icon", item.icon === "IconProject" && "leros-nav-icon-text")}>
+			<span
+				className={cn(
+					"leros-nav-icon",
+					item.icon === "IconProject" && "leros-nav-icon-text",
+					item.icon === "IconAITeammate" && "leros-nav-icon-avatar",
+				)}
+			>
 				{icon}
 			</span>
 			<span className={cn("flex-1 truncate font-medium", collapsed && "hidden")}>{item.label}</span>

@@ -12,6 +12,8 @@
 		"./components/*": "./components/*.tsx"
 	},
 	"dependencies": {
+		"@dicebear/core": "^10.3.0",
+		"@dicebear/styles": "^10.2.0",
 		"@eigenpal/docx-editor-react": "^1.1.0",
 		"@leros/store": "workspace:*",
 		"@leros/ui": "workspace:*",

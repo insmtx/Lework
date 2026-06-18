@@ -90,7 +90,19 @@ Identifier formats:
 	searchCmd.Flags().IntVar(&skillLimit, "limit", 10, "Maximum number of results")
 	searchCmd.Flags().BoolVar(&skillJSON, "json", false, "Output in JSON format")
 
-	cmd.AddCommand(installCmd, searchCmd, listCmd)
+	uninstallCmd := &cobra.Command{
+		Use:   "uninstall <name>",
+		Short: "Uninstall an installed skill",
+		Long:  `Remove an installed skill by name, cleaning up the skill directory and external symlinks.`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUninstall(args[0])
+		},
+	}
+
+	uninstallCmd.Flags().BoolVar(&skillYes, "yes", false, "Skip confirmation prompts")
+
+	cmd.AddCommand(installCmd, searchCmd, listCmd, uninstallCmd)
 	return cmd
 }
 
@@ -234,5 +246,36 @@ func runList() error {
 	w.Flush()
 
 	fmt.Fprintf(os.Stderr, "\n%d skill(s) installed.\n", len(summaries))
+	return nil
+}
+
+func runUninstall(name string) error {
+	ctx := context.Background()
+
+	skillsDir, err := leros.SkillsDir()
+	if err != nil {
+		return fmt.Errorf("resolve skills dir: %w", err)
+	}
+	store, err := skillstore.NewSkillStore(skillsDir)
+	if err != nil {
+		return fmt.Errorf("create skill store: %w", err)
+	}
+
+	result, err := store.Delete(ctx, skillstore.DeleteRequest{Name: name})
+	if err != nil {
+		return fmt.Errorf("uninstall skill: %w", err)
+	}
+	if !result.Success {
+		return fmt.Errorf("uninstall skill: %s", result.Error)
+	}
+
+	// Remove external CLI symlinks
+	if err := engines.RemoveExternalSkillLink(name, knownCLISkillDirs); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: remove external links: %v\n", err)
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(map[string]any{"uninstalled": true, "name": name})
 	return nil
 }

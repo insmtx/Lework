@@ -11,8 +11,8 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/runnable"
 	"github.com/insmtx/Leros/backend/internal/service"
@@ -107,6 +107,8 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		// Start background consumers
 		go runnable.StartSessionArtifactDeclared(context.Background(), eventbus, db)
 		logs.Info("Session artifact declared runnable started")
+		go runnable.StartSessionRunStarted(context.Background(), sessionService, eventbus)
+		logs.Info("Session run started runnable started")
 		go runnable.StartSessionCompleted(context.Background(), sessionService, eventbus)
 		logs.Info("Session completed runnable started")
 		go runnable.StartSessionTitleHandler(context.Background(), sessionService, eventbus, db)

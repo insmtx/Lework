@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -47,6 +48,40 @@ func GetSessionMessages(ctx context.Context, db *gorm.DB, sessionID uint, page, 
 	}
 
 	return entities, total, nil
+}
+
+// GetSessionMessagesByIDs queries user messages by IDs within one session.
+func GetSessionMessagesByIDs(ctx context.Context, db *gorm.DB, sessionID uint, ids []uint) ([]*types.SessionMessage, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var entities []*types.SessionMessage
+	err := db.WithContext(ctx).
+		Where("session_id = ? AND id IN ?", sessionID, ids).
+		Order("sequence ASC").
+		Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
+// GetRecentProcessingUserMessages returns recent user messages that are currently being answered.
+func GetRecentProcessingUserMessages(ctx context.Context, db *gorm.DB, sessionID uint, since time.Time) ([]*types.SessionMessage, error) {
+	var entities []*types.SessionMessage
+	err := db.WithContext(ctx).
+		Where("session_id = ? AND role = ? AND status = ? AND updated_at >= ?",
+			sessionID,
+			string(types.MessageRoleUser),
+			string(types.MessageStatusProcessing),
+			since,
+		).
+		Order("updated_at DESC").
+		Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
 }
 
 // DeleteMessage 软删除消息

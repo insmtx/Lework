@@ -313,9 +313,9 @@ func TestMessageMetadataFromRunCompletedEnrichesDisplayFields(t *testing.T) {
 
 	metadata := messageMetadataFromRunCompleted(&events.RunCompletedPayload{
 		Metadata: map[string]any{
-			"model_name":         "gpt-4o",
-			"run_started_at_ms":  startedAt.UnixMilli(),
-			"runtime":            "external_cli",
+			"model_name":        "gpt-4o",
+			"run_started_at_ms": startedAt.UnixMilli(),
+			"runtime":           "external_cli",
 		},
 		Usage: &events.UsagePayload{
 			InputTokens:  100,
@@ -391,7 +391,10 @@ func (s *recordingSessionService) GetSessionMessages(context.Context, string, in
 }
 func (s *recordingSessionService) DeleteMessage(context.Context, uint) error          { return nil }
 func (s *recordingSessionService) ClearSessionMessages(context.Context, string) error { return nil }
-func (s *recordingSessionService) StreamSessionEvents(context.Context, string, int64, events.Sink) error {
+func (s *recordingSessionService) StreamSessionEvents(context.Context, string, bool, events.Sink) error {
+	return nil
+}
+func (s *recordingSessionService) HandleSessionRunStarted(context.Context, *contract.SessionRunStartedRequest) error {
 	return nil
 }
 func (s *recordingSessionService) CompleteSessionMessage(_ context.Context, req *contract.CompleteSessionMessageRequest) error {

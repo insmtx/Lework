@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +29,18 @@ import (
 )
 
 var _ contract.SessionService = (*sessionService)(nil)
+
+const (
+	sessionRuntimeStatusIdle       = "idle"
+	sessionRuntimeStatusResponding = "responding"
+	responseStreamStartSeqKey      = "response_stream_start_seq"
+	replyToMessageIDsKey           = "reply_to_message_ids"
+	sessionProcessingWindow        = 30 * time.Minute
+)
+
+// ErrNoReplyMessageIDs is returned when a run-started stream event lacks
+// identifiable user messages to target.
+var ErrNoReplyMessageIDs = errors.New("no reply message ids in stream event")
 
 type sessionService struct {
 	db       *gorm.DB
@@ -120,7 +134,9 @@ func (s *sessionService) GetSession(ctx context.Context, sessionID string) (*con
 		return nil, err
 	}
 
-	return convertToContractSession(session), nil
+	result := convertToContractSession(session)
+	result.RuntimeStatus = s.sessionRuntimeStatus(ctx, session.ID)
+	return result, nil
 }
 
 func (s *sessionService) UpdateSession(ctx context.Context, sessionID string, req *contract.UpdateSessionRequest) (*contract.Session, error) {
@@ -435,6 +451,62 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 	}
 	return s.eventbus.Publish(ctx, topic, req)
 }
+
+func (s *sessionService) sessionRuntimeStatus(ctx context.Context, sessionID uint) string {
+	messages, err := db.GetRecentProcessingUserMessages(ctx, s.db, sessionID, time.Now().Add(-sessionProcessingWindow))
+	if err != nil {
+		logs.WarnContextf(ctx, "get session runtime status failed: session=%d error=%v", sessionID, err)
+		return sessionRuntimeStatusIdle
+	}
+	if len(messages) > 0 {
+		return sessionRuntimeStatusResponding
+	}
+	return sessionRuntimeStatusIdle
+}
+
+func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contract.SessionRunStartedRequest) error {
+	if req == nil {
+		return errors.New("request is required")
+	}
+	if req.SessionID == "" {
+		return errors.New("session_id is required")
+	}
+	if req.StreamStartSeq == 0 {
+		return errors.New("stream_start_seq is required")
+	}
+
+	session, err := db.GetSessionByPublicID(ctx, s.db, req.SessionID)
+	if err != nil {
+		return fmt.Errorf("find session %s: %w", req.SessionID, err)
+	}
+	if session == nil {
+		return fmt.Errorf("session %s not found", req.SessionID)
+	}
+
+	messageIDs := replyMessageIDs(req.ReplyToMessageIDs, req.RequestID)
+	if len(messageIDs) == 0 {
+		logs.WarnContextf(ctx, "run started without reply message ids: session_id=%s request_id=%s", req.SessionID, req.RequestID)
+		return ErrNoReplyMessageIDs
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		messages, err := db.GetSessionMessagesByIDs(ctx, tx, session.ID, messageIDs)
+		if err != nil {
+			return err
+		}
+		for _, message := range messages {
+			if message.Role != string(types.MessageRoleUser) || message.Status != string(types.MessageStatusPending) {
+				continue
+			}
+			message.Status = string(types.MessageStatusProcessing)
+			setResponseStreamStartSeq(&message.Metadata, req.StreamStartSeq)
+			if err := tx.Save(message).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
 func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*contract.MessageList, error) {
 	session, _, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
@@ -456,6 +528,27 @@ func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID strin
 		Page:  page,
 		Items: items,
 	}, nil
+}
+
+func (s *sessionService) updateReplyMessageStatus(ctx context.Context, tx *gorm.DB, sessionID uint, rawIDs []string, status string) error {
+	messageIDs := replyMessageIDs(rawIDs, "")
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	messages, err := db.GetSessionMessagesByIDs(ctx, tx, sessionID, messageIDs)
+	if err != nil {
+		return err
+	}
+	for _, message := range messages {
+		if message.Role != string(types.MessageRoleUser) {
+			continue
+		}
+		message.Status = status
+		if err := tx.Save(message).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *sessionService) DeleteMessage(ctx context.Context, messageID uint) error {
@@ -513,8 +606,8 @@ func toJSONString(v interface{}) string {
 	return string(b)
 }
 
-func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, lastSequence int64, sink events.Sink) error {
-	_, caller, err := s.getSessionForCaller(ctx, sessionPID)
+func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, sink events.Sink) error {
+	session, caller, err := s.getSessionForCaller(ctx, sessionPID)
 	if err != nil {
 		return err
 	}
@@ -524,16 +617,25 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 		return fmt.Errorf("failed to construct session result stream topic: %w", err)
 	}
 
-	return s.eventbus.SubscribeFrom(ctx, topic, lastSequence, func(msg *nats.Msg) {
+	replayState := sessionReplayState{}
+	startSeq := int64(0)
+	if replay {
+		replayState, err = s.getSessionReplayState(ctx, session.ID)
+		if err != nil {
+			return err
+		}
+		if replayState.StartSeq > 0 && replayState.StartSeq <= math.MaxInt64 {
+			startSeq = int64(replayState.StartSeq)
+		}
+	}
+
+	return s.eventbus.SubscribeFrom(ctx, topic, startSeq, func(msg *nats.Msg) {
 		var streamMsg protocol.MessageStreamMessage
 		if err := json.Unmarshal(msg.Data, &streamMsg); err != nil {
 			logs.WarnContextf(ctx, "failed to unmarshal to MessageStreamMessage: %v", err)
 			return
 		}
-		// logs.DebugContextf(ctx, "received message from topic %s: session_id=%s event=%s seq=%d", topic, streamMsg.Route.SessionID, streamMsg.Body.Event, streamMsg.Body.Seq)
-
-		if streamMsg.Body.Seq <= lastSequence {
-			logs.DebugContextf(ctx, "skipping old message for session %s: seq=%d lastSequence=%d", sessionPID, streamMsg.Body.Seq, lastSequence)
+		if replay && !streamMessageMatchesReplyIDs(streamMsg, replayState.MessageIDs) {
 			return
 		}
 
@@ -549,6 +651,43 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 			logs.ErrorContextf(ctx, "failed to emit session event for session %s: %v", sessionPID, err)
 		}
 	})
+}
+
+type sessionReplayState struct {
+	StartSeq   uint64
+	MessageIDs map[string]struct{}
+}
+
+func (s *sessionService) getSessionReplayState(ctx context.Context, sessionID uint) (sessionReplayState, error) {
+	messages, err := db.GetRecentProcessingUserMessages(ctx, s.db, sessionID, time.Now().Add(-sessionProcessingWindow))
+	if err != nil {
+		return sessionReplayState{}, err
+	}
+	state := sessionReplayState{MessageIDs: map[string]struct{}{}}
+	for _, message := range messages {
+		id := strconv.FormatUint(uint64(message.ID), 10)
+		state.MessageIDs[id] = struct{}{}
+		seq, ok := responseStreamStartSeq(message.Metadata)
+		if !ok || seq == 0 {
+			continue
+		}
+		if state.StartSeq == 0 || seq < state.StartSeq {
+			state.StartSeq = seq
+		}
+	}
+	return state, nil
+}
+
+func streamMessageMatchesReplyIDs(streamMsg protocol.MessageStreamMessage, ids map[string]struct{}) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	for _, id := range replyToMessageIDsFromStream(streamMsg) {
+		if _, ok := ids[id]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func convertToContractSession(session *types.Session) *contract.Session {
@@ -638,6 +777,114 @@ func isHiddenSessionHistoryChunk(eventType string) bool {
 	}
 }
 
+func setResponseStreamStartSeq(metadata *types.ObjectMetadata, seq uint64) {
+	if metadata.Extra == nil {
+		metadata.Extra = map[string]interface{}{}
+	}
+	metadata.Extra[responseStreamStartSeqKey] = seq
+}
+
+func responseStreamStartSeq(metadata types.ObjectMetadata) (uint64, bool) {
+	if metadata.Extra == nil {
+		return 0, false
+	}
+	value, ok := metadata.Extra[responseStreamStartSeqKey]
+	if !ok {
+		return 0, false
+	}
+	switch v := value.(type) {
+	case uint64:
+		return v, true
+	case uint:
+		return uint64(v), true
+	case int64:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	case int:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	case float64:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	default:
+		return 0, false
+	}
+}
+
+func attachReplyToMessageIDs(metadata *types.ObjectMetadata, ids []string) {
+	normalized := normalizedReplyIDStrings(ids)
+	if len(normalized) == 0 {
+		return
+	}
+	if metadata.Extra == nil {
+		metadata.Extra = map[string]interface{}{}
+	}
+	metadata.Extra[replyToMessageIDsKey] = normalized
+}
+
+func replyToMessageIDsFromStream(streamMsg protocol.MessageStreamMessage) []string {
+	if len(streamMsg.Body.ReplyToMessageIDs) > 0 {
+		return normalizedReplyIDStrings(streamMsg.Body.ReplyToMessageIDs)
+	}
+	if id, ok := messageIDFromRequestID(streamMsg.Trace.RequestID); ok {
+		return []string{strconv.FormatUint(uint64(id), 10)}
+	}
+	return nil
+}
+
+func replyMessageIDs(rawIDs []string, fallbackRequestID string) []uint {
+	seen := map[uint]struct{}{}
+	result := make([]uint, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
+		if err != nil || id == 0 {
+			continue
+		}
+		value := uint(id)
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	if len(result) == 0 {
+		if id, ok := messageIDFromRequestID(fallbackRequestID); ok {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+func normalizedReplyIDStrings(rawIDs []string) []string {
+	ids := replyMessageIDs(rawIDs, "")
+	if len(ids) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, strconv.FormatUint(uint64(id), 10))
+	}
+	return result
+}
+
+func messageIDFromRequestID(requestID string) (uint, bool) {
+	value := strings.TrimSpace(requestID)
+	if !strings.HasPrefix(value, "req_") {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(strings.TrimPrefix(value, "req_"), 10, 64)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return uint(id), true
+}
+
 func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contract.CompleteSessionMessageRequest) error {
 	if req.SessionID == "" {
 		return errors.New("session_id is required")
@@ -676,6 +923,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	if req.Metadata != nil {
 		msgEntity.Metadata = *req.Metadata
 	}
+	attachReplyToMessageIDs(&msgEntity.Metadata, req.ReplyToMessageIDs)
 	if req.Usage != nil {
 		msgEntity.Usage = *req.Usage
 	}
@@ -683,6 +931,9 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := db.CreateMessage(ctx, tx, msgEntity); err != nil {
 			return fmt.Errorf("create message for %s: %w", req.SessionID, err)
+		}
+		if err := s.updateReplyMessageStatus(ctx, tx, session.ID, req.ReplyToMessageIDs, string(types.MessageStatusCompleted)); err != nil {
+			return err
 		}
 		// 不再绑定 artifact 与 message 的关联关系，artifact 通过 session_id 关联查询
 		// bindDeclaredArtifacts(ctx, tx, req.Artifacts, session, msgEntity)
@@ -741,6 +992,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	if req.Metadata != nil {
 		msgEntity.Metadata = *req.Metadata
 	}
+	attachReplyToMessageIDs(&msgEntity.Metadata, req.ReplyToMessageIDs)
 	if req.Usage != nil {
 		msgEntity.Usage = *req.Usage
 	}
@@ -754,6 +1006,9 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := db.CreateMessage(ctx, tx, msgEntity); err != nil {
 			return fmt.Errorf("create message for %s: %w", req.SessionID, err)
+		}
+		if err := s.updateReplyMessageStatus(ctx, tx, session.ID, req.ReplyToMessageIDs, status); err != nil {
+			return err
 		}
 		// 不再绑定 artifact 与 message 的关联关系，artifact 通过 session_id 关联查询
 		// bindDeclaredArtifacts(ctx, tx, req.Artifacts, session, msgEntity)

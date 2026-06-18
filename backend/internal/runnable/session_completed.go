@@ -3,6 +3,7 @@ package runnable
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -51,15 +52,17 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 			return
 		}
 		projectCompletedArtifacts(completed)
+		replyToMessageIDs := replyToMessageIDsFromStream(streamMsg)
 		req := &contract.CompleteSessionMessageRequest{
-			SessionID: sessionID,
-			Content:   completed.Result.Message,
-			Chunks:    runEventChunks(completed.Events),
-			Artifacts: messageArtifactsFromRunCompleted(completed.Artifacts),
-			Metadata:  messageMetadataFromRunCompleted(completed),
-			Usage:     messageUsageFromRuntime(completed.Usage),
-			Seq:       streamMsg.Body.Seq,
-			CreatedAt: streamMsg.CreatedAt,
+			SessionID:         sessionID,
+			Content:           completed.Result.Message,
+			ReplyToMessageIDs: replyToMessageIDs,
+			Chunks:            runEventChunks(completed.Events),
+			Artifacts:         messageArtifactsFromRunCompleted(completed.Artifacts),
+			Metadata:          messageMetadataFromRunCompleted(completed),
+			Usage:             messageUsageFromRuntime(completed.Usage),
+			Seq:               streamMsg.Body.Seq,
+			CreatedAt:         streamMsg.CreatedAt,
 		}
 		if err := service.CompleteSessionMessage(ctx, req); err != nil {
 			logs.WarnContextf(ctx, "complete session message: %v", err)
@@ -79,17 +82,19 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 			errMsg = streamMsg.Body.Error.Message
 		}
 		projectCompletedArtifacts(completed)
+		replyToMessageIDs := replyToMessageIDsFromStream(streamMsg)
 		req := &contract.FailedSessionMessageRequest{
-			SessionID: sessionID,
-			Content:   errMsg,
-			ErrorMsg:  errMsg,
-			Status:    status,
-			Chunks:    runEventChunks(runCompletedEvents(completed)),
-			Artifacts: messageArtifactsFromRunCompleted(runCompletedArtifacts(completed)),
-			Metadata:  messageMetadataFromRunCompleted(completed),
-			Usage:     messageUsageFromRuntime(runCompletedUsage(completed)),
-			Seq:       streamMsg.Body.Seq,
-			CreatedAt: streamMsg.CreatedAt,
+			SessionID:         sessionID,
+			Content:           errMsg,
+			ReplyToMessageIDs: replyToMessageIDs,
+			ErrorMsg:          errMsg,
+			Status:            status,
+			Chunks:            runEventChunks(runCompletedEvents(completed)),
+			Artifacts:         messageArtifactsFromRunCompleted(runCompletedArtifacts(completed)),
+			Metadata:          messageMetadataFromRunCompleted(completed),
+			Usage:             messageUsageFromRuntime(runCompletedUsage(completed)),
+			Seq:               streamMsg.Body.Seq,
+			CreatedAt:         streamMsg.CreatedAt,
 		}
 		if streamMsg.Body.Error != nil {
 			req.ErrorCode = streamMsg.Body.Error.Code
@@ -101,6 +106,42 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 	default:
 		logs.DebugContextf(ctx, "ignoring session completed event: %s", streamMsg.Body.Event)
 	}
+}
+
+func replyToMessageIDsFromStream(streamMsg protocol.MessageStreamMessage) []string {
+	if len(streamMsg.Body.ReplyToMessageIDs) > 0 {
+		return deduplicateTrimmedIDs(streamMsg.Body.ReplyToMessageIDs)
+	}
+	requestID := strings.TrimSpace(streamMsg.Trace.RequestID)
+	if !strings.HasPrefix(requestID, "req_") {
+		return nil
+	}
+	id, err := strconv.ParseUint(strings.TrimPrefix(requestID, "req_"), 10, 64)
+	if err != nil || id == 0 {
+		return nil
+	}
+	return []string{strconv.FormatUint(id, 10)}
+}
+
+// deduplicateTrimmedIDs normalizes and deduplicates string message IDs.
+func deduplicateTrimmedIDs(rawIDs []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func projectCompletedArtifacts(completed *events.RunCompletedPayload) {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	db "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -68,6 +71,31 @@ func (m *mockEventBus) Subscribe(ctx context.Context, topic string, consumer str
 }
 
 func (m *mockEventBus) SubscribeFrom(ctx context.Context, topic string, startSeq int64, handler func(msg *nats.Msg)) error {
+	return nil
+}
+
+func (m *mockEventBus) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
+	return nil, fmt.Errorf("mockEventBus: Request not supported")
+}
+
+type replayEventBus struct {
+	messages []*nats.Msg
+	startSeq int64
+}
+
+func (m *replayEventBus) Publish(ctx context.Context, topic string, event any) error {
+	return nil
+}
+
+func (m *replayEventBus) Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
+	return nil
+}
+
+func (m *replayEventBus) SubscribeFrom(ctx context.Context, topic string, startSeq int64, handler func(msg *nats.Msg)) error {
+	m.startSeq = startSeq
+	for _, msg := range m.messages {
+		handler(msg)
+	}
 	return nil
 }
 
@@ -129,6 +157,39 @@ func addMessage(t *testing.T, service contract.SessionService, ctx context.Conte
 	if err != nil {
 		t.Fatalf("AddMessage failed: %v", err)
 	}
+}
+
+func createTestSession(t *testing.T, database *gorm.DB, svc contract.SessionService, ctx context.Context) *types.Session {
+	t.Helper()
+	session, err := svc.CreateSession(ctx, &contract.CreateSessionRequest{
+		Type:  string(types.SessionTypeUserChat),
+		Title: "test",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	entity, err := db.GetSessionByPublicID(ctx, database, session.SessionID)
+	if err != nil {
+		t.Fatalf("GetSessionByPublicID failed: %v", err)
+	}
+	return entity
+}
+
+func createUserMessage(t *testing.T, database *gorm.DB, sessionID uint, status string, sequence int64) *types.SessionMessage {
+	t.Helper()
+	message := &types.SessionMessage{
+		SessionID:   sessionID,
+		Role:        string(types.MessageRoleUser),
+		Content:     fmt.Sprintf("user %d", sequence),
+		MessageType: string(types.MessageTypeText),
+		Status:      status,
+		Sequence:    sequence,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := db.CreateMessage(context.Background(), database, message); err != nil {
+		t.Fatalf("CreateMessage failed: %v", err)
+	}
+	return message
 }
 
 func TestCreateSession_ValidInput(t *testing.T) {
@@ -231,6 +292,121 @@ func TestGetSession_NotFound(t *testing.T) {
 
 	if err.Error() != "session not found" {
 		t.Errorf("expected 'session not found' error, got %s", err.Error())
+	}
+}
+
+func TestGetSessionRuntimeStatusRespondingForRecentProcessingMessage(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1})
+	ctx := setupTestContextWithCaller(t)
+	session := createTestSession(t, database, service, ctx)
+	createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
+
+	got, err := service.GetSession(ctx, session.PublicID)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.RuntimeStatus != sessionRuntimeStatusResponding {
+		t.Fatalf("runtime_status = %q, want %q", got.RuntimeStatus, sessionRuntimeStatusResponding)
+	}
+}
+
+func TestGetSessionRuntimeStatusIgnoresOldProcessingMessage(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1})
+	ctx := setupTestContextWithCaller(t)
+	session := createTestSession(t, database, service, ctx)
+	message := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
+	old := time.Now().Add(-31 * time.Minute)
+	if err := database.Model(message).Updates(map[string]any{
+		"updated_at": old,
+	}).Error; err != nil {
+		t.Fatalf("update message failed: %v", err)
+	}
+
+	got, err := service.GetSession(ctx, session.PublicID)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.RuntimeStatus != sessionRuntimeStatusIdle {
+		t.Fatalf("runtime_status = %q, want %q", got.RuntimeStatus, sessionRuntimeStatusIdle)
+	}
+}
+
+func TestHandleSessionRunStartedMarksReplyMessagesProcessing(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1})
+	ctx := setupTestContextWithCaller(t)
+	session := createTestSession(t, database, service, ctx)
+	first := createUserMessage(t, database, session.ID, string(types.MessageStatusPending), 1)
+	second := createUserMessage(t, database, session.ID, string(types.MessageStatusPending), 2)
+
+	err := service.HandleSessionRunStarted(ctx, &contract.SessionRunStartedRequest{
+		SessionID:         session.PublicID,
+		ReplyToMessageIDs: []string{fmt.Sprintf("%d", first.ID), fmt.Sprintf("%d", second.ID)},
+		StreamStartSeq:    123,
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionRunStarted failed: %v", err)
+	}
+
+	for _, id := range []uint{first.ID, second.ID} {
+		message, err := db.GetMessageByID(ctx, database, id)
+		if err != nil {
+			t.Fatalf("GetMessageByID failed: %v", err)
+		}
+		if message.Status != string(types.MessageStatusProcessing) {
+			t.Fatalf("message %d status = %q, want processing", id, message.Status)
+		}
+		seq, ok := responseStreamStartSeq(message.Metadata)
+		if !ok || seq != 123 {
+			t.Fatalf("message %d response_stream_start_seq = %d/%v, want 123/true", id, seq, ok)
+		}
+	}
+}
+
+func TestCompleteSessionMessageStoresReplyIDsAndCompletesUsers(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1})
+	ctx := setupTestContextWithCaller(t)
+	session := createTestSession(t, database, service, ctx)
+	first := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
+	second := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 2)
+	replyIDs := []string{fmt.Sprintf("%d", first.ID), fmt.Sprintf("%d", second.ID)}
+
+	err := service.CompleteSessionMessage(ctx, &contract.CompleteSessionMessageRequest{
+		SessionID:         session.PublicID,
+		Content:           "done",
+		ReplyToMessageIDs: replyIDs,
+		CreatedAt:         time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("CompleteSessionMessage failed: %v", err)
+	}
+
+	for _, id := range []uint{first.ID, second.ID} {
+		message, err := db.GetMessageByID(ctx, database, id)
+		if err != nil {
+			t.Fatalf("GetMessageByID failed: %v", err)
+		}
+		if message.Status != string(types.MessageStatusCompleted) {
+			t.Fatalf("message %d status = %q, want completed", id, message.Status)
+		}
+	}
+	latest, err := db.GetLatestMessage(ctx, database, session.ID)
+	if err != nil {
+		t.Fatalf("GetLatestMessage failed: %v", err)
+	}
+	rawIDs, ok := latest.Metadata.Extra[replyToMessageIDsKey].([]interface{})
+	if !ok {
+		t.Fatalf("assistant reply_to_message_ids = %#v, want JSON array", latest.Metadata.Extra[replyToMessageIDsKey])
+	}
+	got := make([]string, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		got = append(got, fmt.Sprint(raw))
+	}
+	if strings.Join(got, ",") != strings.Join(replyIDs, ",") {
+		t.Fatalf("reply_to_message_ids = %v, want %v", got, replyIDs)
 	}
 }
 
@@ -1156,7 +1332,7 @@ func TestStreamSessionEvents_MissingCaller(t *testing.T) {
 	service := setupTestServiceWithSubscriber(t, nil)
 	ctx := setupTestContextWithoutCaller(t)
 
-	err := service.StreamSessionEvents(ctx, "test_session", 0, nil)
+	err := service.StreamSessionEvents(ctx, "test_session", false, nil)
 	if err == nil {
 		t.Error("expected error when caller is not authenticated")
 	}
@@ -1164,4 +1340,72 @@ func TestStreamSessionEvents_MissingCaller(t *testing.T) {
 	if err.Error() != "user not authenticated or org not set" {
 		t.Errorf("expected 'user not authenticated or org not set' error, got %s", err.Error())
 	}
+}
+
+func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1})
+	session := createTestSession(t, database, sessionService, ctx)
+	reply := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
+	other := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 2)
+	setResponseStreamStartSeq(&reply.Metadata, 50)
+	setResponseStreamStartSeq(&other.Metadata, 70)
+	if err := database.Save(reply).Error; err != nil {
+		t.Fatalf("save reply failed: %v", err)
+	}
+	if err := database.Save(other).Error; err != nil {
+		t.Fatalf("save other failed: %v", err)
+	}
+
+	matching := protocol.MessageStreamMessage{
+		Route: protocol.RouteContext{SessionID: session.PublicID},
+		Body: protocol.StreamBody{
+			Seq:               1,
+			Event:             protocol.StreamEventMessageDelta,
+			ReplyToMessageIDs: []string{fmt.Sprintf("%d", reply.ID)},
+			Payload: protocol.StreamPayload{
+				Content: "match",
+			},
+		},
+	}
+	nonMatching := protocol.MessageStreamMessage{
+		Route: protocol.RouteContext{SessionID: session.PublicID},
+		Body: protocol.StreamBody{
+			Seq:               2,
+			Event:             protocol.StreamEventMessageDelta,
+			ReplyToMessageIDs: []string{"999999"},
+			Payload: protocol.StreamPayload{
+				Content: "skip",
+			},
+		},
+	}
+	bus := &replayEventBus{messages: []*nats.Msg{
+		mustStreamNATSMessage(t, nonMatching),
+		mustStreamNATSMessage(t, matching),
+	}}
+	service := NewSessionService(database, bus, &mockInferrer{assistantID: 1})
+	var emitted []string
+	err := service.StreamSessionEvents(ctx, session.PublicID, true, events.SinkFunc(func(ctx context.Context, event *events.Event) error {
+		emitted = append(emitted, event.Content)
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("StreamSessionEvents failed: %v", err)
+	}
+	if bus.startSeq != 50 {
+		t.Fatalf("SubscribeFrom startSeq = %d, want 50", bus.startSeq)
+	}
+	if len(emitted) != 1 || !strings.Contains(emitted[0], "match") {
+		t.Fatalf("emitted = %v, want only matching event", emitted)
+	}
+}
+
+func mustStreamNATSMessage(t *testing.T, msg protocol.MessageStreamMessage) *nats.Msg {
+	t.Helper()
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal stream message: %v", err)
+	}
+	return &nats.Msg{Data: data}
 }

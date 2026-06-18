@@ -28,7 +28,10 @@ type SessionService interface {
 	ClearSessionMessages(ctx context.Context, sessionID string) error
 
 	// Event streaming
-	StreamSessionEvents(ctx context.Context, sessionID string, lastSequence int64, sink events.Sink) error
+	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, sink events.Sink) error
+
+	// HandleSessionRunStarted marks source user messages as processing and records replay metadata.
+	HandleSessionRunStarted(ctx context.Context, req *SessionRunStartedRequest) error
 
 	// CompleteSessionMessage persists the final assistant message for a completed session run.
 	CompleteSessionMessage(ctx context.Context, req *CompleteSessionMessageRequest) error

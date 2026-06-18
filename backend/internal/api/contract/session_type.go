@@ -65,6 +65,7 @@ type Session struct {
 	AllocatedAssistantID uint                  `json:"allocated_assistant_id"`
 	AssistantCode        string                `json:"assistant_code"`
 	Status               string                `json:"status"`
+	RuntimeStatus        string                `json:"runtime_status"`
 	Title                string                `json:"title"`
 	TitleManuallySet     bool                  `json:"title_manually_set,omitempty"`
 	Metadata             *types.ObjectMetadata `json:"metadata,omitempty"`
@@ -125,27 +126,37 @@ type GetSessionMessagesRequest struct {
 
 // CompleteSessionMessageRequest persists a completed assistant message.
 type CompleteSessionMessageRequest struct {
-	SessionID string                  `json:"session_id"`
-	Content   string                  `json:"content"`
-	Chunks    []types.MessageChunk    `json:"chunks,omitempty"`
-	Artifacts []types.MessageArtifact `json:"artifacts,omitempty"`
-	Metadata  *types.ObjectMetadata   `json:"metadata,omitempty"`
-	Usage     *types.MessageUsage     `json:"usage,omitempty"`
-	Seq       int64                   `json:"seq"`
-	CreatedAt time.Time               `json:"created_at"`
+	SessionID         string                  `json:"session_id"`
+	Content           string                  `json:"content"`
+	ReplyToMessageIDs []string                `json:"reply_to_message_ids,omitempty"`
+	Chunks            []types.MessageChunk    `json:"chunks,omitempty"`
+	Artifacts         []types.MessageArtifact `json:"artifacts,omitempty"`
+	Metadata          *types.ObjectMetadata   `json:"metadata,omitempty"`
+	Usage             *types.MessageUsage     `json:"usage,omitempty"`
+	Seq               int64                   `json:"seq"`
+	CreatedAt         time.Time               `json:"created_at"`
 }
 
 // FailedSessionMessageRequest persists a failed assistant message.
 type FailedSessionMessageRequest struct {
-	SessionID string                  `json:"session_id"`
-	Content   string                  `json:"content,omitempty"`
-	Chunks    []types.MessageChunk    `json:"chunks,omitempty"`
-	Artifacts []types.MessageArtifact `json:"artifacts,omitempty"`
-	ErrorMsg  string                  `json:"error_msg"`
-	ErrorCode string                  `json:"error_code,omitempty"`
-	Status    string                  `json:"status,omitempty"`
-	Metadata  *types.ObjectMetadata   `json:"metadata,omitempty"`
-	Usage     *types.MessageUsage     `json:"usage,omitempty"`
-	Seq       int64                   `json:"seq"`
-	CreatedAt time.Time               `json:"created_at"`
+	SessionID         string                  `json:"session_id"`
+	Content           string                  `json:"content,omitempty"`
+	ReplyToMessageIDs []string                `json:"reply_to_message_ids,omitempty"`
+	Chunks            []types.MessageChunk    `json:"chunks,omitempty"`
+	Artifacts         []types.MessageArtifact `json:"artifacts,omitempty"`
+	ErrorMsg          string                  `json:"error_msg"`
+	ErrorCode         string                  `json:"error_code,omitempty"`
+	Status            string                  `json:"status,omitempty"`
+	Metadata          *types.ObjectMetadata   `json:"metadata,omitempty"`
+	Usage             *types.MessageUsage     `json:"usage,omitempty"`
+	Seq               int64                   `json:"seq"`
+	CreatedAt         time.Time               `json:"created_at"`
+}
+
+// SessionRunStartedRequest marks user messages as processing when a worker run starts.
+type SessionRunStartedRequest struct {
+	SessionID         string   `json:"session_id"`
+	ReplyToMessageIDs []string `json:"reply_to_message_ids,omitempty"`
+	RequestID         string   `json:"request_id,omitempty"`
+	StreamStartSeq    uint64   `json:"stream_start_seq"`
 }

@@ -15,15 +15,12 @@ import (
 )
 
 const (
-	ProviderNode = "node"
-
-	ToolNameNodeShell     = "node_shell"
-	ToolNameNodeFileRead  = "node_file_read"
-	ToolNameNodeFileWrite = "node_file_write"
+	ToolNameNodeShell     = "terminal"
+	ToolNameNodeFileRead  = "read"
+	ToolNameNodeFileWrite = "write"
 )
 
 const (
-	defaultWorkingDir     = "/workspace"
 	defaultShellTimeout   = 120
 	minShellTimeout       = 5
 	maxShellTimeout       = 600

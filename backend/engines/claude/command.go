@@ -17,7 +17,7 @@ func buildArgs(req engines.RunRequest) []string {
 		"--output-format", "stream-json",
 		"--input-format", "stream-json",
 		"--permission-prompt-tool", "stdio",
-		"--disallowedTools", "EnterPlanMode,ExitPlanMode",
+		"--disallowedTools", "EnterPlanMode,ExitPlanMode,WebSearch",
 	}
 
 	// 权限模式决定是否绕过审批

@@ -13,11 +13,19 @@ export { fetchFileDownload, fileApi, getFileDownloadUrl } from "./api/fileApi";
 export { projectFileApi } from "./api/projectFileApi";
 export { sessionApi } from "./api/sessionApi";
 export type {
+	ImportSkillParams,
+	ImportSkillResponse,
+	InstalledSkillsResponse,
 	SearchSkillMarketplaceParams,
 	SearchSkillMarketplaceResponse,
+	SkillDetailData,
+	SkillDetailParams,
+	SkillInstalledItem,
 	SkillMarketplaceItem,
+	UninstallSkillParams,
+	UninstallSkillResponse,
 } from "./api/skillMarketplaceApi";
-export { skillMarketplaceApi } from "./api/skillMarketplaceApi";
+export { installedToCardItem, skillMarketplaceApi } from "./api/skillMarketplaceApi";
 export type { AppAction, AppStore } from "./appStore";
 export {
 	useAppStore,
@@ -88,7 +96,7 @@ export {
 	mergeProjectArtifacts,
 	messageArtifactToProjectArtifact,
 } from "./utils/artifacts";
-export { AUTH_SESSION_EXPIRED_EVENT, getValidJwtToken } from "./utils/authStorage";
+export { AUTH_SESSION_EXPIRED_EVENT, authenticatedFetch, getValidJwtToken } from "./utils/authStorage";
 export {
 	formatDate,
 	formatFileSize,

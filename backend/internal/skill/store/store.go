@@ -13,13 +13,15 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 const (
 	skillFileName          = "SKILL.md"
+	seedManifestFile       = ".seed-manifest"
 	maxNameLength          = 64
 	maxDescriptionLength   = 1024
-	maxSkillContentChars   = 100_000
+	maxSkillContentChars   = 1_048_576
 	maxSupportingFileBytes = 1_048_576
 
 	ActionCreate     = "create"
@@ -82,6 +84,7 @@ func (e *SkillError) Error() string {
 var (
 	ErrSkillExists     = &SkillError{Code: "skill_exists", Message: "skill already exists"}
 	ErrSkillNotFound   = &SkillError{Code: "skill_not_found", Message: "skill not found"}
+	ErrSkillIsBuiltin  = &SkillError{Code: "skill_is_builtin", Message: "cannot uninstall built-in skill"}
 	ErrNameInvalid     = &SkillError{Code: "name_invalid", Message: "invalid skill name"}
 	ErrDocumentInvalid = &SkillError{Code: "document_invalid", Message: "invalid skill document"}
 	ErrPatchNoMatch    = &SkillError{Code: "patch_no_match", Message: "old_text was not found"}
@@ -550,6 +553,15 @@ func (s *SkillStore) Delete(ctx context.Context, req DeleteRequest) (*Result, er
 		return failure(ActionDelete, name, err.Error(), ErrSkillNotFound), nil
 	}
 
+	// Block deletion of built-in (seed) skills tracked in .seed-manifest.
+	if isSeed, err := s.isSeedSkill(name); err != nil {
+		return nil, fmt.Errorf("check seed manifest: %w", err)
+	} else if isSeed {
+		return failure(ActionDelete, name,
+			fmt.Sprintf("cannot uninstall built-in skill %q", name),
+			ErrSkillIsBuiltin), nil
+	}
+
 	if err := os.RemoveAll(skill.Path); err != nil {
 		return nil, fmt.Errorf("delete skill dir: %w", err)
 	}
@@ -596,6 +608,30 @@ func (s *SkillStore) Find(ctx context.Context, name string) (*Skill, error) {
 		return nil, fmt.Errorf("skill %q not found", name)
 	}
 	return found, nil
+}
+
+// isSeedSkill checks whether the given skill name appears in the .seed-manifest
+// file located in the store's rootDir. Matching is case-insensitive, consistent
+// with Find(). Returns false if the manifest file does not exist.
+func (s *SkillStore) isSeedSkill(name string) (bool, error) {
+	manifestPath := filepath.Join(s.rootDir, seedManifestFile)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read seed manifest: %w", err)
+	}
+	entries, warnings := catalog.ParseSeedManifest(data)
+	for _, w := range warnings {
+		logs.Warnf("%s", w)
+	}
+	for entryName := range entries {
+		if strings.EqualFold(entryName, name) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *SkillStore) validate() error {

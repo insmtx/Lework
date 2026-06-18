@@ -11,6 +11,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { Bot } from "lucide-react";
 import {
 	forwardRef,
+	type MouseEvent,
 	useCallback,
 	useEffect,
 	useImperativeHandle,
@@ -636,7 +637,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												<CommandItem
 													key={assistant.code}
 													value={assistant.code}
-													onMouseDown={(event) => event.preventDefault()}
+													onMouseDown={(event: MouseEvent) => event.preventDefault()}
 													onSelect={() => selectToken("assistant", assistant, trigger)}
 													className={cn(
 														"rounded-xl px-2.5 py-2",
@@ -660,7 +661,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												<CommandItem
 													key={command.code}
 													value={command.code}
-													onMouseDown={(event) => event.preventDefault()}
+													onMouseDown={(event: MouseEvent) => event.preventDefault()}
 													onSelect={() => selectToken("command", command, trigger)}
 													className={cn(
 														"rounded-xl px-2.5 py-2",

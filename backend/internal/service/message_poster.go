@@ -387,7 +387,7 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 			Input: protocol.TaskInput{
 				Type: protocol.InputTypeMessage,
 				Messages: []protocol.ChatMessage{
-					{Role: protocol.MessageRoleUser, Content: message.Content},
+					{ID: fmt.Sprintf("%d", message.ID), Role: protocol.MessageRoleUser, Content: message.Content},
 				},
 				Attachments: convertMessageToProtocolAttachments(message.Attachments),
 			},

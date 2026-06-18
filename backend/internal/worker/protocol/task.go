@@ -81,6 +81,7 @@ type TaskInput struct {
 
 // ChatMessage is a compact conversation message snapshot.
 type ChatMessage struct {
+	ID      string      `json:"id,omitempty"`
 	Role    MessageRole `json:"role"`
 	Content string      `json:"content"`
 }
