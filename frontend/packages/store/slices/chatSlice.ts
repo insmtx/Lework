@@ -781,14 +781,11 @@ function applySessionEventToMessage(
 			const shouldAppendProcessStep =
 				normalizedEventType === "message.delta" &&
 				shouldAppendMessageDeltaToProcess(content, options);
-			if (!options.appendContent && !shouldAppendProcessStep) return message;
+			if (!shouldAppendProcessStep) return message;
 
 			return {
 				...message,
-				content: options.appendContent ? message.content + content : message.content,
-				processSteps: shouldAppendProcessStep
-					? appendProcessThinkingStep(message.processSteps, content)
-					: message.processSteps,
+				processSteps: appendProcessThinkingStep(message.processSteps, content),
 			};
 		}
 		case "reasoning.delta": {
@@ -823,10 +820,7 @@ function applySessionEventToMessage(
 				.filter((artifact): artifact is MessageArtifact => artifact !== undefined);
 			return enrichAssistantMessageMetrics({
 				...message,
-				content:
-					options.appendContent && !message.content && resultMessage
-						? resultMessage
-						: message.content,
+				content: options.appendContent && resultMessage ? resultMessage : message.content,
 				processSteps: pruneFinalContentProcessSteps(message.processSteps, resultMessage),
 				artifacts: artifacts?.length
 					? mergeArtifacts(message.artifacts, artifacts)
@@ -1280,15 +1274,9 @@ export class ChatActionImpl {
 							resumeStream: false,
 						});
 					}
-				} catch {
-					const msg = this.#get().messagesMap[assistantMsgId];
-					if (msg && event.data) {
-						this.#dispatchChat({
-							type: "updateMessage",
-							id: assistantMsgId,
-							value: { ...msg, content: msg.content + event.data },
-						});
-					}
+				} catch (err) {
+					// 正文只接受 run.completed 的最终结果，解析失败的流片段不再兜底写入正文。
+					console.error("SSE message parse error:", err);
 				}
 			},
 			onError: (err) => {
