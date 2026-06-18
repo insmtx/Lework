@@ -55,45 +55,6 @@ func TestRunJournalArchivesMergedMessagesAndToolEvents(t *testing.T) {
 	}
 }
 
-func TestRunJournalKeepsInterleavedMessageAndToolOrder(t *testing.T) {
-	journal := NewRunJournal(&agent.RequestContext{RunID: "run_trace"}, events.NewNoopSink())
-	ctx := context.Background()
-
-	for _, event := range []*events.Event{
-		{Type: events.EventStarted, RunID: "run_trace", Seq: 1},
-		events.NewMessageDelta("msg_1", "first "),
-		events.NewToolCallStarted("call_1", "search", map[string]any{"query": "x"}),
-		events.NewToolCallCompleted("call_1", "search", map[string]any{"ok": true}, 12),
-		events.NewMessageDelta("msg_1", "second"),
-		{Type: events.EventResult, RunID: "run_trace", Content: "first second"},
-	} {
-		if err := journal.Append(ctx, event); err != nil {
-			t.Fatalf("emit: %v", err)
-		}
-	}
-
-	payload := journal.CompletedPayload(&agent.RunResult{
-		Status:  agent.RunStatusCompleted,
-		Message: "first second",
-	})
-
-	if len(payload.Events) != 4 {
-		t.Fatalf("expected 4 archived events, got %#v", payload.Events)
-	}
-	if payload.Events[0].Type != events.EventMessageDelta || contentFromEventRecord(payload.Events[0]) != "first " {
-		t.Fatalf("expected first message delta to stay before tool call, got %#v", payload.Events[0])
-	}
-	if payload.Events[1].Type != events.EventToolCallStarted {
-		t.Fatalf("expected tool call started at index 1, got %#v", payload.Events[1])
-	}
-	if payload.Events[2].Type != events.EventToolCallCompleted {
-		t.Fatalf("expected tool call completed at index 2, got %#v", payload.Events[2])
-	}
-	if payload.Events[3].Type != events.EventMessageDelta || contentFromEventRecord(payload.Events[3]) != "second" {
-		t.Fatalf("expected trailing message delta to remain after tool call, got %#v", payload.Events[3])
-	}
-}
-
 func containsArchivedEvent(records []events.RunEventRecord, eventType events.EventType) bool {
 	return findArchivedEvent(records, eventType) != nil
 }

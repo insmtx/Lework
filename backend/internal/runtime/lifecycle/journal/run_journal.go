@@ -254,8 +254,14 @@ func cloneEvent(event *events.Event) events.Event {
 	return copied
 }
 
+type mergeKey struct {
+	eventType events.EventType
+	messageID string
+}
+
 func archiveEventsLocked(source []events.Event) []events.RunEventRecord {
 	records := make([]events.RunEventRecord, 0, len(source))
+	merged := map[mergeKey]int{}
 	for _, event := range source {
 		if event.Type == events.EventCompleted || event.Type == events.EventResult {
 			continue
@@ -264,23 +270,19 @@ func archiveEventsLocked(source []events.Event) []events.RunEventRecord {
 			record := eventRecord(event)
 			payload, err := events.DecodePayload[events.MessageDeltaPayload](&event)
 			if err == nil {
-				messageID := strings.TrimSpace(payload.MessageID)
-				if messageID != "" {
-					record.Payload = mergedMessagePayload(event.Type, messageID, payload.Content)
-					// 中文注释：历史回放需要尽量保留“思考/工具交叉”的真实时序，
-					// 因此这里只合并相邻的同类文本事件，避免跨过工具调用后把前后文本压成一段。
-					if lastIndex := len(records) - 1; lastIndex >= 0 {
-						lastRecord := &records[lastIndex]
-						if lastRecord.Type == event.Type && sameMessageID(lastRecord.Payload, messageID) {
-							lastRecord.LastSeq = event.Seq
-							lastRecord.Payload = mergedMessagePayload(
-								event.Type,
-								messageID,
-								messageContentFromPayload(lastRecord.Payload)+payload.Content,
-							)
-							continue
-						}
+				key := mergeKey{eventType: event.Type, messageID: strings.TrimSpace(payload.MessageID)}
+				if key.messageID != "" {
+					if index, ok := merged[key]; ok {
+						records[index].LastSeq = event.Seq
+						records[index].Payload = mergedMessagePayload(
+							event.Type,
+							payload.MessageID,
+							messageContentFromPayload(records[index].Payload)+payload.Content,
+						)
+						continue
 					}
+					record.Payload = mergedMessagePayload(event.Type, payload.MessageID, payload.Content)
+					merged[key] = len(records)
 				}
 			}
 			records = append(records, record)
@@ -324,14 +326,6 @@ func messageContentFromPayload(raw events.RawPayload) string {
 		return ""
 	}
 	return payload.Content
-}
-
-func sameMessageID(raw events.RawPayload, messageID string) bool {
-	var payload events.MessageDeltaPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return false
-	}
-	return strings.TrimSpace(payload.MessageID) == messageID
 }
 
 func mergedMessagePayload(eventType events.EventType, messageID string, content string) events.RawPayload {
