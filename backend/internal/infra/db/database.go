@@ -251,18 +251,8 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 		}
 	}
 
-	var deploymentCount int64
-	if err := d.Model(&types.WorkerDeployment{}).
-		Where("org_id = ? AND worker_id = ?", org.ID, 1).
-		Count(&deploymentCount).Error; err != nil {
-		return fmt.Errorf("count default worker deployment: %w", err)
-	}
-	if deploymentCount > 0 {
-		return nil
-	}
-
 	assistant := &types.DigitalAssistant{}
-	code := fmt.Sprintf("org_%d_default_worker", org.ID)
+	code := fmt.Sprintf("default_o%d", org.ID)
 	err := d.Where("org_id = ? AND code = ?", org.ID, code).First(assistant).Error
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -272,14 +262,30 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 			Code:         code,
 			OrgID:        org.ID,
 			OwnerID:      user.ID,
-			Name:         "默认AI队友",
-			Description:  "组织默认 AI 队友",
+			Name:         "默认数字员工",
+			Description:  "组织默认数字员工",
 			Status:       "active",
-			SystemPrompt: "你是组织默认 AI 队友，负责接收并处理默认协作任务。",
+			SystemPrompt: "你是组织默认数字员工，负责接收并处理默认协作任务。",
 		}
 		if err := d.Create(assistant).Error; err != nil {
 			return fmt.Errorf("create default worker assistant: %w", err)
 		}
+	}
+
+	var existingDeployment types.WorkerDeployment
+	err = d.Where("org_id = ? AND worker_id = ?", org.ID, 1).First(&existingDeployment).Error
+	if err == nil {
+		if existingDeployment.DigitalAssistantID != assistant.ID {
+			existingDeployment.DigitalAssistantID = assistant.ID
+			if err := d.Save(&existingDeployment).Error; err != nil {
+				return fmt.Errorf("rebind default worker deployment: %w", err)
+			}
+			logs.Infof("Default worker deployment rebound to %s (org_id=%d, worker_id=1)", code, org.ID)
+		}
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("find default worker deployment: %w", err)
 	}
 
 	deployment := &types.WorkerDeployment{

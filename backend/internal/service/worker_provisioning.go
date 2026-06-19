@@ -30,13 +30,6 @@ func (s *WorkerProvisioningService) EnsureDefaultWorkerForOrg(ctx context.Contex
 	if orgID == 0 {
 		return nil, fmt.Errorf("org_id is required")
 	}
-	existing, err := db.GetDefaultWorkerDeployment(ctx, s.db, orgID)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		return existing, nil
-	}
 
 	code := defaultWorkerCode(orgID)
 	assistant, err := db.GetDigitalAssistantByCode(ctx, s.db, code)
@@ -48,11 +41,11 @@ func (s *WorkerProvisioningService) EnsureDefaultWorkerForOrg(ctx context.Contex
 			Code:         code,
 			OrgID:        orgID,
 			OwnerID:      ownerID,
-			Name:         "默认AI队友",
-			Description:  "组织默认 AI 队友",
+			Name:         "默认数字员工",
+			Description:  "组织默认数字员工",
 			Status:       string(contract.DigitalAssistantStatusActive),
 			Version:      0,
-			SystemPrompt: "你是组织默认 AI 队友，负责接收并处理默认协作任务。",
+			SystemPrompt: "你是组织默认数字员工，负责接收并处理默认协作任务。",
 		}
 		if err := db.CreateDigitalAssistant(ctx, s.db, assistant); err != nil {
 			return nil, err
@@ -63,6 +56,20 @@ func (s *WorkerProvisioningService) EnsureDefaultWorkerForOrg(ctx context.Contex
 		if err := db.UpdateDigitalAssistant(ctx, s.db, assistant); err != nil {
 			return nil, err
 		}
+	}
+
+	existing, err := db.GetDefaultWorkerDeployment(ctx, s.db, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		if existing.DigitalAssistantID != assistant.ID {
+			existing.DigitalAssistantID = assistant.ID
+			if err := db.UpdateWorkerDeployment(ctx, s.db, existing); err != nil {
+				return nil, err
+			}
+		}
+		return existing, nil
 	}
 	return s.EnsureForAssistant(ctx, assistant)
 }
@@ -129,7 +136,7 @@ func workerDeploymentName(orgID, workerID uint) string {
 }
 
 func defaultWorkerCode(orgID uint) string {
-	return fmt.Sprintf("org_%d_default_worker", orgID)
+	return fmt.Sprintf("default_o%d", orgID)
 }
 
 func (s *WorkerProvisioningService) namespace() string {
