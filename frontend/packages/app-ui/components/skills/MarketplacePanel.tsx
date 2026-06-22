@@ -14,16 +14,14 @@ const CATEGORIES = [
   { value: "code", label: "代码生成" },
 ];
 
-const PAGE_SIZE = 80;
+const PAGE_SIZE = 90;
 
 interface MarketplacePanelProps {
   /** Called when a skill card is clicked (for navigation to detail page) */
   onCardClick?: (skill: SkillMarketplaceItem) => void;
 }
 
-export function MarketplacePanel({
-  onCardClick,
-}: MarketplacePanelProps) {
+export function MarketplacePanel({ onCardClick }: MarketplacePanelProps) {
   const [items, setItems] = useState<SkillMarketplaceItem[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);

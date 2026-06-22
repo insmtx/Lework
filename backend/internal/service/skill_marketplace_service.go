@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
@@ -25,13 +26,15 @@ import (
 	"github.com/insmtx/Leros/backend/internal/skill/fetch"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/dm"
+	"github.com/insmtx/Leros/backend/pkg/utils"
 	"github.com/insmtx/Leros/backend/types"
 )
 
 type skillMarketplaceService struct {
-	db        *gorm.DB
-	publisher eventbus.Publisher
-	inferrer  AssistantInferrer
+	db         *gorm.DB
+	publisher  eventbus.Publisher
+	inferrer   AssistantInferrer
+	translator SkillDescriptionTranslator
 }
 
 // NewSkillMarketplaceService 创建 Skill 市场服务。
@@ -43,9 +46,13 @@ func NewSkillMarketplaceServiceWithInferrer(db *gorm.DB, publisher eventbus.Publ
 	return &skillMarketplaceService{db: db, publisher: publisher, inferrer: inferrer}
 }
 
+func NewSkillMarketplaceServiceWithTranslator(db *gorm.DB, publisher eventbus.Publisher, inferrer AssistantInferrer, translator SkillDescriptionTranslator) contract.SkillMarketplaceService {
+	return &skillMarketplaceService{db: db, publisher: publisher, inferrer: inferrer, translator: translator}
+}
+
 func (s *skillMarketplaceService) SearchSkillMarketplace(ctx context.Context, req *contract.SearchSkillMarketplaceRequest) (*contract.SearchSkillMarketplaceResponse, error) {
 	if req.Limit <= 0 {
-		req.Limit = 80
+		req.Limit = 30
 	}
 	if req.Limit > 200 {
 		req.Limit = 200
@@ -108,6 +115,9 @@ func (s *skillMarketplaceService) SearchSkillMarketplace(ctx context.Context, re
 	}
 
 	wg.Wait()
+
+	// 缓存查找 + 中文描述替换（best-effort）
+	s.resolveCacheAndTranslation(ctx, allItems)
 
 	// 首屏聚合：内置源优先，截断至 limit。
 	if len(allItems) > req.Limit {
@@ -174,6 +184,122 @@ func builtinItemToView(item types.BuiltinSkillMarketplaceItem) contract.SkillMar
 func metaToView(meta fetch.SkillMeta) contract.SkillMarketplaceItemView {
 	return skillMarketplaceItemView(meta.Source, meta.SkillID, meta.Name, meta.Description,
 		meta.Version, meta.Author, meta.Category, meta.Tags, meta.Icon, meta.Installs)
+}
+
+// resolveCacheAndTranslation 从缓存表查找中文描述，未命中的进行翻译后写库。
+func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context, items []contract.SkillMarketplaceItemView) {
+	if len(items) == 0 {
+		return
+	}
+
+	keys := make([]infradb.CacheKey, 0, len(items))
+	for _, item := range items {
+		keys = append(keys, infradb.CacheKey{
+			Source:  item.SourceType,
+			SkillID: item.SkillID,
+			Version: item.Version,
+		})
+	}
+
+	cacheMap, err := infradb.BatchGetSkillMarketplaceItems(ctx, s.db, keys)
+	if err != nil {
+		logs.WarnContextf(ctx, "resolve cache: batch get failed: %v", err)
+		return
+	}
+
+	var (
+		alreadyChinese []types.SkillMarketplaceItem // 中文描述直接写库
+		needTranslate  []TranslateItem              // 需要模型翻译
+	)
+
+	for idx := range items {
+		item := &items[idx]
+		key := fmt.Sprintf("%s|%s|%s", item.SourceType, item.SkillID, item.Version)
+		cached, hit := cacheMap[key]
+
+		if hit && cached.TranslatedDescription != "" {
+			// 缓存命中且有中文描述 → 直接替换
+			item.Description = cached.TranslatedDescription
+			continue
+		}
+
+		if item.Description == "" {
+			continue
+		}
+
+		if utils.CJKRatio(item.Description) >= 0.3 {
+			// 已中文 → 直接写库
+			alreadyChinese = append(alreadyChinese, itemToCacheItem(item, item.Description))
+			continue
+		}
+
+		// 需要翻译
+		needTranslate = append(needTranslate, TranslateItem{
+			SkillID:     item.SkillID,
+			Description: item.Description,
+		})
+	}
+
+	// 写入已中文条目
+	if len(alreadyChinese) > 0 {
+		if err := infradb.BatchUpsertSkillMarketplaceItems(ctx, s.db, alreadyChinese); err != nil {
+			logs.WarnContextf(ctx, "resolve cache: upsert already-chinese items: %v", err)
+		}
+	}
+
+	// 翻译并写入
+	if s.translator != nil && len(needTranslate) > 0 {
+		translationMap, err := s.translator.Translate(ctx, needTranslate)
+		if err != nil {
+			logs.WarnContextf(ctx, "resolve cache: translate failed: %v", err)
+			return
+		}
+		if len(translationMap) == 0 {
+			return
+		}
+
+		// 先组装 upsert 条目（此时 Description 还是原文）
+		upsertItems := make([]types.SkillMarketplaceItem, 0, len(translationMap))
+		for idx := range items {
+			item := items[idx]
+			if translated, ok := translationMap[item.SkillID]; ok {
+				upsertItems = append(upsertItems, itemToCacheItem(&item, translated))
+			}
+		}
+		if len(upsertItems) > 0 {
+			if err := infradb.BatchUpsertSkillMarketplaceItems(ctx, s.db, upsertItems); err != nil {
+				logs.WarnContextf(ctx, "resolve cache: upsert translated items: %v", err)
+			}
+		}
+
+		// 再替换返回给前端的描述
+		for idx := range items {
+			item := &items[idx]
+			if translated, ok := translationMap[item.SkillID]; ok {
+				item.Description = translated
+			}
+		}
+	}
+}
+
+// itemToCacheItem 将 SkillMarketplaceItemView 转为缓存表记录。
+func itemToCacheItem(item *contract.SkillMarketplaceItemView, translatedDesc string) types.SkillMarketplaceItem {
+	tags := types.SkillStringList{}
+	if item.Tags != nil {
+		tags = types.SkillStringList(item.Tags)
+	}
+	return types.SkillMarketplaceItem{
+		SkillID:               item.SkillID,
+		Name:                  item.Name,
+		Source:                item.SourceType,
+		Description:           item.Description,
+		TranslatedDescription: translatedDesc,
+		Author:                item.Author,
+		Installs:              0,
+		Version:               item.Version,
+		Category:              item.Category,
+		Tags:                  tags,
+	}
 }
 
 func (s *skillMarketplaceService) DownloadBuiltinSkill(ctx context.Context, skillID string) (*contract.SkillPackageDownload, error) {

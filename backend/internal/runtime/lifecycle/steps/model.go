@@ -7,7 +7,6 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/agent"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
 )
 
 // modelStore caches the modelrouter store for this process.
@@ -58,32 +57,7 @@ func initModelRouting(_ context.Context, req *agent.RequestContext) error {
 
 	// Change the request's BaseURL to use the built-in worker model proxy
 	// Keep BaseURLHasV1 as the original value from the request
-	req.Model.BaseURL = workerModelProxyBaseURL()
+	req.Model.BaseURL = modelrouter.WorkerProxyBaseURL()
 
 	return nil
-}
-
-// workerModelProxyBaseURL returns the built-in model proxy BaseURL for the worker.
-func workerModelProxyBaseURL() string {
-	addr := strings.TrimSpace(identity.WorkerAddr())
-	if addr == "" {
-		return ""
-	}
-	addr = strings.TrimRight(addr, "/")
-	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
-		return ensureV1Suffix(addr)
-	}
-	if strings.HasPrefix(addr, ":") {
-		return ensureV1Suffix("http://127.0.0.1" + addr)
-	}
-	return ensureV1Suffix("http://" + addr)
-}
-
-// ensureV1Suffix ensures the BaseURL ends with /v1 if needed.
-func ensureV1Suffix(baseURL string) string {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if baseURL == "" || strings.HasSuffix(baseURL, "/v1") {
-		return baseURL
-	}
-	return baseURL + "/v1"
 }

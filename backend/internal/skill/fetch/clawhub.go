@@ -395,6 +395,7 @@ type clawhubSkillItem struct {
 	Slug          string              `json:"slug"`
 	DisplayName   string              `json:"displayName"`
 	Summary       string              `json:"summary"`
+	Description   string              `json:"description"`
 	Author        string              `json:"author"`
 	Topics        []string            `json:"topics,omitempty"`
 	Tags          map[string]string   `json:"tags,omitempty"`
@@ -444,13 +445,19 @@ func (i *clawhubSkillItem) toSkillMeta() SkillMeta {
 		installs = int64(i.Stats.Downloads + i.Stats.InstallsAllTime)
 	}
 
+	// description 字段优先，为空时 fallback 到 summary
+	desc := i.Description
+	if desc == "" {
+		desc = i.Summary
+	}
+
 	return SkillMeta{
 		SkillID:     i.Slug,
 		Name:        name,
 		Identifier:  i.Slug,
 		Source:      "clawhub",
 		TrustLevel:  "community",
-		Description: i.Summary,
+		Description: desc,
 		Version:     version,
 		Author:      i.Author,
 		Tags:        i.Topics,

@@ -125,7 +125,7 @@ export const skillMarketplaceApi = {
   search: (params: SearchSkillMarketplaceParams) =>
     apiClient.get<BackendDataResponse<SearchSkillMarketplaceResponse>>(
       "/skill-marketplace/search",
-      { params: cleanParams(params) },
+      { timeout: 180_000, params: cleanParams(params) },
     ),
 
   install: (params: InstallSkillParams) =>
