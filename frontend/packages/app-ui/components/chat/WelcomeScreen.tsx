@@ -12,7 +12,7 @@ export function WelcomeScreen() {
 			<div className="size-12 rounded-full bg-blue-50 flex items-center justify-center mb-4">
 				<Bolt className="size-6 text-blue-500" />
 			</div>
-			<h2 className="text-lg font-medium text-slate-700 mb-1">Leros AI 助手</h2>
+			<h2 className="text-lg font-medium text-slate-700 mb-1">Lework</h2>
 			<p className="text-sm text-slate-500 mb-8 text-center max-w-[320px]">
 				选择一个快捷操作开始，或直接输入你的问题
 			</p>

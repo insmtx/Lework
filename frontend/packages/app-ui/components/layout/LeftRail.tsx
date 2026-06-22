@@ -180,7 +180,10 @@ export function LeftRail({
 		const name = renameValue.trim();
 		if (!renameProject || !name) return;
 
-		const updatedProject = await updateProject({ public_id: renameProject.id, name });
+		const updatedProject = await updateProject({
+			public_id: renameProject.id,
+			name,
+		});
 		if (updatedProject) {
 			setRenameProject(null);
 			setRenameValue("");
@@ -283,8 +286,8 @@ export function LeftRail({
 						<Network className="size-5" />
 					</div>
 					<div className="leros-sidebar-expandable min-w-0">
-						<div className="leros-brand-title">Leros AI</div>
-						<div className="leros-brand-version">v0.1</div>
+						<div className="leros-brand-title">Lework</div>
+						<div className="leros-brand-version">v0.1.11</div>
 					</div>
 				</div>
 				<button
@@ -544,7 +547,10 @@ function AccountManagementDialog({
 
 		setSavingName(true);
 		try {
-			const response = await userApi.update({ public_id: publicId, name: nextName });
+			const response = await userApi.update({
+				public_id: publicId,
+				name: nextName,
+			});
 			const updatedUser = response.data.data;
 			if (updatedUser?.name) {
 				updateLocalUser({
@@ -818,7 +824,8 @@ function getDesktopUpdateApi(): DesktopUpdateApi | null {
 		return null;
 	}
 
-	return ((window as Window & { lerosDesktop?: DesktopUpdateApi }).lerosDesktop ?? null) as DesktopUpdateApi | null;
+	return ((window as Window & { lerosDesktop?: DesktopUpdateApi }).lerosDesktop ??
+		null) as DesktopUpdateApi | null;
 }
 
 function DesktopUpdateMenuSection() {
@@ -875,7 +882,9 @@ function DesktopUpdateMenuSection() {
 					<div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
 						<div
 							className="h-full rounded-full bg-[#34c59a] transition-all"
-							style={{ width: `${Math.max(0, Math.min(updateState.progressPercent, 100))}%` }}
+							style={{
+								width: `${Math.max(0, Math.min(updateState.progressPercent, 100))}%`,
+							}}
 						/>
 					</div>
 				</div>

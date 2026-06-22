@@ -114,6 +114,11 @@ function normalizeSearchValue(value: string): string {
 	return value.trim().toLowerCase();
 }
 
+// 中文注释：空 contenteditable 浏览器常会插入 <br>，同步后变成仅含换行的字符串，需视为空值。
+function isEmptyEditorValue(value: string): boolean {
+	return value.trim() === "";
+}
+
 function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
 	return {
 		code: skill.name,
@@ -326,10 +331,10 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 		mention.setAttribute("contenteditable", "false");
 		if (token.kind === "skill") {
 			mention.className =
-				"inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium leading-none text-violet-700 ring-1 ring-violet-100 align-baseline";
+				"inline-flex items-center gap-1 rounded-lg bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium leading-none text-violet-700 ring-1 ring-violet-100 align-baseline";
 			const iconShell = document.createElement("span");
 			iconShell.className =
-				"inline-flex size-4 shrink-0 items-center justify-center rounded-md bg-white text-violet-600";
+				"inline-flex size-3.5 shrink-0 items-center justify-center rounded-md bg-white text-violet-600";
 			iconShell.appendChild(createSkillSparklesIcon());
 			const label = document.createElement("span");
 			label.className = "truncate";
@@ -337,7 +342,7 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 			mention.append(iconShell, label);
 		} else {
 			mention.className =
-				"inline-flex rounded-md bg-blue-100 px-1.5 py-0.5 text-blue-700 align-baseline";
+				"inline-flex rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-700 align-baseline";
 			mention.textContent = token.label;
 		}
 		fragment.appendChild(mention);
@@ -432,7 +437,10 @@ function getCaretOffset(root: HTMLElement): number {
 	return extractSnapshotFromFragment(workingRange.cloneContents()).text.length;
 }
 
-function getSelectionOffsets(root: HTMLElement): { start: number; end: number } {
+function getSelectionOffsets(root: HTMLElement): {
+	start: number;
+	end: number;
+} {
 	const selection = window.getSelection();
 	if (!selection || selection.rangeCount === 0) {
 		const textLength = extractSnapshot(root).text.length;
@@ -631,7 +639,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		}, [tokens, value]);
 
 		useEffect(() => {
-			if (value) return;
+			if (!isEmptyEditorValue(value)) return;
 			setTokens([]);
 			setTrigger(null);
 		}, [value]);
@@ -673,10 +681,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 			const snapshot = extractSnapshot(editor);
 			setTokens(snapshot.tokens);
-			onChange(snapshot.text);
+			// 中文注释：仅空白/换行时归一为空串，避免 placeholder 因 \n 被误判为已输入。
+			const text = isEmptyEditorValue(snapshot.text) ? "" : snapshot.text;
+			onChange(text);
 
 			if (!composingRef.current) {
-				setTrigger(findTrigger(snapshot.text, getCaretOffset(editor)));
+				setTrigger(findTrigger(text, getCaretOffset(editor)));
 			}
 		}, [onChange]);
 
@@ -760,7 +770,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					: `/${(option as ChatCommand | SkillOption).label}`;
 				const followingText = value.slice(activeTrigger.end);
 				const trailingSpace = followingText.startsWith(" ") ? "" : " ";
-				const nextValue = `${value.slice(0, activeTrigger.start)}${label}${trailingSpace}${followingText}`;
+				const nextValue = `${value.slice(
+					0,
+					activeTrigger.start,
+				)}${label}${trailingSpace}${followingText}`;
 				if (isAssistant) {
 					const insertedToken: InsertedToken = {
 						label,
@@ -880,8 +893,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const inputSpacingClass = isProjectVariant
-			? "min-h-[92px] rounded-none px-0 py-0 text-base leading-7"
-			: "min-h-[116px] rounded-2xl px-5 py-4 text-sm leading-6";
+			? "min-h-[80px] rounded-none px-0 py-0 text-sm leading-6"
+			: "min-h-[80px] rounded-2xl px-5 py-4 pb-2 text-xs leading-5";
 
 		return (
 			<div className="relative">
@@ -896,7 +909,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 							onValueChange={handlePickerValueChange}
 							className="rounded-xl! bg-transparent p-0"
 						>
-							<div className="flex items-center gap-2 px-2.5 pb-1.5 pt-1 text-xs font-medium text-slate-400">
+							<div className="flex items-center gap-2 p-0 text-xs font-medium text-slate-400">
 								{trigger.kind === "assistant" ? <>AI 队友</> : <>命令和 Skills</>}
 								{trigger.query && <span className="truncate text-slate-400">{trigger.query}</span>}
 							</div>
@@ -942,7 +955,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 											{filteredSkills.map((skill, index) => (
 												<CommandItem
 													key={`skill-${skill.code}`}
-													value={commandPickerValue({ kind: "skill", item: skill })}
+													value={commandPickerValue({
+														kind: "skill",
+														item: skill,
+													})}
 													data-picker-item-value={commandPickerValue({
 														kind: "skill",
 														item: skill,
@@ -972,7 +988,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												return (
 													<CommandItem
 														key={command.code}
-														value={commandPickerValue({ kind: "command", item: command })}
+														value={commandPickerValue({
+															kind: "command",
+															item: command,
+														})}
 														data-picker-item-value={commandPickerValue({
 															kind: "command",
 															item: command,
@@ -1004,11 +1023,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					</div>
 				)}
 
-				{!value && (
+				{isEmptyEditorValue(value) && (
 					<div
 						aria-hidden="true"
 						className={cn(
-							"pointer-events-none absolute left-0 top-0 text-slate-400",
+							"pointer-events-none absolute left-0 top-0 z-10 text-slate-400",
 							inputSpacingClass,
 						)}
 					>
@@ -1041,7 +1060,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 						syncFromEditor();
 					}}
 					className={cn(
-						"relative z-10 max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-slate-700 caret-slate-700 focus:outline-none",
+						"relative max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-slate-700 caret-slate-700 focus:outline-none",
 						inputSpacingClass,
 					)}
 				/>

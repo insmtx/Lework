@@ -55,7 +55,9 @@ function CopyButton({ text }: { text: string }) {
 		<Button
 			variant="ghost"
 			size="icon-xs"
-			className={`${compactActionButtonClassName} ${copied ? "text-green-500" : "text-slate-400 hover:text-slate-600"}`}
+			className={`${compactActionButtonClassName} ${
+				copied ? "text-green-500" : "text-slate-400 hover:text-slate-600"
+			}`}
 			onClick={handleCopy}
 		>
 			{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -86,7 +88,7 @@ export function AIMessageBubble({
 			</Avatar>
 			<div className="min-w-0 flex-1">
 				<div className="mb-1.5 flex items-center gap-2">
-					<span className="text-[13px] font-medium text-slate-500">AI 助手</span>
+					<span className="text-[13px] font-medium text-slate-500">Lework</span>
 					<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
 					{isStreaming && <span className="animate-pulse text-[13px] text-blue-500">生成中</span>}
 				</div>

@@ -54,6 +54,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
 	const isProjectVariant = variant === "project";
+	const canSend = Boolean(inputText.trim());
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 
 	const submitMessage = useCallback(() => {
@@ -142,8 +143,9 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 				)}
 				<div
 					className={cn(
-						"relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-md focus-within:ring-blue-300/70",
-						isProjectVariant && "rounded-2xl bg-white px-6 py-5 ring-slate-200",
+						// 中文注释：focus 时使用无偏移阴影，避免 shadow-xl 只在下方显影
+						"relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70",
+						isProjectVariant && "rounded-2xl bg-white px-4 py-2 ring-slate-200",
 					)}
 				>
 					<StructuredComposer
@@ -156,7 +158,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 						onBlur={() => setInputFocused(false)}
 						placeholder={
 							isProjectVariant
-								? "让 AI 编码、分析或规划..."
+								? "这会儿帮你做些什么？@引用项目"
 								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
 						}
 						isProjectVariant={isProjectVariant}
@@ -248,31 +250,41 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 									size={isProjectVariant ? "icon" : "sm"}
 									className={cn(
 										"border-red-200 text-red-500 hover:bg-red-50",
-										isProjectVariant && "size-11 rounded-2xl",
+										isProjectVariant && "size-9 rounded-xl",
 									)}
 									onClick={cancelGeneration}
 								>
-									<CircleStop className={cn("size-4", !isProjectVariant && "mr-1")} />
+									<CircleStop className={cn("size-3.5", !isProjectVariant && "mr-1")} />
 									{!isProjectVariant && "停止"}
 								</Button>
 							) : (
 								<Button
 									size={isProjectVariant ? "icon" : "sm"}
 									className={cn(
-										"h-9 min-w-20 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400",
-										isProjectVariant && "size-11 min-w-0 rounded-2xl",
+										// 中文注释：!text-white 覆盖 Button default variant 的 text-primary-foreground
+										"bg-black !text-white shadow-sm hover:bg-blue-700 disabled:bg-[#f3f3f4] disabled:!text-slate-400",
+										isProjectVariant ? "size-9 min-w-0 rounded-xl" : "h-8 min-w-[4.5rem]",
 									)}
 									onClick={handleSend}
-									disabled={!inputText.trim()}
+									disabled={!canSend}
 								>
-									<SendHorizonal className={cn("size-4", !isProjectVariant && "mr-1")} />
+									<SendHorizonal
+										className={cn(
+											"size-3.5",
+											!isProjectVariant && "mr-1",
+											// 中文注释：直接在图标上设色，避免 Button 默认 variant 覆盖 currentColor
+											canSend
+												? "fill-white stroke-white text-white"
+												: "fill-none stroke-current text-current",
+										)}
+									/>
 									{!isProjectVariant && "发送"}
 								</Button>
 							)}
 						</div>
 					</div>
 				</div>
-				{isProjectVariant && (
+				{/* {isProjectVariant && (
 					<div className="mt-3 text-center text-xs text-slate-500">
 						按{" "}
 						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
@@ -286,7 +298,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
 						发送
 					</div>
-				)}
+				)} */}
 			</div>
 		</div>
 	);

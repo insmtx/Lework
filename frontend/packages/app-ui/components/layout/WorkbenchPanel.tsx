@@ -293,8 +293,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							</p>
 						</div>
 
-						{/* Enhanced Command Input Card */}
-						<div className="flex flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-4 shadow-sm transition-all focus-within:border-[var(--leros-primary)] focus-within:shadow-md">
+						{/* Enhanced Command Input Card — 边框/阴影/内边距与 ChatInput project 变体对齐 */}
+						<div className="relative flex flex-col rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70">
 							<input
 								ref={fileInputRef}
 								type="file"
@@ -333,7 +333,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									))}
 								</div>
 							)}
-							<div className="mb-2 flex gap-3">
+							<div className="flex gap-3">
 								<textarea
 									value={input}
 									onChange={(event) => setInput(event.target.value)}
@@ -344,7 +344,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										}
 									}}
 									placeholder="在这里开始新任务，或输入指令以同步您的项目进度..."
-									className="h-[60px] flex-1 resize-none border-none bg-transparent text-base text-[var(--leros-chat-input-text)] outline-none placeholder:text-[var(--leros-chat-placeholder)] focus:ring-0"
+									className="min-h-[80px] flex-1 resize-none border-none bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-[var(--leros-chat-placeholder)] focus:ring-0"
 								/>
 							</div>
 							<div className="flex items-center justify-between border-t border-[var(--leros-chat-ai-border)] pt-3">
