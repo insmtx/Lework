@@ -1,3 +1,5 @@
 .env
 server.config.yaml
 worker.config.yaml
+.runtime-state.json
+.runtime/
