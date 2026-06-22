@@ -74,6 +74,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.UserOrg{},
 		&types.AuthRefreshToken{},
 		&types.AuthLoginAttempt{},
+		&types.AuthPhoneVerificationCode{},
 		&types.Event{},
 		&types.DigitalAssistant{},
 		&types.WorkerDeployment{},

@@ -14,8 +14,8 @@ import {
 	desktopUpdateRestartChannel,
 } from "../shared/auto-update";
 
-const autoUpdateIntervalMs = 6 * 60 * 60 * 1000;
-const initialAutoUpdateDelayMs = 15 * 1000;
+const autoUpdateIntervalMs = 30 * 60 * 1000;
+const initialAutoUpdateDelayMs = 1 * 1000;
 const desktopUpdateBaseURL = "https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/stable";
 const enableDevAutoUpdate = !app.isPackaged;
 
@@ -29,6 +29,10 @@ let updateState: DesktopUpdateState = createState({
 let updateHandlersRegistered = false;
 let autoUpdateTimer: NodeJS.Timeout | null = null;
 let updaterInstance: AppUpdater | null = null;
+
+type CheckForUpdatesOptions = {
+	manual?: boolean;
+};
 
 function createState(overrides: Partial<DesktopUpdateState>): DesktopUpdateState {
 	return {
@@ -210,7 +214,11 @@ function registerAutoUpdaterEvents() {
 	});
 }
 
-async function checkForUpdates(): Promise<DesktopUpdateState> {
+async function checkForUpdates(options: CheckForUpdatesOptions = {}): Promise<DesktopUpdateState> {
+	if (!options.manual && updateState.phase === "downloaded" && updateState.downloadedVersion) {
+		return updateState;
+	}
+
 	if (!canUseAutoUpdate()) {
 		markUnsupported("自动更新仅在已安装的 macOS / Windows 版本中可用");
 		return updateState;
@@ -270,7 +278,7 @@ export function registerDesktopAutoUpdate() {
 
 	ipcMain.handle(desktopUpdateGetStateChannel, () => updateState);
 	ipcMain.handle(desktopUpdateCheckChannel, async () => {
-		return checkForUpdates();
+		return checkForUpdates({ manual: true });
 	});
 	ipcMain.handle(desktopUpdateRestartChannel, () => {
 		if (!updateState.canRestart) {

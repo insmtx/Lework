@@ -31,6 +31,7 @@ type Config struct {
 	Scheduler     *SchedulerConfig  `yaml:"scheduler,omitempty"`
 	Storage       *StorageConfig    `yaml:"storage,omitempty"`
 	WorkerAuth    *WorkerAuthConfig `yaml:"worker_auth,omitempty" json:"worker_auth,omitempty"`
+	Aliyun        *AliyunConfig     `yaml:"aliyun,omitempty" json:"aliyun,omitempty"`
 }
 
 // JWTConfig JWT 认证配置
@@ -55,6 +56,16 @@ type WorkerBootstrapToken struct {
 type DatabaseConfig struct {
 	URL   string `yaml:"url,omitempty"`   // 数据库连接地址
 	Debug bool   `yaml:"debug,omitempty"` // 是否启用调试模式
+}
+
+// AliyunConfig configures Aliyun SMS verification code delivery.
+type AliyunConfig struct {
+	AccessKeyID     string `yaml:"access_key_id,omitempty" json:"access_key_id,omitempty"`
+	AccessKeySecret string `yaml:"access_key_secret,omitempty" json:"access_key_secret,omitempty"`
+	SignName        string `yaml:"sign_name,omitempty" json:"sign_name,omitempty"`
+	TemplateCode    string `yaml:"template_code,omitempty" json:"template_code,omitempty"`
+	RegionID        string `yaml:"region_id,omitempty" json:"region_id,omitempty"`
+	DefaultCode     string `yaml:"default_code,omitempty" json:"default_code,omitempty"`
 }
 
 // StorageConfig 是存储的配置结构

@@ -13,11 +13,27 @@ export type LoginByEmailParams = {
 	password: string;
 };
 
+export type SendPhoneLoginCodeParams = {
+	phone: string;
+};
+
+export type SendPhoneLoginCodeResponse = {
+	phone: string;
+	expires_in: number;
+	resend_after?: number;
+};
+
+export type LoginByPhoneCodeParams = {
+	phone: string;
+	code: string;
+};
+
 export type AuthUserInfo = {
 	id: number;
 	public_id: string;
 	name: string;
 	email: string;
+	phone?: string;
 	github_login?: string;
 	avatar_url?: string;
 };
@@ -42,6 +58,8 @@ export type AuthTokenResponse = {
 const AUTH_ENDPOINTS = {
 	loginByEmail: "/LoginByEmail",
 	registerByEmail: "/RegisterByEmail",
+	sendPhoneLoginCode: "/SendPhoneLoginCode",
+	loginByPhoneCode: "/LoginByPhoneCode",
 };
 
 export const authApi = {
@@ -50,4 +68,13 @@ export const authApi = {
 
 	registerByEmail: (params: RegisterByEmailParams) =>
 		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.registerByEmail, params),
+
+	sendPhoneLoginCode: (params: SendPhoneLoginCodeParams) =>
+		apiClient.post<BackendDataResponse<SendPhoneLoginCodeResponse>>(
+			AUTH_ENDPOINTS.sendPhoneLoginCode,
+			params,
+		),
+
+	loginByPhoneCode: (params: LoginByPhoneCodeParams) =>
+		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.loginByPhoneCode, params),
 };

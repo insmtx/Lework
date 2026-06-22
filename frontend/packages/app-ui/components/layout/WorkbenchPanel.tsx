@@ -40,7 +40,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	} = useLayoutStore((s) => s);
 	const { startSessionResponseStream, resetLocalMessages, addUploadedAttachment, isGenerating } =
 		useChatStore((s) => s);
-	const { isAuthenticated, openAuthDialog, requireAuth, user } = useAuth();
+	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, user } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
 	const [input, setInput] = useState("");
@@ -266,8 +266,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							if (!isAuthenticated) openAuthDialog("login");
 						}}
 						className="rounded-full bg-[#070d1c] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#182033]"
+						disabled={!isHydrated}
 					>
-						{isAuthenticated ? (user?.name ?? "已登录") : "登录"}
+						{!isHydrated ? "" : isAuthenticated ? (user?.name ?? "已登录") : "登录"}
 					</button>
 				</div>
 			</header>

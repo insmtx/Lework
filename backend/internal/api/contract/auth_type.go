@@ -12,6 +12,21 @@ type LoginByEmailRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type SendPhoneLoginCodeRequest struct {
+	Phone string `json:"phone" binding:"required"`
+}
+
+type SendPhoneLoginCodeResponse struct {
+	Phone       string `json:"phone"`
+	ExpiresIn   int64  `json:"expires_in"`
+	ResendAfter int64  `json:"resend_after"`
+}
+
+type LoginByPhoneCodeRequest struct {
+	Phone string `json:"phone" binding:"required"`
+	Code  string `json:"code" binding:"required"`
+}
+
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
@@ -31,6 +46,7 @@ type AuthUserInfo struct {
 	PublicID    string `json:"public_id"`
 	Name        string `json:"name"`
 	Email       string `json:"email"`
+	Phone       string `json:"phone,omitempty"`
 	GithubLogin string `json:"github_login,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 }

@@ -32,3 +32,17 @@ type AuthLoginAttempt struct {
 func (AuthLoginAttempt) TableName() string {
 	return TableNameAuthLoginAttempt
 }
+
+// AuthPhoneVerificationCode stores one-time phone login codes.
+type AuthPhoneVerificationCode struct {
+	gorm.Model
+	Phone     string     `gorm:"column:phone;type:varchar(32);index;not null"`
+	CodeHash  string     `gorm:"column:code_hash;type:varchar(64);not null"`
+	ExpiresAt time.Time  `gorm:"column:expires_at;index;not null"`
+	UsedAt    *time.Time `gorm:"column:used_at;index"`
+}
+
+// TableName 指定AuthPhoneVerificationCode结构体对应的数据库表名。
+func (AuthPhoneVerificationCode) TableName() string {
+	return TableNameAuthPhoneVerificationCode
+}

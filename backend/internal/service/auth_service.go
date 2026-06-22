@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
@@ -31,6 +34,9 @@ const (
 	refreshTokenExpire      = 7 * 24 * time.Hour
 	loginAttemptWindow      = 5 * time.Minute
 	loginAttemptMaxFailures = 5
+	phoneCodeExpire         = 5 * time.Minute
+	phoneCodeResendInterval = 2 * time.Minute
+	defaultPhoneCode        = "123456"
 )
 
 var (
@@ -47,6 +53,11 @@ var (
 	errAuthEmailAlreadyExists             = errors.New("该邮箱已注册")
 	errAuthInvalidEmailOrPassword         = errors.New("邮箱或密码错误")
 	errAuthLoginAttemptsExceeded          = errors.New("登录失败次数过多，请稍后再试")
+	errAuthPhoneRequired                  = errors.New("请输入手机号")
+	errAuthInvalidPhoneFormat             = errors.New("请输入正确的手机号")
+	errAuthPhoneCodeRequired              = errors.New("请输入验证码")
+	errAuthInvalidPhoneCode               = errors.New("验证码错误或已过期")
+	errAuthPhoneCodeSendTooOften          = errors.New("验证码发送太频繁，请稍后再试")
 	errAuthRefreshTokenRequired           = errors.New("刷新令牌不能为空")
 	errAuthRefreshTokenInvalid            = errors.New("登录已过期，请重新登录")
 	errAuthUserNotFound                   = errors.New("用户不存在")
@@ -58,14 +69,22 @@ var (
 var _ contract.AuthService = (*authService)(nil)
 
 type authService struct {
-	db        *gorm.DB
-	jwtSecret string
+	db               *gorm.DB
+	jwtSecret        string
+	smsSender        smsSender
+	defaultPhoneCode string
 }
 
-func NewAuthService(d *gorm.DB, jwtSecret string) contract.AuthService {
+func NewAuthService(d *gorm.DB, jwtSecret string, aliyunCfg *config.AliyunConfig) contract.AuthService {
+	code := defaultPhoneCode
+	if aliyunCfg != nil && strings.TrimSpace(aliyunCfg.DefaultCode) != "" {
+		code = strings.TrimSpace(aliyunCfg.DefaultCode)
+	}
 	return &authService{
-		db:        d,
-		jwtSecret: strings.TrimSpace(jwtSecret),
+		db:               d,
+		jwtSecret:        strings.TrimSpace(jwtSecret),
+		smsSender:        newSMSSender(aliyunCfg),
+		defaultPhoneCode: code,
 	}
 }
 
@@ -138,7 +157,7 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 		return nil, err
 	}
 
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayEmail)
 }
 
 func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEmailRequest) (*contract.AuthTokenResponse, error) {
@@ -178,7 +197,151 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 		return nil, err
 	}
 
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayEmail)
+}
+
+func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.SendPhoneLoginCodeRequest) (*contract.SendPhoneLoginCodeResponse, error) {
+	if s.db == nil {
+		return nil, errAuthDatabaseRequired
+	}
+
+	phone, err := normalizePhone(req.Phone)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	s.cleanupExpiredAuthData(ctx, now)
+
+	latestCode, err := db.GetActiveAuthPhoneVerificationCode(ctx, s.db, phone, now)
+	if err != nil {
+		return nil, err
+	}
+	if latestCode != nil && latestCode.CreatedAt.Add(phoneCodeResendInterval).After(now) {
+		logs.WarnContextf(ctx, "SendPhoneLoginCode rejected by resend limit: phone=%s resend_after_seconds=%d",
+			maskPhone(phone), int64(phoneCodeResendInterval.Seconds()))
+		return nil, errAuthPhoneCodeSendTooOften
+	}
+
+	code, err := s.nextPhoneCode()
+	if err != nil {
+		return nil, err
+	}
+	logs.InfoContextf(ctx, "SendPhoneLoginCode started: phone=%s sms_enabled=%t expires_in_seconds=%d resend_after_seconds=%d",
+		maskPhone(phone), s.smsSender.Enabled(), int64(phoneCodeExpire.Seconds()), int64(phoneCodeResendInterval.Seconds()))
+	if err := s.smsSender.SendVerificationCode(ctx, phone, code); err != nil {
+		logs.ErrorContextf(ctx, "SendPhoneLoginCode send failed: phone=%s sms_enabled=%t error=%v",
+			maskPhone(phone), s.smsSender.Enabled(), err)
+		return nil, err
+	}
+
+	if err := db.CreateAuthPhoneVerificationCode(ctx, s.db, &types.AuthPhoneVerificationCode{
+		Phone:     phone,
+		CodeHash:  hashPhoneCode(phone, code),
+		ExpiresAt: now.Add(phoneCodeExpire),
+	}); err != nil {
+		logs.ErrorContextf(ctx, "SendPhoneLoginCode store failed: phone=%s error=%v", maskPhone(phone), err)
+		return nil, err
+	}
+	logs.InfoContextf(ctx, "SendPhoneLoginCode completed: phone=%s sms_enabled=%t",
+		maskPhone(phone), s.smsSender.Enabled())
+
+	return &contract.SendPhoneLoginCodeResponse{
+		Phone:       phone,
+		ExpiresIn:   int64(phoneCodeExpire.Seconds()),
+		ResendAfter: int64(phoneCodeResendInterval.Seconds()),
+	}, nil
+}
+
+func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginByPhoneCodeRequest) (*contract.AuthTokenResponse, error) {
+	if s.db == nil {
+		return nil, errAuthDatabaseRequired
+	}
+
+	phone, err := normalizePhone(req.Phone)
+	if err != nil {
+		return nil, err
+	}
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		return nil, errAuthPhoneCodeRequired
+	}
+	if err := s.ensureLoginAllowed(ctx, phone); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	s.cleanupExpiredAuthData(ctx, now)
+	savedCode, err := db.GetActiveAuthPhoneVerificationCode(ctx, s.db, phone, now)
+	if err != nil {
+		return nil, err
+	}
+	if savedCode == nil || savedCode.CodeHash != hashPhoneCode(phone, code) {
+		s.recordLoginFailure(ctx, phone)
+		return nil, errAuthInvalidPhoneCode
+	}
+
+	var user *types.User
+	var userOrg *types.UserOrg
+	var org *types.Organization
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := db.MarkAuthPhoneVerificationCodeUsed(ctx, tx, savedCode.ID, now); err != nil {
+			return err
+		}
+
+		var err error
+		user, err = db.GetUserByPhone(ctx, tx, phone)
+		if err != nil {
+			return err
+		}
+		if user == nil {
+			user = &types.User{
+				PublicID:    fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
+				GithubLogin: fmt.Sprintf("phone_%s", snowflake.GenerateIDBase58()),
+				Name:        phone,
+				Phone:       phone,
+			}
+			if err := db.CreateUser(ctx, tx, user); err != nil {
+				return err
+			}
+
+			org, err = defaultAccountOrg(ctx, tx)
+			if err != nil {
+				return err
+			}
+			userOrg = &types.UserOrg{
+				Uin:       user.ID,
+				UserID:    user.ID,
+				OrgID:     org.ID,
+				IsDefault: true,
+			}
+			if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		userOrg, err = db.GetUserOrgByUserID(ctx, tx, user.ID)
+		if err != nil {
+			return err
+		}
+		if userOrg == nil {
+			return errAuthUserOrgNotFound
+		}
+		org, err = db.GetOrgByID(ctx, tx, userOrg.OrgID)
+		if err != nil {
+			return err
+		}
+		if org == nil {
+			return errAuthOrgNotFound
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	s.clearLoginFailures(ctx, phone)
+	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayPhone)
 }
 
 func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTokenRequest) (*contract.AuthTokenResponse, error) {
@@ -217,11 +380,11 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 	if err := db.RevokeAuthRefreshToken(ctx, s.db, tokenHash, now); err != nil {
 		return nil, err
 	}
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayPhone)
 }
 
-func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthTokenResponse, error) {
-	token, expiredAt, err := s.generateJWT(userOrg.Uin)
+func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization, loginWay ygauth.LoginWay) (*contract.AuthTokenResponse, error) {
+	token, expiredAt, err := s.generateJWT(userOrg.Uin, loginWay)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +404,7 @@ func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, 
 			PublicID:    user.PublicID,
 			Name:        user.Name,
 			Email:       user.Email,
+			Phone:       user.Phone,
 			GithubLogin: user.GithubLogin,
 			AvatarURL:   user.AvatarURL,
 		},
@@ -253,7 +417,7 @@ func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, 
 	}, nil
 }
 
-func (s *authService) generateJWT(uin uint) (string, int64, error) {
+func (s *authService) generateJWT(uin uint, loginWay ygauth.LoginWay) (string, int64, error) {
 	if s.jwtSecret == "" {
 		return "", 0, errAuthJWTSecretRequired
 	}
@@ -263,7 +427,7 @@ func (s *authService) generateJWT(uin uint) (string, int64, error) {
 		Issuer:    authIssuer,
 		IssuedAt:  jwt.TimeFunc().Unix(),
 		ExpiresAt: expiredAt,
-		LoginWay:  ygauth.LoginWayEmail,
+		LoginWay:  loginWay,
 		Audience:  authAudience,
 	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(s.jwtSecret))
@@ -365,6 +529,9 @@ func (s *authService) cleanupExpiredAuthData(ctx context.Context, now time.Time)
 	if err := db.DeleteExpiredAuthLoginAttempts(ctx, s.db, now); err != nil {
 		logs.WarnContextf(ctx, "cleanup expired auth login attempts failed: %v", err)
 	}
+	if err := db.DeleteExpiredAuthPhoneVerificationCodes(ctx, s.db, now); err != nil {
+		logs.WarnContextf(ctx, "cleanup expired auth phone verification codes failed: %v", err)
+	}
 }
 
 func defaultAccountOrg(ctx context.Context, tx *gorm.DB) (*types.Organization, error) {
@@ -388,6 +555,19 @@ func normalizeEmail(email string) (string, error) {
 		return "", errAuthInvalidEmailFormat
 	}
 	return email, nil
+}
+
+func normalizePhone(phone string) (string, error) {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return "", errAuthPhoneRequired
+	}
+	phone = strings.TrimPrefix(phone, "+86")
+	phone = strings.TrimPrefix(phone, "86")
+	if !regexp.MustCompile(`^1[3-9]\d{9}$`).MatchString(phone) {
+		return "", errAuthInvalidPhoneFormat
+	}
+	return phone, nil
 }
 
 func validateRegisterPassword(password, confirmPassword string) error {
@@ -455,6 +635,30 @@ func randomToken() (string, error) {
 func hashRefreshToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+func hashPhoneCode(phone string, code string) string {
+	sum := sha256.Sum256([]byte(phone + ":" + code))
+	return hex.EncodeToString(sum[:])
+}
+
+func maskPhone(phone string) string {
+	if len(phone) < 7 {
+		return phone
+	}
+	return phone[:3] + "****" + phone[len(phone)-4:]
+}
+
+func (s *authService) nextPhoneCode() (string, error) {
+	if !s.smsSender.Enabled() {
+		return s.defaultPhoneCode, nil
+	}
+	max := big.NewInt(1000000)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return "", fmt.Errorf("generate phone verification code: %w", err)
+	}
+	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
 func isUniqueConstraintError(err error) bool {

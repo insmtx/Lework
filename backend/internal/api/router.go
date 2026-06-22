@@ -59,7 +59,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		workerManager.RegisterRoutes(r)
 		logs.Info("Worker server routes registered successfully")
 
-		authService := service.NewAuthService(db, cfg.Server.JWT.Secret)
+		authService := service.NewAuthService(db, cfg.Server.JWT.Secret, cfg.Aliyun)
 		handler.RegisterAuthRoutes(v1, authService)
 		logs.Info("Auth routes registered successfully")
 

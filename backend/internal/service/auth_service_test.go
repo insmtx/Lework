@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -25,6 +26,7 @@ func setupAuthServiceTest(t *testing.T) (contract.AuthService, *gorm.DB) {
 		&types.UserOrg{},
 		&types.AuthRefreshToken{},
 		&types.AuthLoginAttempt{},
+		&types.AuthPhoneVerificationCode{},
 	); err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
 	}
@@ -38,7 +40,7 @@ func setupAuthServiceTest(t *testing.T) (contract.AuthService, *gorm.DB) {
 		t.Fatalf("failed to seed default org: %v", err)
 	}
 
-	return NewAuthService(database, "test-secret"), database
+	return NewAuthService(database, "test-secret", nil), database
 }
 
 func TestAuthServiceRegisterLoginAndRefreshByEmail(t *testing.T) {
@@ -180,5 +182,86 @@ func TestAuthServiceRegisterRejectsInvalidEmailAndPassword(t *testing.T) {
 	})
 	if !errors.Is(err, errAuthPasswordMustContainLetterDigit) {
 		t.Fatalf("expected password strength error, got %v", err)
+	}
+}
+
+func TestAuthServicePhoneCodeLoginAutoRegisters(t *testing.T) {
+	service, database := setupAuthServiceTest(t)
+	ctx := context.Background()
+
+	sent, err := service.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+		Phone: "13800138000",
+	})
+	if err != nil {
+		t.Fatalf("SendPhoneLoginCode failed: %v", err)
+	}
+	if sent.Phone != "13800138000" || sent.ExpiresIn == 0 {
+		t.Fatalf("unexpected send response: %+v", sent)
+	}
+
+	loggedIn, err := service.LoginByPhoneCode(ctx, &contract.LoginByPhoneCodeRequest{
+		Phone: "13800138000",
+		Code:  defaultPhoneCode,
+	})
+	if err != nil {
+		t.Fatalf("LoginByPhoneCode failed: %v", err)
+	}
+	if loggedIn.JwtToken == "" || loggedIn.RefreshToken == "" {
+		t.Fatalf("expected login tokens: %+v", loggedIn)
+	}
+	if loggedIn.UserInfo.Phone != "13800138000" {
+		t.Fatalf("expected phone in user info, got %q", loggedIn.UserInfo.Phone)
+	}
+	if loggedIn.UserInfo.Name != "13800138000" {
+		t.Fatalf("expected default name to use phone, got %q", loggedIn.UserInfo.Name)
+	}
+
+	user, err := db.GetUserByPhone(ctx, database, "13800138000")
+	if err != nil {
+		t.Fatalf("GetUserByPhone failed: %v", err)
+	}
+	if user == nil {
+		t.Fatal("expected user to be auto registered")
+	}
+}
+
+func TestAuthServicePhoneCodeRejectsInvalidCode(t *testing.T) {
+	service, _ := setupAuthServiceTest(t)
+	ctx := context.Background()
+
+	if _, err := service.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+		Phone: "13900139000",
+	}); err != nil {
+		t.Fatalf("SendPhoneLoginCode failed: %v", err)
+	}
+
+	_, err := service.LoginByPhoneCode(ctx, &contract.LoginByPhoneCodeRequest{
+		Phone: "13900139000",
+		Code:  "000000",
+	})
+	if !errors.Is(err, errAuthInvalidPhoneCode) {
+		t.Fatalf("expected invalid phone code, got %v", err)
+	}
+}
+
+func TestAuthServicePhoneCodeRejectsResendWithinTwoMinutes(t *testing.T) {
+	service, _ := setupAuthServiceTest(t)
+	ctx := context.Background()
+
+	first, err := service.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+		Phone: "13700137000",
+	})
+	if err != nil {
+		t.Fatalf("first SendPhoneLoginCode failed: %v", err)
+	}
+	if first.ResendAfter != int64(phoneCodeResendInterval.Seconds()) {
+		t.Fatalf("resend_after = %d, want %d", first.ResendAfter, int64(phoneCodeResendInterval.Seconds()))
+	}
+
+	_, err = service.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+		Phone: "13700137000",
+	})
+	if !errors.Is(err, errAuthPhoneCodeSendTooOften) {
+		t.Fatalf("expected resend-too-often error, got %v", err)
 	}
 }

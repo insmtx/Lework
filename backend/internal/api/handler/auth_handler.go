@@ -20,6 +20,8 @@ func NewAuthHandler(service contract.AuthService) *AuthHandler {
 func (h *AuthHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/RegisterByEmail", h.RegisterByEmail)
 	r.POST("/LoginByEmail", h.LoginByEmail)
+	r.POST("/SendPhoneLoginCode", h.SendPhoneLoginCode)
+	r.POST("/LoginByPhoneCode", h.LoginByPhoneCode)
 	r.POST("/RefreshToken", h.RefreshToken)
 }
 
@@ -80,6 +82,59 @@ func (h *AuthHandler) LoginByEmail(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// @Summary 发送手机登录验证码
+// @Description 向手机号发送验证码；未配置短信服务时使用测试验证码
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param body body contract.SendPhoneLoginCodeRequest true "发送手机验证码请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 429 {object} dto.ErrorResponse "验证码发送太频繁"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /SendPhoneLoginCode [post]
+func (h *AuthHandler) SendPhoneLoginCode(ctx *gin.Context) {
+	var req contract.SendPhoneLoginCodeRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.SendPhoneLoginCode(ctx, &req)
+	if err != nil {
+		handleAuthServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 手机验证码登录
+// @Description 使用手机号和验证码登录；首次登录会自动注册
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param body body contract.LoginByPhoneCodeRequest true "手机验证码登录请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "认证失败"
+// @Failure 429 {object} dto.ErrorResponse "登录失败次数过多"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /LoginByPhoneCode [post]
+func (h *AuthHandler) LoginByPhoneCode(ctx *gin.Context) {
+	var req contract.LoginByPhoneCodeRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.LoginByPhoneCode(ctx, &req)
+	if err != nil {
+		handleAuthServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 // @Summary 刷新令牌
 // @Description 使用 refresh token 换取新的访问令牌
 // @Tags Auth
@@ -116,6 +171,8 @@ func handleAuthServiceError(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, errMsg))
 	case errMsg == "登录失败次数过多，请稍后再试":
 		ctx.JSON(http.StatusTooManyRequests, dto.Error(dto.CodeInternalError, errMsg))
+	case errMsg == "验证码发送太频繁，请稍后再试":
+		ctx.JSON(http.StatusTooManyRequests, dto.Error(dto.CodeInternalError, errMsg))
 	default:
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
 	}
@@ -133,6 +190,9 @@ func isAuthBadRequestError(err error) bool {
 		"密码不能包含空格",
 		"8-20位，数字/大写字母/小写字母/字符至少3种",
 		"该邮箱已注册",
+		"请输入手机号",
+		"请输入正确的手机号",
+		"请输入验证码",
 		"刷新令牌不能为空":
 		return true
 	default:
@@ -143,6 +203,7 @@ func isAuthBadRequestError(err error) bool {
 func isAuthUnauthorizedError(err error) bool {
 	switch err.Error() {
 	case "邮箱或密码错误",
+		"验证码错误或已过期",
 		"登录已过期，请重新登录",
 		"用户不存在":
 		return true

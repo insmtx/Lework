@@ -12,6 +12,7 @@ type UserInfo struct {
 	GithubLogin string    `json:"github_login"`
 	Name        string    `json:"name"`
 	Email       string    `json:"email,omitempty"`
+	Phone       string    `json:"phone,omitempty"`
 	AvatarURL   string    `json:"avatar_url,omitempty"`
 	Bio         string    `json:"bio,omitempty"`
 	Company     string    `json:"company,omitempty"`

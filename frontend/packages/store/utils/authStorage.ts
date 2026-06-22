@@ -4,12 +4,12 @@ export type StoredAuthUser = {
 	publicId?: string;
 	name: string;
 	email: string;
+	phone?: string;
 	avatarUrl?: string;
 	jwtToken?: string;
 	refreshToken?: string;
 	expiredAt?: number;
 	uin?: number;
-	apiBaseUrl?: string;
 };
 
 export const AUTH_STORAGE_KEY = "leros-auth-user";
@@ -24,12 +24,7 @@ export function readStoredAuthUser(): StoredAuthUser | null {
 	try {
 		const stored = window.localStorage.getItem(AUTH_STORAGE_KEY);
 		if (!stored) return null;
-		const user = JSON.parse(stored) as StoredAuthUser;
-		if (user.apiBaseUrl && user.apiBaseUrl !== API_BASE_URL) {
-			clearStoredAuthUser();
-			return null;
-		}
-		return user;
+		return JSON.parse(stored) as StoredAuthUser;
 	} catch (err) {
 		console.error("read auth user error:", err);
 		return null;
@@ -40,10 +35,7 @@ export function writeStoredAuthUser(user: StoredAuthUser) {
 	if (typeof window === "undefined") return;
 
 	try {
-		window.localStorage.setItem(
-			AUTH_STORAGE_KEY,
-			JSON.stringify({ ...user, apiBaseUrl: API_BASE_URL }),
-		);
+		window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
 	} catch (err) {
 		console.error("save auth user error:", err);
 	}
@@ -118,7 +110,13 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 				refresh_token?: string;
 				expired_at?: number;
 				uin?: number;
-				user_info?: { public_id?: string; name?: string; email?: string; avatar_url?: string };
+				user_info?: {
+					public_id?: string;
+					name?: string;
+					email?: string;
+					phone?: string;
+					avatar_url?: string;
+				};
 			};
 		};
 		const token = payload.data;
@@ -132,6 +130,7 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 			publicId: token.user_info?.public_id || user.publicId,
 			name: token.user_info?.name || user.name,
 			email: token.user_info?.email || user.email,
+			phone: token.user_info?.phone || user.phone,
 			avatarUrl: token.user_info?.avatar_url || user.avatarUrl,
 			jwtToken: token.jwt_token,
 			refreshToken: token.refresh_token,
