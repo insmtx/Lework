@@ -10,11 +10,15 @@ import {
 	Check,
 	ChevronDown,
 	Folder,
+	FolderOpen,
+	Files,
 	ListTodo,
 	Paperclip,
 	Plus,
 	Search,
 	SendHorizonal,
+	Sparkles,
+	Target,
 	X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -22,27 +26,6 @@ import { toast } from "sonner";
 import { useAuth } from "../auth";
 import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import type { AppNavigation } from "./LeftRail";
-
-const mockActivities = [
-	{
-		id: "activity-1",
-		avatar: "SK",
-		name: "Sarah K.",
-		project: "backend-v2",
-		time: "2 分钟前",
-		description: "完成了 API 追踪",
-		note: "解决了 auth-middleware 模块中的 4 个延迟问题。系统开销降低了 12%。",
-	},
-	{
-		id: "activity-2",
-		avatar: "AL",
-		name: "Ada Lovelace",
-		project: "frontend-core",
-		time: "45 分钟前",
-		description: "更新了文档",
-		tags: ["文档", "修订版本 3"],
-	},
-];
 
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const {
@@ -53,7 +36,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		selectWorkbenchTask,
 		sendWorkbenchMessage,
 		fetchProjects,
-		switchProject,
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
 	const { startSessionResponseStream, resetLocalMessages, addUploadedAttachment, isGenerating } =
@@ -182,12 +164,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	};
 	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
-	const latestProject = projects[0];
 	const filteredProjects = useMemo(() => {
 		const keyword = projectSearch.trim().toLowerCase();
 		if (!keyword) return projects;
 		return projects.filter((project) => project.name.toLowerCase().includes(keyword));
 	}, [projectSearch, projects]);
+	const recentProjects = useMemo(() => projects.slice(0, 3), [projects]);
 
 	const activeTask = activeProject?.tasks.find((t) => t.id === activeWorkbenchTaskId);
 	const filteredTasks = useMemo(() => {
@@ -198,6 +180,16 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			(t) => t.title.toLowerCase().includes(keyword) || t.meta.toLowerCase().includes(keyword),
 		);
 	}, [taskSearch, activeProject]);
+	const suggestedPrompts = useMemo(
+		() => [
+			"帮我拆解当前项目的下一步执行计划",
+			"总结这个项目的当前进展和风险",
+			activeProject
+				? `基于 ${activeProject.name} 生成今天的工作清单`
+				: "帮我创建一个新项目并给出启动方案",
+		],
+		[activeProject],
+	);
 
 	const handleSelectProject = (projectId: string | null) => {
 		requireAuth(() => {
@@ -231,17 +223,18 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		requireAuth(() => setTaskMenuOpen(true));
 	};
 
-	const handleOpenActivityProject = (projectName: string) => {
-		const project = projects.find((item) => item.id === projectName || item.name === projectName);
-		if (project) {
-			requireAuth(() => {
-				if (navigation) {
-					navigation.goToProject(project.id);
-					return;
-				}
-				switchProject(project.id);
-			});
-		}
+	const applyPrompt = (prompt: string) => {
+		setInput(prompt);
+	};
+
+	const openProject = (projectId: string) => {
+		requireAuth(() => {
+			if (navigation) {
+				navigation.goToProject(projectId);
+				return;
+			}
+			selectWorkbenchProject(projectId);
+		});
 	};
 
 	useEffect(() => () => revokeAttachmentURLs(attachmentsRef.current), []);
@@ -280,7 +273,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			</header>
 
 			{/* Main Content Canvas */}
-			<div className="z-10 mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-10 py-12">
+			<div className="z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[1100px] flex-col justify-center px-10 py-16">
 				{/* Welcome/Hero Section */}
 				<section className="mb-8">
 					<div className="max-w-3xl mx-auto">
@@ -532,202 +525,91 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								</div>
 							</div>
 						</div>
-
-						{/* Suggested Actions */}
-						<div className="mt-6 flex items-center justify-center gap-4">
-							<button
-								type="button"
-								onClick={() => requireAuth()}
-								className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-primary)]"
-							>
-								分析 SPRINT
-							</button>
-							<button
-								type="button"
-								onClick={() => requireAuth()}
-								className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-primary)]"
-							>
-								总结报告
-							</button>
-						</div>
 					</div>
 				</section>
 
-				{/* Workbench Grid */}
-				<section className="mt-6 grid flex-1 grid-cols-12 gap-10">
-					{/* Left: Activity Stream (col-span-8) */}
-					<div className="col-span-8">
-						<div className="mb-8 flex items-center justify-between border-b border-[var(--leros-control-border)] pb-4">
-							<h3 className="text-xl font-bold tracking-tight text-[var(--leros-text-strong)]">
-								动态流
-							</h3>
-							<div className="flex rounded-lg bg-[var(--leros-chat-control-bg)] p-1">
-								<button
-									type="button"
-									className="rounded bg-[var(--leros-surface)] px-4 py-1.5 text-[12px] font-bold text-[var(--leros-text-strong)] shadow-sm"
-								>
-									今日
-								</button>
-								<button
-									type="button"
-									className="px-4 py-1.5 text-[12px] font-bold text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]"
-								>
-									本周
-								</button>
+				<section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+					<div className="h-full">
+						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
+							<div className="mb-5 flex items-center justify-between">
+								<div>
+									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">开始建议</h3>
+									<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
+										点一下即可填入输入框，适合用来启动工作台对话。
+									</p>
+								</div>
+								<div className="rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
+									<Sparkles className="size-4" />
+								</div>
 							</div>
-						</div>
 
-						<div className="relative space-y-10">
-							{mockActivities.map((activity, idx) => (
-								<div key={activity.id} className="relative flex gap-6">
-									{/* Vertical timeline line */}
-									{idx < mockActivities.length - 1 && (
-										<div className="absolute bottom-[-40px] left-[19px] top-10 w-[1px] bg-[var(--leros-control-border)]" />
-									)}
-									<div className="z-10 flex-shrink-0">
-										<div className="flex size-10 items-center justify-center rounded-full border-2 border-[var(--leros-surface)] bg-[var(--leros-text-strong)] text-sm font-bold text-white shadow-sm">
-											{activity.avatar}
-										</div>
-									</div>
-									<div className="flex-1 pt-0.5">
-										<div className="mb-2 flex items-baseline justify-between">
-											<p className="text-sm text-[var(--leros-text)]">
-												<span className="font-bold text-[var(--leros-text-strong)]">
-													{activity.name}
-												</span>
-												<span> 在 </span>
-												<button
-													type="button"
-													className="font-semibold text-[var(--leros-primary)] hover:underline"
-													onClick={() => handleOpenActivityProject(activity.project)}
-												>
-													{activity.project}
-												</button>
-												<span> 中{activity.description}</span>
-											</p>
-											<span className="text-[11px] font-medium text-[var(--leros-text-subtle)]">
-												{activity.time}
-											</span>
-										</div>
-										{activity.note ? (
-											<div className="rounded-xl bg-[var(--leros-chat-control-bg)] p-4 text-[13px] leading-relaxed text-[var(--leros-text)]">
-												“{activity.note}”
-											</div>
-										) : null}
-										{activity.tags ? (
-											<div className="mt-2 flex items-center gap-2">
-												{activity.tags.map((tag) => (
-													<span
-														key={tag}
-														className="rounded bg-[var(--leros-chat-control-bg)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--leros-text)]"
-													>
-														{tag}
-													</span>
-												))}
-											</div>
-										) : null}
-									</div>
-								</div>
-							))}
-
-							{latestProject && (
-								<div className="mt-6 rounded-2xl border border-[var(--leros-primary-soft)] bg-[var(--leros-primary-softer)] px-5 py-4 text-xs text-[var(--leros-primary-strong)]">
-									最近项目：{latestProject.name} · {latestProject.description}
-								</div>
-							)}
+							<div className="grid gap-3 md:grid-cols-3">
+								{suggestedPrompts.map((prompt) => (
+									<button
+										key={prompt}
+										type="button"
+										onClick={() => applyPrompt(prompt)}
+										className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
+									>
+										<p className="text-sm font-medium leading-6 text-[var(--leros-text)]">{prompt}</p>
+									</button>
+								))}
+							</div>
 						</div>
 					</div>
 
-					{/* Right: Stats & Promotion (col-span-4) */}
-					<div className="col-span-4 space-y-10">
-						{/* ToDo card */}
-						<div className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<h4 className="mb-6 text-[11px] font-bold uppercase tracking-widest text-[var(--leros-text-subtle)]">
-								待办事项
-							</h4>
-							<div className="space-y-5">
-								<div className="-mx-2 flex cursor-pointer flex-col gap-2 rounded-lg p-2 transition-colors hover:bg-[var(--leros-surface-soft)]">
-									<div className="flex items-center justify-between">
-										<p className="flex-1 truncate text-[13px] font-bold text-[var(--leros-text-strong)]">
-											优化数据库查询性能
-										</p>
-										<span className="rounded bg-destructive/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-destructive">
-											待处理
-										</span>
-									</div>
-									<div className="flex items-center gap-2 text-[var(--leros-text-subtle)]">
-										<span className="text-[11px] font-medium">backend-v2</span>
-									</div>
+					<div className="h-full">
+						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
+							<div className="mb-5 flex items-center justify-between">
+								<div>
+									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">最近项目</h3>
+									<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
+										从最近同步的项目里快速恢复上下文。
+									</p>
 								</div>
-								<div className="-mx-2 flex cursor-pointer flex-col gap-2 rounded-lg p-2 transition-colors hover:bg-[var(--leros-surface-soft)]">
-									<div className="flex items-center justify-between">
-										<p className="flex-1 truncate text-[13px] font-bold text-[var(--leros-text-strong)]">
-											前端 UI 组件化重构
-										</p>
-										<span className="rounded bg-[var(--leros-primary-soft)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--leros-primary)]">
-											进行中
-										</span>
-									</div>
-									<div className="flex items-center gap-2 text-[var(--leros-text-subtle)]">
-										<span className="text-[11px] font-medium">frontend-core</span>
-									</div>
-								</div>
-								<div className="-mx-2 flex cursor-pointer flex-col gap-2 rounded-lg p-2 transition-colors hover:bg-[var(--leros-surface-soft)]">
-									<div className="flex items-center justify-between">
-										<p className="flex-1 truncate text-[13px] font-bold text-[var(--leros-text-strong)]">
-											基础设施安全审计
-										</p>
-										<span className="rounded bg-[var(--leros-chat-control-bg)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--leros-text)]">
-											待处理
-										</span>
-									</div>
-									<div className="flex items-center gap-2 text-[var(--leros-text-subtle)]">
-										<span className="text-[11px] font-medium">infra</span>
-									</div>
+								<div className="rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
+									<FolderOpen className="size-4" />
 								</div>
 							</div>
-						</div>
 
-						{/* Recent Visit files card */}
-						<div className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<h4 className="mb-6 text-[11px] font-bold uppercase tracking-widest text-[var(--leros-text-subtle)]">
-								最近访问
-							</h4>
-							<div className="space-y-5">
-								<div className="-mx-2 flex cursor-pointer items-center gap-4 rounded-lg p-2 transition-colors hover:bg-[var(--leros-surface-soft)]">
-									<div className="flex h-9 w-9 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-										<span className="text-xs font-bold font-mono">PDF</span>
-									</div>
-									<div className="flex-1 min-w-0">
-										<p className="truncate text-[13px] font-bold text-[var(--leros-text-strong)]">
-											Q4 产品规划指南.pdf
-										</p>
-										<p className="text-[11px] text-[var(--leros-text-subtle)]">今天 10:45</p>
-									</div>
+							{recentProjects.length > 0 ? (
+								<div className="space-y-3">
+									{recentProjects.slice(0, 1).map((project) => (
+										<button
+											key={project.id}
+											type="button"
+											onClick={() => openProject(project.id)}
+											className="flex w-full items-start gap-3 rounded-2xl border border-[var(--leros-control-border)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
+										>
+											<div className="rounded-xl bg-[var(--leros-surface-soft)] p-2 text-[var(--leros-text-muted)]">
+												<Folder className="size-4" />
+											</div>
+											<div className="min-w-0 flex-1">
+												<p className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">
+													{project.name}
+												</p>
+												<p className="mt-1 line-clamp-2 text-sm text-[var(--leros-text-muted)]">
+													{project.description || "暂无项目描述"}
+												</p>
+												<div className="mt-3 flex items-center gap-4 text-xs text-[var(--leros-text-subtle)]">
+													<span className="inline-flex items-center gap-1">
+														<Target className="size-3.5" />
+														{project.tasks.length} 个任务
+													</span>
+													<span className="inline-flex items-center gap-1">
+														<Files className="size-3.5" />
+														{project.files.length} 个文件
+													</span>
+												</div>
+											</div>
+										</button>
+									))}
 								</div>
-								<div className="-mx-2 flex cursor-pointer items-center gap-4 rounded-lg p-2 transition-colors hover:bg-[var(--leros-surface-soft)]">
-									<div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-										<span className="text-xs font-bold font-mono">DOC</span>
-									</div>
-									<div className="flex-1 min-w-0">
-										<p className="truncate text-[13px] font-bold text-[var(--leros-text-strong)]">
-											后端架构重构草案.docx
-										</p>
-										<p className="text-[11px] text-[var(--leros-text-subtle)]">昨天 16:20</p>
-									</div>
+							) : (
+								<div className="rounded-2xl border border-dashed border-[var(--leros-control-border)] px-4 py-5 text-sm text-[var(--leros-text-muted)]">
+									还没有项目数据。先发起一个任务，系统会自动为你沉淀项目上下文。
 								</div>
-								<div className="-mx-2 flex cursor-pointer items-center gap-4 rounded-lg p-2 transition-colors hover:bg-[var(--leros-surface-soft)]">
-									<div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--leros-chat-control-bg)] text-[var(--leros-text-muted)]">
-										<span className="text-xs font-bold font-mono">PNG</span>
-									</div>
-									<div className="flex-1 min-w-0">
-										<p className="truncate text-[13px] font-bold text-[var(--leros-text-strong)]">
-											v0.2 设计手稿.png
-										</p>
-										<p className="text-[11px] text-[var(--leros-text-subtle)]">10月24日</p>
-									</div>
-								</div>
-							</div>
+							)}
 						</div>
 					</div>
 				</section>

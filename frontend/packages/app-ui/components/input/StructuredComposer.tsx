@@ -880,7 +880,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const inputSpacingClass = isProjectVariant
-			? "min-h-[92px] rounded-none px-0 py-0 text-base leading-7"
+			? "min-h-[72px] rounded-none px-0 py-0 text-base leading-7"
 			: "min-h-[116px] rounded-2xl px-5 py-4 text-sm leading-6";
 
 		return (

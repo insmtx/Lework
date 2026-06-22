@@ -143,7 +143,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 				<div
 					className={cn(
 						"relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-md focus-within:ring-blue-300/70",
-						isProjectVariant && "rounded-2xl bg-white px-6 py-5 ring-slate-200",
+						isProjectVariant && "rounded-2xl bg-white px-6 py-4 ring-slate-200",
 					)}
 				>
 					<StructuredComposer
@@ -272,21 +272,6 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 						</div>
 					</div>
 				</div>
-				{isProjectVariant && (
-					<div className="mt-3 text-center text-xs text-slate-500">
-						按{" "}
-						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
-						发送，按{" "}
-						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Shift</kbd>{" "}
-						+{" "}
-						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
-						换行，也支持{" "}
-						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Ctrl</kbd>/
-						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">⌘</kbd> +{" "}
-						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
-						发送
-					</div>
-				)}
 			</div>
 		</div>
 	);
