@@ -18,7 +18,6 @@ import type {
 	MessageProcessStep,
 	ToolCall,
 } from "@leros/store/types/chat";
-import { Avatar, AvatarFallback } from "@leros/ui/components/ui/avatar";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Brain,
@@ -39,6 +38,7 @@ import {
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ArtifactPreviewDialog } from "../layout/ArtifactPreviewDialog";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
+import { AssistantChatAvatar } from "./AssistantChatAvatar";
 import { ToolCallBlock } from "./ToolCallBlock";
 
 // Button 的 size 只支持预设枚举，这里用受支持的尺寸并通过 className 微调成更紧凑的操作按钮。
@@ -83,9 +83,7 @@ export function AIMessageBubble({
 
 	return (
 		<div data-slot="ai-message" className="group flex items-start gap-3">
-			<Avatar size="sm">
-				<AvatarFallback className="bg-blue-500 text-[13px] text-white">AI</AvatarFallback>
-			</Avatar>
+			<AssistantChatAvatar />
 			<div className="min-w-0 flex-1">
 				<div className="mb-1.5 flex items-center gap-2">
 					<span className="text-[13px] font-medium text-slate-500">Lework</span>

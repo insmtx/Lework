@@ -1,9 +1,9 @@
 "use client";
 
 import { formatTokenCount, useChatStore, useLayoutStore } from "@leros/store";
-import { Avatar, AvatarFallback } from "@leros/ui/components/ui/avatar";
 import { Button } from "@leros/ui/components/ui/button";
 import { Ellipsis, FileText, Plus, Search, Settings, Share2 } from "lucide-react";
+import { AssistantChatAvatar } from "./AssistantChatAvatar";
 
 export function ChatHeader() {
 	const { selectedModel, modelOptions, tokenUsage } = useChatStore((s) => s);
@@ -18,9 +18,7 @@ export function ChatHeader() {
 			className="flex h-14 items-center justify-between border-b border-slate-200/60 bg-white/90 px-5 backdrop-blur"
 		>
 			<div className="flex items-center gap-3">
-				<Avatar size="sm">
-					<AvatarFallback className="bg-blue-500 text-white text-xs">AI</AvatarFallback>
-				</Avatar>
+				<AssistantChatAvatar />
 				<div className="flex flex-col">
 					<span className="text-sm font-semibold text-slate-800">
 						{activeConversation?.title ?? "选择一个会话"}
