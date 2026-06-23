@@ -20,11 +20,7 @@ function CopyButton({ text }: { text: string }) {
 		<Button
 			variant="ghost"
 			size="icon-xs"
-			className={
-				copied
-					? "text-green-400"
-					: "text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity hover:text-slate-400"
-			}
+			className={copied ? "text-green-400" : "text-slate-300 hover:text-slate-400"}
 			onClick={handleCopy}
 		>
 			{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -41,11 +37,10 @@ export function UserMessageBubble({ message }: { message: Message }) {
 	return (
 		<>
 			<div data-slot="user-message" className="flex justify-end group">
-				<div className="flex max-w-[min(720px,78%)] flex-col items-end">
-					<div className="mb-1.5 flex items-center gap-2">
+				<div className="flex max-w-[78%] flex-col items-end">
+					<div className="mb-1.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
 						{visibleText && <CopyButton text={message.content} />}
 						<span className="text-xs text-slate-400">{formatTime(message.timestamp)}</span>
-						<span className="text-xs font-medium text-slate-500">你</span>
 					</div>
 					{attachments.length > 0 && (
 						<div className="mb-2 flex flex-col items-end gap-2">
@@ -67,7 +62,7 @@ export function UserMessageBubble({ message }: { message: Message }) {
 						</div>
 					)}
 					{visibleText && (
-						<div className="w-fit rounded-2xl rounded-tr-md bg-blue-600 px-4 py-3 text-sm leading-7 text-white shadow-sm shadow-blue-600/10">
+						<div className="w-fit rounded-2xl rounded-tr-md text-black bg-[#f3f3f4] px-4 py-2 text-sm leading-7 shadow-sm shadow-blue-600/10">
 							{skillContent.skills.length > 0 ? (
 								<div className="flex flex-wrap items-center gap-1.5">
 									{skillContent.skills.map((skill) => (

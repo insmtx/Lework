@@ -43,7 +43,7 @@ export function getProjectFileIconSrc(fileName: string): string {
 	return FILE_TEXT_ICON_SRC;
 }
 
-/** 文件 Tab 与产物卡片共用的类型图标组件 */
+/** 文件 Tab 与文件卡片共用的类型图标组件 */
 export function ProjectFileTypeIcon({
 	fileName,
 	className = "size-6 object-contain",

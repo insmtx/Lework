@@ -36,7 +36,7 @@ import type {
 } from "../types/chat";
 import { flattenActions } from "../utils";
 import { getValidJwtToken } from "../utils/authStorage";
-import { formatFileSize } from "../utils/format";
+import { formatFileSize, parseOptionalTimestamp } from "../utils/format";
 import {
 	buildMessageMetadata,
 	enrichAssistantMessageMetrics,
@@ -503,7 +503,7 @@ function mapArtifactPayload(payload: BackendSessionArtifactPayload): MessageArti
 		artifactType,
 		mimeType,
 		size: formatFileSize(payload.file_size ?? 0),
-		updatedAt: "",
+		updatedAt: parseOptionalTimestamp(payload.created_at),
 		downloadUrl: "",
 		sha256: payload.sha256,
 	};

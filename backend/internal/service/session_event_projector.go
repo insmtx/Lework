@@ -212,6 +212,7 @@ func publicStreamArtifactPayload(payload events.ArtifactPayload) events.Artifact
 		Filename:     payload.Filename,
 		MimeType:     payload.MimeType,
 		ArtifactType: payload.ArtifactType,
+		CreatedAt:    payload.CreatedAt,
 	}
 }
 

@@ -221,6 +221,7 @@ func convertToContractUser(user *types.User) *contract.UserInfo {
 		GithubLogin: user.GithubLogin,
 		Name:        user.Name,
 		Email:       user.Email,
+		Phone:       user.Phone,
 		AvatarURL:   user.AvatarURL,
 		Bio:         user.Bio,
 		Company:     user.Company,

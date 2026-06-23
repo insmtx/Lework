@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	formatArtifactTime,
 	formatTime,
 	getAssistantMessageFooterSegments,
 	mapBackendArtifactToProjectArtifact,
@@ -54,7 +55,9 @@ function CopyButton({ text }: { text: string }) {
 		<Button
 			variant="ghost"
 			size="icon-xs"
-			className={`${compactActionButtonClassName} ${copied ? "text-green-500" : "text-slate-400 hover:text-slate-600"}`}
+			className={`${compactActionButtonClassName} ${
+				copied ? "text-green-500" : "text-slate-400 hover:text-slate-600"
+			}`}
 			onClick={handleCopy}
 		>
 			{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -85,7 +88,7 @@ export function AIMessageBubble({
 			</Avatar>
 			<div className="min-w-0 flex-1">
 				<div className="mb-1.5 flex items-center gap-2">
-					<span className="text-[13px] font-medium text-slate-500">AI 助手</span>
+					<span className="text-[13px] font-medium text-slate-500">Lework</span>
 					<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
 					{isStreaming && <span className="animate-pulse text-[13px] text-blue-500">生成中</span>}
 				</div>
@@ -101,32 +104,31 @@ export function AIMessageBubble({
 				)}
 
 				{hasContent && (
-					<div className="mb-3">
-						<div className="w-fit max-w-[min(780px,92%)] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-7 text-slate-800 shadow-md ring-1 ring-slate-200/70">
-							<MarkdownRenderer
-								content={content}
-								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
-							/>
-							{isStreaming && (
-								<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
-							)}
-						</div>
+					<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
+						<MarkdownRenderer
+							content={content}
+							className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
+						/>
+						{isStreaming && (
+							<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
+						)}
 					</div>
 				)}
 
 				{hasArtifacts && message.artifacts && (
 					<div className="mb-3">
-						<MessageArtifactList artifacts={message.artifacts} />
+						<MessageArtifactList
+							artifacts={message.artifacts}
+							fallbackTimestamp={message.timestamp}
+						/>
 					</div>
 				)}
 
 				{!hasContent && !hasProcess && !hasArtifacts && isStreaming && (
-					<div className="w-fit rounded-2xl rounded-tl-md bg-white/90 px-4 py-3 shadow-sm ring-1 ring-slate-200/50">
-						<div className="flex items-center gap-1">
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
-							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
-						</div>
+					<div className="flex items-center gap-1">
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
+						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
 					</div>
 				)}
 
@@ -212,7 +214,7 @@ function ProcessTimelineBlock({
 	return (
 		<div
 			data-slot="process-timeline-block"
-			className="max-w-[min(780px,92%)] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-xs"
+			className="max-w-[92%] overflow-hidden rounded-lg border border-slate-200/80 bg-white/70 text-slate-500 shadow-xs"
 		>
 			<button
 				type="button"
@@ -318,7 +320,13 @@ function compactText(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
-function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
+function MessageArtifactList({
+	artifacts,
+	fallbackTimestamp,
+}: {
+	artifacts: MessageArtifact[];
+	fallbackTimestamp: number;
+}) {
 	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
 	const [taskArtifacts, setTaskArtifacts] = useState<ProjectArtifact[]>([]);
 	const [loadingArtifactId, setLoadingArtifactId] = useState<string | null>(null);
@@ -328,11 +336,15 @@ function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
 		[artifacts],
 	);
 	const visibleArtifacts = useMemo(() => {
-		const sessionArtifacts = artifacts.map(messageArtifactToProjectArtifact);
+		// 中文注释：旧历史消息里如果没有独立的文件时间，这里回退到所属消息时间，保证卡片稳定展示时间。
+		const sessionArtifacts = artifacts.map((artifact) => ({
+			...messageArtifactToProjectArtifact(artifact),
+			updatedAt: artifact.updatedAt ?? fallbackTimestamp,
+		}));
 		const artifactIds = new Set(sessionArtifacts.map((artifact) => artifact.id));
 		const enrichedTaskArtifacts = taskArtifacts.filter((artifact) => artifactIds.has(artifact.id));
 		return mergeProjectArtifacts(enrichedTaskArtifacts, sessionArtifacts);
-	}, [artifacts, taskArtifacts]);
+	}, [artifacts, fallbackTimestamp, taskArtifacts]);
 
 	useEffect(() => {
 		if (!activeTaskDetailTaskId) {
@@ -366,7 +378,7 @@ function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
 
 	return (
 		<>
-			<div className="grid max-w-[min(780px,92%)] gap-2 sm:grid-cols-2">
+			<div className="grid max-w-[92%] gap-2 sm:grid-cols-2">
 				{visibleArtifacts.map((artifact) => (
 					<button
 						type="button"
@@ -374,7 +386,7 @@ function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
 						onClick={() => setPreviewArtifact(artifact)}
 						disabled={loadingArtifactId === artifact.id}
 						className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
-						title="预览产物"
+						title="预览文件"
 					>
 						<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-slate-600">
 							{loadingArtifactId === artifact.id ? (
@@ -389,6 +401,7 @@ function MessageArtifactList({ artifacts }: { artifacts: MessageArtifact[] }) {
 							</div>
 							<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
 								{artifact.name}
+								{artifact.updatedAt ? ` · ${formatArtifactTime(artifact.updatedAt)}` : ""}
 								{artifact.size ? ` · ${artifact.size}` : ""}
 							</div>
 						</div>

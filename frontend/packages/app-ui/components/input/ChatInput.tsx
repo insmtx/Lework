@@ -20,12 +20,23 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+	getProjectChatLayoutClasses,
+	type ProjectChatLayoutMode,
+} from "../layout/project-chat-layout";
 import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
 
 // 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
 export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx";
 
-export function ChatInput({ variant = "default" }: { variant?: "default" | "project" }) {
+export function ChatInput({
+	variant = "default",
+	projectLayoutMode = "sidebar-expanded",
+}: {
+	variant?: "default" | "project";
+	/** 项目页聊天区布局：随右侧栏展开/收起切换宽度与留白 */
+	projectLayoutMode?: ProjectChatLayoutMode;
+}) {
 	const {
 		activeSessionId,
 		inputText,
@@ -54,6 +65,8 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
 	const isProjectVariant = variant === "project";
+	const projectLayout = getProjectChatLayoutClasses(projectLayoutMode);
+	const canSend = Boolean(inputText.trim());
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 
 	const submitMessage = useCallback(() => {
@@ -123,6 +136,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 				approval={pendingApproval.approval}
 				messageId={pendingApproval.message.id}
 				variant={variant}
+				projectLayout={projectLayout}
 				onDecide={submitApprovalDecision}
 			/>
 		);
@@ -133,17 +147,18 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 			data-slot="chat-input"
 			className={cn(
 				"bg-transparent px-5 pb-5 sm:px-6 lg:px-8",
-				isProjectVariant && "bg-white px-8 pb-8 sm:px-8 lg:px-8",
+				isProjectVariant && cn("bg-white pb-8", projectLayout.shell),
 			)}
 		>
-			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && "max-w-[780px]")}>
+			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && projectLayout.inner)}>
 				{inputAttachments.length > 0 && (
 					<AttachmentPreview attachments={inputAttachments} onRemove={removeAttachment} />
 				)}
 				<div
 					className={cn(
-						"relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-md focus-within:ring-blue-300/70",
-						isProjectVariant && "rounded-2xl bg-white px-6 py-5 ring-slate-200",
+						// 中文注释：focus 时使用无偏移阴影，避免 shadow-xl 只在下方显影
+						"relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70",
+						isProjectVariant && "rounded-2xl bg-white px-4 py-2 ring-slate-200",
 					)}
 				>
 					<StructuredComposer
@@ -156,7 +171,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 						onBlur={() => setInputFocused(false)}
 						placeholder={
 							isProjectVariant
-								? "让 AI 编码、分析或规划..."
+								? "这会儿帮你做些什么？@引用项目"
 								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
 						}
 						isProjectVariant={isProjectVariant}
@@ -248,31 +263,41 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 									size={isProjectVariant ? "icon" : "sm"}
 									className={cn(
 										"border-red-200 text-red-500 hover:bg-red-50",
-										isProjectVariant && "size-11 rounded-2xl",
+										isProjectVariant && "size-9 rounded-xl",
 									)}
 									onClick={cancelGeneration}
 								>
-									<CircleStop className={cn("size-4", !isProjectVariant && "mr-1")} />
+									<CircleStop className={cn("size-3.5", !isProjectVariant && "mr-1")} />
 									{!isProjectVariant && "停止"}
 								</Button>
 							) : (
 								<Button
 									size={isProjectVariant ? "icon" : "sm"}
 									className={cn(
-										"h-9 min-w-20 bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400",
-										isProjectVariant && "size-11 min-w-0 rounded-2xl",
+										// 中文注释：!text-white 覆盖 Button default variant 的 text-primary-foreground
+										"bg-black !text-white shadow-sm hover:bg-blue-700 disabled:bg-[#f3f3f4] disabled:!text-slate-400",
+										isProjectVariant ? "size-9 min-w-0 rounded-xl" : "h-8 min-w-[4.5rem]",
 									)}
 									onClick={handleSend}
-									disabled={!inputText.trim()}
+									disabled={!canSend}
 								>
-									<SendHorizonal className={cn("size-4", !isProjectVariant && "mr-1")} />
+									<SendHorizonal
+										className={cn(
+											"size-3.5",
+											!isProjectVariant && "mr-1",
+											// 中文注释：直接在图标上设色，避免 Button 默认 variant 覆盖 currentColor
+											canSend
+												? "fill-white stroke-white text-white"
+												: "fill-none stroke-current text-current",
+										)}
+									/>
 									{!isProjectVariant && "发送"}
 								</Button>
 							)}
 						</div>
 					</div>
 				</div>
-				{isProjectVariant && (
+				{/* {isProjectVariant && (
 					<div className="mt-3 text-center text-xs text-slate-500">
 						按{" "}
 						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
@@ -286,7 +311,7 @@ export function ChatInput({ variant = "default" }: { variant?: "default" | "proj
 						<kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5">Enter</kbd>{" "}
 						发送
 					</div>
-				)}
+				)} */}
 			</div>
 		</div>
 	);
@@ -322,11 +347,13 @@ function ApprovalDecisionInput({
 	approval,
 	messageId,
 	variant,
+	projectLayout,
 	onDecide,
 }: {
 	approval: ApprovalRequest;
 	messageId: string;
 	variant: "default" | "project";
+	projectLayout?: ReturnType<typeof getProjectChatLayoutClasses>;
 	onDecide: (
 		messageId: string,
 		requestId: string,
@@ -337,6 +364,7 @@ function ApprovalDecisionInput({
 	const [expanded, setExpanded] = useState(false);
 	const [alwaysAllow, setAlwaysAllow] = useState(false);
 	const isProjectVariant = variant === "project";
+	const layout = projectLayout ?? getProjectChatLayoutClasses("sidebar-expanded");
 	const isSubmitting = approval.status === "submitting";
 	const argumentText = approval.arguments ? JSON.stringify(approval.arguments, null, 2) : "";
 	const detailText = getApprovalDetail(approval);
@@ -373,10 +401,10 @@ function ApprovalDecisionInput({
 			data-slot="approval-decision-input"
 			className={cn(
 				"bg-transparent px-5 pb-5 sm:px-6 lg:px-8",
-				isProjectVariant && "bg-white px-8 pb-8 sm:px-8 lg:px-8",
+				isProjectVariant && cn("bg-white pb-8", layout.shell),
 			)}
 		>
-			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && "max-w-[780px]")}>
+			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && layout.inner)}>
 				<div className="overflow-hidden rounded-[18px] border border-slate-200 bg-white text-slate-800 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
 					<div className="px-4 pb-4 pt-3.5">
 						<div className="mb-3 flex items-center gap-2 text-sm text-slate-500">

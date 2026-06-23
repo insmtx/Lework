@@ -65,7 +65,7 @@ export function RightRail() {
 		},
 		{
 			id: "artifacts" as const,
-			label: "工件",
+			label: "文件",
 			icon: <File className="size-4" />,
 		},
 	];
@@ -134,7 +134,7 @@ export function RightRail() {
 					{activeRightTab === "artifacts" && (
 						<div className="space-y-3">
 							<h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">
-								工件文件
+								文件
 							</h3>
 							{mockArtifacts.map((artifact) => (
 								<div
@@ -158,7 +158,7 @@ export function RightRail() {
 								</div>
 							))}
 							{mockArtifacts.length === 0 && (
-								<p className="text-sm text-slate-400 text-center py-4">暂无工件</p>
+								<p className="text-sm text-slate-400 text-center py-4">暂无文件</p>
 							)}
 						</div>
 					)}

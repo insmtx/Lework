@@ -42,5 +42,11 @@ function withAuthorization(config: RequestInit, token: string): RequestInit {
 }
 
 function isAuthEndpoint(url: string): boolean {
-	return ["/LoginByEmail", "/RegisterByEmail", "/RefreshToken"].some((path) => url.endsWith(path));
+	return [
+		"/LoginByEmail",
+		"/RegisterByEmail",
+		"/SendPhoneLoginCode",
+		"/LoginByPhoneCode",
+		"/RefreshToken",
+	].some((path) => url.endsWith(path));
 }

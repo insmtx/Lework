@@ -1,9 +1,11 @@
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\shared.ps1"
+Import-DevEnvFile
 
 $root = Get-LerosRepoRoot
+$runtimeState = Initialize-DevRuntimeState
 
-Stop-DevProcessesByPorts -Ports @(8080, 8081)
+Stop-DevProcessesByPorts -Ports @([int]$runtimeState.serverPort, [int]$runtimeState.workerPort)
 
 Write-Host '[Leros] Stopping remaining backend processes...' -ForegroundColor Cyan
 Get-Process leros -ErrorAction SilentlyContinue | Stop-Process -Force

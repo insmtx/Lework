@@ -1,5 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
+$script:DevRuntimeStateFile = Join-Path $PSScriptRoot '.runtime-state.json'
+
 function Get-LerosRepoRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 }
@@ -99,6 +101,209 @@ function Wait-DockerReady {
     }
 
     throw 'Docker engine did not become ready in time.'
+}
+
+function Import-DevEnvFile {
+    $envPath = Join-Path $PSScriptRoot '.env'
+    if (-not (Test-Path $envPath)) {
+        return
+    }
+
+    Get-Content $envPath | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -eq '' -or $line.StartsWith('#')) {
+            return
+        }
+
+        $pair = $line.Split('=', 2)
+        if ($pair.Length -ne 2) {
+            return
+        }
+
+        $name = $pair[0].Trim()
+        $value = $pair[1].Trim()
+        if ($name -eq '') {
+            return
+        }
+
+        [System.Environment]::SetEnvironmentVariable($name, $value, 'Process')
+    }
+}
+
+function Get-DevRuntimeState {
+    if (-not (Test-Path $script:DevRuntimeStateFile)) {
+        return $null
+    }
+
+    try {
+        return Get-Content $script:DevRuntimeStateFile -Raw | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
+function Save-DevRuntimeState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$State
+    )
+
+    $State | ConvertTo-Json | Set-Content -Path $script:DevRuntimeStateFile -Encoding UTF8
+}
+
+function Get-TcpExcludedPortRanges {
+    $ranges = @()
+    $output = netsh interface ipv4 show excludedportrange protocol=tcp
+    foreach ($line in $output) {
+        if ($line -match '^\s*(\d+)\s+(\d+)\s*(\*?)\s*$') {
+            $ranges += [pscustomobject]@{
+                StartPort = [int]$matches[1]
+                EndPort   = [int]$matches[2]
+            }
+        }
+    }
+
+    return $ranges
+}
+
+function Test-PortListening {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port
+    )
+
+    $listenRows = netstat -ano -p tcp |
+        Select-String -Pattern 'LISTENING\s+\d+$' |
+        Where-Object { $_.ToString() -match "[:\.]$Port\s" }
+
+    return $listenRows.Count -gt 0
+}
+
+function Test-PortExcluded {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port
+    )
+
+    foreach ($range in (Get-TcpExcludedPortRanges)) {
+        if ($Port -ge $range.StartPort -and $Port -le $range.EndPort) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-PortUnavailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port
+    )
+
+    return (Test-PortListening -Port $Port) -or (Test-PortExcluded -Port $Port)
+}
+
+function Resolve-DevPorts {
+    $savedState = Get-DevRuntimeState
+    if ($savedState -and $savedState.serverPort -and $savedState.workerPort) {
+        if (-not (Test-PortExcluded -Port ([int]$savedState.serverPort)) -and
+            -not (Test-PortExcluded -Port ([int]$savedState.workerPort))) {
+            return @{
+                ServerPort = [int]$savedState.serverPort
+                WorkerPort = [int]$savedState.workerPort
+            }
+        }
+    }
+
+    # Windows may reserve 8080/8081, so dev scripts fall back to the next pair.
+    $candidateServerPorts = @(8080, 18080, 28080, 38080)
+    foreach ($serverPort in $candidateServerPorts) {
+        $workerPort = $serverPort + 1
+        if ((Test-PortUnavailable -Port $serverPort) -or (Test-PortUnavailable -Port $workerPort)) {
+            continue
+        }
+
+        return @{
+            ServerPort = $serverPort
+            WorkerPort = $workerPort
+        }
+    }
+
+    throw 'No available dev port pair found for server/worker.'
+}
+
+function Initialize-DevRuntimeState {
+    $ports = Resolve-DevPorts
+    $state = @{
+        serverPort = $ports.ServerPort
+        workerPort = $ports.WorkerPort
+        apiBaseUrl = "http://localhost:$($ports.ServerPort)/v1"
+    }
+    Save-DevRuntimeState -State $state
+    return $state
+}
+
+function Get-ConfiguredDevRuntimeState {
+    $state = Get-DevRuntimeState
+    if ($state) {
+        return $state
+    }
+
+    return Initialize-DevRuntimeState
+}
+
+function New-ResolvedServerConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [int]$ServerPort
+    )
+
+    $runtimeDir = Join-Path $PSScriptRoot '.runtime'
+    if (-not (Test-Path $runtimeDir)) {
+        New-Item -ItemType Directory -Path $runtimeDir | Out-Null
+    }
+
+    $templatePath = Join-Path $PSScriptRoot 'server.config.yaml'
+    $resolvedPath = Join-Path $runtimeDir 'server.config.runtime.yaml'
+    $content = Get-Content $templatePath -Raw
+    # Only override the generated runtime config; keep the checked-in YAML unchanged.
+    $content = [regex]::Replace(
+        $content,
+        '(?m)^(\s*port:\s*)\d+\s*$',
+        [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $match.Groups[1].Value + $ServerPort }
+    )
+    Set-Content -Path $resolvedPath -Value $content -Encoding UTF8
+    return $resolvedPath
+}
+
+function New-ResolvedWorkerConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [int]$ServerPort
+    )
+
+    $runtimeDir = Join-Path $PSScriptRoot '.runtime'
+    if (-not (Test-Path $runtimeDir)) {
+        New-Item -ItemType Directory -Path $runtimeDir | Out-Null
+    }
+
+    $templatePath = Join-Path $PSScriptRoot 'worker.config.yaml'
+    $resolvedPath = Join-Path $runtimeDir 'worker.config.runtime.yaml'
+    $content = Get-Content $templatePath -Raw
+    # Keep the worker connected to the selected dev server port.
+    $content = [regex]::Replace(
+        $content,
+        '(?m)^(\s*server_addr:\s*)".*"\s*$',
+        [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $match.Groups[1].Value + '"127.0.0.1:' + $ServerPort + '"' }
+    )
+    Set-Content -Path $resolvedPath -Value $content -Encoding UTF8
+    return $resolvedPath
 }
 
 function Get-IsAdministrator {

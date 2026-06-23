@@ -10,7 +10,7 @@ export function formatDate(timestamp: number): string {
 	const date = new Date(timestamp);
 	const isToday = date.toDateString() === new Date().toDateString();
 	if (isToday) {
-		return `今天 ${formatTime(timestamp)}`;
+		return `\u4eca\u5929 ${formatTime(timestamp)}`;
 	}
 	return date.toLocaleDateString("zh-CN", {
 		month: "short",
@@ -18,6 +18,20 @@ export function formatDate(timestamp: number): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
+}
+
+export function formatArtifactTime(timestamp?: number): string {
+	if (!timestamp || !Number.isFinite(timestamp)) return "";
+	return formatDate(timestamp);
+}
+
+export function parseOptionalTimestamp(value?: string): number | undefined {
+	if (!value) return undefined;
+	const normalized = value.trim();
+	if (!normalized || normalized.startsWith("0001-01-01")) return undefined;
+
+	const timestamp = new Date(normalized).getTime();
+	return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : undefined;
 }
 
 export function formatFileSize(bytes: number): string {
@@ -33,7 +47,6 @@ export function formatTokenCount(count: number): string {
 	return String(count);
 }
 
-/** 格式化单条回复耗时：不足 1 秒用 ms，否则用秒。 */
 export function formatLatency(ms: number): string {
 	if (!Number.isFinite(ms) || ms <= 0) return "0ms";
 	if (ms >= 1000) {

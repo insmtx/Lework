@@ -18,6 +18,20 @@ export function messageArtifactToProjectArtifact(artifact: MessageArtifact): Pro
 	};
 }
 
+function artifactTimestamp(artifact: Pick<ProjectArtifact, "updatedAt">): number {
+	return artifact.updatedAt ?? 0;
+}
+
+export function sortProjectArtifactsByNewestFirst<
+	T extends Pick<ProjectArtifact, "id" | "updatedAt">,
+>(artifacts: T[]): T[] {
+	return [...artifacts].sort((left, right) => {
+		const timeDiff = artifactTimestamp(right) - artifactTimestamp(left);
+		if (timeDiff !== 0) return timeDiff;
+		return right.id.localeCompare(left.id);
+	});
+}
+
 /**
  * Merges session message artifacts with task API artifacts.
  * Task API records enrich message artifacts when both exist for the same id.
@@ -34,7 +48,8 @@ export function mergeProjectArtifacts(
 		const existing = merged.get(artifact.id);
 		merged.set(artifact.id, existing ? { ...existing, ...artifact } : artifact);
 	}
-	return [...merged.values()];
+	// 中文注释：任务接口与会话消息的文件合并后，统一在这里做“最新优先”排序，避免页面各自处理。
+	return sortProjectArtifactsByNewestFirst([...merged.values()]);
 }
 
 /** Collects declared artifacts from assistant messages in one session. */
@@ -57,8 +72,12 @@ export function collectSessionArtifacts(
 			continue;
 		}
 		for (const artifact of message.artifacts) {
-			merged.set(artifact.id, messageArtifactToProjectArtifact(artifact));
+			// 中文注释：流式消息里的 artifact 事件没有独立时间时，先复用所属消息时间作为排序与展示兜底。
+			merged.set(artifact.id, {
+				...messageArtifactToProjectArtifact(artifact),
+				updatedAt: artifact.updatedAt ?? message.timestamp,
+			});
 		}
 	}
-	return [...merged.values()];
+	return sortProjectArtifactsByNewestFirst([...merged.values()]);
 }

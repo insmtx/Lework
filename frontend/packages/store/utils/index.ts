@@ -1,2 +1,2 @@
 export { flattenActions } from "./flattenActions";
-export { formatDate, formatFileSize, formatTime } from "./format";
+export { formatArtifactTime, formatDate, formatFileSize, formatTime } from "./format";

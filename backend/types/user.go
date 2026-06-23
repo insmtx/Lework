@@ -20,6 +20,7 @@ type User struct {
 	Password    string `gorm:"column:password;type:varchar(255)"`                                 // 密码（本地认证用）
 	Name        string `gorm:"column:name;type:varchar(255)"`                                     // 用户姓名
 	Email       string `gorm:"column:email;type:varchar(255)"`                                    // 用户邮箱
+	Phone       string `gorm:"column:phone;type:varchar(32);uniqueIndex"`                         // 手机号
 	AvatarURL   string `gorm:"column:avatar_url;type:varchar(500)"`                               // 头像 URL
 	Bio         string `gorm:"column:bio;type:text"`                                              // 个人简介
 	Company     string `gorm:"column:company;type:varchar(255)"`                                  // 公司信息

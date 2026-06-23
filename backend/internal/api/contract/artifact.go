@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"io"
+	"time"
 )
 
 // ArtifactService defines task artifact query and download behavior.
@@ -14,14 +15,15 @@ type ArtifactService interface {
 
 // Artifact is the public response shape for a generated file.
 type Artifact struct {
-	ArtifactID   string `json:"artifact_id"`
-	Title        string `json:"title"`
-	Filename     string `json:"filename,omitempty"`
-	Description  string `json:"description,omitempty"`
-	ArtifactType string `json:"artifact_type"`
-	MimeType     string `json:"mime_type,omitempty"`
-	FileSize     int64  `json:"file_size,omitempty"`
-	Sha256       string `json:"sha256,omitempty"`
+	ArtifactID   string    `json:"artifact_id"`
+	Title        string    `json:"title"`
+	Filename     string    `json:"filename,omitempty"`
+	Description  string    `json:"description,omitempty"`
+	ArtifactType string    `json:"artifact_type"`
+	MimeType     string    `json:"mime_type,omitempty"`
+	FileSize     int64     `json:"file_size,omitempty"`
+	Sha256       string    `json:"sha256,omitempty"`
+	CreatedAt    time.Time `json:"created_at,omitempty"`
 }
 
 // ArtifactDetail is the full detail response for a single artifact.

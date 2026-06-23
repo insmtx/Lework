@@ -3,8 +3,11 @@ export type {
 	AuthOrgInfo,
 	AuthTokenResponse,
 	AuthUserInfo,
+	LoginByPhoneCodeParams,
 	LoginByEmailParams,
 	RegisterByEmailParams,
+	SendPhoneLoginCodeParams,
+	SendPhoneLoginCodeResponse,
 } from "./api/authApi";
 export { authApi } from "./api/authApi";
 export { API_BASE_URL } from "./api/config";
@@ -104,6 +107,7 @@ export {
 	getValidJwtToken,
 } from "./utils/authStorage";
 export {
+	formatArtifactTime,
 	formatDate,
 	formatFileSize,
 	formatLatency,

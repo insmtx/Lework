@@ -191,6 +191,7 @@ func publicArtifactPayload(artifact events.ArtifactPayload) events.ArtifactPaylo
 		Filename:     artifactFilename(artifact),
 		MimeType:     strings.TrimSpace(artifact.MimeType),
 		ArtifactType: artifactType(artifact.ArtifactType),
+		CreatedAt:    artifact.CreatedAt,
 	}
 }
 
@@ -279,6 +280,7 @@ func messageArtifactsFromRunCompleted(artifacts []events.ArtifactPayload) []type
 			Filename:     artifact.Filename,
 			MimeType:     artifact.MimeType,
 			ArtifactType: artifact.ArtifactType,
+			CreatedAt:    artifact.CreatedAt,
 		})
 	}
 	return result

@@ -175,11 +175,12 @@ type MessageChunk struct {
 
 // MessageArtifact stores one lightweight artifact reference for a session message.
 type MessageArtifact struct {
-	ArtifactID   string `json:"artifact_id,omitempty"`
-	Title        string `json:"title,omitempty"`
-	Filename     string `json:"filename,omitempty"`
-	MimeType     string `json:"mime_type,omitempty"`
-	ArtifactType string `json:"artifact_type,omitempty"`
+	ArtifactID   string    `json:"artifact_id,omitempty"`
+	Title        string    `json:"title,omitempty"`
+	Filename     string    `json:"filename,omitempty"`
+	MimeType     string    `json:"mime_type,omitempty"`
+	ArtifactType string    `json:"artifact_type,omitempty"`
+	CreatedAt    time.Time `json:"created_at,omitempty"`
 }
 
 // MessageArtifactSlice stores artifact references in JSONB.

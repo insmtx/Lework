@@ -1,9 +1,11 @@
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\shared.ps1"
+Import-DevEnvFile
 
 $root = Get-LerosRepoRoot
 $dockerDesktop = 'E:\DevEnv\Docker\app\Docker Desktop.exe'
 $dockerExe = Get-DockerExe
+$runtimeState = Initialize-DevRuntimeState
 
 if (Get-Process leros -ErrorAction SilentlyContinue) {
     Write-Host '[Leros] Backend is already running.' -ForegroundColor Yellow
@@ -27,6 +29,8 @@ if ($LASTEXITCODE -ne 0) {
 if (-not (Test-Path "$root\bundles\leros.exe")) {
     & "$PSScriptRoot\rebuild-backend.ps1"
 }
+
+Write-Host "[Leros] Using API server port $($runtimeState.serverPort) and worker port $($runtimeState.workerPort)." -ForegroundColor Cyan
 
 Write-Host '[Leros] Opening server, worker and frontend windows...' -ForegroundColor Cyan
 Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-server-dev.ps1" | Out-Null

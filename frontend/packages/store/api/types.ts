@@ -122,6 +122,7 @@ export type BackendSessionArtifactPayload = {
 	mime_type?: string;
 	file_size?: number;
 	sha256?: string;
+	created_at?: string;
 };
 
 export type BackendApprovalRequestPayload = {
@@ -298,6 +299,7 @@ export type BackendArtifact = {
 	mime_type?: string;
 	file_size?: number;
 	sha256?: string;
+	created_at?: string;
 };
 
 export type BackendArtifactDetail = {

@@ -7,8 +7,13 @@ if (-not (Ensure-Administrator -ScriptPath "$PSScriptRoot\stop-dev.ps1")) {
 
 $root = Get-LerosRepoRoot
 $dockerExe = Get-DockerExe
+$runtimeState = Get-DevRuntimeState
+$portsToStop = @(3005, 8080, 8081)
+if ($runtimeState) {
+    $portsToStop += @([int]$runtimeState.serverPort, [int]$runtimeState.workerPort)
+}
 
-Stop-DevProcessesByPorts -Ports @(3005, 8080, 8081)
+Stop-DevProcessesByPorts -Ports $portsToStop
 
 Write-Host '[Leros] Stopping remaining backend processes...' -ForegroundColor Cyan
 Get-Process leros -ErrorAction SilentlyContinue | Stop-Process -Force

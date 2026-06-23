@@ -153,18 +153,19 @@ type RunCompletedPayload struct {
 
 // ArtifactPayload 引用单次运行产生的产物。
 type ArtifactPayload struct {
-	ArtifactID   string `json:"artifact_id,omitempty"`
-	Title        string `json:"title,omitempty"`
-	Filename     string `json:"filename,omitempty"`
-	Description  string `json:"description,omitempty"`
-	MimeType     string `json:"mime_type,omitempty"`
-	ArtifactType string `json:"artifact_type,omitempty"`
-	FileSize     int64  `json:"file_size,omitempty"`
-	RelativePath string `json:"relative_path,omitempty"`
-	StorageKey   string `json:"storage_key,omitempty"`
-	Sha256       string `json:"sha256,omitempty"`
-	Source       string `json:"source,omitempty"`
-	Status       string `json:"status,omitempty"`
+	ArtifactID   string    `json:"artifact_id,omitempty"`
+	Title        string    `json:"title,omitempty"`
+	Filename     string    `json:"filename,omitempty"`
+	Description  string    `json:"description,omitempty"`
+	MimeType     string    `json:"mime_type,omitempty"`
+	ArtifactType string    `json:"artifact_type,omitempty"`
+	FileSize     int64     `json:"file_size,omitempty"`
+	CreatedAt    time.Time `json:"created_at,omitempty"`
+	RelativePath string    `json:"relative_path,omitempty"`
+	StorageKey   string    `json:"storage_key,omitempty"`
+	Sha256       string    `json:"sha256,omitempty"`
+	Source       string    `json:"source,omitempty"`
+	Status       string    `json:"status,omitempty"`
 }
 
 // NewMessageDelta 创建标准的助手消息增量事件。

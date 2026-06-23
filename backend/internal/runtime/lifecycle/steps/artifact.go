@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -94,6 +95,8 @@ func artifactPayloadFromRecord(record agentworkspace.ArtifactRecord) events.Arti
 		Sha256:       record.Sha256,
 		Source:       artifactSource(record.Source),
 		Status:       artifactStatus(record.Status),
+		// 中文注释：产物在运行期声明时就附带时间，供历史消息直接展示，无需再依赖任务接口二次补齐。
+		CreatedAt: time.Now().UTC(),
 	}
 }
 

@@ -3,6 +3,7 @@
 import type { ProjectArtifact, ProjectTask } from "@leros/store";
 import {
 	collectSessionArtifacts,
+	formatArtifactTime,
 	formatTokenCount,
 	mapBackendArtifactToProjectArtifact,
 	mergeProjectArtifacts,
@@ -33,6 +34,7 @@ import { MessageTimeline } from "../chat/MessageTimeline";
 import { ChatInput } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
+import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
@@ -44,7 +46,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sidebar-width";
-const TASK_DETAIL_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "leros-task-detail-right-sidebar-collapsed";
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const TASK_DETAIL_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const TASK_DETAIL_RIGHT_SIDEBAR_MAX_WIDTH = 440;
@@ -158,6 +159,10 @@ export function TaskDetailPage({
 	const rightSidebarWidthStyle = !rightSidebarCollapsed
 		? { width: `${rightSidebarWidth}px` }
 		: undefined;
+	const taskChatLayoutMode: ProjectChatLayoutMode = rightSidebarCollapsed
+		? "sidebar-collapsed"
+		: "sidebar-expanded";
+	const taskChatLayout = getProjectChatLayoutClasses(taskChatLayoutMode);
 
 	const fetchArtifacts = useCallback(async (taskId: string) => {
 		try {
@@ -235,13 +240,6 @@ export function TaskDetailPage({
 		if (Number.isFinite(parsedWidth)) {
 			setRightSidebarWidth(clampTaskDetailRightSidebarWidth(parsedWidth));
 		}
-
-		const savedCollapsed = window.localStorage.getItem(
-			TASK_DETAIL_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY,
-		);
-		if (savedCollapsed) {
-			setRightSidebarCollapsed(savedCollapsed === "true");
-		}
 	}, []);
 
 	useEffect(() => {
@@ -253,12 +251,9 @@ export function TaskDetailPage({
 	}, [rightSidebarWidth]);
 
 	useEffect(() => {
-		if (typeof window === "undefined" || !hasLoadedRightSidebarPreferenceRef.current) return;
-		window.localStorage.setItem(
-			TASK_DETAIL_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY,
-			String(rightSidebarCollapsed),
-		);
-	}, [rightSidebarCollapsed]);
+		// 中文注释：任务详情右侧栏的展开态只属于当前查看上下文，切换任务或会话后应恢复默认展开。
+		setRightSidebarCollapsed(false);
+	}, [resolvedProjectId, resolvedTaskId, resolvedSessionId]);
 
 	const handleRightSidebarResizeStart = (event: React.PointerEvent<HTMLHRElement>) => {
 		if (rightSidebarCollapsed) return;
@@ -397,10 +392,11 @@ export function TaskDetailPage({
 			<div className="min-h-0 flex flex-1">
 				<main className="flex min-h-0 flex-1 flex-col">
 					<MessageTimeline
-						emptyState={<TaskChatEmptyState />}
-						contentClassName="max-w-[780px] px-8 py-8 sm:px-8 lg:px-8"
+						emptyState={<TaskChatEmptyState layout={taskChatLayout} />}
+						contentShellClassName={taskChatLayout.shell}
+						contentClassName={taskChatLayout.timelineInner}
 					/>
-					<ChatInput variant="project" />
+					<ChatInput variant="project" projectLayoutMode={taskChatLayoutMode} />
 				</main>
 
 				{rightSidebarCollapsed && (
@@ -425,7 +421,7 @@ export function TaskDetailPage({
 								<div>
 									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">任务侧栏</p>
 									<p className="mt-1 text-xs text-[var(--leros-text-muted)]">
-										查看任务说明、进度和产物概览
+										查看任务说明、进度和文件概览
 									</p>
 								</div>
 								<button
@@ -485,7 +481,7 @@ export function TaskDetailPage({
 							)}
 							<section>
 								<div className="mb-3 flex items-center justify-between">
-									<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务产物</h3>
+									<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务文件</h3>
 									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
 										{artifacts.length} 个
 									</span>
@@ -649,17 +645,23 @@ function splitTokenMetric(
 	};
 }
 
-function TaskChatEmptyState() {
+function TaskChatEmptyState({
+	layout,
+}: {
+	layout: ReturnType<typeof getProjectChatLayoutClasses>;
+}) {
 	return (
-		<div className="flex h-full items-center justify-center px-8">
-			<div className="flex max-w-[320px] flex-col items-center text-center">
-				<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-					<Bot className="size-6" />
+		<div className={cn("flex h-full", layout.shell)}>
+			<div className={cn(layout.inner, "flex h-full items-center justify-center")}>
+				<div className="flex max-w-[320px] flex-col items-center text-center">
+					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+						<Bot className="size-6" />
+					</div>
+					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">任务会话</h2>
+					<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
+						在此与 AI 协作完成任务讨论，发送消息即可开始对话。
+					</p>
 				</div>
-				<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">任务会话</h2>
-				<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-					在此与 AI 协作完成任务讨论，发送消息即可开始对话。
-				</p>
 			</div>
 		</div>
 	);
@@ -675,7 +677,7 @@ function TaskArtifactList({
 	if (artifacts.length === 0) {
 		return (
 			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
-				暂无产物
+				暂无文件
 			</div>
 		);
 	}
@@ -688,7 +690,7 @@ function TaskArtifactList({
 					key={artifact.id}
 					onClick={() => onPreview(artifact)}
 					className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
-					title="预览产物"
+					title="预览文件"
 				>
 					{/* hover 时补一个轻量蒙层，明确提示当前整卡可点击预览 */}
 					<div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover:opacity-100">
@@ -704,6 +706,9 @@ function TaskArtifactList({
 							{artifact.name}
 						</div>
 						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+							{/* 中文注释：任务文件列表补充生成时间，方便和“最新在上”的排序保持一致认知。 */}
+							{formatArtifactTime(artifact.updatedAt)}
+							{artifact.updatedAt && artifact.size ? " · " : ""}
 							{artifact.size}
 						</div>
 					</div>

@@ -45,7 +45,8 @@ func ListTaskArtifacts(ctx context.Context, db *gorm.DB, orgID uint, taskID uint
 	var entities []*types.Artifact
 	err := db.WithContext(ctx).
 		Where("org_id = ? AND task_id = ? AND status = ?", orgID, taskID, string(types.ArtifactStatusCompleted)).
-		Order("created_at ASC").
+		// 中文注释：任务产物列表按最新生成优先返回，方便前端统一展示“新产物在最上面”。
+		Order("created_at DESC").
 		Find(&entities).Error
 	return entities, err
 }

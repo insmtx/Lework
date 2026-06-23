@@ -20,7 +20,7 @@ import {
 } from "@leros/ui/components/ui/dialog";
 import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
-import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
+import { ShieldCheck, Smartphone } from "lucide-react";
 import {
 	createContext,
 	type FormEvent,
@@ -33,9 +33,10 @@ import {
 } from "react";
 import { APP_LOGO_SRC } from "../../assets";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login";
 
 type AuthContextValue = {
+	isHydrated: boolean;
 	isAuthenticated: boolean;
 	user: AuthUser | null;
 	openAuthDialog: (mode?: AuthMode) => void;
@@ -60,7 +61,6 @@ export function AuthProvider({
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
 	const [hydrated, setHydrated] = useState(false);
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const [mode, setMode] = useState<AuthMode>("login");
 	const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
 	useEffect(() => {
@@ -73,7 +73,6 @@ export function AuthProvider({
 			resetAuthScopedData();
 			resetLocalMessages();
 			setPendingAction(null);
-			setMode("login");
 			setDialogOpen(true);
 		};
 		window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleExpiredSession);
@@ -84,8 +83,7 @@ export function AuthProvider({
 		if (authUser) void getValidJwtToken();
 	}, [authUser]);
 
-	const openAuthDialog = useCallback((nextMode: AuthMode = "login") => {
-		setMode(nextMode);
+	const openAuthDialog = useCallback((_nextMode: AuthMode = "login") => {
 		setDialogOpen(true);
 	}, []);
 
@@ -102,13 +100,12 @@ export function AuthProvider({
 	);
 
 	const requireAuth = useCallback(
-		(afterAuth?: () => void, nextMode: AuthMode = "login") => {
+		(afterAuth?: () => void, _nextMode: AuthMode = "login") => {
 			if (authUser) {
 				afterAuth?.();
 				return true;
 			}
 			setPendingAction(() => afterAuth ?? null);
-			setMode(nextMode);
 			setDialogOpen(true);
 			return false;
 		},
@@ -124,6 +121,7 @@ export function AuthProvider({
 
 	const value = useMemo<AuthContextValue>(
 		() => ({
+			isHydrated: hydrated,
 			isAuthenticated: hydrated && Boolean(authUser),
 			user: hydrated ? authUser : null,
 			openAuthDialog,
@@ -137,10 +135,8 @@ export function AuthProvider({
 		<AuthContext.Provider value={value}>
 			{children}
 			<AuthDialog
-				mode={mode}
 				open={dialogOpen}
 				logoSrc={logoSrc}
-				onModeChange={setMode}
 				onOpenChange={(open) => {
 					setDialogOpen(open);
 					if (!open) setPendingAction(null);
@@ -160,65 +156,77 @@ export function useAuth() {
 }
 
 function AuthDialog({
-	mode,
 	open,
 	logoSrc,
-	onModeChange,
 	onOpenChange,
 	onAuthenticated,
 }: {
-	mode: AuthMode;
 	open: boolean;
 	logoSrc: string;
-	onModeChange: (mode: AuthMode) => void;
 	onOpenChange: (open: boolean) => void;
 	onAuthenticated: (token: AuthTokenResponse) => void;
 }) {
-	const [name, setName] = useState("");
-	const [email, setEmail] = useState("");
-	const [password, setPassword] = useState("");
-	const [confirmPassword, setConfirmPassword] = useState("");
+	const [phone, setPhone] = useState("");
+	const [code, setCode] = useState("");
 	const [agreed, setAgreed] = useState(true);
-	const [passwordVisible, setPasswordVisible] = useState(false);
-	const [confirmVisible, setConfirmVisible] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
+	const [sendingCode, setSendingCode] = useState(false);
+	const [countdown, setCountdown] = useState(0);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [submitted, setSubmitted] = useState(false);
 	const [touched, setTouched] = useState<Record<string, boolean>>({});
 
 	useEffect(() => {
 		if (!open) return;
-		setName("");
-		setEmail("");
-		setPassword("");
-		setConfirmPassword("");
+		setPhone("");
+		setCode("");
 		setAgreed(true);
-		setPasswordVisible(false);
-		setConfirmVisible(false);
+		setSendingCode(false);
+		setCountdown(0);
 		setSubmitted(false);
 		setTouched({});
 		setErrorMessage("");
-	}, [open, mode]);
+	}, [open]);
 
-	const emailValid = /\S+@\S+\.\S+/.test(email);
-	const passwordValid = isRegisterPasswordValid(password);
-	const registerValid =
-		name.trim().length > 0 && emailValid && passwordValid && password === confirmPassword && agreed;
-	const loginValid = emailValid && password.length > 0;
-	const canSubmit = mode === "register" ? registerValid : loginValid;
+	useEffect(() => {
+		if (countdown <= 0) return;
+		const timer = window.setTimeout(() => setCountdown((current) => Math.max(0, current - 1)), 1000);
+		return () => window.clearTimeout(timer);
+	}, [countdown]);
+
+	const normalizedPhone = phone.trim();
+	const normalizedCode = code.trim();
+	const phoneValid = /^1[3-9]\d{9}$/.test(normalizedPhone);
+	const codeValid = /^\d{4,8}$/.test(normalizedCode);
+	const canSubmit = phoneValid && codeValid && agreed;
+	const canSendCode = phoneValid && !sendingCode && countdown === 0;
 	const shouldShowError = (field: string) => submitted || Boolean(touched[field]);
-	const showNameError = shouldShowError("name") && mode === "register" && name.trim().length === 0;
-	const showEmailError = shouldShowError("email") && !emailValid;
-	const showLoginPasswordError =
-		shouldShowError("password") && mode === "login" && password.length === 0;
-	const showRegisterPasswordError =
-		shouldShowError("password") && mode === "register" && password.length > 0 && !passwordValid;
-	const showConfirmPasswordError =
-		shouldShowError("confirmPassword") && mode === "register" && confirmPassword !== password;
-	const confirmPasswordErrorMessage =
-		showConfirmPasswordError && confirmPassword.length > 0 ? "密码不一致" : "请再次输入密码";
+	const showPhoneError = shouldShowError("phone") && !phoneValid;
+	const showCodeError = shouldShowError("code") && !codeValid;
 	const markTouched = (field: string) => {
 		setTouched((current) => ({ ...current, [field]: true }));
+	};
+
+	const handleSendCode = async () => {
+		setTouched((current) => ({ ...current, phone: true }));
+		if (!canSendCode) return;
+
+		setSendingCode(true);
+		setErrorMessage("");
+		try {
+			const response = await authApi.sendPhoneLoginCode({ phone: normalizedPhone });
+			const result = response.data;
+			if (result.code !== 0) {
+				setErrorMessage(result.message || "验证码发送失败");
+				return;
+			}
+			setCountdown(Math.max(1, Math.floor(result.data.resend_after || 120)));
+		} catch (err) {
+			console.error("send phone login code error:", err);
+			setErrorMessage(getAuthErrorMessage(err) ?? "验证码发送失败，请稍后再试");
+		} finally {
+			setSendingCode(false);
+		}
 	};
 
 	const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -229,32 +237,21 @@ function AuthDialog({
 		setSubmitting(true);
 		setErrorMessage("");
 		try {
-			const response =
-				mode === "register"
-					? await authApi.registerByEmail({
-							email: email.trim(),
-							password,
-							confirm_password: confirmPassword,
-							name: name.trim(),
-						})
-					: await authApi.loginByEmail({
-							email: email.trim(),
-							password,
-						});
+			const response = await authApi.loginByPhoneCode({
+				phone: normalizedPhone,
+				code: normalizedCode,
+			});
 
 			const result = response.data;
 			if (result.code !== 0) {
-				setErrorMessage(result.message || (mode === "register" ? "注册失败" : "登录失败"));
+				setErrorMessage(result.message || "登录失败");
 				return;
 			}
 
 			onAuthenticated(result.data);
 		} catch (err) {
-			console.error(`${mode === "register" ? "register" : "login"} by email error:`, err);
-			setErrorMessage(
-				getAuthErrorMessage(err) ??
-					(mode === "register" ? "注册失败，请稍后再试" : "登录失败，请稍后再试"),
-			);
+			console.error("login by phone code error:", err);
+			setErrorMessage(getAuthErrorMessage(err) ?? "登录失败，请稍后再试");
 		} finally {
 			setSubmitting(false);
 		}
@@ -271,146 +268,45 @@ function AuthDialog({
 					<DialogTitle className="mt-5 text-center text-3xl font-bold tracking-normal">
 						欢迎来到Leros
 					</DialogTitle>
-					<DialogDescription className="sr-only">使用邮箱登录或注册 Leros 账号</DialogDescription>
-
-					<div className="mt-8 grid w-full grid-cols-2 rounded-full bg-white/70 p-1">
-						<button
-							type="button"
-							onClick={() => onModeChange("login")}
-							className={cn(
-								"h-10 rounded-full text-sm font-semibold transition-colors",
-								mode === "login"
-									? "bg-[#070d1c] text-white shadow-sm"
-									: "text-[#8b95a5] hover:text-[#070d1c]",
-							)}
-						>
-							邮箱登录
-						</button>
-						<button
-							type="button"
-							onClick={() => onModeChange("register")}
-							className={cn(
-								"h-10 rounded-full text-sm font-semibold transition-colors",
-								mode === "register"
-									? "bg-[#070d1c] text-white shadow-sm"
-									: "text-[#8b95a5] hover:text-[#070d1c]",
-							)}
-						>
-							邮箱注册
-						</button>
-					</div>
+					<DialogDescription className="mt-2 text-center text-sm text-[#8b95a5]">
+						手机号验证码登录，首次登录将自动创建账号
+					</DialogDescription>
 
 					<form onSubmit={handleSubmit} className="mt-6 flex w-full flex-col gap-3">
-						{mode === "register" && (
-							<FieldWithError error={showNameError ? "请输入名称" : undefined}>
-								<AuthField icon={<UserRound className="size-4" />} invalid={showNameError}>
-									<Input
-										value={name}
-										onChange={(event) => setName(event.target.value)}
-										onBlur={() => markTouched("name")}
-										placeholder="请输入名称"
-										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
-									/>
-								</AuthField>
-							</FieldWithError>
-						)}
-						<FieldWithError error={showEmailError ? "请输入正确的邮箱" : undefined}>
-							<AuthField icon={<Mail className="size-4" />} invalid={showEmailError}>
+						<FieldWithError error={showPhoneError ? "请输入正确的手机号" : undefined}>
+							<AuthField icon={<Smartphone className="size-4" />} invalid={showPhoneError}>
 								<Input
-									type="email"
-									value={email}
-									onChange={(event) => setEmail(event.target.value)}
-									onBlur={() => markTouched("email")}
-									placeholder="请输入邮箱"
+									type="tel"
+									inputMode="numeric"
+									value={phone}
+									onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))}
+									onBlur={() => markTouched("phone")}
+									placeholder="请输入手机号"
 									className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
 								/>
 							</AuthField>
 						</FieldWithError>
-						<FieldWithError
-							error={
-								showRegisterPasswordError
-									? "8-20位,数字/大写字母/小写字母/字符至少3种"
-									: showLoginPasswordError
-										? "请输入密码"
-										: undefined
-							}
-						>
-							<AuthField
-								icon={<LockKeyhole className="size-4" />}
-								invalid={showRegisterPasswordError || showLoginPasswordError}
-							>
+						<FieldWithError error={showCodeError ? "请输入验证码" : undefined}>
+							<AuthField icon={<ShieldCheck className="size-4" />} invalid={showCodeError}>
 								<Input
-									type={passwordVisible ? "text" : "password"}
-									value={password}
-									onChange={(event) => setPassword(event.target.value)}
-									onBlur={() => markTouched("password")}
-									placeholder={
-										mode === "register" ? "8-20位,数字/大/小写字母/字符至少3种" : "请输入密码"
-									}
+									type="text"
+									inputMode="numeric"
+									value={code}
+									onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 8))}
+									onBlur={() => markTouched("code")}
+									placeholder="请输入验证码"
 									className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
 								/>
 								<button
 									type="button"
-									onClick={() => setPasswordVisible((visible) => !visible)}
-									className="text-[#9aa3b2] transition-colors hover:text-[#070d1c]"
-									aria-label={passwordVisible ? "隐藏密码" : "显示密码"}
+									onClick={handleSendCode}
+									disabled={!canSendCode}
+									className="shrink-0 text-sm font-semibold text-[#070d1c] transition-colors hover:text-[#4d5cff] disabled:text-[#b8bfcc]"
 								>
-									{passwordVisible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+									{sendingCode ? "发送中" : countdown > 0 ? `${countdown}s` : "获取验证码"}
 								</button>
 							</AuthField>
 						</FieldWithError>
-						{mode === "register" && (
-							<FieldWithError
-								error={showConfirmPasswordError ? confirmPasswordErrorMessage : undefined}
-							>
-								<AuthField
-									icon={<LockKeyhole className="size-4" />}
-									invalid={showConfirmPasswordError}
-								>
-									<Input
-										type={confirmVisible ? "text" : "password"}
-										value={confirmPassword}
-										onChange={(event) => setConfirmPassword(event.target.value)}
-										onBlur={() => markTouched("confirmPassword")}
-										placeholder="请再次输入密码"
-										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
-									/>
-									<button
-										type="button"
-										onClick={() => setConfirmVisible((visible) => !visible)}
-										className="text-[#9aa3b2] transition-colors hover:text-[#070d1c]"
-										aria-label={confirmVisible ? "隐藏确认密码" : "显示确认密码"}
-									>
-										{confirmVisible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-									</button>
-								</AuthField>
-							</FieldWithError>
-						)}
-
-						<div className="mt-1 flex items-center justify-between text-xs font-medium text-[#070d1c]">
-							{mode === "login" ? (
-								<>
-									<button
-										type="button"
-										onClick={() => onModeChange("register")}
-										className="hover:text-[#4d5cff]"
-									>
-										注册账号
-									</button>
-									<button type="button" className="hover:text-[#4d5cff]">
-										忘记密码
-									</button>
-								</>
-							) : (
-								<button
-									type="button"
-									onClick={() => onModeChange("login")}
-									className="text-[#8b95a5] hover:text-[#070d1c]"
-								>
-									返回登录
-								</button>
-							)}
-						</div>
 
 						{errorMessage && (
 							<div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-medium text-red-600">
@@ -440,7 +336,7 @@ function AuthDialog({
 								!canSubmit && !submitting && "bg-[#d2d5de] hover:bg-[#d2d5de]",
 							)}
 						>
-							{submitting ? "提交中..." : mode === "register" ? "提交" : "登录"}
+							{submitting ? "登录中..." : "登录 / 注册"}
 						</Button>
 					</form>
 				</div>
@@ -478,19 +374,6 @@ function AuthField({
 			{children}
 		</div>
 	);
-}
-
-function isRegisterPasswordValid(password: string): boolean {
-	if (password.length < 8 || password.length > 20) return false;
-
-	const categories = [
-		/\d/.test(password),
-		/[A-Z]/.test(password),
-		/[a-z]/.test(password),
-		/[^A-Za-z0-9]/.test(password),
-	].filter(Boolean);
-
-	return categories.length >= 3;
 }
 
 function getAuthErrorMessage(error: unknown): string | undefined {

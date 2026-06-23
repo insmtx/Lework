@@ -4,7 +4,10 @@ export type {
 	AuthTokenResponse,
 	AuthUserInfo,
 	LoginByEmailParams,
+	LoginByPhoneCodeParams,
 	RegisterByEmailParams,
+	SendPhoneLoginCodeParams,
+	SendPhoneLoginCodeResponse,
 } from "./authApi";
 export { authApi } from "./authApi";
 export { apiClient } from "./client";

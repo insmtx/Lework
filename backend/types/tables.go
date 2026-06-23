@@ -22,6 +22,8 @@ const (
 	TableNameAuthRefreshToken = tablenamePrefix + "auth_refresh_token"
 	// TableNameAuthLoginAttempt 登录失败尝试表名
 	TableNameAuthLoginAttempt = tablenamePrefix + "auth_login_attempt"
+	// TableNameAuthPhoneVerificationCode 手机验证码表名
+	TableNameAuthPhoneVerificationCode = tablenamePrefix + "auth_phone_verification_code"
 
 	// TableNameDigitalAssistant 数字助手表名
 	TableNameDigitalAssistant = tablenamePrefix + "digital_assistant"

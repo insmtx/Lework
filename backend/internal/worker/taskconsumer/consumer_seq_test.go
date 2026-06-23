@@ -82,13 +82,21 @@ func (f *fakeSubscriber) SubscribeFrom(_ context.Context, _ string, startSeq int
 	return nil
 }
 
-type fakePublisher struct{}
+type fakePublisher struct {
+	calls []publishedEvent
+}
 
-func (fakePublisher) Publish(context.Context, string, any) error {
+type publishedEvent struct {
+	topic string
+	event any
+}
+
+func (f *fakePublisher) Publish(_ context.Context, topic string, event any) error {
+	f.calls = append(f.calls, publishedEvent{topic: topic, event: event})
 	return nil
 }
 
-func (fakePublisher) Request(context.Context, string, any) (*nats.Msg, error) {
+func (f *fakePublisher) Request(context.Context, string, any) (*nats.Msg, error) {
 	return nil, nil
 }
 
@@ -132,7 +140,7 @@ func TestConsumerHandleEventSkipsTerminalSeq(t *testing.T) {
 	runner := &fakeRunner{}
 	consumer := &Consumer{
 		cfg:        Config{OrgID: 1, WorkerID: 2},
-		publisher:  fakePublisher{},
+		publisher:  &fakePublisher{},
 		runner:     runner,
 		seqTracker: tracker,
 		sem:        make(chan struct{}, 1),
@@ -162,13 +170,15 @@ func TestConsumerExecuteWithTrackerMarksAllSeqsFailed(t *testing.T) {
 
 	runErr := errors.New("skill not found")
 	tracker := &fakeSeqTracker{}
+	publisher := &fakePublisher{}
 	consumer := &Consumer{
 		cfg:        Config{OrgID: 1, WorkerID: 2},
-		publisher:  fakePublisher{},
+		publisher:  publisher,
 		runner:     &fakeRunner{err: runErr},
 		seqTracker: tracker,
 	}
 	msg := testWorkerTaskMessage()
+	msg.Route.SessionID = "session_1"
 	setSeqs(&msg, []uint64{7, 8})
 
 	err := consumer.executeWithTracker(context.Background(), msg)
@@ -186,6 +196,48 @@ func TestConsumerExecuteWithTrackerMarksAllSeqsFailed(t *testing.T) {
 	}
 	if len(tracker.completed) != 0 {
 		t.Fatalf("completed seqs = %v, want none", tracker.completed)
+	}
+	if len(publisher.calls) != 2 {
+		t.Fatalf("published events = %d, want stream and completed failure events", len(publisher.calls))
+	}
+	if streamMsg, ok := publisher.calls[0].event.(protocol.MessageStreamMessage); !ok ||
+		streamMsg.Body.Event != protocol.StreamEventRunFailed {
+		t.Fatalf("first published event = %#v, want run.failed stream event", publisher.calls[0].event)
+	}
+}
+
+func TestConsumerExecuteWithTrackerEmitsRunFailedWhenPrepareWorkspaceFails(t *testing.T) {
+	t.Setenv(leros.EnvWorkspaceRoot, t.TempDir())
+
+	tracker := &fakeSeqTracker{}
+	publisher := &fakePublisher{}
+	consumer := &Consumer{
+		cfg:        Config{OrgID: 1, WorkerID: 2},
+		publisher:  publisher,
+		runner:     &fakeRunner{},
+		seqTracker: tracker,
+	}
+	msg := testWorkerTaskMessage()
+	msg.Route.SessionID = "session_1"
+	msg.Body.Workspace.ProjectID = "project_1"
+	// 使用越界 work_dir 触发 workspace 准备失败，验证失败事件仍会补发。
+	msg.Body.Runtime.WorkDir = "../escape"
+	setSeqs(&msg, []uint64{9})
+
+	err := consumer.executeWithTracker(context.Background(), msg)
+	if err == nil {
+		t.Fatal("executeWithTracker error = nil, want workspace prepare error")
+	}
+
+	if tracker.failed[9] == "" {
+		t.Fatalf("failed seq 9 should be recorded, got %q", tracker.failed[9])
+	}
+	if len(publisher.calls) != 2 {
+		t.Fatalf("published events = %d, want stream and completed failure events", len(publisher.calls))
+	}
+	if streamMsg, ok := publisher.calls[0].event.(protocol.MessageStreamMessage); !ok ||
+		streamMsg.Body.Event != protocol.StreamEventRunFailed {
+		t.Fatalf("first published event = %#v, want run.failed stream event", publisher.calls[0].event)
 	}
 }
 

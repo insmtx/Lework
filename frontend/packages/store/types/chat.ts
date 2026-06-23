@@ -58,7 +58,7 @@ export type MessageArtifact = {
 	artifactType: string;
 	mimeType?: string;
 	size: string;
-	updatedAt: string;
+	updatedAt?: number;
 	downloadUrl: string;
 	sha256?: string;
 };

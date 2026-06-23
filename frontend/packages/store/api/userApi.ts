@@ -7,6 +7,7 @@ export type UserInfo = {
 	github_login?: string;
 	name: string;
 	email?: string;
+	phone?: string;
 	avatar_url?: string;
 	bio?: string;
 	company?: string;

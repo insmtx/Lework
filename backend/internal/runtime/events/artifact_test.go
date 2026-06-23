@@ -3,6 +3,7 @@ package events
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewArtifactDeclaredPayloadCarriesPersistenceFields(t *testing.T) {
@@ -15,6 +16,7 @@ func TestNewArtifactDeclaredPayloadCarriesPersistenceFields(t *testing.T) {
 		ArtifactType: "file",
 		StorageKey:   "projects/1/prj/repo/report.md",
 		Sha256:       "abc123",
+		CreatedAt:    nowForArtifactTest(),
 	})
 	if event.Type != EventArtifactDeclared {
 		t.Fatalf("event type = %q, want %q", event.Type, EventArtifactDeclared)
@@ -23,7 +25,7 @@ func TestNewArtifactDeclaredPayloadCarriesPersistenceFields(t *testing.T) {
 		t.Fatal("expected payload")
 	}
 	payload := string(event.Payload)
-	for _, expected := range []string{"artifact_id", "description", "storage_key", "sha256"} {
+	for _, expected := range []string{"artifact_id", "description", "storage_key", "sha256", "created_at"} {
 		if !strings.Contains(payload, expected) {
 			t.Fatalf("payload should contain %q: %s", expected, payload)
 		}
@@ -33,4 +35,8 @@ func TestNewArtifactDeclaredPayloadCarriesPersistenceFields(t *testing.T) {
 			t.Fatalf("payload should not contain %q: %s", forbidden, payload)
 		}
 	}
+}
+
+func nowForArtifactTest() time.Time {
+	return time.Date(2026, 6, 22, 15, 0, 0, 0, time.FixedZone("CST", 8*3600))
 }

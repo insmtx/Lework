@@ -92,53 +92,70 @@ function ToolCallItem({ toolCall, compact = false }: { toolCall: ToolCall; compa
 	const [showResult, setShowResult] = useState(false);
 	const hasResult = toolCall.result !== undefined && toolCall.result !== null;
 
+	const toggleResult = () => {
+		setShowResult(!showResult);
+	};
+
+	const headerClassName = cn(
+		"flex w-full items-center justify-between rounded py-0.5",
+		hasResult && "cursor-pointer",
+	);
+
+	const headerContent = (
+		<>
+			<div className="flex items-center gap-2">
+				{toolCall.status === "running" && (
+					<Loader2 className="size-3.5 animate-spin text-yellow-500" />
+				)}
+				{toolCall.status === "success" && <Check className="size-3.5 text-green-500" />}
+				{toolCall.status === "error" && <X className="size-3.5 text-red-500" />}
+				{toolCall.status === "pending" && (
+					<span className="size-3.5 rounded-full border-2 border-slate-300" />
+				)}
+				<span
+					className={cn(
+						"font-medium",
+						compact
+							? "text-[13px] text-[color:var(--leros-chat-text-muted)]"
+							: "text-sm text-slate-700",
+					)}
+				>
+					{toolCall.name}
+				</span>
+				{toolCall.duration && <span className="text-xs text-slate-400">{toolCall.duration}ms</span>}
+			</div>
+			<div className="flex items-center gap-1">
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					className="text-slate-400 hover:text-slate-600"
+					onClick={(e) => {
+						e.stopPropagation();
+						setShowArgs(!showArgs);
+					}}
+				>
+					<ChevronDown className={cn("size-3 transition-transform", showArgs && "rotate-180")} />
+				</Button>
+				{hasResult && (
+					<span className={cn("text-xs text-slate-400", showResult && "text-slate-600")}>结果</span>
+				)}
+			</div>
+		</>
+	);
+
 	return (
 		<div data-slot="tool-call-item" className="space-y-1">
-			<div className="flex items-center justify-between">
-				<div className="flex items-center gap-2">
-					{toolCall.status === "running" && (
-						<Loader2 className="size-3.5 animate-spin text-yellow-500" />
-					)}
-					{toolCall.status === "success" && <Check className="size-3.5 text-green-500" />}
-					{toolCall.status === "error" && <X className="size-3.5 text-red-500" />}
-					{toolCall.status === "pending" && (
-						<span className="size-3.5 rounded-full border-2 border-slate-300" />
-					)}
-					<span
-						className={cn(
-							"font-medium",
-							compact
-								? "text-[13px] text-[color:var(--leros-chat-text-muted)]"
-								: "text-sm text-slate-700",
-						)}
-					>
-						{toolCall.name}
-					</span>
-					{toolCall.duration && (
-						<span className="text-xs text-slate-400">{toolCall.duration}ms</span>
-					)}
-				</div>
-				<div className="flex items-center gap-1">
-					<Button
-						variant="ghost"
-						size="icon-xs"
-						className="text-slate-400 hover:text-slate-600"
-						onClick={() => setShowArgs(!showArgs)}
-					>
-						<ChevronDown className={cn("size-3 transition-transform", showArgs && "rotate-180")} />
-					</Button>
-					{hasResult && (
-						<Button
-							variant="ghost"
-							size="icon-xs"
-							className="text-slate-400 hover:text-slate-600"
-							onClick={() => setShowResult(!showResult)}
-						>
-							结果
-						</Button>
-					)}
-				</div>
-			</div>
+			{hasResult ? (
+				<button
+					type="button"
+					onClick={toggleResult}
+					className={cn(headerClassName, "border-0 bg-transparent p-0 text-left")}
+				>
+					{headerContent}
+				</button>
+			) : (
+				<div className={headerClassName}>{headerContent}</div>
+			)}
 
 			{showArgs && (
 				<div className="overflow-x-auto rounded bg-slate-100 px-2 py-1.5 text-xs text-slate-600">

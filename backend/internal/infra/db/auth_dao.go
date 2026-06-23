@@ -71,3 +71,36 @@ func DeleteExpiredAuthLoginAttempts(ctx context.Context, d *gorm.DB, now time.Ti
 		Where("window_expires_at <= ?", now).
 		Delete(&types.AuthLoginAttempt{}).Error
 }
+
+func CreateAuthPhoneVerificationCode(ctx context.Context, d *gorm.DB, code *types.AuthPhoneVerificationCode) error {
+	return d.WithContext(ctx).Create(code).Error
+}
+
+func GetActiveAuthPhoneVerificationCode(ctx context.Context, d *gorm.DB, phone string, now time.Time) (*types.AuthPhoneVerificationCode, error) {
+	var code types.AuthPhoneVerificationCode
+	err := d.WithContext(ctx).
+		Where("phone = ? AND used_at IS NULL AND expires_at > ?", phone, now).
+		Order("created_at DESC").
+		First(&code).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &code, nil
+}
+
+func MarkAuthPhoneVerificationCodeUsed(ctx context.Context, d *gorm.DB, id uint, usedAt time.Time) error {
+	return d.WithContext(ctx).
+		Model(&types.AuthPhoneVerificationCode{}).
+		Where("id = ? AND used_at IS NULL", id).
+		Update("used_at", usedAt).Error
+}
+
+func DeleteExpiredAuthPhoneVerificationCodes(ctx context.Context, d *gorm.DB, now time.Time) error {
+	return d.WithContext(ctx).
+		Unscoped().
+		Where("expires_at <= ? OR used_at IS NOT NULL", now).
+		Delete(&types.AuthPhoneVerificationCode{}).Error
+}

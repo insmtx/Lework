@@ -6,7 +6,7 @@ import { workApi } from "../api/workApi";
 import type { SliceCreator } from "../types";
 import type { Attachment } from "../types/chat";
 import { flattenActions } from "../utils";
-import { formatFileSize } from "../utils/format";
+import { formatFileSize, parseOptionalTimestamp } from "../utils/format";
 
 export type WorkspaceMode = "remote" | "local";
 
@@ -55,7 +55,7 @@ export type ProjectArtifact = {
 	artifactType: string;
 	mimeType?: string;
 	size: string;
-	updatedAt: string;
+	updatedAt?: number;
 	downloadUrl: string;
 	sha256?: string;
 };
@@ -173,6 +173,8 @@ export function mapBackendArtifactToProjectArtifact(ba: BackendArtifact): Projec
 		image: "image",
 		spreadsheet: "spreadsheet",
 	};
+	// 中文注释：后端返回创建时间后，前端统一保留时间戳，供公共排序和各处展示复用。
+	const updatedAt = parseOptionalTimestamp(ba.created_at);
 	return {
 		id: ba.artifact_id,
 		name: ba.filename ?? ba.title,
@@ -182,7 +184,7 @@ export function mapBackendArtifactToProjectArtifact(ba: BackendArtifact): Projec
 		artifactType: ba.artifact_type,
 		mimeType: ba.mime_type,
 		size: formatFileSize(ba.file_size ?? 0),
-		updatedAt: "",
+		updatedAt,
 		downloadUrl: "",
 		sha256: ba.sha256,
 	};
@@ -214,8 +216,7 @@ const _initialState: LayoutState = {
 			id: "core",
 			label: "",
 			items: [
-				{ id: "workbench", label: "工作台", icon: "IconWorkbench" },
-				{ id: "tasks", label: "任务", icon: "IconTask" },
+				{ id: "workbench", label: "新建任务", icon: "IconTask" },
 				{ id: "skills", label: "技能库", icon: "IconSkill" },
 				{ id: "knowledge", label: "知识库", icon: "IconKnowledge" },
 			],

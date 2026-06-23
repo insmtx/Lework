@@ -12,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	runtimeevents "github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/dm"
@@ -327,11 +328,13 @@ func (c *Consumer) executeWithTracker(ctx context.Context, taskMsg protocol.Work
 // runTask executes the agent run for a consolidated task message. Existing logic preserved.
 func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessage) error {
 	req := RequestFromWorkerTask(taskMsg)
+	req.EventSink = NewMQStreamSink(c.publisher, taskMsg)
+
 	_, err := c.prepareWorkspace(ctx, taskMsg, req)
 	if err != nil {
+		c.emitRunFailed(ctx, req, err)
 		return err
 	}
-	req.EventSink = NewMQStreamSink(c.publisher, taskMsg)
 
 	logs.InfoContextf(ctx,
 		"Starting worker task run: task_id=%s run_id=%s runtime=%s assistant_id=%s",
@@ -343,6 +346,7 @@ func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessa
 
 	result, err := c.runner.Run(ctx, req)
 	if err != nil {
+		c.emitRunFailed(ctx, req, err)
 		return err
 	}
 
@@ -350,6 +354,24 @@ func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessa
 		logs.InfoContextf(ctx, "Worker task completed: task_id=%s run_id=%s status=%s", req.TaskID, result.RunID, result.Status)
 	}
 	return nil
+}
+
+func (c *Consumer) emitRunFailed(ctx context.Context, req *agent.RequestContext, runErr error) {
+	if req == nil || req.EventSink == nil || runErr == nil {
+		return
+	}
+
+	// 确保 worker 执行失败时前端 SSE 能收到终止事件，避免会话长期停留在“生成中”。
+	if err := req.EventSink.Emit(ctx, &runtimeevents.Event{
+		RunID:     req.RunID,
+		TraceID:   req.TraceID,
+		Type:      runtimeevents.EventFailed,
+		CreatedAt: time.Now().UTC(),
+		Content:   runErr.Error(),
+	}); err != nil {
+		logs.WarnContextf(ctx, "Failed to emit worker run failure event: task_id=%s run_id=%s error=%v",
+			req.TaskID, req.RunID, err)
+	}
 }
 
 func (c *Consumer) prepareWorkspace(ctx context.Context, taskMsg protocol.WorkerTaskMessage, req *agent.RequestContext) (*agentworkspace.TaskWorkspace, error) {

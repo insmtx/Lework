@@ -22,10 +22,13 @@ export function MessageTimeline({
 	emptyState,
 	className,
 	contentClassName,
+	contentShellClassName,
 }: {
 	emptyState?: ReactNode;
 	className?: string;
 	contentClassName?: string;
+	/** 与 contentClassName 配合：外层 shell 负责 padding，内层负责 max-width */
+	contentShellClassName?: string;
 } = {}) {
 	const { messagesMap, messageIds, isGenerating, streamingMessageId } = useChatStore((s) => s);
 
@@ -73,6 +76,28 @@ export function MessageTimeline({
 
 	const isEmpty = messages.length === 0 && !isGenerating;
 
+	const messageList = (
+		<>
+			{messages.length > 0 && (
+				<div className="flex items-center justify-center py-1">
+					<span className="rounded-full bg-white/70 px-3 py-1 text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/50">
+						{formatTime(messages[0]?.timestamp ?? 0)}
+					</span>
+				</div>
+			)}
+			{messages.map((msg: Message) => (
+				<div key={msg.id}>
+					{msg.role === "user" ? (
+						<UserMessageBubble message={msg} />
+					) : msg.role === "assistant" ? (
+						<AIMessageBubble message={msg} isStreaming={msg.id === streamingMessageId} />
+					) : null}
+				</div>
+			))}
+			{isGenerating && !streamingMessageId && <TypingIndicator />}
+		</>
+	);
+
 	return (
 		<div
 			ref={scrollRef}
@@ -88,6 +113,10 @@ export function MessageTimeline({
 		>
 			{isEmpty ? (
 				(emptyState ?? <WelcomeScreen />)
+			) : contentShellClassName ? (
+				<div className={contentShellClassName}>
+					<div className={cn("flex w-full flex-col gap-4", contentClassName)}>{messageList}</div>
+				</div>
 			) : (
 				<div
 					className={cn(
@@ -95,23 +124,7 @@ export function MessageTimeline({
 						contentClassName,
 					)}
 				>
-					{messages.length > 0 && (
-						<div className="flex items-center justify-center py-1">
-							<span className="rounded-full bg-white/70 px-3 py-1 text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/50">
-								{formatTime(messages[0]?.timestamp ?? 0)}
-							</span>
-						</div>
-					)}
-					{messages.map((msg: Message) => (
-						<div key={msg.id}>
-							{msg.role === "user" ? (
-								<UserMessageBubble message={msg} />
-							) : msg.role === "assistant" ? (
-								<AIMessageBubble message={msg} isStreaming={msg.id === streamingMessageId} />
-							) : null}
-						</div>
-					))}
-					{isGenerating && !streamingMessageId && <TypingIndicator />}
+					{messageList}
 				</div>
 			)}
 		</div>
