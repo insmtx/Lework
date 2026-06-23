@@ -810,10 +810,11 @@ func buildFileTree(entries []gitea.RepoEntry) []*contract.FileTreeNode {
 }
 
 func filterByParentPaths(roots []*contract.FileTreeNode, parentPath string) []*contract.FileTreeNode {
+	parentPath = strings.Trim(parentPath, "/")
 	if parentPath == "" {
 		return roots
 	}
-	parts := strings.Split(strings.Trim(parentPath, "/"), "/")
+	parts := strings.Split(parentPath, "/")
 	current := roots
 	for _, part := range parts {
 		found := false
