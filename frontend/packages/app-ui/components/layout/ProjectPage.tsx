@@ -522,7 +522,7 @@ export function ProjectPage({
 						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
-						<div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-5 py-6 pr-4">
+						<div className="no-scrollbar min-h-0 flex-1 space-y-8 overflow-y-auto px-5 py-6 pr-4">
 							<div className="flex items-start justify-between gap-3">
 								<div>
 									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目侧栏</p>

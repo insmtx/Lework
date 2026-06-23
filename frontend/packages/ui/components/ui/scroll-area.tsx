@@ -4,7 +4,11 @@ import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 
 import { cn } from "@leros/ui/lib/utils";
 
-function ScrollArea({ className, children, ...props }: ScrollAreaPrimitive.Root.Props) {
+type ScrollAreaProps = ScrollAreaPrimitive.Root.Props & {
+	hideScrollbar?: boolean;
+};
+
+function ScrollArea({ className, children, hideScrollbar = false, ...props }: ScrollAreaProps) {
 	return (
 		<ScrollAreaPrimitive.Root
 			data-slot="scroll-area"
@@ -13,11 +17,15 @@ function ScrollArea({ className, children, ...props }: ScrollAreaPrimitive.Root.
 		>
 			<ScrollAreaPrimitive.Viewport
 				data-slot="scroll-area-viewport"
-				className="focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
+				className={cn(
+					"focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1",
+					hideScrollbar && "no-scrollbar",
+				)}
 			>
 				{children}
 			</ScrollAreaPrimitive.Viewport>
-			<ScrollBar />
+			{/* 中文注释：某些侧栏只需要滚动能力，不需要额外渲染可视滚动条。 */}
+			{hideScrollbar ? null : <ScrollBar />}
 			<ScrollAreaPrimitive.Corner />
 		</ScrollAreaPrimitive.Root>
 	);

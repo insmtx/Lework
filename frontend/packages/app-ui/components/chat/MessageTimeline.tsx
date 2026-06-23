@@ -109,7 +109,7 @@ export function MessageTimeline({
 
 				autoFollowRef.current = distanceToBottom <= 120;
 			}}
-			className={cn("min-h-0 flex-1 overflow-y-auto", className)}
+			className={cn("no-scrollbar min-h-0 flex-1 overflow-y-auto", className)}
 		>
 			{isEmpty ? (
 				(emptyState ?? <WelcomeScreen />)

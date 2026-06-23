@@ -54,6 +54,7 @@ import { toast } from "sonner";
 import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
+import { getVisibleLeftRailItems } from "./left-rail-list-utils";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
@@ -121,6 +122,8 @@ export function LeftRail({
 	const [renameValue, setRenameValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+	const [projectsExpanded, setProjectsExpanded] = useState(false);
+	const [aiTeammatesExpanded, setAiTeammatesExpanded] = useState(false);
 
 	/* ── Desktop update notifier ── */
 	const [promptOpen, setPromptOpen] = useState(false);
@@ -413,7 +416,7 @@ export function LeftRail({
 				</button>
 			</div>
 
-			<ScrollArea className="min-h-0 flex-1 overflow-hidden">
+			<ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-hidden">
 				<nav className="leros-nav" aria-label="主导航">
 					{navGroups.map((group) => {
 						return (
@@ -429,6 +432,17 @@ export function LeftRail({
 										onRenameProject={handleOpenRename}
 										onDeleteProject={setDeleteTarget}
 										collapsed={leftRailCollapsed}
+										expanded={projectsExpanded}
+										onExpand={() => setProjectsExpanded(true)}
+									/>
+								) : group.id === "ai-teammates" ? (
+									<NavItemList
+										items={group.items}
+										collapsed={leftRailCollapsed}
+										expanded={aiTeammatesExpanded}
+										onExpand={() => setAiTeammatesExpanded(true)}
+										isItemActive={isItemActive}
+										onItemClick={handleNavClick}
 									/>
 								) : (
 									<div className="space-y-1">
@@ -1191,6 +1205,8 @@ function ProjectList({
 	onRenameProject,
 	onDeleteProject,
 	collapsed,
+	expanded,
+	onExpand,
 }: {
 	projects: Project[];
 	activeProjectId: string | null;
@@ -1200,10 +1216,14 @@ function ProjectList({
 	onRenameProject: (project: Project) => void;
 	onDeleteProject: (project: Project) => void;
 	collapsed: boolean;
+	expanded: boolean;
+	onExpand: () => void;
 }) {
+	const { visibleItems, showExpandTrigger } = getVisibleLeftRailItems(projects, expanded);
+
 	return (
 		<div className="space-y-1">
-			{projects.map((project) => {
+			{visibleItems.map((project) => {
 				const active = currentPath
 					? currentPath === `/projects/${project.id}` ||
 						currentPath.startsWith(`/projects/${project.id}/`)
@@ -1261,7 +1281,58 @@ function ProjectList({
 					</div>
 				);
 			})}
+			{showExpandTrigger ? <ExpandMoreButton collapsed={collapsed} onClick={onExpand} /> : null}
 		</div>
+	);
+}
+
+function NavItemList({
+	items,
+	collapsed,
+	expanded,
+	onExpand,
+	isItemActive,
+	onItemClick,
+}: {
+	items: NavItem[];
+	collapsed: boolean;
+	expanded: boolean;
+	onExpand: () => void;
+	isItemActive: (item: NavItem) => boolean;
+	onItemClick: (item: NavItem) => void;
+}) {
+	const { visibleItems, showExpandTrigger } = getVisibleLeftRailItems(items, expanded);
+
+	return (
+		<div className="space-y-1">
+			{visibleItems.map((item) => (
+				<NavItemButton
+					key={item.id}
+					item={item}
+					active={isItemActive(item)}
+					collapsed={collapsed}
+					onClick={() => onItemClick(item)}
+				/>
+			))}
+			{showExpandTrigger ? <ExpandMoreButton collapsed={collapsed} onClick={onExpand} /> : null}
+		</div>
+	);
+}
+
+function ExpandMoreButton({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={cn(
+				"leros-nav-item text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]",
+				collapsed && "justify-center",
+			)}
+			title={collapsed ? "展开更多" : undefined}
+		>
+			<span className="font-mono text-[16px] leading-none">...</span>
+			<span className={cn("min-w-0 flex-1 truncate", collapsed && "hidden")}>展开更多</span>
+		</button>
 	);
 }
 

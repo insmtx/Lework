@@ -91,7 +91,7 @@ export function RightRail() {
 				))}
 			</div>
 
-			<ScrollArea className="flex-1">
+			<ScrollArea hideScrollbar className="flex-1">
 				<div className="p-3">
 					{activeRightTab === "shortcuts" && (
 						<div className="space-y-2">
