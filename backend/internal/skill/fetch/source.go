@@ -4,6 +4,7 @@ package fetch
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -77,16 +78,38 @@ func NewSourceRouterWithSources(sources ...SkillSource) *SourceRouter {
 	return &SourceRouter{sources: sources}
 }
 
-// Search 并发向所有源发起搜索，合并结果并去重。
+// Search 并发向所有源发起搜索，合并结果并去重，按安装量降序排列。
 func (r *SourceRouter) Search(ctx context.Context, query string, limit int) ([]SkillMeta, error) {
+	return r.SearchWithFilter(ctx, query, limit, nil)
+}
+
+// SearchWithFilter 并发向指定源列表发起搜索；filterSources 为空时搜索全部源。
+func (r *SourceRouter) SearchWithFilter(ctx context.Context, query string, limit int, filterSources []string) ([]SkillMeta, error) {
+	// 建立源优先级映射。
+	sourcePriority := make(map[string]int, len(r.sources))
+	for i, src := range r.sources {
+		sourcePriority[src.SourceID()] = i
+	}
+
+	// 构建过滤集。
+	filterSet := make(map[string]bool, len(filterSources))
+	for _, s := range filterSources {
+		filterSet[strings.ToLower(s)] = true
+	}
+
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
-		results []SkillMeta
-		seen    = make(map[string]bool)
+		all     = make(map[string]SkillMeta)
+		seen    = make(map[string]int) // identifier → 最高优先级（越小越优先）
+		// 每个源的所有原始结果（按搜索结果顺序，通常按安装量降序）。
+		sourceResults = make(map[string][]SkillMeta)
 	)
 
 	for _, src := range r.sources {
+		if len(filterSet) > 0 && !filterSet[strings.ToLower(src.SourceID())] {
+			continue
+		}
 		wg.Add(1)
 		go func(s SkillSource) {
 			defer wg.Done()
@@ -95,16 +118,73 @@ func (r *SourceRouter) Search(ctx context.Context, query string, limit int) ([]S
 				return
 			}
 			mu.Lock()
+			sourceResults[s.SourceID()] = items
 			for _, item := range items {
-				if !seen[item.Identifier] {
-					seen[item.Identifier] = true
-					results = append(results, item)
+				priority := sourcePriority[s.SourceID()]
+				if prev, ok := seen[item.Identifier]; !ok || priority < prev {
+					seen[item.Identifier] = priority
+					all[item.Identifier] = item
 				}
 			}
 			mu.Unlock()
 		}(src)
 	}
 	wg.Wait()
+
+	// 内置源（Leros）优先，每个外部源的 top1 紧随其后，其余按安装量降序排列。
+	type indexed struct {
+		meta     SkillMeta
+		priority int
+		isRep    bool // 外部源的"代表"条目
+	}
+	sorted := make([]indexed, 0, len(all))
+	repSet := make(map[string]bool)
+	// 先选出每个外部源的 top1 作为代表。
+	for _, src := range r.sources {
+		items := sourceResults[src.SourceID()]
+		if len(items) == 0 || sourcePriority[src.SourceID()] == 0 {
+			continue
+		}
+		best := items[0]
+		for _, item := range items[1:] {
+			if item.Installs > best.Installs {
+				best = item
+			}
+		}
+		key := keyInAll(best, src.SourceID())
+		if meta, ok := all[key]; ok {
+			sorted = append(sorted, indexed{meta, sourcePriority[src.SourceID()], true})
+			repSet[key] = true
+		} else {
+			// 该源所有结果都被去重覆盖了，直接加入 best 作为代表。
+			key = best.Identifier + "@" + src.SourceID()
+			sorted = append(sorted, indexed{best, sourcePriority[src.SourceID()], true})
+			repSet[key] = true
+		}
+	}
+	for key, item := range all {
+		if repSet[key] {
+			continue
+		}
+		sorted = append(sorted, indexed{item, seen[key], false})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		iBuiltin := sorted[i].priority == 0
+		jBuiltin := sorted[j].priority == 0
+		if iBuiltin != jBuiltin {
+			return iBuiltin
+		}
+		// 外部源代表优先于普通条目。
+		if sorted[i].isRep != sorted[j].isRep {
+			return sorted[i].isRep
+		}
+		return sorted[i].meta.Installs > sorted[j].meta.Installs
+	})
+
+	results := make([]SkillMeta, len(sorted))
+	for i, s := range sorted {
+		results[i] = s.meta
+	}
 
 	if limit > 0 && len(results) > limit {
 		results = results[:limit]
@@ -211,4 +291,14 @@ func TrustLevelForRepo(owner, repo string) string {
 		return "trusted"
 	}
 	return "community"
+}
+
+// keyInAll 返回 item 在 all map 中对应的 key。
+// 如果该 identifier 未被去重覆盖（即 all 中保留的就是当前源的），直接用 identifier；
+// 否则说明被更高优先级源覆盖了，用 identifier@source 的兜底 key。
+func keyInAll(item SkillMeta, sourceID string) string {
+	if item.Source == sourceID {
+		return item.Identifier
+	}
+	return item.Identifier + "@" + sourceID
 }

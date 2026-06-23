@@ -33,6 +33,7 @@ func newSourceRouter() *fetch.SourceRouter {
 		fetch.NewUrlSource(),
 		fetch.NewGitHubSource(),
 		fetch.NewClawHubSource(),
+		fetch.NewSkillsShSource(),
 	)
 }
 
@@ -69,8 +70,10 @@ Use --source to force a specific source and --version to install a specific vers
 	searchCmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search skills across remote sources",
-		Long:  `Search for skills across all configured remote sources.`,
-		Args:  cobra.ExactArgs(1),
+		Long:  `Search for skills across remote sources (Leros, ClawHub, SkillsSh).
+
+Use --source to limit search to a specific source (Leros, ClawHub, SkillsSh).`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSearch(args[0])
 		},
@@ -94,6 +97,7 @@ Use --source to force a specific source and --version to install a specific vers
 	installCmd.Flags().StringVar(&skillVersion, "version", "", "Install a specific version (tag/branch for GitHub sources)")
 
 	searchCmd.Flags().IntVar(&skillLimit, "limit", 10, "Maximum number of results")
+	searchCmd.Flags().StringVar(&skillSource, "source", "", "Limit search to a specific source (Leros, ClawHub, SkillsSh)")
 	searchCmd.Flags().BoolVar(&skillJSON, "json", false, "Output in JSON format")
 
 	uninstallCmd := &cobra.Command{
@@ -184,7 +188,12 @@ func runSearch(query string) error {
 	ctx := context.Background()
 	router := newSourceRouter()
 
-	results, err := router.Search(ctx, query, skillLimit)
+	var filterSources []string
+	if skillSource != "" {
+		filterSources = []string{skillSource}
+	}
+
+	results, err := router.SearchWithFilter(ctx, query, skillLimit, filterSources)
 	if err != nil {
 		return fmt.Errorf("search skills: %w", err)
 	}
@@ -204,13 +213,25 @@ func runSearch(query string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAME\tIDENTIFIER\tSOURCE\tTRUST\tDESCRIPTION")
+	fmt.Fprintln(w, "NAME\tAUTHOR\tIDENTIFIER\tSOURCE\tINSTALLS\tVERSION\tDESCRIPTION")
 	for _, r := range results {
 		desc := r.Description
 		if len(desc) > 80 {
 			desc = desc[:77] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.Name, r.Identifier, r.Source, r.TrustLevel, desc)
+		installs := "-"
+		if r.Installs > 0 {
+			installs = fmt.Sprintf("%d", r.Installs)
+		}
+		version := r.Version
+		if version == "" {
+			version = "-"
+		}
+		author := r.Author
+		if author == "" {
+			author = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, author, r.Identifier, r.Source, installs, version, desc)
 	}
 	w.Flush()
 

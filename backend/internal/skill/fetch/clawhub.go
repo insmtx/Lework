@@ -361,7 +361,8 @@ type clawhubSearchResult struct {
 	Slug        string  `json:"slug"`
 	DisplayName string  `json:"displayName"`
 	Summary     string  `json:"summary"`
-	Version     string  `json:"version"`
+	Version     *string `json:"version"`
+	Downloads   int64   `json:"downloads"`
 	UpdatedAt   int64   `json:"updatedAt"`
 	OwnerHandle string  `json:"ownerHandle"`
 	Owner       *struct {
@@ -377,9 +378,9 @@ func (r *clawhubSearchResult) toSkillItem() clawhubSkillItem {
 	if r.Owner != nil && r.Owner.DisplayName != "" {
 		author = r.Owner.DisplayName
 	}
-	version := r.Version
-	if version == "" {
-		version = "latest"
+	var version string
+	if r.Version != nil {
+		version = *r.Version
 	}
 	return clawhubSkillItem{
 		Slug:        r.Slug,
@@ -387,6 +388,7 @@ func (r *clawhubSearchResult) toSkillItem() clawhubSkillItem {
 		Summary:     r.Summary,
 		Author:      author,
 		Version:     version,
+		Downloads:   r.Downloads,
 	}
 }
 
@@ -402,6 +404,7 @@ type clawhubSkillItem struct {
 	Stats         *clawhubStats       `json:"stats,omitempty"`
 	LatestVersion *clawhubVersionInfo `json:"latestVersion,omitempty"`
 	Version       string              `json:"version,omitempty"` // search 结果直接携带
+	Downloads     int64               `json:"downloads,omitempty"`
 }
 
 type clawhubStats struct {
@@ -423,9 +426,6 @@ func (i *clawhubSkillItem) toSkillMeta() SkillMeta {
 	if version == "" && i.LatestVersion != nil && i.LatestVersion.Version != "" {
 		version = i.LatestVersion.Version
 	}
-	if version == "" {
-		version = "latest"
-	}
 
 	// displayName 优先，fallback 到 slug
 	name := i.DisplayName
@@ -433,15 +433,8 @@ func (i *clawhubSkillItem) toSkillMeta() SkillMeta {
 		name = i.Slug
 	}
 
-	// 取 tags 中的 latest 作为版本标识
-	if version == "latest" && i.Tags != nil {
-		if v, ok := i.Tags["latest"]; ok && v != "" {
-			version = v
-		}
-	}
-
-	installs := int64(0)
-	if i.Stats != nil {
+	installs := i.Downloads
+	if installs == 0 && i.Stats != nil {
 		installs = int64(i.Stats.Downloads + i.Stats.InstallsAllTime)
 	}
 

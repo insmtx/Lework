@@ -26,7 +26,7 @@ func NewSkillsShSource() *SkillsShSource {
 
 // SourceID 返回源标识。
 func (s *SkillsShSource) SourceID() string {
-	return "skills-sh"
+	return "SkillsSh"
 }
 
 // CanHandle 含 "/" 的非 URL 标识符可由 SkillsShSource 处理。
@@ -82,9 +82,10 @@ func (s *SkillsShSource) Search(ctx context.Context, query string, limit int) ([
 			SkillID:     item.SkillID,
 			Name:        item.Name,
 			Identifier:  identifier,
-			Source:      item.Source,
+			Source:      s.SourceID(),
 			TrustLevel:  TrustLevelForRepo(owner, repo),
 			Description: item.Description,
+			Author:      owner,
 			Installs:    int64(item.Installs),
 		})
 	}
