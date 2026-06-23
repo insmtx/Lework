@@ -157,8 +157,8 @@ func TestFilterByParentPaths_SubDir(t *testing.T) {
 	}
 	roots := buildFileTree(entries)
 	result := filterByParentPaths(roots, "uploads/images")
-	if len(result) != 1 || result[0].Name != "logo.png" {
-		t.Errorf("expected 1 file logo.png, got %v", result)
+	if len(result) != 1 || result[0].Name != "images" || result[0].Type != "directory" {
+		t.Errorf("expected 1 directory images, got %v", result)
 	}
 }
 
@@ -179,8 +179,8 @@ func TestFilterByParentPaths_HasLeadingSlash(t *testing.T) {
 	}
 	roots := buildFileTree(entries)
 	result := filterByParentPaths(roots, "/uploads/")
-	if len(result) != 1 || result[0].Name != "readme.md" {
-		t.Errorf("expected 1 file readme.md, got %v", result)
+	if len(result) != 1 || result[0].Name != "uploads" || result[0].Type != "directory" {
+		t.Errorf("expected 1 directory uploads, got %v", result)
 	}
 }
 
@@ -192,6 +192,18 @@ func TestFilterByParentPaths_RootSlash(t *testing.T) {
 	result := filterByParentPaths(roots, "/")
 	if len(result) != 1 || result[0].Name != "uploads" {
 		t.Errorf("expected 1 root uploads for /, got %v", result)
+	}
+}
+
+func TestFilterByParentPaths_FilePath(t *testing.T) {
+	entries := []gitea.RepoEntry{
+		{Path: "uploads/readme.md", Type: "blob", Size: 100},
+		{Path: "uploads/images/logo.png", Type: "blob", Size: 2048},
+	}
+	roots := buildFileTree(entries)
+	result := filterByParentPaths(roots, "uploads/readme.md")
+	if len(result) != 1 || result[0].Name != "readme.md" || result[0].Type != "file" {
+		t.Errorf("expected 1 file readme.md, got %v", result)
 	}
 }
 

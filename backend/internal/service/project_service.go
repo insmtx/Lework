@@ -826,20 +826,25 @@ func filterByParentPaths(roots []*contract.FileTreeNode, parentPath string) []*c
 	}
 	parts := strings.Split(parentPath, "/")
 	current := roots
-	for _, part := range parts {
+	for i, part := range parts {
 		found := false
 		for _, node := range current {
-			if node.Name == part && node.Type == "directory" {
-				current = node.Children
-				found = true
-				break
+			if node.Name == part {
+				if i == len(parts)-1 {
+					return []*contract.FileTreeNode{node}
+				}
+				if node.Type == "directory" {
+					current = node.Children
+					found = true
+					break
+				}
 			}
 		}
 		if !found {
 			return nil
 		}
 	}
-	return current
+	return nil
 }
 
 func mimeTypeByExt(filename string) string {
