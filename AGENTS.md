@@ -1,13 +1,13 @@
-# Leros Agent 开发指南
+# Lework Agent 开发指南
 
-本文档包含了 AI Agent 使用 Leros 代码库的重要信息。
+本文档包含了 AI Agent 使用 Lework 代码库的重要信息。
 
 ## 构建/检查/测试 命令
 
 ### 构建命令
 
-- `go build -o ./bundles/leros ./backend/cmd/leros/` - 构建主 Leros 后端服务（输出到 `./bundles/`）
-- `make docker-build` - 构建 Docker 镜像（标签：registry.yygu.cn/insmtx/Leros:latest）
+- `go build -o ./bundles/leros ./backend/cmd/leros/` - 构建主 Lework 后端服务（输出到 `./bundles/`）
+- `make docker-build` - 构建 Docker 镜像（标签：registry.yygu.cn/insmtx/Lework:latest）
 - `make docker-run` - 在本地运行 Docker 镜像
 - `make run` - 以前台模式启动 docker-compose 服务
 - `make run-detached` - 以分离模式（后台）启动 docker-compose 服务
@@ -48,7 +48,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Lework/backend/config"
 )
 ```
 
@@ -65,7 +65,7 @@ import (
 - 对于未导出/内部函数/类型使用小写驼峰命名法（`getUser`，`userService`）
 - 使用清晰、描述性的名称；优先考虑清晰度而不是简洁性
 - 在包之间对类似概念使用一致的名称
-- 与系统相关的变量应引用 Leros 概念
+- 与系统相关的变量应引用 Lework 概念
 
 ### 类型和接口
 
@@ -101,7 +101,7 @@ import (
 ### 提交准则
 
 - 遵循约定式提交格式：<type>(<scope>): <subject>
-- 在 Leros 项目中使用中文作为提交消息
+- 在 Lework 项目中使用中文作为提交消息
 - 类型选项包括：
   - `feat`：新功能
   - `fix`：修复错误
@@ -149,7 +149,7 @@ import (
 ## 项目结构
 
 - `/backend` - 主要 Go 应用程序代码
-  - `/backend/cmd/leros` - 主 Leros 后端服务入口点
+  - `/backend/cmd/leros` - 主 Lework 后端服务入口点
   - `/backend/config` - 配置加载和类型
   - `/backend/engines` - 引擎层（native engine 与 system prompt 分层架构）
   - `/backend/gateway` - HTTP 网关包
@@ -218,7 +218,7 @@ docs/swagger/swagger.yaml   # YAML 格式文档
 
 ## 核心组件和架构
 
-基于 docs/ARCHITECTURE.md 中描述的 AI OS 架构，Leros 平台包含以下主要组件：
+基于 docs/ARCHITECTURE.md 中描述的 AI OS 架构，Lework 平台包含以下主要组件：
 
 1. **Event Gateway** - 接收来自各种渠道的外部事件（✅ 已实现）
 2. **Event Bus** - 用于解耦组件的消息队列系统（✅ NATS JetStream 已实现）
@@ -232,7 +232,7 @@ docs/swagger/swagger.yaml   # YAML 格式文档
 
 ## 技能系统定义
 
-Skills 代表 Leros 中的核心构建块。`Skill` 接口在 `backend/skills/skill.go` 中定义：
+Skills 代表 Lework 中的核心构建块。`Skill` 接口在 `backend/skills/skill.go` 中定义：
 
 ```go
 type Skill interface {
@@ -305,7 +305,7 @@ type Connector interface {
 当前实现的实际代码结构：
 
 ```
-Leros/
+Lework/
 │
 ├── backend/
 │   ├── cmd/
@@ -388,7 +388,7 @@ MVP 特性：
 
 ## 开发工作流程
 
-本节概述了为 Leros 项目做出贡献的标准开发工作流程。
+本节概述了为 Lework 项目做出贡献的标准开发工作流程。
 
 ### 标准开发流程
 
@@ -407,7 +407,7 @@ MVP 特性：
 
 ```bash
 # 如果尚未添加，添加上游仓库
-git remote add upstream https://github.com/insmtx/Leros.git
+git remote add upstream https://github.com/insmtx/Lework.git
 
 # 获取上游的最新更改
 git fetch upstream
@@ -484,7 +484,7 @@ type(scope): description
 
 当您的更改推送到您的个人仓库后：
 
-1. 导航到原始 Leros 仓库的 GitHub 页面
+1. 导航到原始 Lework 仓库的 GitHub 页面
 2. 单击 "Pull Requests" 标签
 3. 单击 "New Pull Request"
 4. 选择 "Compare across forks"
