@@ -217,6 +217,8 @@ func handleProjectFileServiceError(ctx *gin.Context, err error) {
 	switch errMsg {
 	case "project not found", "file not found", "directory not found":
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
+	case "file access denied":
+		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
 	case "public_id is required",
 		"file_public_id is required",
 		"file path is required",
