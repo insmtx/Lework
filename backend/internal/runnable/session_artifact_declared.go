@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
+
+	"code.gitea.io/sdk/gitea"
 
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
@@ -194,15 +194,9 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 }
 
 func uploadArtifactFilestore(ctx context.Context, db *gorm.DB, giteaClient *gitea.Client, owner, repo, ref string, item events.ArtifactPayload, orgID, ownerID uint, storageKey string) (*types.FileUpload, error) {
-	reader, err := giteaClient.GetRawFile(ctx, owner, repo, ref, item.RelativePath)
+	data, _, err := giteaClient.GetFile(owner, repo, ref, item.RelativePath)
 	if err != nil {
-		return nil, fmt.Errorf("gitea get raw file: %w", err)
-	}
-	defer reader.Close()
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("read gitea file: %w", err)
+		return nil, fmt.Errorf("gitea get file: %w", err)
 	}
 
 	mimeType := strings.TrimSpace(item.MimeType)

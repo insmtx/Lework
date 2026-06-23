@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
+	"code.gitea.io/sdk/gitea"
 )
 
 func TestIsPathAllowed(t *testing.T) {
@@ -33,7 +33,7 @@ func TestIsPathAllowed(t *testing.T) {
 }
 
 func TestBuildFileTree(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads", Type: "tree"},
 		{Path: "uploads/readme.md", Type: "blob", Size: 100},
 		{Path: "uploads/images", Type: "tree"},
@@ -97,7 +97,7 @@ func TestBuildFileTree_Empty(t *testing.T) {
 }
 
 func TestBuildFileTree_DeepNested(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads/a/b/c", Type: "tree"},
 		{Path: "uploads/a/b/c/deep.txt", Type: "blob", Size: 42},
 	}
@@ -141,7 +141,7 @@ func TestBuildFileTree_DeepNested(t *testing.T) {
 }
 
 func TestFilterByParentPaths_Root(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads/readme.md", Type: "blob", Size: 100},
 	}
 	roots := buildFileTree(entries)
@@ -152,7 +152,7 @@ func TestFilterByParentPaths_Root(t *testing.T) {
 }
 
 func TestFilterByParentPaths_SubDir(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads/images/logo.png", Type: "blob", Size: 2048},
 	}
 	roots := buildFileTree(entries)
@@ -163,7 +163,7 @@ func TestFilterByParentPaths_SubDir(t *testing.T) {
 }
 
 func TestFilterByParentPaths_NotFound(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads/readme.md", Type: "blob", Size: 100},
 	}
 	roots := buildFileTree(entries)
@@ -174,7 +174,7 @@ func TestFilterByParentPaths_NotFound(t *testing.T) {
 }
 
 func TestFilterByParentPaths_HasLeadingSlash(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads/readme.md", Type: "blob", Size: 100},
 	}
 	roots := buildFileTree(entries)
@@ -185,7 +185,7 @@ func TestFilterByParentPaths_HasLeadingSlash(t *testing.T) {
 }
 
 func TestFilterByParentPaths_RootSlash(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads/readme.md", Type: "blob", Size: 100},
 	}
 	roots := buildFileTree(entries)
@@ -196,7 +196,7 @@ func TestFilterByParentPaths_RootSlash(t *testing.T) {
 }
 
 func TestFilterByParentPaths_FilePath(t *testing.T) {
-	entries := []gitea.RepoEntry{
+	entries := []gitea.GitEntry{
 		{Path: "uploads/readme.md", Type: "blob", Size: 100},
 		{Path: "uploads/images/logo.png", Type: "blob", Size: 2048},
 	}

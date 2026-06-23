@@ -9,7 +9,7 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
+	"code.gitea.io/sdk/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 )
 

@@ -19,11 +19,12 @@ import (
 
 	"github.com/ygpkg/storage-go"
 
+	"code.gitea.io/sdk/gitea"
+
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/types"
@@ -107,7 +108,7 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 	project.GiteaDefaultBranch = "main"
 
 	repoName := s.buildRepoName(caller.OrgID, publicID)
-	repoInfo, err := s.giteaClient.CreateRepo(ctx, s.giteaCfg.DefaultOwner, gitea.CreateRepoRequest{
+	repoInfo, _, err := s.giteaClient.AdminCreateRepo(s.giteaCfg.DefaultOwner, gitea.CreateRepoOption{
 		Name:        repoName,
 		Description: strings.TrimSpace(req.Description),
 		Private:     true,
@@ -525,13 +526,16 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 	}
 	owner, repo := parts[0], parts[1]
 
-	entries, err := s.giteaClient.ListRepoTree(ctx, owner, repo, project.GiteaDefaultBranch)
+	treeResp, _, err := s.giteaClient.GetTrees(owner, repo, gitea.ListTreeOptions{
+		Ref:       project.GiteaDefaultBranch,
+		Recursive: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list repo tree: %w", err)
 	}
 
-	filtered := make([]gitea.RepoEntry, 0, len(entries))
-	for _, e := range entries {
+	filtered := make([]gitea.GitEntry, 0, len(treeResp.Entries))
+	for _, e := range treeResp.Entries {
 		if isPathAllowed(e.Path) {
 			filtered = append(filtered, e)
 		}
@@ -584,10 +588,12 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 		return nil, "", 0, errors.New("file access denied")
 	}
 
-	reader, err := s.giteaClient.GetRawFile(ctx, owner, repo, project.GiteaDefaultBranch, filePath)
+	data, _, err := s.giteaClient.GetFile(owner, repo, project.GiteaDefaultBranch, filePath)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("get gitea file: %w", err)
 	}
+
+	reader := io.NopCloser(bytes.NewReader(data))
 
 	mimeType := mime.TypeByExtension(filepath.Ext(filePath))
 	if mimeType == "" {
@@ -803,7 +809,12 @@ func (s *projectService) initRepoStructure(ctx context.Context, fullName string)
 	}
 
 	for _, f := range initFiles {
-		if err := s.giteaClient.CreateFile(ctx, owner, repo, f.path, f.content, f.msg); err != nil {
+		if _, _, err := s.giteaClient.CreateFile(owner, repo, f.path, gitea.CreateFileOptions{
+			FileOptions: gitea.FileOptions{
+				Message: f.msg,
+			},
+			Content: f.content,
+		}); err != nil {
 			logs.WarnContextf(ctx, "[project] init gitea file %s failed: %v", f.path, err)
 		}
 	}
@@ -826,7 +837,7 @@ func isPathAllowed(filePath string) bool {
 	return false
 }
 
-func buildFileTree(entries []gitea.RepoEntry) []*contract.FileTreeNode {
+func buildFileTree(entries []gitea.GitEntry) []*contract.FileTreeNode {
 	nodeMap := make(map[string]*contract.FileTreeNode)
 	var roots []*contract.FileTreeNode
 

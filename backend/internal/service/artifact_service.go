@@ -1,15 +1,18 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
+	"code.gitea.io/sdk/gitea"
+
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	"github.com/insmtx/Leros/backend/types"
 	"gorm.io/gorm"
 )
@@ -112,11 +115,12 @@ func (s *artifactService) GetArtifactDownload(ctx context.Context, artifactPubli
 		return nil, errors.New("invalid gitea repo full name")
 	}
 
-	reader, err := s.giteaClient.GetRawFile(ctx, parts[0], parts[1],
+	data, _, err := s.giteaClient.GetFile(parts[0], parts[1],
 		project.GiteaDefaultBranch, artifact.RelativePath)
 	if err != nil {
 		return nil, fmt.Errorf("get gitea file: %w", err)
 	}
+	reader := io.NopCloser(bytes.NewReader(data))
 
 	return &contract.ArtifactDownload{
 		FileName: artifactDownloadName(artifact),

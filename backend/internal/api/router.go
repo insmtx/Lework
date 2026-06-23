@@ -12,8 +12,8 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
+	"code.gitea.io/sdk/gitea"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/runnable"
@@ -45,7 +45,12 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 
 	var giteaClient *gitea.Client
 	if cfg.Gitea != nil {
-		giteaClient = gitea.NewClient(cfg.Gitea.Endpoint, cfg.Gitea.AdminToken)
+		var err error
+		giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint, gitea.SetToken(cfg.Gitea.AdminToken))
+		if err != nil {
+			logs.Errorf("create gitea client: %v", err)
+			giteaClient = nil
+		}
 	}
 
 	v1 := r.Group("/v1")

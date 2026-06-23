@@ -10,12 +10,13 @@ import (
 
 	"gorm.io/gorm"
 
+	"code.gitea.io/sdk/gitea"
+
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/dm"
@@ -215,7 +216,7 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 	}
 
 	repoName := o.poster.buildRepoName(o.caller.OrgID, projectID)
-	repoInfo, err := o.poster.giteaClient.CreateRepo(o.ctx, o.poster.giteaCfg.DefaultOwner, gitea.CreateRepoRequest{
+	repoInfo, _, err := o.poster.giteaClient.AdminCreateRepo(o.poster.giteaCfg.DefaultOwner, gitea.CreateRepoOption{
 		Name:        repoName,
 		Description: "",
 		Private:     true,
@@ -629,7 +630,12 @@ Thumbs.db
 	}
 
 	for _, f := range initFiles {
-		if err := p.giteaClient.CreateFile(ctx, owner, repo, f.path, f.content, f.msg); err != nil {
+		if _, _, err := p.giteaClient.CreateFile(owner, repo, f.path, gitea.CreateFileOptions{
+			FileOptions: gitea.FileOptions{
+				Message: f.msg,
+			},
+			Content: f.content,
+		}); err != nil {
 			logs.WarnContextf(ctx, "[message_poster] init gitea file %s failed: %v", f.path, err)
 		}
 	}

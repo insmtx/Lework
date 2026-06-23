@@ -1,32 +1,33 @@
 package gitea_test
 
 import (
-	"context"
+	"encoding/base64"
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/internal/infra/gitea"
+	"code.gitea.io/sdk/gitea"
 )
 
 const (
-	testEndpoint   = "http://49.232.218.218:3009"
-	testToken      = "806372856159056499ffdc289d3238763d27c993"
-	testOwner      = "admin"
-	testEnv        = "test"
+	testEndpoint = "http://49.232.218.218:3009"
+	testToken    = "806372856159056499ffdc289d3238763d27c993"
+	testOwner    = "admin"
 )
 
 func newTestClient(t *testing.T) *gitea.Client {
 	t.Helper()
-	return gitea.NewClient(testEndpoint, testToken)
+	client, err := gitea.NewClient(testEndpoint, gitea.SetToken(testToken))
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	return client
 }
 
 func TestClient_CreateAndDeleteRepo(t *testing.T) {
 	client := newTestClient(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	repoName := "test-create-" + time.Now().Format("200601021504")
-	repo, err := client.CreateRepo(ctx, testOwner, gitea.CreateRepoRequest{
+	repo, _, err := client.AdminCreateRepo(testOwner, gitea.CreateRepoOption{
 		Name:        repoName,
 		Description: "integration test repo",
 		Private:     true,
@@ -40,17 +41,16 @@ func TestClient_CreateAndDeleteRepo(t *testing.T) {
 	}
 	t.Logf("created repo: %s (id=%d, clone_url=%s)", repo.FullName, repo.ID, repo.CloneURL)
 
-	if err := client.DeleteRepo(ctx, testOwner, repoName); err != nil {
+	_, err = client.DeleteRepo(testOwner, repoName)
+	if err != nil {
 		t.Errorf("delete repo: %v", err)
 	}
 }
 
 func TestClient_GetRepo(t *testing.T) {
 	client := newTestClient(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
-	_, err := client.GetRepo(ctx, testOwner, "test-get-"+time.Now().Format("1504"))
+	_, _, err := client.GetRepo(testOwner, "test-get-"+time.Now().Format("1504"))
 	if err != nil {
 		t.Logf("repo not found (expected for non-existent repo): %v", err)
 	}
@@ -58,11 +58,9 @@ func TestClient_GetRepo(t *testing.T) {
 
 func TestClient_ListContents(t *testing.T) {
 	client := newTestClient(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	repoName := "test-contents-" + time.Now().Format("200601021504")
-	_, err := client.CreateRepo(ctx, testOwner, gitea.CreateRepoRequest{
+	_, _, err := client.AdminCreateRepo(testOwner, gitea.CreateRepoOption{
 		Name:        repoName,
 		Description: "test contents",
 		Private:     true,
@@ -71,9 +69,11 @@ func TestClient_ListContents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create repo: %v", err)
 	}
-	defer client.DeleteRepo(ctx, testOwner, repoName)
+	defer func() {
+		_, _ = client.DeleteRepo(testOwner, repoName)
+	}()
 
-	entries, err := client.ListContents(ctx, testOwner, repoName, "", "main")
+	entries, _, err := client.ListContents(testOwner, repoName, "main", "")
 	if err != nil {
 		t.Fatalf("list contents: %v", err)
 	}
@@ -83,13 +83,11 @@ func TestClient_ListContents(t *testing.T) {
 	}
 }
 
-func TestClient_CreateFileAndGetRaw(t *testing.T) {
+func TestClient_CreateFileAndGetFile(t *testing.T) {
 	client := newTestClient(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	repoName := "test-file-" + time.Now().Format("200601021504")
-	_, err := client.CreateRepo(ctx, testOwner, gitea.CreateRepoRequest{
+	_, _, err := client.AdminCreateRepo(testOwner, gitea.CreateRepoOption{
 		Name:        repoName,
 		Description: "test file read",
 		Private:     true,
@@ -98,23 +96,65 @@ func TestClient_CreateFileAndGetRaw(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create repo: %v", err)
 	}
-	defer client.DeleteRepo(ctx, testOwner, repoName)
+	defer func() {
+		_, _ = client.DeleteRepo(testOwner, repoName)
+	}()
 
-	err = client.CreateFile(ctx, testOwner, repoName, "hello.md",
-		"SGVsbG8gV29ybGQ=", "add hello.md")
+	_, _, err = client.CreateFile(testOwner, repoName, "hello.md", gitea.CreateFileOptions{
+		FileOptions: gitea.FileOptions{
+			Message: "add hello.md",
+		},
+		Content: "SGVsbG8gV29ybGQ=",
+	})
 	if err != nil {
 		t.Fatalf("create file: %v", err)
 	}
 
-	reader, err := client.GetRawFile(ctx, testOwner, repoName, "main", "hello.md")
+	data, _, err := client.GetFile(testOwner, repoName, "main", "hello.md")
 	if err != nil {
-		t.Fatalf("get raw file: %v", err)
+		t.Fatalf("get file: %v", err)
 	}
-	defer reader.Close()
+	t.Logf("file content: %s", string(data))
+}
 
-	buf := make([]byte, 100)
-	n, _ := reader.Read(buf)
-	t.Logf("file content: %s", string(buf[:n]))
+func TestClient_GetRepoTree(t *testing.T) {
+	client := newTestClient(t)
+
+	repoName := "test-tree-" + time.Now().Format("200601021504")
+	_, _, err := client.AdminCreateRepo(testOwner, gitea.CreateRepoOption{
+		Name:        repoName,
+		Description: "test tree",
+		Private:     true,
+		AutoInit:    true,
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	defer func() {
+		_, _ = client.DeleteRepo(testOwner, repoName)
+	}()
+
+	_, _, err = client.CreateFile(testOwner, repoName, "readme.md", gitea.CreateFileOptions{
+		FileOptions: gitea.FileOptions{
+			Message: "init readme",
+		},
+		Content: base64.StdEncoding.EncodeToString([]byte("# " + repoName)),
+	})
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+
+	treeResp, _, err := client.GetTrees(testOwner, repoName, gitea.ListTreeOptions{
+		Ref:       "main",
+		Recursive: true,
+	})
+	if err != nil {
+		t.Fatalf("get tree: %v", err)
+	}
+	t.Logf("tree entries: %d", len(treeResp.Entries))
+	for _, e := range treeResp.Entries {
+		t.Logf("  %s (type=%s, size=%d)", e.Path, e.Type, e.Size)
+	}
 }
 
 func TestClient_GenerateAccessToken(t *testing.T) {
