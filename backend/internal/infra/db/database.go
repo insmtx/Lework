@@ -92,6 +92,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.FileUpload{},
 		&types.BuiltinSkillMarketplaceItem{},
 		&types.SkillMarketplaceItem{},
+		&types.MessageResource{},
 	}
 
 	if err := dbtools.InitModel(db, models...); err != nil {
