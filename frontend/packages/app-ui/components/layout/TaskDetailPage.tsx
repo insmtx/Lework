@@ -386,7 +386,8 @@ export function TaskDetailPage({
 			)}
 
 			<div className="min-h-0 flex flex-1">
-				<main className="flex min-h-0 flex-1 flex-col">
+				<main className="min-w-0 flex min-h-0 flex-1 flex-col">
+					{/* 中文注释：任务详情页中间主列必须允许在 flex 布局中收缩，避免被聊天内容最大宽度和右侧栏共同挤出可视区域。 */}
 					<MessageTimeline
 						emptyState={<TaskChatEmptyState layout={taskChatLayout} />}
 						contentShellClassName={taskChatLayout.shell}

@@ -18,6 +18,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/agent"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	runtimeevents "github.com/insmtx/Leros/backend/internal/runtime/events"
+	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/dm"
@@ -505,18 +506,24 @@ func commitAttachments(ctx context.Context, repoDir string, count int) {
 	addCmd := exec.CommandContext(ctx, "git", "add", "uploads/")
 	addCmd.Dir = repoDir
 	if output, err := addCmd.CombinedOutput(); err != nil {
-		logs.WarnContextf(ctx, "git add uploads/: %v: %s", err, strings.TrimSpace(string(output)))
+		logs.ErrorContextf(ctx, "git add uploads/: %v: %s", err, strings.TrimSpace(string(output)))
 		return
 	}
 	msg := fmt.Sprintf("task: %d user attachment(s)", count)
 	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", msg)
 	commitCmd.Dir = repoDir
-	commitCmd.CombinedOutput()
+	commitCmd.Env = identity.GitAuthorEnv()
+	if output, err := commitCmd.CombinedOutput(); err != nil {
+		logs.ErrorContextf(ctx, "git commit attachments: %v: %s", err, strings.TrimSpace(string(output)))
+		return
+	}
 	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "main")
 	pushCmd.Dir = repoDir
 	if output, err := pushCmd.CombinedOutput(); err != nil {
-		logs.ErrorContextf(ctx, "git push uploads failed: %v: %s", err, strings.TrimSpace(string(output)))
+		logs.ErrorContextf(ctx, "git push uploads/: %v: %s", err, strings.TrimSpace(string(output)))
+		return
 	}
+	logs.InfoContextf(ctx, "git push uploads/ completed: count=%d", count)
 }
 
 // Close shuts down the consumer gracefully, waiting for all in-flight tasks.
