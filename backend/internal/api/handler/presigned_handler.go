@@ -86,13 +86,13 @@ func handlePresignedPut(ctx *gin.Context) {
 
 // handlePresignedGet consumes a presigned download URL
 // @Summary 预签名下载
-// @Description 消费预签名下载 URL，验证 token 后返回文件内容
+// @Description 消费预签名下载 URL（可选 token/expires 参数进行签名校验；不带参数时直接公开访问）
 // @Tags Storage
 // @Produce octet-stream
 // @Param bucket path string true "存储桶名称"
 // @Param key path string true "对象 key"
-// @Param token query string true "预签名 token"
-// @Param expires query string true "过期时间戳(秒)"
+// @Param token query string false "预签名 token（可选）"
+// @Param expires query string false "过期时间戳(秒)（可选）"
 // @Success 200 {file} binary "文件内容"
 // @Failure 400 {string} string "参数错误"
 // @Failure 403 {string} string "预签名验证失败"
@@ -102,10 +102,6 @@ func handlePresignedPut(ctx *gin.Context) {
 func handlePresignedGet(ctx *gin.Context) {
 	token := strings.TrimSpace(ctx.Query(presignTokenQuery))
 	expires := strings.TrimSpace(ctx.Query(presignExpiresQuery))
-	if token == "" || expires == "" {
-		ctx.String(http.StatusBadRequest, "missing token or expires query parameter")
-		return
-	}
 
 	bucket := strings.TrimSpace(ctx.Param("bucket"))
 	key := strings.TrimPrefix(ctx.Param("key"), "/")
@@ -115,23 +111,29 @@ func handlePresignedGet(ctx *gin.Context) {
 		return
 	}
 
-	if err := filestore.VerifyPresignedToken(
-		filestore.SignSecret(), bucket, key, "get", token, expires,
-	); err != nil {
-		if errors.Is(err, filestore.ErrPresignExpired) {
-			ctx.String(http.StatusForbidden, "presigned url expired")
+	if token != "" || expires != "" {
+		if token == "" || expires == "" {
+			ctx.String(http.StatusBadRequest, "missing token or expires query parameter")
 			return
 		}
-		if errors.Is(err, filestore.ErrPresignOpMismatch) {
-			ctx.String(http.StatusForbidden, "operation mismatch")
+		if err := filestore.VerifyPresignedToken(
+			filestore.SignSecret(), bucket, key, "get", token, expires,
+		); err != nil {
+			if errors.Is(err, filestore.ErrPresignExpired) {
+				ctx.String(http.StatusForbidden, "presigned url expired")
+				return
+			}
+			if errors.Is(err, filestore.ErrPresignOpMismatch) {
+				ctx.String(http.StatusForbidden, "operation mismatch")
+				return
+			}
+			if errors.Is(err, filestore.ErrPresignKeyMismatch) {
+				ctx.String(http.StatusForbidden, "key mismatch")
+				return
+			}
+			ctx.String(http.StatusForbidden, "invalid presigned token")
 			return
 		}
-		if errors.Is(err, filestore.ErrPresignKeyMismatch) {
-			ctx.String(http.StatusForbidden, "key mismatch")
-			return
-		}
-		ctx.String(http.StatusForbidden, "invalid presigned token")
-		return
 	}
 
 	defer func() {

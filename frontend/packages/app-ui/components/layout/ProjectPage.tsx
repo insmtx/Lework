@@ -1,18 +1,11 @@
 "use client";
 
-import type { ProjectArtifact, ProjectTask } from "@leros/store";
-import {
-	fetchFileDownload,
-	formatArtifactTime,
-	mapBackendArtifactToProjectArtifact,
-	projectFileApi,
-	useChatStore,
-	useLayoutStore,
-} from "@leros/store";
-import { artifactApi } from "@leros/store/api/artifactApi";
+import type { ProjectTask } from "@leros/store";
+import { projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Bot,
+	ChevronDown,
 	ChevronsLeft,
 	ChevronsLeftRightEllipsis,
 	ChevronsRight,
@@ -49,6 +42,8 @@ import {
 } from "./project-file-type-icon";
 import {
 	collectSelectableFiles,
+	type FileSource,
+	getFileSource,
 	normalizeProjectFileTree,
 	type ProjectFileNode,
 	sortProjectFilesByUploadedTimeDesc,
@@ -155,7 +150,6 @@ export function ProjectPage({
 		resetLocalMessages,
 	} = useChatStore((s) => s);
 
-	const [taskArtifacts, setTaskArtifacts] = useState<ProjectArtifact[]>([]);
 	const [projectFiles, setProjectFiles] = useState<ProjectFileNode[]>([]);
 	const [rightSidebarWidth, setRightSidebarWidth] = useState(PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH);
 	const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
@@ -166,8 +160,6 @@ export function ProjectPage({
 	const project =
 		projects.find((item) => item.id === resolvedProjectId) ??
 		(resolvedProjectId ? undefined : projects[0]);
-
-	const taskIds = useMemo(() => project?.tasks.map((task) => task.id).join("|") ?? "", [project]);
 
 	const selectedTaskSessionId = useMemo(() => {
 		if (!project || activeWorkbenchProjectId !== project.id || !activeWorkbenchTaskId) return null;
@@ -218,48 +210,18 @@ export function ProjectPage({
 		}
 	}, [resolvedProjectId, fetchProjectDetail, projects.length]);
 
-	useEffect(() => {
-		if (!taskIds) {
-			setTaskArtifacts([]);
-			return;
-		}
-
-		let cancelled = false;
-
-		async function fetchTaskArtifacts() {
-			const ids = taskIds.split("|").filter(Boolean);
-			try {
-				const responses = await Promise.all(
-					ids.map((taskId) => artifactApi.listTaskArtifacts(taskId)),
-				);
-				if (cancelled) return;
-
-				const merged = new Map<string, ProjectArtifact>();
-				for (const response of responses) {
-					for (const artifact of response.data.data ?? []) {
-						const item = mapBackendArtifactToProjectArtifact(artifact);
-						merged.set(item.id, item);
-					}
-				}
-				setTaskArtifacts([...merged.values()]);
-			} catch (err) {
-				if (cancelled) return;
-				console.error("ProjectPage fetch task artifacts error:", err);
-				setTaskArtifacts([]);
-			}
-		}
-
-		fetchTaskArtifacts();
-		return () => {
-			cancelled = true;
-		};
-	}, [taskIds]);
+	const flatArtifactFiles = useMemo(
+		() =>
+			sortProjectFilesByUploadedTimeDesc(
+				collectSelectableFiles(projectFiles).filter((f) => getFileSource(f.path) === "task"),
+			),
+		[projectFiles],
+	);
 
 	const refreshProjectFiles = async () => {
 		if (!resolvedProjectId) return;
 		const response = await projectFileApi.list({
 			projectId: resolvedProjectId,
-			depth: 3,
 		});
 		setProjectFiles(normalizeProjectFileTree(response.data.data));
 	};
@@ -277,7 +239,6 @@ export function ProjectPage({
 			try {
 				const response = await projectFileApi.list({
 					projectId: currentProjectId,
-					depth: 3,
 				});
 				if (cancelled) return;
 				setProjectFiles(normalizeProjectFileTree(response.data.data));
@@ -491,7 +452,11 @@ export function ProjectPage({
 					)}
 				>
 					{resolvedTab === "chat" && (
-						<ProjectChat layoutMode={projectChatLayoutMode} navigation={navigation} />
+						<ProjectChat
+							layoutMode={projectChatLayoutMode}
+							navigation={navigation}
+							projectId={resolvedProjectId}
+						/>
 					)}
 					{resolvedTab === "tasks" && (
 						<ProjectTasks tasks={project.tasks} onOpenTask={handleOpenTask} />
@@ -566,10 +531,14 @@ export function ProjectPage({
 								>
 									<h2 className="text-xs font-semibold text-[var(--leros-text-muted)]">文件</h2>
 									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
-										{taskArtifacts.length} 个
+										{flatArtifactFiles.length} 个
 									</span>
 								</div>
-								<ProjectArtifactList artifacts={taskArtifacts} compact={!isWideRightSidebar} />
+								<ProjectFileList
+									files={flatArtifactFiles}
+									compact={!isWideRightSidebar}
+									projectId={resolvedProjectId || ""}
+								/>
 							</section>
 						</div>
 						<hr
@@ -603,9 +572,11 @@ export function ProjectPage({
 function ProjectChat({
 	layoutMode,
 	navigation,
+	projectId,
 }: {
 	layoutMode: ProjectChatLayoutMode;
 	navigation?: AppNavigation;
+	projectId?: string;
 }) {
 	const layout = getProjectChatLayoutClasses(layoutMode);
 
@@ -615,6 +586,7 @@ function ProjectChat({
 				emptyState={<ProjectEmptyState layout={layout} />}
 				contentShellClassName={layout.shell}
 				contentClassName={layout.timelineInner}
+				projectId={projectId}
 			/>
 			<ChatInput variant="project" projectLayoutMode={layoutMode} navigation={navigation} />
 		</div>
@@ -774,7 +746,6 @@ function ProjectFiles({
 	files: ProjectFileNode[];
 	onRefresh: () => Promise<void>;
 }) {
-	const selectableFiles = useMemo(() => collectSelectableFiles(files), [files]);
 	const [previewFile, setPreviewFile] = useState<ProjectFileNode | null>(null);
 	const [previewState, setPreviewState] = useState<FilePreviewState>({
 		status: "idle",
@@ -782,6 +753,7 @@ function ProjectFiles({
 	const [uploading, setUploading] = useState(false);
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [searchKeyword, setSearchKeyword] = useState("");
+	const [fileSourceFilter, setFileSourceFilter] = useState<"all" | FileSource>("all");
 	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
 	const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -790,13 +762,18 @@ function ProjectFiles({
 		setPreviewState({ status: "idle" });
 	};
 
-	const filteredFiles = useMemo(() => {
+	const allFlatFiles = useMemo(() => {
+		const allFiles = collectSelectableFiles(files);
 		const keyword = searchKeyword.trim().toLowerCase();
-		const matchedFiles = !keyword
-			? selectableFiles
-			: selectableFiles.filter((file) => file.name.toLowerCase().includes(keyword));
-		return sortProjectFilesByUploadedTimeDesc(matchedFiles);
-	}, [searchKeyword, selectableFiles]);
+		let filtered = allFiles;
+		if (fileSourceFilter !== "all") {
+			filtered = filtered.filter((f) => getFileSource(f.path) === fileSourceFilter);
+		}
+		if (keyword) {
+			filtered = filtered.filter((file) => file.name.toLowerCase().includes(keyword));
+		}
+		return sortProjectFilesByUploadedTimeDesc(filtered);
+	}, [files, searchKeyword, fileSourceFilter]);
 
 	useEffect(() => {
 		if (!previewFile) {
@@ -810,17 +787,9 @@ function ProjectFiles({
 		const controller = new AbortController();
 
 		async function loadPreview() {
-			if (!currentFile.publicId) {
-				setPreviewState({
-					status: "error",
-					message: "文件缺少 public_id，无法预览",
-				});
-				return;
-			}
-
 			setPreviewState({ status: "loading" });
 			try {
-				const response = await fetchFileDownload(currentFile.publicId, {
+				const response = await projectFileApi.fetchDownload(projectId, currentFile.path, {
 					signal: controller.signal,
 				});
 				const mimeType =
@@ -847,7 +816,6 @@ function ProjectFiles({
 				if (isTextPreviewable(currentFile.path, mimeType)) {
 					const content = await response.text();
 					if (!cancelled) {
-						// markdown 需要走富文本渲染，避免在文件预览里退化成纯文本。
 						setPreviewState({
 							status: isMarkdownPreviewable(currentFile.path, mimeType) ? "markdown" : "text",
 							content,
@@ -878,7 +846,7 @@ function ProjectFiles({
 				URL.revokeObjectURL(objectUrl);
 			}
 		};
-	}, [previewFile]);
+	}, [previewFile, projectId]);
 
 	useEffect(() => {
 		if (!previewFile) return;
@@ -903,9 +871,9 @@ function ProjectFiles({
 		setUploading(true);
 		setUploadError(null);
 		try {
-			const response = await projectFileApi.upload({ projectId, file });
+			await projectFileApi.upload({ projectId, file });
 			await onRefresh();
-			toast.success(response.message || "文件上传成功");
+			toast.success("文件上传成功");
 		} catch (err) {
 			setUploadError(err instanceof Error ? err.message : "上传文件失败");
 		} finally {
@@ -914,13 +882,8 @@ function ProjectFiles({
 	};
 
 	const handleDownload = async (file: ProjectFileNode) => {
-		if (!file.publicId) {
-			console.error("ProjectFiles download error: missing public_id");
-			return;
-		}
-
 		try {
-			const response = await fetchFileDownload(file.publicId);
+			const response = await projectFileApi.fetchDownload(projectId, file.path);
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);
 			const link = document.createElement("a");
@@ -981,6 +944,18 @@ function ProjectFiles({
 								className="h-10 w-64 rounded-xl border border-[var(--leros-control-border)] bg-white pl-9 pr-4 text-sm outline-none transition-colors focus:border-[var(--leros-primary)]"
 							/>
 						</div>
+						<div className="relative">
+							<select
+								value={fileSourceFilter}
+								onChange={(event) => setFileSourceFilter(event.target.value as "all" | FileSource)}
+								className="h-10 cursor-pointer appearance-none rounded-xl border border-[var(--leros-control-border)] bg-white py-0 pl-3.5 pr-9 text-sm outline-none transition-colors focus:border-[var(--leros-primary)]"
+							>
+								<option value="all">全部</option>
+								<option value="task">任务文件</option>
+								<option value="upload">上传文件</option>
+							</select>
+							<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+						</div>
 						<label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--leros-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90">
 							<FileText className="size-4" />
 							上传
@@ -1006,24 +981,24 @@ function ProjectFiles({
 					</div>
 				)}
 
-				<div className="overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-white">
-					<div className="grid grid-cols-[minmax(0,1fr)_120px_180px_220px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-6 py-4 text-xs font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
-						<div>名称</div>
-						<div>大小</div>
-						<div>上传时间</div>
-						<div className="text-right">操作</div>
+				{allFlatFiles.length === 0 ? (
+					<div className="px-6 py-16 text-center text-sm text-[var(--leros-text-muted)]">
+						暂无文件
 					</div>
-
-					{filteredFiles.length === 0 ? (
-						<div className="px-6 py-16 text-center text-sm text-[var(--leros-text-muted)]">
-							暂无文件
+				) : (
+					<div className="overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-white">
+						<div className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_180px] border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-6 py-4 text-xs font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]">
+							<div>名称</div>
+							<div>类型</div>
+							<div>大小</div>
+							<div>创建时间</div>
+							<div className="text-right">操作</div>
 						</div>
-					) : (
 						<div className="divide-y divide-[var(--leros-control-border)]/60">
-							{filteredFiles.map((file) => (
+							{allFlatFiles.map((file) => (
 								<div
 									key={file.path}
-									className="grid grid-cols-[minmax(0,1fr)_120px_180px_220px] items-center px-6 py-5 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
+									className="grid grid-cols-[minmax(0,1fr)_90px_120px_180px_180px] items-center px-6 py-5 transition-colors hover:bg-[var(--leros-primary-softer)]/25"
 								>
 									<button
 										type="button"
@@ -1044,11 +1019,16 @@ function ProjectFiles({
 											</p>
 										</div>
 									</button>
+									<div className="text-sm">
+										<span className="inline-block rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--leros-text-muted)]">
+											{getFileSource(file.path) === "task" ? "任务文件" : "上传文件"}
+										</span>
+									</div>
 									<div className="text-sm text-[var(--leros-text-muted)]">
 										{formatBytes(file.size)}
 									</div>
 									<div className="text-sm text-[var(--leros-text-muted)]">
-										{formatTime(file.modTime)}
+										{formatTime(file.createdAt)}
 									</div>
 									<div className="flex items-center justify-end gap-2">
 										<button
@@ -1073,8 +1053,8 @@ function ProjectFiles({
 								</div>
 							))}
 						</div>
-					)}
-				</div>
+					</div>
+				)}
 			</div>
 
 			{previewFile && (
@@ -1392,18 +1372,20 @@ function clampProjectRightSidebarWidth(width: number): number {
 	);
 }
 
-function ProjectArtifactList({
-	artifacts,
+function ProjectFileList({
+	files,
 	emptyText = "暂无文件",
 	compact = false,
+	projectId,
 }: {
-	artifacts: ProjectArtifact[];
+	files: ProjectFileNode[];
 	emptyText?: string;
 	compact?: boolean;
+	projectId: string;
 }) {
-	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
+	const [previewArtifact, setPreviewArtifact] = useState<ArtifactPreviewItem | null>(null);
 
-	if (artifacts.length === 0) {
+	if (files.length === 0) {
 		return (
 			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
 				{emptyText}
@@ -1415,11 +1397,22 @@ function ProjectArtifactList({
 		<>
 			<div className={cn("w-full", compact && "mx-auto max-w-[250px]")}>
 				<div className={cn(compact ? SIDEBAR_COMPACT_LIST_CLASS : "space-y-3")}>
-					{artifacts.map((artifact) => (
+					{files.map((file) => (
 						<button
 							type="button"
-							key={artifact.id}
-							onClick={() => setPreviewArtifact(artifact)}
+							key={file.path}
+							onClick={() =>
+								setPreviewArtifact({
+									id: file.path,
+									name: file.name,
+									title: file.name,
+									type: "document",
+									artifactType: "file",
+									mimeType: file.mimeType,
+									size: formatBytes(file.size),
+									downloadUrl: "",
+								})
+							}
 							className={cn(
 								"group relative flex w-full cursor-pointer items-center overflow-hidden border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35",
 								compact ? "gap-3 rounded-lg px-3.5 py-3" : "gap-3.5 rounded-lg px-4 py-3.5",
@@ -1433,15 +1426,14 @@ function ProjectArtifactList({
 								</span>
 							</div>
 							<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
-								<ProjectFileTypeIcon fileName={artifact.name} />
+								<ProjectFileTypeIcon fileName={file.name} />
 							</div>
 							<div className="min-w-0">
 								<div className="truncate text-sm font-normal leading-5 text-[var(--leros-text-strong)]">
-									{artifact.name}
+									{file.name}
 								</div>
 								<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-									{artifact.size}
-									{artifact.updatedAt ? ` · ${formatArtifactTime(artifact.updatedAt)}` : ""}
+									{file.size > 0 ? formatBytes(file.size) : ""}
 								</div>
 							</div>
 						</button>
@@ -1454,6 +1446,7 @@ function ProjectArtifactList({
 				onOpenChange={(open) => {
 					if (!open) setPreviewArtifact(null);
 				}}
+				projectId={projectId}
 			/>
 		</>
 	);

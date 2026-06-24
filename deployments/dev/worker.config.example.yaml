@@ -1,5 +1,6 @@
 # Leros Development Configuration - Worker
 
+env: local
 worker_id: 1
 org_id: 1
 server_addr: "127.0.0.1:8080"
@@ -13,3 +14,8 @@ log:
 
 cli:
   default: "leros"
+
+gitea:
+  endpoint: "<your_gitea_endpoint>"
+  admin_token: "<your_admin_token>"
+  default_owner: "admin"

@@ -65,6 +65,7 @@ type WorkspaceContext struct {
 	ProjectID string `json:"project_id,omitempty"`
 	TaskID    string `json:"task_id,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+	RepoDir   string `json:"repo_dir,omitempty"`
 }
 
 // InputContext is the normalized input passed to the agent.

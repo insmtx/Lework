@@ -139,3 +139,16 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 	}
 	return entities, total, nil
 }
+
+// GetProjectByID 根据主键ID获取项目
+func GetProjectByID(ctx context.Context, d *gorm.DB, id uint) (*types.Project, error) {
+	var entity types.Project
+	err := d.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}

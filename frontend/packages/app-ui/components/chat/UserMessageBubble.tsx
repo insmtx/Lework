@@ -28,7 +28,13 @@ function CopyButton({ text }: { text: string }) {
 	);
 }
 
-export function UserMessageBubble({ message }: { message: Message }) {
+export function UserMessageBubble({
+	message,
+	projectId,
+}: {
+	message: Message;
+	projectId?: string;
+}) {
 	const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 	const visibleText = message.content.trim();
 	const skillContent = parseLeadingSkillDirectives(visibleText);
@@ -85,6 +91,7 @@ export function UserMessageBubble({ message }: { message: Message }) {
 				onOpenChange={(open) => {
 					if (!open) setPreviewAttachment(null);
 				}}
+				projectId={projectId}
 			/>
 		</>
 	);

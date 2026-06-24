@@ -68,9 +68,11 @@ function CopyButton({ text }: { text: string }) {
 export function AIMessageBubble({
 	message,
 	isStreaming,
+	projectId,
 }: {
 	message: Message;
 	isStreaming: boolean;
+	projectId?: string;
 }) {
 	const { resendMessage } = useChatStore((s) => s);
 	const content = message.content;
@@ -118,6 +120,7 @@ export function AIMessageBubble({
 						<MessageArtifactList
 							artifacts={message.artifacts}
 							fallbackTimestamp={message.timestamp}
+							projectId={projectId}
 						/>
 					</div>
 				)}
@@ -321,9 +324,11 @@ function compactText(value: string): string {
 function MessageArtifactList({
 	artifacts,
 	fallbackTimestamp,
+	projectId,
 }: {
 	artifacts: MessageArtifact[];
 	fallbackTimestamp: number;
+	projectId?: string;
 }) {
 	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
 	const [taskArtifacts, setTaskArtifacts] = useState<ProjectArtifact[]>([]);
@@ -381,11 +386,21 @@ function MessageArtifactList({
 					<button
 						type="button"
 						key={artifact.id}
-						onClick={() => setPreviewArtifact(artifact)}
+						onClick={() =>
+							setPreviewArtifact({
+								...artifact,
+								id: projectId ? `artifacts/${artifact.name}` : artifact.id,
+							})
+						}
 						disabled={loadingArtifactId === artifact.id}
-						className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+						className="group/artifact relative flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
 						title="预览文件"
 					>
+						<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover/artifact:opacity-100">
+							<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
+								点击预览
+							</span>
+						</div>
 						<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-slate-600">
 							{loadingArtifactId === artifact.id ? (
 								<LoaderCircle className="size-4 animate-spin" />
@@ -412,6 +427,7 @@ function MessageArtifactList({
 				onOpenChange={(open) => {
 					if (!open) setPreviewArtifact(null);
 				}}
+				projectId={projectId}
 			/>
 		</>
 	);

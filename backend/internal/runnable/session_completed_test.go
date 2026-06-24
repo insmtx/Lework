@@ -3,19 +3,12 @@ package runnable
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
-	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/nats-io/nats.go"
 	"gorm.io/driver/sqlite"
@@ -162,16 +155,25 @@ func TestHandleSessionCompletedMessageProjectsRunArtifacts(t *testing.T) {
 }
 
 func TestHandleSessionArtifactDeclaredMessagePersistsArtifactFromWorkerStorage(t *testing.T) {
-	ctx := context.Background()
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
-	if err := database.AutoMigrate(&types.Session{}, &types.Artifact{}, &types.FileUpload{}); err != nil {
+	if err := database.AutoMigrate(&types.Session{}, &types.Artifact{}, &types.FileUpload{}, &types.Project{}); err != nil {
 		t.Fatalf("migrate database: %v", err)
 	}
 	projectID := uint(101)
 	taskID := uint(202)
+	project := &types.Project{
+		Model:    gorm.Model{ID: projectID},
+		PublicID: "prj_test",
+		OrgID:    7,
+		OwnerID:  9,
+		Name:     "test-project",
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
 	session := &types.Session{
 		PublicID:  "sess_test",
 		OrgID:     7,
@@ -182,25 +184,8 @@ func TestHandleSessionArtifactDeclaredMessagePersistsArtifactFromWorkerStorage(t
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	root := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, root)
 
-	if err := filestore.Init(&config.StorageConfig{
-		Driver:   "local",
-		LocalDir: root,
-		Bucket:   "bucket",
-	}); err != nil {
-		t.Fatalf("init local storage: %v", err)
-	}
-
-	storageKey := "projects/7/prj/repo/report.md"
-	driverFilePath := filepath.Join(root, "data", "bucket", filepath.FromSlash(storageKey))
-	if err := os.MkdirAll(filepath.Dir(driverFilePath), 0o755); err != nil {
-		t.Fatalf("create artifact dir: %v", err)
-	}
-	if err := os.WriteFile(driverFilePath, []byte("hello artifact"), 0o644); err != nil {
-		t.Fatalf("write artifact: %v", err)
-	}
+	storageKey := "artifacts/report.md"
 	streamMsg := protocol.MessageStreamMessage{
 		CreatedAt: time.Now().UTC(),
 		Route: protocol.RouteContext{
@@ -220,6 +205,8 @@ func TestHandleSessionArtifactDeclaredMessagePersistsArtifactFromWorkerStorage(t
 					MimeType:     "text/markdown",
 					ArtifactType: "file",
 					StorageKey:   storageKey,
+					FileSize:     100,
+					Sha256:       "abc123",
 				},
 			},
 		},
@@ -241,28 +228,20 @@ func TestHandleSessionArtifactDeclaredMessagePersistsArtifactFromWorkerStorage(t
 	if artifact.SessionID == nil || *artifact.SessionID != session.ID {
 		t.Fatalf("expected artifact session id %d, got %#v", session.ID, artifact.SessionID)
 	}
-	if artifact.StorageKey == "" || !strings.Contains(artifact.StorageKey, "://") || artifact.FileURL == "" || artifact.FileSize != int64(len("hello artifact")) || artifact.Sha256 == "" {
+	if artifact.StorageKey != storageKey {
+		t.Fatalf("expected storage_key %q, got %q", storageKey, artifact.StorageKey)
+	}
+	if artifact.FileSize != 100 || artifact.Sha256 != "abc123" {
 		t.Fatalf("unexpected artifact storage fields: %#v", artifact)
 	}
-	if artifact.Metadata.Extra["storage_key_raw"] == nil {
-		t.Fatalf("expected storage_key_raw metadata, got %#v", artifact.Metadata)
+	if artifact.FileURL == "" {
+		t.Fatalf("expected FileURL to be set")
 	}
-	if artifact.Metadata.Extra["storage_key_raw"] != storageKey {
-		t.Fatalf("expected storage_key_raw %q, got %#v", storageKey, artifact.Metadata)
+	if artifact.Metadata.Extra["worker_id"] == nil {
+		t.Fatalf("expected worker_id metadata, got %#v", artifact.Metadata)
 	}
-	if artifact.Metadata.Extra["storage_path"] == nil {
-		t.Fatalf("expected storage_path metadata, got %#v", artifact.Metadata)
-	}
-
-	fileUpload, err := infradb.GetFileUploadByPublicID(ctx, database, 7, artifact.StorageKey)
-	if err != nil {
-		t.Fatalf("get file upload by public id: %v", err)
-	}
-	if fileUpload == nil {
-		t.Fatal("expected file upload record created")
-	}
-	if fileUpload.StoragePath == "" {
-		t.Fatal("expected file upload storage path")
+	if artifact.Metadata.Extra["project_public_id"] == nil {
+		t.Fatalf("expected project_public_id metadata, got %#v", artifact.Metadata)
 	}
 }
 

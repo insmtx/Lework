@@ -1,6 +1,6 @@
 "use client";
 
-import { fetchArtifactDownload } from "@leros/store";
+import { fetchArtifactDownload, projectFileApi } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Sheet,
@@ -73,13 +73,20 @@ export function ArtifactPreviewDialog({
 	artifact,
 	open,
 	onOpenChange,
+	projectId,
 }: {
 	artifact: ArtifactPreviewItem | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	projectId?: string;
 }) {
 	const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
 	const previewKind = useMemo(() => detectPreviewKind(artifact), [artifact]);
+
+	const artifactPath = useMemo(() => {
+		if (!artifact || !projectId) return undefined;
+		return artifact.id;
+	}, [artifact, projectId]);
 
 	useEffect(() => {
 		if (!open || !artifact) {
@@ -93,6 +100,8 @@ export function ArtifactPreviewDialog({
 		}
 
 		const currentArtifact = artifact;
+		const currentPath = artifactPath;
+		const currentProjectId = projectId;
 		let cancelled = false;
 		let objectUrl: string | undefined;
 		const controller = new AbortController();
@@ -100,9 +109,16 @@ export function ArtifactPreviewDialog({
 		async function loadPreview() {
 			setPreview({ status: "loading" });
 			try {
-				const response = await fetchArtifactDownload(currentArtifact.id, {
-					signal: controller.signal,
-				});
+				let response: Response;
+				if (currentProjectId && currentPath) {
+					response = await projectFileApi.fetchDownload(currentProjectId, currentPath, {
+						signal: controller.signal,
+					});
+				} else {
+					response = await fetchArtifactDownload(currentArtifact.id, {
+						signal: controller.signal,
+					});
+				}
 
 				if (previewKind === "markdown" || previewKind === "text") {
 					const text = await response.text();
@@ -133,12 +149,17 @@ export function ArtifactPreviewDialog({
 			controller.abort();
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
-	}, [open, artifact, previewKind]);
+	}, [open, artifact, artifactPath, previewKind, projectId]);
 
 	const handleDownload = async () => {
 		if (!artifact) return;
 		try {
-			const response = await fetchArtifactDownload(artifact.id);
+			let response: Response;
+			if (projectId && artifactPath) {
+				response = await projectFileApi.fetchDownload(projectId, artifactPath);
+			} else {
+				response = await fetchArtifactDownload(artifact.id);
+			}
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);
 			const link = document.createElement("a");

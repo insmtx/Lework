@@ -23,8 +23,9 @@ import (
 )
 
 type mockFileService struct {
-	uploadFn   func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error)
-	downloadFn func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error)
+	uploadFn         func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error)
+	downloadFn       func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error)
+	presignFn        func(ctx context.Context, orgID uint, fileID string) (string, error)
 }
 
 func (m *mockFileService) UploadFile(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
@@ -33,6 +34,10 @@ func (m *mockFileService) UploadFile(ctx context.Context, req *contract.UploadFi
 
 func (m *mockFileService) DownloadFile(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
 	return m.downloadFn(ctx, orgID, fileID)
+}
+
+func (m *mockFileService) PresignDownloadURL(ctx context.Context, orgID uint, fileID string) (string, error) {
+	return m.presignFn(ctx, orgID, fileID)
 }
 
 func setupFileRouter(t *testing.T, svc contract.FileService, caller *types.Caller) *gin.Engine {
@@ -425,5 +430,80 @@ func TestUploadFile_ReadError(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPresignDownloadURL_Success(t *testing.T) {
+	svc := &mockFileService{
+		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
+			return "https://example.com/presigned-url", nil
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files/test-id/preview", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	location := rec.Header().Get("Location")
+	if location != "https://example.com/presigned-url" {
+		t.Errorf("expected Location 'https://example.com/presigned-url', got '%s'", location)
+	}
+}
+
+func TestPresignDownloadURL_NoFileID(t *testing.T) {
+	svc := &mockFileService{
+		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
+			t.Error("presign should not be called with empty id")
+			return "", nil
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files//preview", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPresignDownloadURL_Unauthenticated(t *testing.T) {
+	svc := &mockFileService{
+		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
+			t.Error("presign should not be called when not authenticated")
+			return "", nil
+		},
+	}
+	router := setupFileRouter(t, svc, unauthenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files/test-id/preview", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPresignDownloadURL_NotFound(t *testing.T) {
+	svc := &mockFileService{
+		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
+			return "", errors.New("get presign download url failed")
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files/nonexistent/presign-url", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }

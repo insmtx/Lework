@@ -2188,6 +2188,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/LoginByPhoneCode": {
+            "post": {
+                "description": "使用手机号和验证码登录；首次登录会自动注册",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "手机验证码登录",
+                "parameters": [
+                    {
+                        "description": "手机验证码登录请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.LoginByPhoneCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "认证失败",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "登录失败次数过多",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/NewMessage": {
             "post": {
                 "description": "原子创建 Project + Task + Session 并分配 AgentWorker",
@@ -2331,6 +2389,58 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/SendPhoneLoginCode": {
+            "post": {
+                "description": "向手机号发送验证码；未配置短信服务时使用测试验证码",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "发送手机登录验证码",
+                "parameters": [
+                    {
+                        "description": "发送手机验证码请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.SendPhoneLoginCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "验证码发送太频繁",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -3085,9 +3195,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/files/{id}/preview": {
+            "get": {
+                "description": "生成预签名下载 URL 并 302 重定向",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "File"
+                ],
+                "summary": "获取预签名下载地址",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "文件ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "重定向到预签名下载 URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "文件不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/presigned/{bucket}/{key}": {
             "get": {
-                "description": "消费预签名下载 URL，验证 token 后返回文件内容",
+                "description": "消费预签名下载 URL（可选 token/expires 参数进行签名校验；不带参数时直接公开访问）",
                 "produces": [
                     "application/octet-stream"
                 ],
@@ -3112,17 +3269,15 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "预签名 token",
+                        "description": "预签名 token（可选）",
                         "name": "token",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "过期时间戳(秒)",
+                        "description": "过期时间戳(秒)（可选）",
                         "name": "expires",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3295,7 +3450,7 @@ const docTemplate = `{
         },
         "/projects/{project_id}/files": {
             "get": {
-                "description": "按 path + depth 获取项目文件目录层级结构",
+                "description": "获取项目 artifacts/ 和 uploads/ 目录的文件树，可通过 path 参数指定子目录。\n文件节点包含 created_at 字段（Unix 秒级时间戳），表示该文件在 Gitea 仓库中的首次 commit 时间，未找到时为 0。",
                 "produces": [
                     "application/json"
                 ],
@@ -3313,14 +3468,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "起始目录相对路径，默认根目录",
+                        "description": "起始目录相对路径，如 artifacts，默认返回全量",
                         "name": "path",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "查询深度，默认2",
-                        "name": "depth",
                         "in": "query"
                     }
                 ],
@@ -3329,6 +3478,66 @@ const docTemplate = `{
                         "description": "成功响应",
                         "schema": {
                             "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/files/preview": {
+            "get": {
+                "description": "代理 Gitea raw 内容，流式透传原始文件内容，浏览器可根据 Content-Type 内嵌预览",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Project"
+                ],
+                "summary": "预览项目文件",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "项目 public_id",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件相对路径，如 artifacts/example.png",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "文件内容",
+                        "schema": {
+                            "type": "file"
                         }
                     },
                     "400": {
@@ -4098,6 +4307,21 @@ const docTemplate = `{
                 }
             }
         },
+        "contract.LoginByPhoneCodeRequest": {
+            "type": "object",
+            "required": [
+                "code",
+                "phone"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.NewMessageRequest": {
             "type": "object",
             "required": [
@@ -4159,6 +4383,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.SendPhoneLoginCodeRequest": {
+            "type": "object",
+            "required": [
+                "phone"
+            ],
+            "properties": {
+                "phone": {
                     "type": "string"
                 }
             }
@@ -4495,8 +4730,8 @@ const docTemplate = `{
                 "session_id"
             ],
             "properties": {
-                "last_sequence": {
-                    "type": "integer"
+                "replay": {
+                    "type": "boolean"
                 },
                 "session_id": {
                     "type": "string"

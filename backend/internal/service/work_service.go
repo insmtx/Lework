@@ -6,24 +6,32 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"code.gitea.io/sdk/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 )
 
 var _ contract.WorkService = (*workService)(nil)
 
 type workService struct {
-	db       *gorm.DB
-	eventbus eventbus.EventBus
-	inferrer AssistantInferrer
+	db          *gorm.DB
+	eventbus    eventbus.EventBus
+	inferrer    AssistantInferrer
+	giteaClient *gitea.Client
+	giteaCfg    *config.GiteaConfig
+	env         string
 }
 
-func NewWorkService(database *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer) contract.WorkService {
+func NewWorkService(database *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.WorkService {
 	return &workService{
-		db:       database,
-		eventbus: eventbus,
-		inferrer: inferrer,
+		db:          database,
+		eventbus:    eventbus,
+		inferrer:    inferrer,
+		giteaClient: giteaClient,
+		giteaCfg:    giteaCfg,
+		env:         env,
 	}
 }
 
@@ -37,6 +45,6 @@ func (s *workService) NewMessage(ctx context.Context, req *contract.NewMessageRe
 		return nil, errors.New("user not authenticated or org not set")
 	}
 
-	p := NewMessagePoster(s.db, s.eventbus, s.inferrer)
+	p := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
 	return p.RunNewMessage(ctx, req, caller)
 }

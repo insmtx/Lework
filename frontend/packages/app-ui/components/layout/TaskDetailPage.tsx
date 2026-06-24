@@ -1,16 +1,7 @@
 "use client";
 
-import type { ProjectArtifact, ProjectTask } from "@leros/store";
-import {
-	collectSessionArtifacts,
-	formatArtifactTime,
-	formatTokenCount,
-	mapBackendArtifactToProjectArtifact,
-	mergeProjectArtifacts,
-	useChatStore,
-	useLayoutStore,
-} from "@leros/store";
-import { artifactApi } from "@leros/store/api/artifactApi";
+import type { ProjectTask } from "@leros/store";
+import { formatTokenCount, projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
 import { taskApi } from "@leros/store/api/taskApi";
 import { cn } from "@leros/ui/lib/utils";
 import {
@@ -36,6 +27,12 @@ import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
+import {
+	collectSelectableFiles,
+	normalizeProjectFileTree,
+	type ProjectFileNode,
+	sortProjectFilesByUploadedTimeDesc,
+} from "./project-files";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
 
@@ -91,7 +88,7 @@ export function TaskDetailPage({
 	} = useChatStore((s) => s);
 
 	const [task, setTask] = useState<ProjectTask | null>(null);
-	const [taskApiArtifacts, setTaskApiArtifacts] = useState<ProjectArtifact[]>([]);
+	const [taskFiles, setTaskFiles] = useState<ProjectFileNode[]>([]);
 	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
 	const [rightSidebarWidth, setRightSidebarWidth] = useState(
 		TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH,
@@ -147,14 +144,9 @@ export function TaskDetailPage({
 		}, initialSummary);
 	}, [resolvedSessionId, messageIds, messagesMap]);
 
-	const sessionArtifacts = useMemo(
-		() => collectSessionArtifacts(messagesMap, messageIds, resolvedSessionId),
-		[messagesMap, messageIds, resolvedSessionId],
-	);
-
-	const artifacts = useMemo(
-		() => mergeProjectArtifacts(taskApiArtifacts, sessionArtifacts),
-		[taskApiArtifacts, sessionArtifacts],
+	const flatTaskFiles = useMemo(
+		() => sortProjectFilesByUploadedTimeDesc(collectSelectableFiles(taskFiles)),
+		[taskFiles],
 	);
 	const rightSidebarWidthStyle = !rightSidebarCollapsed
 		? { width: `${rightSidebarWidth}px` }
@@ -164,15 +156,19 @@ export function TaskDetailPage({
 		: "sidebar-expanded";
 	const taskChatLayout = getProjectChatLayoutClasses(taskChatLayoutMode);
 
-	const fetchArtifacts = useCallback(async (taskId: string) => {
+	const fetchTaskFiles = useCallback(async () => {
+		if (!resolvedProjectId) return;
 		try {
-			const res = await artifactApi.listTaskArtifacts(taskId);
-			setTaskApiArtifacts((res.data.data ?? []).map(mapBackendArtifactToProjectArtifact));
+			const res = await projectFileApi.list({
+				projectId: resolvedProjectId,
+				path: "artifacts",
+			});
+			setTaskFiles(normalizeProjectFileTree(res.data.data));
 		} catch (err) {
-			console.error("TaskDetailPage fetch artifacts error:", err);
-			setTaskApiArtifacts([]);
+			console.error("TaskDetailPage fetch task files error:", err);
+			setTaskFiles([]);
 		}
-	}, []);
+	}, [resolvedProjectId]);
 
 	useEffect(() => {
 		fetchProjects();
@@ -223,13 +219,13 @@ export function TaskDetailPage({
 				console.error("TaskDetailPage fetch task error:", err);
 			});
 
-		fetchArtifacts(resolvedTaskId);
-	}, [resolvedTaskId, fetchArtifacts]);
+		fetchTaskFiles();
+	}, [resolvedTaskId, fetchTaskFiles]);
 
 	useEffect(() => {
 		if (!resolvedTaskId || isGenerating) return;
-		fetchArtifacts(resolvedTaskId);
-	}, [resolvedTaskId, fetchArtifacts, isGenerating]);
+		fetchTaskFiles();
+	}, [resolvedTaskId, fetchTaskFiles, isGenerating]);
 
 	useEffect(() => {
 		if (typeof window === "undefined" || hasLoadedRightSidebarPreferenceRef.current) return;
@@ -395,6 +391,7 @@ export function TaskDetailPage({
 						emptyState={<TaskChatEmptyState layout={taskChatLayout} />}
 						contentShellClassName={taskChatLayout.shell}
 						contentClassName={taskChatLayout.timelineInner}
+						projectId={resolvedProjectId}
 					/>
 					<ChatInput variant="project" projectLayoutMode={taskChatLayoutMode} />
 				</main>
@@ -483,10 +480,24 @@ export function TaskDetailPage({
 								<div className="mb-3 flex items-center justify-between">
 									<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务文件</h3>
 									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
-										{artifacts.length} 个
+										{flatTaskFiles.length} 个
 									</span>
 								</div>
-								<TaskArtifactList artifacts={artifacts} onPreview={setPreviewArtifact} />
+								<TaskFileList
+									files={flatTaskFiles}
+									onPreview={(file) =>
+										setPreviewArtifact({
+											id: file.path,
+											name: file.name,
+											title: file.name,
+											type: "document",
+											artifactType: "file",
+											mimeType: file.mimeType,
+											size: formatBytes(file.size),
+											downloadUrl: "",
+										})
+									}
+								/>
 							</section>
 						</div>
 						<hr
@@ -516,6 +527,7 @@ export function TaskDetailPage({
 				onOpenChange={(open) => {
 					if (!open) setPreviewArtifact(null);
 				}}
+				projectId={resolvedProjectId}
 			/>
 		</div>
 	);
@@ -667,14 +679,14 @@ function TaskChatEmptyState({
 	);
 }
 
-function TaskArtifactList({
-	artifacts,
+function TaskFileList({
+	files,
 	onPreview,
 }: {
-	artifacts: ProjectArtifact[];
-	onPreview: (artifact: ProjectArtifact) => void;
+	files: ProjectFileNode[];
+	onPreview: (file: ProjectFileNode) => void;
 }) {
-	if (artifacts.length === 0) {
+	if (files.length === 0) {
 		return (
 			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
 				暂无文件
@@ -684,36 +696,39 @@ function TaskArtifactList({
 
 	return (
 		<div className={SIDEBAR_COMPACT_LIST_CLASS}>
-			{artifacts.map((artifact) => (
+			{files.map((file) => (
 				<button
 					type="button"
-					key={artifact.id}
-					onClick={() => onPreview(artifact)}
+					key={file.path}
+					onClick={() => onPreview(file)}
 					className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
 					title="预览文件"
 				>
-					{/* hover 时补一个轻量蒙层，明确提示当前整卡可点击预览 */}
 					<div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover:opacity-100">
 						<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
 							点击预览
 						</span>
 					</div>
 					<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
-						<ProjectFileTypeIcon fileName={artifact.name} />
+						<ProjectFileTypeIcon fileName={file.name} />
 					</div>
 					<div className="min-w-0">
 						<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
-							{artifact.name}
+							{file.name}
 						</div>
 						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-							{/* 中文注释：任务文件列表补充生成时间，方便和“最新在上”的排序保持一致认知。 */}
-							{formatArtifactTime(artifact.updatedAt)}
-							{artifact.updatedAt && artifact.size ? " · " : ""}
-							{artifact.size}
+							{file.size > 0 ? formatBytes(file.size) : ""}
 						</div>
 					</div>
 				</button>
 			))}
 		</div>
 	);
+}
+
+function formatBytes(size: number): string {
+	if (!size) return "";
+	if (size < 1024) return `${size} B`;
+	if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+	return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }

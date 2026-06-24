@@ -6,6 +6,7 @@ export type BackendProjectFileNodeLike = {
 	size?: number;
 	mime_type?: string;
 	mod_time?: number;
+	created_at?: number;
 	public_id?: string;
 };
 
@@ -17,6 +18,7 @@ export type ProjectFileNode = {
 	size: number;
 	mimeType: string;
 	modTime: number;
+	createdAt: number;
 	publicId: string;
 };
 
@@ -33,6 +35,7 @@ export function normalizeProjectFileTree(
 		size: typeof node.size === "number" ? node.size : 0,
 		mimeType: typeof node.mime_type === "string" ? node.mime_type : "",
 		modTime: typeof node.mod_time === "number" ? node.mod_time : 0,
+		createdAt: typeof node.created_at === "number" ? node.created_at : 0,
 		publicId: typeof node.public_id === "string" ? node.public_id : "",
 		children: normalizeProjectFileTree(node.children),
 	}));
@@ -53,8 +56,15 @@ export function collectSelectableFiles(nodes: ProjectFileNode[]): ProjectFileNod
 	return result;
 }
 
+export type FileSource = "task" | "upload";
+
+export function getFileSource(path: string): FileSource {
+	const normalized = normalizeFilePath(path);
+	return normalized.startsWith("artifacts") ? "task" : "upload";
+}
+
 export function sortProjectFilesByUploadedTimeDesc(files: ProjectFileNode[]): ProjectFileNode[] {
-	return [...files].sort((left, right) => right.modTime - left.modTime);
+	return [...files].sort((left, right) => right.createdAt - left.createdAt);
 }
 
 function normalizeFilePath(path: string | undefined): string {

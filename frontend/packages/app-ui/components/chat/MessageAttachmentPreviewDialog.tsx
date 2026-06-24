@@ -1,6 +1,6 @@
 "use client";
 
-import { fetchFileDownload } from "@leros/store";
+import { fetchFileDownload, projectFileApi } from "@leros/store";
 import type { MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -60,13 +60,20 @@ export function MessageAttachmentPreviewDialog({
 	attachment,
 	open,
 	onOpenChange,
+	projectId,
 }: {
 	attachment: MessageAttachment | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	projectId?: string;
 }) {
 	const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
 	const previewKind = useMemo(() => getPreviewKind(attachment), [attachment]);
+
+	const attachmentPath = useMemo(() => {
+		if (!attachment || !projectId) return undefined;
+		return `uploads/${attachment.name}`;
+	}, [attachment, projectId]);
 
 	useEffect(() => {
 		if (!open || !attachment) {
@@ -91,6 +98,8 @@ export function MessageAttachmentPreviewDialog({
 
 				const response = await fetchAttachmentContent(currentAttachment, {
 					signal: controller.signal,
+					projectId,
+					attachmentPath,
 				});
 
 				if (previewKind === "markdown" || previewKind === "text") {
@@ -123,12 +132,15 @@ export function MessageAttachmentPreviewDialog({
 			controller.abort();
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
-	}, [attachment, open, previewKind]);
+	}, [attachment, open, previewKind, projectId, attachmentPath]);
 
 	const handleDownload = async () => {
 		if (!attachment) return;
 		try {
-			const response = await fetchAttachmentContent(attachment);
+			const response = await fetchAttachmentContent(attachment, {
+				projectId,
+				attachmentPath,
+			});
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);
 			const link = document.createElement("a");
@@ -203,8 +215,17 @@ export function MessageAttachmentPreviewDialog({
 
 async function fetchAttachmentContent(
 	attachment: MessageAttachment,
-	options?: { signal?: AbortSignal },
+	options?: {
+		signal?: AbortSignal;
+		projectId?: string;
+		attachmentPath?: string;
+	},
 ): Promise<Response> {
+	if (options?.projectId && options?.attachmentPath) {
+		return projectFileApi.fetchDownload(options.projectId, options.attachmentPath, {
+			signal: options?.signal,
+		});
+	}
 	if (attachment.url?.startsWith("blob:")) {
 		return fetch(attachment.url, { signal: options?.signal });
 	}

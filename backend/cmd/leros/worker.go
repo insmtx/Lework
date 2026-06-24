@@ -255,8 +255,9 @@ func runTaskWorker(defaultRuntime string) {
 	consumer, err := taskconsumer.New(taskconsumer.Config{
 		OrgID:          cfg.OrgID,
 		WorkerID:       cfg.WorkerID,
+		Env:            cfg.Env,
 		SeqTrackerPath: seqTrackerPath,
-	}, bus, bus, runtimeService)
+	}, bus, bus, runtimeService, cfg.Gitea)
 	if err != nil {
 		cancel()
 		_ = bus.Close()
@@ -451,3 +452,4 @@ func buildWorkerMCPURL(listenAddr string) string {
 	}
 	return "http://" + addr + "/v1/mcp"
 }
+

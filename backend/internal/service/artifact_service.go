@@ -1,26 +1,30 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
+	"code.gitea.io/sdk/gitea"
+
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/types"
 	"gorm.io/gorm"
 )
 
 type artifactService struct {
-	db *gorm.DB
+	db          *gorm.DB
+	giteaClient *gitea.Client
 }
 
 // NewArtifactService creates a service for generated artifacts.
-func NewArtifactService(db *gorm.DB) contract.ArtifactService {
-	return &artifactService{db: db}
+func NewArtifactService(db *gorm.DB, giteaClient *gitea.Client) contract.ArtifactService {
+	return &artifactService{db: db, giteaClient: giteaClient}
 }
 
 func (s *artifactService) ListTaskArtifacts(ctx context.Context, taskPublicID string) ([]contract.Artifact, error) {
@@ -41,7 +45,7 @@ func (s *artifactService) ListTaskArtifacts(ctx context.Context, taskPublicID st
 	if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
 		return nil, err
 	}
-	artifacts, err := db.ListTaskArtifacts(ctx, s.db, caller.OrgID, task.ID)
+	artifacts, err := infradb.ListTaskArtifacts(ctx, s.db, caller.OrgID, task.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -90,11 +94,34 @@ func (s *artifactService) GetArtifactDownload(ctx context.Context, artifactPubli
 	if artifact == nil {
 		return nil, errors.New("artifact not found")
 	}
-
-	reader, _, err := filestore.OpenFileByPublicID(ctx, s.db, artifact.OrgID, artifact.StorageKey)
 	if err := verifyUserPermission(artifact.OwnerID, caller.Uin); err != nil {
 		return nil, err
 	}
+
+	if strings.TrimSpace(artifact.RelativePath) == "" {
+		return nil, errors.New("artifact has no relative path")
+	}
+
+	project, err := infradb.GetProjectByID(ctx, s.db, artifact.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil || strings.TrimSpace(project.GiteaRepoFullName) == "" {
+		return nil, errors.New("project not linked to gitea repo")
+	}
+
+	parts := strings.SplitN(project.GiteaRepoFullName, "/", 2)
+	if len(parts) != 2 {
+		return nil, errors.New("invalid gitea repo full name")
+	}
+
+	data, _, err := s.giteaClient.GetFile(parts[0], parts[1],
+		project.GiteaDefaultBranch, artifact.RelativePath)
+	if err != nil {
+		return nil, fmt.Errorf("get gitea file: %w", err)
+	}
+	reader := io.NopCloser(bytes.NewReader(data))
+
 	return &contract.ArtifactDownload{
 		FileName: artifactDownloadName(artifact),
 		MimeType: artifact.MimeType,

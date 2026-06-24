@@ -85,22 +85,23 @@ type ProjectMemory struct {
 
 // FileTreeNode 文件树节点，递归结构
 type FileTreeNode struct {
-	Name     string          `json:"name"`                // 文件/目录名
-	Path     string          `json:"path"`                // 相对路径，兼做节点标识
-	Type     string          `json:"type"`                // "file" | "directory"
-	Children []*FileTreeNode `json:"children,omitempty"`  // 仅目录有
-	Size     int64           `json:"size,omitempty"`      // 仅文件有
-	MimeType string          `json:"mime_type,omitempty"` // 仅文件有
-	ModTime  int64           `json:"mod_time,omitempty"`  // 最后修改时间，Unix 时间戳（秒）
-	PublicID string          `json:"public_id,omitempty"` // 上传文件关联的 public_id，仓库文件为空
+	Name      string          `json:"name"`                 // 文件/目录名
+	Path      string          `json:"path"`                 // 相对路径，兼做节点标识
+	Type      string          `json:"type"`                 // "file" | "directory"
+	Children  []*FileTreeNode `json:"children,omitempty"`   // 仅目录有
+	Size      int64           `json:"size,omitempty"`       // 仅文件有
+	MimeType  string          `json:"mime_type,omitempty"`  // 仅文件有
+	ModTime   int64           `json:"mod_time,omitempty"`   // 最后修改时间，Unix 时间戳（秒）
+	CreatedAt int64           `json:"created_at,omitempty"` // 文件首次 commit 时间，Unix 秒；未找到则为 0
+	PublicID  string          `json:"public_id,omitempty"`  // 上传文件关联的 public_id，仓库文件为空
 }
 
 // FileUploadResult 文件上传结果
 type FileUploadResult struct {
-	Path     string `json:"path"`               // 相对 repo 根目录的路径
-	Filename string `json:"filename"`           // 文件名
-	Size     int64  `json:"size"`               // 文件大小（字节）
-	URL      string `json:"url,omitempty"`      // 文件访问 URL
+	Path     string `json:"path"`          // 相对 repo 根目录的路径
+	Filename string `json:"filename"`      // 文件名
+	Size     int64  `json:"size"`          // 文件大小（字节）
+	URL      string `json:"url,omitempty"` // 文件访问 URL
 }
 
 // AddFileRequest 将已上传文件关联到项目的请求

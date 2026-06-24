@@ -12,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
+	"code.gitea.io/sdk/gitea"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
@@ -41,6 +42,17 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	r.Use(middleware.ClientUpdateMiddleware(cfg.ClientUpdate))
 	r.Use(middleware.Logger(".Ping", "metrics"))
 	r.Use(ygmiddleware.Recovery())
+
+	var giteaClient *gitea.Client
+	if cfg.Gitea != nil {
+		var err error
+		giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint, gitea.SetToken(cfg.Gitea.AdminToken))
+		if err != nil {
+			logs.Errorf("create gitea client: %v", err)
+			giteaClient = nil
+		}
+	}
+
 	v1 := r.Group("/v1")
 	{
 		websocket.RegisterWebSocketRoutes(v1, eventbus)
@@ -83,11 +95,12 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		logs.Info("LLM model routes registered successfully")
 
 		inferrer := service.NewDefaultAssistantInferrer(1)
-		sessionService := service.NewSessionService(db, eventbus, inferrer)
+		sessionService := service.NewSessionService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env)
 		handler.RegisterSessionRoutes(v1, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		projectService := service.NewProjectServiceWithInferrer(db, inferrer)
+		// projectService := service.NewProjectService(db, giteaClient, cfg.Gitea, cfg.Env)
+		projectService := service.NewProjectServiceWithInferrer(db, inferrer, giteaClient, cfg.Gitea, cfg.Env)
 		handler.RegisterProjectRoutes(v1, projectService)
 		logs.Info("Project routes registered successfully")
 
@@ -95,7 +108,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		projectFileHandler.RegisterRoutes(v1)
 		logs.Info("Project file routes registered successfully")
 
-		workService := service.NewWorkService(db, eventbus, inferrer)
+		workService := service.NewWorkService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env)
 		handler.RegisterWorkRoutes(v1, workService)
 		logs.Info("Work routes registered successfully")
 
@@ -103,7 +116,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterTaskRoutes(v1, taskService)
 		logs.Info("Task routes registered successfully")
 
-		artifactService := service.NewArtifactService(db)
+		artifactService := service.NewArtifactService(db, giteaClient)
 		handler.RegisterArtifactRoutes(v1, artifactService)
 		logs.Info("Artifact routes registered successfully")
 
@@ -124,8 +137,9 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterSkillMarketplaceRoutes(v1, skillMarketplaceService)
 		logs.Info("Skill marketplace routes registered successfully")
 
+		// Start background consumers
 		if !cfg.Server.DisableEventConsumers {
-			go runnable.StartSessionArtifactDeclared(context.Background(), eventbus, db)
+			go runnable.StartSessionArtifactDeclared(context.Background(), eventbus, db, giteaClient)
 			logs.Info("Session artifact declared runnable started")
 			go runnable.StartSessionRunStarted(context.Background(), sessionService, eventbus)
 			logs.Info("Session run started runnable started")

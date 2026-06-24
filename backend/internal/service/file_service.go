@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
@@ -103,4 +104,13 @@ func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID strin
 		Size:      fileUpload.FileSize,
 		PublicURL: publicURL,
 	}, nil
+}
+
+func (s *fileService) PresignDownloadURL(ctx context.Context, orgID uint, fileID string) (string, error) {
+	url, _, err := filestore.PresignDownloadByPublicID(ctx, s.db, orgID, fileID, time.Hour)
+	if err != nil {
+		logs.ErrorContextf(ctx, "presign download url failed: %v", err)
+		return "", fmt.Errorf("get presign download url failed")
+	}
+	return url, nil
 }

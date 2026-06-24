@@ -14,10 +14,12 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	"code.gitea.io/sdk/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
@@ -43,16 +45,22 @@ const (
 var ErrNoReplyMessageIDs = errors.New("no reply message ids in stream event")
 
 type sessionService struct {
-	db       *gorm.DB
-	eventbus eventbus.EventBus
-	inferrer AssistantInferrer
+	db          *gorm.DB
+	eventbus    eventbus.EventBus
+	inferrer    AssistantInferrer
+	giteaClient *gitea.Client
+	giteaCfg    *config.GiteaConfig
+	env         string
 }
 
-func NewSessionService(db *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer) contract.SessionService {
+func NewSessionService(db *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.SessionService {
 	return &sessionService{
-		db:       db,
-		eventbus: eventbus,
-		inferrer: inferrer,
+		db:          db,
+		eventbus:    eventbus,
+		inferrer:    inferrer,
+		giteaClient: giteaClient,
+		giteaCfg:    giteaCfg,
+		env:         env,
 	}
 }
 
@@ -323,7 +331,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 
 	s.resolveAttachmentURLs(ctx, session.OrgID, req.Attachments)
 
-	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer)
+	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
 	message, err := mp.PostMessage(ctx, session, func(sequence int64) *types.SessionMessage {
 		return s.buildMessage(req, sequence)
 	})

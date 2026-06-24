@@ -127,10 +127,10 @@ func TestExecute_FileNotFound(t *testing.T) {
 func TestExecute_Success(t *testing.T) {
 	tool := NewTool()
 	ctx, manifestPath := newToolContext(t)
-	writeRepoFile(t, ctx, "docs/report.md", "hello")
+	writeRepoFile(t, ctx, "artifacts/report.md", "hello")
 
 	output, err := tool.Execute(ctx, map[string]interface{}{
-		"path":          repoPathFromContext(t, ctx, "docs/report.md"),
+		"path":          repoPathFromContext(t, ctx, "artifacts/report.md"),
 		"title":         "Report",
 		"description":   "Summary",
 		"mime_type":     "text/markdown",
@@ -148,8 +148,8 @@ func TestExecute_Success(t *testing.T) {
 	if !ok {
 		t.Fatalf("output artifact = %#v, want object", result["artifact"])
 	}
-	if artifact["path"] != "docs/report.md" {
-		t.Fatalf("output path = %v, want docs/report.md", artifact["path"])
+	if artifact["path"] != "artifacts/report.md" {
+		t.Fatalf("output path = %v, want artifacts/report.md", artifact["path"])
 	}
 	if artifact["filename"] != "report.md" {
 		t.Fatalf("output filename = %v, want report.md", artifact["filename"])
@@ -168,18 +168,62 @@ func TestExecute_Success(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("manifest entries = %d, want 1", len(entries))
 	}
-	if entries[0].Path != "docs/report.md" || !entries[0].IsFinal {
-		t.Fatalf("manifest entry = %+v, want path docs/report.md and final true", entries[0])
+	if entries[0].Path != "artifacts/report.md" || !entries[0].IsFinal {
+		t.Fatalf("manifest entry = %+v, want path artifacts/report.md and final true", entries[0])
 	}
 	if entries[0].MIMEType != "text/markdown" || entries[0].ArtifactType != "file" {
 		t.Fatalf("manifest entry = %+v, want MIME and artifact type", entries[0])
 	}
 }
 
+func TestExecute_NormalizesNonArtifactsPath(t *testing.T) {
+	tool := NewTool()
+	ctx, manifestPath := newToolContext(t)
+	writeRepoFile(t, ctx, "docs/report.md", "hello")
+
+	output, err := tool.Execute(ctx, map[string]interface{}{
+		"path":          repoPathFromContext(t, ctx, "docs/report.md"),
+		"title":         "Report",
+		"description":   "Summary",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	result := decodeJSONMap(t, output)
+	artifact, ok := result["artifact"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("output artifact = %#v, want object", result["artifact"])
+	}
+	if artifact["path"] != "artifacts/report.md" {
+		t.Fatalf("output path = %v, want artifacts/report.md after normalization", artifact["path"])
+	}
+	if artifact["filename"] != "report.md" {
+		t.Fatalf("output filename = %v, want report.md", artifact["filename"])
+	}
+
+	entries := readManifestEntries(t, manifestPath)
+	if len(entries) != 1 {
+		t.Fatalf("manifest entries = %d, want 1", len(entries))
+	}
+	if entries[0].Path != "artifacts/report.md" {
+		t.Fatalf("manifest entry path = %+v, want artifacts/report.md", entries[0].Path)
+	}
+
+	originalPath := repoPathFromContext(t, ctx, "docs/report.md")
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Fatalf("original file should be moved: stat err = %v", err)
+	}
+	normalizedPath := repoPathFromContext(t, ctx, "artifacts/report.md")
+	if _, err := os.Stat(normalizedPath); err != nil {
+		t.Fatalf("normalized file should exist: stat err = %v", err)
+	}
+}
+
 func TestExecute_InfersWorkspaceFromArtifactPath(t *testing.T) {
 	tool := NewTool()
 	repoDir := t.TempDir()
-	writeFile(t, filepath.Join(repoDir, "docs", "report.md"), "hello")
+	writeFile(t, filepath.Join(repoDir, "artifacts", "report.md"), "hello")
 
 	oldTurn := filepath.Join(repoDir, ".leros", "tasks", "task_old", "turns", "req_old")
 	latestTurn := filepath.Join(repoDir, ".leros", "tasks", "task_new", "turns", "req_new")
@@ -187,7 +231,7 @@ func TestExecute_InfersWorkspaceFromArtifactPath(t *testing.T) {
 	mkdirWithTime(t, repoDir, latestTurn, time.Now().Add(-1*time.Hour))
 
 	output, err := tool.Execute(context.Background(), map[string]interface{}{
-		"path":  filepath.Join(repoDir, "docs", "report.md"),
+		"path":  filepath.Join(repoDir, "artifacts", "report.md"),
 		"title": "Report",
 	})
 	if err != nil {
@@ -198,16 +242,16 @@ func TestExecute_InfersWorkspaceFromArtifactPath(t *testing.T) {
 	if !ok {
 		t.Fatalf("output artifact = %#v, want object", result["artifact"])
 	}
-	if artifact["path"] != "docs/report.md" {
-		t.Fatalf("output path = %v, want docs/report.md", artifact["path"])
+	if artifact["path"] != "artifacts/report.md" {
+		t.Fatalf("output path = %v, want artifacts/report.md", artifact["path"])
 	}
 
 	entries := readManifestEntries(t, filepath.Join(latestTurn, "artifacts.jsonl"))
 	if len(entries) != 1 {
 		t.Fatalf("manifest entries = %d, want 1", len(entries))
 	}
-	if entries[0].Path != "docs/report.md" {
-		t.Fatalf("manifest path = %q, want docs/report.md", entries[0].Path)
+	if entries[0].Path != "artifacts/report.md" {
+		t.Fatalf("manifest path = %q, want artifacts/report.md", entries[0].Path)
 	}
 	if _, err := os.Stat(filepath.Join(oldTurn, "artifacts.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("old turn manifest exists or stat error = %v, want not exist", err)
@@ -229,10 +273,10 @@ func TestExecute_InferWorkspaceRequiresLerosMarker(t *testing.T) {
 func TestExecute_MultipleDeclarations(t *testing.T) {
 	tool := NewTool()
 	ctx, manifestPath := newToolContext(t)
-	writeRepoFile(t, ctx, "docs/one.md", "one")
-	writeRepoFile(t, ctx, "docs/two.md", "two")
+	writeRepoFile(t, ctx, "artifacts/one.md", "one")
+	writeRepoFile(t, ctx, "artifacts/two.md", "two")
 
-	for _, path := range []string{"docs/one.md", "docs/two.md"} {
+	for _, path := range []string{"artifacts/one.md", "artifacts/two.md"} {
 		if _, err := tool.Execute(ctx, map[string]interface{}{"path": repoPathFromContext(t, ctx, path)}); err != nil {
 			t.Fatalf("Execute(%q) error = %v", path, err)
 		}
@@ -247,7 +291,7 @@ func TestExecute_MultipleDeclarations(t *testing.T) {
 func TestExecute_Concurrent(t *testing.T) {
 	tool := NewTool()
 	ctx, manifestPath := newToolContext(t)
-	paths := []string{"docs/a.md", "docs/b.md", "docs/c.md", "docs/d.md", "docs/e.md"}
+	paths := []string{"artifacts/a.md", "artifacts/b.md", "artifacts/c.md", "artifacts/d.md", "artifacts/e.md"}
 	for _, path := range paths {
 		writeRepoFile(t, ctx, path, path)
 	}

@@ -5,10 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/agent"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	runtimeevents "github.com/insmtx/Leros/backend/internal/runtime/events"
@@ -33,6 +39,7 @@ const (
 type Config struct {
 	OrgID          uint
 	WorkerID       uint
+	Env            string
 	DebounceWindow time.Duration
 	MaxConcurrency int    // concurrent worker pool size, default 20
 	SeqTrackerPath string // path to SQLite seq tracker database
@@ -50,10 +57,11 @@ type Consumer struct {
 	sem        chan struct{}
 	pending    map[string][]chan struct{}
 	pendingMu  sync.Mutex
+	giteaCfg   *config.GiteaConfig
 }
 
 // New creates a worker task consumer.
-func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, runner agent.Runner) (*Consumer, error) {
+func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, runner agent.Runner, giteaCfg *config.GiteaConfig) (*Consumer, error) {
 	if cfg.OrgID == 0 {
 		return nil, fmt.Errorf("worker org_id is required")
 	}
@@ -98,6 +106,7 @@ func New(cfg Config, subscriber eventbus.Subscriber, publisher ResultPublisher, 
 		seqTracker: tracker,
 		sem:        make(chan struct{}, maxConcurrency*2),
 		pending:    make(map[string][]chan struct{}),
+		giteaCfg:   giteaCfg,
 	}
 
 	// Debouncer handler changed from runTask to enqueueTask.
@@ -326,11 +335,13 @@ func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessa
 	req := RequestFromWorkerTask(taskMsg)
 	req.EventSink = NewMQStreamSink(c.publisher, taskMsg)
 
-	_, err := c.prepareWorkspace(ctx, taskMsg, req)
+	plan, err := c.prepareWorkspace(ctx, taskMsg, req)
 	if err != nil {
 		c.emitRunFailed(ctx, req, err)
 		return err
 	}
+
+	c.ingestAttachments(ctx, req, plan)
 
 	logs.InfoContextf(ctx,
 		"Starting worker task run: task_id=%s run_id=%s runtime=%s assistant_id=%s",
@@ -345,6 +356,7 @@ func (c *Consumer) runTask(ctx context.Context, taskMsg protocol.WorkerTaskMessa
 		c.emitRunFailed(ctx, req, err)
 		return err
 	}
+
 	if result != nil {
 		logs.InfoContextf(ctx, "Worker task completed: task_id=%s run_id=%s status=%s", req.TaskID, result.RunID, result.Status)
 	}
@@ -383,18 +395,128 @@ func (c *Consumer) prepareWorkspace(ctx context.Context, taskMsg protocol.Worker
 	if requestID == "" {
 		requestID = strings.TrimSpace(taskMsg.ID)
 	}
+
+	cloneURL := ""
+	if c.giteaCfg != nil {
+		orgID := taskMsg.Route.OrgID
+		repoName := fmt.Sprintf("%s-%d-%s", c.cfg.Env, orgID, projectID)
+		endpoint := strings.TrimPrefix(strings.TrimPrefix(c.giteaCfg.Endpoint, "https://"), "http://")
+		scheme := "https"
+		if strings.HasPrefix(c.giteaCfg.Endpoint, "http://") {
+			scheme = "http"
+		}
+		cloneURL = fmt.Sprintf("%s://%s:%s@%s/%s/%s.git",
+			scheme,
+			c.giteaCfg.DefaultOwner, c.giteaCfg.AdminToken,
+			endpoint,
+			c.giteaCfg.DefaultOwner, repoName)
+	}
+
 	plan, err := agentworkspace.PrepareTaskWorkspace(ctx, agentworkspace.TaskWorkspaceRequest{
 		OrgID:            taskMsg.Route.OrgID,
 		ProjectID:        projectID,
 		TaskID:           taskMsg.Trace.TaskID,
 		RequestID:        requestID,
 		RequestedWorkDir: taskMsg.Body.Runtime.WorkDir,
+		CloneURL:         cloneURL,
 	})
 	if err != nil {
 		return nil, err
 	}
 	req.Runtime.WorkDir = plan.EffectiveWorkDir
+	req.Workspace.RepoDir = plan.RepoDir
 	return plan, nil
+}
+
+// ingestAttachments downloads input attachments into the workspace repo and commits them.
+// It is best-effort: download failures are logged but do not block the agent run.
+// When there is no project repo (plan == nil, temp workspace), attachments are still
+// downloaded to the effective work dir but not committed to git.
+func (c *Consumer) ingestAttachments(ctx context.Context, req *agent.RequestContext, plan *agentworkspace.TaskWorkspace) {
+	if req == nil || len(req.Input.Attachments) == 0 {
+		return
+	}
+
+	var targetDir string
+	var repoDir string
+	if plan != nil {
+		targetDir = filepath.Join(plan.RepoDir, "uploads")
+		repoDir = plan.RepoDir
+	} else {
+		targetDir = filepath.Join(req.Runtime.WorkDir, "uploads")
+	}
+
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		logs.WarnContextf(ctx, "ingest attachments: create uploads dir: %v", err)
+		return
+	}
+
+	var downloadedCount int
+	for _, att := range req.Input.Attachments {
+		if strings.TrimSpace(att.URL) == "" || strings.TrimSpace(att.Name) == "" {
+			continue
+		}
+		if err := downloadFile(ctx, att.URL, filepath.Join(targetDir, att.Name)); err != nil {
+			logs.WarnContextf(ctx, "ingest attachment %q: %v", att.Name, err)
+			continue
+		}
+		downloadedCount++
+	}
+
+	if downloadedCount == 0 {
+		return
+	}
+
+	if repoDir != "" {
+		gitDir := filepath.Join(repoDir, ".git")
+		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+			commitAttachments(ctx, repoDir, downloadedCount)
+		}
+	}
+}
+
+// downloadFile fetches a file from url and writes it to destPath.
+func downloadFile(ctx context.Context, url string, destPath string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	file, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer file.Close()
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	return nil
+}
+
+// commitAttachments stages, commits and pushes attachment files in the workspace repo.
+func commitAttachments(ctx context.Context, repoDir string, count int) {
+	addCmd := exec.CommandContext(ctx, "git", "add", "uploads/")
+	addCmd.Dir = repoDir
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		logs.WarnContextf(ctx, "git add uploads/: %v: %s", err, strings.TrimSpace(string(output)))
+		return
+	}
+	msg := fmt.Sprintf("task: %d user attachment(s)", count)
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", msg)
+	commitCmd.Dir = repoDir
+	commitCmd.CombinedOutput()
+	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "main")
+	pushCmd.Dir = repoDir
+	if output, err := pushCmd.CombinedOutput(); err != nil {
+		logs.WarnContextf(ctx, "git push uploads/: %v: %s", err, strings.TrimSpace(string(output)))
+	}
 }
 
 // Close shuts down the consumer gracefully, waiting for all in-flight tasks.

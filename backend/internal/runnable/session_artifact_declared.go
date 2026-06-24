@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"code.gitea.io/sdk/gitea"
+
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
-	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/pkg/dm"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/nats-io/nats.go"
@@ -20,10 +21,10 @@ import (
 )
 
 // StartSessionArtifactDeclared 订阅实时产物声明并持久化。
-func StartSessionArtifactDeclared(ictx context.Context, eb eventbus.EventBus, db *gorm.DB) {
+func StartSessionArtifactDeclared(ictx context.Context, eb eventbus.EventBus, db *gorm.DB, giteaClient *gitea.Client) {
 	ctx := logs.WithContextFields(ictx, "runnable", "session_artifact_declared")
 	topic := dm.SessionResultStreamWildcardSubject()
-	persister := &declaredArtifactPersister{db: db}
+	persister := &declaredArtifactPersister{db: db, giteaClient: giteaClient}
 	logs.InfoContextf(ctx, "starting session artifact declared runnable: %s", topic)
 
 	Run(ctx, "session_artifact_declared", func(ctx context.Context) {
@@ -36,7 +37,8 @@ func StartSessionArtifactDeclared(ictx context.Context, eb eventbus.EventBus, db
 }
 
 type declaredArtifactPersister struct {
-	db *gorm.DB
+	db          *gorm.DB
+	giteaClient *gitea.Client
 }
 
 func handleSessionArtifactDeclaredMessage(ctx context.Context, persister *declaredArtifactPersister, msg *nats.Msg) {
@@ -128,41 +130,28 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 	if len(projects) == 0 {
 		return fmt.Errorf("project %d not found", *session.ProjectID)
 	}
-	projectPublicID := projects[0].PublicID
+	project := projects[0]
+	projectPublicID := project.PublicID
 
-	// TODO: 后续改为从远程地址下载产物文件，当前从本地文件系统读取，Data后续也要去掉
-	fileInfo, err := agentworkspace.ResolveArtifactStorageFile(ctx, route.OrgID, route.WorkerID, storageKey, item.MimeType)
-	if err != nil {
-		logs.WarnContextf(ctx, "persist declared artifact: resolve storage file failed, artifact_id=%s storage_key=%s err=%v",
-			artifactID, storageKey, err)
-		return err
-	}
-	rawStorageKey := storageKey
-
-	fileUpload, err := filestore.Upload(ctx, p.db, filestore.UploadParams{
-		Data:         fileInfo.Data,
-		Filename:     fileInfo.Filename,
-		OriginalName: fileInfo.Filename,
-		MimeType:     fileInfo.MimeType,
-		Size:         fileInfo.FileSize,
-		OrgID:        session.OrgID,
-		OwnerID:      session.Uin,
-		ObjectKey:    rawStorageKey,
-		Purpose:      filestore.PurposeArtifact,
-		Metadata: map[string]interface{}{
-			"project_public_id": projectPublicID,
-			"worker_id":         route.WorkerID,
-			"artifact_id":       artifactID,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("store artifact file: %w", err)
+	filePublicID := ""
+	if p.giteaClient != nil && strings.TrimSpace(project.GiteaRepoFullName) != "" {
+		parts := strings.SplitN(project.GiteaRepoFullName, "/", 2)
+		if len(parts) == 2 {
+			upload, ferr := uploadArtifactFilestore(ctx, p.db, p.giteaClient, parts[0], parts[1],
+				project.GiteaDefaultBranch, item, session.OrgID, session.Uin, storageKey)
+			if ferr != nil {
+				return fmt.Errorf("upload artifact to filestore: %w", ferr)
+			}
+			filePublicID = upload.PublicID
+		}
 	}
 
 	filename := strings.TrimSpace(item.Filename)
 	if filename == "" {
-		filename = fileInfo.Filename
+		filename = item.Title
 	}
+	giteaArtifactURL := projectPublicID + "/" + storageKey
+
 	artifact := &types.Artifact{
 		PublicID:     artifactID,
 		OrgID:        session.OrgID,
@@ -174,20 +163,19 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		Filename:     filename,
 		Description:  strings.TrimSpace(item.Description),
 		ArtifactType: artifactType(item.ArtifactType),
-		FileURL:      "/v1/artifacts/" + artifactID + "/download",
-		FilePublicID: fileUpload.PublicID,
-		MimeType:     fileInfo.MimeType,
-		FileSize:     fileInfo.FileSize,
-		RelativePath: item.Filename,
-		StorageKey:   fileUpload.StoragePath,
-		Sha256:       fileInfo.Sha256,
+		FileURL:      giteaArtifactURL,
+		FilePublicID: filePublicID,
+		FileSize:     item.FileSize,
+		RelativePath: item.RelativePath,
+		StorageKey:   storageKey,
+		MimeType:     item.MimeType,
+		Sha256:       item.Sha256,
 		Source:       artifactSource(item.Source),
 		Status:       artifactStatus(item.Status),
 		Metadata: types.ObjectMetadata{
 			Extra: map[string]interface{}{
-				"worker_id":       route.WorkerID,
-				"storage_key_raw": rawStorageKey,
-				"storage_path":    fileUpload.StoragePath,
+				"worker_id":         route.WorkerID,
+				"project_public_id": projectPublicID,
 			},
 		},
 	}
@@ -203,4 +191,32 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		return err
 	}
 	return nil
+}
+
+func uploadArtifactFilestore(ctx context.Context, db *gorm.DB, giteaClient *gitea.Client, owner, repo, ref string, item events.ArtifactPayload, orgID, ownerID uint, storageKey string) (*types.FileUpload, error) {
+	data, _, err := giteaClient.GetFile(owner, repo, ref, item.RelativePath)
+	if err != nil {
+		return nil, fmt.Errorf("gitea get file: %w", err)
+	}
+
+	mimeType := strings.TrimSpace(item.MimeType)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	objectKey := fmt.Sprintf("artifacts/%d/%s/%s", orgID, item.ArtifactID, storageKey)
+	upload, err := filestore.Upload(ctx, db, filestore.UploadParams{
+		Data:     data,
+		Filename: item.Filename,
+		MimeType: mimeType,
+		OrgID:    orgID,
+		OwnerID:  ownerID,
+		ObjectKey: objectKey,
+		Purpose:  filestore.PurposeArtifact,
+		Size:     item.FileSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("filestore upload: %w", err)
+	}
+	return upload, nil
 }

@@ -347,6 +347,7 @@ export type BackendProjectFileNode = {
 	size?: number;
 	mime_type?: string;
 	mod_time?: number;
+	created_at?: number;
 	public_id?: string;
 };
 

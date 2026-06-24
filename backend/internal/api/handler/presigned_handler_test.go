@@ -113,14 +113,50 @@ func TestPresignedPutMissingToken(t *testing.T) {
 	}
 }
 
-func TestPresignedGetMissingToken(t *testing.T) {
+func TestPresignedGetWithoutToken_ObjectNotFound(t *testing.T) {
 	r := setupPresignedTestRouter(t)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test-bucket/hello.txt", nil)
+	req, _ := http.NewRequest("GET", "/test-bucket/nonexistent.txt", nil)
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestPresignedGetWithoutToken_Success(t *testing.T) {
+	r := setupPresignedTestRouter(t)
+
+	// Upload a file first
+	body := strings.NewReader("public content")
+	w1 := httptest.NewRecorder()
+	req1, _ := http.NewRequest("PUT", "/static/test-bucket/public.txt?presign=1", nil)
+	r.ServeHTTP(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("presign upload URL generation failed: %d", w1.Code)
+	}
+	parsedURL, err := url.Parse(w1.Body.String())
+	if err != nil {
+		t.Fatalf("parse upload URL: %v", err)
+	}
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("PUT", parsedURL.RequestURI(), body)
+	req2.Header.Set("Content-Type", "text/plain")
+	r.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("upload failed: %d", w2.Code)
+	}
+
+	// Access without token
+	w3 := httptest.NewRecorder()
+	req3, _ := http.NewRequest("GET", "/test-bucket/public.txt", nil)
+	r.ServeHTTP(w3, req3)
+	if w3.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w3.Code)
+	}
+	data, _ := io.ReadAll(w3.Result().Body)
+	if string(data) != "public content" {
+		t.Fatalf("expected 'public content', got '%s'", string(data))
 	}
 }
 

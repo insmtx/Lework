@@ -23,12 +23,14 @@ export function MessageTimeline({
 	className,
 	contentClassName,
 	contentShellClassName,
+	projectId,
 }: {
 	emptyState?: ReactNode;
 	className?: string;
 	contentClassName?: string;
 	/** 与 contentClassName 配合：外层 shell 负责 padding，内层负责 max-width */
 	contentShellClassName?: string;
+	projectId?: string;
 } = {}) {
 	const { messagesMap, messageIds, isGenerating, streamingMessageId } = useChatStore((s) => s);
 
@@ -88,9 +90,13 @@ export function MessageTimeline({
 			{messages.map((msg: Message) => (
 				<div key={msg.id}>
 					{msg.role === "user" ? (
-						<UserMessageBubble message={msg} />
+						<UserMessageBubble message={msg} projectId={projectId} />
 					) : msg.role === "assistant" ? (
-						<AIMessageBubble message={msg} isStreaming={msg.id === streamingMessageId} />
+						<AIMessageBubble
+							message={msg}
+							isStreaming={msg.id === streamingMessageId}
+							projectId={projectId}
+						/>
 					) : null}
 				</div>
 			))}

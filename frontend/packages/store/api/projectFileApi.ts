@@ -10,7 +10,6 @@ import type {
 export type GetProjectFilesParams = {
 	projectId: string;
 	path?: string;
-	depth?: number;
 };
 
 export type UploadProjectFileParams = {
@@ -33,11 +32,6 @@ type BackendUploadFilePayload = {
 	sha256?: string;
 	storage_path?: string;
 	url?: string;
-};
-
-type AddProjectFileParams = {
-	projectId: string;
-	publicId: string;
 };
 
 async function parseErrorMessage(response: Response): Promise<string> {
@@ -87,55 +81,44 @@ async function uploadLooseFile({
 	return (await response.json()) as BackendDataResponse<BackendUploadFilePayload>;
 }
 
-async function addFileToProject({
-	projectId,
-	publicId,
-}: AddProjectFileParams): Promise<BackendDataResponse<null>> {
-	const response = await authenticatedFetch(
-		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/AddFile`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ public_id: publicId }),
-		},
-	);
-
-	if (!response.ok) {
-		throw new Error(await parseErrorMessage(response));
-	}
-
-	return (await response.json()) as BackendDataResponse<null>;
-}
-
 export const projectFileApi = {
-	list: ({ projectId, path, depth = 2 }: GetProjectFilesParams) =>
+	list: ({ projectId, path }: GetProjectFilesParams) =>
 		apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>(
 			`/projects/${encodeURIComponent(projectId)}/files`,
 			{
-				params: {
-					...(path ? { path } : {}),
-					depth,
-				},
+				params: path ? { path } : undefined,
 			},
 		),
 
-	upload: async ({ projectId, file }: UploadProjectFileParams) => {
+	download: (projectId: string, filePath: string): string =>
+		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/download?path=${encodeURIComponent(filePath)}`,
+
+	async fetchDownload(
+		projectId: string,
+		filePath: string,
+		options?: { signal?: AbortSignal },
+	): Promise<Response> {
+		const url = projectFileApi.download(projectId, filePath);
+		const response = await authenticatedFetch(url, {
+			method: "GET",
+			signal: options?.signal,
+		});
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
+		return response;
+	},
+
+	upload: async ({ file }: UploadProjectFileParams) => {
 		const uploadResponse = assertBackendSuccess(await uploadFile(file), "文件上传失败");
 		const uploaded = uploadResponse.data;
 		if (!uploaded?.public_id) {
 			throw new Error("上传接口未返回 public_id");
 		}
 
-		const addResponse = assertBackendSuccess(
-			await addFileToProject({ projectId, publicId: uploaded.public_id }),
-			"添加文件到项目失败",
-		);
-
 		return {
-			code: addResponse.code,
-			message: addResponse.message,
+			code: uploadResponse.code,
+			message: uploadResponse.message,
 			data: {
 				path: uploaded.storage_path || uploaded.url || uploaded.public_id,
 				filename: uploaded.original_name || uploaded.filename || file.name,

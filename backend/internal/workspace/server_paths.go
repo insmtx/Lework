@@ -62,7 +62,8 @@ func ProjectMemoryPath(repoDir string) string {
 	return filepath.Join(repoDir, ".leros", "memory", "project_memory.md")
 }
 
-// ArtifactStoragePath 从 server 侧解析 worker workspace 相对的 storage key。
+// Deprecated: ArtifactStoragePath is no longer used.
+// Artifacts are now accessed via Gitea API using repo-relative storage keys.
 func ArtifactStoragePath(orgID uint, workerID uint, storageKey string) (string, error) {
 	key := strings.TrimSpace(storageKey)
 	if key == "" || filepath.IsAbs(key) {

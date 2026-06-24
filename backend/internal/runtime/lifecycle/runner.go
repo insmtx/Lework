@@ -53,6 +53,7 @@ func (r *Runner) defaultPipeline() Pipeline {
 		steps.ArtifactBaselineStep{},
 		steps.ExecuteStep{Delegate: r.delegate},
 		steps.ArtifactReconcileStep{},
+		steps.PushWorkspaceStep{},
 		steps.ArtifactStep{Recorder: r.artifactRecorder},
 		steps.PersistStep{},
 		steps.LearningStep{Service: r.learning},
