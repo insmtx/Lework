@@ -407,9 +407,9 @@ func (c *Consumer) prepareWorkspace(ctx context.Context, taskMsg protocol.Worker
 		}
 		cloneURL = fmt.Sprintf("%s://%s:%s@%s/%s/%s.git",
 			scheme,
-			c.giteaCfg.DefaultOwner, c.giteaCfg.AdminToken,
+			c.giteaCfg.Owner, c.giteaCfg.AccessToken,
 			endpoint,
-			c.giteaCfg.DefaultOwner, repoName)
+			c.giteaCfg.Owner, repoName)
 	}
 
 	plan, err := agentworkspace.PrepareTaskWorkspace(ctx, agentworkspace.TaskWorkspaceRequest{

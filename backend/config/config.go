@@ -120,7 +120,7 @@ func (s *StorageConfig) GetStaticAPIKey() string {
 
 // GiteaConfig 外部 gitea 实例连接配置
 type GiteaConfig struct {
-	Endpoint     string `yaml:"endpoint"`
-	AdminToken   string `yaml:"admin_token"`
-	DefaultOwner string `yaml:"default_owner"`
+	Endpoint    string `yaml:"endpoint"`
+	AccessToken string `yaml:"access_token"`
+	Owner       string `yaml:"owner"`
 }

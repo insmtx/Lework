@@ -216,7 +216,7 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 	}
 
 	repoName := o.poster.buildRepoName(o.caller.OrgID, projectID)
-	repoInfo, _, err := o.poster.giteaClient.AdminCreateRepo(o.poster.giteaCfg.DefaultOwner, gitea.CreateRepoOption{
+	repoInfo, _, err := o.poster.giteaClient.CreateRepo(gitea.CreateRepoOption{
 		Name:        repoName,
 		Description: "",
 		Private:     true,

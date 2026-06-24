@@ -46,7 +46,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	var giteaClient *gitea.Client
 	if cfg.Gitea != nil {
 		var err error
-		giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint, gitea.SetToken(cfg.Gitea.AdminToken))
+		giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint, gitea.SetToken(cfg.Gitea.AccessToken))
 		if err != nil {
 			logs.Errorf("create gitea client: %v", err)
 			giteaClient = nil

@@ -32,8 +32,8 @@ llm:
 
 gitea:
   endpoint: "<your_gitea_endpoint>"
-  admin_token: "<your_admin_token>"
-  default_owner: "admin"
+  access_token: "<your_access_token>"
+  owner: "admin"
 
 storage:
   driver: local

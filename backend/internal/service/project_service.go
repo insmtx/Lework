@@ -118,7 +118,7 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 	project.GiteaDefaultBranch = "main"
 
 	repoName := s.buildRepoName(caller.OrgID, publicID)
-	repoInfo, _, err := s.giteaClient.AdminCreateRepo(s.giteaCfg.DefaultOwner, gitea.CreateRepoOption{
+	repoInfo, _, err := s.giteaClient.CreateRepo(gitea.CreateRepoOption{
 		Name:        repoName,
 		Description: strings.TrimSpace(req.Description),
 		Private:     true,
@@ -623,7 +623,7 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("create gitea raw request: %w", err)
 	}
-	req.Header.Set("Authorization", "token "+s.giteaCfg.AdminToken)
+	req.Header.Set("Authorization", "token "+s.giteaCfg.AccessToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
