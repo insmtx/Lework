@@ -20,6 +20,7 @@ import {
 	X,
 } from "lucide-react";
 import {
+	type ChangeEvent,
 	type ComponentType,
 	type CSSProperties,
 	useEffect,
@@ -27,9 +28,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
-import { ChatInput } from "../input/ChatInput";
+import { ChatInput, PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
@@ -735,11 +737,21 @@ function ProjectTaskList({
 	);
 }
 
-function ProjectFiles({ projectId, files }: { projectId: string; files: ProjectFileNode[] }) {
+function ProjectFiles({
+	projectId,
+	files,
+	onRefresh,
+}: {
+	projectId: string;
+	files: ProjectFileNode[];
+	onRefresh: () => Promise<void>;
+}) {
 	const [previewFile, setPreviewFile] = useState<ProjectFileNode | null>(null);
 	const [previewState, setPreviewState] = useState<FilePreviewState>({
 		status: "idle",
 	});
+	const [uploading, setUploading] = useState(false);
+	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [searchKeyword, setSearchKeyword] = useState("");
 	const [fileSourceFilter, setFileSourceFilter] = useState<"all" | FileSource>("all");
 	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
@@ -851,6 +863,24 @@ function ProjectFiles({ projectId, files }: { projectId: string; files: ProjectF
 		return () => document.removeEventListener("pointerdown", handlePointerDown);
 	}, [previewFile]);
 
+	const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+		const file = event.target.files?.[0];
+		event.target.value = "";
+		if (!file) return;
+
+		setUploading(true);
+		setUploadError(null);
+		try {
+			await projectFileApi.upload({ projectId, file });
+			await onRefresh();
+			toast.success("文件上传成功");
+		} catch (err) {
+			setUploadError(err instanceof Error ? err.message : "上传文件失败");
+		} finally {
+			setUploading(false);
+		}
+	};
+
 	const handleDownload = async (file: ProjectFileNode) => {
 		try {
 			const response = await projectFileApi.fetchDownload(projectId, file.path);
@@ -926,8 +956,31 @@ function ProjectFiles({ projectId, files }: { projectId: string; files: ProjectF
 							</select>
 							<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
 						</div>
+						{/* 中文注释：当前只隐藏上传按钮入口，保留上传逻辑和状态处理，后续需要恢复展示时可直接取消注释。 */}
+						{/* <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--leros-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90">
+							<FileText className="size-4" />
+							上传
+							<input
+								type="file"
+								className="hidden"
+								accept={PROJECT_ATTACHMENT_ACCEPT}
+								onChange={handleUpload}
+								disabled={uploading}
+							/>
+						</label> */}
 					</div>
 				</div>
+
+				{uploading && (
+					<div className="mb-4 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-4 py-3 text-sm text-[var(--leros-text-muted)]">
+						正在上传文件...
+					</div>
+				)}
+				{uploadError && (
+					<div className="mb-4 rounded-xl border border-[var(--leros-danger)]/20 bg-[var(--leros-danger-softer)] px-4 py-3 text-sm text-[var(--leros-danger)]">
+						{uploadError}
+					</div>
+				)}
 
 				{allFlatFiles.length === 0 ? (
 					<div className="px-6 py-16 text-center text-sm text-[var(--leros-text-muted)]">
