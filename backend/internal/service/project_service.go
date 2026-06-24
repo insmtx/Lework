@@ -14,6 +14,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"gorm.io/gorm"
 
@@ -30,6 +35,11 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
+)
+
+const (
+	createdAtMaxConcurrent = 8
+	createdAtMaxPages      = 100
 )
 
 type projectService struct {
@@ -541,7 +551,15 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		}
 	}
 
-	allRoots := buildFileTree(filtered)
+	filePaths := make([]string, 0, len(filtered))
+	for _, e := range filtered {
+		if e.Type != "tree" {
+			filePaths = append(filePaths, e.Path)
+		}
+	}
+	createdAtMap := s.lookupFileCreatedAt(ctx, owner, repo, project.GiteaDefaultBranch, filePaths)
+
+	allRoots := buildFileTree(filtered, createdAtMap)
 	roots := filterByParentPaths(allRoots, strings.Trim(parentPath, "/"))
 	if roots == nil {
 		return nil, errors.New("directory not found")
@@ -837,7 +855,76 @@ func isPathAllowed(filePath string) bool {
 	return false
 }
 
-func buildFileTree(entries []gitea.GitEntry) []*contract.FileTreeNode {
+// lookupFileCreatedAt 通过并发分页拉取 commit 记录，构造文件路径到首次 commit Unix 时间戳的映射。
+func (s *projectService) lookupFileCreatedAt(ctx context.Context, owner, repo, ref string, paths []string) map[string]int64 {
+	if len(paths) == 0 {
+		return map[string]int64{}
+	}
+
+	var (
+		mu      sync.Mutex
+		needed  = make(map[string]struct{}, len(paths))
+		result  = make(map[string]int64, len(paths))
+		stopped atomic.Bool
+	)
+	for _, p := range paths {
+		needed[p] = struct{}{}
+	}
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(createdAtMaxConcurrent)
+
+	for page := 1; page <= createdAtMaxPages; page++ {
+		mu.Lock()
+		covered := len(result) == len(needed)
+		mu.Unlock()
+		if covered || stopped.Load() {
+			break
+		}
+		page := page
+		g.Go(func() error {
+			if gCtx.Err() != nil {
+				return nil
+			}
+			commits, _, err := s.giteaClient.ListRepoCommits(owner, repo, gitea.ListCommitOptions{
+				ListOptions: gitea.ListOptions{Page: page, PageSize: 100},
+				SHA:         ref,
+				Files:       true,
+			})
+			if err != nil || len(commits) == 0 {
+				stopped.Store(true)
+				return nil
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			for _, c := range commits {
+				t := c.Created.Unix()
+				if t == 0 && c.RepoCommit != nil && c.RepoCommit.Committer != nil {
+					if pt, err := time.Parse(time.RFC3339, c.RepoCommit.Committer.Date); err == nil {
+						t = pt.Unix()
+					}
+				}
+				if t == 0 {
+					continue
+				}
+				for _, f := range c.Files {
+					if _, ok := needed[f.Filename]; !ok {
+						continue
+					}
+					if _, exists := result[f.Filename]; !exists {
+						result[f.Filename] = t
+					}
+				}
+			}
+			return nil
+		})
+	}
+
+	g.Wait()
+	return result
+}
+
+func buildFileTree(entries []gitea.GitEntry, createdAtMap map[string]int64) []*contract.FileTreeNode {
 	nodeMap := make(map[string]*contract.FileTreeNode)
 	var roots []*contract.FileTreeNode
 
@@ -862,6 +949,9 @@ func buildFileTree(entries []gitea.GitEntry) []*contract.FileTreeNode {
 			node.Size = entry.Size
 			if mt := mimeTypeByExt(name); mt != "" {
 				node.MimeType = mt
+			}
+			if createdAtMap != nil {
+				node.CreatedAt = createdAtMap[entry.Path]
 			}
 		}
 

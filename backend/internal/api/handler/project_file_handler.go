@@ -34,7 +34,8 @@ func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
 
 // GetProjectFileTree 获取项目文件树
 // @Summary 获取项目文件树
-// @Description 获取项目 artifacts/ 和 uploads/ 目录的文件树，可通过 path 参数指定子目录
+// @Description 获取项目 artifacts/ 和 uploads/ 目录的文件树，可通过 path 参数指定子目录。
+// @Description 文件节点包含 created_at 字段（Unix 秒级时间戳），表示该文件在 Gitea 仓库中的首次 commit 时间，未找到时为 0。
 // @Tags Project
 // @Produce json
 // @Param project_id path string true "项目 public_id"
