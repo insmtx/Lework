@@ -515,7 +515,7 @@ func commitAttachments(ctx context.Context, repoDir string, count int) {
 	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "main")
 	pushCmd.Dir = repoDir
 	if output, err := pushCmd.CombinedOutput(); err != nil {
-		logs.WarnContextf(ctx, "git push uploads/: %v: %s", err, strings.TrimSpace(string(output)))
+		logs.ErrorContextf(ctx, "git push uploads failed: %v: %s", err, strings.TrimSpace(string(output)))
 	}
 }
 
