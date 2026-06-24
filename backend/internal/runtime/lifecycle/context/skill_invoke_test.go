@@ -67,7 +67,7 @@ func TestApplyInvokedSkillsSingleSkill(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestApplyInvokedSkillsNoSkill(t *testing.T) {
 	}
 
 	original := req.Input.Messages[0].Content
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestApplyInvokedSkillsEmptyMessages(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestApplyInvokedSkillsMultiSkillSingleMessage(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestApplyInvokedSkillsMultiMessagesDedup(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestApplyInvokedSkillsDuplicateOnlyMessageStripsToken(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestApplyInvokedSkillsNoInstruction(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestApplyInvokedSkillsNotFound(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err == nil {
 		t.Fatalf("expected error for nonexistent skill")
 	}
@@ -296,7 +296,7 @@ func TestApplyInvokedSkillsNotAtStart(t *testing.T) {
 	}
 
 	original := req.Input.Messages[0].Content
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestApplyInvokedSkillsNumericStartNoMatch(t *testing.T) {
 	}
 
 	original := req.Input.Messages[0].Content
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestApplyInvokedSkillsSkipNonUser(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestApplyInvokedSkillsDashDashNotStripped(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestApplyInvokedSkillsPreservesTokenOrder(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestApplyInvokedSkillsIntraMessageDedup(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestApplyInvokedSkillsSupportingFiles(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestApplyInvokedSkillsAbsoluteDir(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestApplyInvokedSkillsManifestNameDisplayed(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills: %v", err)
 	}
@@ -523,14 +523,14 @@ func TestApplyInvokedSkillsErrorPreventsProcessing(t *testing.T) {
 		},
 	}
 
-	err := ApplyInvokedSkills(context.Background(), req)
+	err := ApplyInvokedSkills(context.Background(), nil, req)
 	if err == nil {
 		t.Fatalf("expected error for nonexistent skill in second message")
 	}
 }
 
 func TestApplyInvokedSkillsNilRequest(t *testing.T) {
-	err := ApplyInvokedSkills(context.Background(), nil)
+	err := ApplyInvokedSkills(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills with nil request should not error: %v", err)
 	}

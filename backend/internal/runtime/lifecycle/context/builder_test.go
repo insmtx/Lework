@@ -10,7 +10,7 @@ import (
 
 func TestContextBuilderBuildSystemPromptLayers(t *testing.T) {
 	builder := NewContextBuilder(ContextBuilder{})
-	prompt, err := builder.BuildSystemPrompt(context.Background(), &agent.RequestContext{
+	prompt, err := builder.BuildSystemPrompt(context.Background(), nil, &agent.RequestContext{
 		Assistant: agent.AssistantContext{SystemPrompt: "Assistant-specific prompt."},
 		Conversation: agent.ConversationContext{
 			ID: "conv-123",
