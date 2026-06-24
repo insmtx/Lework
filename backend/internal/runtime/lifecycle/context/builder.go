@@ -8,17 +8,20 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/agent"
 	"github.com/ygpkg/yg-go/logs"
+	"gorm.io/gorm"
 )
 
 // ContextBuilder 统一为内部 Agent 和外部 CLI 构建运行上下文。
 type ContextBuilder struct {
 	SessionMessages SessionMessageProvider
+	DB              *gorm.DB
 }
 
 // NewContextBuilder 创建统一上下文构建器。
 func NewContextBuilder(cfg ContextBuilder) *ContextBuilder {
 	return &ContextBuilder{
 		SessionMessages: cfg.SessionMessages,
+		DB:              cfg.DB,
 	}
 }
 
@@ -48,12 +51,12 @@ func (b *ContextBuilder) Prepare(ctx context.Context, req *agent.RequestContext)
 		}
 	}
 	// 解析并加载用户显式调用的 skill
-	if err := ApplyInvokedSkills(ctx, cloned); err != nil {
+	if err := ApplyInvokedSkills(ctx, b.DB, cloned); err != nil {
 		logs.WarnContextf(ctx, "Agent invoke skills failed: run_id=%s trace_id=%s error=%v",
 			req.RunID, req.TraceID, err)
 		return nil, err
 	}
-	systemPrompt, err := b.BuildSystemPrompt(ctx, cloned)
+	systemPrompt, err := b.BuildSystemPrompt(ctx, b.DB, cloned)
 	if err != nil {
 		logs.WarnContextf(ctx, "Agent context build system prompt failed: run_id=%s trace_id=%s error=%v",
 			req.RunID, req.TraceID, err)

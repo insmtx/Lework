@@ -8,22 +8,36 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/ygpkg/yg-go/logs"
+	"gorm.io/gorm"
 )
 
 // buildSkillLoadingContext 构建 Skill 加载指令 + available_skills 数据。
 // 静态提示词模板来自 prompts 包，动态 skills 数据在运行时从文件系统扫描注入。
-func (b *ContextBuilder) buildSkillLoadingContext() string {
+// 仅当 db 非 nil 且 skill 在 DB 中 status=active 时才会出现在 available_skills 列表中。
+// 若 db 为 nil 则不过滤（向后兼容无 DB 的 Worker 场景）。
+func (b *ContextBuilder) buildSkillLoadingContext(ctx context.Context, db *gorm.DB) string {
 	var skillsData string
 	summaries, err := skillcatalog.List()
 	if err == nil && len(summaries) > 0 {
+		activeCodes, dbErr := infradb.GetActiveSkillCodes(ctx, db)
+		if dbErr != nil {
+			logs.WarnContextf(ctx, "Agent skill loading context: fallback to all skills, db error=%v", dbErr)
+			activeCodes = nil
+		}
+
 		var sb strings.Builder
 		sb.WriteString("\n")
 		for _, s := range summaries {
+			if activeCodes != nil && !activeCodes[s.Name] {
+				logs.DebugContextf(ctx, "Agent skill loading context: skipping inactive skill=%q", s.Name)
+				continue
+			}
 			sb.WriteString("- ")
 			sb.WriteString(s.Name)
 			sb.WriteString(": ")
@@ -50,7 +64,7 @@ func (b *ContextBuilder) buildSkillLoadingContext() string {
 //  9. 运行元信息（日期 / SessionID / Model）
 //
 // 10. 平台格式指导（按 Channel）
-func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agent.RequestContext) (string, error) {
+func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, db *gorm.DB, req *agent.RequestContext) (string, error) {
 	sections := make([]string, 0, 10)
 	sectionNames := make([]string, 0, 10)
 
@@ -77,7 +91,7 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agent.Reque
 	}
 
 	// Skill 加载指令 + available_skills
-	if skillLoading := strings.TrimSpace(b.buildSkillLoadingContext()); skillLoading != "" {
+	if skillLoading := strings.TrimSpace(b.buildSkillLoadingContext(ctx, db)); skillLoading != "" {
 		sections = append(sections, skillLoading)
 		sectionNames = append(sectionNames, "skill_loading")
 	}

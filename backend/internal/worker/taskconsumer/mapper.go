@@ -1,6 +1,7 @@
 package taskconsumer
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
@@ -26,7 +27,8 @@ func RequestFromWorkerTask(msg protocol.WorkerTaskMessage) *agent.RequestContext
 			AccountID:   msg.Body.Actor.AccountID,
 		},
 		Conversation: agent.ConversationContext{
-			ID: msg.Route.SessionID,
+			ID:   msg.Route.SessionID,
+			DBID: msg.Route.SessionDBID,
 		},
 		Workspace: agent.WorkspaceContext{
 			OrgID:     msg.Route.OrgID,
@@ -68,12 +70,30 @@ func inputMessagesFromTask(messages []protocol.ChatMessage) []agent.InputMessage
 	}
 	result := make([]agent.InputMessage, 0, len(messages))
 	for _, message := range messages {
-		result = append(result, agent.InputMessage{
+		msg := agent.InputMessage{
 			Role:    string(message.Role),
 			Content: message.Content,
-		})
+		}
+		if id, err := parseUint(message.ID); err == nil {
+			msg.DBID = id
+		}
+		result = append(result, msg)
 	}
 	return result
+}
+
+func parseUint(s string) (uint, error) {
+	if s == "" {
+		return 0, nil
+	}
+	var n uint
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("parseUint: invalid char %c in %q", c, s)
+		}
+		n = n*10 + uint(c-'0')
+	}
+	return n, nil
 }
 
 func attachmentsFromTask(attachments []protocol.Attachment) []agent.Attachment {

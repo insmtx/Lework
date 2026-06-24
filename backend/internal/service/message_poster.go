@@ -411,9 +411,11 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 			RunID:     requestID,
 		},
 		Route: protocol.RouteContext{
-			OrgID:     orgID,
-			SessionID: session.PublicID,
-			WorkerID:  session.AllocatedAssistantID,
+			OrgID:       orgID,
+			SessionID:   session.PublicID,
+			SessionDBID: session.ID,
+			MessageDBID: message.ID,
+			WorkerID:    session.AllocatedAssistantID,
 		},
 		Body: protocol.WorkerTaskBody{
 			TaskType: protocol.TaskTypeAgentRun,

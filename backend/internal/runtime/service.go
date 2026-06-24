@@ -21,6 +21,7 @@ import (
 	skillusetools "github.com/insmtx/Leros/backend/tools/skill_use"
 	todotools "github.com/insmtx/Leros/backend/tools/todo"
 	"github.com/ygpkg/yg-go/logs"
+	"gorm.io/gorm"
 )
 
 type Options struct {
@@ -28,11 +29,13 @@ type Options struct {
 	CLIConfig      *config.CLIEnginesConfig
 	DefaultRuntime string
 	CLISkillDirs   []string
+	DB             *gorm.DB
 }
 
 type Service struct {
 	env    *tools.Registry
 	router agent.Runner
+	db     *gorm.DB
 }
 
 func NewService(ctx context.Context, opts Options) (*Service, error) {
@@ -42,7 +45,7 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	}
 	logs.Infof("Loaded %d tools for runtime", len(env.List()))
 
-	s := &Service{env: env}
+	s := &Service{env: env, db: opts.DB}
 
 	router, err := s.buildRouter(ctx, opts)
 	if err != nil {
@@ -72,6 +75,7 @@ func (s *Service) Environment() *tools.Registry {
 func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, error) {
 	lifecycleBuilder := lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
 		SessionMessages: lifecyclecontext.NewPassthroughSessionMessageProvider(),
+		DB:              s.db,
 	})
 	router := agent.NewRuntimeRouter(agent.RuntimeKindLeros)
 
