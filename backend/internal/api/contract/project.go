@@ -31,10 +31,7 @@ type ProjectService interface {
 	// 获取项目文件树
 	GetProjectFileTree(ctx context.Context, publicID string, parentPath string, depth int) ([]*FileTreeNode, error)
 
-	// 预览项目文件（代理 Gitea raw 内容，返回流、Content-Type、Content-Length）
-	PreviewProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
-
-	// 下载项目文件（返回文件流、MIME类型、文件大小）
+	// 下载/预览项目文件（代理 Gitea raw 内容，返回流、Content-Type、Content-Length）
 	DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
 
 	// 上传项目文件

@@ -27,7 +27,6 @@ func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
 	r.GET("/projects/:project_id/files", h.GetProjectFileTree)
 	r.POST("/projects/:project_id/files/upload", h.UploadProjectFile)
 	r.GET("/projects/:project_id/files/download", h.DownloadProjectFile)
-	r.GET("/projects/:project_id/files/preview", h.PreviewProjectFile)
 	r.GET("/projects/:project_id/memory", h.GetProjectMemory)
 	r.POST("/projects/:project_id/AddFile", h.DeprecatedAddProjectFile)
 }
@@ -89,53 +88,7 @@ func (h *ProjectFileHandler) DownloadProjectFile(ctx *gin.Context) {
 		return
 	}
 
-	reader, mimeType, size, err := h.service.DownloadProjectFile(ctx, projectID, filePath)
-	if err != nil {
-		handleProjectFileServiceError(ctx, err)
-		return
-	}
-	defer reader.Close()
-
-	if mimeType == "" {
-		mimeType = "application/octet-stream"
-	}
-	ctx.Header("Content-Type", mimeType)
-	if size > 0 {
-		ctx.Header("Content-Length", fmt.Sprintf("%d", size))
-	}
-	ctx.Status(http.StatusOK)
-	if _, err := io.Copy(ctx.Writer, reader); err != nil {
-		ctx.Error(err)
-	}
-}
-
-// PreviewProjectFile 预览项目中的文件
-// @Summary 预览项目文件
-// @Description 代理 Gitea raw 内容，流式透传原始文件内容，浏览器可根据 Content-Type 内嵌预览
-// @Tags Project
-// @Produce octet-stream
-// @Param project_id path string true "项目 public_id"
-// @Param path query string true "文件相对路径，如 artifacts/example.png"
-// @Success 200 {file} binary "文件内容"
-// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
-// @Failure 401 {object} dto.ErrorResponse "未认证"
-// @Failure 404 {object} dto.ErrorResponse "资源不存在"
-// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
-// @Router /projects/{project_id}/files/preview [get]
-func (h *ProjectFileHandler) PreviewProjectFile(ctx *gin.Context) {
-	projectID := strings.TrimSpace(ctx.Param("project_id"))
-	if projectID == "" {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "project_id is required"))
-		return
-	}
-
-	filePath := strings.TrimSpace(ctx.Query("path"))
-	if filePath == "" {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file path is required"))
-		return
-	}
-
-	reader, contentType, size, err := h.service.PreviewProjectFile(ctx, projectID, filePath)
+	reader, contentType, size, err := h.service.DownloadProjectFile(ctx, projectID, filePath)
 	if err != nil {
 		handleProjectFileServiceError(ctx, err)
 		return

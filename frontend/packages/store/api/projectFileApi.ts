@@ -91,7 +91,7 @@ export const projectFileApi = {
 		),
 
 	download: (projectId: string, filePath: string): string =>
-		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/preview?path=${encodeURIComponent(filePath)}`,
+		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/download?path=${encodeURIComponent(filePath)}`,
 
 	async fetchDownload(
 		projectId: string,

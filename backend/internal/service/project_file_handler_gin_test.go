@@ -29,7 +29,6 @@ type mockProjectServiceForAddFile struct {
 	getProjectFileTreeFn  func(ctx context.Context, publicID string, parentPath string, depth int) ([]*contract.FileTreeNode, error)
 	downloadProjectFileFn func(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
 	uploadProjectFileFn     func(ctx context.Context, publicID string, reader io.Reader, filename string) (*contract.FileUploadResult, error)
-	previewProjectFileFn   func(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
 }
 
 func (m *mockProjectServiceForAddFile) AddFile(ctx context.Context, publicID string, filePublicID string) error {
@@ -95,12 +94,6 @@ func (m *mockProjectServiceForAddFile) UploadProjectFile(ctx context.Context, pu
 		return m.uploadProjectFileFn(ctx, publicID, reader, filename)
 	}
 	return nil, nil
-}
-func (m *mockProjectServiceForAddFile) PreviewProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error) {
-	if m.previewProjectFileFn != nil {
-		return m.previewProjectFileFn(ctx, publicID, filePath)
-	}
-	return nil, "", 0, nil
 }
 
 func setupProjectFileRouter(t *testing.T, svc contract.ProjectService, caller *types.Caller) *gin.Engine {

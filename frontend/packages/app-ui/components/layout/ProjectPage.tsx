@@ -1028,7 +1028,7 @@ function ProjectFiles({
 										{formatBytes(file.size)}
 									</div>
 									<div className="text-sm text-[var(--leros-text-muted)]">
-										{formatTime(file.modTime)}
+										{formatTime(file.createdAt)}
 									</div>
 									<div className="flex items-center justify-end gap-2">
 										<button

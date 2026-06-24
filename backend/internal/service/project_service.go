@@ -567,63 +567,9 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 	return roots, nil
 }
 
-// DownloadProjectFile 下载项目中的文件。
-// 返回文件流、MIME 类型、文件大小。
-func (s *projectService) DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error) {
-	caller, err := requireCallerOrg(ctx)
-	if err != nil {
-		return nil, "", 0, err
-	}
-	if strings.TrimSpace(publicID) == "" {
-		return nil, "", 0, errors.New("public_id is required")
-	}
-	if strings.TrimSpace(filePath) == "" {
-		return nil, "", 0, errors.New("file path is required")
-	}
-
-	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
-	if err != nil {
-		return nil, "", 0, err
-	}
-	if project == nil {
-		return nil, "", 0, errors.New("project not found")
-	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-		return nil, "", 0, err
-	}
-
-	if strings.TrimSpace(project.GiteaRepoFullName) == "" {
-		return nil, "", 0, errors.New("project not linked to gitea repo")
-	}
-
-	parts := strings.SplitN(project.GiteaRepoFullName, "/", 2)
-	if len(parts) != 2 {
-		return nil, "", 0, errors.New("invalid gitea repo full name")
-	}
-	owner, repo := parts[0], parts[1]
-
-	if !isPathAllowed(filePath) {
-		return nil, "", 0, errors.New("file access denied")
-	}
-
-	data, _, err := s.giteaClient.GetFile(owner, repo, project.GiteaDefaultBranch, filePath)
-	if err != nil {
-		return nil, "", 0, fmt.Errorf("get gitea file: %w", err)
-	}
-
-	reader := io.NopCloser(bytes.NewReader(data))
-
-	mimeType := mime.TypeByExtension(filepath.Ext(filePath))
-	if mimeType == "" {
-		mimeType = "application/octet-stream"
-	}
-
-	return reader, mimeType, 0, nil
-}
-
-// PreviewProjectFile 通过代理 Gitea raw endpoint 预览项目文件。
+// DownloadProjectFile 通过代理 Gitea raw endpoint 下载/预览项目文件。
 // 返回文件流、Content-Type、Content-Length。
-func (s *projectService) PreviewProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error) {
+func (s *projectService) DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, "", 0, err

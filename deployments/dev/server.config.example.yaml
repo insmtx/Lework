@@ -38,7 +38,7 @@ gitea:
 storage:
   driver: local
   local_dir: ./leros-storage
-  bucket: dev-bucket
+  bucket: leros-dev-bucket
   static_api_key: "leros-static-api-key"
   sign_secret: "leros-local-presign"
   base_url: "http://localhost:8080"
