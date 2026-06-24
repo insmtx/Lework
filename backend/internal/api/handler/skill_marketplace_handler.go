@@ -22,6 +22,7 @@ func RegisterSkillMarketplaceRoutes(r gin.IRouter, service contract.SkillMarketp
 	r.POST("/skill-marketplace/uninstall", uninstallSkill(service))
 	r.POST("/skill-marketplace/skill-detail", getSkillDetail(service))
 	r.POST("/skill-marketplace/import", importSkill(service))
+	r.POST("/skill-marketplace/import/github", importSkillFromGitHub(service))
 }
 
 func downloadBuiltinSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
@@ -241,6 +242,40 @@ func importSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
 			}
 			if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
 				strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") {
+				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, msg))
+				return
+			}
+			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, msg))
+			return
+		}
+
+		ctx.JSON(http.StatusOK, dto.Success(result))
+	}
+}
+
+func importSkillFromGitHub(service contract.SkillMarketplaceService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req contract.ImportSkillFromGitHubRequest
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+			return
+		}
+
+		if strings.TrimSpace(req.GitHubURL) == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "github_url is required"))
+			return
+		}
+
+		result, err := service.ImportSkillFromGitHub(ctx, &req)
+		if err != nil {
+			if err.Error() == "user not authenticated or org not set" {
+				ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
+				return
+			}
+			msg := err.Error()
+			if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
+				strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") ||
+				strings.Contains(msg, "must") {
 				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, msg))
 				return
 			}

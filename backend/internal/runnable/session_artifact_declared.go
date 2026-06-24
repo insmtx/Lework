@@ -133,18 +133,18 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 	project := projects[0]
 	projectPublicID := project.PublicID
 
-	filePublicID := ""
-	if p.giteaClient != nil && strings.TrimSpace(project.GiteaRepoFullName) != "" {
-		parts := strings.SplitN(project.GiteaRepoFullName, "/", 2)
-		if len(parts) == 2 {
-			upload, ferr := uploadArtifactFilestore(ctx, p.db, p.giteaClient, parts[0], parts[1],
-				project.GiteaDefaultBranch, item, session.OrgID, session.Uin, storageKey)
-			if ferr != nil {
-				return fmt.Errorf("upload artifact to filestore: %w", ferr)
-			}
-			filePublicID = upload.PublicID
-		}
-	}
+	// filePublicID := ""
+	// if p.giteaClient != nil && strings.TrimSpace(project.GiteaRepoFullName) != "" {
+	// 	parts := strings.SplitN(project.GiteaRepoFullName, "/", 2)
+	// 	if len(parts) == 2 {
+	// 		upload, ferr := uploadArtifactFilestore(ctx, p.db, p.giteaClient, parts[0], parts[1],
+	// 			project.GiteaDefaultBranch, item, session.OrgID, session.Uin, storageKey)
+	// 		if ferr != nil {
+	// 			return fmt.Errorf("upload artifact to filestore: %w", ferr)
+	// 		}
+	// 		filePublicID = upload.PublicID
+	// 	}
+	// }
 
 	filename := strings.TrimSpace(item.Filename)
 	if filename == "" {
@@ -164,7 +164,6 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		Description:  strings.TrimSpace(item.Description),
 		ArtifactType: artifactType(item.ArtifactType),
 		FileURL:      giteaArtifactURL,
-		FilePublicID: filePublicID,
 		FileSize:     item.FileSize,
 		RelativePath: item.RelativePath,
 		StorageKey:   storageKey,
@@ -206,14 +205,14 @@ func uploadArtifactFilestore(ctx context.Context, db *gorm.DB, giteaClient *gite
 
 	objectKey := fmt.Sprintf("artifacts/%d/%s/%s", orgID, item.ArtifactID, storageKey)
 	upload, err := filestore.Upload(ctx, db, filestore.UploadParams{
-		Data:     data,
-		Filename: item.Filename,
-		MimeType: mimeType,
-		OrgID:    orgID,
-		OwnerID:  ownerID,
+		Data:      data,
+		Filename:  item.Filename,
+		MimeType:  mimeType,
+		OrgID:     orgID,
+		OwnerID:   ownerID,
 		ObjectKey: objectKey,
-		Purpose:  filestore.PurposeArtifact,
-		Size:     item.FileSize,
+		Purpose:   filestore.PurposeArtifact,
+		Size:      item.FileSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("filestore upload: %w", err)

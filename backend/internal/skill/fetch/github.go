@@ -63,7 +63,15 @@ func (g *GitHubSource) Fetch(ctx context.Context, identifier string) (*SkillBund
 }
 
 func (g *GitHubSource) fetchBranch(ctx context.Context, owner, repo, branch, skillPath string) (*SkillBundle, error) {
-	zipURL := fmt.Sprintf("https://github.com/%s/%s/archive/refs/heads/%s.zip", owner, repo, branch)
+	return g.fetchRef(ctx, owner, repo, "heads", branch, skillPath)
+}
+
+func (g *GitHubSource) fetchTag(ctx context.Context, owner, repo, tag, skillPath string) (*SkillBundle, error) {
+	return g.fetchRef(ctx, owner, repo, "tags", tag, skillPath)
+}
+
+func (g *GitHubSource) fetchRef(ctx context.Context, owner, repo, refType, ref, skillPath string) (*SkillBundle, error) {
+	zipURL := fmt.Sprintf("https://github.com/%s/%s/archive/refs/%s/%s.zip", owner, repo, refType, ref)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, zipURL, nil)
 	if err != nil {
@@ -77,7 +85,7 @@ func (g *GitHubSource) fetchBranch(ctx context.Context, owner, repo, branch, ski
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub returned status %d for branch %s", resp.StatusCode, branch)
+		return nil, fmt.Errorf("GitHub returned status %d for %s %s", resp.StatusCode, strings.TrimSuffix(refType, "s"), ref)
 	}
 
 	zipBytes, err := io.ReadAll(resp.Body)
@@ -249,5 +257,13 @@ func (g *GitHubSource) FetchVersion(ctx context.Context, identifier, version str
 		return g.Fetch(ctx, identifier)
 	}
 
-	return g.fetchBranch(ctx, owner, repo, version, skillPath)
+	bundle, branchErr := g.fetchBranch(ctx, owner, repo, version, skillPath)
+	if branchErr == nil {
+		return bundle, nil
+	}
+	bundle, tagErr := g.fetchTag(ctx, owner, repo, version, skillPath)
+	if tagErr == nil {
+		return bundle, nil
+	}
+	return nil, fmt.Errorf("download GitHub skill ref %q: branch: %v; tag: %w", version, branchErr, tagErr)
 }

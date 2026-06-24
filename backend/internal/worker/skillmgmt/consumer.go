@@ -20,10 +20,11 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/insmtx/Leros/backend/engines"
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
+	"github.com/insmtx/Leros/backend/internal/skill/fetch"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
+	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/dm"
 	"github.com/insmtx/Leros/backend/pkg/leros"
@@ -212,7 +213,10 @@ func (c *Consumer) installFromZip(ctx context.Context, zipBytes []byte, replyTo 
 	if err != nil {
 		return c.replyError(replyTo, "extract zip skill", err)
 	}
+	return c.installSkillContent(ctx, skillContent, supportingFiles, replyTo, "install")
+}
 
+func (c *Consumer) installSkillContent(ctx context.Context, skillContent []byte, supportingFiles map[string][]byte, replyTo, action string) error {
 	manifest, _, err := catalog.ParseDocument(skillContent)
 	if err != nil {
 		return c.replyError(replyTo, "parse SKILL.md", err)
@@ -262,9 +266,13 @@ func (c *Consumer) installFromZip(ctx context.Context, zipBytes []byte, replyTo 
 		logs.WarnContextf(ctx, "sync external links for %q: %v", name, err)
 	}
 
-	logs.InfoContextf(ctx, "Skill installed from cache: %q", name)
+	logs.InfoContextf(ctx, "Skill %s succeeded for %q", action, name)
 	if replyTo != "" {
-		return c.replySuccess(replyTo, "install", fmt.Sprintf("skill %q installed", name))
+		resultVerb := "installed"
+		if action == "import" {
+			resultVerb = "imported"
+		}
+		return c.replySuccess(replyTo, action, fmt.Sprintf("skill %q %s", name, resultVerb))
 	}
 	return nil
 }
@@ -384,6 +392,21 @@ func (c *Consumer) handleDetail(ctx context.Context, req protocol.SkillManagemen
 // handleImport downloads a skill file from a URL (local path or HTTP), extracts
 // SKILL.md and supporting files, then installs into the skills directory by name.
 func (c *Consumer) handleImport(ctx context.Context, req protocol.SkillManagementMessage) error {
+	if strings.EqualFold(strings.TrimSpace(req.Body.Source), "github") {
+		skillID := strings.TrimSpace(req.Body.SkillID)
+		if skillID == "" {
+			return c.replyError(req.Body.ReplyTo, "skill_id is empty", nil)
+		}
+		bundle, err := fetch.NewGitHubSource().FetchVersion(ctx, skillID, strings.TrimSpace(req.Body.Version))
+		if err != nil {
+			return c.replyError(req.Body.ReplyTo, "fetch GitHub skill", err)
+		}
+		if bundle.TempDir != "" {
+			defer os.RemoveAll(bundle.TempDir)
+		}
+		return c.installSkillContent(ctx, bundle.Content, bundle.Files, req.Body.ReplyTo, "import")
+	}
+
 	// Prefer the dedicated DownloadURL field; fall back to SkillID for
 	// backward compatibility with older server versions.
 	sourceURL := strings.TrimSpace(req.Body.DownloadURL)
@@ -416,62 +439,7 @@ func (c *Consumer) handleImport(ctx context.Context, req protocol.SkillManagemen
 		supportingFiles = nil
 	}
 
-	// 3. Parse SKILL.md to get the skill name
-	manifest, _, err := catalog.ParseDocument(skillContent)
-	if err != nil {
-		return c.replyError(req.Body.ReplyTo, "parse SKILL.md", err)
-	}
-	name := strings.TrimSpace(manifest.Name)
-	if name == "" {
-		return c.replyError(req.Body.ReplyTo, "SKILL.md has no name", nil)
-	}
-
-	// 4. Install using skill store directly
-	skillsDir, err := leros.SkillsDir()
-	if err != nil {
-		return c.replyError(req.Body.ReplyTo, "resolve skills dir", err)
-	}
-	store, err := skillstore.NewSkillStore(skillsDir)
-	if err != nil {
-		return c.replyError(req.Body.ReplyTo, "create skill store", err)
-	}
-
-	files := make(map[string]string, len(supportingFiles))
-	for relPath, data := range supportingFiles {
-		files[relPath] = string(data)
-	}
-
-	result, err := store.Install(ctx, skillstore.InstallRequest{
-		Name:    name,
-		Content: string(skillContent),
-		Files:   files,
-		Force:   true,
-	})
-	if err != nil {
-		return c.replyError(req.Body.ReplyTo, "install skill", err)
-	}
-	if !result.Success {
-		errMsg := result.Error
-		if errMsg == "" {
-			errMsg = "unknown install error"
-		}
-		return c.replyError(req.Body.ReplyTo, fmt.Sprintf("install skill: %s", errMsg), nil)
-	}
-
-	// 5. Sync to external CLI skill directories
-	knownCLISkillDirs := []string{
-		"~/.claude/skills",
-		"~/.agents/skills",
-	}
-	if err := engines.EnsureExternalSkillLink(name, knownCLISkillDirs); err != nil {
-		logs.WarnContextf(ctx, "Warning: sync external links for %q: %v", name, err)
-	}
-
-	logs.InfoContextf(ctx, "Skill import succeeded for %q", name)
-	if req.Body.ReplyTo != "" {
-		return c.replySuccess(req.Body.ReplyTo, "import", fmt.Sprintf("skill %q imported", name))
-	}
-	return nil
+	return c.installSkillContent(ctx, skillContent, supportingFiles, req.Body.ReplyTo, "import")
 }
 
 // downloadFromURL downloads file content from a URL or local path.

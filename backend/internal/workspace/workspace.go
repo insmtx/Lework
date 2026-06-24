@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
+	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 // TaskWorkspaceRequest 标识一次任务 turn 的工作区和运行目录请求。
@@ -429,10 +431,12 @@ func cleanPathID(value string) string {
 
 func PushWorkspace(ctx context.Context, plan *TaskWorkspace) error {
 	if plan == nil || plan.RepoDir == "" {
+		logs.ErrorContextf(ctx, "PushWorkspace skipped: plan is nil or repo dir is empty")
 		return nil
 	}
 	gitDir := filepath.Join(plan.RepoDir, ".git")
 	if _, err := os.Stat(gitDir); err != nil {
+		logs.ErrorContextf(ctx, "PushWorkspace skipped: .git directory not found: %s", gitDir)
 		return nil
 	}
 
@@ -444,12 +448,17 @@ func PushWorkspace(ctx context.Context, plan *TaskWorkspace) error {
 
 	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run artifacts")
 	commitCmd.Dir = plan.RepoDir
-	commitCmd.CombinedOutput()
+	commitCmd.Env = identity.GitAuthorEnv()
+	if output, err := commitCmd.CombinedOutput(); err != nil {
+		logs.ErrorContextf(ctx, "git commit artifacts: %v: %s", err, strings.TrimSpace(string(output)))
+		return nil
+	}
 
 	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "main")
 	pushCmd.Dir = plan.RepoDir
 	if output, err := pushCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	logs.InfoContextf(ctx, "PushWorkspace completed: repo_dir=%s", plan.RepoDir)
 	return nil
 }
