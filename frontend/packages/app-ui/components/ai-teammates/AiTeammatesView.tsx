@@ -1,35 +1,17 @@
 "use client";
 
-import { useLayoutStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { cn } from "@leros/ui/lib/utils";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { APP_LOGO_SRC } from "../../assets";
-import { AiTeammateCard, type ProjectBrand } from "./AiTeammateCard";
+import { AiTeammateCard } from "./AiTeammateCard";
 import { notifyFeatureUnavailable } from "./feature-unavailable";
 import { AI_TEAMMATE_CATEGORIES, AI_TEAMMATE_ITEMS, type AiTeammateCategory } from "./mock-data";
 
 export function AiTeammatesView() {
-	const { activeProjectId, projects } = useLayoutStore((s) => ({
-		activeProjectId: s.activeProjectId,
-		projects: s.projects,
-	}));
 	const [keyword, setKeyword] = useState("");
 	const [debouncedKeyword, setDebouncedKeyword] = useState("");
 	const [activeCategory, setActiveCategory] = useState<"" | AiTeammateCategory>("");
-
-	// 中文注释：底部展示当前选中项目；无选中时回退到首个项目或 Lework 品牌。
-	const projectBrand = useMemo<ProjectBrand>(() => {
-		const currentProject =
-			projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
-
-		if (!currentProject) {
-			return { name: "Lework", logoSrc: APP_LOGO_SRC };
-		}
-
-		return { name: currentProject.name };
-	}, [activeProjectId, projects]);
 
 	useEffect(() => {
 		const timer = window.setTimeout(() => setDebouncedKeyword(keyword.trim()), 300);
@@ -113,12 +95,7 @@ export function AiTeammatesView() {
 				) : (
 					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 						{filteredItems.map((item) => (
-							<AiTeammateCard
-								key={item.id}
-								item={item}
-								projectBrand={projectBrand}
-								onSelect={notifyFeatureUnavailable}
-							/>
+							<AiTeammateCard key={item.id} item={item} onSelect={notifyFeatureUnavailable} />
 						))}
 					</div>
 				)}

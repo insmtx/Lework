@@ -126,5 +126,7 @@ function EmptyRoutePage() {
 }
 
 function ProjectsHubRoutePage() {
-	return <ProjectsHubView />;
+	const navigation = useDesktopNavigation();
+
+	return <ProjectsHubView navigation={navigation} />;
 }

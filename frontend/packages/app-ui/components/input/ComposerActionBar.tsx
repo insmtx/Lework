@@ -11,10 +11,10 @@ import {
 } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Plus, Sparkles, WandSparkles } from "lucide-react";
+import { Bot, Plus, Sparkles, WandSparkles, X } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { mockAssistants } from "./mockDirectiveData";
-import type { StructuredComposerHandle } from "./StructuredComposer";
+import type { ComposerSkillOption, StructuredComposerHandle } from "./StructuredComposer";
 
 type ComposerActionBarProps = {
 	inputValue: string;
@@ -23,6 +23,7 @@ type ComposerActionBarProps = {
 	onBeforeAction?: () => boolean;
 	children?: ReactNode;
 	className?: string;
+	projectSkillOptions?: ComposerSkillOption[];
 };
 
 type SkillOption = {
@@ -107,6 +108,7 @@ export function ComposerActionBar({
 	onBeforeAction,
 	children,
 	className,
+	projectSkillOptions,
 }: ComposerActionBarProps) {
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [skillOpen, setSkillOpen] = useState(false);
@@ -145,6 +147,13 @@ export function ComposerActionBar({
 	}, [selectedSkillLabels, skillOptions, skillSearch]);
 
 	useEffect(() => {
+		if (projectSkillOptions) {
+			setSkillOptions(projectSkillOptions);
+			setSkillsLoaded(true);
+			setSkillsError(null);
+			setSkillsLoading(false);
+			return;
+		}
 		if (!skillOpen || skillsLoaded) return;
 
 		setSkillsLoading(true);
@@ -164,7 +173,7 @@ export function ComposerActionBar({
 			.finally(() => {
 				setSkillsLoading(false);
 			});
-	}, [skillOpen, skillsLoaded]);
+	}, [projectSkillOptions, skillOpen, skillsLoaded]);
 
 	const allowAction = () => (onBeforeAction ? onBeforeAction() : true);
 
@@ -227,7 +236,6 @@ export function ComposerActionBar({
 									type="button"
 									onClick={() => {
 										composerRef.current?.insertAssistant(assistant.name);
-										setAssistantOpen(false);
 									}}
 									className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-slate-100"
 								>
@@ -274,12 +282,15 @@ export function ComposerActionBar({
 								<div className="mb-1 text-[11px] font-medium text-slate-400">已选技能</div>
 								<div className="flex flex-wrap gap-1.5">
 									{selectedSkillLabels.map((label) => (
-										<span
+										<button
 											key={label}
-											className="inline-flex items-center rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700"
+											type="button"
+											onClick={() => composerRef.current?.removeSkill(label)}
+											className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700 transition-colors hover:bg-violet-100"
 										>
 											/{label}
-										</span>
+											<X className="size-3" />
+										</button>
 									))}
 								</div>
 							</div>
@@ -299,7 +310,6 @@ export function ComposerActionBar({
 										value={skill.label}
 										onSelect={() => {
 											composerRef.current?.insertSkill(skill.label);
-											setSkillOpen(false);
 										}}
 										className="rounded-xl px-2.5 py-2"
 									>

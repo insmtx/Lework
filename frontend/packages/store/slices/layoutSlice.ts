@@ -60,11 +60,23 @@ export type ProjectArtifact = {
 	sha256?: string;
 };
 
+export type ProjectSkill = {
+	code: string;
+	name: string;
+	description?: string;
+	category?: string;
+	source?: string;
+	trust?: string;
+};
+
 export type Project = {
 	id: string;
 	name: string;
 	description: string;
 	objective?: string;
+	metadata?: Record<string, unknown>;
+	skills: ProjectSkill[];
+	createdAt: number;
 	updatedAt: number;
 	messages: ProjectMessage[];
 	tasks: ProjectTask[];
@@ -144,16 +156,47 @@ function mapSessionToConversation(s: BackendSession): Conversation {
 }
 
 function mapBackendProject(bp: BackendProject): Project {
+	const metadata = bp.metadata ?? undefined;
 	return {
 		id: bp.public_id,
 		name: bp.name,
 		description: bp.description ?? "",
+		createdAt: new Date(bp.created_at).getTime(),
 		updatedAt: new Date(bp.updated_at).getTime(),
+		metadata,
+		skills: extractProjectSkills(metadata),
 		messages: [],
 		tasks: [],
 		artifacts: [],
 		files: [],
 	};
+}
+
+function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[] {
+	const extra = metadata?.extra;
+	if (!extra || typeof extra !== "object" || Array.isArray(extra)) return [];
+
+	const rawSkills = (extra as Record<string, unknown>).skills;
+	if (!Array.isArray(rawSkills)) return [];
+
+	return rawSkills
+		.map((item): ProjectSkill | null => {
+			if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+			const data = item as Record<string, unknown>;
+			const name = typeof data.name === "string" ? data.name : "";
+			const code = typeof data.code === "string" ? data.code : name;
+			if (!code || !name) return null;
+
+			return {
+				code,
+				name,
+				description: typeof data.description === "string" ? data.description : undefined,
+				category: typeof data.category === "string" ? data.category : undefined,
+				source: typeof data.source === "string" ? data.source : undefined,
+				trust: typeof data.trust === "string" ? data.trust : undefined,
+			};
+		})
+		.filter((item): item is ProjectSkill => item !== null);
 }
 
 function mapBackendTask(bt: BackendTask): ProjectTask {
@@ -509,8 +552,22 @@ export class LayoutActionImpl {
 
 	fetchProjects = async () => {
 		try {
-			const res = await projectApi.list({ list_all: true, limit: 100 });
-			const items = res.data.data?.items ?? [];
+			const pageSize = 100;
+			let offset = 0;
+			let total = Number.POSITIVE_INFINITY;
+			const items: BackendProject[] = [];
+
+			// 中文注释：项目页需要展示完整项目列表，这里按分页拉齐，避免后端 list_all 的兜底上限截断。
+			while (offset < total) {
+				const res = await projectApi.list({ offset, limit: pageSize });
+				const data = res.data.data;
+				const pageItems = data?.items ?? [];
+				total = data?.total ?? 0;
+				items.push(...pageItems);
+				if (pageItems.length === 0) break;
+				offset += pageItems.length;
+			}
+
 			const apiProjects = items.map(mapBackendProject);
 			this.#set((state) => {
 				const localProjects = state.projects.filter(

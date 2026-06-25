@@ -4,21 +4,16 @@ import { Button } from "@leros/ui/components/ui/button";
 import { cn } from "@leros/ui/lib/utils";
 import { Eye, Heart } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
+import { APP_LOGO_SRC } from "../../assets";
 import { notifyFeatureUnavailable } from "./feature-unavailable";
 import type { AiTeammateItem } from "./mock-data";
 
-export type ProjectBrand = {
-	name: string;
-	logoSrc?: string;
-};
-
 interface AiTeammateCardProps {
 	item: AiTeammateItem;
-	projectBrand: ProjectBrand;
 	onSelect?: () => void;
 }
 
-export function AiTeammateCard({ item, projectBrand, onSelect }: AiTeammateCardProps) {
+export function AiTeammateCard({ item, onSelect }: AiTeammateCardProps) {
 	const Icon = item.icon;
 
 	const handleCardClick = () => {
@@ -80,21 +75,10 @@ export function AiTeammateCard({ item, projectBrand, onSelect }: AiTeammateCardP
 			</div>
 
 			<div className="mt-auto flex items-center justify-between border-t border-[var(--leros-control-border)] pt-3">
+				{/* 中文注释：卡片底部固定展示 Lework 品牌标识。 */}
 				<div className="flex min-w-0 items-center gap-1.5">
-					{projectBrand.logoSrc ? (
-						<img
-							src={projectBrand.logoSrc}
-							alt=""
-							className="size-4 shrink-0 rounded object-cover"
-						/>
-					) : (
-						<span className="inline-flex size-4 shrink-0 items-center justify-center rounded bg-[var(--leros-primary-soft)] text-[9px] font-bold text-[var(--leros-primary)]">
-							{projectBrand.name.charAt(0).toUpperCase()}
-						</span>
-					)}
-					<span className="truncate text-[11px] text-[var(--leros-text-muted)]">
-						{projectBrand.name}
-					</span>
+					<img src={APP_LOGO_SRC} alt="" className="size-4 shrink-0 rounded object-cover" />
+					<span className="truncate text-[11px] text-[var(--leros-text-muted)]">Lework</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-3 text-[11px] text-[var(--leros-text-subtle)]">
 					<span className="inline-flex items-center gap-1">

@@ -78,7 +78,9 @@ export function AiTeammatesRoutePage() {
 }
 
 export function ProjectsHubRoutePage() {
-	return <ProjectsHubView />;
+	const navigation = useWebNavigation();
+
+	return <ProjectsHubView navigation={navigation} />;
 }
 
 export function EmptyRoutePage() {
