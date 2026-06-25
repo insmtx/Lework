@@ -71,6 +71,7 @@ export function SkillDetailView({
 	const fetchSkill = useCallback(async () => {
 		setLoading(true);
 		setError(null);
+		setInstalled(false);
 		const cancelled = false;
 		try {
 			// Fetch skill detail via the dedicated API
@@ -85,11 +86,7 @@ export function SkillDetailView({
 			if (cancelled) return;
 			const detail = resp.data.data;
 			setSkill(detail);
-
-			// For installed skills, they're already installed
-			if (detail.source === "installed") {
-				setInstalled(true);
-			}
+			setInstalled(Boolean(detail.installed) || detail.source === "installed");
 
 			// Fetch related skills from the marketplace (only for marketplace skills)
 			if (detail.category) {
@@ -131,7 +128,7 @@ export function SkillDetailView({
 				version: skill.version || undefined,
 			});
 			setInstalled(true);
-			toast.success("技能安装已提交");
+			toast.success("技能安装成功");
 		} catch (err: any) {
 			const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
 			toast.error(`安装失败：${msg}`);

@@ -45,10 +45,17 @@ func (g *GitHubSource) Search(ctx context.Context, query string, limit int) ([]S
 // Fetch 下载 GitHub 仓库 ZIP 并提取 Skill。
 func (g *GitHubSource) Fetch(ctx context.Context, identifier string) (*SkillBundle, error) {
 	parts := strings.SplitN(identifier, "/", 3)
-	if len(parts) < 3 {
+	if len(parts) < 2 {
 		return nil, fmt.Errorf("invalid GitHub identifier %q: expected owner/repo/path", identifier)
 	}
-	owner, repo, skillPath := parts[0], parts[1], parts[2]
+	owner, repo := parts[0], parts[1]
+	skillPath := "."
+	if len(parts) >= 3 {
+		skillPath = strings.TrimSpace(parts[2])
+	}
+	if skillPath == "" {
+		skillPath = "."
+	}
 
 	branches := []string{"main", "master"}
 	var lastErr error
@@ -163,27 +170,57 @@ func (g *GitHubSource) extractSkill(zipBytes []byte, owner, repo, skillPath stri
 		}
 	}
 
-	// 在解压根目录下查找 SKILL.md。
+	// 在目标目录下查找 SKILL.md。skillPath "." 表示仓库根目录。
+	rootSkill := skillPath == "."
 	skillDir := filepath.Join(tmpDir, skillPath)
+	if rootSkill {
+		skillDir = tmpDir
+	}
+	selectedSkillPath := skillPath
 	skillMDPath := filepath.Join(skillDir, "SKILL.md")
 	if _, err := os.Stat(skillMDPath); os.IsNotExist(err) {
-		// 回退：在解压根目录下递归查找 SKILL.md。
-		found := false
-		filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || found {
+		if rootSkill {
+			matches, walkErr := findSkillMDPaths(tmpDir)
+			if walkErr != nil {
+				os.RemoveAll(tmpDir)
+				return nil, walkErr
+			}
+			switch len(matches) {
+			case 0:
+				os.RemoveAll(tmpDir)
+				return nil, fmt.Errorf("SKILL.md not found in %s/%s", owner, repo)
+			case 1:
+				skillMDPath = matches[0]
+				skillDir = filepath.Dir(skillMDPath)
+				rel, relErr := filepath.Rel(tmpDir, skillDir)
+				if relErr != nil {
+					os.RemoveAll(tmpDir)
+					return nil, fmt.Errorf("resolve skill dir: %w", relErr)
+				}
+				selectedSkillPath = filepath.ToSlash(rel)
+			default:
+				os.RemoveAll(tmpDir)
+				return nil, fmt.Errorf("multiple SKILL.md files found in %s/%s; use a tree link to a skill directory or a blob link to SKILL.md", owner, repo)
+			}
+		} else {
+			// 回退：在解压根目录下递归查找 SKILL.md。
+			found := false
+			filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil || found {
+					return nil
+				}
+				if !info.IsDir() && info.Name() == "SKILL.md" {
+					skillMDPath = path
+					skillDir = filepath.Dir(path)
+					found = true
+					return filepath.SkipAll
+				}
 				return nil
+			})
+			if !found {
+				os.RemoveAll(tmpDir)
+				return nil, fmt.Errorf("SKILL.md not found in %s/%s", owner, repo)
 			}
-			if !info.IsDir() && info.Name() == "SKILL.md" {
-				skillMDPath = path
-				skillDir = filepath.Dir(path)
-				found = true
-				return filepath.SkipAll
-			}
-			return nil
-		})
-		if !found {
-			os.RemoveAll(tmpDir)
-			return nil, fmt.Errorf("SKILL.md not found in %s/%s", owner, repo)
 		}
 	}
 
@@ -222,7 +259,7 @@ func (g *GitHubSource) extractSkill(zipBytes []byte, owner, repo, skillPath stri
 	return &SkillBundle{
 		Meta: SkillMeta{
 			Name:        manifest.Name,
-			Identifier:  owner + "/" + repo + "/" + skillPath,
+			Identifier:  owner + "/" + repo + "/" + selectedSkillPath,
 			Source:      "github",
 			TrustLevel:  trustLevel,
 			Description: manifest.Description,
@@ -248,10 +285,17 @@ func (g *GitHubSource) Inspect(ctx context.Context, identifier string) (*SkillMe
 // 使用 version 作为分支/tag 名下载 GitHub 仓库（如 v1.2.3 或 main）。
 func (g *GitHubSource) FetchVersion(ctx context.Context, identifier, version string) (*SkillBundle, error) {
 	parts := strings.SplitN(identifier, "/", 3)
-	if len(parts) < 3 {
+	if len(parts) < 2 {
 		return nil, fmt.Errorf("invalid GitHub identifier %q: expected owner/repo/path", identifier)
 	}
-	owner, repo, skillPath := parts[0], parts[1], parts[2]
+	owner, repo := parts[0], parts[1]
+	skillPath := "."
+	if len(parts) >= 3 {
+		skillPath = strings.TrimSpace(parts[2])
+	}
+	if skillPath == "" {
+		skillPath = "."
+	}
 
 	if version == "" {
 		return g.Fetch(ctx, identifier)
@@ -266,4 +310,18 @@ func (g *GitHubSource) FetchVersion(ctx context.Context, identifier, version str
 		return bundle, nil
 	}
 	return nil, fmt.Errorf("download GitHub skill ref %q: branch: %v; tag: %w", version, branchErr, tagErr)
+}
+
+func findSkillMDPaths(root string) ([]string, error) {
+	matches := make([]string, 0, 1)
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && info.Name() == "SKILL.md" {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+	return matches, err
 }

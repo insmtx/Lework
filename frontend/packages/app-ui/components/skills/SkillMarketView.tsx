@@ -25,6 +25,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	const [selectedSource, setSelectedSource] = useState<string>("Leros");
 	const [selectedVersion, setSelectedVersion] = useState<string | undefined>(undefined);
 	const [importDialogOpen, setImportDialogOpen] = useState(false);
+	const [mySkillsRefreshSeq, setMySkillsRefreshSeq] = useState(0);
 	const replaceSkillDirective = useChatStore((s) => s.replaceSkillDirective);
 	const { activeProjectId, projects, setProjectRoute } = useLayoutStore((s) => ({
 		activeProjectId: s.activeProjectId,
@@ -85,6 +86,10 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 			const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
 			toast.error(`卸载失败：${msg}`);
 		}
+	}, []);
+
+	const handleImportSuccess = useCallback(() => {
+		setMySkillsRefreshSeq((seq) => seq + 1);
 	}, []);
 
 	// Show detail view when a skill is selected
@@ -167,11 +172,15 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 				</TabsContent>
 
 				<TabsContent value="mine" className="min-h-0 flex-1 overflow-y-auto px-6 py-8 outline-none">
-					<MySkillsPanel onCardClick={handleCardClick} />
+					<MySkillsPanel onCardClick={handleCardClick} refreshSeq={mySkillsRefreshSeq} />
 				</TabsContent>
 			</Tabs>
 
-			<SkillImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+			<SkillImportDialog
+				open={importDialogOpen}
+				onOpenChange={setImportDialogOpen}
+				onImportSuccess={handleImportSuccess}
+			/>
 		</div>
 	);
 }

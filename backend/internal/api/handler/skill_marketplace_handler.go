@@ -236,16 +236,10 @@ func importSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
 				return
 			}
 			msg := err.Error()
-			if strings.Contains(msg, "not found") {
-				ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, msg))
-				return
-			}
-			if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
-				strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") {
-				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, msg))
-				return
-			}
-			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, msg))
+			ctx.JSON(http.StatusOK, dto.Success(&contract.ImportSkillResponse{
+				Status:  "failed",
+				Message: msg,
+			}))
 			return
 		}
 
@@ -273,13 +267,10 @@ func importSkillFromGitHub(service contract.SkillMarketplaceService) gin.Handler
 				return
 			}
 			msg := err.Error()
-			if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
-				strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") ||
-				strings.Contains(msg, "must") {
-				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, msg))
-				return
-			}
-			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, msg))
+			ctx.JSON(http.StatusOK, dto.Success(&contract.ImportSkillResponse{
+				Status:  "failed",
+				Message: msg,
+			}))
 			return
 		}
 

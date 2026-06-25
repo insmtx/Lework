@@ -93,7 +93,7 @@ func BatchUpsertSkillMarketplaceItems(ctx context.Context, db *gorm.DB, items []
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"name", "translated_name", "description", "translated_description", "author",
-			"installs", "category", "tags", "package_storage_path", "updated_at",
+			 "category", "tags", "package_storage_path", "updated_at",
 		}),
 	}).Create(&items).Error
 	if err != nil {
@@ -101,6 +101,19 @@ func BatchUpsertSkillMarketplaceItems(ctx context.Context, db *gorm.DB, items []
 		return err
 	}
 	return nil
+}
+
+// IncrementSkillMarketplaceInstalls increments the Lework install count for one cached marketplace item.
+// It returns false when the marketplace cache row does not exist.
+func IncrementSkillMarketplaceInstalls(ctx context.Context, db *gorm.DB, source, skillID, version string) (bool, error) {
+	result := db.WithContext(ctx).
+		Model(&types.SkillMarketplaceItem{}).
+		Where("source = ? AND skill_id = ? AND version = ?", source, skillID, version).
+		UpdateColumn("installs", gorm.Expr("installs + ?", 1))
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // GetSkillMarketplaceItemBySourceSkillVersion 按 (source, skill_id, version) 查询单条缓存记录。
