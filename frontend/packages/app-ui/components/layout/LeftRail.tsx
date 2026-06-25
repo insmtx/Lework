@@ -1364,16 +1364,16 @@ function ProjectList({
 									<Folder className="size-4" />
 								)}
 							</span>
-							<span className={cn("min-w-0 flex-1 truncate", collapsed && "hidden")}>
-								{project.name}
-							</span>
 							{!collapsed && (
-								<span className="flex size-4 shrink-0 items-center justify-center text-[var(--leros-text-subtle)]">
-									{projectExpanded ? (
-										<ChevronDown className="size-3.5" />
-									) : (
-										<ChevronRight className="size-3.5" />
-									)}
+								<span className="flex min-w-0 flex-1 items-center gap-0.5">
+									<span className="min-w-0 truncate">{project.name}</span>
+									<span className="flex shrink-0 items-center text-[var(--leros-text-subtle)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+										{projectExpanded ? (
+											<ChevronDown className="size-3.5" />
+										) : (
+											<ChevronRight className="size-3.5" />
+										)}
+									</span>
 								</span>
 							)}
 							{!collapsed && (

@@ -214,12 +214,15 @@ export function ComposerActionBar({
 							<div className="mb-1 text-[11px] font-medium text-slate-400">已选 AI 队友</div>
 							<div className="flex flex-wrap gap-1.5">
 								{selectedAssistantNames.map((name) => (
-									<span
+									<button
 										key={name}
-										className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
+										type="button"
+										onClick={() => composerRef.current?.removeAssistant(name)}
+										className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700 transition-colors hover:bg-blue-100"
 									>
 										@{name}
-									</span>
+										<X className="size-3" />
+									</button>
 								))}
 							</div>
 						</div>

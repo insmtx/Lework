@@ -73,6 +73,7 @@ export type StructuredComposerHandle = {
 	openCommandPicker: () => void;
 	insertAssistant: (assistantName: string) => void;
 	insertSkill: (skillLabel: string) => void;
+	removeAssistant: (assistantName: string) => void;
 	removeSkill: (skillLabel: string) => void;
 };
 
@@ -876,12 +877,13 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			[focusAt, onChange, value],
 		);
 
-		const removeSkillToken = useCallback(
-			(skillLabel: string) => {
-				const normalizedLabel = skillLabel.startsWith("/") ? skillLabel : `/${skillLabel}`;
+		const removeMentionToken = useCallback(
+			(kind: Extract<TokenKind, "assistant" | "skill">, rawLabel: string) => {
+				const prefix = kind === "assistant" ? "@" : "/";
+				const normalizedLabel = rawLabel.startsWith(prefix) ? rawLabel : `${prefix}${rawLabel}`;
 				const currentTokens = resolveDisplayTokens(value, tokens);
 				const target = currentTokens.find(
-					(token) => token.kind === "skill" && token.label === normalizedLabel,
+					(token) => token.kind === kind && token.label === normalizedLabel,
 				);
 				if (!target) return;
 
@@ -893,7 +895,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					start -= 1;
 				}
 				const nextValue = `${value.slice(0, start)}${value.slice(end)}`;
-				// 中文注释：从已选技能区域移除时，同步删除输入框里的技能 token 和对应纯文本。
+				// 中文注释：从已选 tag 区域移除时，同步删除输入框里的 mention token 和对应纯文本。
 				setTokens((current) => shiftTokensForTextEdit(current, value, nextValue));
 				onChange(nextValue);
 				setTrigger(null);
@@ -901,6 +903,16 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				focusAt(start);
 			},
 			[focusAt, onChange, tokens, value],
+		);
+
+		const removeAssistantToken = useCallback(
+			(assistantName: string) => removeMentionToken("assistant", assistantName),
+			[removeMentionToken],
+		);
+
+		const removeSkillToken = useCallback(
+			(skillLabel: string) => removeMentionToken("skill", skillLabel),
+			[removeMentionToken],
 		);
 
 		useImperativeHandle(
@@ -911,9 +923,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				insertAssistant: (assistantName: string) =>
 					insertToolbarToken("assistant", `@${assistantName}`),
 				insertSkill: (skillLabel: string) => insertToolbarToken("skill", `/${skillLabel}`),
+				removeAssistant: removeAssistantToken,
 				removeSkill: removeSkillToken,
 			}),
-			[insertToolbarToken, insertTrigger, removeSkillToken],
+			[insertToolbarToken, insertTrigger, removeAssistantToken, removeSkillToken],
 		);
 
 		const selectToken = useCallback(
@@ -1093,12 +1106,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												</div>
 												<div className="flex flex-wrap gap-1.5">
 													{selectedAssistantNames.map((name) => (
-														<span
+														<button
 															key={name}
-															className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
+															type="button"
+															onClick={() => removeAssistantToken(name)}
+															className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700 transition-colors hover:bg-blue-100"
 														>
 															@{name}
-														</span>
+															<X className="size-3" />
+														</button>
 													))}
 												</div>
 											</div>

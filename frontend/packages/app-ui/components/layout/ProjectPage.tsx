@@ -35,6 +35,7 @@ import {
 	Pencil,
 	Plus,
 	Search,
+	Sparkles,
 	Trash2,
 	X,
 } from "lucide-react";
@@ -586,11 +587,8 @@ function ProjectConfigSidebar({
 		return skillOptions.filter((skill) => {
 			if (selectedSkillCodes.includes(skill.code)) return false;
 			if (!query) return true;
-			return [skill.name, skill.code, skill.description, skill.category, skill.source, skill.trust]
-				.filter(Boolean)
-				.join(" ")
-				.toLowerCase()
-				.includes(query);
+			// 中文注释：技能弹窗仅按名称搜索。
+			return skill.name.toLowerCase().includes(query);
 		});
 	}, [selectedSkillCodes, skillOptions, skillSearch]);
 
@@ -728,9 +726,9 @@ function ProjectConfigSidebar({
 					</button>
 				</div>
 				<div className="max-h-36 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
-					<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+					<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
 						暂无 AI 队友
-					</div>
+					</p>
 				</div>
 			</section>
 
@@ -740,7 +738,15 @@ function ProjectConfigSidebar({
 						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">技能</h2>
 						<span className="text-xs text-[var(--leros-text-subtle)]">{project.skills.length}</span>
 					</div>
-					<Popover open={skillOpen} onOpenChange={setSkillOpen}>
+					<Popover
+						open={skillOpen}
+						onOpenChange={(open) => {
+							setSkillOpen(open);
+							if (!open) {
+								setSkillSearch("");
+							}
+						}}
+					>
 						<PopoverTrigger
 							type="button"
 							className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
@@ -748,7 +754,13 @@ function ProjectConfigSidebar({
 						>
 							<Plus className="size-4" />
 						</PopoverTrigger>
-						<PopoverContent align="end" sideOffset={10} className="w-[340px] p-1.5">
+						<PopoverContent
+							align="end"
+							side="top"
+							sideOffset={10}
+							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+							className="w-[340px] p-1.5"
+						>
 							<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
 								<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
 								<CommandInput
@@ -790,7 +802,7 @@ function ProjectConfigSidebar({
 												onSelect={() => addProjectSkill(skill)}
 												className="rounded-xl px-2.5 py-2"
 											>
-												<SkillInitialIcon name={skill.name} />
+												<SkillPickerIcon />
 												<div className="min-w-0 flex-1">
 													<div className="truncate font-medium">/{skill.name}</div>
 													<div className="truncate text-xs text-slate-400">
@@ -818,7 +830,7 @@ function ProjectConfigSidebar({
 									key={skill.code}
 									className="group relative inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
 								>
-									<SkillInitialIcon name={skill.name} />
+									<SkillPickerIcon />
 									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
 										{skill.name}
 									</span>
@@ -841,10 +853,11 @@ function ProjectConfigSidebar({
 	);
 }
 
-function SkillInitialIcon({ name }: { name: string }) {
+/** 与输入框「添加技能」弹窗保持一致的技能图标样式 */
+function SkillPickerIcon() {
 	return (
-		<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-soft)] text-xs font-bold text-[var(--leros-primary)]">
-			{(name.trim()[0] || "S").toUpperCase()}
+		<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+			<Sparkles className="size-3.5" />
 		</div>
 	);
 }
