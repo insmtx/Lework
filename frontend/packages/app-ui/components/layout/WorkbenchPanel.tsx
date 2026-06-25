@@ -43,6 +43,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
+	const sendingRef = useRef(false);
 	const [input, setInput] = useState("");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
@@ -89,23 +90,28 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [clearTaskDetailRoute, resetLocalMessages]);
 
 	const performSend = async (content: string) => {
-		if (isGenerating) return;
-		const data = await sendWorkbenchMessage(content, activeWorkbenchProjectId, attachments);
-		if (data?.session_id) {
-			const optimisticAttachments = cloneAttachmentsForOptimisticMessage(attachments);
-			// 中文注释：工作台跳转任务页前，先把附件一起写入 optimistic 消息，避免首屏只显示文本。
-			await startSessionResponseStream(data.session_id, content, optimisticAttachments);
+		if (isGenerating || sendingRef.current) return;
+		sendingRef.current = true;
+		try {
+			const data = await sendWorkbenchMessage(content, activeWorkbenchProjectId, attachments);
+			if (data?.session_id) {
+				const optimisticAttachments = cloneAttachmentsForOptimisticMessage(attachments);
+				// 中文注释：工作台跳转任务页前，先把附件一起写入 optimistic 消息，避免首屏只显示文本。
+				await startSessionResponseStream(data.session_id, content, optimisticAttachments);
+			}
+			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
+				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
+			}
+			setInput("");
+			clearAttachments();
+		} finally {
+			sendingRef.current = false;
 		}
-		if (navigation && data?.project_id && data?.task_id && data?.session_id) {
-			navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
-		}
-		setInput("");
-		clearAttachments();
 	};
 
 	const handleSend = async () => {
 		const content = input.trim();
-		if (!content || isGenerating) return;
+		if (!content || isGenerating || sendingRef.current) return;
 		if (!isAuthenticated) {
 			requireAuth(() => {
 				void performSend(content);
