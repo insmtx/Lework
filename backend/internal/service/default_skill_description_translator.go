@@ -25,7 +25,7 @@ const (
 	translateMaxWorkers = 4  // 最多 4 个并发翻译
 )
 
-// defaultSkillDescriptionTranslator 使用组织默认 LLM 翻译 Skill 描述。
+// defaultSkillDescriptionTranslator 使用组织默认 LLM 翻译 Skill 市场文案。
 type defaultSkillDescriptionTranslator struct {
 	db *gorm.DB
 }
@@ -38,41 +38,43 @@ func NewDefaultSkillDescriptionTranslator(db *gorm.DB) SkillDescriptionTranslato
 // translationRequest 发送给模型的翻译请求项。
 type translationRequest struct {
 	SkillID     string `json:"skill_id"`
+	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
 // translationResponse 模型返回的翻译结果项。
 type translationResponse struct {
 	SkillID     string `json:"skill_id"`
+	DisplayName string `json:"display_name"`
 	Description string `json:"description"`
 }
 
-// Translate 批量翻译英文 Skill 描述为中文。
+// Translate 批量生成中文展示名并翻译英文 Skill 描述。
 // 将 items 按 20 条一组分批，最多 3 个并发调用 LLM。
-func (t *defaultSkillDescriptionTranslator) Translate(ctx context.Context, items []TranslateItem) (map[string]string, error) {
+func (t *defaultSkillDescriptionTranslator) Translate(ctx context.Context, items []TranslateItem) (map[string]TranslatedSkillText, error) {
 	if len(items) == 0 {
-		return map[string]string{}, nil
+		return map[string]TranslatedSkillText{}, nil
 	}
 
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.OrgID == 0 {
 		logs.WarnContextf(ctx, "skill translator: no authenticated caller, skip translation")
-		return map[string]string{}, nil
+		return map[string]TranslatedSkillText{}, nil
 	}
 
 	model, err := infradb.GetSystemTranslationLLMModel(ctx, t.db, caller.OrgID)
 	if err != nil {
 		logs.WarnContextf(ctx, "skill translator: get system translation LLM model: %v", err)
-		return map[string]string{}, nil
+		return map[string]TranslatedSkillText{}, nil
 	}
 	if model == nil {
 		logs.WarnContextf(ctx, "skill translator: no system translation LLM model for org %d", caller.OrgID)
-		return map[string]string{}, nil
+		return map[string]TranslatedSkillText{}, nil
 	}
 
 	chatModel, err := t.buildChatModel(ctx, model)
 	if err != nil {
-		return map[string]string{}, nil
+		return map[string]TranslatedSkillText{}, nil
 	}
 
 	return t.translateBatches(ctx, chatModel, items)
@@ -105,7 +107,7 @@ func (t *defaultSkillDescriptionTranslator) buildChatModel(ctx context.Context, 
 }
 
 // translateBatches 将 items 按 batchSize 分组后并发翻译，合并结果。
-func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateItem) (map[string]string, error) {
+func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateItem) (map[string]TranslatedSkillText, error) {
 	var batches [][]TranslateItem
 	for i := 0; i < len(items); i += translateBatchSize {
 		end := i + translateBatchSize
@@ -120,7 +122,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 	}
 
 	type batchResult struct {
-		translations map[string]string
+		translations map[string]TranslatedSkillText
 		err          error
 	}
 
@@ -147,7 +149,7 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 	wg.Wait()
 	close(resultCh)
 
-	merged := make(map[string]string, len(items))
+	merged := make(map[string]TranslatedSkillText, len(items))
 	for r := range resultCh {
 		if r.err != nil {
 			logs.WarnContextf(ctx, "skill translator: batch translate failed: %v", r.err)
@@ -160,20 +162,27 @@ func (t *defaultSkillDescriptionTranslator) translateBatches(ctx context.Context
 	return merged, nil
 }
 
-// doTranslate 对一批 items 调用 LLM 翻译，返回 skill_id → 中文描述的映射。
-func (t *defaultSkillDescriptionTranslator) doTranslate(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateItem) (map[string]string, error) {
+// doTranslate 对一批 items 调用 LLM 翻译，返回 skill_id → 中文展示文案的映射。
+func (t *defaultSkillDescriptionTranslator) doTranslate(ctx context.Context, chatModel model.ToolCallingChatModel, items []TranslateItem) (map[string]TranslatedSkillText, error) {
 	reqItems := make([]translationRequest, len(items))
 	for i, item := range items {
-		reqItems[i] = translationRequest{SkillID: item.SkillID, Description: item.Description}
+		reqItems[i] = translationRequest{SkillID: item.SkillID, Name: item.Name, Description: item.Description}
 	}
 	reqJSON, _ := json.Marshal(reqItems)
 
-	prompt := fmt.Sprintf(`Translate the following skill descriptions from English to Chinese (Simplified). Return ONLY a valid JSON array, no markdown, no code fences.
+	prompt := fmt.Sprintf(`Translate the following skill marketplace copy from English to Simplified Chinese and generate a concise Chinese display name. Return ONLY a valid JSON array, no markdown, no code fences.
 
 Format:
-[{"skill_id":"...","description":"Chinese translation..."}]
+[{"skill_id":"...","display_name":"短中文名","description":"Chinese translation..."}]
 
 The array must have exactly %d items, each skill_id must match an input skill_id.
+
+Rules for display_name:
+1. Generate it from both name and description.
+2. Prefer 2-8 Chinese characters or a short Chinese noun phrase.
+3. Do not include punctuation.
+4. Do not append "技能" unless the name would be unclear without it.
+5. Preserve product names, brand names, and file format names such as PDF, Excel, Word, Notion, GitHub.
 
 Input:
 %s`, len(items), string(reqJSON))
@@ -201,10 +210,15 @@ Input:
 		return nil, fmt.Errorf("response length %d != input length %d", len(results), len(items))
 	}
 
-	translationMap := make(map[string]string, len(results))
+	translationMap := make(map[string]TranslatedSkillText, len(results))
 	for _, r := range results {
-		if r.SkillID != "" && r.Description != "" {
-			translationMap[r.SkillID] = r.Description
+		displayName := strings.TrimSpace(r.DisplayName)
+		description := strings.TrimSpace(r.Description)
+		if r.SkillID != "" && (displayName != "" || description != "") {
+			translationMap[r.SkillID] = TranslatedSkillText{
+				DisplayName: displayName,
+				Description: description,
+			}
 		}
 	}
 	return translationMap, nil

@@ -73,6 +73,7 @@ type SkillMarketplaceItemView struct {
 	SourceType  string   `json:"source_type"`
 	SkillID     string   `json:"skill_id"`
 	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name,omitempty"`
 	Description string   `json:"description"`
 	Version     string   `json:"version"`
 	Author      string   `json:"author"`
@@ -100,6 +101,7 @@ type InstalledSkillsRequest struct{}
 // SkillInstalledItem 表示 worker 上已安装的 Skill。
 type SkillInstalledItem struct {
 	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
 	Description string `json:"description"`
 	Category    string `json:"category"`
 	Source      string `json:"source"`
@@ -134,6 +136,7 @@ type SkillDetailResponse struct {
 	SkillID     string   `json:"skill_id"`
 	Source      string   `json:"source"`
 	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name,omitempty"`
 	Description string   `json:"description"`
 	SkillMD     string   `json:"skill_md"`
 	Version     string   `json:"version"`

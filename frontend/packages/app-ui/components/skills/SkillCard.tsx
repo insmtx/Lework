@@ -15,6 +15,7 @@ interface SkillCardProps {
 export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCardProps) {
 	const isLerosAI = skill.author === "Lework";
 	const isMine = variant === "mine";
+	const displayName = skill.display_name || skill.name;
 
 	const handleCardClick = () => {
 		onClick?.(skill);
@@ -46,18 +47,18 @@ export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCard
 					{skill.icon ? (
 						<img
 							src={skill.icon}
-							alt={skill.name}
+							alt={displayName}
 							className="h-9 w-9 shrink-0 rounded-lg object-cover"
 						/>
 					) : (
 						<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-soft)] text-[var(--leros-primary)] text-sm font-bold transition-all duration-300 group-hover:bg-[var(--leros-primary)] group-hover:text-white">
-							{skill.name.charAt(0).toUpperCase()}
+							{displayName.charAt(0).toUpperCase()}
 						</div>
 					)}
 					<div>
 						<div className="mb-0.5 flex items-center gap-1">
 							<h3 className="max-w-[140px] truncate text-sm font-semibold text-[var(--leros-text-strong)]">
-								{skill.name}
+								{displayName}
 							</h3>
 							{isLerosAI && (
 								<span className="inline-flex shrink-0 text-[var(--leros-primary)]" title="已验证">

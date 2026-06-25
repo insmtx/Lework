@@ -92,7 +92,7 @@ func BatchUpsertSkillMarketplaceItems(ctx context.Context, db *gorm.DB, items []
 			{Name: "version"},
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"name", "description", "translated_description", "author",
+			"name", "translated_name", "description", "translated_description", "author",
 			"installs", "category", "tags", "package_storage_path", "updated_at",
 		}),
 	}).Create(&items).Error

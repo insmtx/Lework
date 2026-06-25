@@ -161,6 +161,7 @@ func CachePackage(ctx context.Context, st storage.Storage, bucket string,
 // ChineseWriter 提供写出 SKILL.zh-CN.md 的能力，供 CachePackage 的调用方使用。
 // 定义为接口避免 cache 包对 service 层的依赖。
 type ChineseWriter func(ctx context.Context, content string) (string, string, error)
+
 // content: 翻译后的完整 SKILL.md（含 frontmatter）
 // 返回: body（去 frontmatter）、description（frontmatter 中 description）、error
 
@@ -244,17 +245,18 @@ func upsertPackagePath(ctx context.Context, db *gorm.DB, source, skillID, versio
 	// 没有现成记录，用 BatchUpsert 创建一条
 	items := []types.SkillMarketplaceItem{
 		{
-			SkillID:             skillID,
-			Name:                "",
-			Source:              source,
-			Description:         "",
+			SkillID:               skillID,
+			Name:                  "",
+			TranslatedName:        "",
+			Source:                source,
+			Description:           "",
 			TranslatedDescription: "",
-			Author:              "",
-			Installs:            0,
-			Version:             version,
-			Category:            "",
-			Tags:                nil,
-			PackageStoragePath:  path,
+			Author:                "",
+			Installs:              0,
+			Version:               version,
+			Category:              "",
+			Tags:                  nil,
+			PackageStoragePath:    path,
 		},
 	}
 	return infradb.BatchUpsertSkillMarketplaceItems(ctx, db, items)

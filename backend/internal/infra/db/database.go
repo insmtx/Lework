@@ -262,26 +262,7 @@ func seedSystemLLMModels(d *gorm.DB, llmCfg *config.LLMConfig) error {
 		return nil
 	}
 
-	existing.Name = spec.Name
-	existing.Description = spec.Description
-	existing.Provider = spec.Provider
-	existing.ModelName = spec.ModelName
-	existing.BaseURL = spec.BaseURL
-	existing.BaseURLHasV1 = spec.BaseURLHasV1
-	existing.APIKeyEncrypted = spec.APIKeyEncrypted
-	existing.APIKeyMasked = spec.APIKeyMasked
-	existing.MaxTokens = spec.MaxTokens
-	existing.Temperature = spec.Temperature
-	existing.TimeoutSec = spec.TimeoutSec
-	existing.Status = spec.Status
-	existing.IsDefault = false
-	existing.IsSystem = true
-	existing.Config = spec.Config
-
-	if err := d.Save(&existing).Error; err != nil {
-		return fmt.Errorf("update system translation LLM model: %w", err)
-	}
-	logs.Infof("System translation LLM model updated (provider=%s, model=%s)", spec.Provider, spec.ModelName)
+	logs.Infof("System translation LLM model already exists, skip initialization (provider=%s, model=%s)", existing.Provider, existing.ModelName)
 	return nil
 }
 

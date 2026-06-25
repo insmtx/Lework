@@ -172,6 +172,7 @@ func skillMarketplaceItemView(sourceType, skillID, name, description, version, a
 		SourceType:  sourceType,
 		SkillID:     skillID,
 		Name:        name,
+		DisplayName: "",
 		Description: description,
 		Version:     version,
 		Author:      author,
@@ -192,7 +193,7 @@ func metaToView(meta fetch.SkillMeta) contract.SkillMarketplaceItemView {
 		meta.Version, meta.Author, meta.Category, meta.Tags, meta.Icon, meta.Installs)
 }
 
-// resolveCacheAndTranslation 从缓存表查找中文描述，未命中的进行翻译后写库。
+// resolveCacheAndTranslation 从缓存表查找中文展示文案，未命中的进行翻译后写库。
 func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context, items []contract.SkillMarketplaceItemView) {
 	if len(items) == 0 {
 		return
@@ -214,8 +215,8 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 	}
 
 	var (
-		alreadyChinese []types.SkillMarketplaceItem // 中文描述直接写库
-		needTranslate  []TranslateItem              // 需要模型翻译
+		alreadyChinese []types.SkillMarketplaceItem // 中文文案直接写库
+		needTranslate  []TranslateItem              // 需要模型生成中文文案
 	)
 
 	for idx := range items {
@@ -223,25 +224,30 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 		key := fmt.Sprintf("%s|%s|%s", item.SourceType, item.SkillID, item.Version)
 		cached, hit := cacheMap[key]
 
+		if hit && cached.TranslatedName != "" {
+			item.DisplayName = cached.TranslatedName
+		}
 		if hit && cached.TranslatedDescription != "" {
-			// 缓存命中且有中文描述 → 直接替换
 			item.Description = cached.TranslatedDescription
-			continue
 		}
 
 		if item.Description == "" {
 			continue
 		}
 
-		if utils.CJKRatio(item.Description) >= cjkTranslationThreshold {
-			// 已中文 → 直接写库
-			alreadyChinese = append(alreadyChinese, itemToCacheItem(item, item.Description))
+		hasChineseDescription := utils.CJKRatio(item.Description) >= cjkTranslationThreshold
+		hasDisplayName := strings.TrimSpace(item.DisplayName) != ""
+		if hasChineseDescription && hasDisplayName {
+			alreadyChinese = append(alreadyChinese, itemToCacheItem(item, TranslatedSkillText{
+				DisplayName: item.DisplayName,
+				Description: item.Description,
+			}))
 			continue
 		}
 
-		// 需要翻译
 		needTranslate = append(needTranslate, TranslateItem{
-			SkillID:     item.SkillID,
+			SkillID:     translateItemKey(item),
+			Name:        item.Name,
 			Description: item.Description,
 		})
 	}
@@ -268,7 +274,7 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 		upsertItems := make([]types.SkillMarketplaceItem, 0, len(translationMap))
 		for idx := range items {
 			item := items[idx]
-			if translated, ok := translationMap[item.SkillID]; ok {
+			if translated, ok := translationMap[translateItemKey(&item)]; ok {
 				upsertItems = append(upsertItems, itemToCacheItem(&item, translated))
 			}
 		}
@@ -281,31 +287,49 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 		// 再替换返回给前端的描述
 		for idx := range items {
 			item := &items[idx]
-			if translated, ok := translationMap[item.SkillID]; ok {
-				item.Description = translated
+			if translated, ok := translationMap[translateItemKey(item)]; ok {
+				if translated.DisplayName != "" {
+					item.DisplayName = translated.DisplayName
+				}
+				if translated.Description != "" {
+					item.Description = translated.Description
+				}
 			}
 		}
 	}
 }
 
 // itemToCacheItem 将 SkillMarketplaceItemView 转为缓存表记录。
-func itemToCacheItem(item *contract.SkillMarketplaceItemView, translatedDesc string) types.SkillMarketplaceItem {
+func itemToCacheItem(item *contract.SkillMarketplaceItemView, translated TranslatedSkillText) types.SkillMarketplaceItem {
 	tags := types.SkillStringList{}
 	if item.Tags != nil {
 		tags = types.SkillStringList(item.Tags)
 	}
+	displayName := translated.DisplayName
+	if displayName == "" {
+		displayName = item.DisplayName
+	}
+	translatedDescription := translated.Description
+	if translatedDescription == "" && utils.CJKRatio(item.Description) >= cjkTranslationThreshold {
+		translatedDescription = item.Description
+	}
 	return types.SkillMarketplaceItem{
 		SkillID:               item.SkillID,
 		Name:                  item.Name,
+		TranslatedName:        displayName,
 		Source:                item.SourceType,
 		Description:           item.Description,
-		TranslatedDescription: translatedDesc,
+		TranslatedDescription: translatedDescription,
 		Author:                item.Author,
 		Installs:              0,
 		Version:               item.Version,
 		Category:              item.Category,
 		Tags:                  tags,
 	}
+}
+
+func translateItemKey(item *contract.SkillMarketplaceItemView) string {
+	return fmt.Sprintf("%s|%s|%s", item.SourceType, item.SkillID, item.Version)
 }
 
 func (s *skillMarketplaceService) DownloadBuiltinSkill(ctx context.Context, skillID string) (*contract.SkillPackageDownload, error) {
@@ -512,6 +536,7 @@ func (s *skillMarketplaceService) InstalledSkills(ctx context.Context, req *cont
 	if err := json.Unmarshal(resp.Data, &skills); err != nil {
 		return nil, fmt.Errorf("unmarshal skill list items: %w", err)
 	}
+	s.enrichInstalledSystemSkills(ctx, skills)
 
 	return &contract.InstalledSkillsResponse{Skills: skills}, nil
 }
@@ -654,6 +679,7 @@ func (s *skillMarketplaceService) readDetailFromCache(ctx context.Context, item 
 		SkillID:     item.SkillID,
 		Source:      source,
 		Name:        item.Name,
+		DisplayName: item.TranslatedName,
 		Description: description,
 		SkillMD:     skillMDBody,
 		Version:     item.Version,
@@ -712,6 +738,9 @@ func (s *skillMarketplaceService) refillMarketplaceSkillDetail(ctx context.Conte
 	// 统一 version fallback
 	if resp.Version == "" {
 		resp.Version = "latest"
+	}
+	if existingItem != nil && existingItem.TranslatedName != "" {
+		resp.DisplayName = existingItem.TranslatedName
 	}
 
 	// 统一 eager 翻译：有 translator、原文非中文时同步翻译
@@ -820,6 +849,7 @@ func (s *skillMarketplaceService) getLerosSkillDetailWithBundle(ctx context.Cont
 		SkillID:     item.SkillID,
 		Source:      "Leros",
 		Name:        item.Name,
+		DisplayName: "",
 		Description: item.Description,
 		SkillMD:     skillMDContent,
 		Version:     item.Version,
@@ -900,10 +930,11 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		return nil, fmt.Errorf("unmarshal skill detail items: %w", err)
 	}
 
-	return &contract.SkillDetailResponse{
+	detailResp := &contract.SkillDetailResponse{
 		SkillID:     detail.Name,
 		Source:      "installed",
 		Name:        detail.Name,
+		DisplayName: "",
 		Description: detail.Description,
 		SkillMD:     detail.SkillMD, // already stripped by catalog.Get in handleDetail
 		Version:     detail.Version,
@@ -914,7 +945,123 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		Verified:    detail.Trust == "trusted",
 		SourceType:  detail.Source,
 		Files:       detail.Files,
-	}, nil
+	}
+	s.enrichInstalledSystemSkillDetail(ctx, detailResp)
+	return detailResp, nil
+}
+
+func (s *skillMarketplaceService) enrichInstalledSystemSkills(ctx context.Context, skills []contract.SkillInstalledItem) {
+	if len(skills) == 0 || s.db == nil {
+		return
+	}
+
+	names := make([]string, 0, len(skills))
+	for _, item := range skills {
+		name := strings.TrimSpace(item.Name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+
+	builtinByID, err := s.builtinItemsBySkillID(ctx, names)
+	if err != nil {
+		logs.WarnContextf(ctx, "enrich installed system skills: query builtin skills: %v", err)
+		return
+	}
+	if len(builtinByID) == 0 {
+		return
+	}
+
+	views := make([]contract.SkillMarketplaceItemView, 0, len(builtinByID))
+	for _, name := range names {
+		if item, ok := builtinByID[name]; ok {
+			views = append(views, builtinItemToView(item))
+		}
+	}
+	s.resolveCacheAndTranslation(ctx, views)
+
+	viewByID := make(map[string]contract.SkillMarketplaceItemView, len(views))
+	for _, view := range views {
+		viewByID[view.SkillID] = view
+	}
+
+	for idx := range skills {
+		view, ok := viewByID[skills[idx].Name]
+		if !ok {
+			continue
+		}
+		skills[idx].DisplayName = view.DisplayName
+		if view.Description != "" {
+			skills[idx].Description = view.Description
+		}
+		if skills[idx].Category == "" {
+			skills[idx].Category = view.Category
+		}
+	}
+}
+
+func (s *skillMarketplaceService) enrichInstalledSystemSkillDetail(ctx context.Context, detail *contract.SkillDetailResponse) {
+	if detail == nil || s.db == nil {
+		return
+	}
+
+	builtinByID, err := s.builtinItemsBySkillID(ctx, []string{detail.Name})
+	if err != nil {
+		logs.WarnContextf(ctx, "enrich installed system skill detail: query builtin skill: %v", err)
+		return
+	}
+	item, ok := builtinByID[detail.Name]
+	if !ok {
+		return
+	}
+
+	views := []contract.SkillMarketplaceItemView{builtinItemToView(item)}
+	s.resolveCacheAndTranslation(ctx, views)
+	if len(views) == 0 {
+		return
+	}
+	detail.DisplayName = views[0].DisplayName
+	if views[0].Description != "" {
+		detail.Description = views[0].Description
+	}
+	if detail.Category == "" {
+		detail.Category = views[0].Category
+	}
+}
+
+func (s *skillMarketplaceService) builtinItemsBySkillID(ctx context.Context, skillIDs []string) (map[string]types.BuiltinSkillMarketplaceItem, error) {
+	result := make(map[string]types.BuiltinSkillMarketplaceItem)
+	if len(skillIDs) == 0 {
+		return result, nil
+	}
+
+	unique := make([]string, 0, len(skillIDs))
+	seen := make(map[string]bool, len(skillIDs))
+	for _, id := range skillIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return result, nil
+	}
+
+	var items []types.BuiltinSkillMarketplaceItem
+	if err := s.db.WithContext(ctx).
+		Where("skill_id IN ? AND status = ?", unique, "active").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		result[item.SkillID] = item
+	}
+	return result, nil
 }
 
 // ImportSkill 从已上传文件导入 Skill，校验内容后发送给 Worker 异步安装。
