@@ -1,9 +1,11 @@
 "use client";
 
 import {
+	AiTeammatesView,
 	AssistantListView,
 	CenterCanvas,
 	ProjectPage,
+	ProjectsHubView,
 	SkillMarketView,
 	TaskDetailPage,
 	WorkbenchPanel,
@@ -69,6 +71,14 @@ export function SkillsRoutePage() {
 	const navigation = useWebNavigation();
 
 	return <SkillMarketView navigation={navigation} />;
+}
+
+export function AiTeammatesRoutePage() {
+	return <AiTeammatesView />;
+}
+
+export function ProjectsHubRoutePage() {
+	return <ProjectsHubView />;
 }
 
 export function EmptyRoutePage() {

@@ -90,8 +90,10 @@ export type ViewMode =
 	| "workbench"
 	| "tasks"
 	| "project"
+	| "projectsHub"
 	| "taskDetail"
 	| "digitalAssistant"
+	| "aiTeammates"
 	| "knowledge"
 	| "skills"
 	| "settings";
@@ -217,6 +219,8 @@ const _initialState: LayoutState = {
 			label: "",
 			items: [
 				{ id: "workbench", label: "新建任务", icon: "IconTask" },
+				{ id: "ai-teammates", label: "AI队友", icon: "IconAITeammate" },
+				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "技能库", icon: "IconSkill" },
 				{ id: "knowledge", label: "知识库", icon: "IconKnowledge" },
 			],
@@ -225,15 +229,6 @@ const _initialState: LayoutState = {
 			id: "projects",
 			label: "项目",
 			items: [],
-		},
-		{
-			id: "ai-teammates",
-			label: "AI 队友",
-			items: [
-				{ id: "ai-1", label: "Ada AI", icon: "IconAITeammate", badge: 1 },
-				{ id: "ai-2", label: "Hopper", icon: "IconAITeammate" },
-				{ id: "ai-3", label: "Mia", icon: "IconAITeammate" },
-			],
 		},
 	],
 	collapsedNavGroups: new Set(),

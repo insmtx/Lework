@@ -36,6 +36,7 @@ import {
 	ChevronsRight,
 	ClipboardList,
 	Database,
+	FolderKanban,
 	Hash,
 	Loader2,
 	LogOut,
@@ -45,6 +46,7 @@ import {
 	RefreshCcw,
 	Trash2,
 	UserRound,
+	Users,
 	X,
 	Zap,
 } from "lucide-react";
@@ -74,6 +76,8 @@ export type AppNavigation = {
 
 const iconMap: Record<string, React.ReactNode> = {
 	IconTask: <ClipboardList className="size-5" />,
+	IconAITeammate: <Users className="size-5" />,
+	IconProjectsHub: <FolderKanban className="size-5" />,
 	IconSkill: <Zap className="size-5" />,
 	IconKnowledge: <Database className="size-5" />,
 	IconProject: <Hash className="size-4" />,
@@ -81,11 +85,10 @@ const iconMap: Record<string, React.ReactNode> = {
 
 const navIdToView: Record<string, ViewMode> = {
 	workbench: "workbench",
+	"ai-teammates": "aiTeammates",
+	"projects-hub": "projectsHub",
 	knowledge: "knowledge",
 	skills: "skills",
-	"ai-1": "digitalAssistant",
-	"ai-2": "digitalAssistant",
-	"ai-3": "digitalAssistant",
 };
 
 const protectedNavIds = new Set(["skills", "knowledge"]);
@@ -123,7 +126,6 @@ export function LeftRail({
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 	const [projectsExpanded, setProjectsExpanded] = useState(false);
-	const [aiTeammatesExpanded, setAiTeammatesExpanded] = useState(false);
 
 	/* ── Desktop update notifier ── */
 	const [promptOpen, setPromptOpen] = useState(false);
@@ -434,15 +436,6 @@ export function LeftRail({
 										collapsed={leftRailCollapsed}
 										expanded={projectsExpanded}
 										onExpand={() => setProjectsExpanded(true)}
-									/>
-								) : group.id === "ai-teammates" ? (
-									<NavItemList
-										items={group.items}
-										collapsed={leftRailCollapsed}
-										expanded={aiTeammatesExpanded}
-										onExpand={() => setAiTeammatesExpanded(true)}
-										isItemActive={isItemActive}
-										onItemClick={handleNavClick}
 									/>
 								) : (
 									<div className="space-y-1">
@@ -1209,6 +1202,8 @@ function getRouteActive(path: string, view: ViewMode) {
 	if (view === "workbench") return path === "/" || path.startsWith("/workbench");
 	if (view === "chat") return path.startsWith("/chat");
 	if (view === "digitalAssistant") return path.startsWith("/assistants");
+	if (view === "aiTeammates") return path.startsWith("/ai-teammates");
+	if (view === "projectsHub") return path === "/projects";
 	if (view === "skills") return path.startsWith("/skills");
 	if (view === "knowledge") return path.startsWith("/knowledge");
 	if (view === "tasks") return path.startsWith("/tasks");
@@ -1305,39 +1300,6 @@ function ProjectList({
 	);
 }
 
-function NavItemList({
-	items,
-	collapsed,
-	expanded,
-	onExpand,
-	isItemActive,
-	onItemClick,
-}: {
-	items: NavItem[];
-	collapsed: boolean;
-	expanded: boolean;
-	onExpand: () => void;
-	isItemActive: (item: NavItem) => boolean;
-	onItemClick: (item: NavItem) => void;
-}) {
-	const { visibleItems, showExpandTrigger } = getVisibleLeftRailItems(items, expanded);
-
-	return (
-		<div className="space-y-1">
-			{visibleItems.map((item) => (
-				<NavItemButton
-					key={item.id}
-					item={item}
-					active={isItemActive(item)}
-					collapsed={collapsed}
-					onClick={() => onItemClick(item)}
-				/>
-			))}
-			{showExpandTrigger ? <ExpandMoreButton collapsed={collapsed} onClick={onExpand} /> : null}
-		</div>
-	);
-}
-
 function ExpandMoreButton({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
 	return (
 		<button
@@ -1366,17 +1328,7 @@ function NavItemButton({
 	collapsed: boolean;
 	onClick: () => void;
 }) {
-	const icon =
-		item.icon === "IconAITeammate" ? (
-			<DiceBearAvatar
-				seed={`ai-teammate:${item.label}`}
-				alt=""
-				className="h-full w-full"
-				size={64}
-			/>
-		) : (
-			iconMap[item.icon]
-		);
+	const icon = iconMap[item.icon];
 
 	return (
 		<button
@@ -1386,34 +1338,19 @@ function NavItemButton({
 			className={cn("leros-nav-item", collapsed && "justify-center")}
 			title={collapsed ? item.label : undefined}
 		>
-			<span
-				className={cn(
-					"leros-nav-icon",
-					item.icon === "IconProject" && "leros-nav-icon-text",
-					item.icon === "IconAITeammate" && "leros-nav-icon-avatar",
-				)}
-			>
+			<span className={cn("leros-nav-icon", item.icon === "IconProject" && "leros-nav-icon-text")}>
 				{icon}
 			</span>
 			<span className={cn("flex-1 truncate font-medium", collapsed && "hidden")}>{item.label}</span>
 			{item.badge ? (
-				item.icon === "IconAITeammate" ? (
-					<div
-						className={cn(
-							"h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--leros-primary)]",
-							collapsed ? "absolute right-2 top-2" : "mr-1",
-						)}
-					/>
-				) : (
-					<span
-						className={cn(
-							"rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive",
-							collapsed ? "absolute right-1.5 top-1.5" : "ml-auto",
-						)}
-					>
-						{item.badge}
-					</span>
-				)
+				<span
+					className={cn(
+						"rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive",
+						collapsed ? "absolute right-1.5 top-1.5" : "ml-auto",
+					)}
+				>
+					{item.badge}
+				</span>
 			) : null}
 		</button>
 	);
