@@ -177,7 +177,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 						<RecentSkillsPanel onCardClick={handleCardClick} />
 						<div>
 							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)] mb-4">已安装</h3>
-							<MySkillsPanel onCardClick={handleCardClick} />
+							<MySkillsPanel onCardClick={handleCardClick} refreshSeq={mySkillsRefreshSeq} />
 						</div>
 					</div>
 				</TabsContent>
