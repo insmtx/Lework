@@ -67,4 +67,7 @@ const (
 	TableNameBuiltinSkillMarketplaceItem = tablenamePrefix + "builtin_skill_marketplace_item"
 	// TableNameSkillMarketplaceItem Skill 市场记录缓存表名
 	TableNameSkillMarketplaceItem = tablenamePrefix + "skill_marketplace_item"
+
+	// TableNameMessageResource 消息资源关联表名
+	TableNameMessageResource = tablenamePrefix + "message_resource"
 )

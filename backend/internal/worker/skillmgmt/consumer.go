@@ -131,7 +131,7 @@ func (c *Consumer) handleInstall(ctx context.Context, req protocol.SkillManageme
 		downloaded, err := c.tryDownloadFromServer(ctx, skillID, source, version)
 		if err == nil && downloaded != nil {
 			logs.InfoContextf(ctx, "Cache HIT for %s/%s@%s from server %s", source, skillID, version, serverAddr)
-			return c.installFromZip(ctx, downloaded, req.Body.ReplyTo)
+			return c.installFromZip(ctx, downloaded, req.Body.ReplyTo, source, skillID)
 		}
 		if err != nil {
 			logs.InfoContextf(ctx, "Cache MISS for %s/%s@%s: %v, falling back to remote fetch", source, skillID, version, err)
@@ -208,15 +208,15 @@ func (c *Consumer) tryDownloadFromServer(ctx context.Context, skillID, source, v
 }
 
 // installFromZip 将 zip 字节解压并安装 skill，同步外部 symlink。
-func (c *Consumer) installFromZip(ctx context.Context, zipBytes []byte, replyTo string) error {
+func (c *Consumer) installFromZip(ctx context.Context, zipBytes []byte, replyTo, source, skillID string) error {
 	skillContent, supportingFiles, err := extractZipSkill(zipBytes)
 	if err != nil {
 		return c.replyError(replyTo, "extract zip skill", err)
 	}
-	return c.installSkillContent(ctx, skillContent, supportingFiles, replyTo, "install")
+	return c.installSkillContent(ctx, skillContent, supportingFiles, replyTo, "install", source, skillID)
 }
 
-func (c *Consumer) installSkillContent(ctx context.Context, skillContent []byte, supportingFiles map[string][]byte, replyTo, action string) error {
+func (c *Consumer) installSkillContent(ctx context.Context, skillContent []byte, supportingFiles map[string][]byte, replyTo, action, source, skillID string) error {
 	manifest, _, err := catalog.ParseDocument(skillContent)
 	if err != nil {
 		return c.replyError(replyTo, "parse SKILL.md", err)
@@ -245,6 +245,8 @@ func (c *Consumer) installSkillContent(ctx context.Context, skillContent []byte,
 		Content: string(skillContent),
 		Files:   files,
 		Force:   true,
+		Source:  source,
+		SkillID: skillID,
 	})
 	if err != nil {
 		return c.replyError(replyTo, "install skill", err)
@@ -404,7 +406,7 @@ func (c *Consumer) handleImport(ctx context.Context, req protocol.SkillManagemen
 		if bundle.TempDir != "" {
 			defer os.RemoveAll(bundle.TempDir)
 		}
-		return c.installSkillContent(ctx, bundle.Content, bundle.Files, req.Body.ReplyTo, "import")
+		return c.installSkillContent(ctx, bundle.Content, bundle.Files, req.Body.ReplyTo, "import", req.Body.Source, req.Body.SkillID)
 	}
 
 	// Prefer the dedicated DownloadURL field; fall back to SkillID for
@@ -439,7 +441,7 @@ func (c *Consumer) handleImport(ctx context.Context, req protocol.SkillManagemen
 		supportingFiles = nil
 	}
 
-	return c.installSkillContent(ctx, skillContent, supportingFiles, req.Body.ReplyTo, "import")
+	return c.installSkillContent(ctx, skillContent, supportingFiles, req.Body.ReplyTo, "import", req.Body.Source, req.Body.SkillID)
 }
 
 // downloadFromURL downloads file content from a URL or local path.

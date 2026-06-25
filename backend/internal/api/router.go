@@ -137,13 +137,17 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterSkillMarketplaceRoutes(v1, skillMarketplaceService)
 		logs.Info("Skill marketplace routes registered successfully")
 
+		skillService := service.NewSkillService(db, eventbus, inferrer)
+		handler.RegisterSkillRoutes(v1, skillService)
+		logs.Info("Skill management routes registered successfully")
+
 		// Start background consumers
 		if !cfg.Server.DisableEventConsumers {
 			go runnable.StartSessionArtifactDeclared(context.Background(), eventbus, db, giteaClient)
 			logs.Info("Session artifact declared runnable started")
 			go runnable.StartSessionRunStarted(context.Background(), sessionService, eventbus)
 			logs.Info("Session run started runnable started")
-			go runnable.StartSessionCompleted(context.Background(), sessionService, eventbus)
+			go runnable.StartSessionCompleted(context.Background(), sessionService, eventbus, db)
 			logs.Info("Session completed runnable started")
 			go runnable.StartSessionTitleHandler(context.Background(), sessionService, eventbus, db)
 			logs.Info("Session title handler runnable started")

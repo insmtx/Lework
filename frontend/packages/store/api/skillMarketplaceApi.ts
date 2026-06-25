@@ -173,4 +173,10 @@ export const skillMarketplaceApi = {
             "/skill-marketplace/import/github",
             params,
         ),
+
+  listRecentUsed: (limit?: number) =>
+    apiClient.get<BackendDataResponse<SkillInstalledItem[]>>(
+      "/skills/recent",
+      { params: limit ? { limit } : undefined } as any,
+    ),
 };

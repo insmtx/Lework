@@ -109,6 +109,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCard
 					</span>
 				)}
 			</div>
-		</button>
+
+			</button>
 	);
 }

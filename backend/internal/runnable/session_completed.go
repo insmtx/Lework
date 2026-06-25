@@ -3,12 +3,15 @@ package runnable
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/nats-io/nats.go"
+	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
@@ -18,21 +21,21 @@ import (
 )
 
 // StartSessionCompleted subscribes to session completed events and dispatches to the service.
-func StartSessionCompleted(ictx context.Context, service contract.SessionService, eb eventbus.EventBus) {
+func StartSessionCompleted(ictx context.Context, service contract.SessionService, eb eventbus.EventBus, db *gorm.DB) {
 	ctx := logs.WithContextFields(ictx, "runnable", "session_completed")
 	topic := dm.SessionMessageCompletedWildcardSubject()
 	logs.InfoContextf(ctx, "starting session completed runnable: %s", topic)
 
 	Run(ctx, "session_completed", func(ctx context.Context) {
 		if err := eb.Subscribe(ctx, topic, dm.SessionCompletedConsumer(), func(msg *nats.Msg) {
-			handleSessionCompletedMessage(ctx, service, msg)
+			handleSessionCompletedMessage(ctx, service, db, msg)
 		}); err != nil {
 			logs.ErrorContextf(ctx, "subscribe to %s failed: %v", topic, err)
 		}
 	})
 }
 
-func handleSessionCompletedMessage(ctx context.Context, service contract.SessionService, msg *nats.Msg) {
+func handleSessionCompletedMessage(ctx context.Context, service contract.SessionService, db *gorm.DB, msg *nats.Msg) {
 	var streamMsg protocol.MessageStreamMessage
 	if err := json.Unmarshal(msg.Data, &streamMsg); err != nil {
 		logs.WarnContextf(ctx, "unmarshal session completed message: %v", err)
@@ -43,6 +46,9 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 	if sessionID == "" {
 		return
 	}
+
+	logs.InfoContextf(ctx, "[skill-record] handleSessionCompletedMessage: session=%s event=%s org=%d",
+		sessionID, streamMsg.Body.Event, streamMsg.Route.OrgID)
 
 	switch streamMsg.Body.Event {
 	case protocol.StreamEventRunCompleted:
@@ -67,6 +73,7 @@ func handleSessionCompletedMessage(ctx context.Context, service contract.Session
 		if err := service.CompleteSessionMessage(ctx, req); err != nil {
 			logs.WarnContextf(ctx, "complete session message: %v", err)
 		}
+		recordSkillInvocations(ctx, db, streamMsg.Route.OrgID, streamMsg.Route.SessionID, completed.Events)
 
 	case protocol.StreamEventRunFailed:
 		errMsg := streamMsg.Body.Payload.Content
@@ -399,4 +406,97 @@ func isEmptyObjectMetadata(metadata *types.ObjectMetadata) bool {
 		return false
 	}
 	return len(metadata.Extra) == 0
+}
+
+func recordSkillInvocations(ctx context.Context, db *gorm.DB, orgID uint, sessionID string, runEvents []events.RunEventRecord) {
+	logs.InfoContextf(ctx, "[skill-record] recordSkillInvocations called: db=%v runEvents=%d session=%s",
+		db != nil, len(runEvents), sessionID)
+	if db == nil || len(runEvents) == 0 {
+		if db == nil {
+			logs.WarnContextf(ctx, "[skill-record] db is nil, skip")
+		}
+		if len(runEvents) == 0 {
+			logs.WarnContextf(ctx, "[skill-record] runEvents is empty, skip")
+		}
+		return
+	}
+
+	// print event types for diagnosis
+	for i, evt := range runEvents {
+		logs.InfoContextf(ctx, "[skill-record] event[%d] type=%s payloadLen=%d", i, evt.Type, len(evt.Payload))
+	}
+
+	var session types.Session
+	if err := db.WithContext(ctx).Where("public_id = ?", sessionID).First(&session).Error; err != nil {
+		logs.WarnContextf(ctx, "recordSkillInvocations: session not found: %s err=%v", sessionID, err)
+		return
+	}
+
+	seen := make(map[string]bool)
+	var records []*types.MessageResource
+	for _, evt := range runEvents {
+		if evt.Type != events.EventToolCallStarted {
+			continue
+		}
+
+		var payload events.ToolCallPayload
+		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
+			logs.WarnContextf(ctx, "[skill-record] unmarshal ToolCallPayload failed: type=%s payload=%s err=%v",
+				evt.Type, string(evt.Payload), err)
+			continue
+		}
+
+		skillName := extractSkillName(payload.Name, payload.Arguments)
+		logs.InfoContextf(ctx, "[skill-record] tool_call.started: tool=%s args=%v => skillName=%s",
+			payload.Name, payload.Arguments, skillName)
+		if skillName == "" {
+			continue
+		}
+
+		if seen[skillName] {
+			continue
+		}
+		seen[skillName] = true
+
+		source, skillID := "Leros", skillName
+		resourceID := ""
+		if item, err := infradb.GetBuiltinSkillByID(ctx, db, skillName); err == nil && item != nil {
+			source = "Leros"
+			skillID = item.SkillID
+			resourceID = fmt.Sprintf("%d", item.ID)
+		}
+
+		records = append(records, &types.MessageResource{
+			ResourceID:   resourceID,
+			ResourceKey:  source + ":" + skillID,
+			OrgID:        orgID,
+			Uin:          session.Uin,
+			SessionID:    session.ID,
+			ResourceType: "skill",
+			ResourceName: skillName,
+			InvokeType:   "tool_call",
+		})
+	}
+
+	logs.InfoContextf(ctx, "[skill-record] records collected: count=%d", len(records))
+	if len(records) > 0 {
+		if err := infradb.BatchCreateMessageResources(ctx, db, records); err != nil {
+			logs.WarnContextf(ctx, "recordSkillInvocations: batch create failed: %v", err)
+		}
+	}
+}
+
+var skillToolNames = map[string]bool{
+	"skill_use": true, // native engine
+	"skill":     true, // opencode engine
+}
+
+func extractSkillName(toolName string, arguments map[string]any) string {
+	if !skillToolNames[toolName] {
+		return ""
+	}
+	if name, ok := arguments["name"].(string); ok && name != "" {
+		return name
+	}
+	return ""
 }

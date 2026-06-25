@@ -18,6 +18,7 @@ import { MarketplacePanel } from "./MarketplacePanel";
 import { MySkillsPanel } from "./MySkillsPanel";
 import { SkillDetailView } from "./SkillDetailView";
 import { SkillImportDialog } from "./SkillImportDialog";
+import { RecentSkillsPanel } from "./RecentSkillsPanel";
 
 export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) {
 	const [activeTab, setActiveTab] = useState<"marketplace" | "mine">("marketplace");
@@ -172,7 +173,13 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 				</TabsContent>
 
 				<TabsContent value="mine" className="min-h-0 flex-1 overflow-y-auto px-6 py-8 outline-none">
-					<MySkillsPanel onCardClick={handleCardClick} refreshSeq={mySkillsRefreshSeq} />
+					<div className="flex flex-col gap-8">
+						<RecentSkillsPanel onCardClick={handleCardClick} />
+						<div>
+							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)] mb-4">已安装</h3>
+							<MySkillsPanel onCardClick={handleCardClick} />
+						</div>
+					</div>
 				</TabsContent>
 			</Tabs>
 

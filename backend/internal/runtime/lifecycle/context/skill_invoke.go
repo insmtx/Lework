@@ -3,18 +3,14 @@ package lifecyclecontext
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/agent"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// skillInvokeRE matches consecutive /skill tokens at the beginning of a user message.
-// Skill names must start with a letter and may contain letters, digits, underscores, and hyphens.
-// The token must be followed by whitespace or end-of-line to avoid matching paths like /path/to/file.
-var skillInvokeRE = regexp.MustCompile(`^\s*/([A-Za-z][A-Za-z0-9_-]*)(\s|$)`)
 
 // ApplyInvokedSkills parses leading /skill tokens from user messages, loads
 // matching SKILL.md content, strips the tokens, and rewrites message content.
@@ -42,7 +38,7 @@ func ApplyInvokedSkills(ctx context.Context, req *agent.RequestContext) error {
 			continue
 		}
 
-		tokens, remaining := parseSkillTokens(msg.Content)
+		tokens, remaining := skilltoken.ParseTokens(msg.Content)
 		if len(tokens) == 0 {
 			continue
 		}
@@ -119,22 +115,7 @@ func ApplyInvokedSkills(ctx context.Context, req *agent.RequestContext) error {
 	return nil
 }
 
-// parseSkillTokens parses consecutive /skill tokens from the start of content.
-// It returns skill names without the leading slash and the text left after stripping tokens.
-func parseSkillTokens(content string) (tokens []string, remaining string) {
-	remaining = content
-	for {
-		m := skillInvokeRE.FindStringSubmatch(remaining)
-		if m == nil {
-			break
-		}
-		tokens = append(tokens, m[1])
-		remaining = strings.TrimSpace(remaining[len(m[0]):])
-	}
-	return tokens, remaining
-}
-
-// dedupeOrderedLower removes duplicates case-insensitively while preserving first-seen order.
+// buildSkillInvokePrompt removes duplicates case-insensitively while preserving first-seen order.
 func dedupeOrderedLower(items []string) []string {
 	seen := make(map[string]bool, len(items))
 	result := make([]string, 0, len(items))

@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -116,6 +117,8 @@ type InstallRequest struct {
 	Content string            // SKILL.md 内容
 	Files   map[string]string // 附属文件：相对路径 → 内容
 	Force   bool              // 是否覆盖已有 skill
+	Source  string            // 来源（Leros / ClawHub / github / SkillsSh / url）
+	SkillID string            // 源内唯一标识
 }
 
 // PatchRequest 表示替换 SKILL.md 或 supporting file 中文本的请求。
@@ -322,6 +325,13 @@ func (s *SkillStore) Install(ctx context.Context, req InstallRequest) (*Result, 
 	// 清理备份
 	if backupPath != "" {
 		_ = os.RemoveAll(backupPath)
+	}
+
+	// 写入 .skill-metadata 文件
+	if req.Source != "" || req.SkillID != "" {
+		if err := writeSkillMetadata(skillDir, req.Source, req.SkillID); err != nil {
+			logs.Warnf("write .skill-metadata for %s: %v", name, err)
+		}
 	}
 
 	result := &Result{
@@ -806,4 +816,34 @@ func failure(action string, name string, message string, cause *SkillError) *Res
 		r.ErrorCode = cause.Code
 	}
 	return r
+}
+
+const skillMetadataFile = ".skill-metadata"
+
+// SkillMetadata stores the source and skill_id from the marketplace.
+type SkillMetadata struct {
+	Source  string `json:"source"`
+	SkillID string `json:"skill_id"`
+}
+
+func writeSkillMetadata(skillDir, source, skillID string) error {
+	data, err := json.Marshal(SkillMetadata{Source: source, SkillID: skillID})
+	if err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(skillDir, skillMetadataFile), string(data))
+}
+
+// ReadSkillMetadata reads the .skill-metadata file from the given skill directory.
+func ReadSkillMetadata(skillDir string) (*SkillMetadata, error) {
+	path := filepath.Join(skillDir, skillMetadataFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var m SkillMetadata
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
 }

@@ -27,7 +27,8 @@ export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProp
     try {
       const resp = await skillMarketplaceApi.installed();
       const raw = resp.data.data.skills ?? [];
-      setSkills(raw.map(installedToCardItem));
+      const list = raw.map(installedToCardItem);
+      setSkills(list);
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? err?.message ?? "加载失败";
       setError(msg);

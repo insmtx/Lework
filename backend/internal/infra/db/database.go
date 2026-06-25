@@ -28,6 +28,9 @@ type legacyColumn struct {
 
 var legacyColumns = []legacyColumn{
 	{table: types.TableNameDigitalAssistant, column: "config"},
+	{table: types.TableNameMessageResource, column: "resource_public_id"},
+	{table: types.TableNameMessageResource, column: "resource_code"},
+	{table: types.TableNameMessageResource, column: "meta"},
 }
 
 // dbName 是数据库名称常量
@@ -92,6 +95,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.FileUpload{},
 		&types.BuiltinSkillMarketplaceItem{},
 		&types.SkillMarketplaceItem{},
+		&types.MessageResource{},
 	}
 
 	if err := dbtools.InitModel(db, models...); err != nil {

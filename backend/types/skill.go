@@ -37,8 +37,6 @@ type Skill struct {
 	Permissions []interface{} `gorm:"column:permissions;type:jsonb"`
 	// 技能配置
 	Config map[string]interface{} `gorm:"column:config;type:jsonb"`
-	// 状态：active, inactive, deprecated
-	Status string `gorm:"column:status;type:varchar(50);not null;default:active"` // 建议使用 types.SkillStatus 定义的常量值
 	// 是否为系统内置技能
 	IsSystem bool `gorm:"column:is_system;type:boolean;default:false"`
 }

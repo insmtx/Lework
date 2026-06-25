@@ -52,6 +52,7 @@ docs/docs.go
 docs/swagger.json
 docs/swagger.yaml
 .worktrees
+.worktree
 frontend/.pnpm-store
 .pnpm-store
 leros

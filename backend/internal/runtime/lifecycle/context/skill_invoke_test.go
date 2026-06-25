@@ -9,6 +9,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/agent"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 )
 
@@ -537,7 +538,7 @@ func TestApplyInvokedSkillsNilRequest(t *testing.T) {
 }
 
 func TestParseSkillTokensBasic(t *testing.T) {
-	tokens, remaining := parseSkillTokens("/anysearch 查资料")
+	tokens, remaining := skilltoken.ParseTokens("/anysearch 查资料")
 	if len(tokens) != 1 || tokens[0] != "anysearch" {
 		t.Fatalf("expected [anysearch], got %v", tokens)
 	}
@@ -547,7 +548,7 @@ func TestParseSkillTokensBasic(t *testing.T) {
 }
 
 func TestParseSkillTokensMultiple(t *testing.T) {
-	tokens, remaining := parseSkillTokens("/anysearch /xiaohongshu 写笔记")
+	tokens, remaining := skilltoken.ParseTokens("/anysearch /xiaohongshu 写笔记")
 	if len(tokens) != 2 || tokens[0] != "anysearch" || tokens[1] != "xiaohongshu" {
 		t.Fatalf("expected [anysearch xiaohongshu], got %v", tokens)
 	}
@@ -557,7 +558,7 @@ func TestParseSkillTokensMultiple(t *testing.T) {
 }
 
 func TestParseSkillTokensNoMatch(t *testing.T) {
-	tokens, remaining := parseSkillTokens("请帮我查 /anysearch")
+	tokens, remaining := skilltoken.ParseTokens("请帮我查 /anysearch")
 	if len(tokens) != 0 {
 		t.Fatalf("expected no tokens, got %v", tokens)
 	}
@@ -567,7 +568,7 @@ func TestParseSkillTokensNoMatch(t *testing.T) {
 }
 
 func TestParseSkillTokensOnlySkill(t *testing.T) {
-	tokens, remaining := parseSkillTokens("/anysearch")
+	tokens, remaining := skilltoken.ParseTokens("/anysearch")
 	if len(tokens) != 1 || tokens[0] != "anysearch" {
 		t.Fatalf("expected [anysearch], got %v", tokens)
 	}
@@ -577,7 +578,7 @@ func TestParseSkillTokensOnlySkill(t *testing.T) {
 }
 
 func TestParseSkillTokensWithUnderscore(t *testing.T) {
-	tokens, remaining := parseSkillTokens("/my_skill-01 内容")
+	tokens, remaining := skilltoken.ParseTokens("/my_skill-01 内容")
 	if len(tokens) != 1 || tokens[0] != "my_skill-01" {
 		t.Fatalf("expected [my_skill-01], got %v", tokens)
 	}

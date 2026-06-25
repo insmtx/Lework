@@ -17,7 +17,7 @@ import (
 
 // buildSkillLoadingContext 构建 Skill 加载指令 + available_skills 数据。
 // 静态提示词模板来自 prompts 包，动态 skills 数据在运行时从文件系统扫描注入。
-func (b *ContextBuilder) buildSkillLoadingContext() string {
+func (b *ContextBuilder) buildSkillLoadingContext(ctx context.Context) string {
 	var skillsData string
 	summaries, err := skillcatalog.List()
 	if err == nil && len(summaries) > 0 {
@@ -77,7 +77,7 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agent.Reque
 	}
 
 	// Skill 加载指令 + available_skills
-	if skillLoading := strings.TrimSpace(b.buildSkillLoadingContext()); skillLoading != "" {
+	if skillLoading := strings.TrimSpace(b.buildSkillLoadingContext(ctx)); skillLoading != "" {
 		sections = append(sections, skillLoading)
 		sectionNames = append(sectionNames, "skill_loading")
 	}
