@@ -502,6 +502,41 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 	return s.eventbus.Publish(ctx, topic, req)
 }
 
+func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract.SubmitQuestionAnswerRequest) error {
+	session, caller, err := s.getSessionForCaller(ctx, req.SessionID)
+	if err != nil {
+		return err
+	}
+	req.OrgID = caller.OrgID
+	if req.WorkerID == 0 {
+		req.WorkerID = session.AllocatedAssistantID
+	}
+	if req.WorkerID == 0 {
+		_, workerID, err := resolveDefaultRuntimeWorker(ctx, s.db, caller.OrgID, s.inferrer)
+		if err != nil {
+			return err
+		}
+		req.WorkerID = workerID
+	}
+	topic, err := dm.WorkerApprovalSubject(req.OrgID, req.WorkerID)
+	if err != nil {
+		return fmt.Errorf("build question answer topic: %w", err)
+	}
+	// 使用与 approval 相同的 topic，但消息中包含 interaction_type 以区分
+	type questionMsg struct {
+		InteractionType string     `json:"interaction_type"`
+		SessionID       string     `json:"session_id"`
+		RequestID       string     `json:"request_id"`
+		Answers         [][]string `json:"answers"`
+	}
+	return s.eventbus.Publish(ctx, topic, questionMsg{
+		InteractionType: "question",
+		SessionID:       req.SessionID,
+		RequestID:       req.RequestID,
+		Answers:         req.Answers,
+	})
+}
+
 func (s *sessionService) sessionRuntimeStatus(ctx context.Context, sessionID uint) string {
 	messages, err := db.GetRecentProcessingUserMessages(ctx, s.db, sessionID, time.Now().Add(-sessionProcessingWindow))
 	if err != nil {

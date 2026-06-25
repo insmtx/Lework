@@ -399,8 +399,12 @@ func (h *SessionHandler) ClearSessionMessages(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(nil))
 }
 
-// SubmitApproval 处理前端提交的审批决策，委托给 service 层通过 NATS 转发。
+// SubmitApproval 处理前端提交的审批决策或问题答案，委托给 service 层通过 NATS 转发。
 // POST /v1/sessions/:session_id/approvals
+//
+// 支持的交互类型：
+//   - "approval.decide": 审批决策，payload 为 {request_id, action, reason}
+//   - "question.answer": 问题答案，payload 为 {request_id, answers}
 func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 	sessionID := ctx.Param("session_id")
 	var interaction struct {
@@ -411,42 +415,77 @@ func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	if interaction.Type != "approval.decide" {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "unknown interaction type"))
-		return
-	}
-	var payload struct {
-		RequestID string `json:"request_id"`
-		Action    string `json:"action"`
-		Reason    string `json:"reason,omitempty"`
-	}
-	if err := json.Unmarshal(interaction.Payload, &payload); err != nil {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
-		return
-	}
 
-	caller, _ := auth.FromGinContext(ctx)
-	if caller == nil || caller.OrgID == 0 {
-		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInvalidParams, "not authenticated"))
-		return
-	}
+	switch interaction.Type {
+	case "approval.decide":
+		var payload struct {
+			RequestID string `json:"request_id"`
+			Action    string `json:"action"`
+			Reason    string `json:"reason,omitempty"`
+		}
+		if err := json.Unmarshal(interaction.Payload, &payload); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+			return
+		}
 
-	if err := h.service.SubmitApproval(ctx, &contract.SubmitApprovalRequest{
-		OrgID:     caller.OrgID,
-		SessionID: sessionID,
-		RequestID: payload.RequestID,
-		Action:    payload.Action,
-		Reason:    payload.Reason,
-	}); err != nil {
-		logs.WarnContextf(ctx, "submit approval failed: %v", err)
-		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
-		return
-	}
+		caller, _ := auth.FromGinContext(ctx)
+		if caller == nil || caller.OrgID == 0 {
+			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInvalidParams, "not authenticated"))
+			return
+		}
 
-	ctx.JSON(http.StatusOK, dto.Success(map[string]string{
-		"request_id": payload.RequestID,
-		"action":     payload.Action,
-	}))
+		if err := h.service.SubmitApproval(ctx, &contract.SubmitApprovalRequest{
+			OrgID:     caller.OrgID,
+			SessionID: sessionID,
+			RequestID: payload.RequestID,
+			Action:    payload.Action,
+			Reason:    payload.Reason,
+		}); err != nil {
+			logs.WarnContextf(ctx, "submit approval failed: %v", err)
+			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+			return
+		}
+
+		ctx.JSON(http.StatusOK, dto.Success(map[string]string{
+			"request_id": payload.RequestID,
+			"action":     payload.Action,
+		}))
+
+	case "question.answer":
+		var payload struct {
+			RequestID string     `json:"request_id"`
+			Answers   [][]string `json:"answers"`
+		}
+		if err := json.Unmarshal(interaction.Payload, &payload); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+			return
+		}
+
+		caller, _ := auth.FromGinContext(ctx)
+		if caller == nil || caller.OrgID == 0 {
+			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInvalidParams, "not authenticated"))
+			return
+		}
+
+		if err := h.service.SubmitQuestionAnswer(ctx, &contract.SubmitQuestionAnswerRequest{
+			OrgID:     caller.OrgID,
+			SessionID: sessionID,
+			RequestID: payload.RequestID,
+			Answers:   payload.Answers,
+		}); err != nil {
+			logs.WarnContextf(ctx, "submit question answer failed: %v", err)
+			ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+			return
+		}
+
+		ctx.JSON(http.StatusOK, dto.Success(map[string]any{
+			"request_id": payload.RequestID,
+			"status":     "answered",
+		}))
+
+	default:
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "unknown interaction type: "+interaction.Type))
+	}
 }
 
 func handleSessionServiceError(ctx *gin.Context, err error) {

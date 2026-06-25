@@ -391,4 +391,8 @@ func (s *recordingSessionService) SubmitApproval(context.Context, *contract.Subm
 	return nil
 }
 
+func (s *recordingSessionService) SubmitQuestionAnswer(context.Context, *contract.SubmitQuestionAnswerRequest) error {
+	return nil
+}
+
 var _ contract.SessionService = (*recordingSessionService)(nil)

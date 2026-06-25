@@ -84,6 +84,16 @@ func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.Session
 		if streamMsg.Body.Payload.ApprovalDecision != nil {
 			event.Payload = *streamMsg.Body.Payload.ApprovalDecision
 		}
+	case protocol.StreamEventQuestionAsked:
+		event.Type = events.EventQuestionAsked
+		if streamMsg.Body.Payload.QuestionRequest != nil {
+			event.Payload = *streamMsg.Body.Payload.QuestionRequest
+		}
+	case protocol.StreamEventQuestionAnswered:
+		event.Type = events.EventQuestionAnswered
+		if streamMsg.Body.Payload.QuestionAnswer != nil {
+			event.Payload = *streamMsg.Body.Payload.QuestionAnswer
+		}
 	case protocol.StreamEventRunFailed:
 		event.Type = events.EventFailed
 		message := streamMsg.Body.Payload.Content
@@ -190,6 +200,20 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 			return nil, false
 		}
 		event.Type = string(events.EventApprovalResolved)
+		event.Payload = payload
+	case events.EventQuestionAsked:
+		payload, ok := decodeChunkPayload[events.QuestionRequestPayload](chunk)
+		if !ok {
+			return nil, false
+		}
+		event.Type = string(events.EventQuestionAsked)
+		event.Payload = payload
+	case events.EventQuestionAnswered:
+		payload, ok := decodeChunkPayload[events.QuestionAnswerPayload](chunk)
+		if !ok {
+			return nil, false
+		}
+		event.Type = string(events.EventQuestionAnswered)
 		event.Payload = payload
 	case events.EventArtifactDeclared:
 		payload, ok := decodeChunkPayload[events.ArtifactPayload](chunk)

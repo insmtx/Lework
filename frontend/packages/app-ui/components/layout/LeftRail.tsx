@@ -908,6 +908,16 @@ function AccountManagementDialog({
 function ProfileAvatar({ user }: { user: AuthUser | null }) {
 	const displayPhone = getDisplayPhone(user);
 	const fallbackLabel = getAvatarInitial(user?.name ?? displayPhone ?? "Lework");
+	const setAuthUser = useAuthStore((s) => s.setAuthUser);
+
+	const handleProtectedAvatarNotFound = () => {
+		if (!user?.avatarUrl) return;
+		// 中文注释：头像文件如果已经失效，就把本地登录态里的旧下载地址清掉，避免每次刷新都重复命中 404。
+		setAuthUser({
+			...user,
+			avatarUrl: undefined,
+		});
+	};
 
 	return (
 		<span
@@ -918,6 +928,7 @@ function ProfileAvatar({ user }: { user: AuthUser | null }) {
 				src={user?.avatarUrl}
 				alt={user?.name ?? "Avatar"}
 				className="h-full w-full object-cover"
+				onProtectedSrcNotFound={handleProtectedAvatarNotFound}
 				fallback={
 					user ? (
 						<DiceBearAvatar
@@ -957,11 +968,13 @@ function ImageWithFallback({
 	alt,
 	className,
 	fallback,
+	onProtectedSrcNotFound,
 }: {
 	src?: string | null;
 	alt: string;
 	className: string;
 	fallback: React.ReactNode;
+	onProtectedSrcNotFound?: () => void;
 }) {
 	const [failed, setFailed] = useState(false);
 	const [imageURL, setImageURL] = useState<string | null>(() => getCachedAvatarDataURL(src));
@@ -991,14 +1004,20 @@ function ImageWithFallback({
 				cacheAvatarDataURL(src, dataURL);
 				setImageURL(dataURL);
 			})
-			.catch(() => {
-				if (!cancelled && !cachedAvatarURL) setFailed(true);
+			.catch((error) => {
+				if (cancelled) return;
+				const isNotFoundError =
+					error instanceof Error && (error.message === "HTTP 404" || error.message.includes("404"));
+				if (isNotFoundError) {
+					onProtectedSrcNotFound?.();
+				}
+				if (!cachedAvatarURL) setFailed(true);
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [src]);
+	}, [src, onProtectedSrcNotFound]);
 
 	if (!src || failed) return <>{fallback}</>;
 	const imageSrc = imageURL || src;

@@ -140,6 +140,33 @@ export type BackendApprovalDecisionPayload = {
 	reason?: string;
 };
 
+export type BackendQuestionOption = {
+	label: string;
+	description?: string;
+};
+
+export type BackendQuestionItem = {
+	question: string;
+	header?: string;
+	options: BackendQuestionOption[];
+	multiple: boolean;
+	custom: boolean;
+};
+
+export type BackendQuestionRequestPayload = {
+	request_id?: string;
+	session_id?: string;
+	questions?: BackendQuestionItem[];
+	tool_call_id?: string;
+	message_id?: string;
+	metadata?: Record<string, unknown>;
+};
+
+export type BackendQuestionAnswerPayload = {
+	request_id?: string;
+	answers?: string[][];
+};
+
 export type BackendDigitalAssistant = {
 	id: number;
 	code: string;
@@ -242,6 +269,10 @@ export type BackendSessionEventPayload = {
 	artifacts?: BackendSessionArtifactPayload[];
 	approval_request?: BackendApprovalRequestPayload;
 	approval_decision?: BackendApprovalDecisionPayload;
+	question_request?: BackendQuestionRequestPayload;
+	question_answer?: BackendQuestionAnswerPayload;
+	questions?: BackendQuestionItem[];
+	answers?: string[][];
 	artifact_id?: string;
 	title?: string;
 	filename?: string;

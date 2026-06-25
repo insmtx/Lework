@@ -100,6 +100,12 @@ export type SubmitApprovalDecisionParams = {
 	reason?: string;
 };
 
+export type SubmitQuestionAnswerParams = {
+	session_id: string;
+	request_id: string;
+	answers: string[][];
+};
+
 const SESSION_ENDPOINTS = {
 	create: "/CreateSession",
 	list: "/ListSessions",
@@ -158,6 +164,18 @@ export const sessionApi = {
 					request_id: params.request_id,
 					action: params.action,
 					...(params.reason ? { reason: params.reason } : {}),
+				},
+			},
+		),
+
+	submitQuestionAnswer: (params: SubmitQuestionAnswerParams) =>
+		apiClient.post<BackendDataResponse<{ request_id: string; status: string }>>(
+			`/sessions/${encodeURIComponent(params.session_id)}/approvals`,
+			{
+				type: "question.answer",
+				payload: {
+					request_id: params.request_id,
+					answers: params.answers,
 				},
 			},
 		),

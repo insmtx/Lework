@@ -60,9 +60,10 @@ func newWorkerCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&workerAuthToken, "auth-token", "", "Worker auth token for server API calls (overrides config file)")
 	cmd.PersistentFlags().StringVar(&workerBootstrapToken, "bootstrap-token", "", "Worker bootstrap token used to request an auth token (overrides config file)")
 	cmd.PersistentFlags().StringVar(&workerWorkspaceRoot, "workspace-root", "", "Worker workspace root (overrides config file)")
-	cmd.PersistentFlags().StringVar(&workerDefaultRuntime, "default-runtime", "", "Default agent runtime kind, for example leros, claude, or codex")
+	cmd.PersistentFlags().StringVar(&workerDefaultRuntime, "default-runtime", "", "Default agent runtime kind, for example leros, claude, codex, or opencode")
 	cmd.AddCommand(newCodexWorkerCommand())
 	cmd.AddCommand(newClaudeWorkerCommand())
+	cmd.AddCommand(newOpenCodeWorkerCommand())
 	return cmd
 }
 
@@ -86,6 +87,18 @@ func newCodexWorkerCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			runTaskWorker(engines.EngineCodex)
+		},
+	}
+}
+
+func newOpenCodeWorkerCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "opencode",
+		Short: "Start a standalone task worker backed by the OpenCode runtime",
+		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the OpenCode agent runtime.`,
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			runTaskWorker(engines.EngineOpenCode)
 		},
 	}
 }

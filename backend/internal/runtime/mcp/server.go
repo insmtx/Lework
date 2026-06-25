@@ -85,11 +85,27 @@ func registerTools(s *mcpserver.MCPServer, publicTools []tools.Tool) {
 }
 
 func toMCPTool(tool tools.Tool) mcpsdk.Tool {
-	schema, err := json.Marshal(tool.InputSchema())
+	schemaBytes, err := json.Marshal(tool.InputSchema())
 	if err != nil {
-		schema = []byte(`{"type":"object"}`)
+		schemaBytes = []byte(`{"type":"object"}`)
 	}
-	return mcpsdk.NewToolWithRawSchema(tool.Name(), tool.Description(), schema)
+
+	var schemaMap map[string]any
+	if err := json.Unmarshal(schemaBytes, &schemaMap); err == nil {
+		props, _ := schemaMap["properties"].(map[string]any)
+		if props == nil {
+			props = make(map[string]any)
+			schemaMap["properties"] = props
+		}
+		// 注入公共 intent 字段（可选，用于 LLM 描述调用目的）
+		props["intent"] = map[string]any{
+			"type":        "string",
+			"description": "A brief Chinese description of the purpose of this tool call",
+		}
+	}
+
+	augmented, _ := json.Marshal(schemaMap)
+	return mcpsdk.NewToolWithRawSchema(tool.Name(), tool.Description(), augmented)
 }
 
 func toMCPHandler(tool tools.Tool) mcpserver.ToolHandlerFunc {
@@ -98,6 +114,7 @@ func toMCPHandler(tool tools.Tool) mcpserver.ToolHandlerFunc {
 		if args == nil {
 			args = map[string]any{}
 		}
+		delete(args, "intent") // 剥离公共 intent 字段，工具不需要处理
 
 		if validator, ok := tool.(tools.Validator); ok {
 			if err := validator.Validate(args); err != nil {

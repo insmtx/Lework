@@ -253,7 +253,7 @@ function Get-WorkerWorkspaceRoot {
         [string]$RepoRoot
     )
 
-    return Join-Path $RepoRoot '.leros-workspace\1\1\workspace'
+    return Join-Path $RepoRoot '.leros-workspace'
 }
 
 function Get-WorkerRecoveryDbPath {

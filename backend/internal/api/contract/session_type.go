@@ -56,6 +56,15 @@ type SubmitApprovalRequest struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
+// SubmitQuestionAnswerRequest forwards a question answer to the worker via NATS.
+type SubmitQuestionAnswerRequest struct {
+	OrgID     uint       `json:"-"`
+	WorkerID  uint       `json:"-"`
+	SessionID string     `json:"session_id"`
+	RequestID string     `json:"request_id"`
+	Answers   [][]string `json:"answers"`
+}
+
 type Session struct {
 	SessionID            string                `json:"session_id"`
 	Type                 string                `json:"type"`

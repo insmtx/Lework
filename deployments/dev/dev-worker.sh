@@ -64,5 +64,6 @@ fi
 echo -e "${BLUE}Starting worker (worker-id: 1, HTTP port 8081)...${NC}"
 
 cd "$ROOT_DIR"
-WORKSPACE_ROOT="${LEROS_WORKSPACE_ROOT:-$ROOT_DIR/.leros-workspace/1/1/workspace}"
+# 中文注释：worker 只接收 workspace 根目录，避免本地脚本把 org/worker/workspace 提前拼进去。
+WORKSPACE_ROOT="${LEROS_WORKSPACE_ROOT:-$ROOT_DIR/.leros-workspace}"
 LEROS_DEV=true ./bundles/leros worker --worker-id 1 --config "$CONFIG_FILE" --listen-addr :8081 --workspace-root "$WORKSPACE_ROOT"

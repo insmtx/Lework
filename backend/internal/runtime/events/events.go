@@ -67,6 +67,11 @@ const (
 	EventApprovalRequested EventType = "approval.requested"
 	// EventApprovalResolved indicates an approval request has been resolved.
 	EventApprovalResolved EventType = "approval.resolved"
+
+	// EventQuestionAsked indicates the engine is asking the user a clarifying question.
+	EventQuestionAsked EventType = "question.asked"
+	// EventQuestionAnswered indicates a question has been answered by the user.
+	EventQuestionAnswered EventType = "question.answered"
 )
 
 // MessageDeltaPayload 是助手文本增量的标准负载。
@@ -137,6 +142,37 @@ type ApprovalDecisionPayload struct {
 	RequestID string `json:"request_id"`
 	Action    string `json:"action"` // "approve" | "deny" | "always"
 	Reason    string `json:"reason,omitempty"`
+}
+
+// QuestionRequestPayload describes a clarifying question from the engine to the user.
+type QuestionRequestPayload struct {
+	RequestID  string         `json:"request_id"`
+	SessionID  string         `json:"session_id,omitempty"`
+	Questions  []QuestionItem `json:"questions"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	MessageID  string         `json:"message_id,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+}
+
+// QuestionItem is a single question within a question request.
+type QuestionItem struct {
+	Question    string           `json:"question"`
+	Header      string           `json:"header,omitempty"`
+	Options     []QuestionOption `json:"options"`
+	MultiSelect bool             `json:"multiple"`
+	Custom      bool             `json:"custom"`
+}
+
+// QuestionOption is a choice option for a question.
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// QuestionAnswerPayload describes the user's answer to a question request.
+type QuestionAnswerPayload struct {
+	RequestID string     `json:"request_id"`
+	Answers   [][]string `json:"answers"`
 }
 
 // RunCompletedPayload 归档完整的成功运行时运行。
@@ -253,6 +289,20 @@ func NewApprovalRequested(payload ApprovalRequestPayload) *Event {
 // NewApprovalResolved creates an approval resolution event.
 func NewApprovalResolved(payload ApprovalDecisionPayload) *Event {
 	return newPayloadEvent(EventApprovalResolved, payload, payload.Action)
+}
+
+// NewQuestionAsked creates a question asked event.
+func NewQuestionAsked(payload QuestionRequestPayload) *Event {
+	desc := "question"
+	if len(payload.Questions) > 0 {
+		desc = payload.Questions[0].Question
+	}
+	return newPayloadEvent(EventQuestionAsked, payload, desc)
+}
+
+// NewQuestionAnswered creates a question answered event.
+func NewQuestionAnswered(payload QuestionAnswerPayload) *Event {
+	return newPayloadEvent(EventQuestionAnswered, payload, "")
 }
 
 // DecodePayload 从事件中解码结构化载荷。

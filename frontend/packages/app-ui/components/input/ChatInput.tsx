@@ -1,7 +1,13 @@
 "use client";
 
 import { useChatStore, useLayoutStore } from "@leros/store";
-import type { ApprovalAction, ApprovalRequest, Attachment, Message } from "@leros/store/types/chat";
+import type {
+	ApprovalAction,
+	ApprovalRequest,
+	Attachment,
+	Message,
+	QuestionRequest,
+} from "@leros/store/types/chat";
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
@@ -25,6 +31,7 @@ import {
 	getProjectChatLayoutClasses,
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
+import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
 
 // 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
@@ -53,6 +60,7 @@ export function ChatInput({
 		sendMessage,
 		sendProjectMessage,
 		submitApprovalDecision,
+		submitQuestionAnswer,
 		cancelGeneration,
 		addAttachment,
 		addUploadedAttachment,
@@ -71,6 +79,7 @@ export function ChatInput({
 	const projectLayout = getProjectChatLayoutClasses(projectLayoutMode);
 	const canSend = Boolean(inputText.trim());
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
+	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
 
 	const submitMessage = useCallback(async () => {
 		// 中文注释：输入区先做一次生成态拦截，避免回车绕过按钮态再次触发发送。
@@ -141,6 +150,18 @@ export function ChatInput({
 	const handleSend = useCallback(() => {
 		submitMessage();
 	}, [submitMessage]);
+
+	if (pendingQuestion) {
+		return (
+			<QuestionAnswerInput
+				question={pendingQuestion.question}
+				messageId={pendingQuestion.message.id}
+				variant={variant}
+				projectLayout={projectLayout}
+				onAnswer={submitQuestionAnswer}
+			/>
+		);
+	}
 
 	if (pendingApproval) {
 		return (
@@ -351,6 +372,32 @@ function findPendingApproval(
 					item.status === "pending" || item.status === "submitting" || item.status === "error",
 			);
 		if (approval) return { message, approval };
+	}
+	return null;
+}
+
+type PendingQuestionRef = {
+	message: Message;
+	question: QuestionRequest;
+};
+
+function findPendingQuestion(
+	messageIds: string[],
+	messagesMap: Record<string, Message>,
+	activeSessionId: string | null,
+): PendingQuestionRef | null {
+	for (let index = messageIds.length - 1; index >= 0; index -= 1) {
+		const message = messagesMap[messageIds[index] ?? ""];
+		if (!message) continue;
+		if (activeSessionId && message.conversationId !== activeSessionId) continue;
+
+		const question = [...(message.questions ?? [])]
+			.reverse()
+			.find(
+				(item) =>
+					item.status === "pending" || item.status === "submitting" || item.status === "error",
+			);
+		if (question) return { message, question };
 	}
 	return null;
 }

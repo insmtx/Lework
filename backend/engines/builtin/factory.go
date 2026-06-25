@@ -9,6 +9,7 @@ import (
 	"github.com/insmtx/Leros/backend/engines/claude"
 	"github.com/insmtx/Leros/backend/engines/codex"
 	"github.com/insmtx/Leros/backend/engines/native"
+	"github.com/insmtx/Leros/backend/engines/opencode"
 	"github.com/insmtx/Leros/backend/tools"
 )
 
@@ -48,6 +49,8 @@ func newEngine(name string, path string) (engines.Engine, error) {
 		return claude.NewAdapter(path, nil), nil
 	case engines.EngineCodex:
 		return codex.NewAdapter(path, nil), nil
+	case engines.EngineOpenCode:
+		return opencode.NewAdapter(path, nil), nil
 	default:
 		return nil, fmt.Errorf("unsupported CLI engine %q", name)
 	}

@@ -8,6 +8,8 @@ import type {
 	BackendMessage,
 	BackendMessageAttachment,
 	BackendMessageChunk,
+	BackendQuestionAnswerPayload,
+	BackendQuestionRequestPayload,
 	BackendRuntimeTodoItem,
 	BackendSessionArtifactPayload,
 	BackendSessionEventPayload,
@@ -29,6 +31,8 @@ import type {
 	MessageRole,
 	MessageUsage,
 	ModelOption,
+	QuestionItem,
+	QuestionRequest,
 	RuntimeTodoItem,
 	TodoStatus,
 	ToolCall,
@@ -654,6 +658,110 @@ function getApprovalDecisionPayload(
 	return undefined;
 }
 
+function getQuestionRequestPayload(
+	payload: BackendSessionEventPayload,
+): BackendQuestionRequestPayload | undefined {
+	if (payload.question_request) return payload.question_request;
+	if (payload.request_id && payload.questions) return payload as BackendQuestionRequestPayload;
+	return undefined;
+}
+
+function getQuestionAnswerPayload(
+	payload: BackendSessionEventPayload,
+): BackendQuestionAnswerPayload | undefined {
+	if (payload.question_answer) return payload.question_answer;
+	if (payload.request_id && payload.answers) return payload as BackendQuestionAnswerPayload;
+	return undefined;
+}
+
+function mapQuestionRequestPayload(
+	payload: BackendQuestionRequestPayload,
+): QuestionRequest | undefined {
+	const requestId = payload.request_id?.trim();
+	if (!requestId) return undefined;
+
+	const questions: QuestionItem[] = (payload.questions ?? []).map((q) => ({
+		question: q.question,
+		header: q.header,
+		options: (q.options ?? []).map((o) => ({
+			label: o.label,
+			description: o.description,
+		})),
+		multiple: q.multiple ?? false,
+		custom: q.custom ?? false,
+	}));
+
+	return {
+		requestId,
+		questions,
+		toolCallId: payload.tool_call_id?.trim() || undefined,
+		messageId: payload.message_id?.trim() || undefined,
+		metadata: payload.metadata,
+		status: "pending",
+	};
+}
+
+function mapQuestionAnswerPayload(
+	payload: BackendQuestionAnswerPayload,
+): Pick<QuestionRequest, "requestId" | "status" | "answers"> | undefined {
+	const requestId = payload.request_id?.trim();
+	if (!requestId) return undefined;
+
+	return {
+		requestId,
+		status: "answered",
+		answers: payload.answers ?? [],
+	};
+}
+
+function mergeQuestionRequest(
+	current: QuestionRequest[] | undefined,
+	update: QuestionRequest,
+): QuestionRequest[] {
+	const list = current ?? [];
+	const index = list.findIndex((q) => q.requestId === update.requestId);
+	if (index === -1) return [...list, update];
+
+	const next = [...list];
+	next[index] = {
+		...next[index],
+		...update,
+		status: (next[index]?.status ?? "pending") === "pending" ? update.status : next[index]?.status ?? "pending",
+	};
+	return next;
+}
+
+function mergeQuestionAnswer(
+	current: QuestionRequest[] | undefined,
+	answer: Pick<QuestionRequest, "requestId" | "status" | "answers">,
+): QuestionRequest[] {
+	const list = current ?? [];
+	const index = list.findIndex((q) => q.requestId === answer.requestId);
+	if (index === -1) {
+		return [
+			...list,
+			{
+				requestId: answer.requestId,
+				questions: [],
+				status: answer.status,
+				answers: answer.answers,
+			},
+		];
+	}
+
+	const next = [...list];
+	const existing = next[index];
+	if (!existing) return list;
+
+	next[index] = {
+		...existing,
+		status: answer.status,
+		answers: answer.answers ?? existing.answers,
+		error: undefined,
+	};
+	return next;
+}
+
 function getTodoItems(
 	event: NormalizedSessionEvent,
 	payload: BackendSessionEventPayload,
@@ -778,6 +886,24 @@ function applySessionEventToMessage(
 			return {
 				...message,
 				approvals: mergeApprovalDecision(message.approvals, decision),
+			};
+		}
+		case "question.asked": {
+			const questionPayload = getQuestionRequestPayload(payload);
+			const question = questionPayload ? mapQuestionRequestPayload(questionPayload) : undefined;
+			if (!question) return message;
+			return {
+				...message,
+				questions: mergeQuestionRequest(message.questions, question),
+			};
+		}
+		case "question.answered": {
+			const answerPayload = getQuestionAnswerPayload(payload);
+			const answer = answerPayload ? mapQuestionAnswerPayload(answerPayload) : undefined;
+			if (!answer) return message;
+			return {
+				...message,
+				questions: mergeQuestionAnswer(message.questions, answer),
 			};
 		}
 		case "message.delta":
@@ -1640,6 +1766,52 @@ export class ChatActionImpl {
 		}
 	};
 
+	submitQuestionAnswer = async (
+		messageId: string,
+		requestId: string,
+		answers: string[][],
+	) => {
+		const state = this.#get();
+		const message = state.messagesMap[messageId];
+		const sessionId = message?.conversationId || state.activeSessionId;
+		if (!sessionId) return;
+
+		this.#dispatchChat({
+			type: "updateQuestionStatus",
+			messageId,
+			requestId,
+			status: "submitting",
+			answers,
+			error: undefined,
+		});
+
+		try {
+			await sessionApi.submitQuestionAnswer({
+				session_id: sessionId,
+				request_id: requestId,
+				answers,
+			});
+			this.#dispatchChat({
+				type: "updateQuestionStatus",
+				messageId,
+				requestId,
+				status: "answered",
+				answers,
+				error: undefined,
+			});
+		} catch (err) {
+			console.error("submitQuestionAnswer error:", err);
+			this.#dispatchChat({
+				type: "updateQuestionStatus",
+				messageId,
+				requestId,
+				status: "error",
+				answers,
+				error: "提交答案失败，请重试",
+			});
+		}
+	};
+
 	deleteMessage = async (messageId: number) => {
 		try {
 			await sessionApi.deleteMessage(messageId);
@@ -1670,6 +1842,14 @@ type ChatActionType =
 			status: ApprovalRequest["status"];
 			action?: ApprovalAction;
 			reason?: string;
+			error?: string;
+	  }
+	| {
+			type: "updateQuestionStatus";
+			messageId: string;
+			requestId: string;
+			status: QuestionRequest["status"];
+			answers?: string[][];
 			error?: string;
 	  }
 	| {
@@ -1731,6 +1911,31 @@ function chatReducer(state: ChatState, action: ChatActionType): ChatState {
 				messagesMap: {
 					...state.messagesMap,
 					[messageId]: { ...msg, approvals: updatedApprovals },
+				},
+			};
+		}
+
+		case "updateQuestionStatus": {
+			const { messageId, requestId, status, answers, error } = action;
+			const msg = state.messagesMap[messageId];
+			if (!msg?.questions) return state;
+
+			const updatedQuestions = msg.questions.map((question) =>
+				question.requestId === requestId
+					? {
+							...question,
+							status,
+							answers: answers ?? question.answers,
+							error,
+						}
+					: question,
+			);
+
+			return {
+				...state,
+				messagesMap: {
+					...state.messagesMap,
+					[messageId]: { ...msg, questions: updatedQuestions },
 				},
 			};
 		}

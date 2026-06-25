@@ -19,11 +19,12 @@ import (
 
 // Runner 将外部代理 CLI 引擎适配到代理运行器边界。
 type Runner struct {
-	name            string
-	engine          engines.Engine
-	sessionStore    ProviderSessionStore
-	approvalHandler engines.ApprovalHandler
-	mcpServers      []engines.MCPServerConfig
+	name             string
+	engine           engines.Engine
+	sessionStore     ProviderSessionStore
+	approvalHandler  engines.ApprovalHandler
+	questionHandler  engines.QuestionHandler
+	mcpServers       []engines.MCPServerConfig
 }
 
 // NewRunner 创建外部 CLI 运行器。
@@ -56,6 +57,14 @@ func (r *Runner) SetApprovalHandler(handler engines.ApprovalHandler) {
 		return
 	}
 	r.approvalHandler = handler
+}
+
+// SetQuestionHandler 设置问题处理器，用于引擎向用户提问时。
+func (r *Runner) SetQuestionHandler(handler engines.QuestionHandler) {
+	if r == nil {
+		return
+	}
+	r.questionHandler = handler
 }
 
 // SetMCPServers 设置 MCP 服务配置，用于后续 Run() 时传入引擎。
@@ -118,7 +127,7 @@ func (r *Runner) Run(ctx context.Context, req *agent.RequestContext) (*agent.Run
 		logs.InfoContextf(ctx, "External runtime %s started with pid %d", r.name, handle.Process.PID())
 	}
 
-	consumeResult, err := consumeEvents(ctx, eventSink, handle, req.RunID, req.TraceID, r.approvalHandler)
+	consumeResult, err := consumeEvents(ctx, eventSink, handle, req.RunID, req.TraceID, r.approvalHandler, r.questionHandler)
 	if err != nil {
 		r.markProviderSessionFailed(ctx, sessionPlan, err)
 		return r.failedResult(req, startedAt, err, failureMetadata(workDir)), err
@@ -150,7 +159,7 @@ type consumeResult struct {
 	Usage             *events.UsagePayload
 }
 
-func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHandle, runID string, traceID string, approvalHandler engines.ApprovalHandler) (consumeResult, error) {
+func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHandle, runID string, traceID string, approvalHandler engines.ApprovalHandler, questionHandler engines.QuestionHandler) (consumeResult, error) {
 	if handle == nil || handle.Events == nil {
 		return consumeResult{}, nil
 	}
@@ -247,6 +256,57 @@ func consumeEvents(ctx context.Context, sink events.Sink, handle *engines.RunHan
 				}), messageIDs))
 			}
 		case events.EventApprovalResolved:
+			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+		case events.EventQuestionAsked:
+			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if handle.Questions == nil {
+				logs.WarnContextf(ctx, "question request dropped: no QuestionResponder")
+			}
+			if questionHandler != nil && handle.Questions != nil {
+				req, decErr := events.DecodePayload[events.QuestionRequestPayload](&event)
+				if decErr != nil {
+					logs.WarnContextf(ctx, "decode question request: %v", decErr)
+					continue
+				}
+				// 构建 engine 层的 QuestionRequest
+				qItems := make([]engines.QuestionItem, 0, len(req.Questions))
+				for _, q := range req.Questions {
+					opts := make([]engines.QuestionOption, 0, len(q.Options))
+					for _, o := range q.Options {
+						opts = append(opts, engines.QuestionOption{
+							Label:       o.Label,
+							Description: o.Description,
+						})
+					}
+					qItems = append(qItems, engines.QuestionItem{
+						Question:    q.Question,
+						Header:      q.Header,
+						Options:     opts,
+						MultiSelect: q.MultiSelect,
+						Custom:      q.Custom,
+					})
+				}
+				answer, decErr := questionHandler.RequestAnswer(ctx, &engines.QuestionRequest{
+					RequestID:   req.RequestID,
+					SessionID:   req.SessionID,
+					Questions:   qItems,
+					ToolCallID:  req.ToolCallID,
+					Description: firstQuestionText(req.Questions),
+					Engine:      metadataString(req.Metadata, "engine"),
+				})
+				if decErr != nil {
+					logs.WarnContextf(ctx, "question handler error: %v", decErr)
+					continue
+				}
+				if wErr := handle.Questions.WriteAnswer(req.RequestID, answer.Answers); wErr != nil {
+					logs.WarnContextf(ctx, "write question answer: %v", wErr)
+				}
+				_ = sink.Emit(ctx, normalizeRuntimeEvent(*events.NewQuestionAnswered(events.QuestionAnswerPayload{
+					RequestID: req.RequestID,
+					Answers:   answer.Answers,
+				}), messageIDs))
+			}
+		case events.EventQuestionAnswered:
 			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
 		default:
 			if strings.TrimSpace(event.Content) != "" {
@@ -412,6 +472,16 @@ func metadataString(meta map[string]any, key string) string {
 		}
 	}
 	return ""
+}
+
+func firstQuestionText(questions []events.QuestionItem) string {
+	if len(questions) == 0 {
+		return ""
+	}
+	if questions[0].Header != "" {
+		return questions[0].Header
+	}
+	return questions[0].Question
 }
 
 func firstNonEmptyString(values ...string) string {

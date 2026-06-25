@@ -65,6 +65,8 @@ echo -e "${BLUE}Starting server (port 8080)...${NC}"
 
 LEROS_STORAGE_LOCAL_DIR="$ROOT_DIR/leros-storage"
 mkdir -p "$LEROS_STORAGE_LOCAL_DIR"
+# 中文注释：这里传 workspace 挂载根目录，后端会自行补齐 /{org}/{worker}/workspace。
+WORKSPACE_ROOT="${LEROS_WORKSPACE_ROOT:-$ROOT_DIR/.leros-workspace}"
 
 cd "$ROOT_DIR"
-LEROS_STORAGE_LOCAL_DIR="$LEROS_STORAGE_LOCAL_DIR" ./bundles/leros server --config "$CONFIG_FILE" --workspace-root "$ROOT_DIR/.leros-workspace/1/1/workspace"
+LEROS_STORAGE_LOCAL_DIR="$LEROS_STORAGE_LOCAL_DIR" ./bundles/leros server --config "$CONFIG_FILE" --workspace-root "$WORKSPACE_ROOT"

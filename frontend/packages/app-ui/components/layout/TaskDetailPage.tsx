@@ -2,7 +2,9 @@
 
 import type { ProjectArtifact, ProjectTask } from "@leros/store";
 import { formatTokenCount, projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
+import { artifactApi } from "@leros/store/api/artifactApi";
 import { taskApi } from "@leros/store/api/taskApi";
+import type { ApiError } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ArrowDownToLine,
@@ -46,6 +48,14 @@ const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sid
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const TASK_DETAIL_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const TASK_DETAIL_RIGHT_SIDEBAR_MAX_WIDTH = 440;
+
+function isDirectoryNotFoundError(error: unknown): boolean {
+	if (typeof error !== "object" || error === null || !("status" in error)) {
+		return false;
+	}
+	const apiError = error as ApiError;
+	return apiError.status === 404 && apiError.message === "directory not found";
+}
 
 function truncateBreadcrumbText(text?: string | null, maxLength = 10) {
 	if (!text) {
@@ -157,18 +167,28 @@ export function TaskDetailPage({
 	const taskChatLayout = getProjectChatLayoutClasses(taskChatLayoutMode);
 
 	const fetchTaskFiles = useCallback(async () => {
-		if (!resolvedProjectId) return;
+		if (!resolvedProjectId || !resolvedTaskId) return;
 		try {
+			// 中文注释：先确认当前任务是否真的有产物；没有的话直接按空列表处理，避免对旧任务额外打 artifacts 目录 404。
+			const artifactResponse = await artifactApi.listTaskArtifacts(resolvedTaskId);
+			if ((artifactResponse.data.data ?? []).length === 0) {
+				setTaskFiles([]);
+				return;
+			}
 			const res = await projectFileApi.list({
 				projectId: resolvedProjectId,
 				path: "artifacts",
 			});
 			setTaskFiles(normalizeProjectFileTree(res.data.data));
 		} catch (err) {
+			if (isDirectoryNotFoundError(err)) {
+				setTaskFiles([]);
+				return;
+			}
 			console.error("TaskDetailPage fetch task files error:", err);
 			setTaskFiles([]);
 		}
-	}, [resolvedProjectId]);
+	}, [resolvedProjectId, resolvedTaskId]);
 
 	useEffect(() => {
 		fetchProjects();

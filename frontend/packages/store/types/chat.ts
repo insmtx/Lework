@@ -8,6 +8,32 @@ export type ApprovalAction = "approve" | "deny" | "always";
 
 export type ApprovalStatus = "pending" | "approved" | "denied" | "always" | "submitting" | "error";
 
+export type QuestionStatus = "pending" | "answered" | "submitting" | "error";
+
+export type QuestionOption = {
+	label: string;
+	description?: string;
+};
+
+export type QuestionItem = {
+	question: string;
+	header?: string;
+	options: QuestionOption[];
+	multiple: boolean;
+	custom: boolean;
+};
+
+export type QuestionRequest = {
+	requestId: string;
+	questions: QuestionItem[];
+	toolCallId?: string;
+	messageId?: string;
+	metadata?: Record<string, unknown>;
+	status: QuestionStatus;
+	answers?: string[][];
+	error?: string;
+};
+
 export type ToolCall = {
 	id: string;
 	name: string;
@@ -94,6 +120,7 @@ export type Message = {
 	toolCalls?: ToolCall[];
 	todos?: RuntimeTodoItem[];
 	approvals?: ApprovalRequest[];
+	questions?: QuestionRequest[];
 	artifacts?: MessageArtifact[];
 	attachments?: MessageAttachment[];
 	processSteps?: MessageProcessStep[];
