@@ -53,7 +53,8 @@ func buildConfigContent(modelCfg engines.ModelConfig, mcps []engines.MCPServerCo
 				},
 			},
 		},
-		Model: providerID + "/" + modelID,
+		Model:      providerID + "/" + modelID,
+		Permission: map[string]string{"websearch": "allow"},
 	}
 
 	// 构建 MCP 配置（遵循 opencode V1 config schema）
@@ -116,7 +117,7 @@ func buildMCPConfig(mcps []engines.MCPServerConfig) map[string]any {
 // buildServerEnv 构建 opcode serve 子进程所需的环境变量。
 // 返回格式为 "KEY=VALUE" 的字符串切片，附加到 baseEnv 之后。
 func buildServerEnv(password, configContent string, baseEnv []string) []string {
-	env := make([]string, 0, len(baseEnv)+12)
+	env := make([]string, 0, len(baseEnv)+13)
 
 	// 复制 base 环境变量
 	env = append(env, baseEnv...)
@@ -137,6 +138,9 @@ func buildServerEnv(password, configContent string, baseEnv []string) []string {
 
 	// 启用 v2 事件系统（session.next.* 事件流）
 	env = append(env, "OPENCODE_EXPERIMENTAL_EVENT_SYSTEM=true")
+
+	// 启用 EXA web search 功能
+	env = append(env, "OPENCODE_ENABLE_EXA=1")
 
 	return env
 }

@@ -192,6 +192,14 @@ function ProcessTimelineBlock({
 				return args.description.trim();
 			if (toolCall.name === "write") return "写入文件";
 			if (toolCall.name === "read") return "读取文件";
+			if (toolCall.name === "websearch") {
+				const query = typeof args.query === "string" && args.query.trim() ? args.query.trim() : "";
+				return query ? `搜索 ${query}` : "搜索";
+			}
+			if (toolCall.name === "web_fetch" || toolCall.name === "webfetch") {
+				const url = typeof args.url === "string" && args.url.trim() ? decodeURIComponent(args.url.trim()) : "";
+				return url ? "浏览 " + url : "浏览";
+			}
 			return `调用：${toolCall.name}`;
 		}
 		return "";

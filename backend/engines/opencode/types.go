@@ -168,10 +168,11 @@ type reasoningDeltaProps struct {
 
 // configContent 是 OPENCODE_CONFIG_CONTENT 的顶层结构。
 type configContent struct {
-	Schema   string                    `json:"$schema,omitempty"`
-	Provider map[string]providerConfig `json:"provider"`
-	Model    string                    `json:"model,omitempty"`
-	MCP      map[string]any            `json:"mcp,omitempty"`
+	Schema     string                    `json:"$schema,omitempty"`
+	Provider   map[string]providerConfig `json:"provider"`
+	Model      string                    `json:"model,omitempty"`
+	Permission map[string]string         `json:"permission,omitempty"`
+	MCP        map[string]any            `json:"mcp,omitempty"`
 }
 
 // providerConfig 描述一个 AI provider 的配置。
