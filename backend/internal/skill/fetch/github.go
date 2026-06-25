@@ -49,6 +49,9 @@ func (g *GitHubSource) Fetch(ctx context.Context, identifier string) (*SkillBund
 		return nil, fmt.Errorf("invalid GitHub identifier %q: expected owner/repo/path", identifier)
 	}
 	owner, repo, skillPath := parts[0], parts[1], parts[2]
+	if strings.TrimSpace(skillPath) == "" {
+		return nil, fmt.Errorf("invalid GitHub identifier %q: expected owner/repo/path", identifier)
+	}
 
 	branches := []string{"main", "master"}
 	var lastErr error
@@ -163,10 +166,18 @@ func (g *GitHubSource) extractSkill(zipBytes []byte, owner, repo, skillPath stri
 		}
 	}
 
-	// 在解压根目录下查找 SKILL.md。
+	// 在目标目录下查找 SKILL.md。skillPath "." 表示仓库根目录。
+	rootSkill := skillPath == "."
 	skillDir := filepath.Join(tmpDir, skillPath)
+	if rootSkill {
+		skillDir = tmpDir
+	}
 	skillMDPath := filepath.Join(skillDir, "SKILL.md")
 	if _, err := os.Stat(skillMDPath); os.IsNotExist(err) {
+		if rootSkill {
+			os.RemoveAll(tmpDir)
+			return nil, fmt.Errorf("repo root SKILL.md not found in %s/%s, use a tree link to a skill directory", owner, repo)
+		}
 		// 回退：在解压根目录下递归查找 SKILL.md。
 		found := false
 		filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
@@ -252,6 +263,9 @@ func (g *GitHubSource) FetchVersion(ctx context.Context, identifier, version str
 		return nil, fmt.Errorf("invalid GitHub identifier %q: expected owner/repo/path", identifier)
 	}
 	owner, repo, skillPath := parts[0], parts[1], parts[2]
+	if strings.TrimSpace(skillPath) == "" {
+		return nil, fmt.Errorf("invalid GitHub identifier %q: expected owner/repo/path", identifier)
+	}
 
 	if version == "" {
 		return g.Fetch(ctx, identifier)

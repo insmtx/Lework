@@ -49,6 +49,52 @@ func TestGitHubSourceFetchVersionBranchSuccess(t *testing.T) {
 	}
 }
 
+func TestGitHubSourceFetchVersionRootSkill(t *testing.T) {
+	zipBytes := testSkillZipEntries(t, map[string]string{
+		"repo-main/SKILL.md":                     testSkillContent("video-use"),
+		"repo-main/scripts/edit.mjs":             "console.log('edit')\n",
+		"repo-main/references/style-guide.md":    "# Style\n",
+		"repo-main/helpers/internal.py":          "print('ignored')\n",
+		"repo-main/skills/other/SKILL.md":        testSkillContent("other"),
+		"repo-main/skills/other/scripts/run.mjs": "console.log('ignored')\n",
+	})
+	source := &GitHubSource{
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, zipBytes), nil
+			}),
+		},
+	}
+
+	bundle, err := source.FetchVersion(context.Background(), "owner/repo/.", "main")
+	if err != nil {
+		t.Fatalf("FetchVersion returned error: %v", err)
+	}
+	defer func() {
+		if bundle.TempDir != "" {
+			_ = os.RemoveAll(bundle.TempDir)
+		}
+	}()
+	if string(bundle.Content) != testSkillContent("video-use") {
+		t.Fatalf("content = %q, want root skill content", string(bundle.Content))
+	}
+	if bundle.Meta.Identifier != "owner/repo/." {
+		t.Fatalf("identifier = %q, want owner/repo/.", bundle.Meta.Identifier)
+	}
+	if string(bundle.Files["scripts/edit.mjs"]) != "console.log('edit')\n" {
+		t.Fatalf("scripts/edit.mjs was not collected")
+	}
+	if string(bundle.Files["references/style-guide.md"]) != "# Style\n" {
+		t.Fatalf("references/style-guide.md was not collected")
+	}
+	if _, ok := bundle.Files["helpers/internal.py"]; ok {
+		t.Fatalf("helpers/internal.py should not be collected")
+	}
+	if _, ok := bundle.Files["skills/other/scripts/run.mjs"]; ok {
+		t.Fatalf("nested skill files should not be collected for root skill")
+	}
+}
+
 func TestGitHubSourceFetchVersionTagFallback(t *testing.T) {
 	zipBytes := testSkillZip(t, "repo-v1.0.0/skills/demo/SKILL.md", testSkillContent("demo"))
 	requests := make([]string, 0, 2)
@@ -107,14 +153,21 @@ func TestGitHubSourceFetchVersionFailure(t *testing.T) {
 
 func testSkillZip(t *testing.T, filePath string, content string) []byte {
 	t.Helper()
+	return testSkillZipEntries(t, map[string]string{filePath: content})
+}
+
+func testSkillZipEntries(t *testing.T, entries map[string]string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	w, err := zw.Create(filePath)
-	if err != nil {
-		t.Fatalf("create zip entry: %v", err)
-	}
-	if _, err := w.Write([]byte(content)); err != nil {
-		t.Fatalf("write zip entry: %v", err)
+	for filePath, content := range entries {
+		w, err := zw.Create(filePath)
+		if err != nil {
+			t.Fatalf("create zip entry: %v", err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatalf("write zip entry: %v", err)
+		}
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close zip: %v", err)

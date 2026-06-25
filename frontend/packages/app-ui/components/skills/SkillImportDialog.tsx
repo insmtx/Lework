@@ -20,6 +20,7 @@ import { toast } from "sonner";
 export type SkillImportDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onImportSuccess?: () => void;
 };
 
 const ALLOWED_EXTENSIONS = [".zip", ".md"];
@@ -57,7 +58,7 @@ function isLikelyGitHubSkillURL(value: string): boolean {
   }
 }
 
-export function SkillImportDialog({ open, onOpenChange }: SkillImportDialogProps) {
+export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: SkillImportDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [importMode, setImportMode] = useState<ImportMode>("file");
   const [file, setFile] = useState<File | null>(null);
@@ -175,7 +176,8 @@ export function SkillImportDialog({ open, onOpenChange }: SkillImportDialogProps
           github_url: trimmedUrl,
         });
 
-        toast.success("技能导入请求已提交");
+        onImportSuccess?.();
+        toast.success("技能导入成功");
         handleClose();
       } catch (err: any) {
         setStatus("error");
@@ -227,13 +229,14 @@ export function SkillImportDialog({ open, onOpenChange }: SkillImportDialogProps
         file_upload_id: fileUploadId,
       });
 
-      toast.success("技能导入请求已提交");
+      onImportSuccess?.();
+      toast.success("技能导入成功");
       handleClose();
     } catch (err: any) {
       setStatus("error");
       setErrorMessage(err?.message ?? "导入失败，请重试");
     }
-  }, [file, githubUrl, handleClose, importMode]);
+  }, [file, githubUrl, handleClose, importMode, onImportSuccess]);
 
   // ---- file type icon ----
   const FileIcon = file?.name?.endsWith(".zip") ? FileArchive : FileText;
@@ -358,9 +361,6 @@ export function SkillImportDialog({ open, onOpenChange }: SkillImportDialogProps
                       className="border-[var(--leros-control-border)] bg-white text-[var(--leros-text-strong)] placeholder:text-[var(--leros-text-muted)] dark:bg-white"
                   />
                 </div>
-                <p className="text-xs text-[var(--leros-text-muted)]">
-                  支持 tree、blob、raw 链接，或 owner/repo/skillPath
-                </p>
               </div>
             </TabsContent>
             </div>

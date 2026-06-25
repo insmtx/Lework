@@ -80,6 +80,7 @@ export interface SkillDetailData {
   verified: boolean;
   source_type: string;
   files: string[];
+  installed: boolean;
 }
 
 export interface ImportSkillParams {
