@@ -1,6 +1,6 @@
 {
   "name": "@leros/desktop",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Leros desktop application",
   "author": "insmtx",
   "private": true,
@@ -55,6 +55,7 @@
     "electron-builder": "^26.0.12",
     "electron-vite": "^6.0.0-beta.1",
     "jsdom": "catalog:",
+    "png-to-ico": "^2.1.8",
     "tailwindcss": "^4",
     "typescript": "catalog:",
     "vitest": "catalog:",

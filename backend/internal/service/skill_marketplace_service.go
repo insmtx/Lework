@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -815,20 +817,20 @@ func (s *skillMarketplaceService) getLerosSkillDetailWithBundle(ctx context.Cont
 	bundle := buildBundleFromLocalSkill(skillDir, skillID, item)
 
 	resp := &contract.SkillDetailResponse{
-		SkillID:    item.SkillID,
-		Source:     "Leros",
-		Name:       item.Name,
+		SkillID:     item.SkillID,
+		Source:      "Leros",
+		Name:        item.Name,
 		Description: item.Description,
-		SkillMD:    skillMDContent,
-		Version:    item.Version,
-		Author:     item.Author,
-		Category:   item.Category,
-		Tags:       []string(item.Tags),
-		Icon:       item.Icon,
-		Installs:   item.Installs,
-		Verified:   item.Verified,
-		SourceType: "Leros",
-		Files:      files,
+		SkillMD:     skillMDContent,
+		Version:     item.Version,
+		Author:      item.Author,
+		Category:    item.Category,
+		Tags:        []string(item.Tags),
+		Icon:        item.Icon,
+		Installs:    item.Installs,
+		Verified:    item.Verified,
+		SourceType:  "Leros",
+		Files:       files,
 	}
 	return resp, bundle, nil
 }
@@ -999,6 +1001,169 @@ func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract
 		Status:  "accepted",
 		Message: fmt.Sprintf("Skill import request queued for org %d, worker %d", caller.OrgID, workerID),
 	}, nil
+}
+
+// ImportSkillFromGitHub queues a GitHub skill import request for the default worker.
+func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req *contract.ImportSkillFromGitHubRequest) (*contract.ImportSkillResponse, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	skillID, version, err := parseGitHubSkillImportURL(req.GitHubURL)
+	if err != nil {
+		return nil, err
+	}
+
+	_, workerID, err := resolveDefaultRuntimeWorker(ctx, s.db, caller.OrgID, s.inferrer)
+	if err != nil {
+		return nil, err
+	}
+	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	if err != nil {
+		return nil, fmt.Errorf("build skill topic: %w", err)
+	}
+
+	msg := protocol.SkillManagementMessage{
+		ID:        fmt.Sprintf("skill-import-github-%s", uuid.New().String()),
+		Type:      protocol.MessageTypeSkillManagement,
+		CreatedAt: time.Now(),
+		Route: protocol.RouteContext{
+			OrgID:    caller.OrgID,
+			WorkerID: workerID,
+		},
+		Body: protocol.SkillManagementBody{
+			Action:  "import",
+			Source:  "github",
+			SkillID: skillID,
+			Version: version,
+		},
+	}
+
+	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
+		return nil, fmt.Errorf("publish GitHub skill import: %w", err)
+	}
+
+	return &contract.ImportSkillResponse{
+		Status:  "accepted",
+		Message: fmt.Sprintf("GitHub skill import request queued for org %d, worker %d", caller.OrgID, workerID),
+	}, nil
+}
+
+func parseGitHubSkillImportURL(raw string) (skillID string, version string, err error) {
+	input := strings.TrimSpace(raw)
+	if input == "" {
+		return "", "", fmt.Errorf("github_url is required")
+	}
+
+	if !strings.Contains(input, "://") {
+		parts := splitCleanPath(input)
+		if len(parts) < 3 {
+			return "", "", fmt.Errorf("invalid GitHub skill path %q: expected owner/repo/path", raw)
+		}
+		skillID, err := normalizeGitHubSkillIdentifier(parts[0], parts[1], strings.Join(parts[2:], "/"))
+		return skillID, "", err
+	}
+
+	parsed, err := url.Parse(input)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid GitHub URL: %w", err)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	parts := splitCleanPath(parsed.Path)
+
+	switch host {
+	case "github.com", "www.github.com":
+		return parseGitHubWebPath(parts, raw)
+	case "raw.githubusercontent.com":
+		return parseGitHubRawPath(parts, raw)
+	default:
+		return "", "", fmt.Errorf("unsupported GitHub URL host %q", parsed.Hostname())
+	}
+}
+
+func parseGitHubWebPath(parts []string, raw string) (string, string, error) {
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("invalid GitHub URL %q: expected owner/repo path", raw)
+	}
+	owner, repo := parts[0], parts[1]
+	if len(parts) >= 5 {
+		switch parts[2] {
+		case "tree":
+			ref := parts[3]
+			skillPath := strings.Join(parts[4:], "/")
+			skillID, err := normalizeGitHubSkillIdentifier(owner, repo, skillPath)
+			return skillID, ref, err
+		case "blob":
+			ref := parts[3]
+			skillFilePath := strings.Join(parts[4:], "/")
+			skillPath, err := skillDirFromSkillMDPath(skillFilePath)
+			if err != nil {
+				return "", "", err
+			}
+			skillID, err := normalizeGitHubSkillIdentifier(owner, repo, skillPath)
+			return skillID, ref, err
+		}
+	}
+	return "", "", fmt.Errorf("unsupported GitHub URL %q: use a tree link to a skill directory or a blob link to SKILL.md", raw)
+}
+
+func parseGitHubRawPath(parts []string, raw string) (string, string, error) {
+	if len(parts) < 5 {
+		return "", "", fmt.Errorf("invalid raw GitHub URL %q: expected owner/repo/ref/path/SKILL.md", raw)
+	}
+	owner, repo, ref := parts[0], parts[1], parts[2]
+	skillFilePath := strings.Join(parts[3:], "/")
+	skillPath, err := skillDirFromSkillMDPath(skillFilePath)
+	if err != nil {
+		return "", "", err
+	}
+	skillID, err := normalizeGitHubSkillIdentifier(owner, repo, skillPath)
+	return skillID, ref, err
+}
+
+func normalizeGitHubSkillIdentifier(owner, repo, skillPath string) (string, error) {
+	owner = strings.TrimSpace(owner)
+	repo = strings.TrimSuffix(strings.TrimSpace(repo), ".git")
+	skillPath = strings.Trim(strings.TrimSpace(skillPath), "/")
+	if owner == "" || repo == "" || skillPath == "" {
+		return "", fmt.Errorf("invalid GitHub skill identifier: owner, repo, and skill path are required")
+	}
+	if strings.EqualFold(path.Base(skillPath), "SKILL.md") {
+		dir, err := skillDirFromSkillMDPath(skillPath)
+		if err != nil {
+			return "", err
+		}
+		skillPath = dir
+	}
+	return owner + "/" + repo + "/" + skillPath, nil
+}
+
+func skillDirFromSkillMDPath(skillFilePath string) (string, error) {
+	clean := strings.Trim(path.Clean(strings.TrimSpace(skillFilePath)), "/")
+	if clean == "." || clean == "" || !strings.EqualFold(path.Base(clean), "SKILL.md") {
+		return "", fmt.Errorf("GitHub blob/raw link must point to SKILL.md")
+	}
+	dir := path.Dir(clean)
+	if dir == "." || dir == "" {
+		return "", fmt.Errorf("GitHub SKILL.md must be inside a skill directory")
+	}
+	return dir, nil
+}
+
+func splitCleanPath(rawPath string) []string {
+	cleaned := strings.Trim(rawPath, "/")
+	if cleaned == "" {
+		return nil
+	}
+	rawParts := strings.Split(cleaned, "/")
+	parts := make([]string, 0, len(rawParts))
+	for _, part := range rawParts {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }
 
 const (

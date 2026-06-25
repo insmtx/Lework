@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.1.14] - 2026-06-24
+
+### Gitea 项目集成、Worker 推送稳定性与技能导入增强
+
+本版本完成 Project 全量迁移至 Gitea 仓库存储，增强 Worker git 推送稳定性和身份配置，新增技能 GitHub 链接导入能力，并持续优化前端项目页、聊天面板与后端工程化。
+
+- Project 全面集成 Gitea，项目文件、工作区仓库与文件树均基于 Gitea 仓库管理
+- Gitea 配置重命名（`url` → `endpoint`），用 `CreateRepo` 替代 `AdminCreateRepo`，提升 API 兼容性
+- Worker git 推送增加详细错误日志、上传路径逃逸修复与 artifact filestore 上传开关控制
+- Worker 支持通过环境变量 `LEROS_GIT_USER_NAME` / `LEROS_GIT_USER_EMAIL` 配置 git commit 作者身份，避免容器内提交失败
+- 技能导入系统支持 GitHub 仓库链接直接导入，无需手动 ETL
+- 前端技能导入对话框支持 GitHub URL 输入，扩展技能发现渠道
+- 前端项目页恢复文件上传逻辑并隐藏上传按钮入口，清理 ProjectPage 死代码并修正 TaskDetail 布局
+- 聊天界面 AI 执行过程面板默认收起，减少消息区域信息干扰
+- CJK 翻译阈值从 45% 下调至 35%，避免 `SKILL.zh-CN.md` 二次翻译
+- 更新品牌命名与桌面端发布 workflow 配置，更新开发环境配置模板与文档
+
 ## [v0.1.13] - 2026-06-23
 
 ### Lework 品牌升级与技能市场能力增强

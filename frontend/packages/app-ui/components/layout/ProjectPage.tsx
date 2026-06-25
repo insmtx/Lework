@@ -20,7 +20,6 @@ import {
 	X,
 } from "lucide-react";
 import {
-	type ChangeEvent,
 	type ComponentType,
 	type CSSProperties,
 	useEffect,
@@ -28,11 +27,10 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { toast } from "sonner";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
-import { ChatInput, PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
-import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
+import { ChatInput } from "../input/ChatInput";
+import { ArtifactPreviewDialog, type ArtifactPreviewItem } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
@@ -455,7 +453,7 @@ export function ProjectPage({
 						<ProjectChat
 							layoutMode={projectChatLayoutMode}
 							navigation={navigation}
-							projectId={resolvedProjectId}
+							projectId={resolvedProjectId ?? undefined}
 						/>
 					)}
 					{resolvedTab === "tasks" && (
@@ -666,10 +664,14 @@ function ProjectTaskList({
 			<div className={cn(compact ? SIDEBAR_COMPACT_LIST_CLASS : "space-y-3")}>
 				{tasks.map((task) => {
 					const cardClassName = cn(
-						"group flex w-full items-start border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm",
+						"group relative w-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm",
 						onOpen &&
 							"cursor-pointer transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35",
-						compact ? "gap-3 rounded-lg px-3.5 py-3" : "gap-3.5 rounded-lg px-4 py-3.5",
+						"rounded-lg",
+					);
+					const contentClassName = cn(
+						"flex w-full min-w-0 items-start text-left",
+						compact ? "gap-3 px-3.5 py-3" : "gap-3.5 px-4 py-3.5",
 					);
 					const content = (
 						<>
@@ -695,7 +697,7 @@ function ProjectTaskList({
 							<button
 								key={task.id}
 								type="button"
-								className={cardClassName}
+								className={cn(cardClassName, contentClassName)}
 								onClick={() => onOpen?.(task)}
 								disabled={!onOpen}
 								title={onOpen ? "打开任务会话" : undefined}
@@ -709,7 +711,7 @@ function ProjectTaskList({
 						<div key={task.id} className={cardClassName}>
 							<button
 								type="button"
-								className="flex min-w-0 flex-1 items-start gap-3.5 text-left"
+								className={cn(contentClassName, "pr-11")}
 								onClick={() => onOpen?.(task)}
 								disabled={!onOpen}
 								title={onOpen ? "打开任务会话" : undefined}
@@ -719,7 +721,7 @@ function ProjectTaskList({
 							{!compact && (
 								<button
 									type="button"
-									className="mt-0.5 shrink-0 rounded p-0.5 text-[var(--leros-text-muted)] opacity-0 transition-opacity hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)] group-hover:opacity-100"
+									className="pointer-events-none absolute right-4 top-4 rounded p-0.5 text-[var(--leros-text-muted)] opacity-0 transition-opacity hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)] group-hover:pointer-events-auto group-hover:opacity-100"
 									onClick={(event) => {
 										event.stopPropagation();
 										onDelete(task);
@@ -740,7 +742,6 @@ function ProjectTaskList({
 function ProjectFiles({
 	projectId,
 	files,
-	onRefresh,
 }: {
 	projectId: string;
 	files: ProjectFileNode[];
@@ -750,8 +751,8 @@ function ProjectFiles({
 	const [previewState, setPreviewState] = useState<FilePreviewState>({
 		status: "idle",
 	});
-	const [uploading, setUploading] = useState(false);
-	const [uploadError, setUploadError] = useState<string | null>(null);
+	const [uploading] = useState(false);
+	const [uploadError] = useState<string | null>(null);
 	const [searchKeyword, setSearchKeyword] = useState("");
 	const [fileSourceFilter, setFileSourceFilter] = useState<"all" | FileSource>("all");
 	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
@@ -863,23 +864,24 @@ function ProjectFiles({
 		return () => document.removeEventListener("pointerdown", handlePointerDown);
 	}, [previewFile]);
 
-	const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-		const file = event.target.files?.[0];
-		event.target.value = "";
-		if (!file) return;
+	// 中文注释：当前 files 页签的上传入口仍处于注释停用状态，先保留实现并显式标记未启用，避免误恢复旧交互。
+	// const _handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+	// 	const file = event.target.files?.[0];
+	// 	event.target.value = "";
+	// 	if (!file) return;
 
-		setUploading(true);
-		setUploadError(null);
-		try {
-			await projectFileApi.upload({ projectId, file });
-			await onRefresh();
-			toast.success("文件上传成功");
-		} catch (err) {
-			setUploadError(err instanceof Error ? err.message : "上传文件失败");
-		} finally {
-			setUploading(false);
-		}
-	};
+	// 	setUploading(true);
+	// 	setUploadError(null);
+	// 	try {
+	// 		await projectFileApi.upload({ projectId, file });
+	// 		await onRefresh();
+	// 		toast.success("文件上传成功");
+	// 	} catch (err) {
+	// 		setUploadError(err instanceof Error ? err.message : "上传文件失败");
+	// 	} finally {
+	// 		setUploading(false);
+	// 	}
+	// };
 
 	const handleDownload = async (file: ProjectFileNode) => {
 		try {
@@ -956,7 +958,8 @@ function ProjectFiles({
 							</select>
 							<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
 						</div>
-						<label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--leros-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90">
+						{/* 中文注释：当前只隐藏上传按钮入口，保留上传逻辑和状态处理，后续需要恢复展示时可直接取消注释。 */}
+						{/* <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--leros-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90">
 							<FileText className="size-4" />
 							上传
 							<input
@@ -966,7 +969,7 @@ function ProjectFiles({
 								onChange={handleUpload}
 								disabled={uploading}
 							/>
-						</label>
+						</label> */}
 					</div>
 				</div>
 

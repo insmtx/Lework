@@ -29,6 +29,11 @@ type ImportSkillRequest struct {
 	FileUploadID string `json:"file_upload_id" binding:"required"`
 }
 
+// ImportSkillFromGitHubRequest 从 GitHub 链接导入 Skill 的请求。
+type ImportSkillFromGitHubRequest struct {
+	GitHubURL string `json:"github_url" binding:"required"`
+}
+
 // ImportSkillResponse Skill 导入响应（异步，仅表示已接受）。
 type ImportSkillResponse struct {
 	Status  string `json:"status"`
@@ -45,6 +50,7 @@ type SkillMarketplaceService interface {
 	UninstallSkill(ctx context.Context, req *UninstallSkillRequest) (*UninstallSkillResponse, error)
 	GetSkillDetail(ctx context.Context, req *SkillDetailRequest) (*SkillDetailResponse, error)
 	ImportSkill(ctx context.Context, req *ImportSkillRequest) (*ImportSkillResponse, error)
+	ImportSkillFromGitHub(ctx context.Context, req *ImportSkillFromGitHubRequest) (*ImportSkillResponse, error)
 }
 
 // DownloadSkillRequest 从缓存下载 Skill 包的请求。

@@ -16,6 +16,7 @@ compression: maximum
 asarUnpack:
   - resources/**
 mac:
+  icon: resources/icon.svg
   category: public.app-category.developer-tools
   hardenedRuntime: true
   notarize: true
@@ -24,7 +25,9 @@ mac:
     - target: zip
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 win:
-  signAndEditExecutable: false
+  icon: resources/icon.ico
+  # 中文注释：Windows 安装后的快捷方式、任务栏和 EXE 图标依赖资源编辑写入，不能显式关闭。
+  signAndEditExecutable: true
   target:
     - target: nsis
       arch:

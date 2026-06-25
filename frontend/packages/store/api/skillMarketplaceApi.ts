@@ -1,5 +1,5 @@
-import { apiClient } from "./client";
-import type { BackendDataResponse } from "./types";
+import {apiClient} from "./client";
+import type {BackendDataResponse} from "./types";
 
 export interface SkillMarketplaceItem {
   source_type: string;
@@ -86,6 +86,10 @@ export interface ImportSkillParams {
   file_upload_id: string;
 }
 
+export interface ImportSkillFromGitHubParams {
+    github_url: string;
+}
+
 export interface ImportSkillResponse {
   status: string;
   message: string;
@@ -158,4 +162,10 @@ export const skillMarketplaceApi = {
       "/skill-marketplace/import",
       params,
     ),
+
+    importFromGitHub: (params: ImportSkillFromGitHubParams) =>
+        apiClient.post<BackendDataResponse<ImportSkillResponse>>(
+            "/skill-marketplace/import/github",
+            params,
+        ),
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectTask } from "@leros/store";
+import type { ProjectArtifact, ProjectTask } from "@leros/store";
 import { formatTokenCount, projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
 import { taskApi } from "@leros/store/api/taskApi";
 import { cn } from "@leros/ui/lib/utils";
@@ -293,10 +293,10 @@ export function TaskDetailPage({
 	return (
 		<div
 			data-slot="task-detail-page"
-			className="flex h-full flex-1 flex-col bg-[var(--leros-surface)]"
+			className="flex h-full min-w-0 flex-1 flex-col bg-[var(--leros-surface)]"
 		>
 			<header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
-				<div className="flex items-center gap-3 text-[var(--leros-text-muted)]">
+				<div className="flex min-w-0 items-center gap-3 text-[var(--leros-text-muted)]">
 					{project && (
 						<>
 							<button
@@ -385,8 +385,9 @@ export function TaskDetailPage({
 				</div>
 			)}
 
-			<div className="min-h-0 flex flex-1">
-				<main className="flex min-h-0 flex-1 flex-col">
+			<div className="min-h-0 min-w-0 flex flex-1">
+				<main className="min-w-0 flex min-h-0 flex-1 flex-col">
+					{/* 中文注释：任务详情页作为壳层里的 flex item 以及中间主列本身都必须允许收缩，避免小窗口下被聊天内容宽度和右侧栏共同撑出可视区域。 */}
 					<MessageTimeline
 						emptyState={<TaskChatEmptyState layout={taskChatLayout} />}
 						contentShellClassName={taskChatLayout.shell}
