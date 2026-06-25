@@ -34,7 +34,7 @@ type ImportSkillFromGitHubRequest struct {
 	GitHubURL string `json:"github_url" binding:"required"`
 }
 
-// ImportSkillResponse Skill 导入响应（异步，仅表示已接受）。
+// ImportSkillResponse Skill 导入响应。
 type ImportSkillResponse struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
@@ -148,4 +148,5 @@ type SkillDetailResponse struct {
 	Verified    bool     `json:"verified"`
 	SourceType  string   `json:"source_type"`
 	Files       []string `json:"files"`
+	Installed   bool     `json:"installed"`
 }

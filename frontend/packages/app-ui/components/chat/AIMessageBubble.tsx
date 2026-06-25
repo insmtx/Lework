@@ -389,9 +389,9 @@ function MessageArtifactList({
 								id: projectId ? `artifacts/${artifact.name}` : artifact.id,
 							})
 						}
-						disabled={loadingArtifactId === artifact.id}
-						className="group/artifact relative flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
-						title="预览文件"
+					disabled={loadingArtifactId === artifact.id}
+					className="group/artifact relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+					title="预览文件"
 					>
 						<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover/artifact:opacity-100">
 							<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">

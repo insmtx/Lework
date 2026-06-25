@@ -83,6 +83,7 @@ export interface SkillDetailData {
   verified: boolean;
   source_type: string;
   files: string[];
+  installed: boolean;
 }
 
 export interface ImportSkillParams {
@@ -94,7 +95,7 @@ export interface ImportSkillFromGitHubParams {
 }
 
 export interface ImportSkillResponse {
-  status: string;
+  status: "imported" | "failed" | string;
   message: string;
 }
 

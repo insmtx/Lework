@@ -49,7 +49,7 @@ var BuiltinCLITools = []CLIToolSpec{
 		Name:         "opencode",
 		DisplayName:  "OpenCode",
 		Binary:       "opencode",
-		InstallCmd:   "npm install -g opencode",
+		InstallCmd:   "npm install -g opencode-ai",
 		DetectCmd:    "opencode --version",
 		VersionRegex: `(\d+\.\d+\.\d+)`,
 		Default:      false,
