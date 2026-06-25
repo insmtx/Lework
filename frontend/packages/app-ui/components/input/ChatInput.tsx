@@ -1,11 +1,13 @@
 "use client";
 
-import { useChatStore, useLayoutStore } from "@leros/store";
+import { type ProjectSkill, useChatStore, useLayoutStore } from "@leros/store";
 import type {
 	ApprovalAction,
 	ApprovalRequest,
 	Attachment,
+	ComposerToken,
 	Message,
+	MessageMetadata,
 	QuestionRequest,
 } from "@leros/store/types/chat";
 import { Badge } from "@leros/ui/components/ui/badge";
@@ -17,25 +19,29 @@ import {
 	AtSign,
 	ChevronDown,
 	CircleStop,
-	ImageIcon,
 	LoaderCircle,
 	Paperclip,
 	SendHorizonal,
 	ShieldAlert,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
 import {
 	getProjectChatLayoutClasses,
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
+import { ComposerActionBar } from "./ComposerActionBar";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
-import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
+import {
+	type ComposerSkillOption,
+	StructuredComposer,
+	type StructuredComposerHandle,
+} from "./StructuredComposer";
 
 // 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
-export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx,.pptx";
+export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx";
 
 export function ChatInput({
 	variant = "default",
@@ -68,10 +74,13 @@ export function ChatInput({
 		setInputFocused,
 		setSelectedModel,
 	} = useChatStore((s) => s);
-	const { activeProjectId, currentView } = useLayoutStore((s) => s);
+	const { activeProjectId, activeTaskDetailProjectId, currentView, projects } = useLayoutStore(
+		(s) => s,
+	);
 
-	const composerRef = useRef<StructuredComposerHandle>(null);
+	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const previousProjectSkillLabelsRef = useRef<string[] | null>(null);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
@@ -80,14 +89,55 @@ export function ChatInput({
 	const canSend = Boolean(inputText.trim());
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
+	const currentProjectId = activeTaskDetailProjectId ?? activeProjectId;
+	const currentProject = projects.find((project) => project.id === currentProjectId);
+	const projectSkillOptions = useMemo<ComposerSkillOption[] | undefined>(() => {
+		if (!isProjectVariant) return undefined;
+		return (currentProject?.skills ?? []).map(projectSkillToComposerOption);
+	}, [currentProject?.skills, isProjectVariant]);
+	const projectSkillLabels = useMemo(
+		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
+		[projectSkillOptions],
+	);
+
+	useEffect(() => {
+		if (!isProjectVariant) {
+			previousProjectSkillLabelsRef.current = null;
+			return;
+		}
+
+		const previousLabels = previousProjectSkillLabelsRef.current;
+		previousProjectSkillLabelsRef.current = projectSkillLabels;
+		if (!previousLabels) return;
+
+		const currentLabels = new Set(projectSkillLabels);
+		const removedLabels = previousLabels.filter((label) => !currentLabels.has(label));
+		if (removedLabels.length === 0) return;
+
+		const nextInput = removeSkillDirectives(inputText, removedLabels);
+		if (nextInput !== inputText) {
+			// 中文注释：项目维度移除技能后，同步清理输入框中已经插入的对应技能指令。
+			setInputText(nextInput);
+		}
+	}, [inputText, isProjectVariant, projectSkillLabels, setInputText]);
 
 	const submitMessage = useCallback(async () => {
 		// 中文注释：输入区先做一次生成态拦截，避免回车绕过按钮态再次触发发送。
 		if (isGenerating) return;
 		// 仅上传附件而无文字时接口会报错，因此必须输入内容才可发送
-		if (inputText.trim()) {
+		const trimmedInput = inputText.trim();
+		if (trimmedInput) {
+			const composerMetadata = buildComposerMetadata(
+				inputText,
+				composerRef.current?.getComposerTokens() ?? [],
+			);
 			if (isProjectVariant && currentView === "project") {
-				const taskEntry = await sendProjectMessage(inputText, activeProjectId, inputAttachments);
+				const taskEntry = await sendProjectMessage(
+					trimmedInput,
+					activeProjectId,
+					inputAttachments,
+					composerMetadata,
+				);
 				if (taskEntry?.project_id && taskEntry?.task_id) {
 					// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
 					navigation?.goToTaskDetail(
@@ -98,7 +148,7 @@ export function ChatInput({
 				}
 				return;
 			}
-			sendMessage(inputText, inputAttachments);
+			sendMessage(trimmedInput, inputAttachments, composerMetadata);
 		}
 	}, [
 		inputText,
@@ -208,6 +258,7 @@ export function ChatInput({
 								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
 						}
 						isProjectVariant={isProjectVariant}
+						projectSkillOptions={projectSkillOptions}
 					/>
 					<input
 						ref={fileInputRef}
@@ -224,25 +275,23 @@ export function ChatInput({
 						)}
 					>
 						<div className="flex items-center gap-1">
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								className="text-slate-400 hover:text-slate-600"
-								onClick={() => fileInputRef.current?.click()}
-							>
-								<Paperclip className="size-4" />
-							</Button>
 							{isProjectVariant ? (
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									className="text-slate-500 hover:text-slate-700"
-									onClick={() => fileInputRef.current?.click()}
-								>
-									<ImageIcon className="size-4" />
-								</Button>
+								<ComposerActionBar
+									inputValue={inputText}
+									composerRef={composerRef}
+									onUpload={() => fileInputRef.current?.click()}
+									projectSkillOptions={projectSkillOptions}
+								/>
 							) : (
 								<>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										className="text-slate-400 hover:text-slate-600"
+										onClick={() => fileInputRef.current?.click()}
+									>
+										<Paperclip className="size-4" />
+									</Button>
 									<Button
 										variant="ghost"
 										size="icon-sm"
@@ -400,6 +449,51 @@ function findPendingQuestion(
 		if (question) return { message, question };
 	}
 	return null;
+}
+
+function buildComposerMetadata(
+	content: string,
+	tokens: ComposerToken[],
+): MessageMetadata | undefined {
+	const trimmed = content.trim();
+	if (!trimmed || tokens.length === 0) return undefined;
+	const leadingOffset = content.length - content.trimStart().length;
+	const composerTokens = tokens
+		.map((token) => ({
+			...token,
+			start: token.start - leadingOffset,
+			end: token.end - leadingOffset,
+		}))
+		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
+	return composerTokens.length > 0 ? { composerTokens } : undefined;
+}
+
+function projectSkillToComposerOption(skill: ProjectSkill): ComposerSkillOption {
+	return {
+		code: skill.code,
+		label: skill.name,
+		description: skill.description || skill.category || "项目技能",
+		keywords: [
+			skill.name,
+			skill.code,
+			skill.description,
+			skill.category,
+			skill.source,
+			skill.trust,
+		].filter((item): item is string => Boolean(item)),
+	};
+}
+
+function removeSkillDirectives(value: string, removedLabels: string[]): string {
+	let nextValue = value;
+	for (const label of removedLabels) {
+		nextValue = nextValue.replace(new RegExp(`(^|\\s)/${escapeRegExp(label)}(?=\\s|$)`, "g"), "$1");
+	}
+	return nextValue.replace(/[ \t]{2,}/g, " ").trimStart();
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function ApprovalDecisionInput({
