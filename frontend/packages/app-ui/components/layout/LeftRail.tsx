@@ -61,6 +61,7 @@ import { toast } from "sonner";
 import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
+import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
@@ -474,7 +475,7 @@ export function LeftRail({
 				<nav className="leros-nav" aria-label="主导航">
 					{navGroups.map((group) => {
 						const sectionLabel =
-							group.id === "projects" ? "最近项目（仅展示最近5个项目）" : group.label;
+							group.id === "projects" ? "最近项目（默认展示最近5个项目）" : group.label;
 						return (
 							<div key={group.id} className="leros-nav-section">
 								{sectionLabel ? (
@@ -1313,9 +1314,11 @@ function ProjectList({
 	onDeleteProject: (project: Project) => void;
 	collapsed: boolean;
 }) {
-	const recentProjects = [...projects]
-		.sort((a, b) => b.updatedAt - a.updatedAt)
-		.slice(0, RECENT_PROJECT_LIMIT);
+	const recentProjects = getRecentProjectsForLeftRail(
+		projects,
+		expandedProjectIds,
+		RECENT_PROJECT_LIMIT,
+	);
 
 	return (
 		<div
