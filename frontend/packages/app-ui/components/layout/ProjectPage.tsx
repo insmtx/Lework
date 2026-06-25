@@ -48,12 +48,8 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-<<<<<<< HEAD
 import { useEffect, useMemo, useRef, useState } from "react";
-=======
 import {
-	type ComponentType,
-	type CSSProperties,
 	useEffect,
 	useMemo,
 	useRef,
@@ -61,7 +57,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { notifyFeatureUnavailable } from "../ai-teammates/feature-unavailable";
->>>>>>> d50107a (feat(frontend): 完善项目页与任务页协作体验)
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ChatInput } from "../input/ChatInput";
