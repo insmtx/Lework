@@ -14,6 +14,8 @@ const (
 	EngineClaude = "claude"
 	// EngineCodex 是 Codex CLI 的注册名称。
 	EngineCodex = "codex"
+	// EngineOpenCode 是 OpenCode CLI 的注册名称。
+	EngineOpenCode = "opencode"
 )
 
 const (
@@ -71,6 +73,50 @@ type ApprovalResponder interface {
 	WriteDecision(requestID string, action string) error
 }
 
+// QuestionResponder 将问题答案写回引擎。
+// 每种引擎提供自己的实现，知道如何格式化引擎特定的协议。
+type QuestionResponder interface {
+	WriteAnswer(requestID string, answers [][]string) error
+}
+
+// QuestionRequest 描述引擎向用户提出的问题。
+type QuestionRequest struct {
+	RequestID   string
+	SessionID   string
+	Questions   []QuestionItem
+	ToolCallID  string
+	Description string
+	Engine      string
+}
+
+// QuestionItem 是单个问题。
+type QuestionItem struct {
+	Question    string
+	Header      string
+	Options     []QuestionOption
+	MultiSelect bool
+	Custom      bool
+}
+
+// QuestionOption 是问题的单个选项。
+type QuestionOption struct {
+	Label       string
+	Description string
+}
+
+// QuestionAnswer 包含用户对问题的回答。
+type QuestionAnswer struct {
+	RequestID string
+	Answers   [][]string
+}
+
+// QuestionHandler 处理来自引擎的问题请求。
+// 实现必须是线程安全的。
+type QuestionHandler interface {
+	// RequestAnswer 提交问题请求并阻塞直到用户做出回答。
+	RequestAnswer(ctx context.Context, req *QuestionRequest) (*QuestionAnswer, error)
+}
+
 // PrepareRequest 包含引擎特定的工作区准备输入。
 type PrepareRequest struct {
 	WorkDir string
@@ -108,9 +154,10 @@ type Process interface {
 
 // RunHandle 在引擎进程启动后返回。
 type RunHandle struct {
-	Process   Process
-	Events    <-chan events.Event
-	Responder ApprovalResponder // 引擎特定的审批响应写入器
+	Process    Process
+	Events     <-chan events.Event
+	Responder  ApprovalResponder // 引擎特定的审批响应写入器
+	Questions  QuestionResponder // 引擎特定的问题回答写入器
 }
 
 // Engine 通过外部 AI CLI 执行提示。

@@ -94,9 +94,10 @@ func (s *Service) buildRouter(ctx context.Context, opts Options) (agent.Runner, 
 		if err != nil {
 			return nil, err
 		}
-		// 仅外部 CLI 引擎需要审批路由器；native 的 Approver 是 noop。
+		// 仅外部 CLI 引擎需要审批路由器和问题路由器；native 的 Approver 是 noop。
 		if name != engines.EngineNative {
-			runner.SetApprovalHandler(engines.DefaultApprovalRouter)
+			runner.SetApprovalHandler(engines.DefaultInteractionRouter)
+			runner.SetQuestionHandler(engines.DefaultInteractionRouter)
 		}
 		// 传递 MCP 配置供引擎启动时注入。
 		if mcpServers := buildMCPServersFromConfig(opts.CLIConfig); len(mcpServers) > 0 {

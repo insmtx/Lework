@@ -45,6 +45,15 @@ var BuiltinCLITools = []CLIToolSpec{
 		VersionRegex: `(\d+\.\d+\.\d+)`,
 		Default:      false,
 	},
+	{
+		Name:         "opencode",
+		DisplayName:  "OpenCode",
+		Binary:       "opencode",
+		InstallCmd:   "npm install -g opencode",
+		DetectCmd:    "opencode --version",
+		VersionRegex: `(\d+\.\d+\.\d+)`,
+		Default:      false,
+	},
 }
 
 // CLIToolStatus reports whether a built-in CLI is available in the current environment.

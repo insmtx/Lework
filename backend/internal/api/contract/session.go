@@ -43,4 +43,7 @@ type SessionService interface {
 
 	// SubmitApproval forwards an approval decision to the worker via NATS.
 	SubmitApproval(ctx context.Context, req *SubmitApprovalRequest) error
+
+	// SubmitQuestionAnswer forwards a question answer to the worker via NATS.
+	SubmitQuestionAnswer(ctx context.Context, req *SubmitQuestionAnswerRequest) error
 }

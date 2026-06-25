@@ -37,6 +37,11 @@ const (
 	StreamEventApprovalRequested StreamEventType = "approval.requested"
 	// StreamEventApprovalResolved indicates an approval request has been resolved.
 	StreamEventApprovalResolved StreamEventType = "approval.resolved"
+
+	// StreamEventQuestionAsked indicates the engine is asking the user a question.
+	StreamEventQuestionAsked StreamEventType = "question.asked"
+	// StreamEventQuestionAnswered indicates the question has been answered.
+	StreamEventQuestionAnswered StreamEventType = "question.answered"
 )
 
 // MessageStreamMessage is the stream message protocol from Worker to Server (forwarded to UI).
@@ -65,6 +70,8 @@ type StreamPayload struct {
 	Artifact         *events.ArtifactPayload         `json:"artifact,omitempty"`
 	ApprovalRequest  *events.ApprovalRequestPayload  `json:"approval_request,omitempty"`
 	ApprovalDecision *events.ApprovalDecisionPayload `json:"approval_decision,omitempty"`
+	QuestionRequest  *events.QuestionRequestPayload  `json:"question_request,omitempty"`
+	QuestionAnswer   *events.QuestionAnswerPayload   `json:"question_answer,omitempty"`
 }
 
 // StreamError describes terminal or recoverable errors in streaming execution.
