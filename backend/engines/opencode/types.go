@@ -293,3 +293,21 @@ type questionToolInfo struct {
 type questionAnswerReq struct {
 	Answers [][]string `json:"answers"`
 }
+
+// ============================================================================
+// Todo SSE 事件类型
+// ============================================================================
+
+// todoUpdatedProps 是 todo.updated 事件的 properties。
+type todoUpdatedProps struct {
+	SessionID string            `json:"sessionID"`
+	Todos     []opencodeTodoItem `json:"todos"`
+}
+
+// opencodeTodoItem 是 OpenCode 格式的单个待办项。
+type opencodeTodoItem struct {
+	ID       string `json:"id"`
+	Content  string `json:"content"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+}

@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
@@ -14,6 +15,7 @@ import (
 
 var filteredToolNames = []string{
 	"question",
+	"todowrite",
 }
 
 // handleSSEEvent 解析 SSE 事件并将消息相关事件转换为引擎事件。
@@ -199,6 +201,17 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		}
 		sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
 
+	case "todo.updated":
+		var props todoUpdatedProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+		items := convertOpenCodeTodoItems(props.Todos)
+		if len(items) == 0 {
+			return
+		}
+		sendEventDirect(st.evtChan, events.NewTodoUpdated(items))
+
 	case "session.next.model.switched":
 		// 记录但不产生事件
 		logs.Infof("OpenCode model switched: %s", string(propsJSON))
@@ -244,4 +257,31 @@ func (st *runState) isFilteredToolCall(callID string) bool {
 	}
 	_, ok := st.filteredToolCalls[callID]
 	return ok
+}
+
+// ============================================================================
+// todo.updated 转换
+// ============================================================================
+
+// convertOpenCodeTodoItems 将 OpenCode 格式的 todo 列表转换为内部统一格式。
+// 无 id 的条目按列表位置生成稳定 ID（todo_1, todo_2 ...）。
+// content 为空的条目会被忽略。
+func convertOpenCodeTodoItems(todos []opencodeTodoItem) []events.RuntimeTodoItem {
+	items := make([]events.RuntimeTodoItem, 0, len(todos))
+	for i, t := range todos {
+		if strings.TrimSpace(t.Content) == "" {
+			continue
+		}
+		id := t.ID
+		if id == "" {
+			id = "todo_" + strconv.Itoa(i+1)
+		}
+		items = append(items, events.RuntimeTodoItem{
+			ID:       id,
+			Title:    t.Content,
+			Status:   t.Status,
+			Priority: t.Priority,
+		})
+	}
+	return items
 }
