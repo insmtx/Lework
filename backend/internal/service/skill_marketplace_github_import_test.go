@@ -11,6 +11,29 @@ func TestParseGitHubSkillImportURL(t *testing.T) {
 		wantErr     bool
 	}{
 		{
+			name:        "repository root link",
+			input:       "https://github.com/browser-use/video-use",
+			wantSkillID: "browser-use/video-use/.",
+		},
+		{
+			name:        "repository root tree link",
+			input:       "https://github.com/browser-use/video-use/tree/main",
+			wantSkillID: "browser-use/video-use/.",
+			wantVersion: "main",
+		},
+		{
+			name:        "repository root blob skill md link",
+			input:       "https://github.com/browser-use/video-use/blob/main/SKILL.md",
+			wantSkillID: "browser-use/video-use/.",
+			wantVersion: "main",
+		},
+		{
+			name:        "repository root raw skill md link",
+			input:       "https://raw.githubusercontent.com/browser-use/video-use/main/SKILL.md",
+			wantSkillID: "browser-use/video-use/.",
+			wantVersion: "main",
+		},
+		{
 			name:        "tree link",
 			input:       "https://github.com/openai/skills/tree/main/agents/example",
 			wantSkillID: "openai/skills/agents/example",
@@ -44,9 +67,9 @@ func TestParseGitHubSkillImportURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "missing skill path",
-			input:   "openai/skills",
-			wantErr: true,
+			name:        "owner repo root path",
+			input:       "openai/skills",
+			wantSkillID: "openai/skills/.",
 		},
 		{
 			name:    "blob not skill md",

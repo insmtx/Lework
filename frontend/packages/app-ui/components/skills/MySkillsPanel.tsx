@@ -8,9 +8,10 @@ import { SkillCard } from "./SkillCard";
 interface MySkillsPanelProps {
   /** Called when a skill card is clicked (for navigation to detail page) */
   onCardClick?: (skill: SkillMarketplaceItem) => void;
+  refreshSeq?: number;
 }
 
-export function MySkillsPanel({ onCardClick }: MySkillsPanelProps) {
+export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProps) {
   const [skills, setSkills] = useState<SkillMarketplaceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +39,7 @@ export function MySkillsPanel({ onCardClick }: MySkillsPanelProps) {
   useEffect(() => {
     if (!mounted) return;
     fetchInstalled();
-  }, [mounted, fetchInstalled]);
+  }, [mounted, fetchInstalled, refreshSeq]);
 
   // Not yet mounted (SSR hydration guard)
   if (!mounted) {

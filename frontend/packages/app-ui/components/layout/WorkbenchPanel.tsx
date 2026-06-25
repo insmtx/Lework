@@ -8,6 +8,7 @@ import { cn } from "@leros/ui/lib/utils";
 import {
 	Check,
 	ChevronDown,
+	FileText,
 	Files,
 	Folder,
 	FolderOpen,
@@ -309,18 +310,17 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			<div className="z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[1100px] flex-col justify-center px-10 py-16">
 				{/* Welcome/Hero Section */}
 				<section className="mb-8">
-					<div className="max-w-3xl mx-auto">
-						<div className="mb-6 flex flex-col items-start gap-4 text-left">
-							<h2 className="text-4xl font-bold tracking-tight text-[var(--leros-text-strong)] md:text-5xl">
-								你好, <span className="text-[var(--leros-primary)]">我能帮助你什么？</span>
-							</h2>
-							<p className="text-lg font-medium italic uppercase tracking-widest text-[var(--leros-text-subtle)]">
-								你的AI队友，已上线。
-							</p>
-						</div>
+					<div className="mb-6 flex flex-col items-start gap-4 text-left">
+						<h2 className="text-4xl font-bold tracking-tight text-[var(--leros-text-strong)] md:text-5xl">
+							你好, <span className="text-[var(--leros-primary)]">我能帮助你什么？</span>
+						</h2>
+						<p className="text-lg font-medium italic uppercase tracking-widest text-[var(--leros-text-subtle)]">
+							你的AI队友，已上线。
+						</p>
+					</div>
 
-						{/* Enhanced Command Input Card — 边框/阴影/内边距与 ChatInput project 变体对齐 */}
-						<div className="relative flex flex-col rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70">
+					{/* Enhanced Command Input Card — 边框/阴影/内边距与 ChatInput project 变体对齐 */}
+					<div className="relative flex flex-col rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70">
 							<input
 								ref={fileInputRef}
 								type="file"
@@ -566,24 +566,23 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								</div>
 							</div>
 						</div>
-					</div>
 				</section>
 
 				<section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-					<div className="h-full">
+					<div className="h-full min-w-0">
 						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<div className="mb-5 flex items-center justify-between">
-								<div>
+							<div className="mb-5">
+								<div className="flex items-center gap-2">
+									<div className="shrink-0 rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
+										<Sparkles className="size-4" />
+									</div>
 									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
 										开始建议
 									</h3>
-									<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
-										点一下即可填入输入框，适合用来启动工作台对话。
-									</p>
 								</div>
-								<div className="rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
-									<Sparkles className="size-4" />
-								</div>
+								<p className="mt-1 pl-10 text-sm text-[var(--leros-text-muted)]">
+									点一下即可填入输入框，适合用来启动工作台对话。
+								</p>
 							</div>
 
 							<div className="grid gap-3 md:grid-cols-3">
@@ -592,9 +591,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										key={prompt}
 										type="button"
 										onClick={() => applyPrompt(prompt)}
-										className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
+										title={prompt}
+										className="flex min-w-0 flex-col gap-3 rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
 									>
-										<p className="text-sm font-medium leading-6 text-[var(--leros-text)]">
+										<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)]">
+											<FileText className="size-5" />
+										</div>
+										<p className="line-clamp-3 text-sm font-medium leading-6 text-[var(--leros-text)]">
 											{prompt}
 										</p>
 									</button>
@@ -603,20 +606,20 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						</div>
 					</div>
 
-					<div className="h-full">
+					<div className="h-full min-w-0">
 						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<div className="mb-5 flex items-center justify-between">
-								<div>
+							<div className="mb-5">
+								<div className="flex items-center gap-2">
+									<div className="shrink-0 rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
+										<FolderOpen className="size-4" />
+									</div>
 									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
 										最近项目
 									</h3>
-									<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
-										从最近同步的项目里快速恢复上下文。
-									</p>
 								</div>
-								<div className="rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
-									<FolderOpen className="size-4" />
-								</div>
+								<p className="mt-1 pl-10 text-sm text-[var(--leros-text-muted)]">
+									从最近同步的项目里快速恢复上下文。
+								</p>
 							</div>
 
 							{recentProjects.length > 0 ? (
@@ -626,13 +629,14 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 											key={project.id}
 											type="button"
 											onClick={() => openProject(project.id)}
-											className="flex w-full items-start gap-3 rounded-2xl border border-[var(--leros-control-border)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
+											title={project.name}
+											className="flex w-full min-w-0 items-start gap-3 rounded-2xl border border-[var(--leros-control-border)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
 										>
-											<div className="rounded-xl bg-[var(--leros-surface-soft)] p-2 text-[var(--leros-text-muted)]">
+											<div className="shrink-0 rounded-xl bg-[var(--leros-surface-soft)] p-2 text-[var(--leros-text-muted)]">
 												<Folder className="size-4" />
 											</div>
 											<div className="min-w-0 flex-1">
-												<p className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">
+												<p className="line-clamp-2 text-sm font-semibold text-[var(--leros-text-strong)]">
 													{project.name}
 												</p>
 												<p className="mt-1 line-clamp-2 text-sm text-[var(--leros-text-muted)]">
