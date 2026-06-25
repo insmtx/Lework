@@ -173,6 +173,32 @@ function mapBackendProject(bp: BackendProject): Project {
 	};
 }
 
+export function mergeProjectsFromListResult(
+	apiProjects: Project[],
+	localProjects: Project[],
+): Project[] {
+	const localProjectMap = new Map(localProjects.map((project) => [project.id, project]));
+	const mergedApiProjects = apiProjects.map((project) => {
+		const localProject = localProjectMap.get(project.id);
+		if (!localProject) {
+			return project;
+		}
+
+		return {
+			...project,
+			// 中文注释：列表接口只提供项目基础信息，这里保留本地已经加载过的详情字段，避免切页时把任务树清空。
+			objective: project.objective ?? localProject.objective,
+			messages: project.messages.length > 0 ? project.messages : localProject.messages,
+			tasks: project.tasks.length > 0 ? project.tasks : localProject.tasks,
+			artifacts: project.artifacts.length > 0 ? project.artifacts : localProject.artifacts,
+			files: project.files.length > 0 ? project.files : localProject.files,
+		};
+	});
+
+	// 中文注释：列表接口已按分页拉取完整项目集，因此这里只保留接口中仍存在的项目，避免已删除项目继续残留在本地状态里。
+	return mergedApiProjects;
+}
+
 function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[] {
 	const extra = metadata?.extra;
 	if (!extra || typeof extra !== "object" || Array.isArray(extra)) return [];
@@ -572,12 +598,11 @@ export class LayoutActionImpl {
 			}
 
 			const apiProjects = items.map(mapBackendProject);
-			this.#set((state) => {
-				const localProjects = state.projects.filter(
-					(p) => !apiProjects.some((ap) => ap.id === p.id),
-				);
-				return { projects: apiProjects.length ? [...apiProjects, ...localProjects] : [] };
-			});
+			this.#set((state) => ({
+				projects: apiProjects.length
+					? mergeProjectsFromListResult(apiProjects, state.projects)
+					: [],
+			}));
 		} catch (err) {
 			console.error("fetchProjects error:", err);
 		}
