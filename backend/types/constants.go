@@ -75,18 +75,6 @@ const (
 	SkillTypeRemote SkillType = "remote"
 )
 
-// SkillStatus 表示技能的状态（active, inactive, deprecated）
-type SkillStatus string
-
-const (
-	// SkillStatusActive 表示技能处于激活状态
-	SkillStatusActive SkillStatus = "active"
-	// SkillStatusInactive 表示技能处于非激活状态
-	SkillStatusInactive SkillStatus = "inactive"
-	// SkillStatusDeprecated 表示技能已被弃用
-	SkillStatusDeprecated SkillStatus = "deprecated"
-)
-
 // SkillRegistryStatus 表示技能注册状态
 type SkillRegistryStatus string
 

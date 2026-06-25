@@ -35,9 +35,9 @@ type skillFrontMatter struct {
 // 查询 DAO
 // ================================================================================
 
-// SearchBuiltinSkills 查询状态为 active 的内置 Skill，支持关键词和分类过滤。
+// SearchBuiltinSkills 查询内置 Skill，支持关键词和分类过滤。
 func SearchBuiltinSkills(ctx context.Context, db *gorm.DB, keyword, category string, limit int) ([]types.BuiltinSkillMarketplaceItem, error) {
-	query := db.WithContext(ctx).Model(&types.BuiltinSkillMarketplaceItem{}).Where("status = ?", "active")
+	query := db.WithContext(ctx).Model(&types.BuiltinSkillMarketplaceItem{})
 
 	if strings.TrimSpace(keyword) != "" {
 		like := "%" + strings.TrimSpace(keyword) + "%"
@@ -62,7 +62,7 @@ func SearchBuiltinSkills(ctx context.Context, db *gorm.DB, keyword, category str
 func GetBuiltinSkillByID(ctx context.Context, db *gorm.DB, skillID string) (*types.BuiltinSkillMarketplaceItem, error) {
 	var item types.BuiltinSkillMarketplaceItem
 	err := db.WithContext(ctx).
-		Where("skill_id = ? AND status = ?", skillID, "active").
+		Where("skill_id = ?", skillID).
 		First(&item).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -141,7 +141,6 @@ func SeedBuiltinSkillMarketplace(db *gorm.DB) error {
 			Category:    "",
 			Tags:        tags,
 			Verified:    true,
-			Status:      "active",
 			PublishedAt: &now,
 		}
 

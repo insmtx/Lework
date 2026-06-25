@@ -1,21 +1,41 @@
 "use client";
 
-import type { ProjectTask } from "@leros/store";
-import { projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
+import {
+	type Project,
+	type ProjectSkill,
+	type ProjectTask,
+	projectFileApi,
+	type SkillInstalledItem,
+	skillMarketplaceApi,
+	useChatStore,
+	useLayoutStore,
+} from "@leros/store";
+import {
+	Command,
+	CommandEmpty,
+	CommandGroup,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@leros/ui/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Bot,
+	Check,
 	ChevronDown,
+	ChevronRight,
 	ChevronsLeft,
 	ChevronsLeftRightEllipsis,
 	ChevronsRight,
 	Download,
 	Eye,
 	FileText,
-	LayoutPanelLeft,
 	LoaderCircle,
+	Pencil,
+	Plus,
 	Search,
-	Settings,
+	Sparkles,
 	Trash2,
 	X,
 } from "lucide-react";
@@ -27,10 +47,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
+import { notifyFeatureUnavailable } from "../ai-teammates/feature-unavailable";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ChatInput } from "../input/ChatInput";
-import { ArtifactPreviewDialog, type ArtifactPreviewItem } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
@@ -58,11 +79,11 @@ const projectTabs = [
 const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
 const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
 const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
-const PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-project-right-sidebar-width";
+const PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-project-config-right-sidebar-width";
 const PROJECT_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "leros-project-right-sidebar-collapsed";
-const PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH = 300;
-const PROJECT_RIGHT_SIDEBAR_MIN_WIDTH = 260;
-const PROJECT_RIGHT_SIDEBAR_MAX_WIDTH = 420;
+const PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
+const PROJECT_RIGHT_SIDEBAR_MIN_WIDTH = 300;
+const PROJECT_RIGHT_SIDEBAR_MAX_WIDTH = 440;
 const PROJECT_RIGHT_SIDEBAR_WIDE_BREAKPOINT = 360;
 
 type ProjectTab = (typeof projectTabs)[number]["id"];
@@ -137,6 +158,7 @@ export function ProjectPage({
 		setActiveProjectTab,
 		fetchProjectDetail,
 		openTaskDetail,
+		updateProject,
 	} = useLayoutStore((s) => s);
 
 	const {
@@ -192,6 +214,10 @@ export function ProjectPage({
 		openTaskDetail(resolvedProjectId, task.id, task.sessionId ?? null);
 	};
 
+	const handleBackToProjects = () => {
+		navigation?.goToRoute("projectsHub");
+	};
+
 	useEffect(() => {
 		fetchProjects();
 	}, [fetchProjects]);
@@ -207,14 +233,6 @@ export function ProjectPage({
 			fetchProjectDetail(resolvedProjectId);
 		}
 	}, [resolvedProjectId, fetchProjectDetail, projects.length]);
-
-	const flatArtifactFiles = useMemo(
-		() =>
-			sortProjectFilesByUploadedTimeDesc(
-				collectSelectableFiles(projectFiles).filter((f) => getFileSource(f.path) === "task"),
-			),
-		[projectFiles],
-	);
 
 	const refreshProjectFiles = async () => {
 		if (!resolvedProjectId) return;
@@ -382,32 +400,18 @@ export function ProjectPage({
 		<div data-slot="project-page" className="flex h-full flex-1 flex-col bg-[var(--leros-surface)]">
 			<header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
 				<div className="flex items-center gap-3 text-[var(--leros-text-muted)]">
-					<h1 className="text-base font-bold text-[var(--leros-text-strong)]">{project.name}</h1>
-				</div>
-				<div className="flex items-center gap-6 text-[var(--leros-text)]">
+					{/* 中文注释：项目详情页顶部保留面包屑，方便从具体项目快速回到项目列表页。 */}
 					<button
 						type="button"
-						className="rounded-full p-1.5 transition-colors hover:bg-[var(--leros-primary-softer)]"
+						onClick={handleBackToProjects}
+						className="text-base font-bold text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
 					>
-						<Search className="size-5" />
+						项目
 					</button>
-					{showProjectSidebar && (
-						<button
-							type="button"
-							className="rounded-full p-1.5 transition-colors hover:bg-[var(--leros-primary-softer)]"
-							aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
-							title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
-							onClick={() => setRightSidebarCollapsed((collapsed) => !collapsed)}
-						>
-							<LayoutPanelLeft className="size-5" />
-						</button>
-					)}
-					<button
-						type="button"
-						className="rounded-full p-1.5 transition-colors hover:bg-[var(--leros-primary-softer)]"
-					>
-						<Settings className="size-5" />
-					</button>
+					<ChevronRight className="size-4 text-[var(--leros-text-subtle)]" />
+					<h1 className="max-w-[360px] truncate text-base font-bold text-[var(--leros-text-strong)]">
+						{project.name}
+					</h1>
 				</div>
 			</header>
 
@@ -485,60 +489,12 @@ export function ProjectPage({
 						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
-						<div className="no-scrollbar min-h-0 flex-1 space-y-8 overflow-y-auto px-5 py-6 pr-4">
-							<div className="flex items-start justify-between gap-3">
-								<div>
-									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目侧栏</p>
-									<p className="mt-1 text-xs text-[var(--leros-text-muted)]">查看任务和文件概览</p>
-								</div>
-								<button
-									type="button"
-									className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
-									aria-label="收起右侧栏"
-									title="收起右侧栏"
-									onClick={() => setRightSidebarCollapsed(true)}
-								>
-									<ChevronsRight className="size-4" />
-								</button>
-							</div>
-							<section>
-								<div
-									className={cn(
-										"mb-4 flex w-full items-center justify-between",
-										!isWideRightSidebar && "mx-auto max-w-[250px]",
-									)}
-								>
-									<h2 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务</h2>
-									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
-										{project.tasks.length} 项
-									</span>
-								</div>
-								<ProjectTaskList
-									tasks={project.tasks}
-									compact={!isWideRightSidebar}
-									onOpen={handleOpenTask}
-								/>
-							</section>
-
-							<section>
-								<div
-									className={cn(
-										"mb-4 flex w-full items-center justify-between",
-										!isWideRightSidebar && "mx-auto max-w-[250px]",
-									)}
-								>
-									<h2 className="text-xs font-semibold text-[var(--leros-text-muted)]">文件</h2>
-									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
-										{flatArtifactFiles.length} 个
-									</span>
-								</div>
-								<ProjectFileList
-									files={flatArtifactFiles}
-									compact={!isWideRightSidebar}
-									projectId={resolvedProjectId || ""}
-								/>
-							</section>
-						</div>
+						<ProjectConfigSidebar
+							project={project}
+							compact={!isWideRightSidebar}
+							onCollapse={() => setRightSidebarCollapsed(true)}
+							onUpdateProject={updateProject}
+						/>
 						<hr
 							className={cn(
 								"absolute left-0 top-0 z-10 h-full -translate-x-1/2 border-0",
@@ -589,6 +545,422 @@ function ProjectChat({
 			<ChatInput variant="project" projectLayoutMode={layoutMode} navigation={navigation} />
 		</div>
 	);
+}
+
+function ProjectConfigSidebar({
+	project,
+	compact,
+	onCollapse,
+	onUpdateProject,
+}: {
+	project: Project;
+	compact: boolean;
+	onCollapse: () => void;
+	onUpdateProject: (params: {
+		public_id: string;
+		name?: string;
+		description?: string;
+		status?: string;
+		owner_id?: number;
+		metadata?: Record<string, unknown>;
+	}) => Promise<Project | null>;
+}) {
+	const [editingDescription, setEditingDescription] = useState(false);
+	const [descriptionDraft, setDescriptionDraft] = useState(project.description);
+	const [savingDescription, setSavingDescription] = useState(false);
+	const [savingSkills, setSavingSkills] = useState(false);
+	const [skillOpen, setSkillOpen] = useState(false);
+	const [skillSearch, setSkillSearch] = useState("");
+	const [skillOptions, setSkillOptions] = useState<ProjectSkill[]>([]);
+	const [skillsLoading, setSkillsLoading] = useState(false);
+	const [skillsLoaded, setSkillsLoaded] = useState(false);
+	const [skillsError, setSkillsError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!editingDescription) {
+			setDescriptionDraft(project.description);
+		}
+	}, [editingDescription, project.description]);
+
+	useEffect(() => {
+		if (!skillOpen || skillsLoaded) return;
+
+		setSkillsLoading(true);
+		setSkillsError(null);
+		skillMarketplaceApi
+			.installed()
+			.then((response) => {
+				const raw = normalizeInstalledSkillsPayload(response.data);
+				setSkillOptions(raw.map(installedSkillToProjectSkill));
+				setSkillsLoaded(true);
+			})
+			.catch((error: unknown) => {
+				const message = error instanceof Error ? error.message : "技能加载失败";
+				setSkillsError(message);
+				setSkillOptions([]);
+			})
+			.finally(() => {
+				setSkillsLoading(false);
+			});
+	}, [skillOpen, skillsLoaded]);
+
+	const selectedSkillCodes = useMemo(
+		() => project.skills.map((skill) => skill.code),
+		[project.skills],
+	);
+	const filteredSkills = useMemo(() => {
+		const query = skillSearch.trim().toLowerCase();
+		return skillOptions.filter((skill) => {
+			if (selectedSkillCodes.includes(skill.code)) return false;
+			if (!query) return true;
+			// 中文注释：技能弹窗仅按名称搜索。
+			return skill.name.toLowerCase().includes(query);
+		});
+	}, [selectedSkillCodes, skillOptions, skillSearch]);
+
+	const saveDescription = async () => {
+		const nextDescription = descriptionDraft.trim();
+		setSavingDescription(true);
+		try {
+			const updated = await onUpdateProject({
+				public_id: project.id,
+				description: nextDescription,
+			});
+			if (updated) {
+				setEditingDescription(false);
+				toast.success("项目描述已更新");
+			}
+		} finally {
+			setSavingDescription(false);
+		}
+	};
+
+	const updateProjectSkills = async (nextSkills: ProjectSkill[]) => {
+		setSavingSkills(true);
+		try {
+			const updated = await onUpdateProject({
+				public_id: project.id,
+				metadata: buildProjectMetadataWithSkills(project, nextSkills),
+			});
+			if (updated) {
+				toast.success("项目技能已更新");
+			}
+		} finally {
+			setSavingSkills(false);
+		}
+	};
+
+	const addProjectSkill = (skill: ProjectSkill) => {
+		if (savingSkills || selectedSkillCodes.includes(skill.code)) return;
+		void updateProjectSkills([...project.skills, skill]);
+	};
+
+	const removeProjectSkill = (skillCode: string) => {
+		if (savingSkills) return;
+		void updateProjectSkills(project.skills.filter((skill) => skill.code !== skillCode));
+	};
+
+	return (
+		<div className="no-scrollbar min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-6 pr-4">
+			<div className="flex items-start justify-between gap-3">
+				<div>
+					<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目配置</p>
+					<p className="mt-1 text-xs text-[var(--leros-text-muted)]">管理项目描述和可用技能</p>
+				</div>
+				<button
+					type="button"
+					className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
+					aria-label="收起右侧栏"
+					title="收起右侧栏"
+					onClick={onCollapse}
+				>
+					<ChevronsRight className="size-4" />
+				</button>
+			</div>
+
+			<section>
+				<div className="mb-3 flex items-center justify-between gap-3">
+					<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">项目描述</h2>
+					{!editingDescription && (
+						<button
+							type="button"
+							className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							aria-label="编辑项目描述"
+							onClick={() => setEditingDescription(true)}
+						>
+							<Pencil className="size-3.5" />
+						</button>
+					)}
+				</div>
+				<div
+					className={cn(
+						"rounded-xl border border-[var(--leros-control-border)] bg-white p-4",
+						compact && "px-3",
+					)}
+				>
+					{editingDescription ? (
+						<div className="space-y-3">
+							<textarea
+								value={descriptionDraft}
+								onChange={(event) => setDescriptionDraft(event.target.value)}
+								placeholder="补充项目目标、背景或协作范围"
+								className="min-h-28 w-full resize-none rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2 text-sm leading-6 text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+							/>
+							<div className="flex justify-end gap-2">
+								<button
+									type="button"
+									className="rounded-md px-3 py-1.5 text-sm text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-surface-soft)]"
+									onClick={() => {
+										setDescriptionDraft(project.description);
+										setEditingDescription(false);
+									}}
+									disabled={savingDescription}
+								>
+									取消
+								</button>
+								<button
+									type="button"
+									className="rounded-md bg-[var(--leros-primary)] px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--leros-primary)]/90 disabled:cursor-not-allowed disabled:opacity-50"
+									onClick={saveDescription}
+									disabled={savingDescription}
+								>
+									确定
+								</button>
+							</div>
+						</div>
+					) : (
+						<p className="whitespace-pre-wrap text-sm leading-6 text-[var(--leros-text-muted)]">
+							{project.description || "暂无项目描述"}
+						</p>
+					)}
+				</div>
+			</section>
+
+			<section>
+				<div className="mb-3 flex items-center justify-between gap-3">
+					<div className="flex items-center gap-2">
+						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">AI队友</h2>
+						<span className="text-xs text-[var(--leros-text-subtle)]">0</span>
+					</div>
+					<button
+						type="button"
+						className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						aria-label="添加 AI 队友"
+						onClick={notifyFeatureUnavailable}
+					>
+						<Plus className="size-4" />
+					</button>
+				</div>
+				<div className="max-h-36 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+					<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+						暂无 AI 队友
+					</p>
+				</div>
+			</section>
+
+			<section>
+				<div className="mb-3 flex items-center justify-between gap-3">
+					<div className="flex items-center gap-2">
+						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">技能</h2>
+						<span className="text-xs text-[var(--leros-text-subtle)]">{project.skills.length}</span>
+					</div>
+					<Popover
+						open={skillOpen}
+						onOpenChange={(open) => {
+							setSkillOpen(open);
+							if (!open) {
+								setSkillSearch("");
+							}
+						}}
+					>
+						<PopoverTrigger
+							type="button"
+							className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							aria-label="添加技能"
+						>
+							<Plus className="size-4" />
+						</PopoverTrigger>
+						<PopoverContent
+							align="end"
+							side="top"
+							sideOffset={10}
+							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+							className="w-[340px] p-1.5"
+						>
+							<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+								<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
+								<CommandInput
+									value={skillSearch}
+									onValueChange={setSkillSearch}
+									placeholder="搜索技能"
+								/>
+								{project.skills.length > 0 && (
+									<div className="px-2 pb-2 pt-1">
+										<div className="mb-1 text-[11px] font-medium text-slate-400">已选技能</div>
+										<div className="flex flex-wrap gap-1.5">
+											{project.skills.map((skill) => (
+												<button
+													key={skill.code}
+													type="button"
+													onClick={() => removeProjectSkill(skill.code)}
+													className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700 transition-colors hover:bg-violet-100"
+												>
+													/{skill.name}
+													<X className="size-3" />
+												</button>
+											))}
+										</div>
+									</div>
+								)}
+								<CommandList className="max-h-64">
+									<CommandEmpty className="py-6 text-slate-400">没有可继续添加的技能</CommandEmpty>
+									<CommandGroup className="p-0">
+										{skillsLoading && (
+											<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
+										)}
+										{!skillsLoading && skillsError && (
+											<div className="px-3 py-2 text-xs text-red-400">{skillsError}</div>
+										)}
+										{filteredSkills.map((skill) => (
+											<CommandItem
+												key={skill.code}
+												value={skill.name}
+												onSelect={() => addProjectSkill(skill)}
+												className="rounded-xl px-2.5 py-2"
+											>
+												<SkillPickerIcon />
+												<div className="min-w-0 flex-1">
+													<div className="truncate font-medium">/{skill.name}</div>
+													<div className="truncate text-xs text-slate-400">
+														{skill.description || "项目可用技能"}
+													</div>
+												</div>
+												<Check className="size-4 opacity-0" />
+											</CommandItem>
+										))}
+									</CommandGroup>
+								</CommandList>
+							</Command>
+						</PopoverContent>
+					</Popover>
+				</div>
+				<div className="max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+					{project.skills.length === 0 ? (
+						<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+							暂无技能
+						</div>
+					) : (
+						<div className="flex flex-wrap gap-2">
+							{project.skills.map((skill) => (
+								<div
+									key={skill.code}
+									className="group relative inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
+								>
+									<SkillPickerIcon />
+									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
+										{skill.name}
+									</span>
+									<button
+										type="button"
+										className="rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100"
+										aria-label={`移除技能 ${skill.name}`}
+										onClick={() => removeProjectSkill(skill.code)}
+										disabled={savingSkills}
+									>
+										<X className="size-3" />
+									</button>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+			</section>
+		</div>
+	);
+}
+
+/** 与输入框「添加技能」弹窗保持一致的技能图标样式 */
+function SkillPickerIcon() {
+	return (
+		<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+			<Sparkles className="size-3.5" />
+		</div>
+	);
+}
+
+function installedSkillToProjectSkill(skill: SkillInstalledItem): ProjectSkill {
+	return {
+		code: skill.name,
+		name: skill.name,
+		description: skill.description,
+		category: skill.category,
+		source: skill.source,
+		trust: skill.trust,
+	};
+}
+
+function buildProjectMetadataWithSkills(
+	project: Project,
+	skills: ProjectSkill[],
+): Record<string, unknown> {
+	const metadata = project.metadata ?? {};
+	const extra = isPlainRecord(metadata.extra) ? metadata.extra : {};
+
+	return {
+		...metadata,
+		extra: {
+			...extra,
+			skills: skills.map((skill) => ({
+				code: skill.code,
+				name: skill.name,
+				description: skill.description,
+				category: skill.category,
+				source: skill.source,
+				trust: skill.trust,
+			})),
+		},
+	};
+}
+
+function normalizeInstalledSkillsPayload(value: unknown): SkillInstalledItem[] {
+	const toItems = (items: unknown[]) =>
+		items.map(skillItemFromValue).filter((item): item is SkillInstalledItem => item !== null);
+
+	if (Array.isArray(value)) return toItems(value);
+	if (!isPlainRecord(value)) return [];
+
+	const nestedData = value.data;
+	if (isPlainRecord(nestedData)) {
+		if (Array.isArray(nestedData.skills)) return toItems(nestedData.skills);
+		if (Array.isArray(nestedData.items)) return toItems(nestedData.items);
+	}
+
+	if (Array.isArray(value.skills)) return toItems(value.skills);
+	if (Array.isArray(value.items)) return toItems(value.items);
+	return [];
+}
+
+function skillItemFromValue(value: unknown): SkillInstalledItem | null {
+	if (!isPlainRecord(value)) return null;
+
+	const name = stringFromValue(value.name || value.skill_id || value.id);
+	if (!name) return null;
+
+	return {
+		name,
+		description: stringFromValue(value.description),
+		category: stringFromValue(value.category),
+		source: stringFromValue(value.source || value.source_type),
+		trust: stringFromValue(value.trust),
+	};
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringFromValue(value: unknown): string {
+	return typeof value === "string" ? value : "";
 }
 
 function ProjectEmptyState({ layout }: { layout: ReturnType<typeof getProjectChatLayoutClasses> }) {
@@ -1372,85 +1744,5 @@ function clampProjectRightSidebarWidth(width: number): number {
 	return Math.min(
 		PROJECT_RIGHT_SIDEBAR_MAX_WIDTH,
 		Math.max(PROJECT_RIGHT_SIDEBAR_MIN_WIDTH, Math.round(width)),
-	);
-}
-
-function ProjectFileList({
-	files,
-	emptyText = "暂无文件",
-	compact = false,
-	projectId,
-}: {
-	files: ProjectFileNode[];
-	emptyText?: string;
-	compact?: boolean;
-	projectId: string;
-}) {
-	const [previewArtifact, setPreviewArtifact] = useState<ArtifactPreviewItem | null>(null);
-
-	if (files.length === 0) {
-		return (
-			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
-				{emptyText}
-			</div>
-		);
-	}
-
-	return (
-		<>
-			<div className={cn("w-full", compact && "mx-auto max-w-[250px]")}>
-				<div className={cn(compact ? SIDEBAR_COMPACT_LIST_CLASS : "space-y-3")}>
-					{files.map((file) => (
-						<button
-							type="button"
-							key={file.path}
-							onClick={() =>
-								setPreviewArtifact({
-									id: file.path,
-									name: file.name,
-									title: file.name,
-									type: "document",
-									artifactType: "file",
-									mimeType: file.mimeType,
-									size: formatBytes(file.size),
-									downloadUrl: "",
-								})
-							}
-							className={cn(
-								"group relative flex w-full cursor-pointer items-center overflow-hidden border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35",
-								compact ? "gap-3 rounded-lg px-3.5 py-3" : "gap-3.5 rounded-lg px-4 py-3.5",
-							)}
-							title="预览文件"
-						>
-							{/* hover 时补一个轻量蒙层，明确提示当前整卡可点击预览 */}
-							<div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-								<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
-									点击预览
-								</span>
-							</div>
-							<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
-								<ProjectFileTypeIcon fileName={file.name} />
-							</div>
-							<div className="min-w-0">
-								<div className="truncate text-sm font-normal leading-5 text-[var(--leros-text-strong)]">
-									{file.name}
-								</div>
-								<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-									{file.size > 0 ? formatBytes(file.size) : ""}
-								</div>
-							</div>
-						</button>
-					))}
-				</div>
-			</div>
-			<ArtifactPreviewDialog
-				artifact={previewArtifact}
-				open={previewArtifact !== null}
-				onOpenChange={(open) => {
-					if (!open) setPreviewArtifact(null);
-				}}
-				projectId={projectId}
-			/>
-		</>
 	);
 }

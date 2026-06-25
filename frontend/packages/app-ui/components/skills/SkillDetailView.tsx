@@ -71,6 +71,7 @@ export function SkillDetailView({
 	const fetchSkill = useCallback(async () => {
 		setLoading(true);
 		setError(null);
+		setInstalled(false);
 		const cancelled = false;
 		try {
 			// Fetch skill detail via the dedicated API
@@ -85,11 +86,7 @@ export function SkillDetailView({
 			if (cancelled) return;
 			const detail = resp.data.data;
 			setSkill(detail);
-
-			// For installed skills, they're already installed
-			if (detail.source === "installed") {
-				setInstalled(true);
-			}
+			setInstalled(Boolean(detail.installed) || detail.source === "installed");
 
 			// Fetch related skills from the marketplace (only for marketplace skills)
 			if (detail.category) {
@@ -131,7 +128,7 @@ export function SkillDetailView({
 				version: skill.version || undefined,
 			});
 			setInstalled(true);
-			toast.success("技能安装已提交");
+			toast.success("技能安装成功");
 		} catch (err: any) {
 			const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
 			toast.error(`安装失败：${msg}`);
@@ -185,6 +182,8 @@ export function SkillDetailView({
 		);
 	}
 
+	const displayName = skill.display_name || skill.name;
+
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--leros-app-bg)] [scrollbar-gutter:stable]">
 			{/* Top section: back + header + metrics (full width) */}
@@ -208,17 +207,17 @@ export function SkillDetailView({
 						{skill.icon ? (
 							<img
 								src={skill.icon}
-								alt={skill.name}
+								alt={displayName}
 								className="h-14 w-14 shrink-0 rounded-xl object-cover shadow-sm"
 							/>
 						) : (
 							<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[var(--leros-primary-soft)] text-[var(--leros-primary)] shadow-sm">
-								<span className="text-[28px] font-bold">{skill.name.charAt(0).toUpperCase()}</span>
+								<span className="text-[28px] font-bold">{displayName.charAt(0).toUpperCase()}</span>
 							</div>
 						)}
 						<div className="min-w-0">
 							<h1 className="mb-1 break-words text-xl font-bold leading-tight text-[var(--leros-text-strong)]">
-								{skill.name}
+								{displayName}
 							</h1>
 							{skill.category && (
 								<span className="inline-flex px-2 py-0.5 rounded bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] text-[11px] font-medium border border-[var(--leros-control-border)]">
@@ -429,19 +428,19 @@ export function SkillDetailView({
 											{related.icon ? (
 												<img
 													src={related.icon}
-													alt={related.name}
+													alt={related.display_name || related.name}
 													className="h-8 w-8 shrink-0 rounded-lg object-cover"
 												/>
 											) : (
 												<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] group-hover:bg-[var(--leros-primary-soft)] group-hover:text-[var(--leros-primary)] transition-colors">
 													<span className="text-sm font-bold">
-														{related.name.charAt(0).toUpperCase()}
+														{(related.display_name || related.name).charAt(0).toUpperCase()}
 													</span>
 												</div>
 											)}
 											<div className="min-w-0">
 												<h6 className="text-xs font-semibold text-[var(--leros-text-strong)] truncate">
-													{related.name}
+													{related.display_name || related.name}
 												</h6>
 												<div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-[var(--leros-text-subtle)]">
 													<span className="flex items-center gap-0.5">

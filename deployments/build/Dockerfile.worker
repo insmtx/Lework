@@ -37,6 +37,7 @@ FROM registry.yygu.cn/library/ubuntu:24.04
 ARG TARGETARCH
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
+ARG OPENCODE_VERSION=latest
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
@@ -75,8 +76,10 @@ RUN set -eux; \
 RUN npm config set registry https://registry.npmmirror.com \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
         "@openai/codex@${CODEX_VERSION}" \
+        "opencode-ai@${OPENCODE_VERSION}" \
     && claude --version \
     && codex --version \
+    && opencode --version \
     && npm cache clean --force
 
 COPY --from=builder /build/leros /leros

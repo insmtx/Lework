@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,9 +14,10 @@ import (
 // SSE 消息事件解析
 // ============================================================================
 
-var filteredToolNames = []string{
-	"question",
-	"todowrite",
+var filteredToolPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`^question$`),
+	regexp.MustCompile(`^todowrite$`),
+	regexp.MustCompile(`artifact_declare`),
 }
 
 // handleSSEEvent 解析 SSE 事件并将消息相关事件转换为引擎事件。
@@ -231,8 +233,8 @@ func isFilteredToolName(toolName string) bool {
 	if toolName == "" {
 		return false
 	}
-	for _, filteredToolName := range filteredToolNames {
-		if strings.EqualFold(toolName, strings.TrimSpace(filteredToolName)) {
+	for _, pattern := range filteredToolPatterns {
+		if pattern.MatchString(toolName) {
 			return true
 		}
 	}

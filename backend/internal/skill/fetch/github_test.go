@@ -49,6 +49,109 @@ func TestGitHubSourceFetchVersionBranchSuccess(t *testing.T) {
 	}
 }
 
+func TestGitHubSourceFetchVersionRootSkill(t *testing.T) {
+	zipBytes := testSkillZipEntries(t, map[string]string{
+		"repo-main/SKILL.md":                     testSkillContent("video-use"),
+		"repo-main/scripts/edit.mjs":             "console.log('edit')\n",
+		"repo-main/references/style-guide.md":    "# Style\n",
+		"repo-main/helpers/internal.py":          "print('ignored')\n",
+		"repo-main/skills/other/SKILL.md":        testSkillContent("other"),
+		"repo-main/skills/other/scripts/run.mjs": "console.log('ignored')\n",
+	})
+	source := &GitHubSource{
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, zipBytes), nil
+			}),
+		},
+	}
+
+	bundle, err := source.FetchVersion(context.Background(), "owner/repo/.", "main")
+	if err != nil {
+		t.Fatalf("FetchVersion returned error: %v", err)
+	}
+	defer func() {
+		if bundle.TempDir != "" {
+			_ = os.RemoveAll(bundle.TempDir)
+		}
+	}()
+	if string(bundle.Content) != testSkillContent("video-use") {
+		t.Fatalf("content = %q, want root skill content", string(bundle.Content))
+	}
+	if bundle.Meta.Identifier != "owner/repo/." {
+		t.Fatalf("identifier = %q, want owner/repo/.", bundle.Meta.Identifier)
+	}
+	if string(bundle.Files["scripts/edit.mjs"]) != "console.log('edit')\n" {
+		t.Fatalf("scripts/edit.mjs was not collected")
+	}
+	if string(bundle.Files["references/style-guide.md"]) != "# Style\n" {
+		t.Fatalf("references/style-guide.md was not collected")
+	}
+	if _, ok := bundle.Files["helpers/internal.py"]; ok {
+		t.Fatalf("helpers/internal.py should not be collected")
+	}
+	if _, ok := bundle.Files["skills/other/scripts/run.mjs"]; ok {
+		t.Fatalf("nested skill files should not be collected for root skill")
+	}
+}
+
+func TestGitHubSourceFetchRepositoryRootFallbackToSingleNestedSkill(t *testing.T) {
+	zipBytes := testSkillZipEntries(t, map[string]string{
+		"repo-main/README.md":                     "# Demo\n",
+		"repo-main/skills/demo/SKILL.md":          testSkillContent("demo"),
+		"repo-main/skills/demo/scripts/run.mjs":   "console.log('run')\n",
+		"repo-main/skills/demo/references/doc.md": "# Doc\n",
+	})
+	source := &GitHubSource{
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, zipBytes), nil
+			}),
+		},
+	}
+
+	bundle, err := source.Fetch(context.Background(), "owner/repo")
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	defer func() {
+		if bundle.TempDir != "" {
+			_ = os.RemoveAll(bundle.TempDir)
+		}
+	}()
+	if string(bundle.Content) != testSkillContent("demo") {
+		t.Fatalf("content = %q, want nested skill content", string(bundle.Content))
+	}
+	if bundle.Meta.Identifier != "owner/repo/skills/demo" {
+		t.Fatalf("identifier = %q, want owner/repo/skills/demo", bundle.Meta.Identifier)
+	}
+	if string(bundle.Files["scripts/run.mjs"]) != "console.log('run')\n" {
+		t.Fatalf("scripts/run.mjs was not collected")
+	}
+}
+
+func TestGitHubSourceFetchRepositoryRootMultipleNestedSkills(t *testing.T) {
+	zipBytes := testSkillZipEntries(t, map[string]string{
+		"repo-main/skills/one/SKILL.md": testSkillContent("one"),
+		"repo-main/skills/two/SKILL.md": testSkillContent("two"),
+	})
+	source := &GitHubSource{
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, zipBytes), nil
+			}),
+		},
+	}
+
+	_, err := source.FetchVersion(context.Background(), "owner/repo/.", "main")
+	if err == nil {
+		t.Fatal("expected multiple SKILL.md error")
+	}
+	if !strings.Contains(err.Error(), "multiple SKILL.md") {
+		t.Fatalf("error = %q, want multiple SKILL.md", err.Error())
+	}
+}
+
 func TestGitHubSourceFetchVersionTagFallback(t *testing.T) {
 	zipBytes := testSkillZip(t, "repo-v1.0.0/skills/demo/SKILL.md", testSkillContent("demo"))
 	requests := make([]string, 0, 2)
@@ -107,14 +210,21 @@ func TestGitHubSourceFetchVersionFailure(t *testing.T) {
 
 func testSkillZip(t *testing.T, filePath string, content string) []byte {
 	t.Helper()
+	return testSkillZipEntries(t, map[string]string{filePath: content})
+}
+
+func testSkillZipEntries(t *testing.T, entries map[string]string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	w, err := zw.Create(filePath)
-	if err != nil {
-		t.Fatalf("create zip entry: %v", err)
-	}
-	if _, err := w.Write([]byte(content)); err != nil {
-		t.Fatalf("write zip entry: %v", err)
+	for filePath, content := range entries {
+		w, err := zw.Create(filePath)
+		if err != nil {
+			t.Fatalf("create zip entry: %v", err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatalf("write zip entry: %v", err)
+		}
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close zip: %v", err)

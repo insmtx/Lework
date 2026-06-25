@@ -273,7 +273,7 @@ func TestSeedSystemLLMModelsCreatesTranslationModel(t *testing.T) {
 	}
 }
 
-func TestSeedSystemLLMModelsUpdatesSystemTranslationModel(t *testing.T) {
+func TestSeedSystemLLMModelsDoesNotOverwriteExistingSystemTranslationModel(t *testing.T) {
 	database := setupLLMModelTestDB(t)
 
 	existing := newTestLLMModel(1, SystemTranslationLLMModelCode)
@@ -302,8 +302,8 @@ func TestSeedSystemLLMModelsUpdatesSystemTranslationModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLLMModelByCode failed: %v", err)
 	}
-	if model.Provider != string(types.LLMProviderDeepSeek) || model.ModelName != "deepseek-v4-flash" || model.APIKeyEncrypted != "new-key" {
-		t.Fatalf("expected system model to be updated, got %#v", model)
+	if model.Provider != string(types.LLMProviderOpenAI) || model.ModelName != "old-model" || model.APIKeyEncrypted != "old-key" {
+		t.Fatalf("expected existing system model to remain unchanged, got %#v", model)
 	}
 }
 

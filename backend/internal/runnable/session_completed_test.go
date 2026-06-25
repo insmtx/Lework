@@ -51,7 +51,7 @@ func TestHandleSessionCompletedMessageUsesRunCompletedPayload(t *testing.T) {
 		t.Fatalf("marshal stream message: %v", err)
 	}
 
-	handleSessionCompletedMessage(context.Background(), service, &nats.Msg{Data: body})
+	handleSessionCompletedMessage(context.Background(), service, nil, &nats.Msg{Data: body})
 
 	if service.completeReq == nil {
 		t.Fatal("expected CompleteSessionMessage to be called")
@@ -92,7 +92,7 @@ func TestHandleSessionCompletedMessageRequiresRunCompletedPayload(t *testing.T) 
 		t.Fatalf("marshal stream message: %v", err)
 	}
 
-	handleSessionCompletedMessage(context.Background(), service, &nats.Msg{Data: body})
+	handleSessionCompletedMessage(context.Background(), service, nil, &nats.Msg{Data: body})
 
 	if service.completeReq != nil {
 		t.Fatalf("expected no complete request, got %#v", service.completeReq)
@@ -134,7 +134,7 @@ func TestHandleSessionCompletedMessageProjectsRunArtifacts(t *testing.T) {
 		t.Fatalf("marshal stream message: %v", err)
 	}
 
-	handleSessionCompletedMessage(context.Background(), service, &nats.Msg{Data: body})
+	handleSessionCompletedMessage(context.Background(), service, nil, &nats.Msg{Data: body})
 
 	if service.completeReq == nil {
 		t.Fatal("expected CompleteSessionMessage to be called")
@@ -273,7 +273,7 @@ func TestHandleSessionCompletedMessageUsesFailedRunCompletedPayload(t *testing.T
 		t.Fatalf("marshal stream message: %v", err)
 	}
 
-	handleSessionCompletedMessage(context.Background(), service, &nats.Msg{Data: body})
+	handleSessionCompletedMessage(context.Background(), service, nil, &nats.Msg{Data: body})
 
 	if service.failedReq == nil {
 		t.Fatal("expected FailedSessionMessage to be called")

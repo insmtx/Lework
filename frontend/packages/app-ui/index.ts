@@ -1,3 +1,4 @@
+export * from "./components/ai-teammates";
 export * from "./components/auth";
 export * from "./components/chat";
 export * from "./components/digitalAssistant";

@@ -9,9 +9,10 @@ import { toast } from "sonner";
 interface MySkillsPanelProps {
   /** Called when a skill card is clicked (for navigation to detail page) */
   onCardClick?: (skill: SkillMarketplaceItem) => void;
+  refreshSeq?: number;
 }
 
-export function MySkillsPanel({ onCardClick }: MySkillsPanelProps) {
+export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProps) {
   const [skills, setSkills] = useState<SkillMarketplaceItem[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -30,16 +31,6 @@ export function MySkillsPanel({ onCardClick }: MySkillsPanelProps) {
       const raw = resp.data.data.skills ?? [];
       const list = raw.map(installedToCardItem);
       setSkills(list);
-
-      if (list.length > 0) {
-        const codes = list.map((s) => s.name);
-        try {
-          const statusRes = await skillMarketplaceApi.getSkillStatuses(codes);
-          setStatuses(statusRes.data.data ?? {});
-        } catch {
-          // ignore status fetch failure, default to active
-        }
-      }
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? err?.message ?? "加载失败";
       setError(msg);
@@ -51,7 +42,7 @@ export function MySkillsPanel({ onCardClick }: MySkillsPanelProps) {
   useEffect(() => {
     if (!mounted) return;
     fetchInstalled();
-  }, [mounted, fetchInstalled]);
+  }, [mounted, fetchInstalled, refreshSeq]);
 
   const handleToggle = useCallback(async (skill: SkillMarketplaceItem) => {
     const code = skill.name;

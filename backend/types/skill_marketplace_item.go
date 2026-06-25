@@ -14,6 +14,9 @@ type SkillMarketplaceItem struct {
 	// Name 是 Skill 在市场页面展示的名称。
 	Name string `gorm:"column:name;type:varchar(255);not null" json:"name"`
 
+	// TranslatedName 是模型根据名称和描述生成的中文展示名。
+	TranslatedName string `gorm:"column:translated_name;type:varchar(255)" json:"translated_name"`
+
 	// Source 是数据来源，例如 Leros、ClawHub。
 	Source string `gorm:"column:source;type:varchar(50);not null;uniqueIndex:idx_marketplace_item_source_skill_version" json:"source"`
 

@@ -11,14 +11,10 @@ import {
 	ArrowLeft,
 	ArrowUpFromLine,
 	Bot,
-	Calendar,
 	CheckCircle2,
+	ChevronRight,
 	ChevronsLeft,
 	ChevronsRight,
-	Circle,
-	LayoutPanelLeft,
-	LoaderCircle,
-	Tag,
 	Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -37,12 +33,6 @@ import {
 } from "./project-files";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
-
-const STATUS_LABEL: Record<string, string> = {
-	todo: "待办",
-	in_progress: "进行中",
-	done: "已完成",
-};
 
 const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sidebar-width";
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
@@ -82,7 +72,6 @@ export function TaskDetailPage({
 		projects,
 		fetchProjects,
 		setTaskDetailRoute,
-		switchView,
 		switchProject,
 	} = useLayoutStore((s) => s);
 
@@ -112,7 +101,7 @@ export function TaskDetailPage({
 	const project = projects.find((p) => p.id === resolvedProjectId);
 	// 面包屑只做展示截断，完整名称通过 title 保留，避免超长文本撑开头部布局。
 	const breadcrumbProjectName = truncateBreadcrumbText(project?.name);
-	const breadcrumbTaskTitle = truncateBreadcrumbText(task?.title ?? "浠诲姟");
+	const breadcrumbTaskTitle = truncateBreadcrumbText(task?.title ?? "任务");
 
 	const latestTodos = useMemo(
 		() => getLatestAssistantTodos(messagesMap, messageIds, resolvedSessionId, streamingMessageId),
@@ -317,6 +306,15 @@ export function TaskDetailPage({
 		>
 			<header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
 				<div className="flex min-w-0 items-center gap-3 text-[var(--leros-text-muted)]">
+					{/* 中文注释：任务详情页面包屑与项目页保持一致，三级结构为 项目 > 项目名 > 任务名。 */}
+					<button
+						type="button"
+						onClick={() => navigation?.goToRoute("projectsHub")}
+						className="text-base font-bold text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+					>
+						项目
+					</button>
+					<ChevronRight className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
 					{project && (
 						<>
 							<button
@@ -328,82 +326,38 @@ export function TaskDetailPage({
 									}
 									resolvedProjectId && switchProject(resolvedProjectId);
 								}}
-								className="text-xs font-semibold uppercase tracking-widest hover:text-[var(--leros-text-strong)]"
+								className="max-w-[360px] truncate text-base font-bold text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
 								title={project.name}
 							>
 								{breadcrumbProjectName}
 							</button>
-							<span className="text-[var(--leros-text-subtle)]">/</span>
+							<ChevronRight className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
 						</>
 					)}
-					<h1 className="text-base font-bold text-[var(--leros-text-strong)]" title={task?.title}>
+					<h1
+						className="max-w-[360px] truncate text-base font-bold text-[var(--leros-text-strong)]"
+						title={task?.title}
+					>
 						{breadcrumbTaskTitle}
 					</h1>
 				</div>
 				<div className="flex items-center gap-3">
 					<button
 						type="button"
-						className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
-						aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
-						title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
-						onClick={() => setRightSidebarCollapsed((collapsed) => !collapsed)}
-					>
-						<LayoutPanelLeft className="size-4.5" />
-					</button>
-					<button
-						type="button"
 						onClick={() => {
-							if (navigation) {
-								navigation.goToRoute("workbench");
+							if (navigation && resolvedProjectId) {
+								navigation.goToProject(resolvedProjectId);
 								return;
 							}
-							switchView("workbench");
+							resolvedProjectId && switchProject(resolvedProjectId);
 						}}
 						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 					>
 						<ArrowLeft className="size-3.5" />
-						返回工作台
+						返回新建任务
 					</button>
 				</div>
 			</header>
-
-			{task && (
-				<div className="shrink-0 border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10 py-4">
-					<div className="flex flex-wrap items-center gap-4">
-						<span
-							className={cn(
-								"inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-								task.status === "done"
-									? "bg-[var(--leros-primary-soft)] text-[var(--leros-primary)]"
-									: task.status === "in_progress"
-										? "bg-[var(--leros-warning)]/10 text-[var(--leros-warning)]"
-										: "bg-[var(--leros-chat-control-bg)] text-[var(--leros-text-muted)]",
-							)}
-						>
-							{task.status === "done" ? (
-								<CheckCircle2 className="size-3.5" />
-							) : task.status === "in_progress" ? (
-								<LoaderCircle className="size-3.5" />
-							) : (
-								<Circle className="size-3.5" />
-							)}
-							{STATUS_LABEL[task.status] ?? task.status}
-						</span>
-						{task.taskType && (
-							<span className="inline-flex items-center gap-1 rounded-full bg-[var(--leros-primary-softer)] px-2.5 py-0.5 text-xs font-medium text-[var(--leros-primary)]">
-								<Tag className="size-3" />
-								{task.taskType}
-							</span>
-						)}
-						{task.deadline && (
-							<span className="inline-flex items-center gap-1 rounded-full bg-[var(--leros-chat-control-bg)] px-2.5 py-0.5 text-xs font-medium text-[var(--leros-text-muted)]">
-								<Calendar className="size-3" />
-								{task.deadline}
-							</span>
-						)}
-					</div>
-				</div>
-			)}
 
 			<div className="min-h-0 min-w-0 flex flex-1">
 				<main className="min-w-0 flex min-h-0 flex-1 flex-col">

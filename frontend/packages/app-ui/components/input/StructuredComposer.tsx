@@ -9,7 +9,7 @@ import {
 	CommandList,
 } from "@leros/ui/components/ui/command";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Sparkles, TerminalSquare } from "lucide-react";
+import { Bot, Sparkles, TerminalSquare, X } from "lucide-react";
 import {
 	forwardRef,
 	type MouseEvent,
@@ -46,7 +46,7 @@ type AssistantOption = {
 	description: string;
 };
 
-type SkillOption = {
+export type ComposerSkillOption = {
 	code: string;
 	label: string;
 	description: string;
@@ -56,7 +56,7 @@ type SkillOption = {
 type CommandOption =
 	| {
 			kind: "skill";
-			item: SkillOption;
+			item: ComposerSkillOption;
 	  }
 	| {
 			kind: "command";
@@ -71,6 +71,10 @@ type EditorSnapshot = {
 export type StructuredComposerHandle = {
 	openAssistantPicker: () => void;
 	openCommandPicker: () => void;
+	insertAssistant: (assistantName: string) => void;
+	insertSkill: (skillLabel: string) => void;
+	removeAssistant: (assistantName: string) => void;
+	removeSkill: (skillLabel: string) => void;
 };
 
 type StructuredComposerProps = {
@@ -82,6 +86,7 @@ type StructuredComposerProps = {
 	onBlur: () => void;
 	placeholder: string;
 	isProjectVariant: boolean;
+	projectSkillOptions?: ComposerSkillOption[];
 };
 
 function findTrigger(value: string, cursor: number): ActiveTrigger | null {
@@ -115,24 +120,34 @@ function normalizeSearchValue(value: string): string {
 	return value.trim().toLowerCase();
 }
 
+function dedupeValues(values: string[]): string[] {
+	return Array.from(new Set(values.filter(Boolean)));
+}
+
 // 中文注释：空 contenteditable 浏览器常会插入 <br>，同步后变成仅含换行的字符串，需视为空值。
 function isEmptyEditorValue(value: string): boolean {
 	return value.trim() === "";
 }
 
-function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
+function installedSkillToOption(skill: SkillInstalledItem): ComposerSkillOption {
+	const label = skill.display_name || skill.name;
 	return {
 		code: skill.name,
-		label: skill.name,
+		label,
 		description: skill.description || skill.category || "已安装技能",
-		keywords: [skill.name, skill.description, skill.category, skill.source, skill.trust].filter(
-			Boolean,
-		),
+		keywords: [
+			label,
+			skill.name,
+			skill.description,
+			skill.category,
+			skill.source,
+			skill.trust,
+		].filter(Boolean),
 	};
 }
 
 function matchesCommandQuery(
-	option: Pick<SkillOption, "label" | "code" | "description" | "keywords">,
+	option: Pick<ComposerSkillOption, "label" | "code" | "description" | "keywords">,
 	query: string,
 ): boolean {
 	if (!query) return true;
@@ -158,6 +173,7 @@ function skillItemFromValue(value: unknown): SkillInstalledItem | null {
 
 	return {
 		name,
+		display_name: stringFromValue(value.display_name),
 		description: stringFromValue(value.description),
 		category: stringFromValue(value.category),
 		source: stringFromValue(value.source || value.source_type),
@@ -197,25 +213,72 @@ function commandPickerValue(option: CommandOption): string {
 	return `${option.kind}:${option.item.code}`;
 }
 
-function inferLeadingSkillTokens(value: string): InsertedToken[] {
-	const leadingOffset = value.length - value.trimStart().length;
-	let cursor = leadingOffset;
+function inferAssistantTokensFromValue(value: string): InsertedToken[] {
 	const tokens: InsertedToken[] = [];
 
-	while (value[cursor] === "/") {
-		const match = value.slice(cursor).match(/^(\/[^\s/]+)(\s+)/);
-		if (!match?.[1]) break;
-
+	for (const match of value.matchAll(/(?:^|\s)(@[^\s@/]+)/g)) {
+		const label = match[1] ?? "";
+		const start = (match.index ?? 0) + match[0].length - label.length;
 		tokens.push({
-			label: match[1],
-			start: cursor,
-			end: cursor + match[1].length,
-			kind: "skill",
+			label,
+			start,
+			end: start + label.length,
+			kind: "assistant",
 		});
-		cursor += match[0].length;
 	}
 
 	return tokens;
+}
+
+function inferSkillTokensFromValue(value: string): InsertedToken[] {
+	const tokens: InsertedToken[] = [];
+
+	for (const match of value.matchAll(/(?:^|\s)(\/[^\s@/]+)/g)) {
+		const label = match[1] ?? "";
+		const start = (match.index ?? 0) + match[0].length - label.length;
+		tokens.push({
+			label,
+			start,
+			end: start + label.length,
+			kind: "skill",
+		});
+	}
+
+	return tokens;
+}
+
+function inferTokensFromValue(value: string): InsertedToken[] {
+	return sortTokens([...inferAssistantTokensFromValue(value), ...inferSkillTokensFromValue(value)]);
+}
+
+function tokenRangesOverlap(left: InsertedToken, right: InsertedToken): boolean {
+	return !(left.end <= right.start || left.start >= right.end);
+}
+
+// 中文注释：合并 state 中已记录的 token 与从纯文本推断出的 token，避免仅有 AI 队友时已选技能丢失 pill 样式。
+function resolveDisplayTokens(value: string, tokens: InsertedToken[]): InsertedToken[] {
+	const validFromState = sortTokens(
+		tokens.filter((token) => value.slice(token.start, token.end) === token.label),
+	);
+	const inferred = inferTokensFromValue(value);
+
+	if (validFromState.length === 0) {
+		return inferred;
+	}
+
+	const merged = [...validFromState];
+	for (const token of inferred) {
+		const alreadyCovered = merged.some((existing) => tokenRangesOverlap(existing, token));
+		if (!alreadyCovered) {
+			merged.push(token);
+		}
+	}
+
+	return sortTokens(merged);
+}
+
+function isCursorInsideToken(cursor: number, tokens: InsertedToken[]): boolean {
+	return tokens.some((token) => cursor > token.start && cursor <= token.end);
 }
 
 function sortTokens(tokens: InsertedToken[]): InsertedToken[] {
@@ -540,7 +603,17 @@ function shiftTokensForTextEdit(
 
 export const StructuredComposer = forwardRef<StructuredComposerHandle, StructuredComposerProps>(
 	function StructuredComposer(
-		{ value, onChange, onSubmit, onPasteFiles, onFocus, onBlur, placeholder, isProjectVariant },
+		{
+			value,
+			onChange,
+			onSubmit,
+			onPasteFiles,
+			onFocus,
+			onBlur,
+			placeholder,
+			isProjectVariant,
+			projectSkillOptions,
+		},
 		ref,
 	) {
 		const editorRef = useRef<HTMLDivElement>(null);
@@ -548,7 +621,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
 		const [activeIndex, setActiveIndex] = useState(0);
 		const [tokens, setTokens] = useState<InsertedToken[]>([]);
-		const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
+		const [skillOptions, setSkillOptions] = useState<ComposerSkillOption[]>([]);
 		const [skillsLoading, setSkillsLoading] = useState(false);
 		const [skillsLoaded, setSkillsLoaded] = useState(false);
 		const [skillsError, setSkillsError] = useState<string | null>(null);
@@ -556,22 +629,45 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const pendingCaretRef = useRef<number | null>(null);
 
 		const assistantOptions = useMemo<AssistantOption[]>(() => mockAssistants, []);
+		const displayTokens = useMemo(() => resolveDisplayTokens(value, tokens), [tokens, value]);
+		const selectedAssistantNames = useMemo(
+			() =>
+				dedupeValues(
+					displayTokens
+						.filter((token) => token.kind === "assistant")
+						.map((token) => token.label.replace(/^@/, "")),
+				),
+			[displayTokens],
+		);
+		const selectedSkillLabels = useMemo(
+			() =>
+				dedupeValues(
+					displayTokens
+						.filter((token) => token.kind === "skill")
+						.map((token) => token.label.replace(/^\//, "")),
+				),
+			[displayTokens],
+		);
 
 		const filteredAssistants = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "assistant" ? trigger.query : "");
-			if (!query) return assistantOptions;
-			return assistantOptions.filter((assistant) =>
-				[assistant.name, assistant.code, assistant.description]
+			return assistantOptions.filter((assistant) => {
+				if (selectedAssistantNames.includes(assistant.name)) return false;
+				if (!query) return true;
+				return [assistant.name, assistant.code, assistant.description]
 					.join(" ")
 					.toLowerCase()
-					.includes(query),
-			);
-		}, [assistantOptions, trigger]);
+					.includes(query);
+			});
+		}, [assistantOptions, selectedAssistantNames, trigger]);
 
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? trigger.query : "");
-			return skillOptions.filter((skill) => matchesCommandQuery(skill, query));
-		}, [skillOptions, trigger]);
+			return skillOptions.filter((skill) => {
+				if (selectedSkillLabels.includes(skill.label)) return false;
+				return matchesCommandQuery(skill, query);
+			});
+		}, [selectedSkillLabels, skillOptions, trigger]);
 
 		const filteredCommands = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? trigger.query : "");
@@ -622,15 +718,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			const editor = editorRef.current;
 			if (!editor) return;
 
-			const validTokens = sortTokens(
-				tokens.filter((token) => value.slice(token.start, token.end) === token.label),
-			);
-			const displayTokens = validTokens.length > 0 ? validTokens : inferLeadingSkillTokens(value);
+			const resolvedTokens = resolveDisplayTokens(value, tokens);
 			const snapshot = extractSnapshot(editor);
 
-			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, displayTokens)) {
+			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, resolvedTokens)) {
 				// 只在纯文本或 mention 结构失配时重建 DOM，避免每次输入都打断用户的光标位置。
-				buildEditorContent(editor, value, displayTokens);
+				buildEditorContent(editor, value, resolvedTokens);
 			}
 
 			if (pendingCaretRef.current !== null) {
@@ -646,6 +739,13 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		}, [value]);
 
 		useEffect(() => {
+			if (projectSkillOptions) {
+				setSkillOptions(projectSkillOptions);
+				setSkillsLoaded(true);
+				setSkillsError(null);
+				setSkillsLoading(false);
+				return;
+			}
 			if (trigger?.kind !== "command" || skillsLoaded) return;
 
 			setSkillsLoading(true);
@@ -665,7 +765,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				.finally(() => {
 					setSkillsLoading(false);
 				});
-		}, [skillsLoaded, trigger?.kind]);
+		}, [projectSkillOptions, skillsLoaded, trigger?.kind]);
 
 		const focusAt = useCallback((cursor: number) => {
 			requestAnimationFrame(() => {
@@ -687,7 +787,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			onChange(text);
 
 			if (!composingRef.current) {
-				setTrigger(findTrigger(text, getCaretOffset(editor)));
+				const caret = getCaretOffset(editor);
+				const nextTokens = resolveDisplayTokens(text, snapshot.tokens);
+				setTrigger(isCursorInsideToken(caret, nextTokens) ? null : findTrigger(text, caret));
 			}
 		}, [onChange]);
 
@@ -751,25 +853,105 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			[focusAt, onChange, value],
 		);
 
+		const insertToolbarToken = useCallback(
+			(kind: TokenKind, rawLabel: string) => {
+				const editor = editorRef.current;
+				const cursor = editor ? getCaretOffset(editor) : value.length;
+				const needsLeadingSpace = cursor > 0 && !/\s/.test(value[cursor - 1] ?? "");
+				const needsTrailingSpace = cursor < value.length && !/\s/.test(value[cursor] ?? "");
+				const insertion = `${needsLeadingSpace ? " " : ""}${rawLabel}${needsTrailingSpace ? " " : ""}`;
+				const tokenStart = cursor + (needsLeadingSpace ? 1 : 0);
+				const nextValue = `${value.slice(0, cursor)}${insertion}${value.slice(cursor)}`;
+				const insertedToken: InsertedToken = {
+					label: rawLabel,
+					start: tokenStart,
+					end: tokenStart + rawLabel.length,
+					kind,
+				};
+
+				setTokens((current) =>
+					shiftTokensForInsert(current, cursor, cursor, insertedToken, insertion.length),
+				);
+				onChange(nextValue);
+				setTrigger(null);
+				pendingCaretRef.current = tokenStart + rawLabel.length + (needsTrailingSpace ? 1 : 0);
+				focusAt(tokenStart + rawLabel.length + (needsTrailingSpace ? 1 : 0));
+			},
+			[focusAt, onChange, value],
+		);
+
+		const removeMentionToken = useCallback(
+			(kind: Extract<TokenKind, "assistant" | "skill">, rawLabel: string) => {
+				const prefix = kind === "assistant" ? "@" : "/";
+				const normalizedLabel = rawLabel.startsWith(prefix) ? rawLabel : `${prefix}${rawLabel}`;
+				const currentTokens = resolveDisplayTokens(value, tokens);
+				const target = currentTokens.find(
+					(token) => token.kind === kind && token.label === normalizedLabel,
+				);
+				if (!target) return;
+
+				let start = target.start;
+				let end = target.end;
+				if (value[end] === " ") {
+					end += 1;
+				} else if (start > 0 && value[start - 1] === " ") {
+					start -= 1;
+				}
+				const nextValue = `${value.slice(0, start)}${value.slice(end)}`;
+				// 中文注释：从已选 tag 区域移除时，同步删除输入框里的 mention token 和对应纯文本。
+				setTokens((current) => shiftTokensForTextEdit(current, value, nextValue));
+				onChange(nextValue);
+				setTrigger(null);
+				pendingCaretRef.current = start;
+				focusAt(start);
+			},
+			[focusAt, onChange, tokens, value],
+		);
+
+		const removeAssistantToken = useCallback(
+			(assistantName: string) => removeMentionToken("assistant", assistantName),
+			[removeMentionToken],
+		);
+
+		const removeSkillToken = useCallback(
+			(skillLabel: string) => removeMentionToken("skill", skillLabel),
+			[removeMentionToken],
+		);
+
 		useImperativeHandle(
 			ref,
 			() => ({
 				openAssistantPicker: () => insertTrigger("assistant"),
 				openCommandPicker: () => insertTrigger("command"),
+				insertAssistant: (assistantName: string) =>
+					insertToolbarToken("assistant", `@${assistantName}`),
+				insertSkill: (skillLabel: string) => insertToolbarToken("skill", `/${skillLabel}`),
+				removeAssistant: removeAssistantToken,
+				removeSkill: removeSkillToken,
 			}),
-			[insertTrigger],
+			[insertToolbarToken, insertTrigger, removeAssistantToken, removeSkillToken],
 		);
 
 		const selectToken = useCallback(
 			(
 				kind: SelectionKind,
-				option: AssistantOption | ChatCommand | SkillOption,
+				option: AssistantOption | ChatCommand | ComposerSkillOption,
 				activeTrigger: ActiveTrigger,
 			) => {
 				const isAssistant = kind === "assistant";
+				const assistantName = isAssistant ? (option as AssistantOption).name : "";
+				const skillLabel = kind === "skill" ? (option as ComposerSkillOption).label : "";
+				if (isAssistant && selectedAssistantNames.includes(assistantName)) {
+					setTrigger(null);
+					return;
+				}
+				if (kind === "skill" && selectedSkillLabels.includes(skillLabel)) {
+					setTrigger(null);
+					return;
+				}
 				const label = isAssistant
 					? `@${(option as AssistantOption).name}`
-					: `/${(option as ChatCommand | SkillOption).label}`;
+					: `/${(option as ChatCommand | ComposerSkillOption).label}`;
 				const followingText = value.slice(activeTrigger.end);
 				const trailingSpace = followingText.startsWith(" ") ? "" : " ";
 				const nextValue = `${value.slice(
@@ -823,7 +1005,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				pendingCaretRef.current = activeTrigger.start + label.length + trailingSpace.length;
 				focusAt(activeTrigger.start + label.length + trailingSpace.length);
 			},
-			[focusAt, onChange, value],
+			[focusAt, onChange, selectedAssistantNames, selectedSkillLabels, value],
 		);
 
 		const selectActiveItem = useCallback(() => {
@@ -903,7 +1085,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				{trigger && (
 					<div
 						ref={pickerRef}
-						className="absolute bottom-full left-0 z-30 mb-2 w-full max-w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_12px_36px_rgba(15,23,42,0.12)] backdrop-blur"
+						// 圆角容器需留足内边距，避免 overflow-hidden 裁切顶部标题文字
+						className="absolute bottom-full left-0 z-30 mb-2 w-full max-w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_12px_36px_rgba(15,23,42,0.12)] backdrop-blur"
 					>
 						<Command
 							shouldFilter={false}
@@ -911,42 +1094,82 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 							onValueChange={handlePickerValueChange}
 							className="rounded-xl! bg-transparent p-0"
 						>
-							<div className="flex items-center gap-2 p-0 text-xs font-medium text-slate-400">
+							<div className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-slate-400">
 								{trigger.kind === "assistant" ? <>AI 队友</> : <>命令和 Skills</>}
 								{trigger.query && <span className="truncate text-slate-400">{trigger.query}</span>}
 							</div>
 							<CommandList className="max-h-60">
 								<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
 								{trigger.kind === "assistant" ? (
-									<CommandGroup className="p-0">
-										{filteredAssistants.map((assistant, index) => (
-											<CommandItem
-												key={assistant.code}
-												value={assistantPickerValue(assistant)}
-												data-picker-item-value={assistantPickerValue(assistant)}
-												onMouseDown={(event: MouseEvent) => event.preventDefault()}
-												onSelect={() => selectToken("assistant", assistant, trigger)}
-												className={cn(
-													"rounded-xl px-2.5 py-2",
-													index === activeIndex && "bg-slate-100",
-												)}
-											>
-												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-													<Bot className="size-4" />
+									<>
+										{selectedAssistantNames.length > 0 && (
+											<div className="px-2.5 pb-2 pt-1">
+												<div className="mb-1 text-[11px] font-medium text-slate-400">
+													已选 AI 队友
 												</div>
-												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium text-slate-700">
-														{assistant.name}
-													</div>
-													<div className="truncate text-xs text-slate-400">
-														{assistant.description}
-													</div>
+												<div className="flex flex-wrap gap-1.5">
+													{selectedAssistantNames.map((name) => (
+														<button
+															key={name}
+															type="button"
+															onClick={() => removeAssistantToken(name)}
+															className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700 transition-colors hover:bg-blue-100"
+														>
+															@{name}
+															<X className="size-3" />
+														</button>
+													))}
 												</div>
-											</CommandItem>
-										))}
-									</CommandGroup>
+											</div>
+										)}
+										<CommandGroup className="p-0">
+											{filteredAssistants.map((assistant, index) => (
+												<CommandItem
+													key={assistant.code}
+													value={assistantPickerValue(assistant)}
+													data-picker-item-value={assistantPickerValue(assistant)}
+													onMouseDown={(event: MouseEvent) => event.preventDefault()}
+													onSelect={() => selectToken("assistant", assistant, trigger)}
+													className={cn(
+														"rounded-xl px-2.5 py-2",
+														index === activeIndex && "bg-slate-100",
+													)}
+												>
+													<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+														<Bot className="size-4" />
+													</div>
+													<div className="min-w-0 flex-1">
+														<div className="truncate font-medium text-slate-700">
+															{assistant.name}
+														</div>
+														<div className="truncate text-xs text-slate-400">
+															{assistant.description}
+														</div>
+													</div>
+												</CommandItem>
+											))}
+										</CommandGroup>
+									</>
 								) : (
 									<>
+										{selectedSkillLabels.length > 0 && (
+											<div className="px-2.5 pb-2 pt-1">
+												<div className="mb-1 text-[11px] font-medium text-slate-400">已选技能</div>
+												<div className="flex flex-wrap gap-1.5">
+													{selectedSkillLabels.map((label) => (
+														<button
+															key={label}
+															type="button"
+															onClick={() => removeSkillToken(label)}
+															className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700 transition-colors hover:bg-violet-100"
+														>
+															/{label}
+															<X className="size-3" />
+														</button>
+													))}
+												</div>
+											</div>
+										)}
 										<CommandGroup heading="Skills" className="p-0">
 											{skillsLoading && (
 												<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>

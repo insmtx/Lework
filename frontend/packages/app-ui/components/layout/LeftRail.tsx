@@ -1,6 +1,6 @@
 "use client";
 
-import type { AuthUser, NavItem, Project, ViewMode } from "@leros/store";
+import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
 	authenticatedFetch,
 	getFileDownloadUrl,
@@ -32,10 +32,16 @@ import { cn } from "@leros/ui/lib/utils";
 import {
 	Camera,
 	Check,
+	ChevronDown,
+	ChevronRight,
 	ChevronsLeft,
 	ChevronsRight,
 	ClipboardList,
 	Database,
+	ExternalLink,
+	Folder,
+	FolderKanban,
+	FolderOpen,
 	Hash,
 	Loader2,
 	LogOut,
@@ -45,21 +51,24 @@ import {
 	RefreshCcw,
 	Trash2,
 	UserRound,
+	Users,
 	X,
 	Zap,
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
-import { getVisibleLeftRailItems } from "./left-rail-list-utils";
+import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
 const AVATAR_CACHE_PREFIX = "leros-avatar-cache:";
 const LEFT_RAIL_COLLAPSED_WIDTH = 72;
+const RECENT_PROJECT_LIMIT = 5;
+const PROJECT_TASK_PREVIEW_LIMIT = 5;
 
 type PublicEnv = {
 	readonly VITE_LEROS_APP_VERSION?: string;
@@ -74,6 +83,8 @@ export type AppNavigation = {
 
 const iconMap: Record<string, React.ReactNode> = {
 	IconTask: <ClipboardList className="size-5" />,
+	IconAITeammate: <Users className="size-5" />,
+	IconProjectsHub: <FolderKanban className="size-5" />,
 	IconSkill: <Zap className="size-5" />,
 	IconKnowledge: <Database className="size-5" />,
 	IconProject: <Hash className="size-4" />,
@@ -81,11 +92,10 @@ const iconMap: Record<string, React.ReactNode> = {
 
 const navIdToView: Record<string, ViewMode> = {
 	workbench: "workbench",
+	"ai-teammates": "aiTeammates",
+	"projects-hub": "projectsHub",
 	knowledge: "knowledge",
 	skills: "skills",
-	"ai-1": "digitalAssistant",
-	"ai-2": "digitalAssistant",
-	"ai-3": "digitalAssistant",
 };
 
 const protectedNavIds = new Set(["skills", "knowledge"]);
@@ -104,14 +114,18 @@ export function LeftRail({
 		projects,
 		currentView,
 		activeProjectId,
+		activeTaskDetailProjectId,
+		activeTaskDetailTaskId,
 		leftRailCollapsed,
 		leftRailWidth,
 		fetchProjects,
+		fetchTasks,
 		deleteProject,
 		setLeftRailCollapsed,
 		setLeftRailWidth,
 		switchView,
 		switchProject,
+		openTaskDetail,
 		updateProject,
 	} = useLayoutStore((s) => s);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
@@ -122,8 +136,11 @@ export function LeftRail({
 	const [renameValue, setRenameValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
-	const [projectsExpanded, setProjectsExpanded] = useState(false);
-	const [aiTeammatesExpanded, setAiTeammatesExpanded] = useState(false);
+	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
+	const [expandedTaskProjectIds, setExpandedTaskProjectIds] = useState<Set<string>>(
+		() => new Set(),
+	);
+	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 
 	/* ── Desktop update notifier ── */
 	const [promptOpen, setPromptOpen] = useState(false);
@@ -286,6 +303,44 @@ export function LeftRail({
 		});
 	};
 
+	const handleToggleProject = (project: Project) => {
+		requireAuth(() => {
+			const shouldExpand = !expandedProjectIds.has(project.id);
+			const shouldLoadTasks =
+				shouldExpand && project.tasks.length === 0 && !taskLoadedProjectIds.has(project.id);
+			setExpandedProjectIds((current) => {
+				const next = new Set(current);
+				if (next.has(project.id)) {
+					next.delete(project.id);
+				} else {
+					next.add(project.id);
+				}
+				return next;
+			});
+
+			if (shouldLoadTasks) {
+				void fetchTasks(project.id).finally(() => {
+					// 中文注释：避免无任务项目在每次展开时重复请求详情接口。
+					setTaskLoadedProjectIds((current) => new Set(current).add(project.id));
+				});
+			}
+		});
+	};
+
+	const handleOpenTask = (projectId: string, task: ProjectTask) => {
+		requireAuth(() => {
+			if (navigation) {
+				navigation.goToTaskDetail(projectId, task.id, task.sessionId ?? null);
+				return;
+			}
+			openTaskDetail(projectId, task.id, task.sessionId ?? null);
+		});
+	};
+
+	const handleExpandProjectTasks = (projectId: string) => {
+		setExpandedTaskProjectIds((current) => new Set(current).add(projectId));
+	};
+
 	const handleOpenRename = (project: Project) => {
 		setRenameProject(project);
 		setRenameValue(project.name);
@@ -419,30 +474,37 @@ export function LeftRail({
 			<ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-hidden">
 				<nav className="leros-nav" aria-label="主导航">
 					{navGroups.map((group) => {
+						const sectionLabel =
+							group.id === "projects" ? "最近项目（默认展示最近5个项目）" : group.label;
 						return (
 							<div key={group.id} className="leros-nav-section">
-								{group.label ? <div className="leros-nav-section-label">{group.label}</div> : null}
+								{sectionLabel ? (
+									<div
+										className={cn(
+											"leros-nav-section-label",
+											group.id === "projects" && "normal-case leading-snug tracking-normal",
+										)}
+									>
+										{sectionLabel}
+									</div>
+								) : null}
 								{group.id === "projects" ? (
 									<ProjectList
 										projects={projects}
 										activeProjectId={activeProjectId}
+										activeTaskDetailProjectId={activeTaskDetailProjectId}
+										activeTaskDetailTaskId={activeTaskDetailTaskId}
 										currentView={currentView}
 										currentPath={navigation?.currentPath}
-										onProjectClick={handleProjectClick}
+										expandedProjectIds={expandedProjectIds}
+										expandedTaskProjectIds={expandedTaskProjectIds}
+										onToggleProject={handleToggleProject}
+										onEnterProject={handleProjectClick}
+										onOpenTask={handleOpenTask}
+										onExpandTasks={handleExpandProjectTasks}
 										onRenameProject={handleOpenRename}
 										onDeleteProject={setDeleteTarget}
 										collapsed={leftRailCollapsed}
-										expanded={projectsExpanded}
-										onExpand={() => setProjectsExpanded(true)}
-									/>
-								) : group.id === "ai-teammates" ? (
-									<NavItemList
-										items={group.items}
-										collapsed={leftRailCollapsed}
-										expanded={aiTeammatesExpanded}
-										onExpand={() => setAiTeammatesExpanded(true)}
-										isItemActive={isItemActive}
-										onItemClick={handleNavClick}
 									/>
 								) : (
 									<div className="space-y-1">
@@ -910,14 +972,14 @@ function ProfileAvatar({ user }: { user: AuthUser | null }) {
 	const fallbackLabel = getAvatarInitial(user?.name ?? displayPhone ?? "Lework");
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 
-	const handleProtectedAvatarNotFound = () => {
+	const handleProtectedAvatarNotFound = useCallback(() => {
 		if (!user?.avatarUrl) return;
 		// 中文注释：头像文件如果已经失效，就把本地登录态里的旧下载地址清掉，避免每次刷新都重复命中 404。
 		setAuthUser({
 			...user,
 			avatarUrl: undefined,
 		});
-	};
+	}, [setAuthUser, user]);
 
 	return (
 		<span
@@ -989,6 +1051,8 @@ function ImageWithFallback({
 		const cachedAvatarURL = getCachedAvatarDataURL(src);
 		if (cachedAvatarURL) {
 			setImageURL(cachedAvatarURL);
+			// 中文注释：头像缓存命中后直接复用，避免输入框等无关重渲染时重复下载同一文件。
+			return;
 		}
 
 		let cancelled = false;
@@ -1209,6 +1273,8 @@ function getRouteActive(path: string, view: ViewMode) {
 	if (view === "workbench") return path === "/" || path.startsWith("/workbench");
 	if (view === "chat") return path.startsWith("/chat");
 	if (view === "digitalAssistant") return path.startsWith("/assistants");
+	if (view === "aiTeammates") return path.startsWith("/ai-teammates");
+	if (view === "projectsHub") return path === "/projects";
 	if (view === "skills") return path.startsWith("/skills");
 	if (view === "knowledge") return path.startsWith("/knowledge");
 	if (view === "tasks") return path.startsWith("/tasks");
@@ -1218,141 +1284,235 @@ function getRouteActive(path: string, view: ViewMode) {
 function ProjectList({
 	projects,
 	activeProjectId,
+	activeTaskDetailProjectId,
+	activeTaskDetailTaskId,
 	currentView,
 	currentPath,
-	onProjectClick,
+	expandedProjectIds,
+	expandedTaskProjectIds,
+	onToggleProject,
+	onEnterProject,
+	onOpenTask,
+	onExpandTasks,
 	onRenameProject,
 	onDeleteProject,
 	collapsed,
-	expanded,
-	onExpand,
 }: {
 	projects: Project[];
 	activeProjectId: string | null;
+	activeTaskDetailProjectId: string | null;
+	activeTaskDetailTaskId: string | null;
 	currentView: ViewMode;
 	currentPath?: string;
-	onProjectClick: (projectId: string) => void;
+	expandedProjectIds: Set<string>;
+	expandedTaskProjectIds: Set<string>;
+	onToggleProject: (project: Project) => void;
+	onEnterProject: (projectId: string) => void;
+	onOpenTask: (projectId: string, task: ProjectTask) => void;
+	onExpandTasks: (projectId: string) => void;
 	onRenameProject: (project: Project) => void;
 	onDeleteProject: (project: Project) => void;
 	collapsed: boolean;
-	expanded: boolean;
-	onExpand: () => void;
 }) {
-	const { visibleItems, showExpandTrigger } = getVisibleLeftRailItems(projects, expanded);
+	const recentProjects = getRecentProjectsForLeftRail(
+		projects,
+		expandedProjectIds,
+		RECENT_PROJECT_LIMIT,
+	);
 
 	return (
-		<div className="space-y-1">
-			{visibleItems.map((project) => {
+		<div
+			className={cn("space-y-1", !collapsed && "no-scrollbar overflow-y-auto pr-1")}
+			style={!collapsed ? { maxHeight: "max(180px, calc(100vh - 420px))" } : undefined}
+		>
+			{recentProjects.map((project) => {
+				const projectExpanded = expandedProjectIds.has(project.id);
+				const tasksExpanded = expandedTaskProjectIds.has(project.id);
+				const visibleTasks = tasksExpanded
+					? project.tasks
+					: project.tasks.slice(0, PROJECT_TASK_PREVIEW_LIMIT);
+				const showTaskExpandTrigger =
+					!tasksExpanded && project.tasks.length > PROJECT_TASK_PREVIEW_LIMIT;
 				const active = currentPath
 					? currentPath === `/projects/${project.id}` ||
 						currentPath.startsWith(`/projects/${project.id}/`)
 					: currentView === "project" && activeProjectId === project.id;
 				return (
-					// biome-ignore lint/a11y/useSemanticElements: The row contains a nested menu button, so the row itself cannot be a button.
-					<div
-						key={project.id}
-						role="button"
-						tabIndex={0}
-						onClick={() => onProjectClick(project.id)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter" || event.key === " ") {
-								event.preventDefault();
-								onProjectClick(project.id);
-							}
-						}}
-						data-active={active}
-						className={cn(
-							"leros-nav-item group relative cursor-pointer text-sm",
-							collapsed && "justify-center",
-						)}
-						title={collapsed ? project.name : undefined}
-					>
-						<span className="font-mono text-[14px] text-[var(--leros-text-subtle)]">#</span>
-						<span className={cn("min-w-0 flex-1 truncate", collapsed && "hidden")}>
-							{project.name}
-						</span>
-						{!collapsed && (
-							<DropdownMenu>
-								<DropdownMenuTrigger
-									render={
-										<button
-											type="button"
-											aria-label={`管理项目 ${project.name}`}
-											className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
-											onClick={(event) => event.stopPropagation()}
-										>
-											<MoreHorizontal className="size-4" />
-										</button>
-									}
-								/>
-								<DropdownMenuContent align="end" sideOffset={4}>
-									<DropdownMenuItem onClick={() => onRenameProject(project)}>
-										<Pencil className="size-3.5" />
-										<span>重命名</span>
-									</DropdownMenuItem>
-									<DropdownMenuItem variant="destructive" onClick={() => onDeleteProject(project)}>
-										<Trash2 className="size-3.5" />
-										<span>删除</span>
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
-						)}
+					<div key={project.id} className="space-y-1">
+						{/* biome-ignore lint/a11y/useSemanticElements: The row contains nested action buttons, so the row itself cannot be a button. */}
+						<div
+							role="button"
+							tabIndex={0}
+							onClick={() => onToggleProject(project)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" || event.key === " ") {
+									event.preventDefault();
+									onToggleProject(project);
+								}
+							}}
+							data-active={active}
+							className={cn(
+								"leros-nav-item group relative cursor-pointer text-sm",
+								collapsed && "justify-center",
+							)}
+							title={collapsed ? project.name : undefined}
+						>
+							<span className="flex size-4 shrink-0 items-center justify-center text-[var(--leros-text-subtle)]">
+								{projectExpanded ? (
+									<FolderOpen className="size-4" />
+								) : (
+									<Folder className="size-4" />
+								)}
+							</span>
+							{!collapsed && (
+								<span className="flex min-w-0 flex-1 items-center gap-0.5">
+									<span className="min-w-0 truncate">{project.name}</span>
+									<span className="flex shrink-0 items-center text-[var(--leros-text-subtle)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+										{projectExpanded ? (
+											<ChevronDown className="size-3.5" />
+										) : (
+											<ChevronRight className="size-3.5" />
+										)}
+									</span>
+								</span>
+							)}
+							{!collapsed && (
+								<>
+									<DropdownMenu>
+										<DropdownMenuTrigger
+											render={
+												<button
+													type="button"
+													aria-label={`管理项目 ${project.name}`}
+													className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
+													onClick={(event) => event.stopPropagation()}
+												>
+													<MoreHorizontal className="size-4" />
+												</button>
+											}
+										/>
+										<DropdownMenuContent align="end" sideOffset={4}>
+											<DropdownMenuItem onClick={() => onRenameProject(project)}>
+												<Pencil className="size-3.5" />
+												<span>重命名</span>
+											</DropdownMenuItem>
+											<DropdownMenuItem
+												variant="destructive"
+												onClick={() => onDeleteProject(project)}
+											>
+												<Trash2 className="size-3.5" />
+												<span>删除</span>
+											</DropdownMenuItem>
+										</DropdownMenuContent>
+									</DropdownMenu>
+									<button
+										type="button"
+										aria-label={`进入项目 ${project.name}`}
+										className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100"
+										onClick={(event) => {
+											event.stopPropagation();
+											onEnterProject(project.id);
+										}}
+									>
+										<ExternalLink className="size-3.5" />
+									</button>
+								</>
+							)}
+						</div>
+						{!collapsed && projectExpanded ? (
+							<div className="space-y-1">
+								{visibleTasks.length > 0 ? (
+									visibleTasks.map((task) => {
+										const taskActive = currentPath
+											? currentPath.startsWith(`/projects/${project.id}/tasks/${task.id}`)
+											: currentView === "taskDetail" &&
+												activeTaskDetailProjectId === project.id &&
+												activeTaskDetailTaskId === task.id;
+										return (
+											<TaskListItem
+												key={task.id}
+												projectId={project.id}
+												task={task}
+												active={taskActive}
+												onOpenTask={onOpenTask}
+											/>
+										);
+									})
+								) : (
+									<div className="px-8 py-2 text-sm text-[var(--leros-text-subtle)]">暂无任务</div>
+								)}
+								{showTaskExpandTrigger ? (
+									<TaskExpandButton projectId={project.id} onClick={onExpandTasks} />
+								) : null}
+							</div>
+						) : null}
 					</div>
 				);
 			})}
-			{showExpandTrigger ? <ExpandMoreButton collapsed={collapsed} onClick={onExpand} /> : null}
 		</div>
 	);
 }
 
-function NavItemList({
-	items,
-	collapsed,
-	expanded,
-	onExpand,
-	isItemActive,
-	onItemClick,
+function TaskListItem({
+	projectId,
+	task,
+	active,
+	onOpenTask,
 }: {
-	items: NavItem[];
-	collapsed: boolean;
-	expanded: boolean;
-	onExpand: () => void;
-	isItemActive: (item: NavItem) => boolean;
-	onItemClick: (item: NavItem) => void;
+	projectId: string;
+	task: ProjectTask;
+	active: boolean;
+	onOpenTask: (projectId: string, task: ProjectTask) => void;
 }) {
-	const { visibleItems, showExpandTrigger } = getVisibleLeftRailItems(items, expanded);
-
-	return (
-		<div className="space-y-1">
-			{visibleItems.map((item) => (
-				<NavItemButton
-					key={item.id}
-					item={item}
-					active={isItemActive(item)}
-					collapsed={collapsed}
-					onClick={() => onItemClick(item)}
-				/>
-			))}
-			{showExpandTrigger ? <ExpandMoreButton collapsed={collapsed} onClick={onExpand} /> : null}
-		</div>
-	);
-}
-
-function ExpandMoreButton({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
 	return (
 		<button
 			type="button"
-			onClick={onClick}
-			className={cn(
-				"leros-nav-item text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]",
-				collapsed && "justify-center",
-			)}
-			title={collapsed ? "展开更多" : undefined}
+			data-active={active}
+			onClick={() => onOpenTask(projectId, task)}
+			className="flex min-h-8 w-full items-center gap-2 rounded-sm px-8 py-1.5 text-left text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
+			title={task.title}
 		>
-			<span className="font-mono text-[16px] leading-none">...</span>
-			<span className={cn("min-w-0 flex-1 truncate", collapsed && "hidden")}>展开更多</span>
+			<span className="min-w-0 flex-1 truncate">{task.title}</span>
+			{task.updatedAt ? (
+				<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">
+					{formatRelativeTaskTime(task.updatedAt)}
+				</span>
+			) : null}
 		</button>
 	);
+}
+
+function TaskExpandButton({
+	projectId,
+	onClick,
+}: {
+	projectId: string;
+	onClick: (projectId: string) => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={() => onClick(projectId)}
+			className="flex min-h-8 w-full items-center gap-2 rounded-sm px-8 py-1.5 text-left text-sm text-[var(--leros-text-subtle)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] hover:text-[var(--leros-text-strong)]"
+			aria-label="展开显示"
+		>
+			<span className="font-mono text-[16px] leading-none">...</span>
+			<span className="min-w-0 flex-1 truncate">展开显示</span>
+		</button>
+	);
+}
+
+function formatRelativeTaskTime(timestamp: number) {
+	const diffMs = Date.now() - timestamp;
+	if (!Number.isFinite(diffMs) || diffMs < 0) return "";
+
+	const minute = 60 * 1000;
+	const hour = 60 * minute;
+	const day = 24 * hour;
+
+	if (diffMs < hour) return `${Math.max(1, Math.round(diffMs / minute))} 分`;
+	if (diffMs < day) return `${Math.round(diffMs / hour)} 小时`;
+	return `${Math.round(diffMs / day)} 天`;
 }
 
 function NavItemButton({
@@ -1366,17 +1526,7 @@ function NavItemButton({
 	collapsed: boolean;
 	onClick: () => void;
 }) {
-	const icon =
-		item.icon === "IconAITeammate" ? (
-			<DiceBearAvatar
-				seed={`ai-teammate:${item.label}`}
-				alt=""
-				className="h-full w-full"
-				size={64}
-			/>
-		) : (
-			iconMap[item.icon]
-		);
+	const icon = iconMap[item.icon];
 
 	return (
 		<button
@@ -1386,34 +1536,19 @@ function NavItemButton({
 			className={cn("leros-nav-item", collapsed && "justify-center")}
 			title={collapsed ? item.label : undefined}
 		>
-			<span
-				className={cn(
-					"leros-nav-icon",
-					item.icon === "IconProject" && "leros-nav-icon-text",
-					item.icon === "IconAITeammate" && "leros-nav-icon-avatar",
-				)}
-			>
+			<span className={cn("leros-nav-icon", item.icon === "IconProject" && "leros-nav-icon-text")}>
 				{icon}
 			</span>
 			<span className={cn("flex-1 truncate font-medium", collapsed && "hidden")}>{item.label}</span>
 			{item.badge ? (
-				item.icon === "IconAITeammate" ? (
-					<div
-						className={cn(
-							"h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--leros-primary)]",
-							collapsed ? "absolute right-2 top-2" : "mr-1",
-						)}
-					/>
-				) : (
-					<span
-						className={cn(
-							"rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive",
-							collapsed ? "absolute right-1.5 top-1.5" : "ml-auto",
-						)}
-					>
-						{item.badge}
-					</span>
-				)
+				<span
+					className={cn(
+						"rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive",
+						collapsed ? "absolute right-1.5 top-1.5" : "ml-auto",
+					)}
+				>
+					{item.badge}
+				</span>
 			) : null}
 		</button>
 	);

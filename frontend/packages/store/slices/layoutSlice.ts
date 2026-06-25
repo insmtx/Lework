@@ -40,6 +40,7 @@ export type ProjectTask = {
 	title: string;
 	meta: string;
 	status: ProjectTaskStatus;
+	updatedAt?: number;
 	sessionId?: string;
 	taskType?: string;
 	deadline?: string;
@@ -60,11 +61,23 @@ export type ProjectArtifact = {
 	sha256?: string;
 };
 
+export type ProjectSkill = {
+	code: string;
+	name: string;
+	description?: string;
+	category?: string;
+	source?: string;
+	trust?: string;
+};
+
 export type Project = {
 	id: string;
 	name: string;
 	description: string;
 	objective?: string;
+	metadata?: Record<string, unknown>;
+	skills: ProjectSkill[];
+	createdAt: number;
 	updatedAt: number;
 	messages: ProjectMessage[];
 	tasks: ProjectTask[];
@@ -90,8 +103,10 @@ export type ViewMode =
 	| "workbench"
 	| "tasks"
 	| "project"
+	| "projectsHub"
 	| "taskDetail"
 	| "digitalAssistant"
+	| "aiTeammates"
 	| "knowledge"
 	| "skills"
 	| "settings";
@@ -142,16 +157,73 @@ function mapSessionToConversation(s: BackendSession): Conversation {
 }
 
 function mapBackendProject(bp: BackendProject): Project {
+	const metadata = bp.metadata ?? undefined;
 	return {
 		id: bp.public_id,
 		name: bp.name,
 		description: bp.description ?? "",
+		createdAt: new Date(bp.created_at).getTime(),
 		updatedAt: new Date(bp.updated_at).getTime(),
+		metadata,
+		skills: extractProjectSkills(metadata),
 		messages: [],
 		tasks: [],
 		artifacts: [],
 		files: [],
 	};
+}
+
+export function mergeProjectsFromListResult(
+	apiProjects: Project[],
+	localProjects: Project[],
+): Project[] {
+	const localProjectMap = new Map(localProjects.map((project) => [project.id, project]));
+	const mergedApiProjects = apiProjects.map((project) => {
+		const localProject = localProjectMap.get(project.id);
+		if (!localProject) {
+			return project;
+		}
+
+		return {
+			...project,
+			// 中文注释：列表接口只提供项目基础信息，这里保留本地已经加载过的详情字段，避免切页时把任务树清空。
+			objective: project.objective ?? localProject.objective,
+			messages: project.messages.length > 0 ? project.messages : localProject.messages,
+			tasks: project.tasks.length > 0 ? project.tasks : localProject.tasks,
+			artifacts: project.artifacts.length > 0 ? project.artifacts : localProject.artifacts,
+			files: project.files.length > 0 ? project.files : localProject.files,
+		};
+	});
+
+	// 中文注释：列表接口已按分页拉取完整项目集，因此这里只保留接口中仍存在的项目，避免已删除项目继续残留在本地状态里。
+	return mergedApiProjects;
+}
+
+function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[] {
+	const extra = metadata?.extra;
+	if (!extra || typeof extra !== "object" || Array.isArray(extra)) return [];
+
+	const rawSkills = (extra as Record<string, unknown>).skills;
+	if (!Array.isArray(rawSkills)) return [];
+
+	return rawSkills
+		.map((item): ProjectSkill | null => {
+			if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+			const data = item as Record<string, unknown>;
+			const name = typeof data.name === "string" ? data.name : "";
+			const code = typeof data.code === "string" ? data.code : name;
+			if (!code || !name) return null;
+
+			return {
+				code,
+				name,
+				description: typeof data.description === "string" ? data.description : undefined,
+				category: typeof data.category === "string" ? data.category : undefined,
+				source: typeof data.source === "string" ? data.source : undefined,
+				trust: typeof data.trust === "string" ? data.trust : undefined,
+			};
+		})
+		.filter((item): item is ProjectSkill => item !== null);
 }
 
 function mapBackendTask(bt: BackendTask): ProjectTask {
@@ -161,6 +233,8 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 		title: bt.title,
 		meta: bt.description ?? bt.task_type ?? "",
 		status: (bt.status as ProjectTaskStatus) ?? "todo",
+		// 中文注释：保留任务更新时间，供左侧最近项目列表展示相对时间。
+		updatedAt: parseOptionalTimestamp(bt.updated_at),
 		sessionId: taskWithSession.session?.session_id,
 		taskType: bt.task_type,
 		deadline: bt.deadline,
@@ -217,6 +291,8 @@ const _initialState: LayoutState = {
 			label: "",
 			items: [
 				{ id: "workbench", label: "新建任务", icon: "IconTask" },
+				{ id: "ai-teammates", label: "AI队友", icon: "IconAITeammate" },
+				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "技能库", icon: "IconSkill" },
 				{ id: "knowledge", label: "知识库", icon: "IconKnowledge" },
 			],
@@ -225,15 +301,6 @@ const _initialState: LayoutState = {
 			id: "projects",
 			label: "项目",
 			items: [],
-		},
-		{
-			id: "ai-teammates",
-			label: "AI 队友",
-			items: [
-				{ id: "ai-1", label: "Ada AI", icon: "IconAITeammate", badge: 1 },
-				{ id: "ai-2", label: "Hopper", icon: "IconAITeammate" },
-				{ id: "ai-3", label: "Mia", icon: "IconAITeammate" },
-			],
 		},
 	],
 	collapsedNavGroups: new Set(),
@@ -514,15 +581,28 @@ export class LayoutActionImpl {
 
 	fetchProjects = async () => {
 		try {
-			const res = await projectApi.list({ list_all: true, limit: 100 });
-			const items = res.data.data?.items ?? [];
+			const pageSize = 100;
+			let offset = 0;
+			let total = Number.POSITIVE_INFINITY;
+			const items: BackendProject[] = [];
+
+			// 中文注释：项目页需要展示完整项目列表，这里按分页拉齐，避免后端 list_all 的兜底上限截断。
+			while (offset < total) {
+				const res = await projectApi.list({ offset, limit: pageSize });
+				const data = res.data.data;
+				const pageItems = data?.items ?? [];
+				total = data?.total ?? 0;
+				items.push(...pageItems);
+				if (pageItems.length === 0) break;
+				offset += pageItems.length;
+			}
+
 			const apiProjects = items.map(mapBackendProject);
-			this.#set((state) => {
-				const localProjects = state.projects.filter(
-					(p) => !apiProjects.some((ap) => ap.id === p.id),
-				);
-				return { projects: apiProjects.length ? [...apiProjects, ...localProjects] : [] };
-			});
+			this.#set((state) => ({
+				projects: apiProjects.length
+					? mergeProjectsFromListResult(apiProjects, state.projects)
+					: [],
+			}));
 		} catch (err) {
 			console.error("fetchProjects error:", err);
 		}

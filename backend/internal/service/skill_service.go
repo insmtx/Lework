@@ -15,7 +15,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/protocol"
 	"github.com/insmtx/Leros/backend/pkg/dm"
-	"github.com/insmtx/Leros/backend/types"
 )
 
 const defaultRecentSkillLimit = 10
@@ -29,30 +28,6 @@ type skillService struct {
 // NewSkillService creates a new SkillService.
 func NewSkillService(db *gorm.DB, publisher mq.Publisher, inferrer AssistantInferrer) contract.SkillService {
 	return &skillService{db: db, publisher: publisher, inferrer: inferrer}
-}
-
-func (s *skillService) ToggleSkillStatus(ctx context.Context, code string, req *contract.ToggleSkillStatusRequest) (*contract.ToggleSkillStatusResponse, error) {
-	if code == "" {
-		return nil, fmt.Errorf("code is required")
-	}
-	if req.Status != string(types.SkillStatusActive) && req.Status != string(types.SkillStatusInactive) {
-		return nil, fmt.Errorf("invalid status: %s (must be 'active' or 'inactive')", req.Status)
-	}
-
-	var skill types.Skill
-	if err := s.db.WithContext(ctx).Where("code = ?", code).First(&skill).Error; err != nil {
-		return nil, fmt.Errorf("skill not found: %s", code)
-	}
-
-	if skill.Status == req.Status {
-		return &contract.ToggleSkillStatusResponse{Code: code, Status: req.Status}, nil
-	}
-
-	if err := s.db.WithContext(ctx).Model(&skill).Update("status", req.Status).Error; err != nil {
-		return nil, fmt.Errorf("failed to update skill status: %w", err)
-	}
-
-	return &contract.ToggleSkillStatusResponse{Code: code, Status: req.Status}, nil
 }
 
 func (s *skillService) ListRecentUsedSkills(ctx context.Context, orgID, uin uint, limit int) ([]contract.SkillInstalledItem, error) {
@@ -157,8 +132,4 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 	}
 
 	return result, nil
-}
-
-func (s *skillService) GetSkillStatuses(ctx context.Context, codes []string) (map[string]string, error) {
-	return infradb.GetSkillStatuses(ctx, s.db, codes)
 }

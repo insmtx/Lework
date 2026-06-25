@@ -5,6 +5,7 @@ export interface SkillMarketplaceItem {
   source_type: string;
   skill_id: string;
   name: string;
+  display_name?: string;
   description: string;
   version: string;
   author: string;
@@ -40,6 +41,7 @@ export interface InstallSkillResponse {
 /** 后端返回的已安装 skill（worker 侧查询结果）。 */
 export interface SkillInstalledItem {
   name: string;
+  display_name?: string;
   description: string;
   category: string;
   source: string;
@@ -69,6 +71,7 @@ export interface SkillDetailData {
   skill_id: string;
   source: string;
   name: string;
+  display_name?: string;
   description: string;
   skill_md: string;
   version: string;
@@ -80,6 +83,7 @@ export interface SkillDetailData {
   verified: boolean;
   source_type: string;
   files: string[];
+  installed: boolean;
 }
 
 export interface ImportSkillParams {
@@ -91,7 +95,7 @@ export interface ImportSkillFromGitHubParams {
 }
 
 export interface ImportSkillResponse {
-  status: string;
+  status: "imported" | "failed" | string;
   message: string;
 }
 
@@ -114,6 +118,7 @@ export function installedToCardItem(item: SkillInstalledItem): SkillMarketplaceI
     source_type: item.source,
     skill_id: item.name,
     name: item.name,
+    display_name: item.display_name,
     description: item.description,
     version: "",
     author: item.source,
@@ -179,21 +184,9 @@ export const skillMarketplaceApi = {
             params,
         ),
 
-  toggleStatus: (params: ToggleSkillStatusParams) =>
-    apiClient.patch<BackendDataResponse<ToggleSkillStatusResponse>>(
-      `/skills/${encodeURIComponent(params.code)}/status`,
-      { status: params.status },
-    ),
-
   listRecentUsed: (limit?: number) =>
     apiClient.get<BackendDataResponse<SkillInstalledItem[]>>(
       "/skills/recent",
       { params: limit ? { limit } : undefined } as any,
-    ),
-
-  getSkillStatuses: (codes: string[]) =>
-    apiClient.get<BackendDataResponse<Record<string, string>>>(
-      "/skills/statuses",
-      { params: codes.length ? { codes: codes.join(",") } as any : undefined },
     ),
 };

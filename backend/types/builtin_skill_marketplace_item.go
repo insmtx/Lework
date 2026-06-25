@@ -75,9 +75,6 @@ type BuiltinSkillMarketplaceItem struct {
 	// Verified 表示该 Skill 是否经过官方验证。
 	Verified bool `gorm:"column:verified;type:boolean;not null;default:true" json:"verified"`
 
-	// Status 表示市场条目状态：active、deprecated、hidden。
-	Status string `gorm:"column:status;type:varchar(50);not null;default:active;index" json:"status"`
-
 	// PublishedAt 是该 Skill 发布到市场的时间。
 	PublishedAt *time.Time `gorm:"column:published_at" json:"published_at"`
 

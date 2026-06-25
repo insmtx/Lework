@@ -19,6 +19,7 @@ interface SkillCardProps {
 export function SkillCard({ skill, variant = "marketplace", onClick, active, onToggle }: SkillCardProps) {
 	const isLerosAI = skill.author === "Lework";
 	const isMine = variant === "mine";
+	const displayName = skill.display_name || skill.name;
 
 	const handleCardClick = () => {
 		onClick?.(skill);
@@ -50,18 +51,18 @@ export function SkillCard({ skill, variant = "marketplace", onClick, active, onT
 					{skill.icon ? (
 						<img
 							src={skill.icon}
-							alt={skill.name}
+							alt={displayName}
 							className="h-9 w-9 shrink-0 rounded-lg object-cover"
 						/>
 					) : (
 						<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-soft)] text-[var(--leros-primary)] text-sm font-bold transition-all duration-300 group-hover:bg-[var(--leros-primary)] group-hover:text-white">
-							{skill.name.charAt(0).toUpperCase()}
+							{displayName.charAt(0).toUpperCase()}
 						</div>
 					)}
 					<div>
 						<div className="mb-0.5 flex items-center gap-1">
 							<h3 className="max-w-[140px] truncate text-sm font-semibold text-[var(--leros-text-strong)]">
-								{skill.name}
+								{displayName}
 							</h3>
 							{isLerosAI && (
 								<span className="inline-flex shrink-0 text-[var(--leros-primary)]" title="已验证">
@@ -113,31 +114,6 @@ export function SkillCard({ skill, variant = "marketplace", onClick, active, onT
 				)}
 			</div>
 
-			{/* Enable/Disable toggle (mine variant only) */}
-			{isMine && (
-				<div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-					<span className="text-[10px] text-[var(--leros-text-subtle)]">
-						{active ? "已启用" : "已禁用"}
-					</span>
-					<button
-						type="button"
-						onClick={() => onToggle?.(skill)}
-						className={cn(
-							"relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
-							active
-								? "bg-[var(--leros-primary)]"
-								: "bg-[var(--leros-control-border)]",
-						)}
-					>
-						<span
-							className={cn(
-								"inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
-								active ? "translate-x-[18px]" : "translate-x-[2px]",
-							)}
-						/>
-					</button>
-				</div>
-			)}
-		</button>
+			</button>
 	);
 }

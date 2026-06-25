@@ -1,6 +1,6 @@
 "use client";
 
-import { useChatStore, useLayoutStore } from "@leros/store";
+import { type ProjectSkill, useChatStore, useLayoutStore } from "@leros/store";
 import type {
 	ApprovalAction,
 	ApprovalRequest,
@@ -17,22 +17,26 @@ import {
 	AtSign,
 	ChevronDown,
 	CircleStop,
-	ImageIcon,
 	LoaderCircle,
 	Paperclip,
 	SendHorizonal,
 	ShieldAlert,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
 import {
 	getProjectChatLayoutClasses,
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
+import { ComposerActionBar } from "./ComposerActionBar";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
-import { StructuredComposer, type StructuredComposerHandle } from "./StructuredComposer";
+import {
+	type ComposerSkillOption,
+	StructuredComposer,
+	type StructuredComposerHandle,
+} from "./StructuredComposer";
 
 // 只放开当前已有稳定预览能力的文档类型，避免上传后落到不可预览的兜底体验。
 export const PROJECT_ATTACHMENT_ACCEPT = "image/*,.pdf,.txt,.md,.json,.xlsx,.xls,.csv,.docx";
@@ -68,10 +72,13 @@ export function ChatInput({
 		setInputFocused,
 		setSelectedModel,
 	} = useChatStore((s) => s);
-	const { activeProjectId, currentView } = useLayoutStore((s) => s);
+	const { activeProjectId, activeTaskDetailProjectId, currentView, projects } = useLayoutStore(
+		(s) => s,
+	);
 
-	const composerRef = useRef<StructuredComposerHandle>(null);
+	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const previousProjectSkillLabelsRef = useRef<string[] | null>(null);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
@@ -80,6 +87,37 @@ export function ChatInput({
 	const canSend = Boolean(inputText.trim());
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
+	const currentProjectId = activeTaskDetailProjectId ?? activeProjectId;
+	const currentProject = projects.find((project) => project.id === currentProjectId);
+	const projectSkillOptions = useMemo<ComposerSkillOption[] | undefined>(() => {
+		if (!isProjectVariant) return undefined;
+		return (currentProject?.skills ?? []).map(projectSkillToComposerOption);
+	}, [currentProject?.skills, isProjectVariant]);
+	const projectSkillLabels = useMemo(
+		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
+		[projectSkillOptions],
+	);
+
+	useEffect(() => {
+		if (!isProjectVariant) {
+			previousProjectSkillLabelsRef.current = null;
+			return;
+		}
+
+		const previousLabels = previousProjectSkillLabelsRef.current;
+		previousProjectSkillLabelsRef.current = projectSkillLabels;
+		if (!previousLabels) return;
+
+		const currentLabels = new Set(projectSkillLabels);
+		const removedLabels = previousLabels.filter((label) => !currentLabels.has(label));
+		if (removedLabels.length === 0) return;
+
+		const nextInput = removeSkillDirectives(inputText, removedLabels);
+		if (nextInput !== inputText) {
+			// 中文注释：项目维度移除技能后，同步清理输入框中已经插入的对应技能指令。
+			setInputText(nextInput);
+		}
+	}, [inputText, isProjectVariant, projectSkillLabels, setInputText]);
 
 	const submitMessage = useCallback(async () => {
 		// 中文注释：输入区先做一次生成态拦截，避免回车绕过按钮态再次触发发送。
@@ -208,6 +246,7 @@ export function ChatInput({
 								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
 						}
 						isProjectVariant={isProjectVariant}
+						projectSkillOptions={projectSkillOptions}
 					/>
 					<input
 						ref={fileInputRef}
@@ -224,25 +263,23 @@ export function ChatInput({
 						)}
 					>
 						<div className="flex items-center gap-1">
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								className="text-slate-400 hover:text-slate-600"
-								onClick={() => fileInputRef.current?.click()}
-							>
-								<Paperclip className="size-4" />
-							</Button>
 							{isProjectVariant ? (
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									className="text-slate-500 hover:text-slate-700"
-									onClick={() => fileInputRef.current?.click()}
-								>
-									<ImageIcon className="size-4" />
-								</Button>
+								<ComposerActionBar
+									inputValue={inputText}
+									composerRef={composerRef}
+									onUpload={() => fileInputRef.current?.click()}
+									projectSkillOptions={projectSkillOptions}
+								/>
 							) : (
 								<>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										className="text-slate-400 hover:text-slate-600"
+										onClick={() => fileInputRef.current?.click()}
+									>
+										<Paperclip className="size-4" />
+									</Button>
 									<Button
 										variant="ghost"
 										size="icon-sm"
@@ -400,6 +437,34 @@ function findPendingQuestion(
 		if (question) return { message, question };
 	}
 	return null;
+}
+
+function projectSkillToComposerOption(skill: ProjectSkill): ComposerSkillOption {
+	return {
+		code: skill.code,
+		label: skill.name,
+		description: skill.description || skill.category || "项目技能",
+		keywords: [
+			skill.name,
+			skill.code,
+			skill.description,
+			skill.category,
+			skill.source,
+			skill.trust,
+		].filter((item): item is string => Boolean(item)),
+	};
+}
+
+function removeSkillDirectives(value: string, removedLabels: string[]): string {
+	let nextValue = value;
+	for (const label of removedLabels) {
+		nextValue = nextValue.replace(new RegExp(`(^|\\s)/${escapeRegExp(label)}(?=\\s|$)`, "g"), "$1");
+	}
+	return nextValue.replace(/[ \t]{2,}/g, " ").trimStart();
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function ApprovalDecisionInput({

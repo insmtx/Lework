@@ -1,8 +1,10 @@
 import {
+	AiTeammatesView,
 	type AppNavigation,
 	AssistantListView,
 	CenterCanvas,
 	ProjectPage,
+	ProjectsHubView,
 	Shell,
 	SkillMarketView,
 	TaskDetailPage,
@@ -28,11 +30,13 @@ export function AppRoutes() {
 				<Route path="/" element={<Navigate to="/workbench" replace />} />
 				<Route path="/workbench" element={<WorkbenchRoutePage />} />
 				<Route path="/chat" element={<CenterCanvas />} />
+				<Route path="/projects" element={<ProjectsHubRoutePage />} />
 				<Route path="/projects/:projectId" element={<ProjectRoutePage />} />
 				<Route path="/projects/:projectId/tasks" element={<ProjectRoutePage tab="tasks" />} />
 				<Route path="/projects/:projectId/files" element={<ProjectRoutePage tab="files" />} />
 				<Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailRoutePage />} />
 				<Route path="/assistants" element={<AssistantListView />} />
+				<Route path="/ai-teammates" element={<AiTeammatesView />} />
 				<Route path="/tasks" element={<EmptyRoutePage />} />
 				<Route path="/skills" element={<SkillMarketView navigation={navigation} />} />
 				<Route path="/knowledge" element={<EmptyRoutePage />} />
@@ -55,8 +59,10 @@ function useDesktopNavigation(): AppNavigation {
 				workbench: "/workbench",
 				tasks: "/tasks",
 				project: "/workbench",
+				projectsHub: "/projects",
 				taskDetail: "/workbench",
 				digitalAssistant: "/assistants",
+				aiTeammates: "/ai-teammates",
 				knowledge: "/knowledge",
 				skills: "/skills",
 				settings: "/settings",
@@ -117,4 +123,10 @@ function TaskDetailRoutePage() {
 
 function EmptyRoutePage() {
 	return <div data-slot="empty-page" className="min-h-0 flex-1 bg-[#f7f8fd]" />;
+}
+
+function ProjectsHubRoutePage() {
+	const navigation = useDesktopNavigation();
+
+	return <ProjectsHubView navigation={navigation} />;
 }

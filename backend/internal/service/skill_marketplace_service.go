@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -172,6 +173,7 @@ func skillMarketplaceItemView(sourceType, skillID, name, description, version, a
 		SourceType:  sourceType,
 		SkillID:     skillID,
 		Name:        name,
+		DisplayName: "",
 		Description: description,
 		Version:     version,
 		Author:      author,
@@ -192,7 +194,7 @@ func metaToView(meta fetch.SkillMeta) contract.SkillMarketplaceItemView {
 		meta.Version, meta.Author, meta.Category, meta.Tags, meta.Icon, meta.Installs)
 }
 
-// resolveCacheAndTranslation 从缓存表查找中文描述，未命中的进行翻译后写库。
+// resolveCacheAndTranslation 从缓存表查找中文展示文案，未命中的进行翻译后写库。
 func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context, items []contract.SkillMarketplaceItemView) {
 	if len(items) == 0 {
 		return
@@ -214,8 +216,8 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 	}
 
 	var (
-		alreadyChinese []types.SkillMarketplaceItem // 中文描述直接写库
-		needTranslate  []TranslateItem              // 需要模型翻译
+		alreadyChinese []types.SkillMarketplaceItem // 中文文案直接写库
+		needTranslate  []TranslateItem              // 需要模型生成中文文案
 	)
 
 	for idx := range items {
@@ -223,25 +225,30 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 		key := fmt.Sprintf("%s|%s|%s", item.SourceType, item.SkillID, item.Version)
 		cached, hit := cacheMap[key]
 
+		if hit && cached.TranslatedName != "" {
+			item.DisplayName = cached.TranslatedName
+		}
 		if hit && cached.TranslatedDescription != "" {
-			// 缓存命中且有中文描述 → 直接替换
 			item.Description = cached.TranslatedDescription
-			continue
 		}
 
 		if item.Description == "" {
 			continue
 		}
 
-		if utils.CJKRatio(item.Description) >= cjkTranslationThreshold {
-			// 已中文 → 直接写库
-			alreadyChinese = append(alreadyChinese, itemToCacheItem(item, item.Description))
+		hasChineseDescription := utils.CJKRatio(item.Description) >= cjkTranslationThreshold
+		hasDisplayName := strings.TrimSpace(item.DisplayName) != ""
+		if hasChineseDescription && hasDisplayName {
+			alreadyChinese = append(alreadyChinese, itemToCacheItem(item, TranslatedSkillText{
+				DisplayName: item.DisplayName,
+				Description: item.Description,
+			}))
 			continue
 		}
 
-		// 需要翻译
 		needTranslate = append(needTranslate, TranslateItem{
-			SkillID:     item.SkillID,
+			SkillID:     translateItemKey(item),
+			Name:        item.Name,
 			Description: item.Description,
 		})
 	}
@@ -268,7 +275,7 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 		upsertItems := make([]types.SkillMarketplaceItem, 0, len(translationMap))
 		for idx := range items {
 			item := items[idx]
-			if translated, ok := translationMap[item.SkillID]; ok {
+			if translated, ok := translationMap[translateItemKey(&item)]; ok {
 				upsertItems = append(upsertItems, itemToCacheItem(&item, translated))
 			}
 		}
@@ -281,31 +288,49 @@ func (s *skillMarketplaceService) resolveCacheAndTranslation(ctx context.Context
 		// 再替换返回给前端的描述
 		for idx := range items {
 			item := &items[idx]
-			if translated, ok := translationMap[item.SkillID]; ok {
-				item.Description = translated
+			if translated, ok := translationMap[translateItemKey(item)]; ok {
+				if translated.DisplayName != "" {
+					item.DisplayName = translated.DisplayName
+				}
+				if translated.Description != "" {
+					item.Description = translated.Description
+				}
 			}
 		}
 	}
 }
 
 // itemToCacheItem 将 SkillMarketplaceItemView 转为缓存表记录。
-func itemToCacheItem(item *contract.SkillMarketplaceItemView, translatedDesc string) types.SkillMarketplaceItem {
+func itemToCacheItem(item *contract.SkillMarketplaceItemView, translated TranslatedSkillText) types.SkillMarketplaceItem {
 	tags := types.SkillStringList{}
 	if item.Tags != nil {
 		tags = types.SkillStringList(item.Tags)
 	}
+	displayName := translated.DisplayName
+	if displayName == "" {
+		displayName = item.DisplayName
+	}
+	translatedDescription := translated.Description
+	if translatedDescription == "" && utils.CJKRatio(item.Description) >= cjkTranslationThreshold {
+		translatedDescription = item.Description
+	}
 	return types.SkillMarketplaceItem{
 		SkillID:               item.SkillID,
 		Name:                  item.Name,
+		TranslatedName:        displayName,
 		Source:                item.SourceType,
 		Description:           item.Description,
-		TranslatedDescription: translatedDesc,
+		TranslatedDescription: translatedDescription,
 		Author:                item.Author,
 		Installs:              0,
 		Version:               item.Version,
 		Category:              item.Category,
 		Tags:                  tags,
 	}
+}
+
+func translateItemKey(item *contract.SkillMarketplaceItemView) string {
+	return fmt.Sprintf("%s|%s|%s", item.SourceType, item.SkillID, item.Version)
 }
 
 func (s *skillMarketplaceService) DownloadBuiltinSkill(ctx context.Context, skillID string) (*contract.SkillPackageDownload, error) {
@@ -453,20 +478,69 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 		},
 	}
 
-	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
-		return nil, fmt.Errorf("publish skill install: %w", err)
+	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill install")
+	if err != nil {
+		return nil, err
 	}
 
+	installSource := normalizeMarketplaceSource(req.Source)
+	installVersion := strings.TrimSpace(req.Version)
+	if installVersion == "" {
+		installVersion = "latest"
+	}
+	if installSource != "" && s.db != nil {
+		updated, err := infradb.IncrementSkillMarketplaceInstalls(ctx, s.db, installSource, strings.TrimSpace(req.SkillID), installVersion)
+		if err != nil {
+			return nil, fmt.Errorf("increment skill installs: %w", err)
+		}
+		if !updated {
+			logs.WarnContextf(ctx, "skip increment installs: marketplace item not found for %s/%s@%s", installSource, strings.TrimSpace(req.SkillID), installVersion)
+		}
+	}
+
+	message := resp.Message
+	if strings.TrimSpace(message) == "" {
+		message = fmt.Sprintf("Skill installed for org %d, worker %d", caller.OrgID, workerID)
+	}
 	return &contract.InstallSkillResponse{
 		Status:  "accepted",
-		Message: fmt.Sprintf("Skill install request queued for org %d, worker %d", caller.OrgID, workerID),
+		Message: message,
 	}, nil
 }
 
+func (s *skillMarketplaceService) requestSkillManagement(ctx context.Context, topic string, msg protocol.SkillManagementMessage, operation string) (*protocol.SkillManagementResponse, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, skillManagementTimeout)
+	defer cancel()
+	reply, err := s.publisher.Request(reqCtx, topic, msg)
+	if err != nil {
+		return nil, fmt.Errorf("request %s: %w", operation, err)
+	}
+
+	var resp protocol.SkillManagementResponse
+	if err := json.Unmarshal(reply.Data, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal %s response: %w", operation, err)
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("%s failed: %s", operation, resp.Error)
+	}
+	return &resp, nil
+}
+
 func (s *skillMarketplaceService) InstalledSkills(ctx context.Context, req *contract.InstalledSkillsRequest) (*contract.InstalledSkillsResponse, error) {
+	skills, err := s.listInstalledSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &contract.InstalledSkillsResponse{Skills: skills}, nil
+}
+
+func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]contract.SkillInstalledItem, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if s.publisher == nil {
+		return nil, fmt.Errorf("skill management publisher is nil")
 	}
 
 	_, workerID, err := resolveDefaultRuntimeWorker(ctx, s.db, caller.OrgID, s.inferrer)
@@ -512,8 +586,9 @@ func (s *skillMarketplaceService) InstalledSkills(ctx context.Context, req *cont
 	if err := json.Unmarshal(resp.Data, &skills); err != nil {
 		return nil, fmt.Errorf("unmarshal skill list items: %w", err)
 	}
+	s.enrichInstalledSystemSkills(ctx, skills)
 
-	return &contract.InstalledSkillsResponse{Skills: skills}, nil
+	return skills, nil
 }
 
 func (s *skillMarketplaceService) UninstallSkill(ctx context.Context, req *contract.UninstallSkillRequest) (*contract.UninstallSkillResponse, error) {
@@ -575,7 +650,51 @@ func (s *skillMarketplaceService) GetSkillDetail(ctx context.Context, req *contr
 		version = "latest"
 	}
 
-	return s.getMarketplaceSkillDetail(ctx, normalizedSource, skillID, version)
+	resp, err := s.getMarketplaceSkillDetail(ctx, normalizedSource, skillID, version)
+	if err != nil {
+		return nil, err
+	}
+	s.annotateMarketplaceInstalled(ctx, resp)
+	return resp, nil
+}
+
+func (s *skillMarketplaceService) annotateMarketplaceInstalled(ctx context.Context, detail *contract.SkillDetailResponse) {
+	if detail == nil {
+		return
+	}
+	if strings.EqualFold(detail.Source, "installed") {
+		detail.Installed = true
+		return
+	}
+	skills, err := s.listInstalledSkills(ctx)
+	if err != nil {
+		logs.WarnContextf(ctx, "query installed skills for detail %s/%s failed: %v", detail.Source, detail.SkillID, err)
+		return
+	}
+	detail.Installed = skillDetailIsInstalled(detail, skills)
+}
+
+func skillDetailIsInstalled(detail *contract.SkillDetailResponse, skills []contract.SkillInstalledItem) bool {
+	if detail == nil {
+		return false
+	}
+	candidates := map[string]struct{}{}
+	if name := strings.TrimSpace(detail.Name); name != "" {
+		candidates[strings.ToLower(name)] = struct{}{}
+	}
+	if skillID := strings.TrimSpace(detail.SkillID); skillID != "" {
+		candidates[strings.ToLower(skillID)] = struct{}{}
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+	for _, skill := range skills {
+		name := strings.ToLower(strings.TrimSpace(skill.Name))
+		if _, ok := candidates[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // getMarketplaceSkillDetail 统一处理 marketplace skill 详情查询。
@@ -654,6 +773,7 @@ func (s *skillMarketplaceService) readDetailFromCache(ctx context.Context, item 
 		SkillID:     item.SkillID,
 		Source:      source,
 		Name:        item.Name,
+		DisplayName: item.TranslatedName,
 		Description: description,
 		SkillMD:     skillMDBody,
 		Version:     item.Version,
@@ -712,6 +832,9 @@ func (s *skillMarketplaceService) refillMarketplaceSkillDetail(ctx context.Conte
 	// 统一 version fallback
 	if resp.Version == "" {
 		resp.Version = "latest"
+	}
+	if existingItem != nil && existingItem.TranslatedName != "" {
+		resp.DisplayName = existingItem.TranslatedName
 	}
 
 	// 统一 eager 翻译：有 translator、原文非中文时同步翻译
@@ -820,6 +943,7 @@ func (s *skillMarketplaceService) getLerosSkillDetailWithBundle(ctx context.Cont
 		SkillID:     item.SkillID,
 		Source:      "Leros",
 		Name:        item.Name,
+		DisplayName: "",
 		Description: item.Description,
 		SkillMD:     skillMDContent,
 		Version:     item.Version,
@@ -900,10 +1024,11 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		return nil, fmt.Errorf("unmarshal skill detail items: %w", err)
 	}
 
-	return &contract.SkillDetailResponse{
+	detailResp := &contract.SkillDetailResponse{
 		SkillID:     detail.Name,
 		Source:      "installed",
 		Name:        detail.Name,
+		DisplayName: "",
 		Description: detail.Description,
 		SkillMD:     detail.SkillMD, // already stripped by catalog.Get in handleDetail
 		Version:     detail.Version,
@@ -914,10 +1039,126 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		Verified:    detail.Trust == "trusted",
 		SourceType:  detail.Source,
 		Files:       detail.Files,
-	}, nil
+	}
+	s.enrichInstalledSystemSkillDetail(ctx, detailResp)
+	return detailResp, nil
 }
 
-// ImportSkill 从已上传文件导入 Skill，校验内容后发送给 Worker 异步安装。
+func (s *skillMarketplaceService) enrichInstalledSystemSkills(ctx context.Context, skills []contract.SkillInstalledItem) {
+	if len(skills) == 0 || s.db == nil {
+		return
+	}
+
+	names := make([]string, 0, len(skills))
+	for _, item := range skills {
+		name := strings.TrimSpace(item.Name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+
+	builtinByID, err := s.builtinItemsBySkillID(ctx, names)
+	if err != nil {
+		logs.WarnContextf(ctx, "enrich installed system skills: query builtin skills: %v", err)
+		return
+	}
+	if len(builtinByID) == 0 {
+		return
+	}
+
+	views := make([]contract.SkillMarketplaceItemView, 0, len(builtinByID))
+	for _, name := range names {
+		if item, ok := builtinByID[name]; ok {
+			views = append(views, builtinItemToView(item))
+		}
+	}
+	s.resolveCacheAndTranslation(ctx, views)
+
+	viewByID := make(map[string]contract.SkillMarketplaceItemView, len(views))
+	for _, view := range views {
+		viewByID[view.SkillID] = view
+	}
+
+	for idx := range skills {
+		view, ok := viewByID[skills[idx].Name]
+		if !ok {
+			continue
+		}
+		skills[idx].DisplayName = view.DisplayName
+		if view.Description != "" {
+			skills[idx].Description = view.Description
+		}
+		if skills[idx].Category == "" {
+			skills[idx].Category = view.Category
+		}
+	}
+}
+
+func (s *skillMarketplaceService) enrichInstalledSystemSkillDetail(ctx context.Context, detail *contract.SkillDetailResponse) {
+	if detail == nil || s.db == nil {
+		return
+	}
+
+	builtinByID, err := s.builtinItemsBySkillID(ctx, []string{detail.Name})
+	if err != nil {
+		logs.WarnContextf(ctx, "enrich installed system skill detail: query builtin skill: %v", err)
+		return
+	}
+	item, ok := builtinByID[detail.Name]
+	if !ok {
+		return
+	}
+
+	views := []contract.SkillMarketplaceItemView{builtinItemToView(item)}
+	s.resolveCacheAndTranslation(ctx, views)
+	if len(views) == 0 {
+		return
+	}
+	detail.DisplayName = views[0].DisplayName
+	if views[0].Description != "" {
+		detail.Description = views[0].Description
+	}
+	if detail.Category == "" {
+		detail.Category = views[0].Category
+	}
+}
+
+func (s *skillMarketplaceService) builtinItemsBySkillID(ctx context.Context, skillIDs []string) (map[string]types.BuiltinSkillMarketplaceItem, error) {
+	result := make(map[string]types.BuiltinSkillMarketplaceItem)
+	if len(skillIDs) == 0 {
+		return result, nil
+	}
+
+	unique := make([]string, 0, len(skillIDs))
+	seen := make(map[string]bool, len(skillIDs))
+	for _, id := range skillIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return result, nil
+	}
+
+	var items []types.BuiltinSkillMarketplaceItem
+	if err := s.db.WithContext(ctx).
+		Where("skill_id IN ? AND status = ?", unique, "active").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		result[item.SkillID] = item
+	}
+	return result, nil
+}
+
+// ImportSkill 从已上传文件导入 Skill，校验内容后发送给 Worker 并等待完成。
 func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract.ImportSkillRequest) (*contract.ImportSkillResponse, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
@@ -952,14 +1193,16 @@ func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract
 	switch {
 	case strings.HasSuffix(lowerName, ".md"):
 		if err := validateSkillMDFromBytes(fileBytes); err != nil {
-			return nil, fmt.Errorf("invalid SKILL.md: %w", err)
+			logs.WarnContextf(ctx, "skill import validation failed: invalid SKILL.md: %v", err)
+			return nil, errors.New(localizeSkillImportError(fmt.Errorf("invalid SKILL.md: %w", err)))
 		}
 	case strings.HasSuffix(lowerName, ".zip"):
 		if err := validateZipSkill(fileBytes); err != nil {
-			return nil, fmt.Errorf("invalid zip: %w", err)
+			logs.WarnContextf(ctx, "skill import validation failed: invalid zip: %v", err)
+			return nil, errors.New(localizeSkillImportError(fmt.Errorf("invalid zip: %w", err)))
 		}
 	default:
-		return nil, fmt.Errorf("unsupported file type: only .zip and .md are allowed")
+		return nil, errors.New(localizeSkillImportError(fmt.Errorf("unsupported file type: only .zip and .md are allowed")))
 	}
 
 	// 4. 获取 Worker 可访问 URL
@@ -993,17 +1236,23 @@ func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract
 		},
 	}
 
-	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
-		return nil, fmt.Errorf("publish skill import: %w", err)
+	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill import")
+	if err != nil {
+		logs.WarnContextf(ctx, "skill import worker request failed: %v", err)
+		return nil, errors.New(localizeSkillImportError(err))
+	}
+	message := resp.Message
+	if strings.TrimSpace(message) == "" {
+		message = fmt.Sprintf("Skill imported for org %d, worker %d", caller.OrgID, workerID)
 	}
 
 	return &contract.ImportSkillResponse{
-		Status:  "accepted",
-		Message: fmt.Sprintf("Skill import request queued for org %d, worker %d", caller.OrgID, workerID),
+		Status:  "imported",
+		Message: message,
 	}, nil
 }
 
-// ImportSkillFromGitHub queues a GitHub skill import request for the default worker.
+// ImportSkillFromGitHub imports a GitHub skill on the default worker and waits for completion.
 func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req *contract.ImportSkillFromGitHubRequest) (*contract.ImportSkillResponse, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
@@ -1012,7 +1261,7 @@ func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req
 
 	skillID, version, err := parseGitHubSkillImportURL(req.GitHubURL)
 	if err != nil {
-		return nil, err
+		return nil, errors.New(localizeSkillImportError(err))
 	}
 
 	_, workerID, err := resolveDefaultRuntimeWorker(ctx, s.db, caller.OrgID, s.inferrer)
@@ -1040,13 +1289,19 @@ func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req
 		},
 	}
 
-	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
-		return nil, fmt.Errorf("publish GitHub skill import: %w", err)
+	resp, err := s.requestSkillManagement(ctx, topic, msg, "GitHub skill import")
+	if err != nil {
+		logs.WarnContextf(ctx, "GitHub skill import worker request failed: %v", err)
+		return nil, errors.New(localizeSkillImportError(err))
+	}
+	message := resp.Message
+	if strings.TrimSpace(message) == "" {
+		message = fmt.Sprintf("GitHub skill imported for org %d, worker %d", caller.OrgID, workerID)
 	}
 
 	return &contract.ImportSkillResponse{
-		Status:  "accepted",
-		Message: fmt.Sprintf("GitHub skill import request queued for org %d, worker %d", caller.OrgID, workerID),
+		Status:  "imported",
+		Message: message,
 	}, nil
 }
 
@@ -1058,8 +1313,12 @@ func parseGitHubSkillImportURL(raw string) (skillID string, version string, err 
 
 	if !strings.Contains(input, "://") {
 		parts := splitCleanPath(input)
-		if len(parts) < 3 {
+		if len(parts) < 2 {
 			return "", "", fmt.Errorf("invalid GitHub skill path %q: expected owner/repo/path", raw)
+		}
+		if len(parts) == 2 {
+			skillID, err := normalizeGitHubSkillIdentifier(parts[0], parts[1], ".")
+			return skillID, "", err
 		}
 		skillID, err := normalizeGitHubSkillIdentifier(parts[0], parts[1], strings.Join(parts[2:], "/"))
 		return skillID, "", err
@@ -1087,14 +1346,26 @@ func parseGitHubWebPath(parts []string, raw string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid GitHub URL %q: expected owner/repo path", raw)
 	}
 	owner, repo := parts[0], parts[1]
-	if len(parts) >= 5 {
-		switch parts[2] {
-		case "tree":
+	if len(parts) < 3 {
+		skillID, err := normalizeGitHubSkillIdentifier(owner, repo, ".")
+		return skillID, "", err
+	}
+
+	switch parts[2] {
+	case "tree":
+		if len(parts) == 4 {
+			ref := parts[3]
+			skillID, err := normalizeGitHubSkillIdentifier(owner, repo, ".")
+			return skillID, ref, err
+		}
+		if len(parts) >= 5 {
 			ref := parts[3]
 			skillPath := strings.Join(parts[4:], "/")
 			skillID, err := normalizeGitHubSkillIdentifier(owner, repo, skillPath)
 			return skillID, ref, err
-		case "blob":
+		}
+	case "blob":
+		if len(parts) >= 5 {
 			ref := parts[3]
 			skillFilePath := strings.Join(parts[4:], "/")
 			skillPath, err := skillDirFromSkillMDPath(skillFilePath)
@@ -1105,11 +1376,11 @@ func parseGitHubWebPath(parts []string, raw string) (string, string, error) {
 			return skillID, ref, err
 		}
 	}
-	return "", "", fmt.Errorf("unsupported GitHub URL %q: use a tree link to a skill directory or a blob link to SKILL.md", raw)
+	return "", "", fmt.Errorf("unsupported GitHub URL %q: use a repository root, a tree link to a skill directory, or a blob link to SKILL.md", raw)
 }
 
 func parseGitHubRawPath(parts []string, raw string) (string, string, error) {
-	if len(parts) < 5 {
+	if len(parts) < 4 {
 		return "", "", fmt.Errorf("invalid raw GitHub URL %q: expected owner/repo/ref/path/SKILL.md", raw)
 	}
 	owner, repo, ref := parts[0], parts[1], parts[2]
@@ -1146,7 +1417,7 @@ func skillDirFromSkillMDPath(skillFilePath string) (string, error) {
 	}
 	dir := path.Dir(clean)
 	if dir == "." || dir == "" {
-		return "", fmt.Errorf("GitHub SKILL.md must be inside a skill directory")
+		return ".", nil
 	}
 	return dir, nil
 }
@@ -1245,6 +1516,96 @@ func validateZipSkill(zipBytes []byte) error {
 		return fmt.Errorf("zip does not contain SKILL.md")
 	}
 	return nil
+}
+
+func localizeSkillImportError(err error) string {
+	if err == nil {
+		return "技能导入失败，请稍后重试"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "技能导入处理中超时，请稍后查看是否已安装，或重试导入"
+	}
+
+	msg := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "open zip"):
+		return "技能包文件损坏，请重新导出或重新下载后再试"
+	case strings.Contains(lower, "zip does not contain skill.md") ||
+		strings.Contains(lower, "skill.md not found"):
+		return "技能包中未找到 SKILL.md，请确认上传的是技能目录或技能压缩包"
+	case strings.Contains(lower, "multiple skill.md"):
+		return "仓库中包含多个 SKILL.md，请使用具体技能目录 tree 链接或 SKILL.md blob/raw 链接"
+	case strings.Contains(lower, "unsupported github url") ||
+		strings.Contains(lower, "invalid github skill path") ||
+		strings.Contains(lower, "invalid github url") ||
+		strings.Contains(lower, "unsupported github url host"):
+		return "GitHub 链接不支持，请使用技能目录 tree 链接或 SKILL.md blob/raw 链接"
+	case strings.Contains(lower, "github blob/raw link must point to skill.md"):
+		return "GitHub 链接必须指向 SKILL.md 文件"
+	case strings.Contains(lower, "fetch github skill") ||
+		strings.Contains(lower, "download github skill"):
+		return "GitHub 技能下载失败，请检查链接或网络后重试"
+	case strings.Contains(lower, "parse skill.md") ||
+		strings.Contains(lower, "invalid skill.md") ||
+		strings.Contains(lower, "skill.md in zip is invalid") ||
+		strings.Contains(lower, "frontmatter") ||
+		strings.Contains(lower, "skill name") ||
+		strings.Contains(lower, "skill.md must have content"):
+		return "SKILL.md 格式错误：" + localizeSkillDocumentDetail(msg)
+	case strings.Contains(lower, "install skill"):
+		return "技能安装失败：" + cleanWorkerImportDetail(msg)
+	case strings.Contains(lower, "request skill import") ||
+		strings.Contains(lower, "request github skill import"):
+		return "技能导入请求失败：" + cleanWorkerImportDetail(msg)
+	case strings.Contains(lower, "unsupported file type"):
+		return "仅支持导入 .zip 或 .md 格式的技能文件"
+	default:
+		return "技能导入失败：" + cleanWorkerImportDetail(msg)
+	}
+}
+
+func localizeSkillDocumentDetail(msg string) string {
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "frontmatter must include name"):
+		return "frontmatter 必须包含 name"
+	case strings.Contains(lower, "frontmatter must include description"):
+		return "frontmatter 必须包含 description"
+	case strings.Contains(lower, "skill name exceeds"):
+		return "技能名称不能超过 64 个字符"
+	case strings.Contains(lower, "invalid skill name"):
+		return "技能名称只能使用小写字母、数字、连字符、点和下划线，并且必须以字母或数字开头"
+	case strings.Contains(lower, "skill.md must have content"):
+		return "frontmatter 后必须包含技能说明正文"
+	case strings.Contains(lower, "parse skill.md"):
+		return "无法解析 frontmatter 或 Markdown 内容"
+	default:
+		return cleanWorkerImportDetail(msg)
+	}
+}
+
+func cleanWorkerImportDetail(msg string) string {
+	detail := strings.TrimSpace(msg)
+	prefixes := []string{
+		"GitHub skill import failed:",
+		"skill import failed:",
+		"fetch GitHub skill:",
+		"extract zip skill:",
+		"parse SKILL.md:",
+		"install skill:",
+		"request GitHub skill import:",
+		"request skill import:",
+		"invalid SKILL.md:",
+		"invalid zip:",
+	}
+	for _, prefix := range prefixes {
+		detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix))
+	}
+	if detail == "" {
+		return "未知错误"
+	}
+	return detail
 }
 
 // buildBundleFromLocalSkill 从本地 skill 目录构建 *fetch.SkillBundle。
