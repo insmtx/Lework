@@ -1,6 +1,7 @@
 package service
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -130,6 +131,25 @@ func putSkillImportTestFile(t *testing.T, content []byte) string {
 		t.Fatalf("put test file: %v", err)
 	}
 	return result.Path.URI()
+}
+
+func skillImportZip(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry: %v", err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatalf("write zip entry: %v", err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buf.Bytes()
 }
 
 func expectFileUploadLookup(mock sqlmock.Sqlmock, publicID, originalName, storagePath string) {
@@ -328,7 +348,7 @@ func TestImportSkillWorkerFailureReturnsError(t *testing.T) {
 		response: protocol.SkillManagementResponse{
 			Success: false,
 			Action:  "import",
-			Error:   "import failed",
+			Error:   "parse SKILL.md: frontmatter must include name",
 		},
 	}
 	service := NewSkillMarketplaceService(database, publisher, nil, "")
@@ -337,8 +357,86 @@ func TestImportSkillWorkerFailureReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected import error")
 	}
-	if !strings.Contains(err.Error(), "import failed") {
-		t.Fatalf("error = %q, want import failed", err.Error())
+	if want := "SKILL.md 格式错误：frontmatter 必须包含 name"; err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestImportSkillValidationErrorsAreLocalized(t *testing.T) {
+	tests := []struct {
+		name         string
+		originalName string
+		content      []byte
+		want         string
+	}{
+		{
+			name:         "corrupted zip",
+			originalName: "demo.zip",
+			content:      []byte("not a zip"),
+			want:         "技能包文件损坏，请重新导出或重新下载后再试",
+		},
+		{
+			name:         "zip missing skill md",
+			originalName: "demo.zip",
+			content: skillImportZip(t, map[string]string{
+				"demo/README.md": "hello",
+			}),
+			want: "技能包中未找到 SKILL.md，请确认上传的是技能目录或技能压缩包",
+		},
+		{
+			name:         "invalid skill md",
+			originalName: "SKILL.md",
+			content:      []byte("---\ndescription: Demo skill\n---\nUse this skill.\n"),
+			want:         "SKILL.md 格式错误：frontmatter 必须包含 name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			initSkillImportTestStorage(t)
+			storagePath := putSkillImportTestFile(t, tt.content)
+			database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
+			defer cleanup()
+			expectFileUploadLookup(mock, "file_demo", tt.originalName, storagePath)
+			expectFileUploadLookup(mock, "file_demo", tt.originalName, storagePath)
+			service := NewSkillMarketplaceService(database, &skillInstallPublisher{}, nil, "")
+
+			_, err := service.ImportSkill(ctx, &contract.ImportSkillRequest{FileUploadID: "file_demo"})
+			if err == nil {
+				t.Fatal("expected import validation error")
+			}
+			if err.Error() != tt.want {
+				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("sql expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestImportSkillRequestTimeoutIsLocalized(t *testing.T) {
+	initSkillImportTestStorage(t)
+	content := []byte("---\nname: demo-skill\ndescription: Demo skill\n---\nUse this skill.\n")
+	storagePath := putSkillImportTestFile(t, content)
+	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
+	defer cleanup()
+	expectFileUploadLookup(mock, "file_demo", "SKILL.md", storagePath)
+	expectFileUploadLookup(mock, "file_demo", "SKILL.md", storagePath)
+	expectDefaultWorkerDeployment(mock)
+	publisher := &skillInstallPublisher{err: context.DeadlineExceeded}
+	service := NewSkillMarketplaceService(database, publisher, nil, "")
+
+	_, err := service.ImportSkill(ctx, &contract.ImportSkillRequest{FileUploadID: "file_demo"})
+	if err == nil {
+		t.Fatal("expected import timeout error")
+	}
+	want := "技能导入处理中超时，请稍后查看是否已安装，或重试导入"
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -359,7 +457,7 @@ func TestImportSkillFromGitHubReturnsImportedAfterWorkerSuccess(t *testing.T) {
 	service := NewSkillMarketplaceService(database, publisher, nil, "")
 
 	resp, err := service.ImportSkillFromGitHub(ctx, &contract.ImportSkillFromGitHubRequest{
-		GitHubURL: "https://github.com/openai/skills/tree/main/agents/example",
+		GitHubURL: "https://github.com/browser-use/video-use",
 	})
 	if err != nil {
 		t.Fatalf("import GitHub skill: %v", err)
@@ -380,8 +478,8 @@ func TestImportSkillFromGitHubReturnsImportedAfterWorkerSuccess(t *testing.T) {
 	if msg.Body.Action != "import" || msg.Body.Source != "github" {
 		t.Fatalf("unexpected GitHub import body: %+v", msg.Body)
 	}
-	if msg.Body.SkillID != "openai/skills/agents/example" || msg.Body.Version != "main" {
-		t.Fatalf("github target = %q@%q, want openai/skills/agents/example@main", msg.Body.SkillID, msg.Body.Version)
+	if msg.Body.SkillID != "browser-use/video-use/." || msg.Body.Version != "" {
+		t.Fatalf("github target = %q@%q, want browser-use/video-use/.@", msg.Body.SkillID, msg.Body.Version)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -396,7 +494,7 @@ func TestImportSkillFromGitHubWorkerFailureReturnsError(t *testing.T) {
 		response: protocol.SkillManagementResponse{
 			Success: false,
 			Action:  "import",
-			Error:   "github import failed",
+			Error:   "fetch GitHub skill: download GitHub skill: GitHub returned status 404",
 		},
 	}
 	service := NewSkillMarketplaceService(database, publisher, nil, "")
@@ -407,11 +505,68 @@ func TestImportSkillFromGitHubWorkerFailureReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected GitHub import error")
 	}
-	if !strings.Contains(err.Error(), "github import failed") {
-		t.Fatalf("error = %q, want github import failed", err.Error())
+	if want := "GitHub 技能下载失败，请检查链接或网络后重试"; err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestImportSkillFromGitHubMultipleSkillMDFailureReturnsLocalizedError(t *testing.T) {
+	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
+	defer cleanup()
+	expectDefaultWorkerDeployment(mock)
+	publisher := &skillInstallPublisher{
+		response: protocol.SkillManagementResponse{
+			Success: false,
+			Action:  "import",
+			Error:   "fetch GitHub skill: multiple SKILL.md files found in owner/repo; use a tree link to a skill directory or a blob link to SKILL.md",
+		},
+	}
+	service := NewSkillMarketplaceService(database, publisher, nil, "")
+
+	_, err := service.ImportSkillFromGitHub(ctx, &contract.ImportSkillFromGitHubRequest{
+		GitHubURL: "https://github.com/owner/repo",
+	})
+	if err == nil {
+		t.Fatal("expected GitHub import error")
+	}
+	if want := "仓库中包含多个 SKILL.md，请使用具体技能目录 tree 链接或 SKILL.md blob/raw 链接"; err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestImportSkillFromGitHubValidationErrorsAreLocalized(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "non skill blob",
+			url:  "https://github.com/browser-use/video-use/blob/main/skills/manim-video/README.md",
+			want: "GitHub 链接必须指向 SKILL.md 文件",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			database, _, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
+			defer cleanup()
+			service := NewSkillMarketplaceService(database, &skillInstallPublisher{}, nil, "")
+
+			_, err := service.ImportSkillFromGitHub(ctx, &contract.ImportSkillFromGitHubRequest{GitHubURL: tt.url})
+			if err == nil {
+				t.Fatal("expected GitHub validation error")
+			}
+			if err.Error() != tt.want {
+				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
+			}
+		})
 	}
 }
 

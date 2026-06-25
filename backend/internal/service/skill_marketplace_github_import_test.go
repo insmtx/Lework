@@ -67,9 +67,9 @@ func TestParseGitHubSkillImportURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "missing skill path",
-			input:   "openai/skills",
-			wantErr: true,
+			name:        "owner repo root path",
+			input:       "openai/skills",
+			wantSkillID: "openai/skills/.",
 		},
 		{
 			name:    "blob not skill md",

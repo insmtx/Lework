@@ -95,6 +95,63 @@ func TestGitHubSourceFetchVersionRootSkill(t *testing.T) {
 	}
 }
 
+func TestGitHubSourceFetchRepositoryRootFallbackToSingleNestedSkill(t *testing.T) {
+	zipBytes := testSkillZipEntries(t, map[string]string{
+		"repo-main/README.md":                     "# Demo\n",
+		"repo-main/skills/demo/SKILL.md":          testSkillContent("demo"),
+		"repo-main/skills/demo/scripts/run.mjs":   "console.log('run')\n",
+		"repo-main/skills/demo/references/doc.md": "# Doc\n",
+	})
+	source := &GitHubSource{
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, zipBytes), nil
+			}),
+		},
+	}
+
+	bundle, err := source.Fetch(context.Background(), "owner/repo")
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	defer func() {
+		if bundle.TempDir != "" {
+			_ = os.RemoveAll(bundle.TempDir)
+		}
+	}()
+	if string(bundle.Content) != testSkillContent("demo") {
+		t.Fatalf("content = %q, want nested skill content", string(bundle.Content))
+	}
+	if bundle.Meta.Identifier != "owner/repo/skills/demo" {
+		t.Fatalf("identifier = %q, want owner/repo/skills/demo", bundle.Meta.Identifier)
+	}
+	if string(bundle.Files["scripts/run.mjs"]) != "console.log('run')\n" {
+		t.Fatalf("scripts/run.mjs was not collected")
+	}
+}
+
+func TestGitHubSourceFetchRepositoryRootMultipleNestedSkills(t *testing.T) {
+	zipBytes := testSkillZipEntries(t, map[string]string{
+		"repo-main/skills/one/SKILL.md": testSkillContent("one"),
+		"repo-main/skills/two/SKILL.md": testSkillContent("two"),
+	})
+	source := &GitHubSource{
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, zipBytes), nil
+			}),
+		},
+	}
+
+	_, err := source.FetchVersion(context.Background(), "owner/repo/.", "main")
+	if err == nil {
+		t.Fatal("expected multiple SKILL.md error")
+	}
+	if !strings.Contains(err.Error(), "multiple SKILL.md") {
+		t.Fatalf("error = %q, want multiple SKILL.md", err.Error())
+	}
+}
+
 func TestGitHubSourceFetchVersionTagFallback(t *testing.T) {
 	zipBytes := testSkillZip(t, "repo-v1.0.0/skills/demo/SKILL.md", testSkillContent("demo"))
 	requests := make([]string, 0, 2)

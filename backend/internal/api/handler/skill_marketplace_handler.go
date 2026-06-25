@@ -240,8 +240,7 @@ func importSkill(service contract.SkillMarketplaceService) gin.HandlerFunc {
 				ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, msg))
 				return
 			}
-			if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
-				strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") {
+			if isSkillImportClientError(msg) {
 				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, msg))
 				return
 			}
@@ -273,9 +272,7 @@ func importSkillFromGitHub(service contract.SkillMarketplaceService) gin.Handler
 				return
 			}
 			msg := err.Error()
-			if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
-				strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") ||
-				strings.Contains(msg, "must") {
+			if isSkillImportClientError(msg) {
 				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, msg))
 				return
 			}
@@ -285,4 +282,27 @@ func importSkillFromGitHub(service contract.SkillMarketplaceService) gin.Handler
 
 		ctx.JSON(http.StatusOK, dto.Success(result))
 	}
+}
+
+func isSkillImportClientError(msg string) bool {
+	if strings.Contains(msg, "invalid") || strings.Contains(msg, "required") ||
+		strings.Contains(msg, "unsupported") || strings.Contains(msg, "does not contain") ||
+		strings.Contains(msg, "must") {
+		return true
+	}
+	for _, marker := range []string{
+		"技能包",
+		"SKILL.md",
+		"GitHub 链接",
+		"GitHub 技能下载失败",
+		"技能安装失败",
+		"技能导入请求失败",
+		"技能导入处理中超时",
+		"仅支持导入",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
