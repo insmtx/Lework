@@ -500,8 +500,7 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 	}, nil
 }
 
-func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, parentPath string, depth int) ([]*contract.FileTreeNode, error) {
-	_ = depth
+func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, resourceType string) ([]*contract.FileTreeNode, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
@@ -521,12 +520,12 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		return nil, err
 	}
 
-	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, "")
+	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, resourceType)
 	if err != nil {
 		return nil, fmt.Errorf("list project files: %w", err)
 	}
 
-	return buildFileTreeFromProjectFiles(ctx, s.db, files, parentPath), nil
+	return buildFileTreeFromProjectFiles(ctx, s.db, files), nil
 }
 
 // DownloadProjectFile 通过 project_file 表和 filestore 下载/预览项目文件。
@@ -659,34 +658,6 @@ func isPathAllowed(filePath string) bool {
 // lookupFileCreatedAt 已移除，创建时间现在直接使用 ProjectFile.CreatedAt。
 // 此文件中的一切 Gitea API 调用仅用于 Gitea 启用时的仓库初始化和 commit 记录查询。
 
-func filterByParentPaths(roots []*contract.FileTreeNode, parentPath string) []*contract.FileTreeNode {
-	parentPath = strings.Trim(parentPath, "/")
-	if parentPath == "" {
-		return roots
-	}
-	parts := strings.Split(parentPath, "/")
-	current := roots
-	for i, part := range parts {
-		found := false
-		for _, node := range current {
-			if node.Name == part {
-				if i == len(parts)-1 {
-					return []*contract.FileTreeNode{node}
-				}
-				if node.Type == "directory" {
-					current = node.Children
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			return nil
-		}
-	}
-	return nil
-}
-
 func mimeTypeByExt(filename string) string {
 	ext := filepath.Ext(filename)
 	if mimeType := mime.TypeByExtension(ext); mimeType != "" {
@@ -696,7 +667,7 @@ func mimeTypeByExt(filename string) string {
 }
 
 // buildFileTreeFromProjectFiles 将扁平的 ProjectFile 列表转换为 FileTreeNode 树结构
-func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files []types.ProjectFile, parentPath string) []*contract.FileTreeNode {
+func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files []types.ProjectFile) []*contract.FileTreeNode {
 	var roots []*contract.FileTreeNode
 
 	for _, pf := range files {
@@ -729,7 +700,7 @@ func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files 
 		roots = append(roots, node)
 	}
 
-	return filterByParentPaths(roots, strings.Trim(parentPath, "/"))
+	return roots
 }
 
 func storageKeyFromFilestoreURI(uri string) (string, error) {
