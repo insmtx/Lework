@@ -12,6 +12,7 @@ type Profile struct {
 	WorkerID   uint
 	ServerAddr string
 	WorkerAddr string
+	AppKey     string
 }
 
 var profile atomic.Value
@@ -43,6 +44,11 @@ func WorkerID() uint {
 // ServerAddr returns the server address this worker connects to.
 func ServerAddr() string {
 	return Get().ServerAddr
+}
+
+// AppKey returns the app key for server authentication.
+func AppKey() string {
+	return Get().AppKey
 }
 
 // WorkerAddr returns the worker HTTP service address.

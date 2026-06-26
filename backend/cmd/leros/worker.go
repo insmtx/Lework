@@ -200,6 +200,7 @@ func runTaskWorker(defaultRuntime string) {
 		ServerAddr: cfg.ServerAddr,
 		// WorkerAddr is the worker HTTP service address, for example ":8081" or "127.0.0.1:8081".
 		WorkerAddr: workerListenAddr,
+		AppKey:     cfg.AppKey,
 	})
 	// Setup MCP auth token before starting HTTP server so /v1/mcp uses the configured value.
 	if cfg.CLI != nil && cfg.CLI.MCP != nil {
