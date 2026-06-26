@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Project } from "./layoutSlice";
-import { mergeProjectsFromListResult } from "./layoutSlice";
+import { LayoutActionImpl, mergeProjectsFromListResult } from "./layoutSlice";
 
 function createProject(
 	overrides: Partial<Project> & Pick<Project, "id" | "name" | "updatedAt">,
@@ -77,5 +77,44 @@ describe("mergeProjectsFromListResult", () => {
 		const mergedProjects = mergeProjectsFromListResult(apiProjects, localProjects);
 
 		expect(mergedProjects.map((project) => project.id)).toEqual(["project-1"]);
+	});
+});
+
+describe("LayoutActionImpl composer draft reset", () => {
+	it("从任务详情切回项目页时会清空输入草稿", () => {
+		const clearComposerInput = vi.fn();
+		const setState = vi.fn();
+		const getState = () =>
+			({
+				currentView: "taskDetail",
+				activeProjectId: "project-1",
+				activeTaskDetailProjectId: "project-1",
+				activeTaskDetailTaskId: "task-1",
+				activeTaskDetailSessionId: "session-1",
+				clearComposerInput,
+			}) as never;
+
+		const actions = new LayoutActionImpl(setState, getState);
+		actions.switchProject("project-1");
+
+		expect(clearComposerInput).toHaveBeenCalledTimes(1);
+		expect(setState).toHaveBeenCalledTimes(1);
+	});
+
+	it("切回创建任务首页时会清空输入草稿", () => {
+		const clearComposerInput = vi.fn();
+		const setState = vi.fn();
+		const getState = () =>
+			({
+				currentView: "project",
+				activeProjectId: "project-1",
+				clearComposerInput,
+			}) as never;
+
+		const actions = new LayoutActionImpl(setState, getState);
+		actions.switchView("workbench");
+
+		expect(clearComposerInput).toHaveBeenCalledTimes(1);
+		expect(setState).toHaveBeenCalledTimes(1);
 	});
 });

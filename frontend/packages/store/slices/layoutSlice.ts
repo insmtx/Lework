@@ -335,6 +335,14 @@ export class LayoutActionImpl {
 		this.#get = get;
 	}
 
+	#clearComposerDraft = () => {
+		const store = this.#get() as LayoutStore & {
+			clearComposerInput?: () => void;
+		};
+		// 中文注释：项目/任务聊天输入框与首页共用同一份草稿状态，离开当前上下文时必须同步清空，避免 token 退化成普通文本残留。
+		store.clearComposerInput?.();
+	};
+
 	toggleLeftRail = () => {
 		this.#set((state) => ({ leftRailCollapsed: !state.leftRailCollapsed }));
 	};
@@ -356,6 +364,10 @@ export class LayoutActionImpl {
 	};
 
 	switchView = (view: ViewMode) => {
+		const state = this.#get();
+		if (state.currentView !== view) {
+			this.#clearComposerDraft();
+		}
 		this.#set({
 			currentView: view,
 			conversationListOpen: view === "chat",
@@ -370,6 +382,10 @@ export class LayoutActionImpl {
 	};
 
 	switchProject = (projectId: string) => {
+		const state = this.#get();
+		if (state.currentView !== "project" || state.activeProjectId !== projectId) {
+			this.#clearComposerDraft();
+		}
 		this.#set({
 			activeProjectId: projectId,
 			activeProjectTab: "chat",
@@ -382,6 +398,10 @@ export class LayoutActionImpl {
 	};
 
 	setProjectRoute = (projectId: string, tab: "chat" | "tasks" | "files" = "chat") => {
+		const state = this.#get();
+		if (state.currentView !== "project" || state.activeProjectId !== projectId) {
+			this.#clearComposerDraft();
+		}
 		this.#set({
 			activeProjectId: projectId,
 			activeProjectTab: tab,
@@ -561,6 +581,15 @@ export class LayoutActionImpl {
 	};
 
 	openTaskDetail = (projectId: string, taskId: string, sessionId: string | null = null) => {
+		const state = this.#get();
+		if (
+			state.currentView !== "taskDetail" ||
+			state.activeTaskDetailProjectId !== projectId ||
+			state.activeTaskDetailTaskId !== taskId ||
+			state.activeTaskDetailSessionId !== sessionId
+		) {
+			this.#clearComposerDraft();
+		}
 		this.#set({
 			activeTaskDetailProjectId: projectId,
 			activeTaskDetailTaskId: taskId,
@@ -570,6 +599,15 @@ export class LayoutActionImpl {
 	};
 
 	setTaskDetailRoute = (projectId: string, taskId: string, sessionId: string | null = null) => {
+		const state = this.#get();
+		if (
+			state.currentView !== "taskDetail" ||
+			state.activeTaskDetailProjectId !== projectId ||
+			state.activeTaskDetailTaskId !== taskId ||
+			state.activeTaskDetailSessionId !== sessionId
+		) {
+			this.#clearComposerDraft();
+		}
 		this.#set({
 			activeProjectId: projectId,
 			activeTaskDetailProjectId: projectId,
