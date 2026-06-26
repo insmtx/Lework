@@ -25,7 +25,7 @@ import (
 type mockFileService struct {
 	uploadFn         func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error)
 	downloadFn       func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error)
-	presignFn        func(ctx context.Context, orgID uint, fileID string) (string, error)
+	presignFn        func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error)
 }
 
 func (m *mockFileService) UploadFile(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
@@ -36,8 +36,8 @@ func (m *mockFileService) DownloadFile(ctx context.Context, orgID uint, fileID s
 	return m.downloadFn(ctx, orgID, fileID)
 }
 
-func (m *mockFileService) PresignDownloadURL(ctx context.Context, orgID uint, fileID string) (string, error) {
-	return m.presignFn(ctx, orgID, fileID)
+func (m *mockFileService) PresignDownloadURL(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
+	return m.presignFn(ctx, orgID, publicID, storageURI)
 }
 
 func setupFileRouter(t *testing.T, svc contract.FileService, caller *types.Caller) *gin.Engine {
@@ -435,13 +435,13 @@ func TestUploadFile_ReadError(t *testing.T) {
 
 func TestPresignDownloadURL_Success(t *testing.T) {
 	svc := &mockFileService{
-		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
+		presignFn: func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
 			return "https://example.com/presigned-url", nil
 		},
 	}
 	router := setupFileRouter(t, svc, authenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files/test-id/preview", nil)
+	req := httptest.NewRequest("GET", "/v1/files/preview?public_id=test-id", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -455,16 +455,16 @@ func TestPresignDownloadURL_Success(t *testing.T) {
 	}
 }
 
-func TestPresignDownloadURL_NoFileID(t *testing.T) {
+func TestPresignDownloadURL_NoParams(t *testing.T) {
 	svc := &mockFileService{
-		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
-			t.Error("presign should not be called with empty id")
+		presignFn: func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
+			t.Error("presign should not be called with empty params")
 			return "", nil
 		},
 	}
 	router := setupFileRouter(t, svc, authenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files//preview", nil)
+	req := httptest.NewRequest("GET", "/v1/files/preview", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -475,14 +475,14 @@ func TestPresignDownloadURL_NoFileID(t *testing.T) {
 
 func TestPresignDownloadURL_Unauthenticated(t *testing.T) {
 	svc := &mockFileService{
-		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
+		presignFn: func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
 			t.Error("presign should not be called when not authenticated")
 			return "", nil
 		},
 	}
 	router := setupFileRouter(t, svc, unauthenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files/test-id/preview", nil)
+	req := httptest.NewRequest("GET", "/v1/files/preview?public_id=test-id", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -493,13 +493,13 @@ func TestPresignDownloadURL_Unauthenticated(t *testing.T) {
 
 func TestPresignDownloadURL_NotFound(t *testing.T) {
 	svc := &mockFileService{
-		presignFn: func(ctx context.Context, orgID uint, fileID string) (string, error) {
+		presignFn: func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
 			return "", errors.New("get presign download url failed")
 		},
 	}
 	router := setupFileRouter(t, svc, authenticatedCaller())
 
-	req := httptest.NewRequest("GET", "/v1/files/nonexistent/presign-url", nil)
+	req := httptest.NewRequest("GET", "/v1/files/preview?public_id=nonexistent", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

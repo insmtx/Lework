@@ -25,7 +25,7 @@ func NewFileHandler(service contract.FileService) *FileHandler {
 func (h *FileHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/files/upload", h.UploadFile)
 	r.GET("/files/:id/download", h.DownloadFile)
-	r.GET("/files/:id/preview", h.PresignDownloadURL)
+	r.GET("/files/preview", h.PresignDownloadURL)
 }
 
 // @Summary 上传文件
@@ -132,19 +132,21 @@ func (h *FileHandler) DownloadFile(ctx *gin.Context) {
 }
 
 // @Summary 获取预签名下载地址
-// @Description 生成预签名下载 URL 并 302 重定向
+// @Description 通过 publicID 或 storageURI 生成预签名下载 URL 并 302 重定向
 // @Tags File
 // @Produce json
-// @Param id path string true "文件ID"
+// @Param public_id query string false "文件公共ID"
+// @Param storage_uri query string false "文件存储URI（格式 {schema}://{bucket}/{key}）"
 // @Success 302 {string} string "重定向到预签名下载 URL"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"
 // @Failure 404 {object} dto.ErrorResponse "文件不存在"
-// @Router /files/{id}/preview [get]
+// @Router /files/preview [get]
 func (h *FileHandler) PresignDownloadURL(ctx *gin.Context) {
-	fileID := strings.TrimSpace(ctx.Param("id"))
-	if fileID == "" {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file id is required"))
+	fileID := strings.TrimSpace(ctx.Query("public_id"))
+	storageURI := strings.TrimSpace(ctx.Query("storage_uri"))
+	if fileID == "" && storageURI == "" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "public_id or storage_uri is required"))
 		return
 	}
 
@@ -154,7 +156,7 @@ func (h *FileHandler) PresignDownloadURL(ctx *gin.Context) {
 		return
 	}
 
-	url, err := h.service.PresignDownloadURL(ctx, caller.OrgID, fileID)
+	url, err := h.service.PresignDownloadURL(ctx, caller.OrgID, fileID, storageURI)
 	if err != nil {
 		if err.Error() == "get presign download url failed" {
 			ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, "file not found"))

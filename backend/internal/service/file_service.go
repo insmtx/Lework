@@ -7,9 +7,11 @@ import (
 	"mime"
 	"net/http"
 	"strings"
-	"time"
+
+	"github.com/ygpkg/storage-go"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
+	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -106,10 +108,36 @@ func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID strin
 	}, nil
 }
 
-func (s *fileService) PresignDownloadURL(ctx context.Context, orgID uint, fileID string) (string, error) {
-	url, _, err := filestore.PresignDownloadByPublicID(ctx, s.db, orgID, fileID, time.Hour)
+func (s *fileService) PresignDownloadURL(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
+	var targetURI string
+
+	if publicID != "" {
+		fileUpload, err := infradb.GetFileUploadByPublicID(ctx, s.db, orgID, publicID)
+		if err != nil {
+			logs.ErrorContextf(ctx, "get file upload by publicID failed: %v", err)
+			return "", fmt.Errorf("get presign download url failed")
+		}
+		if fileUpload == nil {
+			return "", fmt.Errorf("get presign download url failed")
+		}
+		targetURI = fileUpload.StorageURI
+	} else {
+		targetURI = storageURI
+	}
+
+	if targetURI == "" {
+		return "", fmt.Errorf("publicID or storageURI is required")
+	}
+
+	_, bucket, key, err := storage.ParseURI(targetURI)
 	if err != nil {
-		logs.ErrorContextf(ctx, "presign download url failed: %v", err)
+		logs.ErrorContextf(ctx, "parse storage URI failed: %v", err)
+		return "", fmt.Errorf("get presign download url failed")
+	}
+
+	url, _, err := filestore.PresignDownload(ctx, bucket, key)
+	if err != nil {
+		logs.ErrorContextf(ctx, "presign download failed: %v", err)
 		return "", fmt.Errorf("get presign download url failed")
 	}
 	return url, nil
