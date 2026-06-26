@@ -292,6 +292,15 @@ function normalizeTodoStatus(status?: string): TodoStatus {
 	}
 }
 
+function completeTodos(todos: RuntimeTodoItem[] | undefined): RuntimeTodoItem[] | undefined {
+	if (!todos?.length || todos.every((todo) => todo.status === "completed")) {
+		return todos;
+	}
+	return todos.map((todo) =>
+		todo.status === "completed" ? todo : { ...todo, status: "completed" },
+	);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
@@ -958,6 +967,7 @@ function applySessionEventToMessage(
 				...message,
 				content: options.appendContent && resultMessage ? resultMessage : message.content,
 				processSteps: pruneFinalContentProcessSteps(message.processSteps, resultMessage),
+				todos: completeTodos(message.todos),
 				artifacts: artifacts?.length
 					? mergeArtifacts(message.artifacts, artifacts)
 					: message.artifacts,
