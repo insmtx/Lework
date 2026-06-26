@@ -162,7 +162,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		}
 	}
 
-	staticGroup := v1.Group("/static", middleware.StaticAuth(
+	staticGroup := v1.Group("/static", middleware.AppAuth(
 		cfg.Server.AppKey,
 		cfg.Server.JWT.Secret,
 		db,

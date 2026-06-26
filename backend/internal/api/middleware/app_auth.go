@@ -14,7 +14,7 @@ import (
 
 const headerAppKey = "X-App-Key"
 
-func StaticAuth(serverAppKey, jwtSecret string, db *gorm.DB) gin.HandlerFunc {
+func AppAuth(serverAppKey, jwtSecret string, db *gorm.DB) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if serverAppKey != "" {
 			key := strings.TrimSpace(ctx.GetHeader(headerAppKey))
