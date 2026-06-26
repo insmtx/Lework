@@ -7,24 +7,28 @@ import sharp from 'sharp'
 const currentDir = dirname(fileURLToPath(import.meta.url))
 const appDir = resolve(currentDir, '..')
 const sourceLogo = resolve(appDir, '../../packages/app-ui/assets/logo.svg')
+const sourceTrayLogo = resolve(appDir, '../../packages/app-ui/assets/logo-white.svg')
 const resourcesDir = join(appDir, 'resources')
 
 const iconPngPath = join(resourcesDir, 'icon.png')
 const iconIcoPath = join(resourcesDir, 'icon.ico')
+const trayIconPngPath = join(resourcesDir, 'tray-icon.png')
 
 await mkdir(resourcesDir, { recursive: true })
 await sharp(await renderIcon(1024)).toFile(iconPngPath)
+await sharp(await renderIcon(128, { source: sourceTrayLogo, logoScale: 0.9 })).toFile(trayIconPngPath)
 
 // 中文注释：Windows 安装包和快捷方式优先读取 ICO 资源，因此这里额外生成多尺寸桌面图标。
 await generateWindowsIcon(iconIcoPath)
 
-async function renderIcon(size) {
+async function renderIcon(size, options = {}) {
   // 中文注释：桌面图标直接使用透明底主体，并尽量放大到接近满幅但避免裁边。
-  const logoScale = size <= 64 ? 1 : 0.98
+  const source = options.source ?? sourceLogo
+  const logoScale = options.logoScale ?? (size <= 64 ? 1 : 0.98)
   const logoSize = Math.round(size * logoScale)
   const logoOffset = Math.round((size - logoSize) / 2)
 
-  const logo = await sharp(sourceLogo)
+  const logo = await sharp(source)
     .resize(logoSize, logoSize, { fit: 'contain' })
     .png()
     .toBuffer()

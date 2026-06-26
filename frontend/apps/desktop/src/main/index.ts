@@ -1,10 +1,26 @@
 import { join } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
-import { app, BrowserWindow } from "electron";
-import { registerDesktopAutoUpdate } from "./auto-update";
+import {
+	app,
+	BrowserWindow,
+	Menu,
+	nativeImage,
+	shell,
+	Tray,
+} from "electron";
+import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
+
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 
 function createWindow(): void {
-	const mainWindow = new BrowserWindow({
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		showMainWindow();
+		return;
+	}
+
+	mainWindow = new BrowserWindow({
 		width: 1280,
 		height: 800,
 		minWidth: 900,
@@ -19,12 +35,23 @@ function createWindow(): void {
 	});
 
 	mainWindow.on("ready-to-show", () => {
-		mainWindow.show();
+		showMainWindow();
 	});
 
 	mainWindow.webContents.setWindowOpenHandler((details) => {
-		require("@electron-toolkit/utils").shell.openExternal(details.url);
+		shell.openExternal(details.url);
 		return { action: "deny" };
+	});
+
+	mainWindow.on("close", (event) => {
+		if (isQuitting) return;
+
+		event.preventDefault();
+		hideMainWindow();
+	});
+
+	mainWindow.on("closed", () => {
+		mainWindow = null;
 	});
 
 	if (is.dev && process.env.ELECTRON_RENDERER_URL) {
@@ -32,6 +59,83 @@ function createWindow(): void {
 	} else {
 		mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
 	}
+}
+
+function showMainWindow(): void {
+	if (!mainWindow || mainWindow.isDestroyed()) {
+		createWindow();
+		return;
+	}
+
+	if (mainWindow.isMinimized()) mainWindow.restore();
+	mainWindow.show();
+	mainWindow.focus();
+}
+
+function hideMainWindow(): void {
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+
+	mainWindow.hide();
+}
+
+function createTray(): void {
+	if (tray) return;
+
+	const icon = nativeImage.createFromPath(join(__dirname, "../../resources/tray-icon.png"));
+	const trayIcon =
+		process.platform === "darwin" ? icon.resize({ width: 18, height: 18 }) : icon.resize({ width: 20, height: 20 });
+
+	tray = new Tray(trayIcon);
+	tray.setToolTip("Lework");
+	tray.on("click", handleTrayClick);
+	tray.on("right-click", () => {
+		tray?.popUpContextMenu(buildTrayMenu());
+	});
+}
+
+function handleTrayClick(): void {
+	tray?.popUpContextMenu(buildTrayMenu());
+}
+
+function buildTrayMenu(): Menu {
+	const updateState = getDesktopUpdateState();
+
+	return Menu.buildFromTemplate([
+		{
+			label: "状态：运行中",
+			enabled: false,
+		},
+		{
+			label: `版本：${app.getVersion()}`,
+			enabled: false,
+		},
+		{
+			label: `发现新版本：${formatAvailableVersion(updateState.availableVersion || updateState.downloadedVersion)}`,
+			enabled: false,
+		},
+		{ type: "separator" },
+		{
+			label: "打开 Lework",
+			click: showMainWindow,
+		},
+		{ type: "separator" },
+		{
+			label: "退出",
+			accelerator: process.platform === "darwin" ? "Command+Q" : "Ctrl+Q",
+			click: quitApp,
+		},
+	]);
+}
+
+function formatAvailableVersion(version: string | undefined): string {
+	if (!version) return "暂无";
+
+	return `${version}（重启服务后生效）`;
+}
+
+function quitApp(): void {
+	isQuitting = true;
+	app.quit();
 }
 
 app.whenReady().then(() => {
@@ -42,13 +146,23 @@ app.whenReady().then(() => {
 	});
 
 	createWindow();
+	createTray();
 	registerDesktopAutoUpdate();
 
 	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) createWindow();
+		if (!mainWindow || mainWindow.isDestroyed()) {
+			createWindow();
+			return;
+		}
+
+		showMainWindow();
 	});
 });
 
 app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+	isQuitting = true;
 });

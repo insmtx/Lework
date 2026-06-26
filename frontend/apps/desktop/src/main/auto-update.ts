@@ -294,3 +294,7 @@ export function registerDesktopAutoUpdate() {
 		return true;
 	});
 }
+
+export function getDesktopUpdateState(): DesktopUpdateState {
+	return updateState;
+}
