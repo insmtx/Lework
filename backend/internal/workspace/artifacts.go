@@ -32,6 +32,7 @@ type ManifestArtifact struct {
 type ArtifactRecord struct {
 	Title        string
 	Filename     string
+	OriginalName string
 	Description  string
 	ArtifactType string
 	RelativePath string
@@ -139,6 +140,7 @@ func BuildArtifactRecord(plan *TaskWorkspace, item ManifestArtifact) (ArtifactRe
 	return ArtifactRecord{
 		Title:        title,
 		Filename:     filepath.Base(item.Path),
+		OriginalName: item.Path,
 		Description:  strings.TrimSpace(item.Description),
 		ArtifactType: artifactType,
 		RelativePath: item.Path,

@@ -134,6 +134,10 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 	if filename == "" {
 		filename = item.Title
 	}
+	originalName := strings.TrimSpace(item.OriginalName)
+	if originalName == "" {
+		originalName = filename
+	}
 
 	storagePathURI := strings.TrimSpace(item.StoragePathURI)
 	fileURL := storagePathURI
@@ -184,7 +188,7 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		fileUpload, err := filestore.RecordUpload(ctx, p.db, filestore.RecordUploadParams{
 			StorageURI:   storagePathURI,
 			Filename:     filename,
-			OriginalName: filename,
+			OriginalName: originalName,
 			MimeType:     mimeType,
 			OrgID:        session.OrgID,
 			OwnerID:      session.Uin,
@@ -209,7 +213,7 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 			ProjectID:       *session.ProjectID,
 			ProjectPublicID: projectPublicID,
 			Filename:        filename,
-			OriginalName:    filename,
+			OriginalName:    originalName,
 			MimeType:        mimeType,
 			FileSize:        item.FileSize,
 			StoragePath:     pfStoragePath,

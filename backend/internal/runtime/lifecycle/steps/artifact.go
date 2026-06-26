@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -136,7 +137,9 @@ func uploadArtifactToServer(ctx context.Context, srv *client.ServerClient, proje
 
 	randomID := snowflake.GenerateIDBase58()
 	orgID := identity.OrgID()
-	key := fmt.Sprintf("artifacts/%d/%s/%s/%s", orgID, projectPublicID, randomID, record.Filename)
+	ext := filepath.Ext(record.OriginalName)
+	storageFilename := randomID + ext
+	key := fmt.Sprintf("projects/%d/%s/artifacts/%s", orgID, projectPublicID, storageFilename)
 
 	bucket := ""
 	scheme := "s3"
@@ -185,10 +188,11 @@ func uploadArtifactToServer(ctx context.Context, srv *client.ServerClient, proje
 
 func artifactPayloadFromRecord(record agentworkspace.ArtifactRecord) events.ArtifactPayload {
 	return events.ArtifactPayload{
-		ArtifactID:   newArtifactID(),
-		Title:        artifactTitle(record),
-		Filename:     artifactFilename(record),
-		Description:  strings.TrimSpace(record.Description),
+		ArtifactID:    newArtifactID(),
+		Title:         artifactTitle(record),
+		Filename:      artifactFilename(record),
+		OriginalName:  strings.TrimSpace(record.OriginalName),
+		Description:   strings.TrimSpace(record.Description),
 		MimeType:     strings.TrimSpace(record.MimeType),
 		ArtifactType: artifactType(record.ArtifactType),
 		FileSize:     record.FileSize,
