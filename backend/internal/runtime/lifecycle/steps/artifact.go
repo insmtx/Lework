@@ -114,7 +114,7 @@ func (r *WorkspaceArtifactRecorder) Record(ctx context.Context, req *agent.Reque
 				logs.WarnContextf(ctx, "upload artifact %s to server: %v", record.RelativePath, err)
 				continue
 			}
-			payloads[i].StoragePathURI = storageURI
+			payloads[i].StorageURI = storageURI
 		}
 	} else {
 		logs.DebugContextf(ctx, "artifact: skip upload, conditions not met")
@@ -198,7 +198,7 @@ func artifactPayloadFromRecord(record agentworkspace.ArtifactRecord) events.Arti
 		FileSize:     record.FileSize,
 		RelativePath: strings.TrimSpace(record.RelativePath),
 		StorageKey:   strings.TrimSpace(record.StorageKey),
-		StoragePathURI:   strings.TrimSpace(record.StoragePathURI),
+		StorageURI:   strings.TrimSpace(record.StorageURI),
 		Sha256:       record.Sha256,
 		Source:       artifactSource(record.Source),
 		Status:       artifactStatus(record.Status),

@@ -231,12 +231,13 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 
 func publicStreamArtifactPayload(payload events.ArtifactPayload) events.ArtifactPayload {
 	return events.ArtifactPayload{
-		ArtifactID:   payload.ArtifactID,
-		Title:        payload.Title,
-		Filename:     payload.Filename,
-		MimeType:     payload.MimeType,
-		ArtifactType: payload.ArtifactType,
-		CreatedAt:    payload.CreatedAt,
+		ArtifactID:     payload.ArtifactID,
+		Title:          payload.Title,
+		Filename:       payload.Filename,
+		MimeType:       payload.MimeType,
+		ArtifactType:   payload.ArtifactType,
+		CreatedAt:      payload.CreatedAt,
+		StorageURI: payload.StorageURI,
 	}
 }
 

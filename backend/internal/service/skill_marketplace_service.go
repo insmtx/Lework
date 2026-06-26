@@ -1206,7 +1206,7 @@ func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract
 	}
 
 	// 4. 获取 Worker 可访问 URL
-	publicURL, err := filestore.ResolvePublicURL(ctx, fileUpload.StoragePath)
+	publicURL, err := filestore.ResolvePublicURL(ctx, fileUpload.StorageURI)
 	if err != nil {
 		return nil, fmt.Errorf("resolve public URL: %w", err)
 	}

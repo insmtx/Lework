@@ -126,7 +126,7 @@ func (p *MessagePoster) RunNewMessage(
 		return nil, err
 	}
 	// 无项目预上传的附件，需要在项目创建完成后回填项目归属，确保后续文件树可见。
-	attachFilesToProject(ctx, p.db, caller.OrgID, o.project, req.Attachments)
+	attachFilesToProject(ctx, p.db, caller.OrgID, caller.Uin, nil, o.project, req.Attachments)
 	if err := o.ensureProjectSession(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage ensureProjectSession failed: %v", err)
 		return nil, err
@@ -523,7 +523,7 @@ func resolveAttachmentURLs(
 			logs.WarnContextf(ctx, "resolve attachment file %s: not found", attachments[i].FileUploadID)
 			continue
 		}
-		publicURL, err := filestore.ResolvePublicURL(ctx, fileUpload.StoragePath)
+		publicURL, err := filestore.ResolvePublicURL(ctx, fileUpload.StorageURI)
 		if err != nil {
 			logs.WarnContextf(ctx, "resolve attachment public url for %s: %v", attachments[i].FileUploadID, err)
 			continue
@@ -536,47 +536,39 @@ func attachFilesToProject(
 	ctx context.Context,
 	db *gorm.DB,
 	orgID uint,
+	uin uint,
+	taskID *uint,
 	project *types.Project,
 	attachments []types.MessageAttachment,
 ) {
 	if project == nil || project.ID == 0 || len(attachments) == 0 {
 		return
 	}
-	projectPublicID := project.PublicID
 	for i := range attachments {
 		if attachments[i].FileUploadID == "" {
 			continue
 		}
 		fileUpload, err := infradb.GetFileUploadByPublicID(ctx, db, orgID, attachments[i].FileUploadID)
 		if err != nil {
-			logs.WarnContextf(ctx, "attach file %s to project %s failed: %v", attachments[i].FileUploadID, projectPublicID, err)
+			logs.WarnContextf(ctx, "attach file %s to project %s failed: %v", attachments[i].FileUploadID, project.PublicID, err)
 			continue
 		}
 		if fileUpload == nil {
 			continue
 		}
-		if fileUpload.Metadata.Extra == nil {
-			fileUpload.Metadata.Extra = make(map[string]interface{})
-		}
-		fileUpload.Metadata.Extra["project_public_id"] = projectPublicID
-		if err := infradb.UpdateFileUpload(ctx, db, fileUpload); err != nil {
-			logs.WarnContextf(ctx, "persist file %s project_public_id failed: %v", attachments[i].FileUploadID, err)
-		}
 
-		exists, _ := infradb.GetProjectFileByPublicID(ctx, db, orgID, fileUpload.PublicID)
+		exists, _ := infradb.GetProjectFileByFilePublicID(ctx, db, orgID, fileUpload.PublicID)
 		if exists == nil {
 			pf := &types.ProjectFile{
-				PublicID:        fileUpload.PublicID,
-				OrgID:           orgID,
-				ProjectID:       project.ID,
-				ProjectPublicID: projectPublicID,
-				Filename:        fileUpload.Filename,
-				OriginalName:    attachments[i].Name,
-				MimeType:        fileUpload.MimeType,
-				FileSize:        fileUpload.FileSize,
-				StoragePath:     fileUpload.StoragePath,
-				Sha256:          fileUpload.Sha256,
-				Source:          "user_upload",
+				FilePublicID: fileUpload.PublicID,
+				OrgID:        orgID,
+				ProjectID:    project.ID,
+				ResourceID:   fileUpload.ID,
+				ResourceType: types.ProjectFileResourceTypeUserUpload,
+				Uin:          uin,
+			}
+			if taskID != nil {
+				pf.TaskID = *taskID
 			}
 			if err := infradb.CreateProjectFile(ctx, db, pf); err != nil {
 				logs.WarnContextf(ctx, "create project_file record for attachment %s: %v", attachments[i].FileUploadID, err)

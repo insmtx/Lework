@@ -81,7 +81,7 @@ func Upload(ctx context.Context, db *gorm.DB, params UploadParams) (*types.FileU
 		OriginalName: originalName,
 		MimeType:     params.MimeType,
 		FileSize:     fileSize,
-		StoragePath:  putResult.Path.URI(),
+		StorageURI:  putResult.Path.URI(),
 		Sha256:       sha256Hex,
 		Purpose:      params.Purpose,
 		Status:       "active",
@@ -106,7 +106,7 @@ func OpenFileByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicID s
 		return nil, nil, fmt.Errorf("file upload record not found")
 	}
 
-	objectKey, err := storageKeyFromURI(fileUpload.StoragePath)
+	objectKey, err := storageKeyFromURI(fileUpload.StorageURI)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse storage path: %w", err)
 	}
@@ -129,7 +129,7 @@ func PresignDownloadByPublicID(ctx context.Context, db *gorm.DB, orgID uint, pub
 		return "", nil, fmt.Errorf("file upload record not found")
 	}
 
-	objectKey, err := storageKeyFromURI(fileUpload.StoragePath)
+	objectKey, err := storageKeyFromURI(fileUpload.StorageURI)
 	if err != nil {
 		return "", nil, fmt.Errorf("parse storage path: %w", err)
 	}
@@ -223,7 +223,7 @@ func RecordUpload(ctx context.Context, db *gorm.DB, params RecordUploadParams) (
 		OriginalName: originalName,
 		MimeType:     params.MimeType,
 		FileSize:     fileSize,
-		StoragePath:  normalizedURI,
+		StorageURI:  normalizedURI,
 		Sha256:       params.Sha256,
 		Purpose:      params.Purpose,
 		Status:       "active",

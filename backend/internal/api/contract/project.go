@@ -24,8 +24,4 @@ type ProjectService interface {
 	GetProjectFileTree(ctx context.Context, publicID string, parentPath string, depth int) ([]*FileTreeNode, error)
 
 	DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
-
-	UploadProjectFile(ctx context.Context, publicID string, reader io.Reader, filename string) (*FileUploadResult, error)
-
-	AddFile(ctx context.Context, publicID string, filePublicID string) error
 }

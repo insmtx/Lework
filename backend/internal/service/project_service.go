@@ -1,16 +1,12 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -525,12 +521,12 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 		return nil, err
 	}
 
-	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.PublicID, "")
+	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, "")
 	if err != nil {
 		return nil, fmt.Errorf("list project files: %w", err)
 	}
 
-	return buildFileTreeFromProjectFiles(files, parentPath), nil
+	return buildFileTreeFromProjectFiles(ctx, s.db, files, parentPath), nil
 }
 
 // DownloadProjectFile 通过 project_file 表和 filestore 下载/预览项目文件。
@@ -561,15 +557,19 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 		return nil, "", 0, errors.New("file access denied")
 	}
 
-	fileName := filepath.Base(filePath)
-	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.PublicID, "")
+	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, "")
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("list project files: %w", err)
 	}
 
+	fileName := filepath.Base(filePath)
 	var target *types.ProjectFile
 	for i := range files {
-		if files[i].OriginalName == fileName || files[i].Filename == fileName {
+		fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, files[i].FilePublicID)
+		if err != nil {
+			return nil, "", 0, fmt.Errorf("get file upload: %w", err)
+		}
+		if fileUpload != nil && (fileUpload.OriginalName == fileName || fileUpload.Filename == fileName) {
 			target = &files[i]
 			break
 		}
@@ -578,7 +578,15 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 		return nil, "", 0, fmt.Errorf("file %q not found in project files", fileName)
 	}
 
-	objectKey, err := storageKeyFromFilestoreURI(target.StoragePath)
+	fileUpload, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, target.FilePublicID)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("get file upload: %w", err)
+	}
+	if fileUpload == nil {
+		return nil, "", 0, fmt.Errorf("file upload %q not found", target.FilePublicID)
+	}
+
+	objectKey, err := storageKeyFromFilestoreURI(fileUpload.StorageURI)
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("parse storage path: %w", err)
 	}
@@ -589,129 +597,7 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 		return nil, "", 0, fmt.Errorf("read file from storage: %w", err)
 	}
 
-	return obj.Body, target.MimeType, target.FileSize, nil
-}
-
-// UploadProjectFile 上传文件到 storage。
-func (s *projectService) UploadProjectFile(ctx context.Context, publicID string, reader io.Reader, filename string) (*contract.FileUploadResult, error) {
-	caller, err := requireCallerOrg(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(publicID) == "" {
-		return nil, errors.New("public_id is required")
-	}
-	filename = strings.TrimSpace(filename)
-	if filename == "" {
-		return nil, errors.New("filename is required")
-	}
-
-	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
-	if err != nil {
-		return nil, err
-	}
-	if project == nil {
-		return nil, errors.New("project not found")
-	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-		return nil, err
-	}
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
-	}
-
-	hash := sha256.Sum256(data)
-	sha256Hex := hex.EncodeToString(hash[:])
-
-	mimeType := mime.TypeByExtension(filepath.Ext(filename))
-	if mimeType == "" {
-		mimeType = http.DetectContentType(data[:min(len(data), 512)])
-	}
-
-	ext := ""
-	if idx := strings.LastIndex(filename, "."); idx >= 0 {
-		ext = filename[idx:]
-	}
-	storeFilename := fmt.Sprintf("%s%s", snowflake.GenerateIDBase58(), ext)
-	key := fmt.Sprintf("projects/%s/%d/%s/%s", publicID, caller.OrgID, sha256Hex[:8], storeFilename)
-
-	st := filestore.GetStorage()
-	bucket := filestore.DefaultBucket()
-
-	result, err := st.PutObject(ctx, bucket, key, bytes.NewReader(data),
-		storage.WithContentType(mimeType),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("upload file: %w", err)
-	}
-
-	filePublicID := fmt.Sprintf("file_%s", snowflake.GenerateIDBase58())
-	pf := &types.ProjectFile{
-		PublicID:        filePublicID,
-		OrgID:           caller.OrgID,
-		ProjectID:       project.ID,
-		ProjectPublicID: project.PublicID,
-		Filename:        storeFilename,
-		OriginalName:    filename,
-		MimeType:        mimeType,
-		FileSize:        int64(len(data)),
-		StoragePath:     result.Path.URI(),
-		Sha256:          sha256Hex,
-		Source:          "user_upload",
-	}
-	if err := db.CreateProjectFile(ctx, s.db, pf); err != nil {
-		return nil, fmt.Errorf("create project file record: %w", err)
-	}
-
-	return &contract.FileUploadResult{
-		PublicID: filePublicID,
-		Path:     result.Path.URI(),
-		Filename: filename,
-		Size:     int64(len(data)),
-		URL:      result.Path.PublicURL(),
-	}, nil
-}
-
-// AddFile 将已上传的文件关联到项目。
-func (s *projectService) AddFile(ctx context.Context, publicID string, filePublicID string) error {
-	caller, err := requireCallerOrg(ctx)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(publicID) == "" {
-		return errors.New("public_id is required")
-	}
-	if strings.TrimSpace(filePublicID) == "" {
-		return errors.New("file_public_id is required")
-	}
-
-	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, publicID)
-	if err != nil {
-		return err
-	}
-	if project == nil {
-		return errors.New("project not found")
-	}
-
-	file, err := db.GetFileUploadByPublicID(ctx, s.db, caller.OrgID, filePublicID)
-	if err != nil {
-		return err
-	}
-	if file == nil {
-		return errors.New("file not found")
-	}
-
-	if file.Metadata.Extra == nil {
-		file.Metadata.Extra = make(map[string]interface{})
-	}
-	file.Metadata.Extra["project_public_id"] = publicID
-	if err := db.UpdateFileUpload(ctx, s.db, file); err != nil {
-		return fmt.Errorf("update file upload metadata: %w", err)
-	}
-
-	return nil
+	return obj.Body, fileUpload.MimeType, fileUpload.FileSize, nil
 }
 
 func generateProjectPublicID() string {
@@ -810,25 +696,34 @@ func mimeTypeByExt(filename string) string {
 }
 
 // buildFileTreeFromProjectFiles 将扁平的 ProjectFile 列表转换为 FileTreeNode 树结构
-func buildFileTreeFromProjectFiles(files []types.ProjectFile, parentPath string) []*contract.FileTreeNode {
+func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files []types.ProjectFile, parentPath string) []*contract.FileTreeNode {
 	var roots []*contract.FileTreeNode
 
 	for _, pf := range files {
-		sourcePrefix := "uploads/"
-		if pf.Source == "worker_artifact" {
-			sourcePrefix = "artifacts/"
+		fileUpload, err := db.GetFileUploadByPublicID(ctx, dbParam, pf.OrgID, pf.FilePublicID)
+		if err != nil || fileUpload == nil {
+			continue
 		}
-		fullPath := sourcePrefix + pf.OriginalName
-		fileName := pf.OriginalName
+
+		var sourcePrefix string
+		var fileName string
+		if pf.ResourceType == types.ProjectFileResourceTypeArtifact {
+			sourcePrefix = "artifacts/"
+			fileName = fileUpload.OriginalName
+		} else {
+			sourcePrefix = "uploads/"
+			fileName = fileUpload.OriginalName
+		}
+		fullPath := sourcePrefix + fileName
 
 		node := &contract.FileTreeNode{
 			Name:      fileName,
 			Path:      fullPath,
 			Type:      "file",
-			Size:      pf.FileSize,
-			MimeType:  pf.MimeType,
+			Size:      fileUpload.FileSize,
+			MimeType:  fileUpload.MimeType,
 			CreatedAt: pf.CreatedAt.Unix(),
-			PublicID:  pf.PublicID,
+			PublicID:  pf.FilePublicID,
 		}
 		roots = append(roots, node)
 	}

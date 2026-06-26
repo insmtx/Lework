@@ -21,9 +21,17 @@ import (
 
 // legacyColumnsToDrop 记录了从模型中被移除但数据库中残留的列。
 // GORM AutoMigrate 不会删除列，需要手动清理。
+// GORM AutoMigrate 不会重命名列，重命名需要手动迁移。
 type legacyColumn struct {
 	table  string
 	column string
+}
+
+// renameColumn 记录需要重命名的列（从旧列名到新列名）
+type renameColumn struct {
+	table  string
+	oldCol string
+	newCol string
 }
 
 var legacyColumns = []legacyColumn{
@@ -31,6 +39,10 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameMessageResource, column: "resource_public_id"},
 	{table: types.TableNameMessageResource, column: "resource_code"},
 	{table: types.TableNameMessageResource, column: "meta"},
+}
+
+var renamesToApply = []renameColumn{
+	{table: types.TableNameFileUpload, oldCol: "storage_path", newCol: "storage_uri"},
 }
 
 // dbName 是数据库名称常量
@@ -99,6 +111,10 @@ func runMigrations(db *gorm.DB) error {
 		&types.MessageResource{},
 	}
 
+	if err := renameLegacyColumns(db); err != nil {
+		return err
+	}
+
 	if err := dbtools.InitModel(db, models...); err != nil {
 		return err
 	}
@@ -121,6 +137,23 @@ func dropLegacyColumns(db *gorm.DB) error {
 				return err
 			}
 			logs.Infof("[migration] dropped legacy column %s.%s", lc.table, lc.column)
+		}
+	}
+	return nil
+}
+
+// renameLegacyColumns 重命名已在数据库中但模型字段名变更的列
+func renameLegacyColumns(db *gorm.DB) error {
+	for _, rc := range renamesToApply {
+		hasOld := db.Migrator().HasColumn(rc.table, rc.oldCol)
+		hasNew := db.Migrator().HasColumn(rc.table, rc.newCol)
+		if hasOld && !hasNew {
+			logs.Infof("[migration] renaming column %s.%s -> %s", rc.table, rc.oldCol, rc.newCol)
+			if err := db.Migrator().RenameColumn(rc.table, rc.oldCol, rc.newCol); err != nil {
+				logs.Errorf("[migration] failed to rename column %s.%s -> %s: %v", rc.table, rc.oldCol, rc.newCol, err)
+				return err
+			}
+			logs.Infof("[migration] renamed column %s.%s -> %s", rc.table, rc.oldCol, rc.newCol)
 		}
 	}
 	return nil

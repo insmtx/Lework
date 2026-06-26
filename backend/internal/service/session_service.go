@@ -335,7 +335,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		if err != nil {
 			logs.WarnContextf(ctx, "addMessage get project %d: %v", *session.ProjectID, err)
 		} else if project != nil {
-			attachFilesToProject(ctx, s.db, session.OrgID, project, req.Attachments)
+			attachFilesToProject(ctx, s.db, session.OrgID, session.Uin, session.TaskID, project, req.Attachments)
 		}
 	}
 

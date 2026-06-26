@@ -37,7 +37,7 @@ type ArtifactRecord struct {
 	ArtifactType string
 	RelativePath string
 	StorageKey   string
-	StoragePathURI   string
+	StorageURI   string
 	MimeType     string
 	FileSize     int64
 	Sha256       string

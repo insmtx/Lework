@@ -156,7 +156,7 @@ func expectFileUploadLookup(mock sqlmock.Sqlmock, publicID, originalName, storag
 	columns := []string{
 		"id", "created_at", "updated_at", "deleted_at", "public_id",
 		"org_id", "owner_id", "filename", "original_name", "mime_type",
-		"file_size", "storage_path", "sha256", "purpose", "status", "metadata",
+		"file_size", "storage_uri", "sha256", "purpose", "status", "metadata",
 	}
 	now := time.Now()
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "leros_file_upload" WHERE (public_id = $1 AND org_id = $2) AND "leros_file_upload"."deleted_at" IS NULL ORDER BY "leros_file_upload"."id" LIMIT $3`)).

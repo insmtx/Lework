@@ -78,8 +78,8 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 		MimeType:     file.MimeType,
 		FileSize:     file.FileSize,
 		Sha256:       file.Sha256,
-		StoragePath:  file.StoragePath,
-		URL:          file.StoragePath,
+		StoragePath:  file.StorageURI,
+		URL:          file.StorageURI,
 	}, nil
 }
 
@@ -93,9 +93,9 @@ func (s *fileService) DownloadFile(ctx context.Context, orgID uint, fileID strin
 	// TODO: 当存储层支持 HTTP 请求时，直接使用 PublicURL 作为绝对路径或重定向地址，
 	//       当前本地磁盘模式下 PublicURL() 返回的是本地绝对路径，无法通过 HTTP 访问。
 	publicURL := ""
-	fileUpload.StoragePath = strings.TrimSpace(fileUpload.StoragePath)
-	if fileUpload.StoragePath != "" {
-		publicURL = fileUpload.StoragePath
+	fileUpload.StorageURI = strings.TrimSpace(fileUpload.StorageURI)
+	if fileUpload.StorageURI != "" {
+		publicURL = fileUpload.StorageURI
 	}
 
 	return reader, &contract.FileDownloadInfo{

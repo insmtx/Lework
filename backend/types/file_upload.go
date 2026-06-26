@@ -14,7 +14,7 @@ type FileUpload struct {
 	OriginalName string         `gorm:"column:original_name;type:varchar(500)"`
 	MimeType     string         `gorm:"column:mime_type;type:varchar(100)"`
 	FileSize     int64          `gorm:"column:file_size;type:bigint"`
-	StoragePath  string         `gorm:"column:storage_path;type:varchar(500);not null"`
+	StorageURI  string         `gorm:"column:storage_uri;type:varchar(500);not null"`
 	Sha256       string         `gorm:"column:sha256;type:varchar(64);index"`
 	Purpose      string         `gorm:"column:purpose;type:varchar(50);index"`
 	Status       string         `gorm:"column:status;type:varchar(50);not null;default:'active';index"`

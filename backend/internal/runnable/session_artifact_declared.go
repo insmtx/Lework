@@ -14,7 +14,6 @@ import (
 	"github.com/insmtx/Leros/backend/pkg/dm"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/nats-io/nats.go"
-	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )
@@ -139,7 +138,7 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		originalName = filename
 	}
 
-	storagePathURI := strings.TrimSpace(item.StoragePathURI)
+	storagePathURI := strings.TrimSpace(item.StorageURI)
 	fileURL := storagePathURI
 	if fileURL == "" {
 		fileURL = projectPublicID + "/" + storageKey
@@ -158,7 +157,7 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 		ArtifactType: artifactType(item.ArtifactType),
 		FileURL:      fileURL,
 		FileSize:     item.FileSize,
-		RelativePath:  item.RelativePath,
+		RelativePath: item.RelativePath,
 		StorageKey:   storageKey,
 		MimeType:     item.MimeType,
 		Sha256:       item.Sha256,
@@ -200,26 +199,20 @@ func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context,
 				"project_public_id": projectPublicID,
 			},
 		})
-		pfStoragePath := storagePathURI
 		if err != nil {
 			logs.WarnContextf(ctx, "persist declared artifact: record upload failed: %v", err)
-		} else {
-			pfStoragePath = fileUpload.StoragePath
 		}
 
 		pf := &types.ProjectFile{
-			PublicID:        fmt.Sprintf("file_%s", snowflake.GenerateIDBase58()),
-			OrgID:           session.OrgID,
-			ProjectID:       *session.ProjectID,
-			ProjectPublicID: projectPublicID,
-			Filename:        filename,
-			OriginalName:    originalName,
-			MimeType:        mimeType,
-			FileSize:        item.FileSize,
-			StoragePath:     pfStoragePath,
-			Sha256:          item.Sha256,
-			Source:          "worker_artifact",
-			ArtifactID:      &artifact.ID,
+			FilePublicID: fileUpload.PublicID,
+			OrgID:        session.OrgID,
+			ProjectID:    *session.ProjectID,
+			ResourceID:   artifact.ID,
+			ResourceType: types.ProjectFileResourceTypeArtifact,
+			Uin:          session.Uin,
+		}
+		if session.TaskID != nil {
+			pf.TaskID = *session.TaskID
 		}
 		if err := infradb.CreateProjectFile(ctx, p.db, pf); err != nil {
 			logs.WarnContextf(ctx, "persist declared artifact: create project file record failed: %v", err)

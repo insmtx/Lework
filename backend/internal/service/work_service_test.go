@@ -36,7 +36,7 @@ func TestWorkServiceNewMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 		OriginalName: "spec.pdf",
 		MimeType:     "application/pdf",
 		FileSize:     1024,
-		StoragePath:  "project-files/spec.pdf",
+		StorageURI:  "project-files/spec.pdf",
 		Purpose:      "project_file",
 		Status:       "active",
 	}
