@@ -55,7 +55,12 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 		ext = req.Filename[idx:]
 	}
 	storeFilename := fmt.Sprintf("%s%s", snowflake.GenerateIDBase58(), ext)
-	key := fmt.Sprintf("%s/%d/%s", req.Purpose, caller.OrgID, storeFilename)
+	var key string
+	if req.SourceID != "" {
+		key = fmt.Sprintf("%s/%d/%s/uploads/%s", req.Purpose, caller.OrgID, req.SourceID, storeFilename)
+	} else {
+		key = fmt.Sprintf("%s/%d/uploads/%s", req.Purpose, caller.OrgID, storeFilename)
+	}
 
 	file, err := filestore.Upload(ctx, s.db, filestore.UploadParams{
 		Data:         data,
@@ -74,14 +79,12 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 
 	return &contract.UploadFileResult{
 		PublicID:     file.PublicID,
-		FileUploadID: file.PublicID,
 		Filename:     file.Filename,
 		OriginalName: file.OriginalName,
 		MimeType:     file.MimeType,
 		FileSize:     file.FileSize,
 		Sha256:       file.Sha256,
-		StoragePath:  file.StorageURI,
-		URL:          file.StorageURI,
+		StorageURI:   file.StorageURI,
 	}, nil
 }
 

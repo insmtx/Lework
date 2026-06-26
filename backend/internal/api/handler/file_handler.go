@@ -12,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 )
 
 type FileHandler struct {
@@ -35,6 +36,7 @@ func (h *FileHandler) RegisterRoutes(r gin.IRouter) {
 // @Produce json
 // @Param file formData file true "上传文件"
 // @Param purpose formData string false "文件用途（默认 attachment）"
+// @Param source_id formData string false "来源ID（可选）"
 // @Success 200 {object} dto.Response "上传成功"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"
@@ -48,8 +50,10 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 
 	purpose := strings.TrimSpace(ctx.PostForm("purpose"))
 	if purpose == "" {
-		purpose = "attachment"
+		purpose = filestore.PurposeAttachment
 	}
+
+	sourceID := strings.TrimSpace(ctx.PostForm("source_id"))
 
 	file, err := fileHeader.Open()
 	if err != nil {
@@ -72,6 +76,7 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 		FileSize: fileHeader.Size,
 		MimeType: fileHeader.Header.Get("Content-Type"),
 		Purpose:  purpose,
+		SourceID: sourceID,
 	})
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, "upload file failed"))

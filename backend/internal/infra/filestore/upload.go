@@ -18,7 +18,9 @@ import (
 )
 
 const (
-	PurposeArtifact = "artifact"
+	PurposeAttachment = "attachment"
+	PurposeAvatar     = "avatar"
+	PurposeArtifact   = "artifact"
 )
 
 // UploadParams 文件上传参数
