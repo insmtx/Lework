@@ -11,7 +11,7 @@ import {
 	CommandList,
 } from "@leros/ui/components/ui/command";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Sparkles, X } from "lucide-react";
+import { Bot, Sparkles } from "lucide-react";
 import {
 	forwardRef,
 	type MouseEvent,
@@ -430,6 +430,11 @@ function getCaretOffset(root: HTMLElement): number {
 	if (!selection || selection.rangeCount === 0) return extractSnapshot(root).text.length;
 
 	const range = selection.getRangeAt(0);
+	if (!root.contains(range.endContainer)) {
+		// 中文注释：工具栏弹窗的搜索框会抢走 selection，此时插入技能应追加到输入框末尾。
+		return extractSnapshot(root).text.length;
+	}
+
 	const workingRange = range.cloneRange();
 	workingRange.selectNodeContents(root);
 	workingRange.setEnd(range.endContainer, range.endOffset);
@@ -447,6 +452,11 @@ function getSelectionOffsets(root: HTMLElement): {
 	}
 
 	const range = selection.getRangeAt(0);
+	if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) {
+		const textLength = extractSnapshot(root).text.length;
+		return { start: textLength, end: textLength };
+	}
+
 	const startRange = range.cloneRange();
 	startRange.selectNodeContents(root);
 	startRange.setEnd(range.startContainer, range.startOffset);
@@ -566,6 +576,8 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const pendingCaretRef = useRef<number | null>(null);
 		const dismissedTriggerStartRef = useRef<number | null>(null);
 		const shouldAutoScrollPickerRef = useRef(false);
+		const valueRef = useRef(value);
+		const tokensRef = useRef<InsertedToken[]>([]);
 
 		const assistantOptions = useMemo<AssistantOption[]>(() => mockAssistants, []);
 		const displayTokens = useMemo(() => resolveDisplayTokens(value, tokens), [tokens, value]);
@@ -634,6 +646,36 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				setCaretOffset(editor, cursor);
 			});
 		}, []);
+
+		useEffect(() => {
+			valueRef.current = value;
+		}, [value]);
+
+		useEffect(() => {
+			tokensRef.current = tokens;
+		}, [tokens]);
+
+		const commitProgrammaticEdit = useCallback(
+			(nextValue: string, nextTokens: InsertedToken[], nextCaret: number) => {
+				const editor = editorRef.current;
+
+				valueRef.current = nextValue;
+				tokensRef.current = nextTokens;
+				setTokens(nextTokens);
+				onChange(nextValue);
+
+				if (!editor) {
+					pendingCaretRef.current = nextCaret;
+					return;
+				}
+
+				// 中文注释：程序化插入 mention 后立即同步 DOM，避免首个技能在 effect 前被读成普通文本。
+				buildEditorContent(editor, nextValue, resolveDisplayTokens(nextValue, nextTokens));
+				pendingCaretRef.current = null;
+				focusAt(nextCaret);
+			},
+			[focusAt, onChange],
+		);
 
 		const getActiveTrigger = useCallback((text: string, caret: number) => {
 			const nextTrigger = findTrigger(text, caret);
@@ -749,9 +791,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			if (!editor) return;
 
 			const snapshot = extractSnapshot(editor);
+			tokensRef.current = snapshot.tokens;
 			setTokens(snapshot.tokens);
 			// 中文注释：仅空白/换行时归一为空串，避免 placeholder 因 \n 被误判为已输入。
 			const text = isEmptyEditorValue(snapshot.text) ? "" : snapshot.text;
+			valueRef.current = text;
 			onChange(text);
 
 			if (
@@ -793,11 +837,16 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				if (!editor) return;
 
 				const { start, end } = getSelectionOffsets(editor);
-				const nextValue = `${value.slice(0, start)}${pastedText}${value.slice(end)}`;
+				const currentValue = valueRef.current;
+				const currentTokens = tokensRef.current;
+				const nextValue = `${currentValue.slice(0, start)}${pastedText}${currentValue.slice(end)}`;
 				const nextCaret = start + pastedText.length;
+				const nextTokens = shiftTokensForTextEdit(currentTokens, currentValue, nextValue);
 
 				// 富文本编辑器里外部粘贴默认会带入 HTML/样式，这里统一降级成纯文本，保证展示和发送内容一致。
-				setTokens((current) => shiftTokensForTextEdit(current, value, nextValue));
+				valueRef.current = nextValue;
+				tokensRef.current = nextTokens;
+				setTokens(nextTokens);
 				onChange(nextValue);
 				pendingCaretRef.current = nextCaret;
 
@@ -807,7 +856,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 				focusAt(nextCaret);
 			},
-			[directivesDisabled, focusAt, getActiveTrigger, onChange, onPasteFiles, value],
+			[directivesDisabled, focusAt, getActiveTrigger, onChange, onPasteFiles],
 		);
 
 		const insertTrigger = useCallback(
@@ -816,33 +865,40 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const editor = editorRef.current;
 				if (!editor) return;
 
+				const currentValue = valueRef.current;
+				const currentTokens = tokensRef.current;
 				const cursor = getCaretOffset(editor);
 				const marker = kind === "assistant" ? "@" : "/";
-				const needsLeadingSpace = cursor > 0 && !/\s/.test(value[cursor - 1] ?? "");
+				const needsLeadingSpace = cursor > 0 && !/\s/.test(currentValue[cursor - 1] ?? "");
 				const insertion = `${needsLeadingSpace ? " " : ""}${marker}`;
 				const markerStart = cursor + (needsLeadingSpace ? 1 : 0);
-				const nextValue = `${value.slice(0, cursor)}${insertion}${value.slice(cursor)}`;
+				const nextValue = `${currentValue.slice(0, cursor)}${insertion}${currentValue.slice(cursor)}`;
+				const nextTokens = shiftTokensForTextEdit(currentTokens, currentValue, nextValue);
 
 				// 工具栏触发的插入不会经过原生 input 事件，这里手动同步 mention 位置信息。
-				setTokens((current) => shiftTokensForTextEdit(current, value, nextValue));
+				valueRef.current = nextValue;
+				tokensRef.current = nextTokens;
+				setTokens(nextTokens);
 				onChange(nextValue);
 				pendingCaretRef.current = markerStart + 1;
 				dismissedTriggerStartRef.current = null;
 				setTrigger({ kind, start: markerStart, end: markerStart + 1, query: "" });
 				focusAt(markerStart + 1);
 			},
-			[directivesDisabled, focusAt, onChange, value],
+			[directivesDisabled, focusAt, onChange],
 		);
 
 		const insertToolbarToken = useCallback(
 			(kind: TokenKind, rawLabel: string) => {
 				const editor = editorRef.current;
-				const cursor = editor ? getCaretOffset(editor) : value.length;
-				const needsLeadingSpace = cursor > 0 && !/\s/.test(value[cursor - 1] ?? "");
-				const needsTrailingSpace = !/\s/.test(value[cursor] ?? "");
+				const currentValue = valueRef.current;
+				const currentTokens = tokensRef.current;
+				const cursor = editor ? getCaretOffset(editor) : currentValue.length;
+				const needsLeadingSpace = cursor > 0 && !/\s/.test(currentValue[cursor - 1] ?? "");
+				const needsTrailingSpace = !/\s/.test(currentValue[cursor] ?? "");
 				const insertion = `${needsLeadingSpace ? " " : ""}${rawLabel}${needsTrailingSpace ? " " : ""}`;
 				const tokenStart = cursor + (needsLeadingSpace ? 1 : 0);
-				const nextValue = `${value.slice(0, cursor)}${insertion}${value.slice(cursor)}`;
+				const nextValue = `${currentValue.slice(0, cursor)}${insertion}${currentValue.slice(cursor)}`;
 				const insertedToken: InsertedToken = {
 					label: rawLabel,
 					start: tokenStart,
@@ -850,23 +906,30 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					kind,
 				};
 
-				setTokens((current) =>
-					shiftTokensForInsert(current, cursor, cursor, insertedToken, insertion.length),
+				const nextTokens = shiftTokensForInsert(
+					currentTokens,
+					cursor,
+					cursor,
+					insertedToken,
+					insertion.length,
 				);
-				onChange(nextValue);
 				dismissedTriggerStartRef.current = null;
 				dismissTrigger(false);
-				pendingCaretRef.current = tokenStart + rawLabel.length + (needsTrailingSpace ? 1 : 0);
-				focusAt(tokenStart + rawLabel.length + (needsTrailingSpace ? 1 : 0));
+				commitProgrammaticEdit(
+					nextValue,
+					nextTokens,
+					tokenStart + rawLabel.length + (needsTrailingSpace ? 1 : 0),
+				);
 			},
-			[dismissTrigger, focusAt, onChange, value],
+			[commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const removeMentionToken = useCallback(
 			(kind: Extract<TokenKind, "assistant" | "skill">, rawLabel: string) => {
 				const prefix = kind === "assistant" ? "@" : "/";
 				const normalizedLabel = rawLabel.startsWith(prefix) ? rawLabel : `${prefix}${rawLabel}`;
-				const currentTokens = resolveDisplayTokens(value, tokens);
+				const currentValue = valueRef.current;
+				const currentTokens = resolveDisplayTokens(currentValue, tokensRef.current);
 				const target = currentTokens.find(
 					(token) => token.kind === kind && token.label === normalizedLabel,
 				);
@@ -874,20 +937,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 				let start = target.start;
 				let end = target.end;
-				if (value[end] === " ") {
+				if (currentValue[end] === " ") {
 					end += 1;
-				} else if (start > 0 && value[start - 1] === " ") {
+				} else if (start > 0 && currentValue[start - 1] === " ") {
 					start -= 1;
 				}
-				const nextValue = `${value.slice(0, start)}${value.slice(end)}`;
+				const nextValue = `${currentValue.slice(0, start)}${currentValue.slice(end)}`;
+				const nextTokens = shiftTokensForTextEdit(currentTokens, currentValue, nextValue);
 				// 中文注释：从已选 tag 区域移除时，同步删除输入框里的 mention token 和对应纯文本。
-				setTokens((current) => shiftTokensForTextEdit(current, value, nextValue));
-				onChange(nextValue);
 				dismissTrigger(false);
-				pendingCaretRef.current = start;
-				focusAt(start);
+				commitProgrammaticEdit(nextValue, nextTokens, start);
 			},
-			[dismissTrigger, focusAt, onChange, tokens, value],
+			[commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const removeAssistantToken = useCallback(
@@ -910,9 +971,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				insertSkill: (skillLabel: string) => insertToolbarToken("skill", `/${skillLabel}`),
 				removeAssistant: removeAssistantToken,
 				removeSkill: removeSkillToken,
-				getComposerTokens: () => resolveDisplayTokens(value, tokens),
+				getComposerTokens: () => resolveDisplayTokens(valueRef.current, tokensRef.current),
 			}),
-			[insertToolbarToken, insertTrigger, removeAssistantToken, removeSkillToken, tokens, value],
+			[insertToolbarToken, insertTrigger, removeAssistantToken, removeSkillToken],
 		);
 
 		const selectToken = useCallback(
@@ -935,60 +996,40 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const label = isAssistant
 					? `@${(option as AssistantOption).name}`
 					: `/${(option as ComposerSkillOption).label}`;
-				const followingText = value.slice(activeTrigger.end);
+				const currentValue = valueRef.current;
+				const currentTokens = tokensRef.current;
+				const followingText = currentValue.slice(activeTrigger.end);
 				// 中文注释：token 后保留一个正文分隔空格，避免继续输入时被当成同一个 / 或 @ 指令查询。
 				const trailingSpace = /^\s/.test(followingText) ? "" : " ";
-				const nextValue = `${value.slice(
+				const nextValue = `${currentValue.slice(
 					0,
 					activeTrigger.start,
 				)}${label}${trailingSpace}${followingText}`;
-				if (isAssistant) {
-					const insertedToken: InsertedToken = {
-						label,
-						start: activeTrigger.start,
-						end: activeTrigger.start + label.length,
-						kind: "assistant",
-					};
-					const delta =
-						label.length + trailingSpace.length - (activeTrigger.end - activeTrigger.start);
-
-					setTokens((current) =>
-						shiftTokensForInsert(
-							current,
-							activeTrigger.start,
-							activeTrigger.end,
-							insertedToken,
-							delta,
-						),
-					);
-				} else {
-					const insertedToken: InsertedToken = {
-						label,
-						start: activeTrigger.start,
-						end: activeTrigger.start + label.length,
-						kind: "skill",
-					};
-					const delta =
-						label.length + trailingSpace.length - (activeTrigger.end - activeTrigger.start);
-
-					setTokens((current) =>
-						shiftTokensForInsert(
-							current,
-							activeTrigger.start,
-							activeTrigger.end,
-							insertedToken,
-							delta,
-						),
-					);
-				}
-				onChange(nextValue);
+				const insertedToken: InsertedToken = {
+					label,
+					start: activeTrigger.start,
+					end: activeTrigger.start + label.length,
+					kind: isAssistant ? "assistant" : "skill",
+				};
+				const delta =
+					label.length + trailingSpace.length - (activeTrigger.end - activeTrigger.start);
+				const nextTokens = shiftTokensForInsert(
+					currentTokens,
+					activeTrigger.start,
+					activeTrigger.end,
+					insertedToken,
+					delta,
+				);
 				dismissedTriggerStartRef.current = null;
 				dismissTrigger(false);
-				// mention 节点插入后，显式恢复光标到节点后面的正文位置，避免落到不可编辑节点内部。
-				pendingCaretRef.current = activeTrigger.start + label.length + trailingSpace.length;
-				focusAt(activeTrigger.start + label.length + trailingSpace.length);
+				// 中文注释：内联弹窗选择后立即重建 mention DOM，避免首个技能先落成普通文本。
+				commitProgrammaticEdit(
+					nextValue,
+					nextTokens,
+					activeTrigger.start + label.length + trailingSpace.length,
+				);
 			},
-			[dismissTrigger, focusAt, onChange, selectedAssistantNames, selectedSkillLabels, value],
+			[commitProgrammaticEdit, dismissTrigger, selectedAssistantNames, selectedSkillLabels],
 		);
 
 		const selectActiveItem = useCallback(() => {
@@ -1110,113 +1151,69 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 							<CommandList className="max-h-60">
 								<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
 								{trigger.kind === "assistant" ? (
-									<>
-										{selectedAssistantNames.length > 0 && (
-											<div className="px-2.5 pb-2 pt-1">
-												<div className="mb-1 text-[11px] font-medium text-slate-400">
-													已选 AI 队友
+									<CommandGroup className="p-0">
+										{filteredAssistants.map((assistant, index) => (
+											<CommandItem
+												key={assistant.code}
+												value={assistantPickerValue(assistant)}
+												data-picker-item-value={assistantPickerValue(assistant)}
+												onMouseDown={(event: MouseEvent) => event.preventDefault()}
+												onSelect={() => selectToken("assistant", assistant, trigger)}
+												className={cn(
+													"rounded-xl px-2.5 py-2",
+													index === activeIndex && "bg-slate-100",
+												)}
+											>
+												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+													<Bot className="size-4" />
 												</div>
-												<div className="flex flex-wrap gap-1.5">
-													{selectedAssistantNames.map((name) => (
-														<button
-															key={name}
-															type="button"
-															onClick={() => removeAssistantToken(name)}
-															className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700 transition-colors hover:bg-blue-100"
-														>
-															@{name}
-															<X className="size-3" />
-														</button>
-													))}
+												<div className="min-w-0 flex-1">
+													<div className="truncate font-medium text-slate-700">
+														{assistant.name}
+													</div>
+													<div className="truncate text-xs text-slate-400">
+														{assistant.description}
+													</div>
 												</div>
-											</div>
-										)}
-										<CommandGroup className="p-0">
-											{filteredAssistants.map((assistant, index) => (
-												<CommandItem
-													key={assistant.code}
-													value={assistantPickerValue(assistant)}
-													data-picker-item-value={assistantPickerValue(assistant)}
-													onMouseDown={(event: MouseEvent) => event.preventDefault()}
-													onSelect={() => selectToken("assistant", assistant, trigger)}
-													className={cn(
-														"rounded-xl px-2.5 py-2",
-														index === activeIndex && "bg-slate-100",
-													)}
-												>
-													<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-														<Bot className="size-4" />
-													</div>
-													<div className="min-w-0 flex-1">
-														<div className="truncate font-medium text-slate-700">
-															{assistant.name}
-														</div>
-														<div className="truncate text-xs text-slate-400">
-															{assistant.description}
-														</div>
-													</div>
-												</CommandItem>
-											))}
-										</CommandGroup>
-									</>
+											</CommandItem>
+										))}
+									</CommandGroup>
 								) : (
-									<>
-										{selectedSkillLabels.length > 0 && (
-											<div className="px-2.5 pb-2 pt-1">
-												<div className="mb-1 text-[11px] font-medium text-slate-400">已选技能</div>
-												<div className="flex flex-wrap gap-1.5">
-													{selectedSkillLabels.map((label) => (
-														<button
-															key={label}
-															type="button"
-															onClick={() => removeSkillToken(label)}
-															className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700 transition-colors hover:bg-violet-100"
-														>
-															/{label}
-															<X className="size-3" />
-														</button>
-													))}
-												</div>
-											</div>
+									<CommandGroup heading="Skills" className="p-0">
+										{skillsLoading && (
+											<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>
 										)}
-										<CommandGroup heading="Skills" className="p-0">
-											{skillsLoading && (
-												<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>
-											)}
-											{!skillsLoading && skillsError && (
-												<div className="px-2.5 py-2 text-xs text-red-400">{skillsError}</div>
-											)}
-											{filteredSkills.map((skill, index) => (
-												<CommandItem
-													key={`skill-${skill.code}`}
-													value={commandPickerValue({
-														kind: "skill",
-														item: skill,
-													})}
-													data-picker-item-value={commandPickerValue({
-														kind: "skill",
-														item: skill,
-													})}
-													onMouseDown={(event: MouseEvent) => event.preventDefault()}
-													onSelect={() => selectToken("skill", skill, trigger)}
-													className={cn(
-														"rounded-xl px-2.5 py-2",
-														index === activeIndex && "bg-slate-100",
-													)}
-												>
-													<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
-														<Sparkles className="size-3.5" />
-													</div>
-													<div className="min-w-0 flex-1">
-														<div className="truncate font-medium">/{skill.label}</div>
-														<div className="truncate text-xs text-slate-400">
-															{skill.description}
-														</div>
-													</div>
-												</CommandItem>
-											))}
-										</CommandGroup>
-									</>
+										{!skillsLoading && skillsError && (
+											<div className="px-2.5 py-2 text-xs text-red-400">{skillsError}</div>
+										)}
+										{filteredSkills.map((skill, index) => (
+											<CommandItem
+												key={`skill-${skill.code}`}
+												value={commandPickerValue({
+													kind: "skill",
+													item: skill,
+												})}
+												data-picker-item-value={commandPickerValue({
+													kind: "skill",
+													item: skill,
+												})}
+												onMouseDown={(event: MouseEvent) => event.preventDefault()}
+												onSelect={() => selectToken("skill", skill, trigger)}
+												className={cn(
+													"rounded-xl px-2.5 py-2",
+													index === activeIndex && "bg-slate-100",
+												)}
+											>
+												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+													<Sparkles className="size-3.5" />
+												</div>
+												<div className="min-w-0 flex-1">
+													<div className="truncate font-medium">/{skill.label}</div>
+													<div className="truncate text-xs text-slate-400">{skill.description}</div>
+												</div>
+											</CommandItem>
+										))}
+									</CommandGroup>
 								)}
 							</CommandList>
 						</Command>

@@ -599,7 +599,14 @@ function CreateProjectDialog({
 									>
 										+ 添加
 									</PopoverTrigger>
-									<PopoverContent align="end" sideOffset={10} className="w-[340px] p-1.5">
+									{/* 固定在按钮上方，避免创建项目弹窗内的技能选择层随空间动态换位。 */}
+									<PopoverContent
+										align="end"
+										side="top"
+										sideOffset={10}
+										collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+										className="w-[340px] p-1.5"
+									>
 										<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
 											<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
 											<CommandInput
@@ -607,26 +614,6 @@ function CreateProjectDialog({
 												onValueChange={setSkillSearch}
 												placeholder="搜索技能"
 											/>
-											{selectedSkills.length > 0 && (
-												<div className="px-2 pb-2 pt-1">
-													<div className="mb-1 text-[11px] font-medium text-slate-400">
-														已选技能
-													</div>
-													<div className="flex flex-wrap gap-1.5">
-														{selectedSkills.map((skill) => (
-															<button
-																key={skill.code}
-																type="button"
-																onClick={() => removeSkill(skill.code)}
-																className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700 transition-colors hover:bg-violet-100"
-															>
-																/{skill.label}
-																<X className="size-3" />
-															</button>
-														))}
-													</div>
-												</div>
-											)}
 											<CommandList className="max-h-64">
 												<CommandEmpty className="py-6 text-slate-400">
 													没有可继续添加的技能

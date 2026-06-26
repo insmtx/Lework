@@ -25,6 +25,7 @@ vi.mock("@leros/store", () => ({
 			sendMessage: vi.fn(),
 			sendProjectMessage: mockSendProjectMessage,
 			submitApprovalDecision: vi.fn(),
+			submitQuestionAnswer: vi.fn(),
 			cancelGeneration: vi.fn(),
 			addAttachment: vi.fn(),
 			addUploadedAttachment: vi.fn(),
@@ -35,7 +36,23 @@ vi.mock("@leros/store", () => ({
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			activeProjectId: "project-1",
+			activeTaskDetailProjectId: null,
 			currentView: "project",
+			projects: [
+				{
+					id: "project-1",
+					name: "测试项目",
+					description: "",
+					emoji: "📁",
+					createdAt: "2026-06-26",
+					updatedAt: "2026-06-26",
+					tasks: [],
+					artifacts: [],
+					files: [],
+					messages: [],
+					skills: [],
+				},
+			],
 		}),
 }));
 
@@ -102,7 +119,12 @@ describe("ChatInput", () => {
 
 		await user.click(screen.getByRole("button", { name: "发送" }));
 
-		expect(mockSendProjectMessage).toHaveBeenCalledWith("项目首页首条提问", "project-1", []);
+		expect(mockSendProjectMessage).toHaveBeenCalledWith(
+			"项目首页首条提问",
+			"project-1",
+			[],
+			undefined,
+		);
 		expect(mockGoToTaskDetail).toHaveBeenCalledWith("project-1", "task-9", "session-7");
 	});
 });

@@ -763,6 +763,7 @@ function ProjectConfigSidebar({
 						>
 							<Plus className="size-4" />
 						</PopoverTrigger>
+						{/* 固定在按钮上方，和输入框工具栏的技能选择弹窗保持一致。 */}
 						<PopoverContent
 							align="end"
 							side="top"
@@ -777,24 +778,6 @@ function ProjectConfigSidebar({
 									onValueChange={setSkillSearch}
 									placeholder="搜索技能"
 								/>
-								{project.skills.length > 0 && (
-									<div className="px-2 pb-2 pt-1">
-										<div className="mb-1 text-[11px] font-medium text-slate-400">已选技能</div>
-										<div className="flex flex-wrap gap-1.5">
-											{project.skills.map((skill) => (
-												<button
-													key={skill.code}
-													type="button"
-													onClick={() => removeProjectSkill(skill.code)}
-													className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700 transition-colors hover:bg-violet-100"
-												>
-													/{skill.name}
-													<X className="size-3" />
-												</button>
-											))}
-										</div>
-									</div>
-								)}
 								<CommandList className="max-h-64">
 									<CommandEmpty className="py-6 text-slate-400">没有可继续添加的技能</CommandEmpty>
 									<CommandGroup className="p-0">
