@@ -1138,18 +1138,52 @@ func (s *skillMarketplaceService) enrichInstalledSystemSkills(ctx context.Contex
 	for _, view := range views {
 		viewByID[view.SkillID] = view
 	}
+	cachedByName, err := s.cachedMarketplaceItemsBySkillName(ctx, names)
+	if err != nil {
+		logs.WarnContextf(ctx, "enrich installed marketplace skills: query cached skills: %v", err)
+	}
+	cachedViews := make([]contract.SkillMarketplaceItemView, 0, len(cachedByName))
+	seenCachedSkillIDs := make(map[string]bool, len(cachedByName))
+	for _, item := range cachedByName {
+		key := item.Source + "|" + item.SkillID + "|" + item.Version
+		if seenCachedSkillIDs[key] {
+			continue
+		}
+		seenCachedSkillIDs[key] = true
+		cachedViews = append(cachedViews, cachedItemToView(item))
+	}
+	s.resolveCacheAndTranslation(ctx, cachedViews)
+	cachedViewByName := make(map[string]contract.SkillMarketplaceItemView, len(cachedViews)*2)
+	for _, view := range cachedViews {
+		if strings.TrimSpace(view.SkillID) != "" {
+			cachedViewByName[view.SkillID] = view
+		}
+		if strings.TrimSpace(view.Name) != "" {
+			cachedViewByName[view.Name] = view
+		}
+	}
 
 	for idx := range skills {
 		view, ok := viewByID[skills[idx].Name]
-		if !ok {
+		if ok {
+			skills[idx].DisplayName = view.DisplayName
+			if view.Description != "" {
+				skills[idx].Description = view.Description
+			}
+			if skills[idx].Category == "" {
+				skills[idx].Category = view.Category
+			}
 			continue
 		}
-		skills[idx].DisplayName = view.DisplayName
-		if view.Description != "" {
-			skills[idx].Description = view.Description
-		}
-		if skills[idx].Category == "" {
-			skills[idx].Category = view.Category
+
+		if cachedView, ok := cachedViewByName[skills[idx].Name]; ok {
+			skills[idx].DisplayName = cachedView.DisplayName
+			if cachedView.Description != "" {
+				skills[idx].Description = cachedView.Description
+			}
+			if skills[idx].Category == "" {
+				skills[idx].Category = cachedView.Category
+			}
 		}
 	}
 }
@@ -1165,21 +1199,40 @@ func (s *skillMarketplaceService) enrichInstalledSystemSkillDetail(ctx context.C
 		return
 	}
 	item, ok := builtinByID[detail.Name]
-	if !ok {
+	if ok {
+		views := []contract.SkillMarketplaceItemView{builtinItemToView(item)}
+		s.resolveCacheAndTranslation(ctx, views)
+		if len(views) == 0 {
+			return
+		}
+		detail.DisplayName = views[0].DisplayName
+		if views[0].Description != "" {
+			detail.Description = views[0].Description
+		}
+		if detail.Category == "" {
+			detail.Category = views[0].Category
+		}
 		return
 	}
 
-	views := []contract.SkillMarketplaceItemView{builtinItemToView(item)}
-	s.resolveCacheAndTranslation(ctx, views)
-	if len(views) == 0 {
+	cachedByName, err := s.cachedMarketplaceItemsBySkillName(ctx, []string{detail.Name})
+	if err != nil {
+		logs.WarnContextf(ctx, "enrich installed marketplace skill detail: query cached skill: %v", err)
 		return
 	}
-	detail.DisplayName = views[0].DisplayName
-	if views[0].Description != "" {
-		detail.Description = views[0].Description
-	}
-	if detail.Category == "" {
-		detail.Category = views[0].Category
+	if cached, ok := cachedByName[detail.Name]; ok {
+		views := []contract.SkillMarketplaceItemView{cachedItemToView(cached)}
+		s.resolveCacheAndTranslation(ctx, views)
+		if len(views) == 0 {
+			return
+		}
+		detail.DisplayName = views[0].DisplayName
+		if views[0].Description != "" {
+			detail.Description = views[0].Description
+		}
+		if detail.Category == "" {
+			detail.Category = views[0].Category
+		}
 	}
 }
 
@@ -1213,6 +1266,66 @@ func (s *skillMarketplaceService) builtinItemsBySkillID(ctx context.Context, ski
 		result[item.SkillID] = item
 	}
 	return result, nil
+}
+
+func (s *skillMarketplaceService) cachedMarketplaceItemsBySkillName(ctx context.Context, names []string) (map[string]types.SkillMarketplaceItem, error) {
+	result := make(map[string]types.SkillMarketplaceItem)
+	if len(names) == 0 || s.db == nil {
+		return result, nil
+	}
+
+	unique := make([]string, 0, len(names))
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		unique = append(unique, name)
+	}
+	if len(unique) == 0 {
+		return result, nil
+	}
+
+	var items []types.SkillMarketplaceItem
+	if err := s.db.WithContext(ctx).
+		Where("skill_id IN ? OR name IN ?", unique, unique).
+		Order("updated_at DESC").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+
+	for _, item := range items {
+		for _, key := range []string{item.SkillID, item.Name} {
+			key = strings.TrimSpace(key)
+			if key == "" || seenResultKey(result, key) {
+				continue
+			}
+			result[key] = item
+		}
+	}
+	return result, nil
+}
+
+func cachedItemToView(item types.SkillMarketplaceItem) contract.SkillMarketplaceItemView {
+	return skillMarketplaceItemView(
+		item.Source,
+		item.SkillID,
+		item.Name,
+		item.Description,
+		item.Version,
+		item.Author,
+		item.Category,
+		[]string(item.Tags),
+		"",
+		item.Installs,
+	)
+}
+
+func seenResultKey(items map[string]types.SkillMarketplaceItem, key string) bool {
+	_, ok := items[key]
+	return ok
 }
 
 // ImportSkill 从已上传文件导入 Skill，校验内容后发送给 Worker 并等待完成。

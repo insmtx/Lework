@@ -130,5 +130,10 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 		})
 	}
 
+	(&skillMarketplaceService{
+		db:         s.db,
+		translator: NewDefaultSkillDescriptionTranslator(s.db),
+	}).enrichInstalledSystemSkills(ctx, result)
+
 	return result, nil
 }

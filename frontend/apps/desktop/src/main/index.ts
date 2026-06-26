@@ -95,7 +95,8 @@ function hideMainWindow(): void {
 function createTray(): void {
 	if (tray) return;
 
-	const icon = nativeImage.createFromPath(join(__dirname, "../../resources/tray-icon.png"));
+	const trayIconFile = process.platform === "darwin" ? "tray-icon.png" : "icon.png";
+	const icon = nativeImage.createFromPath(join(__dirname, "../../resources", trayIconFile));
 	const trayIcon =
 		process.platform === "darwin" ? icon.resize({ width: 18, height: 18 }) : icon.resize({ width: 20, height: 20 });
 
