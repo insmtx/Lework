@@ -93,7 +93,7 @@ func BatchUpsertSkillMarketplaceItems(ctx context.Context, db *gorm.DB, items []
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"name", "translated_name", "description", "translated_description", "author",
-			 "category", "tags", "package_storage_path", "updated_at",
+			"category", "tags", "package_storage_path", "updated_at",
 		}),
 	}).Create(&items).Error
 	if err != nil {
@@ -101,6 +101,32 @@ func BatchUpsertSkillMarketplaceItems(ctx context.Context, db *gorm.DB, items []
 		return err
 	}
 	return nil
+}
+
+// ListCachedSkillMarketplaceItems 查询市场缓存条目，支持关键词和分类过滤。
+func ListCachedSkillMarketplaceItems(ctx context.Context, db *gorm.DB, source, keyword, category string, limit int) ([]types.SkillMarketplaceItem, error) {
+	query := db.WithContext(ctx).Model(&types.SkillMarketplaceItem{}).
+		Where("source = ?", strings.TrimSpace(source))
+
+	if strings.TrimSpace(keyword) != "" {
+		like := "%" + strings.TrimSpace(keyword) + "%"
+		query = query.Where(
+			"skill_id LIKE ? OR name LIKE ? OR description LIKE ? OR translated_name LIKE ? OR translated_description LIKE ?",
+			like, like, like, like, like,
+		)
+	}
+	if strings.TrimSpace(category) != "" {
+		query = query.Where("category = ?", strings.TrimSpace(category))
+	}
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var items []types.SkillMarketplaceItem
+	if err := query.Order("updated_at DESC").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // IncrementSkillMarketplaceInstalls increments the Lework install count for one cached marketplace item.

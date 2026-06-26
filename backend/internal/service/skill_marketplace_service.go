@@ -123,6 +123,18 @@ func (s *skillMarketplaceService) SearchSkillMarketplace(ctx context.Context, re
 
 	wg.Wait()
 
+	if queryExternal && len(allItems) < req.Limit {
+		fallbackItems, err := s.searchCachedClawHubFallback(ctx, keyword, req.Category, req.Limit, allItems)
+		if err != nil {
+			warnings = append(warnings, contract.SkillSourceWarning{
+				SourceType: "ClawHub",
+				Message:    "cache fallback: " + err.Error(),
+			})
+		} else {
+			allItems = append(allItems, fallbackItems...)
+		}
+	}
+
 	// 缓存查找 + 中文描述替换（best-effort）
 	s.resolveCacheAndTranslation(ctx, allItems)
 
@@ -167,6 +179,42 @@ func (s *skillMarketplaceService) searchBuiltin(ctx context.Context, keyword, ca
 	return result, nil
 }
 
+func (s *skillMarketplaceService) searchCachedClawHubFallback(ctx context.Context, keyword, category string, limit int, existing []contract.SkillMarketplaceItemView) ([]contract.SkillMarketplaceItemView, error) {
+	remaining := limit - len(existing)
+	if remaining <= 0 {
+		return nil, nil
+	}
+
+	cachedItems, err := infradb.ListCachedSkillMarketplaceItems(ctx, s.db, "ClawHub", keyword, category, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(existing)+len(cachedItems))
+	for _, item := range existing {
+		seen[marketplaceItemDedupeKey(item.SourceType, item.SkillID, item.Version)] = struct{}{}
+	}
+
+	result := make([]contract.SkillMarketplaceItemView, 0, remaining)
+	for _, item := range cachedItems {
+		view := cachedMarketplaceItemToView(item)
+		key := marketplaceItemDedupeKey(view.SourceType, view.SkillID, view.Version)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, view)
+		if len(result) >= remaining {
+			break
+		}
+	}
+	return result, nil
+}
+
+func marketplaceItemDedupeKey(sourceType, skillID, version string) string {
+	return sourceType + "|" + skillID + "|" + version
+}
+
 // skillMarketplaceItemView constructs a SkillMarketplaceItemView from common fields.
 func skillMarketplaceItemView(sourceType, skillID, name, description, version, author, category string, tags []string, icon string, installs int64) contract.SkillMarketplaceItemView {
 	return contract.SkillMarketplaceItemView{
@@ -192,6 +240,18 @@ func builtinItemToView(item types.BuiltinSkillMarketplaceItem) contract.SkillMar
 func metaToView(meta fetch.SkillMeta) contract.SkillMarketplaceItemView {
 	return skillMarketplaceItemView(meta.Source, meta.SkillID, meta.Name, meta.Description,
 		meta.Version, meta.Author, meta.Category, meta.Tags, meta.Icon, meta.Installs)
+}
+
+func cachedMarketplaceItemToView(item types.SkillMarketplaceItem) contract.SkillMarketplaceItemView {
+	view := skillMarketplaceItemView(item.Source, item.SkillID, item.Name, item.Description,
+		item.Version, item.Author, item.Category, []string(item.Tags), "", item.Installs)
+	if strings.TrimSpace(item.TranslatedName) != "" {
+		view.DisplayName = item.TranslatedName
+	}
+	if strings.TrimSpace(item.TranslatedDescription) != "" {
+		view.Description = item.TranslatedDescription
+	}
+	return view
 }
 
 // resolveCacheAndTranslation 从缓存表查找中文展示文案，未命中的进行翻译后写库。

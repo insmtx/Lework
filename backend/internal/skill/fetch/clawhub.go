@@ -18,7 +18,10 @@ import (
 )
 
 const (
-	clawhubAPIBase = "https://clawhub.ai/api/v1"
+	clawhubAPIBase            = "https://clawhub.ai/api/v1"
+	clawhubSearchMaxAttempts  = 2
+	clawhubRetryFirstInterval = 300 * time.Millisecond
+	clawhubRetryNextInterval  = 700 * time.Millisecond
 )
 
 // ClawHubSource 通过 ClawHub API 发现和下载 Skill。
@@ -87,6 +90,38 @@ func (c *ClawHubSource) searchSkills(ctx context.Context, query string, limit in
 
 // fetchSkillsList 向给定 URL 发起请求并解析技能列表示响应。
 func (c *ClawHubSource) fetchSkillsList(ctx context.Context, reqURL string) ([]clawhubSkillItem, error) {
+	var lastStatus int
+	for attempt := 0; attempt < clawhubSearchMaxAttempts; attempt++ {
+		resp, err := c.fetchSkillsListOnce(ctx, reqURL)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			body, err := io.ReadAll(io.LimitReader(resp.Body, 1_048_576))
+			if err != nil {
+				return nil, fmt.Errorf("read response: %w", err)
+			}
+
+			return parseClawhubResponse(body)
+		}
+
+		lastStatus = resp.StatusCode
+		_ = resp.Body.Close()
+		if !isRetryableClawHubStatus(resp.StatusCode) || attempt == clawhubSearchMaxAttempts-1 {
+			return nil, fmt.Errorf("clawhub returned status %d", resp.StatusCode)
+		}
+
+		if err := waitClawHubRetry(ctx, attempt); err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("clawhub returned status %d", lastStatus)
+}
+
+func (c *ClawHubSource) fetchSkillsListOnce(ctx context.Context, reqURL string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -96,18 +131,28 @@ func (c *ClawHubSource) fetchSkillsList(ctx context.Context, reqURL string) ([]c
 	if err != nil {
 		return nil, fmt.Errorf("clawhub request: %w", err)
 	}
-	defer resp.Body.Close()
+	return resp, nil
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("clawhub returned status %d", resp.StatusCode)
+func isRetryableClawHubStatus(status int) bool {
+	return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+}
+
+func waitClawHubRetry(ctx context.Context, attempt int) error {
+	delay := clawhubRetryFirstInterval
+	if attempt > 0 {
+		delay = clawhubRetryNextInterval
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1_048_576))
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 
-	return parseClawhubResponse(body)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // parseClawhubResponse 解析 ClawHub API 响应，支持 list(/skills) 和 search(/search) 两种结构。
@@ -468,17 +513,17 @@ type SkillDetail struct {
 	Category    string   `json:"category"`
 	Tags        []string `json:"tags"`
 	Icon        string   `json:"icon,omitempty"`
-	SkillMD     string   `json:"skill_md"`      // SKILL.md body（不含 frontmatter）
+	SkillMD     string   `json:"skill_md"` // SKILL.md body（不含 frontmatter）
 	Files       []string `json:"files"`
 }
 
 // clawhubSkillResponse GET /api/v1/skills/{slug} 的响应结构。
 type clawhubSkillResponse struct {
 	Skill struct {
-		Slug        string `json:"slug"`
-		DisplayName string `json:"displayName"`
-		Summary     string `json:"summary"`
-		Description string `json:"description"`
+		Slug        string            `json:"slug"`
+		DisplayName string            `json:"displayName"`
+		Summary     string            `json:"summary"`
+		Description string            `json:"description"`
 		Tags        map[string]string `json:"tags"`
 		Stats       *struct {
 			Downloads       int64 `json:"downloads"`
@@ -600,4 +645,3 @@ func (c *ClawHubSource) GetDetail(ctx context.Context, slug, version string) (*S
 
 	return detail, bundle, nil
 }
-
