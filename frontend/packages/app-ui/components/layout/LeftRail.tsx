@@ -674,7 +674,7 @@ export function LeftRail({
 						<DialogTitle>重命名项目</DialogTitle>
 						<DialogDescription>请输入新的项目名称</DialogDescription>
 					</DialogHeader>
-					<div className="mt-4">
+					<div className="mt-4 relative">
 						<input
 							type="text"
 							value={renameValue}
@@ -685,9 +685,13 @@ export function LeftRail({
 								}
 							}}
 							placeholder="项目名称"
+							maxLength={30}
 							autoFocus
-							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
 						/>
+						<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+							{renameValue.length}/30
+						</span>
 					</div>
 					<DialogFooter className="mt-4">
 						<Button variant="outline" onClick={() => setRenameProject(null)}>
@@ -706,7 +710,7 @@ export function LeftRail({
 						<DialogTitle>重命名任务</DialogTitle>
 						<DialogDescription>请输入新的任务名称</DialogDescription>
 					</DialogHeader>
-					<div className="mt-4">
+					<div className="mt-4 relative">
 						<input
 							type="text"
 							value={renameTaskValue}
@@ -717,9 +721,13 @@ export function LeftRail({
 								}
 							}}
 							placeholder="任务名称"
+							maxLength={30}
 							autoFocus
-							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
 						/>
+						<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+							{renameTaskValue.length}/30
+						</span>
 					</div>
 					<DialogFooter className="mt-4">
 						<Button variant="outline" onClick={() => setRenameTask(null)}>

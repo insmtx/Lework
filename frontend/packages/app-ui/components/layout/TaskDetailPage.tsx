@@ -358,13 +358,13 @@ export function TaskDetailPage({
 			data-slot="task-detail-page"
 			className="flex h-full min-w-0 flex-1 flex-col bg-[var(--leros-surface)]"
 		>
-			<header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
+			<header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5">
 				<div className="flex min-w-0 items-center gap-3 text-[var(--leros-text-muted)]">
 					{/* 中文注释：任务详情页面包屑与项目页保持一致，三级结构为 项目 > 项目名 > 任务名。 */}
 					<button
 						type="button"
 						onClick={() => navigation?.goToRoute("projectsHub")}
-						className="text-base font-bold text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+						className="text-sm font-normal text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
 					>
 						项目
 					</button>
@@ -380,7 +380,7 @@ export function TaskDetailPage({
 									}
 									resolvedProjectId && switchProject(resolvedProjectId);
 								}}
-								className="max-w-[360px] truncate text-base font-bold text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+								className="max-w-[360px] truncate text-sm font-normal text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
 								title={project.name}
 							>
 								{breadcrumbProjectName}
@@ -389,7 +389,7 @@ export function TaskDetailPage({
 						</>
 					)}
 					<h1
-						className="max-w-[360px] truncate text-base font-bold text-[var(--leros-text-strong)]"
+						className="max-w-[360px] truncate text-sm font-bold text-[var(--leros-text-strong)]"
 						title={task?.title}
 					>
 						{breadcrumbTaskTitle}
@@ -405,7 +405,7 @@ export function TaskDetailPage({
 							}
 							resolvedProjectId && switchProject(resolvedProjectId);
 						}}
-						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 					>
 						<ArrowLeft className="size-3.5" />
 						返回新建任务
@@ -549,7 +549,7 @@ export function TaskDetailPage({
 						<DialogTitle>重命名任务</DialogTitle>
 						<DialogDescription>请输入新的任务名称</DialogDescription>
 					</DialogHeader>
-					<div className="mt-4">
+					<div className="mt-4 relative">
 						<input
 							type="text"
 							value={renameValue}
@@ -560,9 +560,13 @@ export function TaskDetailPage({
 								}
 							}}
 							placeholder="任务名称"
+							maxLength={30}
 							autoFocus
-							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
 						/>
+						<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+							{renameValue.length}/30
+						</span>
 					</div>
 					<DialogFooter className="mt-4">
 						<Button variant="outline" onClick={() => setRenameDialogOpen(false)}>

@@ -407,18 +407,18 @@ export function ProjectPage({
 
 	return (
 		<div data-slot="project-page" className="flex h-full flex-1 flex-col bg-[var(--leros-surface)]">
-			<header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
+			<header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
 				<div className="flex items-center gap-3 text-[var(--leros-text-muted)]">
 					{/* 中文注释：项目详情页顶部保留面包屑，方便从具体项目快速回到项目列表页。 */}
 					<button
 						type="button"
 						onClick={handleBackToProjects}
-						className="text-base font-bold text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+						className="text-sm font-normal text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
 					>
 						项目
 					</button>
 					<ChevronRight className="size-4 text-[var(--leros-text-subtle)]" />
-					<h1 className="max-w-[360px] truncate text-base font-bold text-[var(--leros-text-strong)]">
+					<h1 className="max-w-[360px] truncate text-sm font-bold text-[var(--leros-text-strong)]">
 						{project.name}
 					</h1>
 				</div>
@@ -709,12 +709,16 @@ function ProjectConfigSidebar({
 				>
 					{editingDescription ? (
 						<div className="space-y-3">
-							<textarea
-								value={descriptionDraft}
-								onChange={(event) => setDescriptionDraft(event.target.value)}
-								placeholder="补充项目目标、背景或协作范围"
-								className="min-h-28 w-full resize-none rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2 text-sm leading-6 text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
-							/>
+							<div className="relative">
+								<textarea
+									value={descriptionDraft}
+									onChange={(event) => setDescriptionDraft(event.target.value)}
+									placeholder="补充项目目标、背景或协作范围"
+									maxLength={500}
+									className="min-h-28 w-full resize-none rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2 pb-7 pr-16 text-sm leading-6 text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+								/>
+								<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--leros-text-subtle)]">{descriptionDraft.length}/500</span>
+							</div>
 							<div className="flex justify-end gap-2">
 								<button
 									type="button"

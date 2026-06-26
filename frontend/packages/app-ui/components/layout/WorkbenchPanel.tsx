@@ -331,12 +331,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			{/* Top Header */}
 			<header className="z-10 flex h-16 shrink-0 items-center justify-end px-10">
 				<div className="flex items-center gap-4 text-[var(--leros-text)]">
-					<button
-						type="button"
-						className="rounded-full p-2 transition-colors hover:bg-[var(--leros-primary-softer)]"
-					>
-						<Search className="size-5" />
-					</button>
 					{/* <button
 						type="button"
 						className="relative rounded-full p-2 transition-colors hover:bg-[var(--leros-primary-softer)]"
