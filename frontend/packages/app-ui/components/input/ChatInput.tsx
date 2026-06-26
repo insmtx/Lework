@@ -5,7 +5,9 @@ import type {
 	ApprovalAction,
 	ApprovalRequest,
 	Attachment,
+	ComposerToken,
 	Message,
+	MessageMetadata,
 	QuestionRequest,
 } from "@leros/store/types/chat";
 import { Badge } from "@leros/ui/components/ui/badge";
@@ -123,9 +125,19 @@ export function ChatInput({
 		// 中文注释：输入区先做一次生成态拦截，避免回车绕过按钮态再次触发发送。
 		if (isGenerating) return;
 		// 仅上传附件而无文字时接口会报错，因此必须输入内容才可发送
-		if (inputText.trim()) {
+		const trimmedInput = inputText.trim();
+		if (trimmedInput) {
+			const composerMetadata = buildComposerMetadata(
+				inputText,
+				composerRef.current?.getComposerTokens() ?? [],
+			);
 			if (isProjectVariant && currentView === "project") {
-				const taskEntry = await sendProjectMessage(inputText, activeProjectId, inputAttachments);
+				const taskEntry = await sendProjectMessage(
+					trimmedInput,
+					activeProjectId,
+					inputAttachments,
+					composerMetadata,
+				);
 				if (taskEntry?.project_id && taskEntry?.task_id) {
 					// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
 					navigation?.goToTaskDetail(
@@ -136,7 +148,7 @@ export function ChatInput({
 				}
 				return;
 			}
-			sendMessage(inputText, inputAttachments);
+			sendMessage(trimmedInput, inputAttachments, composerMetadata);
 		}
 	}, [
 		inputText,
@@ -437,6 +449,23 @@ function findPendingQuestion(
 		if (question) return { message, question };
 	}
 	return null;
+}
+
+function buildComposerMetadata(
+	content: string,
+	tokens: ComposerToken[],
+): MessageMetadata | undefined {
+	const trimmed = content.trim();
+	if (!trimmed || tokens.length === 0) return undefined;
+	const leadingOffset = content.length - content.trimStart().length;
+	const composerTokens = tokens
+		.map((token) => ({
+			...token,
+			start: token.start - leadingOffset,
+			end: token.end - leadingOffset,
+		}))
+		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
+	return composerTokens.length > 0 ? { composerTokens } : undefined;
 }
 
 function projectSkillToComposerOption(skill: ProjectSkill): ComposerSkillOption {

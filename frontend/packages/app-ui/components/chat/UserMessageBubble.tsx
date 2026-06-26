@@ -5,7 +5,7 @@ import type { Message, MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Check, Copy, ImageIcon, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { parseLeadingSkillDirectives, SkillDirectiveBadge } from "../common/SkillDirectiveBadge";
+import { SkillDirectiveBadge } from "../common/SkillDirectiveBadge";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { MessageAttachmentPreviewDialog } from "./MessageAttachmentPreviewDialog";
 
@@ -37,7 +37,6 @@ export function UserMessageBubble({
 }) {
 	const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 	const visibleText = message.content.trim();
-	const skillContent = parseLeadingSkillDirectives(visibleText);
 	const attachments = message.attachments ?? [];
 
 	return (
@@ -69,18 +68,7 @@ export function UserMessageBubble({
 					)}
 					{visibleText && (
 						<div className="w-fit rounded-2xl rounded-tr-md text-black bg-[#f3f3f4] px-4 py-2 text-sm leading-7 shadow-sm shadow-blue-600/10">
-							{skillContent.skills.length > 0 ? (
-								<div className="flex flex-wrap items-center gap-1.5">
-									{skillContent.skills.map((skill) => (
-										<SkillDirectiveBadge key={skill} name={skill} variant="on-blue" />
-									))}
-									{skillContent.rest && (
-										<span className="whitespace-pre-wrap break-words">{skillContent.rest}</span>
-									)}
-								</div>
-							) : (
-								message.content
-							)}
+							<MessageContentWithComposerTokens message={message} />
 						</div>
 					)}
 				</div>
@@ -95,6 +83,56 @@ export function UserMessageBubble({
 			/>
 		</>
 	);
+}
+
+function MessageContentWithComposerTokens({ message }: { message: Message }) {
+	const tokens = (message.metadata?.composerTokens ?? [])
+		.filter((token) => message.content.slice(token.start, token.end) === token.label)
+		.sort((a, b) => a.start - b.start);
+
+	if (tokens.length === 0) {
+		// 中文注释：没有明确 token metadata 时，普通内容里的 @ 和 / 必须原样展示，不能靠文本猜样式。
+		return <span className="whitespace-pre-wrap break-words">{message.content}</span>;
+	}
+
+	const parts: React.ReactNode[] = [];
+	let cursor = 0;
+	tokens.forEach((token, index) => {
+		if (token.start > cursor) {
+			parts.push(
+				<span key={`text-${index}`} className="whitespace-pre-wrap break-words">
+					{message.content.slice(cursor, token.start)}
+				</span>,
+			);
+		}
+		parts.push(
+			token.kind === "skill" ? (
+				<SkillDirectiveBadge
+					key={`token-${index}`}
+					name={token.label.replace(/^\/+/, "")}
+					variant="on-blue"
+				/>
+			) : (
+				<span
+					key={`token-${index}`}
+					className="inline-flex max-w-full items-center rounded-md bg-blue-100 px-1.5 py-0.5 text-xs font-medium leading-none text-blue-700"
+				>
+					{token.label}
+				</span>
+			),
+		);
+		cursor = token.end;
+	});
+
+	if (cursor < message.content.length) {
+		parts.push(
+			<span key="text-tail" className="whitespace-pre-wrap break-words">
+				{message.content.slice(cursor)}
+			</span>,
+		);
+	}
+
+	return <div className="flex flex-wrap items-center gap-1.5">{parts}</div>;
 }
 
 function ImageAttachmentCard({

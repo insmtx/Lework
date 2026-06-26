@@ -4,7 +4,7 @@ import { taskApi } from "../api/taskApi";
 import type { BackendArtifact, BackendProject, BackendSession, BackendTask } from "../api/types";
 import { workApi } from "../api/workApi";
 import type { SliceCreator } from "../types";
-import type { Attachment } from "../types/chat";
+import type { Attachment, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
 import { formatFileSize, parseOptionalTimestamp } from "../utils/format";
 
@@ -420,6 +420,7 @@ export class LayoutActionImpl {
 		content: string,
 		projectId?: string | null,
 		attachments?: Attachment[],
+		_metadata?: MessageMetadata,
 	) => {
 		const trimmed = content.trim();
 		if (!trimmed) return;

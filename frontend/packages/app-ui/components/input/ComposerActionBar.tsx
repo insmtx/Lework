@@ -24,6 +24,7 @@ type ComposerActionBarProps = {
 	children?: ReactNode;
 	className?: string;
 	projectSkillOptions?: ComposerSkillOption[];
+	disableAssistantAndSkill?: boolean;
 };
 
 type SkillOption = {
@@ -109,6 +110,7 @@ export function ComposerActionBar({
 	children,
 	className,
 	projectSkillOptions,
+	disableAssistantAndSkill = false,
 }: ComposerActionBarProps) {
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [skillOpen, setSkillOpen] = useState(false);
@@ -139,10 +141,8 @@ export function ComposerActionBar({
 		return skillOptions.filter((skill) => {
 			if (selectedSkillLabels.includes(skill.label)) return false;
 			if (!query) return true;
-			return [skill.label, skill.code, skill.description, ...skill.keywords]
-				.join(" ")
-				.toLowerCase()
-				.includes(query);
+			// 中文注释：技能搜索只按名称/code 匹配，描述和标签不参与搜索，避免弱相关结果排在前面。
+			return [skill.label, skill.code].join(" ").toLowerCase().includes(query);
 		});
 	}, [selectedSkillLabels, skillOptions, skillSearch]);
 
@@ -176,6 +176,11 @@ export function ComposerActionBar({
 	}, [projectSkillOptions, skillOpen, skillsLoaded]);
 
 	const allowAction = () => (onBeforeAction ? onBeforeAction() : true);
+	const assistantSkillButtonClassName = cn(
+		"inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900",
+		disableAssistantAndSkill &&
+			"cursor-not-allowed opacity-45 hover:bg-transparent hover:text-slate-600",
+	);
 
 	return (
 		<div className={cn("flex flex-wrap items-center gap-2", className)}>
@@ -195,14 +200,19 @@ export function ComposerActionBar({
 			<Popover open={assistantOpen} onOpenChange={setAssistantOpen}>
 				<PopoverTrigger
 					type="button"
+					disabled={disableAssistantAndSkill}
 					onClick={(event) => {
+						if (disableAssistantAndSkill) {
+							event.preventDefault();
+							return;
+						}
 						if (assistantOpen) return;
 						if (event.defaultPrevented) return;
 						if (!allowAction()) {
 							event.preventDefault();
 						}
 					}}
-					className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+					className={assistantSkillButtonClassName}
 				>
 					<Bot className="size-4" />
 					<span>召唤AI队友</span>
@@ -260,14 +270,19 @@ export function ComposerActionBar({
 			<Popover open={skillOpen} onOpenChange={setSkillOpen}>
 				<PopoverTrigger
 					type="button"
+					disabled={disableAssistantAndSkill}
 					onClick={(event) => {
+						if (disableAssistantAndSkill) {
+							event.preventDefault();
+							return;
+						}
 						if (skillOpen) return;
 						if (event.defaultPrevented) return;
 						if (!allowAction()) {
 							event.preventDefault();
 						}
 					}}
-					className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+					className={assistantSkillButtonClassName}
 				>
 					<WandSparkles className="size-4" />
 					<span>添加技能</span>

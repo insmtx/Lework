@@ -1,7 +1,7 @@
 "use client";
 
 import { projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
-import type { Attachment } from "@leros/store/types/chat";
+import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
@@ -27,6 +27,31 @@ import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
 import { StructuredComposer, type StructuredComposerHandle } from "../input/StructuredComposer";
 import type { AppNavigation } from "./LeftRail";
+
+function removeWorkbenchDirectiveTokens(value: string): string {
+	// 中文注释：选择已有项目后不再支持临时召唤队友/技能，需要同步移除输入框中已插入的指令 token。
+	return value
+		.replace(/(^|\s)(?:@[^\s@/]+|\/[^\s@/]+)(?=\s|$)/g, " ")
+		.replace(/[ \t]{2,}/g, " ")
+		.trimStart();
+}
+
+function buildComposerMetadata(
+	content: string,
+	tokens: ComposerToken[],
+): MessageMetadata | undefined {
+	const trimmed = content.trim();
+	if (!trimmed || tokens.length === 0) return undefined;
+	const leadingOffset = content.length - content.trimStart().length;
+	const composerTokens = tokens
+		.map((token) => ({
+			...token,
+			start: token.start - leadingOffset,
+			end: token.end - leadingOffset,
+		}))
+		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
+	return composerTokens.length > 0 ? { composerTokens } : undefined;
+}
 
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const {
@@ -91,15 +116,37 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		resetLocalMessages();
 	}, [clearTaskDetailRoute, resetLocalMessages]);
 
+	useEffect(() => {
+		if (!activeWorkbenchProjectId) return;
+		setInput((current) => {
+			const next = removeWorkbenchDirectiveTokens(current);
+			return next === current ? current : next;
+		});
+	}, [activeWorkbenchProjectId]);
+
 	const performSend = async (content: string) => {
 		if (isGenerating || sendingRef.current) return;
 		sendingRef.current = true;
 		try {
-			const data = await sendWorkbenchMessage(content, activeWorkbenchProjectId, attachments);
+			const composerMetadata = buildComposerMetadata(
+				input,
+				composerRef.current?.getComposerTokens() ?? [],
+			);
+			const data = await sendWorkbenchMessage(
+				content,
+				activeWorkbenchProjectId,
+				attachments,
+				composerMetadata,
+			);
 			if (data?.session_id) {
 				const optimisticAttachments = cloneAttachmentsForOptimisticMessage(attachments);
 				// 中文注释：工作台跳转详情页前，先把附件写进 optimistic 消息，避免首屏只剩文本。
-				await startSessionResponseStream(data.session_id, content, optimisticAttachments);
+				await startSessionResponseStream(
+					data.session_id,
+					content,
+					optimisticAttachments,
+					composerMetadata,
+				);
 			}
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
@@ -228,6 +275,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const handleSelectProject = (projectId: string | null) => {
 		requireAuth(() => {
 			selectWorkbenchProject(projectId);
+			if (projectId) {
+				setInput((current) => removeWorkbenchDirectiveTokens(current));
+			}
 			setProjectMenuOpen(false);
 			setProjectSearch("");
 		});
@@ -371,6 +421,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								onBlur={() => undefined}
 								placeholder="在这里开始新任务，或输入指令以同步您的项目进度..."
 								isProjectVariant
+								directivesDisabled={Boolean(activeProject)}
 							/>
 						</div>
 						<div className="flex items-center justify-between border-t border-[var(--leros-chat-ai-border)] pt-3">
@@ -386,6 +437,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										}
 										return true;
 									}}
+									disableAssistantAndSkill={Boolean(activeProject)}
 								/>
 								<Popover open={projectMenuOpen} onOpenChange={handleProjectMenuOpenChange}>
 									<PopoverTrigger

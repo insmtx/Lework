@@ -1,10 +1,11 @@
-import type { Message, MessageMetadata, MessageUsage } from "../types/chat";
+import type { ComposerToken, Message, MessageMetadata, MessageUsage } from "../types/chat";
 import { formatLatency, formatTokenCount } from "./format";
 
 type MetadataSource = {
 	model?: string;
 	tokens?: number;
 	latency?: number;
+	composerTokens?: ComposerToken[];
 	extra?: Record<string, unknown>;
 };
 
@@ -22,6 +23,24 @@ function pickNumber(...values: unknown[]): number | undefined {
 		if (typeof value === "number" && Number.isFinite(value)) {
 			return value;
 		}
+	}
+	return undefined;
+}
+
+function pickComposerTokens(...values: unknown[]): ComposerToken[] | undefined {
+	for (const value of values) {
+		if (!Array.isArray(value)) continue;
+		const tokens = value.filter((item): item is ComposerToken => {
+			if (typeof item !== "object" || item === null) return false;
+			const token = item as Partial<ComposerToken>;
+			return (
+				(token.kind === "assistant" || token.kind === "skill") &&
+				typeof token.label === "string" &&
+				typeof token.start === "number" &&
+				typeof token.end === "number"
+			);
+		});
+		if (tokens.length > 0) return tokens;
 	}
 	return undefined;
 }
@@ -49,11 +68,12 @@ export function buildMessageMetadata(
 	const model = pickString(metadata?.model, extra?.model, extra?.model_name);
 	const tokens = pickNumber(metadata?.tokens, extra?.tokens, usage?.totalTokens);
 	const latency = pickNumber(metadata?.latency, extra?.latency, extra?.latency_ms);
+	const composerTokens = pickComposerTokens(metadata?.composerTokens, extra?.composerTokens);
 
-	if (!model && tokens === undefined && latency === undefined) {
+	if (!model && tokens === undefined && latency === undefined && !composerTokens) {
 		return undefined;
 	}
-	return { model, tokens, latency };
+	return { model, tokens, latency, composerTokens };
 }
 
 /** 读取单条 assistant 消息的 tokens / latency 原始指标。 */

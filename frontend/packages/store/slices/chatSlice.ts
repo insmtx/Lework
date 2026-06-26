@@ -726,7 +726,10 @@ function mergeQuestionRequest(
 	next[index] = {
 		...next[index],
 		...update,
-		status: (next[index]?.status ?? "pending") === "pending" ? update.status : next[index]?.status ?? "pending",
+		status:
+			(next[index]?.status ?? "pending") === "pending"
+				? update.status
+				: (next[index]?.status ?? "pending"),
 	};
 	return next;
 }
@@ -1185,7 +1188,7 @@ export class ChatActionImpl {
 		this.#set({ activeSessionId: sessionId });
 	};
 
-	sendMessage = async (content: string, attachments?: Attachment[]) => {
+	sendMessage = async (content: string, attachments?: Attachment[], metadata?: MessageMetadata) => {
 		// 仅上传附件而无文字时后端会报错，必须要求有文本内容
 		if (!content.trim()) return;
 
@@ -1233,6 +1236,9 @@ export class ChatActionImpl {
 				content,
 				message_type: "text",
 				attachments: mapOutgoingAttachments(attachments),
+				metadata: metadata?.composerTokens
+					? { extra: { composerTokens: metadata.composerTokens } }
+					: undefined,
 			});
 		} catch (err) {
 			console.error("sendMessage addMessage error:", err);
@@ -1247,6 +1253,7 @@ export class ChatActionImpl {
 			content,
 			timestamp: now,
 			attachments: mapComposerAttachments(attachments),
+			metadata,
 		};
 
 		const assistantMsg: Message = {
@@ -1273,6 +1280,7 @@ export class ChatActionImpl {
 		content: string,
 		projectId?: string | null,
 		attachments?: Attachment[],
+		metadata?: MessageMetadata,
 	) => {
 		const trimmed = content.trim();
 		if (!trimmed || !projectId) return null;
@@ -1301,7 +1309,7 @@ export class ChatActionImpl {
 				inputAttachments: [],
 			});
 
-			await this.startSessionResponseStream(data.session_id, trimmed, attachments);
+			await this.startSessionResponseStream(data.session_id, trimmed, attachments, metadata);
 
 			const fullState = this.#fullGet() as {
 				fetchProjectDetail?: (projectId: string) => Promise<void>;
@@ -1318,6 +1326,7 @@ export class ChatActionImpl {
 		sessionId: string,
 		content: string,
 		attachments?: Attachment[],
+		metadata?: MessageMetadata,
 	) => {
 		const trimmed = content.trim();
 		if (!sessionId || !trimmed) return;
@@ -1348,6 +1357,7 @@ export class ChatActionImpl {
 			content: trimmed,
 			timestamp: now,
 			attachments: mapComposerAttachments(attachments),
+			metadata,
 		};
 		const assistantMsg: Message = {
 			id: `msg-assistant-${now}`,
@@ -1766,11 +1776,7 @@ export class ChatActionImpl {
 		}
 	};
 
-	submitQuestionAnswer = async (
-		messageId: string,
-		requestId: string,
-		answers: string[][],
-	) => {
+	submitQuestionAnswer = async (messageId: string, requestId: string, answers: string[][]) => {
 		const state = this.#get();
 		const message = state.messagesMap[messageId];
 		const sessionId = message?.conversationId || state.activeSessionId;
