@@ -721,43 +721,43 @@ func generateProjectPublicID() string {
 
 // PresignArtifactUpload 为 Worker 产物文件生成预签名上传 URL
 func (s *projectService) PresignArtifactUpload(ctx context.Context, req *contract.PresignArtifactUploadRequest) (*contract.PresignArtifactUploadResponse, error) {
-	if req.OrgID == 0 {
-		return nil, errors.New("org_id is required")
+	bucket := strings.TrimSpace(req.Bucket)
+	if bucket == "" {
+		return nil, errors.New("bucket is required")
 	}
-	if strings.TrimSpace(req.ProjectPublicID) == "" {
-		return nil, errors.New("project_public_id is required")
+	key := strings.TrimSpace(req.Key)
+	if key == "" {
+		return nil, errors.New("key is required")
 	}
 	filename := strings.TrimSpace(req.Filename)
 	if filename == "" {
 		return nil, errors.New("filename is required")
 	}
 
-	project, err := db.GetProjectByPublicID(ctx, s.db, req.OrgID, req.ProjectPublicID)
-	if err != nil {
-		return nil, err
-	}
-	if project == nil {
-		return nil, errors.New("project not found")
+	defaultBucket := filestore.DefaultBucket()
+	if bucket != defaultBucket {
+		return nil, fmt.Errorf("bucket %q is not allowed, only %q is supported", bucket, defaultBucket)
 	}
 
-	shaPrefix := "default"
-	if s := strings.TrimSpace(req.Sha256); len(s) >= 8 {
-		shaPrefix = s[:8]
-	}
-	key := fmt.Sprintf("artifacts/%d/%s/%s/%s", req.OrgID, req.ProjectPublicID, shaPrefix, filepath.Base(filename))
-
-	bucket := filestore.DefaultBucket()
 	uploadURL, expiresAt, err := filestore.PresignUpload(ctx, bucket, key)
 	if err != nil {
 		return nil, fmt.Errorf("generate presigned upload url: %w", err)
 	}
 
-	storageURI := fmt.Sprintf("s3://%s/%s", bucket, key)
-
 	return &contract.PresignArtifactUploadResponse{
-		UploadURL:  uploadURL,
-		StorageURI: storageURI,
-		ExpiresAt:  expiresAt.Format(time.RFC3339),
+		UploadURL: uploadURL,
+		ExpiresAt: expiresAt.Format(time.RFC3339),
+	}, nil
+}
+
+func (s *projectService) GetStorageConfig(_ context.Context) (*contract.StorageConfigResponse, error) {
+	scheme := "s3"
+	if filestore.IsLocal() {
+		scheme = "file"
+	}
+	return &contract.StorageConfigResponse{
+		Scheme: scheme,
+		Bucket: filestore.DefaultBucket(),
 	}, nil
 }
 
