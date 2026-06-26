@@ -121,20 +121,25 @@ export function LeftRail({
 		fetchProjects,
 		fetchTasks,
 		deleteProject,
+		deleteTask,
 		setLeftRailCollapsed,
 		setLeftRailWidth,
 		switchView,
 		switchProject,
 		openTaskDetail,
 		updateProject,
+		updateTask,
 	} = useLayoutStore((s) => s);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 	const hasLoadedPreferenceRef = useRef(false);
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
+	const [renameTask, setRenameTask] = useState<ProjectTask | null>(null);
 	const [renameValue, setRenameValue] = useState("");
+	const [renameTaskValue, setRenameTaskValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+	const [deleteTaskTarget, setDeleteTaskTarget] = useState<ProjectTask | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
 	const [expandedTaskProjectIds, setExpandedTaskProjectIds] = useState<Set<string>>(
@@ -346,6 +351,11 @@ export function LeftRail({
 		setRenameValue(project.name);
 	};
 
+	const handleOpenTaskRename = (task: ProjectTask) => {
+		setRenameTask(task);
+		setRenameTaskValue(task.title);
+	};
+
 	const handleConfirmRename = async () => {
 		const name = renameValue.trim();
 		if (!renameProject || !name) return;
@@ -354,6 +364,17 @@ export function LeftRail({
 		if (updatedProject) {
 			setRenameProject(null);
 			setRenameValue("");
+		}
+	};
+
+	const handleConfirmTaskRename = async () => {
+		const title = renameTaskValue.trim();
+		if (!renameTask || !title) return;
+
+		const updatedTask = await updateTask({ public_id: renameTask.id, title });
+		if (updatedTask) {
+			setRenameTask(null);
+			setRenameTaskValue("");
 		}
 	};
 
@@ -377,6 +398,12 @@ export function LeftRail({
 			}
 			switchView("workbench");
 		}
+	};
+
+	const handleConfirmTaskDelete = async () => {
+		if (!deleteTaskTarget) return;
+		await deleteTask(deleteTaskTarget.id);
+		setDeleteTaskTarget(null);
 	};
 
 	const handleProfileClick = () => {
@@ -504,6 +531,8 @@ export function LeftRail({
 										onExpandTasks={handleExpandProjectTasks}
 										onRenameProject={handleOpenRename}
 										onDeleteProject={setDeleteTarget}
+										onRenameTask={handleOpenTaskRename}
+										onDeleteTask={setDeleteTaskTarget}
 										collapsed={leftRailCollapsed}
 									/>
 								) : (
@@ -665,6 +694,57 @@ export function LeftRail({
 						</Button>
 						<Button onClick={handleConfirmRename} disabled={!renameValue.trim()}>
 							确认
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={renameTask !== null} onOpenChange={(open) => !open && setRenameTask(null)}>
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>重命名任务</DialogTitle>
+						<DialogDescription>请输入新的任务名称</DialogDescription>
+					</DialogHeader>
+					<div className="mt-4">
+						<input
+							type="text"
+							value={renameTaskValue}
+							onChange={(event) => setRenameTaskValue(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") {
+									handleConfirmTaskRename();
+								}
+							}}
+							placeholder="任务名称"
+							autoFocus
+							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+						/>
+					</div>
+					<DialogFooter className="mt-4">
+						<Button variant="outline" onClick={() => setRenameTask(null)}>
+							取消
+						</Button>
+						<Button onClick={handleConfirmTaskRename} disabled={!renameTaskValue.trim()}>
+							确认
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={deleteTaskTarget !== null} onOpenChange={(open) => !open && setDeleteTaskTarget(null)}>
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>删除任务</DialogTitle>
+						<DialogDescription>
+							确定要删除 <strong>{deleteTaskTarget?.title}</strong> 吗？此操作不可撤销。
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter className="mt-4">
+						<Button variant="outline" onClick={() => setDeleteTaskTarget(null)}>
+							取消
+						</Button>
+						<Button variant="destructive" onClick={handleConfirmTaskDelete}>
+							删除
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -1296,6 +1376,8 @@ function ProjectList({
 	onExpandTasks,
 	onRenameProject,
 	onDeleteProject,
+	onRenameTask,
+	onDeleteTask,
 	collapsed,
 }: {
 	projects: Project[];
@@ -1312,6 +1394,8 @@ function ProjectList({
 	onExpandTasks: (projectId: string) => void;
 	onRenameProject: (project: Project) => void;
 	onDeleteProject: (project: Project) => void;
+	onRenameTask: (task: ProjectTask) => void;
+	onDeleteTask: (task: ProjectTask) => void;
 	collapsed: boolean;
 }) {
 	const recentProjects = getRecentProjectsForLeftRail(
@@ -1435,6 +1519,8 @@ function ProjectList({
 												task={task}
 												active={taskActive}
 												onOpenTask={onOpenTask}
+												onRenameTask={onRenameTask}
+												onDeleteTask={onDeleteTask}
 											/>
 										);
 									})
@@ -1458,27 +1544,58 @@ function TaskListItem({
 	task,
 	active,
 	onOpenTask,
+	onRenameTask,
+	onDeleteTask,
 }: {
 	projectId: string;
 	task: ProjectTask;
 	active: boolean;
 	onOpenTask: (projectId: string, task: ProjectTask) => void;
+	onRenameTask: (task: ProjectTask) => void;
+	onDeleteTask: (task: ProjectTask) => void;
 }) {
 	return (
-		<button
-			type="button"
+		<div
 			data-active={active}
-			onClick={() => onOpenTask(projectId, task)}
-			className="flex min-h-8 w-full items-center gap-2 rounded-sm px-8 py-1.5 text-left text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
-			title={task.title}
+			className="group flex min-h-8 w-full items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
 		>
-			<span className="min-w-0 flex-1 truncate">{task.title}</span>
-			{task.updatedAt ? (
-				<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">
-					{formatRelativeTaskTime(task.updatedAt)}
-				</span>
-			) : null}
-		</button>
+			<button
+				type="button"
+				onClick={() => onOpenTask(projectId, task)}
+				className="flex min-w-0 flex-1 items-center gap-2 pr-1 text-left"
+				title={task.title}
+			>
+				<span className="min-w-0 flex-1 truncate">{task.title}</span>
+				{task.updatedAt ? (
+					<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">
+						{formatRelativeTaskTime(task.updatedAt)}
+					</span>
+				) : null}
+			</button>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<button
+							type="button"
+							aria-label={`管理任务 ${task.title}`}
+							className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
+						>
+							<MoreHorizontal className="size-4" />
+						</button>
+					}
+				/>
+				<DropdownMenuContent align="end" sideOffset={4}>
+					<DropdownMenuItem onClick={() => onRenameTask(task)}>
+						<Pencil className="size-3.5" />
+						<span>重命名</span>
+					</DropdownMenuItem>
+					<DropdownMenuItem variant="destructive" onClick={() => onDeleteTask(task)}>
+						<Trash2 className="size-3.5" />
+						<span>删除</span>
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
 	);
 }
 

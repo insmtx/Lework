@@ -642,7 +642,18 @@ export class LayoutActionImpl {
 			if (!bp) throw new Error("No data returned");
 			const item = mapBackendProject(bp);
 			this.#set((state) => ({
-				projects: state.projects.map((p) => (p.id === item.id ? { ...p, ...item } : p)),
+				projects: state.projects.map((p) =>
+					p.id === item.id
+						? {
+								...p,
+								...item,
+								tasks: p.tasks,
+								messages: p.messages,
+								artifacts: p.artifacts,
+								files: p.files,
+							}
+						: p,
+				),
 			}));
 			return item;
 		} catch (err) {
