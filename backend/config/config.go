@@ -32,6 +32,7 @@ type Config struct {
 		Port                  string    `yaml:"port,omitempty"`                    // 服务器端口
 		DisableEventConsumers bool      `yaml:"disable_event_consumers,omitempty"` // 是否禁用后台事件消费者
 		JWT                   JWTConfig `yaml:"jwt,omitempty"`                     // JWT 认证配置
+		AppKey                string    `yaml:"app_key,omitempty"`                 // 三方服务调用鉴权 key，不绑定用户
 	} `yaml:"server,omitempty"` // 服务器地址
 	Env           string              `yaml:"env,omitempty"`
 	WorkspaceRoot string              `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
@@ -105,17 +106,7 @@ type StorageConfig struct {
 	BaseURL      string `yaml:"base_url,omitempty"`
 	URLStyle     string `yaml:"url_style,omitempty"`
 	LocalDir     string `yaml:"local_dir,omitempty"`
-	SignSecret   string `yaml:"sign_secret,omitempty"`
-	StaticAPIKey string `yaml:"static_api_key,omitempty"`
-}
-
-// GetStaticAPIKey returns the static API key for presign route authentication,
-// or an empty string if StorageConfig is nil.
-func (s *StorageConfig) GetStaticAPIKey() string {
-	if s == nil {
-		return ""
-	}
-	return s.StaticAPIKey
+	SignSecret string `yaml:"sign_secret,omitempty"`
 }
 
 // GiteaConfig 外部 gitea 实例连接配置

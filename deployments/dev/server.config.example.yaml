@@ -4,6 +4,7 @@ workspace_root:
 
 server:
   port: 8080
+  app_key: "leros-server-key"
   jwt:
     secret: "dev-leros-jwt-secret"
 
@@ -45,7 +46,6 @@ storage:
   driver: local
   local_dir: ./leros-storage
   bucket: leros-dev-bucket
-  static_api_key: "leros-static-api-key"
   sign_secret: "leros-local-presign"
   base_url: "http://localhost:8080"
 

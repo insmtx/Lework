@@ -12,13 +12,13 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
-const headerStaticAPIKey = "X-Static-Api-Key"
+const headerAppKey = "X-App-Key"
 
-func StaticAuth(staticAPIKey, jwtSecret string, db *gorm.DB) gin.HandlerFunc {
+func StaticAuth(serverAppKey, jwtSecret string, db *gorm.DB) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		if staticAPIKey != "" {
-			apiKey := strings.TrimSpace(ctx.GetHeader(headerStaticAPIKey))
-			if apiKey != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(staticAPIKey)) == 1 {
+		if serverAppKey != "" {
+			key := strings.TrimSpace(ctx.GetHeader(headerAppKey))
+			if key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(serverAppKey)) == 1 {
 				localauth.WithGinContext(ctx, types.SystemIdentity(), &types.Trace{})
 				ctx.Next()
 				return

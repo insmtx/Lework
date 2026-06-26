@@ -20,7 +20,6 @@ const (
 	defaultLocalDir       = "leros-storage"
 	defaultSignSecret     = "leros-local-presign"
 	defaultSignBaseURL    = ""
-	defaultStaticAPIKey   = "leros-static-api-key"
 )
 
 var (
@@ -28,7 +27,6 @@ var (
 	defaultBucket  string = defaultBucketName
 	driverType     storage.DriverType
 	signSecret     string = defaultSignSecret
-	staticAPIKey   string = defaultStaticAPIKey
 )
 
 func Init(cfg *config.StorageConfig) error {
@@ -76,9 +74,6 @@ func Init(cfg *config.StorageConfig) error {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = defaultSignBaseURL
 	}
-	if cfg.StaticAPIKey == "" {
-		cfg.StaticAPIKey = defaultStaticAPIKey
-	}
 	driverType = driver
 	sCfg := storage.Config{
 		Endpoint:   cfg.Endpoint,
@@ -102,7 +97,6 @@ func Init(cfg *config.StorageConfig) error {
 	defaultStorage = s
 	defaultBucket = cfg.Bucket
 	signSecret = cfg.SignSecret
-	staticAPIKey = cfg.StaticAPIKey
 	return nil
 }
 
@@ -117,11 +111,6 @@ func DefaultBucket() string {
 // SignSecret returns the current presign signing secret
 func SignSecret() string {
 	return signSecret
-}
-
-// StaticAPIKey returns the current static API key for presign route authentication
-func StaticAPIKey() string {
-	return staticAPIKey
 }
 
 // IsLocal 返回当前 storage 驱动是否为 local

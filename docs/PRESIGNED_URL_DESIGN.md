@@ -384,14 +384,14 @@ func SignSecret() string
 
 返回当前 presigned 签名密钥。
 
-### `filestore.StaticAPIKey`
+### `cfg.Server.AppKey`
 
 ```go
-// backend/internal/infra/filestore/init.go:123
-func StaticAPIKey() string
+// backend/config/config.go:35
+AppKey string `yaml:"app_key,omitempty"`
 ```
 
-返回当前预签名生成端 API 鉴权密钥。
+返回当前服务间调用鉴权密钥（不绑定用户），配置在 `server.app_key`。
 
 ---
 
@@ -402,7 +402,7 @@ func StaticAPIKey() string
 | 上传接口       | `PUT /v1/static/:bucket/*key?presign=1`            | `POST /v1/files/upload` (multipart)  |
 | 下载接口       | `GET /v1/static/:bucket/*key?presign=1`            | `GET /v1/files/:id/download`         |
 | 数据流经 Leros | 是（服务端验证 token 后代理读写 storage）           | 是（服务端中转）                     |
-| 生成端认证     | JWT Bearer Token 或 X-Static-Api-Key（任一即可）   | Bearer Token                         |
+| 生成端认证     | JWT Bearer Token 或 X-App-Key（任一即可）              | Bearer Token                         |
 | 消费端认证     | URL 自带 HMAC 签名（无需额外认证）                 | Bearer Token                         |
 | 前端实现       | 未实现                                             | 已实现（`fileApi.ts`）               |
 | 数据库记录     | 不创建 FileUpload 记录                             | 创建 FileUpload 记录                 |
@@ -446,7 +446,7 @@ go test -v ./backend/internal/infra/filestore/ -run "Presign"
 | `backend/internal/infra/filestore/presign_verify.go`      | token 验证与 Put/Get 消费处理     |
 | `backend/internal/infra/filestore/presign_test.go`        | 预签名单元测试                    |
 | `backend/internal/infra/filestore/upload.go`              | 上传下载 + PresignDownloadByPublicID |
-| `backend/internal/infra/filestore/init.go`                | Storage 初始化 + SignSecret() + StaticAPIKey() |
+| `backend/internal/infra/filestore/init.go`                | Storage 初始化 + SignSecret() |
 | `backend/internal/api/handler/static_handler.go`          | Presign URL 生成 HTTP handler     |
 | `backend/internal/api/handler/presigned_handler.go`       | Presign URL 消费 HTTP handler     |
 | `backend/internal/api/handler/presigned_handler_test.go`  | 消费端 handler 测试（round-trip） |
