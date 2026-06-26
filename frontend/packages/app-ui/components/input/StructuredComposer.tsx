@@ -11,7 +11,7 @@ import {
 	CommandList,
 } from "@leros/ui/components/ui/command";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Sparkles } from "lucide-react";
+import { Bot, Sparkles, X } from "lucide-react";
 import {
 	forwardRef,
 	type MouseEvent,
@@ -943,7 +943,27 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					start -= 1;
 				}
 				const nextValue = `${currentValue.slice(0, start)}${currentValue.slice(end)}`;
-				const nextTokens = shiftTokensForTextEdit(currentTokens, currentValue, nextValue);
+				const delta = start - end;
+				const nextTokens = sortTokens(
+					currentTokens
+						.flatMap((token) => {
+							if (
+								token.kind === target.kind &&
+								token.label === target.label &&
+								token.start === target.start &&
+								token.end === target.end
+							) {
+								return [];
+							}
+							if (token.end <= start) return [token];
+							if (token.start >= end) {
+								return [{ ...token, start: token.start + delta, end: token.end + delta }];
+							}
+							return [];
+						})
+						// 中文注释：已选区删除只影响目标 token，后续同前缀技能需保留 mention 样式。
+						.filter((token) => nextValue.slice(token.start, token.end) === token.label),
+				);
 				// 中文注释：从已选 tag 区域移除时，同步删除输入框里的 mention token 和对应纯文本。
 				dismissTrigger(false);
 				commitProgrammaticEdit(nextValue, nextTokens, start);
@@ -1151,69 +1171,117 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 							<CommandList className="max-h-60">
 								<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
 								{trigger.kind === "assistant" ? (
-									<CommandGroup className="p-0">
-										{filteredAssistants.map((assistant, index) => (
-											<CommandItem
-												key={assistant.code}
-												value={assistantPickerValue(assistant)}
-												data-picker-item-value={assistantPickerValue(assistant)}
-												onMouseDown={(event: MouseEvent) => event.preventDefault()}
-												onSelect={() => selectToken("assistant", assistant, trigger)}
-												className={cn(
-													"rounded-xl px-2.5 py-2",
-													index === activeIndex && "bg-slate-100",
-												)}
-											>
-												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-													<Bot className="size-4" />
+									<>
+										{selectedAssistantNames.length > 0 && (
+											<div className="px-2.5 pb-2 pt-1">
+												<div className="mb-1 text-[11px] font-medium text-slate-400">
+													已选 AI 队友
 												</div>
-												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium text-slate-700">
-														{assistant.name}
-													</div>
-													<div className="truncate text-xs text-slate-400">
-														{assistant.description}
-													</div>
+												<div className="flex flex-wrap gap-1.5">
+													{selectedAssistantNames.map((name) => (
+														<button
+															key={name}
+															type="button"
+															aria-label={`移除 AI 队友 ${name}`}
+															onMouseDown={(event: MouseEvent) => event.preventDefault()}
+															onClick={() => removeAssistantToken(name)}
+															className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700 transition-colors hover:bg-blue-100"
+														>
+															@{name}
+															<X className="size-3" />
+														</button>
+													))}
 												</div>
-											</CommandItem>
-										))}
-									</CommandGroup>
+											</div>
+										)}
+										<CommandGroup className="p-0">
+											{filteredAssistants.map((assistant, index) => (
+												<CommandItem
+													key={assistant.code}
+													value={assistantPickerValue(assistant)}
+													data-picker-item-value={assistantPickerValue(assistant)}
+													onMouseDown={(event: MouseEvent) => event.preventDefault()}
+													onSelect={() => selectToken("assistant", assistant, trigger)}
+													className={cn(
+														"rounded-xl px-2.5 py-2",
+														index === activeIndex && "bg-slate-100",
+													)}
+												>
+													<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+														<Bot className="size-4" />
+													</div>
+													<div className="min-w-0 flex-1">
+														<div className="truncate font-medium text-slate-700">
+															{assistant.name}
+														</div>
+														<div className="truncate text-xs text-slate-400">
+															{assistant.description}
+														</div>
+													</div>
+												</CommandItem>
+											))}
+										</CommandGroup>
+									</>
 								) : (
-									<CommandGroup heading="Skills" className="p-0">
-										{skillsLoading && (
-											<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>
-										)}
-										{!skillsLoading && skillsError && (
-											<div className="px-2.5 py-2 text-xs text-red-400">{skillsError}</div>
-										)}
-										{filteredSkills.map((skill, index) => (
-											<CommandItem
-												key={`skill-${skill.code}`}
-												value={commandPickerValue({
-													kind: "skill",
-													item: skill,
-												})}
-												data-picker-item-value={commandPickerValue({
-													kind: "skill",
-													item: skill,
-												})}
-												onMouseDown={(event: MouseEvent) => event.preventDefault()}
-												onSelect={() => selectToken("skill", skill, trigger)}
-												className={cn(
-													"rounded-xl px-2.5 py-2",
-													index === activeIndex && "bg-slate-100",
-												)}
-											>
-												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
-													<Sparkles className="size-3.5" />
+									<>
+										{selectedSkillLabels.length > 0 && (
+											<div className="px-2.5 pb-2 pt-1">
+												<div className="mb-1 text-[11px] font-medium text-slate-400">已选技能</div>
+												<div className="flex flex-wrap gap-1.5">
+													{selectedSkillLabels.map((label) => (
+														<button
+															key={label}
+															type="button"
+															aria-label={`移除技能 ${label}`}
+															onMouseDown={(event: MouseEvent) => event.preventDefault()}
+															onClick={() => removeSkillToken(label)}
+															className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[11px] text-violet-700 transition-colors hover:bg-violet-100"
+														>
+															/{label}
+															<X className="size-3" />
+														</button>
+													))}
 												</div>
-												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium">/{skill.label}</div>
-													<div className="truncate text-xs text-slate-400">{skill.description}</div>
-												</div>
-											</CommandItem>
-										))}
-									</CommandGroup>
+											</div>
+										)}
+										<CommandGroup heading="Skills" className="p-0">
+											{skillsLoading && (
+												<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>
+											)}
+											{!skillsLoading && skillsError && (
+												<div className="px-2.5 py-2 text-xs text-red-400">{skillsError}</div>
+											)}
+											{filteredSkills.map((skill, index) => (
+												<CommandItem
+													key={`skill-${skill.code}`}
+													value={commandPickerValue({
+														kind: "skill",
+														item: skill,
+													})}
+													data-picker-item-value={commandPickerValue({
+														kind: "skill",
+														item: skill,
+													})}
+													onMouseDown={(event: MouseEvent) => event.preventDefault()}
+													onSelect={() => selectToken("skill", skill, trigger)}
+													className={cn(
+														"rounded-xl px-2.5 py-2",
+														index === activeIndex && "bg-slate-100",
+													)}
+												>
+													<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+														<Sparkles className="size-3.5" />
+													</div>
+													<div className="min-w-0 flex-1">
+														<div className="truncate font-medium">/{skill.label}</div>
+														<div className="truncate text-xs text-slate-400">
+															{skill.description}
+														</div>
+													</div>
+												</CommandItem>
+											))}
+										</CommandGroup>
+									</>
 								)}
 							</CommandList>
 						</Command>

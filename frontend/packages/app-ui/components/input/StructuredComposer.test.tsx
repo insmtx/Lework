@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { ComposerActionBar } from "./ComposerActionBar";
 import {
 	type ComposerSkillOption,
 	StructuredComposer,
@@ -92,6 +92,51 @@ function ToolbarHarness({ onValueChange }: { onValueChange?: (value: string) => 
 				placeholder="请输入"
 				isProjectVariant
 				projectSkillOptions={[]}
+			/>
+		</div>
+	);
+}
+
+function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
+	const [value, setValue] = useState("");
+	const composerRef = useRef<StructuredComposerHandle | null>(null);
+	const projectSkillOptions: ComposerSkillOption[] = [
+		{
+			code: "anysearch",
+			label: "anysearch",
+			description: "search",
+			keywords: [],
+		},
+		{
+			code: "docx",
+			label: "docx",
+			description: "docx",
+			keywords: [],
+		},
+	];
+
+	return (
+		<div>
+			<StructuredComposer
+				ref={composerRef}
+				value={value}
+				onChange={(nextValue) => {
+					// 中文注释：用真实工具栏驱动受控输入框，覆盖弹窗已选区删除后的 token 同步。
+					setValue(nextValue);
+					onValueChange?.(nextValue);
+				}}
+				onSubmit={vi.fn()}
+				onPasteFiles={vi.fn()}
+				onFocus={vi.fn()}
+				onBlur={vi.fn()}
+				placeholder="请输入"
+				isProjectVariant
+				projectSkillOptions={projectSkillOptions}
+			/>
+			<ComposerActionBar
+				inputValue={value}
+				composerRef={composerRef}
+				projectSkillOptions={projectSkillOptions}
 			/>
 		</div>
 	);
@@ -210,6 +255,40 @@ describe("StructuredComposer", () => {
 			expect(mentions).toHaveLength(2);
 			expect(mentions[0]).toHaveAttribute("data-mention-label", "/anysearch");
 			expect(mentions[1]).toHaveAttribute("data-mention-label", "/docx");
+		});
+	});
+
+	it("工具栏弹窗已选技能可删除且剩余技能保持 mention 样式", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(<ActionBarHarness onValueChange={handleValueChange} />);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(screen.getByRole("button", { name: "添加技能" }));
+		await user.click(await screen.findByText("/anysearch"));
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("/anysearch ");
+		});
+		expect(screen.getByRole("button", { name: "移除技能 anysearch" })).toBeInTheDocument();
+
+		await user.click(await screen.findByText("/docx"));
+		await waitFor(() => {
+			const mentions = textbox.querySelectorAll(
+				'[data-mention-node="true"][data-mention-kind="skill"]',
+			);
+			expect(mentions).toHaveLength(2);
+		});
+
+		await user.click(screen.getByRole("button", { name: "移除技能 anysearch" }));
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("/docx ");
+			const mentions = textbox.querySelectorAll(
+				'[data-mention-node="true"][data-mention-kind="skill"]',
+			);
+			expect(mentions).toHaveLength(1);
+			expect(mentions[0]).toHaveAttribute("data-mention-label", "/docx");
 		});
 	});
 });
