@@ -24,6 +24,7 @@ import { ShieldCheck, Smartphone } from "lucide-react";
 import {
 	createContext,
 	type FormEvent,
+	type MouseEvent,
 	type ReactNode,
 	useCallback,
 	useContext,
@@ -38,6 +39,10 @@ import {
 } from "../../assets";
 
 type AuthMode = "login";
+type PolicyDocument = "terms" | "privacy";
+type DesktopPolicyApi = {
+	openPolicyPdf?: (document: PolicyDocument) => Promise<boolean>;
+};
 
 type AuthContextValue = {
 	isHydrated: boolean;
@@ -213,6 +218,16 @@ function AuthDialog({
 	const markTouched = (field: string) => {
 		setTouched((current) => ({ ...current, [field]: true }));
 	};
+	const handleOpenPolicyPdf = async (
+		event: MouseEvent<HTMLAnchorElement>,
+		document: PolicyDocument,
+	) => {
+		const desktopApi = (window as typeof window & { lerosDesktop?: DesktopPolicyApi }).lerosDesktop;
+		if (!desktopApi?.openPolicyPdf) return;
+
+		event.preventDefault();
+		await desktopApi.openPolicyPdf(document);
+	};
 
 	const handleSendCode = async () => {
 		setTouched((current) => ({ ...current, phone: true }));
@@ -332,6 +347,7 @@ function AuthDialog({
 								我已阅读并同意
 								<a
 									href={APP_TERMS_OF_SERVICE_PDF_SRC}
+									onClick={(event) => void handleOpenPolicyPdf(event, "terms")}
 									target="_blank"
 									rel="noreferrer"
 									className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"
@@ -341,6 +357,7 @@ function AuthDialog({
 								和
 								<a
 									href={APP_PRIVACY_POLICY_PDF_SRC}
+									onClick={(event) => void handleOpenPolicyPdf(event, "privacy")}
 									target="_blank"
 									rel="noreferrer"
 									className="mx-1 text-[#64748b] transition-colors hover:text-[#4d5cff]"

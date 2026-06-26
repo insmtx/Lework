@@ -3,16 +3,30 @@ import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import {
 	app,
 	BrowserWindow,
+	ipcMain,
 	Menu,
 	nativeImage,
 	shell,
 	Tray,
 } from "electron";
+import {
+	desktopOpenPolicyPdfChannel,
+	type DesktopPolicyDocument,
+} from "../shared/auto-update";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+
+function getPolicyPdfPath(document: DesktopPolicyDocument): string {
+	const fileName = document === "terms" ? "terms-of-service.pdf" : "privacy-policy.pdf";
+	if (app.isPackaged) {
+		return join(process.resourcesPath, fileName);
+	}
+
+	return join(__dirname, "../../resources", fileName);
+}
 
 function createWindow(): void {
 	if (mainWindow && !mainWindow.isDestroyed()) {
@@ -137,6 +151,11 @@ function quitApp(): void {
 	isQuitting = true;
 	app.quit();
 }
+
+ipcMain.handle(desktopOpenPolicyPdfChannel, async (_event, document: DesktopPolicyDocument) => {
+	const result = await shell.openPath(getPolicyPdfPath(document));
+	return result === "";
+});
 
 app.whenReady().then(() => {
 	electronApp.setAppUserModelId("com.leros.desktop");
