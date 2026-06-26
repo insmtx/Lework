@@ -726,7 +726,10 @@ function mergeQuestionRequest(
 	next[index] = {
 		...next[index],
 		...update,
-		status: (next[index]?.status ?? "pending") === "pending" ? update.status : next[index]?.status ?? "pending",
+		status:
+			(next[index]?.status ?? "pending") === "pending"
+				? update.status
+				: (next[index]?.status ?? "pending"),
 	};
 	return next;
 }
@@ -1647,7 +1650,7 @@ export class ChatActionImpl {
 	};
 
 	addUploadedAttachment = async (projectId: string, file: File) => {
-		const response = await projectFileApi.upload({ projectId, file });
+		const response = await projectFileApi.upload({ projectId, projectPublicId: projectId, file });
 		const payload = response.data;
 		const attachmentId = `att-${Date.now()}`;
 		const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
@@ -1659,8 +1662,8 @@ export class ChatActionImpl {
 			size: payload.file_size ?? payload.size ?? file.size,
 			url: previewUrl,
 			file,
-			path: payload.public_id || payload.storage_path || payload.path,
-			fileUploadId: payload.file_upload_id,
+			path: payload.public_id || payload.storage_uri || payload.path,
+			fileUploadId: payload.public_id,
 			mimeType: payload.mime_type || file.type,
 		};
 
@@ -1766,11 +1769,7 @@ export class ChatActionImpl {
 		}
 	};
 
-	submitQuestionAnswer = async (
-		messageId: string,
-		requestId: string,
-		answers: string[][],
-	) => {
+	submitQuestionAnswer = async (messageId: string, requestId: string, answers: string[][]) => {
 		const state = this.#get();
 		const message = state.messagesMap[messageId];
 		const sessionId = message?.conversationId || state.activeSessionId;

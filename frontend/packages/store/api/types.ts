@@ -387,13 +387,11 @@ export type BackendProjectFileUploadResult = {
 	filename: string;
 	size: number;
 	public_id?: string;
-	file_upload_id?: string;
 	original_name?: string;
 	mime_type?: string;
 	file_size?: number;
 	sha256?: string;
-	storage_path?: string;
-	url?: string;
+	storage_uri?: string;
 };
 
 export type BackendNewMessageData = {

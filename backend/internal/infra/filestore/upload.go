@@ -21,6 +21,7 @@ const (
 	PurposeAttachment = "attachment"
 	PurposeAvatar     = "avatar"
 	PurposeArtifact   = "artifact"
+	PurposeProjects   = "projects"
 )
 
 // UploadParams 文件上传参数

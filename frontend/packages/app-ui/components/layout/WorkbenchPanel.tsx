@@ -137,8 +137,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			size: payload.file_size ?? payload.size ?? file.size,
 			url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
 			file,
-			path: payload.public_id || payload.storage_path || payload.path,
-			fileUploadId: payload.file_upload_id,
+			path: payload.public_id || payload.storage_uri || payload.path,
+			fileUploadId: payload.public_id,
 			mimeType: payload.mime_type || file.type,
 		};
 		return { attachment, message: response.message };

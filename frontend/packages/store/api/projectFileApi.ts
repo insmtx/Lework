@@ -14,24 +14,24 @@ export type GetProjectFilesParams = {
 
 export type UploadProjectFileParams = {
 	projectId: string;
+	projectPublicId: string;
 	file: File;
 };
 
 export type UploadLooseFileParams = {
 	file: File;
 	purpose?: string;
+	source_id?: string;
 };
 
 type BackendUploadFilePayload = {
 	public_id: string;
-	file_upload_id?: string;
 	filename?: string;
 	original_name?: string;
 	mime_type?: string;
 	file_size?: number;
 	sha256?: string;
-	storage_path?: string;
-	url?: string;
+	storage_uri?: string;
 };
 
 async function parseErrorMessage(response: Response): Promise<string> {
@@ -57,17 +57,24 @@ function assertBackendSuccess<T>(
 	return response;
 }
 
-async function uploadFile(file: File): Promise<BackendDataResponse<BackendUploadFilePayload>> {
-	return uploadLooseFile({ file, purpose: "project" });
+async function uploadFile(
+	file: File,
+	projectPublicId: string,
+): Promise<BackendDataResponse<BackendUploadFilePayload>> {
+	return uploadLooseFile({ file, purpose: "projects", source_id: projectPublicId });
 }
 
 async function uploadLooseFile({
 	file,
 	purpose = "attachment",
+	source_id,
 }: UploadLooseFileParams): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	const formData = new FormData();
 	formData.append("file", file);
 	formData.append("purpose", purpose);
+	if (source_id) {
+		formData.append("source_id", source_id);
+	}
 
 	const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
 		method: "POST",
@@ -109,8 +116,11 @@ export const projectFileApi = {
 		return response;
 	},
 
-	upload: async ({ file }: UploadProjectFileParams) => {
-		const uploadResponse = assertBackendSuccess(await uploadFile(file), "文件上传失败");
+	upload: async ({ file, projectPublicId }: UploadProjectFileParams) => {
+		const uploadResponse = assertBackendSuccess(
+			await uploadFile(file, projectPublicId),
+			"文件上传失败",
+		);
 		const uploaded = uploadResponse.data;
 		if (!uploaded?.public_id) {
 			throw new Error("上传接口未返回 public_id");
@@ -120,17 +130,15 @@ export const projectFileApi = {
 			code: uploadResponse.code,
 			message: uploadResponse.message,
 			data: {
-				path: uploaded.storage_path || uploaded.url || uploaded.public_id,
+				path: uploaded.storage_uri || uploaded.public_id,
 				filename: uploaded.original_name || uploaded.filename || file.name,
 				size: uploaded.file_size ?? file.size,
 				public_id: uploaded.public_id,
-				file_upload_id: uploaded.file_upload_id,
 				original_name: uploaded.original_name,
 				mime_type: uploaded.mime_type || file.type,
 				file_size: uploaded.file_size ?? file.size,
 				sha256: uploaded.sha256,
-				storage_path: uploaded.storage_path,
-				url: uploaded.url,
+				storage_uri: uploaded.storage_uri,
 			} satisfies BackendProjectFileUploadResult,
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
@@ -149,17 +157,15 @@ export const projectFileApi = {
 			code: uploadResponse.code,
 			message: uploadResponse.message,
 			data: {
-				path: uploaded.storage_path || uploaded.url || uploaded.public_id,
+				path: uploaded.storage_uri || uploaded.public_id,
 				filename: uploaded.original_name || uploaded.filename || file.name,
 				size: uploaded.file_size ?? file.size,
 				public_id: uploaded.public_id,
-				file_upload_id: uploaded.file_upload_id,
 				original_name: uploaded.original_name,
 				mime_type: uploaded.mime_type || file.type,
 				file_size: uploaded.file_size ?? file.size,
 				sha256: uploaded.sha256,
-				storage_path: uploaded.storage_path,
-				url: uploaded.url,
+				storage_uri: uploaded.storage_uri,
 			} satisfies BackendProjectFileUploadResult,
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
