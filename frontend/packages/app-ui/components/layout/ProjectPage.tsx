@@ -10,6 +10,7 @@ import {
 	useChatStore,
 	useLayoutStore,
 } from "@leros/store";
+import { Button } from "@leros/ui/components/ui/button";
 import {
 	Command,
 	CommandEmpty,
@@ -18,6 +19,14 @@ import {
 	CommandItem,
 	CommandList,
 } from "@leros/ui/components/ui/command";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@leros/ui/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
@@ -964,15 +973,68 @@ function ProjectTasks({
 	tasks: ProjectTask[];
 	onOpenTask?: (task: ProjectTask) => void;
 }) {
+	const { updateTask } = useLayoutStore((s) => s);
+	const [renameTarget, setRenameTarget] = useState<ProjectTask | null>(null);
+	const [renameValue, setRenameValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<ProjectTask | null>(null);
+
+	const handleConfirmRename = async () => {
+		const title = renameValue.trim();
+		if (!renameTarget || !title) return;
+
+		const updatedTask = await updateTask({ public_id: renameTarget.id, title });
+		if (updatedTask) {
+			setRenameTarget(null);
+			setRenameValue("");
+		}
+	};
 
 	return (
 		// 中文注释：任务 tab 需要占用更宽的主内容区域，避免大屏下卡片挤在中间留下过多留白。
 		<div className="mx-auto w-full max-w-[1100px]">
 			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务</h2>
 			<div className="mt-4">
-				<ProjectTaskList tasks={tasks} onDelete={setDeleteTarget} onOpen={onOpenTask} />
+				<ProjectTaskList
+					tasks={tasks}
+					onRename={(task) => {
+						setRenameTarget(task);
+						setRenameValue(task.title);
+					}}
+					onDelete={setDeleteTarget}
+					onOpen={onOpenTask}
+				/>
 			</div>
+			<Dialog open={renameTarget !== null} onOpenChange={(open) => !open && setRenameTarget(null)}>
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>重命名任务</DialogTitle>
+						<DialogDescription>请输入新的任务名称</DialogDescription>
+					</DialogHeader>
+					<div className="mt-4">
+						<input
+							type="text"
+							value={renameValue}
+							onChange={(event) => setRenameValue(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") {
+									handleConfirmRename();
+								}
+							}}
+							placeholder="任务名称"
+							autoFocus
+							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+						/>
+					</div>
+					<DialogFooter className="mt-4">
+						<Button variant="outline" onClick={() => setRenameTarget(null)}>
+							取消
+						</Button>
+						<Button onClick={handleConfirmRename} disabled={!renameValue.trim()}>
+							确认
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 			{deleteTarget && (
 				<TaskDeleteDialog
 					task={deleteTarget}
@@ -989,11 +1051,13 @@ function ProjectTasks({
 function ProjectTaskList({
 	tasks,
 	compact = false,
+	onRename,
 	onDelete,
 	onOpen,
 }: {
 	tasks: ProjectTask[];
 	compact?: boolean;
+	onRename?: (task: ProjectTask) => void;
 	onDelete?: (task: ProjectTask) => void;
 	onOpen?: (task: ProjectTask) => void;
 }) {
@@ -1057,7 +1121,7 @@ function ProjectTaskList({
 						<div key={task.id} className={cardClassName}>
 							<button
 								type="button"
-								className={cn(contentClassName, "pr-11")}
+								className={cn(contentClassName, "pr-24")}
 								onClick={() => onOpen?.(task)}
 								disabled={!onOpen}
 								title={onOpen ? "打开任务会话" : undefined}
@@ -1065,17 +1129,30 @@ function ProjectTaskList({
 								{content}
 							</button>
 							{!compact && (
-								<button
-									type="button"
-									className="pointer-events-none absolute right-4 top-4 rounded p-0.5 text-[var(--leros-text-muted)] opacity-0 transition-opacity hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)] group-hover:pointer-events-auto group-hover:opacity-100"
-									onClick={(event) => {
-										event.stopPropagation();
-										onDelete(task);
-									}}
-									title="删除任务"
-								>
-									<Trash2 className="size-4" />
-								</button>
+								<div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+									<button
+										type="button"
+										className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+										onClick={(event) => {
+											event.stopPropagation();
+											onRename?.(task);
+										}}
+										title="重命名任务"
+									>
+										<Pencil className="size-4" />
+									</button>
+									<button
+										type="button"
+										className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)]"
+										onClick={(event) => {
+											event.stopPropagation();
+											onDelete(task);
+										}}
+										title="删除任务"
+									>
+										<Trash2 className="size-4" />
+									</button>
+								</div>
 							)}
 						</div>
 					);
