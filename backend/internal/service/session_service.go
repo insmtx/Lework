@@ -8,9 +8,11 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"golang.org/x/sync/errgroup"
 
 	"gorm.io/gorm"
 
@@ -22,8 +24,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
-	"github.com/insmtx/Leros/backend/pkg/dm"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
@@ -36,6 +37,7 @@ const (
 	sessionRuntimeStatusIdle       = "idle"
 	sessionRuntimeStatusResponding = "responding"
 	responseStreamStartSeqKey      = "response_stream_start_seq"
+	stateStartSeqKey               = "state_start_seq"
 	replyToMessageIDsKey           = "reply_to_message_ids"
 	sessionProcessingWindow        = 30 * time.Minute
 )
@@ -331,7 +333,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 
 	s.resolveAttachmentURLs(ctx, session.OrgID, req.Attachments)
 
-	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
+	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s)
 	message, err := mp.PostMessage(ctx, session, func(sequence int64) *types.SessionMessage {
 		return s.buildMessage(req, sequence)
 	})
@@ -495,11 +497,25 @@ func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.Submi
 		}
 		req.WorkerID = workerID
 	}
-	topic, err := dm.WorkerApprovalSubject(req.OrgID, req.WorkerID)
+	topic, err := messaging.WorkerCommandSubject(req.OrgID, req.WorkerID, messaging.LaneInteraction)
 	if err != nil {
 		return fmt.Errorf("build approval topic: %w", err)
 	}
-	return s.eventbus.Publish(ctx, topic, req)
+
+	cmd := messaging.NewApprovalResolveCommand(
+		fmt.Sprintf("approval_%s", snowflake.GenerateIDBase58()),
+		messaging.RouteContext{
+			OrgID:     req.OrgID,
+			WorkerID:  req.WorkerID,
+			SessionID: req.SessionID,
+		},
+		messaging.ApprovalResolveCommandPayload{
+			Action: req.Action,
+			Reason: req.Reason,
+		},
+		req.RequestID,
+	)
+	return s.eventbus.Publish(ctx, topic, cmd)
 }
 
 func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract.SubmitQuestionAnswerRequest) error {
@@ -518,23 +534,24 @@ func (s *sessionService) SubmitQuestionAnswer(ctx context.Context, req *contract
 		}
 		req.WorkerID = workerID
 	}
-	topic, err := dm.WorkerApprovalSubject(req.OrgID, req.WorkerID)
+	topic, err := messaging.WorkerCommandSubject(req.OrgID, req.WorkerID, messaging.LaneInteraction)
 	if err != nil {
 		return fmt.Errorf("build question answer topic: %w", err)
 	}
-	// 使用与 approval 相同的 topic，但消息中包含 interaction_type 以区分
-	type questionMsg struct {
-		InteractionType string     `json:"interaction_type"`
-		SessionID       string     `json:"session_id"`
-		RequestID       string     `json:"request_id"`
-		Answers         [][]string `json:"answers"`
-	}
-	return s.eventbus.Publish(ctx, topic, questionMsg{
-		InteractionType: "question",
-		SessionID:       req.SessionID,
-		RequestID:       req.RequestID,
-		Answers:         req.Answers,
-	})
+
+	cmd := messaging.NewQuestionAnswerCommand(
+		fmt.Sprintf("question_%s", snowflake.GenerateIDBase58()),
+		messaging.RouteContext{
+			OrgID:     req.OrgID,
+			WorkerID:  req.WorkerID,
+			SessionID: req.SessionID,
+		},
+		messaging.QuestionAnswerCommandPayload{
+			Answers: req.Answers,
+		},
+		req.RequestID,
+	)
+	return s.eventbus.Publish(ctx, topic, cmd)
 }
 
 func (s *sessionService) sessionRuntimeStatus(ctx context.Context, sessionID uint) string {
@@ -556,8 +573,10 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 	if req.SessionID == "" {
 		return errors.New("session_id is required")
 	}
-	if req.StreamStartSeq == 0 {
-		return errors.New("stream_start_seq is required")
+	// StreamStartSeq is optional; stream projector sets it asynchronously
+	// when the first run.stream event arrives.
+	if req.StateStartSeq == 0 {
+		return errors.New("state_start_seq is required")
 	}
 
 	session, err := db.GetSessionByPublicID(ctx, s.db, req.SessionID)
@@ -584,7 +603,12 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 				continue
 			}
 			message.Status = string(types.MessageStatusProcessing)
-			setResponseStreamStartSeq(&message.Metadata, req.StreamStartSeq)
+			if req.StreamStartSeq > 0 {
+				setResponseStreamStartSeq(&message.Metadata, req.StreamStartSeq)
+			}
+			if req.StateStartSeq > 0 {
+				setStateStartSeq(&message.Metadata, req.StateStartSeq)
+			}
 			if err := tx.Save(message).Error; err != nil {
 				return err
 			}
@@ -592,6 +616,53 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 		return nil
 	})
 }
+
+// SetSessionStreamStartSeq records the NATS stream sequence for the first
+// run.stream event of a session, used by the stream projector for SSE replay.
+func (s *sessionService) SetSessionStreamStartSeq(ctx context.Context, sessionID string, streamSeq uint64) error {
+	session, err := db.GetSessionByPublicID(ctx, s.db, sessionID)
+	if err != nil {
+		return fmt.Errorf("find session %s: %w", sessionID, err)
+	}
+	if session == nil {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+
+	messages, err := db.GetRecentProcessingUserMessages(ctx, s.db, session.ID, time.Now().Add(-sessionProcessingWindow))
+	if err != nil {
+		return fmt.Errorf("get processing messages for session %d: %w", session.ID, err)
+	}
+	if len(messages) == 0 {
+		logs.DebugContextf(ctx, "SetSessionStreamStartSeq: no processing messages for session %s, skipping", sessionID)
+		return nil
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		ids := make([]uint, len(messages))
+		for i, m := range messages {
+			ids[i] = m.ID
+		}
+		dbMsgs, err := db.GetSessionMessagesByIDs(ctx, tx, session.ID, ids)
+		if err != nil {
+			return err
+		}
+		for _, message := range dbMsgs {
+			if message.Status != string(types.MessageStatusProcessing) {
+				continue
+			}
+			// Only set if not already present (idempotent).
+			if _, ok := responseStreamStartSeq(message.Metadata); ok {
+				continue
+			}
+			setResponseStreamStartSeq(&message.Metadata, streamSeq)
+			if err := tx.Save(message).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (s *sessionService) GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*contract.MessageList, error) {
 	session, err := s.getSessionMessagesForCaller(ctx, sessionID)
 	if err != nil {
@@ -691,42 +762,65 @@ func toJSONString(v interface{}) string {
 	return string(b)
 }
 
+// StreamSessionEvents 同时订阅 run.stream 和 run.state lane，按 run 内 Seq 去重后推送 SSE 事件。
+//
+//   - run.stream: delta, tool_call, todo 等高频事件
+//   - run.state:  terminal, approval, question 等关键状态事件
+//
+// 两个 lane 的事件互不重复，Seq 去重仅作保底。
 func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, sink events.Sink) error {
 	session, caller, err := s.getSessionForCaller(ctx, sessionPID)
 	if err != nil {
 		return err
 	}
 
-	topic, err := dm.SessionResultStreamSubject(caller.OrgID, sessionPID)
-	if err != nil {
-		return fmt.Errorf("failed to construct session result stream topic: %w", err)
-	}
-
 	replayState := sessionReplayState{}
-	startSeq := int64(0)
+	streamStartSeq := int64(0)
+	stateStartSeq := int64(0)
 	if replay {
 		replayState, err = s.getSessionReplayState(ctx, session.ID)
 		if err != nil {
 			return err
 		}
-		if replayState.StartSeq > 0 && replayState.StartSeq <= math.MaxInt64 {
-			startSeq = int64(replayState.StartSeq)
+		if replayState.StreamStartSeq > 0 && replayState.StreamStartSeq <= math.MaxInt64 {
+			streamStartSeq = int64(replayState.StreamStartSeq)
+		}
+		if replayState.StateStartSeq > 0 && replayState.StateStartSeq <= math.MaxInt64 {
+			stateStartSeq = int64(replayState.StateStartSeq)
 		}
 	}
 
-	return s.eventbus.SubscribeFrom(ctx, topic, startSeq, func(msg *nats.Msg) {
-		var streamMsg protocol.MessageStreamMessage
-		if err := json.Unmarshal(msg.Data, &streamMsg); err != nil {
-			logs.WarnContextf(ctx, "failed to unmarshal to MessageStreamMessage: %v", err)
-			return
-		}
-		if replay && !streamMessageMatchesReplyIDs(streamMsg, replayState.MessageIDs) {
-			return
-		}
+	streamTopic, err := messaging.RunEventSubject(caller.OrgID, sessionPID, messaging.RunEventLaneStream)
+	if err != nil {
+		return fmt.Errorf("failed to construct run stream topic: %w", err)
+	}
+	stateTopic, err := messaging.RunEventSubject(caller.OrgID, sessionPID, messaging.RunEventLaneState)
+	if err != nil {
+		return fmt.Errorf("failed to construct run state topic: %w", err)
+	}
 
-		se, ok := ProjectStreamMessage(streamMsg)
+	// Dedup by run-level Seq across lanes (belt-and-suspenders — events on
+	// different lanes should not overlap, but we dedup anyway).
+	dedup := &runEventDedup{}
+
+	// innerCtx is cancelled by the first terminal event (completed/failed/cancelled)
+	// so the server actively closes the SSE stream instead of waiting for the client.
+	innerCtx, innerCancel := context.WithCancel(ctx)
+	defer innerCancel()
+
+	emitEvent := func(runEvent messaging.RunEvent) {
+		if runEvent.Body.Seq == 0 {
+			return
+		}
+		if replay && !runEventMatchesReplyIDs(runEvent, replayState.MessageIDs) {
+			return
+		}
+		if !dedup.mark(runEvent.Body.Seq) {
+			return
+		}
+		se, ok := ProjectRunEvent(runEvent)
 		if !ok {
-			logs.WarnContextf(ctx, "unknown stream event type: %v", streamMsg.Body.Event)
+			logs.WarnContextf(ctx, "unknown run event type: %v", runEvent.Body.Event)
 			return
 		}
 		if err := sink.Emit(ctx, &events.Event{
@@ -735,12 +829,74 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 		}); err != nil {
 			logs.ErrorContextf(ctx, "failed to emit session event for session %s: %v", sessionPID, err)
 		}
+		// 收到终端事件后，服务端主动结束 SSE 流
+		switch se.Type {
+		case events.EventCompleted, events.EventFailed, events.EventCancelled:
+			innerCancel()
+		}
+	}
+
+	handler := func(msg *nats.Msg) {
+		var runEvent messaging.RunEvent
+		if err := json.Unmarshal(msg.Data, &runEvent); err != nil {
+			logs.WarnContextf(ctx, "failed to unmarshal to RunEvent: %v", err)
+			return
+		}
+		emitEvent(runEvent)
+	}
+
+	// Subscribe to run.stream and run.state lanes concurrently, since
+	// SubscribeFrom blocks until ctx is done.
+	g, gctx := errgroup.WithContext(innerCtx)
+
+	// Subscribe to run.stream lane.
+	g.Go(func() error {
+		return s.eventbus.SubscribeFrom(gctx, streamTopic, streamStartSeq, handler)
 	})
+
+	// Subscribe to run.state lane (non-fatal if it fails; stream lane still delivers).
+	g.Go(func() error {
+		if err := s.eventbus.SubscribeFrom(gctx, stateTopic, stateStartSeq, handler); err != nil {
+			logs.WarnContextf(ctx, "subscribe to run.state failed: %v (stream lane still active)", err)
+		}
+		return nil
+	})
+
+	// Block until innerCtx is done (cancelled by terminal event or parent ctx).
+	<-innerCtx.Done()
+
+	// Wait for goroutines to clean up (they'll exit when innerCtx is Done).
+	_ = g.Wait()
+	return nil
+}
+
+// runEventDedup tracks the highest Seq seen and deduplicates across run lanes.
+type runEventDedup struct {
+	mu      sync.Mutex
+	highest int64
+	seen    map[int64]struct{}
+}
+
+func (d *runEventDedup) mark(seq int64) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.seen == nil {
+		d.seen = make(map[int64]struct{})
+	}
+	if _, ok := d.seen[seq]; ok {
+		return false
+	}
+	d.seen[seq] = struct{}{}
+	if seq > d.highest {
+		d.highest = seq
+	}
+	return true
 }
 
 type sessionReplayState struct {
-	StartSeq   uint64
-	MessageIDs map[string]struct{}
+	StreamStartSeq uint64
+	StateStartSeq  uint64
+	MessageIDs     map[string]struct{}
 }
 
 func (s *sessionService) getSessionReplayState(ctx context.Context, sessionID uint) (sessionReplayState, error) {
@@ -752,22 +908,31 @@ func (s *sessionService) getSessionReplayState(ctx context.Context, sessionID ui
 	for _, message := range messages {
 		id := strconv.FormatUint(uint64(message.ID), 10)
 		state.MessageIDs[id] = struct{}{}
-		seq, ok := responseStreamStartSeq(message.Metadata)
-		if !ok || seq == 0 {
-			continue
+
+		// Stream start seq — uses response_stream_start_seq (temporary compat field).
+		streamSeq, ok := responseStreamStartSeq(message.Metadata)
+		if ok && streamSeq > 0 {
+			if state.StreamStartSeq == 0 || streamSeq < state.StreamStartSeq {
+				state.StreamStartSeq = streamSeq
+			}
 		}
-		if state.StartSeq == 0 || seq < state.StartSeq {
-			state.StartSeq = seq
+
+		// State start seq — new field for run.state lane.
+		stateSeq, ok := stateStartSeq(message.Metadata)
+		if ok && stateSeq > 0 {
+			if state.StateStartSeq == 0 || stateSeq < state.StateStartSeq {
+				state.StateStartSeq = stateSeq
+			}
 		}
 	}
 	return state, nil
 }
 
-func streamMessageMatchesReplyIDs(streamMsg protocol.MessageStreamMessage, ids map[string]struct{}) bool {
+func runEventMatchesReplyIDs(runEvent messaging.RunEvent, ids map[string]struct{}) bool {
 	if len(ids) == 0 {
 		return false
 	}
-	for _, id := range replyToMessageIDsFromStream(streamMsg) {
+	for _, id := range runEvent.Body.ReplyToMessageIDs {
 		if _, ok := ids[id]; ok {
 			return true
 		}
@@ -870,6 +1035,13 @@ func setResponseStreamStartSeq(metadata *types.ObjectMetadata, seq uint64) {
 	metadata.Extra[responseStreamStartSeqKey] = seq
 }
 
+func setStateStartSeq(metadata *types.ObjectMetadata, seq uint64) {
+	if metadata.Extra == nil {
+		metadata.Extra = map[string]interface{}{}
+	}
+	metadata.Extra[stateStartSeqKey] = seq
+}
+
 func responseStreamStartSeq(metadata types.ObjectMetadata) (uint64, bool) {
 	if metadata.Extra == nil {
 		return 0, false
@@ -912,16 +1084,6 @@ func attachReplyToMessageIDs(metadata *types.ObjectMetadata, ids []string) {
 		metadata.Extra = map[string]interface{}{}
 	}
 	metadata.Extra[replyToMessageIDsKey] = normalized
-}
-
-func replyToMessageIDsFromStream(streamMsg protocol.MessageStreamMessage) []string {
-	if len(streamMsg.Body.ReplyToMessageIDs) > 0 {
-		return normalizedReplyIDStrings(streamMsg.Body.ReplyToMessageIDs)
-	}
-	if id, ok := messageIDFromRequestID(streamMsg.Trace.RequestID); ok {
-		return []string{strconv.FormatUint(uint64(id), 10)}
-	}
-	return nil
 }
 
 func replyMessageIDs(rawIDs []string, fallbackRequestID string) []uint {
@@ -985,32 +1147,26 @@ func (s *sessionService) CancelSessionRun(ctx context.Context, sessionID string,
 		}, nil
 	}
 
-	topic, err := dm.WorkerControlSubject(caller.OrgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneControl)
 	if err != nil {
 		return nil, fmt.Errorf("build control topic: %w", err)
 	}
 
-	msg := protocol.WorkerControlMessage{
-		ID:        fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
-		Type:      protocol.MessageTypeWorkerControl,
-		CreatedAt: time.Now().UTC(),
-		Trace: protocol.TraceContext{
-			RunID: req.RunID,
-		},
-		Route: protocol.RouteContext{
+	cmd := messaging.NewCancelRunCommand(
+		fmt.Sprintf("ctrl_%s", snowflake.GenerateIDBase58()),
+		messaging.RouteContext{
 			OrgID:     caller.OrgID,
 			WorkerID:  workerID,
 			SessionID: sessionID,
 		},
-		Body: protocol.WorkerControlBody{
-			ControlType: protocol.ControlTypeCancelRun,
-			SessionID:   sessionID,
-			RunID:       req.RunID,
-			Reason:      req.Reason,
+		messaging.CancelRunCommandPayload{
+			RunID:  req.RunID,
+			Reason: req.Reason,
 		},
-	}
+		req.RunID,
+	)
 
-	if err := s.eventbus.Publish(ctx, topic, msg); err != nil {
+	if err := s.eventbus.Publish(ctx, topic, cmd); err != nil {
 		return nil, fmt.Errorf("publish cancel control: %w", err)
 	}
 
@@ -1166,4 +1322,37 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 
 	logs.DebugContextf(ctx, "persisted failed session message: session_id=%s seq=%d", req.SessionID, sequence)
 	return nil
+}
+
+func stateStartSeq(metadata types.ObjectMetadata) (uint64, bool) {
+	if metadata.Extra == nil {
+		return 0, false
+	}
+	value, ok := metadata.Extra[stateStartSeqKey]
+	if !ok {
+		return 0, false
+	}
+	switch v := value.(type) {
+	case uint64:
+		return v, true
+	case uint:
+		return uint64(v), true
+	case int64:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	case int:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	case float64:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint64(v), true
+	default:
+		return 0, false
+	}
 }

@@ -19,11 +19,12 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	agentruntime "github.com/insmtx/Leros/backend/internal/runtime"
 	runtimemcp "github.com/insmtx/Leros/backend/internal/runtime/mcp"
-	"github.com/insmtx/Leros/backend/internal/worker/approval"
+	"github.com/insmtx/Leros/backend/internal/worker/command"
+	"github.com/insmtx/Leros/backend/internal/worker/command/interaction"
+	"github.com/insmtx/Leros/backend/internal/worker/command/run"
+	"github.com/insmtx/Leros/backend/internal/worker/command/skill"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
-	"github.com/insmtx/Leros/backend/internal/worker/skillmgmt"
-	"github.com/insmtx/Leros/backend/internal/worker/taskconsumer"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -265,43 +266,51 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 
-	consumer, err := taskconsumer.New(taskconsumer.Config{
+	runHandler, err := run.New(run.Config{
 		OrgID:          cfg.OrgID,
 		WorkerID:       cfg.WorkerID,
 		Env:            cfg.Env,
 		SeqTrackerPath: seqTrackerPath,
-	}, bus, bus, runtimeService, cfg.Gitea)
+	}, bus, runtimeService, cfg.Gitea)
 	if err != nil {
 		cancel()
 		_ = bus.Close()
-		logs.Fatalf("Failed to create worker task consumer: %v", err)
-		return
-	}
-	// 订阅审批 NATS 消息，由 Server API 转发过来
-	approvalSub, err := approval.New(approval.Config{OrgID: cfg.OrgID, WorkerID: cfg.WorkerID}, bus)
-	if err != nil {
-		cancel()
-		_ = bus.Close()
-		logs.Fatalf("Failed to create approval subscriber: %v", err)
+		logs.Fatalf("Failed to create run handler: %v", err)
 		return
 	}
 
-	skillMgmtConsumer, err := skillmgmt.New(skillmgmt.Config{
+	interactionHandler := interaction.New(engines.DefaultInteractionRouter)
+
+	skillHandler, err := skill.New(bus.Conn())
+	if err != nil {
+		cancel()
+		_ = bus.Close()
+		logs.Fatalf("Failed to create skill handler: %v", err)
+		return
+	}
+
+	dispatcher, err := command.New(command.Config{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,
-	}, bus, bus.Conn())
+	}, bus, command.Handlers{
+		Run:         runHandler,
+		Control:     runHandler,
+		Interaction: interactionHandler,
+		Skill:       skillHandler,
+	})
 	if err != nil {
 		cancel()
 		_ = bus.Close()
-		logs.Fatalf("Failed to create skill management consumer: %v", err)
+		logs.Fatalf("Failed to create command dispatcher: %v", err)
 		return
 	}
 
-	// 启动任务消费（阻塞式订阅，独立 goroutine）
-	go func() { _ = consumer.Start(ctx) }()
-	go func() { _ = consumer.StartControlListener(ctx) }()
-	go func() { _ = approvalSub.Start(ctx) }()
-	go func() { _ = skillMgmtConsumer.Start(ctx) }()
+	go func() {
+		if err := dispatcher.Run(ctx); err != nil {
+			logs.Errorf("Command dispatcher exited with error: %v", err)
+			lifecycle.Std().Exit()
+		}
+	}()
 
 	lifecycle.Std().AddCloseFunc(func() error {
 		cancel()
@@ -314,13 +323,13 @@ func runTaskWorker(defaultRuntime string) {
 	})
 	lifecycle.Std().AddCloseFunc(func() error {
 		logs.Info("Shutting down task consumer...")
-		if err := consumer.Close(); err != nil {
+		if err := runHandler.Close(); err != nil {
 			logs.Errorf("Failed to close task consumer: %v", err)
 		}
 		return nil
 	})
 	lifecycle.Std().AddCloseFunc(bus.Close)
-	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, consumer.TaskTopic())
+	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, runHandler.RunSubject())
 	lifecycle.Std().WaitExit()
 	logs.Info("Agent worker exited")
 }
@@ -466,4 +475,3 @@ func buildWorkerMCPURL(listenAddr string) string {
 	}
 	return "http://" + addr + "/v1/mcp"
 }
-

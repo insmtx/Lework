@@ -1,41 +1,38 @@
-package taskconsumer
+package run
 
 import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
 func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
-	msg := protocol.WorkerTaskMessage{
+	task := runTask{
 		ID:        "msg_1",
-		Type:      protocol.MessageTypeWorkerTask,
 		CreatedAt: time.Now().UTC(),
-		Trace: protocol.TraceContext{
+		Trace: messaging.TraceContext{
 			TraceID:   "trace_1",
 			RequestID: "req_1",
 			TaskID:    "task_1",
 			RunID:     "run_1",
 		},
-		Route: protocol.RouteContext{
+		Route: messaging.RouteContext{
 			OrgID:     42,
 			SessionID: "sess_1",
 			WorkerID:  7,
 		},
-		Body: protocol.WorkerTaskBody{
-			TaskType: protocol.TaskTypeAgentRun,
-			Execution: protocol.ExecutionTarget{
-				AssistantID: "assistant_1",
-			},
-			Workspace: protocol.WorkspaceOptions{
-				ProjectID: "project_1",
-			},
-			Input: protocol.TaskInput{
-				Type: protocol.InputTypeMessage,
-				Messages: []protocol.ChatMessage{
-					{Role: protocol.MessageRoleUser, Content: "hello"},
-				},
+		TaskType: messaging.TaskTypeAgentRun,
+		Execution: messaging.ExecutionTarget{
+			AssistantID: "assistant_1",
+		},
+		Workspace: messaging.WorkspaceOptions{
+			ProjectID: "project_1",
+		},
+		Input: messaging.TaskInput{
+			Type: messaging.InputTypeMessage,
+			Messages: []messaging.ChatMessage{
+				{Role: messaging.MessageRoleUser, Content: "hello"},
 			},
 		},
 		Metadata: map[string]any{
@@ -43,7 +40,7 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 		},
 	}
 
-	req := RequestFromWorkerTask(msg)
+	req := RequestFromWorkerTask(task)
 
 	if req.Conversation.ID != "sess_1" {
 		t.Fatalf("conversation id = %q, want sess_1", req.Conversation.ID)

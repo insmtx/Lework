@@ -20,12 +20,12 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
 type skillInstallPublisher struct {
-	response protocol.SkillManagementResponse
+	response messaging.WorkerCommandResult
 	err      error
 	requests []any
 }
@@ -46,17 +46,17 @@ func (p *skillInstallPublisher) Request(_ context.Context, _ string, event any) 
 	return &nats.Msg{Data: data}, nil
 }
 
-func installedSkillsResponse(t *testing.T, skills []contract.SkillInstalledItem) protocol.SkillManagementResponse {
+func installedSkillsResponse(t *testing.T, skills []contract.SkillInstalledItem) messaging.WorkerCommandResult {
 	t.Helper()
 
 	data, err := json.Marshal(skills)
 	if err != nil {
 		t.Fatalf("marshal installed skills: %v", err)
 	}
-	return protocol.SkillManagementResponse{
+	return messaging.WorkerCommandResult{
 		Success: true,
 		Action:  "list",
-		Data:    data,
+		Data:    json.RawMessage(data),
 	}
 }
 
@@ -180,7 +180,7 @@ func TestInstallSkillIncrementsMarketplaceInstallsAfterWorkerSuccess(t *testing.
 	expectDefaultWorkerDeployment(mock)
 	expectInstallIncrement(mock, 1)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: true,
 			Action:  "install",
 			Message: "skill installed",
@@ -215,7 +215,7 @@ func TestInstallSkillWorkerFailureDoesNotIncrementInstalls(t *testing.T) {
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: false,
 			Action:  "install",
 			Error:   "install failed",
@@ -245,7 +245,7 @@ func TestInstallSkillMissingMarketplaceRowDoesNotBlockInstall(t *testing.T) {
 	expectDefaultWorkerDeployment(mock)
 	expectInstallIncrement(mock, 0)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: true,
 			Action:  "install",
 			Message: "skill installed",
@@ -302,7 +302,7 @@ func TestImportSkillReturnsImportedAfterWorkerSuccess(t *testing.T) {
 	expectFileUploadLookup(mock, "file_demo", "SKILL.md", storagePath)
 	expectDefaultWorkerDeployment(mock)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: true,
 			Action:  "import",
 			Message: "skill imported",
@@ -323,12 +323,16 @@ func TestImportSkillReturnsImportedAfterWorkerSuccess(t *testing.T) {
 	if len(publisher.requests) != 1 {
 		t.Fatalf("request count = %d, want 1", len(publisher.requests))
 	}
-	msg, ok := publisher.requests[0].(protocol.SkillManagementMessage)
+	msg, ok := publisher.requests[0].(messaging.WorkerCommand)
 	if !ok {
-		t.Fatalf("request type = %T, want SkillManagementMessage", publisher.requests[0])
+		t.Fatalf("request type = %T, want WorkerCommand", publisher.requests[0])
 	}
-	if msg.Body.Action != "import" || msg.Body.Source != "url" || msg.Body.DownloadURL == "" {
-		t.Fatalf("unexpected import body: %+v", msg.Body)
+	payload, err := messaging.DecodeCommandPayload[messaging.SkillCommandPayload](&msg.Body)
+	if err != nil {
+		t.Fatalf("decode skill command payload: %v", err)
+	}
+	if payload.Action != "import" || payload.Source != "url" || payload.DownloadURL == "" {
+		t.Fatalf("unexpected import body: %+v", payload)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -345,7 +349,7 @@ func TestImportSkillWorkerFailureReturnsError(t *testing.T) {
 	expectFileUploadLookup(mock, "file_demo", "SKILL.md", storagePath)
 	expectDefaultWorkerDeployment(mock)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: false,
 			Action:  "import",
 			Error:   "parse SKILL.md: frontmatter must include name",
@@ -448,7 +452,7 @@ func TestImportSkillFromGitHubReturnsImportedAfterWorkerSuccess(t *testing.T) {
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: true,
 			Action:  "import",
 			Message: "github skill imported",
@@ -471,15 +475,19 @@ func TestImportSkillFromGitHubReturnsImportedAfterWorkerSuccess(t *testing.T) {
 	if len(publisher.requests) != 1 {
 		t.Fatalf("request count = %d, want 1", len(publisher.requests))
 	}
-	msg, ok := publisher.requests[0].(protocol.SkillManagementMessage)
+	msg, ok := publisher.requests[0].(messaging.WorkerCommand)
 	if !ok {
-		t.Fatalf("request type = %T, want SkillManagementMessage", publisher.requests[0])
+		t.Fatalf("request type = %T, want WorkerCommand", publisher.requests[0])
 	}
-	if msg.Body.Action != "import" || msg.Body.Source != "github" {
+		payload, err := messaging.DecodeCommandPayload[messaging.SkillCommandPayload](&msg.Body)
+		if err != nil {
+			t.Fatalf("decode skill command payload: %v", err)
+		}
+	if payload.Action != "import" || payload.Source != "github" {
 		t.Fatalf("unexpected GitHub import body: %+v", msg.Body)
 	}
-	if msg.Body.SkillID != "browser-use/video-use/." || msg.Body.Version != "" {
-		t.Fatalf("github target = %q@%q, want browser-use/video-use/.@", msg.Body.SkillID, msg.Body.Version)
+	if payload.SkillID != "browser-use/video-use/." || payload.Version != "" {
+		t.Fatalf("github target = %q@%q, want browser-use/video-use/.@", payload.SkillID, payload.Version)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -491,7 +499,7 @@ func TestImportSkillFromGitHubWorkerFailureReturnsError(t *testing.T) {
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: false,
 			Action:  "import",
 			Error:   "fetch GitHub skill: download GitHub skill: GitHub returned status 404",
@@ -518,7 +526,7 @@ func TestImportSkillFromGitHubMultipleSkillMDFailureReturnsLocalizedError(t *tes
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
 	publisher := &skillInstallPublisher{
-		response: protocol.SkillManagementResponse{
+		response: messaging.WorkerCommandResult{
 			Success: false,
 			Action:  "import",
 			Error:   "fetch GitHub skill: multiple SKILL.md files found in owner/repo; use a tree link to a skill directory or a blob link to SKILL.md",

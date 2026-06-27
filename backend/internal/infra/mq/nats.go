@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/insmtx/Leros/backend/pkg/dm"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -71,7 +71,7 @@ func (p *natsBus) initStreams() error {
 		}
 		// 检查是否与预配置的 stream 冲突（同 subjects 但不同名）
 		isConfigured := false
-		for _, cfg := range dm.StreamSubjects {
+		for _, cfg := range messaging.StreamConfigs() {
 			if name == cfg.Name {
 				isConfigured = true
 				break
@@ -87,7 +87,7 @@ func (p *natsBus) initStreams() error {
 		// 如果 stream 已存在但不是我们配置的，检查其 subjects
 		if !isConfigured {
 			for _, subj := range info.Config.Subjects {
-				for _, cfg := range dm.StreamSubjects {
+				for _, cfg := range messaging.StreamConfigs() {
 					if hasOverlap([]string{subj}, cfg.Subjects) {
 						logs.Warnf("Deleting conflicting stream '%s' with subject %q", name, subj)
 						_ = p.js.DeleteStream(name)
@@ -98,7 +98,7 @@ func (p *natsBus) initStreams() error {
 		}
 	}
 
-	for _, cfg := range dm.StreamSubjects {
+	for _, cfg := range messaging.StreamConfigs() {
 		_, addErr := p.js.AddStream(&cfg)
 		if addErr == nil {
 			logs.Infof("Created JetStream stream '%s' with subjects: %v", cfg.Name, cfg.Subjects)
@@ -345,7 +345,7 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 	if startSeq <= 0 {
 		return p.subscribeNewOnly(ctx, topic, handler)
 	}
-	streamName := dm.StreamNameFromTopic(topic)
+	streamName := messaging.StreamNameFromSubject(topic)
 	if streamName != "" {
 		info, err := p.js.StreamInfo(streamName)
 		if err != nil {

@@ -29,8 +29,7 @@ import (
 	skillcache "github.com/insmtx/Leros/backend/internal/skill/cache"
 	catalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/internal/skill/fetch"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
-	"github.com/insmtx/Leros/backend/pkg/dm"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/pkg/utils"
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -517,26 +516,25 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 		return nil, err
 	}
 
-	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := protocol.SkillManagementMessage{
-		ID:        fmt.Sprintf("skill-install-%s", uuid.New().String()),
-		Type:      protocol.MessageTypeSkillManagement,
-		CreatedAt: time.Now(),
-		Route: protocol.RouteContext{
+	msg := messaging.NewSkillCommand(
+		fmt.Sprintf("skill-install-%s", uuid.New().String()),
+		messaging.RouteContext{
 			OrgID:    caller.OrgID,
 			WorkerID: workerID,
 		},
-		Body: protocol.SkillManagementBody{
+		messaging.SkillCommandPayload{
 			Action:  "install",
 			Source:  strings.TrimSpace(req.Source),
 			SkillID: strings.TrimSpace(req.SkillID),
 			Version: strings.TrimSpace(req.Version),
 		},
-	}
+		"",
+	)
 
 	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill install")
 	if err != nil {
@@ -568,7 +566,7 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 	}, nil
 }
 
-func (s *skillMarketplaceService) requestSkillManagement(ctx context.Context, topic string, msg protocol.SkillManagementMessage, operation string) (*protocol.SkillManagementResponse, error) {
+func (s *skillMarketplaceService) requestSkillManagement(ctx context.Context, topic string, msg messaging.WorkerCommand, operation string) (*messaging.WorkerCommandResult, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, skillManagementTimeout)
 	defer cancel()
 	reply, err := s.publisher.Request(reqCtx, topic, msg)
@@ -576,7 +574,7 @@ func (s *skillMarketplaceService) requestSkillManagement(ctx context.Context, to
 		return nil, fmt.Errorf("request %s: %w", operation, err)
 	}
 
-	var resp protocol.SkillManagementResponse
+	var resp messaging.WorkerCommandResult
 	if err := json.Unmarshal(reply.Data, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal %s response: %w", operation, err)
 	}
@@ -608,23 +606,22 @@ func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]co
 		return nil, err
 	}
 
-	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := protocol.SkillManagementMessage{
-		ID:        fmt.Sprintf("skill-list-%s", uuid.New().String()),
-		Type:      protocol.MessageTypeSkillManagement,
-		CreatedAt: time.Now(),
-		Route: protocol.RouteContext{
+	msg := messaging.NewSkillCommand(
+		fmt.Sprintf("skill-list-%s", uuid.New().String()),
+		messaging.RouteContext{
 			OrgID:    caller.OrgID,
 			WorkerID: workerID,
 		},
-		Body: protocol.SkillManagementBody{
+		messaging.SkillCommandPayload{
 			Action: "list",
 		},
-	}
+		"",
+	)
 
 	reqCtx, cancel := context.WithTimeout(ctx, skillManagementTimeout)
 	defer cancel()
@@ -633,7 +630,7 @@ func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]co
 		return nil, fmt.Errorf("request skill list: %w", err)
 	}
 
-	var resp protocol.SkillManagementResponse
+	var resp messaging.WorkerCommandResult
 	if err := json.Unmarshal(reply.Data, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal skill list response: %w", err)
 	}
@@ -643,7 +640,8 @@ func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]co
 
 	// Convert response data to contract type
 	var skills []contract.SkillInstalledItem
-	if err := json.Unmarshal(resp.Data, &skills); err != nil {
+	rawData, _ := json.Marshal(resp.Data)
+	if err := json.Unmarshal(rawData, &skills); err != nil {
 		return nil, fmt.Errorf("unmarshal skill list items: %w", err)
 	}
 	s.enrichInstalledSystemSkills(ctx, skills)
@@ -662,24 +660,23 @@ func (s *skillMarketplaceService) UninstallSkill(ctx context.Context, req *contr
 		return nil, err
 	}
 
-	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := protocol.SkillManagementMessage{
-		ID:        fmt.Sprintf("skill-uninstall-%s", uuid.New().String()),
-		Type:      protocol.MessageTypeSkillManagement,
-		CreatedAt: time.Now(),
-		Route: protocol.RouteContext{
+	msg := messaging.NewSkillCommand(
+		fmt.Sprintf("skill-uninstall-%s", uuid.New().String()),
+		messaging.RouteContext{
 			OrgID:    caller.OrgID,
 			WorkerID: workerID,
 		},
-		Body: protocol.SkillManagementBody{
+		messaging.SkillCommandPayload{
 			Action: "uninstall",
 			Name:   strings.TrimSpace(req.Name),
 		},
-	}
+		"",
+	)
 
 	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
 		return nil, fmt.Errorf("publish skill uninstall: %w", err)
@@ -1045,24 +1042,23 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		return nil, err
 	}
 
-	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := protocol.SkillManagementMessage{
-		ID:        fmt.Sprintf("skill-detail-%s", uuid.New().String()),
-		Type:      protocol.MessageTypeSkillManagement,
-		CreatedAt: time.Now(),
-		Route: protocol.RouteContext{
+	msg := messaging.NewSkillCommand(
+		fmt.Sprintf("skill-detail-%s", uuid.New().String()),
+		messaging.RouteContext{
 			OrgID:    caller.OrgID,
 			WorkerID: workerID,
 		},
-		Body: protocol.SkillManagementBody{
+		messaging.SkillCommandPayload{
 			Action: "detail",
 			Name:   skillID,
 		},
-	}
+		"",
+	)
 
 	reqCtx, cancel := context.WithTimeout(ctx, skillManagementTimeout)
 	defer cancel()
@@ -1071,7 +1067,7 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		return nil, fmt.Errorf("request skill detail: %w", err)
 	}
 
-	var resp protocol.SkillManagementResponse
+	var resp messaging.WorkerCommandResult
 	if err := json.Unmarshal(reply.Data, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal skill detail response: %w", err)
 	}
@@ -1079,8 +1075,9 @@ func (s *skillMarketplaceService) getInstalledSkillDetail(ctx context.Context, s
 		return nil, fmt.Errorf("skill detail failed: %s", resp.Error)
 	}
 
-	var detail protocol.SkillDetailData
-	if err := json.Unmarshal(resp.Data, &detail); err != nil {
+	rawDetail, _ := json.Marshal(resp.Data)
+	var detail messaging.SkillDetailData
+	if err := json.Unmarshal(rawDetail, &detail); err != nil {
 		return nil, fmt.Errorf("unmarshal skill detail items: %w", err)
 	}
 
@@ -1276,25 +1273,24 @@ func (s *skillMarketplaceService) ImportSkill(ctx context.Context, req *contract
 	if err != nil {
 		return nil, err
 	}
-	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := protocol.SkillManagementMessage{
-		ID:        fmt.Sprintf("skill-import-%s", uuid.New().String()),
-		Type:      protocol.MessageTypeSkillManagement,
-		CreatedAt: time.Now(),
-		Route: protocol.RouteContext{
+	msg := messaging.NewSkillCommand(
+		fmt.Sprintf("skill-import-%s", uuid.New().String()),
+		messaging.RouteContext{
 			OrgID:    caller.OrgID,
 			WorkerID: workerID,
 		},
-		Body: protocol.SkillManagementBody{
+		messaging.SkillCommandPayload{
 			Action:      "import",
 			Source:      "url",
 			DownloadURL: publicURL,
 		},
-	}
+		"",
+	)
 
 	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill import")
 	if err != nil {
@@ -1328,26 +1324,25 @@ func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	topic, err := dm.WorkerSkillSubject(caller.OrgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := protocol.SkillManagementMessage{
-		ID:        fmt.Sprintf("skill-import-github-%s", uuid.New().String()),
-		Type:      protocol.MessageTypeSkillManagement,
-		CreatedAt: time.Now(),
-		Route: protocol.RouteContext{
+	msg := messaging.NewSkillCommand(
+		fmt.Sprintf("skill-import-github-%s", uuid.New().String()),
+		messaging.RouteContext{
 			OrgID:    caller.OrgID,
 			WorkerID: workerID,
 		},
-		Body: protocol.SkillManagementBody{
+		messaging.SkillCommandPayload{
 			Action:  "import",
 			Source:  "github",
 			SkillID: skillID,
 			Version: version,
 		},
-	}
+		"",
+	)
 
 	resp, err := s.requestSkillManagement(ctx, topic, msg, "GitHub skill import")
 	if err != nil {

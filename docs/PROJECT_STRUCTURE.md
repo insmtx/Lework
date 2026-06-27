@@ -196,10 +196,8 @@ Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 | `server/` | Worker 服务端和连接管理 |
 | `client/` | Worker Client 和 WebSocket Client |
 | `router/` | Worker 路由 |
-| `taskconsumer/` | NATS Worker 任务订阅、映射、流事件转发 |
-| `approval/` | Worker 审批事件订阅 |
+| `command/` | 统一 Worker 命令分发器与各 lane handler（run/interaction/skill） |
 | `identity/` | Worker 身份配置 |
-| `protocol/` | Worker 领域协议：Envelope、Task、Stream |
 | `wsproto/` | Worker WebSocket 协议类型 |
 
 ### `backend/internal/eventengine/` - 事件引擎
@@ -442,13 +440,13 @@ Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 1. `backend/internal/worker/scheduler.go`：确认调度接口。
 2. `backend/internal/worker/scheduler/`：实现具体调度器。
 3. `backend/internal/worker/server/`：如涉及连接生命周期，补齐服务端管理。
-4. `backend/internal/worker/taskconsumer/`：如涉及任务消费，补齐映射和流事件转发。
+4. `backend/internal/worker/command/run/`：如涉及任务消费，补齐映射和流事件转发。
 5. `backend/config/scheduler.go`、`worker.go`：补齐配置。
 
 ### 新增工作空间或产物能力
 
 1. `backend/internal/workspace/`：实现路径、扫描、存储或产物收集逻辑。
-2. `backend/internal/worker/taskconsumer/`：确认运行时工作空间注入。
+2. `backend/internal/worker/command/run/`：确认运行时工作空间注入。
 3. `backend/internal/service/artifact_service.go`：如涉及 API 产物管理，接入服务层。
 4. `backend/internal/api/handler/artifact_handler.go`：暴露端点。
 

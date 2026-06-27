@@ -6,103 +6,127 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
-// ProjectStreamMessage converts a worker stream message into the public session event shape.
-func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.SessionEvent, bool) {
+// ProjectRunEvent converts a messaging.RunEvent into the public session event shape.
+// This is the preferred entry point for the new messaging architecture.
+func ProjectRunEvent(runEvent messaging.RunEvent) (*dto.SessionEvent, bool) {
 	event := &dto.SessionEvent{
-		SessionID: streamMsg.Route.SessionID,
-		Sequence:  streamMsg.Body.Seq,
-		Timestamp: streamMsg.CreatedAt.UnixMilli(),
+		SessionID: runEvent.Route.SessionID,
+		Sequence:  runEvent.Body.Seq,
+		Timestamp: runEvent.CreatedAt.UnixMilli(),
 	}
 
-	switch streamMsg.Body.Event {
-	case protocol.StreamEventMessageDelta:
+	switch runEvent.Body.Event {
+	case messaging.RunEventMessageDelta:
 		event.Type = events.EventMessageDelta
 		event.Payload = dto.MessageDeltaPayload{
-			MessageID: streamMsg.Body.Payload.MessageID,
-			Role:      string(streamMsg.Body.Payload.Role),
-			Content:   streamMsg.Body.Payload.Content,
+			MessageID: runEvent.Body.Payload.MessageID,
+			Role:      string(runEvent.Body.Payload.Role),
+			Content:   runEvent.Body.Payload.Content,
 		}
-	case protocol.StreamEventReasoningDelta:
+	case messaging.RunEventReasoningDelta:
 		event.Type = events.EventReasoningDelta
 		event.Payload = dto.MessageDeltaPayload{
-			MessageID: streamMsg.Body.Payload.MessageID,
-			Role:      string(streamMsg.Body.Payload.Role),
-			Content:   streamMsg.Body.Payload.Content,
+			MessageID: runEvent.Body.Payload.MessageID,
+			Role:      string(runEvent.Body.Payload.Role),
+			Content:   runEvent.Body.Payload.Content,
 		}
-	case protocol.StreamEventToolCallStarted:
-		if streamMsg.Body.Payload.ToolCall == nil {
+	case messaging.RunEventToolCallStarted:
+		if runEvent.Body.Payload.ToolCall == nil {
 			return nil, false
 		}
 		event.Type = events.EventToolCallStarted
 		event.Payload = dto.ToolCallDeltaPayload{
-			ToolCallID: streamMsg.Body.Payload.ToolCall.ToolCallID,
-			Name:       streamMsg.Body.Payload.ToolCall.Name,
-			Arguments:  streamMsg.Body.Payload.ToolCall.Arguments,
+			ToolCallID: runEvent.Body.Payload.ToolCall.ToolCallID,
+			Name:       runEvent.Body.Payload.ToolCall.Name,
+			Arguments:  runEvent.Body.Payload.ToolCall.Arguments,
 		}
-	case protocol.StreamEventToolCallFinished:
-		if streamMsg.Body.Payload.ToolResult == nil {
+	case messaging.RunEventToolCallFinished:
+		if runEvent.Body.Payload.ToolResult == nil {
 			return nil, false
 		}
 		event.Type = events.EventToolCallResult
-		event.Payload = toolCallResultPayload(streamMsg.Body.Payload.ToolResult)
-	case protocol.StreamEventTodoSnapshot:
+		event.Payload = toolCallResultPayload(&events.ToolCallResultPayload{
+			ToolCallID: runEvent.Body.Payload.ToolResult.ToolCallID,
+			Name:       runEvent.Body.Payload.ToolResult.Name,
+			Result:     runEvent.Body.Payload.ToolResult.Result,
+			Error:      runEvent.Body.Payload.ToolResult.Error,
+			IsError:    runEvent.Body.Payload.ToolResult.IsError,
+			ElapsedMS:  runEvent.Body.Payload.ToolResult.ElapsedMS,
+		})
+	case messaging.RunEventTodoSnapshot:
 		event.Type = events.EventTodoSnapshot
-		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
-	case protocol.StreamEventTodoUpdated:
+		event.Payload = todoPayloadFromMessaging(runEvent.Body.Payload.Todos)
+	case messaging.RunEventTodoUpdated:
 		event.Type = events.EventTodoUpdated
-		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
-	case protocol.StreamEventArtifactDeclared:
-		if streamMsg.Body.Payload.Artifact == nil {
+		event.Payload = todoPayloadFromMessaging(runEvent.Body.Payload.Todos)
+	case messaging.RunEventArtifactDeclared:
+		if runEvent.Body.Payload.Artifact == nil {
 			return nil, false
 		}
 		event.Type = events.EventArtifactDeclared
-		event.Payload = publicStreamArtifactPayload(*streamMsg.Body.Payload.Artifact)
-	case protocol.StreamEventRunStarted:
+		event.Payload = events.ArtifactPayload{
+			ArtifactID:  runEvent.Body.Payload.Artifact.ArtifactID,
+			Title:       runEvent.Body.Payload.Artifact.Title,
+			Filename:    runEvent.Body.Payload.Artifact.Filename,
+			MimeType:    runEvent.Body.Payload.Artifact.MimeType,
+			ArtifactType: runEvent.Body.Payload.Artifact.ArtifactType,
+			CreatedAt:   runEvent.CreatedAt,
+		}
+	case messaging.RunEventRunStarted:
 		event.Type = events.EventStarted
-	case protocol.StreamEventRunCompleted:
+	case messaging.RunEventRunCompleted:
 		event.Type = events.EventCompleted
-		if streamMsg.Body.RunCompleted != nil {
-			event.Payload = publicRunCompletedPayload(streamMsg.Body.RunCompleted)
-		} else {
-			event.Payload = dto.RunStatusPayload{
-				Status:  "completed",
-				RunID:   streamMsg.Trace.RunID,
-				Message: streamMsg.Body.Payload.Content,
+		if runEvent.Body.RunCompleted != nil {
+			msg := runEvent.Body.RunCompleted.Result.Message
+			event.Payload = &events.RunCompletedPayload{
+				Status: runEvent.Body.RunCompleted.Status,
+				Result: events.RunResultPayload{Message: msg},
 			}
 		}
-	case protocol.StreamEventApprovalRequested:
+	case messaging.RunEventApprovalRequested:
 		event.Type = events.EventApprovalRequested
-		if streamMsg.Body.Payload.ApprovalRequest != nil {
-			event.Payload = *streamMsg.Body.Payload.ApprovalRequest
+		if runEvent.Body.Payload.ApprovalRequest != nil {
+			event.Payload = *runEvent.Body.Payload.ApprovalRequest
 		}
-	case protocol.StreamEventApprovalResolved:
+	case messaging.RunEventApprovalResolved:
 		event.Type = events.EventApprovalResolved
-		if streamMsg.Body.Payload.ApprovalDecision != nil {
-			event.Payload = *streamMsg.Body.Payload.ApprovalDecision
+		if runEvent.Body.Payload.ApprovalDecision != nil {
+			event.Payload = *runEvent.Body.Payload.ApprovalDecision
 		}
-	case protocol.StreamEventQuestionAsked:
+	case messaging.RunEventQuestionAsked:
 		event.Type = events.EventQuestionAsked
-		if streamMsg.Body.Payload.QuestionRequest != nil {
-			event.Payload = *streamMsg.Body.Payload.QuestionRequest
+		if runEvent.Body.Payload.QuestionRequest != nil {
+			event.Payload = *runEvent.Body.Payload.QuestionRequest
 		}
-	case protocol.StreamEventQuestionAnswered:
+	case messaging.RunEventQuestionAnswered:
 		event.Type = events.EventQuestionAnswered
-		if streamMsg.Body.Payload.QuestionAnswer != nil {
-			event.Payload = *streamMsg.Body.Payload.QuestionAnswer
+		if runEvent.Body.Payload.QuestionAnswer != nil {
+			event.Payload = *runEvent.Body.Payload.QuestionAnswer
 		}
-	case protocol.StreamEventRunFailed:
+	case messaging.RunEventRunFailed:
 		event.Type = events.EventFailed
-		message := streamMsg.Body.Payload.Content
-		if streamMsg.Body.Error != nil {
-			message = streamMsg.Body.Error.Message
+		message := runEvent.Body.Payload.Content
+		if runEvent.Body.Error != nil {
+			message = runEvent.Body.Error.Message
 		}
 		event.Payload = dto.RunStatusPayload{
 			Status:  "failed",
-			RunID:   streamMsg.Trace.RunID,
+			RunID:   runEvent.Trace.RunID,
+			Message: message,
+		}
+	case messaging.RunEventRunCancelled:
+		event.Type = events.EventCancelled
+		message := "已取消"
+		if runEvent.Body.RunCompleted != nil && runEvent.Body.RunCompleted.Result.Message != "" {
+			message = runEvent.Body.RunCompleted.Result.Message
+		}
+		event.Payload = dto.RunStatusPayload{
+			Status:  "cancelled",
+			RunID:   runEvent.Trace.RunID,
 			Message: message,
 		}
 	default:
@@ -110,6 +134,22 @@ func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.Session
 	}
 
 	return event, true
+}
+
+func todoPayloadFromMessaging(items []messaging.RuntimeTodoItem) []dto.RuntimeTodoItemPayload {
+	if len(items) == 0 {
+		return []dto.RuntimeTodoItemPayload{}
+	}
+	result := make([]dto.RuntimeTodoItemPayload, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.RuntimeTodoItemPayload{
+			ID:       item.ID,
+			Title:    item.Title,
+			Status:   item.Status,
+			Priority: item.Priority,
+		})
+	}
+	return result
 }
 
 // ProjectRunEventRecord converts a persisted runtime event chunk into the public session event shape.

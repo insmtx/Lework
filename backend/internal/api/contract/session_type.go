@@ -169,4 +169,5 @@ type SessionRunStartedRequest struct {
 	ReplyToMessageIDs []string `json:"reply_to_message_ids,omitempty"`
 	RequestID         string   `json:"request_id,omitempty"`
 	StreamStartSeq    uint64   `json:"stream_start_seq"`
+	StateStartSeq     uint64   `json:"state_start_seq,omitempty"`
 }

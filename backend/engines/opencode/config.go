@@ -117,7 +117,7 @@ func buildMCPConfig(mcps []engines.MCPServerConfig) map[string]any {
 // buildServerEnv 构建 opcode serve 子进程所需的环境变量。
 // 返回格式为 "KEY=VALUE" 的字符串切片，附加到 baseEnv 之后。
 func buildServerEnv(password, configContent string, baseEnv []string) []string {
-	env := make([]string, 0, len(baseEnv)+13)
+	env := make([]string, 0, len(baseEnv)+12)
 
 	// 复制 base 环境变量
 	env = append(env, baseEnv...)
@@ -133,7 +133,6 @@ func buildServerEnv(password, configContent string, baseEnv []string) []string {
 	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
 	env = append(env, "OPENCODE_PURE=1")
 	env = append(env, "OPENCODE_DISABLE_AUTOUPDATE=1")
-	env = append(env, "OPENCODE_DISABLE_AUTOCOMPACT=1")
 	env = append(env, "OPENCODE_DISABLE_MODELS_FETCH=1")
 
 	// 启用 v2 事件系统（session.next.* 事件流）

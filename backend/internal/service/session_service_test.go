@@ -10,7 +10,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -1067,7 +1067,7 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 
 	payload, err := json.Marshal(events.MessageDeltaPayload{
 		MessageID: "msg_1",
-		Role:      string(protocol.MessageRoleAssistant),
+		Role:      string(messaging.MessageRoleAssistant),
 		Content:   "done",
 	})
 	if err != nil {
@@ -1292,7 +1292,7 @@ func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
 
 	deltaPayload, err := json.Marshal(events.MessageDeltaPayload{
 		MessageID: "msg_1",
-		Role:      string(protocol.MessageRoleAssistant),
+		Role:      string(messaging.MessageRoleAssistant),
 		Content:   "done",
 	})
 	if err != nil {
@@ -1426,24 +1426,30 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 		t.Fatalf("save other failed: %v", err)
 	}
 
-	matching := protocol.MessageStreamMessage{
-		Route: protocol.RouteContext{SessionID: session.PublicID},
-		Body: protocol.StreamBody{
+	matching := messaging.RunEvent{
+		ID:        "evt-match",
+		Type:      messaging.MessageTypeRunEvent,
+		CreatedAt: time.Now().UTC(),
+		Route:     messaging.RouteContext{SessionID: session.PublicID},
+		Body: messaging.RunEventBody{
 			Seq:               1,
-			Event:             protocol.StreamEventMessageDelta,
+			Event:             messaging.RunEventMessageDelta,
 			ReplyToMessageIDs: []string{fmt.Sprintf("%d", reply.ID)},
-			Payload: protocol.StreamPayload{
+			Payload: messaging.RunEventPayload{
 				Content: "match",
 			},
 		},
 	}
-	nonMatching := protocol.MessageStreamMessage{
-		Route: protocol.RouteContext{SessionID: session.PublicID},
-		Body: protocol.StreamBody{
+	nonMatching := messaging.RunEvent{
+		ID:        "evt-skip",
+		Type:      messaging.MessageTypeRunEvent,
+		CreatedAt: time.Now().UTC(),
+		Route:     messaging.RouteContext{SessionID: session.PublicID},
+		Body: messaging.RunEventBody{
 			Seq:               2,
-			Event:             protocol.StreamEventMessageDelta,
+			Event:             messaging.RunEventMessageDelta,
 			ReplyToMessageIDs: []string{"999999"},
-			Payload: protocol.StreamPayload{
+			Payload: messaging.RunEventPayload{
 				Content: "skip",
 			},
 		},
@@ -1469,7 +1475,7 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 	}
 }
 
-func mustStreamNATSMessage(t *testing.T, msg protocol.MessageStreamMessage) *nats.Msg {
+func mustStreamNATSMessage(t *testing.T, msg messaging.RunEvent) *nats.Msg {
 	t.Helper()
 	data, err := json.Marshal(msg)
 	if err != nil {

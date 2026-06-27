@@ -19,6 +19,22 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
+const (
+	// defaultHealthCheckTimeout 是等待 opencode server 健康检查就绪的默认超时时间。
+	// opencode 启动时需要初始化 SQLite 数据库、配置加载、MCP 连接等 55+ 个服务层，
+	// 在 cold start 或磁盘 I/O 繁忙时需要更长的时间。
+	defaultHealthCheckTimeout = 30 * time.Second
+
+	// fastPollInterval 是健康检查前期的快速轮询间隔。
+	fastPollInterval = 200 * time.Millisecond
+
+	// fastPollDuration 是快速轮询阶段的持续时间，之后切换为慢轮询以减少无效请求。
+	fastPollDuration = 5 * time.Second
+
+	// slowPollInterval 是健康检查后期的慢速轮询间隔。
+	slowPollInterval = 1 * time.Second
+)
+
 // ============================================================================
 // OpenCodeServer — opcode serve 子进程的 HTTP 客户端和生命周期管理
 // ============================================================================
@@ -33,16 +49,22 @@ type OpenCodeServer struct {
 
 	cmd *exec.Cmd
 
-	httpClient *http.Client
-	authHeader string
+	httpClient         *http.Client
+	authHeader         string
+	healthCheckTimeout time.Duration
 
 	mu     sync.Mutex
 	closed bool
 	done   chan struct{}
+
+	// 启动阶段的 stderr 收集器，用于健康检查超时时提供诊断信息。
+	stderrMu    sync.Mutex
+	stderrLines []string
 }
 
 // startOpenCodeServer 启动 opcode serve 子进程并等待其就绪。
-func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg engines.ModelConfig, mcpServers []engines.MCPServerConfig) (*OpenCodeServer, error) {
+// healthCheckTimeout 指定等待健康检查的最长时间；为 0 或负数时使用默认值。
+func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg engines.ModelConfig, mcpServers []engines.MCPServerConfig, healthCheckTimeout time.Duration) (*OpenCodeServer, error) {
 	// 1. 动态端口分配
 	port, err := pickFreePort()
 	if err != nil {
@@ -85,11 +107,36 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 		return nil, fmt.Errorf("start opencode serve: %w", err)
 	}
 
-	// 后台读取 stderr
+	// 5. 构建 auth header
+	auth := base64.StdEncoding.EncodeToString([]byte("opencode:" + password))
+	authHeader := "Basic " + auth
+
+	srv := &OpenCodeServer{
+		binary:             binary,
+		workDir:            workDir,
+		addr:               addr,
+		password:           password,
+		baseURL:            baseURL,
+		cmd:                cmd,
+		httpClient:         &http.Client{Timeout: 30 * time.Second}, // 普通 API 调用默认 30s 超时
+		authHeader:         authHeader,
+		healthCheckTimeout: healthCheckTimeout,
+		done:               make(chan struct{}),
+	}
+
+	// 后台读取 stderr（收集最后几行用于健康检查超时诊断）
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
-			logs.Errorf("[opencode stderr] %s", scanner.Text())
+			line := scanner.Text()
+			logs.Errorf("[opencode stderr] %s", line)
+			srv.stderrMu.Lock()
+			srv.stderrLines = append(srv.stderrLines, line)
+			// 只保留最近 20 行，避免内存泄漏
+			if len(srv.stderrLines) > 20 {
+				srv.stderrLines = srv.stderrLines[len(srv.stderrLines)-20:]
+			}
+			srv.stderrMu.Unlock()
 		}
 	}()
 
@@ -100,22 +147,6 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 			logs.Infof("[opencode stdout] %s", scanner.Text())
 		}
 	}()
-
-	// 5. 构建 auth header
-	auth := base64.StdEncoding.EncodeToString([]byte("opencode:" + password))
-	authHeader := "Basic " + auth
-
-	srv := &OpenCodeServer{
-		binary:     binary,
-		workDir:    workDir,
-		addr:       addr,
-		password:   password,
-		baseURL:    baseURL,
-		cmd:        cmd,
-		httpClient: &http.Client{Timeout: 0}, // SSE 需要长连接，不用 timeout
-		authHeader: authHeader,
-		done:       make(chan struct{}),
-	}
 
 	// 6. 等待 health check 通过
 	if err := srv.waitHealthy(ctx); err != nil {
@@ -139,22 +170,44 @@ func pickFreePort() (int, error) {
 }
 
 // waitHealthy 轮询 health check 端点直到服务就绪。
+// 使用指数退避策略：前 fastPollDuration 用 200ms 快速轮询，之后切换为 1s 慢轮询。
 func (s *OpenCodeServer) waitHealthy(ctx context.Context) error {
-	deadline := time.Now().Add(10 * time.Second)
-	ticker := time.NewTicker(200 * time.Millisecond)
+	timeout := s.healthCheckTimeout
+	if timeout <= 0 {
+		timeout = defaultHealthCheckTimeout
+	}
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(fastPollInterval)
 	defer ticker.Stop()
+
+	var attempts int
+	switchToSlow := time.After(fastPollDuration)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-switchToSlow:
+			// 5s 后切换到慢轮询，减少无效请求
+			ticker.Reset(slowPollInterval)
 		case <-ticker.C:
 			if time.Now().After(deadline) {
-				return fmt.Errorf("health check timeout after 10s")
+				elapsed := time.Since(deadline.Add(-timeout)).Truncate(time.Millisecond)
+				errMsg := fmt.Sprintf("health check timeout after %v (attempts=%d)", elapsed, attempts)
+				// 附加 stderr 输出帮助诊断
+				s.stderrMu.Lock()
+				if len(s.stderrLines) > 0 {
+					errMsg += fmt.Sprintf(", stderr=%s", strings.Join(s.stderrLines, " | "))
+				}
+				s.stderrMu.Unlock()
+				return fmt.Errorf("%s", errMsg)
 			}
 			if s.checkHealth(ctx) {
+				logs.Infof("OpenCode health check passed: attempts=%d", attempts+1)
 				return nil
 			}
+			attempts++
 		}
 	}
 }
@@ -267,6 +320,8 @@ func (s *OpenCodeServer) CreateSession(ctx context.Context, title, providerID, m
 }
 
 // SendMessage 向指定会话发送消息并同步等待完整响应。
+// 注意：openCode 的 /session/:id/message 是同步端点，会等待模型完整生成，
+// 可能耗时数分钟，因此不使用带超时的 httpClient，而是依赖 context 控制生命周期。
 func (s *OpenCodeServer) SendMessage(ctx context.Context, sessionID string, req messageRequest) (*messageResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -280,7 +335,7 @@ func (s *OpenCodeServer) SendMessage(ctx context.Context, sessionID string, req 
 	httpReq.Header.Set("Authorization", s.authHeader)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.longPollClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("send message: %w", err)
 	}
@@ -320,30 +375,6 @@ func (s *OpenCodeServer) Abort(ctx context.Context, sessionID string) error {
 	}
 
 	logs.Infof("OpenCode session aborted: id=%s", sessionID)
-	return nil
-}
-
-// DeleteSession 删除会话。
-func (s *OpenCodeServer) DeleteSession(ctx context.Context, sessionID string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, s.baseURL+"/session/"+sessionID, nil)
-	if err != nil {
-		return fmt.Errorf("delete session request: %w", err)
-	}
-	req.Header.Set("Authorization", s.authHeader)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete session: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// 404 表示已经删除，不是错误
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("delete session returned %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	logs.Infof("OpenCode session deleted: id=%s", sessionID)
 	return nil
 }
 
@@ -429,7 +460,9 @@ func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	resp, err := s.httpClient.Do(req)
+	// SSE 需要长连接，使用独立的无超时 client
+	sseClient := &http.Client{Timeout: 0}
+	resp, err := sseClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("connect SSE: %w", err)
 	}
@@ -525,4 +558,10 @@ func parseSSEData(lines []string) *sseEvent {
 	}
 
 	return &event
+}
+
+// longPollClient 返回一个无超时的 HTTP client，用于长轮询请求（如 SendMessage）。
+// 这些请求可能耗时数分钟等待模型生成，生命周期由 context 控制而非 client timeout。
+func (s *OpenCodeServer) longPollClient() *http.Client {
+	return &http.Client{Timeout: 0}
 }

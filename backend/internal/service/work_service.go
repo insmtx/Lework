@@ -45,6 +45,6 @@ func (s *workService) NewMessage(ctx context.Context, req *contract.NewMessageRe
 		return nil, errors.New("user not authenticated or org not set")
 	}
 
-	p := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
+	p := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, nil)
 	return p.RunNewMessage(ctx, req, caller)
 }

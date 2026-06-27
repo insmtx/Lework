@@ -49,6 +49,10 @@ type SessionService interface {
 
 	// CancelSessionRun cancels an active agent run for the given session.
 	CancelSessionRun(ctx context.Context, sessionID string, req *CancelSessionRunRequest) (*CancelSessionRunResponse, error)
+
+	// SetSessionStreamStartSeq records the NATS stream sequence for the first
+	// run.stream event of a session, used by the stream projector for SSE replay.
+	SetSessionStreamStartSeq(ctx context.Context, sessionID string, streamSeq uint64) error
 }
 
 // CancelSessionRunRequest is the request body for cancelling a session agent run.

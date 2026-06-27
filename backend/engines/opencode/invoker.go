@@ -33,8 +33,8 @@ func NewServerInvoker(binary string, extraEnv map[string]string) *ServerInvoker 
 // Run 启动 opcode serve，创建会话并执行提示。
 func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
-	// 1. 启动 OpenCode 服务
-	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers)
+	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 30s）
+	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, 0)
 	if err != nil {
 		return nil, fmt.Errorf("start opencode server for %s: %w", workDir, err)
 	}
@@ -46,6 +46,7 @@ func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*eng
 		msgDone: make(chan struct{}),
 	}
 	// 2. 会话管理
+	logs.Infof("OpenCode creating/resuming session...")
 	sessionID, err := st.ensureSession(ctx, req)
 	if err != nil {
 		_ = srv.Stop()
@@ -53,7 +54,9 @@ func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*eng
 		return nil, err
 	}
 	st.sessionID = sessionID
+	logs.Infof("OpenCode session ready: id=%s", sessionID)
 	// 3. 启动 SSE 事件流（在发送消息之前启动，避免丢失事件）
+	logs.Infof("OpenCode connecting SSE stream...")
 	sseCtx, cancelSSE := context.WithCancel(ctx)
 	sseCh, err := srv.ConnectSSE(sseCtx, workDir)
 	if err != nil {
@@ -62,8 +65,10 @@ func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*eng
 		close(evtChan)
 		return nil, fmt.Errorf("connect SSE: %w", err)
 	}
+	logs.Infof("OpenCode SSE stream connected")
 	go st.processSSEStream(sseCtx, sseCh)
 	// 4. 发送消息并等待同步响应
+	logs.Infof("OpenCode sending message...")
 	go st.sendAndProcessMessage(ctx, req)
 	// 5. 后台等待完成并清理
 	go st.waitCompletion(ctx, cancelSSE)

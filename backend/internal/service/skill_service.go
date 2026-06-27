@@ -13,8 +13,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
-	"github.com/insmtx/Leros/backend/pkg/dm"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
 const defaultRecentSkillLimit = 10
@@ -82,23 +81,22 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 		return nil, err
 	}
 
-	topic, err := dm.WorkerSkillSubject(orgID, workerID)
+	topic, err := messaging.WorkerCommandSubject(orgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
 	}
 
-	msg := protocol.SkillManagementMessage{
-		ID:        fmt.Sprintf("skill-list-%s", uuid.New().String()),
-		Type:      protocol.MessageTypeSkillManagement,
-		CreatedAt: time.Now(),
-		Route: protocol.RouteContext{
+	msg := messaging.NewSkillCommand(
+		fmt.Sprintf("skill-list-%s", uuid.New().String()),
+		messaging.RouteContext{
 			OrgID:    orgID,
 			WorkerID: workerID,
 		},
-		Body: protocol.SkillManagementBody{
+		messaging.SkillCommandPayload{
 			Action: "list",
 		},
-	}
+		"",
+	)
 
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -107,7 +105,7 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 		return nil, fmt.Errorf("request skill list: %w", err)
 	}
 
-	var resp protocol.SkillManagementResponse
+	var resp messaging.WorkerCommandResult
 	if err := json.Unmarshal(reply.Data, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal skill list response: %w", err)
 	}
@@ -115,8 +113,9 @@ func (s *skillService) fetchInstalledSkills(ctx context.Context, orgID uint) ([]
 		return nil, fmt.Errorf("skill list failed: %s", resp.Error)
 	}
 
-	var items []protocol.SkillListItem
-	if err := json.Unmarshal(resp.Data, &items); err != nil {
+	rawItems, _ := json.Marshal(resp.Data)
+	var items []messaging.SkillListItem
+	if err := json.Unmarshal(rawItems, &items); err != nil {
 		return nil, fmt.Errorf("unmarshal skill list items: %w", err)
 	}
 
