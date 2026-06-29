@@ -176,6 +176,7 @@ function mapComposerAttachment(
       "application/octet-stream",
     size: attachment.size,
     url: attachment.url,
+    storageUri: attachment.storageUri,
   };
 }
 
@@ -1270,6 +1271,7 @@ function mergeMessageAttachments(
       ...attachment,
       url: localAttachment.url,
       size: attachment.size || localAttachment.size,
+      storageUri: attachment.storageUri || localAttachment.storageUri,
     };
   });
 }
@@ -1911,6 +1913,7 @@ export class ChatActionImpl {
       path: payload.public_id || payload.storage_uri || payload.path,
       fileUploadId: payload.public_id,
       mimeType: payload.mime_type || file.type,
+      storageUri: payload.storage_uri,
     };
 
     this.#set((state) => ({

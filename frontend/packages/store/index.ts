@@ -20,7 +20,16 @@ export type {
 export { CLIENT_UPGRADE_REQUIRED_EVENT } from "./api/clientUpdatePolicy";
 export { API_BASE_URL } from "./api/config";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
-export { fetchFileDownload, fileApi, getFileDownloadUrl } from "./api/fileApi";
+export {
+	fetchFileDownload,
+	fetchFilePreview,
+	fetchFilePreviewByPublicId,
+	fetchFilePreviewByStorageUri,
+	fileApi,
+	getFileDownloadUrl,
+	getFilePreviewUrl,
+	getFilePreviewUrlByPublicId,
+} from "./api/fileApi";
 export { projectFileApi } from "./api/projectFileApi";
 export { sessionApi } from "./api/sessionApi";
 export type {

@@ -1,6 +1,6 @@
 "use client";
 
-import { API_BASE_URL, fetchArtifactDownload, projectFileApi } from "@leros/store";
+import { fetchArtifactDownload, fetchFilePreviewByStorageUri, projectFileApi } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Sheet,
@@ -11,12 +11,20 @@ import {
 	SheetTitle,
 } from "@leros/ui/components/ui/sheet";
 import { Download, FileText, LoaderCircle, X } from "lucide-react";
-import { type ComponentType, type CSSProperties, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat, OfficePreview } from "./OfficePreview";
 import { ProjectFileTypeIcon } from "./project-file-type-icon";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
 
-type PreviewKind = "docx" | "spreadsheet" | "markdown" | "text" | "image" | "pdf" | "unsupported";
+type PreviewKind =
+	| OfficeOpenXmlFormat
+	| "spreadsheet"
+	| "markdown"
+	| "text"
+	| "image"
+	| "pdf"
+	| "unsupported";
 
 export type ArtifactPreviewItem = {
 	id: string;
@@ -38,37 +46,6 @@ type PreviewState =
 	| { status: "loading" }
 	| { status: "ready"; text?: string; objectUrl?: string; buffer?: ArrayBuffer }
 	| { status: "error"; message: string };
-
-type DocxEditorComponent = ComponentType<{
-	documentBuffer?: ArrayBuffer | null;
-	mode?: "editing" | "suggesting" | "viewing";
-	readOnly?: boolean;
-	showToolbar?: boolean;
-	showZoomControl?: boolean;
-	showRuler?: boolean;
-	showOutline?: boolean;
-	showOutlineButton?: boolean;
-	disableFindReplaceShortcuts?: boolean;
-	initialZoom?: number;
-	className?: string;
-	style?: CSSProperties;
-	documentName?: string;
-	documentNameEditable?: boolean;
-	loadingIndicator?: React.ReactNode;
-	onError?: (error: Error) => void;
-}>;
-
-let docxEditorComponent: DocxEditorComponent | null = null;
-let docxEditorPromise: Promise<DocxEditorComponent> | null = null;
-
-function loadDocxEditor(): Promise<DocxEditorComponent> {
-	if (docxEditorComponent) return Promise.resolve(docxEditorComponent);
-	docxEditorPromise ??= import("@eigenpal/docx-editor-react").then((module) => {
-		docxEditorComponent = module.DocxEditor as DocxEditorComponent;
-		return docxEditorComponent;
-	});
-	return docxEditorPromise;
-}
 
 export function ArtifactPreviewDialog({
 	artifact,
@@ -112,8 +89,9 @@ export function ArtifactPreviewDialog({
 			try {
 				let response: Response;
 				if (currentArtifact.storageUri) {
-					const previewUrl = `${API_BASE_URL}/files/preview?storage_uri=${encodeURIComponent(currentArtifact.storageUri)}`;
-					response = await fetch(previewUrl, { signal: controller.signal });
+					response = await fetchFilePreviewByStorageUri(currentArtifact.storageUri, {
+						signal: controller.signal,
+					});
 				} else if (currentProjectId && currentPath) {
 					response = await projectFileApi.fetchDownload(currentProjectId, currentPath, {
 						signal: controller.signal,
@@ -130,7 +108,12 @@ export function ArtifactPreviewDialog({
 					return;
 				}
 
-				if (previewKind === "docx" || previewKind === "spreadsheet") {
+				if (
+					previewKind === "docx" ||
+					previewKind === "xlsx" ||
+					previewKind === "pptx" ||
+					previewKind === "spreadsheet"
+				) {
 					const buffer = await response.arrayBuffer();
 					if (!cancelled) setPreview({ status: "ready", buffer });
 					return;
@@ -160,8 +143,7 @@ export function ArtifactPreviewDialog({
 		try {
 			let response: Response;
 			if (artifact.storageUri) {
-				const downloadUrl = `${API_BASE_URL}/files/preview?storage_uri=${encodeURIComponent(artifact.storageUri)}`;
-				response = await fetch(downloadUrl);
+				response = await fetchFilePreviewByStorageUri(artifact.storageUri);
 			} else if (projectId && artifactPath) {
 				response = await projectFileApi.fetchDownload(projectId, artifactPath);
 			} else {
@@ -270,8 +252,11 @@ function ArtifactPreviewBody({
 		return null;
 	}
 
-	if (previewKind === "docx" && preview.buffer) {
-		return <DocxPreview artifact={artifact} buffer={preview.buffer} />;
+	if (
+		(previewKind === "docx" || previewKind === "xlsx" || previewKind === "pptx") &&
+		preview.buffer
+	) {
+		return <OfficePreview buffer={preview.buffer} fileName={artifact.name} format={previewKind} />;
 	}
 
 	if (previewKind === "spreadsheet" && preview.buffer) {
@@ -330,93 +315,18 @@ function ArtifactPreviewBody({
 	);
 }
 
-function DocxPreview({ artifact, buffer }: { artifact: ArtifactPreviewItem; buffer: ArrayBuffer }) {
-	const [DocxEditor, setDocxEditor] = useState<DocxEditorComponent | null>(docxEditorComponent);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		let cancelled = false;
-		setError(null);
-		loadDocxEditor()
-			.then((component) => {
-				if (!cancelled) setDocxEditor(() => component);
-			})
-			.catch((err) => {
-				if (cancelled) return;
-				setError(err instanceof Error ? err.message : "DOCX 预览组件加载失败");
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	if (error) {
-		return (
-			<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
-				<div>
-					<p>无法加载 DOCX 预览</p>
-					<p className="mt-1 text-xs">{error}</p>
-				</div>
-			</div>
-		);
-	}
-
-	if (!DocxEditor) {
-		return (
-			<div className="flex h-full items-center justify-center text-[var(--leros-text-muted)]">
-				<LoaderCircle className="mr-2 size-4 animate-spin" />
-				准备 DOCX 预览
-			</div>
-		);
-	}
-
-	return (
-		<div className="h-full overflow-hidden">
-			<DocxEditor
-				key={artifact.id}
-				documentBuffer={buffer}
-				mode="viewing"
-				readOnly
-				showToolbar={false}
-				showZoomControl={false}
-				showRuler={false}
-				showOutline={false}
-				showOutlineButton={false}
-				disableFindReplaceShortcuts
-				initialZoom={0.82}
-				documentName={artifact.name}
-				documentNameEditable={false}
-				className="leros-docx-preview h-full"
-				style={{ height: "100%", background: "#f6f7fb" }}
-				loadingIndicator={
-					<div className="flex h-full items-center justify-center text-[var(--leros-text-muted)]">
-						<LoaderCircle className="mr-2 size-4 animate-spin" />
-						渲染 DOCX
-					</div>
-				}
-				onError={(err) => setError(err.message)}
-			/>
-		</div>
-	);
-}
-
 function detectPreviewKind(artifact: ArtifactPreviewItem | null): PreviewKind {
 	if (!artifact) return "unsupported";
 
 	const mimeType = artifact.mimeType?.toLowerCase() ?? "";
 	const name = artifact.name.toLowerCase();
+	const officeFormat = getOfficeOpenXmlFormat(name, mimeType);
 
-	if (
-		mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-		name.endsWith(".docx")
-	) {
-		return "docx";
-	}
+	if (officeFormat) return officeFormat;
 	if (
 		mimeType.includes("spreadsheet") ||
 		mimeType.includes("excel") ||
 		mimeType === "text/csv" ||
-		name.endsWith(".xlsx") ||
 		name.endsWith(".xls") ||
 		name.endsWith(".csv")
 	) {

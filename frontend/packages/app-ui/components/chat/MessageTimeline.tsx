@@ -90,7 +90,7 @@ export function MessageTimeline({
 			{messages.map((msg: Message) => (
 				<div key={msg.id}>
 					{msg.role === "user" ? (
-						<UserMessageBubble message={msg} projectId={projectId} />
+						<UserMessageBubble message={msg} />
 					) : msg.role === "assistant" ? (
 						<AIMessageBubble
 							message={msg}
