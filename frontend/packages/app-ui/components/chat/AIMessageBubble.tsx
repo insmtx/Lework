@@ -173,7 +173,36 @@ function ProcessTimelineBlock({
 		[toolCalls],
 	);
 	const preview = useMemo(() => {
+<<<<<<< HEAD
 		return getLatestProcessPreview(steps, toolCallMap);
+=======
+		for (const step of steps) {
+			if (step.type === "thinking") {
+				const compact = compactText(step.content);
+				if (compact) return compact;
+				continue;
+			}
+			const toolCall = toolCallMap.get(step.toolCallId);
+			if (!toolCall?.name?.trim()) continue;
+			const args = toolCall.arguments ?? {};
+			if (typeof args.intent === "string" && args.intent.trim())
+				return args.intent.trim();
+			if (typeof args.description === "string" && args.description.trim())
+				return args.description.trim();
+			if (toolCall.name === "write") return "写入文件";
+			if (toolCall.name === "read") return "读取文件";
+			if (toolCall.name === "websearch") {
+				const query = typeof args.query === "string" && args.query.trim() ? args.query.trim() : "";
+				return query ? `搜索 ${query}` : "搜索";
+			}
+			if (toolCall.name === "web_fetch" || toolCall.name === "webfetch") {
+				const url = typeof args.url === "string" && args.url.trim() ? decodeURIComponent(args.url.trim()) : "";
+				return url ? `浏览 ${url}` : "浏览";
+			}
+			return `调用：${toolCall.name}`;
+		}
+		return "";
+>>>>>>> 3b3d671 (fix(file): 统一文件卡片元信息展示)
 	}, [steps, toolCallMap]);
 
 	useEffect(() => {
@@ -396,12 +425,12 @@ function MessageArtifactList({
 						</div>
 						<div className="min-w-0">
 							<div className="truncate text-sm font-semibold leading-5 text-slate-700">
-								{artifact.title || artifact.name}
+								{artifact.name}
 							</div>
 							<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
-								{artifact.name}
-								{artifact.updatedAt ? ` · ${formatArtifactTime(artifact.updatedAt)}` : ""}
-								{artifact.size ? ` · ${artifact.size}` : ""}
+								{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
+									.filter(Boolean)
+									.join(" · ")}
 							</div>
 						</div>
 					</button>

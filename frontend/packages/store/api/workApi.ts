@@ -11,6 +11,7 @@ export type NewMessageParams = {
 		file_upload_id: string;
 		name: string;
 		mime_type: string;
+		size?: number;
 	}[];
 };
 

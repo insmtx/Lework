@@ -116,6 +116,7 @@ export type MessageAttachment = {
 	name: string;
 	mimeType: string;
 	size: number;
+	createdAt?: number;
 	url?: string;
 	storageUri?: string;
 };

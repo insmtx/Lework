@@ -1,7 +1,13 @@
 "use client";
 
 import type { ProjectArtifact, ProjectTask } from "@leros/store";
-import { formatTokenCount, projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
+import {
+	formatArtifactTime,
+	formatTokenCount,
+	projectFileApi,
+	useChatStore,
+	useLayoutStore,
+} from "@leros/store";
 import { taskApi } from "@leros/store/api/taskApi";
 import { Button } from "@leros/ui/components/ui/button";
 import {
@@ -756,7 +762,12 @@ function TaskFileList({
 							{file.name}
 						</div>
 						<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-							{file.size > 0 ? formatBytes(file.size) : ""}
+							{[
+								file.size > 0 ? formatBytes(file.size) : "",
+								file.createdAt ? formatArtifactTime(file.createdAt) : "",
+							]
+								.filter(Boolean)
+								.join(" · ")}
 						</div>
 					</div>
 				</button>

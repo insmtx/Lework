@@ -505,6 +505,7 @@ export class LayoutActionImpl {
 								name: attachment.name,
 								mime_type:
 									attachment.mimeType || attachment.file?.type || "application/octet-stream",
+								size: attachment.size,
 							})),
 					});
 					const data = {
@@ -538,6 +539,7 @@ export class LayoutActionImpl {
 				file_upload_id: string;
 				name: string;
 				mime_type: string;
+				size: number;
 			}[];
 		} = { content: trimmed };
 
@@ -556,6 +558,7 @@ export class LayoutActionImpl {
 					file_upload_id: attachment.fileUploadId.trim(),
 					name: attachment.name,
 					mime_type: attachment.mimeType || attachment.file?.type || "application/octet-stream",
+					size: attachment.size,
 				}));
 		}
 

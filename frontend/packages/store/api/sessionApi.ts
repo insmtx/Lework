@@ -61,6 +61,7 @@ export type AddMessageParams = {
 		file_upload_id: string;
 		name: string;
 		mime_type: string;
+		size?: number;
 	}[];
 	thinking?: string;
 	metadata?: {

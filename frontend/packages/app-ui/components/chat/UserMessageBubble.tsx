@@ -1,6 +1,6 @@
 "use client";
 
-import { fetchFileDownload, formatFileSize, formatTime } from "@leros/store";
+import { fetchFileDownload, formatArtifactTime, formatFileSize, formatTime } from "@leros/store";
 import type { Message, MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Check, Copy, ImageIcon, LoaderCircle } from "lucide-react";
@@ -139,6 +139,12 @@ function ImageAttachmentCard({
 		isInlinePreviewableUrl(attachment.url) ? (attachment.url ?? null) : null,
 	);
 	const [thumbnailLoading, setThumbnailLoading] = useState(false);
+	const metaText = [
+		formatFileSize(attachment.size),
+		attachment.createdAt ? formatArtifactTime(attachment.createdAt) : "",
+	]
+		.filter(Boolean)
+		.join(" · ");
 
 	useEffect(() => {
 		if (attachment.url && isInlinePreviewableUrl(attachment.url)) {
@@ -183,20 +189,28 @@ function ImageAttachmentCard({
 		<button
 			type="button"
 			onClick={onClick}
-			className="group/attachment relative size-[92px] overflow-hidden rounded-2xl border border-blue-200/70 bg-white shadow-sm transition-colors hover:border-blue-300"
+			className="group/attachment relative flex w-[260px] min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
 			title={attachment.name}
 		>
-			{thumbnailUrl ? (
-				<img src={thumbnailUrl} alt={attachment.name} className="h-full w-full object-cover" />
-			) : (
-				<div className="flex h-full w-full items-center justify-center bg-slate-100 text-slate-400">
-					{thumbnailLoading ? (
-						<LoaderCircle className="size-5 animate-spin" />
-					) : (
-						<ImageIcon className="size-6" />
-					)}
+			<div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--leros-primary-softer)] text-slate-400">
+				{thumbnailUrl ? (
+					<img src={thumbnailUrl} alt={attachment.name} className="h-full w-full object-cover" />
+				) : thumbnailLoading ? (
+					<LoaderCircle className="size-5 animate-spin" />
+				) : (
+					<ImageIcon className="size-5" />
+				)}
+			</div>
+			<div className="min-w-0">
+				<div className="truncate text-sm font-normal leading-5 text-[var(--leros-text-strong)]">
+					{attachment.name}
 				</div>
-			)}
+				{metaText ? (
+					<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+						{metaText}
+					</div>
+				) : null}
+			</div>
 			<AttachmentHoverMask />
 		</button>
 	);
@@ -209,7 +223,12 @@ function FileAttachmentCard({
 	attachment: MessageAttachment;
 	onClick: () => void;
 }) {
-	const sizeText = attachment.size > 0 ? formatFileSize(attachment.size) : "";
+	const metaText = [
+		formatFileSize(attachment.size),
+		attachment.createdAt ? formatArtifactTime(attachment.createdAt) : "",
+	]
+		.filter(Boolean)
+		.join(" · ");
 
 	return (
 		<button
@@ -226,9 +245,9 @@ function FileAttachmentCard({
 				<div className="truncate text-sm font-normal leading-5 text-[var(--leros-text-strong)]">
 					{attachment.name}
 				</div>
-				{sizeText ? (
+				{metaText ? (
 					<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-						{sizeText}
+						{metaText}
 					</div>
 				) : null}
 			</div>

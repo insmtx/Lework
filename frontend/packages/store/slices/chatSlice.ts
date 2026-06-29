@@ -129,8 +129,9 @@ function mapBackendMessage(msg: BackendMessage): Message {
     }
   }
   if (msg.attachments?.length) {
+    const messageCreatedAt = parseOptionalTimestamp(msg.created_at) ?? msg.timestamp;
     const attachments = msg.attachments
-      .map(mapBackendAttachment)
+      .map((attachment) => mapBackendAttachment(attachment, messageCreatedAt))
       .filter(
         (attachment): attachment is MessageAttachment =>
           attachment !== undefined,
@@ -144,6 +145,7 @@ function mapBackendMessage(msg: BackendMessage): Message {
 
 function mapBackendAttachment(
   attachment: BackendMessageAttachment,
+  messageCreatedAt?: number,
 ): MessageAttachment | undefined {
   const fileUploadId = attachment.file_upload_id?.trim();
   if (!fileUploadId) return undefined;
@@ -154,6 +156,7 @@ function mapBackendAttachment(
     name: attachment.name?.trim() || fileUploadId,
     mimeType: attachment.mime_type?.trim() || "application/octet-stream",
     size: attachment.size ?? 0,
+    createdAt: messageCreatedAt,
     url:
       attachment.PublicURL?.trim() ||
       attachment.public_url?.trim() ||
@@ -176,6 +179,7 @@ function mapComposerAttachment(
       attachment.file?.type ||
       "application/octet-stream",
     size: attachment.size,
+    createdAt: Date.now(),
     url: attachment.url,
     storageUri: attachment.storageUri,
   };
@@ -195,7 +199,7 @@ function mapComposerAttachments(
 function mapOutgoingAttachments(
   attachments?: Attachment[],
 ):
-  | Array<{ file_upload_id: string; name: string; mime_type: string }>
+  | Array<{ file_upload_id: string; name: string; mime_type: string; size: number }>
   | undefined {
   const mapped = attachments
     ?.filter(
@@ -209,6 +213,8 @@ function mapOutgoingAttachments(
         attachment.mimeType ||
         attachment.file?.type ||
         "application/octet-stream",
+      // 中文注释：上传接口已经返回真实大小，随消息落库后历史会话才能展示准确文件大小。
+      size: attachment.size,
     }));
   return mapped?.length ? mapped : undefined;
 }

@@ -1428,9 +1428,6 @@ function ProjectFiles({
 											<p className="truncate text-[15px] font-semibold text-[var(--leros-text-strong)]">
 												{file.name}
 											</p>
-											<p className="truncate text-xs text-[var(--leros-text-muted)]">
-												/{file.path}
-											</p>
 										</div>
 									</button>
 									<div className="text-[13px]">
