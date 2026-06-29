@@ -453,6 +453,13 @@ func PushWorkspace(ctx context.Context, plan *TaskWorkspace) error {
 		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 
+	diffCmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet")
+	diffCmd.Dir = plan.RepoDir
+	if diffCmd.Run() == nil {
+		logs.InfoContextf(ctx, "skip git commit: no workspace changes (repo_dir=%s)", plan.RepoDir)
+		return nil
+	}
+
 	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run artifacts")
 	commitCmd.Dir = plan.RepoDir
 	commitCmd.Env = identity.GitAuthorEnv()
