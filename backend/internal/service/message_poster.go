@@ -618,9 +618,6 @@ func (p *MessagePoster) initRepoStructure(ctx context.Context, fullName string) 
 .leros/
 !.leros/memory/
 
-# Artifact outputs (served from object storage, not committed)
-artifacts/
-
 # User uploads (served from object storage, not committed)
 uploads/
 

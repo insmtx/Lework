@@ -179,7 +179,7 @@ func TestExecute_Success(t *testing.T) {
 	}
 }
 
-func TestExecute_NormalizesNonArtifactsPath(t *testing.T) {
+func TestExecute_KeepsNonArtifactsPath(t *testing.T) {
 	tool := NewTool()
 	ctx, manifestPath := newToolContext(t)
 	writeRepoFile(t, ctx, "docs/report.md", "hello")
@@ -199,8 +199,8 @@ func TestExecute_NormalizesNonArtifactsPath(t *testing.T) {
 	if !ok {
 		t.Fatalf("output artifact = %#v, want object", result["artifact"])
 	}
-	if artifact["path"] != "artifacts/report.md" {
-		t.Fatalf("output path = %v, want artifacts/report.md after normalization", artifact["path"])
+	if artifact["path"] != "docs/report.md" {
+		t.Fatalf("output path = %v, want docs/report.md", artifact["path"])
 	}
 	if artifact["filename"] != "report.md" {
 		t.Fatalf("output filename = %v, want report.md", artifact["filename"])
@@ -210,17 +210,13 @@ func TestExecute_NormalizesNonArtifactsPath(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("manifest entries = %d, want 1", len(entries))
 	}
-	if entries[0].Path != "artifacts/report.md" {
-		t.Fatalf("manifest entry path = %+v, want artifacts/report.md", entries[0].Path)
+	if entries[0].Path != "docs/report.md" {
+		t.Fatalf("manifest entry path = %+v, want docs/report.md", entries[0].Path)
 	}
 
 	originalPath := repoPathFromContext(t, ctx, "docs/report.md")
-	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
-		t.Fatalf("original file should be moved: stat err = %v", err)
-	}
-	normalizedPath := repoPathFromContext(t, ctx, "artifacts/report.md")
-	if _, err := os.Stat(normalizedPath); err != nil {
-		t.Fatalf("normalized file should exist: stat err = %v", err)
+	if _, err := os.Stat(originalPath); err != nil {
+		t.Fatalf("original file should remain in place: stat err = %v", err)
 	}
 }
 
