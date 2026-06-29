@@ -656,8 +656,6 @@ Thumbs.db
 	}{
 		{".gitignore", gitignoreContent, "chore: init .gitignore"},
 		{".leros/memory/.gitkeep", emptyContent, "chore: init .leros/memory/"},
-		{"artifacts/.gitkeep", emptyContent, "chore: init artifacts/"},
-		{"README.md", base64.StdEncoding.EncodeToString([]byte("# " + repo + "\n")), "chore: init README"},
 	}
 
 	for _, f := range initFiles {
