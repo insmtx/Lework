@@ -291,7 +291,7 @@ func pushWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
 		return nil
 	}
 
-	addCmd := exec.CommandContext(ctx, "git", "add", ".", ":(exclude)artifacts", ":(exclude)uploads")
+	addCmd := exec.CommandContext(ctx, "git", "add", ".")
 	addCmd.Dir = repoDir
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(output)))
