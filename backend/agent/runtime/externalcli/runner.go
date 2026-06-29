@@ -9,7 +9,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -18,68 +18,47 @@ import (
 // used by concrete CLI Runtime implementations.
 type Driver struct {
 	name            string
-	engine          engines.Engine
+	invoker         Invoker
 	sessionStore    ProviderSessionStore
-	approvalHandler engines.ApprovalHandler
-	questionHandler engines.QuestionHandler
-	mcpServers      []engines.MCPServerConfig
+	approvalHandler provider.ApprovalHandler
+	questionHandler provider.QuestionHandler
+	mcpServers      []provider.MCPServerConfig
 }
 
 // NewDriver creates shared infrastructure for one concrete CLI Runtime.
-func NewDriver(name string, engine engines.Engine) (*Driver, error) {
+func NewDriver(name string, invoker Invoker, options ...DriverOptions) (*Driver, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("runtime name is required")
 	}
-	if engine == nil {
-		return nil, fmt.Errorf("runtime %q engine is nil", name)
+	if invoker == nil {
+		return nil, fmt.Errorf("runtime %q invoker is nil", name)
 	}
-	return &Driver{
+	driver := &Driver{
 		name:         name,
-		engine:       engine,
+		invoker:      invoker,
 		sessionStore: NewInMemoryProviderSessionStore(),
-	}, nil
-}
-
-// SetSessionStore 替换用于外部 CLI 恢复的提供者会话存储。
-func (r *Driver) SetSessionStore(store ProviderSessionStore) {
-	if r == nil || store == nil {
-		return
 	}
-	r.sessionStore = store
-}
-
-// SetApprovalHandler 设置审批处理器，用于 on-request 和 auto 模式。
-func (r *Driver) SetApprovalHandler(handler engines.ApprovalHandler) {
-	if r == nil {
-		return
+	if len(options) > 0 {
+		option := options[0]
+		if option.SessionStore != nil {
+			driver.sessionStore = option.SessionStore
+		}
+		driver.approvalHandler = option.ApprovalHandler
+		driver.questionHandler = option.QuestionHandler
+		driver.mcpServers = append([]provider.MCPServerConfig(nil), option.MCPServers...)
 	}
-	r.approvalHandler = handler
+	return driver, nil
 }
 
-// SetQuestionHandler 设置问题处理器，用于引擎向用户提问时。
-func (r *Driver) SetQuestionHandler(handler engines.QuestionHandler) {
-	if r == nil {
-		return
-	}
-	r.questionHandler = handler
-}
-
-// SetMCPServers 设置 MCP 服务配置，用于后续 Run() 时传入引擎。
-func (r *Driver) SetMCPServers(cfgs []engines.MCPServerConfig) {
-	if r == nil {
-		return
-	}
-	r.mcpServers = cfgs
-}
-
-// Execute runs one request for the concrete Runtime that owns this Driver.
-func (r *Driver) Execute(
+// RunInvocation executes one request for the concrete Runtime that owns this
+// provider invocation facility.
+func (r *Driver) RunInvocation(
 	ctx context.Context,
 	request agent.ExecutionRequest,
 	observer agent.Observer,
 ) (agent.ExecutionResult, error) {
-	if r == nil || r.engine == nil {
+	if r == nil || r.invoker == nil {
 		return agent.ExecutionResult{}, fmt.Errorf("external CLI runtime is not initialized")
 	}
 	if strings.TrimSpace(request.ExecutionID) == "" {
@@ -90,32 +69,27 @@ func (r *Driver) Execute(
 		eventSink = observer
 	}
 	workDir := strings.TrimSpace(request.Filesystem.WorkDir)
-	if err := r.engine.Prepare(ctx, engines.PrepareRequest{WorkDir: workDir}); err != nil {
+	if err := r.invoker.Prepare(ctx, workDir); err != nil {
 		return agent.ExecutionResult{}, err
 	}
 
 	sessionPlan := r.resolveProviderSession(ctx, request)
-	handle, err := r.engine.Run(ctx, engines.RunRequest{
-		ExecutionID:  request.ExecutionID,
-		SessionID:    sessionPlan.ProviderSessionID,
-		Resume:       sessionPlan.Resume,
-		WorkDir:      workDir,
-		TaskDir:      request.Filesystem.TaskDir,
-		SystemPrompt: strings.TrimSpace(request.SystemPrompt),
-		Prompt:       request.Prompt,
-		Messages:     append([]agent.Message(nil), request.Messages...),
-		Tools:        append([]agent.Tool(nil), request.Tools...),
-		AllowedTools: append([]string(nil), request.Policy.AllowedTools...),
-		TraceID:      request.TraceID,
-		SessionKey:   request.SessionKey,
-		Model: engines.ModelConfig{
-			Provider: request.Model.Provider,
-			Model:    request.Model.Model,
-			APIKey:   request.Model.APIKey,
-			BaseURL:  request.Model.BaseURL,
-		},
+	handle, err := r.invoker.Invoke(ctx, InvocationRequest{
+		ExecutionID:     request.ExecutionID,
+		SessionID:       sessionPlan.ProviderSessionID,
+		Resume:          sessionPlan.Resume,
+		WorkDir:         workDir,
+		TaskDir:         request.Filesystem.TaskDir,
+		SystemPrompt:    strings.TrimSpace(request.SystemPrompt),
+		Prompt:          request.Prompt,
+		Messages:        append([]agent.Message(nil), request.Messages...),
+		Tools:           append([]agent.Tool(nil), request.Tools...),
+		AllowedTools:    append([]string(nil), request.Policy.AllowedTools...),
+		TraceID:         request.TraceID,
+		SessionKey:      request.SessionKey,
+		Model:           request.Model,
 		ExtraEnv:        nil,
-		PermissionMode:  engines.PermissionMode(request.Policy.PermissionMode),
+		PermissionMode:  provider.PermissionMode(request.Policy.PermissionMode),
 		ApprovalHandler: r.approvalHandler,
 		MCPServers:      r.mcpServers,
 	})
@@ -160,11 +134,11 @@ type ConsumeResult struct {
 func ConsumeEvents(
 	ctx context.Context,
 	sink events.Sink,
-	handle *engines.RunHandle,
+	handle *Invocation,
 	runID string,
 	traceID string,
-	approvalHandler engines.ApprovalHandler,
-	questionHandler engines.QuestionHandler,
+	approvalHandler provider.ApprovalHandler,
+	questionHandler provider.QuestionHandler,
 ) (ConsumeResult, error) {
 	if handle == nil || handle.Events == nil {
 		return ConsumeResult{}, nil
@@ -176,6 +150,15 @@ func ConsumeEvents(
 	resultSeen := false
 	consumed := ConsumeResult{}
 	messageIDs := events.NewMessageIDMapper()
+	emit := func(event *agent.Event) error {
+		if event == nil {
+			return nil
+		}
+		if err := sink.Emit(ctx, event); err != nil {
+			return fmt.Errorf("emit %s: %w", event.Type, err)
+		}
+		return nil
+	}
 	todoSink := events.SinkFunc(func(emitCtx context.Context, event *agent.Event) error {
 		if event == nil {
 			return nil
@@ -198,7 +181,7 @@ func ConsumeEvents(
 			event.TraceID = traceID
 		}
 		switch event.Type {
-		case events.EventStarted:
+		case events.EventInvocationStarted:
 			continue
 		case events.EventProviderSessionStarted:
 			if strings.TrimSpace(event.Content) != "" {
@@ -219,37 +202,55 @@ func ConsumeEvents(
 				result.WriteString(event.Content)
 				resultSeen = true
 			}
-		case events.EventCompleted:
+		case events.EventInvocationCompleted:
 			consumed.Message = result.String()
 			return consumed, nil
-		case events.EventFailed:
+		case events.EventInvocationFailed:
 			if strings.TrimSpace(event.Content) == "" {
 				consumed.Message = result.String()
 				return consumed, fmt.Errorf("external runtime failed")
 			}
 			consumed.Message = result.String()
 			return consumed, fmt.Errorf("%s", event.Content)
+		case events.EventInvocationCancelled:
+			consumed.Message = result.String()
+			if ctx.Err() != nil {
+				return consumed, ctx.Err()
+			}
+			return consumed, context.Canceled
 		case events.EventMessageDelta:
 			if strings.TrimSpace(event.Content) != "" {
-				_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+				if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+					return consumed, err
+				}
 				if !resultSeen {
 					result.WriteString(event.Content)
 				}
 			}
 		case events.EventReasoningDelta:
-			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+				return consumed, err
+			}
 		case events.EventToolCallStarted, events.EventToolCallCompleted, events.EventToolCallFailed:
-			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+				return consumed, err
+			}
 		case events.EventTodoSnapshot:
 			if items, err := events.DecodePayload[[]events.RuntimeTodoItem](&event); err == nil {
-				_ = todoTracker.Snapshot(ctx, items)
+				if err := todoTracker.Snapshot(ctx, items); err != nil {
+					return consumed, fmt.Errorf("emit %s: %w", event.Type, err)
+				}
 			}
 		case events.EventTodoUpdated:
 			if items, err := events.DecodePayload[[]events.RuntimeTodoItem](&event); err == nil {
-				_ = todoTracker.Update(ctx, items, true)
+				if err := todoTracker.Update(ctx, items, true); err != nil {
+					return consumed, fmt.Errorf("emit %s: %w", event.Type, err)
+				}
 			}
 		case events.EventApprovalRequested:
-			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+				return consumed, err
+			}
 			if handle.Responder == nil {
 				logs.WarnContextf(ctx, "approval request dropped: no Responder (PermissionMode may need to be on-request/auto)")
 			}
@@ -274,16 +275,22 @@ func ConsumeEvents(
 				if wErr := handle.Responder.WriteDecision(req.RequestID, decision.Action); wErr != nil {
 					logs.WarnContextf(ctx, "write approval decision to stdin: %v", wErr)
 				}
-				_ = sink.Emit(ctx, normalizeRuntimeEvent(*events.NewApprovalResolved(events.ApprovalDecisionPayload{
+				if err := emit(normalizeRuntimeEvent(*events.NewApprovalResolved(events.ApprovalDecisionPayload{
 					RequestID: req.RequestID,
 					Action:    decision.Action,
 					Reason:    decision.Reason,
-				}), messageIDs))
+				}), messageIDs)); err != nil {
+					return consumed, err
+				}
 			}
 		case events.EventApprovalResolved:
-			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+				return consumed, err
+			}
 		case events.EventQuestionAsked:
-			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+				return consumed, err
+			}
 			if handle.Questions == nil {
 				logs.WarnContextf(ctx, "question request dropped: no QuestionResponder")
 			}
@@ -326,13 +333,17 @@ func ConsumeEvents(
 				if wErr := handle.Questions.WriteAnswer(req.RequestID, answer.Answers); wErr != nil {
 					logs.WarnContextf(ctx, "write question answer: %v", wErr)
 				}
-				_ = sink.Emit(ctx, normalizeRuntimeEvent(*events.NewQuestionAnswered(events.QuestionAnswerPayload{
+				if err := emit(normalizeRuntimeEvent(*events.NewQuestionAnswered(events.QuestionAnswerPayload{
 					RequestID: req.RequestID,
 					Answers:   answer.Answers,
-				}), messageIDs))
+				}), messageIDs)); err != nil {
+					return consumed, err
+				}
 			}
 		case events.EventQuestionAnswered:
-			_ = sink.Emit(ctx, normalizeRuntimeEvent(event, messageIDs))
+			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+				return consumed, err
+			}
 		default:
 			if strings.TrimSpace(event.Content) != "" {
 				if !resultSeen {
@@ -426,12 +437,6 @@ func (r *Driver) resolveProviderSession(ctx context.Context, request agent.Execu
 			AssistantID:       request.InstanceKey,
 		},
 	}
-	// Native 引擎不使用外部 CLI 会话，直接使用 Leros 内部 session ID。
-	if r.name == engines.EngineNative {
-		plan.ProviderSessionID = internalSessionID
-		return plan
-	}
-
 	if internalSessionID == "" || r.sessionStore == nil {
 		return plan
 	}

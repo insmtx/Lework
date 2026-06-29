@@ -31,6 +31,7 @@ type WorkspacePreparation struct {
 	RepoDir              string
 	TaskDir              string
 	ArtifactManifestPath string
+	BaselinePath         string
 }
 
 // AttachmentIngestor downloads and commits user attachments into the workspace.
@@ -98,6 +99,7 @@ func (wm *workspaceManager) PrepareWorkspace(ctx context.Context, req *assistant
 		RepoDir:              plan.RepoDir,
 		TaskDir:              plan.TaskDir,
 		ArtifactManifestPath: plan.ArtifactManifestPath,
+		BaselinePath:         plan.BaselinePath,
 	}, nil
 }
 

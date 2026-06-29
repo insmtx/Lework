@@ -14,7 +14,6 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
 	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
 	"github.com/insmtx/Leros/backend/internal/assistant"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
@@ -87,7 +86,7 @@ func TestRunnerBuildToolBindingMergesDefaultTools(t *testing.T) {
 	}
 
 	runner := &Runner{}
-	binding := runner.buildToolBinding(engines.RunRequest{
+	binding := runner.buildToolBinding(agent.ExecutionRequest{
 		ExecutionID: "run_tools",
 		Prompt:      "hello",
 		Tools:       adaptRegistry(registry),
@@ -124,7 +123,6 @@ func TestToolInvokerInjectsTodoReporter(t *testing.T) {
 	specs, invoker, err := buildRuntimeTools(toolBinding{
 		Tools:        adaptRegistry(registry),
 		AllowedTools: []string{todotools.ToolNameTodo},
-		EngineSink:   sink,
 		TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
 			RunID: "run_adapter",
 			Sink:  eventsSinkAdapter{sink},
@@ -176,7 +174,6 @@ func TestToolInvokerEmitsToolEventsForNonTodoTool(t *testing.T) {
 	specs, invoker, err := buildRuntimeTools(toolBinding{
 		Tools:        adaptRegistry(registry),
 		AllowedTools: []string{"regular_tool"},
-		EngineSink:   sink,
 	}, sink)
 	if err != nil {
 		t.Fatalf("build tools: %v", err)
@@ -215,15 +212,15 @@ func TestAgentRunRealModel(t *testing.T) {
 		t.Fatalf("new agent: %v", err)
 	}
 
-	eventsCh, err := agt.Run(ctx, engines.RunRequest{
+	result, err := agt.Execute(ctx, agent.ExecutionRequest{
 		ExecutionID: "run_real_model_message",
 		Prompt:      "Reply with exactly this text: Leros agent runtime ok",
 		Model:       realModelOptions(apiKey),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("run agent: %v", err)
 	}
-	message := collectResultFromEngine(t, eventsCh)
+	message := result.Message
 	if strings.TrimSpace(message) == "" {
 		t.Fatalf("expected non-empty model response")
 	}
@@ -252,7 +249,7 @@ func TestAgentRunNodeTool(t *testing.T) {
 		t.Fatalf("new agent: %v", err)
 	}
 
-	eventsCh, err := agt.Run(ctx, engines.RunRequest{
+	result, err := agt.Execute(ctx, agent.ExecutionRequest{
 		ExecutionID: "run_real_model_node_shell_time",
 		SystemPrompt: strings.Join([]string{
 			"You must use tools to complete the user task; do not answer without tool usage.",
@@ -261,11 +258,11 @@ func TestAgentRunNodeTool(t *testing.T) {
 		Prompt: "Use a tool to query the current system time.",
 		Model:  realModelOptions(apiKey),
 		Tools:  adaptRegistry(registry),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("run agent: %v", err)
 	}
-	message := collectResultFromEngine(t, eventsCh)
+	message := result.Message
 	if strings.TrimSpace(message) == "" {
 		t.Fatalf("expected non-empty model response")
 	}
@@ -300,7 +297,7 @@ func TestAgentRunWeatherSkillQuery(t *testing.T) {
 		t.Fatalf("new agent: %v", err)
 	}
 
-	eventsCh, err := agt.Run(ctx, engines.RunRequest{
+	result, err := agt.Execute(ctx, agent.ExecutionRequest{
 		ExecutionID: "run_real_model_weather_skill_shanghai",
 		SystemPrompt: strings.Join([]string{
 			"You must use tools to complete the user task; do not answer without tool usage.",
@@ -309,11 +306,11 @@ func TestAgentRunWeatherSkillQuery(t *testing.T) {
 		Prompt: "Use the weather skill to query the weather in Shanghai.",
 		Model:  realModelOptions(apiKey),
 		Tools:  adaptRegistry(registry),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("run weather skill agent: %v", err)
 	}
-	message := collectResultFromEngine(t, eventsCh)
+	message := result.Message
 	if strings.TrimSpace(message) == "" {
 		t.Fatalf("expected non-empty model response")
 	}
@@ -329,28 +326,13 @@ func firstNonEmptyEnv(keys ...string) string {
 	return ""
 }
 
-func realModelOptions(apiKey string) engines.ModelConfig {
-	return engines.ModelConfig{
+func realModelOptions(apiKey string) agent.ModelConfig {
+	return agent.ModelConfig{
 		Provider: "openai",
 		APIKey:   apiKey,
 		Model:    firstNonEmptyEnv("LEROS_LLM_MODEL"),
 		BaseURL:  firstNonEmptyEnv("LEROS_LLM_BASE_URL"),
 	}
-}
-
-// collectResultFromEngine reads EngineEvent from the channel and returns the final message.
-func collectResultFromEngine(t *testing.T, eventsCh <-chan agent.Event) string {
-	t.Helper()
-	var message string
-	for event := range eventsCh {
-		switch event.Type {
-		case engines.EngineEventResult:
-			message = event.Content
-		case engines.EngineEventFailed:
-			t.Fatalf("run failed: %s", event.Content)
-		}
-	}
-	return message
 }
 
 func newBundledRuntimeSkillsCatalog(t *testing.T) string {

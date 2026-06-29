@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
 	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 )
@@ -16,11 +16,10 @@ import (
 type toolBinding struct {
 	Tools        []agent.Tool
 	AllowedTools []string
-	EngineSink   engineSink
 	TodoReporter runtimetodo.Reporter
 }
 
-func buildRuntimeTools(binding toolBinding, sink engineSink) ([]pkgeino.ToolSpec, pkgeino.ToolInvoker, error) {
+func buildRuntimeTools(binding toolBinding, sink activitySink) ([]pkgeino.ToolSpec, pkgeino.ToolInvoker, error) {
 	boundTools, err := filterRuntimeTools(binding.Tools, binding.AllowedTools)
 	if err != nil {
 		return nil, nil, err
@@ -87,7 +86,7 @@ func filterRuntimeTools(runtimeTools []agent.Tool, allowedTools []string) ([]age
 type toolInvoker struct {
 	tools   map[string]agent.Tool
 	binding toolBinding
-	sink    engineSink
+	sink    activitySink
 }
 
 func (i *toolInvoker) InvokeTool(ctx context.Context, name string, argumentsInJSON string) (string, error) {
@@ -112,19 +111,23 @@ func (i *toolInvoker) InvokeTool(ctx context.Context, name string, argumentsInJS
 	toolCallID := fmt.Sprintf("tool_%d", startedAt.UnixNano())
 	suppressToolEvents := name == runtimetodo.ToolName
 	if !suppressToolEvents {
-		_ = i.emitToolEvent(ctx, newEngineToolCallStarted(toolCallID, name, arguments))
+		if err := i.emitToolEvent(ctx, events.NewToolCallStarted(toolCallID, name, arguments)); err != nil {
+			return "", err
+		}
 	}
 
 	toolCtx := runtimetodo.ContextWithReporter(ctx, i.binding.TodoReporter)
 	result, err := tool.Execute(toolCtx, arguments)
 	if err != nil {
 		if !suppressToolEvents {
-			_ = i.emitToolEvent(ctx, newEngineToolCallFailed(
+			if emitErr := i.emitToolEvent(ctx, events.NewToolCallFailed(
 				toolCallID,
 				name,
 				err.Error(),
 				time.Since(startedAt).Milliseconds(),
-			))
+			)); emitErr != nil {
+				return "", emitErr
+			}
 		}
 		return errorOutput(err.Error(), name), nil
 	}
@@ -134,75 +137,29 @@ func (i *toolInvoker) InvokeTool(ctx context.Context, name string, argumentsInJS
 			detail = strings.TrimSpace(result.Content)
 		}
 		if !suppressToolEvents {
-			_ = i.emitToolEvent(ctx, newEngineToolCallFailed(
+			if emitErr := i.emitToolEvent(ctx, events.NewToolCallFailed(
 				toolCallID,
 				name,
 				detail,
 				time.Since(startedAt).Milliseconds(),
-			))
+			)); emitErr != nil {
+				return "", emitErr
+			}
 		}
 		return errorOutput(detail, name), nil
 	}
 
 	if !suppressToolEvents {
-		_ = i.emitToolEvent(ctx, newEngineToolCallCompleted(
+		if err := i.emitToolEvent(ctx, events.NewToolCallCompleted(
 			toolCallID,
 			name,
 			rawResult(result.Content),
 			time.Since(startedAt).Milliseconds(),
-		))
+		)); err != nil {
+			return "", err
+		}
 	}
 	return result.Content, nil
-}
-
-type engineToolCallPayload struct {
-	ToolCallID string          `json:"tool_call_id"`
-	Name       string          `json:"name"`
-	Arguments  json.RawMessage `json:"arguments,omitempty"`
-}
-
-type engineToolCallResultPayload struct {
-	ToolCallID string          `json:"tool_call_id"`
-	Name       string          `json:"name,omitempty"`
-	Result     json.RawMessage `json:"result,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	IsError    bool            `json:"is_error"`
-	ElapsedMS  int64           `json:"elapsed_ms,omitempty"`
-}
-
-func newEngineToolCallStarted(toolCallID, name string, arguments json.RawMessage) *agent.Event {
-	payload, _ := json.Marshal(engineToolCallPayload{
-		ToolCallID: toolCallID,
-		Name:       name,
-		Arguments:  append(json.RawMessage(nil), arguments...),
-	})
-	return &agent.Event{Type: engines.EngineEventToolCallStarted, Payload: payload}
-}
-
-func newEngineToolCallCompleted(
-	toolCallID string,
-	name string,
-	result json.RawMessage,
-	elapsedMS int64,
-) *agent.Event {
-	payload, _ := json.Marshal(engineToolCallResultPayload{
-		ToolCallID: toolCallID,
-		Name:       name,
-		Result:     append(json.RawMessage(nil), result...),
-		ElapsedMS:  elapsedMS,
-	})
-	return &agent.Event{Type: engines.EngineEventToolCallCompleted, Payload: payload}
-}
-
-func newEngineToolCallFailed(toolCallID, name, errorMsg string, elapsedMS int64) *agent.Event {
-	payload, _ := json.Marshal(engineToolCallResultPayload{
-		ToolCallID: toolCallID,
-		Name:       name,
-		Error:      errorMsg,
-		IsError:    true,
-		ElapsedMS:  elapsedMS,
-	})
-	return &agent.Event{Type: engines.EngineEventToolCallFailed, Payload: payload}
 }
 
 func (i *toolInvoker) emitToolEvent(ctx context.Context, event *agent.Event) error {

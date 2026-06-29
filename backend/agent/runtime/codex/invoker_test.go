@@ -13,7 +13,8 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
 )
 
 // TestSayHi 端到端测试：通过 app-server 模式发送 "hi" 并收到真实回复。
@@ -37,10 +38,10 @@ func TestSayHi(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	handle, err := adapter.Run(ctx, engines.RunRequest{
+	handle, err := adapter.Invoke(ctx, externalcli.InvocationRequest{
 		WorkDir: workDir,
 		Prompt:  "hi",
-		Model: engines.ModelConfig{
+		Model: agent.ModelConfig{
 			Provider: "openai",
 			APIKey:   apiKey,
 			Model:    "aliyun/deepseek-v4-flash",
@@ -58,9 +59,9 @@ func TestSayHi(t *testing.T) {
 	for event := range handle.Events {
 		t.Logf("event: type=%s content=%q", event.Type, event.Content)
 		switch event.Type {
-		case engines.EngineEventResult:
+		case events.EventResult:
 			responseText = strings.TrimSpace(event.Content)
-		case engines.EngineEventCompleted:
+		case events.EventInvocationCompleted:
 			if responseText == "" && event.Content != "" {
 				responseText = strings.TrimSpace(event.Content)
 			}
@@ -68,7 +69,7 @@ func TestSayHi(t *testing.T) {
 		finalEvent = event
 	}
 
-	if finalEvent.Type == engines.EngineEventFailed {
+	if finalEvent.Type == events.EventInvocationFailed {
 		t.Fatalf("codex execution failed: %s", finalEvent.Content)
 	}
 
@@ -113,7 +114,7 @@ func TestFirstNonEmpty(t *testing.T) {
 }
 
 func TestAppServerModelEnv(t *testing.T) {
-	env := appServerModelEnv(engines.ModelConfig{
+	env := appServerModelEnv(agent.ModelConfig{
 		APIKey:  "sk-test",
 		BaseURL: "http://127.0.0.1:8081",
 	})
@@ -129,7 +130,7 @@ func TestAppServerModelEnv(t *testing.T) {
 }
 
 func TestAppServerModelEnvWithV1Suffix(t *testing.T) {
-	env := appServerModelEnv(engines.ModelConfig{
+	env := appServerModelEnv(agent.ModelConfig{
 		APIKey:  "sk-test",
 		BaseURL: "http://127.0.0.1:8081/v1/",
 	})

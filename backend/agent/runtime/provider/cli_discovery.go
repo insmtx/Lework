@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -87,7 +89,7 @@ func DiscoverAvailableCLI() []CLIToolStatus {
 
 	wg.Wait()
 
-	// Keep the preferred engine first while preserving relative order otherwise.
+	// Keep the preferred runtime first while preserving relative order otherwise.
 	sortByDefault(results)
 
 	return results
@@ -195,8 +197,8 @@ func sortByDefault(statuses []CLIToolStatus) {
 	})
 }
 
-// GetDefaultEngineName chooses the preferred installed engine from detected CLI status.
-func GetDefaultEngineName(available []CLIToolStatus) string {
+// PreferredCLIName chooses the preferred installed runtime from detected CLI status.
+func PreferredCLIName(available []CLIToolStatus) string {
 	for _, s := range available {
 		if s.Installed && s.Default {
 			return s.Name
@@ -212,12 +214,30 @@ func GetDefaultEngineName(available []CLIToolStatus) string {
 	return ""
 }
 
-// GetEngineSpecByName returns the built-in CLI spec with the given engine name.
-func GetEngineSpecByName(name string) *CLIToolSpec {
+// GetCLIToolSpec returns the built-in CLI spec with the given runtime name.
+func GetCLIToolSpec(name string) *CLIToolSpec {
 	for i := range BuiltinCLITools {
 		if BuiltinCLITools[i].Name == name {
 			return &BuiltinCLITools[i]
 		}
 	}
 	return nil
+}
+
+// SkillDirForCLI returns the conventional skill directory for a supported CLI.
+func SkillDirForCLI(name string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "claude":
+		return filepath.Join(home, ".claude", "skills")
+	case "codex":
+		return filepath.Join(home, ".agents", "skills")
+	case "opencode":
+		return filepath.Join(home, ".config", "opencode", "skills")
+	default:
+		return ""
+	}
 }

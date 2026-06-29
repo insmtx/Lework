@@ -6,7 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 
 // buildConfigContent 根据 ModelConfig 和 MCPServerConfig 列表
 // 生成 OPENCODE_CONFIG_CONTENT JSON 字符串。
-func buildConfigContent(modelCfg engines.ModelConfig, mcps []engines.MCPServerConfig) (string, error) {
+func buildConfigContent(modelCfg agent.ModelConfig, mcps []provider.MCPServerConfig) (string, error) {
 	modelID := modelCfg.Model
 	if modelID == "" {
 		modelID = "default"
@@ -75,7 +76,7 @@ func buildConfigContent(modelCfg engines.ModelConfig, mcps []engines.MCPServerCo
 //
 //	Remote (HTTP):  { "type": "remote", "url": "...", "headers": { "Authorization": "Bearer ..." } }
 //	Local (stdio):  { "type": "local", "command": ["cmd", ...], "environment": { ... } }
-func buildMCPConfig(mcps []engines.MCPServerConfig) map[string]any {
+func buildMCPConfig(mcps []provider.MCPServerConfig) map[string]any {
 	if len(mcps) == 0 {
 		return nil
 	}

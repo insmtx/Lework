@@ -11,7 +11,8 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -25,12 +26,12 @@ type Invoker struct {
 func NewInvoker(binary string, extraEnv map[string]string) *Invoker {
 	return &Invoker{
 		binary:  binary,
-		baseEnv: engines.BuildBaseEnv(extraEnv),
+		baseEnv: provider.BuildBaseEnv(extraEnv),
 	}
 }
 
-// Run 启动 CLI 进程并将 stdout/stderr 转换为引擎事件。
-func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
+// Invoke starts the CLI process and converts stdout/stderr into provider events.
+func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
 	args := buildArgs(req)
 
 	// 写入 settings.leros.{sessionId}.json，通过 --settings 覆盖用户级 ~/.claude/settings.json
@@ -58,7 +59,7 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.R
 
 	cmd := exec.CommandContext(ctx, inv.binary, args...)
 	cmd.Dir = req.WorkDir
-	cmd.Env = engines.BuildRunEnv(inv.baseEnv, req.ExtraEnv, claudeModelEnv(req.Model))
+	cmd.Env = provider.BuildRunEnv(inv.baseEnv, req.ExtraEnv, claudeModelEnv(req.Model))
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -82,14 +83,14 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.R
 	}
 
 	// 与 buildArgs 保持一致：on-request / auto 需要 stdin 保持打开以供审批回包
-	needsApproval := req.PermissionMode == engines.PermissionModeOnRequest ||
-		req.PermissionMode == engines.PermissionModeAuto
+	needsApproval := req.PermissionMode == provider.PermissionModeOnRequest ||
+		req.PermissionMode == provider.PermissionModeAuto
 
 	evtChan := make(chan agent.Event, 32)
-	proc := engines.NewCmdProcess(cmd)
-	evtChan <- agent.Event{Type: events.EventStarted}
+	proc := provider.NewCmdProcess(cmd)
+	evtChan <- agent.Event{Type: events.EventInvocationStarted}
 
-	var responder engines.ApprovalResponder
+	var responder provider.ApprovalResponder
 	if needsApproval {
 		responder = &claudeApprovalResponder{stdinW: stdinPipe}
 	}
@@ -110,7 +111,7 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.R
 		// 写入初始用户消息
 		if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
 			if _, err := fmt.Fprintln(stdinPipe, buildStreamUserMessage(prompt)); err != nil {
-				evtChan <- agent.Event{Type: events.EventFailed, Content: fmt.Sprintf("write prompt: %v", err)}
+				evtChan <- agent.Event{Type: events.EventInvocationFailed, Content: fmt.Sprintf("write prompt: %v", err)}
 				return
 			}
 		}
@@ -139,14 +140,14 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.R
 		err := cmd.Wait()
 		wg.Wait()
 		if err != nil {
-			evtChan <- agent.Event{Type: events.EventFailed, Content: claudeFailureContent(err, parseState, stderrText)}
+			evtChan <- agent.Event{Type: events.EventInvocationFailed, Content: claudeFailureContent(err, parseState, stderrText)}
 			return
 		}
 		if parseState.isError {
 			if parseState.result == "" {
 				parseState.result = "claude execution failed"
 			}
-			evtChan <- agent.Event{Type: events.EventFailed, Content: parseState.result}
+			evtChan <- agent.Event{Type: events.EventInvocationFailed, Content: parseState.result}
 			return
 		}
 		if parseState.result == "" && parseState.lastAssistantText != "" {
@@ -154,10 +155,10 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.R
 				return
 			}
 		}
-		evtChan <- agent.Event{Type: events.EventCompleted}
+		evtChan <- agent.Event{Type: events.EventInvocationCompleted}
 	}()
 
-	return &engines.RunHandle{
+	return &externalcli.Invocation{
 		Process:   proc,
 		Events:    evtChan,
 		Responder: responder,
@@ -168,7 +169,7 @@ func (inv *Invoker) Run(ctx context.Context, req engines.RunRequest) (*engines.R
 func scanPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- agent.Event, eventType agent.EventType) string {
 	var output strings.Builder
 	messageIDs := events.NewMessageIDMapper()
-	engines.ScanJSONLines(r, func(line string) bool {
+	provider.ScanJSONLines(r, func(line string) bool {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			return true

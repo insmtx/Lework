@@ -12,7 +12,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
 )
 
 func TestAdapterAskCurrentTime(t *testing.T) {
@@ -33,10 +33,10 @@ func TestAdapterAskCurrentTime(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	handle, err := adapter.Run(ctx, engines.RunRequest{
+	handle, err := adapter.Invoke(ctx, externalcli.InvocationRequest{
 		WorkDir: workDir,
 		Prompt:  "Answer with the current system time. Do not modify files.",
-		Model: engines.ModelConfig{
+		Model: agent.ModelConfig{
 			Provider: "anthropic",
 			APIKey:   apiKey,
 			Model:    firstNonEmptyEnv("LEROS_LLM_MODEL"),
@@ -51,15 +51,15 @@ func TestAdapterAskCurrentTime(t *testing.T) {
 	var result string
 	for event := range handle.Events {
 		t.Logf("received event: type=%s, content=%s", event.Type, event.Content)
-		if event.Type == engines.EngineEventResult {
+		if event.Type == events.EventResult {
 			result = strings.TrimSpace(event.Content)
 		}
 		finalEvent = event
 	}
-	if finalEvent.Type == engines.EngineEventFailed {
+	if finalEvent.Type == events.EventInvocationFailed {
 		t.Fatalf("claude execution failed: %s", finalEvent.Content)
 	}
-	if finalEvent.Type != engines.EngineEventCompleted {
+	if finalEvent.Type != events.EventInvocationCompleted {
 		t.Fatalf("unexpected final event: %#v", finalEvent)
 	}
 
@@ -102,7 +102,7 @@ func TestParseClaudeLineAttachesUsageToResultEvent(t *testing.T) {
 }
 
 func TestBuildArgsAppendsSystemPrompt(t *testing.T) {
-	args := buildArgs(engines.RunRequest{
+	args := buildArgs(externalcli.InvocationRequest{
 		SystemPrompt: "system only",
 		Prompt:       "user only",
 	})
@@ -123,7 +123,7 @@ func TestBuildArgsAppendsSystemPrompt(t *testing.T) {
 }
 
 func TestBuildArgsBypassesPermissionsByDefault(t *testing.T) {
-	args := buildArgs(engines.RunRequest{})
+	args := buildArgs(externalcli.InvocationRequest{})
 
 	value, ok := argValue(args, "--permission-mode")
 	if !ok {
@@ -143,7 +143,7 @@ func TestBuildArgsBypassesPermissionsByDefault(t *testing.T) {
 }
 
 func TestBuildArgsIncludesPartialMessages(t *testing.T) {
-	args := buildArgs(engines.RunRequest{})
+	args := buildArgs(externalcli.InvocationRequest{})
 
 	if !containsArg(args, "--include-partial-messages") {
 		t.Fatalf("expected --include-partial-messages in args: %#v", args)
@@ -151,7 +151,7 @@ func TestBuildArgsIncludesPartialMessages(t *testing.T) {
 }
 
 func TestBuildArgsSkipsEmptySystemPrompt(t *testing.T) {
-	args := buildArgs(engines.RunRequest{
+	args := buildArgs(externalcli.InvocationRequest{
 		SystemPrompt: "   ",
 		Prompt:       "user only",
 	})
@@ -163,7 +163,7 @@ func TestBuildArgsSkipsEmptySystemPrompt(t *testing.T) {
 
 func TestClaudeModelEnvDoesNotSetAuthVars(t *testing.T) {
 	// API key and base URL are now injected via --settings file, not via cmd.Env.
-	env := claudeModelEnv(engines.ModelConfig{
+	env := claudeModelEnv(agent.ModelConfig{
 		APIKey:  "sk-test",
 		BaseURL: "http://127.0.0.1:8081/v1/",
 	})

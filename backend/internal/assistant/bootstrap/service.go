@@ -11,10 +11,9 @@ import (
 	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
 	nativeruntime "github.com/insmtx/Leros/backend/agent/runtime/native"
 	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/assistant"
-	builtin "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/builtin"
 	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
 	lifecyclecontext "github.com/insmtx/Leros/backend/internal/assistant/context"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
@@ -37,7 +36,7 @@ type Options struct {
 	CLISkillDirs      []string
 	GiteaCfg          *config.GiteaConfig
 	Env               string
-	InteractionRouter *engines.InteractionRouter
+	InteractionRouter *provider.InteractionRouter
 	ModelStore        *modelrouter.ModelStore
 	MemoryStore       *localmemory.Store
 }
@@ -55,12 +54,6 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 		return nil, fmt.Errorf("register runtime tools: %w", err)
 	}
 	logs.Infof("Loaded %d tools for runtime", len(env.List()))
-
-	// Build engine registry.
-	engineReg, err := builtin.NewRegistryFromConfig(opts.CLIConfig)
-	if err != nil {
-		return nil, fmt.Errorf("create engine registry: %w", err)
-	}
 
 	// Build context builder.
 	lifecycleBuilder := lifecyclecontext.NewContextBuilder(lifecyclecontext.ContextBuilder{
@@ -80,34 +73,28 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	logs.Infof("Registering agent runtime: %s", nativeruntime.Kind)
 
 	providerSessions := externalcli.NewProviderSessionStore()
-	for _, name := range engineReg.Names() {
-		engine, ok := engineReg.Get(name)
-		if !ok {
+	cliNames := make([]string, 0, 3)
+	for _, status := range provider.DiscoverAvailableCLI() {
+		if !status.Installed {
 			continue
 		}
-
-		driver, err := externalcli.NewDriver(name, engine)
-		if err != nil {
-			return nil, err
-		}
-		driver.SetSessionStore(providerSessions)
 		if opts.InteractionRouter == nil {
-			return nil, fmt.Errorf("interaction router is required for runtime %q", name)
+			return nil, fmt.Errorf("interaction router is required for runtime %q", status.Name)
 		}
-		driver.SetApprovalHandler(opts.InteractionRouter)
-		driver.SetQuestionHandler(opts.InteractionRouter)
-		if mcpServers := buildMCPServersFromConfig(opts.CLIConfig); len(mcpServers) > 0 {
-			driver.SetMCPServers(mcpServers)
-		}
-		logs.Infof("Registering agent runtime: %s", name)
-
-		normalized := normalizeRuntimeKind(name)
-		runtime, err := newRuntime(normalized, driver)
+		normalized := normalizeRuntimeKind(status.Name)
+		runtime, err := newRuntime(normalized, status.Path, externalcli.DriverOptions{
+			SessionStore:    providerSessions,
+			ApprovalHandler: opts.InteractionRouter,
+			QuestionHandler: opts.InteractionRouter,
+			MCPServers:      buildMCPServersFromConfig(opts.CLIConfig),
+		})
 		if err != nil {
 			return nil, err
 		}
 		runtimes[normalized] = runtime
 		registeredKinds[normalized] = struct{}{}
+		cliNames = append(cliNames, normalized)
+		logs.Infof("Registering agent runtime: %s", normalized)
 	}
 
 	if len(runtimes) == 0 {
@@ -115,9 +102,9 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	}
 
 	// Select default runtime.
-	selectedDefault := selectDefaultRuntime(opts.DefaultRuntime, opts, engineReg.Names())
+	selectedDefault := selectDefaultRuntime(opts.DefaultRuntime, opts, cliNames)
 	if selectedDefault == "" {
-		selectedDefault = engines.EngineNative
+		selectedDefault = agent.RuntimeKindLeros
 	}
 	normalizedDefault := normalizeRuntimeKind(selectedDefault)
 	if _, ok := registeredKinds[normalizedDefault]; !ok {
@@ -159,14 +146,14 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	return s, nil
 }
 
-func newRuntime(kind string, driver *externalcli.Driver) (agent.Runtime, error) {
+func newRuntime(kind string, binary string, options externalcli.DriverOptions) (agent.Runtime, error) {
 	switch kind {
 	case clauderuntime.Kind:
-		return clauderuntime.New(driver), nil
+		return clauderuntime.New(binary, options)
 	case codexruntime.Kind:
-		return codexruntime.New(driver), nil
+		return codexruntime.New(binary, options)
 	case opencoderuntime.Kind:
-		return opencoderuntime.New(driver), nil
+		return opencoderuntime.New(binary, options)
 	default:
 		return nil, fmt.Errorf("unsupported runtime %q", kind)
 	}
@@ -196,19 +183,19 @@ func normalizeRuntimeKind(kind string) string {
 	return strings.ToLower(strings.TrimSpace(kind))
 }
 
-func buildMCPServersFromConfig(cliCfg *config.CLIEnginesConfig) []engines.MCPServerConfig {
+func buildMCPServersFromConfig(cliCfg *config.CLIEnginesConfig) []provider.MCPServerConfig {
 	if cliCfg == nil || cliCfg.MCP == nil {
 		return nil
 	}
-	cfg := engines.MCPServerConfig{
+	cfg := provider.MCPServerConfig{
 		URL:         cliCfg.MCP.URL,
 		BearerToken: cliCfg.MCP.BearerToken,
 	}
-	cfg = engines.NormalizeMCPServerConfig(cfg)
+	cfg = provider.NormalizeMCPServerConfig(cfg)
 	if cfg.URL == "" {
 		return nil
 	}
-	return []engines.MCPServerConfig{cfg}
+	return []provider.MCPServerConfig{cfg}
 }
 
 func registerTools(registry *tools.Registry, cliSkillDirs []string, memoryStore *localmemory.Store) error {

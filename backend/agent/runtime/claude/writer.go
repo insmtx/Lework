@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 )
 
 // buildStreamUserMessage 构建 stream-json 格式的用户消息。
@@ -40,7 +40,7 @@ func (r *claudeApprovalResponder) WriteDecision(requestID string, action string)
 		return fmt.Errorf("claude stdin writer is nil")
 	}
 	var responseBody map[string]any
-	if action == engines.ApprovalActionDeny {
+	if action == provider.ApprovalActionDeny {
 		responseBody = map[string]any{
 			"behavior": "deny",
 			"message":  "Permission denied by user",
@@ -65,7 +65,7 @@ func (r *claudeApprovalResponder) WriteDecision(requestID string, action string)
 	return err
 }
 
-var _ engines.ApprovalResponder = (*claudeApprovalResponder)(nil)
+var _ provider.ApprovalResponder = (*claudeApprovalResponder)(nil)
 
 // ——— 用量 ———
 

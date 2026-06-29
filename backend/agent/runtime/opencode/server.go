@@ -15,7 +15,8 @@ import (
 	"sync"
 	"time"
 
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -64,7 +65,7 @@ type OpenCodeServer struct {
 
 // startOpenCodeServer 启动 opcode serve 子进程并等待其就绪。
 // healthCheckTimeout 指定等待健康检查的最长时间；为 0 或负数时使用默认值。
-func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg engines.ModelConfig, mcpServers []engines.MCPServerConfig, healthCheckTimeout time.Duration) (*OpenCodeServer, error) {
+func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, healthCheckTimeout time.Duration) (*OpenCodeServer, error) {
 	// 1. 动态端口分配
 	port, err := pickFreePort()
 	if err != nil {

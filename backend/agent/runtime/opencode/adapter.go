@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
 )
 
 // Adapter 通过 OpenCode CLI serve 模式执行提示。
@@ -23,14 +23,14 @@ func NewAdapter(binary string, extraEnv map[string]string) *Adapter {
 	return &Adapter{invoker: NewServerInvoker(binary, extraEnv)}
 }
 
-// Prepare 执行 OpenCode 工作区设置（当前为空实现）。
-func (a *Adapter) Prepare(_ context.Context, _ engines.PrepareRequest) error {
+// Prepare performs provider-specific workspace setup.
+func (a *Adapter) Prepare(_ context.Context, _ string) error {
 	return nil
 }
 
-// Run 启动 OpenCode serve 并返回进程句柄。
-func (a *Adapter) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
-	handle, err := a.invoker.Run(ctx, req)
+// Invoke starts OpenCode serve and returns its process activity stream.
+func (a *Adapter) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+	handle, err := a.invoker.Invoke(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -46,4 +46,4 @@ func (a *Adapter) GetSkillDir() string {
 	return filepath.Join(home, ".config", "opencode", "skills")
 }
 
-var _ engines.Engine = (*Adapter)(nil)
+var _ externalcli.Invoker = (*Adapter)(nil)

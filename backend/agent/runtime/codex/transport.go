@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/bytedance/sonic"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -154,7 +154,7 @@ func (s *AppServer) writeLine(data []byte) error {
 // Thread / Turn 操作
 // ============================================================================
 
-func (s *AppServer) StartThread(ctx context.Context, modelCfg engines.ModelConfig, systemPrompt string) (string, error) {
+func (s *AppServer) StartThread(ctx context.Context, modelCfg agent.ModelConfig, systemPrompt string) (string, error) {
 	params := s.threadParams(modelCfg, systemPrompt)
 	var resp struct {
 		Thread struct {
@@ -174,7 +174,7 @@ func (s *AppServer) StartThread(ctx context.Context, modelCfg engines.ModelConfi
 	return threadID, nil
 }
 
-func (s *AppServer) ResumeThread(ctx context.Context, threadID string, modelCfg engines.ModelConfig, systemPrompt string) error {
+func (s *AppServer) ResumeThread(ctx context.Context, threadID string, modelCfg agent.ModelConfig, systemPrompt string) error {
 	params := s.resumeThreadParams(threadID, modelCfg, systemPrompt)
 	var resp struct {
 		Thread struct {
@@ -213,7 +213,7 @@ func (s *AppServer) StartTurn(ctx context.Context, threadID string, prompt strin
 	return turnID, nil
 }
 
-func (s *AppServer) threadParams(modelCfg engines.ModelConfig, systemPrompt string) map[string]any {
+func (s *AppServer) threadParams(modelCfg agent.ModelConfig, systemPrompt string) map[string]any {
 	params := map[string]any{
 		"cwd":                   s.workDir,
 		"serviceName":           "Leros",
@@ -231,7 +231,7 @@ func (s *AppServer) threadParams(modelCfg engines.ModelConfig, systemPrompt stri
 	return params
 }
 
-func (s *AppServer) resumeThreadParams(threadID string, modelCfg engines.ModelConfig, systemPrompt string) map[string]any {
+func (s *AppServer) resumeThreadParams(threadID string, modelCfg agent.ModelConfig, systemPrompt string) map[string]any {
 	params := map[string]any{
 		"threadId": threadID,
 		"cwd":      s.workDir,

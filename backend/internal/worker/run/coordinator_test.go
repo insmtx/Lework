@@ -235,6 +235,153 @@ func TestCoordinatorCloseRejectsPendingAndFutureSubmissions(t *testing.T) {
 	}
 }
 
+func TestCoordinatorFansExecutionErrorOutToEveryWaiter(t *testing.T) {
+	executionErr := errors.New("execution failed")
+	coordinator, err := NewCoordinator(Config{
+		MaxConcurrency: 1,
+		DebounceWindow: 20 * time.Millisecond,
+	}, func(context.Context, RunSubmission, agent.EventSink) (*assistantdomain.RunResult, error) {
+		return nil, executionErr
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator() error = %v", err)
+	}
+	defer coordinator.Close()
+
+	results := make(chan error, 2)
+	for _, submission := range []RunSubmission{
+		testSubmission("run-error", "message-1", 1),
+		testSubmission("run-error", "message-2", 2),
+	} {
+		submission := submission
+		go func() {
+			_, submitErr := coordinator.Submit(context.Background(), submission)
+			results <- submitErr
+		}()
+	}
+	for range 2 {
+		if submitErr := <-results; !errors.Is(submitErr, executionErr) {
+			t.Fatalf("Submit() error = %v, want execution error", submitErr)
+		}
+	}
+}
+
+func TestCoordinatorCancelledWaiterDoesNotCorruptDebouncedBatch(t *testing.T) {
+	var executions atomic.Int32
+	coordinator, err := NewCoordinator(Config{
+		MaxConcurrency: 1,
+		DebounceWindow: 30 * time.Millisecond,
+	}, func(context.Context, RunSubmission, agent.EventSink) (*assistantdomain.RunResult, error) {
+		executions.Add(1)
+		return &assistantdomain.RunResult{RunID: "run-1"}, nil
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator() error = %v", err)
+	}
+	defer coordinator.Close()
+
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancelledResult := make(chan error, 1)
+	go func() {
+		_, submitErr := coordinator.Submit(cancelledCtx, testSubmission("run-1", "cancelled", 1))
+		cancelledResult <- submitErr
+	}()
+	time.Sleep(5 * time.Millisecond)
+	successResult := make(chan error, 1)
+	go func() {
+		_, submitErr := coordinator.Submit(context.Background(), testSubmission("run-1", "active", 2))
+		successResult <- submitErr
+	}()
+	cancel()
+
+	if submitErr := <-cancelledResult; !errors.Is(submitErr, context.Canceled) {
+		t.Fatalf("cancelled Submit() error = %v", submitErr)
+	}
+	if submitErr := <-successResult; submitErr != nil {
+		t.Fatalf("active Submit() error = %v", submitErr)
+	}
+	if executions.Load() != 1 {
+		t.Fatalf("executions = %d, want 1", executions.Load())
+	}
+}
+
+func TestCoordinatorCloseWaitsForInflightExecution(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	coordinator, err := NewCoordinator(Config{MaxConcurrency: 1}, func(
+		context.Context,
+		RunSubmission,
+		agent.EventSink,
+	) (*assistantdomain.RunResult, error) {
+		close(started)
+		<-release
+		return &assistantdomain.RunResult{}, nil
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator() error = %v", err)
+	}
+
+	submitDone := make(chan error, 1)
+	go func() {
+		_, submitErr := coordinator.Submit(context.Background(), RunSubmission{})
+		submitDone <- submitErr
+	}()
+	<-started
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- coordinator.Close() }()
+	select {
+	case closeErr := <-closeDone:
+		t.Fatalf("Close() returned before execution completed: %v", closeErr)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if submitErr := <-submitDone; submitErr != nil {
+		t.Fatalf("Submit() error = %v", submitErr)
+	}
+	if closeErr := <-closeDone; closeErr != nil {
+		t.Fatalf("Close() error = %v", closeErr)
+	}
+}
+
+func TestCoordinatorCancelDuringPendingToActiveTransition(t *testing.T) {
+	executionStarted := make(chan struct{})
+	coordinator, err := NewCoordinator(Config{
+		MaxConcurrency: 1,
+		DebounceWindow: 10 * time.Millisecond,
+	}, func(ctx context.Context, _ RunSubmission, _ agent.EventSink) (*assistantdomain.RunResult, error) {
+		close(executionStarted)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator() error = %v", err)
+	}
+	defer coordinator.Close()
+
+	submitDone := make(chan error, 1)
+	go func() {
+		_, submitErr := coordinator.Submit(context.Background(), testSubmission("run-race", "message", 1))
+		submitDone <- submitErr
+	}()
+	stopCancelling := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stopCancelling:
+				return
+			default:
+				_ = coordinator.Cancel(context.Background(), 1, 2, "session-1", "run-race")
+			}
+		}
+	}()
+	<-executionStarted
+	submitErr := <-submitDone
+	close(stopCancelling)
+	if !errors.Is(submitErr, context.Canceled) {
+		t.Fatalf("Submit() error = %v, want context.Canceled", submitErr)
+	}
+}
+
 func testSubmission(runID, messageID string, sequence uint64) RunSubmission {
 	return RunSubmission{
 		Request: &assistantdomain.RunRequest{

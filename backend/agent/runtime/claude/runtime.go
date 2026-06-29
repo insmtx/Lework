@@ -19,9 +19,18 @@ type Runtime struct {
 	driver *externalcli.Driver
 }
 
-// New creates a Claude Runtime from shared CLI infrastructure.
-func New(driver *externalcli.Driver) *Runtime {
-	return &Runtime{driver: driver}
+// New creates a Claude Runtime backed by the configured CLI binary.
+func New(binary string, options externalcli.DriverOptions) (*Runtime, error) {
+	return NewWithInvoker(NewAdapter(binary, nil), options)
+}
+
+// NewWithInvoker creates a Claude Runtime with an injected process invoker.
+func NewWithInvoker(invoker externalcli.Invoker, options externalcli.DriverOptions) (*Runtime, error) {
+	driver, err := externalcli.NewDriver(Kind, invoker, options)
+	if err != nil {
+		return nil, err
+	}
+	return &Runtime{driver: driver}, nil
 }
 
 func (r *Runtime) Name() string {
@@ -36,7 +45,7 @@ func (r *Runtime) Execute(
 	if r == nil || r.driver == nil {
 		return agent.ExecutionResult{}, fmt.Errorf("claude runtime is not initialized")
 	}
-	return r.driver.Execute(ctx, request, observer)
+	return r.driver.RunInvocation(ctx, request, observer)
 }
 
 var _ agent.Runtime = (*Runtime)(nil)

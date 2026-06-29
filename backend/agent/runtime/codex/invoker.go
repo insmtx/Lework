@@ -9,7 +9,8 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -25,11 +26,11 @@ type AppServerInvoker struct {
 func NewAppServerInvoker(binary string, extraEnv map[string]string) *AppServerInvoker {
 	return &AppServerInvoker{
 		binary:  binary,
-		baseEnv: engines.BuildBaseEnv(extraEnv),
+		baseEnv: provider.BuildBaseEnv(extraEnv),
 	}
 }
 
-func (inv *AppServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
+func (inv *AppServerInvoker) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
 
 	srv, err := startAppServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, req.TaskDir)
@@ -66,7 +67,7 @@ func (inv *AppServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*
 	}
 	_ = tid
 
-	sendEventTo(evtChan, events.EventStarted, "")
+	sendEventTo(evtChan, events.EventInvocationStarted, "")
 
 	// -- 后台等待 turn 完成 --
 	go st.waitTurnDone(ctx)
@@ -74,9 +75,9 @@ func (inv *AppServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*
 	return st.buildHandle(req)
 }
 
-func (st *runState) buildHandle(req engines.RunRequest) (*engines.RunHandle, error) {
+func (st *runState) buildHandle(req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
 	responder := &appServerResponder{srv: st.srv}
-	return &engines.RunHandle{
+	return &externalcli.Invocation{
 		Process:   st.srv,
 		Events:    st.evtChan,
 		Responder: responder,
@@ -416,7 +417,7 @@ func (st *runState) handleServerRequest(req ServerRequest) {
 // 会话 & turn 生命周期
 // ============================================================================
 
-func (st *runState) ensureThread(ctx context.Context, req engines.RunRequest) (string, error) {
+func (st *runState) ensureThread(ctx context.Context, req externalcli.InvocationRequest) (string, error) {
 	resume := req.Resume && strings.TrimSpace(req.SessionID) != ""
 	if resume {
 		threadID := strings.TrimSpace(req.SessionID)
@@ -448,18 +449,18 @@ func (st *runState) waitTurnDone(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		logs.WarnContextf(ctx, "Turn context done: %v", ctx.Err())
-		sendEventTo(st.evtChan, events.EventFailed, ctx.Err().Error())
+		sendEventTo(st.evtChan, events.EventInvocationFailed, ctx.Err().Error())
 
 	case result := <-st.turnDone:
 		if result.failed {
-			sendEventTo(st.evtChan, events.EventFailed, result.errorMsg)
+			sendEventTo(st.evtChan, events.EventInvocationFailed, result.errorMsg)
 		} else if result.completed {
 			finalMsg := firstNonEmpty(result.message, result.diff)
 			if finalMsg != "" {
 				sendEventTo(st.evtChan, events.EventResult, finalMsg)
 				sendEventPayloadTo(st.evtChan, events.EventResult, events.MessageResultPayload{Message: finalMsg, Usage: st.tokenUsage})
 			}
-			sendEventTo(st.evtChan, events.EventCompleted, finalMsg)
+			sendEventTo(st.evtChan, events.EventInvocationCompleted, finalMsg)
 		}
 	}
 }
@@ -474,7 +475,7 @@ type appServerResponder struct {
 
 func (r *appServerResponder) WriteDecision(requestID string, action string) error {
 	decision := "cancel"
-	if action == engines.ApprovalActionApprove || action == engines.ApprovalActionAlways {
+	if action == provider.ApprovalActionApprove || action == provider.ApprovalActionAlways {
 		decision = "accept"
 	}
 

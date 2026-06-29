@@ -8,21 +8,20 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
 	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 )
 
 func TestRunnerAdaptsEngineResult(t *testing.T) {
-	engine := &fakeEngine{
+	engine := &fakeInvoker{
 		events: []agent.Event{
-			{Type: events.EventStarted},
+			{Type: events.EventInvocationStarted},
 			*events.NewMessageResult("done", &agent.Usage{
 				InputTokens:  12,
 				OutputTokens: 5,
 				TotalTokens:  17,
 			}),
-			{Type: events.EventCompleted},
+			{Type: events.EventInvocationCompleted},
 		},
 	}
 	runner, err := NewDriver("fake", engine)
@@ -65,7 +64,7 @@ func TestRunnerAdaptsEngineResult(t *testing.T) {
 func TestRunnerDefaultsEmptyWorkDirToWorkspaceTemp(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	engine := &fakeEngine{result: "done"}
+	engine := &fakeInvoker{result: "done"}
 	runner, err := NewDriver("fake", engine)
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
@@ -90,15 +89,14 @@ func TestRunnerDefaultsEmptyWorkDirToWorkspaceTemp(t *testing.T) {
 
 func TestRunnerStoresProviderSessionAndResumes(t *testing.T) {
 	store := NewInMemoryProviderSessionStore()
-	engine := &fakeEngine{
+	engine := &fakeInvoker{
 		result:            "done",
 		providerSessionID: "provider-session-1",
 	}
-	runner, err := NewDriver("codex", engine)
+	runner, err := NewDriver("codex", engine, DriverOptions{SessionStore: store})
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
-	runner.SetSessionStore(store)
 	req := &assistantdomain.RunRequest{
 		RunID: "run_first",
 		Conversation: assistantdomain.ConversationContext{
@@ -137,8 +135,8 @@ func TestRunnerStoresProviderSessionAndResumes(t *testing.T) {
 }
 
 func TestRunnerDoesNotPreallocateClaudeProviderSession(t *testing.T) {
-	engine := &fakeEngine{result: "done"}
-	runner, err := NewDriver(engines.EngineClaude, engine)
+	engine := &fakeInvoker{result: "done"}
+	runner, err := NewDriver("claude", engine)
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
@@ -166,16 +164,16 @@ func TestRunnerDoesNotPreallocateClaudeProviderSession(t *testing.T) {
 }
 
 func TestRunnerForwardsExternalToolEvents(t *testing.T) {
-	engine := &fakeEngine{
+	engine := &fakeInvoker{
 		events: []agent.Event{
-			{Type: events.EventStarted},
+			{Type: events.EventInvocationStarted},
 			{Type: events.EventToolCallStarted, Content: `{"call_id":"call_123","name":"Bash","arguments":{"command":"date"}}`},
 			{Type: events.EventToolCallCompleted, Content: `{"tool_call_id":"call_123","name":"Bash","result":"Thu May 14 14:19:24 CST 2026","is_error":false}`},
 			{Type: events.EventResult, Content: "done"},
-			{Type: events.EventCompleted},
+			{Type: events.EventInvocationCompleted},
 		},
 	}
-	runner, err := NewDriver(engines.EngineClaude, engine)
+	runner, err := NewDriver("claude", engine)
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
@@ -218,15 +216,15 @@ func TestRunnerForwardsExternalToolEvents(t *testing.T) {
 }
 
 func TestRunnerNormalizesTodoEventsThroughTracker(t *testing.T) {
-	engine := &fakeEngine{
+	engine := &fakeInvoker{
 		events: []agent.Event{
-			{Type: events.EventStarted},
+			{Type: events.EventInvocationStarted},
 			*events.NewTodoUpdated([]events.RuntimeTodoItem{{Title: "Inspect", Status: "unknown"}}),
 			{Type: events.EventResult, Content: "done"},
-			{Type: events.EventCompleted},
+			{Type: events.EventInvocationCompleted},
 		},
 	}
-	runner, err := NewDriver(engines.EngineCodex, engine)
+	runner, err := NewDriver("codex", engine)
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
@@ -267,7 +265,7 @@ func TestRunnerNormalizesTodoEventsThroughTracker(t *testing.T) {
 
 func runTestRequest(runner *Driver, request *assistantdomain.RunRequest) (agent.ExecutionResult, error) {
 	prompt := assistantdomain.BuildUserInput(request)
-	return runner.Execute(context.Background(), agent.ExecutionRequest{
+	return runner.RunInvocation(context.Background(), agent.ExecutionRequest{
 		ExecutionID:  request.RunID,
 		TraceID:      request.TraceID,
 		Runtime:      runner.name,
@@ -289,33 +287,25 @@ func runTestRequest(runner *Driver, request *assistantdomain.RunRequest) (agent.
 	}, request.EventSink)
 }
 
-type fakeEngine struct {
-	runReq            engines.RunRequest
+type fakeInvoker struct {
+	runReq            InvocationRequest
 	result            string
 	providerSessionID string
 	events            []agent.Event
 }
 
-func (e *fakeEngine) Prepare(_ context.Context, _ engines.PrepareRequest) error {
+func (e *fakeInvoker) Prepare(_ context.Context, _ string) error {
 	return nil
 }
 
-func (e *fakeEngine) GetSkillDir() string {
-	return ""
-}
-
-func (e *fakeEngine) RegisterMCP(_ context.Context, _ engines.MCPServerConfig) error {
-	return nil
-}
-
-func (e *fakeEngine) Run(_ context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
+func (e *fakeInvoker) Invoke(_ context.Context, req InvocationRequest) (*Invocation, error) {
 	e.runReq = req
 	eventList := e.events
 	if len(eventList) == 0 {
 		eventList = []agent.Event{
-			{Type: events.EventStarted},
+			{Type: events.EventInvocationStarted},
 			{Type: events.EventResult, Content: e.result},
-			{Type: events.EventCompleted},
+			{Type: events.EventInvocationCompleted},
 		}
 	}
 	eventChan := make(chan agent.Event, len(eventList)+1)
@@ -327,7 +317,7 @@ func (e *fakeEngine) Run(_ context.Context, req engines.RunRequest) (*engines.Ru
 	}
 	close(eventChan)
 
-	return &engines.RunHandle{
+	return &Invocation{
 		Events: eventChan,
 	}, nil
 }

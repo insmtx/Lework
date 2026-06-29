@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
 )
 
 // Adapter 通过 Claude Code 执行提示。
@@ -23,8 +23,8 @@ func NewAdapter(binary string, extraEnv map[string]string) *Adapter {
 	return &Adapter{invoker: NewInvoker(binary, extraEnv)}
 }
 
-// Prepare 执行 Claude 工作区设置（当前为空实现）。
-func (a *Adapter) Prepare(_ context.Context, _ engines.PrepareRequest) error {
+// Prepare performs provider-specific workspace setup.
+func (a *Adapter) Prepare(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -55,13 +55,13 @@ func expandPath(pathValue string) string {
 	return pathValue
 }
 
-// Run 启动 Claude Code 并返回进程句柄。
-func (a *Adapter) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
-	handle, err := a.invoker.Run(ctx, req)
+// Invoke starts Claude Code and returns its process activity stream.
+func (a *Adapter) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+	handle, err := a.invoker.Invoke(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	return handle, nil
 }
 
-var _ engines.Engine = (*Adapter)(nil)
+var _ externalcli.Invoker = (*Adapter)(nil)

@@ -32,14 +32,23 @@ func MarshalRaw(value any) json.RawMessage {
 }
 
 const (
-	// EventStarted 表示运行时运行已开始。
+	// EventStarted is the business run started event.
 	EventStarted agent.EventType = "run.started"
-	// EventCompleted 表示运行时运行已成功完成。
+	// EventCompleted is the business run completed event.
 	EventCompleted agent.EventType = "run.completed"
-	// EventFailed 表示运行时运行失败。
+	// EventFailed is the business run failed event.
 	EventFailed agent.EventType = "run.failed"
-	// EventCancelled 表示运行时运行被取消。
+	// EventCancelled is the business run cancelled event.
 	EventCancelled agent.EventType = "run.cancelled"
+
+	// EventInvocationStarted indicates a provider invocation has started.
+	EventInvocationStarted agent.EventType = "provider.started"
+	// EventInvocationCompleted indicates a provider invocation completed.
+	EventInvocationCompleted agent.EventType = "provider.completed"
+	// EventInvocationFailed indicates a provider invocation failed.
+	EventInvocationFailed agent.EventType = "provider.failed"
+	// EventInvocationCancelled indicates a provider invocation was cancelled.
+	EventInvocationCancelled agent.EventType = "provider.cancelled"
 
 	// EventMessageDelta 包含可读的助手输出。
 	EventMessageDelta agent.EventType = "message.delta"

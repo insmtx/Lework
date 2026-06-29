@@ -45,20 +45,23 @@ func (f *finalizer) FinalizeRequired(
 	}
 
 	req := run.Request
+	if req == nil {
+		return nil, fmt.Errorf("prepared run request is required")
+	}
 
 	// 1. Reconcile workspace (detect auto-generated artifacts).
-	if err := reconcileWorkspace(ctx, req); err != nil {
+	if err := reconcileWorkspace(ctx, run.Workspace); err != nil {
 		return nil, fmt.Errorf("reconcile workspace: %w", err)
 	}
 
 	// 2. Collect artifact facts.
-	artifactEvents, artifacts, err := collectArtifacts(ctx, req)
+	artifactEvents, artifacts, err := collectArtifacts(ctx, run.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("collect artifacts: %w", err)
 	}
 
 	// 3. Stage/commit/push workspace.
-	if err := pushWorkspace(ctx, req); err != nil {
+	if err := pushWorkspace(ctx, run.Workspace); err != nil {
 		return nil, fmt.Errorf("push workspace: %w", err)
 	}
 
@@ -101,13 +104,10 @@ func (f *finalizer) PostRunBestEffort(
 }
 
 // reconcileWorkspace compares repo state against baseline and auto-detects changes.
-func reconcileWorkspace(ctx context.Context, req *assistantdomain.RunRequest) error {
-	if req == nil {
+func reconcileWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
+	plan, ok := workspacePlan(workspace)
+	if !ok {
 		return nil
-	}
-	plan, ok, err := agentworkspace.FromAgentRequest(req)
-	if err != nil || !ok {
-		return err
 	}
 	if _, err := os.Stat(plan.RepoDir); os.IsNotExist(err) {
 		return nil
@@ -116,13 +116,10 @@ func reconcileWorkspace(ctx context.Context, req *assistantdomain.RunRequest) er
 }
 
 // collectArtifacts reads the final artifact manifest and produces events.
-func collectArtifacts(ctx context.Context, req *assistantdomain.RunRequest) ([]*agent.Event, []assistantdomain.ArtifactRecord, error) {
-	if req == nil {
+func collectArtifacts(ctx context.Context, workspace WorkspacePreparation) ([]*agent.Event, []assistantdomain.ArtifactRecord, error) {
+	plan, ok := workspacePlan(workspace)
+	if !ok {
 		return nil, nil, nil
-	}
-	plan, ok, err := agentworkspace.FromAgentRequest(req)
-	if err != nil || !ok {
-		return nil, nil, err
 	}
 	records, err := agentworkspace.CollectFinalArtifacts(ctx, plan)
 	if err != nil {
@@ -164,11 +161,8 @@ func collectArtifacts(ctx context.Context, req *assistantdomain.RunRequest) ([]*
 }
 
 // pushWorkspace stages, commits, and pushes workspace changes.
-func pushWorkspace(ctx context.Context, req *assistantdomain.RunRequest) error {
-	if req == nil {
-		return nil
-	}
-	repoDir := strings.TrimSpace(req.Workspace.RepoDir)
+func pushWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
+	repoDir := strings.TrimSpace(workspace.RepoDir)
 	if repoDir == "" {
 		return nil
 	}
@@ -199,6 +193,25 @@ func pushWorkspace(ctx context.Context, req *assistantdomain.RunRequest) error {
 	}
 	logs.InfoContextf(ctx, "push_workspace completed: repo_dir=%s", repoDir)
 	return nil
+}
+
+func workspacePlan(workspace WorkspacePreparation) (*agentworkspace.TaskWorkspace, bool) {
+	repoDir := strings.TrimSpace(workspace.RepoDir)
+	manifestPath := strings.TrimSpace(workspace.ArtifactManifestPath)
+	if repoDir == "" || manifestPath == "" {
+		return nil, false
+	}
+	baselinePath := strings.TrimSpace(workspace.BaselinePath)
+	if baselinePath == "" {
+		baselinePath = filepath.Join(filepath.Dir(manifestPath), "baseline.jsonl")
+	}
+	return &agentworkspace.TaskWorkspace{
+		RepoDir:              repoDir,
+		TaskDir:              strings.TrimSpace(workspace.TaskDir),
+		ArtifactManifestPath: manifestPath,
+		BaselinePath:         baselinePath,
+		EffectiveWorkDir:     strings.TrimSpace(workspace.WorkDir),
+	}, true
 }
 
 // artifactPayloadFromRecord converts a workspace artifact record to an event payload.

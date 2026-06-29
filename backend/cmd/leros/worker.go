@@ -13,7 +13,10 @@ import (
 	"strings"
 	"time"
 
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	clauderuntime "github.com/insmtx/Leros/backend/agent/runtime/claude"
+	codexruntime "github.com/insmtx/Leros/backend/agent/runtime/codex"
+	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/insmtx/Leros/backend/config"
 	agentruntime "github.com/insmtx/Leros/backend/internal/assistant/bootstrap"
 	builtin "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/builtin"
@@ -77,7 +80,7 @@ func newClaudeWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the Claude agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(engines.EngineClaude)
+			runTaskWorker(clauderuntime.Kind)
 		},
 	}
 }
@@ -89,7 +92,7 @@ func newCodexWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the Codex agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(engines.EngineCodex)
+			runTaskWorker(codexruntime.Kind)
 		},
 	}
 }
@@ -101,7 +104,7 @@ func newOpenCodeWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the OpenCode agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(engines.EngineOpenCode)
+			runTaskWorker(opencoderuntime.Kind)
 		},
 	}
 }
@@ -249,7 +252,7 @@ func runTaskWorker(defaultRuntime string) {
 		}
 		cliSkillDirs = bootstrapSvc.GetSkillDirs()
 	}
-	interactionRouter := engines.NewInteractionRouter()
+	interactionRouter := provider.NewInteractionRouter()
 	memoryStore, err := localmemory.NewStore(localmemory.Options{})
 	if err != nil {
 		cancel()

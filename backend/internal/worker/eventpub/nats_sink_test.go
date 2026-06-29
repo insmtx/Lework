@@ -3,6 +3,7 @@ package eventpub
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -155,5 +156,111 @@ func TestNATSEventSinkMapsTerminalPayloadAndDetachedContext(t *testing.T) {
 	}
 	if messaging.ClassifyRunEvent(event.Body.Event) != messaging.RunEventLaneState {
 		t.Fatalf("terminal event lane = %s", messaging.ClassifyRunEvent(event.Body.Event))
+	}
+}
+
+func TestNATSEventSinkWireGolden(t *testing.T) {
+	terminalPayload := func(status, message, errorText string) json.RawMessage {
+		raw, err := json.Marshal(assistantdomain.TerminalPayload{
+			Status:  status,
+			Message: message,
+			Error:   errorText,
+		})
+		if err != nil {
+			t.Fatalf("marshal terminal payload: %v", err)
+		}
+		return raw
+	}
+	tests := []struct {
+		name     string
+		event    agent.Event
+		wantLane messaging.RunEventLane
+		wantBody string
+	}{
+		{
+			name:     "started",
+			event:    agent.Event{RunID: "run-1", Seq: 1, Type: "run.started", Content: "started"},
+			wantLane: messaging.RunEventLaneState,
+			wantBody: `{"seq":1,"event":"run.started","payload":{"role":"assistant","content":"started"},"reply_to_message_ids":["message-1"]}`,
+		},
+		{
+			name: "activity",
+			event: agent.Event{
+				RunID:   "run-1",
+				Seq:     2,
+				Type:    "message.delta",
+				Payload: json.RawMessage(`{"message_id":"assistant-1","role":"assistant","content":"hello"}`),
+			},
+			wantLane: messaging.RunEventLaneStream,
+			wantBody: `{"seq":2,"event":"message.delta","payload":{"message_id":"assistant-1","role":"assistant","content":"hello"},"reply_to_message_ids":["message-1"]}`,
+		},
+		{
+			name: "completed",
+			event: agent.Event{
+				RunID: "run-1", Seq: 3, Type: "run.completed", Content: "done",
+				Payload: terminalPayload("completed", "done", ""),
+			},
+			wantLane: messaging.RunEventLaneState,
+			wantBody: `{"seq":3,"event":"run.completed","payload":{"role":"assistant","content":"done"},"reply_to_message_ids":["message-1"],"run_completed":{"status":"completed","result":{"message":"done"}}}`,
+		},
+		{
+			name: "failed",
+			event: agent.Event{
+				RunID: "run-1", Seq: 4, Type: "run.failed", Content: "failed",
+				Payload: terminalPayload("failed", "failed", "provider failed"),
+			},
+			wantLane: messaging.RunEventLaneState,
+			wantBody: `{"seq":4,"event":"run.failed","payload":{"role":"assistant","content":"failed"},"reply_to_message_ids":["message-1"],"run_completed":{"status":"failed","result":{"message":"failed"}},"error":{"message":"provider failed"}}`,
+		},
+		{
+			name: "cancelled",
+			event: agent.Event{
+				RunID: "run-1", Seq: 5, Type: "run.cancelled", Content: "已取消",
+				Payload: terminalPayload("cancelled", "已取消", "context canceled"),
+			},
+			wantLane: messaging.RunEventLaneState,
+			wantBody: `{"seq":5,"event":"run.cancelled","payload":{"role":"assistant","content":"已取消"},"reply_to_message_ids":["message-1"],"run_completed":{"status":"cancelled","result":{"message":"已取消"}},"error":{"message":"context canceled"}}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			publisher := &publisherRecorder{}
+			sink := NewNATSEventSink(publisher, RunEventContext{
+				OrgID:             1,
+				WorkerID:          2,
+				SessionID:         "session-1",
+				ReplyToMessageIDs: []string{"message-1"},
+			})
+			if err := sink.Emit(context.Background(), &test.event); err != nil {
+				t.Fatalf("Emit() error = %v", err)
+			}
+			published, ok := publisher.event.(messaging.RunEvent)
+			if !ok {
+				t.Fatalf("published event type = %T", publisher.event)
+			}
+			if lane := messaging.ClassifyRunEvent(published.Body.Event); lane != test.wantLane {
+				t.Fatalf("lane = %s, want %s", lane, test.wantLane)
+			}
+			assertGoldenJSON(t, published.Body, test.wantBody)
+		})
+	}
+}
+
+func assertGoldenJSON(t *testing.T, got any, want string) {
+	t.Helper()
+	gotRaw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal actual JSON: %v", err)
+	}
+	var gotValue any
+	var wantValue any
+	if err := json.Unmarshal(gotRaw, &gotValue); err != nil {
+		t.Fatalf("decode actual JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("decode golden JSON: %v", err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("wire JSON mismatch\n got: %s\nwant: %s", gotRaw, want)
 	}
 }

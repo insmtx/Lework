@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -76,6 +77,7 @@ func (handlerFinalizer) PostRunBestEffort(
 type handlerRuntime struct {
 	started chan struct{}
 	release chan struct{}
+	err     error
 }
 
 type trackerCall struct {
@@ -154,6 +156,9 @@ func (r *handlerRuntime) Execute(
 ) (agent.ExecutionResult, error) {
 	close(r.started)
 	<-r.release
+	if r.err != nil {
+		return agent.ExecutionResult{}, r.err
+	}
 	return agent.ExecutionResult{Message: "done"}, nil
 }
 
@@ -257,5 +262,66 @@ func TestHandlerWaitsForExecutionAndPublishesReplyMessageIDs(t *testing.T) {
 	replyIDs := terminal.Body.ReplyToMessageIDs
 	if len(replyIDs) != 2 || replyIDs[0] != "user-message-1" || replyIDs[1] != "user-message-2" {
 		t.Fatalf("reply ids = %v", replyIDs)
+	}
+}
+
+func TestHandlerMarksDeliveryFailedAfterExecutionFailure(t *testing.T) {
+	runtimeErr := errors.New("runtime failed")
+	runtime := &handlerRuntime{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		err:     runtimeErr,
+	}
+	close(runtime.release)
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	service := assistant.NewService(
+		handlerPreparer{},
+		agent.NewExecutor(registry),
+		handlerFinalizer{},
+		assistant.NewJournalFactory(),
+	)
+	handler, err := New(Config{
+		OrgID:          1,
+		WorkerID:       2,
+		MaxConcurrency: 1,
+		DebounceWindow: time.Millisecond,
+	}, &handlerPublisher{}, service)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	tracker := &trackerRecorder{}
+	handler.seqTracker = tracker
+	defer handler.Close()
+
+	command := messaging.NewRunCommand(
+		"message-failed",
+		messaging.RouteContext{OrgID: 1, WorkerID: 2, SessionID: "session-1"},
+		messaging.TraceContext{TraceID: "trace-1", TaskID: "task-1", RunID: "run-failed"},
+		messaging.RunCommandPayload{
+			TaskType:  messaging.TaskTypeAgentRun,
+			Execution: messaging.ExecutionTarget{AssistantID: "assistant-1"},
+			Input: messaging.TaskInput{
+				Type:     messaging.InputTypeMessage,
+				Messages: []messaging.ChatMessage{{ID: "user-message-1", Role: messaging.MessageRoleUser, Content: "fail"}},
+			},
+			Model:   messaging.ModelOptions{Provider: "openai", Model: "test-model", APIKey: "test-key"},
+			Runtime: messaging.RuntimeOptions{Kind: "test"},
+		},
+		nil,
+	)
+	err = handler.HandleRunCommand(context.Background(), command, &nats.Msg{
+		Reply: "$JS.ACK.stream.consumer.1.43.1.123456789.0",
+		Sub:   &nats.Subscription{},
+	})
+	if !errors.Is(err, runtimeErr) {
+		t.Fatalf("HandleRunCommand() error = %v, want runtime error", err)
+	}
+	calls := tracker.statuses()
+	if len(calls) != 2 ||
+		calls[0] != (trackerCall{seq: 43, status: seqtracker.StatusProcessing}) ||
+		calls[1] != (trackerCall{seq: 43, status: seqtracker.StatusFailed}) {
+		t.Fatalf("tracker calls = %#v", calls)
 	}
 }

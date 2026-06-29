@@ -3,7 +3,6 @@ package native
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,7 +10,6 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
 	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
 	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/insmtx/Leros/backend/prompts"
@@ -26,134 +24,57 @@ func NewRunner(context.Context) (*Runner, error) {
 	return &Runner{}, nil
 }
 
-// Run 执行标准化请求，通过统一的 agent.Event channel 支持流式输出。
-func (r *Runner) Run(ctx context.Context, req engines.RunRequest) (<-chan agent.Event, error) {
+// Execute runs one prepared native request and emits only activity events.
+func (r *Runner) Execute(
+	ctx context.Context,
+	req agent.ExecutionRequest,
+	observer agent.Observer,
+) (agent.ExecutionResult, error) {
 	if r == nil {
-		return nil, fmt.Errorf("leros runner is not initialized")
+		return agent.ExecutionResult{}, fmt.Errorf("leros runner is not initialized")
 	}
-
-	eventsCh := make(chan agent.Event, 256)
-
-	go func() {
-		defer close(eventsCh)
-		r.executeStreaming(ctx, req, eventsCh)
-	}()
-
-	return eventsCh, nil
-}
-
-// executeStreaming 在 goroutine 中执行推理，将全部事件写入 channel。
-func (r *Runner) executeStreaming(ctx context.Context, req engines.RunRequest, eventsCh chan<- agent.Event) {
-	channelSink := engineSinkFunc(func(ctx context.Context, event *agent.Event) error {
-		if event != nil {
-			select {
-			case eventsCh <- *event:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
-	})
-
-	sendEngineEvent(eventsCh, engines.EngineEventStarted, req.ExecutionID)
-
-	message, usage, err := r.runWithState(ctx, req, channelSink)
+	if strings.TrimSpace(req.ExecutionID) == "" {
+		return agent.ExecutionResult{}, fmt.Errorf("execution id is required")
+	}
+	var sink activitySink = events.NewNoopSink()
+	if observer != nil {
+		sink = observer
+	}
+	message, usage, err := r.runWithState(ctx, req, sink)
 	if err != nil {
-		sendEngineEvent(eventsCh, engines.EngineEventFailed, fmt.Sprintf("run_id=%s error=%s", req.ExecutionID, err.Error()))
-		return
+		return agent.ExecutionResult{}, err
 	}
-
-	payload, _ := json.Marshal(engineMessageResultPayload{
+	return agent.ExecutionResult{
 		Message: message,
 		Usage:   usage,
-	})
-	eventsCh <- agent.Event{
-		Type:    engines.EngineEventResult,
-		Payload: payload,
-		Content: message,
-	}
-
-	sendEngineEvent(eventsCh, engines.EngineEventCompleted, req.ExecutionID)
+	}, nil
 }
 
-// engineMessageResultPayload mirrors the message result payload for engine events.
-type engineMessageResultPayload struct {
-	Message string       `json:"message,omitempty"`
-	Usage   *agent.Usage `json:"usage,omitempty"`
-}
-
-// engineSinkFunc is a function adapter for engine event sinks within native runner internals.
-type engineSinkFunc func(ctx context.Context, event *agent.Event) error
-
-func (f engineSinkFunc) Emit(ctx context.Context, event *agent.Event) error {
-	return f(ctx, event)
-}
-
-// engineSink is the sink interface used internally by native runner.
-type engineSink interface {
+// activitySink is the internal observer contract used by the native runtime.
+type activitySink interface {
 	Emit(ctx context.Context, event *agent.Event) error
 }
 
-// streamSink adapts engineSink to the Eino streaming sink protocol.
+// streamSink adapts activitySink to the Eino streaming sink protocol.
 type streamSink struct {
-	sink engineSink
+	sink activitySink
 }
 
 func (s streamSink) EmitMessageDelta(ctx context.Context, messageID string, content string) error {
 	if s.sink == nil {
 		return nil
 	}
-	return s.sink.Emit(ctx, newEngineMessageDelta(messageID, content))
+	return s.sink.Emit(ctx, events.NewMessageDelta(messageID, content))
 }
 
 func (s streamSink) EmitReasoningDelta(ctx context.Context, messageID string, content string) error {
 	if s.sink == nil {
 		return nil
 	}
-	return s.sink.Emit(ctx, newEngineReasoningDelta(messageID, content))
+	return s.sink.Emit(ctx, events.NewReasoningDelta(messageID, content))
 }
 
-func sendEngineEvent(eventsCh chan<- agent.Event, eventType agent.EventType, content string) {
-	select {
-	case eventsCh <- agent.Event{Type: eventType, Content: content}:
-	default:
-	}
-}
-
-// Engine-level event constructors (replace events.New* calls).
-func newEngineMessageDelta(messageID, content string) *agent.Event {
-	payload, _ := json.Marshal(engineMessageDeltaPayload{
-		MessageID: messageID,
-		Role:      "assistant",
-		Content:   content,
-	})
-	return &agent.Event{
-		Type:    engines.EngineEventMessageDelta,
-		Payload: payload,
-		Content: content,
-	}
-}
-
-func newEngineReasoningDelta(messageID, content string) *agent.Event {
-	payload, _ := json.Marshal(engineMessageDeltaPayload{
-		MessageID: messageID,
-		Role:      "assistant",
-		Content:   content,
-	})
-	return &agent.Event{
-		Type:    engines.EngineEventReasoningDelta,
-		Payload: payload,
-		Content: content,
-	}
-}
-
-type engineMessageDeltaPayload struct {
-	MessageID string `json:"message_id,omitempty"`
-	Role      string `json:"role,omitempty"`
-	Content   string `json:"content"`
-}
-
-func (r *Runner) runWithState(ctx context.Context, req engines.RunRequest, sink engineSink) (string, *agent.Usage, error) {
+func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, sink activitySink) (string, *agent.Usage, error) {
 	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
 		Provider: req.Model.Provider,
 		APIKey:   req.Model.APIKey,
@@ -197,7 +118,7 @@ func (r *Runner) runWithState(ctx context.Context, req engines.RunRequest, sink 
 		if streamedMessage != nil {
 			message = streamedMessage
 			resultMessage = strings.TrimSpace(streamedMessage.Content)
-			usage = engineUsagePayload(streamedUsage)
+			usage = runtimeUsagePayload(streamedUsage)
 		}
 	} else {
 		generatedMessage, generatedUsage, generateErr := flow.GenerateWithUsage(ctx, req.Prompt)
@@ -205,7 +126,7 @@ func (r *Runner) runWithState(ctx context.Context, req engines.RunRequest, sink 
 		if generatedMessage != nil {
 			message = generatedMessage
 			resultMessage = strings.TrimSpace(generatedMessage.Content)
-			usage = engineUsagePayload(generatedUsage)
+			usage = runtimeUsagePayload(generatedUsage)
 		}
 	}
 	if err != nil {
@@ -245,35 +166,18 @@ func buildHistoryMessages(messages []agent.Message, maxMessages int) []adk.Messa
 	return pkgeino.BuildMessages(einoMessages)
 }
 
-func (r *Runner) buildToolBinding(req engines.RunRequest, sink engineSink) toolBinding {
-	// Create an events.Sink adapter from engineSink for the todo tracker.
-	eventsSink := engineSinkToEventsSink(sink)
+func (r *Runner) buildToolBinding(req agent.ExecutionRequest, sink activitySink) toolBinding {
 	return toolBinding{
 		Tools:        append([]agent.Tool(nil), req.Tools...),
-		AllowedTools: append([]string(nil), req.AllowedTools...),
-		EngineSink:   sink,
+		AllowedTools: append([]string(nil), req.Policy.AllowedTools...),
 		TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
 			RunID: req.ExecutionID,
-			Sink:  eventsSink,
+			Sink:  sink,
 		}),
 	}
 }
 
-// engineSinkToEventsSink wraps an engineSink as an events.Sink for the todo tracker.
-func engineSinkToEventsSink(sink engineSink) events.Sink {
-	if sink == nil {
-		return events.NewNoopSink()
-	}
-	return events.SinkFunc(func(ctx context.Context, evt *agent.Event) error {
-		return sink.Emit(ctx, &agent.Event{
-			Type:    evt.Type,
-			Content: evt.Content,
-			Payload: json.RawMessage(evt.Payload),
-		})
-	})
-}
-
-func (r *Runner) buildSystemPrompt(req engines.RunRequest) string {
+func (r *Runner) buildSystemPrompt(req agent.ExecutionRequest) string {
 	prompt := req.SystemPrompt
 	if hint := strings.TrimSpace(prompts.Get(prompts.KeyAgentNativeSkillUsageHint)); hint != "" {
 		prompt += "\n\n" + hint
@@ -296,7 +200,7 @@ func formatLLMResultForLog(message interface{ String() string }) string {
 	return formatted
 }
 
-func engineUsagePayload(usage *pkgeino.Usage) *agent.Usage {
+func runtimeUsagePayload(usage *pkgeino.Usage) *agent.Usage {
 	if usage == nil {
 		return nil
 	}

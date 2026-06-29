@@ -10,7 +10,8 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -27,12 +28,12 @@ type ServerInvoker struct {
 func NewServerInvoker(binary string, extraEnv map[string]string) *ServerInvoker {
 	return &ServerInvoker{
 		binary:  binary,
-		baseEnv: engines.BuildBaseEnv(extraEnv),
+		baseEnv: provider.BuildBaseEnv(extraEnv),
 	}
 }
 
 // Run 启动 opcode serve，创建会话并执行提示。
-func (inv *ServerInvoker) Run(ctx context.Context, req engines.RunRequest) (*engines.RunHandle, error) {
+func (inv *ServerInvoker) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
 	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 30s）
 	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, 0)
@@ -92,8 +93,8 @@ type runState struct {
 	msgDone           chan struct{}
 }
 
-func (st *runState) buildHandle(_ engines.RunRequest) (*engines.RunHandle, error) {
-	return &engines.RunHandle{
+func (st *runState) buildHandle(_ externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+	return &externalcli.Invocation{
 		Process:   st.srv,
 		Events:    st.evtChan,
 		Responder: &serverResponder{srv: st.srv},
@@ -104,7 +105,7 @@ func (st *runState) buildHandle(_ engines.RunRequest) (*engines.RunHandle, error
 // ============================================================================
 // 会话管理
 // ============================================================================
-func (st *runState) ensureSession(ctx context.Context, req engines.RunRequest) (string, error) {
+func (st *runState) ensureSession(ctx context.Context, req externalcli.InvocationRequest) (string, error) {
 	// Resume 模式：复用已有 sessionID
 	if req.Resume && strings.TrimSpace(req.SessionID) != "" {
 		sessionID := strings.TrimSpace(req.SessionID)
@@ -129,7 +130,7 @@ func (st *runState) ensureSession(ctx context.Context, req engines.RunRequest) (
 // ============================================================================
 // 消息发送
 // ============================================================================
-func (st *runState) sendAndProcessMessage(ctx context.Context, req engines.RunRequest) {
+func (st *runState) sendAndProcessMessage(ctx context.Context, req externalcli.InvocationRequest) {
 	defer close(st.msgDone)
 	msgReq := messageRequest{
 		Model: &sessionModelRef{
@@ -146,10 +147,10 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req engines.RunRe
 		// 检查是否是 context 取消导致的错误
 		if ctx.Err() != nil {
 			logs.WarnContextf(ctx, "OpenCode send message cancelled: %v", ctx.Err())
-			sendEventTo(st.evtChan, events.EventCancelled, ctx.Err().Error())
+			sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
 		} else {
 			logs.Errorf("OpenCode send message failed: %v", err)
-			sendEventTo(st.evtChan, events.EventFailed, err.Error())
+			sendEventTo(st.evtChan, events.EventInvocationFailed, err.Error())
 		}
 		return
 	}
@@ -192,7 +193,7 @@ func (st *runState) waitCompletion(ctx context.Context, cancelSSE context.Cancel
 		logs.Errorf("OpenCode run cancelled: %v", ctx.Err())
 		cancelSSE()
 		_ = st.srv.Abort(context.Background(), st.sessionID)
-		sendEventTo(st.evtChan, events.EventCancelled, ctx.Err().Error())
+		sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
 	case <-st.msgDone:
 		// 消息响应完成，取消 SSE 流
 		cancelSSE()
@@ -211,7 +212,7 @@ func (st *runState) waitCompletion(ctx context.Context, cancelSSE context.Cancel
 				Usage:   st.tokenUsage,
 			})
 		}
-		sendEventTo(st.evtChan, events.EventCompleted, finalText)
+		sendEventTo(st.evtChan, events.EventInvocationCompleted, finalText)
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -94,7 +94,7 @@ type claudeStreamState struct {
 // ——— stdout 扫描 ———
 
 func scanClaudeStdout(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- agent.Event, state *claudeStreamState) {
-	engines.ScanJSONLines(r, func(line string) bool {
+	provider.ScanJSONLines(r, func(line string) bool {
 		for _, event := range parseClaudeLineEvents(line, state) {
 			if event.Type == "" {
 				continue

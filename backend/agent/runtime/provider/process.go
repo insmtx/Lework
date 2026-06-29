@@ -5,6 +5,12 @@ import (
 	"sync"
 )
 
+// Process is the minimal lifecycle handle exposed by a provider invocation.
+type Process interface {
+	PID() int
+	Stop() error
+}
+
 // CmdProcess 实现 os/exec.Cmd 的 Process 接口。
 type CmdProcess struct {
 	cmd *exec.Cmd

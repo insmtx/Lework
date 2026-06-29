@@ -13,7 +13,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -45,7 +45,7 @@ type AppServer struct {
 // 进程启动
 // ============================================================================
 
-func startAppServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg engines.ModelConfig, mcpServers []engines.MCPServerConfig, taskDir string) (*AppServer, error) {
+func startAppServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, taskDir string) (*AppServer, error) {
 	codexHome := filepath.Join(taskDir, ".codex")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		return nil, fmt.Errorf("create codex-home dir: %w", err)
@@ -240,7 +240,7 @@ func (s *AppServer) RespondApproval(ctx context.Context, reqID sonic.NoCopyRawMe
 // config.toml 生成
 // ============================================================================
 
-func writeCodexConfigToml(codexHome string, modelCfg engines.ModelConfig, mcpServers []engines.MCPServerConfig) error {
+func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig) error {
 	baseURL := strings.TrimRight(strings.TrimSpace(modelCfg.BaseURL), "/")
 	if baseURL != "" && !strings.HasSuffix(baseURL, "/v1") {
 		baseURL += "/v1"
@@ -270,7 +270,7 @@ func writeCodexConfigToml(codexHome string, modelCfg engines.ModelConfig, mcpSer
 	b.WriteString("wire_api = \"responses\"\n")
 	b.WriteString("requires_openai_auth = false\n")
 
-	tokenEnvVar := engines.LerosMCPTokenEnvVar()
+	tokenEnvVar := provider.LerosMCPTokenEnvVar()
 	for _, m := range mcpServers {
 		if m.Name == "" {
 			continue
@@ -326,15 +326,15 @@ func writeCodexConfigToml(codexHome string, modelCfg engines.ModelConfig, mcpSer
 // 环境变量
 // ============================================================================
 
-func buildAppServerEnv(baseEnv []string, modelCfg engines.ModelConfig, mcpServers []engines.MCPServerConfig, codexHome string) []string {
-	env := engines.BuildBaseEnv(nil)
+func buildAppServerEnv(baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, codexHome string) []string {
+	env := provider.BuildBaseEnv(nil)
 	env = append(env, "CODEX_QUIET_MODE=1")
 	env = append(env, "CODEX_HOME="+codexHome)
 	modelEnv := appServerModelEnv(modelCfg)
 	for k, v := range modelEnv {
 		env = append(env, k+"="+v)
 	}
-	tokenEnvVar := engines.LerosMCPTokenEnvVar()
+	tokenEnvVar := provider.LerosMCPTokenEnvVar()
 	for _, m := range mcpServers {
 		if m.BearerToken != "" {
 			env = append(env, tokenEnvVar+"="+m.BearerToken)
@@ -350,7 +350,7 @@ func buildAppServerEnv(baseEnv []string, modelCfg engines.ModelConfig, mcpServer
 	return env
 }
 
-func appServerModelEnv(model engines.ModelConfig) map[string]string {
+func appServerModelEnv(model agent.ModelConfig) map[string]string {
 	baseURL := strings.TrimRight(strings.TrimSpace(model.BaseURL), "/")
 	if baseURL != "" && !strings.HasSuffix(baseURL, "/v1") {
 		baseURL += "/v1"

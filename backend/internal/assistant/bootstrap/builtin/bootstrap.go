@@ -5,7 +5,7 @@ package builtin
 import (
 	"context"
 
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/insmtx/Leros/backend/config"
 	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
 	"github.com/ygpkg/yg-go/logs"
@@ -71,15 +71,15 @@ func (s *BootstrapService) Bootstrap(ctx context.Context, cfg *config.CLIEngines
 	}
 
 	if !hasAvailable {
-		logs.Warn("No CLI engines available")
+		logs.Warn("No CLI runtimes available")
 		return cfg, bootstrapErr
 	}
 
 	// 设置默认引擎
 	if cfg.Default == "" {
-		if defaultName := engines.GetDefaultEngineName(clis); defaultName != "" {
+		if defaultName := provider.PreferredCLIName(clis); defaultName != "" {
 			cfg.Default = defaultName
-			logs.Infof("Auto-detected default engine: %s", defaultName)
+			logs.Infof("Auto-detected default runtime: %s", defaultName)
 		}
 	}
 
@@ -124,58 +124,33 @@ func (e *multiError) Error() string {
 
 // CLIDiscoveryService 负责发现系统中已安装的外部 CLI。
 type CLIDiscoveryService struct {
-	discovered []engines.CLIToolStatus
-	engines    map[string]engines.Engine
+	discovered []provider.CLIToolStatus
 }
 
 // NewCLIDiscoveryService 创建 CLIDiscoveryService 实例。
 func NewCLIDiscoveryService() *CLIDiscoveryService {
-	return &CLIDiscoveryService{
-		engines: make(map[string]engines.Engine),
-	}
+	return &CLIDiscoveryService{}
 }
 
 // Discover 发现系统中已安装的外部 CLI。
-func (s *CLIDiscoveryService) Discover() []engines.CLIToolStatus {
-	s.discovered = engines.DiscoverAvailableCLI()
-
-	// 为已安装的 CLI 创建引擎实例
-	for _, status := range s.discovered {
-		if !status.Installed {
-			continue
-		}
-		engine, err := newEngine(status.Name, status.Path)
-		if err != nil {
-			logs.Warnf("Failed to create engine for %s: %v", status.Name, err)
-			continue
-		}
-		s.engines[status.Name] = engine
-	}
-
+func (s *CLIDiscoveryService) Discover() []provider.CLIToolStatus {
+	s.discovered = provider.DiscoverAvailableCLI()
 	return s.discovered
 }
 
 // GetSkillDirs 获取所有已安装 CLI 的 skill 目录。
 func (s *CLIDiscoveryService) GetSkillDirs() []string {
 	var dirs []string
-	for _, engine := range s.engines {
-		dir := engine.GetSkillDir()
+	for _, status := range s.discovered {
+		if !status.Installed {
+			continue
+		}
+		dir := provider.SkillDirForCLI(status.Name)
 		if dir != "" {
 			dirs = append(dirs, dir)
 		}
 	}
 	return dirs
-}
-
-// GetEngine 获取指定名称的引擎。
-func (s *CLIDiscoveryService) GetEngine(name string) (engines.Engine, bool) {
-	engine, ok := s.engines[name]
-	return engine, ok
-}
-
-// GetEngines 返回所有已创建的引擎映射。
-func (s *CLIDiscoveryService) GetEngines() map[string]engines.Engine {
-	return s.engines
 }
 
 // ============================================================

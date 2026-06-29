@@ -113,3 +113,49 @@ func TestProjectRunEventRecordKeepsCancelledTypeAndTerminalPayload(t *testing.T)
 		t.Fatalf("terminal payload = %#v", projected.Payload)
 	}
 }
+
+func TestProjectRunEventAndPersistedChunkKeepStreamSequenceAndPayload(t *testing.T) {
+	runEvent := messaging.RunEvent{
+		CreatedAt: time.UnixMilli(456),
+		Route:     messaging.RouteContext{SessionID: "session-1"},
+		Body: messaging.RunEventBody{
+			Seq:   12,
+			Event: messaging.RunEventMessageDelta,
+			Payload: messaging.RunEventPayload{
+				MessageID: "message-1",
+				Role:      messaging.MessageRoleAssistant,
+				Content:   "hello",
+			},
+		},
+	}
+	live, ok := ProjectRunEvent(runEvent)
+	if !ok || live.Sequence != 12 || live.Timestamp != 456 || live.Type != events.EventMessageDelta {
+		t.Fatalf("live projection = %#v, %v", live, ok)
+	}
+	livePayload, ok := live.Payload.(dto.MessageDeltaPayload)
+	if !ok || livePayload.MessageID != "message-1" || livePayload.Content != "hello" {
+		t.Fatalf("live payload = %#v", live.Payload)
+	}
+
+	raw, err := json.Marshal(events.MessageDeltaPayload{
+		MessageID: "message-1",
+		Role:      "assistant",
+		Content:   "hello",
+	})
+	if err != nil {
+		t.Fatalf("marshal chunk payload: %v", err)
+	}
+	replayed, ok := ProjectRunEventRecord("session-1", types.MessageChunk{
+		Seq:       12,
+		Type:      string(events.EventMessageDelta),
+		Timestamp: 456,
+		Payload:   raw,
+	})
+	if !ok || replayed.Sequence != 12 || replayed.Timestamp != 456 || replayed.Type != string(events.EventMessageDelta) {
+		t.Fatalf("replayed projection = %#v, %v", replayed, ok)
+	}
+	replayedPayload, ok := replayed.Payload.(dto.MessageDeltaPayload)
+	if !ok || replayedPayload != livePayload {
+		t.Fatalf("replayed payload = %#v, want %#v", replayed.Payload, livePayload)
+	}
+}

@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	engines "github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 )
 
 // ——— 参数构建 ———
 
-func buildArgs(req engines.RunRequest) []string {
+func buildArgs(req externalcli.InvocationRequest) []string {
 	args := []string{
 		"--verbose",
 		"--output-format", "stream-json",
@@ -23,9 +25,9 @@ func buildArgs(req engines.RunRequest) []string {
 
 	// 权限模式决定是否绕过审批
 	switch req.PermissionMode {
-	case engines.PermissionModeBypass, "":
+	case provider.PermissionModeBypass, "":
 		args = append(args, "--dangerously-skip-permissions", "--permission-mode", "bypassPermissions")
-	case engines.PermissionModeOnRequest, engines.PermissionModeAuto:
+	case provider.PermissionModeOnRequest, provider.PermissionModeAuto:
 		// on-request 和 auto 均使用 default 模式；auto 由 ApprovalHandler 处理
 		args = append(args, "--permission-mode", "default")
 	}
@@ -55,7 +57,7 @@ type lerosSettings struct {
 }
 
 // buildLerosSettings 根据本次请求构建 leros settings 配置。
-func buildLerosSettings(req engines.RunRequest) *lerosSettings {
+func buildLerosSettings(req externalcli.InvocationRequest) *lerosSettings {
 	model := strings.TrimSpace(req.Model.Model)
 	baseURL := withoutV1Suffix(req.Model.BaseURL)
 	apiKey := strings.TrimSpace(req.Model.APIKey)
@@ -102,7 +104,7 @@ func writeLerosSettings(path string, settings *lerosSettings) error {
 
 // ——— 模型环境 ———
 
-func claudeModelEnv(_ engines.ModelConfig) map[string]string {
+func claudeModelEnv(_ agent.ModelConfig) map[string]string {
 	return nil
 }
 
@@ -110,7 +112,7 @@ func claudeModelEnv(_ engines.ModelConfig) map[string]string {
 
 // writeMCPConfig 将 MCPServerConfig 列表转为 Claude mcpServers JSON，写入 dir/mcp_config.json。
 // 返回文件路径，调用方负责在不再需要时删除。
-func writeMCPConfig(dir string, servers []engines.MCPServerConfig) (string, error) {
+func writeMCPConfig(dir string, servers []provider.MCPServerConfig) (string, error) {
 	mcpServers := make(map[string]any, len(servers))
 	for _, s := range servers {
 		name := strings.TrimSpace(s.Name)
