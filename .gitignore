@@ -63,3 +63,4 @@ logs/
 leros-storage/
 .codex-local/
 .idea
+.codegraph

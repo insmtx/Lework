@@ -113,6 +113,15 @@ export type BackendRuntimeTodoItem = {
 	priority?: string;
 };
 
+export type BackendWorkTitleUpdatedPayload = {
+	project_id: string;
+	project_name: string;
+	task_id?: string;
+	task_title?: string;
+	session_id: string;
+	session_title?: string;
+};
+
 export type BackendSessionArtifactPayload = {
 	artifact_id?: string;
 	title?: string;

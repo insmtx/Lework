@@ -573,6 +573,8 @@ export class LayoutActionImpl {
 					currentView: "taskDetail",
 					conversationListOpen: false,
 				});
+				// 新建项目/任务后立即拉详情，确保 store 有数据供 SSE 标题 patch 与详情页展示。
+				await this.fetchProjectDetail(data.project_id);
 			}
 			return data ?? null;
 		} catch (err) {
@@ -826,10 +828,68 @@ export class LayoutActionImpl {
 		}
 	};
 
-	fetchProjectDetail = async (projectId: string) => {
-		const project = this.#get().projects.find((p) => p.id === projectId);
-		if (!project) return;
+	applyWorkTitleUpdated = (payload: {
+		project_id: string;
+		project_name: string;
+		task_id?: string;
+		task_title?: string;
+		session_id?: string;
+	}) => {
+		this.#set((state) => {
+			const existing = state.projects.find((project) => project.id === payload.project_id);
+			if (!existing) {
+				const now = Date.now();
+				const task =
+					payload.task_id != null
+						? [
+								{
+									id: payload.task_id,
+									title: payload.task_title ?? payload.project_name,
+									meta: "",
+									status: "todo" as const,
+									updatedAt: now,
+									sessionId: payload.session_id,
+								},
+							]
+						: [];
+					return {
+						projects: [
+							{
+								id: payload.project_id,
+								name: payload.project_name,
+								description: "",
+								skills: [],
+								createdAt: now,
+								updatedAt: now,
+								messages: [],
+								tasks: task,
+								artifacts: [],
+								files: [],
+							},
+						...state.projects,
+					],
+				};
+			}
 
+			return {
+				projects: state.projects.map((project) => {
+					if (project.id !== payload.project_id) return project;
+					return {
+						...project,
+						name: payload.project_name,
+						updatedAt: Date.now(),
+						tasks: project.tasks.map((task) =>
+							payload.task_id && task.id === payload.task_id
+								? { ...task, title: payload.task_title ?? task.title }
+								: task,
+						),
+					};
+				}),
+			};
+		});
+	};
+
+	fetchProjectDetail = async (projectId: string) => {
 		this.#set({ projectDetailLoading: true, projectDetailError: null });
 		try {
 			const res = await projectApi.detail({ public_id: projectId });
@@ -837,25 +897,38 @@ export class LayoutActionImpl {
 			if (!detail) throw new Error("No data returned");
 
 			const tasks = (detail.tasks ?? []).map(mapBackendTask);
-			this.#set((s) => ({
-				projects: s.projects.map((p) =>
-					p.id === projectId
-						? {
-								...p,
-								name: detail.name,
-								description: detail.description ?? "",
-								objective: detail.objective,
-								updatedAt: new Date(detail.updated_at).getTime(),
-								tasks,
-								artifacts: [],
-								files: [],
-							}
-						: p,
-				),
-				projectDetailLoading: false,
-				projectSessionId: detail.session?.session_id ?? null,
-				projectSessionProjectId: detail.session?.session_id ? projectId : null,
-			}));
+			const mapped = mapBackendProject(detail);
+			this.#set((s) => {
+				const exists = s.projects.some((project) => project.id === projectId);
+				return {
+					projects: exists
+						? s.projects.map((p) =>
+								p.id === projectId
+									? {
+											...mapped,
+											objective: detail.objective,
+											tasks,
+											artifacts: [],
+											files: [],
+											updatedAt: new Date(detail.updated_at).getTime(),
+										}
+									: p,
+							)
+						: [
+								{
+									...mapped,
+									objective: detail.objective,
+									tasks,
+									artifacts: [],
+									files: [],
+								},
+								...s.projects,
+							],
+					projectDetailLoading: false,
+					projectSessionId: detail.session?.session_id ?? null,
+					projectSessionProjectId: detail.session?.session_id ? projectId : null,
+				};
+			});
 		} catch (err) {
 			console.error("fetchProjectDetail error:", err);
 			this.#set({ projectDetailLoading: false, projectDetailError: "获取项目详情失败" });

@@ -40,6 +40,7 @@ const (
 	stateStartSeqKey               = "state_start_seq"
 	replyToMessageIDsKey           = "reply_to_message_ids"
 	sessionProcessingWindow        = 30 * time.Minute
+	workTitleMaxRunes              = 50
 )
 
 // ErrNoReplyMessageIDs is returned when a run-started stream event lacks
@@ -459,7 +460,165 @@ func (s *sessionService) HandleSessionTitleRequest(ctx context.Context, sessionI
 
 	logs.DebugContextf(ctx, "handling session title request for session %s", sessionID)
 	s.tryAutoUpdateTitle(ctx, session)
+	s.tryAutoUpdateWorkTitle(ctx, session)
 	return nil
+}
+
+func (s *sessionService) tryAutoUpdateWorkTitle(ctx context.Context, session *types.Session) {
+	if session == nil || session.Type != types.SessionTypeTask {
+		return
+	}
+	if session.ProjectID == nil || session.TaskID == nil {
+		return
+	}
+	if session.MessageCount >= 3 {
+		return
+	}
+
+	project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
+	if err != nil || project == nil {
+		return
+	}
+	var task types.Task
+	if err := s.db.WithContext(ctx).First(&task, *session.TaskID).Error; err != nil {
+		return
+	}
+
+	firstMsg, err := s.firstUserMessage(ctx, session.ID)
+	if err != nil || firstMsg == nil {
+		return
+	}
+	fallbackTitle := fallbackWorkTitle(firstMsg.Content)
+	if project.Name != fallbackTitle && task.Title != fallbackTitle {
+		return
+	}
+
+	title, err := prompts.Run(ctx, prompts.KeyWorkTitle, map[string]any{
+		"user_message": firstMsg.Content,
+	})
+	if err != nil {
+		logs.WarnContextf(ctx, "work title: LLM generation failed for session %s: %v", session.PublicID, err)
+		return
+	}
+	title = sanitizeGeneratedWorkTitle(title)
+	if title == "" {
+		return
+	}
+
+	projectUpdated := false
+	if project.Name == fallbackTitle {
+		project.Name = title
+		project.UpdatedAt = time.Now()
+		if err := db.UpdateProject(ctx, s.db, project); err != nil {
+			logs.WarnContextf(ctx, "work title: update project %s: %v", project.PublicID, err)
+		} else {
+			projectUpdated = true
+		}
+	}
+	taskUpdated := false
+	if task.Title == fallbackTitle {
+		task.Title = title
+		task.UpdatedAt = time.Now()
+		if err := db.UpdateTask(ctx, s.db, &task); err != nil {
+			logs.WarnContextf(ctx, "work title: update task %s: %v", task.PublicID, err)
+		} else {
+			taskUpdated = true
+		}
+	}
+	if !projectUpdated && !taskUpdated {
+		return
+	}
+
+	if session.Title == fallbackTitle {
+		session.Title = title
+		session.UpdatedAt = time.Now()
+		if err := db.UpdateSession(ctx, s.db, session); err != nil {
+			logs.WarnContextf(ctx, "work title: update session %s: %v", session.PublicID, err)
+		}
+	}
+
+	if err := s.publishWorkTitleUpdated(ctx, session, project, &task); err != nil {
+		logs.WarnContextf(ctx, "work title: publish stream event for session %s: %v", session.PublicID, err)
+	}
+}
+
+func (s *sessionService) firstUserMessage(ctx context.Context, sessionID uint) (*types.SessionMessage, error) {
+	var message types.SessionMessage
+	err := s.db.WithContext(ctx).
+		Where("session_id = ? AND role = ?", sessionID, string(types.MessageRoleUser)).
+		Order("sequence ASC").
+		First(&message).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &message, nil
+}
+
+func fallbackWorkTitle(content string) string {
+	runes := []rune(strings.TrimSpace(content))
+	if len(runes) > workTitleMaxRunes {
+		return string(runes[:workTitleMaxRunes])
+	}
+	return string(runes)
+}
+
+func sanitizeGeneratedWorkTitle(title string) string {
+	title = strings.TrimSpace(title)
+	title = strings.Trim(title, "\"'`“”‘’「」『』")
+	title = strings.TrimSpace(title)
+	runes := []rune(title)
+	if len(runes) > workTitleMaxRunes {
+		return string(runes[:workTitleMaxRunes])
+	}
+	return title
+}
+
+func (s *sessionService) publishWorkTitleUpdated(
+	ctx context.Context,
+	session *types.Session,
+	project *types.Project,
+	task *types.Task,
+) error {
+	if s == nil || s.eventbus == nil || session == nil || project == nil || task == nil {
+		return nil
+	}
+	if session.OrgID == 0 || session.PublicID == "" {
+		return nil
+	}
+
+	workTitle := messaging.WorkTitleUpdatedPayload{
+		ProjectID:    project.PublicID,
+		ProjectName:  project.Name,
+		TaskID:       task.PublicID,
+		TaskTitle:    task.Title,
+		SessionID:    session.PublicID,
+		SessionTitle: session.Title,
+	}
+	topic, err := messaging.RunEventSubject(session.OrgID, session.PublicID, messaging.RunEventLaneState)
+	if err != nil {
+		return err
+	}
+
+	msg := messaging.RunEvent{
+		ID:        fmt.Sprintf("work-title:%s:%d", session.PublicID, time.Now().UnixMilli()),
+		Type:      messaging.MessageTypeRunEvent,
+		CreatedAt: time.Now().UTC(),
+		Route: messaging.RouteContext{
+			OrgID:     session.OrgID,
+			SessionID: session.PublicID,
+		},
+		Body: messaging.RunEventBody{
+			Seq:   time.Now().UnixMilli(),
+			Event: messaging.RunEventWorkTitleUpdated,
+			Payload: messaging.RunEventPayload{
+				WorkTitle: &workTitle,
+			},
+		},
+	}
+	return s.eventbus.Publish(ctx, topic, msg)
 }
 
 func (s *sessionService) SubmitApproval(ctx context.Context, req *contract.SubmitApprovalRequest) error {

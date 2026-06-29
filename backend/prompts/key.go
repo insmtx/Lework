@@ -39,3 +39,4 @@ const (
 const KeyLLMTestConnectivity = "llm.test.connectivity"
 
 const KeySessionTitle = "session.title.generate"
+const KeyWorkTitle = "work.title.generate"

@@ -109,6 +109,19 @@ func ProjectRunEvent(runEvent messaging.RunEvent) (*dto.SessionEvent, bool) {
 		if runEvent.Body.Payload.QuestionAnswer != nil {
 			event.Payload = *runEvent.Body.Payload.QuestionAnswer
 		}
+	case messaging.RunEventWorkTitleUpdated:
+		if runEvent.Body.Payload.WorkTitle == nil {
+			return nil, false
+		}
+		event.Type = events.EventWorkTitleUpdated
+		event.Payload = events.WorkTitleUpdatedPayload{
+			ProjectID:    runEvent.Body.Payload.WorkTitle.ProjectID,
+			ProjectName:  runEvent.Body.Payload.WorkTitle.ProjectName,
+			TaskID:       runEvent.Body.Payload.WorkTitle.TaskID,
+			TaskTitle:    runEvent.Body.Payload.WorkTitle.TaskTitle,
+			SessionID:    runEvent.Body.Payload.WorkTitle.SessionID,
+			SessionTitle: runEvent.Body.Payload.WorkTitle.SessionTitle,
+		}
 	case messaging.RunEventRunFailed:
 		event.Type = events.EventFailed
 		message := runEvent.Body.Payload.Content

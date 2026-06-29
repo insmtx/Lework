@@ -16,22 +16,24 @@ import (
 var _ contract.WorkService = (*workService)(nil)
 
 type workService struct {
-	db          *gorm.DB
-	eventbus    eventbus.EventBus
-	inferrer    AssistantInferrer
-	giteaClient *gitea.Client
-	giteaCfg    *config.GiteaConfig
-	env         string
+	db           *gorm.DB
+	eventbus     eventbus.EventBus
+	inferrer     AssistantInferrer
+	giteaClient  *gitea.Client
+	giteaCfg     *config.GiteaConfig
+	env          string
+	titleUpdater TitleUpdater
 }
 
-func NewWorkService(database *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.WorkService {
+func NewWorkService(database *gorm.DB, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, titleUpdater TitleUpdater) contract.WorkService {
 	return &workService{
-		db:          database,
-		eventbus:    eventbus,
-		inferrer:    inferrer,
-		giteaClient: giteaClient,
-		giteaCfg:    giteaCfg,
-		env:         env,
+		db:           database,
+		eventbus:     eventbus,
+		inferrer:     inferrer,
+		giteaClient:  giteaClient,
+		giteaCfg:     giteaCfg,
+		env:          env,
+		titleUpdater: titleUpdater,
 	}
 }
 
@@ -45,6 +47,6 @@ func (s *workService) NewMessage(ctx context.Context, req *contract.NewMessageRe
 		return nil, errors.New("user not authenticated or org not set")
 	}
 
-	p := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, nil)
+	p := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.titleUpdater)
 	return p.RunNewMessage(ctx, req, caller)
 }

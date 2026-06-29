@@ -14,6 +14,7 @@ import type {
   BackendSessionArtifactPayload,
   BackendSessionEventPayload,
   BackendToolCall,
+  BackendWorkTitleUpdatedPayload,
   SSEMessageEvent,
 } from "../api/types";
 import { workApi } from "../api/workApi";
@@ -1357,6 +1358,55 @@ function getSessionLocalMessages(
     );
 }
 
+function parseWorkTitleUpdatedPayload(
+  data: SSEMessageEvent,
+): BackendWorkTitleUpdatedPayload | null {
+  const payload = data.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    typeof record.project_id !== "string" ||
+    typeof record.project_name !== "string"
+  ) {
+    return null;
+  }
+  return {
+    project_id: record.project_id,
+    project_name: record.project_name,
+    task_id: typeof record.task_id === "string" ? record.task_id : undefined,
+    task_title:
+      typeof record.task_title === "string" ? record.task_title : undefined,
+    session_id:
+      typeof record.session_id === "string"
+        ? record.session_id
+        : (data.session_id ?? ""),
+    session_title:
+      typeof record.session_title === "string"
+        ? record.session_title
+        : undefined,
+  };
+}
+
+function resolveProjectIdForSession(
+  fullState: {
+    activeTaskDetailProjectId?: string | null;
+    projects?: Array<{ id: string; tasks: Array<{ sessionId?: string }> }>;
+  },
+  sessionId: string,
+): string | null {
+  if (fullState.activeTaskDetailProjectId) {
+    return fullState.activeTaskDetailProjectId;
+  }
+  for (const project of fullState.projects ?? []) {
+    if (project.tasks.some((task) => task.sessionId === sessionId)) {
+      return project.id;
+    }
+  }
+  return null;
+}
+
 export class ChatActionImpl {
   readonly #set: SetState;
   readonly #get: () => ChatStore;
@@ -1612,6 +1662,19 @@ export class ChatActionImpl {
           const data = JSON.parse(event.data) as SSEMessageEvent;
           const eventType = event.type ?? data.type;
 
+          if (eventType === "work.title.updated") {
+            const workTitlePayload = parseWorkTitleUpdatedPayload(data);
+            if (workTitlePayload) {
+              const fullState = this.#fullGet() as {
+                applyWorkTitleUpdated?: (
+                  payload: BackendWorkTitleUpdatedPayload,
+                ) => void;
+              };
+              fullState.applyWorkTitleUpdated?.(workTitlePayload);
+            }
+            return;
+          }
+
           const msg = this.#get().messagesMap[assistantMsgId];
           if (msg) {
             const nextMsg = applySessionEventToMessage(msg, data, eventType, {
@@ -1640,6 +1703,18 @@ export class ChatActionImpl {
             void this.loadConversationMessages(sessionId, {
               resumeStream: false,
             });
+            const fullState = this.#fullGet() as {
+              activeTaskDetailProjectId?: string | null;
+              fetchProjectDetail?: (projectId: string) => Promise<void>;
+              projects?: Array<{
+                id: string;
+                tasks: Array<{ sessionId?: string }>;
+              }>;
+            };
+            const projectId = resolveProjectIdForSession(fullState, sessionId);
+            if (projectId) {
+              void fullState.fetchProjectDetail?.(projectId);
+            }
           }
         } catch (err) {
           // 正文只接受 run.completed 的最终结果，解析失败的流片段不再兜底写入正文。
