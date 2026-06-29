@@ -13,6 +13,7 @@ import {
 	desktopUpdateGetStateChannel,
 	desktopUpdateRestartChannel,
 } from "../shared/auto-update";
+import { markAppQuitting } from "./app-lifecycle";
 
 const autoUpdateIntervalMs = 30 * 60 * 1000;
 const initialAutoUpdateDelayMs = 1 * 1000;
@@ -290,6 +291,7 @@ export function registerDesktopAutoUpdate() {
 			return false;
 		}
 
+		markAppQuitting();
 		updater.quitAndInstall();
 		return true;
 	});
