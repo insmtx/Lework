@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -15,7 +14,6 @@ import (
 	lifecyclecontext "github.com/insmtx/Leros/backend/internal/assistant/context"
 	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -144,7 +142,6 @@ func (ai *attachmentIngestor) IngestAttachments(ctx context.Context, req *assist
 		return
 	}
 
-	var downloadedCount int
 	for _, att := range req.Input.Attachments {
 		if strings.TrimSpace(att.URL) == "" || strings.TrimSpace(att.Name) == "" {
 			continue
@@ -152,20 +149,6 @@ func (ai *attachmentIngestor) IngestAttachments(ctx context.Context, req *assist
 		if err := downloadAttachment(ctx, att.URL, filepath.Join(targetDir, att.Name)); err != nil {
 			logs.WarnContextf(ctx, "ingest attachment %q: %v", att.Name, err)
 			continue
-		}
-		downloadedCount++
-	}
-
-	if downloadedCount == 0 {
-		return
-	}
-
-	// If there's a repo, commit.
-	repoDir := strings.TrimSpace(req.Workspace.RepoDir)
-	if repoDir != "" {
-		gitDir := filepath.Join(repoDir, ".git")
-		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-			commitAttachmentsDir(ctx, repoDir, downloadedCount)
 		}
 	}
 }
@@ -192,30 +175,6 @@ func downloadAttachment(ctx context.Context, url string, destPath string) error 
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil
-}
-
-func commitAttachmentsDir(ctx context.Context, repoDir string, count int) {
-	addCmd := exec.CommandContext(ctx, "git", "add", "uploads/")
-	addCmd.Dir = repoDir
-	if output, err := addCmd.CombinedOutput(); err != nil {
-		logs.ErrorContextf(ctx, "git add uploads/: %v: %s", err, strings.TrimSpace(string(output)))
-		return
-	}
-	msg := fmt.Sprintf("task: %d user attachment(s)", count)
-	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", msg)
-	commitCmd.Dir = repoDir
-	commitCmd.Env = identity.GitAuthorEnv()
-	if output, err := commitCmd.CombinedOutput(); err != nil {
-		logs.ErrorContextf(ctx, "git commit attachments: %v: %s", err, strings.TrimSpace(string(output)))
-		return
-	}
-	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "main")
-	pushCmd.Dir = repoDir
-	if output, err := pushCmd.CombinedOutput(); err != nil {
-		logs.ErrorContextf(ctx, "git push uploads/: %v: %s", err, strings.TrimSpace(string(output)))
-		return
-	}
-	logs.InfoContextf(ctx, "git push uploads/ completed: count=%d", count)
 }
 
 // preparer is the concrete RunPreparer implementation.
