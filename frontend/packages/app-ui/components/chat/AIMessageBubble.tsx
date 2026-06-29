@@ -4,14 +4,11 @@ import {
 	formatArtifactTime,
 	formatTime,
 	getAssistantMessageFooterSegments,
-	mapBackendArtifactToProjectArtifact,
-	mergeProjectArtifacts,
 	messageArtifactToProjectArtifact,
 	type ProjectArtifact,
+	sortProjectArtifactsByNewestFirst,
 	useChatStore,
-	useLayoutStore,
 } from "@leros/store";
-import { artifactApi } from "@leros/store/api/artifactApi";
 import type {
 	Message,
 	MessageArtifact,
@@ -25,7 +22,6 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Copy,
-	LoaderCircle,
 	RefreshCw,
 	Rows3,
 	Wrench,
@@ -344,51 +340,15 @@ function MessageArtifactList({
 	projectId?: string;
 }) {
 	const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
-	const [taskArtifacts, setTaskArtifacts] = useState<ProjectArtifact[]>([]);
-	const [loadingArtifactId, setLoadingArtifactId] = useState<string | null>(null);
-	const activeTaskDetailTaskId = useLayoutStore((s) => s.activeTaskDetailTaskId);
-	const artifactKey = useMemo(
-		() => artifacts.map((artifact) => artifact.id).join("|"),
-		[artifacts],
-	);
 	const visibleArtifacts = useMemo(() => {
-		// 中文注释：旧历史消息里如果没有独立的文件时间，这里回退到所属消息时间，保证卡片稳定展示时间。
-		const sessionArtifacts = artifacts.map((artifact) => ({
-			...messageArtifactToProjectArtifact(artifact),
-			updatedAt: artifact.updatedAt ?? fallbackTimestamp,
-		}));
-		const artifactIds = new Set(sessionArtifacts.map((artifact) => artifact.id));
-		const enrichedTaskArtifacts = taskArtifacts.filter((artifact) => artifactIds.has(artifact.id));
-		return mergeProjectArtifacts(enrichedTaskArtifacts, sessionArtifacts);
-	}, [artifacts, fallbackTimestamp, taskArtifacts]);
-
-	useEffect(() => {
-		if (!activeTaskDetailTaskId) {
-			setTaskArtifacts([]);
-			return;
-		}
-		const taskId = activeTaskDetailTaskId;
-
-		let cancelled = false;
-		async function fetchTaskArtifacts() {
-			setLoadingArtifactId("__list__");
-			try {
-				const res = await artifactApi.listTaskArtifacts(taskId);
-				if (cancelled) return;
-				setTaskArtifacts((res.data.data ?? []).map(mapBackendArtifactToProjectArtifact));
-			} catch (err) {
-				if (cancelled) return;
-				console.error("MessageArtifactList fetch task artifacts error:", err);
-				setTaskArtifacts([]);
-			} finally {
-				if (!cancelled) setLoadingArtifactId(null);
-			}
-		}
-		fetchTaskArtifacts();
-		return () => {
-			cancelled = true;
-		};
-	}, [activeTaskDetailTaskId, artifactKey]);
+		// 中文注释：消息流里已携带 artifact 元数据，直接展示即可，不再额外请求 ListTaskArtifacts。
+		return sortProjectArtifactsByNewestFirst(
+			artifacts.map((artifact) => ({
+				...messageArtifactToProjectArtifact(artifact),
+				updatedAt: artifact.updatedAt ?? fallbackTimestamp,
+			})),
+		);
+	}, [artifacts, fallbackTimestamp]);
 
 	if (visibleArtifacts.length === 0) return null;
 
@@ -405,9 +365,8 @@ function MessageArtifactList({
 								id: projectId ? `artifacts/${artifact.name}` : artifact.id,
 							})
 						}
-					disabled={loadingArtifactId === artifact.id}
-					className="group/artifact relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
-					title="预览文件"
+						className="group/artifact relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+						title="预览文件"
 					>
 						<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[rgba(15,23,42,0.16)] opacity-0 transition-opacity duration-200 group-hover/artifact:opacity-100">
 							<span className="rounded-full bg-[rgba(15,23,42,0.72)] px-3 py-1 text-xs font-medium tracking-[0.02em] text-white shadow-sm">
@@ -415,11 +374,7 @@ function MessageArtifactList({
 							</span>
 						</div>
 						<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-slate-600">
-							{loadingArtifactId === artifact.id ? (
-								<LoaderCircle className="size-4 animate-spin" />
-							) : (
-								<MessageArtifactIcon fileName={artifact.name} />
-							)}
+							<MessageArtifactIcon fileName={artifact.name} />
 						</div>
 						<div className="min-w-0">
 							<div className="truncate text-sm font-semibold leading-5 text-slate-700">

@@ -9,7 +9,7 @@ import type {
 
 export type GetProjectFilesParams = {
 	projectId: string;
-	path?: string;
+	resourceType?: "user_upload" | "artifact";
 };
 
 export type UploadProjectFileParams = {
@@ -89,11 +89,11 @@ async function uploadLooseFile({
 }
 
 export const projectFileApi = {
-	list: ({ projectId, path }: GetProjectFilesParams) =>
+	list: ({ projectId, resourceType }: GetProjectFilesParams) =>
 		apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>(
 			`/projects/${encodeURIComponent(projectId)}/files`,
 			{
-				params: path ? { path } : undefined,
+				params: resourceType ? { resource_type: resourceType } : undefined,
 			},
 		),
 
