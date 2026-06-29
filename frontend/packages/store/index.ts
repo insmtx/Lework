@@ -124,6 +124,7 @@ export {
 	collectSessionArtifacts,
 	mergeProjectArtifacts,
 	messageArtifactToProjectArtifact,
+	sortProjectArtifactsByNewestFirst,
 } from "./utils/artifacts";
 export {
 	AUTH_SESSION_EXPIRED_EVENT,

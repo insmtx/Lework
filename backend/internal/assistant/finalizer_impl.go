@@ -297,7 +297,7 @@ func pushWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
 		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 
-	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run artifacts")
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run workspace")
 	commitCmd.Dir = repoDir
 	commitCmd.Env = identity.GitAuthorEnv()
 	if output, err := commitCmd.CombinedOutput(); err != nil {

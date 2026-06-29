@@ -140,7 +140,7 @@ func BuildArtifactRecord(plan *TaskWorkspace, item ManifestArtifact) (ArtifactRe
 	return ArtifactRecord{
 		Title:        title,
 		Filename:     filepath.Base(item.Path),
-		OriginalName: item.Path,
+		OriginalName: filepath.Base(item.Path),
 		Description:  strings.TrimSpace(item.Description),
 		ArtifactType: artifactType,
 		RelativePath: item.Path,

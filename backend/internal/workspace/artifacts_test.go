@@ -30,4 +30,10 @@ func TestBuildArtifactRecordNormalizesMimeType(t *testing.T) {
 	if record.MimeType != "text/plain" {
 		t.Fatalf("mime type = %q, want text/plain", record.MimeType)
 	}
+	if record.OriginalName != "report.txt" {
+		t.Fatalf("original name = %q, want report.txt", record.OriginalName)
+	}
+	if record.RelativePath != "docs/report.txt" {
+		t.Fatalf("relative path = %q, want docs/report.txt", record.RelativePath)
+	}
 }

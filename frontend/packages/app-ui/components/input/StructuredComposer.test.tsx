@@ -97,6 +97,38 @@ function ToolbarHarness({ onValueChange }: { onValueChange?: (value: string) => 
 	);
 }
 
+function MentionRemoveHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
+	const [value, setValue] = useState("");
+	const composerRef = useRef<StructuredComposerHandle | null>(null);
+
+	return (
+		<div>
+			<button type="button" onClick={() => composerRef.current?.insertSkill("anysearch")}>
+				insert skill
+			</button>
+			<button type="button" onClick={() => composerRef.current?.insertAssistant("代码助手")}>
+				insert assistant
+			</button>
+			<StructuredComposer
+				ref={composerRef}
+				value={value}
+				onChange={(nextValue) => {
+					// 中文注释：通过真实 token x 入口验证删除后 value 与 mention DOM 同步清理。
+					setValue(nextValue);
+					onValueChange?.(nextValue);
+				}}
+				onSubmit={vi.fn()}
+				onPasteFiles={vi.fn()}
+				onFocus={vi.fn()}
+				onBlur={vi.fn()}
+				placeholder="请输入"
+				isProjectVariant
+				projectSkillOptions={[]}
+			/>
+		</div>
+	);
+}
+
 function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
 	const [value, setValue] = useState("");
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -257,6 +289,52 @@ describe("StructuredComposer", () => {
 			expect(
 				Array.from(mentions).map((mention) => mention.getAttribute("data-mention-label")),
 			).toEqual(expect.arrayContaining(["/anysearch", "/docx"]));
+		});
+	});
+
+	it("技能 mention 上的 x 可以删除已选技能", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(<MentionRemoveHarness onValueChange={handleValueChange} />);
+
+		await user.click(screen.getByRole("button", { name: "insert skill" }));
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("/anysearch ");
+		});
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		const removeButton = textbox.querySelector('[data-mention-remove="true"]');
+		expect(removeButton).toBeInstanceOf(HTMLElement);
+
+		await user.click(removeButton as HTMLElement);
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("");
+			expect(textbox.querySelector('[data-mention-node="true"]')).not.toBeInTheDocument();
+		});
+	});
+
+	it("AI 员工 mention 上的 x 可以删除已选员工", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(<MentionRemoveHarness onValueChange={handleValueChange} />);
+
+		await user.click(screen.getByRole("button", { name: "insert assistant" }));
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("@代码助手 ");
+		});
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		const removeButton = textbox.querySelector('[data-mention-remove="true"]');
+		expect(removeButton).toBeInstanceOf(HTMLElement);
+
+		await user.click(removeButton as HTMLElement);
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("");
+			expect(textbox.querySelector('[data-mention-node="true"]')).not.toBeInTheDocument();
 		});
 	});
 
