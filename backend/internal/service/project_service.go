@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +20,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	"github.com/insmtx/Leros/backend/internal/infra/git"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/insmtx/Leros/backend/types"
@@ -127,7 +127,9 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 		return nil, err
 	}
 	if project.GiteaRepoFullName != "" {
-		s.initRepoStructure(ctx, project.GiteaRepoFullName)
+		if err := git.InitRepoStructure(ctx, s.giteaClient, project.GiteaRepoFullName); err != nil {
+			logs.WarnContextf(ctx, "[project] init repo structure: %v", err)
+		}
 	}
 	return convertToContractProject(project), nil
 }
@@ -605,73 +607,6 @@ func generateProjectPublicID() string {
 
 func (s *projectService) buildRepoName(orgID uint, projectPublicID string) string {
 	return fmt.Sprintf("%s-%d-%s", s.env, orgID, projectPublicID)
-}
-
-func (s *projectService) initRepoStructure(ctx context.Context, fullName string) {
-	parts := strings.SplitN(fullName, "/", 2)
-	if len(parts) != 2 {
-		return
-	}
-	owner, repo := parts[0], parts[1]
-
-	emptyContent := base64.StdEncoding.EncodeToString([]byte(""))
-	gitignore := `# Leros runtime
-.leros/
-!.leros/memory/
-
-# User uploads (served from object storage, not committed)
-uploads/
-
-# Dependency directories
-node_modules/
-vendor/
-
-# Build/cache outputs
-dist/
-build/
-target/
-.cache/
-.cache*/
-tmp/
-temp/
-logs/
-log/
-
-# OS/editor noise
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-
-# Runtime logs
-*.log
-
-# Environment/secrets
-.env
-.env.*
-!.env.example
-`
-	gitignoreContent := base64.StdEncoding.EncodeToString([]byte(gitignore))
-
-	initFiles := []struct {
-		path    string
-		content string
-		msg     string
-	}{
-		{".gitignore", gitignoreContent, "chore: init .gitignore"},
-		{".leros/memory/.gitkeep", emptyContent, "chore: init .leros/memory/"},
-	}
-
-	for _, f := range initFiles {
-		if _, _, err := s.giteaClient.CreateFile(owner, repo, f.path, gitea.CreateFileOptions{
-			FileOptions: gitea.FileOptions{
-				Message: f.msg,
-			},
-			Content: f.content,
-		}); err != nil {
-			logs.WarnContextf(ctx, "[project] init gitea file %s failed: %v", f.path, err)
-		}
-	}
 }
 
 var visibleFolders = []string{"artifacts/", "uploads/"}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	"github.com/insmtx/Leros/backend/internal/infra/git"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
@@ -258,7 +258,9 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 	}
 
 	if o.project.GiteaRepoFullName != "" {
-		o.poster.initRepoStructure(o.ctx, o.project.GiteaRepoFullName)
+		if err := git.InitRepoStructure(o.ctx, o.poster.giteaClient, o.project.GiteaRepoFullName); err != nil {
+			logs.WarnContextf(o.ctx, "[message_poster] init repo structure: %v", err)
+		}
 		logs.InfoContextf(o.ctx, "created project=%s org=%d user=%d repo=%s", projectID, o.caller.OrgID, o.caller.Uin, o.project.GiteaRepoFullName)
 	} else {
 		logs.InfoContextf(o.ctx, "created project=%s org=%d user=%d (no gitea)", projectID, o.caller.OrgID, o.caller.Uin)
@@ -613,74 +615,6 @@ func (p *MessagePoster) resolveWorkspaceIDs(ctx context.Context, session *types.
 
 func (p *MessagePoster) buildRepoName(orgID uint, projectPublicID string) string {
 	return fmt.Sprintf("%s-%d-%s", p.env, orgID, projectPublicID)
-}
-
-func (p *MessagePoster) initRepoStructure(ctx context.Context, fullName string) {
-	parts := strings.SplitN(fullName, "/", 2)
-	if len(parts) != 2 {
-		return
-	}
-	owner, repo := parts[0], parts[1]
-
-	emptyContent := base64.StdEncoding.EncodeToString([]byte(""))
-
-	gitignore := `# Leros runtime
-.leros/
-!.leros/memory/
-
-# User uploads (served from object storage, not committed)
-uploads/
-
-# Dependency directories
-node_modules/
-vendor/
-
-# Build/cache outputs
-dist/
-build/
-target/
-.cache/
-.cache*/
-tmp/
-temp/
-logs/
-log/
-
-# OS/editor noise
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-
-# Runtime logs
-*.log
-
-# Environment/secrets
-.env
-.env.*
-!.env.example
-`
-	gitignoreContent := base64.StdEncoding.EncodeToString([]byte(gitignore))
-
-	initFiles := []struct {
-		path    string
-		content string
-		msg     string
-	}{
-		{".gitignore", gitignoreContent, "chore: init .gitignore"},
-		{".leros/memory/.gitkeep", emptyContent, "chore: init .leros/memory/"},
-	}
-
-	for _, f := range initFiles {
-		if _, _, err := p.giteaClient.CreateFile(owner, repo, f.path, gitea.CreateFileOptions{
-			FileOptions: gitea.FileOptions{
-				Message: f.msg,
-			},
-			Content: f.content,
-		}); err != nil {
-			logs.WarnContextf(ctx, "[message_poster] init gitea file %s failed: %v", f.path, err)
-		}
-	}
 }
 
 // writeSkillInvokeResources parses /skill tokens from message content and writes
