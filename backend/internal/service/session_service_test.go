@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -24,10 +25,20 @@ import (
 
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := fmt.Sprintf(
+		"file:%s-%d?mode=memory&cache=shared",
+		strings.ReplaceAll(t.Name(), "/", "-"),
+		time.Now().UnixNano(),
+	)
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get test database handle: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 
 	if err := db.AutoMigrate(
 		&types.Project{},
@@ -38,6 +49,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&types.Artifact{},
 		&types.LLMModel{},
 		&types.FileUpload{},
+		&types.ProjectFile{},
+		&types.WorkerDeployment{},
 	); err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
 	}
@@ -96,6 +109,10 @@ func (m *replayEventBus) Request(_ context.Context, _ string, _ any) (*nats.Msg,
 }
 
 func (m *replayEventBus) SubscribeFrom(ctx context.Context, topic string, startSeq int64, handler func(msg *nats.Msg)) error {
+	if !strings.Contains(topic, ".run.stream") {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	m.startSeq = startSeq
 	for _, msg := range m.messages {
 		handler(msg)
@@ -349,6 +366,7 @@ func TestHandleSessionRunStartedMarksReplyMessagesProcessing(t *testing.T) {
 		SessionID:         session.PublicID,
 		ReplyToMessageIDs: []string{fmt.Sprintf("%d", first.ID), fmt.Sprintf("%d", second.ID)},
 		StreamStartSeq:    123,
+		StateStartSeq:     321,
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionRunStarted failed: %v", err)
@@ -796,7 +814,7 @@ func TestHandleSessionTitleRequest_XinSessionTitle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession failed: %v", err)
 	}
-	if retrieved.Title != "Manual title" {
+	if retrieved.Title != "hello" {
 		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
 	}
 }
@@ -826,7 +844,7 @@ func TestHandleSessionTitleRequest_Truncated(t *testing.T) {
 		t.Fatalf("GetSession failed: %v", err)
 	}
 	if len([]rune(retrieved.Title)) != 100 {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
+		t.Errorf("expected title length 100, got %d", len([]rune(retrieved.Title)))
 	}
 }
 
@@ -836,7 +854,7 @@ func TestHandleSessionTitleRequest_CustomTitleUnchanged(t *testing.T) {
 
 	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
 		Type:  string(types.SessionTypeUserChat),
-		Title: "New Session",
+		Title: "Manual title",
 	})
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
@@ -853,7 +871,7 @@ func TestHandleSessionTitleRequest_CustomTitleUnchanged(t *testing.T) {
 		t.Fatalf("GetSession failed: %v", err)
 	}
 	if retrieved.Title != "Manual title" {
-		t.Errorf("expected title %q, got %q", "hello", retrieved.Title)
+		t.Errorf("expected title %q, got %q", "Manual title", retrieved.Title)
 	}
 }
 
@@ -1067,7 +1085,7 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 
 	payload, err := json.Marshal(events.MessageDeltaPayload{
 		MessageID: "msg_1",
-		Role:      string(protocol.MessageRoleAssistant),
+		Role:      string(messaging.MessageRoleAssistant),
 		Content:   "done",
 	})
 	if err != nil {
@@ -1127,6 +1145,70 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 	}
 	if _, ok := raw["tool_calls"]; ok {
 		t.Fatalf("history message should not include top-level tool_calls: %s", body)
+	}
+}
+
+func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	if err := database.AutoMigrate(
+		&types.Session{},
+		&types.SessionMessage{},
+		&types.LLMModel{},
+		&types.DigitalAssistant{},
+		&types.WorkerDeployment{},
+	); err != nil {
+		t.Fatalf("failed to migrate test database: %v", err)
+	}
+	if err := database.Create(&types.LLMModel{
+		OrgID:           1,
+		Code:            "default",
+		Name:            "Default",
+		Provider:        "openai",
+		ModelName:       "gpt-test",
+		BaseURL:         "https://api.openai.com",
+		BaseURLHasV1:    true,
+		APIKeyEncrypted: "sk-test",
+		Status:          string(types.LLMModelStatusActive),
+		IsDefault:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to seed default llm model: %v", err)
+	}
+	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	ctx := setupTestContextWithCaller(t)
+
+	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
+		Type: string(types.SessionTypeUserChat),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	err = service.FailedSessionMessage(ctx, &contract.FailedSessionMessageRequest{
+		SessionID: session.SessionID,
+		Content:   "已取消",
+		ErrorMsg:  "scan repo for reconciliation: context canceled",
+		Status:    string(types.MessageStatusCancelled),
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("FailedSessionMessage failed: %v", err)
+	}
+
+	result, err := service.GetSessionMessages(ctx, session.SessionID, 1, 20)
+	if err != nil {
+		t.Fatalf("GetSessionMessages failed: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one message, got %d", len(result.Items))
+	}
+	if result.Items[0].Content != "已取消" {
+		t.Fatalf("response content = %q, want 已取消", result.Items[0].Content)
+	}
+	if result.Items[0].ErrorMsg != "scan repo for reconciliation: context canceled" {
+		t.Fatalf("response error_msg = %q", result.Items[0].ErrorMsg)
 	}
 }
 
@@ -1228,7 +1310,7 @@ func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
 
 	deltaPayload, err := json.Marshal(events.MessageDeltaPayload{
 		MessageID: "msg_1",
-		Role:      string(protocol.MessageRoleAssistant),
+		Role:      string(messaging.MessageRoleAssistant),
 		Content:   "done",
 	})
 	if err != nil {
@@ -1362,24 +1444,30 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 		t.Fatalf("save other failed: %v", err)
 	}
 
-	matching := protocol.MessageStreamMessage{
-		Route: protocol.RouteContext{SessionID: session.PublicID},
-		Body: protocol.StreamBody{
+	matching := messaging.RunEvent{
+		ID:        "evt-match",
+		Type:      messaging.MessageTypeRunEvent,
+		CreatedAt: time.Now().UTC(),
+		Route:     messaging.RouteContext{SessionID: session.PublicID},
+		Body: messaging.RunEventBody{
 			Seq:               1,
-			Event:             protocol.StreamEventMessageDelta,
+			Event:             messaging.RunEventMessageDelta,
 			ReplyToMessageIDs: []string{fmt.Sprintf("%d", reply.ID)},
-			Payload: protocol.StreamPayload{
+			Payload: messaging.RunEventPayload{
 				Content: "match",
 			},
 		},
 	}
-	nonMatching := protocol.MessageStreamMessage{
-		Route: protocol.RouteContext{SessionID: session.PublicID},
-		Body: protocol.StreamBody{
+	nonMatching := messaging.RunEvent{
+		ID:        "evt-skip",
+		Type:      messaging.MessageTypeRunEvent,
+		CreatedAt: time.Now().UTC(),
+		Route:     messaging.RouteContext{SessionID: session.PublicID},
+		Body: messaging.RunEventBody{
 			Seq:               2,
-			Event:             protocol.StreamEventMessageDelta,
+			Event:             messaging.RunEventMessageDelta,
 			ReplyToMessageIDs: []string{"999999"},
-			Payload: protocol.StreamPayload{
+			Payload: messaging.RunEventPayload{
 				Content: "skip",
 			},
 		},
@@ -1390,8 +1478,13 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 	}}
 	service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	var emitted []string
-	err := service.StreamSessionEvents(ctx, session.PublicID, true, events.SinkFunc(func(ctx context.Context, event *events.Event) error {
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, events.SinkFunc(func(ctx context.Context, event *agent.Event) error {
 		emitted = append(emitted, event.Content)
+		if strings.Contains(event.Content, "match") {
+			cancel()
+		}
 		return nil
 	}))
 	if err != nil {
@@ -1405,7 +1498,7 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 	}
 }
 
-func mustStreamNATSMessage(t *testing.T, msg protocol.MessageStreamMessage) *nats.Msg {
+func mustStreamNATSMessage(t *testing.T, msg messaging.RunEvent) *nats.Msg {
 	t.Helper()
 	data, err := json.Marshal(msg)
 	if err != nil {

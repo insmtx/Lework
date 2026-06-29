@@ -2,6 +2,7 @@ package nodetools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -49,7 +50,15 @@ func newNodeFileWriteToolWithExecutor(executor nodeExecutor) *NodeFileWriteTool 
 }
 
 // Validate checks node file write tool input.
-func (t *NodeFileWriteTool) Validate(input map[string]interface{}) error {
+func (t *NodeFileWriteTool) Validate(raw json.RawMessage) error {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return err
+	}
+	return validateWriteInput(input)
+}
+
+func validateWriteInput(input map[string]any) error {
 	if input == nil {
 		return fmt.Errorf("input is required")
 	}
@@ -66,8 +75,14 @@ func (t *NodeFileWriteTool) Validate(input map[string]interface{}) error {
 }
 
 // Execute writes a file to the worker workspace.
-func (t *NodeFileWriteTool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
-	_ = ctx
+func (t *NodeFileWriteTool) Execute(ctx context.Context, raw json.RawMessage) (string, error) {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := validateWriteInput(input); err != nil {
+		return "", err
+	}
 
 	path := util.StringValue(input, "path")
 

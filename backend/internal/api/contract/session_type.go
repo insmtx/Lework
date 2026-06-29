@@ -91,6 +91,7 @@ type SessionMessage struct {
 	SessionID   string                    `json:"session_id"`
 	Role        string                    `json:"role"`
 	Content     string                    `json:"content"`
+	ErrorMsg    string                    `json:"error_msg,omitempty"`
 	Chunks      []SessionEvent            `json:"chunks,omitempty"`
 	Artifacts   []types.MessageArtifact   `json:"artifacts,omitempty"`
 	Attachments []types.MessageAttachment `json:"attachments,omitempty"`
@@ -168,4 +169,5 @@ type SessionRunStartedRequest struct {
 	ReplyToMessageIDs []string `json:"reply_to_message_ids,omitempty"`
 	RequestID         string   `json:"request_id,omitempty"`
 	StreamStartSeq    uint64   `json:"stream_start_seq"`
+	StateStartSeq     uint64   `json:"state_start_seq,omitempty"`
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
+	"github.com/insmtx/Leros/backend/tools"
 )
 
 func TestToolExecuteCreate(t *testing.T) {
@@ -15,11 +16,12 @@ func TestToolExecuteCreate(t *testing.T) {
 		t.Fatalf("NewTool: %v", err)
 	}
 
-	output, err := tool.Execute(context.Background(), map[string]interface{}{
+	output, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action":  "create",
 		"name":    "review-flow",
 		"content": "---\nname: review-flow\ndescription: Review flow\n---\n# Review flow\n\n1. Inspect changes.\n",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("execute create: %v", err)
 	}
@@ -38,11 +40,12 @@ func TestToolValidateRequiresNewTextForPatch(t *testing.T) {
 	if toolErr != nil {
 		t.Fatalf("NewTool: %v", toolErr)
 	}
-	err := tool.Validate(map[string]interface{}{
+	err := tool.Validate(tools.JSONInput(map[string]interface{}{
 		"action":   "patch",
 		"name":     "review-flow",
 		"old_text": "old",
-	})
+	}))
+
 	if err == nil {
 		t.Fatalf("expected validation error")
 	}

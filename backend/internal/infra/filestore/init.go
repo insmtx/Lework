@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	defaultBucketName     = "dev-bucket"
-	defaultDriver         = "local"
-	defaultLocalDir       = "leros-storage"
-	defaultSignSecret     = "leros-local-presign"
-	defaultSignBaseURL    = ""
+	defaultBucketName  = "dev-bucket"
+	defaultDriver      = "local"
+	defaultLocalDir    = "leros-storage"
+	defaultSignSecret  = "leros-local-presign"
+	defaultSignBaseURL = ""
 )
 
 var (

@@ -98,10 +98,10 @@ func (r *SourceRouter) SearchWithFilter(ctx context.Context, query string, limit
 	}
 
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		all     = make(map[string]SkillMeta)
-		seen    = make(map[string]int) // identifier → 最高优先级（越小越优先）
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		all  = make(map[string]SkillMeta)
+		seen = make(map[string]int) // identifier → 最高优先级（越小越优先）
 		// 每个源的所有原始结果（按搜索结果顺序，通常按安装量降序）。
 		sourceResults = make(map[string][]SkillMeta)
 	)

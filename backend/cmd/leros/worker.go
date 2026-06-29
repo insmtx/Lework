@@ -13,17 +13,23 @@ import (
 	"strings"
 	"time"
 
+	clauderuntime "github.com/insmtx/Leros/backend/agent/runtime/claude"
+	codexruntime "github.com/insmtx/Leros/backend/agent/runtime/codex"
+	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/engines"
-	"github.com/insmtx/Leros/backend/engines/builtin"
+	agentruntime "github.com/insmtx/Leros/backend/internal/assistant/bootstrap"
+	builtin "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/builtin"
+	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
-	agentruntime "github.com/insmtx/Leros/backend/internal/runtime"
-	runtimemcp "github.com/insmtx/Leros/backend/internal/runtime/mcp"
-	"github.com/insmtx/Leros/backend/internal/worker/approval"
+	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
+	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
+	"github.com/insmtx/Leros/backend/internal/worker/command"
+	"github.com/insmtx/Leros/backend/internal/worker/command/interaction"
+	"github.com/insmtx/Leros/backend/internal/worker/command/run"
+	"github.com/insmtx/Leros/backend/internal/worker/command/skill"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
-	"github.com/insmtx/Leros/backend/internal/worker/skillmgmt"
-	"github.com/insmtx/Leros/backend/internal/worker/taskconsumer"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -74,7 +80,7 @@ func newClaudeWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the Claude agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(engines.EngineClaude)
+			runTaskWorker(clauderuntime.Kind)
 		},
 	}
 }
@@ -86,7 +92,7 @@ func newCodexWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the Codex agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(engines.EngineCodex)
+			runTaskWorker(codexruntime.Kind)
 		},
 	}
 }
@@ -98,7 +104,7 @@ func newOpenCodeWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the OpenCode agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(engines.EngineOpenCode)
+			runTaskWorker(opencoderuntime.Kind)
 		},
 	}
 }
@@ -190,7 +196,7 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to ensure state dir: %v", err)
 		return
 	}
-	if err := engines.SyncToLerosDir(""); err != nil {
+	if err := skilllinks.SyncToLerosDir(""); err != nil {
 		logs.Warnf("Sync worker built-in skills failed: %v", err)
 	}
 	identity.Set(identity.Profile{
@@ -202,11 +208,12 @@ func runTaskWorker(defaultRuntime string) {
 		WorkerAddr: workerListenAddr,
 		AppKey:     cfg.AppKey,
 	})
-	// Setup MCP auth token before starting HTTP server so /v1/mcp uses the configured value.
+	var mcpToken string
 	if cfg.CLI != nil && cfg.CLI.MCP != nil {
-		runtimemcp.SetAuthToken(cfg.CLI.MCP.BearerToken)
+		mcpToken = cfg.CLI.MCP.BearerToken
 	}
-	httpServer, err := startWorkerHTTPServer(workerListenAddr)
+	modelStore := modelrouter.NewModelStore()
+	httpServer, err := startWorkerHTTPServer(workerListenAddr, modelStore, mcpToken)
 	if err != nil {
 		logs.Fatalf("Failed to start worker HTTP server: %v", err)
 		return
@@ -246,10 +253,23 @@ func runTaskWorker(defaultRuntime string) {
 		}
 		cliSkillDirs = bootstrapSvc.GetSkillDirs()
 	}
+	interactionRouter := provider.NewInteractionRouter()
+	memoryStore, err := localmemory.NewStore(localmemory.Options{})
+	if err != nil {
+		cancel()
+		_ = bus.Close()
+		logs.Fatalf("Failed to create memory store: %v", err)
+		return
+	}
 	runtimeService, err := agentruntime.NewService(ctx, agentruntime.Options{
-		CLIConfig:      cfg.CLI,
-		DefaultRuntime: defaultRuntime,
-		CLISkillDirs:   cliSkillDirs,
+		CLIConfig:         cfg.CLI,
+		DefaultRuntime:    defaultRuntime,
+		CLISkillDirs:      cliSkillDirs,
+		GiteaCfg:          cfg.Gitea,
+		Env:               cfg.Env,
+		InteractionRouter: interactionRouter,
+		ModelStore:        modelStore,
+		MemoryStore:       memoryStore,
 	})
 	if err != nil {
 		cancel()
@@ -266,42 +286,51 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 
-	consumer, err := taskconsumer.New(taskconsumer.Config{
+	runHandler, err := run.New(run.Config{
 		OrgID:          cfg.OrgID,
 		WorkerID:       cfg.WorkerID,
 		Env:            cfg.Env,
 		SeqTrackerPath: seqTrackerPath,
-	}, bus, bus, runtimeService, cfg.Gitea)
+	}, bus, runtimeService.AssistantService())
 	if err != nil {
 		cancel()
 		_ = bus.Close()
-		logs.Fatalf("Failed to create worker task consumer: %v", err)
-		return
-	}
-	// 订阅审批 NATS 消息，由 Server API 转发过来
-	approvalSub, err := approval.New(approval.Config{OrgID: cfg.OrgID, WorkerID: cfg.WorkerID}, bus)
-	if err != nil {
-		cancel()
-		_ = bus.Close()
-		logs.Fatalf("Failed to create approval subscriber: %v", err)
+		logs.Fatalf("Failed to create run handler: %v", err)
 		return
 	}
 
-	skillMgmtConsumer, err := skillmgmt.New(skillmgmt.Config{
+	interactionHandler := interaction.New(interactionRouter)
+
+	skillHandler, err := skill.New(bus.Conn())
+	if err != nil {
+		cancel()
+		_ = bus.Close()
+		logs.Fatalf("Failed to create skill handler: %v", err)
+		return
+	}
+
+	dispatcher, err := command.New(command.Config{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,
-	}, bus, bus.Conn())
+	}, bus, command.Handlers{
+		Run:         runHandler,
+		Control:     runHandler,
+		Interaction: interactionHandler,
+		Skill:       skillHandler,
+	})
 	if err != nil {
 		cancel()
 		_ = bus.Close()
-		logs.Fatalf("Failed to create skill management consumer: %v", err)
+		logs.Fatalf("Failed to create command dispatcher: %v", err)
 		return
 	}
 
-	// 启动任务消费（阻塞式订阅，独立 goroutine）
-	go func() { _ = consumer.Start(ctx) }()
-	go func() { _ = approvalSub.Start(ctx) }()
-	go func() { _ = skillMgmtConsumer.Start(ctx) }()
+	go func() {
+		if err := dispatcher.Run(ctx); err != nil {
+			logs.Errorf("Command dispatcher exited with error: %v", err)
+			lifecycle.Std().Exit()
+		}
+	}()
 
 	lifecycle.Std().AddCloseFunc(func() error {
 		cancel()
@@ -314,13 +343,13 @@ func runTaskWorker(defaultRuntime string) {
 	})
 	lifecycle.Std().AddCloseFunc(func() error {
 		logs.Info("Shutting down task consumer...")
-		if err := consumer.Close(); err != nil {
+		if err := runHandler.Close(); err != nil {
 			logs.Errorf("Failed to close task consumer: %v", err)
 		}
 		return nil
 	})
 	lifecycle.Std().AddCloseFunc(bus.Close)
-	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, consumer.TaskTopic())
+	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, runHandler.RunSubject())
 	lifecycle.Std().WaitExit()
 	logs.Info("Agent worker exited")
 }
@@ -431,7 +460,11 @@ func workerTokenEndpoint(serverAddr string) string {
 	return fmt.Sprintf("http://%s/v1/workers/token", serverAddr)
 }
 
-func startWorkerHTTPServer(addr string) (*http.Server, error) {
+func startWorkerHTTPServer(
+	addr string,
+	modelStore *modelrouter.ModelStore,
+	mcpToken string,
+) (*http.Server, error) {
 	if strings.TrimSpace(addr) == "" {
 		addr = ":8081"
 	}
@@ -439,7 +472,7 @@ func startWorkerHTTPServer(addr string) (*http.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	r := router.SetupRouter()
+	r := router.SetupRouter(modelStore, mcpToken)
 	server := &http.Server{
 		Addr:    addr,
 		Handler: r,
@@ -466,4 +499,3 @@ func buildWorkerMCPURL(listenAddr string) string {
 	}
 	return "http://" + addr + "/v1/mcp"
 }
-

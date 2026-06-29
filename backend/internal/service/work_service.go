@@ -6,10 +6,10 @@ import (
 
 	"gorm.io/gorm"
 
+	"code.gitea.io/sdk/gitea"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"code.gitea.io/sdk/gitea"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 )
 
@@ -45,6 +45,6 @@ func (s *workService) NewMessage(ctx context.Context, req *contract.NewMessageRe
 		return nil, errors.New("user not authenticated or org not set")
 	}
 
-	p := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
+	p := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, nil)
 	return p.RunNewMessage(ctx, req, caller)
 }

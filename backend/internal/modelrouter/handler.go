@@ -25,8 +25,18 @@ import (
 // ModelStore holds UpstreamConfig entries keyed by model name.
 // It is safe for concurrent use.
 type ModelStore struct {
-	configs map[string]*UpstreamConfig
-	mu      sync.RWMutex
+	configs    map[string]*UpstreamConfig
+	httpClient *http.Client
+	mu         sync.RWMutex
+}
+
+// NewModelStore creates an isolated model routing store.
+func NewModelStore(httpClients ...*http.Client) *ModelStore {
+	store := &ModelStore{configs: make(map[string]*UpstreamConfig)}
+	if len(httpClients) > 0 {
+		store.httpClient = httpClients[0]
+	}
+	return store
 }
 
 // Put registers an upstream configuration for a model.
@@ -53,21 +63,9 @@ func (s *ModelStore) Resolve(model string) (*UpstreamConfig, error) {
 	if !ok {
 		return nil, fmt.Errorf("modelrouter: no upstream config for model %q", model)
 	}
-	return cfg, nil
-}
-
-// defaultStore is the package-level singleton ModelStore.
-// RegisterRoutes and lifecycle steps share this same instance.
-var defaultStore = &ModelStore{configs: make(map[string]*UpstreamConfig)}
-
-// DefaultStore returns the singleton ModelStore.
-func DefaultStore() *ModelStore {
-	return defaultStore
-}
-
-// ResetStore replaces the singleton store with a fresh instance. Use only in tests.
-func ResetStore() {
-	defaultStore = &ModelStore{configs: make(map[string]*UpstreamConfig)}
+	cp := *cfg
+	cp.httpClient = s.httpClient
+	return &cp, nil
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -77,9 +75,10 @@ func ResetStore() {
 // RegisterRoutes registers model routing endpoints on the given Gin router.
 // Each endpoint supports all entry protocols and transparently converts
 // between protocols when upstream targets a different protocol.
-func RegisterRoutes(r gin.IRouter) {
-	store := DefaultStore()
-
+func RegisterRoutes(r gin.IRouter, store *ModelStore) {
+	if store == nil {
+		return
+	}
 	// NOTE: caller (worker/router) already mounts under /v1/ prefix.
 	// Register directly on the given router to avoid double-wrapping.
 	r.POST("/chat/completions", handleModelRoute(store, llmprotocol.ProtocolOpenAIChat))
@@ -473,7 +472,10 @@ func doUpstreamCall(ctx context.Context, cfg *UpstreamConfig, body []byte) ([]by
 		timeout = 120 * time.Second
 	}
 
-	client := &http.Client{Timeout: timeout}
+	client := cfg.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
 	req, err := setUpstreamRequest(ctx, cfg, body)
 	if err != nil {
 		return nil, err
@@ -507,7 +509,10 @@ func doUpstreamStreamCall(ctx context.Context, cfg *UpstreamConfig, body []byte)
 		timeout = 180 * time.Second
 	}
 
-	client := &http.Client{Timeout: timeout}
+	client := cfg.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
 	req, err := setUpstreamRequest(ctx, cfg, body)
 	if err != nil {
 		return nil, err

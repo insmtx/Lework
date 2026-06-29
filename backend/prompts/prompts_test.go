@@ -30,23 +30,18 @@ func TestRegisterAndGet(t *testing.T) {
 	}
 }
 
-func TestRegisterDuplicatePanics(t *testing.T) {
+func TestRegisterDuplicateReplacesTemplate(t *testing.T) {
 	Register("test.dup", "first")
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic on duplicate register")
-		}
-	}()
 	Register("test.dup", "second")
+	if got := Get("test.dup"); got != "second" {
+		t.Fatalf("Get() = %q, want replacement", got)
+	}
 }
 
-func TestGetMissingKeyPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic on missing key")
-		}
-	}()
-	Get("nonexistent")
+func TestGetMissingKeyReturnsEmpty(t *testing.T) {
+	if got := Get("nonexistent"); got != "" {
+		t.Fatalf("Get() = %q, want empty", got)
+	}
 }
 
 func TestKeys(t *testing.T) {
@@ -124,12 +119,9 @@ func TestManagerRunPassesLLMConfig(t *testing.T) {
 
 func TestManagerRunMissingKey(t *testing.T) {
 	m := New(&mockExecutor{fn: func(_ context.Context, p string, _ config.LLMConfig) (string, error) { return p, nil }})
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic on Run with missing key")
-		}
-	}()
-	m.Run(context.Background(), "nonexistent", nil)
+	if _, err := m.Run(context.Background(), "nonexistent", nil); err == nil {
+		t.Fatal("Run() error = nil for missing key")
+	}
 }
 
 func TestConcurrentAccess(t *testing.T) {
@@ -165,8 +157,8 @@ func TestDefaultManagerBuiltinPrompts(t *testing.T) {
 
 	SetDefaultExecutor(exec)
 
-	if !strings.Contains(Get(KeyAgentSystemDefault), "你是 Leros 助手") {
-		t.Error("expected default system prompt to contain Chinese intro")
+	if !strings.Contains(Get(KeyAgentSystemDefault), "你的名称是 lework") {
+		t.Error("expected default system prompt to contain the current lework identity")
 	}
 
 	keys := Keys()
@@ -212,22 +204,20 @@ func TestRunWithoutExecutorReturnsError(t *testing.T) {
 	}
 }
 
-func TestNewNilExecutorPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic on nil executor")
-		}
-	}()
-	New(nil)
+func TestNewNilExecutorReturnsRunError(t *testing.T) {
+	manager := New(nil)
+	manager.Register("test", "prompt")
+	if _, err := manager.Run(context.Background(), "test", nil); err == nil {
+		t.Fatal("Run() error = nil for nil executor")
+	}
 }
 
-func TestSetDefaultExecutorNilPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic on nil executor")
-		}
-	}()
+func TestSetDefaultExecutorNilMakesRunFail(t *testing.T) {
 	SetDefaultExecutor(nil)
+	if _, err := Run(context.Background(), KeyAgentSystemDefault, nil); err == nil {
+		t.Fatal("Run() error = nil for nil default executor")
+	}
+	SetDefaultExecutor(NewEinoExecutor())
 }
 
 func TestTemplateMissingFieldPreservesPlaceholder(t *testing.T) {

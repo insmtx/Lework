@@ -22,9 +22,6 @@ type Manager struct {
 }
 
 func New(executor Executor) *Manager {
-	if executor == nil {
-		panic("prompts: executor must not be nil")
-	}
 	return &Manager{
 		templates: make(map[string]string),
 		executor:  executor,
@@ -33,9 +30,6 @@ func New(executor Executor) *Manager {
 
 // SetExecutor sets the Executor for the Manager. It is not safe to call this concurrently with Run.
 func (m *Manager) SetExecutor(exec Executor) {
-	if exec == nil {
-		panic("prompts: executor must not be nil")
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.executor = exec
@@ -44,20 +38,13 @@ func (m *Manager) SetExecutor(exec Executor) {
 func (m *Manager) Register(key, template string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.templates[key]; ok {
-		panic(fmt.Sprintf("prompts: duplicate registration key %q", key))
-	}
 	m.templates[key] = template
 }
 
 func (m *Manager) Get(key string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	tpl, ok := m.templates[key]
-	if !ok {
-		panic(fmt.Sprintf("prompts: unknown key %q", key))
-	}
-	return tpl
+	return m.templates[key]
 }
 
 func (m *Manager) Keys() []string {
@@ -88,6 +75,9 @@ func (m *Manager) runWithConfig(ctx context.Context, tpl string, params map[stri
 
 func (m *Manager) Run(ctx context.Context, key string, params map[string]any, opts ...RunOption) (string, error) {
 	tpl := m.Get(key)
+	if tpl == "" {
+		return "", fmt.Errorf("prompts: unknown key %q", key)
+	}
 
 	var cfg config.LLMConfig
 	for _, o := range opts {
@@ -105,9 +95,6 @@ var (
 )
 
 func SetDefaultExecutor(exec Executor) {
-	if exec == nil {
-		panic("prompts: executor must not be nil")
-	}
 	m := globalManager
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -136,6 +123,9 @@ func Run(ctx context.Context, key string, params map[string]any, opts ...RunOpti
 	}
 
 	tpl := m.Get(key)
+	if tpl == "" {
+		return "", fmt.Errorf("prompts: unknown key %q", key)
+	}
 	var cfg config.LLMConfig
 	defaultLLMConfigOption(ctx, &cfg)
 	for _, o := range opts {

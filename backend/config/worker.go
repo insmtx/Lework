@@ -10,7 +10,7 @@ type WorkerConfig struct {
 	WorkspaceRoot  string `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
 	AppKey         string `yaml:"app_key,omitempty" json:"app_key,omitempty"`
 
-	Env   string       `yaml:"env,omitempty" json:"env,omitempty"`
+	Env   string            `yaml:"env,omitempty" json:"env,omitempty"`
 	NATS  *NATSConfig       `yaml:"nats,omitempty"`
 	CLI   *CLIEnginesConfig `yaml:"cli,omitempty"`
 	Gitea *GiteaConfig      `yaml:"gitea,omitempty"`

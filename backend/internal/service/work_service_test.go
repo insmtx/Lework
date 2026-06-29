@@ -27,6 +27,17 @@ func TestWorkServiceNewMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 	service, database := setupTestWorkService(t)
 	ctx := setupTestContextWithCaller(t)
 
+	project := &types.Project{
+		PublicID: "prj_test_attachment",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Attachment Test",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
 	// 预先落一条 file_upload，模拟前端已完成项目文件上传。
 	fileUpload := &types.FileUpload{
 		PublicID:     "fu_test_attachment",
@@ -36,7 +47,7 @@ func TestWorkServiceNewMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 		OriginalName: "spec.pdf",
 		MimeType:     "application/pdf",
 		FileSize:     1024,
-		StorageURI:  "project-files/spec.pdf",
+		StorageURI:   "project-files/spec.pdf",
 		Purpose:      "project_file",
 		Status:       "active",
 	}
@@ -45,7 +56,8 @@ func TestWorkServiceNewMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 	}
 
 	req := &contract.NewMessageRequest{
-		Content: "请基于附件开始分析",
+		ProjectID: project.PublicID,
+		Content:   "请基于附件开始分析",
 		Attachments: []types.MessageAttachment{
 			{
 				FileUploadID: fileUpload.PublicID,
@@ -95,8 +107,21 @@ func TestWorkServiceNewMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 		t.Fatal("expected file upload to exist after new message")
 	}
 
-	projectPublicID, _ := refreshedUpload.Metadata.Extra["project_public_id"].(string)
-	if projectPublicID != resp.ProjectID {
-		t.Fatalf("expected file upload project_public_id %q, got %q", resp.ProjectID, projectPublicID)
+	projectFile, err := dbpkg.GetProjectFileByFilePublicID(context.Background(), database, 1, fileUpload.PublicID)
+	if err != nil {
+		t.Fatalf("reload project file failed: %v", err)
+	}
+	if projectFile == nil {
+		t.Fatal("expected project file association after new message")
+	}
+	if projectFile.ProjectID != project.ID {
+		t.Fatalf("expected project file project_id %d, got %d", project.ID, projectFile.ProjectID)
+	}
+	if projectFile.ResourceType != types.ProjectFileResourceTypeUserUpload {
+		t.Fatalf(
+			"expected project file resource_type %q, got %q",
+			types.ProjectFileResourceTypeUserUpload,
+			projectFile.ResourceType,
+		)
 	}
 }

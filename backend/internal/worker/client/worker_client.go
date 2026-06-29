@@ -8,13 +8,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/agent"
+	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	"github.com/ygpkg/yg-go/logs"
 )
 
 type WorkerClient struct {
-	runtime   agent.Runner
+	runtime   agent.Runtime
 	config    *WorkerConfig
 	daID      uint
 	workerID  uint
@@ -24,7 +25,7 @@ type WorkerClient struct {
 }
 
 type WorkerConfig struct {
-	Runtime            agent.Runner
+	Runtime            agent.Runtime
 	LLMConfig          *config.LLMConfig
 	ServerAddr         string
 	DigitalAssistantID uint
@@ -59,16 +60,59 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig) (*WorkerClient, error) {
 	return w, nil
 }
 
-func (w *WorkerClient) Run(ctx context.Context, req *agent.RequestContext) (*agent.RunResult, error) {
+func (w *WorkerClient) Run(ctx context.Context, req *assistantdomain.RunRequest) (*assistantdomain.RunResult, error) {
 	if w == nil || w.runtime == nil {
 		return nil, fmt.Errorf("worker runtime is not initialized")
 	}
 
 	w.status = "processing"
-	result, err := w.runtime.Run(ctx, req)
+
+	messages := make([]agent.Message, 0, len(req.Conversation.Messages))
+	for _, message := range req.Conversation.Messages {
+		messages = append(messages, agent.Message{Role: message.Role, Content: message.Content})
+	}
+	execution := agent.ExecutionRequest{
+		ExecutionID:  req.RunID,
+		TraceID:      req.TraceID,
+		Runtime:      w.runtime.Name(),
+		SessionKey:   req.Conversation.ID,
+		InstanceKey:  req.Assistant.ID,
+		SystemPrompt: req.SystemPrompt,
+		Prompt:       assistantdomain.BuildUserInput(req),
+		Messages:     messages,
+		Model: agent.ModelConfig{
+			Provider: req.Model.Provider,
+			Model:    req.Model.Model,
+			APIKey:   req.Model.APIKey,
+			BaseURL:  req.Model.BaseURL,
+		},
+		Policy: agent.ExecutionPolicy{
+			PermissionMode: req.Policy.PermissionMode,
+			MaxSteps:       req.Runtime.MaxStep,
+			AllowedTools:   append([]string(nil), req.Capability.AllowedTools...),
+		},
+		Filesystem: agent.FilesystemContext{
+			WorkDir: req.Runtime.WorkDir,
+			RepoDir: req.Workspace.RepoDir,
+		},
+	}
+
+	runtimeResult, err := w.runtime.Execute(ctx, execution, req.EventSink)
 	if err != nil {
 		w.status = "error"
 		return nil, err
+	}
+
+	result := &assistantdomain.RunResult{
+		RunID:       req.RunID,
+		TraceID:     req.TraceID,
+		Status:      assistantdomain.RunStatusCompleted,
+		Message:     runtimeResult.Message,
+		Usage:       runtimeResult.Usage,
+		ToolCalls:   runtimeResult.ToolCalls,
+		StartedAt:   time.Now(),
+		CompletedAt: time.Now().UTC(),
+		Metadata:    &assistantdomain.RunMetadata{ProviderID: runtimeResult.ProviderConversationID},
 	}
 
 	w.status = "idle"

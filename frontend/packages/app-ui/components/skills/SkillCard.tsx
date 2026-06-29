@@ -10,13 +10,9 @@ interface SkillCardProps {
 	variant?: "marketplace" | "mine";
 	/** Called when the card body is clicked (for navigation to detail page) */
 	onClick?: (skill: SkillMarketplaceItem) => void;
-	/** Whether the skill is currently active (only used in "mine" variant) */
-	active?: boolean;
-	/** Called when the enable/disable toggle is clicked */
-	onToggle?: (skill: SkillMarketplaceItem) => void;
 }
 
-export function SkillCard({ skill, variant = "marketplace", onClick, active, onToggle }: SkillCardProps) {
+export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCardProps) {
 	const isLerosAI = skill.author === "Lework";
 	const isMine = variant === "mine";
 	const displayName = skill.display_name || skill.name;

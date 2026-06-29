@@ -5,195 +5,157 @@ import (
 	"testing"
 	"time"
 
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
+	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
-func TestProjectStreamMessageKeepsReasoningDeltaSeparate(t *testing.T) {
-	streamMsg := protocol.MessageStreamMessage{
-		CreatedAt: time.UnixMilli(1779243000000).UTC(),
-		Route:     protocol.RouteContext{SessionID: "sess_test"},
-		Body: protocol.StreamBody{
-			Seq:   7,
-			Event: protocol.StreamEventReasoningDelta,
-			Payload: protocol.StreamPayload{
-				MessageID: "msg_1",
-				Role:      protocol.MessageRoleAssistant,
-				Content:   "thinking",
-			},
-		},
+func TestProjectRunEventPreservesTerminalArchiveForAllStatuses(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType messaging.RunEventType
+		public    agent.EventType
+		status    string
+		errorText string
+	}{
+		{name: "completed", eventType: messaging.RunEventRunCompleted, public: events.EventCompleted, status: "completed"},
+		{name: "failed", eventType: messaging.RunEventRunFailed, public: events.EventFailed, status: "failed", errorText: "provider failed"},
+		{name: "cancelled", eventType: messaging.RunEventRunCancelled, public: events.EventCancelled, status: "cancelled", errorText: "context canceled"},
 	}
-
-	event, ok := ProjectStreamMessage(streamMsg)
-	if !ok {
-		t.Fatal("expected reasoning event to project")
-	}
-	if event.Type != events.EventReasoningDelta {
-		t.Fatalf("got type %q, want %q", event.Type, events.EventReasoningDelta)
-	}
-	payload, ok := event.Payload.(dto.MessageDeltaPayload)
-	if !ok || payload.Content != "thinking" || payload.MessageID != "msg_1" {
-		t.Fatalf("unexpected payload: %#v", event.Payload)
-	}
-}
-
-func TestProjectRunEventRecordMatchesSessionEventShape(t *testing.T) {
-	raw, err := json.Marshal(events.ToolCallResultPayload{
-		ToolCallID: "call_1",
-		Name:       "memory",
-		Result:     map[string]any{"ok": true},
-		IsError:    false,
-		ElapsedMS:  12,
-	})
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-
-	event, ok := ProjectRunEventRecord("sess_test", types.MessageChunk{
-		Seq:       8,
-		Type:      string(events.EventToolCallCompleted),
-		Timestamp: 1779243000000,
-		Payload:   raw,
-	})
-	if !ok {
-		t.Fatal("expected tool result event to project")
-	}
-	if event.Type != string(events.EventToolCallResult) || event.SessionID != "sess_test" || event.Sequence != 8 {
-		t.Fatalf("unexpected projected event: %#v", event)
-	}
-	payload, ok := event.Payload.(dto.ToolCallResultPayload)
-	if !ok {
-		t.Fatalf("unexpected payload type: %#v", event.Payload)
-	}
-	if payload.ToolCallID != "call_1" || payload.Name != "memory" || payload.Status != "success" {
-		t.Fatalf("unexpected tool result payload: %#v", payload)
-	}
-}
-
-func TestProjectStreamMessageProjectsTodoSnapshotPayloadAsArray(t *testing.T) {
-	streamMsg := protocol.MessageStreamMessage{
-		CreatedAt: time.UnixMilli(1779243000000).UTC(),
-		Route:     protocol.RouteContext{SessionID: "sess_test"},
-		Body: protocol.StreamBody{
-			Seq:   9,
-			Event: protocol.StreamEventTodoSnapshot,
-			Payload: protocol.StreamPayload{
-				Todos: []events.RuntimeTodoItem{
-					{ID: "t1", Title: "Inspect code", Status: "completed"},
-				},
-			},
-		},
-	}
-
-	event, ok := ProjectStreamMessage(streamMsg)
-	if !ok {
-		t.Fatal("expected todo event to project")
-	}
-	if event.Type != events.EventTodoSnapshot {
-		t.Fatalf("got type %q, want %q", event.Type, events.EventTodoSnapshot)
-	}
-	payload, ok := event.Payload.([]dto.RuntimeTodoItemPayload)
-	if !ok {
-		t.Fatalf("unexpected payload type: %#v", event.Payload)
-	}
-	if len(payload) != 1 || payload[0].ID != "t1" || payload[0].Title != "Inspect code" || payload[0].Status != "completed" {
-		t.Fatalf("unexpected todo payload: %#v", payload)
-	}
-}
-
-func TestProjectArtifactDeclaredEvents(t *testing.T) {
-	payload := events.ArtifactPayload{
-		ArtifactID:  "art_test",
-		Title:       "Report",
-		Filename:    "report.md",
-		Description: "final report",
-		MimeType:    "text/markdown",
-		StorageKey:  "projects/1/prj/repo/report.md",
-	}
-	streamMsg := protocol.MessageStreamMessage{
-		CreatedAt: time.UnixMilli(1779243000000).UTC(),
-		Route:     protocol.RouteContext{SessionID: "sess_test"},
-		Body: protocol.StreamBody{
-			Seq:   10,
-			Event: protocol.StreamEventArtifactDeclared,
-			Payload: protocol.StreamPayload{
-				Artifact: &payload,
-			},
-		},
-	}
-	event, ok := ProjectStreamMessage(streamMsg)
-	if !ok {
-		t.Fatal("expected artifact event to project")
-	}
-	if event.Type != events.EventArtifactDeclared {
-		t.Fatalf("got type %q, want %q", event.Type, events.EventArtifactDeclared)
-	}
-	projected, ok := event.Payload.(events.ArtifactPayload)
-	if !ok || projected.ArtifactID != "art_test" || projected.Filename != "report.md" || projected.MimeType != "text/markdown" {
-		t.Fatalf("unexpected realtime payload: %#v", event.Payload)
-	}
-	if projected.Description != "" || projected.StorageKey != "" {
-		t.Fatalf("realtime artifact payload should be public only: %#v", projected)
-	}
-
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-	historical, ok := ProjectRunEventRecord("sess_test", types.MessageChunk{
-		Seq:       10,
-		Type:      string(events.EventArtifactDeclared),
-		Timestamp: 1779243000000,
-		Payload:   raw,
-	})
-	if !ok {
-		t.Fatal("expected historical artifact event to project")
-	}
-	historicalPayload, ok := historical.Payload.(events.ArtifactPayload)
-	if !ok || historicalPayload.ArtifactID != "art_test" || historicalPayload.Filename != "report.md" || historicalPayload.MimeType != "text/markdown" {
-		t.Fatalf("unexpected historical payload: %#v", historical.Payload)
-	}
-}
-
-func TestProjectRunCompletedArtifactsAsPublicPayloads(t *testing.T) {
-	streamMsg := protocol.MessageStreamMessage{
-		CreatedAt: time.UnixMilli(1779243000000).UTC(),
-		Route:     protocol.RouteContext{SessionID: "sess_test"},
-		Body: protocol.StreamBody{
-			Seq:   11,
-			Event: protocol.StreamEventRunCompleted,
-			RunCompleted: &events.RunCompletedPayload{
-				Status: "completed",
-				Result: events.RunResultPayload{
-					Message: "done",
-				},
-				Artifacts: []events.ArtifactPayload{
-					{
-						ArtifactID:  "art_test",
-						Title:       "Report",
-						Filename:    "report.md",
-						Description: "final report",
-						MimeType:    "text/markdown",
-						StorageKey:  "projects/1/prj/repo/report.md",
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runEvent := messaging.RunEvent{
+				CreatedAt: time.UnixMilli(1234),
+				Trace:     messaging.TraceContext{RunID: "run-1"},
+				Route:     messaging.RouteContext{SessionID: "session-1"},
+				Body: messaging.RunEventBody{
+					Seq:   9,
+					Event: test.eventType,
+					RunCompleted: &messaging.RunCompletedPayload{
+						Status: test.status,
+						Result: messaging.RunResultPayload{Message: "result"},
+						Artifacts: []messaging.ArtifactPayload{{
+							ArtifactID: "artifact-1",
+							Title:      "report",
+						}},
+						Usage: &messaging.UsagePayload{TotalTokens: 11},
+						Events: []messaging.RunEventRecord{{
+							Seq:       3,
+							LastSeq:   5,
+							Type:      "message.delta",
+							Timestamp: 100,
+							Payload:   json.RawMessage(`{"message_id":"m1"}`),
+						}},
+						Metadata: &messaging.RunMetadataPayload{Runtime: "codex"},
 					},
 				},
+			}
+			if test.errorText != "" {
+				runEvent.Body.Error = &messaging.RunEventError{Message: test.errorText}
+			}
+			projected, ok := ProjectRunEvent(runEvent)
+			if !ok || projected.Type != test.public {
+				t.Fatalf("ProjectRunEvent() = %#v, %v", projected, ok)
+			}
+			payload, ok := projected.Payload.(dto.RunTerminalPayload)
+			if !ok {
+				t.Fatalf("payload type = %T", projected.Payload)
+			}
+			if payload.Status != test.status ||
+				payload.Result.Message != "result" ||
+				payload.Error != test.errorText ||
+				payload.Usage == nil ||
+				payload.Usage.TotalTokens != 11 ||
+				len(payload.Artifacts) != 1 ||
+				len(payload.Events) != 1 ||
+				payload.Metadata == nil ||
+				payload.Metadata.Runtime != "codex" {
+				t.Fatalf("terminal payload = %#v", payload)
+			}
+		})
+	}
+}
+
+func TestProjectRunEventRecordKeepsCancelledTypeAndTerminalPayload(t *testing.T) {
+	raw, err := json.Marshal(assistantdomain.TerminalPayload{
+		Status:  "cancelled",
+		Message: "已取消",
+		Error:   "context canceled",
+		Usage:   &agent.Usage{TotalTokens: 5},
+		Artifacts: []assistantdomain.ArtifactRecord{{
+			ArtifactID: "artifact-1",
+		}},
+		Events: []assistantdomain.TerminalEventRecord{{
+			Seq:     1,
+			Type:    "message.delta",
+			Payload: json.RawMessage(`{"content":"partial"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal terminal payload: %v", err)
+	}
+	projected, ok := ProjectRunEventRecord("session-1", types.MessageChunk{
+		Seq:       7,
+		Type:      string(events.EventCancelled),
+		Timestamp: 123,
+		Payload:   raw,
+	})
+	if !ok || projected.Type != string(events.EventCancelled) {
+		t.Fatalf("ProjectRunEventRecord() = %#v, %v", projected, ok)
+	}
+	payload, ok := projected.Payload.(dto.RunTerminalPayload)
+	if !ok || payload.Status != "cancelled" || payload.Result.Message != "已取消" ||
+		payload.Error != "context canceled" || payload.Usage == nil ||
+		payload.Usage.TotalTokens != 5 || len(payload.Artifacts) != 1 || len(payload.Events) != 1 {
+		t.Fatalf("terminal payload = %#v", projected.Payload)
+	}
+}
+
+func TestProjectRunEventAndPersistedChunkKeepStreamSequenceAndPayload(t *testing.T) {
+	runEvent := messaging.RunEvent{
+		CreatedAt: time.UnixMilli(456),
+		Route:     messaging.RouteContext{SessionID: "session-1"},
+		Body: messaging.RunEventBody{
+			Seq:   12,
+			Event: messaging.RunEventMessageDelta,
+			Payload: messaging.RunEventPayload{
+				MessageID: "message-1",
+				Role:      messaging.MessageRoleAssistant,
+				Content:   "hello",
 			},
 		},
 	}
-	event, ok := ProjectStreamMessage(streamMsg)
-	if !ok {
-		t.Fatal("expected run completed event to project")
+	live, ok := ProjectRunEvent(runEvent)
+	if !ok || live.Sequence != 12 || live.Timestamp != 456 || live.Type != events.EventMessageDelta {
+		t.Fatalf("live projection = %#v, %v", live, ok)
 	}
-	payload, ok := event.Payload.(*events.RunCompletedPayload)
-	if !ok {
-		t.Fatalf("unexpected payload type: %#v", event.Payload)
+	livePayload, ok := live.Payload.(dto.MessageDeltaPayload)
+	if !ok || livePayload.MessageID != "message-1" || livePayload.Content != "hello" {
+		t.Fatalf("live payload = %#v", live.Payload)
 	}
-	if len(payload.Artifacts) != 1 || payload.Artifacts[0].ArtifactID != "art_test" {
-		t.Fatalf("unexpected artifacts: %#v", payload.Artifacts)
+
+	raw, err := json.Marshal(events.MessageDeltaPayload{
+		MessageID: "message-1",
+		Role:      "assistant",
+		Content:   "hello",
+	})
+	if err != nil {
+		t.Fatalf("marshal chunk payload: %v", err)
 	}
-	if payload.Artifacts[0].Description != "" || payload.Artifacts[0].StorageKey != "" {
-		t.Fatalf("run completed artifact payload should be public only: %#v", payload.Artifacts[0])
+	replayed, ok := ProjectRunEventRecord("session-1", types.MessageChunk{
+		Seq:       12,
+		Type:      string(events.EventMessageDelta),
+		Timestamp: 456,
+		Payload:   raw,
+	})
+	if !ok || replayed.Sequence != 12 || replayed.Timestamp != 456 || replayed.Type != string(events.EventMessageDelta) {
+		t.Fatalf("replayed projection = %#v, %v", replayed, ok)
+	}
+	replayedPayload, ok := replayed.Payload.(dto.MessageDeltaPayload)
+	if !ok || replayedPayload != livePayload {
+		t.Fatalf("replayed payload = %#v, want %#v", replayed.Payload, livePayload)
 	}
 }

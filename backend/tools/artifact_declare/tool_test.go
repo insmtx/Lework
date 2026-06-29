@@ -40,14 +40,15 @@ func TestToolMetadata(t *testing.T) {
 
 func TestValidate_ValidInput(t *testing.T) {
 	tool := NewTool()
-	err := tool.Validate(map[string]interface{}{
+	err := tool.Validate(tools.JSONInput(map[string]interface{}{
 		"path":          filepath.Join(t.TempDir(), "docs", "report.md"),
 		"title":         "Report",
 		"description":   "Final report",
 		"mime_type":     "text/markdown",
 		"artifact_type": "file",
 		"is_final":      false,
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -55,7 +56,7 @@ func TestValidate_ValidInput(t *testing.T) {
 
 func TestValidate_MissingPath(t *testing.T) {
 	tool := NewTool()
-	err := tool.Validate(map[string]interface{}{"title": "Report"})
+	err := tool.Validate(tools.JSONInput(map[string]interface{}{"title": "Report"}))
 	if err == nil || !strings.Contains(err.Error(), "path is required") {
 		t.Fatalf("Validate() error = %v, want path is required", err)
 	}
@@ -63,7 +64,7 @@ func TestValidate_MissingPath(t *testing.T) {
 
 func TestValidate_RelativePath(t *testing.T) {
 	tool := NewTool()
-	err := tool.Validate(map[string]interface{}{"path": "docs/report.md"})
+	err := tool.Validate(tools.JSONInput(map[string]interface{}{"path": "docs/report.md"}))
 	if err == nil || !strings.Contains(err.Error(), "path must be absolute") {
 		t.Fatalf("Validate() error = %v, want absolute path error", err)
 	}
@@ -78,7 +79,7 @@ func TestExecute_OutsideRepoPath(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	_, err := tool.Execute(ctx, map[string]interface{}{"path": outsidePath})
+	_, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{"path": outsidePath}))
 	if err == nil || !strings.Contains(err.Error(), "inside the project repository") {
 		t.Fatalf("Execute() error = %v, want outside repo error", err)
 	}
@@ -91,11 +92,11 @@ func TestExecute_RuntimePath(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			ctx, _ := newToolContext(t)
 			writeRepoFile(t, ctx, path, "runtime")
-			err := tool.Validate(map[string]interface{}{"path": repoPathFromContext(t, ctx, path)})
+			err := tool.Validate(tools.JSONInput(map[string]interface{}{"path": repoPathFromContext(t, ctx, path)}))
 			if err != nil {
 				t.Fatalf("Validate() error = %v, want nil", err)
 			}
-			_, err = tool.Execute(ctx, map[string]interface{}{"path": repoPathFromContext(t, ctx, path)})
+			_, err = tool.Execute(ctx, tools.JSONInput(map[string]interface{}{"path": repoPathFromContext(t, ctx, path)}))
 			if err == nil {
 				t.Fatalf("Execute() error = %v, want runtime path error", err)
 			}
@@ -105,10 +106,11 @@ func TestExecute_RuntimePath(t *testing.T) {
 
 func TestValidate_InvalidArtifactType(t *testing.T) {
 	tool := NewTool()
-	err := tool.Validate(map[string]interface{}{
+	err := tool.Validate(tools.JSONInput(map[string]interface{}{
 		"path":          filepath.Join(t.TempDir(), "docs", "report.md"),
 		"artifact_type": "directory",
-	})
+	}))
+
 	if err == nil || !strings.Contains(err.Error(), "artifact_type must be file") {
 		t.Fatalf("Validate() error = %v, want artifact_type error", err)
 	}
@@ -118,7 +120,7 @@ func TestExecute_FileNotFound(t *testing.T) {
 	tool := NewTool()
 	ctx, _ := newToolContext(t)
 
-	_, err := tool.Execute(ctx, map[string]interface{}{"path": repoPathFromContext(t, ctx, "docs/missing.md")})
+	_, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{"path": repoPathFromContext(t, ctx, "docs/missing.md")}))
 	if err == nil || !strings.Contains(err.Error(), "artifact does not exist") {
 		t.Fatalf("Execute() error = %v, want file not found", err)
 	}
@@ -129,13 +131,14 @@ func TestExecute_Success(t *testing.T) {
 	ctx, manifestPath := newToolContext(t)
 	writeRepoFile(t, ctx, "artifacts/report.md", "hello")
 
-	output, err := tool.Execute(ctx, map[string]interface{}{
+	output, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"path":          repoPathFromContext(t, ctx, "artifacts/report.md"),
 		"title":         "Report",
 		"description":   "Summary",
 		"mime_type":     "text/markdown",
 		"artifact_type": "file",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -181,11 +184,12 @@ func TestExecute_NormalizesNonArtifactsPath(t *testing.T) {
 	ctx, manifestPath := newToolContext(t)
 	writeRepoFile(t, ctx, "docs/report.md", "hello")
 
-	output, err := tool.Execute(ctx, map[string]interface{}{
-		"path":          repoPathFromContext(t, ctx, "docs/report.md"),
-		"title":         "Report",
-		"description":   "Summary",
-	})
+	output, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{
+		"path":        repoPathFromContext(t, ctx, "docs/report.md"),
+		"title":       "Report",
+		"description": "Summary",
+	}))
+
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -230,10 +234,11 @@ func TestExecute_InfersWorkspaceFromArtifactPath(t *testing.T) {
 	mkdirWithTime(t, repoDir, oldTurn, time.Now().Add(-2*time.Hour))
 	mkdirWithTime(t, repoDir, latestTurn, time.Now().Add(-1*time.Hour))
 
-	output, err := tool.Execute(context.Background(), map[string]interface{}{
+	output, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"path":  filepath.Join(repoDir, "artifacts", "report.md"),
 		"title": "Report",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -264,7 +269,7 @@ func TestExecute_InferWorkspaceRequiresLerosMarker(t *testing.T) {
 	artifactPath := filepath.Join(dir, "report.md")
 	writeFile(t, artifactPath, "hello")
 
-	_, err := tool.Execute(context.Background(), map[string]interface{}{"path": artifactPath})
+	_, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{"path": artifactPath}))
 	if err == nil || !strings.Contains(err.Error(), ".leros not found") {
 		t.Fatalf("Execute() error = %v, want .leros marker error", err)
 	}
@@ -277,7 +282,7 @@ func TestExecute_MultipleDeclarations(t *testing.T) {
 	writeRepoFile(t, ctx, "artifacts/two.md", "two")
 
 	for _, path := range []string{"artifacts/one.md", "artifacts/two.md"} {
-		if _, err := tool.Execute(ctx, map[string]interface{}{"path": repoPathFromContext(t, ctx, path)}); err != nil {
+		if _, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{"path": repoPathFromContext(t, ctx, path)})); err != nil {
 			t.Fatalf("Execute(%q) error = %v", path, err)
 		}
 	}
@@ -302,7 +307,7 @@ func TestExecute_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(path string) {
 			defer wg.Done()
-			_, err := tool.Execute(ctx, map[string]interface{}{"path": repoPathFromContext(t, ctx, path)})
+			_, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{"path": repoPathFromContext(t, ctx, path)}))
 			errCh <- err
 		}(path)
 	}
@@ -335,9 +340,9 @@ func newToolContext(t *testing.T) (context.Context, string) {
 	repoDir := t.TempDir()
 	manifestPath := filepath.Join(repoDir, "artifacts.jsonl")
 	ctx := tools.ContextWithToolContext(context.Background(), tools.ToolContext{
-		Metadata: map[string]any{
-			metadataKeyArtifactManifestPath: manifestPath,
-			metadataKeyRepoDir:              repoDir,
+		Metadata: tools.ToolMetadata{
+			ArtifactManifestPath: manifestPath,
+			RepoDir:              repoDir,
 		},
 	})
 	return ctx, manifestPath
@@ -381,7 +386,7 @@ func repoPathFromContext(t *testing.T, ctx context.Context, relativePath string)
 	if !ok {
 		t.Fatal("tool context missing")
 	}
-	repoDir := toolCtx.Metadata[metadataKeyRepoDir].(string)
+	repoDir := toolCtx.Metadata.RepoDir
 	return filepath.Join(repoDir, filepath.FromSlash(relativePath))
 }
 

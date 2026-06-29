@@ -182,4 +182,13 @@ export const sessionApi = {
 
 	getSessionEventsURL: (_sessionId?: string, _lastSequence?: number) =>
 		`${API_BASE_URL}/SessionEvents`,
+
+	cancelSessionRun: (params: { session_id: string; reason?: string }) =>
+		apiClient.post<BackendDataResponse<{ session_id: string; status: string }>>(
+			`/CancelSessionRun`,
+			{
+				session_id: params.session_id,
+				reason: params.reason,
+			},
+		),
 };

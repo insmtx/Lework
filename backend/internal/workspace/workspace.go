@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/agent"
+	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/ygpkg/yg-go/logs"
@@ -46,6 +46,9 @@ func PrepareTaskWorkspace(ctx context.Context, req TaskWorkspaceRequest) (*TaskW
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureGitRepo(ctx, plan); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(plan.TurnDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create turn dir: %w", err)
 	}
@@ -59,9 +62,6 @@ func PrepareTaskWorkspace(ctx context.Context, req TaskWorkspaceRequest) (*TaskW
 		return nil, fmt.Errorf("create artifact manifest: %w", err)
 	} else {
 		_ = file.Close()
-	}
-	if err := ensureGitRepo(ctx, plan); err != nil {
-		return nil, err
 	}
 	if err := ensureGitignore(plan.RepoDir); err != nil {
 		return nil, err
@@ -134,7 +134,7 @@ func ResolveTaskWorkspace(req TaskWorkspaceRequest) (*TaskWorkspace, error) {
 }
 
 // FromAgentRequest 从标准化运行请求中的 workspace 上下文解析工作区路径。
-func FromAgentRequest(req *agent.RequestContext) (*TaskWorkspace, bool, error) {
+func FromAgentRequest(req *assistantdomain.RunRequest) (*TaskWorkspace, bool, error) {
 	if req == nil {
 		return nil, false, nil
 	}

@@ -14,17 +14,15 @@ func ResolveWorkspacePath(path string) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 
-	root, err := WorkspaceRoot()
+	root, err := RealWorkspaceRoot()
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace root: %w", err)
 	}
-	root = filepath.Clean(root)
-
 	resolved := filepath.Clean(path)
 	if !filepath.IsAbs(resolved) {
 		resolved = filepath.Join(root, resolved)
 	}
-	resolved, err = filepath.Abs(resolved)
+	resolved, err = CanonicalPath(resolved)
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
@@ -46,7 +44,7 @@ func PathWithinWorkspace(path string) error {
 	if err != nil {
 		return err
 	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
+	absPath, err := CanonicalPath(path)
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}

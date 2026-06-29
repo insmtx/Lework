@@ -26,6 +26,7 @@ type TrailingDebouncer[T any] struct {
 
 	mu      sync.Mutex
 	entries map[string]*debounceEntry[T]
+	closed  bool
 }
 
 type debounceEntry[T any] struct {
@@ -59,6 +60,10 @@ func NewTrailingDebouncer[T any](window time.Duration, handler DebouncedHandler[
 // If a merge function is configured, the incoming value is merged into the existing pending value.
 func (d *TrailingDebouncer[T]) Call(ctx context.Context, key string, value T) {
 	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return
+	}
 	entry := d.entries[key]
 	if entry == nil {
 		entry = &debounceEntry[T]{}
@@ -79,6 +84,33 @@ func (d *TrailingDebouncer[T]) Call(ctx context.Context, key string, value T) {
 	entry.timer = time.AfterFunc(d.window, func() {
 		d.flush(key, seq)
 	})
+	d.mu.Unlock()
+}
+
+// Close stops pending timers and rejects future calls.
+//
+// Handlers that have already started are allowed to finish. Pending values are
+// discarded; callers that need pending-result notification must coordinate it
+// outside the debouncer before calling Close.
+func (d *TrailingDebouncer[T]) Close() {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return
+	}
+	d.closed = true
+	for key, entry := range d.entries {
+		if entry.timer != nil {
+			entry.timer.Stop()
+			entry.timer = nil
+		}
+		if !entry.running {
+			delete(d.entries, key)
+		}
+	}
 	d.mu.Unlock()
 }
 

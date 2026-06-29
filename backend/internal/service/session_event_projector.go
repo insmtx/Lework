@@ -3,113 +3,163 @@ package service
 import (
 	"encoding/json"
 
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
+	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
-// ProjectStreamMessage converts a worker stream message into the public session event shape.
-func ProjectStreamMessage(streamMsg protocol.MessageStreamMessage) (*dto.SessionEvent, bool) {
+// ProjectRunEvent converts a messaging.RunEvent into the public session event shape.
+// This is the preferred entry point for the new messaging architecture.
+func ProjectRunEvent(runEvent messaging.RunEvent) (*dto.SessionEvent, bool) {
 	event := &dto.SessionEvent{
-		SessionID: streamMsg.Route.SessionID,
-		Sequence:  streamMsg.Body.Seq,
-		Timestamp: streamMsg.CreatedAt.UnixMilli(),
+		SessionID: runEvent.Route.SessionID,
+		Sequence:  runEvent.Body.Seq,
+		Timestamp: runEvent.CreatedAt.UnixMilli(),
 	}
 
-	switch streamMsg.Body.Event {
-	case protocol.StreamEventMessageDelta:
+	switch runEvent.Body.Event {
+	case messaging.RunEventMessageDelta:
 		event.Type = events.EventMessageDelta
 		event.Payload = dto.MessageDeltaPayload{
-			MessageID: streamMsg.Body.Payload.MessageID,
-			Role:      string(streamMsg.Body.Payload.Role),
-			Content:   streamMsg.Body.Payload.Content,
+			MessageID: runEvent.Body.Payload.MessageID,
+			Role:      string(runEvent.Body.Payload.Role),
+			Content:   runEvent.Body.Payload.Content,
 		}
-	case protocol.StreamEventReasoningDelta:
+	case messaging.RunEventReasoningDelta:
 		event.Type = events.EventReasoningDelta
 		event.Payload = dto.MessageDeltaPayload{
-			MessageID: streamMsg.Body.Payload.MessageID,
-			Role:      string(streamMsg.Body.Payload.Role),
-			Content:   streamMsg.Body.Payload.Content,
+			MessageID: runEvent.Body.Payload.MessageID,
+			Role:      string(runEvent.Body.Payload.Role),
+			Content:   runEvent.Body.Payload.Content,
 		}
-	case protocol.StreamEventToolCallStarted:
-		if streamMsg.Body.Payload.ToolCall == nil {
+	case messaging.RunEventToolCallStarted:
+		if runEvent.Body.Payload.ToolCall == nil {
 			return nil, false
 		}
 		event.Type = events.EventToolCallStarted
 		event.Payload = dto.ToolCallDeltaPayload{
-			ToolCallID: streamMsg.Body.Payload.ToolCall.ToolCallID,
-			Name:       streamMsg.Body.Payload.ToolCall.Name,
-			Arguments:  streamMsg.Body.Payload.ToolCall.Arguments,
+			ToolCallID: runEvent.Body.Payload.ToolCall.ToolCallID,
+			Name:       runEvent.Body.Payload.ToolCall.Name,
+			Arguments:  events.MarshalRaw(runEvent.Body.Payload.ToolCall.Arguments),
 		}
-	case protocol.StreamEventToolCallFinished:
-		if streamMsg.Body.Payload.ToolResult == nil {
+	case messaging.RunEventToolCallFinished:
+		if runEvent.Body.Payload.ToolResult == nil {
 			return nil, false
 		}
 		event.Type = events.EventToolCallResult
-		event.Payload = toolCallResultPayload(streamMsg.Body.Payload.ToolResult)
-	case protocol.StreamEventTodoSnapshot:
+		event.Payload = toolCallResultPayload(&events.ToolCallResultPayload{
+			ToolCallID: runEvent.Body.Payload.ToolResult.ToolCallID,
+			Name:       runEvent.Body.Payload.ToolResult.Name,
+			Result:     events.MarshalRaw(runEvent.Body.Payload.ToolResult.Result),
+			Error:      runEvent.Body.Payload.ToolResult.Error,
+			IsError:    runEvent.Body.Payload.ToolResult.IsError,
+			ElapsedMS:  runEvent.Body.Payload.ToolResult.ElapsedMS,
+		})
+	case messaging.RunEventTodoSnapshot:
 		event.Type = events.EventTodoSnapshot
-		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
-	case protocol.StreamEventTodoUpdated:
+		event.Payload = todoPayloadFromMessaging(runEvent.Body.Payload.Todos)
+	case messaging.RunEventTodoUpdated:
 		event.Type = events.EventTodoUpdated
-		event.Payload = todoPayload(streamMsg.Body.Payload.Todos)
-	case protocol.StreamEventArtifactDeclared:
-		if streamMsg.Body.Payload.Artifact == nil {
+		event.Payload = todoPayloadFromMessaging(runEvent.Body.Payload.Todos)
+	case messaging.RunEventArtifactDeclared:
+		if runEvent.Body.Payload.Artifact == nil {
 			return nil, false
 		}
 		event.Type = events.EventArtifactDeclared
-		event.Payload = publicStreamArtifactPayload(*streamMsg.Body.Payload.Artifact)
-	case protocol.StreamEventRunStarted:
+		event.Payload = publicStreamArtifactPayload(events.ArtifactPayload{
+			ArtifactID:   runEvent.Body.Payload.Artifact.ArtifactID,
+			Title:        runEvent.Body.Payload.Artifact.Title,
+			Filename:     runEvent.Body.Payload.Artifact.Filename,
+			Description:  runEvent.Body.Payload.Artifact.Description,
+			MimeType:     runEvent.Body.Payload.Artifact.MimeType,
+			ArtifactType: runEvent.Body.Payload.Artifact.ArtifactType,
+			FileSize:     runEvent.Body.Payload.Artifact.FileSize,
+			StorageURI:   runEvent.Body.Payload.Artifact.StorageURI,
+			Sha256:       runEvent.Body.Payload.Artifact.Sha256,
+			CreatedAt:    runEvent.CreatedAt,
+		})
+	case messaging.RunEventRunStarted:
 		event.Type = events.EventStarted
-	case protocol.StreamEventRunCompleted:
+	case messaging.RunEventRunCompleted:
 		event.Type = events.EventCompleted
-		if streamMsg.Body.RunCompleted != nil {
-			event.Payload = publicRunCompletedPayload(streamMsg.Body.RunCompleted)
+		if runEvent.Body.RunCompleted != nil {
+			event.Payload = terminalPayloadFromMessaging(runEvent.Body.RunCompleted, runEvent.Body.Error)
+		}
+	case messaging.RunEventApprovalRequested:
+		event.Type = events.EventApprovalRequested
+		if runEvent.Body.Payload.ApprovalRequest != nil {
+			event.Payload = *runEvent.Body.Payload.ApprovalRequest
+		}
+	case messaging.RunEventApprovalResolved:
+		event.Type = events.EventApprovalResolved
+		if runEvent.Body.Payload.ApprovalDecision != nil {
+			event.Payload = *runEvent.Body.Payload.ApprovalDecision
+		}
+	case messaging.RunEventQuestionAsked:
+		event.Type = events.EventQuestionAsked
+		if runEvent.Body.Payload.QuestionRequest != nil {
+			event.Payload = *runEvent.Body.Payload.QuestionRequest
+		}
+	case messaging.RunEventQuestionAnswered:
+		event.Type = events.EventQuestionAnswered
+		if runEvent.Body.Payload.QuestionAnswer != nil {
+			event.Payload = *runEvent.Body.Payload.QuestionAnswer
+		}
+	case messaging.RunEventRunFailed:
+		event.Type = events.EventFailed
+		message := runEvent.Body.Payload.Content
+		if runEvent.Body.Error != nil {
+			message = runEvent.Body.Error.Message
+		}
+		if runEvent.Body.RunCompleted != nil {
+			event.Payload = terminalPayloadFromMessaging(runEvent.Body.RunCompleted, runEvent.Body.Error)
 		} else {
 			event.Payload = dto.RunStatusPayload{
-				Status:  "completed",
-				RunID:   streamMsg.Trace.RunID,
-				Message: streamMsg.Body.Payload.Content,
+				Status:  "failed",
+				RunID:   runEvent.Trace.RunID,
+				Message: message,
 			}
 		}
-	case protocol.StreamEventApprovalRequested:
-		event.Type = events.EventApprovalRequested
-		if streamMsg.Body.Payload.ApprovalRequest != nil {
-			event.Payload = *streamMsg.Body.Payload.ApprovalRequest
+	case messaging.RunEventRunCancelled:
+		event.Type = events.EventCancelled
+		message := "已取消"
+		if runEvent.Body.RunCompleted != nil && runEvent.Body.RunCompleted.Result.Message != "" {
+			message = runEvent.Body.RunCompleted.Result.Message
 		}
-	case protocol.StreamEventApprovalResolved:
-		event.Type = events.EventApprovalResolved
-		if streamMsg.Body.Payload.ApprovalDecision != nil {
-			event.Payload = *streamMsg.Body.Payload.ApprovalDecision
-		}
-	case protocol.StreamEventQuestionAsked:
-		event.Type = events.EventQuestionAsked
-		if streamMsg.Body.Payload.QuestionRequest != nil {
-			event.Payload = *streamMsg.Body.Payload.QuestionRequest
-		}
-	case protocol.StreamEventQuestionAnswered:
-		event.Type = events.EventQuestionAnswered
-		if streamMsg.Body.Payload.QuestionAnswer != nil {
-			event.Payload = *streamMsg.Body.Payload.QuestionAnswer
-		}
-	case protocol.StreamEventRunFailed:
-		event.Type = events.EventFailed
-		message := streamMsg.Body.Payload.Content
-		if streamMsg.Body.Error != nil {
-			message = streamMsg.Body.Error.Message
-		}
-		event.Payload = dto.RunStatusPayload{
-			Status:  "failed",
-			RunID:   streamMsg.Trace.RunID,
-			Message: message,
+		if runEvent.Body.RunCompleted != nil {
+			event.Payload = terminalPayloadFromMessaging(runEvent.Body.RunCompleted, runEvent.Body.Error)
+		} else {
+			event.Payload = dto.RunStatusPayload{
+				Status:  "cancelled",
+				RunID:   runEvent.Trace.RunID,
+				Message: message,
+			}
 		}
 	default:
 		return nil, false
 	}
 
 	return event, true
+}
+
+func todoPayloadFromMessaging(items []messaging.RuntimeTodoItem) []dto.RuntimeTodoItemPayload {
+	if len(items) == 0 {
+		return []dto.RuntimeTodoItemPayload{}
+	}
+	result := make([]dto.RuntimeTodoItemPayload, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.RuntimeTodoItemPayload{
+			ID:       item.ID,
+			Title:    item.Title,
+			Status:   item.Status,
+			Priority: item.Priority,
+		})
+	}
+	return result
 }
 
 // ProjectRunEventRecord converts a persisted runtime event chunk into the public session event shape.
@@ -120,17 +170,22 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 		Timestamp: chunk.Timestamp,
 	}
 
-	switch events.EventType(chunk.Type) {
+	switch agent.EventType(chunk.Type) {
 	case events.EventStarted:
 		event.Type = string(events.EventStarted)
 	case events.EventCompleted:
 		event.Type = string(events.EventCompleted)
-		if payload, ok := decodeChunkPayload[events.RunCompletedPayload](chunk); ok {
+		if payload, ok := decodeTerminalChunk(chunk); ok {
 			event.Payload = payload
 		}
-	case events.EventFailed, events.EventCancelled:
+	case events.EventFailed:
 		event.Type = string(events.EventFailed)
-		if payload, ok := decodeChunkPayload[events.RunCompletedPayload](chunk); ok {
+		if payload, ok := decodeTerminalChunk(chunk); ok {
+			event.Payload = payload
+		}
+	case events.EventCancelled:
+		event.Type = string(events.EventCancelled)
+		if payload, ok := decodeTerminalChunk(chunk); ok {
 			event.Payload = payload
 		}
 	case events.EventMessageDelta:
@@ -221,7 +276,7 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 			return nil, false
 		}
 		event.Type = string(events.EventArtifactDeclared)
-		event.Payload = payload
+		event.Payload = publicStreamArtifactPayload(payload)
 	default:
 		return nil, false
 	}
@@ -231,28 +286,17 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 
 func publicStreamArtifactPayload(payload events.ArtifactPayload) events.ArtifactPayload {
 	return events.ArtifactPayload{
-		ArtifactID:     payload.ArtifactID,
-		Title:          payload.Title,
-		Filename:       payload.Filename,
-		MimeType:       payload.MimeType,
-		ArtifactType:   payload.ArtifactType,
-		CreatedAt:      payload.CreatedAt,
-		StorageURI: payload.StorageURI,
+		ArtifactID:   payload.ArtifactID,
+		Title:        payload.Title,
+		Filename:     payload.Filename,
+		Description:  payload.Description,
+		MimeType:     payload.MimeType,
+		ArtifactType: payload.ArtifactType,
+		FileSize:     payload.FileSize,
+		CreatedAt:    payload.CreatedAt,
+		StorageURI:   payload.StorageURI,
+		Sha256:       payload.Sha256,
 	}
-}
-
-func publicRunCompletedPayload(payload *events.RunCompletedPayload) *events.RunCompletedPayload {
-	if payload == nil {
-		return nil
-	}
-	result := *payload
-	if len(payload.Artifacts) > 0 {
-		result.Artifacts = make([]events.ArtifactPayload, 0, len(payload.Artifacts))
-		for _, artifact := range payload.Artifacts {
-			result.Artifacts = append(result.Artifacts, publicStreamArtifactPayload(artifact))
-		}
-	}
-	return &result
 }
 
 func decodeChunkPayload[T any](chunk types.MessageChunk) (T, bool) {
@@ -266,9 +310,99 @@ func decodeChunkPayload[T any](chunk types.MessageChunk) (T, bool) {
 	return value, true
 }
 
+func decodeTerminalChunk(chunk types.MessageChunk) (dto.RunTerminalPayload, bool) {
+	payload, ok := decodeChunkPayload[assistantdomain.TerminalPayload](chunk)
+	if !ok {
+		return dto.RunTerminalPayload{}, false
+	}
+	return terminalPayloadFromDomain(payload), true
+}
+
+func terminalPayloadFromDomain(payload assistantdomain.TerminalPayload) dto.RunTerminalPayload {
+	return dto.RunTerminalPayload{
+		Status:      payload.Status,
+		Result:      messaging.RunResultPayload{Message: payload.Message},
+		Error:       payload.Error,
+		Artifacts:   append([]assistantdomain.ArtifactRecord(nil), payload.Artifacts...),
+		Usage:       payload.Usage,
+		Events:      append([]assistantdomain.TerminalEventRecord(nil), payload.Events...),
+		StartedAt:   payload.StartedAt,
+		CompletedAt: payload.CompletedAt,
+		Metadata:    payload.Metadata,
+	}
+}
+
+func terminalPayloadFromMessaging(
+	payload *messaging.RunCompletedPayload,
+	runError *messaging.RunEventError,
+) dto.RunTerminalPayload {
+	if payload == nil {
+		return dto.RunTerminalPayload{}
+	}
+	result := dto.RunTerminalPayload{
+		Status:      payload.Status,
+		Result:      payload.Result,
+		StartedAt:   payload.StartedAt,
+		CompletedAt: payload.CompletedAt,
+	}
+	if runError != nil {
+		result.Error = runError.Message
+	}
+	if payload.Usage != nil {
+		result.Usage = &agent.Usage{
+			InputTokens:  payload.Usage.InputTokens,
+			OutputTokens: payload.Usage.OutputTokens,
+			TotalTokens:  payload.Usage.TotalTokens,
+		}
+	}
+	for _, artifact := range payload.Artifacts {
+		result.Artifacts = append(result.Artifacts, assistantdomain.ArtifactRecord{
+			ArtifactID:   artifact.ArtifactID,
+			Title:        artifact.Title,
+			Filename:     artifact.Filename,
+			OriginalName: artifact.OriginalName,
+			Description:  artifact.Description,
+			MimeType:     artifact.MimeType,
+			ArtifactType: artifact.ArtifactType,
+			FileSize:     artifact.FileSize,
+			RelativePath: artifact.RelativePath,
+			StorageKey:   artifact.StorageKey,
+			StorageURI:   artifact.StorageURI,
+			Sha256:       artifact.Sha256,
+			Source:       artifact.Source,
+			Status:       artifact.Status,
+		})
+	}
+	for _, record := range payload.Events {
+		result.Events = append(result.Events, assistantdomain.TerminalEventRecord{
+			Seq:       record.Seq,
+			LastSeq:   record.LastSeq,
+			Type:      record.Type,
+			Timestamp: record.Timestamp,
+			Payload:   append(json.RawMessage(nil), record.Payload...),
+		})
+	}
+	if payload.Metadata != nil {
+		result.Metadata = &assistantdomain.RunMetadata{
+			Runtime:    payload.Metadata.Runtime,
+			WorkDir:    payload.Metadata.WorkDir,
+			ProviderID: payload.Metadata.ProviderID,
+			SessionID:  payload.Metadata.SessionID,
+			Phase:      payload.Metadata.Phase,
+			Resume:     payload.Metadata.Resume,
+		}
+	}
+	return result
+}
+
 func toolCallResultPayload(result *events.ToolCallResultPayload) dto.ToolCallResultPayload {
 	status := "success"
-	value := result.Result
+	var value any
+	if len(result.Result) > 0 {
+		if err := json.Unmarshal(result.Result, &value); err != nil {
+			value = string(result.Result)
+		}
+	}
 	if result.IsError {
 		status = "error"
 		if value == nil {

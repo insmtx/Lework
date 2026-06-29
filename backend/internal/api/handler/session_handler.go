@@ -7,10 +7,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ygpkg/yg-go/logs"
 
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
 )
 
 type SessionHandler struct {
@@ -35,6 +36,7 @@ func (h *SessionHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/GetSessionMessages", h.GetSessionMessages)
 	r.POST("/DeleteMessage", h.DeleteMessage)
 	r.POST("/ClearSessionMessages", h.ClearSessionMessages)
+	r.POST("/CancelSessionRun", h.CancelSessionRun)
 }
 
 func RegisterSessionRoutes(r gin.IRouter, service contract.SessionService) {
@@ -223,7 +225,7 @@ func (h *SessionHandler) SessionEvents(ctx *gin.Context) {
 	ctx.Header("Connection", "keep-alive")
 	ctx.Header("Access-Control-Allow-Origin", "*")
 
-	eventChan := make(chan *events.Event, 16)
+	eventChan := make(chan *agent.Event, 16)
 	sink := events.ChannelSink{C: eventChan}
 
 	go func() {
@@ -502,4 +504,22 @@ func handleSessionServiceError(ctx *gin.Context, err error) {
 		return
 	}
 	ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+}
+
+// CancelSessionRun cancels an active agent run for the given session.
+// POST /CancelSessionRun
+func (h *SessionHandler) CancelSessionRun(ctx *gin.Context) {
+	var req contract.CancelSessionRunRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.CancelSessionRun(ctx, req.SessionID, &req)
+	if err != nil {
+		handleSessionServiceError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, dto.Success(result))
 }

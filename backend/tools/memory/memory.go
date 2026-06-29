@@ -3,6 +3,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -81,7 +82,15 @@ func NewToolWithStore(store *localmemory.Store) *Tool {
 }
 
 // Validate checks memory tool input before execution.
-func (t *Tool) Validate(input map[string]interface{}) error {
+func (t *Tool) Validate(raw json.RawMessage) error {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return err
+	}
+	return validateInput(input)
+}
+
+func validateInput(input map[string]any) error {
 	action := strings.TrimSpace(stringValue(input, "action"))
 	target := strings.TrimSpace(stringValue(input, "target"))
 	if action == "" {
@@ -118,11 +127,15 @@ func (t *Tool) Validate(input map[string]interface{}) error {
 }
 
 // Execute performs the memory operation.
-func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
+func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error) {
 	if t == nil || t.store == nil {
 		return "", fmt.Errorf("memory store is not initialized")
 	}
-	if err := t.Validate(input); err != nil {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := validateInput(input); err != nil {
 		return "", err
 	}
 
@@ -155,19 +168,19 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 	}
 
 	var result *localmemory.Result
-	var err error
+	var operationErr error
 	switch action {
 	case "add":
-		result, err = store.Add(ctx, storeTarget, content)
+		result, operationErr = store.Add(ctx, storeTarget, content)
 	case "replace":
-		result, err = store.Replace(ctx, storeTarget, oldText, content)
+		result, operationErr = store.Replace(ctx, storeTarget, oldText, content)
 	case "remove":
-		result, err = store.Remove(ctx, storeTarget, oldText)
+		result, operationErr = store.Remove(ctx, storeTarget, oldText)
 	default:
 		return "", fmt.Errorf("unknown action %q", action)
 	}
-	if err != nil {
-		return "", err
+	if operationErr != nil {
+		return "", operationErr
 	}
 	return tools.JSONString(result)
 }

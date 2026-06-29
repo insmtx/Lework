@@ -3,6 +3,7 @@ package nodetools
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -51,7 +52,15 @@ func newNodeFileReadToolWithExecutor(executor nodeExecutor) *NodeFileReadTool {
 }
 
 // Validate checks node file read tool input.
-func (t *NodeFileReadTool) Validate(input map[string]interface{}) error {
+func (t *NodeFileReadTool) Validate(raw json.RawMessage) error {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return err
+	}
+	return validateReadInput(input)
+}
+
+func validateReadInput(input map[string]any) error {
 	if input == nil {
 		return fmt.Errorf("input is required")
 	}
@@ -72,7 +81,14 @@ func (t *NodeFileReadTool) Validate(input map[string]interface{}) error {
 }
 
 // Execute reads a file from the worker workspace.
-func (t *NodeFileReadTool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
+func (t *NodeFileReadTool) Execute(ctx context.Context, raw json.RawMessage) (string, error) {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := validateReadInput(input); err != nil {
+		return "", err
+	}
 	path := util.StringValue(input, "path")
 	resolvedPath, err := resolveToolPath(ctx, path)
 	if err != nil {

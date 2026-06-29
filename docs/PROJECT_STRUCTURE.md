@@ -30,9 +30,10 @@ Go Module: `github.com/insmtx/Leros` | Go 1.24
 
 | 接口 | 位置 | 职责 |
 |------|------|------|
-| `agent.Runner` | `backend/internal/agent/runner.go` | Agent 单次运行的执行边界 |
+| `agent.Runtime` | `backend/agent/runtime.go` | 业务无关的单次执行边界 |
+| `agent.RuntimeResolver` | `backend/agent/runtime.go` | Runtime 解析与默认选择 |
+| `agent.Tool` | `backend/agent/tool.go` | Runtime 可调用工具的纯执行契约 |
 | `tools.Tool` | `backend/tools/tool.go` | Worker 可调用工具的最小接口 |
-| `engines.Engine` | `backend/engines/engine.go` | 外部 AI CLI 引擎边界 |
 | `mq.EventBus` | `backend/internal/infra/mq/bus.go` | 事件总线发布与订阅 |
 | `Connector` | `backend/internal/api/connectors/connector.go` | 外部渠道连接器 |
 | `skill/catalog.CatalogProvider` | `backend/internal/skill/catalog/provider.go` | 技能目录提供者 |
@@ -40,12 +41,14 @@ Go Module: `github.com/insmtx/Leros` | Go 1.24
 ### 主数据流
 
 ```text
-UI Client -> REST/WS -> Server -> NATS -> Worker -> Agent Runtime -> Tools/MCP
-     ^                                                               |
-     |---------------------- Stream Events / Messages ---------------|
+UI Client -> REST/WS -> Server -> NATS WorkerCommand
+                                   |
+                                   v
+Handler -> RunCoordinator -> assistant.Service -> agent.Executor -> Runtime
+   ^                                                               |
+   |---------------- RunEvent / SSE / Session Message --------------|
 
-GitHub/GitLab Webhook -> Connector -> NATS -> Event Engine -> Agent Runner
-Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
+GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 ```
 
 ## 根目录
@@ -162,53 +165,52 @@ Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 | `providers/github/` | GitHub OAuth Provider、Client Factory、Resolver |
 | `websocket/` | WebSocket 连接器、连接管理器和消息类型 |
 
-### `backend/internal/agent/` - Agent 运行边界
+### `backend/agent/` - 独立 Agent 执行层
 
-| 文件 | 说明 |
+| 路径/文件 | 说明 |
 |------|------|
-| `runner.go` | `Runner` 接口 |
-| `router.go` | Runtime Router，按运行时类型分发 |
-| `request.go` | Agent 运行请求 |
-| `result.go` | Agent 运行结果 |
+| `runtime.go` | 唯一 `ExecutionRequest`、`ExecutionResult` 和 `Runtime` |
+| `executor.go` | Runtime 解析与 `execution.*` 生命周期 |
+| `registry.go` | 四个 Runtime 的注册和默认选择 |
+| `result.go` | 唯一 `agent.Event` 信封、Usage、ToolCallRecord |
+| `tool.go` | 强类型 Tool、approval、question |
+| `runtime/native/` | Eino 原生 Runtime |
+| `runtime/claude/` | Claude Code Runtime |
+| `runtime/codex/` | Codex Runtime |
+| `runtime/opencode/` | OpenCode Runtime |
+| `runtime/externalcli/` | CLI 进程、provider session 和事件消费设施 |
+| `runtime/provider/` | CLI provider 的内部进程协议 |
+| `runtime/events/` | 活动 payload、构造器、Sink 和 Emitter |
+| `runtime/todo/` | 执行期 Todo 能力 |
 
-### `backend/internal/runtime/` - Agent 运行时基础设施
+### `backend/internal/assistant/` - Assistant 业务包装层
 
-| 路径 | 说明 |
+| 路径/文件 | 说明 |
 |------|------|
-| `service.go` | 顶层 Runtime Service，构建 DI 容器和 Runner Router |
-| `deps/` | 运行时依赖容器 |
-| `events/` | 运行事件类型、Envelope、Sink、Emitter、流事件消息 |
-| `lifecycle/` | 运行生命周期管道：上下文、授权、模型、执行、持久化、学习、状态等步骤 |
-| `drivers/native/` | 原生 Eino Runtime，内置工具和 LLM 适配 |
-| `drivers/externalcli/` | Claude Code/Codex 等外部 CLI Runner |
-| `drivers/simplechat/` | 简单聊天运行时和控制台交互 |
-| `mcp/` | Worker 侧 MCP Server、Router、认证 |
-| `todo/` | 运行时 Todo 跟踪器和上下文 |
+| `service.go` | 唯一业务 Run 生命周期和终态 |
+| `prepared_run.go` | 业务快照、WorkspacePreparation、ExecutionRequest |
+| `preparer_impl.go` | Workspace、Memory、Skill prompt、Tool 与模型准备 |
+| `journal.go` | event、payload、usage、tool call 和统计归档 |
+| `finalizer_impl.go` | Artifact、Git 和业务结果 |
+| `context/` | Assistant 业务上下文构建 |
+| `bootstrap/` | Runtime 和 Skill link 装配 |
 
 ### `backend/internal/worker/` - Worker 系统
 
 | 路径 | 说明 |
 |------|------|
-| `worker.go` | Worker 类型别名 |
 | `scheduler.go` | `WorkerScheduler` 接口、`WorkerSpec`、`WorkerInstance` |
 | `scheduler/process_scheduler.go` | 通过本地进程启动 Worker |
 | `scheduler/dockercli_scheduler.go` | 通过 Docker CLI 调度 Worker |
 | `server/` | Worker 服务端和连接管理 |
 | `client/` | Worker Client 和 WebSocket Client |
 | `router/` | Worker 路由 |
-| `taskconsumer/` | NATS Worker 任务订阅、映射、流事件转发 |
-| `approval/` | Worker 审批事件订阅 |
+| `command/` | 统一 Worker 命令分发器与各 lane handler（run/interaction/skill） |
+| `run/` | RunCoordinator：debounce、并发、Session 串行、取消、Close |
+| `eventpub/` | `agent.Event` 到 NATS `run.stream` / `run.state` |
+| `mcp/` | Worker 侧 MCP Server、Router 与实例级 token |
 | `identity/` | Worker 身份配置 |
-| `protocol/` | Worker 领域协议：Envelope、Task、Stream |
 | `wsproto/` | Worker WebSocket 协议类型 |
-
-### `backend/internal/eventengine/` - 事件引擎
-
-| 文件 | 说明 |
-|------|------|
-| `README.md` | 事件引擎说明 |
-| `orchestrator.go` | 订阅交互事件，映射为 Agent 输入并分发 |
-| `mapper.go` | 外部事件到运行请求的映射 |
 
 ### `backend/internal/skill/` - 技能系统
 
@@ -236,26 +238,6 @@ Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 | `memory/local/` | 本地文件记忆存储 |
 | `modelrouter/` | Worker LLM 模型代理和 SSE 转发 |
 | `runnable/` | 后台可运行任务，如会话完成、标题生成 |
-
-### `backend/engines/` - 外部 AI CLI 引擎
-
-| 路径/文件 | 说明 |
-|-----------|------|
-| `engine.go` | `Engine`、`RunRequest`、`RunHandle` 等核心接口 |
-| `registry.go` | 引擎注册表 |
-| `approval_router.go` | 引擎审批路由 |
-| `env.go` | 引擎环境变量配置 |
-| `process.go` | 进程生命周期事件 |
-| `status.go` | 引擎状态 |
-| `cli_discovery.go` | 从 PATH 自动发现 CLI |
-| `skills_sync.go` | 技能同步 |
-| `mcp_registration.go` | MCP Server 注册 |
-| `scan.go` | 引擎扫描 |
-| `workdir.go` | 引擎工作目录管理 |
-| `claude/` | Claude Code 适配器、命令、调用器、输出解析、Todo 写入 |
-| `codex/` | Codex 适配器、App Server、JSON-RPC、Transport、调用器 |
-| `native/` | 原生 Eino 引擎适配、Runner、状态和工具适配 |
-| `builtin/` | 内置引擎工厂和 Bootstrap Service |
 
 ### `backend/tools/` - 工具系统
 
@@ -403,32 +385,32 @@ Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 
 ### 新增事件处理器
 
-1. `backend/pkg/event/topic.go`：确认 Topic。
-2. `backend/internal/eventengine/mapper.go`：映射外部事件到运行请求。
-3. `backend/internal/eventengine/orchestrator.go`：注册处理逻辑。
-4. `backend/types/event.go` 或 `types/constants.go`：如需持久化事件类型，补齐类型常量。
+1. `backend/internal/api/connectors/<channel>/`：将外部事件标准化。
+2. `backend/pkg/messaging/`：确认或新增强类型 wire contract。
+3. `backend/internal/worker/command/<lane>/`：实现 Command adapter。
+4. `backend/cmd/leros/`：在 composition root 注册依赖。
 
 ### 新增 Agent 运行时
 
-1. `backend/internal/agent/runner.go`：确认 Runner 接口。
-2. `backend/internal/runtime/drivers/<runtime_name>/`：实现 Runner。
-3. `backend/internal/agent/router.go`：注册运行时。
-4. `backend/internal/runtime/service.go`：接入依赖初始化。
+1. `backend/agent/runtime.go`：确认纯 `Runtime` 契约。
+2. `backend/agent/runtime/<runtime_name>/`：直接实现 `agent.Runtime`。
+3. `backend/agent/runtime_contract_test.go`：加入共用 contract suite。
+4. `backend/cmd/leros/worker.go`：构造并注册 Runtime。
 
 ### 新增外部 CLI 引擎
 
-1. `backend/engines/engine.go`：实现 `Engine` 接口。
-2. `backend/engines/<engine_name>/adapter.go`：实现适配器。
-3. `backend/engines/<engine_name>/invoker.go`：实现进程调用。
-4. `backend/engines/builtin/factory.go`：注册到工厂。
-5. `backend/cmd/leros/worker.go`：如需单独 Worker 子命令，在入口层注册。
+1. `backend/agent/runtime/provider/`：只在确有共性时扩展 provider 进程协议。
+2. `backend/agent/runtime/externalcli/`：复用通用进程、会话与事件消费设施。
+3. `backend/agent/runtime/<runtime_name>/`：实现具体 Runtime、解析器和 responder。
+4. `backend/cmd/leros/worker.go`：实例化并注册，禁止增加全局默认实例。
 
 ### 新增 Tool
 
 1. `backend/tools/tool.go`：确认 `Tool` 接口和 Schema 结构。
 2. `backend/tools/<tool_name>/`：实现工具。
 3. `backend/tools/<tool_name>/register.go`：提供注册入口。
-4. `backend/internal/runtime/deps/` 或相关 Runner 初始化：接入工具注册。
+4. `backend/internal/assistant/bootstrap/builtin/`：接入 Tool 注册。
+5. `backend/internal/assistant/tool_adapter.go`：保持业务 Tool 到 `agent.Tool` 的边界转换。
 
 ### 新增 Skill
 
@@ -442,13 +424,13 @@ Worker Process/Container -> Worker Server/Router -> Task Consumer -> Runtime
 1. `backend/internal/worker/scheduler.go`：确认调度接口。
 2. `backend/internal/worker/scheduler/`：实现具体调度器。
 3. `backend/internal/worker/server/`：如涉及连接生命周期，补齐服务端管理。
-4. `backend/internal/worker/taskconsumer/`：如涉及任务消费，补齐映射和流事件转发。
+4. `backend/internal/worker/command/run/`：如涉及任务消费，补齐映射和流事件转发。
 5. `backend/config/scheduler.go`、`worker.go`：补齐配置。
 
 ### 新增工作空间或产物能力
 
 1. `backend/internal/workspace/`：实现路径、扫描、存储或产物收集逻辑。
-2. `backend/internal/worker/taskconsumer/`：确认运行时工作空间注入。
+2. `backend/internal/worker/command/run/`：确认运行时工作空间注入。
 3. `backend/internal/service/artifact_service.go`：如涉及 API 产物管理，接入服务层。
 4. `backend/internal/api/handler/artifact_handler.go`：暴露端点。
 

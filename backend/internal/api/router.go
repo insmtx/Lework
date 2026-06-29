@@ -8,11 +8,11 @@ import (
 	"context"
 	"strings"
 
+	"code.gitea.io/sdk/gitea"
 	"github.com/gin-gonic/gin"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	"code.gitea.io/sdk/gitea"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
@@ -143,14 +143,13 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 
 		// Start background consumers
 		if !cfg.Server.DisableEventConsumers {
-			go runnable.StartSessionArtifactDeclared(context.Background(), eventbus, db, nil)
-			logs.Info("Session artifact declared runnable started")
-			go runnable.StartSessionRunStarted(context.Background(), sessionService, eventbus)
-			logs.Info("Session run started runnable started")
-			go runnable.StartSessionCompleted(context.Background(), sessionService, eventbus, db)
-			logs.Info("Session completed runnable started")
-			go runnable.StartSessionTitleHandler(context.Background(), sessionService, eventbus, db)
-			logs.Info("Session title handler runnable started")
+			// 统一的 run state projector，消费 org.*.session.*.run.state
+			// 替代旧分散的 StartSessionRunStarted + StartSessionArtifactDeclared + StartSessionCompleted
+			go runnable.StartSessionRunStateProjector(context.Background(), sessionService, eventbus, db)
+			logs.Info("Session run state projector started")
+			// Stream projector records the stream lane start seq for SSE replay.
+			go runnable.StartSessionRunStreamProjector(context.Background(), sessionService, eventbus)
+			logs.Info("Session run stream projector started")
 		} else {
 			logs.Info("Session event consumers disabled by config")
 		}
