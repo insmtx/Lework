@@ -159,3 +159,39 @@ func TestProjectRunEventAndPersistedChunkKeepStreamSequenceAndPayload(t *testing
 		t.Fatalf("replayed payload = %#v, want %#v", replayed.Payload, livePayload)
 	}
 }
+
+func TestProjectRunEventProjectsWorkTitleUpdatedPayload(t *testing.T) {
+	runEvent := messaging.RunEvent{
+		CreatedAt: time.UnixMilli(1779243000000).UTC(),
+		Route:     messaging.RouteContext{SessionID: "sess_test"},
+		Body: messaging.RunEventBody{
+			Seq:   11,
+			Event: messaging.RunEventWorkTitleUpdated,
+			Payload: messaging.RunEventPayload{
+				WorkTitle: &messaging.WorkTitleUpdatedPayload{
+					ProjectID:    "prj_test",
+					ProjectName:  "季度经营分析",
+					TaskID:       "task_test",
+					TaskTitle:    "季度经营分析",
+					SessionID:    "sess_test",
+					SessionTitle: "季度经营分析",
+				},
+			},
+		},
+	}
+
+	event, ok := ProjectRunEvent(runEvent)
+	if !ok {
+		t.Fatal("expected work title event to project")
+	}
+	if event.Type != events.EventWorkTitleUpdated {
+		t.Fatalf("got type %q, want %q", event.Type, events.EventWorkTitleUpdated)
+	}
+	payload, ok := event.Payload.(events.WorkTitleUpdatedPayload)
+	if !ok {
+		t.Fatalf("unexpected payload type: %#v", event.Payload)
+	}
+	if payload.ProjectName != "季度经营分析" || payload.TaskTitle != "季度经营分析" || payload.SessionID != "sess_test" {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}

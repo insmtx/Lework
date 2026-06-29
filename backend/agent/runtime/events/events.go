@@ -88,6 +88,9 @@ const (
 	// EventQuestionAnswered indicates a question has been answered by the user.
 	EventQuestionAnswered agent.EventType = "question.answered"
 
+	// EventWorkTitleUpdated indicates project/task titles were auto-generated after the first message.
+	EventWorkTitleUpdated agent.EventType = "work.title.updated"
+
 	// EventProviderSessionStarted indicates the provider exposed a native session ID.
 	EventProviderSessionStarted agent.EventType = "provider_session.started"
 )
@@ -128,6 +131,16 @@ type RuntimeTodoItem struct {
 	Title    string `json:"title"`
 	Status   string `json:"status"`
 	Priority string `json:"priority,omitempty"`
+}
+
+// WorkTitleUpdatedPayload notifies clients that project/task titles were auto-generated.
+type WorkTitleUpdatedPayload struct {
+	ProjectID    string `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	TaskID       string `json:"task_id,omitempty"`
+	TaskTitle    string `json:"task_title,omitempty"`
+	SessionID    string `json:"session_id"`
+	SessionTitle string `json:"session_title,omitempty"`
 }
 
 // RunEventRecord 是归一化、已归档的运行时事件。

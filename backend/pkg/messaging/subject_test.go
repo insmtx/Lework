@@ -201,6 +201,7 @@ func TestClassifyRunEvent(t *testing.T) {
 		{RunEventApprovalResolved, RunEventLaneState},
 		{RunEventQuestionAsked, RunEventLaneState},
 		{RunEventQuestionAnswered, RunEventLaneState},
+		{RunEventWorkTitleUpdated, RunEventLaneState},
 
 		// Stream lane events
 		{RunEventMessageDelta, RunEventLaneStream},

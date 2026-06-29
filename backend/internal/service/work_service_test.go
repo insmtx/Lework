@@ -15,7 +15,7 @@ func setupTestWorkService(t *testing.T) (*workService, *gorm.DB) {
 	t.Helper()
 	db := setupTestDB(t)
 	inferrer := &mockInferrer{assistantID: 1}
-	service := NewWorkService(db, &mockEventBus{}, inferrer, nil, nil, "test")
+	service := NewWorkService(db, &mockEventBus{}, inferrer, nil, nil, "test", nil)
 	typed, ok := service.(*workService)
 	if !ok {
 		t.Fatalf("expected *workService, got %T", service)

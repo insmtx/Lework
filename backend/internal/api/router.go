@@ -108,7 +108,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		projectFileHandler.RegisterRoutes(v1)
 		logs.Info("Project file routes registered successfully")
 
-		workService := service.NewWorkService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env)
+		workService := service.NewWorkService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, sessionService)
 		handler.RegisterWorkRoutes(v1, workService)
 		logs.Info("Work routes registered successfully")
 

@@ -30,6 +30,9 @@ const (
 	// RunEventQuestionAnswered 表示问题已被回答。
 	RunEventQuestionAnswered RunEventType = "question.answered"
 
+	// RunEventWorkTitleUpdated 表示项目/任务标题已由 LLM 自动生成。
+	RunEventWorkTitleUpdated RunEventType = "work.title.updated"
+
 	// ---- stream lane 事件（高频增量，SSE 实时流） ----
 
 	// RunEventMessageDelta 表示助手文本增量输出。
@@ -69,7 +72,8 @@ func ClassifyRunEvent(eventType RunEventType) RunEventLane {
 	case RunEventRunStarted, RunEventRunCompleted, RunEventRunFailed, RunEventRunCancelled,
 		RunEventArtifactDeclared,
 		RunEventApprovalRequested, RunEventApprovalResolved,
-		RunEventQuestionAsked, RunEventQuestionAnswered:
+		RunEventQuestionAsked, RunEventQuestionAnswered,
+		RunEventWorkTitleUpdated:
 		return RunEventLaneState
 
 	// Stream lane — 高频增量
@@ -114,6 +118,17 @@ type RunEventPayload struct {
 	ApprovalDecision *ApprovalDecisionPayload `json:"approval_decision,omitempty"`
 	QuestionRequest  *QuestionRequestPayload  `json:"question_request,omitempty"`
 	QuestionAnswer   *QuestionAnswerPayload   `json:"question_answer,omitempty"`
+	WorkTitle        *WorkTitleUpdatedPayload `json:"work_title,omitempty"`
+}
+
+// WorkTitleUpdatedPayload notifies clients that project/task titles were auto-generated.
+type WorkTitleUpdatedPayload struct {
+	ProjectID    string `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	TaskID       string `json:"task_id,omitempty"`
+	TaskTitle    string `json:"task_title,omitempty"`
+	SessionID    string `json:"session_id"`
+	SessionTitle string `json:"session_title,omitempty"`
 }
 
 // RunEventError 描述流执行中的终止或可恢复错误。
