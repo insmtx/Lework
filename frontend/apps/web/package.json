@@ -12,7 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@eigenpal/docx-editor-react": "^1.1.0",
     "@leros/app-ui": "workspace:*",
     "@leros/store": "workspace:*",
     "@leros/styles": "workspace:*",

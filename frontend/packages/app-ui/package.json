@@ -15,14 +15,15 @@
 	"dependencies": {
 		"@dicebear/core": "^10.3.0",
 		"@dicebear/styles": "^10.2.0",
-		"@eigenpal/docx-editor-react": "^1.1.0",
 		"@leros/store": "workspace:*",
 		"@leros/ui": "workspace:*",
+		"@silurus/ooxml": "^0.66.3",
 		"lucide-react": "catalog:",
 		"react-markdown": "^10.1.0",
 		"rehype-katex": "^7.0.1",
 		"remark-gfm": "^4.0.1",
 		"remark-math": "^6.0.0",
+		"sonner": "^2.0.7",
 		"xlsx": "^0.18.5"
 	},
 	"peerDependencies": {

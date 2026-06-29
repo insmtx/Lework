@@ -1,10 +1,10 @@
 "use client";
 
 import {
+	API_BASE_URL,
 	type Project,
 	type ProjectSkill,
 	type ProjectTask,
-	API_BASE_URL,
 	projectFileApi,
 	type SkillInstalledItem,
 	skillMarketplaceApi,
@@ -49,20 +49,14 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import {
-	type ComponentType,
-	type CSSProperties,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { notifyFeatureUnavailable } from "../ai-teammates/feature-unavailable";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ChatInput } from "../input/ChatInput";
 import type { AppNavigation } from "./LeftRail";
+import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat, OfficePreview } from "./OfficePreview";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
 import {
 	ProjectFileTypeIcon,
@@ -102,42 +96,11 @@ type FilePreviewState =
 	| { status: "idle" }
 	| { status: "loading" }
 	| { status: "error"; message: string }
-	| { status: "docx"; buffer: ArrayBuffer }
+	| { status: "office"; format: OfficeOpenXmlFormat; buffer: ArrayBuffer }
 	| { status: "markdown"; content: string }
 	| { status: "text"; content: string }
 	| { status: "spreadsheet"; buffer: ArrayBuffer }
 	| { status: "blob"; url: string; mimeType: string };
-
-type DocxEditorComponent = ComponentType<{
-	documentBuffer?: ArrayBuffer | null;
-	mode?: "editing" | "suggesting" | "viewing";
-	readOnly?: boolean;
-	showToolbar?: boolean;
-	showZoomControl?: boolean;
-	showRuler?: boolean;
-	showOutline?: boolean;
-	showOutlineButton?: boolean;
-	disableFindReplaceShortcuts?: boolean;
-	initialZoom?: number;
-	className?: string;
-	style?: CSSProperties;
-	documentName?: string;
-	documentNameEditable?: boolean;
-	loadingIndicator?: React.ReactNode;
-	onError?: (error: Error) => void;
-}>;
-
-let docxEditorComponent: DocxEditorComponent | null = null;
-let docxEditorPromise: Promise<DocxEditorComponent> | null = null;
-
-function loadDocxEditor(): Promise<DocxEditorComponent> {
-	if (docxEditorComponent) return Promise.resolve(docxEditorComponent);
-	docxEditorPromise ??= import("@eigenpal/docx-editor-react").then((module) => {
-		docxEditorComponent = module.DocxEditor as DocxEditorComponent;
-		return docxEditorComponent;
-	});
-	return docxEditorPromise;
-}
 
 export function ProjectPage({
 	projectId,
@@ -718,7 +681,9 @@ function ProjectConfigSidebar({
 									maxLength={500}
 									className="min-h-28 w-full resize-none rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2 pb-7 pr-16 text-sm leading-6 text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
 								/>
-								<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--leros-text-subtle)]">{descriptionDraft.length}/500</span>
+								<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--leros-text-subtle)]">
+									{descriptionDraft.length}/500
+								</span>
 							</div>
 							<div className="flex justify-end gap-2">
 								<button
@@ -1240,10 +1205,11 @@ function ProjectFiles({
 					currentFile.mimeType ??
 					"application/octet-stream";
 
-				if (isDocxPreviewable(currentFile.path, mimeType)) {
+				const officeFormat = getOfficeOpenXmlFormat(currentFile.path, mimeType);
+				if (officeFormat) {
 					const buffer = await response.arrayBuffer();
 					if (!cancelled) {
-						setPreviewState({ status: "docx", buffer });
+						setPreviewState({ status: "office", format: officeFormat, buffer });
 					}
 					return;
 				}
@@ -1607,13 +1573,13 @@ function ProjectFilePreviewBody({
 		);
 	}
 
-	if (previewState.status === "docx") {
+	if (previewState.status === "office") {
 		return (
 			<div className="h-[calc(100vh-150px)] min-h-[520px] overflow-hidden rounded-xl bg-white shadow-sm">
-				<ProjectDocxPreview
-					documentName={file.name}
-					documentKey={file.path}
+				<OfficePreview
+					fileName={file.name}
 					buffer={previewState.buffer}
+					format={previewState.format}
 				/>
 			</div>
 		);
@@ -1662,75 +1628,6 @@ function ProjectFilePreviewBody({
 	);
 }
 
-function ProjectDocxPreview({
-	documentName,
-	documentKey,
-	buffer,
-}: {
-	documentName: string;
-	documentKey: string;
-	buffer: ArrayBuffer;
-}) {
-	const [DocxEditor, setDocxEditor] = useState<DocxEditorComponent | null>(docxEditorComponent);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		let cancelled = false;
-		setError(null);
-		// 这里复用和文件预览一致的懒加载模式，保证文件 tab 的 DOCX 体验对齐。
-		loadDocxEditor()
-			.then((component) => {
-				if (!cancelled) setDocxEditor(() => component);
-			})
-			.catch((err) => {
-				if (cancelled) return;
-				setError(err instanceof Error ? err.message : "DOCX 预览组件加载失败");
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	if (error) {
-		return (
-			<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
-				<div>
-					<p>无法加载 DOCX 预览</p>
-					<p className="mt-1 text-xs">{error}</p>
-				</div>
-			</div>
-		);
-	}
-
-	if (!DocxEditor) {
-		return <div className="h-full bg-white" />;
-	}
-
-	return (
-		<div className="h-full overflow-hidden">
-			<DocxEditor
-				key={documentKey}
-				documentBuffer={buffer}
-				mode="viewing"
-				readOnly
-				showToolbar={false}
-				showZoomControl={false}
-				showRuler={false}
-				showOutline={false}
-				showOutlineButton={false}
-				disableFindReplaceShortcuts
-				initialZoom={0.82}
-				documentName={documentName}
-				documentNameEditable={false}
-				className="leros-docx-preview h-full"
-				style={{ height: "100%", background: "#f6f7fb" }}
-				loadingIndicator={<div className="h-full bg-[#f6f7fb]" />}
-				onError={(err) => setError(err.message)}
-			/>
-		</div>
-	);
-}
-
 function isTextPreviewable(path: string, mimeType: string): boolean {
 	const normalizedPath = path.toLowerCase();
 	const normalizedMimeType = mimeType.toLowerCase();
@@ -1773,17 +1670,6 @@ function isMarkdownPreviewable(path: string, mimeType: string): boolean {
 	);
 }
 
-function isDocxPreviewable(path: string, mimeType: string): boolean {
-	const normalizedPath = path.toLowerCase();
-	const normalizedMimeType = mimeType.toLowerCase();
-
-	return (
-		normalizedMimeType ===
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-		normalizedPath.endsWith(".docx")
-	);
-}
-
 function isSpreadsheetPreviewable(path: string, mimeType: string): boolean {
 	const normalizedPath = path.toLowerCase();
 	const normalizedMimeType = mimeType.toLowerCase();
@@ -1792,7 +1678,7 @@ function isSpreadsheetPreviewable(path: string, mimeType: string): boolean {
 		normalizedMimeType.includes("spreadsheet") ||
 		normalizedMimeType.includes("excel") ||
 		normalizedMimeType === "text/csv" ||
-		[".xlsx", ".xls", ".csv"].some((suffix) => normalizedPath.endsWith(suffix))
+		[".xls", ".csv"].some((suffix) => normalizedPath.endsWith(suffix))
 	);
 }
 

@@ -12,49 +12,30 @@ import {
 	SheetTitle,
 } from "@leros/ui/components/ui/sheet";
 import { Download, FileText, LoaderCircle, X } from "lucide-react";
-import { type ComponentType, type CSSProperties, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import {
+	getOfficeOpenXmlFormat,
+	type OfficeOpenXmlFormat,
+	OfficePreview,
+} from "../layout/OfficePreview";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { SpreadsheetPreview } from "../layout/SpreadsheetPreview";
 
-type PreviewKind = "docx" | "spreadsheet" | "markdown" | "text" | "image" | "pdf" | "unsupported";
+type PreviewKind =
+	| OfficeOpenXmlFormat
+	| "spreadsheet"
+	| "markdown"
+	| "text"
+	| "image"
+	| "pdf"
+	| "unsupported";
 
 type PreviewState =
 	| { status: "idle" }
 	| { status: "loading" }
 	| { status: "ready"; text?: string; objectUrl?: string; buffer?: ArrayBuffer }
 	| { status: "error"; message: string };
-
-type DocxEditorComponent = ComponentType<{
-	documentBuffer?: ArrayBuffer | null;
-	mode?: "editing" | "suggesting" | "viewing";
-	readOnly?: boolean;
-	showToolbar?: boolean;
-	showZoomControl?: boolean;
-	showRuler?: boolean;
-	showOutline?: boolean;
-	showOutlineButton?: boolean;
-	disableFindReplaceShortcuts?: boolean;
-	initialZoom?: number;
-	className?: string;
-	style?: CSSProperties;
-	documentName?: string;
-	documentNameEditable?: boolean;
-	loadingIndicator?: React.ReactNode;
-	onError?: (error: Error) => void;
-}>;
-
-let docxEditorComponent: DocxEditorComponent | null = null;
-let docxEditorPromise: Promise<DocxEditorComponent> | null = null;
-
-function loadDocxEditor(): Promise<DocxEditorComponent> {
-	if (docxEditorComponent) return Promise.resolve(docxEditorComponent);
-	docxEditorPromise ??= import("@eigenpal/docx-editor-react").then((module) => {
-		docxEditorComponent = module.DocxEditor as DocxEditorComponent;
-		return docxEditorComponent;
-	});
-	return docxEditorPromise;
-}
 
 export function MessageAttachmentPreviewDialog({
 	attachment,
@@ -108,8 +89,13 @@ export function MessageAttachmentPreviewDialog({
 					return;
 				}
 
-				// Word / 表格预览需要直接消费二进制内容，不能只转 blob URL。
-				if (previewKind === "docx" || previewKind === "spreadsheet") {
+				// Office / 旧表格预览需要直接消费二进制内容，不能只转 blob URL。
+				if (
+					previewKind === "docx" ||
+					previewKind === "xlsx" ||
+					previewKind === "pptx" ||
+					previewKind === "spreadsheet"
+				) {
 					const buffer = await response.arrayBuffer();
 					if (!cancelled) setPreview({ status: "ready", buffer });
 					return;
@@ -242,18 +228,13 @@ function getPreviewKind(attachment: MessageAttachment | null): PreviewKind {
 	if (!attachment) return "unsupported";
 	const mimeType = attachment.mimeType.toLowerCase();
 	const name = attachment.name.toLowerCase();
+	const officeFormat = getOfficeOpenXmlFormat(name, mimeType);
 
-	if (
-		mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-		name.endsWith(".docx")
-	) {
-		return "docx";
-	}
+	if (officeFormat) return officeFormat;
 	if (
 		mimeType.includes("spreadsheet") ||
 		mimeType.includes("excel") ||
 		mimeType === "text/csv" ||
-		name.endsWith(".xlsx") ||
 		name.endsWith(".xls") ||
 		name.endsWith(".csv")
 	) {
@@ -311,8 +292,13 @@ function AttachmentPreviewBody({
 		return null;
 	}
 
-	if (previewKind === "docx" && preview.buffer) {
-		return <DocxPreview attachment={attachment} buffer={preview.buffer} />;
+	if (
+		(previewKind === "docx" || previewKind === "xlsx" || previewKind === "pptx") &&
+		preview.buffer
+	) {
+		return (
+			<OfficePreview buffer={preview.buffer} fileName={attachment.name} format={previewKind} />
+		);
 	}
 
 	if (previewKind === "spreadsheet" && preview.buffer) {
@@ -366,84 +352,6 @@ function AttachmentPreviewBody({
 				<FileText className="mx-auto mb-3 size-10 text-slate-300" />
 				<p>This attachment type cannot be previewed yet</p>
 			</div>
-		</div>
-	);
-}
-
-function DocxPreview({
-	attachment,
-	buffer,
-}: {
-	attachment: MessageAttachment;
-	buffer: ArrayBuffer;
-}) {
-	const [DocxEditor, setDocxEditor] = useState<DocxEditorComponent | null>(docxEditorComponent);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		let cancelled = false;
-		setError(null);
-
-		loadDocxEditor()
-			.then((component) => {
-				if (!cancelled) setDocxEditor(() => component);
-			})
-			.catch((err) => {
-				if (cancelled) return;
-				setError(err instanceof Error ? err.message : "Failed to load DOCX preview");
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	if (error) {
-		return (
-			<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
-				<div>
-					<p>Unable to load DOCX preview</p>
-					<p className="mt-1 text-xs">{error}</p>
-				</div>
-			</div>
-		);
-	}
-
-	if (!DocxEditor) {
-		return (
-			<div className="flex h-full items-center justify-center text-[var(--leros-text-muted)]">
-				<LoaderCircle className="mr-2 size-4 animate-spin" />
-				Preparing DOCX preview
-			</div>
-		);
-	}
-
-	return (
-		<div className="h-full overflow-hidden">
-			<DocxEditor
-				key={attachment.fileUploadId || attachment.url || attachment.name}
-				documentBuffer={buffer}
-				mode="viewing"
-				readOnly
-				showToolbar={false}
-				showZoomControl={false}
-				showRuler={false}
-				showOutline={false}
-				showOutlineButton={false}
-				disableFindReplaceShortcuts
-				initialZoom={0.82}
-				documentName={attachment.name}
-				documentNameEditable={false}
-				className="leros-docx-preview h-full"
-				style={{ height: "100%", background: "#f6f7fb" }}
-				loadingIndicator={
-					<div className="flex h-full items-center justify-center text-[var(--leros-text-muted)]">
-						<LoaderCircle className="mr-2 size-4 animate-spin" />
-						Rendering DOCX
-					</div>
-				}
-				onError={(err) => setError(err.message)}
-			/>
 		</div>
 	);
 }

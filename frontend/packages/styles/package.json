@@ -13,7 +13,6 @@
 		}
 	},
 	"dependencies": {
-		"@eigenpal/docx-editor-react": "^1.1.0",
 		"@leros/ui": "workspace:*",
 		"@tailwindcss/typography": "catalog:",
 		"katex": "^0.16.47",
