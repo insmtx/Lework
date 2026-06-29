@@ -28,13 +28,7 @@ function CopyButton({ text }: { text: string }) {
 	);
 }
 
-export function UserMessageBubble({
-	message,
-	projectId,
-}: {
-	message: Message;
-	projectId?: string;
-}) {
+export function UserMessageBubble({ message }: { message: Message }) {
 	const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 	const visibleText = message.content.trim();
 	const attachments = message.attachments ?? [];
@@ -79,7 +73,6 @@ export function UserMessageBubble({
 				onOpenChange={(open) => {
 					if (!open) setPreviewAttachment(null);
 				}}
-				projectId={projectId}
 			/>
 		</>
 	);

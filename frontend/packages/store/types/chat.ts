@@ -117,6 +117,7 @@ export type MessageAttachment = {
 	mimeType: string;
 	size: number;
 	url?: string;
+	storageUri?: string;
 };
 
 export type Message = {
@@ -147,6 +148,7 @@ export type Attachment = {
 	path?: string;
 	fileUploadId?: string;
 	mimeType?: string;
+	storageUri?: string;
 };
 
 export type ModelOption = {

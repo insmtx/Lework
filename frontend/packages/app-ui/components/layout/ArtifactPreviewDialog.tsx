@@ -1,6 +1,6 @@
 "use client";
 
-import { API_BASE_URL, fetchArtifactDownload, projectFileApi } from "@leros/store";
+import { fetchArtifactDownload, fetchFilePreviewByStorageUri, projectFileApi } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Sheet,
@@ -89,8 +89,9 @@ export function ArtifactPreviewDialog({
 			try {
 				let response: Response;
 				if (currentArtifact.storageUri) {
-					const previewUrl = `${API_BASE_URL}/files/preview?storage_uri=${encodeURIComponent(currentArtifact.storageUri)}`;
-					response = await fetch(previewUrl, { signal: controller.signal });
+					response = await fetchFilePreviewByStorageUri(currentArtifact.storageUri, {
+						signal: controller.signal,
+					});
 				} else if (currentProjectId && currentPath) {
 					response = await projectFileApi.fetchDownload(currentProjectId, currentPath, {
 						signal: controller.signal,
@@ -142,8 +143,7 @@ export function ArtifactPreviewDialog({
 		try {
 			let response: Response;
 			if (artifact.storageUri) {
-				const downloadUrl = `${API_BASE_URL}/files/preview?storage_uri=${encodeURIComponent(artifact.storageUri)}`;
-				response = await fetch(downloadUrl);
+				response = await fetchFilePreviewByStorageUri(artifact.storageUri);
 			} else if (projectId && artifactPath) {
 				response = await projectFileApi.fetchDownload(projectId, artifactPath);
 			} else {

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-	API_BASE_URL,
+	fetchFilePreviewByStorageUri,
 	type Project,
 	type ProjectSkill,
 	type ProjectTask,
@@ -1193,10 +1193,9 @@ function ProjectFiles({
 			setPreviewState({ status: "loading" });
 			try {
 				const response = currentFile.storageUri
-					? await fetch(
-							`${API_BASE_URL}/files/preview?storage_uri=${encodeURIComponent(currentFile.storageUri)}`,
-							{ signal: controller.signal },
-						)
+					? await fetchFilePreviewByStorageUri(currentFile.storageUri, {
+							signal: controller.signal,
+						})
 					: await projectFileApi.fetchDownload(projectId, currentFile.path, {
 							signal: controller.signal,
 						});
@@ -1294,9 +1293,7 @@ function ProjectFiles({
 	const handleDownload = async (file: ProjectFileNode) => {
 		try {
 			const response = file.storageUri
-				? await fetch(
-						`${API_BASE_URL}/files/preview?storage_uri=${encodeURIComponent(file.storageUri)}`,
-					)
+				? await fetchFilePreviewByStorageUri(file.storageUri)
 				: await projectFileApi.fetchDownload(projectId, file.path);
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);
