@@ -381,6 +381,7 @@ export type BackendProjectFileNode = {
 	mod_time?: number;
 	created_at?: number;
 	public_id?: string;
+	storage_uri?: string;
 };
 
 export type BackendProjectFileUploadResult = {

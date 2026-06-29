@@ -9,23 +9,12 @@ vi.mock("@leros/store", () => ({
 	formatArtifactTime: () => "",
 	formatTime: () => "10:00",
 	getAssistantMessageFooterSegments: () => [],
-	mapBackendArtifactToProjectArtifact: vi.fn(),
-	mergeProjectArtifacts: vi.fn(),
 	messageArtifactToProjectArtifact: vi.fn(),
+	sortProjectArtifactsByNewestFirst: (artifacts: unknown[]) => artifacts,
 	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			resendMessage: vi.fn(),
 		}),
-	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
-		selector({
-			activeTaskDetailTaskId: null,
-		}),
-}));
-
-vi.mock("@leros/store/api/artifactApi", () => ({
-	artifactApi: {
-		listTaskArtifacts: vi.fn(),
-	},
 }));
 
 vi.mock("../common/MarkdownRenderer", () => ({
