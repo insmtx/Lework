@@ -132,19 +132,6 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 		return "", fmt.Errorf("artifact path must be a file: %s", relativePath)
 	}
 
-	normalized := normalizeArtifactPath(relativePath)
-	if normalized != relativePath {
-		normalizedAbs := filepath.Join(repoDir, filepath.FromSlash(normalized))
-		if err := os.MkdirAll(filepath.Dir(normalizedAbs), 0755); err != nil {
-			return "", fmt.Errorf("create artifact target directory: %w", err)
-		}
-		if err := os.Rename(artifactPath, normalizedAbs); err != nil {
-			return "", fmt.Errorf("move artifact to %s: %w", normalized, err)
-		}
-		relativePath = normalized
-		artifactPath = normalizedAbs
-	}
-
 	entry := artifactManifestEntry{
 		Path:         relativePath,
 		Title:        parsed.Title,
@@ -365,17 +352,4 @@ func boolValue(value any, defaultValue bool) bool {
 	default:
 		return defaultValue
 	}
-}
-
-const artifactDir = "artifacts/"
-
-func normalizeArtifactPath(relativePath string) string {
-	cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(relativePath)))
-	if cleaned == "." {
-		return cleaned
-	}
-	if strings.HasPrefix(cleaned, artifactDir) {
-		return cleaned
-	}
-	return artifactDir + filepath.Base(filepath.FromSlash(cleaned))
 }
