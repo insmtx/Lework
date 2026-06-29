@@ -3,6 +3,7 @@ package skillmanage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -61,17 +62,17 @@ type Tool struct {
 	store *skillstore.SkillStore
 }
 
-// OnMutation 由 deps.Container 在启动时设置。
-// NewTool() 会将其传递给底层 SkillStore。
-var OnMutation func(ctx context.Context, kind skillstore.MutationKind, name, action string)
-
 // NewTool creates skill_manage with the default Leros skills store.
 func NewTool() (*Tool, error) {
-	store, err := skillstore.NewSkillStore("")
+	return NewToolWithMutation(nil)
+}
+
+// NewToolWithMutation creates skill_manage with an instance-scoped mutation callback.
+func NewToolWithMutation(onMutation func(context.Context, skillstore.MutationKind, string, string)) (*Tool, error) {
+	store, err := skillstore.NewSkillStoreWithMutation("", onMutation)
 	if err != nil {
 		return nil, fmt.Errorf("skill manage: create store: %w", err)
 	}
-	store.OnMutation = OnMutation
 	return &Tool{
 		BaseTool: tools.NewBaseTool(
 			ToolNameSkillManage,
@@ -116,12 +117,20 @@ func NewTool() (*Tool, error) {
 				},
 			},
 		),
-		store:    store,
+		store: store,
 	}, nil
 }
 
 // Validate checks skill_manage input before execution.
-func (t *Tool) Validate(input map[string]interface{}) error {
+func (t *Tool) Validate(raw json.RawMessage) error {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return err
+	}
+	return validateInput(input)
+}
+
+func validateInput(input map[string]any) error {
 	if input == nil {
 		return fmt.Errorf("input is required")
 	}
@@ -170,11 +179,15 @@ func (t *Tool) Validate(input map[string]interface{}) error {
 }
 
 // Execute performs the requested skill management action.
-func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
+func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error) {
 	if t == nil || t.store == nil {
 		return "", fmt.Errorf("skill store is not initialized")
 	}
-	if err := t.Validate(input); err != nil {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := validateInput(input); err != nil {
 		return "", err
 	}
 
@@ -182,20 +195,20 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 	name := stringValue(input, "name")
 
 	var result *skillstore.Result
-	var err error
+	var mutationErr error
 	switch action {
 	case actionCreate:
-		result, err = t.store.Create(ctx, skillstore.CreateRequest{
+		result, mutationErr = t.store.Create(ctx, skillstore.CreateRequest{
 			Name:    name,
 			Content: rawStringValue(input, "content"),
 		})
 	case actionEdit:
-		result, err = t.store.Edit(ctx, skillstore.EditRequest{
+		result, mutationErr = t.store.Edit(ctx, skillstore.EditRequest{
 			Name:    name,
 			Content: rawStringValue(input, "content"),
 		})
 	case actionPatch:
-		result, err = t.store.Patch(ctx, skillstore.PatchRequest{
+		result, mutationErr = t.store.Patch(ctx, skillstore.PatchRequest{
 			Name:       name,
 			FilePath:   stringValue(input, "file_path"),
 			OldText:    rawStringValue(input, "old_text"),
@@ -203,25 +216,25 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 			ReplaceAll: boolValue(input, "replace_all"),
 		})
 	case actionDelete:
-		result, err = t.store.Delete(ctx, skillstore.DeleteRequest{
+		result, mutationErr = t.store.Delete(ctx, skillstore.DeleteRequest{
 			Name: name,
 		})
 	case actionWriteFile:
-		result, err = t.store.WriteFile(ctx, skillstore.WriteFileRequest{
+		result, mutationErr = t.store.WriteFile(ctx, skillstore.WriteFileRequest{
 			Name:        name,
 			FilePath:    stringValue(input, "file_path"),
 			FileContent: rawStringValue(input, "file_content"),
 		})
 	case actionRemoveFile:
-		result, err = t.store.RemoveFile(ctx, skillstore.RemoveFileRequest{
+		result, mutationErr = t.store.RemoveFile(ctx, skillstore.RemoveFileRequest{
 			Name:     name,
 			FilePath: stringValue(input, "file_path"),
 		})
 	default:
 		return "", fmt.Errorf("unsupported action %q", action)
 	}
-	if err != nil {
-		return "", err
+	if mutationErr != nil {
+		return "", mutationErr
 	}
 	return tools.JSONString(result)
 }

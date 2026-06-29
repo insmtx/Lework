@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func newRegistryTestTool(name string, output string) *registryTestTool {
 	}
 }
 
-func (t *registryTestTool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
+func (t *registryTestTool) Execute(context.Context, json.RawMessage) (string, error) {
 	return t.output, nil
 }
 

@@ -1,6 +1,7 @@
 package modelrouter
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/pkg/llmprotocol"
@@ -17,6 +18,7 @@ type UpstreamConfig struct {
 	MaxTokens    int
 	Temperature  float64
 	TimeoutSec   int
+	httpClient   *http.Client
 }
 
 // protocolForProvider returns the default upstream protocol for a provider.

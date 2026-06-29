@@ -31,7 +31,7 @@ func CJKRatio(s string) float64 {
 
 // 用于过滤 Markdown 代码块的正则
 var (
-	codeBlockRE = regexp.MustCompile("(?s)```.+?```")
+	codeBlockRE  = regexp.MustCompile("(?s)```.+?```")
 	inlineCodeRE = regexp.MustCompile("`[^`]+`")
 	linkURLRE    = regexp.MustCompile(`\[([^\]]*)\]\([^)]+\)`)
 )

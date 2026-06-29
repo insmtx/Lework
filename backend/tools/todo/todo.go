@@ -3,10 +3,12 @@ package todo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
-	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
+	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
 	"github.com/insmtx/Leros/backend/tools"
 )
 
@@ -66,7 +68,15 @@ func NewTool() *Tool {
 }
 
 // Validate checks todo tool input before execution.
-func (t *Tool) Validate(input map[string]interface{}) error {
+func (t *Tool) Validate(rawInput json.RawMessage) error {
+	input, err := tools.DecodeInput(rawInput)
+	if err != nil {
+		return err
+	}
+	return validateInput(input)
+}
+
+func validateInput(input map[string]any) error {
 	if input == nil {
 		return nil
 	}
@@ -79,8 +89,12 @@ func (t *Tool) Validate(input map[string]interface{}) error {
 }
 
 // Execute updates the run-scoped todo reporter.
-func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
-	if err := t.Validate(input); err != nil {
+func (t *Tool) Execute(ctx context.Context, rawInput json.RawMessage) (string, error) {
+	input, err := tools.DecodeInput(rawInput)
+	if err != nil {
+		return "", err
+	}
+	if err := validateInput(input); err != nil {
 		return "", err
 	}
 
@@ -109,7 +123,7 @@ func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (strin
 	return tools.JSONString(todoOutput(reporter.List()))
 }
 
-func todoOutput(items []runtimetodo.RuntimeTodoItem) struct {
+func todoOutput(items []events.RuntimeTodoItem) struct {
 	Todos   []todoResultItem `json:"todos"`
 	Summary todoSummary      `json:"summary"`
 } {
@@ -157,12 +171,12 @@ type todoSummary struct {
 	Cancelled  int `json:"cancelled"`
 }
 
-func parseItems(value interface{}) ([]runtimetodo.RuntimeTodoItem, error) {
+func parseItems(value interface{}) ([]events.RuntimeTodoItem, error) {
 	switch typed := value.(type) {
 	case nil:
 		return nil, nil
 	case []interface{}:
-		items := make([]runtimetodo.RuntimeTodoItem, 0, len(typed))
+		items := make([]events.RuntimeTodoItem, 0, len(typed))
 		for index, raw := range typed {
 			item, err := parseItem(raw)
 			if err != nil {
@@ -172,7 +186,7 @@ func parseItems(value interface{}) ([]runtimetodo.RuntimeTodoItem, error) {
 		}
 		return items, nil
 	case []map[string]interface{}:
-		items := make([]runtimetodo.RuntimeTodoItem, 0, len(typed))
+		items := make([]events.RuntimeTodoItem, 0, len(typed))
 		for index, raw := range typed {
 			item, err := parseItem(raw)
 			if err != nil {
@@ -181,23 +195,23 @@ func parseItems(value interface{}) ([]runtimetodo.RuntimeTodoItem, error) {
 			items = append(items, item)
 		}
 		return items, nil
-	case []runtimetodo.RuntimeTodoItem:
+	case []events.RuntimeTodoItem:
 		return typed, nil
 	default:
 		return nil, fmt.Errorf("todos must be an array")
 	}
 }
 
-func parseItem(value interface{}) (runtimetodo.RuntimeTodoItem, error) {
+func parseItem(value interface{}) (events.RuntimeTodoItem, error) {
 	raw, ok := value.(map[string]interface{})
 	if !ok {
-		return runtimetodo.RuntimeTodoItem{}, fmt.Errorf("item must be an object")
+		return events.RuntimeTodoItem{}, fmt.Errorf("item must be an object")
 	}
 	content := strings.TrimSpace(stringValue(raw, "content"))
 	if content == "" {
-		return runtimetodo.RuntimeTodoItem{}, fmt.Errorf("content is required")
+		return events.RuntimeTodoItem{}, fmt.Errorf("content is required")
 	}
-	return runtimetodo.RuntimeTodoItem{
+	return events.RuntimeTodoItem{
 		ID:       strings.TrimSpace(stringValue(raw, "id")),
 		Title:    content,
 		Status:   strings.TrimSpace(stringValue(raw, "status")),

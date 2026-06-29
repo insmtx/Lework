@@ -10,15 +10,17 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Leros/backend/tools"
 )
 
 func TestSkillUseToolListAndGet(t *testing.T) {
 	newTestCatalog(t)
 	tool := NewSkillUseTool()
 
-	rawListResult, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawListResult, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action": actionList,
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("list skills failed: %v", err)
 	}
@@ -53,10 +55,11 @@ func TestSkillUseToolListAndGet(t *testing.T) {
 		t.Fatalf("expected trust 'trusted', got %#v", skill0["trust"])
 	}
 
-	rawGetResult, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawGetResult, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action": actionGet,
 		"name":   "GITHUB-PR-REVIEW",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("get skill failed: %v", err)
 	}
@@ -90,11 +93,12 @@ func TestSkillUseToolReadFile(t *testing.T) {
 	newTestCatalog(t)
 	tool := NewSkillUseTool()
 
-	rawResult, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawResult, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action": actionReadFile,
 		"name":   "github-pr-review",
 		"path":   "references/policy.md",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("read skill file failed: %v", err)
 	}
@@ -117,11 +121,12 @@ func TestSkillUseToolReadFileTruncatesLargeContent(t *testing.T) {
 	newTestCatalog(t)
 	tool := NewSkillUseTool()
 
-	rawResult, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawResult, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action": actionReadFile,
 		"name":   "github-pr-review",
 		"path":   "references/large.md",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("read large skill file failed: %v", err)
 	}
@@ -145,10 +150,11 @@ func TestSkillUseToolLoadsBundledSkillByName(t *testing.T) {
 	newBundledSkillsCatalog(t)
 	tool := NewSkillUseTool()
 
-	rawResult, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawResult, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action": actionGet,
 		"name":   "ANYSEARCH",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("get anysearch skill failed: %v", err)
 	}
@@ -174,10 +180,11 @@ func TestSkillUseToolMissingSkillReturnsAvailableNames(t *testing.T) {
 	newTestCatalog(t)
 	tool := NewSkillUseTool()
 
-	rawResult, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawResult, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action": actionGet,
 		"name":   "missing",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("get missing skill should return structured result: %v", err)
 	}
@@ -222,10 +229,11 @@ description: A skill with mismatched name.
 	}
 
 	tool := NewSkillUseTool()
-	rawResult, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawResult, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"action": actionGet,
 		"name":   "mismatch-dir",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("get mismatch skill should return structured result: %v", err)
 	}
@@ -254,13 +262,13 @@ description: A skill with mismatched name.
 func TestSkillUseToolValidate(t *testing.T) {
 	tool := NewSkillUseTool()
 
-	if err := tool.Validate(map[string]interface{}{}); err == nil {
+	if err := tool.Validate(tools.JSONInput(map[string]interface{}{})); err == nil {
 		t.Fatalf("expected missing action to fail")
 	}
-	if err := tool.Validate(map[string]interface{}{"action": actionGet}); err == nil {
+	if err := tool.Validate(tools.JSONInput(map[string]interface{}{"action": actionGet})); err == nil {
 		t.Fatalf("expected missing name to fail")
 	}
-	if err := tool.Validate(map[string]interface{}{"action": "delete"}); err == nil {
+	if err := tool.Validate(tools.JSONInput(map[string]interface{}{"action": "delete"})); err == nil {
 		t.Fatalf("expected unsupported action to fail")
 	}
 }
@@ -323,7 +331,7 @@ func newBundledSkillsCatalog(t *testing.T) {
 
 	// Bundled skills live at backend/skills/, but ScanSkillsDir() scans <workspace>/.leros/skills/.
 	// Set workspace root to a temp dir and copy the bundled skills into .leros/skills/.
-	sourceSkillsDir := filepath.Join(filepath.Dir(currentFile), "..", "..", "skills")
+	sourceSkillsDir := filepath.Join(filepath.Dir(currentFile), "..", "..", "skills", "worker")
 	rootDir := t.TempDir()
 	destSkillsDir := filepath.Join(rootDir, ".leros", "skills")
 	if err := os.MkdirAll(filepath.Dir(destSkillsDir), 0o755); err != nil {

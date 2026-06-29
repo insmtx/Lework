@@ -22,34 +22,40 @@ import (
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
-	"github.com/insmtx/Leros/backend/internal/worker/protocol"
-	"github.com/insmtx/Leros/backend/pkg/dm"
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 )
 
+// TitleUpdater handles session title generation.
+type TitleUpdater interface {
+	HandleSessionTitleRequest(ctx context.Context, sessionPID string) error
+}
+
 // MessagePoster 无状态的消息投递器，负责消息创建、统计更新、事件发布、Worker 任务投递。
 // 多个 goroutine 可安全并发使用。
 type MessagePoster struct {
-	db          *gorm.DB
-	eventbus    eventbus.EventBus
-	inferrer    AssistantInferrer
-	giteaClient *gitea.Client
-	giteaCfg    *config.GiteaConfig
-	env         string
+	db           *gorm.DB
+	eventbus     eventbus.EventBus
+	inferrer     AssistantInferrer
+	giteaClient  *gitea.Client
+	giteaCfg     *config.GiteaConfig
+	env          string
+	titleUpdater TitleUpdater
 }
 
 // NewMessagePoster 创建 MessagePoster 实例。
-func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) *MessagePoster {
+func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, titleUpdater TitleUpdater) *MessagePoster {
 	return &MessagePoster{
-		db:          db,
-		eventbus:    eb,
-		inferrer:    inferrer,
-		giteaClient: giteaClient,
-		giteaCfg:    giteaCfg,
-		env:         env,
+		db:           db,
+		eventbus:     eb,
+		inferrer:     inferrer,
+		giteaClient:  giteaClient,
+		giteaCfg:     giteaCfg,
+		env:          env,
+		titleUpdater: titleUpdater,
 	}
 }
 
@@ -84,15 +90,15 @@ func (p *MessagePoster) PostMessage(
 		return nil, err
 	}
 
+	// Trigger title update asynchronously via local call.
 	if session.OrgID > 0 {
-		topic, err := dm.SessionMessageRequestSubject(session.OrgID, session.PublicID)
-		if err != nil {
-			logs.WarnContextf(ctx, "failed to build message request subject: %v", err)
-		} else {
-			if err := p.eventbus.Publish(ctx, topic, message); err != nil {
-				logs.WarnContextf(ctx, "failed to publish message to eventbus: %v", err)
+		go func() {
+			if p.titleUpdater != nil {
+				if err := p.titleUpdater.HandleSessionTitleRequest(context.Background(), session.PublicID); err != nil {
+					logs.Warnf("title update failed for session %s: %v", session.PublicID, err)
+				}
 			}
-		}
+		}()
 	}
 
 	logs.DebugContextf(ctx, "published message events for session=%s", session.PublicID)
@@ -394,9 +400,9 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 		return nil
 	}
 
-	topic, err := dm.WorkerTaskSubject(orgID, session.AllocatedAssistantID)
+	topic, err := messaging.WorkerCommandSubject(orgID, session.AllocatedAssistantID, messaging.LaneRun)
 	if err != nil {
-		return fmt.Errorf("failed to construct worker task topic: %w", err)
+		return fmt.Errorf("failed to construct worker command topic: %w", err)
 	}
 
 	projectPublicID, taskPublicID, err := p.resolveWorkspaceIDs(ctx, session)
@@ -412,49 +418,47 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 		return err
 	}
 
-	messagePayload := protocol.WorkerTaskMessage{
-		ID:        fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
-		Type:      protocol.MessageTypeWorkerTask,
-		CreatedAt: time.Now().UTC(),
-		Trace: protocol.TraceContext{
+	cmd := messaging.NewRunCommand(
+		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
+		messaging.RouteContext{
+			OrgID:     orgID,
+			SessionID: session.PublicID,
+			WorkerID:  session.AllocatedAssistantID,
+		},
+		messaging.TraceContext{
 			TraceID:   session.PublicID,
 			RequestID: requestID,
 			TaskID:    taskPublicID,
 			RunID:     requestID,
 		},
-		Route: protocol.RouteContext{
-			OrgID:     orgID,
-			SessionID: session.PublicID,
-			WorkerID:  session.AllocatedAssistantID,
-		},
-		Body: protocol.WorkerTaskBody{
-			TaskType: protocol.TaskTypeAgentRun,
-			Actor: protocol.ActorContext{
+		messaging.RunCommandPayload{
+			TaskType: messaging.TaskTypeAgentRun,
+			Actor: messaging.ActorContext{
 				UserID:      fmt.Sprintf("%d", session.Uin),
 				DisplayName: "",
 				Channel:     "session",
 			},
-			Workspace: protocol.WorkspaceOptions{
+			Workspace: messaging.WorkspaceOptions{
 				ProjectID: projectPublicID,
 				TaskID:    taskPublicID,
 			},
-			Input: protocol.TaskInput{
-				Type: protocol.InputTypeMessage,
-				Messages: []protocol.ChatMessage{
-					{ID: fmt.Sprintf("%d", message.ID), Role: protocol.MessageRoleUser, Content: message.Content},
+			Input: messaging.TaskInput{
+				Type: messaging.InputTypeMessage,
+				Messages: []messaging.ChatMessage{
+					{ID: fmt.Sprintf("%d", message.ID), Role: messaging.MessageRoleUser, Content: message.Content},
 				},
-				Attachments: convertMessageToProtocolAttachments(message.Attachments),
+				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
 			Model: modelOptions,
 		},
-		Metadata: map[string]any{
-			"session_id":   session.PublicID,
-			"message_type": message.MessageType,
-			"sequence":     message.Sequence,
+		&messaging.RunCommandMetadata{
+			SessionID:   session.PublicID,
+			MessageType: message.MessageType,
+			Sequence:    message.Sequence,
 		},
-	}
+	)
 
-	if err := p.eventbus.Publish(ctx, topic, messagePayload); err != nil {
+	if err := p.eventbus.Publish(ctx, topic, cmd); err != nil {
 		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", session.AllocatedAssistantID, err)
 		return fmt.Errorf("failed to publish message to assistant: %w", err)
 	}
@@ -462,21 +466,21 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 	return nil
 }
 
-func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) (protocol.ModelOptions, error) {
+func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) (messaging.ModelOptions, error) {
 	if p == nil || p.db == nil {
-		return protocol.ModelOptions{}, errors.New("database is required to resolve worker task llm model")
+		return messaging.ModelOptions{}, errors.New("database is required to resolve worker task llm model")
 	}
 	model, err := infradb.GetDefaultLLMModel(ctx, p.db, orgID)
 	if err != nil {
-		return protocol.ModelOptions{}, fmt.Errorf("get default llm model: %w", err)
+		return messaging.ModelOptions{}, fmt.Errorf("get default llm model: %w", err)
 	}
 	if model == nil {
-		return protocol.ModelOptions{}, errors.New("default llm model not found")
+		return messaging.ModelOptions{}, errors.New("default llm model not found")
 	}
 	if strings.TrimSpace(model.Provider) == "" || strings.TrimSpace(model.ModelName) == "" || strings.TrimSpace(model.APIKeyEncrypted) == "" {
-		return protocol.ModelOptions{}, errors.New("default llm model config is incomplete")
+		return messaging.ModelOptions{}, errors.New("default llm model config is incomplete")
 	}
-	return protocol.ModelOptions{
+	return messaging.ModelOptions{
 		Provider:     model.Provider,
 		Model:        model.ModelName,
 		BaseURL:      model.BaseURL,
@@ -485,13 +489,13 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 	}, nil
 }
 
-func convertMessageToProtocolAttachments(attachments types.MessageAttachmentSlice) []protocol.Attachment {
+func convertMessageToMessagingAttachments(attachments types.MessageAttachmentSlice) []messaging.Attachment {
 	if len(attachments) == 0 {
 		return nil
 	}
-	result := make([]protocol.Attachment, 0, len(attachments))
+	result := make([]messaging.Attachment, 0, len(attachments))
 	for _, a := range attachments {
-		result = append(result, protocol.Attachment{
+		result = append(result, messaging.Attachment{
 			ID:       a.FileUploadID,
 			Name:     a.Name,
 			MimeType: a.MimeType,

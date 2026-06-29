@@ -2,6 +2,7 @@ package nodetools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -51,7 +52,15 @@ func newNodeShellToolWithExecutor(executor nodeExecutor) *NodeShellTool {
 }
 
 // Validate checks node shell tool input.
-func (t *NodeShellTool) Validate(input map[string]interface{}) error {
+func (t *NodeShellTool) Validate(raw json.RawMessage) error {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return err
+	}
+	return validateShellInput(input)
+}
+
+func validateShellInput(input map[string]any) error {
 	if input == nil {
 		return fmt.Errorf("input is required")
 	}
@@ -68,9 +77,16 @@ func (t *NodeShellTool) Validate(input map[string]interface{}) error {
 }
 
 // Execute runs the shell command in the worker environment.
-func (t *NodeShellTool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
+func (t *NodeShellTool) Execute(ctx context.Context, raw json.RawMessage) (string, error) {
 	if t.executor == nil {
 		return "", fmt.Errorf("node executor is required")
+	}
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := validateShellInput(input); err != nil {
+		return "", err
 	}
 
 	command := util.StringValue(input, "command")
@@ -88,7 +104,6 @@ func (t *NodeShellTool) Execute(ctx context.Context, input map[string]interface{
 	}
 
 	workingDir := util.StringValue(input, "working_dir")
-	var err error
 	workingDir, err = resolveToolWorkDir(ctx, workingDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve working directory: %w", err)

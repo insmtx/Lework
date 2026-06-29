@@ -562,7 +562,6 @@ func encodeAnthropicParts(parts []IRContentPart) []map[string]interface{} {
 	return content
 }
 
-
 func encodeAnthropicToolChoice(tc *IRToolChoice) interface{} {
 	switch tc.Type {
 	case "auto":

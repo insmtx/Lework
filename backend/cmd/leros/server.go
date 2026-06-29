@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/engines"
 	"github.com/insmtx/Leros/backend/internal/api"
+	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
@@ -55,7 +55,7 @@ func newServerCommand() *cobra.Command {
 				logs.Fatalf("Failed to ensure state dir: %v", err)
 				return
 			}
-			if err := engines.SyncServerSkillsDir(""); err != nil {
+			if err := skilllinks.SyncServerSkillsDir(""); err != nil {
 				logs.Warnf("Sync server built-in skills failed: %v", err)
 			}
 

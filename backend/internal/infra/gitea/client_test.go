@@ -1,3 +1,5 @@
+//go:build integration
+
 package gitea_test
 
 import (

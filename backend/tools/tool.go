@@ -30,12 +30,12 @@ type Tool interface {
 	Name() string
 	Description() string
 	InputSchema() Schema
-	Execute(ctx context.Context, input map[string]interface{}) (string, error)
+	Execute(ctx context.Context, input json.RawMessage) (string, error)
 }
 
 // Validator is implemented by tools that perform local input validation before execution.
 type Validator interface {
-	Validate(input map[string]interface{}) error
+	Validate(input json.RawMessage) error
 }
 
 // BaseTool stores the LLM-facing metadata shared by concrete tools.
@@ -78,6 +78,30 @@ func JSONString(value interface{}) (string, error) {
 	return string(encoded), nil
 }
 
+// JSONInput encodes a typed value at a tool protocol boundary.
+func JSONInput(value any) json.RawMessage {
+	if value == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
+// DecodeInput decodes a tool JSON object for an implementation's internal use.
+func DecodeInput(input json.RawMessage) (map[string]any, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(input, &decoded); err != nil {
+		return nil, fmt.Errorf("decode tool input: %w", err)
+	}
+	return decoded, nil
+}
+
 // ToolContext 携带 agent runtime 注入的 run 级身份与会话元数据。
 type ToolContext struct {
 	// RunID 是本次 agent 运行的唯一标识。
@@ -100,8 +124,14 @@ type ToolContext struct {
 	WorkNodeID string
 	// WorkDir 是本次运行隔离工作区的绝对路径。
 	WorkDir string
-	// Metadata 携带从请求透传的任意键值对。
-	Metadata map[string]any
+	// Metadata carries typed workspace data needed by business tools.
+	Metadata ToolMetadata
+}
+
+// ToolMetadata contains optional run-scoped data shared with business tools.
+type ToolMetadata struct {
+	RepoDir              string
+	ArtifactManifestPath string
 }
 
 type toolContextKey struct{}
@@ -136,12 +166,5 @@ func RequireToolContext(ctx context.Context) (ToolContext, error) {
 }
 
 func cloneToolContext(toolCtx ToolContext) ToolContext {
-	cloned := toolCtx
-	if toolCtx.Metadata != nil {
-		cloned.Metadata = make(map[string]any, len(toolCtx.Metadata))
-		for key, value := range toolCtx.Metadata {
-			cloned.Metadata[key] = value
-		}
-	}
-	return cloned
+	return toolCtx
 }

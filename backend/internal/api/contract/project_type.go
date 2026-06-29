@@ -110,4 +110,3 @@ type FileUploadResult struct {
 type AddFileRequest struct {
 	PublicID string `json:"public_id" binding:"required"`
 }
-

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { SkillMarketplaceItem } from "@leros/store";
 import { skillMarketplaceApi, installedToCardItem } from "@leros/store";
 import { SkillCard } from "./SkillCard";
-import { toast } from "sonner";
 
 interface MySkillsPanelProps {
   /** Called when a skill card is clicked (for navigation to detail page) */
@@ -14,7 +13,6 @@ interface MySkillsPanelProps {
 
 export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProps) {
   const [skills, setSkills] = useState<SkillMarketplaceItem[]>([]);
-  const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -43,29 +41,6 @@ export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProp
     if (!mounted) return;
     fetchInstalled();
   }, [mounted, fetchInstalled, refreshSeq]);
-
-  const handleToggle = useCallback(async (skill: SkillMarketplaceItem) => {
-    const code = skill.name;
-    const current = statuses[code];
-    const next = current === "active" ? "inactive" : "active";
-
-    try {
-      await skillMarketplaceApi.toggleStatus({ code, status: next });
-      setStatuses((prev) => ({ ...prev, [code]: next }));
-      toast.success(`技能"${skill.name}"已${next === "active" ? "启用" : "禁用"}`);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message ?? err?.message ?? "操作失败";
-      toast.error(msg);
-    }
-  }, [statuses]);
-
-  const isActive = useCallback(
-    (skill: SkillMarketplaceItem) => {
-      const s = statuses[skill.name];
-      return s === undefined || s === "active";
-    },
-    [statuses],
-  );
 
   // Not yet mounted (SSR hydration guard)
   if (!mounted) {
@@ -120,8 +95,6 @@ export function MySkillsPanel({ onCardClick, refreshSeq = 0 }: MySkillsPanelProp
           skill={skill}
           variant="mine"
           onClick={onCardClick}
-          active={isActive(skill)}
-          onToggle={handleToggle}
         />
       ))}
     </div>

@@ -125,6 +125,9 @@ type SessionMessage struct {
 	// session_message - 消息内容，TEXT，NOT NULL
 	Content string `gorm:"column:content;type:text;not null"`
 
+	// session_message - 错误详情，TEXT，允许为空
+	ErrorMsg string `gorm:"column:error_msg;type:text"`
+
 	// session_message - 消息类型（text/image/code/file），VARCHAR(50)，DEFAULT 'text'
 	MessageType string `gorm:"column:message_type;type:varchar(50);default:'text'"`
 

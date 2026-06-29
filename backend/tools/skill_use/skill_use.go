@@ -3,6 +3,7 @@ package skilluse
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -84,7 +85,15 @@ func NewSkillUseTool() *SkillUseTool {
 }
 
 // Validate checks skill use tool input.
-func (t *SkillUseTool) Validate(input map[string]interface{}) error {
+func (t *SkillUseTool) Validate(raw json.RawMessage) error {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return err
+	}
+	return validateInput(input)
+}
+
+func validateInput(input map[string]any) error {
 	if input == nil {
 		return fmt.Errorf("input is required")
 	}
@@ -114,8 +123,12 @@ func (t *SkillUseTool) Validate(input map[string]interface{}) error {
 }
 
 // Execute performs the requested skill catalog action.
-func (t *SkillUseTool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
-	if err := t.Validate(input); err != nil {
+func (t *SkillUseTool) Execute(ctx context.Context, raw json.RawMessage) (string, error) {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := validateInput(input); err != nil {
 		return "", err
 	}
 

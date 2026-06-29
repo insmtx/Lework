@@ -14,11 +14,6 @@ import (
 	"github.com/insmtx/Leros/backend/tools"
 )
 
-const (
-	metadataKeyArtifactManifestPath = "artifact_manifest_path"
-	metadataKeyRepoDir              = "repo_dir"
-)
-
 type artifactInput struct {
 	Path         string
 	Title        string
@@ -97,13 +92,21 @@ func NewTool() *Tool {
 }
 
 // Validate checks artifact declaration input before execution.
-func (t *Tool) Validate(input map[string]interface{}) error {
-	_, err := parseArtifactInput(input)
+func (t *Tool) Validate(raw json.RawMessage) error {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return err
+	}
+	_, err = parseArtifactInput(input)
 	return err
 }
 
 // Execute records the artifact declaration in the manifest.
-func (t *Tool) Execute(ctx context.Context, input map[string]interface{}) (string, error) {
+func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error) {
+	input, err := tools.DecodeInput(raw)
+	if err != nil {
+		return "", err
+	}
 	parsed, err := parseArtifactInput(input)
 	if err != nil {
 		return "", err
@@ -256,14 +259,8 @@ func validateArtifactRelativePath(path string) error {
 
 func resolveArtifactWorkspace(ctx context.Context, artifactPath string) (string, string, error) {
 	if toolCtx, ok := tools.ToolContextFrom(ctx); ok {
-		repoDir, repoErr := optionalMetadataString(toolCtx.Metadata, metadataKeyRepoDir)
-		manifestPath, manifestErr := optionalMetadataString(toolCtx.Metadata, metadataKeyArtifactManifestPath)
-		if repoErr != nil {
-			return "", "", repoErr
-		}
-		if manifestErr != nil {
-			return "", "", manifestErr
-		}
+		repoDir := strings.TrimSpace(toolCtx.Metadata.RepoDir)
+		manifestPath := strings.TrimSpace(toolCtx.Metadata.ArtifactManifestPath)
 		if repoDir != "" && manifestPath != "" {
 			return repoDir, manifestPath, nil
 		}
@@ -346,25 +343,6 @@ func latestChildDir(parent string) (string, error) {
 		return left.Name() > right.Name()
 	})
 	return filepath.Join(parent, candidates[0].Name()), nil
-}
-
-func metadataString(metadata map[string]any, key string) (string, error) {
-	if metadata == nil {
-		return "", fmt.Errorf("tool context metadata is required")
-	}
-	value := strings.TrimSpace(stringValue(metadata[key]))
-	if value == "" {
-		return "", fmt.Errorf("tool context metadata %q is required", key)
-	}
-	return value, nil
-}
-
-func optionalMetadataString(metadata map[string]any, key string) (string, error) {
-	if metadata == nil {
-		return "", nil
-	}
-	value := strings.TrimSpace(stringValue(metadata[key]))
-	return value, nil
 }
 
 func stringValue(value any) string {

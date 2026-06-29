@@ -105,7 +105,7 @@ type ProjectMember struct {
 	MemberRole MemberRole `gorm:"column:member_role;type:varchar(50);not null;default:'member'"`
 
 	// project_member - 加入时间，TIMESTAMP，NOT NULL
-	JoinedAt time.Time `gorm:"column:joined_at;not null;default:now()"`
+	JoinedAt time.Time `gorm:"column:joined_at;not null;default:CURRENT_TIMESTAMP"`
 }
 
 // TableName 指定ProjectMember结构体对应的数据库表名

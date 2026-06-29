@@ -99,16 +99,6 @@ export interface ImportSkillResponse {
   message: string;
 }
 
-export interface ToggleSkillStatusParams {
-  code: string;
-  status: "active" | "inactive";
-}
-
-export interface ToggleSkillStatusResponse {
-  code: string;
-  status: string;
-}
-
 /**
  * 将后端 SkillInstalledItem 映射为兼容 SkillCard 组件的 SkillMarketplaceItem。
  * 用 name 作为 skill_id（卸载接口使用 name 作为标识符）。

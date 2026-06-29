@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/insmtx/Leros/backend/engines"
+	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/internal/skill/fetch"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
@@ -70,7 +70,7 @@ Use --source to force a specific source and --version to install a specific vers
 	searchCmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search skills across remote sources",
-		Long:  `Search for skills across remote sources (Leros, ClawHub, SkillsSh).
+		Long: `Search for skills across remote sources (Leros, ClawHub, SkillsSh).
 
 Use --source to limit search to a specific source (Leros, ClawHub, SkillsSh).`,
 		Args: cobra.ExactArgs(1),
@@ -175,7 +175,7 @@ func runInstall(identifier string) error {
 	}
 
 	// 同步到外部 CLI skill 目录。
-	if err := engines.EnsureExternalSkillLink(meta.Name, knownCLISkillDirs); err != nil {
+	if err := skilllinks.EnsureExternalSkillLink(meta.Name, knownCLISkillDirs); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: sync external links: %v\n", err)
 	}
 
@@ -308,7 +308,7 @@ func runUninstall(name string) error {
 	}
 
 	// Remove external CLI symlinks
-	if err := engines.RemoveExternalSkillLink(name, knownCLISkillDirs); err != nil {
+	if err := skilllinks.RemoveExternalSkillLink(name, knownCLISkillDirs); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: remove external links: %v\n", err)
 	}
 

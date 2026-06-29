@@ -50,8 +50,11 @@ const (
 // SkillStore 管理文件型 Skill。
 type SkillStore struct {
 	rootDir    string
-	OnMutation func(ctx context.Context, kind MutationKind, name, action string)
+	onMutation MutationHandler
 }
+
+// MutationHandler receives successful skill mutations for instance-scoped side effects.
+type MutationHandler func(ctx context.Context, kind MutationKind, name, action string)
 
 // mutationKindForAction 将 action 字符串映射为 MutationKind。
 func mutationKindForAction(action string) MutationKind {
@@ -161,6 +164,11 @@ func DefaultSkillRoot() (string, error) {
 
 // NewSkillStore 创建以 rootDir 为根目录的 SkillStore；rootDir 为空时使用默认 Leros skills 根目录。
 func NewSkillStore(rootDir string) (*SkillStore, error) {
+	return NewSkillStoreWithMutation(rootDir, nil)
+}
+
+// NewSkillStoreWithMutation creates a SkillStore with an immutable mutation callback.
+func NewSkillStoreWithMutation(rootDir string, onMutation MutationHandler) (*SkillStore, error) {
 	rootDir = strings.TrimSpace(rootDir)
 	if rootDir == "" {
 		var err error
@@ -173,7 +181,7 @@ func NewSkillStore(rootDir string) (*SkillStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve skill root: %w", err)
 	}
-	return &SkillStore{rootDir: absolute}, nil
+	return &SkillStore{rootDir: absolute, onMutation: onMutation}, nil
 }
 
 // RootDir 返回 skills 根目录。
@@ -184,10 +192,10 @@ func (s *SkillStore) RootDir() string {
 	return s.rootDir
 }
 
-// notifyMutation 在变更成功后调用 OnMutation 回调（如果已设置）。
+// notifyMutation invokes the instance callback after a successful mutation.
 func (s *SkillStore) notifyMutation(ctx context.Context, name, action string) {
-	if s.OnMutation != nil {
-		s.OnMutation(ctx, mutationKindForAction(action), name, action)
+	if s.onMutation != nil {
+		s.onMutation(ctx, mutationKindForAction(action), name, action)
 	}
 }
 

@@ -2,30 +2,42 @@ package fetch
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
+type fetchRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f fetchRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func fetchResponse(request *http.Request, status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+		Request:    request,
+	}
+}
+
 func TestClawHubFetchSkillsListRetriesRetryableStatusThenSucceeds(t *testing.T) {
 	attempts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	source := NewClawHubSource()
+	source.client = &http.Client{Transport: fetchRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		attempts++
 		if attempts == 1 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
+			return fetchResponse(r, http.StatusServiceUnavailable, ""), nil
 		}
 		if r.URL.Path != "/api/v1/skills" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		fmt.Fprint(w, `{"items":[{"slug":"demo-skill","displayName":"Demo Skill","summary":"Demo summary","latestVersion":{"version":"1.0.0"}}]}`)
-	}))
-	defer server.Close()
+		return fetchResponse(r, http.StatusOK, `{"items":[{"slug":"demo-skill","displayName":"Demo Skill","summary":"Demo summary","latestVersion":{"version":"1.0.0"}}]}`), nil
+	})}
 
-	source := NewClawHubSource()
-
-	items, err := source.fetchSkillsList(context.Background(), server.URL+"/api/v1/skills?limit=10&sort=trending")
+	items, err := source.fetchSkillsList(context.Background(), "http://clawhub.test/api/v1/skills?limit=10&sort=trending")
 	if err != nil {
 		t.Fatalf("fetch skills list: %v", err)
 	}
@@ -39,15 +51,13 @@ func TestClawHubFetchSkillsListRetriesRetryableStatusThenSucceeds(t *testing.T) 
 
 func TestClawHubFetchSkillsListRetriesRetryableStatusUntilFailure(t *testing.T) {
 	attempts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	defer server.Close()
-
 	source := NewClawHubSource()
+	source.client = &http.Client{Transport: fetchRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		attempts++
+		return fetchResponse(r, http.StatusBadGateway, ""), nil
+	})}
 
-	_, err := source.fetchSkillsList(context.Background(), server.URL+"/api/v1/skills?limit=10&sort=trending")
+	_, err := source.fetchSkillsList(context.Background(), "http://clawhub.test/api/v1/skills?limit=10&sort=trending")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -61,15 +71,13 @@ func TestClawHubFetchSkillsListRetriesRetryableStatusUntilFailure(t *testing.T) 
 
 func TestClawHubFetchSkillsListDoesNotRetryNonRetryableStatus(t *testing.T) {
 	attempts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
 	source := NewClawHubSource()
+	source.client = &http.Client{Transport: fetchRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		attempts++
+		return fetchResponse(r, http.StatusNotFound, ""), nil
+	})}
 
-	_, err := source.fetchSkillsList(context.Background(), server.URL+"/api/v1/search?q=demo&limit=10")
+	_, err := source.fetchSkillsList(context.Background(), "http://clawhub.test/api/v1/search?q=demo&limit=10")
 	if err == nil {
 		t.Fatal("expected error")
 	}

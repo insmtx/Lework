@@ -152,63 +152,64 @@ Connector 通过 internal/api 路由注册到 Gin，不再使用独立的 Event 
 
 对外统一 API 入口，多渠道统一访问，用户请求处理。
 
-### 3.4 Event Engine（事件引擎）【原 Orchestrator】
+### 3.4 Command Adapter 与 RunCoordinator
 
-**职责：** 订阅事件总线事件、事件路由与分发、调用 Handler 处理、触发执行流程。
+Worker 的 `internal/worker/command/run` 只负责校验 `WorkerCommand`、映射
+`RunSubmission` 和更新 delivery 状态。`internal/worker/run.Coordinator` 独占：
 
-**核心能力：** 事件过滤与路由规则、事件聚合与防抖、事件优先级调度。
+* Session 级 debounce，批次内全部 waiter 等待同一个真实结果；
+* 同 Session 串行、不同 Session 并行；
+* 全局并发上限、active run 注册、取消和 `Close`；
+* delivery sequence 与 `ReplyToMessageIDs` 的合并去重。
 
-**包：** `internal/eventengine`
+旧 `internal/eventengine` 已删除。外部事件由 Connector 标准化后进入消息总线，
+运行任务统一通过 Worker Command 主链执行。
 
-**当前状态（Phase 1.5）：**
+### 3.5 Assistant 业务执行层
 
-* ✅ 已实现事件订阅和路由
-* ✅ 已实现 Handler 注册机制
-* ⚠️ Router 未独立提取（Phase 2）
-* ⚠️ Handler 未插件化（Phase 2）
-* ⚠️ Execution Engine 未独立（Phase 2）
+**包：** `internal/assistant`
 
-**本质：** 系统的响应中心 — 负责响应外部事件并启动执行流程。
+Assistant 层是业务边界，负责 Session、Workspace、Memory、Skill、Artifact、Git、
+业务状态和终端归档。`PreparedRun` 同时保存不可变业务快照、
+`WorkspacePreparation` 与纯 `agent.ExecutionRequest`。
 
-### 3.5 Execution Engine（执行引擎）【Phase 2 计划中】
+`assistant.Service` 独占 `run.started/completed/failed/cancelled`，并保证每次 Run
+恰好一个业务终态；Executor 不接触业务持久化。
 
-**职责：** 调用 Skill / Workflow / Agent；控制执行流程（同步 / 异步 / 重试）。
+### 3.6 Agent Execution（独立执行层）
 
-**核心能力：** 同步/异步执行控制、重试与降级机制、执行超时控制、并发执行管理。
+**包：** `backend/agent`
 
-**当前状态：** 尚未独立实现。当前流程：Event Handler → 直接调用 Agent Runtime。Phase 2 计划从 Orchestrator 中抽离。
+`backend/agent` 是可脱离 SingerOS 业务独立驱动的执行层，唯一公共契约为：
 
-**核心原则：** Event Engine 与 Execution Engine 必须解耦。
+* `ExecutionRequest` / `ExecutionResult`；
+* `Runtime` / `Registry` / `Executor`；
+* `agent.Event` / `Observer`；
+* 强类型 `Tool`、approval 和 question 契约。
 
-### 3.6 Agent Runtime（智能体运行时）
-
-**职责：** 管理 Agent 生命周期、调用 LLM、管理 Memory / Context、工具调用（Tool / Skill）、多引擎调度（Leros / Claude / Codex）、会话级上下文构建与自我学习。
-
-**核心能力：**
-
-* Agent 状态管理、上下文维护（Skill 目录、Tool 注、会话记忆）
-* 推理循环（Reasoning Loop）、工具调用协调
-* Session 上下文注入、流式事件输出与 Trace 记录
-* 运行后自我学习、多引擎注册与默认选择
-
-**包结构：**
+Runtime 只产生 message、reasoning、tool、todo、artifact、approval、question 和
+provider-session 活动事件。`execution.started/completed/failed/cancelled` 由
+Executor 发出。
 
 ```
-internal/agent/
-├── events/           Agent 流式事件系统
-├── eventtypes/       NATS 领域消息协议
-├── eino/             Cloudwego Eino 框架集成
-├── leros/            Leros 原生运行时
-├── externalcli/      外部 CLI 引擎适配器（Claude Code, Codex）
-├── runtime/          服务层：构建 Environment + Router
-│   ├── env/          运行时环境（Skill 目录 + Tool 注册表）
-│   └── lifecycle/    生命周期包装（上下文构建 + Trace + 自我学习）
-└── simplechat/       轻量级简单聊天实现
+backend/agent/
+├── executor.go
+├── runtime.go
+├── registry.go
+├── result.go
+├── tool.go
+└── runtime/
+    ├── native/       Eino 原生 Runtime
+    ├── claude/       Claude Code Runtime
+    ├── codex/        Codex Runtime
+    ├── opencode/     OpenCode Runtime
+    ├── externalcli/  三个 CLI Runtime 共用的进程与 provider-session 设施
+    ├── provider/     CLI provider 进程协议
+    ├── events/       活动 payload、构造器和 Sink
+    └── todo/         执行期 Todo 能力
 ```
 
-**已实现能力：**
-
-Session 上下文注入、事件流式输出、Leros 原生运行时 + Eino 集成、外部 CLI 引擎适配（Claude Code, Codex）、多引擎注册与路由分发、Lifecycle 层（系统提示词构建、Skill 注入、Trace 记录、自我学习）。
+该目录递归禁止依赖 `internal/*`、业务配置、messaging 和业务 Tool 实现。
 
 ### 3.7 Workflow Engine（工作流引擎）【规划中】
 
@@ -265,9 +266,12 @@ backend/tools/         Tool 执行代码
 └── node/             Node.js 工具运行时
 ```
 
-**当前状态（Phase 1.5）：**
+**当前状态：**
 
-Skill Registry 已完成；`internal/skill/` 运行时系统已实现；`internal/agent/runtime/env` 提供 Runtime 级别的 Skill 目录 + Tool 注册表；Tool 执行在 `backend/tools/`。
+`internal/skill/` 提供 Catalog 与 Store；`internal/assistant/bootstrap/skilllinks`
+负责将业务 Skill 同步到执行工作区；Assistant Preparer 将 Skill prompt 和强类型
+Tool 注入纯 `agent.ExecutionRequest`。Tool 实现在 `backend/tools/`，公共执行边界
+只使用 `json.RawMessage` 和具名结果类型。
 
 ### 3.13 Tools 工具系统
 
@@ -414,6 +418,14 @@ backend/
 │           ├── codex          Codex 引擎运行时
 │           └── claude         Claude Code 引擎运行时
 │
+├── agent/                     业务无关的 Agent 执行层
+│   ├── executor.go            execution 生命周期与 Runtime 调用
+│   ├── runtime.go             ExecutionRequest / Result / Runtime
+│   ├── registry.go            Runtime 注册与默认选择
+│   ├── result.go              唯一 agent.Event 信封
+│   ├── tool.go                强类型 Tool / approval / question
+│   └── runtime/               native / claude / codex / opencode
+│
 ├── internal/                  私有核心代码（强制隔离）
 │   ├── api/                   HTTP 适配层（契约驱动）
 │   │   ├── handler/           HTTP 处理器
@@ -426,18 +438,12 @@ backend/
 │   │       ├── gitlab/
 │   │       └── wework/
 │   │
-│   ├── eventengine/          事件引擎（GitHub 事件 Orchestrator）
-│   │
-│   ├── agent/                Agent Runtime（多引擎运行时系统）
-│   │   ├── events/           Agent 流式事件（EventSink, Emitter）
-│   │   ├── eventtypes/       NATS 领域消息协议
-│   │   ├── eino/             Cloudwego Eino 集成
-│   │   ├── leros/            内置 Leros 原生运行时
-│   │   ├── externalcli/      外部 CLI 引擎适配（Claude, Codex）
-│   │   ├── runtime/          服务层：构建 Environment + Router
-│   │   │   ├── env/          运行时环境（Skill 目录 + Tool 注册表）
-│   │   │   └── lifecycle/    生命周期包装（上下文 + Trace + 学习）
-│   │   └── simplechat/       轻量级简单聊天实现
+│   ├── assistant/            SingerOS Assistant 业务包装层
+│   │   ├── service.go        唯一业务 Run 生命周期
+│   │   ├── prepared_run.go   业务快照 + Workspace + ExecutionRequest
+│   │   ├── journal.go        完整运行归档
+│   │   ├── preparer_impl.go  Workspace / Skill / Memory / Tool 准备
+│   │   └── finalizer_impl.go Artifact / Git / 业务终态
 │   │
 │   ├── service/              业务逻辑层
 │   │
@@ -450,7 +456,10 @@ backend/
 │   │   ├── client/           Worker 客户端（WebSocket + 任务执行）
 │   │   ├── server/           Worker 管理服务（HTTP + WS 服务器）
 │   │   ├── scheduler/        Worker 调度器（进程/Docker 容器）
-│   │   ├── taskconsumer/     NATS 任务消费者 → agent.Runner
+│   │   ├── command/          WorkerCommand adapters
+│   │   ├── run/              RunCoordinator
+│   │   ├── eventpub/         agent.Event → NATS 双 lane
+│   │   ├── mcp/              Worker MCP infrastructure
 │   │   └── wsproto/          Worker-Server WebSocket 协议
 │   │
 │   ├── memory/               记忆系统

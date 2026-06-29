@@ -91,7 +91,7 @@ func toolWorkDir(ctx context.Context) (string, error) {
 		if err := security.PathWithinWorkspace(dir); err != nil {
 			return "", err
 		}
-		return dir, nil
+		return security.CanonicalPath(dir)
 	}
 	root, err := security.WorkspaceRoot()
 	if err != nil {
@@ -118,11 +118,11 @@ func ensureInsideBaseForWrite(ctx context.Context, path string) error {
 }
 
 func ensureInsideBase(base string, candidate string) error {
-	baseAbs, err := filepath.Abs(filepath.Clean(base))
+	baseAbs, err := security.CanonicalPath(base)
 	if err != nil {
 		return fmt.Errorf("resolve base path: %w", err)
 	}
-	candidateAbs, err := filepath.Abs(filepath.Clean(candidate))
+	candidateAbs, err := security.CanonicalPath(candidate)
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}

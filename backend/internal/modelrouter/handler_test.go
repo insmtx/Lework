@@ -33,7 +33,8 @@ func setupTestRouter(store *ModelStore) *gin.Engine {
 
 // mockUpstreamServer returns an httptest server that echoes back configured responses.
 type mockUpstreamServer struct {
-	server *httptest.Server
+	client *http.Client
+	server *mockServerAddress
 
 	mu          sync.RWMutex
 	statusCode  int
@@ -43,9 +44,17 @@ type mockUpstreamServer struct {
 	lastBody    []byte
 }
 
-func newMockUpstreamServer() *mockUpstreamServer {
-	m := &mockUpstreamServer{statusCode: http.StatusOK}
-	m.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+type mockServerAddress struct {
+	URL string
+}
+
+func newMockUpstreamServer(t *testing.T) *mockUpstreamServer {
+	t.Helper()
+	m := &mockUpstreamServer{
+		statusCode: http.StatusOK,
+		server:     &mockServerAddress{URL: "http://model-upstream.test"},
+	}
+	m.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		m.mu.Lock()
 		m.authHeader = r.Header.Get("Authorization")
 		if m.authHeader == "" {
@@ -61,28 +70,36 @@ func newMockUpstreamServer() *mockUpstreamServer {
 		respBody := m.respBody
 		m.mu.RUnlock()
 
+		headers := make(http.Header)
+		var responseBytes []byte
 		if len(streamLines) > 0 {
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.WriteHeader(http.StatusOK)
-			for _, line := range streamLines {
-				fmt.Fprint(w, line)
-				if flusher, ok := w.(http.Flusher); ok {
-					flusher.Flush()
-				}
-			}
-			return
+			headers.Set("Content-Type", "text/event-stream")
+			responseBytes = []byte(strings.Join(streamLines, ""))
+			code = http.StatusOK
+		} else {
+			headers.Set("Content-Type", "application/json")
+			responseBytes = respBody
 		}
-
-		w.WriteHeader(code)
-		if len(respBody) > 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(respBody)
-		}
-	}))
+		return &http.Response{
+			StatusCode: code,
+			Header:     headers,
+			Body:       io.NopCloser(strings.NewReader(string(responseBytes))),
+			Request:    r,
+		}, nil
+	})}
 	return m
 }
 
-func (m *mockUpstreamServer) Close() { m.server.Close() }
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	if f == nil {
+		return nil, fmt.Errorf("round trip function is nil")
+	}
+	return f(request)
+}
+
+func (m *mockUpstreamServer) Close() {}
 
 func (m *mockUpstreamServer) setResponse(code int, body []byte) {
 	m.mu.Lock()
@@ -117,13 +134,13 @@ func (m *mockUpstreamServer) getLastBody() []byte {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 func TestHandler_ChatToChat_NonStream(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	chatResp := []byte(`{"id":"chatcmpl-001","object":"chat.completion","created":1700000000,"model":"gpt-5","choices":[{"index":0,"message":{"role":"assistant","content":"Hello from GPT!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
 	mock.setResponse(200, chatResp)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "openai",
@@ -157,13 +174,13 @@ func TestHandler_ChatToChat_NonStream(t *testing.T) {
 }
 
 func TestHandler_ChatToChat_AuthHeader(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	chatResp := []byte(`{"id":"chatcmpl-auth","object":"chat.completion","created":1700000000,"model":"gpt-5","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"OK"}}]}`)
 	mock.setResponse(200, chatResp)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "openai",
@@ -192,13 +209,13 @@ func TestHandler_ChatToChat_AuthHeader(t *testing.T) {
 }
 
 func TestHandler_ChatToAnthropic_AuthHeader(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	antResp := []byte(`{"id":"msg_auth_ant","type":"message","role":"assistant","model":"claude-sonnet-4-20250514","content":[{"type":"text","text":"Hello from Claude!"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}`)
 	mock.setResponse(200, antResp)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "anthropic",
@@ -227,13 +244,13 @@ func TestHandler_ChatToAnthropic_AuthHeader(t *testing.T) {
 }
 
 func TestHandler_ChatToAnthropic_NonStream(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	antResp := []byte(`{"id":"msg_001","type":"message","role":"assistant","model":"claude-sonnet-4-20250514","content":[{"type":"text","text":"Hello from Claude!"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}`)
 	mock.setResponse(200, antResp)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "anthropic",
@@ -280,13 +297,13 @@ func TestHandler_ChatToAnthropic_NonStream(t *testing.T) {
 }
 
 func TestHandler_AnthropicToChat_NonStream(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	chatResp := []byte(`{"id":"chatcmpl-002","object":"chat.completion","created":1700000000,"model":"gpt-5","choices":[{"index":0,"message":{"role":"assistant","content":"Hello from GPT via Anthropic!"},"finish_reason":"stop"}]}`)
 	mock.setResponse(200, chatResp)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "claude-sonnet-4-20250514",
 		Provider:     "openai",
@@ -323,13 +340,13 @@ func TestHandler_AnthropicToChat_NonStream(t *testing.T) {
 }
 
 func TestHandler_ResponsesToChat_NonStream(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	chatResp := []byte(`{"id":"chatcmpl-resp","object":"chat.completion","created":1700000000,"model":"gpt-5","choices":[{"index":0,"message":{"role":"assistant","content":"Hello from Chat!"},"finish_reason":"stop"}]}`)
 	mock.setResponse(200, chatResp)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "openai",
@@ -402,7 +419,7 @@ func TestHandler_ModelNotFound(t *testing.T) {
 }
 
 func TestHandler_UpstreamError(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	errBody := []byte(`{"error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`)
@@ -413,7 +430,7 @@ func TestHandler_UpstreamError(t *testing.T) {
 	mock.streamLines = nil
 	mock.mu.Unlock()
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "openai",
@@ -451,7 +468,7 @@ func TestHandler_UpstreamError(t *testing.T) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 func TestHandler_ChatToChat_StreamRaw(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	streamLines := []string{
@@ -461,7 +478,7 @@ func TestHandler_ChatToChat_StreamRaw(t *testing.T) {
 	}
 	mock.setStreamResponse(streamLines)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "openai",
@@ -494,7 +511,7 @@ func TestHandler_ChatToChat_StreamRaw(t *testing.T) {
 }
 
 func TestHandler_ChatToAnthropic_Stream(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	streamLines := []string{
@@ -507,7 +524,7 @@ func TestHandler_ChatToAnthropic_Stream(t *testing.T) {
 	}
 	mock.setStreamResponse(streamLines)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "anthropic",
@@ -540,7 +557,7 @@ func TestHandler_ChatToAnthropic_Stream(t *testing.T) {
 }
 
 func TestHandler_AnthropicToChat_Stream(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	streamLines := []string{
@@ -552,7 +569,7 @@ func TestHandler_AnthropicToChat_Stream(t *testing.T) {
 	}
 	mock.setStreamResponse(streamLines)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "claude-sonnet-4-20250514",
 		Provider:     "openai",
@@ -585,7 +602,7 @@ func TestHandler_AnthropicToChat_Stream(t *testing.T) {
 }
 
 func TestHandler_ResponsesToChat_Stream(t *testing.T) {
-	mock := newMockUpstreamServer()
+	mock := newMockUpstreamServer(t)
 	defer mock.Close()
 
 	streamLines := []string{
@@ -596,7 +613,7 @@ func TestHandler_ResponsesToChat_Stream(t *testing.T) {
 	}
 	mock.setStreamResponse(streamLines)
 
-	store := &ModelStore{}
+	store := NewModelStore(mock.client)
 	store.Put(UpstreamConfig{
 		ModelName:    "gpt-5",
 		Provider:     "openai",

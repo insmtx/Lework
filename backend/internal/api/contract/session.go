@@ -3,7 +3,7 @@ package contract
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 )
 
 // SessionService defines the session service contract.
@@ -46,4 +46,24 @@ type SessionService interface {
 
 	// SubmitQuestionAnswer forwards a question answer to the worker via NATS.
 	SubmitQuestionAnswer(ctx context.Context, req *SubmitQuestionAnswerRequest) error
+
+	// CancelSessionRun cancels an active agent run for the given session.
+	CancelSessionRun(ctx context.Context, sessionID string, req *CancelSessionRunRequest) (*CancelSessionRunResponse, error)
+
+	// SetSessionStreamStartSeq records the NATS stream sequence for the first
+	// run.stream event of a session, used by the stream projector for SSE replay.
+	SetSessionStreamStartSeq(ctx context.Context, sessionID string, streamSeq uint64) error
+}
+
+// CancelSessionRunRequest is the request body for cancelling a session agent run.
+type CancelSessionRunRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+	RunID     string `json:"run_id,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// CancelSessionRunResponse is the response for a cancel session run request.
+type CancelSessionRunResponse struct {
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"` // "cancelled" | "no_active_run"
 }

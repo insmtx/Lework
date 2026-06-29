@@ -23,9 +23,9 @@ import (
 )
 
 type mockFileService struct {
-	uploadFn         func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error)
-	downloadFn       func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error)
-	presignFn        func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error)
+	uploadFn   func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error)
+	downloadFn func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error)
+	presignFn  func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error)
 }
 
 func (m *mockFileService) UploadFile(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {

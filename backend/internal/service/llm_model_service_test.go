@@ -50,6 +50,13 @@ func setupLLMModelServiceWithProbe(t *testing.T, probe func(ctx context.Context,
 	return svc, database
 }
 
+func llmModelServiceWithProbe(database *gorm.DB, probe func(ctx context.Context, provider, modelName, apiKey, baseURL string, preferV1 bool) *probeResult) contract.LLMModelService {
+	return &llmModelService{
+		db:        database,
+		probeFunc: probe,
+	}
+}
+
 // mockProbeSuccessV1 simulates successful connectivity with /v1 prefix.
 func mockProbeSuccessV1(_ context.Context, _, _, _, _ string, _ bool) *probeResult {
 	return &probeResult{v1Success: true, noV1Success: false}
@@ -626,7 +633,7 @@ func TestUpdateLLMModelRedetectsBaseURLHasV1WhenBaseURLChanges(t *testing.T) {
 	}
 
 	// Switch probe to no-v1 success and update base URL
-	svc2, _ := setupLLMModelServiceWithProbe(t, mockProbeSuccessNoV1)
+	svc2 := llmModelServiceWithProbe(database, mockProbeSuccessNoV1)
 	baseURL := "https://custom.api.com"
 	updated, err := svc2.UpdateLLMModel(ctx, model.ID, &contract.UpdateLLMModelRequest{
 		BaseURL: &baseURL,
@@ -648,7 +655,7 @@ func TestUpdateLLMModelRedetectsBaseURLHasV1WhenBaseURLChanges(t *testing.T) {
 }
 
 func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
-	service, _ := setupLLMModelServiceWithProbe(t, mockProbeSuccessV1)
+	service, database := setupLLMModelServiceWithProbe(t, mockProbeSuccessV1)
 	ctx := setupTestContextWithCaller(t)
 
 	model, err := service.CreateLLMModel(ctx, &contract.CreateLLMModelRequest{
@@ -662,7 +669,7 @@ func TestUpdateLLMModelFailsWhenProbeFailsAfterRelevantChange(t *testing.T) {
 	}
 
 	// Update with a service that will fail the probe
-	failSvc, _ := setupLLMModelServiceWithProbe(t, mockProbeAlwaysFail)
+	failSvc := llmModelServiceWithProbe(database, mockProbeAlwaysFail)
 	baseURL := "https://dead.endpoint.com"
 	_, err = failSvc.UpdateLLMModel(ctx, model.ID, &contract.UpdateLLMModelRequest{
 		BaseURL: &baseURL,

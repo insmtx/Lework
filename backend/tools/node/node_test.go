@@ -43,11 +43,12 @@ func TestNodeShellToolExecute(t *testing.T) {
 	}
 	tool := newNodeShellToolWithExecutor(executor)
 
-	rawOutput, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawOutput, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"command":     "pwd",
 		"working_dir": workspaceRoot,
 		"timeout":     1,
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("execute node shell tool: %v", err)
 	}
@@ -67,7 +68,11 @@ func TestNodeShellToolExecute(t *testing.T) {
 	if !equalStringSlices(call.Args, expectedArgs) {
 		t.Fatalf("unexpected command args: %#v", call.Args)
 	}
-	if call.WorkingDir != workspaceRoot {
+	expectedWorkDir, err := filepath.EvalSymlinks(workspaceRoot)
+	if err != nil {
+		t.Fatalf("resolve workspace root: %v", err)
+	}
+	if call.WorkingDir != expectedWorkDir {
 		t.Fatalf("unexpected working dir: %s", call.WorkingDir)
 	}
 }
@@ -89,14 +94,19 @@ func TestNodeShellToolDefaultsToRuntimeWorkDir(t *testing.T) {
 	tool := newNodeShellToolWithExecutor(executor)
 	ctx := tools.ContextWithToolContext(context.Background(), tools.ToolContext{WorkDir: projectDir})
 
-	_, err := tool.Execute(ctx, map[string]interface{}{
+	_, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"command": "pwd",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("execute node shell tool: %v", err)
 	}
-	if got := executor.calls[0].WorkingDir; got != projectDir {
-		t.Fatalf("working dir = %q, want %q", got, projectDir)
+	expectedProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatalf("resolve project dir: %v", err)
+	}
+	if got := executor.calls[0].WorkingDir; got != expectedProjectDir {
+		t.Fatalf("working dir = %q, want %q", got, expectedProjectDir)
 	}
 }
 
@@ -150,11 +160,12 @@ func TestNodeFileReadToolExecute(t *testing.T) {
 	}
 	tool := newNodeFileReadToolWithExecutor(nil)
 
-	rawOutput, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawOutput, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"path":   "app/main.go",
 		"offset": 3,
 		"limit":  2,
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("execute node file read tool: %v", err)
 	}
@@ -185,10 +196,11 @@ func TestNodeFileToolsResolveRelativeToRuntimeWorkDir(t *testing.T) {
 	ctx := tools.ContextWithToolContext(context.Background(), tools.ToolContext{WorkDir: projectDir})
 
 	writeTool := newNodeFileWriteToolWithExecutor(nil)
-	_, err := writeTool.Execute(ctx, map[string]interface{}{
+	_, err := writeTool.Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"path":    "app/main.go",
 		"content": "package main\n",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("write relative to project dir: %v", err)
 	}
@@ -197,9 +209,10 @@ func TestNodeFileToolsResolveRelativeToRuntimeWorkDir(t *testing.T) {
 	}
 
 	readTool := newNodeFileReadToolWithExecutor(nil)
-	rawOutput, err := readTool.Execute(ctx, map[string]interface{}{
+	rawOutput, err := readTool.Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"path": "app/main.go",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("read relative to project dir: %v", err)
 	}
@@ -208,10 +221,11 @@ func TestNodeFileToolsResolveRelativeToRuntimeWorkDir(t *testing.T) {
 		t.Fatalf("unexpected content: %#v", output["content"])
 	}
 
-	_, err = writeTool.Execute(ctx, map[string]interface{}{
+	_, err = writeTool.Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"path":    "../outside.txt",
 		"content": "nope",
-	})
+	}))
+
 	if err == nil {
 		t.Fatal("expected path outside runtime work dir to be rejected")
 	}
@@ -235,11 +249,12 @@ func TestNodeFileWriteToolExecute(t *testing.T) {
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
 
-	rawOutput, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawOutput, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"path":    "app/main.go",
 		"content": "package main\n",
 		"append":  true,
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("execute node file write tool: %v", err)
 	}
@@ -268,10 +283,11 @@ func TestNodeFileWriteToolAllowsExplicitEmptyContent(t *testing.T) {
 	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
-	rawOutput, err := tool.Execute(context.Background(), map[string]interface{}{
+	rawOutput, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"path":    "app/empty.txt",
 		"content": "",
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("execute node file write tool: %v", err)
 	}
@@ -304,13 +320,14 @@ func TestNodeFileReadRejectsSymlinkOutsideWorkspace(t *testing.T) {
 	createSymlinkOrSkip(t, outsidePath, filepath.Join(workspaceRoot, "secret-link.txt"))
 
 	tool := newNodeFileReadToolWithExecutor(nil)
-	_, err := tool.Execute(context.Background(), map[string]interface{}{
+	_, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"path": "secret-link.txt",
-	})
+	}))
+
 	if err == nil {
 		t.Fatal("expected symlink escape to be rejected")
 	}
-	if !strings.Contains(err.Error(), "outside workspace") {
+	if !strings.Contains(err.Error(), "outside") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -327,14 +344,15 @@ func TestNodeFileWriteRejectsSymlinkOutsideWorkspace(t *testing.T) {
 	createSymlinkOrSkip(t, outsidePath, filepath.Join(workspaceRoot, "secret-link.txt"))
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
-	_, err := tool.Execute(context.Background(), map[string]interface{}{
+	_, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"path":    "secret-link.txt",
 		"content": "updated",
-	})
+	}))
+
 	if err == nil {
 		t.Fatal("expected symlink escape to be rejected")
 	}
-	if !strings.Contains(err.Error(), "outside workspace") {
+	if !strings.Contains(err.Error(), "outside") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -355,14 +373,15 @@ func TestNodeFileWriteRejectsSymlinkParentOutsideWorkspace(t *testing.T) {
 	createSymlinkOrSkip(t, outsideRoot, filepath.Join(workspaceRoot, "outside-link"))
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
-	_, err := tool.Execute(context.Background(), map[string]interface{}{
+	_, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
 		"path":    "outside-link/new.txt",
 		"content": "updated",
-	})
+	}))
+
 	if err == nil {
 		t.Fatal("expected symlink parent escape to be rejected")
 	}
-	if !strings.Contains(err.Error(), "outside workspace") {
+	if !strings.Contains(err.Error(), "outside") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(outsideRoot, "new.txt")); !os.IsNotExist(statErr) {
@@ -371,20 +390,20 @@ func TestNodeFileWriteRejectsSymlinkParentOutsideWorkspace(t *testing.T) {
 }
 
 func TestNodeToolValidateUsesLocalInputs(t *testing.T) {
-	if err := newNodeShellToolWithExecutor(nil).Validate(map[string]interface{}{
+	if err := newNodeShellToolWithExecutor(nil).Validate(tools.JSONInput(map[string]interface{}{
 		"command": "pwd",
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("shell validate should accept local input: %v", err)
 	}
-	if err := newNodeFileReadToolWithExecutor(nil).Validate(map[string]interface{}{
+	if err := newNodeFileReadToolWithExecutor(nil).Validate(tools.JSONInput(map[string]interface{}{
 		"path": "app/main.go",
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("file read validate should accept local input: %v", err)
 	}
-	if err := newNodeFileWriteToolWithExecutor(nil).Validate(map[string]interface{}{
+	if err := newNodeFileWriteToolWithExecutor(nil).Validate(tools.JSONInput(map[string]interface{}{
 		"path":    "app/main.go",
 		"content": "package main\n",
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("file write validate should accept local input: %v", err)
 	}
 }

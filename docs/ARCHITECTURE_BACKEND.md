@@ -2,7 +2,7 @@
 
 > 面向 AI OS 的 Golang 包结构指南
 >
-> **版本：3.1** | **最后更新：2026-04-23**
+> **版本：4.0** | **最后更新：2026-06-28**
 
 ## 1. 概述
 
@@ -66,115 +66,44 @@ Leros 采用**契约驱动的服务架构**，而不是：
 
 ```bash
 backend/
-│
-├── cmd/
-│   └── leros/                # 主后端服务（Phase 1.5: Server+Orchestrator 单进程）
-│       ├── main.go            # 主入口
-│       ├── server.go          # Server 启动逻辑
-│       └── worker.go          # Worker stub（Phase 2 完善）
-│
-├── internal/                  # 私有核心代码（强制隔离）
-│
-│   ├── api/                   # HTTP 适配层（契约驱动服务架构）✅
-│   │   ├── handler/
-│   │   │   ├── digital_assistant_handler.go  # 数字员工 handler
-│   │   │   └── [待定]
-│   │   ├── dto/
-│   │   │   ├── digital_assistant.go          # 数字员工 DTO
-│   │   │   ├── code.go
-│   │   │   └── response.go
-│   │   ├── contract/          # ⭐ 系统能力定义（核心）
-│   │   │   ├── digital_assistant.go          # 数字员工契约
-│   │   │   ├── digital_assistant_type.go
-│   │   │   ├── account_third_auth.go
-│   │   │   └── account_third_auth_type.go
-│   │   ├── middleware/        # HTTP 中间件
-│   │   │   ├── identify.go
-│   │   │   └── request_context.go
-│   │   └── router.go          # 路由注册
-│
-│   ├── eventengine/           # ⭐ 事件引擎（Phase 1.5 已实现）⚠️
-│   │   └── orchestrator.go    # Orchestrator（内联 Router + Handler map）
-│   │                          # 当前：Router 未独立，Handler 未插件化
-│   │                          # Phase 2 计划：拆分为 engine.go / registry.go / builtins/
-│   │
-│   ├── execution/             # ⭐ 执行引擎（Phase 2 计划中）
-│   │   └── [待实现]           # 当前 Execution 逻辑在 orchestrator.go 中
-│   │
-│   ├── agent/                 # ⭐ Agent Runtime（Phase 1.5 已实现）✅
-│   │   ├── runtime.go         # Agent Runtime 接口
-│   │   ├── agent.go           # Agent 核心实现
-│   │   ├── types.go           # 类型定义（RequestContext, RunResult）
-│   │   ├── config.go          # 配置管理
-│   │   ├── state.go           # 状态管理
-│   │   ├── skills_prompt.go   # Skills Prompt 注入
-│   │   ├── simplechat/        # SimpleChat 实现
-│   │   │   ├── simplechat.go
-│   │   │   └── console.go
-│   │   ├── eino/              # Eino 具体实现
-│   │   │   ├── chatmodel.go   # ChatModel 适配
-│   │   │   ├── flow.go        # Flow 编排
-│   │   │   ├── tool_adapter.go # Tool 适配器
-│   │   │   └── flow_test.go
-│   │   └── events/            # Agent 事件系统
-│   │       ├── events.go
-│   │       ├── emitter.go
-│   │       ├── event_sink.go
-│   │       ├── event_sink_impl.go
-│   │       └── log_sink.go
-│   │
-│   ├── service/               # ⭐ 业务逻辑层（直接操作 DB）✅
-│   │   ├── digital_assistant_service.go
-│   │   └── utils.go
-│   │
-│   ├── worker/                # Worker 进程（Phase 1.5 stub）⚠️
-│   │   ├── worker.go          # Worker 逻辑（待完善）
+├── cmd/leros/                 # composition root 与进程生命周期
+├── agent/                     # 独立、业务无关的执行层
+│   ├── executor.go
+│   ├── registry.go
+│   ├── runtime.go             # ExecutionRequest / Result / Runtime
+│   ├── result.go              # 唯一 agent.Event
+│   ├── tool.go                # Tool / approval / question
+│   └── runtime/
+│       ├── native/
+│       ├── claude/
+│       ├── codex/
+│       ├── opencode/
+│       ├── externalcli/
+│       ├── provider/
+│       ├── events/            # 活动 payload、构造器、Sink
+│       └── todo/
+├── internal/
+│   ├── api/                   # HTTP adapters 与 API contract
+│   ├── assistant/             # SingerOS 业务包装、PreparedRun、Journal
+│   ├── worker/
+│   │   ├── command/           # WorkerCommand adapters
+│   │   ├── run/               # RunCoordinator
+│   │   ├── eventpub/          # agent.Event → NATS 双 lane
+│   │   ├── mcp/               # Worker MCP infrastructure
+│   │   ├── client/
 │   │   ├── server/
-│   │   │   └── server.go
-│   │   └── client/
-│   │       ├── worker.go
-│   │       └── ws_client.go
-│   │
-│   ├── infra/                 # 基础设施 ✅
-│   │   ├── mq/                # 消息队列（NATS JetStream）
-│   │   │   ├── nats.go
-│   │   │   ├── bus.go
-│   │   │   └── std.go
-│   │   ├── db/                # 数据库访问
-│   │   │   ├── database.go
-│   │   │   └── digital_assistant_dao.go
-│   │   ├── providers/         # 第三方服务 Provider
-│   │   │   └── github/
-│   │   │       ├── client_factory.go
-│   │   │       ├── oauth_provider.go
-│   │   │       └── resolvers.go
-│   │   └── websocket/         # WebSocket 支持
-│   │       ├── connector.go
-│   │       ├── manager.go
-│   │       └── types.go
-│   │
-│   └── connectors/            # 连接器（已迁移至 api/connectors）⚠️
-│       └── connector.go       # Connector 接口
-│
-├── pkg/                       # 对外公开接口
-│   └── event/                 # Event 定义
-│       └── topic.go
-│
-├── types/                     # 核心类型定义
-├── config/                    # 配置管理
-├── auth/                      # 认证系统
-├── database/                  # 数据库连接（已迁移至 infra/db）
-├── tools/                     # 工具定义和执行 ✅
-│   ├── registry.go            # Tool 注册中心
-│   ├── tool.go                # Tool 接口定义
-│   ├── skill/                 # Skill 工具实现
-│   └── node/                  # Node.js 工具运行时
-│
-└── skills/                    # Skill 定义文件（SKILL.md）✅
-    ├── code-review/
-    ├── commit-conventions/
-    ├── humanizer-zh/
-    └── weather/
+│   │   └── scheduler/
+│   ├── workspace/             # WorkspacePreparation 与仓库准备
+│   ├── skill/                 # Skill catalog/store
+│   ├── memory/
+│   ├── modelrouter/
+│   ├── service/               # Server 业务服务
+│   └── infra/                 # DB、NATS、filestore、provider
+├── pkg/messaging/             # WorkerCommand / RunEvent wire contract
+├── tools/                     # 业务 Tool 实现
+├── skills/                    # SKILL.md 资源
+├── types/                     # 共享领域模型
+└── config/                    # 配置结构
 ```
 
 ## 4. 核心模块说明
@@ -250,45 +179,30 @@ func Register(r *gin.Engine, h *EventHandler) {
 
 ---
 
-### 4.2 `internal/eventengine/` - 事件引擎 ⭐⭐⭐
+### 4.2 `internal/worker/command/run` 与 `internal/worker/run`
 
-### 4.3 `internal/execution/` - 执行引擎
+Command Handler 只处理 wire contract、映射和 delivery 状态。RunCoordinator 负责
+debounce 全 waiter、Session 串行、跨 Session 并行、并发上限、取消和关闭。
+Handler 不直接调用 Runtime。
 
-**职责：** 任务调度、执行控制、重试/超时管理
+### 4.3 `internal/assistant/` - 业务执行层
 
-**子目录：**
+Assistant 将 Session、Workspace、Memory、Skill、Artifact 和 Git 业务封装在
+`PreparedRun` 中，并调用纯 `agent.Executor`。它独占 `run.*` 业务事件、Journal
+归档和唯一终态。
 
-- `engine.go` - Execution Engine 核心
-- `dispatcher.go` - 调度器（任务分发）
-- `executor.go` - 执行器接口
-- `sync_executor.go` / `async_executor.go` - 同步/异步执行器
-- `retry.go` / `timeout.go` - 重试和超时控制
-- `context/` - 执行上下文
+### 4.4 `backend/agent/` - 独立 Agent 执行层
 
-**关键点：**
+该层只定义 `ExecutionRequest`、`ExecutionResult`、`Runtime`、`Executor`、
+`agent.Event` 和强类型 Tool/交互契约。四个 Runtime 直接注册；CLI Runtime 复用
+`externalcli.Driver`，但 Driver 不是 Runtime。
 
-- 支持同步/异步执行
-- 支持重试和降级
-- 支持超时控制
+**强制边界：**
 
----
-
-### 4.4 `internal/agent/` - Agent Runtime
-
-**职责：** Agent 生命周期管理、LLM 调用、上下文维护
-
-**子目录：**
-
-- `runtime.go` - Agent Runtime 接口
-- `lifecycle.go` - 生命周期管理
-- `context.go` - 上下文管理
-- `reasoning.go` - 推理循环
-- `eino/` - Eino 具体实现
-
-**⚠️ 常见错误：**
-
-- ❌ Agent Runtime 直接调用 MQ / DB
-- ✅ 必须通过 contract.AgentService
+- 禁止导入 `internal/*`、业务配置、messaging 和业务 Tool 包。
+- 禁止访问 MQ、DB、Session 或 Workspace 准备逻辑。
+- Runtime 只发活动事件；Executor 发 `execution.*`；Assistant 发业务 `run.*`。
+- 公共执行边界不得使用 `map[string]interface{}` 或兼容 type alias。
 
 ---
 
@@ -659,41 +573,17 @@ type StreamPayload struct {
 | 解耦     | 故障隔离             |
 | 负载分离 | 不同负载类型分开处理 |
 
-### 5.2 推荐的进程拆分方案
+### 5.2 当前进程边界
 
-#### Phase 1.5（当前实际）：单进程 Server+Worker+Orchestrator
-
-```bash
-cmd/leros/               # 主服务（所有功能：Server + Worker + Orchestrator）
-```
-
-**特点：**
-
-- Server 和 Worker 在同一进程中运行
-- Orchestrator 在 Server 端运行（而非独立 Worker）
-- 简化部署和开发
-- 适合 MVP 阶段
-
-#### Phase 2（计划）：分离 Worker 进程逻辑
+同一个 `leros` 二进制通过 Cobra 子命令提供 Server 与 Worker 进程入口。进程启停、
+信号和致命错误处理只存在于 `cmd/leros`；`internal/*` 不知道自己运行在哪种进程中。
 
 ```bash
-cmd/leros/               # 通过启动参数区分模式
-                          # --mode=server   API 服务
-                          # --mode=worker   执行节点
+leros server   # API、DB、NATS、Worker 管理
+leros worker   # Worker Command、Coordinator、Assistant、Agent Runtime
 ```
 
-**特点：**
-
-- 逻辑分离，但仍在同一二进制文件
-- 通过配置或启动参数区分角色
-- Worker 开始承担 Execution Engine 职责
-
-#### Phase 3（远期）：独立进程部署
-
-```bash
-cmd/server/               # API 服务（HTTP + Event Engine）
-cmd/worker/               # 执行节点（Execution Engine + Agent Runtime）
-```
+是否同机部署属于部署配置，不改变包边界或执行契约。
 
 **特点：**
 
@@ -820,19 +710,10 @@ Contract-driven Service Architecture
 - **wire 组装依赖** - 避免 main 爆炸
 - **无 Repository 抽象** - service 直接调用 db
 
-**当前实现状态（Phase 1.5）：**
+**当前实现状态：**
 
-- ✅ API 层完整实现（契约驱动服务架构）
-- ✅ Agent Runtime 完整实现（SimpleChat + Eino + Session 上下文）
-- ⚠️ Event Engine 部分实现（Orchestrator 已实现，Router/Execution Engine 待完善）
-- ⚠️ Worker 进程 stub 实现（Phase 2 完善）
-
-**架构演进路径：**
-
-```
-Phase 1.5（当前）: Server + Worker + Orchestrator 单进程
-    ↓
-Phase 2（计划）: Execution Engine 独立 + Event Engine 完善 + Worker 逻辑分离
-    ↓
-Phase 3（远期）: 独立进程部署（Server / Worker）
-```
+- API 层按 contract / service / handler 组织。
+- Worker 主链为 Handler → Coordinator → Assistant → Executor → Runtime。
+- Agent 执行层与 SingerOS 业务层物理分离。
+- native、Claude、Codex、OpenCode 使用同一 Runtime 和 Event 契约。
+- NATS `run.stream` / `run.state` 保持 wire compatibility。

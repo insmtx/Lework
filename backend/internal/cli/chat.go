@@ -14,9 +14,10 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
 )
 
 const (
@@ -247,7 +248,7 @@ func parseSSE(reader io.Reader) error {
 
 // handleSSEEvent 根据事件类型向终端输出内容，返回 true 表示流已结束。
 func handleSSEEvent(e sseEvent, printInline *bool) bool {
-	switch events.EventType(e.Event) {
+	switch agent.EventType(e.Event) {
 	case events.EventMessageDelta:
 		if e.Data != "" {
 			fmt.Print(e.Data)

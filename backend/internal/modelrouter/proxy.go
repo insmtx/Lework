@@ -9,7 +9,7 @@ import (
 // WorkerProxyBaseURL returns the built-in worker model proxy BaseURL.
 // The proxy is registered at identity.WorkerAddr() by RegisterRoutes.
 // Requests sent to this address are transparently routed to the upstream provider
-// according to the config previously registered in DefaultStore().
+// according to the config registered in the worker-scoped ModelStore.
 //
 // Returns empty string when the worker address is not yet configured.
 func WorkerProxyBaseURL() string {

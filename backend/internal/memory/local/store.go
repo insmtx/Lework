@@ -94,15 +94,6 @@ func NewStore(opts Options) (*Store, error) {
 	}, nil
 }
 
-// MustDefaultStore creates the default store and panics only on impossible path resolution.
-func MustDefaultStore() *Store {
-	store, err := NewStore(Options{})
-	if err != nil {
-		panic(err)
-	}
-	return store
-}
-
 // DefaultMemoryRoot returns the workspace memory directory.
 func DefaultMemoryRoot() (string, error) {
 	return leros.MemoryDir()

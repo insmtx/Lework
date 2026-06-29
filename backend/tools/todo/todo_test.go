@@ -5,22 +5,24 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/runtime/events"
-	runtimetodo "github.com/insmtx/Leros/backend/internal/runtime/todo"
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
+	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
+	"github.com/insmtx/Leros/backend/tools"
 )
 
 func TestToolSnapshotPublishesRuntimeTodos(t *testing.T) {
-	var emitted []events.Event
+	var emitted []agent.Event
 	reporter := runtimetodo.NewTracker(runtimetodo.Options{
 		RunID: "run_todo",
-		Sink: events.SinkFunc(func(_ context.Context, event *events.Event) error {
+		Sink: events.SinkFunc(func(_ context.Context, event *agent.Event) error {
 			emitted = append(emitted, *event)
 			return nil
 		}),
 	})
 	ctx := runtimetodo.ContextWithReporter(context.Background(), reporter)
 
-	output, err := NewTool().Execute(ctx, map[string]interface{}{
+	output, err := NewTool().Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"todos": []interface{}{
 			map[string]interface{}{
 				"id":      "inspect",
@@ -28,7 +30,8 @@ func TestToolSnapshotPublishesRuntimeTodos(t *testing.T) {
 				"status":  "running",
 			},
 		},
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -65,20 +68,21 @@ func TestToolUpdateMergesRuntimeTodos(t *testing.T) {
 	ctx := runtimetodo.ContextWithReporter(context.Background(), reporter)
 	tool := NewTool()
 
-	if _, err := tool.Execute(ctx, map[string]interface{}{
+	if _, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"todos": []interface{}{
 			map[string]interface{}{"id": "a", "content": "A", "status": "pending"},
 		},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
-	output, err := tool.Execute(ctx, map[string]interface{}{
+	output, err := tool.Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"merge": true,
 		"todos": []interface{}{
 			map[string]interface{}{"id": "a", "content": "A", "status": "completed"},
 			map[string]interface{}{"id": "b", "content": "B", "status": "pending"},
 		},
-	})
+	}))
+
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -108,21 +112,21 @@ func TestToolUpdateMergesRuntimeTodos(t *testing.T) {
 }
 
 func TestToolReadReturnsCurrentTodosWithoutEmitting(t *testing.T) {
-	var emitted []events.Event
+	var emitted []agent.Event
 	reporter := runtimetodo.NewTracker(runtimetodo.Options{
-		Sink: events.SinkFunc(func(_ context.Context, event *events.Event) error {
+		Sink: events.SinkFunc(func(_ context.Context, event *agent.Event) error {
 			emitted = append(emitted, *event)
 			return nil
 		}),
 	})
-	if err := reporter.Snapshot(context.Background(), []runtimetodo.RuntimeTodoItem{
+	if err := reporter.Snapshot(context.Background(), []events.RuntimeTodoItem{
 		{ID: "a", Title: "A", Status: "pending"},
 	}); err != nil {
 		t.Fatalf("seed snapshot: %v", err)
 	}
 	emitted = nil
 
-	output, err := NewTool().Execute(runtimetodo.ContextWithReporter(context.Background(), reporter), map[string]interface{}{})
+	output, err := NewTool().Execute(runtimetodo.ContextWithReporter(context.Background(), reporter), tools.JSONInput(map[string]interface{}{}))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -147,11 +151,12 @@ func TestToolRequiresContentField(t *testing.T) {
 	reporter := runtimetodo.NewTracker(runtimetodo.Options{})
 	ctx := runtimetodo.ContextWithReporter(context.Background(), reporter)
 
-	_, err := NewTool().Execute(ctx, map[string]interface{}{
+	_, err := NewTool().Execute(ctx, tools.JSONInput(map[string]interface{}{
 		"todos": []interface{}{
 			map[string]interface{}{"id": "legacy", "title": "Legacy title", "status": "pending"},
 		},
-	})
+	}))
+
 	if err == nil {
 		t.Fatalf("expected content validation error")
 	}
