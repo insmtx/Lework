@@ -174,6 +174,7 @@ function ProcessTimelineBlock({
 	);
 	const preview = useMemo(() => {
 <<<<<<< HEAD
+<<<<<<< HEAD
 		return getLatestProcessPreview(steps, toolCallMap);
 =======
 		for (const step of steps) {
@@ -203,6 +204,9 @@ function ProcessTimelineBlock({
 		}
 		return "";
 >>>>>>> 3b3d671 (fix(file): 统一文件卡片元信息展示)
+=======
+		return getLatestProcessPreview(steps, toolCallMap);
+>>>>>>> 5027371 (style: 折叠问答时显示动态工具调用信息)
 	}, [steps, toolCallMap]);
 
 	useEffect(() => {
