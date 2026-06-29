@@ -20,10 +20,10 @@ import (
 	"github.com/nats-io/nats.go"
 
 	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
+	"github.com/insmtx/Leros/backend/internal/cli"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/internal/skill/fetch"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
-	"github.com/insmtx/Leros/backend/internal/worker/client"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
@@ -145,8 +145,8 @@ func (h *Handler) tryDownloadFromServer(ctx context.Context, skillID, source, ve
 		return nil, fmt.Errorf("server addr not configured")
 	}
 
-	srv := client.NewServerClient(serverAddr, identity.AppKey())
-	data, err := srv.DownloadSkillCache(ctx, skillID, source, version)
+	authToken := os.Getenv(leros.EnvAuthToken)
+	data, err := cli.DownloadSkillCache(ctx, serverAddr, authToken, skillID, source, version)
 	if err != nil {
 		return nil, err
 	}

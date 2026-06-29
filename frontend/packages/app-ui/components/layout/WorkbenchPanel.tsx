@@ -641,7 +641,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)]">
 											<FileText className="size-5" />
 										</div>
-										<p className="line-clamp-3 text-sm font-medium leading-6 text-[var(--leros-text)]">
+										<p className="line-clamp-2 text-sm font-medium leading-6 text-[var(--leros-text)]">
 											{prompt}
 										</p>
 									</button>

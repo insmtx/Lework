@@ -615,15 +615,54 @@ func (s *projectService) initRepoStructure(ctx context.Context, fullName string)
 	owner, repo := parts[0], parts[1]
 
 	emptyContent := base64.StdEncoding.EncodeToString([]byte(""))
+	gitignore := `# Leros runtime
+.leros/
+!.leros/memory/
+
+# Artifact outputs (served from object storage, not committed)
+artifacts/
+
+# User uploads (served from object storage, not committed)
+uploads/
+
+# Dependency directories
+node_modules/
+vendor/
+
+# Build/cache outputs
+dist/
+build/
+target/
+.cache/
+.cache*/
+tmp/
+temp/
+logs/
+log/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Runtime logs
+*.log
+
+# Environment/secrets
+.env
+.env.*
+!.env.example
+`
+	gitignoreContent := base64.StdEncoding.EncodeToString([]byte(gitignore))
 
 	initFiles := []struct {
 		path    string
 		content string
 		msg     string
 	}{
+		{".gitignore", gitignoreContent, "chore: init .gitignore"},
 		{".leros/memory/.gitkeep", emptyContent, "chore: init .leros/memory/"},
-		{"artifacts/.gitkeep", emptyContent, "chore: init artifacts/"},
-		{"README.md", base64.StdEncoding.EncodeToString([]byte("# " + repo + "\n")), "chore: init README"},
 	}
 
 	for _, f := range initFiles {

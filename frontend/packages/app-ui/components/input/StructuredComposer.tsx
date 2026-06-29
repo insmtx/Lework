@@ -316,6 +316,42 @@ function createSkillSparklesIcon(): SVGElement {
 	return svg;
 }
 
+function createRemoveIcon(): SVGElement {
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	svg.setAttribute("class", "size-2.5");
+
+	for (const d of ["M18 6 6 18", "m6 6 12 12"]) {
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		path.setAttribute("d", d);
+		svg.appendChild(path);
+	}
+
+	return svg;
+}
+
+function createMentionRemoveControl(token: InsertedToken): HTMLSpanElement {
+	const control = document.createElement("span");
+	control.dataset.mentionRemove = "true";
+	control.dataset.mentionLabel = token.label;
+	control.dataset.mentionKind = token.kind;
+	control.setAttribute("role", "button");
+	control.setAttribute("tabindex", "-1");
+	control.setAttribute(
+		"aria-label",
+		`移除${token.kind === "skill" ? "技能" : "AI队友"} ${token.label}`,
+	);
+	control.className =
+		"ml-0.5 inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-65 transition-opacity hover:bg-current/10 hover:opacity-100";
+	control.appendChild(createRemoveIcon());
+	return control;
+}
+
 function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedToken[]) {
 	const fragment = document.createDocumentFragment();
 	const orderedTokens = sortTokens(tokens);
@@ -341,11 +377,14 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 			const label = document.createElement("span");
 			label.className = "truncate";
 			label.textContent = token.label;
-			mention.append(iconShell, label);
+			mention.append(iconShell, label, createMentionRemoveControl(token));
 		} else {
 			mention.className =
-				"inline-flex rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-700 align-baseline";
-			mention.textContent = token.label;
+				"inline-flex items-center gap-1 rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-700 align-baseline";
+			const label = document.createElement("span");
+			label.className = "truncate";
+			label.textContent = token.label;
+			mention.append(label, createMentionRemoveControl(token));
 		}
 		fragment.appendChild(mention);
 		cursor = token.end;
@@ -984,6 +1023,32 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			[removeMentionToken],
 		);
 
+		const handleEditorMouseDown = useCallback(
+			(event: MouseEvent<HTMLDivElement>) => {
+				const target = event.target;
+				const removeControl =
+					target instanceof Element ? target.closest('[data-mention-remove="true"]') : null;
+
+				if (removeControl instanceof HTMLElement && editorRef.current?.contains(removeControl)) {
+					event.preventDefault();
+					event.stopPropagation();
+
+					const kind = removeControl.dataset.mentionKind === "skill" ? "skill" : "assistant";
+					const label = removeControl.dataset.mentionLabel;
+					if (label) {
+						// 中文注释：token 内的 x 只删除对应的 mention 文本，保留输入框其他内容和 token 样式。
+						removeMentionToken(kind, label);
+					}
+					return;
+				}
+
+				if (trigger) {
+					dismissTrigger();
+				}
+			},
+			[dismissTrigger, removeMentionToken, trigger],
+		);
+
 		useImperativeHandle(
 			ref,
 			() => ({
@@ -1267,11 +1332,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					onInput={() => syncFromEditor()}
 					onKeyDown={handleKeyDown}
 					onPaste={handlePaste}
-					onMouseDown={() => {
-						if (trigger) {
-							dismissTrigger();
-						}
-					}}
+					onMouseDown={handleEditorMouseDown}
 					onFocus={onFocus}
 					onBlur={() => {
 						onBlur();

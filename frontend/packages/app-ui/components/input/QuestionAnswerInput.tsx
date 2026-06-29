@@ -12,9 +12,8 @@ import {
 	CornerDownLeft,
 	Info,
 	LoaderCircle,
-	Pencil,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getProjectChatLayoutClasses } from "../layout/project-chat-layout";
 
 function QuestionStatusBadge({ question }: { question: QuestionRequest }) {
@@ -33,6 +32,29 @@ function QuestionStatusBadge({ question }: { question: QuestionRequest }) {
 		default:
 			return <Badge className="bg-slate-100 text-slate-600">等待回答</Badge>;
 	}
+}
+
+function isCustomOptionLabel(label: string): boolean {
+	const normalized = label.trim().toLowerCase();
+
+	return (
+		/请说明|请填写|please\s+specify/.test(normalized) ||
+		/^(其他|其它)(?:$|\s|[（(：:])/.test(normalized) ||
+		/^other(?:$|\s|[（(：:])/.test(normalized)
+	);
+}
+
+function isAnswerComplete(answer: string[] | undefined, customActive = false): boolean {
+	if (!customActive) return (answer?.length ?? 0) > 0;
+	return (answer?.[0]?.trim().length ?? 0) > 0;
+}
+
+function normalizeQuestionAnswers(answers: string[][], customActive: boolean[]): string[][] {
+	return answers.map((answer, index) => {
+		if (!customActive[index]) return answer;
+		const customValue = answer[0]?.trim();
+		return customValue ? [customValue] : [];
+	});
 }
 
 export function QuestionAnswerInput({
@@ -54,13 +76,19 @@ export function QuestionAnswerInput({
 			return firstOption ? [firstOption.label] : [];
 		}),
 	);
+	const [customActive, setCustomActive] = useState<boolean[]>(() =>
+		question.questions.map((item) => item.custom && item.options.length === 0),
+	);
 	const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
 	const [focusedOptionIndex, setFocusedOptionIndex] = useState(0);
+	const customInputRef = useRef<HTMLTextAreaElement>(null);
 	const isSubmitting = question.status === "submitting";
 	const isProjectVariant = variant === "project";
 	const layout = projectLayout ?? getProjectChatLayoutClasses("sidebar-expanded");
 
-	const allAnswered = answers.every((value) => value.length > 0);
+	const allAnswered = question.questions.every((_, index) =>
+		isAnswerComplete(answers[index], customActive[index]),
+	);
 	const currentQuestion = question.questions[activeQuestionIndex] ?? {
 		question: "",
 		options: [],
@@ -68,19 +96,26 @@ export function QuestionAnswerInput({
 		custom: false,
 	};
 	const currentAnswer = answers[activeQuestionIndex] ?? [];
-	const currentAnswered = currentAnswer.length > 0;
+	const currentCustomActive = customActive[activeQuestionIndex] ?? false;
+	const currentAnswered = isAnswerComplete(currentAnswer, currentCustomActive);
 	const hasMultipleQuestions = question.questions.length > 1;
 	const isLastQuestion = activeQuestionIndex >= question.questions.length - 1;
+	const selectedKnownOption = currentQuestion.options.some(
+		(option) => option.label === currentAnswer[0],
+	);
 	const customAnswerValue = currentQuestion.options.some(
 		(option) => option.label === currentAnswer[0],
 	)
-		? ""
+		? currentCustomActive
+			? (currentAnswer[0] ?? "")
+			: ""
 		: (currentAnswer[0] ?? "");
+	const showCustomInput = currentQuestion.custom || currentCustomActive;
 
 	const handleSubmit = useCallback(() => {
 		if (!allAnswered || isSubmitting) return;
-		onAnswer(messageId, question.requestId, answers);
-	}, [allAnswered, isSubmitting, onAnswer, messageId, question.requestId, answers]);
+		onAnswer(messageId, question.requestId, normalizeQuestionAnswers(answers, customActive));
+	}, [allAnswered, isSubmitting, onAnswer, messageId, question.requestId, answers, customActive]);
 
 	const handleCancel = useCallback(() => {
 		if (isSubmitting) return;
@@ -88,6 +123,11 @@ export function QuestionAnswerInput({
 	}, [isSubmitting, messageId, onAnswer, question.requestId]);
 
 	const handleRadioChange = useCallback((questionIndex: number, value: string) => {
+		setCustomActive((prev) => {
+			const next = [...prev];
+			next[questionIndex] = false;
+			return next;
+		});
 		setAnswers((prev) => {
 			const next = prev.map((row) => [...row]);
 			next[questionIndex] = [value];
@@ -144,6 +184,11 @@ export function QuestionAnswerInput({
 
 	const handleCheckboxChange = useCallback(
 		(questionIndex: number, optionLabel: string, checked: boolean) => {
+			setCustomActive((prev) => {
+				const next = [...prev];
+				next[questionIndex] = false;
+				return next;
+			});
 			setAnswers((prev) => {
 				const next = prev.map((row) => [...row]);
 				const current = next[questionIndex] ?? [];
@@ -158,7 +203,32 @@ export function QuestionAnswerInput({
 		[],
 	);
 
+	const handleCustomSelect = useCallback(
+		(questionIndex: number) => {
+			setCustomActive((prev) => {
+				const next = [...prev];
+				next[questionIndex] = true;
+				return next;
+			});
+			setAnswers((prev) => {
+				const next = prev.map((row) => [...row]);
+				const current = next[questionIndex]?.[0] ?? "";
+				const currentIsOption = question.questions[questionIndex]?.options.some(
+					(option) => option.label === current,
+				);
+				next[questionIndex] = current && !currentIsOption ? [current] : [];
+				return next;
+			});
+		},
+		[question.questions],
+	);
+
 	const handleCustomChange = useCallback((questionIndex: number, value: string) => {
+		setCustomActive((prev) => {
+			const next = [...prev];
+			next[questionIndex] = true;
+			return next;
+		});
 		setAnswers((prev) => {
 			const next = prev.map((row) => [...row]);
 			next[questionIndex] = value ? [value] : [];
@@ -168,10 +238,18 @@ export function QuestionAnswerInput({
 
 	useEffect(() => {
 		const selectedIndex = currentQuestion.options.findIndex((option) =>
-			currentAnswer.includes(option.label),
+			currentCustomActive
+				? isCustomOptionLabel(option.label)
+				: currentAnswer.includes(option.label),
 		);
 		setFocusedOptionIndex(selectedIndex >= 0 ? selectedIndex : 0);
-	}, [activeQuestionIndex, currentAnswer, currentQuestion.options]);
+	}, [activeQuestionIndex, currentAnswer, currentCustomActive, currentQuestion.options]);
+
+	useEffect(() => {
+		if (!currentCustomActive || isSubmitting) return;
+		const frame = requestAnimationFrame(() => customInputRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	}, [activeQuestionIndex, currentCustomActive, isSubmitting]);
 
 	useEffect(() => {
 		if (isSubmitting) return;
@@ -206,7 +284,11 @@ export function QuestionAnswerInput({
 				const nextOption = currentQuestion.options[nextIndex];
 				setFocusedOptionIndex(nextIndex);
 				if (nextOption) {
-					handleRadioChange(activeQuestionIndex, nextOption.label);
+					if (isCustomOptionLabel(nextOption.label)) {
+						handleCustomSelect(activeQuestionIndex);
+					} else {
+						handleRadioChange(activeQuestionIndex, nextOption.label);
+					}
 				}
 				return;
 			}
@@ -215,11 +297,15 @@ export function QuestionAnswerInput({
 				event.preventDefault();
 				const option = currentQuestion.options[focusedOptionIndex];
 				if (option) {
-					handleCheckboxChange(
-						activeQuestionIndex,
-						option.label,
-						!currentAnswer.includes(option.label),
-					);
+					if (isCustomOptionLabel(option.label)) {
+						handleCustomSelect(activeQuestionIndex);
+					} else {
+						handleCheckboxChange(
+							activeQuestionIndex,
+							option.label,
+							!currentAnswer.includes(option.label),
+						);
+					}
 				}
 				return;
 			}
@@ -241,6 +327,7 @@ export function QuestionAnswerInput({
 		handleCheckboxChange,
 		handleCancel,
 		handleContinue,
+		handleCustomSelect,
 		handleNavigate,
 		handleRadioChange,
 		hasMultipleQuestions,
@@ -300,9 +387,12 @@ export function QuestionAnswerInput({
 
 						<div className="space-y-0.5">
 							{currentQuestion.options.map((option, optionIndex) => {
-								const selected = currentQuestion.multiple
-									? currentAnswer.includes(option.label)
-									: currentAnswer[0] === option.label;
+								const isCustomOption = isCustomOptionLabel(option.label);
+								const selected = isCustomOption
+									? currentCustomActive
+									: currentQuestion.multiple
+										? currentAnswer.includes(option.label)
+										: currentAnswer[0] === option.label;
 								const focused = focusedOptionIndex === optionIndex;
 								return (
 									<button
@@ -311,6 +401,10 @@ export function QuestionAnswerInput({
 										disabled={isSubmitting}
 										onClick={() => {
 											setFocusedOptionIndex(optionIndex);
+											if (isCustomOption) {
+												handleCustomSelect(activeQuestionIndex);
+												return;
+											}
 											if (currentQuestion.multiple) {
 												handleCheckboxChange(activeQuestionIndex, option.label, !selected);
 												return;
@@ -351,17 +445,20 @@ export function QuestionAnswerInput({
 								);
 							})}
 
-							{currentQuestion.custom && (
-								<div className="flex items-start gap-2.5 rounded-lg px-2 py-1">
-									<span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-400">
-										<Pencil className="size-3" />
-									</span>
+							{showCustomInput && (
+								<div className="rounded-lg px-9 pb-1 pt-1">
 									<Textarea
-										placeholder="否，请告知 Leros 如何调整"
+										ref={customInputRef}
+										aria-label="其他答案"
+										placeholder={
+											selectedKnownOption && !currentCustomActive
+												? "如需选择其他，请先点击“其他”选项"
+												: "请输入其他答案"
+										}
 										value={customAnswerValue}
 										onChange={(e) => handleCustomChange(activeQuestionIndex, e.target.value)}
 										disabled={isSubmitting}
-										className="min-h-7 resize-none border-0 bg-transparent p-0 text-[13px] font-normal text-slate-700 shadow-none placeholder:text-slate-400 focus-visible:ring-0"
+										className="min-h-16 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-normal text-slate-700 shadow-none placeholder:text-slate-400 focus-visible:ring-1 focus-visible:ring-slate-300"
 									/>
 								</div>
 							)}

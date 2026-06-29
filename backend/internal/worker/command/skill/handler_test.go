@@ -98,7 +98,6 @@ func TestIsZipContent(t *testing.T) {
 func TestReplySuccess(t *testing.T) {
 	pub := &fakeReplyPublisher{}
 	h, _ := New(pub)
-
 	h.replySuccess("inbox_ok", "install", "skill \"test\" installed")
 	result := pub.lastResult()
 	if result == nil {
@@ -115,7 +114,6 @@ func TestReplySuccess(t *testing.T) {
 func TestReplyError(t *testing.T) {
 	pub := &fakeReplyPublisher{}
 	h, _ := New(pub)
-
 	h.replyError("inbox_err", "boom", nil)
 	result := pub.lastResult()
 	if result == nil {

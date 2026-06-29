@@ -18,9 +18,10 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/client"
+	"github.com/insmtx/Leros/backend/internal/cli"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
+	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -186,8 +187,8 @@ func uploadArtifacts(
 		return
 	}
 
-	serverClient := client.NewServerClient(serverAddr, identity.AppKey())
-	storageConfig, err := serverClient.GetStorageConfig(ctx)
+	authToken := os.Getenv(leros.EnvAuthToken)
+	storageConfig, err := cli.GetStorageConfig(ctx, serverAddr, authToken)
 	if err != nil {
 		logs.WarnContextf(ctx, "get storage config from server: %v", err)
 		storageConfig = nil
@@ -196,7 +197,8 @@ func uploadArtifacts(
 	for i := range records {
 		storageURI, err := uploadArtifact(
 			ctx,
-			serverClient,
+			serverAddr,
+			authToken,
 			storageConfig,
 			repoDir,
 			projectPublicID,
@@ -212,8 +214,9 @@ func uploadArtifacts(
 
 func uploadArtifact(
 	ctx context.Context,
-	serverClient *client.ServerClient,
-	storageConfig *client.StorageConfig,
+	serverAddr string,
+	authToken string,
+	storageConfig *cli.StorageConfig,
 	repoDir string,
 	projectPublicID string,
 	record agentworkspace.ArtifactRecord,
@@ -250,7 +253,7 @@ func uploadArtifact(
 		}
 	}
 
-	uploadURL, err := serverClient.GetPresignUploadURL(ctx, bucket, key)
+	uploadURL, err := cli.GetPresignUploadURL(ctx, serverAddr, authToken, bucket, key)
 	if err != nil {
 		return "", fmt.Errorf("get presign upload url: %w", err)
 	}
@@ -294,7 +297,7 @@ func pushWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
 		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 
-	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run artifacts")
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run workspace")
 	commitCmd.Dir = repoDir
 	commitCmd.Env = identity.GitAuthorEnv()
 	if output, err := commitCmd.CombinedOutput(); err != nil {

@@ -159,11 +159,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		}
 	}
 
-	staticGroup := v1.Group("/static", middleware.AppAuth(
-		cfg.Server.AppKey,
-		cfg.Server.JWT.Secret,
-		db,
-	))
+	staticGroup := v1.Group("/static")
 	handler.RegisterStaticRoutes(staticGroup)
 	logs.Info("Static routes registered successfully")
 

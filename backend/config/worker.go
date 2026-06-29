@@ -8,7 +8,6 @@ type WorkerConfig struct {
 	AuthToken      string `yaml:"auth_token,omitempty" json:"auth_token,omitempty"`
 	BootstrapToken string `yaml:"bootstrap_token,omitempty" json:"bootstrap_token,omitempty"`
 	WorkspaceRoot  string `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
-	AppKey         string `yaml:"app_key,omitempty" json:"app_key,omitempty"`
 
 	Env   string            `yaml:"env,omitempty" json:"env,omitempty"`
 	NATS  *NATSConfig       `yaml:"nats,omitempty"`

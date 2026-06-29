@@ -390,6 +390,12 @@ func hasRemote(ctx context.Context, repoDir string, remote string) bool {
 const defaultGitignore = `# Leros runtime
 .leros/tasks/
 
+# Artifact outputs (served from object storage, not committed)
+artifacts/
+
+# User uploads (served from object storage, not committed)
+uploads/
+
 # Dependency directories
 node_modules/
 vendor/

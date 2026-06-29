@@ -13,6 +13,9 @@ const (
 	// EnvWorkspaceRoot is the worker-local root used for Leros state.
 	EnvWorkspaceRoot = "LEROS_WORKSPACE_ROOT"
 
+	// EnvAuthToken is the JWT bearer token used for worker↔server authentication.
+	EnvAuthToken = "LEROS_AUTH_TOKEN"
+
 	stateDirName = ".leros"
 	stateDBName  = "leros.db"
 
