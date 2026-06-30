@@ -5,8 +5,9 @@
     "rules": {
       "recommended": true,
       "correctness": {
-        "noUnusedVariables": "warn",
-        "noUnusedImports": "warn",
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUnusedFunctionParameters": "error",
         "useHookAtTopLevel": "error",
         "noUndeclaredVariables": "error"
       },

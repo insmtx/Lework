@@ -1,0 +1,9 @@
+cd frontend
+export PATH="$PWD/node_modules/.bin:$PATH"
+
+if ! command -v lint-staged >/dev/null 2>&1; then
+	echo "lint-staged not found. Please run: pnpm --dir frontend install"
+	exit 1
+fi
+
+lint-staged --cwd .
