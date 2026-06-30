@@ -6,7 +6,8 @@ spec:
         - test
         - prod
         - image
-      description: 发布的环境选择，image为仅构建镜像
+        - desktop
+      description: 发布的环境选择，image为仅构建镜像，desktop为桌面端打包上传COS
     app:
       default: leros
       options:
@@ -18,6 +19,8 @@ stages:
   - test
   - build
   - deploy
+  - desktop_build
+  - desktop_publish
   - notify
 
 variables:
@@ -29,12 +32,24 @@ variables:
 uint-test:
   stage: test
   image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: '$ENV == "desktop"'
+      when: never
+    - when: on_success
   script:
     - echo testing
     # - APP=$[[ inputs.app ]] make test
 
 build-image:
   stage: build
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: '$ENV == "desktop"'
+      when: never
+    - when: on_success
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
   image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
@@ -57,25 +72,33 @@ deploy:
   stage: deploy
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
   rules:
-  - if: '$ENV != "image"'
-    when: on_success
-  - when: never
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: '$ENV == "desktop"'
+      when: never
+    - if: '$ENV != "image"'
+      when: on_success
+    - when: never
   before_script:
     - echo "PIPELINE_STATUS=failed" > deploy.env
     - echo "Deploying $app to $environment environment"
     - mkdir -p ~/.ssh
     - |
       if [ "${ENV}" = "test" ]; then
-          DEPLOY_HOST="deployer@t29.luv.gift"
+          if [ -z "$DEPLOY_HOST_TEST" ]; then
+            echo "Required deploy variable is missing: DEPLOY_HOST_TEST"
+            exit 1
+          fi
+          DEPLOY_HOST="$DEPLOY_HOST_TEST"
           echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
           UPDATE_SCRIPT="./update_yygu.sh"
       elif [ "${ENV}" = "prod" ]; then
-          DEPLOY_HOST="deployer@p31.luv.gift"
+          if [ -z "$DEPLOY_HOST_PROD" ]; then
+            echo "Required deploy variable is missing: DEPLOY_HOST_PROD"
+            exit 1
+          fi
+          DEPLOY_HOST="$DEPLOY_HOST_PROD"
           echo "$SSH_KEY_P31" | base64 -d > ~/.ssh/id_rsa
-          UPDATE_SCRIPT="./update_yygu.sh"
-      elif [ "${ENV}" = "private" ]; then
-          DEPLOY_HOST="ubuntu@t25.luv.gift"
-          echo "$SSH_KEY_T25" | base64 -d > ~/.ssh/id_rsa
           UPDATE_SCRIPT="./update_yygu.sh"
       else
           echo "Unknown ENV: $ENV"
@@ -99,13 +122,257 @@ deploy:
     reports:
       dotenv: deploy.env
 
+desktop-build-mac-arm64:
+  stage: desktop_build
+  tags:
+    - macos
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: on_success
+    - if: '$ENV == "desktop"'
+      when: on_success
+    - when: never
+  variables:
+    ELECTRON_CACHE: "$CI_PROJECT_DIR/.electron-cache"
+    electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
+    ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@10.28.2 --activate
+    - |
+      for variable in VITE_LEROS_API_BASE_URL APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
+        if [ -z "$(eval echo \$$variable)" ]; then
+          echo "Required desktop build variable is missing: ${variable}"
+          exit 1
+        fi
+      done
+    - printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$CI_PROJECT_DIR/AuthKey.p8"
+    - chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
+  script:
+    - export DESKTOP_VERSION="${CI_COMMIT_TAG#v}"
+    - |
+      if [ -z "$DESKTOP_VERSION" ]; then
+        DESKTOP_VERSION="$(node -p 'require("./frontend/apps/desktop/package.json").version')"
+      fi
+    - |
+      if [ -z "$DESKTOP_VERSION" ]; then
+        echo "desktop package version is required"
+        exit 1
+      fi
+    - cd frontend
+    - pnpm install --frozen-lockfile
+    - cd apps/desktop
+    - node -e 'const fs = require("node:fs"); const version = process.argv[1]; const path = "package.json"; const pkg = JSON.parse(fs.readFileSync(path, "utf8")); pkg.version = version; fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);' "$DESKTOP_VERSION"
+    - cd ../..
+    - pnpm --filter @leros/desktop typecheck
+    - APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_LINK="$MACOS_CERTIFICATE_P12_BASE64" CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD" pnpm run dist:desktop:mac:arm64
+    - cd "$CI_PROJECT_DIR"
+    - mkdir -p desktop-release/mac-arm64
+    - cp frontend/apps/desktop/dist/*.dmg desktop-release/mac-arm64/
+    - cp frontend/apps/desktop/dist/*.zip desktop-release/mac-arm64/
+    - cp frontend/apps/desktop/dist/*.blockmap desktop-release/mac-arm64/
+    - cp frontend/apps/desktop/dist/latest-mac.yml desktop-release/mac-arm64/
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - desktop-release/mac-arm64/
+
+desktop-build-mac-x64:
+  stage: desktop_build
+  tags:
+    - macos
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: on_success
+    - if: '$ENV == "desktop"'
+      when: on_success
+    - when: never
+  variables:
+    ELECTRON_CACHE: "$CI_PROJECT_DIR/.electron-cache"
+    electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
+    ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@10.28.2 --activate
+    - |
+      for variable in VITE_LEROS_API_BASE_URL APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
+        if [ -z "$(eval echo \$$variable)" ]; then
+          echo "Required desktop build variable is missing: ${variable}"
+          exit 1
+        fi
+      done
+    - printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$CI_PROJECT_DIR/AuthKey.p8"
+    - chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
+  script:
+    - export DESKTOP_VERSION="${CI_COMMIT_TAG#v}"
+    - |
+      if [ -z "$DESKTOP_VERSION" ]; then
+        DESKTOP_VERSION="$(node -p 'require("./frontend/apps/desktop/package.json").version')"
+      fi
+    - |
+      if [ -z "$DESKTOP_VERSION" ]; then
+        echo "desktop package version is required"
+        exit 1
+      fi
+    - cd frontend
+    - pnpm install --frozen-lockfile
+    - cd apps/desktop
+    - node -e 'const fs = require("node:fs"); const version = process.argv[1]; const path = "package.json"; const pkg = JSON.parse(fs.readFileSync(path, "utf8")); pkg.version = version; fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);' "$DESKTOP_VERSION"
+    - cd ../..
+    - pnpm --filter @leros/desktop typecheck
+    - APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_LINK="$MACOS_CERTIFICATE_P12_BASE64" CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD" pnpm run dist:desktop:mac:x64
+    - cd "$CI_PROJECT_DIR"
+    - mkdir -p desktop-release/mac-x64
+    - cp frontend/apps/desktop/dist/*.dmg desktop-release/mac-x64/
+    - cp frontend/apps/desktop/dist/*.zip desktop-release/mac-x64/
+    - cp frontend/apps/desktop/dist/*.blockmap desktop-release/mac-x64/
+    - cp frontend/apps/desktop/dist/latest-mac.yml desktop-release/mac-x64/
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - desktop-release/mac-x64/
+
+desktop-build-win-x64:
+  stage: desktop_build
+  tags:
+    - macos
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: on_success
+    - if: '$ENV == "desktop"'
+      when: on_success
+    - when: never
+  variables:
+    ELECTRON_CACHE: "$CI_PROJECT_DIR/.electron-cache"
+    electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
+    ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@10.28.2 --activate
+    - |
+      if [ -z "$VITE_LEROS_API_BASE_URL" ]; then
+        echo "Required desktop build variable is missing: VITE_LEROS_API_BASE_URL"
+        exit 1
+      fi
+  script:
+    - export DESKTOP_VERSION="${CI_COMMIT_TAG#v}"
+    - |
+      if [ -z "$DESKTOP_VERSION" ]; then
+        DESKTOP_VERSION="$(node -p 'require("./frontend/apps/desktop/package.json").version')"
+      fi
+    - |
+      if [ -z "$DESKTOP_VERSION" ]; then
+        echo "desktop package version is required"
+        exit 1
+      fi
+    - cd frontend
+    - pnpm install --frozen-lockfile
+    - cd apps/desktop
+    - node -e 'const fs = require("node:fs"); const version = process.argv[1]; const path = "package.json"; const pkg = JSON.parse(fs.readFileSync(path, "utf8")); pkg.version = version; fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);' "$DESKTOP_VERSION"
+    - cd ../..
+    - pnpm --filter @leros/desktop typecheck
+    - pnpm run dist:desktop:win:x64
+    - cd "$CI_PROJECT_DIR"
+    - mkdir -p desktop-release/win-x64
+    - cp frontend/apps/desktop/dist/*.exe desktop-release/win-x64/
+    - cp frontend/apps/desktop/dist/*.blockmap desktop-release/win-x64/
+    - cp frontend/apps/desktop/dist/latest.yml desktop-release/win-x64/
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - desktop-release/win-x64/
+
+desktop-publish-cos:
+  stage: desktop_publish
+  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: on_success
+    - if: '$ENV == "desktop"'
+      when: on_success
+    - when: never
+  needs:
+    - job: desktop-build-mac-arm64
+      artifacts: true
+    - job: desktop-build-mac-x64
+      artifacts: true
+    - job: desktop-build-win-x64
+      artifacts: true
+  before_script:
+    - python3 -m pip install --user coscmd
+  script:
+    - |
+      for variable in COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX; do
+        if [ -z "$(eval echo \$$variable)" ]; then
+          echo "Required COS variable is missing: ${variable}"
+          exit 1
+        fi
+      done
+    - export PATH="$HOME/.local/bin:$PATH"
+    - coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
+    - |
+      version="${CI_COMMIT_TAG#v}"
+      if [ -z "$version" ]; then
+        version="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' frontend/apps/desktop/package.json | head -n 1)"
+      fi
+      root_prefix="${DESKTOP_COS_ROOT_PREFIX#/}"
+      root_prefix="${root_prefix%/}"
+      prefix="${DESKTOP_COS_PREFIX#/}"
+      prefix="${prefix%/}"
+      printf '%s\n' "$version" > LATEST.txt
+
+      upload_dir() {
+        local local_dir="$1"
+        local target_dir="$2"
+
+        if [ ! -d "$local_dir" ]; then
+          echo "Missing desktop payload directory: $local_dir"
+          exit 1
+        fi
+
+        find "$local_dir" -maxdepth 1 -type f -print0 | while IFS= read -r -d '' file_path; do
+          object_key="${prefix}/${target_dir}/$(basename "$file_path")"
+          coscmd upload "$file_path" "$object_key"
+        done
+      }
+
+      upload_file() {
+        local file_path="$1"
+        local target_dir="$2"
+
+        if [ ! -f "$file_path" ]; then
+          echo "Missing desktop payload file: $file_path"
+          exit 1
+        fi
+
+        coscmd upload "$file_path" "${target_dir}/$(basename "$file_path")"
+      }
+
+      upload_dir "desktop-release/mac-arm64" "darwin/arm64"
+      upload_dir "desktop-release/mac-x64" "darwin/x64"
+      upload_dir "desktop-release/win-x64" "win32/x64"
+      upload_file "desktop-release/mac-arm64/Lework-${version}-mac-arm64.dmg" "$root_prefix"
+      upload_file "desktop-release/mac-x64/Lework-${version}-mac-x64.dmg" "$root_prefix"
+      upload_file "desktop-release/win-x64/Lework-${version}-win-x64.exe" "$root_prefix"
+      upload_file "LATEST.txt" "$root_prefix"
+
 notify:
   stage: notify
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:curl_8.12.1
   dependencies:
     - build-image
-  when: always
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: '$ENV == "desktop"'
+      when: never
+    - when: always
   script:
+    - |
+      if [ -z "$WEWORK_WEBHOOK_KEY" ]; then
+        echo "Required notify variable is missing: WEWORK_WEBHOOK_KEY"
+        exit 1
+      fi
     - echo "${PIPELINE_STATUS}"
     - |
       if [ "${PIPELINE_STATUS}" = "success" ]; then
@@ -115,10 +382,12 @@ notify:
       fi
       curl -H "Content-Type: application/json;charset=utf-8" \
         -d "{\"msgtype\": \"text\",\"text\": {\"content\":\"${MSG}\"}}" \
-        "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=badfc85d-68f4-4f06-a47e-5518560f1e13"
+        "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WEWORK_WEBHOOK_KEY}"
 
 workflow:
   rules:
+    - if: $CI_COMMIT_TAG
+      when: always
     - if: $CI_PIPELINE_SOURCE == "web"
       when: always
     - if: $CI_PIPELINE_SOURCE == "api"
