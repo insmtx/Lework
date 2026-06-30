@@ -139,6 +139,8 @@ deploy:
     ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
     npm_config_electron_mirror: "https://npmmirror.com/mirrors/electron/"
     npm_config_electron_builder_binaries_mirror: "https://npmmirror.com/mirrors/electron-builder-binaries/"
+    COREPACK_NPM_REGISTRY: "https://registry.npmmirror.com"
+    npm_config_registry: "https://registry.npmmirror.com"
   before_script:
     - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$CI_PROJECT_DIR/.corepack-bin:$PATH"
@@ -149,8 +151,23 @@ deploy:
       fi
     - node --version
     - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
+    - |
+      retry_before_script() {
+        local attempt=1
+        local max_attempts=5
+
+        until "$@"; do
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            return 1
+          fi
+
+          echo "Command failed, retrying (${attempt}/${max_attempts}): $*"
+          attempt=$((attempt + 1))
+          sleep 15
+        done
+      }
     - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
-    - corepack prepare pnpm@10.28.2 --activate
+    - retry_before_script corepack prepare pnpm@10.28.2 --activate
     - |
       for variable in VITE_LEROS_API_BASE_URL COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX DESKTOP_TARGET; do
         if [ -z "$(eval echo \$$variable)" ]; then
@@ -177,7 +194,12 @@ deploy:
         security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$CI_PROJECT_DIR/macos-signing.keychain-db"
         security import "$CI_PROJECT_DIR/macos-certificate.p12" -k "$CI_PROJECT_DIR/macos-signing.keychain-db" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
         security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PASSWORD" "$CI_PROJECT_DIR/macos-signing.keychain-db"
+        export MACOS_CODESIGN_IDENTITY="${MACOS_CODESIGN_IDENTITY:-Developer ID Application: Chuanjian Wang (Z6V3M72YA5)}"
         security find-identity -v -p codesigning "$CI_PROJECT_DIR/macos-signing.keychain-db"
+        if ! security find-identity -v -p codesigning "$CI_PROJECT_DIR/macos-signing.keychain-db" | grep -F "$MACOS_CODESIGN_IDENTITY"; then
+          echo "Required macOS codesign identity is missing: $MACOS_CODESIGN_IDENTITY"
+          exit 1
+        fi
       fi
     - python3 -m venv "$CI_PROJECT_DIR/.coscmd-venv"
     - $CI_PROJECT_DIR/.coscmd-venv/bin/pip install coscmd
@@ -301,7 +323,7 @@ deploy:
 
       cd "$CI_PROJECT_DIR/frontend"
       if [ "$build_with_signing" = "true" ]; then
-        retry env APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_LINK="$CI_PROJECT_DIR/macos-certificate.p12" CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD" CSC_KEYCHAIN="$CI_PROJECT_DIR/macos-signing.keychain-db" pnpm run "$build_script"
+        retry env APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_KEYCHAIN="$CI_PROJECT_DIR/macos-signing.keychain-db" CSC_NAME="$MACOS_CODESIGN_IDENTITY" pnpm run "$build_script"
       else
         RETRY_MAX_ATTEMPTS=6 retry env ELECTRON_MIRROR="$ELECTRON_MIRROR" ELECTRON_BUILDER_BINARIES_MIRROR="$ELECTRON_BUILDER_BINARIES_MIRROR" npm_config_electron_mirror="$npm_config_electron_mirror" npm_config_electron_builder_binaries_mirror="$npm_config_electron_builder_binaries_mirror" pnpm run "$build_script"
       fi
