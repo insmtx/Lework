@@ -18,6 +18,12 @@ import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update"
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+	markAppQuitting();
+	app.quit();
+}
 
 function getPolicyPdfPath(document: DesktopPolicyDocument): string {
 	const fileName = document === "terms" ? "terms-of-service.pdf" : "privacy-policy.pdf";
@@ -84,6 +90,15 @@ function showMainWindow(): void {
 	if (mainWindow.isMinimized()) mainWindow.restore();
 	mainWindow.show();
 	mainWindow.focus();
+}
+
+function focusMainWindow(): void {
+	showMainWindow();
+
+	if (process.platform === "win32" && mainWindow && !mainWindow.isDestroyed()) {
+		mainWindow.setAlwaysOnTop(true);
+		mainWindow.setAlwaysOnTop(false);
+	}
 }
 
 function hideMainWindow(): void {
@@ -177,6 +192,10 @@ app.whenReady().then(() => {
 
 		showMainWindow();
 	});
+});
+
+app.on("second-instance", () => {
+	focusMainWindow();
 });
 
 app.on("window-all-closed", () => {
