@@ -1,20 +1,16 @@
 "use client";
 
-import { Button } from "@leros/ui/components/ui/button";
-import { ChevronLeft, ChevronRight, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 export type OfficeOpenXmlFormat = "docx" | "xlsx" | "pptx";
 
-type NavigationState = {
-	current: number;
-	total: number;
-};
-
-const PPTX_DEFAULT_ASPECT_RATIO = 16 / 9;
 const PPTX_DESKTOP_MAX_WIDTH = 1180;
 const PPTX_TABLET_MAX_WIDTH = 960;
 const PPTX_MIN_WIDTH = 320;
+const DOCX_DESKTOP_MAX_WIDTH = 1120;
+const DOCX_TABLET_MAX_WIDTH = 920;
+const DOCX_MIN_WIDTH = 320;
 
 export function OfficePreview({
 	buffer,
@@ -29,10 +25,10 @@ export function OfficePreview({
 		return <XlsxPreview buffer={buffer} fileName={fileName} />;
 	}
 
-	return <PagedOfficePreview buffer={buffer} fileName={fileName} format={format} />;
+	return <ScrollOfficePreview buffer={buffer} fileName={fileName} format={format} />;
 }
 
-function PagedOfficePreview({
+function ScrollOfficePreview({
 	buffer,
 	fileName,
 	format,
@@ -42,8 +38,6 @@ function PagedOfficePreview({
 	format: "docx" | "pptx";
 }) {
 	const canvasHostRef = useRef<HTMLDivElement>(null);
-	const viewerRef = useRef<PagedViewer | null>(null);
-	const [navigation, setNavigation] = useState<NavigationState>({ current: 0, total: 0 });
 	const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 	const [error, setError] = useState("");
 
@@ -51,64 +45,43 @@ function PagedOfficePreview({
 		const canvasHost = canvasHostRef.current;
 		if (!canvasHost) return;
 		const hostElement = canvasHost;
-		const canvasElement = document.createElement("canvas");
-		canvasElement.setAttribute("aria-label", `${fileName} 预览`);
-		canvasElement.className =
-			format === "pptx"
-				? "max-w-full rounded-sm bg-white shadow-[0_22px_70px_rgba(15,23,42,0.22)] ring-1 ring-black/10"
-				: "max-w-full bg-white shadow-lg";
-		canvasElement.style.visibility = "hidden";
-		if (format === "pptx") {
-			setPptxCanvasWidth(canvasElement, getPptxRenderWidth(hostElement, canvasElement));
-		}
-		hostElement.replaceChildren(canvasElement);
+		const sourceBuffer = copyArrayBuffer(buffer);
 
 		let cancelled = false;
 		let resizeFrame = 0;
 		let resizeObserver: ResizeObserver | undefined;
+		let documentRenderer: ScrollDocumentRenderer | null = null;
 		setStatus("loading");
 		setError("");
-		setNavigation({ current: 0, total: 0 });
+		hostElement.replaceChildren();
 
-		async function loadViewer() {
+		async function loadDocument() {
 			try {
-				const viewer =
+				documentRenderer =
 					format === "docx"
-						? await createDocxViewer(canvasElement, (state) => {
-								if (!cancelled) setNavigation(state);
-							})
-						: await createPptxViewer(
-								canvasElement,
-								(state) => {
-									if (!cancelled) setNavigation(state);
-								},
-								getPptxRenderWidth(hostElement, canvasElement),
-							);
-				if (cancelled) {
-					viewer.destroy();
-					return;
-				}
-
-				viewerRef.current = viewer;
-				await viewer.load(buffer);
+						? await loadDocxDocument(sourceBuffer)
+						: await loadPptxDocument(sourceBuffer);
 				if (cancelled) return;
 
-				if (format === "pptx") {
-					const renderWidth = getPptxRenderWidth(hostElement, canvasElement);
-					viewer.setViewportWidth?.(renderWidth);
-					await viewer.renderCurrent();
-					if (cancelled) return;
-				}
+				await renderAllCanvases({
+					documentRenderer,
+					fileName,
+					format,
+					hostElement,
+				});
+				if (cancelled) return;
 
-				canvasElement.style.visibility = "visible";
 				setStatus("ready");
 				resizeObserver = new ResizeObserver(() => {
 					cancelAnimationFrame(resizeFrame);
 					resizeFrame = requestAnimationFrame(() => {
-						if (format === "pptx") {
-							viewer.setViewportWidth?.(getPptxRenderWidth(hostElement, canvasElement));
-						}
-						void viewer.renderCurrent().catch(handleRenderError);
+						if (!documentRenderer) return;
+						void renderAllCanvases({
+							documentRenderer,
+							fileName,
+							format,
+							hostElement,
+						}).catch(handleRenderError);
 					});
 				});
 				resizeObserver.observe(hostElement);
@@ -126,28 +99,16 @@ function PagedOfficePreview({
 			setStatus("error");
 		}
 
-		void loadViewer();
+		void loadDocument();
 
 		return () => {
 			cancelled = true;
 			cancelAnimationFrame(resizeFrame);
 			resizeObserver?.disconnect();
-			viewerRef.current?.destroy();
-			viewerRef.current = null;
+			documentRenderer?.destroy();
 			hostElement.replaceChildren();
 		};
 	}, [buffer, fileName, format]);
-
-	const navigate = async (direction: "previous" | "next") => {
-		const viewer = viewerRef.current;
-		if (!viewer) return;
-		try {
-			await (direction === "previous" ? viewer.previous() : viewer.next());
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "页面切换失败");
-			setStatus("error");
-		}
-	};
 
 	return (
 		<div
@@ -162,47 +123,13 @@ function PagedOfficePreview({
 					ref={canvasHostRef}
 					className={
 						format === "pptx"
-							? "flex min-h-full items-center justify-center py-8"
-							: "flex min-h-full items-start justify-center"
+							? "flex min-h-full flex-col items-center gap-8 py-8"
+							: "flex min-h-full flex-col items-center gap-5 py-3"
 					}
 				/>
 				{status === "loading" && <PreviewStatus label={`正在渲染 ${format.toUpperCase()}`} />}
 				{status === "error" && <PreviewError format={format} message={error} />}
 			</div>
-
-			{status === "ready" && navigation.total > 0 && (
-				<div
-					className={
-						format === "pptx"
-							? "absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center justify-center gap-3 rounded-full border border-[var(--leros-control-border)] bg-white/90 px-3 py-1.5 shadow-lg backdrop-blur"
-							: "flex shrink-0 items-center justify-center gap-3 border-t border-[var(--leros-control-border)] bg-white px-4 py-2"
-					}
-				>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						disabled={navigation.current <= 0}
-						onClick={() => void navigate("previous")}
-						title={format === "docx" ? "上一页" : "上一张"}
-					>
-						<ChevronLeft className="size-4" />
-					</Button>
-					<span className="min-w-20 text-center text-xs tabular-nums text-[var(--leros-text-muted)]">
-						{navigation.current + 1} / {navigation.total}
-					</span>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						disabled={navigation.current >= navigation.total - 1}
-						onClick={() => void navigate("next")}
-						title={format === "docx" ? "下一页" : "下一张"}
-					>
-						<ChevronRight className="size-4" />
-					</Button>
-				</div>
-			)}
 		</div>
 	);
 }
@@ -216,6 +143,7 @@ function XlsxPreview({ buffer, fileName }: { buffer: ArrayBuffer; fileName: stri
 		const container = containerRef.current;
 		if (!container) return;
 		const containerElement = container;
+		const sourceBuffer = copyArrayBuffer(buffer);
 
 		let cancelled = false;
 		let viewer: { load(source: ArrayBuffer): Promise<void>; destroy(): void } | undefined;
@@ -230,7 +158,7 @@ function XlsxPreview({ buffer, fileName }: { buffer: ArrayBuffer; fileName: stri
 				viewer = new XlsxViewer(containerElement, {
 					showZoomSlider: true,
 				});
-				await viewer.load(buffer);
+				await viewer.load(sourceBuffer);
 				if (!cancelled) setStatus("ready");
 			} catch (err) {
 				if (cancelled) return;
@@ -261,88 +189,104 @@ function XlsxPreview({ buffer, fileName }: { buffer: ArrayBuffer; fileName: stri
 	);
 }
 
-type PagedViewer = {
-	load(source: ArrayBuffer): Promise<void>;
-	previous(): Promise<void>;
-	next(): Promise<void>;
-	renderCurrent(): Promise<void>;
-	setViewportWidth?(width: number): void;
+type ScrollDocumentRenderer = {
+	count: number;
+	render(canvas: HTMLCanvasElement, index: number, width: number): Promise<void>;
 	destroy(): void;
 };
 
-async function createDocxViewer(
-	canvas: HTMLCanvasElement,
-	onChange: (state: NavigationState) => void,
-): Promise<PagedViewer> {
-	const { DocxViewer } = await import("@silurus/ooxml/docx");
-	const viewer = new DocxViewer(canvas, {
-		enableTextSelection: true,
-		onPageChange: (current, total) => onChange({ current, total }),
-	});
+function copyArrayBuffer(buffer: ArrayBuffer): ArrayBuffer {
+	return buffer.slice(0);
+}
+
+async function loadDocxDocument(buffer: ArrayBuffer): Promise<ScrollDocumentRenderer> {
+	const { DocxDocument } = await import("@silurus/ooxml/docx");
+	const document = await DocxDocument.load(buffer);
 
 	return {
-		load: (source) => viewer.load(source),
-		previous: () => viewer.prevPage(),
-		next: () => viewer.nextPage(),
-		renderCurrent: () => viewer.goToPage(viewer.currentPage),
-		destroy: () => viewer.destroy(),
+		count: document.pageCount,
+		render: (canvas, index, width) => document.renderPage(canvas, index, { width }),
+		destroy: () => document.destroy(),
 	};
 }
 
-async function createPptxViewer(
-	canvas: HTMLCanvasElement,
-	onChange: (state: NavigationState) => void,
-	initialWidth: number,
-): Promise<PagedViewer> {
-	const { PptxViewer } = await import("@silurus/ooxml/pptx");
-	const viewerOptions = {
-		enableTextSelection: true,
-		onSlideChange: (current: number, total: number) => onChange({ current, total }),
-		width: initialWidth,
-	};
-	const viewer = new PptxViewer(canvas, viewerOptions);
+async function loadPptxDocument(buffer: ArrayBuffer): Promise<ScrollDocumentRenderer> {
+	const { PptxPresentation } = await import("@silurus/ooxml/pptx");
+	const presentation = await PptxPresentation.load(buffer);
 
 	return {
-		load: (source) => viewer.load(source),
-		previous: () => viewer.prevSlide(),
-		next: () => viewer.nextSlide(),
-		renderCurrent: () => viewer.goToSlide(viewer.slideIndex),
-		setViewportWidth: (width) => {
-			viewerOptions.width = width;
-			setPptxCanvasWidth(canvas, width);
-		},
-		destroy: () => viewer.destroy(),
+		count: presentation.slideCount,
+		render: (canvas, index, width) => presentation.renderSlide(canvas, index, { width }),
+		destroy: () => presentation.destroy(),
 	};
 }
 
-function getPptxRenderWidth(hostElement: HTMLElement, canvasElement: HTMLCanvasElement): number {
+async function renderAllCanvases({
+	documentRenderer,
+	fileName,
+	format,
+	hostElement,
+}: {
+	documentRenderer: ScrollDocumentRenderer;
+	fileName: string;
+	format: "docx" | "pptx";
+	hostElement: HTMLElement;
+}) {
+	const renderWidth =
+		format === "pptx" ? getPptxRenderWidth(hostElement) : getDocxRenderWidth(hostElement);
+	const canvases = Array.from({ length: documentRenderer.count }, (_, index) =>
+		createPreviewCanvas({ fileName, format, index }),
+	);
+
+	hostElement.replaceChildren(...canvases);
+
+	for (const [index, canvas] of canvases.entries()) {
+		await documentRenderer.render(canvas, index, renderWidth);
+		canvas.style.visibility = "visible";
+	}
+}
+
+function createPreviewCanvas({
+	fileName,
+	format,
+	index,
+}: {
+	fileName: string;
+	format: "docx" | "pptx";
+	index: number;
+}) {
+	const canvas = document.createElement("canvas");
+	canvas.setAttribute(
+		"aria-label",
+		`${fileName} 第 ${index + 1} ${format === "docx" ? "页" : "张"}预览`,
+	);
+	canvas.className =
+		format === "pptx"
+			? "max-w-full rounded-sm bg-white shadow-[0_22px_70px_rgba(15,23,42,0.22)] ring-1 ring-black/10"
+			: "max-w-full bg-white shadow-lg";
+	canvas.style.visibility = "hidden";
+
+	return canvas;
+}
+
+function getPptxRenderWidth(hostElement: HTMLElement): number {
 	const viewportElement = hostElement.parentElement ?? hostElement;
 	const availableWidth = Math.max(hostElement.clientWidth, viewportElement.clientWidth);
-	const availableHeight = Math.max(hostElement.clientHeight, viewportElement.clientHeight);
-	const aspectRatio = getCanvasAspectRatio(canvasElement);
 	const horizontalInset = availableWidth >= 768 ? 64 : 24;
-	const verticalInset = availableHeight >= 560 ? 96 : 40;
 	const widthCap = availableWidth >= 1120 ? PPTX_DESKTOP_MAX_WIDTH : PPTX_TABLET_MAX_WIDTH;
 	const widthFromContainer = Math.max(PPTX_MIN_WIDTH, availableWidth - horizontalInset);
-	const widthFromHeight = Math.max(PPTX_MIN_WIDTH, (availableHeight - verticalInset) * aspectRatio);
 
-	return Math.round(Math.min(widthCap, widthFromContainer, widthFromHeight));
+	return Math.round(Math.min(widthCap, widthFromContainer));
 }
 
-function setPptxCanvasWidth(canvasElement: HTMLCanvasElement, width: number): void {
-	canvasElement.style.width = `${Math.round(width)}px`;
-	canvasElement.style.height = "auto";
-}
+function getDocxRenderWidth(hostElement: HTMLElement): number {
+	const viewportElement = hostElement.parentElement ?? hostElement;
+	const availableWidth = Math.max(hostElement.clientWidth, viewportElement.clientWidth);
+	const horizontalInset = availableWidth >= 768 ? 56 : 24;
+	const widthCap = availableWidth >= 1120 ? DOCX_DESKTOP_MAX_WIDTH : DOCX_TABLET_MAX_WIDTH;
+	const widthFromContainer = Math.max(DOCX_MIN_WIDTH, availableWidth - horizontalInset);
 
-function getCanvasAspectRatio(canvasElement: HTMLCanvasElement): number {
-	const width = canvasElement.offsetWidth;
-	const height = canvasElement.offsetHeight;
-
-	if (width > 0 && height > 0) {
-		return width / height;
-	}
-
-	return PPTX_DEFAULT_ASPECT_RATIO;
+	return Math.round(Math.min(widthCap, widthFromContainer));
 }
 
 function PreviewStatus({ label }: { label: string }) {
