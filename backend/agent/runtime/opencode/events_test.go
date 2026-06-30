@@ -1,6 +1,8 @@
 package opencode
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/insmtx/Leros/backend/agent"
@@ -82,6 +84,139 @@ func TestHandleSSEEventFiltersConfiguredToolCall(t *testing.T) {
 	case event := <-st.evtChan:
 		t.Fatalf("unexpected event for question tool call lifecycle: %#v", event)
 	default:
+	}
+}
+
+func TestHandleSSEEventPlanExitEmitsPlanConfirmation(t *testing.T) {
+	workDir := t.TempDir()
+	planDir := filepath.Join(workDir, ".opencode", "plans")
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const planContent = "# Implementation plan"
+	if err := os.WriteFile(filepath.Join(planDir, "123-plan-slug.md"), []byte(planContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := &sessionResponse{Slug: "plan-slug", Directory: workDir}
+	session.Time.Created = 123
+	st := &runState{
+		evtChan:           make(chan agent.Event, 4),
+		workDir:           workDir,
+		session:           session,
+		filteredToolCalls: make(map[string]string),
+	}
+
+	st.handleSSEEvent(sseEvent{
+		Type: "session.next.tool.input.started",
+		Properties: map[string]any{
+			"callID": "call_plan",
+			"name":   "plan_exit",
+		},
+	})
+	st.handleSSEEvent(sseEvent{
+		Type: "question.asked",
+		Properties: map[string]any{
+			"id":        "que_plan",
+			"sessionID": "ses_plan",
+			"tool": map[string]any{
+				"callID":    "call_plan",
+				"messageID": "msg_plan",
+			},
+			"questions": []any{
+				map[string]any{
+					"question": "Plan at .opencode/plans/123-plan-slug.md is complete.",
+					"options": []any{
+						map[string]any{"label": "Yes"},
+						map[string]any{"label": "No"},
+					},
+				},
+			},
+		},
+	})
+
+	event := readEvent(t, st.evtChan)
+	payload, err := events.DecodePayload[events.QuestionRequestPayload](&event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.InteractionType != "plan_confirmation" {
+		t.Fatalf("interaction type = %q", payload.InteractionType)
+	}
+	if event.Content != "以下是当前计划，是否执行？" {
+		t.Fatalf("event content = %q", event.Content)
+	}
+	if len(payload.Questions) != 1 ||
+		payload.Questions[0].Header != "计划确认" ||
+		payload.Questions[0].Question != "以下是当前计划，是否执行？" ||
+		payload.Questions[0].Custom ||
+		len(payload.Questions[0].Options) != 2 ||
+		payload.Questions[0].Options[0].Label != "Yes" ||
+		payload.Questions[0].Options[1].Label != "No" {
+		t.Fatalf("unexpected rewritten questions: %#v", payload.Questions)
+	}
+	if payload.Plan == nil || payload.Plan.Content != planContent || payload.Plan.Error != "" {
+		t.Fatalf("unexpected plan handoff: %#v", payload.Plan)
+	}
+
+	st.handleSSEEvent(sseEvent{
+		Type: "session.next.tool.called",
+		Properties: map[string]any{
+			"callID": "call_plan",
+			"tool":   "plan_exit",
+		},
+	})
+	st.handleSSEEvent(sseEvent{
+		Type: "session.next.tool.success",
+		Properties: map[string]any{
+			"callID": "call_plan",
+			"tool":   "plan_exit",
+		},
+	})
+	if got := st.filteredToolName("call_plan"); got != "" {
+		t.Fatalf("completed plan_exit mapping = %q, want cleared", got)
+	}
+	select {
+	case event := <-st.evtChan:
+		t.Fatalf("unexpected plan_exit tool event: %#v", event)
+	default:
+	}
+}
+
+func TestHandleSSEEventPlanExitCalledBeforeQuestionStillClassifies(t *testing.T) {
+	st := &runState{
+		evtChan:           make(chan agent.Event, 2),
+		workDir:           t.TempDir(),
+		filteredToolCalls: make(map[string]string),
+	}
+	st.handleSSEEvent(sseEvent{
+		Type: "session.next.tool.called",
+		Properties: map[string]any{
+			"callID": "call_plan",
+			"tool":   "plan_exit",
+		},
+	})
+	st.handleSSEEvent(sseEvent{
+		Type: "question.asked",
+		Properties: map[string]any{
+			"id": "que_plan",
+			"tool": map[string]any{
+				"callID": "call_plan",
+			},
+			"questions": []any{
+				map[string]any{
+					"question": "Plan at .opencode/plans/123-plan.md is complete.",
+				},
+			},
+		},
+	})
+
+	event := readEvent(t, st.evtChan)
+	payload, err := events.DecodePayload[events.QuestionRequestPayload](&event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.InteractionType != "plan_confirmation" {
+		t.Fatalf("interaction type = %q", payload.InteractionType)
 	}
 }
 

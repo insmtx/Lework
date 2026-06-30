@@ -12,6 +12,7 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 
+	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
@@ -63,6 +64,7 @@ func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInfer
 func (p *MessagePoster) PostMessage(
 	ctx context.Context,
 	session *types.Session,
+	executionMode agent.ExecutionMode,
 	buildMessage func(sequence int64) *types.SessionMessage,
 ) (*types.SessionMessage, error) {
 	sequence, err := infradb.GetNextSequence(ctx, p.db, session.ID)
@@ -115,7 +117,7 @@ func (p *MessagePoster) PostMessage(
 
 	p.writeSkillInvokeResources(ctx, session, message)
 
-	if err := p.publishWorkerTask(ctx, session, message); err != nil {
+	if err := p.publishWorkerTask(ctx, session, message, executionMode); err != nil {
 		return nil, err
 	}
 
@@ -159,7 +161,7 @@ func (p *MessagePoster) RunNewMessage(
 	// 先补齐附件的可访问 URL，再把附件写入用户消息，避免前端回显和后续上下文拿不到附件信息。
 	resolveAttachmentURLs(ctx, p.db, caller.OrgID, req.Attachments)
 
-	message, err := p.PostMessage(ctx, o.taskSession, func(sequence int64) *types.SessionMessage {
+	message, err := p.PostMessage(ctx, o.taskSession, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
 		msgType := req.MessageType
 		if msgType == "" {
 			msgType = string(types.MessageTypeText)
@@ -394,7 +396,12 @@ func (p *MessagePoster) resolveRuntimeWorker(ctx context.Context, orgID, assista
 	return resolveRuntimeWorker(ctx, p.db, orgID, assistantID, p.inferrer)
 }
 
-func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Session, message *types.SessionMessage) error {
+func (p *MessagePoster) publishWorkerTask(
+	ctx context.Context,
+	session *types.Session,
+	message *types.SessionMessage,
+	executionMode agent.ExecutionMode,
+) error {
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
 	if orgID == 0 && caller != nil {
@@ -448,7 +455,8 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 			RunID:     requestID,
 		},
 		messaging.RunCommandPayload{
-			TaskType: messaging.TaskTypeAgentRun,
+			TaskType:      messaging.TaskTypeAgentRun,
+			ExecutionMode: string(normalizeExecutionMode(executionMode)),
 			Actor: messaging.ActorContext{
 				UserID:      fmt.Sprintf("%d", session.Uin),
 				DisplayName: "",
@@ -480,6 +488,13 @@ func (p *MessagePoster) publishWorkerTask(ctx context.Context, session *types.Se
 	}
 	logs.DebugContextf(ctx, "Published message to topic %s: session_id=%s sequence=%d", topic, session.PublicID, message.Sequence)
 	return nil
+}
+
+func normalizeExecutionMode(mode agent.ExecutionMode) agent.ExecutionMode {
+	if mode == agent.ExecutionModePlan {
+		return agent.ExecutionModePlan
+	}
+	return agent.ExecutionModeDefault
 }
 
 func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) (messaging.ModelOptions, error) {

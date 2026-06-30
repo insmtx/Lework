@@ -307,6 +307,7 @@ func (p *preparer) Prepare(ctx context.Context, req *assistantdomain.RunRequest)
 			Runtime:      strings.TrimSpace(cloned.Runtime.Kind),
 			SessionKey:   cloned.Conversation.ID,
 			InstanceKey:  cloned.Assistant.ID,
+			Mode:         cloned.ExecutionMode,
 			SystemPrompt: systemPrompt,
 			Prompt:       prompt,
 			Messages:     messages,

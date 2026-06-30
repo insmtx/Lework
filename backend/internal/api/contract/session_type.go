@@ -3,6 +3,7 @@ package contract
 import (
 	"time"
 
+	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -35,14 +36,15 @@ type ListSessionsRequest struct {
 
 // AddMessageRequest adds a message to a session.
 type AddMessageRequest struct {
-	Role        string                    `json:"role" binding:"required"`
-	Content     string                    `json:"content" binding:"required"`
-	MessageType string                    `json:"message_type,omitempty"`
-	Chunks      []types.MessageChunk      `json:"chunks,omitempty"`
-	Attachments []types.MessageAttachment `json:"attachments,omitempty"`
-	Thinking    string                    `json:"thinking,omitempty"`
-	Metadata    *types.ObjectMetadata     `json:"metadata,omitempty"`
-	Usage       *types.MessageUsage       `json:"usage,omitempty"`
+	Role          string                    `json:"role" binding:"required"`
+	Content       string                    `json:"content" binding:"required"`
+	ExecutionMode agent.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	MessageType   string                    `json:"message_type,omitempty"`
+	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
+	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
+	Thinking      string                    `json:"thinking,omitempty"`
+	Metadata      *types.ObjectMetadata     `json:"metadata,omitempty"`
+	Usage         *types.MessageUsage       `json:"usage,omitempty"`
 }
 
 // Session is the API response shape for a conversation.

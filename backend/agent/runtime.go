@@ -7,6 +7,16 @@ const (
 	RuntimeKindLeros = "leros"
 )
 
+// ExecutionMode describes how a runtime should handle one request.
+type ExecutionMode string
+
+const (
+	// ExecutionModeDefault keeps the runtime's normal execution behavior.
+	ExecutionModeDefault ExecutionMode = "default"
+	// ExecutionModePlan requests planning behavior when the runtime supports it.
+	ExecutionModePlan ExecutionMode = "plan"
+)
+
 // Message is a business-neutral conversation message supplied to a Runtime.
 type Message struct {
 	Role    string `json:"role"`
@@ -42,6 +52,7 @@ type ExecutionRequest struct {
 	Runtime     string
 	SessionKey  string
 	InstanceKey string
+	Mode        ExecutionMode
 
 	SystemPrompt string
 	Prompt       string

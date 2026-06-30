@@ -82,7 +82,8 @@ func DecodeCommandPayload[T any](body *WorkerCommandBody) (T, error) {
 
 // RunCommandPayload 是 agent.run 命令的 payload。
 type RunCommandPayload struct {
-	TaskType TaskType `json:"task_type"`
+	TaskType      TaskType `json:"task_type"`
+	ExecutionMode string   `json:"execution_mode,omitempty"`
 
 	Actor     ActorContext     `json:"actor"`
 	Execution ExecutionTarget  `json:"execution"`

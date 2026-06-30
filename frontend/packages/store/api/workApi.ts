@@ -3,6 +3,7 @@ import type { BackendDataResponse, BackendNewMessageData } from "./types";
 
 export type NewMessageParams = {
 	content: string;
+	execution_mode?: "default" | "plan";
 	project_id?: string;
 	task_id?: string;
 	message_type?: string;

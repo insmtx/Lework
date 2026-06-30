@@ -3,6 +3,7 @@ package run
 import (
 	"strings"
 
+	"github.com/insmtx/Leros/backend/agent"
 	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
@@ -10,9 +11,10 @@ import (
 // RequestFromWorkerTask converts the internal runTask into the agent runtime boundary.
 func RequestFromWorkerTask(task runTask) *assistantdomain.RunRequest {
 	return &assistantdomain.RunRequest{
-		RunID:   firstNonEmpty(task.Trace.RunID, task.Trace.TaskID, task.ID),
-		TraceID: task.Trace.TraceID,
-		TaskID:  task.Trace.TaskID,
+		RunID:         firstNonEmpty(task.Trace.RunID, task.Trace.TaskID, task.ID),
+		TraceID:       task.Trace.TraceID,
+		TaskID:        task.Trace.TaskID,
+		ExecutionMode: agent.ExecutionMode(task.ExecutionMode),
 		Assistant: assistantdomain.AssistantContext{
 			ID:     task.Execution.AssistantID,
 			Skills: append([]string(nil), task.Execution.Skills...),

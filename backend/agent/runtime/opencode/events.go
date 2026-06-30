@@ -17,6 +17,7 @@ import (
 
 var filteredToolPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^question$`),
+	regexp.MustCompile(`^plan_exit$`),
 	regexp.MustCompile(`^todowrite$`),
 	regexp.MustCompile(`artifact_declare`),
 }
@@ -58,13 +59,22 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		}
 		st.lastTextEnded = props.Text
 
+	case "session.next.tool.input.started":
+		var props toolInputStartedProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+		if isFilteredToolName(props.Name) {
+			st.markFilteredToolCall(props.CallID, props.Name)
+		}
+
 	case "session.next.tool.called":
 		var props toolCalledProps
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
 		if isFilteredToolName(props.Tool) {
-			st.markFilteredToolCall(props.CallID)
+			st.markFilteredToolCall(props.CallID, props.Tool)
 			return
 		}
 		sendEventPayloadTo(st.evtChan, events.EventToolCallStarted, events.ToolCallPayload{
@@ -79,6 +89,7 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 			return
 		}
 		if isFilteredToolName(props.Tool) || st.isFilteredToolCall(props.CallID) {
+			st.clearFilteredToolCall(props.CallID)
 			return
 		}
 		sendEventPayloadTo(st.evtChan, events.EventToolCallCompleted, events.ToolCallResultPayload{
@@ -93,6 +104,7 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 			return
 		}
 		if isFilteredToolName(props.Tool) || st.isFilteredToolCall(props.CallID) {
+			st.clearFilteredToolCall(props.CallID)
 			return
 		}
 		sendEventPayloadTo(st.evtChan, events.EventToolCallFailed, events.ToolCallResultPayload{
@@ -195,12 +207,23 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 			messageID = props.Tool.MessageID
 		}
 
+		isPlanConfirmation := st.filteredToolName(toolCallID) == "plan_exit"
+		plan := (*events.PlanHandoffPayload)(nil)
+		if isPlanConfirmation {
+			plan = st.planHandoff(questions)
+			questions = planConfirmationQuestions()
+		}
+
 		payload := events.QuestionRequestPayload{
 			RequestID:  props.ID,
 			SessionID:  props.SessionID,
 			Questions:  questions,
 			ToolCallID: toolCallID,
 			MessageID:  messageID,
+		}
+		if isPlanConfirmation {
+			payload.InteractionType = "plan_confirmation"
+			payload.Plan = plan
 		}
 		sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
 
@@ -242,24 +265,48 @@ func isFilteredToolName(toolName string) bool {
 	return false
 }
 
-func (st *runState) markFilteredToolCall(callID string) {
+func (st *runState) markFilteredToolCall(callID, toolName string) {
 	callID = strings.TrimSpace(callID)
 	if callID == "" {
 		return
 	}
 	if st.filteredToolCalls == nil {
-		st.filteredToolCalls = make(map[string]struct{})
+		st.filteredToolCalls = make(map[string]string)
 	}
-	st.filteredToolCalls[callID] = struct{}{}
+	st.filteredToolCalls[callID] = strings.TrimSpace(toolName)
 }
 
 func (st *runState) isFilteredToolCall(callID string) bool {
+	return st.filteredToolName(callID) != ""
+}
+
+func (st *runState) filteredToolName(callID string) string {
 	callID = strings.TrimSpace(callID)
 	if callID == "" || st.filteredToolCalls == nil {
-		return false
+		return ""
 	}
-	_, ok := st.filteredToolCalls[callID]
-	return ok
+	return st.filteredToolCalls[callID]
+}
+
+func (st *runState) clearFilteredToolCall(callID string) {
+	callID = strings.TrimSpace(callID)
+	if callID == "" || st.filteredToolCalls == nil {
+		return
+	}
+	delete(st.filteredToolCalls, callID)
+}
+
+func planConfirmationQuestions() []events.QuestionItem {
+	return []events.QuestionItem{{
+		Header:   "计划确认",
+		Question: "以下是当前计划，是否执行？",
+		Options: []events.QuestionOption{
+			{Label: "Yes"},
+			{Label: "No"},
+		},
+		MultiSelect: false,
+		Custom:      false,
+	}}
 }
 
 // ============================================================================

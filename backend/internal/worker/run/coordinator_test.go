@@ -63,6 +63,19 @@ func TestCoordinatorDebounceNotifiesEverySubmission(t *testing.T) {
 	}
 }
 
+func TestMergeSubmissionsPreservesFirstExecutionMode(t *testing.T) {
+	existing := testSubmission("run-1", "message-1", 11)
+	existing.Request.ExecutionMode = agent.ExecutionModePlan
+	incoming := testSubmission("run-1", "message-2", 12)
+	incoming.Request.ExecutionMode = agent.ExecutionModeDefault
+
+	merged := mergeSubmissions(existing, incoming)
+
+	if merged.Request.ExecutionMode != agent.ExecutionModePlan {
+		t.Fatalf("execution mode = %q, want first request mode %q", merged.Request.ExecutionMode, agent.ExecutionModePlan)
+	}
+}
+
 func TestCoordinatorEnforcesMaxConcurrency(t *testing.T) {
 	var current atomic.Int32
 	var maximum atomic.Int32

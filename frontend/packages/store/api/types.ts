@@ -169,6 +169,12 @@ export type BackendQuestionRequestPayload = {
 	questions?: BackendQuestionItem[];
 	tool_call_id?: string;
 	message_id?: string;
+	interaction_type?: string;
+	plan?: {
+		content?: string;
+		file_path?: string;
+		error?: string;
+	};
 	metadata?: Record<string, unknown>;
 };
 

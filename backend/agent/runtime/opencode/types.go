@@ -29,7 +29,11 @@ type sessionModelRef struct {
 type sessionResponse struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
-	CreatedAt int64  `json:"createdAt"`
+	Slug      string `json:"slug"`
+	Directory string `json:"directory"`
+	Time      struct {
+		Created int64 `json:"created"`
+	} `json:"time"`
 }
 
 // messageRequest 是 POST /session/:id/message 的请求体。
@@ -106,6 +110,14 @@ type textEndedProps struct {
 	AssistantMessageID string `json:"assistantMessageID"`
 	TextID             string `json:"textID"`
 	Text               string `json:"text"`
+}
+
+// toolInputStartedProps 是 session.next.tool.input.started 事件的 properties。
+type toolInputStartedProps struct {
+	SessionID          string `json:"sessionID"`
+	AssistantMessageID string `json:"assistantMessageID"`
+	CallID             string `json:"callID"`
+	Name               string `json:"name"`
 }
 
 // toolCalledProps 是 session.next.tool.called 事件的 properties。

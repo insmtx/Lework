@@ -10,6 +10,8 @@ export type ApprovalStatus = "pending" | "approved" | "denied" | "always" | "sub
 
 export type QuestionStatus = "pending" | "answered" | "submitting" | "error";
 
+export type ExecutionMode = "default" | "plan";
+
 export type QuestionOption = {
 	label: string;
 	description?: string;
@@ -28,9 +30,17 @@ export type QuestionRequest = {
 	questions: QuestionItem[];
 	toolCallId?: string;
 	messageId?: string;
+	interactionType?: string;
+	plan?: PlanHandoff;
 	metadata?: Record<string, unknown>;
 	status: QuestionStatus;
 	answers?: string[][];
+	error?: string;
+};
+
+export type PlanHandoff = {
+	content?: string;
+	filePath?: string;
 	error?: string;
 };
 

@@ -76,6 +76,7 @@ func (r *Driver) RunInvocation(
 	sessionPlan := r.resolveProviderSession(ctx, request)
 	handle, err := r.invoker.Invoke(ctx, InvocationRequest{
 		ExecutionID:     request.ExecutionID,
+		ExecutionMode:   request.Mode,
 		SessionID:       sessionPlan.ProviderSessionID,
 		Resume:          sessionPlan.Resume,
 		WorkDir:         workDir,

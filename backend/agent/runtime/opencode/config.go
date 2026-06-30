@@ -118,10 +118,7 @@ func buildMCPConfig(mcps []provider.MCPServerConfig) map[string]any {
 // buildServerEnv 构建 opcode serve 子进程所需的环境变量。
 // 返回格式为 "KEY=VALUE" 的字符串切片，附加到 baseEnv 之后。
 func buildServerEnv(password, configContent string, baseEnv []string) []string {
-	env := make([]string, 0, len(baseEnv)+12)
-
-	// 复制 base 环境变量
-	env = append(env, baseEnv...)
+	env := make([]string, 0, 12)
 
 	// 服务器认证
 	env = append(env, "OPENCODE_SERVER_PASSWORD="+password)
@@ -138,11 +135,13 @@ func buildServerEnv(password, configContent string, baseEnv []string) []string {
 
 	// 启用 v2 事件系统（session.next.* 事件流）
 	env = append(env, "OPENCODE_EXPERIMENTAL_EVENT_SYSTEM=true")
+	env = append(env, "OPENCODE_EXPERIMENTAL_PLAN_MODE=true")
+	env = append(env, "OPENCODE_CLIENT=cli")
 
 	// 启用 EXA web search 功能
 	env = append(env, "OPENCODE_ENABLE_EXA=1")
 
-	return env
+	return provider.BuildRunEnv(baseEnv, env, nil)
 }
 
 // generatePassword 生成 32 位随机十六进制密码。

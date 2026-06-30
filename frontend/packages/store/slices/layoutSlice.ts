@@ -495,6 +495,9 @@ export class LayoutActionImpl {
 						session_id: selectedTask.sessionId,
 						role: "user",
 						content: trimmed,
+						execution_mode:
+							(this.#get() as LayoutStore & { executionMode?: "default" | "plan" })
+								.executionMode ?? "default",
 						message_type: "text",
 						attachments: attachments
 							?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>

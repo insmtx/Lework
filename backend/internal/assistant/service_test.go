@@ -252,4 +252,14 @@ func TestJournalArchivesPayloadUsageAndToolResults(t *testing.T) {
 	if len(snapshot.Events[0].Payload) == 0 {
 		t.Fatalf("delta payload was not archived: %#v", snapshot.Events[0])
 	}
+	var mergedDelta struct {
+		MessageID string `json:"message_id"`
+		Content   string `json:"content"`
+	}
+	if err := json.Unmarshal(snapshot.Events[0].Payload, &mergedDelta); err != nil {
+		t.Fatalf("decode merged delta payload: %v", err)
+	}
+	if mergedDelta.MessageID != "m1" || mergedDelta.Content != "ab" {
+		t.Fatalf("merged delta payload = %#v, want content ab", mergedDelta)
+	}
 }

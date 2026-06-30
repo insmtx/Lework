@@ -18,20 +18,21 @@ const (
 
 // RunRequest is the normalized execution snapshot consumed by runtime.
 type RunRequest struct {
-	RunID        string              `json:"run_id"`
-	TraceID      string              `json:"trace_id,omitempty"`
-	TaskID       string              `json:"task_id,omitempty"`
-	Assistant    AssistantContext    `json:"assistant"`
-	Actor        ActorContext        `json:"actor"`
-	Conversation ConversationContext `json:"conversation,omitempty"`
-	Workspace    WorkspaceContext    `json:"workspace,omitempty"`
-	Input        InputContext        `json:"input"`
-	Runtime      RuntimeOptions      `json:"runtime,omitempty"`
-	Model        ModelOptions        `json:"model,omitempty"`
-	Capability   CapabilityContext   `json:"capability,omitempty"`
-	Policy       PolicyContext       `json:"policy,omitempty"`
-	SystemPrompt string              `json:"-"`
-	EventSink    agent.EventSink     `json:"-"`
+	RunID         string              `json:"run_id"`
+	TraceID       string              `json:"trace_id,omitempty"`
+	TaskID        string              `json:"task_id,omitempty"`
+	ExecutionMode agent.ExecutionMode `json:"execution_mode,omitempty"`
+	Assistant     AssistantContext    `json:"assistant"`
+	Actor         ActorContext        `json:"actor"`
+	Conversation  ConversationContext `json:"conversation,omitempty"`
+	Workspace     WorkspaceContext    `json:"workspace,omitempty"`
+	Input         InputContext        `json:"input"`
+	Runtime       RuntimeOptions      `json:"runtime,omitempty"`
+	Model         ModelOptions        `json:"model,omitempty"`
+	Capability    CapabilityContext   `json:"capability,omitempty"`
+	Policy        PolicyContext       `json:"policy,omitempty"`
+	SystemPrompt  string              `json:"-"`
+	EventSink     agent.EventSink     `json:"-"`
 }
 
 // AssistantContext is the assistant snapshot used for one run.

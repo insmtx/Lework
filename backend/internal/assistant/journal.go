@@ -154,6 +154,12 @@ func (j *runJournal) recordUsageLocked(event *agent.Event) {
 	j.usage = &copied
 }
 
+type archivedDeltaPayload struct {
+	MessageID string `json:"message_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Content   string `json:"content"`
+}
+
 func archiveEvents(events []agent.Event) []JournalEventRecord {
 	records := make([]JournalEventRecord, 0, len(events))
 	type mergeKey struct {
@@ -174,14 +180,20 @@ func archiveEvents(events []agent.Event) []JournalEventRecord {
 			Payload:   append(json.RawMessage(nil), event.Payload...),
 		}
 		if event.Type == "message.delta" || event.Type == "reasoning.delta" {
-			var payload struct {
-				MessageID string `json:"message_id"`
-			}
+			var payload archivedDeltaPayload
 			if json.Unmarshal(event.Payload, &payload) == nil && payload.MessageID != "" {
 				key := mergeKey{eventType: event.Type, messageID: payload.MessageID}
 				if index, ok := merged[key]; ok {
-					records[index].LastSeq = event.Seq
-					continue
+					var mergedPayload archivedDeltaPayload
+					if json.Unmarshal(records[index].Payload, &mergedPayload) == nil {
+						mergedPayload.Content += payload.Content
+						raw, err := json.Marshal(mergedPayload)
+						if err == nil {
+							records[index].Payload = raw
+							records[index].LastSeq = event.Seq
+							continue
+						}
+					}
 				}
 				merged[key] = len(records)
 			}

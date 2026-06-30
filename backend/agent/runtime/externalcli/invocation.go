@@ -11,6 +11,7 @@ import (
 // one immutable agent execution request.
 type InvocationRequest struct {
 	ExecutionID     string
+	ExecutionMode   agent.ExecutionMode
 	SessionID       string
 	Resume          bool
 	WorkDir         string

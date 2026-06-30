@@ -10,9 +10,30 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
+
+func TestMapQuestionRequestPayloadPreservesPlanHandoff(t *testing.T) {
+	payload := mapQuestionRequestPayload(events.QuestionRequestPayload{
+		RequestID:       "question-1",
+		InteractionType: "plan_confirmation",
+		Plan: &events.PlanHandoffPayload{
+			Content:  "# Plan",
+			FilePath: ".opencode/plans/123-plan.md",
+			Error:    "",
+		},
+	})
+
+	if payload.InteractionType != "plan_confirmation" {
+		t.Fatalf("interaction type = %q", payload.InteractionType)
+	}
+	if payload.Plan == nil || payload.Plan.Content != "# Plan" ||
+		payload.Plan.FilePath != ".opencode/plans/123-plan.md" {
+		t.Fatalf("plan handoff = %#v", payload.Plan)
+	}
+}
 
 type publisherRecorder struct {
 	contextErr error

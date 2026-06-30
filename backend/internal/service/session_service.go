@@ -344,7 +344,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 	}
 
 	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s)
-	message, err := mp.PostMessage(ctx, session, func(sequence int64) *types.SessionMessage {
+	message, err := mp.PostMessage(ctx, session, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
 		return s.buildMessage(req, sequence)
 	})
 	if err != nil {

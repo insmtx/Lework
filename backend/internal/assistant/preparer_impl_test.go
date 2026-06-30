@@ -97,8 +97,9 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 		toolProvider,
 	)
 	request := &assistantdomain.RunRequest{
-		RunID:  "run-1",
-		TaskID: "task-1",
+		RunID:         "run-1",
+		TaskID:        "task-1",
+		ExecutionMode: agent.ExecutionModePlan,
 		Assistant: assistantdomain.AssistantContext{
 			ID: "assistant-1",
 		},
@@ -139,6 +140,9 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 		prepared.Execution.Filesystem.RepoDir != workspace.RepoDir ||
 		prepared.Execution.Filesystem.TaskDir != workspace.TaskDir {
 		t.Fatalf("execution filesystem = %#v", prepared.Execution.Filesystem)
+	}
+	if prepared.Execution.Mode != agent.ExecutionModePlan {
+		t.Fatalf("execution mode = %q, want %q", prepared.Execution.Mode, agent.ExecutionModePlan)
 	}
 	if len(prepared.Execution.Tools) != 1 || prepared.Execution.Tools[0].Definition().Name != "prepared_tool" {
 		t.Fatalf("execution tools = %#v", prepared.Execution.Tools)

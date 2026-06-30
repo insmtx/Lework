@@ -21,6 +21,7 @@ import {
 	CircleStop,
 	LoaderCircle,
 	Paperclip,
+	ClipboardList,
 	SendHorizonal,
 	ShieldAlert,
 	X,
@@ -33,6 +34,7 @@ import {
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
 import { ComposerActionBar } from "./ComposerActionBar";
+import { PlanConfirmationInput } from "./PlanConfirmationInput";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
 	type ComposerSkillOption,
@@ -61,6 +63,7 @@ export function ChatInput({
 		messagesMap,
 		messageIds,
 		selectedModel,
+		executionMode,
 		modelOptions,
 		setInputText,
 		sendMessage,
@@ -73,6 +76,7 @@ export function ChatInput({
 		removeAttachment,
 		setInputFocused,
 		setSelectedModel,
+		setExecutionMode,
 	} = useChatStore((s) => s);
 	const { activeProjectId, activeTaskDetailProjectId, currentView, projects } = useLayoutStore(
 		(s) => s,
@@ -202,6 +206,19 @@ export function ChatInput({
 	}, [submitMessage]);
 
 	if (pendingQuestion) {
+		if (pendingQuestion.question.interactionType === "plan_confirmation") {
+			return (
+				<PlanConfirmationInput
+					question={pendingQuestion.question}
+					messageId={pendingQuestion.message.id}
+					variant={variant}
+					projectLayout={projectLayout}
+					onAnswer={submitQuestionAnswer}
+					onExecute={() => setExecutionMode("default")}
+					onRevise={() => setExecutionMode("plan")}
+				/>
+			);
+		}
 		return (
 			<QuestionAnswerInput
 				question={pendingQuestion.question}
@@ -339,6 +356,23 @@ export function ChatInput({
 							)}
 						</div>
 						<div className="flex items-center gap-2">
+							<Button
+								type="button"
+								variant={executionMode === "plan" ? "secondary" : "ghost"}
+								size="sm"
+								disabled={isGenerating}
+								aria-pressed={executionMode === "plan"}
+								onClick={() =>
+									setExecutionMode(executionMode === "plan" ? "default" : "plan")
+								}
+								className={cn(
+									"h-8 gap-1.5 text-xs",
+									executionMode === "plan" && "bg-blue-50 text-blue-700 hover:bg-blue-100",
+								)}
+							>
+								<ClipboardList className="size-3.5" />
+								Plan Mode
+							</Button>
 							{isGenerating ? (
 								<Button
 									variant={isProjectVariant ? "ghost" : "outline"}

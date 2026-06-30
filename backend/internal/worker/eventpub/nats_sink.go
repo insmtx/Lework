@@ -392,11 +392,19 @@ func mapRunEventPayload(event *agent.Event) messaging.RunEventPayload {
 
 func mapQuestionRequestPayload(q events.QuestionRequestPayload) *messaging.QuestionRequestPayload {
 	mq := &messaging.QuestionRequestPayload{
-		RequestID:  q.RequestID,
-		SessionID:  q.SessionID,
-		ToolCallID: q.ToolCallID,
-		MessageID:  q.MessageID,
-		Metadata:   q.Metadata,
+		RequestID:       q.RequestID,
+		SessionID:       q.SessionID,
+		ToolCallID:      q.ToolCallID,
+		MessageID:       q.MessageID,
+		InteractionType: q.InteractionType,
+		Metadata:        q.Metadata,
+	}
+	if q.Plan != nil {
+		mq.Plan = &messaging.PlanHandoffPayload{
+			Content:  q.Plan.Content,
+			FilePath: q.Plan.FilePath,
+			Error:    q.Plan.Error,
+		}
 	}
 	for _, qi := range q.Questions {
 		mqi := messaging.QuestionItem{

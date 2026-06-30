@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -320,6 +321,32 @@ func (s *OpenCodeServer) CreateSession(ctx context.Context, title, providerID, m
 	return &session, nil
 }
 
+// GetSession retrieves session metadata required to resume plan handoff handling.
+func (s *OpenCodeServer) GetSession(ctx context.Context, sessionID string) (*sessionResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/session/"+sessionID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("get session request: %w", err)
+	}
+	req.Header.Set("Authorization", s.authHeader)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get session: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("get session returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var session sessionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, fmt.Errorf("decode session response: %w", err)
+	}
+	return &session, nil
+}
+
 // SendMessage 向指定会话发送消息并同步等待完整响应。
 // 注意：openCode 的 /session/:id/message 是同步端点，会等待模型完整生成，
 // 可能耗时数分钟，因此不使用带超时的 httpClient，而是依赖 context 控制生命周期。
@@ -483,6 +510,7 @@ func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan
 		// 监听 context 取消，主动关闭 resp.Body 以中断阻塞的 scanner.Scan()
 		go func() {
 			<-ctx.Done()
+			logs.Debugf("SSE resp.Body closing (ctx cancelled)")
 			resp.Body.Close()
 		}()
 
@@ -532,7 +560,11 @@ func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan
 		}
 
 		if err := scanner.Err(); err != nil {
-			logs.Warnf("SSE scanner error: %v", err)
+			if errors.Is(err, context.Canceled) {
+				logs.Debugf("SSE scanner stopped (ctx cancelled): %v", err)
+			} else {
+				logs.Warnf("SSE scanner error: %v", err)
+			}
 		}
 	}()
 

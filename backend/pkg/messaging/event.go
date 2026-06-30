@@ -208,12 +208,21 @@ type ApprovalDecisionPayload struct {
 
 // QuestionRequestPayload 描述引擎向用户提出的澄清问题。
 type QuestionRequestPayload struct {
-	RequestID  string            `json:"request_id"`
-	SessionID  string            `json:"session_id,omitempty"`
-	Questions  []QuestionItem    `json:"questions"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
-	MessageID  string            `json:"message_id,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	RequestID       string              `json:"request_id"`
+	SessionID       string              `json:"session_id,omitempty"`
+	Questions       []QuestionItem      `json:"questions"`
+	ToolCallID      string              `json:"tool_call_id,omitempty"`
+	MessageID       string              `json:"message_id,omitempty"`
+	InteractionType string              `json:"interaction_type,omitempty"`
+	Plan            *PlanHandoffPayload `json:"plan,omitempty"`
+	Metadata        map[string]string   `json:"metadata,omitempty"`
+}
+
+// PlanHandoffPayload carries the plan content displayed during a plan confirmation.
+type PlanHandoffPayload struct {
+	Content  string `json:"content,omitempty"`
+	FilePath string `json:"file_path,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // QuestionItem 是问题请求中的单个问题。

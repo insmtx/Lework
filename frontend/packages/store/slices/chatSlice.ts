@@ -24,6 +24,7 @@ import type {
   ApprovalAction,
   ApprovalRequest,
   Attachment,
+  ExecutionMode,
   Message,
   MessageArtifact,
   MessageAttachment,
@@ -61,6 +62,7 @@ export type ChatState = {
   inputAttachments: Attachment[];
   inputFocused: boolean;
   selectedModel: string;
+  executionMode: ExecutionMode;
   modelOptions: ModelOption[];
   activeSessionId: string | null;
 
@@ -83,6 +85,7 @@ const _initialState: ChatState = {
   inputAttachments: [],
   inputFocused: false,
   selectedModel: "gpt-4",
+  executionMode: "default",
   modelOptions: mockModelOptions,
   activeSessionId: null,
 
@@ -798,6 +801,14 @@ function mapQuestionRequestPayload(
     questions,
     toolCallId: payload.tool_call_id?.trim() || undefined,
     messageId: payload.message_id?.trim() || undefined,
+    interactionType: payload.interaction_type?.trim() || undefined,
+    plan: payload.plan
+      ? {
+          content: payload.plan.content,
+          filePath: payload.plan.file_path,
+          error: payload.plan.error,
+        }
+      : undefined,
     metadata: payload.metadata,
     status: "pending",
   };
@@ -1486,6 +1497,7 @@ export class ChatActionImpl {
         session_id: activeSessionId,
         role: "user",
         content,
+        execution_mode: state.executionMode,
         message_type: "text",
         attachments: mapOutgoingAttachments(attachments),
         metadata: metadata?.composerTokens
@@ -1541,6 +1553,7 @@ export class ChatActionImpl {
     try {
       const res = await workApi.newMessage({
         content: trimmed,
+        execution_mode: this.#get().executionMode,
         project_id: projectId,
         attachments: mapOutgoingAttachments(attachments),
       });
@@ -2017,6 +2030,10 @@ export class ChatActionImpl {
 
   setInputText = (text: string) => {
     this.#set({ inputText: text });
+  };
+
+  setExecutionMode = (executionMode: ExecutionMode) => {
+    this.#set({ executionMode });
   };
 
   clearComposerInput = () => {

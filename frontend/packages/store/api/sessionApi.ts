@@ -56,6 +56,7 @@ export type AddMessageParams = {
 	session_id: string;
 	role: string;
 	content: string;
+	execution_mode?: "default" | "plan";
 	message_type?: string;
 	attachments?: {
 		file_upload_id: string;

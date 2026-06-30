@@ -42,10 +42,12 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req externalcli.Invocation
 	}
 	evtChan := make(chan agent.Event, 64)
 	st := &runState{
-		srv:     srv,
-		evtChan: evtChan,
-		sseDone: make(chan struct{}),
-		msgDone: make(chan struct{}),
+		srv:               srv,
+		evtChan:           evtChan,
+		workDir:           workDir,
+		filteredToolCalls: make(map[string]string),
+		sseDone:           make(chan struct{}),
+		msgDone:           make(chan struct{}),
 	}
 	// 2. 会话管理
 	logs.Infof("OpenCode creating/resuming session...")
@@ -88,7 +90,9 @@ type runState struct {
 	messageID         string
 	lastTextEnded     string
 	tokenUsage        *agent.Usage
-	filteredToolCalls map[string]struct{}
+	workDir           string
+	session           *sessionResponse
+	filteredToolCalls map[string]string
 	sseDone           chan struct{}
 	msgDone           chan struct{}
 }
@@ -109,6 +113,12 @@ func (st *runState) ensureSession(ctx context.Context, req externalcli.Invocatio
 	// Resume 模式：复用已有 sessionID
 	if req.Resume && strings.TrimSpace(req.SessionID) != "" {
 		sessionID := strings.TrimSpace(req.SessionID)
+		session, err := st.srv.GetSession(ctx, sessionID)
+		if err != nil {
+			logs.WarnContextf(ctx, "OpenCode get resumed session metadata failed: %v", err)
+		} else {
+			st.session = session
+		}
 		sendEventTo(st.evtChan, events.EventProviderSessionStarted, sessionID)
 		logs.Infof("OpenCode resuming session: %s", sessionID)
 		return sessionID, nil
@@ -124,6 +134,7 @@ func (st *runState) ensureSession(ctx context.Context, req externalcli.Invocatio
 	}
 	sendEventTo(st.evtChan, events.EventProviderSessionStarted, session.ID)
 	st.sessionID = session.ID
+	st.session = session
 	return session.ID, nil
 }
 
@@ -138,6 +149,7 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req externalcli.I
 			ModelID:    req.Model.Model,
 		},
 		System: req.SystemPrompt,
+		Agent:  openCodeAgent(req.ExecutionMode),
 		Parts: []messagePart{
 			{Type: "text", Text: req.Prompt},
 		},
@@ -158,6 +170,13 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req externalcli.I
 	st.messageID = msgResp.Info.ID
 	st.mu.Unlock()
 	// 响应事件由 SSE 流式路径处理，同步响应体中的 parts 不再处理
+}
+
+func openCodeAgent(mode agent.ExecutionMode) string {
+	if mode == agent.ExecutionModePlan {
+		return "plan"
+	}
+	return "build"
 }
 
 // ============================================================================
@@ -191,11 +210,13 @@ func (st *runState) waitCompletion(ctx context.Context, cancelSSE context.Cancel
 	case <-ctx.Done():
 		// Context 取消：尝试 abort 会话
 		logs.Errorf("OpenCode run cancelled: %v", ctx.Err())
+		logs.Debugf("SSE stream cancel triggered by: context cancelled")
 		cancelSSE()
 		_ = st.srv.Abort(context.Background(), st.sessionID)
 		sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
 	case <-st.msgDone:
 		// 消息响应完成，取消 SSE 流
+		logs.Debugf("SSE stream cancel triggered by: message completed")
 		cancelSSE()
 		// 等待 SSE 流完全关闭（最多 5 秒，防止某些情况下 SSE 不释放）
 		select {

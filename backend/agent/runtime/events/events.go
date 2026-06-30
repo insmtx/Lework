@@ -172,12 +172,21 @@ type ApprovalDecisionPayload struct {
 
 // QuestionRequestPayload describes a clarifying question from the engine to the user.
 type QuestionRequestPayload struct {
-	RequestID  string            `json:"request_id"`
-	SessionID  string            `json:"session_id,omitempty"`
-	Questions  []QuestionItem    `json:"questions"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
-	MessageID  string            `json:"message_id,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	RequestID       string              `json:"request_id"`
+	SessionID       string              `json:"session_id,omitempty"`
+	Questions       []QuestionItem      `json:"questions"`
+	ToolCallID      string              `json:"tool_call_id,omitempty"`
+	MessageID       string              `json:"message_id,omitempty"`
+	InteractionType string              `json:"interaction_type,omitempty"`
+	Plan            *PlanHandoffPayload `json:"plan,omitempty"`
+	Metadata        map[string]string   `json:"metadata,omitempty"`
+}
+
+// PlanHandoffPayload carries the plan content displayed during a plan confirmation.
+type PlanHandoffPayload struct {
+	Content  string `json:"content,omitempty"`
+	FilePath string `json:"file_path,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // QuestionItem is a single question within a question request.
@@ -203,10 +212,10 @@ type QuestionAnswerPayload struct {
 
 // ArtifactPayload 引用单次运行产生的产物。
 type ArtifactPayload struct {
-	ArtifactID    string    `json:"artifact_id,omitempty"`
-	Title         string    `json:"title,omitempty"`
-	Filename      string    `json:"filename,omitempty"`
-	OriginalName  string    `json:"original_name,omitempty"`
+	ArtifactID   string    `json:"artifact_id,omitempty"`
+	Title        string    `json:"title,omitempty"`
+	Filename     string    `json:"filename,omitempty"`
+	OriginalName string    `json:"original_name,omitempty"`
 	Description  string    `json:"description,omitempty"`
 	MimeType     string    `json:"mime_type,omitempty"`
 	ArtifactType string    `json:"artifact_type,omitempty"`
@@ -214,7 +223,7 @@ type ArtifactPayload struct {
 	CreatedAt    time.Time `json:"created_at,omitempty"`
 	RelativePath string    `json:"relative_path,omitempty"`
 	StorageKey   string    `json:"storage_key,omitempty"`
-	StorageURI string   `json:"storage_uri,omitempty"`
+	StorageURI   string    `json:"storage_uri,omitempty"`
 	Sha256       string    `json:"sha256,omitempty"`
 	Source       string    `json:"source,omitempty"`
 	Status       string    `json:"status,omitempty"`

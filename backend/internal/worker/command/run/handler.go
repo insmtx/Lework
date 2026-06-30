@@ -42,14 +42,15 @@ type runTask struct {
 	Route        messaging.RouteContext
 	DeliverySeqs []uint64
 
-	TaskType  messaging.TaskType
-	Actor     messaging.ActorContext
-	Execution messaging.ExecutionTarget
-	Workspace messaging.WorkspaceOptions
-	Input     messaging.TaskInput
-	Model     messaging.ModelOptions
-	Runtime   messaging.RuntimeOptions
-	Policy    messaging.TaskPolicy
+	TaskType      messaging.TaskType
+	ExecutionMode string
+	Actor         messaging.ActorContext
+	Execution     messaging.ExecutionTarget
+	Workspace     messaging.WorkspaceOptions
+	Input         messaging.TaskInput
+	Model         messaging.ModelOptions
+	Runtime       messaging.RuntimeOptions
+	Policy        messaging.TaskPolicy
 }
 
 // Handler receives run commands and delegates to the RunCoordinator.
@@ -171,18 +172,19 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 	}
 
 	task := runTask{
-		ID:        cmd.ID,
-		CreatedAt: cmd.CreatedAt,
-		Trace:     cmd.Trace,
-		Route:     cmd.Route,
-		TaskType:  payload.TaskType,
-		Actor:     payload.Actor,
-		Execution: payload.Execution,
-		Workspace: payload.Workspace,
-		Input:     payload.Input,
-		Model:     payload.Model,
-		Runtime:   payload.Runtime,
-		Policy:    payload.Policy,
+		ID:            cmd.ID,
+		CreatedAt:     cmd.CreatedAt,
+		Trace:         cmd.Trace,
+		Route:         cmd.Route,
+		TaskType:      payload.TaskType,
+		ExecutionMode: payload.ExecutionMode,
+		Actor:         payload.Actor,
+		Execution:     payload.Execution,
+		Workspace:     payload.Workspace,
+		Input:         payload.Input,
+		Model:         payload.Model,
+		Runtime:       payload.Runtime,
+		Policy:        payload.Policy,
 	}
 
 	// Validate route.

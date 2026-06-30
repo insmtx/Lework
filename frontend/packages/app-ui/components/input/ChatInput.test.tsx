@@ -1,13 +1,16 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatInput } from "./ChatInput";
+
+afterEach(cleanup);
 
 const mockSendProjectMessage = vi.fn();
 const mockSetInputText = vi.fn();
 const mockSetInputFocused = vi.fn();
+const mockSetExecutionMode = vi.fn();
 const mockGoToTaskDetail = vi.fn();
 
 vi.mock("@leros/store", () => ({
@@ -20,6 +23,7 @@ vi.mock("@leros/store", () => ({
 			messagesMap: {},
 			messageIds: [],
 			selectedModel: "gpt-4.1",
+			executionMode: "default",
 			modelOptions: [{ id: "gpt-4.1", label: "GPT-4.1" }],
 			setInputText: mockSetInputText,
 			sendMessage: vi.fn(),
@@ -32,6 +36,7 @@ vi.mock("@leros/store", () => ({
 			removeAttachment: vi.fn(),
 			setInputFocused: mockSetInputFocused,
 			setSelectedModel: vi.fn(),
+			setExecutionMode: mockSetExecutionMode,
 		}),
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
@@ -93,6 +98,7 @@ describe("ChatInput", () => {
 		mockSendProjectMessage.mockReset();
 		mockSetInputText.mockReset();
 		mockSetInputFocused.mockReset();
+		mockSetExecutionMode.mockReset();
 		mockGoToTaskDetail.mockReset();
 	});
 
@@ -126,5 +132,14 @@ describe("ChatInput", () => {
 			undefined,
 		);
 		expect(mockGoToTaskDetail).toHaveBeenCalledWith("project-1", "task-9", "session-7");
+	});
+
+	it("始终显示 Plan Mode 开关并可开启", async () => {
+		const user = userEvent.setup();
+		render(<ChatInput />);
+
+		await user.click(screen.getByRole("button", { name: "Plan Mode" }));
+
+		expect(mockSetExecutionMode).toHaveBeenCalledWith("plan");
 	});
 });
