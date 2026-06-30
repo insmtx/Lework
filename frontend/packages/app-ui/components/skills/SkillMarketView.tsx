@@ -20,6 +20,10 @@ import { SkillDetailView } from "./SkillDetailView";
 import { SkillImportDialog } from "./SkillImportDialog";
 import { RecentSkillsPanel } from "./RecentSkillsPanel";
 
+/** Explicit leros colors avoid oklch opacity modifiers that render incorrectly on Windows. */
+const SKILL_MARKET_TAB_TRIGGER_CLASS =
+	"text-xl font-bold text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:text-[var(--leros-text-strong)] dark:text-[var(--leros-text-muted)] dark:hover:text-[var(--leros-text-strong)] dark:data-active:bg-transparent dark:data-active:text-[var(--leros-text-strong)]";
+
 export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) {
 	const [activeTab, setActiveTab] = useState<"marketplace" | "mine">("marketplace");
 	const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
@@ -126,16 +130,10 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 				<div className="flex items-start justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
 					<div>
 						<TabsList variant="line" className="mb-3 -ml-1.5">
-							<TabsTrigger
-								value="marketplace"
-								className="text-xl font-bold data-active:text-[var(--leros-text-strong)]"
-							>
+							<TabsTrigger value="marketplace" className={SKILL_MARKET_TAB_TRIGGER_CLASS}>
 								技能市场
 							</TabsTrigger>
-							<TabsTrigger
-								value="mine"
-								className="text-xl font-bold data-active:text-[var(--leros-text-strong)]"
-							>
+							<TabsTrigger value="mine" className={SKILL_MARKET_TAB_TRIGGER_CLASS}>
 								我的技能
 							</TabsTrigger>
 						</TabsList>
