@@ -20,7 +20,6 @@ stages:
   - build
   - deploy
   - desktop_build
-  - desktop_publish
   - notify
 
 variables:
@@ -122,7 +121,7 @@ deploy:
     reports:
       dotenv: deploy.env
 
-desktop-build-mac-arm64:
+desktop-build-and-publish:
   stage: desktop_build
   tags:
     - macos
@@ -143,15 +142,17 @@ desktop-build-mac-arm64:
     - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
     - corepack prepare pnpm@10.28.2 --activate
     - |
-      for variable in VITE_LEROS_API_BASE_URL APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
+      for variable in VITE_LEROS_API_BASE_URL APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX; do
         if [ -z "$(eval echo \$$variable)" ]; then
-          echo "Required desktop build variable is missing: ${variable}"
+          echo "Required desktop variable is missing: ${variable}"
           exit 1
         fi
       done
     - printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$CI_PROJECT_DIR/AuthKey.p8"
     - chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
+    - python3 -m pip install --user coscmd
   script:
+    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$(python3 -c 'import site; print(site.USER_BASE + "/bin")'):$HOME/.local/bin:$PATH"
     - export DESKTOP_VERSION="${CI_COMMIT_TAG#v}"
     - |
       if [ -z "$DESKTOP_VERSION" ]; then
@@ -171,159 +172,30 @@ desktop-build-mac-arm64:
     - APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_LINK="$MACOS_CERTIFICATE_P12_BASE64" CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD" pnpm run dist:desktop:mac:arm64
     - cd "$CI_PROJECT_DIR"
     - mkdir -p desktop-release/mac-arm64
-    - cp frontend/apps/desktop/dist/*.dmg desktop-release/mac-arm64/
-    - cp frontend/apps/desktop/dist/*.zip desktop-release/mac-arm64/
-    - cp frontend/apps/desktop/dist/*.blockmap desktop-release/mac-arm64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-arm64.dmg" desktop-release/mac-arm64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-arm64.zip" desktop-release/mac-arm64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-arm64.dmg.blockmap" desktop-release/mac-arm64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-arm64.zip.blockmap" desktop-release/mac-arm64/
     - cp frontend/apps/desktop/dist/latest-mac.yml desktop-release/mac-arm64/
-  artifacts:
-    expire_in: 7 days
-    paths:
-      - desktop-release/mac-arm64/
-
-desktop-build-mac-x64:
-  stage: desktop_build
-  tags:
-    - macos
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: on_success
-    - if: '$ENV == "desktop"'
-      when: on_success
-    - when: never
-  variables:
-    ELECTRON_CACHE: "$CI_PROJECT_DIR/.electron-cache"
-    electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
-    ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
-  before_script:
-    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
-    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$PATH"
-    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
-    - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
-    - corepack prepare pnpm@10.28.2 --activate
-    - |
-      for variable in VITE_LEROS_API_BASE_URL APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
-        if [ -z "$(eval echo \$$variable)" ]; then
-          echo "Required desktop build variable is missing: ${variable}"
-          exit 1
-        fi
-      done
-    - printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$CI_PROJECT_DIR/AuthKey.p8"
-    - chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
-  script:
-    - export DESKTOP_VERSION="${CI_COMMIT_TAG#v}"
-    - |
-      if [ -z "$DESKTOP_VERSION" ]; then
-        DESKTOP_VERSION="$(node -p 'require("./frontend/apps/desktop/package.json").version')"
-      fi
-    - |
-      if [ -z "$DESKTOP_VERSION" ]; then
-        echo "desktop package version is required"
-        exit 1
-      fi
     - cd frontend
-    - pnpm install --frozen-lockfile
-    - cd apps/desktop
-    - node -e 'const fs = require("node:fs"); const version = process.argv[1]; const path = "package.json"; const pkg = JSON.parse(fs.readFileSync(path, "utf8")); pkg.version = version; fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);' "$DESKTOP_VERSION"
-    - cd ../..
-    - pnpm --filter @leros/desktop typecheck
     - APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_LINK="$MACOS_CERTIFICATE_P12_BASE64" CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD" pnpm run dist:desktop:mac:x64
     - cd "$CI_PROJECT_DIR"
     - mkdir -p desktop-release/mac-x64
-    - cp frontend/apps/desktop/dist/*.dmg desktop-release/mac-x64/
-    - cp frontend/apps/desktop/dist/*.zip desktop-release/mac-x64/
-    - cp frontend/apps/desktop/dist/*.blockmap desktop-release/mac-x64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-x64.dmg" desktop-release/mac-x64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-x64.zip" desktop-release/mac-x64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-x64.dmg.blockmap" desktop-release/mac-x64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-mac-x64.zip.blockmap" desktop-release/mac-x64/
     - cp frontend/apps/desktop/dist/latest-mac.yml desktop-release/mac-x64/
-  artifacts:
-    expire_in: 7 days
-    paths:
-      - desktop-release/mac-x64/
-
-desktop-build-win-x64:
-  stage: desktop_build
-  tags:
-    - macos
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: on_success
-    - if: '$ENV == "desktop"'
-      when: on_success
-    - when: never
-  variables:
-    ELECTRON_CACHE: "$CI_PROJECT_DIR/.electron-cache"
-    electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
-    ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
-  before_script:
-    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
-    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$PATH"
-    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
-    - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
-    - corepack prepare pnpm@10.28.2 --activate
-    - |
-      if [ -z "$VITE_LEROS_API_BASE_URL" ]; then
-        echo "Required desktop build variable is missing: VITE_LEROS_API_BASE_URL"
-        exit 1
-      fi
-  script:
-    - export DESKTOP_VERSION="${CI_COMMIT_TAG#v}"
-    - |
-      if [ -z "$DESKTOP_VERSION" ]; then
-        DESKTOP_VERSION="$(node -p 'require("./frontend/apps/desktop/package.json").version')"
-      fi
-    - |
-      if [ -z "$DESKTOP_VERSION" ]; then
-        echo "desktop package version is required"
-        exit 1
-      fi
     - cd frontend
-    - pnpm install --frozen-lockfile
-    - cd apps/desktop
-    - node -e 'const fs = require("node:fs"); const version = process.argv[1]; const path = "package.json"; const pkg = JSON.parse(fs.readFileSync(path, "utf8")); pkg.version = version; fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);' "$DESKTOP_VERSION"
-    - cd ../..
-    - pnpm --filter @leros/desktop typecheck
     - pnpm run dist:desktop:win:x64
     - cd "$CI_PROJECT_DIR"
     - mkdir -p desktop-release/win-x64
-    - cp frontend/apps/desktop/dist/*.exe desktop-release/win-x64/
-    - cp frontend/apps/desktop/dist/*.blockmap desktop-release/win-x64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-win-x64.exe" desktop-release/win-x64/
+    - cp "frontend/apps/desktop/dist/Lework-${DESKTOP_VERSION}-win-x64.exe.blockmap" desktop-release/win-x64/
     - cp frontend/apps/desktop/dist/latest.yml desktop-release/win-x64/
-  artifacts:
-    expire_in: 7 days
-    paths:
-      - desktop-release/win-x64/
-
-desktop-publish-cos:
-  stage: desktop_publish
-  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: on_success
-    - if: '$ENV == "desktop"'
-      when: on_success
-    - when: never
-  needs:
-    - job: desktop-build-mac-arm64
-      artifacts: true
-    - job: desktop-build-mac-x64
-      artifacts: true
-    - job: desktop-build-win-x64
-      artifacts: true
-  before_script:
-    - python3 -m pip install --user coscmd
-  script:
-    - |
-      for variable in COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX; do
-        if [ -z "$(eval echo \$$variable)" ]; then
-          echo "Required COS variable is missing: ${variable}"
-          exit 1
-        fi
-      done
-    - export PATH="$HOME/.local/bin:$PATH"
     - coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
     - |
-      version="${CI_COMMIT_TAG#v}"
-      if [ -z "$version" ]; then
-        version="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' frontend/apps/desktop/package.json | head -n 1)"
-      fi
+      version="$DESKTOP_VERSION"
       root_prefix="${DESKTOP_COS_ROOT_PREFIX#/}"
       root_prefix="${root_prefix%/}"
       prefix="${DESKTOP_COS_PREFIX#/}"
