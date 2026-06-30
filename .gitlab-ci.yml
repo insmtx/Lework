@@ -137,7 +137,10 @@ desktop-build-mac-arm64:
     electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
     ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
   before_script:
-    - corepack enable
+    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
+    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$PATH"
+    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
+    - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
     - corepack prepare pnpm@10.28.2 --activate
     - |
       for variable in VITE_LEROS_API_BASE_URL APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
@@ -192,7 +195,10 @@ desktop-build-mac-x64:
     electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
     ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
   before_script:
-    - corepack enable
+    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
+    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$PATH"
+    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
+    - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
     - corepack prepare pnpm@10.28.2 --activate
     - |
       for variable in VITE_LEROS_API_BASE_URL APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
@@ -247,7 +253,10 @@ desktop-build-win-x64:
     electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
     ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
   before_script:
-    - corepack enable
+    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
+    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$PATH"
+    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
+    - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
     - corepack prepare pnpm@10.28.2 --activate
     - |
       if [ -z "$VITE_LEROS_API_BASE_URL" ]; then
