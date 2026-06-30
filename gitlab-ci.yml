@@ -1,0 +1,126 @@
+spec:
+  inputs:
+    environment:
+      default: test
+      options:
+        - test
+        - prod
+        - image
+      description: 发布的环境选择，image为仅构建镜像
+    app:
+      default: leros
+      options:
+        - leros
+      description: '选择要发布的应用或模块'
+---
+
+stages:
+  - test
+  - build
+  - deploy
+  - notify
+
+variables:
+  PRJ: "insmtx"
+  ENV: "$[[ inputs.environment ]]"
+  APP: "$[[ inputs.app ]]"
+
+
+uint-test:
+  stage: test
+  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  script:
+    - echo testing
+    # - APP=$[[ inputs.app ]] make test
+
+build-image:
+  stage: build
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  before_script:
+    - echo "PIPELINE_STATUS=failed" > build.env
+    - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
+  script:
+    - echo $[[ inputs.app ]] $[[ inputs.environment ]]
+    - export APP=$[[ inputs.app ]]
+    - make push-image
+    - echo "PIPELINE_STATUS=success" > build.env
+    - export IMAGE_TAG=$(make image-tag)
+    - echo "IMAGE_TAG=${IMAGE_TAG}" >> build.env
+    - cat build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+
+deploy:
+  stage: deploy
+  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
+  rules:
+  - if: '$ENV != "image"'
+    when: on_success
+  - when: never
+  before_script:
+    - echo "PIPELINE_STATUS=failed" > deploy.env
+    - echo "Deploying $app to $environment environment"
+    - mkdir -p ~/.ssh
+    - |
+      if [ "${ENV}" = "test" ]; then
+          DEPLOY_HOST="deployer@t29.luv.gift"
+          echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
+          UPDATE_SCRIPT="./update_yygu.sh"
+      elif [ "${ENV}" = "prod" ]; then
+          DEPLOY_HOST="deployer@p31.luv.gift"
+          echo "$SSH_KEY_P31" | base64 -d > ~/.ssh/id_rsa
+          UPDATE_SCRIPT="./update_yygu.sh"
+      elif [ "${ENV}" = "private" ]; then
+          DEPLOY_HOST="ubuntu@t25.luv.gift"
+          echo "$SSH_KEY_T25" | base64 -d > ~/.ssh/id_rsa
+          UPDATE_SCRIPT="./update_yygu.sh"
+      else
+          echo "Unknown ENV: $ENV"
+          exit 1
+      fi
+    - chmod 600 ~/.ssh/id_rsa
+  script:
+    # - echo "IMAGE_TAG=$IMAGE_TAG"
+    - echo "${PRJ} ${APP} ${IMAGE_TAG} "
+    - |
+      if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $DEPLOY_HOST "$UPDATE_SCRIPT ${PRJ} ${APP} ${IMAGE_TAG} "; then
+        echo "PIPELINE_STATUS=success" > deploy.env
+      else
+        echo "PIPELINE_STATUS=failed" > deploy.env
+      fi
+    - cat deploy.env
+    - echo "${PIPELINE_STATUS}"
+  needs:
+    - build-image
+  artifacts:
+    reports:
+      dotenv: deploy.env
+
+notify:
+  stage: notify
+  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:curl_8.12.1
+  dependencies:
+    - build-image
+  when: always
+  script:
+    - echo "${PIPELINE_STATUS}"
+    - |
+      if [ "${PIPELINE_STATUS}" = "success" ]; then
+        MSG="【${ENV}环境】服务组件${PRJ}/${APP}:${IMAGE_TAG} 更新成功"
+      else
+        MSG="【${ENV}环境】服务组件${PRJ}/${APP}:${IMAGE_TAG} 更新失败"
+      fi
+      curl -H "Content-Type: application/json;charset=utf-8" \
+        -d "{\"msgtype\": \"text\",\"text\": {\"content\":\"${MSG}\"}}" \
+        "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=badfc85d-68f4-4f06-a47e-5518560f1e13"
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "api"
+      when: always
+    - when: never

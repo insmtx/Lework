@@ -1,7 +1,21 @@
-PROJECT := leros
-REGISTRY ?= registry.yygu.cn/insmtx/
+PROJECT ?= insmtx
+APP?= leros
+REGISTRY ?= registry.yygu.cn
 
 .PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend
+
+# GO='GOOS=windows GOARCH=386 go'
+VERSION ?= $(shell git describe --tags | sed 's/\(.*\)-.*/\1/')
+GIT_COMMIT = $(shell git rev-parse --short HEAD || echo unsupported)
+GO_VERSION = $(shell go version)
+APP_VERSION = $(shell git describe --tags --abbrev=0)
+BUILD_AT = $(shell date "+%Y-%m-%dT%H:%M:%S")
+TIMESTAMP := $(shell date +%s)
+
+IMAGE_TAG = ${VERSION}_${GIT_COMMIT}
+
+
+
 
 build:
 	go build -v -o ./bundles/leros ./backend/cmd/leros/
@@ -13,40 +27,53 @@ uninstall:
 	bash deployments/dev/install.sh --uninstall
 
 docker-build-base:
-	docker build -t $(REGISTRY)$(PROJECT)-base:latest -f deployments/build/Dockerfile.base .
+	docker build -t $(REGISTRY)/$(PROJECT)/base:latest -f deployments/build/Dockerfile.base .
 
 docker-push-base: docker-build-base
-	docker push $(REGISTRY)$(PROJECT)-base:latest
+	docker push $(REGISTRY)/$(PROJECT)/base:latest
 
 docker-build:
-	docker build -t $(REGISTRY)$(PROJECT):latest -f deployments/build/Dockerfile.leros .
+	docker build -t $(REGISTRY)/$(PROJECT)/leros:latest -f deployments/build/Dockerfile.leros .
 
 docker-build-worker:
-	docker build -t $(REGISTRY)$(PROJECT)-worker:latest -f deployments/build/Dockerfile.worker .
+	docker build -t $(REGISTRY)/$(PROJECT)/worker:latest -f deployments/build/Dockerfile.worker .
 
-# SERVICE=leros|leros-worker  TAG=xxx
+
+# SERVICE: 服务名，默认使用 APP，对应 Dockerfile 前缀（如 leros -> Dockerfile.leros, leros-worker -> Dockerfile.worker）
+# 可通过 make docker-build-tag SERVICE=leros-worker 或环境变量覆盖
+SERVICE ?= $(APP)
+
 docker-build-tag:
-	@case "$(SERVICE)" in \
-		leros-worker) DOCKERFILE=Dockerfile.worker ;; \
-		*) DOCKERFILE=Dockerfile.leros ;; \
-	esac; \
-	docker build -t $(REGISTRY)$(SERVICE):$(TAG) -f deployments/build/$$DOCKERFILE .
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "ERROR: SERVICE is not set. Usage: make docker-build-tag SERVICE=leros"; \
+		exit 1; \
+	fi
+	docker build \
+		-t $(REGISTRY)/$(PROJECT)/$(SERVICE):${IMAGE_TAG} \
+		-f deployments/build/Dockerfile.$(SERVICE) \
+		.
+
+push-image: docker-build-tag docker-push-tag
 
 docker-push-tag:
-	docker push $(REGISTRY)$(SERVICE):$(TAG)
+	docker push $(REGISTRY)/$(PROJECT)/$(SERVICE):${IMAGE_TAG}
+
+# 获取当前 IMAGE_TAG 供 CI 使用
+image-tag:
+	@echo ${IMAGE_TAG}
 
 docker-dev-build:
-	docker build -t $(REGISTRY)$(PROJECT)-dev:latest -f deployments/build/Dockerfile.leros-dev .
+	docker build -t $(REGISTRY)/$(PROJECT)/leros-dev:latest -f deployments/build/Dockerfile.leros-dev .
 
 docker-push: docker-build
-	docker push $(REGISTRY)$(PROJECT):latest
+	docker push $(REGISTRY)/$(PROJECT)/leros:latest
 
 docker-run-leros:
 	-docker rm -f $(PROJECT)-leros-dev
-	docker run -d --name $(PROJECT)-leros-dev -p 8080:8080 $(REGISTRY)$(PROJECT):latest
+	docker run -d --name $(PROJECT)-leros-dev -p 8080:8080 $(REGISTRY)/$(PROJECT)/leros:latest
 
 docker-compose-up: docker-build
-	docker tag $(REGISTRY)$(PROJECT):latest localhost/env_$(PROJECT):latest
+	docker tag $(REGISTRY)/$(PROJECT)/leros:latest localhost/env_$(PROJECT):latest
 	docker-compose -f deployments/env/docker-compose.yml up -d
 
 docker-compose-down:
