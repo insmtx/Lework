@@ -326,19 +326,19 @@ export function SkillDetailView({
 							<TabsList variant="line" className="gap-6">
 								<TabsTrigger
 									value="overview"
-									className="pb-3 text-xs font-medium data-active:text-[var(--leros-primary)]"
+									className="pb-3 text-xs font-medium text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:!text-[var(--leros-primary)]"
 								>
 									概述
 								</TabsTrigger>
 								<TabsTrigger
 									value="files"
-									className="pb-3 text-xs font-medium data-active:text-[var(--leros-primary)]"
+									className="pb-3 text-xs font-medium text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:!text-[var(--leros-primary)]"
 								>
 									文件
 								</TabsTrigger>
 								<TabsTrigger
 									value="versions"
-									className="pb-3 text-xs font-medium data-active:text-[var(--leros-primary)]"
+									className="pb-3 text-xs font-medium text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:!text-[var(--leros-primary)]"
 								>
 									历史版本
 								</TabsTrigger>

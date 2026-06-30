@@ -128,13 +128,13 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 						<TabsList variant="line" className="mb-3 -ml-1.5">
 							<TabsTrigger
 								value="marketplace"
-								className="text-xl font-bold data-active:text-[var(--leros-text-strong)]"
+								className="text-xl font-bold text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:!text-[var(--leros-text-strong)]"
 							>
 								技能市场
 							</TabsTrigger>
 							<TabsTrigger
 								value="mine"
-								className="text-xl font-bold data-active:text-[var(--leros-text-strong)]"
+								className="text-xl font-bold text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:!text-[var(--leros-text-strong)]"
 							>
 								我的技能
 							</TabsTrigger>
