@@ -39,9 +39,10 @@ docker-build-worker:
 	docker build -t $(REGISTRY)/$(PROJECT)/worker:latest -f deployments/build/Dockerfile.worker .
 
 
-# SERVICE: 服务名，默认使用 APP，对应 Dockerfile 前缀（如 leros -> Dockerfile.leros, leros-worker -> Dockerfile.worker）
-# 可通过 make docker-build-tag SERVICE=leros-worker 或环境变量覆盖
+# SERVICE: 服务名，默认使用 APP
+# DOCKERFILE_NAME: Dockerfile 文件名（去掉 lerost- 前缀），如 leros -> leros, leros-worker -> worker
 SERVICE ?= $(APP)
+DOCKERFILE_NAME = $(subst leros-,,$(SERVICE))
 
 docker-build-tag:
 	@if [ -z "$(SERVICE)" ]; then \
@@ -50,7 +51,7 @@ docker-build-tag:
 	fi
 	docker build \
 		-t $(REGISTRY)/$(PROJECT)/$(SERVICE):${IMAGE_TAG} \
-		-f deployments/build/Dockerfile.$(SERVICE) \
+		-f deployments/build/Dockerfile.$(DOCKERFILE_NAME) \
 		.
 
 push-image: docker-build-tag docker-push-tag

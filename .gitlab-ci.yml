@@ -12,6 +12,7 @@ spec:
       default: leros
       options:
         - leros
+        - leros-worker
       description: '选择要发布的应用或模块'
 ---
 
