@@ -87,11 +87,11 @@ build-worker-image:
     - when: never
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
-    APP: leros-worker
   image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
   before_script:
     - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
   script:
+    - export APP=leros-worker
     - export REGISTRY="$HARBOR_HOST"
     - make push-image
     - export WORKER_IMAGE_TAG=$(make image-tag)
