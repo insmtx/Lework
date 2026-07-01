@@ -1,3 +1,16 @@
+// worker 命令启动 Leros 后台 worker 服务。
+//
+// worker 通过 NATS JetStream 订阅四个命令 lane：
+//   - cmd.run：处理 agent run 任务。使用 SubscribeManualDurable + 本地 SQLite inbox
+//     实现 at-least-once 语义。消息先持久化再 Ack，崩溃重启后通过 RecoverNonTerminal 恢复。
+//   - cmd.control：处理 cancel 等控制命令，自动确认。
+//   - cmd.interaction：处理审批/问答等交互命令，自动确认。
+//   - cmd.skill：处理 skill 管理命令，自动确认。
+//
+// 关闭顺序（5 步）：
+//   1. 取消 NATS 订阅 context → 2. 停止新任务准入 → 3. 等待 dispatcher 退出
+//   → 4. Drain 积压的后台任务（超时 30s）→ 5. 关闭资源
+// drain 超时时保留非终态 inbox 记录，重启后恢复执行。
 package main
 
 import (
@@ -202,9 +215,9 @@ func runTaskWorker(defaultRuntime string) {
 	identity.Set(identity.Profile{
 		OrgID:    cfg.OrgID,
 		WorkerID: cfg.WorkerID,
-		// ServerAddr is the control-plane host:port, for example "127.0.0.1:8080".
+		// ServerAddr 是控制面地址，例如 "127.0.0.1:8080"。
 		ServerAddr: cfg.ServerAddr,
-		// WorkerAddr is the worker HTTP service address, for example ":8081" or "127.0.0.1:8081".
+		// WorkerAddr 是 worker HTTP 服务地址，例如 ":8081" 或 "127.0.0.1:8081"。
 		WorkerAddr: workerListenAddr,
 	})
 	var mcpToken string
@@ -229,8 +242,8 @@ func runTaskWorker(defaultRuntime string) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var cliSkillDirs []string
-	// Bootstrap engines: always sync built-in skills to .leros/skills (serves native engine).
-	// If CLI engines are configured, also sync symlinks.
+	// Bootstrap 引擎：始终同步内置 skill 到 .leros/skills（服务于 native 引擎）。
+	// 如果配置了 CLI 引擎，还会同步 symlink。
 	{
 		var cliCfg *config.CLIEnginesConfig
 		if cfg.CLI != nil {
@@ -276,8 +289,8 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create agent runtime service: %v", err)
 		return
 	}
-	// Use shared leros.db for seq tracking (coexists with provider_session_bindings table).
-	seqTrackerPath, err := leros.StateDBPath()
+	// 使用共享的 leros.db 作为持久化 inbox（与 provider_session_bindings 表共存）。
+	inboxDBPath, err := leros.StateDBPath()
 	if err != nil {
 		cancel()
 		_ = bus.Close()
@@ -286,15 +299,22 @@ func runTaskWorker(defaultRuntime string) {
 	}
 
 	runHandler, err := run.New(run.Config{
-		OrgID:          cfg.OrgID,
-		WorkerID:       cfg.WorkerID,
-		Env:            cfg.Env,
-		SeqTrackerPath: seqTrackerPath,
+		OrgID:       cfg.OrgID,
+		WorkerID:    cfg.WorkerID,
+		Env:         cfg.Env,
+		InboxDBPath: inboxDBPath,
 	}, bus, runtimeService.AssistantService())
 	if err != nil {
 		cancel()
 		_ = bus.Close()
 		logs.Fatalf("Failed to create run handler: %v", err)
+		return
+	}
+	if err := runHandler.RecoverNonTerminal(ctx); err != nil {
+		cancel()
+		_ = runHandler.Close()
+		_ = bus.Close()
+		logs.Fatalf("Failed to recover pending run commands: %v", err)
 		return
 	}
 
@@ -324,30 +344,52 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 
+	// dispatcherDone 关闭时表示 dispatcher goroutine 已退出。
+	dispatcherDone := make(chan struct{})
 	go func() {
+		defer close(dispatcherDone)
 		if err := dispatcher.Run(ctx); err != nil {
 			logs.Errorf("Command dispatcher exited with error: %v", err)
 			lifecycle.Std().Exit()
 		}
 	}()
 
+	// 设置生命周期强制退出超时。
+	lifecycle.Std().SetTimeout(40 * time.Second)
+
+	// 按序关闭：取消 dispatcher context → 等待 dispatcher 退出 → 停止准入 → drain 积压任务 → 关闭资源。
 	lifecycle.Std().AddCloseFunc(func() error {
+		const drainTimeout = 30 * time.Second
+
+		// 1. 取消 dispatcher context，停止 NATS 投递（不再有新的回调进来）。
 		cancel()
+
+		// 2. 停止准入，不再增加 WaitGroup 计数。
+		runHandler.StopAdmission()
+
+		// 3. 等待 dispatcher goroutine 退出，确保没有活跃的回调访问 Handler。
+		<-dispatcherDone
+
+		// 4. Drain 正在执行的后台任务（含恢复 feeder），等待它们完成。
+		if runHandler.Drain(drainTimeout) {
+			logs.Info("Worker drain complete, closing handler")
+			if err := runHandler.Close(); err != nil {
+				logs.Errorf("Failed to close run handler: %v", err)
+			}
+			return bus.Close()
+		} else {
+			logs.Warn("Worker drain timed out — exiting with non-terminal inbox records preserved for restart recovery")
+		}
+
+		// 关闭超时，仍有任务在运行。保留依赖项确保它们能继续执行，等待生命周期强制退出。
 		return nil
 	})
+
 	lifecycle.Std().AddCloseFunc(func() error {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
 	})
-	lifecycle.Std().AddCloseFunc(func() error {
-		logs.Info("Shutting down task consumer...")
-		if err := runHandler.Close(); err != nil {
-			logs.Errorf("Failed to close task consumer: %v", err)
-		}
-		return nil
-	})
-	lifecycle.Std().AddCloseFunc(bus.Close)
 	logs.Infof("Agent worker started: org_id=%d worker_id=%d topic=%s", cfg.OrgID, cfg.WorkerID, runHandler.RunSubject())
 	lifecycle.Std().WaitExit()
 	logs.Info("Agent worker exited")

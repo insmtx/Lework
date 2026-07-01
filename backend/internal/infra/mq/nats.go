@@ -312,6 +312,9 @@ func (p *natsBus) Subscribe(ctx context.Context, topic string, consumer string, 
 }
 
 // subscribeWithDurable 使用持久化消费者订阅，handler 正常返回后自动 Ack，panic 时自动 Nak（不传播 panic）。
+// 适用于 handler 可同步完成确认的场景（如 control、interaction 等轻量 lane）。
+// 注意：Ack 时机是 handler 函数返回的时刻，如果 handler 内部有异步操作，
+// 需要改用 SubscribeManualDurable 自行控制确认时机。
 func (p *natsBus) subscribeWithDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
 	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
 		defer func() {
@@ -338,9 +341,38 @@ func (p *natsBus) subscribeWithDurable(ctx context.Context, topic string, consum
 	return ctx.Err()
 }
 
-// SubscribeFrom implements the eventbus.Subscriber interface.
+// SubscribeManualDurable 使用持久化消费者订阅，handler 手动控制消息确认（不自动 Ack/Nak）。
+// handler 收到消息后自行决定何时调用 Ack、Nak、NakWithDelay 或 Term。
+// 适用于需要在确认前完成额外操作的场景（如持久化到本地 inbox 后再 Ack）。
+// handler 中发生 panic 时自动 Nak（不传播 panic）。
+func (p *natsBus) SubscribeManualDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
+	sub, err := p.js.Subscribe(topic, func(msg *nats.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				logs.ErrorContextf(ctx, "Panic in manual handler for topic '%s', consumer '%s': %v", topic, consumer, r)
+				_ = msg.Nak()
+			}
+		}()
+		handler(msg)
+	}, nats.Durable(consumer), nats.ManualAck(), nats.Context(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to manually subscribe to topic '%s' with consumer '%s': %w", topic, consumer, err)
+	}
+
+	<-ctx.Done()
+
+	if err := sub.Unsubscribe(); err != nil {
+		logs.WarnContextf(ctx, "Failed to unsubscribe from topic '%s': %v", topic, err)
+	}
+	logs.InfoContextf(ctx, "Unsubscribed from topic: %s (consumer: %s)", topic, consumer)
+
+	return ctx.Err()
+}
+
+// SubscribeFrom 从指定序列号开始订阅，支持断点续传场景。
 // startSeq == 0 时使用 DeliverNew 仅投递新消息；
 // startSeq > 0 时使用 DeliverByStartSequence 从指定序列号开始投递。
+// 当本地记录的序列号超出 stream 的最新序列号时，自动降级为只订阅新消息。
 func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int64, handler func(msg *nats.Msg)) error {
 	if startSeq <= 0 {
 		return p.subscribeNewOnly(ctx, topic, handler)

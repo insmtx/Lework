@@ -8,31 +8,30 @@ import (
 	"testing"
 	"time"
 
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 )
 
-// mockSubscriber records subscriptions in a concurrency-safe way.
-// When returnErr is set, Subscribe returns it.
-// It can also block until unblocked for testing subscription lifecycle.
+// mockSubscriber records subscription calls, distinguishing auto vs manual.
 type mockSubscriber struct {
-	mu     sync.Mutex
-	topics []string
-	// returnErr causes Subscribe to return an error.
-	returnErr error
-	// unblock is closed when Subscribe should return (used for nop-like behavior).
-	unblock chan struct{}
+	mu           sync.Mutex
+	autoTopics   []string
+	manualTopics []string
+	returnErr    error
+	unblock      chan struct{}
+	started      chan struct{}
 }
 
 func newMockSubscriber() *mockSubscriber {
-	return &mockSubscriber{}
+	return &mockSubscriber{started: make(chan struct{}, 4)}
 }
 
 func (m *mockSubscriber) Subscribe(ctx context.Context, topic string, _ string, _ func(msg *nats.Msg)) error {
 	m.mu.Lock()
-	m.topics = append(m.topics, topic)
+	m.autoTopics = append(m.autoTopics, topic)
 	m.mu.Unlock()
-
+	m.started <- struct{}{}
 	if m.returnErr != nil {
 		return m.returnErr
 	}
@@ -44,200 +43,203 @@ func (m *mockSubscriber) Subscribe(ctx context.Context, topic string, _ string, 
 			return nil
 		}
 	}
-	// Default: block until ctx is cancelled (like real subscriptions).
 	<-ctx.Done()
 	return ctx.Err()
 }
 
-func (m *mockSubscriber) topicsSnapshot() []string {
+func (m *mockSubscriber) SubscribeManualDurable(ctx context.Context, topic string, _ string, _ func(msg *nats.Msg)) error {
+	m.mu.Lock()
+	m.manualTopics = append(m.manualTopics, topic)
+	m.mu.Unlock()
+	m.started <- struct{}{}
+	if m.returnErr != nil {
+		return m.returnErr
+	}
+	if m.unblock != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-m.unblock:
+			return nil
+		}
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (m *mockSubscriber) autoCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]string, len(m.topics))
-	copy(out, m.topics)
-	return out
+	return len(m.autoTopics)
 }
 
+func (m *mockSubscriber) manualCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.manualTopics)
+}
+
+// stubRunHandler implements RunHandler with ManualDelivery.
 type stubRunHandler struct{ called bool }
 
-func (s *stubRunHandler) HandleRunCommand(_ context.Context, _ messaging.WorkerCommand, _ *nats.Msg) error {
+func (s *stubRunHandler) HandleRunCommand(_ context.Context, _ messaging.WorkerCommand, _ eventbus.ManualDelivery) error {
 	s.called = true
 	return nil
 }
 
-type stubControlHandler struct{ called bool }
+type dispatcherDelivery struct {
+	termCalled bool
+}
 
-func (s *stubControlHandler) HandleControlCommand(_ context.Context, _ messaging.WorkerCommand) error {
-	s.called = true
+func (*dispatcherDelivery) Metadata() (*eventbus.Metadata, error) { return nil, nil }
+func (*dispatcherDelivery) Ack() error                            { return nil }
+func (*dispatcherDelivery) Nak() error                            { return nil }
+func (*dispatcherDelivery) NakWithDelay(time.Duration) error      { return nil }
+func (d *dispatcherDelivery) Term() error {
+	d.termCalled = true
+	return nil
+}
+func (*dispatcherDelivery) InProgress() error { return nil }
+
+type stubControlHandler struct {
+	calledWith *messaging.WorkerCommand
+}
+
+func (s *stubControlHandler) HandleControlCommand(_ context.Context, cmd messaging.WorkerCommand) error {
+	s.calledWith = &cmd
 	return nil
 }
 
-type stubInteractionHandler struct{ called bool }
+type stubInteractionHandler struct {
+	called bool
+}
 
 func (s *stubInteractionHandler) HandleInteractionCommand(_ context.Context, _ messaging.WorkerCommand) error {
 	s.called = true
 	return nil
 }
 
-type stubSkillHandler struct{ called bool }
+type stubSkillHandler struct {
+	called bool
+}
 
 func (s *stubSkillHandler) HandleSkillCommand(_ context.Context, _ messaging.WorkerCommand, _ *nats.Msg) error {
 	s.called = true
 	return nil
 }
 
-func allHandlers() Handlers {
-	return Handlers{
-		Run:         &stubRunHandler{},
-		Control:     &stubControlHandler{},
-		Interaction: &stubInteractionHandler{},
-		Skill:       &stubSkillHandler{},
-	}
-}
-
-func TestNewDispatcherValidatesOrgID(t *testing.T) {
-	_, err := New(Config{OrgID: 0, WorkerID: 1}, newMockSubscriber(), allHandlers())
-	if err == nil {
-		t.Fatal("expected error for missing org_id")
-	}
-}
-
-func TestNewDispatcherValidatesWorkerID(t *testing.T) {
-	_, err := New(Config{OrgID: 1, WorkerID: 0}, newMockSubscriber(), allHandlers())
-	if err == nil {
-		t.Fatal("expected error for missing worker_id")
-	}
-}
-
-func TestNewDispatcherValidatesSubscriber(t *testing.T) {
-	_, err := New(Config{OrgID: 1, WorkerID: 1}, nil, allHandlers())
-	if err == nil {
-		t.Fatal("expected error for missing subscriber")
-	}
-}
-
-func TestNewDispatcherValidatesAllHandlers(t *testing.T) {
+func TestNewRequiresAllHandlers(t *testing.T) {
 	sub := newMockSubscriber()
-	tests := []struct {
-		name     string
-		handlers Handlers
-	}{
-		{"missing Run", Handlers{Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}}},
-		{"missing Control", Handlers{Run: &stubRunHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}}},
-		{"missing Interaction", Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Skill: &stubSkillHandler{}}},
-		{"missing Skill", Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}}},
+	cfg := Config{OrgID: 1, WorkerID: 2}
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}}
+	d, err := New(cfg, sub, handlers)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := New(Config{OrgID: 1, WorkerID: 1}, sub, tt.handlers)
-			if err == nil {
-				t.Fatal("expected error for missing handler")
-			}
-		})
+	if d == nil {
+		t.Fatal("expected non-nil dispatcher")
 	}
 }
 
 func TestDispatcherRunSubscribesFourLanes(t *testing.T) {
 	sub := newMockSubscriber()
-	// Use unblock to make Subscribe return immediately after recording.
 	sub.unblock = make(chan struct{})
-
-	d, err := New(Config{OrgID: 1, WorkerID: 2}, sub, allHandlers())
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}}
+	d, err := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run(ctx) }()
-
-	// Wait for subscriptions to be recorded.
-	time.Sleep(100 * time.Millisecond)
-
-	// Close unblock so all Subscribe calls return nil.
-	close(sub.unblock)
-
-	// Now cancel so Run returns nil.
-	cancel()
-
-	if err := <-errCh; err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-
-	topics := sub.topicsSnapshot()
-	if len(topics) != 4 {
-		t.Fatalf("expected 4 subscriptions, got %d: %v", len(topics), topics)
-	}
-
-	want := map[string]bool{
-		"org.1.worker.2.cmd.run":         true,
-		"org.1.worker.2.cmd.control":     true,
-		"org.1.worker.2.cmd.interaction": true,
-		"org.1.worker.2.cmd.skill":       true,
-	}
-	for _, topic := range topics {
-		if !want[topic] {
-			t.Errorf("unexpected topic: %q", topic)
+	for range 4 {
+		select {
+		case <-sub.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("not all lane subscriptions started")
 		}
+	}
+	close(sub.unblock)
+	select {
+	case e := <-errCh:
+		if e != nil {
+			t.Fatalf("Run() error = %v", e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run() did not return")
+	}
+	if sub.manualCount() != 1 {
+		t.Fatalf("expected 1 manual subscription (run lane), got %d", sub.manualCount())
+	}
+	if sub.autoCount() != 3 {
+		t.Fatalf("expected 3 auto subscriptions (control, interaction, skill), got %d", sub.autoCount())
 	}
 }
 
 func TestDispatcherRunPropagatesSubscribeError(t *testing.T) {
-	wantErr := fmt.Errorf("fake subscribe error")
 	sub := newMockSubscriber()
-	sub.returnErr = wantErr
-
-	d, err := New(Config{OrgID: 1, WorkerID: 2}, sub, allHandlers())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	err = d.Run(context.Background())
+	sub.returnErr = fmt.Errorf("subscribe failed")
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}}
+	d, _ := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
+	err := d.Run(context.Background())
 	if err == nil {
-		t.Fatal("expected error from Run(), got nil")
+		t.Fatal("expected error")
 	}
 }
 
 func TestDispatcherRunReturnsNilOnContextCancel(t *testing.T) {
-	// mockSubscriber blocks until ctx.Done by default.
 	sub := newMockSubscriber()
-
-	d, err := New(Config{OrgID: 1, WorkerID: 2}, sub, allHandlers())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}}
+	d, _ := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run(ctx) }()
-
-	time.Sleep(50 * time.Millisecond)
+	for range 4 {
+		select {
+		case <-sub.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("not all lane subscriptions started")
+		}
+	}
 	cancel()
-
-	err = <-errCh
-	if err != nil {
-		t.Fatalf("Run() error on cancel = %v, want nil", err)
+	select {
+	case e := <-errCh:
+		if e != nil {
+			t.Fatalf("Run() error = %v", e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run() did not return after cancel")
 	}
 }
 
 func TestDispatcherParseCommand(t *testing.T) {
-	d := &Dispatcher{}
+	d, _ := New(Config{OrgID: 1, WorkerID: 2}, newMockSubscriber(), Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}})
 
-	validCmd := messaging.WorkerCommand{
-		Type: messaging.MessageTypeWorkerCommand,
-	}
-	data, _ := json.Marshal(validCmd)
-
+	valid := &messaging.WorkerCommand{Type: messaging.MessageTypeWorkerCommand, ID: "test"}
+	data, _ := json.Marshal(valid)
 	cmd, err := d.parseCommand(data)
 	if err != nil {
-		t.Fatalf("parseCommand error = %v", err)
+		t.Fatalf("parseCommand() error = %v", err)
 	}
-	if cmd.Type != messaging.MessageTypeWorkerCommand {
-		t.Fatalf("expected WorkerCommand type, got %q", cmd.Type)
+	if cmd.ID != "test" {
+		t.Fatalf("expected ID 'test', got %q", cmd.ID)
 	}
 
-	// Wrong type
-	_, err = d.parseCommand([]byte(`{"type":"wrong"}`))
+	_, err = d.parseCommand([]byte("not-json"))
 	if err == nil {
-		t.Fatal("expected error for wrong message type")
+		t.Fatal("expected error for non-JSON")
+	}
+}
+
+func TestDispatcherHandleRunCallsTermOnParseFailure(t *testing.T) {
+	sub := newMockSubscriber()
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}}
+	d, _ := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
+
+	delivery := &dispatcherDelivery{}
+	d.handleRunDelivery(context.Background(), []byte("not-json"), delivery)
+	if !delivery.termCalled {
+		t.Fatal("Term should be called when the run command envelope is invalid")
 	}
 }

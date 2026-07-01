@@ -99,6 +99,10 @@ func (m *recordingEventBus) SubscribeFrom(ctx context.Context, topic string, sta
 	return nil
 }
 
+func (m *recordingEventBus) SubscribeManualDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
+	return nil
+}
+
 func (m *recordingEventBus) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
 	return nil, fmt.Errorf("recordingEventBus: Request not supported")
 }
@@ -108,6 +112,10 @@ func (m *mockEventBus) Subscribe(ctx context.Context, topic string, consumer str
 }
 
 func (m *mockEventBus) SubscribeFrom(ctx context.Context, topic string, startSeq int64, handler func(msg *nats.Msg)) error {
+	return nil
+}
+
+func (m *mockEventBus) SubscribeManualDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
 	return nil
 }
 
@@ -141,6 +149,10 @@ func (m *replayEventBus) SubscribeFrom(ctx context.Context, topic string, startS
 	for _, msg := range m.messages {
 		handler(msg)
 	}
+	return nil
+}
+
+func (m *replayEventBus) SubscribeManualDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
 	return nil
 }
 
