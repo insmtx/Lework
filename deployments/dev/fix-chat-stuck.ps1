@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\shared.ps1"
 Import-DevEnvFile
 

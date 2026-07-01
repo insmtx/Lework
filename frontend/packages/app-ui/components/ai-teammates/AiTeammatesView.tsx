@@ -41,7 +41,7 @@ export function AiTeammatesView() {
 		>
 			<div className="border-b border-[var(--leros-control-border)] px-6 py-5">
 				<div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-					<h1 className="text-xl font-bold text-[var(--leros-text-strong)]">AI队友</h1>
+					<h1 className="text-xl font-semibold text-[var(--leros-text-strong)]">AI队友</h1>
 					<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
 						<div className="relative flex-1 sm:min-w-[220px] sm:max-w-xs">
 							<Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--leros-text-subtle)]" />

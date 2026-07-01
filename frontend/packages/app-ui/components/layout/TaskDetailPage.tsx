@@ -386,7 +386,7 @@ export function TaskDetailPage({
 						</>
 					)}
 					<h1
-						className="max-w-[360px] truncate text-sm font-bold text-[var(--leros-text-strong)]"
+						className="max-w-[360px] truncate text-sm font-semibold text-[var(--leros-text-strong)]"
 						title={task?.title}
 					>
 						{breadcrumbTaskTitle}
@@ -482,9 +482,7 @@ export function TaskDetailPage({
 											<Pencil className="size-3.5" />
 										</button>
 									</div>
-									<p className="text-sm leading-relaxed text-[var(--leros-text)]">
-										{task.title}
-									</p>
+									<p className="text-sm leading-relaxed text-[var(--leros-text)]">{task.title}</p>
 								</section>
 							)}
 							{latestTodos && latestTodos.length > 0 && (
@@ -643,11 +641,11 @@ function TaskTokenUsageCard({
 				<div className="mb-6">
 					<div className="text-xs font-medium text-slate-500">当前会话累计</div>
 					<div className="mt-1 flex items-end gap-0.5">
-						<div className="text-4xl font-bold tracking-tight text-slate-900">
+						<div className="text-4xl font-semibold tracking-tight text-slate-900">
 							{totalDisplay.value}
 						</div>
 						{totalDisplay.suffix ? (
-							<div className="pb-1 text-xl font-bold text-slate-400">{totalDisplay.suffix}</div>
+							<div className="pb-1 text-xl font-semibold text-slate-400">{totalDisplay.suffix}</div>
 						) : null}
 					</div>
 				</div>

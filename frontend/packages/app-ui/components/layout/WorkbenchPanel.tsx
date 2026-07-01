@@ -64,8 +64,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		fetchProjects,
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
-	const { addUploadedAttachment, isGenerating } =
-		useChatStore((s) => s);
+	const { addUploadedAttachment, isGenerating } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -337,7 +336,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				{/* Welcome/Hero Section */}
 				<section className="mb-8">
 					<div className="mb-6 flex flex-col items-start gap-4 text-left">
-						<h2 className="text-4xl font-bold tracking-tight text-[var(--leros-text-strong)] md:text-5xl">
+						<h2 className="text-4xl font-semibold tracking-tight text-[var(--leros-text-strong)] md:text-5xl">
 							你好, <span className="text-[var(--leros-primary)]">我能帮助你什么？</span>
 						</h2>
 						<p className="text-lg font-medium italic uppercase tracking-widest text-[var(--leros-text-subtle)]">
@@ -413,9 +412,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										return true;
 									}}
 									disableAssistantAndSkill={Boolean(activeProject)}
-								executionMode={executionMode}
-								setExecutionMode={setExecutionMode}
-								isGenerating={isGenerating}
+									executionMode={executionMode}
+									setExecutionMode={setExecutionMode}
+									isGenerating={isGenerating}
 								/>
 								<Popover open={projectMenuOpen} onOpenChange={handleProjectMenuOpenChange}>
 									<PopoverTrigger

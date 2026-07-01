@@ -32,7 +32,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
-import { 
+import {
 	APP_LOGO_SRC,
 	APP_PRIVACY_POLICY_PDF_SRC,
 	APP_TERMS_OF_SERVICE_PDF_SRC,
@@ -287,7 +287,7 @@ function AuthDialog({
 			>
 				<div className="mx-auto flex w-full max-w-[430px] flex-col items-center">
 					<img src={logoSrc} alt="Lework" className="size-[60px] object-contain" />
-					<DialogTitle className="mt-5 text-center text-3xl font-bold tracking-normal">
+					<DialogTitle className="mt-5 text-center text-3xl font-semibold tracking-normal">
 						欢迎来到Lework
 					</DialogTitle>
 					<DialogDescription className="mt-2 text-center text-sm text-[#8b95a5]">
@@ -371,7 +371,7 @@ function AuthDialog({
 							type="submit"
 							disabled={submitting}
 							className={cn(
-								"mt-2 h-[52px] rounded-[16px] bg-[#070d1c] text-base font-bold text-white hover:bg-[#182033] disabled:bg-[#d2d5de] disabled:text-white",
+								"mt-2 h-[52px] rounded-[16px] bg-[#070d1c] text-base font-semibold text-white hover:bg-[#182033] disabled:bg-[#d2d5de] disabled:text-white",
 								!canSubmit && !submitting && "bg-[#d2d5de] hover:bg-[#d2d5de]",
 							)}
 						>
