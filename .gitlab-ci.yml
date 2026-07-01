@@ -6,14 +6,14 @@ spec:
         - test
         - prod
         - image
-        - desktop
-      description: 发布的环境选择，image为仅构建镜像，desktop为桌面端打包上传COS
+      description: 发布的环境选择，image为仅构建镜像
     app:
       default: leros
       options:
         - leros
         - leros-worker
-      description: '选择要发布的应用或模块'
+        - desktop
+      description: '选择要发布的应用或模块，desktop为桌面端打包上传COS'
     update_worker_image:
       default: "true"
       options:
@@ -45,9 +45,7 @@ uint-test:
   stage: test
   image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
   rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - if: '$ENV == "desktop"'
+    - if: '$APP == "desktop"'
       when: never
     - when: on_success
   script:
@@ -57,9 +55,7 @@ uint-test:
 build-image:
   stage: build
   rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - if: '$ENV == "desktop"'
+    - if: '$APP == "desktop"'
       when: never
     - when: on_success
   variables:
@@ -84,9 +80,7 @@ build-image:
 build-worker-image:
   stage: build
   rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - if: '$ENV == "desktop"'
+    - if: '$APP == "desktop"'
       when: never
     - if: '$APP == "leros" && $UPDATE_WORKER_IMAGE == "true"'
       when: on_success
@@ -112,9 +106,7 @@ deploy:
   stage: deploy
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
   rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - if: '$ENV == "desktop"'
+    - if: '$APP == "desktop"'
       when: never
     - if: '$ENV != "image"'
       when: on_success
@@ -156,7 +148,13 @@ deploy:
     # - echo "IMAGE_TAG=$IMAGE_TAG"
     - echo "${PRJ} ${APP} ${IMAGE_TAG} "
     - |
-      if [ "${APP}" = "leros" ] && [ "${UPDATE_WORKER_IMAGE}" = "true" ] && [ -n "${WORKER_IMAGE:-}" ]; then
+      if [ "${APP}" = "leros" ] && [ "${UPDATE_WORKER_IMAGE}" = "true" ]; then
+        if [ -z "${WORKER_IMAGE:-}" ]; then
+          echo "UPDATE_WORKER_IMAGE=true but WORKER_IMAGE is empty. Check that build-worker-image ran successfully and exported worker.env."
+          echo "PIPELINE_STATUS=failed" > deploy.env
+          exit 1
+        fi
+
         SERVER_IMAGE="${HARBOR_HOST}/${PRJ}/${APP}:${IMAGE_TAG}"
         scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deployments/k3s/update-leros-images.sh "$DEPLOY_HOST:/tmp/update-leros-images.sh"
         if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "$DEPLOY_HOST" \
@@ -187,9 +185,7 @@ deploy:
   tags:
     - macos
   rules:
-    - if: '$CI_COMMIT_TAG'
-      when: on_success
-    - if: '$ENV == "desktop"'
+    - if: '$APP == "desktop"'
       when: on_success
     - when: never
   variables:
@@ -428,9 +424,7 @@ notify:
   dependencies:
     - build-image
   rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - if: '$ENV == "desktop"'
+    - if: '$APP == "desktop"'
       when: never
     - when: always
   script:
