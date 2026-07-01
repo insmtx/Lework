@@ -12,6 +12,7 @@ type Task struct {
 	OrgID       uint                   `json:"org_id"`
 	OwnerID     uint                   `json:"owner_id"`
 	ProjectID   string                 `json:"project_id"`
+	ProjectName string                 `json:"project_name"`
 	SessionID   *uint                  `json:"session_id,omitempty"`
 	TaskType    string                 `json:"task_type"`
 	AssigneeID  *uint                  `json:"assignee_id,omitempty"`

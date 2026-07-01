@@ -20,6 +20,11 @@ type taskService struct {
 	db *gorm.DB
 }
 
+type projectTaskBrief struct {
+	PublicID string
+	Name     string
+}
+
 func NewTaskService(db *gorm.DB) contract.TaskService {
 	return &taskService{
 		db: db,
@@ -89,7 +94,7 @@ func (s *taskService) CreateTask(ctx context.Context, req *contract.CreateTaskRe
 	if err := db.TouchProjectUpdatedAt(ctx, s.db, project.ID, time.Now()); err != nil {
 		logs.WarnContextf(ctx, "touch project updated_at after create task %s: %v", task.PublicID, err)
 	}
-	return convertToContractTask(task, project.PublicID), nil
+	return convertToContractTask(task, project.PublicID, project.Name), nil
 }
 
 func (s *taskService) GetTask(ctx context.Context, publicID string) (*contract.Task, error) {
@@ -112,11 +117,11 @@ func (s *taskService) GetTask(ctx context.Context, publicID string) (*contract.T
 		return nil, err
 	}
 
-	projectPublicID, err := s.resolveProjectPublicID(ctx, task.ProjectID)
+	projectBrief, err := s.resolveProjectBrief(ctx, task.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	return convertToContractTask(task, projectPublicID), nil
+	return convertToContractTask(task, projectBrief.PublicID, projectBrief.Name), nil
 }
 
 func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *contract.UpdateTaskRequest) (*contract.Task, error) {
@@ -200,11 +205,11 @@ func (s *taskService) UpdateTask(ctx context.Context, publicID string, req *cont
 		return nil, err
 	}
 
-	projectPublicID, err := s.resolveProjectPublicID(ctx, task.ProjectID)
+	projectBrief, err := s.resolveProjectBrief(ctx, task.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	return convertToContractTask(task, projectPublicID), nil
+	return convertToContractTask(task, projectBrief.PublicID, projectBrief.Name), nil
 }
 
 func (s *taskService) DeleteTask(ctx context.Context, publicID string) error {
@@ -279,14 +284,15 @@ func (s *taskService) ListTasks(ctx context.Context, req *contract.ListTasksRequ
 			projectIDs = append(projectIDs, t.ProjectID)
 		}
 	}
-	projectPublicIDMap, err := s.resolveProjectPublicIDs(ctx, projectIDs)
+	projectBriefMap, err := s.resolveProjectBriefs(ctx, projectIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	items := make([]contract.Task, 0, len(tasks))
 	for _, task := range tasks {
-		items = append(items, *convertToContractTask(task, projectPublicIDMap[task.ProjectID]))
+		projectBrief := projectBriefMap[task.ProjectID]
+		items = append(items, *convertToContractTask(task, projectBrief.PublicID, projectBrief.Name))
 	}
 	return &contract.TaskList{
 		Total:  total,
@@ -296,7 +302,7 @@ func (s *taskService) ListTasks(ctx context.Context, req *contract.ListTasksRequ
 	}, nil
 }
 
-func convertToContractTask(task *types.Task, projectPublicID string) *contract.Task {
+func convertToContractTask(task *types.Task, projectPublicID string, projectName string) *contract.Task {
 	if task == nil {
 		return nil
 	}
@@ -321,6 +327,7 @@ func convertToContractTask(task *types.Task, projectPublicID string) *contract.T
 		OrgID:       task.OrgID,
 		OwnerID:     task.OwnerID,
 		ProjectID:   projectPublicID,
+		ProjectName: projectName,
 		SessionID:   task.SessionID,
 		TaskType:    string(task.TaskType),
 		AssigneeID:  task.AssigneeID,
@@ -338,17 +345,17 @@ func generateTaskPublicID() string {
 	return fmt.Sprintf("task_%s", snowflake.GenerateIDBase58())
 }
 
-func (s *taskService) resolveProjectPublicID(ctx context.Context, projectID uint) (string, error) {
+func (s *taskService) resolveProjectBrief(ctx context.Context, projectID uint) (projectTaskBrief, error) {
 	projectIDs := []uint{projectID}
-	publicIDs, err := s.resolveProjectPublicIDs(ctx, projectIDs)
+	projectBriefs, err := s.resolveProjectBriefs(ctx, projectIDs)
 	if err != nil {
-		return "", err
+		return projectTaskBrief{}, err
 	}
-	return publicIDs[projectID], nil
+	return projectBriefs[projectID], nil
 }
 
-func (s *taskService) resolveProjectPublicIDs(ctx context.Context, projectIDs []uint) (map[uint]string, error) {
-	result := make(map[uint]string)
+func (s *taskService) resolveProjectBriefs(ctx context.Context, projectIDs []uint) (map[uint]projectTaskBrief, error) {
+	result := make(map[uint]projectTaskBrief)
 	if len(projectIDs) == 0 {
 		return result, nil
 	}
@@ -356,8 +363,12 @@ func (s *taskService) resolveProjectPublicIDs(ctx context.Context, projectIDs []
 	if err != nil {
 		return nil, err
 	}
+	// 中文注释：任务搜索结果需要同时展示项目 public_id 和项目名称，这里统一补齐，避免前端再做额外聚合查询。
 	for _, p := range projects {
-		result[p.ID] = p.PublicID
+		result[p.ID] = projectTaskBrief{
+			PublicID: p.PublicID,
+			Name:     p.Name,
+		}
 	}
 	return result, nil
 }

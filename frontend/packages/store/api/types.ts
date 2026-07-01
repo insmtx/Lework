@@ -330,7 +330,8 @@ export type BackendTask = {
 	title: string;
 	description?: string;
 	status?: string;
-	project_id: number;
+	project_id: string;
+	project_name?: string;
 	assignee_id?: number;
 	task_type?: string;
 	deadline?: string;

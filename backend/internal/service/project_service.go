@@ -372,7 +372,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 
 	for _, t := range tasks {
 		item := contract.ProjectTaskItem{
-			Task: *convertToContractTask(t, project.PublicID),
+			Task: *convertToContractTask(t, project.PublicID, project.Name),
 		}
 		if t.SessionID != nil {
 			if sess, ok := sessionMap[*t.SessionID]; ok {
