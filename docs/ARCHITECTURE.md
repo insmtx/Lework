@@ -2,7 +2,9 @@
 
 > 基于 **Event Engine + Execution Engine + Agent Runtime 三核架构** 构建的企业级 AI 操作系统
 >
-> **版本：3.2** | **最后更新：2026-05-13**
+> cmd.run lane 已升级为异步分发 + 持久化 inbox + at-least-once 崩溃恢复
+>
+> **版本：3.3** | **最后更新：2026-07-01**
 
 ## 1. 核心愿景
 
@@ -130,6 +132,8 @@ Connector 通过 internal/api 路由注册到 Gin，不再使用独立的 Event 
 
 **实现：** NATS JetStream
 
+**新增抽象层：** `ManualDelivery` 接口（delivery.go）与 `SubscribeManualDurable` 订阅模式，用于 cmd.run lane 的手动确认场景。
+
 **标准 Event 模型核心字段：**
 
 * **ID** — 事件唯一标识
@@ -154,13 +158,15 @@ Connector 通过 internal/api 路由注册到 Gin，不再使用独立的 Event 
 
 ### 3.4 Command Adapter 与 RunCoordinator
 
-Worker 的 `internal/worker/command/run` 只负责校验 `WorkerCommand`、映射
+Worker 的 `internal/worker/command/run` 负责校验 `WorkerCommand`、映射
 `RunSubmission` 和更新 delivery 状态。`internal/worker/run.Coordinator` 独占：
 
 * Session 级 debounce，批次内全部 waiter 等待同一个真实结果；
 * 同 Session 串行、不同 Session 并行；
 * 全局并发上限、active run 注册、取消和 `Close`；
 * delivery sequence 与 `ReplyToMessageIDs` 的合并去重。
+
+**v3.3 新增异步分发：** cmd.run lane 使用 `SubscribeManualDurable` + `ManualDelivery` 接口替代了同步 SeqTracker 方案。消息到达后先持久化到本地 `SQLiteRunInbox`（`worker_run_inbox` 表），注册 inflight 追踪后立即 `Ack()`，在后台 goroutine 中异步执行。Worker 重启时通过 `RecoverNonTerminal` 加载非终态记录并恢复执行，实现 at-least-once 语义。
 
 旧 `internal/eventengine` 已删除。外部事件由 Connector 标准化后进入消息总线，
 运行任务统一通过 Worker Command 主链执行。
@@ -457,6 +463,7 @@ backend/
 │   │   ├── server/           Worker 管理服务（HTTP + WS 服务器）
 │   │   ├── scheduler/        Worker 调度器（进程/Docker 容器）
 │   │   ├── command/          WorkerCommand adapters
+│   │   │   └── run/inbox/    SQLiteRunInbox 持久化（v3.3 新增）
 │   │   ├── run/              RunCoordinator
 │   │   ├── eventpub/         agent.Event → NATS 双 lane
 │   │   ├── mcp/              Worker MCP infrastructure
@@ -467,13 +474,17 @@ backend/
 │   │
 │   └── infra/                基础设施
 │       ├── mq/               NATS JetStream 消息队列
+│       │   ├── bus.go        Publisher / Subscriber 接口
+│       │   ├── delivery.go   ManualDelivery 接口（v3.3 新增）
+│       │   ├── nats_delivery.go ManualDelivery NATS 实现（v3.3 新增）
+│       │   └── nats.go       NATS 实现（含 SubscribeManualDurable）
 │       ├── db/               数据库访问
 │       ├── providers/        第三方服务 Provider
 │       │   └── github/
 │       └── websocket/        WebSocket 工具
 │
 ├── pkg/                      对外公开接口
-│   ├── dm/                   领域消息协议（NATS Topic 构建）
+│   ├── messaging/            领域消息协议（command / event / subject）
 │   ├── event/               交互事件常量
 │   └── leros/               Leros 工具函数
 │
@@ -509,9 +520,8 @@ backend/
 
 ### 8.5 进程阶段
 
-* **Phase 1.5（当前）** — leros 二进制通过 server/worker 子命令区分运行模式
-* **Phase 2（计划）** — NATS 任务消费者 + Agent Runner + MCP Server；支持 worker codex / worker claude 子命令
-* **Phase 3（远期）** — 独立进程部署（Server / Worker / Connector）
+* **Phase 2（当前）** — leros 二进制通过 server/worker 子命令区分运行模式；NATS 任务消费者 + Agent Runner + MCP Server；支持 worker codex / worker claude 子命令；cmd.run lane 异步分发 + SQLite 持久化 inbox + at-least-once 崩溃恢复
+* **Phase 3（计划）** — 独立进程部署（Server / Worker / Connector）
 
 ## 9. 技术栈
 
@@ -522,14 +532,15 @@ backend/
 | 事件总线 | NATS JetStream                       |
 | 数据库   | PostgreSQL                           |
 | 向量库   | Qdrant                               |
+| 持久化   | SQLite（Worker 本地 inbox）          |
 | LLM      | 多模型（OpenAI / Claude / DeepSeek）|
 | 容器化   | Docker + Compose                     |
 
 ## 10. 架构演进路径
 
-### Phase 1.5（当前实际）
+### Phase 2（当前实际）
 
-* `leros` 单进程服务（Server + Worker + Orchestrator 合一）
+* `leros` 双进程（Server + Worker），通过 NATS JetStream 通信
 * GitHub 自动化闭环（Webhook → NATS → Event Engine → Agent Runtime）
 * 事件总线（NATS JetStream）
 * Connector 层完成（GitHub / GitLab / WeWork）
@@ -538,7 +549,8 @@ backend/
 * Session 管理（消息增删、状态流转、NATS topic 构建）
 * Skill 系统三层分离：`internal/skill/`（目录/运行时/存储）+ `backend/skills/`（SKILL.md 文件）+ `backend/tools/`（Tool 执行）
 * MCP 服务器集成（Worker 运行时引导）
-* ⚠️ Event Engine 与 Execution Engine 未完全分离（Phase 2）
+* **cmd.run 异步分发**：SubscribeManualDurable + ManualDelivery + SQLiteRunInbox 持久化 + RecoverNonTerminal 崩溃恢复
+* ⚠️ Event Engine 与 Execution Engine 未完全分离
 
 ### Phase 1（原始计划）
 
@@ -548,15 +560,7 @@ backend/
 * Connector 层完成
 * ~~Event Engine 与 Execution Engine 分离~~ → 延期至 Phase 2
 
-### Phase 2
-
-* Execution Engine 独立（从 Orchestrator 中抽离执行逻辑）
-* Event Engine Handler 插件化
-* 流式事件完善
-* Runtime Manager（多运行时管理/健康检查/负载均衡）
-* Worker 进程完善（Docker 容器调度）
-
-### Phase 3
+### Phase 3（远期）
 
 * Workflow Engine
 * Memory + RAG
@@ -575,6 +579,16 @@ backend/
 * 水平扩展
 
 ## 11. 附录：架构演进历史
+
+### v3.3 (2026-07-01) — cmd.run 异步分发 + 持久化 Inbox + 崩溃恢复
+
+* 新增 `ManualDelivery` 接口与 `SubscribeManualDurable` 订阅模式，decouple handler 与 `*nats.Msg`
+* cmd.run lane 采用异步分发：消息校验 → 准入 sem → SQLite inbox 持久化 → 后台 goroutine 执行 → Ack
+* 新增 `SQLiteRunInbox`（`worker_run_inbox` 表），支持 at-least-once 崩溃恢复
+* 新增 `RecoverNonTerminal` 机制，Worker 重启后自动恢复未完成任务
+* 新增 5 步优雅关闭（cancel → StopAdmission → Wait → Drain(30s) → Close）
+* 新增 admission semaphore + InProgress 心跳，防止 NATS 超时重投
+* StreamNameWorker：MaxMsgsPerSubject 200→10000，Discard→DiscardOld
 
 ### v3.2 (2026-05-13) — Agent Runtime 重构 + Worker 系统完成
 
@@ -615,6 +629,7 @@ backend/
 | v3.0 | Assistant Service / Event Engine / Execution Engine / Agent Runtime（三核架构） |
 | v3.1 | 引入 `internal/` 和 `pkg/` 强制隔离 |
 | v3.2 | 移除 gateway/interaction，Connector 并入 api，Agent Runtime 多引擎架构，Worker 系统完整实现 |
+| v3.3 | cmd.run 异步分发 + ManualDelivery + SQLiteRunInbox 持久化 + 崩溃恢复 |
 
 ## 12. 总结
 
@@ -658,6 +673,10 @@ Connector → Event → Event Engine → Execution Engine → Capability → Ser
 | 把所有逻辑写进 Event Handler | Handler → 调 Execution Engine |
 | Event Handler 使用 switch 硬编码路由 | Router 独立 + Handler 插件化 |
 | Agent Runtime 直接调 MQ / DB | 通过 Execution Engine / Skill / Infra |
+| cmd.run handler 同步阻塞 Ack | 持久化到 inbox 后立即 Ack，异步执行 |
+| 所有 lane 使用相同的订阅模式 | run 手动确认，其余自动确认 |
+| 不处理崩溃恢复 | 必须实现 RecoverNonTerminal |
+| 关闭时硬中断正在执行的任务 | 优雅关闭 + Drain 超时保留 inbox 记录 |
 | Skill 写死在代码中 | 必须 Registry 化，支持动态注册 |
 | 按技术分层（controller/service/model）| 按领域分层（event/execution/agent/skill） |
 | 缺少接口定义，直接依赖实现 | 每层定义 interface，支持替换 |

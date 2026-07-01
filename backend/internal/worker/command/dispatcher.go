@@ -2,6 +2,7 @@
 //
 // Dispatcher 负责启动各 lane 订阅（cmd.run、cmd.control、cmd.interaction、cmd.skill），
 // 并将收到的统一 WorkerCommand 分发到对应的 handler。
+// 其中 cmd.run lane 使用手动确认订阅（SubscribeManualDurable），其余 lane 使用自动确认订阅（Subscribe）。
 package command
 
 import (
@@ -10,20 +11,27 @@ import (
 	"errors"
 	"fmt"
 
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"github.com/ygpkg/yg-go/logs"
 )
 
 // Subscriber 是 Dispatcher 所需的最小订阅接口。
+// 包含自动确认和手动确认两种订阅方式。
 type Subscriber interface {
 	Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error
+	SubscribeManualDurable(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error
 }
 
 // RunHandler 处理 cmd.run lane 的 agent run 命令。
-// msg 是原始 NATS 消息，供 handler 获取 stream seq 用于 seq tracking 和背压控制。
+// delivery 提供手动 Ack 控制（Term/Nak/Ack/NakWithDelay/InProgress），
+// handler 根据处理阶段决定确认方式：
+//   - 永久错误 → Term（不再重试）
+//   - 临时错误 → NakWithDelay（延迟重试）
+//   - 成功持久化后 → Ack（异步执行）
 type RunHandler interface {
-	HandleRunCommand(ctx context.Context, cmd messaging.WorkerCommand, msg *nats.Msg) error
+	HandleRunCommand(ctx context.Context, cmd messaging.WorkerCommand, delivery eventbus.ManualDelivery) error
 }
 
 // ControlHandler 处理 cmd.control lane 的 cancel 命令。
@@ -63,7 +71,6 @@ type Dispatcher struct {
 }
 
 // New 创建新的 Dispatcher。
-// 一次性校验 worker 标识、subscriber 和全部 handler。
 func New(cfg Config, sub Subscriber, handlers Handlers) (*Dispatcher, error) {
 	if cfg.OrgID == 0 {
 		return nil, fmt.Errorf("worker org_id is required")
@@ -96,21 +103,30 @@ func New(cfg Config, sub Subscriber, handlers Handlers) (*Dispatcher, error) {
 
 // Run 并发启动四个 lane 订阅并阻塞，直到 ctx 取消或任一订阅异常退出。
 //
-// 任一订阅异常退出时会取消其他 lane 的 context 并返回带 lane/subject 上下文的错误。
-// ctx 正常取消时返回 nil。
+// run lane 使用手动 Ack 订阅（SubscribeManualDurable），
+// 因为 run handler 需要先将消息持久化到本地 inbox 再 Ack，
+// 以实现 at-least-once 的崩溃恢复语义。
+//
+// 其余 lane（control、interaction、skill）使用自动 Ack 订阅
+// （Subscribe），因为它们的 handler 同步完成处理，无需手动控制确认时机。
+//
+// 任一订阅异常退出时会取消其他 lane 的 context。
 func (d *Dispatcher) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	lanes := []struct {
+	type laneCfg struct {
 		lane     messaging.Lane
 		consumer string
 		handler  func(ctx context.Context, msg *nats.Msg)
-	}{
-		{messaging.LaneRun, messaging.WorkerRunConsumer(), d.handleRun},
-		{messaging.LaneControl, messaging.WorkerControlConsumer(), d.handleControl},
-		{messaging.LaneInteraction, messaging.WorkerInteractionConsumer(), d.handleInteraction},
-		{messaging.LaneSkill, messaging.WorkerSkillConsumer(), d.handleSkill},
+		manual   bool // true = SubscribeManualDurable, false = Subscribe (auto-Ack)
+	}
+
+	lanes := []laneCfg{
+		{messaging.LaneRun, messaging.WorkerRunConsumer(), d.handleRun, true},
+		{messaging.LaneControl, messaging.WorkerControlConsumer(), d.handleControl, false},
+		{messaging.LaneInteraction, messaging.WorkerInteractionConsumer(), d.handleInteraction, false},
+		{messaging.LaneSkill, messaging.WorkerSkillConsumer(), d.handleSkill, false},
 	}
 
 	errCh := make(chan error, len(lanes))
@@ -120,18 +136,24 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("build subject for lane %s: %w", l.lane, err)
 		}
-
-		go func(lane messaging.Lane, topic, consumer string, handler func(ctx context.Context, msg *nats.Msg)) {
-			logs.InfoContextf(ctx, "Command dispatcher starting lane %s on topic %s", lane, topic)
-			err := d.sub.Subscribe(ctx, topic, consumer, func(msg *nats.Msg) {
-				handler(ctx, msg)
-			})
-			if err != nil {
-				errCh <- fmt.Errorf("lane %s (topic %s): %w", lane, topic, err)
+		l := l
+		go func() {
+			logs.InfoContextf(ctx, "Command dispatcher starting lane %s on topic %s (manual=%v)", l.lane, topic, l.manual)
+			var subErr error
+			natsHandler := func(msg *nats.Msg) {
+				l.handler(ctx, msg)
+			}
+			if l.manual {
+				subErr = d.sub.SubscribeManualDurable(ctx, topic, l.consumer, natsHandler)
+			} else {
+				subErr = d.sub.Subscribe(ctx, topic, l.consumer, natsHandler)
+			}
+			if subErr != nil {
+				errCh <- fmt.Errorf("lane %s (topic %s): %w", l.lane, topic, subErr)
 			} else {
 				errCh <- nil
 			}
-		}(l.lane, topic, l.consumer, l.handler)
+		}()
 	}
 
 	var firstErr error
@@ -160,13 +182,22 @@ func (d *Dispatcher) parseCommand(data []byte) (messaging.WorkerCommand, error) 
 	return cmd, nil
 }
 
+// handleRun 使用手动确认方式处理 run 命令。
+// 将原始 *nats.Msg 包装为 ManualDelivery 后传递给 handler，
+// 由 handler 根据处理阶段决定确认方式（Ack/Term/Nak/NakWithDelay/InProgress）。
+// 消息解析失败时直接 Term，其余错误由 handler 内部处理。
 func (d *Dispatcher) handleRun(ctx context.Context, msg *nats.Msg) {
-	cmd, err := d.parseCommand(msg.Data)
+	d.handleRunDelivery(ctx, msg.Data, eventbus.NewManualDelivery(msg))
+}
+
+func (d *Dispatcher) handleRunDelivery(ctx context.Context, data []byte, delivery eventbus.ManualDelivery) {
+	cmd, err := d.parseCommand(data)
 	if err != nil {
 		logs.WarnContextf(ctx, "Failed to parse run command: %v", err)
+		_ = delivery.Term()
 		return
 	}
-	if err := d.handlers.Run.HandleRunCommand(ctx, cmd, msg); err != nil {
+	if err := d.handlers.Run.HandleRunCommand(ctx, cmd, delivery); err != nil {
 		logs.WarnContextf(ctx, "Run command handler error: %v", err)
 	}
 }

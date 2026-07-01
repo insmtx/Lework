@@ -2,6 +2,8 @@ package messaging
 
 import (
 	"testing"
+
+	"github.com/nats-io/nats.go"
 )
 
 func TestWorkerCommandSubject(t *testing.T) {
@@ -271,8 +273,11 @@ func TestStreamConfigs(t *testing.T) {
 	if workerCfg.MaxAge == 0 {
 		t.Error("expected non-zero MaxAge")
 	}
-	if workerCfg.MaxMsgsPerSubject != 200 {
-		t.Errorf("expected MaxMsgsPerSubject 200, got %d", workerCfg.MaxMsgsPerSubject)
+	if workerCfg.MaxMsgsPerSubject != 10000 {
+		t.Errorf("expected MaxMsgsPerSubject 10000, got %d", workerCfg.MaxMsgsPerSubject)
+	}
+	if workerCfg.Discard != nats.DiscardOld {
+		t.Errorf("expected DiscardOld, got %v", workerCfg.Discard)
 	}
 
 	// Verify session run stream
