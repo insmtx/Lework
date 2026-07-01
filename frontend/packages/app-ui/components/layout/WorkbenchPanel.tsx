@@ -1,20 +1,27 @@
 "use client";
 
-import { projectFileApi, useChatStore, useLayoutStore } from "@leros/store";
+import {
+	type Project,
+	type ProjectTask,
+	projectFileApi,
+	useChatStore,
+	useLayoutStore,
+} from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
+import { Command, CommandInput } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Check,
 	ChevronDown,
+	ChevronRight,
 	Files,
 	FileText,
 	Folder,
 	FolderOpen,
 	ListTodo,
 	Paperclip,
-	Search,
 	SendHorizonal,
 	Sparkles,
 	Target,
@@ -23,6 +30,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
+import { renderHighlightedText } from "../common/searchText";
 import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
 import { StructuredComposer, type StructuredComposerHandle } from "../input/StructuredComposer";
@@ -53,6 +61,28 @@ function buildComposerMetadata(
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
 }
 
+function getFilteredProjectTree(projects: Project[], query: string) {
+	const keyword = query.trim().toLowerCase();
+	if (!keyword) {
+		return projects.map((project) => ({
+			project,
+			tasks: project.tasks,
+		}));
+	}
+
+	return projects.flatMap((project) => {
+		const projectMatched = project.name.toLowerCase().includes(keyword);
+		const matchedTasks = project.tasks.filter((task) => task.title.toLowerCase().includes(keyword));
+		if (!projectMatched && matchedTasks.length === 0) return [];
+		return [
+			{
+				project,
+				tasks: projectMatched ? project.tasks : matchedTasks,
+			},
+		];
+	});
+}
+
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const {
 		projects,
@@ -62,6 +92,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		selectWorkbenchTask,
 		sendWorkbenchMessage,
 		fetchProjects,
+		fetchTasks,
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
 	const { addUploadedAttachment, isGenerating } = useChatStore((s) => s);
@@ -69,14 +100,17 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
+	const projectTriggerClearRef = useRef<(() => void) | null>(null);
+	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
 	const sendingRef = useRef(false);
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
-	const [taskMenuOpen, setTaskMenuOpen] = useState(false);
-	const [taskSearch, setTaskSearch] = useState("");
+	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
+	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
+	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
 
 	const revokeAttachmentURLs = (items: Attachment[]) => {
 		for (const attachment of items) {
@@ -225,22 +259,52 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	};
 	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
-	const filteredProjects = useMemo(() => {
-		const keyword = projectSearch.trim().toLowerCase();
-		if (!keyword) return projects;
-		return projects.filter((project) => project.name.toLowerCase().includes(keyword));
-	}, [projectSearch, projects]);
+	const filteredProjectTree = useMemo(
+		() => getFilteredProjectTree(projects, projectSearch),
+		[projectSearch, projects],
+	);
 	const recentProjects = useMemo(() => projects.slice(0, 3), [projects]);
 
+	// 中文注释：项目列表接口不含任务，展开或搜索展示时需按需拉取详情中的任务树。
+	const loadProjectTasksIfNeeded = useCallback(
+		(projectId: string) => {
+			const project = projects.find((item) => item.id === projectId);
+			if (!project || project.tasks.length > 0 || taskLoadedProjectIds.has(projectId)) {
+				return;
+			}
+			setLoadingTaskProjectIds((current) => new Set(current).add(projectId));
+			void fetchTasks(projectId).finally(() => {
+				setTaskLoadedProjectIds((current) => new Set(current).add(projectId));
+				setLoadingTaskProjectIds((current) => {
+					const next = new Set(current);
+					next.delete(projectId);
+					return next;
+				});
+			});
+		},
+		[fetchTasks, projects, taskLoadedProjectIds],
+	);
+
+	useEffect(() => {
+		if (!projectMenuOpen) return;
+		for (const projectId of expandedProjectIds) {
+			loadProjectTasksIfNeeded(projectId);
+		}
+	}, [expandedProjectIds, loadProjectTasksIfNeeded, projectMenuOpen]);
+
+	useEffect(() => {
+		if (!projectMenuOpen || !projectSearch.trim()) return;
+		for (const { project } of filteredProjectTree) {
+			loadProjectTasksIfNeeded(project.id);
+		}
+	}, [filteredProjectTree, loadProjectTasksIfNeeded, projectMenuOpen, projectSearch]);
+
 	const activeTask = activeProject?.tasks.find((t) => t.id === activeWorkbenchTaskId);
-	const filteredTasks = useMemo(() => {
-		const keyword = taskSearch.trim().toLowerCase();
-		if (!activeProject) return [];
-		if (!keyword) return activeProject.tasks;
-		return activeProject.tasks.filter(
-			(t) => t.title.toLowerCase().includes(keyword) || t.meta.toLowerCase().includes(keyword),
-		);
-	}, [taskSearch, activeProject]);
+	const projectTaskSelectorLabel = activeProject
+		? activeTask
+			? `${activeProject.name} / ${activeTask.title}`
+			: activeProject.name
+		: "新建项目/任务";
 	const suggestedPrompts = useMemo(
 		() => [
 			"帮我拆解当前项目的下一步执行计划",
@@ -252,39 +316,112 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		[activeProject],
 	);
 
-	const handleSelectProject = (projectId: string | null) => {
-		requireAuth(() => {
-			selectWorkbenchProject(projectId);
-			if (projectId) {
-				setInput((current) => removeWorkbenchDirectiveTokens(current));
-			}
-			setProjectMenuOpen(false);
-			setProjectSearch("");
-		});
-	};
+	const clearProjectTriggerText = useCallback(() => {
+		projectTriggerClearRef.current?.();
+		projectTriggerClearRef.current = null;
+		projectTriggerDismissRef.current = null;
+	}, []);
 
-	const handleSelectTask = (taskId: string | null) => {
+	const dismissProjectTriggerText = useCallback(() => {
+		// 中文注释：用户手动关闭弹窗时保留 # 文本为正文，并阻止同一位置再次触发项目选择器。
+		projectTriggerDismissRef.current?.();
+		projectTriggerClearRef.current = null;
+		projectTriggerDismissRef.current = null;
+	}, []);
+
+	const closeProjectMenu = useCallback(() => {
+		dismissProjectTriggerText();
+		setProjectMenuOpen(false);
+		setProjectSearch("");
+	}, [dismissProjectTriggerText]);
+
+	const handleSelectNewProjectTask = useCallback(() => {
 		requireAuth(() => {
-			selectWorkbenchTask(taskId);
-			setTaskMenuOpen(false);
-			setTaskSearch("");
+			clearProjectTriggerText();
+			selectWorkbenchProject(null);
 		});
-	};
+	}, [clearProjectTriggerText, requireAuth, selectWorkbenchProject]);
+
+	const handleSelectProject = useCallback(
+		(project: Project) => {
+			requireAuth(() => {
+				clearProjectTriggerText();
+				selectWorkbenchProject(project.id);
+				const firstTask = project.tasks[0];
+				if (firstTask) {
+					selectWorkbenchTask(firstTask.id);
+				}
+				// 中文注释：选择已有项目后，首页输入框不再支持临时 AI 队友/技能标签，需同步清理已选指令。
+				setInput((current) => removeWorkbenchDirectiveTokens(current));
+				setExpandedProjectIds((current) => {
+					const next = new Set(current);
+					next.add(project.id);
+					return next;
+				});
+			});
+		},
+		[clearProjectTriggerText, requireAuth, selectWorkbenchProject, selectWorkbenchTask],
+	);
+
+	const handleSelectTask = useCallback(
+		(project: Project, task: ProjectTask) => {
+			requireAuth(() => {
+				clearProjectTriggerText();
+				selectWorkbenchProject(project.id);
+				selectWorkbenchTask(task.id);
+				setInput((current) => removeWorkbenchDirectiveTokens(current));
+				setExpandedProjectIds((current) => {
+					const next = new Set(current);
+					next.add(project.id);
+					return next;
+				});
+			});
+		},
+		[clearProjectTriggerText, requireAuth, selectWorkbenchProject, selectWorkbenchTask],
+	);
+
+	const toggleProjectExpanded = useCallback(
+		(projectId: string) => {
+			let shouldExpand = false;
+			setExpandedProjectIds((current) => {
+				const next = new Set(current);
+				if (next.has(projectId)) {
+					next.delete(projectId);
+				} else {
+					next.add(projectId);
+					shouldExpand = true;
+				}
+				return next;
+			});
+			if (shouldExpand) {
+				loadProjectTasksIfNeeded(projectId);
+			}
+		},
+		[loadProjectTasksIfNeeded],
+	);
+
+	const handleProjectTrigger = useCallback(
+		(query: string, clearTrigger: () => void, dismissTrigger: () => void) => {
+			projectTriggerClearRef.current = clearTrigger;
+			projectTriggerDismissRef.current = dismissTrigger;
+			if (!isAuthenticated) {
+				openAuthDialog("login");
+				return;
+			}
+			setProjectSearch(query);
+			setProjectMenuOpen(true);
+		},
+		[isAuthenticated, openAuthDialog],
+	);
 
 	const handleProjectMenuOpenChange = (open: boolean) => {
 		if (!open) {
-			setProjectMenuOpen(false);
+			closeProjectMenu();
 			return;
 		}
-		requireAuth(() => setProjectMenuOpen(true));
-	};
-
-	const handleTaskMenuOpenChange = (open: boolean) => {
-		if (!open) {
-			setTaskMenuOpen(false);
-			return;
-		}
-		requireAuth(() => setTaskMenuOpen(true));
+		requireAuth(() => {
+			setProjectMenuOpen(true);
+		});
 	};
 
 	const applyPrompt = (prompt: string) => {
@@ -345,7 +482,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					</div>
 
 					{/* 中文注释：工作台输入卡片与 ChatInput 的 project 变体保持同一套边框、阴影与内边距规范。 */}
-					<div className="relative flex flex-col rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70">
+					{/* 中文注释：输入框保持完整圆角，和 Codex 一样作为上层卡片悬浮在项目选择条之上。 */}
+					<div className="relative z-10 flex flex-col rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70">
 						<input
 							ref={fileInputRef}
 							type="file"
@@ -396,6 +534,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								placeholder="在这里开始新任务，或输入指令以同步您的项目进度..."
 								isProjectVariant
 								directivesDisabled={Boolean(activeProject)}
+								onProjectTrigger={handleProjectTrigger}
 							/>
 						</div>
 						<div className="flex items-center justify-between border-t border-[var(--leros-chat-ai-border)] pt-3">
@@ -416,162 +555,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									setExecutionMode={setExecutionMode}
 									isGenerating={isGenerating}
 								/>
-								<Popover open={projectMenuOpen} onOpenChange={handleProjectMenuOpenChange}>
-									<PopoverTrigger
-										type="button"
-										className="flex h-8 min-w-[140px] items-center gap-2 rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3 text-xs font-semibold text-[var(--leros-text)] outline-none transition-colors hover:border-[var(--leros-focus-ring)] data-[open]:border-[var(--leros-primary)]"
-										aria-label="新项目"
-									>
-										<Folder className="size-4 shrink-0 text-[var(--leros-text-muted)]" />
-										<span className="max-w-[120px] truncate">
-											{activeProject?.name ?? "新项目"}
-										</span>
-										{activeProject && (
-											<button
-												type="button"
-												onClick={(e) => {
-													e.stopPropagation();
-													handleSelectProject(null);
-												}}
-												className="shrink-0 rounded-full p-0.5 text-[var(--leros-text-subtle)] hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
-											>
-												<X className="size-3.5" />
-											</button>
-										)}
-										<ChevronDown className="ml-auto size-3.5 shrink-0 text-[var(--leros-text-subtle)]" />
-									</PopoverTrigger>
-									<PopoverContent
-										align="start"
-										side="bottom"
-										sideOffset={10}
-										className="w-[260px] gap-0 rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-2.5 shadow-[0_18px_45px_rgba(30,41,59,0.18)] ring-0"
-									>
-										<div className="flex h-10 items-center gap-2 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-[var(--leros-text-muted)]">
-											<Search className="size-4 shrink-0" />
-											<input
-												value={projectSearch}
-												onChange={(event) => setProjectSearch(event.target.value)}
-												placeholder="搜索项目"
-												className="h-full min-w-0 flex-1 bg-transparent text-sm text-[var(--leros-text)] outline-none placeholder:text-[var(--leros-text-subtle)]"
-											/>
-										</div>
-
-										<div className="mt-2.5 max-h-[200px] space-y-1 overflow-y-auto pr-1">
-											{filteredProjects.map((project) => {
-												const selected = activeWorkbenchProjectId === project.id;
-
-												return (
-													<button
-														key={project.id}
-														type="button"
-														onClick={() => handleSelectProject(project.id)}
-														className={cn(
-															"flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm font-semibold transition-colors",
-															selected
-																? "bg-[var(--leros-primary)] text-white"
-																: "text-[var(--leros-text)] hover:bg-[var(--leros-chat-control-bg)]",
-														)}
-													>
-														<span className="flex size-4 shrink-0 items-center justify-center">
-															{selected && <Check className="size-4" />}
-														</span>
-														<span className="truncate">{project.name}</span>
-													</button>
-												);
-											})}
-
-											{filteredProjects.length === 0 && (
-												<div className="px-3 py-6 text-center text-sm text-[var(--leros-text-muted)]">
-													没有匹配的项目
-												</div>
-											)}
-										</div>
-									</PopoverContent>
-								</Popover>
-								{activeProject && (
-									<Popover open={taskMenuOpen} onOpenChange={handleTaskMenuOpenChange}>
-										<PopoverTrigger
-											type="button"
-											className="flex h-8 min-w-[140px] items-center gap-2 rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3 text-xs font-semibold text-[var(--leros-text)] outline-none transition-colors hover:border-[var(--leros-focus-ring)] data-[open]:border-[var(--leros-primary)]"
-											aria-label="选择任务"
-										>
-											<ListTodo className="size-4 shrink-0 text-[var(--leros-text-muted)]" />
-											<span className="max-w-[120px] truncate">
-												{activeTask?.title ?? "选择任务"}
-											</span>
-											{activeTask && (
-												<button
-													type="button"
-													onClick={(e) => {
-														e.stopPropagation();
-														handleSelectTask(null);
-													}}
-													className="shrink-0 rounded-full p-0.5 text-[var(--leros-text-subtle)] hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
-												>
-													<X className="size-3.5" />
-												</button>
-											)}
-											<ChevronDown className="ml-auto size-3.5 shrink-0 text-[var(--leros-text-subtle)]" />
-										</PopoverTrigger>
-										<PopoverContent
-											align="start"
-											side="bottom"
-											sideOffset={10}
-											className="w-[260px] gap-0 rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-2.5 shadow-[0_18px_45px_rgba(30,41,59,0.18)] ring-0"
-										>
-											<div className="flex h-10 items-center gap-2 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-[var(--leros-text-muted)]">
-												<Search className="size-4 shrink-0" />
-												<input
-													value={taskSearch}
-													onChange={(event) => setTaskSearch(event.target.value)}
-													placeholder="搜索任务"
-													className="h-full min-w-0 flex-1 bg-transparent text-sm text-[var(--leros-text)] outline-none placeholder:text-[var(--leros-text-subtle)]"
-												/>
-											</div>
-
-											<div className="mt-2.5 max-h-[200px] space-y-1 overflow-y-auto pr-1">
-												{filteredTasks.map((task) => {
-													const selected = activeWorkbenchTaskId === task.id;
-
-													return (
-														<button
-															key={task.id}
-															type="button"
-															onClick={() => handleSelectTask(task.id)}
-															className={cn(
-																"flex h-auto w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left transition-colors",
-																selected
-																	? "bg-[var(--leros-primary)] text-white"
-																	: "text-[var(--leros-text)] hover:bg-[var(--leros-chat-control-bg)]",
-															)}
-														>
-															<div className="flex w-full items-center gap-2.5">
-																<span className="flex size-4 shrink-0 items-center justify-center">
-																	{selected && <Check className="size-4" />}
-																</span>
-																<span className="text-sm font-semibold">{task.title}</span>
-															</div>
-															<span
-																className={cn(
-																	"ml-[26px] text-xs",
-																	selected ? "text-white/70" : "text-[var(--leros-text-muted)]",
-																)}
-															>
-																{task.meta}
-															</span>
-														</button>
-													);
-												})}
-
-												{filteredTasks.length === 0 && (
-													<div className="px-3 py-6 text-center text-sm text-[var(--leros-text-muted)]">
-														没有匹配的任务
-													</div>
-												)}
-											</div>
-										</PopoverContent>
-									</Popover>
-								)}
 							</div>
 							<div className="flex items-center gap-2">
 								<Button
@@ -593,6 +576,138 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							</div>
 						</div>
 					</div>
+					<Popover open={projectMenuOpen} onOpenChange={handleProjectMenuOpenChange}>
+						{/* 中文注释：项目/任务选择条保持与输入框同宽，并轻微上移到输入框阴影下方，形成 Codex 式上下双层卡片。 */}
+						<div className="-mt-3 flex w-full items-center rounded-b-2xl bg-slate-50/90 px-4 pb-2 pt-4 text-sm text-slate-500 shadow-sm ring-1 ring-slate-200/60">
+							<PopoverTrigger
+								type="button"
+								className="inline-flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-slate-600 transition-colors hover:bg-white hover:text-slate-900 data-[state=open]:bg-white data-[state=open]:text-slate-900"
+								aria-label="选择项目任务"
+								title={projectTaskSelectorLabel}
+							>
+								<Folder className="size-4 shrink-0" />
+								<span className="truncate">{projectTaskSelectorLabel}</span>
+								<ChevronDown className="size-3.5 shrink-0 text-slate-400" />
+							</PopoverTrigger>
+						</div>
+						<PopoverContent
+							align="start"
+							side="bottom"
+							sideOffset={8}
+							// 中文注释：项目任务选择器固定在触发器下方，空间不足时只压缩列表高度，不切换弹窗方向。
+							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+							className="w-[360px] rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)] ring-0 backdrop-blur"
+						>
+							<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+								<CommandInput
+									value={projectSearch}
+									onValueChange={setProjectSearch}
+									placeholder="搜索项目或任务"
+								/>
+							</Command>
+							<div className="no-scrollbar mt-1 max-h-64 space-y-1 overflow-y-auto">
+								<button
+									type="button"
+									onClick={handleSelectNewProjectTask}
+									className={cn(
+										"flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium transition-colors",
+										!activeProject
+											? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
+											: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+									)}
+								>
+									<span className="flex size-4 shrink-0 items-center justify-center">
+										{!activeProject ? <Check className="size-4" /> : null}
+									</span>
+									<span className="min-w-0 flex-1 truncate">新建项目/任务</span>
+								</button>
+								<div className="my-1.5 h-px bg-slate-100" />
+								{filteredProjectTree.map(({ project, tasks }) => {
+									const projectSelected = activeWorkbenchProjectId === project.id;
+									const taskSelected = (task: ProjectTask) =>
+										projectSelected && activeWorkbenchTaskId === task.id;
+									const expanded =
+										Boolean(projectSearch.trim()) || expandedProjectIds.has(project.id);
+
+									return (
+										<div key={project.id} className="space-y-1">
+											<div
+												className={cn(
+													"flex h-10 w-full items-center gap-1.5 rounded-xl px-2 text-left text-sm font-medium transition-colors",
+													projectSelected
+														? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
+														: "text-slate-700 hover:bg-slate-100",
+												)}
+											>
+												<button
+													type="button"
+													onClick={(event) => {
+														event.stopPropagation();
+														toggleProjectExpanded(project.id);
+													}}
+													className="flex size-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/80 hover:text-slate-700"
+													aria-label={expanded ? "收起项目任务" : "展开项目任务"}
+												>
+													<ChevronRight
+														className={cn("size-3.5 transition-transform", expanded && "rotate-90")}
+													/>
+												</button>
+												<button
+													type="button"
+													onClick={() => handleSelectProject(project)}
+													className="flex min-w-0 flex-1 items-center gap-2 text-left"
+												>
+													<Folder className="size-4 shrink-0" />
+													<span className="min-w-0 flex-1 truncate">
+														{renderHighlightedText(project.name, projectSearch)}
+													</span>
+												</button>
+												{projectSelected && <Check className="size-4 shrink-0" />}
+											</div>
+											{expanded && (
+												<div className="ml-6 space-y-1 border-l border-slate-100 pl-2">
+													{loadingTaskProjectIds.has(project.id) ? (
+														<div className="px-3 py-2 text-xs text-slate-400">任务加载中...</div>
+													) : tasks.length > 0 ? (
+														tasks.map((task) => (
+															<button
+																key={task.id}
+																type="button"
+																onClick={() => handleSelectTask(project, task)}
+																className={cn(
+																	"flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors",
+																	taskSelected(task)
+																		? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
+																		: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+																)}
+															>
+																<span className="flex size-4 shrink-0 items-center justify-center">
+																	{taskSelected(task) && <Check className="size-4" />}
+																</span>
+																<ListTodo className="size-4 shrink-0 opacity-75" />
+																<span className="min-w-0 flex-1 truncate">
+																	{renderHighlightedText(task.title, projectSearch)}
+																</span>
+															</button>
+														))
+													) : (
+														<div className="px-3 py-2 text-xs text-slate-400">
+															暂无任务，选择项目后将新建任务
+														</div>
+													)}
+												</div>
+											)}
+										</div>
+									);
+								})}
+								{filteredProjectTree.length === 0 && (
+									<div className="px-3 py-8 text-center text-sm text-slate-400">
+										没有匹配的项目或任务
+									</div>
+								)}
+							</div>
+						</PopoverContent>
+					</Popover>
 				</section>
 
 				<section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">

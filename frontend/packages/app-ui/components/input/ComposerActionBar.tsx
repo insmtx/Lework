@@ -12,8 +12,9 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Plus, Sparkles, WandSparkles, ClipboardPenLine } from "lucide-react";
+import { Bot, ClipboardPenLine, Plus, Sparkles, WandSparkles } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
+import { renderHighlightedText } from "../common/searchText";
 import { mockAssistants } from "./mockDirectiveData";
 import type { ComposerSkillOption, StructuredComposerHandle } from "./StructuredComposer";
 
@@ -102,9 +103,14 @@ function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
 		code: skill.name,
 		label,
 		description: skill.description || skill.category || "已安装技能",
-		keywords: [label, skill.name, skill.description, skill.category, skill.source, skill.trust].filter(
-			Boolean,
-		),
+		keywords: [
+			label,
+			skill.name,
+			skill.description,
+			skill.category,
+			skill.source,
+			skill.trust,
+		].filter(Boolean),
 	};
 }
 
@@ -122,6 +128,7 @@ export function ComposerActionBar({
 	isGenerating,
 }: ComposerActionBarProps) {
 	const [assistantOpen, setAssistantOpen] = useState(false);
+	const [assistantSearch, setAssistantSearch] = useState("");
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
 	const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
@@ -141,10 +148,17 @@ export function ComposerActionBar({
 			),
 		[selectedSlashLabels, skillOptions],
 	);
-	const filteredAssistants = useMemo(
-		() => mockAssistants.filter((assistant) => !selectedAssistantNames.includes(assistant.name)),
-		[selectedAssistantNames],
-	);
+	const filteredAssistants = useMemo(() => {
+		const query = assistantSearch.trim().toLowerCase();
+		return mockAssistants.filter((assistant) => {
+			if (selectedAssistantNames.includes(assistant.name)) return false;
+			if (!query) return true;
+			return [assistant.name, assistant.code, assistant.description]
+				.join(" ")
+				.toLowerCase()
+				.includes(query);
+		});
+	}, [assistantSearch, selectedAssistantNames]);
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
 		return skillOptions.filter((skill) => {
@@ -204,8 +218,9 @@ export function ComposerActionBar({
 							setExecutionMode(executionMode === "plan" ? "default" : "plan");
 						}}
 						className={cn(
-							"inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900",
-							executionMode === "plan" && "bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700",
+							"order-1 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900",
+							executionMode === "plan" &&
+								"bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700",
 						)}
 					>
 						<ClipboardPenLine className="size-4" />
@@ -222,13 +237,19 @@ export function ComposerActionBar({
 						if (!allowAction()) return;
 						onUpload();
 					}}
-					className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+					className="order-4 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
 				>
 					<Plus className="size-4" />
 					<span>上传文件</span>
 				</button>
 			)}
-			<Popover open={assistantOpen} onOpenChange={setAssistantOpen}>
+			<Popover
+				open={assistantOpen}
+				onOpenChange={(open) => {
+					setAssistantOpen(open);
+					if (!open) setAssistantSearch("");
+				}}
+			>
 				<PopoverTrigger
 					type="button"
 					disabled={disableAssistantAndSkill}
@@ -243,7 +264,7 @@ export function ComposerActionBar({
 							event.preventDefault();
 						}
 					}}
-					className={assistantSkillButtonClassName}
+					className={cn(assistantSkillButtonClassName, "order-3")}
 				>
 					<Bot className="size-4" />
 					<span>召唤AI队友</span>
@@ -256,38 +277,48 @@ export function ComposerActionBar({
 					collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
 					className="w-[320px] p-1.5"
 				>
-					<div className="mb-1 px-2 py-1 text-xs font-medium text-slate-400">选择 AI 队友</div>
-					<div className="max-h-64 overflow-y-auto">
-						{filteredAssistants.length === 0 ? (
-							<div className="px-3 py-6 text-center text-sm text-slate-400">
-								没有可继续添加的 AI 队友
-							</div>
-						) : (
-							filteredAssistants.map((assistant) => (
-								<button
-									key={assistant.code}
-									type="button"
-									onClick={() => {
-										composerRef.current?.insertAssistant(assistant.name);
-									}}
-									className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-slate-100"
-								>
-									<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-										<Bot className="size-4" />
-									</div>
-									<div className="min-w-0">
-										<div className="truncate text-sm font-medium text-slate-700">
-											{assistant.name}
+					<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+						<div className="mb-1 px-2 py-1 text-xs font-medium text-slate-400">选择 AI 队友</div>
+						<CommandInput
+							value={assistantSearch}
+							onValueChange={setAssistantSearch}
+							placeholder="搜索 AI 队友"
+						/>
+						<CommandList className="max-h-64">
+							<CommandEmpty className="py-6 text-slate-400">没有可继续添加的 AI 队友</CommandEmpty>
+							<CommandGroup className="p-0">
+								{filteredAssistants.map((assistant) => (
+									<CommandItem
+										key={assistant.code}
+										value={assistant.name}
+										onSelect={() => {
+											composerRef.current?.insertAssistant(assistant.name);
+										}}
+										className="rounded-xl px-2.5 py-2"
+									>
+										<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+											<Bot className="size-4" />
 										</div>
-										<div className="truncate text-xs text-slate-400">{assistant.description}</div>
-									</div>
-								</button>
-							))
-						)}
-					</div>
+										<div className="min-w-0">
+											<div className="truncate text-sm font-medium text-slate-700">
+												{renderHighlightedText(assistant.name, assistantSearch)}
+											</div>
+											<div className="truncate text-xs text-slate-400">{assistant.description}</div>
+										</div>
+									</CommandItem>
+								))}
+							</CommandGroup>
+						</CommandList>
+					</Command>
 				</PopoverContent>
 			</Popover>
-			<Popover open={skillOpen} onOpenChange={setSkillOpen}>
+			<Popover
+				open={skillOpen}
+				onOpenChange={(open) => {
+					setSkillOpen(open);
+					if (!open) setSkillSearch("");
+				}}
+			>
 				<PopoverTrigger
 					type="button"
 					disabled={disableAssistantAndSkill}
@@ -302,7 +333,7 @@ export function ComposerActionBar({
 							event.preventDefault();
 						}
 					}}
-					className={assistantSkillButtonClassName}
+					className={cn(assistantSkillButtonClassName, "order-2")}
 				>
 					<WandSparkles className="size-4" />
 					<span>添加技能</span>
@@ -344,7 +375,9 @@ export function ComposerActionBar({
 											<Sparkles className="size-3.5" />
 										</div>
 										<div className="min-w-0 flex-1">
-											<div className="truncate font-medium">/{skill.label}</div>
+											<div className="truncate font-medium">
+												/{renderHighlightedText(skill.label, skillSearch)}
+											</div>
 											<div className="truncate text-xs text-slate-400">{skill.description}</div>
 										</div>
 									</CommandItem>
