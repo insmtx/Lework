@@ -72,6 +72,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const attachmentsRef = useRef<Attachment[]>([]);
 	const sendingRef = useRef(false);
 	const [input, setInput] = useState("");
+	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
@@ -412,6 +413,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										return true;
 									}}
 									disableAssistantAndSkill={Boolean(activeProject)}
+								executionMode={executionMode}
+								setExecutionMode={setExecutionMode}
+								isGenerating={isGenerating}
 								/>
 								<Popover open={projectMenuOpen} onOpenChange={handleProjectMenuOpenChange}>
 									<PopoverTrigger

@@ -28,7 +28,7 @@ var (
 type taskDetailOutput struct {
 	Task         *contract.Task                   `json:"task,omitempty"`
 	Project      *contract.Project                `json:"project,omitempty"`
-	Artifacts    []contract.Artifact              `json:"artifacts,omitempty"`
+	Files        []contract.FileTreeNode          `json:"files,omitempty"`
 	Assignee     *contract.DigitalAssistantDetail `json:"assignee,omitempty"`
 	OwnerName    string                           `json:"owner_name,omitempty"`
 	AssigneeName string                           `json:"assignee_name,omitempty"`
@@ -115,11 +115,14 @@ func newTaskCommand() *cobra.Command {
 					}
 				}
 
-				artifacts, err := cli.ListTaskArtifacts(ctx, cliServerAddr(), cliAuthToken(), publicID)
-				if err != nil {
-					logs.Warnf("list task artifacts: %v", err)
-				} else {
-					out.Artifacts = artifacts
+				projectID := task.ProjectID
+				if projectID != "" {
+					files, err := cli.ListProjectFiles(ctx, cliServerAddr(), cliAuthToken(), projectID, "artifact", publicID)
+					if err != nil {
+						logs.Warnf("list task files: %v", err)
+					} else {
+						out.Files = files
+					}
 				}
 
 				if task.AssigneeID != nil && *task.AssigneeID > 0 {
@@ -223,11 +226,11 @@ func printTaskDetail(out *taskDetailOutput) {
 	fmt.Fprintf(w, "CreatedAt:\t%s\n", t.CreatedAt.Format("2006-01-02T15:04:05Z"))
 	fmt.Fprintf(w, "UpdatedAt:\t%s\n", t.UpdatedAt.Format("2006-01-02T15:04:05Z"))
 
-	if len(out.Artifacts) > 0 {
-		fmt.Fprintf(w, "--- Artifacts (%d) ---\t\n", len(out.Artifacts))
-		for i, a := range out.Artifacts {
-			fmt.Fprintf(w, "  [%d] %s\t%s\n", i+1, a.ArtifactID, a.Title)
-			fmt.Fprintf(w, "    Type: %s\tFile: %s (%s)\n", a.ArtifactType, a.Filename, formatTaskSize(a.FileSize))
+	if len(out.Files) > 0 {
+		fmt.Fprintf(w, "--- Files (%d) ---\t\n", len(out.Files))
+		for i, f := range out.Files {
+			size := formatTaskSize(f.Size)
+			fmt.Fprintf(w, "  [%d] %s\t%s (%s)\n", i+1, f.Name, f.MimeType, size)
 		}
 	}
 

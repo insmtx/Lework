@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	fetchFilePreviewByPublicId,
 	formatArtifactTime,
 	formatTime,
 	getAssistantMessageFooterSegments,
@@ -12,6 +13,7 @@ import {
 import type {
 	Message,
 	MessageArtifact,
+	MessageAttachment,
 	MessageProcessStep,
 	ToolCall,
 } from "@leros/store/types/chat";
@@ -35,6 +37,7 @@ import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { ArtifactPreviewDialog } from "../layout/ArtifactPreviewDialog";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { AssistantChatAvatar } from "./AssistantChatAvatar";
+import { MessageAttachmentPreviewDialog } from "./MessageAttachmentPreviewDialog";
 import { ToolCallBlock } from "./ToolCallBlock";
 
 // Button 的 size 只支持预设枚举，这里用受支持的尺寸并通过 className 微调成更紧凑的操作按钮。
@@ -71,6 +74,7 @@ export function AIMessageBubble({
 	projectId?: string;
 }) {
 	const { resendMessage } = useChatStore((s) => s);
+	const [previewPlanFileID, setPreviewPlanFileID] = useState<string | null>(null);
 	const content = message.content;
 	const hasContent = content.trim().length > 0;
 	const hasProcess = Boolean(message.processSteps?.length);
@@ -79,78 +83,104 @@ export function AIMessageBubble({
 		? getAssistantMessageFooterSegments(message)
 		: [];
 
+	const previewPlanAttachment: MessageAttachment | null = previewPlanFileID
+		? {
+				id: previewPlanFileID,
+				fileUploadId: previewPlanFileID,
+				name: "计划.md",
+				mimeType: "text/markdown",
+				size: 0,
+			}
+		: null;
+	const copyPlanContent = async (fileID: string) => {
+		const response = await fetchFilePreviewByPublicId(fileID);
+		const fullContent = await response.text();
+		await navigator.clipboard.writeText(fullContent);
+	};
+
 	return (
-		<div data-slot="ai-message" className="group flex items-start gap-3">
-			<AssistantChatAvatar />
-			<div className="min-w-0 flex-1">
-				<div className="mb-1.5 flex items-center gap-2">
-					<span className="text-[13px] font-medium text-slate-500">Lework</span>
-					<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
-					{isStreaming && <span className="animate-pulse text-[13px] text-blue-500">生成中</span>}
-				</div>
-
-				{hasProcess && message.processSteps && (
-					<div className="mb-3">
-						<ProcessTimelineBlock
-							steps={message.processSteps}
-							toolCalls={message.toolCalls ?? []}
-							isStreaming={isStreaming}
-						/>
+		<>
+			<div data-slot="ai-message" className="group flex items-start gap-3">
+				<AssistantChatAvatar />
+				<div className="min-w-0 flex-1">
+					<div className="mb-1.5 flex items-center gap-2">
+						<span className="text-[13px] font-medium text-slate-500">Lework</span>
+						<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
+						{isStreaming && <span className="animate-pulse text-[13px] text-blue-500">生成中</span>}
 					</div>
-				)}
 
-				{hasContent && (
-					<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
-						<MarkdownRenderer
-							content={content}
-							className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
-						/>
-						{isStreaming && (
-							<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
-						)}
-					</div>
-				)}
+					{hasProcess && message.processSteps && (
+						<div className="mb-3">
+							<ProcessTimelineBlock
+								steps={message.processSteps}
+								toolCalls={message.toolCalls ?? []}
+								isStreaming={isStreaming}
+							/>
+						</div>
+					)}
 
-				{hasArtifacts && message.artifacts && (
-					<div className="mb-3">
-						<MessageArtifactList
-							artifacts={message.artifacts}
-							fallbackTimestamp={message.timestamp}
-							projectId={projectId}
-						/>
-					</div>
-				)}
-
-				{!hasContent && !hasProcess && !hasArtifacts && isStreaming && (
-					<div className="flex items-center gap-1">
-						<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
-						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
-						<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
-					</div>
-				)}
-
-				{!isStreaming && (
-					<div className="mt-2 flex items-center gap-3">
-						{metricSegments.length > 0 && (
-							<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
-						)}
-						<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-							<CopyButton text={content} />
-							{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
-								<Button
-									variant="ghost"
-									size="icon-xs"
-									className={`${compactActionButtonClassName} text-slate-400 hover:text-slate-600`}
-									onClick={() => resendMessage(message.id)}
-								>
-									<RefreshCw className="size-3.5" />
-								</Button>
+					{hasContent && (
+						<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
+							<MarkdownRenderer
+								content={content}
+								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
+								onPlanOpen={setPreviewPlanFileID}
+								onPlanCopy={copyPlanContent}
+							/>
+							{isStreaming && (
+								<span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400" />
 							)}
 						</div>
-					</div>
-				)}
+					)}
+
+					{hasArtifacts && message.artifacts && (
+						<div className="mb-3">
+							<MessageArtifactList
+								artifacts={message.artifacts}
+								fallbackTimestamp={message.timestamp}
+								projectId={projectId}
+							/>
+						</div>
+					)}
+
+					{!hasContent && !hasProcess && !hasArtifacts && isStreaming && (
+						<div className="flex items-center gap-1">
+							<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
+							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />
+							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:400ms]" />
+						</div>
+					)}
+
+					{!isStreaming && (
+						<div className="mt-2 flex items-center gap-3">
+							{metricSegments.length > 0 && (
+								<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
+							)}
+							<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+								<CopyButton text={content} />
+								{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
+									<Button
+										variant="ghost"
+										size="icon-xs"
+										className={`${compactActionButtonClassName} text-slate-400 hover:text-slate-600`}
+										onClick={() => resendMessage(message.id)}
+									>
+										<RefreshCw className="size-3.5" />
+									</Button>
+								)}
+							</div>
+						</div>
+					)}
+				</div>
 			</div>
-		</div>
+			<MessageAttachmentPreviewDialog
+				attachment={previewPlanAttachment}
+				open={previewPlanAttachment !== null}
+				onOpenChange={(open) => {
+					if (!open) setPreviewPlanFileID(null);
+				}}
+			/>
+		</>
 	);
 }
 

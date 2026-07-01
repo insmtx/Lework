@@ -1,6 +1,6 @@
 "use client";
 
-import { fetchArtifactDownload, fetchFilePreviewByStorageUri, projectFileApi } from "@leros/store";
+import { fetchFilePreviewByPublicId, fetchFilePreviewByStorageUri, projectFileApi } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Sheet,
@@ -97,7 +97,7 @@ export function ArtifactPreviewDialog({
 						signal: controller.signal,
 					});
 				} else {
-					response = await fetchArtifactDownload(currentArtifact.id, {
+					response = await fetchFilePreviewByPublicId(currentArtifact.id, {
 						signal: controller.signal,
 					});
 				}
@@ -147,7 +147,7 @@ export function ArtifactPreviewDialog({
 			} else if (projectId && artifactPath) {
 				response = await projectFileApi.fetchDownload(projectId, artifactPath);
 			} else {
-				response = await fetchArtifactDownload(artifact.id);
+				response = await fetchFilePreviewByPublicId(artifact.id);
 			}
 			const blob = await response.blob();
 			const objectUrl = URL.createObjectURL(blob);

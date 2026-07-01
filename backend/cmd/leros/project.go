@@ -76,7 +76,11 @@ func newProjectCommand() *cobra.Command {
 					lifecycle.Std().Exit()
 					return
 				}
-				printProjectDetail(result)
+				projectFiles, pErr := cli.ListProjectFiles(lifecycle.Std().Context(), cliServerAddr(), cliAuthToken(), publicID, "artifact", "")
+				if pErr != nil {
+					logs.Warnf("list project files: %v", pErr)
+				}
+				printProjectDetail(result, projectFiles)
 				lifecycle.Std().Exit()
 			}()
 			lifecycle.Std().WaitExit()
@@ -118,7 +122,7 @@ func printProjects(list *contract.ProjectList) {
 	fmt.Fprintf(os.Stderr, "\nTotal: %d, Offset: %d, Limit: %d\n", list.Total, list.Offset, list.Limit)
 }
 
-func printProjectDetail(d *contract.ProjectDetail) {
+func printProjectDetail(d *contract.ProjectDetail, projectFiles []contract.FileTreeNode) {
 	if projectJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -157,12 +161,11 @@ func printProjectDetail(d *contract.ProjectDetail) {
 		}
 	}
 
-	if len(d.Artifacts) > 0 {
-		fmt.Fprintf(w, "--- Artifacts (%d) ---\t\n", len(d.Artifacts))
-		for i, a := range d.Artifacts {
-			size := formatSize(a.FileSize)
-			fmt.Fprintf(w, "  [%d] %s\t%s\n", i+1, a.ArtifactID, a.Title)
-			fmt.Fprintf(w, "    Type: %s\tFile: %s (%s)\n", a.ArtifactType, a.Filename, size)
+	if len(projectFiles) > 0 {
+		fmt.Fprintf(w, "--- Project Files (%d) ---\t\n", len(projectFiles))
+		for i, f := range projectFiles {
+			size := formatSize(f.Size)
+			fmt.Fprintf(w, "  [%d] %s\t%s (%s)\n", i+1, f.Name, f.MimeType, size)
 		}
 	}
 

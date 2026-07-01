@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strconv"
@@ -24,7 +25,7 @@ var filteredToolPatterns = []*regexp.Regexp{
 
 // handleSSEEvent 解析 SSE 事件并将消息相关事件转换为引擎事件。
 // 消息事件包括：文本增量、工具调用、推理内容等。
-func (st *runState) handleSSEEvent(event sseEvent) {
+func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 	logs.Debugf("[opencode] SSE event: type=%s id=%s props=%+v", event.Type, event.ID, event.Properties)
 
 	st.mu.Lock()
@@ -208,9 +209,29 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		}
 
 		isPlanConfirmation := st.filteredToolName(toolCallID) == "plan_exit"
-		plan := (*events.PlanHandoffPayload)(nil)
 		if isPlanConfirmation {
-			plan = st.planHandoff(questions)
+			logs.Infof("[plan] question.asked detected plan confirmation: session_id=%s request_id=%s tool_call_id=%s", props.SessionID, props.ID, toolCallID)
+
+			published, pubErr := st.publishPlan(ctx, questions)
+			if pubErr != nil {
+				// Plan file cannot be read or upload failed; emit plan_confirmation with error so UI can show it.
+				logs.WarnContextf(ctx, "[plan] question.asked publishPlan error, emitting confirmation with error: session_id=%s request_id=%s err=%s", props.SessionID, props.ID, pubErr)
+				payload := events.QuestionRequestPayload{
+					RequestID:       props.ID,
+					SessionID:       props.SessionID,
+					Questions:       planConfirmationQuestions(),
+					ToolCallID:      toolCallID,
+					MessageID:       messageID,
+					InteractionType: "plan_confirmation",
+					Metadata:        map[string]string{"plan_error": pubErr.Error()},
+				}
+				sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
+				return
+			}
+
+			// Emit plan.published first, then question.asked.
+			logs.Infof("[plan] question.asked emitting plan.published: session_id=%s request_id=%s file_id=%s", props.SessionID, props.ID, published.FileID)
+			sendEventDirect(st.evtChan, events.NewPlanPublished(*published))
 			questions = planConfirmationQuestions()
 		}
 
@@ -223,7 +244,6 @@ func (st *runState) handleSSEEvent(event sseEvent) {
 		}
 		if isPlanConfirmation {
 			payload.InteractionType = "plan_confirmation"
-			payload.Plan = plan
 		}
 		sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
 

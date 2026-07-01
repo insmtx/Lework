@@ -44,3 +44,17 @@ func DeleteProjectFile(ctx context.Context, db *gorm.DB, filePublicID string) er
 func DeleteProjectFilesByResourceID(ctx context.Context, db *gorm.DB, resourceID uint, resourceType string) error {
 	return db.WithContext(ctx).Where("resource_id = ? AND resource_type = ?", resourceID, resourceType).Delete(&types.ProjectFile{}).Error
 }
+
+// ListProjectFilesByTask returns ProjectFile records filtered by task.
+func ListProjectFilesByTask(ctx context.Context, db *gorm.DB, orgID uint, projectID uint, taskID uint, resourceType string) ([]types.ProjectFile, error) {
+	var files []types.ProjectFile
+	query := db.WithContext(ctx).Model(&types.ProjectFile{}).
+		Where("org_id = ? AND project_id = ? AND task_id = ?", orgID, projectID, taskID)
+	if resourceType != "" {
+		query = query.Where("resource_type = ?", resourceType)
+	}
+	if err := query.Order("created_at DESC").Find(&files).Error; err != nil {
+		return nil, err
+	}
+	return files, nil
+}

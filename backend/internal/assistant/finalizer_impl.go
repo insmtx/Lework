@@ -110,7 +110,8 @@ func (f *finalizer) PostRunBestEffort(
 	_ = result
 }
 
-// reconcileWorkspace compares repo state against baseline and auto-detects changes.
+// reconcileWorkspace runs Git diff fallback to detect auto-generated artifacts
+// when the manifest has no explicit artifact_declare entries.
 func reconcileWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
 	plan, ok := workspacePlan(workspace)
 	if !ok {
@@ -119,7 +120,7 @@ func reconcileWorkspace(ctx context.Context, workspace WorkspacePreparation) err
 	if _, err := os.Stat(plan.RepoDir); os.IsNotExist(err) {
 		return nil
 	}
-	return agentworkspace.ReconcileArtifacts(ctx, plan)
+	return agentworkspace.GitDiffReconcile(ctx, plan, workspace.PreRunTreeSHA)
 }
 
 // collectArtifacts reads the final artifact manifest and produces events.
@@ -140,11 +141,31 @@ func collectArtifacts(
 		return nil, nil, nil
 	}
 
-	uploadArtifacts(ctx, records, plan.RepoDir, projectPublicID)
-
-	events := make([]*agent.Event, 0, len(records))
-	artifacts := make([]assistantdomain.ArtifactRecord, 0, len(records))
+	// Filter out runtime internals and ignored files before uploading.
+	filtered := make([]agentworkspace.ArtifactRecord, 0, len(records))
 	for _, record := range records {
+		if agentworkspace.IsRuntimeInternalPath(record.RelativePath) {
+			continue
+		}
+		absPath, resolveErr := agentworkspace.SafeJoin(plan.RepoDir, record.RelativePath)
+		if resolveErr != nil {
+			continue
+		}
+		if agentworkspace.ShouldSkipArtifactFile(absPath) {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+
+	if len(filtered) == 0 {
+		return nil, nil, nil
+	}
+
+	uploadArtifacts(ctx, filtered, plan.RepoDir, projectPublicID)
+
+	events := make([]*agent.Event, 0, len(filtered))
+	artifacts := make([]assistantdomain.ArtifactRecord, 0, len(filtered))
+	for _, record := range filtered {
 		payload := artifactPayloadFromRecord(record)
 		raw, err := json.Marshal(payload)
 		if err != nil {
@@ -291,19 +312,34 @@ func pushWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
 		return nil
 	}
 
-	addCmd := exec.CommandContext(ctx, "git", "add", ".")
+	// 1. Check for any changes (tracked modifications + untracked files).
+	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "--untracked-files=all")
+	statusCmd.Dir = repoDir
+	statusOutput, err := statusCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git status: %w: %s", err, strings.TrimSpace(string(statusOutput)))
+	}
+	if len(bytes.TrimSpace(statusOutput)) == 0 {
+		logs.InfoContextf(ctx, "skip git commit: no workspace changes (repo_dir=%s)", repoDir)
+		return nil
+	}
+
+	// 2. Stage all changes.
+	addCmd := exec.CommandContext(ctx, "git", "add", "--all")
 	addCmd.Dir = repoDir
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 
+	// 3. Double-check: is there actually anything staged?
 	diffCmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet")
 	diffCmd.Dir = repoDir
 	if diffCmd.Run() == nil {
-		logs.InfoContextf(ctx, "skip git commit: no workspace changes (repo_dir=%s)", repoDir)
+		logs.InfoContextf(ctx, "skip git commit: nothing staged after add (repo_dir=%s)", repoDir)
 		return nil
 	}
 
+	// 4. Commit.
 	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run workspace")
 	commitCmd.Dir = repoDir
 	commitCmd.Env = identity.GitAuthorEnv()
@@ -312,7 +348,7 @@ func pushWorkspace(ctx context.Context, workspace WorkspacePreparation) error {
 		return nil // clean working tree is not an error
 	}
 
-	// 本地 git init 的仓库没有 origin，跳过 push
+	// 5. Push (skip for repos without origin, e.g. local git init).
 	hasRemote := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
 	hasRemote.Dir = repoDir
 	if hasRemote.Run() != nil {
@@ -335,15 +371,10 @@ func workspacePlan(workspace WorkspacePreparation) (*agentworkspace.TaskWorkspac
 	if repoDir == "" || manifestPath == "" {
 		return nil, false
 	}
-	baselinePath := strings.TrimSpace(workspace.BaselinePath)
-	if baselinePath == "" {
-		baselinePath = filepath.Join(filepath.Dir(manifestPath), "baseline.jsonl")
-	}
 	return &agentworkspace.TaskWorkspace{
 		RepoDir:              repoDir,
 		TaskDir:              strings.TrimSpace(workspace.TaskDir),
 		ArtifactManifestPath: manifestPath,
-		BaselinePath:         baselinePath,
 		EffectiveWorkDir:     strings.TrimSpace(workspace.WorkDir),
 	}, true
 }
@@ -387,7 +418,7 @@ type ArtifactPayload struct {
 }
 
 func newArtifactID() string {
-	return "art_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	return "file_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 
 func artifactTitle(record agentworkspace.ArtifactRecord) string {

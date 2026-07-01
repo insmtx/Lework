@@ -31,7 +31,6 @@ export type QuestionRequest = {
 	toolCallId?: string;
 	messageId?: string;
 	interactionType?: string;
-	plan?: PlanHandoff;
 	metadata?: Record<string, unknown>;
 	status: QuestionStatus;
 	answers?: string[][];

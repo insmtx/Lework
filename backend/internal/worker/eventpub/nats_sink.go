@@ -243,6 +243,8 @@ func mapRunEventType(eventType agent.EventType) (messaging.RunEventType, error) 
 		return messaging.RunEventQuestionAsked, nil
 	case "question.answered":
 		return messaging.RunEventQuestionAnswered, nil
+	case "plan.published":
+		return messaging.RunEventPlanPublished, nil
 	default:
 		return "", fmt.Errorf("unknown agent event type: %q", eventType)
 	}
@@ -386,6 +388,25 @@ func mapRunEventPayload(event *agent.Event) messaging.RunEventPayload {
 				}
 			}
 		}
+	case "plan.published":
+		if len(event.Payload) > 0 {
+			var pp events.PlanPublishedPayload
+			if json.Unmarshal(event.Payload, &pp) == nil {
+				payload.PlanPublished = &messaging.PlanPublishedPayload{
+					FileID:       pp.FileID,
+					Directive:    pp.Directive,
+					SummaryLines: pp.SummaryLines,
+					TotalLines:   pp.TotalLines,
+					StorageKey:   pp.StorageKey,
+					StorageURI:   pp.StorageURI,
+					Filename:     pp.Filename,
+					OriginalName: pp.OriginalName,
+					MimeType:     pp.MimeType,
+					FileSize:     pp.FileSize,
+					Sha256:       pp.Sha256,
+				}
+			}
+		}
 	}
 	return payload
 }
@@ -398,13 +419,6 @@ func mapQuestionRequestPayload(q events.QuestionRequestPayload) *messaging.Quest
 		MessageID:       q.MessageID,
 		InteractionType: q.InteractionType,
 		Metadata:        q.Metadata,
-	}
-	if q.Plan != nil {
-		mq.Plan = &messaging.PlanHandoffPayload{
-			Content:  q.Plan.Content,
-			FilePath: q.Plan.FilePath,
-			Error:    q.Plan.Error,
-		}
 	}
 	for _, qi := range q.Questions {
 		mqi := messaging.QuestionItem{

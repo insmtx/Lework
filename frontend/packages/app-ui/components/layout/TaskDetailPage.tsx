@@ -175,13 +175,14 @@ export function TaskDetailPage({
 			const res = await projectFileApi.list({
 				projectId: resolvedProjectId,
 				resourceType: "artifact",
+				taskId: resolvedTaskId ?? undefined,
 			});
 			setTaskFiles(normalizeProjectFileTree(res.data.data));
 		} catch (err) {
 			console.error("TaskDetailPage fetch task files error:", err);
 			setTaskFiles([]);
 		}
-	}, [resolvedProjectId]);
+	}, [resolvedProjectId, resolvedTaskId]);
 
 	useEffect(() => {
 		fetchProjects();

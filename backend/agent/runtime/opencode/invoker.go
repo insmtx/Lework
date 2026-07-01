@@ -192,7 +192,7 @@ func (st *runState) processSSEStream(ctx context.Context, ch <-chan sseEvent) {
 			if !ok {
 				return
 			}
-			st.handleSSEEvent(event)
+			st.handleSSEEvent(ctx, event)
 		}
 	}
 }

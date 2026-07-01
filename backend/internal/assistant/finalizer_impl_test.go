@@ -44,7 +44,7 @@ func TestFinalizerUsesPreparedWorkspaceAndCollectsArtifacts(t *testing.T) {
 			RepoDir:              repoDir,
 			TaskDir:              filepath.Dir(turnDir),
 			ArtifactManifestPath: manifestPath,
-			BaselinePath:         filepath.Join(turnDir, "baseline.jsonl"),
+			PreRunTreeSHA:        "", // no pre-run tree in test
 		},
 	}
 

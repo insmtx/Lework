@@ -109,6 +109,11 @@ func ProjectRunEvent(runEvent messaging.RunEvent) (*dto.SessionEvent, bool) {
 		if runEvent.Body.Payload.QuestionAnswer != nil {
 			event.Payload = *runEvent.Body.Payload.QuestionAnswer
 		}
+	case messaging.RunEventPlanPublished:
+		event.Type = events.EventPlanPublished
+		if runEvent.Body.Payload.PlanPublished != nil {
+			event.Payload = *runEvent.Body.Payload.PlanPublished
+		}
 	case messaging.RunEventWorkTitleUpdated:
 		if runEvent.Body.Payload.WorkTitle == nil {
 			return nil, false
@@ -282,6 +287,13 @@ func ProjectRunEventRecord(sessionID string, chunk types.MessageChunk) (*contrac
 			return nil, false
 		}
 		event.Type = string(events.EventQuestionAnswered)
+		event.Payload = payload
+	case events.EventPlanPublished:
+		payload, ok := decodeChunkPayload[events.PlanPublishedPayload](chunk)
+		if !ok {
+			return nil, false
+		}
+		event.Type = string(events.EventPlanPublished)
 		event.Payload = payload
 	case events.EventArtifactDeclared:
 		payload, ok := decodeChunkPayload[events.ArtifactPayload](chunk)

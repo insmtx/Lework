@@ -61,32 +61,3 @@ func FindRepoRoot(workDir string) (string, error) {
 func ProjectMemoryPath(repoDir string) string {
 	return filepath.Join(repoDir, ".leros", "memory", "project_memory.md")
 }
-
-// Deprecated: ArtifactStoragePath is no longer used.
-// Artifacts are now accessed via Gitea API using repo-relative storage keys.
-func ArtifactStoragePath(orgID uint, workerID uint, storageKey string) (string, error) {
-	key := strings.TrimSpace(storageKey)
-	if key == "" || filepath.IsAbs(key) {
-		return "", fmt.Errorf("invalid artifact storage key")
-	}
-	workspacePath, err := WorkerMountedWorkspacePath(orgID, workerID)
-	if err != nil {
-		return "", err
-	}
-	workspaceAbs, err := filepath.Abs(workspacePath)
-	if err != nil {
-		return "", err
-	}
-	pathAbs, err := filepath.Abs(filepath.Join(workspaceAbs, filepath.FromSlash(key)))
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(workspaceAbs, pathAbs)
-	if err != nil {
-		return "", err
-	}
-	if rel == "." || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("artifact storage key escapes workspace")
-	}
-	return pathAbs, nil
-}

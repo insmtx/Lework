@@ -36,6 +36,9 @@ temp/
 logs/
 log/
 
+# OpenCode AI workspace
+.opencode/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

@@ -802,13 +802,6 @@ function mapQuestionRequestPayload(
     toolCallId: payload.tool_call_id?.trim() || undefined,
     messageId: payload.message_id?.trim() || undefined,
     interactionType: payload.interaction_type?.trim() || undefined,
-    plan: payload.plan
-      ? {
-          content: payload.plan.content,
-          filePath: payload.plan.file_path,
-          error: payload.plan.error,
-        }
-      : undefined,
     metadata: payload.metadata,
     status: "pending",
   };
@@ -948,7 +941,7 @@ function mapToolCallEvent(
   };
 }
 
-function applySessionEventToMessage(
+export function applySessionEventToMessage(
   message: Message,
   event: SessionEventLike,
   eventType: string | undefined,
@@ -1024,6 +1017,18 @@ function applySessionEventToMessage(
       return {
         ...message,
         questions: mergeQuestionRequest(message.questions, question),
+      };
+    }
+    case "plan.published": {
+      if (!payload.file_id || !payload.directive) return message;
+      const directive = payload.directive;
+      // Deduplicate: skip if this file_id already exists in message content.
+      if (message.content.includes(directive)) return message;
+      return {
+        ...message,
+        content: message.content
+          ? `${message.content}\n${directive}`
+          : directive,
       };
     }
     case "question.answered": {

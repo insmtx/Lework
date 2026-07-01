@@ -29,7 +29,7 @@ type WorkspacePreparation struct {
 	RepoDir              string
 	TaskDir              string
 	ArtifactManifestPath string
-	BaselinePath         string
+	PreRunTreeSHA        string // Git tree SHA captured before agent execution
 }
 
 // AttachmentIngestor downloads and commits user attachments into the workspace.
@@ -97,7 +97,6 @@ func (wm *workspaceManager) PrepareWorkspace(ctx context.Context, req *assistant
 		RepoDir:              plan.RepoDir,
 		TaskDir:              plan.TaskDir,
 		ArtifactManifestPath: plan.ArtifactManifestPath,
-		BaselinePath:         plan.BaselinePath,
 	}, nil
 }
 
@@ -249,6 +248,11 @@ func (p *preparer) Prepare(ctx context.Context, req *assistantdomain.RunRequest)
 	cloned.Runtime.WorkDir = workspace.WorkDir
 	cloned.Workspace.RepoDir = workspace.RepoDir
 
+	// Capture pre-run Git tree SHA for diff-based artifact discovery (best-effort).
+	if workspace.RepoDir != "" {
+		workspace.PreRunTreeSHA = agentworkspace.CapturePreRunTreeSafe(ctx, workspace.RepoDir)
+	}
+
 	// 4. Prepare session context and skills.
 	if p.builder.SessionMessages != nil {
 		if err := p.builder.SessionMessages.Prepare(ctx, cloned); err != nil {
@@ -380,7 +384,6 @@ func (p *preparer) prepareWorkspace(ctx context.Context, req *assistantdomain.Ru
 			RepoDir:              plan.RepoDir,
 			TaskDir:              plan.TaskDir,
 			ArtifactManifestPath: plan.ArtifactManifestPath,
-			BaselinePath:         plan.BaselinePath,
 		}, nil
 	}
 	workDir := strings.TrimSpace(req.Runtime.WorkDir)

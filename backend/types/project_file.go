@@ -10,6 +10,7 @@ type ProjectFileResourceType string
 const (
 	ProjectFileResourceTypeUserUpload ProjectFileResourceType = "user_upload" // 用户上传
 	ProjectFileResourceTypeArtifact   ProjectFileResourceType = "artifact"    // 工作产物
+	ProjectFileResourceTypePlan       ProjectFileResourceType = "plan"        // 计划文件
 )
 
 // ProjectFile 项目文件关联表，记录项目/任务/资源之间的映射关系

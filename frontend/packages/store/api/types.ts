@@ -170,11 +170,6 @@ export type BackendQuestionRequestPayload = {
 	tool_call_id?: string;
 	message_id?: string;
 	interaction_type?: string;
-	plan?: {
-		content?: string;
-		file_path?: string;
-		error?: string;
-	};
 	metadata?: Record<string, unknown>;
 };
 
@@ -303,6 +298,13 @@ export type BackendSessionEventPayload = {
 	model?: string;
 	started_at?: string;
 	completed_at?: string;
+	file_id?: string;
+	directive?: string;
+	summary_lines?: number;
+	total_lines?: number;
+	storage_key?: string;
+	storage_uri?: string;
+	original_name?: string;
 };
 
 export type BackendSessionEventPayloadLike = BackendSessionEventPayload | BackendRuntimeTodoItem[];
@@ -337,34 +339,7 @@ export type BackendTask = {
 	updated_at: string;
 };
 
-export type BackendArtifact = {
-	artifact_id: string;
-	title: string;
-	filename?: string;
-	description?: string;
-	artifact_type: string;
-	mime_type?: string;
-	file_size?: number;
-	sha256?: string;
-	created_at?: string;
-};
 
-export type BackendArtifactDetail = {
-	artifact_id: string;
-	title: string;
-	filename?: string;
-	description?: string;
-	artifact_type: string;
-	mime_type?: string;
-	file_size?: number;
-	sha256?: string;
-	relative_path?: string;
-	file_public_id?: string;
-	source?: string;
-	export_format?: string;
-	version?: number;
-	status?: string;
-};
 
 export type BackendProjectMemberItem = {
 	member_id: number;
@@ -382,7 +357,6 @@ export type BackendProjectTaskItem = BackendTask & {
 export type BackendProjectDetail = BackendProject & {
 	session?: BackendSession;
 	tasks: BackendProjectTaskItem[];
-	artifacts: BackendArtifact[];
 	members: BackendProjectMemberItem[];
 };
 
@@ -397,6 +371,7 @@ export type BackendProjectFileNode = {
 	created_at?: number;
 	public_id?: string;
 	storage_uri?: string;
+	sha256?: string;
 };
 
 export type BackendProjectFileUploadResult = {

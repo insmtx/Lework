@@ -10,6 +10,7 @@ import type {
 export type GetProjectFilesParams = {
 	projectId: string;
 	resourceType?: "user_upload" | "artifact";
+	taskId?: string;
 };
 
 export type UploadProjectFileParams = {
@@ -89,13 +90,17 @@ async function uploadLooseFile({
 }
 
 export const projectFileApi = {
-	list: ({ projectId, resourceType }: GetProjectFilesParams) =>
-		apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>(
+	list: ({ projectId, resourceType, taskId }: GetProjectFilesParams) => {
+		const params: Record<string, string> = {};
+		if (resourceType) params.resource_type = resourceType;
+		if (taskId) params.task_id = taskId;
+		return apiClient.get<BackendDataResponse<BackendProjectFileNode[]>>(
 			`/projects/${encodeURIComponent(projectId)}/files`,
 			{
-				params: resourceType ? { resource_type: resourceType } : undefined,
+				params: Object.keys(params).length > 0 ? params : undefined,
 			},
-		),
+		);
+	},
 
 	download: (projectId: string, filePath: string): string =>
 		`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/files/download?path=${encodeURIComponent(filePath)}`,

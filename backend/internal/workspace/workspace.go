@@ -10,9 +10,7 @@ import (
 	"strings"
 
 	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/ygpkg/yg-go/logs"
 )
 
 // TaskWorkspaceRequest 标识一次任务 turn 的工作区和运行目录请求。
@@ -35,7 +33,6 @@ type TaskWorkspace struct {
 	TurnTmpDir           string
 	TurnLogDir           string
 	ArtifactManifestPath string
-	BaselinePath         string
 	EffectiveWorkDir     string
 	CloneURL             string
 }
@@ -127,7 +124,6 @@ func ResolveTaskWorkspace(req TaskWorkspaceRequest) (*TaskWorkspace, error) {
 		TurnTmpDir:           filepath.Join(turnDir, "tmp"),
 		TurnLogDir:           filepath.Join(turnDir, "logs"),
 		ArtifactManifestPath: filepath.Join(turnDir, "artifacts.jsonl"),
-		BaselinePath:         filepath.Join(turnDir, "baseline.jsonl"),
 		EffectiveWorkDir:     effectiveWorkDir,
 		CloneURL:             req.CloneURL,
 	}, nil
@@ -434,45 +430,4 @@ func cleanPathID(value string) string {
 		return ""
 	}
 	return value
-}
-
-func PushWorkspace(ctx context.Context, plan *TaskWorkspace) error {
-	if plan == nil || plan.RepoDir == "" {
-		logs.ErrorContextf(ctx, "PushWorkspace skipped: plan is nil or repo dir is empty")
-		return nil
-	}
-	gitDir := filepath.Join(plan.RepoDir, ".git")
-	if _, err := os.Stat(gitDir); err != nil {
-		logs.ErrorContextf(ctx, "PushWorkspace skipped: .git directory not found: %s", gitDir)
-		return nil
-	}
-
-	addCmd := exec.CommandContext(ctx, "git", "add", ".")
-	addCmd.Dir = plan.RepoDir
-	if output, err := addCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-
-	diffCmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet")
-	diffCmd.Dir = plan.RepoDir
-	if diffCmd.Run() == nil {
-		logs.InfoContextf(ctx, "skip git commit: no workspace changes (repo_dir=%s)", plan.RepoDir)
-		return nil
-	}
-
-	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", "task: agent run artifacts")
-	commitCmd.Dir = plan.RepoDir
-	commitCmd.Env = identity.GitAuthorEnv()
-	if output, err := commitCmd.CombinedOutput(); err != nil {
-		logs.ErrorContextf(ctx, "git commit artifacts: %v: %s", err, strings.TrimSpace(string(output)))
-		return nil
-	}
-
-	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "main")
-	pushCmd.Dir = plan.RepoDir
-	if output, err := pushCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	logs.InfoContextf(ctx, "PushWorkspace completed: repo_dir=%s", plan.RepoDir)
-	return nil
 }

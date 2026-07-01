@@ -116,10 +116,6 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterTaskRoutes(v1, taskService)
 		logs.Info("Task routes registered successfully")
 
-		artifactService := service.NewArtifactService(db, nil)
-		handler.RegisterArtifactRoutes(v1, artifactService)
-		logs.Info("Artifact routes registered successfully")
-
 		fileService := service.NewFileService(db)
 		fileHandler := handler.NewFileHandler(fileService)
 		fileHandler.RegisterRoutes(v1)

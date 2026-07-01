@@ -263,6 +263,81 @@ func TestRunnerNormalizesTodoEventsThroughTracker(t *testing.T) {
 	}
 }
 
+func TestRunnerForwardsPlanPublishedBeforeQuestionAsked(t *testing.T) {
+	plan := events.PlanPublishedPayload{
+		FileID:       "file_plan_1",
+		Directive:    ":::plan{\"file_id\":\"file_plan_1\",\"summary_lines\":1,\"total_lines\":1}\nInspect\n:::",
+		SummaryLines: 1,
+		TotalLines:   1,
+		StorageKey:   "projects/1/sess/session-1/plans/file_plan_1.md",
+		StorageURI:   "file:///dev-bucket/projects/1/sess/session-1/plans/file_plan_1.md",
+		Filename:     "plan.md",
+		OriginalName: ".opencode/plans/plan.md",
+		MimeType:     "text/markdown",
+		FileSize:     7,
+		Sha256:       strings.Repeat("a", 64),
+	}
+	question := events.QuestionRequestPayload{
+		RequestID:       "question-1",
+		SessionID:       "session-1",
+		InteractionType: "plan_confirmation",
+		Questions: []events.QuestionItem{{
+			Question: "Execute the plan?",
+			Options: []events.QuestionOption{
+				{Label: "Yes"},
+				{Label: "No"},
+			},
+		}},
+	}
+	engine := &fakeInvoker{
+		events: []agent.Event{
+			{Type: events.EventInvocationStarted},
+			*events.NewPlanPublished(plan),
+			*events.NewQuestionAsked(question),
+			{Type: events.EventResult, Content: "done"},
+			{Type: events.EventInvocationCompleted},
+		},
+	}
+	runner, err := NewDriver("opencode", engine)
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+
+	var emitted []agent.Event
+	sink := events.SinkFunc(func(_ context.Context, event *agent.Event) error {
+		emitted = append(emitted, *event)
+		return nil
+	})
+	if _, err := runTestRequest(runner, &assistantdomain.RunRequest{
+		RunID:     "run_plan",
+		TraceID:   "trace_plan",
+		EventSink: sink,
+		Input: assistantdomain.InputContext{
+			Type:     assistantdomain.InputTypeMessage,
+			Messages: []assistantdomain.InputMessage{{Role: "user", Content: "plan"}},
+		},
+		Runtime: assistantdomain.RuntimeOptions{WorkDir: "/tmp"},
+	}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	planIndex := eventIndex(emitted, events.EventPlanPublished)
+	questionIndex := eventIndex(emitted, events.EventQuestionAsked)
+	if planIndex < 0 || questionIndex < 0 {
+		t.Fatalf("expected plan and question events, got %#v", emitted)
+	}
+	if planIndex >= questionIndex {
+		t.Fatalf("plan index = %d, question index = %d", planIndex, questionIndex)
+	}
+	forwarded, err := events.DecodePayload[events.PlanPublishedPayload](&emitted[planIndex])
+	if err != nil {
+		t.Fatalf("decode plan payload: %v", err)
+	}
+	if forwarded != plan {
+		t.Fatalf("forwarded plan = %#v, want %#v", forwarded, plan)
+	}
+}
+
 func runTestRequest(runner *Driver, request *assistantdomain.RunRequest) (agent.ExecutionResult, error) {
 	prompt := assistantdomain.BuildUserInput(request)
 	return runner.RunInvocation(context.Background(), agent.ExecutionRequest{
@@ -333,4 +408,13 @@ func findEvent(eventList []agent.Event, eventType agent.EventType) *agent.Event 
 		}
 	}
 	return nil
+}
+
+func eventIndex(eventList []agent.Event, eventType agent.EventType) int {
+	for i := range eventList {
+		if eventList[i].Type == eventType {
+			return i
+		}
+	}
+	return -1
 }

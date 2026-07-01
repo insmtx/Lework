@@ -1,7 +1,7 @@
 import { projectApi } from "../api/projectApi";
 import { sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
-import type { BackendArtifact, BackendProject, BackendSession, BackendTask } from "../api/types";
+import type { BackendProject, BackendSession, BackendTask } from "../api/types";
 import { workApi } from "../api/workApi";
 import type { SliceCreator } from "../types";
 import type { Attachment, MessageMetadata } from "../types/chat";
@@ -82,7 +82,6 @@ export type Project = {
 	updatedAt: number;
 	messages: ProjectMessage[];
 	tasks: ProjectTask[];
-	artifacts: ProjectArtifact[];
 	files: ProjectArtifact[];
 };
 
@@ -169,7 +168,6 @@ function mapBackendProject(bp: BackendProject): Project {
 		skills: extractProjectSkills(metadata),
 		messages: [],
 		tasks: [],
-		artifacts: [],
 		files: [],
 	};
 }
@@ -191,7 +189,6 @@ export function mergeProjectsFromListResult(
 			objective: project.objective ?? localProject.objective,
 			messages: project.messages.length > 0 ? project.messages : localProject.messages,
 			tasks: project.tasks.length > 0 ? project.tasks : localProject.tasks,
-			artifacts: project.artifacts.length > 0 ? project.artifacts : localProject.artifacts,
 			files: project.files.length > 0 ? project.files : localProject.files,
 		};
 	});
@@ -243,27 +240,6 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 	};
 }
 
-export function mapBackendArtifactToProjectArtifact(ba: BackendArtifact): ProjectArtifact {
-	const artifactTypeMap: Record<string, ProjectArtifact["type"]> = {
-		image: "image",
-		spreadsheet: "spreadsheet",
-	};
-	// 中文注释：后端返回创建时间后，前端统一保留时间戳，供公共排序和各处展示复用。
-	const updatedAt = parseOptionalTimestamp(ba.created_at);
-	return {
-		id: ba.artifact_id,
-		name: ba.filename ?? ba.title,
-		title: ba.title,
-		description: ba.description,
-		type: artifactTypeMap[ba.artifact_type] ?? "document",
-		artifactType: ba.artifact_type,
-		mimeType: ba.mime_type,
-		size: formatFileSize(ba.file_size ?? 0),
-		updatedAt,
-		downloadUrl: "",
-		sha256: ba.sha256,
-	};
-}
 
 const _initialState: LayoutState = {
 	leftRailCollapsed: false,
@@ -471,7 +447,6 @@ export class LayoutActionImpl {
 											objective: detail.objective,
 											updatedAt: new Date(detail.updated_at).getTime(),
 											tasks,
-											artifacts: [],
 											files: [],
 										}
 									: p,
@@ -697,7 +672,6 @@ export class LayoutActionImpl {
 								...item,
 								tasks: p.tasks,
 								messages: p.messages,
-								artifacts: p.artifacts,
 								files: p.files,
 							}
 						: p,
@@ -869,7 +843,6 @@ export class LayoutActionImpl {
 								updatedAt: now,
 								messages: [],
 								tasks: task,
-								artifacts: [],
 								files: [],
 							},
 						...state.projects,
@@ -914,7 +887,6 @@ export class LayoutActionImpl {
 											...mapped,
 											objective: detail.objective,
 											tasks,
-											artifacts: [],
 											files: [],
 											updatedAt: new Date(detail.updated_at).getTime(),
 										}
@@ -925,7 +897,6 @@ export class LayoutActionImpl {
 									...mapped,
 									objective: detail.objective,
 									tasks,
-									artifacts: [],
 									files: [],
 								},
 								...s.projects,

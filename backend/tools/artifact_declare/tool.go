@@ -21,6 +21,7 @@ type artifactInput struct {
 	MIMEType     string
 	ArtifactType string
 	IsFinal      bool
+	Source       string
 }
 
 type artifactManifestEntry struct {
@@ -30,6 +31,7 @@ type artifactManifestEntry struct {
 	MIMEType     string `json:"mime_type,omitempty"`
 	ArtifactType string `json:"artifact_type,omitempty"`
 	IsFinal      bool   `json:"is_final"`
+	Source       string `json:"source,omitempty"`
 }
 
 const (
@@ -139,6 +141,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 		MIMEType:     parsed.MIMEType,
 		ArtifactType: parsed.ArtifactType,
 		IsFinal:      parsed.IsFinal,
+		Source:       parsed.Source,
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {
@@ -199,6 +202,7 @@ func parseArtifactInput(input map[string]interface{}) (artifactInput, error) {
 		MIMEType:     strings.TrimSpace(stringValue(input["mime_type"])),
 		ArtifactType: artifactType,
 		IsFinal:      boolValue(input["is_final"], true),
+		Source:       strings.TrimSpace(stringValue(input["source"])),
 	}, nil
 }
 
