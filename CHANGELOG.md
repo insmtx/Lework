@@ -1,5 +1,23 @@
 # Changelog
 
+## [v0.1.19] - 2026-07-01
+
+### Worker 异步可靠投递、全局搜索与桌面发布增强
+
+本版本重构 Worker 运行命令分发链路，引入持久化 inbox 和 at-least-once 崩溃恢复能力，统一 artifact 与 plan 持久化到 project_file，并新增全局任务搜索弹窗，同时完善桌面端多平台打包、COS 上传和 macOS 签名发布流程。
+
+- Worker run command 支持异步分发与持久化 inbox，新增手动 ack/delivery 处理，提升任务在崩溃恢复场景下的可靠性
+- 重构 Worker 命令 dispatcher、run handler 与事件发布链路，补充 NATS delivery、event sink 和运行状态投影相关测试
+- artifact 与 plan 持久化迁移到 project_file，移除旧 artifact API、DAO、Service 与类型，统一项目文件访问和预览数据来源
+- 工作区扫描改为基于 git diff 与 ignore checker 识别变更文件，优化 artifact 声明、上传和最终文件同步逻辑
+- 新增全局任务搜索弹窗，支持从左侧栏快速搜索和跳转任务，提升项目与任务导航效率
+- 前端新增 PlanBlock 展示组件并优化 MarkdownRenderer、AI 消息气泡、聊天输入区和最近技能面板交互
+- 修复 Windows 桌面端重复启动多窗口问题，完善应用生命周期和自动更新退出处理
+- 新增 GitLab CI 桌面端多平台打包、COS 上传流水线，并拆分 desktop 打包任务提升发布流程可维护性
+- 修复 macOS desktop 签名证书导入、签名身份名称与依赖下载问题，提升 CI 发布稳定性
+- 更新 Agent Runtime 与工作区 artifact 架构文档，清理过期执行架构规划文档并同步架构 HTML
+- 修复 Dockerfile.worker 与前端类型检查问题，统一标题字重并保护本地 `.env.local` 配置
+
 ## [v0.1.18] - 2026-06-30
 
 ### Plan Mode、SSE 回放与预览体验增强
