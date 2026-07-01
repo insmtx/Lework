@@ -393,7 +393,7 @@ export function ProjectPage({
 						项目
 					</button>
 					<ChevronRight className="size-4 text-[var(--leros-text-subtle)]" />
-					<h1 className="max-w-[360px] truncate text-sm font-bold text-[var(--leros-text-strong)]">
+					<h1 className="max-w-[360px] truncate text-sm font-semibold text-[var(--leros-text-strong)]">
 						{project.name}
 					</h1>
 				</div>

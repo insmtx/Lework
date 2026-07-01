@@ -39,7 +39,7 @@ export function DiceBearAvatar({
 		return (
 			<span
 				className={cn(
-					"flex aspect-square items-center justify-center rounded-full bg-[var(--leros-primary)] font-bold text-white",
+					"flex aspect-square items-center justify-center rounded-full bg-[var(--leros-primary)] font-semibold text-white",
 					className,
 				)}
 			>

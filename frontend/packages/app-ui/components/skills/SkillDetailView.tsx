@@ -212,11 +212,13 @@ export function SkillDetailView({
 							/>
 						) : (
 							<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[var(--leros-primary-soft)] text-[var(--leros-primary)] shadow-sm">
-								<span className="text-[28px] font-bold">{displayName.charAt(0).toUpperCase()}</span>
+								<span className="text-[28px] font-semibold">
+									{displayName.charAt(0).toUpperCase()}
+								</span>
 							</div>
 						)}
 						<div className="min-w-0">
-							<h1 className="mb-1 break-words text-xl font-bold leading-tight text-[var(--leros-text-strong)]">
+							<h1 className="mb-1 break-words text-xl font-semibold leading-tight text-[var(--leros-text-strong)]">
 								{displayName}
 							</h1>
 							{skill.category && (
@@ -433,7 +435,7 @@ export function SkillDetailView({
 												/>
 											) : (
 												<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] group-hover:bg-[var(--leros-primary-soft)] group-hover:text-[var(--leros-primary)] transition-colors">
-													<span className="text-sm font-bold">
+													<span className="text-sm font-semibold">
 														{(related.display_name || related.name).charAt(0).toUpperCase()}
 													</span>
 												</div>

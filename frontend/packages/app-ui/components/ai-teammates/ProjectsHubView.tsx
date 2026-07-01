@@ -109,9 +109,14 @@ function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
 		code: skill.name,
 		label,
 		description: skill.description || skill.category || "已安装技能",
-		keywords: [label, skill.name, skill.description, skill.category, skill.source, skill.trust].filter(
-			Boolean,
-		),
+		keywords: [
+			label,
+			skill.name,
+			skill.description,
+			skill.category,
+			skill.source,
+			skill.trust,
+		].filter(Boolean),
 	};
 }
 
@@ -207,7 +212,7 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 			<header className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-5">
 				<div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
 					<div>
-						<h1 className="text-xl font-bold text-[var(--leros-text-strong)]">项目</h1>
+						<h1 className="text-xl font-semibold text-[var(--leros-text-strong)]">项目</h1>
 						<p className="mt-2 text-sm text-[var(--leros-text-muted)]">多人协同，打造超级团队</p>
 					</div>
 					<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
@@ -295,7 +300,9 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 							autoFocus
 							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 pr-14 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
 						/>
-						<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{renameValue.length}/30</span>
+						<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+							{renameValue.length}/30
+						</span>
 					</div>
 					<DialogFooter className="mt-4">
 						<Button variant="outline" onClick={() => setRenameProject(null)}>
@@ -559,7 +566,9 @@ function CreateProjectDialog({
 								autoFocus
 								className="h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-white px-3 pr-14 text-sm text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
 							/>
-							<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--leros-text-subtle)]">{name.length}/30</span>
+							<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--leros-text-subtle)]">
+								{name.length}/30
+							</span>
 						</div>
 					</label>
 
@@ -575,7 +584,9 @@ function CreateProjectDialog({
 								maxLength={500}
 								className="min-h-28 w-full resize-none rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2 pb-7 pr-16 text-sm leading-6 text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
 							/>
-							<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--leros-text-subtle)]">{description.length}/500</span>
+							<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--leros-text-subtle)]">
+								{description.length}/500
+							</span>
 						</div>
 					</label>
 

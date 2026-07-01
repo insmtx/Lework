@@ -16,13 +16,13 @@ import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
 import { MarketplacePanel } from "./MarketplacePanel";
 import { MySkillsPanel } from "./MySkillsPanel";
+import { RecentSkillsPanel } from "./RecentSkillsPanel";
 import { SkillDetailView } from "./SkillDetailView";
 import { SkillImportDialog } from "./SkillImportDialog";
-import { RecentSkillsPanel } from "./RecentSkillsPanel";
 
 /** Explicit leros colors avoid oklch opacity modifiers that render incorrectly on Windows. */
 const SKILL_MARKET_TAB_TRIGGER_CLASS =
-	"text-xl font-bold text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:text-[var(--leros-text-strong)] dark:text-[var(--leros-text-muted)] dark:hover:text-[var(--leros-text-strong)] dark:data-active:bg-transparent dark:data-active:text-[var(--leros-text-strong)]";
+	"text-xl font-semibold text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:text-[var(--leros-text-strong)] dark:text-[var(--leros-text-muted)] dark:hover:text-[var(--leros-text-strong)] dark:data-active:bg-transparent dark:data-active:text-[var(--leros-text-strong)]";
 
 export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) {
 	const [activeTab, setActiveTab] = useState<"marketplace" | "mine">("marketplace");

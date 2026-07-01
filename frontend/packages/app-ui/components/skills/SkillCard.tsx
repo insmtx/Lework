@@ -51,7 +51,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCard
 							className="h-9 w-9 shrink-0 rounded-lg object-cover"
 						/>
 					) : (
-						<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-soft)] text-[var(--leros-primary)] text-sm font-bold transition-all duration-300 group-hover:bg-[var(--leros-primary)] group-hover:text-white">
+						<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-soft)] text-[var(--leros-primary)] text-sm font-semibold transition-all duration-300 group-hover:bg-[var(--leros-primary)] group-hover:text-white">
 							{displayName.charAt(0).toUpperCase()}
 						</div>
 					)}
@@ -82,7 +82,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCard
 				</div>
 				<div className="flex shrink-0 items-center gap-1 rounded border border-amber-100 bg-amber-50 px-1.5 py-0.5">
 					<Star className="size-3 fill-amber-500 text-amber-500" />
-					<span className="text-[10px] font-bold text-amber-700">4.5</span>
+					<span className="text-[10px] font-semibold text-amber-700">4.5</span>
 				</div>
 			</div>
 
@@ -109,7 +109,6 @@ export function SkillCard({ skill, variant = "marketplace", onClick }: SkillCard
 					</span>
 				)}
 			</div>
-
-			</button>
+		</button>
 	);
 }

@@ -592,7 +592,7 @@ export function LeftRail({
 								>
 									<ProfileAvatar user={user} />
 									<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
-										<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
+										<p className="truncate text-[14px] font-semibold text-[var(--leros-text-strong)]">
 											{user?.name ?? "Lework 用户"}
 										</p>
 										<p className="truncate text-[11px] text-[var(--leros-text-subtle)]">
@@ -650,10 +650,10 @@ export function LeftRail({
 					>
 						<ProfileAvatar user={null} />
 						<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
-							<p className="truncate text-[14px] font-bold text-[var(--leros-text-strong)]">
+							<p className="truncate text-[14px] font-semibold text-[var(--leros-text-strong)]">
 								登录 / 注册
 							</p>
-							<p className="text-[10px] font-bold uppercase tracking-tight text-[var(--leros-primary)]">
+							<p className="text-[10px] font-semibold uppercase tracking-tight text-[var(--leros-primary)]">
 								LEROS
 							</p>
 						</div>
@@ -999,7 +999,7 @@ function AccountManagementDialog({
 											size={128}
 										/>
 									) : (
-										<span className="text-xl font-bold">{getAvatarInitial("Lework")}</span>
+										<span className="text-xl font-semibold">{getAvatarInitial("Lework")}</span>
 									)
 								}
 							/>
@@ -1097,7 +1097,7 @@ function ProfileAvatar({ user }: { user: AuthUser | null }) {
 
 	return (
 		<span
-			className="leros-avatar overflow-hidden text-[11px] font-bold"
+			className="leros-avatar overflow-hidden text-[11px] font-semibold"
 			style={{ background: "var(--leros-primary)", color: "#fff" }}
 		>
 			<ImageWithFallback
