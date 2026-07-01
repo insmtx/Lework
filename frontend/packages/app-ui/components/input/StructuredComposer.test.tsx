@@ -129,6 +129,49 @@ function MentionRemoveHarness({ onValueChange }: { onValueChange?: (value: strin
 	);
 }
 
+function ProjectTriggerHarness({
+	onValueChange,
+	onProjectTrigger,
+}: {
+	onValueChange?: (value: string) => void;
+	onProjectTrigger?: (query: string) => void;
+}) {
+	const [value, setValue] = useState("");
+	const clearTriggerRef = useRef<(() => void) | null>(null);
+	const dismissTriggerRef = useRef<(() => void) | null>(null);
+
+	return (
+		<div>
+			<button type="button" onClick={() => clearTriggerRef.current?.()}>
+				select project
+			</button>
+			<button type="button" onClick={() => dismissTriggerRef.current?.()}>
+				dismiss project menu
+			</button>
+			<StructuredComposer
+				value={value}
+				onChange={(nextValue) => {
+					// 中文注释：项目触发器选择完成后应从正文中移除 # 搜索文本。
+					setValue(nextValue);
+					onValueChange?.(nextValue);
+				}}
+				onSubmit={vi.fn()}
+				onPasteFiles={vi.fn()}
+				onFocus={vi.fn()}
+				onBlur={vi.fn()}
+				placeholder="请输入"
+				isProjectVariant
+				projectSkillOptions={[]}
+				onProjectTrigger={(query, clearTrigger, dismissTrigger) => {
+					clearTriggerRef.current = clearTrigger;
+					dismissTriggerRef.current = dismissTrigger;
+					onProjectTrigger?.(query);
+				}}
+			/>
+		</div>
+	);
+}
+
 function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
 	const [value, setValue] = useState("");
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -362,5 +405,82 @@ describe("StructuredComposer", () => {
 			expect(mentions[0]).toHaveAttribute("data-mention-label", "/anysearch");
 			expect(mentions[1]).toHaveAttribute("data-mention-label", "/docx");
 		});
+	});
+
+	it("removes a mention and trailing space with one Backspace", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+
+		render(<MentionRemoveHarness onValueChange={handleValueChange} />);
+
+		await user.click(screen.getByRole("button", { name: "insert skill" }));
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("/anysearch ");
+		});
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("{Backspace}");
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("");
+			expect(textbox.querySelector('[data-mention-node="true"]')).not.toBeInTheDocument();
+		});
+	});
+
+	it("uses # as a project task trigger and clears it after selection", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+		const handleProjectTrigger = vi.fn();
+
+		render(
+			<ProjectTriggerHarness
+				onValueChange={handleValueChange}
+				onProjectTrigger={handleProjectTrigger}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("#leros");
+
+		await waitFor(() => {
+			expect(handleProjectTrigger).toHaveBeenLastCalledWith("leros");
+		});
+
+		await user.click(screen.getByRole("button", { name: "select project" }));
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("");
+		});
+	});
+
+	it("keeps # as plain text after dismissing the project menu", async () => {
+		const user = userEvent.setup();
+		const handleValueChange = vi.fn();
+		const handleProjectTrigger = vi.fn();
+
+		render(
+			<ProjectTriggerHarness
+				onValueChange={handleValueChange}
+				onProjectTrigger={handleProjectTrigger}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("#leros");
+
+		await waitFor(() => {
+			expect(handleProjectTrigger).toHaveBeenLastCalledWith("leros");
+		});
+
+		await user.click(screen.getByRole("button", { name: "dismiss project menu" }));
+		await user.keyboard(" continue");
+
+		await waitFor(() => {
+			expect(handleValueChange).toHaveBeenLastCalledWith("#leros continue");
+		});
+		expect(handleProjectTrigger).toHaveBeenCalledTimes(1);
 	});
 });

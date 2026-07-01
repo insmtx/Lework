@@ -2,10 +2,10 @@
 
 import { cn } from "@leros/ui/lib/utils";
 import { Command as CommandPrimitive } from "cmdk";
-import { Check, Search } from "lucide-react";
+import { Check, Search, X } from "lucide-react";
 import type * as React from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./dialog";
-import { InputGroup, InputGroupAddon } from "./input-group";
+import { InputGroup, InputGroupAddon, InputGroupButton } from "./input-group";
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
 	return (
@@ -52,22 +52,42 @@ function CommandDialog({
 
 function CommandInput({
 	className,
+	value,
+	onValueChange,
 	...props
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
+	const hasValue = typeof value === "string" && value.length > 0;
+
 	return (
 		<div data-slot="command-input-wrapper" className="p-1 pb-0">
 			<InputGroup className="bg-input/30 border-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!">
+				<InputGroupAddon align="inline-start">
+					<Search className="size-4 shrink-0 opacity-50" />
+				</InputGroupAddon>
 				<CommandPrimitive.Input
 					data-slot="command-input"
+					value={value}
+					onValueChange={onValueChange}
 					className={cn(
 						"w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
 						className,
 					)}
 					{...props}
 				/>
-				<InputGroupAddon>
-					<Search className="size-4 shrink-0 opacity-50" />
-				</InputGroupAddon>
+				{hasValue ? (
+					<InputGroupAddon align="inline-end">
+						<InputGroupButton
+							type="button"
+							size="icon-xs"
+							aria-label="清空搜索"
+							onClick={() => {
+								onValueChange?.("");
+							}}
+						>
+							<X className="size-3.5" />
+						</InputGroupButton>
+					</InputGroupAddon>
+				) : null}
 			</InputGroup>
 		</div>
 	);

@@ -8,8 +8,8 @@ import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import { cn } from "@leros/ui/lib/utils";
 import { Folder, Loader2, Search, X } from "lucide-react";
-import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { renderHighlightedText } from "../common/searchText";
 import type { AppNavigation } from "./LeftRail";
 
 const ALL_PROJECTS_VALUE = "__all_projects__";
@@ -297,38 +297,4 @@ export function GlobalTaskSearchDialog({
 			</DialogContent>
 		</Dialog>
 	);
-}
-
-function renderHighlightedText(text: string, keyword: string): ReactNode {
-	const normalizedKeyword = keyword.trim();
-	if (!normalizedKeyword) return text;
-
-	const lowerText = text.toLocaleLowerCase();
-	const lowerKeyword = normalizedKeyword.toLocaleLowerCase();
-	const segments: ReactNode[] = [];
-	let searchStart = 0;
-	let matchIndex = lowerText.indexOf(lowerKeyword, searchStart);
-
-	while (matchIndex !== -1) {
-		if (matchIndex > searchStart) {
-			segments.push(text.slice(searchStart, matchIndex));
-		}
-		const matchEnd = matchIndex + normalizedKeyword.length;
-		segments.push(
-			<mark
-				key={`${matchIndex}-${matchEnd}`}
-				className="rounded-sm bg-[var(--leros-primary)]/12 px-0.5 text-[var(--leros-primary)] [box-decoration-break:clone]"
-			>
-				{text.slice(matchIndex, matchEnd)}
-			</mark>,
-		);
-		searchStart = matchEnd;
-		matchIndex = lowerText.indexOf(lowerKeyword, searchStart);
-	}
-
-	if (searchStart < text.length) {
-		segments.push(text.slice(searchStart));
-	}
-
-	return segments;
 }

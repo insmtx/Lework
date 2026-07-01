@@ -13,8 +13,8 @@ import {
 import { cn } from "@leros/ui/lib/utils";
 import { Bot, Sparkles } from "lucide-react";
 import {
-	forwardRef,
 	type ClipboardEvent,
+	forwardRef,
 	type KeyboardEvent,
 	type MouseEvent,
 	useCallback,
@@ -24,9 +24,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { renderHighlightedText } from "../common/searchText";
 import { mockAssistants } from "./mockDirectiveData";
 
-type DirectiveKind = "assistant" | "command";
+type DirectiveKind = "assistant" | "command" | "project";
 type TokenKind = "assistant" | "skill";
 type SelectionKind = "assistant" | "skill";
 
@@ -90,11 +91,12 @@ type StructuredComposerProps = {
 	isProjectVariant: boolean;
 	projectSkillOptions?: ComposerSkillOption[];
 	directivesDisabled?: boolean;
+	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
 };
 
 function findTrigger(value: string, cursor: number): ActiveTrigger | null {
 	const prefix = value.slice(0, cursor);
-	const assistantMatch = prefix.match(/(?:^|\s)@([^\s@/]*)$/);
+	const assistantMatch = prefix.match(/(?:^|\s)@([^\s@/#]*)$/);
 	if (assistantMatch) {
 		const query = assistantMatch[1] ?? "";
 		return {
@@ -105,11 +107,22 @@ function findTrigger(value: string, cursor: number): ActiveTrigger | null {
 		};
 	}
 
-	const commandMatch = prefix.match(/(?:^|\s)\/([^\s@/]*)$/);
+	const commandMatch = prefix.match(/(?:^|\s)\/([^\s@/#]*)$/);
 	if (commandMatch) {
 		const query = commandMatch[1] ?? "";
 		return {
 			kind: "command",
+			start: cursor - query.length - 1,
+			end: cursor,
+			query,
+		};
+	}
+
+	const projectMatch = prefix.match(/(?:^|\s)#([^\s@/#]*)$/);
+	if (projectMatch) {
+		const query = projectMatch[1] ?? "";
+		return {
+			kind: "project",
 			start: cursor - query.length - 1,
 			end: cursor,
 			query,
@@ -240,7 +253,9 @@ function resolveVirtualSkillTokens(value: string, tokens: InsertedToken[]): Inse
 }
 
 function resolveDisplayTokens(value: string, tokens: InsertedToken[]): InsertedToken[] {
-	const explicitTokens = tokens.filter((token) => value.slice(token.start, token.end) === token.label);
+	const explicitTokens = tokens.filter(
+		(token) => value.slice(token.start, token.end) === token.label,
+	);
 	// 中文注释：常规 token 仍只来自弹窗/按钮选择；skill-creator 是技能库创作入口注入的虚拟指令。
 	return sortTokens([...explicitTokens, ...resolveVirtualSkillTokens(value, explicitTokens)]);
 }
@@ -319,6 +334,34 @@ function extractSnapshot(root: HTMLElement): EditorSnapshot {
 	};
 }
 
+// 中文注释：与弹窗列表中的 Bot 图标保持一致，供内联 AI 队友 mention 使用。
+function createBotIcon(): SVGElement {
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	svg.setAttribute("class", "size-3.5");
+
+	for (const d of ["M12 8V4H8", "M2 14h2", "M20 14h2", "M15 13v2", "M9 13v2"]) {
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		path.setAttribute("d", d);
+		svg.appendChild(path);
+	}
+
+	const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+	rect.setAttribute("width", "16");
+	rect.setAttribute("height", "12");
+	rect.setAttribute("x", "4");
+	rect.setAttribute("y", "8");
+	rect.setAttribute("rx", "2");
+	svg.appendChild(rect);
+
+	return svg;
+}
+
 function createSkillSparklesIcon(): SVGElement {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 	svg.setAttribute("viewBox", "0 0 24 24");
@@ -327,7 +370,7 @@ function createSkillSparklesIcon(): SVGElement {
 	svg.setAttribute("stroke-width", "2");
 	svg.setAttribute("stroke-linecap", "round");
 	svg.setAttribute("stroke-linejoin", "round");
-	svg.setAttribute("class", "size-3");
+	svg.setAttribute("class", "size-3.5");
 
 	const paths = [
 		"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.064 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z",
@@ -377,7 +420,7 @@ function createMentionRemoveControl(token: InsertedToken): HTMLSpanElement {
 		`移除${token.kind === "skill" ? "技能" : "AI队友"} ${token.label}`,
 	);
 	control.className =
-		"ml-0.5 inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-65 transition-opacity hover:bg-current/10 hover:opacity-100";
+		"ml-0.5 inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-65 transition-opacity hover:bg-current/10 hover:opacity-100";
 	control.appendChild(createRemoveIcon());
 	return control;
 }
@@ -399,10 +442,10 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 		mention.setAttribute("contenteditable", "false");
 		if (token.kind === "skill") {
 			mention.className =
-				"inline-flex items-center gap-1 rounded-lg bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium leading-none text-violet-700 ring-1 ring-violet-100 align-baseline";
+				"inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium leading-4 text-violet-700 ring-1 ring-violet-100 align-middle";
 			const iconShell = document.createElement("span");
 			iconShell.className =
-				"inline-flex size-3.5 shrink-0 items-center justify-center rounded-md bg-white text-violet-600";
+				"inline-flex size-4 shrink-0 items-center justify-center rounded-md bg-white text-violet-600 [&_svg]:block";
 			iconShell.appendChild(createSkillSparklesIcon());
 			const label = document.createElement("span");
 			label.className = "truncate";
@@ -410,11 +453,15 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 			mention.append(iconShell, label, createMentionRemoveControl(token));
 		} else {
 			mention.className =
-				"inline-flex items-center gap-1 rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-700 align-baseline";
+				"inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2 py-1 text-xs font-medium leading-4 text-blue-700 align-middle";
+			const iconShell = document.createElement("span");
+			iconShell.className =
+				"inline-flex size-4 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 [&_svg]:block";
+			iconShell.appendChild(createBotIcon());
 			const label = document.createElement("span");
 			label.className = "truncate";
 			label.textContent = token.label;
-			mention.append(label, createMentionRemoveControl(token));
+			mention.append(iconShell, label, createMentionRemoveControl(token));
 		}
 		fragment.appendChild(mention);
 		cursor = token.end;
@@ -631,6 +678,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			isProjectVariant,
 			projectSkillOptions,
 			directivesDisabled = false,
+			onProjectTrigger,
 		},
 		ref,
 	) {
@@ -639,6 +687,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
 		const [activeIndex, setActiveIndex] = useState(0);
 		const [commandSearch, setCommandSearch] = useState("");
+		const [assistantSearch, setAssistantSearch] = useState("");
 		const [tokens, setTokens] = useState<InsertedToken[]>([]);
 		const [skillOptions, setSkillOptions] = useState<ComposerSkillOption[]>([]);
 		const [skillsLoading, setSkillsLoading] = useState(false);
@@ -673,7 +722,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const filteredAssistants = useMemo(() => {
-			const query = normalizeSearchValue(trigger?.kind === "assistant" ? trigger.query : "");
+			const query = normalizeSearchValue(trigger?.kind === "assistant" ? assistantSearch : "");
 			return assistantOptions.filter((assistant) => {
 				if (selectedAssistantNames.includes(assistant.name)) return false;
 				if (!query) return true;
@@ -682,7 +731,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					.toLowerCase()
 					.includes(query);
 			});
-		}, [assistantOptions, selectedAssistantNames, trigger]);
+		}, [assistantOptions, assistantSearch, selectedAssistantNames, trigger?.kind]);
 
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");
@@ -698,7 +747,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const pickerItemCount =
-			trigger?.kind === "assistant" ? filteredAssistants.length : commandOptions.length;
+			trigger?.kind === "assistant"
+				? filteredAssistants.length
+				: trigger?.kind === "command"
+					? commandOptions.length
+					: 0;
 
 		const activePickerValue = useMemo(() => {
 			if (!trigger) return "";
@@ -706,6 +759,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const assistant = filteredAssistants[activeIndex];
 				return assistant ? assistantPickerValue(assistant) : "";
 			}
+			if (trigger.kind !== "command") return "";
 			const option = commandOptions[activeIndex];
 			return option ? commandPickerValue(option) : "";
 		}, [activeIndex, commandOptions, filteredAssistants, trigger]);
@@ -770,16 +824,31 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		}, [trigger?.kind, trigger?.query]);
 
 		useEffect(() => {
-			if (trigger?.kind !== "command") {
-				setCommandSearch("");
+			if (trigger?.kind === "command") {
+				setAssistantSearch("");
+				setCommandSearch(trigger.query);
+				requestAnimationFrame(() => {
+					// 中文注释：通过 / 打开技能选择后，焦点直接进入弹窗搜索框，避免继续输入写回外层编辑器。
+					pickerRef.current
+						?.querySelector<HTMLInputElement>('[data-slot="command-input"]')
+						?.focus();
+				});
 				return;
 			}
 
-			setCommandSearch(trigger.query);
-			requestAnimationFrame(() => {
-				// 中文注释：通过 / 打开技能选择后，焦点直接进入弹窗搜索框，避免继续输入写回外层编辑器。
-				pickerRef.current?.querySelector<HTMLInputElement>('[data-slot="command-input"]')?.focus();
-			});
+			setCommandSearch("");
+
+			if (trigger?.kind === "assistant") {
+				setAssistantSearch(trigger.query);
+				requestAnimationFrame(() => {
+					pickerRef.current
+						?.querySelector<HTMLInputElement>('[data-slot="command-input"]')
+						?.focus();
+				});
+				return;
+			}
+
+			setAssistantSearch("");
 		}, [trigger]);
 
 		useEffect(() => {
@@ -858,6 +927,39 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				});
 		}, [projectSkillOptions, skillsLoaded, trigger?.kind]);
 
+		const clearProjectTrigger = useCallback(
+			(activeTrigger: ActiveTrigger) => {
+				const currentValue = valueRef.current;
+				if (currentValue[activeTrigger.start] !== "#") return;
+
+				const nextValue = `${currentValue.slice(0, activeTrigger.start)}${currentValue.slice(
+					activeTrigger.end,
+				)}`;
+				const nextTokens = shiftTokensForTextEdit(tokensRef.current, currentValue, nextValue);
+				// 中文注释：# 只是项目任务选择的触发器，完成选择后不作为正文或 mention 保留。
+				commitProgrammaticEdit(nextValue, nextTokens, activeTrigger.start);
+				dismissedTriggerStartRef.current = null;
+			},
+			[commitProgrammaticEdit],
+		);
+
+		const dismissProjectTrigger = useCallback((activeTrigger: ActiveTrigger) => {
+			// 中文注释：手动关闭项目弹窗后，# 保留为正文且不再重复打开选择器，行为与 / 指令一致。
+			dismissedTriggerStartRef.current = activeTrigger.start;
+		}, []);
+
+		const notifyProjectTrigger = useCallback(
+			(activeTrigger: ActiveTrigger) => {
+				if (!onProjectTrigger) return;
+				onProjectTrigger(
+					activeTrigger.query,
+					() => clearProjectTrigger(activeTrigger),
+					() => dismissProjectTrigger(activeTrigger),
+				);
+			},
+			[clearProjectTrigger, dismissProjectTrigger, onProjectTrigger],
+		);
+
 		const syncFromEditor = useCallback(() => {
 			const editor = editorRef.current;
 			if (!editor) return;
@@ -872,7 +974,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 			if (
 				dismissedTriggerStartRef.current !== null &&
-				!["@", "/"].includes(text[dismissedTriggerStartRef.current] ?? "")
+				!["@", "/", "#"].includes(text[dismissedTriggerStartRef.current] ?? "")
 			) {
 				dismissedTriggerStartRef.current = null;
 			}
@@ -880,13 +982,21 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			if (!composingRef.current) {
 				const caret = getCaretOffset(editor);
 				const nextTokens = resolveDisplayTokens(text, snapshot.tokens);
-				setTrigger(
-					directivesDisabled || isCursorInsideToken(caret, nextTokens)
-						? null
-						: getActiveTrigger(text, caret),
-				);
+				if (isCursorInsideToken(caret, nextTokens)) {
+					setTrigger(null);
+					return;
+				}
+
+				const nextTrigger = getActiveTrigger(text, caret);
+				if (nextTrigger?.kind === "project" && onProjectTrigger) {
+					setTrigger(null);
+					notifyProjectTrigger(nextTrigger);
+					return;
+				}
+
+				setTrigger(directivesDisabled || nextTrigger?.kind === "project" ? null : nextTrigger);
 			}
-		}, [directivesDisabled, getActiveTrigger, onChange]);
+		}, [directivesDisabled, getActiveTrigger, notifyProjectTrigger, onChange]);
 
 		const handlePaste = useCallback(
 			(event: ClipboardEvent<HTMLDivElement>) => {
@@ -923,16 +1033,30 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				pendingCaretRef.current = nextCaret;
 
 				if (!composingRef.current) {
-					setTrigger(directivesDisabled ? null : getActiveTrigger(nextValue, nextCaret));
+					const nextTrigger = getActiveTrigger(nextValue, nextCaret);
+					if (nextTrigger?.kind === "project" && onProjectTrigger) {
+						setTrigger(null);
+						notifyProjectTrigger(nextTrigger);
+					} else {
+						setTrigger(directivesDisabled || nextTrigger?.kind === "project" ? null : nextTrigger);
+					}
 				}
 
 				focusAt(nextCaret);
 			},
-			[directivesDisabled, focusAt, getActiveTrigger, onChange, onPasteFiles],
+			[
+				directivesDisabled,
+				focusAt,
+				getActiveTrigger,
+				notifyProjectTrigger,
+				onChange,
+				onPasteFiles,
+				onProjectTrigger,
+			],
 		);
 
 		const insertTrigger = useCallback(
-			(kind: DirectiveKind) => {
+			(kind: Exclude<DirectiveKind, "project">) => {
 				if (directivesDisabled) return;
 				const editor = editorRef.current;
 				if (!editor) return;
@@ -1157,6 +1281,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				if (assistant) selectToken("assistant", assistant, trigger);
 				return;
 			}
+			if (trigger.kind !== "command") return;
 			const option = commandOptions[activeIndex];
 			if (option) selectToken("skill", option.item, trigger);
 		}, [activeIndex, commandOptions, filteredAssistants, selectToken, trigger]);
@@ -1178,6 +1303,64 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				if (index >= 0) setActiveIndex(index);
 			},
 			[commandOptions, filteredAssistants, trigger],
+		);
+
+		const removeAdjacentTokenByKeyboard = useCallback(
+			(key: string) => {
+				if (key !== "Backspace" && key !== "Delete") return false;
+				const editor = editorRef.current;
+				if (!editor) return false;
+
+				const selection = getSelectionOffsets(editor);
+				if (selection.start !== selection.end) return false;
+
+				const currentValue = valueRef.current;
+				const currentTokens = resolveDisplayTokens(currentValue, tokensRef.current);
+				const caret = selection.start;
+				const target =
+					key === "Backspace"
+						? currentTokens.find(
+								(token) =>
+									token.end === caret ||
+									(currentValue[caret - 1] === " " && token.end === caret - 1),
+							)
+						: currentTokens.find((token) => token.start === caret);
+				if (!target) return false;
+
+				let start = target.start;
+				let end = target.end;
+				if (currentValue[end] === " ") {
+					end += 1;
+				} else if (start > 0 && currentValue[start - 1] === " ") {
+					start -= 1;
+				}
+
+				const nextValue = `${currentValue.slice(0, start)}${currentValue.slice(end)}`;
+				const delta = start - end;
+				const nextTokens = sortTokens(
+					currentTokens.flatMap((token) => {
+						if (
+							token.kind === target.kind &&
+							token.label === target.label &&
+							token.start === target.start &&
+							token.end === target.end
+						) {
+							return [];
+						}
+						if (token.end <= start) return [token];
+						if (token.start >= end) {
+							return [{ ...token, start: token.start + delta, end: token.end + delta }];
+						}
+						return [];
+					}),
+				);
+
+				// 中文注释：键盘从 mention 右侧删除时同步吞掉正文分隔空格，避免需要按两次 Backspace。
+				dismissTrigger(false);
+				commitProgrammaticEdit(nextValue, nextTokens, start);
+				return true;
+			},
+			[commitProgrammaticEdit, dismissTrigger],
 		);
 
 		const handleKeyDown = useCallback(
@@ -1208,6 +1391,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					}
 				}
 
+				if (removeAdjacentTokenByKeyboard(event.key)) {
+					event.preventDefault();
+					return;
+				}
+
 				const submitByEnter = event.key === "Enter" && !event.shiftKey;
 				// 项目态保留 Ctrl/Cmd + Enter 作为兼容发送快捷键，避免老用户肌肉记忆突然失效。
 				const submitByShortcut =
@@ -1217,7 +1405,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					onSubmit();
 				}
 			},
-			[dismissTrigger, isProjectVariant, onSubmit, pickerItemCount, selectActiveItem, trigger],
+			[
+				dismissTrigger,
+				isProjectVariant,
+				onSubmit,
+				pickerItemCount,
+				removeAdjacentTokenByKeyboard,
+				selectActiveItem,
+				trigger,
+			],
 		);
 
 		const inputSpacingClass = isProjectVariant
@@ -1255,11 +1451,14 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 						>
 							<div className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-slate-400">
 								{trigger.kind === "assistant" ? <>AI 队友</> : <>选择技能</>}
-								{trigger.kind === "assistant" && trigger.query && (
-									<span className="truncate text-slate-400">{trigger.query}</span>
-								)}
 							</div>
-							{trigger.kind === "command" && (
+							{trigger.kind === "assistant" ? (
+								<CommandInput
+									value={assistantSearch}
+									onValueChange={setAssistantSearch}
+									placeholder="搜索 AI 队友"
+								/>
+							) : (
 								<CommandInput
 									value={commandSearch}
 									onValueChange={setCommandSearch}
@@ -1287,7 +1486,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												</div>
 												<div className="min-w-0 flex-1">
 													<div className="truncate font-medium text-slate-700">
-														{assistant.name}
+														{renderHighlightedText(assistant.name, assistantSearch)}
 													</div>
 													<div className="truncate text-xs text-slate-400">
 														{assistant.description}
@@ -1326,7 +1525,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 													<Sparkles className="size-3.5" />
 												</div>
 												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium">/{skill.label}</div>
+													<div className="truncate font-medium">
+														/{renderHighlightedText(skill.label, commandSearch)}
+													</div>
 													<div className="truncate text-xs text-slate-400">{skill.description}</div>
 												</div>
 											</CommandItem>
