@@ -195,3 +195,39 @@ func TestProjectRunEventProjectsWorkTitleUpdatedPayload(t *testing.T) {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
 }
+
+func TestProjectRunEventProjectsPlanPublishedAsDirectPayload(t *testing.T) {
+	plan := &messaging.PlanPublishedPayload{
+		FileID:       "file_plan_1",
+		Directive:    ":::plan{\"file_id\":\"file_plan_1\",\"summary_lines\":1,\"total_lines\":1}\nInspect\n:::",
+		SummaryLines: 1,
+		TotalLines:   1,
+		StorageURI:   "file:///dev-bucket/projects/1/plans/file_plan_1.md",
+	}
+	runEvent := messaging.RunEvent{
+		CreatedAt: time.UnixMilli(456),
+		Route:     messaging.RouteContext{SessionID: "session-1"},
+		Body: messaging.RunEventBody{
+			Seq:   12,
+			Event: messaging.RunEventPlanPublished,
+			Payload: messaging.RunEventPayload{
+				PlanPublished: plan,
+			},
+		},
+	}
+
+	projected, ok := ProjectRunEvent(runEvent)
+	if !ok {
+		t.Fatal("expected plan event to project")
+	}
+	if projected.Type != events.EventPlanPublished {
+		t.Fatalf("event type = %q", projected.Type)
+	}
+	payload, ok := projected.Payload.(messaging.PlanPublishedPayload)
+	if !ok {
+		t.Fatalf("payload type = %T", projected.Payload)
+	}
+	if payload != *plan {
+		t.Fatalf("payload = %#v, want %#v", payload, *plan)
+	}
+}

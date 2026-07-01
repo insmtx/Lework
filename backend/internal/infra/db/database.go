@@ -19,6 +19,10 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+var legacyTables = []string{
+	"leros_artifact",
+}
+
 // legacyColumnsToDrop 记录了从模型中被移除但数据库中残留的列。
 // GORM AutoMigrate 不会删除列，需要手动清理。
 // GORM AutoMigrate 不会重命名列，重命名需要手动迁移。
@@ -103,7 +107,6 @@ func runMigrations(db *gorm.DB) error {
 		&types.Project{},
 		&types.ProjectMember{},
 		&types.Task{},
-		&types.Artifact{},
 		&types.FileUpload{},
 		&types.ProjectFile{},
 		&types.BuiltinSkillMarketplaceItem{},
@@ -123,6 +126,10 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	if err := dropLegacyTables(db); err != nil {
+		return err
+	}
+
 	logs.Info("Database migrations completed")
 	return nil
 }
@@ -137,6 +144,21 @@ func dropLegacyColumns(db *gorm.DB) error {
 				return err
 			}
 			logs.Infof("[migration] dropped legacy column %s.%s", lc.table, lc.column)
+		}
+	}
+	return nil
+}
+
+// dropLegacyTables 删除已废弃的数据库表
+func dropLegacyTables(db *gorm.DB) error {
+	for _, tableName := range legacyTables {
+		if ok := db.Migrator().HasTable(tableName); ok {
+			logs.Infof("[migration] dropping legacy table %s", tableName)
+			if err := db.Migrator().DropTable(tableName); err != nil {
+				logs.Errorf("[migration] failed to drop table %s: %v", tableName, err)
+				return err
+			}
+			logs.Infof("[migration] dropped legacy table %s", tableName)
 		}
 	}
 	return nil

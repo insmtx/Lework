@@ -97,10 +97,24 @@ func getOrgMemberByUin(ctx context.Context, serverAddr, authToken string, uin ui
 	return &result, nil
 }
 
-// ListTaskArtifacts 调用服务端 ListTaskArtifacts API 并返回解析后的结果。
-func ListTaskArtifacts(ctx context.Context, serverAddr, authToken, taskID string) ([]contract.Artifact, error) {
-	var result []contract.Artifact
-	if err := doGetRequest(ctx, serverAddr, authToken, fmt.Sprintf("tasks/%s/artifacts", taskID), &result); err != nil {
+// ListProjectFiles 调用服务端项目文件树接口，按 project + resource_type + task 过滤。
+func ListProjectFiles(ctx context.Context, serverAddr, authToken, projectID, resourceType, taskID string) ([]contract.FileTreeNode, error) {
+	path := fmt.Sprintf("projects/%s/files", projectID)
+	var params []string
+	if resourceType != "" {
+		params = append(params, fmt.Sprintf("resource_type=%s", resourceType))
+	}
+	if taskID != "" {
+		params = append(params, fmt.Sprintf("task_id=%s", taskID))
+	}
+	if len(params) > 0 {
+		path = path + "?" + params[0]
+		for _, p := range params[1:] {
+			path = path + "&" + p
+		}
+	}
+	var result []contract.FileTreeNode
+	if err := doGetRequest(ctx, serverAddr, authToken, path, &result); err != nil {
 		return nil, err
 	}
 	return result, nil

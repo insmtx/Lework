@@ -21,7 +21,7 @@ type ProjectService interface {
 
 	GetProjectMemory(ctx context.Context, publicID string) (*ProjectMemory, error)
 
-	GetProjectFileTree(ctx context.Context, publicID string, resourceType string) ([]*FileTreeNode, error)
+	GetProjectFileTree(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*FileTreeNode, error)
 
 	DownloadProjectFile(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
 }

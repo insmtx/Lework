@@ -1,4 +1,3 @@
-export { artifactApi, fetchArtifactDownload } from "./api/artifactApi";
 export type {
 	AuthOrgInfo,
 	AuthTokenResponse,
@@ -82,7 +81,6 @@ export type {
 	Workspace,
 	WorkspaceMode,
 } from "./slices/layoutSlice";
-export { mapBackendArtifactToProjectArtifact } from "./slices/layoutSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {
@@ -121,8 +119,6 @@ export type {
 } from "./types/chat";
 export { flattenActions } from "./utils";
 export {
-	collectSessionArtifacts,
-	mergeProjectArtifacts,
 	messageArtifactToProjectArtifact,
 	sortProjectArtifactsByNewestFirst,
 } from "./utils/artifacts";

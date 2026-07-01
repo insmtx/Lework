@@ -91,6 +91,9 @@ const (
 	// EventWorkTitleUpdated indicates project/task titles were auto-generated after the first message.
 	EventWorkTitleUpdated agent.EventType = "work.title.updated"
 
+	// EventPlanPublished indicates a plan file was uploaded to object storage.
+	EventPlanPublished agent.EventType = "plan.published"
+
 	// EventProviderSessionStarted indicates the provider exposed a native session ID.
 	EventProviderSessionStarted agent.EventType = "provider_session.started"
 )
@@ -172,21 +175,29 @@ type ApprovalDecisionPayload struct {
 
 // QuestionRequestPayload describes a clarifying question from the engine to the user.
 type QuestionRequestPayload struct {
-	RequestID       string              `json:"request_id"`
-	SessionID       string              `json:"session_id,omitempty"`
-	Questions       []QuestionItem      `json:"questions"`
-	ToolCallID      string              `json:"tool_call_id,omitempty"`
-	MessageID       string              `json:"message_id,omitempty"`
-	InteractionType string              `json:"interaction_type,omitempty"`
-	Plan            *PlanHandoffPayload `json:"plan,omitempty"`
-	Metadata        map[string]string   `json:"metadata,omitempty"`
+	RequestID       string            `json:"request_id"`
+	SessionID       string            `json:"session_id,omitempty"`
+	Questions       []QuestionItem    `json:"questions"`
+	ToolCallID      string            `json:"tool_call_id,omitempty"`
+	MessageID       string            `json:"message_id,omitempty"`
+	InteractionType string            `json:"interaction_type,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 
-// PlanHandoffPayload carries the plan content displayed during a plan confirmation.
-type PlanHandoffPayload struct {
-	Content  string `json:"content,omitempty"`
-	FilePath string `json:"file_path,omitempty"`
-	Error    string `json:"error,omitempty"`
+// PlanPublishedPayload carries the uploaded plan file info and :::plan directive.
+type PlanPublishedPayload struct {
+	FileID       string `json:"file_id"`
+	Directive    string `json:"directive"`     // :::plan{...} 完整指令
+	SummaryLines int    `json:"summary_lines"` // 摘要行数（固定20）
+	TotalLines   int    `json:"total_lines"`   // 总行数
+	// RecordUpload 所需字段
+	StorageKey   string `json:"storage_key,omitempty"`
+	StorageURI   string `json:"storage_uri,omitempty"`
+	Filename     string `json:"filename,omitempty"`
+	OriginalName string `json:"original_name,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	FileSize     int64  `json:"file_size,omitempty"`
+	Sha256       string `json:"sha256,omitempty"`
 }
 
 // QuestionItem is a single question within a question request.
@@ -323,6 +334,11 @@ func NewQuestionAsked(payload QuestionRequestPayload) *agent.Event {
 // NewQuestionAnswered creates a question answered event.
 func NewQuestionAnswered(payload QuestionAnswerPayload) *agent.Event {
 	return newPayloadEvent(EventQuestionAnswered, payload, "")
+}
+
+// NewPlanPublished creates a plan published event.
+func NewPlanPublished(payload PlanPublishedPayload) *agent.Event {
+	return newPayloadEvent(EventPlanPublished, payload, "")
 }
 
 // DecodePayload 从事件中解码结构化载荷。

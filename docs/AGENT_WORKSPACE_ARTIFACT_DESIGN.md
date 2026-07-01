@@ -9,7 +9,7 @@
 - 为每个 `org/project/task/request` 准备隔离的 Agent 工作区。
 - 同一个 task 内按 `request_id` 拆分 turn 目录，保证每轮产物声明可单独收集。
 - 最终产物通过 manifest / `artifact_declare` 显式声明，并辅以执行前后文件变更自动兜底扫描。
-- Artifact 持久化后通过任务维度接口返回给前端，下载接口只暴露 `artifact_id`。
+- 产物通过 `FileUpload` + `ProjectFile` 持久化后按任务维度返回给前端，下载接口只暴露 `artifact_id`。
 - 内部真实路径不通过对外 API 暴露。
 
 当前实现不做：
@@ -18,7 +18,7 @@
 - 不实现本地 artifact 文件快照目录。
 - 不通过 worker task 协议或 `RuntimeOptions` 传递 `ProjectDir`、`TmpDir`、`ArtifactManifestPath` 等内部派生路径。
 - 不设计大量 workspace 环境变量。
-- 不在 artifact 表中持久化 `request_id`。`request_id` 目前用于执行期 turn 路径和 manifest 查找，持久化归属依赖 `project_id`、`task_id`、`session_id`、`message_id`。
+- `ProjectFile` 不额外持久化 `request_id`、`session_id` 或 `message_id`。`request_id` 用于执行期 turn 路径和 manifest 查找；消息维度的产物引用由 `SessionMessage.Artifacts` 保存。
 
 ## 2. 当前代码入口
 
@@ -32,11 +32,9 @@
 | Manifest 读取和 artifact 校验 | `backend/internal/workspace/artifacts.go` |
 | 内置 runtime 注入工具上下文 | `backend/internal/runtime/drivers/native/runner.go` |
 | `artifact_declare` 工具 | `backend/tools/artifact_declare/tool.go` |
-| File 扫描与 ignore 规则 | `backend/internal/workspace/scanner.go` |
-| Baseline 捕获 (执行前) | `backend/internal/runtime/lifecycle/steps/baseline.go` |
-| Reconcile 兜底扫描 (执行后) | `backend/internal/runtime/lifecycle/steps/reconcile.go` |
-| Artifact 持久化 | `backend/internal/runtime/lifecycle/steps/artifact.go` |
-| Server 侧 artifact 下载路径解析 | `backend/internal/workspace/server_paths.go` |
+| Git ignore 规则 | `backend/internal/workspace/ignore_checker.go` |
+| Git diff 产物发现与 tree 快照 | `backend/internal/workspace/git_diff.go` |
+| Artifact 持久化（文件上传 + 项目文件关联） | `backend/internal/runnable/session_run_state_projector.go` |
 | Artifact 查询和下载服务 | `backend/internal/service/artifact_service.go` |
 
 ## 3. Worker 侧路径设计
@@ -59,7 +57,6 @@ Worker 本地 workspace root 使用 `LEROS_WORKSPACE_ROOT`。如果未设置，L
                   {request_id}/
                     tmp/
                     logs/
-                    baseline.jsonl
                     artifacts.jsonl
 ```
 
@@ -72,7 +69,6 @@ Worker 本地 workspace root 使用 `LEROS_WORKSPACE_ROOT`。如果未设置，L
 | `repo/.leros/` | Leros 运行态目录，写入 `repo/.git/info/exclude`，不进入项目 Git |
 | `repo/.leros/tasks/{task_id}/turns/{request_id}/tmp/` | 当前 turn 临时目录 |
 | `repo/.leros/tasks/{task_id}/turns/{request_id}/logs/` | 当前 turn 日志目录 |
-| `repo/.leros/tasks/{task_id}/turns/{request_id}/baseline.jsonl` | 执行前文件基线快照，用于 diff 检测新增/修改文件 |
 | `repo/.leros/tasks/{task_id}/turns/{request_id}/artifacts.jsonl` | 当前 turn 最终产物 manifest |
 
 没有 project 上下文时，Worker 不创建上述 project/task/turn 目录，而是使用：
@@ -118,7 +114,7 @@ type TaskWorkspace struct {
 `PrepareTaskWorkspace` 的职责：
 
 - 根据 `org_id/project_id/task_id/request_id` 计算路径。
-- 创建 turn 的 `tmp`、`logs`、`baseline.jsonl` 和 `artifacts.jsonl`。
+- 创建 turn 的 `tmp`、`logs` 和 `artifacts.jsonl`。
 - 初始化 `repo/.git`。
 - 将 `.leros/` 写入 `repo/.git/info/exclude`。
 - 校验和解析请求传入的 `runtime.work_dir`。
@@ -181,52 +177,7 @@ body.runtime                 -> req.Runtime
 
 ## 7. Worker 与 Server 的文件系统映射
 
-Worker 侧 artifact 持久化时，`TaskWorkspace.StorageKey(relativePath)` 会把 artifact 绝对路径转换为相对 Worker workspace root 的 key：
-
-```text
-projects/{org_id}/{project_id}/repo/{relative_path}
-```
-
-该 `storage_key` 被写入 artifact 表。它不是容器绝对路径，也不是下载 URL。
-
-Server 下载时需要从自己的视角找到对应 Worker workspace 的挂载目录。当前实现使用：
-
-```text
-{SERVER_LEROS_WORKSPACE_ROOT}/{org_id}/{worker_id}/workspace/{storage_key}
-```
-
-对应代码：
-
-```text
-WorkerMountedWorkspacePath(orgID, workerID)
-  = {SERVER_LEROS_WORKSPACE_ROOT}/{orgID}/{workerID}/workspace
-
-ArtifactStoragePath(orgID, workerID, storageKey)
-  = WorkerMountedWorkspacePath(...) + storageKey
-```
-
-这意味着部署层需要保证：
-
-```text
-Worker 进程看到的 LEROS_WORKSPACE_ROOT
-  == Server 进程看到的 {SERVER_LEROS_WORKSPACE_ROOT}/{org_id}/{worker_id}/workspace
-```
-
-举例：
-
-```text
-Worker:
-  LEROS_WORKSPACE_ROOT=/workspace
-  artifact file=/workspace/projects/1/prj_a/repo/report.md
-  storage_key=projects/1/prj_a/repo/report.md
-
-Server:
-  LEROS_WORKSPACE_ROOT=/data/leros/workers
-  worker mounted workspace=/data/leros/workers/1/1/workspace
-  download path=/data/leros/workers/1/1/workspace/projects/1/prj_a/repo/report.md
-```
-
-当前限制：artifact 表还没有持久化生产该 artifact 的 `worker_id`，`artifact_service.go` 下载时暂时使用 `defaultArtifactWorkerID = 1`。多 worker 场景下需要补齐 `worker_id` 持久化，否则 Server 无法可靠定位产物所在 worker workspace。
+Worker 侧生成文件后，通过预签名 URL 上传到对象存储（S3/MinIO），创建 `FileUpload` 记录并在 `ProjectFile` 中关联项目/任务。Server 侧通过 `FileUpload.StorageURI` 直接从对象存储下载，不依赖本地 Worker workspace 挂载路径。
 
 ## 8. 执行流程
 
@@ -241,9 +192,10 @@ Server:
 9. Agent 调用 `artifact_declare`，或写入本轮 `artifacts.jsonl`。
 10. Runtime lifecycle 在完成事件前读取当前 turn manifest。
 11. 系统校验产物路径、文件存在性、mime type、file size 和 sha256。
-12. Artifact recorder 创建 artifact 表记录，并向运行事件流追加 `artifact.declared`。
-13. Server 创建最终 assistant message 时，根据事件里的 artifact 引用把已有 artifact 绑定到 `message_id`，并把轻量 artifact references 写入 message。
-14. 前端通过 task artifact 接口查询，通过 artifact download 接口下载。
+12. Worker 通过预签名 URL 上传产物，并向运行事件流追加包含 `storage_uri` 的 `artifact.declared`。
+13. Server 的事件投影在事务中创建 `FileUpload` + `ProjectFile`。
+14. Server 创建最终 assistant message 时，把终态事件中的轻量 artifact references 写入 `SessionMessage.Artifacts`。
+15. 前端通过 task artifact 接口查询，通过 artifact download 接口下载。
 
 ## 9. Agent 产物声明
 
@@ -304,129 +256,116 @@ Runtime 完成任务前读取当前 turn 的 `artifacts.jsonl`。
 - 如果 `artifacts.jsonl` 中没有 `is_final: true` 的记录，系统会自动通过 baseline diff 检测执行期间的新增/修改文件。
 - 自动检测到的文件会补写入 `artifacts.jsonl`，后续按正常 manifest 流程处理。
 
-### 10.1 文件变更自动检测 (Baseline & Reconcile)
+### 10.1 文件变更自动检测 (Git Diff)
 
-Pipeline 在执行前后各插入一个新步骤，用于自动检测 Agent 执行期间产生但未显式声明的新文件。
+当 `artifacts.jsonl` 中没有显式的 `is_final: true` 声明时，系统使用 Git tree diff 自动检测执行期间的文件变更。
 
-**步骤顺序：**
-```
-NormalizeStep → ... → ArtifactBaselineStep → ExecuteStep → ArtifactReconcileStep → ArtifactStep → ...
-```
+**流程：**
 
-**ArtifactBaselineStep：**
-- 扫描 `repo/` 下所有文件，应用忽略规则后写入 `baseline.jsonl`。
-- 每条记录：`{"path":"src/report.md","size":1234,"mtime_unix_nano":1780000000000}`
+1. **执行前**：`CapturePreRunTree()` 使用临时 `GIT_INDEX_FILE` 将当前工作树（含 staged、unstaged、untracked 文件）写入一个 Git tree 对象，记录 tree SHA 到 `WorkspacePreparation.PreRunTreeSHA`。
 
-**ArtifactReconcileStep：**
-- 再次扫描 `repo/`，读取 `baseline.jsonl`，对比执行前后文件状态。
-- 若 `artifacts.jsonl` 已有 `is_final:true` 的显式声明 → 跳过 diff（显式声明优先）。
-- 若无显式声明 → 将新增或变更文件作为候选补写入 `artifacts.jsonl`。
-- 删除的文件、未变化文件、被忽略文件不进入候选。
+2. **执行后**：`GitDiffReconcile()` 首先检查 manifest 是否已有显式 `is_final: true` 条目：
+   - 若有 → 跳过（显式声明优先）。
+   - 若无 → 再次调用 `CapturePreRunTree()` 获取执行后 tree SHA，然后通过 `git diff-tree -r --diff-filter=ACMRT` 计算两个 tree 的差异。
 
-**忽略规则：**
-1. Git 标准 ignore：`.gitignore`、`.git/info/exclude`，通过 `git check-ignore --stdin --no-index` 实现。
-2. Leros 内置排除：`.git/`、`.leros/`、`tmp/`、`temp/`、`logs/`、`log/`、`.cache/`、`node_modules/`、`vendor/`、`dist/`、`build/`、`target/`。
-3. 文件级排除：`.DS_Store`、`Thumbs.db`、`*.swp`、`*.swo`、`*.log`。
+3. **Diff 过滤**：
+   - 纳入：新增 (A)、修改 (M)、复制 (C)、重命名 (R)、类型变化 (T) 后的文件。
+   - 排除：删除 (D)、目录、`.leros/` 运行态文件、`.gitignore` 排除的文件。
+   - 只保留真实存在的常规文件。
 
-**变更检测：**
-- baseline 中不存在的文件 → 新增。
-- size 或 mtime 不同 → 候选修改。
-- size 和 mtime 都相同 → 跳过。
+4. **结果写入**：将 diff 检测到的文件以 `is_final: true` 追加到 `artifacts.jsonl`，后续按正常 manifest 流程处理。
 
 **source 标记：**
 - 显式声明产物：`artifact_source = "agent_declared"`（不变）。
-- 自动检测产物：`artifact_source = "diff"`（新增常量 `types.ArtifactSourceDiff`）。
+- Git diff 检测产物：`artifact_source = "diff"`。
+
+**注意：**旧的 `baseline.jsonl` + mtime/size 对比方案（`FileSnapshot`、`WriteBaseline`、`ReconcileArtifacts`）已废弃并删除。Git tree diff 不需要落地临时文件，且天然兼容 Git 的 rename/copy 检测。
 
 ## 11. 持久化模型
 
-当前 artifact 表结构位于 `backend/types/artifact.go`。
+产物不再使用独立的 `leros_artifact` 表。持久化统一通过 `leros_file_upload` + `leros_project_file` 两张表实现。
 
-当前关键字段：
+### FileUpload（`backend/types/file_upload.go`）
 
-```text
-public_id
-org_id
-owner_id
-project_id
-task_id
-session_id
-message_id
-title
-filename
-description
-artifact_type
-file_url
-mime_type
-file_size
-relative_path
-storage_key
-sha256
-source
-status
-created_at
-```
-
-字段说明：
+记录文件的物理存储信息：
 
 | 字段 | 说明 |
 | --- | --- |
-| `public_id` | 对外稳定 artifact id，例如 `art_xxx` |
-| `project_id` | DB 内部 project id |
-| `task_id` | DB 内部 task id |
-| `session_id` | DB 内部 session id |
-| `message_id` | DB 内部 assistant message id；artifact 初始创建时可为空，message 完成时绑定 |
-| `relative_path` | 相对 project repo 的路径 |
-| `storage_key` | 相对 Worker workspace root 的路径，用于 Server 下载映射 |
+| `public_id` | 对外文件 ID，格式 `file_xxx`，同时作为产物 ID |
+| `org_id` | 归属组织 |
+| `owner_id` | 归属用户 |
+| `filename` | 文件名 |
+| `original_name` | 原始文件名 |
+| `mime_type` | MIME 类型 |
+| `file_size` | 文件大小 |
+| `storage_uri` | 对象存储 URI（S3/本地） |
 | `sha256` | 文件内容 hash |
-| `source` | `agent_declared`（显式声明）或 `diff`（自动检测） |
-| `status` | 当前完成态为 `completed` |
+| `purpose` | 用途标记，产物为 `artifact` |
+
+### ProjectFile（`backend/types/project_file.go`）
+
+记录文件与项目/任务的关联关系：
+
+| 字段 | 说明 |
+| --- | --- |
+| `file_public_id` | 关联 FileUpload.public_id（唯一索引） |
+| `org_id` | 归属组织 |
+| `project_id` | 关联项目 |
+| `task_id` | 关联任务 |
+| `resource_id` | 关联的资源 ID（FileUpload.ID） |
+| `resource_type` | 资源类型，产物为 `artifact` |
+
+### 事件投影
+
+`artifact.declared` 事件到达后，`PersistDeclaredArtifact` 在事务中：
+1. 校验 Session、Project、Task 和组织归属。
+2. 通过 `RecordUpload` 创建 FileUpload（使用事件中的 `artifact_id` 作为 PublicID）。
+3. 创建 ProjectFile（`resource_type=artifact`, `resource_id=FileUpload.ID`）。
+4. 通过 `ProjectFile.file_public_id` 唯一索引实现事件重投幂等。
+5. `storage_uri` 为空时跳过持久化（ProjectFile 无法指向不可访问文件）。
+
+### 查询兼容
+
+### 查询兼容
+
+旧 `ListTaskArtifacts`、`GetArtifact` 和 `GET /v1/artifacts/{artifact_id}/download` 已删除。
+产物文件现统一通过 ProjectFile 接口访问：
+- 项目/任务产物列表：`GET /v1/projects/{project_id}/files?resource_type=artifact&task_id={task_id}`
+- 下载：`GET /v1/files/{id}/download`
+- 文件节点返回 `public_id`、`storage_uri`、文件名、大小、MIME、SHA256 和创建时间。
 
 注意：
-
-- 当前 artifact 表没有 `request_id` 字段。
-- 当前 artifact 表没有 `worker_id` 字段；下载临时假设 `worker_id = 1`。
-- 多轮归属在执行期由 `request_id` 区分 turn manifest；持久化后主要通过 `message_id` 和 session/task 归属区分。
+- 不再兼容旧的 `art_*` 格式 ID。
+- 旧的 `leros_artifact` 表在启动迁移中通过 `DROP TABLE` 直接删除，不回填历史数据。
+- `artifact_declare` 工具、`artifacts.jsonl` manifest、Artifact 事件和 SessionMessage 中的 Artifact 元数据继续保留。
 
 ## 12. API 设计
 
 当前已注册接口：
 
 ```text
-GET /v1/tasks/{task_id}/artifacts
-GET /v1/artifacts/{artifact_id}/download
+GET /v1/projects/{project_id}/files?resource_type=artifact&task_id={task_id}
+GET /v1/projects/{project_id}/files/download?path={path}
+GET /v1/files/{id}/download
 ```
 
-当前未实现但可后续扩展：
-
-```text
-GET /v1/messages/{message_id}/artifacts
-GET /v1/tasks/{task_id}/artifacts?group_by=turn
-```
-
-任务产物列表当前返回轻量信息，不返回下载 URL，也不返回内部路径：
+产物文件列表通过 ProjectFile 接口返回，文件节点格式：
 
 ```json
 [
   {
-    "artifact_id": "art_xxx",
-    "title": "项目报告",
-    "filename": "report.md",
-    "description": "最终报告",
-    "artifact_type": "file",
+    "name": "report.md",
+    "path": "artifacts/report.md",
+    "type": "file",
+    "size": 123456,
     "mime_type": "text/markdown",
-    "file_size": 123456,
+    "created_at": 1700000000,
+    "public_id": "file_xxx",
+    "storage_uri": "s3://...",
     "sha256": "..."
   }
 ]
 ```
-
-下载接口当前流程：
-
-- 根据 `artifact_id` 和当前用户 org 查询 artifact。
-- 使用 artifact 的 `storage_key` 和 Server 侧 worker workspace 挂载规则解析真实文件路径。
-- 校验 `storage_key` 不为空、不是绝对路径、不会逃逸 worker workspace。
-- 打开文件并返回文件内容。
-- 不向前端暴露容器或宿主机绝对路径。
 
 ## 13. 多轮对话产物归属
 
@@ -447,53 +386,43 @@ task_1
   -> repo/.leros/tasks/{task_id}/turns/{request_id}/artifacts.jsonl
 
 持久化:
-  artifact -> project_id + task_id + session_id
-  assistant message 完成后 -> artifact.message_id
+  FileUpload -> 文件元数据 + StorageURI
+  ProjectFile -> project_id + task_id + FileUpload
+  SessionMessage.Artifacts -> 当前 assistant message 的轻量产物引用
 ```
 
 因此当前系统可以稳定回答：
 
-- 某个 task 当前累计有哪些 completed artifacts。
-- 某条 assistant message 底部应该展示哪些已绑定附件。
+- 某个 task 当前累计关联了哪些产物文件。
+- 某条 assistant message 底部应该展示哪些产物引用。
 
-当前系统还不能仅依赖 artifact 表直接回答：
+当前持久化模型不能仅依赖 `ProjectFile` 直接回答：
 
-- 某个 `request_id` 生成了哪些 artifact。
-- 多 worker 场景下某个 artifact 必然位于哪个 worker workspace。
+- 某个 `request_id` 生成了哪些产物。
 
-这两个能力分别需要补齐 `request_id` 或明确的 turn 归属字段，以及 `worker_id` 持久化。
+该能力需要增加明确的 run/turn 归属关系；文件下载不依赖 Worker workspace，而是直接使用 `FileUpload.StorageURI`。
 
 ## 14. v1 历史文件限制
 
-当前不实现本地文件快照目录。因此如果后续轮次覆盖了同名文件，历史 artifact 的 `relative_path` 和 `storage_key` 可能指向被覆盖后的当前文件。
+当前不实现本地文件快照目录。每次产物上传都会形成独立的 `FileUpload.StorageURI`，因此后续轮次覆盖 Git 工作区中的同名文件，不会改变已经上传的历史对象。
 
-当前仍记录：
+当前持久化记录包括：
 
 ```text
-message_id
-relative_path
-storage_key
-sha256
-created_at
+FileUpload.public_id
+FileUpload.storage_uri
+FileUpload.sha256
+ProjectFile.project_id
+ProjectFile.task_id
+ProjectFile.created_at
+SessionMessage.Artifacts
 ```
 
-这些字段可用于识别归属和检测内容是否已变化，但不能冻结历史文件内容。
-
-如果需要冻结历史文件内容，应进入后续版本，通过 Git、S3/MinIO 或本地快照目录实现。
+这些字段可用于下载历史对象、识别项目/任务归属，并在消息中恢复当轮展示信息。当前没有独立的 `request_id` 查询索引。
 
 ## 15. 后续扩展
 
-### 15.1 持久化 worker_id
-
-Artifact 下载当前需要知道产物来自哪个 worker workspace，但 artifact 表没有 `worker_id`。多 worker 场景应优先补齐：
-
-```text
-worker_id
-```
-
-下载时使用 artifact 自身的 `org_id + worker_id + storage_key` 解析 Server 侧文件路径。
-
-### 15.2 request/turn 维度查询
+### 15.1 request/turn 维度查询
 
 如果产品需要按“哪一轮 request 生成了什么”直接查询，需在持久化模型中增加：
 
@@ -501,7 +430,7 @@ worker_id
 request_id
 ```
 
-或引入独立 run/turn 表，将 artifact 关联到 run/turn。
+或引入独立 run/turn 表，将 `ProjectFile` 或消息产物引用关联到 run/turn。
 
 ### 15.3 Git 历史文件
 
@@ -514,20 +443,9 @@ git_blob
 
 下载时按 commit/blob 读取历史版本，避免同名文件覆盖问题。
 
-### 15.4 S3 / MinIO
-
-后续可在任务完成后上传 artifact 文件到对象存储：
-
-```text
-storage_backend = s3
-storage_key = ...
-```
-
-下载接口保持不变，前端无感知。
-
 ### 15.5 本地文件快照目录
 
-如需本地冻结历史文件，可后续引入：
+如需在对象存储之外保留 Worker 本地副本，可后续引入：
 
 ```text
 repo/.leros/tasks/{task_id}/artifacts/{artifact_id}/
@@ -551,7 +469,6 @@ turns/{request_id}/attempts/{attempt_id}/
 - 文档明确多轮 manifest 目录使用 `tasks/{task_id}/turns/{request_id}`。
 - 文档明确 Server 不通过 worker task 协议传递内部派生路径。
 - 文档明确 Worker 准备 workspace 后会把 `req.Runtime.WorkDir` 改写为 `EffectiveWorkDir`。
-- 文档明确 Worker 侧 `storage_key` 与 Server 侧挂载路径的映射关系。
-- 文档明确当前 artifact 表不持久化 `request_id` 和 `worker_id`，以及这两个缺口对查询和下载的影响。
-- 文档明确最终产物来自 manifest 或 `artifact_declare` 显式声明。
-- 文档不要求当前实现本地 artifact 快照目录。
+- 文档明确产物持久化统一通过 `FileUpload` + `ProjectFile`，不再使用独立 artifact 表。
+- 文档明确下载接口通过 `FileUpload.StorageURI` 从对象存储获取文件。
+- 文档明确 Git diff 产物发现是 best-effort，失败只记录日志不影响任务终态。

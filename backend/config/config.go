@@ -31,7 +31,7 @@ type Config struct {
 	Server struct {
 		Port                  string    `yaml:"port,omitempty"`                    // 服务器端口
 		DisableEventConsumers bool      `yaml:"disable_event_consumers,omitempty"` // 是否禁用后台事件消费者
-		JWT                   JWTConfig `yaml:"jwt,omitempty"` // JWT 认证配置
+		JWT                   JWTConfig `yaml:"jwt,omitempty"`                     // JWT 认证配置
 	} `yaml:"server,omitempty"` // 服务器地址
 	Env           string              `yaml:"env,omitempty"`
 	WorkspaceRoot string              `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
@@ -96,15 +96,15 @@ type AliyunConfig struct {
 
 // StorageConfig 是存储的配置结构
 type StorageConfig struct {
-	Driver       string `yaml:"driver"`
-	Endpoint     string `yaml:"endpoint,omitempty"`
-	AccessKey    string `yaml:"access_key,omitempty"`
-	SecretKey    string `yaml:"secret_key,omitempty"`
-	UseSSL       bool   `yaml:"use_ssl,omitempty"`
-	Bucket       string `yaml:"bucket,omitempty"`
-	BaseURL      string `yaml:"base_url,omitempty"`
-	URLStyle     string `yaml:"url_style,omitempty"`
-	LocalDir     string `yaml:"local_dir,omitempty"`
+	Driver     string `yaml:"driver"`
+	Endpoint   string `yaml:"endpoint,omitempty"`
+	AccessKey  string `yaml:"access_key,omitempty"`
+	SecretKey  string `yaml:"secret_key,omitempty"`
+	UseSSL     bool   `yaml:"use_ssl,omitempty"`
+	Bucket     string `yaml:"bucket,omitempty"`
+	BaseURL    string `yaml:"base_url,omitempty"`
+	URLStyle   string `yaml:"url_style,omitempty"`
+	LocalDir   string `yaml:"local_dir,omitempty"`
 	SignSecret string `yaml:"sign_secret,omitempty"`
 }
 

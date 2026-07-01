@@ -334,10 +334,9 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	}
 
 	result := &contract.ProjectDetail{
-		Project:   *convertToContractProject(project),
-		Tasks:     make([]contract.ProjectTaskItem, 0),
-		Artifacts: make([]contract.Artifact, 0),
-		Members:   make([]contract.ProjectMemberItem, 0),
+		Project: *convertToContractProject(project),
+		Tasks:   make([]contract.ProjectTaskItem, 0),
+		Members: make([]contract.ProjectMemberItem, 0),
 	}
 
 	// 查询项目会话
@@ -381,17 +380,6 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 			}
 		}
 		result.Tasks = append(result.Tasks, item)
-	}
-
-	// 查询项目产物
-	artifacts, err := db.ListArtifactsByProjectID(ctx, s.db, caller.OrgID, project.ID)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range artifacts {
-		if converted := convertToContractArtifact(a); converted != nil {
-			result.Artifacts = append(result.Artifacts, *converted)
-		}
 	}
 
 	// 查询项目成员
@@ -502,7 +490,7 @@ func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) 
 	}, nil
 }
 
-func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, resourceType string) ([]*contract.FileTreeNode, error) {
+func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*contract.FileTreeNode, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
 		return nil, err
@@ -518,13 +506,28 @@ func (s *projectService) GetProjectFileTree(ctx context.Context, publicID string
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-		return nil, err
-	}
 
-	files, err := db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, resourceType)
-	if err != nil {
-		return nil, fmt.Errorf("list project files: %w", err)
+	var files []types.ProjectFile
+	if taskPublicID != "" {
+		task, err := db.GetTaskByPublicID(ctx, s.db, caller.OrgID, taskPublicID)
+		if err != nil {
+			return nil, err
+		}
+		if task == nil {
+			return nil, errors.New("task not found")
+		}
+		if task.ProjectID != project.ID {
+			return nil, errors.New("task does not belong to this project")
+		}
+		files, err = db.ListProjectFilesByTask(ctx, s.db, caller.OrgID, project.ID, task.ID, resourceType)
+		if err != nil {
+			return nil, fmt.Errorf("list project files by task: %w", err)
+		}
+	} else {
+		files, err = db.ListProjectFiles(ctx, s.db, caller.OrgID, project.ID, resourceType)
+		if err != nil {
+			return nil, fmt.Errorf("list project files: %w", err)
+		}
 	}
 
 	return buildFileTreeFromProjectFiles(ctx, s.db, files), nil
@@ -549,9 +552,6 @@ func (s *projectService) DownloadProjectFile(ctx context.Context, publicID strin
 	}
 	if project == nil {
 		return nil, "", 0, errors.New("project not found")
-	}
-	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
-		return nil, "", 0, err
 	}
 
 	if !isPathAllowed(filePath) {
@@ -667,6 +667,7 @@ func buildFileTreeFromProjectFiles(ctx context.Context, dbParam *gorm.DB, files 
 			CreatedAt:  pf.CreatedAt.Unix(),
 			PublicID:   pf.FilePublicID,
 			StorageURI: fileUpload.StorageURI,
+			Sha256:     fileUpload.Sha256,
 		}
 		roots = append(roots, node)
 	}

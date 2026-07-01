@@ -58,9 +58,6 @@ const (
 	// TableNameTask 任务表名
 	TableNameTask = tablenamePrefix + "task"
 
-	// TableNameArtifact 任务产出物表名
-	TableNameArtifact = tablenamePrefix + "artifact"
-
 	// TableNameFileUpload 文件上传表名
 	TableNameFileUpload = tablenamePrefix + "file_upload"
 	// TableNameProjectFile 项目文件关联表名

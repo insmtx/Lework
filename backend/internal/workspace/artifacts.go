@@ -26,6 +26,7 @@ type ManifestArtifact struct {
 	MimeType     string `json:"mime_type,omitempty"`
 	ArtifactType string `json:"artifact_type,omitempty"`
 	IsFinal      bool   `json:"is_final,omitempty"`
+	Source       string `json:"source,omitempty"`
 }
 
 // ArtifactRecord 是 manifest 产物声明经过校验后可持久化的结构。
@@ -137,6 +138,7 @@ func BuildArtifactRecord(plan *TaskWorkspace, item ManifestArtifact) (ArtifactRe
 	if artifactType == "" {
 		artifactType = string(types.ArtifactTypeFile)
 	}
+	source := resolveArtifactSource(item.Source)
 	return ArtifactRecord{
 		Title:        title,
 		Filename:     filepath.Base(item.Path),
@@ -148,9 +150,22 @@ func BuildArtifactRecord(plan *TaskWorkspace, item ManifestArtifact) (ArtifactRe
 		MimeType:     detectMimeType(absolute, item.MimeType),
 		FileSize:     info.Size(),
 		Sha256:       sha,
-		Source:       string(types.ArtifactSourceAgentDeclared),
+		Source:       source,
 		Status:       string(types.ArtifactStatusCompleted),
 	}, nil
+}
+
+// resolveArtifactSource returns a valid artifact source from the manifest entry.
+// Empty or unknown values fall back to agent_declared.
+func resolveArtifactSource(source string) string {
+	switch strings.TrimSpace(source) {
+	case string(types.ArtifactSourceAgentDeclared):
+		return string(types.ArtifactSourceAgentDeclared)
+	case string(types.ArtifactSourceDiff):
+		return string(types.ArtifactSourceDiff)
+	default:
+		return string(types.ArtifactSourceAgentDeclared)
+	}
 }
 
 func sha256File(path string) (string, error) {
@@ -186,4 +201,18 @@ func detectMimeType(path string, declared string) string {
 		return ""
 	}
 	return normalizeMimeType(http.DetectContentType(buf[:n]))
+}
+
+func normalizeMimeType(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if mediaType, _, err := mime.ParseMediaType(value); err == nil {
+		return mediaType
+	}
+	if index := strings.Index(value, ";"); index >= 0 {
+		return strings.TrimSpace(value[:index])
+	}
+	return value
 }

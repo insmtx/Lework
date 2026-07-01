@@ -48,7 +48,6 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&types.Task{},
 		&types.Session{},
 		&types.SessionMessage{},
-		&types.Artifact{},
 		&types.LLMModel{},
 		&types.FileUpload{},
 		&types.ProjectFile{},
@@ -1493,39 +1492,47 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	artifact := &types.Artifact{
-		PublicID:     "art_existing",
+	// Create a FileUpload + ProjectFile to simulate an existing artifact.
+	fileUpload := &types.FileUpload{
+		PublicID:     "file_existing",
 		OrgID:        1,
 		OwnerID:      1,
-		TaskID:       taskID,
-		ProjectID:    projectID,
-		SessionID:    &session.ID,
-		Title:        "Report",
 		Filename:     "report.md",
-		ArtifactType: string(types.ArtifactTypeFile),
+		OriginalName: "report.md",
 		MimeType:     "text/markdown",
-		FileURL:      "/v1/artifacts/art_existing/download",
-		RelativePath: "docs/report.md",
-		StorageKey:   "projects/1/project_10/repo/docs/report.md",
-		Source:       string(types.ArtifactSourceAgentDeclared),
-		Status:       string(types.ArtifactStatusCompleted),
+		FileSize:     100,
+		StorageURI:   "s3://bucket/projects/1/project_10/repo/docs/report.md",
+		Purpose:      "artifact",
+		Status:       "active",
 	}
-	if err := database.Create(artifact).Error; err != nil {
-		t.Fatalf("create artifact: %v", err)
+	if err := database.Create(fileUpload).Error; err != nil {
+		t.Fatalf("create file upload: %v", err)
+	}
+	projectFile := &types.ProjectFile{
+		FilePublicID: fileUpload.PublicID,
+		OrgID:        1,
+		ProjectID:    projectID,
+		TaskID:       taskID,
+		ResourceID:   fileUpload.ID,
+		ResourceType: types.ProjectFileResourceTypeArtifact,
+		Uin:          1,
+	}
+	if err := database.Create(projectFile).Error; err != nil {
+		t.Fatalf("create project file: %v", err)
 	}
 
 	chunkPayload, err := json.Marshal(events.ArtifactPayload{
-		ArtifactID:   artifact.PublicID,
-		Title:        artifact.Title,
-		Filename:     artifact.Filename,
-		MimeType:     artifact.MimeType,
-		ArtifactType: artifact.ArtifactType,
+		ArtifactID:   fileUpload.PublicID,
+		Title:        fileUpload.Filename,
+		Filename:     fileUpload.Filename,
+		MimeType:     fileUpload.MimeType,
+		ArtifactType: string(types.ArtifactTypeFile),
 	})
 	if err != nil {
 		t.Fatalf("marshal artifact chunk: %v", err)
 	}
 	messageArtifacts := []types.MessageArtifact{
-		{ArtifactID: artifact.PublicID, Title: artifact.Title, Filename: artifact.Filename, MimeType: artifact.MimeType, ArtifactType: artifact.ArtifactType},
+		{ArtifactID: fileUpload.PublicID, Title: fileUpload.Filename, Filename: fileUpload.Filename, MimeType: fileUpload.MimeType, ArtifactType: string(types.ArtifactTypeFile)},
 	}
 	err = service.CompleteSessionMessage(ctx, &contract.CompleteSessionMessageRequest{
 		SessionID: session.PublicID,
@@ -1539,12 +1546,12 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 		t.Fatalf("CompleteSessionMessage failed: %v", err)
 	}
 
-	var artifacts []types.Artifact
-	if err := database.Find(&artifacts).Error; err != nil {
-		t.Fatalf("list artifacts: %v", err)
+	var projectFiles []types.ProjectFile
+	if err := database.Where("resource_type = ?", types.ProjectFileResourceTypeArtifact).Find(&projectFiles).Error; err != nil {
+		t.Fatalf("list project files: %v", err)
 	}
-	if len(artifacts) != 1 {
-		t.Fatalf("expected existing artifact to be reused, got %d rows", len(artifacts))
+	if len(projectFiles) != 1 {
+		t.Fatalf("expected existing artifact to have 1 project file, got %d rows", len(projectFiles))
 	}
 	// 不再验证 artifact.message_id 绑定，artifact 通过 session_id 关联查询
 	result, err := service.GetSessionMessages(ctx, session.PublicID, 1, 20)
@@ -1553,7 +1560,7 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	}
 	if len(result.Items) != 1 ||
 		len(result.Items[0].Artifacts) != 1 ||
-		result.Items[0].Artifacts[0].ArtifactID != artifact.PublicID ||
+		result.Items[0].Artifacts[0].ArtifactID != fileUpload.PublicID ||
 		result.Items[0].Artifacts[0].Filename != "report.md" ||
 		result.Items[0].Artifacts[0].MimeType != "text/markdown" {
 		t.Fatalf("expected message artifacts to be persisted, got %#v", result.Items)

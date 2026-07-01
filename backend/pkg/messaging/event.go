@@ -33,6 +33,9 @@ const (
 	// RunEventWorkTitleUpdated 表示项目/任务标题已由 LLM 自动生成。
 	RunEventWorkTitleUpdated RunEventType = "work.title.updated"
 
+	// RunEventPlanPublished 表示计划文件已上传到对象存储。
+	RunEventPlanPublished RunEventType = "plan.published"
+
 	// ---- stream lane 事件（高频增量，SSE 实时流） ----
 
 	// RunEventMessageDelta 表示助手文本增量输出。
@@ -73,6 +76,7 @@ func ClassifyRunEvent(eventType RunEventType) RunEventLane {
 		RunEventArtifactDeclared,
 		RunEventApprovalRequested, RunEventApprovalResolved,
 		RunEventQuestionAsked, RunEventQuestionAnswered,
+		RunEventPlanPublished,
 		RunEventWorkTitleUpdated:
 		return RunEventLaneState
 
@@ -118,6 +122,7 @@ type RunEventPayload struct {
 	ApprovalDecision *ApprovalDecisionPayload `json:"approval_decision,omitempty"`
 	QuestionRequest  *QuestionRequestPayload  `json:"question_request,omitempty"`
 	QuestionAnswer   *QuestionAnswerPayload   `json:"question_answer,omitempty"`
+	PlanPublished    *PlanPublishedPayload    `json:"plan_published,omitempty"`
 	WorkTitle        *WorkTitleUpdatedPayload `json:"work_title,omitempty"`
 }
 
@@ -208,21 +213,28 @@ type ApprovalDecisionPayload struct {
 
 // QuestionRequestPayload 描述引擎向用户提出的澄清问题。
 type QuestionRequestPayload struct {
-	RequestID       string              `json:"request_id"`
-	SessionID       string              `json:"session_id,omitempty"`
-	Questions       []QuestionItem      `json:"questions"`
-	ToolCallID      string              `json:"tool_call_id,omitempty"`
-	MessageID       string              `json:"message_id,omitempty"`
-	InteractionType string              `json:"interaction_type,omitempty"`
-	Plan            *PlanHandoffPayload `json:"plan,omitempty"`
-	Metadata        map[string]string   `json:"metadata,omitempty"`
+	RequestID       string            `json:"request_id"`
+	SessionID       string            `json:"session_id,omitempty"`
+	Questions       []QuestionItem    `json:"questions"`
+	ToolCallID      string            `json:"tool_call_id,omitempty"`
+	MessageID       string            `json:"message_id,omitempty"`
+	InteractionType string            `json:"interaction_type,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 
-// PlanHandoffPayload carries the plan content displayed during a plan confirmation.
-type PlanHandoffPayload struct {
-	Content  string `json:"content,omitempty"`
-	FilePath string `json:"file_path,omitempty"`
-	Error    string `json:"error,omitempty"`
+// PlanPublishedPayload carries the uploaded plan file info and :::plan directive.
+type PlanPublishedPayload struct {
+	FileID       string `json:"file_id"`
+	Directive    string `json:"directive"`
+	SummaryLines int    `json:"summary_lines"`
+	TotalLines   int    `json:"total_lines"`
+	StorageKey   string `json:"storage_key,omitempty"`
+	StorageURI   string `json:"storage_uri,omitempty"`
+	Filename     string `json:"filename,omitempty"`
+	OriginalName string `json:"original_name,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	FileSize     int64  `json:"file_size,omitempty"`
+	Sha256       string `json:"sha256,omitempty"`
 }
 
 // QuestionItem 是问题请求中的单个问题。

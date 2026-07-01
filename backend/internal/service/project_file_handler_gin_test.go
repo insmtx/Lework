@@ -20,7 +20,7 @@ type mockProjectServiceForAddFile struct {
 	listProjectsFn        func(ctx context.Context, req *contract.ListProjectsRequest) (*contract.ProjectList, error)
 	detailProjectFn       func(ctx context.Context, publicID string) (*contract.ProjectDetail, error)
 	getProjectMemoryFn    func(ctx context.Context, publicID string) (*contract.ProjectMemory, error)
-	getProjectFileTreeFn  func(ctx context.Context, publicID string, resourceType string) ([]*contract.FileTreeNode, error)
+	getProjectFileTreeFn  func(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*contract.FileTreeNode, error)
 	downloadProjectFileFn func(ctx context.Context, publicID string, filePath string) (io.ReadCloser, string, int64, error)
 }
 
@@ -66,9 +66,9 @@ func (m *mockProjectServiceForAddFile) GetProjectMemory(ctx context.Context, pub
 	}
 	return nil, nil
 }
-func (m *mockProjectServiceForAddFile) GetProjectFileTree(ctx context.Context, publicID string, resourceType string) ([]*contract.FileTreeNode, error) {
+func (m *mockProjectServiceForAddFile) GetProjectFileTree(ctx context.Context, publicID string, resourceType string, taskPublicID string) ([]*contract.FileTreeNode, error) {
 	if m.getProjectFileTreeFn != nil {
-		return m.getProjectFileTreeFn(ctx, publicID, resourceType)
+		return m.getProjectFileTreeFn(ctx, publicID, resourceType, taskPublicID)
 	}
 	return nil, nil
 }

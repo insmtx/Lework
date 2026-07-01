@@ -10,8 +10,9 @@ import {
 	CommandList,
 } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Plus, Sparkles, WandSparkles } from "lucide-react";
+import { Bot, Plus, Sparkles, WandSparkles, ClipboardPenLine } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { mockAssistants } from "./mockDirectiveData";
 import type { ComposerSkillOption, StructuredComposerHandle } from "./StructuredComposer";
@@ -25,6 +26,9 @@ type ComposerActionBarProps = {
 	className?: string;
 	projectSkillOptions?: ComposerSkillOption[];
 	disableAssistantAndSkill?: boolean;
+	executionMode?: "default" | "plan";
+	setExecutionMode?: (mode: "default" | "plan") => void;
+	isGenerating?: boolean;
 };
 
 type SkillOption = {
@@ -113,6 +117,9 @@ export function ComposerActionBar({
 	className,
 	projectSkillOptions,
 	disableAssistantAndSkill = false,
+	executionMode,
+	setExecutionMode,
+	isGenerating,
 }: ComposerActionBarProps) {
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [skillOpen, setSkillOpen] = useState(false);
@@ -186,6 +193,28 @@ export function ComposerActionBar({
 
 	return (
 		<div className={cn("flex flex-wrap items-center gap-2", className)}>
+			{setExecutionMode && (
+				<Tooltip>
+					<TooltipTrigger
+						disabled={isGenerating}
+						aria-label="Plan Mode"
+						aria-pressed={executionMode === "plan"}
+						onClick={() => {
+							if (!allowAction()) return;
+							setExecutionMode(executionMode === "plan" ? "default" : "plan");
+						}}
+						className={cn(
+							"inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900",
+							executionMode === "plan" && "bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700",
+						)}
+					>
+						<ClipboardPenLine className="size-4" />
+					</TooltipTrigger>
+					<TooltipContent side="top">
+						计划模式会先拆解任务并制定方案，提升复杂任务的执行质量
+					</TooltipContent>
+				</Tooltip>
+			)}
 			{onUpload && (
 				<button
 					type="button"

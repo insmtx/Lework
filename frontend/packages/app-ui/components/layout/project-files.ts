@@ -37,7 +37,7 @@ export function normalizeProjectFileTree(
 		size: typeof node.size === "number" ? node.size : 0,
 		mimeType: typeof node.mime_type === "string" ? node.mime_type : "",
 		modTime: typeof node.mod_time === "number" ? node.mod_time : 0,
-		createdAt: typeof node.created_at === "number" ? node.created_at : 0,
+		createdAt: typeof node.created_at === "number" ? node.created_at * 1000 : 0,
 		publicId: typeof node.public_id === "string" ? node.public_id : "",
 		storageUri: typeof node.storage_uri === "string" ? node.storage_uri : "",
 		children: normalizeProjectFileTree(node.children),

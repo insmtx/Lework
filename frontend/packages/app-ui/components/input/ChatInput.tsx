@@ -21,11 +21,12 @@ import {
 	CircleStop,
 	LoaderCircle,
 	Paperclip,
-	ClipboardList,
 	SendHorizonal,
 	ShieldAlert,
 	X,
+	ClipboardPenLine,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
@@ -34,7 +35,6 @@ import {
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
 import { ComposerActionBar } from "./ComposerActionBar";
-import { PlanConfirmationInput } from "./PlanConfirmationInput";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
 	type ComposerSkillOption,
@@ -205,27 +205,28 @@ export function ChatInput({
 		submitMessage();
 	}, [submitMessage]);
 
-	if (pendingQuestion) {
-		if (pendingQuestion.question.interactionType === "plan_confirmation") {
-			return (
-				<PlanConfirmationInput
-					question={pendingQuestion.question}
-					messageId={pendingQuestion.message.id}
-					variant={variant}
-					projectLayout={projectLayout}
-					onAnswer={submitQuestionAnswer}
-					onExecute={() => setExecutionMode("default")}
-					onRevise={() => setExecutionMode("plan")}
-				/>
+	const handlePlanAnswer = useCallback(
+		(messageId: string, requestId: string, answers: string[][]) => {
+			// Determine execution mode from answer: "Yes" → default, "No" → plan
+			const yesAnswer = answers.some(
+				(ans) => ans.length > 0 && ans[0]?.toLowerCase() === "yes",
 			);
-		}
+			setExecutionMode(yesAnswer ? "default" : "plan");
+			submitQuestionAnswer(messageId, requestId, answers);
+		},
+		[submitQuestionAnswer, setExecutionMode],
+	);
+
+	if (pendingQuestion) {
+		const isPlanConfirmation =
+			pendingQuestion.question.interactionType === "plan_confirmation";
 		return (
 			<QuestionAnswerInput
 				question={pendingQuestion.question}
 				messageId={pendingQuestion.message.id}
 				variant={variant}
 				projectLayout={projectLayout}
-				onAnswer={submitQuestionAnswer}
+				onAnswer={isPlanConfirmation ? handlePlanAnswer : submitQuestionAnswer}
 			/>
 		);
 	}
@@ -298,9 +299,31 @@ export function ChatInput({
 									composerRef={composerRef}
 									onUpload={() => fileInputRef.current?.click()}
 									projectSkillOptions={projectSkillOptions}
+									executionMode={executionMode}
+									setExecutionMode={setExecutionMode}
+									isGenerating={isGenerating}
 								/>
 							) : (
 								<>
+									<Tooltip>
+										<TooltipTrigger
+											aria-label="Plan Mode"
+											aria-pressed={executionMode === "plan"}
+											disabled={isGenerating}
+											onClick={() =>
+												setExecutionMode(executionMode === "plan" ? "default" : "plan")
+											}
+											className={cn(
+												"inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:text-slate-600 hover:bg-slate-100",
+												executionMode === "plan" && "bg-blue-50 text-blue-600 hover:bg-blue-100",
+											)}
+										>
+											<ClipboardPenLine className="size-4" />
+										</TooltipTrigger>
+										<TooltipContent side="top">
+											计划模式会先拆解任务并制定方案，提升复杂任务的执行质量
+										</TooltipContent>
+									</Tooltip>
 									<Button
 										variant="ghost"
 										size="icon-sm"
@@ -356,23 +379,6 @@ export function ChatInput({
 							)}
 						</div>
 						<div className="flex items-center gap-2">
-							<Button
-								type="button"
-								variant={executionMode === "plan" ? "secondary" : "ghost"}
-								size="sm"
-								disabled={isGenerating}
-								aria-pressed={executionMode === "plan"}
-								onClick={() =>
-									setExecutionMode(executionMode === "plan" ? "default" : "plan")
-								}
-								className={cn(
-									"h-8 gap-1.5 text-xs",
-									executionMode === "plan" && "bg-blue-50 text-blue-700 hover:bg-blue-100",
-								)}
-							>
-								<ClipboardList className="size-3.5" />
-								Plan Mode
-							</Button>
 							{isGenerating ? (
 								<Button
 									variant={isProjectVariant ? "ghost" : "outline"}

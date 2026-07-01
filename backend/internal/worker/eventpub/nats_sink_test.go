@@ -19,19 +19,10 @@ func TestMapQuestionRequestPayloadPreservesPlanHandoff(t *testing.T) {
 	payload := mapQuestionRequestPayload(events.QuestionRequestPayload{
 		RequestID:       "question-1",
 		InteractionType: "plan_confirmation",
-		Plan: &events.PlanHandoffPayload{
-			Content:  "# Plan",
-			FilePath: ".opencode/plans/123-plan.md",
-			Error:    "",
-		},
 	})
 
 	if payload.InteractionType != "plan_confirmation" {
 		t.Fatalf("interaction type = %q", payload.InteractionType)
-	}
-	if payload.Plan == nil || payload.Plan.Content != "# Plan" ||
-		payload.Plan.FilePath != ".opencode/plans/123-plan.md" {
-		t.Fatalf("plan handoff = %#v", payload.Plan)
 	}
 }
 
@@ -177,6 +168,55 @@ func TestNATSEventSinkMapsTerminalPayloadAndDetachedContext(t *testing.T) {
 	}
 	if messaging.ClassifyRunEvent(event.Body.Event) != messaging.RunEventLaneState {
 		t.Fatalf("terminal event lane = %s", messaging.ClassifyRunEvent(event.Body.Event))
+	}
+}
+
+func TestNATSEventSinkMapsPlanPublishedToStateLane(t *testing.T) {
+	publisher := &publisherRecorder{}
+	sink := NewNATSEventSink(publisher, RunEventContext{
+		OrgID:     1,
+		WorkerID:  2,
+		SessionID: "session-1",
+		RequestID: "request-1",
+		TaskID:    "task-1",
+	})
+	plan := events.PlanPublishedPayload{
+		FileID:       "file_plan_1",
+		Directive:    ":::plan{\"file_id\":\"file_plan_1\",\"summary_lines\":1,\"total_lines\":2}\nInspect\n:::",
+		SummaryLines: 1,
+		TotalLines:   2,
+		StorageKey:   "projects/1/sess/session-1/plans/file_plan_1.md",
+		StorageURI:   "file:///dev-bucket/projects/1/sess/session-1/plans/file_plan_1.md",
+		Filename:     "plan.md",
+		OriginalName: ".opencode/plans/plan.md",
+		MimeType:     "text/markdown",
+		FileSize:     7,
+		Sha256:       strings.Repeat("b", 64),
+	}
+
+	if err := sink.Emit(context.Background(), events.NewPlanPublished(plan)); err != nil {
+		t.Fatalf("Emit(plan) error = %v", err)
+	}
+	if !strings.Contains(publisher.topic, ".run.state") {
+		t.Fatalf("plan topic = %q", publisher.topic)
+	}
+	published, ok := publisher.event.(messaging.RunEvent)
+	if !ok || published.Body.Payload.PlanPublished == nil {
+		t.Fatalf("published event = %#v", publisher.event)
+	}
+	got := published.Body.Payload.PlanPublished
+	if got.FileID != plan.FileID ||
+		got.Directive != plan.Directive ||
+		got.StorageKey != plan.StorageKey ||
+		got.StorageURI != plan.StorageURI ||
+		got.Filename != plan.Filename ||
+		got.OriginalName != plan.OriginalName ||
+		got.MimeType != plan.MimeType ||
+		got.FileSize != plan.FileSize ||
+		got.Sha256 != plan.Sha256 ||
+		got.SummaryLines != plan.SummaryLines ||
+		got.TotalLines != plan.TotalLines {
+		t.Fatalf("plan payload = %#v, want %#v", got, plan)
 	}
 }
 

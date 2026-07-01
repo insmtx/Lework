@@ -345,6 +345,10 @@ func ConsumeEvents(
 			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
 				return consumed, err
 			}
+		case events.EventPlanPublished:
+			if err := emit(normalizeRuntimeEvent(event, messageIDs)); err != nil {
+				return consumed, err
+			}
 		default:
 			if strings.TrimSpace(event.Content) != "" {
 				if !resultSeen {
