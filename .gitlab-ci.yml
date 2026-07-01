@@ -14,6 +14,12 @@ spec:
         - leros
         - leros-worker
       description: '选择要发布的应用或模块'
+    update_worker_image:
+      default: "true"
+      options:
+        - "true"
+        - "false"
+      description: '发布 leros server 时是否同步构建 worker 镜像并更新 scheduler.worker_image'
 ---
 
 stages:
@@ -27,6 +33,12 @@ variables:
   PRJ: "insmtx"
   ENV: "$[[ inputs.environment ]]"
   APP: "$[[ inputs.app ]]"
+  UPDATE_WORKER_IMAGE: "$[[ inputs.update_worker_image ]]"
+  K3S_NAMESPACE_TEST: "insmtx-test"
+  K3S_SERVER_DEPLOYMENT: "leros"
+  K3S_SERVER_CONTAINER: "leros"
+  K3S_SERVER_CONFIGMAP: "leros-server-config"
+  K3S_SERVER_CONFIG_KEY: "config.yaml"
 
 
 uint-test:
@@ -59,6 +71,7 @@ build-image:
   script:
     - echo $[[ inputs.app ]] $[[ inputs.environment ]]
     - export APP=$[[ inputs.app ]]
+    - export REGISTRY="$HARBOR_HOST"
     - make push-image
     - echo "PIPELINE_STATUS=success" > build.env
     - export IMAGE_TAG=$(make image-tag)
@@ -67,6 +80,33 @@ build-image:
   artifacts:
     reports:
       dotenv: build.env
+
+build-worker-image:
+  stage: build
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: '$ENV == "desktop"'
+      when: never
+    - if: '$APP == "leros" && $UPDATE_WORKER_IMAGE == "true"'
+      when: on_success
+    - when: never
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+    APP: leros-worker
+  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  before_script:
+    - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
+  script:
+    - export REGISTRY="$HARBOR_HOST"
+    - make push-image
+    - export WORKER_IMAGE_TAG=$(make image-tag)
+    - echo "WORKER_IMAGE_TAG=${WORKER_IMAGE_TAG}" > worker.env
+    - echo "WORKER_IMAGE=${HARBOR_HOST}/${PRJ}/leros-worker:${WORKER_IMAGE_TAG}" >> worker.env
+    - cat worker.env
+  artifacts:
+    reports:
+      dotenv: worker.env
 
 deploy:
   stage: deploy
@@ -92,24 +132,40 @@ deploy:
           DEPLOY_HOST="$DEPLOY_HOST_TEST"
           echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
           UPDATE_SCRIPT="./update_yygu.sh"
+          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-insmtx-test}"
       elif [ "${ENV}" = "prod" ]; then
           if [ -z "$DEPLOY_HOST_PROD" ]; then
             echo "Required deploy variable is missing: DEPLOY_HOST_PROD"
             exit 1
           fi
+          if [ -z "$K3S_NAMESPACE_PROD" ]; then
+            echo "Required deploy variable is missing: K3S_NAMESPACE_PROD"
+            exit 1
+          fi
           DEPLOY_HOST="$DEPLOY_HOST_PROD"
           echo "$SSH_KEY_P31" | base64 -d > ~/.ssh/id_rsa
           UPDATE_SCRIPT="./update_yygu.sh"
+          K3S_NAMESPACE="$K3S_NAMESPACE_PROD"
       else
           echo "Unknown ENV: $ENV"
           exit 1
       fi
+      export DEPLOY_HOST UPDATE_SCRIPT K3S_NAMESPACE
     - chmod 600 ~/.ssh/id_rsa
   script:
     # - echo "IMAGE_TAG=$IMAGE_TAG"
     - echo "${PRJ} ${APP} ${IMAGE_TAG} "
     - |
-      if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $DEPLOY_HOST "$UPDATE_SCRIPT ${PRJ} ${APP} ${IMAGE_TAG} "; then
+      if [ "${APP}" = "leros" ] && [ "${UPDATE_WORKER_IMAGE}" = "true" ] && [ -n "${WORKER_IMAGE:-}" ]; then
+        SERVER_IMAGE="${HARBOR_HOST}/${PRJ}/${APP}:${IMAGE_TAG}"
+        scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deployments/k3s/update-leros-images.sh "$DEPLOY_HOST:/tmp/update-leros-images.sh"
+        if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "$DEPLOY_HOST" \
+          "K3S_NAMESPACE='${K3S_NAMESPACE}' K3S_SERVER_DEPLOYMENT='${K3S_SERVER_DEPLOYMENT}' K3S_SERVER_CONTAINER='${K3S_SERVER_CONTAINER}' K3S_SERVER_CONFIGMAP='${K3S_SERVER_CONFIGMAP}' K3S_SERVER_CONFIG_KEY='${K3S_SERVER_CONFIG_KEY}' bash /tmp/update-leros-images.sh '${SERVER_IMAGE}' '${WORKER_IMAGE}'"; then
+          echo "PIPELINE_STATUS=success" > deploy.env
+        else
+          echo "PIPELINE_STATUS=failed" > deploy.env
+        fi
+      elif ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $DEPLOY_HOST "$UPDATE_SCRIPT ${PRJ} ${APP} ${IMAGE_TAG} "; then
         echo "PIPELINE_STATUS=success" > deploy.env
       else
         echo "PIPELINE_STATUS=failed" > deploy.env
@@ -117,7 +173,11 @@ deploy:
     - cat deploy.env
     - echo "${PIPELINE_STATUS}"
   needs:
-    - build-image
+    - job: build-image
+      artifacts: true
+    - job: build-worker-image
+      artifacts: true
+      optional: true
   artifacts:
     reports:
       dotenv: deploy.env
