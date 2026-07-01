@@ -49,6 +49,7 @@ import {
 	Network,
 	Pencil,
 	RefreshCcw,
+	Search,
 	Trash2,
 	UserRound,
 	Users,
@@ -61,6 +62,7 @@ import { toast } from "sonner";
 import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
+import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
 import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
@@ -141,6 +143,7 @@ export function LeftRail({
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 	const [deleteTaskTarget, setDeleteTaskTarget] = useState<ProjectTask | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+	const [globalTaskSearchOpen, setGlobalTaskSearchOpen] = useState(false);
 	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
 	const [expandedTaskProjectIds, setExpandedTaskProjectIds] = useState<Set<string>>(
 		() => new Set(),
@@ -484,18 +487,32 @@ export function LeftRail({
 						<div className="leros-brand-version">{brandVersionLabel}</div>
 					</div>
 				</div>
-				<button
-					type="button"
-					className="leros-sidebar-toggle"
-					aria-label={leftRailCollapsed ? "展开侧边栏" : "收起侧边栏"}
-					onClick={() => setLeftRailCollapsed(!leftRailCollapsed)}
-				>
-					{leftRailCollapsed ? (
-						<ChevronsRight className="size-[18px]" />
-					) : (
-						<ChevronsLeft className="size-[18px]" />
-					)}
-				</button>
+				{/* 中文注释：搜索与收起同属右侧操作区，成组排列避免 space-between 把两者拉开 */}
+				<div className="leros-brand-actions flex shrink-0 items-center gap-0.5">
+					{!leftRailCollapsed ? (
+						<button
+							type="button"
+							className="leros-sidebar-toggle"
+							aria-label="全局搜索任务"
+							// 中文注释：全局搜索入口只在左栏展开态展示，收起态保持当前紧凑布局不变。
+							onClick={() => requireAuth(() => setGlobalTaskSearchOpen(true))}
+						>
+							<Search className="size-[17px]" />
+						</button>
+					) : null}
+					<button
+						type="button"
+						className="leros-sidebar-toggle"
+						aria-label={leftRailCollapsed ? "展开侧边栏" : "收起侧边栏"}
+						onClick={() => setLeftRailCollapsed(!leftRailCollapsed)}
+					>
+						{leftRailCollapsed ? (
+							<ChevronsRight className="size-[18px]" />
+						) : (
+							<ChevronsLeft className="size-[18px]" />
+						)}
+					</button>
+				</div>
 			</div>
 
 			<ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-hidden">
@@ -665,6 +682,11 @@ export function LeftRail({
 				onOpenChange={setAccountDialogOpen}
 				onUserChange={setAuthUser}
 			/>
+			<GlobalTaskSearchDialog
+				open={globalTaskSearchOpen}
+				onOpenChange={setGlobalTaskSearchOpen}
+				navigation={navigation}
+			/>
 			<Dialog
 				open={renameProject !== null}
 				onOpenChange={(open) => !open && setRenameProject(null)}
@@ -740,7 +762,10 @@ export function LeftRail({
 				</DialogContent>
 			</Dialog>
 
-			<Dialog open={deleteTaskTarget !== null} onOpenChange={(open) => !open && setDeleteTaskTarget(null)}>
+			<Dialog
+				open={deleteTaskTarget !== null}
+				onOpenChange={(open) => !open && setDeleteTaskTarget(null)}
+			>
 				<DialogContent className="sm:max-w-md" showCloseButton={false}>
 					<DialogHeader>
 						<DialogTitle>删除任务</DialogTitle>

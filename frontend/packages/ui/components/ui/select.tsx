@@ -59,12 +59,15 @@ function SelectContent({
 	align = "center",
 	alignOffset = 0,
 	alignItemWithTrigger = true,
+	showScrollButtons = false,
 	...props
 }: SelectPrimitive.Popup.Props &
 	Pick<
 		SelectPrimitive.Positioner.Props,
 		"align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
-	>) {
+	> & {
+		showScrollButtons?: boolean;
+	}) {
 	return (
 		<SelectPrimitive.Portal>
 			<SelectPrimitive.Positioner
@@ -83,9 +86,9 @@ function SelectContent({
 					)}
 					{...props}
 				>
-					<SelectScrollUpButton />
+					{showScrollButtons ? <SelectScrollUpButton /> : null}
 					<SelectPrimitive.List>{children}</SelectPrimitive.List>
-					<SelectScrollDownButton />
+					{showScrollButtons ? <SelectScrollDownButton /> : null}
 				</SelectPrimitive.Popup>
 			</SelectPrimitive.Positioner>
 		</SelectPrimitive.Portal>
@@ -112,12 +115,12 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
 			)}
 			{...props}
 		>
-			<SelectPrimitive.ItemText className="flex flex-1 gap-2 shrink-0 whitespace-nowrap">
+			<SelectPrimitive.ItemText className="flex min-w-0 flex-1 gap-2 overflow-hidden whitespace-nowrap text-ellipsis">
 				{children}
 			</SelectPrimitive.ItemText>
 			<SelectPrimitive.ItemIndicator
 				render={
-					<span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
+					<span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center bg-transparent" />
 				}
 			>
 				<Check className="pointer-events-none" />
