@@ -1,0 +1,64 @@
+# Leros k3s Server Configuration Example
+#
+# Create the server ConfigMap from this file, then let GitLab CI update only
+# scheduler.worker_image during releases.
+
+env: test
+workspace_root:
+
+server:
+  port: 8080
+  jwt:
+    secret: "${LEROS_JWT_SECRET}"
+
+database:
+  url: "${LEROS_DATABASE_URL}"
+  debug: false
+
+nats:
+  url: "${LEROS_NATS_URL}"
+
+log:
+  level: info
+
+scheduler:
+  mode: k8s
+  kubernetes_connection: in_cluster
+  kubeconfig_context: default
+  namespace: insmtx-test
+
+  # Workers connect to the existing Leros Server Service inside k3s.
+  server_addr: leros:8080
+
+  worker_image: registry.yygu.cn/insmtx/leros-worker:v0.1.17-48_7be46eb
+  workspace_init_image: registry.cn-beijing.aliyuncs.com/yygu/corekg:busybox_1.36.1
+  config_map: leros-worker-config
+  secret: leros-secret
+  image_pull_secret: insmtx-registry
+  workspace_host_path_root: /data/leros-workspaces
+  workspace_mount_root: /leros-workspaces
+  storage_host_path: /data/leros-storage
+  storage_mount_path: /leros-storage
+  node_selector:
+    node-role: worker
+    kubernetes.io/hostname: t30
+  env:
+    LEROS_STORAGE_LOCAL_DIR: /leros-storage
+
+llm:
+  provider: "openai"
+  api_key: "${LLM_API_KEY}"
+  model: "qwen3.6-plus"
+  base_url: "https://api.yygu.cn/v3/llm.chat/"
+  translation:
+    provider: "deepseek"
+    api_key: "${LLM_API_KEY}"
+    model: "deepseek-v4-flash"
+    base_url: "https://api.yygu.cn/v3/llm.chat/"
+
+storage:
+  driver: local
+  local_dir: /leros-storage
+  bucket: leros-k3s-bucket
+  sign_secret: "${LEROS_STORAGE_SIGN_SECRET}"
+  base_url: "${LEROS_BASE_URL}"

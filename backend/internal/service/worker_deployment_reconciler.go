@@ -93,6 +93,14 @@ func reconcileWorkerDeployment(
 	}
 
 	if deployment.Status == string(types.WorkerDeploymentStatusReady) {
+		needsReconcile, err := workerNeedsReconcile(ctx, workerScheduler, workerSpec(schedulerConfig, deployment, assistant))
+		if err != nil {
+			return err
+		}
+		if needsReconcile {
+			logs.Infof("Worker deployment %s drifted from desired spec; reconciling", deployment.DeploymentName)
+			return startWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant)
+		}
 		if err := workerScheduler.Health(ctx, deployment.DeploymentName); err != nil {
 			return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusFailed), err.Error())
 		}
@@ -142,15 +150,8 @@ func startWorkerDeployment(
 		return err
 	}
 
-	spec := &worker.WorkerSpec{
-		ID:             deployment.DeploymentName,
-		OrgID:          deployment.OrgID,
-		WorkerID:       deployment.WorkerID,
-		Name:           assistant.Name,
-		BootstrapToken: bootstrapToken,
-		ServerAddr:     schedulerServerAddr(schedulerConfig),
-		EnvType:        worker.WorkerEnvProcess,
-	}
+	spec := workerSpec(schedulerConfig, deployment, assistant)
+	spec.BootstrapToken = bootstrapToken
 	if _, err := workerScheduler.Start(ctx, spec); err != nil {
 		_ = db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusFailed), err.Error())
 		return err
@@ -161,9 +162,43 @@ func startWorkerDeployment(
 	return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusReady), "")
 }
 
+func workerNeedsReconcile(ctx context.Context, workerScheduler worker.WorkerScheduler, spec *worker.WorkerSpec) (bool, error) {
+	reconciler, ok := workerScheduler.(worker.WorkerSpecReconciler)
+	if !ok {
+		return false, nil
+	}
+	return reconciler.NeedsReconcile(ctx, spec)
+}
+
+func workerSpec(
+	schedulerConfig *config.SchedulerConfig,
+	deployment *types.WorkerDeployment,
+	assistant *types.DigitalAssistant,
+) *worker.WorkerSpec {
+	spec := &worker.WorkerSpec{
+		ID:         deployment.DeploymentName,
+		OrgID:      deployment.OrgID,
+		WorkerID:   deployment.WorkerID,
+		ServerAddr: schedulerServerAddr(schedulerConfig),
+		Image:      schedulerWorkerImage(schedulerConfig),
+		EnvType:    worker.WorkerEnvProcess,
+	}
+	if assistant != nil {
+		spec.Name = assistant.Name
+	}
+	return spec
+}
+
 func schedulerServerAddr(schedulerConfig *config.SchedulerConfig) string {
 	if schedulerConfig == nil {
 		return ""
 	}
 	return strings.TrimSpace(schedulerConfig.ServerAddr)
+}
+
+func schedulerWorkerImage(schedulerConfig *config.SchedulerConfig) string {
+	if schedulerConfig == nil {
+		return ""
+	}
+	return strings.TrimSpace(schedulerConfig.WorkerImage)
 }

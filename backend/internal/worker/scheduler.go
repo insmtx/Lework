@@ -20,6 +20,13 @@ type WorkerScheduler interface {
 	List(ctx context.Context) ([]*WorkerInstance, error)
 }
 
+// WorkerSpecReconciler reports whether an existing runtime worker diverges from
+// the scheduler's desired spec. Schedulers that can inspect external state
+// implement this optional interface.
+type WorkerSpecReconciler interface {
+	NeedsReconcile(ctx context.Context, spec *WorkerSpec) (bool, error)
+}
+
 type WorkerSpec struct {
 	ID             string
 	OrgID          uint

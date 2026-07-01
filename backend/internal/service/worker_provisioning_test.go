@@ -9,6 +9,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/types"
@@ -161,13 +162,80 @@ func TestWorkerReconcilerDoesNotRestartProvisioningDeployment(t *testing.T) {
 	}
 }
 
+func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	ctx := context.Background()
+	assistant := &types.DigitalAssistant{
+		Code:   "agent",
+		OrgID:  1,
+		Name:   "Agent",
+		Status: string(contract.DigitalAssistantStatusActive),
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	deployment := &types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: assistant.ID,
+		WorkerID:           1,
+		DeploymentName:     "leros-worker-o1-w1",
+		Status:             string(types.WorkerDeploymentStatusReady),
+		BootstrapTokenHash: "old-token-hash",
+	}
+	if err := database.Create(deployment).Error; err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+
+	scheduler := &fakeWorkerScheduler{needsReconcile: true}
+	cfg := &config.SchedulerConfig{
+		ServerAddr:  "http://leros:8080",
+		WorkerImage: "registry.yygu.cn/insmtx/leros-worker:v2",
+	}
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, cfg, deployment); err != nil {
+		t.Fatalf("reconcile deployment: %v", err)
+	}
+	if scheduler.startCalls != 1 {
+		t.Fatalf("Start calls = %d, want 1", scheduler.startCalls)
+	}
+	if scheduler.lastSpec == nil {
+		t.Fatal("last spec is nil")
+	}
+	if scheduler.lastSpec.Image != cfg.WorkerImage {
+		t.Fatalf("spec image = %q, want %q", scheduler.lastSpec.Image, cfg.WorkerImage)
+	}
+	if scheduler.lastSpec.BootstrapToken == "" {
+		t.Fatal("bootstrap token is empty")
+	}
+
+	var got types.WorkerDeployment
+	if err := database.First(&got, deployment.ID).Error; err != nil {
+		t.Fatalf("reload deployment: %v", err)
+	}
+	if got.BootstrapTokenHash == "" || got.BootstrapTokenHash == "old-token-hash" {
+		t.Fatalf("bootstrap hash was not rotated: %q", got.BootstrapTokenHash)
+	}
+	if got.Status != string(types.WorkerDeploymentStatusReady) {
+		t.Fatalf("status = %q, want ready", got.Status)
+	}
+}
+
 type fakeWorkerScheduler struct {
-	startCalls int
-	healthErr  error
+	startCalls     int
+	healthErr      error
+	needsReconcile bool
+	lastSpec       *worker.WorkerSpec
 }
 
 func (f *fakeWorkerScheduler) Start(ctx context.Context, spec *worker.WorkerSpec) (*worker.WorkerInstance, error) {
 	f.startCalls++
+	f.lastSpec = spec
 	return &worker.WorkerInstance{ID: spec.ID, WorkerID: spec.ID}, nil
 }
 
@@ -181,4 +249,8 @@ func (f *fakeWorkerScheduler) Health(ctx context.Context, workerID string) error
 
 func (f *fakeWorkerScheduler) List(ctx context.Context) ([]*worker.WorkerInstance, error) {
 	return nil, nil
+}
+
+func (f *fakeWorkerScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
+	return f.needsReconcile, nil
 }

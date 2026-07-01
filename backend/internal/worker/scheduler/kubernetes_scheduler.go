@@ -43,6 +43,7 @@ type KubernetesScheduler struct {
 }
 
 var _ worker.WorkerScheduler = (*KubernetesScheduler)(nil)
+var _ worker.WorkerSpecReconciler = (*KubernetesScheduler)(nil)
 
 func NewKubernetesScheduler(cfg *config.SchedulerConfig) (worker.WorkerScheduler, error) {
 	if cfg == nil {
@@ -159,6 +160,30 @@ func (s *KubernetesScheduler) List(ctx context.Context) ([]*worker.WorkerInstanc
 		result = append(result, s.instanceFromDeployment(&deployment, status))
 	}
 	return result, nil
+}
+
+func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
+	if spec == nil {
+		return false, fmt.Errorf("worker spec is required")
+	}
+	if spec.OrgID == 0 {
+		return false, fmt.Errorf("org_id is required")
+	}
+	if spec.WorkerID == 0 {
+		return false, fmt.Errorf("worker_id is required")
+	}
+	deployment, err := s.client.AppsV1().Deployments(s.namespace()).Get(ctx, deploymentName(spec.OrgID, spec.WorkerID), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get worker deployment: %w", err)
+	}
+	currentImage := workerContainerImage(deployment)
+	if currentImage == "" {
+		return true, nil
+	}
+	return currentImage != s.workerImage(spec), nil
 }
 
 func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.Deployment {
@@ -289,6 +314,21 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 			},
 		},
 	}
+}
+
+func workerContainerImage(deployment *appsv1.Deployment) string {
+	if deployment == nil {
+		return ""
+	}
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name == defaultWorkerContainerName {
+			return strings.TrimSpace(container.Image)
+		}
+	}
+	if len(deployment.Spec.Template.Spec.Containers) == 1 {
+		return strings.TrimSpace(deployment.Spec.Template.Spec.Containers[0].Image)
+	}
+	return ""
 }
 
 func (s *KubernetesScheduler) instanceFromDeployment(deployment *appsv1.Deployment, status string) *worker.WorkerInstance {
