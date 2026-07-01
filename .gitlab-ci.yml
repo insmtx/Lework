@@ -211,7 +211,6 @@ deploy:
     - $CI_PROJECT_DIR/.coscmd-venv/bin/pip install coscmd
   script:
     - mkdir -p "$CI_PROJECT_DIR/.ci-home"
-    - export HOME="$CI_PROJECT_DIR/.ci-home"
     - export PATH="/opt/homebrew/bin:/usr/local/bin:$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
     - |
       retry() {
@@ -244,7 +243,7 @@ deploy:
     - node -e 'const fs = require("node:fs"); const version = process.argv[1]; const path = "package.json"; const pkg = JSON.parse(fs.readFileSync(path, "utf8")); pkg.version = version; fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);' "$DESKTOP_VERSION"
     - cd ../..
     - pnpm --filter @leros/desktop typecheck
-    - coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
+    - HOME="$CI_PROJECT_DIR/.ci-home" coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
     - |
       version="$DESKTOP_VERSION"
       root_prefix="${DESKTOP_COS_ROOT_PREFIX#/}"
@@ -264,7 +263,7 @@ deploy:
 
         find "$local_dir" -maxdepth 1 -type f -print0 | while IFS= read -r -d '' file_path; do
           object_key="${prefix}/${target_dir}/$(basename "$file_path")"
-          coscmd upload "$file_path" "$object_key"
+          HOME="$CI_PROJECT_DIR/.ci-home" coscmd upload "$file_path" "$object_key"
         done
       }
 
@@ -277,7 +276,7 @@ deploy:
           exit 1
         fi
 
-        coscmd upload "$file_path" "${target_dir}/$(basename "$file_path")"
+        HOME="$CI_PROJECT_DIR/.ci-home" coscmd upload "$file_path" "${target_dir}/$(basename "$file_path")"
       }
 
       case "$DESKTOP_TARGET" in
@@ -329,7 +328,9 @@ deploy:
 
       cd "$CI_PROJECT_DIR/frontend"
       if [ "$build_with_signing" = "true" ]; then
-        retry env APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_KEYCHAIN="$CI_PROJECT_DIR/macos-signing.keychain-db" CSC_NAME="$MACOS_CSC_NAME" pnpm run "$build_script"
+        security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$CI_PROJECT_DIR/macos-signing.keychain-db"
+        security find-identity -v -p codesigning "$CI_PROJECT_DIR/macos-signing.keychain-db"
+        env APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_KEYCHAIN="$CI_PROJECT_DIR/macos-signing.keychain-db" CSC_NAME="$MACOS_CSC_NAME" pnpm run "$build_script"
       else
         RETRY_MAX_ATTEMPTS=6 retry env ELECTRON_MIRROR="$ELECTRON_MIRROR" ELECTRON_BUILDER_BINARIES_MIRROR="$ELECTRON_BUILDER_BINARIES_MIRROR" npm_config_electron_mirror="$npm_config_electron_mirror" npm_config_electron_builder_binaries_mirror="$npm_config_electron_builder_binaries_mirror" pnpm run "$build_script"
       fi
