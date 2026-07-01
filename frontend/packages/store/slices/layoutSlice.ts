@@ -6,7 +6,7 @@ import { workApi } from "../api/workApi";
 import type { SliceCreator } from "../types";
 import type { Attachment, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
-import { formatFileSize, parseOptionalTimestamp } from "../utils/format";
+import { parseOptionalTimestamp } from "../utils/format";
 
 export type WorkspaceMode = "remote" | "local";
 
