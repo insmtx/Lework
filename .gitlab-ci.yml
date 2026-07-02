@@ -13,6 +13,7 @@ spec:
         - leros
         - leros-worker
         - desktop
+        - leros-web
       description: '选择要发布的应用或模块，desktop为桌面端打包上传COS'
     update_worker_image:
       default: "true"
@@ -67,6 +68,15 @@ build-image:
   script:
     - echo $[[ inputs.app ]] $[[ inputs.environment ]]
     - export APP=$[[ inputs.app ]]
+    - |
+      if [ "${APP}" = "leros-web" ]; then
+        if [ -z "$NEXT_PUBLIC_LEROS_API_BASE_URL" ]; then
+          echo "Required variable is missing: NEXT_PUBLIC_LEROS_API_BASE_URL"
+          exit 1
+        fi
+        export DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEROS_API_BASE_URL=$NEXT_PUBLIC_LEROS_API_BASE_URL --build-arg LEROS_API_BASE_URL=$NEXT_PUBLIC_LEROS_API_BASE_URL"
+        echo "Building web image with API base URL: $NEXT_PUBLIC_LEROS_API_BASE_URL"
+      fi
     - export REGISTRY="$HARBOR_HOST"
     - make push-image
     - echo "PIPELINE_STATUS=success" > build.env

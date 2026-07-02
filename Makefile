@@ -5,14 +5,14 @@ REGISTRY ?= registry.yygu.cn
 .PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend
 
 # GO='GOOS=windows GOARCH=386 go'
-VERSION ?= $(shell git describe --tags | sed 's/\(.*\)-.*/\1/')
-GIT_COMMIT = $(shell git rev-parse --short HEAD || echo unsupported)
-GO_VERSION = $(shell go version)
-APP_VERSION = $(shell git describe --tags --abbrev=0)
-BUILD_AT = $(shell date "+%Y-%m-%dT%H:%M:%S")
+VERSION := $(shell git describe --tags | sed 's/\(.*\)-.*/\1/')
+GIT_COMMIT := $(shell git rev-parse --short HEAD || echo unsupported)
+GO_VERSION := $(shell go version)
+APP_VERSION := $(shell git describe --tags --abbrev=0)
+BUILD_AT := $(shell date "+%Y-%m-%dT%H:%M:%S")
 TIMESTAMP := $(shell date +%s)
 
-IMAGE_TAG = ${VERSION}_${GIT_COMMIT}
+IMAGE_TAG := ${VERSION}_${GIT_COMMIT}
 
 
 
@@ -38,6 +38,9 @@ docker-build:
 docker-build-worker:
 	docker build -t $(REGISTRY)/$(PROJECT)/worker:latest -f deployments/build/Dockerfile.worker .
 
+docker-build-web:
+	docker build -t $(REGISTRY)/$(PROJECT)/web:latest -f deployments/build/Dockerfile.web $(DOCKER_BUILD_ARGS) .
+
 
 # SERVICE: 服务名，默认使用 APP
 # DOCKERFILE_NAME: Dockerfile 文件名（去掉 lerost- 前缀），如 leros -> leros, leros-worker -> worker
@@ -52,6 +55,7 @@ docker-build-tag:
 	docker build \
 		-t $(REGISTRY)/$(PROJECT)/$(SERVICE):${IMAGE_TAG} \
 		-f deployments/build/Dockerfile.$(DOCKERFILE_NAME) \
+	    $(DOCKER_BUILD_ARGS) \
 		.
 
 push-image: docker-build-tag docker-push-tag

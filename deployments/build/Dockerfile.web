@@ -1,0 +1,62 @@
+FROM registry.yygu.cn/library/node:24-alpine AS build
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV HUSKY=0
+RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
+
+WORKDIR /app
+
+# 先复制依赖描述文件，利用 layer 缓存
+COPY frontend/pnpm-lock.yaml frontend/package.json frontend/pnpm-workspace.yaml ./
+COPY frontend/apps/web/package.json ./apps/web/
+COPY frontend/apps/desktop/package.json ./apps/desktop/
+COPY frontend/packages/app-ui/package.json ./packages/app-ui/
+COPY frontend/packages/biome/package.json ./packages/biome/
+COPY frontend/packages/store/package.json ./packages/store/
+COPY frontend/packages/styles/package.json ./packages/styles/
+COPY frontend/packages/tsconfig/package.json ./packages/tsconfig/
+COPY frontend/packages/ui/package.json ./packages/ui/
+
+RUN pnpm config set registry https://registry.npmmirror.com && \
+    pnpm install --frozen-lockfile --ignore-scripts
+
+# 复制前端源码并构建（仅 web）
+COPY frontend/ ./
+
+ENV SKIP_ENV_VALIDATION=true
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# NEXT_PUBLIC_ 前缀变量在构建时内联到客户端产物，必须通过 --build-arg 传入
+# 用法: make docker-build-web DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEROS_API_BASE_URL=https://api.example.com/v1"
+# 未传入时回退到 .env.local 中的值（避免空 ENV 覆盖 .env.local）
+ARG NEXT_PUBLIC_LEROS_API_BASE_URL
+RUN if [ -n "$NEXT_PUBLIC_LEROS_API_BASE_URL" ]; then \
+      export NEXT_PUBLIC_LEROS_API_BASE_URL; \
+    fi && \
+    pnpm turbo build --filter=@leros/web
+
+# --- 运行阶段：Next.js standalone server ---
+FROM registry.yygu.cn/library/node:24-alpine AS runtime
+
+# ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# SSR 端运行时读取的 API 地址（config.ts fallback 变量，可被 docker run -e 覆盖）
+# 注意：客户端 bundle 中的值已在构建时内联，运行时无法更改
+ARG LEROS_API_BASE_URL
+ENV LEROS_API_BASE_URL=${LEROS_API_BASE_URL}
+
+WORKDIR /app
+
+# 复制 standalone 产物（含精简的 node_modules）
+COPY --from=build /app/apps/web/.next/standalone ./
+# 复制静态资源（standalone 不含这些）
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+# COPY --from=build /app/apps/web/public ./apps/web/public
+
+EXPOSE 3000
+
+CMD ["node", "apps/web/server.js"]
