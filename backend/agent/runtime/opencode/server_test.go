@@ -14,6 +14,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 )
 
 // ============================================================================
@@ -199,6 +202,51 @@ func TestWaitHealthyExitsEarlyOnProcessError(t *testing.T) {
 	}
 	if elapsed > 1*time.Second {
 		t.Fatalf("elapsed=%v, should return immediately", elapsed)
+	}
+}
+
+func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) {
+	const attemptTimeout = 25 * time.Millisecond
+
+	var gotTimeouts []time.Duration
+	starter := func(
+		_ context.Context,
+		_, _ string,
+		_ []string,
+		_ agent.ModelConfig,
+		_ []provider.MCPServerConfig,
+		timeout time.Duration,
+	) (*OpenCodeServer, error) {
+		gotTimeouts = append(gotTimeouts, timeout)
+		return nil, errors.New("startup timeout")
+	}
+
+	_, err := startOpenCodeServerWithStarter(
+		context.Background(),
+		"opencode",
+		"/workspace",
+		nil,
+		agent.ModelConfig{},
+		nil,
+		attemptTimeout,
+		starter,
+	)
+	if err == nil {
+		t.Fatal("expected all attempts to fail")
+	}
+	if len(gotTimeouts) != maxStartAttempts {
+		t.Fatalf("attempts=%d, want %d", len(gotTimeouts), maxStartAttempts)
+	}
+	for attempt, timeout := range gotTimeouts {
+		if timeout != attemptTimeout {
+			t.Fatalf("attempt %d timeout=%s, want %s", attempt+1, timeout, attemptTimeout)
+		}
+	}
+}
+
+func TestDefaultHealthCheckTimeoutIsTenSeconds(t *testing.T) {
+	if defaultHealthCheckTimeout != 10*time.Second {
+		t.Fatalf("defaultHealthCheckTimeout=%s, want 10s", defaultHealthCheckTimeout)
 	}
 }
 
@@ -471,20 +519,20 @@ func hungServer(t *testing.T) (addr string, cleanup func()) {
 	return addr, func() { close(done); ln.Close() }
 }
 
-func TestWaitHealthyDetectsHung(t *testing.T) {
-	addr, cleanup := hungServer(t)
-	defer cleanup()
-
-	waitCh := make(chan error) // 永不关闭，模拟进程仍在运行
+func TestWaitHealthyRetriesHungUntilCycleTimeout(t *testing.T) {
+	var attempts int
 	srv := &OpenCodeServer{
-		baseURL:            fmt.Sprintf("http://%s", addr),
-		authHeader:         "Basic dGVzdDp0ZXN0",
-		healthClient:       newHealthCheckClient(),
-		healthCheckTimeout: 10 * time.Second,
-		waitCh:             waitCh,
+		baseURL:    "http://opencode.test",
+		authHeader: "Basic dGVzdDp0ZXN0",
+		healthClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			attempts++
+			return nil, &net.DNSError{IsTimeout: true}
+		})},
+		healthCheckTimeout: 750 * time.Millisecond,
+		waitCh:             make(chan error),
 		done:               make(chan struct{}),
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	start := time.Now()
@@ -492,15 +540,66 @@ func TestWaitHealthyDetectsHung(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("expected hung error, got nil")
+		t.Fatal("expected cycle timeout, got nil")
 	}
-	if !errors.Is(err, errHealthHung) {
-		t.Fatalf("err = %v, want errHealthHung", err)
+	if !strings.Contains(err.Error(), "health check timeout") {
+		t.Fatalf("err=%v, want health check timeout", err)
 	}
-	if elapsed > 3*time.Second {
-		t.Fatalf("elapsed=%v, should detect hung within ~2.5s", elapsed)
+	if elapsed < 700*time.Millisecond {
+		t.Fatalf("elapsed=%v, request timeout must not end the startup cycle early", elapsed)
 	}
-	t.Logf("hung detected in %v", elapsed)
+	if attempts < 2 {
+		t.Fatalf("attempts=%d, want repeated health checks", attempts)
+	}
+}
+
+func TestWaitHealthyRetriesTimedOutRequestsSeriallyThenSucceeds(t *testing.T) {
+	var mu sync.Mutex
+	active := 0
+	maxActive := 0
+	attempts := 0
+
+	srv := &OpenCodeServer{
+		baseURL:    "http://opencode.test",
+		authHeader: "Basic dGVzdDp0ZXN0",
+		healthClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			mu.Lock()
+			active++
+			if active > maxActive {
+				maxActive = active
+			}
+			attempts++
+			attempt := attempts
+			mu.Unlock()
+
+			time.Sleep(25 * time.Millisecond)
+
+			mu.Lock()
+			active--
+			mu.Unlock()
+
+			if attempt <= 2 {
+				return nil, &net.DNSError{IsTimeout: true}
+			}
+			return okResponseJSON(r, `{"healthy":true}`)
+		})},
+		healthCheckTimeout: 2 * time.Second,
+		waitCh:             make(chan error),
+		done:               make(chan struct{}),
+	}
+
+	if err := srv.waitHealthy(context.Background()); err != nil {
+		t.Fatalf("waitHealthy() error=%v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 3 {
+		t.Fatalf("attempts=%d, want 3", attempts)
+	}
+	if maxActive != 1 {
+		t.Fatalf("max concurrent health checks=%d, want 1", maxActive)
+	}
 }
 
 func TestCheckHealthTimesOutWhileReadingBody(t *testing.T) {

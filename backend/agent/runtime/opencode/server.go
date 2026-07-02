@@ -25,9 +25,8 @@ import (
 
 const (
 	// defaultHealthCheckTimeout 是等待 opencode server 健康检查就绪的默认超时时间。
-	// opencode 启动时需要初始化 SQLite 数据库、配置加载、MCP 连接等 55+ 个服务层，
-	// 在 cold start 或磁盘 I/O 繁忙时需要更长的时间。
-	defaultHealthCheckTimeout = 30 * time.Second
+	// 每个进程拥有独立的启动周期，周期结束后由上层停止进程并重试。
+	defaultHealthCheckTimeout = 10 * time.Second
 
 	// fastPollInterval 是健康检查前期的快速轮询间隔。
 	fastPollInterval = 200 * time.Millisecond
@@ -49,7 +48,7 @@ const (
 	healthCheckConnectTimeout = 500 * time.Millisecond
 
 	// healthCheckHeaderTimeout 是健康检查响应头超时。
-	// 超过此时间无响应头即判定进程卡死。
+	// 超过此时间无响应头时结束本次请求，并在当前启动周期内继续轮询。
 	healthCheckHeaderTimeout = 2 * time.Second
 
 	// healthCheckAttemptTimeout 限制单次健康检查（包括响应体读取）的总耗时。
@@ -62,7 +61,7 @@ type healthResult int
 const (
 	healthOK          healthResult = iota // 200 + healthy:true
 	healthConnRefused                     // TCP 连接被拒绝，进程可能仍在启动
-	healthHung                            // TCP 已连接但响应头超时，进程卡死
+	healthHung                            // 单次请求超时，当前启动周期内继续轮询
 	healthFatal                           // 确定性的协议错误（401/403/404/错误 JSON），不应重试
 	healthDegraded                        // 5xx 等临时错误，在当前进程窗口内重试
 )
@@ -105,13 +104,43 @@ type OpenCodeServer struct {
 // ============================================================================
 
 // startOpenCodeServer 启动 opcode serve 子进程，失败时自动重试。
-// 最多启动 maxStartAttempts 个全新进程，共享总 deadline。
+// 最多启动 maxStartAttempts 个全新进程，每个进程拥有独立的健康检查周期。
 func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, healthCheckTimeout time.Duration) (*OpenCodeServer, error) {
+	return startOpenCodeServerWithStarter(
+		ctx,
+		binary,
+		workDir,
+		baseEnv,
+		modelCfg,
+		mcpServers,
+		healthCheckTimeout,
+		startSingleOpenCodeServer,
+	)
+}
+
+type openCodeServerStarter func(
+	context.Context,
+	string,
+	string,
+	[]string,
+	agent.ModelConfig,
+	[]provider.MCPServerConfig,
+	time.Duration,
+) (*OpenCodeServer, error)
+
+func startOpenCodeServerWithStarter(
+	ctx context.Context,
+	binary, workDir string,
+	baseEnv []string,
+	modelCfg agent.ModelConfig,
+	mcpServers []provider.MCPServerConfig,
+	healthCheckTimeout time.Duration,
+	starter openCodeServerStarter,
+) (*OpenCodeServer, error) {
 	if healthCheckTimeout <= 0 {
 		healthCheckTimeout = defaultHealthCheckTimeout
 	}
 
-	deadline := time.Now().Add(healthCheckTimeout)
 	var errs []string
 
 	for attempt := 1; attempt <= maxStartAttempts; attempt++ {
@@ -121,13 +150,15 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 		default:
 		}
 
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil, fmt.Errorf("startup deadline exceeded before attempt %d/%d, prior errors: %s",
-				attempt, maxStartAttempts, strings.Join(errs, "; "))
-		}
+		logs.Infof(
+			"OpenCode server start attempt %d/%d: health_timeout=%s workDir=%s",
+			attempt,
+			maxStartAttempts,
+			healthCheckTimeout,
+			workDir,
+		)
 
-		srv, healthErr := startSingleOpenCodeServer(ctx, binary, workDir, baseEnv, modelCfg, mcpServers, remaining)
+		srv, healthErr := starter(ctx, binary, workDir, baseEnv, modelCfg, mcpServers, healthCheckTimeout)
 		if healthErr == nil {
 			logs.Infof("OpenCode server ready on attempt %d/%d: pid=%d port=%s workDir=%s",
 				attempt, maxStartAttempts, srv.PID(), srv.addr, workDir)
@@ -135,6 +166,13 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 		}
 
 		errs = append(errs, healthErr.Error())
+		logs.Warnf(
+			"OpenCode server start attempt %d/%d failed: health_timeout=%s reason=%v",
+			attempt,
+			maxStartAttempts,
+			healthCheckTimeout,
+			healthErr,
+		)
 
 		// 确定性协议错误不重试
 		if errors.Is(healthErr, errHealthFatal) {
@@ -148,9 +186,6 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 
 // errHealthFatal 表示确定性协议错误，不应重试进程。
 var errHealthFatal = errors.New("fatal health check response")
-
-// errHealthHung 表示进程卡死，应终止并重试。
-var errHealthHung = errors.New("process hung during health check")
 
 // ============================================================================
 // 单次进程启动
@@ -176,8 +211,12 @@ func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, base
 	if err != nil {
 		return nil, fmt.Errorf("build config content: %w", err)
 	}
+	databasePath, err := ensureOpenCodeDBPath()
+	if err != nil {
+		return nil, err
+	}
 
-	serverEnv := buildServerEnv(password, configContent, baseEnv)
+	serverEnv := buildServerEnv(password, configContent, databasePath, baseEnv)
 
 	// 4. 启动子进程
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
@@ -309,8 +348,6 @@ func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, base
 		// 确定失败阶段
 		phase := "health_poll"
 		switch {
-		case errors.Is(healthErr, errHealthHung):
-			phase = "health_poll_hung"
 		case strings.Contains(healthErr.Error(), "health check timeout"):
 			phase = "health_poll_timeout"
 		case errors.Is(healthErr, errHealthFatal):
@@ -390,11 +427,10 @@ func (s *OpenCodeServer) waitHealthy(ctx context.Context) error {
 	defer cancel()
 
 	startedAt := time.Now()
-	ticker := time.NewTicker(fastPollInterval)
-	defer ticker.Stop()
+	timer := time.NewTimer(fastPollInterval)
+	defer timer.Stop()
 
 	var attempts int
-	switchToSlow := time.After(fastPollDuration)
 
 	for {
 		select {
@@ -412,29 +448,50 @@ func (s *OpenCodeServer) waitHealthy(ctx context.Context) error {
 			}
 			return fmt.Errorf("opencode process exited prematurely with code 0")
 
-		case <-switchToSlow:
-			ticker.Reset(slowPollInterval)
-
-		case <-ticker.C:
+		case <-timer.C:
 			result, statusCode, body := s.checkHealth(healthCtx)
 			attempts++
+			elapsed := time.Since(startedAt).Truncate(time.Millisecond)
+			if healthCtx.Err() != nil {
+				continue
+			}
 
 			switch result {
 			case healthOK:
-				logs.Infof("OpenCode health check passed: attempts=%d", attempts)
+				logs.Infof(
+					"OpenCode health check passed: attempt=%d elapsed=%s pid=%d",
+					attempts,
+					elapsed,
+					s.PID(),
+				)
 				return nil
 			case healthHung:
-				elapsed := time.Since(startedAt).Truncate(time.Millisecond)
-				errMsg := fmt.Sprintf("health check hung after %v (attempts=%d pid=%d)", elapsed, attempts, s.PID())
-				return fmt.Errorf("%w: %s", errHealthHung, errMsg)
+				logs.Warnf(
+					"OpenCode health check request timed out, continuing current startup cycle: attempt=%d elapsed=%s pid=%d",
+					attempts,
+					elapsed,
+					s.PID(),
+				)
 			case healthFatal:
 				errMsg := fmt.Sprintf("fatal health response: status=%d body=%s", statusCode, body)
 				return fmt.Errorf("%w: %s", errHealthFatal, errMsg)
 			case healthDegraded:
-				logs.Warnf("OpenCode health check degraded: status=%d attempts=%d pid=%d", statusCode, attempts, s.PID())
+				logs.Warnf(
+					"OpenCode health check degraded: status=%d attempt=%d elapsed=%s pid=%d",
+					statusCode,
+					attempts,
+					elapsed,
+					s.PID(),
+				)
 			case healthConnRefused:
 				// 继续轮询，进程可能仍在启动
 			}
+
+			pollInterval := fastPollInterval
+			if time.Since(startedAt) >= fastPollDuration {
+				pollInterval = slowPollInterval
+			}
+			timer.Reset(pollInterval)
 		}
 	}
 }

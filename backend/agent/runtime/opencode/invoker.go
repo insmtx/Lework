@@ -35,7 +35,7 @@ func NewServerInvoker(binary string, extraEnv map[string]string) *ServerInvoker 
 // Run 启动 opcode serve，创建会话并执行提示。
 func (inv *ServerInvoker) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
-	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 30s）
+	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 10s/次）
 	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, 0)
 	if err != nil {
 		return nil, fmt.Errorf("start opencode server for %s: %w", workDir, err)

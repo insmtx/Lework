@@ -5,9 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/pkg/leros"
 )
 
 const (
@@ -15,6 +18,10 @@ const (
 	providerID = "leros-provider"
 	// providerNpm 使用 @ai-sdk/openai-compatible 通配大多数兼容 API。
 	providerNpm = "@ai-sdk/openai-compatible"
+	// openCodeDataDirName 是 OpenCode 在 worker 工作目录下的持久化目录。
+	openCodeDataDirName = ".opencode"
+	// openCodeDBName 是 OpenCode 会话数据库文件名。
+	openCodeDBName = "opencode.db"
 )
 
 // buildConfigContent 根据 ModelConfig 和 MCPServerConfig 列表
@@ -115,10 +122,22 @@ func buildMCPConfig(mcps []provider.MCPServerConfig) map[string]any {
 	return mcpServers
 }
 
+// ensureOpenCodeDBPath 确保 OpenCode 数据目录存在并返回会话数据库路径。
+func ensureOpenCodeDBPath() (string, error) {
+	dir, err := leros.JoinWorkspace(openCodeDataDirName)
+	if err != nil {
+		return "", fmt.Errorf("resolve opencode data directory: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create opencode data directory %s: %w", dir, err)
+	}
+	return filepath.Join(dir, openCodeDBName), nil
+}
+
 // buildServerEnv 构建 opcode serve 子进程所需的环境变量。
 // 返回格式为 "KEY=VALUE" 的字符串切片，附加到 baseEnv 之后。
-func buildServerEnv(password, configContent string, baseEnv []string) []string {
-	env := make([]string, 0, 12)
+func buildServerEnv(password, configContent, databasePath string, baseEnv []string) []string {
+	env := make([]string, 0, 13)
 
 	// 服务器认证
 	env = append(env, "OPENCODE_SERVER_PASSWORD="+password)
@@ -126,6 +145,8 @@ func buildServerEnv(password, configContent string, baseEnv []string) []string {
 
 	// 注入完整配置（provider、model、API key、base URL）
 	env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
+	// 将 session 等 SQLite 数据持久化到 worker 工作目录。
+	env = append(env, "OPENCODE_DB="+databasePath)
 
 	// 隔离环境变量：确保子进程不读取宿主机的配置文件或插件
 	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")

@@ -42,9 +42,10 @@ func TestResolvePlanPathUsesWorkDirBeforeSessionDirectory(t *testing.T) {
 }
 
 func TestBuildServerEnvEnablesPlanMode(t *testing.T) {
-	env := buildServerEnv("secret", "{}", nil)
+	env := buildServerEnv("secret", "{}", "/workspace/.opencode/opencode.db", nil)
 	assertEnvContains(t, env, "OPENCODE_EXPERIMENTAL_PLAN_MODE=true")
 	assertEnvContains(t, env, "OPENCODE_CLIENT=cli")
+	assertEnvContains(t, env, "OPENCODE_DB=/workspace/.opencode/opencode.db")
 }
 
 func assertEnvContains(t *testing.T, env []string, expected string) {
