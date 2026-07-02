@@ -1629,7 +1629,7 @@ function TaskListItem({
 	return (
 		<div
 			data-active={active}
-			className="group flex min-h-8 w-full items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-medium data-[active=true]:text-[var(--leros-primary)]"
+			className="group flex min-h-8 w-full items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
 		>
 			<button
 				type="button"
