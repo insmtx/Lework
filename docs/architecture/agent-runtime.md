@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-01
 >
-> 相关架构参考：[leros-architecture.html](./leros-architecture.html)
+> 相关架构参考：[lework-architecture.html](./lework-architecture.html)
 
 ## 1. 架构概述
 
@@ -76,7 +76,7 @@ EngineEvent
 
 ```mermaid
 flowchart TD
-    Entry["cmd/leros<br/>进程装配"]
+    Entry["cmd/lework<br/>进程装配"]
     Command["worker/command<br/>NATS 入站适配"]
     Coordinator["worker/run<br/>并发、合并、取消"]
     Service["agent/run.Service<br/>Run Orchestrator"]
@@ -607,12 +607,12 @@ type Engine interface {
 - 启动成功后，Result channel 恰好产生一个 EngineResult。
 - EngineEvent 只描述 provider activity，不包含 RunStatus。
 - Engine 不产生 run.started/completed/failed/cancelled。
-- Engine RunRequest 使用 ProviderConversationID/ResumeRef，不引用 SingerOS Session 类型。
+- Engine RunRequest 使用 ProviderConversationID/ResumeRef，不引用 Lework Session 类型。
 - native Engine 不再调用 Session API 或自行加载历史；Preparer 将已准备的 messages
   写入 ExecutionSpec，Runtime 再映射到 Engine RunRequest。
 - Provider 私有 payload 使用具名结构或 `json.RawMessage`，不使用
   `map[string]interface{}` 传递业务数据。
-- `ProviderConversationID` 是 Provider resume 标识，不是 SingerOS Session。
+- `ProviderConversationID` 是 Provider resume 标识，不是 Lework Session。
 
 ### 6.2 Runtime Adapter 是唯一翻译层
 
@@ -732,7 +732,7 @@ post-run diagnostics only
 
 ```text
 backend/
-├── cmd/leros/
+├── cmd/lework/
 │   └── worker.go                     # composition root
 │
 ├── pkg/messaging/                    # wire contract，保持不变

@@ -1,6 +1,6 @@
 # 组件与布局架构
 
-本文档详细描述 Leros 前端的组件和布局架构。
+本文档详细描述 Lework 前端的组件和布局架构。
 
 ## 布局层架构
 
@@ -62,7 +62,7 @@ packages/app-ui/components/layout/
 └── index.ts            # barrel 导出
 ```
 
-`Shell`、`LeftRail`、`CenterCanvas`、`ChatInput`、消息时间轴和 DigitalAssistant 相关组件位于 `@leros/app-ui`，由 Web 与 Desktop 共同复用。应用目录只保留入口、路由、薄样式入口和必要的平台适配；跨端全局样式统一维护在 `@leros/styles`。
+`Shell`、`LeftRail`、`CenterCanvas`、`ChatInput`、消息时间轴和 DigitalAssistant 相关组件位于 `@lework/app-ui`，由 Web 与 Desktop 共同复用。应用目录只保留入口、路由、薄样式入口和必要的平台适配；跨端全局样式统一维护在 `@lework/styles`。
 
 ## UI 原语组件层 (`components/ui/`)
 
@@ -93,7 +93,7 @@ accordion, alert, alert-dialog, aspect-ratio, avatar, badge, breadcrumb, button,
 
 ## 应用级业务组件库 (`packages/app-ui/components/`)
 
-`@leros/app-ui` 基于 `@leros/ui` 原语和 `@leros/store` 状态组合 Leros 产品级业务 UI：
+`@lework/app-ui` 基于 `@lework/ui` 原语和 `@lework/store` 状态组合 Lework 产品级业务 UI：
 
 ```
 packages/app-ui/components/
@@ -107,7 +107,7 @@ packages/app-ui/components/
 
 ## 全局样式包 (`packages/styles/`)
 
-`@leros/styles` 是 Web 与 Desktop 的共享 CSS 入口，用于集中维护跨端一致的全局样式：
+`@lework/styles` 是 Web 与 Desktop 的共享 CSS 入口，用于集中维护跨端一致的全局样式：
 
 ```
 packages/styles/
@@ -118,7 +118,7 @@ packages/styles/
 两个应用的入口 CSS 只导入共享样式，并声明自身本地源码扫描：
 
 ```css
-@import "@leros/styles/globals.css";
+@import "@lework/styles/globals.css";
 
 @source "./**/*.{ts,tsx}";
 ```
@@ -140,7 +140,7 @@ components/ai-float/
 
 ```
 apps/web/app/page.tsx
-  └─ @leros/app-ui Shell
+  └─ @lework/app-ui Shell
       ├─ LeftRail
       ├─ CenterCanvas
       │   ├─ ChatHeader
@@ -149,17 +149,17 @@ apps/web/app/page.tsx
       └─ WorkbenchPanel / AssistantListView
 
 apps/desktop/src/renderer/src/routes.tsx
-  └─ @leros/app-ui Shell
+  └─ @lework/app-ui Shell
       └─ 同一套 layout/chat/input/digitalAssistant 组件
 
-@leros/app-ui
-  └─ @leros/store (状态)
-  └─ @leros/ui (基础 UI 原语)
+@lework/app-ui
+  └─ @lework/store (状态)
+  └─ @lework/ui (基础 UI 原语)
 
 apps/web/app/globals.css
 apps/desktop/src/renderer/src/globals.css
-  └─ @leros/styles/globals.css
-      ├─ @leros/ui/styles/tokens.css
-      ├─ @leros/ui/styles/base.css
+  └─ @lework/styles/globals.css
+      ├─ @lework/ui/styles/tokens.css
+      ├─ @lework/ui/styles/base.css
       └─ Tailwind @source: ui / store / app-ui
 ```

@@ -1,4 +1,4 @@
-# Leros 故障排除指南
+# Lework 故障排除指南
 
 ## 常见问题
 
@@ -13,7 +13,7 @@
 ```yaml
 database:
   driver: postgres
-  url: "host=localhost user=leros password=leros dbname=leros port=5432 sslmode=disable"
+  url: "host=localhost user=lework password=lework dbname=lework port=5432 sslmode=disable"
   debug: false
 ```
 
@@ -25,14 +25,14 @@ database:
 使用 `minimal-config.yaml` 可以在没有PostgreSQL的情况下启动服务：
 
 ```bash
-./leros --config minimal-config.yaml
+./lework --config minimal-config.yaml
 ```
 
 ### 完整模式 (使用数据库)
 使用完整配置启动，包括数据库：
 
 ```bash
-./leros --config example-config.yaml
+./lework --config example-config.yaml
 ```
 
 ## 启动检查清单

@@ -1,4 +1,4 @@
-# Leros 架构设计文档
+# Lework 架构设计文档
 
 > 基于 **Event Engine + Execution Engine + Agent Runtime 三核架构** 构建的企业级 AI 操作系统
 >
@@ -186,7 +186,7 @@ Assistant 层是业务边界，负责 Session、Workspace、Memory、Skill、Art
 
 **包：** `backend/agent`
 
-`backend/agent` 是可脱离 SingerOS 业务独立驱动的执行层，唯一公共契约为：
+`backend/agent` 是可脱离 Lework 业务独立驱动的执行层，唯一公共契约为：
 
 * `ExecutionRequest` / `ExecutionResult`；
 * `Runtime` / `Registry` / `Executor`；
@@ -241,7 +241,7 @@ backend/agent/
 
 ### 3.12 Skills 能力系统
 
-Skill 是可复用的 AI 能力单元，是 Leros 的核心构建块。
+Skill 是可复用的 AI 能力单元，是 Lework 的核心构建块。
 
 **Skill 分类：**
 
@@ -418,7 +418,7 @@ Remote Runtime    → 低权限（执行）
 backend/
 │
 ├── cmd/                        启动入口
-│   └── leros/                 leros 二进制
+│   └── lework/                 lework 二进制
 │       ├── server              server 子命令
 │       └── worker              worker 子命令
 │           ├── codex          Codex 引擎运行时
@@ -444,7 +444,7 @@ backend/
 │   │       ├── gitlab/
 │   │       └── wework/
 │   │
-│   ├── assistant/            SingerOS Assistant 业务包装层
+│   ├── assistant/            Lework Assistant 业务包装层
 │   │   ├── service.go        唯一业务 Run 生命周期
 │   │   ├── prepared_run.go   业务快照 + Workspace + ExecutionRequest
 │   │   ├── journal.go        完整运行归档
@@ -486,7 +486,7 @@ backend/
 ├── pkg/                      对外公开接口
 │   ├── messaging/            领域消息协议（command / event / subject）
 │   ├── event/               交互事件常量
-│   └── leros/               Leros 工具函数
+│   └── lework/               Lework 工具函数
 │
 ├── runtime/                  运行时层（独立于 internal）
 │   ├── engines/             外部 AI CLI 引擎抽象
@@ -520,7 +520,7 @@ backend/
 
 ### 8.5 进程阶段
 
-* **Phase 2（当前）** — leros 二进制通过 server/worker 子命令区分运行模式；NATS 任务消费者 + Agent Runner + MCP Server；支持 worker codex / worker claude 子命令；cmd.run lane 异步分发 + SQLite 持久化 inbox + at-least-once 崩溃恢复
+* **Phase 2（当前）** — lework 二进制通过 server/worker 子命令区分运行模式；NATS 任务消费者 + Agent Runner + MCP Server；支持 worker codex / worker claude 子命令；cmd.run lane 异步分发 + SQLite 持久化 inbox + at-least-once 崩溃恢复
 * **Phase 3（计划）** — 独立进程部署（Server / Worker / Connector）
 
 ## 9. 技术栈
@@ -540,11 +540,11 @@ backend/
 
 ### Phase 2（当前实际）
 
-* `leros` 双进程（Server + Worker），通过 NATS JetStream 通信
+* `lework` 双进程（Server + Worker），通过 NATS JetStream 通信
 * GitHub 自动化闭环（Webhook → NATS → Event Engine → Agent Runtime）
 * 事件总线（NATS JetStream）
 * Connector 层完成（GitHub / GitLab / WeWork）
-* Agent Runtime 完整实现：Leros 原生运行时 + 外部 CLI 引擎适配（Claude Code, Codex）+ 多引擎路由器 + Lifecycle 层
+* Agent Runtime 完整实现：Lework 原生运行时 + 外部 CLI 引擎适配（Claude Code, Codex）+ 多引擎路由器 + Lifecycle 层
 * Worker 管理系统：进程/Docker 容器调度 + WebSocket 通信（server/client）+ 任务消费者（taskconsumer）
 * Session 管理（消息增删、状态流转、NATS topic 构建）
 * Skill 系统三层分离：`internal/skill/`（目录/运行时/存储）+ `backend/skills/`（SKILL.md 文件）+ `backend/tools/`（Tool 执行）
@@ -593,9 +593,9 @@ backend/
 ### v3.2 (2026-05-13) — Agent Runtime 重构 + Worker 系统完成
 
 * 统一 Runner 接口，消除 AgentRuntime 与 Runner 重复定义
-* Agent Runtime 包结构大幅演进：新增 runtime 服务层（Environment + Router）、lifecycle 生命周期管理、leros 原生运行时、externalcli 外部 CLI 适配
+* Agent Runtime 包结构大幅演进：新增 runtime 服务层（Environment + Router）、lifecycle 生命周期管理、lework 原生运行时、externalcli 外部 CLI 适配
 * Worker 管理系统完整实现：server/client/scheduler/taskconsumer/wsproto
-* 新增 MCP 服务器集成、pkg/dm 领域消息协议、pkg/leros 工具函数
+* 新增 MCP 服务器集成、pkg/dm 领域消息协议、pkg/lework 工具函数
 * 移除废弃的 backend/gateway 和 backend/interaction 模块，Connector 并入 internal/api/connectors
 
 ### v3.1.1 (2026-04-27) — 架构实现状态更新
@@ -633,7 +633,7 @@ backend/
 
 ## 12. 总结
 
-### Leros 的本质：
+### Lework 的本质：
 
 一个 **事件驱动的分布式 Agent 操作系统**
 

@@ -10,7 +10,7 @@ body:
     attributes:
       label: 文档位置
       description: 填写相关文档路径、链接或章节标题。
-      placeholder: docs/PROJECT_STRUCTURE.md
+      placeholder: docs/operations/project-structure.md
     validations:
       required: true
   - type: dropdown

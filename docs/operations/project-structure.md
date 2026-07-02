@@ -1,23 +1,23 @@
-# Leros 项目结构与文件索引
+# Lework 项目结构与文件索引
 
-本文档用于快速定位 Leros 代码库中的主要目录、边界和常见开发入口。内容按当前仓库结构整理，处理不熟悉任务时建议先从“快速索引”定位到对应层级，再参考相邻实现。
+本文档用于快速定位 Lework 代码库中的主要目录、边界和常见开发入口。内容按当前仓库结构整理，处理不熟悉任务时建议先从“快速索引”定位到对应层级，再参考相邻实现。
 
 ## 项目概览
 
-Leros 是一个企业级数字员工操作系统，后端基于 Golang，前端采用 pnpm + Turborepo monorepo。当前核心架构按职责分为：
+Lework 是一个企业级数字员工操作系统，后端基于 Golang，前端采用 pnpm + Turborepo monorepo。当前核心架构按职责分为：
 
 - 控制平面：Gin HTTP 服务，负责 UI API、认证、会话、项目、任务、数字员工、模型配置和渠道入口。
 - 事件与消息平面：NATS JetStream，负责外部事件、Worker 任务和运行流事件的解耦。
 - 工作平面：Worker、Agent Runtime、外部 CLI 引擎和工具系统，负责实际执行任务。
 
-Go Module: `github.com/insmtx/Leros` | Go 1.24
+Go Module: `github.com/insmtx/Lework` | Go 1.24
 
 ### 核心依赖
 
 | 组件 | 用途 |
 |------|------|
 | Gin | HTTP API 和 Webhook 路由 |
-| Cobra | `leros` CLI 命令入口 |
+| Cobra | `lework` CLI 命令入口 |
 | GORM + PostgreSQL | 数据访问与模型迁移 |
 | NATS JetStream | 消息队列、任务分发、运行事件流 |
 | CloudWeGo Eino | 原生 Agent/LLM 运行时 |
@@ -72,15 +72,15 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 ## `backend/` - Go 后端
 
-### `backend/cmd/leros/` - 进程入口
+### `backend/cmd/lework/` - 进程入口
 
 该目录是进程生命周期边界，允许 Cobra 命令注册、服务启动、信号等待和 `log.Fatal`。
 
 | 文件 | 说明 |
 |------|------|
 | `main.go` | Cobra 根命令和全局日志配置 |
-| `server.go` | `leros server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
-| `worker.go` | `leros worker`，启动 Worker 及 `claude`、`codex` 子命令 |
+| `server.go` | `lework server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
+| `worker.go` | `lework worker`，启动 Worker 及 `claude`、`codex` 子命令 |
 | `chat.go` | 本地 CLI 聊天调试 |
 | `project.go` | Project CLI 调试命令 |
 | `session.go` | Session CLI 调试命令 |
@@ -261,7 +261,7 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 | `dm/` | Worker 任务、消息流 Subject 和 Consumer 名称生成 |
 | `eino/` | Eino ChatModel、Flow、Message、Tool 适配 |
 | `event/` | 跨模块事件结构和 NATS Topic 常量 |
-| `leros/` | Leros home、技能目录等路径解析 |
+| `lework/` | Lework home、技能目录等路径解析 |
 | `llmprotocol/` | OpenAI Chat/Responses、Anthropic、Gemini 协议中间表示和转换 |
 | `seqtracker/` | 序列跟踪器 |
 | `utils/` | 去抖器和值回退辅助 |
@@ -326,23 +326,23 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 | 文件/目录 | 说明 |
 |-----------|------|
-| `ARCHITECTURE.md` | AI OS 架构设计 |
-| `ARCHITECTURE_BACKEND.md` | 后端架构 |
-| `ARCHITECTURE_MQ_SUBJECT.md` | MQ Subject 架构 |
-| `SYSTEM_DESIGN.md` | 系统架构设计 |
-| `TECH_DESIGN.md` | 技术设计 |
-| `PRD.md` | 产品需求文档 |
-| `DESIGN_PHILOSOPHY.md` | 设计理念 |
-| `DESIGN_CODER.md` | Coder 设计 |
-| `AGENT_WORKSPACE_ARTIFACT_DESIGN.md` | Agent 工作空间与产物设计 |
-| `AUTH_FOUNDATION_PHASE_TASKS.md` | 认证基础阶段任务 |
-| `PLANNING.md` | 路线图规划 |
-| `TODO.md` | 后端 TODO |
-| `ISSUE_LABELS.md` | Issue Label 约定 |
-| `GITHUB_AUTH_SETUP.md` | GitHub OAuth 配置 |
-| `GITHUB_WEBHOOK_TROUBLESHOOTING.md` | GitHub Webhook 排障 |
-| `PR_EVENT_FLOW.md` | PR 事件流程验证 |
-| `TROUBLESHOOTING.md` | 常见问题排障 |
+| `README.md` | 文档规范与分类索引 |
+| `architecture/overview.md` | AI OS 架构设计 |
+| `architecture/backend.md` | 后端包结构设计 |
+| `architecture/agent-runtime.md` | Agent Runtime 架构 |
+| `architecture/workspace-artifact.md` | Agent 工作空间与产物设计 |
+| `architecture/mq-subject.md` | MQ Subject 设计 |
+| `architecture/system-design.md` | 系统架构设计 |
+| `architecture/design-philosophy.md` | 设计哲学 |
+| `product/prd.md` | 产品需求文档 |
+| `product/planning.md` | 路线图规划 |
+| `product/todo.md` | 后端 TODO |
+| `design/tech-design.md` | 技术设计 |
+| `design/git-storage.md` | 文件存储技术方案 |
+| `design/presigned-url.md` | 预签名 URL 设计 |
+| `operations/troubleshooting.md` | 常见问题排障 |
+| `operations/issue-labels.md` | Issue Label 约定 |
+| `operations/project-structure.md` | 项目结构与文件索引（本文档） |
 | `frontend/` | 前端架构、通信、状态管理、布局、工程规范等文档 |
 | `swagger/` | `make swagger` 生成的 Swagger Go/JSON/YAML 文件 |
 
@@ -350,8 +350,8 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 | 路径 | 说明 |
 |------|------|
-| `build/Dockerfile.leros` | Leros 多阶段 Docker 构建 |
-| `env/docker-compose.yml` | PostgreSQL、NATS、Leros Server、Leros Worker 完整栈 |
+| `build/Dockerfile.lework` | Lework 多阶段 Docker 构建 |
+| `env/docker-compose.yml` | PostgreSQL、NATS、Lework Server、Lework Worker 完整栈 |
 | `env/init.sql` | 数据库初始化 SQL |
 | `env/check-services.sh` | 服务健康检查脚本 |
 | `dev/` | 开发环境脚本、配置和 compose 文件 |
@@ -388,21 +388,21 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 1. `backend/internal/api/connectors/<channel>/`：将外部事件标准化。
 2. `backend/pkg/messaging/`：确认或新增强类型 wire contract。
 3. `backend/internal/worker/command/<lane>/`：实现 Command adapter。
-4. `backend/cmd/leros/`：在 composition root 注册依赖。
+4. `backend/cmd/lework/`：在 composition root 注册依赖。
 
 ### 新增 Agent 运行时
 
 1. `backend/agent/runtime.go`：确认纯 `Runtime` 契约。
 2. `backend/agent/runtime/<runtime_name>/`：直接实现 `agent.Runtime`。
 3. `backend/agent/runtime_contract_test.go`：加入共用 contract suite。
-4. `backend/cmd/leros/worker.go`：构造并注册 Runtime。
+4. `backend/cmd/lework/worker.go`：构造并注册 Runtime。
 
 ### 新增外部 CLI 引擎
 
 1. `backend/agent/runtime/provider/`：只在确有共性时扩展 provider 进程协议。
 2. `backend/agent/runtime/externalcli/`：复用通用进程、会话与事件消费设施。
 3. `backend/agent/runtime/<runtime_name>/`：实现具体 Runtime、解析器和 responder。
-4. `backend/cmd/leros/worker.go`：实例化并注册，禁止增加全局默认实例。
+4. `backend/cmd/lework/worker.go`：实例化并注册，禁止增加全局默认实例。
 
 ### 新增 Tool
 
@@ -446,7 +446,7 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 | 层级 | 路径 | 允许 | 禁止 |
 |------|------|------|------|
-| 进程入口 | `backend/cmd/leros/` | Cobra、进程生命周期、信号处理、`log.Fatal` | 业务逻辑 |
+| 进程入口 | `backend/cmd/lework/` | Cobra、进程生命周期、信号处理、`log.Fatal` | 业务逻辑 |
 | 业务与基础设施库 | `backend/internal/*` | 业务逻辑、运行时、DAO、连接器，通过 `error` 向上传递失败 | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、Cobra 依赖 |
 | 共享类型 | `backend/types/`、`backend/config/` | 领域类型、配置结构、常量 | 业务逻辑、外部系统调用 |
 | 可复用包 | `backend/pkg/` | 无业务状态的共享工具和协议转换 | 依赖上层 `internal` 包 |

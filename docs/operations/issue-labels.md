@@ -1,6 +1,6 @@
 # Issue 分类与标签体系
 
-本文档定义 Leros/SingerOS 仓库的 Issue 分类和标签命名规则。Issue Forms 默认只添加类型标签和 `status/needs-triage`，领域、优先级和后续状态由维护者在 triage 时补充。
+本文档定义 Lework/Lework 仓库的 Issue 分类和标签命名规则。Issue Forms 默认只添加类型标签和 `status/needs-triage`，领域、优先级和后续状态由维护者在 triage 时补充。
 
 ## 分类
 

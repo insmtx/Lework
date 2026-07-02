@@ -2,7 +2,7 @@
 
 ## 规划概览
 
-**目标**：逐步构建 Leros 的 AI 助手（聊天界面），当前阶段专注于：
+**目标**：逐步构建 Lework 的 AI 助手（聊天界面），当前阶段专注于：
 - 聊天交互核心功能（流式对话、工具调用展示）
 - 纯前端 Mock 数据驱动
 - 保持现有技术栈不变
@@ -60,7 +60,7 @@ ChatInput 最大宽度: 800px
 App
 └── Shell (h-screen, flex, overflow-hidden)
     ├── TopBar (48px, flex, border-b)
-    │   ├── Logo "Leros" + 版本号
+    │   ├── Logo "Lework" + 版本号
     │   └── 右侧：AI 状态指示器 / 通知 / 用户头像菜单
     ├── MainArea (flex-1, flex, overflow-hidden)
     │   ├── LeftRail (260px, 可折叠)
@@ -92,7 +92,7 @@ App
 ### TopBar — 全局状态栏
 
 **功能点**：
-- 品牌区：Leros Logo + 版本号
+- 品牌区：Lework Logo + 版本号
 - AI 状态指示器：绿色脉冲点 + "AI 在线"，hover 显示模型信息
 - 通知中心：铃铛图标 + 未读红点
 - 用户菜单：头像 + 用户名，下拉包含：个人设置、主题切换、退出

@@ -61,7 +61,7 @@ Lework enforces strict architectural invariants to ensure governance and reliabi
 4. **All workflow execution must be persisted** - Replayable and auditable
 5. **All model usage must be measurable** - Cost-aware and governable
 
-For detailed design philosophy, see [Design Philosophy](docs/DESIGN_PHILOSOPHY.md).
+For detailed design philosophy, see [Design Philosophy](docs/architecture/design-philosophy.md).
 
 ---
 
@@ -114,7 +114,7 @@ All execution is:
 * **Observable** - Full链路 tracing and monitoring
 * **Auditable** - Comprehensive audit logs
 
-For detailed architecture, see [Architecture Documentation](docs/ARCHITECTURE.md).
+For detailed architecture, see [Architecture Documentation](docs/architecture/overview.md).
 
 ---
 
@@ -194,16 +194,17 @@ Complete documentation is available in the `docs/` directory:
 
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | AI OS architecture design (v2 - Three-Plane Model) |
-| [DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md) | Core design philosophy and principles |
-| [PRD.md](docs/PRD.md) | Product requirements — AI Workspace (v3) |
-| [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | System architecture design — platform engine, connectors |
-| [TECH_DESIGN.md](docs/TECH_DESIGN.md) | Technical design — skill schema, rendering engine |
-| [PLANNING.md](docs/PLANNING.md) | Roadmap — business domains (docs/dev/aiops) |
-| [GITHUB_AUTH_SETUP.md](docs/GITHUB_AUTH_SETUP.md) | GitHub OAuth integration guide |
-| [GITHUB_WEBHOOK_TROUBLESHOOTING.md](docs/GITHUB_WEBHOOK_TROUBLESHOOTING.md) | GitHub webhook troubleshooting |
-| [PR_EVENT_FLOW.md](docs/PR_EVENT_FLOW.md) | GitHub PR event processing verification |
-| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and solutions |
+| [architecture/overview.md](docs/architecture/overview.md) | AI OS architecture design |
+| [architecture/design-philosophy.md](docs/architecture/design-philosophy.md) | Core design philosophy and principles |
+| [architecture/agent-runtime.md](docs/architecture/agent-runtime.md) | Agent Runtime architecture |
+| [architecture/workspace-artifact.md](docs/architecture/workspace-artifact.md) | Agent workspace and artifact design |
+| [architecture/system-design.md](docs/architecture/system-design.md) | System architecture design |
+| [product/prd.md](docs/product/prd.md) | Product requirements — AI Workspace (v3) |
+| [product/planning.md](docs/product/planning.md) | Roadmap — business domains |
+| [design/tech-design.md](docs/design/tech-design.md) | Technical design — skill schema, rendering engine |
+| [design/git-storage.md](docs/design/git-storage.md) | Git-based file storage design |
+| [design/presigned-url.md](docs/design/presigned-url.md) | Presigned URL architecture |
+| [operations/troubleshooting.md](docs/operations/troubleshooting.md) | Common issues and solutions |
 
 ---
 
