@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
-import { desktopOpenPolicyPdfChannel, type DesktopPolicyDocument } from "../shared/auto-update";
+import { type DesktopPolicyDocument, desktopOpenPolicyPdfChannel } from "../shared/auto-update";
 import {
 	isAppQuitPrepared,
 	isAppQuitting,
@@ -43,7 +43,13 @@ function createWindow(): void {
 		minHeight: 600,
 		show: false,
 		autoHideMenuBar: true,
-		icon: join(__dirname, "../../resources/icon.png"),
+		// mac 沉浸式一体化标题栏：隐藏系统标题栏，红绿灯按钮内嵌到页面顶部
+		...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
+		icon: join(
+			__dirname,
+			"../../resources",
+			process.platform === "darwin" ? "icon-mac.png" : "icon.png",
+		),
 		webPreferences: {
 			preload: join(__dirname, "../preload/index.js"),
 			sandbox: false,

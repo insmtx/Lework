@@ -1,8 +1,8 @@
 import {
 	CLIENT_UPGRADE_REQUIRED_EVENT,
-	clientUpdateApi,
 	type ClientUpdatePolicy,
 	type ClientUpgradeRequiredEvent,
+	clientUpdateApi,
 } from "@leros/store";
 import { ThemeProvider } from "@leros/ui/components/common/theme-provider";
 import { Button } from "@leros/ui/components/ui/button";
@@ -38,12 +38,30 @@ export default function App() {
 	return (
 		<HashRouter>
 			<ThemeProvider defaultTheme="system">
+				<MacTitleBarDragRegion />
 				<AppRoutes />
 				<ClientUpdateGate />
 				<Toaster />
 			</ThemeProvider>
 		</HashRouter>
 	);
+}
+
+// mac 沉浸式标题栏：隐藏系统标题栏后，顶部预留一条可拖拽区域，
+// 让红绿灯按钮有独立空间，避免遮挡左侧栏内容
+function MacTitleBarDragRegion() {
+	const isMac = window.electron?.process?.platform === "darwin";
+
+	useEffect(() => {
+		if (!isMac) return;
+		document.body.classList.add("leros-mac-titlebar");
+		return () => {
+			document.body.classList.remove("leros-mac-titlebar");
+		};
+	}, [isMac]);
+
+	if (!isMac) return null;
+	return <div className="leros-mac-drag-region" aria-hidden="true" />;
 }
 
 function ClientUpdateGate() {
@@ -63,7 +81,10 @@ function ClientUpdateGate() {
 			// Version reporting must not block app startup when the server is temporarily unavailable.
 		});
 
-		void window.lerosDesktop.getState().then(setUpdateState).catch(() => undefined);
+		void window.lerosDesktop
+			.getState()
+			.then(setUpdateState)
+			.catch(() => undefined);
 		const unsubscribe = window.lerosDesktop.subscribe(setUpdateState);
 
 		return () => {
