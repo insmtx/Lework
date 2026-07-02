@@ -1,6 +1,6 @@
 # 通信层架构
 
-本文档详细描述 Leros 前端的 HTTP、SSE、WebSocket 通信层实现。
+本文档详细描述 Lework 前端的 HTTP、SSE、WebSocket 通信层实现。
 
 ## HttpClient (`lib/request.ts`)
 

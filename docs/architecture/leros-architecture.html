@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Leros Server / Worker 与 Agent 执行架构设计说明</title>
+<title>Lework Server / Worker 与 Agent 执行架构设计说明</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; line-height: 1.7; padding: 20px; }
@@ -40,7 +40,7 @@
 </head>
 <body>
 <div class="container">
-<h1>Leros Server / Worker 与 Agent 执行架构设计说明</h1>
+<h1>Lework Server / Worker 与 Agent 执行架构设计说明</h1>
 <p>本文档描述 Server（控制面）、Worker（执行面）以及独立 Agent 执行层的当前职责边界。2026-07-01 完成的 cmd.run 异步分发改造引入了 durable inbox 和 at-least-once 崩溃恢复机制。所有描述均以当前代码为准。</p>
 <div class="warn"><strong>文档状态：</strong>当前实施架构。最近变更：cmd.run lane 采用 SubscribeManualDurable + SQLite inbox 异步分发，替代了之前的同步 SeqTracker 方案。</div>
 
@@ -49,7 +49,7 @@
 <div class="arch-diagram">
 <pre style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.5; text-align: left; color: #0d1117;">
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                             Leros Current Architecture (2026-07)                                  │
+│                             Lework Current Architecture (2026-07)                                  │
 │                                                                                                  │
 │  ┌──────────────────────────────┐       NATS JetStream      ┌──────────────────────────────────┐│
 │  │ Server / Control Plane       │  WorkerCommand (4 lanes)  │ Worker / Execution Plane          ││
@@ -91,25 +91,25 @@
 </pre>
 </div>
 
-<p>Leros 采用 <strong>Server（控制面）- Worker（执行面）</strong> 分离架构，通过 <strong>NATS JetStream</strong> 解耦通信。Worker 内部进一步分为：通信订阅与分发、消息确认控制、持久化 inbox、调度协调、SingerOS 业务包装和独立 Agent 执行 六层。</p>
+<p>Lework 采用 <strong>Server（控制面）- Worker（执行面）</strong> 分离架构，通过 <strong>NATS JetStream</strong> 解耦通信。Worker 内部进一步分为：通信订阅与分发、消息确认控制、持久化 inbox、调度协调、Lework 业务包装和独立 Agent 执行 六层。</p>
 
 <h2>二、架构层级详解</h2>
 
 <h3>2.1 进程入口层（cmd）</h3>
 <div class="layer-card">
 <h3><span class="badge badge-green">cmd</span> 进程入口</h3>
-<p class="file-ref">对应文件: backend/cmd/leros/server.go, backend/cmd/leros/worker.go</p>
+<p class="file-ref">对应文件: backend/cmd/lework/server.go, backend/cmd/lework/worker.go</p>
 <p>进程入口层通过 Cobra CLI 启动两个独立的进程：</p>
 <ul>
-  <li><strong>Server 进程</strong>（<code>leros server</code>）—— 控制面，监听 <code>:8080</code>，承载 HTTP API、事件发布、数据库连接。</li>
-  <li><strong>Worker 进程</strong>（<code>leros worker [codex|claude|opencode]</code>）—— 执行面，监听 <code>:8081</code>，通过 NATS JetStream 消费 Server 下发的命令。</li>
+  <li><strong>Server 进程</strong>（<code>lework server</code>）—— 控制面，监听 <code>:8080</code>，承载 HTTP API、事件发布、数据库连接。</li>
+  <li><strong>Worker 进程</strong>（<code>lework worker [codex|claude|opencode]</code>）—— 执行面，监听 <code>:8081</code>，通过 NATS JetStream 消费 Server 下发的命令。</li>
 </ul>
 <p>Worker 进程在启动时执行以下顺序：</p>
 <ol>
   <li>加载并校验配置（org_id / worker_id 必须）</li>
   <li>Bootstrap 引擎（同步内置 skill、配置 CLI MCP）</li>
   <li>创建 NATS 连接、Memory Store、Runtime Service</li>
-  <li>创建 RunHandler（含 SQLite inbox，使用共享 <code>leros.db</code>）</li>
+  <li>创建 RunHandler（含 SQLite inbox，使用共享 <code>lework.db</code>）</li>
   <li><strong>调用 RecoverNonTerminal</strong>：恢复上次崩溃时未完成的 inbox 记录</li>
   <li>创建 Dispatcher，启动四个 lane 订阅 goroutine</li>
   <li>注册生命周期关闭函数</li>
@@ -331,11 +331,11 @@ type RunInbox interface {
 <p>Coordinator 由 RunHandler 构造时创建（作为 <code>executeSubmission</code> 的接收方），后者包装 <code>assistant.Service.Run</code> 调用。</p>
 </div>
 
-<h3>2.9 SingerOS Agent 业务包装层</h3>
+<h3>2.9 Lework Agent 业务包装层</h3>
 <div class="layer-card">
 <h3><span class="badge badge-yellow">assistant</span> 业务 Run 编排</h3>
 <p class="file-ref">对应目录: backend/internal/assistant/</p>
-<p><code>assistant.Service</code> 是一次 SingerOS 业务 Agent Run 的唯一编排入口：</p>
+<p><code>assistant.Service</code> 是一次 Lework 业务 Agent Run 的唯一编排入口：</p>
 <ul>
   <li><strong>Preparer</strong>：读取 Session history、Memory 和 Skill，解析模型、Tool、Workspace 与附件，构造纯执行层 <code>ExecutionRequest</code>。</li>
   <li><strong>Service</strong>：发布 <code>run.started</code>，调用 <code>agent.Executor</code>，分类 completed/failed/cancelled，并保证每次 Run 只有一个终端事件。</li>
@@ -394,7 +394,7 @@ type Runtime interface {
 <p>三种实现（通过 factory 按配置选择）：</p>
 <table>
   <tr><th>Scheduler</th><th>EnvType</th><th>说明</th></tr>
-  <tr><td><code>ProcessScheduler</code></td><td><code>process</code></td><td>本地进程模式：fork <code>leros worker</code> 子进程</td></tr>
+  <tr><td><code>ProcessScheduler</code></td><td><code>process</code></td><td>本地进程模式：fork <code>lework worker</code> 子进程</td></tr>
   <tr><td><code>DockerCLIScheduler</code></td><td><code>docker-cli</code></td><td>Docker 容器模式：通过 <code>docker run</code> 启动</td></tr>
   <tr><td><code>KubernetesScheduler</code></td><td><code>kubevirt</code></td><td>K8s 模式：通过 Kubernetes API 创建 Pod</td></tr>
 </table>
@@ -671,7 +671,7 @@ type Runtime interface {
   <tr>
     <td>执行与业务</td>
     <td><code>backend/agent</code> + <code>internal/assistant</code></td>
-    <td>执行层不包含 SingerOS 业务；业务层负责 Session、Memory、Skill、Workspace、Git</td>
+    <td>执行层不包含 Lework 业务；业务层负责 Session、Memory、Skill、Workspace、Git</td>
   </tr>
   <tr>
     <td>Worker 调度</td>
@@ -689,8 +689,8 @@ type Runtime interface {
 
 <table>
   <tr><th>路径</th><th>层级</th><th>职责</th></tr>
-  <tr><td><code>backend/cmd/leros/server.go</code></td><td>进程入口</td><td>Server 进程启动（Gin HTTP + DB + NATS）</td></tr>
-  <tr><td><code>backend/cmd/leros/worker.go</code></td><td>进程入口</td><td>Worker 进程启动（NATS consumer + HTTP + 5 步关闭）</td></tr>
+  <tr><td><code>backend/cmd/lework/server.go</code></td><td>进程入口</td><td>Server 进程启动（Gin HTTP + DB + NATS）</td></tr>
+  <tr><td><code>backend/cmd/lework/worker.go</code></td><td>进程入口</td><td>Worker 进程启动（NATS consumer + HTTP + 5 步关闭）</td></tr>
   <tr><td><code>backend/internal/api/handler/</code></td><td>API Handler</td><td>REST 端点实现</td></tr>
   <tr><td><code>backend/internal/service/</code></td><td>Service</td><td>业务逻辑编排</td></tr>
   <tr><td><code>backend/internal/infra/mq/delivery.go</code></td><td>基础设施</td><td>ManualDelivery 接口定义</td></tr>
@@ -768,7 +768,7 @@ type Runtime interface {
   <tr><td>崩溃恢复</td><td>RecoverNonTerminal + GetNonTerminal 加载非终态记录 + recoveryFeeder</td></tr>
   <tr><td>优雅关闭</td><td>5 步：cancel → StopAdmission → 等待 dispatcher → Drain(30s) → Close</td></tr>
   <tr><td>Run Event</td><td>保持 <code>run.stream</code> / <code>run.state</code> 与独立 replay sequence</td></tr>
-  <tr><td>Agent core</td><td>顶层可复用 <code>backend/agent</code>，不依赖 SingerOS 业务</td></tr>
+  <tr><td>Agent core</td><td>顶层可复用 <code>backend/agent</code>，不依赖 Lework 业务</td></tr>
   <tr><td>业务包装</td><td><code>internal/assistant</code> 负责 prepare、finalize 和业务终态</td></tr>
   <tr><td>Runtime</td><td>native、Claude、Codex、OpenCode 完全同级，直接实现一个 Runtime 接口</td></tr>
   <tr><td>Worker 执行链</td><td>Dispatcher → RunHandler（准入 + inbox）→ Coordinator → assistant.Service</td></tr>

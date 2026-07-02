@@ -1,6 +1,6 @@
 # 状态管理架构
 
-本文档详细描述 Leros 前端的 Zustand 状态管理架构。
+本文档详细描述 Lework 前端的 Zustand 状态管理架构。
 
 ## Slice 模式 + ActionImpl 类架构
 

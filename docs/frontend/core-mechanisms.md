@@ -1,6 +1,6 @@
 # 核心机制详解
 
-本文档详细描述 Leros 前端的核心机制实现。
+本文档详细描述 Lework 前端的核心机制实现。
 
 ## 1. 路由与鉴权
 
@@ -100,7 +100,7 @@
 | 桌面通知 | `Notification API` | 页面不可见时 |
 | 声音通知 | `AudioContext + decodeAudioData` | 用户交互后初始化 |
 
-- 标签页标题闪烁: `(N) Leros - xxx`
+- 标签页标题闪烁: `(N) Lework - xxx`
 - 偏好持久化: `localStorage notification-prefs`
 
 ## 6. 页面权限模型

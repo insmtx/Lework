@@ -39,18 +39,18 @@
 
 ## 3. Worker 侧路径设计
 
-Worker 本地 workspace root 使用 `LEROS_WORKSPACE_ROOT`。如果未设置，Linux 默认 `/workspace`，Windows 默认 `%LOCALAPPDATA%/Leros/workspace`。
+Worker 本地 workspace root 使用 `LEWORK_WORKSPACE_ROOT`。如果未设置，Linux 默认 `/workspace`，Windows 默认 `%LOCALAPPDATA%/Lework/workspace`。
 
 有 project 上下文时，Worker 侧目录结构如下：
 
 ```text
-{WORKER_LEROS_WORKSPACE_ROOT}/
+{WORKER_LEWORK_WORKSPACE_ROOT}/
   projects/
     {org_id}/
       {project_id}/
         repo/
           .git/
-          .leros/
+          .lework/
             tasks/
               {task_id}/
                 turns/
@@ -66,15 +66,15 @@ Worker 本地 workspace root 使用 `LEROS_WORKSPACE_ROOT`。如果未设置，L
 | --- | --- |
 | `projects/{org_id}/{project_id}/repo/` | 当前项目 Git 工作区，也是默认 Agent 执行目录 |
 | `repo/.git/` | Worker 自动初始化的 Git 管理目录 |
-| `repo/.leros/` | Leros 运行态目录，写入 `repo/.git/info/exclude`，不进入项目 Git |
-| `repo/.leros/tasks/{task_id}/turns/{request_id}/tmp/` | 当前 turn 临时目录 |
-| `repo/.leros/tasks/{task_id}/turns/{request_id}/logs/` | 当前 turn 日志目录 |
-| `repo/.leros/tasks/{task_id}/turns/{request_id}/artifacts.jsonl` | 当前 turn 最终产物 manifest |
+| `repo/.lework/` | Lework 运行态目录，写入 `repo/.git/info/exclude`，不进入项目 Git |
+| `repo/.lework/tasks/{task_id}/turns/{request_id}/tmp/` | 当前 turn 临时目录 |
+| `repo/.lework/tasks/{task_id}/turns/{request_id}/logs/` | 当前 turn 日志目录 |
+| `repo/.lework/tasks/{task_id}/turns/{request_id}/artifacts.jsonl` | 当前 turn 最终产物 manifest |
 
 没有 project 上下文时，Worker 不创建上述 project/task/turn 目录，而是使用：
 
 ```text
-{WORKER_LEROS_WORKSPACE_ROOT}/temp
+{WORKER_LEWORK_WORKSPACE_ROOT}/temp
 ```
 
 该 fallback 只解决无项目上下文的运行目录问题，不产生可持久化 artifact workspace。
@@ -116,7 +116,7 @@ type TaskWorkspace struct {
 - 根据 `org_id/project_id/task_id/request_id` 计算路径。
 - 创建 turn 的 `tmp`、`logs` 和 `artifacts.jsonl`。
 - 初始化 `repo/.git`。
-- 将 `.leros/` 写入 `repo/.git/info/exclude`。
+- 将 `.lework/` 写入 `repo/.git/info/exclude`。
 - 校验和解析请求传入的 `runtime.work_dir`。
 - 创建并返回最终 `EffectiveWorkDir`。
 
@@ -132,7 +132,7 @@ type TaskWorkspace struct {
 - 禁止 `..` 逃逸。
 - 禁止软链逃逸。
 - 禁止跨 project workspace。
-- 禁止指向 `.git`、`.leros` 等运行态目录。
+- 禁止指向 `.git`、`.lework` 等运行态目录。
 
 Worker 准备 workspace 后，会把 `req.Runtime.WorkDir` 覆盖为 resolver 返回的 `EffectiveWorkDir`。后续内置 runtime、外部 CLI、node 工具都应以该值作为实际工作目录。
 
@@ -210,7 +210,7 @@ artifact_declare(path, title, description, mime_type, artifact_type, is_final)
 - `path` 必须是完整绝对路径。
 - 文件必须位于当前 project `repo/` 内。
 - 文件必须真实存在，且不能是目录。
-- 不能声明 `.git`、`.leros`、`tmp`、`logs`、`cache` 等运行态或临时路径。
+- 不能声明 `.git`、`.lework`、`tmp`、`logs`、`cache` 等运行态或临时路径。
 - 工具内部会把绝对路径转换成 repo-relative path，再追加写入当前 turn 的 `artifacts.jsonl`。
 
 Manifest 仍是 JSON Lines 格式。每一行表示一个产物声明：
@@ -232,7 +232,7 @@ Manifest 仍是 JSON Lines 格式。每一行表示一个产物声明：
 
 内置 runtime 会通过 `ToolContext.Metadata` 注入 `repo_dir` 和 `artifact_manifest_path`，供 `artifact_declare` 定位 manifest。
 
-外部 CLI/MCP 路径当前有临时 fallback：如果工具上下文没有注入 manifest 信息，`artifact_declare` 会从 artifact 文件路径向上查找 `.leros`，再选择最新 task/turn 的 `artifacts.jsonl`。这是过渡方案，后续应改为给外部 CLI MCP 请求注入真实 run-scoped `ToolContext`。
+外部 CLI/MCP 路径当前有临时 fallback：如果工具上下文没有注入 manifest 信息，`artifact_declare` 会从 artifact 文件路径向上查找 `.lework`，再选择最新 task/turn 的 `artifacts.jsonl`。这是过渡方案，后续应改为给外部 CLI MCP 请求注入真实 run-scoped `ToolContext`。
 
 ## 10. 产物收集规则
 
@@ -245,7 +245,7 @@ Runtime 完成任务前读取当前 turn 的 `artifacts.jsonl`。
 - 不允许绝对路径。
 - 不允许 `..`。
 - 不允许软链逃逸。
-- 不允许指向 `.git`、`.leros` 等运行态目录。
+- 不允许指向 `.git`、`.lework` 等运行态目录。
 - 文件必须真实存在。
 - 文件不能是目录。
 - 系统补充 `mime_type`、`file_size`、`sha256`。
@@ -270,7 +270,7 @@ Runtime 完成任务前读取当前 turn 的 `artifacts.jsonl`。
 
 3. **Diff 过滤**：
    - 纳入：新增 (A)、修改 (M)、复制 (C)、重命名 (R)、类型变化 (T) 后的文件。
-   - 排除：删除 (D)、目录、`.leros/` 运行态文件、`.gitignore` 排除的文件。
+   - 排除：删除 (D)、目录、`.lework/` 运行态文件、`.gitignore` 排除的文件。
    - 只保留真实存在的常规文件。
 
 4. **结果写入**：将 diff 检测到的文件以 `is_final: true` 追加到 `artifacts.jsonl`，后续按正常 manifest 流程处理。
@@ -283,7 +283,7 @@ Runtime 完成任务前读取当前 turn 的 `artifacts.jsonl`。
 
 ## 11. 持久化模型
 
-产物不再使用独立的 `leros_artifact` 表。持久化统一通过 `leros_file_upload` + `leros_project_file` 两张表实现。
+产物不再使用独立的 `lework_artifact` 表。持久化统一通过 `lework_file_upload` + `lework_project_file` 两张表实现。
 
 ### FileUpload（`backend/types/file_upload.go`）
 
@@ -336,7 +336,7 @@ Runtime 完成任务前读取当前 turn 的 `artifacts.jsonl`。
 
 注意：
 - 不再兼容旧的 `art_*` 格式 ID。
-- 旧的 `leros_artifact` 表在启动迁移中通过 `DROP TABLE` 直接删除，不回填历史数据。
+- 旧的 `lework_artifact` 表在启动迁移中通过 `DROP TABLE` 直接删除，不回填历史数据。
 - `artifact_declare` 工具、`artifacts.jsonl` manifest、Artifact 事件和 SessionMessage 中的 Artifact 元数据继续保留。
 
 ## 12. API 设计
@@ -383,7 +383,7 @@ task_1
 ```text
 执行期:
   org_id + project_id + task_id + request_id
-  -> repo/.leros/tasks/{task_id}/turns/{request_id}/artifacts.jsonl
+  -> repo/.lework/tasks/{task_id}/turns/{request_id}/artifacts.jsonl
 
 持久化:
   FileUpload -> 文件元数据 + StorageURI
@@ -448,7 +448,7 @@ git_blob
 如需在对象存储之外保留 Worker 本地副本，可后续引入：
 
 ```text
-repo/.leros/tasks/{task_id}/artifacts/{artifact_id}/
+repo/.lework/tasks/{task_id}/artifacts/{artifact_id}/
 ```
 
 该目录不属于当前实现范围。

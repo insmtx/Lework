@@ -4,7 +4,7 @@ contact_links:
     url: https://github.com/insmtx/SingerOS/blob/main/CONTRIBUTING.md
     about: 提交 Issue 或 Pull Request 前，请先阅读项目贡献流程和代码规范。
   - name: 项目结构索引
-    url: https://github.com/insmtx/SingerOS/blob/main/docs/PROJECT_STRUCTURE.md
+    url: https://github.com/insmtx/SingerOS/blob/main/docs/operations/project-structure.md
     about: 不确定问题归属模块时，可先查看目录结构和任务场景索引。
   - name: GitHub Discussions
     url: https://github.com/insmtx/SingerOS/discussions

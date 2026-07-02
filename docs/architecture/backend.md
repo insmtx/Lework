@@ -1,4 +1,4 @@
-# Leros 后端架构设计文档
+# Lework 后端架构设计文档
 
 > 面向 AI OS 的 Golang 包结构指南
 >
@@ -6,10 +6,10 @@
 
 ## 1. 概述
 
-本文档提供 Leros 后端的 **Golang 包结构设计**，与 `ARCHITECTURE.md` 配合使用。
+本文档提供 Lework 后端的 **Golang 包结构设计**，与 `architecture/overview.md` 配合使用。
 
-- `ARCHITECTURE.md` - 高层架构设计、模块划分、执行链路
-- `ARCHITECTURE_BACKEND.md` - **本文档** - Go 包结构、目录组织
+- `architecture/overview.md` - 高层架构设计、模块划分、执行链路
+- `architecture/backend.md` - **本文档** - Go 包结构、目录组织
 
 ## 2. 设计原则
 
@@ -17,7 +17,7 @@
 
 > **Contract-driven Service Architecture**
 
-Leros 采用**契约驱动的服务架构**，而不是：
+Lework 采用**契约驱动的服务架构**，而不是：
 
 - ❌ Clean Architecture
 - ❌ DDD
@@ -66,7 +66,7 @@ Leros 采用**契约驱动的服务架构**，而不是：
 
 ```bash
 backend/
-├── cmd/leros/                 # composition root 与进程生命周期
+├── cmd/lework/                 # composition root 与进程生命周期
 ├── agent/                     # 独立、业务无关的执行层
 │   ├── executor.go
 │   ├── registry.go
@@ -84,7 +84,7 @@ backend/
 │       └── todo/
 ├── internal/
 │   ├── api/                   # HTTP adapters 与 API contract
-│   ├── assistant/             # SingerOS 业务包装、PreparedRun、Journal
+│   ├── assistant/             # Lework 业务包装、PreparedRun、Journal
 │   ├── worker/
 │   │   ├── command/           # WorkerCommand adapters
 │   │   ├── run/               # RunCoordinator
@@ -343,7 +343,7 @@ func NewEventModule(db *db.Client) contract.EventService {
 
 - `event/` - Event 定义（对外共享）
 - `dm/` - Domain Messaging
-- `client/` - Leros SDK
+- `client/` - Lework SDK
 - `types/` - 公开类型
 
 #### `pkg/dm` - 领域消息协议
@@ -575,12 +575,12 @@ type StreamPayload struct {
 
 ### 5.2 当前进程边界
 
-同一个 `leros` 二进制通过 Cobra 子命令提供 Server 与 Worker 进程入口。进程启停、
-信号和致命错误处理只存在于 `cmd/leros`；`internal/*` 不知道自己运行在哪种进程中。
+同一个 `lework` 二进制通过 Cobra 子命令提供 Server 与 Worker 进程入口。进程启停、
+信号和致命错误处理只存在于 `cmd/lework`；`internal/*` 不知道自己运行在哪种进程中。
 
 ```bash
-leros server   # API、DB、NATS、Worker 管理
-leros worker   # Worker Command、Coordinator、Assistant、Agent Runtime
+lework server   # API、DB、NATS、Worker 管理
+lework worker   # Worker Command、Coordinator、Assistant、Agent Runtime
 ```
 
 是否同机部署属于部署配置，不改变包边界或执行契约。
@@ -688,7 +688,7 @@ Database
 
 ## 9. 总结
 
-Leros 后端应该从：
+Lework 后端应该从：
 
 ```
 MVC / service-based
@@ -714,6 +714,6 @@ Contract-driven Service Architecture
 
 - API 层按 contract / service / handler 组织。
 - Worker 主链为 Handler → Coordinator → Assistant → Executor → Runtime。
-- Agent 执行层与 SingerOS 业务层物理分离。
+- Agent 执行层与 Lework 业务层物理分离。
 - native、Claude、Codex、OpenCode 使用同一 Runtime 和 Event 契约。
 - NATS `run.stream` / `run.state` 保持 wire compatibility。

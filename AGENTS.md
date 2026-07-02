@@ -184,19 +184,26 @@ import (
 
 项目文档位于 `docs/` 目录：
 
-> 重要参考：**[docs/PROJECT_STRUCTURE.md](./docs/PROJECT_STRUCTURE.md)** 包含完整的目录层级、关键文件说明和按任务场景的快速索引。处理不熟悉的任务时，建议先查阅该文件快速定位。
+> 重要参考：**[docs/README.md](./docs/README.md)** 包含文档规范和分类索引。处理不熟悉的任务时，建议先查阅该文件快速定位。
 
-- `ARCHITECTURE.md` - AI OS 架构设计（核心架构文档）
-- `PRD.md` - 产品需求文档（AI 工作协作系统）
-- `SYSTEM_DESIGN.md` - 系统架构设计（平台引擎、知识检索、外部连接）
-- `TECH_DESIGN.md` - 技术设计（技能 Schema、渲染引擎）
-- `PLANNING.md` - 规划项（业务板块路线图）
-- `TODO.md` - 后端开发 TODO（2周 MVP 计划）
-- `TODO_v1.md` - 后端开发 TODO 清单（详细任务分解）
-- `GITHUB_AUTH_SETUP.md` - GitHub OAuth 集成配置指南
-- `GITHUB_WEBHOOK_TROUBLESHOOTING.md` - GitHub Webhook 签名验证问题排查
-- `PR_EVENT_FLOW.md` - GitHub PR 事件处理流程验证清单
-- `TROUBLESHOOTING.md` - 常见问题故障排除指南
+| 分类 | 文档 | 说明 |
+|------|------|------|
+| 架构 | `architecture/overview.md` | AI OS 架构设计（核心架构文档） |
+| 架构 | `architecture/backend.md` | 后端包结构设计 |
+| 架构 | `architecture/agent-runtime.md` | Agent Runtime 架构 |
+| 架构 | `architecture/workspace-artifact.md` | Agent 工作空间与产物设计 |
+| 架构 | `architecture/mq-subject.md` | MQ Subject 架构 |
+| 架构 | `architecture/system-design.md` | 系统架构设计 |
+| 架构 | `architecture/design-philosophy.md` | 设计哲学 |
+| 产品 | `product/prd.md` | 产品需求文档 |
+| 产品 | `product/planning.md` | 路线图规划 |
+| 产品 | `product/todo.md` | 后端开发 TODO |
+| 设计 | `design/tech-design.md` | 技术设计（技能 Schema、渲染引擎） |
+| 设计 | `design/git-storage.md` | 文件存储技术方案 |
+| 设计 | `design/presigned-url.md` | 预签名 URL 设计 |
+| 运维 | `operations/troubleshooting.md` | 常见问题故障排除 |
+| 运维 | `operations/issue-labels.md` | Issue 标签体系 |
+| 运维 | `operations/project-structure.md` | 项目结构与文件索引 |
 
 根目录下另有 `CHANGELOG.md` 记录版本变更历史。
 
