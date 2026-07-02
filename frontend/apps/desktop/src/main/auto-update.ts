@@ -1,11 +1,11 @@
+import { app, BrowserWindow, ipcMain } from "electron";
 import {
 	type AppUpdater,
-	type UpdateDownloadedEvent,
-	type UpdateInfo,
 	MacUpdater,
 	NsisUpdater,
+	type UpdateDownloadedEvent,
+	type UpdateInfo,
 } from "electron-updater";
-import { app, BrowserWindow, ipcMain } from "electron";
 import {
 	type DesktopUpdateState,
 	desktopUpdateCheckChannel,
@@ -31,10 +31,6 @@ let updateState: DesktopUpdateState = createState({
 let updateHandlersRegistered = false;
 let autoUpdateTimer: NodeJS.Timeout | null = null;
 let updaterInstance: AppUpdater | null = null;
-
-type CheckForUpdatesOptions = {
-	manual?: boolean;
-};
 
 function createState(overrides: Partial<DesktopUpdateState>): DesktopUpdateState {
 	return {
@@ -155,6 +151,22 @@ function registerAutoUpdaterEvents() {
 	});
 
 	updater.on("update-available", (info) => {
+		const downloadedVersion = updateState.downloadedVersion;
+		if (downloadedVersion && downloadedVersion === info.version) {
+			setState({
+				phase: "downloaded",
+				message: "更新已下载完成，重启后安装",
+				availableVersion: info.version,
+				releaseDate: info.releaseDate,
+				releaseNotes: getReleaseNotes(info),
+				progressPercent: 100,
+				canCheck: true,
+				canRestart: true,
+				lastCheckedAt: new Date().toISOString(),
+			});
+			return;
+		}
+
 		setState({
 			phase: "available",
 			message: "发现新版本，开始后台下载",
@@ -219,11 +231,7 @@ function registerAutoUpdaterEvents() {
 	});
 }
 
-async function checkForUpdates(options: CheckForUpdatesOptions = {}): Promise<DesktopUpdateState> {
-	if (!options.manual && updateState.phase === "downloaded" && updateState.downloadedVersion) {
-		return updateState;
-	}
-
+export async function checkDesktopUpdates(): Promise<DesktopUpdateState> {
 	if (!canUseAutoUpdate()) {
 		markUnsupported("自动更新仅在已安装的 macOS / Windows 版本中可用");
 		return updateState;
@@ -257,11 +265,11 @@ function scheduleAutoUpdateChecks() {
 	}
 
 	setTimeout(() => {
-		void checkForUpdates();
+		void checkDesktopUpdates();
 	}, initialAutoUpdateDelayMs);
 
 	autoUpdateTimer = setInterval(() => {
-		void checkForUpdates();
+		void checkDesktopUpdates();
 	}, autoUpdateIntervalMs);
 }
 
@@ -283,7 +291,7 @@ export function registerDesktopAutoUpdate() {
 
 	ipcMain.handle(desktopUpdateGetStateChannel, () => updateState);
 	ipcMain.handle(desktopUpdateCheckChannel, async () => {
-		return checkForUpdates({ manual: true });
+		return checkDesktopUpdates();
 	});
 	ipcMain.handle(desktopUpdateRestartChannel, async () => {
 		if (!updateState.canRestart) {

@@ -152,17 +152,20 @@ export function LeftRail({
 
 	/* ── Desktop update notifier ── */
 	const [promptOpen, setPromptOpen] = useState(false);
-	const [downloadedVersion, setDownloadedVersion] = useState<string | undefined>(undefined);
+	const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
 	const [installing, setInstalling] = useState(false);
 	const [installError, setInstallError] = useState<string | null>(null);
 	const previousPhaseRef = useRef<DesktopUpdateState["phase"] | null>(null);
 	const previousVersionRef = useRef<string | undefined>(undefined);
 	const snoozeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const updatePromptSnoozeMs = 5 * 60 * 1000;
+	const updatePromptRefreshMs = 2 * 60 * 1000;
 	const versionUpdateImageSrc = new URL(
 		"../../../../apps/desktop/resources/octopus_version_update.png",
 		import.meta.url,
 	).href;
+	const promptVersion =
+		desktopUpdateState?.downloadedVersion ?? desktopUpdateState?.availableVersion;
 
 	const clearSnoozeTimer = () => {
 		if (snoozeTimerRef.current) {
@@ -171,16 +174,15 @@ export function LeftRail({
 		}
 	};
 
-	const openUpdatePrompt = (version?: string) => {
+	const openUpdatePrompt = () => {
 		clearSnoozeTimer();
-		setDownloadedVersion(version);
 		setInstallError(null);
 		setPromptOpen(true);
 	};
 
 	const snoozeUpdatePrompt = () => {
 		setPromptOpen(false);
-		if (!downloadedVersion || installing) return;
+		if (!promptVersion || installing) return;
 		clearSnoozeTimer();
 		snoozeTimerRef.current = setTimeout(() => {
 			setPromptOpen(true);
@@ -196,14 +198,16 @@ export function LeftRail({
 
 		void api.getState().then((state) => {
 			if (!mounted) return;
+			setDesktopUpdateState(state);
 			previousPhaseRef.current = state.phase;
 			previousVersionRef.current = state.availableVersion ?? state.downloadedVersion;
 			if (state.phase === "downloaded") {
-				openUpdatePrompt(state.downloadedVersion ?? state.availableVersion);
+				openUpdatePrompt();
 			}
 		});
 
 		const unsubscribe = api.subscribe((state) => {
+			setDesktopUpdateState(state);
 			const previousPhase = previousPhaseRef.current;
 			const previousVersion = previousVersionRef.current;
 			const nextVersion = state.availableVersion ?? state.downloadedVersion;
@@ -212,7 +216,7 @@ export function LeftRail({
 				state.phase === "downloaded" &&
 				(previousPhase !== "downloaded" || previousVersion !== nextVersion)
 			) {
-				openUpdatePrompt(nextVersion);
+				openUpdatePrompt();
 			}
 
 			previousPhaseRef.current = state.phase;
@@ -225,6 +229,37 @@ export function LeftRail({
 			unsubscribe();
 		};
 	}, []);
+
+	useEffect(() => {
+		if (!promptOpen) return;
+
+		const api = getDesktopUpdateApi();
+		if (!api) return;
+
+		let cancelled = false;
+
+		const refreshPromptUpdateState = async () => {
+			const state = await api.getState().catch(() => null);
+			if (!state || cancelled) return;
+			setDesktopUpdateState(state);
+
+			if (!state.canCheck || state.phase === "checking" || state.phase === "downloading") {
+				return;
+			}
+
+			const nextState = await api.checkForUpdates().catch(() => null);
+			if (!nextState || cancelled) return;
+			setDesktopUpdateState(nextState);
+		};
+
+		void refreshPromptUpdateState();
+		const intervalId = setInterval(refreshPromptUpdateState, updatePromptRefreshMs);
+
+		return () => {
+			cancelled = true;
+			clearInterval(intervalId);
+		};
+	}, [promptOpen]);
 
 	const handleInstallNow = async () => {
 		setInstalling(true);
@@ -827,7 +862,7 @@ export function LeftRail({
 							<div className="pr-7">
 								<div className="truncate text-[14px] font-semibold leading-5">新版本已就绪</div>
 								<div className="truncate text-[13px] leading-4 text-slate-900/60">
-									{downloadedVersion ? `V${downloadedVersion.replace(/^v/i, "")}` : "V"}
+									{promptVersion ? `V${promptVersion.replace(/^v/i, "")}` : "V"}
 								</div>
 							</div>
 							<div className="mt-1 flex items-center justify-end">
