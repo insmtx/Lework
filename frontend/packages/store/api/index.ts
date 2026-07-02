@@ -24,6 +24,7 @@ export type {
 	DeleteProjectParams,
 	GetProjectParams,
 	ListProjectsParams,
+	SaveWorkbenchRecentContextParams,
 	UpdateProjectParams,
 } from "./projectApi";
 export { projectApi } from "./projectApi";
@@ -76,6 +77,7 @@ export type {
 	BackendTask,
 	BackendTodoStatus,
 	BackendToolCall,
+	BackendWorkbenchRecentContext,
 	SSEEventPayload,
 	SSEMessageEvent,
 } from "./types";

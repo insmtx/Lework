@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -280,6 +281,96 @@ func (s *projectService) ListProjects(ctx context.Context, req *contract.ListPro
 	}, nil
 }
 
+func (s *projectService) GetWorkbenchRecentContext(ctx context.Context) (*contract.WorkbenchRecentContext, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	recent, err := db.GetWorkbenchRecentContext(ctx, s.db, caller.OrgID, caller.Uin)
+	if err != nil {
+		return nil, err
+	}
+	if recent == nil {
+		return nil, nil
+	}
+
+	project, err := db.GetProjectByID(ctx, s.db, recent.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil || project.OrgID != caller.OrgID || verifyUserPermission(project.OwnerID, caller.Uin) != nil {
+		return nil, nil
+	}
+
+	var task *types.Task
+	if recent.TaskID != nil {
+		task, err = db.GetTaskByID(ctx, s.db, caller.OrgID, *recent.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		if task == nil || task.ProjectID != project.ID || verifyUserPermission(task.OwnerID, caller.Uin) != nil {
+			task = nil
+		}
+	}
+
+	return buildWorkbenchRecentContext(project, task, recent.UsedAt), nil
+}
+
+func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *contract.SaveWorkbenchRecentContextRequest) (*contract.WorkbenchRecentContext, error) {
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.ProjectID) == "" {
+		return nil, errors.New("project_id is required")
+	}
+
+	project, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, strings.TrimSpace(req.ProjectID))
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, errors.New("project not found")
+	}
+	if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
+		return nil, err
+	}
+
+	var task *types.Task
+	var taskID *uint
+	if req.TaskID != nil && strings.TrimSpace(*req.TaskID) != "" {
+		task, err = db.GetTaskByPublicID(ctx, s.db, caller.OrgID, strings.TrimSpace(*req.TaskID))
+		if err != nil {
+			return nil, err
+		}
+		if task == nil {
+			return nil, errors.New("task not found")
+		}
+		if err := verifyUserPermission(task.OwnerID, caller.Uin); err != nil {
+			return nil, err
+		}
+		if task.ProjectID != project.ID {
+			return nil, errors.New("task does not belong to project")
+		}
+		taskID = &task.ID
+	}
+
+	usedAt := time.Now()
+	entity := &types.WorkbenchRecentContext{
+		OrgID:     caller.OrgID,
+		Uin:       caller.Uin,
+		ProjectID: project.ID,
+		TaskID:    taskID,
+		UsedAt:    usedAt,
+	}
+	if err := db.UpsertWorkbenchRecentContext(ctx, s.db, entity); err != nil {
+		return nil, err
+	}
+
+	return buildWorkbenchRecentContext(project, task, usedAt), nil
+}
+
 func convertToContractProject(project *types.Project) *contract.Project {
 	if project == nil {
 		return nil
@@ -310,6 +401,28 @@ func convertToContractProject(project *types.Project) *contract.Project {
 		Metadata:    metadata,
 		CreatedAt:   project.CreatedAt,
 		UpdatedAt:   project.UpdatedAt,
+	}
+}
+
+func buildWorkbenchRecentContext(project *types.Project, task *types.Task, usedAt time.Time) *contract.WorkbenchRecentContext {
+	if project == nil {
+		return nil
+	}
+
+	var taskID *string
+	var taskTitle *string
+	if task != nil {
+		// 中文注释：任务为空表示用户最近只选中了项目，首页应回显为“新建任务”入口。
+		taskID = &task.PublicID
+		taskTitle = &task.Title
+	}
+
+	return &contract.WorkbenchRecentContext{
+		ProjectID:   project.PublicID,
+		ProjectName: project.Name,
+		TaskID:      taskID,
+		TaskTitle:   taskTitle,
+		UsedAt:      usedAt,
 	}
 }
 

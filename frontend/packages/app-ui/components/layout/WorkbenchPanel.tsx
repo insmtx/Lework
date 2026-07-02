@@ -93,6 +93,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		sendWorkbenchMessage,
 		fetchProjects,
 		fetchTasks,
+		fetchRecentWorkbenchContext,
+		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
 	const { addUploadedAttachment, isGenerating } = useChatStore((s) => s);
@@ -130,8 +132,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [attachments]);
 
 	useEffect(() => {
-		fetchProjects();
-	}, [fetchProjects]);
+		void fetchProjects().then(() => {
+			if (isAuthenticated) {
+				void fetchRecentWorkbenchContext();
+			}
+		});
+	}, [fetchProjects, fetchRecentWorkbenchContext, isAuthenticated]);
 
 	useLayoutEffect(() => {
 		clearTaskDetailRoute();
@@ -303,7 +309,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const projectTaskSelectorLabel = activeProject
 		? activeTask
 			? `${activeProject.name} / ${activeTask.title}`
-			: activeProject.name
+			: `${activeProject.name} / 新建任务`
 		: "新建项目/任务";
 	const suggestedPrompts = useMemo(
 		() => [
@@ -347,10 +353,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			requireAuth(() => {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
-				const firstTask = project.tasks[0];
-				if (firstTask) {
-					selectWorkbenchTask(firstTask.id);
-				}
+				void saveWorkbenchRecentContext(project.id, null);
 				// 中文注释：选择已有项目后，首页输入框不再支持临时 AI 队友/技能标签，需同步清理已选指令。
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				setExpandedProjectIds((current) => {
@@ -360,7 +363,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				});
 			});
 		},
-		[clearProjectTriggerText, requireAuth, selectWorkbenchProject, selectWorkbenchTask],
+		[clearProjectTriggerText, requireAuth, saveWorkbenchRecentContext, selectWorkbenchProject],
 	);
 
 	const handleSelectTask = useCallback(
@@ -369,6 +372,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
 				selectWorkbenchTask(task.id);
+				void saveWorkbenchRecentContext(project.id, task.id);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				setExpandedProjectIds((current) => {
 					const next = new Set(current);
@@ -377,7 +381,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				});
 			});
 		},
-		[clearProjectTriggerText, requireAuth, selectWorkbenchProject, selectWorkbenchTask],
+		[
+			clearProjectTriggerText,
+			requireAuth,
+			saveWorkbenchRecentContext,
+			selectWorkbenchProject,
+			selectWorkbenchTask,
+		],
 	);
 
 	const toggleProjectExpanded = useCallback(

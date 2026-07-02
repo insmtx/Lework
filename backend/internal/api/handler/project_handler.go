@@ -28,6 +28,8 @@ func (h *ProjectHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/UpdateProject", h.UpdateProject)
 	r.POST("/DeleteProject", h.DeleteProject)
 	r.POST("/ListProjects", h.ListProjects)
+	r.POST("/GetWorkbenchRecentContext", h.GetWorkbenchRecentContext)
+	r.POST("/SaveWorkbenchRecentContext", h.SaveWorkbenchRecentContext)
 }
 
 func RegisterProjectRoutes(r gin.IRouter, service contract.ProjectService) {
@@ -221,6 +223,30 @@ func (h *ProjectHandler) ListProjects(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+func (h *ProjectHandler) GetWorkbenchRecentContext(ctx *gin.Context) {
+	result, err := h.service.GetWorkbenchRecentContext(ctx)
+	if err != nil {
+		handleProjectServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+func (h *ProjectHandler) SaveWorkbenchRecentContext(ctx *gin.Context) {
+	var req contract.SaveWorkbenchRecentContextRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.SaveWorkbenchRecentContext(ctx, &req)
+	if err != nil {
+		handleProjectServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 // ================================================================
 // Error Handling
 // ================================================================
@@ -239,8 +265,14 @@ func handleProjectServiceError(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
 	case "name is required",
 		"name cannot be empty",
-		"public_id is required":
+		"public_id is required",
+		"project_id is required",
+		"task does not belong to project":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
+	case "task not found":
+		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
+	case "permission denied":
+		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
 	default:
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
 	}

@@ -107,6 +107,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.Project{},
 		&types.ProjectMember{},
 		&types.Task{},
+		&types.WorkbenchRecentContext{},
 		&types.FileUpload{},
 		&types.ProjectFile{},
 		&types.BuiltinSkillMarketplaceItem{},

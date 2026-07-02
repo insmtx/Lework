@@ -1698,13 +1698,14 @@ function formatBytes(size: number): string {
 
 function formatTime(timestamp: number): string {
 	if (!timestamp) return "-";
+	// 中文注释：项目文件列表里的 createdAt 已在 normalizeProjectFileTree 中从秒转成毫秒，这里直接按毫秒格式化，避免重复乘 1000 导致年份异常。
 	return new Intl.DateTimeFormat("zh-CN", {
 		year: "numeric",
 		month: "2-digit",
 		day: "2-digit",
 		hour: "2-digit",
 		minute: "2-digit",
-	}).format(new Date(timestamp * 1000));
+	}).format(new Date(timestamp));
 }
 
 function clampProjectRightSidebarWidth(width: number): number {

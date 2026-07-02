@@ -15,9 +15,9 @@ const iconMacPngPath = join(resourcesDir, 'icon-mac.png')
 const iconIcoPath = join(resourcesDir, 'icon.ico')
 const trayIconPngPath = join(resourcesDir, 'tray-icon.png')
 
-// 中文注释：与前端品牌色保持一致，供 macOS 应用图标底板使用。
-const macIconBackgroundTop = '#6366f1'
-const macIconBackgroundBottom = '#4338ca'
+// 中文注释：macOS 图标底板采用白色（与 VS Code、企业微信等应用一致），让彩色 logo 主体突出。
+const macIconBackgroundTop = '#ffffff'
+const macIconBackgroundBottom = '#ffffff'
 
 await mkdir(resourcesDir, { recursive: true })
 await sharp(await renderIcon(1024)).toFile(iconPngPath)
@@ -53,10 +53,17 @@ async function renderIcon(size, options = {}) {
 }
 
 async function renderMacIcon(size, options = {}) {
-  // 中文注释：macOS Dock 会自动套圆角底板，图标主体需留足边距并铺满方形背景，避免显得过大。
+  // 中文注释：按照 Apple 图标规范绘制——1024 画布中图标本体是 824 的圆角方块（约 80.5%），
+  // 四周保留透明边距，圆角半径约为本体的 22.5%，这样 Dock 中的大小和圆角才能与系统应用一致。
   const source = options.source ?? sourceLogo
-  const logoScale = options.logoScale ?? 0.62
-  const logoSize = Math.round(size * logoScale)
+  const plateScale = 824 / 1024
+  const plateSize = Math.round(size * plateScale)
+  const plateOffset = Math.round((size - plateSize) / 2)
+  const cornerRadius = Math.round(plateSize * 0.225)
+
+  // 中文注释：logo 相对底板缩放，保证章鱼在圆角底板内留出呼吸空间。
+  const logoScale = options.logoScale ?? 0.72
+  const logoSize = Math.round(plateSize * logoScale)
   const logoOffset = Math.round((size - logoSize) / 2)
 
   const background = Buffer.from(
@@ -67,7 +74,8 @@ async function renderMacIcon(size, options = {}) {
           <stop offset="100%" stop-color="${macIconBackgroundBottom}" />
         </linearGradient>
       </defs>
-      <rect width="100%" height="100%" fill="url(#bg)" />
+      <rect x="${plateOffset}" y="${plateOffset}" width="${plateSize}" height="${plateSize}"
+        rx="${cornerRadius}" ry="${cornerRadius}" fill="url(#bg)" />
     </svg>`,
   )
 
@@ -78,8 +86,6 @@ async function renderMacIcon(size, options = {}) {
 
   return sharp(background)
     .composite([{ input: logo, left: logoOffset, top: logoOffset }])
-    .flatten({ background: macIconBackgroundBottom })
-    .removeAlpha()
     .png()
     .toBuffer()
 }

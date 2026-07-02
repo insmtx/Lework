@@ -52,6 +52,21 @@ type ProjectList struct {
 	Items  []Project `json:"items"`
 }
 
+// WorkbenchRecentContext 首页工作台最近明确使用的项目/任务上下文。
+type WorkbenchRecentContext struct {
+	ProjectID   string    `json:"project_id"`
+	ProjectName string    `json:"project_name"`
+	TaskID      *string   `json:"task_id,omitempty"`
+	TaskTitle   *string   `json:"task_title,omitempty"`
+	UsedAt      time.Time `json:"used_at"`
+}
+
+// SaveWorkbenchRecentContextRequest 保存首页工作台最近使用上下文的请求。
+type SaveWorkbenchRecentContextRequest struct {
+	ProjectID string  `json:"project_id" binding:"required"`
+	TaskID    *string `json:"task_id,omitempty"`
+}
+
 // ProjectDetail 项目详情响应，包含关联的会话、任务、产物和成员
 type ProjectDetail struct {
 	Project
