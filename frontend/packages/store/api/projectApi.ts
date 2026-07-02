@@ -4,6 +4,7 @@ import type {
 	BackendPaginatedResponse,
 	BackendProject,
 	BackendProjectDetail,
+	BackendWorkbenchRecentContext,
 } from "./types";
 
 export type CreateProjectParams = {
@@ -39,6 +40,11 @@ export type DeleteProjectParams = {
 	public_id: string;
 };
 
+export type SaveWorkbenchRecentContextParams = {
+	project_id: string;
+	task_id?: string | null;
+};
+
 const PROJECT_ENDPOINTS = {
 	create: "/CreateProject",
 	list: "/ListProjects",
@@ -46,6 +52,8 @@ const PROJECT_ENDPOINTS = {
 	detail: "/DetailProject",
 	update: "/UpdateProject",
 	delete: "/DeleteProject",
+	getWorkbenchRecentContext: "/GetWorkbenchRecentContext",
+	saveWorkbenchRecentContext: "/SaveWorkbenchRecentContext",
 };
 
 export const projectApi = {
@@ -66,4 +74,16 @@ export const projectApi = {
 
 	delete: (params: DeleteProjectParams) =>
 		apiClient.post<BackendDataResponse<null>>(PROJECT_ENDPOINTS.delete, params),
+
+	getWorkbenchRecentContext: () =>
+		apiClient.post<BackendDataResponse<BackendWorkbenchRecentContext | null>>(
+			PROJECT_ENDPOINTS.getWorkbenchRecentContext,
+			{},
+		),
+
+	saveWorkbenchRecentContext: (params: SaveWorkbenchRecentContextParams) =>
+		apiClient.post<BackendDataResponse<BackendWorkbenchRecentContext>>(
+			PROJECT_ENDPOINTS.saveWorkbenchRecentContext,
+			params,
+		),
 };

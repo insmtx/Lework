@@ -83,6 +83,7 @@ export type {
 	Workspace,
 	WorkspaceMode,
 } from "./slices/layoutSlice";
+export { LEFT_RAIL_MAX_WIDTH, LEFT_RAIL_MIN_WIDTH } from "./slices/layoutSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {

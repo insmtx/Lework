@@ -4,6 +4,8 @@ import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/s
 import {
 	authenticatedFetch,
 	getFileDownloadUrl,
+	LEFT_RAIL_MAX_WIDTH,
+	LEFT_RAIL_MIN_WIDTH,
 	projectFileApi,
 	useAuthStore,
 	useChatStore,
@@ -702,8 +704,8 @@ export function LeftRail({
 				tabIndex={0}
 				aria-orientation="vertical"
 				aria-label="调整侧边栏宽度"
-				aria-valuemin={220}
-				aria-valuemax={320}
+				aria-valuemin={LEFT_RAIL_MIN_WIDTH}
+				aria-valuemax={LEFT_RAIL_MAX_WIDTH}
 				aria-valuenow={leftRailWidth}
 				onPointerDown={handleResizePointerDown}
 				onKeyDown={(event) => {

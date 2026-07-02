@@ -410,7 +410,7 @@ export function TaskDetailPage({
 				</div>
 			</header>
 
-			<div className="min-h-0 min-w-0 flex flex-1">
+			<div className="relative min-h-0 min-w-0 flex flex-1">
 				<main className="min-w-0 flex min-h-0 flex-1 flex-col">
 					{/* 中文注释：任务详情页作为壳层里的 flex item 以及中间主列本身都必须允许收缩，避免小窗口下被聊天内容宽度和右侧栏共同撑出可视区域。 */}
 					<MessageTimeline
@@ -425,7 +425,7 @@ export function TaskDetailPage({
 				{rightSidebarCollapsed && (
 					<button
 						type="button"
-						className="absolute right-6 top-[136px] z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						className="absolute right-8 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
 						aria-label="展开右侧栏"
 						title="展开右侧栏"
 						onClick={() => setRightSidebarCollapsed(false)}
@@ -439,23 +439,24 @@ export function TaskDetailPage({
 						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
+						{/* 中文注释：收起按钮移到侧栏外部，和收起态展开按钮保持同一行高度。 */}
+						<button
+							type="button"
+							className="absolute -left-14 top-6 z-20 inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							aria-label="收起右侧栏"
+							title="收起右侧栏"
+							onClick={() => setRightSidebarCollapsed(true)}
+						>
+							<ChevronsRight className="size-4" />
+						</button>
 						<div className="no-scrollbar min-h-0 flex-1 space-y-8 overflow-y-auto pr-1">
-							<div className="flex items-start justify-between gap-3">
+							<div>
 								<div>
 									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">任务侧栏</p>
 									<p className="mt-1 text-xs text-[var(--leros-text-muted)]">
 										查看任务说明、进度和文件概览
 									</p>
 								</div>
-								<button
-									type="button"
-									className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
-									aria-label="收起右侧栏"
-									title="收起右侧栏"
-									onClick={() => setRightSidebarCollapsed(true)}
-								>
-									<ChevronsRight className="size-4" />
-								</button>
 							</div>
 							{SHOW_TASK_TOKEN_USAGE_CARD && (
 								<section>

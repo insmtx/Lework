@@ -30,6 +30,19 @@ func GetTaskByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicID st
 	return &entity, nil
 }
 
+// GetTaskByID 根据主键ID获取任务。
+func GetTaskByID(ctx context.Context, db *gorm.DB, orgID, id uint) (*types.Task, error) {
+	var entity types.Task
+	err := db.WithContext(ctx).Where("org_id = ? AND id = ? AND deleted_at IS NULL", orgID, id).First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}
+
 // UpdateTask 更新任务
 func UpdateTask(ctx context.Context, db *gorm.DB, task *types.Task) error {
 	return db.WithContext(ctx).Save(task).Error

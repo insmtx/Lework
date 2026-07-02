@@ -340,8 +340,6 @@ export type BackendTask = {
 	updated_at: string;
 };
 
-
-
 export type BackendProjectMemberItem = {
 	member_id: number;
 	member_type: string;
@@ -359,6 +357,14 @@ export type BackendProjectDetail = BackendProject & {
 	session?: BackendSession;
 	tasks: BackendProjectTaskItem[];
 	members: BackendProjectMemberItem[];
+};
+
+export type BackendWorkbenchRecentContext = {
+	project_id: string;
+	project_name: string;
+	task_id?: string;
+	task_title?: string;
+	used_at: string;
 };
 
 export type BackendProjectFileNode = {

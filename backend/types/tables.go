@@ -57,6 +57,8 @@ const (
 
 	// TableNameTask 任务表名
 	TableNameTask = tablenamePrefix + "task"
+	// TableNameWorkbenchRecentContext 工作台最近使用上下文表名
+	TableNameWorkbenchRecentContext = tablenamePrefix + "workbench_recent_context"
 
 	// TableNameFileUpload 文件上传表名
 	TableNameFileUpload = tablenamePrefix + "file_upload"
