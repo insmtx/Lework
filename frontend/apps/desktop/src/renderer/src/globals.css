@@ -2,19 +2,37 @@
 
 @source "./**/*.{ts,tsx}";
 
-/* mac 沉浸式一体化标题栏（配合主进程 titleBarStyle: hiddenInset） */
-/* 顶部预留高度，红绿灯按钮落在这条空白区域内，不遮挡应用内容 */
-body.leros-mac-titlebar .leros-app-shell {
-	padding-top: 36px;
+/*
+ * mac 沉浸式一体化标题栏（配合主进程 titleBarStyle: hiddenInset + trafficLightPosition）
+ * 设计目标：隐藏系统标题栏后，侧栏与右侧顶栏的背景直接顶满窗口顶部，
+ * 红绿灯嵌入侧栏左上角，不再出现独立的“标题栏色带”，
+ * 避免“只是把标题栏换了个颜色”的观感。
+ */
+
+/* 侧栏顶部品牌行为红绿灯让位：增大上内边距让 Logo 行整体下移，
+   红绿灯落在侧栏浅色背景之上；同时该区域作为窗口拖拽区。
+   注意：侧栏背景本身高度 100%，padding 只影响内容位置，背景仍顶满窗口顶部。 */
+body.leros-mac-titlebar .leros-brand {
+	height: auto;
+	padding-top: 44px;
+	-webkit-app-region: drag;
 }
 
-/* 顶部透明拖拽条：替代系统标题栏的窗口拖拽/双击缩放能力 */
-.leros-mac-drag-region {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	height: 36px;
-	z-index: 50;
+/* 品牌行内的可交互控件恢复可点击（全局搜索、收起侧栏等） */
+body.leros-mac-titlebar .leros-brand button,
+body.leros-mac-titlebar .leros-brand a,
+body.leros-mac-titlebar .leros-brand input {
+	-webkit-app-region: no-drag;
+}
+
+/* 右侧各页面顶栏顶满窗口顶部并作为窗口拖拽区，
+   其中的按钮、链接、输入、下拉触发器等交互元素保持可点击。 */
+body.leros-mac-titlebar header {
 	-webkit-app-region: drag;
+}
+
+body.leros-mac-titlebar
+	header
+	:is(button, a, input, select, textarea, [role="button"], [role="tab"], [contenteditable="true"]) {
+	-webkit-app-region: no-drag;
 }
