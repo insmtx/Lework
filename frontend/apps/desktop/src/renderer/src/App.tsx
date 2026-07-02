@@ -33,6 +33,7 @@ const versionUpdateImageSrc = new URL(
 	"../../../resources/octopus_version_update.png",
 	import.meta.url,
 ).href;
+const forcedUpdateRefreshIntervalMs = 2 * 60 * 1000;
 
 export default function App() {
 	return (
@@ -93,6 +94,43 @@ function ClientUpdateGate() {
 		};
 	}, []);
 
+	useEffect(() => {
+		if (!policy?.force_update) {
+			return;
+		}
+
+		let cancelled = false;
+
+		const refreshUpdateData = async () => {
+			await clientUpdateApi.reportVersion().catch(() => {
+				// Keep the existing dialog state when the policy endpoint is temporarily unavailable.
+			});
+
+			const state = await window.lerosDesktop.getState().catch(() => null);
+			if (!state || cancelled) {
+				return;
+			}
+
+			setUpdateState(state);
+			if (!state.canCheck || state.phase === "checking" || state.phase === "downloading") {
+				return;
+			}
+
+			const nextState = await window.lerosDesktop.checkForUpdates().catch(() => null);
+			if (nextState && !cancelled) {
+				setUpdateState(nextState);
+			}
+		};
+
+		void refreshUpdateData();
+		const intervalId = window.setInterval(refreshUpdateData, forcedUpdateRefreshIntervalMs);
+
+		return () => {
+			cancelled = true;
+			window.clearInterval(intervalId);
+		};
+	}, [policy?.force_update]);
+
 	if (!policy?.force_update) {
 		return null;
 	}
@@ -127,7 +165,12 @@ function ClientUpdateGate() {
 
 	const message = policy.message || "当前客户端版本过低，请更新后继续使用";
 	const currentVersion = policy.current_version || updateState.currentVersion;
-	const targetVersion = policy.min_supported_version || policy.latest_version || "最新版本";
+	const targetVersion =
+		updateState.availableVersion ||
+		updateState.downloadedVersion ||
+		policy.latest_version ||
+		policy.min_supported_version ||
+		"最新版本";
 	const statusMessage =
 		updateState.phase === "up-to-date"
 			? "暂未发现可下载的新版本，请稍后重试"
