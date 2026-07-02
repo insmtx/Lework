@@ -9,13 +9,23 @@
  * 避免“只是把标题栏换了个颜色”的观感。
  */
 
-/* 侧栏顶部品牌行为红绿灯让位：增大上内边距让 Logo 行整体下移，
-   红绿灯落在侧栏浅色背景之上；同时该区域作为窗口拖拽区。
-   注意：侧栏背景本身高度 100%，padding 只影响内容位置，背景仍顶满窗口顶部。 */
+/* 侧栏顶满窗口顶部，去掉默认上内边距，避免全屏时 Logo 上方出现额外空白。 */
+body.leros-mac-titlebar .leros-sidebar {
+	padding-top: 0;
+}
+
+/* 侧栏顶部品牌行为红绿灯让位：上内边距与 Logo 行下移配合 trafficLightPosition，
+   让红绿灯落在侧栏浅色背景之上；同时该区域作为窗口拖拽区。 */
 body.leros-mac-titlebar .leros-brand {
 	height: auto;
-	padding-top: 44px;
+	padding-top: 32px;
+	margin-bottom: 24px;
 	-webkit-app-region: drag;
+}
+
+/* 收紧主导航与「最近项目」区块之间的垂直间距。 */
+body.leros-mac-titlebar .leros-nav-section {
+	margin-bottom: 20px;
 }
 
 /* 品牌行内的可交互控件恢复可点击（全局搜索、收起侧栏等） */
