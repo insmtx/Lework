@@ -1,6 +1,6 @@
 appId: com.leros.desktop
 productName: Lework
-icon: resources/icon.svg
+icon: resources/icon.png
 directories:
   buildResources: build
   output: dist
@@ -16,7 +16,7 @@ compression: maximum
 asarUnpack:
   - resources/**
 mac:
-  icon: resources/icon.svg
+  icon: resources/icon-mac.png
   category: public.app-category.developer-tools
   hardenedRuntime: true
   notarize: true

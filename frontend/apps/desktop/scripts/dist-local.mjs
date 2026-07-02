@@ -14,6 +14,7 @@ if (!targets) {
 	process.exit(1);
 }
 
+await run("pnpm", ["run", "icons"]);
 await run("pnpm", ["run", "compile"]);
 await run("electron-builder", [...targets, "--publish", "never"]);
 

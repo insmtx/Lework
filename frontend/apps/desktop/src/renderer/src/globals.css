@@ -1,3 +1,20 @@
 @import "@leros/styles/globals.css";
 
 @source "./**/*.{ts,tsx}";
+
+/* mac 沉浸式一体化标题栏（配合主进程 titleBarStyle: hiddenInset） */
+/* 顶部预留高度，红绿灯按钮落在这条空白区域内，不遮挡应用内容 */
+body.leros-mac-titlebar .leros-app-shell {
+	padding-top: 36px;
+}
+
+/* 顶部透明拖拽条：替代系统标题栏的窗口拖拽/双击缩放能力 */
+.leros-mac-drag-region {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 36px;
+	z-index: 50;
+	-webkit-app-region: drag;
+}
