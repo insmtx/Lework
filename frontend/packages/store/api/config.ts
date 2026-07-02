@@ -10,7 +10,7 @@ declare const process:
 	  }
 	| undefined;
 
-const DEFAULT_API_BASE_URL = "http://localhost:8080/v1";
+const DEFAULT_API_BASE_URL = "https://leros.test.insmtx.com/v1";
 
 function getNextAPIBaseURL(): string | undefined {
 	if (typeof process === "undefined") return undefined;
