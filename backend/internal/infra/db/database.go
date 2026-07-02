@@ -444,7 +444,7 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 		DeploymentName:     fmt.Sprintf("leros-worker-o%d-w%d", org.ID, 1),
 		Namespace:          "default",
 		Status:             string(types.WorkerDeploymentStatusPending),
-		WorkspacePath:      fmt.Sprintf("/data/leros-workspaces/%d/1/workspace", org.ID),
+		WorkspacePath:      "/data/workspace",
 	}
 	if err := d.Create(deployment).Error; err != nil {
 		return fmt.Errorf("create default worker deployment: %w", err)

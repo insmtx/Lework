@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"github.com/ygpkg/yg-go/logs"
+
+	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/pkg/leros"
 )
 
 func TestLoadConfigAppliesServerLogLevel(t *testing.T) {
@@ -46,5 +49,22 @@ func TestLoadConfigAppliesServerLogLevel(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "server-error-should-be-visible") {
 		t.Fatalf("error log should be visible: %s", output)
+	}
+}
+
+func TestApplyServerWorkspaceRootFallsBackToSchedulerHostPathRoot(t *testing.T) {
+	t.Setenv(leros.EnvWorkspaceRoot, "")
+
+	cfg := &config.Config{
+		Scheduler: &config.SchedulerConfig{
+			WorkspaceHostPathRoot: "/data/workspace",
+		},
+	}
+
+	if err := applyServerWorkspaceRoot(cfg); err != nil {
+		t.Fatalf("apply server workspace root: %v", err)
+	}
+	if got, want := os.Getenv(leros.EnvWorkspaceRoot), "/data/workspace"; got != want {
+		t.Fatalf("%s = %q, want %q", leros.EnvWorkspaceRoot, got, want)
 	}
 }

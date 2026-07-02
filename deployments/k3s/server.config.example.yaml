@@ -35,8 +35,8 @@ scheduler:
   config_map: leros-worker-config
   secret: leros-secret
   image_pull_secret: insmtx-registry
-  workspace_host_path_root: /data/leros-workspaces
-  workspace_mount_root: /leros-workspaces
+  workspace_host_path_root: /data/workspace
+  workspace_mount_root: /workspace
   storage_host_path: /data/leros-storage
   storage_mount_path: /leros-storage
   node_selector:
