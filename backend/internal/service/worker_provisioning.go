@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"gorm.io/gorm"
@@ -146,10 +145,10 @@ func (s *WorkerProvisioningService) namespace() string {
 	return "default"
 }
 
-func (s *WorkerProvisioningService) workspacePath(orgID, workerID uint) string {
-	root := "/data/leros-workspaces"
+func (s *WorkerProvisioningService) workspacePath(_, _ uint) string {
+	root := "/data/workspace"
 	if s.scheduler != nil && strings.TrimSpace(s.scheduler.WorkspaceHostPathRoot) != "" {
 		root = strings.TrimSpace(s.scheduler.WorkspaceHostPathRoot)
 	}
-	return filepath.Join(root, fmt.Sprintf("%d", orgID), fmt.Sprintf("%d", workerID), "workspace")
+	return root
 }

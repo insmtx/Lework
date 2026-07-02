@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/insmtx/Leros/backend/pkg/leros"
@@ -15,7 +14,7 @@ func TestWorkerMountedWorkspacePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WorkerMountedWorkspacePath failed: %v", err)
 	}
-	want := filepath.Join(serverRoot, "1", "1", "workspace")
+	want := serverRoot
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}

@@ -45,14 +45,14 @@ func SyncToLerosDir(sourceDir string) error {
 	return syncSkillDir(sourceDir, resolvedUserDir)
 }
 
-// SyncServerSkillsDir copies server built-in skills to the workspace skills directory ({workspace}/skills).
+// SyncServerSkillsDir copies server built-in skills to the Leros workspace skills directory (.leros/skills).
 func SyncServerSkillsDir(sourceDir string) error {
 	sourceDir, err := resolveBuiltinSkillsSource(sourceDir, "server")
 	if err != nil {
 		return err
 	}
 
-	targetDir, err := leros.JoinWorkspace("skills")
+	targetDir, err := defaultLerosSkillsDir()
 	if err != nil {
 		return err
 	}

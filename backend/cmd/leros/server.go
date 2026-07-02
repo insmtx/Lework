@@ -131,6 +131,9 @@ func applyServerWorkspaceRoot(cfg *config.Config) error {
 		return fmt.Errorf("config is required")
 	}
 	root := strings.TrimSpace(cfg.WorkspaceRoot)
+	if root == "" && cfg.Scheduler != nil {
+		root = strings.TrimSpace(cfg.Scheduler.WorkspaceHostPathRoot)
+	}
 	if root == "" {
 		return nil
 	}

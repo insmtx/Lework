@@ -29,6 +29,28 @@ func TestSyncToLerosDirCreatesUserSkillsDirectory(t *testing.T) {
 	}
 }
 
+func TestSyncServerSkillsDirUsesLerosSkillsDirectory(t *testing.T) {
+	builtinRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	writeSyncTestSkill(t, filepath.Join(builtinRoot, "artifact"), "artifact", "server skill body")
+
+	if err := SyncServerSkillsDir(builtinRoot); err != nil {
+		t.Fatalf("sync server skills: %v", err)
+	}
+
+	skillPath := filepath.Join(workspaceRoot, ".leros", "skills", "artifact", skillManifestFile)
+	if _, err := os.Stat(skillPath); err != nil {
+		t.Fatalf("expected server skill under .leros/skills: %v", err)
+	}
+
+	legacyPath := filepath.Join(workspaceRoot, "skills", "artifact", skillManifestFile)
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("server skill should not be written to legacy workspace skills path, got err=%v", err)
+	}
+}
+
 func TestReconcileExternalSkillLinksNoopsWhenNoSourcesExist(t *testing.T) {
 	t.Setenv(leros.EnvWorkspaceRoot, filepath.Join(t.TempDir(), "missing"))
 
