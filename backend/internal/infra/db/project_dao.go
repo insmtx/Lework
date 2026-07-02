@@ -150,6 +150,28 @@ func ListProjects(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 	return entities, total, nil
 }
 
+// ListProjectsReferencingSkill 查询 org 内 metadata.extra.skills 引用了指定技能的项目。
+func ListProjectsReferencingSkill(ctx context.Context, d *gorm.DB, orgID uint, skillName string) ([]*types.Project, error) {
+	skillName = strings.TrimSpace(skillName)
+	if skillName == "" {
+		return nil, nil
+	}
+
+	var entities []*types.Project
+	err := d.WithContext(ctx).
+		Where("org_id = ? AND deleted_at IS NULL", orgID).
+		Where(`EXISTS (
+			SELECT 1 FROM jsonb_array_elements(COALESCE(metadata->'extra'->'skills', '[]'::jsonb)) AS elem
+			WHERE lower(trim(both from elem->>'code')) = lower(?)
+			   OR lower(trim(both from elem->>'name')) = lower(?)
+		)`, skillName, skillName).
+		Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
 // GetProjectByID 根据主键ID获取项目
 func GetProjectByID(ctx context.Context, d *gorm.DB, id uint) (*types.Project, error) {
 	var entity types.Project
