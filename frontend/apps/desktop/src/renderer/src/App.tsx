@@ -48,8 +48,9 @@ export default function App() {
 	);
 }
 
-// mac 沉浸式标题栏：隐藏系统标题栏后，顶部预留一条可拖拽区域，
-// 让红绿灯按钮有独立空间，避免遮挡左侧栏内容
+// mac 沉浸式标题栏：仅在 mac 下给 body 挂上标记类，
+// 具体的拖拽区/红绿灯让位样式全部由 globals.css 中的 body.leros-mac-titlebar 规则控制，
+// 拖拽能力通过侧栏品牌行与右侧顶栏的 -webkit-app-region 精细划分，不再使用整块覆盖层。
 function MacTitleBarDragRegion() {
 	const isMac = window.electron?.process?.platform === "darwin";
 
@@ -61,8 +62,7 @@ function MacTitleBarDragRegion() {
 		};
 	}, [isMac]);
 
-	if (!isMac) return null;
-	return <div className="leros-mac-drag-region" aria-hidden="true" />;
+	return null;
 }
 
 function ClientUpdateGate() {

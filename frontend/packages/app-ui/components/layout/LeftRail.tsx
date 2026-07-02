@@ -72,7 +72,8 @@ const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
 const AVATAR_CACHE_PREFIX = "leros-avatar-cache:";
 const LEFT_RAIL_COLLAPSED_WIDTH = 72;
 const RECENT_PROJECT_LIMIT = 5;
-const PROJECT_TASK_PREVIEW_LIMIT = 5;
+// 中文注释：设计稿要求项目展开后先预览 10 条任务，点“展开显示”后再展示全部任务。
+const PROJECT_TASK_PREVIEW_LIMIT = 10;
 
 type PublicEnv = {
 	readonly VITE_LEROS_APP_VERSION?: string;
@@ -632,7 +633,7 @@ export function LeftRail({
 										<p className="truncate text-[14px] font-semibold text-[var(--leros-text-strong)]">
 											{user?.name ?? "Lework 用户"}
 										</p>
-										<p className="truncate text-[11px] text-[var(--leros-text-subtle)]">
+										<p className="truncate text-[12px] text-[var(--leros-text-subtle)]">
 											{getDisplayPhone(user) ?? "已登录"}
 										</p>
 									</div>
@@ -1628,7 +1629,7 @@ function TaskListItem({
 	return (
 		<div
 			data-active={active}
-			className="group flex min-h-8 w-full items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
+			className="group flex min-h-8 w-full items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-medium data-[active=true]:text-[var(--leros-primary)]"
 		>
 			<button
 				type="button"
