@@ -162,6 +162,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			const data = await sendWorkbenchMessage(
 				content,
 				activeWorkbenchProjectId,
+				executionMode,
 				attachments,
 				composerMetadata,
 			);

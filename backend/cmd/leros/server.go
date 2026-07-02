@@ -165,6 +165,7 @@ func loadConfig(configPath string) (*config.Config, error) {
 		}
 	}
 
+	applyLogLevel(cfg.Log.Level)
 	logs.Info("Configuration loaded successfully")
 	return &cfg, nil
 }

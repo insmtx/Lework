@@ -4,7 +4,58 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"go.uber.org/zap/zapcore"
 )
+
+func TestResolveLogLevel(t *testing.T) {
+	tests := []struct {
+		name  string
+		level string
+		want  zapcore.Level
+		valid bool
+	}{
+		{name: "empty defaults to info", want: zapcore.InfoLevel, valid: true},
+		{name: "debug", level: "debug", want: zapcore.DebugLevel, valid: true},
+		{name: "info", level: "info", want: zapcore.InfoLevel, valid: true},
+		{name: "warn", level: "warn", want: zapcore.WarnLevel, valid: true},
+		{name: "error", level: "error", want: zapcore.ErrorLevel, valid: true},
+		{name: "trimmed and case insensitive", level: " WARN ", want: zapcore.WarnLevel, valid: true},
+		{name: "invalid defaults to info", level: "trace", want: zapcore.InfoLevel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envDev, "")
+			got, valid := resolveLogLevel(tt.level)
+			if got != tt.want {
+				t.Fatalf("resolveLogLevel(%q) = %s, want %s", tt.level, got, tt.want)
+			}
+			if valid != tt.valid {
+				t.Fatalf("resolveLogLevel(%q) valid = %v, want %v", tt.level, valid, tt.valid)
+			}
+		})
+	}
+}
+
+func TestResolveLogLevelUsesDevAsFallback(t *testing.T) {
+	t.Setenv(envDev, "true")
+	got, valid := resolveLogLevel("")
+	if got != zapcore.DebugLevel {
+		t.Fatalf("empty log level with LEROS_DEV = %s, want debug", got)
+	}
+	if !valid {
+		t.Fatal("empty log level should be valid")
+	}
+
+	got, valid = resolveLogLevel("error")
+	if got != zapcore.ErrorLevel {
+		t.Fatalf("configured log level with LEROS_DEV = %s, want error", got)
+	}
+	if !valid {
+		t.Fatal("configured error log level should be valid")
+	}
+}
 
 func TestRootCommandHelp(t *testing.T) {
 	tests := []struct {

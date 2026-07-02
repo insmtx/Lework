@@ -87,7 +87,8 @@ func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationReques
 		req.PermissionMode == provider.PermissionModeAuto
 
 	evtChan := make(chan agent.Event, 32)
-	proc := provider.NewCmdProcess(cmd)
+	processDone := make(chan struct{})
+	proc := provider.NewCmdProcess(cmd, processDone)
 	evtChan <- agent.Event{Type: events.EventInvocationStarted}
 
 	var responder provider.ApprovalResponder
@@ -138,6 +139,7 @@ func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationReques
 		}()
 
 		err := cmd.Wait()
+		close(processDone)
 		wg.Wait()
 		if err != nil {
 			evtChan <- agent.Event{Type: events.EventInvocationFailed, Content: claudeFailureContent(err, parseState, stderrText)}

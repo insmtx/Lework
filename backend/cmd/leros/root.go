@@ -107,6 +107,34 @@ func applyWorkspaceRoot(cfg *config.WorkerConfig) {
 	}
 }
 
+func resolveLogLevel(level string) (zapcore.Level, bool) {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "":
+		if os.Getenv(envDev) == "true" || os.Getenv(envDev) == "1" {
+			return zapcore.DebugLevel, true
+		}
+		return zapcore.InfoLevel, true
+	case "debug":
+		return zapcore.DebugLevel, true
+	case "info":
+		return zapcore.InfoLevel, true
+	case "warn":
+		return zapcore.WarnLevel, true
+	case "error":
+		return zapcore.ErrorLevel, true
+	default:
+		return zapcore.InfoLevel, false
+	}
+}
+
+func applyLogLevel(level string) {
+	parsedLevel, valid := resolveLogLevel(level)
+	logs.SetLevel(parsedLevel)
+	if !valid {
+		logs.Warnf("Invalid log.level %q; using default level info", level)
+	}
+}
+
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "leros",
@@ -140,10 +168,6 @@ Authentication:
 Use "leros [command] --help" for more information about a command.`,
 		Args: cobra.ArbitraryArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if os.Getenv(envDev) == "true" || os.Getenv(envDev) == "1" {
-				logs.SetLevel(zapcore.DebugLevel)
-			}
-
 			path := cliConfigPath
 			if path == "" {
 				path = defaultCLIConfigPath()
@@ -151,6 +175,7 @@ Use "leros [command] --help" for more information about a command.`,
 			cliConfig = loadCLIConfig(path)
 			applyEnvOverrides(cliConfig)
 			applyWorkspaceRoot(cliConfig)
+			applyLogLevel(cliConfig.Log.Level)
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -35,6 +35,7 @@ type Config struct {
 	} `yaml:"server,omitempty"` // 服务器地址
 	Env           string              `yaml:"env,omitempty"`
 	WorkspaceRoot string              `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
+	Log           LogConfig           `yaml:"log,omitempty" json:"log,omitempty"`
 	NATS          *NATSConfig         `yaml:"nats,omitempty"`
 	Database      *DatabaseConfig     `yaml:"database,omitempty"`
 	LLM           *LLMConfig          `yaml:"llm,omitempty"`

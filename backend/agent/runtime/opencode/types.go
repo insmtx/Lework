@@ -89,89 +89,94 @@ type sseEvent struct {
 	Properties any    `json:"properties,omitempty"`
 }
 
-// textDeltaProps 是 session.next.text.delta 事件的 properties。
-type textDeltaProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	TextID             string `json:"textID"`
-	Delta              string `json:"delta"`
+// ============================================================================
+// V1 事件 props（新版 OpenCode V2 session 发布的事件）
+// ============================================================================
+
+// messagePartDeltaProps 是 message.part.delta 事件的 properties。
+type messagePartDeltaProps struct {
+	SessionID string `json:"sessionID"`
+	MessageID string `json:"messageID"`
+	PartID    string `json:"partID"`
+	Field     string `json:"field"`
+	Delta     string `json:"delta"`
 }
 
-// textStartedProps 是 session.next.text.started 事件的 properties。
-type textStartedProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	TextID             string `json:"textID"`
+// messagePartUpdatedProps 是 message.part.updated 事件的 properties。
+type messagePartUpdatedProps struct {
+	SessionID string `json:"sessionID"`
+	Part      v1Part `json:"part"`
+	Time      int64  `json:"time"`
 }
 
-// textEndedProps 是 session.next.text.ended 事件的 properties。
-type textEndedProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	TextID             string `json:"textID"`
-	Text               string `json:"text"`
+// v1Part 是 V1 Part 的多态结构体，按 type 字段区分具体类型。
+type v1Part struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionID"`
+	MessageID string `json:"messageID"`
+	Type      string `json:"type"`
+
+	// text part
+	Text      string `json:"text,omitempty"`
+	Synthetic *bool  `json:"synthetic,omitempty"`
+
+	// step-start part
+	Snapshot string `json:"snapshot,omitempty"`
+
+	// step-finish part
+	Reason string     `json:"reason,omitempty"`
+	Cost   float64    `json:"cost,omitempty"`
+	Tokens *v1Tokens  `json:"tokens,omitempty"`
+
+	// tool part
+	CallID string       `json:"callID,omitempty"`
+	Tool   string       `json:"tool,omitempty"`
+	State  *v1ToolState `json:"state,omitempty"`
+
+	// reasoning part
+	// Text field reused
+
+	// agent part
+	Name string `json:"name,omitempty"`
 }
 
-// toolInputStartedProps 是 session.next.tool.input.started 事件的 properties。
-type toolInputStartedProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	CallID             string `json:"callID"`
-	Name               string `json:"name"`
+// v1Tokens 是 step-finish part 中的 token 使用量。
+type v1Tokens struct {
+	Input     int `json:"input"`
+	Output    int `json:"output"`
+	Reasoning int `json:"reasoning"`
+	Cache     struct {
+		Read  int `json:"read"`
+		Write int `json:"write"`
+	} `json:"cache"`
 }
 
-// toolCalledProps 是 session.next.tool.called 事件的 properties。
-type toolCalledProps struct {
-	SessionID          string         `json:"sessionID"`
-	AssistantMessageID string         `json:"assistantMessageID"`
-	CallID             string         `json:"callID"`
-	Tool               string         `json:"tool"`
-	Input              map[string]any `json:"input"`
+// v1ToolState 是 tool part 的状态，按 status 字段区分。
+type v1ToolState struct {
+	Status string `json:"status"`
+
+	// pending / running / completed / error 共有
+	Input map[string]any `json:"input,omitempty"`
+
+	// running / completed 共有
+	Title string `json:"title,omitempty"`
+
+	// completed 特有
+	Output string `json:"output,omitempty"`
+
+	// error 特有
+	Error string `json:"error,omitempty"`
+
+	// completed / error 共有
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
-// toolSuccessProps 是 session.next.tool.success 事件的 properties。
-type toolSuccessProps struct {
-	SessionID          string   `json:"sessionID"`
-	AssistantMessageID string   `json:"assistantMessageID"`
-	CallID             string   `json:"callID"`
-	Tool               string   `json:"tool"`
-	Result             any      `json:"result,omitempty"`
-	OutputPaths        []string `json:"outputPaths,omitempty"`
-}
-
-// toolFailedProps 是 session.next.tool.failed 事件的 properties。
-type toolFailedProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	CallID             string `json:"callID"`
-	Tool               string `json:"tool"`
-	Error              struct {
+// sessionErrorProps 是 session.error 事件的 properties（V1 事件，保留）。
+type sessionErrorProps struct {
+	SessionID string `json:"sessionID"`
+	Error     struct {
 		Message string `json:"message"`
 	} `json:"error"`
-}
-
-// stepEndedProps 是 session.next.step.ended 事件的 properties。
-type stepEndedProps struct {
-	SessionID          string  `json:"sessionID"`
-	AssistantMessageID string  `json:"assistantMessageID"`
-	Finish             string  `json:"finish"`
-	Cost               float64 `json:"cost"`
-	Tokens             struct {
-		Input  int `json:"input"`
-		Output int `json:"output"`
-		Cache  struct {
-			Read  int `json:"read"`
-			Write int `json:"write"`
-		} `json:"cache"`
-	} `json:"tokens"`
-}
-
-// reasoningDeltaProps 是 session.next.reasoning.delta 事件的 properties。
-type reasoningDeltaProps struct {
-	SessionID          string `json:"sessionID"`
-	AssistantMessageID string `json:"assistantMessageID"`
-	ReasoningID        string `json:"reasoningID"`
-	Delta              string `json:"delta"`
 }
 
 // ============================================================================
