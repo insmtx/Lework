@@ -422,11 +422,13 @@ export class LayoutActionImpl {
 	sendWorkbenchMessage = async (
 		content: string,
 		projectId?: string | null,
+		executionMode?: "default" | "plan",
 		attachments?: Attachment[],
 		_metadata?: MessageMetadata,
 	) => {
 		const trimmed = content.trim();
 		if (!trimmed) return;
+		const mode = executionMode ?? "default";
 
 		const state = this.#get();
 		const selectedTaskId = state.activeWorkbenchTaskId;
@@ -476,9 +478,7 @@ export class LayoutActionImpl {
 						session_id: selectedTask.sessionId,
 						role: "user",
 						content: trimmed,
-						execution_mode:
-							(this.#get() as LayoutStore & { executionMode?: "default" | "plan" }).executionMode ??
-							"default",
+						execution_mode: mode,
 						message_type: "text",
 						attachments: attachments
 							?.filter((attachment): attachment is Attachment & { fileUploadId: string } =>
@@ -506,7 +506,8 @@ export class LayoutActionImpl {
 						activeTaskDetailSessionId: data.session_id,
 						currentView: "taskDetail",
 						conversationListOpen: false,
-					});
+						executionMode: mode,
+					} as Partial<LayoutState>);
 					await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
 					return data;
 				} catch (err) {
@@ -520,13 +521,14 @@ export class LayoutActionImpl {
 			content: string;
 			project_id?: string;
 			task_id?: string;
+			execution_mode?: "default" | "plan";
 			attachments?: {
 				file_upload_id: string;
 				name: string;
 				mime_type: string;
 				size: number;
 			}[];
-		} = { content: trimmed };
+		} = { content: trimmed, execution_mode: mode };
 
 		if (workbenchProjectId) {
 			params.project_id = workbenchProjectId;
@@ -560,7 +562,8 @@ export class LayoutActionImpl {
 					activeTaskDetailSessionId: data.session_id,
 					currentView: "taskDetail",
 					conversationListOpen: false,
-				});
+					executionMode: mode,
+				} as Partial<LayoutState>);
 				await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
 				// 新建项目/任务后立即拉详情，确保 store 有数据供 SSE 标题 patch 与详情页展示。
 				await this.fetchProjectDetail(data.project_id);

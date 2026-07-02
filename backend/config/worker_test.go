@@ -6,9 +6,9 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-func TestWorkerConfigParsesWorkspaceRoot(t *testing.T) {
+func TestWorkerConfigParsesWorkspaceRootAndLogLevel(t *testing.T) {
 	var cfg WorkerConfig
-	body := []byte("org_id: 1\nworker_id: 2\nworkspace_root: /tmp/leros-workspace\nbootstrap_token: test-bootstrap\n")
+	body := []byte("org_id: 1\nworker_id: 2\nworkspace_root: /tmp/leros-workspace\nbootstrap_token: test-bootstrap\nlog:\n  level: warn\n")
 
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		t.Fatalf("unmarshal worker config: %v", err)
@@ -19,5 +19,8 @@ func TestWorkerConfigParsesWorkspaceRoot(t *testing.T) {
 	}
 	if cfg.BootstrapToken != "test-bootstrap" {
 		t.Fatalf("bootstrap token = %q", cfg.BootstrapToken)
+	}
+	if cfg.Log.Level != "warn" {
+		t.Fatalf("log level = %q", cfg.Log.Level)
 	}
 }

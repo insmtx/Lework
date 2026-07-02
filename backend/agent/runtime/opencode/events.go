@@ -24,7 +24,7 @@ var filteredToolPatterns = []*regexp.Regexp{
 }
 
 // handleSSEEvent 解析 SSE 事件并将消息相关事件转换为引擎事件。
-// 消息事件包括：文本增量、工具调用、推理内容等。
+// 处理新版 OpenCode V2 session 发布的 V1 事件（message.part.* 等）。
 func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 	logs.Debugf("[opencode] SSE event: type=%s id=%s props=%+v", event.Type, event.ID, event.Properties)
 
@@ -37,126 +37,141 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 	}
 
 	switch event.Type {
-	case "session.next.text.delta":
-		var props textDeltaProps
+	// ============================================================
+	// message.part.delta — 流式增量（文本 / 推理）
+	// ============================================================
+	case "message.part.delta":
+		var props messagePartDeltaProps
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
-		if props.Delta != "" {
-			msgID := props.AssistantMessageID
-			if msgID == "" {
-				msgID = st.messageID
+		if props.Field != "text" || props.Delta == "" {
+			return
+		}
+		if st.isReasoningPart(props.PartID) {
+			// 推理内容增量，暂不产生事件；
+			// 推理完成时通过 message.part.updated (reasoning) 发送完整文本。
+			return
+		}
+		emitMessageDelta(st.evtChan, props.MessageID, props.Delta)
+
+	// ============================================================
+	// message.part.updated — Part 状态更新（文本、工具、步骤等）
+	// ============================================================
+	case "message.part.updated":
+		var props messagePartUpdatedProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+		part := props.Part
+
+		switch part.Type {
+		case "text":
+			// 记录 messageID（首次 text part 出现时）
+			if st.messageID == "" && part.MessageID != "" {
+				st.messageID = part.MessageID
 			}
-			emitMessageDelta(st.evtChan, msgID, props.Delta)
-		}
-
-	case "session.next.text.started":
-		// 仅记录 textID，不产生事件
-
-	case "session.next.text.ended":
-		var props textEndedProps
-		if err := json.Unmarshal(propsJSON, &props); err != nil {
-			return
-		}
-		st.lastTextEnded = props.Text
-
-	case "session.next.tool.input.started":
-		var props toolInputStartedProps
-		if err := json.Unmarshal(propsJSON, &props); err != nil {
-			return
-		}
-		if isFilteredToolName(props.Name) {
-			st.markFilteredToolCall(props.CallID, props.Name)
-		}
-
-	case "session.next.tool.called":
-		var props toolCalledProps
-		if err := json.Unmarshal(propsJSON, &props); err != nil {
-			return
-		}
-		if isFilteredToolName(props.Tool) {
-			st.markFilteredToolCall(props.CallID, props.Tool)
-			return
-		}
-		sendEventPayloadTo(st.evtChan, events.EventToolCallStarted, events.ToolCallPayload{
-			ToolCallID: props.CallID,
-			Name:       props.Tool,
-			Arguments:  events.MarshalRaw(props.Input),
-		})
-
-	case "session.next.tool.success":
-		var props toolSuccessProps
-		if err := json.Unmarshal(propsJSON, &props); err != nil {
-			return
-		}
-		if isFilteredToolName(props.Tool) || st.isFilteredToolCall(props.CallID) {
-			st.clearFilteredToolCall(props.CallID)
-			return
-		}
-		sendEventPayloadTo(st.evtChan, events.EventToolCallCompleted, events.ToolCallResultPayload{
-			ToolCallID: props.CallID,
-			Name:       props.Tool,
-			Result:     events.MarshalRaw(props.Result),
-		})
-
-	case "session.next.tool.failed":
-		var props toolFailedProps
-		if err := json.Unmarshal(propsJSON, &props); err != nil {
-			return
-		}
-		if isFilteredToolName(props.Tool) || st.isFilteredToolCall(props.CallID) {
-			st.clearFilteredToolCall(props.CallID)
-			return
-		}
-		sendEventPayloadTo(st.evtChan, events.EventToolCallFailed, events.ToolCallResultPayload{
-			ToolCallID: props.CallID,
-			Name:       props.Tool,
-			Error:      props.Error.Message,
-			IsError:    true,
-		})
-
-	case "session.next.reasoning.delta":
-		var props reasoningDeltaProps
-		if err := json.Unmarshal(propsJSON, &props); err != nil {
-			return
-		}
-		if props.Delta != "" {
-			msgID := props.AssistantMessageID
-			if msgID == "" {
-				msgID = st.messageID
+			// 完整文本（非 synthetic）
+			if !isTrue(part.Synthetic) && part.Text != "" {
+				st.lastTextEnded = part.Text
 			}
-			evt := events.NewReasoningDelta(msgID, props.Delta)
-			sendEventDirect(st.evtChan, evt)
+
+		case "step-start":
+			if part.MessageID != "" {
+				st.messageID = part.MessageID
+			}
+
+		case "step-finish":
+			if part.Tokens != nil {
+				st.tokenUsage = &agent.Usage{
+					InputTokens:  part.Tokens.Input,
+					OutputTokens: part.Tokens.Output,
+					TotalTokens:  part.Tokens.Input + part.Tokens.Output,
+				}
+			}
+			if part.Reason == "error" && st.runErr == "" {
+				st.runErr = "step finished with error"
+			}
+
+		case "tool":
+			if part.State == nil {
+				return
+			}
+			callID := part.CallID
+			toolName := part.Tool
+
+			switch part.State.Status {
+			case "pending":
+				if isFilteredToolName(toolName) {
+					st.markFilteredToolCall(callID, toolName)
+				}
+
+			case "running":
+				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
+					return
+				}
+				sendEventPayloadTo(st.evtChan, events.EventToolCallStarted, events.ToolCallPayload{
+					ToolCallID: callID,
+					Name:       toolName,
+					Arguments:  events.MarshalRaw(part.State.Input),
+				})
+
+			case "completed":
+				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
+					st.clearFilteredToolCall(callID)
+					return
+				}
+				sendEventPayloadTo(st.evtChan, events.EventToolCallCompleted, events.ToolCallResultPayload{
+					ToolCallID: callID,
+					Name:       toolName,
+					Result:     events.MarshalRaw(part.State.Output),
+				})
+
+			case "error":
+				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
+					st.clearFilteredToolCall(callID)
+					return
+				}
+				toolErr := part.State.Error
+				if toolErr == "" {
+					toolErr = "tool execution failed"
+				}
+				sendEventPayloadTo(st.evtChan, events.EventToolCallFailed, events.ToolCallResultPayload{
+					ToolCallID: callID,
+					Name:       toolName,
+					Error:      toolErr,
+					IsError:    true,
+				})
+			}
+
+		case "reasoning":
+			// 记录 reasoning part，以便 message.part.delta 过滤
+			st.markReasoningPart(part.ID)
+			// reasoning-end：发送完整推理文本
+			if part.Text != "" {
+				msgID := part.MessageID
+				if msgID == "" {
+					msgID = st.messageID
+				}
+				evt := events.NewReasoningDelta(msgID, part.Text)
+				sendEventDirect(st.evtChan, evt)
+			}
 		}
 
-	case "session.next.step.ended":
-		var props stepEndedProps
-		if err := json.Unmarshal(propsJSON, &props); err != nil {
-			return
-		}
-		st.tokenUsage = &agent.Usage{
-			InputTokens:  props.Tokens.Input,
-			OutputTokens: props.Tokens.Output,
-			TotalTokens:  props.Tokens.Input + props.Tokens.Output,
-		}
-
-	case "session.next.shell.started":
-		// 以 message delta 展示
-		emitMessageDelta(st.evtChan, st.messageID, "[shell] 正在执行命令...")
-
+	// ============================================================
+	// permission.asked — 权限请求
+	// ============================================================
 	case "permission.asked":
 		var props permissionAskedProps
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
 
-		// 构建描述文本
 		desc := props.Permission
 		if len(props.Patterns) > 0 {
 			desc = props.Permission + ": " + strings.Join(props.Patterns, ", ")
 		}
 
-		// 提取 tool_call_id（如有）
 		toolCallID := ""
 		if props.Tool != nil {
 			toolCallID = props.Tool.CallID
@@ -172,17 +187,15 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		}
 		sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, payload)
 
-	case "session.next.agent.switched":
-		// 记录但不产生事件
-		logs.Infof("OpenCode agent switched: %s", string(propsJSON))
-
+	// ============================================================
+	// question.asked / question.v2.asked — 问题/确认
+	// ============================================================
 	case "question.asked", "question.v2.asked":
 		var props questionAskedProps
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
 
-		// 映射 question items
 		questions := make([]events.QuestionItem, 0, len(props.Questions))
 		for _, q := range props.Questions {
 			options := make([]events.QuestionOption, 0, len(q.Options))
@@ -214,7 +227,6 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 
 			published, pubErr := st.publishPlan(ctx, questions)
 			if pubErr != nil {
-				// Plan file cannot be read or upload failed; emit plan_confirmation with error so UI can show it.
 				logs.WarnContextf(ctx, "[plan] question.asked publishPlan error, emitting confirmation with error: session_id=%s request_id=%s err=%s", props.SessionID, props.ID, pubErr)
 				payload := events.QuestionRequestPayload{
 					RequestID:       props.ID,
@@ -229,7 +241,6 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 				return
 			}
 
-			// Emit plan.published first, then question.asked.
 			logs.Infof("[plan] question.asked emitting plan.published: session_id=%s request_id=%s file_id=%s", props.SessionID, props.ID, published.FileID)
 			sendEventDirect(st.evtChan, events.NewPlanPublished(*published))
 			questions = planConfirmationQuestions()
@@ -247,6 +258,9 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		}
 		sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
 
+	// ============================================================
+	// todo.updated — 待办事项更新
+	// ============================================================
 	case "todo.updated":
 		var props todoUpdatedProps
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
@@ -258,10 +272,33 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		}
 		sendEventDirect(st.evtChan, events.NewTodoUpdated(items))
 
-	case "session.next.model.switched":
-		// 记录但不产生事件
-		logs.Infof("OpenCode model switched: %s", string(propsJSON))
+	// ============================================================
+	// session.error — 会话错误
+	// ============================================================
+	case "session.error":
+		var props sessionErrorProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+		if props.Error.Message != "" && st.runErr == "" {
+			st.runErr = props.Error.Message
+		}
+		logs.Errorf("[opencode] session error: session=%s error=%s", props.SessionID, props.Error.Message)
+		select {
+		case <-st.sseTerminal:
+		default:
+			close(st.sseTerminal)
+		}
 
+	// ============================================================
+	// session.idle — SSE 空闲信号，不再作为终态
+	// ============================================================
+	case "session.idle":
+		logs.Debugf("[opencode] session idle (ignored for termination)")
+
+	// ============================================================
+	// 生命周期事件
+	// ============================================================
 	case "server.connected":
 		logs.Infof("OpenCode SSE connected")
 
@@ -270,6 +307,14 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 
 	default:
 	}
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+func isTrue(b *bool) bool {
+	return b != nil && *b
 }
 
 func isFilteredToolName(toolName string) bool {
@@ -316,6 +361,30 @@ func (st *runState) clearFilteredToolCall(callID string) {
 	delete(st.filteredToolCalls, callID)
 }
 
+// markReasoningPart 标记 reasoning partID，用于 message.part.delta 区分文本和推理。
+// 调用方必须持有 st.mu。
+func (st *runState) markReasoningPart(partID string) {
+	partID = strings.TrimSpace(partID)
+	if partID == "" {
+		return
+	}
+	if st.reasoningParts == nil {
+		st.reasoningParts = make(map[string]struct{})
+	}
+	st.reasoningParts[partID] = struct{}{}
+}
+
+// isReasoningPart 检查 partID 是否为 reasoning part。
+// 调用方必须持有 st.mu。
+func (st *runState) isReasoningPart(partID string) bool {
+	partID = strings.TrimSpace(partID)
+	if partID == "" || st.reasoningParts == nil {
+		return false
+	}
+	_, ok := st.reasoningParts[partID]
+	return ok
+}
+
 func planConfirmationQuestions() []events.QuestionItem {
 	return []events.QuestionItem{{
 		Header:   "计划确认",
@@ -333,9 +402,6 @@ func planConfirmationQuestions() []events.QuestionItem {
 // todo.updated 转换
 // ============================================================================
 
-// convertOpenCodeTodoItems 将 OpenCode 格式的 todo 列表转换为内部统一格式。
-// 无 id 的条目按列表位置生成稳定 ID（todo_1, todo_2 ...）。
-// content 为空的条目会被忽略。
 func convertOpenCodeTodoItems(todos []opencodeTodoItem) []events.RuntimeTodoItem {
 	items := make([]events.RuntimeTodoItem, 0, len(todos))
 	for i, t := range todos {

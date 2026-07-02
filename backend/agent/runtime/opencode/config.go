@@ -133,8 +133,7 @@ func buildServerEnv(password, configContent string, baseEnv []string) []string {
 	env = append(env, "OPENCODE_DISABLE_AUTOUPDATE=1")
 	env = append(env, "OPENCODE_DISABLE_MODELS_FETCH=1")
 
-	// 启用 v2 事件系统（session.next.* 事件流）
-	env = append(env, "OPENCODE_EXPERIMENTAL_EVENT_SYSTEM=true")
+	// 启用 plan mode 和 CLI client 模式
 	env = append(env, "OPENCODE_EXPERIMENTAL_PLAN_MODE=true")
 	env = append(env, "OPENCODE_CLIENT=cli")
 

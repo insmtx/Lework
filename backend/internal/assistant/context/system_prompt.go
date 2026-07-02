@@ -154,16 +154,14 @@ func buildWorkspaceContext(req *assistantdomain.RunRequest) string {
 	return fmt.Sprintf(`## 工作区信息
 
 - 项目工作目录: %s
-- 本次请求临时目录: %s
-- 会话日志目录: %s
+- 项目工作临时目录: %s
 
 **工作区可见性规则：**
 - 仅项目工作目录下的内容对用户可见，可被用户访问和下载。
 - 不需要让用户看见的临时文件、中间产物，应在临时目录中创建。
-- 会话日志目录用于存放运行日志，用户无法直接访问。
 
-**运行系统环境：**
-- Host: %s`, plan.RepoDir, plan.TurnTmpDir, plan.TurnLogDir, runtime.GOOS)
+**运行系统环境：*
+- Host: %s`, plan.RepoDir, plan.TurnTmpDir, runtime.GOOS)
 }
 
 // buildRunMetaContext 返回运行元信息（Layer 9）：当前日期、会话ID、模型。

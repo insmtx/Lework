@@ -48,6 +48,7 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req externalcli.Invocation
 		filteredToolCalls: make(map[string]string),
 		sseDone:           make(chan struct{}),
 		msgDone:           make(chan struct{}),
+		sseTerminal:       make(chan struct{}),
 	}
 	// 2. 会话管理
 	logs.Infof("OpenCode creating/resuming session...")
@@ -73,9 +74,10 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req externalcli.Invocation
 	go st.processSSEStream(sseCtx, sseCh)
 	// 4. 发送消息并等待同步响应
 	logs.Infof("OpenCode sending message...")
-	go st.sendAndProcessMessage(ctx, req)
+	messageCtx, cancelMessage := context.WithCancel(ctx)
+	go st.sendAndProcessMessage(messageCtx, req)
 	// 5. 后台等待完成并清理
-	go st.waitCompletion(ctx, cancelSSE)
+	go st.waitCompletion(ctx, cancelMessage, cancelSSE)
 	return st.buildHandle(req)
 }
 
@@ -93,8 +95,15 @@ type runState struct {
 	workDir           string
 	session           *sessionResponse
 	filteredToolCalls map[string]string
+	reasoningParts   map[string]struct{} // reasoning partID 集合，用于 message.part.delta 过滤
 	sseDone           chan struct{}
 	msgDone           chan struct{}
+
+	// 本次调用期间从 SSE 失败事件（session.error / step-finish error part）提取的错误文本。
+	// 优先生效先到达的错误；后续错误不影响。
+	runErr string
+	// sseTerminal 仅在 SSE 流收到 session.error 后关闭。
+	sseTerminal chan struct{}
 }
 
 func (st *runState) buildHandle(_ externalcli.InvocationRequest) (*externalcli.Invocation, error) {
@@ -156,13 +165,17 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req externalcli.I
 	}
 	msgResp, err := st.srv.SendMessage(ctx, st.sessionID, msgReq)
 	if err != nil {
-		// 检查是否是 context 取消导致的错误
-		if ctx.Err() != nil {
-			logs.WarnContextf(ctx, "OpenCode send message cancelled: %v", ctx.Err())
-			sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
-		} else {
+		// 终态事件或上层取消会主动取消请求，不应覆盖真实的运行错误。
+		if ctx.Err() == nil {
+			msg := err.Error()
+			st.mu.Lock()
+			if st.runErr == "" {
+				st.runErr = msg
+			}
+			st.mu.Unlock()
 			logs.Errorf("OpenCode send message failed: %v", err)
-			sendEventTo(st.evtChan, events.EventInvocationFailed, err.Error())
+		} else {
+			logs.WarnContextf(ctx, "OpenCode send message cancelled: %v", ctx.Err())
 		}
 		return
 	}
@@ -200,41 +213,77 @@ func (st *runState) processSSEStream(ctx context.Context, ch <-chan sseEvent) {
 // ============================================================================
 // 完成等待和清理
 // ============================================================================
-func (st *runState) waitCompletion(ctx context.Context, cancelSSE context.CancelFunc) {
+func (st *runState) waitCompletion(ctx context.Context, cancelMessage, cancelSSE context.CancelFunc) {
 	defer close(st.evtChan)
+	defer cancelMessage()
+	defer cancelSSE()
 	defer func() {
-		_ = st.srv.Stop()
+		if st.srv != nil {
+			_ = st.srv.Stop()
+		}
 	}()
-	// 等待消息响应完成
+
+	// 正常完成以同步 message 请求返回（msgDone）为准；
+	// session.error 可以立即终止仍在进行的消息请求；
+	// session.idle 不再作为终态信号（question 流程中模型暂停提问时也会触发 idle）。
 	select {
 	case <-ctx.Done():
-		// Context 取消：尝试 abort 会话
+		// 外部取消：立即终止一切
 		logs.Errorf("OpenCode run cancelled: %v", ctx.Err())
-		logs.Debugf("SSE stream cancel triggered by: context cancelled")
+		cancelMessage()
 		cancelSSE()
 		_ = st.srv.Abort(context.Background(), st.sessionID)
 		sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
+		return
+
+	case <-st.sseTerminal:
+		// session.error：立即取消消息请求
+		cancelMessage()
+
 	case <-st.msgDone:
-		// 消息响应完成，取消 SSE 流
-		logs.Debugf("SSE stream cancel triggered by: message completed")
-		cancelSSE()
-		// 等待 SSE 流完全关闭（最多 5 秒，防止某些情况下 SSE 不释放）
-		select {
-		case <-st.sseDone:
-		case <-time.After(5 * time.Second):
-			logs.Warnf("OpenCode SSE stream did not close within 5s after cancel, proceeding anyway")
+		// 正常完成路径：给 SSE 流一个短窗口收集 trailing error
+		st.mu.Lock()
+		hasRunErr := st.runErr != ""
+		st.mu.Unlock()
+		if !hasRunErr {
+			select {
+			case <-st.sseTerminal:
+			case <-st.sseDone:
+			case <-ctx.Done():
+				sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
+				return
+			case <-time.After(3 * time.Second):
+			}
 		}
-		// 发送最终结果
-		finalText := st.lastTextEnded
-		if finalText != "" {
-			sendEventTo(st.evtChan, events.EventResult, finalText)
-			sendEventPayloadTo(st.evtChan, events.EventResult, events.MessageResultPayload{
-				Message: finalText,
-				Usage:   st.tokenUsage,
-			})
-		}
-		sendEventTo(st.evtChan, events.EventInvocationCompleted, finalText)
 	}
+
+	// cleanup: 取消 SSE 并等待 goroutine 退出
+	cancelSSE()
+	select {
+	case <-st.sseDone:
+	case <-time.After(5 * time.Second):
+		logs.Warnf("OpenCode SSE stream did not close within 5s after cancel, proceeding anyway")
+	}
+
+	st.mu.Lock()
+	hasRunErr := st.runErr != ""
+	runErr := st.runErr
+	finalText := st.lastTextEnded
+	usage := st.tokenUsage
+	st.mu.Unlock()
+
+	if finalText != "" {
+		sendEventTo(st.evtChan, events.EventResult, finalText)
+		sendEventPayloadTo(st.evtChan, events.EventResult, events.MessageResultPayload{
+			Message: finalText,
+			Usage:   usage,
+		})
+	}
+	if hasRunErr {
+		sendEventTo(st.evtChan, events.EventInvocationFailed, runErr)
+		return
+	}
+	sendEventTo(st.evtChan, events.EventInvocationCompleted, finalText)
 }
 
 // ============================================================================

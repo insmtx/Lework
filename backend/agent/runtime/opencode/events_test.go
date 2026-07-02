@@ -385,3 +385,265 @@ func readEvent(t *testing.T, ch <-chan agent.Event) agent.Event {
 		return agent.Event{}
 	}
 }
+
+func TestHandleSSEEventStepFailedRecordsError(t *testing.T) {
+	st := &runState{
+		evtChan:     make(chan agent.Event, 4),
+		sseTerminal: make(chan struct{}),
+	}
+
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "session.next.step.failed",
+		Properties: map[string]any{
+			"sessionID": "ses_123",
+			"error": map[string]any{
+				"message": `no enabled provider model for "test"`,
+			},
+		},
+	})
+
+	if st.runErr != `no enabled provider model for "test"` {
+		t.Fatalf("runErr = %q, want error message", st.runErr)
+	}
+}
+
+func TestHandleSSEEventSessionErrorRecordsError(t *testing.T) {
+	st := &runState{
+		evtChan:     make(chan agent.Event, 4),
+		sseTerminal: make(chan struct{}),
+	}
+
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "session.error",
+		Properties: map[string]any{
+			"sessionID": "ses_123",
+			"error": map[string]any{
+				"message": `no enabled provider model for "test"`,
+			},
+		},
+	})
+
+	if st.runErr != `no enabled provider model for "test"` {
+		t.Fatalf("runErr = %q, want error message", st.runErr)
+	}
+	select {
+	case <-st.sseTerminal:
+	default:
+		t.Fatal("sseTerminal should be closed after session.error")
+	}
+}
+
+func TestHandleSSEEventTwoFailuresOnlyRecordsFirst(t *testing.T) {
+	st := &runState{
+		evtChan:     make(chan agent.Event, 4),
+		sseTerminal: make(chan struct{}),
+	}
+
+	// First failure
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "session.next.step.failed",
+		Properties: map[string]any{
+			"sessionID": "ses_123",
+			"error": map[string]any{
+				"message": "first error",
+			},
+		},
+	})
+
+	// Second failure — should be ignored
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "session.error",
+		Properties: map[string]any{
+			"sessionID": "ses_123",
+			"error": map[string]any{
+				"message": "second error",
+			},
+		},
+	})
+
+	if st.runErr != "first error" {
+		t.Fatalf("runErr = %q, want first error", st.runErr)
+	}
+}
+
+func TestHandleSSEEventIdleDoesNotCloseTerminal(t *testing.T) {
+	st := &runState{
+		evtChan:     make(chan agent.Event, 4),
+		sseTerminal: make(chan struct{}),
+	}
+
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "session.idle",
+		Properties: map[string]any{
+			"sessionID": "ses_123",
+		},
+	})
+
+	select {
+	case <-st.sseTerminal:
+		t.Fatal("sseTerminal should NOT be closed after session.idle")
+	default:
+		// Expected: session.idle no longer closes sseTerminal
+	}
+}
+
+func TestHandleSSEEventIdleDoesNotSignalAfterError(t *testing.T) {
+	st := &runState{
+		evtChan:     make(chan agent.Event, 4),
+		sseTerminal: make(chan struct{}),
+	}
+
+	// record error first (session.error closes sseTerminal)
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "session.error",
+		Properties: map[string]any{
+			"sessionID": "ses_123",
+			"error": map[string]any{
+				"message": "model error",
+			},
+		},
+	})
+
+	// session.error should close sseTerminal
+	select {
+	case <-st.sseTerminal:
+		// Expected: session.error still closes sseTerminal
+	default:
+		t.Fatal("sseTerminal should be closed after session.error")
+	}
+}
+
+// Test runState.waitCompletion produces provider.failed when runErr is set.
+func TestWaitCompletionFailedWhenErrorRecorded(t *testing.T) {
+	const errMsg = "model not available"
+	st := &runState{
+		evtChan:     make(chan agent.Event, 16),
+		msgDone:     make(chan struct{}),
+		sseDone:     make(chan struct{}),
+		sseTerminal: make(chan struct{}),
+		runErr:      errMsg,
+	}
+	close(st.msgDone)
+	close(st.sseDone)
+	close(st.sseTerminal)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go st.waitCompletion(ctx, func() {}, func() {})
+
+	// Should NOT produce provider.completed
+	var evts []agent.Event
+	for event := range st.evtChan {
+		evts = append(evts, event)
+	}
+	for _, event := range evts {
+		if event.Type == events.EventInvocationCompleted {
+			t.Fatalf("should not get provider.completed when runErr is set, got events: %+v", evts)
+		}
+	}
+	// Verify we get provider.failed
+	hasFailed := false
+	for _, event := range evts {
+		if event.Type == events.EventInvocationFailed {
+			hasFailed = true
+			if event.Content != errMsg {
+				t.Fatalf("failed event content = %q, want %q", event.Content, errMsg)
+			}
+		}
+	}
+	if !hasFailed {
+		t.Fatalf("should get provider.failed event, got: %+v", evts)
+	}
+}
+
+func TestWaitCompletionSessionErrorUnblocksPendingMessage(t *testing.T) {
+	const errMsg = "session failed"
+	st := &runState{
+		evtChan:     make(chan agent.Event, 16),
+		msgDone:     make(chan struct{}),
+		sseDone:     make(chan struct{}),
+		sseTerminal: make(chan struct{}),
+		runErr:      errMsg,
+	}
+	close(st.sseDone)
+	close(st.sseTerminal)
+
+	st.waitCompletion(context.Background(), func() {}, func() {})
+
+	var failed bool
+	for event := range st.evtChan {
+		if event.Type == events.EventInvocationFailed && event.Content == errMsg {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatal("session.error should finish the invocation without waiting for msgDone")
+	}
+}
+
+// Test waitCompletion produces provider.completed when no error.
+func TestWaitCompletionCompletedWhenNoError(t *testing.T) {
+	st := &runState{
+		evtChan:       make(chan agent.Event, 16),
+		msgDone:       make(chan struct{}),
+		sseDone:       make(chan struct{}),
+		sseTerminal:   make(chan struct{}),
+		lastTextEnded: "result text",
+	}
+	close(st.msgDone)
+	close(st.sseDone)
+	close(st.sseTerminal)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go st.waitCompletion(ctx, func() {}, func() {})
+
+	var evts []agent.Event
+	for event := range st.evtChan {
+		evts = append(evts, event)
+	}
+	hasCompleted := false
+	for _, event := range evts {
+		if event.Type == events.EventInvocationCompleted {
+			hasCompleted = true
+		}
+		if event.Type == events.EventInvocationFailed {
+			t.Fatalf("should not get provider.failed when no runErr, got: %+v", evts)
+		}
+	}
+	if !hasCompleted {
+		t.Fatalf("should get provider.completed, got: %+v", evts)
+	}
+}
+
+// Test that diagnostic errors are not promoted into assistant message content.
+func TestWaitCompletionFailedKeepsErrorOutOfResult(t *testing.T) {
+	const errMsg = "no enabled provider model for \"test\""
+	st := &runState{
+		evtChan:     make(chan agent.Event, 16),
+		msgDone:     make(chan struct{}),
+		sseDone:     make(chan struct{}),
+		sseTerminal: make(chan struct{}),
+		runErr:      errMsg,
+	}
+	close(st.msgDone)
+	close(st.sseDone)
+	close(st.sseTerminal)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go st.waitCompletion(ctx, func() {}, func() {})
+
+	var evts []agent.Event
+	for event := range st.evtChan {
+		evts = append(evts, event)
+	}
+	for _, event := range evts {
+		if event.Type == events.EventResult {
+			t.Fatalf("should not get EventResult for diagnostic-only failure, got: %+v", evts)
+		}
+	}
+}
