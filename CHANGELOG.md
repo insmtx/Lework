@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.1.20] - 2026-07-02
+
+### k3s Worker 镜像收敛、工作台项目触发与 CI 规则修复
+
+本版本增强 k3s 环境下 Worker Deployment 的自动收敛能力，支持按期望 worker 镜像更新运行中的 Worker，并优化工作台输入框中的项目/任务选择体验，同时修复 GitLab CI 中 desktop 打包触发和 worker 镜像构建变量覆盖问题。
+
+- Worker Deployment reconciler 支持检测运行中 Worker 镜像是否偏离期望配置，并在漂移时自动重新启动部署
+- Kubernetes Scheduler 新增 WorkerSpecReconciler 能力，通过 Deployment 中的 worker 容器镜像判断是否需要重新收敛
+- Scheduler 配置补充 `worker_image` 传递链路，确保 server 配置中的期望镜像能驱动 k3s worker 更新
+- 新增 k3s 发布脚本 `update-leros-images.sh`，支持更新 server 镜像、写回 `scheduler.worker_image` 并重启 server Deployment
+- 新增 k3s 部署说明与 server 配置示例，明确 ConfigMap、命名空间、worker 镜像更新开关和生产环境变量要求
+- 工作台输入框支持通过 `#` 触发项目/任务选择，选择完成后自动清理触发文本，提升项目上下文切换效率
+- 项目/任务选择器改为统一搜索弹窗，支持项目与任务高亮匹配、展开任务列表和选择新建项目/任务
+- 优化 StructuredComposer 的 mention 删除行为，支持一次 Backspace 清理 mention 及尾随空格，并补充相关测试
+- 修复 GitLab CI tag 流水线误触发 desktop 打包的问题，将 desktop 作为 app 维度独立触发
+- 修复 worker 镜像构建规则变量覆盖问题，避免 server 发布时 worker 镜像产物缺失或部署变量异常
+
 ## [v0.1.19] - 2026-07-01
 
 ### Worker 异步可靠投递、全局搜索与桌面发布增强
