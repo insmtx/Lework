@@ -796,5 +796,82 @@ func storageKeyFromFilestoreURI(uri string) (string, error) {
 	return key, nil
 }
 
+func removeSkillFromProjectMetadata(meta types.ObjectMetadata, skillName string) (types.ObjectMetadata, bool) {
+	skillName = strings.TrimSpace(skillName)
+	if skillName == "" || meta.Extra == nil {
+		return meta, false
+	}
+
+	rawSkills, ok := meta.Extra["skills"]
+	if !ok || rawSkills == nil {
+		return meta, false
+	}
+
+	skillsSlice, ok := rawSkills.([]interface{})
+	if !ok {
+		return meta, false
+	}
+
+	filtered := make([]interface{}, 0, len(skillsSlice))
+	removed := false
+	for _, item := range skillsSlice {
+		if projectSkillEntryMatches(item, skillName) {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if !removed {
+		return meta, false
+	}
+
+	newExtra := make(map[string]interface{}, len(meta.Extra))
+	for key, value := range meta.Extra {
+		newExtra[key] = value
+	}
+	newExtra["skills"] = filtered
+
+	newMeta := meta
+	newMeta.Extra = newExtra
+	return newMeta, true
+}
+
+func projectSkillEntryMatches(item interface{}, skillName string) bool {
+	entry, ok := item.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	code, _ := entry["code"].(string)
+	name, _ := entry["name"].(string)
+	target := strings.TrimSpace(skillName)
+	return strings.EqualFold(strings.TrimSpace(code), target) ||
+		strings.EqualFold(strings.TrimSpace(name), target)
+}
+
+func cleanupOrgProjectSkillReferences(ctx context.Context, database *gorm.DB, orgID uint, skillName string) (int, error) {
+	projects, err := db.ListProjectsReferencingSkill(ctx, database, orgID, skillName)
+	if err != nil {
+		return 0, err
+	}
+
+	updated := 0
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		newMeta, changed := removeSkillFromProjectMetadata(project.Metadata, skillName)
+		if !changed {
+			continue
+		}
+		project.Metadata = newMeta
+		if err := db.UpdateProject(ctx, database, project); err != nil {
+			logs.WarnContextf(ctx, "remove skill %q from project %s metadata: %v", skillName, project.PublicID, err)
+			continue
+		}
+		updated++
+	}
+	return updated, nil
+}
+
 // ensure project implements contract.ProjectService at compile time
 var _ contract.ProjectService = (*projectService)(nil)

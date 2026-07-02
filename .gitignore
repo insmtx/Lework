@@ -64,3 +64,5 @@ leros-storage/
 .codex-local/
 .idea
 .codegraph
+deployments/dev/server.config.yaml
+deployments/dev/worker.config.yaml

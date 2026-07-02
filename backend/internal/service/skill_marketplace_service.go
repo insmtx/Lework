@@ -679,13 +679,27 @@ func (s *skillMarketplaceService) UninstallSkill(ctx context.Context, req *contr
 		"",
 	)
 
-	if err := s.publisher.Publish(ctx, topic, msg); err != nil {
-		return nil, fmt.Errorf("publish skill uninstall: %w", err)
+	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill uninstall")
+	if err != nil {
+		return nil, err
+	}
+
+	updated, cleanupErr := cleanupOrgProjectSkillReferences(ctx, s.db, caller.OrgID, strings.TrimSpace(req.Name))
+	if cleanupErr != nil {
+		logs.WarnContextf(ctx, "cleanup project skill references for %q: %v", req.Name, cleanupErr)
+	}
+
+	message := resp.Message
+	if strings.TrimSpace(message) == "" {
+		message = fmt.Sprintf("Skill uninstalled for org %d, worker %d", caller.OrgID, workerID)
+	}
+	if updated > 0 {
+		message = fmt.Sprintf("%s; removed from %d project(s)", message, updated)
 	}
 
 	return &contract.UninstallSkillResponse{
 		Status:  "accepted",
-		Message: fmt.Sprintf("Skill uninstall request queued for org %d, worker %d", caller.OrgID, workerID),
+		Message: message,
 	}, nil
 }
 
