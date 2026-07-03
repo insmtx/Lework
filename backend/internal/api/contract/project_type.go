@@ -14,6 +14,7 @@ type Project struct {
 	Objective   string                 `json:"objective,omitempty"`
 	OwnerID     uint                   `json:"owner_id"`
 	Status      string                 `json:"status"`
+	TaskCount   int64                  `json:"task_count"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`

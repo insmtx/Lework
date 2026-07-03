@@ -53,13 +53,26 @@ func DeleteTask(ctx context.Context, db *gorm.DB, id uint) error {
 	return db.WithContext(ctx).Delete(&types.Task{}, id).Error
 }
 
+// DeleteTasksByProjectID 软删除项目下的全部任务。
+func DeleteTasksByProjectID(ctx context.Context, db *gorm.DB, orgID, projectID uint) error {
+	return db.WithContext(ctx).
+		Where("org_id = ? AND project_id = ? AND deleted_at IS NULL", orgID, projectID).
+		Delete(&types.Task{}).Error
+}
+
 // ListTasks 查询任务列表，使用 PageQuery 作为查询参数
 func ListTasks(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.Task, int64, error) {
 	var entities []*types.Task
 	var total int64
 
-	query := d.WithContext(ctx).Table(types.TableNameTask).
+	activeProjectSubQuery := d.WithContext(ctx).
+		Model(&types.Project{}).
+		Select("id").
 		Where("org_id = ? AND deleted_at IS NULL", opt.OrgID)
+
+	query := d.WithContext(ctx).Table(types.TableNameTask).
+		Where("org_id = ? AND deleted_at IS NULL", opt.OrgID).
+		Where("project_id IN (?)", activeProjectSubQuery)
 	if opt.Uin > 0 {
 		query = query.Where("owner_id = ?", opt.Uin)
 	}
@@ -116,6 +129,35 @@ func ListTasks(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 		return nil, 0, err
 	}
 	return entities, total, nil
+}
+
+type projectTaskCountRow struct {
+	ProjectID uint  `gorm:"column:project_id"`
+	Count     int64 `gorm:"column:count"`
+}
+
+// CountTasksByProjectIDs 批量统计各项目下的任务数量（未删除）。
+func CountTasksByProjectIDs(ctx context.Context, db *gorm.DB, orgID uint, projectIDs []uint) (map[uint]int64, error) {
+	result := make(map[uint]int64, len(projectIDs))
+	if len(projectIDs) == 0 {
+		return result, nil
+	}
+
+	var rows []projectTaskCountRow
+	err := db.WithContext(ctx).
+		Table(types.TableNameTask).
+		Select("project_id, COUNT(*) AS count").
+		Where("org_id = ? AND project_id IN ? AND deleted_at IS NULL", orgID, projectIDs).
+		Group("project_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		result[row.ProjectID] = row.Count
+	}
+	return result, nil
 }
 
 // ListTasksByProjectID 根据项目ID查询所有未删除的任务

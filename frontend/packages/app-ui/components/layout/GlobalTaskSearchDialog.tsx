@@ -4,7 +4,6 @@ import type { BackendTask } from "@leros/store";
 import { taskApi, useLayoutStore } from "@leros/store";
 import { Dialog, DialogContent, DialogTitle } from "@leros/ui/components/ui/dialog";
 import { Input } from "@leros/ui/components/ui/input";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import { cn } from "@leros/ui/lib/utils";
 import { Folder, Loader2, Search, X } from "lucide-react";
@@ -13,8 +12,35 @@ import { renderHighlightedText } from "../common/searchText";
 import type { AppNavigation } from "./LeftRail";
 
 const ALL_PROJECTS_VALUE = "__all_projects__";
-const SEARCH_LIMIT = 50;
-const SEARCH_DEBOUNCE_MS = 180;
+const TASK_LIST_PAGE_SIZE = 100;
+const SEARCH_DEBOUNCE_MS = 300;
+const LOADING_DELAY_MS = 220;
+
+async function fetchAllTasks(params: {
+	project_id?: string;
+	keyword?: string;
+}): Promise<{ items: BackendTask[]; total: number }> {
+	let offset = 0;
+	let total = Number.POSITIVE_INFINITY;
+	const items: BackendTask[] = [];
+
+	// 中文注释：全局搜索需要完整任务集，按分页拉齐，避免单次 limit 或 list_all 兜底上限截断。
+	while (offset < total) {
+		const response = await taskApi.list({
+			...params,
+			offset,
+			limit: TASK_LIST_PAGE_SIZE,
+		});
+		const data = response.data.data;
+		const pageItems = data?.items ?? [];
+		total = data?.total ?? 0;
+		items.push(...pageItems);
+		if (pageItems.length === 0) break;
+		offset += pageItems.length;
+	}
+
+	return { items, total };
+}
 
 export function GlobalTaskSearchDialog({
 	open,
@@ -32,6 +58,7 @@ export function GlobalTaskSearchDialog({
 	}));
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const requestIdRef = useRef(0);
+	const loadingTimerRef = useRef<number | null>(null);
 	const [selectedProjectId, setSelectedProjectId] = useState(ALL_PROJECTS_VALUE);
 	const [keyword, setKeyword] = useState("");
 	const [debouncedKeyword, setDebouncedKeyword] = useState("");
@@ -64,21 +91,25 @@ export function GlobalTaskSearchDialog({
 
 		const currentRequestId = requestIdRef.current + 1;
 		requestIdRef.current = currentRequestId;
-		setLoading(true);
+		if (loadingTimerRef.current !== null) {
+			window.clearTimeout(loadingTimerRef.current);
+		}
+		loadingTimerRef.current = window.setTimeout(() => {
+			if (requestIdRef.current === currentRequestId) {
+				setLoading(true);
+			}
+			loadingTimerRef.current = null;
+		}, LOADING_DELAY_MS);
 
-		void taskApi
-			.list({
-				project_id: selectedProjectId === ALL_PROJECTS_VALUE ? undefined : selectedProjectId,
-				keyword: debouncedKeyword || undefined,
-				offset: 0,
-				limit: SEARCH_LIMIT,
-			})
-			.then((response) => {
+		void fetchAllTasks({
+			project_id: selectedProjectId === ALL_PROJECTS_VALUE ? undefined : selectedProjectId,
+			keyword: debouncedKeyword || undefined,
+		})
+			.then(({ items, total: taskTotal }) => {
 				// 中文注释：搜索输入和项目切换会同时触发请求，这里只接受最后一次返回，避免旧结果覆盖当前筛选。
 				if (requestIdRef.current !== currentRequestId) return;
-				const data = response.data.data;
-				setTasks(data?.items ?? []);
-				setTotal(data?.total ?? 0);
+				setTasks(items);
+				setTotal(taskTotal);
 			})
 			.catch((error) => {
 				if (requestIdRef.current !== currentRequestId) return;
@@ -87,6 +118,10 @@ export function GlobalTaskSearchDialog({
 				setTotal(0);
 			})
 			.finally(() => {
+				if (loadingTimerRef.current !== null) {
+					window.clearTimeout(loadingTimerRef.current);
+					loadingTimerRef.current = null;
+				}
 				if (requestIdRef.current === currentRequestId) {
 					setLoading(false);
 				}
@@ -96,6 +131,10 @@ export function GlobalTaskSearchDialog({
 	useEffect(() => {
 		if (!open) {
 			requestIdRef.current += 1;
+			if (loadingTimerRef.current !== null) {
+				window.clearTimeout(loadingTimerRef.current);
+				loadingTimerRef.current = null;
+			}
 			setKeyword("");
 			setDebouncedKeyword("");
 			setSelectedProjectId(ALL_PROJECTS_VALUE);
@@ -120,23 +159,24 @@ export function GlobalTaskSearchDialog({
 		openTaskDetail(task.project_id, task.public_id, null);
 	};
 
-	const hasCustomProjectFilter = selectedProjectId !== ALL_PROJECTS_VALUE;
-
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				showCloseButton={false}
-				className="w-full max-w-[880px] overflow-hidden rounded-[28px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-[0_32px_90px_rgba(15,23,42,0.18)]"
+				className="grid w-full max-w-[880px] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-[28px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-[0_32px_90px_rgba(15,23,42,0.18)]"
 				style={{
+					height: "min(82dvh, 860px)",
 					minHeight: "min(56dvh, 520px)",
-					maxHeight: "min(82dvh, 860px)",
 				}}
 			>
 				<DialogTitle className="sr-only">全局任务搜索</DialogTitle>
 
-				<div className="border-b border-[var(--leros-control-border)] px-6 pb-5 pt-5">
-					<div className="grid grid-cols-[220px_minmax(0,460px)_40px] items-stretch justify-between gap-3">
-						<div className="flex h-10 items-center rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] shadow-none transition-colors focus-within:border-[var(--leros-primary)] focus-within:ring-[3px] focus-within:ring-[var(--leros-primary)]/12">
+				<div className="shrink-0 border-b border-[var(--leros-control-border)] px-6 pb-5 pt-5">
+					<div className="grid grid-cols-[300px_minmax(0,1fr)_40px] items-stretch justify-between gap-3">
+						<div className="flex h-10 min-w-0 items-center gap-3">
+							<span className="shrink-0 text-sm font-medium text-[var(--leros-text-muted)]">
+								搜索范围
+							</span>
 							<Select
 								value={selectedProjectId}
 								onValueChange={(value) => {
@@ -144,7 +184,7 @@ export function GlobalTaskSearchDialog({
 									setSelectedProjectId(value ?? ALL_PROJECTS_VALUE);
 								}}
 							>
-								<SelectTrigger className="h-full w-full rounded-xl border-0 bg-transparent px-4 text-sm font-medium text-[var(--leros-text)] shadow-none hover:border-transparent focus-visible:ring-0">
+								<SelectTrigger className="!h-10 min-w-0 flex-1 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-4 py-0 text-sm font-medium text-[var(--leros-text)] shadow-none transition-colors hover:border-[var(--leros-control-border)] focus-visible:border-[var(--leros-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--leros-primary)]/12">
 									<span className="flex min-w-0 flex-1 items-center gap-2 pr-2 text-left">
 										<Folder className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
 										<span className="min-w-0 truncate">{selectedProjectLabel}</span>
@@ -181,19 +221,6 @@ export function GlobalTaskSearchDialog({
 									))}
 								</SelectContent>
 							</Select>
-							{hasCustomProjectFilter ? (
-								<button
-									type="button"
-									aria-label="清空项目筛选"
-									onClick={(event) => {
-										event.stopPropagation();
-										setSelectedProjectId(ALL_PROJECTS_VALUE);
-									}}
-									className="mr-2 flex size-6 shrink-0 items-center justify-center rounded-full text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
-								>
-									<X className="size-3.5" />
-								</button>
-							) : null}
 						</div>
 
 						<div className="flex h-10 min-w-0 items-center gap-3 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-4 shadow-none transition-colors focus-within:border-[var(--leros-primary)] focus-within:ring-[3px] focus-within:ring-[var(--leros-primary)]/12">
@@ -232,22 +259,11 @@ export function GlobalTaskSearchDialog({
 					</div>
 				</div>
 
-				<div className="px-6 pb-3 pt-4 text-sm font-medium text-[var(--leros-text-subtle)]">
-					{loading
-						? "正在搜索任务..."
-						: total > tasks.length
-							? `搜索到 ${total} 个任务，展示前 ${tasks.length} 个`
-							: `搜索到 ${total} 个任务`}
+				<div className="shrink-0 px-6 pb-3 pt-4 text-sm font-medium text-[var(--leros-text-subtle)]">
+					{loading ? "正在搜索任务..." : `搜索到 ${total} 个任务`}
 				</div>
 
-				<ScrollArea
-					hideScrollbar
-					className="min-h-0 px-4 pb-5"
-					style={{
-						minHeight: "min(calc(56dvh - 110px), 360px)",
-						maxHeight: "min(calc(82dvh - 170px), 700px)",
-					}}
-				>
+				<div className="min-h-0 overflow-y-auto px-4 pb-5 no-scrollbar">
 					<div className="space-y-1 px-2">
 						{loading ? (
 							<div className="flex h-44 items-center justify-center text-sm text-[var(--leros-text-subtle)]">
@@ -293,7 +309,7 @@ export function GlobalTaskSearchDialog({
 							})
 						)}
 					</div>
-				</ScrollArea>
+				</div>
 			</DialogContent>
 		</Dialog>
 	);

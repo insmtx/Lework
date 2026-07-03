@@ -36,6 +36,7 @@ import {
 	CalendarDays,
 	Check,
 	FolderKanban,
+	MessageSquare,
 	MoreHorizontal,
 	Pencil,
 	Plus,
@@ -371,9 +372,15 @@ function ProjectCard({
 				</div>
 			</div>
 
-			<div className="mt-auto flex items-center gap-1.5 text-xs text-[var(--leros-text-subtle)]">
-				<CalendarDays className="size-3.5" />
-				<span>创建于 {formatProjectDate(project.createdAt)}</span>
+			<div className="mt-auto flex items-center justify-between gap-3 text-xs text-[var(--leros-text-subtle)]">
+				<div className="flex min-w-0 items-center gap-1.5">
+					<CalendarDays className="size-3.5 shrink-0" />
+					<span className="truncate">创建于 {formatProjectDate(project.createdAt)}</span>
+				</div>
+				<div className="flex shrink-0 items-center gap-1.5">
+					<MessageSquare className="size-3.5" />
+					<span>{project.taskCount} 个任务</span>
+				</div>
 			</div>
 
 			<DropdownMenu>
