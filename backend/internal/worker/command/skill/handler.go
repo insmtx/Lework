@@ -446,17 +446,36 @@ func isZipContent(data []byte, contentType string) bool {
 }
 
 // extractZipSkill extracts SKILL.md and supporting files from a ZIP archive.
+// It strips the common parent directory prefix from file paths and filters out
+// macOS metadata files (__MACOSX, ._*, .DS_Store).
 func extractZipSkill(zipBytes []byte) ([]byte, map[string][]byte, error) {
 	reader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open zip: %w", err)
 	}
 
+	// First pass: find SKILL.md to determine the skill root prefix.
+	var skillMDPath string
+	for _, f := range reader.File {
+		name := filepath.ToSlash(f.Name)
+		if strings.EqualFold(filepath.Base(name), "SKILL.md") {
+			skillMDPath = name
+			break
+		}
+	}
+	if skillMDPath == "" {
+		return nil, nil, fmt.Errorf("SKILL.md not found in zip")
+	}
+
+	// Strip the parent directory prefix so supporting files are relative to SKILL.md.
+	skillDir := filepath.Dir(skillMDPath)
+	prefix := ""
+	if skillDir != "" && skillDir != "." {
+		prefix = skillDir + "/"
+	}
+
 	var skillContent []byte
 	files := make(map[string][]byte)
-	allowedSubdirs := map[string]bool{
-		"assets": true, "references": true, "scripts": true, "templates": true,
-	}
 
 	for _, f := range reader.File {
 		name := filepath.ToSlash(f.Name)
@@ -466,7 +485,8 @@ func extractZipSkill(zipBytes []byte) ([]byte, map[string][]byte, error) {
 			continue
 		}
 
-		if f.FileInfo().IsDir() {
+		// Skip macOS junk files and directories
+		if f.FileInfo().IsDir() || fetch.IsMacOSJunkPath(name) {
 			continue
 		}
 
@@ -480,20 +500,24 @@ func extractZipSkill(zipBytes []byte) ([]byte, map[string][]byte, error) {
 			continue
 		}
 
-		base := filepath.Base(name)
-		if strings.EqualFold(base, "SKILL.md") {
+		if name == skillMDPath {
 			skillContent = data
-		} else {
-			// Support any nesting depth within allowed subdirectories.
-			topDir, _, hasDir := strings.Cut(name, "/")
-			if hasDir && allowedSubdirs[topDir] {
-				files[name] = data
-			}
+			continue
 		}
+
+		// Only collect files under the same parent directory as SKILL.md.
+		if prefix != "" && !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		relPath := name[len(prefix):]
+		if relPath == "" {
+			continue
+		}
+		files[relPath] = data
 	}
 
 	if skillContent == nil {
-		return nil, nil, fmt.Errorf("SKILL.md not found in zip")
+		return nil, nil, fmt.Errorf("SKILL.md content not found")
 	}
 	return skillContent, files, nil
 }

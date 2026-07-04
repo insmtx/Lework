@@ -111,9 +111,9 @@ func GenerateSkillZip(content []byte, files map[string][]byte) ([]byte, error) {
 		return nil, fmt.Errorf("write SKILL.md to zip: %w", err)
 	}
 
-	// 写入附属文件（仅保留 allowed 子目录下的文件）
+	// 写入附属文件。
 	for relPath, data := range files {
-		if !isAllowedSubdir(relPath) {
+		if fetch.IsMacOSJunkPath(relPath) {
 			continue
 		}
 		if err := writeZipEntry(zw, filepath.ToSlash(relPath), data); err != nil {
@@ -309,16 +309,6 @@ func CacheChineseDocumentWithContent(ctx context.Context, st storage.Storage, bu
 	}
 }
 
-// isAllowedSubdir 检查文件路径是否在允许的子目录内。
-func isAllowedSubdir(path string) bool {
-	topDir, _, _ := strings.Cut(path, "/")
-	switch topDir {
-	case "assets", "references", "scripts", "templates":
-		return true
-	}
-	return false
-}
-
 // writeZipEntry 向 zip writer 写入一个条目。
 func writeZipEntry(zw *zip.Writer, name string, data []byte) error {
 	w, err := zw.Create(name)
@@ -361,11 +351,10 @@ func ReadPackageFromStorage(ctx context.Context, st storage.Storage, uri string)
 		}
 		name := filepath.ToSlash(f.Name)
 
-		// 收集文件列表
-		if name != "SKILL.md" && !isAllowedSubdir(name) {
-			continue
+		// Collect all non-directory entries, skip SKILL.md and macOS junk.
+		if name != "SKILL.md" && !fetch.IsMacOSJunkPath(name) {
+			files = append(files, name)
 		}
-		files = append(files, name)
 
 		// 读 SKILL.md
 		if strings.EqualFold(filepath.Base(name), "SKILL.md") {

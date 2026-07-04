@@ -238,21 +238,29 @@ func (g *GitHubSource) extractSkill(zipBytes []byte, owner, repo, skillPath stri
 
 	// 收集附属文件。
 	files := make(map[string][]byte)
-	allowedSubdirs := map[string]bool{"assets": true, "references": true, "scripts": true, "templates": true}
-	for subdir := range allowedSubdirs {
-		subPath := filepath.Join(skillDir, subdir)
-		filepath.Walk(subPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return nil
-			}
-			rel, _ := filepath.Rel(skillDir, path)
-			data, err := os.ReadFile(path)
-			if err == nil && len(data) <= 1_048_576 {
-				files[filepath.ToSlash(rel)] = data
+	filepath.Walk(skillDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if info.IsDir() {
+			// Skip nested skill directories (subdirectories containing their own SKILL.md).
+			if path != skillDir {
+				if _, statErr := os.Stat(filepath.Join(path, "SKILL.md")); statErr == nil {
+					return filepath.SkipDir
+				}
 			}
 			return nil
-		})
-	}
+		}
+		rel, _ := filepath.Rel(skillDir, path)
+		if rel == "SKILL.md" || IsMacOSJunkPath(rel) {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && len(data) <= 1_048_576 {
+			files[filepath.ToSlash(rel)] = data
+		}
+		return nil
+	})
 
 	trustLevel := TrustLevelForRepo(owner, repo)
 

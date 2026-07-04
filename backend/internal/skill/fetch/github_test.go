@@ -87,8 +87,8 @@ func TestGitHubSourceFetchVersionRootSkill(t *testing.T) {
 	if string(bundle.Files["references/style-guide.md"]) != "# Style\n" {
 		t.Fatalf("references/style-guide.md was not collected")
 	}
-	if _, ok := bundle.Files["helpers/internal.py"]; ok {
-		t.Fatalf("helpers/internal.py should not be collected")
+	if string(bundle.Files["helpers/internal.py"]) != "print('ignored')\n" {
+		t.Fatalf("helpers/internal.py should be collected")
 	}
 	if _, ok := bundle.Files["skills/other/scripts/run.mjs"]; ok {
 		t.Fatalf("nested skill files should not be collected for root skill")

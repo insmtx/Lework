@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
@@ -33,10 +32,7 @@ const (
 	ActionRemoveFile = "remove_file"
 )
 
-var (
-	namePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
-	allowedSubdirs = []string{"assets", "references", "scripts", "templates"}
-)
+var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
 // MutationKind 表示一次 skill 变更的类型。
 type MutationKind int
@@ -333,6 +329,10 @@ func (s *SkillStore) Install(ctx context.Context, req InstallRequest) (*Result, 
 	// 清理备份
 	if backupPath != "" {
 		_ = os.RemoveAll(backupPath)
+		// 用户强制覆盖内置 skill 后，从 seed-manifest 移除，允许后续卸载。
+		if err := s.removeSeedEntry(name); err != nil {
+			logs.Warnf("remove seed entry for %s: %v", name, err)
+		}
 	}
 
 	// 写入 .skill-metadata 文件
@@ -652,6 +652,51 @@ func (s *SkillStore) isSeedSkill(name string) (bool, error) {
 	return false, nil
 }
 
+// removeSeedEntry removes a skill from the .seed-manifest file so it is no longer
+// treated as a built-in (seed) skill. This is called after a user force-installs
+// over a built-in skill, allowing subsequent uninstall to succeed.
+func (s *SkillStore) removeSeedEntry(name string) error {
+	manifestPath := filepath.Join(s.rootDir, seedManifestFile)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read seed manifest: %w", err)
+	}
+	entries, warnings := catalog.ParseSeedManifest(data)
+	for _, w := range warnings {
+		logs.Warnf("%s", w)
+	}
+
+	// Find and remove the case-insensitive match.
+	found := false
+	for entryName := range entries {
+		if strings.EqualFold(entryName, name) {
+			delete(entries, entryName)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
+	// Rebuild the manifest file.
+	var lines []string
+	for entryName, hash := range entries {
+		lines = append(lines, entryName+":"+hash)
+	}
+	newData := strings.Join(lines, "\n")
+	if newData != "" {
+		newData += "\n"
+	}
+	if err := atomicWrite(manifestPath, newData); err != nil {
+		return fmt.Errorf("write seed manifest: %w", err)
+	}
+	return nil
+}
+
 func (s *SkillStore) validate() error {
 	if s == nil {
 		return fmt.Errorf("skill store is nil")
@@ -715,13 +760,6 @@ func validateSupportingFilePath(filePath string) error {
 	clean := filepath.Clean(filePath)
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path traversal is not allowed")
-	}
-	parts := strings.Split(filepath.ToSlash(clean), "/")
-	if len(parts) < 2 {
-		return fmt.Errorf("file_path must include a file under %s", strings.Join(allowedSubdirs, ", "))
-	}
-	if !slices.Contains(allowedSubdirs, parts[0]) {
-		return fmt.Errorf("file_path must be under one of: %s", strings.Join(allowedSubdirs, ", "))
 	}
 	return nil
 }
