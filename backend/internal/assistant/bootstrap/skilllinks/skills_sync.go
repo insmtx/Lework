@@ -42,7 +42,7 @@ func SyncToLerosDir(sourceDir string) error {
 	}
 
 	logs.Infof("Syncing worker built-in skills from %s to %s", sourceDir, resolvedUserDir)
-	return syncSkillDir(sourceDir, resolvedUserDir)
+	return syncSkillDir(sourceDir, resolvedUserDir, true)
 }
 
 // SyncServerSkillsDir copies server built-in skills to the Leros workspace skills directory (.leros/skills).
@@ -67,7 +67,7 @@ func SyncServerSkillsDir(sourceDir string) error {
 	}
 
 	logs.Infof("Syncing server built-in skills from %s to %s", sourceDir, resolvedTargetDir)
-	return syncSkillDir(sourceDir, resolvedTargetDir)
+	return syncSkillDir(sourceDir, resolvedTargetDir, false)
 }
 
 // ReconcileExternalSkillLinks 全量对齐外部 CLI skill 目录与 .leros/skills。
@@ -304,10 +304,12 @@ func ensureSymlink(sourcePath string, targetPath string) error {
 // seedManifestFile is the manifest file tracking synced skill directory hashes.
 const seedManifestFile = ".seed-manifest"
 
-// syncSkillDir synchronizes skill directories from source to target using directory-level
-// SHA256 hashes tracked in a .seed-manifest file. It detects additions, modifications,
-// and deletions of entire skill directories.
-func syncSkillDir(sourceDir string, targetDir string) error {
+// syncSkillDir synchronizes skill directories from source to target. When writeManifest
+// is true, directory-level SHA256 hashes are tracked in a .seed-manifest file for change
+// detection and built-in skill protection. When false, skills are simply copied without
+// manifest tracking (used for server-side skills that users should be able to
+// install/uninstall freely).
+func syncSkillDir(sourceDir string, targetDir string, writeManifest bool) error {
 	skillDirs, err := listSkillDirs(sourceDir)
 	if err != nil {
 		return err
@@ -316,10 +318,32 @@ func syncSkillDir(sourceDir string, targetDir string) error {
 		return err
 	}
 
-	manifestPath := filepath.Join(targetDir, seedManifestFile)
-	oldManifest, err := readSeedManifest(manifestPath)
-	if err != nil {
-		logs.Warnf("Failed to read seed manifest, will resync all: %v", err)
+	var oldManifest map[string]string
+	if writeManifest {
+		manifestPath := filepath.Join(targetDir, seedManifestFile)
+		oldManifest, err = readSeedManifest(manifestPath)
+		if err != nil {
+			logs.Warnf("Failed to read seed manifest, will resync all: %v", err)
+			oldManifest = make(map[string]string)
+		}
+	} else {
+		// Server skills: remove any existing entries from the seed manifest so they
+		// are no longer treated as built-in (allows user install/uninstall).
+		manifestPath := filepath.Join(targetDir, seedManifestFile)
+		if existing, err := readSeedManifest(manifestPath); err == nil {
+			changed := false
+			for _, skillName := range skillDirs {
+				if _, ok := existing[skillName]; ok {
+					delete(existing, skillName)
+					changed = true
+				}
+			}
+			if changed {
+				if err := writeSeedManifest(manifestPath, existing); err != nil {
+					logs.Warnf("Failed to clean server skill entries from seed manifest: %v", err)
+				}
+			}
+		}
 		oldManifest = make(map[string]string)
 	}
 
@@ -343,18 +367,21 @@ func syncSkillDir(sourceDir string, targetDir string) error {
 		}
 	}
 
-	// Remove stale skills that exist in manifest but not in source.
-	for oldName := range oldManifest {
-		if _, ok := newManifest[oldName]; !ok {
-			logs.Infof("skill %s removed from source, cleaning up", oldName)
-			if err := os.RemoveAll(filepath.Join(targetDir, oldName)); err != nil {
-				logs.Warnf("Failed to remove stale skill %s: %v", oldName, err)
+	if writeManifest {
+		// Remove stale skills that exist in manifest but not in source.
+		for oldName := range oldManifest {
+			if _, ok := newManifest[oldName]; !ok {
+				logs.Infof("skill %s removed from source, cleaning up", oldName)
+				if err := os.RemoveAll(filepath.Join(targetDir, oldName)); err != nil {
+					logs.Warnf("Failed to remove stale skill %s: %v", oldName, err)
+				}
 			}
 		}
-	}
 
-	if err := writeSeedManifest(manifestPath, newManifest); err != nil {
-		return fmt.Errorf("write seed manifest: %w", err)
+		manifestPath := filepath.Join(targetDir, seedManifestFile)
+		if err := writeSeedManifest(manifestPath, newManifest); err != nil {
+			return fmt.Errorf("write seed manifest: %w", err)
+		}
 	}
 	return nil
 }

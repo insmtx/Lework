@@ -302,3 +302,25 @@ func keyInAll(item SkillMeta, sourceID string) string {
 	}
 	return item.Identifier + "@" + sourceID
 }
+
+// IsMacOSJunkPath 判断路径是否为 macOS 归档时产生的元数据文件，安装时应忽略。
+// 包括 __MACOSX 资源 fork 目录、._ 前缀的 AppleDouble 文件、以及 .DS_Store。
+func IsMacOSJunkPath(path string) bool {
+	// __MACOSX resource fork directory
+	if strings.HasPrefix(path, "__MACOSX/") || strings.HasPrefix(path, "__MACOSX\\") {
+		return true
+	}
+	// AppleDouble files (._*) — check the base name
+	base := path
+	if idx := strings.LastIndexAny(path, "/\\"); idx >= 0 {
+		base = path[idx+1:]
+	}
+	if strings.HasPrefix(base, "._") {
+		return true
+	}
+	// .DS_Store
+	if base == ".DS_Store" {
+		return true
+	}
+	return false
+}

@@ -1885,7 +1885,6 @@ func buildBundleFromLocalSkill(skillDir, skillID string, _ *types.BuiltinSkillMa
 	}
 
 	files := make(map[string][]byte)
-	allowedSubdirs := map[string]bool{"assets": true, "references": true, "scripts": true, "templates": true}
 	filepath.Walk(skillDir, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info.IsDir() {
 			return nil
@@ -1894,11 +1893,7 @@ func buildBundleFromLocalSkill(skillDir, skillID string, _ *types.BuiltinSkillMa
 		if relErr != nil {
 			return nil
 		}
-		if rel == "SKILL.md" {
-			return nil
-		}
-		topDir, _, _ := strings.Cut(filepath.ToSlash(rel), "/")
-		if !allowedSubdirs[topDir] {
+		if rel == "SKILL.md" || fetch.IsMacOSJunkPath(rel) {
 			return nil
 		}
 		data, readErr := os.ReadFile(path)
