@@ -296,9 +296,11 @@ type ActorContext struct {
 }
 
 type ExecutionTarget struct {
-	AssistantID string   `json:"assistant_id,omitempty"`
-	Skills      []string `json:"skills,omitempty"`
-	Tools       []string `json:"tools,omitempty"`
+	AssistantID   string   `json:"assistant_id,omitempty"`
+	AssistantName string   `json:"assistant_name,omitempty"`
+	SystemPrompt  string   `json:"system_prompt,omitempty"`
+	Skills        []string `json:"skills,omitempty"`
+	Tools         []string `json:"tools,omitempty"`
 }
 
 type WorkspaceOptions struct {

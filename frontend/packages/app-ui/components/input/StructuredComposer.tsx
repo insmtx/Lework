@@ -25,7 +25,6 @@ import {
 	useState,
 } from "react";
 import { renderHighlightedText } from "../common/searchText";
-import { mockAssistants } from "./mockDirectiveData";
 
 type DirectiveKind = "assistant" | "command" | "project";
 type TokenKind = "assistant" | "skill";
@@ -45,11 +44,14 @@ type InsertedToken = {
 	kind: TokenKind;
 };
 
-type AssistantOption = {
+export type ComposerAssistantOption = {
+	id: number;
 	code: string;
 	name: string;
 	description: string;
 };
+
+type AssistantOption = ComposerAssistantOption;
 
 export type ComposerSkillOption = {
 	code: string;
@@ -89,6 +91,7 @@ type StructuredComposerProps = {
 	onBlur: () => void;
 	placeholder: string;
 	isProjectVariant: boolean;
+	assistantOptions?: ComposerAssistantOption[];
 	projectSkillOptions?: ComposerSkillOption[];
 	directivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
@@ -676,6 +679,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			onBlur,
 			placeholder,
 			isProjectVariant,
+			assistantOptions = [],
 			projectSkillOptions,
 			directivesDisabled = false,
 			onProjectTrigger,
@@ -700,7 +704,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const valueRef = useRef(value);
 		const tokensRef = useRef<InsertedToken[]>([]);
 
-		const assistantOptions = useMemo<AssistantOption[]>(() => mockAssistants, []);
+		const availableAssistantOptions = useMemo<AssistantOption[]>(
+			() => assistantOptions,
+			[assistantOptions],
+		);
 		const displayTokens = useMemo(() => resolveDisplayTokens(value, tokens), [tokens, value]);
 		const selectedAssistantNames = useMemo(
 			() =>
@@ -723,7 +730,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 		const filteredAssistants = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "assistant" ? assistantSearch : "");
-			return assistantOptions.filter((assistant) => {
+			return availableAssistantOptions.filter((assistant) => {
 				if (selectedAssistantNames.includes(assistant.name)) return false;
 				if (!query) return true;
 				return [assistant.name, assistant.code, assistant.description]
@@ -731,7 +738,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					.toLowerCase()
 					.includes(query);
 			});
-		}, [assistantOptions, assistantSearch, selectedAssistantNames, trigger?.kind]);
+		}, [assistantSearch, availableAssistantOptions, selectedAssistantNames, trigger?.kind]);
 
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");

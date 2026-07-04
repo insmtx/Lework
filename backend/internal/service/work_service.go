@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -38,7 +39,7 @@ func NewWorkService(database *gorm.DB, eventbus eventbus.EventBus, inferrer Assi
 }
 
 func (s *workService) NewMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {
-	if req.Content == "" {
+	if strings.TrimSpace(req.Content) == "" && req.AssistantID == 0 && len(req.Attachments) == 0 {
 		return nil, errors.New("content is required")
 	}
 

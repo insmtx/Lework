@@ -516,6 +516,19 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 		return nil, err
 	}
 
+	source := normalizeMarketplaceSource(req.Source)
+	if source == "" {
+		source = strings.TrimSpace(req.Source)
+	}
+	version := normalizeSkillInstallVersion(req.Version)
+	skillID := strings.TrimSpace(req.SkillID)
+	payload := messaging.SkillCommandPayload{
+		Action:  "install",
+		Source:  source,
+		SkillID: skillID,
+		Version: version,
+	}
+
 	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
@@ -527,12 +540,7 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 			OrgID:    caller.OrgID,
 			WorkerID: workerID,
 		},
-		messaging.SkillCommandPayload{
-			Action:  "install",
-			Source:  strings.TrimSpace(req.Source),
-			SkillID: strings.TrimSpace(req.SkillID),
-			Version: strings.TrimSpace(req.Version),
-		},
+		payload,
 		"",
 	)
 
@@ -547,14 +555,21 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 		installVersion = "latest"
 	}
 	if installSource != "" && s.db != nil {
-		updated, err := infradb.IncrementSkillMarketplaceInstalls(ctx, s.db, installSource, strings.TrimSpace(req.SkillID), installVersion)
+		updated, err := infradb.IncrementSkillMarketplaceInstalls(ctx, s.db, installSource, skillID, installVersion)
 		if err != nil {
 			return nil, fmt.Errorf("increment skill installs: %w", err)
 		}
 		if !updated {
-			logs.WarnContextf(ctx, "skip increment installs: marketplace item not found for %s/%s@%s", installSource, strings.TrimSpace(req.SkillID), installVersion)
+			logs.WarnContextf(ctx, "skip increment installs: marketplace item not found for %s/%s@%s", installSource, skillID, installVersion)
 		}
 	}
+	if s.db != nil {
+		item := s.buildOrgSkillInstallation(caller.OrgID, caller.Uin, payload.Action, source, skillID, version)
+		if err := infradb.UpsertOrgSkillInstallation(ctx, s.db, item); err != nil {
+			return nil, fmt.Errorf("record org skill installation: %w", err)
+		}
+	}
+	syncSkillPayloadToOrgWorkers(ctx, s.db, s.publisher, caller.OrgID, payload, workerID)
 
 	message := resp.Message
 	if strings.TrimSpace(message) == "" {
@@ -564,6 +579,24 @@ func (s *skillMarketplaceService) InstallSkill(ctx context.Context, req *contrac
 		Status:  "accepted",
 		Message: message,
 	}, nil
+}
+
+func (s *skillMarketplaceService) buildOrgSkillInstallation(orgID, installedBy uint, action, source, skillID, version string) *types.OrgSkillInstallation {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		action = "install"
+	}
+	item := &types.OrgSkillInstallation{
+		OrgID:       orgID,
+		Action:      action,
+		Source:      source,
+		SkillID:     skillID,
+		Version:     version,
+		Name:        skillID,
+		Status:      types.OrgSkillInstallationStatusActive,
+		InstalledBy: installedBy,
+	}
+	return item
 }
 
 func (s *skillMarketplaceService) requestSkillManagement(ctx context.Context, topic string, msg messaging.WorkerCommand, operation string) (*messaging.WorkerCommandResult, error) {
@@ -597,6 +630,29 @@ func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]co
 	if err != nil {
 		return nil, err
 	}
+	if s.db != nil {
+		items, err := infradb.ListOrgSkillInstallations(ctx, s.db, caller.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		if len(items) > 0 {
+			skills := make([]contract.SkillInstalledItem, 0, len(items))
+			for _, item := range items {
+				if item == nil {
+					continue
+				}
+				skills = append(skills, contract.SkillInstalledItem{
+					Name:        firstNonEmpty(item.Name, item.SkillID),
+					Description: item.Description,
+					Category:    item.Category,
+					Source:      item.Source,
+					Trust:       "trusted",
+				})
+			}
+			s.enrichInstalledSystemSkills(ctx, skills)
+			return skills, nil
+		}
+	}
 	if s.publisher == nil {
 		return nil, fmt.Errorf("skill management publisher is nil")
 	}
@@ -605,7 +661,6 @@ func (s *skillMarketplaceService) listInstalledSkills(ctx context.Context) ([]co
 	if err != nil {
 		return nil, err
 	}
-
 	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
 	if err != nil {
 		return nil, fmt.Errorf("build skill topic: %w", err)
@@ -660,39 +715,24 @@ func (s *skillMarketplaceService) UninstallSkill(ctx context.Context, req *contr
 	if err != nil {
 		return nil, err
 	}
-
-	topic, err := messaging.WorkerCommandSubject(caller.OrgID, workerID, messaging.LaneSkill)
-	if err != nil {
-		return nil, fmt.Errorf("build skill topic: %w", err)
+	name := strings.TrimSpace(req.Name)
+	if s.db != nil {
+		if err := infradb.DeleteOrgSkillInstallationByName(ctx, s.db, caller.OrgID, name); err != nil {
+			return nil, fmt.Errorf("delete org skill installation: %w", err)
+		}
 	}
 
-	msg := messaging.NewSkillCommand(
-		fmt.Sprintf("skill-uninstall-%s", uuid.New().String()),
-		messaging.RouteContext{
-			OrgID:    caller.OrgID,
-			WorkerID: workerID,
-		},
-		messaging.SkillCommandPayload{
-			Action: "uninstall",
-			Name:   strings.TrimSpace(req.Name),
-		},
-		"",
-	)
+	publishSkillPayloadToOrgWorkers(ctx, s.db, s.publisher, caller.OrgID, messaging.SkillCommandPayload{
+		Action: "uninstall",
+		Name:   name,
+	}, workerID)
 
-	resp, err := s.requestSkillManagement(ctx, topic, msg, "skill uninstall")
-	if err != nil {
-		return nil, err
-	}
-
-	updated, cleanupErr := cleanupOrgProjectSkillReferences(ctx, s.db, caller.OrgID, strings.TrimSpace(req.Name))
+	updated, cleanupErr := cleanupOrgProjectSkillReferences(ctx, s.db, caller.OrgID, name)
 	if cleanupErr != nil {
 		logs.WarnContextf(ctx, "cleanup project skill references for %q: %v", req.Name, cleanupErr)
 	}
 
-	message := resp.Message
-	if strings.TrimSpace(message) == "" {
-		message = fmt.Sprintf("Skill uninstalled for org %d, worker %d", caller.OrgID, workerID)
-	}
+	message := fmt.Sprintf("Skill uninstall request queued for org %d, worker %d", caller.OrgID, workerID)
 	if updated > 0 {
 		message = fmt.Sprintf("%s; removed from %d project(s)", message, updated)
 	}
@@ -1565,6 +1605,19 @@ func (s *skillMarketplaceService) ImportSkillFromGitHub(ctx context.Context, req
 	if strings.TrimSpace(message) == "" {
 		message = fmt.Sprintf("GitHub skill imported for org %d, worker %d", caller.OrgID, workerID)
 	}
+	payload := messaging.SkillCommandPayload{
+		Action:  "import",
+		Source:  "github",
+		SkillID: skillID,
+		Version: normalizeSkillInstallVersion(version),
+	}
+	if s.db != nil {
+		item := s.buildOrgSkillInstallation(caller.OrgID, caller.Uin, payload.Action, payload.Source, skillID, payload.Version)
+		if err := infradb.UpsertOrgSkillInstallation(ctx, s.db, item); err != nil {
+			return nil, fmt.Errorf("record org GitHub skill installation: %w", err)
+		}
+	}
+	syncSkillPayloadToOrgWorkers(ctx, s.db, s.publisher, caller.OrgID, payload, workerID)
 
 	return &contract.ImportSkillResponse{
 		Status:  "imported",

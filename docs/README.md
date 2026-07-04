@@ -50,6 +50,7 @@
 | [design/tech-design.md](design/tech-design.md) | 技术设计（技能 Schema、渲染引擎） |
 | [design/git-storage.md](design/git-storage.md) | 文件存储技术方案 |
 | [design/presigned-url.md](design/presigned-url.md) | 预签名 URL 设计 |
+| [design/ai-teammate-worker-deployment.md](design/ai-teammate-worker-deployment.md) | AI 队友维护与 Worker 动态部署技术设计 |
 
 ### 前端文档
 

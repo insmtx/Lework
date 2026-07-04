@@ -29,6 +29,12 @@ type DigitalAssistant struct {
 	Version int `gorm:"column:version;type:integer;default:0"`
 	// digital_assistant - 系统提示词，定义数字助手的角色和行为，TEXT，允许为空
 	SystemPrompt string `gorm:"column:system_prompt;type:text"`
+	// digital_assistant - 擅长领域列表，JSONB，允许为空
+	Expertise SkillStringList `gorm:"column:expertise;type:jsonb"`
+	// digital_assistant - 来源模板ID，INTEGER，允许为空
+	TemplateID *uint `gorm:"column:template_id;type:integer;index"`
+	// digital_assistant - 创建来源，VARCHAR(32)，NOT NULL
+	Source string `gorm:"column:source;type:varchar(32);not null;default:custom;index"`
 }
 
 // TableName 指定DigitalAssistant结构体对应的数据库表名

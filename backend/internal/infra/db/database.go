@@ -97,6 +97,10 @@ func runMigrations(db *gorm.DB) error {
 		&types.AuthPhoneVerificationCode{},
 		&types.Event{},
 		&types.DigitalAssistant{},
+		&types.DigitalAssistantPromptBlock{},
+		&types.DigitalAssistantMemory{},
+		&types.AssistantPromptTrace{},
+		&types.AITeammateTemplate{},
 		&types.WorkerDeployment{},
 		&types.Skill{},
 		&types.SkillRegistry{},
@@ -112,6 +116,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.ProjectFile{},
 		&types.BuiltinSkillMarketplaceItem{},
 		&types.SkillMarketplaceItem{},
+		&types.OrgSkillInstallation{},
 		&types.MessageResource{},
 	}
 
@@ -411,10 +416,10 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 			Code:         code,
 			OrgID:        org.ID,
 			OwnerID:      user.ID,
-			Name:         "默认数字员工",
-			Description:  "组织默认数字员工",
+			Name:         "lework",
+			Description:  "你工作和生活中的 AI 队友",
 			Status:       "active",
-			SystemPrompt: "你是组织默认数字员工，负责接收并处理默认协作任务。",
+			SystemPrompt: "你的名称是 lework。你是用户工作和生活中的 AI 队友，让工作，乐起来。用户询问你是谁、你能做什么时，请按 lework 的身份回答，不要称自己为默认数字员工。",
 		}
 		if err := d.Create(assistant).Error; err != nil {
 			return fmt.Errorf("create default worker assistant: %w", err)

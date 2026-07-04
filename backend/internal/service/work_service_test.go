@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	dbpkg "github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -167,4 +169,308 @@ func TestWorkServiceNewMessage_TouchesProjectUpdatedAt(t *testing.T) {
 	if !refreshedProject.UpdatedAt.After(oldUpdatedAt) {
 		t.Fatalf("expected project updated_at after %v, got %v", oldUpdatedAt, refreshedProject.UpdatedAt)
 	}
+}
+
+func TestWorkServiceNewMessage_EmptySummonCreatesAssistantBoundSession(t *testing.T) {
+	service, database := setupTestWorkService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	assistant := seedReadyAssistant(t, database, "contract-reviewer", "合同审查专家", "只做合同风险审查")
+
+	resp, err := service.NewMessage(ctx, &contract.NewMessageRequest{
+		AssistantID: assistant.ID,
+	})
+	if err != nil {
+		t.Fatalf("NewMessage empty summon failed: %v", err)
+	}
+	if resp.MessageID != "" {
+		t.Fatalf("message id = %q, want empty for empty summon", resp.MessageID)
+	}
+	if resp.AssistantID != assistant.ID {
+		t.Fatalf("response assistant id = %d, want %d", resp.AssistantID, assistant.ID)
+	}
+
+	var session types.Session
+	if err := database.Where("public_id = ?", resp.SessionID).First(&session).Error; err != nil {
+		t.Fatalf("load task session: %v", err)
+	}
+	if session.AssistantID != assistant.ID {
+		t.Fatalf("session assistant id = %d, want %d", session.AssistantID, assistant.ID)
+	}
+
+	var count int64
+	if err := database.Model(&types.SessionMessage{}).Where("session_id = ?", session.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count session messages: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("empty summon persisted %d messages, want 0", count)
+	}
+
+	var task types.Task
+	if err := database.Where("public_id = ?", resp.TaskID).First(&task).Error; err != nil {
+		t.Fatalf("load task: %v", err)
+	}
+	if task.Title != "与合同审查专家对话" {
+		t.Fatalf("task title = %q, want teammate title", task.Title)
+	}
+}
+
+func TestWorkServiceNewMessage_RejectsInactiveAssistantSummon(t *testing.T) {
+	service, database := setupTestWorkService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	assistant := seedReadyAssistant(t, database, "inactive-reviewer", "停用队友", "停用后不能召唤")
+	if err := database.Model(assistant).Update("status", string(contract.DigitalAssistantStatusInactive)).Error; err != nil {
+		t.Fatalf("update assistant status: %v", err)
+	}
+
+	_, err := service.NewMessage(ctx, &contract.NewMessageRequest{
+		AssistantID: assistant.ID,
+	})
+	if err == nil {
+		t.Fatal("expected inactive assistant summon to fail")
+	}
+	if !strings.Contains(err.Error(), "digital assistant is not active") {
+		t.Fatalf("error = %q, want inactive assistant error", err.Error())
+	}
+}
+
+func TestWorkServiceNewMessage_RejectsAssistantBeforeDeploymentReady(t *testing.T) {
+	service, database := setupTestWorkService(t)
+	ctx := setupTestContextWithCaller(t)
+
+	assistant := seedReadyAssistant(t, database, "deploying-reviewer", "部署中队友", "部署完成前不能召唤")
+	if err := database.Model(&types.WorkerDeployment{}).
+		Where("digital_assistant_id = ?", assistant.ID).
+		Update("status", string(types.WorkerDeploymentStatusProvisioning)).Error; err != nil {
+		t.Fatalf("update deployment status: %v", err)
+	}
+
+	_, err := service.NewMessage(ctx, &contract.NewMessageRequest{
+		AssistantID: assistant.ID,
+	})
+	if err == nil {
+		t.Fatal("expected provisioning assistant summon to fail")
+	}
+	if !strings.Contains(err.Error(), "worker deployment is not ready") {
+		t.Fatalf("error = %q, want deployment not ready error", err.Error())
+	}
+}
+
+func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	recorder := &recordingEventBus{}
+	poster := NewMessagePoster(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+
+	assistant := seedReadyAssistant(t, database, "bid-strategist", "投标策略师", "按投标策略师身份回答")
+	project := &types.Project{
+		PublicID: "prj_persona",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Persona Project",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	task := &types.Task{
+		PublicID:  "task_persona",
+		OrgID:     1,
+		OwnerID:   1,
+		ProjectID: project.ID,
+		Title:     "Persona Task",
+		Status:    string(types.TaskStatusCreated),
+	}
+	if err := database.Create(task).Error; err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	session := &types.Session{
+		PublicID:             "sess_persona",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID,
+		ProjectID:            &project.ID,
+		TaskID:               &task.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "Persona Session",
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	_, err := poster.PostMessage(ctx, session, "", func(sequence int64) *types.SessionMessage {
+		return &types.SessionMessage{
+			Role:        string(types.MessageRoleUser),
+			Content:     "帮我检查投标风险",
+			MessageType: string(types.MessageTypeText),
+			Status:      string(types.MessageStatusPending),
+			Sequence:    sequence,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+	})
+	if err != nil {
+		t.Fatalf("PostMessage failed: %v", err)
+	}
+
+	cmd, ok := recorder.event.(messaging.WorkerCommand)
+	if !ok {
+		t.Fatalf("published event = %T, want messaging.WorkerCommand", recorder.event)
+	}
+	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
+	if err != nil {
+		t.Fatalf("decode run command: %v", err)
+	}
+	if payload.Execution.AssistantID != "1" {
+		t.Fatalf("execution assistant id = %q, want 1", payload.Execution.AssistantID)
+	}
+	if payload.Execution.AssistantName != assistant.Name {
+		t.Fatalf("execution assistant name = %q, want %q", payload.Execution.AssistantName, assistant.Name)
+	}
+	if payload.Execution.SystemPrompt != assistant.SystemPrompt {
+		t.Fatalf("execution system prompt = %q, want %q", payload.Execution.SystemPrompt, assistant.SystemPrompt)
+	}
+}
+
+func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	recorder := &recordingEventBus{}
+	poster := NewMessagePoster(database, recorder, nil, nil, nil, "test", nil)
+
+	assistant := seedReadyAssistant(t, database, "contract-review", "合同审查专家", "只做合同风险审查。")
+	block := &types.DigitalAssistantPromptBlock{
+		AssistantID: assistant.ID,
+		BlockType:   "boundary",
+		Title:       "合同红线",
+		Content:     "必须提示用户重要合同请律师终审。",
+		Priority:    100,
+		Enabled:     true,
+		Version:     1,
+	}
+	if err := database.Create(block).Error; err != nil {
+		t.Fatalf("create prompt block: %v", err)
+	}
+	memory := &types.DigitalAssistantMemory{
+		AssistantID: assistant.ID,
+		MemoryType:  "experience",
+		Content:     "用户常关注违约责任、付款节点和验收标准。",
+		SourceType:  "manual",
+		Confidence:  0.95,
+		Enabled:     true,
+	}
+	if err := database.Create(memory).Error; err != nil {
+		t.Fatalf("create memory: %v", err)
+	}
+
+	project := &types.Project{
+		PublicID: "prj_persona_evolution",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Persona Evolution",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	task := &types.Task{
+		PublicID:  "task_persona_evolution",
+		OrgID:     1,
+		OwnerID:   1,
+		ProjectID: project.ID,
+		Title:     "Persona Evolution Task",
+		Status:    string(types.TaskStatusCreated),
+	}
+	if err := database.Create(task).Error; err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	session := &types.Session{
+		PublicID:             "sess_persona_evolution",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID,
+		ProjectID:            &project.ID,
+		TaskID:               &task.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "Persona Evolution Session",
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	_, err := poster.PostMessage(ctx, session, "", func(sequence int64) *types.SessionMessage {
+		return &types.SessionMessage{
+			Role:        string(types.MessageRoleUser),
+			Content:     "帮我审查合同风险",
+			MessageType: string(types.MessageTypeText),
+			Status:      string(types.MessageStatusPending),
+			Sequence:    sequence,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+	})
+	if err != nil {
+		t.Fatalf("PostMessage failed: %v", err)
+	}
+
+	cmd, ok := recorder.event.(messaging.WorkerCommand)
+	if !ok {
+		t.Fatalf("published event = %T, want messaging.WorkerCommand", recorder.event)
+	}
+	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
+	if err != nil {
+		t.Fatalf("decode run command: %v", err)
+	}
+	if !strings.Contains(payload.Execution.SystemPrompt, "<teammate_evolution_context>") {
+		t.Fatalf("system prompt missing evolution context: %q", payload.Execution.SystemPrompt)
+	}
+	if !strings.Contains(payload.Execution.SystemPrompt, block.Content) {
+		t.Fatalf("system prompt missing prompt block content: %q", payload.Execution.SystemPrompt)
+	}
+	if !strings.Contains(payload.Execution.SystemPrompt, memory.Content) {
+		t.Fatalf("system prompt missing memory content: %q", payload.Execution.SystemPrompt)
+	}
+
+	var trace types.AssistantPromptTrace
+	if err := database.Where("session_id = ? AND assistant_id = ?", session.ID, assistant.ID).First(&trace).Error; err != nil {
+		t.Fatalf("load prompt trace: %v", err)
+	}
+	if len(trace.InjectedBlockIDs) != 1 || trace.InjectedBlockIDs[0] != "1" {
+		t.Fatalf("trace block ids = %#v, want [1]", trace.InjectedBlockIDs)
+	}
+	if len(trace.InjectedMemoryIDs) != 1 || trace.InjectedMemoryIDs[0] != "1" {
+		t.Fatalf("trace memory ids = %#v, want [1]", trace.InjectedMemoryIDs)
+	}
+}
+
+func seedReadyAssistant(t *testing.T, database *gorm.DB, code, name, systemPrompt string) *types.DigitalAssistant {
+	t.Helper()
+	assistant := &types.DigitalAssistant{
+		Code:         code,
+		OrgID:        1,
+		OwnerID:      1,
+		Name:         name,
+		Description:  name,
+		Status:       "active",
+		SystemPrompt: systemPrompt,
+		Source:       "custom",
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	deployment := &types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: assistant.ID,
+		WorkerID:           assistant.ID,
+		DeploymentName:     "test-" + code,
+		Namespace:          "test",
+		Status:             string(types.WorkerDeploymentStatusReady),
+	}
+	if err := database.Create(deployment).Error; err != nil {
+		t.Fatalf("create worker deployment: %v", err)
+	}
+	return assistant
 }

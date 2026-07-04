@@ -27,6 +27,14 @@ const (
 
 	// TableNameDigitalAssistant 数字助手表名
 	TableNameDigitalAssistant = tablenamePrefix + "digital_assistant"
+	// TableNameDigitalAssistantPromptBlock AI 队友提示词分层块表名
+	TableNameDigitalAssistantPromptBlock = tablenamePrefix + "digital_assistant_prompt_block"
+	// TableNameDigitalAssistantMemory AI 队友长期记忆表名
+	TableNameDigitalAssistantMemory = tablenamePrefix + "digital_assistant_memory"
+	// TableNameAssistantPromptTrace AI 队友提示词注入追踪表名
+	TableNameAssistantPromptTrace = tablenamePrefix + "assistant_prompt_trace"
+	// TableNameAITeammateTemplate AI 队友模板表名
+	TableNameAITeammateTemplate = tablenamePrefix + "ai_teammate_template"
 	// TableNameDigitalAssistantInstance 数字助手实例表名
 	TableNameDigitalAssistantInstance = tablenamePrefix + "digital_assistant_instance"
 	// TableNameWorkerDeployment Worker 部署表名
@@ -68,6 +76,8 @@ const (
 	TableNameBuiltinSkillMarketplaceItem = tablenamePrefix + "builtin_skill_marketplace_item"
 	// TableNameSkillMarketplaceItem Skill 市场记录缓存表名
 	TableNameSkillMarketplaceItem = tablenamePrefix + "skill_marketplace_item"
+	// TableNameOrgSkillInstallation 组织级 Skill 安装记录表名
+	TableNameOrgSkillInstallation = tablenamePrefix + "org_skill_installation"
 
 	// TableNameMessageResource 消息资源关联表名
 	TableNameMessageResource = tablenamePrefix + "message_resource"

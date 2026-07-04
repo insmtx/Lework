@@ -256,6 +256,29 @@ func TestConsumerNames(t *testing.T) {
 	}
 }
 
+func TestWorkerLaneConsumer(t *testing.T) {
+	tests := []struct {
+		name     string
+		orgID    uint
+		workerID uint
+		lane     Lane
+		want     string
+	}{
+		{"run", 1, 2, LaneRun, "worker-o1-w2-run-consumer"},
+		{"control", 1, 2, LaneControl, "worker-o1-w2-control-consumer"},
+		{"interaction", 1, 2, LaneInteraction, "worker-o1-w2-interaction-consumer"},
+		{"skill", 1, 2, LaneSkill, "worker-o1-w2-skill-consumer"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := WorkerLaneConsumer(tt.orgID, tt.workerID, tt.lane); got != tt.want {
+				t.Fatalf("WorkerLaneConsumer() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStreamConfigs(t *testing.T) {
 	configs := StreamConfigs()
 

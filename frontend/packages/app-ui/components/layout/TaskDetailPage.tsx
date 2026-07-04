@@ -1,11 +1,14 @@
 "use client";
 
-import type { ProjectArtifact, ProjectTask } from "@leros/store";
+import type { DigitalAssistantItem, ProjectArtifact, ProjectTask } from "@leros/store";
 import {
 	formatArtifactTime,
 	formatTokenCount,
 	projectFileApi,
+	sessionApi,
+	useAppStore,
 	useChatStore,
+	useDAStore,
 	useLayoutStore,
 } from "@leros/store";
 import { taskApi } from "@leros/store/api/taskApi";
@@ -34,6 +37,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SHOW_TASK_TOKEN_USAGE_CARD } from "../../constants/temporaryUiFlags";
 import { MessageTimeline } from "../chat/MessageTimeline";
+import { buildPromptSuggestions } from "../digitalAssistant/promptSuggestions";
 import { ChatInput } from "../input/ChatInput";
 import { ArtifactPreviewDialog } from "./ArtifactPreviewDialog";
 import type { AppNavigation } from "./LeftRail";
@@ -91,9 +95,12 @@ export function TaskDetailPage({
 		setActiveSession,
 		clearLocalMessages,
 		loadConversationMessages,
+		sendMessage,
 	} = useChatStore((s) => s);
+	const { assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 
 	const [task, setTask] = useState<ProjectTask | null>(null);
+	const [teammate, setTeammate] = useState<DigitalAssistantItem | null>(null);
 	const [renameDialogOpen, setRenameDialogOpen] = useState(false);
 	const [renameValue, setRenameValue] = useState("");
 	const [taskFiles, setTaskFiles] = useState<ProjectFileNode[]>([]);
@@ -265,6 +272,43 @@ export function TaskDetailPage({
 		});
 	}, [storeTask]);
 
+	// 解析当前任务会话绑定的队友：优先用 storeTask.assistantId，缺失时回退到 sessionApi.get。
+	// 用于空对话时在 TaskChatEmptyState 中展示「试试这样问我」快捷提示。
+	useEffect(() => {
+		if (!resolvedSessionId) {
+			setTeammate(null);
+			return;
+		}
+		let cancelled = false;
+		const resolveTeammate = async () => {
+			try {
+				let assistantId = storeTask?.assistantId;
+				if (!assistantId) {
+					const res = await sessionApi.get({ session_id: resolvedSessionId });
+					assistantId = res.data.data?.assistant_id;
+				}
+				if (cancelled || !assistantId) {
+					setTeammate(null);
+					return;
+				}
+				if (!assistantsLoaded) {
+					await fetchAssistants();
+				}
+				if (cancelled) return;
+				const latest = useAppStore.getState().assistants;
+				const found = latest.find((a) => a.id === assistantId) ?? null;
+				setTeammate(found);
+			} catch (err) {
+				console.error("TaskDetailPage resolve teammate error:", err);
+				if (!cancelled) setTeammate(null);
+			}
+		};
+		resolveTeammate();
+		return () => {
+			cancelled = true;
+		};
+	}, [resolvedSessionId, storeTask?.assistantId, assistantsLoaded, fetchAssistants]);
+
 	useEffect(() => {
 		if (!resolvedTaskId || isGenerating) return;
 		fetchTaskFiles();
@@ -414,7 +458,15 @@ export function TaskDetailPage({
 				<main className="min-w-0 flex min-h-0 flex-1 flex-col">
 					{/* 中文注释：任务详情页作为壳层里的 flex item 以及中间主列本身都必须允许收缩，避免小窗口下被聊天内容宽度和右侧栏共同撑出可视区域。 */}
 					<MessageTimeline
-						emptyState={<TaskChatEmptyState layout={taskChatLayout} />}
+						emptyState={
+							<TaskChatEmptyState
+								layout={taskChatLayout}
+								teammate={teammate}
+								onPickPrompt={(prompt) => {
+									sendMessage(prompt, [], undefined);
+								}}
+							/>
+						}
 						contentShellClassName={taskChatLayout.shell}
 						contentClassName={taskChatLayout.timelineInner}
 						projectId={resolvedProjectId}
@@ -713,20 +765,46 @@ function splitTokenMetric(
 
 function TaskChatEmptyState({
 	layout,
+	teammate,
+	onPickPrompt,
 }: {
 	layout: ReturnType<typeof getProjectChatLayoutClasses>;
+	teammate?: DigitalAssistantItem | null;
+	onPickPrompt?: (prompt: string) => void;
 }) {
+	const promptSuggestions = teammate ? buildPromptSuggestions(teammate) : [];
 	return (
 		<div className={cn("flex h-full", layout.shell)}>
 			<div className={cn(layout.inner, "flex h-full items-center justify-center")}>
-				<div className="flex max-w-[320px] flex-col items-center text-center">
+				<div className="flex max-w-[420px] flex-col items-center text-center">
 					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
 						<Bot className="size-6" />
 					</div>
-					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">任务会话</h2>
+					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">
+						{teammate ? teammate.name : "任务会话"}
+					</h2>
 					<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-						在此与 AI 协作完成任务讨论，发送消息即可开始对话。
+						{teammate?.description || "在此与 AI 协作完成任务讨论，发送消息即可开始对话。"}
 					</p>
+					{promptSuggestions.length > 0 && (
+						<div className="mt-6 w-full space-y-2">
+							<p className="text-xs font-medium text-[var(--leros-text-subtle)]">试试这样问我</p>
+							{promptSuggestions.map((prompt) => (
+								<button
+									key={prompt}
+									type="button"
+									className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-2.5 text-left text-sm leading-6 text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:text-[var(--leros-text-strong)]"
+									onClick={() => onPickPrompt?.(prompt)}
+								>
+									<span className="min-w-0 flex-1">“{prompt}”</span>
+									<ChevronRight
+										className="size-4 shrink-0 text-[var(--leros-text-subtle)]"
+										aria-hidden="true"
+									/>
+								</button>
+							))}
+						</div>
+					)}
 				</div>
 			</div>
 		</div>

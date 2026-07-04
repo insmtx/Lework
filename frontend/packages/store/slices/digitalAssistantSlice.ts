@@ -11,6 +11,11 @@ export type DigitalAssistantItem = {
 	avatar: string;
 	status: string;
 	systemPrompt: string;
+	expertise: string[];
+	templateId?: number;
+	source: string;
+	deploymentStatus: string;
+	deploymentError: string;
 	version: number;
 	createdAt: number;
 	updatedAt: number;
@@ -36,6 +41,11 @@ function mapBackendDA(da: BackendDigitalAssistant): DigitalAssistantItem {
 		avatar: da.avatar ?? "",
 		status: da.status,
 		systemPrompt: da.system_prompt ?? "",
+		expertise: da.expertise ?? [],
+		templateId: da.template_id,
+		source: da.source ?? "",
+		deploymentStatus: da.deployment?.status ?? "",
+		deploymentError: da.deployment?.last_error ?? "",
 		version: da.version,
 		createdAt: new Date(da.created_at).getTime(),
 		updatedAt: new Date(da.updated_at).getTime(),
@@ -78,11 +88,14 @@ export class DASliceImpl {
 	};
 
 	createAssistant = async (params: {
-		code: string;
+		code?: string;
 		name: string;
 		description?: string;
 		avatar?: string;
 		system_prompt?: string;
+		expertise?: string[];
+		template_id?: number;
+		source?: string;
 	}) => {
 		try {
 			const res = await digitalAssistantApi.create(params);
@@ -101,12 +114,48 @@ export class DASliceImpl {
 		}
 	};
 
+	createAssistantFromTemplate = async (params: {
+		template_id: number;
+		code?: string;
+		name?: string;
+		description?: string;
+		avatar?: string;
+		system_prompt?: string;
+		expertise?: string[];
+	}) => {
+		try {
+			const res = await digitalAssistantApi.createFromTemplate(params);
+			const da = res.data.data;
+			if (!da) throw new Error("No data returned");
+			const item = mapBackendDA(da);
+			const visibleItem =
+				item.deploymentStatus === "ready"
+					? {
+							...item,
+							deploymentStatus: "pending",
+						}
+					: item;
+			this.#set((state) => ({
+				assistants: [visibleItem, ...state.assistants.filter((a) => a.id !== visibleItem.id)],
+				activeAssistantId: visibleItem.id,
+				assistantsLoaded: true,
+			}));
+			return visibleItem;
+		} catch (err) {
+			console.error("createAssistantFromTemplate error:", err);
+			return null;
+		}
+	};
+
 	updateAssistant = async (params: {
 		id: number;
 		name?: string;
 		description?: string;
 		avatar?: string;
 		system_prompt?: string;
+		expertise?: string[];
+		template_id?: number;
+		source?: string;
 	}) => {
 		try {
 			const res = await digitalAssistantApi.update(params);
@@ -127,7 +176,16 @@ export class DASliceImpl {
 		try {
 			await digitalAssistantApi.updateStatus({ id, status });
 			this.#set((state) => ({
-				assistants: state.assistants.map((a) => (a.id === id ? { ...a, status } : a)),
+				assistants: state.assistants.map((a) =>
+					a.id === id
+						? {
+								...a,
+								status,
+								deploymentStatus: status === "active" ? "pending" : "stopped",
+								deploymentError: "",
+							}
+						: a,
+				),
 			}));
 		} catch (err) {
 			console.error("updateAssistantStatus error:", err);

@@ -26,6 +26,7 @@ func (h *DigitalAssistantHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/DeleteDigitalAssistant", h.DeleteDigitalAssistant)
 	r.POST("/ListDigitalAssistant", h.ListDigitalAssistant)
 	r.POST("/UpdateDigitalAssistantStatus", h.UpdateDigitalAssistantStatus)
+	r.POST("/CreateDigitalAssistantFromTemplate", h.CreateDigitalAssistantFromTemplate)
 }
 
 func RegisterDigitalAssistantRoutes(r gin.IRouter, service contract.DigitalAssistantService) {
@@ -257,6 +258,33 @@ func (h *DigitalAssistantHandler) UpdateDigitalAssistantStatus(ctx *gin.Context)
 	ctx.JSON(http.StatusOK, dto.Success(nil))
 }
 
+// @Summary 基于模板创建数字助手
+// @Description 使用 AI 队友模板创建一个新的数字助手实例
+// @Tags DigitalAssistant
+// @Accept json
+// @Produce json
+// @Param body body contract.CreateDigitalAssistantFromTemplateRequest true "基于模板创建数字助手请求"
+// @Success 200 {object} dto.CreateDigitalAssistantResponse "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /CreateDigitalAssistantFromTemplate [post]
+func (h *DigitalAssistantHandler) CreateDigitalAssistantFromTemplate(ctx *gin.Context) {
+	var req contract.CreateDigitalAssistantFromTemplateRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.CreateDigitalAssistantFromTemplate(ctx, &req)
+	if err != nil {
+		handleServiceError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, dto.NewCreateDigitalAssistantResponse(result))
+}
+
 func handleServiceError(ctx *gin.Context, err error) {
 	if err.Error() == "user not authenticated or org not set" {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, err.Error()))
@@ -266,8 +294,12 @@ func handleServiceError(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
-	if err.Error() == "digital assistant not found" {
+	if err.Error() == "digital assistant not found" || err.Error() == "ai teammate template not found" {
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, err.Error()))
+		return
+	}
+	if err.Error() == "ai teammate template is inactive" {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
 	ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))

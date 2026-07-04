@@ -1,10 +1,12 @@
 "use client";
 
 import {
+	type DigitalAssistantItem,
 	type Project,
 	type ProjectTask,
 	projectFileApi,
 	useChatStore,
+	useDAStore,
 	useLayoutStore,
 } from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
@@ -33,7 +35,11 @@ import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
-import { StructuredComposer, type StructuredComposerHandle } from "../input/StructuredComposer";
+import {
+	type ComposerAssistantOption,
+	StructuredComposer,
+	type StructuredComposerHandle,
+} from "../input/StructuredComposer";
 import type { AppNavigation } from "./LeftRail";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
@@ -59,6 +65,61 @@ function buildComposerMetadata(
 		}))
 		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isSummonableAssistant(assistant: DigitalAssistantItem): boolean {
+	if (assistant.status !== "active") return false;
+	const deploymentStatus = assistant.deploymentStatus?.trim();
+	return !deploymentStatus || deploymentStatus === "ready";
+}
+
+function resolveMentionedAssistant(
+	content: string,
+	tokens: ComposerToken[],
+	assistantOptions: ComposerAssistantOption[],
+): ComposerAssistantOption | null {
+	const mentionedNames = tokens
+		.filter((token) => token.kind === "assistant")
+		.map((token) => token.label.replace(/^@/, ""))
+		.filter(Boolean);
+
+	for (const name of mentionedNames) {
+		const assistant = assistantOptions.find((option) => option.name === name);
+		if (assistant) return assistant;
+	}
+
+	for (const match of content.matchAll(/(?:^|\s)@([^\s@/#]+)(?=\s|$)/g)) {
+		const name = match[1] ?? "";
+		const assistant = assistantOptions.find((option) => option.name === name);
+		if (assistant) return assistant;
+	}
+	return null;
+}
+
+function removeAssistantMentionText(
+	content: string,
+	tokens: ComposerToken[],
+	assistant?: ComposerAssistantOption | null,
+): string {
+	const tokenNames = tokens
+		.filter((token) => token.kind === "assistant")
+		.map((token) => token.label.replace(/^@/, ""))
+		.filter(Boolean);
+	const mentionedNames = Array.from(
+		new Set([...tokenNames, assistant?.name ?? ""].filter(Boolean)),
+	);
+
+	return mentionedNames
+		.reduce((next, name) => {
+			const pattern = new RegExp(`(^|\\s)@${escapeRegExp(name)}(?=\\s|$)`, "g");
+			return next.replace(pattern, " ");
+		}, content)
+		.replace(/[ \t]{2,}/g, " ")
+		.trim();
 }
 
 function getFilteredProjectTree(projects: Project[], query: string) {
@@ -97,6 +158,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
+	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 	const { addUploadedAttachment, isGenerating } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -139,6 +201,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	}, [fetchProjects, fetchRecentWorkbenchContext, isAuthenticated]);
 
+	useEffect(() => {
+		if (assistantsLoaded) return;
+		void fetchAssistants();
+	}, [assistantsLoaded, fetchAssistants]);
+
 	useLayoutEffect(() => {
 		clearTaskDetailRoute();
 	}, [clearTaskDetailRoute]);
@@ -155,16 +222,22 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		if (isGenerating || sendingRef.current) return;
 		sendingRef.current = true;
 		try {
-			const composerMetadata = buildComposerMetadata(
-				input,
-				composerRef.current?.getComposerTokens() ?? [],
-			);
+			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
+			const composerMetadata = buildComposerMetadata(input, composerTokens);
+			const mentionedAssistant = activeWorkbenchProjectId
+				? null
+				: resolveMentionedAssistant(content, composerTokens, availableAssistantOptions);
+			const messageContent = mentionedAssistant
+				? removeAssistantMentionText(content, composerTokens, mentionedAssistant)
+				: content;
+			const messageMetadata = mentionedAssistant ? undefined : composerMetadata;
 			const data = await sendWorkbenchMessage(
-				content,
+				messageContent,
 				activeWorkbenchProjectId,
 				executionMode,
 				attachments,
-				composerMetadata,
+				messageMetadata,
+				mentionedAssistant?.id,
 			);
 			if (data?.session_id) {
 				// 不在 workbench 发起 SSE 连接，跳转到 TaskDetailPage 后通过回放建立
@@ -266,6 +339,18 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	};
 	const activeProject = projects.find((project) => project.id === activeWorkbenchProjectId);
+	const availableAssistantOptions = useMemo<ComposerAssistantOption[]>(
+		() =>
+			assistants.filter(isSummonableAssistant).map((assistant) => ({
+				id: assistant.id,
+				code: String(assistant.id),
+				name: assistant.name,
+				description:
+					assistant.description ||
+					(assistant.expertise.length > 0 ? assistant.expertise.join("、") : "AI 队友"),
+			})),
+		[assistants],
+	);
 	const filteredProjectTree = useMemo(
 		() => getFilteredProjectTree(projects, projectSearch),
 		[projectSearch, projects],
@@ -544,6 +629,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								onBlur={() => undefined}
 								placeholder="在这里开始新任务，或输入指令以同步您的项目进度..."
 								isProjectVariant
+								assistantOptions={availableAssistantOptions}
 								directivesDisabled={Boolean(activeProject)}
 								onProjectTrigger={handleProjectTrigger}
 							/>
@@ -561,6 +647,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 										}
 										return true;
 									}}
+									assistantOptions={availableAssistantOptions}
 									disableAssistantAndSkill={Boolean(activeProject)}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}

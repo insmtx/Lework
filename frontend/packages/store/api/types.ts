@@ -188,8 +188,37 @@ export type BackendDigitalAssistant = {
 	owner_id: number;
 	status: string;
 	system_prompt?: string;
+	expertise?: string[];
+	template_id?: number;
+	source?: string;
+	deployment?: BackendWorkerDeploymentStatus;
 	config?: BackendAssistantConfig;
 	version: number;
+	created_at: string;
+	updated_at: string;
+};
+
+export type BackendWorkerDeploymentStatus = {
+	status: string;
+	last_error?: string;
+};
+
+export type BackendAITeammateTemplate = {
+	id: number;
+	code: string;
+	name: string;
+	description?: string;
+	avatar?: string;
+	provider?: string;
+	system_prompt?: string;
+	expertise?: string[];
+	category?: string;
+	tags?: string[];
+	sort_order?: number;
+	use_count?: number;
+	recommend_count?: number;
+	status: string;
+	is_system?: boolean;
 	created_at: string;
 	updated_at: string;
 };
@@ -398,4 +427,6 @@ export type BackendNewMessageData = {
 	project_id: string;
 	task_id: string;
 	session_id: string;
+	message_id?: string;
+	assistant_id?: number;
 };

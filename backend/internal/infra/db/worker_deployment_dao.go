@@ -66,6 +66,18 @@ func ListWorkerDeploymentsByStatuses(ctx context.Context, database *gorm.DB, sta
 	return deployments, nil
 }
 
+func ListWorkerDeploymentsByOrgAndStatuses(ctx context.Context, database *gorm.DB, orgID uint, statuses []string) ([]*types.WorkerDeployment, error) {
+	var deployments []*types.WorkerDeployment
+	query := database.WithContext(ctx).Where("org_id = ?", orgID).Order("worker_id ASC")
+	if len(statuses) > 0 {
+		query = query.Where("status IN ?", statuses)
+	}
+	if err := query.Find(&deployments).Error; err != nil {
+		return nil, err
+	}
+	return deployments, nil
+}
+
 func UpdateWorkerDeployment(ctx context.Context, database *gorm.DB, deployment *types.WorkerDeployment) error {
 	return database.WithContext(ctx).Save(deployment).Error
 }

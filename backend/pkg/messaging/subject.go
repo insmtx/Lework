@@ -78,6 +78,22 @@ func WorkerInteractionConsumer() string { return "worker-interaction-consumer" }
 // WorkerSkillConsumer 返回 cmd.skill lane 的持久化消费者名称。
 func WorkerSkillConsumer() string { return "worker-skill-consumer" }
 
+// WorkerLaneConsumer 返回按 org/worker/lane 隔离的 worker 持久化消费者名称。
+func WorkerLaneConsumer(orgID, workerID uint, lane Lane) string {
+	switch lane {
+	case LaneRun:
+		return fmt.Sprintf("worker-o%d-w%d-run-consumer", orgID, workerID)
+	case LaneControl:
+		return fmt.Sprintf("worker-o%d-w%d-control-consumer", orgID, workerID)
+	case LaneInteraction:
+		return fmt.Sprintf("worker-o%d-w%d-interaction-consumer", orgID, workerID)
+	case LaneSkill:
+		return fmt.Sprintf("worker-o%d-w%d-skill-consumer", orgID, workerID)
+	default:
+		return fmt.Sprintf("worker-o%d-w%d-%s-consumer", orgID, workerID, lane)
+	}
+}
+
 // SessionRunStateConsumer 返回 session run state projector 的持久化消费者名称。
 // 用于消费 run.state 事件，投影更新 session 的当前运行状态。
 func SessionRunStateConsumer() string { return "session-run-state-projector" }
@@ -92,13 +108,13 @@ const (
 // StreamConfigs 返回所有预配置的 JetStream stream 配置。
 //
 // WORKER_CMD_STREAM: server -> worker 方向，覆盖所有 worker command subject
-//（cmd.run、cmd.control、cmd.interaction、cmd.skill）。
+// （cmd.run、cmd.control、cmd.interaction、cmd.skill）。
 //
 //	保留 72h，每 subject 最多 10000 条。使用 DiscardOld，
 //	积压时丢弃最旧消息以确保新命令始终可写入。
 //
 // SESSION_RUN_STREAM: worker -> server/UI 方向，覆盖所有 run event subject
-//（run.stream、run.state）。
+// （run.stream、run.state）。
 //
 //	保留 24h，每 subject 最多 10000 条。
 func StreamConfigs() map[string]nats.StreamConfig {

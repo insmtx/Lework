@@ -16,9 +16,11 @@ func RequestFromWorkerTask(task runTask) *assistantdomain.RunRequest {
 		TaskID:        task.Trace.TaskID,
 		ExecutionMode: agent.ExecutionMode(task.ExecutionMode),
 		Assistant: assistantdomain.AssistantContext{
-			ID:     task.Execution.AssistantID,
-			Skills: append([]string(nil), task.Execution.Skills...),
-			Tools:  append([]string(nil), task.Execution.Tools...),
+			ID:           task.Execution.AssistantID,
+			Name:         task.Execution.AssistantName,
+			SystemPrompt: task.Execution.SystemPrompt,
+			Skills:       append([]string(nil), task.Execution.Skills...),
+			Tools:        append([]string(nil), task.Execution.Tools...),
 		},
 		Actor: assistantdomain.ActorContext{
 			UserID:      task.Actor.UserID,

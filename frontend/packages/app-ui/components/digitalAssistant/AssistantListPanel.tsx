@@ -7,12 +7,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AssistantAvatar } from "./AssistantAvatar";
-
-const statusDotMap: Record<string, string> = {
-	active: "bg-green-500",
-	inactive: "bg-slate-400",
-	draft: "bg-yellow-400",
-};
+import { getAssistantDisplayStatus } from "./assistantStatus";
 
 export type AssistantListPanelProps = {
 	onCreateClick: () => void;
@@ -74,7 +69,10 @@ export function AssistantListPanel({ onCreateClick }: AssistantListPanelProps) {
 							<AssistantAvatar name={a.name} src={a.avatar} size="sm" />
 							<span className="truncate flex-1">{a.name}</span>
 							<span
-								className={`size-2 rounded-full shrink-0 ${statusDotMap[a.status] ?? "bg-slate-300"}`}
+								className={cn(
+									"size-2 rounded-full shrink-0",
+									getAssistantDisplayStatus(a).dotClassName,
+								)}
 							/>
 						</button>
 					))}

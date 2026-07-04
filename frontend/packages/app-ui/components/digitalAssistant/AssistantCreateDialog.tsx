@@ -11,6 +11,7 @@ import {
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
 import { useState } from "react";
+import { AssistantAvatar } from "./AssistantAvatar";
 
 export type AssistantCreateDialogProps = {
 	open: boolean;
@@ -20,20 +21,20 @@ export type AssistantCreateDialogProps = {
 export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDialogProps) {
 	const { createAssistant } = useDAStore((s) => s);
 	const [name, setName] = useState("");
-	const [code, setCode] = useState("");
+	const [avatar, setAvatar] = useState("");
 	const [description, setDescription] = useState("");
 	const [systemPrompt, setSystemPrompt] = useState("");
 
 	const handleSubmit = async () => {
-		if (!name.trim() || !code.trim()) return;
+		if (!name.trim()) return;
 		await createAssistant({
-			code: code.trim(),
 			name: name.trim(),
+			avatar: avatar.trim() || undefined,
 			description: description.trim() || undefined,
 			system_prompt: systemPrompt.trim() || undefined,
 		});
 		setName("");
-		setCode("");
+		setAvatar("");
 		setDescription("");
 		setSystemPrompt("");
 		onOpenChange(false);
@@ -41,7 +42,7 @@ export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDia
 
 	const handleClose = () => {
 		setName("");
-		setCode("");
+		setAvatar("");
 		setDescription("");
 		setSystemPrompt("");
 		onOpenChange(false);
@@ -56,6 +57,19 @@ export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDia
 				</DialogHeader>
 				<div className="mt-4 space-y-3">
 					<div className="space-y-1.5">
+						<span className="text-xs font-medium text-slate-700">头像</span>
+						<div className="flex items-center gap-3">
+							<AssistantAvatar name={name || "AI"} src={avatar} />
+							<input
+								type="text"
+								value={avatar}
+								onChange={(e) => setAvatar(e.target.value)}
+								placeholder="头像 URL"
+								className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
+							/>
+						</div>
+					</div>
+					<div className="space-y-1.5">
 						<span className="text-xs font-medium text-slate-700">名称 *</span>
 						<input
 							type="text"
@@ -63,16 +77,6 @@ export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDia
 							onChange={(e) => setName(e.target.value)}
 							placeholder="队友名称"
 							autoFocus
-							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none transition-colors"
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<span className="text-xs font-medium text-slate-700">编码 *</span>
-						<input
-							type="text"
-							value={code}
-							onChange={(e) => setCode(e.target.value)}
-							placeholder="唯一编码（如 code-review-bot）"
 							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none transition-colors"
 						/>
 					</div>
@@ -87,12 +91,12 @@ export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDia
 						/>
 					</div>
 					<div className="space-y-1.5">
-						<span className="text-xs font-medium text-slate-700">系统提示词</span>
+						<span className="text-xs font-medium text-slate-700">简介</span>
 						<textarea
 							value={systemPrompt}
 							onChange={(e) => setSystemPrompt(e.target.value)}
-							placeholder="系统提示词（可选）"
-							rows={3}
+							placeholder="能力边界、执行方式和输出要求"
+							rows={5}
 							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none transition-colors resize-none"
 						/>
 					</div>
@@ -104,7 +108,7 @@ export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDia
 					<button
 						type="button"
 						onClick={handleSubmit}
-						disabled={!name.trim() || !code.trim()}
+						disabled={!name.trim()}
 						className="inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground h-8 px-2.5 text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/80"
 					>
 						创建

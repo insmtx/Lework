@@ -1,17 +1,17 @@
 "use client";
 
 import type { DigitalAssistantItem } from "@leros/store";
-import { useDAStore } from "@leros/store";
+import { useDAStore, useLayoutStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@leros/ui/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
-import { Plus, Search } from "lucide-react";
+import { ArrowLeft, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { AssistantCard } from "./AssistantCard";
 import { AssistantCreateDialog } from "./AssistantCreateDialog";
 import { AssistantDeleteDialog } from "./AssistantDeleteDialog";
-import { AssistantDetailPanel } from "./AssistantDetailPanel";
+import { AssistantDetailDialog } from "./AssistantDetailDialog";
 import { AssistantEditDialog } from "./AssistantEditDialog";
 
 const statusFilters = [
@@ -27,20 +27,32 @@ export function AssistantListView() {
 		assistantSearchQuery,
 		assistantStatusFilter,
 		fetchAssistants,
-		activeAssistantId,
 		setAssistantSearchQuery,
 		setAssistantStatusFilter,
-		switchAssistant,
 	} = useDAStore((s) => s);
+	const { sendWorkbenchMessage } = useLayoutStore((s) => s);
 
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
-	const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+	const [detailTarget, setDetailTarget] = useState<DigitalAssistantItem | null>(null);
 	const [editTarget, setEditTarget] = useState<DigitalAssistantItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<DigitalAssistantItem | null>(null);
+	const [summoningId, setSummoningId] = useState<number | null>(null);
 
 	useEffect(() => {
 		fetchAssistants();
 	}, [fetchAssistants]);
+
+	useEffect(() => {
+		const hasDeployingAssistant = assistants.some((assistant) =>
+			["pending", "provisioning"].includes(assistant.deploymentStatus),
+		);
+		if (!hasDeployingAssistant) return;
+
+		const timer = window.setInterval(() => {
+			fetchAssistants();
+		}, 2000);
+		return () => window.clearInterval(timer);
+	}, [assistants, fetchAssistants]);
 
 	const filteredAssistants = assistants.filter((a) => {
 		const matchesSearch =
@@ -51,21 +63,55 @@ export function AssistantListView() {
 		return matchesSearch && matchesStatus;
 	});
 
-	const selectedAssistant = assistants.find((a) => a.id === activeAssistantId) ?? null;
-
 	const handleSelectAssistant = (assistant: DigitalAssistantItem) => {
-		switchAssistant(assistant.id);
-		setDetailSheetOpen(true);
+		setDetailTarget(assistant);
+	};
+
+	const handleSummonAssistant = async (assistant: DigitalAssistantItem, prompt?: string) => {
+		if (summoningId) return;
+		setSummoningId(assistant.id);
+		try {
+			// 召唤走 NewMessage：带 assistant_id 创建任务会话。
+			// - 有 prompt（点击「试试这样问我」）：发首条消息，落地后即开始对话。
+			// - 无 prompt（点击 footer「召唤」）：空 content，仅创建空任务会话，不发首条消息。
+			const content = prompt?.trim() || "";
+			const data = await sendWorkbenchMessage(content, "", undefined, undefined, undefined, assistant.id);
+			if (!data?.project_id || !data.task_id || !data.session_id) {
+				throw new Error("No task session returned");
+			}
+			navigateToTaskDetail(data.project_id, data.task_id, data.session_id);
+			toast.success(`已召唤 ${assistant.name}`);
+			setDetailTarget(null);
+		} catch (err) {
+			console.error("summon my teammate error:", err);
+			toast.error("召唤队友失败");
+		} finally {
+			setSummoningId(null);
+		}
+	};
+
+	const navigateToAITeammates = () => {
+		if (window.location.hash) {
+			window.location.hash = "/ai-teammates";
+			return;
+		}
+		window.location.href = "/ai-teammates";
 	};
 
 	return (
 		<div data-slot="assistant-list-view" className="flex h-full flex-1 flex-col bg-white">
 			<div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
 				<h2 className="text-lg font-semibold text-slate-900">AI 队友</h2>
-				<Button size="sm" onClick={() => setCreateDialogOpen(true)}>
-					<Plus className="size-4 mr-1" />
-					新建队友
-				</Button>
+				<div className="flex items-center gap-2">
+					<Button variant="outline" size="sm" onClick={navigateToAITeammates}>
+						<ArrowLeft className="size-4 mr-1" />
+						返回 AI 队友
+					</Button>
+					<Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+						<Plus className="size-4 mr-1" />
+						新建队友
+					</Button>
+				</div>
 			</div>
 
 			<div className="flex items-center gap-4 border-b border-slate-100 px-6 py-3">
@@ -118,20 +164,16 @@ export function AssistantListView() {
 				</div>
 			</ScrollArea>
 
-			<Sheet
-				open={detailSheetOpen && !!selectedAssistant}
-				onOpenChange={(open) => setDetailSheetOpen(open)}
-			>
-				<SheetContent side="right" className="w-[min(100vw,420px)] gap-0 p-0 sm:max-w-[420px]">
-					<SheetTitle className="sr-only">
-						{selectedAssistant ? `${selectedAssistant.name} 详情` : "AI 队友详情"}
-					</SheetTitle>
-					<SheetDescription className="sr-only">查看并编辑所选 AI 队友的配置详情</SheetDescription>
-					{selectedAssistant && <AssistantDetailPanel assistant={selectedAssistant} />}
-				</SheetContent>
-			</Sheet>
-
 			<AssistantCreateDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+			<AssistantDetailDialog
+				assistant={detailTarget}
+				open={!!detailTarget}
+				summoning={detailTarget ? summoningId === detailTarget.id : false}
+				onOpenChange={(open) => {
+					if (!open) setDetailTarget(null);
+				}}
+				onSummon={handleSummonAssistant}
+			/>
 			{editTarget && (
 				<AssistantEditDialog
 					assistant={editTarget}
@@ -152,4 +194,13 @@ export function AssistantListView() {
 			)}
 		</div>
 	);
+}
+
+function navigateToTaskDetail(projectId: string, taskId: string, sessionId: string) {
+	const path = `/projects/${projectId}/tasks/${taskId}?sessionId=${encodeURIComponent(sessionId)}`;
+	if (window.location.hash) {
+		window.location.hash = path;
+		return;
+	}
+	window.location.href = path;
 }

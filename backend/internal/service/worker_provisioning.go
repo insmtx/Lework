@@ -40,11 +40,11 @@ func (s *WorkerProvisioningService) EnsureDefaultWorkerForOrg(ctx context.Contex
 			Code:         code,
 			OrgID:        orgID,
 			OwnerID:      ownerID,
-			Name:         "默认数字员工",
-			Description:  "组织默认数字员工",
+			Name:         "lework",
+			Description:  "你工作和生活中的 AI 队友",
 			Status:       string(contract.DigitalAssistantStatusActive),
 			Version:      0,
-			SystemPrompt: "你是组织默认数字员工，负责接收并处理默认协作任务。",
+			SystemPrompt: "你的名称是 lework。你是用户工作和生活中的 AI 队友，让工作，乐起来。用户询问你是谁、你能做什么时，请按 lework 的身份回答，不要称自己为默认数字员工。",
 		}
 		if err := db.CreateDigitalAssistant(ctx, s.db, assistant); err != nil {
 			return nil, err
@@ -116,6 +116,16 @@ func (s *WorkerProvisioningService) MarkAssistantActive(ctx context.Context, da 
 		return err
 	}
 	deployment.Status = string(types.WorkerDeploymentStatusPending)
+	deployment.LastError = ""
+	return db.UpdateWorkerDeployment(ctx, s.db, deployment)
+}
+
+func (s *WorkerProvisioningService) MarkAssistantReady(ctx context.Context, da *types.DigitalAssistant) error {
+	deployment, err := s.EnsureForAssistant(ctx, da)
+	if err != nil {
+		return err
+	}
+	deployment.Status = string(types.WorkerDeploymentStatusReady)
 	deployment.LastError = ""
 	return db.UpdateWorkerDeployment(ctx, s.db, deployment)
 }

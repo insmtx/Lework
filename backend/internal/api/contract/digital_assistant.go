@@ -24,4 +24,7 @@ type DigitalAssistantService interface {
 
 	// 更新数字助手状态（从上下文获取权限信息）
 	UpdateDigitalAssistantStatus(ctx context.Context, id uint, req *UpdateDigitalAssistantStatusRequest) error
+
+	// 基于模板创建数字助手（从上下文获取权限信息）
+	CreateDigitalAssistantFromTemplate(ctx context.Context, req *CreateDigitalAssistantFromTemplateRequest) (*DigitalAssistant, error)
 }

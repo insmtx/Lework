@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -108,7 +109,7 @@ func reconcileWorkerDeployment(
 	}
 
 	if deployment.Status == string(types.WorkerDeploymentStatusProvisioning) {
-		return reconcileProvisioningWorkerDeployment(ctx, database, workerScheduler, deployment)
+		return reconcileProvisioningWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant)
 	}
 
 	return startWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant)
@@ -118,11 +119,17 @@ func reconcileProvisioningWorkerDeployment(
 	ctx context.Context,
 	database *gorm.DB,
 	workerScheduler worker.WorkerScheduler,
+	schedulerConfig *config.SchedulerConfig,
 	deployment *types.WorkerDeployment,
+	assistant *types.DigitalAssistant,
 ) error {
 	if err := workerScheduler.Health(ctx, deployment.DeploymentName); err == nil {
 		return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusReady), "")
 	} else {
+		if errors.Is(err, worker.ErrWorkerNotFound) {
+			logs.Infof("Worker deployment %s runtime instance is missing; restarting", deployment.DeploymentName)
+			return startWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant)
+		}
 		startedAt := deployment.LastStartedAt
 		if startedAt == nil {
 			return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusFailed), err.Error())
@@ -156,10 +163,7 @@ func startWorkerDeployment(
 		_ = db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusFailed), err.Error())
 		return err
 	}
-	if err := workerScheduler.Health(ctx, deployment.DeploymentName); err != nil {
-		return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusProvisioning), err.Error())
-	}
-	return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusReady), "")
+	return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusProvisioning), "")
 }
 
 func workerNeedsReconcile(ctx context.Context, workerScheduler worker.WorkerScheduler, spec *worker.WorkerSpec) (bool, error) {
