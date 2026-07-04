@@ -26,7 +26,9 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 		TaskType:      messaging.TaskTypeAgentRun,
 		ExecutionMode: string(agent.ExecutionModePlan),
 		Execution: messaging.ExecutionTarget{
-			AssistantID: "assistant_1",
+			AssistantID:   "assistant_1",
+			AssistantName: "投标策略师",
+			SystemPrompt:  "按投标策略师身份执行",
 		},
 		Workspace: messaging.WorkspaceOptions{
 			ProjectID: "project_1",
@@ -59,7 +61,15 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 	if req.ExecutionMode != agent.ExecutionModePlan {
 		t.Fatalf("execution mode = %q, want %q", req.ExecutionMode, agent.ExecutionModePlan)
 	}
-
+	if req.Assistant.ID != "assistant_1" {
+		t.Fatalf("assistant id = %q, want assistant_1", req.Assistant.ID)
+	}
+	if req.Assistant.Name != "投标策略师" {
+		t.Fatalf("assistant name = %q, want 投标策略师", req.Assistant.Name)
+	}
+	if req.Assistant.SystemPrompt != "按投标策略师身份执行" {
+		t.Fatalf("assistant system prompt = %q, want persona prompt", req.Assistant.SystemPrompt)
+	}
 }
 
 func TestReplyToMessageIDsDeduplicatesInputMessageIDs(t *testing.T) {

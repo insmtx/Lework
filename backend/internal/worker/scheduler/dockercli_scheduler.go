@@ -274,7 +274,7 @@ func (ds *DockerCLIScheduler) Stop(ctx context.Context, workerID string) error {
 
 	instance, ok := ds.instances[workerID]
 	if !ok {
-		return fmt.Errorf("worker %s not found", workerID)
+		return fmt.Errorf("%w: %s", worker.ErrWorkerNotFound, workerID)
 	}
 
 	if err := ds.stopContainer(ctx, instance); err != nil {

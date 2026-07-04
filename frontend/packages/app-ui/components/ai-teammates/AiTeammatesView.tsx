@@ -1,38 +1,262 @@
 "use client";
 
+import {
+	type BackendAITeammateTemplate,
+	digitalAssistantApi,
+	useAppStore,
+	useDAStore,
+} from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { cn } from "@leros/ui/lib/utils";
-import { Search } from "lucide-react";
+import {
+	BarChart3,
+	BrainCircuit,
+	FileCheck2,
+	FileText,
+	Gavel,
+	LineChart,
+	type LucideIcon,
+	Search,
+	Users,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AiTeammateCard } from "./AiTeammateCard";
-import { notifyFeatureUnavailable } from "./feature-unavailable";
-import { AI_TEAMMATE_CATEGORIES, AI_TEAMMATE_ITEMS, type AiTeammateCategory } from "./mock-data";
+import { toast } from "sonner";
+import { AiTeammateCard, type AiTeammateTemplateCardItem } from "./AiTeammateCard";
+import { AiTeammateDetailDialog, type AiTeammateDetailDialogItem } from "./AiTeammateDetailDialog";
+
+type CategoryOption = {
+	value: string;
+	label: string;
+};
+
+type CategoryVisual = {
+	icon: LucideIcon;
+	iconBg: string;
+	iconColor: string;
+	label: string;
+};
+
+const CATEGORY_VISUALS: Record<string, CategoryVisual> = {
+	bidding: {
+		label: "招投标",
+		icon: FileCheck2,
+		iconBg: "bg-sky-100",
+		iconColor: "text-sky-600",
+	},
+	office: {
+		label: "办公协同",
+		icon: FileText,
+		iconBg: "bg-amber-100",
+		iconColor: "text-amber-700",
+	},
+	data: {
+		label: "数据分析",
+		icon: BarChart3,
+		iconBg: "bg-cyan-100",
+		iconColor: "text-cyan-700",
+	},
+	hr: {
+		label: "人力资源",
+		icon: Users,
+		iconBg: "bg-rose-100",
+		iconColor: "text-rose-600",
+	},
+	legal: {
+		label: "法务合规",
+		icon: Gavel,
+		iconBg: "bg-stone-100",
+		iconColor: "text-stone-700",
+	},
+	finance: {
+		label: "金融投资",
+		icon: LineChart,
+		iconBg: "bg-emerald-100",
+		iconColor: "text-emerald-700",
+	},
+};
+
+const DEFAULT_CATEGORY_VISUAL: CategoryVisual = {
+	label: "通用能力",
+	icon: BrainCircuit,
+	iconBg: "bg-indigo-100",
+	iconColor: "text-indigo-600",
+};
 
 export function AiTeammatesView() {
+	const { assistants, assistantsLoaded, createAssistantFromTemplate, fetchAssistants } = useDAStore(
+		(s) => s,
+	);
+	const [templates, setTemplates] = useState<BackendAITeammateTemplate[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [adoptingTemplateId, setAdoptingTemplateId] = useState<number | null>(null);
+	const [selectedTemplate, setSelectedTemplate] = useState<AiTeammateDetailDialogItem | null>(null);
 	const [keyword, setKeyword] = useState("");
 	const [debouncedKeyword, setDebouncedKeyword] = useState("");
-	const [activeCategory, setActiveCategory] = useState<"" | AiTeammateCategory>("");
+	const [activeCategory, setActiveCategory] = useState("");
+
+	useEffect(() => {
+		fetchAssistants();
+	}, [fetchAssistants]);
+
+	useEffect(() => {
+		let cancelled = false;
+
+		const fetchTemplates = async () => {
+			try {
+				setLoading(true);
+				const res = await digitalAssistantApi.listTemplates({
+					status: "active",
+					list_all: true,
+					limit: 100,
+				});
+				if (cancelled) return;
+				setTemplates(res.data.data?.items ?? []);
+			} catch (err) {
+				if (cancelled) return;
+				console.error("fetch ai teammate templates error:", err);
+				toast.error("AI 队友模板加载失败");
+			} finally {
+				if (!cancelled) setLoading(false);
+			}
+		};
+
+		fetchTemplates();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	useEffect(() => {
 		const timer = window.setTimeout(() => setDebouncedKeyword(keyword.trim()), 300);
 		return () => window.clearTimeout(timer);
 	}, [keyword]);
 
+	const categories = useMemo<CategoryOption[]>(() => {
+		const seen = new Set<string>();
+		const options: CategoryOption[] = [{ value: "", label: "全部" }];
+
+		for (const item of templates) {
+			const category = item.category?.trim();
+			if (!category || seen.has(category)) continue;
+			seen.add(category);
+			options.push({
+				value: category,
+				label: CATEGORY_VISUALS[category]?.label ?? category,
+			});
+		}
+
+		return options;
+	}, [templates]);
+
 	const filteredItems = useMemo(() => {
 		const normalizedKeyword = debouncedKeyword.toLowerCase();
 
-		return AI_TEAMMATE_ITEMS.filter((item) => {
+		return templates.filter((item) => {
 			const matchesCategory = !activeCategory || item.category === activeCategory;
 			if (!matchesCategory) return false;
 			if (!normalizedKeyword) return true;
 
-			return (
-				item.name.toLowerCase().includes(normalizedKeyword) ||
-				item.description.toLowerCase().includes(normalizedKeyword) ||
-				item.provider.toLowerCase().includes(normalizedKeyword)
-			);
+			const searchable = [
+				item.name,
+				item.description,
+				item.provider,
+				...(item.expertise ?? []),
+				...(item.tags ?? []),
+			]
+				.filter(Boolean)
+				.join(" ")
+				.toLowerCase();
+
+			return searchable.includes(normalizedKeyword);
 		});
-	}, [activeCategory, debouncedKeyword]);
+	}, [activeCategory, debouncedKeyword, templates]);
+
+	const cardItems = useMemo<AiTeammateDetailDialogItem[]>(() => {
+		return filteredItems.map((item) => {
+			const visual = CATEGORY_VISUALS[item.category ?? ""] ?? DEFAULT_CATEGORY_VISUAL;
+
+			return {
+				id: item.id,
+				name: item.name,
+				description: item.description ?? "",
+				provider: item.provider || "Lework",
+				useCount: item.use_count ?? 0,
+				recommendCount: item.recommend_count ?? 0,
+				icon: visual.icon,
+				iconBg: visual.iconBg,
+				iconColor: visual.iconColor,
+				categoryLabel: visual.label,
+				template: item,
+			};
+		});
+	}, [filteredItems]);
+
+	const adoptedTemplateIds = useMemo(() => {
+		const ids = new Set<number>();
+		for (const assistant of assistants) {
+			if (assistant.templateId) ids.add(assistant.templateId);
+		}
+		return ids;
+	}, [assistants]);
+
+	const handleSelectTemplate = (item: AiTeammateTemplateCardItem) => {
+		const detailItem = cardItems.find((cardItem) => cardItem.id === item.id);
+		if (detailItem) setSelectedTemplate(detailItem);
+	};
+
+	const handleAdoptTemplate = async (item: AiTeammateDetailDialogItem) => {
+		if (adoptingTemplateId) return;
+		if (adoptedTemplateIds.has(item.id)) {
+			toast.info("该 AI 队友已在「我的队友」中");
+			return;
+		}
+
+		setAdoptingTemplateId(item.id);
+		try {
+			if (!assistantsLoaded) {
+				await fetchAssistants();
+			}
+
+			const latestAdopted = new Set(
+				useAppStore
+					.getState()
+					.assistants.map((assistant) => assistant.templateId)
+					.filter((templateId): templateId is number => Boolean(templateId)),
+			);
+			if (latestAdopted.has(item.id)) {
+				toast.info("该 AI 队友已在「我的队友」中");
+				setSelectedTemplate(null);
+				return;
+			}
+
+			const createdAssistant = await createAssistantFromTemplate({ template_id: item.id });
+			if (!createdAssistant) throw new Error("No assistant returned");
+
+			setTemplates((current) =>
+				current.map((template) =>
+					template.id === item.id
+						? { ...template, use_count: (template.use_count ?? 0) + 1 }
+						: template,
+				),
+			);
+
+			toast.success(`已添加到我的队友：${createdAssistant.name}`);
+			setSelectedTemplate(null);
+		} catch (err) {
+			console.error("adopt ai teammate error:", err);
+			toast.error("添加到我的队友失败");
+		} finally {
+			setAdoptingTemplateId(null);
+		}
+	};
+
+	const navigateToAssistants = () => {
+		if (window.location.hash) {
+			window.location.hash = "/assistants";
+			return;
+		}
+		window.location.href = "/assistants";
+	};
 
 	return (
 		<div
@@ -57,7 +281,7 @@ export function AiTeammatesView() {
 							type="button"
 							size="sm"
 							className="shrink-0 rounded-full px-4"
-							onClick={notifyFeatureUnavailable}
+							onClick={navigateToAssistants}
 						>
 							我的队友
 						</Button>
@@ -65,7 +289,7 @@ export function AiTeammatesView() {
 				</div>
 
 				<div className="mt-4 flex items-center gap-2 overflow-x-auto no-scrollbar">
-					{AI_TEAMMATE_CATEGORIES.map((category) => {
+					{categories.map((category) => {
 						const isActive = activeCategory === category.value;
 
 						return (
@@ -88,18 +312,38 @@ export function AiTeammatesView() {
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
-				{filteredItems.length === 0 ? (
+				{loading ? (
+					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+						{Array.from({ length: 8 }).map((_, index) => (
+							<div
+								key={index}
+								className="h-36 animate-pulse rounded-xl border border-[var(--leros-control-border)] bg-white"
+							/>
+						))}
+					</div>
+				) : cardItems.length === 0 ? (
 					<div className="flex flex-col items-center justify-center py-16 text-[var(--leros-text-subtle)]">
 						<p className="text-sm">暂无符合条件的 AI 队友</p>
 					</div>
 				) : (
 					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-						{filteredItems.map((item) => (
-							<AiTeammateCard key={item.id} item={item} onSelect={notifyFeatureUnavailable} />
+						{cardItems.map((item) => (
+							<AiTeammateCard key={item.id} item={item} onSelect={handleSelectTemplate} />
 						))}
 					</div>
 				)}
 			</div>
+
+			<AiTeammateDetailDialog
+				open={!!selectedTemplate}
+				item={selectedTemplate}
+				onOpenChange={(open) => {
+					if (!open) setSelectedTemplate(null);
+				}}
+				onAdopt={handleAdoptTemplate}
+				adopting={selectedTemplate ? adoptingTemplateId === selectedTemplate.id : false}
+				adopted={selectedTemplate ? adoptedTemplateIds.has(selectedTemplate.id) : false}
+			/>
 		</div>
 	);
 }

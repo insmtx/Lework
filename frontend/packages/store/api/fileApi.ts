@@ -1,8 +1,22 @@
 import { authenticatedFetch } from "../utils/authStorage";
 import { API_BASE_URL } from "./config";
 
+function getAPIOriginURL(): string {
+	return API_BASE_URL.replace(/\/v1$/, "");
+}
+
 export function getFileDownloadUrl(publicId: string): string {
 	return `${API_BASE_URL}/files/${encodeURIComponent(publicId)}/download`;
+}
+
+export function getFilePublicUrlFromStorageUri(storageUri?: string): string | undefined {
+	const uri = storageUri?.trim();
+	if (!uri?.startsWith("file://")) return undefined;
+
+	const parts = uri.slice("file://".length).replace(/^\/+/, "").split("/").filter(Boolean);
+	if (parts.length < 2) return undefined;
+
+	return `${getAPIOriginURL()}/${parts.map(encodeURIComponent).join("/")}`;
 }
 
 export async function fetchFileDownload(
@@ -75,6 +89,7 @@ export async function fetchFilePreview(
 
 export const fileApi = {
 	getDownloadUrl: getFileDownloadUrl,
+	getPublicUrlFromStorageUri: getFilePublicUrlFromStorageUri,
 	fetchDownload: fetchFileDownload,
 	getPreviewUrl: getFilePreviewUrl,
 	getPreviewUrlByPublicId: getFilePreviewUrlByPublicId,

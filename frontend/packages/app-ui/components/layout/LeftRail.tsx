@@ -6,6 +6,7 @@ import {
 	getFileDownloadUrl,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
+	getFilePublicUrlFromStorageUri,
 	projectFileApi,
 	useAuthStore,
 	useChatStore,
@@ -985,7 +986,9 @@ function AccountManagementDialog({
 			const publicId = requirePublicId();
 			if (!publicId) return;
 
-			const avatarUrl = getFileDownloadUrl(uploaded.public_id);
+			const avatarUrl =
+				getFilePublicUrlFromStorageUri(uploaded.storage_uri) ??
+				getFileDownloadUrl(uploaded.public_id);
 			const response = await userApi.update({ public_id: publicId, avatar_url: avatarUrl });
 			const updatedUser = response.data.data;
 			cacheAvatarDataURL(avatarUrl, await blobToDataURL(file));

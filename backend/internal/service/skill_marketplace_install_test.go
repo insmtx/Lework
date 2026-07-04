@@ -179,11 +179,36 @@ func expectInstallIncrement(mock sqlmock.Sqlmock, rowsAffected int64) {
 		WillReturnResult(sqlmock.NewResult(0, rowsAffected))
 }
 
+func expectOrgSkillInstallationUpsert(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`INSERT INTO "leros_org_skill_installation"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+}
+
+func expectOrgWorkerDeploymentsForSkillSync(mock sqlmock.Sqlmock) {
+	columns := []string{
+		"id", "created_at", "updated_at", "deleted_at", "org_id",
+		"digital_assistant_id", "worker_id", "deployment_name", "namespace",
+		"status", "bootstrap_token_hash", "workspace_path", "last_error",
+		"last_started_at", "last_reconciled_at",
+	}
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "leros_worker_deployment" WHERE org_id = $1 AND status IN ($2,$3) AND "leros_worker_deployment"."deleted_at" IS NULL ORDER BY worker_id ASC`)).
+		WithArgs(uint(100), string(types.WorkerDeploymentStatusReady), string(types.WorkerDeploymentStatusProvisioning)).
+		WillReturnRows(sqlmock.NewRows(columns).AddRow(
+			1, now, now, nil, 100,
+			200, 300, "test-worker", "",
+			string(types.WorkerDeploymentStatusReady), "", "", "",
+			nil, nil,
+		))
+}
+
 func TestInstallSkillIncrementsMarketplaceInstallsAfterWorkerSuccess(t *testing.T) {
 	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
 	expectInstallIncrement(mock, 1)
+	expectOrgSkillInstallationUpsert(mock)
+	expectOrgWorkerDeploymentsForSkillSync(mock)
 	publisher := &skillInstallPublisher{
 		response: messaging.WorkerCommandResult{
 			Success: true,
@@ -249,6 +274,8 @@ func TestInstallSkillMissingMarketplaceRowDoesNotBlockInstall(t *testing.T) {
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
 	expectInstallIncrement(mock, 0)
+	expectOrgSkillInstallationUpsert(mock)
+	expectOrgWorkerDeploymentsForSkillSync(mock)
 	publisher := &skillInstallPublisher{
 		response: messaging.WorkerCommandResult{
 			Success: true,
@@ -456,6 +483,8 @@ func TestImportSkillFromGitHubReturnsImportedAfterWorkerSuccess(t *testing.T) {
 	database, mock, ctx, cleanup := setupSkillMarketplaceInstallServiceDB(t)
 	defer cleanup()
 	expectDefaultWorkerDeployment(mock)
+	expectOrgSkillInstallationUpsert(mock)
+	expectOrgWorkerDeploymentsForSkillSync(mock)
 	publisher := &skillInstallPublisher{
 		response: messaging.WorkerCommandResult{
 			Success: true,

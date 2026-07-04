@@ -221,8 +221,111 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 	if got.BootstrapTokenHash == "" || got.BootstrapTokenHash == "old-token-hash" {
 		t.Fatalf("bootstrap hash was not rotated: %q", got.BootstrapTokenHash)
 	}
+	if got.Status != string(types.WorkerDeploymentStatusProvisioning) {
+		t.Fatalf("status = %q, want provisioning", got.Status)
+	}
+}
+
+func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	ctx := context.Background()
+	assistant := &types.DigitalAssistant{
+		Code:   "agent",
+		OrgID:  1,
+		Name:   "Agent",
+		Status: string(contract.DigitalAssistantStatusActive),
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	startedAt := time.Now()
+	deployment := &types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: assistant.ID,
+		WorkerID:           1,
+		DeploymentName:     "leros-worker-o1-w1",
+		Status:             string(types.WorkerDeploymentStatusProvisioning),
+		BootstrapTokenHash: "stable-token-hash",
+		LastStartedAt:      &startedAt,
+	}
+	if err := database.Create(deployment).Error; err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+
+	scheduler := &fakeWorkerScheduler{}
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment); err != nil {
+		t.Fatalf("reconcile deployment: %v", err)
+	}
+	if scheduler.startCalls != 0 {
+		t.Fatalf("Start calls = %d, want 0", scheduler.startCalls)
+	}
+
+	var got types.WorkerDeployment
+	if err := database.First(&got, deployment.ID).Error; err != nil {
+		t.Fatalf("reload deployment: %v", err)
+	}
 	if got.Status != string(types.WorkerDeploymentStatusReady) {
 		t.Fatalf("status = %q, want ready", got.Status)
+	}
+}
+
+func TestWorkerReconcilerRestartsProvisioningDeploymentWhenRuntimeMissing(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	ctx := context.Background()
+	assistant := &types.DigitalAssistant{
+		Code:   "agent",
+		OrgID:  1,
+		Name:   "Agent",
+		Status: string(contract.DigitalAssistantStatusActive),
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	startedAt := time.Now()
+	deployment := &types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: assistant.ID,
+		WorkerID:           1,
+		DeploymentName:     "leros-worker-o1-w1",
+		Status:             string(types.WorkerDeploymentStatusProvisioning),
+		BootstrapTokenHash: "stable-token-hash",
+		LastStartedAt:      &startedAt,
+	}
+	if err := database.Create(deployment).Error; err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+
+	scheduler := &fakeWorkerScheduler{healthErr: worker.ErrWorkerNotFound}
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment); err != nil {
+		t.Fatalf("reconcile deployment: %v", err)
+	}
+	if scheduler.startCalls != 1 {
+		t.Fatalf("Start calls = %d, want 1", scheduler.startCalls)
+	}
+
+	var got types.WorkerDeployment
+	if err := database.First(&got, deployment.ID).Error; err != nil {
+		t.Fatalf("reload deployment: %v", err)
+	}
+	if got.Status != string(types.WorkerDeploymentStatusProvisioning) {
+		t.Fatalf("status = %q, want provisioning", got.Status)
+	}
+	if got.BootstrapTokenHash == "" || got.BootstrapTokenHash == "stable-token-hash" {
+		t.Fatalf("bootstrap hash was not rotated: %q", got.BootstrapTokenHash)
 	}
 }
 

@@ -10,15 +10,7 @@ import { BookOpen, Bot, Brain, Network, Pencil, Settings, Shield, Star } from "l
 import { useState } from "react";
 import { AssistantAvatar } from "./AssistantAvatar";
 import { AssistantEditDialog } from "./AssistantEditDialog";
-
-const statusLabelMap: Record<
-	string,
-	{ label: string; variant: "default" | "secondary" | "destructive" }
-> = {
-	active: { label: "运行中", variant: "default" },
-	inactive: { label: "已停用", variant: "secondary" },
-	draft: { label: "草稿", variant: "secondary" },
-};
+import { getAssistantDisplayStatus } from "./assistantStatus";
 
 const configTabs = [
 	{ value: "basic", label: "基础信息", icon: <Bot className="size-3.5" /> },
@@ -38,11 +30,7 @@ export type AssistantDetailPanelProps = {
 
 export function AssistantDetailPanel({ assistant, className }: AssistantDetailPanelProps) {
 	const [editOpen, setEditOpen] = useState(false);
-
-	const statusInfo = statusLabelMap[assistant.status] ?? {
-		label: assistant.status,
-		variant: "secondary" as const,
-	};
+	const statusInfo = getAssistantDisplayStatus(assistant);
 
 	return (
 		<div
@@ -53,7 +41,7 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 				<AssistantAvatar name={assistant.name} src={assistant.avatar} size="lg" />
 				<div className="flex items-center gap-2">
 					<span className="text-base font-semibold text-slate-900">{assistant.name}</span>
-					<Badge variant={statusInfo.variant} className="text-xs">
+					<Badge variant="outline" className={cn("text-xs", statusInfo.className)}>
 						{statusInfo.label}
 					</Badge>
 				</div>
@@ -77,6 +65,10 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 
 						<TabsContent value="basic" className="mt-4 space-y-3">
 							<DetailField label="编码" value={assistant.code} />
+							<DetailField label="状态" value={statusInfo.label} />
+							{assistant.deploymentError && (
+								<DetailField label="部署错误" value={assistant.deploymentError} multiline />
+							)}
 							<DetailField label="描述" value={assistant.description || "暂无"} />
 							<DetailField label="系统提示词" value={assistant.systemPrompt || "暂无"} multiline />
 							<DetailField label="版本" value={`v${assistant.version}`} />

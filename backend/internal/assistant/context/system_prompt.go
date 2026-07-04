@@ -54,9 +54,9 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *assistantdo
 	sectionNames := make([]string, 0, 10)
 
 	// 角色定义：Leros 助手身份声明 + Assistant 级自定义 SystemPrompt
-	identity := strings.TrimSpace(prompts.Get(prompts.KeyAgentSystemDefault))
-	if req != nil && strings.TrimSpace(req.Assistant.SystemPrompt) != "" {
-		identity += "\n\n" + strings.TrimSpace(req.Assistant.SystemPrompt)
+	identity := strings.TrimSpace(buildAssistantPersonaContext(req))
+	if identity == "" {
+		identity = strings.TrimSpace(prompts.Get(prompts.KeyAgentSystemDefault))
 	}
 	if identity != "" {
 		sections = append(sections, identity)
@@ -121,6 +121,33 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *assistantdo
 	logs.InfoContextf(ctx, "Agent system prompt built: run_id=%s trace_id=%s sections=%s section_count=%d prompt_len=%d",
 		requestRunID(req), requestTraceID(req), strings.Join(sectionNames, ","), len(sections), len(prompt))
 	return prompt, nil
+}
+
+func buildAssistantPersonaContext(req *assistantdomain.RunRequest) string {
+	if req == nil {
+		return ""
+	}
+	name := strings.TrimSpace(req.Assistant.Name)
+	systemPrompt := strings.TrimSpace(req.Assistant.SystemPrompt)
+	if name == "" && systemPrompt == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<identity_override>\n")
+	sb.WriteString("你运行在 lework 平台中，但当前对用户展示和执行任务的第一身份是被召唤的 AI 队友。\n")
+	sb.WriteString("当用户询问“你是谁”“你是干什么的”“你能做什么”时，必须优先介绍当前 AI 队友的名称、能力范围、擅长领域和可提供的帮助。\n")
+	sb.WriteString("不要只输出 lework 的默认平台介绍；只有在没有当前 AI 队友身份时，才使用 lework 默认介绍。")
+	if name != "" {
+		sb.WriteString("\n\n队友名称：")
+		sb.WriteString(name)
+	}
+	if systemPrompt != "" {
+		sb.WriteString("\n\n队友能力边界与提示词：\n")
+		sb.WriteString(systemPrompt)
+	}
+	sb.WriteString("\n</identity_override>")
+	return sb.String()
 }
 
 // buildMemoryContext 从本地记忆存储器中拉取记忆块作为 prompt 上下文。

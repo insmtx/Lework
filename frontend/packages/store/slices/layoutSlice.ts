@@ -49,6 +49,7 @@ export type ProjectTask = {
 	taskType?: string;
 	deadline?: string;
 	description?: string;
+	assistantId?: number;
 };
 
 export type ProjectArtifact = {
@@ -241,6 +242,7 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 		taskType: bt.task_type,
 		deadline: bt.deadline,
 		description: bt.description,
+		assistantId: taskWithSession.session?.assistant_id,
 	};
 }
 
@@ -425,15 +427,16 @@ export class LayoutActionImpl {
 		executionMode?: "default" | "plan",
 		attachments?: Attachment[],
 		_metadata?: MessageMetadata,
+		assistantId?: number,
 	) => {
 		const trimmed = content.trim();
-		if (!trimmed) return;
+		// 允许空 content + assistantId：召唤队友落地空对话（仅创建任务会话，不发首条消息）。
+		if (!trimmed && !assistantId) return;
 		const mode = executionMode ?? "default";
 
 		const state = this.#get();
-		const selectedTaskId = state.activeWorkbenchTaskId;
-
 		const workbenchProjectId = projectId ?? state.activeWorkbenchProjectId;
+		const selectedTaskId = workbenchProjectId ? state.activeWorkbenchTaskId : null;
 
 		if (workbenchProjectId && selectedTaskId) {
 			let project = state.projects.find((p) => p.id === workbenchProjectId);
@@ -522,6 +525,7 @@ export class LayoutActionImpl {
 			project_id?: string;
 			task_id?: string;
 			execution_mode?: "default" | "plan";
+			assistant_id?: number;
 			attachments?: {
 				file_upload_id: string;
 				name: string;
@@ -529,6 +533,9 @@ export class LayoutActionImpl {
 				size: number;
 			}[];
 		} = { content: trimmed, execution_mode: mode };
+		if (assistantId) {
+			params.assistant_id = assistantId;
+		}
 
 		if (workbenchProjectId) {
 			params.project_id = workbenchProjectId;

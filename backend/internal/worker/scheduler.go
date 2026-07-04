@@ -2,8 +2,11 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var ErrWorkerNotFound = errors.New("worker not found")
 
 type WorkerEnvType string
 

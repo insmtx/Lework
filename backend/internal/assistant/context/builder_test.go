@@ -11,7 +11,10 @@ import (
 func TestContextBuilderBuildSystemPromptLayers(t *testing.T) {
 	builder := NewContextBuilder(ContextBuilder{})
 	prompt, err := builder.BuildSystemPrompt(context.Background(), &assistantdomain.RunRequest{
-		Assistant: assistantdomain.AssistantContext{SystemPrompt: "Assistant-specific prompt."},
+		Assistant: assistantdomain.AssistantContext{
+			Name:         "合同审查专家",
+			SystemPrompt: "Assistant-specific prompt.",
+		},
 		Conversation: assistantdomain.ConversationContext{
 			ID: "conv-123",
 			Messages: []assistantdomain.InputMessage{
@@ -32,12 +35,16 @@ func TestContextBuilderBuildSystemPromptLayers(t *testing.T) {
 
 	// Layer 1: 角色定义 + Assistant 自定义 SystemPrompt
 	for _, expected := range []string{
-		"你的名称是 lework",
+		"当前对用户展示和执行任务的第一身份是被召唤的 AI 队友",
+		"队友名称：合同审查专家",
 		"Assistant-specific prompt.",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected prompt to contain %q", expected)
 		}
+	}
+	if strings.Contains(prompt, "我是 lework，你工作和生活中的 AI 队友") {
+		t.Fatal("expected teammate prompt not to contain default lework self-introduction")
 	}
 
 	// Layer 5: Memory 使用指导

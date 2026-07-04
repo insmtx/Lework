@@ -15,8 +15,11 @@ import { cn } from "@leros/ui/lib/utils";
 import { Bot, ClipboardPenLine, Plus, Sparkles, WandSparkles } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { renderHighlightedText } from "../common/searchText";
-import { mockAssistants } from "./mockDirectiveData";
-import type { ComposerSkillOption, StructuredComposerHandle } from "./StructuredComposer";
+import type {
+	ComposerAssistantOption,
+	ComposerSkillOption,
+	StructuredComposerHandle,
+} from "./StructuredComposer";
 
 type ComposerActionBarProps = {
 	inputValue: string;
@@ -25,6 +28,7 @@ type ComposerActionBarProps = {
 	onBeforeAction?: () => boolean;
 	children?: ReactNode;
 	className?: string;
+	assistantOptions?: ComposerAssistantOption[];
 	projectSkillOptions?: ComposerSkillOption[];
 	disableAssistantAndSkill?: boolean;
 	executionMode?: "default" | "plan";
@@ -121,6 +125,7 @@ export function ComposerActionBar({
 	onBeforeAction,
 	children,
 	className,
+	assistantOptions = [],
 	projectSkillOptions,
 	disableAssistantAndSkill = false,
 	executionMode,
@@ -150,7 +155,7 @@ export function ComposerActionBar({
 	);
 	const filteredAssistants = useMemo(() => {
 		const query = assistantSearch.trim().toLowerCase();
-		return mockAssistants.filter((assistant) => {
+		return assistantOptions.filter((assistant) => {
 			if (selectedAssistantNames.includes(assistant.name)) return false;
 			if (!query) return true;
 			return [assistant.name, assistant.code, assistant.description]
@@ -158,7 +163,7 @@ export function ComposerActionBar({
 				.toLowerCase()
 				.includes(query);
 		});
-	}, [assistantSearch, selectedAssistantNames]);
+	}, [assistantOptions, assistantSearch, selectedAssistantNames]);
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
 		return skillOptions.filter((skill) => {
@@ -293,6 +298,8 @@ export function ComposerActionBar({
 										value={assistant.name}
 										onSelect={() => {
 											composerRef.current?.insertAssistant(assistant.name);
+											setAssistantOpen(false);
+											setAssistantSearch("");
 										}}
 										className="rounded-xl px-2.5 py-2"
 									>

@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -161,38 +163,47 @@ func (p *MessagePoster) RunNewMessage(
 	// 先补齐附件的可访问 URL，再把附件写入用户消息，避免前端回显和后续上下文拿不到附件信息。
 	resolveAttachmentURLs(ctx, p.db, caller.OrgID, req.Attachments)
 
-	message, err := p.PostMessage(ctx, o.taskSession, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
-		msgType := req.MessageType
-		if msgType == "" {
-			msgType = string(types.MessageTypeText)
+	// 中文注释：content 为空时表示"召唤队友落地空对话"——仅创建 Project/Task/Session + 分配 worker，不发首条消息。
+	// 后续用户在任务详情页发送的消息走 AddMessage 路径，persona 通过 publishWorkerTask 自动注入。
+	var messageID string
+	if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
+		message, err := p.PostMessage(ctx, o.taskSession, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
+			msgType := req.MessageType
+			if msgType == "" {
+				msgType = string(types.MessageTypeText)
+			}
+			return &types.SessionMessage{
+				Role:        string(types.MessageRoleUser),
+				Content:     req.Content,
+				MessageType: msgType,
+				Attachments: req.Attachments,
+				Status:      string(types.MessageStatusPending),
+				Sequence:    sequence,
+				Timestamp:   time.Now().UnixMilli(),
+			}
+		})
+		if err != nil {
+			logs.ErrorContextf(ctx, "NewMessage PostMessage failed: %v", err)
+			return nil, err
 		}
-		return &types.SessionMessage{
-			Role:        string(types.MessageRoleUser),
-			Content:     req.Content,
-			MessageType: msgType,
-			Attachments: req.Attachments,
-			Status:      string(types.MessageStatusPending),
-			Sequence:    sequence,
-			Timestamp:   time.Now().UnixMilli(),
-		}
-	})
-	if err != nil {
-		logs.ErrorContextf(ctx, "NewMessage PostMessage failed: %v", err)
-		return nil, err
+		messageID = fmt.Sprintf("%d", message.ID)
+	} else {
+		logs.InfoContextf(ctx, "NewMessage empty summon: project=%s task=%s session=%s assistant=%d (no first message)",
+			o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, o.taskSession.AllocatedAssistantID)
 	}
 	// 中文注释：项目页里通过 NewMessage 创建任务/首条消息后，要立即刷新项目活跃时间，供左侧列表排序使用。
 	if err := infradb.TouchProjectUpdatedAt(ctx, p.db, o.project.ID, time.Now()); err != nil {
 		logs.WarnContextf(ctx, "NewMessage touch project updated_at failed: %v", err)
 	}
 
-	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%d assistant=%d",
-		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, message.ID, o.taskSession.AllocatedAssistantID)
+	logs.InfoContextf(ctx, "NewMessage completed: project=%s task=%s session=%s message=%s assistant=%d",
+		o.project.PublicID, o.task.PublicID, o.taskSession.PublicID, messageID, o.taskSession.AllocatedAssistantID)
 
 	return &contract.NewMessageResponse{
 		ProjectID:   o.project.PublicID,
 		TaskID:      o.task.PublicID,
 		SessionID:   o.taskSession.PublicID,
-		MessageID:   fmt.Sprintf("%d", message.ID),
+		MessageID:   messageID,
 		AssistantID: o.taskSession.AssistantID,
 	}, nil
 }
@@ -226,9 +237,11 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		return nil
 	}
 
-	runes := []rune(o.req.Content)
-	title := string(runes)
-	if len(runes) > 50 {
+	title := o.defaultTitle("新的队友对话")
+	runes := []rune(strings.TrimSpace(o.req.Content))
+	if len(runes) > 0 && len(runes) <= 50 {
+		title = string(runes)
+	} else if len(runes) > 50 {
 		title = string(runes[:50])
 	}
 
@@ -333,9 +346,11 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 		return nil
 	}
 
-	runes := []rune(o.req.Content)
-	taskTitle := string(runes)
-	if len(runes) > 50 {
+	taskTitle := o.defaultTitle("新的队友任务")
+	runes := []rune(strings.TrimSpace(o.req.Content))
+	if len(runes) > 0 && len(runes) <= 50 {
+		taskTitle = string(runes)
+	} else if len(runes) > 50 {
 		taskTitle = string(runes[:50])
 	}
 
@@ -356,6 +371,17 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 
 	logs.InfoContextf(o.ctx, "created task=%s in project=%s", taskID, o.project.PublicID)
 	return nil
+}
+
+func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
+	if o == nil || o.poster == nil || o.poster.db == nil || o.req == nil || o.req.AssistantID == 0 {
+		return fallback
+	}
+	da, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, o.req.AssistantID)
+	if err != nil || da == nil || strings.TrimSpace(da.Name) == "" {
+		return fallback
+	}
+	return fmt.Sprintf("与%s对话", strings.TrimSpace(da.Name))
 }
 
 func (o *newMessageOrchestrator) createTaskSession() error {
@@ -394,6 +420,167 @@ func (p *MessagePoster) resolveRuntimeWorker(ctx context.Context, orgID, assista
 		return assistantID, assistantID, nil
 	}
 	return resolveRuntimeWorker(ctx, p.db, orgID, assistantID, p.inferrer)
+}
+
+type assistantEvolutionContext struct {
+	promptBlockIDs  []string
+	memoryIDs       []string
+	promptExtension string
+}
+
+// buildExecutionTarget 根据会话绑定的 DigitalAssistant 构造 ExecutionTarget。
+// 查询失败或无 assistant_id 时返回零值，不阻塞 run（降级为通用 lework 身份）。
+func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types.Session, message *types.SessionMessage) messaging.ExecutionTarget {
+	if session == nil {
+		return messaging.ExecutionTarget{}
+	}
+	assistantID := session.AssistantID
+	if p == nil || p.db == nil || assistantID == 0 {
+		return messaging.ExecutionTarget{}
+	}
+	da, err := infradb.GetDigitalAssistantByID(ctx, p.db, assistantID)
+	if err != nil || da == nil {
+		logs.WarnContextf(ctx, "buildExecutionTarget: assistant %d not found, fallback to default identity: %v", assistantID, err)
+		return messaging.ExecutionTarget{AssistantID: strconv.FormatUint(uint64(assistantID), 10)}
+	}
+	systemPrompt := da.SystemPrompt
+	if message != nil {
+		evolution, err := p.buildAssistantEvolutionContext(ctx, assistantID, message.Content)
+		if err != nil {
+			logs.WarnContextf(ctx, "buildExecutionTarget: assistant %d evolution context skipped: %v", assistantID, err)
+		} else if evolution.promptExtension != "" {
+			systemPrompt = strings.TrimSpace(strings.Join(filterEmptyStrings(systemPrompt, evolution.promptExtension), "\n\n"))
+			p.writeAssistantPromptTrace(ctx, session, message, assistantID, systemPrompt, evolution)
+		}
+	}
+
+	return messaging.ExecutionTarget{
+		AssistantID:   strconv.FormatUint(uint64(assistantID), 10),
+		AssistantName: da.Name,
+		SystemPrompt:  systemPrompt,
+	}
+}
+
+func (p *MessagePoster) buildAssistantEvolutionContext(ctx context.Context, assistantID uint, query string) (*assistantEvolutionContext, error) {
+	blocks, err := infradb.ListDigitalAssistantPromptBlocks(ctx, p.db, assistantID, query, 6)
+	if err != nil {
+		return nil, err
+	}
+	memories, err := infradb.ListRelevantDigitalAssistantMemories(ctx, p.db, assistantID, query, 5)
+	if err != nil {
+		return nil, err
+	}
+	if len(blocks) == 0 && len(memories) == 0 {
+		return &assistantEvolutionContext{}, nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<teammate_evolution_context>\n")
+	sb.WriteString("以下内容来自该 AI 队友的分层提示词和长期记忆，用于增强当前回答；若与当前用户明确要求冲突，以用户要求和核心身份边界为准。\n")
+	if len(blocks) > 0 {
+		sb.WriteString("\n## 动态能力片段\n")
+		for _, block := range blocks {
+			if block == nil {
+				continue
+			}
+			sb.WriteString("- [")
+			sb.WriteString(block.BlockType)
+			sb.WriteString("] ")
+			if strings.TrimSpace(block.Title) != "" {
+				sb.WriteString(block.Title)
+				sb.WriteString(": ")
+			}
+			sb.WriteString(truncateEvolutionPromptText(block.Content, 1200))
+			sb.WriteString("\n")
+		}
+	}
+	if len(memories) > 0 {
+		sb.WriteString("\n## 长期记忆\n")
+		for _, memory := range memories {
+			if memory == nil {
+				continue
+			}
+			sb.WriteString("- [")
+			sb.WriteString(memory.MemoryType)
+			if memory.SourceType != "" {
+				sb.WriteString("/")
+				sb.WriteString(memory.SourceType)
+			}
+			sb.WriteString("] ")
+			sb.WriteString(truncateEvolutionPromptText(memory.Content, 1000))
+			sb.WriteString("\n")
+		}
+	}
+	sb.WriteString("</teammate_evolution_context>")
+
+	return &assistantEvolutionContext{
+		promptBlockIDs:  promptBlockIDs(blocks),
+		memoryIDs:       memoryIDs(memories),
+		promptExtension: strings.TrimSpace(sb.String()),
+	}, nil
+}
+
+func (p *MessagePoster) writeAssistantPromptTrace(ctx context.Context, session *types.Session, message *types.SessionMessage, assistantID uint, systemPrompt string, evolution *assistantEvolutionContext) {
+	if p == nil || p.db == nil || session == nil || message == nil || evolution == nil {
+		return
+	}
+	if len(evolution.promptBlockIDs) == 0 && len(evolution.memoryIDs) == 0 {
+		return
+	}
+	hash := sha256.Sum256([]byte(systemPrompt))
+	trace := &types.AssistantPromptTrace{
+		SessionID:         session.ID,
+		MessageID:         message.ID,
+		AssistantID:       assistantID,
+		CorePromptVersion: 1,
+		InjectedBlockIDs:  types.SkillStringList(evolution.promptBlockIDs),
+		InjectedMemoryIDs: types.SkillStringList(evolution.memoryIDs),
+		PromptHash:        fmt.Sprintf("%x", hash[:]),
+	}
+	if err := infradb.CreateAssistantPromptTrace(ctx, p.db, trace); err != nil {
+		logs.WarnContextf(ctx, "assistant prompt trace write failed: session=%d message=%d assistant=%d error=%v",
+			session.ID, message.ID, assistantID, err)
+	}
+}
+
+func promptBlockIDs(blocks []*types.DigitalAssistantPromptBlock) []string {
+	ids := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if block == nil || block.ID == 0 {
+			continue
+		}
+		ids = append(ids, strconv.FormatUint(uint64(block.ID), 10))
+	}
+	return ids
+}
+
+func memoryIDs(memories []*types.DigitalAssistantMemory) []string {
+	ids := make([]string, 0, len(memories))
+	for _, memory := range memories {
+		if memory == nil || memory.ID == 0 {
+			continue
+		}
+		ids = append(ids, strconv.FormatUint(uint64(memory.ID), 10))
+	}
+	return ids
+}
+
+func truncateEvolutionPromptText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "...(truncated)"
+}
+
+func filterEmptyStrings(values ...string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func (p *MessagePoster) publishWorkerTask(
@@ -435,11 +622,14 @@ func (p *MessagePoster) publishWorkerTask(
 	if taskPublicID == "" {
 		taskPublicID = fmt.Sprintf("task_%d", message.ID)
 	}
+	syncOrgSkillsToWorker(ctx, p.db, p.eventbus, orgID, session.AllocatedAssistantID)
 	requestID := fmt.Sprintf("req_%d", message.ID)
 	modelOptions, err := p.resolveWorkerTaskModel(ctx, orgID)
 	if err != nil {
 		return err
 	}
+
+	executionTarget := p.buildExecutionTarget(ctx, session, message)
 
 	cmd := messaging.NewRunCommand(
 		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
@@ -473,7 +663,8 @@ func (p *MessagePoster) publishWorkerTask(
 				},
 				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
-			Model: modelOptions,
+			Model:     modelOptions,
+			Execution: executionTarget,
 		},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,

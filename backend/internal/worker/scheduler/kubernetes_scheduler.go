@@ -133,6 +133,9 @@ func (s *KubernetesScheduler) Stop(ctx context.Context, workerID string) error {
 
 func (s *KubernetesScheduler) Health(ctx context.Context, workerID string) error {
 	deployment, err := s.client.AppsV1().Deployments(s.namespace()).Get(ctx, workerID, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return fmt.Errorf("%w: %s", worker.ErrWorkerNotFound, workerID)
+	}
 	if err != nil {
 		return err
 	}

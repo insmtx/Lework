@@ -123,10 +123,10 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	}
 
 	lanes := []laneCfg{
-		{messaging.LaneRun, messaging.WorkerRunConsumer(), d.handleRun, true},
-		{messaging.LaneControl, messaging.WorkerControlConsumer(), d.handleControl, false},
-		{messaging.LaneInteraction, messaging.WorkerInteractionConsumer(), d.handleInteraction, false},
-		{messaging.LaneSkill, messaging.WorkerSkillConsumer(), d.handleSkill, false},
+		{messaging.LaneRun, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneRun), d.handleRun, true},
+		{messaging.LaneControl, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneControl), d.handleControl, false},
+		{messaging.LaneInteraction, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneInteraction), d.handleInteraction, false},
+		{messaging.LaneSkill, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneSkill), d.handleSkill, false},
 	}
 
 	errCh := make(chan error, len(lanes))

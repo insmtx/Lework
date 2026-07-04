@@ -28,6 +28,7 @@ export {
 	getFileDownloadUrl,
 	getFilePreviewUrl,
 	getFilePreviewUrlByPublicId,
+	getFilePublicUrlFromStorageUri,
 } from "./api/fileApi";
 export { projectFileApi } from "./api/projectFileApi";
 export { sessionApi } from "./api/sessionApi";
@@ -46,7 +47,7 @@ export type {
 } from "./api/skillMarketplaceApi";
 export { installedToCardItem, skillMarketplaceApi } from "./api/skillMarketplaceApi";
 export { taskApi } from "./api/taskApi";
-export type { BackendTask } from "./api/types";
+export type { BackendAITeammateTemplate, BackendTask } from "./api/types";
 export type { UpdateUserParams, UserInfo } from "./api/userApi";
 export { userApi } from "./api/userApi";
 export type { AppAction, AppStore } from "./appStore";

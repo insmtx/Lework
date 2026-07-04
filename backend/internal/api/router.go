@@ -6,7 +6,6 @@ package api
 
 import (
 	"context"
-	"strings"
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/gin-gonic/gin"
@@ -60,7 +59,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	}
 	{
 		var workerScheduler worker.WorkerScheduler
-		if cfg.Scheduler != nil && strings.TrimSpace(cfg.Scheduler.Mode) != "" {
+		if cfg.Scheduler != nil {
 			var err error
 			workerScheduler, err = scheduler.New(cfg.Scheduler)
 			if err != nil {
@@ -89,6 +88,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioning(db, workerScheduler, workerProvisioningService)
 		handler.RegisterDigitalAssistantRoutes(v1, digitalAssistantService)
 		logs.Info("Digital assistant routes registered successfully")
+
+		aiTeammateTemplateService := service.NewAITeammateTemplateService(db)
+		handler.RegisterAITeammateTemplateRoutes(v1, aiTeammateTemplateService)
+		logs.Info("AI teammate template routes registered successfully")
 
 		llmModelService := service.NewLLMModelService(db)
 		handler.RegisterLLMModelRoutes(v1, llmModelService)
