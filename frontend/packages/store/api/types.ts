@@ -319,6 +319,7 @@ export type BackendProject = {
 	status?: string;
 	owner_id?: number;
 	org_id?: number;
+	task_count?: number;
 	metadata?: Record<string, unknown>;
 	created_at: string;
 	updated_at: string;

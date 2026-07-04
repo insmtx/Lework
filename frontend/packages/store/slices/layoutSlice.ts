@@ -82,6 +82,7 @@ export type Project = {
 	objective?: string;
 	metadata?: Record<string, unknown>;
 	skills: ProjectSkill[];
+	taskCount: number;
 	createdAt: number;
 	updatedAt: number;
 	messages: ProjectMessage[];
@@ -166,6 +167,7 @@ function mapBackendProject(bp: BackendProject): Project {
 		id: bp.public_id,
 		name: bp.name,
 		description: bp.description ?? "",
+		taskCount: bp.task_count ?? 0,
 		createdAt: new Date(bp.created_at).getTime(),
 		updatedAt: new Date(bp.updated_at).getTime(),
 		metadata,
@@ -850,6 +852,7 @@ export class LayoutActionImpl {
 							name: payload.project_name,
 							description: "",
 							skills: [],
+							taskCount: 0,
 							createdAt: now,
 							updatedAt: now,
 							messages: [],
@@ -899,6 +902,8 @@ export class LayoutActionImpl {
 											objective: detail.objective,
 											tasks,
 											files: [],
+											// 中文注释：task_count 仅由 ListProjects 提供，详情接口不覆盖该字段。
+											taskCount: p.taskCount,
 											updatedAt: new Date(detail.updated_at).getTime(),
 										}
 									: p,

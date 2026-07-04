@@ -244,6 +244,9 @@ func (s *projectService) DeleteProject(ctx context.Context, publicID string) err
 		if err := verifyUserPermission(project.OwnerID, caller.Uin); err != nil {
 			return err
 		}
+		if err := db.DeleteTasksByProjectID(ctx, tx, caller.OrgID, project.ID); err != nil {
+			return err
+		}
 		return db.DeleteProject(ctx, tx, project.ID)
 	})
 }
@@ -269,9 +272,20 @@ func (s *projectService) ListProjects(ctx context.Context, req *contract.ListPro
 		return nil, err
 	}
 
+	projectIDs := make([]uint, 0, len(projects))
+	for _, project := range projects {
+		projectIDs = append(projectIDs, project.ID)
+	}
+	taskCountMap, err := db.CountTasksByProjectIDs(ctx, s.db, caller.OrgID, projectIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]contract.Project, 0, len(projects))
 	for _, project := range projects {
-		items = append(items, *convertToContractProject(project))
+		item := convertToContractProject(project)
+		item.TaskCount = taskCountMap[project.ID]
+		items = append(items, *item)
 	}
 	return &contract.ProjectList{
 		Total:  total,
