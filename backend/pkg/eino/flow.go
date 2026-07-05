@@ -51,7 +51,6 @@ type FlowConfig struct {
 	Model        einomodel.ToolCallingChatModel
 	Tools        []einotool.BaseTool
 	SystemPrompt string
-	MaxStep      int
 	Messages     []adk.Message
 }
 
@@ -62,11 +61,6 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 	}
 	if cfg.Model == nil {
 		return nil, fmt.Errorf("tool-calling model is required")
-	}
-
-	maxStep := cfg.MaxStep
-	if maxStep <= 0 {
-		maxStep = 90
 	}
 
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
@@ -83,7 +77,6 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 				},
 			},
 		},
-		MaxIterations: maxStep,
 		ModelRetryConfig: &adk.ModelRetryConfig{
 			MaxRetries: 5,
 			IsRetryAble: func(_ context.Context, err error) bool {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
+	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
+	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 )
 
 func TestCoordinatorDebounceNotifiesEverySubmission(t *testing.T) {
@@ -18,10 +18,10 @@ func TestCoordinatorDebounceNotifiesEverySubmission(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 2,
 		DebounceWindow: 40 * time.Millisecond,
-	}, func(_ context.Context, submission RunSubmission, _ agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(_ context.Context, submission RunSubmission) (*agentrundomain.RunResult, error) {
 		executions.Add(1)
 		merged = submission
-		return &assistantdomain.RunResult{RunID: submission.EventContext.RunID}, nil
+		return &agentrundomain.RunResult{RunID: submission.EventContext.RunID}, nil
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -65,14 +65,14 @@ func TestCoordinatorDebounceNotifiesEverySubmission(t *testing.T) {
 
 func TestMergeSubmissionsPreservesFirstExecutionMode(t *testing.T) {
 	existing := testSubmission("run-1", "message-1", 11)
-	existing.Request.ExecutionMode = agent.ExecutionModePlan
+	existing.Request.ExecutionMode = agentrundomain.ExecutionModePlan
 	incoming := testSubmission("run-1", "message-2", 12)
-	incoming.Request.ExecutionMode = agent.ExecutionModeDefault
+	incoming.Request.ExecutionMode = agentrundomain.ExecutionModeDefault
 
 	merged := mergeSubmissions(existing, incoming)
 
-	if merged.Request.ExecutionMode != agent.ExecutionModePlan {
-		t.Fatalf("execution mode = %q, want first request mode %q", merged.Request.ExecutionMode, agent.ExecutionModePlan)
+	if merged.Request.ExecutionMode != agentrundomain.ExecutionModePlan {
+		t.Fatalf("execution mode = %q, want first request mode %q", merged.Request.ExecutionMode, agentrundomain.ExecutionModePlan)
 	}
 }
 
@@ -84,7 +84,7 @@ func TestCoordinatorEnforcesMaxConcurrency(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 2,
 		DebounceWindow: time.Millisecond,
-	}, func(_ context.Context, _ RunSubmission, _ agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(_ context.Context, _ RunSubmission) (*agentrundomain.RunResult, error) {
 		n := current.Add(1)
 		for {
 			previous := maximum.Load()
@@ -95,7 +95,7 @@ func TestCoordinatorEnforcesMaxConcurrency(t *testing.T) {
 		started <- struct{}{}
 		<-release
 		current.Add(-1)
-		return &assistantdomain.RunResult{}, nil
+		return &agentrundomain.RunResult{}, nil
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -131,7 +131,7 @@ func TestCoordinatorCancelCancelsActiveRun(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 1,
 		DebounceWindow: time.Millisecond,
-	}, func(ctx context.Context, _ RunSubmission, _ agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(ctx context.Context, _ RunSubmission) (*agentrundomain.RunResult, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -163,7 +163,7 @@ func TestCoordinatorSerializesSameSessionAndRunsDifferentSessionsInParallel(t *t
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 2,
 		DebounceWindow: 5 * time.Millisecond,
-	}, func(_ context.Context, submission RunSubmission, _ agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(_ context.Context, submission RunSubmission) (*agentrundomain.RunResult, error) {
 		message := submission.Request.Input.Messages[0].Content
 		switch message {
 		case "first":
@@ -174,7 +174,7 @@ func TestCoordinatorSerializesSameSessionAndRunsDifferentSessionsInParallel(t *t
 		case "other":
 			close(otherStarted)
 		}
-		return &assistantdomain.RunResult{RunID: submission.EventContext.RunID}, nil
+		return &agentrundomain.RunResult{RunID: submission.EventContext.RunID}, nil
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -220,9 +220,9 @@ func TestCoordinatorCloseRejectsPendingAndFutureSubmissions(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 1,
 		DebounceWindow: time.Second,
-	}, func(_ context.Context, _ RunSubmission, _ agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(_ context.Context, _ RunSubmission) (*agentrundomain.RunResult, error) {
 		executions.Add(1)
-		return &assistantdomain.RunResult{}, nil
+		return &agentrundomain.RunResult{}, nil
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -253,7 +253,7 @@ func TestCoordinatorFansExecutionErrorOutToEveryWaiter(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 1,
 		DebounceWindow: 20 * time.Millisecond,
-	}, func(context.Context, RunSubmission, agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(context.Context, RunSubmission) (*agentrundomain.RunResult, error) {
 		return nil, executionErr
 	})
 	if err != nil {
@@ -284,9 +284,9 @@ func TestCoordinatorCancelledWaiterDoesNotCorruptDebouncedBatch(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 1,
 		DebounceWindow: 30 * time.Millisecond,
-	}, func(context.Context, RunSubmission, agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(context.Context, RunSubmission) (*agentrundomain.RunResult, error) {
 		executions.Add(1)
-		return &assistantdomain.RunResult{RunID: "run-1"}, nil
+		return &agentrundomain.RunResult{RunID: "run-1"}, nil
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -324,11 +324,10 @@ func TestCoordinatorCloseWaitsForInflightExecution(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{MaxConcurrency: 1}, func(
 		context.Context,
 		RunSubmission,
-		agent.EventSink,
-	) (*assistantdomain.RunResult, error) {
+	) (*agentrundomain.RunResult, error) {
 		close(started)
 		<-release
-		return &assistantdomain.RunResult{}, nil
+		return &agentrundomain.RunResult{}, nil
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -361,7 +360,7 @@ func TestCoordinatorCancelDuringPendingToActiveTransition(t *testing.T) {
 	coordinator, err := NewCoordinator(Config{
 		MaxConcurrency: 1,
 		DebounceWindow: 10 * time.Millisecond,
-	}, func(ctx context.Context, _ RunSubmission, _ agent.EventSink) (*assistantdomain.RunResult, error) {
+	}, func(ctx context.Context, _ RunSubmission) (*agentrundomain.RunResult, error) {
 		close(executionStarted)
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -397,14 +396,14 @@ func TestCoordinatorCancelDuringPendingToActiveTransition(t *testing.T) {
 
 func testSubmission(runID, messageID string, sequence uint64) RunSubmission {
 	return RunSubmission{
-		Request: &assistantdomain.RunRequest{
+		Request: &agentrundomain.RunRequest{
 			RunID:  runID,
 			TaskID: "task-1",
-			Input: assistantdomain.InputContext{
-				Messages: []assistantdomain.InputMessage{{Role: "user", Content: messageID}},
+			Input: agentrundomain.InputContext{
+				Messages: []agentrundomain.InputMessage{{Role: "user", Content: messageID}},
 			},
 		},
-		EventContext: RunEventContext{
+		EventContext: agentrun.EventContext{
 			OrgID:             1,
 			WorkerID:          2,
 			SessionID:         "session-1",

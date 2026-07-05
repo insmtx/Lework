@@ -2,16 +2,14 @@ package opencode
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -22,28 +20,32 @@ import (
 type ServerInvoker struct {
 	binary  string
 	baseEnv []string
+	dataDir string
 }
 
 // NewServerInvoker 创建新的 ServerInvoker。
-func NewServerInvoker(binary string, extraEnv map[string]string) *ServerInvoker {
+func NewServerInvoker(binary string, extraEnv map[string]string, dataDir string) *ServerInvoker {
 	return &ServerInvoker{
 		binary:  binary,
-		baseEnv: provider.BuildBaseEnv(extraEnv),
+		baseEnv: runtimeprocess.BuildBaseEnv(extraEnv),
+		dataDir: dataDir,
 	}
 }
 
 // Run 启动 opcode serve，创建会话并执行提示。
-func (inv *ServerInvoker) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
 	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 10s/次）
-	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, 0)
+	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, 0, inv.dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("start opencode server for %s: %w", workDir, err)
 	}
-	evtChan := make(chan agent.Event, 64)
+	evtChan := make(chan agent.NodeEvent, 64)
+	resultChan := make(chan cli.InvocationResult, 1)
 	st := &runState{
 		srv:               srv,
 		evtChan:           evtChan,
+		resultChan:        resultChan,
 		workDir:           workDir,
 		filteredToolCalls: make(map[string]string),
 		sseDone:           make(chan struct{}),
@@ -86,7 +88,8 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req externalcli.Invocation
 // ============================================================================
 type runState struct {
 	srv               *OpenCodeServer
-	evtChan           chan agent.Event
+	evtChan           chan agent.NodeEvent
+	resultChan        chan cli.InvocationResult
 	mu                sync.Mutex
 	sessionID         string
 	messageID         string
@@ -95,7 +98,7 @@ type runState struct {
 	workDir           string
 	session           *sessionResponse
 	filteredToolCalls map[string]string
-	reasoningParts   map[string]struct{} // reasoning partID 集合，用于 message.part.delta 过滤
+	reasoningParts    map[string]struct{} // reasoning partID 集合，用于 message.part.delta 过滤
 	sseDone           chan struct{}
 	msgDone           chan struct{}
 
@@ -106,10 +109,11 @@ type runState struct {
 	sseTerminal chan struct{}
 }
 
-func (st *runState) buildHandle(_ externalcli.InvocationRequest) (*externalcli.Invocation, error) {
-	return &externalcli.Invocation{
+func (st *runState) buildHandle(_ cli.InvocationRequest) (*cli.Invocation, error) {
+	return &cli.Invocation{
 		Process:   st.srv,
 		Events:    st.evtChan,
+		Result:    st.resultChan,
 		Responder: &serverResponder{srv: st.srv},
 		Questions: &questionResponder{srv: st.srv},
 	}, nil
@@ -118,7 +122,7 @@ func (st *runState) buildHandle(_ externalcli.InvocationRequest) (*externalcli.I
 // ============================================================================
 // 会话管理
 // ============================================================================
-func (st *runState) ensureSession(ctx context.Context, req externalcli.InvocationRequest) (string, error) {
+func (st *runState) ensureSession(ctx context.Context, req cli.InvocationRequest) (string, error) {
 	// Resume 模式：复用已有 sessionID
 	if req.Resume && strings.TrimSpace(req.SessionID) != "" {
 		sessionID := strings.TrimSpace(req.SessionID)
@@ -128,7 +132,7 @@ func (st *runState) ensureSession(ctx context.Context, req externalcli.Invocatio
 		} else {
 			st.session = session
 		}
-		sendEventTo(st.evtChan, events.EventProviderSessionStarted, sessionID)
+		sendEventDirect(st.evtChan, agent.NewAgentStartEvent(sessionID))
 		logs.Infof("OpenCode resuming session: %s", sessionID)
 		return sessionID, nil
 	}
@@ -141,7 +145,7 @@ func (st *runState) ensureSession(ctx context.Context, req externalcli.Invocatio
 	if err != nil {
 		return "", fmt.Errorf("create session: %w", err)
 	}
-	sendEventTo(st.evtChan, events.EventProviderSessionStarted, session.ID)
+	sendEventDirect(st.evtChan, agent.NewAgentStartEvent(session.ID))
 	st.sessionID = session.ID
 	st.session = session
 	return session.ID, nil
@@ -150,7 +154,7 @@ func (st *runState) ensureSession(ctx context.Context, req externalcli.Invocatio
 // ============================================================================
 // 消息发送
 // ============================================================================
-func (st *runState) sendAndProcessMessage(ctx context.Context, req externalcli.InvocationRequest) {
+func (st *runState) sendAndProcessMessage(ctx context.Context, req cli.InvocationRequest) {
 	defer close(st.msgDone)
 	msgReq := messageRequest{
 		Model: &sessionModelRef{
@@ -215,6 +219,7 @@ func (st *runState) processSSEStream(ctx context.Context, ch <-chan sseEvent) {
 // ============================================================================
 func (st *runState) waitCompletion(ctx context.Context, cancelMessage, cancelSSE context.CancelFunc) {
 	defer close(st.evtChan)
+	defer close(st.resultChan)
 	defer cancelMessage()
 	defer cancelSSE()
 	defer func() {
@@ -233,7 +238,10 @@ func (st *runState) waitCompletion(ctx context.Context, cancelMessage, cancelSSE
 		cancelMessage()
 		cancelSSE()
 		_ = st.srv.Abort(context.Background(), st.sessionID)
-		sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
+		st.resultChan <- cli.InvocationResult{
+			ProviderSessionID: st.sessionID,
+			Err:               ctx.Err(),
+		}
 		return
 
 	case <-st.sseTerminal:
@@ -250,7 +258,10 @@ func (st *runState) waitCompletion(ctx context.Context, cancelMessage, cancelSSE
 			case <-st.sseTerminal:
 			case <-st.sseDone:
 			case <-ctx.Done():
-				sendEventTo(st.evtChan, events.EventInvocationCancelled, ctx.Err().Error())
+				st.resultChan <- cli.InvocationResult{
+					ProviderSessionID: st.sessionID,
+					Err:               ctx.Err(),
+				}
 				return
 			case <-time.After(3 * time.Second):
 			}
@@ -272,74 +283,55 @@ func (st *runState) waitCompletion(ctx context.Context, cancelMessage, cancelSSE
 	usage := st.tokenUsage
 	st.mu.Unlock()
 
-	if finalText != "" {
-		sendEventTo(st.evtChan, events.EventResult, finalText)
-		sendEventPayloadTo(st.evtChan, events.EventResult, events.MessageResultPayload{
-			Message: finalText,
-			Usage:   usage,
-		})
-	}
 	if hasRunErr {
-		sendEventTo(st.evtChan, events.EventInvocationFailed, runErr)
+		st.resultChan <- cli.InvocationResult{
+			ProviderSessionID: st.sessionID,
+			Err:               fmt.Errorf("%s", runErr),
+		}
 		return
 	}
-	sendEventTo(st.evtChan, events.EventInvocationCompleted, finalText)
+	if finalText != "" {
+		sendEventDirect(st.evtChan, agent.NewMessageEndEvent(finalText, usage))
+	}
+	st.resultChan <- cli.InvocationResult{
+		Message:           finalText,
+		Usage:             usage,
+		ProviderSessionID: st.sessionID,
+	}
 }
 
 // ============================================================================
 // 辅助函数
 // ============================================================================
 // emitMessageDelta 发送消息增量事件到通道。
-func emitMessageDelta(ch chan<- agent.Event, messageID, content string) {
+func emitMessageDelta(ch chan<- agent.NodeEvent, messageID, content string) {
 	if ch == nil || content == "" {
 		return
 	}
-	payload, _ := json.Marshal(events.MessageDeltaPayload{MessageID: messageID, Content: content})
 	select {
-	case ch <- agent.Event{
-		Type:    events.EventMessageDelta,
-		Content: content,
-		Payload: payload,
-	}:
-	default:
-	}
-}
-
-// sendEventTo 发送简单事件到通道。
-func sendEventTo(ch chan<- agent.Event, eventType agent.EventType, content string) {
-	if ch == nil {
-		return
-	}
-	select {
-	case ch <- agent.Event{Type: eventType, Content: content}:
+	case ch <- agent.NewMessageUpdateEvent(messageID, content):
 	default:
 	}
 }
 
 // sendEventPayloadTo 发送带 payload 的事件到通道。
-func sendEventPayloadTo(ch chan<- agent.Event, eventType agent.EventType, payload any) {
+func sendEventPayloadTo(ch chan<- agent.NodeEvent, eventType agent.NodeEventType, payload agent.NodeEventPayload) {
 	if ch == nil {
 		return
 	}
-	evt := agent.Event{Type: eventType}
-	if payload != nil {
-		if encoded, err := json.Marshal(payload); err == nil {
-			evt.Payload = encoded
-		}
-	}
 	select {
-	case ch <- evt:
+	case ch <- agent.NodeEvent{Type: eventType, Payload: payload}:
 	default:
 	}
 }
 
-// sendEventDirect 直接发送已有的事件指针到通道。
-func sendEventDirect(ch chan<- agent.Event, evt *agent.Event) {
-	if ch == nil || evt == nil {
+// sendEventDirect 直接发送已有的事件到通道。
+func sendEventDirect(ch chan<- agent.NodeEvent, evt agent.NodeEvent) {
+	if ch == nil {
 		return
 	}
 	select {
-	case ch <- *evt:
+	case ch <- evt:
 	default:
 	}
 }

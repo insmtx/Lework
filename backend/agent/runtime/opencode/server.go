@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -105,7 +104,7 @@ type OpenCodeServer struct {
 
 // startOpenCodeServer 启动 opcode serve 子进程，失败时自动重试。
 // 最多启动 maxStartAttempts 个全新进程，每个进程拥有独立的健康检查周期。
-func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, healthCheckTimeout time.Duration) (*OpenCodeServer, error) {
+func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, healthCheckTimeout time.Duration, dataDir string) (*OpenCodeServer, error) {
 	return startOpenCodeServerWithStarter(
 		ctx,
 		binary,
@@ -114,6 +113,7 @@ func startOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []
 		modelCfg,
 		mcpServers,
 		healthCheckTimeout,
+		dataDir,
 		startSingleOpenCodeServer,
 	)
 }
@@ -124,8 +124,9 @@ type openCodeServerStarter func(
 	string,
 	[]string,
 	agent.ModelConfig,
-	[]provider.MCPServerConfig,
+	[]agent.MCPServerConfig,
 	time.Duration,
+	string,
 ) (*OpenCodeServer, error)
 
 func startOpenCodeServerWithStarter(
@@ -133,8 +134,9 @@ func startOpenCodeServerWithStarter(
 	binary, workDir string,
 	baseEnv []string,
 	modelCfg agent.ModelConfig,
-	mcpServers []provider.MCPServerConfig,
+	mcpServers []agent.MCPServerConfig,
 	healthCheckTimeout time.Duration,
+	dataDir string,
 	starter openCodeServerStarter,
 ) (*OpenCodeServer, error) {
 	if healthCheckTimeout <= 0 {
@@ -158,7 +160,7 @@ func startOpenCodeServerWithStarter(
 			workDir,
 		)
 
-		srv, healthErr := starter(ctx, binary, workDir, baseEnv, modelCfg, mcpServers, healthCheckTimeout)
+		srv, healthErr := starter(ctx, binary, workDir, baseEnv, modelCfg, mcpServers, healthCheckTimeout, dataDir)
 		if healthErr == nil {
 			logs.Infof("OpenCode server ready on attempt %d/%d: pid=%d port=%s workDir=%s",
 				attempt, maxStartAttempts, srv.PID(), srv.addr, workDir)
@@ -193,7 +195,7 @@ var errHealthFatal = errors.New("fatal health check response")
 
 // startSingleOpenCodeServer 启动一次 opcode serve 子进程并等待其就绪。
 // 健康检查失败时返回相应的 sentinel 错误，由上层 retry 逻辑处理。
-func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, healthCheckTimeout time.Duration) (*OpenCodeServer, error) {
+func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, healthCheckTimeout time.Duration, dataDir string) (*OpenCodeServer, error) {
 	// 1. 动态端口分配 — 关闭后传递端口，端口冲突交给进程重试处理
 	port, err := pickFreePort()
 	if err != nil {
@@ -211,7 +213,7 @@ func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, base
 	if err != nil {
 		return nil, fmt.Errorf("build config content: %w", err)
 	}
-	databasePath, err := ensureOpenCodeDBPath()
+	databasePath, err := ensureOpenCodeDBPath(dataDir)
 	if err != nil {
 		return nil, err
 	}

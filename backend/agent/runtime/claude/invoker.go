@@ -10,31 +10,29 @@ import (
 	"sync"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// Invoker 启动外部 CLI 进程。
+// Invoker starts an external CLI process.
 type Invoker struct {
 	binary  string
 	baseEnv []string
 }
 
-// NewInvoker 创建 CLI 调用器。
+// NewInvoker creates a CLI invoker.
 func NewInvoker(binary string, extraEnv map[string]string) *Invoker {
 	return &Invoker{
 		binary:  binary,
-		baseEnv: provider.BuildBaseEnv(extraEnv),
+		baseEnv: runtimeprocess.BuildBaseEnv(extraEnv),
 	}
 }
 
-// Invoke starts the CLI process and converts stdout/stderr into provider events.
-func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+// Invoke starts the CLI process and converts stdout/stderr into node events.
+func (inv *Invoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	args := buildArgs(req)
 
-	// 写入 settings.leros.{sessionId}.json，通过 --settings 覆盖用户级 ~/.claude/settings.json
 	var settingsPath string
 	if sp, err := lerosSettingsPath(req.SessionID); err == nil {
 		if err := writeLerosSettings(sp, buildLerosSettings(req)); err == nil {
@@ -45,7 +43,6 @@ func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationReques
 		}
 	}
 
-	// 写入 mcp_config.json 到 taskDir/.claude/，通过 --mcp-config 注入 MCP 服务
 	var mcpConfigPath string
 	if len(req.MCPServers) > 0 && req.TaskDir != "" {
 		mcpDir := filepath.Join(req.TaskDir, ".claude")
@@ -59,7 +56,7 @@ func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationReques
 
 	cmd := exec.CommandContext(ctx, inv.binary, args...)
 	cmd.Dir = req.WorkDir
-	cmd.Env = provider.BuildRunEnv(inv.baseEnv, req.ExtraEnv, claudeModelEnv(req.Model))
+	cmd.Env = runtimeprocess.BuildRunEnv(inv.baseEnv, req.ExtraEnv, claudeModelEnv(req.Model))
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -82,26 +79,25 @@ func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationReques
 		return nil, fmt.Errorf("start claude: %w", err)
 	}
 
-	// 与 buildArgs 保持一致：on-request / auto 需要 stdin 保持打开以供审批回包
-	needsApproval := req.PermissionMode == provider.PermissionModeOnRequest ||
-		req.PermissionMode == provider.PermissionModeAuto
+	needsApproval := req.PermissionMode == agent.PermissionModeOnRequest ||
+		req.PermissionMode == agent.PermissionModeAuto
 
-	evtChan := make(chan agent.Event, 32)
+	evtChan := make(chan agent.NodeEvent, 32)
+	resultChan := make(chan cli.InvocationResult, 1)
 	processDone := make(chan struct{})
-	proc := provider.NewCmdProcess(cmd, processDone)
-	evtChan <- agent.Event{Type: events.EventInvocationStarted}
+	proc := runtimeprocess.NewCmdProcess(cmd, processDone)
 
-	var responder provider.ApprovalResponder
+	var responder agent.ApprovalResponder
 	if needsApproval {
 		responder = &claudeApprovalResponder{stdinW: stdinPipe}
 	}
 
 	go func() {
 		defer close(evtChan)
+		defer close(resultChan)
 		closeStdinOnce := &sync.Once{}
 		closeStdin := func() { closeStdinOnce.Do(func() { stdinPipe.Close() }) }
 		defer closeStdin()
-		// 清理临时配置文件
 		if settingsPath != "" {
 			defer func() { _ = os.Remove(settingsPath) }()
 		}
@@ -109,20 +105,17 @@ func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationReques
 			defer func() { _ = os.Remove(mcpConfigPath) }()
 		}
 
-		// 写入初始用户消息
 		if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
 			if _, err := fmt.Fprintln(stdinPipe, buildStreamUserMessage(prompt)); err != nil {
-				evtChan <- agent.Event{Type: events.EventInvocationFailed, Content: fmt.Sprintf("write prompt: %v", err)}
+				resultChan <- cli.InvocationResult{Err: fmt.Errorf("write prompt: %w", err)}
 				return
 			}
 		}
-		// bypass 模式：写完即关发送 EOF；审批模式：保持 stdin 打开等待 control_response 写入
 		if !needsApproval {
 			closeStdin()
 		}
 
 		parseState := &claudeStreamState{}
-		// 审批模式：收到 result 时关闭 stdin，让进程退出
 		if needsApproval {
 			parseState.closeStdin = closeStdin
 		}
@@ -135,43 +128,62 @@ func (inv *Invoker) Invoke(ctx context.Context, req externalcli.InvocationReques
 		}()
 		go func() {
 			defer wg.Done()
-			stderrText = scanPlainOutput(ctx, stderr, evtChan, events.EventMessageDelta)
+			stderrText = scanPlainOutput(ctx, stderr, evtChan)
 		}()
 
 		err := cmd.Wait()
 		close(processDone)
 		wg.Wait()
 		if err != nil {
-			evtChan <- agent.Event{Type: events.EventInvocationFailed, Content: claudeFailureContent(err, parseState, stderrText)}
+			runErr := fmt.Errorf("%s", claudeFailureContent(err, parseState, stderrText))
+			if ctx.Err() != nil {
+				runErr = ctx.Err()
+			}
+			resultChan <- cli.InvocationResult{
+				Message:           firstNonEmptyString(parseState.result, parseState.lastAssistantText),
+				Usage:             parseState.usage,
+				ProviderSessionID: parseState.sessionID,
+				Err:               runErr,
+			}
 			return
 		}
 		if parseState.isError {
 			if parseState.result == "" {
 				parseState.result = "claude execution failed"
 			}
-			evtChan <- agent.Event{Type: events.EventInvocationFailed, Content: parseState.result}
+			resultChan <- cli.InvocationResult{
+				Message:           parseState.result,
+				Usage:             parseState.usage,
+				ProviderSessionID: parseState.sessionID,
+				Err:               fmt.Errorf("%s", parseState.result),
+			}
 			return
 		}
 		if parseState.result == "" && parseState.lastAssistantText != "" {
-			if !sendEvent(ctx, evtChan, *events.NewMessageResult(parseState.lastAssistantText, nil)) {
+			if !sendEvent(ctx, evtChan, agent.NewMessageEndEvent(parseState.lastAssistantText, nil)) {
 				return
 			}
 		}
-		evtChan <- agent.Event{Type: events.EventInvocationCompleted}
+		resultChan <- cli.InvocationResult{
+			Message:           firstNonEmptyString(parseState.result, parseState.lastAssistantText),
+			Usage:             parseState.usage,
+			ProviderSessionID: parseState.sessionID,
+		}
 	}()
 
-	return &externalcli.Invocation{
+	return &cli.Invocation{
 		Process:   proc,
 		Events:    evtChan,
+		Result:    resultChan,
 		Responder: responder,
 	}, nil
 }
 
-// scanPlainOutput 读取纯文本输出并转为事件。
-func scanPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- agent.Event, eventType agent.EventType) string {
+// scanPlainOutput reads plain text output and converts to events.
+func scanPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- agent.NodeEvent) string {
 	var output strings.Builder
-	messageIDs := events.NewMessageIDMapper()
-	provider.ScanJSONLines(r, func(line string) bool {
+	messageIDs := cli.NewMessageIDMapper()
+	runtimeprocess.ScanJSONLines(r, func(line string) bool {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			return true
@@ -180,15 +192,12 @@ func scanPlainOutput(ctx context.Context, r interface{ Read([]byte) (int, error)
 			output.WriteString("\n")
 		}
 		output.WriteString(line)
-		if eventType == events.EventMessageDelta {
-			return sendEvent(ctx, evtChan, *events.NewMessageDelta(messageIDs.CurrentOrNew(), line))
-		}
-		return sendEvent(ctx, evtChan, agent.Event{Type: eventType, Content: line})
+		return sendEvent(ctx, evtChan, agent.NewMessageUpdateEvent(messageIDs.CurrentOrNew(), line))
 	})
 	return output.String()
 }
 
-func sendEvent(ctx context.Context, evtChan chan<- agent.Event, event agent.Event) bool {
+func sendEvent(ctx context.Context, evtChan chan<- agent.NodeEvent, event agent.NodeEvent) bool {
 	select {
 	case <-ctx.Done():
 		return false

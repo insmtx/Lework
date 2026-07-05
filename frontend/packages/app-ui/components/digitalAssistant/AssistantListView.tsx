@@ -75,7 +75,14 @@ export function AssistantListView() {
 			// - 有 prompt（点击「试试这样问我」）：发首条消息，落地后即开始对话。
 			// - 无 prompt（点击 footer「召唤」）：空 content，仅创建空任务会话，不发首条消息。
 			const content = prompt?.trim() || "";
-			const data = await sendWorkbenchMessage(content, "", undefined, undefined, undefined, assistant.id);
+			const data = await sendWorkbenchMessage(
+				content,
+				"",
+				undefined,
+				undefined,
+				undefined,
+				assistant.id,
+			);
 			if (!data?.project_id || !data.task_id || !data.session_id) {
 				throw new Error("No task session returned");
 			}

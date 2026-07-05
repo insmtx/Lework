@@ -2,8 +2,8 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"github.com/bytedance/sonic"
 	"os"
 	"os/exec"
 	"strings"
@@ -11,29 +11,22 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 )
 
 func TestAdapterAskCurrentTime(t *testing.T) {
-	claudePath, err := exec.LookPath("claude")
-	if err != nil {
-		t.Skip("claude CLI not found in PATH")
-	}
+	claudePath, _ := exec.LookPath("claude")
 	apiKey := firstNonEmptyEnv("LEROS_LLM_API_KEY")
 	if apiKey == "" {
 		t.Skip("set LEROS_LLM_API_KEY to run the real claude adapter test")
 	}
 
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get working directory: %v", err)
-	}
+	workDir, _ := os.Getwd()
 	adapter := NewAdapter(claudePath, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	handle, err := adapter.Invoke(ctx, externalcli.InvocationRequest{
+	handle, _ := adapter.Invoke(ctx, cli.InvocationRequest{
 		WorkDir: workDir,
 		Prompt:  "Answer with the current system time. Do not modify files.",
 		Model: agent.ModelConfig{
@@ -43,36 +36,25 @@ func TestAdapterAskCurrentTime(t *testing.T) {
 			BaseURL:  firstNonEmptyEnv("LEROS_LLM_BASE_URL"),
 		},
 	})
-	if err != nil {
-		t.Fatalf("run claude adapter: %v", err)
-	}
 
-	var finalEvent agent.Event
-	var result string
 	for event := range handle.Events {
-		t.Logf("received event: type=%s, content=%s", event.Type, event.Content)
-		if event.Type == events.EventResult {
-			result = strings.TrimSpace(event.Content)
-		}
-		finalEvent = event
+		t.Logf("received event: type=%s", event.Type)
 	}
-	if finalEvent.Type == events.EventInvocationFailed {
-		t.Fatalf("claude execution failed: %s", finalEvent.Content)
+	result := <-handle.Result
+	if result.Err != nil {
+		t.Fatalf("claude execution failed: %v", result.Err)
 	}
-	if finalEvent.Type != events.EventInvocationCompleted {
-		t.Fatalf("unexpected final event: %#v", finalEvent)
-	}
-
-	if result == "" {
+	if strings.TrimSpace(result.Message) == "" {
 		t.Fatal("expected non-empty claude result")
 	}
-	t.Logf("claude current time result: %s", result)
+	t.Logf("claude current time result: %s", result.Message)
 }
 
 func TestParseClaudeLineEmitsResultEvent(t *testing.T) {
 	state := &claudeStreamState{}
 	event := parseClaudeLine(`{"type":"result","result":"final","is_error":false}`, state)
-	if event.Type != events.EventResult || event.Content != "final" {
+	payload, ok := event.Payload.(*agent.MessageEndPayload)
+	if event.Type != agent.NodeEventMessageEnd || !ok || payload.Content != "final" {
 		t.Fatalf("unexpected event: %#v", event)
 	}
 	if state.result != "final" || state.isError {
@@ -86,23 +68,20 @@ func TestParseClaudeLineAttachesUsageToResultEvent(t *testing.T) {
 	if len(parsed) != 1 {
 		t.Fatalf("expected result event, got %#v", parsed)
 	}
-	if parsed[0].Type != events.EventResult {
+	if parsed[0].Type != agent.NodeEventMessageEnd {
 		t.Fatalf("expected event result, got %#v", parsed[0])
 	}
-	result, err := events.DecodePayload[events.MessageResultPayload](&parsed[0])
-	if err != nil {
-		t.Fatalf("decode result payload: %v", err)
+	result := parsed[0].Payload.(*agent.MessageEndPayload)
+	if result.Content != "final" {
+		t.Fatalf("unexpected result message: %q", result.Content)
 	}
-	if result.Message != "final" {
-		t.Fatalf("unexpected result message: %q", result.Message)
-	}
-	if result.Usage == nil || result.Usage.InputTokens != 42 || result.Usage.OutputTokens != 4 || result.Usage.TotalTokens != 46 {
+	if result.Usage == nil || result.Usage.InputTokens != 10 || result.Usage.OutputTokens != 4 || result.Usage.CacheInputTokens != 30 || result.Usage.CacheOutputTokens != 2 || result.Usage.TotalTokens != 14 {
 		t.Fatalf("unexpected usage payload: %#v", result.Usage)
 	}
 }
 
 func TestBuildArgsAppendsSystemPrompt(t *testing.T) {
-	args := buildArgs(externalcli.InvocationRequest{
+	args := buildArgs(cli.InvocationRequest{
 		SystemPrompt: "system only",
 		Prompt:       "user only",
 	})
@@ -123,7 +102,7 @@ func TestBuildArgsAppendsSystemPrompt(t *testing.T) {
 }
 
 func TestBuildArgsBypassesPermissionsByDefault(t *testing.T) {
-	args := buildArgs(externalcli.InvocationRequest{})
+	args := buildArgs(cli.InvocationRequest{})
 
 	value, ok := argValue(args, "--permission-mode")
 	if !ok {
@@ -143,7 +122,7 @@ func TestBuildArgsBypassesPermissionsByDefault(t *testing.T) {
 }
 
 func TestBuildArgsIncludesPartialMessages(t *testing.T) {
-	args := buildArgs(externalcli.InvocationRequest{})
+	args := buildArgs(cli.InvocationRequest{})
 
 	if !containsArg(args, "--include-partial-messages") {
 		t.Fatalf("expected --include-partial-messages in args: %#v", args)
@@ -151,7 +130,7 @@ func TestBuildArgsIncludesPartialMessages(t *testing.T) {
 }
 
 func TestBuildArgsSkipsEmptySystemPrompt(t *testing.T) {
-	args := buildArgs(externalcli.InvocationRequest{
+	args := buildArgs(cli.InvocationRequest{
 		SystemPrompt: "   ",
 		Prompt:       "user only",
 	})
@@ -178,7 +157,8 @@ func TestClaudeModelEnvDoesNotSetAuthVars(t *testing.T) {
 func TestParseClaudeLineTracksAssistantFallback(t *testing.T) {
 	state := &claudeStreamState{}
 	event := parseClaudeLine(`{"type":"assistant","message":{"content":[{"type":"text","text":"answer"}]}}`, state)
-	if event.Type != events.EventMessageDelta || event.Content != "answer" {
+	payload, ok := event.Payload.(*agent.MessageUpdatePayload)
+	if event.Type != agent.NodeEventMessageUpdate || !ok || payload.Content != "answer" {
 		t.Fatalf("unexpected event: %#v", event)
 	}
 	if state.lastAssistantText != "answer" {
@@ -285,11 +265,11 @@ func TestParseClaudeAssistantSnapshotDoesNotRepeatCoveredPartialDeltasAfterStop(
 func TestParseClaudeLineEmitsToolCallStarted(t *testing.T) {
 	state := &claudeStreamState{}
 	event := parseClaudeLine(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_123","name":"Bash","input":{"command":"date","description":"鏌ヨ褰撳墠绯荤粺鏃堕棿"}}]}}`, state)
-	if event.Type != events.EventToolCallStarted {
+	if event.Type != agent.NodeEventToolExecutionStart {
 		t.Fatalf("unexpected event type: %#v", event)
 	}
 
-	content := decodeEventContent(t, event.Content)
+	content := decodeEventContent(t, event)
 	if content["tool_call_id"] != "call_123" || content["name"] != "Bash" {
 		t.Fatalf("unexpected tool call content: %#v", content)
 	}
@@ -302,16 +282,16 @@ func TestParseClaudeLineEmitsToolCallStarted(t *testing.T) {
 func TestParseClaudeLineEmitsTodoSnapshotFromTodoWrite(t *testing.T) {
 	state := &claudeStreamState{}
 	parsed := parseClaudeLineEvents(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_todo","name":"TodoWrite","input":{"todos":[{"id":"t1","content":"Inspect code","status":"in_progress","priority":"high"},{"id":"t2","content":"Run tests","status":"pending"}]}}]}}`, state)
-	event := findClaudeTestEvent(parsed, events.EventTodoSnapshot)
+	event := findClaudeTestEvent(parsed, agent.NodeEventTodoSnapshot)
 	if event == nil {
 		t.Fatalf("expected todo snapshot event, got %#v", parsed)
 	}
-	if findClaudeTestEvent(parsed, events.EventToolCallStarted) != nil {
+	if findClaudeTestEvent(parsed, agent.NodeEventToolExecutionStart) != nil {
 		t.Fatalf("todo write should not emit tool call event: %#v", parsed)
 	}
-	items, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
-	if err != nil {
-		t.Fatalf("decode todo snapshot: %v", err)
+	_, items := todoItemsFromEvent(event)
+	if len(items) == 0 {
+		t.Fatal("decode todo snapshot: empty items")
 	}
 	if len(items) != 2 || items[0].ID != "t1" || items[0].Title != "Inspect code" || items[0].Status != "in_progress" || items[0].Priority != "high" {
 		t.Fatalf("unexpected todo items: %#v", items)
@@ -321,16 +301,16 @@ func TestParseClaudeLineEmitsTodoSnapshotFromTodoWrite(t *testing.T) {
 func TestParseClaudeLineEmitsTodoUpdateFromTaskUpdate(t *testing.T) {
 	state := &claudeStreamState{}
 	parsed := parseClaudeLineEvents(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_task","name":"TaskUpdate","input":{"id":"task_1","title":"Implement parser","status":"completed"}}]}}`, state)
-	event := findClaudeTestEvent(parsed, events.EventTodoUpdated)
+	event := findClaudeTestEvent(parsed, agent.NodeEventTodoUpdated)
 	if event == nil {
 		t.Fatalf("expected todo update event, got %#v", parsed)
 	}
-	if findClaudeTestEvent(parsed, events.EventToolCallStarted) != nil {
+	if findClaudeTestEvent(parsed, agent.NodeEventToolExecutionStart) != nil {
 		t.Fatalf("task update should not emit tool call event: %#v", parsed)
 	}
-	items, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
-	if err != nil {
-		t.Fatalf("decode todo update: %v", err)
+	_, items := todoItemsFromEvent(event)
+	if len(items) == 0 {
+		t.Fatal("decode todo update: empty items")
 	}
 	if len(items) != 1 || items[0].ID != "task_1" || items[0].Title != "Implement parser" || items[0].Status != "completed" {
 		t.Fatalf("unexpected todo update items: %#v", items)
@@ -340,16 +320,16 @@ func TestParseClaudeLineEmitsTodoUpdateFromTaskUpdate(t *testing.T) {
 func TestParseClaudeLineSuppressesToolCallForTaskListResult(t *testing.T) {
 	state := &claudeStreamState{toolNames: map[string]string{"call_tasks": "TaskList"}}
 	parsed := parseClaudeLineEvents(`{"type":"user","message":{"role":"user","content":[{"tool_use_id":"call_tasks","type":"tool_result","content":{"tasks":[{"id":"task_1","title":"Inspect","status":"completed"}]},"is_error":false}]}}`, state)
-	event := findClaudeTestEvent(parsed, events.EventTodoSnapshot)
+	event := findClaudeTestEvent(parsed, agent.NodeEventTodoSnapshot)
 	if event == nil {
 		t.Fatalf("expected todo snapshot event, got %#v", parsed)
 	}
-	if findClaudeTestEvent(parsed, events.EventToolCallCompleted) != nil || findClaudeTestEvent(parsed, events.EventToolCallFailed) != nil {
+	if findClaudeTestEvent(parsed, agent.NodeEventToolExecutionEnd) != nil || findClaudeTestEvent(parsed, agent.NodeEventToolExecutionEnd) != nil {
 		t.Fatalf("task list should not emit tool result event: %#v", parsed)
 	}
-	items, err := events.DecodePayload[[]events.RuntimeTodoItem](event)
-	if err != nil {
-		t.Fatalf("decode todo snapshot: %v", err)
+	_, items := todoItemsFromEvent(event)
+	if len(items) == 0 {
+		t.Fatal("decode todo snapshot: empty items")
 	}
 	if len(items) != 1 || items[0].ID != "task_1" || items[0].Title != "Inspect" || items[0].Status != "completed" {
 		t.Fatalf("unexpected task list items: %#v", items)
@@ -359,13 +339,20 @@ func TestParseClaudeLineSuppressesToolCallForTaskListResult(t *testing.T) {
 func TestParseClaudeLineEmitsToolCallCompleted(t *testing.T) {
 	state := &claudeStreamState{toolNames: map[string]string{"call_123": "Bash"}}
 	event := parseClaudeLine(`{"type":"user","message":{"role":"user","content":[{"tool_use_id":"call_123","type":"tool_result","content":"Thu May 14 14:19:24 CST 2026","is_error":false}]}}`, state)
-	if event.Type != events.EventToolCallCompleted {
+	if event.Type != agent.NodeEventToolExecutionEnd {
 		t.Fatalf("unexpected event type: %#v", event)
 	}
 
-	content := decodeEventContent(t, event.Content)
-	if content["tool_call_id"] != "call_123" || content["name"] != "Bash" || content["result"] != "Thu May 14 14:19:24 CST 2026" || content["is_error"] != false {
-		t.Fatalf("unexpected tool result content: %#v", content)
+	payload, ok := event.Payload.(*agent.ToolExecutionEndPayload)
+	if !ok {
+		t.Fatalf("tool result payload type = %T", event.Payload)
+	}
+	var result string
+	if err := json.Unmarshal(payload.Result, &result); err != nil {
+		t.Fatalf("decode tool result: %v", err)
+	}
+	if payload.ToolCallID != "call_123" || payload.Name != "Bash" || result != "Thu May 14 14:19:24 CST 2026" {
+		t.Fatalf("unexpected tool result payload: %#v", payload)
 	}
 }
 
@@ -386,6 +373,19 @@ func TestClaudeFailureContentFallsBackToStderr(t *testing.T) {
 	if content != "stderr detail (exit status 1)" {
 		t.Fatalf("got %q", content)
 	}
+}
+
+func todoItemsFromEvent(event *agent.NodeEvent) (bool, []agent.RuntimeTodoItem) {
+	if event == nil || event.Payload == nil {
+		return false, nil
+	}
+	switch p := event.Payload.(type) {
+	case *agent.TodoSnapshotPayload:
+		return true, p.Items
+	case *agent.TodoUpdatedPayload:
+		return true, p.Items
+	}
+	return false, nil
 }
 
 func firstNonEmptyEnv(keys ...string) string {
@@ -415,28 +415,34 @@ func containsArg(args []string, value string) bool {
 	return false
 }
 
-func decodeEventContent(t *testing.T, content string) map[string]any {
+func decodeEventContent(t *testing.T, event agent.NodeEvent) map[string]any {
 	t.Helper()
-	var decoded map[string]any
-	if err := sonic.Unmarshal([]byte(content), &decoded); err != nil {
-		t.Fatalf("decode event content: %v", err)
+	if event.Payload == nil {
+		t.Fatal("no payload")
 	}
-	return decoded
+	return eventPayloadToMap(event.Payload)
 }
 
-func decodeMessageDeltaPayload(t *testing.T, event agent.Event) events.MessageDeltaPayload {
+func eventPayloadToMap(payload agent.NodeEventPayload) map[string]any {
+	data, _ := json.Marshal(payload)
+	var result map[string]any
+	json.Unmarshal(data, &result)
+	return result
+}
+
+func decodeMessageDeltaPayload(t *testing.T, event agent.NodeEvent) agent.MessageUpdatePayload {
 	t.Helper()
-	if event.Type != events.EventMessageDelta {
+	if event.Type != agent.NodeEventMessageUpdate {
 		t.Fatalf("expected message delta, got %#v", event)
 	}
-	payload, err := events.DecodePayload[events.MessageDeltaPayload](&event)
-	if err != nil {
-		t.Fatalf("decode message delta payload: %v", err)
+	p, ok := event.Payload.(*agent.MessageUpdatePayload)
+	if !ok {
+		t.Fatalf("payload is not MessageUpdatePayload: %T", event.Payload)
 	}
-	return payload
+	return *p
 }
 
-func findClaudeTestEvent(eventList []agent.Event, eventType agent.EventType) *agent.Event {
+func findClaudeTestEvent(eventList []agent.NodeEvent, eventType agent.NodeEventType) *agent.NodeEvent {
 	for i := range eventList {
 		if eventList[i].Type == eventType {
 			return &eventList[i]
@@ -446,10 +452,10 @@ func findClaudeTestEvent(eventList []agent.Event, eventType agent.EventType) *ag
 }
 
 // parseClaudeLine 测试辅助：解析单行 claude JSON，返回第一个事件。
-func parseClaudeLine(line string, state *claudeStreamState) agent.Event {
+func parseClaudeLine(line string, state *claudeStreamState) agent.NodeEvent {
 	parsed := parseClaudeLineEvents(line, state)
 	if len(parsed) == 0 {
-		return agent.Event{}
+		return agent.NodeEvent{}
 	}
 	return parsed[0]
 }

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
+	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
@@ -24,7 +24,7 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 			WorkerID:  7,
 		},
 		TaskType:      messaging.TaskTypeAgentRun,
-		ExecutionMode: string(agent.ExecutionModePlan),
+		ExecutionMode: string(agentrundomain.ExecutionModePlan),
 		Execution: messaging.ExecutionTarget{
 			AssistantID:   "assistant_1",
 			AssistantName: "投标策略师",
@@ -58,8 +58,8 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 	if req.Workspace.RequestID != "req_1" {
 		t.Fatalf("workspace request id = %q, want req_1", req.Workspace.RequestID)
 	}
-	if req.ExecutionMode != agent.ExecutionModePlan {
-		t.Fatalf("execution mode = %q, want %q", req.ExecutionMode, agent.ExecutionModePlan)
+	if req.ExecutionMode != agentrundomain.ExecutionModePlan {
+		t.Fatalf("execution mode = %q, want %q", req.ExecutionMode, agentrundomain.ExecutionModePlan)
 	}
 	if req.Assistant.ID != "assistant_1" {
 		t.Fatalf("assistant id = %q, want assistant_1", req.Assistant.ID)

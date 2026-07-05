@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent"
 )
 
 // serverResponder 通过 OpenCode HTTP API 响应审批请求。
@@ -21,9 +21,9 @@ type serverResponder struct {
 func (r *serverResponder) WriteDecision(requestID string, action string) error {
 	var reply string
 	switch action {
-	case provider.ApprovalActionApprove:
+	case agent.ApprovalActionApprove:
 		reply = "once"
-	case provider.ApprovalActionAlways:
+	case agent.ApprovalActionAlways:
 		reply = "always"
 	default:
 		reply = "reject"

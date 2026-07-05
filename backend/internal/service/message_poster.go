@@ -14,7 +14,6 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 
-	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
@@ -66,7 +65,7 @@ func NewMessagePoster(db *gorm.DB, eb eventbus.EventBus, inferrer AssistantInfer
 func (p *MessagePoster) PostMessage(
 	ctx context.Context,
 	session *types.Session,
-	executionMode agent.ExecutionMode,
+	executionMode types.ExecutionMode,
 	buildMessage func(sequence int64) *types.SessionMessage,
 ) (*types.SessionMessage, error) {
 	sequence, err := infradb.GetNextSequence(ctx, p.db, session.ID)
@@ -587,7 +586,7 @@ func (p *MessagePoster) publishWorkerTask(
 	ctx context.Context,
 	session *types.Session,
 	message *types.SessionMessage,
-	executionMode agent.ExecutionMode,
+	executionMode types.ExecutionMode,
 ) error {
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
@@ -681,11 +680,11 @@ func (p *MessagePoster) publishWorkerTask(
 	return nil
 }
 
-func normalizeExecutionMode(mode agent.ExecutionMode) agent.ExecutionMode {
-	if mode == agent.ExecutionModePlan {
-		return agent.ExecutionModePlan
+func normalizeExecutionMode(mode types.ExecutionMode) types.ExecutionMode {
+	if mode == types.ExecutionModePlan {
+		return types.ExecutionModePlan
 	}
-	return agent.ExecutionModeDefault
+	return types.ExecutionModeDefault
 }
 
 func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) (messaging.ModelOptions, error) {

@@ -1,14 +1,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
@@ -16,6 +15,25 @@ import (
 
 type SessionHandler struct {
 	service contract.SessionService
+}
+
+type channelSessionEventSink struct {
+	channel chan<- *contract.SessionEvent
+}
+
+func (s *channelSessionEventSink) EmitSessionEvent(
+	ctx context.Context,
+	event *contract.SessionEvent,
+) error {
+	if s == nil || s.channel == nil {
+		return nil
+	}
+	select {
+	case s.channel <- event:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func NewSessionHandler(service contract.SessionService) *SessionHandler {
@@ -225,8 +243,8 @@ func (h *SessionHandler) SessionEvents(ctx *gin.Context) {
 	ctx.Header("Connection", "keep-alive")
 	ctx.Header("Access-Control-Allow-Origin", "*")
 
-	eventChan := make(chan *agent.Event, 16)
-	sink := events.ChannelSink{C: eventChan}
+	eventChan := make(chan *contract.SessionEvent, 16)
+	sink := &channelSessionEventSink{channel: eventChan}
 
 	go func() {
 		defer close(eventChan)
@@ -245,11 +263,12 @@ func (h *SessionHandler) SessionEvents(ctx *gin.Context) {
 				logs.WarnContextf(ctx, "event channel closed for session %s", req.SessionID)
 				return
 			}
-			data := event.Content
-			if len(event.Payload) > 0 {
-				data = string(event.Payload)
+			data, err := json.Marshal(event)
+			if err != nil {
+				logs.WarnContextf(ctx, "failed to marshal session event: %v", err)
+				continue
 			}
-			ctx.SSEvent(string(event.Type), data)
+			ctx.SSEvent(event.Type, string(data))
 			ctx.Writer.Flush()
 		case <-ctx.Writer.CloseNotify():
 			logs.InfoContextf(ctx, "client closed connection for session %s event stream", req.SessionID)

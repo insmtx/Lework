@@ -36,7 +36,7 @@ func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
 // @Tags Project
 // @Produce json
 // @Param project_id path string true "项目 public_id"
-// @Param resource_type query string false "资源类型：user_upload | artifact，不传则返回全部"
+// @Param resource_type query string false "资源类型：user_upload | artifact | plan；默认排除 plan"
 // @Param task_id query string false "Task public ID，传入时仅返回该任务的产物文件"
 // @Success 200 {object} dto.Response "成功响应"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"

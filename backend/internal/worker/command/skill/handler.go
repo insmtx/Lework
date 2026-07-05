@@ -19,7 +19,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
+	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	"github.com/insmtx/Leros/backend/internal/cli"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/internal/skill/fetch"

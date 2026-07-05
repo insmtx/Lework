@@ -8,8 +8,9 @@
 //   - cmd.skill：处理 skill 管理命令，自动确认。
 //
 // 关闭顺序（5 步）：
-//   1. 取消 NATS 订阅 context → 2. 停止新任务准入 → 3. 等待 dispatcher 退出
-//   → 4. Drain 积压的后台任务（超时 30s）→ 5. 关闭资源
+//  1. 取消 NATS 订阅 context → 2. 停止新任务准入 → 3. 等待 dispatcher 退出
+//     → 4. Drain 积压的后台任务（超时 30s）→ 5. 关闭资源
+//
 // drain 超时时保留非终态 inbox 记录，重启后恢复执行。
 package main
 
@@ -26,23 +27,21 @@ import (
 	"strings"
 	"time"
 
-	clauderuntime "github.com/insmtx/Leros/backend/agent/runtime/claude"
-	codexruntime "github.com/insmtx/Leros/backend/agent/runtime/codex"
-	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/config"
-	agentruntime "github.com/insmtx/Leros/backend/internal/assistant/bootstrap"
-	builtin "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/builtin"
-	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
+	builtin "github.com/insmtx/Leros/backend/internal/skill/builtin"
+	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
+	"github.com/insmtx/Leros/backend/internal/worker/app"
 	"github.com/insmtx/Leros/backend/internal/worker/command"
 	"github.com/insmtx/Leros/backend/internal/worker/command/interaction"
 	"github.com/insmtx/Leros/backend/internal/worker/command/run"
 	"github.com/insmtx/Leros/backend/internal/worker/command/skill"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
+	"github.com/insmtx/Leros/backend/internal/worker/runtimehost"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -93,7 +92,7 @@ func newClaudeWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the Claude agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(clauderuntime.Kind)
+			runTaskWorker(agent.RuntimeKindClaude)
 		},
 	}
 }
@@ -105,7 +104,7 @@ func newCodexWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the Codex agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(codexruntime.Kind)
+			runTaskWorker(agent.RuntimeKindCodex)
 		},
 	}
 }
@@ -117,7 +116,7 @@ func newOpenCodeWorkerCommand() *cobra.Command {
 		Long:  `Start a standalone Leros worker that subscribes to org.{org_id}.worker.{worker_id}.task and executes agent.run tasks through the OpenCode agent runtime.`,
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			runTaskWorker(opencoderuntime.Kind)
+			runTaskWorker(agent.RuntimeKindOpenCode)
 		},
 	}
 }
@@ -265,7 +264,7 @@ func runTaskWorker(defaultRuntime string) {
 		}
 		cliSkillDirs = bootstrapSvc.GetSkillDirs()
 	}
-	interactionRouter := provider.NewInteractionRouter()
+	interactionRouter := runtimehost.NewInteractionRouter()
 	memoryStore, err := localmemory.NewStore(localmemory.Options{})
 	if err != nil {
 		cancel()
@@ -273,7 +272,15 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create memory store: %v", err)
 		return
 	}
-	runtimeService, err := agentruntime.NewService(ctx, agentruntime.Options{
+	// The inbox and provider-session bindings share one worker-local database.
+	inboxDBPath, err := leros.StateDBPath()
+	if err != nil {
+		cancel()
+		_ = bus.Close()
+		logs.Fatalf("Failed to resolve state db path: %v", err)
+		return
+	}
+	runtimeService, err := app.NewService(ctx, app.Options{
 		CLIConfig:         cfg.CLI,
 		DefaultRuntime:    defaultRuntime,
 		CLISkillDirs:      cliSkillDirs,
@@ -282,6 +289,10 @@ func runTaskWorker(defaultRuntime string) {
 		InteractionRouter: interactionRouter,
 		ModelStore:        modelStore,
 		MemoryStore:       memoryStore,
+		SessionDBPath:     inboxDBPath,
+		ServerAddr:        cfg.ServerAddr,
+		OrgID:             cfg.OrgID,
+		AuthToken:         cfg.AuthToken,
 	})
 	if err != nil {
 		cancel()
@@ -289,23 +300,15 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create agent runtime service: %v", err)
 		return
 	}
-	// 使用共享的 leros.db 作为持久化 inbox（与 provider_session_bindings 表共存）。
-	inboxDBPath, err := leros.StateDBPath()
-	if err != nil {
-		cancel()
-		_ = bus.Close()
-		logs.Fatalf("Failed to resolve state db path: %v", err)
-		return
-	}
-
 	runHandler, err := run.New(run.Config{
 		OrgID:       cfg.OrgID,
 		WorkerID:    cfg.WorkerID,
 		Env:         cfg.Env,
 		InboxDBPath: inboxDBPath,
-	}, bus, runtimeService.AssistantService())
+	}, bus, runtimeService.AgentRunService())
 	if err != nil {
 		cancel()
+		_ = runtimeService.Close()
 		_ = bus.Close()
 		logs.Fatalf("Failed to create run handler: %v", err)
 		return
@@ -313,6 +316,7 @@ func runTaskWorker(defaultRuntime string) {
 	if err := runHandler.RecoverNonTerminal(ctx); err != nil {
 		cancel()
 		_ = runHandler.Close()
+		_ = runtimeService.Close()
 		_ = bus.Close()
 		logs.Fatalf("Failed to recover pending run commands: %v", err)
 		return
@@ -323,6 +327,7 @@ func runTaskWorker(defaultRuntime string) {
 	skillHandler, err := skill.New(bus.Conn())
 	if err != nil {
 		cancel()
+		_ = runtimeService.Close()
 		_ = bus.Close()
 		logs.Fatalf("Failed to create skill handler: %v", err)
 		return
@@ -339,6 +344,7 @@ func runTaskWorker(defaultRuntime string) {
 	})
 	if err != nil {
 		cancel()
+		_ = runtimeService.Close()
 		_ = bus.Close()
 		logs.Fatalf("Failed to create command dispatcher: %v", err)
 		return
@@ -375,6 +381,9 @@ func runTaskWorker(defaultRuntime string) {
 			logs.Info("Worker drain complete, closing handler")
 			if err := runHandler.Close(); err != nil {
 				logs.Errorf("Failed to close run handler: %v", err)
+			}
+			if err := runtimeService.Close(); err != nil {
+				logs.Errorf("Failed to close runtime service: %v", err)
 			}
 			return bus.Close()
 		} else {

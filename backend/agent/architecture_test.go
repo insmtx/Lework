@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ func TestAgentCoreHasNoSingerOSDependenciesOrUntypedMaps(t *testing.T) {
 				"/backend/config",
 				"/backend/pkg/messaging",
 				"/backend/tools",
+				"/backend/pkg/leros",
 			} {
 				if strings.Contains(value, forbidden) {
 					t.Errorf("%s imports forbidden package %s", path, value)
@@ -84,5 +86,40 @@ func TestAgentCoreHasNoSingerOSDependenciesOrUntypedMaps(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("WalkDir() error = %v", err)
+	}
+}
+
+func TestRuntimeDirectoryLayoutMatchesArchitecture(t *testing.T) {
+	requiredDirs := []string{
+		"runtime/native",
+		"runtime/claude",
+		"runtime/codex",
+		"runtime/opencode",
+		"runtime/internal/cli",
+		"runtime/internal/process",
+		"runtime/internal/todo",
+	}
+	for _, dir := range requiredDirs {
+		entry, err := os.Stat(dir)
+		if err != nil {
+			t.Errorf("required runtime directory %s is missing: %v", dir, err)
+			continue
+		}
+		if !entry.IsDir() {
+			t.Errorf("required runtime path %s is not a directory", dir)
+		}
+	}
+
+	forbiddenDirs := []string{
+		"runtime/events",
+		"runtime/externalcli",
+		"runtime/provider",
+		"runtime/todo",
+	}
+	for _, dir := range forbiddenDirs {
+		entry, err := os.Stat(dir)
+		if err == nil && entry.IsDir() {
+			t.Errorf("legacy runtime directory %s must not exist", dir)
+		}
 	}
 }

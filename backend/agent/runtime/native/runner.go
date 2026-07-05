@@ -3,14 +3,14 @@ package native
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
+	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/internal/todo"
 	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/ygpkg/yg-go/logs"
@@ -28,7 +28,7 @@ func NewRunner(context.Context) (*Runner, error) {
 func (r *Runner) Execute(
 	ctx context.Context,
 	req agent.ExecutionRequest,
-	observer agent.Observer,
+	observer agent.NodeObserver,
 ) (agent.ExecutionResult, error) {
 	if r == nil {
 		return agent.ExecutionResult{}, fmt.Errorf("leros runner is not initialized")
@@ -36,11 +36,12 @@ func (r *Runner) Execute(
 	if strings.TrimSpace(req.ExecutionID) == "" {
 		return agent.ExecutionResult{}, fmt.Errorf("execution id is required")
 	}
-	var sink activitySink = events.NewNoopSink()
-	if observer != nil {
-		sink = observer
+	emitter := &nodeEmitter{
+		observer:    observer,
+		executionID: req.ExecutionID,
+		traceID:     req.TraceID,
 	}
-	message, usage, err := r.runWithState(ctx, req, sink)
+	message, usage, err := r.runWithState(ctx, req, emitter)
 	if err != nil {
 		return agent.ExecutionResult{}, err
 	}
@@ -50,31 +51,56 @@ func (r *Runner) Execute(
 	}, nil
 }
 
-// activitySink is the internal observer contract used by the native runtime.
-type activitySink interface {
-	Emit(ctx context.Context, event *agent.Event) error
+// nodeEmitter adds execution context to strongly typed Native node events.
+type nodeEmitter struct {
+	observer    agent.NodeObserver
+	executionID string
+	traceID     string
 }
 
-// streamSink adapts activitySink to the Eino streaming sink protocol.
-type streamSink struct {
-	sink activitySink
-}
-
-func (s streamSink) EmitMessageDelta(ctx context.Context, messageID string, content string) error {
-	if s.sink == nil {
+func (e *nodeEmitter) emit(ctx context.Context, event agent.NodeEvent) error {
+	if e == nil || e.observer == nil {
 		return nil
 	}
-	return s.sink.Emit(ctx, events.NewMessageDelta(messageID, content))
+	event.ExecutionID = e.executionID
+	event.TraceID = e.traceID
+	return e.observer.Observe(ctx, event)
 }
 
-func (s streamSink) EmitReasoningDelta(ctx context.Context, messageID string, content string) error {
-	if s.sink == nil {
-		return nil
-	}
-	return s.sink.Emit(ctx, events.NewReasoningDelta(messageID, content))
+func (e *nodeEmitter) emitMessageDelta(ctx context.Context, messageID string, content string) error {
+	return e.emit(ctx, agent.NewMessageUpdateEvent(messageID, content))
 }
 
-func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, sink activitySink) (string, *agent.Usage, error) {
+func (e *nodeEmitter) emitReasoningDelta(ctx context.Context, messageID string, content string) error {
+	return e.emit(ctx, agent.NewReasoningUpdateEvent(messageID, content))
+}
+
+func (e *nodeEmitter) emitToolCallStarted(ctx context.Context, toolCallID string, name string, arguments string) error {
+	return e.emit(ctx, agent.NewToolExecutionStartEvent(toolCallID, name, json.RawMessage(arguments)))
+}
+
+func (e *nodeEmitter) emitToolCallCompleted(ctx context.Context, toolCallID string, name string, result string, elapsedMS int64) error {
+	return e.emit(ctx, agent.NewToolExecutionEndEvent(toolCallID, name, agent.MarshalRawJSON(result), elapsedMS))
+}
+
+func (e *nodeEmitter) emitToolCallFailed(ctx context.Context, toolCallID string, name string, detail string, elapsedMS int64) error {
+	return e.emit(ctx, agent.NewToolExecutionEndErrorEvent(toolCallID, name, detail, elapsedMS))
+}
+
+// einoStreamSink adapts Native node emission to pkgeino.StreamSink.
+type einoStreamSink struct {
+	emitter *nodeEmitter
+}
+
+func (s einoStreamSink) EmitMessageDelta(ctx context.Context, messageID string, content string) error {
+	return s.emitter.emitMessageDelta(ctx, messageID, content)
+}
+
+func (s einoStreamSink) EmitReasoningDelta(ctx context.Context, messageID string, content string) error {
+	return s.emitter.emitReasoningDelta(ctx, messageID, content)
+}
+
+func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, emitter *nodeEmitter) (string, *agent.Usage, error) {
 	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
 		Provider: req.Model.Provider,
 		APIKey:   req.Model.APIKey,
@@ -87,8 +113,8 @@ func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, s
 
 	systemPrompt := r.buildSystemPrompt(req)
 
-	binding := r.buildToolBinding(req, sink)
-	toolSpecs, toolInvoker, err := buildRuntimeTools(binding, sink)
+	binding := r.buildToolBinding(req, emitter)
+	toolSpecs, toolInvoker, err := buildRuntimeTools(binding, emitter)
 	if err != nil {
 		return "", nil, fmt.Errorf("build eino tools: %w", err)
 	}
@@ -100,7 +126,6 @@ func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, s
 		Model:        chatModel,
 		Tools:        einoBaseTools,
 		SystemPrompt: systemPrompt,
-		MaxStep:      90,
 		Messages:     historyMessages,
 	})
 	if err != nil {
@@ -112,8 +137,8 @@ func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, s
 	}
 	var resultMessage string
 	var usage *agent.Usage
-	if sink != nil {
-		streamedMessage, streamedUsage, streamErr := flow.StreamWithUsage(ctx, req.Prompt, streamSink{sink: sink})
+	if emitter != nil && emitter.observer != nil {
+		streamedMessage, streamedUsage, streamErr := flow.StreamWithUsage(ctx, req.Prompt, einoStreamSink{emitter: emitter})
 		err = streamErr
 		if streamedMessage != nil {
 			message = streamedMessage
@@ -166,13 +191,13 @@ func buildHistoryMessages(messages []agent.Message, maxMessages int) []adk.Messa
 	return pkgeino.BuildMessages(einoMessages)
 }
 
-func (r *Runner) buildToolBinding(req agent.ExecutionRequest, sink activitySink) toolBinding {
+func (r *Runner) buildToolBinding(req agent.ExecutionRequest, emitter *nodeEmitter) toolBinding {
 	return toolBinding{
 		Tools:        append([]agent.Tool(nil), req.Tools...),
 		AllowedTools: append([]string(nil), req.Policy.AllowedTools...),
 		TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
-			RunID: req.ExecutionID,
-			Sink:  sink,
+			RunID:    req.ExecutionID,
+			Observer: emitter.observer,
 		}),
 	}
 }
@@ -204,11 +229,10 @@ func runtimeUsagePayload(usage *pkgeino.Usage) *agent.Usage {
 	if usage == nil {
 		return nil
 	}
-	return &agent.Usage{
+	return agent.EnsureUsage(&agent.Usage{
 		InputTokens:  usage.InputTokens,
 		OutputTokens: usage.OutputTokens,
-		TotalTokens:  usage.TotalTokens,
-	}
+	})
 }
 
 func buildEinoTools(specs []pkgeino.ToolSpec, invoker pkgeino.ToolInvoker) []einotool.BaseTool {

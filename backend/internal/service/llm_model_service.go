@@ -355,7 +355,6 @@ func (s *llmModelService) TestLLMModel(ctx context.Context, req *contract.TestLL
 	flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
 		Model:        chatModel,
 		SystemPrompt: "You are testing Leros LLM connectivity. Reply with only: ok",
-		MaxStep:      1,
 	})
 	if err != nil {
 		return &contract.TestLLMModelResponse{
@@ -556,7 +555,6 @@ func probeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL
 		flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
 			Model:        chatModel,
 			SystemPrompt: "connectivity test",
-			MaxStep:      1,
 		})
 		if err != nil {
 			continue

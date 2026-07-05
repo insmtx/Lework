@@ -5,6 +5,12 @@ import "context"
 const (
 	// RuntimeKindLeros is the built-in Leros agent runtime.
 	RuntimeKindLeros = "leros"
+	// RuntimeKindClaude is the Claude Code runtime.
+	RuntimeKindClaude = "claude"
+	// RuntimeKindCodex is the Codex CLI runtime.
+	RuntimeKindCodex = "codex"
+	// RuntimeKindOpenCode is the OpenCode runtime.
+	RuntimeKindOpenCode = "opencode"
 )
 
 // ExecutionMode describes how a runtime should handle one request.
@@ -34,7 +40,6 @@ type ModelConfig struct {
 // ExecutionPolicy controls generic runtime behavior.
 type ExecutionPolicy struct {
 	PermissionMode string
-	MaxSteps       int
 	AllowedTools   []string
 }
 
@@ -43,6 +48,12 @@ type FilesystemContext struct {
 	WorkDir string
 	RepoDir string
 	TaskDir string
+}
+
+// ProviderSession carries pre-resolved provider session information for resume.
+type ProviderSession struct {
+	ID     string
+	Resume bool
 }
 
 // ExecutionRequest is a fully prepared, business-neutral Runtime input.
@@ -54,13 +65,14 @@ type ExecutionRequest struct {
 	InstanceKey string
 	Mode        ExecutionMode
 
-	SystemPrompt string
-	Prompt       string
-	Messages     []Message
-	Model        ModelConfig
-	Tools        []Tool
-	Policy       ExecutionPolicy
-	Filesystem   FilesystemContext
+	SystemPrompt    string
+	Prompt          string
+	Messages        []Message
+	Model           ModelConfig
+	Tools           []Tool
+	Policy          ExecutionPolicy
+	Filesystem      FilesystemContext
+	ProviderSession ProviderSession
 }
 
 // ExecutionResult is the low-level result returned by a Runtime before business finalization.
@@ -79,7 +91,7 @@ type ExecutionResult struct {
 //   - Access NATS, messaging, or Session persistence.
 type Runtime interface {
 	Name() string
-	Execute(ctx context.Context, request ExecutionRequest, observer Observer) (ExecutionResult, error)
+	Execute(ctx context.Context, request ExecutionRequest, observer NodeObserver) (ExecutionResult, error)
 }
 
 // RuntimeResolver maps a runtime kind string to a Runtime implementation.

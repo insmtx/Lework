@@ -1,4 +1,4 @@
-// Package codex 将 Codex CLI 适配到 Leros 外部 CLI 引擎接口。
+// Package codex adapts the Codex CLI to the agent Runtime contract.
 // 使用 codex app-server --listen stdio:// 模式进行通信。
 package codex
 
@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 )
 
 // Adapter 通过 Codex CLI app-server 模式执行提示。
@@ -29,7 +29,7 @@ func (a *Adapter) Prepare(_ context.Context, _ string) error {
 }
 
 // Invoke starts Codex CLI and returns its process activity stream.
-func (a *Adapter) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+func (a *Adapter) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	handle, err := a.invoker.Invoke(ctx, req)
 	if err != nil {
 		return nil, err
@@ -46,4 +46,4 @@ func (a *Adapter) GetSkillDir() string {
 	return filepath.Join(home, ".agents", "skills")
 }
 
-var _ externalcli.Invoker = (*Adapter)(nil)
+var _ cli.Invoker = (*Adapter)(nil)

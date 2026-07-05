@@ -338,7 +338,6 @@ type ModelOptions struct {
 type RuntimeOptions struct {
 	Kind    string `json:"kind,omitempty"`
 	WorkDir string `json:"work_dir,omitempty"`
-	MaxStep int    `json:"max_step,omitempty"`
 }
 
 type TaskPolicy struct {

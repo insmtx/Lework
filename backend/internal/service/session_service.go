@@ -17,8 +17,6 @@ import (
 	"gorm.io/gorm"
 
 	"code.gitea.io/sdk/gitea"
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
@@ -385,9 +383,7 @@ func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence 
 	} else {
 		message.Metadata = types.ObjectMetadata{}
 	}
-	if req.Usage != nil {
-		message.Usage = *req.Usage
-	}
+	message.Usage = normalizeMessageUsage(req.Usage)
 
 	if message.MessageType == "" {
 		message.MessageType = string(types.MessageTypeText)
@@ -904,18 +900,18 @@ func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID str
 	return db.UpdateSession(ctx, s.db, session)
 }
 
-func toJSONString(v interface{}) string {
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
 // StreamSessionEvents 同时订阅 run.stream 和 run.state lane，按 run 内 Seq 去重后推送 SSE 事件。
 //
 //   - run.stream: delta, tool_call, todo 等高频事件
 //   - run.state:  terminal, approval, question 等关键状态事件
 //
 // 两个 lane 的事件互不重复，Seq 去重仅作保底。
-func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, sink events.Sink) error {
+func (s *sessionService) StreamSessionEvents(
+	ctx context.Context,
+	sessionPID string,
+	replay bool,
+	sink contract.SessionEventSink,
+) error {
 	session, caller, err := s.getSessionForCaller(ctx, sessionPID)
 	if err != nil {
 		return err
@@ -929,8 +925,11 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 		if err != nil {
 			return err
 		}
+		// 优先使用 state_start_seq，旧消息没有该值时回退到 response_stream_start_seq。
 		if replayState.StateStartSeq > 0 && replayState.StateStartSeq <= math.MaxInt64 {
 			stateStartSeq = int64(replayState.StateStartSeq)
+		} else if replayState.StreamStartSeq > 0 && replayState.StreamStartSeq <= math.MaxInt64 {
+			stateStartSeq = int64(replayState.StreamStartSeq)
 		}
 		// 两条 lane 在同一个 NATS stream 中，共享全局 Sequence.Stream 序号。
 		// state_start_seq（run.started 事件到达时记录）必然早于所有 run.stream 事件，
@@ -973,15 +972,14 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 			logs.WarnContextf(ctx, "unknown run event type: %v", runEvent.Body.Event)
 			return
 		}
-		if err := sink.Emit(ctx, &agent.Event{
-			Type:    se.Type,
-			Content: toJSONString(se),
-		}); err != nil {
+		if err := sink.EmitSessionEvent(ctx, se); err != nil {
 			logs.ErrorContextf(ctx, "failed to emit session event for session %s: %v", sessionPID, err)
 		}
 		// 收到终端事件后，服务端主动结束 SSE 流
-		switch se.Type {
-		case events.EventCompleted, events.EventFailed, events.EventCancelled:
+		switch runEvent.Body.Event {
+		case messaging.RunEventRunCompleted,
+			messaging.RunEventRunFailed,
+			messaging.RunEventRunCancelled:
 			innerCancel()
 		}
 	}
@@ -1119,8 +1117,13 @@ func convertToContractSession(session *types.Session) *contract.Session {
 	return result
 }
 
-func hasMessageUsage(usage types.MessageUsage) bool {
-	return usage.InputTokens != 0 || usage.OutputTokens != 0 || usage.TotalTokens != 0
+func normalizeMessageUsage(usage *types.MessageUsage) types.MessageUsage {
+	if usage == nil {
+		return types.MessageUsage{}
+	}
+	normalized := *usage
+	normalized.TotalTokens = normalized.InputTokens + normalized.OutputTokens
+	return normalized
 }
 
 func convertToContractSessionMessage(message *types.SessionMessage, publicID string) *contract.SessionMessage {
@@ -1162,16 +1165,15 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 		result.Metadata = &message.Metadata
 	}
 
-	if hasMessageUsage(message.Usage) {
-		result.Usage = &message.Usage
-	}
+	usage := normalizeMessageUsage(&message.Usage)
+	result.Usage = &usage
 
 	return result
 }
 
 func isHiddenSessionHistoryChunk(eventType string) bool {
-	switch agent.EventType(eventType) {
-	case events.EventTodoSnapshot, events.EventTodoUpdated:
+	switch messaging.RunEventType(eventType) {
+	case messaging.RunEventTodoSnapshot, messaging.RunEventTodoUpdated:
 		return true
 	default:
 		return false
@@ -1368,9 +1370,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		msgEntity.Metadata = *req.Metadata
 	}
 	attachReplyToMessageIDs(&msgEntity.Metadata, req.ReplyToMessageIDs)
-	if req.Usage != nil {
-		msgEntity.Usage = *req.Usage
-	}
+	msgEntity.Usage = normalizeMessageUsage(req.Usage)
 
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := db.CreateMessage(ctx, tx, msgEntity); err != nil {
@@ -1444,9 +1444,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 		msgEntity.Metadata = *req.Metadata
 	}
 	attachReplyToMessageIDs(&msgEntity.Metadata, req.ReplyToMessageIDs)
-	if req.Usage != nil {
-		msgEntity.Usage = *req.Usage
-	}
+	msgEntity.Usage = normalizeMessageUsage(req.Usage)
 	if req.ErrorCode != "" {
 		if msgEntity.Metadata.Extra == nil {
 			msgEntity.Metadata.Extra = map[string]interface{}{}

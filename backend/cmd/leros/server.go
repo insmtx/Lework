@@ -14,7 +14,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api"
-	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
+	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"

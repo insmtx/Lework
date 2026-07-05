@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -9,7 +8,7 @@ import (
 // Project + Task + Session and dispatches to the allocated AgentWorker.
 type NewMessageRequest struct {
 	Content       string                    `json:"content,omitempty"`
-	ExecutionMode agent.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
 	ProjectID     string                    `json:"project_id,omitempty"`
 	TaskID        string                    `json:"task_id,omitempty"`
 	AssistantID   uint                      `json:"assistant_id,omitempty"`

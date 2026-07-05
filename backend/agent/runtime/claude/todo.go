@@ -2,18 +2,18 @@ package claude
 
 import (
 	"fmt"
-	"github.com/bytedance/sonic"
 	"strings"
 
+	"github.com/bytedance/sonic"
+
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 )
 
-// ——— 工具调用事件 ———
+// ——— tool call events ———
 
-func claudeToolCallStartedEvent(block streamContent, state *claudeStreamState) agent.Event {
+func claudeToolCallStartedEvent(block streamContent, state *claudeStreamState) agent.NodeEvent {
 	rememberClaudeToolName(block, state)
-	return *events.NewToolCallStarted(block.ID, block.Name, events.MarshalRaw(block.Input))
+	return agent.NewToolExecutionStartEvent(block.ID, block.Name, agent.MarshalRawJSON(block.Input))
 }
 
 func rememberClaudeToolName(block streamContent, state *claudeStreamState) {
@@ -32,15 +32,15 @@ func claudeToolName(toolUseID string, state *claudeStreamState) string {
 	return state.toolNames[toolUseID]
 }
 
-func claudeToolCallCompletedEvent(block streamContent, state *claudeStreamState) agent.Event {
+func claudeToolCallCompletedEvent(block streamContent, state *claudeStreamState) agent.NodeEvent {
 	name := claudeToolName(block.ToolUseID, state)
 	if block.IsError {
-		return *events.NewToolCallFailed(block.ToolUseID, name, fmt.Sprintf("%v", block.Content), 0)
+		return agent.NewToolExecutionEndErrorEvent(block.ToolUseID, name, fmt.Sprintf("%v", block.Content), 0)
 	}
-	return *events.NewToolCallCompleted(block.ToolUseID, name, events.MarshalRaw(block.Content), 0)
+	return agent.NewToolExecutionEndEvent(block.ToolUseID, name, agent.MarshalRawJSON(block.Content), 0)
 }
 
-// ——— Todo 工具检测 ———
+// ——— todo tool detection ———
 
 func isClaudeTodoTool(name string) bool {
 	switch strings.TrimSpace(name) {
@@ -51,9 +51,9 @@ func isClaudeTodoTool(name string) bool {
 	}
 }
 
-// ——— Todo 事件（tool_use 阶段） ———
+// ——— todo events (tool_use phase) ———
 
-func claudeTodoEventsFromToolUse(block streamContent, state *claudeStreamState) []agent.Event {
+func claudeTodoEventsFromToolUse(block streamContent, state *claudeStreamState) []agent.NodeEvent {
 	name := strings.TrimSpace(block.Name)
 	switch name {
 	case "TodoWrite":
@@ -61,7 +61,7 @@ func claudeTodoEventsFromToolUse(block streamContent, state *claudeStreamState) 
 		if len(items) == 0 {
 			return nil
 		}
-		return []agent.Event{*events.NewTodoSnapshot(items)}
+		return []agent.NodeEvent{agent.NewTodoSnapshotEvent(items)}
 	case "TaskCreate":
 		item := todoItemFromClaudeTaskCreate(block.Input)
 		if item.Title == "" {
@@ -72,24 +72,24 @@ func claudeTodoEventsFromToolUse(block streamContent, state *claudeStreamState) 
 		}
 		if state != nil && block.ID != "" {
 			if state.pendingTaskCreates == nil {
-				state.pendingTaskCreates = make(map[string]events.RuntimeTodoItem)
+				state.pendingTaskCreates = make(map[string]agent.RuntimeTodoItem)
 			}
 			state.pendingTaskCreates[block.ID] = item
 		}
-		return []agent.Event{*events.NewTodoUpdated([]events.RuntimeTodoItem{item})}
+		return []agent.NodeEvent{agent.NewTodoUpdatedEvent([]agent.RuntimeTodoItem{item})}
 	case "TaskUpdate":
 		item := todoItemFromClaudeTaskUpdate(block.Input)
 		if item.ID == "" && item.Title == "" {
 			return nil
 		}
-		return []agent.Event{*events.NewTodoUpdated([]events.RuntimeTodoItem{item})}
+		return []agent.NodeEvent{agent.NewTodoUpdatedEvent([]agent.RuntimeTodoItem{item})}
 	}
 	return nil
 }
 
-// ——— Todo 事件（tool_result 阶段） ———
+// ——— todo events (tool_result phase) ———
 
-func claudeTodoEventsFromToolResult(block streamContent, state *claudeStreamState) []agent.Event {
+func claudeTodoEventsFromToolResult(block streamContent, state *claudeStreamState) []agent.NodeEvent {
 	name := ""
 	if state != nil && state.toolNames != nil {
 		name = state.toolNames[block.ToolUseID]
@@ -118,25 +118,25 @@ func claudeTodoEventsFromToolResult(block streamContent, state *claudeStreamStat
 		if !ok || (item.ID == "" && item.Title == "") {
 			return nil
 		}
-		return []agent.Event{*events.NewTodoUpdated([]events.RuntimeTodoItem{item})}
+		return []agent.NodeEvent{agent.NewTodoUpdatedEvent([]agent.RuntimeTodoItem{item})}
 	case "TaskList":
 		items := claudeTaskListFromResult(block.Content)
 		if len(items) == 0 {
 			return nil
 		}
-		return []agent.Event{*events.NewTodoSnapshot(items)}
+		return []agent.NodeEvent{agent.NewTodoSnapshotEvent(items)}
 	}
 	return nil
 }
 
-// ——— Todo 解析辅助函数 ———
+// ——— todo parsing helpers ———
 
-func todoItemsFromClaudeTodos(value any) []events.RuntimeTodoItem {
+func todoItemsFromClaudeTodos(value any) []agent.RuntimeTodoItem {
 	list, ok := value.([]any)
 	if !ok {
 		return nil
 	}
-	items := make([]events.RuntimeTodoItem, 0, len(list))
+	items := make([]agent.RuntimeTodoItem, 0, len(list))
 	for index, raw := range list {
 		obj, ok := raw.(map[string]any)
 		if !ok {
@@ -147,7 +147,7 @@ func todoItemsFromClaudeTodos(value any) []events.RuntimeTodoItem {
 			continue
 		}
 		id := firstNonEmptyString(anyString(obj["id"]), fmt.Sprintf("todo_%d", index+1))
-		items = append(items, events.RuntimeTodoItem{
+		items = append(items, agent.RuntimeTodoItem{
 			ID:       id,
 			Title:    title,
 			Status:   anyString(obj["status"]),
@@ -157,8 +157,8 @@ func todoItemsFromClaudeTodos(value any) []events.RuntimeTodoItem {
 	return items
 }
 
-func todoItemFromClaudeTaskCreate(input map[string]any) events.RuntimeTodoItem {
-	return events.RuntimeTodoItem{
+func todoItemFromClaudeTaskCreate(input map[string]any) agent.RuntimeTodoItem {
+	return agent.RuntimeTodoItem{
 		ID:       anyString(input["id"]),
 		Title:    firstNonEmptyString(anyString(input["title"]), anyString(input["subject"]), anyString(input["description"]), anyString(input["content"])),
 		Status:   firstNonEmptyString(anyString(input["status"]), "pending"),
@@ -166,8 +166,8 @@ func todoItemFromClaudeTaskCreate(input map[string]any) events.RuntimeTodoItem {
 	}
 }
 
-func todoItemFromClaudeTaskUpdate(input map[string]any) events.RuntimeTodoItem {
-	return events.RuntimeTodoItem{
+func todoItemFromClaudeTaskUpdate(input map[string]any) agent.RuntimeTodoItem {
+	return agent.RuntimeTodoItem{
 		ID:       firstNonEmptyString(anyString(input["id"]), anyString(input["task_id"]), anyString(input["taskId"])),
 		Title:    firstNonEmptyString(anyString(input["title"]), anyString(input["subject"]), anyString(input["description"]), anyString(input["content"])),
 		Status:   anyString(input["status"]),
@@ -175,16 +175,16 @@ func todoItemFromClaudeTaskUpdate(input map[string]any) events.RuntimeTodoItem {
 	}
 }
 
-func claudeTaskItemFromResult(content any) (events.RuntimeTodoItem, bool) {
+func claudeTaskItemFromResult(content any) (agent.RuntimeTodoItem, bool) {
 	value, ok := decodedJSONValue(content)
 	if !ok {
-		return events.RuntimeTodoItem{}, false
+		return agent.RuntimeTodoItem{}, false
 	}
 	if obj, ok := value.(map[string]any); ok {
 		if task, ok := obj["task"].(map[string]any); ok {
 			obj = task
 		}
-		item := events.RuntimeTodoItem{
+		item := agent.RuntimeTodoItem{
 			ID:       firstNonEmptyString(anyString(obj["id"]), anyString(obj["task_id"]), anyString(obj["taskId"])),
 			Title:    firstNonEmptyString(anyString(obj["title"]), anyString(obj["subject"]), anyString(obj["description"]), anyString(obj["content"])),
 			Status:   anyString(obj["status"]),
@@ -192,10 +192,10 @@ func claudeTaskItemFromResult(content any) (events.RuntimeTodoItem, bool) {
 		}
 		return item, item.ID != "" || item.Title != ""
 	}
-	return events.RuntimeTodoItem{}, false
+	return agent.RuntimeTodoItem{}, false
 }
 
-func claudeTaskListFromResult(content any) []events.RuntimeTodoItem {
+func claudeTaskListFromResult(content any) []agent.RuntimeTodoItem {
 	value, ok := decodedJSONValue(content)
 	if !ok {
 		return nil
@@ -215,7 +215,7 @@ func claudeTaskListFromResult(content any) []events.RuntimeTodoItem {
 	if len(rawTasks) == 0 {
 		return nil
 	}
-	items := make([]events.RuntimeTodoItem, 0, len(rawTasks))
+	items := make([]agent.RuntimeTodoItem, 0, len(rawTasks))
 	for index, raw := range rawTasks {
 		obj, ok := raw.(map[string]any)
 		if !ok {
@@ -225,7 +225,7 @@ func claudeTaskListFromResult(content any) []events.RuntimeTodoItem {
 		if title == "" {
 			continue
 		}
-		items = append(items, events.RuntimeTodoItem{
+		items = append(items, agent.RuntimeTodoItem{
 			ID:       firstNonEmptyString(anyString(obj["id"]), anyString(obj["task_id"]), fmt.Sprintf("task_%d", index+1)),
 			Title:    title,
 			Status:   anyString(obj["status"]),
@@ -235,7 +235,7 @@ func claudeTaskListFromResult(content any) []events.RuntimeTodoItem {
 	return items
 }
 
-// ——— JSON 值解码 ———
+// ——— JSON value decoding ———
 
 func decodedJSONValue(content any) (any, bool) {
 	switch typed := content.(type) {
@@ -256,7 +256,7 @@ func decodedJSONValue(content any) (any, bool) {
 	}
 }
 
-// ——— 通用字符串工具 ———
+// ——— general string utilities ———
 
 func anyString(value any) string {
 	switch typed := value.(type) {

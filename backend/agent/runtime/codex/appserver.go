@@ -13,7 +13,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -38,14 +38,14 @@ type AppServer struct {
 	pendingApproval *ServerRequest
 	onNotification  func(method string, params sonic.NoCopyRawMessage)
 	onServerRequest func(req ServerRequest)
-	evtChan         chan<- agent.Event
+	evtChan         chan<- agent.NodeEvent
 }
 
 // ============================================================================
 // 进程启动
 // ============================================================================
 
-func startAppServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, taskDir string) (*AppServer, error) {
+func startAppServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, taskDir string) (*AppServer, error) {
 	codexHome := filepath.Join(taskDir, ".codex")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		return nil, fmt.Errorf("create codex-home dir: %w", err)
@@ -205,7 +205,7 @@ func (s *AppServer) markClosed() {
 // 状态存取（供 invoker 使用）
 // ============================================================================
 
-func (s *AppServer) SetEventChannel(ch chan<- agent.Event) {
+func (s *AppServer) SetEventChannel(ch chan<- agent.NodeEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.evtChan = ch
@@ -240,7 +240,7 @@ func (s *AppServer) RespondApproval(ctx context.Context, reqID sonic.NoCopyRawMe
 // config.toml 生成
 // ============================================================================
 
-func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig) error {
+func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig) error {
 	baseURL := strings.TrimRight(strings.TrimSpace(modelCfg.BaseURL), "/")
 	if baseURL != "" && !strings.HasSuffix(baseURL, "/v1") {
 		baseURL += "/v1"
@@ -270,7 +270,7 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 	b.WriteString("wire_api = \"responses\"\n")
 	b.WriteString("requires_openai_auth = false\n")
 
-	tokenEnvVar := provider.LerosMCPTokenEnvVar()
+	tokenEnvVar := runtimeprocess.LerosMCPTokenEnvVar()
 	for _, m := range mcpServers {
 		if m.Name == "" {
 			continue
@@ -326,15 +326,15 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 // 环境变量
 // ============================================================================
 
-func buildAppServerEnv(baseEnv []string, modelCfg agent.ModelConfig, mcpServers []provider.MCPServerConfig, codexHome string) []string {
-	env := provider.BuildBaseEnv(nil)
+func buildAppServerEnv(baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, codexHome string) []string {
+	env := runtimeprocess.BuildBaseEnv(nil)
 	env = append(env, "CODEX_QUIET_MODE=1")
 	env = append(env, "CODEX_HOME="+codexHome)
 	modelEnv := appServerModelEnv(modelCfg)
 	for k, v := range modelEnv {
 		env = append(env, k+"="+v)
 	}
-	tokenEnvVar := provider.LerosMCPTokenEnvVar()
+	tokenEnvVar := runtimeprocess.LerosMCPTokenEnvVar()
 	for _, m := range mcpServers {
 		if m.BearerToken != "" {
 			env = append(env, tokenEnvVar+"="+m.BearerToken)

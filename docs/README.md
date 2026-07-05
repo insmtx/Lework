@@ -48,6 +48,8 @@
 | 文档 | 说明 |
 |------|------|
 | [design/tech-design.md](design/tech-design.md) | 技术设计（技能 Schema、渲染引擎） |
+| [design/2026-07-04-agent-runtime-architecture-refactor.md](design/2026-07-04-agent-runtime-architecture-refactor.md) | Agent Runtime 最终架构优化设计 |
+| [design/2026-07-04-agent-runtime-implementation-plan.md](design/2026-07-04-agent-runtime-implementation-plan.md) | Agent Runtime 架构优化实施开发方案 |
 | [design/git-storage.md](design/git-storage.md) | 文件存储技术方案 |
 | [design/presigned-url.md](design/presigned-url.md) | 预签名 URL 设计 |
 | [design/ai-teammate-worker-deployment.md](design/ai-teammate-worker-deployment.md) | AI 队友维护与 Worker 动态部署技术设计 |

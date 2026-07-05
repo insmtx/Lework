@@ -14,43 +14,29 @@ import (
 	"sync"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
+	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
+	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/utils"
 )
 
 // RunSubmission is a submitted run request with event context and delivery sequences.
 type RunSubmission struct {
-	Request      *assistantdomain.RunRequest
-	EventContext RunEventContext
+	Request      *agentrundomain.RunRequest
+	EventContext agentrun.EventContext
 	DeliverySeqs []uint64
 
 	waiterIDs []uint64
-}
-
-// RunEventContext carries the routing/tracing context for one submission.
-type RunEventContext struct {
-	OrgID             uint
-	WorkerID          uint
-	SessionID         string
-	TraceID           string
-	RequestID         string
-	TaskID            string
-	RunID             string
-	ParentID          string
-	ReplyToMessageIDs []string
 }
 
 // ExecuteFunc is the actual execution function injected by the command adapter.
 type ExecuteFunc func(
 	ctx context.Context,
 	submission RunSubmission,
-	sink agent.EventSink,
-) (*assistantdomain.RunResult, error)
+) (*agentrundomain.RunResult, error)
 
 // RunOutcome is the result of executing a run (possibly merged from multiple submissions).
 type RunOutcome struct {
-	Result       *assistantdomain.RunResult
+	Result       *agentrundomain.RunResult
 	DeliverySeqs []uint64
 }
 
@@ -193,7 +179,7 @@ func (c *Coordinator) enqueueSubmission(ctx context.Context, submission RunSubmi
 	return err
 }
 
-func (c *Coordinator) execute(ctx context.Context, submission RunSubmission) (*assistantdomain.RunResult, error) {
+func (c *Coordinator) execute(ctx context.Context, submission RunSubmission) (*agentrundomain.RunResult, error) {
 	select {
 	case c.slots <- struct{}{}:
 		defer func() { <-c.slots }()
@@ -208,7 +194,7 @@ func (c *Coordinator) execute(ctx context.Context, submission RunSubmission) (*a
 		c.RegisterRun(key, submission.EventContext.RunID, requestTaskID(submission), cancel)
 		defer c.UnregisterRun(key)
 	}
-	return c.executeFunc(runCtx, submission, nil)
+	return c.executeFunc(runCtx, submission)
 }
 
 func requestTaskID(submission RunSubmission) string {
@@ -336,9 +322,9 @@ func mergeSubmissions(existing RunSubmission, incoming RunSubmission) RunSubmiss
 
 	// Merge input messages.
 	if incoming.Request != nil {
-		existingReq := assistantdomain.CloneRequest(merged.Request)
+		existingReq := agentrundomain.CloneRequest(merged.Request)
 		if existingReq == nil {
-			existingReq = &assistantdomain.RunRequest{}
+			existingReq = &agentrundomain.RunRequest{}
 		}
 		incomingReq := incoming.Request
 		existingReq.Input.Messages = append(existingReq.Input.Messages, incomingReq.Input.Messages...)

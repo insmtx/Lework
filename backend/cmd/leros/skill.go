@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	skilllinks "github.com/insmtx/Leros/backend/internal/assistant/bootstrap/skilllinks"
+	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	"github.com/insmtx/Leros/backend/internal/skill/fetch"
 	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
 )
 
 // ============================================================================
@@ -214,8 +213,9 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 		_, _ string,
 		_ []string,
 		_ agent.ModelConfig,
-		_ []provider.MCPServerConfig,
+		_ []agent.MCPServerConfig,
 		timeout time.Duration,
+		_ string,
 	) (*OpenCodeServer, error) {
 		gotTimeouts = append(gotTimeouts, timeout)
 		return nil, errors.New("startup timeout")
@@ -229,6 +229,7 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 		agent.ModelConfig{},
 		nil,
 		attemptTimeout,
+		"/workspace/.opencode",
 		starter,
 	)
 	if err == nil {

@@ -10,7 +10,7 @@ import (
 
 const (
 	// Kind is the canonical runtime kind for the built-in Leros runtime.
-	Kind = "leros"
+	Kind = agent.RuntimeKindLeros
 )
 
 // Runtime executes requests directly through the in-process Eino runner.
@@ -20,7 +20,7 @@ type Runtime struct {
 
 // Executor is the in-process execution backend used by the native Runtime.
 type Executor interface {
-	Execute(context.Context, agent.ExecutionRequest, agent.Observer) (agent.ExecutionResult, error)
+	Execute(context.Context, agent.ExecutionRequest, agent.NodeObserver) (agent.ExecutionResult, error)
 }
 
 // New creates the native Runtime.
@@ -47,7 +47,7 @@ func (r *Runtime) Name() string {
 func (r *Runtime) Execute(
 	ctx context.Context,
 	request agent.ExecutionRequest,
-	observer agent.Observer,
+	observer agent.NodeObserver,
 ) (agent.ExecutionResult, error) {
 	if r == nil || r.executor == nil {
 		return agent.ExecutionResult{}, fmt.Errorf("native runtime is not initialized")

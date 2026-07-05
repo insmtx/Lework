@@ -10,7 +10,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
@@ -117,7 +116,7 @@ func handleArtifactDeclaredEvent(ctx context.Context, persister *declaredArtifac
 	logs.InfoContextf(ctx, "persisting declared artifact: session_id=%s artifact_id=%s storage_key=%s",
 		runEvent.Route.SessionID, art.ArtifactID, art.StorageKey)
 
-	legacyArtifact := events.ArtifactPayload{
+	artifact := messaging.ArtifactPayload{
 		ArtifactID:   art.ArtifactID,
 		Title:        art.Title,
 		Filename:     art.Filename,
@@ -138,7 +137,7 @@ func handleArtifactDeclaredEvent(ctx context.Context, persister *declaredArtifac
 		OrgID:     runEvent.Route.OrgID,
 		SessionID: runEvent.Route.SessionID,
 		WorkerID:  runEvent.Route.WorkerID,
-	}, legacyArtifact); err != nil {
+	}, artifact); err != nil {
 		logs.WarnContextf(ctx, "persist declared artifact failed: session_id=%s artifact_id=%s err=%v",
 			runEvent.Route.SessionID, art.ArtifactID, err)
 	}
@@ -296,12 +295,14 @@ func messagingArtifactsToMessageArtifacts(artifacts []messaging.ArtifactPayload)
 
 func messagingUsageToMessageUsage(usage *messaging.UsagePayload) *types.MessageUsage {
 	if usage == nil {
-		return nil
+		usage = &messaging.UsagePayload{}
 	}
 	return &types.MessageUsage{
-		InputTokens:  usage.InputTokens,
-		OutputTokens: usage.OutputTokens,
-		TotalTokens:  usage.TotalTokens,
+		TotalTokens:       usage.InputTokens + usage.OutputTokens,
+		InputTokens:       usage.InputTokens,
+		OutputTokens:      usage.OutputTokens,
+		CacheInputTokens:  usage.CacheInputTokens,
+		CacheOutputTokens: usage.CacheOutputTokens,
 	}
 }
 
@@ -328,8 +329,11 @@ func completedMetadataToObject(completed *messaging.RunCompletedPayload) *types.
 	if completed.Metadata.Resume {
 		extra["resume"] = true
 	}
-	if completed.Usage != nil && completed.Usage.TotalTokens > 0 {
-		extra["tokens"] = completed.Usage.TotalTokens
+	if completed.Usage != nil {
+		totalTokens := completed.Usage.InputTokens + completed.Usage.OutputTokens
+		if totalTokens > 0 {
+			extra["tokens"] = totalTokens
+		}
 	}
 	if len(extra) == 0 {
 		return nil
@@ -371,11 +375,11 @@ func recordSkillInvocationsFromMessaging(ctx context.Context, db *gorm.DB, orgID
 	seen := make(map[string]bool)
 	var records []*types.MessageResource
 	for _, evt := range runEvents {
-		if evt.Type != string(events.EventToolCallStarted) {
+		if evt.Type != string(messaging.RunEventToolCallStarted) {
 			continue
 		}
 		payloadBytes, _ := json.Marshal(evt.Payload)
-		var payload events.ToolCallPayload
+		var payload messaging.ToolCallPayload
 		if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 			continue
 		}
@@ -418,7 +422,11 @@ type declaredArtifactPersister struct {
 // PersistDeclaredArtifact persists a declared artifact as FileUpload + ProjectFile in a transaction.
 // Uses ProjectFile.FilePublicID unique index for event replay idempotency.
 // Skips persistence when storage_uri is missing (ProjectFile cannot point to an inaccessible file).
-func (p *declaredArtifactPersister) PersistDeclaredArtifact(ctx context.Context, route messaging.RouteContext, item events.ArtifactPayload) error {
+func (p *declaredArtifactPersister) PersistDeclaredArtifact(
+	ctx context.Context,
+	route messaging.RouteContext,
+	item messaging.ArtifactPayload,
+) error {
 	if p == nil || p.db == nil {
 		return nil
 	}

@@ -146,9 +146,11 @@ type RunEventError struct {
 
 // UsagePayload 描述模型 token 使用情况。
 type UsagePayload struct {
-	InputTokens  int `json:"input_tokens,omitempty"`
-	OutputTokens int `json:"output_tokens,omitempty"`
-	TotalTokens  int `json:"total_tokens,omitempty"`
+	TotalTokens       int `json:"total_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	CacheInputTokens  int `json:"cache_input_tokens"`
+	CacheOutputTokens int `json:"cache_output_tokens"`
 }
 
 // ToolCallPayload 是工具调用开始和参数事件的标准负载。
@@ -186,6 +188,7 @@ type ArtifactPayload struct {
 	MimeType     string `json:"mime_type,omitempty"`
 	ArtifactType string `json:"artifact_type,omitempty"`
 	FileSize     int64  `json:"file_size,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
 	RelativePath string `json:"relative_path,omitempty"`
 	StorageKey   string `json:"storage_key,omitempty"`
 	StorageURI   string `json:"storage_uri,omitempty"`

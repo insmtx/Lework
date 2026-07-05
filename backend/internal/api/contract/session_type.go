@@ -3,7 +3,6 @@ package contract
 import (
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -38,7 +37,7 @@ type ListSessionsRequest struct {
 type AddMessageRequest struct {
 	Role          string                    `json:"role" binding:"required"`
 	Content       string                    `json:"content" binding:"required"`
-	ExecutionMode agent.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
