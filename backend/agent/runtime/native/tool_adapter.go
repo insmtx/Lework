@@ -8,18 +8,17 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
+	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/internal/todo"
 	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 )
 
 type toolBinding struct {
 	Tools        []agent.Tool
 	AllowedTools []string
-	TodoReporter runtimetodo.Reporter
+	TodoReporter agent.TodoReporter
 }
 
-func buildRuntimeTools(binding toolBinding, sink activitySink) ([]pkgeino.ToolSpec, pkgeino.ToolInvoker, error) {
+func buildRuntimeTools(binding toolBinding, emitter *nodeEmitter) ([]pkgeino.ToolSpec, pkgeino.ToolInvoker, error) {
 	boundTools, err := filterRuntimeTools(binding.Tools, binding.AllowedTools)
 	if err != nil {
 		return nil, nil, err
@@ -37,7 +36,7 @@ func buildRuntimeTools(binding toolBinding, sink activitySink) ([]pkgeino.ToolSp
 	return specs, &toolInvoker{
 		tools:   indexTools(boundTools),
 		binding: binding,
-		sink:    sink,
+		emitter: emitter,
 	}, nil
 }
 
@@ -86,7 +85,7 @@ func filterRuntimeTools(runtimeTools []agent.Tool, allowedTools []string) ([]age
 type toolInvoker struct {
 	tools   map[string]agent.Tool
 	binding toolBinding
-	sink    activitySink
+	emitter *nodeEmitter
 }
 
 func (i *toolInvoker) InvokeTool(ctx context.Context, name string, argumentsInJSON string) (string, error) {
@@ -111,21 +110,16 @@ func (i *toolInvoker) InvokeTool(ctx context.Context, name string, argumentsInJS
 	toolCallID := fmt.Sprintf("tool_%d", startedAt.UnixNano())
 	suppressToolEvents := name == runtimetodo.ToolName
 	if !suppressToolEvents {
-		if err := i.emitToolEvent(ctx, events.NewToolCallStarted(toolCallID, name, arguments)); err != nil {
+		if err := i.emitToolCallStarted(ctx, toolCallID, name, argumentsInJSON); err != nil {
 			return "", err
 		}
 	}
 
-	toolCtx := runtimetodo.ContextWithReporter(ctx, i.binding.TodoReporter)
+	toolCtx := agent.ContextWithTodoReporter(ctx, i.binding.TodoReporter)
 	result, err := tool.Execute(toolCtx, arguments)
 	if err != nil {
 		if !suppressToolEvents {
-			if emitErr := i.emitToolEvent(ctx, events.NewToolCallFailed(
-				toolCallID,
-				name,
-				err.Error(),
-				time.Since(startedAt).Milliseconds(),
-			)); emitErr != nil {
+			if emitErr := i.emitToolCallFailed(ctx, toolCallID, name, err.Error(), time.Since(startedAt).Milliseconds()); emitErr != nil {
 				return "", emitErr
 			}
 		}
@@ -137,12 +131,7 @@ func (i *toolInvoker) InvokeTool(ctx context.Context, name string, argumentsInJS
 			detail = strings.TrimSpace(result.Content)
 		}
 		if !suppressToolEvents {
-			if emitErr := i.emitToolEvent(ctx, events.NewToolCallFailed(
-				toolCallID,
-				name,
-				detail,
-				time.Since(startedAt).Milliseconds(),
-			)); emitErr != nil {
+			if emitErr := i.emitToolCallFailed(ctx, toolCallID, name, detail, time.Since(startedAt).Milliseconds()); emitErr != nil {
 				return "", emitErr
 			}
 		}
@@ -150,23 +139,32 @@ func (i *toolInvoker) InvokeTool(ctx context.Context, name string, argumentsInJS
 	}
 
 	if !suppressToolEvents {
-		if err := i.emitToolEvent(ctx, events.NewToolCallCompleted(
-			toolCallID,
-			name,
-			rawResult(result.Content),
-			time.Since(startedAt).Milliseconds(),
-		)); err != nil {
+		if err := i.emitToolCallCompleted(ctx, toolCallID, name, result.Content, time.Since(startedAt).Milliseconds()); err != nil {
 			return "", err
 		}
 	}
 	return result.Content, nil
 }
 
-func (i *toolInvoker) emitToolEvent(ctx context.Context, event *agent.Event) error {
-	if i == nil || i.sink == nil {
+func (i *toolInvoker) emitToolCallStarted(ctx context.Context, toolCallID, name, arguments string) error {
+	if i == nil || i.emitter == nil {
 		return nil
 	}
-	return i.sink.Emit(ctx, event)
+	return i.emitter.emitToolCallStarted(ctx, toolCallID, name, arguments)
+}
+
+func (i *toolInvoker) emitToolCallCompleted(ctx context.Context, toolCallID, name, result string, elapsedMS int64) error {
+	if i == nil || i.emitter == nil {
+		return nil
+	}
+	return i.emitter.emitToolCallCompleted(ctx, toolCallID, name, result, elapsedMS)
+}
+
+func (i *toolInvoker) emitToolCallFailed(ctx context.Context, toolCallID, name, detail string, elapsedMS int64) error {
+	if i == nil || i.emitter == nil {
+		return nil
+	}
+	return i.emitter.emitToolCallFailed(ctx, toolCallID, name, detail, elapsedMS)
 }
 
 type toolErrorOutput struct {

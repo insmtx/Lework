@@ -11,8 +11,8 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/internal/assistant"
-	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
+	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
+	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker/command/run/inbox"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
@@ -89,16 +89,16 @@ func (*handlerPublisher) Request(context.Context, string, any) (*nats.Msg, error
 
 type handlerPreparer struct{}
 
-func (handlerPreparer) Prepare(_ context.Context, req *assistantdomain.RunRequest) (*assistant.PreparedRun, error) {
-	return &assistant.PreparedRun{Request: req, Execution: agent.ExecutionRequest{ExecutionID: req.RunID, TraceID: req.TraceID, Runtime: "test"}}, nil
+func (handlerPreparer) Prepare(_ context.Context, req *agentrundomain.RunRequest) (*agentrun.PreparedRun, error) {
+	return &agentrun.PreparedRun{Request: req, Execution: agent.ExecutionRequest{ExecutionID: req.RunID, TraceID: req.TraceID, Runtime: "test"}}, nil
 }
 
 type handlerFinalizer struct{}
 
-func (handlerFinalizer) FinalizeRequired(_ context.Context, run *assistant.PreparedRun, runtimeResult *agent.ExecutionResult, _ assistant.JournalSnapshot) (*assistant.Finalization, error) {
-	return &assistant.Finalization{Result: &assistantdomain.RunResult{RunID: run.Request.RunID, TraceID: run.Request.TraceID, Status: assistantdomain.RunStatusCompleted, Message: runtimeResult.Message}}, nil
+func (handlerFinalizer) FinalizeRequired(_ context.Context, run *agentrun.PreparedRun, runtimeResult *agent.ExecutionResult, _ agentrun.JournalSnapshot) (*agentrun.Finalization, error) {
+	return &agentrun.Finalization{Result: &agentrundomain.RunResult{RunID: run.Request.RunID, TraceID: run.Request.TraceID, Status: agentrundomain.RunStatusCompleted, Message: runtimeResult.Message}}, nil
 }
-func (handlerFinalizer) PostRunBestEffort(context.Context, *assistant.PreparedRun, *assistantdomain.RunResult, assistant.JournalSnapshot) {
+func (handlerFinalizer) PostRunBestEffort(context.Context, *agentrun.PreparedRun, *agentrundomain.RunResult, agentrun.JournalSnapshot) {
 }
 
 type handlerRuntime struct {
@@ -108,7 +108,7 @@ type handlerRuntime struct {
 }
 
 func (*handlerRuntime) Name() string { return "test" }
-func (r *handlerRuntime) Execute(_ context.Context, _ agent.ExecutionRequest, _ agent.Observer) (agent.ExecutionResult, error) {
+func (r *handlerRuntime) Execute(_ context.Context, _ agent.ExecutionRequest, _ agent.NodeObserver) (agent.ExecutionResult, error) {
 	close(r.started)
 	<-r.release
 	if r.err != nil {
@@ -241,7 +241,7 @@ func TestHandlerAsyncDispatch(t *testing.T) {
 	registry := agent.NewRegistry()
 	registry.Register("test", runtime)
 	registry.SetDefault("test")
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, err := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: 5 * time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -289,7 +289,7 @@ func TestHandlerAsyncDedupInflight(t *testing.T) {
 	registry := agent.NewRegistry()
 	registry.Register("test", runtime)
 	registry.SetDefault("test")
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: 100 * time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 	ib := newMockInbox()
@@ -350,7 +350,7 @@ func TestHandlerDrain(t *testing.T) {
 	registry := agent.NewRegistry()
 	registry.Register("test", runtime)
 	registry.SetDefault("test")
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 	ib := newMockInbox()
@@ -375,7 +375,7 @@ func TestHandlerDrain(t *testing.T) {
 
 // TestHandlerPayloadTerm verifies Term is called for invalid payload.
 func TestHandlerPayloadTerm(t *testing.T) {
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 
@@ -390,7 +390,7 @@ func TestHandlerPayloadTerm(t *testing.T) {
 
 // TestHandlerInvalidRouteTerm verifies Term is called on route mismatch.
 func TestHandlerInvalidRouteTerm(t *testing.T) {
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 
@@ -405,7 +405,7 @@ func TestHandlerInvalidRouteTerm(t *testing.T) {
 
 // TestHandlerMissingModelTerm verifies Term on missing model config.
 func TestHandlerMissingModelTerm(t *testing.T) {
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 
@@ -425,7 +425,7 @@ func TestHandlerAsyncDispatchFailure(t *testing.T) {
 	registry := agent.NewRegistry()
 	registry.Register("test", runtime)
 	registry.SetDefault("test")
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 	ib := newMockInbox()
@@ -452,7 +452,7 @@ func TestHandlerAsyncDispatchFailure(t *testing.T) {
 
 // TestHandlerInboxRequired verifies New fails without InboxDBPath.
 func TestHandlerInboxRequired(t *testing.T) {
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(agent.NewRegistry()), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	_, err := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, InboxDBPath: ""}, &handlerPublisher{}, svc)
 	if err == nil {
 		t.Fatal("New should fail without InboxDBPath")
@@ -465,7 +465,7 @@ func TestHandlerStopAdmissionBlocksNewSubmissions(t *testing.T) {
 	registry := agent.NewRegistry()
 	registry.Register("test", runtime)
 	registry.SetDefault("test")
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 	ib := newMockInbox()
@@ -501,7 +501,7 @@ func TestRecoverNonTerminal(t *testing.T) {
 	registry := agent.NewRegistry()
 	registry.Register("test", runtime)
 	registry.SetDefault("test")
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 2, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
 	defer h.Close()
 	ib := newMockInbox()
@@ -543,7 +543,7 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 	registry := agent.NewRegistry()
 	registry.Register("test", runtime)
 	registry.SetDefault("test")
-	svc := assistant.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, assistant.NewJournalFactory())
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
 	h, err := New(Config{
 		OrgID:          1,
 		WorkerID:       2,

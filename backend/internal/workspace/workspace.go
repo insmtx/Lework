@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 )
 
@@ -127,36 +126,6 @@ func ResolveTaskWorkspace(req TaskWorkspaceRequest) (*TaskWorkspace, error) {
 		EffectiveWorkDir:     effectiveWorkDir,
 		CloneURL:             req.CloneURL,
 	}, nil
-}
-
-// FromAgentRequest 从标准化运行请求中的 workspace 上下文解析工作区路径。
-func FromAgentRequest(req *assistantdomain.RunRequest) (*TaskWorkspace, bool, error) {
-	if req == nil {
-		return nil, false, nil
-	}
-	projectID := strings.TrimSpace(req.Workspace.ProjectID)
-	taskID := strings.TrimSpace(req.Workspace.TaskID)
-	if taskID == "" {
-		taskID = strings.TrimSpace(req.TaskID)
-	}
-	requestID := strings.TrimSpace(req.Workspace.RequestID)
-	if projectID == "" || taskID == "" || requestID == "" {
-		return nil, false, nil
-	}
-	if req.Workspace.OrgID == 0 {
-		return nil, false, nil
-	}
-	plan, err := ResolveTaskWorkspace(TaskWorkspaceRequest{
-		OrgID:            req.Workspace.OrgID,
-		ProjectID:        projectID,
-		TaskID:           taskID,
-		RequestID:        requestID,
-		RequestedWorkDir: req.Runtime.WorkDir,
-	})
-	if err != nil {
-		return nil, false, err
-	}
-	return plan, true, nil
 }
 
 // StorageKey returns a repo-relative path suitable for persistence and Gitea API access.

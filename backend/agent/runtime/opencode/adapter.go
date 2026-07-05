@@ -1,4 +1,4 @@
-// Package opencode 将 OpenCode CLI 适配到 Leros 外部 CLI 引擎接口。
+// Package opencode adapts the OpenCode CLI to the agent Runtime contract.
 // 使用 opencode serve 模式，通过 HTTP REST API + SSE 进行通信。
 package opencode
 
@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 )
 
 // Adapter 通过 OpenCode CLI serve 模式执行提示。
@@ -15,12 +15,12 @@ type Adapter struct {
 	invoker *ServerInvoker
 }
 
-// NewAdapter 创建 OpenCode CLI 引擎适配器（serve 模式）。
-func NewAdapter(binary string, extraEnv map[string]string) *Adapter {
+// NewAdapter 创建 OpenCode Runtime 适配器（serve 模式）。
+func NewAdapter(binary string, extraEnv map[string]string, dataDir string) *Adapter {
 	if binary == "" {
 		binary = "opencode"
 	}
-	return &Adapter{invoker: NewServerInvoker(binary, extraEnv)}
+	return &Adapter{invoker: NewServerInvoker(binary, extraEnv, dataDir)}
 }
 
 // Prepare performs provider-specific workspace setup.
@@ -29,7 +29,7 @@ func (a *Adapter) Prepare(_ context.Context, _ string) error {
 }
 
 // Invoke starts OpenCode serve and returns its process activity stream.
-func (a *Adapter) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+func (a *Adapter) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	handle, err := a.invoker.Invoke(ctx, req)
 	if err != nil {
 		return nil, err
@@ -46,4 +46,4 @@ func (a *Adapter) GetSkillDir() string {
 	return filepath.Join(home, ".config", "opencode", "skills")
 }
 
-var _ externalcli.Invoker = (*Adapter)(nil)
+var _ cli.Invoker = (*Adapter)(nil)

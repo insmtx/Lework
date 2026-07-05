@@ -30,6 +30,8 @@ func ListProjectFiles(ctx context.Context, db *gorm.DB, orgID uint, projectID ui
 		Where("org_id = ? AND project_id = ?", orgID, projectID)
 	if resourceType != "" {
 		query = query.Where("resource_type = ?", resourceType)
+	} else {
+		query = query.Where("resource_type != ?", types.ProjectFileResourceTypePlan)
 	}
 	if err := query.Order("created_at DESC").Find(&files).Error; err != nil {
 		return nil, err
@@ -52,6 +54,8 @@ func ListProjectFilesByTask(ctx context.Context, db *gorm.DB, orgID uint, projec
 		Where("org_id = ? AND project_id = ? AND task_id = ?", orgID, projectID, taskID)
 	if resourceType != "" {
 		query = query.Where("resource_type = ?", resourceType)
+	} else {
+		query = query.Where("resource_type != ?", types.ProjectFileResourceTypePlan)
 	}
 	if err := query.Order("created_at DESC").Find(&files).Error; err != nil {
 		return nil, err

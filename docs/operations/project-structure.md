@@ -44,9 +44,9 @@ Go Module: `github.com/insmtx/Lework` | Go 1.24
 UI Client -> REST/WS -> Server -> NATS WorkerCommand
                                    |
                                    v
-Handler -> RunCoordinator -> assistant.Service -> agent.Executor -> Runtime
+Handler -> RunCoordinator -> agentrun.Service -> agent.Executor -> Runtime
    ^                                                               |
-   |---------------- RunEvent / SSE / Session Message --------------|
+   |------ NodeEvent -> messaging.RunEvent -> SSE / Session Message -|
 
 GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 ```
@@ -72,15 +72,15 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 ## `backend/` - Go 后端
 
-### `backend/cmd/lework/` - 进程入口
+### `backend/cmd/leros/` - 进程入口
 
 该目录是进程生命周期边界，允许 Cobra 命令注册、服务启动、信号等待和 `log.Fatal`。
 
 | 文件 | 说明 |
 |------|------|
 | `main.go` | Cobra 根命令和全局日志配置 |
-| `server.go` | `lework server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
-| `worker.go` | `lework worker`，启动 Worker 及 `claude`、`codex` 子命令 |
+| `server.go` | `leros server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
+| `worker.go` | `leros worker`，启动 Worker 及 Runtime Adapter 注册 |
 | `chat.go` | 本地 CLI 聊天调试 |
 | `project.go` | Project CLI 调试命令 |
 | `session.go` | Session CLI 调试命令 |
@@ -172,28 +172,32 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 | `runtime.go` | 唯一 `ExecutionRequest`、`ExecutionResult` 和 `Runtime` |
 | `executor.go` | Runtime 解析与 `execution.*` 生命周期 |
 | `registry.go` | 四个 Runtime 的注册和默认选择 |
-| `result.go` | 唯一 `agent.Event` 信封、Usage、ToolCallRecord |
+| `node_event.go` | `NodeEvent`、`NodeObserver` 和强类型 Runtime 事件 payload |
+| `observe.go` | 串行 Observer 与观察工具 |
+| `result.go` | `ExecutionResult` 辅助类型、Usage、ToolCallRecord |
+| `interaction.go` | Runtime 交互契约 |
 | `tool.go` | 强类型 Tool、approval、question |
-| `runtime/native/` | Eino 原生 Runtime |
+| `runtime/native/` | 内建 Runtime（Eino 仅为内部实现细节） |
 | `runtime/claude/` | Claude Code Runtime |
 | `runtime/codex/` | Codex Runtime |
 | `runtime/opencode/` | OpenCode Runtime |
-| `runtime/externalcli/` | CLI 进程、provider session 和事件消费设施 |
-| `runtime/provider/` | CLI provider 的内部进程协议 |
-| `runtime/events/` | 活动 payload、构造器、Sink 和 Emitter |
-| `runtime/todo/` | 执行期 Todo 能力 |
+| `runtime/internal/cli/` | CLI Runtime 共用 invocation/runner |
+| `runtime/internal/process/` | 子进程、环境和工作目录设施 |
+| `runtime/internal/todo/` | Runtime 内部 Todo 事件适配 |
 
-### `backend/internal/assistant/` - Assistant 业务包装层
+### `backend/internal/worker/agentrun/` - AgentRun 业务包装层
 
 | 路径/文件 | 说明 |
 |------|------|
 | `service.go` | 唯一业务 Run 生命周期和终态 |
 | `prepared_run.go` | 业务快照、WorkspacePreparation、ExecutionRequest |
 | `preparer_impl.go` | Workspace、Memory、Skill prompt、Tool 与模型准备 |
-| `journal.go` | event、payload、usage、tool call 和统计归档 |
+| `node_handler.go` | NodeEvent 到业务 RunEventBody 的映射 |
+| `journal.go` | Seq 分配、RunEvent 归档和发布 |
+| `plan_publisher.go` | Plan 业务发布 |
+| `provider_session.go` | Provider Session 执行业务端口 |
 | `finalizer_impl.go` | Artifact、Git 和业务结果 |
 | `context/` | Assistant 业务上下文构建 |
-| `bootstrap/` | Runtime 和 Skill link 装配 |
 
 ### `backend/internal/worker/` - Worker 系统
 
@@ -207,7 +211,9 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 | `router/` | Worker 路由 |
 | `command/` | 统一 Worker 命令分发器与各 lane handler（run/interaction/skill） |
 | `run/` | RunCoordinator：debounce、并发、Session 串行、取消、Close |
-| `eventpub/` | `agent.Event` 到 NATS `run.stream` / `run.state` |
+| `agentrun/` | 业务 Run 生命周期、NodeEvent 映射、Journal 和 Finalizer |
+| `eventpub/` | 完整 `messaging.RunEvent` 到 NATS `run.stream` / `run.state` |
+| `runtimehost/` | Worker 对 Agent ports 的具体实现 |
 | `mcp/` | Worker 侧 MCP Server、Router 与实例级 token |
 | `identity/` | Worker 身份配置 |
 | `wsproto/` | Worker WebSocket 协议类型 |
@@ -388,29 +394,29 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 1. `backend/internal/api/connectors/<channel>/`：将外部事件标准化。
 2. `backend/pkg/messaging/`：确认或新增强类型 wire contract。
 3. `backend/internal/worker/command/<lane>/`：实现 Command adapter。
-4. `backend/cmd/lework/`：在 composition root 注册依赖。
+4. `backend/cmd/leros/`：在 composition root 注册依赖。
 
 ### 新增 Agent 运行时
 
 1. `backend/agent/runtime.go`：确认纯 `Runtime` 契约。
 2. `backend/agent/runtime/<runtime_name>/`：直接实现 `agent.Runtime`。
-3. `backend/agent/runtime_contract_test.go`：加入共用 contract suite。
-4. `backend/cmd/lework/worker.go`：构造并注册 Runtime。
+3. `backend/agent/runtime/contract_test.go`：加入共用 contract suite。
+4. `backend/cmd/leros/worker.go`：构造并注册 Runtime。
 
 ### 新增外部 CLI 引擎
 
-1. `backend/agent/runtime/provider/`：只在确有共性时扩展 provider 进程协议。
-2. `backend/agent/runtime/externalcli/`：复用通用进程、会话与事件消费设施。
-3. `backend/agent/runtime/<runtime_name>/`：实现具体 Runtime、解析器和 responder。
-4. `backend/cmd/lework/worker.go`：实例化并注册，禁止增加全局默认实例。
+1. `backend/agent/runtime/<runtime_name>/`：实现具体 Runtime、解析器和 responder。
+2. `backend/agent/runtime/internal/cli/`：只放跨 CLI Runtime 的 invocation/runner 共性。
+3. `backend/agent/runtime/internal/process/`：只放子进程、环境和工作目录共性。
+4. `backend/cmd/leros/worker.go`：实例化并注册，禁止增加全局默认实例。
 
 ### 新增 Tool
 
 1. `backend/tools/tool.go`：确认 `Tool` 接口和 Schema 结构。
 2. `backend/tools/<tool_name>/`：实现工具。
 3. `backend/tools/<tool_name>/register.go`：提供注册入口。
-4. `backend/internal/assistant/bootstrap/builtin/`：接入 Tool 注册。
-5. `backend/internal/assistant/tool_adapter.go`：保持业务 Tool 到 `agent.Tool` 的边界转换。
+4. `backend/internal/skill/builtin/`：接入 Tool 注册。
+5. `backend/internal/worker/agentrun/tool_adapter.go`：保持业务 Tool 到 `agent.Tool` 的边界转换。
 
 ### 新增 Skill
 
@@ -446,7 +452,7 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 | 层级 | 路径 | 允许 | 禁止 |
 |------|------|------|------|
-| 进程入口 | `backend/cmd/lework/` | Cobra、进程生命周期、信号处理、`log.Fatal` | 业务逻辑 |
+| 进程入口 | `backend/cmd/leros/` | Cobra、进程生命周期、信号处理、`log.Fatal` | 业务逻辑 |
 | 业务与基础设施库 | `backend/internal/*` | 业务逻辑、运行时、DAO、连接器，通过 `error` 向上传递失败 | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、Cobra 依赖 |
 | 共享类型 | `backend/types/`、`backend/config/` | 领域类型、配置结构、常量 | 业务逻辑、外部系统调用 |
 | 可复用包 | `backend/pkg/` | 无业务状态的共享工具和协议转换 | 依赖上层 `internal` 包 |

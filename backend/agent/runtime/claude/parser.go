@@ -8,12 +8,12 @@ import (
 	"github.com/bytedance/sonic"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// ——— stream-json 类型 ———
+// ——— stream-json types ———
 
 type streamEvent struct {
 	Type      string         `json:"type"`
@@ -24,7 +24,7 @@ type streamEvent struct {
 	Result    string         `json:"result,omitempty"`
 	IsError   bool           `json:"is_error,omitempty"`
 	Usage     *streamUsage   `json:"usage,omitempty"`
-	// control_request 相关字段（位于顶层和 request 嵌套对象）
+	// control_request fields (top-level and nested request object)
 	RequestID string         `json:"request_id,omitempty"`
 	ToolUseID string         `json:"tool_use_id,omitempty"`
 	Name      string         `json:"name,omitempty"`
@@ -76,25 +76,27 @@ type streamUsage struct {
 	OutputTokens             int `json:"output_tokens,omitempty"`
 }
 
-// ——— 解析状态 ———
+// ——— parse state ———
 
 type claudeStreamState struct {
 	result               string
 	isError              bool
+	sessionID            string
+	usage                *agent.Usage
 	lastAssistantText    string
 	toolNames            map[string]string
-	pendingTaskCreates   map[string]events.RuntimeTodoItem
-	messageIDs           *events.MessageIDMapper
+	pendingTaskCreates   map[string]agent.RuntimeTodoItem
+	messageIDs           *cli.MessageIDMapper
 	currentTextMessageID string
 	lastTextMessageID    string
 	emittedTextByMessage map[string]string
-	closeStdin           func() // result 事件时调用，关闭 stdin 让 Claude 进程退出
+	closeStdin           func() // close stdin on result event to let Claude process exit
 }
 
-// ——— stdout 扫描 ———
+// ——— stdout scanning ———
 
-func scanClaudeStdout(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- agent.Event, state *claudeStreamState) {
-	provider.ScanJSONLines(r, func(line string) bool {
+func scanClaudeStdout(ctx context.Context, r interface{ Read([]byte) (int, error) }, evtChan chan<- agent.NodeEvent, state *claudeStreamState) {
+	runtimeprocess.ScanJSONLines(r, func(line string) bool {
 		for _, event := range parseClaudeLineEvents(line, state) {
 			if event.Type == "" {
 				continue
@@ -107,9 +109,9 @@ func scanClaudeStdout(ctx context.Context, r interface{ Read([]byte) (int, error
 	})
 }
 
-// ——— 事件解析 ———
+// ——— event parsing ———
 
-func parseClaudeLineEvents(line string, state *claudeStreamState) []agent.Event {
+func parseClaudeLineEvents(line string, state *claudeStreamState) []agent.NodeEvent {
 	logs.Debugf("Parse Claude line: %s", line)
 	line = strings.TrimSpace(line)
 	if line == "" {
@@ -117,16 +119,14 @@ func parseClaudeLineEvents(line string, state *claudeStreamState) []agent.Event 
 	}
 	var event streamEvent
 	if sonic.Unmarshal([]byte(line), &event) != nil {
-		return []agent.Event{*events.NewMessageDelta("", line)}
+		return []agent.NodeEvent{agent.NewMessageUpdateEvent("", line)}
 	}
 	switch event.Type {
 	case "system":
 		endClaudeTextMessage(state)
 		if event.Subtype == "init" && strings.TrimSpace(event.SessionID) != "" {
-			return []agent.Event{{
-				Type:    events.EventProviderSessionStarted,
-				Content: strings.TrimSpace(event.SessionID),
-			}}
+			state.sessionID = strings.TrimSpace(event.SessionID)
+			return []agent.NodeEvent{agent.NewAgentStartEvent(strings.TrimSpace(event.SessionID))}
 		}
 		return nil
 	case "stream_event":
@@ -140,13 +140,14 @@ func parseClaudeLineEvents(line string, state *claudeStreamState) []agent.Event 
 		endClaudeTextMessage(state)
 		state.result = event.Result
 		state.isError = event.IsError
+		state.usage = usagePayloadFromClaudeUsage(event.Usage)
 		if state.closeStdin != nil {
 			state.closeStdin()
 		}
 		if event.IsError || event.Result == "" {
 			return nil
 		}
-		return []agent.Event{*events.NewMessageResult(event.Result, usagePayloadFromClaudeUsage(event.Usage))}
+		return []agent.NodeEvent{agent.NewMessageEndEvent(event.Result, state.usage)}
 	case "control_request":
 		endClaudeTextMessage(state)
 		return parseControlRequest(&event)
@@ -155,7 +156,7 @@ func parseClaudeLineEvents(line string, state *claudeStreamState) []agent.Event 
 	return nil
 }
 
-func parseStreamEvent(event *streamEvent, state *claudeStreamState) []agent.Event {
+func parseStreamEvent(event *streamEvent, state *claudeStreamState) []agent.NodeEvent {
 	if event.Event == nil || event.Event.Type != "content_block_delta" || event.Event.Delta == nil ||
 		event.Event.Delta.Type != "text_delta" {
 		endClaudeTextMessage(state)
@@ -167,14 +168,14 @@ func parseStreamEvent(event *streamEvent, state *claudeStreamState) []agent.Even
 	}
 	messageID := currentOrStartClaudeTextMessage(state)
 	rememberClaudeEmittedText(state, messageID, text)
-	return []agent.Event{*events.NewMessageDelta(messageID, text)}
+	return []agent.NodeEvent{agent.NewMessageUpdateEvent(messageID, text)}
 }
 
-func parseAssistantEvent(event *streamEvent, state *claudeStreamState) []agent.Event {
+func parseAssistantEvent(event *streamEvent, state *claudeStreamState) []agent.NodeEvent {
 	if event.Message == nil {
 		return nil
 	}
-	var parsed []agent.Event
+	var parsed []agent.NodeEvent
 	for _, block := range event.Message.Content {
 		switch block.Type {
 		case "text":
@@ -182,14 +183,14 @@ func parseAssistantEvent(event *streamEvent, state *claudeStreamState) []agent.E
 				state.lastAssistantText = block.Text
 				messageID, delta := claudeAssistantTextDelta(state, block.Text)
 				if delta != "" {
-					parsed = append(parsed, *events.NewMessageDelta(messageID, delta))
+					parsed = append(parsed, agent.NewMessageUpdateEvent(messageID, delta))
 				}
 			}
 		case "thinking":
 			if block.Thinking != "" {
 				messageID := firstNonEmptyString(state.currentTextMessageID, event.Message.ID)
 				endClaudeTextMessage(state)
-				parsed = append(parsed, *events.NewReasoningDelta(messageID, block.Thinking))
+				parsed = append(parsed, agent.NewReasoningUpdateEvent(messageID, block.Thinking))
 			}
 		case "tool_use":
 			endClaudeTextMessage(state)
@@ -208,13 +209,13 @@ func parseAssistantEvent(event *streamEvent, state *claudeStreamState) []agent.E
 
 func currentOrStartClaudeTextMessage(state *claudeStreamState) string {
 	if state == nil {
-		return events.NewMessageIDMapper().StartNew()
+		return cli.NewMessageIDMapper().StartNew()
 	}
 	if state.currentTextMessageID != "" {
 		return state.currentTextMessageID
 	}
 	if state.messageIDs == nil {
-		state.messageIDs = events.NewMessageIDMapper()
+		state.messageIDs = cli.NewMessageIDMapper()
 	}
 	state.currentTextMessageID = state.messageIDs.StartNew()
 	state.lastTextMessageID = state.currentTextMessageID
@@ -275,11 +276,11 @@ func claudeAssistantTextDelta(state *claudeStreamState, cumulativeText string) (
 	return messageID, cumulativeText
 }
 
-func parseUserEvent(event *streamEvent, state *claudeStreamState) []agent.Event {
+func parseUserEvent(event *streamEvent, state *claudeStreamState) []agent.NodeEvent {
 	if event.Message == nil {
 		return nil
 	}
-	var parsed []agent.Event
+	var parsed []agent.NodeEvent
 	for _, block := range event.Message.Content {
 		if block.Type == "tool_result" {
 			if !isClaudeTodoTool(claudeToolName(block.ToolUseID, state)) {
@@ -291,8 +292,7 @@ func parseUserEvent(event *streamEvent, state *claudeStreamState) []agent.Event 
 	return parsed
 }
 
-func parseControlRequest(event *streamEvent) []agent.Event {
-	// 从 request 嵌套对象提取字段（新版 claude CLI 格式）
+func parseControlRequest(event *streamEvent) []agent.NodeEvent {
 	toolUseID := event.ToolUseID
 	toolName := event.Name
 	input := event.Input
@@ -310,26 +310,23 @@ func parseControlRequest(event *streamEvent) []agent.Event {
 	if toolUseID == "" || toolName == "" {
 		return nil
 	}
-	// request_id 用于 control_response 回写匹配，必须是 UUID 格式
 	reqID := firstNonEmptyString(event.RequestID, toolUseID)
 	desc := fmt.Sprintf("%s: %s", toolName, summarizeInput(input))
-	payload := events.ApprovalRequestPayload{
+	return []agent.NodeEvent{agent.NewApprovalRequestedEvent(agent.ApprovalRequestedPayload{
 		RequestID:   reqID,
 		ToolName:    toolName,
 		ToolCallID:  toolUseID,
 		Description: desc,
-		Arguments:   events.MarshalRaw(input),
+		Arguments:   agent.MarshalRawJSON(input),
 		Metadata:    map[string]string{"engine": "claude"},
-	}
-	return []agent.Event{*events.NewApprovalRequested(payload)}
+	})}
 }
 
-// summarizeInput 为审批提示生成可读的工具输入摘要。
+// summarizeInput generates a readable summary of tool input for approval prompts.
 func summarizeInput(input map[string]any) string {
 	if len(input) == 0 {
 		return ""
 	}
-	// 尝试 Claude Code 工具的常见键名
 	for _, key := range []string{"command", "file_path", "path", "content", "url"} {
 		if v, ok := input[key]; ok {
 			s := fmt.Sprintf("%v", v)

@@ -171,16 +171,16 @@ Worker 的 `internal/worker/command/run` 负责校验 `WorkerCommand`、映射
 旧 `internal/eventengine` 已删除。外部事件由 Connector 标准化后进入消息总线，
 运行任务统一通过 Worker Command 主链执行。
 
-### 3.5 Assistant 业务执行层
+### 3.5 AgentRun 业务执行层
 
-**包：** `internal/assistant`
+**包：** `internal/worker/agentrun`
 
-Assistant 层是业务边界，负责 Session、Workspace、Memory、Skill、Artifact、Git、
-业务状态和终端归档。`PreparedRun` 同时保存不可变业务快照、
+AgentRun 层是 Worker 内的业务 Run 边界，负责 Session、Workspace、Memory、Skill、Artifact、Plan、Git、
+业务状态、Provider Session 和终端归档。`PreparedRun` 同时保存不可变业务快照、
 `WorkspacePreparation` 与纯 `agent.ExecutionRequest`。
 
-`assistant.Service` 独占 `run.started/completed/failed/cancelled`，并保证每次 Run
-恰好一个业务终态；Executor 不接触业务持久化。
+`agentrun.Service` 独占 `run.started/completed/failed/cancelled`，并保证每次 Run
+恰好一个业务终态；Executor 不接触业务持久化、NATS、Session 或 Server API。
 
 ### 3.6 Agent Execution（独立执行层）
 
@@ -190,29 +190,31 @@ Assistant 层是业务边界，负责 Session、Workspace、Memory、Skill、Art
 
 * `ExecutionRequest` / `ExecutionResult`；
 * `Runtime` / `Registry` / `Executor`；
-* `agent.Event` / `Observer`；
+* `NodeEvent` / `NodeObserver`；
 * 强类型 `Tool`、approval 和 question 契约。
 
-Runtime 只产生 message、reasoning、tool、todo、artifact、approval、question 和
-provider-session 活动事件。`execution.started/completed/failed/cancelled` 由
-Executor 发出。
+Runtime 只产生 message、reasoning、tool、todo、approval、question、provider-session
+和 plan 等执行节点事件。业务 `run.*`、Seq、Journal 和 NATS 发布由 Worker AgentRun 链路处理。
 
 ```
 backend/agent/
 ├── executor.go
 ├── runtime.go
 ├── registry.go
+├── node_event.go
+├── observe.go
 ├── result.go
 ├── tool.go
+├── interaction.go
 └── runtime/
-    ├── native/       Eino 原生 Runtime
+    ├── native/       内建 Runtime（Eino 仅为内部实现细节）
     ├── claude/       Claude Code Runtime
     ├── codex/        Codex Runtime
     ├── opencode/     OpenCode Runtime
-    ├── externalcli/  三个 CLI Runtime 共用的进程与 provider-session 设施
-    ├── provider/     CLI provider 进程协议
-    ├── events/       活动 payload、构造器和 Sink
-    └── todo/         执行期 Todo 能力
+    └── internal/
+        ├── cli/      CLI Runtime 共用 invocation/runner
+        ├── process/  子进程、环境和工作目录设施
+        └── todo/     Runtime 内部 Todo 事件适配
 ```
 
 该目录递归禁止依赖 `internal/*`、业务配置、messaging 和业务 Tool 实现。
@@ -274,8 +276,8 @@ backend/tools/         Tool 执行代码
 
 **当前状态：**
 
-`internal/skill/` 提供 Catalog 与 Store；`internal/assistant/bootstrap/skilllinks`
-负责将业务 Skill 同步到执行工作区；Assistant Preparer 将 Skill prompt 和强类型
+`internal/skill/` 提供 Catalog 与 Store；`internal/skill/links`
+负责将业务 Skill 同步到执行工作区；AgentRun Preparer 将 Skill prompt 和强类型
 Tool 注入纯 `agent.ExecutionRequest`。Tool 实现在 `backend/tools/`，公共执行边界
 只使用 `json.RawMessage` 和具名结果类型。
 
@@ -428,9 +430,16 @@ backend/
 │   ├── executor.go            execution 生命周期与 Runtime 调用
 │   ├── runtime.go             ExecutionRequest / Result / Runtime
 │   ├── registry.go            Runtime 注册与默认选择
-│   ├── result.go              唯一 agent.Event 信封
+│   ├── node_event.go          NodeEvent / NodeObserver / 强类型 payload
+│   ├── observe.go             串行 Observer
+│   ├── result.go              ExecutionResult 辅助类型、Usage、ToolCallRecord
 │   ├── tool.go                强类型 Tool / approval / question
-│   └── runtime/               native / claude / codex / opencode
+│   └── runtime/               Runtime Adapter 与共享内部机制
+│       ├── native/            内建 Runtime Adapter
+│       ├── claude/            Claude CLI Runtime Adapter
+│       ├── codex/             Codex CLI Runtime Adapter
+│       ├── opencode/          OpenCode CLI Runtime Adapter
+│       └── internal/          Runtime 共享实现（cli / process / todo）
 │
 ├── internal/                  私有核心代码（强制隔离）
 │   ├── api/                   HTTP 适配层（契约驱动）
@@ -444,13 +453,6 @@ backend/
 │   │       ├── gitlab/
 │   │       └── wework/
 │   │
-│   ├── assistant/            Lework Assistant 业务包装层
-│   │   ├── service.go        唯一业务 Run 生命周期
-│   │   ├── prepared_run.go   业务快照 + Workspace + ExecutionRequest
-│   │   ├── journal.go        完整运行归档
-│   │   ├── preparer_impl.go  Workspace / Skill / Memory / Tool 准备
-│   │   └── finalizer_impl.go Artifact / Git / 业务终态
-│   │
 │   ├── service/              业务逻辑层
 │   │
 │   ├── skill/                Skill 系统（运行时管理）
@@ -459,14 +461,16 @@ backend/
 │   │   └── store/            Skill 持久化存储
 │   │
 │   ├── worker/               Worker 管理系统
-│   │   ├── client/           Worker 客户端（WebSocket + 任务执行）
-│   │   ├── server/           Worker 管理服务（HTTP + WS 服务器）
-│   │   ├── scheduler/        Worker 调度器（进程/Docker 容器）
+│   │   ├── app/              Worker 依赖装配与 Runtime Adapter wiring
 │   │   ├── command/          WorkerCommand adapters
 │   │   │   └── run/inbox/    SQLiteRunInbox 持久化（v3.3 新增）
-│   │   ├── run/              RunCoordinator
-│   │   ├── eventpub/         agent.Event → NATS 双 lane
+│   │   ├── run/              RunCoordinator（并发、合并、取消）
+│   │   ├── agentrun/         业务 Run 生命周期、NodeEvent 映射、Journal、Finalizer
+│   │   ├── eventpub/         完整 messaging.RunEvent → NATS
+│   │   ├── runtimehost/      Worker 对 Agent ports 的实现
 │   │   ├── mcp/              Worker MCP infrastructure
+│   │   ├── scheduler/        Worker 调度器
+│   │   ├── server/           Worker 管理服务
 │   │   └── wsproto/          Worker-Server WebSocket 协议
 │   │
 │   ├── memory/               记忆系统
@@ -487,13 +491,6 @@ backend/
 │   ├── messaging/            领域消息协议（command / event / subject）
 │   ├── event/               交互事件常量
 │   └── lework/               Lework 工具函数
-│
-├── runtime/                  运行时层（独立于 internal）
-│   ├── engines/             外部 AI CLI 引擎抽象
-│   │   ├── builtin/         内置引擎工厂
-│   │   ├── claude/          Claude Code 引擎适配
-│   │   └── codex/           Codex CLI 引擎适配
-│   └── events/              共享事件契约
 │
 ├── types/                    核心类型定义
 ├── config/                   配置管理
@@ -541,16 +538,16 @@ backend/
 ### Phase 2（当前实际）
 
 * `lework` 双进程（Server + Worker），通过 NATS JetStream 通信
-* GitHub 自动化闭环（Webhook → NATS → Event Engine → Agent Runtime）
+* GitHub 自动化闭环（Webhook → NATS → WorkerCommand → agentrun → Agent Runtime）
 * 事件总线（NATS JetStream）
 * Connector 层完成（GitHub / GitLab / WeWork）
-* Agent Runtime 完整实现：Lework 原生运行时 + 外部 CLI 引擎适配（Claude Code, Codex）+ 多引擎路由器 + Lifecycle 层
-* Worker 管理系统：进程/Docker 容器调度 + WebSocket 通信（server/client）+ 任务消费者（taskconsumer）
+* Agent Runtime 完整实现：内建 native + Claude/Codex/OpenCode CLI Runtime Adapter，同级实现 `agent.Runtime`
+* Worker 管理系统：RunCoordinator + agentrun 业务包装层 + runtimehost ports + eventpub RunEvent 发布
 * Session 管理（消息增删、状态流转、NATS topic 构建）
 * Skill 系统三层分离：`internal/skill/`（目录/运行时/存储）+ `backend/skills/`（SKILL.md 文件）+ `backend/tools/`（Tool 执行）
 * MCP 服务器集成（Worker 运行时引导）
 * **cmd.run 异步分发**：SubscribeManualDurable + ManualDelivery + SQLiteRunInbox 持久化 + RecoverNonTerminal 崩溃恢复
-* ⚠️ Event Engine 与 Execution Engine 未完全分离
+* Runtime 节点事件与 Worker/Server 业务事件分离：`agent.NodeEvent` 只在 Worker `agentrun` 边界映射为 `messaging.RunEvent`
 
 ### Phase 1（原始计划）
 
@@ -593,8 +590,8 @@ backend/
 ### v3.2 (2026-05-13) — Agent Runtime 重构 + Worker 系统完成
 
 * 统一 Runner 接口，消除 AgentRuntime 与 Runner 重复定义
-* Agent Runtime 包结构大幅演进：新增 runtime 服务层（Environment + Router）、lifecycle 生命周期管理、lework 原生运行时、externalcli 外部 CLI 适配
-* Worker 管理系统完整实现：server/client/scheduler/taskconsumer/wsproto
+* Agent Runtime 包结构在当时引入 runtime 服务层、lifecycle、原生运行时和 externalcli 外部 CLI 适配；这些旧命名后续已收敛为 `backend/agent/runtime/{native,claude,codex,opencode,internal}`
+* Worker 管理系统在当时完成多项基础能力；当前执行主链路已收敛为 WorkerCommand → RunCoordinator → agentrun
 * 新增 MCP 服务器集成、pkg/dm 领域消息协议、pkg/lework 工具函数
 * 移除废弃的 backend/gateway 和 backend/interaction 模块，Connector 并入 internal/api/connectors
 
@@ -672,7 +669,7 @@ Connector → Event → Event Engine → Execution Engine → Capability → Ser
 |------------|------------|
 | 把所有逻辑写进 Event Handler | Handler → 调 Execution Engine |
 | Event Handler 使用 switch 硬编码路由 | Router 独立 + Handler 插件化 |
-| Agent Runtime 直接调 MQ / DB | 通过 Execution Engine / Skill / Infra |
+| Agent Runtime 直接调 MQ / DB | Runtime 只输出 `NodeEvent`，由 Worker `agentrun/runtimehost/eventpub` 处理业务资源和事件发布 |
 | cmd.run handler 同步阻塞 Ack | 持久化到 inbox 后立即 Ack，异步执行 |
 | 所有 lane 使用相同的订阅模式 | run 手动确认，其余自动确认 |
 | 不处理崩溃恢复 | 必须实现 RecoverNonTerminal |

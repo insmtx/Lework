@@ -1,782 +1,1240 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lework Server / Worker 与 Agent 执行架构设计说明</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; line-height: 1.7; padding: 20px; }
-  .container { max-width: 1200px; margin: 0 auto; }
-  h1 { color: #58a6ff; font-size: 28px; margin: 30px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #30363d; }
-  h2 { color: #58a6ff; font-size: 22px; margin: 28px 0 12px; }
-  h3 { color: #79c0ff; font-size: 17px; margin: 22px 0 10px; }
-  p { margin: 10px 0; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-right: 6px; }
-  .badge-green { background: #238636; color: #fff; }
-  .badge-yellow { background: #d29922; color: #000; }
-  .badge-blue { background: #1f6feb; color: #fff; }
-  .badge-red { background: #da3633; color: #fff; }
-  .badge-purple { background: #8957e5; color: #fff; }
-  .layer-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin: 16px 0; }
-  .layer-card h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; }
-  .flow-step { background: #161b22; border-left: 3px solid #58a6ff; padding: 12px 16px; margin: 8px 0; border-radius: 0 6px 6px 0; }
-  .flow-step .step-num { color: #58a6ff; font-weight: 700; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  th, td { border: 1px solid #30363d; padding: 10px 14px; text-align: left; }
-  th { background: #21262d; color: #58a6ff; font-weight: 600; }
-  tr:nth-child(even) { background: #161b22; }
-  code { background: #21262d; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #79c0ff; }
-  .code-block { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 14px; margin: 12px 0; overflow-x: auto; font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-  .code-block code { background: none; padding: 0; color: #c9d1d9; }
-  .warn { background: #21262d; border-left: 3px solid #d29922; padding: 12px; margin: 12px 0; border-radius: 0 6px 6px 0; }
-  .arch-diagram { background: #fff; border-radius: 8px; padding: 20px; margin: 16px 0; text-align: center; overflow-x: auto; }
-  ul, ol { margin: 8px 0 8px 24px; }
-  li { margin: 4px 0; }
-  a { color: #58a6ff; }
-  .file-ref { color: #8b949e; font-size: 13px; }
-  .dir-label { color: #8b949e; font-size: 13px; margin-bottom: 4px; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leros Server / Worker / Agent Runtime Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: #fff;
+    }
+
+    .container {
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    .header {
+      margin-bottom: 2rem;
+    }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+      box-shadow: 0 0 18px rgba(34, 211, 238, 0.6);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.48; transform: scale(0.82); }
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.875rem;
+      margin-left: 1.75rem;
+      line-height: 1.6;
+    }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    }
+
+    svg {
+      width: 100%;
+      min-width: 1120px;
+      display: block;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+
+    .card h3 {
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+
+    .card ul {
+      list-style: none;
+      color: #94a3b8;
+      font-size: 0.75rem;
+      line-height: 1.65;
+    }
+
+    .card li {
+      margin-bottom: 0.375rem;
+    }
+
+    code {
+      color: #7dd3fc;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(51, 65, 85, 0.75);
+      border-radius: 0.25rem;
+      padding: 0.05rem 0.25rem;
+      font-size: 0.72rem;
+    }
+
+    .section {
+      margin-top: 2rem;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid #1e293b;
+      border-radius: 1rem;
+      padding: 1.5rem;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .section-number {
+      color: #020617;
+      background: #22d3ee;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+    }
+
+    .section h2 {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .section-intro {
+      color: #94a3b8;
+      font-size: 0.78rem;
+      line-height: 1.7;
+      margin-bottom: 1.25rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 1rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .panel {
+      background: rgba(2, 6, 23, 0.42);
+      border: 1px solid #1e293b;
+      border-radius: 0.75rem;
+      padding: 1rem;
+    }
+
+    .panel h3 {
+      font-size: 0.84rem;
+      margin-bottom: 0.6rem;
+      color: #fff;
+    }
+
+    .panel h4 {
+      font-size: 0.78rem;
+      margin: 0.8rem 0 0.45rem;
+      color: #c4b5fd;
+    }
+
+    .panel p,
+    .panel li {
+      color: #94a3b8;
+      font-size: 0.74rem;
+      line-height: 1.65;
+    }
+
+    .panel ul,
+    .panel ol {
+      list-style: none;
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(100, 116, 139, 0.7);
+      color: #cbd5e1;
+      background: rgba(30, 41, 59, 0.55);
+      padding: 0.16rem 0.46rem;
+      font-size: 0.68rem;
+      margin-right: 0.3rem;
+      margin-bottom: 0.3rem;
+      white-space: nowrap;
+    }
+
+    .code-block {
+      background: rgba(2, 6, 23, 0.76);
+      border: 1px solid #1e293b;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      color: #cbd5e1;
+      font-size: 0.72rem;
+      line-height: 1.6;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .relation-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 0.75rem;
+      font-size: 0.72rem;
+    }
+
+    .relation-table th,
+    .relation-table td {
+      border: 1px solid #1e293b;
+      padding: 0.7rem;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    .relation-table th {
+      color: #bae6fd;
+      background: rgba(8, 47, 73, 0.45);
+      font-weight: 700;
+    }
+
+    .relation-table td {
+      color: #94a3b8;
+      background: rgba(2, 6, 23, 0.35);
+      line-height: 1.55;
+    }
+
+    .flow-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+      margin: 0.8rem 0 1.2rem;
+      color: #94a3b8;
+      font-size: 0.72rem;
+    }
+
+    .flow-chip {
+      border: 1px solid #334155;
+      background: rgba(15, 23, 42, 0.8);
+      border-radius: 999px;
+      padding: 0.32rem 0.55rem;
+      color: #cbd5e1;
+    }
+
+    .flow-arrow {
+      color: #64748b;
+    }
+
+    .mini-diagram {
+      background: rgba(2, 6, 23, 0.55);
+      border: 1px solid #1e293b;
+      border-radius: 0.75rem;
+      padding: 0.75rem;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+
+    .mini-diagram svg {
+      min-width: 860px;
+      width: 100%;
+    }
+
+    .callout {
+      border-left: 3px solid #fb923c;
+      background: rgba(251, 146, 60, 0.08);
+      color: #fed7aa;
+      border-radius: 0 0.5rem 0.5rem 0;
+      padding: 0.75rem 0.9rem;
+      font-size: 0.74rem;
+      line-height: 1.65;
+      margin-top: 1rem;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      color: #475569;
+      font-size: 0.75rem;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 0.5rem;
+      margin-left: auto;
+      flex-shrink: 0;
+      align-items: center;
+    }
+
+    .toolbar-toggle {
+      background: transparent;
+      border: none;
+      color: #475569;
+      cursor: pointer;
+      font-size: 1.25rem;
+      line-height: 1;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      transition: color 0.2s, background 0.2s;
+    }
+
+    .toolbar-toggle:hover {
+      color: #94a3b8;
+      background: rgba(30, 41, 59, 0.5);
+    }
+
+    .toolbar-actions {
+      display: none;
+      gap: 0.5rem;
+    }
+
+    .toolbar.expanded .toolbar-actions {
+      display: flex;
+    }
+
+    .toolbar-actions button {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 0.375rem 0.75rem;
+      border-radius: 0.375rem;
+      font-family: inherit;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .toolbar-actions button:hover {
+      background: rgba(51, 65, 85, 0.8);
+      color: white;
+      border-color: #475569;
+    }
+
+    @media print {
+      body { background: #020617; padding: 1rem; }
+      .toolbar { display: none !important; }
+    }
+  </style>
 </head>
 <body>
-<div class="container">
-<h1>Lework Server / Worker 与 Agent 执行架构设计说明</h1>
-<p>本文档描述 Server（控制面）、Worker（执行面）以及独立 Agent 执行层的当前职责边界。2026-07-01 完成的 cmd.run 异步分发改造引入了 durable inbox 和 at-least-once 崩溃恢复机制。所有描述均以当前代码为准。</p>
-<div class="warn"><strong>文档状态：</strong>当前实施架构。最近变更：cmd.run lane 采用 SubscribeManualDurable + SQLite inbox 异步分发，替代了之前的同步 SeqTracker 方案。</div>
-
-<h2>一、整体架构概览</h2>
-
-<div class="arch-diagram">
-<pre style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.5; text-align: left; color: #0d1117;">
-┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                             Lework Current Architecture (2026-07)                                  │
-│                                                                                                  │
-│  ┌──────────────────────────────┐       NATS JetStream      ┌──────────────────────────────────┐│
-│  │ Server / Control Plane       │  WorkerCommand (4 lanes)  │ Worker / Execution Plane          ││
-│  │                              │ ────────────────────────→ │   ┌─────────────────────────┐    ││
-│  │ API → Service → EventBus     │                           │   │  SubscribeManualDurable │    ││
-│  │                              │  run.stream / run.state   │   │  (cmd.run only)          │    ││
-│  │ State/Stream Projectors      │ ←──────────────────────── │   └─────────┬───────────────┘    ││
-│  │ Session persistence + SSE    │                           │             ▼                      ││
-│  └──────────────────────────────┘                           │  Dispatch: ManualDelivery          ││
-│                                                              │   → ManualDelivery 包装 *nats.Msg  ││
-│                                                              │             │                      ││
-│                                                              │  Command Adapter (validate)        ││
-│                                                              │             │                      ││
-│                                                              │  Admission Sem → SQLiteRunInbox    ││
-│                                                              │  (PutIfAbsent, 持久化)             ││
-│                                                              │             │                      ││
-│                                                              │  Ack (消息确认)                    ││
-│                                                              │             │                      ││
-│                                                              │  ┌─ 后台 goroutine 异步执行 ──┐    ││
-│                                                              │  │ RunCoordinator              │    ││
-│                                                              │  │ debounce / concurrency /    │    ││
-│                                                              │  │ cancel / close              │    ││
-│                                                              │  │        ↓                    │    ││
-│                                                              │  │ internal/assistant.Service  │    ││
-│                                                              │  │ prepare business context    │    ││
-│                                                              │  │        ↓                    │    ││
-│                                                              │  │ backend/agent.Executor      │    ││
-│                                                              │  │ Runtime Registry            │    ││
-│                                                              │  │   ├─ native (Eino)          │    ││
-│                                                              │  │   ├─ claude                 │    ││
-│                                                              │  │   ├─ codex                  │    ││
-│                                                              │  │   └─ opencode               │    ││
-│                                                              │  │        ↓                    │    ││
-│                                                              │  │ Finalizer + EventMapper     │    ││
-│                                                              │  │ → inbox MarkCompleted/Failed│    ││
-│                                                              │  └─────────────────────────────┘    ││
-│                                                              └──────────────────────────────────┘│
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-</pre>
-</div>
-
-<p>Lework 采用 <strong>Server（控制面）- Worker（执行面）</strong> 分离架构，通过 <strong>NATS JetStream</strong> 解耦通信。Worker 内部进一步分为：通信订阅与分发、消息确认控制、持久化 inbox、调度协调、Lework 业务包装和独立 Agent 执行 六层。</p>
-
-<h2>二、架构层级详解</h2>
-
-<h3>2.1 进程入口层（cmd）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-green">cmd</span> 进程入口</h3>
-<p class="file-ref">对应文件: backend/cmd/lework/server.go, backend/cmd/lework/worker.go</p>
-<p>进程入口层通过 Cobra CLI 启动两个独立的进程：</p>
-<ul>
-  <li><strong>Server 进程</strong>（<code>lework server</code>）—— 控制面，监听 <code>:8080</code>，承载 HTTP API、事件发布、数据库连接。</li>
-  <li><strong>Worker 进程</strong>（<code>lework worker [codex|claude|opencode]</code>）—— 执行面，监听 <code>:8081</code>，通过 NATS JetStream 消费 Server 下发的命令。</li>
-</ul>
-<p>Worker 进程在启动时执行以下顺序：</p>
-<ol>
-  <li>加载并校验配置（org_id / worker_id 必须）</li>
-  <li>Bootstrap 引擎（同步内置 skill、配置 CLI MCP）</li>
-  <li>创建 NATS 连接、Memory Store、Runtime Service</li>
-  <li>创建 RunHandler（含 SQLite inbox，使用共享 <code>lework.db</code>）</li>
-  <li><strong>调用 RecoverNonTerminal</strong>：恢复上次崩溃时未完成的 inbox 记录</li>
-  <li>创建 Dispatcher，启动四个 lane 订阅 goroutine</li>
-  <li>注册生命周期关闭函数</li>
-  <li>等待退出信号</li>
-</ol>
-</div>
-
-<h3>2.2 API / 路由层</h3>
-<div class="layer-card">
-<h3><span class="badge badge-blue">API</span> HTTP API &amp; 路由</h3>
-<p class="file-ref">对应文件: backend/internal/api/handler/, backend/internal/api/middleware/, backend/internal/worker/router/router.go</p>
-
-<p><strong>Server 端 API 注册</strong> — <code>api.SetupRouter()</code> 在 Gin 上注册所有 REST 端点：</p>
-<ul>
-  <li>Session 管理（创建 / 列表 / 消息）</li>
-  <li>Project 管理（CRUD + 文件树）</li>
-  <li>Digital Assistant 管理</li>
-  <li>Skill Marketplace（查询 / 安装 / 卸载 / 下载）</li>
-  <li>Connector 管理（GitHub 等外部集成）</li>
-</ul>
-
-<p><strong>Worker 端路由注册</strong> — <code>router.SetupRouter()</code> 注册 Worker 本地 HTTP 端点：</p>
-<table>
-  <tr><th>端点</th><th>作用</th></tr>
-  <tr><td><code>GET /health</code></td><td>健康检查</td></tr>
-  <tr><td><code>/v1/mcp</code></td><td>MCP 协议端点（Agent 通过 MCP 调用 Worker 的工具能力）</td></tr>
-  <tr><td><code>/v1/chat/completions</code></td><td>OpenAI Chat Completions 模型路由（modelrouter v2）</td></tr>
-  <tr><td><code>/v1/messages</code></td><td>Anthropic Messages 模型路由</td></tr>
-  <tr><td><code>/v1/responses</code></td><td>OpenAI Responses 模型路由</td></tr>
-</table>
-</div>
-
-<h3>2.3 Service 层（业务逻辑）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-yellow">Service</span> 业务逻辑层</h3>
-<p class="file-ref">对应文件: backend/internal/service/</p>
-<p>Server 端的核心业务编排层。该层通过 <code>infra/mq</code> 的 EventBus 向 NATS JetStream 发布 <code>WorkerCommand</code>。</p>
-<p>关键类型 <code>WorkerCommand</code>（定义于 <code>backend/pkg/messaging/command.go</code>）：</p>
-<div class="code-block"><code>
-type WorkerCommand struct {
-    ID        string              // 消息唯一 ID
-    Type      MessageType         // "worker.command"
-    CreatedAt time.Time
-    Trace     TraceContext        // {RequestID, TaskID, RunID}
-    Route     RouteContext        // {OrgID, WorkerID, SessionID}
-    Body      WorkerCommandBody   // 根据 CommandType 携带不同 Payload
-    Metadata  json.RawMessage     // 强类型命令元数据的 JSON
-}
-
-type WorkerCommandBody struct {
-    CommandType CommandType       // agent.run | run.cancel | approval.resolve | question.answer | skill.manage
-    Payload     json.RawMessage   // 对应类型的 JSON payload
-    ReplyTo     string            // NATS reply inbox
-}
-</code></div>
-<p>五种命令类型分别路由到不同的 NATS subject（Lane）：</p>
-<table>
-  <tr><th>CommandType</th><th>Lane</th><th>Subject 模式</th><th>说明</th></tr>
-  <tr><td><code>agent.run</code></td><td><code>cmd.run</code></td><td>org.{org_id}.worker.{worker_id}.cmd.run</td><td>Agent 执行任务（手动确认）</td></tr>
-  <tr><td><code>run.cancel</code></td><td><code>cmd.control</code></td><td>org.{org_id}.worker.{worker_id}.cmd.control</td><td>取消正在运行的任务（自动确认）</td></tr>
-  <tr><td><code>approval.resolve</code></td><td><code>cmd.interaction</code></td><td>org.{org_id}.worker.{worker_id}.cmd.interaction</td><td>审批决策回传（自动确认）</td></tr>
-  <tr><td><code>question.answer</code></td><td><code>cmd.interaction</code></td><td>（同上）</td><td>问题答案回传（自动确认）</td></tr>
-  <tr><td><code>skill.manage</code></td><td><code>cmd.skill</code></td><td>org.{org_id}.worker.{worker_id}.cmd.skill</td><td>Skill 安装/列表/卸载（自动确认）</td></tr>
-</table>
-</div>
-
-<h3>2.4 消息中间件层（infra/mq）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-red">infra/mq</span> NATS JetStream 事件总线</h3>
-<p class="file-ref">对应文件: backend/internal/infra/mq/</p>
-<p>基于 NATS JetStream 实现 <code>EventBus</code> / <code>Publisher</code> / <code>Subscriber</code> 接口。新增以下关键抽象：</p>
-
-<h3 style="margin-top: 14px;">ManualDelivery 接口</h3>
-<p class="file-ref">对应文件: backend/internal/infra/mq/delivery.go, backend/internal/infra/mq/nats_delivery.go</p>
-<p><code>ManualDelivery</code> 抽象了一条需要手动确认的 NATS JetStream 消息。由 cmd.run lane handler 使用，以精确控制 Ack 的调用时机：</p>
-<div class="code-block"><code>
-type ManualDelivery interface {
-    Metadata() (*Metadata, error)         // Stream/Consumer/NumDelivered
-    Ack() error                           // 确认成功
-    Nak() error                           // 请求重试
-    NakWithDelay(delay time.Duration) error // 延迟重试
-    Term() error                          // 永久终止，不再重试
-    InProgress() error                    // 延长 Ack 超时
-}
-</code></div>
-<p>生产实现 <code>natsDelivery</code> 包装 <code>*nats.Msg</code>；测试代码可通过 fake 实现验证确认序列。</p>
-
-<h3 style="margin-top: 14px;">SubscribeManualDurable</h3>
-<p class="file-ref">对应文件: backend/internal/infra/mq/bus.go:38</p>
-<p><code>Subscriber</code> 接口新增 <code>SubscribeManualDurable</code> 方法。与 <code>Subscribe</code>（自动 Ack）的区别：</p>
-<table>
-  <tr><th>方法</th><th>Ack 模式</th><th>使用场景</th></tr>
-  <tr><td><code>Subscribe</code></td><td>handler 返回后自动 Ack，panic 时自动 Nak</td><td>control / interaction / skill lane</td></tr>
-  <tr><td><code>SubscribeManualDurable</code></td><td>handler 自行调用 Ack/Nak/Term</td><td>cmd.run lane</td></tr>
-</table>
-</div>
-
-<h3>2.5 Worker 命令分发层（command）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-blue">command</span> 统一命令分发器</h3>
-<p class="file-ref">对应文件: backend/internal/worker/command/dispatcher.go</p>
-<p>Dispatcher 是 Worker 端统一的 NATS 命令入口，负责四条 lane 的订阅、<code>WorkerCommand</code> 解析和 handler 分发。</p>
-<ul>
-  <li><strong>run lane 使用 SubscribeManualDurable</strong>：handler 收到原始 <code>*nats.Msg</code>，由 dispatcher 包装为 <code>ManualDelivery</code> 后传入手动确认 handler。</li>
-  <li><strong>其余 lane 使用 Subscribe（自动确认）</strong>：handler 同步完成处理后自动 Ack。</li>
-</ul>
-<table>
-  <tr><th>Lane</th><th>订阅模式</th><th>Handler 接口</th><th>实现者</th><th>处理逻辑</th></tr>
-  <tr>
-    <td><code>cmd.run</code></td>
-    <td><span class="badge badge-purple">手动确认</span></td>
-    <td><code>RunHandler</code></td>
-    <td><code>command/run.Handler</code></td>
-    <td>校验 → 准入 sem → SQLite inbox 持久化 → goroutine 异步执行 → Ack；永久错误 Term，临时错误 NakWithDelay</td>
-  </tr>
-  <tr>
-    <td><code>cmd.control</code></td>
-    <td><span class="badge badge-green">自动确认</span></td>
-    <td><code>ControlHandler</code></td>
-    <td><code>command/run.Handler</code></td>
-    <td>取消正在运行的 Agent Run（通过 context.CancelFunc）</td>
-  </tr>
-  <tr>
-    <td><code>cmd.interaction</code></td>
-    <td><span class="badge badge-green">自动确认</span></td>
-    <td><code>InteractionHandler</code></td>
-    <td><code>command/interaction.Handler</code></td>
-    <td>审批决策 / 问题答案 → 调用注入 Runtime 的 agent.InteractionHandler 唤起阻塞执行</td>
-  </tr>
-  <tr>
-    <td><code>cmd.skill</code></td>
-    <td><span class="badge badge-green">自动确认</span></td>
-    <td><code>SkillHandler</code></td>
-    <td><code>command/skill.Handler</code></td>
-    <td>Skill install/list/detail/uninstall/import → 通过 core NATS reply 返回结果</td>
-  </tr>
-</table>
-</div>
-
-<h3>2.6 Worker Run 异步分发层（command/run）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-purple">run handler</span> 异步分发 + 持久化 Inbox</h3>
-<p class="file-ref">对应目录: backend/internal/worker/command/run/</p>
-
-<p>这是 2026-07-01 的新增核心层。Handler 实现了基于持久化 inbox 的异步分发，提供 at-least-once 的崩溃恢复语义。</p>
-
-<h3 style="margin-top: 14px;">消息确认决策</h3>
-<table>
-  <tr><th>场景</th><th>确认操作</th><th>原因</th></tr>
-  <tr><td>Payload/Route/Model 校验失败</td><td><code>Term()</code></td><td>永久性错误，重试无意义</td></tr>
-  <tr><td>inbox 写入失败</td><td><code>NakWithDelay(5s)</code></td><td>临时故障，等待重试</td></tr>
-  <tr><td>持久化成功 + 启动后台 goroutine</td><td><code>Ack()</code></td><td>消息已安全持久化，异步执行</td></tr>
-  <tr><td>无 JetStream metadata</td><td><code>NakWithDelay(5s)</code></td><td>无法追踪 seq，请求重新投递</td></tr>
-  <tr><td>准入关闭（shutdown 中）</td><td><code>NakWithDelay(5s)</code></td><td>等待下次投递</td></tr>
-  <tr><td>semaphore 等待超时</td><td><code>NakWithDelay(5s)</code></td><td>并发已满且 InProgress 心跳仍在发送</td></tr>
-</table>
-
-<h3 style="margin-top: 14px;">异步分发流程</h3>
-<ol>
-  <li><strong>admit 统一准入</strong>：获取 admission semaphore（等待时每 15s 发送 InProgress 心跳防超时）</li>
-  <li><strong>SQLite 持久化</strong>：调用 <code>PutIfAbsent(topic, seq, cmd)</code>，已存在的记录通过幂等判断处理</li>
-  <li><strong>状态检查</strong>：检查 admission 是否开放、注册 inflight 追踪、增加 WaitGroup 计数</li>
-  <li><strong>启动 goroutine</strong>：<code>go dispatchAsync()</code>，然后立即 Ack</li>
-  <li><strong>异步执行</strong>：goroutine 中构建 RunSubmission → Coordinator.Submit → 执行完成 → inbox MarkCompleted / MarkFailed</li>
-</ol>
-</div>
-
-<h3>2.7 持久化 Inbox 层（run/inbox）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-purple">SQLiteRunInbox</span> Durable Inbox</h3>
-<p class="file-ref">对应文件: backend/internal/worker/command/run/inbox/inbox.go</p>
-<p><code>SQLiteRunInbox</code> 使用 SQLite 存储 <code>WorkerCommand</code> JSON，key 为 <code>(topic, stream_seq)</code> 唯一约束。</p>
-
-<p><strong>表结构（worker_run_inbox）：</strong></p>
-<div class="code-block"><code>
-CREATE TABLE worker_run_inbox (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    topic      TEXT NOT NULL,                              -- NATS subject
-    stream_seq INTEGER NOT NULL,                           -- JetStream 序列号
-    command    TEXT NOT NULL,                               -- WorkerCommand JSON
-    status     TEXT NOT NULL DEFAULT 'pending',             -- pending / processing / completed / failed
-    error_msg  TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-    UNIQUE(topic, stream_seq)
-);
-</code></div>
-
-<p><strong>RunInbox 接口：</strong></p>
-<div class="code-block"><code>
-type RunInbox interface {
-    PutIfAbsent(ctx, topic, streamSeq, cmd) → (inserted, existingRecord, error)
-    MarkProcessing(ctx, topic, streamSeq) → error
-    MarkCompleted(ctx, topic, streamSeq) → error
-    MarkFailed(ctx, topic, streamSeq, errMsg) → error
-    GetNonTerminal(ctx, topic) → records           // 崩溃恢复用
-    DeleteTerminalBefore(ctx, topic, before) → count // 清理过期记录（72h 保留）
-    Close() → error
-}
-</code></div>
-
-<p>Inbox 保留终端记录 72 小时，启动时自动清理过期项。</p>
-</div>
-
-<h3>2.8 Worker Run 调度层（run/）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-green">worker/run</span> RunCoordinator</h3>
-<p class="file-ref">对应目录: backend/internal/worker/run/</p>
-<p>Worker Run 调度层只处理通信与进程内调度，不生成 prompt，也不理解 Model、Skill、Memory、Workspace 或 Runtime 协议。</p>
-
-<p><strong>RunCoordinator 职责：</strong></p>
-<ul>
-  <li>Session 级 1500ms debounce 与消息合并。</li>
-  <li>并发限制（默认 20）、pending waiter、active run 注册与 graceful close。</li>
-  <li>通过 <code>context.CancelFunc</code> 处理 <code>cmd.control</code>。</li>
-  <li>聚合 delivery sequence，但不依赖 NATS subject 或 payload 类型。</li>
-</ul>
-
-<p>Coordinator 由 RunHandler 构造时创建（作为 <code>executeSubmission</code> 的接收方），后者包装 <code>assistant.Service.Run</code> 调用。</p>
-</div>
-
-<h3>2.9 Lework Agent 业务包装层</h3>
-<div class="layer-card">
-<h3><span class="badge badge-yellow">assistant</span> 业务 Run 编排</h3>
-<p class="file-ref">对应目录: backend/internal/assistant/</p>
-<p><code>assistant.Service</code> 是一次 Lework 业务 Agent Run 的唯一编排入口：</p>
-<ul>
-  <li><strong>Preparer</strong>：读取 Session history、Memory 和 Skill，解析模型、Tool、Workspace 与附件，构造纯执行层 <code>ExecutionRequest</code>。</li>
-  <li><strong>Service</strong>：发布 <code>run.started</code>，调用 <code>agent.Executor</code>，分类 completed/failed/cancelled，并保证每次 Run 只有一个终端事件。</li>
-  <li><strong>Finalizer</strong>：执行 Workspace reconciliation、Artifact 收集和 Git stage/commit/push。</li>
-  <li><strong>Journal</strong>：归档完整 activity event、usage、tool call 和统计信息。</li>
-</ul>
-<p>Assistant、Actor、Org、Project、Skill、Memory、Artifact 和 Git 只能存在于本层及其业务依赖中。</p>
-</div>
-
-<h3>2.10 独立 Agent 执行层</h3>
-<div class="layer-card">
-<h3><span class="badge badge-red">backend/agent</span> Executor + Runtime</h3>
-<p class="file-ref">对应目录: backend/agent/, backend/agent/runtime/</p>
-<div class="code-block"><code>
-type Runtime interface {
-    Name() string
-    Execute(ctx context.Context, request ExecutionRequest, observer Observer) (ExecutionResult, error)
-}
-</code></div>
-<p><strong>Executor：</strong></p>
-<ul>
-  <li>校验已经准备完成的 <code>ExecutionRequest</code>。</li>
-  <li>通过 Registry 按 name 解析 Runtime。</li>
-  <li>统一执行生命周期、取消与 Observer 错误处理。</li>
-  <li>返回不包含业务 RunStatus 的 <code>ExecutionResult</code>。</li>
-</ul>
-<p><strong>四个同级 Runtime：</strong></p>
-<ul>
-  <li><code>native</code>：内部使用 Eino，但只消费 ExecutionRequest。</li>
-  <li><code>claude</code>、<code>codex</code>、<code>opencode</code>：各自 CLI 或服务协议，复用 externalcli Driver。</li>
-</ul>
-<p><strong>执行边界：</strong></p>
-<ul>
-  <li>Runtime 只能产生 message、reasoning、tool、approval、question 和 provider-session 活动。</li>
-  <li>Runtime 不访问 NATS、数据库，不生成业务 <code>run.*</code> 终态，不执行 Git。</li>
-  <li>Tool 使用具名类型或 <code>json.RawMessage</code>，公共签名禁止 <code>map[string]interface{}</code>。</li>
-</ul>
-</div>
-
-<h3>2.11 Run Event 投影层</h3>
-<div class="layer-card">
-<h3><span class="badge badge-blue">projector</span> Server 端状态与流投影</h3>
-<p class="file-ref">对应文件: backend/internal/runnable/session_run_state_projector.go, session_run_stream_projector.go</p>
-<p>Worker 通过 <code>assistant.EventMapper</code> 将 core execution event 转为 <code>messaging.RunEvent</code>，发布到两条 lane：</p>
-<ul>
-  <li><code>run.stream</code>：message、reasoning、tool、todo 等高频增量事件，供 SSE 实时推送和回放。</li>
-  <li><code>run.state</code>：run started/terminal、artifact、approval、question 等低频关键状态。</li>
-</ul>
-<p>两条 lane 的 JetStream sequence 独立记录。</p>
-</div>
-
-<h3>2.12 Worker 实例调度层（scheduler/）</h3>
-<div class="layer-card">
-<h3><span class="badge badge-green">scheduler</span> Worker 实例调度</h3>
-<p class="file-ref">对应文件: backend/internal/worker/scheduler/, backend/internal/worker/server/</p>
-<p>三种实现（通过 factory 按配置选择）：</p>
-<table>
-  <tr><th>Scheduler</th><th>EnvType</th><th>说明</th></tr>
-  <tr><td><code>ProcessScheduler</code></td><td><code>process</code></td><td>本地进程模式：fork <code>lework worker</code> 子进程</td></tr>
-  <tr><td><code>DockerCLIScheduler</code></td><td><code>docker-cli</code></td><td>Docker 容器模式：通过 <code>docker run</code> 启动</td></tr>
-  <tr><td><code>KubernetesScheduler</code></td><td><code>kubevirt</code></td><td>K8s 模式：通过 Kubernetes API 创建 Pod</td></tr>
-</table>
-<p>Worker Server 通过 WebSocket 管理 Worker 的连接、心跳、注销。</p>
-</div>
-
-<h2>三、崩溃恢复机制</h2>
-
-<div class="layer-card">
-<h3><span class="badge badge-purple">crash recovery</span> at-least-once 语义</h3>
-<p>Worker 进程崩溃后，未完成的 cmd.run 消息由 <strong>SQLiteRunInbox</strong> 持久化保留。重启后通过 <strong>RecoverNonTerminal</strong> 机制恢复：</p>
-
-<h3 style="margin-top: 14px;">恢复流程</h3>
-<div class="arch-diagram">
-<pre style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; text-align: left; color: #0d1117;">
- Worker 启动
-    │
-    ▼
- 1. 创建 RunHandler（含 SQLiteRunInbox）
-    │
-    ▼
- 2. RecoverNonTerminal()
-    │
-    ├── 清理 72h 前的过期终端记录
-    │
-    ├── GetNonTerminal() → 所有 pending/processing 记录
-    │
-    ├── 注册所有记录为 inflight owned
-    │   （防止 NATS 订阅开始后重复投递）
-    │
-    └── 启动 recoveryFeeder goroutine
-         │
-         ▼
-         逐个通过 semaphore 调度执行
-    │
-    ▼
- 3. 启动 Dispatcher（NATS 订阅开始）
-    │
-    ▼
-    恢复记录 + 实时消息共享同一套
-    并发限流和生命周期管理
-</pre>
-</div>
-
-<p><strong>幂等保障：</strong></p>
-<ul>
-  <li><code>PutIfAbsent</code> 通过 <code>INSERT OR IGNORE</code> + UNIQUE(topic, stream_seq) 保证重复消息不创建新记录。</li>
-  <li>如果记录已存在且非终态，检查 inflight 是否已 owned，防止重复提交。</li>
-  <li>重启后 RecoverNonTerminal 在 NATS 订阅前执行，确保恢复的消息不会被实时消息插队。</li>
-</ul>
-</div>
-
-<h2>四、优雅关闭流程</h2>
-
-<div class="layer-card">
-<h3><span class="badge badge-green">shutdown</span> 5 步关闭顺序</h3>
-<p>Worker 进程收到退出信号后，按以下 5 步有序关闭：</p>
-<div class="arch-diagram">
-<pre style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; text-align: left; color: #0d1117;">
- Step 1: 取消 dispatcher context
-         cancel() → 停止 NATS 投递，不再有新的回调进来
-    │
-    ▼
- Step 2: 停止新任务准入
-         StopAdmission() → admissionOpen = false
-         → close(admissionStopped)
-         → 不再有新的 WaitGroup.Add
-    │
-    ▼
- Step 3: 等待 dispatcher goroutine 退出
-         ←dispatcherDone
-         → 确保没有活跃的回调访问 Handler
-    │
-    ▼
- Step 4: Drain 积压任务（超时 30s）
-         Drain(30s) → Wait 后台 goroutine + recoveryFeeder
-         ├── 成功：关闭所有资源
-         └── 超时：保留非终态 inbox 记录
-                     重启后由 RecoverNonTerminal 恢复
-    │
-    ▼
- Step 5: 关闭资源
-         RunHandler.Close() → cancel execCtx
-         → Coordinator.Close() → RunInbox.Close()
-         → Bus.Close()
-</pre>
-</div>
-
-<p><strong>关键设计：</strong>Drain 超时后不强制终止正在执行的任务。非终端 inbox 记录保留在 SQLite 中，Worker 重启后通过 RecoverNonTerminal 恢复执行。这保证了 at-least-once 语义——任务要么在当前生命周期完成，要么在下一次重启中继续。</p>
-</div>
-
-<h2>五、完整任务执行链路</h2>
-
-<p>以下以用户在前端发送一条消息（触发 Agent Run）为例，逐步说明从 API 到 Agent 执行的完整链路。</p>
-
-<h3>5.1 链路总览</h3>
-<div class="arch-diagram">
-<pre style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; text-align: left; color: #0d1117;">
- Frontend       Server           NATS              Worker
-    │              │               │                  │
-    │ message      │               │                  │
-    │─────────────→│ WorkerCommand │                  │
-    │              │──────────────→│ cmd.run          │
-    │              │               │─────────────────→│ SubscribeManualDurable
-    │              │               │                  │        ↓
-    │              │               │                  │ Dispatcher.handleRun
-    │              │               │                  │ 包装 ManualDelivery
-    │              │               │                  │        ↓
-    │              │               │                  │ RunHandler
-    │              │               │                  │  validate → validateModel
-    │              │               │                  │  acquireSem (InProgress)
-    │              │               │                  │  PutIfAbsent → SQLite inbox
-    │              │               │                  │  register inflight
-    │              │               │                  │  go dispatchAsync()
-    │              │               │                  │  Ack (消息确认)
-    │              │               │                  │        ↓
-    │              │               │                  │  ┌─ 后台 goroutine ──────┐
-    │              │               │                  │  │ RunCoordinator        │
-    │              │               │                  │  │  debounce / pool      │
-    │              │               │                  │  │  cancel               │
-    │              │               │                  │  │        ↓              │
-    │              │               │                  │  │ assistant.Service    │
-    │              │               │                  │  │   ├─ Preparer         │
-    │              │               │                  │  │   ↓                   │
-    │              │               │                  │  │ agent.Executor       │
-    │              │               │                  │  │   ↓                   │
-    │              │               │                  │  │ native | claude      │
-    │              │               │                  │  │ codex | opencode     │
-    │              │               │                  │  │   ↓                   │
-    │              │               │                  │  │ Finalizer            │
-    │              │               │                  │  │ EventMapper          │
-    │              │               │                  │  │ inbox MarkCompleted  │
-    │              │  run.stream   │                  │  └──────────────────────┘
-    │ SSE          │←──────────────│←─────────────────│ execution events
-    │←─────────────│  run.state    │                  │
-</pre>
-</div>
-
-<h3>5.2 逐步详解</h3>
-
-<div class="flow-step">
-  <span class="step-num">Step 1</span> — <strong>前端请求到达</strong><br>
-  <p>用户发送消息 → <code>POST /v1/sessions/:id/messages</code> → <code>api/handler/</code> 中的 Session Handler 处理。</p>
-</div>
-
-<div class="flow-step">
-  <span class="step-num">Step 2</span> — <strong>Server 构建 WorkerCommand</strong><br>
-  <p>Service 层调用 <code>messaging.NewRunCommand()</code> 构建 <code>WorkerCommand</code>，包含完整上下文：Assistant 配置、Model 参数、Actor 身份、Workspace 信息、Input 消息列表。</p>
-</div>
-
-<div class="flow-step">
-  <span class="step-num">Step 3</span> — <strong>NATS 发布</strong><br>
-  <p>Server 通过 <code>EventBus.Publish()</code> 将 JSON 序列化的命令发布到 <code>org.{org_id}.worker.{worker_id}.cmd.run</code> subject，JetStream 持久化存储。</p>
-</div>
-
-<div class="flow-step">
-  <span class="step-num">Step 4</span> — <strong>Worker 消费（手动确认）</strong><br>
-  <p>Worker 的 <code>command.Dispatcher</code> 通过 <code>SubscribeManualDurable</code> 订阅 cmd.run lane。消息到达后，dispatcher 将 <code>*nats.Msg</code> 包装为 <code>ManualDelivery</code>，传递给 RunHandler。</p>
-</div>
-
-<div class="flow-step">
-  <span class="step-num">Step 5</span> — <strong>Worker 准入与持久化</strong><br>
-  <p>RunHandler 验证 payload/route/model 后：① 获取 admission semaphore（等待时每 15s 发送 InProgress 心跳）；② 调用 <code>PutIfAbsent</code> 将 WorkerCommand JSON 写入 SQLite inbox；③ 注册 inflight 追踪；④ 启动后台 goroutine；⑤ 调用 <code>Ack()</code> 确认消息。</p>
-</div>
-
-<div class="flow-step">
-  <span class="step-num">Step 6</span> — <strong>异步执行</strong><br>
-  <p>后台 goroutine 构建 <code>RunSubmission</code> 并调用 <code>Coordinator.Submit</code>。Coordinator 负责 Session debounce（1500ms 窗口）、并发限制、active run 注册和取消。然后调用 <code>assistant.Service</code>。</p>
-</div>
-
-<div class="flow-step">
-  <span class="step-num">Step 7</span> — <strong>业务准备与独立执行</strong><br>
-  <p><code>assistant.Preparer</code> 读取 Session、Memory、Skill、Model 和 Workspace，生成纯 <code>agent.ExecutionRequest</code>。<code>agent.Executor</code> 选择 Runtime。Runtime 只返回 execution event 和 result。</p>
-</div>
-
-<div class="flow-step">
-  <span class="step-num">Step 8</span> — <strong>业务收尾与结果回传</strong><br>
-  <p><code>assistant.Finalizer</code> 处理 Artifact 和 Git，Service 决定唯一业务终态。EventMapper 将 core event 转为 <code>messaging.RunEvent</code> 发布到 <code>run.stream</code> / <code>run.state</code>。Server projector 持久化状态并提供 SSE 实时流。goroutine 完成时更新 inbox 记录为 completed 或 failed。</p>
-</div>
-
-<h3>5.3 交互式流程（审批/提问）</h3>
-<div class="arch-diagram">
-<pre style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; text-align: left; color: #0d1117;">
-  Frontend                Server (Control)              NATS               Worker (Execute)
-  ────────                ────────────────              ────               ────────────────
-     │                         │                          │                      │
-     │                         │                          │   Agent 执行中       │
-     │                         │                          │   遇到 approval      │
-     │                         │                          │   ↑                  │
-     │                         │                          │   │ 通过 SSE 通知前端│
-     │  ←─── 审批弹窗 ─────────│ ←─── SSE event ──────────│ ←─── runtime event ──│
-     │                         │                          │   │                  │
-     │  用户点击 Approve       │                          │   │ Runner 阻塞     │
-     │ ───────────────────────→│                          │   │ (waiting approval)│
-     │                         │                          │   │                  │
-     │                         │  构建 approval.resolve   │   │                  │
-     │                         │  WorkerCommand ─────────→│                    │
-     │                         │  subject: cmd.interaction│   (自动确认)        │
-     │                         │                          │ ── cmd.interaction →│
-     │                         │                          │                      │
-     │                         │                          │                     Dispatcher (Subscribe)
-     │                         │                          │                     cmd.interaction lane
-     │                         │                          │                     ↓
-     │                         │                          │                     InteractionHandler
-     │                         │                          │                     .HandleApproval()
-     │                         │                          │                     ↓
-     │                         │                          │                     InteractionHandler.Resolve()
-     │                         │                          │                     ↓
-     │                         │                          │                     解除 Runner 阻塞
-     │                         │                          │                     Agent 继续执行
-</pre>
-</div>
-<p>交互式流程保持现有 wire 协议。Runtime 通过注入的 <code>agent.InteractionHandler</code> 请求审批或提问；前端决议经 <code>cmd.interaction</code> lane（自动确认）返回 Worker。独立 Agent 层不依赖 NATS 或全局 router。</p>
-
-<h2>六、关键设计决策</h2>
-
-<table>
-  <tr><th>设计点</th><th>决策</th><th>原因</th></tr>
-  <tr>
-    <td>消息协议</td>
-    <td>统一 <code>WorkerCommand</code> envelope</td>
-    <td>所有 Server→Worker 通信使用同一种消息格式，通过 <code>CommandType</code> 区分</td>
-  </tr>
-  <tr>
-    <td>Lane 分发</td>
-    <td>四条独立 subject，分别 goroutine 消费</td>
-    <td>不同命令类型隔离；高优先级 control 不会被 run 队列阻塞</td>
-  </tr>
-  <tr>
-    <td>run lane 确认模式</td>
-    <td>手动确认（SubscribeManualDurable）</td>
-    <td>消息持久化到本地 inbox 后才 Ack，实现 at-least-once 语义</td>
-  </tr>
-  <tr>
-    <td>其余 lane 确认模式</td>
-    <td>自动确认（Subscribe）</td>
-    <td>control/interaction/skill 同步处理，无需手动控制 Ack 时机</td>
-  </tr>
-  <tr>
-    <td>崩溃恢复</td>
-    <td>SQLite inbox + RecoverNonTerminal</td>
-    <td>Worker crash 后未完成的任务自动恢复，不丢不重</td>
-  </tr>
-  <tr>
-    <td>幂等保障</td>
-    <td>PutIfAbsent + UNIQUE(topic, stream_seq)</td>
-    <td>重启后重复投递/恢复的消息不会创建重复执行</td>
-  </tr>
-  <tr>
-    <td>防抖合并</td>
-    <td>Session 级别 1500ms 窗口</td>
-    <td>用户连续打字防抖，减少 LLM API 调用成本</td>
-  </tr>
-  <tr>
-    <td>并发控制</td>
-    <td>Admission semaphore + Coordinator 上限</td>
-    <td>双层限流：入口 sem 防止 inbox 过度写入，Coordinator 上限控制执行并发</td>
-  </tr>
-  <tr>
-    <td>InProgress 心跳</td>
-    <td>semaphore 等待时每 15s 发送</td>
-    <td>防止 NATS 因确认超时而重新投递正在等待槽位的消息</td>
-  </tr>
-  <tr>
-    <td>结果回传</td>
-    <td>Core Event → EventMapper → 双 lane NATS</td>
-    <td>Core 与 wire event 明确分离；stream/state 分流兼顾实时推送和状态持久化</td>
-  </tr>
-  <tr>
-    <td>多 Runtime</td>
-    <td>统一 <code>agent.Runtime</code> + Registry</td>
-    <td>native / Claude / Codex / OpenCode 完全同级，同一契约</td>
-  </tr>
-  <tr>
-    <td>执行与业务</td>
-    <td><code>backend/agent</code> + <code>internal/assistant</code></td>
-    <td>执行层不包含 Lework 业务；业务层负责 Session、Memory、Skill、Workspace、Git</td>
-  </tr>
-  <tr>
-    <td>Worker 调度</td>
-    <td>Process / Docker / K8s 三模式</td>
-    <td>适应不同部署环境</td>
-  </tr>
-  <tr>
-    <td>Stream 配置</td>
-    <td>MaxMsgsPerSubject=10000, DiscardOld</td>
-    <td>容忍异步处理期间的积压，新命令始终可写入</td>
-  </tr>
-</table>
-
-<h2>七、目录结构速查</h2>
-
-<table>
-  <tr><th>路径</th><th>层级</th><th>职责</th></tr>
-  <tr><td><code>backend/cmd/lework/server.go</code></td><td>进程入口</td><td>Server 进程启动（Gin HTTP + DB + NATS）</td></tr>
-  <tr><td><code>backend/cmd/lework/worker.go</code></td><td>进程入口</td><td>Worker 进程启动（NATS consumer + HTTP + 5 步关闭）</td></tr>
-  <tr><td><code>backend/internal/api/handler/</code></td><td>API Handler</td><td>REST 端点实现</td></tr>
-  <tr><td><code>backend/internal/service/</code></td><td>Service</td><td>业务逻辑编排</td></tr>
-  <tr><td><code>backend/internal/infra/mq/delivery.go</code></td><td>基础设施</td><td>ManualDelivery 接口定义</td></tr>
-  <tr><td><code>backend/internal/infra/mq/nats_delivery.go</code></td><td>基础设施</td><td>ManualDelivery NATS 实现（包装 *nats.Msg）</td></tr>
-  <tr><td><code>backend/internal/infra/mq/bus.go</code></td><td>基础设施</td><td>Publisher / Subscriber / EventBus 接口</td></tr>
-  <tr><td><code>backend/internal/infra/mq/nats.go</code></td><td>基础设施</td><td>NATS JetStream 实现（含 SubscribeManualDurable）</td></tr>
-  <tr><td><code>backend/pkg/messaging/command.go</code></td><td>共享类型</td><td>WorkerCommand 协议定义</td></tr>
-  <tr><td><code>backend/pkg/messaging/event.go</code></td><td>共享类型</td><td>RunEvent 协议与 stream/state lane 分类</td></tr>
-  <tr><td><code>backend/pkg/messaging/subject.go</code></td><td>共享类型</td><td>NATS subject / consumer / stream 配置</td></tr>
-  <tr><td><code>backend/internal/worker/command/</code></td><td>Worker 核心</td><td>四 Lane 统一命令分发（run 手动确认，其余自动确认）</td></tr>
-  <tr><td><code>backend/internal/worker/command/run/</code></td><td>Worker 适配</td><td>异步分发：校验 → 准入 → inbox 持久化 → goroutine → Ack</td></tr>
-  <tr><td><code>backend/internal/worker/command/run/inbox/</code></td><td>Worker 适配</td><td>SQLiteRunInbox（worker_run_inbox 表 + 崩溃恢复）</td></tr>
-  <tr><td><code>backend/internal/worker/run/</code></td><td>Worker 调度</td><td>Debounce、并发、等待、取消与 delivery sequence 聚合</td></tr>
-  <tr><td><code>backend/internal/assistant/</code></td><td>业务包装</td><td>Preparer、Service、Journal、Finalizer 与业务终态</td></tr>
-  <tr><td><code>backend/internal/worker/eventpub/</code></td><td>Wire 映射</td><td>core Event 到双 lane messaging.RunEvent 的映射与发布</td></tr>
-  <tr><td><code>backend/agent/</code></td><td>独立执行</td><td>Executor、Runtime、ExecutionRequest/Result、Event、Tool、Interaction</td></tr>
-  <tr><td><code>backend/agent/runtime/</code></td><td>Runtime 实现</td><td>native、Claude、Codex、OpenCode 和 externalcli 公共设施</td></tr>
-  <tr><td><code>backend/internal/memory/</code></td><td>业务资源</td><td>Memory Store 实例化</td></tr>
-  <tr><td><code>backend/internal/skill/</code></td><td>业务资源</td><td>Skill 目录、运行时与持久化存储</td></tr>
-  <tr><td><code>backend/internal/workspace/</code></td><td>业务资源</td><td>Workspace、附件和 Artifact 实现</td></tr>
-  <tr><td><code>backend/internal/worker/scheduler/</code></td><td>Worker 管理</td><td>Worker 实例生命周期管理（Process/Docker/K8s）</td></tr>
-  <tr><td><code>backend/internal/worker/server/</code></td><td>Worker 管理</td><td>WebSocket Worker 连接管理</td></tr>
-  <tr><td><code>backend/internal/worker/command/interaction/</code></td><td>Worker 交互</td><td>审批/提问命令处理</td></tr>
-  <tr><td><code>backend/internal/worker/command/skill/</code></td><td>Worker Skill</td><td>Skill 安装/列表/卸载/导入</td></tr>
-  <tr><td><code>backend/internal/runnable/</code></td><td>Server 投影</td><td>session_run_state/stream projector</td></tr>
-</table>
-
-<h2>八、实施状态</h2>
-
-<div class="layer-card">
-<h3><span class="badge badge-green">完成</span> 异步分发与崩溃恢复</h3>
-<p>cmd.run lane 已实现 SubscribeManualDurable + ManualDelivery 接口 + SQLite inbox 持久化 + RecoverNonTerminal 崩溃恢复 + 5 步优雅关闭。Inbox 保留 72h 终端记录，启动时自动清理过期项。</p>
-</div>
-
-<div class="layer-card">
-<h3><span class="badge badge-green">完成</span> 主链与调度语义</h3>
-<p>唯一主链为 <code>command/run.Handler → RunCoordinator → assistant.Service → agent.Executor → Runtime</code>。Coordinator 已实现 debounce 全 waiter、并发上限、Session 串行、取消、Close 和 delivery sequence 完成/失败语义。</p>
-</div>
-
-<div class="layer-card">
-<h3><span class="badge badge-green">完成</span> 独立执行边界</h3>
-<p><code>backend/agent</code> 递归禁止依赖 <code>internal/*</code>、config、messaging 和业务 Tool 包。业务状态由 <code>internal/assistant</code> 持有。</p>
-</div>
-
-<div class="layer-card">
-<h3><span class="badge badge-green">完成</span> Runtime 与事件收敛</h3>
-<p>native、Claude、Codex、OpenCode 作为具体 Runtime 注册；三个 CLI Runtime 复用 externalcli Driver。主路径只有一套 <code>ExecutionRequest</code>、<code>ExecutionResult</code> 和 <code>agent.Event</code>。</p>
-</div>
-
-<div class="layer-card">
-<h3><span class="badge badge-green">完成</span> 旧层和全局状态清理</h3>
-<p><code>backend/engines</code>、<code>internal/runtime</code>、<code>internal/agent</code>、eventengine 和 simplechat 已退出代码树。</p>
-</div>
-
-<div class="layer-card">
-<h3><span class="badge badge-blue">维护约束</span> 防止边界回退</h3>
-<p>新增 Runtime 必须实现同一 contract suite；新增 Tool 的公共输入必须为 <code>json.RawMessage</code> 或具名结构；Runtime 不得发布业务 <code>run.*</code> 终态；外部事件必须转换为 WorkerCommand 后进入唯一主链。</p>
-</div>
-
-<h2>九、NATS Stream 配置</h2>
-
-<table>
-  <tr><th>Stream</th><th>Subject 模式</th><th>保留时间</th><th>MaxMsgsPerSubject</th><th>Discard</th></tr>
-  <tr><td><code>WORKER_CMD_STREAM</code></td><td><code>org.*.worker.*.cmd.&gt;</code></td><td>72h</td><td>10000</td><td>DiscardOld</td></tr>
-  <tr><td><code>SESSION_RUN_STREAM</code></td><td><code>org.*.session.*.run.&gt;</code></td><td>24h</td><td>10000</td><td>DiscardOld</td></tr>
-</table>
-
-<h2>十、实施结论</h2>
-
-<table>
-  <tr><th>范围</th><th>最终决策</th></tr>
-  <tr><td>Server / Worker 通信</td><td>保持 <code>pkg/messaging</code>、四条 command lane 和现有 wire schema</td></tr>
-  <tr><td>run lane 确认</td><td>SubscribeManualDurable + ManualDelivery + SQLite inbox，异步 Ack</td></tr>
-  <tr><td>控制/交互/skill lane 确认</td><td>Subscribe 自动确认，同步处理</td></tr>
-  <tr><td>崩溃恢复</td><td>RecoverNonTerminal + GetNonTerminal 加载非终态记录 + recoveryFeeder</td></tr>
-  <tr><td>优雅关闭</td><td>5 步：cancel → StopAdmission → 等待 dispatcher → Drain(30s) → Close</td></tr>
-  <tr><td>Run Event</td><td>保持 <code>run.stream</code> / <code>run.state</code> 与独立 replay sequence</td></tr>
-  <tr><td>Agent core</td><td>顶层可复用 <code>backend/agent</code>，不依赖 Lework 业务</td></tr>
-  <tr><td>业务包装</td><td><code>internal/assistant</code> 负责 prepare、finalize 和业务终态</td></tr>
-  <tr><td>Runtime</td><td>native、Claude、Codex、OpenCode 完全同级，直接实现一个 Runtime 接口</td></tr>
-  <tr><td>Worker 执行链</td><td>Dispatcher → RunHandler（准入 + inbox）→ Coordinator → assistant.Service</td></tr>
-  <tr><td>实施状态</td><td>异步分发、崩溃恢复、主链迁移、边界收敛、旧包清理均已完成</td></tr>
-</table>
-
-<hr style="border-color: #30363d; margin: 30px 0;">
-<p style="color: #8b949e; font-size: 13px;">更新时间: 2026-07-01 | 架构版本: cmd.run 异步分发 + ManualDelivery + SQLiteRunInbox 持久化 + RunCoordinator + assistant 业务包装 + 独立 agent.Runtime</p>
-</div>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Leros Server / Worker / Agent Runtime Architecture</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">重构后的服务端边界：Server 负责命令与投影，Worker 负责业务 Run 生命周期，backend/agent 是独立执行内核；本文同时说明整体、Server、Worker、CLI 与目录层级关系。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1200 820" role="img" aria-label="Leros Server Worker Agent Runtime Architecture Diagram">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrowheadCyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+          </marker>
+          <marker id="arrowheadOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb923c" />
+          </marker>
+          <marker id="arrowheadEmerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+          </marker>
+          <marker id="arrowheadRose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+            <feMerge>
+              <feMergeNode in="coloredBlur"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+        </defs>
+
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Connection arrows are intentionally drawn before boxes. -->
+        <path d="M 305 145 C 330 145, 338 187, 365 190" fill="none" stroke="#fb923c" stroke-width="1.6" marker-end="url(#arrowheadOrange)"/>
+        <text x="335" y="139" fill="#fb923c" font-size="8" text-anchor="middle">WorkerCommand</text>
+
+        <path d="M 505 202 C 530 202, 532 230, 562 230" fill="none" stroke="#fb923c" stroke-width="1.6" marker-end="url(#arrowheadOrange)"/>
+        <text x="534" y="194" fill="#94a3b8" font-size="8" text-anchor="middle">cmd.run</text>
+
+        <path d="M 720 230 C 742 230, 748 230, 770 230" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+        <path d="M 930 230 C 952 230, 958 230, 980 230" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+        <path d="M 1060 265 C 1060 300, 910 300, 910 328" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+
+        <path d="M 700 355 C 722 355, 728 355, 750 355" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+        <path d="M 900 355 C 924 355, 934 355, 958 355" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+        <path d="M 1018 408 C 1018 438, 672 438, 672 468" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+
+        <path d="M 738 552 C 760 552, 768 552, 790 552" fill="none" stroke="#22d3ee" stroke-width="1.6" marker-end="url(#arrowheadCyan)"/>
+        <path d="M 940 552 C 972 552, 980 552, 1012 552" fill="none" stroke="#22d3ee" stroke-width="1.6" marker-end="url(#arrowheadCyan)"/>
+        <path d="M 1075 595 C 1075 632, 655 632, 655 520" fill="none" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowheadRose)"/>
+        <text x="960" y="624" fill="#fb7185" font-size="8" text-anchor="middle">NodeEvent: message/tool/todo/approval/plan.ready</text>
+
+        <path d="M 740 500 C 763 500, 774 500, 797 500" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+        <path d="M 930 500 C 950 500, 956 462, 980 462" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+        <path d="M 960 500 C 970 500, 976 512, 990 512" fill="none" stroke="#34d399" stroke-width="1.6" marker-end="url(#arrowheadEmerald)"/>
+
+        <path d="M 798 520 C 758 602, 535 438, 505 438" fill="none" stroke="#fb923c" stroke-width="1.6" marker-end="url(#arrowheadOrange)"/>
+        <text x="600" y="578" fill="#fb923c" font-size="8" text-anchor="middle">messaging.RunEvent</text>
+
+        <path d="M 365 430 C 330 430, 326 425, 290 425" fill="none" stroke="#fb923c" stroke-width="1.6" marker-end="url(#arrowheadOrange)"/>
+        <text x="326" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">run.stream / run.state</text>
+
+        <path d="M 180 198 L 180 222" fill="none" stroke="#22d3ee" stroke-width="1.4" marker-end="url(#arrowheadCyan)"/>
+        <path d="M 180 288 L 180 325" fill="none" stroke="#22d3ee" stroke-width="1.4" marker-end="url(#arrowheadCyan)"/>
+        <path d="M 180 392 L 180 468" fill="none" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path d="M 755 138 L 775 138" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#arrowheadEmerald)"/>
+
+        <!-- Top-level boundary -->
+        <rect x="20" y="35" width="1160" height="665" rx="14" fill="rgba(251, 191, 36, 0.035)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="40" y="59" fill="#fbbf24" font-size="11" font-weight="600">SingerOS / Leros Backend · current target architecture · 2026-07-05</text>
+
+        <!-- Server boundary -->
+        <rect x="45" y="82" width="275" height="500" rx="12" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8,4"/>
+        <text x="62" y="105" fill="#22d3ee" font-size="11" font-weight="700">Server / Control Plane</text>
+
+        <rect x="72" y="126" width="216" height="72" rx="6" fill="#0f172a"/>
+        <rect x="72" y="126" width="216" height="72" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="180" y="151" fill="white" font-size="12" font-weight="600" text-anchor="middle">HTTP API / SSE</text>
+        <text x="180" y="168" fill="#94a3b8" font-size="9" text-anchor="middle">backend/internal/api</text>
+        <text x="180" y="183" fill="#22d3ee" font-size="8" text-anchor="middle">Session · Project · Skill · Connector</text>
+
+        <rect x="72" y="222" width="216" height="66" rx="6" fill="#0f172a"/>
+        <rect x="72" y="222" width="216" height="66" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="180" y="247" fill="white" font-size="12" font-weight="600" text-anchor="middle">Business Service</text>
+        <text x="180" y="264" fill="#94a3b8" font-size="9" text-anchor="middle">model options + command source</text>
+        <text x="180" y="278" fill="#34d399" font-size="8" text-anchor="middle">resolves API Key before WorkerCommand</text>
+
+        <rect x="72" y="325" width="216" height="67" rx="6" fill="#0f172a"/>
+        <rect x="72" y="325" width="216" height="67" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="180" y="350" fill="white" font-size="12" font-weight="600" text-anchor="middle">pkg/messaging</text>
+        <text x="180" y="367" fill="#94a3b8" font-size="9" text-anchor="middle">WorkerCommand · RunEvent</text>
+        <text x="180" y="381" fill="#94a3b8" font-size="8" text-anchor="middle">single server ↔ worker wire contract</text>
+
+        <rect x="72" y="468" width="216" height="66" rx="6" fill="#0f172a"/>
+        <rect x="72" y="468" width="216" height="66" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="180" y="493" fill="white" font-size="12" font-weight="600" text-anchor="middle">Projectors + Persistence</text>
+        <text x="180" y="510" fill="#94a3b8" font-size="9" text-anchor="middle">service · runnable · DB</text>
+        <text x="180" y="524" fill="#a78bfa" font-size="8" text-anchor="middle">Live and Replay consume RunEvent</text>
+
+        <!-- Message bus -->
+        <rect x="350" y="132" width="170" height="390" rx="12" fill="rgba(251, 146, 60, 0.06)" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="8,4"/>
+        <text x="368" y="156" fill="#fb923c" font-size="11" font-weight="700">NATS JetStream</text>
+
+        <rect x="365" y="175" width="140" height="66" rx="6" fill="#0f172a"/>
+        <rect x="365" y="175" width="140" height="66" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="435" y="199" fill="white" font-size="11" font-weight="600" text-anchor="middle">Command lanes</text>
+        <text x="435" y="216" fill="#94a3b8" font-size="8" text-anchor="middle">cmd.run / control</text>
+        <text x="435" y="229" fill="#94a3b8" font-size="8" text-anchor="middle">interaction / skill</text>
+
+        <rect x="365" y="405" width="140" height="66" rx="6" fill="#0f172a"/>
+        <rect x="365" y="405" width="140" height="66" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="435" y="429" fill="white" font-size="11" font-weight="600" text-anchor="middle">Run event lanes</text>
+        <text x="435" y="446" fill="#94a3b8" font-size="8" text-anchor="middle">run.stream / run.state</text>
+        <text x="435" y="459" fill="#fb923c" font-size="8" text-anchor="middle">journal order preserved</text>
+
+        <text x="435" y="295" fill="#94a3b8" font-size="8" text-anchor="middle">subjects</text>
+        <text x="435" y="311" fill="#64748b" font-size="7" text-anchor="middle">org.{org}.worker.{worker}.cmd.*</text>
+        <text x="435" y="327" fill="#64748b" font-size="7" text-anchor="middle">org.{org}.session.{session}.run.*</text>
+
+        <!-- Worker boundary -->
+        <rect x="545" y="82" width="600" height="604" rx="12" fill="rgba(6, 78, 59, 0.07)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8,4"/>
+        <text x="562" y="105" fill="#34d399" font-size="11" font-weight="700">Worker / Execution Plane</text>
+
+        <rect x="575" y="119" width="180" height="52" rx="6" fill="#0f172a"/>
+        <rect x="575" y="119" width="180" height="52" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="665" y="141" fill="white" font-size="11" font-weight="600" text-anchor="middle">cmd/leros worker</text>
+        <text x="665" y="157" fill="#94a3b8" font-size="8" text-anchor="middle">process lifecycle only</text>
+
+        <rect x="775" y="119" width="178" height="52" rx="6" fill="#0f172a"/>
+        <rect x="775" y="119" width="178" height="52" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="864" y="141" fill="white" font-size="11" font-weight="600" text-anchor="middle">worker/app</text>
+        <text x="864" y="157" fill="#94a3b8" font-size="8" text-anchor="middle">composition root for libraries</text>
+
+        <rect x="565" y="200" width="155" height="64" rx="6" fill="#0f172a"/>
+        <rect x="565" y="200" width="155" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="642" y="224" fill="white" font-size="11" font-weight="600" text-anchor="middle">command/run</text>
+        <text x="642" y="241" fill="#94a3b8" font-size="8" text-anchor="middle">WorkerCommand → RunRequest</text>
+        <text x="642" y="254" fill="#94a3b8" font-size="8" text-anchor="middle">delivery + validation</text>
+
+        <rect x="770" y="200" width="160" height="64" rx="6" fill="#0f172a"/>
+        <rect x="770" y="200" width="160" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="850" y="224" fill="white" font-size="11" font-weight="600" text-anchor="middle">worker/run</text>
+        <text x="850" y="241" fill="#94a3b8" font-size="8" text-anchor="middle">Coordinator</text>
+        <text x="850" y="254" fill="#94a3b8" font-size="8" text-anchor="middle">debounce · cancel · concurrency</text>
+
+        <rect x="980" y="200" width="135" height="64" rx="6" fill="#0f172a"/>
+        <rect x="980" y="200" width="135" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="1048" y="224" fill="white" font-size="11" font-weight="600" text-anchor="middle">agentrun.Service</text>
+        <text x="1048" y="241" fill="#94a3b8" font-size="8" text-anchor="middle">business Run owner</text>
+        <text x="1048" y="254" fill="#34d399" font-size="8" text-anchor="middle">one terminal event</text>
+
+        <rect x="565" y="328" width="135" height="56" rx="6" fill="#0f172a"/>
+        <rect x="565" y="328" width="135" height="56" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="632" y="351" fill="white" font-size="11" font-weight="600" text-anchor="middle">Preparer</text>
+        <text x="632" y="368" fill="#94a3b8" font-size="8" text-anchor="middle">PreparedRun snapshot</text>
+
+        <rect x="750" y="328" width="150" height="56" rx="6" fill="#0f172a"/>
+        <rect x="750" y="328" width="150" height="56" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="825" y="351" fill="white" font-size="11" font-weight="600" text-anchor="middle">agent.Executor</text>
+        <text x="825" y="368" fill="#94a3b8" font-size="8" text-anchor="middle">validate + SerialObserver</text>
+
+        <rect x="958" y="328" width="150" height="56" rx="6" fill="#0f172a"/>
+        <rect x="958" y="328" width="150" height="56" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="1033" y="351" fill="white" font-size="11" font-weight="600" text-anchor="middle">Runtime Registry</text>
+        <text x="1033" y="368" fill="#94a3b8" font-size="8" text-anchor="middle">select native/CLI adapter</text>
+
+        <rect x="565" y="468" width="175" height="72" rx="6" fill="#0f172a"/>
+        <rect x="565" y="468" width="175" height="72" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="652" y="492" fill="white" font-size="11" font-weight="600" text-anchor="middle">NodeHandler + Finalizer</text>
+        <text x="652" y="509" fill="#94a3b8" font-size="8" text-anchor="middle">NodeEvent → RunEventBody</text>
+        <text x="652" y="522" fill="#34d399" font-size="8" text-anchor="middle">plan.published · run.completed</text>
+
+        <rect x="797" y="468" width="133" height="72" rx="6" fill="#0f172a"/>
+        <rect x="797" y="468" width="133" height="72" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="864" y="492" fill="white" font-size="11" font-weight="600" text-anchor="middle">Journal</text>
+        <text x="864" y="509" fill="#94a3b8" font-size="8" text-anchor="middle">Seq owner</text>
+        <text x="864" y="522" fill="#a78bfa" font-size="8" text-anchor="middle">append before publish</text>
+
+        <rect x="980" y="430" width="135" height="42" rx="6" fill="#0f172a"/>
+        <rect x="980" y="430" width="135" height="42" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="1048" y="448" fill="white" font-size="10" font-weight="600" text-anchor="middle">PlanPublisher</text>
+        <text x="1048" y="462" fill="#94a3b8" font-size="7" text-anchor="middle">validates path + uploads</text>
+
+        <rect x="990" y="492" width="125" height="42" rx="6" fill="#0f172a"/>
+        <rect x="990" y="492" width="125" height="42" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1052" y="510" fill="white" font-size="10" font-weight="600" text-anchor="middle">runtimehost</text>
+        <text x="1052" y="524" fill="#94a3b8" font-size="7" text-anchor="middle">SQLite SessionStore</text>
+
+        <!-- Agent execution kernel boundary -->
+        <rect x="575" y="566" width="540" height="98" rx="10" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="5,4"/>
+        <text x="592" y="585" fill="#22d3ee" font-size="10" font-weight="700">backend/agent · independent execution kernel</text>
+
+        <rect x="600" y="602" width="138" height="42" rx="6" fill="#0f172a"/>
+        <rect x="600" y="602" width="138" height="42" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="669" y="620" fill="white" font-size="10" font-weight="600" text-anchor="middle">ExecutionRequest</text>
+        <text x="669" y="634" fill="#94a3b8" font-size="7" text-anchor="middle">immutable runtime input</text>
+
+        <rect x="790" y="596" width="150" height="54" rx="6" fill="#0f172a"/>
+        <rect x="790" y="596" width="150" height="54" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="865" y="616" fill="white" font-size="10" font-weight="600" text-anchor="middle">agent.Runtime</text>
+        <text x="865" y="631" fill="#94a3b8" font-size="7" text-anchor="middle">Execute(ctx, request)</text>
+        <text x="865" y="643" fill="#22d3ee" font-size="7" text-anchor="middle">ExecutionResult + NodeEvent</text>
+
+        <rect x="1012" y="584" width="72" height="28" rx="5" fill="#0f172a"/>
+        <rect x="1012" y="584" width="72" height="28" rx="5" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="1048" y="602" fill="white" font-size="8" font-weight="600" text-anchor="middle">native</text>
+
+        <rect x="972" y="619" width="72" height="28" rx="5" fill="#0f172a"/>
+        <rect x="972" y="619" width="72" height="28" rx="5" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="1008" y="637" fill="white" font-size="8" font-weight="600" text-anchor="middle">claude</text>
+
+        <rect x="1052" y="619" width="72" height="28" rx="5" fill="#0f172a"/>
+        <rect x="1052" y="619" width="72" height="28" rx="5" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="1088" y="637" fill="white" font-size="8" font-weight="600" text-anchor="middle">codex</text>
+
+        <rect x="1012" y="654" width="72" height="28" rx="5" fill="#0f172a"/>
+        <rect x="1012" y="654" width="72" height="28" rx="5" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="1048" y="672" fill="white" font-size="8" font-weight="600" text-anchor="middle">opencode</text>
+
+        <rect x="788" y="660" width="150" height="22" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="863" y="675" fill="#94a3b8" font-size="7" text-anchor="middle">runtime/internal: cli · process · todo</text>
+
+        <!-- Boundary callouts -->
+        <rect x="44" y="603" width="276" height="58" rx="8" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="62" y="624" fill="#fb7185" font-size="9" font-weight="600">Security boundary</text>
+        <text x="62" y="641" fill="#94a3b8" font-size="8">API Key resolved by Server, used by Runtime, never emitted to events/logs.</text>
+
+        <rect x="350" y="603" width="170" height="58" rx="8" fill="rgba(30, 41, 59, 0.35)" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="368" y="624" fill="#94a3b8" font-size="9" font-weight="600">Wire contract</text>
+        <text x="368" y="641" fill="#94a3b8" font-size="8">No Assistant Event middle layer; messaging.RunEvent is canonical.</text>
+
+        <!-- Legend below all boundaries -->
+        <text x="40" y="735" fill="white" font-size="10" font-weight="600">Legend</text>
+        <rect x="40" y="750" width="18" height="11" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="66" y="759" fill="#94a3b8" font-size="8">Agent / API contract</text>
+        <rect x="190" y="750" width="18" height="11" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="216" y="759" fill="#94a3b8" font-size="8">Worker / backend library</text>
+        <rect x="365" y="750" width="18" height="11" rx="2" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
+        <text x="391" y="759" fill="#94a3b8" font-size="8">NATS / messaging lane</text>
+        <rect x="525" y="750" width="18" height="11" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="551" y="759" fill="#94a3b8" font-size="8">Persistence / projector</text>
+        <rect x="690" y="750" width="18" height="11" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+        <text x="716" y="759" fill="#94a3b8" font-size="8">Security-sensitive data</text>
+        <line x1="875" y1="755" x2="910" y2="755" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="5,5" marker-end="url(#arrowheadRose)"/>
+        <text x="918" y="759" fill="#94a3b8" font-size="8">Runtime NodeEvent callback</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Agent Runtime 边界</h3>
+        </div>
+        <ul>
+          <li>• `backend/agent` 只定义执行契约、Runtime、Tool、Interaction 和 NodeEvent。</li>
+          <li>• native / claude / codex / opencode 是同级 Runtime Adapter。</li>
+          <li>• Runtime 不发布 NATS、不分配业务 Seq、不上传 Plan、不访问业务数据库。</li>
+          <li>• CLI 公共逻辑收敛在 `agent/runtime/internal/{cli,process,todo}`。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Worker Run 生命周期</h3>
+        </div>
+        <ul>
+          <li>• `worker/command/run` 将 WorkerCommand 转成 RunRequest。</li>
+          <li>• `worker/run.Coordinator` 处理并发、合并、排队和取消。</li>
+          <li>• `worker/agentrun` 独占 Preparer、NodeHandler、Finalizer、Journal 和终态。</li>
+          <li>• `worker/eventpub` 只发布已经构造完成的 `messaging.RunEvent`。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>Server ↔ Worker 协议</h3>
+        </div>
+        <ul>
+          <li>• Server 解析模型配置和 API Key 后发送 WorkerCommand。</li>
+          <li>• Worker 通过 ExecutionRequest 透传执行依赖，不查询业务数据库。</li>
+          <li>• NodeEvent 由 Worker 选择性映射为 RunEvent，Server/UI 只消费 RunEvent。</li>
+          <li>• Live Projector 与 Replay Projector 共享同一套业务事件语义。</li>
+        </ul>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="section-header">
+        <span class="section-number">01</span>
+        <h2>架构设计思想</h2>
+      </div>
+      <p class="section-intro">Leros 服务端采用“契约驱动 + Server/Worker 分离 + 独立 Agent Runtime”的结构。核心目标不是堆更多框架层，而是把命令、业务生命周期、执行内核和投影语义拆到清楚的位置。</p>
+
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Contract-driven Service Architecture</h3>
+          <p>系统能力先通过明确契约表达，再由 service、worker host 或 runtime adapter 执行。HTTP、NATS、CLI 都只是输入输出适配层，不把业务语义藏在 transport 里。</p>
+          <h4>关键契约</h4>
+          <div>
+            <span class="tag">WorkerCommand</span>
+            <span class="tag">RunEvent</span>
+            <span class="tag">ExecutionRequest</span>
+            <span class="tag">ExecutionResult</span>
+            <span class="tag">NodeEvent</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Runtime First, Worker as Host</h3>
+          <p><code>backend/agent</code> 只关心“如何执行”。它可以独立测试、替换和扩展。Worker 才关心“这次执行对 SingerOS 业务意味着什么”，包括 Run 终态、Plan 发布、Session 绑定和事件归档。</p>
+          <h4>边界判断</h4>
+          <ul>
+            <li>• 描述执行事实：放入 <code>backend/agent</code>。</li>
+            <li>• 描述业务 Run 生命周期：放入 <code>backend/internal/worker/agentrun</code>。</li>
+            <li>• 描述面向 UI 的状态：放入 Server service / projector。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>Event Ownership</h3>
+          <p>事件不是一层层随手转发，而是每层拥有自己的语义。Runtime 只发 NodeEvent，Worker 映射出 RunEvent，Server 再投影成 SessionEvent / 持久状态。</p>
+          <h4>事件语义</h4>
+          <ul>
+            <li>• <code>NodeEvent</code>：Runtime 执行节点事实。</li>
+            <li>• <code>RunEvent</code>：Worker 对业务 Run 的统一事实。</li>
+            <li>• <code>SessionEvent</code>：Server 面向 UI 的展示视图。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>依赖方向可审计</h3>
+          <p>代码依赖必须朝稳定内核和契约收敛。Agent 不反向依赖业务包，EventPub 不理解 NodeEvent，cmd 不承载业务逻辑。这让架构测试可以用 import guard 保护边界。</p>
+          <h4>禁止穿透</h4>
+          <ul>
+            <li>• <code>backend/agent</code> 不依赖 <code>backend/internal</code>、<code>config</code>、<code>pkg/messaging</code>。</li>
+            <li>• <code>worker/eventpub</code> 不依赖 Agent 或 AgentRun domain。</li>
+            <li>• <code>cmd/leros</code> 只做进程生命周期和依赖装配。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <span class="section-number">02</span>
+        <h2>项目架构层级目录</h2>
+      </div>
+      <p class="section-intro">目录组织按职责而不是技术名词切分。下图是服务端开发时最重要的目录地图：先判断改动属于入口、Server 控制面、Worker 执行面、Agent 执行内核，还是共享契约。</p>
+
+      <div class="grid-2">
+        <div class="code-block">backend/
+├── cmd/leros/                  # Cobra CLI, process lifecycle, config bootstrap
+├── internal/
+│   ├── api/                    # HTTP adapters, DTO, route handlers, SSE
+│   ├── service/                # Server business services and command creation
+│   ├── runnable/               # Server replay/state projectors
+│   ├── infra/                  # DB, NATS, filestore, external infrastructure
+│   └── worker/
+│       ├── app/                # Worker composition root
+│       ├── command/            # WorkerCommand adapters
+│       ├── run/                # Coordinator: debounce, concurrency, cancel
+│       ├── agentrun/           # Preparer, NodeHandler, Finalizer, Journal
+│       ├── eventpub/           # complete RunEvent → NATS publish
+│       ├── runtimehost/        # Worker-side runtime ports
+│       ├── mcp/                # Worker MCP tool gateway
+│       └── router/             # Worker local HTTP routes
+├── agent/
+│   ├── executor.go             # Runtime invocation and SerialObserver
+│   ├── runtime.go              # ExecutionRequest / Runtime
+│   ├── node_event.go           # strong typed NodeEvent
+│   └── runtime/
+│       ├── native/
+│       ├── claude/
+│       ├── codex/
+│       ├── opencode/
+│       └── internal/           # cli, process, todo shared runtime facilities
+├── pkg/messaging/              # WorkerCommand / RunEvent wire contract
+├── tools/                      # business tool implementations
+├── skills/                     # skill resources
+├── types/                      # shared domain types
+└── config/                     # configuration structs</div>
+
+        <div class="panel">
+          <h3>层级说明</h3>
+          <ul>
+            <li>• <code>cmd/leros</code>：唯一允许处理 Cobra、信号、进程退出和 <code>log.Fatal</code> 的层。</li>
+            <li>• <code>internal/api</code>：把 HTTP/SSE 请求转换为 service 调用，不写业务执行逻辑。</li>
+            <li>• <code>internal/service</code>：Server 侧业务服务，创建命令、管理持久状态、投影 RunEvent。</li>
+            <li>• <code>internal/worker</code>：Worker 侧业务执行 Host，不把进程生命周期拿到库代码里。</li>
+            <li>• <code>backend/agent</code>：业务无关执行内核，Runtime Adapter 与执行事件统一契约。</li>
+            <li>• <code>pkg/messaging</code>：Server 与 Worker 的唯一 wire contract，跨进程共享。</li>
+          </ul>
+
+          <div class="callout">经验法则：如果代码需要知道 NATS subject、业务 Run ID 或 Session 投影，它不应该进入 <code>backend/agent</code>；如果代码需要知道 Cobra flag 或 OS signal，它不应该进入 <code>internal/worker</code>。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <span class="section-number">03</span>
+        <h2>层级间关系与核心数据流</h2>
+      </div>
+      <p class="section-intro">核心链路由两条方向组成：命令向 Worker 下发，事件向 Server 回流。Agent Runtime 位于 Worker 内部，但通过独立契约隔离业务语义。</p>
+
+      <div class="flow-strip">
+        <span class="flow-chip">HTTP / SSE / connector input</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">Server service</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">WorkerCommand</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">Worker Coordinator</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">AgentRun</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">agent.Runtime</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">NodeEvent</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">RunEvent</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-chip">Server projector / UI</span>
+      </div>
+
+      <table class="relation-table">
+        <thead>
+          <tr>
+            <th>层级</th>
+            <th>输入</th>
+            <th>输出</th>
+            <th>允许依赖</th>
+            <th>禁止事项</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>CLI / cmd</td>
+            <td>命令行参数、配置文件、环境变量</td>
+            <td>启动 Server / Worker / 本地命令</td>
+            <td>config、internal app constructors、lifecycle</td>
+            <td>业务规则、Run 编排、Runtime Provider 特例</td>
+          </tr>
+          <tr>
+            <td>Server</td>
+            <td>HTTP 请求、连接器事件、RunEvent</td>
+            <td>WorkerCommand、SessionEvent、持久状态</td>
+            <td>internal/service、infra、pkg/messaging</td>
+            <td>直接调用 Agent Runtime、处理 Worker 本地路径</td>
+          </tr>
+          <tr>
+            <td>Worker</td>
+            <td>WorkerCommand、interaction 回传、runtime NodeEvent</td>
+            <td>RunEvent、Plan artifact、Provider Session binding</td>
+            <td>backend/agent、pkg/messaging、worker runtimehost</td>
+            <td>查询业务数据库、产生 Server UI 投影视图</td>
+          </tr>
+          <tr>
+            <td>Agent Runtime</td>
+            <td>ExecutionRequest、context cancellation、Tool/Interaction ports</td>
+            <td>ExecutionResult、NodeEvent</td>
+            <td>标准库、runtime/internal、外部 CLI 协议包</td>
+            <td>NATS、DB、业务 Session、RunEvent、Artifact 上传</td>
+          </tr>
+          <tr>
+            <td>Messaging</td>
+            <td>业务命令与业务运行事实</td>
+            <td>可序列化 wire envelope</td>
+            <td>基础类型、JSON contract</td>
+            <td>Runtime 内部事件、HTTP DTO、DB model</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <span class="section-number">04</span>
+        <h2>Server 架构说明</h2>
+      </div>
+      <p class="section-intro">Server 是控制面：接收用户、外部连接器和前端请求；解析业务配置与模型配置；发布 WorkerCommand；消费 RunEvent 并投影成持久状态和 UI 可读事件。</p>
+
+      <div class="mini-diagram">
+        <svg viewBox="0 0 1080 230" aria-label="Server architecture diagram">
+          <defs>
+            <marker id="serverArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+            </marker>
+            <marker id="serverBusArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fb923c" />
+            </marker>
+          </defs>
+          <rect width="100%" height="100%" rx="10" fill="rgba(2, 6, 23, 0.65)"/>
+          <path d="M 185 76 L 245 76" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#serverArrow)"/>
+          <path d="M 405 76 L 465 76" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#serverArrow)"/>
+          <path d="M 625 76 L 690 76" stroke="#fb923c" stroke-width="1.5" marker-end="url(#serverBusArrow)"/>
+          <path d="M 690 156 L 625 156" stroke="#fb923c" stroke-width="1.5" marker-end="url(#serverBusArrow)"/>
+          <path d="M 465 156 L 405 156" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#serverArrow)"/>
+          <path d="M 245 156 L 185 156" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#serverArrow)"/>
+
+          <rect x="35" y="45" width="150" height="62" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="110" y="70" fill="white" font-size="11" font-weight="600" text-anchor="middle">HTTP / SSE</text>
+          <text x="110" y="88" fill="#94a3b8" font-size="8" text-anchor="middle">internal/api</text>
+
+          <rect x="245" y="45" width="160" height="62" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="325" y="70" fill="white" font-size="11" font-weight="600" text-anchor="middle">Service Layer</text>
+          <text x="325" y="88" fill="#94a3b8" font-size="8" text-anchor="middle">business + model config</text>
+
+          <rect x="465" y="45" width="160" height="62" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="545" y="70" fill="white" font-size="11" font-weight="600" text-anchor="middle">pkg/messaging</text>
+          <text x="545" y="88" fill="#94a3b8" font-size="8" text-anchor="middle">WorkerCommand</text>
+
+          <rect x="690" y="45" width="150" height="62" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="765" y="70" fill="white" font-size="11" font-weight="600" text-anchor="middle">NATS Publisher</text>
+          <text x="765" y="88" fill="#94a3b8" font-size="8" text-anchor="middle">cmd.* lanes</text>
+
+          <rect x="690" y="125" width="150" height="62" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="765" y="150" fill="white" font-size="11" font-weight="600" text-anchor="middle">RunEvent Consumer</text>
+          <text x="765" y="168" fill="#94a3b8" font-size="8" text-anchor="middle">stream / state lanes</text>
+
+          <rect x="465" y="125" width="160" height="62" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="545" y="150" fill="white" font-size="11" font-weight="600" text-anchor="middle">Projectors</text>
+          <text x="545" y="168" fill="#94a3b8" font-size="8" text-anchor="middle">service + runnable</text>
+
+          <rect x="245" y="125" width="160" height="62" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="325" y="150" fill="white" font-size="11" font-weight="600" text-anchor="middle">Persistence</text>
+          <text x="325" y="168" fill="#94a3b8" font-size="8" text-anchor="middle">session / project / run state</text>
+
+          <rect x="35" y="125" width="150" height="62" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="110" y="150" fill="white" font-size="11" font-weight="600" text-anchor="middle">SessionEvent</text>
+          <text x="110" y="168" fill="#94a3b8" font-size="8" text-anchor="middle">UI contract</text>
+
+          <rect x="880" y="64" width="165" height="104" rx="8" fill="rgba(136, 19, 55, 0.22)" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+          <text x="962" y="89" fill="#fb7185" font-size="10" font-weight="600" text-anchor="middle">Server responsibilities</text>
+          <text x="962" y="111" fill="#94a3b8" font-size="8" text-anchor="middle">resolve model credentials</text>
+          <text x="962" y="127" fill="#94a3b8" font-size="8" text-anchor="middle">create WorkerCommand</text>
+          <text x="962" y="143" fill="#94a3b8" font-size="8" text-anchor="middle">project RunEvent for UI</text>
+        </svg>
+      </div>
+
+      <div class="grid-3">
+        <div class="panel">
+          <h3>API / Handler</h3>
+          <ul>
+            <li>• 只做 HTTP 参数解析、鉴权上下文、DTO 转换和 service 调用。</li>
+            <li>• SSE 不理解 Runtime，它只消费 Server 投影后的 SessionEvent。</li>
+            <li>• Connector 事件进入 Server 后也应先转换为业务命令。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>Service / Command Source</h3>
+          <ul>
+            <li>• 负责业务校验、Session/Project 状态读取和模型配置解析。</li>
+            <li>• Server 在发送 WorkerCommand 前准备完整 ModelOptions。</li>
+            <li>• 不直接调用 <code>agent.Executor</code> 或 Runtime Adapter。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>Projector / Replay</h3>
+          <ul>
+            <li>• Live 与 Replay 都消费 <code>messaging.RunEvent</code>。</li>
+            <li>• Projector 负责恢复 Session 状态、消息片段、工具记录和 Plan 产物。</li>
+            <li>• UI contract 与 Worker wire contract 解耦。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <span class="section-number">05</span>
+        <h2>Worker 架构说明</h2>
+      </div>
+      <p class="section-intro">Worker 是执行面和业务 Run Host。它不拥有业务数据库，不负责 Server 投影；它的核心价值是把命令变成一次可取消、可归档、可恢复语义清晰的 Agent 执行。</p>
+
+      <div class="mini-diagram">
+        <svg viewBox="0 0 1080 260" aria-label="Worker architecture diagram">
+          <defs>
+            <marker id="workerArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+            </marker>
+            <marker id="workerBusArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fb923c" />
+            </marker>
+            <marker id="workerNodeArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
+            </marker>
+          </defs>
+          <rect width="100%" height="100%" rx="10" fill="rgba(2, 6, 23, 0.65)"/>
+          <path d="M 160 72 L 205 72" stroke="#fb923c" stroke-width="1.5" marker-end="url(#workerBusArrow)"/>
+          <path d="M 345 72 L 390 72" stroke="#34d399" stroke-width="1.5" marker-end="url(#workerArrow)"/>
+          <path d="M 530 72 L 575 72" stroke="#34d399" stroke-width="1.5" marker-end="url(#workerArrow)"/>
+          <path d="M 715 72 L 760 72" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#workerArrow)"/>
+          <path d="M 900 96 C 910 142, 686 138, 686 112" fill="none" stroke="#fb7185" stroke-width="1.4" stroke-dasharray="5,5" marker-end="url(#workerNodeArrow)"/>
+          <path d="M 660 155 L 660 194" stroke="#34d399" stroke-width="1.5" marker-end="url(#workerArrow)"/>
+          <path d="M 760 210 L 840 210" stroke="#fb923c" stroke-width="1.5" marker-end="url(#workerBusArrow)"/>
+
+          <rect x="35" y="42" width="125" height="60" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="98" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">NATS command</text>
+          <text x="98" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">cmd.* lanes</text>
+
+          <rect x="205" y="42" width="140" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="275" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">command handlers</text>
+          <text x="275" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">run / interaction / skill</text>
+
+          <rect x="390" y="42" width="140" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="460" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">RunCoordinator</text>
+          <text x="460" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">cancel + concurrency</text>
+
+          <rect x="575" y="42" width="140" height="112" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="645" y="66" fill="white" font-size="10" font-weight="600" text-anchor="middle">agentrun.Service</text>
+          <text x="645" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">Preparer</text>
+          <text x="645" y="101" fill="#94a3b8" font-size="8" text-anchor="middle">NodeHandler</text>
+          <text x="645" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">Finalizer</text>
+          <text x="645" y="135" fill="#94a3b8" font-size="8" text-anchor="middle">Journal</text>
+
+          <rect x="760" y="42" width="140" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="830" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">agent.Executor</text>
+          <text x="830" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">SerialObserver</text>
+
+          <rect x="940" y="42" width="105" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="992" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">Runtime</text>
+          <text x="992" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">native / CLI</text>
+
+          <rect x="550" y="194" width="210" height="44" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="655" y="213" fill="white" font-size="10" font-weight="600" text-anchor="middle">RunEvent writer</text>
+          <text x="655" y="228" fill="#94a3b8" font-size="8" text-anchor="middle">Seq + journal + terminal uniqueness</text>
+
+          <rect x="840" y="184" width="150" height="54" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="915" y="207" fill="white" font-size="10" font-weight="600" text-anchor="middle">eventpub</text>
+          <text x="915" y="224" fill="#94a3b8" font-size="8" text-anchor="middle">complete RunEvent → NATS</text>
+
+          <rect x="38" y="174" width="210" height="50" rx="6" fill="rgba(76, 29, 149, 0.35)" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="4,4"/>
+          <text x="143" y="195" fill="#c4b5fd" font-size="9" font-weight="600" text-anchor="middle">runtimehost ports</text>
+          <text x="143" y="211" fill="#94a3b8" font-size="8" text-anchor="middle">SQLite Provider SessionStore · local paths</text>
+
+          <rect x="282" y="174" width="210" height="50" rx="6" fill="rgba(8, 51, 68, 0.28)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="4,4"/>
+          <text x="387" y="195" fill="#7dd3fc" font-size="9" font-weight="600" text-anchor="middle">worker local services</text>
+          <text x="387" y="211" fill="#94a3b8" font-size="8" text-anchor="middle">MCP gateway · modelrouter v2 · tool provider</text>
+        </svg>
+      </div>
+
+      <div class="grid-3">
+        <div class="panel">
+          <h3>Command & Coordinator</h3>
+          <ul>
+            <li>• Command handler 只做 wire contract 解析和 RunRequest 构造。</li>
+            <li>• Coordinator 是 Worker 本地调度器，不理解 Runtime Provider 细节。</li>
+            <li>• cancel、debounce、并发限制和 close 都在这一层处理。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>AgentRun Host</h3>
+          <ul>
+            <li>• Preparer 构建不可变 ExecutionRequest。</li>
+            <li>• NodeHandler 选择哪些 NodeEvent 能外发为 RunEvent。</li>
+            <li>• Finalizer 生成唯一业务终态，Journal 分配 Seq 并保证发布顺序。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>RuntimeHost & Ports</h3>
+          <ul>
+            <li>• Provider SessionStore、CLI 路径、Worker 本地目录属于 Worker runtimehost。</li>
+            <li>• OpenCode <code>plan.ready</code> 由 Worker 校验、读取、上传并转成 <code>plan.published</code>。</li>
+            <li>• Worker 透传 API Key 给 Runtime 使用，但不把它写入事件、日志和结果。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <span class="section-number">06</span>
+        <h2>CLI / 进程入口架构说明</h2>
+      </div>
+      <p class="section-intro"><code>backend/cmd/leros</code> 是进程入口层，而不是业务层。它负责 Cobra 命令、配置加载、依赖装配、生命周期和退出处理；一旦进入业务库代码，就不再处理信号、<code>os.Exit</code> 或 <code>log.Fatal</code>。</p>
+
+      <div class="mini-diagram">
+        <svg viewBox="0 0 1080 230" aria-label="CLI architecture diagram">
+          <defs>
+            <marker id="cliArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" />
+            </marker>
+          </defs>
+          <rect width="100%" height="100%" rx="10" fill="rgba(2, 6, 23, 0.65)"/>
+          <path d="M 198 112 L 245 62" stroke="#fbbf24" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+          <path d="M 205 118 L 245 118" stroke="#fbbf24" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+          <path d="M 198 126 L 245 174" stroke="#fbbf24" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+          <path d="M 405 62 L 462 62" stroke="#34d399" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+          <path d="M 405 118 L 462 118" stroke="#34d399" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+          <path d="M 405 174 L 462 174" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+          <path d="M 650 118 L 710 118" stroke="#22d3ee" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+          <path d="M 870 118 L 930 118" stroke="#22d3ee" stroke-width="1.4" marker-end="url(#cliArrow)"/>
+
+          <rect x="52" y="84" width="150" height="72" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="127" y="112" fill="white" font-size="11" font-weight="600" text-anchor="middle">leros root</text>
+          <text x="127" y="130" fill="#94a3b8" font-size="8" text-anchor="middle">Cobra + config</text>
+
+          <rect x="245" y="34" width="160" height="56" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="325" y="57" fill="white" font-size="10" font-weight="600" text-anchor="middle">leros server</text>
+          <text x="325" y="74" fill="#94a3b8" font-size="8" text-anchor="middle">control plane process</text>
+
+          <rect x="245" y="90" width="160" height="56" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="325" y="113" fill="white" font-size="10" font-weight="600" text-anchor="middle">leros worker</text>
+          <text x="325" y="130" fill="#94a3b8" font-size="8" text-anchor="middle">execution plane process</text>
+
+          <rect x="245" y="146" width="160" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="325" y="169" fill="white" font-size="10" font-weight="600" text-anchor="middle">local commands</text>
+          <text x="325" y="186" fill="#94a3b8" font-size="8" text-anchor="middle">chat / session / skill / project</text>
+
+          <rect x="462" y="34" width="188" height="56" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="556" y="57" fill="white" font-size="10" font-weight="600" text-anchor="middle">Server bootstrap</text>
+          <text x="556" y="74" fill="#94a3b8" font-size="8" text-anchor="middle">DB · router · NATS · projectors</text>
+
+          <rect x="462" y="90" width="188" height="56" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="556" y="113" fill="white" font-size="10" font-weight="600" text-anchor="middle">Worker bootstrap</text>
+          <text x="556" y="130" fill="#94a3b8" font-size="8" text-anchor="middle">worker/app · runtime adapters · NATS</text>
+
+          <rect x="462" y="146" width="188" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="556" y="169" fill="white" font-size="10" font-weight="600" text-anchor="middle">Client helpers</text>
+          <text x="556" y="186" fill="#94a3b8" font-size="8" text-anchor="middle">API calls and local UX</text>
+
+          <rect x="710" y="90" width="160" height="56" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="790" y="113" fill="white" font-size="10" font-weight="600" text-anchor="middle">Lifecycle</text>
+          <text x="790" y="130" fill="#94a3b8" font-size="8" text-anchor="middle">signals · shutdown hooks</text>
+
+          <rect x="930" y="90" width="112" height="56" rx="6" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="986" y="113" fill="white" font-size="10" font-weight="600" text-anchor="middle">Exit boundary</text>
+          <text x="986" y="130" fill="#94a3b8" font-size="8" text-anchor="middle">log.Fatal only here</text>
+        </svg>
+      </div>
+
+      <div class="grid-3">
+        <div class="panel">
+          <h3>Server Command</h3>
+          <ul>
+            <li>• 装配 DB、NATS、HTTP router、Connector、Projector 和服务依赖。</li>
+            <li>• 启动控制面 HTTP/SSE 能力。</li>
+            <li>• 负责进程级错误处理和优雅退出。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>Worker Command</h3>
+          <ul>
+            <li>• 装配 Worker app、Runtime registry、MCP、modelrouter、NATS subscription。</li>
+            <li>• 把静态配置解析成值传给库代码，不使用运行时全局 setter。</li>
+            <li>• 不在 cmd 层写 Run 编排逻辑。</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>Local CLI Commands</h3>
+          <ul>
+            <li>• chat、session、project、skill、login/logout 等命令面向本地开发与操作。</li>
+            <li>• 它们可以调用 API 或本地 helper，但不绕过服务端业务边界。</li>
+            <li>• 新命令先参考 <code>backend/cmd/leros</code> 现有命令骨架。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer">
+      Generated for docs/architecture/agent-runtime.md and docs/architecture/backend.md · Source of truth: backend/agent, backend/internal/worker, backend/internal/service, backend/pkg/messaging, backend/cmd/leros
+    </p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPNG(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a');
+        link.download = 'leros-architecture.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPDF(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('leros-architecture.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
 </body>
 </html>

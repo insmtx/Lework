@@ -8,9 +8,8 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -26,11 +25,11 @@ type AppServerInvoker struct {
 func NewAppServerInvoker(binary string, extraEnv map[string]string) *AppServerInvoker {
 	return &AppServerInvoker{
 		binary:  binary,
-		baseEnv: provider.BuildBaseEnv(extraEnv),
+		baseEnv: runtimeprocess.BuildBaseEnv(extraEnv),
 	}
 }
 
-func (inv *AppServerInvoker) Invoke(ctx context.Context, req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+func (inv *AppServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.Invocation, error) {
 	workDir := strings.TrimSpace(req.WorkDir)
 
 	srv, err := startAppServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, req.TaskDir)
@@ -38,12 +37,14 @@ func (inv *AppServerInvoker) Invoke(ctx context.Context, req externalcli.Invocat
 		return nil, fmt.Errorf("start app-server for %s: %w", workDir, err)
 	}
 
-	evtChan := make(chan agent.Event, 64)
+	evtChan := make(chan agent.NodeEvent, 64)
+	resultChan := make(chan cli.InvocationResult, 1)
 	srv.SetEventChannel(evtChan)
 
 	st := &runState{
-		srv:     srv,
-		evtChan: evtChan,
+		srv:        srv,
+		evtChan:    evtChan,
+		resultChan: resultChan,
 	}
 	st.turnDone = make(chan turnResult, 1)
 
@@ -67,19 +68,18 @@ func (inv *AppServerInvoker) Invoke(ctx context.Context, req externalcli.Invocat
 	}
 	_ = tid
 
-	sendEventTo(evtChan, events.EventInvocationStarted, "")
-
 	// -- 后台等待 turn 完成 --
 	go st.waitTurnDone(ctx)
 
 	return st.buildHandle(req)
 }
 
-func (st *runState) buildHandle(req externalcli.InvocationRequest) (*externalcli.Invocation, error) {
+func (st *runState) buildHandle(req cli.InvocationRequest) (*cli.Invocation, error) {
 	responder := &appServerResponder{srv: st.srv}
-	return &externalcli.Invocation{
+	return &cli.Invocation{
 		Process:   st.srv,
 		Events:    st.evtChan,
+		Result:    st.resultChan,
 		Responder: responder,
 	}, nil
 }
@@ -89,17 +89,19 @@ func (st *runState) buildHandle(req externalcli.InvocationRequest) (*externalcli
 // ============================================================================
 
 type runState struct {
-	srv     *AppServer
-	evtChan chan agent.Event
+	srv        *AppServer
+	evtChan    chan agent.NodeEvent
+	resultChan chan cli.InvocationResult
 
-	mu            sync.Mutex
-	turnID        string
-	msgCount      int // agentMessage 类型的 item/started 计数，用于生成跨轮唯一的消息 ID
-	assistantText strings.Builder
-	currentDiff   strings.Builder
-	messageID     string
-	tokenUsage    *agent.Usage
-	turnDone      chan turnResult
+	mu                sync.Mutex
+	turnID            string
+	msgCount          int // agentMessage 类型的 item/started 计数，用于生成跨轮唯一的消息 ID
+	assistantText     strings.Builder
+	currentDiff       strings.Builder
+	messageID         string
+	tokenUsage        *agent.Usage
+	providerSessionID string
+	turnDone          chan turnResult
 }
 
 type turnResult struct {
@@ -159,7 +161,8 @@ func (st *runState) onThreadStarted(params sonic.NoCopyRawMessage) {
 	}
 	if err := sonic.Unmarshal(params, &payload); err == nil && payload.Thread.ID != "" {
 		st.srv.SetThreadID(payload.Thread.ID)
-		sendEventTo(st.evtChan, events.EventProviderSessionStarted, payload.Thread.ID)
+		st.providerSessionID = payload.Thread.ID
+		sendNodeEventTo(st.evtChan, agent.NewAgentStartEvent(payload.Thread.ID))
 	}
 }
 
@@ -194,11 +197,11 @@ func (st *runState) onItemStarted(params sonic.NoCopyRawMessage) {
 			st.messageID = st.makeMessageID(payload.Item.ID)
 		}
 	case "commandExecution", "fileChange":
-		sendEventPayloadTo(st.evtChan, events.EventToolCallStarted,
-			events.ToolCallPayload{
+		sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionStart,
+			&agent.ToolExecutionStartPayload{
 				ToolCallID: st.makeMessageID(payload.Item.ID),
 				Name:       "Command",
-				Arguments:  events.MarshalRaw(map[string]string{"command": payload.Item.Command, "cwd": payload.Item.CWD}),
+				Arguments:  agent.MarshalRawJSON(map[string]string{"command": payload.Item.Command, "cwd": payload.Item.CWD}),
 			})
 	}
 }
@@ -236,11 +239,11 @@ func (st *runState) emitToolResult(id, aggregated, output string, exitCode *int,
 		elapsed = *durationMs
 	}
 	if exitCode != nil && *exitCode != 0 {
-		sendEventPayloadTo(st.evtChan, events.EventToolCallFailed,
-			events.ToolCallResultPayload{ToolCallID: id, Error: out, ElapsedMS: elapsed})
+		sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd,
+			&agent.ToolExecutionEndPayload{ToolCallID: id, IsError: true, Error: out, ElapsedMS: elapsed})
 	} else {
-		sendEventPayloadTo(st.evtChan, events.EventToolCallCompleted,
-			events.ToolCallResultPayload{ToolCallID: id, Result: events.MarshalRaw(out), ElapsedMS: elapsed})
+		sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd,
+			&agent.ToolExecutionEndPayload{ToolCallID: id, IsError: false, Result: agent.MarshalRawJSON(out), ElapsedMS: elapsed})
 	}
 }
 
@@ -309,15 +312,15 @@ func (st *runState) onPlanUpdated(params sonic.NoCopyRawMessage) {
 	if err := sonic.Unmarshal(params, &payload); err != nil || len(payload.Plan) == 0 {
 		return
 	}
-	items := make([]events.RuntimeTodoItem, 0, len(payload.Plan))
+	items := make([]agent.RuntimeTodoItem, 0, len(payload.Plan))
 	for i, p := range payload.Plan {
-		items = append(items, events.RuntimeTodoItem{
+		items = append(items, agent.RuntimeTodoItem{
 			ID:     fmt.Sprintf("plan_%d", i+1),
 			Title:  p.Step,
 			Status: planStatus(p.Status),
 		})
 	}
-	sendEventPayloadTo(st.evtChan, events.EventTodoSnapshot, items)
+	sendEventPayloadTo(st.evtChan, agent.NodeEventTodoSnapshot, &agent.TodoSnapshotPayload{Items: items})
 }
 
 func planStatus(s string) string {
@@ -341,11 +344,10 @@ func (st *runState) onTokenUsage(params sonic.NoCopyRawMessage) {
 		} `json:"tokenUsage"`
 	}
 	if err := sonic.Unmarshal(params, &payload); err == nil {
-		st.tokenUsage = &agent.Usage{
+		st.tokenUsage = agent.EnsureUsage(&agent.Usage{
 			InputTokens:  payload.TokenUsage.Total.InputTokens,
 			OutputTokens: payload.TokenUsage.Total.OutputTokens,
-			TotalTokens:  payload.TokenUsage.Total.InputTokens + payload.TokenUsage.Total.OutputTokens,
-		}
+		})
 	}
 }
 
@@ -369,12 +371,12 @@ func (st *runState) handleServerRequest(req ServerRequest) {
 			if reqID == "" {
 				reqID = string(req.ID)
 			}
-			sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
+			sendEventPayloadTo(st.evtChan, agent.NodeEventApprovalRequested, &agent.ApprovalRequestedPayload{
 				RequestID:   reqID,
 				ToolName:    "Command",
 				ToolCallID:  params.ItemID,
 				Description: firstNonEmpty(params.Reason, params.Command),
-				Arguments:   events.MarshalRaw(map[string]string{"command": params.Command}),
+				Arguments:   agent.MarshalRawJSON(map[string]string{"command": params.Command}),
 				Metadata:    map[string]string{"engine": "codex", "action_type": "command_execution"},
 			})
 		}
@@ -390,18 +392,18 @@ func (st *runState) handleServerRequest(req ServerRequest) {
 			if reqID == "" {
 				reqID = string(req.ID)
 			}
-			sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
+			sendEventPayloadTo(st.evtChan, agent.NodeEventApprovalRequested, &agent.ApprovalRequestedPayload{
 				RequestID:   reqID,
 				ToolName:    "Write",
 				ToolCallID:  params.ItemID,
 				Description: firstNonEmpty(params.Reason, params.GrantRoot),
-				Arguments:   events.MarshalRaw(map[string]string{"path": params.GrantRoot}),
+				Arguments:   agent.MarshalRawJSON(map[string]string{"path": params.GrantRoot}),
 				Metadata:    map[string]string{"engine": "codex", "action_type": "file_change"},
 			})
 		}
 
 	case "item/permissions/requestApproval":
-		sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, events.ApprovalRequestPayload{
+		sendEventPayloadTo(st.evtChan, agent.NodeEventApprovalRequested, &agent.ApprovalRequestedPayload{
 			RequestID:   string(req.ID),
 			ToolName:    "Permissions",
 			Description: "Permission approval request",
@@ -417,7 +419,7 @@ func (st *runState) handleServerRequest(req ServerRequest) {
 // 会话 & turn 生命周期
 // ============================================================================
 
-func (st *runState) ensureThread(ctx context.Context, req externalcli.InvocationRequest) (string, error) {
+func (st *runState) ensureThread(ctx context.Context, req cli.InvocationRequest) (string, error) {
 	resume := req.Resume && strings.TrimSpace(req.SessionID) != ""
 	if resume {
 		threadID := strings.TrimSpace(req.SessionID)
@@ -426,18 +428,21 @@ func (st *runState) ensureThread(ctx context.Context, req externalcli.Invocation
 				return "", fmt.Errorf("resume thread %s: %w", threadID, err)
 			}
 		}
-		sendEventTo(st.evtChan, events.EventProviderSessionStarted, threadID)
+		st.providerSessionID = threadID
+		sendNodeEventTo(st.evtChan, agent.NewAgentStartEvent(threadID))
 		return threadID, nil
 	}
 	tid, err := st.srv.StartThread(ctx, req.Model, req.SystemPrompt)
 	if err != nil {
 		return "", fmt.Errorf("start thread: %w", err)
 	}
+	st.providerSessionID = tid
 	return tid, nil
 }
 
 func (st *runState) waitTurnDone(ctx context.Context) {
 	defer close(st.evtChan)
+	defer close(st.resultChan)
 	defer func() {
 		st.srv.onNotification = nil
 		st.srv.onServerRequest = nil
@@ -449,18 +454,31 @@ func (st *runState) waitTurnDone(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		logs.WarnContextf(ctx, "Turn context done: %v", ctx.Err())
-		sendEventTo(st.evtChan, events.EventInvocationFailed, ctx.Err().Error())
+		st.resultChan <- cli.InvocationResult{
+			Message:           st.assistantText.String(),
+			Usage:             st.tokenUsage,
+			ProviderSessionID: st.providerSessionID,
+			Err:               ctx.Err(),
+		}
 
 	case result := <-st.turnDone:
 		if result.failed {
-			sendEventTo(st.evtChan, events.EventInvocationFailed, result.errorMsg)
+			st.resultChan <- cli.InvocationResult{
+				Message:           result.message,
+				Usage:             st.tokenUsage,
+				ProviderSessionID: st.providerSessionID,
+				Err:               fmt.Errorf("%s", result.errorMsg),
+			}
 		} else if result.completed {
 			finalMsg := firstNonEmpty(result.message, result.diff)
 			if finalMsg != "" {
-				sendEventTo(st.evtChan, events.EventResult, finalMsg)
-				sendEventPayloadTo(st.evtChan, events.EventResult, events.MessageResultPayload{Message: finalMsg, Usage: st.tokenUsage})
+				sendNodeEventTo(st.evtChan, agent.NewMessageEndEvent(finalMsg, st.tokenUsage))
 			}
-			sendEventTo(st.evtChan, events.EventInvocationCompleted, finalMsg)
+			st.resultChan <- cli.InvocationResult{
+				Message:           finalMsg,
+				Usage:             st.tokenUsage,
+				ProviderSessionID: st.providerSessionID,
+			}
 		}
 	}
 }
@@ -475,7 +493,7 @@ type appServerResponder struct {
 
 func (r *appServerResponder) WriteDecision(requestID string, action string) error {
 	decision := "cancel"
-	if action == provider.ApprovalActionApprove || action == provider.ApprovalActionAlways {
+	if action == agent.ApprovalActionApprove || action == agent.ApprovalActionAlways {
 		decision = "accept"
 	}
 
@@ -502,43 +520,32 @@ func resolveThread(sessionID string, resume bool) (string, bool) {
 	return threadID, threadID != ""
 }
 
-func emitMessageDelta(ch chan<- agent.Event, messageID, content string) {
+func emitMessageDelta(ch chan<- agent.NodeEvent, messageID, content string) {
 	if ch == nil || content == "" {
 		return
 	}
-	payload, _ := sonic.Marshal(events.MessageDeltaPayload{MessageID: messageID, Content: content})
 	select {
-	case ch <- agent.Event{
-		Type:    events.EventMessageDelta,
-		Content: content,
-		Payload: payload,
-	}:
+	case ch <- agent.NewMessageUpdateEvent(messageID, content):
 	default:
 	}
 }
 
-func sendEventTo(ch chan<- agent.Event, eventType agent.EventType, content string) {
+func sendNodeEventTo(ch chan<- agent.NodeEvent, event agent.NodeEvent) {
 	if ch == nil {
 		return
-	}
-	select {
-	case ch <- agent.Event{Type: eventType, Content: content}:
-	default:
-	}
-}
-
-func sendEventPayloadTo(ch chan<- agent.Event, eventType agent.EventType, payload any) {
-	if ch == nil {
-		return
-	}
-	event := agent.Event{Type: eventType}
-	if payload != nil {
-		if encoded, err := sonic.Marshal(payload); err == nil {
-			event.Payload = encoded
-		}
 	}
 	select {
 	case ch <- event:
+	default:
+	}
+}
+
+func sendEventPayloadTo(ch chan<- agent.NodeEvent, eventType agent.NodeEventType, payload agent.NodeEventPayload) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- agent.NodeEvent{Type: eventType, Payload: payload}:
 	default:
 	}
 }

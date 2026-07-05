@@ -66,31 +66,35 @@ Lework 采用**契约驱动的服务架构**，而不是：
 
 ```bash
 backend/
-├── cmd/lework/                 # composition root 与进程生命周期
+├── cmd/leros/                  # composition root 与进程生命周期
 ├── agent/                     # 独立、业务无关的执行层
 │   ├── executor.go
 │   ├── registry.go
 │   ├── runtime.go             # ExecutionRequest / Result / Runtime
-│   ├── result.go              # 唯一 agent.Event
+│   ├── node_event.go          # NodeEvent / NodeObserver / 强类型 payload
+│   ├── observe.go             # 串行 Observer 与观察工具
+│   ├── result.go              # ExecutionResult 辅助类型、Usage、ToolCallRecord
 │   ├── tool.go                # Tool / approval / question
+│   ├── interaction.go         # Runtime 交互契约
 │   └── runtime/
 │       ├── native/
 │       ├── claude/
 │       ├── codex/
 │       ├── opencode/
-│       ├── externalcli/
-│       ├── provider/
-│       ├── events/            # 活动 payload、构造器、Sink
-│       └── todo/
+│       └── internal/
+│           ├── cli/           # CLI Runtime 共用 invocation/runner
+│           ├── process/       # 子进程、环境和工作目录设施
+│           └── todo/          # Runtime 内部 Todo 事件适配
 ├── internal/
 │   ├── api/                   # HTTP adapters 与 API contract
-│   ├── assistant/             # Lework 业务包装、PreparedRun、Journal
 │   ├── worker/
+│   │   ├── app/               # Worker 依赖装配与 Runtime Adapter wiring
 │   │   ├── command/           # WorkerCommand adapters
 │   │   ├── run/               # RunCoordinator
-│   │   ├── eventpub/          # agent.Event → NATS 双 lane
+│   │   ├── agentrun/          # 业务 Run 生命周期、NodeEvent 映射、Journal
+│   │   ├── eventpub/          # messaging.RunEvent → NATS
+│   │   ├── runtimehost/       # Worker 侧 Runtime 端口实现
 │   │   ├── mcp/               # Worker MCP infrastructure
-│   │   ├── client/
 │   │   ├── server/
 │   │   └── scheduler/
 │   ├── workspace/             # WorkspacePreparation 与仓库准备
@@ -185,23 +189,23 @@ Command Handler 只处理 wire contract、映射和 delivery 状态。RunCoordin
 debounce 全 waiter、Session 串行、跨 Session 并行、并发上限、取消和关闭。
 Handler 不直接调用 Runtime。
 
-### 4.3 `internal/assistant/` - 业务执行层
+### 4.3 `internal/worker/agentrun/` - 业务执行层
 
-Assistant 将 Session、Workspace、Memory、Skill、Artifact 和 Git 业务封装在
+AgentRun 将 Session、Workspace、Memory、Skill、Artifact、Plan 和 Git 业务封装在
 `PreparedRun` 中，并调用纯 `agent.Executor`。它独占 `run.*` 业务事件、Journal
-归档和唯一终态。
+归档、Seq 分配和唯一业务终态。
 
 ### 4.4 `backend/agent/` - 独立 Agent 执行层
 
 该层只定义 `ExecutionRequest`、`ExecutionResult`、`Runtime`、`Executor`、
-`agent.Event` 和强类型 Tool/交互契约。四个 Runtime 直接注册；CLI Runtime 复用
-`externalcli.Driver`，但 Driver 不是 Runtime。
+`NodeEvent` 和强类型 Tool/交互契约。四个 Runtime 直接注册；CLI Runtime 复用
+`runtime/internal` 下的 CLI/Process 机制，但共享 driver 不是 Runtime。
 
 **强制边界：**
 
 - 禁止导入 `internal/*`、业务配置、messaging 和业务 Tool 包。
 - 禁止访问 MQ、DB、Session 或 Workspace 准备逻辑。
-- Runtime 只发活动事件；Executor 发 `execution.*`；Assistant 发业务 `run.*`。
+- Runtime 只发 `NodeEvent` 执行节点事件；AgentRun 发业务 `run.*` 并映射为 `messaging.RunEvent`。
 - 公共执行边界不得使用 `map[string]interface{}` 或兼容 type alias。
 
 ---
@@ -575,12 +579,12 @@ type StreamPayload struct {
 
 ### 5.2 当前进程边界
 
-同一个 `lework` 二进制通过 Cobra 子命令提供 Server 与 Worker 进程入口。进程启停、
-信号和致命错误处理只存在于 `cmd/lework`；`internal/*` 不知道自己运行在哪种进程中。
+同一个 `leros` 二进制通过 Cobra 子命令提供 Server 与 Worker 进程入口。进程启停、
+信号和致命错误处理只存在于 `cmd/leros`；`internal/*` 不知道自己运行在哪种进程中。
 
 ```bash
-lework server   # API、DB、NATS、Worker 管理
-lework worker   # Worker Command、Coordinator、Assistant、Agent Runtime
+leros server   # API、DB、NATS、Worker 管理
+leros worker   # Worker Command、RunCoordinator、AgentRun、Agent Runtime
 ```
 
 是否同机部署属于部署配置，不改变包边界或执行契约。
@@ -593,10 +597,14 @@ lework worker   # Worker Command、Coordinator、Assistant、Agent Runtime
 
 ### 5.3 进程间通信
 
-所有进程间通过 **Event Bus** 通信：
+Server 与 Worker 通过 NATS JetStream 承载的 `pkg/messaging` 协议通信；
+Server 生产 `WorkerCommand`，Worker 发布完整 `RunEvent`，Server live/replay projector
+消费同一业务事件语义：
 
 ```
-Connector Process → Event Bus → Event Engine Process → Execution Engine Process → Agent Runtime Worker
+Server/API → WorkerCommand → Worker RunCoordinator → agentrun → Agent Runtime
+                                                   ↓
+Server Projector ← messaging.RunEvent ← worker/eventpub ← Journal
 ```
 
 ## 6. 常见错误与最佳实践
@@ -645,7 +653,7 @@ Database
 | -------------------------------------- | ----------------------------------------- |
 | 把所有逻辑写进 Event Handler           | Handler → 调用 contract.Service           |
 | Event Handler 使用 `switch` 硬编码路由 | Router 独立 + Handler 插件化（Phase 2）   |
-| Agent Runtime 直接调 MQ / DB           | 通过 contract.AgentService                |
+| Agent Runtime 直接调 MQ / DB           | Runtime 只输出 `NodeEvent`，由 `worker/agentrun` 映射业务事件 |
 | Skill 写死在代码中                     | 必须 Registry 化，支持动态注册            |
 | 按技术分层（controller/service/model） | 按领域分层（contract/handler/service/db） |
 | 添加 Repository 抽象                   | service 直接调用 db.client                |
@@ -672,11 +680,11 @@ Database
 1. ✅ 创建 `internal/` 目录结构（已完成）
 2. ✅ 移动现有代码到对应领域目录（已完成）
 3. ✅ 定义各层 interface（API 层已完成）
-4. 🔄 Event Engine Handler 插件化（Phase 2 计划）
+4. ✅ Agent Runtime 与 Worker 业务 Run 边界隔离（`agent.NodeEvent` → `messaging.RunEvent`）
 
 ### 中期优化（Phase 2）
 
-1. 🔄 实现 Execution Engine 的重试/超时控制
+1. 🔄 完善 Worker RunCoordinator 的超时、重试和恢复策略
 2. 🔄 完善 Skill Registry（统一至 internal/skill/）
 3. 🔄 添加 Policy Engine 基础框架
 

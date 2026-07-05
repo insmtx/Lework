@@ -1,4 +1,4 @@
-// Package opencode 将 OpenCode CLI 适配到 Leros 外部 CLI 引擎接口。
+// Package opencode adapts the OpenCode CLI to the agent Runtime contract.
 // 使用 opencode serve 模式，通过 HTTP REST API + SSE 进行通信。
 package opencode
 
@@ -109,6 +109,25 @@ type messagePartUpdatedProps struct {
 	Time      int64  `json:"time"`
 }
 
+// messageUpdatedProps is emitted when OpenCode updates message-level metadata.
+type messageUpdatedProps struct {
+	SessionID string        `json:"sessionID"`
+	Info      v1MessageInfo `json:"info"`
+}
+
+// sessionUpdatedProps is emitted when OpenCode updates session-level metadata.
+type sessionUpdatedProps struct {
+	SessionID string        `json:"sessionID"`
+	Info      v1MessageInfo `json:"info"`
+}
+
+// v1MessageInfo contains the fields needed from OpenCode message/session metadata.
+type v1MessageInfo struct {
+	ID     string    `json:"id,omitempty"`
+	Role   string    `json:"role,omitempty"`
+	Tokens *v1Tokens `json:"tokens,omitempty"`
+}
+
 // v1Part 是 V1 Part 的多态结构体，按 type 字段区分具体类型。
 type v1Part struct {
 	ID        string `json:"id"`
@@ -124,9 +143,9 @@ type v1Part struct {
 	Snapshot string `json:"snapshot,omitempty"`
 
 	// step-finish part
-	Reason string     `json:"reason,omitempty"`
-	Cost   float64    `json:"cost,omitempty"`
-	Tokens *v1Tokens  `json:"tokens,omitempty"`
+	Reason string    `json:"reason,omitempty"`
+	Cost   float64   `json:"cost,omitempty"`
+	Tokens *v1Tokens `json:"tokens,omitempty"`
 
 	// tool part
 	CallID string       `json:"callID,omitempty"`
@@ -140,8 +159,9 @@ type v1Part struct {
 	Name string `json:"name,omitempty"`
 }
 
-// v1Tokens 是 step-finish part 中的 token 使用量。
+// v1Tokens 是 OpenCode 消息或 step-finish part 中的 token 使用量。
 type v1Tokens struct {
+	Total     int `json:"total,omitempty"`
 	Input     int `json:"input"`
 	Output    int `json:"output"`
 	Reasoning int `json:"reasoning"`
@@ -176,6 +196,9 @@ type sessionErrorProps struct {
 	SessionID string `json:"sessionID"`
 	Error     struct {
 		Message string `json:"message"`
+		Data    struct {
+			Message string `json:"message"`
+		} `json:"data"`
 	} `json:"error"`
 }
 

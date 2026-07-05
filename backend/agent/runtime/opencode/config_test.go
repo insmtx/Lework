@@ -4,20 +4,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/insmtx/Leros/backend/pkg/leros"
 )
 
-func TestEnsureOpenCodeDBPathUsesWorkerWorkspaceRoot(t *testing.T) {
-	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+func TestEnsureOpenCodeDBPathUsesConfiguredDataDir(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), openCodeDataDirName)
 
-	path, err := ensureOpenCodeDBPath()
+	path, err := ensureOpenCodeDBPath(dataDir)
 	if err != nil {
 		t.Fatalf("ensure opencode database path: %v", err)
 	}
 
-	want := filepath.Join(workspaceRoot, openCodeDataDirName, openCodeDBName)
+	want := filepath.Join(dataDir, openCodeDBName)
 	if path != want {
 		t.Fatalf("database path = %q, want %q", path, want)
 	}

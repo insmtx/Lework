@@ -14,10 +14,9 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
 const (
@@ -248,36 +247,36 @@ func parseSSE(reader io.Reader) error {
 
 // handleSSEEvent 根据事件类型向终端输出内容，返回 true 表示流已结束。
 func handleSSEEvent(e sseEvent, printInline *bool) bool {
-	switch agent.EventType(e.Event) {
-	case events.EventMessageDelta:
+	switch e.Event {
+	case string(messaging.RunEventMessageDelta):
 		if e.Data != "" {
 			fmt.Print(e.Data)
 			*printInline = true
 		}
-	case events.EventReasoningDelta:
+	case string(messaging.RunEventReasoningDelta):
 		if e.Data != "" {
 			fmt.Printf("\033[2m%s\033[0m", e.Data)
 			*printInline = true
 		}
-	case events.EventToolCallStarted:
+	case string(messaging.RunEventToolCallStarted):
 		if *printInline {
 			fmt.Println()
 			*printInline = false
 		}
 		fmt.Printf("[tool_call] %s\n", e.Data)
-	case events.EventToolCallCompleted:
+	case "tool_call.completed", "tool_call.result":
 		if *printInline {
 			fmt.Println()
 			*printInline = false
 		}
 		fmt.Printf("[tool_call/ok] %s\n", e.Data)
-	case events.EventToolCallFailed:
+	case "tool_call.failed":
 		if *printInline {
 			fmt.Println()
 			*printInline = false
 		}
 		fmt.Printf("[tool_call/err] %s\n", e.Data)
-	case events.EventResult:
+	case "message.result", string(messaging.RunEventMessageCompleted):
 		if *printInline {
 			fmt.Println()
 			*printInline = false
@@ -285,33 +284,33 @@ func handleSSEEvent(e sseEvent, printInline *bool) bool {
 		if e.Data != "" {
 			fmt.Println(e.Data)
 		}
-	case events.EventTodoSnapshot:
+	case string(messaging.RunEventTodoSnapshot):
 		if *printInline {
 			fmt.Println()
 			*printInline = false
 		}
 		fmt.Printf("[todo] %s\n", e.Data)
-	case events.EventTodoUpdated:
+	case string(messaging.RunEventTodoUpdated):
 		if *printInline {
 			fmt.Println()
 			*printInline = false
 		}
 		fmt.Printf("[todo/updated] %s\n", e.Data)
-	case events.EventFailed:
+	case string(messaging.RunEventRunFailed):
 		if *printInline {
 			fmt.Println()
 			*printInline = false
 		}
 		fmt.Printf("[run/failed] %s\n", e.Data)
 		return true
-	case events.EventCompleted:
+	case string(messaging.RunEventRunCompleted):
 		if *printInline {
 			fmt.Println()
 			*printInline = false
 		}
 		return true
-	case events.EventStarted:
-	case events.EventCancelled:
+	case string(messaging.RunEventRunStarted):
+	case string(messaging.RunEventRunCancelled):
 		fmt.Println("[run/cancelled]")
 		return true
 	}

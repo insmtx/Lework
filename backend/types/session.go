@@ -48,6 +48,16 @@ const (
 	MessageTypeFile  MessageType = "file"
 )
 
+// ExecutionMode describes the business/API execution mode requested for a user message.
+type ExecutionMode string
+
+const (
+	// ExecutionModeDefault uses the normal runtime behavior.
+	ExecutionModeDefault ExecutionMode = "default"
+	// ExecutionModePlan requests planning behavior from runtimes that support it.
+	ExecutionModePlan ExecutionMode = "plan"
+)
+
 // MessageStatus 消息状态常量
 type MessageStatus string
 
@@ -162,9 +172,11 @@ func (SessionMessage) TableName() string {
 
 // MessageUsage stores model token usage for a session message.
 type MessageUsage struct {
-	InputTokens  int `json:"input_tokens,omitempty"`
-	OutputTokens int `json:"output_tokens,omitempty"`
-	TotalTokens  int `json:"total_tokens,omitempty"`
+	TotalTokens       int `json:"total_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	CacheInputTokens  int `json:"cache_input_tokens"`
+	CacheOutputTokens int `json:"cache_output_tokens"`
 }
 
 // MessageChunk stores one archived runtime event for a completed session message.
@@ -308,8 +320,6 @@ func (mu *MessageUsage) Scan(value interface{}) error {
 
 // Value 瀹炵幇 driver.Valuer 鎺ュ彛
 func (mu MessageUsage) Value() (driver.Value, error) {
-	if mu.InputTokens == 0 && mu.OutputTokens == 0 && mu.TotalTokens == 0 {
-		return nil, nil
-	}
+	mu.TotalTokens = mu.InputTokens + mu.OutputTokens
 	return json.Marshal(mu)
 }

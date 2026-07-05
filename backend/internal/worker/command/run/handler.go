@@ -19,10 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/internal/assistant"
-	assistantdomain "github.com/insmtx/Leros/backend/internal/assistant/domain"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
+	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/command/run/inbox"
 	"github.com/insmtx/Leros/backend/internal/worker/eventpub"
 	runcoord "github.com/insmtx/Leros/backend/internal/worker/run"
@@ -100,9 +99,9 @@ type Handler struct {
 	stopOnce         sync.Once
 }
 
-// New creates a worker run handler backed by the assistant Service through a Coordinator.
+// New creates a worker run handler backed by the agentrun.Service through a Coordinator.
 // InboxDBPath is required — the handler must not operate without a durable inbox.
-func New(cfg Config, pub eventbus.Publisher, assistantSvc *assistant.Service) (*Handler, error) {
+func New(cfg Config, pub eventbus.Publisher, agentRunSvc *agentrun.Service) (*Handler, error) {
 	if cfg.OrgID == 0 {
 		return nil, fmt.Errorf("worker org_id is required")
 	}
@@ -112,8 +111,8 @@ func New(cfg Config, pub eventbus.Publisher, assistantSvc *assistant.Service) (*
 	if pub == nil {
 		return nil, fmt.Errorf("publisher is required")
 	}
-	if assistantSvc == nil {
-		return nil, fmt.Errorf("assistant service is required")
+	if agentRunSvc == nil {
+		return nil, fmt.Errorf("agent run service is required")
 	}
 	if strings.TrimSpace(cfg.InboxDBPath) == "" {
 		return nil, fmt.Errorf("inbox DB path is required")
@@ -150,7 +149,7 @@ func New(cfg Config, pub eventbus.Publisher, assistantSvc *assistant.Service) (*
 	coord, err := runcoord.NewCoordinator(runcoord.Config{
 		MaxConcurrency: maxConc,
 		DebounceWindow: window,
-	}, h.executeSubmission(assistantSvc))
+	}, h.executeSubmission(agentRunSvc))
 	if err != nil {
 		execCancel()
 		ri.Close()
@@ -160,24 +159,11 @@ func New(cfg Config, pub eventbus.Publisher, assistantSvc *assistant.Service) (*
 	return h, nil
 }
 
-// executeSubmission returns an ExecuteFunc that wraps assistant.Service.Run.
-func (h *Handler) executeSubmission(svc *assistant.Service) runcoord.ExecuteFunc {
-	return func(ctx context.Context, sub runcoord.RunSubmission, sink agent.EventSink) (*assistantdomain.RunResult, error) {
+// executeSubmission returns an ExecuteFunc that wraps agentrun.Service.Run.
+func (h *Handler) executeSubmission(svc *agentrun.Service) runcoord.ExecuteFunc {
+	return func(ctx context.Context, sub runcoord.RunSubmission) (*agentrundomain.RunResult, error) {
 		ec := sub.EventContext
-
-		if sink == nil {
-			sink = eventpub.NewNATSEventSink(h.publisher, eventpub.RunEventContext{
-				OrgID:             ec.OrgID,
-				WorkerID:          ec.WorkerID,
-				SessionID:         ec.SessionID,
-				TraceID:           ec.TraceID,
-				RequestID:         ec.RequestID,
-				TaskID:            ec.TaskID,
-				RunID:             ec.RunID,
-				ParentID:          ec.ParentID,
-				ReplyToMessageIDs: ec.ReplyToMessageIDs,
-			})
-		}
+		publisher := eventpub.NewNATSEventPublisher(h.publisher)
 
 		if sub.Request == nil {
 			return nil, fmt.Errorf("submission request is nil")
@@ -189,7 +175,17 @@ func (h *Handler) executeSubmission(svc *assistant.Service) runcoord.ExecuteFunc
 			sub.Request.Runtime.Kind, sub.Request.Assistant.ID,
 		)
 
-		return svc.Run(ctx, sub.Request, sink)
+		return svc.Run(ctx, sub.Request, agentrun.EventContext{
+			OrgID:             ec.OrgID,
+			WorkerID:          ec.WorkerID,
+			SessionID:         ec.SessionID,
+			TraceID:           ec.TraceID,
+			RequestID:         ec.RequestID,
+			TaskID:            ec.TaskID,
+			RunID:             ec.RunID,
+			ParentID:          ec.ParentID,
+			ReplyToMessageIDs: ec.ReplyToMessageIDs,
+		}, publisher)
 	}
 }
 
@@ -394,7 +390,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 	req := RequestFromWorkerTask(task)
 	submission := runcoord.RunSubmission{
 		Request: req,
-		EventContext: runcoord.RunEventContext{
+		EventContext: agentrun.EventContext{
 			OrgID:             task.Route.OrgID,
 			WorkerID:          task.Route.WorkerID,
 			SessionID:         task.Route.SessionID,
@@ -550,7 +546,7 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 	req := RequestFromWorkerTask(task)
 	submission := runcoord.RunSubmission{
 		Request: req,
-		EventContext: runcoord.RunEventContext{
+		EventContext: agentrun.EventContext{
 			OrgID:             task.Route.OrgID,
 			WorkerID:          task.Route.WorkerID,
 			SessionID:         task.Route.SessionID,

@@ -4,9 +4,9 @@ import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/s
 import {
 	authenticatedFetch,
 	getFileDownloadUrl,
+	getFilePublicUrlFromStorageUri,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
-	getFilePublicUrlFromStorageUri,
 	projectFileApi,
 	useAuthStore,
 	useChatStore,

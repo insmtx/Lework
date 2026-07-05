@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
@@ -1362,9 +1360,9 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	payload, err := json.Marshal(events.MessageDeltaPayload{
+	payload, err := json.Marshal(recordedMessagePayload{
 		MessageID: "msg_1",
-		Role:      string(messaging.MessageRoleAssistant),
+		Role:      messaging.MessageRoleAssistant,
 		Content:   "done",
 	})
 	if err != nil {
@@ -1378,9 +1376,11 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 			{Seq: 1, Type: "message.delta", Timestamp: 1779243000000, Payload: payload},
 		},
 		Usage: &types.MessageUsage{
-			InputTokens:  10,
-			OutputTokens: 20,
-			TotalTokens:  30,
+			TotalTokens:       999,
+			InputTokens:       10,
+			OutputTokens:      20,
+			CacheInputTokens:  3,
+			CacheOutputTokens: 2,
 		},
 	})
 	if err != nil {
@@ -1408,7 +1408,7 @@ func TestCompleteSessionMessageStoresChunksAndUsage(t *testing.T) {
 	if !ok || deltaPayload.Content != "done" || deltaPayload.MessageID != "msg_1" {
 		t.Fatalf("unexpected projected payload: %#v", msg.Chunks[0].Payload)
 	}
-	if msg.Usage == nil || msg.Usage.InputTokens != 10 || msg.Usage.OutputTokens != 20 || msg.Usage.TotalTokens != 30 {
+	if msg.Usage == nil || msg.Usage.TotalTokens != 30 || msg.Usage.InputTokens != 10 || msg.Usage.OutputTokens != 20 || msg.Usage.CacheInputTokens != 3 || msg.Usage.CacheOutputTokens != 2 {
 		t.Fatalf("unexpected usage: %#v", msg.Usage)
 	}
 	body, err := json.Marshal(msg)
@@ -1538,7 +1538,7 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 		t.Fatalf("create project file: %v", err)
 	}
 
-	chunkPayload, err := json.Marshal(events.ArtifactPayload{
+	chunkPayload, err := json.Marshal(messaging.ArtifactPayload{
 		ArtifactID:   fileUpload.PublicID,
 		Title:        fileUpload.Filename,
 		Filename:     fileUpload.Filename,
@@ -1556,7 +1556,7 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 		Content:   "done",
 		Artifacts: messageArtifacts,
 		Chunks: []types.MessageChunk{
-			{Seq: 1, Type: string(events.EventArtifactDeclared), Timestamp: 1779243000000, Payload: chunkPayload},
+			{Seq: 1, Type: string(messaging.RunEventArtifactDeclared), Timestamp: 1779243000000, Payload: chunkPayload},
 		},
 	})
 	if err != nil {
@@ -1595,15 +1595,15 @@ func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	deltaPayload, err := json.Marshal(events.MessageDeltaPayload{
+	deltaPayload, err := json.Marshal(recordedMessagePayload{
 		MessageID: "msg_1",
-		Role:      string(messaging.MessageRoleAssistant),
+		Role:      messaging.MessageRoleAssistant,
 		Content:   "done",
 	})
 	if err != nil {
 		t.Fatalf("marshal delta payload: %v", err)
 	}
-	todoPayload, err := json.Marshal([]events.RuntimeTodoItem{
+	todoPayload, err := json.Marshal([]messaging.RuntimeTodoItem{
 		{ID: "todo_1", Title: "Inspect code", Status: "completed"},
 	})
 	if err != nil {
@@ -1614,9 +1614,9 @@ func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
 		SessionID: session.SessionID,
 		Content:   "done",
 		Chunks: []types.MessageChunk{
-			{Seq: 1, Type: string(events.EventMessageDelta), Timestamp: 1779243000000, Payload: deltaPayload},
-			{Seq: 2, Type: string(events.EventTodoSnapshot), Timestamp: 1779243000001, Payload: todoPayload},
-			{Seq: 3, Type: string(events.EventTodoUpdated), Timestamp: 1779243000002, Payload: todoPayload},
+			{Seq: 1, Type: string(messaging.RunEventMessageDelta), Timestamp: 1779243000000, Payload: deltaPayload},
+			{Seq: 2, Type: string(messaging.RunEventTodoSnapshot), Timestamp: 1779243000001, Payload: todoPayload},
+			{Seq: 3, Type: string(messaging.RunEventTodoUpdated), Timestamp: 1779243000002, Payload: todoPayload},
 		},
 	})
 	if err != nil {
@@ -1634,7 +1634,7 @@ func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
 	if len(chunks) != 1 {
 		t.Fatalf("expected only non-todo chunk, got %#v", chunks)
 	}
-	if chunks[0].Type != string(events.EventMessageDelta) || chunks[0].Sequence != 1 {
+	if chunks[0].Type != string(messaging.RunEventMessageDelta) || chunks[0].Sequence != 1 {
 		t.Fatalf("unexpected remaining chunk: %#v", chunks[0])
 	}
 }
@@ -1767,9 +1767,16 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 	var emitted []string
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, events.SinkFunc(func(ctx context.Context, event *agent.Event) error {
-		emitted = append(emitted, event.Content)
-		if strings.Contains(event.Content, "match") {
+	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, contract.SessionEventSinkFunc(func(
+		ctx context.Context,
+		event *contract.SessionEvent,
+	) error {
+		data, marshalErr := json.Marshal(event)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		emitted = append(emitted, string(data))
+		if strings.Contains(string(data), "match") {
 			cancel()
 		}
 		return nil
@@ -1792,4 +1799,36 @@ func mustStreamNATSMessage(t *testing.T, msg messaging.RunEvent) *nats.Msg {
 		t.Fatalf("marshal stream message: %v", err)
 	}
 	return &nats.Msg{Data: data}
+}
+
+func TestConvertToContractSessionMessageAlwaysIncludesNormalizedUsage(t *testing.T) {
+	msg := &types.SessionMessage{
+		Role:    string(types.MessageRoleAssistant),
+		Content: "done",
+		Usage: types.MessageUsage{
+			TotalTokens:       999,
+			InputTokens:       7,
+			OutputTokens:      5,
+			CacheInputTokens:  3,
+			CacheOutputTokens: 2,
+		},
+	}
+
+	converted := convertToContractSessionMessage(msg, "sess_1")
+	if converted.Usage == nil {
+		t.Fatalf("expected usage object")
+	}
+	if converted.Usage.TotalTokens != 12 || converted.Usage.InputTokens != 7 || converted.Usage.OutputTokens != 5 ||
+		converted.Usage.CacheInputTokens != 3 || converted.Usage.CacheOutputTokens != 2 {
+		t.Fatalf("unexpected normalized usage: %#v", converted.Usage)
+	}
+
+	converted = convertToContractSessionMessage(&types.SessionMessage{}, "sess_1")
+	if converted.Usage == nil {
+		t.Fatalf("expected zero usage object")
+	}
+	if converted.Usage.TotalTokens != 0 || converted.Usage.InputTokens != 0 || converted.Usage.OutputTokens != 0 ||
+		converted.Usage.CacheInputTokens != 0 || converted.Usage.CacheOutputTokens != 0 {
+		t.Fatalf("unexpected zero usage: %#v", converted.Usage)
+	}
 }

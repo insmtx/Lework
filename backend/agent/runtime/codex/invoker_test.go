@@ -13,8 +13,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	"github.com/insmtx/Leros/backend/agent/runtime/externalcli"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 )
 
 // TestSayHi 端到端测试：通过 app-server 模式发送 "hi" 并收到真实回复。
@@ -38,7 +37,7 @@ func TestSayHi(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	handle, err := adapter.Invoke(ctx, externalcli.InvocationRequest{
+	handle, err := adapter.Invoke(ctx, cli.InvocationRequest{
 		WorkDir: workDir,
 		Prompt:  "hi",
 		Model: agent.ModelConfig{
@@ -54,23 +53,21 @@ func TestSayHi(t *testing.T) {
 
 	t.Logf("codex app-server started, waiting for response...")
 
-	var finalEvent agent.Event
 	var responseText string
 	for event := range handle.Events {
-		t.Logf("event: type=%s content=%q", event.Type, event.Content)
-		switch event.Type {
-		case events.EventResult:
-			responseText = strings.TrimSpace(event.Content)
-		case events.EventInvocationCompleted:
-			if responseText == "" && event.Content != "" {
-				responseText = strings.TrimSpace(event.Content)
+		t.Logf("event: type=%s", event.Type)
+		if event.Type == agent.NodeEventMessageEnd {
+			if payload, ok := event.Payload.(*agent.MessageEndPayload); ok {
+				responseText = strings.TrimSpace(payload.Content)
 			}
 		}
-		finalEvent = event
 	}
-
-	if finalEvent.Type == events.EventInvocationFailed {
-		t.Fatalf("codex execution failed: %s", finalEvent.Content)
+	result := <-handle.Result
+	if result.Err != nil {
+		t.Fatalf("codex execution failed: %v", result.Err)
+	}
+	if responseText == "" {
+		responseText = strings.TrimSpace(result.Message)
 	}
 
 	if responseText == "" {
@@ -110,6 +107,45 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 	if got := firstNonEmpty("  a  "); got != "a" {
 		t.Errorf("expected 'a', got %q", got)
+	}
+}
+
+func TestCodexProviderEventsMapToStrongNodeEvents(t *testing.T) {
+	st := &runState{evtChan: make(chan agent.NodeEvent, 4)}
+
+	st.handleNotification("item/started", sonic.NoCopyRawMessage(
+		`{"item":{"id":"call-1","type":"commandExecution","command":"date","cwd":"/tmp"}}`,
+	))
+	started := <-st.evtChan
+	if started.Type != agent.NodeEventToolExecutionStart {
+		t.Fatalf("started type = %s", started.Type)
+	}
+	startedPayload, ok := started.Payload.(*agent.ToolExecutionStartPayload)
+	if !ok || startedPayload.ToolCallID == "" || startedPayload.Name != "Command" {
+		t.Fatalf("started payload = %#v (%T)", started.Payload, started.Payload)
+	}
+
+	st.handleNotification("item/completed", sonic.NoCopyRawMessage(
+		`{"item":{"id":"call-1","type":"commandExecution","aggregatedOutput":"ok","exitCode":0,"durationMs":5}}`,
+	))
+	completed := <-st.evtChan
+	if completed.Type != agent.NodeEventToolExecutionEnd {
+		t.Fatalf("completed type = %s", completed.Type)
+	}
+	completedPayload, ok := completed.Payload.(*agent.ToolExecutionEndPayload)
+	if !ok || completedPayload.ToolCallID == "" || completedPayload.ElapsedMS != 5 {
+		t.Fatalf("completed payload = %#v (%T)", completed.Payload, completed.Payload)
+	}
+
+	st.handleNotification("turn/plan/updated", sonic.NoCopyRawMessage(
+		`{"plan":[{"step":"Inspect","status":"inProgress"}]}`,
+	))
+	todo := <-st.evtChan
+	if todo.Type != agent.NodeEventTodoSnapshot {
+		t.Fatalf("todo type = %s", todo.Type)
+	}
+	if _, ok := todo.Payload.(*agent.TodoSnapshotPayload); !ok {
+		t.Fatalf("todo payload type = %T", todo.Payload)
 	}
 }
 

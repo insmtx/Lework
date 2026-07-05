@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 )
 
 func TestOpenCodeAgent(t *testing.T) {
@@ -29,7 +28,7 @@ func TestResolvePlanPathUsesWorkDirBeforeSessionDirectory(t *testing.T) {
 	session.Time.Created = 123456
 	st := &runState{workDir: workDir, session: session}
 
-	path, _, err := st.resolvePlanPath([]events.QuestionItem{{
+	path, _, err := st.resolvePlanPath([]agent.QuestionItem{{
 		Question: "Plan at .opencode/plans/123456-calm-forest.md is complete.",
 	}})
 	if err != nil {

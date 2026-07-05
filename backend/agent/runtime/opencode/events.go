@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -21,6 +20,32 @@ var filteredToolPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^plan_exit$`),
 	regexp.MustCompile(`^todowrite$`),
 	regexp.MustCompile(`artifact_declare`),
+}
+
+const sessionErrorFallbackMessage = "session error"
+
+func sessionErrorMessage(props sessionErrorProps) string {
+	if msg := strings.TrimSpace(props.Error.Message); msg != "" {
+		return msg
+	}
+	if msg := strings.TrimSpace(props.Error.Data.Message); msg != "" {
+		return msg
+	}
+	return sessionErrorFallbackMessage
+}
+
+func usageFromOpenCodeTokens(tokens *v1Tokens) *agent.Usage {
+	if tokens == nil {
+		return agent.EnsureUsage(nil)
+	}
+	inputTokens := tokens.Input
+	outputTokens := tokens.Output
+	return agent.EnsureUsage(&agent.Usage{
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		CacheInputTokens:  tokens.Cache.Read,
+		CacheOutputTokens: tokens.Cache.Write,
+	})
 }
 
 // handleSSEEvent 解析 SSE 事件并将消息相关事件转换为引擎事件。
@@ -37,6 +62,23 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 	}
 
 	switch event.Type {
+	// ============================================================
+	// message.updated — 消息元数据更新（最终 token usage 通常在这里出现）
+	// ============================================================
+	case "message.updated":
+		var props messageUpdatedProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+		if props.Info.ID != "" {
+			st.messageID = props.Info.ID
+		}
+		if props.Info.Role == "assistant" {
+			if usage := usageFromOpenCodeTokens(props.Info.Tokens); usage != nil {
+				st.tokenUsage = usage
+			}
+		}
+
 	// ============================================================
 	// message.part.delta — 流式增量（文本 / 推理）
 	// ============================================================
@@ -82,12 +124,8 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			}
 
 		case "step-finish":
-			if part.Tokens != nil {
-				st.tokenUsage = &agent.Usage{
-					InputTokens:  part.Tokens.Input,
-					OutputTokens: part.Tokens.Output,
-					TotalTokens:  part.Tokens.Input + part.Tokens.Output,
-				}
+			if usage := usageFromOpenCodeTokens(part.Tokens); usage != nil {
+				st.tokenUsage = usage
 			}
 			if part.Reason == "error" && st.runErr == "" {
 				st.runErr = "step finished with error"
@@ -110,10 +148,10 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					return
 				}
-				sendEventPayloadTo(st.evtChan, events.EventToolCallStarted, events.ToolCallPayload{
+				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionStart, &agent.ToolExecutionStartPayload{
 					ToolCallID: callID,
 					Name:       toolName,
-					Arguments:  events.MarshalRaw(part.State.Input),
+					Arguments:  agent.MarshalRawJSON(part.State.Input),
 				})
 
 			case "completed":
@@ -121,10 +159,11 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 					st.clearFilteredToolCall(callID)
 					return
 				}
-				sendEventPayloadTo(st.evtChan, events.EventToolCallCompleted, events.ToolCallResultPayload{
+				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
 					ToolCallID: callID,
 					Name:       toolName,
-					Result:     events.MarshalRaw(part.State.Output),
+					IsError:    false,
+					Result:     agent.MarshalRawJSON(part.State.Output),
 				})
 
 			case "error":
@@ -136,11 +175,11 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 				if toolErr == "" {
 					toolErr = "tool execution failed"
 				}
-				sendEventPayloadTo(st.evtChan, events.EventToolCallFailed, events.ToolCallResultPayload{
+				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
 					ToolCallID: callID,
 					Name:       toolName,
-					Error:      toolErr,
 					IsError:    true,
+					Error:      toolErr,
 				})
 			}
 
@@ -153,7 +192,7 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 				if msgID == "" {
 					msgID = st.messageID
 				}
-				evt := events.NewReasoningDelta(msgID, part.Text)
+				evt := agent.NewReasoningUpdateEvent(msgID, part.Text)
 				sendEventDirect(st.evtChan, evt)
 			}
 		}
@@ -177,15 +216,15 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			toolCallID = props.Tool.CallID
 		}
 
-		payload := events.ApprovalRequestPayload{
+		payload := agent.ApprovalRequestedPayload{
 			RequestID:   props.ID,
 			ToolName:    props.Permission,
 			ToolCallID:  toolCallID,
 			Description: desc,
-			Arguments:   events.MarshalRaw(map[string]any{"patterns": props.Patterns}),
+			Arguments:   agent.MarshalRawJSON(map[string]any{"patterns": props.Patterns}),
 			Metadata:    map[string]string{"engine": "opencode"},
 		}
-		sendEventPayloadTo(st.evtChan, events.EventApprovalRequested, payload)
+		sendEventPayloadTo(st.evtChan, agent.NodeEventApprovalRequested, &payload)
 
 	// ============================================================
 	// question.asked / question.v2.asked — 问题/确认
@@ -196,16 +235,16 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			return
 		}
 
-		questions := make([]events.QuestionItem, 0, len(props.Questions))
+		questions := make([]agent.QuestionItem, 0, len(props.Questions))
 		for _, q := range props.Questions {
-			options := make([]events.QuestionOption, 0, len(q.Options))
+			options := make([]agent.QuestionOption, 0, len(q.Options))
 			for _, o := range q.Options {
-				options = append(options, events.QuestionOption{
+				options = append(options, agent.QuestionOption{
 					Label:       o.Label,
 					Description: o.Description,
 				})
 			}
-			questions = append(questions, events.QuestionItem{
+			questions = append(questions, agent.QuestionItem{
 				Question:    q.Question,
 				Header:      q.Header,
 				Options:     options,
@@ -225,28 +264,28 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if isPlanConfirmation {
 			logs.Infof("[plan] question.asked detected plan confirmation: session_id=%s request_id=%s tool_call_id=%s", props.SessionID, props.ID, toolCallID)
 
-			published, pubErr := st.publishPlan(ctx, questions)
-			if pubErr != nil {
-				logs.WarnContextf(ctx, "[plan] question.asked publishPlan error, emitting confirmation with error: session_id=%s request_id=%s err=%s", props.SessionID, props.ID, pubErr)
-				payload := events.QuestionRequestPayload{
+			path, displayPath, resolveErr := st.resolvePlanPath(questions)
+			if resolveErr != nil {
+				logs.WarnContextf(ctx, "[plan] question.asked resolve path failed, emitting confirmation with error: session_id=%s request_id=%s err=%s", props.SessionID, props.ID, resolveErr)
+				payload := agent.QuestionAskedPayload{
 					RequestID:       props.ID,
 					SessionID:       props.SessionID,
 					Questions:       planConfirmationQuestions(),
 					ToolCallID:      toolCallID,
 					MessageID:       messageID,
 					InteractionType: "plan_confirmation",
-					Metadata:        map[string]string{"plan_error": pubErr.Error()},
+					Metadata:        map[string]string{"plan_error": "resolve_failed"},
 				}
-				sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
+				sendEventDirect(st.evtChan, agent.NewQuestionAskedEvent(payload))
 				return
 			}
 
-			logs.Infof("[plan] question.asked emitting plan.published: session_id=%s request_id=%s file_id=%s", props.SessionID, props.ID, published.FileID)
-			sendEventDirect(st.evtChan, events.NewPlanPublished(*published))
+			logs.Infof("[plan] question.asked emitting plan.ready: session_id=%s request_id=%s path=%s", props.SessionID, props.ID, path)
+			sendEventDirect(st.evtChan, agent.NewPlanReadyEvent(path, displayPath, props.SessionID))
 			questions = planConfirmationQuestions()
 		}
 
-		payload := events.QuestionRequestPayload{
+		payload := agent.QuestionAskedPayload{
 			RequestID:  props.ID,
 			SessionID:  props.SessionID,
 			Questions:  questions,
@@ -256,7 +295,7 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if isPlanConfirmation {
 			payload.InteractionType = "plan_confirmation"
 		}
-		sendEventDirect(st.evtChan, events.NewQuestionAsked(payload))
+		sendEventDirect(st.evtChan, agent.NewQuestionAskedEvent(payload))
 
 	// ============================================================
 	// todo.updated — 待办事项更新
@@ -270,7 +309,21 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if len(items) == 0 {
 			return
 		}
-		sendEventDirect(st.evtChan, events.NewTodoUpdated(items))
+		sendEventDirect(st.evtChan, agent.NewTodoUpdatedEvent(items))
+
+	// ============================================================
+	// session.updated — 会话元数据更新，作为 message.updated 缺失时的 usage 兜底
+	// ============================================================
+	case "session.updated":
+		var props sessionUpdatedProps
+		if err := json.Unmarshal(propsJSON, &props); err != nil {
+			return
+		}
+		if st.tokenUsage == nil {
+			if usage := usageFromOpenCodeTokens(props.Info.Tokens); usage != nil {
+				st.tokenUsage = usage
+			}
+		}
 
 	// ============================================================
 	// session.error — 会话错误
@@ -280,10 +333,11 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
-		if props.Error.Message != "" && st.runErr == "" {
-			st.runErr = props.Error.Message
+		errMsg := sessionErrorMessage(props)
+		if st.runErr == "" {
+			st.runErr = errMsg
 		}
-		logs.Errorf("[opencode] session error: session=%s error=%s", props.SessionID, props.Error.Message)
+		logs.Errorf("[opencode] session error: session=%s error=%s", props.SessionID, errMsg)
 		select {
 		case <-st.sseTerminal:
 		default:
@@ -385,11 +439,11 @@ func (st *runState) isReasoningPart(partID string) bool {
 	return ok
 }
 
-func planConfirmationQuestions() []events.QuestionItem {
-	return []events.QuestionItem{{
+func planConfirmationQuestions() []agent.QuestionItem {
+	return []agent.QuestionItem{{
 		Header:   "计划确认",
 		Question: "以下是当前计划，是否执行？",
-		Options: []events.QuestionOption{
+		Options: []agent.QuestionOption{
 			{Label: "Yes"},
 			{Label: "No"},
 		},
@@ -402,8 +456,8 @@ func planConfirmationQuestions() []events.QuestionItem {
 // todo.updated 转换
 // ============================================================================
 
-func convertOpenCodeTodoItems(todos []opencodeTodoItem) []events.RuntimeTodoItem {
-	items := make([]events.RuntimeTodoItem, 0, len(todos))
+func convertOpenCodeTodoItems(todos []opencodeTodoItem) []agent.RuntimeTodoItem {
+	items := make([]agent.RuntimeTodoItem, 0, len(todos))
 	for i, t := range todos {
 		if strings.TrimSpace(t.Content) == "" {
 			continue
@@ -412,7 +466,7 @@ func convertOpenCodeTodoItems(todos []opencodeTodoItem) []events.RuntimeTodoItem
 		if id == "" {
 			id = "todo_" + strconv.Itoa(i+1)
 		}
-		items = append(items, events.RuntimeTodoItem{
+		items = append(items, agent.RuntimeTodoItem{
 			ID:       id,
 			Title:    t.Content,
 			Status:   t.Status,

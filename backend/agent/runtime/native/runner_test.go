@@ -13,10 +13,9 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
-	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/todo"
-	"github.com/insmtx/Leros/backend/internal/assistant"
+	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/internal/todo"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/tools"
 	memorytools "github.com/insmtx/Leros/backend/tools/memory"
@@ -28,42 +27,16 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// noopEngineSink implements engineSink by discarding events.
-type noopEngineSink struct{}
-
-func (noopEngineSink) Emit(context.Context, *agent.Event) error { return nil }
-
-// eventsSinkAdapter adapts a *recordingEngineSink to events.Sink for the todo tracker.
-type eventsSinkAdapter struct {
-	sink *recordingEngineSink
+// recordingObserver records NodeEvents for test assertions.
+type recordingObserver struct {
+	mu     sync.Mutex
+	events []agent.NodeEvent
 }
 
-func (a eventsSinkAdapter) Emit(ctx context.Context, evt *agent.Event) error {
-	return a.sink.Emit(ctx, evt)
-}
-
-// recordingEngineSink records engine events emitted through the sink.
-type recordingEngineSink struct {
-	mu        sync.Mutex
-	events    []agent.Event
-	eventsPtr *[]agent.Event // old-style events captured for assertions
-}
-
-func newRecordingEngineSink() *recordingEngineSink {
-	return &recordingEngineSink{}
-}
-
-func (s *recordingEngineSink) Emit(ctx context.Context, event *agent.Event) error {
-	if event == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.events = append(s.events, *event)
-	// Also record as agent.Event for backward compatibility in assertions.
-	if s.eventsPtr != nil {
-		*s.eventsPtr = append(*s.eventsPtr, *event)
-	}
+func (r *recordingObserver) Observe(ctx context.Context, event agent.NodeEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
 	return nil
 }
 
@@ -90,7 +63,7 @@ func TestRunnerBuildToolBindingMergesDefaultTools(t *testing.T) {
 		ExecutionID: "run_tools",
 		Prompt:      "hello",
 		Tools:       adaptRegistry(registry),
-	}, noopEngineSink{})
+	}, &nodeEmitter{})
 
 	expected := []string{
 		memorytools.ToolNameMemory,
@@ -116,18 +89,17 @@ func TestToolInvokerInjectsTodoReporter(t *testing.T) {
 		t.Fatalf("register todo tool: %v", err)
 	}
 
-	var emitted []agent.Event
-	sink := newRecordingEngineSink()
-	sink.eventsPtr = &emitted
+	observer := &recordingObserver{}
+	emitter := &nodeEmitter{observer: observer, executionID: "run_adapter"}
 
 	specs, invoker, err := buildRuntimeTools(toolBinding{
 		Tools:        adaptRegistry(registry),
 		AllowedTools: []string{todotools.ToolNameTodo},
 		TodoReporter: runtimetodo.NewTracker(runtimetodo.Options{
-			RunID: "run_adapter",
-			Sink:  eventsSinkAdapter{sink},
+			RunID:    "run_adapter",
+			Observer: observer,
 		}),
-	}, sink)
+	}, emitter)
 	if err != nil {
 		t.Fatalf("build tools: %v", err)
 	}
@@ -150,8 +122,8 @@ func TestToolInvokerInjectsTodoReporter(t *testing.T) {
 	if output == "" {
 		t.Fatalf("expected tool output")
 	}
-	if len(emitted) != 1 || emitted[0].Type != events.EventTodoSnapshot {
-		t.Fatalf("expected todo snapshot, got %#v", emitted)
+	if len(observer.events) != 1 || observer.events[0].Type != agent.NodeEventTodoSnapshot {
+		t.Fatalf("expected todo snapshot, got %#v", observer.events)
 	}
 }
 
@@ -167,14 +139,13 @@ func TestToolInvokerEmitsToolEventsForNonTodoTool(t *testing.T) {
 		t.Fatalf("register mock tool: %v", err)
 	}
 
-	var emitted []agent.Event
-	sink := newRecordingEngineSink()
-	sink.eventsPtr = &emitted
+	observer := &recordingObserver{}
+	emitter := &nodeEmitter{observer: observer, executionID: "run_tool"}
 
 	specs, invoker, err := buildRuntimeTools(toolBinding{
 		Tools:        adaptRegistry(registry),
 		AllowedTools: []string{"regular_tool"},
-	}, sink)
+	}, emitter)
 	if err != nil {
 		t.Fatalf("build tools: %v", err)
 	}
@@ -189,10 +160,10 @@ func TestToolInvokerEmitsToolEventsForNonTodoTool(t *testing.T) {
 	if _, err := runnable.InvokableRun(context.Background(), `{}`); err != nil {
 		t.Fatalf("run tool: %v", err)
 	}
-	if len(emitted) != 2 ||
-		emitted[0].Type != events.EventToolCallStarted ||
-		emitted[1].Type != events.EventToolCallCompleted {
-		t.Fatalf("expected regular tool call events, got %#v", emitted)
+	if len(observer.events) != 2 ||
+		observer.events[0].Type != agent.NodeEventToolExecutionStart ||
+		observer.events[1].Type != agent.NodeEventToolExecutionEnd {
+		t.Fatalf("expected regular tool call events, got %#v", observer.events)
 	}
 }
 
@@ -378,7 +349,7 @@ func adaptRegistry(registry *tools.Registry) []agent.Tool {
 	legacy := registry.List()
 	result := make([]agent.Tool, 0, len(legacy))
 	for _, tool := range legacy {
-		result = append(result, assistant.Adapt(tool, tools.ToolContext{}))
+		result = append(result, agentrun.Adapt(tool, tools.ToolContext{}))
 	}
 	return result
 }

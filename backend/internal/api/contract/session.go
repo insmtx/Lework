@@ -2,9 +2,23 @@ package contract
 
 import (
 	"context"
-
-	"github.com/insmtx/Leros/backend/agent/runtime/events"
 )
+
+// SessionEventSink receives projected Server session events.
+type SessionEventSink interface {
+	EmitSessionEvent(ctx context.Context, event *SessionEvent) error
+}
+
+// SessionEventSinkFunc adapts a function to SessionEventSink.
+type SessionEventSinkFunc func(ctx context.Context, event *SessionEvent) error
+
+// EmitSessionEvent calls the adapted function.
+func (f SessionEventSinkFunc) EmitSessionEvent(
+	ctx context.Context,
+	event *SessionEvent,
+) error {
+	return f(ctx, event)
+}
 
 // SessionService defines the session service contract.
 type SessionService interface {
@@ -28,7 +42,7 @@ type SessionService interface {
 	ClearSessionMessages(ctx context.Context, sessionID string) error
 
 	// Event streaming
-	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, sink events.Sink) error
+	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, sink SessionEventSink) error
 
 	// HandleSessionRunStarted marks source user messages as processing and records replay metadata.
 	HandleSessionRunStarted(ctx context.Context, req *SessionRunStartedRequest) error

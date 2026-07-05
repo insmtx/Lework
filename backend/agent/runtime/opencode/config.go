@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/provider"
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 
 // buildConfigContent 根据 ModelConfig 和 MCPServerConfig 列表
 // 生成 OPENCODE_CONFIG_CONTENT JSON 字符串。
-func buildConfigContent(modelCfg agent.ModelConfig, mcps []provider.MCPServerConfig) (string, error) {
+func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig) (string, error) {
 	modelID := modelCfg.Model
 	if modelID == "" {
 		modelID = "default"
@@ -83,7 +83,7 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []provider.MCPServerCon
 //
 //	Remote (HTTP):  { "type": "remote", "url": "...", "headers": { "Authorization": "Bearer ..." } }
 //	Local (stdio):  { "type": "local", "command": ["cmd", ...], "environment": { ... } }
-func buildMCPConfig(mcps []provider.MCPServerConfig) map[string]any {
+func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 	if len(mcps) == 0 {
 		return nil
 	}
@@ -122,11 +122,13 @@ func buildMCPConfig(mcps []provider.MCPServerConfig) map[string]any {
 	return mcpServers
 }
 
-// ensureOpenCodeDBPath 确保 OpenCode 数据目录存在并返回会话数据库路径。
-func ensureOpenCodeDBPath() (string, error) {
-	dir, err := leros.JoinWorkspace(openCodeDataDirName)
-	if err != nil {
-		return "", fmt.Errorf("resolve opencode data directory: %w", err)
+// ensureOpenCodeDBPath ensures the OpenCode data directory exists and returns the session database path.
+// Returns an empty string if dataDir is empty — the caller should skip the OPENCODE_DB env var
+// so that OpenCode falls back to its own default location.
+func ensureOpenCodeDBPath(dataDir string) (string, error) {
+	dir := strings.TrimSpace(dataDir)
+	if dir == "" {
+		return "", nil
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create opencode data directory %s: %w", dir, err)
@@ -146,7 +148,9 @@ func buildServerEnv(password, configContent, databasePath string, baseEnv []stri
 	// 注入完整配置（provider、model、API key、base URL）
 	env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
 	// 将 session 等 SQLite 数据持久化到 worker 工作目录。
-	env = append(env, "OPENCODE_DB="+databasePath)
+	if databasePath != "" {
+		env = append(env, "OPENCODE_DB="+databasePath)
+	}
 
 	// 隔离环境变量：确保子进程不读取宿主机的配置文件或插件
 	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
@@ -161,7 +165,7 @@ func buildServerEnv(password, configContent, databasePath string, baseEnv []stri
 	// 启用 EXA web search 功能
 	env = append(env, "OPENCODE_ENABLE_EXA=1")
 
-	return provider.BuildRunEnv(baseEnv, env, nil)
+	return runtimeprocess.BuildRunEnv(baseEnv, env, nil)
 }
 
 // generatePassword 生成 32 位随机十六进制密码。
