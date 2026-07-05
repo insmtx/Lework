@@ -1,5 +1,24 @@
 # Changelog
 
+## [v0.1.22] - 2026-07-05
+
+### AI 队友协作、Agent Runtime 架构与技能能力增强
+
+本版本完善 AI 队友从模板创建、项目绑定、任务召唤到 Worker 动态部署的完整链路，新增通用标书生成 Skill，并重构 Agent Runtime 事件契约与 Worker 执行边界；同时优化全局搜索、macOS 桌面体验、技能生命周期和 OpenCode 运行稳定性。
+
+- 新增 AI 队友模板、详情与状态管理能力，支持从预置模板创建、编辑和查看 AI 队友
+- 打通 AI 队友与项目、任务、会话及 Worker 部署链路，支持在工作台选择并召唤 AI 队友执行任务
+- 新增 AI 队友演进记录、组织技能安装同步和模板种子数据，完善服务端 API、DAO 与测试覆盖
+- 重构 Agent Runtime 事件契约，统一 NodeEvent、Interaction、Todo、观察与运行结果模型
+- 将 Agent 执行编排收敛至 Worker agentrun 模块，明确 Runtime Adapter、运行上下文、事件发布和进程生命周期边界
+- 重构 Claude、Codex、OpenCode 与 Native Runtime 适配链路，补充契约测试、架构测试和真实模型集成测试
+- 新增通用标书生成 `bid-generator` Skill，覆盖模板提取、逐条应答、方案编写、表格回填、核查与失败恢复流程
+- 修复技能子目录扫描、macOS 垃圾文件过滤和 import 路径前缀问题，并在卸载技能时同步清理项目引用
+- 优化全局任务搜索的无痕滚动、结果展示与交互，并在项目卡片中展示任务数量
+- 优化 macOS 沉浸式标题栏、交通灯与侧栏布局，完善桌面端发布配置和最新版本更新脚本
+- 调整 OpenCode 启动健康检查重试周期，并将会话数据库固定到工作目录，提升进程启动稳定性
+- 统一动态部署 Worker 的 workspace 路径约定，完善 Process 与 Kubernetes Scheduler 的工作目录处理
+
 ## [v0.1.21] - 2026-07-02
 
 ### Web 部署、OpenCode 自愈与工作台上下文增强
