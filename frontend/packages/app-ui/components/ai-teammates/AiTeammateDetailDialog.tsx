@@ -33,8 +33,11 @@ type AiTeammateDetailDialogProps = {
 	item: AiTeammateDetailDialogItem | null;
 	adopting?: boolean;
 	adopted?: boolean;
+	recommending?: boolean;
+	recommended?: boolean;
 	onOpenChange: (open: boolean) => void;
 	onAdopt: (item: AiTeammateDetailDialogItem) => void;
+	onRecommend?: (item: AiTeammateDetailDialogItem) => void;
 };
 
 export function AiTeammateDetailDialog({
@@ -42,8 +45,11 @@ export function AiTeammateDetailDialog({
 	item,
 	adopting = false,
 	adopted = false,
+	recommending = false,
+	recommended = false,
 	onOpenChange,
 	onAdopt,
+	onRecommend,
 }: AiTeammateDetailDialogProps) {
 	if (!item) {
 		return <Dialog open={open} onOpenChange={onOpenChange} />;
@@ -94,10 +100,23 @@ export function AiTeammateDetailDialog({
 									<Eye className="size-3.5" aria-hidden="true" />
 									{formatCompactCount(item.useCount)}次使用
 								</span>
-								<span className="inline-flex items-center gap-1.5">
-									<Heart className="size-3.5" aria-hidden="true" />
+								<button
+									type="button"
+									className={cn(
+										"inline-flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-70",
+										recommended && "text-rose-500",
+									)}
+									onClick={() => onRecommend?.(item)}
+									disabled={recommending || recommended}
+									aria-label={recommended ? "已点赞" : `点赞 ${item.name}`}
+									title={recommended ? "已点赞" : "点赞"}
+								>
+									<Heart
+										className={cn("size-3.5", recommended && "fill-current")}
+										aria-hidden="true"
+									/>
 									{formatCompactCount(item.recommendCount)}次推荐
-								</span>
+								</button>
 							</div>
 						</div>
 					</div>

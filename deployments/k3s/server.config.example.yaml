@@ -62,3 +62,10 @@ storage:
   bucket: leros-k3s-bucket
   sign_secret: "${LEROS_STORAGE_SIGN_SECRET}"
   base_url: "${LEROS_BASE_URL}"
+
+client_update:
+  desktop:
+    min_supported_version: "0.1.16"
+    latest_version: "0.1.21"
+    update_url: "https://xxx.cos.ap-beijing.myqcloud.com/application/stable"
+    force_message: "当前客户端版本过低，请更新后继续使用"
