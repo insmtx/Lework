@@ -1,9 +1,11 @@
 # Leros k3s Deployment
 
 `server.config.example.yaml` is the k3s-oriented server configuration template.
-The GitLab CI deployment updates only `scheduler.worker_image` in the server
+The service deployment updates only `scheduler.worker_image` in the server
 ConfigMap, then restarts the server Deployment so the reconciler can converge
-existing worker Deployments to the desired worker image.
+existing worker Deployments to the desired worker image. The GitLab desktop
+release job updates only `client_update.desktop.latest_version` after
+publishing the desktop packages.
 
 Expected ConfigMap layout:
 
@@ -23,6 +25,11 @@ Useful CI variables:
 | `K3S_SERVER_CONTAINER` | `leros` | Server container name inside the Deployment. |
 | `K3S_SERVER_CONFIGMAP` | `leros-server-config` | ConfigMap that contains the server config file. |
 | `K3S_SERVER_CONFIG_KEY` | `config.yaml` | ConfigMap data key for the server config file. |
+
+The GitLab desktop release job reads the new desktop latest version from
+`frontend/apps/desktop/package.json`, writes that value to
+`client_update.desktop.latest_version`, and restarts the server Deployment so
+the server reloads the ConfigMap.
 
 For your current test cluster, the repository default is:
 

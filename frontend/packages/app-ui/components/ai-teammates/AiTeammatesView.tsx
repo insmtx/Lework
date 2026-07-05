@@ -82,6 +82,8 @@ const DEFAULT_CATEGORY_VISUAL: CategoryVisual = {
 	iconColor: "text-indigo-600",
 };
 
+const RECOMMENDED_TEMPLATE_STORAGE_KEY = "leros.aiTeammates.recommendedTemplateIds";
+
 export function AiTeammatesView() {
 	const { assistants, assistantsLoaded, createAssistantFromTemplate, fetchAssistants } = useDAStore(
 		(s) => s,
@@ -89,6 +91,10 @@ export function AiTeammatesView() {
 	const [templates, setTemplates] = useState<BackendAITeammateTemplate[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [adoptingTemplateId, setAdoptingTemplateId] = useState<number | null>(null);
+	const [recommendingTemplateId, setRecommendingTemplateId] = useState<number | null>(null);
+	const [recommendedTemplateIds, setRecommendedTemplateIds] = useState<Set<number>>(
+		() => new Set(),
+	);
 	const [selectedTemplate, setSelectedTemplate] = useState<AiTeammateDetailDialogItem | null>(null);
 	const [keyword, setKeyword] = useState("");
 	const [debouncedKeyword, setDebouncedKeyword] = useState("");
@@ -97,6 +103,10 @@ export function AiTeammatesView() {
 	useEffect(() => {
 		fetchAssistants();
 	}, [fetchAssistants]);
+
+	useEffect(() => {
+		setRecommendedTemplateIds(readRecommendedTemplateIds());
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -202,6 +212,49 @@ export function AiTeammatesView() {
 	const handleSelectTemplate = (item: AiTeammateTemplateCardItem) => {
 		const detailItem = cardItems.find((cardItem) => cardItem.id === item.id);
 		if (detailItem) setSelectedTemplate(detailItem);
+	};
+
+	const handleRecommendTemplate = async (item: AiTeammateTemplateCardItem) => {
+		if (recommendingTemplateId) return;
+		if (recommendedTemplateIds.has(item.id)) {
+			toast.info("已经点赞过这个 AI 队友了");
+			return;
+		}
+
+		setRecommendingTemplateId(item.id);
+		setRecommendedTemplateIds((current) => {
+			const next = new Set(current);
+			next.add(item.id);
+			writeRecommendedTemplateIds(next);
+			return next;
+		});
+		setTemplates((current) => incrementTemplateRecommendCount(current, item.id, 1));
+		setSelectedTemplate((current) =>
+			current?.id === item.id
+				? { ...current, recommendCount: current.recommendCount + 1 }
+				: current,
+		);
+
+		try {
+			await digitalAssistantApi.incrementTemplateRecommendCount({ id: item.id });
+		} catch (err) {
+			console.error("recommend ai teammate template error:", err);
+			setTemplates((current) => incrementTemplateRecommendCount(current, item.id, -1));
+			setSelectedTemplate((current) =>
+				current?.id === item.id
+					? { ...current, recommendCount: Math.max(0, current.recommendCount - 1) }
+					: current,
+			);
+			setRecommendedTemplateIds((current) => {
+				const next = new Set(current);
+				next.delete(item.id);
+				writeRecommendedTemplateIds(next);
+				return next;
+			});
+			toast.error("点赞失败，请稍后再试");
+		} finally {
+			setRecommendingTemplateId(null);
+		}
 	};
 
 	const handleAdoptTemplate = async (item: AiTeammateDetailDialogItem) => {
@@ -328,7 +381,14 @@ export function AiTeammatesView() {
 				) : (
 					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 						{cardItems.map((item) => (
-							<AiTeammateCard key={item.id} item={item} onSelect={handleSelectTemplate} />
+							<AiTeammateCard
+								key={item.id}
+								item={item}
+								onSelect={handleSelectTemplate}
+								onRecommend={handleRecommendTemplate}
+								recommended={recommendedTemplateIds.has(item.id)}
+								recommending={recommendingTemplateId === item.id}
+							/>
 						))}
 					</div>
 				)}
@@ -341,9 +401,41 @@ export function AiTeammatesView() {
 					if (!open) setSelectedTemplate(null);
 				}}
 				onAdopt={handleAdoptTemplate}
+				onRecommend={handleRecommendTemplate}
 				adopting={selectedTemplate ? adoptingTemplateId === selectedTemplate.id : false}
 				adopted={selectedTemplate ? adoptedTemplateIds.has(selectedTemplate.id) : false}
+				recommended={selectedTemplate ? recommendedTemplateIds.has(selectedTemplate.id) : false}
+				recommending={selectedTemplate ? recommendingTemplateId === selectedTemplate.id : false}
 			/>
 		</div>
 	);
+}
+
+function incrementTemplateRecommendCount(
+	items: BackendAITeammateTemplate[],
+	templateID: number,
+	step: 1 | -1,
+): BackendAITeammateTemplate[] {
+	return items.map((template) =>
+		template.id === templateID
+			? { ...template, recommend_count: Math.max(0, (template.recommend_count ?? 0) + step) }
+			: template,
+	);
+}
+
+function readRecommendedTemplateIds(): Set<number> {
+	if (typeof window === "undefined") return new Set();
+	try {
+		const raw = window.localStorage.getItem(RECOMMENDED_TEMPLATE_STORAGE_KEY);
+		const values = raw ? (JSON.parse(raw) as unknown) : [];
+		if (!Array.isArray(values)) return new Set();
+		return new Set(values.filter((value): value is number => Number.isSafeInteger(value)));
+	} catch {
+		return new Set();
+	}
+}
+
+function writeRecommendedTemplateIds(ids: Set<number>) {
+	if (typeof window === "undefined") return;
+	window.localStorage.setItem(RECOMMENDED_TEMPLATE_STORAGE_KEY, JSON.stringify([...ids]));
 }

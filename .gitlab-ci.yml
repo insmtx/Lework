@@ -294,11 +294,7 @@ deploy:
           sleep 15
         done
       }
-    - export DESKTOP_VERSION="${CI_COMMIT_TAG#v}"
-    - |
-      if [ -z "$DESKTOP_VERSION" ]; then
-        DESKTOP_VERSION="$(node -p 'require("./frontend/apps/desktop/package.json").version')"
-      fi
+    - export DESKTOP_VERSION="$(node -p 'require("./frontend/apps/desktop/package.json").version')"
     - |
       if [ -z "$DESKTOP_VERSION" ]; then
         echo "desktop package version is required"
@@ -306,9 +302,6 @@ deploy:
       fi
     - cd frontend
     - pnpm install --frozen-lockfile
-    - cd apps/desktop
-    - node -e 'const fs = require("node:fs"); const version = process.argv[1]; const path = "package.json"; const pkg = JSON.parse(fs.readFileSync(path, "utf8")); pkg.version = version; fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);' "$DESKTOP_VERSION"
-    - cd ../..
     - pnpm --filter @leros/desktop typecheck
     - HOME="$CI_PROJECT_DIR/.ci-home" coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
     - |
@@ -427,6 +420,58 @@ desktop-build-win-x64:
   extends: .desktop-build-template
   variables:
     DESKTOP_TARGET: win-x64
+
+desktop-update-k3s-client-version:
+  stage: notify
+  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
+  rules:
+    - if: '$APP == "desktop" && $ENV != "image"'
+      when: on_success
+    - when: never
+  needs:
+    - job: desktop-build-mac-arm64
+    - job: desktop-build-mac-x64
+    - job: desktop-build-win-x64
+  before_script:
+    - mkdir -p ~/.ssh
+    - |
+      if [ "${ENV}" = "test" ]; then
+          if [ -z "$DEPLOY_HOST_TEST" ]; then
+            echo "Required deploy variable is missing: DEPLOY_HOST_TEST"
+            exit 1
+          fi
+          DEPLOY_HOST="$DEPLOY_HOST_TEST"
+          echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
+          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-insmtx-test}"
+      elif [ "${ENV}" = "prod" ]; then
+          if [ -z "$DEPLOY_HOST_PROD" ]; then
+            echo "Required deploy variable is missing: DEPLOY_HOST_PROD"
+            exit 1
+          fi
+          if [ -z "$K3S_NAMESPACE_PROD" ]; then
+            echo "Required deploy variable is missing: K3S_NAMESPACE_PROD"
+            exit 1
+          fi
+          DEPLOY_HOST="$DEPLOY_HOST_PROD"
+          echo "$SSH_KEY_P31" | base64 -d > ~/.ssh/id_rsa
+          K3S_NAMESPACE="$K3S_NAMESPACE_PROD"
+      else
+          echo "Unknown ENV: $ENV"
+          exit 1
+      fi
+      export DEPLOY_HOST K3S_NAMESPACE
+    - chmod 600 ~/.ssh/id_rsa
+  script:
+    - export DESKTOP_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' frontend/apps/desktop/package.json | head -n 1)"
+    - |
+      if [ -z "$DESKTOP_VERSION" ]; then
+        echo "desktop package version is required"
+        exit 1
+      fi
+    - scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deployments/k3s/update-desktop-latest-version.sh "$DEPLOY_HOST:/tmp/update-desktop-latest-version.sh"
+    - |
+      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "$DEPLOY_HOST" \
+        "K3S_NAMESPACE='${K3S_NAMESPACE}' K3S_SERVER_DEPLOYMENT='${K3S_SERVER_DEPLOYMENT}' K3S_SERVER_CONFIGMAP='${K3S_SERVER_CONFIGMAP}' K3S_SERVER_CONFIG_KEY='${K3S_SERVER_CONFIG_KEY}' bash /tmp/update-desktop-latest-version.sh '${DESKTOP_VERSION}'"
 
 notify:
   stage: notify
