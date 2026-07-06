@@ -2,6 +2,8 @@ package contract
 
 import (
 	"context"
+
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 )
 
 // SessionEventSink receives projected Server session events.
@@ -42,7 +44,14 @@ type SessionService interface {
 	ClearSessionMessages(ctx context.Context, sessionID string) error
 
 	// Event streaming
-	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, sink SessionEventSink) error
+	// When assistantID > 0, only RunEvents whose Route.WorkerID matches the
+	// requested AI teammate are delivered; assistantID == 0 disables filtering.
+	StreamSessionEvents(ctx context.Context, sessionID string, replay bool, assistantID uint, sink SessionEventSink) error
+
+	// StreamGlobalEvents subscribes the caller to project-level global notify events
+	// (message.created, etc.) for all projects the caller is a member of.
+	// Events are delivered via ch; the call blocks until ctx is cancelled.
+	StreamGlobalEvents(ctx context.Context, orgID, userID uint, replaySinceSeq uint64, ch chan<- *messaging.GlobalEventPayload) error
 
 	// HandleSessionRunStarted marks source user messages as processing and records replay metadata.
 	HandleSessionRunStarted(ctx context.Context, req *SessionRunStartedRequest) error

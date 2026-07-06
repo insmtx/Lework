@@ -22,20 +22,22 @@ type Project struct {
 
 // CreateProjectRequest 创建项目请求
 type CreateProjectRequest struct {
-	Name        string                 `json:"name" binding:"required"`
-	Description string                 `json:"description,omitempty"`
-	Objective   string                 `json:"objective,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Name         string                 `json:"name" binding:"required"`
+	Description  string                 `json:"description,omitempty"`
+	Objective    string                 `json:"objective,omitempty"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	AssistantIDs []uint                 `json:"assistant_ids,omitempty"`
 }
 
 // UpdateProjectRequest 更新项目请求
 type UpdateProjectRequest struct {
-	Name        *string                 `json:"name,omitempty"`
-	Description *string                 `json:"description,omitempty"`
-	Objective   *string                 `json:"objective,omitempty"`
-	OwnerID     *uint                   `json:"owner_id,omitempty"`
-	Status      *string                 `json:"status,omitempty"`
-	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
+	Name         *string                 `json:"name,omitempty"`
+	Description  *string                 `json:"description,omitempty"`
+	Objective    *string                 `json:"objective,omitempty"`
+	OwnerID      *uint                   `json:"owner_id,omitempty"`
+	Status       *string                 `json:"status,omitempty"`
+	Metadata     *map[string]interface{} `json:"metadata,omitempty"`
+	AssistantIDs []uint                  `json:"assistant_ids,omitempty"`
 }
 
 // ListProjectsRequest 查询项目列表请求
@@ -87,6 +89,7 @@ type ProjectMemberItem struct {
 	MemberID   uint      `json:"member_id"`
 	MemberType string    `json:"member_type"`
 	MemberRole string    `json:"member_role"`
+	IsDefault  bool      `json:"is_default"`
 	JoinedAt   time.Time `json:"joined_at"`
 	Name       string    `json:"name,omitempty"`
 	AvatarURL  string    `json:"avatar_url,omitempty"`

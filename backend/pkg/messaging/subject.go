@@ -63,6 +63,26 @@ func RunEventStreamWildcard() string {
 	return "org.*.session.*.run.stream"
 }
 
+// ProjectNotifySubject 构建 project 级全局通知 subject。
+//
+// 格式：org.<org_id>.project.<project_id>.notify
+func ProjectNotifySubject(orgID, projectID uint) (string, error) {
+	if orgID == 0 {
+		return "", fmt.Errorf("org_id is required")
+	}
+	if projectID == 0 {
+		return "", fmt.Errorf("project_id is required")
+	}
+	return fmt.Sprintf("org.%d.project.%d.notify", orgID, projectID), nil
+}
+
+// ProjectNotifyWildcard 返回匹配所有 project notify 的 wildcard subject。
+//
+// 格式：org.*.project.*.notify
+func ProjectNotifyWildcard() string {
+	return "org.*.project.*.notify"
+}
+
 // ---- Consumer 名称 ----
 
 // WorkerRunConsumer 返回 cmd.run lane 的持久化消费者名称。
@@ -101,8 +121,9 @@ func SessionRunStateConsumer() string { return "session-run-state-projector" }
 // ---- Stream 配置 ----
 
 const (
-	StreamNameWorker  = "WORKER_CMD_STREAM"
-	StreamNameSession = "SESSION_RUN_STREAM"
+	StreamNameWorker       = "WORKER_CMD_STREAM"
+	StreamNameSession      = "SESSION_RUN_STREAM"
+	StreamNameGlobalNotify = "GLOBAL_NOTIFY_STREAM"
 )
 
 // StreamConfigs 返回所有预配置的 JetStream stream 配置。
@@ -137,6 +158,15 @@ func StreamConfigs() map[string]nats.StreamConfig {
 			MaxAge:            24 * time.Hour,
 			MaxMsgsPerSubject: 10000,
 		},
+		StreamNameGlobalNotify: {
+			Name:              StreamNameGlobalNotify,
+			Subjects:          []string{ProjectNotifyWildcard()},
+			Storage:           nats.FileStorage,
+			Retention:         nats.LimitsPolicy,
+			Discard:           nats.DiscardOld,
+			MaxAge:            24 * time.Hour,
+			MaxMsgsPerSubject: 1000,
+		},
 	}
 }
 
@@ -153,6 +183,8 @@ func StreamNameFromSubject(subject string) string {
 		return StreamNameWorker
 	case "session":
 		return StreamNameSession
+	case "project":
+		return StreamNameGlobalNotify
 	default:
 		return ""
 	}

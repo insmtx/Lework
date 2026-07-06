@@ -68,6 +68,11 @@ type ObjectMetadata struct {
 	Extra map[string]interface{} `json:"extra,omitempty"`
 }
 
+// IsZero 判断 ObjectMetadata 是否所有字段均为零值。
+func (m ObjectMetadata) IsZero() bool {
+	return len(m.Tags) == 0 && m.Type == "" && m.Bucket == "" && m.Key == "" && len(m.Extra) == 0
+}
+
 // Scan 实现 sql.Scanner 接口
 func (pm *ObjectMetadata) Scan(value interface{}) error {
 	if value == nil {
@@ -103,6 +108,9 @@ type ProjectMember struct {
 
 	// project_member - 成员角色（owner/admin/member/viewer），VARCHAR(50)，NOT NULL
 	MemberRole MemberRole `gorm:"column:member_role;type:varchar(50);not null;default:'member'"`
+
+	// project_member - 是否为系统默认绑定的 AI 队友（不可被用户移除），BOOLEAN，NOT NULL，DEFAULT FALSE
+	IsDefault bool `gorm:"column:is_default;type:boolean;not null;default:false"`
 
 	// project_member - 加入时间，TIMESTAMP，NOT NULL
 	JoinedAt time.Time `gorm:"column:joined_at;not null;default:CURRENT_TIMESTAMP"`

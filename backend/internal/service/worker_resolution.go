@@ -7,7 +7,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
@@ -29,9 +28,6 @@ func resolveRuntimeWorker(ctx context.Context, database *gorm.DB, orgID, assista
 		}
 		if assistant.OrgID != orgID {
 			return 0, 0, errors.New("digital assistant organization mismatch")
-		}
-		if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 && assistant.OwnerID != caller.Uin {
-			return 0, 0, errors.New("digital assistant owner mismatch")
 		}
 		if assistant.Status != string(contract.DigitalAssistantStatusActive) {
 			return 0, 0, fmt.Errorf("digital assistant is not active: %s", assistant.Status)
@@ -91,4 +87,40 @@ func resolveProjectWorkerID(ctx context.Context, database *gorm.DB, orgID, proje
 	}
 	_, workerID, err := resolveDefaultRuntimeWorker(ctx, database, orgID, inferrer)
 	return workerID, err
+}
+
+// resolveProjectAssistantWorker 为 task/project session 解析 AI 队友 worker。
+// assistantIDs 中取第一个 >0 的值；>0 时校验是该项目 assistant 成员；空时取项目最新 assistant 成员；无则 ErrNoDefaultAssistant。
+func resolveProjectAssistantWorker(ctx context.Context, database *gorm.DB, orgID, projectID uint, assistantIDs []uint, inferrer AssistantInferrer) (uint, uint, error) {
+	requestedID := firstOrDefault(assistantIDs)
+	if database == nil || projectID == 0 {
+		return resolveRuntimeWorker(ctx, database, orgID, requestedID, inferrer)
+	}
+	if requestedID > 0 {
+		ok, err := db.IsProjectMember(ctx, database, projectID, requestedID, types.MemberTypeAssistant)
+		if err != nil {
+			return 0, 0, fmt.Errorf("verify project assistant: %w", err)
+		}
+		if !ok {
+			return 0, 0, fmt.Errorf("assistant %d is not a member of project %d", requestedID, projectID)
+		}
+		return resolveRuntimeWorker(ctx, database, orgID, requestedID, inferrer)
+	}
+	member, err := db.GetLatestProjectAssistant(ctx, database, projectID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if member == nil {
+		return 0, 0, ErrNoDefaultAssistant
+	}
+	return resolveRuntimeWorker(ctx, database, orgID, member.MemberID, inferrer)
+}
+
+func firstOrDefault(ids []uint) uint {
+	for _, id := range ids {
+		if id > 0 {
+			return id
+		}
+	}
+	return 0
 }

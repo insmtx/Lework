@@ -17,6 +17,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 		Assistant: agentrundomain.AssistantContext{
 			ID:           task.Execution.AssistantID,
 			Name:         task.Execution.AssistantName,
+			Description:  task.Execution.AssistantDesc,
 			SystemPrompt: task.Execution.SystemPrompt,
 			Skills:       append([]string(nil), task.Execution.Skills...),
 			Tools:        append([]string(nil), task.Execution.Tools...),
@@ -70,8 +71,9 @@ func inputMessagesFromTask(messages []messaging.ChatMessage) []agentrundomain.In
 	result := make([]agentrundomain.InputMessage, 0, len(messages))
 	for _, message := range messages {
 		result = append(result, agentrundomain.InputMessage{
-			Role:    string(message.Role),
-			Content: message.Content,
+			Role:       string(message.Role),
+			Content:    message.Content,
+			SenderName: message.SenderName,
 		})
 	}
 	return result

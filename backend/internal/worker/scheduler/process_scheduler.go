@@ -106,7 +106,7 @@ func (ps *ProcessScheduler) Health(ctx context.Context, workerID string) error {
 	ps.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("worker %s not found", workerID)
+		return fmt.Errorf("%w: %s", worker.ErrWorkerNotFound, workerID)
 	}
 
 	return ps.healthCheck(instance)

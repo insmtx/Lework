@@ -46,6 +46,7 @@ type RunRequest struct {
 type AssistantContext struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name,omitempty"`
+	Description  string   `json:"description,omitempty"`
 	Role         string   `json:"role,omitempty"`
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 	Skills       []string `json:"skills,omitempty"`
@@ -85,8 +86,9 @@ type InputContext struct {
 
 // InputMessage is a simple role/content message snapshot.
 type InputMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	SenderName string `json:"sender_name,omitempty"`
 }
 
 // Attachment describes an input attachment made available to the run.
@@ -156,11 +158,14 @@ func BuildUserInput(req *RunRequest) string {
 			if strings.TrimSpace(message.Content) == "" {
 				continue
 			}
-			role := message.Role
-			if role == "" {
-				role = "user"
+			name := strings.TrimSpace(message.SenderName)
+			if name == "" {
+				name = message.Role
+				if name == "" {
+					name = "user"
+				}
 			}
-			lines = append(lines, fmt.Sprintf("%s: %s", role, message.Content))
+			lines = append(lines, fmt.Sprintf("%s: %s", name, message.Content))
 		}
 		return strings.Join(lines, "\n")
 	}

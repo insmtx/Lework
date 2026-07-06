@@ -26,6 +26,29 @@ func setupTestWorkService(t *testing.T) (*workService, *gorm.DB) {
 	return typed, db
 }
 
+// seedProjectAssistant 为项目注入一个 AI 队友成员（DigitalAssistant ID=1）+ 对应 worker deployment，
+// 使 NewMessage 流程能通过 resolveProjectAssistantWorker 解析到 worker。
+func seedProjectAssistant(t *testing.T, database *gorm.DB, projectID uint) {
+	t.Helper()
+	if err := database.Create(&types.ProjectMember{
+		ProjectID:  projectID,
+		MemberID:   1,
+		MemberType: types.MemberTypeAssistant,
+		MemberRole: types.MemberRoleMember,
+	}).Error; err != nil {
+		t.Fatalf("seed project assistant member: %v", err)
+	}
+	if err := database.Create(&types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: 1,
+		WorkerID:           1,
+		DeploymentName:     "dep-default",
+		Status:             string(types.WorkerDeploymentStatusReady),
+	}).Error; err != nil {
+		t.Fatalf("seed worker deployment: %v", err)
+	}
+}
+
 func TestWorkServiceNewMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 	service, database := setupTestWorkService(t)
 	ctx := setupTestContextWithCaller(t)
@@ -40,6 +63,7 @@ func TestWorkServiceNewMessage_PersistsAttachmentsOnFirstMessage(t *testing.T) {
 	if err := database.Create(project).Error; err != nil {
 		t.Fatalf("create project: %v", err)
 	}
+	seedProjectAssistant(t, database, project.ID)
 
 	// 预先落一条 file_upload，模拟前端已完成项目文件上传。
 	fileUpload := &types.FileUpload{
@@ -143,6 +167,7 @@ func TestWorkServiceNewMessage_TouchesProjectUpdatedAt(t *testing.T) {
 	if err := database.Create(project).Error; err != nil {
 		t.Fatalf("create project: %v", err)
 	}
+	seedProjectAssistant(t, database, project.ID)
 
 	oldUpdatedAt := time.Now().Add(-time.Hour).UTC()
 	if err := database.Model(&types.Project{}).
@@ -178,7 +203,7 @@ func TestWorkServiceNewMessage_EmptySummonCreatesAssistantBoundSession(t *testin
 	assistant := seedReadyAssistant(t, database, "contract-reviewer", "合同审查专家", "只做合同风险审查")
 
 	resp, err := service.NewMessage(ctx, &contract.NewMessageRequest{
-		AssistantID: assistant.ID,
+		AssistantIDs: []uint{assistant.ID},
 	})
 	if err != nil {
 		t.Fatalf("NewMessage empty summon failed: %v", err)
@@ -225,7 +250,7 @@ func TestWorkServiceNewMessage_RejectsInactiveAssistantSummon(t *testing.T) {
 	}
 
 	_, err := service.NewMessage(ctx, &contract.NewMessageRequest{
-		AssistantID: assistant.ID,
+		AssistantIDs: []uint{assistant.ID},
 	})
 	if err == nil {
 		t.Fatal("expected inactive assistant summon to fail")
@@ -247,7 +272,7 @@ func TestWorkServiceNewMessage_RejectsAssistantBeforeDeploymentReady(t *testing.
 	}
 
 	_, err := service.NewMessage(ctx, &contract.NewMessageRequest{
-		AssistantID: assistant.ID,
+		AssistantIDs: []uint{assistant.ID},
 	})
 	if err == nil {
 		t.Fatal("expected provisioning assistant summon to fail")
@@ -443,6 +468,185 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 	}
 	if len(trace.InjectedMemoryIDs) != 1 || trace.InjectedMemoryIDs[0] != "1" {
 		t.Fatalf("trace memory ids = %#v, want [1]", trace.InjectedMemoryIDs)
+	}
+}
+
+func TestSyncSkillEntriesToProject_SkipsNonProjectSession(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+
+	// session without ProjectID should not panic or error
+	session := &types.Session{PublicID: "sess_no_project", OrgID: 1}
+	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal"})
+}
+
+func TestSyncSkillEntriesToProject_AddsSkill(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+
+	project := &types.Project{
+		PublicID: "prj_sync_skill_add",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Sync Skill Test",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	session := &types.Session{
+		PublicID:  "sess_sync_skill_add",
+		OrgID:     1,
+		Uin:       1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal"})
+
+	var refreshed types.Project
+	if err := database.First(&refreshed, project.ID).Error; err != nil {
+		t.Fatalf("reload project: %v", err)
+	}
+	if refreshed.Metadata.Extra == nil {
+		t.Fatal("expected project metadata extra to be initialized")
+	}
+	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
+	if !ok || len(rawSkills) != 1 {
+		t.Fatalf("expected 1 skill in project metadata, got %d", len(rawSkills))
+	}
+	entry, ok := rawSkills[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("skill entry is not a map")
+	}
+	if entry["code"] != "tech-design-proposal" {
+		t.Fatalf("skill code = %q, want tech-design-proposal", entry["code"])
+	}
+	if entry["name"] != "tech-design-proposal" {
+		t.Fatalf("skill name = %q, want tech-design-proposal", entry["name"])
+	}
+}
+
+func TestSyncSkillEntriesToProject_DeduplicatesSkills(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+
+	project := &types.Project{
+		PublicID: "prj_sync_skill_dedup",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Sync Skill Dedup",
+		Status:   string(types.ProjectStatusActive),
+		Metadata: types.ObjectMetadata{
+			Extra: map[string]interface{}{
+				"skills": []interface{}{
+					map[string]interface{}{"code": "code-review", "name": "Code Review"},
+				},
+			},
+		},
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	session := &types.Session{
+		PublicID:  "sess_sync_skill_dedup",
+		OrgID:     1,
+		Uin:       1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// Same skill called multiple times
+	poster.syncSkillEntriesToProject(ctx, session, []string{"code-review", "code-review"})
+
+	var refreshed types.Project
+	if err := database.First(&refreshed, project.ID).Error; err != nil {
+		t.Fatalf("reload project: %v", err)
+	}
+	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
+	if !ok {
+		t.Fatal("expected skills in project metadata")
+	}
+	if len(rawSkills) != 1 {
+		t.Fatalf("expected 1 skill after dedup, got %d", len(rawSkills))
+	}
+}
+
+func TestSyncSkillEntriesToProject_MultipleSkills(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	poster := NewMessagePoster(database, &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil)
+
+	project := &types.Project{
+		PublicID: "prj_sync_skill_multi",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Sync Skill Multi",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	session := &types.Session{
+		PublicID:  "sess_sync_skill_multi",
+		OrgID:     1,
+		Uin:       1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal", "code-review"})
+
+	var refreshed types.Project
+	if err := database.First(&refreshed, project.ID).Error; err != nil {
+		t.Fatalf("reload project: %v", err)
+	}
+	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
+	if !ok || len(rawSkills) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(rawSkills))
+	}
+}
+
+func TestSkillNameInProjectSkills(t *testing.T) {
+	skills := []interface{}{
+		map[string]interface{}{"code": "code-review", "name": "Code Review"},
+		map[string]interface{}{"code": "tech-design", "name": "tech-design"},
+	}
+
+	tests := []struct {
+		name      string
+		skills    []interface{}
+		skillName string
+		want      bool
+	}{
+		{"exact match code", skills, "code-review", true},
+		{"case insensitive code", skills, "Code-Review", true},
+		{"exact match name", skills, "tech-design", true},
+		{"case insensitive name", skills, "Tech-Design", true},
+		{"not found", skills, "not-a-skill", false},
+		{"empty", skills, "", false},
+		{"nil skills", nil, "anything", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := skillNameInProjectSkills(tt.skills, tt.skillName)
+			if got != tt.want {
+				t.Fatalf("skillNameInProjectSkills(%q) = %v, want %v", tt.skillName, got, tt.want)
+			}
+		})
 	}
 }
 

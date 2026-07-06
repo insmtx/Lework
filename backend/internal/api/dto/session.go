@@ -20,6 +20,10 @@ type RunStatusPayload struct {
 	Message string `json:"message,omitempty"`
 }
 
+// RunStartedPayload is the public projection of a run.started event.
+type RunStartedPayload struct {
+}
+
 // ToolCallDeltaPayload is the public tool-start payload.
 type ToolCallDeltaPayload struct {
 	ToolCallID string          `json:"tool_call_id"`

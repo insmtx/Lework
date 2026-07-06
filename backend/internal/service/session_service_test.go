@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -108,6 +109,35 @@ func (m *recordingEventBus) SubscribeManualDurable(ctx context.Context, topic st
 
 func (m *recordingEventBus) Request(_ context.Context, _ string, _ any) (*nats.Msg, error) {
 	return nil, fmt.Errorf("recordingEventBus: Request not supported")
+}
+
+// publishedEvent 记录一次 Publish 调用的 topic 和 event。
+type publishedEvent struct {
+	topic string
+	event any
+}
+
+// publishRecorder 嵌入 mockEventBus 并覆盖 Publish，记录所有发布调用。
+type publishRecorder struct {
+	mockEventBus
+	mu     sync.Mutex
+	events []publishedEvent
+}
+
+func (p *publishRecorder) Publish(ctx context.Context, topic string, event any) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.events = append(p.events, publishedEvent{topic: topic, event: event})
+	return nil
+}
+
+func (p *publishRecorder) lastEvent() (publishedEvent, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.events) == 0 {
+		return publishedEvent{}, false
+	}
+	return p.events[len(p.events)-1], true
 }
 
 func (m *mockEventBus) Subscribe(ctx context.Context, topic string, consumer string, handler func(msg *nats.Msg)) error {
@@ -765,6 +795,7 @@ func TestAddMessage_TouchesProjectUpdatedAtForUserMessage(t *testing.T) {
 	if err := db.CreateProject(ctx, database, project); err != nil {
 		t.Fatalf("CreateProject failed: %v", err)
 	}
+	_ = db.CreateProjectMember(ctx, database, &types.ProjectMember{ProjectID: project.ID, MemberID: 1, MemberType: types.MemberTypeUser, MemberRole: types.MemberRoleOwner})
 
 	session := &types.Session{
 		PublicID:    "sess_test_add_message_touch",
@@ -1455,6 +1486,24 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("failed to seed default llm model: %v", err)
 	}
+	if err := database.Create(&types.DigitalAssistant{
+		Code:    "da-1",
+		OrgID:   1,
+		OwnerID: 1,
+		Name:    "CodeReviewer",
+		Status:  "active",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed digital assistant: %v", err)
+	}
+	if err := database.Create(&types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: 1,
+		WorkerID:           1,
+		DeploymentName:     "default",
+		Status:             "active",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed worker deployment: %v", err)
+	}
 	service := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
 	ctx := setupTestContextWithCaller(t)
 
@@ -1471,6 +1520,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 		ErrorMsg:  "scan repo for reconciliation: context canceled",
 		Status:    string(types.MessageStatusCancelled),
 		CreatedAt: time.Now().UTC(),
+		RunID:     "run-abc-123",
 	})
 	if err != nil {
 		t.Fatalf("FailedSessionMessage failed: %v", err)
@@ -1488,6 +1538,12 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 	}
 	if result.Items[0].ErrorMsg != "scan repo for reconciliation: context canceled" {
 		t.Fatalf("response error_msg = %q", result.Items[0].ErrorMsg)
+	}
+	if result.Items[0].SenderName != "CodeReviewer" {
+		t.Fatalf("response sender_name = %q, want CodeReviewer", result.Items[0].SenderName)
+	}
+	if result.Items[0].RunID != "run-abc-123" {
+		t.Fatalf("response run_id = %q, want run-abc-123", result.Items[0].RunID)
 	}
 }
 
@@ -1508,6 +1564,9 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	}
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
+	}
+	if err := database.Create(&types.ProjectMember{ProjectID: projectID, MemberID: 1, MemberType: types.MemberTypeUser, MemberRole: types.MemberRoleOwner}).Error; err != nil {
+		t.Fatalf("create project member: %v", err)
 	}
 	// Create a FileUpload + ProjectFile to simulate an existing artifact.
 	fileUpload := &types.FileUpload{
@@ -1705,7 +1764,7 @@ func TestStreamSessionEvents_MissingCaller(t *testing.T) {
 	service := setupTestServiceWithSubscriber(t, nil)
 	ctx := setupTestContextWithoutCaller(t)
 
-	err := service.StreamSessionEvents(ctx, "test_session", false, nil)
+	err := service.StreamSessionEvents(ctx, "test_session", false, 0, nil)
 	if err == nil {
 		t.Error("expected error when caller is not authenticated")
 	}
@@ -1767,7 +1826,7 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 	var emitted []string
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, contract.SessionEventSinkFunc(func(
+	err := service.StreamSessionEvents(streamCtx, session.PublicID, true, 0, contract.SessionEventSinkFunc(func(
 		ctx context.Context,
 		event *contract.SessionEvent,
 	) error {
@@ -1801,6 +1860,264 @@ func mustStreamNATSMessage(t *testing.T, msg messaging.RunEvent) *nats.Msg {
 	return &nats.Msg{Data: data}
 }
 
+// TestStreamSessionEventsFiltersByAssistantID verifies that when assistantID > 0,
+// the service resolves DigitalAssistant.ID → WorkerDeployment.WorkerID and only
+// delivers RunEvents whose Route.WorkerID matches; assistantID == 0 disables
+// filtering (back-compat). The test seeds DISTINCT DigitalAssistant.ID and
+// WorkerID values to catch the bug where they were compared directly.
+func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	sessionService := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	session := createTestSession(t, database, sessionService, ctx)
+
+	// Seed WorkerDeployments with DISTINCT DigitalAssistant.ID and WorkerID
+	// to verify the filter resolves DigitalAssistant.ID → WorkerDeployment.WorkerID
+	// instead of comparing them directly.
+	//   Assistant 100 → WorkerID 1000
+	//   Assistant 200 → WorkerID 2000
+	if err := db.CreateWorkerDeployment(ctx, database, &types.WorkerDeployment{
+		OrgID: 1, DigitalAssistantID: 100, WorkerID: 1000,
+		DeploymentName: "dep-100", Status: string(types.WorkerDeploymentStatusReady),
+	}); err != nil {
+		t.Fatalf("seed worker deployment 100: %v", err)
+	}
+	if err := db.CreateWorkerDeployment(ctx, database, &types.WorkerDeployment{
+		OrgID: 1, DigitalAssistantID: 200, WorkerID: 2000,
+		DeploymentName: "dep-200", Status: string(types.WorkerDeploymentStatusReady),
+	}); err != nil {
+		t.Fatalf("seed worker deployment 200: %v", err)
+	}
+
+	// RunEvent produced by the AI teammate bound to WorkerID=1000 (DigitalAssistant.ID=100).
+	workerEvent := messaging.RunEvent{
+		ID:        "evt-worker-1000",
+		Type:      messaging.MessageTypeRunEvent,
+		CreatedAt: time.Now().UTC(),
+		Route:     messaging.RouteContext{SessionID: session.PublicID, WorkerID: 1000},
+		Body: messaging.RunEventBody{
+			Seq:   1,
+			Event: messaging.RunEventMessageDelta,
+			Payload: messaging.RunEventPayload{
+				Content: "from-assistant-100",
+			},
+		},
+	}
+
+	// assistantID=100 (DigitalAssistant.ID) resolves to WorkerID=1000 → matches → event delivered.
+	t.Run("matching assistant receives event", func(t *testing.T) {
+		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
+		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+
+		var emitted []string
+		streamCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, 100, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+			data, _ := json.Marshal(event)
+			emitted = append(emitted, string(data))
+			cancel()
+			return nil
+		}))
+		if err != nil {
+			t.Fatalf("StreamSessionEvents (matching) failed: %v", err)
+		}
+		if len(emitted) != 1 || !strings.Contains(emitted[0], "from-assistant-100") {
+			t.Fatalf("matching assistantID: emitted = %v, want exactly one event from assistant 100", emitted)
+		}
+	})
+
+	// assistantID=200 (DigitalAssistant.ID) resolves to WorkerID=2000 ≠ 1000 → event filtered out.
+	t.Run("non-matching assistant receives no event", func(t *testing.T) {
+		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
+		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+
+		var emitted []string
+		streamCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			cancel()
+		}()
+		_ = service.StreamSessionEvents(streamCtx, session.PublicID, false, 200, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+			data, _ := json.Marshal(event)
+			emitted = append(emitted, string(data))
+			return nil
+		}))
+		if len(emitted) != 0 {
+			t.Fatalf("non-matching assistantID: emitted = %v, want no events", emitted)
+		}
+	})
+
+	// assistantID=0 (disabled) → event delivered regardless of WorkerID.
+	t.Run("zero assistant receives event unfiltered", func(t *testing.T) {
+		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
+		service := NewSessionService(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+
+		var emitted []string
+		streamCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		err := service.StreamSessionEvents(streamCtx, session.PublicID, false, 0, contract.SessionEventSinkFunc(func(ctx context.Context, event *contract.SessionEvent) error {
+			data, _ := json.Marshal(event)
+			emitted = append(emitted, string(data))
+			cancel()
+			return nil
+		}))
+		if err != nil {
+			t.Fatalf("StreamSessionEvents (unfiltered) failed: %v", err)
+		}
+		if len(emitted) != 1 {
+			t.Fatalf("zero assistantID: emitted = %v, want exactly one event", emitted)
+		}
+	})
+}
+
+func TestGetSessionForCallerAllowsProjectMemberForTaskSession(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+	proj := &types.Project{PublicID: "prj_g1", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)}
+	if err := db.CreateProject(ctx, database, proj); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	_ = db.CreateProjectMember(ctx, database, &types.ProjectMember{ProjectID: proj.ID, MemberID: 2, MemberType: types.MemberTypeUser, MemberRole: types.MemberRoleMember})
+	pid := proj.ID
+	sess := &types.Session{PublicID: "sess_task1", Type: types.SessionTypeTask, Uin: 1, OrgID: 1, ProjectID: &pid, Status: string(types.SessionStatusActive)}
+	if err := db.CreateSession(ctx, database, sess); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	ss := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test").(*sessionService)
+	memberCtx := auth.WithContext(ctx, &types.Caller{Uin: 2, OrgID: 1, Kind: types.CallerKindUser}, nil)
+	if _, _, err := ss.getSessionForCaller(memberCtx, "sess_task1"); err != nil {
+		t.Fatalf("project member should access task session: %v", err)
+	}
+}
+
+func TestGetSessionForCallerDeniesNonMemberForTaskSession(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+	proj := &types.Project{PublicID: "prj_g2", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)}
+	_ = db.CreateProject(ctx, database, proj)
+	pid := proj.ID
+	sess := &types.Session{PublicID: "sess_task2", Type: types.SessionTypeTask, Uin: 1, OrgID: 1, ProjectID: &pid, Status: string(types.SessionStatusActive)}
+	_ = db.CreateSession(ctx, database, sess)
+	ss := NewSessionService(database, &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test").(*sessionService)
+	strangerCtx := auth.WithContext(ctx, &types.Caller{Uin: 99, OrgID: 1, Kind: types.CallerKindUser}, nil)
+	if _, _, err := ss.getSessionForCaller(strangerCtx, "sess_task2"); err == nil {
+		t.Fatal("non-member should be denied")
+	}
+}
+
+func TestPublishWorkerTaskHistoryContext(t *testing.T) {
+	database := setupTestDB(t)
+	bus := &recordingEventBus{}
+	poster := NewMessagePoster(database, bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	ctx := setupTestContextWithCaller(t)
+
+	proj := &types.Project{
+		PublicID: "prj_hist",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "HistoryProject",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := db.CreateProject(ctx, database, proj); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:             "sess_hist",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          1,
+		AllocatedAssistantID: 1,
+		ProjectID:            &proj.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "history test",
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	histUser := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "历史用户提问",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusCompleted),
+		Sequence:    1,
+		SenderName:  "张三",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := db.CreateMessage(ctx, database, histUser); err != nil {
+		t.Fatalf("create history user message: %v", err)
+	}
+	histAssistant := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleAssistant),
+		Content:     "历史AI回复",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusCompleted),
+		Sequence:    2,
+		SenderName:  "AI助手",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := db.CreateMessage(ctx, database, histAssistant); err != nil {
+		t.Fatalf("create history assistant message: %v", err)
+	}
+
+	message := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "这是当前消息",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusPending),
+		Sequence:    3,
+		SenderName:  "李四",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := db.CreateMessage(ctx, database, message); err != nil {
+		t.Fatalf("create current message: %v", err)
+	}
+
+	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault); err != nil {
+		t.Fatalf("publishWorkerTask failed: %v", err)
+	}
+
+	cmd, ok := bus.event.(messaging.WorkerCommand)
+	if !ok {
+		t.Fatalf("expected WorkerCommand, got %T", bus.event)
+	}
+	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+
+	messages := payload.Input.Messages
+	if len(messages) != 3 {
+		t.Fatalf("expected 3 input messages (2 history + 1 current), got %d: %+v", len(messages), messages)
+	}
+
+	if messages[0].SenderName != "张三" {
+		t.Errorf("history[0] sender_name = %q, want %q", messages[0].SenderName, "张三")
+	}
+	if messages[0].Role != messaging.MessageRole(types.MessageRoleUser) {
+		t.Errorf("history[0] role = %q, want %q", messages[0].Role, types.MessageRoleUser)
+	}
+	if messages[1].SenderName != "AI助手" {
+		t.Errorf("history[1] sender_name = %q, want %q", messages[1].SenderName, "AI助手")
+	}
+	if messages[1].Role != messaging.MessageRole(types.MessageRoleAssistant) {
+		t.Errorf("history[1] role = %q, want %q", messages[1].Role, types.MessageRoleAssistant)
+	}
+
+	if messages[2].SenderName != "李四" {
+		t.Errorf("current sender_name = %q, want %q", messages[2].SenderName, "李四")
+	}
+	if messages[2].Content != "这是当前消息" {
+		t.Errorf("current content = %q, want %q", messages[2].Content, "这是当前消息")
+	}
+}
+
 func TestConvertToContractSessionMessageAlwaysIncludesNormalizedUsage(t *testing.T) {
 	msg := &types.SessionMessage{
 		Role:    string(types.MessageRoleAssistant),
@@ -1830,5 +2147,355 @@ func TestConvertToContractSessionMessageAlwaysIncludesNormalizedUsage(t *testing
 	if converted.Usage.TotalTokens != 0 || converted.Usage.InputTokens != 0 || converted.Usage.OutputTokens != 0 ||
 		converted.Usage.CacheInputTokens != 0 || converted.Usage.CacheOutputTokens != 0 {
 		t.Fatalf("unexpected zero usage: %#v", converted.Usage)
+	}
+}
+
+func TestCompleteSessionMessageDoesNotPublishAssistantEvent(t *testing.T) {
+	database := setupTestDB(t)
+	recorder := &publishRecorder{}
+	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	ctx := setupTestContextWithCaller(t)
+
+	assistant := &types.DigitalAssistant{OrgID: 1, Name: "Beta"}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("seed assistant: %v", err)
+	}
+
+	project := &types.Project{
+		PublicID: "prj_complete_no_publish",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Complete No Publish",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := db.CreateProject(ctx, database, project); err != nil {
+		t.Fatalf("CreateProject failed: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:    "sess_complete_no_publish",
+		Type:        types.SessionTypeProject,
+		Uin:         1,
+		OrgID:       1,
+		AssistantID: assistant.ID,
+		ProjectID:   &project.ID,
+		Status:      string(types.SessionStatusActive),
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	err := service.CompleteSessionMessage(ctx, &contract.CompleteSessionMessageRequest{
+		SessionID: session.PublicID,
+		Content:   "done",
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("CompleteSessionMessage failed: %v", err)
+	}
+
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	for _, e := range recorder.events {
+		payload, ok := e.event.(messaging.GlobalEventPayload)
+		if !ok {
+			continue
+		}
+		var data messaging.MessageCreatedData
+		if err := json.Unmarshal(payload.Data, &data); err != nil {
+			continue
+		}
+		if data.SenderType == messaging.SenderTypeAssistant {
+			t.Fatalf("CompleteSessionMessage should not publish assistant event, got topic=%s type=%q sender_type=%q",
+				e.topic, payload.Type, data.SenderType)
+		}
+	}
+}
+
+func TestPublishMessageCreatedEvent_HumanFullContent(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	project := &types.Project{
+		PublicID: "prj_publish_full_content",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Full Content Project",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := db.CreateProject(ctx, database, project); err != nil {
+		t.Fatalf("CreateProject failed: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:  "sess_publish_full",
+		Type:      types.SessionTypeProject,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	longContent := strings.Repeat("一二三四五", 30) // 150 runes, over old 100 limit
+	message := &types.SessionMessage{
+		SessionID: session.ID,
+		Role:      string(types.MessageRoleUser),
+		Content:   longContent,
+		SenderUin: uintPtr(1),
+		Sequence:  1,
+	}
+
+	recorder := &publishRecorder{}
+	publishMessageCreatedEvent(ctx, database, recorder, session, message)
+
+	last, ok := recorder.lastEvent()
+	if !ok {
+		t.Fatal("expected one publish event, got none")
+	}
+	payload, ok := last.event.(messaging.GlobalEventPayload)
+	if !ok {
+		t.Fatalf("event type = %T, want messaging.GlobalEventPayload", last.event)
+	}
+	var data messaging.MessageCreatedData
+	if err := json.Unmarshal(payload.Data, &data); err != nil {
+		t.Fatalf("unmarshal payload data: %v", err)
+	}
+	if data.SenderType != messaging.SenderTypeHuman {
+		t.Fatalf("sender_type = %q, want %q", data.SenderType, messaging.SenderTypeHuman)
+	}
+	if data.Content != longContent {
+		t.Fatalf("content truncated: got len=%d, want len=%d", len([]rune(data.Content)), len([]rune(longContent)))
+	}
+}
+
+func TestPublishMessageCreatedEvent_HumanWithMetadata(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+
+	project := &types.Project{
+		PublicID: "prj_publish_meta",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Metadata Project",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := db.CreateProject(ctx, database, project); err != nil {
+		t.Fatalf("CreateProject failed: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:  "sess_publish_meta",
+		Type:      types.SessionTypeProject,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		Status:    string(types.SessionStatusActive),
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	t.Run("metadata with extra should be included", func(t *testing.T) {
+		message := &types.SessionMessage{
+			SessionID: session.ID,
+			Role:      string(types.MessageRoleUser),
+			Content:   "hello with metadata",
+			SenderUin: uintPtr(1),
+			Sequence:  1,
+			Metadata: types.ObjectMetadata{
+				Extra: map[string]interface{}{
+					"composerTokens": []map[string]interface{}{
+						{"kind": "skill", "label": "/tech-design-proposal", "start": 0, "end": 21},
+					},
+				},
+			},
+		}
+
+		recorder := &publishRecorder{}
+		publishMessageCreatedEvent(ctx, database, recorder, session, message)
+
+		last, ok := recorder.lastEvent()
+		if !ok {
+			t.Fatal("expected one publish event, got none")
+		}
+		payload, ok := last.event.(messaging.GlobalEventPayload)
+		if !ok {
+			t.Fatalf("event type = %T, want messaging.GlobalEventPayload", last.event)
+		}
+		var data messaging.MessageCreatedData
+		if err := json.Unmarshal(payload.Data, &data); err != nil {
+			t.Fatalf("unmarshal payload data: %v", err)
+		}
+		if data.Metadata == nil {
+			t.Fatal("data.Metadata is nil, expected non-nil when Extra is set")
+		}
+		if data.Metadata.Extra == nil {
+			t.Fatal("data.Metadata.Extra is nil, expected composerTokens")
+		}
+		tokens, ok := data.Metadata.Extra["composerTokens"].([]interface{})
+		if !ok || len(tokens) == 0 {
+			t.Fatalf("data.Metadata.Extra missing composerTokens, got: %+v", data.Metadata.Extra)
+		}
+	})
+
+	t.Run("metadata with tags should be included", func(t *testing.T) {
+		message := &types.SessionMessage{
+			SessionID: session.ID,
+			Role:      string(types.MessageRoleUser),
+			Content:   "hello with tags",
+			SenderUin: uintPtr(1),
+			Sequence:  2,
+			Metadata: types.ObjectMetadata{
+				Tags: []string{"important", "question"},
+				Type: "support",
+			},
+		}
+
+		recorder := &publishRecorder{}
+		publishMessageCreatedEvent(ctx, database, recorder, session, message)
+
+		last, ok := recorder.lastEvent()
+		if !ok {
+			t.Fatal("expected one publish event, got none")
+		}
+		payload, ok := last.event.(messaging.GlobalEventPayload)
+		if !ok {
+			t.Fatalf("event type = %T, want messaging.GlobalEventPayload", last.event)
+		}
+		var data messaging.MessageCreatedData
+		if err := json.Unmarshal(payload.Data, &data); err != nil {
+			t.Fatalf("unmarshal payload data: %v", err)
+		}
+		if data.Metadata == nil {
+			t.Fatal("data.Metadata is nil, expected non-nil when Tags/Type are set")
+		}
+		if len(data.Metadata.Tags) != 2 || data.Metadata.Tags[0] != "important" {
+			t.Fatalf("unexpected tags: %v", data.Metadata.Tags)
+		}
+		if data.Metadata.Type != "support" {
+			t.Fatalf("unexpected type: %q", data.Metadata.Type)
+		}
+	})
+
+	t.Run("zero metadata should be omitted", func(t *testing.T) {
+		message := &types.SessionMessage{
+			SessionID: session.ID,
+			Role:      string(types.MessageRoleUser),
+			Content:   "hello without metadata",
+			SenderUin: uintPtr(1),
+			Sequence:  3,
+		}
+
+		recorder := &publishRecorder{}
+		publishMessageCreatedEvent(ctx, database, recorder, session, message)
+
+		last, ok := recorder.lastEvent()
+		if !ok {
+			t.Fatal("expected one publish event, got none")
+		}
+		payload, ok := last.event.(messaging.GlobalEventPayload)
+		if !ok {
+			t.Fatalf("event type = %T, want messaging.GlobalEventPayload", last.event)
+		}
+		var data messaging.MessageCreatedData
+		if err := json.Unmarshal(payload.Data, &data); err != nil {
+			t.Fatalf("unmarshal payload data: %v", err)
+		}
+		if data.Metadata != nil {
+			t.Fatal("data.Metadata should be nil (omitempty) for zero-valued ObjectMetadata")
+		}
+	})
+}
+
+func uintPtr(v uint) *uint {
+	return &v
+}
+
+func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
+	database := setupTestDB(t)
+	recorder := &publishRecorder{}
+	service := NewSessionService(database, recorder, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	ctx := setupTestContextWithCaller(t)
+
+	// seed DigitalAssistant so AssistantName can be resolved
+	assistant := &types.DigitalAssistant{
+		OrgID: 1,
+		Name:  "Alpha",
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("seed assistant: %v", err)
+	}
+
+	project := &types.Project{
+		PublicID: "prj_run_started_publish",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Run Started Project",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := db.CreateProject(ctx, database, project); err != nil {
+		t.Fatalf("CreateProject failed: %v", err)
+	}
+
+	session := &types.Session{
+		PublicID:    "sess_run_started_publish",
+		Type:        types.SessionTypeProject,
+		Uin:         1,
+		OrgID:       1,
+		AssistantID: assistant.ID,
+		ProjectID:   &project.ID,
+		Status:      string(types.SessionStatusActive),
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	userMsg := createUserMessage(t, database, session.ID, string(types.MessageStatusPending), 1)
+
+	err := service.HandleSessionRunStarted(ctx, &contract.SessionRunStartedRequest{
+		SessionID:         session.PublicID,
+		ReplyToMessageIDs: []string{fmt.Sprintf("%d", userMsg.ID)},
+		RequestID:         "test-req",
+		StateStartSeq:     500,
+		RunID:             "run-abc-123",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionRunStarted failed: %v", err)
+	}
+
+	last, ok := recorder.lastEvent()
+	if !ok {
+		t.Fatal("expected assistant reply_started publish, got none")
+	}
+	if !strings.Contains(last.topic, ".notify") {
+		t.Fatalf("topic = %q, want contains .notify", last.topic)
+	}
+	payload, ok := last.event.(messaging.GlobalEventPayload)
+	if !ok {
+		t.Fatalf("event type = %T, want messaging.GlobalEventPayload", last.event)
+	}
+	if payload.Type != messaging.GlobalEventMessageCreated {
+		t.Fatalf("event type = %q, want %q", payload.Type, messaging.GlobalEventMessageCreated)
+	}
+	var data messaging.MessageCreatedData
+	if err := json.Unmarshal(payload.Data, &data); err != nil {
+		t.Fatalf("unmarshal payload data: %v", err)
+	}
+	if data.SenderType != messaging.SenderTypeAssistant {
+		t.Fatalf("sender_type = %q, want %q", data.SenderType, messaging.SenderTypeAssistant)
+	}
+	if data.Content != "" {
+		t.Fatalf("content = %q, want empty (T1 has no message content)", data.Content)
+	}
+	if data.RunID != "run-abc-123" {
+		t.Fatalf("run_id = %q, want %q", data.RunID, "run-abc-123")
+	}
+	if data.AssistantName != "Alpha" {
+		t.Fatalf("assistant_name = %q, want %q", data.AssistantName, "Alpha")
+	}
+	if data.AssistantID == nil || *data.AssistantID != assistant.ID {
+		t.Fatalf("assistant_id = %v, want %d", data.AssistantID, assistant.ID)
 	}
 }

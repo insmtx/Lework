@@ -169,3 +169,53 @@ func TestListProjectsReferencingSkill_QueryUsesJSONBMatch(t *testing.T) {
 		t.Fatalf("sql expectations: %v", err)
 	}
 }
+
+func setupProjectMemberTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	d, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := d.AutoMigrate(&types.Project{}, &types.ProjectMember{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return d
+}
+
+func TestIsProjectMemberChecksType(t *testing.T) {
+	d := setupProjectMemberTestDB(t)
+	ctx := context.Background()
+	_ = CreateProject(ctx, d, &types.Project{PublicID: "p1", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)})
+	_ = CreateProjectMember(ctx, d, &types.ProjectMember{ProjectID: 1, MemberID: 10, MemberType: types.MemberTypeUser, MemberRole: types.MemberRoleMember})
+	_ = CreateProjectMember(ctx, d, &types.ProjectMember{ProjectID: 1, MemberID: 20, MemberType: types.MemberTypeAssistant, MemberRole: types.MemberRoleMember})
+	ok, _ := IsProjectMember(ctx, d, 1, 10, types.MemberTypeUser)
+	if !ok {
+		t.Fatal("user 10 should be user member")
+	}
+	ok, _ = IsProjectMember(ctx, d, 1, 10, types.MemberTypeAssistant)
+	if ok {
+		t.Fatal("user 10 should not be assistant member")
+	}
+}
+
+func TestGetLatestProjectAssistantReturnsNewest(t *testing.T) {
+	d := setupProjectMemberTestDB(t)
+	ctx := context.Background()
+	_ = CreateProject(ctx, d, &types.Project{PublicID: "p1", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)})
+	_ = CreateProjectMember(ctx, d, &types.ProjectMember{ProjectID: 1, MemberID: 100, MemberType: types.MemberTypeAssistant, MemberRole: types.MemberRoleMember})
+	_ = CreateProjectMember(ctx, d, &types.ProjectMember{ProjectID: 1, MemberID: 200, MemberType: types.MemberTypeAssistant, MemberRole: types.MemberRoleMember})
+	got, err := GetLatestProjectAssistant(ctx, d, 1)
+	if err != nil || got == nil || got.MemberID != 200 {
+		t.Fatalf("want MemberID 200, got %+v err %v", got, err)
+	}
+}
+
+func TestGetLatestProjectAssistantNilWhenNone(t *testing.T) {
+	d := setupProjectMemberTestDB(t)
+	ctx := context.Background()
+	_ = CreateProject(ctx, d, &types.Project{PublicID: "p1", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)})
+	got, err := GetLatestProjectAssistant(ctx, d, 1)
+	if err != nil || got != nil {
+		t.Fatalf("want nil, got %+v err %v", got, err)
+	}
+}

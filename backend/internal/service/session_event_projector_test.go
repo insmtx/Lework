@@ -401,3 +401,34 @@ func TestProjectRunEventProjectsPlanPublishedAsDirectPayload(t *testing.T) {
 		t.Fatalf("payload = %#v, want %#v", payload, *plan)
 	}
 }
+
+func TestProjectRunEventStartedExposesStartedEventType(t *testing.T) {
+	runEvent := messaging.RunEvent{
+		Type:      messaging.MessageTypeRunEvent,
+		CreatedAt: time.Now().UTC(),
+		Trace: messaging.TraceContext{
+			TraceID: "trace-1",
+		},
+		Route: messaging.RouteContext{
+			OrgID:     1,
+			SessionID: "sess-1",
+			WorkerID:  2,
+		},
+		Body: messaging.RunEventBody{
+			Event: messaging.RunEventRunStarted,
+			Seq:   1,
+		},
+	}
+
+	event, ok := ProjectRunEvent(runEvent)
+	if !ok {
+		t.Fatal("ProjectRunEvent returned false for run.started")
+	}
+	if event.Type != string(messaging.RunEventRunStarted) {
+		t.Fatalf("event type = %q, want %q", event.Type, string(messaging.RunEventRunStarted))
+	}
+	_, ok = event.Payload.(dto.RunStartedPayload)
+	if !ok {
+		t.Fatalf("payload type = %T, want dto.RunStartedPayload", event.Payload)
+	}
+}

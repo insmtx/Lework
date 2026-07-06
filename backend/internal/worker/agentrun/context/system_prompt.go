@@ -105,8 +105,9 @@ func buildAssistantPersonaContext(req *agentrundomain.RunRequest) string {
 		return ""
 	}
 	name := strings.TrimSpace(req.Assistant.Name)
+	description := strings.TrimSpace(req.Assistant.Description)
 	systemPrompt := strings.TrimSpace(req.Assistant.SystemPrompt)
-	if name == "" && systemPrompt == "" {
+	if name == "" && description == "" && systemPrompt == "" {
 		return ""
 	}
 
@@ -118,6 +119,10 @@ func buildAssistantPersonaContext(req *agentrundomain.RunRequest) string {
 	if name != "" {
 		sb.WriteString("\n\n队友名称：")
 		sb.WriteString(name)
+	}
+	if description != "" {
+		sb.WriteString("\n\n队友描述：")
+		sb.WriteString(description)
 	}
 	if systemPrompt != "" {
 		sb.WriteString("\n\n队友能力边界与提示词：\n")

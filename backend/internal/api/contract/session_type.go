@@ -3,6 +3,7 @@ package contract
 import (
 	"time"
 
+	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -37,7 +38,8 @@ type ListSessionsRequest struct {
 type AddMessageRequest struct {
 	Role          string                    `json:"role" binding:"required"`
 	Content       string                    `json:"content" binding:"required"`
-	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	ExecutionMode agent.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
+	AssistantIDs  []uint                    `json:"assistant_ids,omitempty"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
@@ -102,6 +104,9 @@ type SessionMessage struct {
 	Usage       *types.MessageUsage       `json:"usage,omitempty"`
 	Sequence    int64                     `json:"sequence"`
 	CreatedAt   time.Time                 `json:"created_at"`
+	SenderUin   *uint                     `json:"sender_uin,omitempty"`
+	SenderName  string                    `json:"sender_name,omitempty"`
+	RunID       string                    `json:"run_id,omitempty"`
 }
 
 // SessionEvent is the public event shape embedded in persisted message chunks.
@@ -146,6 +151,7 @@ type CompleteSessionMessageRequest struct {
 	Usage             *types.MessageUsage     `json:"usage,omitempty"`
 	Seq               int64                   `json:"seq"`
 	CreatedAt         time.Time               `json:"created_at"`
+	RunID             string                  `json:"run_id,omitempty"`
 }
 
 // FailedSessionMessageRequest persists a failed assistant message.
@@ -162,6 +168,7 @@ type FailedSessionMessageRequest struct {
 	Usage             *types.MessageUsage     `json:"usage,omitempty"`
 	Seq               int64                   `json:"seq"`
 	CreatedAt         time.Time               `json:"created_at"`
+	RunID             string                  `json:"run_id,omitempty"`
 }
 
 // SessionRunStartedRequest marks user messages as processing when a worker run starts.
@@ -171,4 +178,5 @@ type SessionRunStartedRequest struct {
 	RequestID         string   `json:"request_id,omitempty"`
 	StreamStartSeq    uint64   `json:"stream_start_seq"`
 	StateStartSeq     uint64   `json:"state_start_seq,omitempty"`
+	RunID             string   `json:"run_id,omitempty"`
 }

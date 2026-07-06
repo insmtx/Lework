@@ -83,3 +83,13 @@ func TestReplyToMessageIDsDeduplicatesInputMessageIDs(t *testing.T) {
 		t.Fatalf("replyToMessageIDs() = %v, want [1 2]", got)
 	}
 }
+
+func TestInputMessagesFromTaskPreservesSenderName(t *testing.T) {
+	got := inputMessagesFromTask([]messaging.ChatMessage{
+		{ID: "1", Role: messaging.MessageRoleUser, Content: "hi", SenderName: "Alice"},
+		{ID: "2", Role: messaging.MessageRoleAssistant, Content: "hello", SenderName: "Alpha"},
+	})
+	if len(got) != 2 || got[0].SenderName != "Alice" || got[1].SenderName != "Alpha" {
+		t.Fatalf("sender names not preserved: %+v", got)
+	}
+}

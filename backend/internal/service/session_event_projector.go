@@ -77,6 +77,7 @@ func ProjectRunEvent(runEvent messaging.RunEvent) (*contract.SessionEvent, bool)
 			runEvent.CreatedAt,
 		)
 	case messaging.RunEventRunStarted:
+		event.Payload = dto.RunStartedPayload{}
 		event.Type = string(messaging.RunEventRunStarted)
 	case messaging.RunEventRunCompleted:
 		event.Type = string(messaging.RunEventRunCompleted)
