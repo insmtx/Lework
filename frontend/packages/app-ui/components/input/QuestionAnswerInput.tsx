@@ -206,7 +206,7 @@ export function QuestionAnswerInput({
 				const next = prev.map((row) => [...row]);
 				if (isMultiSelect) {
 					let customIdx = -1;
-					const row = next[questionIndex] ?? [];
+					const row = [...(next[questionIndex] ?? [])];
 					for (let idx = 0; idx < row.length; idx++) {
 						if (!options.some((o) => o.label === row[idx])) {
 							customIdx = idx;
@@ -215,10 +215,11 @@ export function QuestionAnswerInput({
 					}
 					if (customIdx >= 0) {
 						if (value) {
-							next[questionIndex][customIdx] = value;
+							row[customIdx] = value;
 						} else {
-							next[questionIndex].splice(customIdx, 1);
+							row.splice(customIdx, 1);
 						}
+						next[questionIndex] = row;
 					} else if (value) {
 						next[questionIndex] = [...(next[questionIndex] ?? []), value];
 					}

@@ -18,7 +18,6 @@ function createProject(
 		updatedAt: overrides.updatedAt,
 		messages: overrides.messages ?? [],
 		tasks: overrides.tasks ?? [],
-		artifacts: overrides.artifacts ?? [],
 		files: overrides.files ?? [],
 	};
 }
