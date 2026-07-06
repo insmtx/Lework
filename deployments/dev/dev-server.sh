@@ -44,8 +44,13 @@ NEED_BUILD=false
 if [ ! -f "$ROOT_DIR/bundles/leros" ] || [ "$BUILD_FLAG" = true ]; then
     NEED_BUILD=true
 else
-    LATEST_SRC=$(find "$ROOT_DIR/backend/cmd/leros" -name "*.go" -exec stat -f "%m" {} \; 2>/dev/null | sort -rn | head -1)
-    BINARY_MTIME=$(stat -f "%m" "$ROOT_DIR/bundles/leros" 2>/dev/null)
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        LATEST_SRC=$(find "$ROOT_DIR/backend/cmd/leros" -name "*.go" -exec stat -f "%m" {} \; 2>/dev/null | sort -rn | head -1)
+        BINARY_MTIME=$(stat -f "%m" "$ROOT_DIR/bundles/leros" 2>/dev/null)
+    else
+        LATEST_SRC=$(find "$ROOT_DIR/backend/cmd/leros" -name "*.go" -exec stat -c "%Y" {} \; 2>/dev/null | sort -rn | head -1)
+        BINARY_MTIME=$(stat -c "%Y" "$ROOT_DIR/bundles/leros" 2>/dev/null)
+    fi
     if [ -n "$LATEST_SRC" ] && [ -n "$BINARY_MTIME" ] && [ "$LATEST_SRC" -gt "$BINARY_MTIME" ]; then
         NEED_BUILD=true
         echo -e "${YELLOW}Source changed, auto-rebuilding...${NC}"
