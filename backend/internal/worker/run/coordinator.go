@@ -189,10 +189,11 @@ func (c *Coordinator) execute(ctx context.Context, submission RunSubmission) (*a
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	key := sessionKey(submission)
-	if key != "" {
-		c.RegisterRun(key, submission.EventContext.RunID, requestTaskID(submission), cancel)
-		defer c.UnregisterRun(key)
+	sKey := sessionKey(submission)
+	if sKey != "" && submission.EventContext.RunID != "" {
+		activeKey := activeRunKey(submission.EventContext.OrgID, submission.EventContext.WorkerID, submission.EventContext.SessionID, submission.EventContext.RunID)
+		c.RegisterRun(activeKey, submission.EventContext.RunID, requestTaskID(submission), cancel)
+		defer c.UnregisterRun(activeKey)
 	}
 	return c.executeFunc(runCtx, submission)
 }
@@ -225,20 +226,19 @@ func (c *Coordinator) notifyWaiters(waiterIDs []uint64, result runResult) {
 	}
 }
 
-// Cancel cancels an active run for the given session and optional runID.
+// Cancel cancels the active run for the given session+runID.
 func (c *Coordinator) Cancel(ctx context.Context, orgID, workerID uint, sessionID, runID string) error {
-	key := fmt.Sprintf("%d:%d:%s", orgID, workerID, sessionID)
+	if runID == "" {
+		return nil
+	}
+	key := activeRunKey(orgID, workerID, sessionID, runID)
 
 	c.activeRunsMu.RLock()
 	ar, ok := c.activeRuns[key]
 	c.activeRunsMu.RUnlock()
 
 	if !ok {
-		return nil // no active run for this session
-	}
-
-	if runID != "" && ar.runID != runID {
-		return nil // run ID mismatch
+		return nil
 	}
 
 	ar.cancel()
@@ -307,6 +307,13 @@ func sessionKey(submission RunSubmission) string {
 		return ""
 	}
 	return fmt.Sprintf("%d:%d:%s", ec.OrgID, ec.WorkerID, strings.TrimSpace(ec.SessionID))
+}
+
+// activeRunKey builds a unique key for tracking an active run, scoped to a
+// specific run ID so that multiple runs on the same session+worker can
+// coexist and be cancelled independently.
+func activeRunKey(orgID, workerID uint, sessionID, runID string) string {
+	return fmt.Sprintf("%d:%d:%s:%s", orgID, workerID, sessionID, runID)
 }
 
 // mergeSubmissions merges two submissions for the same session.

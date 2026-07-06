@@ -42,6 +42,18 @@ func GetDefaultWorkerDeployment(ctx context.Context, database *gorm.DB, orgID ui
 	return GetWorkerDeploymentByOrgWorkerID(ctx, database, orgID, 1)
 }
 
+// GetDefaultAssistantIDByOrg 获取组织的默认 AI 队友 ID（worker_id=1 对应的 assistant）。
+func GetDefaultAssistantIDByOrg(ctx context.Context, database *gorm.DB, orgID uint) (uint, error) {
+	deployment, err := GetDefaultWorkerDeployment(ctx, database, orgID)
+	if err != nil {
+		return 0, err
+	}
+	if deployment == nil {
+		return 0, nil
+	}
+	return deployment.DigitalAssistantID, nil
+}
+
 func NextWorkerID(ctx context.Context, database *gorm.DB, orgID uint) (uint, error) {
 	var maxID uint
 	if err := database.WithContext(ctx).

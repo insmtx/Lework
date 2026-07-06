@@ -132,6 +132,11 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 			logs.WarnContextf(ctx, "[project] init repo structure: %v", err)
 		}
 	}
+
+	if err := s.bindProjectMembers(ctx, project.ID, caller, req.AssistantIDs); err != nil {
+		return nil, err
+	}
+
 	return convertToContractProject(project), nil
 }
 
@@ -217,7 +222,17 @@ func (s *projectService) UpdateProject(ctx context.Context, publicID string, req
 			}
 		}
 
-		return db.UpdateProject(ctx, tx, project)
+		if err := db.UpdateProject(ctx, tx, project); err != nil {
+			return err
+		}
+
+		if req.AssistantIDs != nil {
+			if err := s.syncProjectAssistants(ctx, tx, project.ID, caller.OrgID, req.AssistantIDs); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -385,6 +400,138 @@ func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *co
 	return buildWorkbenchRecentContext(project, task, usedAt), nil
 }
 
+// bindProjectMembers 创建项目时绑定默认 AI 队友 + 用户指定的额外 AI 队友 + 创建者本人。
+func (s *projectService) bindProjectMembers(ctx context.Context, projectID uint, caller *types.Caller, assistantIDs []uint) error {
+	defaultAssistantID, err := db.GetDefaultAssistantIDByOrg(ctx, s.db, caller.OrgID)
+	if err != nil {
+		return fmt.Errorf("get default assistant: %w", err)
+	}
+	if defaultAssistantID == 0 {
+		return ErrNoDefaultAssistantInOrg
+	}
+
+	if err := validateAssistantIDs(assistantIDs, defaultAssistantID); err != nil {
+		return err
+	}
+
+	var members []*types.ProjectMember
+	now := time.Now()
+
+	members = append(members, &types.ProjectMember{
+		ProjectID:  projectID,
+		MemberID:   defaultAssistantID,
+		MemberType: types.MemberTypeAssistant,
+		MemberRole: types.MemberRoleMember,
+		IsDefault:  true,
+		JoinedAt:   now,
+	})
+
+	for _, id := range assistantIDs {
+		members = append(members, &types.ProjectMember{
+			ProjectID:  projectID,
+			MemberID:   id,
+			MemberType: types.MemberTypeAssistant,
+			MemberRole: types.MemberRoleMember,
+			IsDefault:  false,
+			JoinedAt:   now,
+		})
+	}
+
+	members = append(members, &types.ProjectMember{
+		ProjectID:  projectID,
+		MemberID:   caller.Uin,
+		MemberType: types.MemberTypeUser,
+		MemberRole: types.MemberRoleOwner,
+		JoinedAt:   now,
+	})
+
+	return db.BatchCreateProjectMembers(ctx, s.db, members)
+}
+
+// syncProjectAssistants 在 UpdateProject 时 diff 当前助理成员与传入列表：
+// 新增的添加，要移除的删除（is_default=true 的不可移除）。
+func (s *projectService) syncProjectAssistants(ctx context.Context, tx *gorm.DB, projectID, orgID uint, requestedIDs []uint) error {
+	defaultAssistantID, err := db.GetDefaultAssistantIDByOrg(ctx, tx, orgID)
+	if err != nil {
+		return fmt.Errorf("get default assistant: %w", err)
+	}
+	if defaultAssistantID == 0 {
+		return ErrNoDefaultAssistantInOrg
+	}
+
+	if err := validateAssistantIDs(requestedIDs, defaultAssistantID); err != nil {
+		return err
+	}
+
+	existing, err := db.ListProjectAssistantMembers(ctx, tx, projectID)
+	if err != nil {
+		return fmt.Errorf("list project assistants: %w", err)
+	}
+
+	existingNonDefault := make(map[uint]*types.ProjectMember)
+	for _, m := range existing {
+		if m.IsDefault {
+			continue
+		}
+		existingNonDefault[m.MemberID] = m
+	}
+
+	requestedSet := make(map[uint]bool, len(requestedIDs))
+	for _, id := range requestedIDs {
+		requestedSet[id] = true
+	}
+
+	now := time.Now()
+
+	// 移除不再需要的成员
+	for _, m := range existingNonDefault {
+		if !requestedSet[m.MemberID] {
+			if err := db.DeleteProjectMember(ctx, tx, m.ID); err != nil {
+				return fmt.Errorf("delete project member %d: %w", m.MemberID, err)
+			}
+		}
+	}
+
+	// 新增未存在的成员
+	for _, id := range requestedIDs {
+		if _, ok := existingNonDefault[id]; !ok {
+			if err := db.CreateProjectMember(ctx, tx, &types.ProjectMember{
+				ProjectID:  projectID,
+				MemberID:   id,
+				MemberType: types.MemberTypeAssistant,
+				MemberRole: types.MemberRoleMember,
+				IsDefault:  false,
+				JoinedAt:   now,
+			}); err != nil {
+				return fmt.Errorf("create project member %d: %w", id, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateAssistantIDs 校验 assistant ID 列表：去重、非零、不出现在默认 assistant 中。
+func validateAssistantIDs(ids []uint, defaultAssistantID uint) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[uint]bool, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			return ErrInvalidAssistantID
+		}
+		if id == defaultAssistantID {
+			return fmt.Errorf("default assistant %d cannot be specified as extra", id)
+		}
+		if seen[id] {
+			return fmt.Errorf("%w: %d", ErrDuplicateAssistant, id)
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
 func convertToContractProject(project *types.Project) *contract.Project {
 	if project == nil {
 		return nil
@@ -542,6 +689,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 			MemberID:   m.MemberID,
 			MemberType: string(m.MemberType),
 			MemberRole: string(m.MemberRole),
+			IsDefault:  m.IsDefault,
 			JoinedAt:   m.JoinedAt,
 		}
 		if m.MemberType == types.MemberTypeUser {

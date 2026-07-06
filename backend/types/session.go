@@ -163,6 +163,15 @@ type SessionMessage struct {
 
 	// session_message - 时间戳（Unix毫秒），BIGINT，允许为空
 	Timestamp int64 `gorm:"column:timestamp;type:bigint"`
+
+	// session_message - 发送者用户ID（真人发言时有值，AI回复时为nil），BIGINT
+	SenderUin *uint `gorm:"column:sender_uin;type:bigint;default:0"`
+
+	// session_message - 发送者名称（真人=User.Name，AI=DigitalAssistant.Name），VARCHAR(255)
+	SenderName string `gorm:"column:sender_name;type:varchar(255);default:''"`
+
+	// session_message - 关联的 agent run ID（AI 回复消息时填充），VARCHAR(255)
+	RunID string `gorm:"column:run_id;type:varchar(255);default:''"`
 }
 
 // TableName 指定SessionMessage结构体对应的数据库表名

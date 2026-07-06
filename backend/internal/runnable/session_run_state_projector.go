@@ -102,6 +102,7 @@ func handleRunStartedEvent(ctx context.Context, service contract.SessionService,
 		RequestID:         runEvent.Trace.RequestID,
 		StreamStartSeq:    0, // set asynchronously by session_run_stream_projector
 		StateStartSeq:     meta.Sequence.Stream,
+		RunID:             runEvent.Trace.RunID,
 	}); err != nil {
 		logs.WarnContextf(ctx, "handle session run started failed: session_id=%s error=%v", runEvent.Route.SessionID, err)
 	}
@@ -159,6 +160,7 @@ func handleRunCompletedEvent(ctx context.Context, service contract.SessionServic
 		Usage:             messagingUsageToMessageUsage(completed.Usage),
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
+		RunID:             runEvent.Trace.RunID,
 	}
 	if err := service.CompleteSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "complete session message: %v", err)
@@ -194,6 +196,7 @@ func handleRunFailedEvent(ctx context.Context, service contract.SessionService, 
 		Usage:             messagingUsageToMessageUsage(messagingCompletedUsage(completed)),
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
+		RunID:             runEvent.Trace.RunID,
 	}
 	if runEvent.Body.Error != nil {
 		req.ErrorCode = runEvent.Body.Error.Code
@@ -221,6 +224,7 @@ func handleRunCancelledEvent(ctx context.Context, service contract.SessionServic
 		Usage:             messagingUsageToMessageUsage(messagingCompletedUsage(completed)),
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
+		RunID:             runEvent.Trace.RunID,
 	}
 	if err := service.FailedSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "cancelled session message: %v", err)

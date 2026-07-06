@@ -101,6 +101,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		inferrer := service.NewDefaultAssistantInferrer(1)
 		sessionService := service.NewSessionService(db, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env)
 		handler.RegisterSessionRoutes(v1, sessionService)
+		handler.RegisterGlobalEventRoutes(v1, sessionService)
 		logs.Info("Session routes registered successfully")
 
 		// projectService := service.NewProjectService(db, giteaClient, cfg.Gitea, cfg.Env)

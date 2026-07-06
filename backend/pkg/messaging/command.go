@@ -296,11 +296,12 @@ type ActorContext struct {
 }
 
 type ExecutionTarget struct {
-	AssistantID   string   `json:"assistant_id,omitempty"`
-	AssistantName string   `json:"assistant_name,omitempty"`
-	SystemPrompt  string   `json:"system_prompt,omitempty"`
-	Skills        []string `json:"skills,omitempty"`
-	Tools         []string `json:"tools,omitempty"`
+	AssistantID        string   `json:"assistant_id,omitempty"`
+	AssistantName      string   `json:"assistant_name,omitempty"`
+	AssistantDesc      string   `json:"assistant_desc,omitempty"`
+	SystemPrompt       string   `json:"system_prompt,omitempty"`
+	Skills             []string `json:"skills,omitempty"`
+	Tools              []string `json:"tools,omitempty"`
 }
 
 type WorkspaceOptions struct {
@@ -315,9 +316,10 @@ type TaskInput struct {
 }
 
 type ChatMessage struct {
-	ID      string      `json:"id,omitempty"`
-	Role    MessageRole `json:"role"`
-	Content string      `json:"content"`
+	ID         string      `json:"id,omitempty"`
+	Role       MessageRole `json:"role"`
+	Content    string      `json:"content"`
+	SenderName string      `json:"sender_name,omitempty"`
 }
 
 type Attachment struct {

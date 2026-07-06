@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -79,6 +80,17 @@ func (p *MessagePoster) PostMessage(
 		message.MessageType = string(types.MessageTypeText)
 	}
 
+	// 群聊模式下为用户消息填充发送者身份（AI 队友回复由 CompleteSessionMessage 填充）
+	if message.Role == string(types.MessageRoleUser) && message.SenderUin == nil {
+		if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 {
+			uid := caller.Uin
+			message.SenderUin = &uid
+			if user, err := infradb.GetUserByID(ctx, p.db, caller.Uin); err == nil && user != nil {
+				message.SenderName = user.Name
+			}
+		}
+	}
+
 	if err := infradb.CreateMessage(ctx, p.db, message); err != nil {
 		return nil, fmt.Errorf("create message: %w", err)
 	}
@@ -118,6 +130,8 @@ func (p *MessagePoster) PostMessage(
 
 	p.writeSkillInvokeResources(ctx, session, message)
 
+	publishMessageCreatedEvent(ctx, p.db, p.eventbus, session, message)
+
 	if err := p.publishWorkerTask(ctx, session, message, executionMode); err != nil {
 		return nil, err
 	}
@@ -138,7 +152,7 @@ func (p *MessagePoster) RunNewMessage(
 		caller: caller,
 	}
 
-	logs.DebugContextf(ctx, "NewMessage: caller=%d org=%d assistant=%d", caller.Uin, caller.OrgID, req.AssistantID)
+	logs.DebugContextf(ctx, "NewMessage: caller=%d org=%d assistant=%v", caller.Uin, caller.OrgID, req.AssistantIDs)
 
 	if err := o.resolveOrCreateProject(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
@@ -165,13 +179,13 @@ func (p *MessagePoster) RunNewMessage(
 	// 中文注释：content 为空时表示"召唤队友落地空对话"——仅创建 Project/Task/Session + 分配 worker，不发首条消息。
 	// 后续用户在任务详情页发送的消息走 AddMessage 路径，persona 通过 publishWorkerTask 自动注入。
 	var messageID string
-	if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
+		if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
 		message, err := p.PostMessage(ctx, o.taskSession, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
 			msgType := req.MessageType
 			if msgType == "" {
 				msgType = string(types.MessageTypeText)
 			}
-			return &types.SessionMessage{
+			msg := &types.SessionMessage{
 				Role:        string(types.MessageRoleUser),
 				Content:     req.Content,
 				MessageType: msgType,
@@ -180,6 +194,10 @@ func (p *MessagePoster) RunNewMessage(
 				Sequence:    sequence,
 				Timestamp:   time.Now().UnixMilli(),
 			}
+			if req.Metadata != nil {
+				msg.Metadata = *req.Metadata
+			}
+			return msg
 		})
 		if err != nil {
 			logs.ErrorContextf(ctx, "NewMessage PostMessage failed: %v", err)
@@ -293,6 +311,30 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		logs.WarnContextf(o.ctx, "create project member failed: %v", err)
 	}
 
+	if err := o.bindDefaultProjectAssistant(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *newMessageOrchestrator) bindDefaultProjectAssistant() error {
+	defaultAssistantID, err := infradb.GetDefaultAssistantIDByOrg(o.ctx, o.poster.db, o.caller.OrgID)
+	if err != nil {
+		return fmt.Errorf("get default assistant: %w", err)
+	}
+	if defaultAssistantID == 0 {
+		return ErrNoDefaultAssistantInOrg
+	}
+	if err := infradb.CreateProjectMember(o.ctx, o.poster.db, &types.ProjectMember{
+		ProjectID:  o.project.ID,
+		MemberID:   defaultAssistantID,
+		MemberType: types.MemberTypeAssistant,
+		MemberRole: types.MemberRoleMember,
+		IsDefault:  true,
+	}); err != nil {
+		return fmt.Errorf("create default project member: %w", err)
+	}
 	return nil
 }
 
@@ -305,7 +347,7 @@ func (o *newMessageOrchestrator) ensureProjectSession() error {
 		return nil
 	}
 
-	assistantID, workerID, err := o.poster.resolveRuntimeWorker(o.ctx, o.caller.OrgID, o.req.AssistantID)
+	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.req.AssistantIDs, o.poster.inferrer)
 	if err != nil {
 		return err
 	}
@@ -373,10 +415,10 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 }
 
 func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
-	if o == nil || o.poster == nil || o.poster.db == nil || o.req == nil || o.req.AssistantID == 0 {
+	if o == nil || o.poster == nil || o.poster.db == nil || o.req == nil || len(o.req.AssistantIDs) == 0 {
 		return fallback
 	}
-	da, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, o.req.AssistantID)
+	da, err := infradb.GetDigitalAssistantByID(o.ctx, o.poster.db, o.req.AssistantIDs[0])
 	if err != nil || da == nil || strings.TrimSpace(da.Name) == "" {
 		return fallback
 	}
@@ -384,7 +426,7 @@ func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
 }
 
 func (o *newMessageOrchestrator) createTaskSession() error {
-	assistantID, workerID, err := o.poster.resolveRuntimeWorker(o.ctx, o.caller.OrgID, o.req.AssistantID)
+	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.req.AssistantIDs, o.poster.inferrer)
 	if err != nil {
 		return err
 	}
@@ -456,6 +498,7 @@ func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types
 	return messaging.ExecutionTarget{
 		AssistantID:   strconv.FormatUint(uint64(assistantID), 10),
 		AssistantName: da.Name,
+		AssistantDesc: da.Description,
 		SystemPrompt:  systemPrompt,
 	}
 }
@@ -627,6 +670,37 @@ func (p *MessagePoster) publishWorkerTask(
 		return err
 	}
 
+	var inputMessages []messaging.ChatMessage
+	// 群聊历史上下文注入：task/project session 取最近 N 条 user/assistant 消息作为上下文
+	if session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject {
+		recent, err := infradb.GetRecentSessionMessages(ctx, p.db, session.ID, defaultHistoryContextLimit)
+		if err != nil {
+			logs.WarnContextf(ctx, "publishWorkerTask: get recent messages: %v", err)
+		} else {
+			for _, hm := range recent {
+				// 排除当前刚持久化的消息（publishWorkerTask 在 CreateMessage 之后调用，GetRecentSessionMessages 会包含它），避免重复
+				if hm.ID == message.ID {
+					continue
+				}
+				if hm.Role != string(types.MessageRoleUser) && hm.Role != string(types.MessageRoleAssistant) {
+					continue
+				}
+				inputMessages = append(inputMessages, messaging.ChatMessage{
+					ID:         fmt.Sprintf("%d", hm.ID),
+					Role:       messaging.MessageRole(hm.Role),
+					Content:    hm.Content,
+					SenderName: hm.SenderName,
+				})
+			}
+		}
+	}
+	// 当前新消息追加末尾，携带发言者身份
+	inputMessages = append(inputMessages, messaging.ChatMessage{
+		ID:         fmt.Sprintf("%d", message.ID),
+		Role:       messaging.MessageRoleUser,
+		Content:    message.Content,
+		SenderName: message.SenderName,
+	})
 	executionTarget := p.buildExecutionTarget(ctx, session, message)
 
 	cmd := messaging.NewRunCommand(
@@ -655,10 +729,8 @@ func (p *MessagePoster) publishWorkerTask(
 				TaskID:    taskPublicID,
 			},
 			Input: messaging.TaskInput{
-				Type: messaging.InputTypeMessage,
-				Messages: []messaging.ChatMessage{
-					{ID: fmt.Sprintf("%d", message.ID), Role: messaging.MessageRoleUser, Content: message.Content},
-				},
+				Type:        messaging.InputTypeMessage,
+				Messages:    inputMessages,
 				Attachments: convertMessageToMessagingAttachments(message.Attachments),
 			},
 			Model:     modelOptions,
@@ -861,6 +933,67 @@ func (p *MessagePoster) writeSkillInvokeResources(ctx context.Context, session *
 	} else {
 		logs.InfoContextf(ctx, "Skill invoke message_resource written: count=%d", len(records))
 	}
+
+	p.syncSkillEntriesToProject(ctx, session, entries)
+}
+
+// syncSkillEntriesToProject appends invoked skill names to project.metadata.extra.skills
+// so that the project knows which skills it has used. This is used during skill uninstall
+// to find all referencing projects (see cleanupOrgProjectSkillReferences).
+// Non-project sessions are silently skipped.
+func (p *MessagePoster) syncSkillEntriesToProject(ctx context.Context, session *types.Session, entries []string) {
+	if len(entries) == 0 || session.ProjectID == nil || *session.ProjectID == 0 {
+		return
+	}
+	project, err := infradb.GetProjectByID(ctx, p.db, *session.ProjectID)
+	if err != nil || project == nil {
+		logs.WarnContextf(ctx, "syncSkillEntriesToProject: get project %d failed: %v", *session.ProjectID, err)
+		return
+	}
+
+	if project.Metadata.Extra == nil {
+		project.Metadata.Extra = make(map[string]interface{})
+	}
+	rawSkills, _ := project.Metadata.Extra["skills"].([]interface{})
+
+	changed := false
+	skills := rawSkills
+	for _, name := range entries {
+		if skillNameInProjectSkills(skills, name) {
+			continue
+		}
+		skills = append(skills, map[string]interface{}{
+			"code": name,
+			"name": name,
+		})
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	project.Metadata.Extra["skills"] = skills
+	if err := infradb.UpdateProject(ctx, p.db, project); err != nil {
+		logs.WarnContextf(ctx, "syncSkillEntriesToProject: update project %d failed: %v", project.ID, err)
+	}
+}
+
+// skillNameInProjectSkills checks whether a skill name (case-insensitive) already
+// exists in the project.metadata.extra.skills slice.
+func skillNameInProjectSkills(skills []interface{}, skillName string) bool {
+	target := strings.TrimSpace(strings.ToLower(skillName))
+	for _, item := range skills {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		code, _ := entry["code"].(string)
+		name, _ := entry["name"].(string)
+		if strings.EqualFold(strings.TrimSpace(code), target) ||
+			strings.EqualFold(strings.TrimSpace(name), target) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveSkillMarketplace looks up the marketplace record for a local skill
@@ -928,4 +1061,68 @@ func resolveSkillEntries(tokens []string) []string {
 		result = append(result, name)
 	}
 	return result
+}
+
+const defaultHistoryContextLimit = 20
+
+// publishMessageCreatedEvent 在用户消息持久化成功后发布 message.created 事件到
+// org.{org_id}.project.{project_id}.notify subject，通知群聊成员有新用户消息。
+//
+// 携带完整 content（前端可直接渲染）。纯 chat session（无 ProjectID）不发布事件。
+// 发布失败仅记录日志，不影响主流程。
+func publishMessageCreatedEvent(
+	ctx context.Context,
+	gdb *gorm.DB,
+	eb eventbus.EventBus,
+	session *types.Session,
+	message *types.SessionMessage,
+) {
+	if session == nil || message == nil || eb == nil || gdb == nil {
+		return
+	}
+	if session.ProjectID == nil || *session.ProjectID == 0 || session.OrgID == 0 {
+		return
+	}
+
+	data := messaging.MessageCreatedData{
+		SenderType: messaging.SenderTypeHuman,
+		SenderUin:  message.SenderUin,
+		SenderName: message.SenderName,
+		RunID:      message.RunID,
+		Content:    message.Content,
+		MessageID:  message.ID,
+		Sequence:   message.Sequence,
+
+		MessageType: message.MessageType,
+	}
+	if len(message.Attachments) > 0 {
+		data.Attachments = message.Attachments
+	}
+	if !message.Metadata.IsZero() {
+		data.Metadata = &message.Metadata
+	}
+
+	rawData, err := json.Marshal(data)
+	if err != nil {
+		logs.WarnContextf(ctx, "publishMessageCreatedEvent: marshal data: %v", err)
+		return
+	}
+
+	subject, err := messaging.ProjectNotifySubject(session.OrgID, *session.ProjectID)
+	if err != nil {
+		logs.WarnContextf(ctx, "publishMessageCreatedEvent: build subject: %v", err)
+		return
+	}
+
+	payload := messaging.GlobalEventPayload{
+		Type:      messaging.GlobalEventMessageCreated,
+		ProjectID: *session.ProjectID,
+		SessionID: session.PublicID,
+		Timestamp: message.Timestamp,
+		Data:      rawData,
+	}
+
+	if err := eb.Publish(ctx, subject, payload); err != nil {
+		logs.WarnContextf(ctx, "publishMessageCreatedEvent: publish to %s: %v", subject, err)
+	}
 }

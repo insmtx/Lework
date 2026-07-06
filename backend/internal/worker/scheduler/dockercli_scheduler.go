@@ -319,7 +319,7 @@ func (ds *DockerCLIScheduler) Health(ctx context.Context, workerID string) error
 	ds.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("worker %s not found", workerID)
+		return fmt.Errorf("%w: %s", worker.ErrWorkerNotFound, workerID)
 	}
 
 	status, err := ds.getContainerStatus(instance)

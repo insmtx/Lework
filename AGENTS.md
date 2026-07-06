@@ -97,6 +97,8 @@ import (
 
 - **禁止使用 `panic`**：整个项目（含库代码和业务代码）严禁使用 `panic`。错误必须通过返回 `error` 逐层传递，由顶层调用方统一处理。对于不可恢复的致命错误（如配置缺失导致无法启动），应在 `main` 函数中使用 `log.Fatal` 退出。
 - **禁止使用 `map[string]interface{}` 传递数据**：严禁在函数签名、接口定义或跨层通信中使用 `map[string]interface{}` 传递业务数据。必须定义具名结构体（struct）或类型化 map（如 `map[string]string`），以保证编译时类型安全和代码可读性。若现有接口（如 `Skill` 接口）使用了 `map[string]interface{}`，需在后续迭代中重构为强类型参数。
+- **不提交 .gitignore 忽略的文件**：提交前运行 `git status` 确认暂存区，已忽略的文件（如 `bundles/`、`.env`、`docs/superpowers/` 等）坚决不纳入版本控制。如发现误添加，必须从暂存区移除后再提交。
+- **superpowers 产物不提交**：`docs/superpowers/` 目录下的设计方案和执行计划为 AI 辅助产物，不纳入版本控制。`.gitignore` 中已忽略该目录，提交时需确认没有破坏该忽略规则。
 
 ### 提交准则
 

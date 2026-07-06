@@ -80,6 +80,18 @@ func (s *sessionService) getSessionForCaller(ctx context.Context, sessionID stri
 	if session.OrgID != caller.OrgID {
 		return nil, nil, errors.New("permission denied")
 	}
+	// 群聊准入：task/project session 且有项目归属 → 校验项目 user 成员
+	if (session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject) &&
+		session.ProjectID != nil && *session.ProjectID > 0 {
+		ok, err := db.IsProjectMember(ctx, s.db, *session.ProjectID, caller.Uin, types.MemberTypeUser)
+		if err != nil {
+			return nil, nil, fmt.Errorf("verify project member: %w", err)
+		}
+		if !ok {
+			return nil, nil, errors.New("permission denied: not a project member")
+		}
+		return session, caller, nil
+	}
 	if err := verifyUserPermission(session.Uin, caller.Uin); err != nil {
 		return nil, nil, err
 	}
@@ -104,6 +116,18 @@ func (s *sessionService) getSessionMessagesForCaller(ctx context.Context, sessio
 	if caller.Kind == types.CallerKindWorker {
 		if caller.WorkerID == 0 || session.AllocatedAssistantID != caller.WorkerID {
 			return nil, errors.New("permission denied")
+		}
+		return session, nil
+	}
+	// 群聊准入：task/project session 且有项目归属 → 校验项目 user 成员
+	if (session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject) &&
+		session.ProjectID != nil && *session.ProjectID > 0 {
+		ok, err := db.IsProjectMember(ctx, s.db, *session.ProjectID, caller.Uin, types.MemberTypeUser)
+		if err != nil {
+			return nil, fmt.Errorf("verify project member: %w", err)
+		}
+		if !ok {
+			return nil, errors.New("permission denied: not a project member")
 		}
 		return session, nil
 	}
@@ -342,7 +366,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 	}
 
 	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s)
-	message, err := mp.PostMessage(ctx, session, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
+	message, err := mp.PostMessage(ctx, session, types.ExecutionMode(req.ExecutionMode), func(sequence int64) *types.SessionMessage {
 		return s.buildMessage(req, sequence)
 	})
 	if err != nil {
@@ -736,7 +760,7 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 		return ErrNoReplyMessageIDs
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		messages, err := db.GetSessionMessagesByIDs(ctx, tx, session.ID, messageIDs)
 		if err != nil {
 			return err
@@ -757,7 +781,13 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	publishAssistantReplyStartedEvent(ctx, s.db, s.eventbus, session, req.RunID)
+
+	return nil
 }
 
 // SetSessionStreamStartSeq records the NATS stream sequence for the first
@@ -906,15 +936,29 @@ func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID str
 //   - run.state:  terminal, approval, question 等关键状态事件
 //
 // 两个 lane 的事件互不重复，Seq 去重仅作保底。
-func (s *sessionService) StreamSessionEvents(
-	ctx context.Context,
-	sessionPID string,
-	replay bool,
-	sink contract.SessionEventSink,
-) error {
+func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, assistantID uint, sink contract.SessionEventSink) error {
 	session, caller, err := s.getSessionForCaller(ctx, sessionPID)
 	if err != nil {
 		return err
+	}
+
+	// Resolve DigitalAssistant.ID → WorkerDeployment.WorkerID for event filtering.
+	// 客户端传入的 assistantID 是 DigitalAssistant.ID（message.created 暴露的值），
+	// 而 RunEvent.Route.WorkerID 是 WorkerDeployment.WorkerID（= session.AllocatedAssistantID）。
+	// 两者在不同组织下数值不同，必须解析后才能正确比较。
+	var filterWorkerID uint
+	if assistantID > 0 {
+		deployment, err := db.GetWorkerDeploymentByAssistantID(ctx, s.db, assistantID)
+		if err != nil {
+			return fmt.Errorf("resolve assistant worker deployment: %w", err)
+		}
+		if deployment == nil {
+			return fmt.Errorf("worker deployment not found for assistant %d", assistantID)
+		}
+		if deployment.OrgID != caller.OrgID {
+			return errors.New("permission denied: assistant belongs to different org")
+		}
+		filterWorkerID = deployment.WorkerID
 	}
 
 	replayState := sessionReplayState{}
@@ -959,6 +1003,12 @@ func (s *sessionService) StreamSessionEvents(
 
 	emitEvent := func(runEvent messaging.RunEvent) {
 		if runEvent.Body.Seq == 0 {
+			return
+		}
+		// 群聊多 AI 队友场景：按请求 assistantID 过滤，只下发匹配 AI 的事件
+		// （Route.WorkerID = 该 run 绑定的 AI 队友，由 worker NATS sink 在发布时填充）。
+		// filterWorkerID 已在上面由 DigitalAssistant.ID 解析为 WorkerDeployment.WorkerID。
+		if filterWorkerID > 0 && runEvent.Route.WorkerID != filterWorkerID {
 			return
 		}
 		if replay && !runEventMatchesReplyIDs(runEvent, replayState.MessageIDs) {
@@ -1014,6 +1064,54 @@ func (s *sessionService) StreamSessionEvents(
 	<-innerCtx.Done()
 
 	// Wait for goroutines to clean up (they'll exit when innerCtx is Done).
+	_ = g.Wait()
+	return nil
+}
+
+// StreamGlobalEvents 为调用方订阅其所属所有 project 的全局通知事件
+// （message.created 等），通过 ch 推送。调用阻塞直到 ctx 取消。
+//
+// 实现：使用 org.{org}.project.*.notify wildcard 订阅，覆盖用户所属 org
+// 下所有 project（含连接建立后新增的 project）。handler 内通过
+// IsProjectUserMember 做权限过滤，仅转发用户所属 project 的事件。
+func (s *sessionService) StreamGlobalEvents(ctx context.Context, orgID, userID uint, replaySinceSeq uint64, ch chan<- *messaging.GlobalEventPayload) error {
+	if orgID == 0 || userID == 0 {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	startSeq := int64(replaySinceSeq)
+	wildcardSubject := "org." + strconv.FormatUint(uint64(orgID), 10) + ".project.*.notify"
+
+	handler := func(msg *nats.Msg) {
+		var payload messaging.GlobalEventPayload
+		if err := json.Unmarshal(msg.Data, &payload); err != nil {
+			logs.WarnContextf(ctx, "global events: unmarshal payload: %v", err)
+			return
+		}
+		if meta, err := msg.Metadata(); err == nil {
+			payload.Seq = meta.Sequence.Stream
+		}
+		// 权限过滤：仅转发用户所属 project 的事件，支持动态新增 project
+		if member, err := db.IsProjectUserMember(ctx, s.db, orgID, userID, payload.ProjectID); err != nil || !member {
+			return
+		}
+		select {
+		case ch <- &payload:
+		default:
+			logs.WarnContextf(ctx, "global events: channel full, dropping event type=%s seq=%d", payload.Type, payload.Seq)
+		}
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		if err := s.eventbus.SubscribeFrom(gctx, wildcardSubject, startSeq, handler); err != nil {
+			logs.WarnContextf(ctx, "global events: subscribe %s failed: %v", wildcardSubject, err)
+		}
+		return nil
+	})
+
+	<-ctx.Done()
 	_ = g.Wait()
 	return nil
 }
@@ -1117,6 +1215,59 @@ func convertToContractSession(session *types.Session) *contract.Session {
 	return result
 }
 
+func publishAssistantReplyStartedEvent(
+	ctx context.Context,
+	gdb *gorm.DB,
+	eb eventbus.EventBus,
+	session *types.Session,
+	runID string,
+) {
+	if session == nil || eb == nil || gdb == nil {
+		return
+	}
+	if session.ProjectID == nil || *session.ProjectID == 0 || session.OrgID == 0 {
+		return
+	}
+
+	data := messaging.MessageCreatedData{
+		SenderType: messaging.SenderTypeAssistant,
+		RunID:      runID,
+	}
+	if session.AssistantID > 0 {
+		assistantID := session.AssistantID
+		data.AssistantID = &assistantID
+		if da, err := db.GetDigitalAssistantByID(ctx, gdb, session.AssistantID); err == nil && da != nil {
+			data.AssistantName = da.Name
+		} else if err != nil {
+			logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: get assistant %d: %v", session.AssistantID, err)
+		}
+	}
+
+	rawData, err := json.Marshal(data)
+	if err != nil {
+		logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: marshal data: %v", err)
+		return
+	}
+
+	subject, err := messaging.ProjectNotifySubject(session.OrgID, *session.ProjectID)
+	if err != nil {
+		logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: build subject: %v", err)
+		return
+	}
+
+	payload := messaging.GlobalEventPayload{
+		Type:      messaging.GlobalEventMessageCreated,
+		ProjectID: *session.ProjectID,
+		SessionID: session.PublicID,
+		Timestamp: time.Now().UnixMilli(),
+		Data:      rawData,
+	}
+
+	if err := eb.Publish(ctx, subject, payload); err != nil {
+		logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: publish to %s: %v", subject, err)
+	}
+}
+
 func normalizeMessageUsage(usage *types.MessageUsage) types.MessageUsage {
 	if usage == nil {
 		return types.MessageUsage{}
@@ -1137,6 +1288,9 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 		Timestamp:   message.Timestamp,
 		Sequence:    message.Sequence,
 		CreatedAt:   message.CreatedAt,
+		SenderUin:   message.SenderUin,
+		SenderName:  message.SenderName,
+		RunID:       message.RunID,
 	}
 
 	if message.Chunks != nil && len(message.Chunks) > 0 {
@@ -1349,6 +1503,16 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		return fmt.Errorf("get sequence for %s: %w", req.SessionID, err)
 	}
 
+	// 群聊模式下为 AI 回复填充发送者名称（反查 DigitalAssistant.Name）
+	assistantName := ""
+	if session.AssistantID > 0 {
+		if da, err := db.GetDigitalAssistantByID(ctx, s.db, session.AssistantID); err == nil && da != nil {
+			assistantName = da.Name
+		} else if err != nil {
+			logs.WarnContextf(ctx, "complete session message: get assistant %d: %v", session.AssistantID, err)
+		}
+	}
+
 	msgEntity := &types.SessionMessage{
 		SessionID:   session.ID,
 		Role:        string(types.MessageRoleAssistant),
@@ -1357,6 +1521,8 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		Status:      string(types.MessageStatusCompleted),
 		Sequence:    sequence,
 		Timestamp:   req.CreatedAt.UnixMilli(),
+		SenderName:  assistantName,
+		RunID:       req.RunID,
 	}
 
 	if req.Chunks != nil && len(req.Chunks) > 0 {
@@ -1395,6 +1561,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 	}
 
 	logs.DebugContextf(ctx, "persisted completed session message: session_id=%s seq=%d", req.SessionID, sequence)
+
 	return nil
 }
 
@@ -1416,6 +1583,16 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 		return fmt.Errorf("get sequence for %s: %w", req.SessionID, err)
 	}
 
+	// 群聊模式下为 AI 回复填充发送者名称（反查 DigitalAssistant.Name）
+	assistantName := ""
+	if session.AssistantID > 0 {
+		if da, err := db.GetDigitalAssistantByID(ctx, s.db, session.AssistantID); err == nil && da != nil {
+			assistantName = da.Name
+		} else if err != nil {
+			logs.WarnContextf(ctx, "failed session message: get assistant %d: %v", session.AssistantID, err)
+		}
+	}
+
 	status := req.Status
 	if status == "" {
 		status = string(types.MessageStatusFailed)
@@ -1430,6 +1607,8 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 		Status:      status,
 		Sequence:    sequence,
 		Timestamp:   req.CreatedAt.UnixMilli(),
+		SenderName:  assistantName,
+		RunID:       req.RunID,
 	}
 	if msgEntity.Content == "" {
 		msgEntity.Content = req.ErrorMsg
@@ -1472,6 +1651,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 	}
 
 	logs.DebugContextf(ctx, "persisted failed session message: session_id=%s seq=%d", req.SessionID, sequence)
+
 	return nil
 }
 
