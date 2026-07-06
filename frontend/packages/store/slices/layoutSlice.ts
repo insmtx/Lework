@@ -2,7 +2,7 @@ import { projectApi } from "../api/projectApi";
 import { sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
 import type { BackendProject, BackendSession, BackendTask } from "../api/types";
-import { workApi } from "../api/workApi";
+import { type NewMessageParams, workApi } from "../api/workApi";
 import type { SliceCreator } from "../types";
 import type { Attachment, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
@@ -313,6 +313,7 @@ export const createLayoutSlice = (set: SetState, get: () => LayoutStore) =>
 export class LayoutActionImpl {
 	readonly #set: SetState;
 	readonly #get: () => LayoutStore;
+	#fetchProjectsPromise: Promise<void> | null = null;
 
 	constructor(set: SetState, get: () => LayoutStore) {
 		this.#set = set;
@@ -325,6 +326,30 @@ export class LayoutActionImpl {
 		};
 		// 中文注释：项目/任务聊天输入框与首页共用同一份草稿状态，离开当前上下文时必须同步清空，避免 token 退化成普通文本残留。
 		store.clearComposerInput?.();
+	};
+
+	// 中文注释：工作台新建/续聊任务后，在跳转任务详情前写入等待态，避免详情页空屏或长时间无反馈。
+	#bootstrapWorkbenchTaskSession = (
+		sessionId: string,
+		content: string,
+		attachments?: Attachment[],
+		metadata?: MessageMetadata,
+	) => {
+		const trimmed = content.trim();
+		if (!sessionId || !trimmed) return;
+		const store = this.#get() as LayoutStore & {
+			bootstrapNewTaskSession?: (
+				sessionId: string,
+				content: string,
+				options?: {
+					attachments?: Attachment[];
+					metadata?: MessageMetadata;
+				},
+			) => void;
+			startGlobalEvents?: () => Promise<void>;
+		};
+		void store.startGlobalEvents?.();
+		store.bootstrapNewTaskSession?.(sessionId, trimmed, { attachments, metadata });
 	};
 
 	toggleLeftRail = () => {
@@ -479,6 +504,10 @@ export class LayoutActionImpl {
 
 			if (selectedTask?.sessionId) {
 				try {
+					const globalEventsStore = this.#get() as LayoutStore & {
+						startGlobalEvents?: () => Promise<void>;
+					};
+					void globalEventsStore.startGlobalEvents?.();
 					await sessionApi.addMessage({
 						session_id: selectedTask.sessionId,
 						role: "user",
@@ -514,6 +543,7 @@ export class LayoutActionImpl {
 						executionMode: mode,
 					} as Partial<LayoutState>);
 					await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
+					this.#bootstrapWorkbenchTaskSession(data.session_id, trimmed, attachments, _metadata);
 					return data;
 				} catch (err) {
 					console.error("sendWorkbenchMessage addMessage error:", err);
@@ -522,19 +552,7 @@ export class LayoutActionImpl {
 			}
 		}
 
-		const params: {
-			content: string;
-			project_id?: string;
-			task_id?: string;
-			execution_mode?: "default" | "plan";
-			assistant_id?: number;
-			attachments?: {
-				file_upload_id: string;
-				name: string;
-				mime_type: string;
-				size: number;
-			}[];
-		} = { content: trimmed, execution_mode: mode };
+		const params: NewMessageParams = { content: trimmed, execution_mode: mode };
 		if (assistantId) {
 			params.assistant_id = assistantId;
 		}
@@ -544,6 +562,10 @@ export class LayoutActionImpl {
 		}
 		if (selectedTaskId) {
 			params.task_id = selectedTaskId;
+		}
+		if (_metadata?.composerTokens) {
+			// 中文注释：首页新建任务需要把输入框 token 元信息透传给后端，避免技能标签回显退化成纯文本。
+			params.metadata = { extra: { composerTokens: _metadata.composerTokens } };
 		}
 		if (attachments?.length) {
 			params.attachments = attachments
@@ -559,6 +581,10 @@ export class LayoutActionImpl {
 		}
 
 		try {
+			const globalEventsStore = this.#get() as LayoutStore & {
+				startGlobalEvents?: () => Promise<void>;
+			};
+			void globalEventsStore.startGlobalEvents?.();
 			const res = await workApi.newMessage(params);
 			const data = res.data.data;
 			if (data?.project_id && data?.task_id && data?.session_id) {
@@ -576,6 +602,7 @@ export class LayoutActionImpl {
 				await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
 				// 新建项目/任务后立即拉详情，确保 store 有数据供 SSE 标题 patch 与详情页展示。
 				await this.fetchProjectDetail(data.project_id);
+				this.#bootstrapWorkbenchTaskSession(data.session_id, trimmed, attachments, _metadata);
 			}
 			return data ?? null;
 		} catch (err) {
@@ -623,32 +650,40 @@ export class LayoutActionImpl {
 	};
 
 	fetchProjects = async () => {
-		try {
-			const pageSize = 100;
-			let offset = 0;
-			let total = Number.POSITIVE_INFINITY;
-			const items: BackendProject[] = [];
+		if (this.#fetchProjectsPromise) return this.#fetchProjectsPromise;
 
-			// 中文注释：项目页需要展示完整项目列表，这里按分页拉齐，避免后端 list_all 的兜底上限截断。
-			while (offset < total) {
-				const res = await projectApi.list({ offset, limit: pageSize });
-				const data = res.data.data;
-				const pageItems = data?.items ?? [];
-				total = data?.total ?? 0;
-				items.push(...pageItems);
-				if (pageItems.length === 0) break;
-				offset += pageItems.length;
+		this.#fetchProjectsPromise = (async () => {
+			try {
+				const pageSize = 100;
+				let offset = 0;
+				let total = Number.POSITIVE_INFINITY;
+				const items: BackendProject[] = [];
+
+				// 中文注释：多个页面壳会同时请求项目列表，复用同一个分页拉取流程，避免刷新时重复打 ListProjects。
+				while (offset < total) {
+					const res = await projectApi.list({ offset, limit: pageSize });
+					const data = res.data.data;
+					const pageItems = data?.items ?? [];
+					total = data?.total ?? 0;
+					items.push(...pageItems);
+					if (pageItems.length === 0) break;
+					offset += pageItems.length;
+				}
+
+				const apiProjects = items.map(mapBackendProject);
+				this.#set((state) => ({
+					projects: apiProjects.length
+						? mergeProjectsFromListResult(apiProjects, state.projects)
+						: [],
+				}));
+			} catch (err) {
+				console.error("fetchProjects error:", err);
+			} finally {
+				this.#fetchProjectsPromise = null;
 			}
+		})();
 
-			const apiProjects = items.map(mapBackendProject);
-			this.#set((state) => ({
-				projects: apiProjects.length
-					? mergeProjectsFromListResult(apiProjects, state.projects)
-					: [],
-			}));
-		} catch (err) {
-			console.error("fetchProjects error:", err);
-		}
+		return this.#fetchProjectsPromise;
 	};
 
 	createProject = async (params: {

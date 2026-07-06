@@ -50,9 +50,13 @@ export function MessageTimeline({
 		const messageCountIncreased = messages.length > prevMessageCountRef.current;
 		prevMessageCountRef.current = messages.length;
 
-		const streamingMsg = streamingMessageId ? messagesMap[streamingMessageId] : null;
-		const streamSignature = streamingMsg
-			? [
+		const streamingMessages = messages.filter(
+			(message) => message.id === streamingMessageId || message.status === "streaming",
+		);
+		const streamSignature = streamingMessages
+			.map((streamingMsg) =>
+				[
+					streamingMsg.id,
 					streamingMsg.content,
 					streamingMsg.processSteps
 						?.map((step) =>
@@ -65,8 +69,9 @@ export function MessageTimeline({
 						?.map((approval) => `${approval.requestId}:${approval.status}`)
 						.join("|"),
 					streamingMsg.artifacts?.map((artifact) => artifact.id).join("|"),
-				].join("\n")
-			: "";
+				].join("\n"),
+			)
+			.join("\n---\n");
 		const streamChanged = streamSignature !== prevStreamSignatureRef.current;
 		prevStreamSignatureRef.current = streamSignature;
 
@@ -88,13 +93,13 @@ export function MessageTimeline({
 				</div>
 			)}
 			{messages.map((msg: Message) => (
-				<div key={msg.id}>
+				<div key={msg.id} className="py-0.5">
 					{msg.role === "user" ? (
 						<UserMessageBubble message={msg} />
 					) : msg.role === "assistant" ? (
 						<AIMessageBubble
 							message={msg}
-							isStreaming={msg.id === streamingMessageId}
+							isStreaming={msg.id === streamingMessageId || msg.status === "streaming"}
 							projectId={projectId}
 						/>
 					) : null}
@@ -121,12 +126,12 @@ export function MessageTimeline({
 				(emptyState ?? <WelcomeScreen />)
 			) : contentShellClassName ? (
 				<div className={contentShellClassName}>
-					<div className={cn("flex w-full flex-col gap-4", contentClassName)}>{messageList}</div>
+					<div className={cn("flex w-full flex-col gap-3", contentClassName)}>{messageList}</div>
 				</div>
 			) : (
 				<div
 					className={cn(
-						"mx-auto flex w-full max-w-[1040px] flex-col gap-4 px-5 py-5 sm:px-6 lg:px-8",
+						"mx-auto flex w-full max-w-[1040px] flex-col gap-3 px-5 py-5 sm:px-6 lg:px-8",
 						contentClassName,
 					)}
 				>

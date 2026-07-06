@@ -8,6 +8,7 @@ import type {
 	BackendMessage,
 	BackendMessageAttachment,
 	BackendMessageChunk,
+	BackendMessageMetadata,
 	BackendQuestionAnswerPayload,
 	BackendQuestionRequestPayload,
 	BackendRuntimeTodoItem,
@@ -99,7 +100,7 @@ type SetState = (
 
 type FullStoreGet = () => Record<string, unknown>;
 
-function mapBackendMessage(msg: BackendMessage): Message {
+export function mapBackendMessage(msg: BackendMessage): Message {
 	const message: Message = {
 		id: String(msg.id),
 		conversationId: msg.session_id ?? msg.conversation_id ?? "",
@@ -107,6 +108,21 @@ function mapBackendMessage(msg: BackendMessage): Message {
 		content: msg.content ?? "",
 		timestamp: msg.timestamp ?? new Date(msg.created_at).getTime(),
 		sequence: msg.sequence,
+		runId: msg.run_id,
+		author:
+			msg.role === "user" && msg.sender_uin !== undefined
+				? {
+						id: String(msg.sender_uin),
+						name: msg.sender_name || "用户",
+						type: "user",
+					}
+				: msg.role === "assistant" && msg.sender_name
+					? {
+							id: msg.run_id ?? String(msg.id),
+							name: msg.sender_name,
+							type: "assistant",
+						}
+					: undefined,
 		metadata: buildMessageMetadata(msg.metadata),
 		usage: mapUsage(msg.usage),
 	};
@@ -114,6 +130,8 @@ function mapBackendMessage(msg: BackendMessage): Message {
 	let mapped = applySessionEventsToMessage(message, msg.chunks, {
 		appendContent: !message.content,
 		finalContent: message.content,
+		// 中文注释：历史消息的 chunks 只用于还原执行过程，不能重新把已落库回复标成生成中。
+		markStreaming: false,
 	});
 	if (msg.artifacts?.length) {
 		const artifacts = msg.artifacts
@@ -257,6 +275,41 @@ function mapToolCalls(tcList?: BackendToolCall[]): ToolCall[] | undefined {
 
 type NormalizedSessionEvent = Exclude<BackendMessageChunk, string> | SSEMessageEvent;
 type SessionEventLike = BackendMessageChunk | SSEMessageEvent;
+type BackendGlobalMessagePayload = {
+	id?: string | number;
+	message_id?: string | number;
+	sender_type?: "human" | "assistant" | string;
+	sender_uin?: number;
+	sender_name?: string;
+	content?: string;
+	message_type?: string;
+	sequence?: number;
+	attachments?: BackendMessageAttachment[];
+	created_at?: string;
+	run_id?: string;
+	assistant_id?: number;
+	assistant_name?: string;
+	metadata?: BackendMessageMetadata;
+};
+type BackendGlobalEvent = {
+	type?: string;
+	project_id?: string;
+	task_id?: string;
+	session_id?: string;
+	timestamp?: number;
+	payload?: BackendGlobalMessagePayload;
+	data?: BackendGlobalMessagePayload;
+};
+
+function mapGlobalMessageAttachments(
+	attachments: BackendMessageAttachment[] | undefined,
+	messageCreatedAt?: number,
+): MessageAttachment[] | undefined {
+	const mapped = attachments
+		?.map((attachment) => mapBackendAttachment(attachment, messageCreatedAt))
+		.filter((attachment): attachment is MessageAttachment => attachment !== undefined);
+	return mapped?.length ? mapped : undefined;
+}
 
 function mapUsage(usage?: {
 	input_tokens?: number;
@@ -443,7 +496,17 @@ function appendProcessToolCallStep(
 type ApplySessionEventOptions = {
 	appendContent: boolean;
 	finalContent?: string;
+	markStreaming?: boolean;
 };
+
+function applyStreamingState<T extends Message>(message: T, options: ApplySessionEventOptions): T {
+	if (options.markStreaming === false) return message;
+	return {
+		...message,
+		status: "streaming",
+		statusText: undefined,
+	};
+}
 
 function shouldAppendMessageDeltaToProcess(
 	content: string,
@@ -955,18 +1018,24 @@ export function applySessionEventToMessage(
 				shouldAppendMessageDeltaToProcess(content, options);
 			if (!shouldAppendProcessStep) return message;
 
-			return {
-				...message,
-				processSteps: appendProcessThinkingStep(message.processSteps, content),
-			};
+			return applyStreamingState(
+				{
+					...message,
+					processSteps: appendProcessThinkingStep(message.processSteps, content),
+				},
+				options,
+			);
 		}
 		case "reasoning.delta": {
 			const thinking = payload.thinking ?? getEventContent(normalizedEvent, payload);
 			if (!thinking) return message;
-			return {
-				...message,
-				processSteps: appendProcessThinkingStep(message.processSteps, thinking),
-			};
+			return applyStreamingState(
+				{
+					...message,
+					processSteps: appendProcessThinkingStep(message.processSteps, thinking),
+				},
+				options,
+			);
 		}
 		case "tool_call.started":
 		case "tool_call.delta":
@@ -977,11 +1046,14 @@ export function applySessionEventToMessage(
 		case "tool_call.failed": {
 			const toolCall = mapToolCallEvent(normalizedEventType, payload);
 			if (!toolCall) return message;
-			return {
-				...message,
-				toolCalls: upsertToolCall(message.toolCalls, toolCall),
-				processSteps: appendProcessToolCallStep(message.processSteps, toolCall.id),
-			};
+			return applyStreamingState(
+				{
+					...message,
+					toolCalls: upsertToolCall(message.toolCalls, toolCall),
+					processSteps: appendProcessToolCallStep(message.processSteps, toolCall.id),
+				},
+				options,
+			);
 		}
 		case "run.completed": {
 			const resultMessage = getRunResultMessage(payload);
@@ -992,6 +1064,8 @@ export function applySessionEventToMessage(
 				.filter((artifact): artifact is MessageArtifact => artifact !== undefined);
 			return enrichAssistantMessageMetrics({
 				...message,
+				status: "completed",
+				statusText: undefined,
 				content: options.appendContent && resultMessage ? resultMessage : message.content,
 				processSteps: pruneFinalContentProcessSteps(message.processSteps, resultMessage),
 				todos: completeTodos(message.todos),
@@ -1007,8 +1081,18 @@ export function applySessionEventToMessage(
 			if (!failedMessage) return message;
 			return {
 				...message,
+				status: "failed",
+				statusText: undefined,
 				// 中文注释：失败事件也要回填到当前 assistant 消息里，避免界面只剩空占位。
 				content: failedMessage,
+			};
+		}
+		case "run.cancelled": {
+			return {
+				...message,
+				status: "failed",
+				statusText: undefined,
+				content: message.content || "已取消生成。",
 			};
 		}
 		default:
@@ -1034,6 +1118,85 @@ function isOptimisticMessage(message: Message): boolean {
 
 function normalizedMessageContent(message: Message): string {
 	return message.content.trim().replace(/\s+/g, " ");
+}
+
+function isGlobalUserEchoMessage(message: Message | undefined, incoming: Message): boolean {
+	if (!message || message.conversationId !== incoming.conversationId || message.role !== "user") {
+		return false;
+	}
+	if (normalizedMessageContent(message) !== normalizedMessageContent(incoming)) return false;
+
+	const authorMatches =
+		!message.author ||
+		!incoming.author ||
+		message.author.id === "current-user" ||
+		incoming.author.id === "current-user" ||
+		message.author.id === "user" ||
+		incoming.author.id === "user" ||
+		message.author.id === incoming.author.id ||
+		message.author.name === incoming.author.name;
+	if (!authorMatches) return false;
+
+	const isLocalEchoCandidate =
+		isOptimisticMessage(message) || !message.author || message.author.id === "current-user";
+	const isRecentEcho = Math.abs(message.timestamp - incoming.timestamp) <= 30_000;
+	// 中文注释：GlobalEvents 可能回推本地 optimistic 或刷新后刚拉到的历史消息；倒序匹配最新同内容用户消息，避免页面重复显示。
+	return isLocalEchoCandidate || isRecentEcho;
+}
+
+// 中文注释：任务群聊占位 assistant 在提前建立 SessionEvents 后可能已进入 streaming，但仍需被 GlobalEvents 替换。
+function isTaskRoomAssistantPlaceholder(message: Message | undefined, sessionId: string): boolean {
+	return (
+		message?.conversationId === sessionId &&
+		message.role === "assistant" &&
+		message.id.startsWith("msg-assistant-waiting-") &&
+		(message.status === "waiting" || message.status === "streaming")
+	);
+}
+
+// 中文注释：GlobalEvents 晚到并替换占位 assistant 时，保留已收到的流式片段。
+function inheritStreamingAssistantState(target: Message, source?: Message): Message {
+	if (!source) return target;
+	return {
+		...target,
+		content: source.content || target.content,
+		toolCalls: source.toolCalls ?? target.toolCalls,
+		todos: source.todos ?? target.todos,
+		processSteps: source.processSteps ?? target.processSteps,
+		approvals: source.approvals ?? target.approvals,
+		questions: source.questions ?? target.questions,
+		artifacts: source.artifacts ?? target.artifacts,
+		metadata: source.metadata ?? target.metadata,
+		usage: source.usage ?? target.usage,
+		status: source.status === "streaming" ? "streaming" : target.status,
+		statusText: source.status === "streaming" ? undefined : target.statusText,
+	};
+}
+
+// 中文注释：run 已落库但 SessionEvents 未收到终端事件时，用 DB 同步兜底。
+const SESSION_EVENTS_IDLE_FALLBACK_MS = 10_000;
+const ASSISTANT_SESSION_EVENTS_WAITING_TEXT = "AI 员工已接单，正在生成回复...";
+
+export function createAssistantSessionEventsWaitingMessage(
+	sessionId: string,
+	id: string,
+	timestamp = Date.now(),
+): Message {
+	return {
+		id,
+		conversationId: sessionId,
+		role: "assistant",
+		content: "",
+		timestamp,
+		status: "waiting",
+		// 中文注释：刷新恢复 SSE 回放时保留明确等待态，避免只显示空白生成中占位。
+		statusText: ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
+		author: {
+			id: "pending-assistant",
+			name: "Lework",
+			type: "assistant",
+		},
+	};
 }
 
 function messageMergeKey(message: Message): string | undefined {
@@ -1226,6 +1389,122 @@ function parseWorkTitleUpdatedPayload(
 	};
 }
 
+function parseGlobalEvent(raw: string, fallbackType?: string): BackendGlobalEvent | null {
+	try {
+		const parsed = JSON.parse(raw) as BackendGlobalEvent;
+		return {
+			...parsed,
+			type: fallbackType ?? parsed.type,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function getGlobalMessagePayload(event: BackendGlobalEvent): BackendGlobalMessagePayload {
+	return event.data ?? event.payload ?? {};
+}
+
+function createGlobalUserMessageFromEvent(
+	event: BackendGlobalEvent,
+	payload: BackendGlobalMessagePayload,
+): Message | undefined {
+	const sessionId = event.session_id;
+	const content = payload.content ?? "";
+	const createdAt = parseOptionalTimestamp(payload.created_at) ?? event.timestamp;
+	const attachments = mapGlobalMessageAttachments(payload.attachments, createdAt);
+	const metadata = buildMessageMetadata(payload.metadata);
+	if (!sessionId || (!content.trim() && !attachments?.length)) return undefined;
+
+	const messageKey = payload.message_id ?? payload.id ?? payload.sequence;
+	const messageId =
+		messageKey !== undefined
+			? String(messageKey)
+			: `global-user-${sessionId}-${event.timestamp || createdAt || Date.now()}`;
+
+	return {
+		id: messageId,
+		conversationId: sessionId,
+		role: "user",
+		content,
+		timestamp: event.timestamp || createdAt || Date.now(),
+		sequence: payload.sequence,
+		status: "completed",
+		author: {
+			id: payload.sender_uin !== undefined ? String(payload.sender_uin) : "user",
+			name: payload.sender_name || "用户",
+			type: "user",
+		},
+		attachments,
+		metadata,
+	};
+}
+
+export function insertGlobalUserMessageId(
+	messageIds: string[],
+	messagesMap: Record<string, Message>,
+	incoming: Message,
+	activeStreamingMessageId?: string | null,
+): string[] {
+	const existingIndex = messageIds.indexOf(incoming.id);
+	if (existingIndex >= 0) return messageIds;
+
+	const activeStreamingAssistantIndex = activeStreamingMessageId
+		? messageIds.indexOf(activeStreamingMessageId)
+		: -1;
+	if (activeStreamingAssistantIndex >= 0) {
+		const activeStreamingMessage = messagesMap[activeStreamingMessageId ?? ""];
+		if (
+			activeStreamingMessage?.conversationId === incoming.conversationId &&
+			activeStreamingMessage.role === "assistant" &&
+			(activeStreamingMessage.status === "waiting" || activeStreamingMessage.status === "streaming")
+		) {
+			// 中文注释：只锚定本轮正在生成的 assistant，避免历史回放消息被标记为 streaming 后抢走插入位置。
+			return [
+				...messageIds.slice(0, activeStreamingAssistantIndex),
+				incoming.id,
+				...messageIds.slice(activeStreamingAssistantIndex),
+			];
+		}
+	}
+
+	let waitingAssistantIndex = -1;
+	for (let index = messageIds.length - 1; index >= 0; index -= 1) {
+		const message = messagesMap[messageIds[index] ?? ""];
+		if (isTaskRoomAssistantPlaceholder(message, incoming.conversationId)) {
+			waitingAssistantIndex = index;
+			break;
+		}
+	}
+	if (waitingAssistantIndex >= 0) {
+		// 中文注释：兜底使用最新任务等待占位，确保用户问题仍显示在本轮回复前。
+		return [
+			...messageIds.slice(0, waitingAssistantIndex),
+			incoming.id,
+			...messageIds.slice(waitingAssistantIndex),
+		];
+	}
+
+	const streamingAssistantIndex = messageIds.findIndex((id) => {
+		const message = messagesMap[id];
+		return (
+			message?.conversationId === incoming.conversationId &&
+			message.role === "assistant" &&
+			message.status === "waiting"
+		);
+	});
+	if (streamingAssistantIndex >= 0) {
+		// 中文注释：兼容非任务占位的等待态 assistant，仍然只允许 waiting 作为插入锚点。
+		return [
+			...messageIds.slice(0, streamingAssistantIndex),
+			incoming.id,
+			...messageIds.slice(streamingAssistantIndex),
+		];
+	}
+
+	return [...messageIds, incoming.id];
+}
+
 function resolveProjectIdForSession(
 	fullState: {
 		activeTaskDetailProjectId?: string | null;
@@ -1249,6 +1528,12 @@ export class ChatActionImpl {
 	readonly #get: () => ChatStore;
 	readonly #fullGet: FullStoreGet;
 	#sseClient: FetchSSEClient | null = null;
+	#sseSessionId: string | null = null;
+	#sseAssistantMsgId: string | null = null;
+	#sseIdleFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+	#globalEventsClient: FetchSSEClient | null = null;
+	#globalEventsStartPromise: Promise<void> | null = null;
+	#pendingGlobalMessageEvents: BackendGlobalEvent[] = [];
 	#messageLoadPromises = new Map<string, Promise<void>>();
 
 	constructor(set: SetState, get: () => ChatStore, fullGet: FullStoreGet) {
@@ -1263,6 +1548,375 @@ export class ChatActionImpl {
 
 	setActiveSession = (sessionId: string) => {
 		this.#set({ activeSessionId: sessionId });
+		this.#drainPendingGlobalEvents(sessionId);
+	};
+
+	// 中文注释：新建任务跳转任务详情前只写入等待占位，真实用户问题与附件统一等待 GlobalEvents 回推。
+	bootstrapNewTaskSession = (
+		sessionId: string,
+		content: string,
+		_options?: {
+			attachments?: Attachment[];
+			metadata?: MessageMetadata;
+		},
+	) => {
+		const trimmed = content.trim();
+		if (!sessionId || !trimmed) return;
+
+		const now = Date.now();
+		const assistantMsg: Message = {
+			id: `msg-assistant-waiting-${now}`,
+			conversationId: sessionId,
+			role: "assistant",
+			content: "",
+			timestamp: now + 100,
+			status: "waiting",
+			statusText: "正在提交问题并分配 AI 员工...",
+			author: {
+				id: "pending-assistant",
+				name: "Lework",
+				type: "assistant",
+			},
+		};
+		this.#set({
+			activeSessionId: sessionId,
+			messagesMap: {
+				[assistantMsg.id]: assistantMsg,
+			},
+			messageIds: [assistantMsg.id],
+			streamingMessageId: assistantMsg.id,
+			isGenerating: true,
+			pendingBootstrapSessionId: sessionId,
+		});
+		this.#drainPendingGlobalEvents(sessionId);
+	};
+
+	// 中文注释：bootstrap 标记会阻止历史加载；仅在消息已被页面卸载清理时手动清除。
+	clearPendingBootstrapSession = () => {
+		if (!this.#get().pendingBootstrapSessionId) return;
+		this.#set({ pendingBootstrapSessionId: null });
+	};
+
+	hasSessionMessages = (sessionId: string) => {
+		const state = this.#get();
+		return state.messageIds.some((id) => state.messagesMap[id]?.conversationId === sessionId);
+	};
+
+	startGlobalEvents = async () => {
+		if (this.#globalEventsClient) return;
+		if (this.#globalEventsStartPromise) return this.#globalEventsStartPromise;
+
+		// 中文注释：Shell 与工作台可能同时触发启动，先占用启动 Promise，避免刷新时打开两条 GlobalEvents 长连接。
+		this.#globalEventsStartPromise = (async () => {
+			try {
+				const token = await getValidJwtToken();
+				if (!token || this.#globalEventsClient) return;
+
+				const client = new FetchSSEClient(`${API_BASE_URL}/GlobalEvents`, {
+					method: "POST",
+					headers: { Authorization: `Bearer ${token}` },
+					body: {},
+					onMessage: (event) => {
+						const data = parseGlobalEvent(event.data, event.type);
+						if (!data) return;
+						this.#handleGlobalEvent(data);
+					},
+					onError: (err) => {
+						console.error("GlobalEvents SSE error:", err);
+						this.#globalEventsClient?.close();
+						this.#globalEventsClient = null;
+					},
+				});
+
+				this.#globalEventsClient = client;
+				void client.connect();
+			} catch (err) {
+				console.error("startGlobalEvents error:", err);
+			} finally {
+				this.#globalEventsStartPromise = null;
+			}
+		})();
+
+		return this.#globalEventsStartPromise;
+	};
+
+	stopGlobalEvents = () => {
+		this.#globalEventsClient?.close();
+		this.#globalEventsClient = null;
+		this.#globalEventsStartPromise = null;
+	};
+
+	#isCurrentGlobalSession = (event: BackendGlobalEvent) => {
+		const sessionId = event.session_id;
+		if (!sessionId) return false;
+		const state = this.#get();
+		if (state.activeSessionId === sessionId) return true;
+		const fullState = this.#fullGet() as { activeTaskDetailSessionId?: string | null };
+		return fullState.activeTaskDetailSessionId === sessionId;
+	};
+
+	#handleGlobalEvent = (event: BackendGlobalEvent) => {
+		if (event.type !== "message.created") return;
+		if (!this.#isCurrentGlobalSession(event)) {
+			this.#bufferPendingGlobalEvent(event);
+			return;
+		}
+		this.#applyGlobalMessageEvent(event);
+	};
+
+	#applyGlobalMessageEvent = (event: BackendGlobalEvent) => {
+		const payload = getGlobalMessagePayload(event);
+		if (payload.sender_type === "human") {
+			this.#mergeGlobalUserMessage(event, payload);
+			return;
+		}
+		if (payload.sender_type === "assistant") {
+			this.#startGlobalAssistantResponse(event, payload);
+		}
+	};
+
+	#bufferPendingGlobalEvent = (event: BackendGlobalEvent) => {
+		if (!event.session_id) return;
+		const cutoff = Date.now() - 2 * 60_000;
+		// 中文注释：GlobalEvents 可能早于任务详情路由激活，短暂缓存避免新建任务首条消息丢失。
+		this.#pendingGlobalMessageEvents = [...this.#pendingGlobalMessageEvents, event]
+			.filter((item) => (item.timestamp ?? Date.now()) >= cutoff)
+			.slice(-50);
+	};
+
+	#drainPendingGlobalEvents = (sessionId: string) => {
+		if (!sessionId || !this.#pendingGlobalMessageEvents.length) return;
+		const matched: BackendGlobalEvent[] = [];
+		const rest: BackendGlobalEvent[] = [];
+		for (const event of this.#pendingGlobalMessageEvents) {
+			if (event.session_id === sessionId) {
+				matched.push(event);
+			} else {
+				rest.push(event);
+			}
+		}
+		this.#pendingGlobalMessageEvents = rest;
+		for (const event of matched) {
+			this.#applyGlobalMessageEvent(event);
+		}
+	};
+
+	#mergeGlobalUserMessage = (event: BackendGlobalEvent, payload: BackendGlobalMessagePayload) => {
+		const sessionId = event.session_id;
+		if (!sessionId) return;
+		const incoming = createGlobalUserMessageFromEvent(event, payload);
+		if (!incoming) return;
+
+		this.#set((state) => {
+			const existingId =
+				state.messageIds.find((id) => id === incoming.id) ??
+				state.messageIds.find((id) => {
+					const message = state.messagesMap[id];
+					return (
+						message?.conversationId === sessionId &&
+						message.sequence !== undefined &&
+						message.sequence === payload.sequence
+					);
+				}) ??
+				[...state.messageIds]
+					.reverse()
+					.find((id) => isGlobalUserEchoMessage(state.messagesMap[id], incoming));
+
+			if (!existingId) {
+				const nextMap = { ...state.messagesMap, [incoming.id]: incoming };
+				return {
+					messagesMap: nextMap,
+					messageIds: insertGlobalUserMessageId(
+						state.messageIds,
+						nextMap,
+						incoming,
+						state.streamingMessageId,
+					),
+				};
+			}
+
+			const nextMap = { ...state.messagesMap };
+			const current = nextMap[existingId];
+			delete nextMap[existingId];
+			nextMap[incoming.id] = {
+				...current,
+				...incoming,
+				attachments:
+					mergeMessageAttachments(incoming.attachments, current?.attachments) ??
+					incoming.attachments ??
+					current?.attachments,
+				metadata: current?.metadata,
+			};
+			return {
+				messagesMap: nextMap,
+				messageIds: state.messageIds.map((id) => (id === existingId ? incoming.id : id)),
+			};
+		});
+	};
+
+	#startGlobalAssistantResponse = (
+		event: BackendGlobalEvent,
+		payload: BackendGlobalMessagePayload,
+	) => {
+		const sessionId = event.session_id;
+		const runId = payload.run_id;
+		if (!sessionId || !runId) return;
+
+		const responseMessageId = `msg-assistant-${runId}`;
+		const state = this.#get();
+		if (state.messagesMap[responseMessageId]) return;
+		const currentStreamingMessage = state.streamingMessageId
+			? state.messagesMap[state.streamingMessageId]
+			: undefined;
+		// 中文注释：仅当当前流式消息已绑定本轮 runId 时跳过，避免重复处理同一条 GlobalEvents。
+		if (
+			currentStreamingMessage?.conversationId === sessionId &&
+			currentStreamingMessage.runId === runId
+		) {
+			return;
+		}
+		const waitingPlaceholderId = [...state.messageIds]
+			.reverse()
+			.find((id) => isTaskRoomAssistantPlaceholder(state.messagesMap[id], sessionId));
+
+		const assistantMsg: Message = {
+			id: responseMessageId,
+			conversationId: sessionId,
+			runId,
+			role: "assistant",
+			content: "",
+			timestamp: event.timestamp || Date.now(),
+			status: "streaming",
+			statusText: "AI 员工已接单，正在生成回复...",
+			author: {
+				id: payload.assistant_id !== undefined ? String(payload.assistant_id) : runId,
+				name: payload.assistant_name || payload.sender_name || "Lework",
+				type: "assistant",
+			},
+		};
+
+		if (waitingPlaceholderId) {
+			this.#set((currentState) => {
+				const placeholder = currentState.messagesMap[waitingPlaceholderId];
+				const nextMap = { ...currentState.messagesMap };
+				delete nextMap[waitingPlaceholderId];
+				nextMap[assistantMsg.id] = inheritStreamingAssistantState(assistantMsg, placeholder);
+				return {
+					messagesMap: nextMap,
+					messageIds: currentState.messageIds.map((id) =>
+						id === waitingPlaceholderId ? assistantMsg.id : id,
+					),
+				};
+			});
+		} else {
+			this.#dispatchChat({ type: "addMessage", value: assistantMsg });
+		}
+		this.#set({
+			streamingMessageId: assistantMsg.id,
+			isGenerating: true,
+			activeSessionId: sessionId,
+			pendingBootstrapSessionId: null,
+		});
+		// 中文注释：GlobalEvents 监听到新 assistant 消息后，再按 runtime 状态决定走 SessionEvents 或 DB 同步。
+		void this.#startAssistantStreamAfterGlobalEvent(sessionId, assistantMsg, payload.assistant_id);
+	};
+
+	#startAssistantStreamAfterGlobalEvent = async (
+		sessionId: string,
+		assistantMsg: Message,
+		assistantId?: number,
+	) => {
+		try {
+			const sessionRes = await sessionApi.get({ session_id: sessionId });
+			const runtimeStatus = sessionRes.data.data?.runtime_status;
+			if (runtimeStatus !== "responding") {
+				// 中文注释：GlobalEvents 晚到时 run 可能已结束，直接从 DB 拉最新消息渲染，避免 replay 空挂。
+				await this.loadConversationMessages(sessionId, { resumeStream: false });
+				this.#finishStream();
+				return;
+			}
+		} catch (err) {
+			console.error("startAssistantStreamAfterGlobalEvent get session error:", err);
+		}
+		// 中文注释：run 仍在进行，由 GlobalEvents 触发 SessionEvents 回放本轮回复事件。
+		this.#startSSE(sessionId, assistantMsg.id, true, assistantId);
+	};
+
+	sendTaskRoomMessage = async (
+		content: string,
+		params: {
+			projectId: string;
+			taskId: string;
+			sessionId: string;
+			metadata?: MessageMetadata;
+		},
+		attachments?: Attachment[],
+	) => {
+		const trimmed = content.trim();
+		if (!trimmed || !params.projectId || !params.taskId || !params.sessionId) return null;
+		if (this.#get().isGenerating) return null;
+
+		const now = Date.now();
+		const assistantMsg: Message = {
+			id: `msg-assistant-waiting-${now}`,
+			conversationId: params.sessionId,
+			role: "assistant",
+			content: "",
+			timestamp: now + 100,
+			status: "waiting",
+			statusText: "正在提交问题并分配 AI 员工...",
+			author: {
+				id: "pending-assistant",
+				name: "Lework",
+				type: "assistant",
+			},
+		};
+		// 中文注释：真实用户问题和附件统一由 GlobalEvents 回填，这里只放置等待态避免页面空等。
+		this.#dispatchChat({ type: "addMessage", value: assistantMsg });
+		this.#set({
+			streamingMessageId: assistantMsg.id,
+			isGenerating: true,
+			activeSessionId: params.sessionId,
+		});
+
+		try {
+			void this.startGlobalEvents();
+			await sessionApi.addMessage({
+				session_id: params.sessionId,
+				role: "user",
+				content: trimmed,
+				execution_mode: this.#get().executionMode,
+				message_type: "text",
+				attachments: mapOutgoingAttachments(attachments),
+				metadata: params.metadata?.composerTokens
+					? { extra: { composerTokens: params.metadata.composerTokens } }
+					: undefined,
+			});
+		} catch (err) {
+			this.#dispatchChat({
+				type: "updateMessage",
+				id: assistantMsg.id,
+				value: {
+					...assistantMsg,
+					status: "failed",
+					statusText: "消息提交失败，请稍后重试。",
+				},
+			});
+			this.#finishStream();
+			console.error("sendTaskRoomMessage addMessage error:", err);
+			return null;
+		}
+
+		this.#set({
+			// 中文注释：任务群聊按 GlobalEvents -> SessionEvents 强顺序启动，发送成功后等待 GlobalEvents 再拉流。
+			streamingMessageId: assistantMsg.id,
+			isGenerating: true,
+			inputText: "",
+			inputAttachments: [],
+			activeSessionId: params.sessionId,
+		});
+
+		return { project_id: params.projectId, task_id: params.taskId, session_id: params.sessionId };
 	};
 
 	sendMessage = async (content: string, attachments?: Attachment[], metadata?: MessageMetadata) => {
@@ -1358,13 +2012,14 @@ export class ChatActionImpl {
 		content: string,
 		projectId?: string | null,
 		attachments?: Attachment[],
-		_metadata?: MessageMetadata,
+		metadata?: MessageMetadata,
 	) => {
 		const trimmed = content.trim();
 		if (!trimmed || !projectId) return null;
 		if (this.#get().isGenerating) return null;
 
 		try {
+			void this.startGlobalEvents();
 			const res = await workApi.newMessage({
 				content: trimmed,
 				execution_mode: this.#get().executionMode,
@@ -1374,13 +2029,13 @@ export class ChatActionImpl {
 			const data = res.data.data;
 			if (!data?.project_id || !data?.task_id || !data?.session_id) return null;
 
+			this.bootstrapNewTaskSession(data.session_id, trimmed, { attachments, metadata });
+
 			(this.#set as (partial: Record<string, unknown>) => void)({
 				activeProjectId: data.project_id,
 				activeTaskDetailProjectId: data.project_id,
 				activeTaskDetailTaskId: data.task_id,
 				activeTaskDetailSessionId: data.session_id,
-				// 此处不设置 pendingBootstrapSessionId，SSE 回放由 TaskDetailPage 的
-				// loadConversationMessages 来建立，不需要防止历史消息覆盖。
 				currentView: "taskDetail",
 				activeProjectTab: "chat",
 				conversationListOpen: false,
@@ -1465,11 +2120,56 @@ export class ChatActionImpl {
 		this.#startSSE(sessionId, assistantMsg.id);
 	};
 
-	#startSSE = async (sessionId: string, assistantMsgId: string, replay = false) => {
+	#clearSSEIdleFallback = () => {
+		if (this.#sseIdleFallbackTimer) {
+			clearTimeout(this.#sseIdleFallbackTimer);
+			this.#sseIdleFallbackTimer = null;
+		}
+	};
+
+	#resetSSEBinding = () => {
+		this.#clearSSEIdleFallback();
+		this.#sseSessionId = null;
+		this.#sseAssistantMsgId = null;
+	};
+
+	#scheduleSSEIdleFallback = (sessionId: string) => {
+		this.#clearSSEIdleFallback();
+		this.#sseIdleFallbackTimer = setTimeout(() => {
+			const state = this.#get();
+			if (this.#sseSessionId !== sessionId || !state.isGenerating) return;
+			void this.#recoverStaleSessionStream(sessionId);
+		}, SESSION_EVENTS_IDLE_FALLBACK_MS);
+	};
+
+	#recoverStaleSessionStream = async (sessionId: string) => {
+		this.#resetSSEBinding();
 		if (this.#sseClient) {
 			this.#sseClient.close();
 			this.#sseClient = null;
 		}
+		try {
+			await this.loadConversationMessages(sessionId, { resumeStream: false });
+		} catch (err) {
+			console.error("recoverStaleSessionStream error:", err);
+		} finally {
+			this.#finishStream();
+		}
+	};
+
+	#startSSE = async (
+		sessionId: string,
+		assistantMsgId: string,
+		replay = false,
+		assistantId?: number,
+	) => {
+		if (this.#sseClient) {
+			this.#sseClient.close();
+			this.#sseClient = null;
+		}
+		this.#resetSSEBinding();
+		this.#sseSessionId = sessionId;
+		this.#sseAssistantMsgId = assistantMsgId;
 
 		const url = `${API_BASE_URL}/SessionEvents`;
 		const token = await getValidJwtToken();
@@ -1480,8 +2180,16 @@ export class ChatActionImpl {
 		const client = new FetchSSEClient(url, {
 			method: "POST",
 			headers: { Authorization: `Bearer ${token}` },
-			body: { session_id: sessionId, ...(replay ? { replay: true } : {}) },
+			body: {
+				session_id: sessionId,
+				...(replay ? { replay: true } : {}),
+				...(assistantId !== undefined ? { assistant_id: assistantId } : {}),
+			},
+			onOpen: () => {
+				this.#scheduleSSEIdleFallback(sessionId);
+			},
 			onMessage: (event) => {
+				this.#clearSSEIdleFallback();
 				try {
 					const data = JSON.parse(event.data) as SSEMessageEvent;
 					const eventType = event.type ?? data.type;
@@ -1497,7 +2205,8 @@ export class ChatActionImpl {
 						return;
 					}
 
-					const msg = this.#get().messagesMap[assistantMsgId];
+					const targetAssistantMsgId = this.#sseAssistantMsgId ?? assistantMsgId;
+					const msg = this.#get().messagesMap[targetAssistantMsgId];
 					if (msg) {
 						const nextMsg = applySessionEventToMessage(msg, data, eventType, {
 							appendContent: true,
@@ -1505,7 +2214,7 @@ export class ChatActionImpl {
 						if (nextMsg !== msg) {
 							this.#dispatchChat({
 								type: "updateMessage",
-								id: assistantMsgId,
+								id: targetAssistantMsgId,
 								value: nextMsg,
 							});
 						}
@@ -1516,6 +2225,7 @@ export class ChatActionImpl {
 						eventType === "run.failed" ||
 						eventType === "run.cancelled"
 					) {
+						this.#resetSSEBinding();
 						this.#finishStream();
 						this.#sseClient?.close();
 						this.#sseClient = null;
@@ -1545,6 +2255,7 @@ export class ChatActionImpl {
 			},
 			onError: (err) => {
 				console.error("SSE error:", err);
+				this.#resetSSEBinding();
 				this.#finishStream();
 			},
 		});
@@ -1555,6 +2266,7 @@ export class ChatActionImpl {
 	};
 
 	#finishStream = () => {
+		this.#clearSSEIdleFallback();
 		this.#set({
 			streamingMessageId: null,
 			isGenerating: false,
@@ -1589,6 +2301,7 @@ export class ChatActionImpl {
 			this.#sseClient.close();
 			this.#sseClient = null;
 		}
+		this.#resetSSEBinding();
 		this.#finishStream();
 	};
 
@@ -1694,13 +2407,10 @@ export class ChatActionImpl {
 				pendingAssistantReply &&
 				!shouldResumeStream;
 			const resumeMessage: Message | undefined = shouldResumeStream
-				? {
-						id: `msg-assistant-resume-${Date.now()}`,
-						conversationId: sessionId,
-						role: "assistant",
-						content: "",
-						timestamp: Date.now(),
-					}
+				? createAssistantSessionEventsWaitingMessage(
+						sessionId,
+						`msg-assistant-resume-${Date.now()}`,
+					)
 				: undefined;
 			if (resumeMessage) {
 				messages.push(resumeMessage);
@@ -1756,13 +2466,7 @@ export class ChatActionImpl {
 						const resumeMsgId = `msg-assistant-resume-${Date.now()}`;
 						const newMap = { ...st.messagesMap };
 						delete newMap[pollPlaceholderMsg.id];
-						const resumeMsg: Message = {
-							id: resumeMsgId,
-							conversationId: sessionId,
-							role: "assistant",
-							content: "",
-							timestamp: Date.now(),
-						};
+						const resumeMsg = createAssistantSessionEventsWaitingMessage(sessionId, resumeMsgId);
 						newMap[resumeMsgId] = resumeMsg;
 						const newIds = st.messageIds.map((id) =>
 							id === pollPlaceholderMsg.id ? resumeMsgId : id,

@@ -1,6 +1,12 @@
 "use client";
 
-import { fetchFileDownload, formatArtifactTime, formatFileSize, formatTime } from "@leros/store";
+import {
+	fetchFileDownload,
+	formatArtifactTime,
+	formatFileSize,
+	formatTime,
+	useAuthStore,
+} from "@leros/store";
 import type { Message, MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Check, Copy, ImageIcon, LoaderCircle } from "lucide-react";
@@ -29,20 +35,45 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function UserMessageBubble({ message }: { message: Message }) {
+	const authUser = useAuthStore((state) => state.authUser);
 	const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 	const visibleText = message.content.trim();
 	const attachments = message.attachments ?? [];
+	const currentUserId = authUser?.uin !== undefined ? String(authUser.uin) : undefined;
+	// 中文注释：后端落库消息会返回真实 sender_uin，不能只依赖本地 optimistic 的 current-user 标记。
+	const isOwnMessage =
+		!message.author ||
+		message.author.id === "current-user" ||
+		(currentUserId !== undefined && message.author.id === currentUserId) ||
+		message.author.name === "我";
+	const authorName = isOwnMessage ? (authUser?.name ?? message.author?.name) : message.author?.name;
 
 	return (
 		<>
-			<div data-slot="user-message" className="flex justify-end group">
-				<div className="flex max-w-[78%] flex-col items-end">
-					<div className="mb-1.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-						{visibleText && <CopyButton text={message.content} />}
-						<span className="text-xs text-slate-400">{formatTime(message.timestamp)}</span>
+			<div
+				data-slot="user-message"
+				className={`group flex items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
+			>
+				{!isOwnMessage && <UserAvatar name={authorName ?? "用户"} />}
+				<div className={`flex max-w-[78%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}>
+					<div
+						className={`mb-1.5 flex items-center gap-2 text-xs text-slate-400 ${
+							isOwnMessage ? "justify-end opacity-0 transition-opacity group-hover:opacity-100" : ""
+						}`}
+					>
+						{!isOwnMessage && authorName && (
+							<span className="font-medium text-slate-500">{authorName}</span>
+						)}
+						{isOwnMessage && visibleText && <CopyButton text={message.content} />}
+						{isOwnMessage && authorName && <span>{authorName}</span>}
+						{message.status === "sending" && <span className="text-xs text-slate-400">发送中</span>}
+						<span>{formatTime(message.timestamp)}</span>
+						{!isOwnMessage && visibleText && <CopyButton text={message.content} />}
 					</div>
 					{attachments.length > 0 && (
-						<div className="mb-2 flex flex-col items-end gap-2">
+						<div
+							className={`mb-2 flex flex-col gap-2 ${isOwnMessage ? "items-end" : "items-start"}`}
+						>
 							{attachments.map((attachment) =>
 								attachment.mimeType.startsWith("image/") ? (
 									<ImageAttachmentCard
@@ -61,7 +92,13 @@ export function UserMessageBubble({ message }: { message: Message }) {
 						</div>
 					)}
 					{visibleText && (
-						<div className="w-fit rounded-2xl rounded-tr-md text-black bg-[#f3f3f4] px-4 py-2 text-sm leading-7 shadow-sm shadow-blue-600/10">
+						<div
+							className={`w-fit rounded-2xl px-4 py-2 text-sm leading-7 text-black shadow-sm ${
+								isOwnMessage
+									? "rounded-tr-md bg-[#f3f3f4] shadow-blue-600/10"
+									: "rounded-tl-md border border-slate-100 bg-white shadow-slate-200/60"
+							}`}
+						>
 							<MessageContentWithComposerTokens message={message} />
 						</div>
 					)}
@@ -75,6 +112,15 @@ export function UserMessageBubble({ message }: { message: Message }) {
 				}}
 			/>
 		</>
+	);
+}
+
+function UserAvatar({ name }: { name: string }) {
+	const initial = name.trim().slice(0, 1).toUpperCase() || "U";
+	return (
+		<div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-200 to-slate-300 text-xs font-semibold text-slate-600 ring-1 ring-white">
+			{initial}
+		</div>
 	);
 }
 

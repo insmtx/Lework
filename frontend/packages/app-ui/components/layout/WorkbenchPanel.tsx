@@ -159,7 +159,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
 	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
-	const { addUploadedAttachment, isGenerating } = useChatStore((s) => s);
+	const { addUploadedAttachment, isGenerating, startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
@@ -206,6 +206,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		void fetchAssistants();
 	}, [assistantsLoaded, fetchAssistants]);
 
+	useEffect(() => {
+		if (!isAuthenticated) return;
+		void startGlobalEvents();
+	}, [isAuthenticated, startGlobalEvents]);
+
 	useLayoutEffect(() => {
 		clearTaskDetailRoute();
 	}, [clearTaskDetailRoute]);
@@ -222,6 +227,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		if (isGenerating || sendingRef.current) return;
 		sendingRef.current = true;
 		try {
+			await startGlobalEvents();
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
 			const composerMetadata = buildComposerMetadata(input, composerTokens);
 			const mentionedAssistant = activeWorkbenchProjectId
@@ -239,9 +245,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				messageMetadata,
 				mentionedAssistant?.id,
 			);
-			if (data?.session_id) {
-				// 不在 workbench 发起 SSE 连接，跳转到 TaskDetailPage 后通过回放建立
-			}
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 			}

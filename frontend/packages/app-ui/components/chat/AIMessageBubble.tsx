@@ -79,6 +79,13 @@ export function AIMessageBubble({
 	const hasContent = content.trim().length > 0;
 	const hasProcess = Boolean(message.processSteps?.length);
 	const hasArtifacts = message.artifacts && message.artifacts.length > 0;
+	const assistantName = message.author?.type === "assistant" ? message.author.name : "Lework";
+	const replyLabel = message.replyTo?.authorName
+		? `回复了 ${message.replyTo.authorName}`
+		: undefined;
+	const replyPreview = message.replyTo?.content?.trim();
+	const statusLabel = message.status === "waiting" ? "等待中" : "生成中";
+	const statusText = message.statusText?.trim();
 	const metricSegments = SHOW_ASSISTANT_MESSAGE_METRICS
 		? getAssistantMessageFooterSegments(message)
 		: [];
@@ -104,10 +111,31 @@ export function AIMessageBubble({
 				<AssistantChatAvatar />
 				<div className="min-w-0 flex-1">
 					<div className="mb-1.5 flex items-center gap-2">
-						<span className="text-[13px] font-medium text-slate-500">Lework</span>
+						<span className="text-[13px] font-medium text-slate-500">{assistantName}</span>
+						{replyLabel && (
+							<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] text-slate-500">
+								{replyLabel}
+							</span>
+						)}
 						<span className="text-[13px] text-slate-400">{formatTime(message.timestamp)}</span>
-						{isStreaming && <span className="animate-pulse text-[13px] text-blue-500">生成中</span>}
+						{isStreaming && (
+							<span className="animate-pulse text-[13px] text-blue-500">{statusLabel}</span>
+						)}
 					</div>
+
+					{replyPreview && (
+						<div className="mb-2 max-w-[78%] rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs leading-5 text-slate-500">
+							<div className="mb-0.5 font-medium text-slate-500">引用消息</div>
+							<div className="line-clamp-2 break-words">{replyPreview}</div>
+						</div>
+					)}
+
+					{statusText && (
+						<div className="mb-3 flex max-w-[92%] items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-sm leading-6 text-slate-600">
+							<span className="size-1.5 animate-pulse rounded-full bg-blue-500" />
+							<span>{statusText}</span>
+						</div>
+					)}
 
 					{hasProcess && message.processSteps && (
 						<div className="mb-3">
@@ -143,7 +171,7 @@ export function AIMessageBubble({
 						</div>
 					)}
 
-					{!hasContent && !hasProcess && !hasArtifacts && isStreaming && (
+					{!statusText && !hasContent && !hasProcess && !hasArtifacts && isStreaming && (
 						<div className="flex items-center gap-1">
 							<span className="size-1.5 animate-pulse rounded-full bg-slate-400" />
 							<span className="size-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:200ms]" />

@@ -1,5 +1,14 @@
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
+export type MessageParticipant = {
+	id: string;
+	name: string;
+	avatarUrl?: string;
+	type: "user" | "assistant";
+};
+
+export type MessageStatus = "sending" | "waiting" | "streaming" | "completed" | "failed";
+
 export type ToolCallStatus = "pending" | "running" | "success" | "error";
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
@@ -136,6 +145,16 @@ export type Message = {
 	role: MessageRole;
 	content: string;
 	timestamp: number;
+	status?: MessageStatus;
+	statusText?: string;
+	author?: MessageParticipant;
+	replyTo?: {
+		messageId: string;
+		authorName?: string;
+		content?: string;
+	};
+	clientMessageId?: string;
+	runId?: string;
 	sequence?: number;
 	toolCalls?: ToolCall[];
 	todos?: RuntimeTodoItem[];
