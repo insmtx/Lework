@@ -1,7 +1,7 @@
 "use client";
 
-import { useLayoutStore } from "@leros/store";
-import type { ReactNode } from "react";
+import { useChatStore, useLayoutStore } from "@leros/store";
+import { type ReactNode, useEffect } from "react";
 import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { CenterCanvas } from "./CenterCanvas";
@@ -20,6 +20,14 @@ export function Shell({
 	children?: ReactNode;
 }) {
 	const currentView = useLayoutStore((s) => s.currentView);
+	const { startGlobalEvents, stopGlobalEvents } = useChatStore((s) => s);
+
+	useEffect(() => {
+		void startGlobalEvents();
+		return () => {
+			stopGlobalEvents();
+		};
+	}, [startGlobalEvents, stopGlobalEvents]);
 
 	return (
 		<AuthProvider logoSrc={logoSrc}>

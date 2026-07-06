@@ -49,6 +49,9 @@ export type BackendMessage = {
 	conversation_id?: string;
 	role: string;
 	content: string;
+	sender_uin?: number;
+	sender_name?: string;
+	run_id?: string;
 	timestamp: number;
 	message_type: string;
 	sequence: number;

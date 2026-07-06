@@ -185,11 +185,12 @@ export const sessionApi = {
 	getSessionEventsURL: (_sessionId?: string, _lastSequence?: number) =>
 		`${API_BASE_URL}/SessionEvents`,
 
-	cancelSessionRun: (params: { session_id: string; reason?: string }) =>
+	cancelSessionRun: (params: { session_id: string; run_id?: string; reason?: string }) =>
 		apiClient.post<BackendDataResponse<{ session_id: string; status: string }>>(
 			`/CancelSessionRun`,
 			{
 				session_id: params.session_id,
+				...(params.run_id ? { run_id: params.run_id } : {}),
 				reason: params.reason,
 			},
 		),

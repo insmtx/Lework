@@ -94,6 +94,8 @@ export function TaskDetailPage({
 		streamingMessageId,
 		setActiveSession,
 		clearLocalMessages,
+		clearPendingBootstrapSession,
+		hasSessionMessages,
 		loadConversationMessages,
 		sendMessage,
 	} = useChatStore((s) => s);
@@ -204,24 +206,37 @@ export function TaskDetailPage({
 		if (!resolvedSessionId) return;
 
 		setActiveSession(resolvedSessionId);
-		// 项目消息刚切页时，先等 store 完成 optimistic 初始化，避免旧历史抢先覆盖 UI。
-		if (pendingBootstrapSessionId === resolvedSessionId) return;
-		// 先清空旧消息，避免 loadConversationMessages 返回前显示旧数据闪烁
-		clearLocalMessages();
-		// 不检查 isGenerating——可能来自 workbench 跳转，SSE 连接还未建立，
-		// loadConversationMessages 内部会根据 runtime_status 决定是否回放。
-		loadConversationMessages(resolvedSessionId);
+		const bootstrapPending = pendingBootstrapSessionId === resolvedSessionId;
+		const sessionHasMessages = hasSessionMessages(resolvedSessionId);
+		// 中文注释：bootstrap 已完成且本地仍有等待态消息时，交给 GlobalEvents 接管，不抢先拉历史。
+		if (bootstrapPending && sessionHasMessages) return;
+		if (isGenerating && sessionHasMessages) return;
+		// bootstrap 标记还在但消息已被卸载清理掉，清除标记并回退为正常加载。
+		if (bootstrapPending && !sessionHasMessages) {
+			clearPendingBootstrapSession();
+		}
+		if (!sessionHasMessages) {
+			clearLocalMessages();
+		}
+		loadConversationMessages(resolvedSessionId, {
+			resumeStream: !(bootstrapPending && sessionHasMessages),
+		});
 	}, [
 		resolvedSessionId,
 		pendingBootstrapSessionId,
+		messageIds.length,
+		isGenerating,
 		setActiveSession,
+		hasSessionMessages,
+		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
 	]);
 
-	// 离开任务详情页时清理消息并关闭 SSE
+	// 离开任务详情页时清理消息并关闭 SSE；bootstrap 跳转期间保留等待态，避免 remount 后空屏。
 	useEffect(() => {
 		return () => {
+			if (useAppStore.getState().pendingBootstrapSessionId) return;
 			clearLocalMessages();
 		};
 	}, [clearLocalMessages]);

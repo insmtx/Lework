@@ -68,6 +68,7 @@ export function ChatInput({
 		setInputText,
 		sendMessage,
 		sendProjectMessage,
+		sendTaskRoomMessage,
 		submitApprovalDecision,
 		submitQuestionAnswer,
 		cancelGeneration,
@@ -78,9 +79,14 @@ export function ChatInput({
 		setSelectedModel,
 		setExecutionMode,
 	} = useChatStore((s) => s);
-	const { activeProjectId, activeTaskDetailProjectId, currentView, projects } = useLayoutStore(
-		(s) => s,
-	);
+	const {
+		activeProjectId,
+		activeTaskDetailProjectId,
+		activeTaskDetailTaskId,
+		activeTaskDetailSessionId,
+		currentView,
+		projects,
+	} = useLayoutStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,15 +132,33 @@ export function ChatInput({
 	}, [inputText, isProjectVariant, projectSkillLabels, setInputText]);
 
 	const submitMessage = useCallback(async () => {
-		// 中文注释：输入区先做一次生成态拦截，避免回车绕过按钮态再次触发发送。
+		// 中文注释：真实 SessionEvents 当前由单条 SSE 连接接管，生成中先阻止重复发送。
 		if (isGenerating) return;
-		// 仅上传附件而无文字时接口会报错，因此必须输入内容才可发送
 		const trimmedInput = inputText.trim();
 		if (trimmedInput) {
 			const composerMetadata = buildComposerMetadata(
 				inputText,
 				composerRef.current?.getComposerTokens() ?? [],
 			);
+			if (
+				isProjectVariant &&
+				currentView === "taskDetail" &&
+				activeTaskDetailProjectId &&
+				activeTaskDetailTaskId &&
+				activeTaskDetailSessionId
+			) {
+				await sendTaskRoomMessage(
+					trimmedInput,
+					{
+						projectId: activeTaskDetailProjectId,
+						taskId: activeTaskDetailTaskId,
+						sessionId: activeTaskDetailSessionId,
+						metadata: composerMetadata,
+					},
+					inputAttachments,
+				);
+				return;
+			}
 			if (isProjectVariant && currentView === "project") {
 				const taskEntry = await sendProjectMessage(
 					trimmedInput,
@@ -160,10 +184,14 @@ export function ChatInput({
 		isProjectVariant,
 		currentView,
 		activeProjectId,
+		activeTaskDetailProjectId,
+		activeTaskDetailTaskId,
+		activeTaskDetailSessionId,
 		isGenerating,
 		navigation,
 		sendMessage,
 		sendProjectMessage,
+		sendTaskRoomMessage,
 	]);
 
 	const handlePasteFiles = useCallback(

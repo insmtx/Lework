@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { BackendDataResponse, BackendNewMessageData } from "./types";
+import type { BackendDataResponse, BackendMessageMetadata, BackendNewMessageData } from "./types";
 
 export type NewMessageParams = {
 	content: string;
@@ -8,6 +8,7 @@ export type NewMessageParams = {
 	task_id?: string;
 	message_type?: string;
 	assistant_id?: number;
+	metadata?: BackendMessageMetadata;
 	attachments?: {
 		file_upload_id: string;
 		name: string;

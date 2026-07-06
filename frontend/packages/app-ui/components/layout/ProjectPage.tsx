@@ -8,6 +8,7 @@ import {
 	projectFileApi,
 	type SkillInstalledItem,
 	skillMarketplaceApi,
+	useAppStore,
 	useChatStore,
 	useLayoutStore,
 } from "@leros/store";
@@ -140,6 +141,8 @@ export function ProjectPage({
 		pendingBootstrapSessionId,
 		setActiveSession,
 		clearLocalMessages,
+		clearPendingBootstrapSession,
+		hasSessionMessages,
 		loadConversationMessages,
 		resetLocalMessages,
 	} = useChatStore((s) => s);
@@ -287,12 +290,20 @@ export function ProjectPage({
 		const nextSessionId = resolvedSessionId;
 		setActiveSession(nextSessionId);
 		if (currentView === "taskDetail" && currentTaskSessionId === nextSessionId) return;
+		const bootstrapPending = pendingBootstrapSessionId === nextSessionId;
+		const sessionHasMessages = hasSessionMessages(nextSessionId);
 		// 项目消息刚创建 session 并准备开流时，跳过这次自动拉历史，避免旧数据覆盖 optimistic 消息。
-		if (pendingBootstrapSessionId === nextSessionId) return;
-		if (isGenerating && activeSessionId === nextSessionId) return;
-		// 先清空旧消息，避免 loadConversationMessages 返回前显示旧数据闪烁
-		clearLocalMessages();
-		loadConversationMessages(nextSessionId);
+		if (bootstrapPending && sessionHasMessages) return;
+		if (bootstrapPending && !sessionHasMessages) {
+			clearPendingBootstrapSession();
+		}
+		if (isGenerating && activeSessionId === nextSessionId && sessionHasMessages) return;
+		if (!sessionHasMessages) {
+			clearLocalMessages();
+		}
+		loadConversationMessages(nextSessionId, {
+			resumeStream: !(bootstrapPending && sessionHasMessages),
+		});
 	}, [
 		resolvedSessionId,
 		currentTaskSessionId,
@@ -302,14 +313,17 @@ export function ProjectPage({
 		pendingBootstrapSessionId,
 		activeSessionId,
 		setActiveSession,
+		hasSessionMessages,
+		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
 		resetLocalMessages,
 	]);
 
-	// 离开项目页时清理消息并关闭 SSE
+	// 离开项目页时清理消息并关闭 SSE；bootstrap 跳转期间保留等待态，避免 remount 后空屏。
 	useEffect(() => {
 		return () => {
+			if (useAppStore.getState().pendingBootstrapSessionId) return;
 			clearLocalMessages();
 		};
 	}, [clearLocalMessages]);
