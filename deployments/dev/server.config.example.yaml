@@ -48,10 +48,3 @@ storage:
   sign_secret: "leros-local-presign"
   base_url: "http://localhost:8080"
 
-# 本地启动ai队友相关配置 使用这个配置，不需要手动启动worker
-# scheduler:
-#   mode: process
-#   worker_binary: ./bundles/leros
-#   本地项目路径
-#   working_dir: /Users/xxx/lework
-#   server_addr: 127.0.0.1:8080
