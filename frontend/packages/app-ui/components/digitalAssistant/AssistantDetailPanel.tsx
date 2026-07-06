@@ -45,10 +45,12 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 						{statusInfo.label}
 					</Badge>
 				</div>
-				<Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-					<Pencil className="size-3.5 mr-1" />
-					编辑
-				</Button>
+				{assistant.source !== "template" && (
+					<Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+						<Pencil className="size-3.5 mr-1" />
+						编辑
+					</Button>
+				)}
 			</div>
 
 			<ScrollArea className="flex-1">
@@ -113,7 +115,9 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 				</div>
 			</ScrollArea>
 
-			<AssistantEditDialog assistant={assistant} open={editOpen} onOpenChange={setEditOpen} />
+			{assistant.source !== "template" && (
+				<AssistantEditDialog assistant={assistant} open={editOpen} onOpenChange={setEditOpen} />
+			)}
 		</div>
 	);
 }

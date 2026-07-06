@@ -37,6 +37,9 @@ export function AssistantListView() {
 	const [editTarget, setEditTarget] = useState<DigitalAssistantItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<DigitalAssistantItem | null>(null);
 	const [summoningId, setSummoningId] = useState<number | null>(null);
+	const liveDetailTarget = detailTarget
+		? (assistants.find((assistant) => assistant.id === detailTarget.id) ?? detailTarget)
+		: null;
 
 	useEffect(() => {
 		fetchAssistants();
@@ -147,16 +150,20 @@ export function AssistantListView() {
 				<div className="grid grid-cols-1 gap-3 p-6 lg:grid-cols-2 xl:grid-cols-3">
 					{filteredAssistants.length === 0 && (
 						<div className="col-span-full flex flex-col items-center justify-center py-16 text-slate-400">
-							<span className="text-sm">暂无 AI 队友</span>
-							<Button
-								variant="outline"
-								size="sm"
-								className="mt-4"
-								onClick={() => setCreateDialogOpen(true)}
-							>
-								<Plus className="size-4 mr-1" />
-								创建第一个队友
-							</Button>
+							<span className="text-sm">
+								{assistants.length === 0 ? "暂无 AI 队友" : "暂无符合当前条件的队友"}
+							</span>
+							{assistants.length === 0 && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="mt-4"
+									onClick={() => setCreateDialogOpen(true)}
+								>
+									<Plus className="size-4 mr-1" />
+									创建第一个队友
+								</Button>
+							)}
 						</div>
 					)}
 					{filteredAssistants.map((a) => (
@@ -173,9 +180,9 @@ export function AssistantListView() {
 
 			<AssistantCreateDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
 			<AssistantDetailDialog
-				assistant={detailTarget}
-				open={!!detailTarget}
-				summoning={detailTarget ? summoningId === detailTarget.id : false}
+				assistant={liveDetailTarget}
+				open={!!liveDetailTarget}
+				summoning={liveDetailTarget ? summoningId === liveDetailTarget.id : false}
 				onOpenChange={(open) => {
 					if (!open) setDetailTarget(null);
 				}}

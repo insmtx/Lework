@@ -82,14 +82,16 @@ export function AssistantCard({ assistant, onSelect, onEdit, onDelete }: Assista
 						}
 					/>
 					<DropdownMenuContent align="end" sideOffset={4}>
-						<DropdownMenuItem
-							onClick={() => {
-								onEdit(assistant);
-							}}
-						>
-							<Pencil className="size-3.5 mr-2" />
-							编辑
-						</DropdownMenuItem>
+						{assistant.source !== "template" && (
+							<DropdownMenuItem
+								onClick={() => {
+									onEdit(assistant);
+								}}
+							>
+								<Pencil className="size-3.5 mr-2" />
+								编辑
+							</DropdownMenuItem>
+						)}
 						<DropdownMenuItem
 							variant="destructive"
 							onClick={() => {

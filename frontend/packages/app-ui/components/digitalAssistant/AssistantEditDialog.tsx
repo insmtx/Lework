@@ -48,6 +48,10 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 	const statusInfo = getAssistantDisplayStatus(assistant);
 
 	const handleSubmit = async () => {
+		if (assistant.source === "template") {
+			toast.error("模板创建的队友不允许修改");
+			return;
+		}
 		if (!name.trim()) return;
 		await updateAssistant({
 			id: assistant.id,
@@ -92,7 +96,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="max-w-[min(92vw,760px)] gap-0 overflow-hidden p-0 sm:rounded-2xl">
+			<DialogContent className="max-h-[min(88dvh,640px)] max-w-[min(92vw,520px)] gap-0 overflow-y-auto p-0 sm:rounded-2xl">
 				<DialogTitle className="sr-only">编辑 {assistant.name}</DialogTitle>
 				<DialogDescription className="sr-only">编辑 AI 队友基础信息和能力简介</DialogDescription>
 
@@ -159,7 +163,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 								value={systemPrompt}
 								onChange={(e) => setSystemPrompt(e.target.value)}
 								placeholder="能力边界、执行方式和输出要求"
-								rows={7}
+								rows={5}
 								className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-blue-300 focus:outline-none"
 							/>
 						</div>
