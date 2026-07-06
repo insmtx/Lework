@@ -61,24 +61,24 @@ export function AiTeammateDetailDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="flex max-h-[min(92dvh,760px)] max-w-[min(92vw,760px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
+			<DialogContent className="flex max-h-[min(88dvh,640px)] max-w-[min(92vw,520px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
 				<DialogTitle className="sr-only">{item.name}</DialogTitle>
 				<DialogDescription className="sr-only">{item.description}</DialogDescription>
 
-				<div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-7 sm:px-8">
-					<div className="flex items-start gap-4 pr-8">
+				<div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-6 sm:px-6">
+					<div className="flex items-start gap-4 pr-7">
 						<div
 							className={cn(
-								"flex size-20 shrink-0 items-center justify-center rounded-2xl sm:size-24",
+								"flex size-20 shrink-0 items-center justify-center rounded-2xl",
 								item.iconBg,
 								item.iconColor,
 							)}
 						>
-							<Icon className="size-10 sm:size-12" aria-hidden="true" />
+							<Icon className="size-10" aria-hidden="true" />
 						</div>
 
 						<div className="min-w-0 flex-1">
-							<h2 className="truncate text-xl font-semibold text-[var(--leros-text-strong)] sm:text-2xl">
+							<h2 className="truncate text-xl font-semibold text-[var(--leros-text-strong)]">
 								{item.name}
 							</h2>
 							<div className="mt-3 flex flex-wrap items-center gap-2">
@@ -121,7 +121,7 @@ export function AiTeammateDetailDialog({
 						</div>
 					</div>
 
-					<div className="mt-8 space-y-6">
+					<div className="mt-6 space-y-5">
 						<section>
 							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">能力介绍</h3>
 							<MarkdownRenderer
@@ -146,10 +146,10 @@ export function AiTeammateDetailDialog({
 					</div>
 				</div>
 
-				<DialogFooter className="border-t border-[var(--leros-control-border)] bg-white px-6 py-4 sm:px-8">
+				<DialogFooter className="border-t border-[var(--leros-control-border)] bg-white px-5 py-3.5 sm:px-6">
 					<Button
 						type="button"
-						className="h-11 w-full rounded-lg bg-[var(--leros-text-strong)] text-sm font-semibold text-white hover:bg-[var(--leros-text)]"
+						className="h-10 w-full rounded-lg bg-[var(--leros-text-strong)] text-sm font-semibold text-white hover:bg-[var(--leros-text)]"
 						onClick={() => onAdopt(item)}
 						disabled={adopting || adopted}
 					>

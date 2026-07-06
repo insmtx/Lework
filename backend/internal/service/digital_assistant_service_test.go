@@ -151,6 +151,43 @@ func TestCreateDigitalAssistant_LimitsPerUserToFive(t *testing.T) {
 	}
 }
 
+func TestUpdateDigitalAssistantRejectsTemplateCreatedAssistant(t *testing.T) {
+	database := setupDigitalAssistantDB(t)
+	ctx := setupTestContextWithCaller(t)
+	service := NewDigitalAssistantService(database, nil)
+
+	assistant := &types.DigitalAssistant{
+		Code:        "template-assistant",
+		OrgID:       1,
+		OwnerID:     1,
+		Name:        "Template Assistant",
+		Description: "Original description",
+		Status:      string(contract.DigitalAssistantStatusActive),
+		Source:      "template",
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create template assistant: %v", err)
+	}
+
+	_, err := service.UpdateDigitalAssistant(ctx, assistant.ID, &contract.UpdateDigitalAssistantRequest{
+		Name: "Modified Template Assistant",
+	})
+	if err == nil {
+		t.Fatal("expected template-created assistant update to be rejected")
+	}
+	if err.Error() != "template-created digital assistant cannot be modified" {
+		t.Fatalf("error = %q, want template modification rejection", err.Error())
+	}
+
+	var stored types.DigitalAssistant
+	if err := database.First(&stored, assistant.ID).Error; err != nil {
+		t.Fatalf("reload template assistant: %v", err)
+	}
+	if stored.Name != assistant.Name {
+		t.Fatalf("name = %q, want %q", stored.Name, assistant.Name)
+	}
+}
+
 func TestUpdateDigitalAssistantStatusActiveMarksDeploymentPending(t *testing.T) {
 	db := setupDigitalAssistantProvisioningDB(t)
 	ctx := setupTestContextWithCaller(t)

@@ -26,28 +26,49 @@ export type AssistantCreateDialogProps = {
 };
 
 export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDialogProps) {
-	const { createAssistant } = useDAStore((s) => s);
+	const { createAssistant, updateAssistantStatus } = useDAStore((s) => s);
 	const [name, setName] = useState("");
 	const [avatar, setAvatar] = useState("");
 	const [description, setDescription] = useState("");
 	const [systemPrompt, setSystemPrompt] = useState("");
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
 	const [previewAvatar, setPreviewAvatar] = useState<string | undefined>();
+	const [submittingAction, setSubmittingAction] = useState<"draft" | "active" | null>(null);
+	const formValid = Boolean(name.trim() && description.trim() && systemPrompt.trim());
 
-	const handleSubmit = async () => {
-		if (!name.trim()) return;
-		await createAssistant({
-			name: name.trim(),
-			avatar: avatar.trim() || undefined,
-			description: description.trim() || undefined,
-			system_prompt: systemPrompt.trim() || undefined,
-		});
-		setName("");
-		setAvatar("");
-		setDescription("");
-		setSystemPrompt("");
-		setPreviewAvatar(undefined);
-		onOpenChange(false);
+	const handleSubmit = async (targetStatus: "draft" | "active") => {
+		if (!formValid) {
+			toast.error("请填写名称、描述和简介");
+			return;
+		}
+		setSubmittingAction(targetStatus);
+		try {
+			const assistant = await createAssistant({
+				name: name.trim(),
+				avatar: avatar.trim() || undefined,
+				description: description.trim(),
+				system_prompt: systemPrompt.trim(),
+			});
+			if (!assistant) {
+				toast.error("创建队友失败");
+				return;
+			}
+
+			if (targetStatus === "active") {
+				const activated = await updateAssistantStatus(assistant.id, "active");
+				if (!activated) {
+					toast.error("队友已保存为草稿，但启用失败");
+					handleClose();
+					return;
+				}
+				toast.success("队友已创建并开始初始化");
+			} else {
+				toast.success("队友草稿已保存");
+			}
+			handleClose();
+		} finally {
+			setSubmittingAction(null);
+		}
 	};
 
 	const handleClose = () => {
@@ -101,7 +122,10 @@ export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDia
 
 	return (
 		<Dialog open={open} onOpenChange={handleDialogOpenChange}>
-			<DialogContent className="sm:max-w-md" showCloseButton={false}>
+			<DialogContent
+				className="max-h-[min(88dvh,640px)] max-w-[min(92vw,520px)] overflow-y-auto sm:rounded-2xl"
+				showCloseButton={false}
+			>
 				<DialogHeader>
 					<DialogTitle>新建 AI 队友</DialogTitle>
 					<DialogDescription>创建一个新的数字队友</DialogDescription>
@@ -129,48 +153,88 @@ export function AssistantCreateDialog({ open, onOpenChange }: AssistantCreateDia
 						</div>
 					</div>
 					<div className="space-y-1.5">
-						<span className="text-xs font-medium text-slate-700">名称 *</span>
+						<label htmlFor="assistant-name" className="text-xs font-medium text-slate-700">
+							名称
+							<span
+								className="ml-1 text-base font-bold leading-none text-red-500"
+								aria-hidden="true"
+							>
+								*
+							</span>
+						</label>
 						<input
+							id="assistant-name"
 							type="text"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							placeholder="队友名称"
+							required
+							aria-required="true"
 							autoFocus
 							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none transition-colors"
 						/>
 					</div>
 					<div className="space-y-1.5">
-						<span className="text-xs font-medium text-slate-700">描述</span>
+						<label htmlFor="assistant-description" className="text-xs font-medium text-slate-700">
+							描述
+							<span
+								className="ml-1 text-base font-bold leading-none text-red-500"
+								aria-hidden="true"
+							>
+								*
+							</span>
+						</label>
 						<input
+							id="assistant-description"
 							type="text"
 							value={description}
 							onChange={(e) => setDescription(e.target.value)}
 							placeholder="简短描述"
+							required
+							aria-required="true"
 							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none transition-colors"
 						/>
 					</div>
 					<div className="space-y-1.5">
-						<span className="text-xs font-medium text-slate-700">简介</span>
+						<label htmlFor="assistant-system-prompt" className="text-xs font-medium text-slate-700">
+							简介
+							<span
+								className="ml-1 text-base font-bold leading-none text-red-500"
+								aria-hidden="true"
+							>
+								*
+							</span>
+						</label>
 						<textarea
+							id="assistant-system-prompt"
 							value={systemPrompt}
 							onChange={(e) => setSystemPrompt(e.target.value)}
 							placeholder="能力边界、执行方式和输出要求"
 							rows={5}
+							required
+							aria-required="true"
 							className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none transition-colors resize-none"
 						/>
 					</div>
 				</div>
 				<DialogFooter className="mt-4">
-					<Button variant="outline" onClick={handleClose}>
+					<Button variant="outline" onClick={handleClose} disabled={submittingAction !== null}>
 						取消
+					</Button>
+					<Button
+						variant="outline"
+						onClick={() => handleSubmit("draft")}
+						disabled={!formValid || uploadingAvatar || submittingAction !== null}
+					>
+						{submittingAction === "draft" ? "保存中…" : "保存为草稿"}
 					</Button>
 					<button
 						type="button"
-						onClick={handleSubmit}
-						disabled={!name.trim() || uploadingAvatar}
+						onClick={() => handleSubmit("active")}
+						disabled={!formValid || uploadingAvatar || submittingAction !== null}
 						className="inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground h-8 px-2.5 text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 hover:bg-primary/80"
 					>
-						创建
+						{submittingAction === "active" ? "创建中…" : "创建并启用"}
 					</button>
 				</DialogFooter>
 			</DialogContent>

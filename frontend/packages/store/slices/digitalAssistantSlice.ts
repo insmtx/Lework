@@ -187,8 +187,10 @@ export class DASliceImpl {
 						: a,
 				),
 			}));
+			return true;
 		} catch (err) {
 			console.error("updateAssistantStatus error:", err);
+			return false;
 		}
 	};
 
