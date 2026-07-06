@@ -407,6 +407,7 @@ function MessageArtifactList({
 					<button
 						type="button"
 						key={artifact.id}
+						data-file-preview-trigger
 						onClick={() =>
 							setPreviewArtifact({
 								...artifact,

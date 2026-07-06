@@ -70,6 +70,10 @@ type EditorSnapshot = {
 	tokens: InsertedToken[];
 };
 
+function isComposingKeyboardEvent(event: KeyboardEvent<HTMLDivElement>): boolean {
+	return event.nativeEvent.isComposing || event.keyCode === 229;
+}
+
 const VIRTUAL_SKILL_DIRECTIVES = new Set(["skill-creator"]);
 
 export type StructuredComposerHandle = {
@@ -445,15 +449,27 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 		mention.setAttribute("contenteditable", "false");
 		if (token.kind === "skill") {
 			mention.className =
-				"inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium leading-4 text-violet-700 ring-1 ring-violet-100 align-middle";
+				"group inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium leading-4 text-violet-700 ring-1 ring-violet-100 align-middle";
 			const iconShell = document.createElement("span");
+			iconShell.dataset.mentionRemove = "true";
+			iconShell.dataset.mentionLabel = token.label;
+			iconShell.dataset.mentionKind = token.kind;
+			iconShell.setAttribute("role", "button");
+			iconShell.setAttribute("tabindex", "-1");
+			iconShell.setAttribute("aria-label", `移除技能 ${token.label}`);
 			iconShell.className =
-				"inline-flex size-4 shrink-0 items-center justify-center rounded-md bg-white text-violet-600 [&_svg]:block";
-			iconShell.appendChild(createSkillSparklesIcon());
+				"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md bg-white text-violet-600 [&_svg]:block";
+			const sparklesIcon = createSkillSparklesIcon();
+			sparklesIcon.classList.add("transition-opacity", "group-hover:opacity-0");
+			const removeControl = document.createElement("span");
+			removeControl.className =
+				"absolute inset-0 inline-flex items-center justify-center rounded-full opacity-0 transition-opacity hover:bg-current/10 hover:opacity-100 group-hover:opacity-65";
+			removeControl.appendChild(createRemoveIcon());
+			iconShell.append(sparklesIcon, removeControl);
 			const label = document.createElement("span");
 			label.className = "truncate";
 			label.textContent = token.label;
-			mention.append(iconShell, label, createMentionRemoveControl(token));
+			mention.append(iconShell, label);
 		} else {
 			mention.className =
 				"inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2 py-1 text-xs font-medium leading-4 text-blue-700 align-middle";
@@ -1372,6 +1388,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 		const handleKeyDown = useCallback(
 			(event: KeyboardEvent<HTMLDivElement>) => {
+				const composing = composingRef.current || isComposingKeyboardEvent(event);
+
+				if (composing && (event.key === "Enter" || event.key === "Tab")) {
+					return;
+				}
+
 				if (trigger) {
 					if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 						event.preventDefault();
@@ -1396,6 +1418,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 						dismissTrigger();
 						return;
 					}
+				}
+
+				if (composing && (event.key === "Backspace" || event.key === "Delete")) {
+					return;
 				}
 
 				if (removeAdjacentTokenByKeyboard(event.key)) {
@@ -1584,8 +1610,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 						composingRef.current = true;
 					}}
 					onCompositionEnd={() => {
-						composingRef.current = false;
 						syncFromEditor();
+						// 中文注释：macOS 中文输入法用 Enter 确认候选时，compositionend 可能先于 keydown 触发，延迟重置避免误发送。
+						window.setTimeout(() => {
+							composingRef.current = false;
+						}, 0);
 					}}
 					className={cn(
 						"relative max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-slate-700 caret-slate-700 focus:outline-none",

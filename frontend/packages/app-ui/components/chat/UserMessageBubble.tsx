@@ -188,6 +188,7 @@ function ImageAttachmentCard({
 	return (
 		<button
 			type="button"
+			data-file-preview-trigger
 			onClick={onClick}
 			className="group/attachment relative flex w-[260px] min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
 			title={attachment.name}
@@ -233,6 +234,7 @@ function FileAttachmentCard({
 	return (
 		<button
 			type="button"
+			data-file-preview-trigger
 			onClick={onClick}
 			className="group/attachment relative flex w-[260px] min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
 			title={attachment.name}

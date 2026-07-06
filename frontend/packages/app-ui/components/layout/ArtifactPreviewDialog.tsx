@@ -1,21 +1,19 @@
 "use client";
 
-import { fetchFilePreviewByPublicId, fetchFilePreviewByStorageUri, projectFileApi } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
 import {
-	Sheet,
-	SheetClose,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from "@leros/ui/components/ui/sheet";
-import { Download, FileText, LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+	fetchFilePreviewByPublicId,
+	fetchFilePreviewByStorageUri,
+	projectFileApi,
+} from "@leros/store";
+import { ChevronsLeftRightEllipsis, Download, FileText, LoaderCircle, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat, OfficePreview } from "./OfficePreview";
-import { ProjectFileTypeIcon } from "./project-file-type-icon";
 import { SpreadsheetPreview } from "./SpreadsheetPreview";
+
+const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
+const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
+const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
 
 type PreviewKind =
 	| OfficeOpenXmlFormat
@@ -44,7 +42,7 @@ export type ArtifactPreviewItem = {
 type PreviewState =
 	| { status: "idle" }
 	| { status: "loading" }
-	| { status: "ready"; text?: string; objectUrl?: string; buffer?: ArrayBuffer }
+	| { status: "ready"; text?: string; objectUrl?: string; buffer?: ArrayBuffer; mimeType?: string }
 	| { status: "error"; message: string };
 
 export function ArtifactPreviewDialog({
@@ -59,12 +57,18 @@ export function ArtifactPreviewDialog({
 	projectId?: string;
 }) {
 	const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
+	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
+	const drawerRef = useRef<HTMLDivElement>(null);
 	const previewKind = useMemo(() => detectPreviewKind(artifact), [artifact]);
 
 	const artifactPath = useMemo(() => {
 		if (!artifact || !projectId) return undefined;
 		return artifact.id;
 	}, [artifact, projectId]);
+
+	const closePreview = () => {
+		onOpenChange(false);
+	};
 
 	useEffect(() => {
 		if (!open || !artifact) {
@@ -102,6 +106,11 @@ export function ArtifactPreviewDialog({
 					});
 				}
 
+				const mimeType =
+					response.headers.get("content-type") ??
+					currentArtifact.mimeType ??
+					"application/octet-stream";
+
 				if (previewKind === "markdown" || previewKind === "text") {
 					const text = await response.text();
 					if (!cancelled) setPreview({ status: "ready", text });
@@ -121,7 +130,7 @@ export function ArtifactPreviewDialog({
 
 				const blob = await response.blob();
 				objectUrl = URL.createObjectURL(blob);
-				if (!cancelled) setPreview({ status: "ready", objectUrl });
+				if (!cancelled) setPreview({ status: "ready", objectUrl, mimeType });
 			} catch (err) {
 				if (cancelled || controller.signal.aborted) return;
 				const message = err instanceof Error ? err.message : "预览加载失败";
@@ -137,6 +146,21 @@ export function ArtifactPreviewDialog({
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
 	}, [open, artifact, artifactPath, previewKind, projectId]);
+
+	useEffect(() => {
+		if (!open) return;
+
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target;
+			if (!(target instanceof Element)) return;
+			if (drawerRef.current?.contains(target)) return;
+			if (target.closest("[data-file-preview-trigger]")) return;
+			onOpenChange(false);
+		};
+
+		document.addEventListener("pointerdown", handlePointerDown);
+		return () => document.removeEventListener("pointerdown", handlePointerDown);
+	}, [open, onOpenChange]);
 
 	const handleDownload = async () => {
 		if (!artifact) return;
@@ -163,59 +187,80 @@ export function ArtifactPreviewDialog({
 		}
 	};
 
+	const handleDrawerResizeStart = (event: React.PointerEvent<HTMLElement>) => {
+		event.preventDefault();
+		const startX = event.clientX;
+		const startWidth = drawerWidth;
+
+		const handlePointerMove = (moveEvent: PointerEvent) => {
+			const candidateWidth = startWidth - (moveEvent.clientX - startX);
+			const maxWidth = Math.min(FILE_PREVIEW_DRAWER_MAX_WIDTH, window.innerWidth - 160);
+			const nextWidth = Math.min(
+				Math.max(candidateWidth, FILE_PREVIEW_DRAWER_MIN_WIDTH),
+				Math.max(FILE_PREVIEW_DRAWER_MIN_WIDTH, maxWidth),
+			);
+			setDrawerWidth(nextWidth);
+		};
+
+		const handlePointerUp = () => {
+			window.removeEventListener("pointermove", handlePointerMove);
+			window.removeEventListener("pointerup", handlePointerUp);
+		};
+
+		window.addEventListener("pointermove", handlePointerMove);
+		window.addEventListener("pointerup", handlePointerUp);
+	};
+
+	if (!open || !artifact) {
+		return null;
+	}
+
 	return (
-		<Sheet open={open} onOpenChange={onOpenChange}>
-			<SheetContent
-				side="right"
-				showCloseButton={false}
-				className="inset-y-4 right-4 h-auto w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl sm:max-w-none md:w-[min(48vw,980px)]"
+		<div
+			ref={drawerRef}
+			className="fixed inset-y-4 right-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl"
+			style={{ width: `${drawerWidth}px`, maxWidth: `${drawerWidth}px` }}
+		>
+			<button
+				type="button"
+				aria-label="拖动调整预览宽度"
+				title="拖动调整预览宽度"
+				onPointerDown={handleDrawerResizeStart}
+				className="absolute left-0 top-0 z-10 flex h-full w-4 -translate-x-1/2 cursor-col-resize items-center justify-center"
 			>
-				{artifact && (
-					<>
-						<SheetHeader className="flex-row items-center gap-3 border-b border-[var(--leros-control-border)] px-5 py-4">
-							<div className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-muted)]">
-								<ProjectFileTypeIcon fileName={artifact.name} className="size-4 object-contain" />
-							</div>
-							<div className="h-5 w-px shrink-0 bg-[var(--leros-control-border)]" />
-							<div className="min-w-0 flex-1">
-								<SheetTitle className="truncate text-sm font-medium text-[var(--leros-text-muted)]">
-									{artifact.title || artifact.name}
-								</SheetTitle>
-								<SheetDescription className="sr-only">{artifact.name} 文件预览</SheetDescription>
-							</div>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								onClick={handleDownload}
-								title="下载"
-								className="shrink-0 text-[var(--leros-text)]"
-							>
-								<Download className="size-4" />
-							</Button>
-							<SheetClose
-								render={
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										title="关闭"
-										className="shrink-0 text-[var(--leros-text)]"
-									/>
-								}
-							>
-								<X className="size-4" />
-							</SheetClose>
-						</SheetHeader>
-						<div className="min-h-0 flex-1 overflow-hidden bg-[#f6f7fb]">
-							<ArtifactPreviewBody
-								artifact={artifact}
-								previewKind={previewKind}
-								preview={preview}
-							/>
-						</div>
-					</>
-				)}
-			</SheetContent>
-		</Sheet>
+				<div className="flex h-16 w-2 items-center justify-center rounded-full bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] shadow-sm ring-1 ring-[var(--leros-control-border)]">
+					<ChevronsLeftRightEllipsis className="size-3" />
+				</div>
+			</button>
+			<div className="flex items-center justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
+				<div className="min-w-0">
+					<div className="truncate text-lg font-medium text-[var(--leros-text-strong)]">
+						{artifact.title || artifact.name}
+					</div>
+				</div>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						onClick={() => void handleDownload()}
+						className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
+						title="下载"
+					>
+						<Download className="size-4" />
+					</button>
+					<button
+						type="button"
+						onClick={closePreview}
+						className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
+						title="关闭"
+					>
+						<X className="size-4" />
+					</button>
+				</div>
+			</div>
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface-soft)] p-6">
+				<ArtifactPreviewBody artifact={artifact} previewKind={previewKind} preview={preview} />
+			</div>
+		</div>
 	);
 }
 
@@ -230,18 +275,18 @@ function ArtifactPreviewBody({
 }) {
 	if (preview.status === "loading" || preview.status === "idle") {
 		return (
-			<div className="flex h-full items-center justify-center text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center text-sm text-[var(--leros-text-muted)]">
 				<LoaderCircle className="mr-2 size-4 animate-spin" />
-				加载预览
+				加载预览中
 			</div>
 		);
 	}
 
 	if (preview.status === "error") {
 		return (
-			<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
 				<div>
-					<p>无法加载预览</p>
+					<p>无法加载文件预览</p>
 					<p className="mt-1 text-xs">{preview.message}</p>
 				</div>
 			</div>
@@ -256,16 +301,24 @@ function ArtifactPreviewBody({
 		(previewKind === "docx" || previewKind === "xlsx" || previewKind === "pptx") &&
 		preview.buffer
 	) {
-		return <OfficePreview buffer={preview.buffer} fileName={artifact.name} format={previewKind} />;
+		return (
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
+				<OfficePreview buffer={preview.buffer} fileName={artifact.name} format={previewKind} />
+			</div>
+		);
 	}
 
 	if (previewKind === "spreadsheet" && preview.buffer) {
-		return <SpreadsheetPreview buffer={preview.buffer} fileName={artifact.name} />;
+		return (
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
+				<SpreadsheetPreview buffer={preview.buffer} fileName={artifact.name} />
+			</div>
+		);
 	}
 
 	if (previewKind === "markdown") {
 		return (
-			<div className="h-full overflow-auto bg-[var(--leros-surface)] px-8 py-7">
+			<div className="min-h-0 flex-1 overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
 				<MarkdownRenderer
 					content={preview.text ?? ""}
 					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7 prose-pre:rounded-lg prose-pre:bg-slate-950"
@@ -276,7 +329,7 @@ function ArtifactPreviewBody({
 
 	if (previewKind === "text") {
 		return (
-			<pre className="h-full overflow-auto bg-[var(--leros-surface)] p-5 text-sm leading-6 text-[var(--leros-text)]">
+			<pre className="min-h-0 flex-1 overflow-auto rounded-xl bg-white p-4 text-sm leading-6 text-[var(--leros-text)] shadow-sm">
 				{preview.text ?? ""}
 			</pre>
 		);
@@ -284,11 +337,11 @@ function ArtifactPreviewBody({
 
 	if (previewKind === "image" && preview.objectUrl) {
 		return (
-			<div className="flex h-full items-center justify-center overflow-auto p-5">
+			<div className="flex flex-1 items-center justify-center overflow-auto rounded-xl bg-white p-4 shadow-sm">
 				<img
 					src={preview.objectUrl}
 					alt={artifact.title || artifact.name}
-					className="max-h-full max-w-full rounded-lg border border-[var(--leros-control-border)] bg-white object-contain shadow-sm"
+					className="max-h-full max-w-full object-contain"
 				/>
 			</div>
 		);
@@ -296,20 +349,22 @@ function ArtifactPreviewBody({
 
 	if (previewKind === "pdf" && preview.objectUrl) {
 		return (
-			<iframe
-				title={artifact.title || artifact.name}
-				src={preview.objectUrl}
-				className="h-full w-full border-0 bg-white"
-			/>
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
+				<iframe
+					title={artifact.title || artifact.name}
+					src={preview.objectUrl}
+					className="h-full w-full border-0 bg-white"
+				/>
+			</div>
 		);
 	}
 
 	return (
-		<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+		<div className="flex flex-1 items-center justify-center rounded-xl bg-white px-8 text-center text-sm text-[var(--leros-text-muted)] shadow-sm">
 			<div>
 				<FileText className="mx-auto mb-3 size-8 text-[var(--leros-text-subtle)]" />
 				<p>此文件类型暂不支持内嵌预览</p>
-				<p className="mt-1 text-xs">可下载到本地查看完整内容</p>
+				<p className="mt-1 text-xs">请使用下载按钮在本地查看</p>
 			</div>
 		</div>
 	);
