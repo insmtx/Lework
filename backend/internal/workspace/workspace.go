@@ -318,9 +318,6 @@ func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("git init: %w: %s", err, strings.TrimSpace(string(output)))
 		}
-		if err := os.MkdirAll(filepath.Join(plan.RepoDir, "assets"), 0o755); err != nil {
-			return fmt.Errorf("create assets dir: %w", err)
-		}
 		return nil
 	}
 
@@ -332,9 +329,6 @@ func ensureGitRepo(ctx context.Context, plan *TaskWorkspace) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		os.RemoveAll(plan.RepoDir)
 		return fmt.Errorf("git clone: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	if err := os.MkdirAll(filepath.Join(plan.RepoDir, "assets"), 0o755); err != nil {
-		return fmt.Errorf("create assets dir: %w", err)
 	}
 	return nil
 }

@@ -315,7 +315,7 @@ type questionItem struct {
 	Header   string           `json:"header,omitempty"`
 	Options  []questionOption `json:"options"`
 	Multiple bool             `json:"multiple"`
-	Custom   bool             `json:"custom"`
+	Custom   *bool  `json:"custom"`
 }
 
 // questionOption 是问题的单个选项。
