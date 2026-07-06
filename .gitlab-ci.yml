@@ -192,6 +192,7 @@ deploy:
 
 .desktop-build-template:
   stage: desktop_build
+  resource_group: desktop-build
   tags:
     - macos
   rules:
@@ -252,27 +253,7 @@ deploy:
         done
 
         printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$CI_PROJECT_DIR/AuthKey.p8"
-        printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$CI_PROJECT_DIR/macos-certificate.p12"
         chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
-        chmod 600 "$CI_PROJECT_DIR/macos-certificate.p12"
-
-        security create-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        security set-keychain-settings -lut 21600 "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        security import "$CI_PROJECT_DIR/macos-certificate.p12" -k "$CI_PROJECT_DIR/macos-signing.keychain-db" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PASSWORD" "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        security list-keychains -d user -s "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        export MACOS_CODESIGN_IDENTITY="${MACOS_CODESIGN_IDENTITY:-Developer ID Application: Chuanjian Wang (Z6V3M72YA5)}"
-        security find-identity -v -p codesigning "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        if ! security find-identity -v -p codesigning "$CI_PROJECT_DIR/macos-signing.keychain-db" | grep -F "$MACOS_CODESIGN_IDENTITY"; then
-          echo "Required macOS codesign identity is missing: $MACOS_CODESIGN_IDENTITY"
-          exit 1
-        fi
-        export MACOS_CSC_NAME="$(security find-identity -v -p codesigning "$CI_PROJECT_DIR/macos-signing.keychain-db" | awk -v identity="$MACOS_CODESIGN_IDENTITY" 'index($0, identity) { print $2; exit }')"
-        if [ -z "$MACOS_CSC_NAME" ]; then
-          echo "Failed to resolve macOS codesign identity hash: $MACOS_CODESIGN_IDENTITY"
-          exit 1
-        fi
       fi
     - python3 -m venv "$CI_PROJECT_DIR/.coscmd-venv"
     - $CI_PROJECT_DIR/.coscmd-venv/bin/pip install coscmd
@@ -388,14 +369,47 @@ deploy:
 
       cd "$CI_PROJECT_DIR/frontend"
       if [ "$build_with_signing" = "true" ]; then
-        security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        security find-identity -v -p codesigning "$CI_PROJECT_DIR/macos-signing.keychain-db"
-        env APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" CSC_KEYCHAIN="$CI_PROJECT_DIR/macos-signing.keychain-db" CSC_NAME="$MACOS_CSC_NAME" pnpm run "$build_script"
+        env \
+          APPLE_API_KEY="$CI_PROJECT_DIR/AuthKey.p8" \
+          APPLE_API_KEY_ID="$APPLE_API_KEY_ID" \
+          APPLE_API_ISSUER="$APPLE_API_ISSUER" \
+          CSC_LINK="$MACOS_CERTIFICATE_P12_BASE64" \
+          CSC_KEY_PASSWORD="$MACOS_CERTIFICATE_PASSWORD" \
+          pnpm run "$build_script"
       else
         RETRY_MAX_ATTEMPTS=6 retry env ELECTRON_MIRROR="$ELECTRON_MIRROR" ELECTRON_BUILDER_BINARIES_MIRROR="$ELECTRON_BUILDER_BINARIES_MIRROR" npm_config_electron_mirror="$npm_config_electron_mirror" npm_config_electron_builder_binaries_mirror="$npm_config_electron_builder_binaries_mirror" pnpm run "$build_script"
       fi
 
       cd "$CI_PROJECT_DIR"
+      if [ "$build_with_signing" = "true" ]; then
+        dmg_path="frontend/apps/desktop/dist/${root_installer}"
+        if [ ! -f "$dmg_path" ]; then
+          echo "No DMG package found: $dmg_path"
+          exit 1
+        fi
+
+        mount_dir="$(mktemp -d)"
+        cleanup_mounted_dmg() {
+          hdiutil detach "$mount_dir" -quiet || true
+          rmdir "$mount_dir" || true
+        }
+        trap cleanup_mounted_dmg EXIT
+
+        hdiutil attach "$dmg_path" -nobrowse -readonly -mountpoint "$mount_dir"
+        app_path="$(find "$mount_dir" -maxdepth 1 -name '*.app' -print -quit)"
+        if [ -z "$app_path" ]; then
+          echo "No application bundle found in DMG: $dmg_path"
+          exit 1
+        fi
+
+        codesign --verify --deep --strict --verbose=2 "$app_path"
+        spctl --assess --type execute --verbose=2 "$app_path"
+        xcrun stapler validate "$app_path"
+
+        cleanup_mounted_dmg
+        trap - EXIT
+      fi
+
       mkdir -p "$release_dir"
       for payload_file in $payload_files; do
         cp "frontend/apps/desktop/dist/${payload_file}" "$release_dir/"
