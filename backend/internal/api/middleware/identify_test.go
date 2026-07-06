@@ -11,7 +11,6 @@ import (
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
-	ygauth "github.com/ygpkg/yg-go/apis/runtime/auth"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -30,26 +29,23 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	return database
 }
 
-func setupTestUserOrg(t *testing.T, database *gorm.DB, uin uint, orgID uint) {
-	t.Helper()
-	userOrg := &types.UserOrg{
-		Uin:       uin,
-		OrgID:     orgID,
-		IsDefault: true,
-	}
-	if err := db.CreateUserOrg(context.Background(), database, userOrg); err != nil {
-		t.Fatalf("failed to create user org: %v", err)
-	}
+func generateTestUserJWT(uin uint) (string, error) {
+	token, _, err := localauth.GenerateUserToken(localauth.UserClaims{
+		Uin: uin,
+	}, testJWTSecret, time.Hour)
+	return token, err
 }
 
-func generateTestJWT(uin uint, issuer string) (string, error) {
-	claims := &ygauth.UserClaims{
-		Uin:       uin,
-		Issuer:    issuer,
-		IssuedAt:  time.Now().Unix(),
-		ExpiresAt: time.Now().Add(time.Hour).Unix(),
+func generateRawUserJWT(claims localauth.UserClaims) (string, error) {
+	now := time.Now()
+	claims.StandardClaims = jwt.StandardClaims{
+		Subject:   "test-user",
+		Issuer:    localauth.UserTokenIssuer,
+		Audience:  localauth.UserTokenAudience,
+		IssuedAt:  now.Unix(),
+		ExpiresAt: now.Add(time.Hour).Unix(),
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &claims)
 	return token.SignedString([]byte(testJWTSecret))
 }
 
@@ -117,13 +113,22 @@ func TestCallerMiddleware_InvalidToken(t *testing.T) {
 	}
 }
 
-func TestCallerMiddleware_ValidToken(t *testing.T) {
+func TestCallerMiddleware_ValidV2UserToken(t *testing.T) {
+	testUserID := uint(8)
 	testUin := uint(12345)
-	testOrgID := uint(1)
+	testOrgID := uint(2)
 	database := setupTestDB(t)
-	setupTestUserOrg(t, database, testUin, testOrgID)
+	userOrg := &types.UserOrg{
+		Uin:       testUin,
+		UserID:    testUserID,
+		OrgID:     testOrgID,
+		IsDefault: true,
+	}
+	if err := db.CreateUserOrg(context.Background(), database, userOrg); err != nil {
+		t.Fatalf("failed to create user org: %v", err)
+	}
 
-	token, err := generateTestJWT(testUin, "test-issuer")
+	token, err := generateTestUserJWT(testUin)
 	if err != nil {
 		t.Fatalf("failed to generate token: %v", err)
 	}
@@ -270,7 +275,7 @@ func TestExtractTokenFromHeader(t *testing.T) {
 
 func TestCallerMiddleware_WrongSecret(t *testing.T) {
 	database := setupTestDB(t)
-	token, _ := generateTestJWT(12345, "test-issuer")
+	token, _ := generateTestUserJWT(12345)
 
 	ctx, _ := setupTestContext()
 	req := httptest.NewRequest("GET", "/", nil)
@@ -291,7 +296,12 @@ func TestCallerMiddleware_WrongSecret(t *testing.T) {
 
 func TestCallerMiddleware_ZeroUin(t *testing.T) {
 	database := setupTestDB(t)
-	token, _ := generateTestJWT(0, "test-issuer")
+	token, err := generateRawUserJWT(localauth.UserClaims{
+		Uin: 0,
+	})
+	if err != nil {
+		t.Fatalf("failed to generate raw token: %v", err)
+	}
 
 	ctx, _ := setupTestContext()
 	req := httptest.NewRequest("GET", "/", nil)
@@ -306,6 +316,6 @@ func TestCallerMiddleware_ZeroUin(t *testing.T) {
 		t.Fatal("caller should not be nil")
 	}
 	if caller.State != types.AuthStateFailed {
-		t.Errorf("expected State AuthStateFailed for zero Uin, got %v", caller.State)
+		t.Errorf("expected State AuthStateFailed for zero uin, got %v", caller.State)
 	}
 }

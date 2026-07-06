@@ -61,11 +61,16 @@ func (s *orgService) CreateOrg(ctx context.Context, req *contract.CreateOrgReque
 	}
 
 	org := &types.Organization{
-		PublicID: fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
-		Type:     orgType,
-		Code:     strings.TrimSpace(req.Code),
-		Name:     strings.TrimSpace(req.Name),
-		Status:   status,
+		PublicID:    fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
+		Type:        orgType,
+		Code:        strings.TrimSpace(req.Code),
+		Name:        strings.TrimSpace(req.Name),
+		Status:      status,
+		Description: strings.TrimSpace(req.Description),
+		Logo:        strings.TrimSpace(req.Logo),
+		Address:     strings.TrimSpace(req.Address),
+		Website:     strings.TrimSpace(req.Website),
+		CreatedByUin: caller.Uin,
 	}
 
 	if err := db.CreateOrg(ctx, s.db, org); err != nil {
@@ -126,6 +131,9 @@ func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contra
 		if org == nil {
 			return errors.New("org not found")
 		}
+		if org.ID != caller.OrgID {
+			return errors.New("permission denied")
+		}
 
 		if req.Name != nil {
 			org.Name = strings.TrimSpace(*req.Name)
@@ -138,6 +146,18 @@ func (s *orgService) UpdateOrg(ctx context.Context, publicID string, req *contra
 		}
 		if req.Status != nil {
 			org.Status = strings.TrimSpace(*req.Status)
+		}
+		if req.Description != nil {
+			org.Description = strings.TrimSpace(*req.Description)
+		}
+		if req.Logo != nil {
+			org.Logo = strings.TrimSpace(*req.Logo)
+		}
+		if req.Address != nil {
+			org.Address = strings.TrimSpace(*req.Address)
+		}
+		if req.Website != nil {
+			org.Website = strings.TrimSpace(*req.Website)
 		}
 
 		return db.UpdateOrg(ctx, tx, org)
@@ -413,12 +433,16 @@ func convertToContractOrg(org *types.Organization) *contract.Org {
 		return nil
 	}
 	return &contract.Org{
-		PublicID:  org.PublicID,
-		Type:      org.Type,
-		Code:      org.Code,
-		Name:      org.Name,
-		Status:    org.Status,
-		CreatedAt: org.CreatedAt,
-		UpdatedAt: org.UpdatedAt,
+		PublicID:    org.PublicID,
+		Type:        org.Type,
+		Code:        org.Code,
+		Name:        org.Name,
+		Status:      org.Status,
+		Description: org.Description,
+		Logo:        org.Logo,
+		Address:     org.Address,
+		Website:     org.Website,
+		CreatedAt:   org.CreatedAt,
+		UpdatedAt:   org.UpdatedAt,
 	}
 }

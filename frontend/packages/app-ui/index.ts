@@ -4,4 +4,5 @@ export * from "./components/chat";
 export * from "./components/digitalAssistant";
 export * from "./components/input";
 export * from "./components/layout";
+export * from "./components/org-admin";
 export * from "./components/skills";

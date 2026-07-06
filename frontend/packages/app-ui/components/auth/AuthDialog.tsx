@@ -5,7 +5,6 @@ import {
 	type AuthTokenResponse,
 	type AuthUser,
 	authApi,
-	getValidJwtToken,
 	useAuthStore,
 	useChatStore,
 	useLayoutStore,
@@ -30,6 +29,7 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import {
@@ -64,10 +64,12 @@ export function AuthProvider({
 }) {
 	const authUser = useAuthStore((s) => s.authUser);
 	const setAuthToken = useAuthStore((s) => s.setAuthToken);
+	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const logoutAuth = useAuthStore((s) => s.logout);
 	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
 	const resetAuthScopedData = useLayoutStore((s) => s.resetAuthScopedData);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
+	const hasRestoredSessionRef = useRef(false);
 	const [hydrated, setHydrated] = useState(false);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
@@ -89,8 +91,17 @@ export function AuthProvider({
 	}, [logoutAuth, resetAuthScopedData, resetLocalMessages]);
 
 	useEffect(() => {
-		if (authUser) void getValidJwtToken();
-	}, [authUser]);
+		if (!hydrated || hasRestoredSessionRef.current || !authUser?.jwtToken) return;
+		hasRestoredSessionRef.current = true;
+		void refreshAuthSession().then((ok) => {
+			if (ok) return;
+			logoutAuth();
+			resetAuthScopedData();
+			resetLocalMessages();
+			setPendingAction(null);
+			setDialogOpen(true);
+		});
+	}, [authUser, hydrated, logoutAuth, refreshAuthSession, resetAuthScopedData, resetLocalMessages]);
 
 	const openAuthDialog = useCallback((_nextMode: AuthMode = "login") => {
 		setDialogOpen(true);

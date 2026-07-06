@@ -21,6 +21,7 @@ import (
 
 var legacyTables = []string{
 	"leros_artifact",
+	"leros_organization_profile",
 }
 
 // legacyColumnsToDrop 记录了从模型中被移除但数据库中残留的列。
@@ -42,7 +43,9 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameDigitalAssistant, column: "config"},
 	{table: types.TableNameMessageResource, column: "resource_public_id"},
 	{table: types.TableNameMessageResource, column: "resource_code"},
-	{table: types.TableNameMessageResource, column: "meta"},
+	{table: types.TableNameMemberDepartment, column: "user_org_id"},
+	{table: types.TableNameAuthRefreshToken, column: "user_id"},
+	{table: types.TableNameAuthRefreshToken, column: "user_org_id"},
 }
 
 var renamesToApply = []renameColumn{
@@ -118,6 +121,8 @@ func runMigrations(db *gorm.DB) error {
 		&types.SkillMarketplaceItem{},
 		&types.OrgSkillInstallation{},
 		&types.MessageResource{},
+		&types.Department{},
+		&types.MemberDepartment{},
 	}
 
 	if err := renameLegacyColumns(db); err != nil {
@@ -128,7 +133,20 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	if err := backfillUinFromUserOrgID(db); err != nil {
+		return err
+	}
+
+	if err := backfillMemberDepartmentOrgID(db); err != nil {
+		return err
+	}
+
 	if err := dropLegacyColumns(db); err != nil {
+		return err
+	}
+
+	// backfill must run before dropLegacyTables, since profile table is dropped there
+	if err := backfillOrganizationProfileFields(db); err != nil {
 		return err
 	}
 
@@ -137,6 +155,83 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	logs.Info("Database migrations completed")
+	return nil
+}
+
+// backfillOrganizationProfileFields 将 organization_profile 表中的扩展字段回填到 organization 表。
+// 仅更新 organization 中对应字段为空的行，保证幂等性。
+func backfillOrganizationProfileFields(db *gorm.DB) error {
+	if !db.Migrator().HasTable("leros_organization_profile") {
+		return nil
+	}
+	err := db.Exec(`
+		UPDATE leros_organization AS o
+		SET
+			description   = CASE WHEN o.description  = '' AND p.description  != '' THEN p.description  ELSE o.description  END,
+			logo          = CASE WHEN o.logo         = '' AND p.logo          != '' THEN p.logo          ELSE o.logo          END,
+			address       = CASE WHEN o.address      = '' AND p.address       != '' THEN p.address       ELSE o.address       END,
+			website       = CASE WHEN o.website      = '' AND p.website       != '' THEN p.website       ELSE o.website       END,
+			created_by_uin = CASE WHEN o.created_by_uin = 0 AND p.uin != 0 THEN p.uin ELSE o.created_by_uin END
+		FROM leros_organization_profile AS p
+		WHERE p.org_id = o.id AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+	`).Error
+	if err != nil {
+		logs.Warnf("[migration] backfillOrganizationProfileFields: %v", err)
+	}
+	return nil
+}
+
+// backfillUinFromUserOrgID 将 user_org_id 列回填为 uin（AuthRefreshToken 与 MemberDepartment）。
+func backfillUinFromUserOrgID(db *gorm.DB) error {
+	relTable := types.TableNameMemberDepartment
+	if db.Migrator().HasTable(relTable) && db.Migrator().HasColumn(relTable, "user_org_id") {
+		err := db.Exec(`
+			UPDATE leros_rel_user_org_department
+			SET uin = (
+				SELECT uo.uin FROM leros_user_org uo
+				WHERE uo.id = leros_rel_user_org_department.user_org_id
+			)
+			WHERE user_org_id > 0 AND uin = 0
+		`).Error
+		if err != nil {
+			logs.Warnf("[migration] backfillUinFromUserOrgID rel: %v", err)
+		}
+	}
+
+	tokenTable := types.TableNameAuthRefreshToken
+	if db.Migrator().HasTable(tokenTable) && db.Migrator().HasColumn(tokenTable, "user_org_id") {
+		err := db.Exec(`
+			UPDATE leros_auth_refresh_token
+			SET uin = (
+				SELECT uo.uin FROM leros_user_org uo
+				WHERE uo.id = leros_auth_refresh_token.user_org_id
+			)
+			WHERE user_org_id > 0 AND uin = 0
+		`).Error
+		if err != nil {
+			logs.Warnf("[migration] backfillUinFromUserOrgID refresh_token: %v", err)
+		}
+	}
+	return nil
+}
+
+// backfillMemberDepartmentOrgID 从 user_org 表将 org_id 回填到 rel_user_org_department。
+func backfillMemberDepartmentOrgID(db *gorm.DB) error {
+	relTable := types.TableNameMemberDepartment
+	if !db.Migrator().HasTable(relTable) {
+		return nil
+	}
+	err := db.Exec(`
+		UPDATE leros_rel_user_org_department
+		SET org_id = (
+			SELECT uo.org_id FROM leros_user_org uo
+			WHERE uo.uin = leros_rel_user_org_department.uin
+		)
+		WHERE org_id = 0 AND uin > 0
+	`).Error
+	if err != nil {
+		logs.Warnf("[migration] backfillMemberDepartmentOrgID: %v", err)
+	}
 	return nil
 }
 

@@ -9,4 +9,7 @@ type AuthService interface {
 	SendPhoneLoginCode(ctx context.Context, req *SendPhoneLoginCodeRequest) (*SendPhoneLoginCodeResponse, error)
 	LoginByPhoneCode(ctx context.Context, req *LoginByPhoneCodeRequest) (*AuthTokenResponse, error)
 	RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*AuthTokenResponse, error)
+	SwitchOrganization(ctx context.Context, req *SwitchOrganizationRequest) (*AuthTokenResponse, error)
+	CreateOrganization(ctx context.Context, req *CreateOrganizationRequest) (*AuthTokenResponse, error)
+	AuthSession(ctx context.Context) (*AuthSessionResponse, error)
 }

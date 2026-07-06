@@ -19,6 +19,8 @@ export type {
 	UpdateDAStatusParams,
 } from "./digitalAssistantApi";
 export { digitalAssistantApi } from "./digitalAssistantApi";
+export type { Department, ListDepartmentsResponse, OrgInfo } from "./orgAdminApi";
+export { orgAdminApi } from "./orgAdminApi";
 export type {
 	CreateProjectParams,
 	DeleteProjectParams,

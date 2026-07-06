@@ -6,9 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
-	ygauth "github.com/ygpkg/yg-go/apis/runtime/auth"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
@@ -74,53 +72,51 @@ func parseCallerFromRequest(ctx *gin.Context, jwtSecret string, database *gorm.D
 		}
 	}
 
-	userClaims, err := parseJWTToken(tokenStr, jwtSecret)
-	if err != nil {
-		if workerCaller, workerErr := parseWorkerCaller(tokenStr, jwtSecret); workerErr == nil {
-			return workerCaller
-		} else {
-			logs.Warnw("parse auth token failed", "user_error", err, "worker_error", workerErr)
-		}
-		return failedCaller()
+	userCaller, userErr := parseUserCaller(ctx, tokenStr, jwtSecret, database, reqID)
+	if userErr == nil {
+		return userCaller
 	}
 
-	if userClaims.Uin == 0 {
-		if workerCaller, workerErr := parseWorkerCaller(tokenStr, jwtSecret); workerErr == nil {
-			return workerCaller
-		}
-		return failedCaller()
+	if workerCaller, workerErr := parseWorkerCaller(tokenStr, jwtSecret); workerErr == nil {
+		return workerCaller
+	} else {
+		logs.Warnw("parse auth token failed", "user_error", userErr, "worker_error", workerErr)
+	}
+	return failedCaller()
+}
+
+func parseUserCaller(ctx *gin.Context, tokenStr, jwtSecret string, database *gorm.DB, reqID string) (*types.Caller, error) {
+	claims, err := localauth.ParseUserToken(tokenStr, jwtSecret)
+	if err != nil {
+		return nil, err
 	}
 
 	queryCtx, cancel := context.WithTimeout(ctx.Request.Context(), 3*time.Second)
 	defer cancel()
 
-	userOrg, err := db.GetUserOrgByUin(queryCtx, database, userClaims.Uin)
+	userOrg, err := db.GetUserOrgByUin(queryCtx, database, claims.Uin)
 	if err != nil {
-		logs.Warnw("get user org by uin failed, db error", "error", err, "uin", userClaims.Uin, "reqID", ctx.Request.Header.Get(headerKeyRequestID))
+		logs.Warnw("get user org by uin failed, db error", "error", err, "uin", claims.Uin, "reqID", reqID)
 		return &types.Caller{
-			Uin:   userClaims.Uin,
-			OrgID: 0,
+			Uin:   claims.Uin,
 			Kind:  types.CallerKindUser,
 			State: types.AuthStateFailed,
-		}
+		}, nil
 	}
-
 	if userOrg == nil {
-		logs.Warnw("user org not found", "uin", userClaims.Uin)
+		logs.Warnw("user org not found", "uin", claims.Uin)
 		return &types.Caller{
-			Uin:   userClaims.Uin,
-			OrgID: 0,
+			Uin:   claims.Uin,
 			Kind:  types.CallerKindUser,
 			State: types.AuthStateFailed,
-		}
+		}, nil
 	}
-
 	return &types.Caller{
-		Uin:   userClaims.Uin,
+		Uin:   userOrg.Uin,
 		OrgID: userOrg.OrgID,
 		Kind:  types.CallerKindUser,
 		State: types.AuthStateSucc,
-	}
+	}, nil
 }
 
 func parseWorkerCaller(tokenStr, jwtSecret string) (*types.Caller, error) {
@@ -150,15 +146,4 @@ func extractTokenFromHeader(authHeader string) string {
 		return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	}
 	return strings.TrimSpace(authHeader)
-}
-
-func parseJWTToken(tokenStr, jwtSecret string) (*ygauth.UserClaims, error) {
-	claims := &ygauth.UserClaims{}
-	_, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(jwtSecret), nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return claims, nil
 }

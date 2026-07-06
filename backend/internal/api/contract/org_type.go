@@ -7,26 +7,38 @@ import (
 )
 
 type Org struct {
-	PublicID  string    `json:"public_id"`
-	Type      string    `json:"type"`
-	Code      string    `json:"code"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	PublicID    string    `json:"public_id"`
+	Type        string    `json:"type"`
+	Code        string    `json:"code"`
+	Name        string    `json:"name"`
+	Status      string    `json:"status"`
+	Description string    `json:"description,omitempty"`
+	Logo        string    `json:"logo,omitempty"`
+	Address     string    `json:"address,omitempty"`
+	Website     string    `json:"website,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type CreateOrgRequest struct {
-	Name   string `json:"name" binding:"required"`
-	Code   string `json:"code" binding:"required"`
-	Type   string `json:"type,omitempty"`
-	Status string `json:"status,omitempty"`
+	Name        string `json:"name" binding:"required"`
+	Code        string `json:"code" binding:"required"`
+	Type        string `json:"type,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Description string `json:"description,omitempty"`
+	Logo        string `json:"logo,omitempty"`
+	Address     string `json:"address,omitempty"`
+	Website     string `json:"website,omitempty"`
 }
 
 type UpdateOrgRequest struct {
-	Name   *string `json:"name,omitempty"`
-	Type   *string `json:"type,omitempty"`
-	Status *string `json:"status,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Type        *string `json:"type,omitempty"`
+	Status      *string `json:"status,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Logo        *string `json:"logo,omitempty"`
+	Address     *string `json:"address,omitempty"`
+	Website     *string `json:"website,omitempty"`
 }
 
 type ListOrgsRequest struct {

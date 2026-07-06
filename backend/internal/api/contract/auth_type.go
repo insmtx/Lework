@@ -10,6 +10,7 @@ type RegisterByEmailRequest struct {
 type LoginByEmailRequest struct {
 	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	OrgID    uint   `json:"org_id,omitempty"`
 }
 
 type SendPhoneLoginCodeRequest struct {
@@ -25,20 +26,36 @@ type SendPhoneLoginCodeResponse struct {
 type LoginByPhoneCodeRequest struct {
 	Phone string `json:"phone" binding:"required"`
 	Code  string `json:"code" binding:"required"`
+	OrgID uint   `json:"org_id,omitempty"`
 }
 
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+type SwitchOrganizationRequest struct {
+	OrgID uint `json:"org_id" binding:"required"`
+}
+
+type CreateOrganizationRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
 type AuthTokenResponse struct {
-	LoginStatus  string       `json:"login_status"`
-	JwtToken     string       `json:"jwt_token"`
-	RefreshToken string       `json:"refresh_token"`
-	ExpiredAt    int64        `json:"expired_at"`
-	Uin          uint         `json:"uin"`
-	UserInfo     AuthUserInfo `json:"user_info"`
-	Org          AuthOrgInfo  `json:"org"`
+	LoginStatus   string        `json:"login_status"`
+	JwtToken      string        `json:"jwt_token"`
+	RefreshToken  string        `json:"refresh_token"`
+	ExpiredAt     int64         `json:"expired_at"`
+	Uin           uint          `json:"uin"`
+	UserInfo      AuthUserInfo  `json:"user_info"`
+	Org           AuthOrgInfo   `json:"org"`
+	Organizations []AuthOrgInfo `json:"organizations,omitempty"`
+}
+
+type AuthSessionResponse struct {
+	UserInfo      AuthUserInfo  `json:"user_info"`
+	Org           AuthOrgInfo   `json:"org"`
+	Organizations []AuthOrgInfo `json:"organizations,omitempty"`
 }
 
 type AuthUserInfo struct {
@@ -52,8 +69,10 @@ type AuthUserInfo struct {
 }
 
 type AuthOrgInfo struct {
-	ID       uint   `json:"id"`
-	PublicID string `json:"public_id"`
-	Code     string `json:"code"`
-	Name     string `json:"name"`
+	ID        uint   `json:"id"`
+	PublicID  string `json:"public_id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Logo      string `json:"logo,omitempty"`
+	IsDefault bool   `json:"is_default,omitempty"`
 }

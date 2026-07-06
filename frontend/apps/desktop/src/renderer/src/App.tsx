@@ -38,7 +38,7 @@ const forcedUpdateRefreshIntervalMs = 2 * 60 * 1000;
 export default function App() {
 	return (
 		<HashRouter>
-			<ThemeProvider defaultTheme="system">
+			<ThemeProvider defaultTheme="light">
 				<MacTitleBarDragRegion />
 				<AppRoutes />
 				<ClientUpdateGate />

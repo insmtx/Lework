@@ -46,6 +46,19 @@ func GetUserOrgByUserID(ctx context.Context, db *gorm.DB, userID uint) (*types.U
 	return &userOrg, nil
 }
 
+// GetUserOrgByUserIDAndOrgID 获取用户在指定组织下的关联。
+func GetUserOrgByUserIDAndOrgID(ctx context.Context, db *gorm.DB, userID, orgID uint) (*types.UserOrg, error) {
+	var userOrg types.UserOrg
+	err := db.WithContext(ctx).Where("user_id = ? AND org_id = ?", userID, orgID).First(&userOrg).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &userOrg, nil
+}
+
 // GetUserOrgsByUserID 获取用户全部组织关联。
 func GetUserOrgsByUserID(ctx context.Context, db *gorm.DB, userID uint) ([]*types.UserOrg, error) {
 	var userOrgs []*types.UserOrg
@@ -57,6 +70,16 @@ func GetUserOrgsByUserID(ctx context.Context, db *gorm.DB, userID uint) ([]*type
 		return nil, err
 	}
 	return userOrgs, nil
+}
+
+// CountUserOrgsByUserID 统计用户所属组织数量。
+func CountUserOrgsByUserID(ctx context.Context, db *gorm.DB, userID uint) (int64, error) {
+	var count int64
+	err := db.WithContext(ctx).
+		Model(&types.UserOrg{}).
+		Where("user_id = ?", userID).
+		Count(&count).Error
+	return count, err
 }
 
 // CreateUserOrg 创建用户组织

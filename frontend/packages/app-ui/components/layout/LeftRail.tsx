@@ -2,7 +2,6 @@
 
 import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
-	authenticatedFetch,
 	getFileDownloadUrl,
 	getFilePublicUrlFromStorageUri,
 	LEFT_RAIL_MAX_WIDTH,
@@ -26,13 +25,14 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Input } from "@leros/ui/components/ui/input";
 import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { cn } from "@leros/ui/lib/utils";
 import {
+	ArrowLeftRight,
+	Building2,
 	Camera,
 	Check,
 	ChevronDown,
@@ -65,12 +65,18 @@ import { toast } from "sonner";
 import { APP_LOGO_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
+import {
+	blobToDataURL,
+	cacheProtectedImageDataURL,
+	ProtectedImage,
+} from "../avatar/ProtectedImage";
+import { OrgAdminDialog } from "../org-admin/OrgAdminDialog";
+import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
 import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 
 const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
 const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
-const AVATAR_CACHE_PREFIX = "leros-avatar-cache:";
 const LEFT_RAIL_COLLAPSED_WIDTH = 72;
 const RECENT_PROJECT_LIMIT = 5;
 // 中文注释：设计稿要求项目展开后先预览 10 条任务，点“展开显示”后再展示全部任务。
@@ -147,6 +153,8 @@ export function LeftRail({
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 	const [deleteTaskTarget, setDeleteTaskTarget] = useState<ProjectTask | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+	const [orgAdminDialogOpen, setOrgAdminDialogOpen] = useState(false);
+	const [orgSwitchDialogOpen, setOrgSwitchDialogOpen] = useState(false);
 	const [globalTaskSearchOpen, setGlobalTaskSearchOpen] = useState(false);
 	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
 	const [expandedTaskProjectIds, setExpandedTaskProjectIds] = useState<Set<string>>(
@@ -635,7 +643,7 @@ export function LeftRail({
 											{user?.name ?? "Lework 用户"}
 										</p>
 										<p className="truncate text-[12px] text-[var(--leros-text-subtle)]">
-											{getDisplayPhone(user) ?? "已登录"}
+											{user?.currentOrg?.name ?? getDisplayPhone(user) ?? "已登录"}
 										</p>
 									</div>
 								</button>
@@ -645,7 +653,7 @@ export function LeftRail({
 							align="start"
 							side="top"
 							sideOffset={10}
-							className="leros-profile-menu"
+							className="leros-profile-menu border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text)] shadow-[var(--leros-shadow-menu)]"
 							style={
 								{
 									"--leros-sidebar-menu-width": `${profileTriggerWidth}px`,
@@ -668,14 +676,30 @@ export function LeftRail({
 							</DropdownMenuItem>
 							*/}
 							<DropdownMenuItem onClick={() => setAccountDialogOpen(true)}>
-								<UserRound className="size-4" />
+								<UserRound className="size-4 shrink-0" />
 								<span>账户管理</span>
 							</DropdownMenuItem>
-							<DropdownMenuSeparator />
+							<DropdownMenuItem
+								onClick={() => {
+									if (!requireAuth()) return;
+									setOrgAdminDialogOpen(true);
+								}}
+							>
+								<Building2 className="size-4 shrink-0" />
+								<span>组织设置</span>
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => {
+									if (!requireAuth()) return;
+									setOrgSwitchDialogOpen(true);
+								}}
+							>
+								<ArrowLeftRight className="size-4 shrink-0" />
+								<span>切换组织</span>
+							</DropdownMenuItem>
 							<DesktopUpdateMenuSection />
-							<DropdownMenuSeparator />
 							<DropdownMenuItem variant="destructive" onClick={handleLogout}>
-								<LogOut className="size-4" />
+								<LogOut className="size-4 shrink-0" />
 								<span>退出登录</span>
 							</DropdownMenuItem>
 						</DropdownMenuContent>
@@ -721,6 +745,15 @@ export function LeftRail({
 				onOpenChange={setAccountDialogOpen}
 				onUserChange={setAuthUser}
 			/>
+			<OrgAdminDialog open={orgAdminDialogOpen} onOpenChange={setOrgAdminDialogOpen} />
+			<Dialog open={orgSwitchDialogOpen} onOpenChange={setOrgSwitchDialogOpen}>
+				<DialogContent className="w-[min(420px,95vw)] max-w-none p-6" showCloseButton>
+					<OrganizationSwitchPanel
+						navigation={navigation}
+						onDone={() => setOrgSwitchDialogOpen(false)}
+					/>
+				</DialogContent>
+			</Dialog>
 			<GlobalTaskSearchDialog
 				open={globalTaskSearchOpen}
 				onOpenChange={setGlobalTaskSearchOpen}
@@ -991,7 +1024,7 @@ function AccountManagementDialog({
 				getFileDownloadUrl(uploaded.public_id);
 			const response = await userApi.update({ public_id: publicId, avatar_url: avatarUrl });
 			const updatedUser = response.data.data;
-			cacheAvatarDataURL(avatarUrl, await blobToDataURL(file));
+			cacheProtectedImageDataURL(avatarUrl, await blobToDataURL(file));
 			updateLocalUser({
 				publicId: updatedUser?.public_id || publicId,
 				name: updatedUser?.name || user?.name || "",
@@ -1027,8 +1060,9 @@ function AccountManagementDialog({
 							disabled={uploadingAvatar}
 							aria-label="上传头像"
 						>
-							<ImageWithFallback
-								src={previewAvatarUrl || user?.avatarUrl}
+							<ProtectedImage
+								src={user?.avatarUrl}
+								localSrc={previewAvatarUrl}
 								alt={user?.name ?? "Avatar"}
 								className="h-full w-full object-cover"
 								fallback={
@@ -1141,7 +1175,7 @@ function ProfileAvatar({ user }: { user: AuthUser | null }) {
 			className="leros-avatar overflow-hidden text-[11px] font-semibold"
 			style={{ background: "var(--leros-primary)", color: "#fff" }}
 		>
-			<ImageWithFallback
+			<ProtectedImage
 				src={user?.avatarUrl}
 				alt={user?.name ?? "Avatar"}
 				className="h-full w-full object-cover"
@@ -1178,122 +1212,6 @@ function getAppVersion(): string {
 function isImageFile(file: File): boolean {
 	if (file.type.startsWith("image/")) return true;
 	return /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(file.name);
-}
-
-function ImageWithFallback({
-	src,
-	alt,
-	className,
-	fallback,
-	onProtectedSrcNotFound,
-}: {
-	src?: string | null;
-	alt: string;
-	className: string;
-	fallback: React.ReactNode;
-	onProtectedSrcNotFound?: () => void;
-}) {
-	const [failed, setFailed] = useState(false);
-	const [imageURL, setImageURL] = useState<string | null>(() => getCachedAvatarDataURL(src));
-
-	useEffect(() => {
-		setFailed(false);
-		if (!src || !isProtectedFileURL(src)) {
-			setImageURL(null);
-			return;
-		}
-
-		const cachedAvatarURL = getCachedAvatarDataURL(src);
-		if (cachedAvatarURL) {
-			setImageURL(cachedAvatarURL);
-			// 中文注释：头像缓存命中后直接复用，避免输入框等无关重渲染时重复下载同一文件。
-			return;
-		}
-
-		let cancelled = false;
-		authenticatedFetch(src)
-			.then(async (response) => {
-				if (!response.ok) throw new Error(`HTTP ${response.status}`);
-				return response.blob();
-			})
-			.then(async (blob) => {
-				if (cancelled) return;
-				const dataURL = await blobToDataURL(blob);
-				if (cancelled) return;
-				cacheAvatarDataURL(src, dataURL);
-				setImageURL(dataURL);
-			})
-			.catch((error) => {
-				if (cancelled) return;
-				const isNotFoundError =
-					error instanceof Error && (error.message === "HTTP 404" || error.message.includes("404"));
-				if (isNotFoundError) {
-					onProtectedSrcNotFound?.();
-				}
-				if (!cachedAvatarURL) setFailed(true);
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [src, onProtectedSrcNotFound]);
-
-	if (!src || failed) return <>{fallback}</>;
-	const imageSrc = imageURL || src;
-	if (isProtectedFileURL(src) && !imageURL) return <>{fallback}</>;
-
-	return (
-		<img
-			src={imageSrc}
-			alt={alt}
-			className={className}
-			loading="lazy"
-			decoding="async"
-			referrerPolicy="no-referrer"
-			onError={() => setFailed(true)}
-		/>
-	);
-}
-
-function isProtectedFileURL(src: string): boolean {
-	return src.includes("/files/") && src.includes("/download");
-}
-
-function getAvatarCacheKey(src: string): string {
-	return `${AVATAR_CACHE_PREFIX}${src}`;
-}
-
-function getCachedAvatarDataURL(src?: string | null): string | null {
-	if (!src || typeof window === "undefined" || !isProtectedFileURL(src)) return null;
-	try {
-		return window.localStorage.getItem(getAvatarCacheKey(src));
-	} catch {
-		return null;
-	}
-}
-
-function cacheAvatarDataURL(src: string, dataURL: string) {
-	if (typeof window === "undefined" || !isProtectedFileURL(src)) return;
-	try {
-		window.localStorage.setItem(getAvatarCacheKey(src), dataURL);
-	} catch {
-		// Avatar cache is an optional UX optimization.
-	}
-}
-
-function blobToDataURL(blob: Blob): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.addEventListener("load", () => {
-			if (typeof reader.result === "string") {
-				resolve(reader.result);
-				return;
-			}
-			reject(new Error("头像缓存失败"));
-		});
-		reader.addEventListener("error", () => reject(new Error("头像缓存失败")));
-		reader.readAsDataURL(blob);
-	});
 }
 
 function getAvatarInitial(label: string) {
@@ -1395,9 +1313,9 @@ function DesktopUpdateMenuSection() {
 	};
 
 	return (
-		<div className="space-y-1">
+		<>
 			{updateState.phase === "downloading" && typeof updateState.progressPercent === "number" ? (
-				<div className="px-2 pb-1">
+				<div className="leros-profile-menu-progress">
 					<div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
 						<div
 							className="h-full rounded-full bg-[#34c59a] transition-all"
@@ -1407,20 +1325,18 @@ function DesktopUpdateMenuSection() {
 				</div>
 			) : null}
 
-			<button
-				type="button"
-				className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm text-slate-700 outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-				onClick={handleCheckForUpdates}
+			<DropdownMenuItem
+				onClick={() => void handleCheckForUpdates()}
 				disabled={!updateState.canCheck || checking}
 			>
 				{checking || updateState.phase === "checking" ? (
-					<Loader2 className="size-4 animate-spin" />
+					<Loader2 className="size-4 shrink-0 animate-spin" />
 				) : (
-					<RefreshCcw className="size-4" />
+					<RefreshCcw className="size-4 shrink-0" />
 				)}
 				<span>检查更新</span>
-			</button>
-		</div>
+			</DropdownMenuItem>
+		</>
 	);
 }
 
