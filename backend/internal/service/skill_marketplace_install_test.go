@@ -90,7 +90,7 @@ func setupSkillMarketplaceInstallServiceDB(t *testing.T) (*gorm.DB, sqlmock.Sqlm
 
 func expectDefaultWorkerDeployment(mock sqlmock.Sqlmock) {
 	columns := []string{
-		"id", "created_at", "updated_at", "deleted_at", "org_id",
+		"id", "created_at", "updated_at", "deleted_at", "public_id", "org_id",
 		"digital_assistant_id", "worker_id", "deployment_name", "namespace",
 		"status", "bootstrap_token_hash", "workspace_path", "last_error",
 		"last_started_at", "last_reconciled_at",
@@ -99,7 +99,7 @@ func expectDefaultWorkerDeployment(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "leros_worker_deployment" WHERE (org_id = $1 AND worker_id = $2) AND "leros_worker_deployment"."deleted_at" IS NULL ORDER BY "leros_worker_deployment"."id" LIMIT $3`)).
 		WithArgs(uint(100), uint(1), 1).
 		WillReturnRows(sqlmock.NewRows(columns).AddRow(
-			1, now, now, nil, 100,
+			1, now, now, nil, "wrk_test_default", 100,
 			200, 300, "test-worker", "",
 			string(types.WorkerDeploymentStatusReady), "", "", "",
 			nil, nil,
@@ -186,7 +186,7 @@ func expectOrgSkillInstallationUpsert(mock sqlmock.Sqlmock) {
 
 func expectOrgWorkerDeploymentsForSkillSync(mock sqlmock.Sqlmock) {
 	columns := []string{
-		"id", "created_at", "updated_at", "deleted_at", "org_id",
+		"id", "created_at", "updated_at", "deleted_at", "public_id", "org_id",
 		"digital_assistant_id", "worker_id", "deployment_name", "namespace",
 		"status", "bootstrap_token_hash", "workspace_path", "last_error",
 		"last_started_at", "last_reconciled_at",
@@ -195,7 +195,7 @@ func expectOrgWorkerDeploymentsForSkillSync(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "leros_worker_deployment" WHERE org_id = $1 AND status IN ($2,$3) AND "leros_worker_deployment"."deleted_at" IS NULL ORDER BY worker_id ASC`)).
 		WithArgs(uint(100), string(types.WorkerDeploymentStatusReady), string(types.WorkerDeploymentStatusProvisioning)).
 		WillReturnRows(sqlmock.NewRows(columns).AddRow(
-			1, now, now, nil, 100,
+			1, now, now, nil, "wrk_test_sync", 100,
 			200, 300, "test-worker", "",
 			string(types.WorkerDeploymentStatusReady), "", "", "",
 			nil, nil,

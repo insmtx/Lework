@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
@@ -62,6 +63,9 @@ func (s *WorkerProvisioningService) EnsureDefaultWorkerForOrg(ctx context.Contex
 		return nil, err
 	}
 	if existing != nil {
+		if err := s.ensureWorkerDeploymentPublicID(ctx, existing); err != nil {
+			return nil, err
+		}
 		if existing.DigitalAssistantID != assistant.ID {
 			existing.DigitalAssistantID = assistant.ID
 			if err := db.UpdateWorkerDeployment(ctx, s.db, existing); err != nil {
@@ -85,6 +89,9 @@ func (s *WorkerProvisioningService) EnsureForAssistant(ctx context.Context, da *
 		return nil, err
 	}
 	if existing != nil {
+		if err := s.ensureWorkerDeploymentPublicID(ctx, existing); err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	workerID, err := db.NextWorkerID(ctx, s.db, da.OrgID)
@@ -96,6 +103,7 @@ func (s *WorkerProvisioningService) EnsureForAssistant(ctx context.Context, da *
 		status = string(types.WorkerDeploymentStatusPending)
 	}
 	deployment := &types.WorkerDeployment{
+		PublicID:           generateWorkerDeploymentPublicID(),
 		OrgID:              da.OrgID,
 		DigitalAssistantID: da.ID,
 		WorkerID:           workerID,
@@ -108,6 +116,14 @@ func (s *WorkerProvisioningService) EnsureForAssistant(ctx context.Context, da *
 		return nil, err
 	}
 	return deployment, nil
+}
+
+func (s *WorkerProvisioningService) ensureWorkerDeploymentPublicID(ctx context.Context, deployment *types.WorkerDeployment) error {
+	if deployment == nil || strings.TrimSpace(deployment.PublicID) != "" {
+		return nil
+	}
+	deployment.PublicID = generateWorkerDeploymentPublicID()
+	return db.UpdateWorkerDeployment(ctx, s.db, deployment)
 }
 
 func (s *WorkerProvisioningService) MarkAssistantActive(ctx context.Context, da *types.DigitalAssistant) error {
@@ -142,6 +158,10 @@ func (s *WorkerProvisioningService) MarkAssistantStopped(ctx context.Context, da
 
 func workerDeploymentName(orgID, workerID uint) string {
 	return fmt.Sprintf("leros-worker-o%d-w%d", orgID, workerID)
+}
+
+func generateWorkerDeploymentPublicID() string {
+	return fmt.Sprintf("wrk_%s", snowflake.GenerateIDBase58())
 }
 
 func defaultWorkerCode(orgID uint) string {

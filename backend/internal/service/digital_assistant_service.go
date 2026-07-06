@@ -412,6 +412,7 @@ func (s *digitalAssistantService) convertToContractDigitalAssistant(ctx context.
 		deployment, err := db.GetWorkerDeploymentByAssistantID(ctx, s.db, da.ID)
 		if err == nil && deployment != nil {
 			item.Deployment = &contract.WorkerDeploymentStatus{
+				PublicID:  deployment.PublicID,
 				Status:    deployment.Status,
 				LastError: deployment.LastError,
 			}

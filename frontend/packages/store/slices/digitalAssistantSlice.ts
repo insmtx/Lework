@@ -14,6 +14,7 @@ export type DigitalAssistantItem = {
 	expertise: string[];
 	templateId?: number;
 	source: string;
+	deploymentPublicId: string;
 	deploymentStatus: string;
 	deploymentError: string;
 	version: number;
@@ -44,6 +45,7 @@ function mapBackendDA(da: BackendDigitalAssistant): DigitalAssistantItem {
 		expertise: da.expertise ?? [],
 		templateId: da.template_id,
 		source: da.source ?? "",
+		deploymentPublicId: da.deployment?.public_id ?? "",
 		deploymentStatus: da.deployment?.status ?? "",
 		deploymentError: da.deployment?.last_error ?? "",
 		version: da.version,

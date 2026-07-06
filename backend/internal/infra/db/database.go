@@ -129,6 +129,10 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	if err := backfillWorkerDeploymentPublicIDs(db); err != nil {
+		return err
+	}
+
 	if err := dbtools.InitModel(db, models...); err != nil {
 		return err
 	}
@@ -155,6 +159,36 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	logs.Info("Database migrations completed")
+	return nil
+}
+
+func backfillWorkerDeploymentPublicIDs(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&types.WorkerDeployment{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&types.WorkerDeployment{}, "public_id") {
+		if err := db.Migrator().AddColumn(&types.WorkerDeployment{}, "PublicID"); err != nil {
+			return fmt.Errorf("add worker deployment public_id column: %w", err)
+		}
+	}
+
+	var deployments []types.WorkerDeployment
+	if err := db.Where("public_id = '' OR public_id IS NULL").Find(&deployments).Error; err != nil {
+		return fmt.Errorf("list worker deployments missing public_id: %w", err)
+	}
+	for i := range deployments {
+		publicID := fmt.Sprintf("wrk_%s", snowflake.GenerateIDBase58())
+		if err := db.Model(&types.WorkerDeployment{}).
+			Where("id = ?", deployments[i].ID).
+			Update("public_id", publicID).Error; err != nil {
+			return fmt.Errorf("backfill worker deployment public_id: %w", err)
+		}
+	}
+	if !db.Migrator().HasIndex(&types.WorkerDeployment{}, "idx_worker_deploy_public_id") {
+		if err := db.Migrator().CreateIndex(&types.WorkerDeployment{}, "idx_worker_deploy_public_id"); err != nil {
+			return fmt.Errorf("create worker deployment public_id index: %w", err)
+		}
+	}
 	return nil
 }
 

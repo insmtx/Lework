@@ -19,6 +19,7 @@ const (
 // WorkerDeployment binds an AI teammate to an org-scoped worker runtime.
 type WorkerDeployment struct {
 	gorm.Model
+	PublicID           string     `gorm:"column:public_id;type:varchar(255);not null;default:'';uniqueIndex:idx_worker_deploy_public_id"`
 	OrgID              uint       `gorm:"column:org_id;type:bigint;not null;index;uniqueIndex:idx_worker_deploy_org_worker"`
 	DigitalAssistantID uint       `gorm:"column:digital_assistant_id;type:bigint;not null;uniqueIndex;index"`
 	WorkerID           uint       `gorm:"column:worker_id;type:bigint;not null;uniqueIndex:idx_worker_deploy_org_worker"`
