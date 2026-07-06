@@ -1,12 +1,15 @@
 export type {
 	AuthOrgInfo,
+	AuthSessionResponse,
 	AuthTokenResponse,
 	AuthUserInfo,
+	CreateOrganizationParams,
 	LoginByEmailParams,
 	LoginByPhoneCodeParams,
 	RegisterByEmailParams,
 	SendPhoneLoginCodeParams,
 	SendPhoneLoginCodeResponse,
+	SwitchOrganizationParams,
 } from "./api/authApi";
 export { authApi } from "./api/authApi";
 export { clientUpdateApi } from "./api/clientUpdateApi";
@@ -30,6 +33,8 @@ export {
 	getFilePreviewUrlByPublicId,
 	getFilePublicUrlFromStorageUri,
 } from "./api/fileApi";
+export type { Department, ListDepartmentsResponse, OrgInfo } from "./api/orgAdminApi";
+export { orgAdminApi } from "./api/orgAdminApi";
 export { projectFileApi } from "./api/projectFileApi";
 export { sessionApi } from "./api/sessionApi";
 export type {

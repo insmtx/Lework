@@ -14,22 +14,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
-	ygauth "github.com/ygpkg/yg-go/apis/runtime/auth"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/insmtx/Leros/backend/config"
+	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
 
 const (
-	authIssuer              = "leros"
-	authAudience            = "user"
 	accessTokenExpire       = 24 * time.Hour
 	refreshTokenExpire      = 7 * 24 * time.Hour
 	loginAttemptWindow      = 5 * time.Minute
@@ -37,6 +35,7 @@ const (
 	phoneCodeExpire         = 5 * time.Minute
 	phoneCodeResendInterval = 2 * time.Minute
 	defaultPhoneCode        = "123456"
+	maxUserOrganizations    = 2
 )
 
 var (
@@ -62,29 +61,39 @@ var (
 	errAuthRefreshTokenInvalid            = errors.New("登录已过期，请重新登录")
 	errAuthUserNotFound                   = errors.New("用户不存在")
 	errAuthUserOrgNotFound                = errors.New("用户组织信息不存在")
+	errAuthUserOrgNotAllowed              = errors.New("用户未加入该组织")
+	errAuthLoginRequired                  = errors.New("请先登录")
 	errAuthOrgNotFound                    = errors.New("用户组织信息不存在")
 	errAuthJWTSecretRequired              = errors.New("登录配置缺失")
+	errAuthOrganizationLimitExceeded      = errors.New("最多只能加入两个组织")
 )
 
 var _ contract.AuthService = (*authService)(nil)
 
 type authService struct {
-	db               *gorm.DB
-	jwtSecret        string
-	smsSender        smsSender
-	defaultPhoneCode string
+	db                 *gorm.DB
+	jwtSecret          string
+	smsSender          smsSender
+	defaultPhoneCode   string
+	workerProvisioning *WorkerProvisioningService
 }
 
 func NewAuthService(d *gorm.DB, jwtSecret string, aliyunCfg *config.AliyunConfig) contract.AuthService {
+	return NewAuthServiceWithProvisioning(d, jwtSecret, aliyunCfg, nil)
+}
+
+// NewAuthServiceWithProvisioning creates an auth service that can provision organization defaults.
+func NewAuthServiceWithProvisioning(d *gorm.DB, jwtSecret string, aliyunCfg *config.AliyunConfig, provisioning *WorkerProvisioningService) contract.AuthService {
 	code := defaultPhoneCode
 	if aliyunCfg != nil && strings.TrimSpace(aliyunCfg.DefaultCode) != "" {
 		code = strings.TrimSpace(aliyunCfg.DefaultCode)
 	}
 	return &authService{
-		db:               d,
-		jwtSecret:        strings.TrimSpace(jwtSecret),
-		smsSender:        newSMSSender(aliyunCfg),
-		defaultPhoneCode: code,
+		db:                 d,
+		jwtSecret:          strings.TrimSpace(jwtSecret),
+		smsSender:          newSMSSender(aliyunCfg),
+		defaultPhoneCode:   code,
+		workerProvisioning: provisioning,
 	}
 }
 
@@ -157,7 +166,7 @@ func (s *authService) RegisterByEmail(ctx context.Context, req *contract.Registe
 		return nil, err
 	}
 
-	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayEmail)
+	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
 func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEmailRequest) (*contract.AuthTokenResponse, error) {
@@ -192,12 +201,12 @@ func (s *authService) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 	}
 
 	s.clearLoginFailures(ctx, email)
-	userOrg, org, err := s.defaultUserOrg(ctx, user.ID)
+	userOrg, org, err := s.resolveLoginUserOrg(ctx, s.db, user.ID, req.OrgID)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayEmail)
+	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
 func (s *authService) SendPhoneLoginCode(ctx context.Context, req *contract.SendPhoneLoginCodeRequest) (*contract.SendPhoneLoginCodeResponse, error) {
@@ -318,22 +327,15 @@ func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 			if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
 				return err
 			}
+			if req.OrgID > 0 && req.OrgID != org.ID {
+				return errAuthUserOrgNotAllowed
+			}
 			return nil
 		}
 
-		userOrg, err = db.GetUserOrgByUserID(ctx, tx, user.ID)
+		userOrg, org, err = s.resolveLoginUserOrg(ctx, tx, user.ID, req.OrgID)
 		if err != nil {
 			return err
-		}
-		if userOrg == nil {
-			return errAuthUserOrgNotFound
-		}
-		org, err = db.GetOrgByID(ctx, tx, userOrg.OrgID)
-		if err != nil {
-			return err
-		}
-		if org == nil {
-			return errAuthOrgNotFound
 		}
 		return nil
 	}); err != nil {
@@ -341,7 +343,7 @@ func (s *authService) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 	}
 
 	s.clearLoginFailures(ctx, phone)
-	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayPhone)
+	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
 func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTokenRequest) (*contract.AuthTokenResponse, error) {
@@ -364,41 +366,248 @@ func (s *authService) RefreshToken(ctx context.Context, req *contract.RefreshTok
 	if savedToken == nil {
 		return nil, errAuthRefreshTokenInvalid
 	}
+	if savedToken.Uin == 0 {
+		return nil, errAuthRefreshTokenInvalid
+	}
 
-	user, err := db.GetUserByID(ctx, s.db, savedToken.UserID)
+	userOrg, err := db.GetUserOrgByUin(ctx, s.db, savedToken.Uin)
+	if err != nil {
+		return nil, err
+	}
+	if userOrg == nil {
+		return nil, errAuthUserOrgNotFound
+	}
+
+	user, err := db.GetUserByID(ctx, s.db, userOrg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
 		return nil, errAuthUserNotFound
 	}
-	userOrg, org, err := s.defaultUserOrg(ctx, user.ID)
+	org, err := db.GetOrgByID(ctx, s.db, userOrg.OrgID)
 	if err != nil {
 		return nil, err
+	}
+	if org == nil {
+		return nil, errAuthOrgNotFound
 	}
 
 	if err := db.RevokeAuthRefreshToken(ctx, s.db, tokenHash, now); err != nil {
 		return nil, err
 	}
-	return s.buildTokenResponse(ctx, user, userOrg, org, ygauth.LoginWayPhone)
+	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
-func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization, loginWay ygauth.LoginWay) (*contract.AuthTokenResponse, error) {
-	token, expiredAt, err := s.generateJWT(userOrg.Uin, loginWay)
+func (s *authService) SwitchOrganization(ctx context.Context, req *contract.SwitchOrganizationRequest) (*contract.AuthTokenResponse, error) {
+	if s.db == nil {
+		return nil, errAuthDatabaseRequired
+	}
+	if req.OrgID == 0 {
+		return nil, errAuthOrgNotFound
+	}
+
+	caller, _ := localauth.FromContext(ctx)
+	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
+		return nil, errAuthLoginRequired
+	}
+
+	currentUserOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
 	if err != nil {
 		return nil, err
 	}
-	refreshToken, err := s.generateRefreshToken(ctx, user.ID)
+	if currentUserOrg == nil {
+		return nil, errAuthUserOrgNotFound
+	}
+
+	user, err := db.GetUserByID(ctx, s.db, currentUserOrg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, errAuthUserNotFound
+	}
+
+	targetUserOrg, targetOrg, err := s.resolveLoginUserOrg(ctx, s.db, user.ID, req.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildTokenResponse(ctx, user, targetUserOrg, targetOrg)
+}
+
+func (s *authService) CreateOrganization(ctx context.Context, req *contract.CreateOrganizationRequest) (*contract.AuthTokenResponse, error) {
+	if s.db == nil {
+		return nil, errAuthDatabaseRequired
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, errors.New("组织名称不能为空")
+	}
+
+	caller, _ := localauth.FromContext(ctx)
+	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
+		return nil, errAuthLoginRequired
+	}
+
+	currentUserOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+	if err != nil {
+		return nil, err
+	}
+	if currentUserOrg == nil {
+		return nil, errAuthUserOrgNotFound
+	}
+
+	user, err := db.GetUserByID(ctx, s.db, currentUserOrg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, errAuthUserNotFound
+	}
+
+	var (
+		org     *types.Organization
+		userOrg *types.UserOrg
+	)
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var lockedUser types.User
+		if err := tx.WithContext(ctx).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&lockedUser, user.ID).Error; err != nil {
+			return err
+		}
+
+		orgCount, err := db.CountUserOrgsByUserID(ctx, tx, user.ID)
+		if err != nil {
+			return err
+		}
+		if orgCount >= maxUserOrganizations {
+			return errAuthOrganizationLimitExceeded
+		}
+
+		orgCode := fmt.Sprintf("org_%s", snowflake.GenerateIDBase58())
+		org = &types.Organization{
+			PublicID: fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
+			Type:     "company",
+			Code:     orgCode,
+			Name:     name,
+			Status:   "active",
+		}
+		if err := db.CreateOrg(ctx, tx, org); err != nil {
+			return err
+		}
+
+		userOrg = &types.UserOrg{
+			UserID:    user.ID,
+			OrgID:     org.ID,
+			IsDefault: false,
+		}
+		if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
+			return err
+		}
+		userOrg.Uin = userOrg.ID
+		if err := db.UpdateUserOrg(ctx, tx, userOrg); err != nil {
+			return err
+		}
+
+		org.CreatedByUin = userOrg.Uin
+		if err := db.UpdateOrg(ctx, tx, org); err != nil {
+			return err
+		}
+
+		department := &types.Department{
+			Name:     "默认部门",
+			ParentID: 0,
+			Sort:     db.DepartmentSortGap,
+			OrgID:    org.ID,
+		}
+		if err := db.CreateDepartment(ctx, tx, department); err != nil {
+			return err
+		}
+
+		return db.CreateMemberDepartment(ctx, tx, &types.MemberDepartment{
+			Uin:          userOrg.Uin,
+			OrgID:        org.ID,
+			DepartmentID: department.ID,
+			IsPrimary:    true,
+		})
+	}); err != nil {
+		return nil, err
+	}
+	if s.workerProvisioning != nil {
+		if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, userOrg.Uin); err != nil {
+			return nil, fmt.Errorf("ensure default worker deployment: %w", err)
+		}
+	}
+
+	return s.buildTokenResponse(ctx, user, userOrg, org)
+}
+
+func (s *authService) AuthSession(ctx context.Context) (*contract.AuthSessionResponse, error) {
+	if s.db == nil {
+		return nil, errAuthDatabaseRequired
+	}
+
+	caller, _ := localauth.FromContext(ctx)
+	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
+		return nil, errAuthLoginRequired
+	}
+
+	userOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+	if err != nil {
+		return nil, err
+	}
+	if userOrg == nil {
+		return nil, errAuthUserOrgNotFound
+	}
+
+	user, err := db.GetUserByID(ctx, s.db, userOrg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, errAuthUserNotFound
+	}
+
+	_, org, err := s.userOrgWithOrganization(ctx, s.db, userOrg)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildAuthSessionResponse(ctx, user, userOrg, org)
+}
+
+func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthTokenResponse, error) {
+	token, expiredAt, err := s.generateJWT(userOrg)
+	if err != nil {
+		return nil, err
+	}
+	refreshToken, err := s.generateRefreshToken(ctx, userOrg.Uin)
+	if err != nil {
+		return nil, err
+	}
+	session, err := s.buildAuthSessionResponse(ctx, user, userOrg, org)
 	if err != nil {
 		return nil, err
 	}
 
 	return &contract.AuthTokenResponse{
-		LoginStatus:  "success",
-		JwtToken:     token,
-		RefreshToken: refreshToken,
-		ExpiredAt:    expiredAt,
-		Uin:          userOrg.Uin,
+		LoginStatus:   "success",
+		JwtToken:      token,
+		RefreshToken:  refreshToken,
+		ExpiredAt:     expiredAt,
+		Uin:           userOrg.Uin,
+		UserInfo:      session.UserInfo,
+		Org:           session.Org,
+		Organizations: session.Organizations,
+	}, nil
+}
+
+func (s *authService) buildAuthSessionResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthSessionResponse, error) {
+	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &contract.AuthSessionResponse{
 		UserInfo: contract.AuthUserInfo{
 			ID:          user.ID,
 			PublicID:    user.PublicID,
@@ -408,36 +617,21 @@ func (s *authService) buildTokenResponse(ctx context.Context, user *types.User, 
 			GithubLogin: user.GithubLogin,
 			AvatarURL:   user.AvatarURL,
 		},
-		Org: contract.AuthOrgInfo{
-			ID:       org.ID,
-			PublicID: org.PublicID,
-			Code:     org.Code,
-			Name:     org.Name,
-		},
+		Org:           authOrgInfo(org, userOrg.IsDefault),
+		Organizations: organizations,
 	}, nil
 }
 
-func (s *authService) generateJWT(uin uint, loginWay ygauth.LoginWay) (string, int64, error) {
+func (s *authService) generateJWT(userOrg *types.UserOrg) (string, int64, error) {
 	if s.jwtSecret == "" {
 		return "", 0, errAuthJWTSecretRequired
 	}
-	expiredAt := jwt.TimeFunc().Add(accessTokenExpire).Unix()
-	claims := ygauth.UserClaims{
-		Uin:       uin,
-		Issuer:    authIssuer,
-		IssuedAt:  jwt.TimeFunc().Unix(),
-		ExpiresAt: expiredAt,
-		LoginWay:  loginWay,
-		Audience:  authAudience,
-	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(s.jwtSecret))
-	if err != nil {
-		return "", 0, fmt.Errorf("generate jwt token: %w", err)
-	}
-	return token, expiredAt, nil
+	return localauth.GenerateUserToken(localauth.UserClaims{
+		Uin: userOrg.Uin,
+	}, s.jwtSecret, accessTokenExpire)
 }
 
-func (s *authService) generateRefreshToken(ctx context.Context, userID uint) (string, error) {
+func (s *authService) generateRefreshToken(ctx context.Context, uin uint) (string, error) {
 	token, err := randomToken()
 	if err != nil {
 		return "", err
@@ -447,7 +641,7 @@ func (s *authService) generateRefreshToken(ctx context.Context, userID uint) (st
 	s.cleanupExpiredAuthData(ctx, now)
 	if err := db.CreateAuthRefreshToken(ctx, s.db, &types.AuthRefreshToken{
 		TokenHash: hashRefreshToken(token),
-		UserID:    userID,
+		Uin:       uin,
 		ExpiresAt: now.Add(refreshTokenExpire),
 	}); err != nil {
 		return "", fmt.Errorf("store refresh token: %w", err)
@@ -455,15 +649,34 @@ func (s *authService) generateRefreshToken(ctx context.Context, userID uint) (st
 	return token, nil
 }
 
-func (s *authService) defaultUserOrg(ctx context.Context, userID uint) (*types.UserOrg, *types.Organization, error) {
-	userOrg, err := db.GetUserOrgByUserID(ctx, s.db, userID)
+func (s *authService) resolveLoginUserOrg(ctx context.Context, database *gorm.DB, userID, requestedOrgID uint) (*types.UserOrg, *types.Organization, error) {
+	var (
+		userOrg *types.UserOrg
+		err     error
+	)
+	if requestedOrgID > 0 {
+		userOrg, err = db.GetUserOrgByUserIDAndOrgID(ctx, database, userID, requestedOrgID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if userOrg == nil {
+			return nil, nil, errAuthUserOrgNotAllowed
+		}
+		return s.userOrgWithOrganization(ctx, database, userOrg)
+	}
+
+	userOrg, err = db.GetUserOrgByUserID(ctx, database, userID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if userOrg == nil {
 		return nil, nil, errAuthUserOrgNotFound
 	}
-	org, err := db.GetOrgByID(ctx, s.db, userOrg.OrgID)
+	return s.userOrgWithOrganization(ctx, database, userOrg)
+}
+
+func (s *authService) userOrgWithOrganization(ctx context.Context, database *gorm.DB, userOrg *types.UserOrg) (*types.UserOrg, *types.Organization, error) {
+	org, err := db.GetOrgByID(ctx, database, userOrg.OrgID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -471,6 +684,50 @@ func (s *authService) defaultUserOrg(ctx context.Context, userID uint) (*types.U
 		return nil, nil, errAuthOrgNotFound
 	}
 	return userOrg, org, nil
+}
+
+func (s *authService) userOrganizationInfos(ctx context.Context, userID uint) ([]contract.AuthOrgInfo, error) {
+	userOrgs, err := db.GetUserOrgsByUserID(ctx, s.db, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(userOrgs) == 0 {
+		return nil, nil
+	}
+
+	orgIDs := make([]uint, 0, len(userOrgs))
+	for _, userOrg := range userOrgs {
+		orgIDs = append(orgIDs, userOrg.OrgID)
+	}
+	orgs, err := db.GetOrgsByIDs(ctx, s.db, orgIDs)
+	if err != nil {
+		return nil, err
+	}
+	orgByID := make(map[uint]*types.Organization, len(orgs))
+	for _, org := range orgs {
+		orgByID[org.ID] = org
+	}
+
+	infos := make([]contract.AuthOrgInfo, 0, len(userOrgs))
+	for _, userOrg := range userOrgs {
+		org := orgByID[userOrg.OrgID]
+		if org == nil {
+			continue
+		}
+		infos = append(infos, authOrgInfo(org, userOrg.IsDefault))
+	}
+	return infos, nil
+}
+
+func authOrgInfo(org *types.Organization, isDefault bool) contract.AuthOrgInfo {
+	return contract.AuthOrgInfo{
+		ID:        org.ID,
+		PublicID:  org.PublicID,
+		Code:      org.Code,
+		Name:      org.Name,
+		Logo:      org.Logo,
+		IsDefault: isDefault,
+	}
 }
 
 func (s *authService) ensureLoginAllowed(ctx context.Context, email string) error {

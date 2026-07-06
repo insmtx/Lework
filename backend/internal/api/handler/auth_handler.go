@@ -23,6 +23,9 @@ func (h *AuthHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/SendPhoneLoginCode", h.SendPhoneLoginCode)
 	r.POST("/LoginByPhoneCode", h.LoginByPhoneCode)
 	r.POST("/RefreshToken", h.RefreshToken)
+	r.POST("/SwitchOrganization", h.SwitchOrganization)
+	r.POST("/CreateOrganization", h.CreateOrganization)
+	r.GET("/AuthSession", h.AuthSession)
 }
 
 func RegisterAuthRoutes(r gin.IRouter, service contract.AuthService) {
@@ -161,6 +164,75 @@ func (h *AuthHandler) RefreshToken(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// @Summary 切换组织
+// @Description 切换当前登录组织并获取新的访问令牌
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param body body contract.SwitchOrganizationRequest true "切换组织请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "认证失败"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /SwitchOrganization [post]
+func (h *AuthHandler) SwitchOrganization(ctx *gin.Context) {
+	var req contract.SwitchOrganizationRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.SwitchOrganization(ctx, &req)
+	if err != nil {
+		handleAuthServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 创建组织并切换
+// @Description 创建新组织/企业并切换当前登录组织
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param body body contract.CreateOrganizationRequest true "创建组织请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "认证失败"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /CreateOrganization [post]
+func (h *AuthHandler) CreateOrganization(ctx *gin.Context) {
+	var req contract.CreateOrganizationRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.CreateOrganization(ctx, &req)
+	if err != nil {
+		handleAuthServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 当前登录会话
+// @Description 获取当前用户、当前组织和可切换组织列表
+// @Tags Auth
+// @Produce json
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 401 {object} dto.ErrorResponse "认证失败"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /AuthSession [get]
+func (h *AuthHandler) AuthSession(ctx *gin.Context) {
+	result, err := h.service.AuthSession(ctx)
+	if err != nil {
+		handleAuthServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 func handleAuthServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()
 
@@ -195,6 +267,10 @@ func isAuthBadRequestError(err error) bool {
 		"请输入验证码",
 		"刷新令牌不能为空":
 		return true
+	case "组织名称不能为空":
+		return true
+	case "最多只能加入两个组织":
+		return true
 	default:
 		return false
 	}
@@ -205,7 +281,10 @@ func isAuthUnauthorizedError(err error) bool {
 	case "邮箱或密码错误",
 		"验证码错误或已过期",
 		"登录已过期，请重新登录",
-		"用户不存在":
+		"用户不存在",
+		"用户组织信息不存在",
+		"用户未加入该组织",
+		"请先登录":
 		return true
 	default:
 		return false

@@ -81,4 +81,9 @@ const (
 
 	// TableNameMessageResource 消息资源关联表名
 	TableNameMessageResource = tablenamePrefix + "message_resource"
+
+	// TableNameDepartment 组织部门表名
+	TableNameDepartment = tablenamePrefix + "department"
+	// TableNameMemberDepartment 组织成员部门关联表名
+	TableNameMemberDepartment = tablenamePrefix + "rel_user_org_department"
 )

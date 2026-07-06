@@ -11,6 +11,7 @@ export type RegisterByEmailParams = {
 export type LoginByEmailParams = {
 	email: string;
 	password: string;
+	org_id?: number;
 };
 
 export type SendPhoneLoginCodeParams = {
@@ -26,6 +27,15 @@ export type SendPhoneLoginCodeResponse = {
 export type LoginByPhoneCodeParams = {
 	phone: string;
 	code: string;
+	org_id?: number;
+};
+
+export type SwitchOrganizationParams = {
+	org_id: number;
+};
+
+export type CreateOrganizationParams = {
+	name: string;
 };
 
 export type AuthUserInfo = {
@@ -43,6 +53,14 @@ export type AuthOrgInfo = {
 	public_id: string;
 	code: string;
 	name: string;
+	logo?: string;
+	is_default?: boolean;
+};
+
+export type AuthSessionResponse = {
+	user_info: AuthUserInfo;
+	org: AuthOrgInfo;
+	organizations?: AuthOrgInfo[];
 };
 
 export type AuthTokenResponse = {
@@ -53,6 +71,7 @@ export type AuthTokenResponse = {
 	uin: number;
 	user_info: AuthUserInfo;
 	org: AuthOrgInfo;
+	organizations?: AuthOrgInfo[];
 };
 
 const AUTH_ENDPOINTS = {
@@ -60,6 +79,10 @@ const AUTH_ENDPOINTS = {
 	registerByEmail: "/RegisterByEmail",
 	sendPhoneLoginCode: "/SendPhoneLoginCode",
 	loginByPhoneCode: "/LoginByPhoneCode",
+	refreshToken: "/RefreshToken",
+	switchOrganization: "/SwitchOrganization",
+	createOrganization: "/CreateOrganization",
+	authSession: "/AuthSession",
 };
 
 export const authApi = {
@@ -77,4 +100,24 @@ export const authApi = {
 
 	loginByPhoneCode: (params: LoginByPhoneCodeParams) =>
 		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.loginByPhoneCode, params),
+
+	refreshToken: (refreshToken: string) =>
+		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.refreshToken, {
+			refresh_token: refreshToken,
+		}),
+
+	switchOrganization: (params: SwitchOrganizationParams | number) =>
+		apiClient.post<BackendDataResponse<AuthTokenResponse>>(
+			AUTH_ENDPOINTS.switchOrganization,
+			typeof params === "number" ? { org_id: params } : params,
+		),
+
+	createOrganization: (params: CreateOrganizationParams) =>
+		apiClient.post<BackendDataResponse<AuthTokenResponse>>(
+			AUTH_ENDPOINTS.createOrganization,
+			params,
+		),
+
+	authSession: () =>
+		apiClient.get<BackendDataResponse<AuthSessionResponse>>(AUTH_ENDPOINTS.authSession),
 };

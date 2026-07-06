@@ -317,31 +317,53 @@
 	}
 
 	.leros-profile-menu {
+		/* App shell uses --leros-* light tokens only; reset shadcn popover/accent when html.dark */
+		--popover: var(--leros-surface);
+		--popover-foreground: var(--leros-text);
+		--accent: var(--leros-primary-softer);
+		--accent-foreground: var(--leros-text-strong);
+		--muted: #e7ebf3;
+
 		width: var(--leros-sidebar-menu-width, 180px);
 		min-width: var(--leros-sidebar-menu-width, 180px);
 		border-color: var(--leros-control-border);
 		border-radius: var(--leros-radius-md);
-		background: var(--leros-surface);
+		background-color: var(--leros-surface);
+		color: var(--leros-text);
 		box-shadow: var(--leros-shadow-menu);
 	}
 
 	.leros-profile-menu [data-slot="dropdown-menu-item"] {
-		border-radius: var(--leros-radius-sm);
+		display: flex;
+		align-items: center;
 		gap: 10px;
-		padding: 9px 10px;
+		min-height: 36px;
+		padding: 8px 10px;
 		color: var(--leros-text);
 		font-size: 14px;
 		line-height: 1.25;
 	}
 
+	.leros-profile-menu [data-slot="dropdown-menu-item"]:hover:not([data-disabled]),
+	.leros-profile-menu [data-slot="dropdown-menu-item"]:focus-visible:not([data-disabled]) {
+		background-color: var(--leros-primary-softer);
+		color: var(--leros-text-strong);
+	}
+
 	.leros-profile-menu [data-slot="dropdown-menu-item"] svg {
 		width: 16px;
 		height: 16px;
+		flex-shrink: 0;
+		color: currentColor;
 	}
 
 	.leros-profile-menu [data-slot="dropdown-menu-separator"] {
-		margin: 6px 4px;
+		margin: 4px 10px;
 		background: #e7ebf3;
+	}
+
+	.leros-profile-menu-progress {
+		padding: 0 10px 4px;
 	}
 
 	.leros-profile-menu [data-variant="destructive"] {
@@ -352,6 +374,16 @@
 	.leros-profile-menu [data-variant="destructive"]:focus-visible {
 		background: #fff1f1;
 		color: #e60000;
+	}
+
+	.leros-dept-empty-panel {
+		/* Keep readable in html.dark where shadcn tokens differ from --leros-* palette */
+		--background: var(--leros-surface-soft);
+		--foreground: var(--leros-text);
+		--primary: var(--leros-primary);
+		--primary-foreground: #ffffff;
+		background-color: var(--leros-surface-soft);
+		color: var(--leros-text-muted);
 	}
 
 	.leros-sidebar-resize-handle {

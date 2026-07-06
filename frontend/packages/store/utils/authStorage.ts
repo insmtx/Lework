@@ -1,5 +1,14 @@
 import { API_BASE_URL } from "../api/config";
 
+export type StoredAuthOrg = {
+	id: number;
+	publicId?: string;
+	code: string;
+	name: string;
+	logo?: string;
+	isDefault?: boolean;
+};
+
 export type StoredAuthUser = {
 	publicId?: string;
 	name: string;
@@ -10,6 +19,8 @@ export type StoredAuthUser = {
 	refreshToken?: string;
 	expiredAt?: number;
 	uin?: number;
+	currentOrg?: StoredAuthOrg;
+	organizations?: StoredAuthOrg[];
 };
 
 export const AUTH_STORAGE_KEY = "leros-auth-user";
@@ -110,6 +121,22 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 				refresh_token?: string;
 				expired_at?: number;
 				uin?: number;
+				org?: {
+					id?: number;
+					public_id?: string;
+					code?: string;
+					name?: string;
+					logo?: string;
+					is_default?: boolean;
+				};
+				organizations?: {
+					id?: number;
+					public_id?: string;
+					code?: string;
+					name?: string;
+					logo?: string;
+					is_default?: boolean;
+				}[];
 				user_info?: {
 					public_id?: string;
 					name?: string;
@@ -136,12 +163,55 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 			refreshToken: token.refresh_token,
 			expiredAt: token.expired_at,
 			uin: token.uin ?? user.uin,
+			currentOrg: toStoredAuthOrg(token.org) ?? user.currentOrg,
+			organizations: toStoredAuthOrgs(token.organizations) ?? user.organizations,
 		});
 		return token.jwt_token;
 	} catch (err) {
 		console.error("refresh auth token error:", err);
 		return null;
 	}
+}
+
+function toStoredAuthOrg(
+	org:
+		| {
+				id?: number;
+				public_id?: string;
+				code?: string;
+				name?: string;
+				logo?: string;
+				is_default?: boolean;
+		  }
+		| undefined,
+): StoredAuthOrg | undefined {
+	if (!org?.id || !org.name) return undefined;
+	return {
+		id: org.id,
+		publicId: org.public_id,
+		code: org.code ?? "",
+		name: org.name,
+		logo: org.logo,
+		isDefault: org.is_default,
+	};
+}
+
+function toStoredAuthOrgs(
+	orgs:
+		| {
+				id?: number;
+				public_id?: string;
+				code?: string;
+				name?: string;
+				logo?: string;
+				is_default?: boolean;
+		  }[]
+		| undefined,
+): StoredAuthOrg[] | undefined {
+	if (!orgs) return undefined;
+	return orgs
+		.map((org) => toStoredAuthOrg(org))
+		.filter((org): org is StoredAuthOrg => Boolean(org));
 }
 
 function expireStoredAuthSession() {

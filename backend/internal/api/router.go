@@ -71,7 +71,12 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		workerManager.RegisterRoutes(r)
 		logs.Info("Worker server routes registered successfully")
 
-		authService := service.NewAuthService(db, cfg.Server.JWT.Secret, cfg.Aliyun)
+		var workerProvisioningService *service.WorkerProvisioningService
+		if db != nil {
+			workerProvisioningService = service.NewWorkerProvisioningService(db, cfg.Scheduler)
+		}
+
+		authService := service.NewAuthServiceWithProvisioning(db, cfg.Server.JWT.Secret, cfg.Aliyun, workerProvisioningService)
 		handler.RegisterAuthRoutes(v1, authService)
 		logs.Info("Auth routes registered successfully")
 
@@ -81,10 +86,6 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterClientUpdateRoutes(v1, cfg.ClientUpdate)
 		logs.Info("Client update routes registered successfully")
 
-		var workerProvisioningService *service.WorkerProvisioningService
-		if db != nil {
-			workerProvisioningService = service.NewWorkerProvisioningService(db, cfg.Scheduler)
-		}
 		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioning(db, workerScheduler, workerProvisioningService)
 		handler.RegisterDigitalAssistantRoutes(v1, digitalAssistantService)
 		logs.Info("Digital assistant routes registered successfully")
@@ -127,6 +128,10 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		orgService := service.NewOrgServiceWithProvisioning(db, workerProvisioningService)
 		handler.RegisterOrgRoutes(v1, orgService)
 		logs.Info("Organization routes registered successfully")
+
+		departmentService := service.NewDepartmentService(db)
+		handler.RegisterDepartmentRoutes(v1, departmentService)
+		logs.Info("Department routes registered successfully")
 
 		userService := service.NewUserService(db)
 		handler.RegisterUserRoutes(v1, userService)
