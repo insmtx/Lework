@@ -13,6 +13,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/logs"
@@ -29,6 +30,7 @@ func StartWorkerDeploymentReconciler(
 	database *gorm.DB,
 	workerScheduler worker.WorkerScheduler,
 	schedulerConfig *config.SchedulerConfig,
+	publisher mq.Publisher,
 ) {
 	if database == nil || workerScheduler == nil {
 		return
@@ -37,13 +39,13 @@ func StartWorkerDeploymentReconciler(
 	ticker := time.NewTicker(defaultWorkerDeploymentReconcileInterval)
 	defer ticker.Stop()
 
-	reconcileWorkerDeployments(ctx, database, workerScheduler, schedulerConfig)
+	reconcileWorkerDeployments(ctx, database, workerScheduler, schedulerConfig, publisher)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			reconcileWorkerDeployments(ctx, database, workerScheduler, schedulerConfig)
+			reconcileWorkerDeployments(ctx, database, workerScheduler, schedulerConfig, publisher)
 		}
 	}
 }
@@ -53,6 +55,7 @@ func reconcileWorkerDeployments(
 	database *gorm.DB,
 	workerScheduler worker.WorkerScheduler,
 	schedulerConfig *config.SchedulerConfig,
+	publisher mq.Publisher,
 ) {
 	statuses := []string{
 		string(types.WorkerDeploymentStatusPending),
@@ -66,7 +69,7 @@ func reconcileWorkerDeployments(
 		return
 	}
 	for _, deployment := range deployments {
-		if err := reconcileWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment); err != nil {
+		if err := reconcileWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, publisher); err != nil {
 			logs.WarnContextf(ctx, "reconcile worker deployment %s failed: %v", deployment.DeploymentName, err)
 		}
 	}
@@ -78,6 +81,7 @@ func reconcileWorkerDeployment(
 	workerScheduler worker.WorkerScheduler,
 	schedulerConfig *config.SchedulerConfig,
 	deployment *types.WorkerDeployment,
+	publisher mq.Publisher,
 ) error {
 	if deployment == nil {
 		return nil
@@ -109,7 +113,7 @@ func reconcileWorkerDeployment(
 	}
 
 	if deployment.Status == string(types.WorkerDeploymentStatusProvisioning) {
-		return reconcileProvisioningWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant)
+		return reconcileProvisioningWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant, publisher)
 	}
 
 	return startWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant)
@@ -122,9 +126,14 @@ func reconcileProvisioningWorkerDeployment(
 	schedulerConfig *config.SchedulerConfig,
 	deployment *types.WorkerDeployment,
 	assistant *types.DigitalAssistant,
+	publisher mq.Publisher,
 ) error {
 	if err := workerScheduler.Health(ctx, deployment.DeploymentName); err == nil {
-		return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusReady), "")
+		if err := db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusReady), ""); err != nil {
+			return err
+		}
+		triggerWorkerReadySkillSync(ctx, database, publisher, deployment)
+		return nil
 	} else {
 		if errors.Is(err, worker.ErrWorkerNotFound) {
 			logs.Infof("Worker deployment %s runtime instance is missing; restarting", deployment.DeploymentName)
@@ -164,6 +173,18 @@ func startWorkerDeployment(
 		return err
 	}
 	return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusProvisioning), "")
+}
+
+func triggerWorkerReadySkillSync(ctx context.Context, database *gorm.DB, publisher mq.Publisher, deployment *types.WorkerDeployment) {
+	if deployment == nil || database == nil || publisher == nil {
+		return
+	}
+	orgID := deployment.OrgID
+	workerID := deployment.WorkerID
+	if orgID == 0 || workerID == 0 {
+		return
+	}
+	go syncOrgSkillsToWorker(context.WithoutCancel(ctx), database, publisher, orgID, workerID)
 }
 
 func workerNeedsReconcile(ctx context.Context, workerScheduler worker.WorkerScheduler, spec *worker.WorkerSpec) (bool, error) {

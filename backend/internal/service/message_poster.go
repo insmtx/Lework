@@ -621,7 +621,6 @@ func (p *MessagePoster) publishWorkerTask(
 	if taskPublicID == "" {
 		taskPublicID = fmt.Sprintf("task_%d", message.ID)
 	}
-	syncOrgSkillsToWorker(ctx, p.db, p.eventbus, orgID, session.AllocatedAssistantID)
 	requestID := fmt.Sprintf("req_%d", message.ID)
 	modelOptions, err := p.resolveWorkerTaskModel(ctx, orgID)
 	if err != nil {

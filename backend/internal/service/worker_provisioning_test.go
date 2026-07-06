@@ -12,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -143,7 +144,7 @@ func TestWorkerReconcilerDoesNotRestartProvisioningDeployment(t *testing.T) {
 	}
 
 	scheduler := &fakeWorkerScheduler{healthErr: fmt.Errorf("not ready")}
-	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment); err != nil {
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment, nil); err != nil {
 		t.Fatalf("reconcile deployment: %v", err)
 	}
 	if scheduler.startCalls != 0 {
@@ -198,7 +199,7 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 		ServerAddr:  "http://leros:8080",
 		WorkerImage: "registry.yygu.cn/insmtx/leros-worker:v2",
 	}
-	if err := reconcileWorkerDeployment(ctx, database, scheduler, cfg, deployment); err != nil {
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, cfg, deployment, nil); err != nil {
 		t.Fatalf("reconcile deployment: %v", err)
 	}
 	if scheduler.startCalls != 1 {
@@ -260,7 +261,7 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 	}
 
 	scheduler := &fakeWorkerScheduler{}
-	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment); err != nil {
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment, nil); err != nil {
 		t.Fatalf("reconcile deployment: %v", err)
 	}
 	if scheduler.startCalls != 0 {
@@ -273,6 +274,67 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 	}
 	if got.Status != string(types.WorkerDeploymentStatusReady) {
 		t.Fatalf("status = %q, want ready", got.Status)
+	}
+}
+
+func TestWorkerReconcilerSyncsOrgSkillsAfterProvisioningDeploymentReady(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}, &types.OrgSkillInstallation{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	ctx := context.Background()
+	assistant := &types.DigitalAssistant{
+		Code:   "agent",
+		OrgID:  1,
+		Name:   "Agent",
+		Status: string(contract.DigitalAssistantStatusActive),
+	}
+	if err := database.Create(assistant).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
+	}
+	if err := database.Create(&types.OrgSkillInstallation{
+		OrgID:   1,
+		Action:  "install",
+		Source:  "Leros",
+		SkillID: "demo-skill",
+		Version: "latest",
+		Name:    "demo-skill",
+		Status:  types.OrgSkillInstallationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("create org skill installation: %v", err)
+	}
+	startedAt := time.Now()
+	deployment := &types.WorkerDeployment{
+		OrgID:              1,
+		DigitalAssistantID: assistant.ID,
+		WorkerID:           1,
+		DeploymentName:     "leros-worker-o1-w1",
+		Status:             string(types.WorkerDeploymentStatusProvisioning),
+		BootstrapTokenHash: "stable-token-hash",
+		LastStartedAt:      &startedAt,
+	}
+	if err := database.Create(deployment).Error; err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+
+	scheduler := &fakeWorkerScheduler{}
+	publisher := &skillInstallPublisher{
+		response: messaging.WorkerCommandResult{Success: true, Action: "install"},
+	}
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment, publisher); err != nil {
+		t.Fatalf("reconcile deployment: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for len(publisher.requests) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(publisher.requests) != 1 {
+		t.Fatalf("sync request count = %d, want 1", len(publisher.requests))
 	}
 }
 
@@ -310,7 +372,7 @@ func TestWorkerReconcilerRestartsProvisioningDeploymentWhenRuntimeMissing(t *tes
 	}
 
 	scheduler := &fakeWorkerScheduler{healthErr: worker.ErrWorkerNotFound}
-	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment); err != nil {
+	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment, nil); err != nil {
 		t.Fatalf("reconcile deployment: %v", err)
 	}
 	if scheduler.startCalls != 1 {

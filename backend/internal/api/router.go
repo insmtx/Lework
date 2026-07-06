@@ -158,7 +158,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 			logs.Info("Session event consumers disabled by config")
 		}
 		if workerScheduler != nil {
-			go service.StartWorkerDeploymentReconciler(context.Background(), db, workerScheduler, cfg.Scheduler)
+			go service.StartWorkerDeploymentReconciler(context.Background(), db, workerScheduler, cfg.Scheduler, eventbus)
 			logs.Info("Worker deployment reconciler started")
 		}
 	}
