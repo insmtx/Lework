@@ -46,6 +46,8 @@ uint-test:
   stage: test
   image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
     - if: '$APP == "desktop"'
       when: never
     - when: on_success
@@ -53,9 +55,38 @@ uint-test:
     - echo testing
     # - APP=$[[ inputs.app ]] make test
 
+frontend-typecheck:
+  stage: test
+  image: registry.yygu.cn/library/node:24-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - if: '$APP == "desktop"'
+      when: on_success
+    - when: never
+  variables:
+    COREPACK_NPM_REGISTRY: "https://registry.npmmirror.com"
+    npm_config_registry: "https://registry.npmmirror.com"
+  cache:
+    key:
+      files:
+        - frontend/pnpm-lock.yaml
+    paths:
+      - frontend/.pnpm-store
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@10.28.2 --activate
+  script:
+    - cd frontend
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile --ignore-scripts
+    - pnpm typecheck
+
 build-image:
   stage: build
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
     - if: '$APP == "desktop"'
       when: never
     - when: on_success
@@ -90,6 +121,8 @@ build-image:
 build-worker-image:
   stage: build
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
     - if: '$APP == "desktop"'
       when: never
     - if: '$APP == "leros" && $UPDATE_WORKER_IMAGE == "true"'
@@ -116,6 +149,8 @@ deploy:
   stage: deploy
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
     - if: '$APP == "desktop"'
       when: never
     - if: '$ENV != "image"'
@@ -196,6 +231,8 @@ deploy:
   tags:
     - macos
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
     - if: '$APP == "desktop"'
       when: on_success
     - when: never
@@ -439,6 +476,8 @@ desktop-update-k3s-client-version:
   stage: notify
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
     - if: '$APP == "desktop" && $ENV != "image"'
       when: on_success
     - when: never
@@ -493,6 +532,8 @@ notify:
   dependencies:
     - build-image
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
     - if: '$APP == "desktop"'
       when: never
     - when: always
@@ -516,6 +557,8 @@ notify:
 workflow:
   rules:
     - if: $CI_COMMIT_TAG
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: always
     - if: $CI_PIPELINE_SOURCE == "web"
       when: always

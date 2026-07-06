@@ -2664,7 +2664,7 @@ export class ChatActionImpl {
 			type: "updateApprovalStatus",
 			messageId,
 			requestId,
-			status: "answered",
+			status: "submitting",
 			action,
 			reason,
 			error: undefined,
