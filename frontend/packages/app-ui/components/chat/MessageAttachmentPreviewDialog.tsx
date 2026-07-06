@@ -2,25 +2,19 @@
 
 import { fetchFilePreview } from "@leros/store";
 import type { MessageAttachment } from "@leros/store/types/chat";
-import { Button } from "@leros/ui/components/ui/button";
-import {
-	Sheet,
-	SheetClose,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from "@leros/ui/components/ui/sheet";
-import { Download, FileText, LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronsLeftRightEllipsis, Download, FileText, LoaderCircle, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import {
 	getOfficeOpenXmlFormat,
 	type OfficeOpenXmlFormat,
 	OfficePreview,
 } from "../layout/OfficePreview";
-import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { SpreadsheetPreview } from "../layout/SpreadsheetPreview";
+
+const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
+const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
+const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
 
 type PreviewKind =
 	| OfficeOpenXmlFormat
@@ -47,6 +41,8 @@ export function MessageAttachmentPreviewDialog({
 	onOpenChange: (open: boolean) => void;
 }) {
 	const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
+	const [drawerWidth, setDrawerWidth] = useState(FILE_PREVIEW_DRAWER_DEFAULT_WIDTH);
+	const drawerRef = useRef<HTMLDivElement>(null);
 	const previewKind = useMemo(() => getPreviewKind(attachment), [attachment]);
 
 	useEffect(() => {
@@ -80,7 +76,6 @@ export function MessageAttachmentPreviewDialog({
 					return;
 				}
 
-				// Office / 旧表格预览需要直接消费二进制内容，不能只转 blob URL。
 				if (
 					previewKind === "docx" ||
 					previewKind === "xlsx" ||
@@ -97,7 +92,7 @@ export function MessageAttachmentPreviewDialog({
 				if (!cancelled) setPreview({ status: "ready", objectUrl });
 			} catch (err) {
 				if (cancelled || controller.signal.aborted) return;
-				const message = err instanceof Error ? err.message : "Failed to load preview";
+				const message = err instanceof Error ? err.message : "预览加载失败";
 				setPreview({ status: "error", message });
 			}
 		}
@@ -110,6 +105,21 @@ export function MessageAttachmentPreviewDialog({
 			if (objectUrl) URL.revokeObjectURL(objectUrl);
 		};
 	}, [attachment, open, previewKind]);
+
+	useEffect(() => {
+		if (!open) return;
+
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target;
+			if (!(target instanceof Element)) return;
+			if (drawerRef.current?.contains(target)) return;
+			if (target.closest("[data-file-preview-trigger]")) return;
+			onOpenChange(false);
+		};
+
+		document.addEventListener("pointerdown", handlePointerDown);
+		return () => document.removeEventListener("pointerdown", handlePointerDown);
+	}, [open, onOpenChange]);
 
 	const handleDownload = async () => {
 		if (!attachment) return;
@@ -129,61 +139,84 @@ export function MessageAttachmentPreviewDialog({
 		}
 	};
 
+	const handleDrawerResizeStart = (event: React.PointerEvent<HTMLElement>) => {
+		event.preventDefault();
+		const startX = event.clientX;
+		const startWidth = drawerWidth;
+
+		const handlePointerMove = (moveEvent: PointerEvent) => {
+			const candidateWidth = startWidth - (moveEvent.clientX - startX);
+			const maxWidth = Math.min(FILE_PREVIEW_DRAWER_MAX_WIDTH, window.innerWidth - 160);
+			const nextWidth = Math.min(
+				Math.max(candidateWidth, FILE_PREVIEW_DRAWER_MIN_WIDTH),
+				Math.max(FILE_PREVIEW_DRAWER_MIN_WIDTH, maxWidth),
+			);
+			setDrawerWidth(nextWidth);
+		};
+
+		const handlePointerUp = () => {
+			window.removeEventListener("pointermove", handlePointerMove);
+			window.removeEventListener("pointerup", handlePointerUp);
+		};
+
+		window.addEventListener("pointermove", handlePointerMove);
+		window.addEventListener("pointerup", handlePointerUp);
+	};
+
+	if (!open || !attachment) {
+		return null;
+	}
+
 	return (
-		<Sheet open={open} onOpenChange={onOpenChange}>
-			<SheetContent
-				side="right"
-				showCloseButton={false}
-				className="inset-y-4 right-4 h-auto w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl sm:max-w-none md:w-[min(48vw,980px)]"
+		<div
+			ref={drawerRef}
+			className="fixed inset-y-4 right-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl"
+			style={{ width: `${drawerWidth}px`, maxWidth: `${drawerWidth}px` }}
+		>
+			<button
+				type="button"
+				aria-label="拖动调整预览宽度"
+				title="拖动调整预览宽度"
+				onPointerDown={handleDrawerResizeStart}
+				className="absolute left-0 top-0 z-10 flex h-full w-4 -translate-x-1/2 cursor-col-resize items-center justify-center"
 			>
-				{attachment && (
-					<>
-						<SheetHeader className="flex-row items-center gap-3 border-b border-[var(--leros-control-border)] px-5 py-4">
-							<div className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-muted)]">
-								<ProjectFileTypeIcon fileName={attachment.name} className="size-4 object-contain" />
-							</div>
-							<div className="h-5 w-px shrink-0 bg-[var(--leros-control-border)]" />
-							<div className="min-w-0 flex-1">
-								<SheetTitle className="truncate text-sm font-medium text-[var(--leros-text-muted)]">
-									{attachment.name}
-								</SheetTitle>
-								<SheetDescription className="sr-only">
-									{attachment.name} attachment preview
-								</SheetDescription>
-							</div>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								onClick={handleDownload}
-								title="Download"
-								className="shrink-0 text-[var(--leros-text)]"
-							>
-								<Download className="size-4" />
-							</Button>
-							<SheetClose
-								render={
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										title="Close"
-										className="shrink-0 text-[var(--leros-text)]"
-									/>
-								}
-							>
-								<X className="size-4" />
-							</SheetClose>
-						</SheetHeader>
-						<div className="min-h-0 flex-1 overflow-hidden bg-[#f6f7fb]">
-							<AttachmentPreviewBody
-								attachment={attachment}
-								previewKind={previewKind}
-								preview={preview}
-							/>
-						</div>
-					</>
-				)}
-			</SheetContent>
-		</Sheet>
+				<div className="flex h-16 w-2 items-center justify-center rounded-full bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] shadow-sm ring-1 ring-[var(--leros-control-border)]">
+					<ChevronsLeftRightEllipsis className="size-3" />
+				</div>
+			</button>
+			<div className="flex items-center justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
+				<div className="min-w-0">
+					<div className="truncate text-lg font-medium text-[var(--leros-text-strong)]">
+						{attachment.name}
+					</div>
+				</div>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						onClick={() => void handleDownload()}
+						className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
+						title="下载"
+					>
+						<Download className="size-4" />
+					</button>
+					<button
+						type="button"
+						onClick={() => onOpenChange(false)}
+						className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
+						title="关闭"
+					>
+						<X className="size-4" />
+					</button>
+				</div>
+			</div>
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface-soft)] p-6">
+				<AttachmentPreviewBody
+					attachment={attachment}
+					previewKind={previewKind}
+					preview={preview}
+				/>
+			</div>
+		</div>
 	);
 }
 
@@ -191,7 +224,6 @@ async function fetchAttachmentContent(
 	attachment: MessageAttachment,
 	options?: { signal?: AbortSignal },
 ): Promise<Response> {
-	// 中文注释：问答附件与产物文件统一走 /files/preview，避免误用项目 download 接口
 	if (attachment.storageUri || attachment.fileUploadId) {
 		return fetchFilePreview(
 			{ storageUri: attachment.storageUri, publicId: attachment.fileUploadId },
@@ -253,18 +285,18 @@ function AttachmentPreviewBody({
 }) {
 	if (preview.status === "loading" || preview.status === "idle") {
 		return (
-			<div className="flex h-full items-center justify-center text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center text-sm text-[var(--leros-text-muted)]">
 				<LoaderCircle className="mr-2 size-4 animate-spin" />
-				Loading preview
+				加载预览中
 			</div>
 		);
 	}
 
 	if (preview.status === "error") {
 		return (
-			<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
 				<div>
-					<p>Unable to load preview</p>
+					<p>无法加载文件预览</p>
 					<p className="mt-1 text-xs">{preview.message}</p>
 				</div>
 			</div>
@@ -280,17 +312,23 @@ function AttachmentPreviewBody({
 		preview.buffer
 	) {
 		return (
-			<OfficePreview buffer={preview.buffer} fileName={attachment.name} format={previewKind} />
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
+				<OfficePreview buffer={preview.buffer} fileName={attachment.name} format={previewKind} />
+			</div>
 		);
 	}
 
 	if (previewKind === "spreadsheet" && preview.buffer) {
-		return <SpreadsheetPreview buffer={preview.buffer} fileName={attachment.name} />;
+		return (
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
+				<SpreadsheetPreview buffer={preview.buffer} fileName={attachment.name} />
+			</div>
+		);
 	}
 
 	if (previewKind === "markdown") {
 		return (
-			<div className="h-full overflow-auto bg-[var(--leros-surface)] px-8 py-7">
+			<div className="min-h-0 flex-1 overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
 				<MarkdownRenderer
 					content={preview.text ?? ""}
 					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7 prose-pre:rounded-lg prose-pre:bg-slate-950"
@@ -301,7 +339,7 @@ function AttachmentPreviewBody({
 
 	if (previewKind === "text") {
 		return (
-			<pre className="h-full overflow-auto whitespace-pre-wrap break-words bg-[var(--leros-surface)] px-8 py-7 font-mono text-sm leading-6 text-[var(--leros-text-strong)]">
+			<pre className="min-h-0 flex-1 overflow-auto rounded-xl bg-white p-4 text-sm leading-6 text-[var(--leros-text)] shadow-sm">
 				{preview.text ?? ""}
 			</pre>
 		);
@@ -309,11 +347,11 @@ function AttachmentPreviewBody({
 
 	if (previewKind === "image" && preview.objectUrl) {
 		return (
-			<div className="flex h-full items-center justify-center overflow-auto p-6">
+			<div className="flex flex-1 items-center justify-center overflow-auto rounded-xl bg-white p-4 shadow-sm">
 				<img
 					src={preview.objectUrl}
 					alt={attachment.name}
-					className="max-h-full max-w-full rounded-xl object-contain shadow-lg"
+					className="max-h-full max-w-full object-contain"
 				/>
 			</div>
 		);
@@ -321,19 +359,22 @@ function AttachmentPreviewBody({
 
 	if (previewKind === "pdf" && preview.objectUrl) {
 		return (
-			<iframe
-				title={attachment.name}
-				src={preview.objectUrl}
-				className="h-full w-full border-0 bg-white"
-			/>
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
+				<iframe
+					title={attachment.name}
+					src={preview.objectUrl}
+					className="h-full w-full border-0 bg-white"
+				/>
+			</div>
 		);
 	}
 
 	return (
-		<div className="flex h-full items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+		<div className="flex flex-1 items-center justify-center rounded-xl bg-white px-8 text-center text-sm text-[var(--leros-text-muted)] shadow-sm">
 			<div>
-				<FileText className="mx-auto mb-3 size-10 text-slate-300" />
-				<p>This attachment type cannot be previewed yet</p>
+				<FileText className="mx-auto mb-3 size-8 text-[var(--leros-text-subtle)]" />
+				<p>此文件类型暂不支持内嵌预览</p>
+				<p className="mt-1 text-xs">请使用下载按钮在本地查看</p>
 			</div>
 		</div>
 	);

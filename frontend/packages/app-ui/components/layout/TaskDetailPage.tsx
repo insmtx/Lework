@@ -832,6 +832,7 @@ function TaskFileList({
 				<button
 					type="button"
 					key={file.path}
+					data-file-preview-trigger
 					onClick={() => onPreview(file)}
 					className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
 					title="预览文件"

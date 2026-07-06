@@ -154,7 +154,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		sendWorkbenchMessage,
 		fetchProjects,
 		fetchTasks,
-		fetchRecentWorkbenchContext,
 		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
 	} = useLayoutStore((s) => s);
@@ -194,12 +193,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	}, [attachments]);
 
 	useEffect(() => {
-		void fetchProjects().then(() => {
-			if (isAuthenticated) {
-				void fetchRecentWorkbenchContext();
-			}
-		});
-	}, [fetchProjects, fetchRecentWorkbenchContext, isAuthenticated]);
+		void fetchProjects();
+	}, [fetchProjects]);
 
 	useEffect(() => {
 		if (assistantsLoaded) return;
@@ -208,7 +203,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 
 	useLayoutEffect(() => {
 		clearTaskDetailRoute();
-	}, [clearTaskDetailRoute]);
+		selectWorkbenchProject(null);
+	}, [clearTaskDetailRoute, selectWorkbenchProject]);
 
 	useEffect(() => {
 		if (!activeWorkbenchProjectId) return;

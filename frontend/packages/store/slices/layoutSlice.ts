@@ -358,6 +358,12 @@ export class LayoutActionImpl {
 		this.#set({
 			currentView: view,
 			conversationListOpen: view === "chat",
+			...(view === "workbench"
+				? {
+						activeWorkbenchProjectId: null,
+						activeWorkbenchTaskId: null,
+					}
+				: {}),
 			...(view !== "taskDetail"
 				? {
 						activeTaskDetailProjectId: null,
@@ -936,35 +942,7 @@ export class LayoutActionImpl {
 	};
 
 	fetchRecentWorkbenchContext = async () => {
-		if (this.#get().activeWorkbenchProjectId) return;
-		try {
-			const res = await projectApi.getWorkbenchRecentContext();
-			const recent = res.data.data;
-			if (!recent?.project_id || this.#get().activeWorkbenchProjectId) return;
-
-			if (!this.#get().projects.some((project) => project.id === recent.project_id)) {
-				await this.fetchProjectDetail(recent.project_id);
-			}
-			if (recent.task_id) {
-				await this.fetchTasks(recent.project_id);
-			}
-			if (this.#get().activeWorkbenchProjectId) return;
-
-			const project = this.#get().projects.find((item) => item.id === recent.project_id);
-			if (!project) return;
-			const taskId =
-				recent.task_id && project.tasks.some((task) => task.id === recent.task_id)
-					? recent.task_id
-					: null;
-
-			// 中文注释：最近上下文只作为首页初始值，用户手动选择后不再覆盖。
-			this.#set({
-				activeWorkbenchProjectId: recent.project_id,
-				activeWorkbenchTaskId: taskId,
-			});
-		} catch (err) {
-			console.error("fetchRecentWorkbenchContext error:", err);
-		}
+		// 中文注释：新建任务页默认停留在「新建项目/任务」，不恢复最近使用的项目/任务选择。
 	};
 
 	saveWorkbenchRecentContext = async (projectId: string, taskId?: string | null) => {

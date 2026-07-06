@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -218,6 +218,29 @@ function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) =
 }
 
 describe("StructuredComposer", () => {
+	it("中文输入法组合中按 Enter 不会触发发送", () => {
+		const handleSubmit = vi.fn();
+
+		render(
+			<StructuredComposer
+				value=""
+				onChange={vi.fn()}
+				onSubmit={handleSubmit}
+				onPasteFiles={vi.fn()}
+				onFocus={vi.fn()}
+				onBlur={vi.fn()}
+				placeholder="请输入"
+				isProjectVariant
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		fireEvent.compositionStart(textbox);
+		fireEvent.keyDown(textbox, { key: "Enter", code: "Enter", isComposing: true });
+
+		expect(handleSubmit).not.toHaveBeenCalled();
+	});
+
 	it("通过 / 选择技能后会补齐尾部空格", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();

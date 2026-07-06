@@ -827,21 +827,23 @@ function ProjectConfigSidebar({
 							{project.skills.map((skill) => (
 								<div
 									key={skill.code}
-									className="group relative inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
+									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
 								>
-									<SkillPickerIcon />
-									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
-										{skill.name}
-									</span>
 									<button
 										type="button"
-										className="rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100"
+										className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
 										aria-label={`移除技能 ${skill.name}`}
 										onClick={() => removeProjectSkill(skill.code)}
 										disabled={savingSkills}
 									>
-										<X className="size-3" />
+										<Sparkles className="size-3.5 transition-opacity group-hover:opacity-0" />
+										<span className="absolute inline-flex items-center justify-center rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100">
+											<X className="size-3" />
+										</span>
 									</button>
+									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
+										{skill.name}
+									</span>
 								</div>
 							))}
 						</div>
@@ -1482,7 +1484,7 @@ function ProjectFiles({
 			{previewFile && (
 				<div
 					ref={drawerRef}
-					className="fixed right-0 top-16 z-40 flex h-[calc(100vh-64px)] flex-col overflow-hidden border-l border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl rounded-l-2xl"
+					className="fixed inset-y-4 right-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl"
 					style={{ width: `${drawerWidth}px`, maxWidth: `${drawerWidth}px` }}
 				>
 					<button
@@ -1500,9 +1502,6 @@ function ProjectFiles({
 						<div className="min-w-0">
 							<div className="truncate text-lg font-medium text-[var(--leros-text-strong)]">
 								{previewFile.name}
-							</div>
-							<div className="mt-1 truncate text-xs text-[var(--leros-text-muted)]">
-								/{previewFile.path}
 							</div>
 						</div>
 						<div className="flex items-center gap-2">
@@ -1524,7 +1523,7 @@ function ProjectFiles({
 							</button>
 						</div>
 					</div>
-					<div className="min-h-0 flex-1 overflow-auto bg-[var(--leros-surface-soft)] p-6">
+					<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface-soft)] p-6">
 						<ProjectFilePreviewBody file={previewFile} previewState={previewState} />
 					</div>
 				</div>
@@ -1542,7 +1541,7 @@ function ProjectFilePreviewBody({
 }) {
 	if (previewState.status === "idle" || previewState.status === "loading") {
 		return (
-			<div className="flex h-full min-h-[320px] items-center justify-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center text-sm text-[var(--leros-text-muted)]">
 				<LoaderCircle className="mr-2 size-4 animate-spin" />
 				加载预览中
 			</div>
@@ -1551,7 +1550,7 @@ function ProjectFilePreviewBody({
 
 	if (previewState.status === "error") {
 		return (
-			<div className="flex h-full min-h-[320px] items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
 				<div>
 					<p>无法加载文件预览</p>
 					<p className="mt-1 text-xs">{previewState.message}</p>
@@ -1562,7 +1561,7 @@ function ProjectFilePreviewBody({
 
 	if (previewState.status === "text") {
 		return (
-			<pre className="overflow-auto rounded-xl bg-white p-4 text-sm leading-6 text-[var(--leros-text)] shadow-sm">
+			<pre className="min-h-0 flex-1 overflow-auto rounded-xl bg-white p-4 text-sm leading-6 text-[var(--leros-text)] shadow-sm">
 				{previewState.content}
 			</pre>
 		);
@@ -1570,7 +1569,7 @@ function ProjectFilePreviewBody({
 
 	if (previewState.status === "markdown") {
 		return (
-			<div className="overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
+			<div className="min-h-0 flex-1 overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
 				<MarkdownRenderer
 					content={previewState.content}
 					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7 prose-pre:rounded-lg prose-pre:bg-slate-950"
@@ -1581,7 +1580,7 @@ function ProjectFilePreviewBody({
 
 	if (previewState.status === "office") {
 		return (
-			<div className="h-[calc(100vh-150px)] min-h-[520px] overflow-hidden rounded-xl bg-white shadow-sm">
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
 				<OfficePreview
 					fileName={file.name}
 					buffer={previewState.buffer}
@@ -1593,7 +1592,7 @@ function ProjectFilePreviewBody({
 
 	if (previewState.status === "spreadsheet") {
 		return (
-			<div className="h-[calc(100vh-150px)] min-h-[520px] overflow-hidden rounded-xl bg-white shadow-sm">
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
 				<SpreadsheetPreview buffer={previewState.buffer} fileName={file.name} />
 			</div>
 		);
@@ -1601,7 +1600,7 @@ function ProjectFilePreviewBody({
 
 	if (previewState.mimeType.startsWith("image/")) {
 		return (
-			<div className="flex min-h-[320px] items-center justify-center rounded-xl bg-white p-4 shadow-sm">
+			<div className="flex flex-1 items-center justify-center overflow-auto rounded-xl bg-white p-4 shadow-sm">
 				<img
 					src={previewState.url}
 					alt={file.name}
@@ -1613,18 +1612,18 @@ function ProjectFilePreviewBody({
 
 	if (previewState.mimeType.includes("pdf")) {
 		return (
-			<div className="overflow-hidden rounded-xl bg-white shadow-sm">
+			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">
 				<iframe
 					title={file.name}
 					src={previewState.url}
-					className="h-[calc(100vh-150px)] min-h-[760px] w-full border-0 bg-white"
+					className="h-full w-full border-0 bg-white"
 				/>
 			</div>
 		);
 	}
 
 	return (
-		<div className="flex min-h-[320px] items-center justify-center rounded-xl bg-white px-8 text-center text-sm text-[var(--leros-text-muted)] shadow-sm">
+		<div className="flex flex-1 items-center justify-center rounded-xl bg-white px-8 text-center text-sm text-[var(--leros-text-muted)] shadow-sm">
 			<div>
 				<FileText className="mx-auto mb-3 size-8 text-[var(--leros-text-subtle)]" />
 				<p>此文件类型暂不支持内嵌预览</p>
