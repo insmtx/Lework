@@ -1960,7 +1960,7 @@ export class ChatActionImpl {
 			type: "updateApprovalStatus",
 			messageId,
 			requestId,
-			status: "submitting",
+			status: "answered",
 			action,
 			reason,
 			error: undefined,
@@ -2006,7 +2006,7 @@ export class ChatActionImpl {
 			type: "updateQuestionStatus",
 			messageId,
 			requestId,
-			status: "submitting",
+			status: "answered",
 			answers,
 			error: undefined,
 		});
@@ -2016,14 +2016,6 @@ export class ChatActionImpl {
 				session_id: sessionId,
 				request_id: requestId,
 				answers,
-			});
-			this.#dispatchChat({
-				type: "updateQuestionStatus",
-				messageId,
-				requestId,
-				status: "answered",
-				answers,
-				error: undefined,
 			});
 		} catch (err) {
 			console.error("submitQuestionAnswer error:", err);

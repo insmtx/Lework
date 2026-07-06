@@ -249,7 +249,7 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 				Header:      q.Header,
 				Options:     options,
 				MultiSelect: q.Multiple,
-				Custom:      q.Custom,
+				Custom:      q.Custom == nil || *q.Custom, // nil 或 true → true；只有显式的 false → false
 			})
 		}
 

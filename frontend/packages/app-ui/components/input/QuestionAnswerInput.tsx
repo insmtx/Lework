@@ -3,16 +3,9 @@
 import type { QuestionRequest } from "@leros/store/types/chat";
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
-import { Textarea } from "@leros/ui/components/ui/textarea";
+import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
-import {
-	AlertCircle,
-	ChevronLeft,
-	ChevronRight,
-	CornerDownLeft,
-	Info,
-	LoaderCircle,
-} from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, Info, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getProjectChatLayoutClasses } from "../layout/project-chat-layout";
 
@@ -36,7 +29,6 @@ function QuestionStatusBadge({ question }: { question: QuestionRequest }) {
 
 function isCustomOptionLabel(label: string): boolean {
 	const normalized = label.trim().toLowerCase();
-
 	return (
 		/请说明|请填写|please\s+specify/.test(normalized) ||
 		/^(其他|其它)(?:$|\s|[（(：:])/.test(normalized) ||
@@ -55,6 +47,14 @@ function normalizeQuestionAnswers(answers: string[][], customActive: boolean[]):
 		const customValue = answer[0]?.trim();
 		return customValue ? [customValue] : [];
 	});
+}
+
+/** Extract the custom (non-option) value from the answers array. */
+function extractCustomValue(answers: string[], options: { label: string }[]): string {
+	for (const ans of answers) {
+		if (!options.some((o) => o.label === ans)) return ans;
+	}
+	return "";
 }
 
 export function QuestionAnswerInput({
@@ -81,7 +81,7 @@ export function QuestionAnswerInput({
 	);
 	const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
 	const [focusedOptionIndex, setFocusedOptionIndex] = useState(0);
-	const customInputRef = useRef<HTMLTextAreaElement>(null);
+	const customInputRef = useRef<HTMLInputElement>(null);
 	const isSubmitting = question.status === "submitting";
 	const isProjectVariant = variant === "project";
 	const layout = projectLayout ?? getProjectChatLayoutClasses("sidebar-expanded");
@@ -100,17 +100,10 @@ export function QuestionAnswerInput({
 	const currentAnswered = isAnswerComplete(currentAnswer, currentCustomActive);
 	const hasMultipleQuestions = question.questions.length > 1;
 	const isLastQuestion = activeQuestionIndex >= question.questions.length - 1;
-	const selectedKnownOption = currentQuestion.options.some(
-		(option) => option.label === currentAnswer[0],
-	);
-	const customAnswerValue = currentQuestion.options.some(
-		(option) => option.label === currentAnswer[0],
-	)
-		? currentCustomActive
-			? (currentAnswer[0] ?? "")
-			: ""
-		: (currentAnswer[0] ?? "");
-	const showCustomInput = currentQuestion.custom || currentCustomActive;
+	const isMulti = currentQuestion.multiple;
+
+	// Custom text from answers (non-option entry)
+	const customAnswerValue = extractCustomValue(currentAnswer, currentQuestion.options);
 
 	const handleSubmit = useCallback(() => {
 		if (!allAnswered || isSubmitting) return;
@@ -184,11 +177,6 @@ export function QuestionAnswerInput({
 
 	const handleCheckboxChange = useCallback(
 		(questionIndex: number, optionLabel: string, checked: boolean) => {
-			setCustomActive((prev) => {
-				const next = [...prev];
-				next[questionIndex] = false;
-				return next;
-			});
 			setAnswers((prev) => {
 				const next = prev.map((row) => [...row]);
 				const current = next[questionIndex] ?? [];
@@ -203,51 +191,75 @@ export function QuestionAnswerInput({
 		[],
 	);
 
-	const handleCustomSelect = useCallback(
-		(questionIndex: number) => {
+	// In multi-select, typing = select, clearing = deselect. Simple.
+	const handleCustomChange = useCallback(
+		(questionIndex: number, value: string) => {
+			const options = question.questions[questionIndex]?.options ?? [];
+			const isMultiSelect = question.questions[questionIndex]?.multiple ?? false;
+
 			setCustomActive((prev) => {
 				const next = [...prev];
-				next[questionIndex] = true;
+				next[questionIndex] = value.trim().length > 0;
 				return next;
 			});
 			setAnswers((prev) => {
 				const next = prev.map((row) => [...row]);
-				const current = next[questionIndex]?.[0] ?? "";
-				const currentIsOption = question.questions[questionIndex]?.options.some(
-					(option) => option.label === current,
-				);
-				next[questionIndex] = current && !currentIsOption ? [current] : [];
+				if (isMultiSelect) {
+					let customIdx = -1;
+					const row = next[questionIndex] ?? [];
+					for (let idx = 0; idx < row.length; idx++) {
+						if (!options.some((o) => o.label === row[idx])) {
+							customIdx = idx;
+							break;
+						}
+					}
+					if (customIdx >= 0) {
+						if (value) {
+							next[questionIndex][customIdx] = value;
+						} else {
+							next[questionIndex].splice(customIdx, 1);
+						}
+					} else if (value) {
+						next[questionIndex] = [...(next[questionIndex] ?? []), value];
+					}
+				} else {
+					next[questionIndex] = value ? [value] : [];
+				}
 				return next;
 			});
 		},
 		[question.questions],
 	);
 
-	const handleCustomChange = useCallback((questionIndex: number, value: string) => {
-		setCustomActive((prev) => {
-			const next = [...prev];
-			next[questionIndex] = true;
-			return next;
-		});
-		setAnswers((prev) => {
-			const next = prev.map((row) => [...row]);
-			next[questionIndex] = value ? [value] : [];
-			return next;
-		});
-	}, []);
+	// Only for radio mode: activate custom on selection
+	const handleCustomSelect = useCallback(
+		(questionIndex: number) => {
+			const isMultiSelect = question.questions[questionIndex]?.multiple ?? false;
+			if (isMultiSelect) return; // multi-select: typing handles selection
+			setCustomActive((prev) => {
+				const next = [...prev];
+				next[questionIndex] = true;
+				return next;
+			});
+		},
+		[question.questions],
+	);
 
 	useEffect(() => {
 		const selectedIndex = currentQuestion.options.findIndex((option) =>
 			currentCustomActive
 				? isCustomOptionLabel(option.label)
-				: currentAnswer.includes(option.label),
+				: currentAnswer.some((a) => a === option.label),
 		);
 		setFocusedOptionIndex(selectedIndex >= 0 ? selectedIndex : 0);
 	}, [activeQuestionIndex, currentAnswer, currentCustomActive, currentQuestion.options]);
 
 	useEffect(() => {
 		if (!currentCustomActive || isSubmitting) return;
-		const frame = requestAnimationFrame(() => customInputRef.current?.focus());
+		const frame = requestAnimationFrame(() => {
+			const el = document.querySelector("[data-custom-input]") as HTMLInputElement;
+			el?.focus();
+		});
 		return () => cancelAnimationFrame(frame);
 	}, [activeQuestionIndex, currentCustomActive, isSubmitting]);
 
@@ -257,7 +269,24 @@ export function QuestionAnswerInput({
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
 			const activeEl = document.activeElement;
-			if (activeEl?.tagName === "TEXTAREA") return;
+			const isInputFocused = activeEl?.tagName === "TEXTAREA" || activeEl?.tagName === "INPUT";
+
+			// When input is focused, allow Escape and arrow keys to navigate away
+			if (isInputFocused) {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					(activeEl as HTMLElement)?.blur();
+					handleCancel();
+					return;
+				}
+				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+					event.preventDefault();
+					(activeEl as HTMLElement)?.blur();
+					// fall through to arrow navigation below
+				} else {
+					return;
+				}
+			}
 
 			if (event.key === "Escape") {
 				event.preventDefault();
@@ -276,14 +305,18 @@ export function QuestionAnswerInput({
 			if ((event.key === "ArrowUp" || event.key === "ArrowDown") && optionCount > 0) {
 				event.preventDefault();
 				const direction = event.key === "ArrowUp" ? -1 : 1;
-				const selectedIndex = currentQuestion.options.findIndex((option) =>
-					currentAnswer.includes(option.label),
-				);
-				const baseIndex = selectedIndex >= 0 ? selectedIndex : focusedOptionIndex;
-				const nextIndex = (baseIndex + direction + optionCount) % optionCount;
+				const nextIndex = (focusedOptionIndex + direction + optionCount) % optionCount;
 				const nextOption = currentQuestion.options[nextIndex];
 				setFocusedOptionIndex(nextIndex);
-				if (nextOption) {
+				// Multi-select: focus custom input when navigating to it
+				if (currentQuestion.multiple && nextOption && isCustomOptionLabel(nextOption.label)) {
+					requestAnimationFrame(() => {
+						const el = document.querySelector("[data-custom-input]") as HTMLInputElement;
+						el?.focus();
+					});
+				}
+				// Radio: auto-select on arrow
+				if (!currentQuestion.multiple && nextOption) {
 					if (isCustomOptionLabel(nextOption.label)) {
 						handleCustomSelect(activeQuestionIndex);
 					} else {
@@ -293,12 +326,17 @@ export function QuestionAnswerInput({
 				return;
 			}
 
-			if (event.key === " " && currentQuestion.multiple && optionCount > 0) {
-				event.preventDefault();
-				const option = currentQuestion.options[focusedOptionIndex];
-				if (option) {
+			// Multi-select: Space/Enter toggle or focus custom input
+			if (currentQuestion.multiple && optionCount > 0) {
+				const toggleKeys = event.key === " " || (event.key === "Enter" && !event.shiftKey);
+				if (toggleKeys) {
+					event.preventDefault();
+					const option = currentQuestion.options[focusedOptionIndex];
+					if (!option) return;
 					if (isCustomOptionLabel(option.label)) {
-						handleCustomSelect(activeQuestionIndex);
+						// Focus the custom input for typing (typing = select)
+						const el = document.querySelector("[data-custom-input]") as HTMLInputElement;
+						el?.focus();
 					} else {
 						handleCheckboxChange(
 							activeQuestionIndex,
@@ -306,11 +344,11 @@ export function QuestionAnswerInput({
 							!currentAnswer.includes(option.label),
 						);
 					}
+					return;
 				}
-				return;
 			}
 
-			if (event.key === "Enter" && !event.shiftKey) {
+			if (event.key === "Enter" && !event.shiftKey && !currentQuestion.multiple) {
 				event.preventDefault();
 				handleContinue();
 			}
@@ -344,94 +382,165 @@ export function QuestionAnswerInput({
 		>
 			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && layout.inner)}>
 				<div className="overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
-					<div className="px-3.5 pb-2 pt-2.5 sm:px-4">
-						<div className="mb-2 flex items-center justify-between gap-3">
-							<div className="flex min-w-0 items-center gap-2">
-								<div className="truncate text-[15px] font-semibold leading-5 text-slate-950">
-									{currentQuestion.question}
-								</div>
-								<div className="shrink-0 scale-90">
-									<QuestionStatusBadge question={question} />
-								</div>
+					{/* Header */}
+					<div className="flex items-start justify-between gap-3 px-3.5 pb-2 pt-2.5 sm:px-4">
+						<div className="flex min-w-0 items-center gap-2">
+							<h3 className="truncate text-[15px] font-semibold leading-5 text-slate-950">
+								{currentQuestion.question}
+							</h3>
+							<div className="shrink-0">
+								<QuestionStatusBadge question={question} />
 							</div>
-							{hasMultipleQuestions && (
-								<div className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500">
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon-xs"
-										className="size-6 text-slate-400 hover:text-slate-700"
-										onClick={() => handleNavigate(-1)}
-										disabled={activeQuestionIndex === 0 || isSubmitting}
-										aria-label="上一个问题"
-									>
-										<ChevronLeft className="size-3.5" />
-									</Button>
-									<span className="tabular-nums">
-										{activeQuestionIndex + 1} of {question.questions.length}
-									</span>
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon-xs"
-										className="size-6 text-slate-400 hover:text-slate-700"
-										onClick={() => handleNavigate(1)}
-										disabled={activeQuestionIndex === question.questions.length - 1 || isSubmitting}
-										aria-label="下一个问题"
-									>
-										<ChevronRight className="size-3.5" />
-									</Button>
-								</div>
-							)}
 						</div>
+						{hasMultipleQuestions && (
+							<div className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500">
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									className="size-6 text-slate-400 hover:text-slate-700"
+									onClick={() => handleNavigate(-1)}
+									disabled={activeQuestionIndex === 0 || isSubmitting}
+									aria-label="上一个问题"
+								>
+									<ChevronLeft className="size-3.5" />
+								</Button>
+								<span className="tabular-nums">
+									{activeQuestionIndex + 1}/{question.questions.length}
+								</span>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									className="size-6 text-slate-400 hover:text-slate-700"
+									onClick={() => handleNavigate(1)}
+									disabled={activeQuestionIndex === question.questions.length - 1 || isSubmitting}
+									aria-label="下一个问题"
+								>
+									<ChevronRight className="size-3.5" />
+								</Button>
+							</div>
+						)}
+					</div>
 
-						<div className="space-y-0.5">
+					{/* Options */}
+					<div className="px-3.5 pb-2 sm:px-4">
+						<div className="grid gap-0.5" role={isMulti ? "group" : "radiogroup"}>
 							{currentQuestion.options.map((option, optionIndex) => {
 								const isCustomOption = isCustomOptionLabel(option.label);
 								const selected = isCustomOption
 									? currentCustomActive
-									: currentQuestion.multiple
+									: isMulti
 										? currentAnswer.includes(option.label)
 										: currentAnswer[0] === option.label;
 								const focused = focusedOptionIndex === optionIndex;
+
+								// Custom option: inline input, typing = select, clearing = deselect
+								if (isCustomOption) {
+									return (
+										<div
+											key={option.label}
+											className={cn(
+												"flex min-h-7 w-full items-center gap-2.5 rounded-lg border px-2 py-1 transition-all",
+												"hover:bg-slate-50",
+												currentCustomActive
+													? "border-slate-200 bg-[#eef3fa] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.48)]"
+													: "border-transparent bg-transparent",
+												focused && "ring-2 ring-slate-300",
+												isSubmitting && "cursor-not-allowed opacity-70",
+											)}
+										>
+											{/* Index circle: just shows the number, click to focus input */}
+											<button
+												type="button"
+												tabIndex={-1}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" || e.key === " ") {
+														e.preventDefault();
+														e.stopPropagation();
+														(e.target as HTMLElement)?.click();
+													}
+												}}
+												onClick={(e) => {
+													e.stopPropagation();
+													setFocusedOptionIndex(optionIndex);
+													const el = document.querySelector(
+														"[data-custom-input]",
+													) as HTMLInputElement;
+													el?.focus();
+												}}
+												className={cn(
+													"flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 text-[11px] font-medium transition-all",
+													currentCustomActive
+														? "border-slate-900 bg-slate-900 text-white"
+														: "border-[#dce5f1] bg-white text-[#8ca1bc]",
+												)}
+											>
+												{optionIndex + 1}
+											</button>
+											<Input
+												ref={customInputRef}
+												data-custom-input={activeQuestionIndex}
+												type="text"
+												placeholder="输入自定义答案"
+												value={customAnswerValue}
+												onChange={(e) => handleCustomChange(activeQuestionIndex, e.target.value)}
+												onFocus={() => setFocusedOptionIndex(optionIndex)}
+												onClick={(e) => e.stopPropagation()}
+												disabled={isSubmitting}
+												className="!h-6 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-[13px] font-normal leading-4 text-slate-950 shadow-none placeholder:text-[#98a8be] caret-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+											/>
+											{option.description && (
+												<span className="group/description relative shrink-0">
+													<Info className="size-3.5 text-slate-400" aria-hidden="true" />
+													<span className="pointer-events-none absolute bottom-full right-0 z-20 mb-1 hidden min-w-max max-w-56 whitespace-nowrap rounded-md bg-slate-950 px-2 py-1 text-xs font-normal leading-4 text-white shadow-lg group-hover/description:block">
+														{option.description}
+													</span>
+												</span>
+											)}
+										</div>
+									);
+								}
+
+								// Regular option button
 								return (
+									// biome-ignore lint/a11y/useAriaPropsSupportedByRole: button with explicit radio/checkbox role supports aria-checked per ARIA spec
 									<button
 										key={option.label}
 										type="button"
+										role={isMulti ? "checkbox" : "radio"}
+										aria-checked={selected}
 										disabled={isSubmitting}
 										onClick={() => {
 											setFocusedOptionIndex(optionIndex);
-											if (isCustomOption) {
-												handleCustomSelect(activeQuestionIndex);
-												return;
-											}
-											if (currentQuestion.multiple) {
+											if (isMulti) {
 												handleCheckboxChange(activeQuestionIndex, option.label, !selected);
 												return;
 											}
 											handleRadioChange(activeQuestionIndex, option.label);
 										}}
 										className={cn(
-											"flex min-h-7 w-full items-center gap-2.5 rounded-lg px-2 py-1 text-left transition-colors",
-											"hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70",
-											selected ? "bg-slate-100" : "bg-transparent",
-											focused && !selected && "bg-slate-50",
+											"flex min-h-7 w-full items-center gap-2.5 rounded-lg border px-2 py-1 text-left transition-all",
+											"hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70",
+											"focus:outline-none",
+											selected
+												? "border-slate-200 bg-[#eef3fa] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.48)]"
+												: "border-transparent bg-transparent",
+											focused && !selected && "ring-2 ring-slate-300",
 										)}
 									>
 										<span
 											className={cn(
-												"flex size-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-medium",
+												"flex size-5 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-medium transition-all",
 												selected
 													? "border-slate-900 bg-slate-900 text-white"
-													: "border-slate-200 bg-slate-50 text-slate-400",
+													: "border-[#dce5f1] bg-white text-[#8ca1bc]",
 											)}
 										>
 											{optionIndex + 1}
 										</span>
-										<span className="min-w-0 flex-1">
-											<span className="block truncate text-[13px] font-normal leading-4 text-slate-950">
-												{option.label}
-											</span>
+										<span className="min-w-0 flex-1 text-[13px] font-normal leading-4 text-slate-950">
+											{option.label}
 										</span>
 										{option.description && (
 											<span className="group/description relative shrink-0">
@@ -445,60 +554,77 @@ export function QuestionAnswerInput({
 								);
 							})}
 
-							{showCustomInput && (
-								<div className="rounded-lg px-9 pb-1 pt-1">
-									<Textarea
-										ref={customInputRef}
-										aria-label="其他答案"
-										placeholder={
-											selectedKnownOption && !currentCustomActive
-												? "如需选择其他，请先点击“其他”选项"
-												: "请输入其他答案"
-										}
-										value={customAnswerValue}
-										onChange={(e) => handleCustomChange(activeQuestionIndex, e.target.value)}
-										disabled={isSubmitting}
-										className="min-h-16 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-normal text-slate-700 shadow-none placeholder:text-slate-400 focus-visible:ring-1 focus-visible:ring-slate-300"
-									/>
-								</div>
-							)}
+							{/* Fallback: custom enabled but no custom-labeled option in the list */}
+							{currentQuestion.custom &&
+								!currentQuestion.options.some((o) => isCustomOptionLabel(o.label)) && (
+									<div
+										className={cn(
+											"flex min-h-7 w-full items-center gap-2.5 rounded-lg border px-2 py-1 transition-all",
+											"hover:bg-slate-50",
+											currentCustomActive
+												? "border-slate-200 bg-[#eef3fa] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.48)]"
+												: "border-transparent bg-transparent",
+											isSubmitting && "cursor-not-allowed opacity-70",
+										)}
+									>
+										<span
+											className={cn(
+												"flex size-5 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-medium transition-all",
+												currentCustomActive
+													? "border-slate-900 bg-slate-900 text-white"
+													: "border-[#dce5f1] bg-white text-[#8ca1bc]",
+											)}
+										>
+											{currentQuestion.options.length + 1}
+										</span>
+										<Input
+											ref={currentCustomActive ? customInputRef : undefined}
+											type="text"
+											placeholder="输入自定义答案"
+											value={customAnswerValue}
+											onChange={(e) => handleCustomChange(activeQuestionIndex, e.target.value)}
+											onFocus={() => handleCustomSelect(activeQuestionIndex)}
+											onClick={(e) => e.stopPropagation()}
+											disabled={isSubmitting}
+											className="!h-6 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-[13px] font-normal leading-4 text-slate-950 shadow-none placeholder:text-[#98a8be] caret-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+										/>
+									</div>
+								)}
 						</div>
 
 						{question.error && (
-							<div className="mt-3 flex items-center gap-1.5 text-xs text-red-600">
+							<div className="mt-2 flex items-center gap-1.5 text-xs text-red-600">
 								<AlertCircle className="size-3.5" />
 								<span>{question.error}</span>
 							</div>
 						)}
 					</div>
 
-					<div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-3.5 py-1.5">
-						<Button
+					{/* Footer */}
+					<div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-[#f8fafc] px-3.5 py-1.5">
+						<button
 							type="button"
-							variant="ghost"
-							size="sm"
 							onClick={handleCancel}
 							disabled={isSubmitting}
-							className="h-7 rounded-full px-2 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-950"
+							className="inline-flex items-center gap-1 rounded-full px-1 py-1 text-xs font-medium text-[#60708b] transition-all hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							取消
-							<span className="rounded-md bg-slate-200/80 px-1 py-0.5 text-[11px] text-slate-700">
+							<span className="inline-flex h-5 items-center rounded-md bg-[#e6edf6] px-1.5 text-[11px] font-medium text-[#344154]">
 								Esc
 							</span>
-						</Button>
-						<Button
+						</button>
+						<button
 							type="button"
-							size="sm"
 							onClick={handleContinue}
 							disabled={!currentAnswered || isSubmitting}
-							className="h-7 rounded-full bg-slate-950 px-2.5 text-xs text-white hover:bg-slate-800 disabled:bg-slate-300"
+							className="inline-flex h-7 items-center justify-center gap-2 rounded-full bg-[#070b1a] px-2.5 text-xs font-medium text-white shadow-[0_4px_12px_rgba(7,11,26,0.12)] transition-all hover:bg-slate-900 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none active:translate-y-px"
 						>
 							{isSubmitting && <LoaderCircle className="size-3 animate-spin" />}
 							{hasMultipleQuestions && !isLastQuestion ? "继续" : "提交"}
-							<span className="rounded-full bg-white/15 px-1 py-0.5 text-xs text-white/85">
-								<CornerDownLeft className="size-2.5" />
+							<span className="flex size-4 items-center justify-center rounded-full bg-white/15 text-[10px] text-[#cbd5e1]">
+								↵
 							</span>
-						</Button>
+						</button>
 					</div>
 				</div>
 			</div>

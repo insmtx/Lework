@@ -13,20 +13,20 @@ import type {
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	AlertCircle,
 	AtSign,
 	ChevronDown,
 	CircleStop,
+	ClipboardPenLine,
 	LoaderCircle,
 	Paperclip,
 	SendHorizonal,
 	ShieldAlert,
 	X,
-	ClipboardPenLine,
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { AppNavigation } from "../layout";
@@ -208,9 +208,7 @@ export function ChatInput({
 	const handlePlanAnswer = useCallback(
 		(messageId: string, requestId: string, answers: string[][]) => {
 			// Determine execution mode from answer: "Yes" → default, "No" → plan
-			const yesAnswer = answers.some(
-				(ans) => ans.length > 0 && ans[0]?.toLowerCase() === "yes",
-			);
+			const yesAnswer = answers.some((ans) => ans.length > 0 && ans[0]?.toLowerCase() === "yes");
 			setExecutionMode(yesAnswer ? "default" : "plan");
 			submitQuestionAnswer(messageId, requestId, answers);
 		},
@@ -218,8 +216,7 @@ export function ChatInput({
 	);
 
 	if (pendingQuestion) {
-		const isPlanConfirmation =
-			pendingQuestion.question.interactionType === "plan_confirmation";
+		const isPlanConfirmation = pendingQuestion.question.interactionType === "plan_confirmation";
 		return (
 			<QuestionAnswerInput
 				question={pendingQuestion.question}
@@ -473,20 +470,23 @@ type PendingQuestionRef = {
 function findPendingQuestion(
 	messageIds: string[],
 	messagesMap: Record<string, Message>,
-	activeSessionId: string | null,
+	_activeSessionId: string | null,
 ): PendingQuestionRef | null {
-	for (let index = messageIds.length - 1; index >= 0; index -= 1) {
-		const message = messagesMap[messageIds[index] ?? ""];
-		if (!message) continue;
-		if (activeSessionId && message.conversationId !== activeSessionId) continue;
+	// Only check the last message — a question is only "active" if it's the
+	// most recent interaction and hasn't been answered yet.
+	const lastId = messageIds[messageIds.length - 1];
+	if (!lastId) return null;
+	const lastMessage = messagesMap[lastId];
+	if (!lastMessage?.questions?.length) return null;
 
-		const question = [...(message.questions ?? [])]
-			.reverse()
-			.find(
-				(item) =>
-					item.status === "pending" || item.status === "submitting" || item.status === "error",
-			);
-		if (question) return { message, question };
+	const question = lastMessage.questions[lastMessage.questions.length - 1];
+	if (
+		question &&
+		(question.status === "pending" ||
+			question.status === "submitting" ||
+			question.status === "error")
+	) {
+		return { message: lastMessage, question };
 	}
 	return null;
 }
