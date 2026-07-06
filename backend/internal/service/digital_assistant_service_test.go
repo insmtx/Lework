@@ -218,4 +218,18 @@ func TestUpdateDigitalAssistantStatusActiveMarksDeploymentPending(t *testing.T) 
 	if deployment.Status != string(types.WorkerDeploymentStatusPending) {
 		t.Fatalf("deployment status = %q, want pending", deployment.Status)
 	}
+	if deployment.PublicID == "" {
+		t.Fatal("deployment public_id is empty")
+	}
+
+	updated, err := service.GetDigitalAssistantByID(ctx, result.ID)
+	if err != nil {
+		t.Fatalf("GetDigitalAssistantByID failed: %v", err)
+	}
+	if updated.Deployment == nil {
+		t.Fatal("deployment is nil")
+	}
+	if updated.Deployment.PublicID != deployment.PublicID {
+		t.Fatalf("deployment public_id = %q, want %q", updated.Deployment.PublicID, deployment.PublicID)
+	}
 }

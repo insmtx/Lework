@@ -33,6 +33,9 @@ func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
 	if defaultDeployment.WorkerID != 1 {
 		t.Fatalf("default worker_id = %d, want 1", defaultDeployment.WorkerID)
 	}
+	if defaultDeployment.PublicID == "" {
+		t.Fatal("default worker public_id is empty")
+	}
 	var defaultAssistant types.DigitalAssistant
 	if err := database.First(&defaultAssistant, defaultDeployment.DigitalAssistantID).Error; err != nil {
 		t.Fatalf("load default assistant: %v", err)
@@ -57,6 +60,9 @@ func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
 	}
 	if customDeployment.WorkerID != 2 {
 		t.Fatalf("custom worker_id = %d, want 2", customDeployment.WorkerID)
+	}
+	if customDeployment.PublicID == "" {
+		t.Fatal("custom worker public_id is empty")
 	}
 }
 
@@ -106,6 +112,9 @@ func TestWorkerProvisioningRebindsLegacyDefaultWorker(t *testing.T) {
 	}
 	if defaultDeployment.WorkerID != 1 {
 		t.Fatalf("default worker_id = %d, want 1", defaultDeployment.WorkerID)
+	}
+	if defaultDeployment.PublicID == "" {
+		t.Fatal("default worker public_id is empty")
 	}
 }
 

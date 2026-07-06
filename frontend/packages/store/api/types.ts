@@ -199,6 +199,7 @@ export type BackendDigitalAssistant = {
 };
 
 export type BackendWorkerDeploymentStatus = {
+	public_id?: string;
 	status: string;
 	last_error?: string;
 };

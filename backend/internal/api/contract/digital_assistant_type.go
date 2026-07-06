@@ -38,6 +38,7 @@ type DigitalAssistant struct {
 
 // WorkerDeploymentStatus describes the runtime deployment state of an AI teammate.
 type WorkerDeploymentStatus struct {
+	PublicID  string `json:"public_id"`
 	Status    string `json:"status"`
 	LastError string `json:"last_error,omitempty"`
 }
