@@ -127,7 +127,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 				onValueChange={(v) => setActiveTab(v as "marketplace" | "mine")}
 				className="min-h-0 flex-1 flex-col"
 			>
-				<div className="flex items-start justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
+				<header className="flex shrink-0 items-start justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
 					<div>
 						<TabsList variant="line" className="mb-3 -ml-1.5">
 							<TabsTrigger value="marketplace" className={SKILL_MARKET_TAB_TRIGGER_CLASS}>
@@ -164,7 +164,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-				</div>
+				</header>
 
 				<TabsContent value="marketplace" className="flex min-h-0 flex-1 flex-col outline-none">
 					<MarketplacePanel onCardClick={handleCardClick} />

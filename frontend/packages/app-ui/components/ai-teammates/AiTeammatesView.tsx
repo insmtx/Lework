@@ -316,7 +316,7 @@ export function AiTeammatesView() {
 			data-slot="ai-teammates-view"
 			className="flex min-h-0 h-full flex-1 flex-col bg-[var(--leros-app-bg)]"
 		>
-			<div className="border-b border-[var(--leros-control-border)] px-6 py-5">
+			<header className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-5">
 				<div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 					<h1 className="text-xl font-semibold text-[var(--leros-text-strong)]">AI队友</h1>
 					<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
@@ -362,7 +362,7 @@ export function AiTeammatesView() {
 						);
 					})}
 				</div>
-			</div>
+			</header>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
 				{loading ? (
