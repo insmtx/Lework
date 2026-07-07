@@ -194,39 +194,54 @@ export function ChatInput({
 		sendTaskRoomMessage,
 	]);
 
+	const uploadProjectAttachment = useCallback(
+		async (file: File) => {
+			if (!isProjectVariant || !currentProjectId) {
+				return false;
+			}
+			try {
+				const { message } = await addUploadedAttachment(currentProjectId, file);
+				toast.success(message || "文件上传成功");
+				return true;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : "文件上传失败";
+				console.error("ChatInput upload project attachment error:", err);
+				toast.error(message);
+				return true;
+			}
+		},
+		[currentProjectId, addUploadedAttachment, isProjectVariant],
+	);
+
 	const handlePasteFiles = useCallback(
 		(e: React.ClipboardEvent<HTMLElement>) => {
 			const files = Array.from(e.clipboardData.files);
 			for (const file of files) {
-				if (file.type.startsWith("image/") || file.type.startsWith("text/")) {
-					addAttachment(file);
+				if (!file.type.startsWith("image/") && !file.type.startsWith("text/")) {
+					continue;
 				}
+				void uploadProjectAttachment(file).then((uploaded) => {
+					if (!uploaded) {
+						addAttachment(file);
+					}
+				});
 			}
 		},
-		[addAttachment],
+		[addAttachment, uploadProjectAttachment],
 	);
 
 	const handleFileSelect = useCallback(
 		async (e: React.ChangeEvent<HTMLInputElement>) => {
 			const files = Array.from(e.target.files ?? []);
-			const projectId = activeProjectId;
 			for (const file of files) {
-				if (isProjectVariant && projectId) {
-					try {
-						const { message } = await addUploadedAttachment(projectId, file);
-						toast.success(message || "文件上传成功");
-					} catch (err) {
-						const message = err instanceof Error ? err.message : "文件上传失败";
-						console.error("ChatInput upload project attachment error:", err);
-						toast.error(message);
-					}
-					continue;
+				const uploaded = await uploadProjectAttachment(file);
+				if (!uploaded) {
+					addAttachment(file);
 				}
-				addAttachment(file);
 			}
 			e.target.value = "";
 		},
-		[activeProjectId, addAttachment, addUploadedAttachment, isProjectVariant],
+		[addAttachment, uploadProjectAttachment],
 	);
 
 	const handleSend = useCallback(() => {
