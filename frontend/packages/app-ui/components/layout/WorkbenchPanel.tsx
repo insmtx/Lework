@@ -24,6 +24,7 @@ import {
 	FolderOpen,
 	ListTodo,
 	Paperclip,
+	Plus,
 	SendHorizonal,
 	Sparkles,
 	Target,
@@ -122,26 +123,74 @@ function removeAssistantMentionText(
 		.trim();
 }
 
-function getFilteredProjectTree(projects: Project[], query: string) {
+function getFilteredProjects(projects: Project[], query: string) {
 	const keyword = query.trim().toLowerCase();
-	if (!keyword) {
-		return projects.map((project) => ({
-			project,
-			tasks: project.tasks,
-		}));
+	if (!keyword) return projects;
+	return projects.filter((project) => project.name.toLowerCase().includes(keyword));
+}
+
+const PROJECT_PICKER_MAX_HEIGHT = "max-h-[min(420px,70vh)]";
+
+const PROJECT_PICKER_PANEL_CLASS = cn(
+	"w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur",
+	PROJECT_PICKER_MAX_HEIGHT,
+);
+
+const PROJECT_PICKER_LIST_CLASS = "no-scrollbar mt-1 max-h-60 space-y-1 overflow-y-auto";
+
+// 子菜单固定最大高度
+const PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX = 250;
+const PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX = 16;
+const PROJECT_PICKER_ROW_HEIGHT_PX = 40;
+const PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX = 12;
+
+// 与右侧子菜单 p-1.5 一致，定位时扣除以使首条记录与左侧 hover 行顶边对齐。
+const PROJECT_PICKER_SUBMENU_PADDING_TOP_PX = 6;
+
+function estimateSubmenuHeightForFlip(
+	submenu: string,
+	project: Project | undefined,
+	isLoadingTasks: boolean,
+): number {
+	let contentHeight = PROJECT_PICKER_ROW_HEIGHT_PX;
+	if (submenu.startsWith("project:")) {
+		if (!isLoadingTasks && project && project.tasks.length > 0) {
+			contentHeight = project.tasks.length * PROJECT_PICKER_ROW_HEIGHT_PX;
+		}
+	}
+	return Math.min(
+		PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX,
+		contentHeight + PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX,
+	);
+}
+
+// 中文注释：碰撞检测针对页面视口（window.innerHeight），不是左侧主面板高度。
+function resolveSubmenuTop(rootRect: DOMRect, rowTop: number, submenuHeight: number): number {
+	const alignedTop = rowTop - PROJECT_PICKER_SUBMENU_PADDING_TOP_PX;
+	const submenuScreenTop = rootRect.top + alignedTop;
+	const viewportTop = PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX;
+	const viewportBottom = window.innerHeight - PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX;
+	const submenuScreenBottom = submenuScreenTop + submenuHeight;
+
+	if (submenuScreenBottom <= viewportBottom) {
+		return alignedTop;
 	}
 
-	return projects.flatMap((project) => {
-		const projectMatched = project.name.toLowerCase().includes(keyword);
-		const matchedTasks = project.tasks.filter((task) => task.title.toLowerCase().includes(keyword));
-		if (!projectMatched && matchedTasks.length === 0) return [];
-		return [
-			{
-				project,
-				tasks: projectMatched ? project.tasks : matchedTasks,
-			},
-		];
-	});
+	const flippedTop = alignedTop - (submenuScreenBottom - viewportBottom);
+	const minTop = viewportTop - rootRect.top;
+	return Math.max(minTop, flippedTop);
+}
+
+const PROJECT_PICKER_SUBMENU_PANEL_CLASS =
+	"no-scrollbar absolute left-[calc(100%+4px)] z-50 w-[260px] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur";
+
+function projectPickerRowClass(selected: boolean) {
+	return cn(
+		"flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium transition-colors",
+		selected
+			? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
+			: "text-slate-700 hover:bg-slate-100",
+	);
 }
 
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
@@ -165,13 +214,16 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const attachmentsRef = useRef<Attachment[]>([]);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
 	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
+	const pickerRootRef = useRef<HTMLDivElement>(null);
+	const submenuRowRef = useRef<HTMLElement | null>(null);
 	const sendingRef = useRef(false);
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
-	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
+	const [hoveredSubmenu, setHoveredSubmenu] = useState<"new-project" | string | null>(null);
+	const [submenuTop, setSubmenuTop] = useState(0);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
 
@@ -350,13 +402,13 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			})),
 		[assistants],
 	);
-	const filteredProjectTree = useMemo(
-		() => getFilteredProjectTree(projects, projectSearch),
+	const filteredProjects = useMemo(
+		() => getFilteredProjects(projects, projectSearch),
 		[projectSearch, projects],
 	);
 	const recentProjects = useMemo(() => projects.slice(0, 3), [projects]);
 
-	// 中文注释：项目列表接口不含任务，展开或搜索展示时需按需拉取详情中的任务树。
+	// 中文注释：项目列表接口不含任务，hover 展示任务子菜单时按需拉取。
 	const loadProjectTasksIfNeeded = useCallback(
 		(projectId: string) => {
 			const project = projects.find((item) => item.id === projectId);
@@ -376,26 +428,16 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		[fetchTasks, projects, taskLoadedProjectIds],
 	);
 
-	useEffect(() => {
-		if (!projectMenuOpen) return;
-		for (const projectId of expandedProjectIds) {
-			loadProjectTasksIfNeeded(projectId);
-		}
-	}, [expandedProjectIds, loadProjectTasksIfNeeded, projectMenuOpen]);
-
-	useEffect(() => {
-		if (!projectMenuOpen || !projectSearch.trim()) return;
-		for (const { project } of filteredProjectTree) {
-			loadProjectTasksIfNeeded(project.id);
-		}
-	}, [filteredProjectTree, loadProjectTasksIfNeeded, projectMenuOpen, projectSearch]);
-
 	const activeTask = activeProject?.tasks.find((t) => t.id === activeWorkbenchTaskId);
 	const projectTaskSelectorLabel = activeProject
 		? activeTask
 			? `${activeProject.name} / ${activeTask.title}`
 			: `${activeProject.name} / 新建任务`
 		: "新建项目/任务";
+	const hoveredProject =
+		hoveredSubmenu?.startsWith("project:") === true
+			? projects.find((project) => project.id === hoveredSubmenu.slice("project:".length))
+			: undefined;
 	const suggestedPrompts = useMemo(
 		() => [
 			"帮我拆解当前项目的下一步执行计划",
@@ -420,18 +462,26 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		projectTriggerDismissRef.current = null;
 	}, []);
 
+	const closeSubmenu = useCallback(() => {
+		setHoveredSubmenu(null);
+		setSubmenuTop(0);
+		submenuRowRef.current = null;
+	}, []);
+
 	const closeProjectMenu = useCallback(() => {
 		dismissProjectTriggerText();
 		setProjectMenuOpen(false);
 		setProjectSearch("");
-	}, [dismissProjectTriggerText]);
+		closeSubmenu();
+	}, [closeSubmenu, dismissProjectTriggerText]);
 
-	const handleSelectNewProjectTask = useCallback(() => {
-		requireAuth(() => {
-			clearProjectTriggerText();
-			selectWorkbenchProject(null);
-		});
-	}, [clearProjectTriggerText, requireAuth, selectWorkbenchProject]);
+	const handleProjectSearchChange = useCallback(
+		(value: string) => {
+			setProjectSearch(value);
+			closeSubmenu();
+		},
+		[closeSubmenu],
+	);
 
 	const handleSelectProject = useCallback(
 		(project: Project) => {
@@ -439,16 +489,17 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
 				void saveWorkbenchRecentContext(project.id, null);
-				// 中文注释：选择已有项目后，首页输入框不再支持临时 AI 队友/技能标签，需同步清理已选指令。
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
-				setExpandedProjectIds((current) => {
-					const next = new Set(current);
-					next.add(project.id);
-					return next;
-				});
+				closeProjectMenu();
 			});
 		},
-		[clearProjectTriggerText, requireAuth, saveWorkbenchRecentContext, selectWorkbenchProject],
+		[
+			clearProjectTriggerText,
+			closeProjectMenu,
+			requireAuth,
+			saveWorkbenchRecentContext,
+			selectWorkbenchProject,
+		],
 	);
 
 	const handleSelectTask = useCallback(
@@ -459,15 +510,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				selectWorkbenchTask(task.id);
 				void saveWorkbenchRecentContext(project.id, task.id);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
-				setExpandedProjectIds((current) => {
-					const next = new Set(current);
-					next.add(project.id);
-					return next;
-				});
+				closeProjectMenu();
 			});
 		},
 		[
 			clearProjectTriggerText,
+			closeProjectMenu,
 			requireAuth,
 			saveWorkbenchRecentContext,
 			selectWorkbenchProject,
@@ -475,24 +523,60 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		],
 	);
 
-	const toggleProjectExpanded = useCallback(
-		(projectId: string) => {
-			let shouldExpand = false;
-			setExpandedProjectIds((current) => {
-				const next = new Set(current);
-				if (next.has(projectId)) {
-					next.delete(projectId);
-				} else {
-					next.add(projectId);
-					shouldExpand = true;
-				}
-				return next;
-			});
-			if (shouldExpand) {
-				loadProjectTasksIfNeeded(projectId);
+	const handleSelectNewProjectTask = useCallback(() => {
+		requireAuth(() => {
+			clearProjectTriggerText();
+			selectWorkbenchProject(null);
+			closeProjectMenu();
+		});
+	}, [clearProjectTriggerText, closeProjectMenu, requireAuth, selectWorkbenchProject]);
+
+	const showSubmenuAtRow = useCallback(
+		(row: HTMLElement, submenu: "new-project" | `project:${string}`) => {
+			const root = pickerRootRef.current;
+			submenuRowRef.current = row;
+			setHoveredSubmenu(submenu);
+			if (root) {
+				const projectId = submenu.startsWith("project:") ? submenu.slice("project:".length) : null;
+				const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
+				const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
+				const rootRect = root.getBoundingClientRect();
+				const rowTop = row.getBoundingClientRect().top - rootRect.top;
+				const submenuHeight = estimateSubmenuHeightForFlip(submenu, project, isLoadingTasks);
+				setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
+			}
+			if (submenu.startsWith("project:")) {
+				loadProjectTasksIfNeeded(submenu.slice("project:".length));
 			}
 		},
-		[loadProjectTasksIfNeeded],
+		[loadProjectTasksIfNeeded, loadingTaskProjectIds, projects],
+	);
+
+	useEffect(() => {
+		const row = submenuRowRef.current;
+		const root = pickerRootRef.current;
+		if (!row || !root || !hoveredSubmenu) return;
+
+		const projectId = hoveredSubmenu.startsWith("project:")
+			? hoveredSubmenu.slice("project:".length)
+			: null;
+		const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
+		const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
+		const rootRect = root.getBoundingClientRect();
+		const rowTop = row.getBoundingClientRect().top - rootRect.top;
+		const submenuHeight = estimateSubmenuHeightForFlip(hoveredSubmenu, project, isLoadingTasks);
+		setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
+	}, [hoveredSubmenu, loadingTaskProjectIds, projects]);
+
+	const projectListRefCallback = useCallback(
+		(node: HTMLDivElement | null) => {
+			if (!node || !projectMenuOpen || !activeWorkbenchProjectId) return;
+			const item = node.querySelector<HTMLElement>(
+				`[data-project-picker-item="${CSS.escape(activeWorkbenchProjectId)}"]`,
+			);
+			item?.scrollIntoView({ block: "center", behavior: "instant" });
+		},
+		[activeWorkbenchProjectId, projectMenuOpen],
 	);
 
 	const handleProjectTrigger = useCallback(
@@ -691,115 +775,110 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							align="start"
 							side="bottom"
 							sideOffset={8}
-							// 中文注释：项目任务选择器固定在触发器下方，空间不足时只压缩列表高度，不切换弹窗方向。
 							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
-							className="w-[360px] rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)] ring-0 backdrop-blur"
+							className="!flex-none w-auto overflow-visible rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
 						>
-							<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
-								<CommandInput
-									value={projectSearch}
-									onValueChange={setProjectSearch}
-									placeholder="搜索项目或任务"
-								/>
-							</Command>
-							<div className="no-scrollbar mt-1 max-h-64 space-y-1 overflow-y-auto">
-								<button
-									type="button"
-									onClick={handleSelectNewProjectTask}
-									className={cn(
-										"flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium transition-colors",
-										!activeProject
-											? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
-											: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-									)}
-								>
-									<span className="flex size-4 shrink-0 items-center justify-center">
-										{!activeProject ? <Check className="size-4" /> : null}
-									</span>
-									<span className="min-w-0 flex-1 truncate">新建项目/任务</span>
-								</button>
-								<div className="my-1.5 h-px bg-slate-100" />
-								{filteredProjectTree.map(({ project, tasks }) => {
-									const projectSelected = activeWorkbenchProjectId === project.id;
-									const taskSelected = (task: ProjectTask) =>
-										projectSelected && activeWorkbenchTaskId === task.id;
-									const expanded =
-										Boolean(projectSearch.trim()) || expandedProjectIds.has(project.id);
+							<div ref={pickerRootRef} className="relative">
+								<div className={PROJECT_PICKER_PANEL_CLASS}>
+									<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+										<CommandInput
+											value={projectSearch}
+											onValueChange={handleProjectSearchChange}
+											placeholder="搜索项目"
+										/>
+									</Command>
+									<div ref={projectListRefCallback} className={PROJECT_PICKER_LIST_CLASS}>
+										{filteredProjects.map((project) => {
+											const projectSelected = activeWorkbenchProjectId === project.id;
 
-									return (
-										<div key={project.id} className="space-y-1">
-											<div
-												className={cn(
-													"flex h-10 w-full items-center gap-1.5 rounded-xl px-2 text-left text-sm font-medium transition-colors",
-													projectSelected
-														? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
-														: "text-slate-700 hover:bg-slate-100",
-												)}
-											>
+											return (
 												<button
+													key={project.id}
 													type="button"
-													onClick={(event) => {
-														event.stopPropagation();
-														toggleProjectExpanded(project.id);
-													}}
-													className="flex size-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/80 hover:text-slate-700"
-													aria-label={expanded ? "收起项目任务" : "展开项目任务"}
-												>
-													<ChevronRight
-														className={cn("size-3.5 transition-transform", expanded && "rotate-90")}
-													/>
-												</button>
-												<button
-													type="button"
+													data-project-picker-item={project.id}
+													onMouseEnter={(event) =>
+														showSubmenuAtRow(event.currentTarget, `project:${project.id}`)
+													}
 													onClick={() => handleSelectProject(project)}
-													className="flex min-w-0 flex-1 items-center gap-2 text-left"
+													className={projectPickerRowClass(projectSelected)}
 												>
-													<Folder className="size-4 shrink-0" />
+													<FileText className="size-4 shrink-0" />
 													<span className="min-w-0 flex-1 truncate">
 														{renderHighlightedText(project.name, projectSearch)}
 													</span>
+													{projectSelected && <Check className="size-4 shrink-0" />}
+													<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
 												</button>
-												{projectSelected && <Check className="size-4 shrink-0" />}
+											);
+										})}
+										{filteredProjects.length === 0 && (
+											<div className="px-3 py-8 text-center text-sm text-slate-400">
+												没有匹配的项目
 											</div>
-											{expanded && (
-												<div className="ml-6 space-y-1 border-l border-slate-100 pl-2">
-													{loadingTaskProjectIds.has(project.id) ? (
-														<div className="px-3 py-2 text-xs text-slate-400">任务加载中...</div>
-													) : tasks.length > 0 ? (
-														tasks.map((task) => (
-															<button
-																key={task.id}
-																type="button"
-																onClick={() => handleSelectTask(project, task)}
-																className={cn(
-																	"flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors",
-																	taskSelected(task)
-																		? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
-																		: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-																)}
-															>
-																<span className="flex size-4 shrink-0 items-center justify-center">
-																	{taskSelected(task) && <Check className="size-4" />}
-																</span>
-																<ListTodo className="size-4 shrink-0 opacity-75" />
-																<span className="min-w-0 flex-1 truncate">
-																	{renderHighlightedText(task.title, projectSearch)}
-																</span>
-															</button>
-														))
-													) : (
-														<div className="px-3 py-2 text-xs text-slate-400">
-															暂无任务，选择项目后将新建任务
-														</div>
-													)}
+										)}
+									</div>
+									<div className="mt-1 border-t border-slate-100 pt-1">
+										<button
+											type="button"
+											onMouseEnter={(event) => showSubmenuAtRow(event.currentTarget, "new-project")}
+											className={projectPickerRowClass(false)}
+										>
+											<Plus className="size-4 shrink-0" />
+											<span className="min-w-0 flex-1 truncate">新建项目</span>
+											<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
+										</button>
+									</div>
+								</div>
+
+								{hoveredSubmenu === "new-project" && (
+									<div
+										className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
+										style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
+									>
+										<button
+											type="button"
+											onClick={handleSelectNewProjectTask}
+											className={projectPickerRowClass(!activeWorkbenchProjectId)}
+										>
+											<Plus className="size-4 shrink-0" />
+											<span className="min-w-0 flex-1 truncate">新建空白项目</span>
+											{!activeWorkbenchProjectId && <Check className="size-4 shrink-0" />}
+										</button>
+									</div>
+								)}
+
+								{hoveredProject && (
+									<div
+										className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
+										style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
+									>
+										<div className="space-y-1">
+											{loadingTaskProjectIds.has(hoveredProject.id) ? (
+												<div className="px-3 py-2 text-xs text-slate-400">任务加载中...</div>
+											) : hoveredProject.tasks.length > 0 ? (
+												hoveredProject.tasks.map((task) => {
+													const selected =
+														activeWorkbenchProjectId === hoveredProject.id &&
+														activeWorkbenchTaskId === task.id;
+													return (
+														<button
+															key={task.id}
+															type="button"
+															onClick={() => handleSelectTask(hoveredProject, task)}
+															className={projectPickerRowClass(selected)}
+														>
+															<ListTodo className="size-4 shrink-0 opacity-75" />
+															<span className="min-w-0 flex-1 truncate">{task.title}</span>
+															{selected && <Check className="size-4 shrink-0" />}
+														</button>
+													);
+												})
+											) : (
+												<div className="px-3 py-2 text-xs text-slate-400">
+													暂无任务，选择项目后将新建任务
 												</div>
 											)}
 										</div>
-									);
-								})}
-								{filteredProjectTree.length === 0 && (
-									<div className="px-3 py-8 text-center text-sm text-slate-400">
-										没有匹配的项目或任务
 									</div>
 								)}
 							</div>
