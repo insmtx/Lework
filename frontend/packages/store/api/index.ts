@@ -32,6 +32,7 @@ export type {
 export { projectApi } from "./projectApi";
 export type {
 	AddMessageParams,
+	CreateInitialMessageParams,
 	CreateSessionParams,
 	GetSessionParams,
 	ListSessionsParams,
@@ -85,5 +86,3 @@ export type {
 } from "./types";
 export type { UpdateUserParams, UserInfo } from "./userApi";
 export { userApi } from "./userApi";
-export type { NewMessageParams } from "./workApi";
-export { workApi } from "./workApi";

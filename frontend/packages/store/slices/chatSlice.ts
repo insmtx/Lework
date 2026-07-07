@@ -18,7 +18,6 @@ import type {
 	BackendWorkTitleUpdatedPayload,
 	SSEMessageEvent,
 } from "../api/types";
-import { workApi } from "../api/workApi";
 import { mockModelOptions } from "../mocks/chatMocks";
 import type { SliceCreator } from "../types";
 import type {
@@ -2020,7 +2019,7 @@ export class ChatActionImpl {
 
 		try {
 			void this.startGlobalEvents();
-			const res = await workApi.newMessage({
+			const res = await sessionApi.createInitialMessage({
 				content: trimmed,
 				execution_mode: this.#get().executionMode,
 				project_id: projectId,

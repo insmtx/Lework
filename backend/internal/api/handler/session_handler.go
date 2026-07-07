@@ -55,6 +55,7 @@ func (h *SessionHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/DeleteMessage", h.DeleteMessage)
 	r.POST("/ClearSessionMessages", h.ClearSessionMessages)
 	r.POST("/CancelSessionRun", h.CancelSessionRun)
+	r.POST("/CreateInitialMessage", h.CreateInitialMessage)
 }
 
 func RegisterSessionRoutes(r gin.IRouter, service contract.SessionService) {
@@ -519,7 +520,7 @@ func handleSessionServiceError(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
-	if err.Error() == "session not found" || err.Error() == "message not found" {
+	if err.Error() == "session not found" || err.Error() == "message not found" || err.Error() == "project not found" || err.Error() == "task not found" {
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, err.Error()))
 		return
 	}
@@ -536,6 +537,25 @@ func (h *SessionHandler) CancelSessionRun(ctx *gin.Context) {
 	}
 
 	result, err := h.service.CancelSessionRun(ctx, req.SessionID, &req)
+	if err != nil {
+		handleSessionServiceError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// CreateInitialMessage atomically creates Project + Task + Session and optionally posts
+// the first message, then dispatches to the allocated AgentWorker.
+// POST /CreateInitialMessage
+func (h *SessionHandler) CreateInitialMessage(ctx *gin.Context) {
+	var req contract.NewMessageRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.CreateInitialMessage(ctx, &req)
 	if err != nil {
 		handleSessionServiceError(ctx, err)
 		return

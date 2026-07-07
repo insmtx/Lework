@@ -2,7 +2,7 @@ import { projectApi } from "../api/projectApi";
 import { sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
 import type { BackendProject, BackendSession, BackendTask } from "../api/types";
-import { type NewMessageParams, workApi } from "../api/workApi";
+import type { CreateInitialMessageParams } from "../api/sessionApi";
 import type { SliceCreator } from "../types";
 import type { Attachment, MessageMetadata } from "../types/chat";
 import { flattenActions } from "../utils";
@@ -558,7 +558,7 @@ export class LayoutActionImpl {
 			}
 		}
 
-		const params: NewMessageParams = { content: trimmed, execution_mode: mode };
+		const params: CreateInitialMessageParams = { content: trimmed, execution_mode: mode };
 		if (assistantId) {
 			params.assistant_id = assistantId;
 		}
@@ -591,7 +591,7 @@ export class LayoutActionImpl {
 				startGlobalEvents?: () => Promise<void>;
 			};
 			void globalEventsStore.startGlobalEvents?.();
-			const res = await workApi.newMessage(params);
+			const res = await sessionApi.createInitialMessage(params);
 			const data = res.data.data;
 			if (data?.project_id && data?.task_id && data?.session_id) {
 				this.#set({
