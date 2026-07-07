@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "bid-generator",
+  "description": "根据招标文件自动生成完整投标文件（商务标+技术标+报价），四步流程：大纲生成→商务技术拆分→服务方案写作→报价偏差表回填。",
+  "author": {
+    "name": "bid-generator"
+  },
+  "homepage": "",
+  "repository": "",
+  "license": "MIT",
+  "keywords": [
+    "bid",
+    "bidding",
+    "tender",
+    "投标",
+    "标书",
+    "招投标",
+    "docx",
+    "document-generation",
+    "ai"
+  ],
+  "skills": "./"
+}
