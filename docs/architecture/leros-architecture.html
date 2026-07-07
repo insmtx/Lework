@@ -474,7 +474,7 @@
 
         <!-- Top-level boundary -->
         <rect x="20" y="35" width="1160" height="665" rx="14" fill="rgba(251, 191, 36, 0.035)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="40" y="59" fill="#fbbf24" font-size="11" font-weight="600">SingerOS / Leros Backend · current target architecture · 2026-07-05</text>
+        <text x="40" y="59" fill="#fbbf24" font-size="11" font-weight="600">SingerOS / Leros Backend · current target architecture · 2026-07-07</text>
 
         <!-- Server boundary -->
         <rect x="45" y="82" width="275" height="500" rx="12" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8,4"/>
@@ -511,7 +511,7 @@
         <rect x="365" y="175" width="140" height="66" rx="6" fill="#0f172a"/>
         <rect x="365" y="175" width="140" height="66" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
         <text x="435" y="199" fill="white" font-size="11" font-weight="600" text-anchor="middle">Command lanes</text>
-        <text x="435" y="216" fill="#94a3b8" font-size="8" text-anchor="middle">cmd.run / control</text>
+        <text x="435" y="216" fill="#94a3b8" font-size="8" text-anchor="middle">cmd.run / cmd.control</text>
         <text x="435" y="229" fill="#94a3b8" font-size="8" text-anchor="middle">interaction / skill</text>
 
         <rect x="365" y="405" width="140" height="66" rx="6" fill="#0f172a"/>
@@ -767,7 +767,10 @@
 │   ├── infra/                  # DB, NATS, filestore, external infrastructure
 │   └── worker/
 │       ├── app/                # Worker composition root
-│       ├── command/            # WorkerCommand adapters
+│       ├── command/            # Dispatcher + cmd.* lane handlers
+│       │   ├── run/            # cmd.run / cmd.control
+│       │   ├── interaction/    # approval / question replies
+│       │   └── skill/          # skill management request/reply
 │       ├── run/                # Coordinator: debounce, concurrency, cancel
 │       ├── agentrun/           # Preparer, NodeHandler, Finalizer, Journal
 │       ├── eventpub/           # complete RunEvent → NATS publish
@@ -1012,8 +1015,9 @@
           <text x="98" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">cmd.* lanes</text>
 
           <rect x="205" y="42" width="140" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-          <text x="275" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">command handlers</text>
-          <text x="275" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">run / interaction / skill</text>
+          <text x="275" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">command dispatcher</text>
+          <text x="275" y="84" fill="#94a3b8" font-size="8" text-anchor="middle">run / control</text>
+          <text x="275" y="96" fill="#94a3b8" font-size="8" text-anchor="middle">interaction / skill</text>
 
           <rect x="390" y="42" width="140" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
           <text x="460" y="67" fill="white" font-size="10" font-weight="600" text-anchor="middle">RunCoordinator</text>
@@ -1056,7 +1060,9 @@
         <div class="panel">
           <h3>Command & Coordinator</h3>
           <ul>
-            <li>• Command handler 只做 wire contract 解析和 RunRequest 构造。</li>
+            <li>• Dispatcher 并发订阅 <code>cmd.run</code>、<code>cmd.control</code>、<code>cmd.interaction</code>、<code>cmd.skill</code>。</li>
+            <li>• <code>cmd.run</code> 使用手动 Ack，先落本地 inbox 再确认；其他 lane 使用自动 Ack。</li>
+            <li>• Command handler 只做 wire contract 解析和业务请求构造。</li>
             <li>• Coordinator 是 Worker 本地调度器，不理解 Runtime Provider 细节。</li>
             <li>• cancel、debounce、并发限制和 close 都在这一层处理。</li>
           </ul>
@@ -1080,6 +1086,8 @@
           </ul>
         </div>
       </div>
+
+      <div class="callout"><strong>cmd.run 当前策略：</strong>目标是把 NATS ack 语义限定为“Worker 已安全接收命令”，而不是“Agent Run 已执行完成”：命令先写入本地 durable inbox，再快速 Ack，由后台 goroutine 提交 <code>Coordinator.Submit</code>。这样可以提供 at-least-once 崩溃恢复、避免长 Run 占住 ack 路径，并用 <code>topic + stream_seq</code> 幂等处理重复投递。实时投递先校验 payload、route、task type 和 model 配置；永久错误 <code>Term</code>，缺少 stream sequence、inbox 写入失败或 admission 关闭时 <code>NakWithDelay(5s)</code>。等待 admission semaphore 时每 <code>15s</code> 调用 <code>InProgress</code>。当前默认限制：<code>MaxConcurrency=20</code>，admission semaphore 容量 <code>40</code>，session debounce window <code>1500ms</code>，终态 inbox 清理窗口 <code>72h</code>，SQLite <code>busy_timeout=5000ms</code> 且 <code>MaxOpenConns=1</code>，<code>WORKER_CMD_STREAM</code> 保留 <code>72h</code>、每 subject 最多 <code>10000</code> 条、<code>DiscardOld</code>。Worker 启动时先 <code>RecoverNonTerminal</code>，按 stream_seq 恢复非终态记录，再启动 NATS 订阅。</div>
     </section>
 
     <section class="section">
