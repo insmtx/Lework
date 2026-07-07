@@ -6,13 +6,13 @@ Lework 后续会同时承载 Project、KnowledgeBase、Folder、File、Task、Ar
 
 目标方案采用统一资源权限模型：
 
-- 所有可授权对象都是 `leros_resources`。
-- 所有主体和资源的身份关系都是 `leros_resource_bindings`。
+- 所有可授权对象都是 `leros_resource`。
+- 所有主体和资源的身份关系都是 `leros_resource_binding`。
 - 具体身份能做什么由代码中的 `PermissionPolicy` 维护。
 - 所有业务入口统一调用 `PermissionService.Can(...)`、`Explain(...)` 或 `BatchCan(...)`。
 - 权限支持资源树继承。
 
-`ProjectMember` 不再作为长期权限来源。当前项目如已有 `project_members`，只作为迁移期兼容数据，最终权限来源应收敛到 `resources + resource_bindings + PermissionPolicy`。
+`ProjectMember` 不再作为长期权限来源。当前项目如已有 `project_members`，只作为迁移期兼容数据，最终权限来源应收敛到 `resources + resource_binding + PermissionPolicy`。
 
 ## 2. 核心概念
 
@@ -128,43 +128,44 @@ artifact:
 用途：统一表达所有资源，并通过父子关系形成资源树。
 
 ```sql
-CREATE TABLE IF NOT EXISTS leros_resources (
+CREATE TABLE IF NOT EXISTS leros_resource (
     id BIGSERIAL PRIMARY KEY,
     org_id INT8 NOT NULL,
-    department_id INT8 NULL,
+    uin INT8 NOT NULL DEFAULT 0,
     type VARCHAR(50) NOT NULL,
     biz_id INT8 NOT NULL,
     parent_resource_id INT8 NULL,
     parent_resource_path_ids INT8[] NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMPTZ NULL,
-    CONSTRAINT fk_leros_resources_parent
-        FOREIGN KEY (parent_resource_id)
-        REFERENCES leros_resources (id)
+    deleted_at TIMESTAMPTZ NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_leros_resources_active_biz
-    ON leros_resources (org_id, type, biz_id)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_leros_resource_active_biz
+    ON leros_resource (org_id, type, biz_id)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resources_org_type
-    ON leros_resources (org_id, type)
+CREATE INDEX IF NOT EXISTS idx_leros_resource_org_type
+    ON leros_resource (org_id, type)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resources_parent
-    ON leros_resources (parent_resource_id)
+CREATE INDEX IF NOT EXISTS idx_leros_resource_uin
+    ON leros_resource (uin)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resources_parent_resource_path_ids
-    ON leros_resources USING GIN (parent_resource_path_ids)
+CREATE INDEX IF NOT EXISTS idx_leros_resource_parent
+    ON leros_resource (parent_resource_id)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_leros_resource_parent_resource_path_ids
+    ON leros_resource USING GIN (parent_resource_path_ids)
     WHERE deleted_at IS NULL;
 ```
 
 字段说明：
 
 - `org_id`：组织隔离字段，所有鉴权必须先校验组织。
-- `department_id`：部门预留字段，当前不参与权限判断。
+- `uin`：资源创建或归属用户 UIN，用于归属过滤和后续统计，不作为最终权限来源。
 - `type`：资源类型，PermissionService 不按业务表分支鉴权，只按资源类型和 action 判断。合法值由业务代码控制，不通过数据库 CHECK 限制。
 - `biz_id`：业务对象内部 ID，例如 `projects.id`、文件 ID、artifact ID。
 - `parent_resource_id`：父资源 ID。根资源为空，例如 Project。
@@ -172,23 +173,23 @@ CREATE INDEX IF NOT EXISTS idx_leros_resources_parent_resource_path_ids
 一致性规则：
 
 - 同一组织下，同一 `type + biz_id` 只能对应一条有效资源。
+- `uin` 不参与 `type + biz_id` 唯一性判断，也不替代 ResourceBinding 鉴权。
 - 子资源的 `org_id` 必须与父资源一致。
-- 子资源的 `department_id` 应与父资源一致；当前只作为预留字段，不参与鉴权。
 - 根资源的 `parent_resource_id` 为空，`parent_resource_path_ids` 为空数组。
 - 子资源的 `parent_resource_path_ids` 必须等于父资源的 `parent_resource_path_ids + 父资源 id`。
 - 软删除资源不得再作为权限判断对象。
-- 业务表创建对象时必须同步创建对应 `leros_resources` 记录。
+- 业务表创建对象时必须同步创建对应 `leros_resource` 记录。
 - 资源类型合法性由 ResourceService 校验；一期只允许创建 `project`、`file`、`artifact`。
 
-### 3.2 resource_bindings
+### 3.2 resource_binding
 
 用途：表达主体在资源上的身份。它替代长期意义上的 `ProjectMember` 表。
 
 ```sql
-CREATE TABLE IF NOT EXISTS leros_resource_bindings (
+CREATE TABLE IF NOT EXISTS leros_resource_binding (
     id BIGSERIAL PRIMARY KEY,
     org_id INT8 NOT NULL,
-    department_id INT8 NULL,
+    uin INT8 NOT NULL DEFAULT 0,
     resource_id INT8 NOT NULL,
     principal_type VARCHAR(50) NOT NULL,
     principal_id INT8 NOT NULL,
@@ -196,35 +197,39 @@ CREATE TABLE IF NOT EXISTS leros_resource_bindings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMPTZ NULL,
-    CONSTRAINT fk_leros_resource_bindings_resource
+    CONSTRAINT fk_leros_resource_binding_resource
         FOREIGN KEY (resource_id)
-        REFERENCES leros_resources (id)
+        REFERENCES leros_resource (id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_leros_resource_bindings_active_principal
-    ON leros_resource_bindings (resource_id, principal_type, principal_id)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_leros_resource_binding_active_principal
+    ON leros_resource_binding (resource_id, principal_type, principal_id)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_bindings_principal
-    ON leros_resource_bindings (org_id, principal_type, principal_id)
+CREATE INDEX IF NOT EXISTS idx_leros_resource_binding_principal
+    ON leros_resource_binding (org_id, principal_type, principal_id)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_bindings_resource
-    ON leros_resource_bindings (resource_id)
+CREATE INDEX IF NOT EXISTS idx_leros_resource_binding_uin
+    ON leros_resource_binding (uin)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_leros_resource_binding_resource
+    ON leros_resource_binding (resource_id)
     WHERE deleted_at IS NULL;
 ```
 
 字段说明：
 
 - `org_id`：冗余组织字段，用于快速过滤和防止跨组织误查。
-- `department_id`：部门预留字段，当前不参与权限判断。
+- `uin`：绑定创建或归属用户 UIN，用于归属过滤和后续统计，不作为最终权限来源。
 - `resource_id`：绑定的资源。
 - `principal_type/principal_id`：被授权主体；`principal_id` 使用主体内部 INT8 ID。
 - `identity`：资源身份，当前业务只允许 `owner`、`admin`、`member`。合法值由服务层和 PermissionPolicy 控制，不通过数据库 CHECK 限制。
 一致性规则：
 
-- `leros_resource_bindings.org_id` 必须与对应 `leros_resources.org_id` 一致。
-- `leros_resource_bindings.department_id` 必须与对应 `leros_resources.department_id` 一致。
+- `leros_resource_binding.org_id` 必须与对应 `leros_resource.org_id` 一致。
+- `uin` 不参与最终权限判断；最终权限仍以 `principal_type/principal_id + identity + PermissionPolicy` 为准。
 - 同一资源上，同一主体只能有一条有效绑定。
 - 不在数据库保存 `project:view`、`project:member.update` 等动作。
 - `principal_type`、`identity` 的合法值与代码态 `PermissionPolicy` 保持一致，由服务层统一校验。
@@ -368,7 +373,7 @@ BatchCan(ctx, actor, actions, resourceRefs, requestInput) -> []Decision
 1. 解析 caller。
 2. 校验 caller.OrgID。
 3. 根据 resourceRef 查询 resources。
-4. 校验 leros_resources.org_id == caller.OrgID。
+4. 校验 leros_resource.org_id == caller.OrgID。
 5. 查找当前资源上的直接 binding。
 6. 沿 parent_resource_id 查找可继承的祖先 binding。
 7. 汇总直接 binding 与继承 binding。
@@ -431,14 +436,14 @@ FileA   -> 无直接 binding
 
 ```text
 projects.id = 1001
-leros_resources(type='project', biz_id=1001, parent_resource_id=null, parent_resource_path_ids='{}')
-leros_resource_bindings(resource_id=project_resource.id, principal=user:creator, identity='owner')
+leros_resource(type='project', biz_id=1001, parent_resource_id=null, parent_resource_path_ids='{}')
+leros_resource_binding(resource_id=project_resource.id, principal=user:creator, identity='owner')
 ```
 
 创建文件：
 
 ```text
-leros_resources(type='file', biz_id=file.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
+leros_resource(type='file', biz_id=file.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
 ```
 
 访问文件：
@@ -451,7 +456,7 @@ Can(actor, "file:download", file_resource)
 创建产物：
 
 ```text
-leros_resources(type='artifact', biz_id=artifact.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
+leros_resource(type='artifact', biz_id=artifact.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
 ```
 
 访问产物：
@@ -476,7 +481,7 @@ CREATE TABLE IF NOT EXISTS leros_artifact_sources (
 
 `ProjectMember` 迁移规则：
 
-- 老数据中的项目 owner/admin/member 迁移为项目资源上的 `leros_resource_bindings`。
+- 老数据中的项目 owner/admin/member 迁移为项目资源上的 `leros_resource_binding`。
 - `viewer` 如仍存在，统一迁移为 `member`。
 - 迁移完成后，鉴权不再读取 `project_members`。
 - `projects.owner_id` 仅保留为业务展示或历史兼容字段，不作为最终鉴权来源。
@@ -526,14 +531,14 @@ POST /BatchCheckPermission
 - 当前身份来自哪个资源，是否继承。
 - 当前用户可执行动作。
 - 权限不足时展示后端 reason 映射文案。
-- 成员/协作者管理统一展示 `leros_resource_bindings`，不再按 Project、File、Artifact 分裂。
+- 成员/协作者管理统一展示 `leros_resource_binding`，不再按 Project、File、Artifact 分裂。
 
 ## 7. 建设范围与验收
 
 后端必须交付：
 
-- `leros_resources` 表、DAO 和资源树维护。
-- `leros_resource_bindings` 表、DAO 和绑定管理。
+- `leros_resource` 表、DAO 和资源树维护。
+- `leros_resource_binding` 表、DAO 和绑定管理。
 - 代码态 `PermissionPolicy`。
 - `PermissionService.Can(...)`、`Explain(...)`、`BatchCan(...)`。
 - 项目创建时同步创建 project resource 和 owner binding。
