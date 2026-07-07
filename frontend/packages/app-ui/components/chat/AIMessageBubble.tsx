@@ -151,7 +151,7 @@ export function AIMessageBubble({
 						<div className="mb-3 max-w-[92%] text-sm leading-7 text-slate-800">
 							<MarkdownRenderer
 								content={content}
-								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5"
+								className="prose prose-slate prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:p-3 prose-pre:text-slate-800 prose-pre:shadow-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[13px] [&_pre_code]:leading-6 [&_pre_code]:text-slate-800 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800"
 								onPlanOpen={setPreviewPlanFileID}
 								onPlanCopy={copyPlanContent}
 							/>

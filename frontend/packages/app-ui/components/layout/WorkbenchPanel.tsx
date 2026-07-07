@@ -802,7 +802,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 													onClick={() => handleSelectProject(project)}
 													className={projectPickerRowClass(projectSelected)}
 												>
-													<FileText className="size-4 shrink-0" />
+													<Folder className="size-4 shrink-0" />
 													<span className="min-w-0 flex-1 truncate">
 														{renderHighlightedText(project.name, projectSearch)}
 													</span>
