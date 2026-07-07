@@ -113,6 +113,8 @@ func runMigrations(db *gorm.DB) error {
 		&types.LLMModel{},
 		&types.Project{},
 		&types.ProjectMember{},
+		&types.Resource{},
+		&types.ResourceBinding{},
 		&types.Task{},
 		&types.WorkbenchRecentContext{},
 		&types.FileUpload{},

@@ -62,6 +62,10 @@ const (
 	TableNameProject = tablenamePrefix + "project"
 	// TableNameProjectMember 项目成员表名
 	TableNameProjectMember = tablenamePrefix + "project_member"
+	// TableNameResource 统一资源表名
+	TableNameResource = tablenamePrefix + "resource"
+	// TableNameResourceBinding 统一资源身份绑定表名
+	TableNameResourceBinding = tablenamePrefix + "resource_binding"
 
 	// TableNameTask 任务表名
 	TableNameTask = tablenamePrefix + "task"
