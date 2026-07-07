@@ -289,58 +289,6 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 	}, nil
 }
 
-func (s *sessionService) ActivateSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status == string(types.SessionStatusEnded) {
-		return errors.New("cannot activate from ended state")
-	}
-
-	return db.ActivateSession(ctx, s.db, session.ID)
-}
-
-func (s *sessionService) PauseSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status == string(types.SessionStatusEnded) || session.Status == string(types.SessionStatusExpired) {
-		return fmt.Errorf("cannot pause from %s state", session.Status)
-	}
-
-	return db.PauseSession(ctx, s.db, session.ID)
-}
-
-func (s *sessionService) EndSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status == string(types.SessionStatusEnded) {
-		return errors.New("session already ended")
-	}
-
-	return db.EndSession(ctx, s.db, session.ID)
-}
-
-func (s *sessionService) ResumeSession(ctx context.Context, sessionID string) error {
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	if session.Status != string(types.SessionStatusPaused) {
-		return errors.New("can only resume from paused state")
-	}
-
-	return db.ResumeSession(ctx, s.db, session.ID)
-}
-
 func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
 	if req.Role == "" {
 		return nil, errors.New("role is required")
@@ -365,8 +313,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		}
 	}
 
-	mp := NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s)
-	message, err := mp.PostMessage(ctx, session, types.ExecutionMode(req.ExecutionMode), func(sequence int64) *types.SessionMessage {
+	message, err := s.newMessagePoster().PostMessage(ctx, session, types.ExecutionMode(req.ExecutionMode), func(sequence int64) *types.SessionMessage {
 		return s.buildMessage(req, sequence)
 	})
 	if err != nil {
@@ -381,6 +328,23 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 	}
 
 	return convertToContractSessionMessage(message, session.PublicID), nil
+}
+
+func (s *sessionService) newMessagePoster() *MessagePoster {
+	return NewMessagePoster(s.db, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s)
+}
+
+func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {
+	if strings.TrimSpace(req.Content) == "" && len(req.AssistantIDs) == 0 && len(req.Attachments) == 0 {
+		return nil, errors.New("content is required")
+	}
+
+	caller, _ := auth.FromContext(ctx)
+	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
+		return nil, errors.New("user not authenticated or org not set")
+	}
+
+	return s.newMessagePoster().RunNewMessage(ctx, req, caller)
 }
 
 func (s *sessionService) buildMessage(req *contract.AddMessageRequest, sequence int64) *types.SessionMessage {

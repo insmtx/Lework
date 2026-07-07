@@ -4,6 +4,8 @@ import type {
 	BackendDataResponse,
 	BackendMessage,
 	BackendMessageChunk,
+	BackendMessageMetadata,
+	BackendNewMessageData,
 	BackendPaginatedResponse,
 	BackendSession,
 } from "./types";
@@ -108,6 +110,22 @@ export type SubmitQuestionAnswerParams = {
 	answers: string[][];
 };
 
+export type CreateInitialMessageParams = {
+	content: string;
+	execution_mode?: "default" | "plan";
+	project_id?: string;
+	task_id?: string;
+	message_type?: string;
+	assistant_id?: number;
+	metadata?: BackendMessageMetadata;
+	attachments?: {
+		file_upload_id: string;
+		name: string;
+		mime_type: string;
+		size?: number;
+	}[];
+};
+
 const SESSION_ENDPOINTS = {
 	create: "/CreateSession",
 	list: "/ListSessions",
@@ -119,6 +137,7 @@ const SESSION_ENDPOINTS = {
 	deleteMessage: "/DeleteMessage",
 	clearMessages: "/ClearSessionMessages",
 	sessionEvents: "/SessionEvents",
+	createInitialMessage: "/CreateInitialMessage",
 };
 
 export const sessionApi = {
@@ -193,5 +212,11 @@ export const sessionApi = {
 				...(params.run_id ? { run_id: params.run_id } : {}),
 				reason: params.reason,
 			},
+		),
+
+	createInitialMessage: (params: CreateInitialMessageParams) =>
+		apiClient.post<BackendDataResponse<BackendNewMessageData>>(
+			SESSION_ENDPOINTS.createInitialMessage,
+			params,
 		),
 };

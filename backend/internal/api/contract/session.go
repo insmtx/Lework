@@ -31,12 +31,6 @@ type SessionService interface {
 	DeleteSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context, req *ListSessionsRequest) (*SessionList, error)
 
-	// Lifecycle management
-	ActivateSession(ctx context.Context, sessionID string) error
-	PauseSession(ctx context.Context, sessionID string) error
-	EndSession(ctx context.Context, sessionID string) error
-	ResumeSession(ctx context.Context, sessionID string) error
-
 	// Message management
 	AddMessage(ctx context.Context, sessionID string, req *AddMessageRequest) (*SessionMessage, error)
 	GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*MessageList, error)
@@ -76,6 +70,10 @@ type SessionService interface {
 	// SetSessionStreamStartSeq records the NATS stream sequence for the first
 	// run.stream event of a session, used by the stream projector for SSE replay.
 	SetSessionStreamStartSeq(ctx context.Context, sessionID string, streamSeq uint64) error
+
+	// CreateInitialMessage atomically creates Project + Task + Session and optionally posts
+	// the first message, then dispatches to the allocated AgentWorker.
+	CreateInitialMessage(ctx context.Context, req *NewMessageRequest) (*NewMessageResponse, error)
 }
 
 // CancelSessionRunRequest is the request body for cancelling a session agent run.
