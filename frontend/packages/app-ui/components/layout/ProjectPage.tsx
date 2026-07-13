@@ -28,6 +28,7 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
+	CommandSeparator,
 } from "@leros/ui/components/ui/command";
 import {
 	Dialog,
@@ -40,7 +41,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import {
-	Bot,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
 import { MessageTimeline } from "../chat/MessageTimeline";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
@@ -1005,34 +1006,36 @@ function ProjectConfigSidebar({
 								className="w-[340px] p-1.5"
 							>
 								<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
-									<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
+									<div className="px-2 py-1 text-sm font-semibold text-slate-800">选择技能</div>
 									<CommandInput
 										value={skillSearch}
 										onValueChange={setSkillSearch}
 										placeholder="搜索技能"
+										className="placeholder:text-slate-300"
 									/>
-									<CommandList className="max-h-64">
+									<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+									<CommandList className="max-h-64 px-1">
 										<CommandEmpty className="py-6 text-slate-400">
 											没有可继续添加的技能
 										</CommandEmpty>
 										<CommandGroup className="p-0">
 											{skillsLoading && (
-												<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
+												<div className="px-2 py-1.5 text-xs text-slate-400">技能加载中...</div>
 											)}
 											{!skillsLoading && skillsError && (
-												<div className="px-3 py-2 text-xs text-red-400">{skillsError}</div>
+												<div className="px-2 py-1.5 text-xs text-red-400">{skillsError}</div>
 											)}
 											{filteredSkills.map((skill) => (
 												<CommandItem
 													key={skill.code}
 													value={skill.name}
 													onSelect={() => addProjectSkill(skill)}
-													className="rounded-xl px-2.5 py-2"
+													className="rounded-lg px-2 py-1.5"
 												>
 													<SkillPickerIcon />
 													<div className="min-w-0 flex-1">
 														<div className="truncate font-medium">
-															/{renderHighlightedText(skill.name, skillSearch)}
+															{renderHighlightedText(skill.name, skillSearch)}
 														</div>
 														<div className="truncate text-xs text-slate-400">
 															{renderHighlightedText(
@@ -1176,17 +1179,23 @@ function stringFromValue(value: unknown): string {
 function ProjectEmptyState({ layout }: { layout: ReturnType<typeof getProjectChatLayoutClasses> }) {
 	return (
 		<div className={cn("flex h-full", layout.shell)}>
-			<div className={cn(layout.inner, "flex h-full items-center justify-center")}>
-				<div className="flex max-w-[320px] flex-col items-center text-center">
-					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
-						<Bot className="size-6" />
+			<div className={cn(layout.inner, "flex h-full flex-col justify-center py-16")}>
+				<div className="flex items-center gap-5 text-left md:gap-6">
+					<div className="leros-workbench-hero-icon shrink-0">
+						<img
+							src={PROJECT_NEW_TASK_HERO_OCTOPUS_SRC}
+							alt=""
+							className="size-50 object-contain"
+						/>
 					</div>
-					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">
-						开始项目会话
-					</h2>
-					<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
-						把需求、问题或上下文发给 AI，后续讨论会沉淀在当前项目中。
-					</p>
+					<div className="flex min-w-0 flex-col gap-8">
+						<h2 className="text-4xl tracking-tight text-[var(--leros-primary)] md:text-5xl">
+							开始新任务
+						</h2>
+						<p className="text-lg text-[var(--leros-text-muted)]">
+							描述需求或目标，Lework 将自动规划、执行、交付，并将产物归档到项目中
+						</p>
+					</div>
 				</div>
 			</div>
 		</div>

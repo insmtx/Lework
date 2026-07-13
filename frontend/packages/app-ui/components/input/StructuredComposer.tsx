@@ -9,6 +9,7 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
+	CommandSeparator,
 } from "@leros/ui/components/ui/command";
 import { cn } from "@leros/ui/lib/utils";
 import { Sparkles } from "lucide-react";
@@ -354,6 +355,14 @@ function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function formatSkillTokenDisplayLabel(label: string): string {
+	return label.startsWith("/") ? label.slice(1) : label;
+}
+
+function formatAssistantTokenDisplayLabel(label: string): string {
+	return label.startsWith("@") ? label.slice(1) : label;
+}
+
 function isCursorInsideToken(cursor: number, tokens: InsertedToken[]): boolean {
 	return tokens.some((token) => cursor > token.start && cursor <= token.end);
 }
@@ -504,21 +513,47 @@ function createRemoveIcon(): SVGElement {
 	return svg;
 }
 
-function createMentionRemoveControl(token: InsertedToken): HTMLSpanElement {
-	const control = document.createElement("span");
-	control.dataset.mentionRemove = "true";
-	control.dataset.mentionLabel = token.label;
-	control.dataset.mentionKind = token.kind;
-	control.setAttribute("role", "button");
-	control.setAttribute("tabindex", "-1");
-	control.setAttribute(
+function buildAssistantMentionIconShell(token: InsertedToken): HTMLSpanElement {
+	const iconShell = document.createElement("span");
+	iconShell.dataset.mentionRemove = "true";
+	iconShell.dataset.mentionLabel = token.label;
+	iconShell.dataset.mentionKind = token.kind;
+	iconShell.setAttribute("role", "button");
+	iconShell.setAttribute("tabindex", "-1");
+	iconShell.setAttribute(
 		"aria-label",
-		`移除${token.kind === "skill" ? "技能" : "AI队友"} ${token.label}`,
+		`移除AI队友 ${formatAssistantTokenDisplayLabel(token.label)}`,
 	);
-	control.className =
-		"ml-0.5 inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full opacity-65 transition-opacity hover:bg-current/10 hover:opacity-100";
-	control.appendChild(createRemoveIcon());
-	return control;
+	iconShell.className =
+		"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md bg-white text-blue-600 [&_svg]:block";
+	const botIcon = createBotIcon();
+	botIcon.classList.add("transition-opacity", "group-hover:opacity-0");
+	const removeControl = document.createElement("span");
+	removeControl.className =
+		"absolute inset-0 inline-flex items-center justify-center rounded-full opacity-0 transition-opacity hover:bg-current/10 hover:opacity-100 group-hover:opacity-65";
+	removeControl.appendChild(createRemoveIcon());
+	iconShell.append(botIcon, removeControl);
+	return iconShell;
+}
+
+function buildSkillMentionIconShell(token: InsertedToken): HTMLSpanElement {
+	const iconShell = document.createElement("span");
+	iconShell.dataset.mentionRemove = "true";
+	iconShell.dataset.mentionLabel = token.label;
+	iconShell.dataset.mentionKind = token.kind;
+	iconShell.setAttribute("role", "button");
+	iconShell.setAttribute("tabindex", "-1");
+	iconShell.setAttribute("aria-label", `移除技能 ${formatSkillTokenDisplayLabel(token.label)}`);
+	iconShell.className =
+		"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md bg-white text-violet-600 [&_svg]:block";
+	const sparklesIcon = createSkillSparklesIcon();
+	sparklesIcon.classList.add("transition-opacity", "group-hover:opacity-0");
+	const removeControl = document.createElement("span");
+	removeControl.className =
+		"absolute inset-0 inline-flex items-center justify-center rounded-full opacity-0 transition-opacity hover:bg-current/10 hover:opacity-100 group-hover:opacity-65";
+	removeControl.appendChild(createRemoveIcon());
+	iconShell.append(sparklesIcon, removeControl);
+	return iconShell;
 }
 
 function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedToken[]) {
@@ -542,37 +577,17 @@ function buildEditorContent(root: HTMLElement, value: string, tokens: InsertedTo
 		if (token.kind === "skill") {
 			mention.className =
 				"group inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium leading-4 text-violet-700 ring-1 ring-violet-100 align-middle";
-			const iconShell = document.createElement("span");
-			iconShell.dataset.mentionRemove = "true";
-			iconShell.dataset.mentionLabel = token.label;
-			iconShell.dataset.mentionKind = token.kind;
-			iconShell.setAttribute("role", "button");
-			iconShell.setAttribute("tabindex", "-1");
-			iconShell.setAttribute("aria-label", `移除技能 ${token.label}`);
-			iconShell.className =
-				"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md bg-white text-violet-600 [&_svg]:block";
-			const sparklesIcon = createSkillSparklesIcon();
-			sparklesIcon.classList.add("transition-opacity", "group-hover:opacity-0");
-			const removeControl = document.createElement("span");
-			removeControl.className =
-				"absolute inset-0 inline-flex items-center justify-center rounded-full opacity-0 transition-opacity hover:bg-current/10 hover:opacity-100 group-hover:opacity-65";
-			removeControl.appendChild(createRemoveIcon());
-			iconShell.append(sparklesIcon, removeControl);
 			const label = document.createElement("span");
 			label.className = "truncate";
-			label.textContent = token.label;
-			mention.append(iconShell, label);
+			label.textContent = formatSkillTokenDisplayLabel(token.label);
+			mention.append(buildSkillMentionIconShell(token), label);
 		} else {
 			mention.className =
-				"inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2 py-1 text-xs font-medium leading-4 text-blue-700 align-middle";
-			const iconShell = document.createElement("span");
-			iconShell.className =
-				"inline-flex size-4 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600 [&_svg]:block";
-			iconShell.appendChild(createBotIcon());
+				"group inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium leading-4 text-blue-700 ring-1 ring-blue-100 align-middle";
 			const label = document.createElement("span");
 			label.className = "truncate";
-			label.textContent = token.label;
-			mention.append(iconShell, label, createMentionRemoveControl(token));
+			label.textContent = formatAssistantTokenDisplayLabel(token.label);
+			mention.append(buildAssistantMentionIconShell(token), label);
 		}
 		fragment.appendChild(mention);
 		cursor = token.end;
@@ -1613,7 +1628,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const inputSpacingClass = isProjectVariant
-			? "min-h-[80px] rounded-none px-0 py-0 text-sm leading-6"
+			? "min-h-[96px] rounded-none px-0 py-0 text-sm leading-6"
 			: "min-h-[80px] rounded-2xl px-5 py-4 pb-2 text-xs leading-5";
 
 		return (
@@ -1645,23 +1660,17 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 							onValueChange={handlePickerValueChange}
 							className="rounded-xl! bg-transparent p-0"
 						>
-							<div className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-slate-400">
-								{trigger.kind === "assistant" ? <>AI 队友</> : <>选择技能</>}
+							<div className="px-2 py-1 text-sm font-semibold text-slate-800">
+								{trigger.kind === "assistant" ? <>选择 AI 队友</> : <>选择技能</>}
 							</div>
-							{trigger.kind === "assistant" ? (
-								<CommandInput
-									value={assistantSearch}
-									onValueChange={setAssistantSearch}
-									placeholder="搜索 AI 队友"
-								/>
-							) : (
-								<CommandInput
-									value={commandSearch}
-									onValueChange={setCommandSearch}
-									placeholder="搜索技能"
-								/>
-							)}
-							<CommandList className="max-h-60">
+							<CommandInput
+								value={trigger.kind === "assistant" ? assistantSearch : commandSearch}
+								onValueChange={trigger.kind === "assistant" ? setAssistantSearch : setCommandSearch}
+								placeholder={trigger.kind === "assistant" ? "搜索 AI 队友" : "搜索技能"}
+								className="placeholder:text-slate-300"
+							/>
+							<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+							<CommandList className="max-h-60 px-1">
 								<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
 								{trigger.kind === "assistant" ? (
 									<CommandGroup className="p-0">
@@ -1673,7 +1682,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												onMouseDown={(event: MouseEvent<HTMLElement>) => event.preventDefault()}
 												onSelect={() => selectToken("assistant", assistant, trigger)}
 												className={cn(
-													"rounded-xl px-2.5 py-2",
+													"rounded-lg px-2 py-1.5",
 													index === activeIndex && "bg-slate-100",
 												)}
 											>
@@ -1694,9 +1703,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 										))}
 									</CommandGroup>
 								) : (
-									<CommandGroup heading="Skills" className="p-0">
+									<CommandGroup className="p-0">
 										{skillsLoading && (
-											<div className="px-2.5 py-2 text-xs text-slate-400">加载 Skills...</div>
+											<div className="px-2 py-1.5 text-xs text-slate-400">加载 Skills...</div>
 										)}
 										{filteredSkills.map((skill, index) => (
 											<CommandItem
@@ -1712,7 +1721,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												onMouseDown={(event: MouseEvent<HTMLElement>) => event.preventDefault()}
 												onSelect={() => selectToken("skill", skill, trigger)}
 												className={cn(
-													"rounded-xl px-2.5 py-2",
+													"rounded-lg px-2 py-1.5",
 													index === activeIndex && "bg-slate-100",
 												)}
 											>
@@ -1721,7 +1730,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 												</div>
 												<div className="min-w-0 flex-1">
 													<div className="truncate font-medium">
-														/{renderHighlightedText(skill.label, commandSearch)}
+														{renderHighlightedText(skill.label, commandSearch)}
 													</div>
 													<div className="truncate text-xs text-slate-400">{skill.description}</div>
 												</div>
@@ -1738,7 +1747,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					<div
 						aria-hidden="true"
 						className={cn(
-							"pointer-events-none absolute left-0 top-0 z-10 text-slate-400",
+							"pointer-events-none absolute left-0 top-0 z-10 text-slate-300",
 							inputSpacingClass,
 						)}
 					>
