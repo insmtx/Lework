@@ -10,7 +10,7 @@ import { Button } from "@leros/ui/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronDown, LoaderCircle, Search, UserRound } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import {
 	buildProjectActivityActionParts,
@@ -82,18 +82,18 @@ function buildActivityListParams(
 
 function ActivityOperatorAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
 	const fallback = (
-		<span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 align-middle">
+		<span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
 			<UserRound className="size-3.5" />
 		</span>
 	);
 
 	if (avatarUrl) {
 		return (
-			<span className="inline-flex shrink-0 align-middle">
+			<span className="inline-flex size-7 shrink-0 items-center justify-center">
 				<ProtectedImage
 					src={avatarUrl}
 					alt={name}
-					className="size-7 shrink-0 rounded-full object-cover align-middle"
+					className="size-7 shrink-0 rounded-full object-cover"
 					fallback={fallback}
 				/>
 			</span>
@@ -111,20 +111,23 @@ function ProjectActivityActorListPart({
 	actors: ProjectActivityActor[];
 }) {
 	if (actors.length === 0) {
-		return <span className="align-middle">{label}</span>;
+		return <span>{label}</span>;
 	}
 
 	return (
-		<span className="align-middle">
-			{label}{" "}
+		<span className="inline-flex items-center gap-1">
+			<span>{label}</span>
 			{actors.map((actor, index) => {
 				const displayName = actor.name?.trim() || label;
 				return (
-					<Fragment key={actor.id || `${displayName}-${index}`}>
-						{index > 0 ? "，" : null}
-						<ActivityOperatorAvatar name={displayName} avatarUrl={actor.avatar_url} />{" "}
-						<span className="font-semibold align-middle">{displayName}</span>
-					</Fragment>
+					<span
+						key={actor.id || `${displayName}-${index}`}
+						className="inline-flex items-center gap-1"
+					>
+						{index > 0 ? <span>，</span> : null}
+						<ActivityOperatorAvatar name={displayName} avatarUrl={actor.avatar_url} />
+						<span className="font-semibold">{displayName}</span>
+					</span>
 				);
 			})}
 		</span>
@@ -144,17 +147,13 @@ function renderProjectActivityActionPart(part: ProjectActivityTextPart, index: n
 
 	if (part.bold) {
 		return (
-			<span key={`text-${index}`} className="align-middle font-semibold">
+			<span key={`text-${index}`} className="font-semibold">
 				{part.text}
 			</span>
 		);
 	}
 
-	return (
-		<span key={`text-${index}`} className="align-middle">
-			{part.text}
-		</span>
-	);
+	return <span key={`text-${index}`}>{part.text}</span>;
 }
 
 function ProjectActivityMemberFilter({
@@ -354,12 +353,14 @@ function ProjectActivityRow({ item }: { item: ProjectActivityItem }) {
 			<div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
 				<div className="min-w-0 overflow-hidden">
 					<p
-						className="truncate text-[14px] leading-7 text-[var(--leros-text-strong)]"
+						className="truncate text-[14px] leading-normal text-[var(--leros-text-strong)]"
 						title={summaryText}
 					>
-						<ActivityOperatorAvatar name={operatorName} avatarUrl={operatorAvatar} />{" "}
-						<span className="font-semibold align-middle">{operatorName}</span>{" "}
-						{actionParts.map((part, index) => renderProjectActivityActionPart(part, index))}
+						<span className="inline-flex items-center gap-1">
+							<ActivityOperatorAvatar name={operatorName} avatarUrl={operatorAvatar} />
+							<span className="font-semibold">{operatorName}</span>
+							{actionParts.map((part, index) => renderProjectActivityActionPart(part, index))}
+						</span>
 					</p>
 				</div>
 				{relativeTime ? (
