@@ -20,6 +20,8 @@ const (
 	CommandTypeQuestionAnswer CommandType = "question.answer"
 	// CommandTypeSkill 统一 skill 管理命令。
 	CommandTypeSkill CommandType = "skill.manage"
+	// CommandTypeProjectFileRestore 请求 Worker 恢复项目文件历史版本。
+	CommandTypeProjectFileRestore CommandType = "project.file.restore"
 )
 
 // Lane 表示命令分发到哪个 lane subject。
@@ -30,6 +32,7 @@ const (
 	LaneControl     Lane = "cmd.control"
 	LaneInteraction Lane = "cmd.interaction"
 	LaneSkill       Lane = "cmd.skill"
+	LaneFile        Lane = "cmd.file"
 )
 
 // CommandLane 根据命令类型返回对应的 lane。
@@ -43,6 +46,8 @@ func CommandLane(cmdType CommandType) Lane {
 		return LaneInteraction
 	case CommandTypeSkill:
 		return LaneSkill
+	case CommandTypeProjectFileRestore:
+		return LaneFile
 	default:
 		return LaneRun
 	}
@@ -59,6 +64,7 @@ type WorkerCommand = Envelope[WorkerCommandBody]
 //   - approval.resolve:  ApprovalResolveCommandPayload
 //   - question.answer:   QuestionAnswerCommandPayload
 //   - skill.manage:      SkillCommandPayload
+//   - project.file.restore: ProjectFileRestoreCommandPayload
 type WorkerCommandBody struct {
 	CommandType CommandType     `json:"command_type"`
 	Payload     json.RawMessage `json:"payload,omitempty"`
@@ -122,6 +128,24 @@ type SkillCommandPayload struct {
 	Name    string `json:"name,omitempty"`     // for uninstall / detail: the skill name
 	// DownloadURL is the URL from which the worker downloads the skill file during "import".
 	DownloadURL string `json:"download_url,omitempty"`
+}
+
+// ProjectFileRestoreCommandPayload 是 project.file.restore 命令的 payload。
+type ProjectFileRestoreCommandPayload struct {
+	ProjectPublicID string `json:"project_public_id"`
+	RelativePath    string `json:"relative_path"`
+	Branch          string `json:"branch,omitempty"`
+	DownloadURL     string `json:"download_url"`
+	AuthorName      string `json:"author_name,omitempty"`
+	AuthorEmail     string `json:"author_email,omitempty"`
+}
+
+// ProjectFileRestoreResult 是 Worker 完成项目文件恢复后的同步响应。
+type ProjectFileRestoreResult struct {
+	Success      bool   `json:"success"`
+	RelativePath string `json:"relative_path,omitempty"`
+	CommitSHA    string `json:"commit_sha,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 // ---- Command Builders ----
@@ -226,6 +250,21 @@ func NewSkillCommand(envID string, route RouteContext, payload SkillCommandPaylo
 			CommandType: CommandTypeSkill,
 			Payload:     raw,
 			ReplyTo:     replyTo,
+		},
+	}
+}
+
+// NewProjectFileRestoreCommand 构造 project.file.restore WorkerCommand。
+func NewProjectFileRestoreCommand(envID string, route RouteContext, payload ProjectFileRestoreCommandPayload) WorkerCommand {
+	raw, _ := json.Marshal(payload)
+	return WorkerCommand{
+		ID:        envID,
+		Type:      MessageTypeWorkerCommand,
+		CreatedAt: time.Now().UTC(),
+		Route:     route,
+		Body: WorkerCommandBody{
+			CommandType: CommandTypeProjectFileRestore,
+			Payload:     raw,
 		},
 	}
 }

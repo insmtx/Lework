@@ -2,23 +2,47 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/nats-io/nats.go"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
+
+type projectFileRestorePublisher struct {
+	topic    string
+	commands []messaging.WorkerCommand
+}
+
+func (p *projectFileRestorePublisher) Publish(context.Context, string, any) error { return nil }
+
+func (p *projectFileRestorePublisher) Request(_ context.Context, topic string, event any) (*nats.Msg, error) {
+	command, ok := event.(messaging.WorkerCommand)
+	if !ok {
+		return nil, fmt.Errorf("unexpected command type %T", event)
+	}
+	p.topic = topic
+	p.commands = append(p.commands, command)
+	data, err := json.Marshal(messaging.ProjectFileRestoreResult{
+		Success:      true,
+		RelativePath: "artifacts/report.md",
+		CommitSHA:    "restore-commit",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &nats.Msg{Data: data}, nil
+}
 
 func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 	database, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
@@ -40,6 +64,7 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 		Driver:   "local",
 		LocalDir: t.TempDir(),
 		Bucket:   "dev-bucket",
+		BaseURL:  "http://leros.test",
 	}); err != nil {
 		t.Fatalf("init filestore: %v", err)
 	}
@@ -110,7 +135,10 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 		created = append(created, projectFile)
 	}
 
-	service := &projectService{db: database, perm: NewPermissionService(database), inferrer: NewDefaultAssistantInferrer(1)}
+	restorePublisher := &projectFileRestorePublisher{}
+	service := &projectService{
+		db: database, perm: NewPermissionService(database), inferrer: NewDefaultAssistantInferrer(1), publisher: restorePublisher,
+	}
 	ctx := setupTestContextWithCaller(t)
 	tree, err := service.GetProjectFileTree(ctx, project.PublicID, string(types.ProjectFileResourceTypeArtifact), "")
 	if err != nil {
@@ -159,20 +187,6 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 		t.Fatalf("latest content = %q", latestData)
 	}
 
-	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	repoDir := filepath.Join(workspaceRoot, "projects", "1", project.PublicID, "repo")
-	artifactPath := filepath.Join(repoDir, "artifacts", "report.md")
-	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
-		t.Fatalf("create artifact directory: %v", err)
-	}
-	if err := os.WriteFile(artifactPath, []byte(contents[1]), 0o644); err != nil {
-		t.Fatalf("write current artifact: %v", err)
-	}
-	runProjectFileGitCommand(t, repoDir, "init")
-	runProjectFileGitCommand(t, repoDir, "add", "--all")
-	runProjectFileGitCommand(t, repoDir, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "initial")
-
 	restored, err := service.RestoreProjectFileVersion(ctx, project.PublicID, created[0].FilePublicID)
 	if err != nil {
 		t.Fatalf("restore first version: %v", err)
@@ -180,12 +194,22 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 	if restored.VersionNo != 3 || restored.InitialFilePublicID != created[0].FilePublicID {
 		t.Fatalf("restored node = %#v", restored)
 	}
-	restoredData, err := os.ReadFile(artifactPath)
-	if err != nil {
-		t.Fatalf("read restored workspace file: %v", err)
+	if len(restorePublisher.commands) != 1 {
+		t.Fatalf("restore commands = %d, want 1", len(restorePublisher.commands))
 	}
-	if string(restoredData) != contents[0] {
-		t.Fatalf("restored workspace content = %q", restoredData)
+	if restorePublisher.topic != "org.1.worker.1.cmd.file" {
+		t.Fatalf("restore command topic = %q", restorePublisher.topic)
+	}
+	command := restorePublisher.commands[0]
+	if command.Body.CommandType != messaging.CommandTypeProjectFileRestore {
+		t.Fatalf("restore command type = %q", command.Body.CommandType)
+	}
+	payload, err := messaging.DecodeCommandPayload[messaging.ProjectFileRestoreCommandPayload](&command.Body)
+	if err != nil {
+		t.Fatalf("decode restore command: %v", err)
+	}
+	if payload.ProjectPublicID != project.PublicID || payload.RelativePath != "artifacts/report.md" || payload.DownloadURL == "" {
+		t.Fatalf("restore command payload = %#v", payload)
 	}
 
 	// Latest download should return restored content
@@ -241,14 +265,5 @@ func TestProjectFileVersionQueriesAndDownloads(t *testing.T) {
 	}
 	if versions.CurrentFilePublicID != restored.PublicID || len(versions.Items) != 3 {
 		t.Fatalf("old v2 versions after restore = %#v", versions)
-	}
-}
-
-func runProjectFileGitCommand(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	command := exec.Command("git", args...)
-	command.Dir = dir
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
 }

@@ -1,11 +1,12 @@
 // worker 命令启动 Leros 后台 worker 服务。
 //
-// worker 通过 NATS JetStream 订阅四个命令 lane：
+// worker 通过 NATS JetStream 订阅五个命令 lane：
 //   - cmd.run：处理 agent run 任务。使用 SubscribeManualDurable + 本地 SQLite inbox
 //     实现 at-least-once 语义。消息先持久化再 Ack，崩溃重启后通过 RecoverNonTerminal 恢复。
 //   - cmd.control：处理 cancel 等控制命令，自动确认。
 //   - cmd.interaction：处理审批/问答等交互命令，自动确认。
 //   - cmd.skill：处理 skill 管理命令，自动确认。
+//   - cmd.file：处理项目文件恢复命令，自动确认。
 //
 // 关闭顺序（5 步）：
 //  1. 取消 NATS 订阅 context → 2. 停止新任务准入 → 3. 等待 dispatcher 退出
@@ -37,6 +38,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/worker/app"
 	"github.com/insmtx/Leros/backend/internal/worker/command"
 	"github.com/insmtx/Leros/backend/internal/worker/command/interaction"
+	"github.com/insmtx/Leros/backend/internal/worker/command/projectfile"
 	"github.com/insmtx/Leros/backend/internal/worker/command/run"
 	"github.com/insmtx/Leros/backend/internal/worker/command/skill"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
@@ -332,6 +334,14 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to create skill handler: %v", err)
 		return
 	}
+	fileHandler, err := projectfile.New(bus.Conn())
+	if err != nil {
+		cancel()
+		_ = runtimeService.Close()
+		_ = bus.Close()
+		logs.Fatalf("Failed to create project file handler: %v", err)
+		return
+	}
 
 	dispatcher, err := command.New(command.Config{
 		OrgID:    cfg.OrgID,
@@ -341,6 +351,7 @@ func runTaskWorker(defaultRuntime string) {
 		Control:     runHandler,
 		Interaction: interactionHandler,
 		Skill:       skillHandler,
+		File:        fileHandler,
 	})
 	if err != nil {
 		cancel()

@@ -44,6 +44,13 @@ func TestWorkerCommandSubject(t *testing.T) {
 			want:     "org.7.worker.8.cmd.skill",
 		},
 		{
+			name:     "cmd.file lane",
+			orgID:    9,
+			workerID: 4,
+			lane:     LaneFile,
+			want:     "org.9.worker.4.cmd.file",
+		},
+		{
 			name:     "missing orgID",
 			orgID:    0,
 			workerID: 1,
@@ -177,6 +184,7 @@ func TestCommandLane(t *testing.T) {
 		{CommandTypeApprovalResolve, LaneInteraction},
 		{CommandTypeQuestionAnswer, LaneInteraction},
 		{CommandTypeSkill, LaneSkill},
+		{CommandTypeProjectFileRestore, LaneFile},
 	}
 
 	for _, tt := range tests {
@@ -331,6 +339,7 @@ func TestStreamNameFromSubject(t *testing.T) {
 		{"org.10.worker.20.cmd.control", StreamNameWorker},
 		{"org.5.worker.3.cmd.interaction", StreamNameWorker},
 		{"org.7.worker.8.cmd.skill", StreamNameWorker},
+		{"org.9.worker.4.cmd.file", StreamNameWorker},
 		{"org.1.session.sess-abc.run.stream", StreamNameSession},
 		{"org.5.session.xyz-123.run.state", StreamNameSession},
 		{"invalid.subject", ""},

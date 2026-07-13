@@ -109,6 +109,8 @@ func WorkerLaneConsumer(orgID, workerID uint, lane Lane) string {
 		return fmt.Sprintf("worker-o%d-w%d-interaction-consumer", orgID, workerID)
 	case LaneSkill:
 		return fmt.Sprintf("worker-o%d-w%d-skill-consumer", orgID, workerID)
+	case LaneFile:
+		return fmt.Sprintf("worker-o%d-w%d-file-consumer", orgID, workerID)
 	default:
 		return fmt.Sprintf("worker-o%d-w%d-%s-consumer", orgID, workerID, lane)
 	}
@@ -129,7 +131,7 @@ const (
 // StreamConfigs 返回所有预配置的 JetStream stream 配置。
 //
 // WORKER_CMD_STREAM: server -> worker 方向，覆盖所有 worker command subject
-// （cmd.run、cmd.control、cmd.interaction、cmd.skill）。
+// （cmd.run、cmd.control、cmd.interaction、cmd.skill、cmd.file）。
 //
 //	保留 72h，每 subject 最多 10000 条。使用 DiscardOld，
 //	积压时丢弃最旧消息以确保新命令始终可写入。

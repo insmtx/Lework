@@ -112,7 +112,7 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 		handler.RegisterGlobalEventRoutes(authed, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		projectService := service.NewProjectServiceWithInferrer(db, inferrer, giteaClient, cfg.Gitea, cfg.Env)
+		projectService := service.NewProjectServiceWithInferrerAndPublisher(db, inferrer, giteaClient, cfg.Gitea, cfg.Env, eventbus)
 		handler.RegisterProjectRoutes(authed, projectService, permSvc)
 		logs.Info("Project routes registered successfully")
 
