@@ -1587,23 +1587,29 @@ function TaskListItem({
 	const resource = { type: "task" as const, publicId: task.id };
 
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: The row contains a nested action button, so the row itself cannot be a button.
 		<div
+			role="button"
+			tabIndex={0}
+			onClick={() => onOpenTask(projectId, task)}
+			onKeyDown={(event) => {
+				if (event.key === "Enter" || event.key === " ") {
+					event.preventDefault();
+					onOpenTask(projectId, task);
+				}
+			}}
 			data-active={active}
-			className="group flex min-h-8 w-full items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
+			className="group flex min-h-8 w-full cursor-pointer items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
+			title={task.title}
 		>
-			<button
-				type="button"
-				onClick={() => onOpenTask(projectId, task)}
-				className="flex min-w-0 flex-1 items-center gap-2 pr-1 text-left"
-				title={task.title}
-			>
+			<span className="flex min-w-0 flex-1 items-center gap-2 pr-1 text-left">
 				<span className="min-w-0 flex-1 truncate">{task.title}</span>
 				{task.updatedAt ? (
 					<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">
 						{formatRelativeTaskTime(task.updatedAt)}
 					</span>
 				) : null}
-			</button>
+			</span>
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
@@ -1611,6 +1617,7 @@ function TaskListItem({
 							type="button"
 							aria-label={`管理任务 ${task.title}`}
 							className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
+							onClick={(event) => event.stopPropagation()}
 						>
 							<MoreHorizontal className="size-4" />
 						</button>
