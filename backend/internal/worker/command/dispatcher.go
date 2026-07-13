@@ -1,6 +1,6 @@
 // Package command 提供统一的 Worker Command 分发器。
 //
-// Dispatcher 负责启动各 lane 订阅（cmd.run、cmd.control、cmd.interaction、cmd.skill），
+// Dispatcher 负责启动各 lane 订阅（cmd.run、cmd.control、cmd.interaction、cmd.skill、cmd.file），
 // 并将收到的统一 WorkerCommand 分发到对应的 handler。
 // 其中 cmd.run lane 使用手动确认订阅（SubscribeManualDurable），其余 lane 使用自动确认订阅（Subscribe）。
 package command
@@ -49,12 +49,18 @@ type SkillHandler interface {
 	HandleSkillCommand(ctx context.Context, cmd messaging.WorkerCommand, msg *nats.Msg) error
 }
 
-// Handlers 显式包含四类 handler，构造时一次性校验。
+// FileHandler 处理 cmd.file lane 的项目文件命令。
+type FileHandler interface {
+	HandleFileCommand(ctx context.Context, cmd messaging.WorkerCommand) error
+}
+
+// Handlers 显式包含五类 handler，构造时一次性校验。
 type Handlers struct {
 	Run         RunHandler
 	Control     ControlHandler
 	Interaction InteractionHandler
 	Skill       SkillHandler
+	File        FileHandler
 }
 
 // Config 是 Dispatcher 的配置。
@@ -93,6 +99,9 @@ func New(cfg Config, sub Subscriber, handlers Handlers) (*Dispatcher, error) {
 	if handlers.Skill == nil {
 		return nil, fmt.Errorf("skill handler is required")
 	}
+	if handlers.File == nil {
+		return nil, fmt.Errorf("file handler is required")
+	}
 
 	return &Dispatcher{
 		cfg:      cfg,
@@ -101,13 +110,13 @@ func New(cfg Config, sub Subscriber, handlers Handlers) (*Dispatcher, error) {
 	}, nil
 }
 
-// Run 并发启动四个 lane 订阅并阻塞，直到 ctx 取消或任一订阅异常退出。
+// Run 并发启动五个 lane 订阅并阻塞，直到 ctx 取消或任一订阅异常退出。
 //
 // run lane 使用手动 Ack 订阅（SubscribeManualDurable），
 // 因为 run handler 需要先将消息持久化到本地 inbox 再 Ack，
 // 以实现 at-least-once 的崩溃恢复语义。
 //
-// 其余 lane（control、interaction、skill）使用自动 Ack 订阅
+// 其余 lane（control、interaction、skill、file）使用自动 Ack 订阅
 // （Subscribe），因为它们的 handler 同步完成处理，无需手动控制确认时机。
 //
 // 任一订阅异常退出时会取消其他 lane 的 context。
@@ -127,6 +136,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		{messaging.LaneControl, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneControl), d.handleControl, false},
 		{messaging.LaneInteraction, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneInteraction), d.handleInteraction, false},
 		{messaging.LaneSkill, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneSkill), d.handleSkill, false},
+		{messaging.LaneFile, messaging.WorkerLaneConsumer(d.cfg.OrgID, d.cfg.WorkerID, messaging.LaneFile), d.handleFile, false},
 	}
 
 	errCh := make(chan error, len(lanes))
@@ -232,5 +242,16 @@ func (d *Dispatcher) handleSkill(ctx context.Context, msg *nats.Msg) {
 	}
 	if err := d.handlers.Skill.HandleSkillCommand(ctx, cmd, msg); err != nil {
 		logs.WarnContextf(ctx, "Skill command handler error: %v", err)
+	}
+}
+
+func (d *Dispatcher) handleFile(ctx context.Context, msg *nats.Msg) {
+	cmd, err := d.parseCommand(msg.Data)
+	if err != nil {
+		logs.WarnContextf(ctx, "Failed to parse file command: %v", err)
+		return
+	}
+	if err := d.handlers.File.HandleFileCommand(ctx, cmd); err != nil {
+		logs.WarnContextf(ctx, "File command handler error: %v", err)
 	}
 }

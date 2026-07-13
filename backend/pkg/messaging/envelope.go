@@ -10,6 +10,7 @@
 //	  cmd.control     - cancel run 等控制命令，不经过防抖
 //	  cmd.interaction - approval resolve、question answer
 //	  cmd.skill       - skill install/list/detail/import/uninstall，request/reply
+//	  cmd.file        - project file restore，request/reply
 //
 //	Worker -> Server/UI:
 //	  run.stream      - 高频 SSE 增量（message delta、reasoning delta、tool delta）

@@ -9,7 +9,6 @@ import (
 	"io"
 	"mime"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -26,8 +25,10 @@ import (
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/internal/infra/git"
+	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	"github.com/insmtx/Leros/backend/internal/workspace"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -50,6 +51,7 @@ type projectService struct {
 	giteaClient *gitea.Client
 	giteaCfg    *config.GiteaConfig
 	env         string
+	publisher   mq.Publisher
 }
 
 // fileTreeEntry 文件树 walk 阶段收集的扁平条目
@@ -79,6 +81,26 @@ func NewProjectServiceWithInferrer(db *gorm.DB, inferrer AssistantInferrer, gite
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 		env:         env,
+	}
+}
+
+// NewProjectServiceWithInferrerAndPublisher creates a project service that can dispatch worker commands.
+func NewProjectServiceWithInferrerAndPublisher(
+	db *gorm.DB,
+	inferrer AssistantInferrer,
+	giteaClient *gitea.Client,
+	giteaCfg *config.GiteaConfig,
+	env string,
+	publisher mq.Publisher,
+) contract.ProjectService {
+	return &projectService{
+		db:          db,
+		perm:        NewPermissionService(db),
+		inferrer:    inferrer,
+		giteaClient: giteaClient,
+		giteaCfg:    giteaCfg,
+		env:         env,
+		publisher:   publisher,
 	}
 }
 
@@ -2026,36 +2048,51 @@ func (s *projectService) RestoreProjectFileVersion(
 		return nil, err
 	}
 
-	reader, targetUpload, err := filestore.OpenFileByPublicID(ctx, s.db, caller.OrgID, target.FilePublicID)
-	if err != nil {
-		return nil, fmt.Errorf("open project file version: %w", err)
-	}
-	data, readErr := io.ReadAll(reader)
-	closeErr := reader.Close()
-	if readErr != nil {
-		return nil, fmt.Errorf("read project file version: %w", readErr)
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close project file version: %w", closeErr)
-	}
-
 	workerID, err := resolveProjectWorkerID(ctx, s.db, project.OrgID, project.ID, s.inferrer)
 	if err != nil {
 		return nil, fmt.Errorf("resolve project worker: %w", err)
 	}
-	repoDir, err := workspace.ProjectRepoPath(project.OrgID, workerID, project.PublicID)
+	downloadURL, targetUpload, err := filestore.PresignDownloadByPublicID(
+		ctx,
+		s.db,
+		caller.OrgID,
+		target.FilePublicID,
+		10*time.Minute,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("presign project file version download: %w", err)
+	}
+	if s.publisher == nil {
+		return nil, errors.New("worker command publisher is unavailable")
+	}
+	commandResult, err := s.requestProjectFileRestore(
+		ctx,
+		project.OrgID,
+		workerID,
+		project.PublicID,
+		relativePath,
+		project.GiteaDefaultBranch,
+		downloadURL,
+		caller,
+	)
 	if err != nil {
 		return nil, err
 	}
-	absolutePath, err := workspace.SafeJoin(repoDir, relativePath)
+	if !commandResult.Success {
+		return nil, fmt.Errorf("worker restore project file failed: %s", strings.TrimSpace(commandResult.Error))
+	}
+
+	reader, _, err := filestore.OpenFileByPublicID(ctx, s.db, caller.OrgID, target.FilePublicID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve restore path: %w", err)
+		return nil, fmt.Errorf("open restored project file version: %w", err)
 	}
-	if err := writeProjectFileAtomically(absolutePath, data); err != nil {
-		return nil, err
+	data, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("read restored project file version: %w", readErr)
 	}
-	if err := commitRestoredProjectFile(ctx, repoDir, relativePath, project.GiteaDefaultBranch, caller); err != nil {
-		return nil, err
+	if closeErr != nil {
+		return nil, fmt.Errorf("close restored project file version: %w", closeErr)
 	}
 
 	fileName := filepath.Base(relativePath)
@@ -2139,97 +2176,49 @@ func (s *projectService) RestoreProjectFileVersion(
 	return nodes[0], nil
 }
 
-func writeProjectFileAtomically(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create project file directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".leros-restore-*")
-	if err != nil {
-		return fmt.Errorf("create restored project file: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	removeTemporary := true
-	defer func() {
-		if removeTemporary {
-			_ = os.Remove(temporaryPath)
-		}
-	}()
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("write restored project file: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close restored project file: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace project file with restored version: %w", err)
-	}
-	removeTemporary = false
-	return nil
-}
-
-func commitRestoredProjectFile(
+func (s *projectService) requestProjectFileRestore(
 	ctx context.Context,
-	repoDir string,
+	orgID uint,
+	workerID uint,
+	projectPublicID string,
 	relativePath string,
 	branch string,
+	downloadURL string,
 	caller *types.Caller,
-) error {
-	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
-		return fmt.Errorf("project repository is unavailable: %w", err)
+) (messaging.ProjectFileRestoreResult, error) {
+	topic, err := messaging.WorkerCommandSubject(orgID, workerID, messaging.LaneFile)
+	if err != nil {
+		return messaging.ProjectFileRestoreResult{}, fmt.Errorf("build project file command topic: %w", err)
 	}
-	add := exec.CommandContext(ctx, "git", "add", "--", relativePath)
-	add.Dir = repoDir
-	if output, err := add.CombinedOutput(); err != nil {
-		return fmt.Errorf("stage restored project file: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	diff := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet", "--", relativePath)
-	diff.Dir = repoDir
-	if err := diff.Run(); err == nil {
-		return nil
-	} else {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
-			return fmt.Errorf("check restored project file diff: %w", err)
-		}
-	}
-	commit := exec.CommandContext(ctx, "git", "commit", "-m", "restore: "+relativePath, "--", relativePath)
-	commit.Dir = repoDir
-	commit.Env = projectFileGitAuthorEnv(caller)
-	if output, err := commit.CombinedOutput(); err != nil {
-		return fmt.Errorf("commit restored project file: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	remote := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
-	remote.Dir = repoDir
-	if remote.Run() != nil {
-		return nil
-	}
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		branch = "main"
-	}
-	push := exec.CommandContext(ctx, "git", "push", "origin", branch)
-	push.Dir = repoDir
-	if output, err := push.CombinedOutput(); err != nil {
-		return fmt.Errorf("push restored project file: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-func projectFileGitAuthorEnv(caller *types.Caller) []string {
 	name := "leros-project-file-restore"
 	email := "project-file-restore@leros.local"
 	if caller != nil {
 		name = fmt.Sprintf("leros-user-%d", caller.Uin)
 		email = fmt.Sprintf("user-%d@org-%d.leros.local", caller.Uin, caller.OrgID)
 	}
-	return append(
-		os.Environ(),
-		"GIT_AUTHOR_NAME="+name,
-		"GIT_AUTHOR_EMAIL="+email,
-		"GIT_COMMITTER_NAME="+name,
-		"GIT_COMMITTER_EMAIL="+email,
+	command := messaging.NewProjectFileRestoreCommand(
+		"project-file-restore-"+snowflake.GenerateIDBase58(),
+		messaging.RouteContext{OrgID: orgID, WorkerID: workerID},
+		messaging.ProjectFileRestoreCommandPayload{
+			ProjectPublicID: projectPublicID,
+			RelativePath:    relativePath,
+			Branch:          branch,
+			DownloadURL:     downloadURL,
+			AuthorName:      name,
+			AuthorEmail:     email,
+		},
 	)
+	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	reply, err := s.publisher.Request(requestCtx, topic, command)
+	if err != nil {
+		return messaging.ProjectFileRestoreResult{}, fmt.Errorf("request worker project file restore: %w", err)
+	}
+	var result messaging.ProjectFileRestoreResult
+	if err := json.Unmarshal(reply.Data, &result); err != nil {
+		return messaging.ProjectFileRestoreResult{}, fmt.Errorf("decode worker project file restore result: %w", err)
+	}
+	return result, nil
 }
 
 func openProjectFileVersion(
