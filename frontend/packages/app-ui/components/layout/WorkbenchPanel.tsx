@@ -19,24 +19,26 @@ import {
 	Check,
 	ChevronDown,
 	ChevronRight,
-	Files,
 	FileText,
 	Folder,
-	FolderOpen,
+	Layers,
 	ListTodo,
+	type LucideIcon,
 	Paperclip,
 	Plus,
 	SendHorizonal,
-	Sparkles,
-	Target,
+	TrendingUp,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { WORKBENCH_HERO_OCTOPUS_SRC } from "../../assets";
 import { useAuth } from "../auth";
 import { renderHighlightedText } from "../common/searchText";
 import { PROJECT_ATTACHMENT_ACCEPT } from "../input/ChatInput";
 import { ComposerActionBar } from "../input/ComposerActionBar";
+import { ComposerUsageTipsPanel } from "../input/ComposerUsageTipsPanel";
+import { buildComposerUsageTips } from "../input/composerUsageTips";
 import {
 	type ComposerAssistantOption,
 	StructuredComposer,
@@ -163,6 +165,38 @@ function getFilteredProjects(projects: Project[], query: string) {
 
 const PROJECT_PICKER_MAX_HEIGHT = "max-h-[min(420px,70vh)]";
 
+const WORKBENCH_FEATURE_CARDS: Array<{
+	title: string;
+	description: string;
+	icon: LucideIcon;
+	iconClassName: string;
+}> = [
+	{
+		title: "任务规划与拆解",
+		description: "对齐目标背景，拆解执行路径。",
+		icon: ListTodo,
+		iconClassName: "bg-violet-100 text-violet-600",
+	},
+	{
+		title: "任务指派",
+		description: "明确任务要求，指派角色执行。",
+		icon: FileText,
+		iconClassName: "bg-blue-100 text-blue-600",
+	},
+	{
+		title: "执行与审批",
+		description: "AI 自动推进，人工确认关键节点。",
+		icon: TrendingUp,
+		iconClassName: "bg-emerald-100 text-emerald-600",
+	},
+	{
+		title: "知识沉淀",
+		description: "沉淀过程成果，形成项目资产。",
+		icon: Layers,
+		iconClassName: "bg-orange-100 text-orange-600",
+	},
+];
+
 const PROJECT_PICKER_PANEL_CLASS = cn(
 	"w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur",
 	PROJECT_PICKER_MAX_HEIGHT,
@@ -225,6 +259,12 @@ function projectPickerRowClass(selected: boolean) {
 	);
 }
 
+function detectDesktopApp(): boolean {
+	if (typeof window === "undefined") return false;
+	const win = window as Window & { electron?: unknown; lerosDesktop?: unknown };
+	return Boolean(win.electron ?? win.lerosDesktop);
+}
+
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const {
 		projects,
@@ -262,6 +302,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [submenuTop, setSubmenuTop] = useState(0);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
+	const [isDesktopApp, setIsDesktopApp] = useState(false);
 	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
 
 	const revokeAttachmentURLs = (items: Attachment[]) => {
@@ -280,6 +321,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	useEffect(() => {
 		attachmentsRef.current = attachments;
 	}, [attachments]);
+
+	useEffect(() => {
+		setIsDesktopApp(detectDesktopApp());
+	}, []);
 
 	useEffect(() => {
 		if (!isAuthenticated) return;
@@ -491,10 +536,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		() => getFilteredProjects(projects, projectSearch),
 		[projectSearch, projects],
 	);
-	const recentProjects = useMemo(() => {
-		if (!isAuthenticated) return [];
-		return projects.slice(0, 3);
-	}, [isAuthenticated, projects]);
 
 	// 中文注释：项目列表接口不含任务，hover 展示任务子菜单时按需拉取。
 	const loadProjectTasksIfNeeded = useCallback(
@@ -526,16 +567,18 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		hoveredSubmenu?.startsWith("project:") === true
 			? projects.find((project) => project.id === hoveredSubmenu.slice("project:".length))
 			: undefined;
-	const suggestedPrompts = useMemo(
-		() => [
-			"帮我拆解当前项目的下一步执行计划",
-			"总结这个项目的当前进展和风险",
-			activeProject
-				? `基于 ${activeProject.name} 生成今天的工作清单`
-				: "帮我创建一个新项目并给出启动方案",
-		],
-		[activeProject],
+	const workbenchUsageTips = useMemo(
+		() => buildComposerUsageTips(activeProject, activeTask),
+		[activeProject, activeTask],
 	);
+
+	const applyUsageTip = useCallback((prompt: string) => {
+		if (composerRef.current) {
+			composerRef.current.setContent(prompt);
+			return;
+		}
+		setInput(prompt);
+	}, []);
 
 	const clearProjectTriggerText = useCallback(() => {
 		projectTriggerClearRef.current?.();
@@ -691,20 +734,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		});
 	};
 
-	const applyPrompt = (prompt: string) => {
-		setInput(prompt);
-	};
-
-	const openProject = (projectId: string) => {
-		requireAuth(() => {
-			if (navigation) {
-				navigation.goToProject(projectId);
-				return;
-			}
-			selectWorkbenchProject(projectId);
-		});
-	};
-
 	useEffect(() => () => revokeAttachmentURLs(attachmentsRef.current), []);
 
 	return (
@@ -736,17 +765,58 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			</header>
 
 			{/* Main Content Canvas */}
-			<div className="z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[1100px] flex-col justify-center px-10 py-16">
+			<div className="z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[1200px] flex-col px-10 pb-10 justify-center">
 				{/* Welcome/Hero Section */}
-				<section className="mb-8">
-					<div className="mb-6 flex flex-col items-start gap-4 text-left">
-						<h2 className="text-4xl font-semibold tracking-tight text-[var(--leros-text-strong)] md:text-5xl">
-							你好, <span className="text-[var(--leros-primary)]">我能帮助你什么？</span>
-						</h2>
-						<p className="text-lg font-medium italic uppercase tracking-widest text-[var(--leros-text-subtle)]">
-							你的AI队友，已上线。
-						</p>
+				<section>
+					<div className="mb-4 flex items-center gap-5 text-left md:gap-6">
+						<div className="leros-workbench-hero-icon shrink-0">
+							<img src={WORKBENCH_HERO_OCTOPUS_SRC} alt="" className="size-50 object-contain" />
+						</div>
+						<div className="flex min-w-0 flex-col gap-8">
+							<h2 className="text-4xl  tracking-tight text-[var(--leros-primary)] md:text-5xl">
+								你好，今天我们从哪里开始？
+							</h2>
+							<p className="text-lg  text-[var(--leros-text-muted)]">
+								告诉Lework你的目标，我们会帮你拆解任务、分配执行，并交付结果
+							</p>
+						</div>
 					</div>
+
+					<div
+						className={cn(
+							"mb-15 grid gap-3",
+							isDesktopApp ? "grid-cols-4" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
+						)}
+					>
+						{WORKBENCH_FEATURE_CARDS.map((card) => {
+							const Icon = card.icon;
+							return (
+								<div
+									key={card.title}
+									className="flex items-start gap-3 rounded-2xl bg-white px-4 py-4 shadow-sm ring-1 ring-slate-200/70"
+								>
+									<div
+										className={cn(
+											"flex size-10 shrink-0 items-center justify-center rounded-xl",
+											card.iconClassName,
+										)}
+									>
+										<Icon className="size-5" />
+									</div>
+									<div className="min-w-0">
+										<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+											{card.title}
+										</div>
+										<p className="mt-1 text-xs leading-relaxed text-[var(--leros-text-muted)]">
+											{card.description}
+										</p>
+									</div>
+								</div>
+							);
+						})}
+					</div>
+
+					<ComposerUsageTipsPanel tips={workbenchUsageTips} onApply={applyUsageTip} />
 
 					{/* 中文注释：工作台输入卡片与 ChatInput 的 project 变体保持同一套边框、阴影与内边距规范。 */}
 					{/* 中文注释：输入框保持完整圆角，和 Codex 一样作为上层卡片悬浮在项目选择条之上。 */}
@@ -759,6 +829,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							multiple
 							onChange={handleAttachmentSelect}
 						/>
+
 						{attachments.length > 0 && (
 							<div className="mb-3 flex flex-wrap gap-2">
 								{attachments.map((attachment) => (
@@ -798,7 +869,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								onPasteFiles={handlePasteFiles}
 								onFocus={() => undefined}
 								onBlur={() => undefined}
-								placeholder="在这里开始新任务，或输入指令以同步您的项目进度..."
+								placeholder="在这里输入需求或描述目标。使用#选择项目、@召唤AI队友、/调用技能..."
 								isProjectVariant
 								assistantOptions={availableAssistantOptions}
 								assistantSelectionMode="single"
@@ -863,8 +934,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						</div>
 						<PopoverContent
 							align="start"
-							side="bottom"
-							sideOffset={8}
+							side="top"
+							sideOffset={10}
 							collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
 							className="!flex-none w-auto overflow-visible rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
 						>
@@ -875,6 +946,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 											value={projectSearch}
 											onValueChange={handleProjectSearchChange}
 											placeholder="搜索项目"
+											className="placeholder:text-slate-300"
 										/>
 									</Command>
 									<div ref={projectListRefCallback} className={PROJECT_PICKER_LIST_CLASS}>
@@ -974,103 +1046,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							</div>
 						</PopoverContent>
 					</Popover>
-				</section>
-
-				<section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-					<div className="h-full min-w-0">
-						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<div className="mb-5">
-								<div className="flex items-center gap-2">
-									<div className="shrink-0 rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
-										<Sparkles className="size-4" />
-									</div>
-									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
-										开始建议
-									</h3>
-								</div>
-								<p className="mt-1 pl-10 text-sm text-[var(--leros-text-muted)]">
-									点一下即可填入输入框，适合用来启动工作台对话。
-								</p>
-							</div>
-
-							<div className="grid gap-3 md:grid-cols-3">
-								{suggestedPrompts.map((prompt) => (
-									<button
-										key={prompt}
-										type="button"
-										onClick={() => applyPrompt(prompt)}
-										title={prompt}
-										className="flex min-w-0 flex-col gap-3 rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
-									>
-										<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)]">
-											<FileText className="size-5" />
-										</div>
-										<p className="line-clamp-2 text-sm font-medium leading-6 text-[var(--leros-text)]">
-											{prompt}
-										</p>
-									</button>
-								))}
-							</div>
-						</div>
-					</div>
-
-					<div className="h-full min-w-0">
-						<div className="flex h-full flex-col rounded-[24px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-6 shadow-sm">
-							<div className="mb-5">
-								<div className="flex items-center gap-2">
-									<div className="shrink-0 rounded-full bg-[var(--leros-primary-softer)] p-2 text-[var(--leros-primary)]">
-										<FolderOpen className="size-4" />
-									</div>
-									<h3 className="text-lg font-semibold text-[var(--leros-text-strong)]">
-										最近项目
-									</h3>
-								</div>
-								<p className="mt-1 pl-10 text-sm text-[var(--leros-text-muted)]">
-									从最近同步的项目里快速恢复上下文。
-								</p>
-							</div>
-
-							{recentProjects.length > 0 ? (
-								<div className="space-y-3">
-									{recentProjects.slice(0, 1).map((project) => (
-										<button
-											key={project.id}
-											type="button"
-											onClick={() => openProject(project.id)}
-											title={project.name}
-											className="flex w-full min-w-0 items-start gap-3 rounded-2xl border border-[var(--leros-control-border)] px-4 py-4 text-left transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
-										>
-											<div className="shrink-0 rounded-xl bg-[var(--leros-surface-soft)] p-2 text-[var(--leros-text-muted)]">
-												<Folder className="size-4" />
-											</div>
-											<div className="min-w-0 flex-1">
-												<p className="line-clamp-2 text-sm font-semibold text-[var(--leros-text-strong)]">
-													{project.name}
-												</p>
-												<p className="mt-1 line-clamp-2 text-sm text-[var(--leros-text-muted)]">
-													{project.description || "暂无项目描述"}
-												</p>
-												<div className="mt-3 flex items-center gap-4 text-xs text-[var(--leros-text-subtle)]">
-													<span className="inline-flex items-center gap-1">
-														<Target className="size-3.5" />
-														{project.tasks.length} 个任务
-													</span>
-													<span className="inline-flex items-center gap-1">
-														<Files className="size-3.5" />
-														{project.files.length} 个文件
-													</span>
-												</div>
-											</div>
-										</button>
-									))}
-								</div>
-							) : (
-								<div className="rounded-2xl border border-dashed border-[var(--leros-control-border)] px-4 py-5 text-sm text-[var(--leros-text-muted)]">
-									还没有项目数据。先发起一个任务，系统会自动为你沉淀项目上下文。
-								</div>
-							)}
-						</div>
-					</div>
 				</section>
 			</div>
 		</div>

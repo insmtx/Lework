@@ -35,6 +35,8 @@ import {
 	type ProjectChatLayoutMode,
 } from "../layout/project-chat-layout";
 import { ComposerActionBar } from "./ComposerActionBar";
+import { ComposerUsageTipsPanel } from "./ComposerUsageTipsPanel";
+import { buildComposerUsageTips } from "./composerUsageTips";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
 	type ComposerAssistantOption,
@@ -120,6 +122,21 @@ export function ChatInput({
 	const projectSkillLabels = useMemo(
 		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
 		[projectSkillOptions],
+	);
+	const isNewProjectTaskView = isProjectVariant && currentView === "project";
+	const composerUsageTips = useMemo(
+		() => (isNewProjectTaskView ? buildComposerUsageTips(currentProject) : []),
+		[isNewProjectTaskView, currentProject],
+	);
+	const applyUsageTip = useCallback(
+		(prompt: string) => {
+			if (composerRef.current) {
+				composerRef.current.setContent(prompt);
+				return;
+			}
+			setInputText(prompt);
+		},
+		[setInputText],
 	);
 	const activeProjectComposerPrefill =
 		isProjectVariant &&
@@ -310,36 +327,16 @@ export function ChatInput({
 			)}
 		>
 			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && projectLayout.inner)}>
-				{inputAttachments.length > 0 && (
-					<AttachmentPreview attachments={inputAttachments} onRemove={removeAttachment} />
+				{isNewProjectTaskView && (
+					<ComposerUsageTipsPanel tips={composerUsageTips} onApply={applyUsageTip} />
 				)}
 				<div
 					className={cn(
 						// 中文注释：focus 时使用无偏移阴影，避免 shadow-xl 只在下方显影
 						"relative rounded-2xl bg-white/95 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70",
-						isProjectVariant && "rounded-2xl bg-white px-4 py-2 ring-slate-200",
+						isProjectVariant && "flex flex-col rounded-2xl bg-white px-4 py-2 ring-slate-200",
 					)}
 				>
-					<StructuredComposer
-						ref={composerRef}
-						value={inputText}
-						onChange={setInputText}
-						onSubmit={submitMessage}
-						onPasteFiles={handlePasteFiles}
-						onFocus={() => setInputFocused(true)}
-						onBlur={() => setInputFocused(false)}
-						placeholder={
-							isProjectVariant
-								? "这会儿帮你做些什么？@引用项目"
-								: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
-						}
-						isProjectVariant={isProjectVariant}
-						assistantOptions={projectAssistantOptions}
-						projectSkillOptions={projectSkillOptions}
-						assistantSelectionMode="single"
-						prefill={activeProjectComposerPrefill}
-						onPrefillConsumed={consumeProjectComposerPrefill}
-					/>
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -348,10 +345,41 @@ export function ChatInput({
 						multiple
 						onChange={handleFileSelect}
 					/>
+					{inputAttachments.length > 0 && (
+						<AttachmentPreview
+							attachments={inputAttachments}
+							onRemove={removeAttachment}
+							className={cn("mb-3", !isProjectVariant && "px-4 pt-3")}
+						/>
+					)}
+					<div className="min-w-0">
+						<StructuredComposer
+							ref={composerRef}
+							value={inputText}
+							onChange={setInputText}
+							onSubmit={submitMessage}
+							onPasteFiles={handlePasteFiles}
+							onFocus={() => setInputFocused(true)}
+							onBlur={() => setInputFocused(false)}
+							placeholder={
+								isProjectVariant
+									? isNewProjectTaskView
+										? "在这里输入需求或描述目标。使用@召唤队友、/调用技能..."
+										: "继续帮你做什么？"
+									: "请描述您的问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
+							}
+							isProjectVariant={isProjectVariant}
+							assistantOptions={projectAssistantOptions}
+							projectSkillOptions={projectSkillOptions}
+							assistantSelectionMode="single"
+							prefill={activeProjectComposerPrefill}
+							onPrefillConsumed={consumeProjectComposerPrefill}
+						/>
+					</div>
 					<div
 						className={cn(
-							"flex items-center justify-between px-4 pb-3",
-							isProjectVariant && "px-0 pb-0",
+							"flex items-center justify-between",
+							isProjectVariant ? "border-t border-[var(--leros-chat-ai-border)] pt-3" : "px-4 pb-3",
 						)}
 					>
 						<div className="flex items-center gap-1">
@@ -797,12 +825,14 @@ function getApprovalDetail(approval: ApprovalRequest): string {
 function AttachmentPreview({
 	attachments,
 	onRemove,
+	className,
 }: {
 	attachments: Attachment[];
 	onRemove: (id: string) => void;
+	className?: string;
 }) {
 	return (
-		<div data-slot="attachment-preview" className="mb-3 flex flex-wrap gap-2">
+		<div data-slot="attachment-preview" className={cn("flex flex-wrap gap-2", className ?? "mb-3")}>
 			{attachments.map((att) => (
 				<div
 					key={att.id}
@@ -813,7 +843,7 @@ function AttachmentPreview({
 					) : (
 						<Paperclip className="size-3.5 text-slate-400" />
 					)}
-					<span className="text-slate-600 truncate max-w-[120px]">{att.name}</span>
+					<span className="max-w-[160px] truncate text-slate-600">{att.name}</span>
 					<button
 						type="button"
 						onClick={() => onRemove(att.id)}

@@ -17,6 +17,7 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
+	CommandSeparator,
 } from "@leros/ui/components/ui/command";
 import {
 	Dialog,
@@ -757,36 +758,38 @@ function CreateProjectDialog({
 										className="w-[340px] p-1.5"
 									>
 										<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
-											<div className="px-2 py-1 text-xs font-medium text-slate-400">选择技能</div>
+											<div className="px-2 py-1 text-sm font-semibold text-slate-800">选择技能</div>
 											<CommandInput
 												value={skillSearch}
 												onValueChange={setSkillSearch}
 												placeholder="搜索技能"
+												className="placeholder:text-slate-300"
 											/>
-											<CommandList className="max-h-64">
+											<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+											<CommandList className="max-h-64 px-1">
 												<CommandEmpty className="py-6 text-slate-400">
 													没有可继续添加的技能
 												</CommandEmpty>
 												<CommandGroup className="p-0">
 													{skillsLoading && (
-														<div className="px-3 py-2 text-xs text-slate-400">技能加载中...</div>
+														<div className="px-2 py-1.5 text-xs text-slate-400">技能加载中...</div>
 													)}
 													{!skillsLoading && skillsError && (
-														<div className="px-3 py-2 text-xs text-red-400">{skillsError}</div>
+														<div className="px-2 py-1.5 text-xs text-red-400">{skillsError}</div>
 													)}
 													{filteredSkills.map((skill) => (
 														<CommandItem
 															key={skill.code}
 															value={skill.label}
 															onSelect={() => addSkill(skill)}
-															className="rounded-xl px-2.5 py-2"
+															className="rounded-lg px-2 py-1.5"
 														>
 															<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
 																<Sparkles className="size-3.5" />
 															</div>
 															<div className="min-w-0 flex-1">
 																<div className="truncate font-medium">
-																	/{renderHighlightedText(skill.label, skillSearch)}
+																	{renderHighlightedText(skill.label, skillSearch)}
 																</div>
 																<div className="truncate text-xs text-slate-400">
 																	{renderHighlightedText(skill.description, skillSearch)}
@@ -810,7 +813,7 @@ function CreateProjectDialog({
 											onClick={() => removeSkill(skill.code)}
 											className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-xs text-violet-700 transition-colors hover:bg-violet-100"
 										>
-											/{skill.label}
+											{skill.label}
 											<X className="size-3" />
 										</button>
 									))}
