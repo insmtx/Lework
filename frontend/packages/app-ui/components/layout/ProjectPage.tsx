@@ -124,12 +124,6 @@ export function ProjectPage({
 		activeProjectTab,
 		projectDetailLoading,
 		projectDetailError,
-		projectSessionId,
-		projectSessionProjectId,
-		activeWorkbenchProjectId,
-		activeWorkbenchTaskId,
-		activeTaskDetailProjectId,
-		activeTaskDetailSessionId,
 		fetchProjects,
 		setProjectRoute,
 		setActiveProjectTab,
@@ -164,29 +158,11 @@ export function ProjectPage({
 		projects.find((item) => item.id === resolvedProjectId) ??
 		(resolvedProjectId ? undefined : projects[0]);
 
-	const selectedTaskSessionId = useMemo(() => {
-		if (!project || activeWorkbenchProjectId !== project.id || !activeWorkbenchTaskId) return null;
-		return project.tasks.find((task) => task.id === activeWorkbenchTaskId)?.sessionId ?? null;
-	}, [project, activeWorkbenchProjectId, activeWorkbenchTaskId]);
-
-	const currentTaskSessionId =
-		activeTaskDetailProjectId === resolvedProjectId ? activeTaskDetailSessionId : null;
-
-	const streamingTaskSessionId =
-		isGenerating &&
-		activeSessionId &&
-		activeTaskDetailProjectId === resolvedProjectId &&
-		activeTaskDetailSessionId === activeSessionId
-			? activeTaskDetailSessionId
-			: null;
-	const currentProjectSessionId =
-		projectSessionProjectId === resolvedProjectId ? projectSessionId : null;
-
-	const resolvedSessionId =
-		streamingTaskSessionId ??
-		currentTaskSessionId ??
-		selectedTaskSessionId ??
-		currentProjectSessionId;
+	// 中文注释：项目「新建任务」tab 始终展示空状态，不复用任务详情 / 工作台 / 项目级 session。
+	const resolvedSessionId = useMemo(() => {
+		if (resolvedTab !== "chat" || currentView !== "project") return null;
+		return pendingBootstrapSessionId;
+	}, [resolvedTab, currentView, pendingBootstrapSessionId]);
 
 	const handleOpenTask = (task: ProjectTask) => {
 		if (!resolvedProjectId) return;
@@ -316,7 +292,6 @@ export function ProjectPage({
 		}
 		const nextSessionId = resolvedSessionId;
 		setActiveSession(nextSessionId);
-		if (currentView === "taskDetail" && currentTaskSessionId === nextSessionId) return;
 		const bootstrapPending = pendingBootstrapSessionId === nextSessionId;
 		const sessionHasMessages = hasSessionMessages(nextSessionId);
 		// 项目消息刚创建 session 并准备开流时，跳过这次自动拉历史，避免旧数据覆盖 optimistic 消息。
@@ -340,9 +315,7 @@ export function ProjectPage({
 		});
 	}, [
 		resolvedSessionId,
-		currentTaskSessionId,
 		projectDetailLoading,
-		currentView,
 		isGenerating,
 		pendingBootstrapSessionId,
 		activeSessionId,
