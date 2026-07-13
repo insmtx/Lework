@@ -75,12 +75,25 @@ import { OrgAdminDialog } from "../org-admin/OrgAdminDialog";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 import { CanGate } from "../permission/CanGate";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
+import { preventRailMenuClickThrough, runRailMenuAction } from "../project/ProjectActionsMenu";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
 import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 
 const LEFT_RAIL_COLLAPSED_WIDTH = 50;
 // 中文注释：设计稿要求项目展开后先预览 10 条任务，点“展开显示”后再展示全部任务。
 const PROJECT_TASK_PREVIEW_LIMIT = 10;
+
+function blurFocusedElement() {
+	requestAnimationFrame(() => {
+		(document.activeElement as HTMLElement | null)?.blur();
+	});
+}
+
+function handleRailMenuOpenChange(open: boolean) {
+	if (!open) {
+		blurFocusedElement();
+	}
+}
 
 type PublicEnv = {
 	readonly VITE_LEROS_APP_VERSION?: string;
@@ -408,6 +421,7 @@ export function LeftRail({
 		if (updatedProject) {
 			setRenameProject(null);
 			setRenameValue("");
+			blurFocusedElement();
 		}
 	};
 
@@ -419,6 +433,7 @@ export function LeftRail({
 		if (updatedTask) {
 			setRenameTask(null);
 			setRenameTaskValue("");
+			blurFocusedElement();
 		}
 	};
 
@@ -434,6 +449,7 @@ export function LeftRail({
 		if (!left) return;
 
 		setLeaveTarget(null);
+		blurFocusedElement();
 
 		if (leavingActiveProject) {
 			if (navigation) {
@@ -456,6 +472,7 @@ export function LeftRail({
 		if (!deleted) return;
 
 		setDeleteTarget(null);
+		blurFocusedElement();
 
 		if (deletingActiveProject) {
 			if (navigation) {
@@ -470,6 +487,7 @@ export function LeftRail({
 		if (!deleteTaskTarget) return;
 		await deleteTask(deleteTaskTarget.id);
 		setDeleteTaskTarget(null);
+		blurFocusedElement();
 	};
 
 	const handleProfileClick = () => {
@@ -785,7 +803,12 @@ export function LeftRail({
 			/>
 			<Dialog
 				open={renameProject !== null}
-				onOpenChange={(open) => !open && setRenameProject(null)}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRenameProject(null);
+						blurFocusedElement();
+					}
+				}}
 			>
 				<DialogContent className="sm:max-w-md" showCloseButton={false}>
 					<DialogHeader>
@@ -812,7 +835,13 @@ export function LeftRail({
 						</span>
 					</div>
 					<DialogFooter className="mt-4">
-						<Button variant="outline" onClick={() => setRenameProject(null)}>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setRenameProject(null);
+								blurFocusedElement();
+							}}
+						>
 							取消
 						</Button>
 						<Button onClick={handleConfirmRename} disabled={!renameValue.trim()}>
@@ -822,7 +851,15 @@ export function LeftRail({
 				</DialogContent>
 			</Dialog>
 
-			<Dialog open={renameTask !== null} onOpenChange={(open) => !open && setRenameTask(null)}>
+			<Dialog
+				open={renameTask !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRenameTask(null);
+						blurFocusedElement();
+					}
+				}}
+			>
 				<DialogContent className="sm:max-w-md" showCloseButton={false}>
 					<DialogHeader>
 						<DialogTitle>重命名任务</DialogTitle>
@@ -848,7 +885,13 @@ export function LeftRail({
 						</span>
 					</div>
 					<DialogFooter className="mt-4">
-						<Button variant="outline" onClick={() => setRenameTask(null)}>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setRenameTask(null);
+								blurFocusedElement();
+							}}
+						>
 							取消
 						</Button>
 						<Button onClick={handleConfirmTaskRename} disabled={!renameTaskValue.trim()}>
@@ -860,7 +903,12 @@ export function LeftRail({
 
 			<Dialog
 				open={deleteTaskTarget !== null}
-				onOpenChange={(open) => !open && setDeleteTaskTarget(null)}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDeleteTaskTarget(null);
+						blurFocusedElement();
+					}
+				}}
 			>
 				<DialogContent className="sm:max-w-md" showCloseButton={false}>
 					<DialogHeader>
@@ -870,7 +918,13 @@ export function LeftRail({
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter className="mt-4">
-						<Button variant="outline" onClick={() => setDeleteTaskTarget(null)}>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setDeleteTaskTarget(null);
+								blurFocusedElement();
+							}}
+						>
 							取消
 						</Button>
 						<Button variant="destructive" onClick={handleConfirmTaskDelete}>
@@ -880,7 +934,15 @@ export function LeftRail({
 				</DialogContent>
 			</Dialog>
 
-			<Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+			<Dialog
+				open={deleteTarget !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDeleteTarget(null);
+						blurFocusedElement();
+					}
+				}}
+			>
 				<DialogContent className="sm:max-w-md" showCloseButton={false}>
 					<DialogHeader>
 						<DialogTitle>删除项目</DialogTitle>
@@ -889,7 +951,13 @@ export function LeftRail({
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter className="mt-4">
-						<Button variant="outline" onClick={() => setDeleteTarget(null)}>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setDeleteTarget(null);
+								blurFocusedElement();
+							}}
+						>
 							取消
 						</Button>
 						<Button variant="destructive" onClick={handleConfirmDelete}>
@@ -899,7 +967,15 @@ export function LeftRail({
 				</DialogContent>
 			</Dialog>
 
-			<Dialog open={leaveTarget !== null} onOpenChange={(open) => !open && setLeaveTarget(null)}>
+			<Dialog
+				open={leaveTarget !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setLeaveTarget(null);
+						blurFocusedElement();
+					}
+				}}
+			>
 				<DialogContent className="sm:max-w-md" showCloseButton={false}>
 					<DialogHeader>
 						<DialogTitle>离开项目</DialogTitle>
@@ -908,7 +984,13 @@ export function LeftRail({
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter className="mt-4">
-						<Button variant="outline" onClick={() => setLeaveTarget(null)}>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setLeaveTarget(null);
+								blurFocusedElement();
+							}}
+						>
 							取消
 						</Button>
 						<Button variant="destructive" onClick={handleConfirmLeave}>
@@ -1405,6 +1487,16 @@ function getRouteActive(path: string, view: ViewMode) {
 	return false;
 }
 
+/** 侧栏行悬浮时才占位展开的操作槽，挤压左侧名称区域。 */
+const railHoverChevronSlotClass =
+	"flex h-6 w-0 shrink-0 items-center justify-center overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100";
+
+const railHoverMenuSlotClass =
+	"flex h-6 w-0 shrink-0 overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100 has-[button[aria-expanded=true]]:w-6 has-[button[aria-expanded=true]]:opacity-100";
+
+const railHoverExternalLinkSlotClass =
+	"flex h-6 w-0 shrink-0 items-center justify-center overflow-hidden opacity-0 transition-[width,opacity] duration-150 group-hover:w-6 group-hover:opacity-100 group-has-[button[aria-expanded=true]]:w-6 group-has-[button[aria-expanded=true]]:opacity-100";
+
 function ProjectList({
 	projects,
 	activeProjectId,
@@ -1471,7 +1563,10 @@ function ProjectList({
 						<div
 							role="button"
 							tabIndex={0}
-							onClick={() => onToggleProject(project)}
+							onClick={(event) => {
+								(event.currentTarget as HTMLDivElement).blur();
+								onToggleProject(project);
+							}}
 							onKeyDown={(event) => {
 								if (event.key === "Enter" || event.key === " ") {
 									event.preventDefault();
@@ -1480,7 +1575,7 @@ function ProjectList({
 							}}
 							data-active={active}
 							className={cn(
-								"leros-nav-item group relative cursor-pointer text-sm",
+								"leros-nav-item group cursor-pointer text-sm",
 								collapsed && "justify-center",
 							)}
 							title={collapsed ? project.name : undefined}
@@ -1493,30 +1588,32 @@ function ProjectList({
 								)}
 							</span>
 							{!collapsed && (
-								<span className="flex min-w-0 flex-1 items-center gap-0.5">
-									<span className="min-w-0 truncate">{project.name}</span>
-									<span className="flex shrink-0 items-center text-[var(--leros-text-subtle)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+								<>
+									<span className="min-w-0 flex-1 truncate">{project.name}</span>
+									<span
+										className={cn(railHoverChevronSlotClass, "text-[var(--leros-text-subtle)]")}
+									>
 										{projectExpanded ? (
 											<ChevronDown className="size-3.5" />
 										) : (
 											<ChevronRight className="size-3.5" />
 										)}
 									</span>
-								</span>
-							)}
-							{!collapsed && (
-								<>
 									<ProjectActionsDropdown
 										project={project}
 										onRename={onRenameProject}
 										onDelete={onDeleteProject}
 										onLeave={onLeaveProject}
 										variant="rail"
+										slotClassName={railHoverMenuSlotClass}
 									/>
 									<button
 										type="button"
 										aria-label={`进入项目 ${project.name}`}
-										className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100"
+										className={cn(
+											railHoverExternalLinkSlotClass,
+											"rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]",
+										)}
 										onClick={(event) => {
 											event.stopPropagation();
 											onEnterProject(project.id);
@@ -1591,7 +1688,13 @@ function TaskListItem({
 		<div
 			role="button"
 			tabIndex={0}
-			onClick={() => onOpenTask(projectId, task)}
+			onClick={(event) => {
+				if ((event.target as HTMLElement).closest("[data-rail-menu-slot]")) {
+					return;
+				}
+				(event.currentTarget as HTMLDivElement).blur();
+				onOpenTask(projectId, task);
+			}}
 			onKeyDown={(event) => {
 				if (event.key === "Enter" || event.key === " ") {
 					event.preventDefault();
@@ -1602,42 +1705,54 @@ function TaskListItem({
 			className="group flex min-h-8 w-full cursor-pointer items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
 			title={task.title}
 		>
-			<span className="flex min-w-0 flex-1 items-center gap-2 pr-1 text-left">
-				<span className="min-w-0 flex-1 truncate">{task.title}</span>
-				{task.updatedAt ? (
-					<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">
-						{formatRelativeTaskTime(task.updatedAt)}
-					</span>
-				) : null}
-			</span>
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<button
-							type="button"
-							aria-label={`管理任务 ${task.title}`}
-							className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
-							onClick={(event) => event.stopPropagation()}
-						>
-							<MoreHorizontal className="size-4" />
-						</button>
-					}
-				/>
-				<DropdownMenuContent align="end" sideOffset={4}>
-					<CanGate action={Action.TaskUpdate} resource={resource}>
-						<DropdownMenuItem onClick={() => onRenameTask(task)}>
-							<Pencil className="size-3.5" />
-							<span>重命名</span>
-						</DropdownMenuItem>
-					</CanGate>
-					<CanGate action={Action.TaskDelete} resource={resource}>
-						<DropdownMenuItem variant="destructive" onClick={() => onDeleteTask(task)}>
-							<Trash2 className="size-3.5" />
-							<span>删除</span>
-						</DropdownMenuItem>
-					</CanGate>
-				</DropdownMenuContent>
-			</DropdownMenu>
+			<span className="min-w-0 flex-1 truncate text-left">{task.title}</span>
+			{task.updatedAt ? (
+				<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">
+					{formatRelativeTaskTime(task.updatedAt)}
+				</span>
+			) : null}
+			<div
+				className={railHoverMenuSlotClass}
+				data-rail-menu-slot=""
+				onPointerDown={(event) => event.stopPropagation()}
+			>
+				<DropdownMenu onOpenChange={handleRailMenuOpenChange}>
+					<DropdownMenuTrigger
+						render={
+							<button
+								type="button"
+								aria-label={`管理任务 ${task.title}`}
+								className="flex size-6 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]"
+								onClick={(event) => event.stopPropagation()}
+								onPointerDown={(event) => event.stopPropagation()}
+							>
+								<MoreHorizontal className="size-4" />
+							</button>
+						}
+					/>
+					<DropdownMenuContent align="end" sideOffset={4}>
+						<CanGate action={Action.TaskUpdate} resource={resource}>
+							<DropdownMenuItem
+								onPointerDown={preventRailMenuClickThrough}
+								onClick={(event) => runRailMenuAction(event, () => onRenameTask(task))}
+							>
+								<Pencil className="size-3.5" />
+								<span>重命名</span>
+							</DropdownMenuItem>
+						</CanGate>
+						<CanGate action={Action.TaskDelete} resource={resource}>
+							<DropdownMenuItem
+								variant="destructive"
+								onPointerDown={preventRailMenuClickThrough}
+								onClick={(event) => runRailMenuAction(event, () => onDeleteTask(task))}
+							>
+								<Trash2 className="size-3.5" />
+								<span>删除</span>
+							</DropdownMenuItem>
+						</CanGate>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			</div>
 		</div>
 	);
 }

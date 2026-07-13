@@ -18,6 +18,16 @@ function preventClickThrough(event: PointerEvent) {
 	event.stopPropagation();
 }
 
+/** 阻断下拉菜单操作穿透到侧栏行点击。 */
+export function runRailMenuAction(event: MouseEvent, action: () => void) {
+	runMenuAction(event, action);
+}
+
+/** 阻断下拉菜单 pointer 事件穿透。 */
+export function preventRailMenuClickThrough(event: PointerEvent) {
+	preventClickThrough(event);
+}
+
 type ProjectActionsMenuProps = {
 	project: Project;
 	onRename: (project: Project) => void;

@@ -20,6 +20,7 @@ type ProjectActionsDropdownProps = {
 	onLeave: (project: Project) => void;
 	variant: "rail" | "card";
 	className?: string;
+	slotClassName?: string;
 	onOpenChange?: (open: boolean) => void;
 };
 
@@ -31,6 +32,7 @@ export function ProjectActionsDropdown({
 	onLeave,
 	variant,
 	className,
+	slotClassName,
 	onOpenChange,
 }: ProjectActionsDropdownProps) {
 	const { loading, hasAny } = useProjectMenuCapabilities(project.id);
@@ -49,7 +51,7 @@ export function ProjectActionsDropdown({
 				type="button"
 				aria-label={`管理项目 ${project.name}`}
 				className={cn(
-					"flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100",
+					"flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]",
 					className,
 				)}
 				onClick={stopPropagation}
@@ -71,8 +73,17 @@ export function ProjectActionsDropdown({
 			</Button>
 		);
 
-	return (
-		<DropdownMenu onOpenChange={onOpenChange}>
+	const menu = (
+		<DropdownMenu
+			onOpenChange={(open) => {
+				if (!open) {
+					requestAnimationFrame(() => {
+						(document.activeElement as HTMLElement | null)?.blur();
+					});
+				}
+				onOpenChange?.(open);
+			}}
+		>
 			<DropdownMenuTrigger render={trigger} />
 			<DropdownMenuContent align="end" sideOffset={4}>
 				<ProjectActionsMenu
@@ -84,4 +95,14 @@ export function ProjectActionsDropdown({
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
+
+	if (variant === "rail" && slotClassName) {
+		return (
+			<div className={slotClassName} data-rail-menu-slot="">
+				{menu}
+			</div>
+		);
+	}
+
+	return menu;
 }
