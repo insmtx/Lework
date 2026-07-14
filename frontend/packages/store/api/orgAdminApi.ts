@@ -74,9 +74,26 @@ const ENDPOINTS = {
 	updateOrgMember: "/UpdateOrgMember",
 };
 
+const getOrgInflight = new Map<
+	string,
+	ReturnType<typeof apiClient.post<BackendDataResponse<OrgInfo>>>
+>();
+
 export const orgAdminApi = {
-	getOrg: (params: { public_id: string }) =>
-		apiClient.post<BackendDataResponse<OrgInfo>>(ENDPOINTS.getOrg, params),
+	getOrg: (params: { public_id: string }) => {
+		const inflight = getOrgInflight.get(params.public_id);
+		if (inflight) return inflight;
+
+		const promise = apiClient
+			.post<BackendDataResponse<OrgInfo>>(ENDPOINTS.getOrg, params)
+			.finally(() => {
+				if (getOrgInflight.get(params.public_id) === promise) {
+					getOrgInflight.delete(params.public_id);
+				}
+			});
+		getOrgInflight.set(params.public_id, promise);
+		return promise;
+	},
 
 	updateOrg: (params: {
 		public_id: string;

@@ -793,6 +793,7 @@ export function LeftRail({
 					<OrganizationSwitchPanel
 						navigation={navigation}
 						onDone={() => setOrgSwitchDialogOpen(false)}
+						active={orgSwitchDialogOpen}
 					/>
 				</DialogContent>
 			</Dialog>

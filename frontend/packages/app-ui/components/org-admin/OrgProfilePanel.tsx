@@ -25,9 +25,15 @@ function revokeObjectURLSafe(url?: string) {
 	}
 }
 
-export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
+export function OrgProfilePanel({
+	compact = false,
+	active = true,
+}: {
+	compact?: boolean;
+	active?: boolean;
+}) {
 	const user = useAuthStore((s) => s.authUser);
-	const setAuthUser = useAuthStore((s) => s.setAuthUser);
+	const syncOrganizationProfile = useAuthStore((s) => s.syncOrganizationProfile);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const logoPreviewRef = useRef<string | undefined>(undefined);
 
@@ -41,6 +47,8 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 	const [pendingLogoUrl, setPendingLogoUrl] = useState<string | undefined>();
 
 	const orgPublicId = user?.currentOrg?.publicId;
+	const currentOrgIdRef = useRef(user?.currentOrg?.id);
+	currentOrgIdRef.current = user?.currentOrg?.id;
 
 	const clearLogoPreview = useCallback(() => {
 		revokeObjectURLSafe(logoPreviewRef.current);
@@ -59,6 +67,7 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 			setLoading(false);
 			return;
 		}
+
 		setLoading(true);
 		clearLogoPreview();
 		try {
@@ -68,17 +77,22 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 			setNameDraft(data.name);
 			setInitialName(data.name);
 			setPendingLogoUrl(resolveLogoUrl(data.logo));
+			const currentOrgId = currentOrgIdRef.current;
+			if (currentOrgId) {
+				syncOrganizationProfile(currentOrgId, { name: data.name, logo: data.logo });
+			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "组织信息加载失败";
 			toast.error(message);
 		} finally {
 			setLoading(false);
 		}
-	}, [clearLogoPreview, orgPublicId]);
+	}, [clearLogoPreview, orgPublicId, syncOrganizationProfile]);
 
 	useEffect(() => {
+		if (!active || !orgPublicId) return;
 		void loadData();
-	}, [loadData]);
+	}, [active, orgPublicId, loadData]);
 
 	const handleProtectedLogoLoaded = useCallback(() => {
 		clearLogoPreview();
@@ -138,17 +152,9 @@ export function OrgProfilePanel({ compact = false }: { compact?: boolean }) {
 			setInitialName(updated.name);
 			const resolvedLogo = resolveLogoUrl(updated.logo);
 			setPendingLogoUrl(resolvedLogo);
-			setAuthUser({
-				...user,
-				currentOrg: user.currentOrg
-					? { ...user.currentOrg, name: updated.name, logo: updated.logo }
-					: user.currentOrg,
-				organizations: user.organizations?.map((item) =>
-					item.id === user.currentOrg?.id
-						? { ...item, name: updated.name, logo: updated.logo }
-						: item,
-				),
-			});
+			if (user.currentOrg?.id) {
+				syncOrganizationProfile(user.currentOrg.id, { name: updated.name, logo: updated.logo });
+			}
 			toast.success("组织信息已保存");
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "保存失败";

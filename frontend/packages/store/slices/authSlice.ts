@@ -34,6 +34,7 @@ type SetState = (
 
 export class AuthActionImpl {
 	readonly #set: SetState;
+	#refreshAuthSessionPromise: Promise<boolean> | null = null;
 
 	constructor(set: SetState) {
 		this.#set = set;
@@ -87,6 +88,17 @@ export class AuthActionImpl {
 	};
 
 	refreshAuthSession = async () => {
+		if (this.#refreshAuthSessionPromise) {
+			return this.#refreshAuthSessionPromise;
+		}
+
+		this.#refreshAuthSessionPromise = this.#fetchAuthSession().finally(() => {
+			this.#refreshAuthSessionPromise = null;
+		});
+		return this.#refreshAuthSessionPromise;
+	};
+
+	#fetchAuthSession = async (): Promise<boolean> => {
 		try {
 			const response = await authApi.authSession();
 			const result = response.data;
@@ -97,6 +109,25 @@ export class AuthActionImpl {
 			console.error("refresh auth session error:", error);
 			return false;
 		}
+	};
+
+	syncOrganizationProfile = (orgId: number, profile: { name: string; logo?: string }) => {
+		this.#set((state) => {
+			if (!state.authUser) return {};
+			const user = state.authUser;
+			const nextUser: AuthUser = {
+				...user,
+				currentOrg:
+					user.currentOrg?.id === orgId
+						? { ...user.currentOrg, name: profile.name, logo: profile.logo }
+						: user.currentOrg,
+				organizations: user.organizations?.map((item) =>
+					item.id === orgId ? { ...item, name: profile.name, logo: profile.logo } : item,
+				),
+			};
+			writeStoredAuthUser(nextUser);
+			return { authUser: nextUser };
+		});
 	};
 
 	switchOrganization = async (orgId: number) => {

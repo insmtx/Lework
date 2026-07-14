@@ -43,7 +43,11 @@ export function OrgAdminDialog({
 				</DialogHeader>
 				<div className="flex min-h-0 flex-1 flex-col">
 					<OrgAdminLayout activeSection={section} onNavigate={setSection} variant="dialog">
-						{section === "profile" ? <OrgProfilePanel compact /> : <DepartmentTreePanel compact />}
+						{section === "profile" ? (
+							<OrgProfilePanel compact active={open && section === "profile"} />
+						) : (
+							<DepartmentTreePanel compact />
+						)}
 					</OrgAdminLayout>
 				</div>
 			</DialogContent>
