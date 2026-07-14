@@ -27,7 +27,7 @@ import {
 } from "@leros/ui/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, Check, LoaderCircle, UserRound, X } from "lucide-react";
+import { Bot, LoaderCircle, UserRound, X } from "lucide-react";
 import { type ReactNode, type SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
@@ -44,6 +44,7 @@ type MemberTab = "assistant" | "human";
 type MemberListItem = ProjectMember & {
 	disabled?: boolean;
 	disabledReason?: string;
+	selected?: boolean;
 };
 
 type ProjectMemberPickerDialogProps = {
@@ -110,7 +111,7 @@ export function sortProjectMembers(members: ProjectMember[]): ProjectMember[] {
 	return [...members].sort((a, b) => projectMemberSortRank(a) - projectMemberSortRank(b));
 }
 
-function isSameProjectMember(
+export function isSameProjectMember(
 	a: Pick<ProjectMember, "type" | "memberId" | "publicId">,
 	b: Pick<ProjectMember, "type" | "memberId" | "publicId">,
 ) {
@@ -169,7 +170,7 @@ export function ProjectMemberPickerDialog({
 	const [humanOptions, setHumanOptions] = useState<ProjectMember[]>([]);
 	const [humansLoading, setHumansLoading] = useState(false);
 	const [humansError, setHumansError] = useState<string | null>(null);
-	// 中文注释：真人成员的角色在左侧待选列表内选择，按候选项 key 暂存草稿，加入时带入。
+	// 中文注释：左侧角色选择只修改草稿，不应触发行选择成员。
 	const [humanRoleDrafts, setHumanRoleDrafts] = useState<Record<string, string>>({});
 	const wasOpenRef = useRef(false);
 
@@ -179,11 +180,18 @@ export function ProjectMemberPickerDialog({
 		if (!open || wasOpen) return;
 
 		// 中文注释：弹窗草稿只在打开瞬间初始化，避免 AI/成员列表异步刷新把用户刚删除的成员重置回来。
+		// 中文注释：该弹窗是项目成员的完整编辑入口，打开时回显当前成员，支持后续增删改。
 		setDraftMembers(selectedMembers);
 		setActiveTab("assistant");
 		setAssistantSearch("");
 		setHumanSearch("");
-		setHumanRoleDrafts({});
+		setHumanRoleDrafts(
+			Object.fromEntries(
+				selectedMembers
+					.filter((member) => member.type === "user")
+					.map((member) => [memberKey(member), member.role]),
+			),
+		);
 		if (!assistantsLoaded) {
 			void fetchAssistants();
 		}
@@ -198,7 +206,16 @@ export function ProjectMemberPickerDialog({
 			projectMemberApi
 				.listHumanMembers({ keyword: humanSearch.trim(), limit: 50 })
 				.then((items) => {
-					setHumanOptions(items.map(humanToProjectMember));
+					setHumanOptions(
+						items.map((item) => {
+							const option = humanToProjectMember(item);
+							const existing = selectedMembers.find((member) =>
+								isSameProjectMember(member, option),
+							);
+							// 中文注释：候选成员也要复用项目详情中的真实角色，避免管理员重新显示为成员。
+							return existing ? { ...option, role: existing.role } : option;
+						}),
+					);
 				})
 				.catch((error: unknown) => {
 					const message = error instanceof Error ? error.message : "成员加载失败";
@@ -211,7 +228,7 @@ export function ProjectMemberPickerDialog({
 		}, 200);
 
 		return () => window.clearTimeout(timer);
-	}, [humanSearch, open]);
+	}, [humanSearch, open, selectedMembers]);
 
 	const assistantOptions = useMemo(
 		() => assistants.filter(isSummonableAssistant).map(assistantToProjectMember),
@@ -255,15 +272,23 @@ export function ProjectMemberPickerDialog({
 		return humanOptions
 			.filter((member) => member.publicId !== user?.publicId && memberMatchesQuery(member, query))
 			.map((member) => {
+				const draftMember = draftMembers.find((item) => isSameProjectMember(item, member));
 				const alreadySelected =
 					selectedKeys.has(memberKey(member)) || isAlreadySelectedMember(draftMembers, member);
 				return {
 					...member,
-					disabled: alreadySelected,
+					// 中文注释：成员加入后左侧继续展示当前草稿角色，避免右侧管理员、左侧成员不一致。
+					role: draftMember?.role ?? humanRoleDrafts[memberKey(member)] ?? member.role,
+					selected: alreadySelected,
+					disabled: false,
 					disabledReason: alreadySelected ? "已加入" : undefined,
 				};
+			})
+			.sort((a, b) => {
+				// 中文注释：已加入成员置顶，方便直接查看和修改身份，避免滚动到列表底部查找。
+				return Number(Boolean(b.selected)) - Number(Boolean(a.selected));
 			});
-	}, [draftMembers, humanOptions, humanSearch, selectedKeys, user?.publicId]);
+	}, [draftMembers, humanOptions, humanSearch, selectedKeys, humanRoleDrafts, user?.publicId]);
 
 	const addMember = (member: ProjectMember, roleOverride?: string) => {
 		const nextMember = roleOverride ? { ...member, role: roleOverride } : member;
@@ -281,12 +306,19 @@ export function ProjectMemberPickerDialog({
 	};
 
 	const removeMember = (member: ProjectMember) => {
-		if (isProtectedMember(member)) return;
+		if (isProtectedMember(member)) {
+			return;
+		}
 		setDraftMembers((current) => current.filter((item) => memberKey(item) !== memberKey(member)));
 	};
 
 	const setHumanRoleDraft = (key: string, role: string) => {
 		setHumanRoleDrafts((current) => ({ ...current, [key]: role }));
+		const target = humanOptions.find((member) => memberKey(member) === key);
+		if (!target) return;
+		setDraftMembers((current) =>
+			current.map((member) => (isSameProjectMember(member, target) ? { ...member, role } : member)),
+		);
 	};
 
 	return (
@@ -308,7 +340,9 @@ export function ProjectMemberPickerDialog({
 							<X className="size-4" />
 						</Button>
 					</div>
-					<DialogDescription>选择 AI 队友或真人队友加入项目。</DialogDescription>
+					<DialogDescription>
+						选择 AI 队友或真人队友加入项目，点击成员信息即可添加。
+					</DialogDescription>
 				</DialogHeader>
 
 				<div className="mt-4 grid h-[420px] max-h-[calc(100vh-220px)] min-h-0 gap-4 overflow-hidden sm:grid-cols-[minmax(0,1fr)_340px]">
@@ -343,7 +377,7 @@ export function ProjectMemberPickerDialog({
 									emptyText="没有可添加的真人队友"
 									members={filteredHumans}
 									onSelect={(member) => {
-										if (member.disabled) return;
+										if (member.selected || member.disabled) return;
 										addMember(member, humanRoleDrafts[memberKey(member)] || "member");
 									}}
 									loading={humansLoading}
@@ -388,9 +422,10 @@ export function ProjectMemberPickerDialog({
 					</Button>
 					<Button
 						onClick={() => {
-							onConfirm(
-								draftMembers.map((member) => resolveMemberPublicIdentity(member, identityOptions)),
+							const nextMembers = draftMembers.map((member) =>
+								resolveMemberPublicIdentity(member, identityOptions),
 							);
+							onConfirm(nextMembers);
 							onOpenChange(false);
 						}}
 					>
@@ -436,18 +471,21 @@ function projectRoleOptionLabel(role: string | undefined): string {
 	return PROJECT_ROLE_OPTIONS.find((option) => option.value === role)?.label ?? "成员";
 }
 
-function MemberRoleSelect({
+export function MemberRoleSelect({
 	memberName,
 	role,
 	onRoleChange,
+	onInteractionStart,
 	disabled = false,
 }: {
 	memberName: string;
 	role: string;
 	onRoleChange: (role: string) => void;
+	onInteractionStart?: () => void;
 	disabled?: boolean;
 }) {
 	const stopRowSelect = (event: SyntheticEvent) => {
+		onInteractionStart?.();
 		event.stopPropagation();
 	};
 
@@ -465,6 +503,8 @@ function MemberRoleSelect({
 				aria-label={`设置 ${memberName} 的项目角色`}
 				onClick={stopRowSelect}
 				onPointerDown={stopRowSelect}
+				onMouseDown={stopRowSelect}
+				onKeyDown={stopRowSelect}
 				className="h-8 min-w-[88px] shrink-0 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-2.5 text-sm font-medium text-[var(--leros-text)] shadow-none transition-colors hover:border-[var(--leros-control-border)] focus-visible:border-[var(--leros-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--leros-primary)]/12"
 			>
 				<span className="min-w-0 truncate text-left">{projectRoleOptionLabel(role)}</span>
@@ -515,74 +555,104 @@ function MemberCommandList({
 	roleDrafts?: Record<string, string>;
 	onRoleDraftChange?: (key: string, role: string) => void;
 }) {
+	const suppressRowSelectRef = useRef(false);
+	const listWrapperRef = useRef<HTMLDivElement>(null);
+
+	const preserveListScroll = (select: () => void) => {
+		const list = listWrapperRef.current?.querySelector<HTMLElement>('[data-slot="command-list"]');
+		const scrollTop = list?.scrollTop ?? 0;
+		select();
+
+		// 中文注释：已选成员会被置顶，列表重排后 cmdk 可能自动滚到顶部；恢复原位置便于连续添加底部成员。
+		window.requestAnimationFrame(() => {
+			if (!list) return;
+			list.scrollTop = scrollTop;
+			window.requestAnimationFrame(() => {
+				list.scrollTop = scrollTop;
+			});
+		});
+	};
 	return (
-		<Command
-			shouldFilter={false}
-			className="flex h-full min-h-0 flex-col rounded-none bg-transparent p-0"
-		>
-			<CommandInput value={search} onValueChange={onSearchChange} placeholder={placeholder} />
-			<CommandList className="max-h-none min-h-0 flex-1">
-				<CommandEmpty className="py-6 text-slate-400">{emptyText}</CommandEmpty>
-				<CommandGroup className="p-1">
-					{loading && (
-						<div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
-							<LoaderCircle className="size-3.5 animate-spin" />
-							加载中...
-						</div>
-					)}
-					{!loading && error && <div className="px-3 py-2 text-xs text-red-400">{error}</div>}
-					{!loading &&
-						!error &&
-						members.map((member) => {
-							const key = memberKey(member);
-							return (
-								<CommandItem
-									key={key}
-									value={key}
-									disabled={member.disabled}
-									onSelect={() => {
-										if (member.disabled) return;
-										onSelect(member);
-									}}
-									className={cn(
-										"items-center gap-3 rounded-lg px-2.5 py-2 data-selected:bg-[var(--leros-surface-soft)]",
-										member.disabled && "cursor-not-allowed opacity-50",
-									)}
-								>
-									<MemberAvatar member={member} />
-									<div className="min-w-0 flex-1">
-										<div className="truncate font-medium text-slate-700">
-											{renderHighlightedText(member.name, search)}
+		<div ref={listWrapperRef} className="flex h-full min-h-0 flex-col">
+			<Command
+				shouldFilter={false}
+				className="flex h-full min-h-0 flex-col rounded-none bg-transparent p-0"
+			>
+				<CommandInput value={search} onValueChange={onSearchChange} placeholder={placeholder} />
+				<CommandList className="max-h-none min-h-0 flex-1">
+					<CommandEmpty className="py-6 text-slate-400">{emptyText}</CommandEmpty>
+					<CommandGroup className="p-1">
+						{loading && (
+							<div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+								<LoaderCircle className="size-3.5 animate-spin" />
+								加载中...
+							</div>
+						)}
+						{!loading && error && <div className="px-3 py-2 text-xs text-red-400">{error}</div>}
+						{!loading &&
+							!error &&
+							members.map((member) => {
+								const key = memberKey(member);
+								return (
+									<CommandItem
+										key={key}
+										value={key}
+										disabled={member.disabled}
+										onSelect={() => {
+											if (suppressRowSelectRef.current) {
+												suppressRowSelectRef.current = false;
+												return;
+											}
+											if (member.disabled) return;
+											preserveListScroll(() => onSelect(member));
+										}}
+										className={cn(
+											"group cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 transition-all hover:border-[var(--leros-primary)]/25 hover:bg-[var(--leros-primary-softer)] hover:shadow-sm active:scale-[0.99] data-selected:bg-[var(--leros-surface-soft)]",
+											member.disabled && "cursor-not-allowed opacity-50",
+										)}
+										title={member.disabled ? undefined : "点击添加"}
+									>
+										<MemberAvatar member={member} />
+										<div className="min-w-0 flex-1">
+											<div className="truncate font-medium text-slate-700">
+												{renderHighlightedText(member.name, search)}
+											</div>
+											<div className="truncate text-xs text-slate-400">
+												{renderHighlightedText(member.description ?? "", search)}
+											</div>
 										</div>
-										<div className="truncate text-xs text-slate-400">
-											{renderHighlightedText(member.description ?? "", search)}
-										</div>
-									</div>
-									{member.disabledReason && (
-										<Badge
-											variant="outline"
-											className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-normal text-slate-400"
-										>
-											{member.disabledReason}
-										</Badge>
-									)}
-									{showRole && (
-										<div className="ml-3 shrink-0">
-											<MemberRoleSelect
-												memberName={member.name}
-												role={roleDrafts?.[key] || "member"}
-												disabled={member.disabled}
-												onRoleChange={(nextRole) => onRoleDraftChange?.(key, nextRole)}
-											/>
-										</div>
-									)}
-									<Check className="size-4 opacity-0" />
-								</CommandItem>
-							);
-						})}
-				</CommandGroup>
-			</CommandList>
-		</Command>
+										{member.disabledReason && (
+											<Badge
+												variant="outline"
+												className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-normal text-slate-400"
+											>
+												{member.disabledReason}
+											</Badge>
+										)}
+										{showRole && (
+											<div className="ml-3 shrink-0">
+												<MemberRoleSelect
+													memberName={member.name}
+													role={member.disabled ? member.role : roleDrafts?.[key] || "member"}
+													disabled={member.disabled}
+													onInteractionStart={() => {
+														suppressRowSelectRef.current = true;
+														// 中文注释：仅抑制当前交互周期，避免没有触发行事件时影响下一次成员点击。
+														window.setTimeout(() => {
+															suppressRowSelectRef.current = false;
+														}, 0);
+													}}
+													onRoleChange={(nextRole) => onRoleDraftChange?.(key, nextRole)}
+												/>
+											</div>
+										)}
+									</CommandItem>
+								);
+							})}
+					</CommandGroup>
+				</CommandList>
+			</Command>
+		</div>
 	);
 }
 

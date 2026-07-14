@@ -2,6 +2,7 @@
 
 import {
 	Action,
+	buildProjectCapabilityItems,
 	buildTaskCapabilityItems,
 	fetchFilePreviewByStorageUri,
 	type Project,
@@ -520,6 +521,10 @@ export function ProjectPage({
 							compact={!isWideRightSidebar}
 							onUpdateProject={async (params) => {
 								const updated = await updateProject(params);
+								// 中文注释：更新项目后权限缓存会失效，立即重拉，避免添加成员和技能入口消失。
+								await useAppStore
+									.getState()
+									.ensureCapabilities(buildProjectCapabilityItems(project.id));
 								if (params.members && project.id) {
 									await fetchProjectDetail(project.id);
 								}
@@ -912,7 +917,7 @@ function ProjectConfigSidebar({
 						</button>
 					</CanGate>
 				</div>
-				<div className="overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-3">
+				<div className="no-scrollbar max-h-[320px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-3">
 					{visibleProjectMembers.length === 0 ? (
 						<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
 							暂无项目队友
@@ -935,6 +940,7 @@ function ProjectConfigSidebar({
 					onOpenChange={setMemberDialogOpen}
 					selectedMembers={projectMembersWithLatestAssistantAvatar}
 					onConfirm={(members) => {
+						// 中文注释：成员弹窗提交完整草稿，确保新增、删除和身份修改都能同步到项目。
 						void updateProjectMembers(members);
 					}}
 				/>
@@ -1027,7 +1033,7 @@ function ProjectConfigSidebar({
 						</Popover>
 					</CanGate>
 				</div>
-				<div className="max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+				<div className="no-scrollbar max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
 					{project.skills.length === 0 ? (
 						<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
 							暂无技能
