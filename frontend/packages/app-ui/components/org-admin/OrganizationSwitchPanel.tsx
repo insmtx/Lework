@@ -3,17 +3,18 @@
 import {
 	type AuthUser,
 	resolveLogoUrl,
+	useAppStore,
 	useAuthStore,
 	useChatStore,
-	useLayoutStore,
 	useDAStore,
+	useLayoutStore,
 	useSkillStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronRight, Loader2, Plus } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
 import { ProtectedImage } from "../avatar/ProtectedImage";
@@ -22,11 +23,16 @@ import type { AppNavigation } from "../layout/LeftRail";
 type OrganizationSwitchPanelProps = {
 	navigation?: AppNavigation;
 	onDone?: () => void;
+	active?: boolean;
 };
 
 type PanelMode = "switch" | "create";
 
-export function OrganizationSwitchPanel({ navigation, onDone }: OrganizationSwitchPanelProps) {
+export function OrganizationSwitchPanel({
+	navigation,
+	onDone,
+	active = true,
+}: OrganizationSwitchPanelProps) {
 	const user = useAuthStore((s) => s.authUser);
 	const switchOrganization = useAuthStore((s) => s.switchOrganization);
 	const createOrganization = useAuthStore((s) => s.createOrganization);
@@ -43,6 +49,11 @@ export function OrganizationSwitchPanel({ navigation, onDone }: OrganizationSwit
 	const [organizationName, setOrganizationName] = useState("");
 	const [switchingOrgId, setSwitchingOrgId] = useState<number | null>(null);
 	const [creating, setCreating] = useState(false);
+
+	useEffect(() => {
+		if (!active) return;
+		void useAppStore.getState().refreshAuthSession();
+	}, [active]);
 
 	const resetOrgScopedData = async () => {
 		resetAuthScopedData();
