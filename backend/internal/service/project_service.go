@@ -151,7 +151,7 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 
 	if s.giteaClient != nil && s.giteaCfg != nil && s.giteaCfg.Enabled {
 		repoName := s.buildRepoName(caller.OrgID, publicID)
-		repoInfo, _, err := s.giteaClient.CreateRepo(gitea.CreateRepoOption{
+		repoInfo, err := git.CreateRepoWithRetry(ctx, s.giteaClient, gitea.CreateRepoOption{
 			Name:        repoName,
 			Description: strings.TrimSpace(req.Description),
 			Private:     true,
@@ -159,6 +159,9 @@ func (s *projectService) CreateProject(ctx context.Context, req *contract.Create
 		})
 		if err != nil {
 			return nil, fmt.Errorf("create gitea repo: %w", err)
+		}
+		if repoInfo == nil || repoInfo.FullName == "" {
+			return nil, fmt.Errorf("create gitea repo: incomplete response (project=%s repo=%s)", publicID, repoName)
 		}
 		project.GiteaRepoFullName = repoInfo.FullName
 		project.GiteaRepoID = repoInfo.ID

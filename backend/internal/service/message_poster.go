@@ -271,7 +271,7 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 
 	repoName := o.poster.buildRepoName(o.caller.OrgID, projectID)
 	if o.poster.giteaClient != nil && o.poster.giteaCfg != nil && o.poster.giteaCfg.Enabled {
-		repoInfo, _, err := o.poster.giteaClient.CreateRepo(gitea.CreateRepoOption{
+		repoInfo, err := git.CreateRepoWithRetry(o.ctx, o.poster.giteaClient, gitea.CreateRepoOption{
 			Name:        repoName,
 			Description: "",
 			Private:     true,
@@ -280,10 +280,12 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		if err != nil {
 			return fmt.Errorf("create gitea repo: %w", err)
 		}
+		if repoInfo == nil || repoInfo.FullName == "" {
+			return fmt.Errorf("create gitea repo: incomplete response (project=%s repo=%s)", projectID, repoName)
+		}
 		o.project.GiteaRepoFullName = repoInfo.FullName
 		o.project.GiteaRepoID = repoInfo.ID
 	}
-
 	if err := infradb.CreateProject(o.ctx, o.poster.db, o.project); err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}

@@ -6,6 +6,8 @@ package api
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/gin-gonic/gin"
@@ -45,7 +47,9 @@ func SetupRouter(cfg config.Config, eventbus eventbus.EventBus, db *gorm.DB) *gi
 	var giteaClient *gitea.Client
 	if cfg.Gitea != nil && cfg.Gitea.Enabled {
 		var err error
-		giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint, gitea.SetToken(cfg.Gitea.AccessToken))
+		giteaClient, err = gitea.NewClient(cfg.Gitea.Endpoint,
+			gitea.SetToken(cfg.Gitea.AccessToken),
+			gitea.SetHTTPClient(&http.Client{Timeout: 30 * time.Second}))
 		if err != nil {
 			logs.Errorf("create gitea client: %v", err)
 			giteaClient = nil
