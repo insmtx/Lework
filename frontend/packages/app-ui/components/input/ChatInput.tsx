@@ -1,6 +1,12 @@
 "use client";
 
-import { type ProjectMember, type ProjectSkill, useChatStore, useLayoutStore } from "@leros/store";
+import {
+	isSystemDefaultAssistant,
+	type ProjectMember,
+	type ProjectSkill,
+	useChatStore,
+	useLayoutStore,
+} from "@leros/store";
 import type {
 	ApprovalAction,
 	ApprovalRequest,
@@ -115,7 +121,12 @@ export function ChatInput({
 		return (
 			(currentProject?.members ?? [])
 				// 中文注释：项目默认 AI 员工用于兜底分配，不作为输入框里可手动召唤的候选项展示。
-				.filter((member) => member.type === "assistant" && !member.isDefault)
+				.filter(
+					(member) =>
+						member.type === "assistant" &&
+						!member.isDefault &&
+						!isSystemDefaultAssistant(member.publicId),
+				)
 				.map(projectMemberToComposerAssistantOption)
 		);
 	}, [currentProject?.members, isProjectVariant]);

@@ -1,4 +1,8 @@
-import type { DigitalAssistantItem, ProjectMember } from "@leros/store";
+import {
+	type DigitalAssistantItem,
+	isSystemDefaultAssistant,
+	type ProjectMember,
+} from "@leros/store";
 import type { ComposerToken, Message } from "@leros/store/types/chat";
 
 export type AssistantMessageDisplay = {
@@ -51,6 +55,7 @@ function resolveAssistantProfile(
 			(member) =>
 				member.type === "assistant" &&
 				!member.isDefault &&
+				!isSystemDefaultAssistant(member.publicId) &&
 				(member.publicId === publicId || String(member.memberId) === publicId),
 		);
 		if (matchedMember) {
@@ -68,7 +73,11 @@ function resolveAssistantProfile(
 	}
 
 	const matchedMemberByName = projectMembers?.find(
-		(member) => member.type === "assistant" && !member.isDefault && member.name === tokenName,
+		(member) =>
+			member.type === "assistant" &&
+			!member.isDefault &&
+			!isSystemDefaultAssistant(member.publicId) &&
+			member.name === tokenName,
 	);
 	if (matchedMemberByName) {
 		return {

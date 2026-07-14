@@ -124,6 +124,10 @@ export type {
 	DigitalAssistantItem,
 	DigitalAssistantState,
 } from "./slices/digitalAssistantSlice";
+export {
+	DEFAULT_SYSTEM_ASSISTANT_PUBLIC_ID_PREFIX,
+	isSystemDefaultAssistant,
+} from "./slices/digitalAssistantSlice";
 export type {
 	Conversation,
 	LayoutAction,

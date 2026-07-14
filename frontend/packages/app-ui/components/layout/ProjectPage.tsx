@@ -5,6 +5,7 @@ import {
 	buildProjectCapabilityItems,
 	buildTaskCapabilityItems,
 	fetchFilePreviewByStorageUri,
+	isSystemDefaultAssistant,
 	type Project,
 	type ProjectMember,
 	type ProjectSkill,
@@ -732,7 +733,11 @@ function ProjectConfigSidebar({
 			sortProjectMembers(
 				projectMembersWithLatestAssistantAvatar.filter(
 					// 中文注释：默认 AI 员工只作为系统兜底分配，不在右侧项目队友展示区占位。
-					(member) => !(member.type === "assistant" && member.isDefault),
+					(member) =>
+						!(
+							member.type === "assistant" &&
+							(member.isDefault || isSystemDefaultAssistant(member.publicId))
+						),
 				),
 			),
 		[projectMembersWithLatestAssistantAvatar],

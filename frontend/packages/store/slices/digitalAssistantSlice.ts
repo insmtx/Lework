@@ -24,6 +24,13 @@ export type DigitalAssistantItem = {
 	updatedAt: number;
 };
 
+/** 默认兜底 AI 仅供系统调度，不应出现在可选或展示的 AI 队友列表中。 */
+export const DEFAULT_SYSTEM_ASSISTANT_PUBLIC_ID_PREFIX = "assistant_default_";
+
+export function isSystemDefaultAssistant(publicId: string | undefined): boolean {
+	return publicId?.trim().startsWith(DEFAULT_SYSTEM_ASSISTANT_PUBLIC_ID_PREFIX) ?? false;
+}
+
 export type DigitalAssistantState = {
 	assistants: DigitalAssistantItem[];
 	assistantsLoaded: boolean;
@@ -94,7 +101,9 @@ export class DASliceImpl {
 				if (fetchEpoch !== this.#assistantsFetchEpoch) return;
 				const items = res.data.data?.items ?? [];
 				this.#set({
-					assistants: items.map(mapBackendDA),
+					assistants: items
+						.map(mapBackendDA)
+						.filter((assistant) => !isSystemDefaultAssistant(assistant.publicId)),
 					assistantsLoaded: true,
 				});
 			} catch (err) {
