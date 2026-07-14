@@ -7,6 +7,7 @@ import {
 	attachAssistantReplyTargets,
 	createAssistantSessionEventsWaitingMessage,
 	insertGlobalUserMessageId,
+	isTaskRoomAssistantPlaceholder,
 	mapBackendMessage,
 	retainLocalMessagesForSession,
 } from "./chatSlice";
@@ -89,6 +90,52 @@ describe("createAssistantSessionEventsWaitingMessage", () => {
 		expect(message.status).toBe("waiting");
 		expect(message.statusText).toBe("AI 员工已接单，正在生成回复...");
 		expect(message.conversationId).toBe("session-1");
+	});
+});
+
+describe("isTaskRoomAssistantPlaceholder", () => {
+	it("treats resume and poll placeholders as replaceable stream placeholders", () => {
+		expect(
+			isTaskRoomAssistantPlaceholder(
+				{
+					id: "msg-assistant-resume-1",
+					conversationId: "session-1",
+					role: "assistant",
+					content: "",
+					timestamp: 1,
+					status: "waiting",
+				},
+				"session-1",
+			),
+		).toBe(true);
+		expect(
+			isTaskRoomAssistantPlaceholder(
+				{
+					id: "msg-assistant-poll-1",
+					conversationId: "session-1",
+					role: "assistant",
+					content: "",
+					timestamp: 1,
+				},
+				"session-1",
+			),
+		).toBe(true);
+	});
+
+	it("ignores completed assistant history messages", () => {
+		expect(
+			isTaskRoomAssistantPlaceholder(
+				{
+					id: "msg-assistant-run-1",
+					conversationId: "session-1",
+					role: "assistant",
+					content: "done",
+					timestamp: 1,
+					status: "completed",
+				},
+				"session-1",
+			),
+		).toBe(false);
 	});
 });
 

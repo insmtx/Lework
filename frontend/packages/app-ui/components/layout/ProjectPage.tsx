@@ -61,7 +61,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PROJECT_NEW_TASK_HERO_OCTOPUS_SRC } from "../../assets";
-import { MessageTimeline } from "../chat/MessageTimeline";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
 import { CanGate } from "../permission/CanGate";
@@ -140,7 +139,6 @@ export function ProjectPage({
 		pendingBootstrapSessionId,
 		setActiveSession,
 		clearLocalMessages,
-		clearPendingBootstrapSession,
 		hasSessionMessages,
 		allMessagesBelongToSession,
 		loadConversationMessages,
@@ -289,6 +287,8 @@ export function ProjectPage({
 	useEffect(() => {
 		if (projectDetailLoading) return;
 		if (!resolvedSessionId) {
+			// 中文注释：新建任务 bootstrap 跳转任务详情时，保留等待态消息和 bootstrap 标记，避免详情页重复创建 assistant。
+			if (pendingBootstrapSessionId) return;
 			resetLocalMessages();
 			return;
 		}
@@ -298,9 +298,8 @@ export function ProjectPage({
 		const sessionHasMessages = hasSessionMessages(nextSessionId);
 		// 项目消息刚创建 session 并准备开流时，跳过这次自动拉历史，避免旧数据覆盖 optimistic 消息。
 		if (bootstrapPending && sessionHasMessages) return;
-		if (bootstrapPending && !sessionHasMessages) {
-			clearPendingBootstrapSession();
-		}
+		// 中文注释：bootstrap 期间消息被误清时等待 GlobalEvents 回填，避免与 SSE resume 重复开流。
+		if (bootstrapPending && !sessionHasMessages) return;
 		if (
 			isGenerating &&
 			activeSessionId === nextSessionId &&
@@ -324,7 +323,6 @@ export function ProjectPage({
 		setActiveSession,
 		hasSessionMessages,
 		allMessagesBelongToSession,
-		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
 		resetLocalMessages,
@@ -465,11 +463,7 @@ export function ProjectPage({
 					)}
 				>
 					{resolvedTab === "chat" && (
-						<ProjectChat
-							layoutMode={projectChatLayoutMode}
-							navigation={navigation}
-							projectId={resolvedProjectId ?? undefined}
-						/>
+						<ProjectChat layoutMode={projectChatLayoutMode} navigation={navigation} />
 					)}
 					{resolvedTab === "tasks" && (
 						<ProjectTasks tasks={project.tasks} onOpenTask={handleOpenTask} />
@@ -566,22 +560,17 @@ export function ProjectPage({
 function ProjectChat({
 	layoutMode,
 	navigation,
-	projectId,
 }: {
 	layoutMode: ProjectChatLayoutMode;
 	navigation?: AppNavigation;
-	projectId?: string;
 }) {
 	const layout = getProjectChatLayoutClasses(layoutMode);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<MessageTimeline
-				emptyState={<ProjectEmptyState layout={layout} />}
-				contentShellClassName={layout.shell}
-				contentClassName={layout.timelineInner}
-				projectId={projectId}
-			/>
+			<div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+				<ProjectEmptyState layout={layout} />
+			</div>
 			<ChatInput variant="project" projectLayoutMode={layoutMode} navigation={navigation} />
 		</div>
 	);

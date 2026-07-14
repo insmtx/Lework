@@ -99,7 +99,6 @@ export function TaskDetailPage({
 		streamingMessageId,
 		setActiveSession,
 		clearLocalMessages,
-		clearPendingBootstrapSession,
 		hasSessionMessages,
 		allMessagesBelongToSession,
 		loadConversationMessages,
@@ -229,10 +228,8 @@ export function TaskDetailPage({
 		// 中文注释：bootstrap 已完成且本地仍有等待态消息时，交给 GlobalEvents 接管，不抢先拉历史。
 		if (bootstrapPending && sessionHasMessages) return;
 		if (isGenerating && sessionHasMessages && allMessagesBelongToSession(resolvedSessionId)) return;
-		// bootstrap 标记还在但消息已被卸载清理掉，清除标记并回退为正常加载。
-		if (bootstrapPending && !sessionHasMessages) {
-			clearPendingBootstrapSession();
-		}
+		// 中文注释：bootstrap 标记存在但消息被误清时，等待 GlobalEvents 回填，避免 loadConversationMessages 与 SSE resume 重复开流。
+		if (bootstrapPending && !sessionHasMessages) return;
 		if (!sessionHasMessages) {
 			clearLocalMessages();
 		}
@@ -247,7 +244,6 @@ export function TaskDetailPage({
 		setActiveSession,
 		hasSessionMessages,
 		allMessagesBelongToSession,
-		clearPendingBootstrapSession,
 		clearLocalMessages,
 		loadConversationMessages,
 	]);
