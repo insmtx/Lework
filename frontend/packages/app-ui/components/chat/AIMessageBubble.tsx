@@ -18,17 +18,9 @@ import type {
 	ToolCall,
 } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
-import {
-	Brain,
-	Check,
-	ChevronDown,
-	ChevronRight,
-	Copy,
-	RefreshCw,
-	Rows3,
-	Wrench,
-} from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@leros/ui/lib/utils";
+import { Check, ChevronDown, ChevronRight, Copy, RefreshCw, Rows3, Wrench } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
 	SHOW_ASSISTANT_MESSAGE_METRICS,
 	SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON,
@@ -41,7 +33,16 @@ import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { AssistantChatAvatar } from "./AssistantChatAvatar";
 import { MessageContentWithComposerTokens } from "./MessageContentWithComposerTokens";
 import { resolveAssistantMessageDisplay } from "./resolveAssistantMessageDisplay";
-import { ToolCallBlock } from "./ToolCallBlock";
+import { ThinkingProcessIcon } from "./ThinkingProcessIcon";
+
+const PROCESS_TIMELINE_TEXT_CLASS = "text-[#63748B]";
+const PROCESS_TIMELINE_CHEVRON_CLASS = "text-slate-400";
+
+import {
+	formatProcessToolCallsLabel,
+	ProcessToolCallItems,
+	ToolCallStatusSummary,
+} from "./ToolCallBlock";
 
 // Button 的 size 只支持预设枚举，这里用受支持的尺寸并通过 className 微调成更紧凑的操作按钮。
 const compactActionButtonClassName = "size-[26px]";
@@ -125,7 +126,7 @@ export function AIMessageBubble({
 		? `回复了 ${message.replyTo.authorName}`
 		: undefined;
 	const replyPreviewMessage = resolveReplyPreviewMessage(message, messagesMap);
-	const statusLabel = message.status === "waiting" ? "等待中" : "生成中";
+	const statusLabel = message.status === "waiting" ? "等待中" : "正在思考";
 	const statusText = message.statusText?.trim();
 	const metricSegments = SHOW_ASSISTANT_MESSAGE_METRICS
 		? getAssistantMessageFooterSegments(message)
@@ -299,16 +300,16 @@ function ProcessTimelineBlock({
 						return nextExpanded;
 					});
 				}}
-				className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50/90"
+				className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2 text-left text-sm font-normal transition-colors hover:bg-slate-50/90"
 			>
-				<div className="flex min-w-0 items-center gap-2">
+				<div className="flex min-w-0 items-center gap-1">
 					{expanded ? (
 						<ChevronDown className="size-3.5 shrink-0 text-slate-400" />
 					) : (
 						<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
 					)}
-					<Rows3 className="size-3.5 shrink-0 text-indigo-500" />
-					<span className="truncate font-medium text-slate-600">执行过程</span>
+					<Rows3 className={cn("size-3.5 shrink-0", PROCESS_TIMELINE_TEXT_CLASS)} />
+					<span className={cn("truncate font-medium", PROCESS_TIMELINE_TEXT_CLASS)}>执行过程</span>
 					{isStreaming && (
 						<span className="relative flex size-2 shrink-0">
 							<span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
@@ -316,9 +317,25 @@ function ProcessTimelineBlock({
 						</span>
 					)}
 				</div>
-				{!expanded && preview && (
-					<span className="max-w-[54%] truncate text-[13px] text-slate-500">{preview}</span>
-				)}
+				{isStreaming && preview ? (
+					<span
+						className={cn(
+							"max-w-[54%] min-w-0 shrink truncate text-[13px]",
+							PROCESS_TIMELINE_TEXT_CLASS,
+						)}
+					>
+						<ProcessStepPreviewText preview={preview} />
+					</span>
+				) : !isStreaming ? (
+					<span
+						className={cn(
+							"max-w-[54%] min-w-0 shrink truncate text-[13px]",
+							PROCESS_TIMELINE_TEXT_CLASS,
+						)}
+					>
+						已完成
+					</span>
+				) : null}
 			</button>
 			{expanded && (
 				<div className="border-t border-slate-200 px-5 py-3">
@@ -336,15 +353,19 @@ function ProcessTimelineBlock({
 							}}
 							className="no-scrollbar max-h-[min(45vh,25rem)] space-y-3 overflow-y-auto pr-1"
 						>
-							{steps.map((step) => (
-								<ProcessStepItem
-									key={step.id}
-									step={step}
-									toolCall={
-										step.type === "tool_call" ? toolCallMap.get(step.toolCallId) : undefined
-									}
-								/>
-							))}
+							{groupProcessSteps(steps).map((item) => {
+								if (item.kind === "thinking") {
+									return <ThinkingStepItem key={item.id} content={item.content} />;
+								}
+
+								const groupedToolCalls = item.toolCallIds
+									.map((toolCallId) => toolCallMap.get(toolCallId))
+									.filter((toolCall): toolCall is ToolCall => Boolean(toolCall));
+
+								if (!groupedToolCalls.length) return null;
+
+								return <ToolCallsGroupItem key={item.id} toolCalls={groupedToolCalls} />;
+							})}
 						</div>
 						{showBottomFade && (
 							<div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-white via-white/30 to-white/0" />
@@ -356,35 +377,201 @@ function ProcessTimelineBlock({
 	);
 }
 
-function ProcessStepItem({ step, toolCall }: { step: MessageProcessStep; toolCall?: ToolCall }) {
+type ProcessTimelineItem =
+	| {
+			kind: "thinking";
+			id: string;
+			content: string;
+	  }
+	| {
+			kind: "tool_calls";
+			id: string;
+			toolCallIds: string[];
+	  };
+
+function groupProcessSteps(steps: MessageProcessStep[]): ProcessTimelineItem[] {
+	const items: ProcessTimelineItem[] = [];
+	let currentToolCallIds: string[] = [];
+
+	const flushToolCalls = () => {
+		if (currentToolCallIds.length === 0) return;
+		items.push({
+			kind: "tool_calls",
+			id: `tool-calls-${currentToolCallIds[0]}`,
+			toolCallIds: currentToolCallIds,
+		});
+		currentToolCallIds = [];
+	};
+
+	for (const step of steps) {
+		if (step.type === "thinking") {
+			flushToolCalls();
+			items.push({ kind: "thinking", id: step.id, content: step.content });
+			continue;
+		}
+
+		currentToolCallIds.push(step.toolCallId);
+	}
+
+	flushToolCalls();
+	return items;
+}
+
+function ToolCallsGroupItem({ toolCalls }: { toolCalls: ToolCall[] }) {
+	const [expanded, setExpanded] = useState(false);
+	const successCount = toolCalls.filter((toolCall) => toolCall.status === "success").length;
+	const errorCount = toolCalls.filter((toolCall) => toolCall.status === "error").length;
+	const runningCount = toolCalls.filter((toolCall) => toolCall.status === "running").length;
+
 	return (
-		<div className="flex gap-3">
-			{/* <div className="flex w-4 shrink-0 justify-center">
-        <div className="w-px bg-slate-200" />
-      </div> */}
-			<div className="min-w-0 flex-1 pb-1">
-				{step.type === "thinking" ? (
-					<div className="min-w-0">
-						<div className="mb-1 flex items-center gap-2 text-[13px] font-medium text-blue-600">
-							<Brain className="size-3.5 text-blue-500" />
-							<span>思考过程</span>
-						</div>
+		<div className="min-w-0 pb-.5">
+			<button
+				type="button"
+				onClick={() => setExpanded((value) => !value)}
+				className={cn(
+					"flex h-5 w-full min-w-0 cursor-pointer items-center justify-between text-left text-[13px] font-normal",
+					PROCESS_TIMELINE_TEXT_CLASS,
+					expanded ? "gap-2" : "gap-4",
+				)}
+			>
+				<span
+					className={cn(
+						"flex min-w-0 flex-1 items-center gap-1 overflow-hidden",
+						!expanded && "max-w-[calc(100%-7rem)] pr-2",
+					)}
+				>
+					<ProcessStepIconSlot>
+						{expanded ? (
+							<ChevronDown className={PROCESS_TIMELINE_CHEVRON_CLASS} />
+						) : (
+							<ChevronRight className={PROCESS_TIMELINE_CHEVRON_CLASS} />
+						)}
+					</ProcessStepIconSlot>
+					<ProcessStepIconSlot>
+						<Wrench className={PROCESS_TIMELINE_TEXT_CLASS} />
+					</ProcessStepIconSlot>
+					<span
+						className="min-w-0 flex-1 truncate font-medium leading-5"
+						title={expanded ? undefined : formatProcessToolCallsLabel(toolCalls)}
+					>
+						{expanded ? "工具调用" : formatProcessToolCallsLabel(toolCalls)}
+					</span>
+				</span>
+				{!expanded && (
+					<ToolCallStatusSummary
+						successCount={successCount}
+						errorCount={errorCount}
+						runningCount={runningCount}
+					/>
+				)}
+			</button>
+			{expanded && <ProcessToolCallItems toolCalls={toolCalls} />}
+		</div>
+	);
+}
+
+function ThinkingStepItem({ content }: { content: string }) {
+	const [expanded, setExpanded] = useState(false);
+	const [showBottomFade, setShowBottomFade] = useState(false);
+	const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+	const updateBottomFade = (container: HTMLDivElement) => {
+		const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+		const hasOverflow = container.scrollHeight > container.clientHeight + 1;
+		setShowBottomFade(hasOverflow && distanceToBottom > 8);
+	};
+
+	useEffect(() => {
+		const container = scrollContainerRef.current;
+		if (!expanded || !container) {
+			setShowBottomFade(false);
+			return;
+		}
+
+		updateBottomFade(container);
+	}, [content, expanded]);
+
+	return (
+		<div className="min-w-0 pb-.5">
+			<button
+				type="button"
+				onClick={() => setExpanded((value) => !value)}
+				className={cn(
+					"flex h-5 w-full cursor-pointer items-center gap-1 text-left text-[13px] font-normal",
+					PROCESS_TIMELINE_TEXT_CLASS,
+				)}
+			>
+				<ProcessStepIconSlot>
+					{expanded ? (
+						<ChevronDown className={PROCESS_TIMELINE_CHEVRON_CLASS} />
+					) : (
+						<ChevronRight className={PROCESS_TIMELINE_CHEVRON_CLASS} />
+					)}
+				</ProcessStepIconSlot>
+				<ProcessStepIconSlot>
+					<ThinkingProcessIcon className={PROCESS_TIMELINE_TEXT_CLASS} />
+				</ProcessStepIconSlot>
+				<span className="font-medium leading-5">思考过程</span>
+			</button>
+			{expanded && (
+				<div className="relative">
+					<div
+						ref={scrollContainerRef}
+						onScroll={(event) => updateBottomFade(event.currentTarget)}
+						className="no-scrollbar max-h-[min(45vh,25rem)] overflow-y-auto pr-1"
+					>
 						<MarkdownRenderer
-							content={step.content}
-							className="max-w-none text-[13px] leading-6 text-[color:var(--leros-chat-text-muted)] [&_*]:text-[color:var(--leros-chat-text-muted)] [&_ol]:my-1 [&_p]:my-1 [&_pre]:my-1.5 [&_strong]:text-[color:var(--leros-chat-text-muted)] [&_ul]:my-1"
+							content={content}
+							className={cn(
+								"max-w-none text-[13px] leading-6",
+								PROCESS_TIMELINE_TEXT_CLASS,
+								"[&_*]:text-[#63748B] [&_ol]:my-1 [&_p]:my-1 [&_pre]:my-1.5 [&_strong]:text-[#63748B] [&_ul]:my-1",
+							)}
 						/>
 					</div>
-				) : toolCall ? (
-					<div>
-						<div className="mb-1 flex items-center gap-2 text-[13px] font-medium text-blue-600">
-							<Wrench className="size-3.5 text-emerald-500" />
-							<span>工具调用</span>
-						</div>
-						<ToolCallBlock toolCalls={[toolCall]} variant="timeline" />
-					</div>
-				) : null}
-			</div>
+					{showBottomFade && (
+						<div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-white via-white/30 to-white/0" />
+					)}
+				</div>
+			)}
 		</div>
+	);
+}
+
+function ProcessStepIconSlot({ children }: { children: ReactNode }) {
+	return (
+		<span className="inline-flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">
+			{children}
+		</span>
+	);
+}
+
+type ProcessStepPreview =
+	| {
+			kind: "thinking";
+			text: string;
+	  }
+	| {
+			kind: "tool";
+			loadingLabel: string;
+			detail?: string;
+	  };
+
+function ProcessStepPreviewText({ preview }: { preview: ProcessStepPreview }) {
+	if (preview.kind === "thinking") {
+		return <span className="truncate">{preview.text}</span>;
+	}
+
+	return (
+		<span className="flex min-w-0 items-baseline">
+			<span className="leros-process-preview-wave shrink-0">{preview.loadingLabel}</span>
+			{preview.detail ? (
+				<span className={cn("min-w-0 truncate", PROCESS_TIMELINE_TEXT_CLASS)}>
+					{" "}
+					{preview.detail}
+				</span>
+			) : null}
+		</span>
 	);
 }
 
@@ -395,44 +582,71 @@ function compactText(value: string): string {
 function getLatestProcessPreview(
 	steps: MessageProcessStep[],
 	toolCallMap: Map<string, ToolCall>,
-): string {
+): ProcessStepPreview | null {
 	for (let index = steps.length - 1; index >= 0; index -= 1) {
 		const step = steps[index];
 		if (!step) continue;
 
 		if (step.type === "thinking") {
 			const compact = compactText(step.content);
-			if (compact) return compact;
+			if (compact) return { kind: "thinking", text: compact };
 			continue;
 		}
 
-		const preview = getToolCallPreview(toolCallMap.get(step.toolCallId));
+		const preview = getToolCallProcessPreview(toolCallMap.get(step.toolCallId));
 		if (preview) return preview;
 	}
 
-	return "";
+	return null;
 }
 
-function getToolCallPreview(toolCall: ToolCall | undefined): string {
-	if (!toolCall?.name?.trim()) return "";
+function getToolCallStringArg(args: Record<string, unknown>, key: string): string {
+	const value = args[key];
+	return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function getToolCallProcessPreview(toolCall: ToolCall | undefined): ProcessStepPreview | null {
+	if (!toolCall?.name?.trim()) return null;
 
 	const args = toolCall.arguments ?? {};
-	if (typeof args.intent === "string" && args.intent.trim()) return args.intent.trim();
-	if (typeof args.description === "string" && args.description.trim())
-		return args.description.trim();
-	if (toolCall.name === "write") return "写入文件";
-	if (toolCall.name === "read") return "读取文件";
+
 	if (toolCall.name === "websearch") {
-		const query = typeof args.query === "string" && args.query.trim() ? args.query.trim() : "";
-		return query ? `搜索 ${query}` : "搜索";
-	}
-	if (toolCall.name === "web_fetch" || toolCall.name === "webfetch") {
-		const url =
-			typeof args.url === "string" && args.url.trim() ? decodeURIComponent(args.url.trim()) : "";
-		return url ? `浏览 ${url}` : "浏览";
+		return {
+			kind: "tool",
+			loadingLabel: "搜索网页中...",
+			detail: getToolCallStringArg(args, "query") || undefined,
+		};
 	}
 
-	return `调用：${toolCall.name}`;
+	if (toolCall.name === "web_fetch" || toolCall.name === "webfetch") {
+		const url = getToolCallStringArg(args, "url");
+		return {
+			kind: "tool",
+			loadingLabel: "浏览网页中...",
+			detail: url ? decodeURIComponent(url) : undefined,
+		};
+	}
+
+	if (toolCall.name === "read") {
+		return {
+			kind: "tool",
+			loadingLabel: "读取文件中...",
+			detail: getToolCallStringArg(args, "path") || undefined,
+		};
+	}
+
+	if (toolCall.name === "write") {
+		return {
+			kind: "tool",
+			loadingLabel: "写入文件中...",
+			detail: getToolCallStringArg(args, "path") || undefined,
+		};
+	}
+
+	return {
+		kind: "tool",
+		loadingLabel: `调用${toolCall.name}中...`,
+	};
 }
 
 function MessageArtifactList({

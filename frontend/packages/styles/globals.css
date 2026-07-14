@@ -333,6 +333,33 @@
 		animation: leros-workbench-hero-breathe 3s ease-in-out infinite;
 	}
 
+	@keyframes leros-process-preview-wave {
+		0% {
+			background-position: 100% 50%;
+		}
+
+		100% {
+			background-position: -100% 50%;
+		}
+	}
+
+	.leros-process-preview-wave {
+		background-image: linear-gradient(
+			90deg,
+			#63748b 0%,
+			#63748b 36%,
+			color-mix(in srgb, #63748b 38%, transparent) 50%,
+			#63748b 64%,
+			#63748b 100%
+		);
+		background-size: 200% 100%;
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+		animation: leros-process-preview-wave 1.8s linear infinite;
+		will-change: background-position;
+	}
+
 	.leros-profile-menu {
 		/* App shell uses --leros-* light tokens only; reset shadcn popover/accent when html.dark */
 		--popover: var(--leros-surface);
