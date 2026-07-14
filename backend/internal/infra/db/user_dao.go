@@ -158,8 +158,14 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 	var entities []*types.User
 	var total int64
 
-	query := d.WithContext(ctx).Table(types.TableNameUser).
-		Where("deleted_at IS NULL")
+	query := d.WithContext(ctx).
+		Table(types.TableNameUser + " AS u").
+		Where("u.deleted_at IS NULL")
+	if opt.OrgID > 0 {
+		// 中文注释：用户候选列表必须限定在当前组织，避免跨组织泄露成员信息。
+		query = query.Joins("INNER JOIN "+types.TableNameUserOrg+" AS uo ON uo.user_id = u.id").
+			Where("uo.org_id = ? AND uo.deleted_at IS NULL", opt.OrgID)
+	}
 
 	for _, filter := range opt.Filters {
 		switch filter.Field {
@@ -170,10 +176,10 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 			}
 			like := "%" + kw + "%"
 			conds := []string{
-				"name LIKE ?",
-				"github_login LIKE ?",
-				"email LIKE ?",
-				"phone LIKE ?",
+				"u.name LIKE ?",
+				"u.github_login LIKE ?",
+				"u.email LIKE ?",
+				"u.phone LIKE ?",
 			}
 			args := []interface{}{like, like, like, like}
 			if digits := phoneSearchDigits(kw); len(digits) >= 3 {
@@ -185,15 +191,15 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 			}
 			query = query.Where(strings.Join(conds, " OR "), args...)
 		case "name":
-			query = query.Where("name LIKE ?", "%"+filter.Value[0]+"%")
+			query = query.Where("u.name LIKE ?", "%"+filter.Value[0]+"%")
 		case "github_login":
 			if filter.ExactMatch {
-				query = query.Where("github_login IN (?)", filter.Value)
+				query = query.Where("u.github_login IN (?)", filter.Value)
 			} else {
-				query = query.Where("github_login LIKE ?", "%"+filter.Value[0]+"%")
+				query = query.Where("u.github_login LIKE ?", "%"+filter.Value[0]+"%")
 			}
 		case "email":
-			query = query.Where("email LIKE ?", "%"+filter.Value[0]+"%")
+			query = query.Where("u.email LIKE ?", "%"+filter.Value[0]+"%")
 		default:
 			logs.WarnContextf(ctx, "[user][ListUsers] invalid filter field: %s", filter.Field)
 		}
@@ -209,7 +215,7 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 	if len(opt.OrderBy) > 0 {
 		query = query.Order(strings.Join(opt.OrderBy, ","))
 	} else {
-		query = query.Order("created_at DESC")
+		query = query.Order("u.created_at DESC")
 	}
 
 	query = query.Offset(opt.Offset)

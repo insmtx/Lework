@@ -245,7 +245,10 @@ func (s *digitalAssistantService) ListDigitalAssistant(ctx context.Context, req 
 		return nil, err
 	}
 
-	opt := types.NewPageQuery(*caller, req.Offset, req.Limit)
+	// 中文注释：项目成员候选应覆盖当前组织的 AI 队友，而不是只返回当前用户创建的 AI。
+	orgCaller := *caller
+	orgCaller.Uin = 0
+	opt := types.NewPageQuery(orgCaller, req.Offset, req.Limit)
 	if req.Status != nil {
 		opt.AddFilter("status", *req.Status)
 	}
