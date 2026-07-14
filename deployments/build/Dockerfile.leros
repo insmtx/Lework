@@ -33,6 +33,10 @@ RUN --mount=type=cache,target=/go/ \
 
 FROM registry.yygu.cn/insmtx/leros-base:latest
 
+COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /usr/share/zoneinfo/Asia/Shanghai
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+ENV TZ=Asia/Shanghai
+
 COPY --from=builder /build/leros /leros
 COPY --from=builder /build/backend/skills /app/backend/skills
 
