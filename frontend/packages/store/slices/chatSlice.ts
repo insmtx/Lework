@@ -1246,13 +1246,24 @@ function isGlobalUserEchoMessage(message: Message | undefined, incoming: Message
 	return isLocalEchoCandidate || isRecentEcho;
 }
 
+function isAssistantStreamPlaceholderId(messageId: string): boolean {
+	return (
+		messageId.startsWith("msg-assistant-waiting-") ||
+		messageId.startsWith("msg-assistant-resume-") ||
+		messageId.startsWith("msg-assistant-poll-")
+	);
+}
+
 // 中文注释：任务群聊占位 assistant 在提前建立 SessionEvents 后可能已进入 streaming，但仍需被 GlobalEvents 替换。
-function isTaskRoomAssistantPlaceholder(message: Message | undefined, sessionId: string): boolean {
+export function isTaskRoomAssistantPlaceholder(
+	message: Message | undefined,
+	sessionId: string,
+): boolean {
 	return (
 		message?.conversationId === sessionId &&
 		message.role === "assistant" &&
-		message.id.startsWith("msg-assistant-waiting-") &&
-		(message.status === "waiting" || message.status === "streaming")
+		isAssistantStreamPlaceholderId(message.id) &&
+		(message.status === "waiting" || message.status === "streaming" || message.status === undefined)
 	);
 }
 
@@ -2318,7 +2329,8 @@ export class ChatActionImpl {
 			const fullState = this.#fullGet() as {
 				fetchProjectDetail?: (projectId: string) => Promise<void>;
 			};
-			await fullState.fetchProjectDetail?.(data.project_id);
+			// 中文注释：项目详情刷新放到后台，避免阻塞路由跳转到任务对话页。
+			void fullState.fetchProjectDetail?.(data.project_id);
 			return data;
 		} catch (err) {
 			console.error("sendProjectMessage error:", err);
