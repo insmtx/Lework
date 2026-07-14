@@ -293,7 +293,7 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 		},
 		Containers: []corev1.Container{
 			{
-				Name:            defaultWorkerContainerName,
+				Name:            name,
 				Image:           s.workerImage(spec),
 				ImagePullPolicy: corev1.PullAlways,
 				Command:         []string{"/leros"},
@@ -326,6 +326,13 @@ func workerContainerImage(deployment *appsv1.Deployment) string {
 		return ""
 	}
 	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name == deployment.Name {
+			return strings.TrimSpace(container.Image)
+		}
+	}
+	// Keep recognizing deployments created before worker container names were
+	// aligned with their deployment names.
+	for _, container := range deployment.Spec.Template.Spec.Containers {
 		if container.Name == defaultWorkerContainerName {
 			return strings.TrimSpace(container.Image)
 		}
@@ -346,7 +353,7 @@ func (s *KubernetesScheduler) workspaceSpecDrifted(deployment *appsv1.Deployment
 	if hostPathForVolume(podSpec.Volumes, "workspace") != desiredHostPath {
 		return true
 	}
-	workerContainer := containerByName(podSpec.Containers, defaultWorkerContainerName)
+	workerContainer := containerByName(podSpec.Containers, deploymentName(spec.OrgID, spec.WorkerID))
 	if workerContainer == nil {
 		return true
 	}
