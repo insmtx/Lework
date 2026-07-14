@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	defaultMaxConcurrency = 20
+	defaultMaxConcurrency = 10
 	defaultDebounceWindow = 1500 * time.Millisecond
 	inboxRetention        = 72 * time.Hour
 	semInProgressInterval = 15 * time.Second

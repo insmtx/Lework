@@ -25,7 +25,7 @@ import (
 const (
 	// defaultHealthCheckTimeout 是等待 opencode server 健康检查就绪的默认超时时间。
 	// 每个进程拥有独立的启动周期，周期结束后由上层停止进程并重试。
-	defaultHealthCheckTimeout = 10 * time.Second
+	defaultHealthCheckTimeout = 15 * time.Second
 
 	// fastPollInterval 是健康检查前期的快速轮询间隔。
 	fastPollInterval = 200 * time.Millisecond

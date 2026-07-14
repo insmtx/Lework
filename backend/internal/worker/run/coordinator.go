@@ -87,7 +87,7 @@ type Config struct {
 // NewCoordinator creates a new RunCoordinator.
 func NewCoordinator(cfg Config, executeFunc ExecuteFunc) (*Coordinator, error) {
 	if cfg.MaxConcurrency <= 0 {
-		cfg.MaxConcurrency = 20
+		cfg.MaxConcurrency = 10
 	}
 	if cfg.DebounceWindow <= 0 {
 		cfg.DebounceWindow = 1500 * time.Millisecond
