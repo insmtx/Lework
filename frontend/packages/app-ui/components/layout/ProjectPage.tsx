@@ -1050,18 +1050,25 @@ function ProjectConfigSidebar({
 									key={skill.code}
 									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
 								>
-									<button
-										type="button"
-										className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
-										aria-label={`移除技能 ${skill.name}`}
-										onClick={() => removeProjectSkill(skill.code)}
-										disabled={savingSkills}
+									<CanGate
+										action={Action.ProjectUpdate}
+										resource={{ type: "project", publicId: project.id }}
+										// 中文注释：成员无权更新项目技能时，仅展示图标，避免暴露点击后必然失败的移除入口。
+										fallback={<SkillPickerIcon />}
 									>
-										<Sparkles className="size-3.5 transition-opacity group-hover:opacity-0" />
-										<span className="absolute inline-flex items-center justify-center rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100">
-											<X className="size-3" />
-										</span>
-									</button>
+										<button
+											type="button"
+											className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+											aria-label={`移除技能 ${skill.name}`}
+											onClick={() => removeProjectSkill(skill.code)}
+											disabled={savingSkills}
+										>
+											<Sparkles className="size-3.5 transition-opacity group-hover:opacity-0" />
+											<span className="absolute inline-flex items-center justify-center rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100">
+												<X className="size-3" />
+											</span>
+										</button>
+									</CanGate>
 									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
 										{skill.name}
 									</span>
