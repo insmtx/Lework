@@ -28,7 +28,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
 import { cn } from "@leros/ui/lib/utils";
 import { Bot, LoaderCircle, UserRound, X } from "lucide-react";
-import { type ReactNode, type SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
@@ -475,20 +475,13 @@ export function MemberRoleSelect({
 	memberName,
 	role,
 	onRoleChange,
-	onInteractionStart,
 	disabled = false,
 }: {
 	memberName: string;
 	role: string;
 	onRoleChange: (role: string) => void;
-	onInteractionStart?: () => void;
 	disabled?: boolean;
 }) {
-	const stopRowSelect = (event: SyntheticEvent) => {
-		onInteractionStart?.();
-		event.stopPropagation();
-	};
-
 	return (
 		<Select
 			value={role}
@@ -501,10 +494,6 @@ export function MemberRoleSelect({
 			<SelectTrigger
 				size="sm"
 				aria-label={`设置 ${memberName} 的项目角色`}
-				onClick={stopRowSelect}
-				onPointerDown={stopRowSelect}
-				onMouseDown={stopRowSelect}
-				onKeyDown={stopRowSelect}
 				className="h-8 min-w-[88px] shrink-0 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-2.5 text-sm font-medium text-[var(--leros-text)] shadow-none transition-colors hover:border-[var(--leros-control-border)] focus-visible:border-[var(--leros-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--leros-primary)]/12"
 			>
 				<span className="min-w-0 truncate text-left">{projectRoleOptionLabel(role)}</span>
@@ -555,7 +544,6 @@ function MemberCommandList({
 	roleDrafts?: Record<string, string>;
 	onRoleDraftChange?: (key: string, role: string) => void;
 }) {
-	const suppressRowSelectRef = useRef(false);
 	const listWrapperRef = useRef<HTMLDivElement>(null);
 
 	const preserveListScroll = (select: () => void) => {
@@ -580,7 +568,7 @@ function MemberCommandList({
 			>
 				<CommandInput value={search} onValueChange={onSearchChange} placeholder={placeholder} />
 				<CommandList className="max-h-none min-h-0 flex-1">
-					<CommandEmpty className="py-6 text-slate-400">{emptyText}</CommandEmpty>
+					{!showRole && <CommandEmpty className="py-6 text-slate-400">{emptyText}</CommandEmpty>}
 					<CommandGroup className="p-1">
 						{loading && (
 							<div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
@@ -589,29 +577,19 @@ function MemberCommandList({
 							</div>
 						)}
 						{!loading && error && <div className="px-3 py-2 text-xs text-red-400">{error}</div>}
+						{!loading && !error && showRole && members.length === 0 && (
+							<div className="px-3 py-6 text-center text-sm text-slate-400">{emptyText}</div>
+						)}
 						{!loading &&
 							!error &&
 							members.map((member) => {
 								const key = memberKey(member);
-								return (
-									<CommandItem
-										key={key}
-										value={key}
-										disabled={member.disabled}
-										onSelect={() => {
-											if (suppressRowSelectRef.current) {
-												suppressRowSelectRef.current = false;
-												return;
-											}
-											if (member.disabled) return;
-											preserveListScroll(() => onSelect(member));
-										}}
-										className={cn(
-											"group cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 transition-all hover:border-[var(--leros-primary)]/25 hover:bg-[var(--leros-primary-softer)] hover:shadow-sm active:scale-[0.99] data-selected:bg-[var(--leros-surface-soft)]",
-											member.disabled && "cursor-not-allowed opacity-50",
-										)}
-										title={member.disabled ? undefined : "点击添加"}
-									>
+								const rowClassName = cn(
+									"group cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 transition-all hover:border-[var(--leros-primary)]/25 hover:bg-[var(--leros-primary-softer)] hover:shadow-sm active:scale-[0.99] data-selected:bg-[var(--leros-surface-soft)]",
+									member.disabled && "cursor-not-allowed opacity-50",
+								);
+								const memberInfo = (
+									<>
 										<MemberAvatar member={member} />
 										<div className="min-w-0 flex-1">
 											<div className="truncate font-medium text-slate-700">
@@ -621,6 +599,58 @@ function MemberCommandList({
 												{renderHighlightedText(member.description ?? "", search)}
 											</div>
 										</div>
+									</>
+								);
+
+								if (showRole) {
+									// 中文注释：真人成员的身份下拉框不能嵌套在 cmdk 可选项中，否则下拉点击会被 cmdk 误识别为成员选择。
+									return (
+										<div key={key} className={cn("flex", rowClassName)}>
+											<button
+												type="button"
+												disabled={member.disabled}
+												onClick={() => {
+													if (member.disabled) return;
+													preserveListScroll(() => onSelect(member));
+												}}
+												className="flex min-w-0 flex-1 items-center gap-3 text-left"
+												title={member.disabled ? undefined : "点击添加"}
+											>
+												{memberInfo}
+											</button>
+											{member.disabledReason && (
+												<Badge
+													variant="outline"
+													className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-normal text-slate-400"
+												>
+													{member.disabledReason}
+												</Badge>
+											)}
+											<div className="ml-3 shrink-0">
+												<MemberRoleSelect
+													memberName={member.name}
+													role={member.disabled ? member.role : roleDrafts?.[key] || "member"}
+													disabled={member.disabled}
+													onRoleChange={(nextRole) => onRoleDraftChange?.(key, nextRole)}
+												/>
+											</div>
+										</div>
+									);
+								}
+
+								return (
+									<CommandItem
+										key={key}
+										value={key}
+										disabled={member.disabled}
+										onSelect={() => {
+											if (member.disabled) return;
+											preserveListScroll(() => onSelect(member));
+										}}
+										className={rowClassName}
+										title={member.disabled ? undefined : "点击添加"}
+									>
+										{memberInfo}
 										{member.disabledReason && (
 											<Badge
 												variant="outline"
@@ -628,23 +658,6 @@ function MemberCommandList({
 											>
 												{member.disabledReason}
 											</Badge>
-										)}
-										{showRole && (
-											<div className="ml-3 shrink-0">
-												<MemberRoleSelect
-													memberName={member.name}
-													role={member.disabled ? member.role : roleDrafts?.[key] || "member"}
-													disabled={member.disabled}
-													onInteractionStart={() => {
-														suppressRowSelectRef.current = true;
-														// 中文注释：仅抑制当前交互周期，避免没有触发行事件时影响下一次成员点击。
-														window.setTimeout(() => {
-															suppressRowSelectRef.current = false;
-														}, 0);
-													}}
-													onRoleChange={(nextRole) => onRoleDraftChange?.(key, nextRole)}
-												/>
-											</div>
 										)}
 									</CommandItem>
 								);
