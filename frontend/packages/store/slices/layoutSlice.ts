@@ -21,6 +21,7 @@ import {
 	writeStoredLeftRailCollapsed,
 	writeStoredLeftRailWidth,
 } from "../utils/leftRailStorage";
+import { isSystemDefaultAssistant } from "./digitalAssistantSlice";
 
 export {
 	LEFT_RAIL_MAX_WIDTH,
@@ -290,7 +291,7 @@ function mapBackendProjectMember(member: BackendProjectMemberItem): ProjectMembe
 		description: member.description,
 		avatarUrl: member.avatar_url,
 		joinedAt: member.joined_at,
-		isDefault: member.is_default,
+		isDefault: member.is_default || (type === "assistant" && isSystemDefaultAssistant(publicId)),
 	};
 }
 
@@ -358,11 +359,13 @@ function extractProjectMembers(metadata?: Record<string, unknown>): ProjectMembe
 							? data.joined_at
 							: undefined,
 				isDefault:
-					typeof data.isDefault === "boolean"
-						? data.isDefault
-						: typeof data.is_default === "boolean"
-							? data.is_default
-							: undefined,
+					type === "assistant" && isSystemDefaultAssistant(publicId)
+						? true
+						: typeof data.isDefault === "boolean"
+							? data.isDefault
+							: typeof data.is_default === "boolean"
+								? data.is_default
+								: undefined,
 			};
 		})
 		.filter((item): item is ProjectMember => item !== null);
@@ -371,7 +374,12 @@ function extractProjectMembers(metadata?: Record<string, unknown>): ProjectMembe
 export function projectMembersToInputs(members: ProjectMember[]): ProjectMemberInput[] {
 	return members
 		.filter(
-			(member) => Boolean(member.publicId) && !(member.type === "assistant" && member.isDefault),
+			(member) =>
+				Boolean(member.publicId) &&
+				!(
+					member.type === "assistant" &&
+					(member.isDefault || isSystemDefaultAssistant(member.publicId))
+				),
 		)
 		.map((member) => ({
 			type: member.type,

@@ -3,6 +3,7 @@
 import {
 	type DigitalAssistantItem,
 	type HumanProjectMemberOption,
+	isSystemDefaultAssistant,
 	type ProjectMember,
 	projectMemberApi,
 	useDAStore,
@@ -253,7 +254,11 @@ export function ProjectMemberPickerDialog({
 			sortProjectMembers(
 				draftMembers.filter(
 					// 中文注释：默认 AI 员工是系统兜底成员，不在添加成员弹窗的已选择列表里展示。
-					(member) => !(member.type === "assistant" && member.isDefault),
+					(member) =>
+						!(
+							member.type === "assistant" &&
+							(member.isDefault || isSystemDefaultAssistant(member.publicId))
+						),
 				),
 			),
 		[draftMembers],
@@ -568,8 +573,10 @@ function MemberCommandList({
 			>
 				<CommandInput value={search} onValueChange={onSearchChange} placeholder={placeholder} />
 				<CommandList className="max-h-none min-h-0 flex-1">
-					{!showRole && <CommandEmpty className="py-6 text-slate-400">{emptyText}</CommandEmpty>}
-					<CommandGroup className="p-1">
+					{!loading && !error && !showRole && (
+						<CommandEmpty className="py-6 text-slate-400">{emptyText}</CommandEmpty>
+					)}
+					<CommandGroup className={cn("p-1", loading && "flex h-full items-center justify-center")}>
 						{loading && (
 							<div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
 								<LoaderCircle className="size-3.5 animate-spin" />
