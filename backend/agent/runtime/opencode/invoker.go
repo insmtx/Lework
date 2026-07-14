@@ -42,7 +42,7 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest)
 		"OpenCode invocation starting: execution_id=%s trace_id=%s mode=%s model=%s resume=%v provider_session_id=%s work_dir=%s progress_timeout=%s",
 		req.ExecutionID, req.TraceID, req.ExecutionMode, req.Model.Model, req.Resume, req.SessionID, workDir, defaultProgressIdleTimeout,
 	)
-	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 10s/次）
+	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 15s/次）
 	srv, err := startOpenCodeServer(ctx, inv.binary, workDir, inv.baseEnv, req.Model, req.MCPServers, 0, inv.dataDir)
 	if err != nil {
 		logs.WarnContextf(ctx, "OpenCode invocation failed during server start: execution_id=%s elapsed=%s err=%v",

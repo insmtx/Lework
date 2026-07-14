@@ -245,9 +245,9 @@ func TestStartOpenCodeServerUsesIndependentTimeoutForEveryAttempt(t *testing.T) 
 	}
 }
 
-func TestDefaultHealthCheckTimeoutIsTenSeconds(t *testing.T) {
-	if defaultHealthCheckTimeout != 10*time.Second {
-		t.Fatalf("defaultHealthCheckTimeout=%s, want 10s", defaultHealthCheckTimeout)
+func TestDefaultHealthCheckTimeoutIsFifteenSeconds(t *testing.T) {
+	if defaultHealthCheckTimeout != 15*time.Second {
+		t.Fatalf("defaultHealthCheckTimeout=%s, want 15s", defaultHealthCheckTimeout)
 	}
 }
 
