@@ -127,6 +127,7 @@ export class DASliceImpl {
 			assistants: [],
 			assistantsLoaded: false,
 			activeAssistantId: null,
+			assistantSearchQuery: "",
 		});
 	};
 

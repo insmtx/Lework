@@ -11,8 +11,9 @@ import {
 } from "@leros/ui/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
 import { ChevronDown, Import, Plus } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "../auth";
 import type { AppNavigation } from "../layout";
 import { navigateToWorkbench } from "../layout/workbench-navigation";
 import { buildSkillWorkbenchPrefill } from "../layout/workbench-prefill";
@@ -27,6 +28,7 @@ const SKILL_MARKET_TAB_TRIGGER_CLASS =
 	"text-xl font-semibold text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] data-active:bg-transparent data-active:text-[var(--leros-text-strong)] dark:text-[var(--leros-text-muted)] dark:hover:text-[var(--leros-text-strong)] dark:data-active:bg-transparent dark:data-active:text-[var(--leros-text-strong)]";
 
 export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) {
+	const { isAuthenticated, requireAuth } = useAuth();
 	const [activeTab, setActiveTab] = useState<"marketplace" | "mine">("marketplace");
 	const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
 	const [selectedSource, setSelectedSource] = useState<string>("Leros");
@@ -97,6 +99,31 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 		}
 	}, []);
 
+	const openImportDialog = useCallback(() => {
+		requireAuth(() => setImportDialogOpen(true));
+	}, [requireAuth]);
+
+	const openCreateSkill = useCallback(() => {
+		requireAuth(() => goUseSkill("skill-creator"));
+	}, [goUseSkill, requireAuth]);
+
+	const handleTabChange = useCallback(
+		(nextTab: string) => {
+			if (nextTab === "mine") {
+				requireAuth(() => setActiveTab("mine"));
+				return;
+			}
+			setActiveTab("marketplace");
+		},
+		[requireAuth],
+	);
+
+	useEffect(() => {
+		if (isAuthenticated) return;
+		setActiveTab("marketplace");
+		setImportDialogOpen(false);
+	}, [isAuthenticated]);
+
 	const handleImportSuccess = useCallback(() => {
 		setMySkillsRefreshSeq((seq) => seq + 1);
 	}, []);
@@ -126,11 +153,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 			data-slot="skill-market-view"
 			className="flex min-h-0 h-full flex-1 flex-col bg-[var(--leros-app-bg)]"
 		>
-			<Tabs
-				value={activeTab}
-				onValueChange={(v) => setActiveTab(v as "marketplace" | "mine")}
-				className="min-h-0 flex-1 flex-col"
-			>
+			<Tabs value={activeTab} onValueChange={handleTabChange} className="min-h-0 flex-1 flex-col">
 				<header className="flex shrink-0 items-start justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
 					<div>
 						<TabsList variant="line" className="mb-3 -ml-1.5">
@@ -158,11 +181,11 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 							)}
 						/>
 						<DropdownMenuContent align="end" className="w-36">
-							<DropdownMenuItem onClick={() => goUseSkill("skill-creator")}>
+							<DropdownMenuItem onClick={openCreateSkill}>
 								<Plus className="size-4 mr-2" />
 								创作技能
 							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
+							<DropdownMenuItem onClick={openImportDialog}>
 								<Import className="size-4 mr-2" />
 								导入技能
 							</DropdownMenuItem>
@@ -171,7 +194,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 				</header>
 
 				<TabsContent value="marketplace" className="flex min-h-0 flex-1 flex-col outline-none">
-					<MarketplacePanel onCardClick={handleCardClick} />
+					<MarketplacePanel isAuthenticated={isAuthenticated} onCardClick={handleCardClick} />
 				</TabsContent>
 
 				<TabsContent value="mine" className="min-h-0 flex-1 overflow-y-auto px-6 py-8 outline-none">
