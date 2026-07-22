@@ -15,6 +15,7 @@ import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
 import { Bot, CheckCircle2, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "../auth";
 import type { AppNavigation } from "../layout";
 import { navigateToWorkbench } from "../layout/workbench-navigation";
 import { buildAssistantWorkbenchPrefill } from "../layout/workbench-prefill";
@@ -27,6 +28,7 @@ import { AssistantEditDialog } from "./AssistantEditDialog";
 import { isAssistantAvailable } from "./assistantStatus";
 
 export function AssistantListView({ navigation }: { navigation?: AppNavigation }) {
+	const { isAuthenticated, requireAuth } = useAuth();
 	const { assistants, assistantSearchQuery, fetchAssistants, setAssistantSearchQuery } = useDAStore(
 		(s) => s,
 	);
@@ -41,16 +43,33 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 	const [createdAssistantReady, setCreatedAssistantReady] = useState<DigitalAssistantItem | null>(
 		null,
 	);
+	const visibleAssistants = isAuthenticated ? assistants : [];
 	const liveDetailTarget = detailTarget
-		? (assistants.find((assistant) => assistant.id === detailTarget.id) ?? detailTarget)
+		? (visibleAssistants.find((assistant) => assistant.id === detailTarget.id) ?? detailTarget)
 		: null;
 
 	useEffect(() => {
-		fetchAssistants();
-	}, [fetchAssistants]);
+		return () => setAssistantSearchQuery("");
+	}, [setAssistantSearchQuery]);
 
 	useEffect(() => {
-		const hasDeployingAssistant = assistants.some((assistant) =>
+		if (isAuthenticated) return;
+		setCreateDialogOpen(false);
+		setDetailTarget(null);
+		setEditTarget(null);
+		setDeleteTarget(null);
+		setCreatedAssistantIds([]);
+		setCreatedAssistantReady(null);
+	}, [isAuthenticated]);
+
+	useEffect(() => {
+		if (!isAuthenticated) return;
+		fetchAssistants();
+	}, [fetchAssistants, isAuthenticated]);
+
+	useEffect(() => {
+		if (!isAuthenticated) return;
+		const hasDeployingAssistant = visibleAssistants.some((assistant) =>
 			["pending", "provisioning"].includes(assistant.deploymentStatus),
 		);
 		if (!hasDeployingAssistant) return;
@@ -59,20 +78,20 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 			fetchAssistants();
 		}, 2000);
 		return () => window.clearInterval(timer);
-	}, [assistants, fetchAssistants]);
+	}, [fetchAssistants, isAuthenticated, visibleAssistants]);
 
 	useEffect(() => {
 		// 中文注释：按队列追踪本次页面内创建的队友，避免连续创建时遗漏部署成功提示。
 		if (createdAssistantReady || createdAssistantIds.length === 0) return;
-		const assistant = assistants.find(
+		const assistant = visibleAssistants.find(
 			(item) => createdAssistantIds.includes(item.id) && isAssistantAvailable(item),
 		);
 		if (!assistant) return;
 		setCreatedAssistantReady(assistant);
 		setCreatedAssistantIds((ids) => ids.filter((id) => id !== assistant.id));
-	}, [assistants, createdAssistantIds, createdAssistantReady]);
+	}, [createdAssistantIds, createdAssistantReady, visibleAssistants]);
 
-	const filteredAssistants = assistants.filter((a) => {
+	const filteredAssistants = visibleAssistants.filter((a) => {
 		const matchesSearch =
 			!assistantSearchQuery ||
 			a.name.toLowerCase().includes(assistantSearchQuery.toLowerCase()) ||
@@ -81,25 +100,35 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 		return matchesSearch;
 	});
 
+	const openCreateDialog = () => {
+		if (!isAuthenticated) {
+			requireAuth(() => setCreateDialogOpen(true));
+			return;
+		}
+		setCreateDialogOpen(true);
+	};
+
 	const handleSelectAssistant = (assistant: DigitalAssistantItem) => {
-		setDetailTarget(assistant);
+		requireAuth(() => setDetailTarget(assistant));
 	};
 
 	const handleSummonAssistant = (assistant: DigitalAssistantItem, prompt?: string) => {
-		if (!isAssistantAvailable(assistant)) {
-			toast.info("AI 队友仍在部署中，请稍后再试");
-			return;
-		}
-		const assistantIdentity = assistant.publicId || String(assistant.id);
+		requireAuth(() => {
+			if (!isAssistantAvailable(assistant)) {
+				toast.info("AI 队友仍在部署中，请稍后再试");
+				return;
+			}
+			const assistantIdentity = assistant.publicId || String(assistant.id);
 
-		selectWorkbenchProject(null);
-		selectWorkbenchTask(null);
-		setWorkbenchComposerPrefill(
-			buildAssistantWorkbenchPrefill(assistantIdentity, assistant, prompt),
-		);
-		navigateToWorkbench(navigation, switchView);
-		toast.success(`已成功召唤 ${assistant.name}`);
-		setDetailTarget(null);
+			selectWorkbenchProject(null);
+			selectWorkbenchTask(null);
+			setWorkbenchComposerPrefill(
+				buildAssistantWorkbenchPrefill(assistantIdentity, assistant, prompt),
+			);
+			navigateToWorkbench(navigation, switchView);
+			toast.success(`已成功召唤 ${assistant.name}`);
+			setDetailTarget(null);
+		});
 	};
 
 	return (
@@ -120,7 +149,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 							className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-7 pr-2 text-xs text-slate-600 transition-colors placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none"
 						/>
 					</div>
-					<Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+					<Button size="sm" onClick={openCreateDialog}>
 						<Plus className="size-4 mr-1" />
 						新建队友
 					</Button>
@@ -132,7 +161,7 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 				<div className="grid grid-cols-1 gap-3 p-6 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
 					{filteredAssistants.length === 0 && (
 						<div className="col-span-full flex min-h-[calc(100vh-11rem)] flex-col items-center justify-center text-center">
-							{assistants.length === 0 ? (
+							{visibleAssistants.length === 0 ? (
 								<>
 									{/* 中文注释：空列表仅保留引导信息，创建入口统一位于页面右上角。 */}
 									<div className="flex size-24 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-slate-400">
@@ -154,8 +183,8 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 							assistant={a}
 							onSelect={handleSelectAssistant}
 							onSummon={handleSummonAssistant}
-							onEdit={setEditTarget}
-							onDelete={setDeleteTarget}
+							onEdit={(assistant) => requireAuth(() => setEditTarget(assistant))}
+							onDelete={(assistant) => requireAuth(() => setDeleteTarget(assistant))}
 						/>
 					))}
 				</div>

@@ -182,8 +182,9 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 		activeProjectId,
 		switchView,
 	} = useLayoutStore((s) => s);
-	useProjectsMenuCapabilities(projects.map((project) => project.id));
 	const { isAuthenticated, requireAuth } = useAuth();
+	const visibleProjects = isAuthenticated ? projects : [];
+	useProjectsMenuCapabilities(visibleProjects.map((project) => project.id));
 	const [keyword, setKeyword] = useState("");
 	const [createOpen, setCreateOpen] = useState(false);
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
@@ -192,18 +193,27 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 	const [leaveTarget, setLeaveTarget] = useState<Project | null>(null);
 
 	useEffect(() => {
+		if (isAuthenticated) return;
+		setCreateOpen(false);
+		setRenameProject(null);
+		setDeleteTarget(null);
+		setLeaveTarget(null);
+	}, [isAuthenticated]);
+
+	useEffect(() => {
+		if (!isAuthenticated) return;
 		fetchProjects();
-	}, [fetchProjects]);
+	}, [fetchProjects, isAuthenticated]);
 
 	const filteredProjects = useMemo(() => {
 		const query = keyword.trim().toLowerCase();
-		const sorted = [...projects].sort((a, b) => b.createdAt - a.createdAt);
+		const sorted = [...visibleProjects].sort((a, b) => b.createdAt - a.createdAt);
 		if (!query) return sorted;
 
 		return sorted.filter((project) =>
 			[project.name, project.description].join(" ").toLowerCase().includes(query),
 		);
-	}, [keyword, projects]);
+	}, [keyword, visibleProjects]);
 
 	const openProject = (projectId: string) => {
 		requireAuth(() => {

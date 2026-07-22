@@ -122,7 +122,6 @@ const navIdToView: Record<string, ViewMode> = {
 	skills: "skills",
 };
 
-const protectedNavIds = new Set(["skills", "knowledge"]);
 const appVersion = getAppVersion();
 const brandVersionLabel = appVersion.startsWith("v") ? appVersion : `v${appVersion}`;
 
@@ -350,10 +349,6 @@ export function LeftRail({
 			}
 			switchView(view);
 		};
-		if (protectedNavIds.has(item.id)) {
-			requireAuth(navigate);
-			return;
-		}
 		navigate();
 	};
 
