@@ -84,31 +84,17 @@ function buildComposerMetadata(
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
 }
 
-function buildAssistantDisplayMetadata(
+function buildInvokedAssistantMetadata(
 	baseMetadata: MessageMetadata | undefined,
-	displayContent: string,
 	assistant: ComposerAssistantOption,
 ): MessageMetadata {
-	// 中文注释：实际提交给 Agent 的正文会剥离 @队友，这里保留展示专用信息用于历史消息回显。
+	// 中文注释：@ 队友保留在 content 中，与 AddMessage / 技能指令一致；metadata 仅补充路由与头像展示信息。
 	const invokedAssistant: NonNullable<MessageMetadata["invokedAssistant"]> = {
 		id: String(assistant.id),
 		name: assistant.name,
 	};
 	if (assistant.avatarUrl) invokedAssistant.avatarUrl = assistant.avatarUrl;
-
-	const metadata: MessageMetadata = {
-		...baseMetadata,
-		displayContent,
-		invokedAssistant,
-	};
-	if (baseMetadata?.composerTokens?.length) {
-		metadata.displayComposerTokens = baseMetadata.composerTokens;
-	}
-	return metadata;
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return { ...baseMetadata, invokedAssistant };
 }
 
 function resolveMentionedAssistant(
@@ -140,28 +126,6 @@ function resolveMentionedAssistant(
 		if (assistant) return assistant;
 	}
 	return null;
-}
-
-function removeAssistantMentionText(
-	content: string,
-	tokens: ComposerToken[],
-	assistant?: ComposerAssistantOption | null,
-): string {
-	const tokenNames = tokens
-		.filter((token) => token.kind === "assistant")
-		.map((token) => token.label.replace(/^@/, ""))
-		.filter(Boolean);
-	const mentionedNames = Array.from(
-		new Set([...tokenNames, assistant?.name ?? ""].filter(Boolean)),
-	);
-
-	return mentionedNames
-		.reduce((next, name) => {
-			const pattern = new RegExp(`(^|\\s)@${escapeRegExp(name)}(?=\\s|$)`, "g");
-			return next.replace(pattern, " ");
-		}, content)
-		.replace(/[ \t]{2,}/g, " ")
-		.trim();
 }
 
 function getFilteredProjects(projects: Project[], query: string) {
@@ -418,18 +382,15 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			const mentionedAssistant = activeWorkbenchProjectId
 				? null
 				: resolveMentionedAssistant(content, composerTokens, availableAssistantOptions);
-			const messageContent = mentionedAssistant
-				? removeAssistantMentionText(content, composerTokens, mentionedAssistant)
-				: content;
 			const messageMetadata = mentionedAssistant
-				? buildAssistantDisplayMetadata(composerMetadata, content, mentionedAssistant)
+				? buildInvokedAssistantMetadata(composerMetadata, mentionedAssistant)
 				: composerMetadata;
 			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids，不能传单个数字 assistant_id。
 			const mentionedAssistantIds = mentionedAssistant
 				? [String(mentionedAssistant.id)]
 				: undefined;
 			const data = await sendWorkbenchMessage(
-				messageContent,
+				content,
 				activeWorkbenchProjectId,
 				executionMode,
 				attachments,
