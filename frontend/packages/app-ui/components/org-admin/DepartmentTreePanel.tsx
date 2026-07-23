@@ -1,6 +1,6 @@
 "use client";
 
-import { type Department, type OrgMember, orgAdminApi, useAuthStore } from "@leros/store";
+import { type Department, orgAdminApi, type User, useAuthStore } from "@leros/store";
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
@@ -37,6 +37,7 @@ import {
 	Pencil,
 	Plus,
 	Search,
+	Trash2,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -56,10 +57,10 @@ type DepartmentDialogMode =
 
 type MemberDialogState = { open: false } | { open: true; defaultDepartmentId: number | null };
 
-type EditMemberDialogState = { open: false } | { open: true; member: OrgMember };
+type EditMemberDialogState = { open: false } | { open: true; member: User };
 
 function formatMemberCreatedAt(timestamp: string | undefined) {
-	if (!timestamp) return "-";
+	if (!timestamp || timestamp.startsWith("0001-01-01")) return "-";
 	try {
 		return new Date(timestamp).toLocaleString("zh-CN", {
 			year: "numeric",
@@ -165,12 +166,13 @@ function DepartmentTreeItem({
 
 export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) {
 	const user = useAuthStore((s) => s.authUser);
+	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const orgId = user?.currentOrg?.id;
 	const orgName = user?.currentOrg?.name ?? "当前组织";
 
 	const [loading, setLoading] = useState(true);
 	const [departments, setDepartments] = useState<Department[]>([]);
-	const [members, setMembers] = useState<OrgMember[]>([]);
+	const [members, setMembers] = useState<User[]>([]);
 	const [membersLoading, setMembersLoading] = useState(false);
 	const [search, setSearch] = useState("");
 	const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -201,8 +203,7 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 		if (!orgId) return;
 		setMembersLoading(true);
 		try {
-			const resp = await orgAdminApi.listOrgMembers({
-				org_id: orgId,
+			const resp = await orgAdminApi.listUsers({
 				department_id: selectedId ?? undefined,
 				list_all: true,
 			});
@@ -227,7 +228,16 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 	const filteredTree = useMemo(() => filterDepartmentTree(tree, search), [tree, search]);
 	const departmentCount = useMemo(() => countDepartments(tree), [tree]);
 	const selectedDepartment = departments.find((item) => item.id === selectedId) ?? null;
-	const isDefaultUser = user?.uin === user?.currentOrg?.createdByUin;
+	// 中文注释：当前组织对象未必携带创建人，优先从 AuthSession 的组织列表取对应组织的创建人。
+	const createdByUserId =
+		user?.organizations?.find((org) => org.id === orgId)?.createdByUserId ??
+		user?.currentOrg?.createdByUserId;
+	const isDefaultUser = user?.userId === createdByUserId;
+
+	useEffect(() => {
+		// 中文注释：通讯录依赖组织创建人字段控制成员管理按钮，打开页面时刷新最新会话信息。
+		void refreshAuthSession();
+	}, [refreshAuthSession]);
 
 	const openCreateDialog = (parentId: number, parentName: string) => {
 		setDialogMode({ type: "create", parentId, parentName });
@@ -244,34 +254,55 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 		setDialogValue("");
 	};
 
-	const handleCreateMember = async (name: string, phone: string, departmentIds: number[]) => {
+	const handleAddMember = async (
+		name: string,
+		phone: string,
+		email: string,
+		departmentIds: number[],
+	) => {
 		if (!orgId) return;
 		setSubmitting(true);
 		try {
-			await orgAdminApi.createOrgMember({
+			// 中文注释：CreateUser 会按手机号复用已注册账号或创建账号，并绑定到当前组织。
+			await orgAdminApi.createUser({
 				name: name.trim(),
 				phone: phone.trim(),
+				email: email.trim() || undefined,
 				department_ids: departmentIds,
 			});
-			toast.success("成员已创建");
+			toast.success("成员已添加");
 			setMemberDialog({ open: false });
 			await loadMembers();
 		} catch (err) {
-			const message = err instanceof Error ? err.message : "创建成员失败";
+			const message = err instanceof Error ? err.message : "添加成员失败";
 			toast.error(message);
 		} finally {
 			setSubmitting(false);
 		}
 	};
 
-	const handleUpdateMember = async (id: number, name: string, departmentIds: number[]) => {
+	const handleDeleteMember = async (member: User) => {
+		if (!window.confirm(`确定要删除“${member.name ?? "该成员"}”吗？`)) return;
+		setSubmitting(true);
+		try {
+			await orgAdminApi.deleteUser({ public_id: member.public_id });
+			toast.success("成员已删除");
+			await loadMembers();
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "删除成员失败";
+			toast.error(message);
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	const handleUpdateMember = async (publicId: string, name: string) => {
 		if (!orgId) return;
 		setSubmitting(true);
 		try {
-			await orgAdminApi.updateOrgMember({
-				id,
+			await orgAdminApi.updateUser({
+				public_id: publicId,
 				name: name.trim(),
-				department_ids: departmentIds,
 			});
 			toast.success("成员已更新");
 			setEditMemberDialog({ open: false });
@@ -402,7 +433,7 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 								onClick={() => setMemberDialog({ open: true, defaultDepartmentId: selectedId })}
 							>
 								<Plus className="mr-1 size-4" />
-								创建成员
+								添加成员
 							</Button>
 						)}
 					</div>
@@ -418,7 +449,7 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 							{isDefaultUser ? (
 								<>
 									<p className="mt-2 max-w-sm text-xs leading-relaxed text-[var(--leros-text-subtle)]">
-										点击下方按钮创建成员到当前组织
+										点击下方按钮通过手机号添加成员到当前组织
 										{selectedDepartment ? `或「${selectedDepartment.name}」部门` : ""}
 									</p>
 									<Button
@@ -427,7 +458,7 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 										onClick={() => setMemberDialog({ open: true, defaultDepartmentId: selectedId })}
 									>
 										<Plus className="mr-1 size-4" />
-										创建成员
+										添加成员
 									</Button>
 								</>
 							) : (
@@ -450,33 +481,36 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 								</TableHeader>
 								<TableBody>
 									{members.map((member) => (
-										<TableRow key={member.id}>
-											<TableCell className="font-medium">{member.user_name ?? "未命名"}</TableCell>
+										<TableRow key={member.public_id}>
+											<TableCell className="font-medium">{member.name ?? "未命名"}</TableCell>
 											<TableCell>
-												<div className="flex flex-wrap gap-1">
-													{(member.departments ?? []).map((dept) => (
-														<Badge
-															key={dept.id}
-															variant={dept.is_primary ? "default" : "secondary"}
-														>
-															{dept.name}
-														</Badge>
-													))}
-												</div>
+												{selectedDepartment ? <Badge>{selectedDepartment.name}</Badge> : "-"}
 											</TableCell>
-											<TableCell>{member.user_phone ?? "-"}</TableCell>
+											<TableCell>{member.phone ?? "-"}</TableCell>
 											<TableCell>{formatMemberCreatedAt(member.created_at)}</TableCell>
 											<TableCell className="text-right">
 												{isDefaultUser && (
-													<Button
-														type="button"
-														variant="ghost"
-														size="sm"
-														onClick={() => setEditMemberDialog({ open: true, member })}
-													>
-														<Pencil className="mr-1 size-3.5" />
-														编辑
-													</Button>
+													<>
+														<Button
+															type="button"
+															variant="ghost"
+															size="sm"
+															onClick={() => setEditMemberDialog({ open: true, member })}
+														>
+															<Pencil className="mr-1 size-3.5" />
+															编辑
+														</Button>
+														<Button
+															type="button"
+															variant="ghost"
+															size="sm"
+															disabled={submitting}
+															onClick={() => void handleDeleteMember(member)}
+														>
+															<Trash2 className="mr-1 size-3.5" />
+															删除
+														</Button>
+													</>
 												)}
 											</TableCell>
 										</TableRow>
@@ -539,18 +573,17 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 			</Dialog>
 
 			{memberDialog.open && (
-				<CreateMemberDialog
+				<AddMemberDialog
 					departments={departments}
 					defaultDepartmentId={memberDialog.defaultDepartmentId}
 					orgName={orgName}
 					submitting={submitting}
 					onClose={() => setMemberDialog({ open: false })}
-					onSubmit={handleCreateMember}
+					onSubmit={handleAddMember}
 				/>
 			)}
 			{editMemberDialog.open && (
-				<EditMemberDialog
-					departments={departments}
+				<EditUserDialog
 					member={editMemberDialog.member}
 					submitting={submitting}
 					onClose={() => setEditMemberDialog({ open: false })}
@@ -561,25 +594,26 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 	);
 }
 
-type CreateMemberDialogProps = {
+type AddMemberDialogProps = {
 	departments: Department[];
 	defaultDepartmentId: number | null;
 	orgName: string;
 	submitting: boolean;
 	onClose: () => void;
-	onSubmit: (name: string, phone: string, departmentIds: number[]) => void;
+	onSubmit: (name: string, phone: string, email: string, departmentIds: number[]) => void;
 };
 
-function CreateMemberDialog({
+function AddMemberDialog({
 	departments,
 	defaultDepartmentId,
 	orgName,
 	submitting,
 	onClose,
 	onSubmit,
-}: CreateMemberDialogProps) {
+}: AddMemberDialogProps) {
 	const [name, setName] = useState("");
 	const [phone, setPhone] = useState("");
+	const [email, setEmail] = useState("");
 	const [selectedIds, setSelectedIds] = useState<number[]>(
 		defaultDepartmentId ? [defaultDepartmentId] : [],
 	);
@@ -612,7 +646,7 @@ function CreateMemberDialog({
 		const trimmedName = name.trim();
 		const trimmedPhone = phone.trim();
 		if (!trimmedName) {
-			toast.error("用户名不能为空");
+			toast.error("姓名不能为空");
 			return;
 		}
 		if (!trimmedPhone) {
@@ -623,16 +657,17 @@ function CreateMemberDialog({
 			toast.error("请选择所属部门");
 			return;
 		}
-		onSubmit(trimmedName, trimmedPhone, selectedIds);
+		onSubmit(trimmedName, trimmedPhone, email, selectedIds);
 	};
 
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent className="flex h-[min(640px,85vh)] max-h-[720px] w-[min(520px,95vw)] max-w-none flex-col gap-0 p-0 sm:max-w-none">
 				<DialogHeader className="shrink-0 px-6 py-4">
-					<DialogTitle>创建成员</DialogTitle>
+					<DialogTitle>添加成员</DialogTitle>
 					<DialogDescription>
-						创建成员到「{orgName}」，第一个选择的部门将作为主部门
+						输入手机号后会复用已有账号或创建账号，并添加到「{orgName}
+						」；第一个选择的部门将作为主部门
 					</DialogDescription>
 				</DialogHeader>
 
@@ -642,13 +677,13 @@ function CreateMemberDialog({
 							htmlFor="create-member-name"
 							className="text-sm font-medium text-[var(--leros-text-strong)]"
 						>
-							用户名
+							姓名
 						</label>
 						<Input
 							id="create-member-name"
 							value={name}
 							onChange={(event) => setName(event.target.value)}
-							placeholder="请输入用户名"
+							placeholder="请输入成员姓名"
 							autoFocus
 						/>
 					</div>
@@ -665,6 +700,21 @@ function CreateMemberDialog({
 							value={phone}
 							onChange={(event) => setPhone(event.target.value)}
 							placeholder="请输入手机号"
+						/>
+					</div>
+
+					<div className="space-y-2">
+						<label
+							htmlFor="create-member-email"
+							className="text-sm font-medium text-[var(--leros-text-strong)]"
+						>
+							邮箱（选填）
+						</label>
+						<Input
+							id="create-member-email"
+							value={email}
+							onChange={(event) => setEmail(event.target.value)}
+							placeholder="请输入邮箱"
 						/>
 					</div>
 
@@ -750,49 +800,15 @@ function CreateMemberDialog({
 	);
 }
 
-type EditMemberDialogProps = {
-	departments: Department[];
-	member: OrgMember;
+type EditUserDialogProps = {
+	member: User;
 	submitting: boolean;
 	onClose: () => void;
-	onSubmit: (id: number, name: string, departmentIds: number[]) => void;
+	onSubmit: (publicId: string, name: string) => void;
 };
 
-function EditMemberDialog({
-	departments,
-	member,
-	submitting,
-	onClose,
-	onSubmit,
-}: EditMemberDialogProps) {
-	const [name, setName] = useState(member.user_name ?? "");
-	const [selectedIds, setSelectedIds] = useState<number[]>(
-		(member.departments ?? []).map((dept) => dept.department_id),
-	);
-	const [pickerOpen, setPickerOpen] = useState(false);
-
-	const toggleDepartment = (id: number) => {
-		setSelectedIds((prev) => {
-			if (prev.includes(id)) {
-				return prev.filter((item) => item !== id);
-			}
-			return [...prev, id];
-		});
-	};
-
-	const departmentById = useMemo(() => {
-		const map = new Map<number, Department>();
-		for (const department of departments) {
-			map.set(department.id, department);
-		}
-		return map;
-	}, [departments]);
-
-	const selectedDepartments = useMemo(() => {
-		return selectedIds
-			.map((id) => departmentById.get(id))
-			.filter((item): item is Department => item !== undefined);
-	}, [selectedIds, departmentById]);
+function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialogProps) {
+	const [name, setName] = useState(member.name ?? "");
 
 	const handleSubmit = () => {
 		const trimmedName = name.trim();
@@ -800,126 +816,45 @@ function EditMemberDialog({
 			toast.error("用户名不能为空");
 			return;
 		}
-		if (selectedIds.length === 0) {
-			toast.error("请选择所属部门");
-			return;
-		}
-		onSubmit(member.id, trimmedName, selectedIds);
+		onSubmit(member.public_id, trimmedName);
 	};
 
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
-			<DialogContent className="flex h-[min(640px,85vh)] max-h-[720px] w-[min(520px,95vw)] max-w-none flex-col gap-0 p-0 sm:max-w-none">
-				<DialogHeader className="shrink-0 px-6 py-4">
+			<DialogContent className="w-[min(440px,95vw)] max-w-none">
+				<DialogHeader>
 					<DialogTitle>编辑成员</DialogTitle>
-					<DialogDescription>修改成员的用户名和所属部门，手机号不可修改</DialogDescription>
+					<DialogDescription>当前仅支持修改成员用户名，部门归属暂不支持编辑。</DialogDescription>
 				</DialogHeader>
-
-				<div className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-2">
+				<div className="space-y-4">
 					<div className="space-y-2">
 						<label
-							htmlFor="edit-member-name"
+							htmlFor="edit-user-name"
 							className="text-sm font-medium text-[var(--leros-text-strong)]"
 						>
 							用户名
 						</label>
 						<Input
-							id="edit-member-name"
+							id="edit-user-name"
 							value={name}
 							onChange={(event) => setName(event.target.value)}
-							placeholder="请输入用户名"
 							autoFocus
 						/>
 					</div>
-
 					<div className="space-y-2">
-						<label
-							htmlFor="edit-member-phone"
-							className="text-sm font-medium text-[var(--leros-text-strong)]"
-						>
-							手机号
-						</label>
-						<Input id="edit-member-phone" value={member.user_phone ?? "-"} disabled />
-					</div>
-
-					<div className="flex min-h-0 flex-1 flex-col gap-2">
-						<div className="flex items-center justify-between">
-							<span className="text-sm font-medium text-[var(--leros-text-strong)]">所属部门</span>
-							<span className="text-xs text-[var(--leros-text-subtle)]">
-								已选 {selectedIds.length} 个
-							</span>
-						</div>
-						<div className="flex min-h-0 flex-1 flex-col gap-2 rounded-xl border border-[var(--leros-control-border)] p-3">
-							{selectedDepartments.length === 0 ? (
-								<p className="text-sm text-[var(--leros-text-subtle)]">暂未选择部门</p>
-							) : (
-								<ScrollArea className="flex-1">
-									<div className="flex flex-wrap gap-2">
-										{selectedDepartments.map((department, index) => (
-											<Badge
-												key={department.id}
-												variant={index === 0 ? "default" : "secondary"}
-												className="gap-1"
-											>
-												{index === 0 && <span className="text-[10px] opacity-80">主</span>}
-												{department.name}
-												<button
-													type="button"
-													className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
-													onClick={() => toggleDepartment(department.id)}
-												>
-													<X className="size-3" />
-												</button>
-											</Badge>
-										))}
-									</div>
-								</ScrollArea>
-							)}
-							<div className="flex gap-2 pt-2">
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={() => setPickerOpen(true)}
-								>
-									选择部门
-								</Button>
-								{selectedIds.length > 0 && (
-									<Button
-										type="button"
-										variant="ghost"
-										size="sm"
-										onClick={() => setSelectedIds([])}
-									>
-										清空
-									</Button>
-								)}
-							</div>
-						</div>
+						<span className="text-sm font-medium text-[var(--leros-text-strong)]">手机号</span>
+						<Input value={member.phone ?? "-"} disabled />
 					</div>
 				</div>
-
-				<DialogFooter className="shrink-0 px-6 py-4">
+				<DialogFooter>
 					<Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
 						取消
 					</Button>
 					<Button type="button" onClick={handleSubmit} disabled={submitting}>
-						{submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
 						保存
 					</Button>
 				</DialogFooter>
 			</DialogContent>
-
-			<DepartmentPickerDialog
-				departments={departments}
-				selectedIds={selectedIds}
-				open={pickerOpen}
-				onClose={() => setPickerOpen(false)}
-				onConfirm={(ids) => {
-					setSelectedIds(ids);
-					setPickerOpen(false);
-				}}
-			/>
 		</Dialog>
 	);
 }

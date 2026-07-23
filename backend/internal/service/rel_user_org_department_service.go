@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
@@ -15,8 +16,8 @@ import (
 var _ contract.MemberDepartmentService = (*accountOrganizationService)(nil)
 
 // NewMemberDepartmentService 创建组织成员部门关联服务。
-func NewMemberDepartmentService(d *gorm.DB) contract.MemberDepartmentService {
-	return &accountOrganizationService{db: d}
+func NewMemberDepartmentService(d *gorm.DB, orgRepo account.OrgRepository, deptRepo account.DepartmentRepository) contract.MemberDepartmentService {
+	return &accountOrganizationService{db: d, orgRepo: orgRepo, deptRepo: deptRepo}
 }
 
 func (s *accountOrganizationService) CreateMemberDepartment(ctx context.Context, req *contract.CreateMemberDepartmentRequest) (*contract.MemberDepartment, error) {
@@ -30,12 +31,11 @@ func (s *accountOrganizationService) CreateMemberDepartment(ctx context.Context,
 	if req.DepartmentID == 0 {
 		return nil, errors.New("部门ID不能为空")
 	}
-	userOrg, err := s.verifyMemberDepartmentRefs(ctx, s.db, caller.OrgID, req.Uin, req.DepartmentID)
-	if err != nil {
+	if err := s.verifyMemberDepartmentRefs(ctx, caller.OrgID, req.Uin, req.DepartmentID); err != nil {
 		return nil, err
 	}
 
-	existing, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, s.db, req.Uin, userOrg.OrgID)
+	existing, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, s.db, req.Uin, caller.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func (s *accountOrganizationService) CreateMemberDepartment(ctx context.Context,
 
 	relation := &types.MemberDepartment{
 		Uin:          req.Uin,
-		OrgID:        userOrg.OrgID,
+		OrgID:        caller.OrgID,
 		DepartmentID: req.DepartmentID,
 		IsPrimary:    req.IsPrimary,
 	}
@@ -108,13 +108,12 @@ func (s *accountOrganizationService) UpdateMemberDepartment(ctx context.Context,
 			}
 			nextDepartmentID = *req.DepartmentID
 		}
-		userOrg, verifyErr := s.verifyMemberDepartmentRefs(ctx, tx, caller.OrgID, nextUin, nextDepartmentID)
-		if verifyErr != nil {
-			return verifyErr
+		if err := s.verifyMemberDepartmentRefs(ctx, caller.OrgID, nextUin, nextDepartmentID); err != nil {
+			return err
 		}
 
 		relation.Uin = nextUin
-		relation.OrgID = userOrg.OrgID
+		relation.OrgID = caller.OrgID
 		relation.DepartmentID = nextDepartmentID
 
 		if req.Uin != nil || req.DepartmentID != nil {
@@ -191,30 +190,27 @@ func (s *accountOrganizationService) ListMemberDepartments(ctx context.Context, 
 	return &contract.MemberDepartmentList{Total: total, Offset: req.Offset, Limit: req.Limit, Items: items}, nil
 }
 
-// verifyMemberDepartmentRefs 校验 uin 和 departmentID 都属于 callerOrgID，返回查到的 UserOrg 供调用方使用。
-func (s *accountOrganizationService) verifyMemberDepartmentRefs(ctx context.Context, tx *gorm.DB, callerOrgID, uin, departmentID uint) (*types.UserOrg, error) {
-	userOrg, err := db.GetUserOrgByUinAndOrgID(ctx, tx, uin, callerOrgID)
+// verifyMemberDepartmentRefs 校验 uin 和 departmentID 都属于 callerOrgID。
+func (s *accountOrganizationService) verifyMemberDepartmentRefs(ctx context.Context, callerOrgID, uin, departmentID uint) error {
+	orgMember, err := s.orgRepo.GetOrgMember(ctx, 0, uin)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if userOrg == nil {
-		return nil, errors.New("用户组织不存在")
-	}
-	if err := verifyAccountOrgEntity(userOrg.OrgID, callerOrgID); err != nil {
-		return nil, err
+	if orgMember == nil {
+		return errors.New("用户组织不存在")
 	}
 
-	department, err := db.GetDepartmentByID(ctx, tx, departmentID)
+	department, err := s.deptRepo.GetDepartment(ctx, departmentID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if department == nil {
-		return nil, errors.New("部门不存在")
+		return errors.New("部门不存在")
 	}
-	if err := verifyAccountOrgEntity(department.OrgID, userOrg.OrgID); err != nil {
-		return nil, errors.New("部门不属于该用户组织")
+	if department.OrgID != callerOrgID {
+		return errors.New("部门不属于该用户组织")
 	}
-	return userOrg, nil
+	return nil
 }
 
 func convertToContractMemberDepartment(relation *types.MemberDepartment) *contract.MemberDepartment {

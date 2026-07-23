@@ -117,8 +117,8 @@ func CountDepartments(ctx context.Context, d *gorm.DB, opt *types.PageQuery) (in
 	return total, nil
 }
 
-// ListDepartments 分页查询组织部门。
-func ListDepartments(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.Department, int64, error) {
+// ListDepartment 分页查询组织部门。
+func ListDepartment(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.Department, int64, error) {
 	var entities []*types.Department
 	var total int64
 	if opt == nil {
@@ -166,6 +166,21 @@ func ListDepartmentSiblings(ctx context.Context, d *gorm.DB, parentID uint, excl
 	return entities, nil
 }
 
+func ListDepartmentSiblingsByID(ctx context.Context, d *gorm.DB, id uint) ([]*types.Department, error) {
+	var dept types.Department
+	if err := d.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&dept).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return ListDepartmentSiblings(ctx, d, dept.ParentID, id)
+}
+
+func ListChildDepartments(ctx context.Context, d *gorm.DB, parentID uint) ([]*types.Department, error) {
+	return ListDepartmentSiblings(ctx, d, parentID, 0)
+}
+
 // ListDepartmentAndDescendantIDs 查询指定部门及其所有子部门的 ID。
 func ListDepartmentAndDescendantIDs(ctx context.Context, d *gorm.DB, deptID, orgID uint) ([]uint, error) {
 	var ids []uint
@@ -205,7 +220,7 @@ func buildDepartmentQuery(ctx context.Context, d *gorm.DB, opt *types.PageQuery)
 				query = query.Where("name LIKE ?", "%"+filter.Value[0]+"%")
 			}
 		default:
-			logs.WarnContextf(ctx, "[department][ListDepartments] invalid filter field: %s", filter.Field)
+			logs.WarnContextf(ctx, "[department][ListDepartment] invalid filter field: %s", filter.Field)
 		}
 	}
 	return query

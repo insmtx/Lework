@@ -1,26 +1,69 @@
 basePath: /v1
 definitions:
-  contract.AddFileRequest:
+  contract.ChooseUinRequest:
     properties:
-      public_id:
+      login_way:
+        type: integer
+      refresh_token:
         type: string
+      uin:
+        type: integer
+      user_id:
+        type: integer
+    type: object
+  contract.CreateDepartmentRequest:
+    properties:
+      name:
+        type: string
+      org_id:
+        type: integer
+      parent_id:
+        type: integer
+      sort:
+        type: integer
+    type: object
+  contract.CreateDigitalAssistantFromTemplateRequest:
+    properties:
+      avatar:
+        type: string
+      description:
+        type: string
+      expertise:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      role_name:
+        type: string
+      system_prompt:
+        type: string
+      template_id:
+        type: integer
     required:
-    - public_id
+    - template_id
     type: object
   contract.CreateDigitalAssistantRequest:
     properties:
       avatar:
         type: string
-      code:
-        type: string
       description:
         type: string
+      expertise:
+        items:
+          type: string
+        type: array
       name:
+        type: string
+      role_name:
+        type: string
+      source:
         type: string
       system_prompt:
         type: string
+      template_id:
+        type: integer
     required:
-    - code
     - name
     type: object
   contract.CreateLLMModelRequest:
@@ -49,21 +92,44 @@ definitions:
     - base_url
     - model
     type: object
+  contract.CreateMemberDepartmentRequest:
+    properties:
+      department_id:
+        type: integer
+      is_primary:
+        type: boolean
+      uin:
+        type: integer
+    required:
+    - department_id
+    - uin
+    type: object
   contract.CreateOrgMemberRequest:
     properties:
+      department_ids:
+        items:
+          type: integer
+        type: array
       is_default:
         type: boolean
+      name:
+        type: string
       org_id:
+        type: string
+      phone:
         type: string
       user_id:
         type: string
-    required:
-    - org_id
-    - user_id
     type: object
   contract.CreateOrgRequest:
     properties:
+      address:
+        type: string
       code:
+        type: string
+      description:
+        type: string
+      logo:
         type: string
       name:
         type: string
@@ -71,14 +137,30 @@ definitions:
         type: string
       type:
         type: string
-    required:
-    - code
-    - name
+      user_display_name:
+        type: string
+      website:
+        type: string
+    type: object
+  contract.CreateOrganizationRequest:
+    properties:
+      name:
+        type: string
+      refresh_token:
+        type: string
+      user_display_name:
+        type: string
+      user_id:
+        type: integer
     type: object
   contract.CreateProjectRequest:
     properties:
       description:
         type: string
+      members:
+        items:
+          $ref: '#/definitions/contract.MemberInput'
+        type: array
       metadata:
         additionalProperties: true
         type: object
@@ -92,7 +174,7 @@ definitions:
   contract.CreateSessionRequest:
     properties:
       assistant_id:
-        type: integer
+        type: string
       expired_at:
         type: string
       metadata:
@@ -129,36 +211,31 @@ definitions:
     type: object
   contract.CreateUserRequest:
     properties:
-      avatar_url:
-        type: string
-      bio:
-        type: string
-      company:
-        type: string
+      department_ids:
+        items:
+          type: integer
+        type: array
       email:
-        type: string
-      github_login:
-        type: string
-      location:
         type: string
       name:
         type: string
-      password:
+      phone:
         type: string
-    required:
-    - github_login
-    - name
     type: object
   contract.DigitalAssistant:
     properties:
       avatar:
         type: string
-      code:
-        type: string
       created_at:
         type: string
+      deployment:
+        $ref: '#/definitions/contract.WorkerDeploymentStatus'
       description:
         type: string
+      expertise:
+        items:
+          type: string
+        type: array
       id:
         type: integer
       name:
@@ -167,13 +244,38 @@ definitions:
         type: integer
       owner_id:
         type: integer
+      public_id:
+        type: string
+      role_name:
+        type: string
+      source:
+        type: string
       status:
         type: string
       system_prompt:
         type: string
+      template_id:
+        type: integer
       updated_at:
         type: string
       version:
+        type: integer
+    type: object
+  contract.ListDepartmentRequest:
+    properties:
+      keyword:
+        type: string
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      name:
+        type: string
+      offset:
+        type: integer
+      org_id:
+        type: integer
+      parent_id:
         type: integer
     type: object
   contract.ListDigitalAssistantRequest:
@@ -186,6 +288,8 @@ definitions:
         type: boolean
       offset:
         type: integer
+      source:
+        type: string
       status:
         type: string
     type: object
@@ -204,8 +308,12 @@ definitions:
       status:
         type: string
     type: object
-  contract.ListOrgMembersRequest:
+  contract.ListMemberDepartmentsRequest:
     properties:
+      department_id:
+        type: integer
+      is_primary:
+        type: boolean
       limit:
         type: integer
       list_all:
@@ -213,7 +321,22 @@ definitions:
       offset:
         type: integer
       org_id:
-        type: string
+        type: integer
+      uin:
+        type: integer
+    type: object
+  contract.ListOrgMembersRequest:
+    properties:
+      department_id:
+        type: integer
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+      org_id:
+        type: integer
       user_id:
         type: string
     type: object
@@ -228,6 +351,21 @@ definitions:
       offset:
         type: integer
       status:
+        type: string
+    type: object
+  contract.ListProjectActivitiesRequest:
+    properties:
+      cursor:
+        type: string
+      limit:
+        type: integer
+      operator_id:
+        type: string
+      operator_ids:
+        items:
+          type: string
+        type: array
+      project_id:
         type: string
     type: object
   contract.ListProjectsRequest:
@@ -245,10 +383,8 @@ definitions:
     type: object
   contract.ListSessionsRequest:
     properties:
-      assistant_code:
-        type: string
       assistant_id:
-        type: integer
+        type: string
       keyword:
         type: string
       limit:
@@ -281,10 +417,12 @@ definitions:
       task_type:
         type: string
     type: object
-  contract.ListUsersRequest:
+  contract.ListUinRequest:
+    type: object
+  contract.ListUserRequest:
     properties:
-      github_login:
-        type: string
+      department_id:
+        type: integer
       keyword:
         type: string
       limit:
@@ -300,9 +438,6 @@ definitions:
         type: string
       password:
         type: string
-    required:
-    - email
-    - password
     type: object
   contract.LoginByPhoneCodeRequest:
     properties:
@@ -310,37 +445,32 @@ definitions:
         type: string
       phone:
         type: string
-    required:
-    - code
-    - phone
     type: object
-  contract.NewMessageRequest:
+  contract.MemberInput:
     properties:
-      assistant_id:
-        type: integer
-      attachments:
-        items:
-          $ref: '#/definitions/types.MessageAttachment'
-        type: array
-      content:
+      id:
+        description: user 传 public_id, assistant 传 public_id
         type: string
-      message_type:
+      role:
+        description: 仅 type=user 生效，可选 owner|admin|member，空值默认 member
         type: string
-      objective:
-        type: string
-      project_id:
-        type: string
-      task_id:
+      type:
+        description: '"user" | "assistant"'
         type: string
     required:
-    - content
+    - id
+    - type
     type: object
   contract.RefreshTokenRequest:
     properties:
+      login_way:
+        type: integer
       refresh_token:
         type: string
-    required:
-    - refresh_token
+      uin_id:
+        type: integer
+      user_id:
+        type: integer
     type: object
   contract.RegisterByEmailRequest:
     properties:
@@ -352,17 +482,18 @@ definitions:
         type: string
       password:
         type: string
-    required:
-    - confirm_password
-    - email
-    - password
     type: object
   contract.SendPhoneLoginCodeRequest:
     properties:
       phone:
         type: string
-    required:
-    - phone
+    type: object
+  contract.SwitchOrganizationRequest:
+    properties:
+      login_way:
+        type: integer
+      uin:
+        type: integer
     type: object
   contract.TestLLMModelRequest:
     properties:
@@ -379,11 +510,22 @@ definitions:
       provider:
         type: string
     type: object
+  contract.WorkerDeploymentStatus:
+    properties:
+      last_error:
+        type: string
+      public_id:
+        type: string
+      status:
+        type: string
+    type: object
   dto.BaseResponse:
     properties:
       code:
         type: integer
       message:
+        type: string
+      req_id:
         type: string
     type: object
   dto.CreateDigitalAssistantResponse:
@@ -403,6 +545,13 @@ definitions:
         type: string
       message:
         type: string
+      req_id:
+        type: string
+    type: object
+  dto.GlobalConfigData:
+    properties:
+      edition:
+        type: string
     type: object
   dto.Response:
     properties:
@@ -411,9 +560,15 @@ definitions:
       data: {}
       message:
         type: string
+      req_id:
+        type: string
     type: object
   handler.AddMessageRequest:
     properties:
+      assistant_ids:
+        items:
+          type: string
+        type: array
       attachments:
         items:
           $ref: '#/definitions/types.MessageAttachment'
@@ -424,6 +579,12 @@ definitions:
         type: array
       content:
         type: string
+      execution_mode:
+        allOf:
+        - $ref: '#/definitions/types.ExecutionMode'
+        enum:
+        - default
+        - plan
       message_type:
         type: string
       metadata:
@@ -469,13 +630,6 @@ definitions:
     required:
     - message_id
     type: object
-  handler.DeleteOrgMemberRequest:
-    properties:
-      id:
-        type: integer
-    required:
-    - id
-    type: object
   handler.DeleteOrgRequest:
     properties:
       public_id:
@@ -513,10 +667,10 @@ definitions:
     type: object
   handler.GetDigitalAssistantRequest:
     properties:
-      code:
-        type: string
       id:
         type: integer
+      public_id:
+        type: string
     type: object
   handler.GetLLMModelRequest:
     properties:
@@ -569,13 +723,20 @@ definitions:
     type: object
   handler.GetUserRequest:
     properties:
-      github_login:
+      phone:
         type: string
       public_id:
         type: string
     type: object
+  handler.GlobalEventsRequest:
+    properties:
+      replay_since_seq:
+        type: integer
+    type: object
   handler.SessionEventsRequest:
     properties:
+      assistant_id:
+        type: string
       replay:
         type: boolean
       session_id:
@@ -589,9 +750,15 @@ definitions:
         type: string
       description:
         type: string
+      expertise:
+        items:
+          type: string
+        type: array
       id:
         type: integer
       name:
+        type: string
+      role_name:
         type: string
       system_prompt:
         type: string
@@ -636,10 +803,16 @@ definitions:
     type: object
   handler.UpdateOrgMemberRequest:
     properties:
+      department_ids:
+        items:
+          type: integer
+        type: array
       id:
         type: integer
       is_default:
         type: boolean
+      name:
+        type: string
       org_id:
         type: string
     required:
@@ -647,6 +820,12 @@ definitions:
     type: object
   handler.UpdateOrgRequest:
     properties:
+      address:
+        type: string
+      description:
+        type: string
+      logo:
+        type: string
       name:
         type: string
       public_id:
@@ -655,6 +834,8 @@ definitions:
         type: string
       type:
         type: string
+      website:
+        type: string
     required:
     - public_id
     type: object
@@ -662,6 +843,10 @@ definitions:
     properties:
       description:
         type: string
+      members:
+        items:
+          $ref: '#/definitions/contract.MemberInput'
+        type: array
       metadata:
         additionalProperties: true
         type: object
@@ -719,29 +904,121 @@ definitions:
     properties:
       avatar_url:
         type: string
-      bio:
-        type: string
-      company:
-        type: string
       email:
         type: string
-      github_login:
-        type: string
-      location:
-        type: string
       name:
-        type: string
-      password:
         type: string
       public_id:
         type: string
     required:
     - public_id
     type: object
+  handler.batchCheckPermissionItem:
+    properties:
+      action:
+        type: string
+      resource:
+        properties:
+          public_id:
+            type: string
+          type:
+            type: string
+        required:
+        - public_id
+        - type
+        type: object
+    required:
+    - action
+    - resource
+    type: object
+  handler.batchCheckPermissionRequest:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handler.batchCheckPermissionItem'
+        type: array
+    required:
+    - items
+    type: object
+  handler.deleteDepartmentRequest:
+    properties:
+      id:
+        type: integer
+    required:
+    - id
+    type: object
+  handler.deleteMemberDepartmentRequest:
+    properties:
+      id:
+        type: integer
+    required:
+    - id
+    type: object
+  handler.getDepartmentRequest:
+    properties:
+      id:
+        type: integer
+    required:
+    - id
+    type: object
+  handler.getMemberDepartmentRequest:
+    properties:
+      id:
+        type: integer
+    required:
+    - id
+    type: object
+  handler.issueWorkerTokenRequest:
+    properties:
+      bootstrap_token:
+        type: string
+      org_id:
+        type: integer
+      worker_id:
+        type: integer
+    required:
+    - org_id
+    - worker_id
+    type: object
+  handler.updateDepartmentRequest:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      org_id:
+        type: integer
+      parent_id:
+        type: integer
+      sort:
+        type: integer
+    required:
+    - id
+    type: object
+  handler.updateMemberDepartmentRequest:
+    properties:
+      department_id:
+        type: integer
+      id:
+        type: integer
+      is_primary:
+        type: boolean
+      uin:
+        type: integer
+    required:
+    - id
+    type: object
+  types.ExecutionMode:
+    enum:
+    - default
+    - plan
+    type: string
+    x-enum-varnames:
+    - ExecutionModeDefault
+    - ExecutionModePlan
   types.MessageAttachment:
     properties:
       PublicURL:
-        description: resolved at runtime, not exposed to front end
         type: string
       file_upload_id:
         type: string
@@ -751,11 +1028,15 @@ definitions:
         type: string
       purpose:
         type: string
+      relative_path:
+        type: string
       size:
         type: integer
     type: object
   types.MessageChunk:
     properties:
+      assistant_id:
+        type: string
       last_seq:
         type: integer
       payload:
@@ -769,6 +1050,10 @@ definitions:
     type: object
   types.MessageUsage:
     properties:
+      cache_input_tokens:
+        type: integer
+      cache_output_tokens:
+        type: integer
       input_tokens:
         type: integer
       output_tokens:
@@ -842,6 +1127,95 @@ paths:
       summary: 添加会话消息
       tags:
       - Session
+  /AuthSession:
+    get:
+      description: 获取当前用户、当前组织和可切换组织列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 当前登录会话
+      tags:
+      - Auth
+  /BatchCheckPermission:
+    post:
+      consumes:
+      - application/json
+      description: 批量检查当前用户对多个资源/动作的权限（用于前端控制按钮可见性）
+      parameters:
+      - description: 批量权限检查请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.batchCheckPermissionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 批量检查权限
+      tags:
+      - Permission
+  /ChooseUin:
+    post:
+      consumes:
+      - application/json
+      description: 使用 refresh token 选择组织并获取访问令牌
+      parameters:
+      - description: 选择组织请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ChooseUinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 选择组织
+      tags:
+      - Auth
   /ClearSessionMessages:
     post:
       consumes:
@@ -880,6 +1254,40 @@ paths:
       summary: 清空会话消息
       tags:
       - Session
+  /CreateDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新部门
+      parameters:
+      - description: 创建部门请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建部门
+      tags:
+      - Department
   /CreateDigitalAssistant:
     post:
       consumes:
@@ -912,6 +1320,40 @@ paths:
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
       summary: 创建数字助手
+      tags:
+      - DigitalAssistant
+  /CreateDigitalAssistantFromTemplate:
+    post:
+      consumes:
+      - application/json
+      description: 使用 AI 队友模板创建一个新的数字助手实例
+      parameters:
+      - description: 基于模板创建数字助手请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateDigitalAssistantFromTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.CreateDigitalAssistantResponse'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 基于模板创建数字助手
       tags:
       - DigitalAssistant
   /CreateLLMModel:
@@ -948,11 +1390,45 @@ paths:
       summary: 创建LLM模型
       tags:
       - LLMModel
+  /CreateMemberDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 创建成员与部门的关联
+      parameters:
+      - description: 创建成员部门关系请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateMemberDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建成员部门关系
+      tags:
+      - MemberDepartment
   /CreateOrg:
     post:
       consumes:
       - application/json
-      description: 创建一个新组织
+      description: 创建一个新组织。已废弃，请使用 POST /v1/CreateOrganization 替代。
       parameters:
       - description: 创建组织请求
         in: body
@@ -979,7 +1455,7 @@ paths:
           description: 内部服务器错误
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
-      summary: 创建组织
+      summary: 创建组织（已废弃）
       tags:
       - Organization
   /CreateOrgMember:
@@ -1016,6 +1492,40 @@ paths:
       summary: 创建组织成员
       tags:
       - OrgMember
+  /CreateOrganization:
+    post:
+      consumes:
+      - application/json
+      description: 创建新组织/企业并切换当前登录组织
+      parameters:
+      - description: 创建组织请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.CreateOrganizationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 创建组织并切换
+      tags:
+      - Auth
   /CreateProject:
     post:
       consumes:
@@ -1152,6 +1662,44 @@ paths:
       summary: 创建用户
       tags:
       - User
+  /DeleteDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 根据 ID 删除部门
+      parameters:
+      - description: 删除部门请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.deleteDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 删除部门
+      tags:
+      - Department
   /DeleteDigitalAssistant:
     post:
       consumes:
@@ -1236,6 +1784,44 @@ paths:
       summary: 删除LLM模型
       tags:
       - LLMModel
+  /DeleteMemberDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 根据 ID 删除成员部门关联
+      parameters:
+      - description: 删除成员部门关系请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.deleteMemberDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 删除成员部门关系
+      tags:
+      - MemberDepartment
   /DeleteMessage:
     post:
       consumes:
@@ -1312,44 +1898,6 @@ paths:
       summary: 删除组织
       tags:
       - Organization
-  /DeleteOrgMember:
-    post:
-      consumes:
-      - application/json
-      description: 根据ID从组织中移除成员
-      parameters:
-      - description: 删除组织成员请求
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.DeleteOrgMemberRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 成功响应
-          schema:
-            $ref: '#/definitions/dto.Response'
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "401":
-          description: 未认证
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "404":
-          description: 资源不存在
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "500":
-          description: 内部服务器错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-      summary: 删除组织成员
-      tags:
-      - OrgMember
   /DeleteProject:
     post:
       consumes:
@@ -1567,11 +2115,49 @@ paths:
       summary: 获取默认LLM模型
       tags:
       - LLMModel
+  /GetDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 根据 ID 获取部门详情
+      parameters:
+      - description: 获取部门请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.getDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取部门
+      tags:
+      - Department
   /GetDigitalAssistant:
     post:
       consumes:
       - application/json
-      description: 根据ID或Code获取数字助手详情
+      description: 根据ID或PublicID获取数字助手详情
       parameters:
       - description: 获取数字助手请求
         in: body
@@ -1651,6 +2237,44 @@ paths:
       summary: 获取LLM模型详情
       tags:
       - LLMModel
+  /GetMemberDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 根据 ID 获取成员部门关系详情
+      parameters:
+      - description: 获取成员部门关系请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.getMemberDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取成员部门关系
+      tags:
+      - MemberDepartment
   /GetOrg:
     post:
       consumes:
@@ -1883,7 +2507,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: 根据PublicID或GithubLogin获取用户详情
+      description: 根据PublicID或Phone获取用户详情
       parameters:
       - description: 获取用户请求
         in: body
@@ -1917,6 +2541,62 @@ paths:
       summary: 获取用户详情
       tags:
       - User
+  /GlobalConfig:
+    get:
+      description: 返回服务端通用全局配置信息（当前返回 edition 字段）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.GlobalConfigData'
+              type: object
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取全局配置
+      tags:
+      - Global
+  /ListDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 查询部门列表
+      parameters:
+      - description: 查询部门列表请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 部门列表
+      tags:
+      - Department
   /ListDigitalAssistant:
     post:
       consumes:
@@ -1985,6 +2665,40 @@ paths:
       summary: 查询LLM模型列表
       tags:
       - LLMModel
+  /ListMemberDepartments:
+    post:
+      consumes:
+      - application/json
+      description: 分页查询成员部门关系列表
+      parameters:
+      - description: 查询成员部门关系列表请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListMemberDepartmentsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询成员部门关系列表
+      tags:
+      - MemberDepartment
   /ListOrgMembers:
     post:
       consumes:
@@ -2053,6 +2767,40 @@ paths:
       summary: 查询组织列表
       tags:
       - Organization
+  /ListProjectActivities:
+    post:
+      consumes:
+      - application/json
+      description: 按项目和操作人筛选项目操作动态
+      parameters:
+      - description: 查询项目动态请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListProjectActivitiesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询项目操作动态
+      tags:
+      - Project
   /ListProjects:
     post:
       consumes:
@@ -2155,7 +2903,37 @@ paths:
       summary: 查询任务列表
       tags:
       - Task
-  /ListUsers:
+  /ListUin:
+    post:
+      consumes:
+      - application/json
+      description: 获取当前登录用户的所有UIN（用户身份标识）列表，包含个人和企业身份
+      parameters:
+      - description: 查询请求（可为空）
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.ListUinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询用户身份标识列表
+      tags:
+      - User
+  /ListUser:
     post:
       consumes:
       - application/json
@@ -2166,7 +2944,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/contract.ListUsersRequest'
+          $ref: '#/definitions/contract.ListUserRequest'
       produces:
       - application/json
       responses:
@@ -2265,44 +3043,6 @@ paths:
       summary: 手机验证码登录
       tags:
       - Auth
-  /NewMessage:
-    post:
-      consumes:
-      - application/json
-      description: 原子创建 Project + Task + Session 并分配 AgentWorker
-      parameters:
-      - description: 新建消息请求
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/contract.NewMessageRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 成功响应
-          schema:
-            $ref: '#/definitions/dto.BaseResponse'
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "401":
-          description: 未认证
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "404":
-          description: 资源不存在
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "500":
-          description: 内部服务器错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-      summary: 首页新建消息
-      tags:
-      - Work
   /RefreshToken:
     post:
       consumes:
@@ -2435,6 +3175,40 @@ paths:
       summary: 订阅会话事件流
       tags:
       - Session
+  /SwitchOrganization:
+    post:
+      consumes:
+      - application/json
+      description: 切换当前登录组织并获取新的访问令牌
+      parameters:
+      - description: 切换组织请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.SwitchOrganizationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 切换组织
+      tags:
+      - Auth
   /TestLLMModel:
     post:
       consumes:
@@ -2469,6 +3243,44 @@ paths:
       summary: 测试LLM模型
       tags:
       - LLMModel
+  /UpdateDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 更新部门信息
+      parameters:
+      - description: 更新部门请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新部门
+      tags:
+      - Department
   /UpdateDigitalAssistant:
     post:
       consumes:
@@ -2595,6 +3407,44 @@ paths:
       summary: 更新LLM模型
       tags:
       - LLMModel
+  /UpdateMemberDepartment:
+    post:
+      consumes:
+      - application/json
+      description: 更新成员部门关联信息
+      parameters:
+      - description: 更新成员部门关系请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateMemberDepartmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新成员部门关系
+      tags:
+      - MemberDepartment
   /UpdateOrg:
     post:
       consumes:
@@ -2823,14 +3673,17 @@ paths:
       summary: 更新用户
       tags:
       - User
-  /files/{id}/download:
+  /files/download:
     get:
-      description: 流式返回文件内容
+      description: 通过 publicID 或 storageURI 流式返回文件内容
       parameters:
-      - description: 文件ID
-        in: path
-        name: id
-        required: true
+      - description: 文件公共ID
+        in: query
+        name: public_id
+        type: string
+      - description: 文件存储URI（格式 {schema}://{bucket}/{key}）
+        in: query
+        name: storage_uri
         type: string
       produces:
       - application/octet-stream
@@ -2854,14 +3707,17 @@ paths:
       summary: 下载文件
       tags:
       - File
-  /files/{id}/preview:
+  /files/preview:
     get:
-      description: 生成预签名下载 URL 并 302 重定向
+      description: 通过 publicID 或 storageURI 生成预签名下载 URL 并 302 重定向
       parameters:
-      - description: 文件ID
-        in: path
-        name: id
-        required: true
+      - description: 文件公共ID
+        in: query
+        name: public_id
+        type: string
+      - description: 文件存储URI（格式 {schema}://{bucket}/{key}）
+        in: query
+        name: storage_uri
         type: string
       produces:
       - application/json
@@ -2899,6 +3755,10 @@ paths:
       - description: 文件用途（默认 attachment）
         in: formData
         name: purpose
+        type: string
+      - description: 来源ID（可选）
+        in: formData
+        name: source_id
         type: string
       produces:
       - application/json
@@ -3013,63 +3873,32 @@ paths:
       summary: 预签名上传
       tags:
       - Storage
-  /projects/{project_id}/AddFile:
-    post:
-      consumes:
-      - application/json
-      description: 将已通过 /v1/files/upload 上传的文件关联到指定项目
-      parameters:
-      - description: 项目 public_id
-        in: path
-        name: project_id
-        required: true
-        type: string
-      - description: 文件信息
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/contract.AddFileRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 成功响应
-          schema:
-            $ref: '#/definitions/dto.Response'
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "401":
-          description: 未认证
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "404":
-          description: 资源不存在
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "500":
-          description: 内部服务器错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-      summary: 关联文件到项目
-      tags:
-      - Project
   /projects/{project_id}/files:
     get:
       description: |-
-        获取项目 artifacts/ 和 uploads/ 目录的文件树，可通过 path 参数指定子目录。
-        文件节点包含 created_at 字段（Unix 秒级时间戳），表示该文件在 Gitea 仓库中的首次 commit 时间，未找到时为 0。
+        获取项目 artifacts/ 和 uploads/ 目录的文件树，可通过 resource_type 参数筛选。
+        文件节点包含 created_at 字段（Unix 秒级时间戳），表示该文件关联记录创建的时间，未找到时为 0。
       parameters:
       - description: 项目 public_id
         in: path
         name: project_id
         required: true
         type: string
-      - description: 起始目录相对路径，如 artifacts，默认返回全量
+      - description: 资源类型：user_upload | artifact | plan；默认排除 plan
         in: query
-        name: path
+        name: resource_type
+        type: string
+      - description: Task public ID，传入时仅返回该任务的产物文件
+        in: query
+        name: task_id
+        type: string
+      - description: 节点类型：folder | file；默认返回文件与文件夹
+        in: query
+        name: node_type
+        type: string
+      - description: 文件类型分组：pdf | docx | xlsx | pptx | md | image | text
+        in: query
+        name: file_ext
         type: string
       produces:
       - application/json
@@ -3137,48 +3966,6 @@ paths:
       summary: 下载项目文件
       tags:
       - Project
-  /projects/{project_id}/files/upload:
-    post:
-      consumes:
-      - multipart/form-data
-      description: 上传文件到项目 Upload 目录，同名文件自动追加序列号
-      parameters:
-      - description: 项目 public_id
-        in: path
-        name: project_id
-        required: true
-        type: string
-      - description: 上传的文件
-        in: formData
-        name: file
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 成功响应
-          schema:
-            $ref: '#/definitions/dto.Response'
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "401":
-          description: 未认证
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "404":
-          description: 资源不存在
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "500":
-          description: 内部服务器错误
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-      summary: 上传项目文件
-      tags:
-      - Project
   /projects/{project_id}/memory:
     get:
       description: 根据 project_id 获取项目的持久记忆条目
@@ -3212,11 +3999,11 @@ paths:
       - Project
   /static/{bucket}/{key}:
     get:
-      description: 为指定 bucket/key 生成一个带过期时间的预签名下载 URL
+      description: 根据 operation=upload|download 生成预签名上传或下载 URL
       parameters:
-      - description: 触发预签名标识(任意值)
+      - description: '操作类型: upload 或 download'
         in: query
-        name: presign
+        name: operation
         required: true
         type: string
       - description: 存储桶名称
@@ -3233,7 +4020,7 @@ paths:
       - text/plain
       responses:
         "200":
-          description: 预签名下载 URL
+          description: 预签名 URL
           schema:
             type: string
         "400":
@@ -3244,45 +4031,64 @@ paths:
           description: 生成预签名 URL 失败
           schema:
             type: string
-      summary: 生成预签名下载 URL
+      summary: 生成预签名 URL
       tags:
       - Storage
-    put:
-      description: 为指定 bucket/key 生成一个带过期时间的预签名上传 URL
+  /v1/GlobalEvents:
+    post:
+      consumes:
+      - application/json
+      description: 建立 project 级全局 SSE 长连接，实时推送新消息等通知
       parameters:
-      - description: 触发预签名标识(任意值)
-        in: query
-        name: presign
-        required: true
-        type: string
-      - description: 存储桶名称
-        in: path
-        name: bucket
-        required: true
-        type: string
-      - description: 对象 key
-        in: path
-        name: key
-        required: true
-        type: string
+      - description: replay 控制参数
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/handler.GlobalEventsRequest'
       produces:
-      - text/plain
+      - text/event-stream
       responses:
         "200":
-          description: 预签名上传 URL
+          description: text/event-stream
           schema:
             type: string
-        "400":
-          description: 参数错误
-          schema:
-            type: string
-        "500":
-          description: 生成预签名 URL 失败
-          schema:
-            type: string
-      summary: 生成预签名上传 URL
+      summary: 全局事件流
       tags:
-      - Storage
+      - GlobalEvents
+  /workers/token:
+    post:
+      consumes:
+      - application/json
+      description: 使用 Worker 启动令牌（bootstrap token）换取短期访问令牌
+      parameters:
+      - description: Worker 令牌请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.issueWorkerTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 获取 Worker 访问令牌
+      tags:
+      - WorkerAuth
 schemes:
 - http
 - https

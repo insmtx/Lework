@@ -3,6 +3,11 @@ import { createWithEqualityFn } from "zustand/traditional";
 import { type AuthAction, type AuthStore, authSlice } from "./slices/authSlice";
 import { type ChatAction, type ChatStore, chatSlice } from "./slices/chatSlice";
 import { type DAStore, type DigitalAssistantAction, daSlice } from "./slices/digitalAssistantSlice";
+import {
+	type GlobalConfigAction,
+	type GlobalConfigStore,
+	globalConfigSlice,
+} from "./slices/globalConfigSlice";
 import { type LayoutAction, type LayoutStore, layoutSlice } from "./slices/layoutSlice";
 import {
 	type PermissionAction,
@@ -19,14 +24,16 @@ export type AppStore = AuthStore &
 	ChatStore &
 	DAStore &
 	PermissionStore &
-	SkillStore;
+	SkillStore &
+	GlobalConfigStore;
 export type AppAction = AuthAction &
 	LayoutAction &
 	TopicAction &
 	ChatAction &
 	DigitalAssistantAction &
 	PermissionAction &
-	SkillAction;
+	SkillAction &
+	GlobalConfigAction;
 
 const createStore: SliceCreator<AppStore> = (...params) => ({
 	...authSlice(...params),
@@ -36,6 +43,7 @@ const createStore: SliceCreator<AppStore> = (...params) => ({
 	...daSlice(...params),
 	...permissionSlice(...params),
 	...skillSlice(...params),
+	...globalConfigSlice(...params),
 });
 
 export const useAppStore = createWithEqualityFn<AppStore>()(
@@ -64,3 +72,7 @@ export const useDAStore = <T>(selector: (state: DAStore & DigitalAssistantAction
 
 export const useSkillStore = <T>(selector: (state: SkillStore & SkillAction) => T): T =>
 	useAppStore(selector);
+
+export const useGlobalConfigStore = <T>(
+	selector: (state: GlobalConfigStore & GlobalConfigAction) => T,
+): T => useAppStore(selector);

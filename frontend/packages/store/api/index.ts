@@ -2,8 +2,13 @@ export type {
 	AuthOrgInfo,
 	AuthTokenResponse,
 	AuthUserInfo,
+	ChooseUinParams,
+	CreateOrganizationForPendingLoginParams,
+	CreateOrganizationResponse,
 	LoginByEmailParams,
 	LoginByPhoneCodeParams,
+	PendingOrganizationLoginResponse,
+	RefreshTokenParams,
 	RegisterByEmailParams,
 	SendPhoneLoginCodeParams,
 	SendPhoneLoginCodeResponse,
@@ -19,7 +24,13 @@ export type {
 	UpdateDAStatusParams,
 } from "./digitalAssistantApi";
 export { digitalAssistantApi } from "./digitalAssistantApi";
-export type { Department, ListDepartmentsResponse, OrgInfo } from "./orgAdminApi";
+export type {
+	Department,
+	ListDepartmentsResponse,
+	ListUsersResponse,
+	OrgInfo,
+	User,
+} from "./orgAdminApi";
 export { orgAdminApi } from "./orgAdminApi";
 export type {
 	ListProjectActivitiesParams,

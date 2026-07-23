@@ -64,6 +64,13 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameProjectFile, column: "node_type"},
 	{table: types.TableNameProjectFile, column: "parent_id"},
 	{table: types.TableNameProjectFile, column: "parent_ids"},
+	{table: types.TableNameUser, column: "github_id"},
+	{table: types.TableNameUser, column: "github_login"},
+	{table: types.TableNameUser, column: "bio"},
+	{table: types.TableNameUser, column: "company"},
+	{table: types.TableNameUser, column: "location"},
+	{table: types.TableNameUser, column: "public_repos"},
+	{table: types.TableNameUser, column: "followers"},
 }
 
 var renamesToApply = []renameColumn{
@@ -187,6 +194,10 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	if err := backfillSystemLLMModelsForOrgs(db); err != nil {
+		return err
+	}
+
+	if err := backfillSystemLLMModelsForEnterpriseOrgs(db); err != nil {
 		return err
 	}
 
@@ -417,6 +428,43 @@ func backfillSystemLLMModelsForOrgs(d *gorm.DB) error {
 	`).Error
 	if err != nil {
 		logs.Warnf("[migration] backfillSystemLLMModelsForOrgs: %v", err)
+	}
+	return nil
+}
+
+// backfillSystemLLMModelsForEnterpriseOrgs 将系统 LLM 模型回填到缺少它们的存量企业版组织。
+// 企业版组织不写入 leros_organization 表，因此从 leros_digital_assistant 表反查 org_id。
+func backfillSystemLLMModelsForEnterpriseOrgs(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameLLMModel) || !d.Migrator().HasTable(types.TableNameDigitalAssistant) {
+		return nil
+	}
+	err := d.Exec(`
+		INSERT INTO ` + types.TableNameLLMModel + ` (
+			org_id, code, name, description, provider, model, base_url,
+			base_url_has_v1, api_key_encrypted, api_key_masked,
+			max_tokens, temperature, timeout_sec, status, is_default, is_system, config,
+			created_at, updated_at
+		)
+		SELECT da.org_id, src.code, src.name, src.description, src.provider, src.model, src.base_url,
+		       src.base_url_has_v1, src.api_key_encrypted, src.api_key_masked,
+		       src.max_tokens, src.temperature, src.timeout_sec, src.status, src.is_default, src.is_system, src.config,
+		       NOW(), NOW()
+		FROM ` + types.TableNameDigitalAssistant + ` da
+		CROSS JOIN ` + types.TableNameLLMModel + ` src
+		WHERE src.org_id = 1 AND src.is_system = true AND src.deleted_at IS NULL
+		  AND da.deleted_at IS NULL
+		  AND NOT EXISTS (
+		      SELECT 1 FROM ` + types.TableNameOrganization + ` o
+		      WHERE o.id = da.org_id AND o.deleted_at IS NULL
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM ` + types.TableNameLLMModel + ` t
+		      WHERE t.org_id = da.org_id AND t.is_system = true AND t.deleted_at IS NULL
+		  )
+		ON CONFLICT (org_id, code) DO NOTHING
+	`).Error
+	if err != nil {
+		logs.Warnf("[migration] backfillSystemLLMModelsForEnterpriseOrgs: %v", err)
 	}
 	return nil
 }
@@ -792,12 +840,10 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 		}
 
 		defaultUser := &types.User{
-			PublicID:    fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
-			GithubID:    0,
-			GithubLogin: "admin",
-			Name:        "Admin User",
-			Email:       "admin@leros.local",
-			Password:    string(hashedPassword),
+			PublicID: fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
+			Name:     "Admin User",
+			Email:    "admin@leros.local",
+			Password: string(hashedPassword),
 		}
 		if err := db.Create(defaultUser).Error; err != nil {
 			return fmt.Errorf("failed to create default user: %w", err)
@@ -811,7 +857,7 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 	if userOrgCount == 0 {
 		var user types.User
 		var org types.Organization
-		if err := db.Where("github_login = ?", "admin").First(&user).Error; err != nil {
+		if err := db.Where("email = ?", "admin@leros.local").First(&user).Error; err != nil {
 			return fmt.Errorf("failed to find default user: %w", err)
 		}
 		if err := db.Where("code = ?", "default_org").First(&org).Error; err != nil {
@@ -977,7 +1023,7 @@ func seedDefaultWorkerDeployment(d *gorm.DB) error {
 	}
 
 	var user types.User
-	if err := d.Where("github_login = ?", "admin").First(&user).Error; err != nil {
+	if err := d.Where("email = ?", "admin@leros.local").First(&user).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("failed to find default user for worker: %w", err)
 		}

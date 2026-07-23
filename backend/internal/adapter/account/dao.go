@@ -56,6 +56,7 @@ type DepartmentFilter struct {
 // enterprise (HTTP-backed) implementations realize this interface.
 type UserDAO interface {
 	Get(ctx context.Context, ref UserRef) (*types.User, error)
+	GetByIDs(ctx context.Context, ids []uint) ([]*types.User, error)
 	Create(ctx context.Context, u *types.User) (*types.User, error)
 	Update(ctx context.Context, u *types.User) (*types.User, error)
 	Delete(ctx context.Context, id uint) error
@@ -128,46 +129,6 @@ type AuthDAO interface {
 	CreateLoginAttempt(ctx context.Context, attempts *types.AuthLoginAttempt) error
 	IncrementLoginAttempt(ctx context.Context, key string) error
 	IsUniqueConstraintError(err error) bool
-}
-
-// ─── ResourceDAO ───────────────────────────────────────────────────────────────
-
-// ResourceDAO abstracts the permission resource and binding data access layer.
-type ResourceDAO interface {
-	GetByID(ctx context.Context, id uint) (*types.Resource, error)
-	GetByBizID(ctx context.Context, bizID uint) (*types.Resource, error)
-	Create(ctx context.Context, r *types.Resource) (*types.Resource, error)
-	Update(ctx context.Context, r *types.Resource) (*types.Resource, error)
-	GetBindingByUin(ctx context.Context, uin uint, resourceID uint) (*types.ResourceBinding, error)
-	GetBindingByAssistantID(ctx context.Context, assistantID uint) (*types.ResourceBinding, error)
-	CreateBinding(ctx context.Context, b *types.ResourceBinding) (*types.ResourceBinding, error)
-	ListBindingsByResourceID(ctx context.Context, resourceID uint) ([]*types.ResourceBinding, error)
-	CountBindingsByRole(ctx context.Context, resourceID uint, role types.ResourceRole) (int64, error)
-}
-
-// ─── WorkerDAO ─────────────────────────────────────────────────────────────────
-
-// WorkerDAO abstracts the worker deployment data access layer (token parsing).
-type WorkerDAO interface {
-	GetDeploymentByOrgWorkerID(ctx context.Context, orgID uint, workerID uint) (*types.WorkerDeployment, error)
-	GetDefaultDeployment(ctx context.Context) (*types.WorkerDeployment, error)
-	GetDigitalAssistantByID(ctx context.Context, id uint) (*types.DigitalAssistant, error)
-	GetDigitalAssistantByPublicID(ctx context.Context, publicID string) (*types.DigitalAssistant, error)
-	GetProjectByPublicID(ctx context.Context, publicID string) (*types.Project, error)
-	GetProjectFileByFilePublicID(ctx context.Context, projectID uint, filePublicID string) (*types.ProjectFile, error)
-	GetTaskByPublicID(ctx context.Context, publicID string) (*types.Task, error)
-}
-
-// ─── Extra (project/task) access used by oss permission and org ─────────────────
-
-// ExtraDAO carries db access for types.Project / types.ProjectFile / types.Task,
-// currently used by oss permission evaluation and organization provisioning.
-// These are oss-specific and hidden behind this interface for testability.
-type ExtraDAO interface {
-	GetProjectByPublicID(ctx context.Context, publicID string) (*types.Project, error)
-	GetProjectFileByFilePublicID(ctx context.Context, projectID uint, filePublicID string) (*types.ProjectFile, error)
-	GetTaskByPublicID(ctx context.Context, publicID string) (*types.Task, error)
-	GetDigitalAssistantByPublicID(ctx context.Context, publicID string) (*types.DigitalAssistant, error)
 }
 
 // DBGetter abstracts gorm.DB read access.

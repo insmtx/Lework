@@ -75,6 +75,22 @@ func GetDefaultLLMModel(ctx context.Context, db *gorm.DB, orgID uint) (*types.LL
 	return &entity, nil
 }
 
+// GetAnyActiveLLMModel 获取组织内任一处于 active 状态的模型，作为无默认模型时的回退。
+func GetAnyActiveLLMModel(ctx context.Context, db *gorm.DB, orgID uint) (*types.LLMModel, error) {
+	var entity types.LLMModel
+	err := db.WithContext(ctx).
+		Where("org_id = ? AND status = ?", orgID, string(types.LLMModelStatusActive)).
+		Order("updated_at DESC").
+		First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}
+
 // GetSystemTranslationLLMModel 获取系统内置翻译模型配置。
 func GetSystemTranslationLLMModel(ctx context.Context, db *gorm.DB, orgID uint) (*types.LLMModel, error) {
 	model, err := getSystemTranslationLLMModelByOrg(ctx, db, orgID)
@@ -252,4 +268,28 @@ func OrgHasLLMModels(ctx context.Context, db *gorm.DB, orgID uint) (bool, error)
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// EnsureOrgSystemLLMModels 确保指定组织拥有系统 LLM 模型。
+// 若该组织缺少 is_system=true 的模型，则从 org_id=1 克隆。
+// 返回 true 表示执行了克隆操作。
+func EnsureOrgSystemLLMModels(ctx context.Context, d *gorm.DB, orgID uint) (bool, error) {
+	if orgID == 0 || orgID == 1 {
+		return false, nil
+	}
+
+	var count int64
+	if err := d.WithContext(ctx).Model(&types.LLMModel{}).
+		Where("org_id = ? AND is_system = ? AND deleted_at IS NULL", orgID, true).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return false, nil
+	}
+
+	if err := CloneSystemLLMModelsByOrg(ctx, d, 1, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
 }

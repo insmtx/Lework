@@ -12,13 +12,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-github/v78/github"
 	"github.com/ygpkg/yg-go/logs"
-	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/connectors"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/types"
 )
 
 const (
@@ -33,7 +32,7 @@ type Connector struct {
 	cfg       config.GithubAppConfig
 	client    *github.Client
 	publisher eventbus.Publisher
-	db        *gorm.DB
+	userRepo  account.UserRepository
 	authSvc   *auth.ThirdPartyAuthService
 }
 
@@ -50,13 +49,13 @@ func (c *Connector) RegisterRoutes(r gin.IRouter) {
 }
 
 // RegisterGitHubRoutes 注册GitHub路由(便捷函数)
-func RegisterGitHubRoutes(r gin.IRouter, cfg config.GithubAppConfig, publisher eventbus.Publisher, db *gorm.DB, authSvc *auth.ThirdPartyAuthService) {
-	connector := NewConnector(cfg, publisher, db, authSvc)
+func RegisterGitHubRoutes(r gin.IRouter, cfg config.GithubAppConfig, publisher eventbus.Publisher, userRepo account.UserRepository, authSvc *auth.ThirdPartyAuthService) {
+	connector := NewConnector(cfg, publisher, userRepo, authSvc)
 	connector.RegisterRoutes(r)
 }
 
 // NewConnector creates a new GitHub connector instance.
-func NewConnector(cfg config.GithubAppConfig, publisher eventbus.Publisher, db *gorm.DB, authSvc *auth.ThirdPartyAuthService) *Connector {
+func NewConnector(cfg config.GithubAppConfig, publisher eventbus.Publisher, userRepo account.UserRepository, authSvc *auth.ThirdPartyAuthService) *Connector {
 	logs.Infof("Creating new GitHub connector for app ID: %d", cfg.AppID)
 
 	var githubClient *github.Client
@@ -70,7 +69,7 @@ func NewConnector(cfg config.GithubAppConfig, publisher eventbus.Publisher, db *
 		cfg:       cfg,
 		client:    githubClient,
 		publisher: publisher,
-		db:        db,
+		userRepo:  userRepo,
 		authSvc:   authSvc,
 	}
 }
@@ -155,31 +154,33 @@ func (c *Connector) buildOAuthResponse(account *auth.AuthorizedAccount) gin.H {
 }
 
 // saveUserIfNeeded saves user to database if available.
-func (c *Connector) saveUserIfNeeded(ctx context.Context, account *auth.AuthorizedAccount, response gin.H) error {
-	if c.db == nil {
-		logs.WarnContext(ctx, "Database not available, user info will not be saved to DB")
+func (c *Connector) saveUserIfNeeded(ctx context.Context, authAccount *auth.AuthorizedAccount, response gin.H) error {
+	if c.userRepo == nil {
+		logs.WarnContext(ctx, "User repository not available, user info will not be saved")
 		return nil
 	}
 
-	githubID, err := parseGithubID(account.ExternalAccountID)
+	email := authAccount.Metadata["email"]
+	name := authAccount.Metadata["name"]
+
+	existingUser, err := c.userRepo.GetUser(ctx, "", email)
+	if err != nil {
+		return err
+	}
+	if existingUser != nil {
+		response["user"].(gin.H)["id"] = existingUser.ID
+		return nil
+	}
+
+	result, err := c.userRepo.CreateUser(ctx, &account.CreateUserInput{
+		Name:  name,
+		Email: email,
+	})
 	if err != nil {
 		return err
 	}
 
-	newUser := &types.User{
-		GithubID:    githubID,
-		GithubLogin: account.Metadata["github_login"],
-		Name:        account.Metadata["name"],
-		Email:       account.Metadata["email"],
-		AvatarURL:   account.Metadata["avatar_url"],
-	}
-
-	result := c.db.Where(types.User{GithubID: newUser.GithubID}).FirstOrCreate(newUser)
-	if result.Error != nil {
-		return result.Error
-	}
-
-	response["user"].(gin.H)["id"] = newUser.ID
+	response["user"].(gin.H)["id"] = result.UserID
 	return nil
 }
 

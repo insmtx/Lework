@@ -30,6 +30,17 @@ func RegisterMemberDepartmentRoutes(r gin.IRouter, service contract.MemberDepart
 	h.RegisterRoutes(r)
 }
 
+// @Summary 创建成员部门关系
+// @Description 创建成员与部门的关联
+// @Tags MemberDepartment
+// @Accept json
+// @Produce json
+// @Param body body contract.CreateMemberDepartmentRequest true "创建成员部门关系请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /CreateMemberDepartment [post]
 func (h *MemberDepartmentHandler) CreateMemberDepartment(ctx *gin.Context) {
 	var req contract.CreateMemberDepartmentRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -48,6 +59,18 @@ type getMemberDepartmentRequest struct {
 	ID uint `json:"id" binding:"required"`
 }
 
+// @Summary 获取成员部门关系
+// @Description 根据 ID 获取成员部门关系详情
+// @Tags MemberDepartment
+// @Accept json
+// @Produce json
+// @Param body body handler.getMemberDepartmentRequest true "获取成员部门关系请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /GetMemberDepartment [post]
 func (h *MemberDepartmentHandler) GetMemberDepartment(ctx *gin.Context) {
 	var req getMemberDepartmentRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -67,6 +90,18 @@ type updateMemberDepartmentRequest struct {
 	contract.UpdateMemberDepartmentRequest
 }
 
+// @Summary 更新成员部门关系
+// @Description 更新成员部门关联信息
+// @Tags MemberDepartment
+// @Accept json
+// @Produce json
+// @Param body body handler.updateMemberDepartmentRequest true "更新成员部门关系请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /UpdateMemberDepartment [post]
 func (h *MemberDepartmentHandler) UpdateMemberDepartment(ctx *gin.Context) {
 	var req updateMemberDepartmentRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -85,6 +120,18 @@ type deleteMemberDepartmentRequest struct {
 	ID uint `json:"id" binding:"required"`
 }
 
+// @Summary 删除成员部门关系
+// @Description 根据 ID 删除成员部门关联
+// @Tags MemberDepartment
+// @Accept json
+// @Produce json
+// @Param body body handler.deleteMemberDepartmentRequest true "删除成员部门关系请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /DeleteMemberDepartment [post]
 func (h *MemberDepartmentHandler) DeleteMemberDepartment(ctx *gin.Context) {
 	var req deleteMemberDepartmentRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -98,6 +145,17 @@ func (h *MemberDepartmentHandler) DeleteMemberDepartment(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(nil))
 }
 
+// @Summary 查询成员部门关系列表
+// @Description 分页查询成员部门关系列表
+// @Tags MemberDepartment
+// @Accept json
+// @Produce json
+// @Param body body contract.ListMemberDepartmentsRequest true "查询成员部门关系列表请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /ListMemberDepartments [post]
 func (h *MemberDepartmentHandler) ListMemberDepartments(ctx *gin.Context) {
 	var req contract.ListMemberDepartmentsRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {

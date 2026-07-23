@@ -17,9 +17,11 @@ RUN --mount=type=cache,target=/go/ \
 
 COPY . .
 
+ARG BUILD_TAGS=
+
 RUN --mount=type=cache,target=/go/ \
     CGO_ENABLED=0 \
-    go build -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
+    go build -tags="${BUILD_TAGS}" -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
 
 FROM registry.yygu.cn/library/ubuntu:24.04
 

@@ -47,7 +47,7 @@ import { openProjectFilePreview } from "./file-preview-store";
 import { PROJECT_FILE_VERSION_CHANGED_EVENT } from "./file-preview-utils";
 import type { AppNavigation } from "./LeftRail";
 import { getProjectChatLayoutClasses, type ProjectChatLayoutMode } from "./project-chat-layout";
-import { ProjectFileTypeIcon, SIDEBAR_COMPACT_LIST_CLASS } from "./project-file-type-icon";
+import { ProjectFileTypeIcon } from "./project-file-type-icon";
 import {
 	buildProjectFileVersionEntries,
 	getCurrentProjectFileVersionEntry,
@@ -65,6 +65,9 @@ const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sid
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const TASK_DETAIL_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const TASK_DETAIL_RIGHT_SIDEBAR_MAX_WIDTH = 440;
+// 中文注释：任务详情页文件列表填充右侧栏剩余空间，文件较多时只在该区域内滚动。
+const TASK_DETAIL_FILE_LIST_CLASS =
+	"min-h-0 flex flex-1 flex-col space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
 
 function truncateBreadcrumbText(text?: string | null, maxLength = 10) {
 	if (!text) {
@@ -537,10 +540,10 @@ export function TaskDetailPage({
 
 				{!rightSidebarCollapsed && (
 					<aside
-						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
+						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 pt-6 pb-[6px] transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
-						<div className="no-scrollbar min-h-0 flex-1 space-y-8 overflow-y-auto pr-1">
+						<div className="no-scrollbar min-h-0 flex flex-1 flex-col space-y-8 overflow-y-auto pr-1">
 							<div>
 								<div>
 									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">任务侧栏</p>
@@ -590,12 +593,9 @@ export function TaskDetailPage({
 									<TaskTodoProgressPanel todos={latestTodos} />
 								</section>
 							)}
-							<section>
+							<section className="flex min-h-0 flex-1 flex-col">
 								<div className="mb-3 flex items-center justify-between">
 									<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务文件</h3>
-									<span className="rounded-md bg-[var(--leros-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
-										{flatTaskFiles.length} 个
-									</span>
 								</div>
 								<TaskFileList
 									files={flatTaskFiles}
@@ -913,14 +913,19 @@ function TaskFileList({
 
 	if (files.length === 0) {
 		return (
-			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
+			<div
+				className={cn(
+					TASK_DETAIL_FILE_LIST_CLASS,
+					"items-center justify-center rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]",
+				)}
+			>
 				暂无文件
 			</div>
 		);
 	}
 
 	return (
-		<div className={SIDEBAR_COMPACT_LIST_CLASS}>
+		<div className={TASK_DETAIL_FILE_LIST_CLASS}>
 			{files.map((file) => {
 				const availableVersionCount = Math.max(file.versionCount, file.versionNo);
 				const hasHistory = Boolean(file.publicId) && availableVersionCount > 1;
@@ -996,22 +1001,24 @@ function TaskFileCard({
 				<ProjectFileTypeIcon fileName={name} />
 			</div>
 			<div className="min-w-0 flex-1">
-				<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+				<div className="min-w-0 truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
 					<span className="truncate">{name}</span>
+				</div>
+				<div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs leading-4 text-[var(--leros-text-muted)]">
 					{versionNo > 0 ? (
 						<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
 							V{versionNo}
 						</span>
 					) : null}
-				</div>
-				<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
-					{[
-						size > 0 ? formatBytes(size) : "",
-						createdAt ? formatArtifactTime(createdAt) : "",
-						version ? (isCurrent ? "最新" : "历史版本") : "",
-					]
-						.filter(Boolean)
-						.join(" · ")}
+					<span className="min-w-0 truncate">
+						{[
+							size > 0 ? formatBytes(size) : "",
+							createdAt ? formatArtifactTime(createdAt) : "",
+							version ? (isCurrent ? "最新" : "历史版本") : "",
+						]
+							.filter(Boolean)
+							.join(" · ")}
+					</span>
 				</div>
 			</div>
 		</button>

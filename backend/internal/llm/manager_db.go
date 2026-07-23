@@ -10,10 +10,12 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/ygpkg/yg-go/encryptor/snowflake"
+	"github.com/ygpkg/yg-go/logs"
+
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
 	"github.com/insmtx/Leros/backend/types"
-	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 
 // modelConfigFromEntity 将持久化实体 types.LLMModel 转换为领域类型 ModelConfig。
@@ -592,4 +594,52 @@ func (m *ManagerDb) TestConnectivity(ctx context.Context, orgID uint, req *TestR
 		LatencyMS:    latencyMS,
 		BaseURLHasV1: baseURLHasV1,
 	}, nil
+}
+
+// ResolveDefaultLLMModel 解析组织的默认 LLM 模型。
+// 若组织缺少系统模型，先从 org_id=1 克隆再查询。
+func ResolveDefaultLLMModel(ctx context.Context, database *gorm.DB, orgID uint) (*types.LLMModel, error) {
+	model, err := db.GetDefaultLLMModel(ctx, database, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if model != nil {
+		return model, nil
+	}
+
+	cloned, err := db.EnsureOrgSystemLLMModels(ctx, database, orgID)
+	if err != nil {
+		logs.WarnContextf(ctx, "[llm] ensure system models for org %d: %v", orgID, err)
+		return nil, nil
+	}
+	if !cloned {
+		return nil, nil
+	}
+	return db.GetDefaultLLMModel(ctx, database, orgID)
+}
+
+// ResolveSystemTranslationLLMModel 解析组织的系统翻译 LLM 模型。
+// 若组织缺少系统模型，先从 org_id=1 克隆再查询。
+func ResolveSystemTranslationLLMModel(ctx context.Context, database *gorm.DB, orgID uint) (*types.LLMModel, error) {
+	model, err := db.GetSystemTranslationLLMModel(ctx, database, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if model != nil {
+		return model, nil
+	}
+
+	if orgID == 1 {
+		return nil, nil
+	}
+
+	cloned, err := db.EnsureOrgSystemLLMModels(ctx, database, orgID)
+	if err != nil {
+		logs.WarnContextf(ctx, "[llm] ensure system models for org %d: %v", orgID, err)
+		return db.GetSystemTranslationLLMModel(ctx, database, 1)
+	}
+	if !cloned {
+		return db.GetSystemTranslationLLMModel(ctx, database, 1)
+	}
+	return db.GetSystemTranslationLLMModel(ctx, database, orgID)
 }

@@ -78,7 +78,17 @@ func (h *PermissionHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/BatchCheckPermission", h.BatchCheckPermission)
 }
 
-// BatchCheckPermission 批量检查当前用户对多个资源/动作的权限。
+// @Summary 批量检查权限
+// @Description 批量检查当前用户对多个资源/动作的权限（用于前端控制按钮可见性）
+// @Tags Permission
+// @Accept json
+// @Produce json
+// @Param body body handler.batchCheckPermissionRequest true "批量权限检查请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /BatchCheckPermission [post]
 func (h *PermissionHandler) BatchCheckPermission(ctx *gin.Context) {
 	var req batchCheckPermissionRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {

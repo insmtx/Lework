@@ -30,12 +30,33 @@ export type LoginByPhoneCodeParams = {
 	org_id?: number;
 };
 
-export type SwitchOrganizationParams = {
-	org_id: number;
-};
-
 export type CreateOrganizationParams = {
 	name: string;
+	user_id: number;
+	user_display_name: string;
+};
+
+export type CreateOrganizationForPendingLoginParams = CreateOrganizationParams & {
+	refresh_token: string;
+};
+
+export type CreateOrganizationResponse = {
+	uin: number;
+	org: AuthOrgInfo;
+};
+
+export type ChooseUinParams = {
+	refresh_token: string;
+	uin: number;
+	user_id: number;
+	login_way?: number;
+};
+
+export type RefreshTokenParams = {
+	refresh_token: string;
+	iam_uin_id: number;
+	iam_user_id: number;
+	login_way?: number;
 };
 
 export type AuthUserInfo = {
@@ -50,12 +71,14 @@ export type AuthUserInfo = {
 
 export type AuthOrgInfo = {
 	id: number;
+	uin: number;
 	public_id: string;
 	code: string;
 	name: string;
 	logo?: string;
 	is_default?: boolean;
 	created_by_uin?: number;
+	created_by_user_id?: number;
 };
 
 export type AuthSessionResponse = {
@@ -70,8 +93,23 @@ export type AuthTokenResponse = {
 	refresh_token: string;
 	expired_at: number;
 	uin: number;
+	user_id: number;
+	login_way?: number;
 	user_info: AuthUserInfo;
 	org: AuthOrgInfo;
+	organizations?: AuthOrgInfo[];
+};
+
+// 中文注释：切换组织接口只负责签发目标 UIN 的新 JWT，完整会话资料由 AuthSession 返回。
+export type SwitchOrganizationResponse = Pick<AuthTokenResponse, "login_status" | "jwt_token">;
+
+// 中文注释：手机号已验证但尚未选定组织时，仅持有刷新凭证，不能访问组织业务接口。
+export type PendingOrganizationLoginResponse = {
+	login_status: string;
+	refresh_token: string;
+	user_id: number;
+	user_info: AuthUserInfo;
+	login_way?: number;
 	organizations?: AuthOrgInfo[];
 };
 
@@ -83,6 +121,7 @@ const AUTH_ENDPOINTS = {
 	refreshToken: "/RefreshToken",
 	switchOrganization: "/SwitchOrganization",
 	createOrganization: "/CreateOrganization",
+	chooseUin: "/ChooseUin",
 	authSession: "/AuthSession",
 };
 
@@ -100,24 +139,36 @@ export const authApi = {
 		),
 
 	loginByPhoneCode: (params: LoginByPhoneCodeParams) =>
-		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.loginByPhoneCode, params),
+		apiClient.post<BackendDataResponse<PendingOrganizationLoginResponse>>(
+			AUTH_ENDPOINTS.loginByPhoneCode,
+			params,
+		),
 
-	refreshToken: (refreshToken: string) =>
-		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.refreshToken, {
-			refresh_token: refreshToken,
-		}),
+	refreshToken: (params: RefreshTokenParams) =>
+		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.refreshToken, params),
 
-	switchOrganization: (params: SwitchOrganizationParams | number) =>
-		apiClient.post<BackendDataResponse<AuthTokenResponse>>(
+	switchOrganization: (uin: number) =>
+		apiClient.post<BackendDataResponse<SwitchOrganizationResponse>>(
 			AUTH_ENDPOINTS.switchOrganization,
-			typeof params === "number" ? { org_id: params } : params,
+			{
+				uin,
+			},
 		),
 
 	createOrganization: (params: CreateOrganizationParams) =>
-		apiClient.post<BackendDataResponse<AuthTokenResponse>>(
+		apiClient.post<BackendDataResponse<CreateOrganizationResponse>>(
 			AUTH_ENDPOINTS.createOrganization,
 			params,
 		),
+
+	createOrganizationForPendingLogin: (params: CreateOrganizationForPendingLoginParams) =>
+		apiClient.post<BackendDataResponse<CreateOrganizationResponse>>(
+			AUTH_ENDPOINTS.createOrganization,
+			params,
+		),
+
+	chooseUin: (params: ChooseUinParams) =>
+		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.chooseUin, params),
 
 	authSession: () =>
 		apiClient.get<BackendDataResponse<AuthSessionResponse>>(AUTH_ENDPOINTS.authSession),

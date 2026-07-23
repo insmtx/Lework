@@ -77,7 +77,7 @@ func resolveSeedOwner(ctx context.Context, database *gorm.DB) (seedOwner, error)
 	}
 
 	var user types.User
-	err = database.WithContext(ctx).Where("github_login = ?", "admin").First(&user).Error
+	err = database.WithContext(ctx).Where("email = ?", "admin@leros.local").First(&user).Error
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return seedOwner{}, fmt.Errorf("find default user: %w", err)

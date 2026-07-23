@@ -42,7 +42,7 @@ func TestCreateDigitalAssistantViaGin(t *testing.T) {
 			RequestID: "test-request-id",
 			TraceID:   "test-trace-id",
 		}
-		auth.WithGinContext(ctx, caller, trace)
+		auth.WithGinContext(ctx, caller, trace, "")
 		ctx.Next()
 	})
 
@@ -90,7 +90,7 @@ func TestCreateDigitalAssistantViaGin_NoCaller(t *testing.T) {
 			RequestID: "test-request-id",
 			TraceID:   "test-trace-id",
 		}
-		auth.WithGinContext(ctx, caller, trace)
+		auth.WithGinContext(ctx, caller, trace, "")
 		ctx.Next()
 	})
 

@@ -10,7 +10,7 @@ import (
 	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -24,7 +24,7 @@ func NewDepartment(d *gorm.DB) *department {
 	return &department{db: d}
 }
 
-func (s *department) CreateDepartment(ctx context.Context, req *contract.CreateDepartmentRequest) (*contract.Department, error) {
+func (s *department) CreateDepartment(ctx context.Context, req *account.CreateDepartmentInput) (*account.Department, error) {
 	if _, err := requireAccountOrgAccess(ctx, req.OrgID); err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (s *department) CreateDepartment(ctx context.Context, req *contract.CreateD
 	return convertToContractDepartment(department), nil
 }
 
-func (s *department) GetDepartment(ctx context.Context, id uint) (*contract.Department, error) {
+func (s *department) GetDepartment(ctx context.Context, id uint) (*account.Department, error) {
 	caller, err := accountOrganizationCaller(ctx)
 	if err != nil {
 		return nil, err
@@ -95,7 +95,7 @@ func (s *department) GetDepartment(ctx context.Context, id uint) (*contract.Depa
 	return convertToContractDepartment(department), nil
 }
 
-func (s *department) UpdateDepartment(ctx context.Context, id uint, req *contract.UpdateDepartmentRequest) (*contract.Department, error) {
+func (s *department) UpdateDepartment(ctx context.Context, id uint, req *account.UpdateDepartmentInput) (*account.Department, error) {
 	caller, err := accountOrganizationCaller(ctx)
 	if err != nil {
 		return nil, err
@@ -213,7 +213,7 @@ func (s *department) DeleteDepartment(ctx context.Context, id uint) error {
 	})
 }
 
-func (s *department) ListDepartments(ctx context.Context, req *contract.ListDepartmentsRequest) (*contract.DepartmentList, error) {
+func (s *department) ListDepartment(ctx context.Context, req *account.ListDepartmentInput) (*account.DepartmentList, error) {
 	caller, err := accountOrganizationCaller(ctx)
 	if err != nil {
 		return nil, err
@@ -240,22 +240,22 @@ func (s *department) ListDepartments(ctx context.Context, req *contract.ListDepa
 		opt.AddExactFilter("org_id", uintToFilterValue(caller.OrgID))
 	}
 
-	departments, total, err := db.ListDepartments(ctx, s.db, opt)
+	departments, total, err := db.ListDepartment(ctx, s.db, opt)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]contract.Department, 0, len(departments))
+	items := make([]account.Department, 0, len(departments))
 	for _, department := range departments {
 		items = append(items, *convertToContractDepartment(department))
 	}
-	return &contract.DepartmentList{Total: total, Offset: req.Offset, Limit: req.Limit, Items: items}, nil
+	return &account.DepartmentList{Total: total, Offset: req.Offset, Limit: req.Limit, Items: items}, nil
 }
 
-func convertToContractDepartment(department *types.Department) *contract.Department {
+func convertToContractDepartment(department *types.Department) *account.Department {
 	if department == nil {
 		return nil
 	}
-	return &contract.Department{
+	return &account.Department{
 		ID:        department.ID,
 		Name:      department.Name,
 		ParentID:  department.ParentID,

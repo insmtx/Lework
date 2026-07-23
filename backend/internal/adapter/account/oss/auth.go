@@ -22,11 +22,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/sms"
-	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -39,7 +38,7 @@ const (
 	phoneCodeExpire         = 5 * time.Minute
 	phoneCodeResendInterval = 2 * time.Minute
 	defaultPhoneCode        = "123456"
-	maxUserOrganizations    = 3
+	maxUserOrganizations    = 1
 	defaultWorkerTokenTTL   = 24 * time.Hour
 )
 
@@ -48,11 +47,10 @@ type authAdapter struct {
 	jwtSecret          string
 	smsSender          sms.SmsSender
 	defaultPhoneCode   string
-	workerProvisioning *service.WorkerProvisioningService
+	workerProvisioning account.WorkerProvisioner
 }
 
-// NewAuth creates a builtin auth adapter.
-func NewAuth(d *gorm.DB, jwtSecret string, smsSender sms.SmsSender, provisioning *service.WorkerProvisioningService) *authAdapter {
+func NewAuth(d *gorm.DB, jwtSecret string, smsSender sms.SmsSender, provisioning account.WorkerProvisioner) *authAdapter {
 	code := defaultPhoneCode
 	return &authAdapter{
 		db:                 d,
@@ -63,7 +61,7 @@ func NewAuth(d *gorm.DB, jwtSecret string, smsSender sms.SmsSender, provisioning
 	}
 }
 
-func (s *authAdapter) RegisterByEmail(ctx context.Context, req *contract.RegisterByEmailRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) RegisterByEmail(ctx context.Context, req *account.RegisterByEmailInput) (*account.AuthTokens, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
@@ -95,15 +93,12 @@ func (s *authAdapter) RegisterByEmail(ctx context.Context, req *contract.Registe
 	}
 
 	var user *types.User
-	var userOrg *types.UserOrg
-	var org *types.Organization
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		user = &types.User{
-			PublicID:    fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
-			GithubLogin: fmt.Sprintf("email_%s", snowflake.GenerateIDBase58()),
-			Password:    string(hashedPassword),
-			Name:        name,
-			Email:       email,
+			PublicID: fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
+			Password: string(hashedPassword),
+			Name:     name,
+			Email:    email,
 		}
 		if err := db.CreateUser(ctx, tx, user); err != nil {
 			if db.IsUniqueConstraintError(err) {
@@ -111,31 +106,30 @@ func (s *authAdapter) RegisterByEmail(ctx context.Context, req *contract.Registe
 			}
 			return err
 		}
-
-		var err error
-		org, err = defaultAccountOrg(ctx, tx)
-		if err != nil {
-			return err
-		}
-
-		userOrg = &types.UserOrg{
-			Uin:       user.ID,
-			UserID:    user.ID,
-			OrgID:     org.ID,
-			IsDefault: true,
-		}
-		if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
-			return err
-		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+	refreshToken, err := s.generateRefreshToken(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &account.AuthTokens{
+		LoginStatus:  account.LoginStatusNeedCreateCompany,
+		RefreshToken: refreshToken,
+		UserInfo: account.AuthUserInfo{
+			ID:        user.ID,
+			PublicID:  user.PublicID,
+			Name:      user.Name,
+			Email:     user.Email,
+			AvatarURL: user.AvatarURL,
+		},
+	}, nil
 }
 
-func (s *authAdapter) LoginByEmail(ctx context.Context, req *contract.LoginByEmailRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput) (*account.AuthTokens, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
@@ -167,15 +161,10 @@ func (s *authAdapter) LoginByEmail(ctx context.Context, req *contract.LoginByEma
 	}
 
 	s.clearLoginFailures(ctx, email)
-	userOrg, org, err := s.resolveLoginUserOrg(ctx, s.db, user.ID, req.OrgID)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+	return s.buildLoginResponse(ctx, user)
 }
 
-func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *contract.SendPhoneLoginCodeRequest) (*contract.SendPhoneLoginCodeResponse, error) {
+func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *account.SendPhoneLoginCodeInput) (*account.SendPhoneLoginCodeOutput, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
@@ -221,14 +210,14 @@ func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *contract.Send
 	logs.InfoContextf(ctx, "SendPhoneLoginCode completed: phone=%s sms_enabled=%t",
 		sms.MaskPhone(phone), s.smsSender.Enabled())
 
-	return &contract.SendPhoneLoginCodeResponse{
+	return &account.SendPhoneLoginCodeOutput{
 		Phone:       phone,
 		ExpiresIn:   int64(phoneCodeExpire.Seconds()),
 		ResendAfter: int64(phoneCodeResendInterval.Seconds()),
 	}, nil
 }
 
-func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *contract.LoginByPhoneCodeRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *account.LoginByPhoneCodeInput) (*account.AuthTokens, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
@@ -256,9 +245,10 @@ func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 		return nil, accounterror.ErrInvalidPhoneCode
 	}
 
-	var user *types.User
-	var userOrg *types.UserOrg
-	var org *types.Organization
+	var (
+		user  *types.User
+		isNew bool
+	)
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := db.MarkAuthPhoneVerificationCodeUsed(ctx, tx, savedCode.ID, now); err != nil {
 			return err
@@ -271,37 +261,14 @@ func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 		}
 		if user == nil {
 			user = &types.User{
-				PublicID:    fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
-				GithubLogin: fmt.Sprintf("phone_%s", snowflake.GenerateIDBase58()),
-				Name:        phone,
-				Phone:       phone,
+				PublicID: fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
+				Name:     phone,
+				Phone:    phone,
 			}
 			if err := db.CreateUser(ctx, tx, user); err != nil {
 				return err
 			}
-
-			org, err = defaultAccountOrg(ctx, tx)
-			if err != nil {
-				return err
-			}
-			userOrg = &types.UserOrg{
-				Uin:       user.ID,
-				UserID:    user.ID,
-				OrgID:     org.ID,
-				IsDefault: true,
-			}
-			if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
-				return err
-			}
-			if req.OrgID > 0 && req.OrgID != org.ID {
-				return accounterror.ErrUserOrgNotAllowed
-			}
-			return nil
-		}
-
-		userOrg, org, err = s.resolveLoginUserOrg(ctx, tx, user.ID, req.OrgID)
-		if err != nil {
-			return err
+			isNew = true
 		}
 		return nil
 	}); err != nil {
@@ -309,10 +276,35 @@ func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *contract.LoginB
 	}
 
 	s.clearLoginFailures(ctx, phone)
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+
+	if isNew {
+		refreshToken, err := s.generateRefreshToken(ctx, user.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &account.AuthTokens{
+			LoginStatus:  account.LoginStatusNeedCreateCompany,
+			RefreshToken: refreshToken,
+			UserInfo: account.AuthUserInfo{
+				ID:        user.ID,
+				PublicID:  user.PublicID,
+				Name:      user.Name,
+				Phone:     user.Phone,
+				AvatarURL: user.AvatarURL,
+			},
+			Edition: account.EditionOSS,
+		}, nil
+	}
+
+	result, err := s.buildLoginResponse(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	result.Edition = account.EditionOSS
+	return result, nil
 }
 
-func (s *authAdapter) RefreshToken(ctx context.Context, req *contract.RefreshTokenRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) RefreshToken(ctx context.Context, req *account.RefreshTokenInput) (*account.AuthTokens, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
@@ -365,28 +357,31 @@ func (s *authAdapter) RefreshToken(ctx context.Context, req *contract.RefreshTok
 	return s.buildTokenResponse(ctx, user, userOrg, org)
 }
 
-func (s *authAdapter) SwitchOrganization(ctx context.Context, req *contract.SwitchOrganizationRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) ChooseUin(ctx context.Context, req *account.ChooseUinInput) (*account.AuthTokens, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
-	if req.OrgID == 0 {
-		return nil, accounterror.ErrOrgNotFound
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		return nil, accounterror.ErrRefreshTokenRequired
 	}
-
-	caller, _ := localauth.FromContext(ctx)
-	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
-		return nil, accounterror.ErrLoginRequired
-	}
-
-	currentUserOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
-	if err != nil {
-		return nil, err
-	}
-	if currentUserOrg == nil {
+	if req.Uin == 0 {
 		return nil, accounterror.ErrUserOrgNotFound
 	}
 
-	user, err := db.GetUserByID(ctx, s.db, currentUserOrg.UserID)
+	now := time.Now()
+	tokenHash := hashRefreshToken(refreshToken)
+	s.cleanupExpiredAuthData(ctx, now)
+
+	savedToken, err := db.GetActiveAuthRefreshToken(ctx, s.db, tokenHash, now)
+	if err != nil {
+		return nil, err
+	}
+	if savedToken == nil {
+		return nil, accounterror.ErrRefreshTokenInvalid
+	}
+
+	user, err := s.resolveUserByRefreshTokenKey(ctx, savedToken.Uin)
 	if err != nil {
 		return nil, err
 	}
@@ -394,14 +389,36 @@ func (s *authAdapter) SwitchOrganization(ctx context.Context, req *contract.Swit
 		return nil, accounterror.ErrUserNotFound
 	}
 
-	targetUserOrg, targetOrg, err := s.resolveLoginUserOrg(ctx, s.db, user.ID, req.OrgID)
+	targetUserOrg, err := db.GetUserOrgByUin(ctx, s.db, req.Uin)
 	if err != nil {
 		return nil, err
 	}
-	return s.buildTokenResponse(ctx, user, targetUserOrg, targetOrg)
+	if targetUserOrg == nil {
+		return nil, accounterror.ErrUserOrgNotFound
+	}
+	if targetUserOrg.UserID != user.ID {
+		return nil, accounterror.ErrUserOrgNotAllowed
+	}
+
+	org, err := db.GetOrgByID(ctx, s.db, targetUserOrg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	if org == nil {
+		return nil, accounterror.ErrOrgNotFound
+	}
+
+	if err := db.RevokeAuthRefreshToken(ctx, s.db, tokenHash, now); err != nil {
+		return nil, err
+	}
+	return s.buildTokenResponse(ctx, user, targetUserOrg, org)
 }
 
-func (s *authAdapter) CreateOrganization(ctx context.Context, req *contract.CreateOrganizationRequest) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) SwitchOrganization(ctx context.Context, req *account.SwitchOrganizationInput) (*account.AuthTokens, error) {
+	return nil, accounterror.ErrNotImplementedEdition
+}
+
+func (s *authAdapter) CreateOrganization(ctx context.Context, req *account.CreateOrganizationInput) (*account.AuthTokens, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
@@ -411,21 +428,21 @@ func (s *authAdapter) CreateOrganization(ctx context.Context, req *contract.Crea
 	}
 
 	caller, _ := localauth.FromContext(ctx)
-	if caller == nil || caller.State != types.AuthStateSucc || caller.Uin == 0 {
-		return nil, accounterror.ErrLoginRequired
-	}
+	hasJWT := caller != nil && caller.State == types.AuthStateSucc && caller.Uin != 0
 
-	currentUserOrg, err := s.userOrgForIdentity(ctx, s.db, caller.Uin, caller.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	if currentUserOrg == nil {
-		return nil, accounterror.ErrUserOrgNotFound
-	}
-
-	user, err := db.GetUserByID(ctx, s.db, currentUserOrg.UserID)
-	if err != nil {
-		return nil, err
+	var user *types.User
+	if hasJWT {
+		var err error
+		user, err = s.resolveUserByCaller(ctx, caller)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		user, err = s.resolveUserByRefreshToken(ctx, req.RefreshToken)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if user == nil {
 		return nil, accounterror.ErrUserNotFound
@@ -469,7 +486,7 @@ func (s *authAdapter) CreateOrganization(ctx context.Context, req *contract.Crea
 		userOrg = &types.UserOrg{
 			UserID:    user.ID,
 			OrgID:     org.ID,
-			IsDefault: false,
+			IsDefault: true,
 		}
 		if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
 			return err
@@ -522,10 +539,28 @@ func (s *authAdapter) CreateOrganization(ctx context.Context, req *contract.Crea
 		return nil, err
 	}
 
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	orgInfo := authOrgInfo(org, userOrg.IsDefault)
+	if account.IsFilePublicID(orgInfo.Logo) {
+		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
+			orgInfo.Logo = logoMap[orgInfo.Logo]
+		}
+	}
+	return &account.AuthTokens{
+		LoginStatus:   account.LoginStatusSuccess,
+		Uin:           userOrg.Uin,
+		RefreshToken:  req.RefreshToken,
+		UserInfo:      authUserInfoFromModel(user),
+		Org:           orgInfo,
+		Organizations: organizations,
+	}, nil
 }
 
-func (s *authAdapter) AuthSession(ctx context.Context) (*contract.AuthSessionResponse, error) {
+func (s *authAdapter) AuthSession(ctx context.Context) (*account.AuthSessionOutput, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
@@ -535,9 +570,15 @@ func (s *authAdapter) AuthSession(ctx context.Context) (*contract.AuthSessionRes
 		return nil, accounterror.ErrLoginRequired
 	}
 
-	userOrg, err := s.userOrgForIdentity(ctx, s.db, caller.Uin, caller.OrgID)
+	userOrg, err := db.GetUserOrgByUinAndOrgID(ctx, s.db, caller.Uin, caller.OrgID)
 	if err != nil {
 		return nil, err
+	}
+	if userOrg == nil {
+		userOrg, err = db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if userOrg == nil {
 		return nil, accounterror.ErrUserOrgNotFound
@@ -558,7 +599,7 @@ func (s *authAdapter) AuthSession(ctx context.Context) (*contract.AuthSessionRes
 	return s.buildAuthSessionResponse(ctx, user, userOrg, org)
 }
 
-func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthTokenResponse, error) {
+func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*account.AuthTokens, error) {
 	token, expiredAt, err := s.generateJWT(userOrg)
 	if err != nil {
 		return nil, err
@@ -572,8 +613,8 @@ func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, 
 		return nil, err
 	}
 
-	return &contract.AuthTokenResponse{
-		LoginStatus:   "success",
+	return &account.AuthTokens{
+		LoginStatus:   account.LoginStatusSuccess,
 		JwtToken:      token,
 		RefreshToken:  refreshToken,
 		ExpiredAt:     expiredAt,
@@ -584,22 +625,108 @@ func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, 
 	}, nil
 }
 
-func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*contract.AuthSessionResponse, error) {
+func (s *authAdapter) buildLoginResponse(ctx context.Context, user *types.User) (*account.AuthTokens, error) {
+	refreshToken, err := s.generateRefreshToken(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	organizations, err := s.userOrganizationInfos(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
-	return &contract.AuthSessionResponse{
-		UserInfo: contract.AuthUserInfo{
-			ID:          user.ID,
-			PublicID:    user.PublicID,
-			Name:        user.Name,
-			Email:       user.Email,
-			Phone:       user.Phone,
-			GithubLogin: user.GithubLogin,
-			AvatarURL:   user.AvatarURL,
+
+	return &account.AuthTokens{
+		LoginStatus:   account.LoginStatusSuccess,
+		RefreshToken:  refreshToken,
+		UserInfo:      authUserInfoFromModel(user),
+		Organizations: organizations,
+	}, nil
+}
+
+func (s *authAdapter) resolveUserByCaller(ctx context.Context, caller *types.Caller) (*types.User, error) {
+	userOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+	if err != nil {
+		return nil, err
+	}
+	if userOrg == nil {
+		return nil, accounterror.ErrUserOrgNotFound
+	}
+	return db.GetUserByID(ctx, s.db, userOrg.UserID)
+}
+
+func (s *authAdapter) resolveUserByRefreshToken(ctx context.Context, refreshToken string) (*types.User, error) {
+	refreshToken = strings.TrimSpace(refreshToken)
+	if refreshToken == "" {
+		return nil, accounterror.ErrRefreshTokenRequired
+	}
+	tokenHash := hashRefreshToken(refreshToken)
+	savedToken, err := db.GetActiveAuthRefreshToken(ctx, s.db, tokenHash, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	if savedToken == nil {
+		return nil, accounterror.ErrRefreshTokenInvalid
+	}
+	return s.resolveUserByRefreshTokenKey(ctx, savedToken.Uin)
+}
+
+func (s *authAdapter) resolveUserByRefreshTokenKey(ctx context.Context, key uint) (*types.User, error) {
+	if key == 0 {
+		return nil, accounterror.ErrRefreshTokenInvalid
+	}
+
+	user, err := db.GetUserByID(ctx, s.db, key)
+	if err != nil {
+		return nil, err
+	}
+	if user != nil {
+		return user, nil
+	}
+
+	userOrg, err := db.GetUserOrgByUin(ctx, s.db, key)
+	if err != nil {
+		return nil, err
+	}
+	if userOrg != nil {
+		return db.GetUserByID(ctx, s.db, userOrg.UserID)
+	}
+
+	return nil, accounterror.ErrUserNotFound
+}
+
+func authUserInfoFromModel(user *types.User) account.AuthUserInfo {
+	return account.AuthUserInfo{
+		ID:        user.ID,
+		PublicID:  user.PublicID,
+		Name:      user.Name,
+		Email:     user.Email,
+		Phone:     user.Phone,
+		AvatarURL: user.AvatarURL,
+	}
+}
+
+func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*account.AuthSessionOutput, error) {
+	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	orgInfo := authOrgInfo(org, userOrg.IsDefault)
+	if account.IsFilePublicID(orgInfo.Logo) {
+		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
+			orgInfo.Logo = logoMap[orgInfo.Logo]
+		}
+	}
+	return &account.AuthSessionOutput{
+		UserInfo: account.AuthUserInfo{
+			ID:        user.ID,
+			PublicID:  user.PublicID,
+			Name:      user.Name,
+			Email:     user.Email,
+			Phone:     user.Phone,
+			AvatarURL: user.AvatarURL,
 		},
-		Org:           authOrgInfo(org, userOrg.IsDefault),
+		Org:           orgInfo,
 		Organizations: organizations,
 	}, nil
 }
@@ -631,39 +758,6 @@ func (s *authAdapter) generateRefreshToken(ctx context.Context, uin uint) (strin
 	return token, nil
 }
 
-func (s *authAdapter) userOrgForIdentity(ctx context.Context, database *gorm.DB, uin, orgID uint) (*types.UserOrg, error) {
-	if orgID > 0 {
-		return db.GetUserOrgByUinAndOrgID(ctx, database, uin, orgID)
-	}
-	return db.GetUserOrgByUin(ctx, database, uin)
-}
-
-func (s *authAdapter) resolveLoginUserOrg(ctx context.Context, database *gorm.DB, userID, requestedOrgID uint) (*types.UserOrg, *types.Organization, error) {
-	var (
-		userOrg *types.UserOrg
-		err     error
-	)
-	if requestedOrgID > 0 {
-		userOrg, err = db.GetUserOrgByUserIDAndOrgID(ctx, database, userID, requestedOrgID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if userOrg == nil {
-			return nil, nil, accounterror.ErrUserOrgNotAllowed
-		}
-		return s.userOrgWithOrganization(ctx, database, userOrg)
-	}
-
-	userOrg, err = db.GetUserOrgByUserID(ctx, database, userID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if userOrg == nil {
-		return nil, nil, accounterror.ErrUserOrgNotFound
-	}
-	return s.userOrgWithOrganization(ctx, database, userOrg)
-}
-
 func (s *authAdapter) userOrgWithOrganization(ctx context.Context, database *gorm.DB, userOrg *types.UserOrg) (*types.UserOrg, *types.Organization, error) {
 	org, err := db.GetOrgByID(ctx, database, userOrg.OrgID)
 	if err != nil {
@@ -675,13 +769,13 @@ func (s *authAdapter) userOrgWithOrganization(ctx context.Context, database *gor
 	return userOrg, org, nil
 }
 
-func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([]contract.AuthOrgInfo, error) {
+func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([]account.AuthOrgInfo, error) {
 	userOrgs, err := db.GetUserOrgsByUserID(ctx, s.db, userID)
 	if err != nil {
 		return nil, err
 	}
 	if len(userOrgs) == 0 {
-		return nil, nil
+		return make([]account.AuthOrgInfo, 0), nil
 	}
 
 	orgIDs := make([]uint, 0, len(userOrgs))
@@ -697,19 +791,25 @@ func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([
 		orgByID[org.ID] = org
 	}
 
-	infos := make([]contract.AuthOrgInfo, 0, len(userOrgs))
+	infos := make([]account.AuthOrgInfo, 0, len(userOrgs))
 	for _, userOrg := range userOrgs {
 		org := orgByID[userOrg.OrgID]
 		if org == nil {
 			continue
 		}
-		infos = append(infos, authOrgInfo(org, userOrg.IsDefault))
+		info := authOrgInfo(org, userOrg.IsDefault)
+		if account.IsFilePublicID(info.Logo) {
+			if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, info.Logo); err == nil && logoMap != nil {
+				info.Logo = logoMap[info.Logo]
+			}
+		}
+		infos = append(infos, info)
 	}
 	return infos, nil
 }
 
-func authOrgInfo(org *types.Organization, isDefault bool) contract.AuthOrgInfo {
-	return contract.AuthOrgInfo{
+func authOrgInfo(org *types.Organization, isDefault bool) account.AuthOrgInfo {
+	return account.AuthOrgInfo{
 		ID:           org.ID,
 		PublicID:     org.PublicID,
 		Code:         org.Code,
@@ -717,6 +817,7 @@ func authOrgInfo(org *types.Organization, isDefault bool) contract.AuthOrgInfo {
 		Logo:         org.Logo,
 		IsDefault:    isDefault,
 		CreatedByUin: org.CreatedByUin,
+		Uin:          org.ID,
 	}
 }
 
@@ -779,17 +880,6 @@ func (s *authAdapter) cleanupExpiredAuthData(ctx context.Context, now time.Time)
 	if err := db.DeleteExpiredAuthPhoneVerificationCodes(ctx, s.db, now); err != nil {
 		logs.WarnContextf(ctx, "cleanup expired auth phone verification codes failed: %v", err)
 	}
-}
-
-func defaultAccountOrg(ctx context.Context, tx *gorm.DB) (*types.Organization, error) {
-	org, err := db.GetOrgByID(ctx, tx, types.SystemOrgID)
-	if err != nil {
-		return nil, err
-	}
-	if org == nil {
-		return nil, accounterror.ErrOrgNotFound
-	}
-	return org, nil
 }
 
 func normalizeEmail(email string) (string, error) {

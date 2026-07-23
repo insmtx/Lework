@@ -2,12 +2,14 @@ import { API_BASE_URL } from "../api/config";
 
 export type StoredAuthOrg = {
 	id: number;
+	uin: number;
 	publicId?: string;
 	code: string;
 	name: string;
 	logo?: string;
 	isDefault?: boolean;
 	createdByUin?: number;
+	createdByUserId?: number;
 };
 
 export type StoredAuthUser = {
@@ -20,6 +22,8 @@ export type StoredAuthUser = {
 	refreshToken?: string;
 	expiredAt?: number;
 	uin?: number;
+	userId?: number;
+	loginWay?: number;
 	currentOrg?: StoredAuthOrg;
 	organizations?: StoredAuthOrg[];
 };
@@ -29,6 +33,43 @@ export const AUTH_SESSION_EXPIRED_EVENT = "leros-auth-session-expired";
 
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
 let refreshPromise: Promise<string | null> | null = null;
+
+type RefreshTokenPayload = {
+	data?: {
+		jwt_token: string;
+		refresh_token: string;
+		expired_at: number;
+		uin: number;
+		user_id: number;
+		login_way?: number;
+		org: {
+			id: number;
+			uin: number;
+			public_id: string;
+			code: string;
+			name: string;
+			logo?: string;
+			is_default?: boolean;
+		};
+		organizations: {
+			id: number;
+			uin: number;
+			public_id: string;
+			code: string;
+			name: string;
+			logo?: string;
+			is_default?: boolean;
+		}[];
+		user_info: {
+			id: number;
+			public_id: string;
+			name: string;
+			email: string;
+			phone?: string;
+			avatar_url?: string;
+		};
+	};
+};
 
 export function readStoredAuthUser(): StoredAuthUser | null {
 	if (typeof window === "undefined") return null;
@@ -104,68 +145,42 @@ export async function authenticatedFetch(
 
 async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | null> {
 	try {
-		const response = await fetch(`${API_BASE_URL}/RefreshToken`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ refresh_token: user.refreshToken }),
-		});
-		if (!response.ok) {
-			if (response.status === 400 || response.status === 401) {
-				expireStoredAuthSession();
-			}
+		if (!user.refreshToken) {
+			expireStoredAuthSession();
 			return null;
 		}
-
-		const payload = (await response.json()) as {
-			data?: {
-				jwt_token?: string;
-				refresh_token?: string;
-				expired_at?: number;
-				uin?: number;
-				org?: {
-					id?: number;
-					public_id?: string;
-					code?: string;
-					name?: string;
-					logo?: string;
-					is_default?: boolean;
-				};
-				organizations?: {
-					id?: number;
-					public_id?: string;
-					code?: string;
-					name?: string;
-					logo?: string;
-					is_default?: boolean;
-				}[];
-				user_info?: {
-					public_id?: string;
-					name?: string;
-					email?: string;
-					phone?: string;
-					avatar_url?: string;
-				};
-			};
-		};
+		if (!user.uin || !user.userId) {
+			expireStoredAuthSession();
+			return null;
+		}
+		const payload = await requestRefreshToken({
+			refreshToken: user.refreshToken,
+			iamUinID: user.uin,
+			iamUserID: user.userId,
+			loginWay: user.loginWay,
+		});
+		if (!payload) return null;
 		const token = payload.data;
-		if (!token?.jwt_token || !token.refresh_token) {
+		if (!token?.jwt_token || !token.refresh_token || !token.uin || !token.user_id) {
 			expireStoredAuthSession();
 			return null;
 		}
 
 		writeStoredAuthUser({
 			...user,
-			publicId: token.user_info?.public_id || user.publicId,
-			name: token.user_info?.name || user.name,
-			email: token.user_info?.email || user.email,
-			phone: token.user_info?.phone || user.phone,
-			avatarUrl: token.user_info?.avatar_url || user.avatarUrl,
+			publicId: token.user_info.public_id,
+			name: token.user_info.name,
+			email: token.user_info.email,
+			phone: token.user_info.phone,
+			avatarUrl: token.user_info.avatar_url,
 			jwtToken: token.jwt_token,
 			refreshToken: token.refresh_token,
 			expiredAt: token.expired_at,
-			uin: token.uin ?? user.uin,
-			currentOrg: toStoredAuthOrg(token.org) ?? user.currentOrg,
-			organizations: toStoredAuthOrgs(token.organizations) ?? user.organizations,
+			uin: token.uin,
+			userId: token.user_id,
+			loginWay: token.login_way ?? user.loginWay,
+			currentOrg: toStoredAuthOrg(token.org),
+			organizations: toStoredAuthOrgs(token.organizations),
 		});
 		return token.jwt_token;
 	} catch (err) {
@@ -174,45 +189,61 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 	}
 }
 
-function toStoredAuthOrg(
-	org:
-		| {
-				id?: number;
-				public_id?: string;
-				code?: string;
-				name?: string;
-				logo?: string;
-				is_default?: boolean;
-		  }
-		| undefined,
-): StoredAuthOrg | undefined {
-	if (!org?.id || !org.name) return undefined;
+async function requestRefreshToken({
+	refreshToken,
+	iamUinID,
+	iamUserID,
+	loginWay: _loginWay,
+}: {
+	refreshToken: string;
+	iamUinID: number;
+	iamUserID: number;
+	loginWay?: number;
+}): Promise<RefreshTokenPayload | null> {
+	const response = await fetch(`${API_BASE_URL}/RefreshToken`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			refresh_token: refreshToken,
+			iam_uin_id: iamUinID,
+			iam_user_id: iamUserID,
+			// 中文注释：后端当前阶段暂不要求登录方式，后续按实际契约恢复传递登录方式。
+			// login_way: loginWay,
+		}),
+	});
+	if (!response.ok) {
+		if (response.status === 400 || response.status === 401) {
+			expireStoredAuthSession();
+		}
+		return null;
+	}
+	return (await response.json()) as RefreshTokenPayload;
+}
+
+function toStoredAuthOrg(org: {
+	id: number;
+	uin: number;
+	public_id: string;
+	code: string;
+	name: string;
+	logo?: string;
+	is_default?: boolean;
+	created_by_user_id?: number;
+}): StoredAuthOrg {
 	return {
 		id: org.id,
+		uin: org.uin,
 		publicId: org.public_id,
-		code: org.code ?? "",
+		code: org.code,
 		name: org.name,
 		logo: org.logo,
 		isDefault: org.is_default,
+		createdByUserId: org.created_by_user_id,
 	};
 }
 
-function toStoredAuthOrgs(
-	orgs:
-		| {
-				id?: number;
-				public_id?: string;
-				code?: string;
-				name?: string;
-				logo?: string;
-				is_default?: boolean;
-		  }[]
-		| undefined,
-): StoredAuthOrg[] | undefined {
-	if (!orgs) return undefined;
-	return orgs
-		.map((org) => toStoredAuthOrg(org))
-		.filter((org): org is StoredAuthOrg => Boolean(org));
+function toStoredAuthOrgs(orgs: Parameters<typeof toStoredAuthOrg>[0][]): StoredAuthOrg[] {
+	return orgs.map((org) => toStoredAuthOrg(org));
 }
 
 function expireStoredAuthSession() {

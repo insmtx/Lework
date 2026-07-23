@@ -237,9 +237,16 @@ export function QuestionAnswerInput({
 		(questionIndex: number) => {
 			const isMultiSelect = question.questions[questionIndex]?.multiple ?? false;
 			if (isMultiSelect) return; // multi-select: typing handles selection
+			const options = question.questions[questionIndex]?.options ?? [];
 			setCustomActive((prev) => {
 				const next = [...prev];
 				next[questionIndex] = true;
+				return next;
+			});
+			setAnswers((prev) => {
+				const next = prev.map((row) => [...row]);
+				const existing = extractCustomValue(next[questionIndex] ?? [], options);
+				next[questionIndex] = existing ? [existing] : [];
 				return next;
 			});
 		},
@@ -426,8 +433,13 @@ export function QuestionAnswerInput({
 
 					{/* Options */}
 					<div className="px-3.5 pb-2 sm:px-4">
-						<div className="grid gap-0.5" role={isMulti ? "group" : "radiogroup"}>
+						<div
+							key={activeQuestionIndex}
+							className="grid gap-0.5"
+							role={isMulti ? "group" : "radiogroup"}
+						>
 							{currentQuestion.options.map((option, optionIndex) => {
+								const optionKey = `${activeQuestionIndex}-${optionIndex}`;
 								const isCustomOption = isCustomOptionLabel(option.label);
 								const selected = isCustomOption
 									? currentCustomActive
@@ -440,7 +452,7 @@ export function QuestionAnswerInput({
 								if (isCustomOption) {
 									return (
 										<div
-											key={option.label}
+											key={optionKey}
 											className={cn(
 												"flex min-h-7 w-full items-center gap-2.5 rounded-lg border px-2 py-1 transition-all",
 												"hover:bg-slate-50",
@@ -465,6 +477,7 @@ export function QuestionAnswerInput({
 												onClick={(e) => {
 													e.stopPropagation();
 													setFocusedOptionIndex(optionIndex);
+													handleCustomSelect(activeQuestionIndex);
 													const el = document.querySelector(
 														"[data-custom-input]",
 													) as HTMLInputElement;
@@ -486,7 +499,10 @@ export function QuestionAnswerInput({
 												placeholder="输入自定义答案"
 												value={customAnswerValue}
 												onChange={(e) => handleCustomChange(activeQuestionIndex, e.target.value)}
-												onFocus={() => setFocusedOptionIndex(optionIndex)}
+												onFocus={() => {
+													setFocusedOptionIndex(optionIndex);
+													handleCustomSelect(activeQuestionIndex);
+												}}
 												onClick={(e) => e.stopPropagation()}
 												disabled={isSubmitting}
 												className="!h-6 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-[13px] font-normal leading-4 text-slate-950 shadow-none placeholder:text-[#98a8be] caret-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -507,7 +523,7 @@ export function QuestionAnswerInput({
 								return (
 									// biome-ignore lint/a11y/useAriaPropsSupportedByRole: button with explicit radio/checkbox role supports aria-checked per ARIA spec
 									<button
-										key={option.label}
+										key={optionKey}
 										type="button"
 										role={isMulti ? "checkbox" : "radio"}
 										aria-checked={selected}
@@ -559,6 +575,7 @@ export function QuestionAnswerInput({
 							{currentQuestion.custom &&
 								!currentQuestion.options.some((o) => isCustomOptionLabel(o.label)) && (
 									<div
+										key={`${activeQuestionIndex}-custom`}
 										className={cn(
 											"flex min-h-7 w-full items-center gap-2.5 rounded-lg border px-2 py-1 transition-all",
 											"hover:bg-slate-50",

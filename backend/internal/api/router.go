@@ -13,11 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/adapter"
-	adapteraccount "github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/handler"
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
@@ -77,6 +76,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 	tokenParser := edition.TokenParser()
 	authService := edition.Auth()
+	userRepo := edition.User()
+	orgRepo := edition.Org()
+	_ = edition.Department()
 
 	r.Use(middleware.CORS())
 	r.Use(middleware.CallerMiddleware(tokenParser, db))
@@ -104,6 +106,12 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 		handler.RegisterClientUpdateRoutes(v1, cfg.ClientUpdate)
 		logs.Info("Client update routes registered successfully")
+
+		handler.RegisterFrontendEventRoutes(v1)
+		logs.Info("Frontend event routes registered successfully")
+
+		handler.RegisterGlobalRoutes(v1, edition)
+		logs.Info("Global routes registered successfully")
 	}
 
 	// ── 内部路由（worker 上报，不走 RequireCallerOrg）─────────────
@@ -112,10 +120,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	logs.Info("LLM usage report route registered successfully")
 
 	// ── 鉴权路由（RequireCallerOrg 统一拦截未认证/未绑定 org 的请求）─────────────
-	permCore := edition.Permission()
-	permSvc := service.NewPermissionService(db, permCore, func(d *gorm.DB) service.PermissionCore {
-		return adapteraccount.NewPermission(adapteraccount.Deps{DB: d})
-	})
+	permSvc := service.NewPermissionService(db, service.NewPermissionCore(db))
 	authed := v1.Group("/", middleware.RequireCallerOrg())
 	{
 		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioning(db, workerScheduler, workerProvisioningService)
@@ -131,16 +136,16 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		logs.Info("LLM model routes registered successfully")
 
 		inferrer := service.NewDefaultAssistantInferrer(1)
-		sessionService := service.NewSessionService(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, modelInvoker)
+		sessionService := service.NewSessionService(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, modelInvoker, userRepo, orgRepo)
 		handler.RegisterSessionRoutes(authed, sessionService, permSvc)
 		handler.RegisterGlobalEventRoutes(authed, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		projectService := service.NewProjectServiceWithInferrerAndPublisher(db, permSvc, inferrer, giteaClient, cfg.Gitea, cfg.Env, eventbus)
+		projectService := service.NewProjectServiceWithInferrerAndPublisher(db, permSvc, inferrer, giteaClient, cfg.Gitea, cfg.Env, eventbus, userRepo)
 		handler.RegisterProjectRoutes(authed, projectService, permSvc)
 		logs.Info("Project routes registered successfully")
 
-		handler.RegisterPermissionRoutes(authed, NewPermissionBatchChecker(permCore))
+		handler.RegisterPermissionRoutes(authed, NewPermissionBatchChecker(permSvc))
 		logs.Info("Permission routes registered successfully")
 
 		projectFileHandler := handler.NewProjectFileHandler(projectService, permSvc)
@@ -176,7 +181,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterSkillRoutes(authed, skillService)
 		logs.Info("Skill management routes registered successfully")
 
-		feedbackService := service.NewFeedbackService(db, fileService, cfg.Feishu, modelInvoker)
+		feedbackService := service.NewFeedbackService(db, fileService, cfg.Feishu, modelInvoker, userRepo)
 		handler.RegisterFeedbackRoutes(v1, feedbackService)
 		logs.Info("Feedback routes registered successfully")
 

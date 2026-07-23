@@ -9,8 +9,8 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	adapteraccount "github.com/insmtx/Leros/backend/internal/adapter/account"
+	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/apis/constants"
@@ -120,7 +120,7 @@ func TestCallerMiddleware_NoAuthHeader(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ctx.Request = httptest.NewRequest("GET", "/", nil)
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -142,7 +142,7 @@ func TestCallerMiddleware_EmptyAuthHeader(t *testing.T) {
 	req.Header.Set("Authorization", "")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -161,7 +161,7 @@ func TestCallerMiddleware_InvalidToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -198,7 +198,7 @@ func TestCallerMiddleware_ValidV2UserToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -231,7 +231,7 @@ func TestCallerMiddleware_WorkerToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -262,7 +262,7 @@ func TestCallerMiddleware_RequestIDAndTraceID(t *testing.T) {
 	req.Header.Set(headerKeyTraceID, "test-trace-id")
 	ctx.Request = req
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	_, trace := localauth.FromGinContext(ctx)
@@ -297,7 +297,7 @@ func TestCallerMiddleware_AutoGenerateRequestID(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ctx.Request = httptest.NewRequest("GET", "/", nil)
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	_, trace := localauth.FromGinContext(ctx)
@@ -365,7 +365,7 @@ func TestCallerMiddleware_WrongSecret(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(	wrongSecretParser(database), database)
+	middleware := CallerMiddleware(wrongSecretParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)
@@ -391,7 +391,7 @@ func TestCallerMiddleware_ZeroUin(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	ctx.Request = req
 
-	middleware := CallerMiddleware(	newTestParser(database), database)
+	middleware := CallerMiddleware(newTestParser(database), database)
 	middleware(ctx)
 
 	caller, _ := localauth.FromGinContext(ctx)

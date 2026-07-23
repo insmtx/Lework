@@ -1,6 +1,12 @@
 "use client";
 
-import { useAuthStore, useChatStore, useLayoutStore, usePermissionStore } from "@leros/store";
+import {
+	useAuthStore,
+	useChatStore,
+	useGlobalConfigStore,
+	useLayoutStore,
+	usePermissionStore,
+} from "@leros/store";
 import { type ReactNode, useEffect, useState } from "react";
 import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
@@ -26,6 +32,12 @@ export function Shell({
 	const { startGlobalEvents, stopGlobalEvents } = useChatStore((s) => s);
 	const orgId = useAuthStore((s) => s.authUser?.currentOrg?.id);
 	const invalidateAll = usePermissionStore((s) => s.invalidateAll);
+	const fetchGlobalConfig = useGlobalConfigStore((s) => s.fetchGlobalConfig);
+
+	useEffect(() => {
+		// 中文注释：全局配置不依赖登录态，应用启动时统一加载，刷新页面时重新获取服务端版本信息。
+		void fetchGlobalConfig();
+	}, [fetchGlobalConfig]);
 
 	useEffect(() => {
 		// 中文注释：客户端挂载后再渲染工作台，确保侧边栏本地偏好不会参与 SSR hydration。

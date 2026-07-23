@@ -9,7 +9,6 @@ import (
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 
-	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/prompts"
@@ -37,7 +36,7 @@ var summarizeFeedback func(
 ) (feedbackSummary, error) = summarizeFeedbackWithLLM
 
 func summarizeFeedbackWithLLM(ctx context.Context, database *gorm.DB, modelInvoker modelrouter.Invoker, orgID uint, typeLabel, content string, uin uint) (feedbackSummary, error) {
-	model, err := db.GetDefaultLLMModel(ctx, database, orgID)
+	model, err := llm.ResolveDefaultLLMModel(ctx, database, orgID)
 	if err != nil {
 		return feedbackSummary{}, fmt.Errorf("get default model: %w", err)
 	}

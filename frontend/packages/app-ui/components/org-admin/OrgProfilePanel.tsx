@@ -33,6 +33,7 @@ export function OrgProfilePanel({
 	active?: boolean;
 }) {
 	const user = useAuthStore((s) => s.authUser);
+	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const syncOrganizationProfile = useAuthStore((s) => s.syncOrganizationProfile);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const logoPreviewRef = useRef<string | undefined>(undefined);
@@ -40,15 +41,17 @@ export function OrgProfilePanel({
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [uploadingLogo, setUploadingLogo] = useState(false);
-	const [org, setOrg] = useState<OrgInfo | null>(null);
+	const [org, setOrg] = useState<Pick<OrgInfo, "name" | "logo"> | null>(null);
 	const [nameDraft, setNameDraft] = useState("");
 	const [initialName, setInitialName] = useState("");
 	const [logoPreview, setLogoPreview] = useState<string | undefined>();
 	const [pendingLogoUrl, setPendingLogoUrl] = useState<string | undefined>();
 
-	const orgPublicId = user?.currentOrg?.publicId;
-	const currentOrgIdRef = useRef(user?.currentOrg?.id);
-	currentOrgIdRef.current = user?.currentOrg?.id;
+	const currentOrg = user?.currentOrg;
+	const currentOrgId = currentOrg?.id;
+	const currentOrgName = currentOrg?.name;
+	const currentOrgLogo = currentOrg?.logo;
+	const orgPublicId = currentOrg?.publicId;
 
 	const clearLogoPreview = useCallback(() => {
 		revokeObjectURLSafe(logoPreviewRef.current);
@@ -63,7 +66,7 @@ export function OrgProfilePanel({
 	}, []);
 
 	const loadData = useCallback(async () => {
-		if (!orgPublicId) {
+		if (!currentOrgId || !currentOrgName) {
 			setLoading(false);
 			return;
 		}
@@ -71,28 +74,37 @@ export function OrgProfilePanel({
 		setLoading(true);
 		clearLogoPreview();
 		try {
-			const resp = await orgAdminApi.getOrg({ public_id: orgPublicId });
-			const data = resp.data.data;
+			// 中文注释：基本信息读取暂时直接使用 AuthSession 返回的当前组织，避免依赖为空的 public_id。
+			const data = {
+				name: currentOrgName,
+				logo: currentOrgLogo,
+			};
+
+			// 中文注释：保留原 GetOrg 查询逻辑，后续确认接口契约后可恢复。
+			// const resp = await orgAdminApi.getOrg({ public_id: orgPublicId });
+			// const data = resp.data.data;
 			setOrg(data);
 			setNameDraft(data.name);
 			setInitialName(data.name);
 			setPendingLogoUrl(normalizeFilePublicId(data.logo));
-			const currentOrgId = currentOrgIdRef.current;
-			if (currentOrgId) {
-				syncOrganizationProfile(currentOrgId, { name: data.name, logo: data.logo });
-			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "组织信息加载失败";
 			toast.error(message);
 		} finally {
 			setLoading(false);
 		}
-	}, [clearLogoPreview, orgPublicId, syncOrganizationProfile]);
+	}, [clearLogoPreview, currentOrgId, currentOrgLogo, currentOrgName]);
 
 	useEffect(() => {
-		if (!active || !orgPublicId) return;
+		if (!active) return;
+		// 中文注释：进入页面时主动刷新 AuthSession，页面数据随后从最新 currentOrg 读取。
+		void refreshAuthSession();
+	}, [active, refreshAuthSession]);
+
+	useEffect(() => {
+		if (!active || !currentOrgId || !currentOrgName) return;
 		void loadData();
-	}, [active, orgPublicId, loadData]);
+	}, [active, currentOrgId, currentOrgName, loadData]);
 
 	const handleProtectedLogoLoaded = useCallback(() => {
 		clearLogoPreview();
@@ -133,7 +145,9 @@ export function OrgProfilePanel({
 	};
 
 	const handleSave = async () => {
-		if (!orgPublicId || !user) return;
+		if (!user) return;
+		// 中文注释：暂时保留原 public_id 判空逻辑，允许保存接口自行返回当前契约错误。
+		// if (!orgPublicId || !user) return;
 		const trimmedName = nameDraft.trim();
 		if (!trimmedName) {
 			toast.error("组织名称不能为空");
@@ -143,7 +157,7 @@ export function OrgProfilePanel({
 		setSaving(true);
 		try {
 			const resp = await orgAdminApi.updateOrg({
-				public_id: orgPublicId,
+				public_id: orgPublicId ?? "",
 				name: trimmedName,
 				logo: pendingLogoUrl,
 			});

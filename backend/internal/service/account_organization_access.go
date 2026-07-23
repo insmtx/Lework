@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -17,7 +18,9 @@ func uintToFilterValue(v uint) string {
 
 // accountOrganizationService 是多个 account 子域 service 共用的基础结构体。
 type accountOrganizationService struct {
-	db *gorm.DB
+	db       *gorm.DB
+	orgRepo  account.OrgRepository
+	deptRepo account.DepartmentRepository
 }
 
 func accountOrganizationCaller(ctx context.Context) (*types.Caller, error) {

@@ -221,21 +221,21 @@ func setupTestService(t *testing.T) contract.SessionService {
 	t.Helper()
 	db := setupTestDB(t)
 	inferrer := &mockInferrer{assistantID: 1}
-	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil)
+	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil, nil, nil)
 }
 
 func createSessionServiceAndDB(t *testing.T) (contract.SessionService, *gorm.DB) {
 	t.Helper()
 	db := setupTestDB(t)
 	inferrer := &mockInferrer{assistantID: 1}
-	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil), db
+	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil, nil, nil), db
 }
 
 func setupTestServiceWithDB(t *testing.T) (contract.SessionService, *gorm.DB) {
 	t.Helper()
 	db := setupTestDB(t)
 	inferrer := &mockInferrer{assistantID: 1}
-	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil), db
+	return NewSessionService(db, newTestPermissionService(db), &mockEventBus{}, inferrer, nil, nil, "test", nil, nil, nil), db
 }
 
 func setupTestServiceWithSubscriber(t *testing.T, subscriber mq.Subscriber) contract.SessionService {
@@ -249,7 +249,7 @@ func setupTestServiceWithSubscriber(t *testing.T, subscriber mq.Subscriber) cont
 		Publisher:  &mockEventBus{},
 		Subscriber: subscriber,
 	}
-	return NewSessionService(db, newTestPermissionService(db), eb, inferrer, nil, nil, "test", nil)
+	return NewSessionService(db, newTestPermissionService(db), eb, inferrer, nil, nil, "test", nil, nil, nil)
 }
 
 func setupTestContextWithoutCaller(t *testing.T) context.Context {
@@ -409,7 +409,7 @@ func TestGetSession_NotFound(t *testing.T) {
 
 func TestGetSessionRuntimeStatusRespondingForRecentProcessingMessage(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
@@ -425,7 +425,7 @@ func TestGetSessionRuntimeStatusRespondingForRecentProcessingMessage(t *testing.
 
 func TestGetSessionRuntimeStatusIgnoresOldProcessingMessage(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	message := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
@@ -447,7 +447,7 @@ func TestGetSessionRuntimeStatusIgnoresOldProcessingMessage(t *testing.T) {
 
 func TestHandleSessionRunStartedMarksReplyMessagesProcessing(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	first := createUserMessage(t, database, session.ID, string(types.MessageStatusPending), 1)
@@ -480,7 +480,7 @@ func TestHandleSessionRunStartedMarksReplyMessagesProcessing(t *testing.T) {
 
 func TestCompleteSessionMessageStoresReplyIDsAndCompletesUsers(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 	session := createTestSession(t, database, service, ctx)
 	first := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
@@ -671,7 +671,7 @@ func TestAddMessage_UpdatesSession(t *testing.T) {
 
 func TestAddMessage_TouchesProjectUpdatedAtForUserMessage(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 
 	assistant := seedReadyAssistant(t, database, "touch_project", "Project Assistant", "You are helpful")
@@ -1091,7 +1091,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("failed to seed worker deployment: %v", err)
 	}
-	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 
 	session, err := service.CreateSession(ctx, &contract.CreateSessionRequest{
@@ -1137,7 +1137,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 
 func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	database := setupTestDB(t)
-	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 	projectID := uint(10)
 	taskID := uint(20)
@@ -1363,7 +1363,7 @@ func TestStreamSessionEvents_MissingCaller(t *testing.T) {
 func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	sessionService := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	sessionService := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	session := createTestSession(t, database, sessionService, ctx)
 	reply := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 1)
 	other := createUserMessage(t, database, session.ID, string(types.MessageStatusProcessing), 2)
@@ -1408,7 +1408,7 @@ func TestStreamSessionEventsReplayUsesProcessingMessageStartSeqAndFiltersReplies
 		mustStreamNATSMessage(t, nonMatching),
 		mustStreamNATSMessage(t, matching),
 	}}
-	service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	var emitted []string
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -1454,7 +1454,7 @@ func mustStreamNATSMessage(t *testing.T, msg messaging.RunEvent) *nats.Msg {
 func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	database := setupTestDB(t)
 	ctx := setupTestContextWithCaller(t)
-	sessionService := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	sessionService := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	session := createTestSession(t, database, sessionService, ctx)
 
 	assistant100 := &types.DigitalAssistant{PublicID: "assistant-100", OrgID: 1, Name: "Assistant 100"}
@@ -1502,7 +1502,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	// assistantID=assistant-100 (PublicID) resolves to WorkerID=1000 → matches → event delivered.
 	t.Run("matching assistant receives event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
-		service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+		service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
@@ -1524,7 +1524,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	// assistantID=assistant-200 (PublicID) resolves to WorkerID=2000 ≠ 1000 → event filtered out.
 	t.Run("non-matching assistant receives no event", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
-		service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+		service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
@@ -1546,7 +1546,7 @@ func TestStreamSessionEventsFiltersByAssistantID(t *testing.T) {
 	// empty assistantID → event delivered regardless of WorkerID.
 	t.Run("empty assistant receives event unfiltered", func(t *testing.T) {
 		bus := &replayEventBus{messages: []*nats.Msg{mustStreamNATSMessage(t, workerEvent)}}
-		service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+		service := NewSessionService(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 
 		var emitted []string
 		streamCtx, cancel := context.WithCancel(ctx)
@@ -1579,7 +1579,7 @@ func TestGetSessionForCallerAllowsProjectMemberForTaskSession(t *testing.T) {
 	if err := db.CreateSession(ctx, database, sess); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	ss := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil).(*sessionService)
+	ss := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil).(*sessionService)
 	memberCtx := auth.WithContext(ctx, &types.Caller{Uin: 2, OrgID: 1, Kind: types.CallerKindUser, State: types.AuthStateSucc}, nil)
 	if _, _, err := ss.getSessionForCaller(memberCtx, "sess_task1"); err != nil {
 		t.Fatalf("project member should access task session: %v", err)
@@ -1589,7 +1589,7 @@ func TestGetSessionForCallerAllowsProjectMemberForTaskSession(t *testing.T) {
 func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 	database := setupTestDB(t)
 	bus := &recordingEventBus{}
-	poster := NewMessagePoster(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test")
+	poster := NewMessagePoster(database, newTestPermissionService(database), bus, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil)
 	ctx := setupTestContextWithCaller(t)
 
 	proj := &types.Project{
@@ -1731,7 +1731,7 @@ func TestConvertToContractSessionMessageAlwaysIncludesNormalizedUsage(t *testing
 func TestCompleteSessionMessageDoesNotPublishAssistantEvent(t *testing.T) {
 	database := setupTestDB(t)
 	recorder := &publishRecorder{}
-	service := NewSessionService(database, newTestPermissionService(database), recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 
 	assistant := &types.DigitalAssistant{PublicID: "beta-assistant", OrgID: 1, Name: "Beta"}
@@ -1994,7 +1994,7 @@ func uintPtr(v uint) *uint {
 func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 	database := setupTestDB(t)
 	recorder := &publishRecorder{}
-	service := NewSessionService(database, newTestPermissionService(database), recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil)
+	service := NewSessionService(database, newTestPermissionService(database), recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil, nil)
 	ctx := setupTestContextWithCaller(t)
 
 	// seed DigitalAssistant so AssistantName can be resolved

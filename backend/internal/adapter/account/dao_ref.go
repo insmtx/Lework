@@ -3,11 +3,10 @@ package account
 // UserRef identifies a user by primary key or one non-key unique attribute.
 // The first non-zero field determines the lookup strategy in the Resolve method.
 type UserRef struct {
-	ID          uint
-	PublicID    string
-	Email       string
-	Phone       string
-	GithubLogin string
+	ID       uint
+	PublicID string
+	Email    string
+	Phone    string
 }
 
 // OrgRef identifies an organization.

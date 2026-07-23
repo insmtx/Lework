@@ -47,7 +47,7 @@ type Config struct {
 	Aliyun        *AliyunConfig       `yaml:"aliyun,omitempty" json:"aliyun,omitempty"`
 	ClientUpdate  *ClientUpdateConfig `yaml:"client_update,omitempty" json:"client_update,omitempty"`
 	Feishu        *FeishuConfig       `yaml:"feishu,omitempty" json:"feishu,omitempty"`
-	Auth          *AuthConfig         `yaml:"auth,omitempty" json:"auth,omitempty"`
+	Auth          *IAMConfig          `yaml:"auth,omitempty" json:"auth,omitempty"`
 }
 
 // FeishuConfig configures Feishu Open Platform integration for feedback Bitable sync.
@@ -129,17 +129,10 @@ type GiteaConfig struct {
 	Owner       string `yaml:"owner"`
 }
 
-// AuthConfig configures the authentication adapter mode and IAM service
-// integration. The mode field is used for runtime diagnostics; the actual
-// adapter selection is determined at build time via build tags.
-type AuthConfig struct {
-	Mode string    `yaml:"mode,omitempty" json:"mode,omitempty"`
-	IAM  *IAMConfig `yaml:"iam,omitempty" json:"iam,omitempty"`
-}
-
 // IAMConfig configures the connection to the IAM (identity and access
 // management) service. Only required when building with the enterprise
 // build tag (-tags enterprise).
 type IAMConfig struct {
-	BaseURL string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	BaseURL    string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	DomainName string `yaml:"domain_name,omitempty" json:"domain_name,omitempty"`
 }

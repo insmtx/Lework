@@ -27,10 +27,12 @@ func (s *userStore) Get(ctx context.Context, ref UserRef) (*types.User, error) {
 		return infra_db.GetUserByEmail(ctx, s.db, ref.Email)
 	case ref.Phone != "":
 		return infra_db.GetUserByPhone(ctx, s.db, ref.Phone)
-	case ref.GithubLogin != "":
-		return infra_db.GetUserByGithubLogin(ctx, s.db, ref.GithubLogin)
 	}
 	return nil, nil
+}
+
+func (s *userStore) GetByIDs(ctx context.Context, ids []uint) ([]*types.User, error) {
+	return infra_db.GetUsersByIDs(ctx, s.db, ids)
 }
 
 func (s *userStore) Create(ctx context.Context, u *types.User) (*types.User, error) {

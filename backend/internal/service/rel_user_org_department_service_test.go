@@ -12,7 +12,7 @@ func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 	if err := database.AutoMigrate(&types.UserOrg{}); err != nil {
 		t.Fatalf("failed to migrate user org: %v", err)
 	}
-	service := NewMemberDepartmentService(database)
+	service := NewMemberDepartmentService(database, nil, nil)
 	ctx := accountServiceTestContext()
 
 	userOrg := &types.UserOrg{Uin: 30, UserID: 30, OrgID: 1, IsDefault: true}

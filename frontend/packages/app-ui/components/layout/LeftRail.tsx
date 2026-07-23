@@ -819,7 +819,11 @@ export function LeftRail({
 			<OrgAdminDialog open={orgAdminDialogOpen} onOpenChange={setOrgAdminDialogOpen} />
 			<FeedbackDialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen} />
 			<Dialog open={orgSwitchDialogOpen} onOpenChange={setOrgSwitchDialogOpen}>
-				<DialogContent className="w-[min(420px,95vw)] max-w-none p-6" showCloseButton>
+				<DialogContent
+					className="flex max-h-[min(70dvh,calc(100dvh-2rem))] w-full max-w-none flex-col overflow-hidden p-6"
+					style={{ width: "min(33vw, calc(100vw - 2rem))" }}
+					showCloseButton
+				>
 					<OrganizationSwitchPanel
 						navigation={navigation}
 						onDone={() => setOrgSwitchDialogOpen(false)}

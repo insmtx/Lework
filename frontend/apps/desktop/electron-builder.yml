@@ -46,6 +46,8 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
 linux:
+  executableName: leros-desktop
+  maintainer: "support@insmtx.com"
   category: Development
   target:
     - target: AppImage

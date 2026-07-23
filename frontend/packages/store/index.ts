@@ -3,13 +3,17 @@ export type {
 	AuthSessionResponse,
 	AuthTokenResponse,
 	AuthUserInfo,
+	ChooseUinParams,
+	CreateOrganizationForPendingLoginParams,
 	CreateOrganizationParams,
+	CreateOrganizationResponse,
 	LoginByEmailParams,
 	LoginByPhoneCodeParams,
+	PendingOrganizationLoginResponse,
+	RefreshTokenParams,
 	RegisterByEmailParams,
 	SendPhoneLoginCodeParams,
 	SendPhoneLoginCodeResponse,
-	SwitchOrganizationParams,
 } from "./api/authApi";
 export { authApi } from "./api/authApi";
 export { clientUpdateApi } from "./api/clientUpdateApi";
@@ -34,13 +38,14 @@ export {
 	getFilePublicUrlFromStorageUri,
 	normalizeFilePublicId,
 } from "./api/fileApi";
+export type { Edition, GlobalConfig } from "./api/globalConfigApi";
+export { globalConfigApi } from "./api/globalConfigApi";
 export type {
 	Department,
 	ListDepartmentsResponse,
-	ListOrgMembersResponse,
+	ListUsersResponse,
 	OrgInfo,
-	OrgMember,
-	OrgMemberDepartment,
+	User,
 } from "./api/orgAdminApi";
 export { orgAdminApi } from "./api/orgAdminApi";
 export { permissionApi } from "./api/permissionApi";
@@ -87,6 +92,7 @@ export {
 	useAuthStore,
 	useChatStore,
 	useDAStore,
+	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
 	useSkillStore,

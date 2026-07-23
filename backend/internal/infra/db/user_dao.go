@@ -40,18 +40,6 @@ func GetUserByPublicID(ctx context.Context, d *gorm.DB, publicID string) (*types
 	return &entity, nil
 }
 
-func GetUserByGithubLogin(ctx context.Context, d *gorm.DB, githubLogin string) (*types.User, error) {
-	var entity types.User
-	err := d.WithContext(ctx).Where("github_login = ?", githubLogin).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &entity, nil
-}
-
 func GetUserByEmail(ctx context.Context, d *gorm.DB, email string) (*types.User, error) {
 	var entity types.User
 	err := d.WithContext(ctx).Where("email = ?", email).First(&entity).Error
@@ -154,7 +142,7 @@ func GetUsersByPublicIDs(ctx context.Context, db *gorm.DB, publicIDs []string) (
 	return entities, nil
 }
 
-func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.User, int64, error) {
+func ListUser(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.User, int64, error) {
 	var entities []*types.User
 	var total int64
 
@@ -177,11 +165,10 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 			like := "%" + kw + "%"
 			conds := []string{
 				"u.name LIKE ?",
-				"u.github_login LIKE ?",
 				"u.email LIKE ?",
 				"u.phone LIKE ?",
 			}
-			args := []interface{}{like, like, like, like}
+			args := []interface{}{like, like, like}
 			if digits := phoneSearchDigits(kw); len(digits) >= 3 {
 				digitLike := "%" + digits + "%"
 				if digitLike != like {
@@ -192,14 +179,19 @@ func ListUsers(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.
 			query = query.Where(strings.Join(conds, " OR "), args...)
 		case "name":
 			query = query.Where("u.name LIKE ?", "%"+filter.Value[0]+"%")
-		case "github_login":
-			if filter.ExactMatch {
-				query = query.Where("u.github_login IN (?)", filter.Value)
-			} else {
-				query = query.Where("u.github_login LIKE ?", "%"+filter.Value[0]+"%")
-			}
 		case "email":
 			query = query.Where("u.email LIKE ?", "%"+filter.Value[0]+"%")
+		case "department_id":
+			if len(filter.Value) == 0 {
+				break
+			}
+			query = query.Where(`EXISTS (
+				SELECT 1 FROM `+types.TableNameMemberDepartment+` AS md
+				WHERE md.uin = uo.uin
+				  AND md.org_id = uo.org_id
+				  AND md.department_id = ?
+				  AND md.deleted_at IS NULL
+			)`, filter.Value[0])
 		default:
 			logs.WarnContextf(ctx, "[user][ListUsers] invalid filter field: %s", filter.Field)
 		}

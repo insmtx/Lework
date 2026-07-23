@@ -13,7 +13,7 @@ function createAuthActions() {
 			refreshToken: "old-refresh-token",
 			expiredAt: 1,
 			uin: 1,
-			currentOrg: { id: 1, publicId: "org-1", code: "org-1", name: "旧组织" },
+			currentOrg: { id: 1, uin: 10001, publicId: "org-1", code: "org-1", name: "旧组织" },
 			organizations: [],
 		},
 	};
@@ -35,11 +35,28 @@ describe("AuthActionImpl", () => {
 
 	it("组织切换后忽略仍在途的旧 AuthSession 响应", async () => {
 		let resolveSession: ((value: unknown) => void) | undefined;
-		vi.spyOn(authApi, "authSession").mockReturnValue(
-			new Promise((resolve) => {
-				resolveSession = resolve;
-			}) as never,
-		);
+		vi.spyOn(authApi, "authSession")
+			.mockReturnValueOnce(
+				new Promise((resolve) => {
+					resolveSession = resolve;
+				}) as never,
+			)
+			.mockResolvedValueOnce({
+				data: {
+					code: 0,
+					message: "success",
+					data: {
+						user_info: {
+							id: 1,
+							public_id: "user-1",
+							name: "测试用户",
+							email: "test@example.com",
+						},
+						org: { id: 2, uin: 20002, public_id: "org-2", code: "org-2", name: "AI冲锋队" },
+						organizations: [],
+					},
+				},
+			} as never);
 		vi.spyOn(authApi, "switchOrganization").mockResolvedValue({
 			data: {
 				code: 0,
@@ -47,24 +64,13 @@ describe("AuthActionImpl", () => {
 				data: {
 					login_status: "success",
 					jwt_token: "new-token",
-					refresh_token: "new-refresh-token",
-					expired_at: 2,
-					uin: 1,
-					user_info: {
-						id: 1,
-						public_id: "user-1",
-						name: "测试用户",
-						email: "test@example.com",
-					},
-					org: { id: 2, public_id: "org-2", code: "org-2", name: "AI冲锋队" },
-					organizations: [],
 				},
 			},
 		} as never);
 		const { actions, getState } = createAuthActions();
 
 		const sessionRefresh = actions.refreshAuthSession();
-		await actions.switchOrganization(2);
+		const switchOrganization = actions.switchOrganization(20002);
 		resolveSession?.({
 			data: {
 				code: 0,
@@ -81,8 +87,9 @@ describe("AuthActionImpl", () => {
 				},
 			},
 		});
-		await sessionRefresh;
+		await Promise.all([sessionRefresh, switchOrganization]);
 
 		expect(getState().authUser?.currentOrg?.id).toBe(2);
+		expect(getState().authUser?.currentOrg?.uin).toBe(20002);
 	});
 });

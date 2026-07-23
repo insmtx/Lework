@@ -11,13 +11,13 @@ import (
 	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/testutil"
 	"github.com/insmtx/Leros/backend/types"
 )
 
-func setupIntegrationTest(t *testing.T) (contract.AuthService, *gorm.DB) {
+func setupIntegrationTest(t *testing.T) (account.AuthProvider, *gorm.DB) {
 	t.Helper()
 	database := testutil.Setup(t)
 	return NewAuth(database, "test-secret", NoopSMSSender{}, nil), database
@@ -27,7 +27,7 @@ func TestSendPhoneLoginCode_Success_Integration(t *testing.T) {
 	svc, database := setupIntegrationTest(t)
 	ctx := context.Background()
 
-	resp, err := svc.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+	resp, err := svc.SendPhoneLoginCode(ctx, &account.SendPhoneLoginCodeInput{
 		Phone: "13800138000",
 	})
 	if err != nil {
@@ -56,7 +56,7 @@ func TestSendPhoneLoginCode_InvalidPhone_Integration(t *testing.T) {
 	svc, _ := setupIntegrationTest(t)
 	ctx := context.Background()
 
-	_, err := svc.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+	_, err := svc.SendPhoneLoginCode(ctx, &account.SendPhoneLoginCodeInput{
 		Phone: "123",
 	})
 	if !errors.Is(err, accounterror.ErrInvalidPhoneFormat) {
@@ -68,14 +68,14 @@ func TestSendPhoneLoginCode_ResendTooFrequent_Integration(t *testing.T) {
 	svc, _ := setupIntegrationTest(t)
 	ctx := context.Background()
 
-	_, err := svc.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+	_, err := svc.SendPhoneLoginCode(ctx, &account.SendPhoneLoginCodeInput{
 		Phone: "13700137000",
 	})
 	if err != nil {
 		t.Fatalf("first SendPhoneLoginCode failed: %v", err)
 	}
 
-	_, err = svc.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+	_, err = svc.SendPhoneLoginCode(ctx, &account.SendPhoneLoginCodeInput{
 		Phone: "13700137000",
 	})
 	if !errors.Is(err, accounterror.ErrPhoneCodeSendTooOften) {
@@ -87,7 +87,7 @@ func TestSendPhoneLoginCode_ExpiredCode_Integration(t *testing.T) {
 	svc, database := setupIntegrationTest(t)
 	ctx := context.Background()
 
-	_, err := svc.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+	_, err := svc.SendPhoneLoginCode(ctx, &account.SendPhoneLoginCodeInput{
 		Phone: "13600136000",
 	})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestSendPhoneLoginCode_ExpiredCode_Integration(t *testing.T) {
 		t.Fatalf("update expires_at failed: %v", err)
 	}
 
-	_, err = svc.LoginByPhoneCode(ctx, &contract.LoginByPhoneCodeRequest{
+	_, err = svc.LoginByPhoneCode(ctx, &account.LoginByPhoneCodeInput{
 		Phone: "13600136000",
 		Code:  defaultPhoneCode,
 	})
@@ -113,7 +113,7 @@ func TestSendPhoneLoginAndLogin_Integration(t *testing.T) {
 	svc, database := setupIntegrationTest(t)
 	ctx := context.Background()
 
-	sent, err := svc.SendPhoneLoginCode(ctx, &contract.SendPhoneLoginCodeRequest{
+	sent, err := svc.SendPhoneLoginCode(ctx, &account.SendPhoneLoginCodeInput{
 		Phone: "13900139000",
 	})
 	if err != nil {
@@ -123,15 +123,21 @@ func TestSendPhoneLoginAndLogin_Integration(t *testing.T) {
 		t.Fatalf("unexpected send response: %+v", sent)
 	}
 
-	loggedIn, err := svc.LoginByPhoneCode(ctx, &contract.LoginByPhoneCodeRequest{
+	loggedIn, err := svc.LoginByPhoneCode(ctx, &account.LoginByPhoneCodeInput{
 		Phone: "13900139000",
 		Code:  defaultPhoneCode,
 	})
 	if err != nil {
 		t.Fatalf("LoginByPhoneCode failed: %v", err)
 	}
-	if loggedIn.JwtToken == "" || loggedIn.RefreshToken == "" {
-		t.Fatalf("expected login tokens: %+v", loggedIn)
+	if loggedIn.JwtToken != "" {
+		t.Fatal("expected no jwt token for new user")
+	}
+	if loggedIn.RefreshToken == "" {
+		t.Fatal("expected refresh token")
+	}
+	if loggedIn.LoginStatus != account.LoginStatusNeedCreateCompany {
+		t.Fatalf("expected login_status need_create_company, got %q", loggedIn.LoginStatus)
 	}
 	if loggedIn.UserInfo.Phone != "13900139000" {
 		t.Fatalf("expected phone in user info, got %q", loggedIn.UserInfo.Phone)

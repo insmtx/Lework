@@ -66,3 +66,4 @@ leros-storage/
 .codegraph
 deployments/dev/server.config.yaml
 deployments/dev/worker.config.yaml
+.opencode

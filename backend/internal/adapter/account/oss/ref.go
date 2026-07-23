@@ -5,11 +5,10 @@ package oss
 // UserRef identifies a user by primary key or one non-key unique attribute.
 // Mirrors account.UserRef to avoid an import cycle.
 type UserRef struct {
-	ID          uint
-	PublicID    string
-	Email       string
-	Phone       string
-	GithubLogin string
+	ID       uint
+	PublicID string
+	Email    string
+	Phone    string
 }
 
 // OrgRef identifies an organization. Mirrors account.OrgRef.

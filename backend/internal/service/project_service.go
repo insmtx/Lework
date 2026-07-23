@@ -21,6 +21,7 @@ import (
 	"code.gitea.io/sdk/gitea"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/consts"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
@@ -53,6 +54,7 @@ type projectService struct {
 	giteaCfg    *config.GiteaConfig
 	env         string
 	publisher   mq.Publisher
+	userRepo    account.UserRepository
 }
 
 // fileTreeEntry 文件树 walk 阶段收集的扁平条目
@@ -64,17 +66,18 @@ type fileTreeEntry struct {
 }
 
 // NewProjectService 创建项目服务实例
-func NewProjectService(db *gorm.DB, perm *PermissionService, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
+func NewProjectService(db *gorm.DB, perm *PermissionService, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository) contract.ProjectService {
 	return &projectService{
 		db:          db,
 		perm:        perm,
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 		env:         env,
+		userRepo:    userRepo,
 	}
 }
 
-func NewProjectServiceWithInferrer(db *gorm.DB, perm *PermissionService, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) contract.ProjectService {
+func NewProjectServiceWithInferrer(db *gorm.DB, perm *PermissionService, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository) contract.ProjectService {
 	return &projectService{
 		db:          db,
 		perm:        perm,
@@ -82,10 +85,10 @@ func NewProjectServiceWithInferrer(db *gorm.DB, perm *PermissionService, inferre
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 		env:         env,
+		userRepo:    userRepo,
 	}
 }
 
-// NewProjectServiceWithInferrerAndPublisher creates a project service that can dispatch worker commands.
 func NewProjectServiceWithInferrerAndPublisher(
 	db *gorm.DB,
 	perm *PermissionService,
@@ -94,6 +97,7 @@ func NewProjectServiceWithInferrerAndPublisher(
 	giteaCfg *config.GiteaConfig,
 	env string,
 	publisher mq.Publisher,
+	userRepo account.UserRepository,
 ) contract.ProjectService {
 	return &projectService{
 		db:          db,
@@ -103,6 +107,7 @@ func NewProjectServiceWithInferrerAndPublisher(
 		giteaCfg:    giteaCfg,
 		env:         env,
 		publisher:   publisher,
+		userRepo:    userRepo,
 	}
 }
 
@@ -685,7 +690,7 @@ func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	for _, m := range userMembers {
 		publicIDs = append(publicIDs, m.PublicID)
 	}
-	uinMap, err := db.GetPublicIDUinMapByPublicIDs(ctx, tx, caller.OrgID, publicIDs)
+	uinMap, err := s.userRepo.GetUinMapByPublicIDs(ctx, caller.OrgID, publicIDs)
 	if err != nil {
 		return payload, false, fmt.Errorf("get user uins: %w", err)
 	}
@@ -696,7 +701,7 @@ func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, pr
 		}
 		addedUserIDs = append(addedUserIDs, uin)
 	}
-	payload.AddedMemberIDs, err = publicIDsForUsers(ctx, tx, uniqueUintSlice(addedUserIDs))
+	payload.AddedMemberIDs, err = s.publicIDsForUsers(ctx, uniqueUintSlice(addedUserIDs))
 	if err != nil {
 		return payload, false, err
 	}
@@ -714,7 +719,7 @@ func (s *projectService) bindProjectUserMembers(ctx context.Context, tx *gorm.DB
 	for _, m := range userMembers {
 		publicIDs = append(publicIDs, m.PublicID)
 	}
-	uinMap, err := db.GetPublicIDUinMapByPublicIDs(ctx, tx, orgID, publicIDs)
+	uinMap, err := s.userRepo.GetUinMapByPublicIDs(ctx, orgID, publicIDs)
 	if err != nil {
 		return fmt.Errorf("get user uins: %w", err)
 	}
@@ -859,11 +864,11 @@ func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	if err != nil {
 		return payload, false, err
 	}
-	payload.AddedMemberIDs, err = publicIDsForUsers(ctx, tx, addedUserIDs)
+	payload.AddedMemberIDs, err = s.publicIDsForUsers(ctx, addedUserIDs)
 	if err != nil {
 		return payload, false, err
 	}
-	payload.RemovedMemberIDs, err = publicIDsForUsers(ctx, tx, removedUserIDs)
+	payload.RemovedMemberIDs, err = s.publicIDsForUsers(ctx, removedUserIDs)
 	if err != nil {
 		return payload, false, err
 	}
@@ -982,7 +987,7 @@ func (s *projectService) syncProjectUserMembers(ctx context.Context, tx *gorm.DB
 	for _, m := range userMembers {
 		publicIDs = append(publicIDs, m.PublicID)
 	}
-	uinMap, err := db.GetPublicIDUinMapByPublicIDs(ctx, tx, orgID, publicIDs)
+	uinMap, err := s.userRepo.GetUinMapByPublicIDs(ctx, orgID, publicIDs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get user uins: %w", err)
 	}
@@ -1093,7 +1098,7 @@ func (s *projectService) createProjectActivityAt(
 	requestID *string,
 	createdAt time.Time,
 ) error {
-	operatorID, err := publicIDForUser(ctx, tx, operatorUin)
+	operatorID, err := s.publicIDForUser(ctx, operatorUin)
 	if err != nil {
 		return err
 	}
@@ -1150,11 +1155,11 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 		skillIDs = append(skillIDs, payload.RemovedSkillIDs...)
 	}
 
-	users, err := db.GetUsersByPublicIDs(ctx, s.db, uniqueStringSlice(userIDs))
+	users, err := s.userRepo.GetUsersByPublicIDs(ctx, uniqueStringSlice(userIDs))
 	if err != nil {
 		return nil, err
 	}
-	userMap := make(map[string]*types.User, len(users))
+	userMap := make(map[string]*account.UserInfo, len(users))
 	for _, user := range users {
 		userMap[user.PublicID] = user
 	}
@@ -1239,8 +1244,8 @@ func (s *projectService) buildProjectActivitySkillMap(ctx context.Context, orgID
 	return result, nil
 }
 
-func publicIDForUser(ctx context.Context, database *gorm.DB, uin uint) (string, error) {
-	user, err := db.GetUserByUin(ctx, database, uin)
+func (s *projectService) publicIDForUser(ctx context.Context, uin uint) (string, error) {
+	user, err := s.userRepo.GetUserByUin(ctx, uin)
 	if err != nil {
 		return "", err
 	}
@@ -1250,11 +1255,11 @@ func publicIDForUser(ctx context.Context, database *gorm.DB, uin uint) (string, 
 	return user.PublicID, nil
 }
 
-func publicIDsForUsers(ctx context.Context, database *gorm.DB, ids []uint) ([]string, error) {
+func (s *projectService) publicIDsForUsers(ctx context.Context, ids []uint) ([]string, error) {
 	if len(ids) == 0 {
 		return []string{}, nil
 	}
-	userMap, err := db.GetUsersByUins(ctx, database, uniqueUintSlice(ids))
+	userMap, err := s.userRepo.GetUsersByUins(ctx, uniqueUintSlice(ids))
 	if err != nil {
 		return nil, err
 	}
@@ -1296,7 +1301,7 @@ func publicIDsForAssistants(ctx context.Context, database *gorm.DB, ids []uint) 
 	return result, nil
 }
 
-func userActorFromMap(users map[string]*types.User, id string) *contract.ProjectActivityActor {
+func userActorFromMap(users map[string]*account.UserInfo, id string) *contract.ProjectActivityActor {
 	user, ok := users[id]
 	if !ok {
 		return &contract.ProjectActivityActor{ID: id}
@@ -1308,7 +1313,7 @@ func userActorFromMap(users map[string]*types.User, id string) *contract.Project
 	}
 }
 
-func userRefsFromMap(users map[string]*types.User, ids []string) []contract.ProjectActivityActor {
+func userRefsFromMap(users map[string]*account.UserInfo, ids []string) []contract.ProjectActivityActor {
 	refs := make([]contract.ProjectActivityActor, 0, len(ids))
 	for _, id := range ids {
 		actor := userActorFromMap(users, id)
@@ -1681,7 +1686,10 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	}
 
 	// 中文注释：资源绑定保存的是组织成员 UIN，必须按 UIN 查询并建索引；不能把 UIN 当作用户表主键使用。
-	userMap, _ := db.GetUsersByUins(ctx, s.db, userIDs)
+	userMap, err := s.userRepo.GetUsersByUins(ctx, userIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get users: %w", err)
+	}
 
 	assistants, _ := db.GetAssistantsByIDs(ctx, s.db, assistantIDs)
 	assistantMap := make(map[uint]*types.DigitalAssistant, len(assistants))

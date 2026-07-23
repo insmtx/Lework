@@ -347,6 +347,20 @@ export function FilePreviewDrawer({
 		return () => document.removeEventListener("pointerdown", handlePointerDown);
 	}, [open, onOpenChange]);
 
+	useEffect(() => {
+		if (!open) return;
+
+		// 预览抽屉打开时支持使用 Escape 快捷键关闭，保持与关闭按钮一致的状态清理路径。
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				onOpenChange(false);
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, [open, onOpenChange]);
+
 	const handleDownload = async () => {
 		if (!file) return;
 		try {

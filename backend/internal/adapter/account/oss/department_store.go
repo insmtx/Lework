@@ -4,9 +4,11 @@ package oss
 
 import (
 	"context"
+	"fmt"
 
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	infra_db "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 )
@@ -63,4 +65,42 @@ func (s *departmentStore) GetDefaultRootByOrgID(ctx context.Context, orgID uint)
 
 func (s *departmentStore) UpdateSort(ctx context.Context, id uint, sort uint) error {
 	return infra_db.UpdateDepartmentSort(ctx, s.db, id, sort)
+}
+
+func (s *departmentStore) List(ctx context.Context, filter account.DepartmentFilter, page account.PageRequest) (*account.PageResult[*types.Department], error) {
+	opt := convertDepartmentFilterToPageQuery(filter, page)
+	departments, total, err := infra_db.ListDepartment(ctx, s.db, opt)
+	if err != nil {
+		return nil, err
+	}
+	return &account.PageResult[*types.Department]{
+		Items:    departments,
+		Total:    total,
+		Page:     page.Page,
+		PageSize: page.PageSize,
+	}, nil
+}
+
+func (s *departmentStore) ListChildren(ctx context.Context, parentID uint) ([]*types.Department, error) {
+	return infra_db.ListChildDepartments(ctx, s.db, parentID)
+}
+
+func (s *departmentStore) ListSiblings(ctx context.Context, id uint) ([]*types.Department, error) {
+	return infra_db.ListDepartmentSiblingsByID(ctx, s.db, id)
+}
+
+func convertDepartmentFilterToPageQuery(filter account.DepartmentFilter, page account.PageRequest) *types.PageQuery {
+	opt := &types.PageQuery{
+		Pagination: types.Pagination{
+			Offset: int(page.Page * page.PageSize),
+			Limit:  int(page.PageSize),
+		},
+	}
+	if filter.Keyword != "" {
+		opt.AddFilter("keyword", filter.Keyword)
+	}
+	if filter.ParentID != nil {
+		opt.AddExactFilter("parent_id", fmt.Sprintf("%d", *filter.ParentID))
+	}
+	return opt
 }

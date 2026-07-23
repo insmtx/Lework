@@ -36,9 +36,7 @@ log:
   level: "info"                        # Logging Level: debug, info, warn, error
 
 # Authentication adapter configuration
-# Mode: builtin (default, open-source) or enterprise (SaaS, delegates to IAM service)
-# The iam block is only required when building with -tags enterprise
-auth:
-  mode: "builtin"
-  # iam:
-  #   base_url: "https://iam.example.com/v5"
+# The auth block delegates to the IAM service when building with -tags enterprise.
+# auth:
+#   base_url: "https://iam.example.com"  # IAM 服务地址
+#   domain_name: "example.com"              # 域名，用于登录配置查询

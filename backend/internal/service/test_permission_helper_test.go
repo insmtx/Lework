@@ -5,11 +5,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/types"
 )
 
-// testPermissionCore is a minimal in-package mock of account.PermissionProvider for tests.
 type testPermissionCore struct {
 	db *gorm.DB
 }
@@ -34,27 +32,10 @@ func (t *testPermissionCore) BatchCan(ctx context.Context, caller types.Permissi
 	return results, nil
 }
 
-func (t *testPermissionCore) BatchCheckByPublicID(ctx context.Context, caller types.PermissionCaller, items []contract.BatchCheckPermissionItem) ([]contract.BatchCheckPermissionResult, error) {
-	results := make([]contract.BatchCheckPermissionResult, len(items))
-	for i, item := range items {
-		results[i] = contract.BatchCheckPermissionResult{
-			Action:       item.Action,
-			ResourceType: item.ResourceType,
-			PublicID:     item.PublicID,
-			Allowed:      true,
-			Reason:       "allowed",
-		}
-	}
-	return results, nil
-}
-
 func (t *testPermissionCore) ResolveEffectiveRole(ctx context.Context, caller types.PermissionCaller, resource *types.Resource) (types.ResourceRole, *types.ResourceBinding, *types.Resource, error) {
 	return types.ResourceRoleOwner, nil, resource, nil
 }
 
 func newTestPermissionService(db *gorm.DB) *PermissionService {
-	core := newTestPermissionCore(db)
-	return NewPermissionService(db, core, func(d *gorm.DB) PermissionCore {
-		return newTestPermissionCore(d)
-	})
+	return NewPermissionService(db, newTestPermissionCore(db))
 }

@@ -197,7 +197,7 @@ func ListUserOrgs(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 
 	query := d.WithContext(ctx).Table(types.TableNameUserOrg).
 		Where("deleted_at IS NULL").
-		Where("user_id NOT IN (SELECT id FROM leros_user WHERE github_login = ?)", "admin")
+		Where("user_id NOT IN (SELECT id FROM leros_user WHERE email = ?)", "admin@leros.local")
 
 	for _, filter := range opt.Filters {
 		switch filter.Field {
@@ -261,4 +261,19 @@ func GetUserOrgByExternalUin(ctx context.Context, db *gorm.DB, externalUin uint)
 		return nil, err
 	}
 	return &userOrg, nil
+}
+
+// GetUserOrgsByUserIDsAndOrgID 批量根据 userIDs + orgID 查询 user_org 记录。
+func GetUserOrgsByUserIDsAndOrgID(ctx context.Context, db *gorm.DB, userIDs []uint, orgID uint) ([]*types.UserOrg, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	var entities []*types.UserOrg
+	err := db.WithContext(ctx).
+		Where("user_id IN (?) AND org_id = ? AND deleted_at IS NULL", userIDs, orgID).
+		Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
 }

@@ -60,9 +60,9 @@ func TestDepartmentDAOCRUDAndList(t *testing.T) {
 	opt := types.NewPageQuery(types.Caller{}, 0, 10)
 	opt.AddExactFilter("org_id", "10")
 	opt.AddExactFilter("parent_id", "0")
-	items, total, err := ListDepartments(ctx, database, opt)
+	items, total, err := ListDepartment(ctx, database, opt)
 	if err != nil {
-		t.Fatalf("ListDepartments failed: %v", err)
+		t.Fatalf("ListDepartment failed: %v", err)
 	}
 	if total != 1 || len(items) != 1 || items[0].Sort != DepartmentSortGap*2 {
 		t.Fatalf("unexpected department list: total=%d items=%#v", total, items)

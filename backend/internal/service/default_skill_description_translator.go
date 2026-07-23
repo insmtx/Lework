@@ -10,7 +10,6 @@ import (
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 
 	"github.com/insmtx/Leros/backend/internal/api/auth"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/skill/catalog"
@@ -61,7 +60,7 @@ func (t *defaultSkillDescriptionTranslator) Translate(ctx context.Context, items
 		return map[string]TranslatedSkillText{}, nil
 	}
 
-	model, err := infradb.GetSystemTranslationLLMModel(ctx, t.db, caller.OrgID)
+	model, err := llm.ResolveSystemTranslationLLMModel(ctx, t.db, caller.OrgID)
 	if err != nil {
 		logs.WarnContextf(ctx, "skill translator: get system translation LLM model: %v", err)
 		return map[string]TranslatedSkillText{}, nil
@@ -212,7 +211,7 @@ func (t *defaultSkillDescriptionTranslator) TranslateDocument(ctx context.Contex
 		return map[string]string{}, nil
 	}
 
-	model, err := infradb.GetSystemTranslationLLMModel(ctx, t.db, caller.OrgID)
+	model, err := llm.ResolveSystemTranslationLLMModel(ctx, t.db, caller.OrgID)
 	if err != nil {
 		logs.WarnContextf(ctx, "skill translator: get system translation LLM model: %v", err)
 		return map[string]string{}, nil

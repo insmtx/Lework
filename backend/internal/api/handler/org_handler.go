@@ -5,15 +5,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 )
 
 type OrgHandler struct {
-	service contract.OrgService
+	service account.OrgRepository
 }
 
-func NewOrgHandler(service contract.OrgService) *OrgHandler {
+func NewOrgHandler(service account.OrgRepository) *OrgHandler {
 	return &OrgHandler{service: service}
 }
 
@@ -30,13 +31,13 @@ func (h *OrgHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/ListOrgMembers", h.ListOrgMembers)
 }
 
-func RegisterOrgRoutes(r gin.IRouter, service contract.OrgService) {
+func RegisterOrgRoutes(r gin.IRouter, service account.OrgRepository) {
 	h := NewOrgHandler(service)
 	h.RegisterRoutes(r)
 }
 
-// @Summary 创建组织
-// @Description 创建一个新组织
+// @Summary 创建组织（已废弃）
+// @Description 创建一个新组织。已废弃，请使用 POST /v1/CreateOrganization 替代。
 // @Tags Organization
 // @Accept json
 // @Produce json
@@ -53,7 +54,7 @@ func (h *OrgHandler) CreateOrg(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.CreateOrg(ctx, &req)
+	result, err := h.service.CreateOrg(ctx, &req.CreateOrgInput)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
@@ -117,7 +118,7 @@ func (h *OrgHandler) UpdateOrg(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.UpdateOrg(ctx, req.PublicID, &req.UpdateOrgRequest)
+	result, err := h.service.UpdateOrg(ctx, req.PublicID, &req.UpdateOrgInput)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
@@ -175,7 +176,7 @@ func (h *OrgHandler) ListOrgs(ctx *gin.Context) {
 
 	req.Fill()
 
-	result, err := h.service.ListOrgs(ctx, &req)
+	result, err := h.service.ListOrgs(ctx, &req.ListOrgsInput)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
@@ -201,7 +202,7 @@ func (h *OrgHandler) CreateOrgMember(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.CreateOrgMember(ctx, &req)
+	result, err := h.service.CreateOrgMember(ctx, &req.CreateOrgMemberInput)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
@@ -273,7 +274,7 @@ func (h *OrgHandler) UpdateOrgMember(ctx *gin.Context) {
 		return
 	}
 
-	result, err := h.service.UpdateOrgMember(ctx, req.ID, &req.UpdateOrgMemberRequest)
+	result, err := h.service.UpdateOrgMember(ctx, req.ID, &req.UpdateOrgMemberInput)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
@@ -301,7 +302,7 @@ func (h *OrgHandler) ListOrgMembers(ctx *gin.Context) {
 
 	req.Fill()
 
-	result, err := h.service.ListOrgMembers(ctx, &req)
+	result, err := h.service.ListOrgMembers(ctx, &req.ListOrgMembersInput)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return

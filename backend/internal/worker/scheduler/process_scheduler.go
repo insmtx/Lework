@@ -160,6 +160,9 @@ func (ps *ProcessScheduler) startProcess(instance *ProcessInstance, spec *worker
 	}
 
 	args := []string{cmdPath, "worker"}
+	if strings.TrimSpace(cfg.WorkerConfig) != "" {
+		args = append(args, "--config", cfg.WorkerConfig)
+	}
 	if spec.OrgID != 0 {
 		args = append(args, "--org-id", strconv.FormatUint(uint64(spec.OrgID), 10))
 	}

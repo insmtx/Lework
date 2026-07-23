@@ -16,6 +16,7 @@ import (
 	"code.gitea.io/sdk/gitea"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
@@ -44,10 +45,12 @@ type MessagePoster struct {
 	giteaClient *gitea.Client
 	giteaCfg    *config.GiteaConfig
 	env         string
+	userRepo    account.UserRepository
+	orgRepo     account.OrgRepository
 }
 
 // NewMessagePoster 创建 MessagePoster 实例。
-func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string) *MessagePoster {
+func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository, orgRepo account.OrgRepository) *MessagePoster {
 	return &MessagePoster{
 		db:          db,
 		perm:        perm,
@@ -56,33 +59,31 @@ func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus
 		giteaClient: giteaClient,
 		giteaCfg:    giteaCfg,
 		env:         env,
+		userRepo:    userRepo,
+		orgRepo:     orgRepo,
 	}
 }
 
-// resolveSenderNameFromCaller maps JWT org membership uin to the persisted user display name.
-func resolveSenderNameFromCaller(ctx context.Context, db *gorm.DB, caller *types.Caller) string {
+func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller *types.Caller) string {
 	if caller == nil || caller.Uin == 0 {
 		return ""
 	}
 
-	var (
-		userOrg *types.UserOrg
-		err     error
-	)
+	var name string
 	if caller.OrgID > 0 {
-		userOrg, err = infradb.GetUserOrgByUinAndOrgID(ctx, db, caller.Uin, caller.OrgID)
+		orgMember, err := p.orgRepo.GetOrgMember(ctx, 0, caller.Uin)
+		if err != nil || orgMember == nil {
+			return ""
+		}
+		name = orgMember.UserName
 	} else {
-		userOrg, err = infradb.GetUserOrgByUin(ctx, db, caller.Uin)
+		user, err := p.userRepo.GetUserByUin(ctx, caller.Uin)
+		if err != nil || user == nil {
+			return ""
+		}
+		name = user.Name
 	}
-	if err != nil || userOrg == nil || userOrg.UserID == 0 {
-		return ""
-	}
-
-	user, err := infradb.GetUserByID(ctx, db, userOrg.UserID)
-	if err != nil || user == nil {
-		return ""
-	}
-	return user.Name
+	return name
 }
 
 // MessageRoutingOverride 消息级别的路由覆盖，用于在同个 session 内将消息发给不同的 assistant/worker。
@@ -117,7 +118,7 @@ func (p *MessagePoster) PostMessage(
 		if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 {
 			uid := caller.Uin
 			message.SenderUin = &uid
-			message.SenderName = resolveSenderNameFromCaller(ctx, p.db, caller)
+			message.SenderName = p.resolveSenderNameFromCaller(ctx, caller)
 		}
 	}
 
@@ -360,9 +361,14 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 }
 
 func (o *newMessageOrchestrator) recordProjectCreatedActivity() error {
-	operatorID, err := publicIDForUser(o.ctx, o.poster.db, o.caller.Uin)
-	if err != nil {
-		return fmt.Errorf("resolve project activity operator: %w", err)
+	operatorID := ""
+	if o.poster.userRepo != nil {
+		if user, err := o.poster.userRepo.GetUserByUin(o.ctx, o.caller.Uin); err == nil && user != nil {
+			operatorID = user.PublicID
+		}
+	}
+	if operatorID == "" {
+		return fmt.Errorf("resolve project activity operator: user %d not found", o.caller.Uin)
 	}
 	return infradb.CreateProjectActivity(o.ctx, o.poster.db, &types.ProjectActivity{
 		ProjectID:  o.project.PublicID,
@@ -704,8 +710,7 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 	userIDs, assistantIDs := collectBindingMemberIDs(bindings)
 	userMap := make(map[uint]string)
 	if len(userIDs) > 0 {
-		// 中文注释：项目资源绑定使用组织成员 UIN，按 UIN 回填才能让执行上下文保留真人成员姓名。
-		if users, err := infradb.GetUsersByUins(ctx, p.db, userIDs); err == nil {
+		if users, err := p.userRepo.GetUsersByUins(ctx, userIDs); err == nil {
 			for uin, user := range users {
 				if user != nil {
 					userMap[uin] = user.Name
@@ -945,9 +950,15 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 	if p == nil || p.db == nil {
 		return messaging.ModelOptions{}, errors.New("database is required to resolve worker task llm model")
 	}
-	model, err := infradb.GetDefaultLLMModel(ctx, p.db, orgID)
+	model, err := llm.ResolveDefaultLLMModel(ctx, p.db, orgID)
 	if err != nil {
 		return messaging.ModelOptions{}, fmt.Errorf("get default llm model: %w", err)
+	}
+	if model == nil {
+		model, err = infradb.GetAnyActiveLLMModel(ctx, p.db, orgID)
+		if err != nil {
+			return messaging.ModelOptions{}, fmt.Errorf("get any active llm model: %w", err)
+		}
 	}
 	if model == nil {
 		return messaging.ModelOptions{}, errors.New("default llm model not found")

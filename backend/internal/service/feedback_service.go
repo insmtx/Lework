@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/integration/feishu"
@@ -76,10 +77,11 @@ type FeedbackService struct {
 	files        contract.FileService
 	feishu       *feishu.Client
 	modelInvoker modelrouter.Invoker
+	userRepo     account.UserRepository
 }
 
-func NewFeedbackService(db *gorm.DB, files contract.FileService, cfg *config.FeishuConfig, modelInvoker modelrouter.Invoker) *FeedbackService {
-	svc := &FeedbackService{db: db, files: files, modelInvoker: modelInvoker}
+func NewFeedbackService(db *gorm.DB, files contract.FileService, cfg *config.FeishuConfig, modelInvoker modelrouter.Invoker, userRepo account.UserRepository) *FeedbackService {
+	svc := &FeedbackService{db: db, files: files, modelInvoker: modelInvoker, userRepo: userRepo}
 	if cfg != nil && cfg.Enabled {
 		svc.feishu = feishu.NewClient(cfg.AppID, cfg.AppSecret, cfg.AppToken, cfg.TableID)
 	}
@@ -127,7 +129,7 @@ func (s *FeedbackService) validateFeedbackJob(ctx context.Context, req *SubmitFe
 		return nil, ErrFeedbackTooManyFiles
 	}
 
-	user, err := infradb.GetUserByID(ctx, s.db, req.UserID)
+	user, err := s.userRepo.GetUserByID(ctx, req.UserID)
 	if err != nil || user == nil {
 		return nil, ErrFeedbackSubmitFailed
 	}

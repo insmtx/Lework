@@ -130,9 +130,8 @@ func TestSeedAITeammateTemplatesUploadsMissingAvatarAndPreservesExisting(t *test
 		t.Fatalf("seed org: %v", err)
 	}
 	if err := database.Create(&types.User{
-		PublicID:    "usr_test",
-		GithubLogin: "admin",
-		Name:        "Admin",
+		PublicID: "usr_test",
+		Name:     "Admin",
 	}).Error; err != nil {
 		t.Fatalf("seed user: %v", err)
 	}

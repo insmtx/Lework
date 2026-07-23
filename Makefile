@@ -11,14 +11,17 @@ GO_VERSION := $(shell go version)
 APP_VERSION := $(shell git describe --tags --abbrev=0)
 BUILD_AT := $(shell date "+%Y-%m-%dT%H:%M:%S")
 TIMESTAMP := $(shell date +%s)
-
 IMAGE_TAG := ${VERSION}_${GIT_COMMIT}
 
+BUILD_TAGS ?=
+LDFLAGS := -s -w
 
-
+ifneq ($(BUILD_TAGS),)
+BUILD_TAGS_FLAG := -tags "$(BUILD_TAGS)"
+endif
 
 build:
-	go build -v -o ./bundles/leros ./backend/cmd/leros/
+	go build $(BUILD_TAGS_FLAG) -ldflags="$(LDFLAGS)" -v -o ./bundles/leros ./backend/cmd/leros/
 
 install:
 	bash deployments/dev/install.sh
@@ -53,6 +56,7 @@ docker-build-tag:
 		exit 1; \
 	fi
 	docker build \
+		--build-arg BUILD_TAGS=$(BUILD_TAGS) \
 		-t $(REGISTRY)/$(PROJECT)/$(SERVICE):${IMAGE_TAG} \
 		-f deployments/build/Dockerfile.$(DOCKERFILE_NAME) \
 	    $(DOCKER_BUILD_ARGS) \
@@ -122,7 +126,10 @@ logs:
 .PHONY: swagger swagger-clean
 
 swagger:
-	swag init --generalInfo server.go --dir backend/cmd/leros,backend/internal/api/handler,backend/internal/api,backend/types --output docs/swagger --exclude example
+	swag init --generalInfo server.go \
+		--dir backend/cmd/leros,backend/internal/api/handler,backend/internal/api,backend/types \
+		--output docs/swagger --exclude example \
+		--parseDependency --parseDepth 2
 
 swagger-clean:
 	rm -rf docs/swagger

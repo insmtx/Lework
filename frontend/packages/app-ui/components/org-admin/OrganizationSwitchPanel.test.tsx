@@ -17,16 +17,17 @@ const mockResetSkills = vi.fn();
 const mockResetMessages = vi.fn();
 const mockClearComposerInput = vi.fn();
 const mockSwitchView = vi.fn();
+let mockEdition: "oss" | "enterprise" = "enterprise";
 
 const mockUser = {
 	publicId: "user-1",
 	name: "测试用户",
 	email: "test@example.com",
 	uin: 1,
-	currentOrg: { id: 1, publicId: "org-1", code: "org-1", name: "个人组织" },
+	currentOrg: { id: 1, uin: 10001, publicId: "org-1", code: "org-1", name: "个人组织" },
 	organizations: [
-		{ id: 1, publicId: "org-1", code: "org-1", name: "个人组织" },
-		{ id: 2, publicId: "org-2", code: "org-2", name: "AI冲锋队" },
+		{ id: 1, uin: 10001, publicId: "org-1", code: "org-1", name: "个人组织" },
+		{ id: 2, uin: 10002, publicId: "org-2", code: "org-2", name: "AI冲锋队" },
 	],
 };
 
@@ -55,6 +56,8 @@ vi.mock("@leros/store", () => ({
 			fetchInstalledSkills: mockFetchInstalledSkills,
 			resetAuthScopedData: mockResetSkills,
 		}),
+	useGlobalConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({ edition: mockEdition }),
 	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			clearComposerInput: mockClearComposerInput,
@@ -80,6 +83,7 @@ describe("OrganizationSwitchPanel", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockEdition = "enterprise";
 		mockRefreshAuthSession.mockResolvedValue(true);
 		mockSwitchOrganization.mockResolvedValue({});
 		mockCreateOrganization.mockResolvedValue({});
@@ -103,7 +107,7 @@ describe("OrganizationSwitchPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: /AI冲锋队/ }));
 
 		await waitFor(() => {
-			expect(mockSwitchOrganization).toHaveBeenCalledWith(2);
+			expect(mockSwitchOrganization).toHaveBeenCalledWith(10002);
 			expect(goToRoute).toHaveBeenCalledWith("workbench");
 		});
 		// 中文注释：新路由尚未到达时保留切换层，避免短暂露出旧组织页面。
@@ -128,5 +132,40 @@ describe("OrganizationSwitchPanel", () => {
 			"src",
 			expect.stringContaining("organization-default-avatar.png"),
 		);
+	});
+
+	it("创建组织时提交用户填写的昵称", async () => {
+		render(<OrganizationSwitchPanel active />);
+
+		fireEvent.click(screen.getByRole("button", { name: /创建新组织/ }));
+		fireEvent.change(screen.getByLabelText("组织名称"), { target: { value: "新组织" } });
+		fireEvent.change(screen.getByLabelText("用户昵称"), { target: { value: "新用户" } });
+		fireEvent.click(screen.getByRole("button", { name: /创建并切换/ }));
+
+		await waitFor(() => expect(mockCreateOrganization).toHaveBeenCalledWith("新组织", "新用户"));
+	});
+
+	it("OSS 已有组织时不显示创建组织按钮", () => {
+		mockEdition = "oss";
+		render(<OrganizationSwitchPanel active />);
+
+		expect(screen.queryByRole("button", { name: /创建新组织/ })).not.toBeInTheDocument();
+	});
+
+	it("OSS 首次登录无组织时仍显示创建表单", () => {
+		mockEdition = "oss";
+		render(
+			<OrganizationSwitchPanel
+				active
+				initialMode="create"
+				pendingLogin={{
+					organizations: [],
+					onChoose: vi.fn(),
+					onCreate: vi.fn(),
+				}}
+			/>,
+		);
+
+		expect(screen.getByLabelText("组织名称")).toBeInTheDocument();
 	});
 });

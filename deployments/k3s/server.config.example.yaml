@@ -72,6 +72,5 @@ client_update:
 
 # Enterprise authentication adapter (only required with -tags enterprise)
 # auth:
-#   mode: "enterprise"
-#   iam:
-#     base_url: "${IAM_BASE_URL}"
+#   base_url: "${IAM_BASE_URL}"        # IAM 服务地址
+#   domain_name: "${IAM_DOMAIN_NAME}"  # 域名，用于登录配置查询

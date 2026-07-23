@@ -97,6 +97,5 @@ feishu:
 
 # Enterprise authentication adapter (only required with -tags enterprise)
 # auth:
-#   mode: "enterprise"
-#   iam:
-#     base_url: "https://iam.example.com/v5"
+#   base_url: "https://iam.example.com"  # IAM 服务地址
+#   domain_name: "example.com"           # 域名，用于登录配置查询

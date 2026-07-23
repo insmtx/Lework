@@ -12,24 +12,25 @@ import (
 	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 
 type org struct {
 	db                 *gorm.DB
-	workerProvisioning *service.WorkerProvisioningService
+	workerProvisioning account.WorkerProvisioner
 }
 
-func NewOrg(d *gorm.DB, provisioning *service.WorkerProvisioningService) *org {
+func NewOrg(d *gorm.DB, provisioning account.WorkerProvisioner) *org {
 	return &org{db: d, workerProvisioning: provisioning}
 }
 
-func (s *org) CreateOrg(ctx context.Context, req *contract.CreateOrgRequest) (*contract.Org, error) {
+// CreateOrg 创建组织。
+// Deprecated: 请使用 auth.CreateOrganization 替代。
+func (s *org) CreateOrg(ctx context.Context, req *account.CreateOrgInput) (*account.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -96,10 +97,10 @@ func (s *org) CreateOrg(ctx context.Context, req *contract.CreateOrgRequest) (*c
 		return nil, err
 	}
 
-	return convertToContractOrg(org), nil
+	return convertToContractOrg(org, nil), nil
 }
 
-func (s *org) GetOrg(ctx context.Context, publicID string, code string) (*contract.Org, error) {
+func (s *org) GetOrg(ctx context.Context, publicID string, code string) (*account.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -123,10 +124,11 @@ func (s *org) GetOrg(ctx context.Context, publicID string, code string) (*contra
 		return nil, accounterror.ErrOrgNotFound
 	}
 
-	return convertToContractOrg(org), nil
+	logoMap, _ := resolveSingleOrgLogoMap(ctx, s.db, caller.OrgID, org.Logo)
+	return convertToContractOrg(org, logoMap), nil
 }
 
-func (s *org) UpdateOrg(ctx context.Context, publicID string, req *contract.UpdateOrgRequest) (*contract.Org, error) {
+func (s *org) UpdateOrg(ctx context.Context, publicID string, req *account.UpdateOrgInput) (*account.Org, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -179,7 +181,7 @@ func (s *org) UpdateOrg(ctx context.Context, publicID string, req *contract.Upda
 		return nil, err
 	}
 
-	return convertToContractOrg(org), nil
+	return convertToContractOrg(org, nil), nil
 }
 
 func (s *org) DeleteOrg(ctx context.Context, publicID string) error {
@@ -203,7 +205,7 @@ func (s *org) DeleteOrg(ctx context.Context, publicID string) error {
 	})
 }
 
-func (s *org) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest) (*contract.OrgList, error) {
+func (s *org) ListOrgs(ctx context.Context, req *account.ListOrgsInput) (*account.OrgList, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -224,11 +226,12 @@ func (s *org) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest) (*con
 		return nil, err
 	}
 
-	items := make([]contract.Org, 0, len(orgs))
+	logoMap := resolveOrgLogoURLs(ctx, s.db, caller.OrgID, orgs)
+	items := make([]account.Org, 0, len(orgs))
 	for _, org := range orgs {
-		items = append(items, *convertToContractOrg(org))
+		items = append(items, *convertToContractOrg(org, logoMap))
 	}
-	return &contract.OrgList{
+	return &account.OrgList{
 		Total:  total,
 		Offset: req.Offset,
 		Limit:  req.Limit,
@@ -236,7 +239,7 @@ func (s *org) ListOrgs(ctx context.Context, req *contract.ListOrgsRequest) (*con
 	}, nil
 }
 
-func (s *org) CreateOrgMember(ctx context.Context, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
+func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberInput) (*account.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -292,10 +295,9 @@ func (s *org) CreateOrgMember(ctx context.Context, req *contract.CreateOrgMember
 			}
 		} else {
 			user = &types.User{
-				PublicID:    fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
-				GithubLogin: fmt.Sprintf("phone_%s", snowflake.GenerateIDBase58()),
-				Name:        name,
-				Phone:       phone,
+				PublicID: fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
+				Name:     name,
+				Phone:    phone,
 			}
 			if err := db.CreateUser(ctx, tx, user); err != nil {
 				if db.IsUniqueConstraintError(err) {
@@ -359,7 +361,7 @@ func (s *org) CreateOrgMember(ctx context.Context, req *contract.CreateOrgMember
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *org) createExistingOrgMember(ctx context.Context, callerOrgID uint, req *contract.CreateOrgMemberRequest) (*contract.OrgMember, error) {
+func (s *org) createExistingOrgMember(ctx context.Context, callerOrgID uint, req *account.CreateOrgMemberInput) (*account.OrgMember, error) {
 	if strings.TrimSpace(req.UserID) == "" {
 		return nil, errors.New("用户ID不能为空")
 	}
@@ -403,7 +405,7 @@ func (s *org) createExistingOrgMember(ctx context.Context, callerOrgID uint, req
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *org) GetOrgMember(ctx context.Context, id uint, uin uint) (*contract.OrgMember, error) {
+func (s *org) GetOrgMember(ctx context.Context, id uint, uin uint) (*account.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -433,7 +435,7 @@ func (s *org) GetOrgMember(ctx context.Context, id uint, uin uint) (*contract.Or
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *contract.UpdateOrgMemberRequest) (*contract.OrgMember, error) {
+func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateOrgMemberInput) (*account.OrgMember, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -530,7 +532,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *contract.Update
 	return s.enrichOrgMember(ctx, userOrg), nil
 }
 
-func (s *org) ListOrgMembers(ctx context.Context, req *contract.ListOrgMembersRequest) (*contract.OrgMemberList, error) {
+func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInput) (*account.OrgMemberList, error) {
 	caller, _ := auth.FromContext(ctx)
 	if caller == nil || caller.Uin == 0 || caller.OrgID == 0 {
 		return nil, accounterror.ErrLoginRequired
@@ -573,11 +575,11 @@ func (s *org) ListOrgMembers(ctx context.Context, req *contract.ListOrgMembersRe
 		return nil, err
 	}
 
-	items := make([]contract.OrgMember, 0, len(userOrgs))
+	items := make([]account.OrgMember, 0, len(userOrgs))
 	for _, uo := range userOrgs {
 		items = append(items, *s.enrichOrgMember(ctx, uo))
 	}
-	return &contract.OrgMemberList{
+	return &account.OrgMemberList{
 		Total:  total,
 		Offset: req.Offset,
 		Limit:  req.Limit,
@@ -585,8 +587,8 @@ func (s *org) ListOrgMembers(ctx context.Context, req *contract.ListOrgMembersRe
 	}, nil
 }
 
-func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *contract.OrgMember {
-	result := &contract.OrgMember{
+func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *account.OrgMember {
+	result := &account.OrgMember{
 		ID:        uo.ID,
 		Uin:       uo.Uin,
 		IsDefault: uo.IsDefault,
@@ -598,7 +600,7 @@ func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *contract.
 	if user != nil {
 		result.UserID = user.PublicID
 		result.UserName = user.Name
-		result.UserLogin = user.GithubLogin
+		result.UserLogin = user.Name
 		result.UserPhone = user.Phone
 		result.AvatarURL = user.AvatarURL
 	}
@@ -619,13 +621,13 @@ func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *contract.
 	for _, department := range departments {
 		departmentByID[department.ID] = department
 	}
-	result.Departments = make([]contract.OrgMemberDepartment, 0, len(relations))
+	result.Departments = make([]account.OrgMemberDepartment, 0, len(relations))
 	for _, relation := range relations {
 		departmentName := ""
 		if department := departmentByID[relation.DepartmentID]; department != nil {
 			departmentName = department.Name
 		}
-		result.Departments = append(result.Departments, contract.OrgMemberDepartment{
+		result.Departments = append(result.Departments, account.OrgMemberDepartment{
 			ID:           relation.ID,
 			DepartmentID: relation.DepartmentID,
 			Name:         departmentName,
@@ -676,18 +678,24 @@ func (s *org) requireDefaultOrgUser(ctx context.Context, uin, orgID uint) error 
 	return nil
 }
 
-func convertToContractOrg(org *types.Organization) *contract.Org {
+func convertToContractOrg(org *types.Organization, logoURLMap map[string]string) *account.Org {
 	if org == nil {
 		return nil
 	}
-	return &contract.Org{
+	logoURL := org.Logo
+	if account.IsFilePublicID(logoURL) {
+		if resolved, ok := logoURLMap[logoURL]; ok {
+			logoURL = resolved
+		}
+	}
+	return &account.Org{
 		PublicID:    org.PublicID,
 		Type:        org.Type,
 		Code:        org.Code,
 		Name:        org.Name,
 		Status:      org.Status,
 		Description: org.Description,
-		Logo:        org.Logo,
+		Logo:        logoURL,
 		Address:     org.Address,
 		Website:     org.Website,
 		CreatedAt:   org.CreatedAt,

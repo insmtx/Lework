@@ -153,3 +153,23 @@ func buildMemberDepartmentQuery(ctx context.Context, d *gorm.DB, opt *types.Page
 	}
 	return query
 }
+
+// ListMemberDepartmentsByUinsAndOrgID 批量查询多个组织成员的部门关联。
+func ListMemberDepartmentsByUinsAndOrgID(ctx context.Context, d *gorm.DB, uins []uint, orgID uint) (map[uint][]*types.MemberDepartment, error) {
+	if len(uins) == 0 {
+		return map[uint][]*types.MemberDepartment{}, nil
+	}
+	var entities []*types.MemberDepartment
+	err := d.WithContext(ctx).
+		Where("uin IN (?) AND org_id = ? AND deleted_at IS NULL", uins, orgID).
+		Order("is_primary DESC, id ASC").
+		Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[uint][]*types.MemberDepartment, len(uins))
+	for _, entity := range entities {
+		result[entity.Uin] = append(result[entity.Uin], entity)
+	}
+	return result, nil
+}

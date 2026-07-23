@@ -429,7 +429,7 @@ func (u *WorkTitleUpdater) publishGlobalWorkTitleUpdated(
 }
 
 func generateShortWorkTitlesWithLLM(ctx context.Context, database *gorm.DB, modelInvoker modelrouter.Invoker, input workTitleGenerationInput) (generatedWorkTitles, error) {
-	model, err := infradb.GetDefaultLLMModel(ctx, database, input.OrgID)
+	model, err := llm.ResolveDefaultLLMModel(ctx, database, input.OrgID)
 	if err != nil {
 		return generatedWorkTitles{}, fmt.Errorf("get default model: %w", err)
 	}

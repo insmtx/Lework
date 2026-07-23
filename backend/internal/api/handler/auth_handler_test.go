@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package handler
 
 import (
@@ -12,8 +14,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/adapter/account/oss"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 	"github.com/insmtx/Leros/backend/internal/infra/sms"
 
@@ -95,7 +97,7 @@ func TestSendPhoneLoginCode_Success(t *testing.T) {
 	}
 
 	data, _ := json.Marshal(resp.Data)
-	var result contract.SendPhoneLoginCodeResponse
+	var result account.SendPhoneLoginCodeOutput
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("unmarshal data: %v", err)
 	}
@@ -188,7 +190,7 @@ func TestSendPhoneLoginAndLoginByPhoneCode(t *testing.T) {
 	}
 
 	data, _ := json.Marshal(resp.Data)
-	var tokenResult contract.AuthTokenResponse
+	var tokenResult account.AuthTokens
 	if err := json.Unmarshal(data, &tokenResult); err != nil {
 		t.Fatalf("unmarshal token: %v", err)
 	}

@@ -18,6 +18,7 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
@@ -57,9 +58,11 @@ type sessionService struct {
 	giteaCfg     *config.GiteaConfig
 	env          string
 	modelInvoker modelrouter.Invoker
+	userRepo     account.UserRepository
+	orgRepo      account.OrgRepository
 }
 
-func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker) contract.SessionService {
+func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker, userRepo account.UserRepository, orgRepo account.OrgRepository) contract.SessionService {
 	return &sessionService{
 		db:           db,
 		perm:         perm,
@@ -69,6 +72,8 @@ func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.E
 		giteaCfg:     giteaCfg,
 		env:          env,
 		modelInvoker: modelInvoker,
+		userRepo:     userRepo,
+		orgRepo:      orgRepo,
 	}
 }
 
@@ -376,7 +381,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 }
 
 func (s *sessionService) newMessagePoster() *MessagePoster {
-	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env)
+	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.userRepo, s.orgRepo)
 }
 
 func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {

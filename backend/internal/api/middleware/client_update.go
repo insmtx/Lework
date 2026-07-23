@@ -92,6 +92,7 @@ func shouldSkipClientUpdateCheck(path string) bool {
 		"/v1/Register",
 		"/v1/SendPhoneLoginCode",
 		"/v1/RefreshToken",
+		"/v1/ChooseUin",
 		"/v1/static",
 		"/v1/swagger",
 		"/worker",

@@ -54,7 +54,7 @@ func setupFileRouter(t *testing.T, svc contract.FileService, caller *types.Calle
 			RequestID: "test-request-id",
 			TraceID:   "test-trace-id",
 		}
-		auth.WithGinContext(ctx, caller, trace)
+		auth.WithGinContext(ctx, caller, trace, "")
 		ctx.Next()
 	})
 

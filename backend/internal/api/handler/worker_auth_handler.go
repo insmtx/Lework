@@ -42,7 +42,17 @@ func RegisterWorkerAuthRoutes(r gin.IRouter, parser middleware.TokenParser) {
 	r.POST("/workers/token", h.IssueToken)
 }
 
-// IssueToken exchanges a worker bootstrap token for a short-lived worker access token.
+// @Summary 获取 Worker 访问令牌
+// @Description 使用 Worker 启动令牌（bootstrap token）换取短期访问令牌
+// @Tags WorkerAuth
+// @Accept json
+// @Produce json
+// @Param body body handler.issueWorkerTokenRequest true "Worker 令牌请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "认证失败"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /workers/token [post]
 func (h *WorkerAuthHandler) IssueToken(ctx *gin.Context) {
 	var req issueWorkerTokenRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {

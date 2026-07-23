@@ -17,8 +17,8 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	infrasms "github.com/insmtx/Leros/backend/internal/infra/sms"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
+	infrasms "github.com/insmtx/Leros/backend/internal/infra/sms"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/service"
@@ -112,7 +112,7 @@ func newServerCommand() *cobra.Command {
 
 			var iamCfg *config.IAMConfig
 			if cfg.Auth != nil {
-				iamCfg = cfg.Auth.IAM
+				iamCfg = cfg.Auth
 			}
 			var workerProvisioning *service.WorkerProvisioningService
 			if db != nil {
@@ -122,6 +122,7 @@ func newServerCommand() *cobra.Command {
 				DB:                 db,
 				JWTSecret:          cfg.Server.JWT.Secret,
 				IAM:                iamCfg,
+				Env:                cfg.Env,
 				SmsSender:          infrasms.NewSender(cfg.Aliyun),
 				WorkerAuth:         cfg.WorkerAuth,
 				WorkerProvisioning: workerProvisioning,

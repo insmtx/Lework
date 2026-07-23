@@ -21,6 +21,12 @@ spec:
         - "true"
         - "false"
       description: '发布 leros server 时是否同步构建 worker 镜像并更新 scheduler.worker_image'
+    build_tags:
+      default: enterprise
+      options:
+        - enterprise
+        - oss
+      description: '构建版本类型，oss=社区版，enterprise=企业版'
 ---
 
 stages:
@@ -99,6 +105,7 @@ build-image:
   script:
     - echo $[[ inputs.app ]] $[[ inputs.environment ]]
     - export APP=$[[ inputs.app ]]
+    - export DOCKER_BUILD_ARGS="$DOCKER_BUILD_ARGS $([[ "$[[ inputs.build_tags ]]" = enterprise ]] && echo --build-arg BUILD_TAGS=enterprise)"
     - |
       if [ "${APP}" = "leros-web" ]; then
         if [ -z "$NEXT_PUBLIC_LEROS_API_BASE_URL" ]; then
@@ -135,6 +142,7 @@ build-worker-image:
     - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
   script:
     - export APP=leros-worker
+    - export DOCKER_BUILD_ARGS="$DOCKER_BUILD_ARGS $([[ "$[[ inputs.build_tags ]]" = enterprise ]] && echo --build-arg BUILD_TAGS=enterprise)"
     - export REGISTRY="$HARBOR_HOST"
     - make push-image
     - export WORKER_IMAGE_TAG=$(make image-tag)

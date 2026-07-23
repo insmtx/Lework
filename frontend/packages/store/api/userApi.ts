@@ -36,7 +36,7 @@ export type ListUsersParams = {
 
 export const userApi = {
 	list: (params: ListUsersParams = {}) =>
-		apiClient.post<BackendPaginatedResponse<UserInfo>>("/ListUsers", params),
+		apiClient.post<BackendPaginatedResponse<UserInfo>>("/ListUser", params),
 
 	update: (params: UpdateUserParams) =>
 		apiClient.post<BackendDataResponse<UserInfo>>("/UpdateUser", params),
