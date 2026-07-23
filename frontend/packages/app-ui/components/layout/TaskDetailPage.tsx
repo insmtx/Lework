@@ -142,6 +142,11 @@ export function TaskDetailPage({
 		() => getLatestAssistantTodos(messagesMap, messageIds, resolvedSessionId, streamingMessageId),
 		[messagesMap, messageIds, resolvedSessionId, streamingMessageId],
 	);
+	const isTaskRunActive = useMemo(() => {
+		if (!isGenerating || !resolvedSessionId) return false;
+		if (!streamingMessageId) return true;
+		return messagesMap[streamingMessageId]?.conversationId === resolvedSessionId;
+	}, [isGenerating, messagesMap, resolvedSessionId, streamingMessageId]);
 
 	const tokenSummary = useMemo(() => {
 		const emptySummary = {
@@ -590,7 +595,7 @@ export function TaskDetailPage({
 									<h3 className="mb-3 text-xs font-semibold text-[var(--leros-text-muted)]">
 										任务进度
 									</h3>
-									<TaskTodoProgressPanel todos={latestTodos} />
+									<TaskTodoProgressPanel todos={latestTodos} isRunActive={isTaskRunActive} />
 								</section>
 							)}
 							<section className="flex min-h-0 flex-1 flex-col">

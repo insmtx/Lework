@@ -1229,7 +1229,7 @@ func TestCompleteSessionMessageBindsExistingDeclaredArtifact(t *testing.T) {
 	}
 }
 
-func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
+func TestGetSessionMessagesReturnsTodoChunks(t *testing.T) {
 	service := setupTestService(t)
 	ctx := setupTestContextWithCaller(t)
 
@@ -1276,11 +1276,17 @@ func TestGetSessionMessagesFiltersTodoChunks(t *testing.T) {
 		t.Fatalf("expected one message, got total=%d len=%d", result.Total, len(result.Items))
 	}
 	chunks := result.Items[0].Chunks
-	if len(chunks) != 1 {
-		t.Fatalf("expected only non-todo chunk, got %#v", chunks)
+	if len(chunks) != 3 {
+		t.Fatalf("expected message delta and todo chunks, got %#v", chunks)
 	}
 	if chunks[0].Type != string(messaging.RunEventMessageDelta) || chunks[0].Sequence != 1 {
-		t.Fatalf("unexpected remaining chunk: %#v", chunks[0])
+		t.Fatalf("unexpected message delta chunk: %#v", chunks[0])
+	}
+	if chunks[1].Type != string(messaging.RunEventTodoSnapshot) || chunks[1].Sequence != 2 {
+		t.Fatalf("unexpected todo snapshot chunk: %#v", chunks[1])
+	}
+	if chunks[2].Type != string(messaging.RunEventTodoUpdated) || chunks[2].Sequence != 3 {
+		t.Fatalf("unexpected todo updated chunk: %#v", chunks[2])
 	}
 }
 

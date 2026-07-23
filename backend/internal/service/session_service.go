@@ -1142,9 +1142,6 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 	if message.Chunks != nil && len(message.Chunks) > 0 {
 		result.Chunks = make([]contract.SessionEvent, 0, len(message.Chunks))
 		for _, chunk := range message.Chunks {
-			if isHiddenSessionHistoryChunk(chunk.Type) {
-				continue
-			}
 			event, ok := ProjectRunEventRecord(publicID, chunk)
 			if !ok {
 				logs.Warnf("skipping unknown or invalid session message chunk: public_id=%s message_id=%d type=%s seq=%d", publicID, message.ID, chunk.Type, chunk.Seq)
@@ -1184,9 +1181,6 @@ func (s *sessionService) convertToContractSessionMessage(
 	if len(message.Chunks) > 0 {
 		result.Chunks = result.Chunks[:0]
 		for _, chunk := range message.Chunks {
-			if isHiddenSessionHistoryChunk(chunk.Type) {
-				continue
-			}
 			runEvent, ok := runEventFromRecord(publicID, chunk)
 			if !ok {
 				continue
@@ -1202,15 +1196,6 @@ func (s *sessionService) convertToContractSessionMessage(
 		artifact.VersionNo = s.lookupArtifactVersion(ctx, orgID, artifact.ArtifactID)
 	}
 	return result
-}
-
-func isHiddenSessionHistoryChunk(eventType string) bool {
-	switch messaging.RunEventType(eventType) {
-	case messaging.RunEventTodoSnapshot, messaging.RunEventTodoUpdated:
-		return true
-	default:
-		return false
-	}
 }
 
 func setResponseStreamStartSeq(metadata *types.ObjectMetadata, seq uint64) {

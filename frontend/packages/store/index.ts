@@ -102,6 +102,7 @@ export {
 	buildComposerFolderUploadSummaryMessage,
 	COMPOSER_UPLOAD_ACCEPT,
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,

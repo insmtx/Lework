@@ -4,7 +4,7 @@ import type { RuntimeTodoItem, TodoStatus } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { cn } from "@leros/ui/lib/utils";
 import { CheckCircle2, ChevronDown, ChevronUp, Circle, Loader2, XCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const TASK_TODO_PROGRESS_COLLAPSED_STORAGE_KEY = "leros-task-todo-progress-collapsed";
 
@@ -15,13 +15,33 @@ const STATUS_LABEL: Record<TodoStatus, string> = {
 	cancelled: "已取消",
 };
 
-export function TaskTodoProgressPanel({ todos }: { todos: RuntimeTodoItem[] }) {
+function buildProgressSignature(todos: RuntimeTodoItem[]): string {
+	return todos.map((todo) => `${todo.id}:${todo.status}`).join("|");
+}
+
+function hasIncompleteTodos(todos: RuntimeTodoItem[]): boolean {
+	return todos.some((todo) => todo.status === "pending" || todo.status === "in_progress");
+}
+
+export function TaskTodoProgressPanel({
+	todos,
+	isRunActive = false,
+}: {
+	todos: RuntimeTodoItem[];
+	isRunActive?: boolean;
+}) {
 	const hasLoadedPreferenceRef = useRef(false);
+	const hadActiveProgressRef = useRef(false);
+	const lastProgressSignatureRef = useRef("");
+	const manualToggleRef = useRef(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const total = todos.length;
 	const completedCount = todos.filter((todo) => todo.status === "completed").length;
 	const activeCount = todos.filter((todo) => todo.status === "in_progress").length;
+	const incompleteTodos = hasIncompleteTodos(todos);
+	const allCompleted = total > 0 && activeCount === 0 && completedCount === total;
 	const progressPercent = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+	const progressSignature = useMemo(() => buildProgressSignature(todos), [todos]);
 	const listId = "task-todo-progress-list";
 
 	useEffect(() => {
@@ -35,9 +55,29 @@ export function TaskTodoProgressPanel({ todos }: { todos: RuntimeTodoItem[] }) {
 	}, []);
 
 	useEffect(() => {
-		if (typeof window === "undefined" || !hasLoadedPreferenceRef.current) return;
+		if (typeof window === "undefined" || !manualToggleRef.current) return;
+		manualToggleRef.current = false;
 		window.localStorage.setItem(TASK_TODO_PROGRESS_COLLAPSED_STORAGE_KEY, String(collapsed));
 	}, [collapsed]);
+
+	useEffect(() => {
+		if (!incompleteTodos) return;
+
+		const signatureChanged = progressSignature !== lastProgressSignatureRef.current;
+		lastProgressSignatureRef.current = progressSignature;
+
+		if (isRunActive || activeCount > 0 || signatureChanged) {
+			hadActiveProgressRef.current = true;
+			setCollapsed(false);
+		}
+	}, [progressSignature, activeCount, incompleteTodos, isRunActive]);
+
+	useEffect(() => {
+		if (hadActiveProgressRef.current && allCompleted) {
+			setCollapsed(true);
+			hadActiveProgressRef.current = false;
+		}
+	}, [allCompleted]);
 
 	return (
 		<div
@@ -65,7 +105,10 @@ export function TaskTodoProgressPanel({ todos }: { todos: RuntimeTodoItem[] }) {
 						aria-expanded={!collapsed}
 						aria-label={collapsed ? "展开任务进度" : "折叠任务进度"}
 						title={collapsed ? "展开任务进度" : "折叠任务进度"}
-						onClick={() => setCollapsed((value) => !value)}
+						onClick={() => {
+							manualToggleRef.current = true;
+							setCollapsed((value) => !value);
+						}}
 					>
 						{collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
 					</Button>

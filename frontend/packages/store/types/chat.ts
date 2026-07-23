@@ -188,6 +188,8 @@ export type AttachmentFileRef = {
 	relativePath?: string;
 };
 
+export type AttachmentUploadStatus = "uploading" | "completed" | "failed";
+
 export type Attachment = {
 	id: string;
 	type: "image" | "file" | "folder";
@@ -200,6 +202,7 @@ export type Attachment = {
 	mimeType?: string;
 	storageUri?: string;
 	folderFiles?: AttachmentFileRef[];
+	uploadStatus?: AttachmentUploadStatus;
 };
 
 export type ModelOption = {

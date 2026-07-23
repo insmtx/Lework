@@ -25,6 +25,7 @@ export type UploadProjectFileParams = {
 	projectId: string;
 	projectPublicId: string;
 	file: File;
+	signal?: AbortSignal;
 };
 
 export type UploadLooseFileParams = {
@@ -33,6 +34,7 @@ export type UploadLooseFileParams = {
 	source_id?: string;
 	/** 对话输入框上传时传 true，后端会按 local-path 后缀校验 */
 	withLocalPath?: boolean;
+	signal?: AbortSignal;
 };
 
 type BackendUploadFilePayload = {
@@ -92,12 +94,14 @@ function assertBackendSuccess<T>(
 async function uploadFile(
 	file: File,
 	projectPublicId: string,
+	signal?: AbortSignal,
 ): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	return uploadLooseFile({
 		file,
 		purpose: "projects",
 		source_id: projectPublicId,
 		withLocalPath: true,
+		signal,
 	});
 }
 
@@ -106,6 +110,7 @@ async function uploadLooseFile({
 	purpose = "attachment",
 	source_id,
 	withLocalPath = false,
+	signal,
 }: UploadLooseFileParams): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	const formData = new FormData();
 	formData.append("file", file);
@@ -120,6 +125,7 @@ async function uploadLooseFile({
 	const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
 		method: "POST",
 		body: formData,
+		signal,
 	});
 
 	if (!response.ok) {
@@ -219,9 +225,9 @@ export const projectFileApi = {
 			`/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/versions`,
 		),
 
-	upload: async ({ file, projectPublicId }: UploadProjectFileParams) => {
+	upload: async ({ file, projectPublicId, signal }: UploadProjectFileParams) => {
 		const uploadResponse = assertBackendSuccess(
-			await uploadFile(file, projectPublicId),
+			await uploadFile(file, projectPublicId, signal),
 			"文件上传失败",
 		);
 		const uploaded = uploadResponse.data;
@@ -246,12 +252,18 @@ export const projectFileApi = {
 		} as BackendDataResponse<BackendProjectFileUploadResult>;
 	},
 
-	uploadLoose: async ({ file, purpose = "attachment", withLocalPath }: UploadLooseFileParams) => {
+	uploadLoose: async ({
+		file,
+		purpose = "attachment",
+		withLocalPath,
+		signal,
+	}: UploadLooseFileParams) => {
 		const uploadResponse = assertBackendSuccess(
 			await uploadLooseFile({
 				file,
 				purpose,
 				withLocalPath,
+				signal,
 			}),
 			"文件上传失败",
 		);
