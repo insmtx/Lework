@@ -147,6 +147,21 @@ export function mapBackendMessage(msg: BackendMessage): Message {
 		// 中文注释：历史消息的 chunks 只用于还原执行过程，不能重新把已落库回复标成生成中。
 		markStreaming: false,
 	});
+	if (
+		mapped.role === "assistant" &&
+		mapped.todos?.length &&
+		mapped.status !== "failed" &&
+		mapped.status !== "streaming" &&
+		mapped.status !== "waiting" &&
+		mapped.status !== "sending" &&
+		(mapped.status === "completed" ||
+			Boolean(mapped.content?.trim() || mapped.processSteps?.length))
+	) {
+		mapped = {
+			...mapped,
+			todos: completeTodos(mapped.todos),
+		};
+	}
 	if (msg.artifacts?.length) {
 		const artifacts = msg.artifacts
 			.map(mapArtifactPayload)
@@ -1675,6 +1690,7 @@ export class ChatActionImpl {
 	#globalEventsStartPromise: Promise<void> | null = null;
 	#pendingGlobalMessageEvents: BackendGlobalEvent[] = [];
 	#messageLoadPromises = new Map<string, Promise<void>>();
+	#uploadAbortControllers = new Map<string, AbortController>();
 
 	constructor(set: SetState, get: () => ChatStore, fullGet: FullStoreGet) {
 		this.#set = set;
@@ -2903,33 +2919,64 @@ export class ChatActionImpl {
 			throw new Error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
 		}
 
-		const response = await projectFileApi.upload({
-			projectId,
-			projectPublicId: projectId,
-			file,
-		});
-		const payload = response.data;
 		const attachmentId = `att-${Date.now()}`;
 		const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
-
-		const attachment: Attachment = {
+		const abortController = new AbortController();
+		this.#uploadAbortControllers.set(attachmentId, abortController);
+		const placeholder: Attachment = {
 			id: attachmentId,
 			type: file.type.startsWith("image/") ? "image" : "file",
-			name: payload.original_name || payload.filename || file.name,
-			size: payload.file_size ?? payload.size ?? file.size,
+			name: file.name,
+			size: file.size,
 			url: previewUrl,
 			file,
-			path: payload.public_id || payload.storage_uri || payload.path,
-			fileUploadId: payload.public_id,
-			mimeType: payload.mime_type || file.type,
-			storageUri: payload.storage_uri,
+			mimeType: file.type,
+			uploadStatus: "uploading",
 		};
 
 		this.#set((state) => ({
-			inputAttachments: [...state.inputAttachments, attachment],
+			inputAttachments: [...state.inputAttachments, placeholder],
 		}));
 
-		return { attachment, message: response.message };
+		try {
+			const response = await projectFileApi.upload({
+				projectId,
+				projectPublicId: projectId,
+				file,
+				signal: abortController.signal,
+			});
+			const payload = response.data;
+
+			const attachment: Attachment = {
+				id: attachmentId,
+				type: file.type.startsWith("image/") ? "image" : "file",
+				name: payload.original_name || payload.filename || file.name,
+				size: payload.file_size ?? payload.size ?? file.size,
+				url: previewUrl,
+				file,
+				path: payload.public_id || payload.storage_uri || payload.path,
+				fileUploadId: payload.public_id,
+				mimeType: payload.mime_type || file.type,
+				storageUri: payload.storage_uri,
+				uploadStatus: "completed",
+			};
+
+			this.#set((state) => ({
+				inputAttachments: state.inputAttachments.map((item) =>
+					item.id === attachmentId ? attachment : item,
+				),
+			}));
+
+			return { attachment, message: response.message, cancelled: false as const };
+		} catch (err) {
+			if (abortController.signal.aborted) {
+				return { attachment: placeholder, message: "", cancelled: true as const };
+			}
+			this.removeAttachment(attachmentId);
+			throw err;
+		} finally {
+			this.#uploadAbortControllers.delete(attachmentId);
+		}
 	};
 
 	addUploadedFolderAttachment = async (projectId: string, files: File[]) => {
@@ -2948,57 +2995,99 @@ export class ChatActionImpl {
 		}
 
 		const folderName = getFolderNameFromFiles(files);
-		const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
-		let totalSize = 0;
+		const attachmentId = `att-folder-${Date.now()}`;
+		const estimatedSize = uploadable.reduce((sum, file) => sum + file.size, 0);
+		const abortController = new AbortController();
+		this.#uploadAbortControllers.set(attachmentId, abortController);
 
-		for (const file of uploadable) {
-			const response = await projectFileApi.upload({
-				projectId,
-				projectPublicId: projectId,
-				file,
-			});
-			const payload = response.data;
-			if (!payload?.public_id) {
-				throw new Error("上传接口未返回 public_id");
-			}
-
-			const relativePath = getFileRelativePath(file);
-			const displayName = payload.original_name || payload.filename || file.name;
-			const fileSize = payload.file_size ?? payload.size ?? file.size;
-
-			folderFiles.push({
-				fileUploadId: payload.public_id,
-				name: displayName,
-				relativePath,
-				mimeType: payload.mime_type || file.type || "application/octet-stream",
-				size: fileSize,
-			});
-			totalSize += fileSize;
-		}
-
-		const attachment: Attachment = {
-			id: `att-folder-${Date.now()}`,
+		const placeholder: Attachment = {
+			id: attachmentId,
 			type: "folder",
 			name: folderName,
-			size: totalSize,
-			folderFiles,
+			size: estimatedSize,
+			uploadStatus: "uploading",
 		};
 
 		this.#set((state) => ({
-			inputAttachments: [...state.inputAttachments, attachment],
+			inputAttachments: [...state.inputAttachments, placeholder],
 		}));
 
-		return {
-			attachment,
-			message: buildComposerFolderUploadSummaryMessage(
-				uploadable.length,
-				skippedEmpty.length,
-				skippedType.length,
-			),
-		};
+		try {
+			const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
+			let totalSize = 0;
+
+			for (const file of uploadable) {
+				if (abortController.signal.aborted) {
+					return { attachment: placeholder, message: "", cancelled: true as const };
+				}
+
+				const response = await projectFileApi.upload({
+					projectId,
+					projectPublicId: projectId,
+					file,
+					signal: abortController.signal,
+				});
+				const payload = response.data;
+				if (!payload?.public_id) {
+					throw new Error("上传接口未返回 public_id");
+				}
+
+				const relativePath = getFileRelativePath(file);
+				const displayName = payload.original_name || payload.filename || file.name;
+				const fileSize = payload.file_size ?? payload.size ?? file.size;
+
+				folderFiles.push({
+					fileUploadId: payload.public_id,
+					name: displayName,
+					relativePath,
+					mimeType: payload.mime_type || file.type || "application/octet-stream",
+					size: fileSize,
+				});
+				totalSize += fileSize;
+			}
+
+			const attachment: Attachment = {
+				id: attachmentId,
+				type: "folder",
+				name: folderName,
+				size: totalSize,
+				folderFiles,
+				uploadStatus: "completed",
+			};
+
+			this.#set((state) => ({
+				inputAttachments: state.inputAttachments.map((item) =>
+					item.id === attachmentId ? attachment : item,
+				),
+			}));
+
+			return {
+				attachment,
+				cancelled: false as const,
+				message: buildComposerFolderUploadSummaryMessage(
+					uploadable.length,
+					skippedEmpty.length,
+					skippedType.length,
+				),
+			};
+		} catch (err) {
+			if (abortController.signal.aborted) {
+				return { attachment: placeholder, message: "", cancelled: true as const };
+			}
+			this.removeAttachment(attachmentId);
+			throw err;
+		} finally {
+			this.#uploadAbortControllers.delete(attachmentId);
+		}
 	};
 
 	removeAttachment = (id: string) => {
+		const abortController = this.#uploadAbortControllers.get(id);
+		if (abortController) {
+			abortController.abort();
+			this.#uploadAbortControllers.delete(id);
+		}
+
 		const state = this.#get();
 		const att = state.inputAttachments.find((a) => a.id === id);
 		if (att?.url?.startsWith("blob:")) URL.revokeObjectURL(att.url);

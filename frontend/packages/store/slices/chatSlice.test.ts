@@ -180,6 +180,38 @@ describe("mapBackendMessage", () => {
 		}
 		expect(processStep.content).toBe("用户问今天几号，这是一个需要获取当前时间的问题。");
 	});
+
+	it("forces todos to completed when restoring a finished assistant history message", () => {
+		const result = mapBackendMessage({
+			id: "assistant-1",
+			session_id: "session-1",
+			role: "assistant",
+			content: "已完成所有任务。",
+			timestamp: 1,
+			message_type: "text",
+			sequence: 2,
+			created_at: "2026-07-23T07:06:04.790957Z",
+			chunks: [
+				{
+					type: "todo.snapshot",
+					session_id: "session-1",
+					payload: {
+						todos: [
+							{ id: "step-1", title: "第一步", status: "completed" },
+							{ id: "step-2", title: "第二步", status: "in_progress" },
+						],
+					},
+					sequence: 1,
+					timestamp: 1,
+				},
+			],
+		});
+
+		expect(result.todos).toEqual([
+			{ id: "step-1", title: "第一步", status: "completed" },
+			{ id: "step-2", title: "第二步", status: "completed" },
+		]);
+	});
 });
 
 describe("attachAssistantReplyTargets", () => {

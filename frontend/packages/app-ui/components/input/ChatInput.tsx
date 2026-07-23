@@ -2,6 +2,7 @@
 
 import {
 	COMPOSER_UPLOAD_ACCEPT,
+	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	isSystemDefaultAssistant,
 	type ProjectMember,
 	type ProjectSkill,
@@ -136,7 +137,9 @@ export function ChatInput({
 	const currentModel = modelOptions.find((m) => m.id === selectedModel);
 	const isProjectVariant = variant === "project";
 	const projectLayout = getProjectChatLayoutClasses(projectLayoutMode);
-	const canSend = Boolean(inputText.trim());
+	const canSend =
+		Boolean(inputText.trim()) &&
+		!inputAttachments.some((attachment) => attachment.uploadStatus === "uploading");
 	const pendingApproval = findPendingApproval(messageIds, messagesMap, activeSessionId);
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
 	const currentProjectId = activeTaskDetailProjectId ?? activeProjectId;
@@ -370,8 +373,9 @@ export function ChatInput({
 				return false;
 			}
 			try {
-				const { message } = await addUploadedAttachment(currentProjectId, file);
-				toast.success(message || "文件上传成功");
+				const { cancelled } = await addUploadedAttachment(currentProjectId, file);
+				if (cancelled) return true;
+				toast.success(COMPOSER_UPLOAD_SUCCESS_MESSAGE);
 				return true;
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "文件上传失败";
@@ -430,7 +434,8 @@ export function ChatInput({
 			}
 
 			try {
-				const { message } = await addUploadedFolderAttachment(currentProjectId, files);
+				const { message, cancelled } = await addUploadedFolderAttachment(currentProjectId, files);
+				if (cancelled) return;
 				if (message.includes("已跳过")) {
 					toast.info(message, { position: "bottom-right" });
 				} else {
@@ -496,13 +501,6 @@ export function ChatInput({
 				{isNewProjectTaskView && (
 					<ComposerUsageTipsPanel tips={composerUsageTips} onApply={applyUsageTip} />
 				)}
-				{inputAttachments.length > 0 && (
-					<AttachmentPreview
-						attachments={inputAttachments}
-						onPreview={openPendingAttachmentPreview}
-						onRemove={removeAttachment}
-					/>
-				)}
 				<div
 					className={cn(
 						// 中文注释：focus 时使用无偏移阴影，避免 shadow-xl 只在下方显影
@@ -529,6 +527,13 @@ export function ChatInput({
 							directory: "",
 						} as React.InputHTMLAttributes<HTMLInputElement>)}
 					/>
+					{inputAttachments.length > 0 && (
+						<AttachmentPreview
+							attachments={inputAttachments}
+							onPreview={openPendingAttachmentPreview}
+							onRemove={removeAttachment}
+						/>
+					)}
 					<div className="min-w-0">
 						<StructuredComposer
 							ref={composerRef}

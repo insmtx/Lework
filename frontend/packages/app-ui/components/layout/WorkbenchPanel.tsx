@@ -4,6 +4,7 @@ import {
 	buildComposerFolderUploadSummaryMessage,
 	COMPOSER_UPLOAD_ACCEPT,
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
+	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
@@ -260,10 +261,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	} = useLayoutStore((s) => s);
 	const { assistants, fetchAssistants } = useDAStore((s) => s);
 	const { fetchInstalledSkills } = useSkillStore((s) => s);
-	const { addUploadedAttachment, startGlobalEvents } = useChatStore((s) => s);
+	const { startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const folderInputRef = useRef<HTMLInputElement>(null);
+	const uploadAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
@@ -274,6 +276,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const hasUploadingAttachments = attachments.some(
+		(attachment) => attachment.uploadStatus === "uploading",
+	);
 	const [isSending, setIsSending] = useState(false);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
@@ -420,55 +425,101 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		await performSend(content);
 	};
 
-	const uploadWorkbenchAttachment = useCallback(async (file: File) => {
-		if (isEmptyUploadFile(file)) {
-			throw new Error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
-		}
-		if (!isComposerUploadAllowedFile(file)) {
-			throw new Error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
-		}
+	const uploadWorkbenchAttachment = useCallback(
+		async (
+			file: File,
+			attachmentId: string,
+			previewUrl: string | undefined,
+			signal: AbortSignal,
+		) => {
+			if (isEmptyUploadFile(file)) {
+				throw new Error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+			}
+			if (!isComposerUploadAllowedFile(file)) {
+				throw new Error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+			}
 
-		// 中文注释：未选项目时先走通用上传，后续再随 NewMessage 关联到新建任务上下文。
-		const response = await projectFileApi.uploadLoose({
-			file,
-			purpose: "attachment",
-			withLocalPath: true,
-		});
-		const payload = response.data;
-		const attachment: Attachment = {
-			id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-			type: file.type.startsWith("image/") ? "image" : "file",
-			name: payload.original_name || payload.filename || file.name,
-			size: payload.file_size ?? payload.size ?? file.size,
-			url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-			file,
-			path: payload.public_id || payload.storage_uri || payload.path,
-			fileUploadId: payload.public_id,
-			mimeType: payload.mime_type || file.type,
-		};
-		return { attachment, message: response.message };
-	}, []);
+			const response = activeWorkbenchProjectId
+				? await projectFileApi.upload({
+						projectId: activeWorkbenchProjectId,
+						projectPublicId: activeWorkbenchProjectId,
+						file,
+						signal,
+					})
+				: await projectFileApi.uploadLoose({
+						file,
+						purpose: "attachment",
+						withLocalPath: true,
+						signal,
+					});
+			const payload = response.data;
+			const attachment: Attachment = {
+				id: attachmentId,
+				type: file.type.startsWith("image/") ? "image" : "file",
+				name: payload.original_name || payload.filename || file.name,
+				size: payload.file_size ?? payload.size ?? file.size,
+				url: previewUrl,
+				file,
+				path: payload.public_id || payload.storage_uri || payload.path,
+				fileUploadId: payload.public_id,
+				mimeType: payload.mime_type || file.type,
+				storageUri: payload.storage_uri,
+				uploadStatus: "completed",
+			};
+			return { attachment, message: response.message };
+		},
+		[activeWorkbenchProjectId],
+	);
 
 	const uploadAttachments = useCallback(
 		async (files: File[]) => {
 			if (!files.length) return;
 
 			for (const file of files) {
+				const attachmentId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+				const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+				const abortController = new AbortController();
+				uploadAbortControllersRef.current.set(attachmentId, abortController);
+				const placeholder: Attachment = {
+					id: attachmentId,
+					type: file.type.startsWith("image/") ? "image" : "file",
+					name: file.name,
+					size: file.size,
+					url: previewUrl,
+					file,
+					mimeType: file.type,
+					uploadStatus: "uploading",
+				};
+				setAttachments((prev) => [...prev, placeholder]);
+
 				try {
-					const uploaded = activeWorkbenchProjectId
-						? await addUploadedAttachment(activeWorkbenchProjectId, file)
-						: await uploadWorkbenchAttachment(file);
-					const { attachment, message } = uploaded;
-					setAttachments((prev) => [...prev, attachment]);
-					toast.success(message || "文件上传成功");
+					const { attachment } = await uploadWorkbenchAttachment(
+						file,
+						attachmentId,
+						previewUrl,
+						abortController.signal,
+					);
+					setAttachments((prev) =>
+						prev.map((item) => (item.id === attachmentId ? attachment : item)),
+					);
+					toast.success(COMPOSER_UPLOAD_SUCCESS_MESSAGE);
 				} catch (err) {
+					if (abortController.signal.aborted) {
+						continue;
+					}
+					setAttachments((prev) => prev.filter((item) => item.id !== attachmentId));
+					if (previewUrl) {
+						URL.revokeObjectURL(previewUrl);
+					}
 					const message = err instanceof Error ? err.message : "文件上传失败";
 					console.error("Workbench upload attachment error:", err);
 					toast.error(message);
+				} finally {
+					uploadAbortControllersRef.current.delete(attachmentId);
 				}
 			}
 		},
-		[activeWorkbenchProjectId, addUploadedAttachment, uploadWorkbenchAttachment],
+		[uploadWorkbenchAttachment],
 	);
 
 	const handleFolderSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -491,21 +542,41 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		}
 
 		const folderName = getFolderNameFromFiles(files);
+		const attachmentId = `att-folder-${Date.now()}`;
+		const estimatedSize = uploadable.reduce((sum, file) => sum + file.size, 0);
+		const abortController = new AbortController();
+		uploadAbortControllersRef.current.set(attachmentId, abortController);
+
+		const placeholder: Attachment = {
+			id: attachmentId,
+			type: "folder",
+			name: folderName,
+			size: estimatedSize,
+			uploadStatus: "uploading",
+		};
+		setAttachments((prev) => [...prev, placeholder]);
+
 		const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
 		let totalSize = 0;
 
 		try {
 			for (const file of uploadable) {
+				if (abortController.signal.aborted) {
+					return;
+				}
+
 				const response = activeWorkbenchProjectId
 					? await projectFileApi.upload({
 							projectId: activeWorkbenchProjectId,
 							projectPublicId: activeWorkbenchProjectId,
 							file,
+							signal: abortController.signal,
 						})
 					: await projectFileApi.uploadLoose({
 							file,
 							purpose: "attachment",
 							withLocalPath: true,
+							signal: abortController.signal,
 						});
 				const payload = response.data;
 				if (!payload?.public_id) {
@@ -525,13 +596,14 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			}
 
 			const attachment: Attachment = {
-				id: `att-folder-${Date.now()}`,
+				id: attachmentId,
 				type: "folder",
 				name: folderName,
 				size: totalSize,
 				folderFiles,
+				uploadStatus: "completed",
 			};
-			setAttachments((prev) => [...prev, attachment]);
+			setAttachments((prev) => prev.map((item) => (item.id === attachmentId ? attachment : item)));
 			const summaryMessage = buildComposerFolderUploadSummaryMessage(
 				uploadable.length,
 				skippedEmpty.length,
@@ -543,9 +615,15 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				toast.success(summaryMessage, { position: "bottom-right" });
 			}
 		} catch (err) {
+			if (abortController.signal.aborted) {
+				return;
+			}
+			handleRemoveAttachment(attachmentId);
 			const message = err instanceof Error ? err.message : "文件夹上传失败";
 			console.error("Workbench upload folder error:", err);
 			toast.error(message, { position: "bottom-right" });
+		} finally {
+			uploadAbortControllersRef.current.delete(attachmentId);
 		}
 	};
 
@@ -572,6 +650,12 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	);
 
 	const handleRemoveAttachment = (attachmentId: string) => {
+		const abortController = uploadAbortControllersRef.current.get(attachmentId);
+		if (abortController) {
+			abortController.abort();
+			uploadAbortControllersRef.current.delete(attachmentId);
+		}
+
 		setAttachments((prev) => {
 			const target = prev.find((attachment) => attachment.id === attachmentId);
 			if (target?.url?.startsWith("blob:")) {
@@ -981,7 +1065,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								<Button
 									size="icon"
 									onClick={handleSend}
-									disabled={isSending || !input.trim()}
+									disabled={isSending || !input.trim() || hasUploadingAttachments}
 									// 中文注释：工作台发送按钮与项目/任务页保持同一视觉规格。
 									className="size-9 min-w-0 rounded-xl bg-black !text-white shadow-sm hover:bg-blue-700 disabled:bg-[#f3f3f4] disabled:!text-slate-400"
 								>

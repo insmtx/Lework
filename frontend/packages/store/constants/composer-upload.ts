@@ -24,6 +24,8 @@ export const COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE =
 
 export const COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE = "不能上传空文件";
 
+export const COMPOSER_UPLOAD_SUCCESS_MESSAGE = "文件上传成功";
+
 export function resolveComposerUploadFileName(file: File): string {
 	const relativePath = getFileRelativePath(file);
 	return relativePath || file.name;
