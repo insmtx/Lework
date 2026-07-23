@@ -233,27 +233,28 @@ deploy:
     reports:
       dotenv: deploy.env
 
-.desktop-build-template:
-  stage: desktop_build
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      when: never
-    - if: '$APP == "desktop"'
-      when: on_success
-    - when: never
-  variables:
-    ELECTRON_CACHE: "$CI_PROJECT_DIR/.electron-cache"
-    electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
-    ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
-    ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/"
-    ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
-    npm_config_electron_mirror: "https://npmmirror.com/mirrors/electron/"
-    npm_config_electron_builder_binaries_mirror: "https://npmmirror.com/mirrors/electron-builder-binaries/"
-    COREPACK_NPM_REGISTRY: "https://registry.npmmirror.com"
-    npm_config_registry: "https://registry.npmmirror.com"
+# ============================================================================
+# 桌面端打包 - 公共片段（通过 !reference 在各平台 template / job 中复用）
+# ============================================================================
+
+# 通用 before_script：校验必填变量、安装 coscmd
+.desktop-before-base:
+  before_script:
+    - |
+      for variable in VITE_LEROS_API_BASE_URL COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX DESKTOP_TARGET; do
+        if [ -z "$(eval echo \$$variable)" ]; then
+          echo "Required desktop variable is missing: ${variable}"
+          exit 1
+        fi
+      done
+    - python3 -m venv "$CI_PROJECT_DIR/.coscmd-venv"
+    - $CI_PROJECT_DIR/.coscmd-venv/bin/pip install coscmd
+
+# macOS 专用 before_script：homebrew 的 node/pnpm、Apple 签名变量校验与 AuthKey 解码
+.desktop-before-mac:
   before_script:
     - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
-    - export PATH="/opt/homebrew/bin:/usr/local/bin:$CI_PROJECT_DIR/.corepack-bin:$PATH"
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
     - |
       if ! command -v node >/dev/null 2>&1; then
         echo "Node.js is required on the macOS runner. Install Node 22 and make sure /opt/homebrew/bin or /usr/local/bin is visible to gitlab-runner."
@@ -279,13 +280,6 @@ deploy:
     - corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
     - retry_before_script corepack prepare pnpm@10.28.2 --activate
     - |
-      for variable in VITE_LEROS_API_BASE_URL COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX DESKTOP_TARGET; do
-        if [ -z "$(eval echo \$$variable)" ]; then
-          echo "Required desktop variable is missing: ${variable}"
-          exit 1
-        fi
-      done
-    - |
       if [ "$DESKTOP_TARGET" = "mac-arm64" ] || [ "$DESKTOP_TARGET" = "mac-x64" ]; then
         for variable in APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD; do
           if [ -z "$(eval echo \$$variable)" ]; then
@@ -297,11 +291,43 @@ deploy:
         printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$CI_PROJECT_DIR/AuthKey.p8"
         chmod 600 "$CI_PROJECT_DIR/AuthKey.p8"
       fi
-    - python3 -m venv "$CI_PROJECT_DIR/.coscmd-venv"
-    - $CI_PROJECT_DIR/.coscmd-venv/bin/pip install coscmd
+
+# Linux 专用 before_script：electron-builder 系统依赖、python3-venv、corepack pnpm
+.desktop-before-linux:
+  before_script:
+    - apt-get update -y && apt-get install -y --no-install-recommends
+        python3-venv python3-pip ca-certificates
+        libnspr4 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2
+        libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1
+        libasound2 libpangocairo-1.0-0 libpango-1.0-0 libcairo2
+        libgdk-pixbuf-2.0-0 libgtk-3-0 libxshmfence1 libsecret-1-0
+    - export COREPACK_HOME="$CI_PROJECT_DIR/.corepack-home"
+    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
+    - mkdir -p "$CI_PROJECT_DIR/.corepack-bin" "$CI_PROJECT_DIR/.corepack-home"
+    - |
+      retry_before_script() {
+        local attempt=1
+        local max_attempts=5
+
+        until "$@"; do
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            return 1
+          fi
+
+          echo "Command failed, retrying (${attempt}/${max_attempts}): $*"
+          attempt=$((attempt + 1))
+          sleep 15
+        done
+      }
+    - retry_before_script corepack enable --install-directory "$CI_PROJECT_DIR/.corepack-bin"
+    - retry_before_script corepack prepare pnpm@10.28.2 --activate
+
+# 通用 script：retry 工具、版本号、pnpm install、COS 配置、上传工具函数、
+# 按 DESKTOP_TARGET 分发构建参数、构建、mac 签名校验、产物拷贝与上传
+.desktop-script-build:
   script:
     - mkdir -p "$CI_PROJECT_DIR/.ci-home"
-    - export PATH="/opt/homebrew/bin:/usr/local/bin:$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
+    - export PATH="$CI_PROJECT_DIR/.corepack-bin:$CI_PROJECT_DIR/.coscmd-venv/bin:$PATH"
     - |
       retry() {
         local attempt=1
@@ -402,6 +428,17 @@ deploy:
             Lework-${version}-win-x64.exe.blockmap
           "
           ;;
+        linux-x64)
+          build_script="dist:desktop:linux:x64"
+          release_dir="desktop-release/linux-x64"
+          cos_target_dir="linux/x64"
+          latest_file="latest-linux.yml"
+          root_installer="Lework-${version}-linux-amd64.deb"
+          build_with_signing="false"
+          payload_files="
+            Lework-${version}-linux-amd64.deb
+          "
+          ;;
         *)
           echo "Unsupported DESKTOP_TARGET: $DESKTOP_TARGET"
           exit 1
@@ -453,13 +490,42 @@ deploy:
 
       mkdir -p "$release_dir"
       for payload_file in $payload_files; do
-        cp "frontend/apps/desktop/dist/${payload_file}" "$release_dir/"
+        cp "frontend/apps/desktop/dist/${payload_file}" "$release_dir/" 2>/dev/null || true
       done
-      cp "frontend/apps/desktop/dist/${latest_file}" "$release_dir/"
+      cp "frontend/apps/desktop/dist/${latest_file}" "$release_dir/" 2>/dev/null || true
 
       upload_dir "$release_dir" "$cos_target_dir"
       upload_file "${release_dir}/${root_installer}" "$root_prefix"
       upload_file "LATEST.txt" "$root_prefix"
+
+# ============================================================================
+# 桌面端打包 - 平台 template / job
+# ============================================================================
+
+# mac/win template：走 macOS runner，before_script = 通用段 + mac 段，script 继承公共段
+.desktop-build-template:
+  stage: desktop_build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - if: '$APP == "desktop"'
+      when: on_success
+    - when: never
+  variables:
+    ELECTRON_CACHE: "$CI_PROJECT_DIR/.electron-cache"
+    electron_config_cache: "$CI_PROJECT_DIR/.electron-cache"
+    ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.electron-builder-cache"
+    ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/"
+    ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
+    npm_config_electron_mirror: "https://npmmirror.com/mirrors/electron/"
+    npm_config_electron_builder_binaries_mirror: "https://npmmirror.com/mirrors/electron-builder-binaries/"
+    COREPACK_NPM_REGISTRY: "https://registry.npmmirror.com"
+    npm_config_registry: "https://registry.npmmirror.com"
+  before_script:
+    - !reference [".desktop-before-base", before_script]
+    - !reference [".desktop-before-mac", before_script]
+  script:
+    - !reference [".desktop-script-build", script]
 
 desktop-build-mac-arm64:
   extends: .desktop-build-template
@@ -482,6 +548,17 @@ desktop-build-win-x64:
   variables:
     DESKTOP_TARGET: win-x64
 
+desktop-build-linux-x64:
+  extends: .desktop-build-template
+  image: registry.yygu.cn/library/node:24
+  tags:
+    - ubuntu
+  variables:
+    DESKTOP_TARGET: linux-x64
+  before_script:
+    - !reference [".desktop-before-linux", before_script]
+    - !reference [".desktop-before-base", before_script]
+
 desktop-update-k3s-client-version:
   stage: notify
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
@@ -493,8 +570,13 @@ desktop-update-k3s-client-version:
     - when: never
   needs:
     - job: desktop-build-mac-arm64
+      optional: true
     - job: desktop-build-mac-x64
+      optional: true
     - job: desktop-build-win-x64
+      optional: true
+    - job: desktop-build-linux-x64
+      optional: true
   before_script:
     - mkdir -p ~/.ssh
     - |
