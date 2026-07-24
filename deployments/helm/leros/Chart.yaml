@@ -1,0 +1,13 @@
+apiVersion: v2
+name: leros
+description: Leros AI Agent 平台 Helm Chart，面向 k3s 私有化部署。
+type: application
+version: 0.1.0
+appVersion: "0.1.21"
+keywords:
+  - leros
+  - ai-agent
+  - lework
+home: https://github.com/insmtx/Lework
+maintainers:
+  - name: insmtx

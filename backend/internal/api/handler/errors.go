@@ -23,8 +23,8 @@ func abortPermissionDenied(ctx *gin.Context, err error) {
 	}
 	msg := err.Error()
 	if strings.HasSuffix(msg, "not found") {
-		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, msg))
+		ctx.AbortWithStatusJSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, msg))
 		return
 	}
-	ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, "permission denied"))
+	ctx.AbortWithStatusJSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, "permission denied"))
 }

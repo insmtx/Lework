@@ -91,15 +91,15 @@ type ProjectActivityItem struct {
 // ProjectActivityActor 是动态中的用户或 AI 队友展示信息。
 type ProjectActivityActor struct {
 	ID        string `json:"id"`
-	Name      string `json:"name,omitempty"`
-	AvatarURL string `json:"avatar_url,omitempty"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
 }
 
 // ProjectActivitySkill 是动态中的技能展示信息。
 type ProjectActivitySkill struct {
 	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
-	Icon string `json:"icon,omitempty"`
+	Name string `json:"name"`
+	Icon string `json:"icon"`
 }
 
 // ProjectActivityPayloadView 是补全展示信息后的动态 payload。
@@ -150,7 +150,7 @@ type ProjectMemberItem struct {
 	IsDefault  bool      `json:"is_default"`
 	JoinedAt   time.Time `json:"joined_at"`
 	Name       string    `json:"name,omitempty"`
-	AvatarURL  string    `json:"avatar_url,omitempty"`
+	AvatarURL  string    `json:"avatar_url"`
 }
 
 // ProjectMemory 项目记忆响应

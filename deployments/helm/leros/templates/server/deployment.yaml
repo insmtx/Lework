@@ -1,0 +1,83 @@
+{{- $fullname := include "leros.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.server.deploymentNameOverride | default $fullname }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "leros.selectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "leros.selectorLabels" (dict "root" . "component" "server") | nindent 8 }}
+    spec:
+      {{- with (include "leros.imagePullSecrets" . | trim) }}
+      {{ . | nindent 6 }}
+      {{- end }}
+      serviceAccountName: {{ include "leros.fullname" . }}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: {{ .Values.server.deploymentNameOverride | default "leros" }}
+          image: {{ .Values.server.image | quote }}
+          imagePullPolicy: {{ .Values.server.imagePullPolicy }}
+          args: ["server", "--config", "/app/config.yaml"]
+          env:
+            - name: GIN_MODE
+              value: {{ .Values.server.ginMode | quote }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "leros.workerSecretName" . }}
+                  key: LLM_API_KEY
+                  optional: true
+            {{- with .Values.server.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "leros.serverSecretName" . }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            # server 本地存储（local driver 时存放上传文件）
+            - name: storage
+              mountPath: {{ .Values.storage.localDir | quote }}
+          {{- with .Values.server.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "leros.serverConfigMapName" . }}
+        - name: storage
+          hostPath:
+            path: {{ include "leros.hostPath" (dict "root" . "path" .Values.storage.hostPath) | quote }}
+            type: DirectoryOrCreate

@@ -82,6 +82,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 	r.Use(middleware.CORS())
 	r.Use(middleware.CallerMiddleware(tokenParser, db))
+	r.Use(middleware.ResponseRequestID())
 	r.Use(middleware.ClientUpdateMiddleware(cfg.ClientUpdate))
 	r.Use(middleware.Logger(".Ping", "metrics"))
 	r.Use(ygmiddleware.Recovery())

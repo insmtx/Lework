@@ -14,6 +14,8 @@ import type { AuthUser } from "./authSlice";
 
 export type PermissionState = {
 	decisions: Record<string, PermissionDecision | "pending">;
+	// 中文注释：权限缓存失效后通知依赖方重新预取，避免入口长期停留在 unknown 状态。
+	permissionRevision: number;
 };
 
 export type PermissionAction = Pick<PermissionActionImpl, keyof PermissionActionImpl>;
@@ -21,6 +23,7 @@ export type PermissionStore = PermissionState & PermissionAction;
 
 const _initialState: PermissionState = {
 	decisions: {},
+	permissionRevision: 0,
 };
 
 type SetState = (
@@ -128,11 +131,17 @@ export class PermissionActionImpl {
 	invalidate = (resource?: ResourceRef): void => {
 		const orgId = this.#getOrgId();
 		if (!orgId) {
-			this.#set({ decisions: {} });
+			this.#set((current) => ({
+				decisions: {},
+				permissionRevision: current.permissionRevision + 1,
+			}));
 			return;
 		}
 		if (!resource?.publicId) {
-			this.#set({ decisions: {} });
+			this.#set((current) => ({
+				decisions: {},
+				permissionRevision: current.permissionRevision + 1,
+			}));
 			return;
 		}
 		const prefix = `${orgId}:${resource.type}:${resource.publicId}:`;
@@ -143,12 +152,18 @@ export class PermissionActionImpl {
 					next[key] = value;
 				}
 			}
-			return { decisions: next };
+			return {
+				decisions: next,
+				permissionRevision: current.permissionRevision + 1,
+			};
 		});
 	};
 
 	invalidateAll = (): void => {
-		this.#set({ decisions: {} });
+		this.#set((current) => ({
+			decisions: {},
+			permissionRevision: current.permissionRevision + 1,
+		}));
 	};
 
 	#getOrgId(): number | null {

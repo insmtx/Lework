@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -75,7 +76,12 @@ func (s *auth) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput)
 	if resp.LoginStatus != "success" {
 		return nil, accounterror.ErrInvalidEmailOrPassword
 	}
-	return mapLoginThirdToAuthTokenResponse(&resp)
+	result, err := mapLoginThirdToAuthTokenResponse(&resp)
+	if err != nil {
+		return nil, err
+	}
+	result.Edition = account.EditionEnterprise
+	return result, nil
 }
 
 func (s *auth) SendPhoneLoginCode(ctx context.Context, req *account.SendPhoneLoginCodeInput) (*account.SendPhoneLoginCodeOutput, error) {
@@ -307,6 +313,7 @@ func (s *auth) AuthSession(ctx context.Context) (*account.AuthSessionOutput, err
 	if resp.CompanyInfo.ID != 0 {
 		orgInfo = account.AuthOrgInfo{
 			ID:              resp.CompanyInfo.ID,
+			PublicID:        strconv.FormatUint(uint64(resp.CompanyInfo.ID), 10),
 			Name:            resp.CompanyInfo.Name,
 			Code:            resp.CompanyInfo.Alias,
 			Logo:            resp.CompanyInfo.Logo,

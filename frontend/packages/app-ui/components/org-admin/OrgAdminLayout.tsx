@@ -27,11 +27,11 @@ export function OrgAdminLayout({
 	const isDialog = variant === "dialog";
 
 	return (
-		<div className="flex h-full min-h-0 flex-1 bg-[var(--leros-surface-soft,#f7f8fd)]">
+		<div className="flex h-full min-h-0 flex-1 flex-col bg-[var(--leros-surface-soft,#f7f8fd)] md:flex-row">
 			<aside
 				className={cn(
-					"flex shrink-0 flex-col border-r border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3 py-4",
-					isDialog ? "w-[200px]" : "w-[220px] py-5",
+					"flex shrink-0 flex-col border-b border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3 py-3 md:border-b-0 md:border-r md:py-4",
+					isDialog ? "w-full md:w-[220px]" : "w-full py-5 md:w-[220px]",
 				)}
 			>
 				{!isDialog && (
@@ -65,7 +65,7 @@ export function OrgAdminLayout({
 			<main
 				className={cn(
 					"flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto",
-					isDialog ? "p-4 md:p-5" : "p-6 md:p-8",
+					isDialog ? "p-3 sm:p-4 md:p-5" : "p-6 md:p-8",
 				)}
 			>
 				{children}

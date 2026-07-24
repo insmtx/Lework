@@ -1192,8 +1192,8 @@ func (s *projectService) buildProjectActivityItems(ctx context.Context, orgID ui
 				RemovedSkills:      skillRefsFromMap(skillMap, payload.RemovedSkillIDs),
 				AddedMembers:       userRefsFromMap(userMap, payload.AddedMemberIDs),
 				RemovedMembers:     userRefsFromMap(userMap, payload.RemovedMemberIDs),
-				AddedAITeammates:   assistantRefsFromMap(assistantMap, payload.AddedAITeammateIDs),
-				RemovedAITeammates: assistantRefsFromMap(assistantMap, payload.RemovedAITeammateIDs),
+			AddedAITeammates:   s.assistantRefsFromMap(ctx, orgID, assistantMap, payload.AddedAITeammateIDs),
+			RemovedAITeammates: s.assistantRefsFromMap(ctx, orgID, assistantMap, payload.RemovedAITeammateIDs),
 			},
 			CreatedAt: activity.CreatedAt,
 		}
@@ -1322,13 +1322,13 @@ func userRefsFromMap(users map[string]*account.UserInfo, ids []string) []contrac
 	return refs
 }
 
-func assistantRefsFromMap(assistants map[string]*types.DigitalAssistant, ids []string) []contract.ProjectActivityActor {
+func (s *projectService) assistantRefsFromMap(ctx context.Context, orgID uint, assistants map[string]*types.DigitalAssistant, ids []string) []contract.ProjectActivityActor {
 	refs := make([]contract.ProjectActivityActor, 0, len(ids))
 	for _, id := range ids {
 		ref := contract.ProjectActivityActor{ID: id}
 		if assistant, ok := assistants[id]; ok {
 			ref.Name = assistant.Name
-			ref.AvatarURL = assistant.Avatar
+			ref.AvatarURL = resolveAvatarField(ctx, s.db, orgID, assistant.Avatar)
 		}
 		refs = append(refs, ref)
 	}
@@ -1711,7 +1711,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 				// 中文注释：AI 队友同样返回 public_id，避免前端只能用内部 ID 匹配导致漏过滤。
 				item.PublicID = a.PublicID
 				item.Name = a.Name
-				item.AvatarURL = a.Avatar
+				item.AvatarURL = resolveAvatarField(ctx, s.db, caller.OrgID, a.Avatar)
 			}
 			result.Members = append(result.Members, item)
 			continue
@@ -1737,6 +1737,21 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 	}
 
 	return result, nil
+}
+
+func resolveAvatarField(ctx context.Context, gdb *gorm.DB, orgID uint, avatar string) string {
+	if !account.IsFilePublicID(avatar) {
+		return avatar
+	}
+	fileUpload, err := db.GetFileUploadByPublicID(ctx, gdb, orgID, avatar)
+	if err != nil || fileUpload == nil {
+		return avatar
+	}
+	url, err := filestore.ResolvePublicURL(ctx, fileUpload.StorageURI)
+	if err != nil {
+		return avatar
+	}
+	return url
 }
 
 func (s *projectService) GetProjectMemory(ctx context.Context, publicID string) (*contract.ProjectMemory, error) {

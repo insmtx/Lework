@@ -1,0 +1,90 @@
+{{- if .Values.nats.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leros.fullname" . }}-nats
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-client
+      port: 4222
+      targetPort: 4222
+    - name: http-monitor
+      port: 8222
+      targetPort: 8222
+  selector:
+    {{- include "leros.selectorLabels" (dict "root" . "component" "nats") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "leros.fullname" . }}-nats
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  serviceName: {{ include "leros.fullname" . }}-nats
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "leros.selectorLabels" (dict "root" . "component" "nats") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "leros.selectorLabels" (dict "root" . "component" "nats") | nindent 8 }}
+    spec:
+      {{- with (include "leros.imagePullSecrets" . | trim) }}
+      {{ . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.nats.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: nats
+          image: {{ .Values.nats.image | quote }}
+          imagePullPolicy: {{ .Values.server.imagePullPolicy | default "IfNotPresent" }}
+          args:
+            - "--jetstream"
+            - "--store_dir"
+            - "/data"
+            {{- if .Values.nats.auth.enabled }}
+            - "--user"
+            - {{ .Values.nats.auth.user | quote }}
+            - "--pass"
+            - {{ .Values.nats.auth.password | quote }}
+            {{- end }}
+          ports:
+            - name: tcp-client
+              containerPort: 4222
+            - name: http-monitor
+              containerPort: 8222
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- with .Values.nats.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http-monitor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-monitor
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      volumes:
+        - name: data
+          hostPath:
+            path: {{ include "leros.hostPath" (dict "root" . "path" .Values.nats.hostPath) | quote }}
+            type: DirectoryOrCreate
+{{- end -}}

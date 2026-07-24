@@ -1,0 +1,69 @@
+{{- if .Values.ingress.enabled -}}
+{{- if .Values.ingress.server.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "leros.fullname" . }}-server
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with .Values.ingress.server.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ required "ingress.server.host 必填" .Values.ingress.server.host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.server.paths }}
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "leros.serverServiceName" $ }}
+                port:
+                  number: {{ $.Values.server.service.port }}
+          {{- end }}
+          {{- end }}
+---
+{{- if and .Values.web.enabled .Values.ingress.web.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "leros.fullname" . }}-web
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+  {{- with .Values.ingress.web.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ required "ingress.web.host 必填" .Values.ingress.web.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "leros.fullname" $ }}-web
+                port:
+                  number: {{ .Values.web.service.port }}
+{{- end -}}
+{{- end -}}

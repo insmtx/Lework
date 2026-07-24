@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leros.serverServiceName" . }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  type: {{ .Values.server.service.type }}
+  {{- if and (eq .Values.server.service.type "LoadBalancer") (.Values.server.service.loadBalancerIP) }}
+  loadBalancerIP: {{ .Values.server.service.loadBalancerIP | quote }}
+  {{- end }}
+  ports:
+    - name: http
+      port: {{ .Values.server.service.port }}
+      targetPort: http
+      {{- if and (or (eq .Values.server.service.type "LoadBalancer") (eq .Values.server.service.type "NodePort")) (.Values.server.service.nodePort) }}
+      nodePort: {{ .Values.server.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "leros.selectorLabels" (dict "root" . "component" "server") | nindent 4 }}

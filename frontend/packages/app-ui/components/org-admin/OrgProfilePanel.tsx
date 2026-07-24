@@ -1,12 +1,6 @@
 "use client";
 
-import {
-	normalizeFilePublicId,
-	type OrgInfo,
-	orgAdminApi,
-	projectFileApi,
-	useAuthStore,
-} from "@leros/store";
+import { type OrgInfo, orgAdminApi, projectFileApi, useAuthStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
 import { Camera, Loader2 } from "lucide-react";
@@ -86,7 +80,8 @@ export function OrgProfilePanel({
 			setOrg(data);
 			setNameDraft(data.name);
 			setInitialName(data.name);
-			setPendingLogoUrl(normalizeFilePublicId(data.logo));
+			// 中文注释：组织接口已可直接返回资源地址；保留原值也兼容尚未迁移的 file public_id。
+			setPendingLogoUrl(data.logo);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "组织信息加载失败";
 			toast.error(message);
@@ -164,7 +159,7 @@ export function OrgProfilePanel({
 			const updated = resp.data.data;
 			setOrg(updated);
 			setInitialName(updated.name);
-			setPendingLogoUrl(normalizeFilePublicId(updated.logo));
+			setPendingLogoUrl(updated.logo);
 			if (user.currentOrg?.id) {
 				syncOrganizationProfile(user.currentOrg.id, { name: updated.name, logo: updated.logo });
 			}
@@ -180,7 +175,7 @@ export function OrgProfilePanel({
 	const handleCancel = () => {
 		setNameDraft(initialName);
 		clearLogoPreview();
-		setPendingLogoUrl(normalizeFilePublicId(org?.logo));
+		setPendingLogoUrl(org?.logo);
 	};
 
 	// 中文注释：仅在组织尚未设置图标或原图不可用时显示固定默认头像，不影响用户上传并保存自定义图标。

@@ -55,7 +55,7 @@ docs/swagger.yaml
 .worktree
 frontend/.pnpm-store
 .pnpm-store
-leros
+/leros
 !backend/cmd/leros
 logs/
 .omo/
@@ -66,4 +66,5 @@ leros-storage/
 .codegraph
 deployments/dev/server.config.yaml
 deployments/dev/worker.config.yaml
+deployments/helm/leros/values.yaml
 .opencode

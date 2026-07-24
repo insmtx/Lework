@@ -10,3 +10,20 @@ export function isAcceptedFeedbackImage(file: File): boolean {
 	}
 	return /\.(jpe?g|png|webp)$/i.test(file.name);
 }
+
+export function getImageFilesFromClipboard(clipboardData: DataTransfer): File[] {
+	const fromFiles = Array.from(clipboardData.files).filter(isAcceptedFeedbackImage);
+	if (fromFiles.length > 0) {
+		return fromFiles;
+	}
+
+	const fromItems: File[] = [];
+	for (const item of Array.from(clipboardData.items)) {
+		if (item.kind !== "file") continue;
+		const file = item.getAsFile();
+		if (file && isAcceptedFeedbackImage(file)) {
+			fromItems.push(file);
+		}
+	}
+	return fromItems;
+}

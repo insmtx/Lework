@@ -55,6 +55,7 @@ const PROJECT_MENU_ACTIONS = ["project:update", "project:delete", "project:membe
 
 export function useProjectsMenuCapabilities(projectPublicIds: string[]) {
 	const ensureCapabilities = useAppStore((state) => state.ensureCapabilities);
+	const permissionRevision = useAppStore((state) => state.permissionRevision);
 	const projectIdsKey = projectPublicIds.join("\u0000");
 
 	useEffect(() => {
@@ -68,7 +69,7 @@ export function useProjectsMenuCapabilities(projectPublicIds: string[]) {
 				})),
 			),
 		);
-	}, [ensureCapabilities, projectIdsKey]);
+	}, [ensureCapabilities, permissionRevision, projectIdsKey]);
 }
 
 export function useTaskCapabilities(taskPublicId: string | null | undefined) {

@@ -1,0 +1,207 @@
+# =============================================================================
+# Leros Helm Chart 部署配置模板
+# =============================================================================
+# 此文件由 gen-values.sh 读取并替换占位符后生成 values.yaml，请勿直接编辑。
+# 占位符格式：@VAR_NAME@
+#   @PG_PASSWORD@         -> 随机生成
+#   @NATS_PASSWORD@       -> 随机生成
+#   @JWT_SECRET@          -> 随机生成
+#   @STORAGE_SIGN_SECRET@ -> 随机生成
+#   @REGISTRY@            -> 命令行 --registry 传入，不传则留空
+#   @REGISTRY_USER@       -> 命令行 --user 传入
+#   @REGISTRY_PASS@       -> 命令行 --pass 传入
+# llm.apiKey 不自动生成，需手动填写。
+# =============================================================================
+
+# --- 全局覆盖 ---
+nameOverride: ""
+fullnameOverride: ""
+
+# 宿主机数据根目录：所有组件的 hostPath 默认基于此前缀。
+# 各组件 hostPath 字段里的 <dataHostPath> 占位符会被替换为此值。
+# 修改这一处即可全局调整所有数据目录位置。
+dataHostPath: /data/leros
+
+# 命名空间：建议单独 namespace 隔离，默认随 -n 参数
+# namespace: leros
+
+# --- 镜像拉取凭证 ---
+# 私有镜像仓库认证。enabled=true 时 chart 会创建对应 Secret（kubernetes.io/dockerconfigjson）。
+# 如已存在同名 Secret，设 enabled=false 并通过 imagePullSecrets 引用。
+imagePullSecret:
+  enabled: true
+  name: leros-registry
+  registry: "@REGISTRY@"
+  username: "@REGISTRY_USER@"
+  password: "@REGISTRY_PASS@"
+
+# 额外引用已存在的 imagePullSecrets
+imagePullSecrets: []
+  # - name: insmtx-registry
+
+# =============================================================================
+# PostgreSQL 数据库
+# =============================================================================
+postgresql:
+  enabled: true
+  image: registry.yygu.cn/library/postgres:17.9
+  username: leros_user
+  password: "@PG_PASSWORD@"
+  database: leros_db
+  hostPath: <dataHostPath>/postgresql
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1, memory: 1Gi }
+  external:
+    url: ""
+
+# =============================================================================
+# NATS JetStream 消息队列
+# =============================================================================
+nats:
+  enabled: true
+  image: registry.yygu.cn/library/nats:2.12.7
+  hostPath: <dataHostPath>/nats
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  auth:
+    enabled: true
+    user: leros
+    password: "@NATS_PASSWORD@"
+  external:
+    url: ""
+
+# =============================================================================
+# Leros Server（HTTP API 服务，常驻 Deployment）
+# =============================================================================
+server:
+  image: registry.yygu.cn/insmtx/leros:v0.3.0-4_acf4aac5
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+
+  serviceNameOverride: ""
+  configMapNameOverride: ""
+  deploymentNameOverride: ""
+
+  env: prod
+  logLevel: info
+  jwtSecret: "@JWT_SECRET@"
+  baseUrl: ""
+  ginMode: release
+
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: 2, memory: 2Gi }
+
+  service:
+    type: ClusterIP
+    port: 8080
+    nodePort: ""
+    loadBalancerIP: ""
+
+  rbac:
+    create: true
+
+  extraEnv: []
+  logger: {}
+
+# =============================================================================
+# Worker 基础设施
+# =============================================================================
+worker:
+  image: registry.yygu.cn/insmtx/leros-worker:latest
+  workspaceInitImage: registry.cn-beijing.aliyuncs.com/yygu/corekg:busybox_1.36.1
+
+  configMapNameOverride: ""
+  secretNameOverride: ""
+
+  config:
+    logLevel: info
+    cli:
+      default: leros
+
+  workspaceHostPathRoot: <dataHostPath>/workspace
+  workspaceMountRoot: /workspace
+  storageHostPath: <dataHostPath>/storage
+  storageMountPath: /leros-storage
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: 2, memory: 4Gi }
+
+# =============================================================================
+# Web 前端（可选）
+# =============================================================================
+web:
+  enabled: false
+  image: registry.yygu.cn/insmtx/leros-web:latest
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  apiBaseUrl: ""
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  service:
+    type: ClusterIP
+    port: 3000
+
+# =============================================================================
+# LLM 配置（外挂，API Key 手动填写）
+# =============================================================================
+llm:
+  apiKey: ""                                   # 必填，手动填写模型 API Key
+  provider: openai                             # openai | anthropic | deepseek 等
+  model: ""                                    # 模型名，如 gpt-4o / deepseek-chat / qwen-plus
+  baseUrl: ""                                  # 模型服务地址，如 https://api.openai.com/v1
+  translation:
+    enabled: false
+    provider: ""
+    model: ""
+    baseUrl: ""
+
+# =============================================================================
+# 文件存储
+# =============================================================================
+storage:
+  driver: local               # local | s3 | minio
+  localDir: /leros-storage
+  hostPath: <dataHostPath>/storage
+  bucket: leros-bucket
+  signSecret: "@STORAGE_SIGN_SECRET@"
+  endpoint: ""
+  accessKey: ""
+  secretKey: ""
+  useSSL: false
+
+# =============================================================================
+# 客户端版本策略（可选）
+# =============================================================================
+clientUpdate:
+  desktop:
+    enabled: false
+    minSupportedVersion: "0.1.16"
+    latestVersion: "0.1.21"
+    updateUrl: ""
+    forceMessage: "当前客户端版本过低，请更新后继续使用"
+
+# =============================================================================
+# Ingress（有域名时开启；私有化无域名默认关闭）
+# =============================================================================
+ingress:
+  enabled: false
+  className: traefik
+  tls: []
+  server:
+    enabled: true
+    host: leros.example.com
+    annotations: {}
+    paths:
+      - path: /
+        pathType: Prefix
+  web:
+    enabled: false
+    host: web.leros.example.com
+    annotations: {}

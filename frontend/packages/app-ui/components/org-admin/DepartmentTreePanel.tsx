@@ -376,11 +376,12 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 				</div>
 			)}
 
-			<div className="flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface,#fff)]">
+			{/* 中文注释：小屏改为上下布局，避免固定的部门栏宽度挤压通讯录内容。 */}
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface,#fff)] md:flex-row">
 				<aside
 					className={cn(
-						"flex shrink-0 flex-col border-r border-[var(--leros-control-border)]",
-						compact ? "w-[240px]" : "w-[280px]",
+						"flex h-44 shrink-0 flex-col border-b border-[var(--leros-control-border)] md:h-auto md:border-b-0 md:border-r",
+						compact ? "w-full md:w-[240px]" : "w-full md:w-[280px]",
 					)}
 				>
 					<div className="border-b border-[var(--leros-control-border)] p-3">
@@ -417,7 +418,7 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 					</div>
 				</aside>
 
-				<section className="flex min-h-0 min-w-0 flex-1 flex-col p-4 sm:p-6">
+				<section className="flex min-h-0 min-w-0 flex-1 flex-col p-3 sm:p-4 md:p-6">
 					<div className="mb-4 flex shrink-0 items-center justify-between gap-3 sm:mb-6">
 						<div>
 							<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">
@@ -468,33 +469,44 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 							)}
 						</div>
 					) : (
-						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--leros-control-border)]">
-							<Table>
+						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] p-3 sm:p-4">
+							{/* 中文注释：固定列比例并截断过长部门名，避免表格最小内容宽度触发横向滚动。 */}
+							<Table className="table-fixed">
+								<colgroup>
+									<col className="w-[18%]" />
+									<col className="w-[20%]" />
+									<col className="w-[20%]" />
+									<col className="w-[18%]" />
+									<col className="w-[24%]" />
+								</colgroup>
 								<TableHeader>
 									<TableRow>
 										<TableHead>用户名</TableHead>
 										<TableHead>所属部门</TableHead>
 										<TableHead>手机号</TableHead>
 										<TableHead>创建时间</TableHead>
-										<TableHead className="text-right">操作</TableHead>
+										<TableHead>操作</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{members.map((member) => (
 										<TableRow key={member.public_id}>
 											<TableCell className="font-medium">{member.name ?? "未命名"}</TableCell>
-											<TableCell>
+											<TableCell className="max-w-0 truncate">
 												{selectedDepartment ? <Badge>{selectedDepartment.name}</Badge> : "-"}
 											</TableCell>
-											<TableCell>{member.phone ?? "-"}</TableCell>
-											<TableCell>{formatMemberCreatedAt(member.created_at)}</TableCell>
-											<TableCell className="text-right">
+											<TableCell className="truncate">{member.phone ?? "-"}</TableCell>
+											<TableCell className="truncate">
+												{formatMemberCreatedAt(member.created_at)}
+											</TableCell>
+											<TableCell className="whitespace-nowrap">
 												{isDefaultUser && (
 													<>
 														<Button
 															type="button"
 															variant="ghost"
 															size="sm"
+															className="mr-2 px-0 last:mr-0"
 															onClick={() => setEditMemberDialog({ open: true, member })}
 														>
 															<Pencil className="mr-1 size-3.5" />
@@ -504,6 +516,7 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 															type="button"
 															variant="ghost"
 															size="sm"
+															className="mr-2 px-0 last:mr-0"
 															disabled={submitting}
 															onClick={() => void handleDeleteMember(member)}
 														>

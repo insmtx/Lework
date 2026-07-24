@@ -3,7 +3,6 @@
 import {
 	type AuthOrgInfo,
 	type AuthUser,
-	normalizeFilePublicId,
 	useAuthStore,
 	useChatStore,
 	useDAStore,
@@ -24,6 +23,7 @@ import type { AppNavigation } from "../layout/LeftRail";
 type OrganizationSwitchPanelProps = {
 	navigation?: AppNavigation;
 	onDone?: () => void;
+	onModeChange?: (mode: PanelMode) => void;
 	active?: boolean;
 	initialMode?: PanelMode;
 	pendingLogin?: {
@@ -38,6 +38,7 @@ type PanelMode = "switch" | "create";
 export function OrganizationSwitchPanel({
 	navigation,
 	onDone,
+	onModeChange,
 	active = true,
 	initialMode = "switch",
 	pendingLogin,
@@ -64,6 +65,11 @@ export function OrganizationSwitchPanel({
 	const [waitingForNavigation, setWaitingForNavigation] = useState(false);
 	const canCreateOrganization =
 		edition === "enterprise" || Boolean(pendingLogin && pendingLogin.organizations.length === 0);
+
+	const changeMode = (nextMode: PanelMode) => {
+		setMode(nextMode);
+		onModeChange?.(nextMode);
+	};
 
 	useEffect(() => {
 		if (!active) return;
@@ -202,7 +208,7 @@ export function OrganizationSwitchPanel({
 					/>
 				</div>
 				<div className="flex justify-end gap-3">
-					<Button type="button" variant="outline" onClick={() => setMode("switch")}>
+					<Button type="button" variant="outline" onClick={() => changeMode("switch")}>
 						取消
 					</Button>
 					<Button
@@ -226,7 +232,7 @@ export function OrganizationSwitchPanel({
 				<div className="flex justify-end py-3">
 					<button
 						type="button"
-						onClick={() => setMode("create")}
+						onClick={() => changeMode("create")}
 						className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]"
 					>
 						<Plus className="size-4" />
@@ -286,8 +292,9 @@ function OrganizationList({
 					>
 						{/* 中文注释：与组织管理页共用默认头像；组织已上传的图标仍由 src 优先渲染。 */}
 						<span className="flex size-10 shrink-0 overflow-hidden rounded-full bg-[var(--leros-primary-softer)]">
+							{/* 中文注释：接口返回资源 URL 时直接渲染；旧 file public_id 仍由 ProtectedImage 兼容预览。 */}
 							<ProtectedImage
-								src={normalizeFilePublicId(org.logo)}
+								src={org.logo}
 								alt={org.name}
 								className="h-full w-full object-cover"
 								fallback={

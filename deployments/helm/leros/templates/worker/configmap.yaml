@@ -1,0 +1,31 @@
+{{/*
+  Worker ConfigMap：被 server 的 k8s scheduler 以 Volume 形式挂载到 worker Pod 的
+  /app/config 目录，data key 必须为 config.yaml（由 scheduler 常量
+  defaultWorkerConfigFile 决定）。org_id/worker_id/server_addr/bootstrap_token 等
+  字段由 scheduler 通过 CLI flag 与环境变量注入，无需在此声明。
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "leros.workerConfigMapName" . }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+data:
+  config.yaml: |
+    env: {{ .Values.server.env | quote }}
+    server_addr: {{ printf "%s:%s" (include "leros.serverServiceName" .) (.Values.server.service.port | toString) | quote }}
+
+    nats:
+      url: {{ include "leros.natsURL" . | quote }}
+
+    log:
+      level: {{ .Values.worker.config.logLevel | quote }}
+
+    cli:
+      default: {{ .Values.worker.config.cli.default | quote }}
+    {{- with .Values.worker.config.gitea }}
+
+    gitea:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}

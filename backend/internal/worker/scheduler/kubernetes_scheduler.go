@@ -11,6 +11,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -188,6 +189,9 @@ func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.W
 	if currentImage != s.workerImage(spec) {
 		return true, nil
 	}
+	if s.resourcesDrifted(deployment, spec) {
+		return true, nil
+	}
 	return s.workspaceSpecDrifted(deployment, spec), nil
 }
 
@@ -300,6 +304,7 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 				Args:            args,
 				Env:             env,
 				VolumeMounts:    volumeMounts,
+				Resources:       s.workerResources(),
 			},
 		},
 		Volumes: volumes,
@@ -506,3 +511,56 @@ func deploymentName(orgID, workerID uint) string {
 func boolPtr(value bool) *bool                                       { return &value }
 func int64Ptr(value int64) *int64                                    { return &value }
 func hostPathTypePtr(value corev1.HostPathType) *corev1.HostPathType { return &value }
+
+// workerResources 将配置层 ResourceRequirements 转为 corev1.ResourceRequirements，
+// 忽略无法解析的 quantity 字符串。
+func (s *KubernetesScheduler) workerResources() corev1.ResourceRequirements {
+	return toCoreV1Resources(s.config.WorkerResources)
+}
+
+func toCoreV1Resources(r config.ResourceRequirements) corev1.ResourceRequirements {
+	req := corev1.ResourceRequirements{}
+	for k, v := range r.Limits {
+		if q, err := resource.ParseQuantity(strings.TrimSpace(v)); err == nil {
+			if req.Limits == nil {
+				req.Limits = corev1.ResourceList{}
+			}
+			req.Limits[corev1.ResourceName(k)] = q
+		}
+	}
+	for k, v := range r.Requests {
+		if q, err := resource.ParseQuantity(strings.TrimSpace(v)); err == nil {
+			if req.Requests == nil {
+				req.Requests = corev1.ResourceList{}
+			}
+			req.Requests[corev1.ResourceName(k)] = q
+		}
+	}
+	return req
+}
+
+// resourcesDrifted 判断现有 worker 容器的资源限制是否与期望配置不一致。
+func (s *KubernetesScheduler) resourcesDrifted(deployment *appsv1.Deployment, spec *worker.WorkerSpec) bool {
+	container := containerByName(deployment.Spec.Template.Spec.Containers, deploymentName(spec.OrgID, spec.WorkerID))
+	if container == nil {
+		return true
+	}
+	return !resourceRequirementsEqual(s.workerResources(), container.Resources)
+}
+
+func resourceRequirementsEqual(a, b corev1.ResourceRequirements) bool {
+	return resourceListEqual(a.Limits, b.Limits) && resourceListEqual(a.Requests, b.Requests)
+}
+
+func resourceListEqual(a, b corev1.ResourceList) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		bv, ok := b[k]
+		if !ok || v.Cmp(bv) != 0 {
+			return false
+		}
+	}
+	return true
+}

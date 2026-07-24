@@ -221,6 +221,7 @@ type iamDepartmentTreeEmployee struct {
 	Name          string    `json:"name"`
 	Email         string    `json:"email"`
 	Phone         string    `json:"phone"`
+	AvatarURL     string    `json:"avatar_url"`
 	EmployeeID    uint      `json:"employee_id"`
 	UserID        uint      `json:"user_id"`
 	Role          string    `json:"role"`
@@ -256,20 +257,16 @@ func mapLoginThirdToAuthTokenResponse(resp *iamLoginThirdResponseBody) (*account
 		LoginWay:     resp.LoginWay,
 	}
 	result.UserID = resp.UserID
-	if len(resp.Uin) > 0 {
-		result.Uin = resp.Uin[0].Uin.ID
+
+	organizations := mapUinListToAuthOrgInfos(resp.Uin)
+	if len(organizations) > 0 {
+		result.Uin = organizations[0].Uin
+		result.Org = organizations[0]
 	}
 	if resp.UserInfo != nil {
 		result.UserInfo = mapIAMUserInfoToAuthUserInfo(resp.UserInfo)
 	}
-	if len(resp.Uin) > 0 {
-		result.Organizations = mapUinListToAuthOrgInfos(resp.Uin)
-		if len(result.Organizations) > 0 {
-			result.Org = result.Organizations[0]
-		}
-	} else {
-		result.Organizations = make([]account.AuthOrgInfo, 0)
-	}
+	result.Organizations = organizations
 	return result, nil
 }
 
@@ -279,6 +276,7 @@ func mapIAMUserInfoToAuthUserInfo(info *iamUserInfo) account.AuthUserInfo {
 	}
 	return account.AuthUserInfo{
 		ID:        info.ID,
+		PublicID:  strconv.FormatUint(uint64(info.ID), 10),
 		Name:      info.Name,
 		Email:     info.Email,
 		Phone:     info.Phone,
@@ -289,8 +287,12 @@ func mapIAMUserInfoToAuthUserInfo(info *iamUserInfo) account.AuthUserInfo {
 func mapUinListToAuthOrgInfos(uins []iamLoginUin) []account.AuthOrgInfo {
 	infos := make([]account.AuthOrgInfo, 0, len(uins))
 	for _, uin := range uins {
+		if uin.Uin.SubjectType != "company" {
+			continue
+		}
 		infos = append(infos, account.AuthOrgInfo{
 			ID:              uin.Uin.SubjectID,
+			PublicID:        strconv.FormatUint(uint64(uin.Uin.SubjectID), 10),
 			Code:            uin.CompanyName,
 			Name:            uin.CompanyName,
 			Logo:            uin.CompanyLogo,
@@ -315,12 +317,13 @@ func mapDetailPersonalCenterToUserInfo(resp *iamDetailPersonalCenterResponseBody
 
 func mapDepartmentTreeEmployeeToUserInfo(emp iamDepartmentTreeEmployee) account.UserInfo {
 	return account.UserInfo{
-		ID:       emp.UserID,
-		PublicID: strconv.FormatUint(uint64(emp.UserID), 10),
-		Uin:      emp.Uin,
-		Name:     emp.Name,
-		Email:    emp.Email,
-		Phone:    emp.Phone,
+		ID:        emp.UserID,
+		PublicID:  strconv.FormatUint(uint64(emp.UserID), 10),
+		Uin:       emp.Uin,
+		Name:      emp.Name,
+		Email:     emp.Email,
+		Phone:     emp.Phone,
+		AvatarURL: emp.AvatarURL,
 	}
 }
 
@@ -449,6 +452,7 @@ type iamGetCompanyMemberResp struct {
 	Name          string `json:"name"`
 	Email         string `json:"email"`
 	Phone         string `json:"phone"`
+	AvatarURL     string `json:"avatar_url"`
 	EmployeeID    uint   `json:"employee_id"`
 	UserID        uint   `json:"user_id"`
 	Role          string `json:"role"`

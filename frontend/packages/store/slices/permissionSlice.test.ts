@@ -13,6 +13,7 @@ type TestState = PermissionState & {
 function createPermissionActions() {
 	let state: TestState = {
 		decisions: {},
+		permissionRevision: 0,
 		authUser: { currentOrg: { id: 1 } },
 	};
 	const setState = (partial: unknown) => {
@@ -63,5 +64,30 @@ describe("PermissionActionImpl.ensureCapabilities", () => {
 		await Promise.all([first, second]);
 
 		expect(actions.can(item.action, item.resource)).toBe(true);
+	});
+});
+
+describe("PermissionActionImpl.invalidate", () => {
+	it("失效项目权限缓存时会递增版本号，通知列表重新预取权限", () => {
+		const setState = vi.fn();
+		const state = {
+			decisions: {
+				"1:project:project-1:project:update": { allowed: true },
+				"1:project:project-2:project:update": { allowed: true },
+			},
+			permissionRevision: 3,
+			authUser: { currentOrg: { id: 1 } },
+		};
+		const actions = new PermissionActionImpl(setState, (() => state) as never);
+
+		actions.invalidate({ type: "project", publicId: "project-1" });
+
+		const update = setState.mock.calls[0]?.[0] as (current: typeof state) => typeof state;
+		expect(update(state)).toEqual({
+			decisions: {
+				"1:project:project-2:project:update": { allowed: true },
+			},
+			permissionRevision: 4,
+		});
 	});
 });

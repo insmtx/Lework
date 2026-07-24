@@ -173,6 +173,7 @@ export function LeftRail({
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 	const [orgAdminDialogOpen, setOrgAdminDialogOpen] = useState(false);
 	const [orgSwitchDialogOpen, setOrgSwitchDialogOpen] = useState(false);
+	const [orgSwitchPanelMode, setOrgSwitchPanelMode] = useState<"switch" | "create">("switch");
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
 	const [globalTaskSearchOpen, setGlobalTaskSearchOpen] = useState(false);
 	const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
@@ -818,7 +819,20 @@ export function LeftRail({
 			/>
 			<OrgAdminDialog open={orgAdminDialogOpen} onOpenChange={setOrgAdminDialogOpen} />
 			<FeedbackDialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen} />
-			<Dialog open={orgSwitchDialogOpen} onOpenChange={setOrgSwitchDialogOpen}>
+			<Dialog
+				open={orgSwitchDialogOpen}
+				disablePointerDismissal
+				onOpenChange={(open, details) => {
+					// 中文注释：切换或创建组织可能包含未提交内容，只允许右上角关闭按钮退出。
+					if (!open && details.reason === "escape-key") return;
+					if (!open && orgSwitchPanelMode === "create") {
+						// 中文注释：从切换组织进入创建组织时，X 只返回切换组织列表。
+						setOrgSwitchPanelMode("switch");
+						return;
+					}
+					setOrgSwitchDialogOpen(open);
+				}}
+			>
 				<DialogContent
 					className="flex max-h-[min(70dvh,calc(100dvh-2rem))] w-full max-w-none flex-col overflow-hidden p-6"
 					style={{ width: "min(33vw, calc(100vw - 2rem))" }}
@@ -826,8 +840,13 @@ export function LeftRail({
 				>
 					<OrganizationSwitchPanel
 						navigation={navigation}
-						onDone={() => setOrgSwitchDialogOpen(false)}
+						onDone={() => {
+							setOrgSwitchPanelMode("switch");
+							setOrgSwitchDialogOpen(false);
+						}}
 						active={orgSwitchDialogOpen}
+						initialMode={orgSwitchPanelMode}
+						onModeChange={setOrgSwitchPanelMode}
 					/>
 				</DialogContent>
 			</Dialog>

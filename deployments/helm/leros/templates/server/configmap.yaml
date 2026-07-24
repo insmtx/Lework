@@ -1,0 +1,94 @@
+{{- $fullname := include "leros.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "leros.serverConfigMapName" . }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+data:
+  config.yaml: |
+    # 由 Helm chart 渲染的 Leros Server 配置。
+    # 敏感字段通过 ${VAR} 占位符引用环境变量（os.ExpandEnv），实际值来自 Secret。
+    env: {{ .Values.server.env | quote }}
+    workspace_root:
+
+    server:
+      port: {{ .Values.server.service.port | quote }}
+      jwt:
+        secret: "${LEROS_JWT_SECRET}"
+
+    database:
+      url: "${LEROS_DATABASE_URL}"
+      debug: false
+
+    nats:
+      url: "${LEROS_NATS_URL}"
+
+    log:
+      level: {{ .Values.server.logLevel | quote }}
+
+    scheduler:
+      mode: k8s
+      kubernetes_connection: in_cluster
+      namespace: {{ .Release.Namespace | quote }}
+      # worker 回连 server 的 Service 地址
+      server_addr: {{ printf "%s:%s" (include "leros.serverServiceName" .) (.Values.server.service.port | toString) | quote }}
+      worker_image: {{ .Values.worker.image | quote }}
+      workspace_init_image: {{ .Values.worker.workspaceInitImage | quote }}
+      config_map: {{ include "leros.workerConfigMapName" . | quote }}
+      secret: {{ include "leros.workerSecretName" . | quote }}
+      {{- if .Values.imagePullSecret.enabled }}
+      image_pull_secret: {{ .Values.imagePullSecret.name | quote }}
+      {{- else if .Values.imagePullSecrets }}
+      image_pull_secret: {{ (index .Values.imagePullSecrets 0).name | quote }}
+      {{- end }}
+      workspace_host_path_root: {{ include "leros.hostPath" (dict "root" . "path" .Values.worker.workspaceHostPathRoot) | quote }}
+      workspace_mount_root: {{ .Values.worker.workspaceMountRoot | quote }}
+      storage_host_path: {{ include "leros.hostPath" (dict "root" . "path" .Values.worker.storageHostPath) | quote }}
+      storage_mount_path: {{ .Values.worker.storageMountPath | quote }}
+      {{- with .Values.worker.nodeSelector }}
+      node_selector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.resources }}
+      worker_resources:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      env:
+        LEROS_STORAGE_LOCAL_DIR: {{ .Values.worker.storageMountPath | quote }}
+
+    llm:
+      provider: {{ .Values.llm.provider | quote }}
+      api_key: "${LLM_API_KEY}"
+      model: {{ .Values.llm.model | quote }}
+      base_url: {{ .Values.llm.baseUrl | quote }}
+      {{- if .Values.llm.translation.enabled }}
+      translation:
+        provider: {{ .Values.llm.translation.provider | quote }}
+        api_key: "${LLM_API_KEY}"
+        model: {{ .Values.llm.translation.model | quote }}
+        base_url: {{ .Values.llm.translation.baseUrl | quote }}
+      {{- end }}
+
+    storage:
+      driver: {{ .Values.storage.driver | quote }}
+      local_dir: {{ .Values.storage.localDir | quote }}
+      bucket: {{ .Values.storage.bucket | quote }}
+      sign_secret: "${LEROS_STORAGE_SIGN_SECRET}"
+      base_url: "${LEROS_BASE_URL}"
+      {{- if or (eq .Values.storage.driver "s3") (eq .Values.storage.driver "minio") }}
+      endpoint: {{ .Values.storage.endpoint | quote }}
+      access_key: {{ .Values.storage.accessKey | quote }}
+      secret_key: {{ .Values.storage.secretKey | quote }}
+      use_ssl: {{ .Values.storage.useSSL }}
+      {{- end }}
+
+    {{- if .Values.clientUpdate.desktop.enabled }}
+    client_update:
+      desktop:
+        min_supported_version: {{ .Values.clientUpdate.desktop.minSupportedVersion | quote }}
+        latest_version: {{ .Values.clientUpdate.desktop.latestVersion | quote }}
+        update_url: {{ .Values.clientUpdate.desktop.updateUrl | quote }}
+        force_message: {{ .Values.clientUpdate.desktop.forceMessage | quote }}
+    {{- end }}

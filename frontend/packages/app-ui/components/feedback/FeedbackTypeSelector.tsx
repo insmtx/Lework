@@ -45,7 +45,9 @@ type FeedbackTypeSelectorProps = {
 export function FeedbackTypeSelector({ value, onChange }: FeedbackTypeSelectorProps) {
 	return (
 		<div className="space-y-2">
-			<p className="text-xs font-medium text-slate-500">反馈类型</p>
+			<p className="text-xs font-medium text-slate-500">
+				反馈类型 <span className="text-red-500">*</span>
+			</p>
 			<div className="grid grid-cols-2 gap-2">
 				{OPTIONS.map((option) => {
 					const Icon = option.icon;

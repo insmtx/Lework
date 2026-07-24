@@ -1,505 +1,106 @@
-# Lework Agent 开发指南
+# AGENTS.md
 
-本文档包含了 AI Agent 使用 Lework 代码库的重要信息。
+Compact guidance for AI agents working in the Lework/Leros repo. Verified against the codebase on the date below; trust executable sources over any prose here if they conflict.
 
-## 构建/检查/测试 命令
+> Module path: `github.com/insmtx/Leros` (note: repo dir is `Lework`, Go module is `Leros`). Go 1.25.0.
 
-### 构建命令
+## Commands
 
-- `go build -o ./bundles/leros ./backend/cmd/leros/` - 构建主 Lework 后端服务（输出到 `./bundles/`）
-- `make docker-build` - 构建 Docker 镜像（标签：registry.yygu.cn/insmtx/Lework:latest）
-- `make docker-run` - 在本地运行 Docker 镜像
-- `make run` - 以前台模式启动 docker-compose 服务
-- `make run-detached` - 以分离模式（后台）启动 docker-compose 服务
-- `make stop` - 停止 docker-compose 服务
-- `make logs` - 查看 docker-compose 服务日志
-- `make swagger` - 生成 Swagger API 文档（输出到 `docs/swagger/docs.go`）
+Build / check / test (run from repo root):
+- `go build -o ./bundles/leros ./backend/cmd/leros/` — build server (builtin/OSS auth). Binary → `./bundles/` (gitignored).
+- `go build -tags enterprise -o ./bundles/leros ./backend/cmd/leros/` — enterprise build (auth delegated to IAM). See "Editions" below.
+- `make build` — same as builtin build with `-ldflags="-s -w"`.
+- `make run` / `make run-detached` / `make stop` / `make logs` — docker-compose stack at `deployments/env/docker-compose.yml`.
+- `make dev-setup` — one-time dev bootstrap (see `deployments/dev/dev-setup.sh`); `make dev-server` / `make dev-worker` / `dev-frontend` run each process locally.
+- `make swagger` — generate swagger into `docs/swagger/` from `backend/cmd/leros/server.go` (+ handler/api/types dirs). Only output location is `docs/swagger/`.
 
-### 测试命令
+Test (no `make test` target exists — CONTRIBUTING.md is wrong on this):
+- `go test ./...` — all (excludes `//go:build integration` and `enterprise` files by default).
+- `go test -tags integration ./...` — run integration tests (need NATS + DB; helpers in `backend/internal/testutil/`).
+- `go test -tags enterprise ./...` — enterprise-only tests (most also need `-tags integration`).
+- `go test ./backend/internal/<pkg>` — single package. `go test -run ^TestName$ ./...` — single test.
 
-- `go test ./...` - 运行项目中所有测试
-- `go test -v ./...` - 以详细输出方式运行所有测试
-- `go test ./backend/path/to/package` - 运行特定包的测试
-- `go test -run ^TestFunctionName$ ./backend/path` - 运行特定测试函数
-- `go test -race ./...` - 运行所有检测竞态条件的测试
-- `go test -cover ./...` - 运行测试并显示覆盖率信息
-
-### 检查命令
+Check before committing:
+- `go fmt ./...` and `gofmt -s -w .` (format; Makefile uses `-s`).
+- `go vet ./...`.
+- `golint ./...` / `staticcheck ./...` if installed.
 
-- `go fmt ./...` - 格式化所有 Go 代码
-- `go vet ./...` - 检查所有 Go 代码中的常见错误
-- `golint ./...` - 检查所有 Go 代码（通过 `go install golang.org/x/lint/golint@latest` 安装）
-- `gofmt -s -w .` - 简化代码并写入更改（按照现有 Makefile）
-- `staticcheck ./...` - 全面的 Go 静态分析（如已安装）
-
-## 代码风格指南
+Order when finishing a change: `gofmt -s` → `go vet` → `go build ./...` → `go test ./...`.
 
-### 导入组织
+## Editions (build tags, easy to miss)
 
-- 在标准库、第三方和项目特定包之间用空行分组导入
-- 仅在防止命名冲突时使用语义导入别名
-- 组织成三组：stdlib，第三方，内部包
+Two builds share one codebase, selected via `//go:build` tags:
+- Default (`!enterprise`): builtin auth (email/phone/Worker Token) from `backend/internal/adapter/account/oss/`.
+- `enterprise`: auth delegated to IAM service from `backend/internal/adapter/account/enterprise/` (+ IAM config in `config.yaml`).
+Gate at `backend/internal/adapter/edition.go`. Never import `oss/` from `enterprise/` files or vice versa. README "认证体系" documents the user-facing side.
 
-```
-import (
-	"fmt"
-	"net/http"
+`integration` is a separate tag for DB/NATS-dependent tests (`backend/internal/testutil/`).
 
-	"github.com/gin-gonic/gin"
-	"github.com/spf13/cobra"
+## Layering (strict; the most common rework cause)
 
-	"github.com/insmtx/Lework/backend/config"
-)
-```
+| Layer | Path | May | May NOT |
+|---|---|---|---|
+| Process entry | `backend/cmd/leros/` | cobra commands, `lifecycle.Std().WaitExit()` / `.AddCloseFunc()` / `.Exit()`, signal handling, `log.Fatal` | business logic |
+| Execution core | `backend/agent/**` | generic exec contracts, Runtime Adapter, Tool/Interaction/NodeEvent, internal process wiring | SingerOS business, NATS, business DB, Server API, Worker identity, process lifecycle |
+| Library code | `backend/internal/**` | business logic; surface failures via returned `error` | `os.Exit()`, `lifecycle.Std()`, `log.Fatal`, `panic`, signals, cobra deps |
+| Shared types | `backend/types/`, `backend/config/` | domain types, config structs | any business logic or external deps |
 
-### 格式约定
+Practical points:
+- `internal/**` packages must not know whether they run in server, worker, or CLI — process lifecycle belongs to `cmd/`. The `lifecycle` package is third-party (`github.com/ygpkg/yg-go/lifecycle`), not under `backend/`.
+- `agent/**` is business-agnostic. A Runtime may use an API key to execute a request but must never write API keys into NodeEvent/RunEvent/Journal/NATS/logs/error text.
+- Directory names mislead: `backend/internal/cli` is *library code* for CLI-related logic — it is NOT a process entry and must not own lifecycle.
+- Shared constants/types across layers sink to the lowest shared package (`backend/types/`, `backend/pkg/event/`); avoid duplicate definitions. (`backend/events/` does not exist — event types/topics live in `backend/pkg/event/`.)
 
-- 使用制表符进行缩进，而不是空格（从现有 Go 文件验证过）
-- 提交前执行 `go fmt ./...`
-- 尽可能保持每行少于 120 个字符
-- 使用 `gofmt -s` 简化代码
+## Hard rules
 
-### 命名约定
+- **No `panic` in library or business code.** Propagate via `error`. Only `cmd/leros` may use `log.Fatal` for unrecoverable startup failures. (`panic` inside test stubs to satisfy unimplemented interface methods is acceptable.)
+- **No `map[string]interface{}` for business data** across function signatures, interfaces, or layer boundaries — define a struct or typed map (e.g. `map[string]string`). EXCEPTION: the `tools.Tool` Execute contract (`backend/tools/`) legitimately uses `tools.JSONInput` (= `map[string]interface{}`) as the universal tool I/O shape, and `pkg/llmprotocol` test fixtures use it for raw protocol blobs. Do not "refactor" those away blindly.
+- **Never commit gitignored files.** Before committing run `git status`; `bundles/`, `.env`, `docs/superpowers/`, `deployments/env/config.yaml`, `server.config.yaml`/`worker.config.yaml` under `deployments/dev/`, `.opencode`, logs, etc. are ignored. If accidentally staged, unstage before committing.
 
-- 对于导出的函数/类型使用驼峰命名法（`GetUser`，`UserService`）
-- 对于未导出/内部函数/类型使用小写驼峰命名法（`getUser`，`userService`）
-- 使用清晰、描述性的名称；优先考虑清晰度而不是简洁性
-- 在包之间对类似概念使用一致的名称
-- 与系统相关的变量应引用 Lework 概念
-
-### 类型和接口
-
-- 在第一次使用附近定义接口
-- 保持接口小，通常是一个或几个方法
-- 在适用时，用 "-er" 后缀命名接口类型（例如，`Runner`，`Handler`）
-- 在不需要接口时，在函数签名中明确使用具体类型
-- 当传递给函数且会被修改时，倾向于返回结构体的指针
-
-### 错误处理
-
-- 显式处理错误；不要忽略它们
-- 在适当的情况下使用具体的错误类型并包装错误
-- 遵循以下模式："if err != nil { return err }"
-- 对简单的静态字符串使用 `errors.New()`
-- 使用 `fmt.Errorf()` 和 `%w` 动词来包装带有更多上下文的错误
-- 适当时记录错误上下文
-
-### 附加准则
-
-- 所有公共函数必须有 GoDoc 注释
-- 注释应采用英文，并解释原因而非内容
-- 在整个应用程序中维护一致的日志格式
-- 适当地使用 context.Context 进行取消和请求作用域值
-- 遵循依赖注入模式而不是全局变量
-- 使用 Cobra 进行命令行界面实现，如 main.go 文件所示
-
-### 强制约束
-
-- **禁止使用 `panic`**：整个项目（含库代码和业务代码）严禁使用 `panic`。错误必须通过返回 `error` 逐层传递，由顶层调用方统一处理。对于不可恢复的致命错误（如配置缺失导致无法启动），应在 `main` 函数中使用 `log.Fatal` 退出。
-- **禁止使用 `map[string]interface{}` 传递数据**：严禁在函数签名、接口定义或跨层通信中使用 `map[string]interface{}` 传递业务数据。必须定义具名结构体（struct）或类型化 map（如 `map[string]string`），以保证编译时类型安全和代码可读性。若现有接口（如 `Skill` 接口）使用了 `map[string]interface{}`，需在后续迭代中重构为强类型参数。
-- **不提交 .gitignore 忽略的文件**：提交前运行 `git status` 确认暂存区，已忽略的文件（如 `bundles/`、`.env`、`docs/superpowers/` 等）坚决不纳入版本控制。如发现误添加，必须从暂存区移除后再提交。
-- **superpowers 产物不提交**：`docs/superpowers/` 目录下的设计方案和执行计划为 AI 辅助产物，不纳入版本控制。`.gitignore` 中已忽略该目录，提交时需确认没有破坏该忽略规则。
-
-### 提交准则
-
-- 遵循约定式提交格式：<type>(<scope>): <subject>
-- 在 Lework 项目中使用中文作为提交消息
-- 类型选项包括：
-  - `feat`：新功能
-  - `fix`：修复错误
-  - `docs`：文档更新
-  - `style`：代码风格调整
-  - `refactor`：重构代码
-  - `test`：测试相关
-  - `chore`：构建工具或辅助工具变更
-- 适当时，在正文部分包含技术实现和业务逻辑的详细描述
-
-## 分层边界
-
-项目遵循三层架构，每层有明确的职责边界。写代码前先确认改动属于哪一层。
-
-| 层级             | 路径                                | 允许                                                                                | 禁止                                                                       |
-| ---------------- | ----------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| **进程入口**     | `backend/cmd/leros/`                | cobra 命令注册、进程生命周期（`lifecycle.Std().WaitExit()`）、信号处理、`log.Fatal` | 业务逻辑                                                                   |
-| **执行内核库**   | `backend/agent/**`                  | 通用执行契约、Runtime Adapter、Tool/Interaction/NodeEvent、Runtime 内部进程适配     | SingerOS 业务、NATS、业务数据库、Server API、Worker identity、进程生命周期 |
-| **库代码**       | `backend/internal/*`                | 业务逻辑实现，通过 `error` 向上传递失败                                             | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、信号处理、cobra 依赖 |
-| **共享类型**     | `backend/types/`、`backend/config/` | 领域类型、配置结构定义                                                              | 任何业务逻辑、外部依赖                                                     |
-
-核心原则：
-
-- `internal/` 下的包不知道自己是运行在 server、worker 还是 CLI 中。进程如何启停是 `cmd/` 的事。
-- `agent/` 下的包是业务无关执行层。Runtime 可以使用 API Key 执行请求，但不得把 API Key 写入 NodeEvent、RunEvent、Journal、NATS、日志或错误文本。
-- 目录名不是职责的借口——`internal/cli` 表示"CLI 相关的库代码"，不代表它可以接管进程生命周期。
-- 多层代码共享的常量/类型应下沉到最底层共享包，避免在两个包中重复定义。若重复已存在，优先合并到更内层的包，外层通过类型别名引用。
-
-## 新增功能操作流程
-
-实现任何新功能时，严格按以下顺序。跳过第 1 步直接写代码是本项目最常见的返工原因。
-
-1. **搜索已有参照** — 项目内大概率已有类似实现。在动手前先回答"这个模式项目里哪里用过"：
-   - 新增 cobra 命令 → `backend/cmd/leros/` 下已有命令
-   - 新增 HTTP API → `backend/internal/api/handler/` 下已有 handler
-   - 新增 HTTP 客户端调用 → 搜 `http.Client` 或 `http.NewRequest`
-   - 新增事件发布/订阅 → 搜 `eventbus.Publish` 或 NATS 相关用法
-   - 新增数据库操作 → `backend/internal/infra/db/` 下已有方法
-   - 跨包共享的常量/类型 → 先检查 `events/`、`types/` 等共享包是否已定义
-
-2. **复用结构** — 抄已有代码的骨架：import 组织方式、函数签名风格、错误处理模式。保留被广泛验证过的结构，只替换业务内容。
-
-3. **填充逻辑** — 在复用来的骨架上写自己的代码。
-
-4. **不要跳步** — 哪怕功能看起来很简单，也先 grep 验证。文件名和函数名可能产生误导（例如 `internal/cli` 看上去像 CLI 入口但实际上不是）。
-
-## 项目结构
-
-- `/backend` - 主要 Go 应用程序代码
-  - `/backend/cmd/leros` - 主 Lework 后端服务入口点
-  - `/backend/config` - 配置加载和类型
-  - `/backend/engines` - 引擎层（native engine 与 system prompt 分层架构）
-  - `/backend/gateway` - HTTP 网关包
-  - `/backend/interaction` - 事件驱动交互层
-    - `/backend/interaction/connectors` - 渠道连接器（GitHub 已实现；GitLab，WeWork 桩代码）
-    - `/backend/internal/infra/mq` - NATS JetStream 事件总线实现
-    - `/backend/interaction/gateway` - 事件网关设置
-  - `/backend/internal/worker` - Worker 任务消费与调度
-  - `/backend/pkg` - 提取的公共库
-  - `/backend/prompts` - 系统提示词管理
-  - `/backend/skills` - Skill 接口、类型和示例（三层架构 + 事件驱动 handler 模型）
-  - `/backend/tools` - 工具模块
-  - `/backend/types` - 核心领域类型（DigitalAssistant，Event 等）
-  - `/backend/tests` - 测试代码
-- `/bundles` - 构建输出目录（生成；已忽略 git）
-- `/deployments/build/Dockerfile` - 容器构建配置
-- `/deployments/dev/` - 开发环境配置和脚本
-- `/docs` - 文档文件
-  - `/docs/swagger/` - Swagger API 文档（唯一生成位置）
-- `/frontend` - 前端应用
-
-> **modelrouter 版本说明：** `backend/internal/modelrouter` (v1) 已废弃，请使用 `backend/internal/modelrouter/v2`。
-
-## 贡献说明
-
-- 查阅 CONTRIBUTING.md 了解提交消息风格指导
-- 在提交更改前确保所有测试通过 (`go test ./...`)
-- 遵循 Go 的习惯用法和标准实践
-- 实现时考虑组件如何融入架构文档描述的更广泛架构
-
-## 文档索引
-
-项目文档位于 `docs/` 目录：
-
-> 重要参考：**[docs/README.md](./docs/README.md)** 包含文档规范和分类索引。处理不熟悉的任务时，建议先查阅该文件快速定位。
-
-| 分类 | 文档 | 说明 |
-|------|------|------|
-| 架构 | `architecture/overview.md` | AI OS 架构设计（核心架构文档） |
-| 架构 | `architecture/backend.md` | 后端包结构设计 |
-| 架构 | `architecture/agent-runtime.md` | Agent Runtime 架构 |
-| 架构 | `architecture/workspace-artifact.md` | Agent 工作空间与产物设计 |
-| 架构 | `architecture/mq-subject.md` | MQ Subject 架构 |
-| 架构 | `architecture/system-design.md` | 系统架构设计 |
-| 架构 | `architecture/design-philosophy.md` | 设计哲学 |
-| 产品 | `product/prd.md` | 产品需求文档 |
-| 产品 | `product/planning.md` | 路线图规划 |
-| 产品 | `product/todo.md` | 后端开发 TODO |
-| 设计 | `design/tech-design.md` | 技术设计（技能 Schema、渲染引擎） |
-| 设计 | `design/git-storage.md` | 文件存储技术方案 |
-| 设计 | `design/presigned-url.md` | 预签名 URL 设计 |
-| 运维 | `operations/troubleshooting.md` | 常见问题故障排除 |
-| 运维 | `operations/issue-labels.md` | Issue 标签体系 |
-| 运维 | `operations/project-structure.md` | 项目结构与文件索引 |
-
-根目录下另有 `CHANGELOG.md` 记录版本变更历史。
-
-## Swagger API 文档
-
-Swagger 文档生成到 `docs/swagger/` 目录：
-
-```bash
-# 生成 Swagger 文档
-make swagger
-
-# 生成的文件位置
-docs/swagger/docs.go        # Go 代码（用于 Gin 集成）
-docs/swagger/swagger.json   # JSON 格式文档
-docs/swagger/swagger.yaml   # YAML 格式文档
-```
-
-**注意：** Swagger 文档只保留在 `docs/swagger/` 目录，`docs/` 根目录不再生成重复文件。
-
-## 核心组件和架构
-
-基于 docs/ARCHITECTURE.md 中描述的 AI OS 架构，Lework 平台包含以下主要组件：
-
-1. **Event Gateway** - 接收来自各种渠道的外部事件（✅ 已实现）
-2. **Event Bus** - 用于解耦组件的消息队列系统（✅ NATS JetStream 已实现）
-3. **Orchestrator** - 核心调度和协调机制（🔄 计划中）
-4. **DigitalAssistant** - 表示 AI worker 的顶级抽象（✅ 类型已定义）
-5. **Agent** - DigitalAssistant 中的决策实体（🔄 计划中）
-6. **Skill** - 可调用的可重用功能（✅ 三层架构 + 事件驱动 handler 模型已完成，支持创建/编辑/删除）
-7. **Worker** - 后台任务消费与调度系统（✅ 并发消费、LLM 配置传递已实现）
-8. **Model Router** - 多提供商 LLM 路由（🔄 计划中。注：`backend/internal/modelrouter/v2` 已可用，v1 已废弃）
-9. **Memory System** - 短期和长期记忆（🔄 计划中）
-
-## 技能系统定义
-
-Skills 代表 Lework 中的核心构建块。`Skill` 接口在 `backend/skills/skill.go` 中定义：
-
-```go
-type Skill interface {
-    Info() *SkillInfo
-    Execute(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error)
-    Validate(input map[string]interface{}) error
-    GetID() string
-    GetName() string
-    GetDescription() string
-}
-```
-
-`SkillInfo` 包含技能的元数据：
-
-```
-skill.id
-skill.name
-skill.description
-skill.version
-skill.category
-skill.skill_type       // local | remote
-skill.input_schema
-skill.output_schema
-skill.permissions
-```
-
-嵌入 `BaseSkill` 以减少实现新技能时的样板代码。
-
-### 技能类别
-
-- **Integration Skills** - 外部系统集成（GitHub，GitLab，WeChat，Feishu，Jira）
-- **AI Skills** - 基于 LLM 的推理能力（code_review, summarize, classification）
-- **Tool Skills** - 实用功能（run_shell, execute_python, http_request）
-- **Workflow Skills** - 复杂的协调操作（pr_review_workflow, bug_triage_workflow）
-
-## 渠道集成
-
-通过 `backend/interaction/connectors/connector.go` 中的 `Connector` 接口支持多个交互渠道：
-
-- **GitHub** （✅ 已实现） - Webhook，事件解析，签名验证
-- **GitLab** （🔄 桩代码）
-- **Enterprise WeChat / WeWork** （🔄 桩代码）
-- **Feishu** （🔄 计划中）
-- **App / Webhook** （🔄 计划中）
-
-每个渠道都实现了 `Connector` 接口：
-
-```go
-type Connector interface {
-    ChannelCode() string
-    RegisterRoutes(r gin.IRouter)
-}
-```
-
-事件被标准化为 `interaction.Event` 类型并发布到事件总线（NATS JetStream）。
-
-## 权限和安全
-
-多级别精细权限控制：
-
-- DigitalAssistant
-- Agent
-- Skill
-- Tool
-
-权限模型：RBAC + Capability
-
-## Golang 引擎结构
-
-当前实现的实际代码结构：
-
-```
-Lework/
-│
-├── backend/
-│   ├── cmd/
-│   │   └── leros/          # 主后端服务（HTTP + 事件网关）
-│   │
-│   ├── config/              # 配置加载和类型（GitHub app config，等）
-│   │
-│   ├── engines/             # 引擎层（native engine 与 system prompt 分层架构）
-│   │
-│   ├── gateway/             # HTTP 网关（为未来路由的占位符）
-│   │
-│   ├── interaction/         # 事件驱动交互层
-│   │   ├── connectors/
-│   │   │   ├── github/      # GitHub webhook 连接器（✅ 已实现）
-│   │   │   ├── gitlab/      # GitLab 连接器（🔄 桩代码）
-│   │   │   └── wework/      # WeWork/企业微信 连接器（🔄 桩代码）
-│   │   └── gateway/         # 事件网关路由器设置
-│   │
-│   ├── internal/worker/     # Worker 任务消费与调度
-│   │
-│   ├── pkg/                 # 提取的公共库
-│   │
-│   ├── prompts/             # 系统提示词管理
-│   │
-│   ├── skills/              # Skill 接口、类型和示例（三层架构 + 事件驱动 handler）
-│   │   └── examples/        # 示例技能实现
-│   │
-│   ├── tools/               # 工具模块
-│   │
-│   ├── types/               # 核心领域类型
-│   │   ├── digital_assistant.go          # DigitalAssistant, AssistantConfig
-│   │   ├── digital_assistant_instance.go # DigitalAssistantInstance
-│   │   ├── event.go                      # Event (持久存储)
-│   │   └── tables.go                     # 数据库表名常量
-│   │
-│   └── tests/               # 测试代码
-│
-├── proto/                   # Protobuf 定义
-├── gen/                     # 来源于 protos 的生成代码
-├── frontend/                # 前端应用
-├── deployments/             # Docker 构建配置
-└── docs/                    # 文档
-```
-
-## 最小可行性产品 (MVP)
-
-初始 MVP 专注于这些关键组件：
-
-1. Event Gateway (✅ 已完成)
-2. Event Bus / NATS JetStream (✅ 已完成)
-3. Skill System 接口 (✅ 已完成)
-4. GitHub 集成 (✅ webhook + 事件解析已完成)
-5. Orchestrator (🔄 计划中)
-6. Agent Engine (🔄 计划中)
-7. CodeAssistantDigitalAssistant (🔄 计划中)
-
-MVP 特性：
-
-- PR 自动审查 (🔄 计划中)
-- PR 自动摘要 (🔄 计划中)
-- 问题自动回复 (🔄 计划中 - GitHub issue_comment 事件已支持)
-- 代码解释 (🔄 计划中)
-
-## 技术栈
-
-当前和计划的技术栈：
-
-| 组件      | 技术                       | 状态                 |
-| --------- | -------------------------- | -------------------- |
-| 语言      | Golang                     | ✅ 活跃              |
-| HTTP 框架 | Gin                        | ✅ 活跃              |
-| CLI 框架  | Cobra                      | ✅ 活跃              |
-| 消息队列  | NATS JetStream             | ✅ 活跃              |
-| ORM       | GORM                       | ✅ 活跃 (类型已定义) |
-| 数据库    | Postgres                   | 🔄 计划中            |
-| 向量存储  | Qdrant                     | 🔄 计划中            |
-| LLM       | OpenAI / Claude / DeepSeek | 🔄 计划中            |
-
-> **modelrouter 版本说明：** `backend/internal/modelrouter` (v1) 已废弃，请使用 `backend/internal/modelrouter/v2`。
-
-## 开发工作流程
-
-本节概述了为 Lework 项目做出贡献的标准开发工作流程。
-
-### 标准开发流程
-
-在开发新特性或修复问题时，请遵循以下步骤：
-
-1. **与上游仓库同步** 以确保在开始开发之前拥有最新更改
-2. **创建功能分支** 基于更新后的主分支
-3. **提交和推送更改** 到您的个人派生仓库
-4. **手动提交拉取请求** 通过 GitHub 网页界面到主仓库
-
-### 详细步骤
-
-#### 1. 与上游仓库同步
-
-首先，确保您的派生仓库与上游仓库保持同步：
-
-```bash
-# 如果尚未添加，添加上游仓库
-git remote add upstream https://github.com/insmtx/Lework.git
-
-# 获取上游的最新更改
-git fetch upstream
-
-# 切换到主分支
-git checkout main
-
-# 合并上游更改
-git merge upstream/main
-
-# 推送更新后的主分支到您的派生
-git push origin main
-```
-
-#### 2. 创建功能分支
-
-基于更新后的主分支创建一个新分支用于开发：
-
-```bash
-# 创建并切换到新的功能分支
-git checkout -b feature/descriptive-feature-name
-
-# 或对于 bug 修复
-git checkout -b fix/descriptive-fix-description
-
-# 对于更具体的功能或增强
-git checkout -b feat/scope-descriptive-name
-```
-
-遵循分支命名约定：
-
-- `feat/` 用于主要功能
-- `fix/` 用于 bug 修复
-- `enhancement/` 用于现有功能的改进
-- `docs/` 用于文档更改
-- `refactor/` 用于不改变功能的代码重构
-
-#### 3. 开发并提交更改
-
-完成开发工作后，将更改提交到您的个人仓库：
-
-```bash
-# 添加您的更改
-git add .
-
-# 按照约定式提交格式提交带有正确格式的消息：
-git commit -m "type(scope): concise description of changes"
-
-# 将您的功能分支推送到您个人的派生
-git push origin feature/descriptive-feature-name
-```
-
-提交消息格式遵循约定式提交规范：
-
-```
-type(scope): description
-
-[optional body]
-
-[optional footer(s)]
-```
-
-常见类型：
-
-- `feat`: 新功能
-- `fix`: 修复错误
-- `docs`: 仅文档更改
-- `style`: 不影响意义的更改（空白、格式、缺少分号等）
-- `refactor`: 既不修复 bug 也不添加功能的代码更改
-- `test`: 添加缺失测试或修正现有测试
-- `chore`: 不修改源代码或测试文件的其他更改
-
-#### 4. 提交拉取请求
-
-当您的更改推送到您的个人仓库后：
-
-1. 导航到原始 Lework 仓库的 GitHub 页面
-2. 单击 "Pull Requests" 标签
-3. 单击 "New Pull Request"
-4. 选择 "Compare across forks"
-5. 选择您的派生和功能分支作为比较分支
-6. 验证差异中显示的更改
-7. 按照项目的模板填写 PR 标题和描述
-8. 提交拉取请求
+## Modelrouter — ignore stale v1/v2 claims
+
+Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1) is deprecated in favor of `modelrouter/v2`. **`modelrouter/v2` does not exist.** The real package is `backend/internal/modelrouter/` and is actively used by `cmd/leros/server.go`, `cmd/leros/worker.go`, `internal/worker/router`, `internal/worker/agentrun`, and several `internal/service/*` files (Invoker interface, ModelStore, proxy). A future refactor may move it to `backend/internal/llm/proxy/` (see `docs/design/unified-llm-package.md`), but until then treat `modelrouter` as the source of truth. `backend/internal/llm/` is a newer unified LLM layer (CallRequest/CallResult, recorder, usage) coexisting with it.
+
+## Where things actually live (structure evolved; README/old docs lag)
+
+- `backend/cmd/leros/` — cobra entrypoint. Files: `server.go`, `worker.go`, `chat.go`, `session.go`, `task.go`, `project.go`, `skill.go`, `login.go`/`logout.go`/`register.go`.
+- `backend/internal/` — adapter (account/oss|enterprise, edition), api (auth, connectors, contract, dto, handler, middleware, router), cli, consts (only `paths.go`), infra (db, filestore, git, gitea, mq, providers, sms, websocket), integration (feishu), llm, memory, modelrouter, projectfile, runnable, service, skill (catalog, store, links, builtin, cache, fetch, token.go), testutil, worker (agentrun, app, command, eventpub, identity, mcp, router, run, runtimehost, scheduler, server, wsproto), workspace.
+- `backend/agent/` — execution core (runtime, adapter, executor, registry, interaction, node_event, observe, tool). `agent/runtime/` holds concrete runtimes: `native`, `claude`, `codex`, `opencode`.
+- `backend/internal/api/connectors/` — webhook/channel connectors (`github`, `gitlab`, `wework`). GitHub webhook handling lives here, not in a top-level `interaction/connectors/` tree as old docs claim.
+- `backend/tools/` — Tool registry + concrete tools (artifact_declare, memory, node (file/shell/process, OS-split), skill_manage, skill_use, todo). All implement the map-based Tool contract.
+- `backend/types/` — domain types: `DigitalAssistant`, `Event`, `Skill` (struct, not interface), `tables.go` (DB table name constants).
+- `backend/config/`, `backend/pkg/`, `backend/prompts/`, `backend/skills/` (only `server/` + `worker/` subdirs with worker skill bundles like docx/pdf/pptx/xlsx).
+- NOT present despite old docs: `backend/interaction/`, `backend/engines/`, `backend/gateway/`, `backend/events/`. GitHub webhook handling now lives under `backend/internal/api/connectors/`, not a top-level `interaction/connectors/` tree.
+
+## Implementing new functionality (follow strictly)
+
+1. **Search for a reference first.** This project reuses patterns; skipping this is the top rework cause.
+   - New cobra command → mirror a file in `backend/cmd/leros/` (e.g. `task.go`).
+   - New HTTP API → `backend/internal/api/handler/`; router wiring in `backend/internal/api/router.go`.
+   - New HTTP client call → grep `http.Client` / `http.NewRequest`.
+   - Event publish/subscribe → grep `eventbus.Publish` / `mq.Publisher` / NATS usage.
+   - DB ops → `backend/internal/infra/db/`.
+   - Cross-package constants/types → check `backend/types/` and `backend/internal/consts/` before defining new ones.
+2. **Copy an existing skeleton** (imports grouping, function signatures, error handling), then swap in business logic.
+3. **Do not skip step 1 on "simple" changes** — filenames mislead (e.g. `internal/cli` is not an entrypoint).
+
+## Code style (Go)
+
+- Imports in three groups separated by blank lines: stdlib → third-party → `github.com/insmtx/Leros/...`. Aliases only to avoid collisions (e.g. `modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"`).
+- Tabs, not spaces. Run `gofmt -s` before commit. Lines <120 chars.
+- Exported symbols get English GoDoc explaining *why*, not *what*. Comments and commit messages use Chinese.
+- Errors handled explicitly, wrapped with `fmt.Errorf("...: %w", err)`. DI over globals. Pass `context.Context`.
+
+## Commit / branch conventions
+
+- Conventional commits: `type(scope): subject`. Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`. Commit messages in Chinese.
+- Branch prefixes: `feat/`, `fix/`, `docs/`, `refactor/`, `test/`, `enhancement/`.
+- Fork-and-PR workflow (see CONTRIBUTING.md). Sync with upstream before starting; do not push directly to main.
+
+## Docs
+
+- `docs/README.md` — doc index/spec. Consult first for unfamiliar tasks.
+- Architecture: `docs/architecture/{overview,backend,agent-runtime,workspace-artifact,mq-subject,system-design,design-philosophy}.md` (plus `Lework 权限与资源占用设计文档.md` and `leros-architecture.html`).
+- Design notes under `docs/design/` include multi-phase refactor plans (e.g. `unified-llm-package*.md`) — treat as proposals, not implemented state.
+- `docs/operations/project-structure.md` is the most accurate structural reference; `CHANGELOG.md` records history.
+- `docs/product/` holds `prd.md`/`planning.md`/`todo.md`; `docs/design/tech-design.md` (not `docs/TECH_DESIGN.md`). README links `docs/PRD.md`, `docs/ARCHITECTURE.md` etc. by basename, but those root-level files do not exist — the real files are under `docs/<category>/`. Prefer the subpathed versions.

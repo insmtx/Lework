@@ -34,7 +34,7 @@ export function OrgAdminDialog({
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
-				className="flex h-[min(820px,85vh)] w-[min(1040px,95vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
+				className="flex h-[min(760px,88vh)] w-[min(1180px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden p-0"
 				showCloseButton
 			>
 				<DialogHeader className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-4 text-left">

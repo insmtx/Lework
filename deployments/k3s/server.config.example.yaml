@@ -42,6 +42,9 @@ scheduler:
   node_selector:
     node-role: worker
     kubernetes.io/hostname: t30
+  worker_resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 1, memory: 1Gi }
   env:
     LEROS_STORAGE_LOCAL_DIR: /leros-storage
 

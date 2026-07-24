@@ -5,6 +5,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/insmtx/Leros/backend/config"
@@ -112,5 +113,86 @@ func TestKubernetesWorkspaceSpecDriftDetectsLegacyWorkspacePath(t *testing.T) {
 
 	if !scheduler.workspaceSpecDrifted(deployment, spec) {
 		t.Fatal("legacy workspace paths should require reconcile")
+	}
+}
+
+func TestBuildDeploymentAppliesWorkerResources(t *testing.T) {
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{
+		WorkerResources: config.ResourceRequirements{
+			Limits:   map[string]string{"cpu": "2", "memory": "4Gi"},
+			Requests: map[string]string{"cpu": "500m", "memory": "1Gi"},
+		},
+	}}
+	deployment := scheduler.buildDeployment(&worker.WorkerSpec{OrgID: 1, WorkerID: 1})
+	res := deployment.Spec.Template.Spec.Containers[0].Resources
+
+	if got := res.Limits.Cpu().String(); got != "2" {
+		t.Fatalf("limits.cpu = %q, want 2", got)
+	}
+	if got := res.Limits.Memory().String(); got != "4Gi" {
+		t.Fatalf("limits.memory = %q, want 4Gi", got)
+	}
+	if got := res.Requests.Cpu().String(); got != "500m" {
+		t.Fatalf("requests.cpu = %q, want 500m", got)
+	}
+	if got := res.Requests.Memory().String(); got != "1Gi" {
+		t.Fatalf("requests.memory = %q, want 1Gi", got)
+	}
+}
+
+func TestBuildDeploymentNoResourcesByDefault(t *testing.T) {
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{}}
+	deployment := scheduler.buildDeployment(&worker.WorkerSpec{OrgID: 1, WorkerID: 1})
+	res := deployment.Spec.Template.Spec.Containers[0].Resources
+	if len(res.Limits) != 0 || len(res.Requests) != 0 {
+		t.Fatalf("expected empty resources, got limits=%v requests=%v", res.Limits, res.Requests)
+	}
+}
+
+func TestResourcesDriftedDetectsMissingResources(t *testing.T) {
+	spec := &worker.WorkerSpec{OrgID: 5, WorkerID: 3}
+
+	// 期望有资源限制，但现有 deployment 的容器没有设置 → 漂移
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{
+		WorkerResources: config.ResourceRequirements{
+			Limits: map[string]string{"cpu": "1"},
+		},
+	}}
+	deployment := scheduler.buildDeployment(spec)
+	// 清除容器资源模拟旧 deployment
+	deployment.Spec.Template.Spec.Containers[0].Resources = corev1.ResourceRequirements{}
+	if !scheduler.resourcesDrifted(deployment, spec) {
+		t.Fatal("missing resources should be detected as drift")
+	}
+}
+
+func TestResourcesDriftedNoDriftWhenMatch(t *testing.T) {
+	spec := &worker.WorkerSpec{OrgID: 5, WorkerID: 3}
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{
+		WorkerResources: config.ResourceRequirements{
+			Limits:   map[string]string{"cpu": "1", "memory": "2Gi"},
+			Requests: map[string]string{"cpu": "100m"},
+		},
+	}}
+	deployment := scheduler.buildDeployment(spec)
+	if scheduler.resourcesDrifted(deployment, spec) {
+		t.Fatal("matching resources should not be detected as drift")
+	}
+}
+
+func TestResourcesDriftedDetectsQuantityChange(t *testing.T) {
+	spec := &worker.WorkerSpec{OrgID: 5, WorkerID: 3}
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{
+		WorkerResources: config.ResourceRequirements{
+			Limits: map[string]string{"cpu": "2"},
+		},
+	}}
+	deployment := scheduler.buildDeployment(spec)
+	// 修改现有容器资源为不同的值
+	deployment.Spec.Template.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+	}
+	if !scheduler.resourcesDrifted(deployment, spec) {
+		t.Fatal("different cpu limit should be detected as drift")
 	}
 }

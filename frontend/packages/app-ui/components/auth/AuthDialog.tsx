@@ -91,6 +91,9 @@ export function AuthProvider({
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [pendingOrganizationLogin, setPendingOrganizationLogin] =
 		useState<PendingOrganizationLoginState | null>(null);
+	const [pendingOrganizationPanelMode, setPendingOrganizationPanelMode] = useState<
+		"switch" | "create"
+	>("switch");
 	const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
 	useEffect(() => {
@@ -194,6 +197,9 @@ export function AuthProvider({
 				return;
 			}
 			setPendingOrganizationLogin(pendingLogin);
+			setPendingOrganizationPanelMode(
+				pendingLogin.organizations.length === 0 ? "create" : "switch",
+			);
 			setDialogOpen(false);
 		},
 		[chooseOrganization],
@@ -268,8 +274,19 @@ export function AuthProvider({
 			/>
 			<Dialog
 				open={Boolean(pendingOrganizationLogin)}
-				onOpenChange={(open) => {
+				disablePointerDismissal
+				onOpenChange={(open, details) => {
 					if (open) return;
+					// 中文注释：组织选择和创建流程中的输入内容较重要，只允许右上角关闭按钮退出。
+					if (details.reason === "escape-key") return;
+					if (
+						pendingOrganizationPanelMode === "create" &&
+						pendingOrganizationLogin?.organizations.length
+					) {
+						// 中文注释：从切换组织进入创建组织时，X 只返回上一级，不关闭整个流程弹窗。
+						setPendingOrganizationPanelMode("switch");
+						return;
+					}
 					// 中文注释：首次选择阶段尚未建立正式登录态，关闭时只丢弃待选组织上下文。
 					setPendingOrganizationLogin(null);
 					setDialogOpen(true);
@@ -282,7 +299,12 @@ export function AuthProvider({
 				>
 					<OrganizationSwitchPanel
 						active={Boolean(pendingOrganizationLogin)}
-						initialMode={pendingOrganizationLogin?.organizations.length === 0 ? "create" : "switch"}
+						initialMode={
+							pendingOrganizationLogin?.organizations.length === 0
+								? "create"
+								: pendingOrganizationPanelMode
+						}
+						onModeChange={setPendingOrganizationPanelMode}
 						pendingLogin={
 							pendingOrganizationLogin
 								? {
@@ -430,7 +452,15 @@ function AuthDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open={open}
+			disablePointerDismissal
+			onOpenChange={(nextOpen, details) => {
+				// 中文注释：登录表单可能已填写手机号和验证码，禁止遮罩和 Esc 误关闭，只保留 X 按钮。
+				if (!nextOpen && details.reason === "escape-key") return;
+				onOpenChange(nextOpen);
+			}}
+		>
 			<DialogContent
 				className="max-w-[640px] rounded-[24px] border-0 bg-[#f8f9fd] px-8 pb-8 pt-9 text-[#070d1c] shadow-[0_24px_70px_rgba(15,23,42,0.26)] sm:px-12"
 				showCloseButton
