@@ -64,12 +64,14 @@ spec:
               value: {{ .Values.postgresql.username | quote }}
             - name: POSTGRES_PASSWORD
               value: {{ .Values.postgresql.password | quote }}
+            - name: PGDATA
+              value: /var/lib/postgresql/data
           ports:
             - name: tcp-postgresql
               containerPort: 5432
           volumeMounts:
             - name: data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
             - name: initdb
               mountPath: /docker-entrypoint-initdb.d
           {{- with .Values.postgresql.resources }}

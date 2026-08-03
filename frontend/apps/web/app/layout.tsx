@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 			className={cn("antialiased font-sans h-full", inter.variable)}
 		>
 			<body className="h-full isolate">
-				<ThemeProvider defaultTheme="system">
+				<ThemeProvider>
 					{children}
 					<Toaster />
 				</ThemeProvider>

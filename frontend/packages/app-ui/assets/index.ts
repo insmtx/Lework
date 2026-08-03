@@ -20,3 +20,9 @@ export const ORGANIZATION_DEFAULT_AVATAR_SRC = new URL(
 	"./organization-default-avatar.png",
 	import.meta.url,
 ).href;
+
+/** 自定义 AI 队友未上传头像时展示的固定默认头像。 */
+export const CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC = new URL(
+	"./custom-assistant-default-avatar.svg",
+	import.meta.url,
+).href;

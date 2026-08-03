@@ -16,12 +16,13 @@ import (
 )
 
 type department struct {
-	db *gorm.DB
+	db             *gorm.DB
+	departmentRepo *departmentRepo
 }
 
 // NewDepartment 创建组织部门适配器。
 func NewDepartment(d *gorm.DB) *department {
-	return &department{db: d}
+	return &department{db: d, departmentRepo: newDepartmentRepo(d)}
 }
 
 func (s *department) CreateDepartment(ctx context.Context, req *account.CreateDepartmentInput) (*account.Department, error) {
@@ -33,7 +34,7 @@ func (s *department) CreateDepartment(ctx context.Context, req *account.CreateDe
 		return nil, accounterror.ErrInvalidArg
 	}
 
-	existing, err := db.GetDepartmentByName(ctx, s.db, req.OrgID, name)
+	existing, err := s.departmentRepo.GetByName(ctx, req.OrgID, name)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +45,7 @@ func (s *department) CreateDepartment(ctx context.Context, req *account.CreateDe
 	var parent *types.Department
 	if req.ParentID > 0 {
 		var err error
-		parent, err = db.GetDepartmentByID(ctx, s.db, req.ParentID)
+		parent, err = s.departmentRepo.GetByID(ctx, req.ParentID)
 		if err != nil {
 			return nil, err
 		}
@@ -68,7 +69,7 @@ func (s *department) CreateDepartment(ctx context.Context, req *account.CreateDe
 		Sort:      sort,
 		OrgID:     req.OrgID,
 	}
-	if err := db.CreateDepartment(ctx, s.db, department); err != nil {
+	if err := s.departmentRepo.Create(ctx, department); err != nil {
 		return nil, err
 	}
 	return convertToContractDepartment(department), nil
@@ -82,7 +83,7 @@ func (s *department) GetDepartment(ctx context.Context, id uint) (*account.Depar
 	if id == 0 {
 		return nil, errors.New("id不能为空")
 	}
-	department, err := db.GetDepartmentByID(ctx, s.db, id)
+	department, err := s.departmentRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +108,7 @@ func (s *department) UpdateDepartment(ctx context.Context, id uint, req *account
 	var department *types.Department
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
-		department, err = db.GetDepartmentByID(ctx, tx, id)
+		department, err = s.departmentRepo.withTx(tx).GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -123,7 +124,7 @@ func (s *department) UpdateDepartment(ctx context.Context, id uint, req *account
 				return accounterror.ErrInvalidArg
 			}
 			if nextName != department.Name {
-				existing, dbErr := db.GetDepartmentByName(ctx, tx, department.OrgID, nextName)
+				existing, dbErr := s.departmentRepo.withTx(tx).GetByName(ctx, department.OrgID, nextName)
 				if dbErr != nil {
 					return dbErr
 				}
@@ -136,7 +137,7 @@ func (s *department) UpdateDepartment(ctx context.Context, id uint, req *account
 		parentIDChanged := req.ParentID != nil && *req.ParentID != department.ParentID
 		if req.ParentID != nil && *req.ParentID != department.ParentID {
 			if *req.ParentID > 0 {
-				parent, dbErr := db.GetDepartmentByID(ctx, tx, *req.ParentID)
+				parent, dbErr := s.departmentRepo.withTx(tx).GetByID(ctx, *req.ParentID)
 				if dbErr != nil {
 					return dbErr
 				}
@@ -167,7 +168,7 @@ func (s *department) UpdateDepartment(ctx context.Context, id uint, req *account
 			}
 			department.OrgID = *req.OrgID
 		}
-		if err := db.UpdateDepartment(ctx, tx, department); err != nil {
+		if err := s.departmentRepo.withTx(tx).Update(ctx, department); err != nil {
 			return err
 		}
 		if parentIDChanged {
@@ -189,7 +190,7 @@ func (s *department) DeleteDepartment(ctx context.Context, id uint) error {
 		return errors.New("id不能为空")
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		department, err := db.GetDepartmentByID(ctx, tx, id)
+		department, err := s.departmentRepo.withTx(tx).GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -202,14 +203,14 @@ func (s *department) DeleteDepartment(ctx context.Context, id uint) error {
 		if department.ParentID == 0 {
 			return errors.New("禁止删除根部门")
 		}
-		children, err := db.ListDepartmentSiblings(ctx, tx, id, 0)
+		children, err := s.departmentRepo.withTx(tx).ListChildren(ctx, id)
 		if err != nil {
 			return err
 		}
 		if len(children) > 0 {
 			return errors.New("部门下存在子部门")
 		}
-		return db.DeleteDepartment(ctx, tx, id)
+		return s.departmentRepo.withTx(tx).Delete(ctx, id)
 	})
 }
 
@@ -240,7 +241,7 @@ func (s *department) ListDepartment(ctx context.Context, req *account.ListDepart
 		opt.AddExactFilter("org_id", uintToFilterValue(caller.OrgID))
 	}
 
-	departments, total, err := db.ListDepartment(ctx, s.db, opt)
+	departments, total, err := s.departmentRepo.List(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -277,13 +278,13 @@ func departmentParentIDsContain(parentIDs []uint, id uint) bool {
 }
 
 func (s *department) recomputeParentIDsForSubtree(ctx context.Context, tx *gorm.DB, department *types.Department) error {
-	children, err := db.ListDepartmentSiblings(ctx, tx, department.ID, 0)
+	children, err := s.departmentRepo.withTx(tx).ListChildren(ctx, department.ID)
 	if err != nil {
 		return err
 	}
 	for _, child := range children {
 		child.ParentIDs = types.BuildDepartmentParentIDs(department)
-		if err := db.UpdateDepartment(ctx, tx, child); err != nil {
+		if err := s.departmentRepo.withTx(tx).Update(ctx, child); err != nil {
 			return err
 		}
 		if err := s.recomputeParentIDsForSubtree(ctx, tx, child); err != nil {

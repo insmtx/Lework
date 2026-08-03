@@ -54,15 +54,21 @@ export function UserMessageBubble({ message }: { message: Message }) {
 		message.author.id === "current-user" ||
 		(currentUserId !== undefined && message.author.id === currentUserId) ||
 		message.author.name === "我";
-	const authorName = isOwnMessage ? (authUser?.name ?? message.author?.name) : message.author?.name;
+	// 中文注释：与左下角个人中心一致，优先组织内 uin_name，避免跨组织显示成全局 name。
+	const authorName = isOwnMessage
+		? (authUser?.uinName ?? authUser?.name ?? message.author?.name)
+		: message.author?.name;
 
 	return (
 		<div
 			data-slot="user-message"
-			className={`group flex items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
+			className={`group flex min-w-0 w-full items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
 		>
 			{!isOwnMessage && <UserAvatar name={authorName ?? "用户"} />}
-			<div className={`flex max-w-[78%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}>
+			{/* 中文注释：min-w-0 让 max-w 在 flex 布局下真正生效，避免无空格长串把气泡撑出可视区。 */}
+			<div
+				className={`flex min-w-0 max-w-[78%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
+			>
 				<div
 					className={`mb-1.5 flex items-center gap-2 text-xs text-slate-400 ${
 						isOwnMessage ? "justify-end opacity-0 transition-opacity group-hover:opacity-100" : ""
@@ -109,7 +115,7 @@ export function UserMessageBubble({ message }: { message: Message }) {
 				{visibleText && (
 					<>
 						<div
-							className={`w-fit rounded-2xl px-4 py-2 text-sm leading-7 text-black shadow-sm ${
+							className={`max-w-full min-w-0 w-fit break-words [overflow-wrap:anywhere] rounded-2xl px-4 py-2 text-sm leading-7 text-black shadow-sm ${
 								isOwnMessage
 									? "rounded-tr-md bg-[#f3f3f4] shadow-blue-600/10"
 									: "rounded-tl-md border border-slate-100 bg-white shadow-slate-200/60"

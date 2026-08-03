@@ -4,7 +4,6 @@ import type {
 	BackendPaginatedResponse,
 	BackendProject,
 	BackendProjectDetail,
-	BackendWorkbenchRecentContext,
 } from "./types";
 
 export type ProjectMemberInput = {
@@ -52,11 +51,6 @@ export type LeaveProjectParams = {
 	public_id: string;
 };
 
-export type SaveWorkbenchRecentContextParams = {
-	project_id: string;
-	task_id?: string | null;
-};
-
 const PROJECT_ENDPOINTS = {
 	create: "/CreateProject",
 	list: "/ListProjects",
@@ -65,8 +59,6 @@ const PROJECT_ENDPOINTS = {
 	update: "/UpdateProject",
 	leave: "/LeaveProject",
 	delete: "/DeleteProject",
-	getWorkbenchRecentContext: "/GetWorkbenchRecentContext",
-	saveWorkbenchRecentContext: "/SaveWorkbenchRecentContext",
 };
 
 export const projectApi = {
@@ -90,16 +82,4 @@ export const projectApi = {
 
 	leave: (params: LeaveProjectParams) =>
 		apiClient.post<BackendDataResponse<null>>(PROJECT_ENDPOINTS.leave, params),
-
-	getWorkbenchRecentContext: () =>
-		apiClient.post<BackendDataResponse<BackendWorkbenchRecentContext | null>>(
-			PROJECT_ENDPOINTS.getWorkbenchRecentContext,
-			{},
-		),
-
-	saveWorkbenchRecentContext: (params: SaveWorkbenchRecentContextParams) =>
-		apiClient.post<BackendDataResponse<BackendWorkbenchRecentContext>>(
-			PROJECT_ENDPOINTS.saveWorkbenchRecentContext,
-			params,
-		),
 };

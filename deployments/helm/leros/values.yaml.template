@@ -22,6 +22,12 @@ fullnameOverride: ""
 # 修改这一处即可全局调整所有数据目录位置。
 dataHostPath: /data/leros
 
+# 全局节点选择器：postgresql/nats/server/worker 默认回退到此。
+# 私有化部署所有组件需固定同一节点让 hostPath 数据共享，填一处即可。
+# 组件各自仍可单独覆盖（postgresql.nodeSelector 等）。
+nodeSelector: {}
+  # kubernetes.io/hostname: node-1
+
 # 命名空间：建议单独 namespace 隔离，默认随 -n 参数
 # namespace: leros
 
@@ -44,7 +50,7 @@ imagePullSecrets: []
 # =============================================================================
 postgresql:
   enabled: true
-  image: registry.yygu.cn/library/postgres:17.9
+  image: registry.yygu.cn/library/postgres:18.4
   username: leros_user
   password: "@PG_PASSWORD@"
   database: leros_db
@@ -78,7 +84,7 @@ nats:
 # Leros Server（HTTP API 服务，常驻 Deployment）
 # =============================================================================
 server:
-  image: registry.yygu.cn/insmtx/leros:v0.3.0-4_acf4aac5
+  image: registry.yygu.cn/insmtx/leros:latest
   imagePullPolicy: IfNotPresent
   replicas: 1
 
@@ -129,8 +135,8 @@ worker:
   storageMountPath: /leros-storage
   nodeSelector: {}
   resources:
-    requests: { cpu: 500m, memory: 1Gi }
-    limits: { cpu: 2, memory: 4Gi }
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 1, memory: 1Gi }
 
 # =============================================================================
 # Web 前端（可选）
@@ -154,13 +160,22 @@ web:
 llm:
   apiKey: ""                                   # 必填，手动填写模型 API Key
   provider: openai                             # openai | anthropic | deepseek 等
-  model: ""                                    # 模型名，如 gpt-4o / deepseek-chat / qwen-plus
-  baseUrl: ""                                  # 模型服务地址，如 https://api.openai.com/v1
+  model: deepseek-chat                         # 模型名，如 gpt-4o / deepseek-chat / qwen-plus
+  baseUrl: "https://api.deepseek.com/v1"       # 模型服务地址，如 https://api.openai.com/v1
   translation:
     enabled: false
     provider: ""
     model: ""
     baseUrl: ""
+
+# =============================================================================
+# Enterprise IAM 认证（仅 enterprise 版本使用）
+# =============================================================================
+auth:
+  enabled: true                                # 是否启用 IAM 企业版认证
+  baseUrl: ""                                  # IAM 服务地址，如 https://iam.example.com
+  domainName: ""                               # 域名，用于登录配置查询
+  phoneCodeLoginEnabled: false                 # 是否开启手机号验证码登录（默认关闭）
 
 # =============================================================================
 # 文件存储
@@ -188,20 +203,62 @@ clientUpdate:
     forceMessage: "当前客户端版本过低，请更新后继续使用"
 
 # =============================================================================
-# Ingress（有域名时开启；私有化无域名默认关闭）
+# Traefik Ingress Controller（可选，一键开关）
 # =============================================================================
+# 只需决定是否启用本 chart 的 Traefik，其余全自动：
+#   - enabled=false（默认）→ 复用 k3s 自带 Traefik，零配置
+#   - enabled=true         → 本 chart 部署独立 Traefik，自动改名（leros-traefik）
+#                            + 错端口（8080/8443）与 k3s 自带实例共存，零冲突
+# 启用后访问地址：http://<节点IP>:8080（无域名）或 http://<域名>（有域名）
+#
+# 子 chart 已内置为 charts/traefik-34.2.0.tgz（file://charts，无需 helm dep update）。
+# 以下默认值即合规配置，一般无需改动；需特殊调优见 https://traefik.github.io/charts
+traefik:
+  enabled: false
+  ingressClass:
+    name: leros-traefik    # 启用时自动用此名，不与 k3s 的 traefik 撞
+  service:
+    type: ClusterIP
+  ports:
+    web:
+      hostPort: 8080        # 启用时自动错开 k3s 占用的 80
+    websecure:
+      hostPort: 8443        # 启用时自动错开 k3s 占用的 443
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1, memory: 512Mi }
+
+# =============================================================================
+# Ingress（默认关闭；需对外暴露时开启）
+# =============================================================================
+# 开启后自动按 traefik.enabled 选择 IngressClass：
+#   - traefik.enabled=false → 用 traefik（k3s 自带）
+#   - traefik.enabled=true  → 用 leros-traefik（本 chart 部署）
+# 无需手填 ingress.className，除非用 nginx 等其他 Controller 时显式覆盖。
+#
+# 不用 Traefik（traefik.enabled=false 且无 k3s 自带）时的两种方案：
+#   1) NodePort 直接暴露（无域名最简单）：
+#        ingress.enabled: false
+#        server.service:
+#          type: NodePort
+#          nodePort: 30080     # http://<节点IP>:30080 访问
+#   2) 用集群已有的其他 Controller（如 nginx-ingress）：
+#        traefik.enabled: false
+#        ingress.enabled: true
+#        ingress.className: nginx
 ingress:
   enabled: false
-  className: traefik
+  className: ""             # 留空自动跟随；nginx 集群填 nginx 等
   tls: []
   server:
     enabled: true
-    host: leros.example.com
+    # 有域名填域名；默认留空，用 http://<节点IP>:<traefik hostPort> 访问
+    host: ""
     annotations: {}
     paths:
       - path: /
         pathType: Prefix
   web:
     enabled: false
-    host: web.leros.example.com
+    host: ""
     annotations: {}

@@ -1,6 +1,6 @@
 "use client";
 
-import { projectFileApi } from "@leros/store";
+import { getNativeFileInputAccept, projectFileApi } from "@leros/store";
 import { cn } from "@leros/ui/lib/utils";
 import { ImagePlus, Loader2, Upload, X } from "lucide-react";
 import { forwardRef, useCallback, useId, useImperativeHandle, useRef, useState } from "react";
@@ -168,7 +168,7 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 					ref={inputRef}
 					id={inputId}
 					type="file"
-					accept={FEEDBACK_IMAGE_ACCEPT}
+					accept={getNativeFileInputAccept(FEEDBACK_IMAGE_ACCEPT)}
 					multiple
 					className="hidden"
 					onChange={handleSelect}

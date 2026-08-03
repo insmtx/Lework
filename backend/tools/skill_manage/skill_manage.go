@@ -36,8 +36,8 @@ func buildSkillManageDescription() string {
   create      创建新技能，写入完整 SKILL.md 内容（含 YAML frontmatter 和 Markdown 正文）
   patch       局部替换文本（old_text → new_text），优先用于修复和微调
   edit        完整重写 SKILL.md 全文，仅用于大幅修改
-  delete      删除整个技能目录
-  write_file  写入 supporting file（references/、templates/、scripts/ 或 assets/ 下）
+  delete      删除本地技能目录；不会删除服务端 Skill，成功 Run 后基线 Skill 会恢复
+  write_file  写入 Skill 目录内任意层级的 supporting file
   remove_file 删除 supporting file
 
 何时创建：
@@ -64,12 +64,7 @@ type Tool struct {
 
 // NewTool creates skill_manage with the default Leros skills store.
 func NewTool() (*Tool, error) {
-	return NewToolWithMutation(nil)
-}
-
-// NewToolWithMutation creates skill_manage with an instance-scoped mutation callback.
-func NewToolWithMutation(onMutation func(context.Context, skillstore.MutationKind, string, string)) (*Tool, error) {
-	store, err := skillstore.NewSkillStoreWithMutation("", onMutation)
+	store, err := skillstore.NewSkillStore("")
 	if err != nil {
 		return nil, fmt.Errorf("skill manage: create store: %w", err)
 	}
@@ -108,7 +103,7 @@ func NewToolWithMutation(onMutation func(context.Context, skillstore.MutationKin
 					},
 					"file_path": {
 						Type:        "string",
-						Description: "Skill 目录内 supporting file 的路径。write_file/remove_file 时必填，且必须位于 references/、templates/、scripts/ 或 assets/ 下。patch 时可选，省略则默认修改 SKILL.md。",
+						Description: "Skill 目录内的相对路径，可位于任意层级。write_file/remove_file 时必填且不能是 SKILL.md；patch 时可选，省略或传 SKILL.md 时修改主文档。",
 					},
 					"file_content": {
 						Type:        "string",
@@ -160,7 +155,7 @@ func validateInput(input map[string]any) error {
 			return fmt.Errorf("new_text is required for patch")
 		}
 	case actionDelete:
-		// absorbed_into 可选：省略/空/非空均合法
+		// name is sufficient.
 	case actionWriteFile:
 		if stringValue(input, "file_path") == "" {
 			return fmt.Errorf("file_path is required for write_file")
@@ -195,20 +190,20 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 	name := stringValue(input, "name")
 
 	var result *skillstore.Result
-	var mutationErr error
+	var actionErr error
 	switch action {
 	case actionCreate:
-		result, mutationErr = t.store.Create(ctx, skillstore.CreateRequest{
+		result, actionErr = t.store.Create(ctx, skillstore.CreateRequest{
 			Name:    name,
 			Content: rawStringValue(input, "content"),
 		})
 	case actionEdit:
-		result, mutationErr = t.store.Edit(ctx, skillstore.EditRequest{
+		result, actionErr = t.store.Edit(ctx, skillstore.EditRequest{
 			Name:    name,
 			Content: rawStringValue(input, "content"),
 		})
 	case actionPatch:
-		result, mutationErr = t.store.Patch(ctx, skillstore.PatchRequest{
+		result, actionErr = t.store.Patch(ctx, skillstore.PatchRequest{
 			Name:       name,
 			FilePath:   stringValue(input, "file_path"),
 			OldText:    rawStringValue(input, "old_text"),
@@ -216,25 +211,25 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 			ReplaceAll: boolValue(input, "replace_all"),
 		})
 	case actionDelete:
-		result, mutationErr = t.store.Delete(ctx, skillstore.DeleteRequest{
+		result, actionErr = t.store.Delete(ctx, skillstore.DeleteRequest{
 			Name: name,
 		})
 	case actionWriteFile:
-		result, mutationErr = t.store.WriteFile(ctx, skillstore.WriteFileRequest{
+		result, actionErr = t.store.WriteFile(ctx, skillstore.WriteFileRequest{
 			Name:        name,
 			FilePath:    stringValue(input, "file_path"),
 			FileContent: rawStringValue(input, "file_content"),
 		})
 	case actionRemoveFile:
-		result, mutationErr = t.store.RemoveFile(ctx, skillstore.RemoveFileRequest{
+		result, actionErr = t.store.RemoveFile(ctx, skillstore.RemoveFileRequest{
 			Name:     name,
 			FilePath: stringValue(input, "file_path"),
 		})
 	default:
 		return "", fmt.Errorf("unsupported action %q", action)
 	}
-	if mutationErr != nil {
-		return "", mutationErr
+	if actionErr != nil {
+		return "", actionErr
 	}
 	return tools.JSONString(result)
 }

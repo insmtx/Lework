@@ -2,6 +2,7 @@ package runnable
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -11,11 +12,53 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
+
+func TestRecordSkillInvocationsScopesPluginByOrganization(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s-%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "-"), time.Now().UnixNano())
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.AutoMigrate(&types.Session{}, &types.Plugin{}, &types.MessageResource{}); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+	session := &types.Session{PublicID: "session-skill-scope", OrgID: 1, Uin: 7, Status: string(types.SessionStatusActive)}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	for _, plugin := range []types.Plugin{
+		{PublicID: "plugin_other", OrgID: 2, Code: "review", Kind: "skill", Name: "Other", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+		{PublicID: "plugin_current", OrgID: 1, Code: "review", Kind: "skill", Name: "Current", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+	} {
+		if err := database.Create(&plugin).Error; err != nil {
+			t.Fatalf("create plugin: %v", err)
+		}
+	}
+	payload, err := json.Marshal(messaging.ToolCallPayload{
+		ToolCallID: "call-1",
+		Name:       "use_skill",
+		Arguments:  json.RawMessage(`{"skill":"review"}`),
+	})
+	if err != nil {
+		t.Fatalf("marshal tool call: %v", err)
+	}
+	recordSkillInvocationsFromMessaging(context.Background(), database, 1, session.PublicID, []messaging.RunEventRecord{
+		{Type: string(messaging.RunEventToolCallStarted), Payload: payload},
+	})
+	var resource types.MessageResource
+	if err := database.First(&resource).Error; err != nil {
+		t.Fatalf("load message resource: %v", err)
+	}
+	if resource.OrgID != 1 || resource.ResourceID != "plugin_current" {
+		t.Fatalf("message resource = %#v", resource)
+	}
+}
 
 func TestPersistPublishedPlanCreatesFileUploadAndProjectFileIdempotently(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s-%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "-"), time.Now().UnixNano())
@@ -251,5 +294,169 @@ func TestPersistDeclaredArtifactCreatesPathVersionChain(t *testing.T) {
 	}
 	if count != 3 {
 		t.Fatalf("project file count after replay = %d, want 3", count)
+	}
+}
+
+type fakeCaptureCompleteService struct {
+	completeReq *contract.CompleteSessionMessageRequest
+	failedReq   *contract.FailedSessionMessageRequest
+}
+
+func (f *fakeCaptureCompleteService) CreateSession(ctx context.Context, req *contract.CreateSessionRequest) (*contract.Session, error) {
+	return nil, nil
+}
+
+func (f *fakeCaptureCompleteService) GetSession(ctx context.Context, sessionID string) (*contract.Session, error) {
+	return nil, nil
+}
+
+func (f *fakeCaptureCompleteService) UpdateSession(ctx context.Context, sessionID string, req *contract.UpdateSessionRequest) (*contract.Session, error) {
+	return nil, nil
+}
+
+func (f *fakeCaptureCompleteService) DeleteSession(ctx context.Context, sessionID string) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) ListSessions(ctx context.Context, req *contract.ListSessionsRequest) (*contract.SessionList, error) {
+	return nil, nil
+}
+
+func (f *fakeCaptureCompleteService) AddMessage(ctx context.Context, sessionID string, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
+	return nil, nil
+}
+
+func (f *fakeCaptureCompleteService) GetSessionMessages(ctx context.Context, sessionID string, page, perPage int) (*contract.MessageList, error) {
+	return nil, nil
+}
+
+func (f *fakeCaptureCompleteService) DeleteMessage(ctx context.Context, messageID uint) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) ClearSessionMessages(ctx context.Context, sessionID string) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) StreamSessionEvents(ctx context.Context, sessionID string, replay bool, assistantID string, sink contract.SessionEventSink) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) StreamGlobalEvents(ctx context.Context, orgID, userID uint, replaySinceSeq uint64, ch chan<- *messaging.GlobalEventPayload) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) HandleSessionRunStarted(ctx context.Context, req *contract.SessionRunStartedRequest) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) CompleteSessionMessage(ctx context.Context, req *contract.CompleteSessionMessageRequest) error {
+	f.completeReq = req
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) FailedSessionMessage(ctx context.Context, req *contract.FailedSessionMessageRequest) error {
+	f.failedReq = req
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) SubmitApproval(ctx context.Context, req *contract.SubmitApprovalRequest) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) SubmitQuestionAnswer(ctx context.Context, req *contract.SubmitQuestionAnswerRequest) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) CancelSessionRun(ctx context.Context, sessionID string, req *contract.CancelSessionRunRequest) (*contract.CancelSessionRunResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeCaptureCompleteService) SetSessionStreamStartSeq(ctx context.Context, sessionID string, streamSeq uint64) error {
+	return nil
+}
+
+func (f *fakeCaptureCompleteService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {
+	return nil, nil
+}
+
+func TestCompleteSessionMessageUsesAssistantIDFromRoute(t *testing.T) {
+	const assistantID string = "da_public_42"
+	const workerID uint = 7
+
+	dsn := fmt.Sprintf("file:%s-%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "-"), time.Now().UnixNano())
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	svc := &fakeCaptureCompleteService{}
+
+	runEvent := messaging.RunEvent{
+		ID:   "event-1",
+		Type: messaging.MessageTypeRunEvent,
+		Route: messaging.RouteContext{
+			OrgID:     1,
+			SessionID: "session-1",
+			WorkerID:  workerID,
+		},
+		Trace: messaging.TraceContext{
+			RunID: "run-1",
+		},
+		Body: messaging.RunEventBody{
+			Event:       messaging.RunEventRunCompleted,
+			Seq:         1,
+			AssistantID: assistantID,
+			RunCompleted: &messaging.RunCompletedPayload{
+				Result: messaging.RunResultPayload{
+					Message: "done",
+				},
+			},
+		},
+	}
+
+	handleRunCompletedEvent(context.Background(), svc, database, runEvent)
+
+	if svc.completeReq == nil {
+		t.Fatal("CompleteSessionMessage was not called")
+	}
+	if svc.completeReq.AssistantID != assistantID {
+		t.Fatalf("AssistantID = %s, want %s", svc.completeReq.AssistantID, assistantID)
+	}
+}
+
+func TestFailedSessionMessageUsesAssistantIDFromRoute(t *testing.T) {
+	const assistantID string = "da_public_99"
+	const workerID uint = 3
+
+	svc := &fakeCaptureCompleteService{}
+
+	runEvent := messaging.RunEvent{
+		ID:   "event-2",
+		Type: messaging.MessageTypeRunEvent,
+		Route: messaging.RouteContext{
+			OrgID:     1,
+			SessionID: "session-2",
+			WorkerID:  workerID,
+		},
+		Trace: messaging.TraceContext{
+			RunID: "run-2",
+		},
+		Body: messaging.RunEventBody{
+			Event:       messaging.RunEventRunFailed,
+			Seq:         2,
+			AssistantID: assistantID,
+			Payload: messaging.RunEventPayload{
+				Content: "boom",
+			},
+		},
+	}
+
+	handleRunFailedEvent(context.Background(), svc, runEvent)
+
+	if svc.failedReq == nil {
+		t.Fatal("FailedSessionMessage was not called")
+	}
+	if svc.failedReq.AssistantID != assistantID {
+		t.Fatalf("AssistantID = %s, want %s", svc.failedReq.AssistantID, assistantID)
 	}
 }

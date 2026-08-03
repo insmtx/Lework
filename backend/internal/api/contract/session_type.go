@@ -102,7 +102,7 @@ type SessionMessage struct {
 	SenderUin   *uint                     `json:"sender_uin,omitempty"`
 	SenderName  string                    `json:"sender_name,omitempty"`
 	RunID       string                    `json:"run_id,omitempty"`
-	AssistantID uint                      `json:"assistant_id,omitempty"`
+	AssistantID string                    `json:"assistant_id,omitempty"`
 }
 
 // SessionEvent is the public event shape embedded in persisted message chunks.
@@ -149,7 +149,7 @@ type CompleteSessionMessageRequest struct {
 	Seq               int64                   `json:"seq"`
 	CreatedAt         time.Time               `json:"created_at"`
 	RunID             string                  `json:"run_id,omitempty"`
-	AssistantID       uint                    `json:"assistant_id,omitempty"`
+	AssistantID       string                  `json:"assistant_id,omitempty"`
 }
 
 // FailedSessionMessageRequest persists a failed assistant message.
@@ -167,7 +167,7 @@ type FailedSessionMessageRequest struct {
 	Seq               int64                   `json:"seq"`
 	CreatedAt         time.Time               `json:"created_at"`
 	RunID             string                  `json:"run_id,omitempty"`
-	AssistantID       uint                    `json:"assistant_id,omitempty"`
+	AssistantID       string                  `json:"assistant_id,omitempty"`
 }
 
 // SessionRunStartedRequest marks user messages as processing when a worker run starts.
@@ -178,5 +178,12 @@ type SessionRunStartedRequest struct {
 	StreamStartSeq    uint64   `json:"stream_start_seq"`
 	StateStartSeq     uint64   `json:"state_start_seq,omitempty"`
 	RunID             string   `json:"run_id,omitempty"`
-	AssistantID       uint     `json:"assistant_id,omitempty"`
+	AssistantID       string   `json:"assistant_id,omitempty"`
+}
+
+// SessionEventsRequest is the request to subscribe to a session event stream.
+type SessionEventsRequest struct {
+	SessionID   string `json:"session_id" binding:"required"`
+	Replay      bool   `json:"replay,omitempty"`
+	AssistantID string `json:"assistant_id,omitempty"`
 }

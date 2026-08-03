@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/Leros/backend/internal/api/dto"
 )
@@ -26,5 +27,10 @@ func abortPermissionDenied(ctx *gin.Context, err error) {
 		ctx.AbortWithStatusJSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, msg))
 		return
 	}
-	ctx.AbortWithStatusJSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, "permission denied"))
+	if isPermissionDenied(err) {
+		ctx.AbortWithStatusJSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, "permission denied"))
+		return
+	}
+	logs.ErrorContextf(ctx, "permission guard infrastructure error: %v", err)
+	ctx.AbortWithStatusJSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, "permission check unavailable"))
 }

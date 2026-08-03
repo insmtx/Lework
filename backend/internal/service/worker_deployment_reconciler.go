@@ -92,6 +92,9 @@ func reconcileWorkerDeployment(
 	}
 	if assistant == nil || assistant.Status != string(contract.DigitalAssistantStatusActive) {
 		if err := workerScheduler.Stop(ctx, deployment.DeploymentName); err != nil {
+			if errors.Is(err, worker.ErrWorkerNotFound) {
+				return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusStopped), "")
+			}
 			return fmt.Errorf("stop inactive worker: %w", err)
 		}
 		return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusStopped), "")
@@ -132,7 +135,6 @@ func reconcileProvisioningWorkerDeployment(
 		if err := db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusReady), ""); err != nil {
 			return err
 		}
-		triggerWorkerReadySkillSync(ctx, database, publisher, deployment)
 		return nil
 	} else {
 		if errors.Is(err, worker.ErrWorkerNotFound) {
@@ -173,18 +175,6 @@ func startWorkerDeployment(
 		return err
 	}
 	return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusProvisioning), "")
-}
-
-func triggerWorkerReadySkillSync(ctx context.Context, database *gorm.DB, publisher mq.Publisher, deployment *types.WorkerDeployment) {
-	if deployment == nil || database == nil || publisher == nil {
-		return
-	}
-	orgID := deployment.OrgID
-	workerID := deployment.WorkerID
-	if orgID == 0 || workerID == 0 {
-		return
-	}
-	go syncOrgSkillsToWorker(context.WithoutCancel(ctx), database, publisher, orgID, workerID)
 }
 
 func workerNeedsReconcile(ctx context.Context, workerScheduler worker.WorkerScheduler, spec *worker.WorkerSpec) (bool, error) {

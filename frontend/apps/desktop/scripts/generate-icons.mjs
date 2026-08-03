@@ -14,15 +14,26 @@ const iconPngPath = join(resourcesDir, 'icon.png')
 const iconMacPngPath = join(resourcesDir, 'icon-mac.png')
 const iconIcoPath = join(resourcesDir, 'icon.ico')
 const trayIconPngPath = join(resourcesDir, 'tray-icon.png')
+const linuxIconsDir = join(resourcesDir, 'linux-icons')
+const linuxIconSizes = [16, 24, 32, 48, 64, 96, 128, 256, 512]
 
 // 中文注释：macOS 图标底板采用白色（与 VS Code、企业微信等应用一致），让彩色 logo 主体突出。
 const macIconBackgroundTop = '#ffffff'
 const macIconBackgroundBottom = '#ffffff'
 
 await mkdir(resourcesDir, { recursive: true })
+await mkdir(linuxIconsDir, { recursive: true })
 await sharp(await renderIcon(1024)).toFile(iconPngPath)
 await sharp(await renderMacIcon(1024)).toFile(iconMacPngPath)
 await sharp(await renderIcon(128, { source: sourceTrayLogo, logoScale: 0.9 })).toFile(trayIconPngPath)
+
+// 中文注释：银河麒麟/UKUI 等桌面只会从标准 hicolor 尺寸目录中查找任务栏图标，
+// 不能只依赖 1024x1024 图标，因此为 Linux 安装包生成完整的 freedesktop 图标集。
+await Promise.all(
+  linuxIconSizes.map(async (size) => {
+    await sharp(await renderIcon(size)).toFile(join(linuxIconsDir, `${size}x${size}.png`))
+  }),
+)
 
 // 中文注释：Windows 安装包和快捷方式优先读取 ICO 资源，因此这里额外生成多尺寸桌面图标。
 await generateWindowsIcon(iconIcoPath)
@@ -98,4 +109,4 @@ async function generateWindowsIcon(iconIcoPath) {
   await writeFile(iconIcoPath, iconIcoBuffer)
 }
 
-export { renderIcon, renderMacIcon }
+export { linuxIconSizes, renderIcon, renderMacIcon }

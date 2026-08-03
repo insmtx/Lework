@@ -52,6 +52,8 @@ spec:
             - "--jetstream"
             - "--store_dir"
             - "/data"
+            - "-m"
+            - "8222"
             {{- if .Values.nats.auth.enabled }}
             - "--user"
             - {{ .Values.nats.auth.user | quote }}

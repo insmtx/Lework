@@ -11,7 +11,7 @@ data:
     # 由 Helm chart 渲染的 Leros Server 配置。
     # 敏感字段通过 ${VAR} 占位符引用环境变量（os.ExpandEnv），实际值来自 Secret。
     env: {{ .Values.server.env | quote }}
-    workspace_root:
+    workspace_root: "/workspace"
 
     server:
       port: {{ .Values.server.service.port | quote }}
@@ -91,4 +91,10 @@ data:
         latest_version: {{ .Values.clientUpdate.desktop.latestVersion | quote }}
         update_url: {{ .Values.clientUpdate.desktop.updateUrl | quote }}
         force_message: {{ .Values.clientUpdate.desktop.forceMessage | quote }}
+    {{- end }}
+    {{- if .Values.auth.enabled }}
+    auth:
+      base_url: {{ .Values.auth.baseUrl | quote }}
+      domain_name: {{ .Values.auth.domainName | quote }}
+      phone_code_login_enabled: {{ .Values.auth.phoneCodeLoginEnabled }}
     {{- end }}

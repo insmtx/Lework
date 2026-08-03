@@ -27,6 +27,12 @@ type ProjectService interface {
 
 	DetailProject(ctx context.Context, publicID string) (*ProjectDetail, error)
 
+	ListProjectPlugins(ctx context.Context, req *ListProjectPluginsRequest) ([]ProjectPlugin, error)
+
+	AddProjectPlugin(ctx context.Context, req *UpdateProjectPluginRequest) error
+
+	RemoveProjectPlugin(ctx context.Context, req *UpdateProjectPluginRequest) error
+
 	GetProjectMemory(ctx context.Context, publicID string) (*ProjectMemory, error)
 
 	GetProjectFileTree(ctx context.Context, publicID string, query ProjectFileTreeQuery) ([]*FileTreeNode, error)

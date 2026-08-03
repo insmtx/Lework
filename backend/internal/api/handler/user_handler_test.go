@@ -120,8 +120,8 @@ func TestCreateUser_MissingName(t *testing.T) {
 	router, _ := setupUserTest(t)
 	w := doRequest(t, router, "/CreateUser", `{}`)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -133,8 +133,8 @@ func TestCreateUser_DuplicatePhone(t *testing.T) {
 	}
 
 	w2 := doRequest(t, router, "/CreateUser", `{"name":"王五","phone":"13800138000"}`)
-	if w2.Code != http.StatusInternalServerError {
-		t.Fatalf("second CreateUser expected 500, got %d: %s", w2.Code, w2.Body.String())
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("second CreateUser expected 400, got %d: %s", w2.Code, w2.Body.String())
 	}
 }
 
@@ -184,8 +184,8 @@ func TestGetUser_MissingParams(t *testing.T) {
 	router, _ := setupUserTest(t)
 	w := doRequest(t, router, "/GetUser", `{}`)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

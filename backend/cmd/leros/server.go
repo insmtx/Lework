@@ -22,7 +22,6 @@ import (
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/service"
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -59,9 +58,6 @@ func newServerCommand() *cobra.Command {
 			if _, err := leros.EnsureStateDir(); err != nil {
 				logs.Fatalf("Failed to ensure state dir: %v", err)
 				return
-			}
-			if err := skilllinks.SyncServerSkillsDir(""); err != nil {
-				logs.Warnf("Sync server built-in skills failed: %v", err)
 			}
 
 			natsUrl := "nats://nats:4222"
@@ -100,6 +96,66 @@ func newServerCommand() *cobra.Command {
 					logs.Fatalf("Failed to seed AI teammate templates: %v", err)
 					return
 				}
+				report, err := service.SyncBuiltinServerSkillMarketplace(cmd.Context(), db, "")
+				if err != nil {
+					logs.Warnf("Built-in server Skill marketplace sync skipped: %v", err)
+				} else {
+					for _, failure := range report.Failures {
+						logs.Warnf(
+							"Failed to sync built-in server Skill %s: %v",
+							failure.Code,
+							failure.Err,
+						)
+					}
+					logs.Infof(
+						"Built-in server Skill marketplace sync complete: scanned=%d created=%d updated=%d unchanged=%d failed=%d",
+						report.Scanned,
+						report.Created,
+						report.Updated,
+						report.Unchanged,
+						len(report.Failures),
+					)
+				}
+			}
+
+			connectorReport, connectorErr := service.SyncBuiltinConnectorTemplates(cmd.Context(), db, "")
+			if connectorErr != nil {
+				logs.Warnf("Built-in connector sync skipped: %v", connectorErr)
+			} else {
+				for _, failure := range connectorReport.Failures {
+					logs.Warnf("Failed to sync built-in connector %s: %v", failure.Code, failure.Err)
+				}
+				logs.Infof(
+					"Built-in connector sync complete: scanned=%d created=%d updated=%d unchanged=%d restored=%d failed=%d",
+					connectorReport.Scanned,
+					connectorReport.Created,
+					connectorReport.Updated,
+					connectorReport.Unchanged,
+					connectorReport.Restored,
+					len(connectorReport.Failures),
+				)
+			}
+
+			workerReport, workerErr := service.SyncBuiltinWorkerSkills(cmd.Context(), db, "")
+			if workerErr != nil {
+				logs.Warnf("Built-in worker Skill sync skipped: %v", workerErr)
+			} else {
+				for _, failure := range workerReport.Failures {
+					logs.Warnf(
+						"Failed to sync built-in worker Skill %s: %v",
+						failure.Code,
+						failure.Err,
+					)
+				}
+				logs.Infof(
+					"Built-in worker Skill sync complete: scanned=%d created=%d updated=%d unchanged=%d restored=%d failed=%d",
+					workerReport.Scanned,
+					workerReport.Created,
+					workerReport.Updated,
+					workerReport.Unchanged,
+					workerReport.Restored,
+					len(workerReport.Failures),
+				)
 			}
 
 			var modelInvoker modelrouter.Invoker
@@ -128,7 +184,7 @@ func newServerCommand() *cobra.Command {
 				WorkerProvisioning: workerProvisioning,
 			})
 
-			r := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
+			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
 
 			srv := &http.Server{
 				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
@@ -143,6 +199,16 @@ func newServerCommand() *cobra.Command {
 					logs.Fatalf("Failed to start server: %v", err)
 				}
 			}()
+
+			if workerScheduler != nil {
+				lifecycle.Std().AddCloseFunc(func() error {
+					logs.Info("Shutting down worker scheduler")
+					if err := workerScheduler.Shutdown(cmd.Context()); err != nil {
+						logs.Errorf("Worker scheduler shutdown error: %v", err)
+					}
+					return nil
+				})
+			}
 
 			lifecycle.Std().AddCloseFunc(func() error {
 				if err := srv.Shutdown(cmd.Context()); err != nil {

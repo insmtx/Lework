@@ -1,4 +1,3 @@
-import type { Attachment } from "@leros/store/types/chat";
 import type { FilePreviewItem } from "./file-preview-utils";
 import type { OfficeTextSelection } from "./office-selection";
 
@@ -14,11 +13,8 @@ export type DocxPolishAction =
 export type DocxSelectionEditRequest = {
 	content: string;
 	displayContent: string;
-	attachment?: Attachment;
 };
 
-const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const PPTX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 export const DOCX_SELECTION_TEXT_LIMIT = 20_000;
 
 const instructionCopy: Record<DocxSelectionInstruction, { label: string; prompt: string }> = {
@@ -89,12 +85,10 @@ export function buildDocxSelectionPromptRequest({
 			? {
 					command: "/pptx",
 					kind: "pptx_selection",
-					mimeType: PPTX_MIME_TYPE,
 				}
 			: {
 					command: "/docx",
 					kind: "docx_selection",
-					mimeType: DOCX_MIME_TYPE,
 				};
 	const filePublicId = file.versionPublicId?.trim() || file.publicId?.trim();
 	const safeName = baseName(file.name);
@@ -129,17 +123,6 @@ export function buildDocxSelectionPromptRequest({
 		displayContent:
 			displayContent ??
 			`${prompt.trim()}：「${previewText}${selection.text.trim().length > 48 ? "…" : ""}」`,
-		attachment: filePublicId
-			? {
-					id: `${format}-selection-${filePublicId}`,
-					type: "file",
-					name: safeName,
-					size: 0,
-					fileUploadId: filePublicId,
-					mimeType: file.mimeType || formatConfig.mimeType,
-					storageUri: file.storageUri,
-				}
-			: undefined,
 	};
 }
 

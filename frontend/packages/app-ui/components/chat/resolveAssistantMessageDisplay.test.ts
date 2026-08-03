@@ -8,7 +8,6 @@ const assistants: DigitalAssistantItem[] = [
 	{
 		id: 12,
 		publicId: "assistant_alpha",
-		code: "assistant_alpha",
 		name: "投标策略师",
 		roleName: "投标经理",
 		description: "",

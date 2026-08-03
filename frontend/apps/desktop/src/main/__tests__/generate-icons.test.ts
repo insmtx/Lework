@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { renderIcon, renderMacIcon } from "../../../scripts/generate-icons.mjs";
+import { linuxIconSizes, renderIcon, renderMacIcon } from "../../../scripts/generate-icons.mjs";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const resourcesDir = resolve(currentDir, "../../../resources");
@@ -35,6 +35,17 @@ describe("generate-icons 平台图标生成", () => {
 		const metadata = await sharp(iconBuffer).metadata();
 
 		expect(metadata.hasAlpha).toBe(true);
+	});
+
+	it("Linux 应生成 freedesktop 标准尺寸图标集", async () => {
+		for (const size of linuxIconSizes) {
+			const iconPath = join(resourcesDir, "linux-icons", `${size}x${size}.png`);
+			await expect(access(iconPath)).resolves.toBeUndefined();
+
+			const metadata = await sharp(iconPath).metadata();
+			expect(metadata.width).toBe(size);
+			expect(metadata.height).toBe(size);
+		}
 	});
 
 	it("应生成 macOS 打包所需的 icon-mac.png 资源", async () => {

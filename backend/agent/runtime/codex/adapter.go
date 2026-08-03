@@ -4,8 +4,6 @@ package codex
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 
 	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 )
@@ -35,15 +33,6 @@ func (a *Adapter) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli.I
 		return nil, err
 	}
 	return handle, nil
-}
-
-// GetSkillDir returns the skill directory path for Codex CLI.
-func (a *Adapter) GetSkillDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".agents", "skills")
 }
 
 var _ cli.Invoker = (*Adapter)(nil)

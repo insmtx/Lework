@@ -76,7 +76,7 @@ async function readResponseJSON(response: Response): Promise<unknown> {
 
 function isAuthEndpoint(url: string): boolean {
 	return [
-		"/LoginByEmail",
+		"/LoginByPassword",
 		"/RegisterByEmail",
 		"/SendPhoneLoginCode",
 		"/LoginByPhoneCode",

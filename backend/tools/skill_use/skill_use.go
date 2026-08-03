@@ -140,22 +140,37 @@ func (t *SkillUseTool) Execute(ctx context.Context, raw json.RawMessage) (string
 
 	switch stringValue(input, "action") {
 	case actionList:
-		result, err := listSkills()
+		result, err := listSkills(catalogFromContext(ctx))
 		if err != nil {
 			return "", fmt.Errorf("list skills: %w", err)
 		}
 		return tools.JSONString(result)
 	case actionGet:
-		return t.executeGet(input)
+		return t.executeGet(catalogFromContext(ctx), input)
 	case actionReadFile:
-		return t.executeReadFile(input)
+		return t.executeReadFile(catalogFromContext(ctx), input)
 	default:
 		return "", fmt.Errorf("unsupported action %q", stringValue(input, "action"))
 	}
 }
 
-func listSkills() (map[string]interface{}, error) {
-	summaries, err := skillcatalog.List()
+func catalogFromContext(ctx context.Context) *skillcatalog.Catalog {
+	if toolCtx, ok := tools.ToolContextFrom(ctx); ok && strings.TrimSpace(toolCtx.Metadata.SkillDir) != "" {
+		if scoped, err := skillcatalog.NewCatalog(toolCtx.Metadata.SkillDir); err == nil {
+			return scoped
+		}
+	}
+	return nil
+}
+
+func listSkills(scoped *skillcatalog.Catalog) (map[string]interface{}, error) {
+	var summaries []skillcatalog.Summary
+	var err error
+	if scoped != nil {
+		summaries, err = scoped.List()
+	} else {
+		summaries, err = skillcatalog.List()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -184,15 +199,26 @@ func listSkills() (map[string]interface{}, error) {
 }
 
 // executeGet looks up the skill by name via the catalog and returns the full entry.
-func (t *SkillUseTool) executeGet(input map[string]interface{}) (string, error) {
+func (t *SkillUseTool) executeGet(scoped *skillcatalog.Catalog, input map[string]interface{}) (string, error) {
 	name := stringValue(input, "name")
 
-	entry, err := skillcatalog.Get(name)
+	var entry *skillcatalog.Entry
+	var err error
+	if scoped != nil {
+		entry, err = scoped.Get(name)
+	} else {
+		entry, err = skillcatalog.Get(name)
+	}
 	if err != nil {
-		return tools.JSONString(buildSkillNotFoundResponse(err))
+		return tools.JSONString(buildSkillNotFoundResponse(err, scoped))
 	}
 
-	files, err := skillcatalog.ListFiles(entry.Manifest.Name, defaultSkillFileListLimit)
+	var files []string
+	if scoped != nil {
+		files, err = scoped.ListFiles(entry.Manifest.Name, defaultSkillFileListLimit)
+	} else {
+		files, err = skillcatalog.ListFiles(entry.Manifest.Name, defaultSkillFileListLimit)
+	}
 	if err != nil {
 		return tools.JSONString(map[string]interface{}{
 			"success": false,
@@ -219,13 +245,19 @@ func (t *SkillUseTool) executeGet(input map[string]interface{}) (string, error) 
 }
 
 // executeReadFile looks up the skill by name and reads a supporting file.
-func (t *SkillUseTool) executeReadFile(input map[string]interface{}) (string, error) {
+func (t *SkillUseTool) executeReadFile(scoped *skillcatalog.Catalog, input map[string]interface{}) (string, error) {
 	name := stringValue(input, "name")
 	relativePath := stringValue(input, "path")
 
-	content, err := skillcatalog.ReadFile(name, relativePath)
+	var content []byte
+	var err error
+	if scoped != nil {
+		content, err = scoped.ReadFile(name, relativePath)
+	} else {
+		content, err = skillcatalog.ReadFile(name, relativePath)
+	}
 	if err != nil {
-		return tools.JSONString(buildSkillNotFoundResponse(err))
+		return tools.JSONString(buildSkillNotFoundResponse(err, scoped))
 	}
 
 	displayContent, truncated := truncateFileContent(content, maxSkillFileReadBytes)
@@ -241,7 +273,7 @@ func (t *SkillUseTool) executeReadFile(input map[string]interface{}) (string, er
 
 // buildSkillNotFoundResponse builds the structured JSON response for
 // skill-not-found errors.
-func buildSkillNotFoundResponse(err error) map[string]interface{} {
+func buildSkillNotFoundResponse(err error, scoped ...*skillcatalog.Catalog) map[string]interface{} {
 	if err == nil {
 		return map[string]interface{}{
 			"success":          false,
@@ -273,7 +305,14 @@ func buildSkillNotFoundResponse(err error) map[string]interface{} {
 	// Build available skill names from a fresh scan.
 	available := []string{}
 	limit := 20
-	if summaries, listErr := skillcatalog.List(); listErr == nil {
+	var summaries []skillcatalog.Summary
+	var listErr error
+	if len(scoped) > 0 && scoped[0] != nil {
+		summaries, listErr = scoped[0].List()
+	} else {
+		summaries, listErr = skillcatalog.List()
+	}
+	if listErr == nil {
 		for _, s := range summaries {
 			available = append(available, s.Name)
 			if len(available) >= limit {

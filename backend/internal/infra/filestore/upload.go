@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	PurposeAttachment = "attachment"
-	PurposeAvatar     = "avatar"
-	PurposeArtifact   = "artifact"
-	PurposeProjects   = "projects"
-	PurposePlan       = "plan"
+	PurposeAttachment   = "attachment"
+	PurposeAvatar       = "avatar"
+	PurposeArtifact     = "artifact"
+	PurposeProjects     = "projects"
+	PurposePlan         = "plan"
+	PurposeSkillPackage = "skill_package"
 )
 
 // GenerateFilePublicID generates a unique public ID for a FileUpload record.
@@ -37,6 +38,7 @@ type UploadParams struct {
 	Filename     string
 	OriginalName string
 	MimeType     string
+	OwnerScope   types.OwnerScope
 	OrgID        uint
 	OwnerID      uint
 	ObjectKey    string
@@ -56,8 +58,9 @@ func Upload(ctx context.Context, db *gorm.DB, params UploadParams) (*types.FileU
 	if params.MimeType == "" {
 		return nil, fmt.Errorf("mime type is required")
 	}
-	if params.OrgID == 0 || params.OwnerID == 0 {
-		return nil, fmt.Errorf("org and owner are required")
+	params.OwnerScope = types.NormalizeOwnerScope(params.OwnerScope)
+	if err := validateOwner(params.OwnerScope, params.OrgID, params.OwnerID); err != nil {
+		return nil, err
 	}
 	if params.ObjectKey == "" {
 		return nil, fmt.Errorf("object key is required")
@@ -85,6 +88,7 @@ func Upload(ctx context.Context, db *gorm.DB, params UploadParams) (*types.FileU
 	}
 	fileUpload := &types.FileUpload{
 		PublicID:     publicID,
+		OwnerScope:   params.OwnerScope,
 		OrgID:        params.OrgID,
 		OwnerID:      params.OwnerID,
 		Filename:     params.Filename,
@@ -115,18 +119,29 @@ func OpenFileByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publicID s
 	if fileUpload == nil {
 		return nil, nil, fmt.Errorf("file upload record not found")
 	}
+	reader, err := OpenFileUpload(ctx, fileUpload)
+	if err != nil {
+		return nil, nil, err
+	}
+	return reader, fileUpload, nil
+}
 
+// OpenFileUpload opens an already-authorized FileUpload record.
+func OpenFileUpload(ctx context.Context, fileUpload *types.FileUpload) (io.ReadCloser, error) {
+	if fileUpload == nil {
+		return nil, fmt.Errorf("file upload record is required")
+	}
 	objectKey, err := storageKeyFromURI(fileUpload.StorageURI)
 	if err != nil {
-		return nil, nil, fmt.Errorf("parse storage path: %w", err)
+		return nil, fmt.Errorf("parse storage path: %w", err)
 	}
 
 	st := GetStorage()
 	result, err := st.GetObject(ctx, DefaultBucket(), objectKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get object: %w", err)
+		return nil, fmt.Errorf("get object: %w", err)
 	}
-	return result.Body, fileUpload, nil
+	return result.Body, nil
 }
 
 // PresignDownloadByPublicID 通过 FileUpload.PublicID 生成预签名下载 URL
@@ -139,17 +154,28 @@ func PresignDownloadByPublicID(ctx context.Context, db *gorm.DB, orgID uint, pub
 		return "", nil, fmt.Errorf("file upload record not found")
 	}
 
-	objectKey, err := storageKeyFromURI(fileUpload.StorageURI)
+	url, err := PresignDownloadForFileUpload(ctx, fileUpload, ttl)
 	if err != nil {
-		return "", nil, fmt.Errorf("parse storage path: %w", err)
-	}
-
-	st := GetStorage()
-	url, err := st.PresignGetObject(ctx, DefaultBucket(), objectKey, ttl)
-	if err != nil {
-		return "", nil, fmt.Errorf("presign url: %w", err)
+		return "", nil, err
 	}
 	return url, fileUpload, nil
+}
+
+// PresignDownloadForFileUpload signs a previously authorized file record without reapplying ownership rules.
+func PresignDownloadForFileUpload(ctx context.Context, fileUpload *types.FileUpload, ttl time.Duration) (string, error) {
+	if fileUpload == nil {
+		return "", fmt.Errorf("file upload record is required")
+	}
+	_, bucket, objectKey, err := storage.ParseURI(fileUpload.StorageURI)
+	if err != nil {
+		return "", fmt.Errorf("parse storage path: %w", err)
+	}
+	st := GetStorage()
+	url, err := st.PresignGetObject(ctx, bucket, objectKey, ttl)
+	if err != nil {
+		return "", fmt.Errorf("presign url: %w", err)
+	}
+	return url, nil
 }
 
 func ResolvePublicURL(ctx context.Context, storagePath string) (string, error) {
@@ -189,6 +215,7 @@ type RecordUploadParams struct {
 	Filename     string
 	OriginalName string
 	MimeType     string
+	OwnerScope   types.OwnerScope
 	OrgID        uint
 	OwnerID      uint
 	FileSize     int64
@@ -207,8 +234,9 @@ func RecordUpload(ctx context.Context, db *gorm.DB, params RecordUploadParams) (
 	if params.Filename == "" {
 		return nil, fmt.Errorf("filename is required")
 	}
-	if params.OrgID == 0 || params.OwnerID == 0 {
-		return nil, fmt.Errorf("org and owner are required")
+	params.OwnerScope = types.NormalizeOwnerScope(params.OwnerScope)
+	if err := validateOwner(params.OwnerScope, params.OrgID, params.OwnerID); err != nil {
+		return nil, err
 	}
 
 	st := GetStorage()
@@ -231,6 +259,7 @@ func RecordUpload(ctx context.Context, db *gorm.DB, params RecordUploadParams) (
 
 	fileUpload := &types.FileUpload{
 		PublicID:     publicID,
+		OwnerScope:   params.OwnerScope,
 		OrgID:        params.OrgID,
 		OwnerID:      params.OwnerID,
 		Filename:     params.Filename,
@@ -250,6 +279,23 @@ func RecordUpload(ctx context.Context, db *gorm.DB, params RecordUploadParams) (
 		return nil, fmt.Errorf("create file upload record: %w", err)
 	}
 	return fileUpload, nil
+}
+
+func validateOwner(scope types.OwnerScope, orgID, ownerID uint) error {
+	if !types.ValidateOwnerScope(scope, orgID) {
+		return fmt.Errorf("invalid owner scope %q for org_id %d", scope, orgID)
+	}
+	switch scope {
+	case types.OwnerScopeOrganization:
+		if ownerID == 0 {
+			return fmt.Errorf("organization owner is required")
+		}
+	case types.OwnerScopeSystem:
+		if ownerID != 0 {
+			return fmt.Errorf("system owner_id must be zero")
+		}
+	}
+	return nil
 }
 
 func storageKeyFromStorageURI(uri string) string {

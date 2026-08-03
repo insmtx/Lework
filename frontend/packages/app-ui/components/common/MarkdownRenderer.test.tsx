@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
@@ -22,5 +22,28 @@ describe("MarkdownRenderer plan directive", () => {
 
 		expect(screen.getByTestId("plan-block")).toHaveAttribute("data-file-id", "file_plan_1");
 		expect(screen.getByTestId("plan-block")).toHaveTextContent("Inspect");
+	});
+});
+
+describe("MarkdownRenderer external links", () => {
+	afterEach(() => {
+		delete (window as Window & { lerosDesktop?: unknown }).lerosDesktop;
+	});
+
+	it("opens external links in a new browser context instead of navigating in place", () => {
+		const openExternal = vi.fn().mockResolvedValue(true);
+		(window as Window & { lerosDesktop?: { openExternal: typeof openExternal } }).lerosDesktop = {
+			openExternal,
+		};
+
+		render(<MarkdownRenderer content="See [docs](https://example.com/docs) for details." />);
+
+		const link = screen.getByRole("link", { name: "docs" });
+		expect(link).toHaveAttribute("href", "https://example.com/docs");
+		expect(link).toHaveAttribute("target", "_blank");
+		expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+		fireEvent.click(link);
+		expect(openExternal).toHaveBeenCalledWith("https://example.com/docs");
 	});
 });

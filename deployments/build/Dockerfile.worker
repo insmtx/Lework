@@ -34,64 +34,12 @@ RUN --mount=type=cache,target=/go/ \
     CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -tags="${BUILD_TAGS}" -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
 
-FROM registry.yygu.cn/library/ubuntu:24.04
-
-ARG TARGETARCH
-ARG CLAUDE_CODE_VERSION=latest
-ARG CODEX_VERSION=latest
-ARG OPENCODE_VERSION=latest
-ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
-
-RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
-    && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
-
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates \
-    tzdata \
-    curl \
-    xz-utils \
-    git \
-    less \
-    bubblewrap \
-    libsqlite3-0 \
-    libreoffice \
-    python3.12 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN soffice --version
-
-ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
-    PIP_DEFAULT_TIMEOUT=120 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-RUN pip3 install --break-system-packages requests
-
-ENV NODE_VERSION=22.14.0
-RUN set -eux; \
-    case "${TARGETARCH:-amd64}" in \
-        amd64) node_arch="x64" ;; \
-        arm64) node_arch="arm64" ;; \
-        *) echo "unsupported TARGETARCH=${TARGETARCH:-}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" -o /tmp/node.tar.xz; \
-    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1; \
-    rm /tmp/node.tar.xz
-
-RUN npm config set registry https://registry.npmmirror.com \
-    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-        "@openai/codex@${CODEX_VERSION}" \
-        "opencode-ai@${OPENCODE_VERSION}" \
-    && claude --version \
-    && codex --version \
-    && opencode --version \
-    && npm cache clean --force
+FROM registry.yygu.cn/insmtx/leros-worker-base:latest
 
 COPY --from=builder /build/leros /leros
 COPY --from=builder /build/backend/skills /app/backend/skills
 
-RUN useradd -m -s /bin/bash leros \
-    && ln -sf /leros /usr/local/bin/leros \
+RUN ln -sf /leros /usr/local/bin/leros \
     && mkdir -p /app/config /workspace \
     && chown -R leros:leros /app /workspace /home/leros
 

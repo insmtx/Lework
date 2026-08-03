@@ -7,7 +7,7 @@ type ProviderSessionKey struct {
 	InternalSessionID string
 	Provider          string
 	WorkDir           string
-	AssistantID       string
+	AssistantPublicID string
 }
 
 // ProviderSessionBinding maps a SingerOS session to a provider native session.
@@ -16,7 +16,7 @@ type ProviderSessionBinding struct {
 	Provider          string
 	ProviderSessionID string
 	WorkDir           string
-	AssistantID       string
+	AssistantPublicID string
 	Status            string
 	LastError         string
 }

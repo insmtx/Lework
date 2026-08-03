@@ -65,6 +65,7 @@ type runTask struct {
 	Model         messaging.ModelOptions
 	Runtime       messaging.RuntimeOptions
 	Policy        messaging.TaskPolicy
+	Plugins       []messaging.PluginSnapshot
 
 	// 业务主键 ID，从 RunCommandPayload 直接透传，用于 llm_history 关联。
 	ProjectID   uint
@@ -184,21 +185,23 @@ func (h *Handler) executeSubmission(svc *agentrun.Service) runcoord.ExecuteFunc 
 		logs.InfoContextf(ctx,
 			"Starting worker task run: task_id=%s run_id=%s runtime=%s assistant_id=%s",
 			sub.Request.TaskID, sub.Request.RunID,
-			sub.Request.Runtime.Kind, sub.Request.Assistant.ID,
+			sub.Request.Runtime.Kind, sub.Request.Assistant.PublicID,
 		)
 
 		return svc.Run(ctx, sub.Request, agentrun.EventContext{
 			OrgID:             ec.OrgID,
 			WorkerID:          ec.WorkerID,
+			WorkerPublicID:    ec.WorkerPublicID,
 			SessionID:         ec.SessionID,
 			AssistantID:       sub.Request.Assistant.ID,
-			AssistantPKID:     sub.Request.BusinessKeys.AssistantPKID,
+			AssistantPublicID: sub.Request.Assistant.PublicID,
 			TraceID:           ec.TraceID,
 			RequestID:         ec.RequestID,
 			TaskID:            ec.TaskID,
 			RunID:             ec.RunID,
 			ParentID:          ec.ParentID,
 			ReplyToMessageIDs: ec.ReplyToMessageIDs,
+			ClientIP:          ec.ClientIP,
 		}, publisher)
 	}
 }
@@ -237,6 +240,7 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 		Model:         payload.Model,
 		Runtime:       payload.Runtime,
 		Policy:        payload.Policy,
+		Plugins:       append([]messaging.PluginSnapshot(nil), payload.Plugins...),
 		ProjectID:     payload.ProjectID,
 		SessionID:     payload.SessionID,
 		MessageID:     payload.MessageID,
@@ -426,16 +430,17 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 		EventContext: agentrun.EventContext{
 			OrgID:             task.Route.OrgID,
 			WorkerID:          task.Route.WorkerID,
+			WorkerPublicID:    task.Route.WorkerPublicID,
 			SessionID:         task.Route.SessionID,
 			AssistantID:       req.Assistant.ID,
-			AssistantPKID:     req.BusinessKeys.AssistantPKID,
+			AssistantPublicID: req.Assistant.PublicID,
 			TraceID:           task.Trace.TraceID,
 			RequestID:         task.Trace.RequestID,
 			TaskID:            task.Trace.TaskID,
 			RunID:             task.Trace.RunID,
 			ParentID:          task.Trace.ParentID,
 			ReplyToMessageIDs: replyToMessageIDs(task.Input.Messages),
-			ClientIP:          task.ClientIP,
+			ClientIP:          task.Route.ClientIP,
 		},
 		DeliverySeqs: task.DeliverySeqs,
 	}
@@ -455,7 +460,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 }
 
 func withRunLogFields(ctx context.Context, task runTask) context.Context {
-	fields := make([]interface{}, 0, 6)
+	fields := make([]interface{}, 0, 10)
 	if task.Trace.ReqID != "" {
 		fields = append(fields, "req_id", task.Trace.ReqID)
 	}
@@ -464,6 +469,12 @@ func withRunLogFields(ctx context.Context, task runTask) context.Context {
 	}
 	if task.Route.SessionID != "" {
 		fields = append(fields, "session_id", task.Route.SessionID)
+	}
+	if task.Route.AssistantID != 0 {
+		fields = append(fields, "assistant_id", task.Route.AssistantID)
+	}
+	if task.Route.WorkerID != 0 {
+		fields = append(fields, "worker_id", task.Route.WorkerID)
 	}
 	if len(fields) == 0 {
 		return ctx
@@ -549,17 +560,15 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 	defer h.releaseAdmission()
 	defer h.releaseInflight(ikey)
 
-	execCtx := h.execCtx
-
 	var cmd messaging.WorkerCommand
 	if err := json.Unmarshal([]byte(rec.Command), &cmd); err != nil {
-		_ = h.runInbox.MarkFailed(execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery unmarshal: %v", err))
+		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery unmarshal: %v", err))
 		return
 	}
 
 	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
 	if err != nil {
-		_ = h.runInbox.MarkFailed(execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery payload decode: %v", err))
+		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery payload decode: %v", err))
 		return
 	}
 
@@ -577,8 +586,17 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		Model:         payload.Model,
 		Runtime:       payload.Runtime,
 		Policy:        payload.Policy,
+		Project:       payload.Project,
+		Plugins:       append([]messaging.PluginSnapshot(nil), payload.Plugins...),
+		ProjectID:     payload.ProjectID,
+		SessionID:     payload.SessionID,
+		MessageID:     payload.MessageID,
+		AssistantID:   payload.AssistantID,
+		Uin:           payload.Uin,
 		DeliverySeqs:  []uint64{rec.StreamSeq},
 	}
+
+	execCtx := withRunLogFields(h.execCtx, task)
 
 	// Mark processing.
 	if err := h.runInbox.MarkProcessing(execCtx, topic, rec.StreamSeq); err != nil {
@@ -596,9 +614,10 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 		EventContext: agentrun.EventContext{
 			OrgID:             task.Route.OrgID,
 			WorkerID:          task.Route.WorkerID,
+			WorkerPublicID:    task.Route.WorkerPublicID,
 			SessionID:         task.Route.SessionID,
 			AssistantID:       req.Assistant.ID,
-			AssistantPKID:     req.BusinessKeys.AssistantPKID,
+			AssistantPublicID: req.Assistant.PublicID,
 			TraceID:           task.Trace.TraceID,
 			RequestID:         task.Trace.RequestID,
 			TaskID:            task.Trace.TaskID,

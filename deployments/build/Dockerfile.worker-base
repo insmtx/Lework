@@ -1,0 +1,110 @@
+FROM registry.yygu.cn/library/ubuntu:24.04
+
+ARG TARGETARCH
+ARG CLAUDE_CODE_VERSION=latest
+ARG CODEX_VERSION=latest
+ARG OPENCODE_VERSION=1.17.20
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+
+# Configure aliyun apt mirrors
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates \
+    tzdata \
+    curl \
+    xz-utils \
+    git \
+    less \
+    bubblewrap \
+    libsqlite3-0 \
+    libreoffice \
+    python3.12 \
+    python3-pip \
+    fonts-noto-cjk \
+    fonts-noto-cjk-extra \
+    fonts-wqy-zenhei \
+    fonts-wqy-microhei \
+    fonts-arphic-uming \
+    fonts-arphic-ukai \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/*
+
+# Map common Windows/MS Office CJK font names to the installed Noto/WenQuanYi fonts,
+# so LibreOffice documents requesting SimSun/SimHei/FangSong/KaiTi/Microsoft YaHei/
+# STSong-Light etc. resolve to real CJK glyphs instead of falling back to DejaVu.
+RUN mkdir -p /etc/fonts/conf.d && cat > /etc/fonts/conf.d/30-cjk-aliases.conf <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Sans (黑体类) -> Noto Sans CJK SC -->
+  <match target="pattern"><test name="family"><string>SimHei</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>黑体</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Microsoft YaHei</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>微软雅黑</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Sans CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Sans SC</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>思源黑体 CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Sans CJK SC</string></edit></match>
+
+  <!-- Serif (宋体类) -> Noto Serif CJK SC -->
+  <match target="pattern"><test name="family"><string>SimSun</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>宋体</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>NSimSun</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>STSong</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>STSong-Light</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>华文宋体</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Serif CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>Source Han Serif SC</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>思源宋体 CN</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+
+  <!-- FangSong (仿宋) -> Noto Serif CJK SC (closest serif; Ubuntu has no fang-dedicated font) -->
+  <match target="pattern"><test name="family"><string>FangSong</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>仿宋</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>STFangsong</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+  <match target="pattern"><test name="family"><string>华文仿宋</string></test><edit name="family" mode="assign" binding="strong"><string>Noto Serif CJK SC</string></edit></match>
+
+  <!-- KaiTi (楷体) -> AR PL UKai CN (arphic ukai) -->
+  <match target="pattern"><test name="family"><string>KaiTi</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+  <match target="pattern"><test name="family"><string>楷体</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+  <match target="pattern"><test name="family"><string>STKaiti</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+  <match target="pattern"><test name="family"><string>华文楷体</string></test><edit name="family" mode="assign" binding="strong"><string>AR PL UKai CN</string></edit></match>
+</fontconfig>
+EOF
+
+RUN soffice --version \
+    && fc-cache -f \
+    && fc-list :lang=zh-cn | head -20
+
+# Configure pip aliyun mirror and install Python dependencies
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN pip3 install --break-system-packages requests
+
+# Install Node.js 22 LTS from npmmirror (multi-arch: amd64/arm64)
+ENV NODE_VERSION=22.14.0
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) node_arch="x64" ;; \
+        arm64) node_arch="arm64" ;; \
+        *) echo "unsupported TARGETARCH=${TARGETARCH:-}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" -o /tmp/node.tar.xz; \
+    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1; \
+    rm /tmp/node.tar.xz
+
+# Configure npm npmmirror and install claude-code + codex + opencode
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install -g \
+        "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+        "@openai/codex@${CODEX_VERSION}" \
+        "opencode-ai@${OPENCODE_VERSION}" \
+    && claude --version \
+    && codex --version \
+    && opencode --version \
+    && npm cache clean --force
+
+RUN useradd -m -s /bin/bash leros \
+    && mkdir -p /workspace \
+    && chown -R leros:leros /workspace /home/leros

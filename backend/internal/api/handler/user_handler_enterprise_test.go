@@ -61,7 +61,11 @@ func (m *mockIAMServer) handler(w http.ResponseWriter, r *http.Request) {
 	case "account.DetailPersonalCenter":
 		m.handleDetailPersonalCenter(w)
 	case "account.UpdateUserInfo":
-		m.handleUpdateUser(w, req.Request)
+		m.handleUpdateUserInfo(w, req.Request)
+	case "account.ListEmployee":
+		m.handleListEmployee(w, req.Request)
+	case "account.EditDepartmentEmployee":
+		m.handleEditDepartmentEmployee(w, req.Request)
 	case "account.DeleteUser":
 		m.handleDeleteUser(w, req.Request)
 	case "account.GetDepartmentTree":
@@ -164,7 +168,7 @@ func (m *mockIAMServer) handleDetailPersonalCenter(w http.ResponseWriter) {
 	})
 }
 
-func (m *mockIAMServer) handleUpdateUser(w http.ResponseWriter, raw json.RawMessage) {
+func (m *mockIAMServer) handleUpdateUserInfo(w http.ResponseWriter, raw json.RawMessage) {
 	var req struct {
 		Name      string  `json:"name"`
 		Email     *string `json:"email"`
@@ -184,6 +188,57 @@ func (m *mockIAMServer) handleUpdateUser(w http.ResponseWriter, raw json.RawMess
 	m.write(w, 0, nil)
 }
 
+func (m *mockIAMServer) handleEditDepartmentEmployee(w http.ResponseWriter, raw json.RawMessage) {
+	var req struct {
+		Uin           uint   `json:"uin"`
+		UserName      string `json:"user_name"`
+		Name          string `json:"name"`
+		Email         string `json:"email"`
+		Phone         string `json:"phone"`
+		EmployeeID    uint   `json:"employee_id"`
+		Role          string `json:"role"`
+		DepartmentIDs []uint `json:"department_ids"`
+	}
+	_ = json.Unmarshal(raw, &req)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var found *storedUser
+	for i := range m.users {
+		if m.users[i].ID == int(req.Uin) {
+			found = &m.users[i]
+			break
+		}
+	}
+	if found == nil {
+		m.write(w, -1, map[string]string{"error": "user not found"})
+		return
+	}
+	if req.Name != "" {
+		found.Name = req.Name
+	}
+	if req.Email != "" {
+		found.Email = req.Email
+	}
+	if req.Phone != "" {
+		found.Phone = req.Phone
+	}
+
+	m.write(w, 0, map[string]any{
+		"employee": map[string]any{
+			"uin":            found.ID,
+			"user_name":      found.Name,
+			"name":           found.Name,
+			"email":          found.Email,
+			"phone":          found.Phone,
+			"employee_id":    found.ID,
+			"user_id":        found.ID,
+			"role":           "member",
+			"department_ids": []int{},
+		},
+	})
+}
+
 func (m *mockIAMServer) handleDeleteUser(w http.ResponseWriter, raw json.RawMessage) {
 	var req struct {
 		UserID uint `json:"user_id"`
@@ -200,6 +255,43 @@ func (m *mockIAMServer) handleDeleteUser(w http.ResponseWriter, raw json.RawMess
 		}
 	}
 	m.write(w, -1, map[string]string{"error": "user not found"})
+}
+
+func (m *mockIAMServer) handleListEmployee(w http.ResponseWriter, raw json.RawMessage) {
+	var req struct {
+		UserIDs []uint `json:"user_ids"`
+	}
+	_ = json.Unmarshal(raw, &req)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var items []map[string]any
+	for _, uid := range req.UserIDs {
+		for _, u := range m.users {
+			if u.ID == int(uid) {
+				items = append(items, map[string]any{
+					"uin":            u.ID,
+					"user_id":        u.ID,
+					"employee_id":    u.ID,
+					"nickname":       u.Name,
+					"login_name":     u.Name,
+					"email":          u.Email,
+					"phone":          u.Phone,
+					"avatar_url":     "",
+					"sys_role":       "member",
+					"department_ids": []int{},
+					"created_at":     "2024-01-01T00:00:00Z",
+				})
+				break
+			}
+		}
+	}
+
+	m.write(w, 0, map[string]any{
+		"total": len(items),
+		"items": items,
+	})
 }
 
 func (m *mockIAMServer) handleDepartmentTree(w http.ResponseWriter, raw json.RawMessage) {

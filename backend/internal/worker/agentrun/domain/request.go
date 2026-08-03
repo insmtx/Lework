@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -27,11 +28,13 @@ const (
 
 // BusinessKeys carries the business primary key IDs used for LLM call record association.
 type BusinessKeys struct {
-	ProjectPKID   uint `json:"project_pk_id"`
-	SessionPKID   uint `json:"session_pk_id"`
-	MessagePKID   uint `json:"message_pk_id"`
-	AssistantPKID uint `json:"assistant_pk_id"`
-	UinPK         uint `json:"uin_pk"`
+	ProjectPKID       uint   `json:"project_pk_id"`
+	SessionPKID       uint   `json:"session_pk_id"`
+	MessagePKID       uint   `json:"message_pk_id"`
+	AssistantID       uint   `json:"assistant_id,omitempty"`        // leros_digital_assistant.id
+	AssistantPublicID string `json:"assistant_public_id,omitempty"` // leros_digital_assistant.public_id
+	WorkerPublicID    string `json:"worker_public_id,omitempty"`    // leros_worker_deployment.public_id
+	UinPK             uint   `json:"uin_pk"`
 }
 
 // RunRequest is the normalized execution snapshot consumed by runtime.
@@ -50,12 +53,25 @@ type RunRequest struct {
 	Model         ModelOptions        `json:"model,omitempty"`
 	Capability    CapabilityContext   `json:"capability,omitempty"`
 	Policy        PolicyContext       `json:"policy,omitempty"`
+	Plugins       []PluginSnapshot    `json:"plugins,omitempty"`
 	BusinessKeys  BusinessKeys        `json:"business_keys"`
+}
+
+// PluginSnapshot is the worker-owned execution view of one immutable plugin revision.
+type PluginSnapshot struct {
+	PluginID   string          `json:"plugin_id"`
+	Code       string          `json:"code"`
+	Kind       string          `json:"kind"`
+	Revision   int             `json:"revision"`
+	Definition json.RawMessage `json:"definition"`
 }
 
 // AssistantContext is the assistant snapshot used for one run.
 type AssistantContext struct {
-	ID           string   `json:"id"`
+	// ID 是 leros_digital_assistant.id，自增主键，用于 llm_history 关联。
+	ID uint `json:"id,omitempty"`
+	// PublicID 是 leros_digital_assistant.public_id，用于标识执行本次运行的 AI 队友。
+	PublicID     string   `json:"public_id,omitempty"`
 	Name         string   `json:"name,omitempty"`
 	Description  string   `json:"description,omitempty"`
 	Role         string   `json:"role,omitempty"`
@@ -86,6 +102,9 @@ type WorkspaceContext struct {
 	TaskID    string `json:"task_id,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
 	RepoDir   string `json:"repo_dir,omitempty"`
+	// SkillDir is the per-run project view of Skills prepared by the worker.
+	// It is intentionally not supplied by the server.
+	SkillDir string `json:"skill_dir,omitempty"`
 }
 
 // ProjectContext is the project snapshot used for one run.
@@ -222,6 +241,11 @@ func CloneRequest(req *RunRequest) *RunRequest {
 	clone.Input.Attachments = copyAttachments(req.Input.Attachments)
 
 	clone.Capability.AllowedTools = copyStringSlice(req.Capability.AllowedTools)
+	clone.Plugins = make([]PluginSnapshot, len(req.Plugins))
+	for i, plugin := range req.Plugins {
+		clone.Plugins[i] = plugin
+		clone.Plugins[i].Definition = append(json.RawMessage(nil), plugin.Definition...)
+	}
 
 	return &clone
 }

@@ -8,16 +8,17 @@ import {
 	useDAStore,
 	useGlobalConfigStore,
 	useLayoutStore,
-	useSkillStore,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronRight, Loader2, Plus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ORGANIZATION_DEFAULT_AVATAR_SRC } from "../../assets";
 import { ProtectedImage } from "../avatar/ProtectedImage";
+import { FieldWithError, RequiredMark, useFormFieldValidation } from "../form/formValidation";
 import type { AppNavigation } from "../layout/LeftRail";
 
 type OrganizationSwitchPanelProps = {
@@ -45,15 +46,14 @@ export function OrganizationSwitchPanel({
 }: OrganizationSwitchPanelProps) {
 	const user = useAuthStore((s) => s.authUser);
 	const edition = useGlobalConfigStore((s) => s.edition);
+	const maxOrgsPerUser = useGlobalConfigStore((s) => s.maxOrgsPerUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const switchOrganization = useAuthStore((s) => s.switchOrganization);
 	const createOrganization = useAuthStore((s) => s.createOrganization);
 	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
 	const resetAuthScopedData = useLayoutStore((s) => s.resetAuthScopedData);
 	const resetDAAuthScopedData = useDAStore((s) => s.resetAuthScopedData);
-	const resetSkillAuthScopedData = useSkillStore((s) => s.resetAuthScopedData);
 	const fetchAssistants = useDAStore((s) => s.fetchAssistants);
-	const fetchInstalledSkills = useSkillStore((s) => s.fetchInstalledSkills);
 	const switchView = useLayoutStore((s) => s.switchView);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const resetLocalMessages = useChatStore((s) => s.resetLocalMessages);
@@ -63,8 +63,14 @@ export function OrganizationSwitchPanel({
 	const [switchingOrgId, setSwitchingOrgId] = useState<number | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [waitingForNavigation, setWaitingForNavigation] = useState(false);
+	const { resetValidation, shouldShowError, handleFieldBlur } = useFormFieldValidation();
+	const organizations = pendingLogin?.organizations ?? user?.organizations ?? [];
+	// 中文注释：OSS 仅允许首次无组织时创建；企业版才展示创建入口。
 	const canCreateOrganization =
 		edition === "enterprise" || Boolean(pendingLogin && pendingLogin.organizations.length === 0);
+	// 中文注释：达到 GlobalConfig.max_orgs_per_user 后禁用创建入口，并用悬浮提示说明原因。
+	const createOrganizationDisabled =
+		maxOrgsPerUser !== null && organizations.length >= maxOrgsPerUser;
 
 	const changeMode = (nextMode: PanelMode) => {
 		setMode(nextMode);
@@ -80,6 +86,13 @@ export function OrganizationSwitchPanel({
 	}, [active, initialMode, pendingLogin, refreshAuthSession]);
 
 	useEffect(() => {
+		if (mode !== "create") return;
+		setOrganizationName("");
+		setUserDisplayName("");
+		resetValidation();
+	}, [mode, resetValidation]);
+
+	useEffect(() => {
 		if (!waitingForNavigation || navigation?.currentPath !== "/workbench") return;
 		setWaitingForNavigation(false);
 		onDone?.();
@@ -88,7 +101,6 @@ export function OrganizationSwitchPanel({
 	const resetOrgScopedData = () => {
 		resetAuthScopedData();
 		resetDAAuthScopedData();
-		resetSkillAuthScopedData();
 		resetLocalMessages();
 		clearComposerInput();
 
@@ -102,11 +114,9 @@ export function OrganizationSwitchPanel({
 			onDone?.();
 		}
 
-		void Promise.all([fetchProjects(), fetchAssistants(), fetchInstalledSkills()]).catch(
-			(error) => {
-				console.error("preload organization scoped data error:", error);
-			},
-		);
+		void Promise.all([fetchProjects(), fetchAssistants()]).catch((error) => {
+			console.error("preload organization scoped data error:", error);
+		});
 	};
 
 	const handleSwitchOrganization = async (orgId: number) => {
@@ -140,17 +150,30 @@ export function OrganizationSwitchPanel({
 		}
 	};
 
+	const trimmedOrganizationName = organizationName.trim();
+	const trimmedUserDisplayName = userDisplayName.trim();
+	const organizationNameValid = trimmedOrganizationName.length > 0;
+	const userDisplayNameValid = trimmedUserDisplayName.length > 0;
+	const showOrganizationNameError = shouldShowError("organizationName") && !organizationNameValid;
+	const showUserDisplayNameError = shouldShowError("userDisplayName") && !userDisplayNameValid;
+	const canSubmitOrganization = organizationNameValid && userDisplayNameValid;
+
 	const handleCreateOrganization = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		const name = organizationName.trim();
-		const displayName = userDisplayName.trim();
-		if (!name || !displayName || creating || waitingForNavigation) return;
+		if (
+			!canCreateOrganization ||
+			!canSubmitOrganization ||
+			creating ||
+			waitingForNavigation ||
+			createOrganizationDisabled
+		)
+			return;
 		setCreating(true);
 		try {
 			if (pendingLogin) {
-				await pendingLogin.onCreate(name, displayName);
+				await pendingLogin.onCreate(trimmedOrganizationName, trimmedUserDisplayName);
 			} else {
-				await createOrganization(name, displayName);
+				await createOrganization(trimmedOrganizationName, trimmedUserDisplayName);
 			}
 			resetOrgScopedData();
 			toast.success(pendingLogin ? "已创建并进入组织" : "已创建并切换组织");
@@ -172,40 +195,48 @@ export function OrganizationSwitchPanel({
 
 	if (mode === "create") {
 		return (
-			<form onSubmit={handleCreateOrganization} className="flex w-full flex-col">
+			<form noValidate onSubmit={handleCreateOrganization} className="flex w-full flex-col">
 				<div className="border-b border-[var(--leros-control-border)] pb-4">
 					<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">创建新组织</h2>
 				</div>
-				<div className="py-5">
-					<label
-						className="block text-sm font-medium text-[var(--leros-text-muted)]"
-						htmlFor="organization-name"
-					>
-						组织名称
-					</label>
-					<Input
-						id="organization-name"
-						value={organizationName}
-						onChange={(event) => setOrganizationName(event.target.value)}
-						placeholder="请输入组织名称"
-						maxLength={50}
-						autoFocus
-						className="mt-2 h-10"
-					/>
-					<label
-						className="mt-4 block text-sm font-medium text-[var(--leros-text-muted)]"
-						htmlFor="user-display-name"
-					>
-						用户昵称
-					</label>
-					<Input
-						id="user-display-name"
-						value={userDisplayName}
-						onChange={(event) => setUserDisplayName(event.target.value)}
-						placeholder="请输入用户昵称"
-						maxLength={50}
-						className="mt-2 h-10"
-					/>
+				<div className="space-y-4 py-5">
+					<FieldWithError error={showOrganizationNameError ? "请输入组织名称" : undefined}>
+						<label
+							className="block text-sm font-medium text-[var(--leros-text-muted)]"
+							htmlFor="organization-name"
+						>
+							组织名称
+							<RequiredMark />
+						</label>
+						<Input
+							id="organization-name"
+							value={organizationName}
+							onChange={(event) => setOrganizationName(event.target.value)}
+							onBlur={handleFieldBlur("organizationName")}
+							placeholder="请输入组织名称"
+							maxLength={50}
+							autoFocus
+							className="mt-2 h-10"
+						/>
+					</FieldWithError>
+					<FieldWithError error={showUserDisplayNameError ? "请输入用户昵称" : undefined}>
+						<label
+							className="block text-sm font-medium text-[var(--leros-text-muted)]"
+							htmlFor="user-display-name"
+						>
+							用户昵称
+							<RequiredMark />
+						</label>
+						<Input
+							id="user-display-name"
+							value={userDisplayName}
+							onChange={(event) => setUserDisplayName(event.target.value)}
+							onBlur={handleFieldBlur("userDisplayName")}
+							placeholder="请输入用户昵称"
+							maxLength={50}
+							className="mt-2 h-10"
+						/>
+					</FieldWithError>
 				</div>
 				<div className="flex justify-end gap-3">
 					<Button type="button" variant="outline" onClick={() => changeMode("switch")}>
@@ -213,7 +244,7 @@ export function OrganizationSwitchPanel({
 					</Button>
 					<Button
 						type="submit"
-						disabled={!organizationName.trim() || !userDisplayName.trim() || creating}
+						disabled={!canSubmitOrganization || creating || waitingForNavigation}
 					>
 						{creating ? <Loader2 className="size-4 animate-spin" /> : null}
 						<span>创建并切换</span>
@@ -230,19 +261,36 @@ export function OrganizationSwitchPanel({
 			</div>
 			{canCreateOrganization ? (
 				<div className="flex justify-end py-3">
-					<button
-						type="button"
-						onClick={() => changeMode("create")}
-						className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]"
-					>
-						<Plus className="size-4" />
-						<span>创建新组织</span>
-					</button>
+					{createOrganizationDisabled ? (
+						<Tooltip>
+							{/* 中文注释：用 span 承接悬浮，避免原生 disabled 按钮吞掉 pointer 事件导致提示不出现。 */}
+							<TooltipTrigger
+								render={
+									<span className="inline-flex cursor-not-allowed items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] opacity-50" />
+								}
+							>
+								<button type="button" disabled className="inline-flex items-center gap-1.5">
+									<Plus className="size-4" />
+									<span>创建新组织</span>
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="top">每个用户最多可创建 {maxOrgsPerUser} 个组织</TooltipContent>
+						</Tooltip>
+					) : (
+						<button
+							type="button"
+							onClick={() => changeMode("create")}
+							className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--leros-text-subtle)] transition-colors hover:text-[var(--leros-text-strong)]"
+						>
+							<Plus className="size-4" />
+							<span>创建新组织</span>
+						</button>
+					)}
 				</div>
 			) : null}
 			<div className="no-scrollbar min-h-0 max-h-[calc(70dvh-9rem)] flex-1 overflow-y-auto pr-1">
 				<OrganizationList
-					organizations={pendingLogin?.organizations ?? user?.organizations ?? []}
+					organizations={organizations}
 					currentOrgId={pendingLogin ? undefined : user?.currentOrg?.id}
 					switchingOrgId={switchingOrgId}
 					onSwitch={(orgId) => void handleSwitchOrganization(orgId)}

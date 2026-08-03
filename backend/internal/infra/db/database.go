@@ -64,6 +64,7 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameProjectFile, column: "node_type"},
 	{table: types.TableNameProjectFile, column: "parent_id"},
 	{table: types.TableNameProjectFile, column: "parent_ids"},
+	{table: types.TableNameUserOrg, column: "uin"},
 	{table: types.TableNameUser, column: "github_id"},
 	{table: types.TableNameUser, column: "github_login"},
 	{table: types.TableNameUser, column: "bio"},
@@ -71,6 +72,13 @@ var legacyColumns = []legacyColumn{
 	{table: types.TableNameUser, column: "location"},
 	{table: types.TableNameUser, column: "public_repos"},
 	{table: types.TableNameUser, column: "followers"},
+	{table: types.TableNamePluginRevision, column: "source_marketplace_version"},
+	{table: types.TableNamePluginRevisionContent, column: "org_id"},
+	{table: types.TableNamePluginRevisionContent, column: "kind"},
+	{table: types.TableNamePluginRevisionContent, column: "code"},
+	{table: types.TableNamePluginRevisionContent, column: "version"},
+	{table: types.TableNamePluginMarketplaceItem, column: "version"},
+	{table: types.TableNamePluginMarketplaceItem, column: "definition"},
 }
 
 var renamesToApply = []renameColumn{
@@ -149,9 +157,6 @@ func runMigrations(db *gorm.DB) error {
 		&types.AssistantPromptTrace{},
 		&types.AITeammateTemplate{},
 		&types.WorkerDeployment{},
-		&types.Skill{},
-		&types.SkillRegistry{},
-		&types.SkillExecutionLog{},
 		&types.Session{},
 		&types.SessionMessage{},
 		&types.LLMModel{},
@@ -165,9 +170,12 @@ func runMigrations(db *gorm.DB) error {
 		&types.WorkbenchRecentContext{},
 		&types.FileUpload{},
 		&types.ProjectFile{},
-		&types.BuiltinSkillMarketplaceItem{},
-		&types.SkillMarketplaceItem{},
-		&types.OrgSkillInstallation{},
+		&types.Plugin{},
+		&types.PluginRevision{},
+		&types.PluginRevisionContent{},
+		&types.ProjectPluginBinding{},
+		&types.PluginMarketplaceItem{},
+		&types.MCPChannel{},
 		&types.MessageResource{},
 		&types.Department{},
 		&types.MemberDepartment{},
@@ -188,8 +196,17 @@ func runMigrations(db *gorm.DB) error {
 	if err := dropLegacyIndexes(db); err != nil {
 		return err
 	}
-
 	if err := dbtools.InitModel(db, models...); err != nil {
+		return err
+	}
+	if err := backfillMCPChannelAuthorization(db); err != nil {
+		return err
+	}
+	if err := migratePluginDefinitions(db); err != nil {
+		return err
+	}
+
+	if err := createPluginIndexes(db); err != nil {
 		return err
 	}
 
@@ -251,15 +268,94 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
-	if err := backfillBuiltinSkillAuthorBranding(db); err != nil {
-		return err
-	}
-
 	if err := dropLegacyTables(db); err != nil {
 		return err
 	}
 
 	logs.Info("Database migrations completed")
+	return nil
+}
+
+func backfillMCPChannelAuthorization(db *gorm.DB) error {
+	return db.Model(&types.MCPChannel{}).
+		Where("channel = ? AND auth_type = ?", "corekg", types.MCPChannelAuthTypeNone).
+		Updates(map[string]interface{}{
+			"auth_type": types.MCPChannelAuthTypeManaged,
+			"auth_config": types.MCPChannelAuthConfigJSON{
+				Handler: "corekg",
+			},
+		}).Error
+}
+
+func createPluginIndexes(db *gorm.DB) error {
+	if err := db.Exec("DROP INDEX IF EXISTS ux_plugin_org_code").Error; err != nil {
+		return fmt.Errorf("drop legacy plugin organization code index: %w", err)
+	}
+	if err := db.Exec("DROP INDEX IF EXISTS ux_plugin_revision_content_identity").Error; err != nil {
+		return fmt.Errorf("drop legacy plugin revision content index: %w", err)
+	}
+	statements := []string{
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_org_scope_code ON leros_plugin (org_id, kind, code) WHERE owner_scope = 'organization' AND deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_system_code ON leros_plugin (kind, code) WHERE owner_scope = 'system' AND deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_public_id ON leros_plugin (public_id)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_revision_number ON leros_plugin_revision (plugin_id, revision)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_revision_content_revision ON leros_plugin_revision_content (plugin_revision_id)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_revision_source ON leros_plugin_revision (source_plugin_revision_id)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_project_plugin_active ON leros_project_plugin_binding (project_id, plugin_id) WHERE deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_public_id ON leros_plugin_marketplace_item (public_id)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_source ON leros_plugin_marketplace_item (source_type, source_ref) WHERE deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_plugin ON leros_plugin_marketplace_item (plugin_id) WHERE plugin_id > 0 AND deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_file_upload_system_artifact_sha ON leros_file_upload (sha256) WHERE owner_scope = 'system' AND purpose = 'artifact' AND deleted_at IS NULL",
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("create plugin index: %w", err)
+		}
+	}
+	return nil
+}
+
+// migratePluginDefinitions converts the short-lived fixed bundle columns to the
+// kind-owned definition document. Only PostgreSQL needs data conversion because
+// SQLite is used for empty-schema tests and has no JSONB construction functions.
+func migratePluginDefinitions(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	if db.Migrator().HasColumn(types.TableNamePluginRevision, "artifact_uri") {
+		if err := db.Exec(`UPDATE leros_plugin_revision r SET definition = jsonb_build_object('schema', p.kind || '/v1', 'artifact', jsonb_build_object('file_upload_id', COALESCE((SELECT f.public_id FROM leros_file_upload f WHERE f.storage_uri = r.artifact_uri AND f.deleted_at IS NULL LIMIT 1), ''), 'sha256', r.artifact_sha256, 'size_bytes', r.package_size_bytes, 'content_type', r.content_type)) FROM leros_plugin p WHERE p.id = r.plugin_id AND (r.definition = '{}'::jsonb OR r.definition IS NULL)`).Error; err != nil {
+			return fmt.Errorf("backfill plugin revision definition: %w", err)
+		}
+		if err := db.Exec("DROP INDEX IF EXISTS ux_plugin_revision_content").Error; err != nil {
+			return fmt.Errorf("drop plugin revision content index: %w", err)
+		}
+		for _, column := range []string{"artifact_uri", "artifact_sha256", "package_size_bytes", "content_type"} {
+			if err := db.Migrator().DropColumn(types.TableNamePluginRevision, column); err != nil {
+				return fmt.Errorf("drop plugin revision %s: %w", column, err)
+			}
+		}
+	}
+	if err := normalizePluginArtifactFileUploadIDs(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// normalizePluginArtifactFileUploadIDs upgrades definitions written by the
+// initial migration to use FileUpload.PublicID instead of the internal row ID.
+func normalizePluginArtifactFileUploadIDs(db *gorm.DB) error {
+	statements := []struct {
+		table string
+		name  string
+	}{
+		{table: types.TableNamePluginRevision, name: "plugin revision"},
+	}
+	for _, statement := range statements {
+		query := fmt.Sprintf(`UPDATE %s target SET definition = jsonb_set(target.definition, '{artifact,file_upload_id}', to_jsonb(file.public_id), false) FROM leros_file_upload file WHERE jsonb_typeof(target.definition->'artifact'->'file_upload_id') = 'number' AND file.id = CASE WHEN (target.definition->'artifact'->>'file_upload_id') ~ '^[0-9]+$' THEN (target.definition->'artifact'->>'file_upload_id')::bigint ELSE NULL END`, statement.table)
+		if err := db.Exec(query).Error; err != nil {
+			return fmt.Errorf("normalize %s file_upload_id: %w", statement.name, err)
+		}
+	}
 	return nil
 }
 
@@ -332,7 +428,7 @@ func backfillUinFromUserOrgID(db *gorm.DB) error {
 		err := db.Exec(`
 			UPDATE leros_rel_user_org_department
 			SET uin = (
-				SELECT uo.uin FROM leros_user_org uo
+				SELECT uo.id FROM leros_user_org uo
 				WHERE uo.id = leros_rel_user_org_department.user_org_id
 			)
 			WHERE user_org_id > 0 AND uin = 0
@@ -347,7 +443,7 @@ func backfillUinFromUserOrgID(db *gorm.DB) error {
 		err := db.Exec(`
 			UPDATE leros_auth_refresh_token
 			SET uin = (
-				SELECT uo.uin FROM leros_user_org uo
+				SELECT uo.id FROM leros_user_org uo
 				WHERE uo.id = leros_auth_refresh_token.user_org_id
 			)
 			WHERE user_org_id > 0 AND uin = 0
@@ -369,7 +465,7 @@ func backfillMemberDepartmentOrgID(db *gorm.DB) error {
 		UPDATE leros_rel_user_org_department
 		SET org_id = (
 			SELECT uo.org_id FROM leros_user_org uo
-			WHERE uo.uin = leros_rel_user_org_department.uin
+			WHERE uo.id = leros_rel_user_org_department.uin
 		)
 		WHERE org_id = 0 AND uin > 0
 	`).Error
@@ -710,38 +806,17 @@ func backfillMemberDefaultDepartments(d *gorm.DB) error {
 			WHERE rn = 1
 		)
 		INSERT INTO leros_rel_user_org_department (uin, org_id, department_id, is_primary, created_at, updated_at)
-		SELECT uo.uin, uo.org_id, dd.id, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		SELECT uo.id, uo.org_id, dd.id, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 		FROM leros_user_org uo
 		JOIN default_departments dd ON dd.org_id = uo.org_id
 		WHERE uo.deleted_at IS NULL
 		  AND NOT EXISTS (
 			SELECT 1 FROM leros_rel_user_org_department md
-			WHERE md.uin = uo.uin AND md.org_id = uo.org_id AND md.deleted_at IS NULL
+			WHERE md.uin = uo.id AND md.org_id = uo.org_id AND md.deleted_at IS NULL
 		  )
 	`).Error
 	if err != nil {
 		logs.Warnf("[migration] backfillMemberDefaultDepartments: %v", err)
-	}
-	return nil
-}
-
-// backfillBuiltinSkillAuthorBranding 将内置 Skill 市场条目的 author 从旧品牌名 Leros 更新为 Lework。
-func backfillBuiltinSkillAuthorBranding(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&types.BuiltinSkillMarketplaceItem{}) {
-		return nil
-	}
-
-	result := db.Exec(
-		fmt.Sprintf(`UPDATE %s SET author = ? WHERE author = ? AND deleted_at IS NULL`, types.TableNameBuiltinSkillMarketplaceItem),
-		"Lework",
-		"Leros",
-	)
-	if result.Error != nil {
-		logs.Warnf("[migration] backfillBuiltinSkillAuthorBranding: %v", result.Error)
-		return nil
-	}
-	if result.RowsAffected > 0 {
-		logs.Infof("[migration] backfillBuiltinSkillAuthorBranding: updated %d rows", result.RowsAffected)
 	}
 	return nil
 }
@@ -865,7 +940,6 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 		}
 
 		userOrg := &types.UserOrg{
-			Uin:       user.ID,
 			UserID:    user.ID,
 			OrgID:     org.ID,
 			IsDefault: true,
@@ -873,7 +947,7 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 		if err := db.Create(userOrg).Error; err != nil {
 			return fmt.Errorf("failed to create default user-org: %w", err)
 		}
-		logs.Infof("Default user-org association created (uin=%d, user_id=%d, org_id=%d)", userOrg.Uin, userOrg.UserID, userOrg.OrgID)
+		logs.Infof("Default user-org association created (id=%d, user_id=%d, org_id=%d)", userOrg.ID, userOrg.UserID, userOrg.OrgID)
 	}
 
 	if err := seedDefaultWorkerDeployment(db); err != nil {
@@ -914,11 +988,6 @@ func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
 
 	if err := seedSystemLLMModels(db, llmCfg); err != nil {
 		return err
-	}
-
-	// 初始化内置 Skill 市场条目（从 backend/skills/server/ 下的 SKILL.md 解析）
-	if err := SeedBuiltinSkillMarketplace(db); err != nil {
-		return fmt.Errorf("failed to seed builtin skill marketplace: %w", err)
 	}
 
 	return nil

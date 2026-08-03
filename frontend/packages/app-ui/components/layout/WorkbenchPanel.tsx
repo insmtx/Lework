@@ -2,10 +2,10 @@
 
 import {
 	buildComposerFolderUploadSummaryMessage,
-	COMPOSER_UPLOAD_ACCEPT,
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	getComposerUploadAccept,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
 	type Project,
@@ -15,7 +15,6 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
-	useSkillStore,
 } from "@leros/store";
 import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
@@ -56,14 +55,15 @@ import {
 	getFolderNameFromFiles,
 	isFolderUploadSizeExceeded,
 } from "../input/upload-folder";
+import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectIcon } from "./project-icon";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
-	// 中文注释：选择已有项目后不再支持临时召唤队友/技能，需要同步移除输入框中已插入的指令 token。
+	// 中文注释：选择已有项目后不再支持临时召唤队友，需要同步移除输入框中已插入的 @ 指令 token，但保留 /skill 指令。
 	return value
-		.replace(/(^|\s)(?:@[^\s@/]+|\/[^\s@/]+)(?=\s|$)/g, " ")
+		.replace(/(^|\s)@[^\s@/]+(?=\s|$)/g, " ")
 		.replace(/[ \t]{2,}/g, " ")
 		.trimStart();
 }
@@ -91,7 +91,7 @@ function buildInvokedAssistantMetadata(
 ): MessageMetadata {
 	// 中文注释：@ 队友保留在 content 中，与 AddMessage / 技能指令一致；metadata 仅补充路由与头像展示信息。
 	const invokedAssistant: NonNullable<MessageMetadata["invokedAssistant"]> = {
-		id: String(assistant.id),
+		id: assistant.id,
 		name: assistant.name,
 	};
 	if (assistant.avatarUrl) invokedAssistant.avatarUrl = assistant.avatarUrl;
@@ -245,6 +245,9 @@ function detectDesktopApp(): boolean {
 }
 
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
+	const composerUploadAccept = getComposerUploadAccept(
+		typeof navigator === "undefined" ? undefined : navigator.platform,
+	);
 	const {
 		projects,
 		activeWorkbenchProjectId,
@@ -254,13 +257,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		sendWorkbenchMessage,
 		fetchProjects,
 		fetchTasks,
-		saveWorkbenchRecentContext,
 		clearTaskDetailRoute,
 		workbenchComposerPrefill,
 		consumeWorkbenchComposerPrefill,
 	} = useLayoutStore((s) => s);
 	const { assistants, fetchAssistants } = useDAStore((s) => s);
-	const { fetchInstalledSkills } = useSkillStore((s) => s);
 	const { startGlobalEvents } = useChatStore((s) => s);
 	const { isAuthenticated, openAuthDialog, requireAuth } = useAuth();
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -268,6 +269,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const uploadAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
+	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+		activeWorkbenchProjectId ?? null,
+		isAuthenticated,
+	);
 	const projectTriggerClearRef = useRef<(() => void) | null>(null);
 	const projectTriggerDismissRef = useRef<(() => void) | null>(null);
 	const pickerRootRef = useRef<HTMLDivElement>(null);
@@ -319,11 +324,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		if (!isAuthenticated) return;
 		void fetchAssistants();
 	}, [fetchAssistants, isAuthenticated]);
-
-	useEffect(() => {
-		if (!isAuthenticated) return;
-		void fetchInstalledSkills();
-	}, [fetchInstalledSkills, isAuthenticated]);
 
 	useEffect(() => {
 		if (!isAuthenticated) return;
@@ -390,10 +390,8 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			const messageMetadata = mentionedAssistant
 				? buildInvokedAssistantMetadata(composerMetadata, mentionedAssistant)
 				: composerMetadata;
-			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids，不能传单个数字 assistant_id。
-			const mentionedAssistantIds = mentionedAssistant
-				? [String(mentionedAssistant.id)]
-				: undefined;
+			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids。
+			const mentionedAssistantIds = mentionedAssistant ? [mentionedAssistant.id] : undefined;
 			const data = await sendWorkbenchMessage(
 				content,
 				activeWorkbenchProjectId,
@@ -641,7 +639,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			if (!files.length) return;
 
 			if (!isAuthenticated) {
-				openAuthDialog("login");
+				openAuthDialog("phone");
 				return;
 			}
 			void uploadAttachments(files);
@@ -790,18 +788,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			requireAuth(() => {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
-				void saveWorkbenchRecentContext(project.id, null);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				closeProjectMenu();
 			});
 		},
-		[
-			clearProjectTriggerText,
-			closeProjectMenu,
-			requireAuth,
-			saveWorkbenchRecentContext,
-			selectWorkbenchProject,
-		],
+		[clearProjectTriggerText, closeProjectMenu, requireAuth, selectWorkbenchProject],
 	);
 
 	const handleSelectTask = useCallback(
@@ -810,7 +801,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				clearProjectTriggerText();
 				selectWorkbenchProject(project.id);
 				selectWorkbenchTask(task.id);
-				void saveWorkbenchRecentContext(project.id, task.id);
 				setInput((current) => removeWorkbenchDirectiveTokens(current));
 				closeProjectMenu();
 			});
@@ -819,7 +809,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			clearProjectTriggerText,
 			closeProjectMenu,
 			requireAuth,
-			saveWorkbenchRecentContext,
 			selectWorkbenchProject,
 			selectWorkbenchTask,
 		],
@@ -887,7 +876,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 			projectTriggerClearRef.current = clearTrigger;
 			projectTriggerDismissRef.current = dismissTrigger;
 			if (!isAuthenticated) {
-				openAuthDialog("login");
+				openAuthDialog("phone");
 				return;
 			}
 			setProjectSearch(query);
@@ -925,8 +914,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 					</button> */}
 					{/* <button
 						type="button"
-						onClick={() => {
-							if (!isAuthenticated) openAuthDialog("login");
+							if (!isAuthenticated) openAuthDialog("phone");
 						}}
 						className="rounded-full bg-[#070d1c] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#182033]"
 						disabled={!isHydrated}
@@ -997,7 +985,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 							ref={fileInputRef}
 							type="file"
 							className="hidden"
-							accept={COMPOSER_UPLOAD_ACCEPT}
+							accept={composerUploadAccept}
 							multiple
 							onChange={handleAttachmentSelect}
 						/>
@@ -1035,7 +1023,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								isProjectVariant
 								assistantOptions={availableAssistantOptions}
 								assistantSelectionMode="single"
-								directivesDisabled={Boolean(activeProject)}
+								skillOptions={skillOptions}
+								skillsLoading={skillsLoading}
+								assistantDirectivesDisabled={Boolean(activeProject)}
 								onProjectTrigger={handleProjectTrigger}
 							/>
 						</div>
@@ -1048,14 +1038,15 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									onUploadFolder={() => folderInputRef.current?.click()}
 									onBeforeAction={() => {
 										if (!isAuthenticated) {
-											openAuthDialog("login");
+											openAuthDialog("phone");
 											return false;
 										}
 										return true;
 									}}
 									assistantOptions={availableAssistantOptions}
 									assistantSelectionMode="single"
-									disableAssistantAndSkill={Boolean(activeProject)}
+									skillOptions={skillOptions}
+									skillsLoading={skillsLoading}
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
 									isGenerating={isSending}

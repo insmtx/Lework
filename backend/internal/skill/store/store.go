@@ -18,7 +18,6 @@ import (
 
 const (
 	skillFileName          = "SKILL.md"
-	seedManifestFile       = ".seed-manifest"
 	maxNameLength          = 64
 	maxDescriptionLength   = 1024
 	maxSkillContentChars   = 1_048_576
@@ -34,34 +33,9 @@ const (
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
-// MutationKind 表示一次 skill 变更的类型。
-type MutationKind int
-
-const (
-	MutationCreate MutationKind = iota
-	MutationModify
-	MutationDelete
-)
-
 // SkillStore 管理文件型 Skill。
 type SkillStore struct {
-	rootDir    string
-	onMutation MutationHandler
-}
-
-// MutationHandler receives successful skill mutations for instance-scoped side effects.
-type MutationHandler func(ctx context.Context, kind MutationKind, name, action string)
-
-// mutationKindForAction 将 action 字符串映射为 MutationKind。
-func mutationKindForAction(action string) MutationKind {
-	switch action {
-	case ActionCreate:
-		return MutationCreate
-	case ActionDelete:
-		return MutationDelete
-	default:
-		return MutationModify
-	}
+	rootDir string
 }
 
 // Skill 描述一个已发现的 Skill 目录。
@@ -84,7 +58,6 @@ func (e *SkillError) Error() string {
 var (
 	ErrSkillExists     = &SkillError{Code: "skill_exists", Message: "skill already exists"}
 	ErrSkillNotFound   = &SkillError{Code: "skill_not_found", Message: "skill not found"}
-	ErrSkillIsBuiltin  = &SkillError{Code: "skill_is_builtin", Message: "cannot uninstall built-in skill"}
 	ErrNameInvalid     = &SkillError{Code: "name_invalid", Message: "invalid skill name"}
 	ErrDocumentInvalid = &SkillError{Code: "document_invalid", Message: "invalid skill document"}
 	ErrPatchNoMatch    = &SkillError{Code: "patch_no_match", Message: "old_text was not found"}
@@ -160,11 +133,6 @@ func DefaultSkillRoot() (string, error) {
 
 // NewSkillStore 创建以 rootDir 为根目录的 SkillStore；rootDir 为空时使用默认 Leros skills 根目录。
 func NewSkillStore(rootDir string) (*SkillStore, error) {
-	return NewSkillStoreWithMutation(rootDir, nil)
-}
-
-// NewSkillStoreWithMutation creates a SkillStore with an immutable mutation callback.
-func NewSkillStoreWithMutation(rootDir string, onMutation MutationHandler) (*SkillStore, error) {
 	rootDir = strings.TrimSpace(rootDir)
 	if rootDir == "" {
 		var err error
@@ -177,7 +145,7 @@ func NewSkillStoreWithMutation(rootDir string, onMutation MutationHandler) (*Ski
 	if err != nil {
 		return nil, fmt.Errorf("resolve skill root: %w", err)
 	}
-	return &SkillStore{rootDir: absolute, onMutation: onMutation}, nil
+	return &SkillStore{rootDir: absolute}, nil
 }
 
 // RootDir 返回 skills 根目录。
@@ -186,13 +154,6 @@ func (s *SkillStore) RootDir() string {
 		return ""
 	}
 	return s.rootDir
-}
-
-// notifyMutation invokes the instance callback after a successful mutation.
-func (s *SkillStore) notifyMutation(ctx context.Context, name, action string) {
-	if s.onMutation != nil {
-		s.onMutation(ctx, mutationKindForAction(action), name, action)
-	}
 }
 
 // Create 写入一个新 Skill。
@@ -209,7 +170,7 @@ func (s *SkillStore) Create(ctx context.Context, req CreateRequest) (*Result, er
 	if err := validateName(name, "skill name"); err != nil {
 		return nil, err
 	}
-	if err := validateSkillDocument(content); err != nil {
+	if err := validateSkillDocument(content, name); err != nil {
 		return nil, err
 	}
 
@@ -234,7 +195,6 @@ func (s *SkillStore) Create(ctx context.Context, req CreateRequest) (*Result, er
 		Message: fmt.Sprintf("Skill %q created.", name),
 		Path:    skillDir,
 	}
-	s.notifyMutation(ctx, name, ActionCreate)
 	return result, nil
 }
 
@@ -252,7 +212,7 @@ func (s *SkillStore) Install(ctx context.Context, req InstallRequest) (*Result, 
 	if err := validateName(name, "skill name"); err != nil {
 		return nil, err
 	}
-	if err := validateSkillDocument(content); err != nil {
+	if err := validateSkillDocument(content, name); err != nil {
 		return nil, err
 	}
 
@@ -279,7 +239,7 @@ func (s *SkillStore) Install(ctx context.Context, req InstallRequest) (*Result, 
 	if err := os.MkdirAll(s.rootDir, 0o755); err != nil {
 		return nil, fmt.Errorf("ensure skill root: %w", err)
 	}
-	tmpDir, err := os.MkdirTemp(s.rootDir, ".leros-install-*")
+	tmpDir, err := os.MkdirTemp(s.rootDir, ".skill-install-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
@@ -304,8 +264,13 @@ func (s *SkillStore) Install(ctx context.Context, req InstallRequest) (*Result, 
 	// 强制覆盖时，先将旧目录 rename 到备份，确保 Rename 失败时可恢复。
 	var backupPath string
 	if req.Force {
-		backupPath = skillDir + ".backup"
-		_ = os.RemoveAll(backupPath)
+		backupPath, err = os.MkdirTemp(s.rootDir, ".skill-backup-"+name+"-*")
+		if err != nil {
+			return nil, fmt.Errorf("create backup path: %w", err)
+		}
+		if err := os.Remove(backupPath); err != nil {
+			return nil, fmt.Errorf("prepare backup path: %w", err)
+		}
 		if err := os.Rename(skillDir, backupPath); err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("backup existing skill: %w", err)
@@ -329,10 +294,6 @@ func (s *SkillStore) Install(ctx context.Context, req InstallRequest) (*Result, 
 	// 清理备份
 	if backupPath != "" {
 		_ = os.RemoveAll(backupPath)
-		// 用户强制覆盖内置 skill 后，从 seed-manifest 移除，允许后续卸载。
-		if err := s.removeSeedEntry(name); err != nil {
-			logs.Warnf("remove seed entry for %s: %v", name, err)
-		}
 	}
 
 	// 写入 .skill-metadata 文件
@@ -349,7 +310,6 @@ func (s *SkillStore) Install(ctx context.Context, req InstallRequest) (*Result, 
 		Message: fmt.Sprintf("Skill %q installed.", name),
 		Path:    skillDir,
 	}
-	s.notifyMutation(ctx, name, ActionCreate)
 	return result, nil
 }
 
@@ -376,8 +336,13 @@ func (s *SkillStore) Patch(ctx context.Context, req PatchRequest) (*Result, erro
 		return failure(ActionPatch, name, err.Error(), ErrSkillNotFound), nil
 	}
 
-	targetPath := filepath.Join(skill.Path, skillFileName)
-	if strings.TrimSpace(req.FilePath) != "" {
+	targetPath, err := resolveInside(skill.Path, skillFileName)
+	if err != nil {
+		return nil, err
+	}
+	patchesSkillDocument := strings.TrimSpace(req.FilePath) == "" ||
+		strings.EqualFold(filepath.Clean(strings.TrimSpace(req.FilePath)), skillFileName)
+	if !patchesSkillDocument {
 		if err := validateSupportingFilePath(req.FilePath); err != nil {
 			return nil, err
 		}
@@ -401,8 +366,8 @@ func (s *SkillStore) Patch(ctx context.Context, req PatchRequest) (*Result, erro
 	}
 
 	newContent := strings.Replace(content, req.OldText, req.NewText, replacementCount(req.ReplaceAll))
-	if strings.TrimSpace(req.FilePath) == "" {
-		if err := validateSkillDocument(newContent); err != nil {
+	if patchesSkillDocument {
+		if err := validateSkillDocument(newContent, name); err != nil {
 			return failure(ActionPatch, name, fmt.Sprintf("patch would break SKILL.md: %v", err), ErrDocumentInvalid), nil
 		}
 	} else {
@@ -422,7 +387,6 @@ func (s *SkillStore) Patch(ctx context.Context, req PatchRequest) (*Result, erro
 		Message: fmt.Sprintf("Patched skill %q with %d replacement(s).", name, count),
 		Path:    targetPath,
 	}
-	s.notifyMutation(ctx, name, ActionPatch)
 	return result, nil
 }
 
@@ -465,7 +429,6 @@ func (s *SkillStore) WriteFile(ctx context.Context, req WriteFileRequest) (*Resu
 		Message: fmt.Sprintf("File %q written to skill %q.", req.FilePath, name),
 		Path:    targetPath,
 	}
-	s.notifyMutation(ctx, name, ActionWriteFile)
 	return result, nil
 }
 
@@ -509,7 +472,6 @@ func (s *SkillStore) RemoveFile(ctx context.Context, req RemoveFileRequest) (*Re
 		Message: fmt.Sprintf("File %q removed from skill %q.", req.FilePath, name),
 		Path:    targetPath,
 	}
-	s.notifyMutation(ctx, name, ActionRemoveFile)
 	return result, nil
 }
 
@@ -527,7 +489,7 @@ func (s *SkillStore) Edit(ctx context.Context, req EditRequest) (*Result, error)
 	if err := validateName(name, "skill name"); err != nil {
 		return nil, err
 	}
-	if err := validateSkillDocument(content); err != nil {
+	if err := validateSkillDocument(content, name); err != nil {
 		return nil, err
 	}
 
@@ -536,7 +498,10 @@ func (s *SkillStore) Edit(ctx context.Context, req EditRequest) (*Result, error)
 		return failure(ActionEdit, name, err.Error(), ErrSkillNotFound), nil
 	}
 
-	skillPath := filepath.Join(skill.Path, skillFileName)
+	skillPath, err := resolveInside(skill.Path, skillFileName)
+	if err != nil {
+		return nil, err
+	}
 	if err := atomicWrite(skillPath, content); err != nil {
 		return nil, err
 	}
@@ -548,7 +513,6 @@ func (s *SkillStore) Edit(ctx context.Context, req EditRequest) (*Result, error)
 		Message: fmt.Sprintf("Skill %q updated.", name),
 		Path:    skill.Path,
 	}
-	s.notifyMutation(ctx, name, ActionEdit)
 	return result, nil
 }
 
@@ -571,13 +535,8 @@ func (s *SkillStore) Delete(ctx context.Context, req DeleteRequest) (*Result, er
 		return failure(ActionDelete, name, err.Error(), ErrSkillNotFound), nil
 	}
 
-	// Block deletion of built-in (seed) skills tracked in .seed-manifest.
-	if isSeed, err := s.isSeedSkill(name); err != nil {
-		return nil, fmt.Errorf("check seed manifest: %w", err)
-	} else if isSeed {
-		return failure(ActionDelete, name,
-			fmt.Sprintf("cannot uninstall built-in skill %q", name),
-			ErrSkillIsBuiltin), nil
+	if err := validateSkillDirectory(skill.Path); err != nil {
+		return nil, err
 	}
 
 	if err := os.RemoveAll(skill.Path); err != nil {
@@ -588,10 +547,13 @@ func (s *SkillStore) Delete(ctx context.Context, req DeleteRequest) (*Result, er
 		Success: true,
 		Action:  ActionDelete,
 		Name:    name,
-		Message: fmt.Sprintf("Skill %q deleted.", name),
-		Path:    skill.Path,
+		Message: fmt.Sprintf(
+			"Local Skill %q deleted; the Server Skill was not deleted and a committed baseline is restored "+
+				"after successful Run post-processing.",
+			name,
+		),
+		Path: skill.Path,
 	}
-	s.notifyMutation(ctx, name, ActionDelete)
 	return result, nil
 }
 
@@ -628,75 +590,6 @@ func (s *SkillStore) Find(ctx context.Context, name string) (*Skill, error) {
 	return found, nil
 }
 
-// isSeedSkill checks whether the given skill name appears in the .seed-manifest
-// file located in the store's rootDir. Matching is case-insensitive, consistent
-// with Find(). Returns false if the manifest file does not exist.
-func (s *SkillStore) isSeedSkill(name string) (bool, error) {
-	manifestPath := filepath.Join(s.rootDir, seedManifestFile)
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("read seed manifest: %w", err)
-	}
-	entries, warnings := catalog.ParseSeedManifest(data)
-	for _, w := range warnings {
-		logs.Warnf("%s", w)
-	}
-	for entryName := range entries {
-		if strings.EqualFold(entryName, name) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// removeSeedEntry removes a skill from the .seed-manifest file so it is no longer
-// treated as a built-in (seed) skill. This is called after a user force-installs
-// over a built-in skill, allowing subsequent uninstall to succeed.
-func (s *SkillStore) removeSeedEntry(name string) error {
-	manifestPath := filepath.Join(s.rootDir, seedManifestFile)
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read seed manifest: %w", err)
-	}
-	entries, warnings := catalog.ParseSeedManifest(data)
-	for _, w := range warnings {
-		logs.Warnf("%s", w)
-	}
-
-	// Find and remove the case-insensitive match.
-	found := false
-	for entryName := range entries {
-		if strings.EqualFold(entryName, name) {
-			delete(entries, entryName)
-			found = true
-			break
-		}
-	}
-	if !found {
-		return nil
-	}
-
-	// Rebuild the manifest file.
-	var lines []string
-	for entryName, hash := range entries {
-		lines = append(lines, entryName+":"+hash)
-	}
-	newData := strings.Join(lines, "\n")
-	if newData != "" {
-		newData += "\n"
-	}
-	if err := atomicWrite(manifestPath, newData); err != nil {
-		return fmt.Errorf("write seed manifest: %w", err)
-	}
-	return nil
-}
-
 func (s *SkillStore) validate() error {
 	if s == nil {
 		return fmt.Errorf("skill store is nil")
@@ -718,10 +611,13 @@ func validateName(name string, label string) error {
 	if !namePattern.MatchString(name) {
 		return fmt.Errorf("invalid %s %q: use lowercase letters, numbers, hyphens, dots, and underscores; must start with a letter or digit", label, name)
 	}
+	if name == "runs" {
+		return fmt.Errorf("invalid %s %q: name is reserved by the Worker", label, name)
+	}
 	return nil
 }
 
-func validateSkillDocument(content string) error {
+func validateSkillDocument(content string, expectedName string) error {
 	if strings.TrimSpace(content) == "" {
 		return fmt.Errorf("SKILL.md content cannot be empty")
 	}
@@ -736,6 +632,9 @@ func validateSkillDocument(content string) error {
 
 	if strings.TrimSpace(manifest.Name) == "" {
 		return fmt.Errorf("frontmatter must include name")
+	}
+	if strings.TrimSpace(manifest.Name) != expectedName {
+		return fmt.Errorf("frontmatter name %q must match skill name %q", strings.TrimSpace(manifest.Name), expectedName)
 	}
 	if strings.TrimSpace(manifest.Description) == "" {
 		return fmt.Errorf("frontmatter must include description")
@@ -754,12 +653,26 @@ func validateSupportingFilePath(filePath string) error {
 	if filePath == "" {
 		return fmt.Errorf("file_path is required")
 	}
+	if strings.ContainsRune(filePath, '\x00') {
+		return fmt.Errorf("file_path contains a null byte")
+	}
+	if strings.Contains(filePath, `\`) {
+		return fmt.Errorf("file_path must use forward slashes")
+	}
 	if filepath.IsAbs(filePath) {
 		return fmt.Errorf("absolute file_path is not allowed")
 	}
 	clean := filepath.Clean(filePath)
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path traversal is not allowed")
+	}
+	if strings.EqualFold(clean, skillFileName) {
+		return fmt.Errorf("%s must be changed with patch or edit", skillFileName)
+	}
+	for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
+		if strings.EqualFold(part, ".git") {
+			return fmt.Errorf("file_path cannot access Git internals")
+		}
 	}
 	return nil
 }
@@ -775,6 +688,7 @@ func validateSupportingFileContent(filePath string, content string) error {
 }
 
 func resolveInside(root string, relativePath string) (string, error) {
+	root = filepath.Clean(root)
 	target := filepath.Join(root, filepath.Clean(relativePath))
 	rel, err := filepath.Rel(root, target)
 	if err != nil {
@@ -783,7 +697,42 @@ func resolveInside(root string, relativePath string) (string, error) {
 	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
 		return "", fmt.Errorf("target path escapes skill directory")
 	}
+	if err := validateSkillDirectory(root); err != nil {
+		return "", err
+	}
+	current := root
+	parts := strings.Split(rel, string(filepath.Separator))
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			break
+		}
+		if statErr != nil {
+			return "", fmt.Errorf("inspect skill path %s: %w", current, statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("skill path %q contains a symbolic link", relativePath)
+		}
+		if index < len(parts)-1 && !info.IsDir() {
+			return "", fmt.Errorf("skill path component %q is not a directory", part)
+		}
+	}
 	return target, nil
+}
+
+func validateSkillDirectory(skillDir string) error {
+	info, err := os.Lstat(skillDir)
+	if err != nil {
+		return fmt.Errorf("inspect skill directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("skill directory must not be a symbolic link")
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("skill path is not a directory")
+	}
+	return nil
 }
 
 func atomicWrite(path string, content string) error {

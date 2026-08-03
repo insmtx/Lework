@@ -47,6 +47,18 @@ type toolProviderStub struct {
 	workspace WorkspacePreparation
 }
 
+type skillPreparerStub struct {
+	dir string
+}
+
+func (s skillPreparerStub) PrepareSkills(
+	context.Context,
+	*agentrundomain.RunRequest,
+	WorkspacePreparation,
+) (string, func(), error) {
+	return s.dir, func() {}, nil
+}
+
 func (s *toolProviderStub) ToolsFor(
 	_ *agentrundomain.RunRequest,
 	workspace WorkspacePreparation,
@@ -102,7 +114,7 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 		TaskID:        "task-1",
 		ExecutionMode: agentrundomain.ExecutionModePlan,
 		Assistant: agentrundomain.AssistantContext{
-			ID: "assistant-1",
+			PublicID: "assistant-1",
 		},
 		Workspace: agentrundomain.WorkspaceContext{
 			OrgID:     1,
@@ -154,6 +166,41 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 	if !strings.Contains(prepared.Execution.Prompt, "Use the prepared review workflow.") ||
 		!strings.Contains(prepared.Execution.Prompt, "inspect the change") {
 		t.Fatalf("prepared prompt lost skill rewrite: %s", prepared.Execution.Prompt)
+	}
+}
+
+func TestPreparerInjectsTaskSkillDirectoryIntoRuntimeEnvironment(t *testing.T) {
+	taskDir := filepath.Join(t.TempDir(), "task-1")
+	skillDir := filepath.Join(taskDir, "skills")
+	workspace := WorkspacePreparation{WorkDir: t.TempDir(), TaskDir: taskDir}
+	preparer := NewPreparerWithSkillPreparer(
+		agentruncontext.NewContextBuilder(agentruncontext.ContextBuilder{}),
+		&workspaceManagerStub{preparation: workspace},
+		nil,
+		modelrouter.NewModelStore(),
+		nil,
+		skillPreparerStub{dir: skillDir},
+	)
+	request := &agentrundomain.RunRequest{
+		RunID: "run-1",
+		Input: agentrundomain.InputContext{
+			Type:     agentrundomain.InputTypeMessage,
+			Messages: []agentrundomain.InputMessage{{Role: "user", Content: "hello"}},
+		},
+		Model: agentrundomain.ModelOptions{Provider: "openai", Model: "test-model", APIKey: "test-key"},
+	}
+
+	prepared, cleanup, err := preparer.Prepare(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	defer cleanup()
+	if prepared.Workspace.SkillDir != skillDir || prepared.Execution.Filesystem.SkillDir != skillDir {
+		t.Fatalf("Skill directories = workspace:%q execution:%q", prepared.Workspace.SkillDir, prepared.Execution.Filesystem.SkillDir)
+	}
+	want := agent.RunSkillsDirEnvVar + "=" + skillDir
+	if len(prepared.Execution.ExtraEnv) != 1 || prepared.Execution.ExtraEnv[0] != want {
+		t.Fatalf("Execution ExtraEnv = %#v, want %q", prepared.Execution.ExtraEnv, want)
 	}
 }
 

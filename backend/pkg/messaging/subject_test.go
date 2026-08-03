@@ -37,13 +37,6 @@ func TestWorkerCommandSubject(t *testing.T) {
 			want:     "org.5.worker.3.cmd.interaction",
 		},
 		{
-			name:     "cmd.skill lane",
-			orgID:    7,
-			workerID: 8,
-			lane:     LaneSkill,
-			want:     "org.7.worker.8.cmd.skill",
-		},
-		{
 			name:     "cmd.file lane",
 			orgID:    9,
 			workerID: 4,
@@ -172,6 +165,26 @@ func TestWildcardSubjects(t *testing.T) {
 	if got := RunEventStreamWildcard(); got != "org.*.session.*.run.stream" {
 		t.Errorf("RunEventStreamWildcard: got %q", got)
 	}
+	if got := SkillPackageUploadedWildcard(); got != "org.*.skill.package.uploaded" {
+		t.Errorf("SkillPackageUploadedWildcard: got %q", got)
+	}
+}
+
+func TestSkillPackageUploadedSubject(t *testing.T) {
+	subject, err := SkillPackageUploadedSubject(7)
+	if err != nil || subject != "org.7.skill.package.uploaded" {
+		t.Fatalf("subject = %q, error = %v", subject, err)
+	}
+	if _, err := SkillPackageUploadedSubject(0); err == nil {
+		t.Fatal("missing organization should fail")
+	}
+	orgID, err := OrgIDFromSkillPackageSubject(subject)
+	if err != nil || orgID != 7 {
+		t.Fatalf("orgID = %d, error = %v", orgID, err)
+	}
+	if _, err := OrgIDFromSkillPackageSubject("org.7.skill.other.uploaded"); err == nil {
+		t.Fatal("invalid subject should fail")
+	}
 }
 
 func TestCommandLane(t *testing.T) {
@@ -183,7 +196,6 @@ func TestCommandLane(t *testing.T) {
 		{CommandTypeCancel, LaneControl},
 		{CommandTypeApprovalResolve, LaneInteraction},
 		{CommandTypeQuestionAnswer, LaneInteraction},
-		{CommandTypeSkill, LaneSkill},
 		{CommandTypeProjectFileRestore, LaneFile},
 	}
 
@@ -256,11 +268,11 @@ func TestConsumerNames(t *testing.T) {
 	if got := WorkerInteractionConsumer(); got != "worker-interaction-consumer" {
 		t.Errorf("WorkerInteractionConsumer: got %q", got)
 	}
-	if got := WorkerSkillConsumer(); got != "worker-skill-consumer" {
-		t.Errorf("WorkerSkillConsumer: got %q", got)
-	}
 	if got := SessionRunStateConsumer(); got != "session-run-state-projector" {
 		t.Errorf("SessionRunStateConsumer: got %q", got)
+	}
+	if got := SkillPackageUploadedConsumer(); got != "server-skill-package-uploaded-consumer" {
+		t.Errorf("SkillPackageUploadedConsumer: got %q", got)
 	}
 }
 
@@ -275,7 +287,6 @@ func TestWorkerLaneConsumer(t *testing.T) {
 		{"run", 1, 2, LaneRun, "worker-o1-w2-run-consumer"},
 		{"control", 1, 2, LaneControl, "worker-o1-w2-control-consumer"},
 		{"interaction", 1, 2, LaneInteraction, "worker-o1-w2-interaction-consumer"},
-		{"skill", 1, 2, LaneSkill, "worker-o1-w2-skill-consumer"},
 	}
 
 	for _, tt := range tests {
@@ -328,6 +339,13 @@ func TestStreamConfigs(t *testing.T) {
 	if sessionCfg.MaxMsgsPerSubject != 10000 {
 		t.Errorf("expected MaxMsgsPerSubject 10000, got %d", sessionCfg.MaxMsgsPerSubject)
 	}
+	skillCfg, ok := configs[StreamNameSkillPackage]
+	if !ok {
+		t.Fatal("missing Skill package stream config")
+	}
+	if len(skillCfg.Subjects) != 1 || skillCfg.Subjects[0] != SkillPackageUploadedWildcard() {
+		t.Fatalf("Skill package subjects = %v", skillCfg.Subjects)
+	}
 }
 
 func TestStreamNameFromSubject(t *testing.T) {
@@ -338,10 +356,10 @@ func TestStreamNameFromSubject(t *testing.T) {
 		{"org.1.worker.2.cmd.run", StreamNameWorker},
 		{"org.10.worker.20.cmd.control", StreamNameWorker},
 		{"org.5.worker.3.cmd.interaction", StreamNameWorker},
-		{"org.7.worker.8.cmd.skill", StreamNameWorker},
 		{"org.9.worker.4.cmd.file", StreamNameWorker},
 		{"org.1.session.sess-abc.run.stream", StreamNameSession},
 		{"org.5.session.xyz-123.run.state", StreamNameSession},
+		{"org.7.skill.package.uploaded", StreamNameSkillPackage},
 		{"invalid.subject", ""},
 		{"org", ""},
 	}

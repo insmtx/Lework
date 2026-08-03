@@ -73,7 +73,7 @@ func (j *runJournal) Record(ctx context.Context, draft RunEventDraft) error {
 	}
 	j.observeLocked(body)
 	if !isTerminalRunEvent(body.Event) {
-		record, recordErr := archiveRecord(body, occurredAt, j.eventContext.AssistantID)
+		record, recordErr := archiveRecord(body, occurredAt, j.eventContext.AssistantPublicID)
 		if recordErr != nil {
 			j.mu.Unlock()
 			return recordErr
@@ -125,7 +125,8 @@ func (j *runJournal) envelopeLocked(
 	if traceID == "" {
 		traceID = j.eventContext.TraceID
 	}
-	body.AssistantPKID = j.eventContext.AssistantPKID
+	body.AssistantPKID = j.eventContext.AssistantID
+	body.AssistantID = j.eventContext.AssistantPublicID
 	return messaging.RunEvent{
 		ID:        fmt.Sprintf("%s:%d", runID, body.Seq),
 		Type:      messaging.MessageTypeRunEvent,
@@ -138,11 +139,13 @@ func (j *runJournal) envelopeLocked(
 			ParentID:  j.eventContext.ParentID,
 		},
 		Route: messaging.RouteContext{
-			OrgID:       j.eventContext.OrgID,
-			WorkerID:    j.eventContext.WorkerID,
-			SessionID:   j.eventContext.SessionID,
-			AssistantID: j.eventContext.AssistantID,
-			ClientIP:    j.eventContext.ClientIP,
+			OrgID:             j.eventContext.OrgID,
+			WorkerID:          j.eventContext.WorkerID,
+			WorkerPublicID:    j.eventContext.WorkerPublicID,
+			SessionID:         j.eventContext.SessionID,
+			AssistantID:       j.eventContext.AssistantID,
+			AssistantPublicID: j.eventContext.AssistantPublicID,
+			ClientIP:          j.eventContext.ClientIP,
 		},
 		Body: body,
 	}

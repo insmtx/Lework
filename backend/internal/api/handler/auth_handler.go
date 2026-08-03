@@ -20,7 +20,7 @@ func NewAuthHandler(service account.AuthProvider) *AuthHandler {
 
 func (h *AuthHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/RegisterByEmail", h.RegisterByEmail)
-	r.POST("/LoginByEmail", h.LoginByEmail)
+	r.POST("/LoginByPassword", h.LoginByPassword)
 	r.POST("/SendPhoneLoginCode", h.SendPhoneLoginCode)
 	r.POST("/LoginByPhoneCode", h.LoginByPhoneCode)
 	r.POST("/RefreshToken", h.RefreshToken)
@@ -60,26 +60,26 @@ func (h *AuthHandler) RegisterByEmail(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
-// @Summary 邮箱登录
-// @Description 使用邮箱和密码登录并获取访问令牌
+// @Summary 账号密码登录
+// @Description 使用账号（邮箱或手机号）和密码登录；统一返回 refresh_token，需后续调用 ChooseUin 选择组织获取 JWT
 // @Tags Auth
 // @Accept json
 // @Produce json
-// @Param body body contract.LoginByEmailRequest true "邮箱登录请求"
+// @Param body body contract.LoginByPasswordRequest true "账号密码登录请求"
 // @Success 200 {object} dto.Response "成功响应"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "认证失败"
 // @Failure 429 {object} dto.ErrorResponse "登录失败次数过多"
 // @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
-// @Router /LoginByEmail [post]
-func (h *AuthHandler) LoginByEmail(ctx *gin.Context) {
-	var req contract.LoginByEmailRequest
+// @Router /LoginByPassword [post]
+func (h *AuthHandler) LoginByPassword(ctx *gin.Context) {
+	var req contract.LoginByPasswordRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
 
-	result, err := h.service.LoginByEmail(ctx, &req.LoginByEmailInput)
+	result, err := h.service.LoginByPassword(ctx, &req.LoginByPasswordInput)
 	if err != nil {
 		handleAuthServiceError(ctx, err)
 		return
@@ -280,7 +280,10 @@ func handleAuthServiceError(ctx *gin.Context, err error) {
 
 func isAuthBadRequestError(err error) bool {
 	switch err.Error() {
-	case "请输入邮箱",
+	case "请输入账号",
+		"邮箱格式错误",
+		"手机号格式错误",
+		"请输入邮箱",
 		"请输入正确的邮箱",
 		"请输入密码",
 		"密码不一致",
@@ -299,9 +302,9 @@ func isAuthBadRequestError(err error) bool {
 		return true
 	case "最多只能加入两个组织":
 		return true
-	case "account: 当前版本不支持此特性":
+	case "当前版本不支持此特性":
 		return true
-	case "account: 请先创建或加入组织":
+	case "请先创建或加入组织":
 		return true
 	default:
 		return false
@@ -310,7 +313,8 @@ func isAuthBadRequestError(err error) bool {
 
 func isAuthUnauthorizedError(err error) bool {
 	switch err.Error() {
-	case "邮箱或密码错误",
+	case "账号或密码错误",
+		"邮箱或密码错误",
 		"验证码错误或已过期",
 		"登录已过期，请重新登录",
 		"用户不存在",

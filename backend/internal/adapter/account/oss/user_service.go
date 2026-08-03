@@ -13,17 +13,28 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 
 type user struct {
-	db *gorm.DB
+	db             *gorm.DB
+	userRepo       *userRepo
+	userOrgRepo    *userOrgRepo
+	orgRepo        *orgRepo
+	departmentRepo *departmentRepo
+	memberDeptRepo *memberDeptRepo
 }
 
-func NewUser(db *gorm.DB) *user {
-	return &user{db: db}
+func NewUser(d *gorm.DB) *user {
+	return &user{
+		db:             d,
+		userRepo:       newUserRepo(d),
+		userOrgRepo:    newUserOrgRepo(d),
+		orgRepo:        newOrgRepo(d),
+		departmentRepo: newDepartmentRepo(d),
+		memberDeptRepo: newMemberDeptRepo(d),
+	}
 }
 
 func (s *user) CreateUser(ctx context.Context, req *account.CreateUserInput) (*account.CreateUserResponse, error) {
@@ -40,21 +51,21 @@ func (s *user) CreateUser(ctx context.Context, req *account.CreateUserInput) (*a
 	email := strings.TrimSpace(req.Email)
 
 	if phone != "" {
-		existing, err := db.GetUserByPhone(ctx, s.db, phone)
+		existing, err := s.userRepo.GetByPhone(ctx, phone)
 		if err != nil {
 			return nil, err
 		}
 		if existing != nil {
-			return nil, accounterror.ErrInvalidArg
+			return nil, accounterror.ErrPhoneAlreadyExists
 		}
 	}
 	if email != "" {
-		existing, err := db.GetUserByEmail(ctx, s.db, email)
+		existing, err := s.userRepo.GetByEmail(ctx, email)
 		if err != nil {
 			return nil, err
 		}
 		if existing != nil {
-			return nil, accounterror.ErrInvalidArg
+			return nil, accounterror.ErrEmailAlreadyExists
 		}
 	}
 
@@ -66,34 +77,31 @@ func (s *user) CreateUser(ctx context.Context, req *account.CreateUserInput) (*a
 	}
 
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := db.CreateUser(ctx, tx, user); err != nil {
+		if err := s.userRepo.withTx(tx).Create(ctx, user); err != nil {
 			return err
 		}
 
-		uin := user.ID
-		existingUO, _ := db.GetUserOrgByUserID(ctx, tx, user.ID)
-		if existingUO == nil {
+		existingUO, _ := s.userOrgRepo.withTx(tx).ListByUserID(ctx, user.ID)
+		if len(existingUO) == 0 {
 			userOrg := &types.UserOrg{
 				UserID:    user.ID,
-				Uin:       uin,
 				OrgID:     caller.OrgID,
 				IsDefault: true,
 			}
-			if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
+			if err := s.userOrgRepo.withTx(tx).Create(ctx, userOrg); err != nil {
 				return err
 			}
-		}
-
-		if len(req.DepartmentIDs) > 0 {
-			for _, deptID := range req.DepartmentIDs {
-				rel := &types.MemberDepartment{
-					Uin:          uin,
-					OrgID:        caller.OrgID,
-					DepartmentID: deptID,
-					IsPrimary:    true,
-				}
-				if err := db.CreateMemberDepartment(ctx, tx, rel); err != nil {
-					return err
+			if len(req.DepartmentIDs) > 0 {
+				for i, deptID := range req.DepartmentIDs {
+					rel := &types.MemberDepartment{
+						Uin:          userOrg.ID,
+						OrgID:        caller.OrgID,
+						DepartmentID: deptID,
+						IsPrimary:    i == 0,
+					}
+					if err := s.memberDeptRepo.withTx(tx).Create(ctx, rel); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -122,9 +130,9 @@ func (s *user) GetUser(ctx context.Context, publicID string, phone string) (*acc
 	var err error
 
 	if publicID != "" {
-		user, err = db.GetUserByPublicID(ctx, s.db, publicID)
+		user, err = s.userRepo.GetByPublicID(ctx, publicID)
 	} else if phone != "" {
-		user, err = db.GetUserByPhone(ctx, s.db, phone)
+		user, err = s.userRepo.GetByPhone(ctx, phone)
 	} else {
 		return nil, accounterror.ErrInvalidArg
 	}
@@ -152,7 +160,39 @@ func (s *user) UpdateUser(ctx context.Context, publicID string, req *account.Upd
 	var user *types.User
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
-		user, err = db.GetUserByPublicID(ctx, tx, publicID)
+		user, err = s.userRepo.withTx(tx).GetByPublicID(ctx, publicID)
+		if err != nil {
+			return err
+		}
+		if user == nil {
+			return accounterror.ErrUserNotFound
+		}
+
+		if strings.TrimSpace(req.Name) != "" {
+			user.Name = strings.TrimSpace(req.Name)
+		}
+		if req.Email != nil {
+			user.Email = strings.TrimSpace(*req.Email)
+		}
+
+		return s.userRepo.withTx(tx).Update(ctx, user)
+	}); err != nil {
+		return nil, err
+	}
+
+	return convertToContractUser(user, nil), nil
+}
+
+func (s *user) UpdateCurrentUser(ctx context.Context, req *account.UpdateCurrentUserInput) (*account.UserInfo, error) {
+	caller, _ := auth.FromContext(ctx)
+	if caller == nil || caller.Uin == 0 {
+		return nil, accounterror.ErrLoginRequired
+	}
+
+	var user *types.User
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		user, err = s.userRepo.withTx(tx).GetByUin(ctx, caller.Uin)
 		if err != nil {
 			return err
 		}
@@ -170,7 +210,7 @@ func (s *user) UpdateUser(ctx context.Context, publicID string, req *account.Upd
 			user.AvatarURL = strings.TrimSpace(req.AvatarURL)
 		}
 
-		return db.UpdateUser(ctx, tx, user)
+		return s.userRepo.withTx(tx).Update(ctx, user)
 	}); err != nil {
 		return nil, err
 	}
@@ -188,14 +228,14 @@ func (s *user) DeleteUser(ctx context.Context, publicID string) error {
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		user, err := db.GetUserByPublicID(ctx, tx, publicID)
+		user, err := s.userRepo.withTx(tx).GetByPublicID(ctx, publicID)
 		if err != nil {
 			return err
 		}
 		if user == nil {
 			return accounterror.ErrUserNotFound
 		}
-		return db.DeleteUser(ctx, tx, user.ID)
+		return s.userRepo.withTx(tx).Delete(ctx, user.ID)
 	})
 }
 
@@ -215,7 +255,7 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 		opt.AddFilter("department_id", strconv.FormatUint(uint64(*req.DepartmentID), 10))
 	}
 
-	users, total, err := db.ListUser(ctx, s.db, opt)
+	users, total, err := s.userRepo.ListByOrg(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -232,16 +272,16 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 			userIDs[i] = item.ID
 		}
 		uinMap := make(map[uint]uint, len(userIDs))
-		if userOrgs, _ := db.GetUserOrgsByUserIDsAndOrgID(ctx, s.db, userIDs, caller.OrgID); userOrgs != nil {
+		if userOrgs, _ := s.userOrgRepo.GetByUserIDsAndOrgID(ctx, userIDs, caller.OrgID); userOrgs != nil {
 			for _, uo := range userOrgs {
-				uinMap[uo.UserID] = uo.Uin
+				uinMap[uo.UserID] = uo.ID
 			}
 		}
 		uins := make([]uint, 0, len(uinMap))
 		for _, uin := range uinMap {
 			uins = append(uins, uin)
 		}
-		relMap, _ := db.ListMemberDepartmentsByUinsAndOrgID(ctx, s.db, uins, caller.OrgID)
+		relMap, _ := s.memberDeptRepo.ListByUinsAndOrgID(ctx, uins, caller.OrgID)
 		deptIDSet := make(map[uint]struct{})
 		for _, rels := range relMap {
 			for _, rel := range rels {
@@ -253,13 +293,14 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 			deptIDs = append(deptIDs, id)
 		}
 		deptMap := make(map[uint]*types.Department)
-		if depts, _ := db.GetDepartmentsByIDs(ctx, s.db, deptIDs); depts != nil {
+		if depts, _ := s.departmentRepo.GetByIDs(ctx, deptIDs); depts != nil {
 			for _, dept := range depts {
 				deptMap[dept.ID] = dept
 			}
 		}
 		for i := range items {
 			uin := uinMap[items[i].ID]
+			items[i].Uin = uin
 			rels := relMap[uin]
 			depts := make([]account.OrgMemberDepartment, 0, len(rels))
 			for _, rel := range rels {
@@ -268,7 +309,6 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 					name = d.Name
 				}
 				depts = append(depts, account.OrgMemberDepartment{
-					ID:           rel.ID,
 					DepartmentID: rel.DepartmentID,
 					Name:         name,
 					IsPrimary:    rel.IsPrimary,
@@ -287,7 +327,7 @@ func (s *user) ListUser(ctx context.Context, req *account.ListUserInput) (*accou
 }
 
 func (s *user) GetUserByID(ctx context.Context, id uint) (*account.UserInfo, error) {
-	user, err := db.GetUserByID(ctx, s.db, id)
+	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -296,14 +336,14 @@ func (s *user) GetUserByID(ctx context.Context, id uint) (*account.UserInfo, err
 	}
 	avatarMap, _ := resolveSingleAvatarMap(ctx, s.db, 0, user.AvatarURL)
 	info := convertToContractUser(user, avatarMap)
-	if userOrg, _ := db.GetUserOrgByUin(ctx, s.db, user.ID); userOrg != nil {
-		info.Uin = userOrg.Uin
+	if userOrg, _ := s.userOrgRepo.GetByUin(ctx, user.ID); userOrg != nil {
+		info.Uin = userOrg.ID
 	}
 	return info, nil
 }
 
 func (s *user) GetUserByUin(ctx context.Context, uin uint) (*account.UserInfo, error) {
-	user, err := db.GetUserByUin(ctx, s.db, uin)
+	user, err := s.userRepo.GetByUin(ctx, uin)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +364,7 @@ func (s *user) GetUsersByIDs(ctx context.Context, ids []uint) ([]*account.UserIn
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	users, err := db.GetUsersByIDs(ctx, s.db, ids)
+	users, err := s.userRepo.GetByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +380,7 @@ func (s *user) GetUsersByUins(ctx context.Context, uins []uint) (map[uint]*accou
 	if len(uins) == 0 {
 		return nil, nil
 	}
-	userMap, err := db.GetUsersByUins(ctx, s.db, uins)
+	userMap, err := s.userRepo.GetByUins(ctx, uins)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +404,7 @@ func (s *user) GetUsersByUins(ctx context.Context, uins []uint) (map[uint]*accou
 }
 
 func (s *user) GetUinMapByPublicIDs(ctx context.Context, orgID uint, publicIDs []string) (map[string]uint, error) {
-	return db.GetPublicIDUinMapByPublicIDs(ctx, s.db, orgID, publicIDs)
+	return s.userRepo.GetPublicIDUinMap(ctx, orgID, publicIDs)
 }
 
 func (s *user) ListUin(ctx context.Context) (*account.ListUinOutput, error) {
@@ -373,7 +413,7 @@ func (s *user) ListUin(ctx context.Context) (*account.ListUinOutput, error) {
 		return nil, accounterror.ErrLoginRequired
 	}
 
-	userOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+	userOrg, err := s.userOrgRepo.GetByUin(ctx, caller.Uin)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +421,7 @@ func (s *user) ListUin(ctx context.Context) (*account.ListUinOutput, error) {
 		return nil, accounterror.ErrUserNotFound
 	}
 
-	user, err := db.GetUserByID(ctx, s.db, userOrg.UserID)
+	user, err := s.userRepo.GetByID(ctx, userOrg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +431,7 @@ func (s *user) ListUin(ctx context.Context) (*account.ListUinOutput, error) {
 
 	uins := make([]account.UinInfo, 0, 1)
 	uinInfo := account.UinInfo{
-		Uin:         userOrg.Uin,
+		Uin:         userOrg.ID,
 		UserID:      userOrg.UserID,
 		SubjectType: "company",
 		SubjectID:   userOrg.OrgID,
@@ -399,7 +439,7 @@ func (s *user) ListUin(ctx context.Context) (*account.ListUinOutput, error) {
 		UinStatus:   "normal",
 	}
 
-	org, err := db.GetOrgByID(ctx, s.db, userOrg.OrgID)
+	org, err := s.orgRepo.GetByID(ctx, userOrg.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +457,7 @@ func (s *user) GetUsersByPublicIDs(ctx context.Context, publicIDs []string) ([]*
 	if len(publicIDs) == 0 {
 		return nil, nil
 	}
-	users, err := db.GetUsersByPublicIDs(ctx, s.db, publicIDs)
+	users, err := s.userRepo.GetByPublicIDs(ctx, publicIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +486,7 @@ func convertToContractUser(user *types.User, avatarURLMap map[string]string) *ac
 		Email:     user.Email,
 		Phone:     user.Phone,
 		AvatarURL: avatarURL,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		CreatedAt: &user.CreatedAt,
+		UpdatedAt: &user.UpdatedAt,
 	}
 }

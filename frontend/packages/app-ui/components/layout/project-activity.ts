@@ -32,6 +32,18 @@ function addRemoveSkillParts(
 	return segment;
 }
 
+function addRemoveMCPParts(verb: string, items: ProjectActivitySkill[]): ProjectActivityTextPart[] {
+	const names = items
+		.map((item) => item.name?.trim())
+		.filter(Boolean)
+		.join("，");
+	const segment: ProjectActivityTextPart[] = [{ type: "text", text: `${verb} MCP 连接器 ` }];
+	if (names) {
+		segment.push({ type: "text", text: names, bold: true });
+	}
+	return segment;
+}
+
 function addRemoveParticipantNameParts(
 	verb: string,
 	label: "AI队友",
@@ -85,6 +97,18 @@ export function buildProjectActivityActionParts(
 			appendActionSegment(parts, addRemoveSkillParts("移除了", payload.removed_skills));
 		}
 		return parts.length > 0 ? parts : [{ type: "text", text: "更新了技能" }];
+	}
+
+	if (action_type === "project.mcps.changed") {
+		const addedMCPs = payload.added_mcps ?? [];
+		const removedMCPs = payload.removed_mcps ?? [];
+		if (addedMCPs.length > 0) {
+			appendActionSegment(parts, addRemoveMCPParts("添加了", addedMCPs));
+		}
+		if (removedMCPs.length > 0) {
+			appendActionSegment(parts, addRemoveMCPParts("移除了", removedMCPs));
+		}
+		return parts.length > 0 ? parts : [{ type: "text", text: "更新了 MCP 连接器" }];
 	}
 
 	if (action_type === "project.participants.changed") {

@@ -13,5 +13,8 @@ type Edition interface {
 	Org() account.OrgRepository
 	Department() account.DepartmentRepository
 	TokenParser() account.TokenParser
+	APIKeyIssuer() account.APIKeyIssuer
 	Edition() string
+	DeployMode() string
+	MaxOrgsPerUser() int
 }

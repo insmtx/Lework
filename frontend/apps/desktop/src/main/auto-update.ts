@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, net } from "electron";
 import {
 	type AppUpdater,
 	MacUpdater,
@@ -14,12 +14,18 @@ import {
 	desktopUpdateRestartChannel,
 } from "../shared/auto-update";
 import { markAppQuitting, prepareForAppQuit } from "./app-lifecycle";
+import { isVersionNewer, parseLinuxUpdateMetadata } from "./linux-update";
 
 const autoUpdateIntervalMs = 30 * 60 * 1000;
 const initialAutoUpdateDelayMs = 1 * 1000;
 const desktopUpdateBaseURL =
 	"https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/stable";
 const enableDevAutoUpdate = !app.isPackaged;
+const privateDeploymentUnsupportedMessage = "私有化版本请通过离线安装包更新";
+
+function isPrivateDeploymentBuild(): boolean {
+	return process.env.LEROS_DEPLOYMENT_MODE === "private";
+}
 
 let updateState: DesktopUpdateState = createState({
 	phase: "idle",
@@ -91,7 +97,7 @@ function markUnsupported(message: string) {
 	});
 }
 
-function canUseAutoUpdate(): boolean {
+function canUseNativeAutoUpdate(): boolean {
 	return (
 		(app.isPackaged || enableDevAutoUpdate) &&
 		(process.platform === "darwin" || process.platform === "win32")
@@ -100,6 +106,59 @@ function canUseAutoUpdate(): boolean {
 
 function getUpdateFeedURL(): string {
 	return `${desktopUpdateBaseURL}/${process.platform}/${process.arch}`;
+}
+
+function canCheckLinuxUpdates(): boolean {
+	return (app.isPackaged || enableDevAutoUpdate) && process.platform === "linux";
+}
+
+async function checkLinuxUpdates(): Promise<DesktopUpdateState> {
+	setState({
+		phase: "checking",
+		message: "正在检查 Linux 更新",
+		canCheck: false,
+		canRestart: false,
+		progressPercent: undefined,
+	});
+
+	const metadataURL = new URL("latest-linux.yml", `${getUpdateFeedURL()}/`);
+	metadataURL.searchParams.set("t", Date.now().toString());
+	const response = await net.fetch(metadataURL.toString(), { cache: "no-store" });
+	if (!response.ok) {
+		throw new Error(`检查 Linux 更新失败（HTTP ${response.status}）`);
+	}
+
+	const metadata = parseLinuxUpdateMetadata(await response.text());
+	const lastCheckedAt = new Date().toISOString();
+	if (isVersionNewer(metadata.version, app.getVersion())) {
+		setState({
+			phase: "available",
+			message: `发现新版本 v${metadata.version}，请下载 .deb 安装包后手动安装`,
+			availableVersion: metadata.version,
+			downloadedVersion: undefined,
+			releaseDate: metadata.releaseDate,
+			releaseNotes: undefined,
+			progressPercent: undefined,
+			canCheck: true,
+			canRestart: false,
+			lastCheckedAt,
+		});
+		return updateState;
+	}
+
+	setState({
+		phase: "up-to-date",
+		message: "当前已经是最新版本",
+		availableVersion: undefined,
+		downloadedVersion: undefined,
+		releaseDate: undefined,
+		releaseNotes: undefined,
+		progressPercent: undefined,
+		canCheck: true,
+		canRestart: false,
+		lastCheckedAt,
+	});
+	return updateState;
 }
 
 function getUpdater(): AppUpdater | null {
@@ -232,8 +291,28 @@ function registerAutoUpdaterEvents() {
 }
 
 export async function checkDesktopUpdates(): Promise<DesktopUpdateState> {
-	if (!canUseAutoUpdate()) {
-		markUnsupported("自动更新仅在已安装的 macOS / Windows 版本中可用");
+	if (isPrivateDeploymentBuild()) {
+		return updateState;
+	}
+
+	if (canCheckLinuxUpdates()) {
+		try {
+			return await checkLinuxUpdates();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "检查 Linux 更新失败";
+			setState({
+				phase: "error",
+				message,
+				canCheck: true,
+				canRestart: false,
+				lastCheckedAt: new Date().toISOString(),
+			});
+			return updateState;
+		}
+	}
+
+	if (!canUseNativeAutoUpdate()) {
+		markUnsupported("当前平台不支持自动更新");
 		return updateState;
 	}
 
@@ -274,7 +353,9 @@ function scheduleAutoUpdateChecks() {
 }
 
 export function registerDesktopAutoUpdate() {
-	if (canUseAutoUpdate()) {
+	if (isPrivateDeploymentBuild()) {
+		markUnsupported(privateDeploymentUnsupportedMessage);
+	} else if (canUseNativeAutoUpdate()) {
 		registerAutoUpdaterEvents();
 		setState({
 			phase: "idle",
@@ -285,8 +366,16 @@ export function registerDesktopAutoUpdate() {
 			canRestart: false,
 		});
 		scheduleAutoUpdateChecks();
+	} else if (canCheckLinuxUpdates()) {
+		setState({
+			phase: "idle",
+			message: "Linux 可检查新版本，.deb 安装包需要手动安装",
+			canCheck: true,
+			canRestart: false,
+		});
+		scheduleAutoUpdateChecks();
 	} else {
-		markUnsupported("开发环境不执行自动更新，请使用安装包验证");
+		markUnsupported("当前平台不支持自动更新");
 	}
 
 	ipcMain.handle(desktopUpdateGetStateChannel, () => updateState);

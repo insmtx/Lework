@@ -73,6 +73,7 @@ func (r *Driver) RunInvocation(
 		Resume:          resumeSession,
 		WorkDir:         workDir,
 		TaskDir:         request.Filesystem.TaskDir,
+		SkillDir:        request.Filesystem.SkillDir,
 		SystemPrompt:    strings.TrimSpace(request.SystemPrompt),
 		Prompt:          request.Prompt,
 		Messages:        append([]agent.Message(nil), request.Messages...),
@@ -81,10 +82,10 @@ func (r *Driver) RunInvocation(
 		TraceID:         request.TraceID,
 		SessionKey:      request.SessionKey,
 		Model:           request.Model,
-		ExtraEnv:        nil,
+		ExtraEnv:        append([]string(nil), request.ExtraEnv...),
 		PermissionMode:  request.Policy.PermissionMode,
 		ApprovalHandler: r.interactionHandler,
-		MCPServers:      r.mcpServers,
+		MCPServers:      mergeMCPServers(r.mcpServers, request.MCPServers),
 	})
 	if err != nil {
 		return agent.ExecutionResult{}, err
@@ -112,6 +113,47 @@ func (r *Driver) RunInvocation(
 		Usage:                  agent.EnsureUsage(invocationResult.Usage),
 		ProviderConversationID: firstNonEmptyString(providerSessionID, invocationResult.ProviderSessionID),
 	}, nil
+}
+
+func mergeMCPServers(
+	baseline []agent.MCPServerConfig,
+	request []agent.MCPServerConfig,
+) []agent.MCPServerConfig {
+	result := make([]agent.MCPServerConfig, 0, len(baseline)+len(request))
+	names := make(map[string]struct{}, len(baseline)+len(request))
+	appendConfig := func(config agent.MCPServerConfig) {
+		name := strings.ToLower(strings.TrimSpace(config.Name))
+		if name == "" {
+			return
+		}
+		if _, exists := names[name]; exists {
+			return
+		}
+		config.Name = strings.TrimSpace(config.Name)
+		config.Args = append([]string(nil), config.Args...)
+		config.Env = cloneMCPMap(config.Env)
+		config.Headers = cloneMCPMap(config.Headers)
+		result = append(result, config)
+		names[name] = struct{}{}
+	}
+	for _, config := range baseline {
+		appendConfig(config)
+	}
+	for _, config := range request {
+		appendConfig(config)
+	}
+	return result
+}
+
+func cloneMCPMap(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }
 
 // ConsumeEvents reads NodeEvents from the invocation, processes approvals/questions,

@@ -24,7 +24,7 @@ func (h *UserHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/CreateUser", h.CreateUser)
 	r.POST("/GetUser", h.GetUser)
 	r.POST("/UpdateUser", h.UpdateUser)
-	r.POST("/DeleteUser", h.DeleteUser)
+	r.POST("/UpdateCurrentUser", h.UpdateCurrentUser)
 	r.POST("/ListUser", h.ListUser)
 	r.POST("/ListUin", h.ListUin)
 }
@@ -124,6 +124,32 @@ func (h *UserHandler) UpdateUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// @Summary 更新当前用户信息
+// @Description 当前登录用户修改自己的信息
+// @Tags User
+// @Accept json
+// @Produce json
+// @Param body body contract.UpdateCurrentUserRequest true "更新当前用户请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /UpdateCurrentUser [post]
+func (h *UserHandler) UpdateCurrentUser(ctx *gin.Context) {
+	var req contract.UpdateCurrentUserRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.UpdateCurrentUser(ctx, &req.UpdateCurrentUserInput)
+	if err != nil {
+		handleUserServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 type DeleteUserRequest struct {
 	PublicID string `json:"public_id" binding:"required"`
 }
@@ -208,7 +234,10 @@ func (h *UserHandler) ListUin(ctx *gin.Context) {
 }
 
 func handleUserServiceError(ctx *gin.Context, err error) {
-	if errors.Is(err, accounterror.ErrPhoneOrEmailRequired) {
+	if errors.Is(err, accounterror.ErrPhoneOrEmailRequired) ||
+		errors.Is(err, accounterror.ErrInvalidArg) ||
+		errors.Is(err, accounterror.ErrEmailAlreadyExists) ||
+		errors.Is(err, accounterror.ErrPhoneAlreadyExists) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}

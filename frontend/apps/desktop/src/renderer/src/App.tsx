@@ -3,6 +3,7 @@ import {
 	type ClientUpdatePolicy,
 	type ClientUpgradeRequiredEvent,
 	clientUpdateApi,
+	isPrivateDeployment,
 } from "@leros/store";
 import { ThemeProvider } from "@leros/ui/components/common/theme-provider";
 import { Button } from "@leros/ui/components/ui/button";
@@ -19,6 +20,7 @@ import { useEffect, useState } from "react";
 import { HashRouter } from "react-router-dom";
 import { toast } from "sonner";
 import type { DesktopUpdateState } from "../../shared/auto-update";
+import { PrivateDeploymentGate } from "./components/PrivateDeploymentGate";
 import { AppRoutes } from "./routes";
 
 const initialUpdateState: DesktopUpdateState = {
@@ -38,10 +40,12 @@ const forcedUpdateRefreshIntervalMs = 2 * 60 * 1000;
 export default function App() {
 	return (
 		<HashRouter>
-			<ThemeProvider defaultTheme="light">
+			<ThemeProvider>
 				<MacTitleBarDragRegion />
-				<AppRoutes />
-				<ClientUpdateGate />
+				<PrivateDeploymentGate>
+					<AppRoutes />
+					{isPrivateDeployment ? null : <ClientUpdateGate />}
+				</PrivateDeploymentGate>
 				<Toaster />
 			</ThemeProvider>
 		</HashRouter>
@@ -145,6 +149,12 @@ function ClientUpdateGate() {
 			}
 			if (nextState.phase === "up-to-date") {
 				toast.message("当前版本已低于服务端最低要求，请等待新版本发布");
+			}
+			if (nextState.phase === "available") {
+				toast.success(nextState.message);
+			}
+			if (nextState.phase === "error") {
+				toast.error(nextState.message);
 			}
 		} finally {
 			setChecking(false);

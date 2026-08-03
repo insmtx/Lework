@@ -177,8 +177,8 @@ export const sessionApi = {
 					request_id: params.request_id,
 					action: params.action,
 					assistant_id: params.assistant_id,
-					...(params.reason ? { reason: params.reason } : {}),
 				},
+				...(params.reason ? { reason: params.reason } : {}),
 			},
 		),
 

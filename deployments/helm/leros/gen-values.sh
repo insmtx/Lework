@@ -90,6 +90,14 @@ sed_inplace() {
   if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi
 }
 
+# 先删除头部占位符说明注释块（行 1-15），避免下方 sed 替换密钥时误伤占位符名。
+# 生成的 values.yaml 由用户直接编辑，不再需要"请勿直接编辑 / 占位符说明"这段元信息。
+if sed --version >/dev/null 2>&1; then
+  sed -i '1,15d' "$OUTPUT_FILE"
+else
+  sed -i '' '1,15d' "$OUTPUT_FILE"
+fi
+
 sed_inplace \
   -e "s|@PG_PASSWORD@|${PG_PASSWORD}|g" \
   -e "s|@NATS_PASSWORD@|${NATS_PASSWORD}|g" \
@@ -105,11 +113,12 @@ sed_inplace \
 # -------------------------------
 echo "[done] ${OUTPUT_FILE} 已生成"
 echo ""
-echo "[todo] 请手动修改以下配置后部署："
-echo "   - llm.apiKey / llm.baseUrl / llm.model   # LLM 模型配置（API Key 必填，外挂自有凭证）"
-echo "   - server.image / worker.image            # 镜像 tag"
-echo "   - *.nodeSelector                         # 钉到同一节点（hostPath 共享数据）"
-echo "   - ingress.enabled / ingress.server.host   # 有域名时开启 Ingress"
+echo "[todo] 只需编辑 ${OUTPUT_FILE} 填以下两处即可部署："
+echo "   - nodeSelector.kubernetes.io/hostname  # 固定到某节点（hostPath 数据共享）"
+echo "   - llm.apiKey                          # LLM 密钥（必填；model/baseUrl 已给默认）"
+echo ""
+echo "   需固定版本时另改（image 默认为 latest）："
+echo "     server.image / worker.image          # 完整镜像地址"
 echo ""
 echo "   部署命令："
 echo "   helm install leros ./deployments/helm/leros -n leros --create-namespace -f ${OUTPUT_FILE}"

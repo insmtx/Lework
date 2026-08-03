@@ -3,11 +3,14 @@
 import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
 	Action,
+	getNativeFileInputAccept,
+	isPrivateDeployment,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
 	projectFileApi,
 	useAuthStore,
 	useChatStore,
+	useGlobalConfigStore,
 	useLayoutStore,
 	useProjectsMenuCapabilities,
 	userApi,
@@ -32,6 +35,7 @@ import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ArrowLeftRight,
+	Blocks,
 	Building2,
 	Camera,
 	Check,
@@ -50,11 +54,11 @@ import {
 	Pencil,
 	RefreshCcw,
 	Search,
+	Settings,
 	Trash2,
 	UserRound,
 	Users,
 	X,
-	Zap,
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -109,7 +113,7 @@ const iconMap: Record<string, React.ReactNode> = {
 	IconTask: <ClipboardList className="size-5" />,
 	IconAITeammate: <Users className="size-5" />,
 	IconProjectsHub: <ProjectIcon className="size-5" />,
-	IconSkill: <Zap className="size-5" />,
+	IconSkill: <Blocks className="size-5" />,
 	IconKnowledge: <Inbox className="size-5" />,
 	IconProject: <ProjectIcon className="size-4" />,
 };
@@ -157,7 +161,10 @@ export function LeftRail({
 	} = useLayoutStore((s) => s);
 	const clearComposerInput = useChatStore((s) => s.clearComposerInput);
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
+	const edition = useGlobalConfigStore((s) => s.edition);
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
+	// 中文注释：OSS 版无多组织切换，隐藏左下角用户菜单中的「切换组织」入口。
+	const canSwitchOrganization = edition !== "oss";
 	const visibleProjects = isAuthenticated ? projects : [];
 	useProjectsMenuCapabilities(visibleProjects.map((project) => project.id));
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
@@ -341,6 +348,25 @@ export function LeftRail({
 		resetProjectExpansionState();
 	}, [user?.currentOrg?.id, resetProjectExpansionState]);
 
+	// 中文注释：组织管理后台仅组织创建者可见；enterprise 用 createdByUserId，OSS 用 createdByUin。
+	const currentOrgMeta =
+		user?.organizations?.find((org) => org.id === user?.currentOrg?.id) ?? user?.currentOrg;
+	const isOrgCreator = Boolean(
+		user &&
+			currentOrgMeta &&
+			((currentOrgMeta.createdByUserId != null &&
+				currentOrgMeta.createdByUserId !== 0 &&
+				user.userId === currentOrgMeta.createdByUserId) ||
+				(currentOrgMeta.createdByUin != null &&
+					currentOrgMeta.createdByUin !== 0 &&
+					user.uin === currentOrgMeta.createdByUin)),
+	);
+
+	useEffect(() => {
+		if (isOrgCreator || !orgAdminDialogOpen) return;
+		setOrgAdminDialogOpen(false);
+	}, [isOrgCreator, orgAdminDialogOpen]);
+
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "chat";
 		const navigate = () => {
@@ -521,7 +547,7 @@ export function LeftRail({
 
 	const handleProfileClick = () => {
 		if (!isAuthenticated) {
-			openAuthDialog("login");
+			openAuthDialog("phone");
 		}
 	};
 
@@ -698,12 +724,12 @@ export function LeftRail({
 								<button
 									type="button"
 									className="leros-profile-trigger"
-									title={user?.name ?? "个人中心"}
+									title={user?.uinName ?? user?.name ?? "个人中心"}
 								>
 									<ProfileAvatar user={user} />
 									<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
 										<p className="truncate text-[14px] font-semibold text-[var(--leros-text-strong)]">
-											{user?.name ?? "Lework 用户"}
+											{user?.uinName ?? user?.name ?? "Lework 用户"}
 										</p>
 										<p className="truncate text-[12px] text-[var(--leros-text-subtle)]">
 											{user?.currentOrg?.name ?? getDisplayPhone(user) ?? "已登录"}
@@ -723,15 +749,25 @@ export function LeftRail({
 								} as CSSProperties
 							}
 						>
-							{/* 暂时仅保留退出登录入口，其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
+							{isPrivateDeployment ? (
+								<DropdownMenuItem
+									onClick={() => {
+										if (navigation) {
+											navigation.goToRoute("settings");
+											return;
+										}
+										switchView("settings");
+									}}
+								>
+									<Settings className="size-4 shrink-0" />
+									<span>系统设置</span>
+								</DropdownMenuItem>
+							) : null}
+							{/* 其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
 							{/*
 							<DropdownMenuItem>
 								<UserRound className="size-4" />
 								<span>个人信息</span>
-							</DropdownMenuItem>
-							<DropdownMenuItem>
-								<Settings className="size-4" />
-								<span>系统设置</span>
 							</DropdownMenuItem>
 							<DropdownMenuItem>
 								<CircleHelp className="size-4" />
@@ -742,25 +778,29 @@ export function LeftRail({
 								<UserRound className="size-4 shrink-0" />
 								<span>账户管理</span>
 							</DropdownMenuItem>
-							<DropdownMenuItem
-								onClick={() => {
-									if (!requireAuth()) return;
-									setOrgAdminDialogOpen(true);
-								}}
-							>
-								<Building2 className="size-4 shrink-0" />
-								<span>组织管理后台</span>
-							</DropdownMenuItem>
-							<DropdownMenuItem
-								onClick={() => {
-									if (!requireAuth()) return;
-									setOrgSwitchDialogOpen(true);
-								}}
-							>
-								<ArrowLeftRight className="size-4 shrink-0" />
-								<span>切换组织</span>
-							</DropdownMenuItem>
-							<DesktopUpdateMenuSection />
+							{isOrgCreator ? (
+								<DropdownMenuItem
+									onClick={() => {
+										if (!requireAuth()) return;
+										setOrgAdminDialogOpen(true);
+									}}
+								>
+									<Building2 className="size-4 shrink-0" />
+									<span>组织管理后台</span>
+								</DropdownMenuItem>
+							) : null}
+							{canSwitchOrganization ? (
+								<DropdownMenuItem
+									onClick={() => {
+										if (!requireAuth()) return;
+										setOrgSwitchDialogOpen(true);
+									}}
+								>
+									<ArrowLeftRight className="size-4 shrink-0" />
+									<span>切换组织</span>
+								</DropdownMenuItem>
+							) : null}
+							{isPrivateDeployment ? null : <DesktopUpdateMenuSection />}
 							<DropdownMenuItem
 								onClick={() => {
 									if (!requireAuth()) return;
@@ -1118,7 +1158,7 @@ function AccountManagementDialog({
 	onUserChange: (user: AuthUser | null) => void;
 }) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
-	const [nameValue, setNameValue] = useState(user?.name ?? "");
+	const [nameValue, setNameValue] = useState(user?.uinName ?? user?.name ?? "");
 	const [editingName, setEditingName] = useState(false);
 	const [savingName, setSavingName] = useState(false);
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -1131,45 +1171,38 @@ function AccountManagementDialog({
 			setPreviewAvatarUrl(undefined);
 			return;
 		}
-		setNameValue(user?.name ?? "");
-	}, [open, user?.name]);
+		setNameValue(user?.uinName ?? user?.name ?? "");
+	}, [open, user?.uinName, user?.name]);
 
 	const updateLocalUser = (patch: Partial<AuthUser>) => {
 		if (!user) return;
 		onUserChange({ ...user, ...patch });
 	};
 
-	const requirePublicId = () => {
-		if (user?.publicId) return user.publicId;
-		toast.error("当前登录信息缺少用户 ID，请重新登录后再试");
-		return null;
-	};
-
 	const handleSaveName = async () => {
-		const publicId = requirePublicId();
 		const nextName = nameValue.trim();
-		if (!publicId || !nextName || nextName === user?.name) {
+		if (!nextName || nextName === (user?.uinName ?? user?.name)) {
 			setEditingName(false);
 			return;
 		}
 
 		setSavingName(true);
 		try {
-			const response = await userApi.update({
-				public_id: publicId,
+			const response = await userApi.updateCurrent({
 				name: nextName,
 			});
 			const updatedUser = response.data.data;
 			if (updatedUser?.name) {
 				updateLocalUser({
-					publicId: updatedUser.public_id || publicId,
+					publicId: updatedUser.public_id || user?.publicId || "",
 					name: updatedUser.name,
+					uinName: updatedUser.name,
 					email: updatedUser.email || user?.email || "",
 					phone: updatedUser.phone || user?.phone,
 					avatarUrl: updatedUser.avatar_url || user?.avatarUrl,
 				});
 			} else {
-				updateLocalUser({ name: nextName });
+				updateLocalUser({ name: nextName, uinName: nextName });
 			}
 			setEditingName(false);
 			toast.success("用户名已更新");
@@ -1203,19 +1236,14 @@ function AccountManagementDialog({
 				throw new Error("头像上传失败");
 			}
 
-			const publicId = requirePublicId();
-			if (!publicId) return;
-
-			// 中文注释：avatar_url 保存上传文件 public_id，展示时再通过 preview 接口读取头像。
 			const avatarUrl = uploaded.public_id;
-			const response = await userApi.update({
-				public_id: publicId,
+			const response = await userApi.updateCurrent({
 				avatar_url: avatarUrl,
 			});
 			const updatedUser = response.data.data;
 			cacheProtectedImageDataURL(avatarUrl, await blobToDataURL(file));
 			updateLocalUser({
-				publicId: updatedUser?.public_id || publicId,
+				publicId: updatedUser?.public_id || user?.publicId || "",
 				name: updatedUser?.name || user?.name || "",
 				email: updatedUser?.email || user?.email || "",
 				phone: updatedUser?.phone || user?.phone,
@@ -1278,7 +1306,7 @@ function AccountManagementDialog({
 						<input
 							ref={fileInputRef}
 							type="file"
-							accept="image/*"
+							accept={getNativeFileInputAccept("image/*")}
 							className="hidden"
 							onChange={handleAvatarChange}
 						/>
@@ -1296,7 +1324,7 @@ function AccountManagementDialog({
 										onKeyDown={(event) => {
 											if (event.key === "Enter") void handleSaveName();
 											if (event.key === "Escape") {
-												setNameValue(user?.name ?? "");
+												setNameValue(user?.uinName ?? user?.name ?? "");
 												setEditingName(false);
 											}
 										}}
@@ -1319,7 +1347,7 @@ function AccountManagementDialog({
 							) : (
 								<div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
 									<span className="truncate text-sm font-medium text-slate-900">
-										{user?.name ?? "Lework 用户"}
+										{user?.uinName ?? user?.name ?? "Lework 用户"}
 									</span>
 									<Button
 										variant="ghost"
@@ -1493,6 +1521,12 @@ function DesktopUpdateMenuSection() {
 			setUpdateState(nextState);
 			if (nextState.phase === "up-to-date") {
 				toast.success("当前已经是最新版本");
+			}
+			if (nextState.phase === "available") {
+				toast.success(nextState.message);
+			}
+			if (nextState.phase === "error") {
+				toast.error(nextState.message);
 			}
 			if (nextState.phase === "unsupported") {
 				toast.message(nextState.message);

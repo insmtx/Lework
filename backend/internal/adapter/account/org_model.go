@@ -72,7 +72,6 @@ type OrgMember struct {
 }
 
 type OrgMemberDepartment struct {
-	ID           uint   `json:"id"`
 	DepartmentID uint   `json:"department_id"`
 	Name         string `json:"name"`
 	IsPrimary    bool   `json:"is_primary"`

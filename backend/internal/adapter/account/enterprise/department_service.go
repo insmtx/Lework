@@ -66,8 +66,8 @@ func (s *department) DeleteDepartment(ctx context.Context, id uint) error {
 
 func (s *department) ListDepartment(ctx context.Context, req *account.ListDepartmentInput) (*account.DepartmentList, error) {
 	iamReq := iamListDepartmentReq{
-		Offset:  req.Offset,
-		Limit:   req.Limit,
+		Offset: req.Offset,
+		Limit:  req.Limit,
 	}
 	if req.Keyword != nil {
 		iamReq.Keyword = *req.Keyword

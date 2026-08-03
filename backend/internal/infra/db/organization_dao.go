@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"gorm.io/gorm"
@@ -11,64 +10,42 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-func CreateOrg(ctx context.Context, d *gorm.DB, org *types.Organization) error {
-	return d.WithContext(ctx).Create(org).Error
+// OrgCond 组织查询条件，内嵌 BaseCond 提供通用过滤能力。
+// Use pointer embedding so that when no basic filtering is needed, it can be nil.
+type OrgCond struct {
+	*BaseCond
+	Code   string
+	Status string
+	Name   string
 }
 
-func GetOrgByID(ctx context.Context, d *gorm.DB, id uint) (*types.Organization, error) {
-	var entity types.Organization
-	err := d.WithContext(ctx).Where("id = ?", id).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+// BuildCondition 将 OrgCond 转换为 GORM 查询条件。
+func (c *OrgCond) BuildCondition(db *gorm.DB, tableName string) *gorm.DB {
+	if c.BaseCond != nil {
+		db = c.BaseCond.BuildCondition(db, tableName)
 	}
-	return &entity, nil
-}
-
-func GetOrgByPublicID(ctx context.Context, d *gorm.DB, publicID string) (*types.Organization, error) {
-	var entity types.Organization
-	err := d.WithContext(ctx).Where("public_id = ?", publicID).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+	if c.Code != "" {
+		db = db.Where(tableName+".code = ?", c.Code)
 	}
-	return &entity, nil
-}
-
-func GetOrgByCode(ctx context.Context, d *gorm.DB, code string) (*types.Organization, error) {
-	var entity types.Organization
-	err := d.WithContext(ctx).Where("code = ?", code).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+	if c.Status != "" {
+		db = db.Where(tableName+".status = ?", c.Status)
 	}
-	return &entity, nil
-}
-
-func UpdateOrg(ctx context.Context, d *gorm.DB, org *types.Organization) error {
-	return d.WithContext(ctx).Save(org).Error
-}
-
-func DeleteOrg(ctx context.Context, d *gorm.DB, id uint) error {
-	return d.WithContext(ctx).Delete(&types.Organization{}, id).Error
-}
-
-func GetOrgsByIDs(ctx context.Context, d *gorm.DB, ids []uint) ([]*types.Organization, error) {
-	if len(ids) == 0 {
-		return nil, nil
+	if c.Name != "" {
+		db = db.Where(tableName+".name = ?", c.Name)
 	}
-	var entities []*types.Organization
-	err := d.WithContext(ctx).Where("id IN (?)", ids).Find(&entities).Error
-	if err != nil {
-		return nil, err
+	return db
+}
+
+// OrgEntityDao 封装了 Organization 实体的泛型 DAO。
+type OrgEntityDao struct {
+	*GenericDao[types.Organization]
+}
+
+// NewOrgEntityDao creates an OrgEntityDao bound to the given DB connection.
+func NewOrgEntityDao(db *gorm.DB) *OrgEntityDao {
+	return &OrgEntityDao{
+		GenericDao: NewGenericDao[types.Organization](db),
 	}
-	return entities, nil
 }
 
 func ListOrgs(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.Organization, int64, error) {

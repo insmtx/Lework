@@ -7,7 +7,8 @@ export type {
 	CreateOrganizationForPendingLoginParams,
 	CreateOrganizationParams,
 	CreateOrganizationResponse,
-	LoginByEmailParams,
+	LoginByPasswordParams,
+	LoginByPasswordResponse,
 	LoginByPhoneCodeParams,
 	PendingOrganizationLoginResponse,
 	RefreshTokenParams,
@@ -24,7 +25,16 @@ export type {
 	ClientVersionReportParams,
 } from "./api/clientUpdatePolicy";
 export { CLIENT_UPGRADE_REQUIRED_EVENT, getClientVersionReport } from "./api/clientUpdatePolicy";
-export { API_BASE_URL } from "./api/config";
+export {
+	API_BASE_URL,
+	hasPrivateServerConfiguration,
+	isPrivateDeployment,
+	normalizeAPIBaseURL,
+	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
+	readPrivateServerBaseURL,
+	savePrivateServerBaseURL,
+	testServerConnection,
+} from "./api/config";
 export { digitalAssistantApi } from "./api/digitalAssistantApi";
 export type { FeedbackType, SubmitFeedbackParams, SubmitFeedbackResponse } from "./api/feedbackApi";
 export { feedbackApi } from "./api/feedbackApi";
@@ -38,8 +48,23 @@ export {
 	getFilePublicUrlFromStorageUri,
 	normalizeFilePublicId,
 } from "./api/fileApi";
+export type {
+	CollectFrontendEventsParams,
+	FrontendEvent,
+	FrontendEventExtra,
+} from "./api/frontendEventApi";
+export { FRONTEND_EVENT_ENDPOINT, frontendEventApi } from "./api/frontendEventApi";
 export type { Edition, GlobalConfig } from "./api/globalConfigApi";
 export { globalConfigApi } from "./api/globalConfigApi";
+export type {
+	GetOfficialPluginLatestVersionParams,
+	InstallOfficialPluginResponse,
+	ListOfficialPluginMarketplaceItemsParams,
+	ListOfficialPluginMarketplaceItemsResponse,
+	OfficialPluginLatestVersion,
+	OfficialPluginMarketplaceItem,
+} from "./api/officialPluginMarketplaceApi";
+export { officialPluginMarketplaceApi } from "./api/officialPluginMarketplaceApi";
 export type {
 	Department,
 	ListDepartmentsResponse,
@@ -49,6 +74,34 @@ export type {
 } from "./api/orgAdminApi";
 export { orgAdminApi } from "./api/orgAdminApi";
 export { permissionApi } from "./api/permissionApi";
+export type {
+	AddSkillPluginParams,
+	DeletePluginResponse,
+	GetPluginInstallationStatusParams,
+	GetPluginResponse,
+	ListPluginsParams,
+	ListPluginsResponse,
+	MCPPlatform,
+	MCPPlatformOAuthStatusResponse,
+	MCPPluginConfig,
+	MCPPluginDefinition,
+	PluginComposerOption,
+	PluginInstallationStatus,
+	PluginListItem,
+	PluginRevisionContent,
+	PluginRevisionFile,
+	ProjectPluginItem,
+	StartMCPPlatformOAuthResponse,
+	TestMCPPluginParams,
+	TestMCPPluginResponse,
+} from "./api/pluginApi";
+export {
+	mergeSkillOptions,
+	pluginApi,
+	pluginToComposerOption,
+	pluginToSkillCard,
+} from "./api/pluginApi";
+export type { SkillMarketplaceItem } from "./api/pluginDisplayTypes";
 export type {
 	ListProjectActivitiesParams,
 	ProjectActivityActor,
@@ -63,20 +116,6 @@ export { projectFileApi } from "./api/projectFileApi";
 export type { HumanProjectMemberOption } from "./api/projectMemberApi";
 export { projectMemberApi } from "./api/projectMemberApi";
 export { sessionApi } from "./api/sessionApi";
-export type {
-	ImportSkillParams,
-	ImportSkillResponse,
-	InstalledSkillsResponse,
-	SearchSkillMarketplaceParams,
-	SearchSkillMarketplaceResponse,
-	SkillDetailData,
-	SkillDetailParams,
-	SkillInstalledItem,
-	SkillMarketplaceItem,
-	UninstallSkillParams,
-	UninstallSkillResponse,
-} from "./api/skillMarketplaceApi";
-export { installedToCardItem, skillMarketplaceApi } from "./api/skillMarketplaceApi";
 export { taskApi } from "./api/taskApi";
 export type {
 	BackendAITeammateTemplate,
@@ -84,7 +123,7 @@ export type {
 	BackendProjectFileVersionList,
 	BackendTask,
 } from "./api/types";
-export type { UpdateUserParams, UserInfo } from "./api/userApi";
+export type { UpdateCurrentUserParams, UpdateUserParams, UserInfo } from "./api/userApi";
 export { userApi } from "./api/userApi";
 export type { AppAction, AppStore } from "./appStore";
 export {
@@ -95,7 +134,6 @@ export {
 	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
-	useSkillStore,
 	useTopicStore,
 } from "./appStore";
 export {
@@ -104,6 +142,8 @@ export {
 	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	getComposerUploadAccept,
+	getNativeFileInputAccept,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
 	partitionComposerFolderFiles,
@@ -186,8 +226,6 @@ export {
 	type PermissionStore,
 	PROJECT_PAGE_ACTIONS,
 } from "./slices/permissionSlice";
-export type { SkillAction, SkillState, SkillStore } from "./slices/skillSlice";
-export { normalizeInstalledSkillsPayload } from "./slices/skillSlice";
 export type { Topic, TopicAction, TopicState, TopicStore } from "./slices/topicSlice";
 export type { PublicActions, SliceCreator } from "./types";
 export type {
@@ -232,6 +270,7 @@ export {
 export {
 	AUTH_SESSION_EXPIRED_EVENT,
 	authenticatedFetch,
+	clearStoredAuthUser,
 	getValidJwtToken,
 } from "./utils/authStorage";
 export {
@@ -242,6 +281,13 @@ export {
 	formatTime,
 	formatTokenCount,
 } from "./utils/format";
+export {
+	getFrontendEventFingerprint,
+	trackButtonClick,
+	trackFrontendEvent,
+	trackPageStay,
+	trackPageView,
+} from "./utils/frontendEventTracker";
 export {
 	buildMessageMetadata,
 	getAssistantMessageFooterSegments,

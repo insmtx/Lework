@@ -7,7 +7,6 @@ import { readStoredAuthUser } from "../utils/authStorage";
 export type DigitalAssistantItem = {
 	id: number;
 	publicId: string;
-	code: string;
 	name: string;
 	roleName: string;
 	description: string;
@@ -48,8 +47,6 @@ function mapBackendDA(da: BackendDigitalAssistant): DigitalAssistantItem {
 	return {
 		id: da.id,
 		publicId,
-		// 中文注释：输入框选择器仍使用 code 作为本地选项值，后端交互统一取 publicId。
-		code: publicId,
 		name: da.name,
 		// 中文注释：历史数据可能把角色名称回填为队友名称，前端隐藏重复副标题。
 		roleName: roleName === da.name.trim() ? "" : roleName,

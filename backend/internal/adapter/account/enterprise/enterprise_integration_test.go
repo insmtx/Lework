@@ -125,24 +125,24 @@ func setupIAMDepartment(t *testing.T) *department {
 	return NewDepartment(newTestIAMClient(t))
 }
 
-func loginJWT(t *testing.T, svc *auth) (jwtToken string, tokens *account.AuthTokens) {
+func loginJWT(t *testing.T, svc *auth) (jwtToken string, loginResp *account.LoginByPasswordOutput) {
 	t.Helper()
 
-	loginResp, err := svc.LoginByEmail(context.Background(), &account.LoginByEmailInput{
-		Email:    testAccount(t),
+	loginResp, err := svc.LoginByPassword(context.Background(), &account.LoginByPasswordInput{
+		Account:  testAccount(t),
 		Password: testPassword(t),
 	})
 	if err != nil {
-		t.Fatalf("LoginByEmail: %v", err)
+		t.Fatalf("LoginByPassword: %v", err)
 	}
 
-	if loginResp.JwtToken != "" {
-		return loginResp.JwtToken, loginResp
+	if loginResp.RefreshToken == "" {
+		t.Fatal("RefreshToken is empty")
 	}
 
 	chosen, err := svc.ChooseUin(context.Background(), &account.ChooseUinInput{
 		RefreshToken: loginResp.RefreshToken,
-		Uin:          loginResp.Uin,
+		Uin:          loginResp.Organizations[0].Uin,
 		UserID:       loginResp.UserID,
 		LoginWay:     loginResp.LoginWay,
 	})
@@ -170,7 +170,7 @@ func loginContextWithCaller(t *testing.T) context.Context {
 	ctx := context.Background()
 	ctx = localauth.WithBearerToken(ctx, jwt)
 	ctx = localauth.WithContext(ctx, &types.Caller{
-		Uin:   loginResp.Uin,
+		Uin:   loginResp.Organizations[0].Uin,
 		State: types.AuthStateSucc,
 	}, nil)
 	return ctx
@@ -180,63 +180,59 @@ func randSuffix() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
-func TestLoginByEmail_Success(t *testing.T) {
+func TestLoginByPassword_Success(t *testing.T) {
 	svc := setupIAMAuth(t)
-	tokens, err := svc.LoginByEmail(context.Background(), &account.LoginByEmailInput{
-		Email:    testAccount(t),
+	tokens, err := svc.LoginByPassword(context.Background(), &account.LoginByPasswordInput{
+		Account:  testAccount(t),
 		Password: testPassword(t),
 	})
 	if err != nil {
-		t.Fatalf("LoginByEmail failed: %v", err)
-	}
-	if tokens.JwtToken == "" {
-		// 多 UIN 场景 IAM 不直接签发 JWT，需后续调用 ChooseUin
-		t.Log("JwtToken is empty (multi-UIN account)")
+		t.Fatalf("LoginByPassword failed: %v", err)
 	}
 	if tokens.RefreshToken == "" {
 		t.Fatal("RefreshToken is empty")
 	}
-	if tokens.LoginStatus != "success" {
-		t.Fatalf("LoginStatus = %q, want success", tokens.LoginStatus)
-	}
-	if tokens.Uin == 0 {
-		t.Fatal("Uin is 0")
-	}
 	if tokens.UserInfo.ID == 0 {
 		t.Log("UserInfo.ID is 0 (IAM does not return user id in LoginByPassword)")
+	}
+	if tokens.UserID == 0 {
+		t.Log("UserID is 0 (IAM does not return user id in LoginByPassword)")
+	}
+	if len(tokens.Organizations) == 0 {
+		t.Log("Organizations is empty (IAM LoginByPassword does not return organizations)")
 	}
 	if tokens.UserInfo.Name == "" {
 		t.Fatal("UserInfo.Name is empty")
 	}
-	t.Logf("login success: user_id=%d uin=%d name=%s", tokens.UserInfo.ID, tokens.Uin, tokens.UserInfo.Name)
+	t.Logf("login success: user_id=%d name=%s", tokens.UserInfo.ID, tokens.UserInfo.Name)
 }
 
-func TestLoginByEmail_InvalidPassword(t *testing.T) {
+func TestLoginByPassword_InvalidPassword(t *testing.T) {
 	svc := setupIAMAuth(t)
-	_, err := svc.LoginByEmail(context.Background(), &account.LoginByEmailInput{
-		Email:    testAccount(t),
+	_, err := svc.LoginByPassword(context.Background(), &account.LoginByPasswordInput{
+		Account:  testAccount(t),
 		Password: "WRONG_PASSWORD_12345",
 	})
-	if !errors.Is(err, accounterror.ErrInvalidEmailOrPassword) {
-		t.Fatalf("expected ErrInvalidEmailOrPassword, got %v", err)
+	if !errors.Is(err, accounterror.ErrInvalidAccountOrPassword) {
+		t.Fatalf("expected ErrInvalidAccountOrPassword, got %v", err)
 	}
 }
 
-func TestLoginByEmail_EmptyEmail(t *testing.T) {
+func TestLoginByPassword_EmptyAccount(t *testing.T) {
 	svc := setupIAMAuth(t)
-	_, err := svc.LoginByEmail(context.Background(), &account.LoginByEmailInput{
-		Email:    "",
+	_, err := svc.LoginByPassword(context.Background(), &account.LoginByPasswordInput{
+		Account:  "",
 		Password: "anything",
 	})
-	if !errors.Is(err, accounterror.ErrEmailRequired) {
-		t.Fatalf("expected ErrEmailRequired, got %v", err)
+	if !errors.Is(err, accounterror.ErrAccountRequired) {
+		t.Fatalf("expected ErrAccountRequired, got %v", err)
 	}
 }
 
-func TestLoginByEmail_EmptyPassword(t *testing.T) {
+func TestLoginByPassword_EmptyPassword(t *testing.T) {
 	svc := setupIAMAuth(t)
-	_, err := svc.LoginByEmail(context.Background(), &account.LoginByEmailInput{
-		Email:    testAccount(t),
+	_, err := svc.LoginByPassword(context.Background(), &account.LoginByPasswordInput{
+		Account:  testAccount(t),
 		Password: "",
 	})
 	if !errors.Is(err, accounterror.ErrPasswordRequired) {
@@ -246,8 +242,8 @@ func TestLoginByEmail_EmptyPassword(t *testing.T) {
 
 func TestRefreshToken_Success(t *testing.T) {
 	svc := setupIAMAuth(t)
-	initial, err := svc.LoginByEmail(context.Background(), &account.LoginByEmailInput{
-		Email:    testAccount(t),
+	initial, err := svc.LoginByPassword(context.Background(), &account.LoginByPasswordInput{
+		Account:  testAccount(t),
 		Password: testPassword(t),
 	})
 	if err != nil {
@@ -259,7 +255,7 @@ func TestRefreshToken_Success(t *testing.T) {
 
 	refreshed, err := svc.RefreshToken(context.Background(), &account.RefreshTokenInput{
 		RefreshToken: initial.RefreshToken,
-		UinID:        initial.Uin,
+		UinID:        initial.Organizations[0].Uin,
 		UserID:       initial.UserID,
 		LoginWay:     initial.LoginWay,
 	})

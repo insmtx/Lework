@@ -12,76 +12,42 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-func CreateUser(ctx context.Context, d *gorm.DB, user *types.User) error {
-	return d.WithContext(ctx).Create(user).Error
+// UserCond 用户查询条件，内嵌 BaseCond 提供通用过滤能力。
+// Use pointer embedding so that when no basic filtering is needed, it can be nil.
+type UserCond struct {
+	*BaseCond
+	Email    string
+	Phone    string
+	PublicID string
 }
 
-func GetUserByID(ctx context.Context, d *gorm.DB, id uint) (*types.User, error) {
-	var entity types.User
-	err := d.WithContext(ctx).Where("id = ?", id).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+// BuildCondition 将 UserCond 转换为 GORM 查询条件。
+func (c *UserCond) BuildCondition(db *gorm.DB, tableName string) *gorm.DB {
+	if c.BaseCond != nil {
+		db = c.BaseCond.BuildCondition(db, tableName)
 	}
-	return &entity, nil
-}
-
-func GetUserByPublicID(ctx context.Context, d *gorm.DB, publicID string) (*types.User, error) {
-	var entity types.User
-	err := d.WithContext(ctx).Where("public_id = ?", publicID).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+	if c.Email != "" {
+		db = db.Where(tableName+".email = ?", c.Email)
 	}
-	return &entity, nil
-}
-
-func GetUserByEmail(ctx context.Context, d *gorm.DB, email string) (*types.User, error) {
-	var entity types.User
-	err := d.WithContext(ctx).Where("email = ?", email).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+	if c.Phone != "" {
+		db = db.Where(tableName+".phone = ?", c.Phone)
 	}
-	return &entity, nil
-}
-
-func GetUserByPhone(ctx context.Context, d *gorm.DB, phone string) (*types.User, error) {
-	var entity types.User
-	err := d.WithContext(ctx).Where("phone = ?", phone).First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+	if c.PublicID != "" {
+		db = db.Where(tableName+".public_id = ?", c.PublicID)
 	}
-	return &entity, nil
+	return db
 }
 
-func UpdateUser(ctx context.Context, d *gorm.DB, user *types.User) error {
-	return d.WithContext(ctx).Save(user).Error
+// UserEntityDao 封装了 User 实体的泛型 DAO。
+type UserEntityDao struct {
+	*GenericDao[types.User]
 }
 
-func DeleteUser(ctx context.Context, d *gorm.DB, id uint) error {
-	return d.WithContext(ctx).Delete(&types.User{}, id).Error
-}
-
-func GetUsersByIDs(ctx context.Context, db *gorm.DB, ids []uint) ([]*types.User, error) {
-	if len(ids) == 0 {
-		return nil, nil
+// NewUserEntityDao creates a UserEntityDao bound to the given DB connection.
+func NewUserEntityDao(db *gorm.DB) *UserEntityDao {
+	return &UserEntityDao{
+		GenericDao: NewGenericDao[types.User](db),
 	}
-	var entities []*types.User
-	err := db.WithContext(ctx).Where("id IN (?)", ids).Find(&entities).Error
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
 }
 
 // GetUserByUin 根据组织成员 Uin 查询用户。
@@ -91,7 +57,7 @@ func GetUserByUin(ctx context.Context, db *gorm.DB, uin uint) (*types.User, erro
 		Table(types.TableNameUser+" AS u").
 		Select("u.*").
 		Joins("INNER JOIN "+types.TableNameUserOrg+" AS uo ON uo.user_id = u.id").
-		Where("uo.uin = ? AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", uin).
+		Where("uo.id = ? AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", uin).
 		First(&entity).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -114,9 +80,9 @@ func GetUsersByUins(ctx context.Context, db *gorm.DB, uins []uint) (map[uint]*ty
 	var rows []row
 	err := db.WithContext(ctx).
 		Table(types.TableNameUser+" AS u").
-		Select("uo.uin, u.*").
+		Select("uo.id AS uin, u.*").
 		Joins("INNER JOIN "+types.TableNameUserOrg+" AS uo ON uo.user_id = u.id").
-		Where("uo.uin IN (?) AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", uins).
+		Where("uo.id IN (?) AND uo.deleted_at IS NULL AND u.deleted_at IS NULL", uins).
 		Find(&rows).Error
 	if err != nil {
 		return nil, err
@@ -127,19 +93,6 @@ func GetUsersByUins(ctx context.Context, db *gorm.DB, uins []uint) (map[uint]*ty
 		result[row.Uin] = &user
 	}
 	return result, nil
-}
-
-// GetUsersByPublicIDs 批量根据公开 ID 查询用户。
-func GetUsersByPublicIDs(ctx context.Context, db *gorm.DB, publicIDs []string) ([]*types.User, error) {
-	if len(publicIDs) == 0 {
-		return nil, nil
-	}
-	var entities []*types.User
-	err := db.WithContext(ctx).Where("public_id IN (?)", publicIDs).Find(&entities).Error
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
 }
 
 func ListUser(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.User, int64, error) {
@@ -187,7 +140,7 @@ func ListUser(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*types.U
 			}
 			query = query.Where(`EXISTS (
 				SELECT 1 FROM `+types.TableNameMemberDepartment+` AS md
-				WHERE md.uin = uo.uin
+				WHERE md.uin = uo.id
 				  AND md.org_id = uo.org_id
 				  AND md.department_id = ?
 				  AND md.deleted_at IS NULL

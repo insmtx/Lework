@@ -56,6 +56,13 @@ Practical points:
 - **No `panic` in library or business code.** Propagate via `error`. Only `cmd/leros` may use `log.Fatal` for unrecoverable startup failures. (`panic` inside test stubs to satisfy unimplemented interface methods is acceptable.)
 - **No `map[string]interface{}` for business data** across function signatures, interfaces, or layer boundaries — define a struct or typed map (e.g. `map[string]string`). EXCEPTION: the `tools.Tool` Execute contract (`backend/tools/`) legitimately uses `tools.JSONInput` (= `map[string]interface{}`) as the universal tool I/O shape, and `pkg/llmprotocol` test fixtures use it for raw protocol blobs. Do not "refactor" those away blindly.
 - **Never commit gitignored files.** Before committing run `git status`; `bundles/`, `.env`, `docs/superpowers/`, `deployments/env/config.yaml`, `server.config.yaml`/`worker.config.yaml` under `deployments/dev/`, `.opencode`, logs, etc. are ignored. If accidentally staged, unstage before committing.
+- **DB Schema 变更必须同步迁移逻辑。** 修改 `backend/types/` 中的 GORM 模型（增/删/改名/改约束）时：
+  - 新增列 → GORM AutoMigrate 自动处理，无需额外操作。
+  - 删除列 → 在 `database.go` 的 `legacyColumns` 数组中注册 `{table, column}`，`dropLegacyColumns` 会在启动时自动清理。
+  - 重命名列 → 在 `database.go` 的 `renamesToApply` 数组中注册 `{table, oldCol, newCol}`。
+  - 删除表 → 在 `database.go` 的 `legacyTables` 数组中注册表名。
+  - 数据回填 → 参考已有的 `backfillXxx` 函数模式新增迁移函数，在 `runMigrations` 中按依赖顺序调用。
+  - GORM AutoMigrate **不会删除列、不会重命名列**，这些必须手动处理。
 
 ## Modelrouter — ignore stale v1/v2 claims
 

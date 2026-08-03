@@ -27,6 +27,44 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: chown-storage
+          image: {{ .Values.worker.workspaceInitImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /leros-storage/data
+              chown -R 999:999 /leros-storage
+          volumeMounts:
+            - name: storage
+              mountPath: {{ .Values.storage.localDir | quote }}
+        {{- if or .Values.postgresql.enabled .Values.nats.enabled }}
+        - name: wait-for-middleware
+          image: {{ .Values.worker.workspaceInitImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              {{- if .Values.postgresql.enabled }}
+              echo "waiting for postgresql at {{ include "leros.fullname" . }}-postgresql:5432"
+              until nc -z -w 2 {{ include "leros.fullname" . }}-postgresql 5432; do
+                echo "postgresql not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "postgresql is ready"
+              {{- end }}
+              {{- if .Values.nats.enabled }}
+              echo "waiting for nats at {{ include "leros.fullname" . }}-nats:4222"
+              until nc -z -w 2 {{ include "leros.fullname" . }}-nats 4222; do
+                echo "nats not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "nats is ready"
+              {{- end }}
+        {{- end }}
       containers:
         - name: {{ .Values.server.deploymentNameOverride | default "leros" }}
           image: {{ .Values.server.image | quote }}
@@ -35,6 +73,8 @@ spec:
           env:
             - name: GIN_MODE
               value: {{ .Values.server.ginMode | quote }}
+            - name: LEROS_WORKSPACE_ROOT
+              value: "/workspace"
             - name: LLM_API_KEY
               valueFrom:
                 secretKeyRef:

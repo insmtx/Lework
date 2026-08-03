@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const builderConfigPath = resolve(__dirname, "../../../electron-builder.yml");
+const desktopPackagePath = resolve(__dirname, "../../../package.json");
 
 describe("electron-builder 桌面图标与资源配置", () => {
 	it("不应禁用 Windows 可执行文件资源编辑，否则安装后的图标会回退为默认值", () => {
@@ -22,6 +23,18 @@ describe("electron-builder 桌面图标与资源配置", () => {
 		const config = readFileSync(builderConfigPath, "utf8");
 
 		expect(config).toMatch(/win:\s*\n\s*icon:\s*resources\/icon\.ico/);
+	});
+
+	it("Linux 应同步 desktopName，确保任务栏窗口能关联应用图标", () => {
+		const config = readFileSync(builderConfigPath, "utf8");
+		const desktopPackage = JSON.parse(readFileSync(desktopPackagePath, "utf8")) as {
+			desktopName?: string;
+		};
+
+		expect(desktopPackage.desktopName).toBe("leros-desktop.desktop");
+		expect(config).toMatch(
+			/linux:[\s\S]*icon:\s*resources\/linux-icons[\s\S]*executableName:\s*leros-desktop[\s\S]*syncDesktopName:\s*true/,
+		);
 	});
 
 	it("应将登录页协议 PDF 复制到生产环境 resources 根目录", () => {

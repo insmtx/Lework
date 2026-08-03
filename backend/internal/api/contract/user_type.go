@@ -18,6 +18,10 @@ type UpdateUserRequest struct {
 	account.UpdateUserInput
 }
 
+type UpdateCurrentUserRequest struct {
+	account.UpdateCurrentUserInput
+}
+
 type ListUserRequest struct {
 	account.ListUserInput
 }

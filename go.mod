@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	code.gitea.io/sdk/gitea v0.23.2
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/bytedance/sonic v1.15.0
 	github.com/cloudwego/eino v0.8.9
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.18
@@ -29,8 +30,10 @@ require (
 	golang.org/x/crypto v0.41.0
 	golang.org/x/sync v0.16.0
 	golang.org/x/sys v0.35.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
+	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.5.6
 	gorm.io/gorm v1.30.1
 	k8s.io/api v0.31.4
@@ -46,7 +49,6 @@ require (
 	github.com/42wim/httpsig v1.2.3 // indirect
 	github.com/ClickHouse/ch-go v0.61.5 // indirect
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0 // indirect
-	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.26.0 // indirect
@@ -191,10 +193,8 @@ require (
 	google.golang.org/grpc v1.66.2 // indirect
 	google.golang.org/protobuf v1.36.7 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gorm.io/driver/clickhouse v0.7.0 // indirect
 	gorm.io/driver/mysql v1.5.7 // indirect
-	gorm.io/driver/postgres v1.6.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240228011516-70dd3763d340 // indirect
 	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8 // indirect

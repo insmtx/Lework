@@ -21,21 +21,21 @@ func RegisterFrontendEventRoutes(r gin.IRouter) {
 }
 
 type frontendEventRequest struct {
-	Fingerprint string          `json:"fingerprint"`
+	Fingerprint string           `json:"fingerprint"`
 	Events      []*frontendEvent `json:"events"`
 }
 
 type frontendEvent struct {
-	EventType   string `json:"event_type"`
-	Timestamp   int64  `json:"timestamp"`
-	PageURL     string `json:"page_url,omitempty"`
-	PageTitle   string `json:"page_title,omitempty"`
-	EventName   string `json:"event_name,omitempty"`
-	DurationMs  int64  `json:"duration_ms,omitempty"`
-	Extra       any    `json:"extra,omitempty"`
+	EventType    string `json:"event_type"`
+	Timestamp    int64  `json:"timestamp"`
+	PageURL      string `json:"page_url,omitempty"`
+	PageTitle    string `json:"page_title,omitempty"`
+	EventName    string `json:"event_name,omitempty"`
+	DurationMs   int64  `json:"duration_ms,omitempty"`
+	Extra        any    `json:"extra,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`
-	ErrorStack  string `json:"error_stack,omitempty"`
-	Component   string `json:"component,omitempty"`
+	ErrorStack   string `json:"error_stack,omitempty"`
+	Component    string `json:"component,omitempty"`
 }
 
 func (h *FrontendEventHandler) CollectFrontendEvent(ctx *gin.Context) {

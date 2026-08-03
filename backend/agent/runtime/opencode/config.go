@@ -103,15 +103,25 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 			name = "leros"
 		}
 		if m.URL != "" {
+			if strings.EqualFold(m.Transport, "sse") {
+				command := []string{"npx", "-y", "mcp-remote", m.URL, "--transport", "sse-only"}
+				mcpServers[name] = map[string]any{"type": "local", "command": command}
+				continue
+			}
 			// HTTP 传输 — remote type
 			entry := map[string]any{
 				"type": "remote",
 				"url":  m.URL,
 			}
-			if m.BearerToken != "" {
-				entry["headers"] = map[string]string{
-					"Authorization": "Bearer " + m.BearerToken,
+			headers := cloneHeaders(m.Headers)
+			if m.BearerToken != "" && !hasHeader(headers, "authorization") {
+				if headers == nil {
+					headers = make(map[string]string)
 				}
+				headers["Authorization"] = "Bearer " + m.BearerToken
+			}
+			if len(headers) > 0 {
+				entry["headers"] = headers
 			}
 			mcpServers[name] = entry
 		} else if m.Command != "" {
@@ -129,6 +139,26 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 		}
 	}
 	return mcpServers
+}
+
+func cloneHeaders(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+
+func hasHeader(headers map[string]string, name string) bool {
+	for key := range headers {
+		if strings.EqualFold(strings.TrimSpace(key), name) {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureOpenCodeDBPath ensures the OpenCode data directory exists and returns the session database path.

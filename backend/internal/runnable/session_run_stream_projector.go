@@ -49,6 +49,23 @@ func handleRunStreamMessage(ctx context.Context, service contract.SessionService
 		return
 	}
 
+	fields := make([]interface{}, 0, 8)
+	if runEvent.Trace.ReqID != "" {
+		fields = append(fields, "req_id", runEvent.Trace.ReqID)
+	}
+	if runEvent.Route.SessionID != "" {
+		fields = append(fields, "session_id", runEvent.Route.SessionID)
+	}
+	if runEvent.Route.AssistantID != 0 {
+		fields = append(fields, "assistant_id", runEvent.Route.AssistantID)
+	}
+	if runEvent.Route.WorkerID != 0 {
+		fields = append(fields, "worker_id", runEvent.Route.WorkerID)
+	}
+	if len(fields) > 0 {
+		ctx = logs.WithContextFields(ctx, fields...)
+	}
+
 	// Set stream start seq at most once per session per process lifetime.
 	streamSeenMu.Lock()
 	if _, ok := streamSeen[sessionPID]; ok {

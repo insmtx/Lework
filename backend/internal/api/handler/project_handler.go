@@ -40,6 +40,18 @@ func (h *ProjectHandler) RegisterRoutes(r gin.IRouter) {
 		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectUpdate, extractUpdateProjectPublicID),
 		h.UpdateProject,
 	)
+	r.POST("/ListProjectPlugins",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectView, extractProjectPublicID),
+		h.ListProjectPlugins,
+	)
+	r.POST("/AddProjectPlugin",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectUpdate, extractProjectPublicID),
+		h.AddProjectPlugin,
+	)
+	r.POST("/RemoveProjectPlugin",
+		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectUpdate, extractProjectPublicID),
+		h.RemoveProjectPlugin,
+	)
 	r.POST("/DeleteProject",
 		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectDelete, extractDeleteProjectPublicID),
 		h.DeleteProject,
@@ -253,6 +265,49 @@ func (h *ProjectHandler) UpdateProject(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// ListProjectPlugins returns project bindings, optionally restricted to one plugin kind.
+func (h *ProjectHandler) ListProjectPlugins(ctx *gin.Context) {
+	var req contract.ListProjectPluginsRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.ListProjectPlugins(ctx, &req)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// AddProjectPlugin authorizes an organization plugin for a project.
+func (h *ProjectHandler) AddProjectPlugin(ctx *gin.Context) {
+	var req contract.UpdateProjectPluginRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if err := h.service.AddProjectPlugin(ctx, &req); err != nil {
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(nil))
+}
+
+// RemoveProjectPlugin removes one project plugin authorization.
+func (h *ProjectHandler) RemoveProjectPlugin(ctx *gin.Context) {
+	var req contract.UpdateProjectPluginRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if err := h.service.RemoveProjectPlugin(ctx, &req); err != nil {
+		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(nil))
 }
 
 type DeleteProjectRequest struct {

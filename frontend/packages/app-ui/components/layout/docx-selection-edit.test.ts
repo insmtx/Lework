@@ -25,7 +25,7 @@ describe("buildDocxSelectionEditRequest", () => {
 		);
 	});
 
-	it("builds an expand reference with the exact selected version attachment", () => {
+	it("builds an expand reference without turning the selected file into an attachment", () => {
 		const result = buildDocxSelectionEditRequest({
 			instruction: "expand",
 			file: {
@@ -59,13 +59,10 @@ describe("buildDocxSelectionEditRequest", () => {
 		expect(result.content).not.toContain("请先读取 reference");
 		expect(result.content).toContain("请扩写选中的内容");
 		expect(result.displayContent).toBe("扩写文档选区：「运动塑造强健的体魄」");
-		expect(result.attachment).toMatchObject({
-			fileUploadId: "file-v2",
-			name: "report.docx",
-		});
+		expect(result).not.toHaveProperty("attachment");
 	});
 
-	it("falls back to the project path when no attachment version is available", () => {
+	it("falls back to the project path when no file version is available", () => {
 		const result = buildDocxSelectionEditRequest({
 			instruction: "expand",
 			file: {
@@ -79,7 +76,7 @@ describe("buildDocxSelectionEditRequest", () => {
 			name: "report.docx",
 			path: "artifacts/report.docx",
 		});
-		expect(result.attachment).toBeUndefined();
+		expect(result).not.toHaveProperty("attachment");
 	});
 
 	it("builds a PPTX selection reference with a slide index", () => {
@@ -114,11 +111,7 @@ describe("buildDocxSelectionEditRequest", () => {
 		});
 		expect(referenceSelection).not.toHaveProperty("page_index");
 		expect(result.displayContent).toBe("缩写演示文稿选区：「运动塑造强健的体魄」");
-		expect(result.attachment).toMatchObject({
-			id: "pptx-selection-pptx-v3",
-			fileUploadId: "pptx-v3",
-			mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		});
+		expect(result).not.toHaveProperty("attachment");
 	});
 
 	it("escapes a closing reference tag inside selected document text", () => {

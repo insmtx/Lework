@@ -46,3 +46,19 @@ body.leros-mac-titlebar
 	:is(button, a, input, select, textarea, [role="button"], [role="tab"], [contenteditable="true"]) {
 	-webkit-app-region: no-drag;
 }
+
+/* Dialog/Sheet 等浮层会叠在顶栏 drag 区域之上；Electron 的 -webkit-app-region: drag
+   会按窗口几何穿透上层 DOM，导致关闭按钮等控件热区被“吃掉”、只剩边缘可点。
+   浮层整块声明 no-drag，避免组织管理后台等大弹窗右上角关闭键难点。 */
+body.leros-mac-titlebar
+:is(
+	[data-slot="dialog-overlay"],
+	[data-slot="dialog-viewport"],
+	[data-slot="dialog-content"],
+	[data-slot="sheet-overlay"],
+	[data-slot="sheet-content"],
+	[data-slot="alert-dialog-overlay"],
+	[data-slot="alert-dialog-content"]
+) {
+	-webkit-app-region: no-drag;
+}

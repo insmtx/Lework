@@ -39,7 +39,7 @@ func (b *ContextBuilder) Prepare(ctx context.Context, req *agentrundomain.RunReq
 	logs.InfoContextf(ctx, "Agent context prepare started: run_id=%s trace_id=%s assistant_id=%s conversation_id=%s input_type=%s messages=%d attachments=%d",
 		req.RunID,
 		req.TraceID,
-		req.Assistant.ID,
+		req.Assistant.PublicID,
 		req.Conversation.ID,
 		req.Input.Type,
 		len(req.Input.Messages),

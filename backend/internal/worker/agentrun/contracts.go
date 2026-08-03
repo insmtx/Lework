@@ -57,11 +57,15 @@ type Finalization struct {
 // EventContext carries immutable routing and tracing values for one business run.
 type EventContext struct {
 	OrgID uint
-	// TODO: 梳理 WorkerID、AssistantID、AssistantPKID 的使用场景，收敛和清晰化
-	WorkerID          uint
-	SessionID         string
-	AssistantID       string
-	AssistantPKID     uint
+	// WorkerID 是 leros_worker_deployment.worker_id（worker 主键）。
+	WorkerID uint
+	// WorkerPublicID 是 leros_worker_deployment.public_id。
+	WorkerPublicID string
+	SessionID      string
+	// AssistantID 是 leros_digital_assistant.id（assistant 主键）。
+	AssistantID uint
+	// AssistantPublicID 是 leros_digital_assistant.public_id。
+	AssistantPublicID string
 	TraceID           string
 	RequestID         string
 	TaskID            string

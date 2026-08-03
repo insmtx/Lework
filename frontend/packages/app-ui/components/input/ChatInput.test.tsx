@@ -41,6 +41,22 @@ vi.mock("@leros/store", () => ({
 			setExecutionMode: mockSetExecutionMode,
 		}),
 	COMPOSER_UPLOAD_ACCEPT: ".txt",
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE: "不能上传空文件",
+	COMPOSER_UPLOAD_SUCCESS_MESSAGE: "文件上传成功",
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE: "不支持的文件类型",
+	getComposerUploadAccept: () => ".txt",
+	isComposerUploadAllowedFile: () => true,
+	isEmptyUploadFile: () => false,
+	useDAStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			assistants: [],
+			assistantsLoaded: true,
+		}),
+	useSkillStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			installedSkills: [],
+			installedSkillsLoaded: true,
+		}),
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			activeProjectId: "project-1",
@@ -62,6 +78,27 @@ vi.mock("@leros/store", () => ({
 				},
 			],
 		}),
+	pluginApi: {
+		list: () => Promise.resolve({ data: { code: 0, message: "success", data: { plugins: [] } } }),
+		listProject: () => Promise.resolve({ data: { code: 0, message: "success", data: [] } }),
+		listBuiltinSkills: () =>
+			Promise.resolve({ data: { code: 0, message: "success", data: { plugins: [] } } }),
+	},
+	officialPluginMarketplaceApi: {
+		list: () => Promise.resolve({ data: { code: 0, message: "success", data: { items: [] } } }),
+	},
+	pluginToComposerOption: (item: Record<string, unknown>) => ({
+		code: item.code ?? "",
+		label: item.name ?? item.code ?? "",
+		description: (item.description as string) ?? "",
+		keywords: [],
+	}),
+	mergeSkillOptions: (
+		project: unknown[],
+		org: unknown[],
+		marketplace: unknown[],
+		builtin: unknown[],
+	) => [...project, ...org, ...marketplace, ...builtin],
 }));
 
 vi.mock("./StructuredComposer", () => ({

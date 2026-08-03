@@ -10,6 +10,8 @@ const (
 	ProjectActivityActionProjectCreated ProjectActivityAction = "project.created"
 	// ProjectActivityActionSkillsChanged 记录项目技能集合变化。
 	ProjectActivityActionSkillsChanged ProjectActivityAction = "project.skills.changed"
+	// ProjectActivityActionMCPsChanged 记录项目 MCP 连接器集合变化。
+	ProjectActivityActionMCPsChanged ProjectActivityAction = "project.mcps.changed"
 	// ProjectActivityActionParticipantsChanged 记录项目成员和 AI 队友集合变化。
 	ProjectActivityActionParticipantsChanged ProjectActivityAction = "project.participants.changed"
 )
@@ -18,6 +20,8 @@ const (
 type ProjectActivityPayload struct {
 	AddedSkillIDs        []string `json:"added_skill_ids"`
 	RemovedSkillIDs      []string `json:"removed_skill_ids"`
+	AddedMCPIDs          []string `json:"added_mcp_ids"`
+	RemovedMCPIDs        []string `json:"removed_mcp_ids"`
 	AddedMemberIDs       []string `json:"added_member_ids"`
 	RemovedMemberIDs     []string `json:"removed_member_ids"`
 	AddedAITeammateIDs   []string `json:"added_ai_teammate_ids"`

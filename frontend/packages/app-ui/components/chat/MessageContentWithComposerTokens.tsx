@@ -21,21 +21,15 @@ export function MessageContentWithComposerTokens({
 		.filter((token) => displayContent.slice(token.start, token.end) === token.label)
 		.sort((a, b) => a.start - b.start);
 
+	// 中文注释：overflow-wrap:anywhere 让数字/emoji 等无空格长串也能在气泡 max-width 内断行。
+	const textClassName = inlineLayout
+		? "inline break-words [overflow-wrap:anywhere]"
+		: "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
+
 	if (tokens.length === 0) {
 		// 中文注释：没有明确 token metadata 时，普通内容里的 @ 和 / 必须原样展示，不能靠文本猜样式。
-		return (
-			<span
-				className={cn(
-					inlineLayout ? "inline break-words" : "whitespace-pre-wrap break-words",
-					className,
-				)}
-			>
-				{displayContent}
-			</span>
-		);
+		return <span className={cn(textClassName, className)}>{displayContent}</span>;
 	}
-
-	const textClassName = inlineLayout ? "inline break-words" : "whitespace-pre-wrap break-words";
 	const mentionClassName = inlineLayout
 		? "inline align-middle rounded-md bg-blue-100 px-1.5 py-0.5 text-xs font-medium leading-none text-blue-700"
 		: "inline-flex max-w-full items-center rounded-md bg-blue-100 px-1.5 py-0.5 text-xs font-medium leading-none text-blue-700";

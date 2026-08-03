@@ -178,6 +178,30 @@ func TestAppServerModelEnvWithV1Suffix(t *testing.T) {
 	}
 }
 
+func TestCodexUsesTaskRootAndPreservesRunEnvironment(t *testing.T) {
+	taskDir := t.TempDir()
+	if got := codexHomeDir(taskDir, t.TempDir()); got != taskDir {
+		t.Fatalf("Codex home = %q", got)
+	}
+	env := buildAppServerEnv(
+		[]string{agent.RunSkillsDirEnvVar + "=" + taskDir + "/skills", "NETEASE_EMAIL_USER=user@example.com"},
+		agent.ModelConfig{APIKey: "test-key", BaseURL: "https://example.com"},
+		nil,
+		taskDir,
+	)
+	want := map[string]bool{
+		agent.RunSkillsDirEnvVar + "=" + taskDir + "/skills": true,
+		"NETEASE_EMAIL_USER=user@example.com":                true,
+		"CODEX_HOME=" + taskDir:                              true,
+	}
+	for _, entry := range env {
+		delete(want, entry)
+	}
+	if len(want) != 0 {
+		t.Fatalf("Codex app-server environment missing entries: %#v", want)
+	}
+}
+
 func TestJSONRPCClientCallAndRespond(t *testing.T) {
 	clientToServerR, clientToServerW := io.Pipe()
 	serverToClientR, serverToClientW := io.Pipe()

@@ -11,3 +11,9 @@ keywords:
 home: https://github.com/insmtx/Lework
 maintainers:
   - name: insmtx
+
+dependencies:
+  - name: traefik
+    version: "34.2.0"
+    repository: "file://charts"
+    condition: traefik.enabled

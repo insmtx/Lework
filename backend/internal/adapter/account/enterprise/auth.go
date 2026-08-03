@@ -15,6 +15,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -56,10 +57,10 @@ func (s *auth) RegisterByEmail(ctx context.Context, req *account.RegisterByEmail
 	return mapLoginThirdToAuthTokenResponse(&resp)
 }
 
-func (s *auth) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput) (*account.AuthTokens, error) {
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if email == "" {
-		return nil, accounterror.ErrEmailRequired
+func (s *auth) LoginByPassword(ctx context.Context, req *account.LoginByPasswordInput) (*account.LoginByPasswordOutput, error) {
+	accountStr := strings.TrimSpace(req.Account)
+	if accountStr == "" {
+		return nil, accounterror.ErrAccountRequired
 	}
 	if strings.TrimSpace(req.Password) == "" {
 		return nil, accounterror.ErrPasswordRequired
@@ -67,21 +68,16 @@ func (s *auth) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput)
 
 	var resp iamLoginThirdResponseBody
 	if err := s.client.call(ctx, "account.LoginByPassword", &iamLoginByPasswordReq{
-		Account:    email,
+		Account:    accountStr,
 		Password:   req.Password,
 		DomainName: domainName(s.iamCfg),
 	}, &resp); err != nil {
 		return nil, mapIAMError(err)
 	}
 	if resp.LoginStatus != "success" {
-		return nil, accounterror.ErrInvalidEmailOrPassword
+		return nil, accounterror.ErrInvalidAccountOrPassword
 	}
-	result, err := mapLoginThirdToAuthTokenResponse(&resp)
-	if err != nil {
-		return nil, err
-	}
-	result.Edition = account.EditionEnterprise
-	return result, nil
+	return mapLoginPasswordToOutput(&resp), nil
 }
 
 func (s *auth) SendPhoneLoginCode(ctx context.Context, req *account.SendPhoneLoginCodeInput) (*account.SendPhoneLoginCodeOutput, error) {
@@ -227,11 +223,11 @@ func (s *auth) ChooseUin(ctx context.Context, req *account.ChooseUinInput) (*acc
 
 	if s.provisioning != nil {
 		for _, o := range session.Organizations {
-			if o.ID == 0 {
-				continue
-			}
-			if _, err := s.provisioning.EnsureDefaultWorkerForOrg(ctx, o.ID, resp.UIN); err != nil {
-				logs.WarnContextf(ctx, "ChooseUin: ensure default worker for org %d: %v", o.ID, err)
+			if o.Uin == resp.UIN && o.ID != 0 {
+				if _, err := s.provisioning.EnsureDefaultWorkerForOrg(ctx, o.ID, resp.UIN); err != nil {
+					logs.WarnContextf(ctx, "ChooseUin: ensure default worker for org %d: %v", o.ID, err)
+				}
+				break
 			}
 		}
 	}
@@ -281,12 +277,6 @@ func (s *auth) CreateOrganization(ctx context.Context, req *account.CreateOrgani
 		return nil, mapIAMError(err)
 	}
 
-	if s.provisioning != nil && resp.Uin.SubjectID != 0 {
-		if _, err := s.provisioning.EnsureDefaultWorkerForOrg(ctx, resp.Uin.SubjectID, resp.Uin.ID); err != nil {
-			logs.WarnContextf(ctx, "CreateOrganization: ensure default worker for org %d: %v", resp.Uin.SubjectID, err)
-		}
-	}
-
 	if s.db != nil && resp.Uin.SubjectID != 0 {
 		if err := db.CloneSystemLLMModelsByOrg(ctx, s.db, 1, resp.Uin.SubjectID); err != nil {
 			logs.WarnContextf(ctx, "CreateOrganization: clone system llm models for org %d: %v", resp.Uin.SubjectID, err)
@@ -309,6 +299,21 @@ func (s *auth) AuthSession(ctx context.Context) (*account.AuthSessionOutput, err
 		return nil, mapIAMError(err)
 	}
 
+	var orgUinName string
+	userInfo := mapIAMUserInfoToAuthUserInfo(&resp.UserInfo)
+	if account.IsFilePublicID(userInfo.AvatarURL) {
+		if resolved := resolveEnterpriseAvatar(ctx, s.db, userInfo.AvatarURL); resolved != "" {
+			userInfo.AvatarURL = resolved
+		}
+	}
+	for _, uin := range resp.UinList {
+		if uin.Uin.ID == resp.EmployeeDetail.Uin {
+			userInfo.UinName = uin.Uin.Name
+			orgUinName = uin.Uin.Name
+			break
+		}
+	}
+
 	var orgInfo account.AuthOrgInfo
 	if resp.CompanyInfo.ID != 0 {
 		orgInfo = account.AuthOrgInfo{
@@ -320,11 +325,12 @@ func (s *auth) AuthSession(ctx context.Context) (*account.AuthSessionOutput, err
 			IsDefault:       true,
 			CreatedByUin:    resp.CompanyInfo.CreatedByUin,
 			CreatedByUserID: resp.CompanyInfo.UserID,
+			UserName:        orgUinName,
 		}
 	}
 
 	return &account.AuthSessionOutput{
-		UserInfo:      mapIAMUserInfoToAuthUserInfo(&resp.UserInfo),
+		UserInfo:      userInfo,
 		Org:           orgInfo,
 		Organizations: mapUinListToAuthOrgInfos(resp.UinList),
 	}, nil
@@ -369,4 +375,19 @@ func mapIAMError(err error) error {
 		}
 	}
 	return err
+}
+
+func resolveEnterpriseAvatar(ctx context.Context, gdb *gorm.DB, avatar string) string {
+	if !account.IsFilePublicID(avatar) {
+		return ""
+	}
+	fileUpload, err := db.GetFileUploadByPublicID(ctx, gdb, 0, avatar)
+	if err != nil || fileUpload == nil {
+		return ""
+	}
+	url, err := filestore.ResolvePublicURL(ctx, fileUpload.StorageURI)
+	if err != nil {
+		return ""
+	}
+	return url
 }

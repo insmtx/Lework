@@ -21,11 +21,24 @@ import (
 
 type org struct {
 	db                 *gorm.DB
+	userRepo           *userRepo
+	orgRepo            *orgRepo
+	userOrgRepo        *userOrgRepo
+	departmentRepo     *departmentRepo
+	memberDeptRepo     *memberDeptRepo
 	workerProvisioning account.WorkerProvisioner
 }
 
 func NewOrg(d *gorm.DB, provisioning account.WorkerProvisioner) *org {
-	return &org{db: d, workerProvisioning: provisioning}
+	return &org{
+		db:                 d,
+		userRepo:           newUserRepo(d),
+		orgRepo:            newOrgRepo(d),
+		userOrgRepo:        newUserOrgRepo(d),
+		departmentRepo:     newDepartmentRepo(d),
+		memberDeptRepo:     newMemberDeptRepo(d),
+		workerProvisioning: provisioning,
+	}
 }
 
 // CreateOrg 创建组织。
@@ -66,14 +79,14 @@ func (s *org) CreateOrg(ctx context.Context, req *account.CreateOrgInput) (*acco
 	}
 
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existing, err := db.GetOrgByCode(ctx, tx, org.Code)
+		existing, err := s.orgRepo.withTx(tx).GetByCode(ctx, org.Code)
 		if err != nil {
 			return err
 		}
 		if existing != nil {
 			return accounterror.ErrInvalidArg
 		}
-		if err := db.CreateOrg(ctx, tx, org); err != nil {
+		if err := s.orgRepo.withTx(tx).Create(ctx, org); err != nil {
 			return err
 		}
 
@@ -83,7 +96,7 @@ func (s *org) CreateOrg(ctx context.Context, req *account.CreateOrgInput) (*acco
 			Sort:     db.DepartmentSortGap,
 			OrgID:    org.ID,
 		}
-		if err := db.CreateDepartment(ctx, tx, department); err != nil {
+		if err := s.departmentRepo.withTx(tx).Create(ctx, department); err != nil {
 			return err
 		}
 
@@ -110,9 +123,9 @@ func (s *org) GetOrg(ctx context.Context, publicID string, code string) (*accoun
 	var err error
 
 	if publicID != "" {
-		org, err = db.GetOrgByPublicID(ctx, s.db, publicID)
+		org, err = s.orgRepo.GetByPublicID(ctx, publicID)
 	} else if code != "" {
-		org, err = db.GetOrgByCode(ctx, s.db, code)
+		org, err = s.orgRepo.GetByCode(ctx, code)
 	} else {
 		return nil, accounterror.ErrInvalidArg
 	}
@@ -140,7 +153,7 @@ func (s *org) UpdateOrg(ctx context.Context, publicID string, req *account.Updat
 	var org *types.Organization
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
-		org, err = db.GetOrgByPublicID(ctx, tx, publicID)
+		org, err = s.orgRepo.withTx(tx).GetByPublicID(ctx, publicID)
 		if err != nil {
 			return err
 		}
@@ -176,7 +189,7 @@ func (s *org) UpdateOrg(ctx context.Context, publicID string, req *account.Updat
 			org.Website = strings.TrimSpace(*req.Website)
 		}
 
-		return db.UpdateOrg(ctx, tx, org)
+		return s.orgRepo.withTx(tx).Update(ctx, org)
 	}); err != nil {
 		return nil, err
 	}
@@ -194,14 +207,14 @@ func (s *org) DeleteOrg(ctx context.Context, publicID string) error {
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		org, err := db.GetOrgByPublicID(ctx, tx, publicID)
+		org, err := s.orgRepo.withTx(tx).GetByPublicID(ctx, publicID)
 		if err != nil {
 			return err
 		}
 		if org == nil {
 			return accounterror.ErrOrgNotFound
 		}
-		return db.DeleteOrg(ctx, tx, org.ID)
+		return s.orgRepo.withTx(tx).Delete(ctx, org.ID)
 	})
 }
 
@@ -221,7 +234,7 @@ func (s *org) ListOrgs(ctx context.Context, req *account.ListOrgsInput) (*accoun
 		opt.AddFilter("status", *req.Status)
 	}
 
-	orgs, total, err := db.ListOrgs(ctx, s.db, opt)
+	orgs, total, err := s.orgRepo.List(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +279,7 @@ func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberI
 
 	var userOrg *types.UserOrg
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		departments, err := db.GetDepartmentsByIDs(ctx, tx, departmentIDs)
+		departments, err := s.departmentRepo.withTx(tx).GetByIDs(ctx, departmentIDs)
 		if err != nil {
 			return err
 		}
@@ -281,12 +294,12 @@ func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberI
 			return errors.New("部门不存在")
 		}
 
-		user, err := db.GetUserByPhone(ctx, tx, phone)
+		user, err := s.userRepo.withTx(tx).GetByPhone(ctx, phone)
 		if err != nil {
 			return err
 		}
 		if user != nil {
-			existing, err := db.GetUserOrgByUserIDAndOrgID(ctx, tx, user.ID, caller.OrgID)
+			existing, err := s.userOrgRepo.withTx(tx).GetByUserIDAndOrgID(ctx, user.ID, caller.OrgID)
 			if err != nil {
 				return err
 			}
@@ -299,7 +312,7 @@ func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberI
 				Name:     name,
 				Phone:    phone,
 			}
-			if err := db.CreateUser(ctx, tx, user); err != nil {
+			if err := s.userRepo.withTx(tx).Create(ctx, user); err != nil {
 				if db.IsUniqueConstraintError(err) {
 					return errors.New("手机号已存在")
 				}
@@ -307,17 +320,16 @@ func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberI
 			}
 		}
 
-		orgCount, err := db.CountUserOrgsByUserID(ctx, tx, user.ID)
+		orgCount, err := s.userOrgRepo.withTx(tx).CountByUserID(ctx, user.ID)
 		if err != nil {
 			return err
 		}
 		userOrg = &types.UserOrg{
-			Uin:       user.ID,
 			UserID:    user.ID,
 			OrgID:     caller.OrgID,
 			IsDefault: orgCount == 0,
 		}
-		if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
+		if err := s.userOrgRepo.withTx(tx).Create(ctx, userOrg); err != nil {
 			if db.IsUniqueConstraintError(err) {
 				return errors.New("组织成员已存在")
 			}
@@ -334,7 +346,7 @@ func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberI
 		}
 		departmentIDs = uniqueDeptIDs
 
-		existing, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, tx, userOrg.Uin, caller.OrgID)
+		existing, err := s.memberDeptRepo.withTx(tx).ListByUinAndOrgID(ctx, userOrg.ID, caller.OrgID)
 		if err != nil {
 			return err
 		}
@@ -347,13 +359,13 @@ func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberI
 		relations := make([]*types.MemberDepartment, 0, len(departmentIDs))
 		for i, departmentID := range departmentIDs {
 			relations = append(relations, &types.MemberDepartment{
-				Uin:          userOrg.Uin,
+				Uin:          userOrg.ID,
 				OrgID:        caller.OrgID,
 				DepartmentID: departmentID,
 				IsPrimary:    i == 0,
 			})
 		}
-		return db.CreateMemberDepartments(ctx, tx, relations)
+		return s.memberDeptRepo.withTx(tx).BatchCreate(ctx, relations)
 	}); err != nil {
 		return nil, err
 	}
@@ -369,7 +381,7 @@ func (s *org) createExistingOrgMember(ctx context.Context, callerOrgID uint, req
 		return nil, errors.New("org_id is required")
 	}
 
-	user, err := db.GetUserByPublicID(ctx, s.db, req.UserID)
+	user, err := s.userRepo.GetByPublicID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +389,7 @@ func (s *org) createExistingOrgMember(ctx context.Context, callerOrgID uint, req
 		return nil, errors.New("用户不存在")
 	}
 
-	org, err := db.GetOrgByPublicID(ctx, s.db, req.OrgID)
+	org, err := s.orgRepo.GetByPublicID(ctx, req.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -389,13 +401,12 @@ func (s *org) createExistingOrgMember(ctx context.Context, callerOrgID uint, req
 	}
 
 	userOrg := &types.UserOrg{
-		Uin:       user.ID,
 		UserID:    user.ID,
 		OrgID:     org.ID,
 		IsDefault: req.IsDefault,
 	}
 
-	if err := db.CreateUserOrg(ctx, s.db, userOrg); err != nil {
+	if err := s.userOrgRepo.Create(ctx, userOrg); err != nil {
 		if db.IsUniqueConstraintError(err) {
 			return nil, errors.New("组织成员已存在")
 		}
@@ -415,9 +426,9 @@ func (s *org) GetOrgMember(ctx context.Context, id uint, uin uint) (*account.Org
 	var err error
 
 	if id > 0 {
-		userOrg, err = db.GetUserOrgByID(ctx, s.db, id)
+		userOrg, err = s.userOrgRepo.GetByID(ctx, id)
 	} else if uin > 0 {
-		userOrg, err = db.GetUserOrgByUinAndOrgID(ctx, s.db, uin, caller.OrgID)
+		userOrg, err = s.userOrgRepo.GetByUinAndOrgID(ctx, uin, caller.OrgID)
 	} else {
 		return nil, errors.New("id或uin不能为空")
 	}
@@ -450,7 +461,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 	var userOrg *types.UserOrg
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
-		userOrg, err = db.GetUserOrgByID(ctx, tx, id)
+		userOrg, err = s.userOrgRepo.withTx(tx).GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -462,7 +473,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 		}
 
 		if req.OrgID != nil && strings.TrimSpace(*req.OrgID) != "" {
-			org, err := db.GetOrgByPublicID(ctx, tx, *req.OrgID)
+			org, err := s.orgRepo.withTx(tx).GetByPublicID(ctx, *req.OrgID)
 			if err != nil {
 				return err
 			}
@@ -479,7 +490,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 		}
 
 		if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
-			user, err := db.GetUserByID(ctx, tx, userOrg.UserID)
+			user, err := s.userRepo.withTx(tx).GetByID(ctx, userOrg.UserID)
 			if err != nil {
 				return err
 			}
@@ -487,7 +498,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 				return errors.New("用户不存在")
 			}
 			user.Name = strings.TrimSpace(*req.Name)
-			if err := db.UpdateUser(ctx, tx, user); err != nil {
+			if err := s.userRepo.withTx(tx).Update(ctx, user); err != nil {
 				return err
 			}
 		}
@@ -496,7 +507,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 			if len(req.DepartmentIDs) == 0 {
 				return errors.New("部门ID列表不可为空")
 			}
-			if err := db.DeleteMemberDepartmentsByUinAndOrgID(ctx, tx, userOrg.Uin, userOrg.OrgID); err != nil {
+			if err := s.memberDeptRepo.withTx(tx).DeleteByUinAndOrgID(ctx, userOrg.ID, userOrg.OrgID); err != nil {
 				return err
 			}
 			seen := make(map[uint]bool, len(req.DepartmentIDs))
@@ -510,7 +521,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 				}
 				seen[deptID] = true
 				relations = append(relations, &types.MemberDepartment{
-					Uin:          userOrg.Uin,
+					Uin:          userOrg.ID,
 					OrgID:        userOrg.OrgID,
 					DepartmentID: deptID,
 					IsPrimary:    i == 0,
@@ -519,12 +530,12 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 			if len(relations) == 0 {
 				return errors.New("部门ID列表不可为空")
 			}
-			if err := db.CreateMemberDepartments(ctx, tx, relations); err != nil {
+			if err := s.memberDeptRepo.withTx(tx).BatchCreate(ctx, relations); err != nil {
 				return err
 			}
 		}
 
-		return db.UpdateUserOrg(ctx, tx, userOrg)
+		return s.userOrgRepo.withTx(tx).Update(ctx, userOrg)
 	}); err != nil {
 		return nil, err
 	}
@@ -550,7 +561,7 @@ func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInp
 		opt.AddExactFilter("org_id", fmt.Sprintf("%d", caller.OrgID))
 	}
 	if req.UserID != nil && strings.TrimSpace(*req.UserID) != "" {
-		user, err := db.GetUserByPublicID(ctx, s.db, *req.UserID)
+		user, err := s.userRepo.GetByPublicID(ctx, *req.UserID)
 		if err != nil {
 			return nil, err
 		}
@@ -559,7 +570,7 @@ func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInp
 		}
 	}
 	if req.DepartmentID != nil && *req.DepartmentID > 0 {
-		subDeptIDs, err := db.ListDepartmentAndDescendantIDs(ctx, s.db, *req.DepartmentID, caller.OrgID)
+		subDeptIDs, err := s.departmentRepo.ListDescendantIDs(ctx, *req.DepartmentID, caller.OrgID)
 		if err != nil {
 			return nil, err
 		}
@@ -570,7 +581,7 @@ func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInp
 		opt.AddExactFilter("department_id", deptFilterValues...)
 	}
 
-	userOrgs, total, err := db.ListUserOrgs(ctx, s.db, opt)
+	userOrgs, total, err := s.userOrgRepo.List(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -590,13 +601,13 @@ func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInp
 func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *account.OrgMember {
 	result := &account.OrgMember{
 		ID:        uo.ID,
-		Uin:       uo.Uin,
+		Uin:       uo.ID,
 		IsDefault: uo.IsDefault,
 		CreatedAt: uo.CreatedAt,
 		UpdatedAt: uo.UpdatedAt,
 	}
 
-	user, _ := db.GetUserByID(ctx, s.db, uo.UserID)
+	user, _ := s.userRepo.GetByID(ctx, uo.UserID)
 	if user != nil {
 		result.UserID = user.PublicID
 		result.UserName = user.Name
@@ -605,18 +616,18 @@ func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *account.O
 		result.AvatarURL = user.AvatarURL
 	}
 
-	org, _ := db.GetOrgByID(ctx, s.db, uo.OrgID)
+	org, _ := s.orgRepo.GetByID(ctx, uo.OrgID)
 	if org != nil {
 		result.OrgID = org.PublicID
 		result.OrgName = org.Name
 	}
 
-	relations, _ := db.ListMemberDepartmentsByUinAndOrgID(ctx, s.db, uo.Uin, uo.OrgID)
+	relations, _ := s.memberDeptRepo.ListByUinAndOrgID(ctx, uo.ID, uo.OrgID)
 	departmentIDs := make([]uint, 0, len(relations))
 	for _, relation := range relations {
 		departmentIDs = append(departmentIDs, relation.DepartmentID)
 	}
-	departments, _ := db.GetDepartmentsByIDs(ctx, s.db, departmentIDs)
+	departments, _ := s.departmentRepo.GetByIDs(ctx, departmentIDs)
 	departmentByID := make(map[uint]*types.Department, len(departments))
 	for _, department := range departments {
 		departmentByID[department.ID] = department
@@ -628,7 +639,6 @@ func (s *org) enrichOrgMember(ctx context.Context, uo *types.UserOrg) *account.O
 			departmentName = department.Name
 		}
 		result.Departments = append(result.Departments, account.OrgMemberDepartment{
-			ID:           relation.ID,
 			DepartmentID: relation.DepartmentID,
 			Name:         departmentName,
 			IsPrimary:    relation.IsPrimary,
@@ -668,7 +678,7 @@ func uniqueDepartmentIDs(ids []uint) []uint {
 }
 
 func (s *org) requireDefaultOrgUser(ctx context.Context, uin, orgID uint) error {
-	org, err := db.GetOrgByID(ctx, s.db, orgID)
+	org, err := s.orgRepo.GetByID(ctx, orgID)
 	if err != nil {
 		return err
 	}

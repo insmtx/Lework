@@ -1,11 +1,10 @@
 // worker 命令启动 Leros 后台 worker 服务。
 //
-// worker 通过 NATS JetStream 订阅五个命令 lane：
+// worker 通过 NATS JetStream 订阅四个命令 lane：
 //   - cmd.run：处理 agent run 任务。使用 SubscribeManualDurable + 本地 SQLite inbox
 //     实现 at-least-once 语义。消息先持久化再 Ack，崩溃重启后通过 RecoverNonTerminal 恢复。
 //   - cmd.control：处理 cancel 等控制命令，自动确认。
 //   - cmd.interaction：处理审批/问答等交互命令，自动确认。
-//   - cmd.skill：处理 skill 管理命令，自动确认。
 //   - cmd.file：处理项目文件恢复命令，自动确认。
 //
 // 关闭顺序（5 步）：
@@ -36,12 +35,12 @@ import (
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	builtin "github.com/insmtx/Leros/backend/internal/skill/builtin"
 	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
+	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/app"
 	"github.com/insmtx/Leros/backend/internal/worker/command"
 	"github.com/insmtx/Leros/backend/internal/worker/command/interaction"
 	"github.com/insmtx/Leros/backend/internal/worker/command/projectfile"
 	"github.com/insmtx/Leros/backend/internal/worker/command/run"
-	"github.com/insmtx/Leros/backend/internal/worker/command/skill"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
 	"github.com/insmtx/Leros/backend/internal/worker/runtimehost"
@@ -211,6 +210,11 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to ensure state dir: %v", err)
 		return
 	}
+	if report, err := skilllinks.CleanupLegacyGlobalSkillLinksOnce(); err != nil {
+		logs.Warnf("Clean legacy global CLI Skill links failed: %v", err)
+	} else if !report.AlreadyCompleted {
+		logs.Infof("Legacy global CLI Skill link cleanup complete: removed=%d", report.Removed)
+	}
 	if err := skilllinks.SyncToLerosDir(""); err != nil {
 		logs.Warnf("Sync worker built-in skills failed: %v", err)
 	}
@@ -249,19 +253,14 @@ func runTaskWorker(defaultRuntime string) {
 	callerHTTP := llm.NewCallerHTTP(nil, recorder)
 	modelStore.SetCaller(callerHTTP)
 	ctx, cancel := context.WithCancel(context.Background())
-	var cliSkillDirs []string
-	// Bootstrap 引擎：始终同步内置 skill 到 .leros/skills（服务于 native 引擎）。
-	// 如果配置了 CLI 引擎，还会同步 symlink。
+	// Bootstrap 仅发现外部引擎。Skill 会在每个 Run 中注入临时目录，不能写入宿主 CLI 全局目录。
 	{
 		var cliCfg *config.CLIEnginesConfig
 		if cfg.CLI != nil {
 			cliCfg = cfg.CLI
 		}
 		bootstrapSvc := builtin.NewBootstrapService()
-		updatedCLICfg, err := bootstrapSvc.Bootstrap(ctx, cliCfg, builtin.BootstrapOptions{})
-		if err != nil {
-			logs.Warnf("Bootstrap engines failed: %v", err)
-		}
+		updatedCLICfg := bootstrapSvc.Bootstrap(cliCfg)
 		if updatedCLICfg != nil {
 			cfg.CLI = updatedCLICfg
 		}
@@ -271,7 +270,6 @@ func runTaskWorker(defaultRuntime string) {
 				URL: buildWorkerMCPURL(workerListenAddr),
 			}
 		}
-		cliSkillDirs = bootstrapSvc.GetSkillDirs()
 	}
 	interactionRouter := runtimehost.NewInteractionRouter()
 	memoryStore, err := localmemory.NewStore(localmemory.Options{})
@@ -292,7 +290,6 @@ func runTaskWorker(defaultRuntime string) {
 	runtimeService, err := app.NewService(ctx, app.Options{
 		CLIConfig:         cfg.CLI,
 		DefaultRuntime:    defaultRuntime,
-		CLISkillDirs:      cliSkillDirs,
 		GiteaCfg:          cfg.Gitea,
 		Env:               cfg.Env,
 		InteractionRouter: interactionRouter,
@@ -301,7 +298,9 @@ func runTaskWorker(defaultRuntime string) {
 		SessionDBPath:     inboxDBPath,
 		ServerAddr:        cfg.ServerAddr,
 		OrgID:             cfg.OrgID,
+		WorkerID:          cfg.WorkerID,
 		AuthToken:         cfg.AuthToken,
+		SkillPublisher:    bus,
 	})
 	if err != nil {
 		cancel()
@@ -333,14 +332,6 @@ func runTaskWorker(defaultRuntime string) {
 
 	interactionHandler := interaction.New(interactionRouter)
 
-	skillHandler, err := skill.New(bus.Conn())
-	if err != nil {
-		cancel()
-		_ = runtimeService.Close()
-		_ = bus.Close()
-		logs.Fatalf("Failed to create skill handler: %v", err)
-		return
-	}
 	fileHandler, err := projectfile.New(bus.Conn())
 	if err != nil {
 		cancel()
@@ -357,7 +348,6 @@ func runTaskWorker(defaultRuntime string) {
 		Run:         runHandler,
 		Control:     runHandler,
 		Interaction: interactionHandler,
-		Skill:       skillHandler,
 		File:        fileHandler,
 	})
 	if err != nil {
@@ -377,6 +367,8 @@ func runTaskWorker(defaultRuntime string) {
 			lifecycle.Std().Exit()
 		}
 	}()
+
+	go worker.StartParentWatcher()
 
 	// 设置生命周期强制退出超时。
 	lifecycle.Std().SetTimeout(40 * time.Second)

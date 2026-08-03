@@ -4,6 +4,7 @@ import {
 	type BackendAITeammateTemplate,
 	type DigitalAssistantItem,
 	digitalAssistantApi,
+	getNativeFileInputAccept,
 	projectFileApi,
 	useDAStore,
 } from "@leros/store";
@@ -100,11 +101,6 @@ const TEMPLATE_EXPERTISE_DESCRIPTIONS: Record<string, string[]> = {
 	],
 };
 
-function createCustomAvatarSeed(): string {
-	// 中文注释：头像种子只用于视觉随机化，不依赖安全上下文，确保桌面端 file 协议下也能生成。
-	return `custom-ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
 export function AssistantCreateDialog({
 	open,
 	onOpenChange,
@@ -123,7 +119,6 @@ export function AssistantCreateDialog({
 	const [avatar, setAvatar] = useState("");
 	const [uploadingAvatar, setUploadingAvatar] = useState(false);
 	const [previewAvatar, setPreviewAvatar] = useState<string | undefined>();
-	const [customAvatarSeed, setCustomAvatarSeed] = useState("custom-ai");
 	const [submitting, setSubmitting] = useState(false);
 	const [nameError, setNameError] = useState("");
 	const [checkingName, setCheckingName] = useState(false);
@@ -167,8 +162,6 @@ export function AssistantCreateDialog({
 		if (!open) return;
 		let cancelled = false;
 		selectionTouchedRef.current = false;
-		// 中文注释：默认头像仅在每次打开创建弹窗时刷新一次，弹窗内的名称输入和模式切换均保持头像稳定。
-		setCustomAvatarSeed(createCustomAvatarSeed());
 		setTemplatesLoading(true);
 		void digitalAssistantApi
 			.listTemplates({ status: "active", list_all: true, limit: 100 })
@@ -398,8 +391,8 @@ export function AssistantCreateDialog({
 							<div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr_1fr]">
 								<div className="flex items-center gap-3 md:row-span-2 md:flex-col md:items-start">
 									<AssistantAvatar
-										// 中文注释：自定义默认头像在本次弹窗打开期间保持同一随机种子；仅模板回退头像使用模板名称。
-										name={selectedTemplate?.name || customAvatarSeed}
+										// 中文注释：未上传时展示固定默认头像；有模板头像或用户上传时优先展示对应 src。
+										name={selectedTemplate?.name || name || "自定义 AI 队友"}
 										src={previewAvatar || avatar}
 										size="lg"
 									/>
@@ -409,7 +402,7 @@ export function AssistantCreateDialog({
 										{uploadingAvatar ? "上传中" : "上传头像"}
 										<input
 											type="file"
-											accept="image/*"
+											accept={getNativeFileInputAccept("image/*")}
 											className="sr-only"
 											onChange={handleAvatarChange}
 											disabled={uploadingAvatar}

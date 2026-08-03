@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const defaultWorkerTokenTTL = 24 * time.Hour
+const defaultWorkerTokenTTL = 3650 * 24 * time.Hour
 
 type enterpriseTokenParser struct {
 	db           *gorm.DB

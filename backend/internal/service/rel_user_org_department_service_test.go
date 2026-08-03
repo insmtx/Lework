@@ -15,7 +15,7 @@ func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 	service := NewMemberDepartmentService(database, nil, nil)
 	ctx := accountServiceTestContext()
 
-	userOrg := &types.UserOrg{Uin: 30, UserID: 30, OrgID: 1, IsDefault: true}
+	userOrg := &types.UserOrg{UserID: 30, OrgID: 1, IsDefault: true}
 	if err := database.Create(userOrg).Error; err != nil {
 		t.Fatalf("Create user org failed: %v", err)
 	}
@@ -25,14 +25,14 @@ func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 	}
 
 	created, err := service.CreateMemberDepartment(ctx, &contract.CreateMemberDepartmentRequest{
-		Uin:          userOrg.Uin,
+		Uin:          userOrg.ID,
 		DepartmentID: department.ID,
 		IsPrimary:    true,
 	})
 	if err != nil {
 		t.Fatalf("CreateMemberDepartment failed: %v", err)
 	}
-	if created.ID == 0 || created.Uin != userOrg.Uin {
+	if created.ID == 0 || created.Uin != userOrg.ID {
 		t.Fatalf("unexpected created relation: %#v", created)
 	}
 	if created.OrgID != userOrg.OrgID {
@@ -43,7 +43,7 @@ func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMemberDepartment failed: %v", err)
 	}
-	if got.Uin != userOrg.Uin {
+	if got.Uin != userOrg.ID {
 		t.Fatalf("unexpected relation by id: %#v", got)
 	}
 
@@ -56,7 +56,7 @@ func TestMemberDepartmentServiceCRUDAndList(t *testing.T) {
 		t.Fatalf("expected updated is_primary, got %#v", updated)
 	}
 
-	uin := userOrg.Uin
+	uin := userOrg.ID
 	list, err := service.ListMemberDepartments(ctx, &contract.ListMemberDepartmentsRequest{Uin: &uin, Pagination: types.Pagination{Limit: 10}})
 	if err != nil {
 		t.Fatalf("ListMemberDepartments failed: %v", err)

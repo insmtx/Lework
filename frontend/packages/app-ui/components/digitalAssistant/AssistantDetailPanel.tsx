@@ -71,7 +71,7 @@ export function AssistantDetailPanel({ assistant, className }: AssistantDetailPa
 						</TabsList>
 
 						<TabsContent value="basic" className="mt-4 space-y-3">
-							<DetailField label="编码" value={assistant.code} />
+							<DetailField label="编码" value={assistant.publicId} />
 							<DetailField label="状态" value={statusInfo.label} />
 							{assistant.deploymentError && (
 								<DetailField label="部署错误" value={assistant.deploymentError} multiline />

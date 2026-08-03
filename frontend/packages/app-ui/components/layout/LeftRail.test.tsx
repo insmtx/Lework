@@ -71,6 +71,10 @@ vi.mock("@leros/store", () => ({
 		selector({
 			setAuthUser: mockSetAuthUser,
 		}),
+	useGlobalConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
+		selector({
+			edition: "enterprise",
+		}),
 	userApi: {},
 }));
 

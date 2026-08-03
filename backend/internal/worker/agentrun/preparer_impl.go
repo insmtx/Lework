@@ -8,12 +8,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/internal/consts"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
+	"github.com/insmtx/Leros/backend/internal/service"
 	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
@@ -32,8 +34,10 @@ type WorkspaceManager interface {
 // WorkspacePreparation is the immutable result of preparing a run workspace.
 type WorkspacePreparation struct {
 	WorkDir              string
+	ProjectRoot          string
 	RepoDir              string
 	TaskDir              string
+	SkillDir             string
 	ArtifactManifestPath string
 	PreRunTreeSHA        string // Git tree SHA captured before agent execution
 }
@@ -99,6 +103,7 @@ func (wm *workspaceManager) PrepareWorkspace(
 	}
 	return WorkspacePreparation{
 		WorkDir:              plan.EffectiveWorkDir,
+		ProjectRoot:          plan.ProjectRoot,
 		RepoDir:              plan.RepoDir,
 		TaskDir:              plan.TaskDir,
 		ArtifactManifestPath: plan.ArtifactManifestPath,
@@ -195,6 +200,7 @@ type preparer struct {
 	attachmentIng AttachmentIngestor
 	toolProvider  ToolProvider
 	sessionStore  ProviderSessionStore
+	skillPreparer SkillPreparer
 }
 
 // NewPreparer creates a new RunPreparer.
@@ -220,12 +226,46 @@ func NewPreparerWithTools(
 	modelStore *modelrouter.ModelStore,
 	toolProvider ToolProvider,
 ) Preparer {
+	return NewPreparerWithSkillPreparer(builder, wm, ai, modelStore, toolProvider, nil)
+}
+
+// NewPreparerWithSkillPreparer creates a preparer with a run-scoped Skill view.
+func NewPreparerWithSkillPreparer(
+	builder *agentruncontext.ContextBuilder,
+	wm WorkspaceManager,
+	ai AttachmentIngestor,
+	modelStore *modelrouter.ModelStore,
+	toolProvider ToolProvider,
+	skillPreparer SkillPreparer,
+) Preparer {
 	return &preparer{
 		builder:       builder,
 		modelStore:    modelStore,
 		workspaceMgr:  wm,
 		attachmentIng: ai,
 		toolProvider:  toolProvider,
+		skillPreparer: skillPreparer,
+	}
+}
+
+// NewPreparerWithSessionStoreAndSkills adds both session resume and run-scoped Skills.
+func NewPreparerWithSessionStoreAndSkills(
+	builder *agentruncontext.ContextBuilder,
+	wm WorkspaceManager,
+	ai AttachmentIngestor,
+	modelStore *modelrouter.ModelStore,
+	toolProvider ToolProvider,
+	sessionStore ProviderSessionStore,
+	skillPreparer SkillPreparer,
+) Preparer {
+	return &preparer{
+		builder:       builder,
+		modelStore:    modelStore,
+		workspaceMgr:  wm,
+		attachmentIng: ai,
+		toolProvider:  toolProvider,
+		sessionStore:  sessionStore,
+		skillPreparer: skillPreparer,
 	}
 }
 
@@ -238,14 +278,7 @@ func NewPreparerWithSessionStore(
 	toolProvider ToolProvider,
 	sessionStore ProviderSessionStore,
 ) Preparer {
-	return &preparer{
-		builder:       builder,
-		modelStore:    modelStore,
-		workspaceMgr:  wm,
-		attachmentIng: ai,
-		toolProvider:  toolProvider,
-		sessionStore:  sessionStore,
-	}
+	return NewPreparerWithSessionStoreAndSkills(builder, wm, ai, modelStore, toolProvider, sessionStore, nil)
 }
 
 // Prepare validates and builds a PreparedRun from the original Request.
@@ -283,6 +316,15 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 	}
 	cloned.Runtime.WorkDir = workspace.WorkDir
 	cloned.Workspace.RepoDir = workspace.RepoDir
+	if p.skillPreparer != nil {
+		skillDir, skillCleanup, skillErr := p.skillPreparer.PrepareSkills(ctx, cloned, workspace)
+		cleanup = chainCleanup(cleanup, skillCleanup)
+		if skillErr != nil {
+			return nil, cleanup, fmt.Errorf("prepare run skills: %w", skillErr)
+		}
+		workspace.SkillDir = skillDir
+		cloned.Workspace.SkillDir = skillDir
+	}
 
 	// Capture pre-run Git tree SHA for diff-based artifact discovery (best-effort).
 	if workspace.RepoDir != "" {
@@ -344,6 +386,16 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			return nil, cleanup, fmt.Errorf("prepare runtime tools: %w", err)
 		}
 	}
+	var mcpServers []agent.MCPServerConfig
+	if strings.EqualFold(strings.TrimSpace(cloned.Runtime.Kind), agent.RuntimeKindOpenCode) {
+		mcpServers = prepareMCPServers(ctx, cloned.Plugins)
+	}
+	connectorEnv := prepareConnectorRuntimeEnv(ctx, cloned.Plugins)
+	runtimeEnv := append([]string(nil), connectorEnv...)
+	if workspace.SkillDir != "" {
+		runtimeEnv = append(runtimeEnv, agent.RunSkillsDirEnvVar+"="+workspace.SkillDir)
+	}
+	sort.Strings(runtimeEnv)
 
 	return &PreparedRun{
 		Request: req,
@@ -352,12 +404,14 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			TraceID:      cloned.TraceID,
 			Runtime:      strings.TrimSpace(cloned.Runtime.Kind),
 			SessionKey:   cloned.Conversation.ID,
-			InstanceKey:  cloned.Assistant.ID,
+			InstanceKey:  cloned.Assistant.PublicID,
 			Mode:         agent.ExecutionMode(cloned.ExecutionMode),
 			SystemPrompt: systemPrompt,
 			Prompt:       prompt,
 			Messages:     messages,
 			Tools:        runtimeTools,
+			MCPServers:   mcpServers,
+			ExtraEnv:     runtimeEnv,
 			Model:        model,
 			Policy: agent.ExecutionPolicy{
 				AllowedTools:   append([]string(nil), cloned.Capability.AllowedTools...),
@@ -365,13 +419,60 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			},
 			ProviderSession: providerSession,
 			Filesystem: agent.FilesystemContext{
-				WorkDir: workspace.WorkDir,
-				RepoDir: workspace.RepoDir,
-				TaskDir: workspace.TaskDir,
+				WorkDir:  workspace.WorkDir,
+				RepoDir:  workspace.RepoDir,
+				TaskDir:  workspace.TaskDir,
+				SkillDir: workspace.SkillDir,
 			},
 		},
 		Workspace: workspace,
 	}, cleanup, nil
+}
+
+func prepareMCPServers(
+	ctx context.Context,
+	snapshots []agentrundomain.PluginSnapshot,
+) []agent.MCPServerConfig {
+	configs := make([]agent.MCPServerConfig, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if !strings.EqualFold(strings.TrimSpace(snapshot.Kind), "mcp") {
+			continue
+		}
+		if connector, err := service.ConnectorFromDefinition(snapshot.Definition); err == nil &&
+			connector != nil && connector.MCP == nil {
+			continue
+		}
+		config, err := MCPServerConfigFromPluginSnapshot(snapshot)
+		if err != nil {
+			logs.WarnContextf(
+				ctx,
+				"skip invalid MCP plugin snapshot: plugin_id=%s code=%s revision=%d error=%v",
+				snapshot.PluginID,
+				snapshot.Code,
+				snapshot.Revision,
+				err,
+			)
+			continue
+		}
+		configs = append(configs, config)
+	}
+	sort.Slice(configs, func(i, j int) bool {
+		return strings.ToLower(configs[i].Name) < strings.ToLower(configs[j].Name)
+	})
+	return configs
+}
+
+func chainCleanup(first, second func()) func() {
+	if first == nil {
+		first = func() {}
+	}
+	if second == nil {
+		return first
+	}
+	return func() {
+		second()
+		first()
+	}
 }
 
 // validateModelConfig validates the required model fields.
@@ -410,7 +511,7 @@ func (p *preparer) resolveModelRouting(req *agentrundomain.RunRequest) string {
 			ProjectID:   req.BusinessKeys.ProjectPKID,
 			SessionID:   req.BusinessKeys.SessionPKID,
 			MessageID:   req.BusinessKeys.MessagePKID,
-			AssistantID: req.BusinessKeys.AssistantPKID,
+			AssistantID: req.BusinessKeys.AssistantID,
 			Uin:         req.BusinessKeys.UinPK,
 		})
 		req.Model.Model = proxyModel

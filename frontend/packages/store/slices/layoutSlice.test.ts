@@ -225,7 +225,6 @@ describe("LayoutActionImpl.sendWorkbenchMessage", () => {
 		};
 		const setState = vi.fn();
 		const actions = new LayoutActionImpl(setState as never, (() => state) as never);
-		vi.spyOn(actions, "saveWorkbenchRecentContext").mockResolvedValue(undefined);
 
 		const result = await actions.sendWorkbenchMessage("继续提问", "project-1");
 

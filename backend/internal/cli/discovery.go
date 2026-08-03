@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -222,22 +220,4 @@ func GetCLIToolSpec(name string) *CLIToolSpec {
 		}
 	}
 	return nil
-}
-
-// SkillDirForCLI returns the conventional skill directory for a supported CLI.
-func SkillDirForCLI(name string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "claude":
-		return filepath.Join(home, ".claude", "skills")
-	case "codex":
-		return filepath.Join(home, ".agents", "skills")
-	case "opencode":
-		return filepath.Join(home, ".config", "opencode", "skills")
-	default:
-		return ""
-	}
 }

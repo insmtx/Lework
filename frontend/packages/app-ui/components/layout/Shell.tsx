@@ -11,6 +11,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { PermissionDeniedListener } from "../permission/PermissionDeniedListener";
+import { FrontendEventTracker } from "../telemetry/FrontendEventTracker";
 import { CenterCanvas } from "./CenterCanvas";
 import { FilePreviewHost } from "./FilePreviewHost";
 import { type AppNavigation, LeftRail } from "./LeftRail";
@@ -68,6 +69,7 @@ export function Shell({
 	return (
 		<AuthProvider logoSrc={logoSrc}>
 			<PermissionDeniedListener />
+			<FrontendEventTracker currentPath={navigation?.currentPath} />
 			<div className="leros-app-shell">
 				<LeftRail logoSrc={logoSrc} navigation={navigation} />
 				{children ?? (

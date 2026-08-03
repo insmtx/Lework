@@ -15,6 +15,8 @@ const (
 	RuntimeKindCodex = "codex"
 	// RuntimeKindOpenCode is the OpenCode runtime.
 	RuntimeKindOpenCode = "opencode"
+	// RunSkillsDirEnvVar exposes the task-private Skill root to runtime processes.
+	RunSkillsDirEnvVar = "LEROS_RUN_SKILLS_DIR"
 )
 
 // ExecutionMode is an alias of types.ExecutionMode for backward compatibility.
@@ -49,9 +51,10 @@ type ExecutionPolicy struct {
 
 // FilesystemContext contains the already prepared runtime directories.
 type FilesystemContext struct {
-	WorkDir string
-	RepoDir string
-	TaskDir string
+	WorkDir  string
+	RepoDir  string
+	TaskDir  string
+	SkillDir string
 }
 
 // ProviderSession carries pre-resolved provider session information for resume.
@@ -74,6 +77,8 @@ type ExecutionRequest struct {
 	Messages        []Message
 	Model           ModelConfig
 	Tools           []Tool
+	MCPServers      []MCPServerConfig
+	ExtraEnv        []string
 	Policy          ExecutionPolicy
 	Filesystem      FilesystemContext
 	ProviderSession ProviderSession

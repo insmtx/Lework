@@ -12,7 +12,6 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/worker"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -311,67 +310,6 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 	}
 }
 
-func TestWorkerReconcilerSyncsOrgSkillsAfterProvisioningDeploymentReady(t *testing.T) {
-	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
-	if err := database.AutoMigrate(&types.DigitalAssistant{}, &types.WorkerDeployment{}, &types.OrgSkillInstallation{}); err != nil {
-		t.Fatalf("migrate database: %v", err)
-	}
-
-	ctx := context.Background()
-	assistant := &types.DigitalAssistant{
-		PublicID: "agent",
-		OrgID:    1,
-		Name:     "Agent",
-		Status:   string(contract.DigitalAssistantStatusActive),
-	}
-	if err := database.Create(assistant).Error; err != nil {
-		t.Fatalf("create assistant: %v", err)
-	}
-	if err := database.Create(&types.OrgSkillInstallation{
-		OrgID:   1,
-		Action:  "install",
-		Source:  "Leros",
-		SkillID: "demo-skill",
-		Version: "latest",
-		Name:    "demo-skill",
-		Status:  types.OrgSkillInstallationStatusActive,
-	}).Error; err != nil {
-		t.Fatalf("create org skill installation: %v", err)
-	}
-	startedAt := time.Now()
-	deployment := &types.WorkerDeployment{
-		OrgID:              1,
-		DigitalAssistantID: assistant.ID,
-		WorkerID:           1,
-		DeploymentName:     "leros-worker-o1-w1",
-		Status:             string(types.WorkerDeploymentStatusProvisioning),
-		BootstrapTokenHash: "stable-token-hash",
-		LastStartedAt:      &startedAt,
-	}
-	if err := database.Create(deployment).Error; err != nil {
-		t.Fatalf("create deployment: %v", err)
-	}
-
-	scheduler := &fakeWorkerScheduler{}
-	publisher := &skillInstallPublisher{
-		response: messaging.WorkerCommandResult{Success: true, Action: "install"},
-	}
-	if err := reconcileWorkerDeployment(ctx, database, scheduler, nil, deployment, publisher); err != nil {
-		t.Fatalf("reconcile deployment: %v", err)
-	}
-
-	deadline := time.Now().Add(time.Second)
-	for len(publisher.requests) == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if len(publisher.requests) != 1 {
-		t.Fatalf("sync request count = %d, want 1", len(publisher.requests))
-	}
-}
-
 func TestWorkerReconcilerRestartsProvisioningDeploymentWhenRuntimeMissing(t *testing.T) {
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -452,4 +390,8 @@ func (f *fakeWorkerScheduler) List(ctx context.Context) ([]*worker.WorkerInstanc
 
 func (f *fakeWorkerScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
 	return f.needsReconcile, nil
+}
+
+func (f *fakeWorkerScheduler) Shutdown(ctx context.Context) error {
+	return nil
 }

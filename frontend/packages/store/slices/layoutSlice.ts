@@ -1,14 +1,15 @@
 import type { ProjectMemberInput } from "../api/projectApi";
 import { projectApi } from "../api/projectApi";
-import { type CreateInitialMessageParams, sessionApi } from "../api/sessionApi";
+import { sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
 import type {
-	BackendMessageMetadata,
+	BackendNewMessageData,
 	BackendProject,
 	BackendProjectMemberItem,
 	BackendSession,
 	BackendTask,
 } from "../api/types";
+import type { SendProjectMessageOptions } from "../chat/send";
 import { handlePermissionDenied } from "../permission/errors";
 import type { SliceCreator } from "../types";
 import type { Attachment, ComposerToken, MessageMetadata } from "../types/chat";
@@ -21,8 +22,40 @@ import {
 	writeStoredLeftRailCollapsed,
 	writeStoredLeftRailWidth,
 } from "../utils/leftRailStorage";
-import { mapOutgoingAttachments } from "../utils/messageAttachments";
 import { isSystemDefaultAssistant } from "./digitalAssistantSlice";
+
+/**
+ * 联合 store 上 chat 侧发送能力（去掉 duck-typed optional chaining）。
+ * 测试里把同名 mock 挂在 get() 返回值上即可。
+ */
+type ChatSendBridge = {
+	setActiveSession: (sessionId: string) => void;
+	loadConversationMessages: (
+		sessionId: string,
+		options?: { resumeStream?: boolean },
+	) => Promise<void>;
+	sendTaskRoomMessage: (
+		content: string,
+		params: {
+			projectId: string;
+			taskId: string;
+			sessionId: string;
+			metadata?: MessageMetadata;
+		},
+		attachments?: Attachment[],
+	) => Promise<{
+		project_id: string;
+		task_id: string;
+		session_id: string;
+	} | null>;
+	sendProjectMessage: (
+		content: string,
+		projectId?: string | null,
+		attachments?: Attachment[],
+		metadata?: MessageMetadata,
+		options?: SendProjectMessageOptions,
+	) => Promise<BackendNewMessageData | null>;
+};
 
 export {
 	LEFT_RAIL_MAX_WIDTH,
@@ -71,7 +104,7 @@ export type ProjectTask = {
 	taskType?: string;
 	deadline?: string;
 	description?: string;
-	assistantId?: number;
+	assistantId?: string;
 };
 
 export type ProjectArtifact = {
@@ -91,6 +124,7 @@ export type ProjectArtifact = {
 };
 
 export type ProjectSkill = {
+	publicId?: string;
 	code: string;
 	name: string;
 	description?: string;
@@ -116,23 +150,6 @@ export type ProjectMember = {
 	joinedAt?: string;
 	isDefault?: boolean;
 };
-
-function buildBackendMessageMetadata(
-	metadata?: MessageMetadata,
-): BackendMessageMetadata | undefined {
-	if (!metadata) return undefined;
-
-	const extra: Record<string, unknown> = {};
-	if (metadata.composerTokens?.length) extra.composerTokens = metadata.composerTokens;
-	if (metadata.displayContent?.trim()) extra.displayContent = metadata.displayContent;
-	if (metadata.displayComposerTokens?.length) {
-		extra.displayComposerTokens = metadata.displayComposerTokens;
-	}
-	if (metadata.invokedAssistant) extra.invokedAssistant = metadata.invokedAssistant;
-
-	// 中文注释：metadata.extra 是当前前后端已有扩展口，避免为展示态召唤信息新增后端字段。
-	return Object.keys(extra).length > 0 ? { extra } : undefined;
-}
 
 export type Project = {
 	id: string;
@@ -434,8 +451,6 @@ function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[
 
 function mapBackendTask(bt: BackendTask): ProjectTask {
 	const taskWithSession = bt as BackendTask & { session?: BackendSession };
-	const rawAssistantId = taskWithSession.session?.assistant_id;
-	const assistantId = rawAssistantId !== undefined ? Number(rawAssistantId) : undefined;
 	return {
 		id: bt.public_id,
 		title: bt.title,
@@ -448,9 +463,7 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 		taskType: bt.task_type,
 		deadline: bt.deadline,
 		description: bt.description,
-		// 中文注释：后端 session.assistant_id 以字符串返回，前端任务模型统一保存数字 ID。
-		assistantId:
-			assistantId !== undefined && Number.isFinite(assistantId) ? assistantId : undefined,
+		assistantId: taskWithSession.session?.assistant_id,
 	};
 }
 
@@ -483,7 +496,7 @@ const _initialState: LayoutState = {
 				{ id: "workbench", label: "新建任务", icon: "IconTask" },
 				{ id: "ai-teammates", label: "AI队友", icon: "IconAITeammate" },
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
-				{ id: "skills", label: "技能库", icon: "IconSkill" },
+				{ id: "skills", label: "插件", icon: "IconSkill" },
 				{ id: "knowledge", label: "资源库", icon: "IconKnowledge" },
 			],
 		},
@@ -537,34 +550,6 @@ export class LayoutActionImpl {
 		};
 		// 中文注释：项目/任务聊天输入框与首页共用同一份草稿状态，离开当前上下文时必须同步清空，避免 token 退化成普通文本残留。
 		store.clearComposerInput?.();
-	};
-
-	// 中文注释：工作台新建/续聊任务后，在跳转任务详情前写入等待态，避免详情页空屏或长时间无反馈。
-	#bootstrapWorkbenchTaskSession = (
-		sessionId: string,
-		content: string,
-		attachments?: Attachment[],
-		metadata?: MessageMetadata,
-	) => {
-		const trimmed = content.trim();
-		const hasAttachments = Boolean(attachments?.length);
-		if (!sessionId || (!trimmed && !hasAttachments)) return;
-		const store = this.#get() as LayoutStore & {
-			bootstrapNewTaskSession?: (
-				sessionId: string,
-				content: string,
-				options?: {
-					attachments?: Attachment[];
-					metadata?: MessageMetadata;
-				},
-			) => void;
-			startGlobalEvents?: () => Promise<void>;
-		};
-		void store.startGlobalEvents?.();
-		store.bootstrapNewTaskSession?.(sessionId, trimmed, {
-			attachments,
-			metadata,
-		});
 	};
 
 	toggleLeftRail = () => {
@@ -710,6 +695,10 @@ export class LayoutActionImpl {
 		}));
 	};
 
+	/**
+	 * 工作台发送：只负责解析选中项目/任务与续聊前置（拉详情补 sessionId、切视图、先 load 历史），
+	 * 真正发消息一律走 chat.sendTaskRoomMessage / chat.sendProjectMessage，不再自建 CreateInitialMessage。
+	 */
 	sendWorkbenchMessage = async (
 		content: string,
 		projectId?: string | null,
@@ -726,6 +715,7 @@ export class LayoutActionImpl {
 		const state = this.#get();
 		const workbenchProjectId = projectId ?? state.activeWorkbenchProjectId;
 		const selectedTaskId = workbenchProjectId ? state.activeWorkbenchTaskId : null;
+		const chat = this.#get() as LayoutStore & ChatSendBridge;
 
 		if (workbenchProjectId && selectedTaskId) {
 			let project = state.projects.find((p) => p.id === workbenchProjectId);
@@ -784,33 +774,11 @@ export class LayoutActionImpl {
 						conversationListOpen: false,
 						executionMode: mode,
 					} as Partial<LayoutState>);
-					await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
 
-					const chatStore = this.#get() as LayoutStore & {
-						setActiveSession?: (sessionId: string) => void;
-						loadConversationMessages?: (
-							sessionId: string,
-							options?: { resumeStream?: boolean },
-						) => Promise<void>;
-						sendTaskRoomMessage?: (
-							content: string,
-							params: {
-								projectId: string;
-								taskId: string;
-								sessionId: string;
-								metadata?: MessageMetadata;
-							},
-							attachments?: Attachment[],
-						) => Promise<{
-							project_id: string;
-							task_id: string;
-							session_id: string;
-						} | null>;
-					};
-					chatStore.setActiveSession?.(data.session_id);
+					chat.setActiveSession(data.session_id);
 					// 中文注释：续聊已有任务时先拉历史再发消息，与任务详情内发送保持一致，避免 bootstrap 覆盖历史。
-					await chatStore.loadConversationMessages?.(data.session_id, { resumeStream: false });
-					const result = await chatStore.sendTaskRoomMessage?.(
+					await chat.loadConversationMessages(data.session_id, { resumeStream: false });
+					const result = await chat.sendTaskRoomMessage(
 						trimmed,
 						{
 							projectId: data.project_id,
@@ -829,52 +797,14 @@ export class LayoutActionImpl {
 			}
 		}
 
-		const params: CreateInitialMessageParams = { content: trimmed, execution_mode: mode };
-		if (assistantIds?.length) {
-			// 中文注释：后端 NewMessageRequest 只接收 publicId 字符串数组 assistant_ids。
-			params.assistant_ids = assistantIds;
-		}
-
-		if (workbenchProjectId) {
-			params.project_id = workbenchProjectId;
-		}
-		if (selectedTaskId) {
-			params.task_id = selectedTaskId;
-		}
-		const backendMetadata = buildBackendMessageMetadata(_metadata);
-		if (backendMetadata) {
-			// 中文注释：首页新建任务需要透传输入框展示元信息，避免 @队友 回显退化成默认 Lework。
-			params.metadata = backendMetadata;
-		}
-		if (attachments?.length) {
-			params.attachments = mapOutgoingAttachments(attachments);
-		}
-
 		try {
-			const globalEventsStore = this.#get() as LayoutStore & {
-				startGlobalEvents?: () => Promise<void>;
-			};
-			void globalEventsStore.startGlobalEvents?.();
-			const res = await sessionApi.createInitialMessage(params);
-			const data = res.data.data;
-			if (data?.project_id && data?.task_id && data?.session_id) {
-				this.#set({
-					activeProjectId: data.project_id,
-					activeWorkbenchProjectId: null,
-					activeWorkbenchTaskId: null,
-					activeTaskDetailProjectId: data.project_id,
-					activeTaskDetailTaskId: data.task_id,
-					activeTaskDetailSessionId: data.session_id,
-					currentView: "taskDetail",
-					conversationListOpen: false,
-					executionMode: mode,
-				} as Partial<LayoutState>);
-				await this.saveWorkbenchRecentContext(data.project_id, data.task_id);
-				// 新建项目/任务后立即拉详情，确保 store 有数据供 SSE 标题 patch 与详情页展示。
-				await this.fetchProjectDetail(data.project_id);
-				this.#bootstrapWorkbenchTaskSession(data.session_id, trimmed, attachments, _metadata);
-			}
-			return data ?? null;
+			return await chat.sendProjectMessage(trimmed, workbenchProjectId, attachments, _metadata, {
+				assistantIds,
+				taskId: selectedTaskId,
+				executionMode: mode,
+				allowEmptyContent: true,
+				fromWorkbench: true,
+			});
 		} catch (err) {
 			console.error("sendWorkbenchMessage error:", err);
 			return null;
@@ -1340,22 +1270,6 @@ export class LayoutActionImpl {
 			if (isInitialLoad) {
 				this.#set({ projectDetailLoading: false, projectDetailError: "获取项目详情失败" });
 			}
-		}
-	};
-
-	fetchRecentWorkbenchContext = async () => {
-		// 中文注释：新建任务页默认停留在「新建项目/任务」，不恢复最近使用的项目/任务选择。
-	};
-
-	saveWorkbenchRecentContext = async (projectId: string, taskId?: string | null) => {
-		if (!projectId) return;
-		try {
-			await projectApi.saveWorkbenchRecentContext({
-				project_id: projectId,
-				task_id: taskId ?? null,
-			});
-		} catch (err) {
-			console.error("saveWorkbenchRecentContext error:", err);
 		}
 	};
 

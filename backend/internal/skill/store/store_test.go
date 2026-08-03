@@ -52,7 +52,7 @@ func TestSkillStoreCreatePatchAndSupportingFiles(t *testing.T) {
 
 	write, err := store.WriteFile(ctx, WriteFileRequest{
 		Name:        "pr-review",
-		FilePath:    "references/checklist.md",
+		FilePath:    "notes/checklists/release.md",
 		FileContent: "check risk",
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestSkillStoreCreatePatchAndSupportingFiles(t *testing.T) {
 
 	remove, err := store.RemoveFile(ctx, RemoveFileRequest{
 		Name:     "pr-review",
-		FilePath: "references/checklist.md",
+		FilePath: "notes/checklists/release.md",
 	})
 	if err != nil {
 		t.Fatalf("remove file: %v", err)
@@ -134,6 +134,107 @@ func TestSkillStoreRejectsUnsafeSupportingFilePath(t *testing.T) {
 	}
 }
 
+func TestSkillStoreAllowsSupportingFilesAtAnySkillRelativePath(t *testing.T) {
+	store, root := newTestStore(t)
+	ctx := context.Background()
+	if _, err := store.Create(ctx, CreateRequest{
+		Name:    "free-layout",
+		Content: testSkillDocument("free-layout", "Free layout", "Steps."),
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	for _, filePath := range []string{"README.txt", "custom/deep/layout.txt"} {
+		if _, err := store.WriteFile(ctx, WriteFileRequest{
+			Name:        "free-layout",
+			FilePath:    filePath,
+			FileContent: filePath,
+		}); err != nil {
+			t.Fatalf("write %s: %v", filePath, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "free-layout", filepath.FromSlash(filePath))); err != nil {
+			t.Fatalf("stat %s: %v", filePath, err)
+		}
+	}
+}
+
+func TestSkillStoreProtectsSkillDocumentAndGitInternals(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	if _, err := store.Create(ctx, CreateRequest{
+		Name:    "protected-files",
+		Content: testSkillDocument("protected-files", "Protected files", "Steps."),
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	for _, filePath := range []string{"SKILL.md", ".git/config", "nested/.GIT/config", "/tmp/escape"} {
+		if _, err := store.WriteFile(ctx, WriteFileRequest{
+			Name:        "protected-files",
+			FilePath:    filePath,
+			FileContent: "bad",
+		}); err == nil {
+			t.Fatalf("expected write rejection for %q", filePath)
+		}
+	}
+	if _, err := store.RemoveFile(ctx, RemoveFileRequest{
+		Name:     "protected-files",
+		FilePath: "SKILL.md",
+	}); err == nil {
+		t.Fatal("expected SKILL.md removal rejection")
+	}
+}
+
+func TestSkillStoreExplicitSkillDocumentPatchIsValidated(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	if _, err := store.Create(ctx, CreateRequest{
+		Name:    "patch-document",
+		Content: testSkillDocument("patch-document", "Patch document", "Steps."),
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	result, err := store.Patch(ctx, PatchRequest{
+		Name:     "patch-document",
+		FilePath: "SKILL.md",
+		OldText:  "name: patch-document",
+		NewText:  "name: another-skill",
+	})
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	if result.Success || result.ErrorCode != ErrDocumentInvalid.Code {
+		t.Fatalf("expected invalid document result, got %#v", result)
+	}
+}
+
+func TestSkillStoreRejectsSymbolicLinkEscape(t *testing.T) {
+	store, root := newTestStore(t)
+	ctx := context.Background()
+	if _, err := store.Create(ctx, CreateRequest{
+		Name:    "safe-skill",
+		Content: testSkillDocument("safe-skill", "Safe skill", "Steps."),
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "safe-skill", "linked")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	if _, err := store.WriteFile(ctx, WriteFileRequest{
+		Name:        "safe-skill",
+		FilePath:    "linked/escape.txt",
+		FileContent: "bad",
+	}); err == nil {
+		t.Fatal("expected symbolic link escape rejection")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escape.txt")); !os.IsNotExist(err) {
+		t.Fatalf("outside file must not be written, got %v", err)
+	}
+}
+
 func TestSkillStoreRejectsInvalidFrontmatter(t *testing.T) {
 	store, _ := newTestStore(t)
 
@@ -143,6 +244,28 @@ func TestSkillStoreRejectsInvalidFrontmatter(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected invalid frontmatter error")
+	}
+}
+
+func TestSkillStoreRejectsDocumentNameMismatch(t *testing.T) {
+	store, _ := newTestStore(t)
+
+	if _, err := store.Create(context.Background(), CreateRequest{
+		Name:    "directory-name",
+		Content: testSkillDocument("other-name", "Mismatch", "Steps."),
+	}); err == nil {
+		t.Fatal("expected frontmatter name mismatch")
+	}
+}
+
+func TestSkillStoreRejectsReservedRunsName(t *testing.T) {
+	store, _ := newTestStore(t)
+
+	if _, err := store.Create(context.Background(), CreateRequest{
+		Name:    "runs",
+		Content: testSkillDocument("runs", "Reserved", "Steps."),
+	}); err == nil {
+		t.Fatal("expected reserved name rejection")
 	}
 }
 
@@ -225,7 +348,7 @@ func TestSkillStoreDeleteRemovesDirectory(t *testing.T) {
 	}
 }
 
-func TestSkillStoreDeleteRejectsSeedSkill(t *testing.T) {
+func TestSkillStoreDeleteBaselineSkillWithoutChangingSeedManifest(t *testing.T) {
 	store, root := newTestStore(t)
 	ctx := context.Background()
 
@@ -238,60 +361,75 @@ func TestSkillStoreDeleteRejectsSeedSkill(t *testing.T) {
 	}
 
 	// Write a .seed-manifest that includes this skill
-	manifestPath := filepath.Join(root, seedManifestFile)
+	manifestPath := filepath.Join(root, ".seed-manifest")
 	if err := os.WriteFile(manifestPath, []byte("builtin-skill:abc123def456\n"), 0o644); err != nil {
 		t.Fatalf("write seed manifest: %v", err)
 	}
 
-	// Attempt delete — must be rejected
 	result, err := store.Delete(ctx, DeleteRequest{Name: "builtin-skill"})
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if result.Success {
-		t.Fatalf("expected delete to be rejected for seed skill")
-	}
-	if result.ErrorCode != ErrSkillIsBuiltin.Code {
-		t.Fatalf("expected error code %q, got %q", ErrSkillIsBuiltin.Code, result.ErrorCode)
+	if !result.Success {
+		t.Fatalf("expected local baseline deletion, got %#v", result)
 	}
 
-	// Verify skill still exists
-	skill, err := store.Find(ctx, "builtin-skill")
-	if err != nil {
-		t.Fatalf("expected seed skill to still exist after rejected delete: %v", err)
+	if _, err := store.Find(ctx, "builtin-skill"); err == nil {
+		t.Fatal("expected local skill directory to be deleted")
 	}
-	if skill == nil {
-		t.Fatal("expected seed skill to still exist")
+	manifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read seed manifest: %v", err)
+	}
+	if string(manifest) != "builtin-skill:abc123def456\n" {
+		t.Fatalf("seed manifest must remain baseline-owned, got %q", string(manifest))
 	}
 }
 
-func TestSkillStoreDeleteCaseInsensitiveSeedCheck(t *testing.T) {
+func TestSkillStoreForceInstallKeepsBaselineManifestOwnedByPreparer(t *testing.T) {
 	store, root := newTestStore(t)
 	ctx := context.Background()
-
-	_, err := store.Create(ctx, CreateRequest{
-		Name:    "my-skill",
-		Content: testSkillDocument("my-skill", "My Skill", "Body."),
-	})
-	if err != nil {
+	if _, err := store.Create(ctx, CreateRequest{
+		Name:    "baseline-skill",
+		Content: testSkillDocument("baseline-skill", "Baseline", "Old body."),
+	}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-
-	// Seed manifest has uppercase skill name — should still match case-insensitively
-	manifestPath := filepath.Join(root, seedManifestFile)
-	if err := os.WriteFile(manifestPath, []byte("MY-SKILL:abc123def456\n"), 0o644); err != nil {
+	manifestPath := filepath.Join(root, ".seed-manifest")
+	const manifestContent = "baseline-skill:abc123:7\n"
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0o644); err != nil {
 		t.Fatalf("write seed manifest: %v", err)
 	}
 
-	result, err := store.Delete(ctx, DeleteRequest{Name: "my-skill"})
+	result, err := store.Install(ctx, InstallRequest{
+		Name:    "baseline-skill",
+		Content: testSkillDocument("baseline-skill", "Replacement", "New body."),
+		Files: map[string]string{
+			"custom/layout/info.txt": "supporting",
+		},
+		Force: true,
+	})
 	if err != nil {
-		t.Fatalf("delete: %v", err)
+		t.Fatalf("force install: %v", err)
 	}
-	if result.Success {
-		t.Fatal("expected case-insensitive seed check to block delete")
+	if !result.Success {
+		t.Fatalf("force install result: %#v", result)
 	}
-	if result.ErrorCode != ErrSkillIsBuiltin.Code {
-		t.Fatalf("expected error code %q, got %q", ErrSkillIsBuiltin.Code, result.ErrorCode)
+	manifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read seed manifest: %v", err)
+	}
+	if string(manifest) != manifestContent {
+		t.Fatalf("seed manifest must remain unchanged, got %q", string(manifest))
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read skill root: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".skill-install-") || strings.HasPrefix(entry.Name(), ".skill-backup-") {
+			t.Fatalf("temporary directory was not cleaned: %s", entry.Name())
+		}
 	}
 }
 

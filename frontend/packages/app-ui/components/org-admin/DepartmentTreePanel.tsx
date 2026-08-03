@@ -37,11 +37,16 @@ import {
 	Pencil,
 	Plus,
 	Search,
-	Trash2,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+	FieldWithError,
+	isValidPhone,
+	RequiredMark,
+	useFormFieldValidation,
+} from "../form/formValidation";
 import {
 	buildDepartmentTree,
 	countDepartments,
@@ -166,6 +171,7 @@ function DepartmentTreeItem({
 
 export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) {
 	const user = useAuthStore((s) => s.authUser);
+	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const orgId = user?.currentOrg?.id;
 	const orgName = user?.currentOrg?.name ?? "当前组织";
@@ -281,29 +287,32 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 		}
 	};
 
-	const handleDeleteMember = async (member: User) => {
-		if (!window.confirm(`确定要删除“${member.name ?? "该成员"}”吗？`)) return;
-		setSubmitting(true);
-		try {
-			await orgAdminApi.deleteUser({ public_id: member.public_id });
-			toast.success("成员已删除");
-			await loadMembers();
-		} catch (err) {
-			const message = err instanceof Error ? err.message : "删除成员失败";
-			toast.error(message);
-		} finally {
-			setSubmitting(false);
-		}
-	};
-
 	const handleUpdateMember = async (publicId: string, name: string) => {
 		if (!orgId) return;
+		const trimmedName = name.trim();
+		// 中文注释：编辑弹窗仍打开时可读到目标成员 uin，用于判断是否为当前登录用户本人。
+		const editedMemberUin = editMemberDialog.open ? editMemberDialog.member.uin : undefined;
 		setSubmitting(true);
 		try {
 			await orgAdminApi.updateUser({
 				public_id: publicId,
-				name: name.trim(),
+				name: trimmedName,
 			});
+			// 中文注释：通讯录改的是本人时，立即同步左下角展示名，与账户管理改名行为一致。
+			if (
+				user &&
+				editedMemberUin != null &&
+				editedMemberUin !== 0 &&
+				user.uin != null &&
+				user.uin !== 0 &&
+				editedMemberUin === user.uin
+			) {
+				setAuthUser({
+					...user,
+					name: trimmedName,
+					uinName: trimmedName,
+				});
+			}
 			toast.success("成员已更新");
 			setEditMemberDialog({ open: false });
 			await loadMembers();
@@ -470,19 +479,17 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 						</div>
 					) : (
 						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] p-3 sm:p-4">
-							{/* 中文注释：固定列比例并截断过长部门名，避免表格最小内容宽度触发横向滚动。 */}
+							{/* 中文注释：固定列比例并截断过长文本，避免表格最小内容宽度触发横向滚动。 */}
 							<Table className="table-fixed">
 								<colgroup>
-									<col className="w-[18%]" />
-									<col className="w-[20%]" />
-									<col className="w-[20%]" />
-									<col className="w-[18%]" />
-									<col className="w-[24%]" />
+									<col className="w-[25%]" />
+									<col className="w-[25%]" />
+									<col className="w-[25%]" />
+									<col className="w-[25%]" />
 								</colgroup>
 								<TableHeader>
 									<TableRow>
 										<TableHead>用户名</TableHead>
-										<TableHead>所属部门</TableHead>
 										<TableHead>手机号</TableHead>
 										<TableHead>创建时间</TableHead>
 										<TableHead>操作</TableHead>
@@ -491,9 +498,11 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 								<TableBody>
 									{members.map((member) => (
 										<TableRow key={member.public_id}>
-											<TableCell className="font-medium">{member.name ?? "未命名"}</TableCell>
-											<TableCell className="max-w-0 truncate">
-												{selectedDepartment ? <Badge>{selectedDepartment.name}</Badge> : "-"}
+											<TableCell
+												className="max-w-0 truncate font-medium"
+												title={member.name ?? "未命名"}
+											>
+												{member.name ?? "未命名"}
 											</TableCell>
 											<TableCell className="truncate">{member.phone ?? "-"}</TableCell>
 											<TableCell className="truncate">
@@ -501,29 +510,16 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 											</TableCell>
 											<TableCell className="whitespace-nowrap">
 												{isDefaultUser && (
-													<>
-														<Button
-															type="button"
-															variant="ghost"
-															size="sm"
-															className="mr-2 px-0 last:mr-0"
-															onClick={() => setEditMemberDialog({ open: true, member })}
-														>
-															<Pencil className="mr-1 size-3.5" />
-															编辑
-														</Button>
-														<Button
-															type="button"
-															variant="ghost"
-															size="sm"
-															className="mr-2 px-0 last:mr-0"
-															disabled={submitting}
-															onClick={() => void handleDeleteMember(member)}
-														>
-															<Trash2 className="mr-1 size-3.5" />
-															删除
-														</Button>
-													</>
+													<Button
+														type="button"
+														variant="ghost"
+														size="sm"
+														className="px-0"
+														onClick={() => setEditMemberDialog({ open: true, member })}
+													>
+														<Pencil className="mr-1 size-3.5" />
+														编辑
+													</Button>
 												)}
 											</TableCell>
 										</TableRow>
@@ -536,8 +532,8 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 			</div>
 
 			<Dialog open={dialogMode !== null} onOpenChange={(open) => !open && setDialogMode(null)}>
-				<DialogContent className="sm:max-w-md">
-					<DialogHeader>
+				<DialogContent className="flex w-[min(440px,95vw)] max-w-none flex-col gap-0 sm:max-w-none">
+					<DialogHeader className="gap-2 text-left">
 						<DialogTitle>
 							{dialogMode?.type === "create"
 								? "新建部门"
@@ -555,15 +551,24 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 					</DialogHeader>
 
 					{dialogMode?.type !== "delete" ? (
-						<Input
-							value={dialogValue}
-							onChange={(event) => setDialogValue(event.target.value)}
-							placeholder="部门名称"
-							autoFocus
-						/>
+						<div className="mt-5 space-y-2">
+							<label
+								htmlFor="department-dialog-name"
+								className="text-sm font-medium text-[var(--leros-text-strong)]"
+							>
+								部门名称
+							</label>
+							<Input
+								id="department-dialog-name"
+								value={dialogValue}
+								onChange={(event) => setDialogValue(event.target.value)}
+								placeholder="请输入部门名称"
+								autoFocus
+							/>
+						</div>
 					) : null}
 
-					<DialogFooter>
+					<DialogFooter className="mt-6">
 						<Button
 							type="button"
 							variant="outline"
@@ -631,6 +636,7 @@ function AddMemberDialog({
 		defaultDepartmentId ? [defaultDepartmentId] : [],
 	);
 	const [pickerOpen, setPickerOpen] = useState(false);
+	const { shouldShowError, handleFieldBlur, touchField } = useFormFieldValidation();
 
 	const toggleDepartment = (id: number) => {
 		setSelectedIds((prev) => {
@@ -655,21 +661,18 @@ function AddMemberDialog({
 			.filter((item): item is Department => item !== undefined);
 	}, [selectedIds, departmentById]);
 
+	const trimmedName = name.trim();
+	const trimmedPhone = phone.trim();
+	const nameValid = trimmedName.length > 0;
+	const phoneValid = isValidPhone(trimmedPhone);
+	const departmentValid = selectedIds.length > 0;
+	const showNameError = shouldShowError("name") && !nameValid;
+	const showPhoneError = shouldShowError("phone") && !phoneValid;
+	const showDepartmentError = shouldShowError("department") && !departmentValid;
+	const canSubmitMember = nameValid && phoneValid && departmentValid;
+
 	const handleSubmit = () => {
-		const trimmedName = name.trim();
-		const trimmedPhone = phone.trim();
-		if (!trimmedName) {
-			toast.error("姓名不能为空");
-			return;
-		}
-		if (!trimmedPhone) {
-			toast.error("手机号不能为空");
-			return;
-		}
-		if (selectedIds.length === 0) {
-			toast.error("请选择所属部门");
-			return;
-		}
+		if (!canSubmitMember) return;
 		onSubmit(trimmedName, trimmedPhone, email, selectedIds);
 	};
 
@@ -685,36 +688,50 @@ function AddMemberDialog({
 				</DialogHeader>
 
 				<div className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-2">
-					<div className="space-y-2">
+					<FieldWithError error={showNameError ? "请输入成员姓名" : undefined}>
 						<label
 							htmlFor="create-member-name"
 							className="text-sm font-medium text-[var(--leros-text-strong)]"
 						>
 							姓名
+							<RequiredMark />
 						</label>
 						<Input
 							id="create-member-name"
 							value={name}
 							onChange={(event) => setName(event.target.value)}
+							onBlur={handleFieldBlur("name")}
 							placeholder="请输入成员姓名"
 							autoFocus
 						/>
-					</div>
+					</FieldWithError>
 
-					<div className="space-y-2">
+					<FieldWithError
+						error={
+							showPhoneError
+								? trimmedPhone.length === 0
+									? "请输入手机号"
+									: "请输入正确的手机号"
+								: undefined
+						}
+					>
 						<label
 							htmlFor="create-member-phone"
 							className="text-sm font-medium text-[var(--leros-text-strong)]"
 						>
 							手机号
+							<RequiredMark />
 						</label>
 						<Input
 							id="create-member-phone"
+							type="tel"
+							inputMode="numeric"
 							value={phone}
-							onChange={(event) => setPhone(event.target.value)}
+							onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))}
+							onBlur={handleFieldBlur("phone")}
 							placeholder="请输入手机号"
 						/>
-					</div>
+					</FieldWithError>
 
 					<div className="space-y-2">
 						<label
@@ -731,68 +748,76 @@ function AddMemberDialog({
 						/>
 					</div>
 
-					<div className="flex min-h-0 flex-1 flex-col gap-2">
-						<div className="flex items-center justify-between">
-							<span className="text-sm font-medium text-[var(--leros-text-strong)]">所属部门</span>
-							<span className="text-xs text-[var(--leros-text-subtle)]">
-								已选 {selectedIds.length} 个
-							</span>
-						</div>
-						<div className="flex min-h-0 flex-1 flex-col gap-2 rounded-xl border border-[var(--leros-control-border)] p-3">
-							{selectedDepartments.length === 0 ? (
-								<p className="text-sm text-[var(--leros-text-subtle)]">暂未选择部门</p>
-							) : (
-								<ScrollArea className="flex-1">
-									<div className="flex flex-wrap gap-2">
-										{selectedDepartments.map((department, index) => (
-											<Badge
-												key={department.id}
-												variant={index === 0 ? "default" : "secondary"}
-												className="gap-1"
-											>
-												{index === 0 && <span className="text-[10px] opacity-80">主</span>}
-												{department.name}
-												<button
-													type="button"
-													className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
-													onClick={() => toggleDepartment(department.id)}
+					<FieldWithError error={showDepartmentError ? "请选择所属部门" : undefined}>
+						<div className="flex min-h-0 flex-1 flex-col gap-2">
+							<div className="flex items-center justify-between">
+								<span className="text-sm font-medium text-[var(--leros-text-strong)]">
+									所属部门
+									<RequiredMark />
+								</span>
+								<span className="text-xs text-[var(--leros-text-subtle)]">
+									已选 {selectedIds.length} 个
+								</span>
+							</div>
+							<div className="flex min-h-0 flex-1 flex-col gap-2 rounded-xl border border-[var(--leros-control-border)] p-3">
+								{selectedDepartments.length === 0 ? (
+									<p className="text-sm text-[var(--leros-text-subtle)]">暂未选择部门</p>
+								) : (
+									<ScrollArea className="flex-1">
+										<div className="flex flex-wrap gap-2">
+											{selectedDepartments.map((department, index) => (
+												<Badge
+													key={department.id}
+													variant={index === 0 ? "default" : "secondary"}
+													className="gap-1"
 												>
-													<X className="size-3" />
-												</button>
-											</Badge>
-										))}
-									</div>
-								</ScrollArea>
-							)}
-							<div className="flex gap-2 pt-2">
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={() => setPickerOpen(true)}
-								>
-									选择部门
-								</Button>
-								{selectedIds.length > 0 && (
+													{index === 0 && <span className="text-[10px] opacity-80">主</span>}
+													{department.name}
+													<button
+														type="button"
+														className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+														onClick={() => toggleDepartment(department.id)}
+													>
+														<X className="size-3" />
+													</button>
+												</Badge>
+											))}
+										</div>
+									</ScrollArea>
+								)}
+								<div className="flex gap-2 pt-2">
 									<Button
 										type="button"
-										variant="ghost"
+										variant="outline"
 										size="sm"
-										onClick={() => setSelectedIds([])}
+										onClick={() => {
+											touchField("department");
+											setPickerOpen(true);
+										}}
 									>
-										清空
+										选择部门
 									</Button>
-								)}
+									{selectedIds.length > 0 && (
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											onClick={() => setSelectedIds([])}
+										>
+											清空
+										</Button>
+									)}
+								</div>
 							</div>
 						</div>
-					</div>
+					</FieldWithError>
 				</div>
 
 				<DialogFooter className="shrink-0 px-6 py-4">
 					<Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
 						取消
 					</Button>
-					<Button type="button" onClick={handleSubmit} disabled={submitting}>
+					<Button type="button" onClick={handleSubmit} disabled={!canSubmitMember || submitting}>
 						{submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
 						确认添加
 					</Button>
@@ -806,6 +831,7 @@ function AddMemberDialog({
 				onClose={() => setPickerOpen(false)}
 				onConfirm={(ids) => {
 					setSelectedIds(ids);
+					touchField("department");
 					setPickerOpen(false);
 				}}
 			/>
@@ -859,7 +885,7 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 						<Input value={member.phone ?? "-"} disabled />
 					</div>
 				</div>
-				<DialogFooter>
+				<DialogFooter className="mt-6">
 					<Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
 						取消
 					</Button>

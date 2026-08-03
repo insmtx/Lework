@@ -51,42 +51,6 @@ const (
 	MemberRoleViewer MemberRole = "viewer"
 )
 
-// SkillCategory 表示技能的类别（如 integration, tool, workflow, ai 等）
-type SkillCategory string
-
-const (
-	// SkillCategoryIntegration 表示集成类技能
-	SkillCategoryIntegration SkillCategory = "integration"
-	// SkillCategoryTool 表示工具类技能
-	SkillCategoryTool SkillCategory = "tool"
-	// SkillCategoryWorkflow 表示工作流技能
-	SkillCategoryWorkflow SkillCategory = "workflow"
-	// SkillCategoryAI 表示AI类技能
-	SkillCategoryAI SkillCategory = "ai"
-)
-
-// SkillType 表示技能类型（本地技能或远程技能）
-type SkillType string
-
-const (
-	// SkillTypeLocal 表示本地技能
-	SkillTypeLocal SkillType = "local"
-	// SkillTypeRemote 表示远程技能
-	SkillTypeRemote SkillType = "remote"
-)
-
-// SkillRegistryStatus 表示技能注册状态
-type SkillRegistryStatus string
-
-const (
-	// SkillRegistryStatusRegistered 表示已注册
-	SkillRegistryStatusRegistered SkillRegistryStatus = "registered"
-	// SkillRegistryStatusUnregistered 表示未注册
-	SkillRegistryStatusUnregistered SkillRegistryStatus = "unregistered"
-	// SkillRegistryStatusUnhealthy 表示不健康
-	SkillRegistryStatusUnhealthy SkillRegistryStatus = "unhealthy"
-)
-
 // ChannelType 表示渠道类型标识
 type ChannelType string
 

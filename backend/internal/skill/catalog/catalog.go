@@ -39,6 +39,48 @@ type ErrSkillManifestMismatch struct {
 	Path          string
 }
 
+// Catalog reads Skill documents from one explicit root directory.
+// A Catalog is immutable and safe to share across concurrent runs.
+type Catalog struct {
+	root string
+}
+
+// NewCatalog creates a catalog rooted at rootDir. The directory is created on
+// first scan so an empty per-run skill view is a valid catalog.
+func NewCatalog(rootDir string) (*Catalog, error) {
+	rootDir = strings.TrimSpace(rootDir)
+	if rootDir == "" {
+		return nil, fmt.Errorf("skill root is required")
+	}
+	absolute, err := filepath.Abs(rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve skill root: %w", err)
+	}
+	return &Catalog{root: absolute}, nil
+}
+
+// Root returns the absolute directory scanned by this catalog.
+func (c *Catalog) Root() string {
+	if c == nil {
+		return ""
+	}
+	return c.root
+}
+
+func defaultCatalog() (*Catalog, error) {
+	dir, err := leros.SkillsDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve skill directory: %w", err)
+	}
+	return NewCatalog(dir)
+}
+
+// NewCatalogFromDefault creates a catalog for the worker-wide legacy skill root.
+// New run execution should use NewCatalog with its explicitly prepared SkillDir.
+func NewCatalogFromDefault() (*Catalog, error) {
+	return defaultCatalog()
+}
+
 func (e *ErrSkillManifestMismatch) Error() string {
 	if e.ManifestName != "" {
 		return fmt.Sprintf("Skill %q found at path %s but its manifest name is %q.", e.RequestedName, filepath.ToSlash(e.Path), e.ManifestName)
@@ -49,7 +91,16 @@ func (e *ErrSkillManifestMismatch) Error() string {
 // List returns skill summaries found in the default Leros skills directory,
 // sorted by name. The skills directory is created if it does not exist.
 func List() ([]Summary, error) {
-	entries, _, err := readAllSkills()
+	catalog, err := defaultCatalog()
+	if err != nil {
+		return nil, err
+	}
+	return catalog.List()
+}
+
+// List returns all Skill summaries under this catalog root.
+func (c *Catalog) List() ([]Summary, error) {
+	entries, _, err := c.readAllSkills()
 	if err != nil {
 		return nil, err
 	}
@@ -73,9 +124,18 @@ func List() ([]Summary, error) {
 // When a matching directory is found but the manifest name differs, the error
 // describes the mismatch.
 func Get(name string) (*Entry, error) {
-	dir, err := leros.SkillsDir()
+	catalog, err := defaultCatalog()
 	if err != nil {
-		return nil, fmt.Errorf("resolve skill directory: %w", err)
+		return nil, err
+	}
+	return catalog.Get(name)
+}
+
+// Get returns a full Skill entry by name from this catalog root.
+func (c *Catalog) Get(name string) (*Entry, error) {
+	dir := c.Root()
+	if dir == "" {
+		return nil, fmt.Errorf("skill catalog is not initialized")
 	}
 
 	// Phase 1: try direct path <skillsDir>/<name>/SKILL.md.
@@ -181,17 +241,21 @@ func tryParseSkillFile(path, requestedName string) (*Entry, string) {
 // ReadFile reads a supporting file from a skill directory in the default Leros
 // skills directory. It validates the path to prevent directory traversal.
 func ReadFile(name string, relativePath string) ([]byte, error) {
-	entry, err := Get(name)
+	catalog, err := defaultCatalog()
+	if err != nil {
+		return nil, err
+	}
+	return catalog.ReadFile(name, relativePath)
+}
+
+// ReadFile reads a supporting file from this catalog.
+func (c *Catalog) ReadFile(name string, relativePath string) ([]byte, error) {
+	entry, err := c.Get(name)
 	if err != nil {
 		return nil, err
 	}
 
-	dir, err := leros.SkillsDir()
-	if err != nil {
-		return nil, fmt.Errorf("resolve skill directory: %w", err)
-	}
-
-	root := filepath.Join(dir, filepath.FromSlash(entry.Dir))
+	root := filepath.Join(c.Root(), filepath.FromSlash(entry.Dir))
 	targetPath, err := resolveInside(root, relativePath)
 	if err != nil {
 		return nil, fmt.Errorf("invalid skill file path %q: %w", relativePath, err)
@@ -209,19 +273,27 @@ func ReadFile(name string, relativePath string) ([]byte, error) {
 // skills directory, excluding SKILL.md. Results are sorted. If limit > 0, at most
 // limit files are returned.
 func ListFiles(name string, limit int) ([]string, error) {
-	entry, err := Get(name)
+	catalog, err := defaultCatalog()
+	if err != nil {
+		return nil, err
+	}
+	return catalog.ListFiles(name, limit)
+}
+
+// ListFiles returns supporting files in one Skill directory in this catalog.
+func (c *Catalog) ListFiles(name string, limit int) ([]string, error) {
+	entry, err := c.Get(name)
 	if err != nil {
 		return nil, err
 	}
 
-	dir, err := leros.SkillsDir()
+	root := filepath.Join(c.Root(), filepath.FromSlash(entry.Dir))
+	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return nil, fmt.Errorf("resolve skill directory: %w", err)
+		return nil, fmt.Errorf("resolve skill directory %s: %w", name, err)
 	}
-
-	root := filepath.Join(dir, filepath.FromSlash(entry.Dir))
 	files := make([]string, 0)
-	err = filepath.WalkDir(root, func(filePath string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(resolvedRoot, func(filePath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -232,7 +304,7 @@ func ListFiles(name string, limit int) ([]string, error) {
 			return nil
 		}
 
-		rel, relErr := filepath.Rel(root, filePath)
+		rel, relErr := filepath.Rel(resolvedRoot, filePath)
 		if relErr != nil {
 			return nil
 		}
@@ -253,10 +325,10 @@ func ListFiles(name string, limit int) ([]string, error) {
 // readAllSkills scans the default Leros skills directory and returns all parsed
 // entries keyed by manifest name. It only scans direct subdirectories (non-recursive).
 // The skills directory is created if it does not exist.
-func readAllSkills() (map[string]*Entry, string, error) {
-	dir, err := leros.SkillsDir()
-	if err != nil {
-		return nil, "", fmt.Errorf("resolve skill directory: %w", err)
+func (c *Catalog) readAllSkills() (map[string]*Entry, string, error) {
+	dir := c.Root()
+	if dir == "" {
+		return nil, "", fmt.Errorf("skill catalog is not initialized")
 	}
 
 	if err := os.MkdirAll(filepath.FromSlash(dir), 0o755); err != nil {
@@ -264,7 +336,7 @@ func readAllSkills() (map[string]*Entry, string, error) {
 	}
 
 	entries := make(map[string]*Entry)
-	err = WalkSkillDirs(dir, func(subDir, skillPath string) error {
+	err := WalkSkillDirs(dir, func(subDir, skillPath string) error {
 		raw, readErr := os.ReadFile(skillPath)
 		if readErr != nil {
 			return nil
@@ -353,10 +425,11 @@ func WalkSkillDirs(root string, fn func(dirName string, skillMDPath string) erro
 		return fmt.Errorf("read skill root directory %s: %w", root, err)
 	}
 	for _, rootEntry := range rootEntries {
-		if !rootEntry.IsDir() {
+		subDir := rootEntry.Name()
+		info, statErr := os.Stat(filepath.Join(root, subDir))
+		if statErr != nil || !info.IsDir() {
 			continue
 		}
-		subDir := rootEntry.Name()
 		skillPath := filepath.Join(root, subDir, skillFileName)
 		if _, err := os.Stat(skillPath); err != nil {
 			continue

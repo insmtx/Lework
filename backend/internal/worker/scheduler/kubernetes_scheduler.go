@@ -165,6 +165,10 @@ func (s *KubernetesScheduler) List(ctx context.Context) ([]*worker.WorkerInstanc
 	return result, nil
 }
 
+func (s *KubernetesScheduler) Shutdown(ctx context.Context) error {
+	return nil
+}
+
 func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
 	if spec == nil {
 		return false, fmt.Errorf("worker spec is required")

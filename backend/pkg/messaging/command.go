@@ -18,8 +18,6 @@ const (
 	CommandTypeApprovalResolve CommandType = "approval.resolve"
 	// CommandTypeQuestionAnswer 发送问题答案给 Worker。
 	CommandTypeQuestionAnswer CommandType = "question.answer"
-	// CommandTypeSkill 统一 skill 管理命令。
-	CommandTypeSkill CommandType = "skill.manage"
 	// CommandTypeProjectFileRestore 请求 Worker 恢复项目文件历史版本。
 	CommandTypeProjectFileRestore CommandType = "project.file.restore"
 )
@@ -31,7 +29,6 @@ const (
 	LaneRun         Lane = "cmd.run"
 	LaneControl     Lane = "cmd.control"
 	LaneInteraction Lane = "cmd.interaction"
-	LaneSkill       Lane = "cmd.skill"
 	LaneFile        Lane = "cmd.file"
 )
 
@@ -44,8 +41,6 @@ func CommandLane(cmdType CommandType) Lane {
 		return LaneControl
 	case CommandTypeApprovalResolve, CommandTypeQuestionAnswer:
 		return LaneInteraction
-	case CommandTypeSkill:
-		return LaneSkill
 	case CommandTypeProjectFileRestore:
 		return LaneFile
 	default:
@@ -63,7 +58,6 @@ type WorkerCommand = Envelope[WorkerCommandBody]
 //   - run.cancel:        CancelRunCommandPayload
 //   - approval.resolve:  ApprovalResolveCommandPayload
 //   - question.answer:   QuestionAnswerCommandPayload
-//   - skill.manage:      SkillCommandPayload
 //   - project.file.restore: ProjectFileRestoreCommandPayload
 type WorkerCommandBody struct {
 	CommandType CommandType     `json:"command_type"`
@@ -97,9 +91,10 @@ type RunCommandPayload struct {
 	Project   ProjectContext   `json:"project,omitempty"`
 	Input     TaskInput        `json:"input"`
 
-	Model   ModelOptions   `json:"model,omitempty"`
-	Runtime RuntimeOptions `json:"runtime,omitempty"`
-	Policy  TaskPolicy     `json:"policy,omitempty"`
+	Model   ModelOptions     `json:"model,omitempty"`
+	Runtime RuntimeOptions   `json:"runtime,omitempty"`
+	Policy  TaskPolicy       `json:"policy,omitempty"`
+	Plugins []PluginSnapshot `json:"plugins,omitempty"`
 
 	// 业务主键 ID，用于 llm_history 等调用记录关联。
 	// 以下均为对应表的自增主键（int），区别于其它字段中的 public_id（string）。
@@ -107,13 +102,25 @@ type RunCommandPayload struct {
 	//   ProjectID   leros_project.id          -> 区别于 Workspace.ProjectID（project public_id）
 	//   SessionID   leros_session.id          -> 区别于 RouteContext.SessionID（session public_id）
 	//   MessageID   leros_session_message.id  -> 当前触发 run 的消息主键
-	//   AssistantID leros_assistant.id        -> 区别于 RouteContext.AssistantID（assistant public_id）
-	//   Uin         leros_user.id             -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
-	ProjectID   uint `json:"project_id"`
-	SessionID   uint `json:"session_id"`
-	MessageID   uint `json:"message_id"`
-	AssistantID uint `json:"assistant_id"`
-	Uin         uint `json:"uin"`
+	//   AssistantID       leros_digital_assistant.id          -> 区别于 Execution.AssistantPublicID（assistant public_id）
+	//   AssistantPublicID leros_digital_assistant.public_id    -> 用于 worker 侧展示和对外追溯
+	//   Uin               leros_user.id                        -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
+	ProjectID         uint   `json:"project_id"`
+	SessionID         uint   `json:"session_id"`
+	MessageID         uint   `json:"message_id"`
+	AssistantID       uint   `json:"assistant_id"`
+	AssistantPublicID string `json:"assistant_public_id,omitempty"`
+	Uin               uint   `json:"uin"`
+}
+
+// PluginSnapshot is the immutable plugin revision selected when a run is published.
+// Definition is the immutable plugin configuration selected for this run.
+type PluginSnapshot struct {
+	PluginID   string          `json:"plugin_id"`
+	Code       string          `json:"code"`
+	Kind       string          `json:"kind"`
+	Revision   int             `json:"revision"`
+	Definition json.RawMessage `json:"definition"`
 }
 
 // CancelRunCommandPayload 是 run.cancel 命令的 payload。
@@ -131,17 +138,6 @@ type ApprovalResolveCommandPayload struct {
 // QuestionAnswerCommandPayload 是 question.answer 命令的 payload。
 type QuestionAnswerCommandPayload struct {
 	Answers [][]string `json:"answers"`
-}
-
-// SkillCommandPayload 是 skill.manage 命令的 payload。
-type SkillCommandPayload struct {
-	Action  string `json:"action"`             // "install" | "list" | "uninstall" | "detail" | "import"
-	Source  string `json:"source,omitempty"`   // "Leros" | "github" | "skills-sh" | "url"
-	SkillID string `json:"skill_id,omitempty"` // install identifier
-	Version string `json:"version,omitempty"`  // optional version for install
-	Name    string `json:"name,omitempty"`     // for uninstall / detail: the skill name
-	// DownloadURL is the URL from which the worker downloads the skill file during "import".
-	DownloadURL string `json:"download_url,omitempty"`
 }
 
 // ProjectFileRestoreCommandPayload 是 project.file.restore 命令的 payload。
@@ -252,22 +248,6 @@ func NewQuestionAnswerCommand(envID string, route RouteContext, payload Question
 	}
 }
 
-// NewSkillCommand 构造一个 skill.manage WorkerCommand。
-func NewSkillCommand(envID string, route RouteContext, payload SkillCommandPayload, replyTo string) WorkerCommand {
-	raw, _ := json.Marshal(payload)
-	return WorkerCommand{
-		ID:        envID,
-		Type:      MessageTypeWorkerCommand,
-		CreatedAt: time.Now().UTC(),
-		Route:     route,
-		Body: WorkerCommandBody{
-			CommandType: CommandTypeSkill,
-			Payload:     raw,
-			ReplyTo:     replyTo,
-		},
-	}
-}
-
 // NewProjectFileRestoreCommand 构造 project.file.restore WorkerCommand。
 func NewProjectFileRestoreCommand(envID string, route RouteContext, payload ProjectFileRestoreCommandPayload) WorkerCommand {
 	raw, _ := json.Marshal(payload)
@@ -350,12 +330,15 @@ type ActorContext struct {
 }
 
 type ExecutionTarget struct {
-	AssistantID   string   `json:"assistant_id,omitempty"`
-	AssistantName string   `json:"assistant_name,omitempty"`
-	AssistantDesc string   `json:"assistant_desc,omitempty"`
-	SystemPrompt  string   `json:"system_prompt,omitempty"`
-	Skills        []string `json:"skills,omitempty"`
-	Tools         []string `json:"tools,omitempty"`
+	// AssistantID 是 leros_digital_assistant.id，自增主键，用于 llm_history 关联。
+	AssistantID uint `json:"assistant_id,omitempty"`
+	// AssistantPublicID 是 leros_digital_assistant.public_id，用于 worker 侧日志展示。
+	AssistantPublicID string   `json:"assistant_public_id,omitempty"`
+	AssistantName     string   `json:"assistant_name,omitempty"`
+	AssistantDesc     string   `json:"assistant_desc,omitempty"`
+	SystemPrompt      string   `json:"system_prompt,omitempty"`
+	Skills            []string `json:"skills,omitempty"`
+	Tools             []string `json:"tools,omitempty"`
 }
 
 type WorkspaceOptions struct {

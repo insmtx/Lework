@@ -1,12 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import {
-	authenticatedFetch,
-	API_BASE_URL,
-	formatFileSize,
-	skillMarketplaceApi,
-} from "@leros/store";
+import { API_BASE_URL, authenticatedFetch, formatFileSize, pluginApi } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -20,6 +14,7 @@ import { Input } from "@leros/ui/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
 import { cn } from "@leros/ui/lib/utils";
 import { FileArchive, FileText, GitBranch, Loader2, Upload, X } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 export type SkillImportDialogProps = {
@@ -63,12 +58,6 @@ function isLikelyGitHubSkillURL(value: string): boolean {
 	}
 }
 
-function assertImportSucceeded(result?: { status?: string; message?: string }) {
-	if (result?.status !== "imported") {
-		throw new Error(result?.message || "导入失败，请重试");
-	}
-}
-
 export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: SkillImportDialogProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [importMode, setImportMode] = useState<ImportMode>("file");
@@ -99,17 +88,12 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 		if (!isValidFile(f)) {
 			setFile(null);
 			setStatus("error");
-			setErrorMessage("仅支持 .zip 和 .md 格式的文件");
+			setErrorMessage("仅支持 .zip 技能包或单独的 SKILL.md 文件");
 			return;
 		}
 		setFile(f);
 		setStatus("selected");
 		setErrorMessage("");
-	}, []);
-
-	// ---- click to select ----
-	const handleDropZoneClick = useCallback(() => {
-		inputRef.current?.click();
 	}, []);
 
 	const handleInputChange = useCallback(
@@ -183,10 +167,10 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 			setErrorMessage("");
 
 			try {
-				const importResponse = await skillMarketplaceApi.importFromGitHub({
+				await pluginApi.addSkill({
+					mode: "github",
 					github_url: trimmedUrl,
 				});
-				assertImportSucceeded(importResponse.data.data);
 
 				onImportSuccess?.();
 				toast.success("技能导入成功");
@@ -207,7 +191,7 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 			// Step 1: Upload file
 			const formData = new FormData();
 			formData.append("file", file);
-			formData.append("purpose", "project");
+			formData.append("purpose", "artifact");
 
 			const uploadResponse = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
 				method: "POST",
@@ -237,10 +221,10 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 			}
 
 			// Step 3: Call import API via store (HttpClient throws ApiError on failure)
-			const importResponse = await skillMarketplaceApi.import({
+			await pluginApi.addSkill({
+				mode: "file",
 				file_upload_id: publicId,
 			});
-			assertImportSucceeded(importResponse.data.data);
 
 			onImportSuccess?.();
 			toast.success("技能导入成功");
@@ -267,7 +251,7 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 				<DialogHeader>
 					<DialogTitle>导入技能</DialogTitle>
 					<DialogDescription className="text-[var(--leros-text-muted)]">
-						上传 .zip / .md 文件，或粘贴 GitHub 链接导入
+						上传包含 SKILL.md 的 .zip 技能包或单独的 SKILL.md，或粘贴 GitHub 链接导入
 					</DialogDescription>
 				</DialogHeader>
 
@@ -292,67 +276,68 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 					<div className={cn("relative mt-3", TAB_PANEL_H, TAB_PANEL_GRID)}>
 						<TabsContent value="file" className="mt-0 h-full min-h-0">
 							{/* ---- drop zone ---- */}
-							<div
-								role="button"
-								tabIndex={0}
-								onClick={handleDropZoneClick}
-								onKeyDown={(e) => {
-									if (e.key === "Enter" || e.key === " ") handleDropZoneClick();
-								}}
+							<section
+								aria-label="文件上传区域"
 								onDragOver={handleDragOver}
 								onDragLeave={handleDragLeave}
 								onDrop={handleDrop}
 								className={cn(
-									"border-2 border-dashed rounded-lg px-4 py-3 text-center cursor-pointer transition-colors h-full flex flex-col justify-center",
+									"relative border-2 border-dashed rounded-lg px-4 py-3 text-center transition-colors h-full",
 									"border-[var(--leros-control-border)]",
 									"hover:border-[var(--leros-text-muted)]",
 									dragActive && "border-primary bg-primary/5",
 									status === "selected" && "border-[var(--leros-text-muted)]",
 								)}
 							>
-								<input
-									ref={inputRef}
-									type="file"
-									accept=".zip,.md"
-									className="hidden"
-									onChange={handleInputChange}
-								/>
+								<label
+									htmlFor="skill-import-file"
+									className="flex h-full w-full cursor-pointer flex-col justify-center"
+								>
+									<input
+										id="skill-import-file"
+										ref={inputRef}
+										type="file"
+										accept=".zip,.md"
+										className="hidden"
+										onChange={handleInputChange}
+									/>
 
-								{status === "idle" || status === "error" ? (
-									<div className="mt-1 flex flex-col items-center gap-1.5">
-										<Upload className="size-8 text-[var(--leros-text-muted)]" />
-										<p className="text-sm text-[var(--leros-text-strong)] text-center">
-											拖拽文件到此处，或点击选择文件
-										</p>
-										<p className="text-xs text-[var(--leros-text-muted)] text-center">
-											支持 .zip 和 .md 格式
-										</p>
-									</div>
-								) : (
-									<div className="flex items-center gap-3 px-2">
-										<FileIcon className="size-8 shrink-0 text-[var(--leros-text-muted)]" />
-										<div className="flex-1 min-w-0 text-left">
-											<p className="text-sm font-medium text-[var(--leros-text-strong)] truncate">
-												{file?.name}
+									{status === "idle" || status === "error" ? (
+										<div className="mt-1 flex flex-col items-center gap-1.5">
+											<Upload className="size-8 text-[var(--leros-text-muted)]" />
+											<p className="text-sm text-[var(--leros-text-strong)] text-center">
+												拖拽文件到此处，或点击选择文件
 											</p>
-											<p className="text-xs text-[var(--leros-text-muted)]">
-												{file ? formatFileSize(file.size) : ""}
+											<p className="text-xs text-[var(--leros-text-muted)] text-center">
+												支持 .zip 和 .md 格式
 											</p>
 										</div>
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												handleRemoveFile();
-											}}
-											className="shrink-0 p-1 rounded hover:bg-[var(--leros-control-bg)] transition-colors"
-											aria-label="移除文件"
-										>
-											<X className="size-4 text-[var(--leros-text-muted)]" />
-										</button>
-									</div>
+									) : (
+										<div className="flex items-center gap-3 px-2 pr-10">
+											<FileIcon className="size-8 shrink-0 text-[var(--leros-text-muted)]" />
+											<div className="flex-1 min-w-0 text-left">
+												<p className="text-sm font-medium text-[var(--leros-text-strong)] truncate">
+													{file?.name}
+												</p>
+												<p className="text-xs text-[var(--leros-text-muted)]">
+													{file ? formatFileSize(file.size) : ""}
+												</p>
+											</div>
+										</div>
+									)}
+								</label>
+
+								{status === "selected" && (
+									<button
+										type="button"
+										onClick={handleRemoveFile}
+										className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 transition-colors hover:bg-[var(--leros-control-bg)]"
+										aria-label="移除文件"
+									>
+										<X className="size-4 text-[var(--leros-text-muted)]" />
+									</button>
 								)}
-							</div>
+							</section>
 						</TabsContent>
 
 						<TabsContent value="github" className="mt-0 h-full min-h-0">

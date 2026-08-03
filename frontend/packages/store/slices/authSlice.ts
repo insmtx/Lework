@@ -59,6 +59,7 @@ export class AuthActionImpl {
 				publicId: token.user_info.public_id,
 				name:
 					token.user_info.name || token.user_info.phone || token.user_info.email || "Lework 用户",
+				uinName: token.user_info.uin_name,
 				email: token.user_info.email,
 				phone: token.user_info.phone,
 				avatarUrl: token.user_info.avatar_url,
@@ -87,6 +88,7 @@ export class AuthActionImpl {
 					session.user_info.phone ||
 					session.user_info.email ||
 					state.authUser.name,
+				uinName: session.user_info.uin_name || state.authUser.uinName,
 				email: session.user_info.email || state.authUser.email,
 				phone: session.user_info.phone || state.authUser.phone,
 				avatarUrl: session.user_info.avatar_url || state.authUser.avatarUrl,

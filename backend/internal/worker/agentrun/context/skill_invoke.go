@@ -55,9 +55,13 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 			logs.DebugContextf(ctx, "Skill invoke cross-message dedup: msg_index=%d skipped=%v", i, skippedDedup)
 		}
 
+		catalog, err := catalogForRequest(req)
+		if err != nil {
+			return fmt.Errorf("resolve run skill catalog: %w", err)
+		}
 		entries := make([]*skillcatalog.Entry, 0, len(newTokens))
 		for _, name := range newTokens {
-			entry, err := skillcatalog.Get(name)
+			entry, err := catalog.Get(name)
 			if err != nil {
 				logs.WarnContextf(ctx, "Skill invoke load failed: msg_index=%d skill=%q error=%v", i, name, err)
 				return err
@@ -76,7 +80,7 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 
 		filesMap := make(map[string][]string, len(entries))
 		for _, entry := range entries {
-			files, err := skillcatalog.ListFiles(entry.Manifest.Name, 0)
+			files, err := catalog.ListFiles(entry.Manifest.Name, 0)
 			if err != nil {
 				logs.WarnContextf(ctx, "Skill invoke list files failed: skill=%q error=%v", entry.Manifest.Name, err)
 				files = nil

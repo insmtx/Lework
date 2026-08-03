@@ -16,6 +16,7 @@ type InvocationRequest struct {
 	Resume          bool
 	WorkDir         string
 	TaskDir         string
+	SkillDir        string
 	SystemPrompt    string
 	Prompt          string
 	Messages        []agent.Message

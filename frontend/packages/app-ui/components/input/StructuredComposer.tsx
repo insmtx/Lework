@@ -1,6 +1,6 @@
 "use client";
 
-import { type SkillInstalledItem, useSkillStore } from "@leros/store";
+import type { PluginComposerOption } from "@leros/store";
 import type { ComposerToken } from "@leros/store/types/chat";
 import {
 	Command,
@@ -25,6 +25,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC } from "../../assets";
 import { createDiceBearAvatarDataUri } from "../avatar/DiceBearAvatar";
 import { loadProtectedImageDisplayURL } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
@@ -50,7 +51,7 @@ type InsertedToken = {
 };
 
 export type ComposerAssistantOption = {
-	id: string | number;
+	id: string;
 	code: string;
 	name: string;
 	roleName?: string;
@@ -60,12 +61,7 @@ export type ComposerAssistantOption = {
 
 type AssistantOption = ComposerAssistantOption;
 
-export type ComposerSkillOption = {
-	code: string;
-	label: string;
-	description: string;
-	keywords: string[];
-};
+export type ComposerSkillOption = PluginComposerOption;
 
 type CommandOption = {
 	kind: "skill";
@@ -104,8 +100,10 @@ type StructuredComposerProps = {
 	placeholder: string;
 	isProjectVariant: boolean;
 	assistantOptions?: ComposerAssistantOption[];
-	projectSkillOptions?: ComposerSkillOption[];
+	skillOptions?: ComposerSkillOption[];
+	skillsLoading?: boolean;
 	directivesDisabled?: boolean;
+	assistantDirectivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
 	assistantSelectionMode?: "single" | "multiple";
 	prefill?: {
@@ -246,35 +244,17 @@ function isEmptyEditorValue(value: string): boolean {
 	return value.trim() === "";
 }
 
-function installedSkillToOption(skill: SkillInstalledItem): ComposerSkillOption {
-	const label = skill.display_name || skill.name;
-	return {
-		code: skill.name,
-		label,
-		description: skill.description || skill.category || "已安装技能",
-		keywords: [
-			label,
-			skill.name,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter(Boolean),
-	};
-}
-
 function matchesCommandQuery(
-	option: Pick<ComposerSkillOption, "label" | "code">,
+	option: Pick<ComposerSkillOption, "label" | "code" | "description">,
 	query: string,
 ): boolean {
 	if (!query) return true;
-	// 中文注释：技能弹窗搜索只按技能名称匹配，避免描述里的英文命中导致结果看起来不相关。
-	return [option.label, option.code].join(" ").toLowerCase().includes(query);
+	return [option.label, option.code, option.description].join(" ").toLowerCase().includes(query);
 }
 
 function assistantPickerValue(option: AssistantOption): string {
 	// 中文注释：同名同角色的队友仍是不同实体，命令菜单必须以唯一 id 区分，避免联动高亮。
-	return `assistant:${String(option.id)}`;
+	return `assistant:${option.id}`;
 }
 
 function commandPickerValue(option: CommandOption): string {
@@ -330,7 +310,7 @@ function resolveVirtualAssistantTokens(
 
 			result.push({
 				label,
-				id: String(assistant.id),
+				id: assistant.id,
 				start,
 				end,
 				kind: "assistant",
@@ -517,8 +497,7 @@ function findMentionAssistant(
 ): AssistantOption | undefined {
 	const assistantName = formatAssistantTokenDisplayLabel(token.label);
 	return assistantOptions.find(
-		(assistant) =>
-			(token.id && String(assistant.id) === token.id) || assistant.name === assistantName,
+		(assistant) => (token.id && assistant.id === token.id) || assistant.name === assistantName,
 	);
 }
 
@@ -545,9 +524,11 @@ function buildAssistantMentionIconShell(
 	avatar.className = "size-4 rounded-full object-cover transition-opacity group-hover:opacity-0";
 	avatar.decoding = "async";
 	avatar.referrerPolicy = "no-referrer";
-	const fallbackAvatarSrc =
-		createDiceBearAvatarDataUri(`digital-assistant:${assistantName}`, 32) ??
-		"data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+	// 中文注释：未上传用固定默认图；有头像但加载失败时回退 DiceBear。
+	const emptyFallbackSrc = CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC;
+	const loadErrorFallbackSrc =
+		createDiceBearAvatarDataUri(`digital-assistant:${assistantName}`, 32) ?? emptyFallbackSrc;
+	const fallbackAvatarSrc = assistant?.avatarUrl ? loadErrorFallbackSrc : emptyFallbackSrc;
 	avatar.src = fallbackAvatarSrc;
 	avatar.onerror = () => {
 		if (avatar.src !== fallbackAvatarSrc) avatar.src = fallbackAvatarSrc;
@@ -881,8 +862,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			placeholder,
 			isProjectVariant,
 			assistantOptions = [],
-			projectSkillOptions,
+			skillOptions,
+			skillsLoading,
 			directivesDisabled = false,
+			assistantDirectivesDisabled = false,
 			onProjectTrigger,
 			assistantSelectionMode = "multiple",
 			prefill,
@@ -890,7 +873,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		},
 		ref,
 	) {
-		const { installedSkills, installedSkillsLoaded } = useSkillStore((s) => s);
 		const editorRef = useRef<HTMLDivElement>(null);
 		const pickerRef = useRef<HTMLDivElement>(null);
 		const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
@@ -906,12 +888,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const tokensRef = useRef<InsertedToken[]>([]);
 		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
 
-		const skillOptions = useMemo<ComposerSkillOption[]>(() => {
-			if (projectSkillOptions) return projectSkillOptions;
-			return installedSkills.map(installedSkillToOption);
-		}, [installedSkills, projectSkillOptions]);
-		const skillsLoading =
-			trigger?.kind === "command" && !projectSkillOptions && !installedSkillsLoaded;
 		const availableAssistantOptions = useMemo<AssistantOption[]>(
 			() => assistantOptions,
 			[assistantOptions],
@@ -929,7 +905,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				),
 			[displayTokens],
 		);
-		const selectedSkillLabels = useMemo(
+		const selectedSkillCodes = useMemo(
 			() =>
 				dedupeValues(
 					displayTokens
@@ -944,20 +920,22 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			return availableAssistantOptions.filter((assistant) => {
 				if (selectedAssistantNames.includes(assistant.name)) return false;
 				if (!query) return true;
-				return [assistant.name, assistant.roleName, assistant.code, assistant.description]
+				return [assistant.name, assistant.roleName, assistant.id, assistant.description]
 					.join(" ")
 					.toLowerCase()
 					.includes(query);
 			});
 		}, [assistantSearch, availableAssistantOptions, selectedAssistantNames, trigger?.kind]);
 
+		const mergedSkillOptions = useMemo(() => skillOptions ?? [], [skillOptions]);
+
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");
-			return skillOptions.filter((skill) => {
-				if (selectedSkillLabels.includes(skill.label)) return false;
+			return mergedSkillOptions.filter((skill) => {
+				if (selectedSkillCodes.includes(skill.code)) return false;
 				return matchesCommandQuery(skill, query);
 			});
-		}, [commandSearch, selectedSkillLabels, skillOptions, trigger]);
+		}, [commandSearch, selectedSkillCodes, mergedSkillOptions, trigger]);
 
 		const commandOptions = useMemo<CommandOption[]>(
 			() => filteredSkills.map((item) => ({ kind: "skill" as const, item })),
@@ -1189,11 +1167,14 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					return;
 				}
 
-				setTrigger(directivesDisabled || nextTrigger?.kind === "project" ? null : nextTrigger);
+				const shouldBlock =
+					directivesDisabled || (assistantDirectivesDisabled && nextTrigger?.kind === "assistant");
+				setTrigger(shouldBlock || nextTrigger?.kind === "project" ? null : nextTrigger);
 			}
 		}, [
 			availableAssistantOptions,
 			directivesDisabled,
+			assistantDirectivesDisabled,
 			getActiveTrigger,
 			notifyProjectTrigger,
 			onChange,
@@ -1496,18 +1477,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			) => {
 				const isAssistant = kind === "assistant";
 				const assistantName = isAssistant ? (option as AssistantOption).name : "";
-				const skillLabel = kind === "skill" ? (option as ComposerSkillOption).label : "";
+				const skillCode = kind === "skill" ? (option as ComposerSkillOption).code : "";
 				if (isAssistant && selectedAssistantNames.includes(assistantName)) {
 					dismissTrigger(false);
 					return;
 				}
-				if (kind === "skill" && selectedSkillLabels.includes(skillLabel)) {
+				if (kind === "skill" && selectedSkillCodes.includes(skillCode)) {
 					dismissTrigger(false);
 					return;
 				}
 				const label = isAssistant
 					? `@${(option as AssistantOption).name}`
-					: `/${(option as ComposerSkillOption).label}`;
+					: `/${(option as ComposerSkillOption).code}`;
 				const currentValue = valueRef.current;
 				const currentTokens = tokensRef.current;
 				const followingText = currentValue.slice(activeTrigger.end);
@@ -1520,7 +1501,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				const insertedToken: InsertedToken = {
 					label,
 					// 中文注释：AI 队友 token 需要保留 public_id，项目/任务发送时会转换为 assistant_ids。
-					id: isAssistant ? String((option as AssistantOption).id) : undefined,
+					id: isAssistant ? (option as AssistantOption).id : undefined,
 					start: activeTrigger.start,
 					end: activeTrigger.start + label.length,
 					kind: isAssistant ? "assistant" : "skill",
@@ -1552,7 +1533,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				commitProgrammaticEdit,
 				dismissTrigger,
 				selectedAssistantNames,
-				selectedSkillLabels,
+				selectedSkillCodes,
 			],
 		);
 
@@ -1762,7 +1743,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 									<CommandGroup className="p-0">
 										{filteredAssistants.map((assistant, index) => (
 											<CommandItem
-												key={String(assistant.id)}
+												key={assistant.id}
 												value={assistantPickerValue(assistant)}
 												data-picker-item-value={assistantPickerValue(assistant)}
 												onMouseDown={(event: MouseEvent<HTMLElement>) => event.preventDefault()}
@@ -1818,8 +1799,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 													<Sparkles className="size-3.5" />
 												</div>
 												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium">
-														{renderHighlightedText(skill.label, commandSearch)}
+													<div className="flex items-center gap-1.5 truncate font-medium">
+														<span className="truncate">
+															{renderHighlightedText(skill.label, commandSearch)}
+														</span>
+														{(skill.source === "builtin" || skill.origin === "builtin_worker") && (
+															<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+																系统
+															</span>
+														)}
 													</div>
 													<div className="truncate text-xs text-slate-400">{skill.description}</div>
 												</div>

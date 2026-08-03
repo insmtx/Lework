@@ -1,7 +1,7 @@
 "use client";
 
 import { SkillDetailView } from "@leros/app-ui";
-import { skillMarketplaceApi, useChatStore, useLayoutStore } from "@leros/store";
+import { useChatStore, useLayoutStore } from "@leros/store";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -32,27 +32,12 @@ export default function SkillDetailPage() {
 		[activeProjectId, projects, replaceSkillDirective, router, setProjectRoute],
 	);
 
-	const handleUninstall = useCallback(
-		async (name: string) => {
-			try {
-				await skillMarketplaceApi.uninstall({ name });
-				toast.success("卸载已提交");
-				router.push("/skills");
-			} catch (err: any) {
-				const msg = err?.response?.data?.message ?? err?.message ?? "未知错误";
-				toast.error(`卸载失败：${msg}`);
-			}
-		},
-		[router],
-	);
-
 	return (
 		<SkillDetailView
 			skillId={skillId}
+			source="official"
 			onBack={() => router.push("/skills")}
-			onSkillClick={(id) => router.push(`/skills/${id}`)}
 			onUse={handleUse}
-			onUninstall={handleUninstall}
 		/>
 	);
 }

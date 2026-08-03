@@ -16,6 +16,10 @@ const (
 	// EnvAuthToken is the JWT bearer token used for worker↔server authentication.
 	EnvAuthToken = "LEROS_AUTH_TOKEN"
 
+	// EnvParentPID is set by the server when it spawns a worker as a child process.
+	// The worker uses this to detect when the server has exited and self-terminate.
+	EnvParentPID = "LEROS_PARENT_PID"
+
 	stateDirName = ".leros"
 	stateDBName  = "leros.db"
 

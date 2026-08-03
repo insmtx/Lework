@@ -1,8 +1,8 @@
 package catalog
 
 import (
-	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -87,19 +87,67 @@ func (e *Entry) Summary() Summary {
 
 // ParseDocument 解析带可选 YAML frontmatter 的 SKILL.md 文档。
 func ParseDocument(raw []byte) (*Manifest, string, error) {
-	manifest := &Manifest{}
-	content := strings.TrimSpace(string(raw))
+	content, lines, endIndex, hasFrontmatter, err := splitDocument(raw)
+	if err != nil {
+		return nil, "", err
+	}
 	if content == "" {
-		return manifest, "", nil
+		return &Manifest{}, "", nil
+	}
+	if !hasFrontmatter {
+		return &Manifest{}, content, nil
 	}
 
-	if !strings.HasPrefix(content, "---") {
-		return manifest, content, nil
+	manifest, _, _, err := parseManifest(lines, endIndex)
+	if err != nil {
+		return nil, "", fmt.Errorf("unmarshal frontmatter: %w", err)
+	}
+
+	body := strings.Join(lines[endIndex+1:], "\n")
+	return manifest, strings.TrimSpace(body), nil
+}
+
+// NormalizeDocument repairs compatible plain description scalars so downstream
+// runtimes receive standards-compliant YAML without losing their text.
+func NormalizeDocument(raw []byte) ([]byte, error) {
+	content, lines, endIndex, hasFrontmatter, err := splitDocument(raw)
+	if err != nil {
+		return nil, err
+	}
+	if content == "" || !hasFrontmatter {
+		return append([]byte(nil), raw...), nil
+	}
+
+	_, normalizedLines, changed, err := parseManifest(lines, endIndex)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal frontmatter: %w", err)
+	}
+	if !changed {
+		return append([]byte(nil), raw...), nil
+	}
+
+	original := string(raw)
+	contentStart := strings.Index(original, content)
+	if contentStart == -1 {
+		return nil, fmt.Errorf("locate normalized Skill document")
+	}
+	normalizedContent := strings.Join(normalizedLines, "\n")
+	result := make([]byte, 0, len(original)-len(content)+len(normalizedContent))
+	result = append(result, original[:contentStart]...)
+	result = append(result, normalizedContent...)
+	result = append(result, original[contentStart+len(content):]...)
+	return result, nil
+}
+
+func splitDocument(raw []byte) (string, []string, int, bool, error) {
+	content := strings.TrimSpace(string(raw))
+	if content == "" || !strings.HasPrefix(content, "---") {
+		return content, nil, -1, false, nil
 	}
 
 	lines := strings.Split(content, "\n")
 	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
-		return nil, "", fmt.Errorf("invalid frontmatter header")
+		return "", nil, -1, false, fmt.Errorf("invalid frontmatter header")
 	}
 
 	endIndex := -1
@@ -110,18 +158,67 @@ func ParseDocument(raw []byte) (*Manifest, string, error) {
 		}
 	}
 	if endIndex == -1 {
-		return nil, "", fmt.Errorf("frontmatter closing delimiter not found")
+		return "", nil, -1, false, fmt.Errorf("frontmatter closing delimiter not found")
+	}
+	return content, lines, endIndex, true, nil
+}
+
+func parseManifest(lines []string, endIndex int) (*Manifest, []string, bool, error) {
+	manifest := &Manifest{}
+	parseErr := yaml.Unmarshal(frontmatterBytes(lines, endIndex), manifest)
+	if parseErr == nil {
+		return manifest, lines, false, nil
 	}
 
-	var yamlBuffer bytes.Buffer
+	normalizedLines, changed := quotePlainDescription(lines, endIndex)
+	if !changed {
+		return nil, nil, false, parseErr
+	}
+	manifest = &Manifest{}
+	if err := yaml.Unmarshal(frontmatterBytes(normalizedLines, endIndex), manifest); err != nil {
+		return nil, nil, false, err
+	}
+	return manifest, normalizedLines, true, nil
+}
+
+func frontmatterBytes(lines []string, endIndex int) []byte {
+	return []byte(strings.Join(lines[1:endIndex], "\n") + "\n")
+}
+
+func quotePlainDescription(lines []string, endIndex int) ([]string, bool) {
+	normalized := append([]string(nil), lines...)
+	changed := false
 	for idx := 1; idx < endIndex; idx++ {
-		yamlBuffer.WriteString(lines[idx])
-		yamlBuffer.WriteByte('\n')
+		line := lines[idx]
+		if strings.TrimLeft(line, " \t") != line {
+			continue
+		}
+		key, value, found := strings.Cut(line, ":")
+		if !found || key != "description" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if !isPlainDescriptionWithMappingSeparator(value) {
+			continue
+		}
+		lineEnding := ""
+		if strings.HasSuffix(line, "\r") {
+			lineEnding = "\r"
+		}
+		normalized[idx] = "description: " + strconv.Quote(value) + lineEnding
+		changed = true
 	}
-	if err := yaml.Unmarshal(yamlBuffer.Bytes(), manifest); err != nil {
-		return nil, "", fmt.Errorf("unmarshal frontmatter: %w", err)
-	}
+	return normalized, changed
+}
 
-	body := strings.Join(lines[endIndex+1:], "\n")
-	return manifest, strings.TrimSpace(body), nil
+func isPlainDescriptionWithMappingSeparator(value string) bool {
+	if value == "" || !strings.Contains(value, ": ") {
+		return false
+	}
+	switch value[0] {
+	case '\'', '"', '|', '>', '[', '{', '!', '&', '*':
+		return false
+	default:
+		return true
+	}
 }

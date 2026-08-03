@@ -2,10 +2,14 @@
 
 import {
 	COMPOSER_UPLOAD_ACCEPT,
+	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
+	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
+	getComposerUploadAccept,
+	isComposerUploadAllowedFile,
+	isEmptyUploadFile,
 	isSystemDefaultAssistant,
 	type ProjectMember,
-	type ProjectSkill,
 	projectFileApi,
 	useChatStore,
 	useDAStore,
@@ -14,7 +18,6 @@ import {
 import type {
 	ApprovalAction,
 	ApprovalRequest,
-	Attachment,
 	ComposerToken,
 	Message,
 	MessageMetadata,
@@ -62,11 +65,11 @@ import { buildComposerUsageTips } from "./composerUsageTips";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
 	type ComposerAssistantOption,
-	type ComposerSkillOption,
 	StructuredComposer,
 	type StructuredComposerHandle,
 } from "./StructuredComposer";
 import { FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, isFolderUploadSizeExceeded } from "./upload-folder";
+import { useComposerSkillOptions } from "./useComposerSkillOptions";
 
 export const PROJECT_ATTACHMENT_ACCEPT = COMPOSER_UPLOAD_ACCEPT;
 
@@ -80,6 +83,9 @@ export function ChatInput({
 	projectLayoutMode?: ProjectChatLayoutMode;
 	navigation?: AppNavigation;
 }) {
+	const projectAttachmentAccept = getComposerUploadAccept(
+		typeof navigator === "undefined" ? undefined : navigator.platform,
+	);
 	const {
 		activeSessionId,
 		inputText,
@@ -130,7 +136,7 @@ export function ChatInput({
 	} | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const folderInputRef = useRef<HTMLInputElement>(null);
-	const previousProjectSkillLabelsRef = useRef<string[] | null>(null);
+	const previousProjectSkillCodesRef = useRef<string[] | null>(null);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 	const { draft: docxSelectionDraft } = useDocxSelectionComposerStore();
 
@@ -144,10 +150,9 @@ export function ChatInput({
 	const pendingQuestion = findPendingQuestion(messageIds, messagesMap, activeSessionId);
 	const currentProjectId = activeTaskDetailProjectId ?? activeProjectId;
 	const currentProject = projects.find((project) => project.id === currentProjectId);
-	const projectSkillOptions = useMemo<ComposerSkillOption[] | undefined>(() => {
-		if (!isProjectVariant) return undefined;
-		return (currentProject?.skills ?? []).map(projectSkillToComposerOption);
-	}, [currentProject?.skills, isProjectVariant]);
+	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+		isProjectVariant ? currentProjectId : null,
+	);
 	const projectAssistantOptions = useMemo<ComposerAssistantOption[] | undefined>(() => {
 		if (!isProjectVariant) return undefined;
 		return (
@@ -184,9 +189,9 @@ export function ChatInput({
 				})
 		);
 	}, [assistants, assistantsLoaded, currentProject?.members, isProjectVariant]);
-	const projectSkillLabels = useMemo(
-		() => projectSkillOptions?.map((skill) => skill.label) ?? [],
-		[projectSkillOptions],
+	const projectSkillCodes = useMemo(
+		() => skillOptions?.filter((skill) => skill.projectAssociated).map((skill) => skill.code) ?? [],
+		[skillOptions],
 	);
 	const isNewProjectTaskView = isProjectVariant && currentView === "project";
 	const composerUsageTips = useMemo(
@@ -236,24 +241,24 @@ export function ChatInput({
 
 	useEffect(() => {
 		if (!isProjectVariant) {
-			previousProjectSkillLabelsRef.current = null;
+			previousProjectSkillCodesRef.current = null;
 			return;
 		}
 
-		const previousLabels = previousProjectSkillLabelsRef.current;
-		previousProjectSkillLabelsRef.current = projectSkillLabels;
-		if (!previousLabels) return;
+		const previousCodes = previousProjectSkillCodesRef.current;
+		previousProjectSkillCodesRef.current = projectSkillCodes;
+		if (!previousCodes) return;
 
-		const currentLabels = new Set(projectSkillLabels);
-		const removedLabels = previousLabels.filter((label) => !currentLabels.has(label));
-		if (removedLabels.length === 0) return;
+		const currentCodes = new Set(projectSkillCodes);
+		const removedCodes = previousCodes.filter((code) => !currentCodes.has(code));
+		if (removedCodes.length === 0) return;
 
-		const nextInput = removeSkillDirectives(inputText, removedLabels);
+		const nextInput = removeSkillDirectives(inputText, removedCodes);
 		if (nextInput !== inputText) {
 			// 中文注释：项目维度移除技能后，同步清理输入框中已经插入的对应技能指令。
 			setInputText(nextInput);
 		}
-	}, [inputText, isProjectVariant, projectSkillLabels, setInputText]);
+	}, [inputText, isProjectVariant, projectSkillCodes, setInputText]);
 
 	const submitMessage = useCallback(async () => {
 		// 中文注释：真实 SessionEvents 当前由单条 SSE 连接接管，生成中先阻止重复发送。
@@ -270,7 +275,7 @@ export function ChatInput({
 					)
 				: undefined;
 			let outgoingContent = trimmedInput;
-			let outgoingAttachments = inputAttachments;
+			const outgoingAttachments = inputAttachments;
 			let composerMetadata = buildComposerMetadata(inputText, composerTokens);
 			let pendingVersionSync: PendingDocxVersionSync | null = null;
 
@@ -286,12 +291,15 @@ export function ChatInput({
 					file: docxSelectionDraft.file,
 					selection: docxSelectionDraft.selection,
 				});
-				if (!request.attachment && !docxSelectionDraft.file.projectPath) {
+				if (
+					!docxSelectionDraft.file.versionPublicId &&
+					!docxSelectionDraft.file.publicId &&
+					!docxSelectionDraft.file.projectPath
+				) {
 					toast.error("当前文件缺少可编辑的文件标识");
 					return;
 				}
 				outgoingContent = request.content;
-				outgoingAttachments = mergeSelectionAttachment(inputAttachments, request.attachment);
 				const visibleMetadata = buildComposerMetadata(inputText, composerTokens);
 				composerMetadata = {
 					...visibleMetadata,
@@ -393,6 +401,14 @@ export function ChatInput({
 			if (!files.length) return;
 
 			for (const file of files) {
+				if (isEmptyUploadFile(file)) {
+					toast.error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+					continue;
+				}
+				if (!isComposerUploadAllowedFile(file)) {
+					toast.error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+					continue;
+				}
 				void uploadProjectAttachment(file).then((uploaded) => {
 					if (!uploaded) {
 						addAttachment(file);
@@ -407,6 +423,14 @@ export function ChatInput({
 		async (e: React.ChangeEvent<HTMLInputElement>) => {
 			const files = Array.from(e.target.files ?? []);
 			for (const file of files) {
+				if (isEmptyUploadFile(file)) {
+					toast.error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
+					continue;
+				}
+				if (!isComposerUploadAllowedFile(file)) {
+					toast.error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
+					continue;
+				}
 				const uploaded = await uploadProjectAttachment(file);
 				if (!uploaded) {
 					addAttachment(file);
@@ -512,7 +536,7 @@ export function ChatInput({
 						ref={fileInputRef}
 						type="file"
 						className="hidden"
-						accept={PROJECT_ATTACHMENT_ACCEPT}
+						accept={projectAttachmentAccept}
 						multiple
 						onChange={handleFileSelect}
 					/>
@@ -552,7 +576,8 @@ export function ChatInput({
 							}
 							isProjectVariant={isProjectVariant}
 							assistantOptions={projectAssistantOptions}
-							projectSkillOptions={projectSkillOptions}
+							skillOptions={skillOptions}
+							skillsLoading={skillsLoading}
 							assistantSelectionMode="single"
 							prefill={activeProjectComposerPrefill}
 							onPrefillConsumed={consumeProjectComposerPrefill}
@@ -572,7 +597,8 @@ export function ChatInput({
 									onUpload={() => fileInputRef.current?.click()}
 									onUploadFolder={() => folderInputRef.current?.click()}
 									assistantOptions={projectAssistantOptions}
-									projectSkillOptions={projectSkillOptions}
+									skillOptions={skillOptions}
+									skillsLoading={skillsLoading}
 									assistantSelectionMode="single"
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
@@ -788,19 +814,6 @@ function buildComposerMetadata(
 	return composerTokens.length > 0 ? { composerTokens } : undefined;
 }
 
-function mergeSelectionAttachment(
-	attachments: Attachment[],
-	selectionAttachment?: Attachment,
-): Attachment[] {
-	if (!selectionAttachment) return attachments;
-	return [
-		...attachments.filter(
-			(attachment) => attachment.fileUploadId !== selectionAttachment.fileUploadId,
-		),
-		selectionAttachment,
-	];
-}
-
 async function resolveDocxVersionSync(
 	draft: DocxSelectionComposerDraft,
 ): Promise<PendingDocxVersionSync | null> {
@@ -832,22 +845,6 @@ async function resolveDocxVersionSync(
 		baselinePublicId,
 		baselineVersionNo,
 		selectedVersionPublicId: draft.selectedVersionPublicId,
-	};
-}
-
-function projectSkillToComposerOption(skill: ProjectSkill): ComposerSkillOption {
-	return {
-		code: skill.code,
-		label: skill.name,
-		description: skill.description || skill.category || "项目技能",
-		keywords: [
-			skill.name,
-			skill.code,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter((item): item is string => Boolean(item)),
 	};
 }
 

@@ -225,6 +225,11 @@ export const projectFileApi = {
 			`/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/versions`,
 		),
 
+	restoreVersion: (projectId: string, filePublicId: string) =>
+		apiClient.post<BackendDataResponse<BackendProjectFileNode>>(
+			`/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(filePublicId)}/restore`,
+		),
+
 	upload: async ({ file, projectPublicId, signal }: UploadProjectFileParams) => {
 		const uploadResponse = assertBackendSuccess(
 			await uploadFile(file, projectPublicId, signal),

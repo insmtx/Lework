@@ -43,13 +43,6 @@ const (
 	// TableNameEvent 事件表名
 	TableNameEvent = tablenamePrefix + "event"
 
-	// TableNameSkill 技能表名
-	TableNameSkill = tablenamePrefix + "skill"
-	// TableNameSkillLog 技能执行日志表名
-	TableNameSkillLog = tablenamePrefix + "skill_execution_log"
-	// TableNameSkillRegistry 技能注册表名
-	TableNameSkillRegistry = tablenamePrefix + "skill_registry"
-
 	// TableNameSession 会话表名
 	TableNameSession = tablenamePrefix + "session"
 	// TableNameSessionMessage 会话消息表名
@@ -84,12 +77,18 @@ const (
 	TableNameFileUpload = tablenamePrefix + "file_upload"
 	// TableNameProjectFile 项目文件关联表名
 	TableNameProjectFile = tablenamePrefix + "project_file"
-	// TableNameBuiltinSkillMarketplaceItem 内置 Skill 市场条目表名
-	TableNameBuiltinSkillMarketplaceItem = tablenamePrefix + "builtin_skill_marketplace_item"
-	// TableNameSkillMarketplaceItem Skill 市场记录缓存表名
-	TableNameSkillMarketplaceItem = tablenamePrefix + "skill_marketplace_item"
-	// TableNameOrgSkillInstallation 组织级 Skill 安装记录表名
-	TableNameOrgSkillInstallation = tablenamePrefix + "org_skill_installation"
+	// TableNamePlugin 组织插件表名
+	TableNamePlugin = tablenamePrefix + "plugin"
+	// TableNamePluginRevision 插件修订表名
+	TableNamePluginRevision = tablenamePrefix + "plugin_revision"
+	// TableNamePluginRevisionContent 插件修订内容快照表名
+	TableNamePluginRevisionContent = tablenamePrefix + "plugin_revision_content"
+	// TableNameProjectPluginBinding 项目插件绑定表名
+	TableNameProjectPluginBinding = tablenamePrefix + "project_plugin_binding"
+	// TableNamePluginMarketplaceItem 系统插件市场目录表名
+	TableNamePluginMarketplaceItem = tablenamePrefix + "plugin_marketplace_item"
+	// TableNameMCPChannel 系统 MCP 渠道配置表名
+	TableNameMCPChannel = tablenamePrefix + "mcp_channel"
 
 	// TableNameMessageResource 消息资源关联表名
 	TableNameMessageResource = tablenamePrefix + "message_resource"

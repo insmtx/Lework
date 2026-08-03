@@ -28,15 +28,6 @@ func (a *Adapter) Prepare(_ context.Context, _ string) error {
 	return nil
 }
 
-// GetSkillDir returns the skill directory path for Claude Code.
-func (a *Adapter) GetSkillDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".claude", "skills")
-}
-
 func expandPath(pathValue string) string {
 	pathValue = strings.TrimSpace(pathValue)
 	if pathValue == "" {

@@ -19,6 +19,19 @@ export const COMPOSER_UPLOAD_ALLOWED_EXTENSIONS = [
 export const COMPOSER_UPLOAD_ACCEPT =
 	".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.markdown,.png,.jpg,.jpeg,.txt";
 
+export function getNativeFileInputAccept(
+	accept: string,
+	platform = typeof navigator === "undefined" ? undefined : navigator.platform,
+): string | undefined {
+	// 银河麒麟的 GTK 文件选择器无法可靠解析 Electron 传入的 accept，
+	// 会生成一个空过滤器。Linux 上展示全部文件，具体入口仍在选择后执行类型与大小校验。
+	return platform?.toLowerCase().includes("linux") ? undefined : accept;
+}
+
+export function getComposerUploadAccept(platform?: string): string | undefined {
+	return getNativeFileInputAccept(COMPOSER_UPLOAD_ACCEPT, platform);
+}
+
 export const COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE =
 	"仅支持上传 PDF、Word、Excel、PPT、Markdown、图片（PNG/JPG/JPEG）、TXT 文件";
 

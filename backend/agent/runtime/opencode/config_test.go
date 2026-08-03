@@ -65,3 +65,67 @@ func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
 		t.Fatalf("build agent prompt = %q, want %q", buildAgent.Prompt, openCodeBuildAgentPrompt)
 	}
 }
+
+func TestBuildMCPConfigIncludesProjectHeadersAndPreservesExplicitAuthorization(t *testing.T) {
+	sourceHeaders := map[string]string{"Authorization": "Custom token", "X-Tenant": "one"}
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{
+			Name:        "docs",
+			URL:         "https://example.com/mcp",
+			Headers:     sourceHeaders,
+			BearerToken: "builtin-token",
+		},
+	})
+	entry, ok := config["docs"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP entry = %#v", config["docs"])
+	}
+	headers, ok := entry["headers"].(map[string]string)
+	if !ok {
+		t.Fatalf("MCP headers = %#v", entry["headers"])
+	}
+	if headers["Authorization"] != "Custom token" || headers["X-Tenant"] != "one" {
+		t.Fatalf("MCP headers = %#v", headers)
+	}
+	headers["X-Tenant"] = "changed"
+	if sourceHeaders["X-Tenant"] != "one" {
+		t.Fatalf("buildMCPConfig mutated request headers: %#v", sourceHeaders)
+	}
+}
+
+func TestBuildMCPConfigIncludesStdioEnvironment(t *testing.T) {
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{
+			Name:    "sqlite",
+			Command: "npx",
+			Args:    []string{"-y", "@example/mcp"},
+			Env:     map[string]string{"LOG_LEVEL": "debug"},
+		},
+	})
+	entry, ok := config["sqlite"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP entry = %#v", config["sqlite"])
+	}
+	command, ok := entry["command"].([]string)
+	if !ok || len(command) != 3 || command[0] != "npx" {
+		t.Fatalf("MCP command = %#v", entry["command"])
+	}
+	environment, ok := entry["environment"].(map[string]string)
+	if !ok || environment["LOG_LEVEL"] != "debug" {
+		t.Fatalf("MCP environment = %#v", entry["environment"])
+	}
+}
+
+func TestBuildMCPConfigBridgesSSEThroughMCPRemote(t *testing.T) {
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{Name: "baidu-netdisk", Transport: "sse", URL: "https://example.com/sse?access_token=secret"},
+	})
+	entry, ok := config["baidu-netdisk"].(map[string]any)
+	if !ok || entry["type"] != "local" {
+		t.Fatalf("MCP entry = %#v", config["baidu-netdisk"])
+	}
+	command, ok := entry["command"].([]string)
+	if !ok || len(command) != 6 || command[0] != "npx" || command[5] != "sse-only" {
+		t.Fatalf("MCP command = %#v", entry["command"])
+	}
+}

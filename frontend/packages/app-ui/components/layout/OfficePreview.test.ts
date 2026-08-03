@@ -183,6 +183,8 @@ describe("OfficePreview text selection", () => {
 			expect(element).not.toBeNull();
 			return element as HTMLElement;
 		});
+		expect(run.parentElement?.style.pointerEvents).toBe("none");
+		expect(run.style.width).toBe("600px");
 		const surface = run.closest<HTMLElement>("[data-office-surface-index='0']");
 		expect(surface).not.toBeNull();
 		Object.defineProperty(surface, "getBoundingClientRect", {

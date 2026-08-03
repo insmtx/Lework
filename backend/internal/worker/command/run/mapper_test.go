@@ -26,9 +26,9 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 		TaskType:      messaging.TaskTypeAgentRun,
 		ExecutionMode: string(agentrundomain.ExecutionModePlan),
 		Execution: messaging.ExecutionTarget{
-			AssistantID:   "assistant_1",
-			AssistantName: "投标策略师",
-			SystemPrompt:  "按投标策略师身份执行",
+			AssistantPublicID: "assistant_1",
+			AssistantName:     "投标策略师",
+			SystemPrompt:      "按投标策略师身份执行",
 		},
 		Workspace: messaging.WorkspaceOptions{
 			ProjectID: "project_1",
@@ -61,8 +61,8 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 	if req.ExecutionMode != agentrundomain.ExecutionModePlan {
 		t.Fatalf("execution mode = %q, want %q", req.ExecutionMode, agentrundomain.ExecutionModePlan)
 	}
-	if req.Assistant.ID != "assistant_1" {
-		t.Fatalf("assistant id = %q, want assistant_1", req.Assistant.ID)
+	if req.Assistant.PublicID != "assistant_1" {
+		t.Fatalf("assistant public_id = %q, want assistant_1", req.Assistant.PublicID)
 	}
 	if req.Assistant.Name != "投标策略师" {
 		t.Fatalf("assistant name = %q, want 投标策略师", req.Assistant.Name)
@@ -108,7 +108,7 @@ func TestRequestFromWorkerTaskMapsProjectContext(t *testing.T) {
 		},
 		TaskType: messaging.TaskTypeAgentRun,
 		Execution: messaging.ExecutionTarget{
-			AssistantID: "assistant_10",
+			AssistantPublicID: "assistant_10",
 		},
 		Workspace: messaging.WorkspaceOptions{
 			ProjectID: "prj_1",

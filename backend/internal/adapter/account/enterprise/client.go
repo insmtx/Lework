@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -62,6 +63,41 @@ type iamResponse struct {
 	Response json.RawMessage `json:"Response"`
 }
 
+type createAPIKeyRequest struct {
+	Name         string `json:"name"`
+	Purpose      string `json:"purpose"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   uint   `json:"resource_id"`
+	ExpireHours  int    `json:"expire_hours"`
+}
+
+type createAPIKeyResponse struct {
+	APIKey string `json:"api_key"`
+	ID     uint   `json:"id"`
+}
+
+// CreateAPIKey requests an opaque API key owned by the currently authenticated IAM user.
+func (c *iamClient) CreateAPIKey(ctx context.Context, input account.CreateAPIKeyInput) (*account.CreatedAPIKey, error) {
+	if strings.TrimSpace(extractAuthToken(ctx)) == "" {
+		return nil, fmt.Errorf("auth token not found in context")
+	}
+	request := createAPIKeyRequest{
+		Name:         strings.TrimSpace(input.Name),
+		Purpose:      strings.TrimSpace(input.Purpose),
+		ResourceType: strings.TrimSpace(input.ResourceType),
+		ResourceID:   input.ResourceID,
+		ExpireHours:  input.ExpireHours,
+	}
+	var response createAPIKeyResponse
+	if err := c.callWithAuth(ctx, "account.CreateAPIKey", request, &response); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(response.APIKey) == "" {
+		return nil, fmt.Errorf("iam response missing api key")
+	}
+	return &account.CreatedAPIKey{ID: response.ID, APIKey: response.APIKey}, nil
+}
+
 func (c *iamClient) call(ctx context.Context, action string, reqBody, respBody any) error {
 	return c.doCall(ctx, action, reqBody, respBody, "")
 }
@@ -105,7 +141,6 @@ func (c *iamClient) doCallOnce(ctx context.Context, action string, reqBody, resp
 		return fmt.Errorf("marshal iam request: %w", err)
 	}
 	body = bytes.NewReader(data)
-
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
 	if err != nil {

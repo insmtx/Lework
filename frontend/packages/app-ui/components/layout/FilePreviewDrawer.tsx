@@ -8,6 +8,7 @@ import {
 	FileText,
 	History,
 	LoaderCircle,
+	RotateCcw,
 	ShieldCheck,
 	X,
 } from "lucide-react";
@@ -67,6 +68,8 @@ export function FilePreviewDrawer({
 	const [versionsError, setVersionsError] = useState<string | null>(null);
 	const [selectedVersionPublicId, setSelectedVersionPublicId] = useState("");
 	const [selectedVersionKey, setSelectedVersionKey] = useState("");
+	const [restoreTarget, setRestoreTarget] = useState<BackendProjectFileVersion | null>(null);
+	const [restoring, setRestoring] = useState(false);
 	const [officeSelection, setOfficeSelection] = useState<OfficeTextSelection | null>(null);
 	const [pendingVersionSync, setPendingVersionSync] = useState<PendingDocxVersionSync | null>(null);
 	const drawerRef = useRef<HTMLDivElement>(null);
@@ -379,6 +382,41 @@ export function FilePreviewDrawer({
 		}
 	};
 
+	const handleRestoreVersion = async () => {
+		if (!file?.projectId || !restoreTarget) return;
+		setRestoring(true);
+		try {
+			const response = await projectFileApi.restoreVersion(file.projectId, restoreTarget.public_id);
+			if (response.data.code !== 0) {
+				throw new Error(response.data.message || "恢复版本失败");
+			}
+			toast.success("已恢复为新的最新版本");
+			const node = response.data.data;
+			if (node) {
+				filePreviewActions.open({
+					...file,
+					publicId: node.public_id ?? file.publicId,
+					storageUri: node.storage_uri ?? file.storageUri,
+					versionNo: node.version_no,
+					versionLabel: node.version_label,
+					versionCount: node.version_count,
+				});
+			}
+			setRestoreTarget(null);
+			setSelectedVersionKey("");
+			setSelectedVersionPublicId("");
+			window.dispatchEvent(
+				new CustomEvent(PROJECT_FILE_VERSION_CHANGED_EVENT, {
+					detail: { projectId: file.projectId, taskId: file.taskId },
+				}),
+			);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "恢复版本失败");
+		} finally {
+			setRestoring(false);
+		}
+	};
+
 	const handleDrawerResizeStart = (event: React.PointerEvent<HTMLElement>) => {
 		event.preventDefault();
 		const startX = event.clientX;
@@ -547,6 +585,7 @@ export function FilePreviewDrawer({
 							setSelectedVersionKey(entry.key);
 							setSelectedVersionPublicId(entry.version.public_id);
 						}}
+						onRestore={setRestoreTarget}
 					/>
 				) : null}
 			</div>
@@ -561,6 +600,49 @@ export function FilePreviewDrawer({
 					onAddToConversation={() => stageSelectionDraft()}
 				/>
 			) : null}
+			{restoreTarget ? (
+				<div className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 px-8">
+					<div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+						<div className="flex items-start justify-between gap-4">
+							<div>
+								<h3 className="text-base font-semibold text-[var(--leros-text-strong)]">
+									恢复此版本
+								</h3>
+								<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
+									恢复后，将基于该历史版本的内容生成一个新版本，并设为当前版本。当前版本及其他历史版本均会保留。
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => setRestoreTarget(null)}
+								className="rounded-lg p-1.5 text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
+								disabled={restoring}
+							>
+								<X className="size-4" />
+							</button>
+						</div>
+						<div className="mt-5 flex justify-end gap-2">
+							<button
+								type="button"
+								onClick={() => setRestoreTarget(null)}
+								className="rounded-lg px-4 py-2 text-sm text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
+								disabled={restoring}
+							>
+								取消
+							</button>
+							<button
+								type="button"
+								onClick={() => void handleRestoreVersion()}
+								className="inline-flex items-center gap-2 rounded-lg bg-[var(--leros-text-strong)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+								disabled={restoring}
+							>
+								{restoring ? <LoaderCircle className="size-4 animate-spin" /> : null}
+								确认恢复
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -572,6 +654,7 @@ function FileVersionPanel({
 	loading,
 	error,
 	onSelect,
+	onRestore,
 }: {
 	currentPublicId: string;
 	selectedVersionKey: string;
@@ -579,6 +662,7 @@ function FileVersionPanel({
 	loading: boolean;
 	error: string | null;
 	onSelect: (entry: ReturnType<typeof buildProjectFileVersionEntries>[number]) => void;
+	onRestore: (version: BackendProjectFileVersion) => void;
 }) {
 	const entries = buildProjectFileVersionEntries(versions);
 	const currentEntry = getCurrentProjectFileVersionEntry(entries, currentPublicId);
@@ -609,12 +693,12 @@ function FileVersionPanel({
 							const isCurrent = entry.key === currentEntry?.key;
 							const isSelected = entry.key === selectedVersionKey;
 							return (
-								<div key={entry.key}>
+								<div key={entry.key} className="relative">
 									<button
 										type="button"
 										onClick={() => onSelect(entry)}
 										className={cn(
-											"w-full cursor-pointer rounded-md px-2.5 py-1.5 text-left transition-colors",
+											"w-full cursor-pointer rounded-md px-2.5 py-1.5 pr-8 text-left transition-colors",
 											isSelected
 												? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]"
 												: "hover:bg-[var(--leros-surface-soft)]",
@@ -632,6 +716,16 @@ function FileVersionPanel({
 											) : null}
 										</span>
 									</button>
+									{!isCurrent ? (
+										<button
+											type="button"
+											onClick={() => onRestore(version)}
+											className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--leros-text-muted)] hover:bg-white hover:text-[var(--leros-primary)]"
+											title="恢复"
+										>
+											<RotateCcw className="size-3" />
+										</button>
+									) : null}
 								</div>
 							);
 						})}

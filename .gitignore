@@ -68,3 +68,4 @@ deployments/dev/server.config.yaml
 deployments/dev/worker.config.yaml
 deployments/helm/leros/values.yaml
 .opencode
+backend/leros

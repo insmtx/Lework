@@ -52,7 +52,7 @@ func (h *FeedbackHandler) SubmitFeedback(ctx *gin.Context) {
 
 	result, err := h.service.SubmitFeedback(ctx, &service.SubmitFeedbackRequest{
 		OrgID:         caller.OrgID,
-		UserID:        caller.Uin,
+		Uin:           caller.Uin,
 		Type:          strings.TrimSpace(req.Type),
 		Content:       strings.TrimSpace(req.Content),
 		AttachmentIDs: req.AttachmentIDs,

@@ -40,10 +40,7 @@ function resolveAssistantProfile(
 	const publicId = token.id?.trim();
 	if (publicId) {
 		const matchedAssistant = assistants.find(
-			(assistant) =>
-				assistant.publicId === publicId ||
-				String(assistant.id) === publicId ||
-				assistant.code === publicId,
+			(assistant) => assistant.publicId === publicId || String(assistant.id) === publicId,
 		);
 		if (matchedAssistant) {
 			return {

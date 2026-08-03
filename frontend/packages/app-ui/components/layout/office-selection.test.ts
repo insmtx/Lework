@@ -95,6 +95,7 @@ describe("office text layer", () => {
 					h: 24,
 					fontSize: 16,
 					font: "16px Arial",
+					letterSpacingPx: 4,
 				},
 			],
 		});
@@ -106,6 +107,31 @@ describe("office text layer", () => {
 		expect(span?.dataset.officeRunIndex).toBe("0");
 		expect(span?.style.left).toBe("40px");
 		expect(span?.style.top).toBe("60px");
+		expect(span?.style.width).toBe("760px");
+		expect(span?.style.height).toBe("24px");
+		expect(span?.style.letterSpacing).toBe("4px");
+	});
+
+	it("extends only the rightmost DOCX run on each line to the page edge", () => {
+		const canvas = document.createElement("canvas");
+		canvas.style.width = "800px";
+		canvas.style.height = "1000px";
+		const layer = document.createElement("div");
+
+		buildOfficeTextLayer({
+			canvas,
+			format: "docx",
+			surfaceIndex: 1,
+			textLayer: layer,
+			runs: [
+				createDocxRun({ text: "First", x: 40, y: 60, w: 120 }),
+				createDocxRun({ text: "Last", x: 200, y: 60, w: 100 }),
+				createDocxRun({ text: "Next line", x: 40, y: 100, w: 120 }),
+			],
+		});
+
+		const spans = layer.querySelectorAll("span");
+		expect(Array.from(spans, (span) => span.style.width)).toEqual(["120px", "600px", "760px"]);
 	});
 
 	it("groups PPTX runs into a rotated shape", () => {
@@ -143,9 +169,23 @@ describe("office text layer", () => {
 		expect(shape?.style.transform).toBe("rotate(120deg)");
 		expect(span?.style.left).toBe("10px");
 		expect(span?.style.top).toBe("20px");
+		expect(span?.style.width).toBe("80px");
+		expect(span?.style.height).toBe("24px");
 		expect(span?.dataset.officeSurfaceIndex).toBe("3");
 	});
 });
+
+function createDocxRun({ text, x, y, w }: { text: string; x: number; y: number; w: number }) {
+	return {
+		text,
+		x,
+		y,
+		w,
+		h: 24,
+		fontSize: 16,
+		font: "16px Arial",
+	};
+}
 
 describe("xlsx selection", () => {
 	it("normalizes row selections against the used sheet range", () => {

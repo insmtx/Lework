@@ -19,7 +19,7 @@ const (
 func ProjectRunEvent(runEvent messaging.RunEvent) (*contract.SessionEvent, bool) {
 	event := &contract.SessionEvent{
 		SessionID:   runEvent.Route.SessionID,
-		AssistantID: runEvent.Route.AssistantID,
+		AssistantID: runEvent.Route.AssistantPublicID,
 		Sequence:    runEvent.Body.Seq,
 		Timestamp:   runEvent.CreatedAt.UnixMilli(),
 	}
@@ -157,8 +157,8 @@ func runEventFromRecord(
 		Type:      messaging.MessageTypeRunEvent,
 		CreatedAt: time.UnixMilli(chunk.Timestamp).UTC(),
 		Route: messaging.RouteContext{
-			SessionID:   sessionID,
-			AssistantID: chunk.AssistantID,
+			SessionID:         sessionID,
+			AssistantPublicID: chunk.AssistantID,
 		},
 		Body: messaging.RunEventBody{
 			Seq:   chunk.Seq,

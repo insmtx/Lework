@@ -45,13 +45,6 @@ func doGetRaw(ctx context.Context, serverAddr, authToken, fullURL string) ([]byt
 	return io.ReadAll(io.LimitReader(resp.Body, 100_000_000))
 }
 
-// DownloadSkillCache fetches a skill cache zip from the server's download endpoint.
-func DownloadSkillCache(ctx context.Context, serverAddr, authToken, skillID, source, version string) ([]byte, error) {
-	baseURL := fmt.Sprintf("http://%s/v1/skill-marketplace/skills/%s/download", serverAddr, url.PathEscape(skillID))
-	reqURL := fmt.Sprintf("%s?source=%s&version=%s", baseURL, url.QueryEscape(source), url.QueryEscape(version))
-	return doGetRaw(ctx, serverAddr, authToken, reqURL)
-}
-
 // GetStorageConfig fetches the storage configuration from the server.
 func GetStorageConfig(ctx context.Context, serverAddr, authToken string) (*StorageConfig, error) {
 	client := &http.Client{Timeout: defaultHTTPTimeout}

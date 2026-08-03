@@ -1,6 +1,12 @@
 "use client";
 
-import { type OrgInfo, orgAdminApi, projectFileApi, useAuthStore } from "@leros/store";
+import {
+	getNativeFileInputAccept,
+	type OrgInfo,
+	orgAdminApi,
+	projectFileApi,
+	useAuthStore,
+} from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
 import { Camera, Loader2 } from "lucide-react";
@@ -10,7 +16,8 @@ import { ORGANIZATION_DEFAULT_AVATAR_SRC } from "../../assets";
 import { ProtectedImage } from "../avatar/ProtectedImage";
 
 function isImageFile(file: File): boolean {
-	return file.type.startsWith("image/");
+	if (file.type.startsWith("image/")) return true;
+	return /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(file.name);
 }
 
 function revokeObjectURLSafe(url?: string) {
@@ -252,7 +259,7 @@ export function OrgProfilePanel({
 							<input
 								ref={fileInputRef}
 								type="file"
-								accept="image/jpeg,image/jpg,image/png,image/webp"
+								accept={getNativeFileInputAccept("image/jpeg,image/jpg,image/png,image/webp")}
 								className="hidden"
 								onChange={(event) => {
 									void handleLogoChange(event);

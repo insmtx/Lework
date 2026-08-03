@@ -10,6 +10,57 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+// RefreshTokenCond 刷新令牌查询条件。
+type RefreshTokenCond struct {
+	*BaseCond
+	TokenHash string
+}
+
+// BuildCondition 将 RefreshTokenCond 转换为 GORM 查询条件。
+func (c *RefreshTokenCond) BuildCondition(db *gorm.DB, tableName string) *gorm.DB {
+	if c.BaseCond != nil {
+		db = c.BaseCond.BuildCondition(db, tableName)
+	}
+	if c.TokenHash != "" {
+		db = db.Where(tableName+".token_hash = ?", c.TokenHash)
+	}
+	return db
+}
+
+// LoginAttemptCond 登录尝试查询条件。
+type LoginAttemptCond struct {
+	*BaseCond
+	Identifier string
+}
+
+// BuildCondition 将 LoginAttemptCond 转换为 GORM 查询条件。
+func (c *LoginAttemptCond) BuildCondition(db *gorm.DB, tableName string) *gorm.DB {
+	if c.BaseCond != nil {
+		db = c.BaseCond.BuildCondition(db, tableName)
+	}
+	if c.Identifier != "" {
+		db = db.Where(tableName+".identifier = ?", c.Identifier)
+	}
+	return db
+}
+
+// PhoneCodeCond 手机验证码查询条件。
+type PhoneCodeCond struct {
+	*BaseCond
+	Phone string
+}
+
+// BuildCondition 将 PhoneCodeCond 转换为 GORM 查询条件。
+func (c *PhoneCodeCond) BuildCondition(db *gorm.DB, tableName string) *gorm.DB {
+	if c.BaseCond != nil {
+		db = c.BaseCond.BuildCondition(db, tableName)
+	}
+	if c.Phone != "" {
+		db = db.Where(tableName+".phone = ?", c.Phone)
+	}
+	return db
+}
+
 func CreateAuthRefreshToken(ctx context.Context, d *gorm.DB, token *types.AuthRefreshToken) error {
 	return d.WithContext(ctx).Create(token).Error
 }

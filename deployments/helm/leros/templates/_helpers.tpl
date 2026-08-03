@@ -174,3 +174,24 @@ Server baseUrl：留空自动用集群内部 Service 地址。
 {{- define "leros.serverBaseUrl" -}}
 {{- if .Values.server.baseUrl }}{{ .Values.server.baseUrl }}{{- else }}{{ printf "http://%s:%s" (include "leros.serverServiceName" .) (.Values.server.service.port | toString) }}{{- end -}}
 {{- end -}}
+
+{{/*
+IngressClassName 自动计算：用户无需对齐 traefik.ingressClass.name 与 ingress.className。
+优先级：用户显式设置 ingress.className > 自动跟随：
+  - traefik.enabled=true  → 用 traefik.ingressClass.name（默认 leros-traefik）
+  - traefik.enabled=false → traefik（复用 k3s 自带）
+用户仍可显式覆盖（如 nginx 集群）。
+*/}}
+{{- define "leros.ingressClassName" -}}
+{{- if .Values.ingress.className -}}{{- .Values.ingress.className -}}{{- else if .Values.traefik.enabled -}}{{- (get (.Values.traefik.ingressClass | default dict) "name") | default "leros-traefik" -}}{{- else -}}{{- "traefik" -}}{{- end -}}
+{{- end -}}
+
+{{/*
+节点选择器回退：组件级 nodeSelector 优先，为空则用顶层 nodeSelector。
+用法：{{ include "leros.nodeSelector" (dict "root" . "selector" .Values.postgresql.nodeSelector) }}
+让用户只需在顶层 nodeSelector 填一处，postgresql/nats/server/worker 全部跟随。
+*/}}
+{{- define "leros.nodeSelector" -}}
+{{- $sel := .selector | default dict -}}
+{{- if $sel -}}{{- toYaml $sel -}}{{- else -}}{{- toYaml (.root.Values.nodeSelector | default dict) -}}{{- end -}}
+{{- end -}}

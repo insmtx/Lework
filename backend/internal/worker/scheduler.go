@@ -21,6 +21,7 @@ type WorkerScheduler interface {
 	Stop(ctx context.Context, workerID string) error
 	Health(ctx context.Context, workerID string) error
 	List(ctx context.Context) ([]*WorkerInstance, error)
+	Shutdown(ctx context.Context) error
 }
 
 // WorkerSpecReconciler reports whether an existing runtime worker diverges from

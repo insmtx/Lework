@@ -40,7 +40,7 @@ import (
 //
 // 根据配置初始化并注册 GitHub、GitLab 等渠道连接器，
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
-func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) *gin.Engine {
+func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) (*gin.Engine, worker.WorkerScheduler) {
 	r := gin.New()
 
 	// ── 全局中间件（必须在 r.Group / RegisterRoutes 之前挂载）────────────────────
@@ -84,10 +84,14 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	r.Use(middleware.CallerMiddleware(tokenParser, db))
 	r.Use(middleware.ResponseRequestID())
 	r.Use(middleware.ClientUpdateMiddleware(cfg.ClientUpdate))
-	r.Use(middleware.Logger(".Ping", "metrics"))
+	r.Use(middleware.Logger(".Ping", "metrics", "/plugins/mcp/oauth/:platform_code/callback"))
 	r.Use(ygmiddleware.Recovery())
 
 	v1 := r.Group("/v1")
+	pluginService := service.NewPluginServiceWithAPIKeyIssuer(
+		db,
+		edition.APIKeyIssuer(),
+	)
 
 	// Worker server routes 注册公开管理端点；放在全局中间件之后以继承 CORS/Logger/Recovery。
 	workerManager := workerserver.NewServer(workerScheduler)
@@ -96,6 +100,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 	// ── 公开路由（无需 org 认证）──────────────────────────────────────────────────
 	{
+		handler.RegisterPluginOAuthCallbackRoutes(v1, pluginService)
+		logs.Info("Plugin OAuth callback routes registered successfully")
+
 		websocket.RegisterWebSocketRoutes(v1, eventbus)
 		logs.Info("WebSocket connector registered successfully")
 
@@ -111,7 +118,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterFrontendEventRoutes(v1)
 		logs.Info("Frontend event routes registered successfully")
 
-		handler.RegisterGlobalRoutes(v1, edition)
+		handler.RegisterGlobalRoutes(v1, edition, &cfg)
 		logs.Info("Global routes registered successfully")
 	}
 
@@ -174,13 +181,11 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterUserRoutes(authed, userService)
 		logs.Info("User routes registered successfully")
 
-		skillMarketplaceService := service.NewSkillMarketplaceServiceWithTranslator(db, eventbus, inferrer, service.NewDefaultSkillDescriptionTranslator(db, modelInvoker), filestore.GetStorage(), filestore.DefaultBucket())
-		handler.RegisterSkillMarketplaceRoutes(authed, skillMarketplaceService)
-		logs.Info("Skill marketplace routes registered successfully")
-
-		skillService := service.NewSkillService(db, eventbus, inferrer, modelInvoker)
-		handler.RegisterSkillRoutes(authed, skillService)
-		logs.Info("Skill management routes registered successfully")
+		handler.RegisterPluginRoutes(authed, pluginService)
+		logs.Info("Plugin repository routes registered successfully")
+		officialPluginMarketplaceService := service.NewOfficialPluginMarketplaceService(db)
+		handler.RegisterOfficialPluginMarketplaceRoutes(authed, officialPluginMarketplaceService)
+		logs.Info("Official plugin marketplace routes registered successfully")
 
 		feedbackService := service.NewFeedbackService(db, fileService, cfg.Feishu, modelInvoker, userRepo)
 		handler.RegisterFeedbackRoutes(v1, feedbackService)
@@ -195,6 +200,8 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 			// Stream projector records the stream lane start seq for SSE replay.
 			go runnable.StartSessionRunStreamProjector(context.Background(), sessionService, eventbus)
 			logs.Info("Session run stream projector started")
+			go service.StartSkillPackageUploadedConsumer(context.Background(), db, eventbus)
+			logs.Info("Skill package uploaded consumer started")
 		} else {
 			logs.Info("Session event consumers disabled by config")
 		}
@@ -219,7 +226,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 	// Swagger UI 路由
 	v1.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	return r
+	return r, workerScheduler
 }
 
 // llmUsageSubscriberAdapter 将 eventbus.Subscriber 适配为 llm.UsageSubscriber。

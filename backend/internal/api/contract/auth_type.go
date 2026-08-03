@@ -6,8 +6,8 @@ type RegisterByEmailRequest struct {
 	account.RegisterByEmailInput
 }
 
-type LoginByEmailRequest struct {
-	account.LoginByEmailInput
+type LoginByPasswordRequest struct {
+	account.LoginByPasswordInput
 }
 
 type SendPhoneLoginCodeRequest struct {

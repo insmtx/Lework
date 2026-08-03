@@ -11,6 +11,7 @@ type AuthRefreshToken struct {
 	gorm.Model
 	TokenHash string     `gorm:"column:token_hash;type:varchar(64);uniqueIndex;not null"`
 	Uin       uint       `gorm:"column:uin;type:bigint;index;not null;default:0"`
+	LoginWay  int        `gorm:"column:login_way;type:int;not null;default:0"`
 	ExpiresAt time.Time  `gorm:"column:expires_at;index;not null"`
 	RevokedAt *time.Time `gorm:"column:revoked_at;index"`
 }

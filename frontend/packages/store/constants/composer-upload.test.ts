@@ -2,12 +2,25 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildComposerFolderUploadSummaryMessage,
+	COMPOSER_UPLOAD_ACCEPT,
+	getComposerUploadAccept,
+	getNativeFileInputAccept,
 	getUploadFileExtension,
 	isComposerUploadAllowedFileName,
 	partitionComposerFolderFiles,
 } from "./composer-upload";
 
 describe("composer-upload", () => {
+	it("disables the native extension filter on Linux", () => {
+		expect(getComposerUploadAccept("Linux x86_64")).toBeUndefined();
+		expect(getComposerUploadAccept("linux")).toBeUndefined();
+		expect(getComposerUploadAccept("MacIntel")).toBe(COMPOSER_UPLOAD_ACCEPT);
+		expect(getComposerUploadAccept("Win32")).toBe(COMPOSER_UPLOAD_ACCEPT);
+		expect(getNativeFileInputAccept("image/*", "Linux x86_64")).toBeUndefined();
+		expect(getNativeFileInputAccept(".zip,.md", "linux")).toBeUndefined();
+		expect(getNativeFileInputAccept("image/*", "MacIntel")).toBe("image/*");
+	});
+
 	it("accepts allowed extensions", () => {
 		expect(isComposerUploadAllowedFileName("report.pdf")).toBe(true);
 		expect(isComposerUploadAllowedFileName("notes.docx")).toBe(true);

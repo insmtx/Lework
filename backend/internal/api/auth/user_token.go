@@ -10,8 +10,11 @@ import (
 )
 
 const (
-	UserTokenIssuer   = "leros"
+	UserTokenIssuer   = "lework"
 	UserTokenAudience = "user"
+
+	LoginWayPassword = 1
+	LoginWayPhone    = 2
 )
 
 var (
@@ -20,9 +23,31 @@ var (
 )
 
 // UserClaims carries the active organization identity for a signed-in user.
+// JSON keys use short names matching the IAM token format.
 type UserClaims struct {
-	Uin uint `json:"uin"`
-	jwt.StandardClaims
+	Uin       uint   `json:"c,omitempty"`
+	IssuedAt  int64  `json:"t,omitempty"`
+	ExpiresAt int64  `json:"e,omitempty"`
+	Issuer    string `json:"i,omitempty"`
+	Audience  string `json:"a,omitempty"`
+	LoginWay  int    `json:"l,omitempty"`
+}
+
+func (c UserClaims) Valid() error {
+	vErr := new(jwt.ValidationError)
+	now := jwt.TimeFunc().Unix()
+	if c.IssuedAt > now {
+		vErr.Inner = fmt.Errorf("token used before issued")
+		vErr.Errors |= jwt.ValidationErrorIssuedAt
+	}
+	if c.ExpiresAt < now {
+		vErr.Inner = fmt.Errorf("token is expired")
+		vErr.Errors |= jwt.ValidationErrorExpired
+	}
+	if vErr.Errors == 0 {
+		return nil
+	}
+	return vErr
 }
 
 // GenerateUserToken creates an access token bound to a user's active organization.
@@ -40,15 +65,12 @@ func GenerateUserToken(claims UserClaims, secret string, ttl time.Duration) (str
 
 	now := time.Now()
 	expiresAt := now.Add(ttl).Unix()
-	claims.StandardClaims = jwt.StandardClaims{
-		Subject:   fmt.Sprintf("user:uin:%d", claims.Uin),
-		Issuer:    UserTokenIssuer,
-		Audience:  UserTokenAudience,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: expiresAt,
-	}
+	claims.IssuedAt = now.Unix()
+	claims.ExpiresAt = expiresAt
+	claims.Issuer = UserTokenIssuer
+	claims.Audience = UserTokenAudience
 
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &claims).SignedString([]byte(secret))
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
 	if err != nil {
 		return "", 0, fmt.Errorf("generate user token: %w", err)
 	}

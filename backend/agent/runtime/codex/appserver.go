@@ -13,6 +13,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -46,7 +47,7 @@ type AppServer struct {
 // ============================================================================
 
 func startAppServer(ctx context.Context, binary, workDir string, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, taskDir string) (*AppServer, error) {
-	codexHome := filepath.Join(taskDir, ".codex")
+	codexHome := codexHomeDir(taskDir, workDir)
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		return nil, fmt.Errorf("create codex-home dir: %w", err)
 	}
@@ -140,6 +141,10 @@ func startAppServer(ctx context.Context, binary, workDir string, baseEnv []strin
 	}()
 
 	return srv, nil
+}
+
+func codexHomeDir(taskDir, workDir string) string {
+	return cli.TaskRuntimeRoot(taskDir, workDir)
 }
 
 // ============================================================================
@@ -300,6 +305,9 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 			// HTTP 传输，通过 npx mcp-remote 转为 stdio
 			b.WriteString("command = \"npx\"\n")
 			args := []string{"-y", "mcp-remote", m.URL}
+			if strings.EqualFold(m.Transport, "sse") {
+				args = append(args, "--transport", "sse-only")
+			}
 			if m.BearerToken != "" {
 				args = append(args, "--header", fmt.Sprintf("Authorization: Bearer ${%s}", tokenEnvVar))
 			}
@@ -315,7 +323,7 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 	}
 
 	configPath := filepath.Join(codexHome, "config.toml")
-	if err := os.WriteFile(configPath, []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(b.String()), 0o600); err != nil {
 		return fmt.Errorf("write config.toml: %w", err)
 	}
 	logs.Infof("Codex config.toml written: %s", configPath)
@@ -327,7 +335,7 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 // ============================================================================
 
 func buildAppServerEnv(baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, codexHome string) []string {
-	env := runtimeprocess.BuildBaseEnv(nil)
+	env := runtimeprocess.BuildRunEnv(baseEnv, nil, nil)
 	env = append(env, "CODEX_QUIET_MODE=1")
 	env = append(env, "CODEX_HOME="+codexHome)
 	modelEnv := appServerModelEnv(modelCfg)

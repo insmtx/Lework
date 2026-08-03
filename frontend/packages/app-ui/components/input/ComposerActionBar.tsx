@@ -1,6 +1,6 @@
 "use client";
 
-import { type SkillInstalledItem, useSkillStore } from "@leros/store";
+import type { PluginComposerOption } from "@leros/store";
 import {
 	Command,
 	CommandEmpty,
@@ -25,11 +25,7 @@ import {
 import { type ReactNode, type RefObject, useMemo, useState } from "react";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
-import type {
-	ComposerAssistantOption,
-	ComposerSkillOption,
-	StructuredComposerHandle,
-} from "./StructuredComposer";
+import type { ComposerAssistantOption, StructuredComposerHandle } from "./StructuredComposer";
 
 type ComposerActionBarProps = {
 	inputValue: string;
@@ -40,19 +36,13 @@ type ComposerActionBarProps = {
 	children?: ReactNode;
 	className?: string;
 	assistantOptions?: ComposerAssistantOption[];
-	projectSkillOptions?: ComposerSkillOption[];
+	skillOptions?: PluginComposerOption[];
+	skillsLoading?: boolean;
 	disableAssistantAndSkill?: boolean;
 	assistantSelectionMode?: "single" | "multiple";
 	executionMode?: "default" | "plan";
 	setExecutionMode?: (mode: "default" | "plan") => void;
 	isGenerating?: boolean;
-};
-
-type SkillOption = {
-	code: string;
-	label: string;
-	description: string;
-	keywords: string[];
 };
 
 function dedupeValues(values: string[]): string[] {
@@ -71,23 +61,6 @@ function parseSelectedSlashLabels(value: string): string[] {
 	);
 }
 
-function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
-	const label = skill.display_name || skill.name;
-	return {
-		code: skill.name,
-		label,
-		description: skill.description || skill.category || "已安装技能",
-		keywords: [
-			label,
-			skill.name,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter(Boolean),
-	};
-}
-
 export function ComposerActionBar({
 	inputValue,
 	composerRef,
@@ -97,36 +70,28 @@ export function ComposerActionBar({
 	children,
 	className,
 	assistantOptions = [],
-	projectSkillOptions,
+	skillOptions = [],
+	skillsLoading,
 	disableAssistantAndSkill = false,
 	assistantSelectionMode = "multiple",
 	executionMode,
 	setExecutionMode,
 	isGenerating,
 }: ComposerActionBarProps) {
-	const { installedSkills, installedSkillsLoaded } = useSkillStore((s) => s);
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [assistantSearch, setAssistantSearch] = useState("");
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
 	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
-
-	const skillOptions = useMemo<SkillOption[]>(() => {
-		if (projectSkillOptions) return projectSkillOptions;
-		return installedSkills.map(installedSkillToOption);
-	}, [installedSkills, projectSkillOptions]);
-	const skillsLoading = skillOpen && !projectSkillOptions && !installedSkillsLoaded;
+	const derivedSkillsLoading = skillOpen && skillsLoading;
 
 	const selectedAssistantNames = useMemo(
 		() => parseSelectedAssistantNames(inputValue),
 		[inputValue],
 	);
 	const selectedSlashLabels = useMemo(() => parseSelectedSlashLabels(inputValue), [inputValue]);
-	const selectedSkillLabels = useMemo(
-		() =>
-			selectedSlashLabels.filter((label) =>
-				skillOptions.some((option) => option.label === label || option.code === label),
-			),
+	const selectedSkillCodes = useMemo(
+		() => selectedSlashLabels.filter((code) => skillOptions.some((option) => option.code === code)),
 		[selectedSlashLabels, skillOptions],
 	);
 	const filteredAssistants = useMemo(() => {
@@ -139,7 +104,7 @@ export function ComposerActionBar({
 				return false;
 			}
 			if (!query) return true;
-			return [assistant.name, assistant.roleName, assistant.code, assistant.description]
+			return [assistant.name, assistant.roleName, assistant.id, assistant.description]
 				.join(" ")
 				.toLowerCase()
 				.includes(query);
@@ -148,12 +113,11 @@ export function ComposerActionBar({
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
 		return skillOptions.filter((skill) => {
-			if (selectedSkillLabels.includes(skill.label)) return false;
+			if (selectedSkillCodes.includes(skill.code)) return false;
 			if (!query) return true;
-			// 中文注释：技能搜索只按名称/code 匹配，描述和标签不参与搜索，避免弱相关结果排在前面。
-			return [skill.label, skill.code].join(" ").toLowerCase().includes(query);
+			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
-	}, [selectedSkillLabels, skillOptions, skillSearch]);
+	}, [selectedSkillCodes, skillOptions, skillSearch]);
 
 	const allowAction = () => (onBeforeAction ? onBeforeAction() : true);
 	const assistantSkillButtonClassName = cn(
@@ -297,8 +261,8 @@ export function ComposerActionBar({
 								{filteredAssistants.map((assistant) => (
 									<CommandItem
 										// 中文注释：CommandItem 的 value 同时承担活动项标识；不能使用可能重复的名称。
-										key={String(assistant.id)}
-										value={`assistant:${String(assistant.id)}`}
+										key={assistant.id}
+										value={`assistant:${assistant.id}`}
 										onSelect={() => {
 											composerRef.current?.insertAssistant(assistant.name);
 											setAssistantOpen(false);
@@ -371,7 +335,7 @@ export function ComposerActionBar({
 						<CommandList className="max-h-64 px-1">
 							<CommandEmpty className="py-6 text-slate-400">没有可继续添加的技能</CommandEmpty>
 							<CommandGroup className="p-0">
-								{skillsLoading && (
+								{derivedSkillsLoading && (
 									<div className="px-2 py-1.5 text-xs text-slate-400">技能加载中...</div>
 								)}
 								{filteredSkills.map((skill) => (
@@ -379,7 +343,7 @@ export function ComposerActionBar({
 										key={skill.code}
 										value={skill.label}
 										onSelect={() => {
-											composerRef.current?.insertSkill(skill.label);
+											composerRef.current?.insertSkill(skill.code);
 										}}
 										className="rounded-lg px-2 py-1.5"
 									>
@@ -387,8 +351,15 @@ export function ComposerActionBar({
 											<Sparkles className="size-3.5" />
 										</div>
 										<div className="min-w-0 flex-1">
-											<div className="truncate font-medium">
-												{renderHighlightedText(skill.label, skillSearch)}
+											<div className="flex items-center gap-1.5 truncate font-medium">
+												<span className="truncate">
+													{renderHighlightedText(skill.label, skillSearch)}
+												</span>
+												{(skill.source === "builtin" || skill.origin === "builtin_worker") && (
+													<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+														系统
+													</span>
+												)}
 											</div>
 											<div className="truncate text-xs text-slate-400">{skill.description}</div>
 										</div>

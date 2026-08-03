@@ -29,6 +29,9 @@ jobs:
           - name: win-x64
             os: windows-latest
             command: dist:desktop:win:x64
+          - name: linux-x64
+            os: ubuntu-latest
+            command: dist:desktop:linux:x64
 
     steps:
       - name: Checkout repository
@@ -195,6 +198,11 @@ jobs:
               cp frontend/apps/desktop/dist/*.exe "$release_dir"/
               cp frontend/apps/desktop/dist/*.blockmap "$release_dir"/
               cp frontend/apps/desktop/dist/latest.yml "$release_dir"/
+              ;;
+            linux-*)
+              cp frontend/apps/desktop/dist/*.AppImage "$release_dir"/
+              cp frontend/apps/desktop/dist/*.deb "$release_dir"/
+              cp frontend/apps/desktop/dist/latest-linux.yml "$release_dir"/
               ;;
             *)
               echo "::error::Unsupported build matrix target: ${{ matrix.name }}"

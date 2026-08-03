@@ -116,7 +116,7 @@ func (*handlerPublisher) Request(context.Context, string, any) (*nats.Msg, error
 type handlerPreparer struct{}
 
 func (handlerPreparer) Prepare(_ context.Context, req *agentrundomain.RunRequest) (*agentrun.PreparedRun, func(), error) {
-	return &agentrun.PreparedRun{Request: req, Execution: agent.ExecutionRequest{ExecutionID: req.RunID, TraceID: req.TraceID, Runtime: "test"}}, nil, nil
+	return &agentrun.PreparedRun{Request: req, Execution: agent.ExecutionRequest{ExecutionID: req.RunID, TraceID: req.TraceID, Runtime: "test"}}, func() {}, nil
 }
 
 type handlerFinalizer struct{}
@@ -254,7 +254,7 @@ func standardCommand() messaging.WorkerCommand {
 		messaging.TraceContext{TraceID: "trace-1", TaskID: "task-1", RunID: "run-1"},
 		messaging.RunCommandPayload{
 			TaskType:  messaging.TaskTypeAgentRun,
-			Execution: messaging.ExecutionTarget{AssistantID: "assistant-1"},
+			Execution: messaging.ExecutionTarget{AssistantPublicID: "assistant-1"},
 			Input:     messaging.TaskInput{Type: messaging.InputTypeMessage, Messages: []messaging.ChatMessage{{ID: "user-1", Role: messaging.MessageRoleUser, Content: "hello"}}},
 			Model:     messaging.ModelOptions{Provider: "openai", Model: "test", APIKey: "key"},
 			Runtime:   messaging.RuntimeOptions{Kind: "test"},
@@ -507,7 +507,7 @@ func TestHandlerStopAdmissionBlocksNewSubmissions(t *testing.T) {
 	// Next submission should get NakWithDelay because admission is closed.
 	cmd := messaging.NewRunCommand("msg-2", messaging.RouteContext{OrgID: 1, WorkerID: 2, SessionID: "session-2"},
 		messaging.TraceContext{TraceID: "t2", TaskID: "task-2", RunID: "run-2"},
-		messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}, Runtime: messaging.RuntimeOptions{Kind: "test"}, Input: messaging.TaskInput{Type: messaging.InputTypeMessage, Messages: []messaging.ChatMessage{{ID: "u2", Role: messaging.MessageRoleUser, Content: "hi"}}}, Execution: messaging.ExecutionTarget{AssistantID: "a1"}}, nil)
+		messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}, Runtime: messaging.RuntimeOptions{Kind: "test"}, Input: messaging.TaskInput{Type: messaging.InputTypeMessage, Messages: []messaging.ChatMessage{{ID: "u2", Role: messaging.MessageRoleUser, Content: "hi"}}}, Execution: messaging.ExecutionTarget{AssistantPublicID: "a1"}}, nil)
 	d2 := newFakeDelivery(51)
 	h.HandleRunCommand(context.Background(), cmd, d2)
 	if _, nak, _, _ := d2.snapshot(); !nak {

@@ -9,7 +9,6 @@ import "gorm.io/gorm"
 type UserOrg struct {
 	gorm.Model
 	ExternalUin uint `gorm:"column:external_uin;index"`                                                 // identity-platform UIN.ID
-	Uin         uint `gorm:"column:uin;type:bigint;uniqueIndex;not null"`                               // 关联ID，JWT中的Uin
 	UserID      uint `gorm:"column:user_id;type:bigint;index;not null;uniqueIndex:uni_user_org_member"` // 用户ID
 	OrgID       uint `gorm:"column:org_id;type:bigint;index;not null;uniqueIndex:uni_user_org_member"`  // 组织ID
 	IsDefault   bool `gorm:"column:is_default;type:boolean;default:false"`                              // 是否为默认组织

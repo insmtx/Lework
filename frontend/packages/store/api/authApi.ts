@@ -8,10 +8,9 @@ export type RegisterByEmailParams = {
 	name?: string;
 };
 
-export type LoginByEmailParams = {
-	email: string;
+export type LoginByPasswordParams = {
+	account: string;
 	password: string;
-	org_id?: number;
 };
 
 export type SendPhoneLoginCodeParams = {
@@ -67,6 +66,7 @@ export type AuthUserInfo = {
 	phone?: string;
 	github_login?: string;
 	avatar_url?: string;
+	uin_name?: string;
 };
 
 export type AuthOrgInfo = {
@@ -100,7 +100,15 @@ export type AuthTokenResponse = {
 	organizations?: AuthOrgInfo[];
 };
 
-// 中文注释：切换组织接口只负责签发目标 UIN 的新 JWT，完整会话资料由 AuthSession 返回。
+// 中文注释：统一账号密码登录，account 支持邮箱或手机号，统一返回 refresh_token 不签发 JWT，需后续调用 ChooseUin 选择组织。
+export type LoginByPasswordResponse = {
+	login_status: string;
+	user_id: number;
+	refresh_token: string;
+	user_info: AuthUserInfo;
+	organizations?: AuthOrgInfo[];
+	login_way?: number;
+};
 export type SwitchOrganizationResponse = Pick<AuthTokenResponse, "login_status" | "jwt_token">;
 
 // 中文注释：手机号已验证但尚未选定组织时，仅持有刷新凭证，不能访问组织业务接口。
@@ -114,7 +122,7 @@ export type PendingOrganizationLoginResponse = {
 };
 
 const AUTH_ENDPOINTS = {
-	loginByEmail: "/LoginByEmail",
+	loginByPassword: "/LoginByPassword",
 	registerByEmail: "/RegisterByEmail",
 	sendPhoneLoginCode: "/SendPhoneLoginCode",
 	loginByPhoneCode: "/LoginByPhoneCode",
@@ -126,8 +134,11 @@ const AUTH_ENDPOINTS = {
 };
 
 export const authApi = {
-	loginByEmail: (params: LoginByEmailParams) =>
-		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.loginByEmail, params),
+	loginByPassword: (params: LoginByPasswordParams) =>
+		apiClient.post<BackendDataResponse<LoginByPasswordResponse>>(
+			AUTH_ENDPOINTS.loginByPassword,
+			params,
+		),
 
 	registerByEmail: (params: RegisterByEmailParams) =>
 		apiClient.post<BackendDataResponse<AuthTokenResponse>>(AUTH_ENDPOINTS.registerByEmail, params),

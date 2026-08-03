@@ -129,11 +129,19 @@ func writeMCPConfig(dir string, servers []agent.MCPServerConfig) (string, error)
 			}
 		} else if s.URL != "" {
 			entry["type"] = "http"
+			if strings.EqualFold(s.Transport, "sse") {
+				entry["type"] = "sse"
+			}
 			entry["url"] = s.URL
-			if s.BearerToken != "" {
-				entry["headers"] = map[string]string{
-					"Authorization": "Bearer " + s.BearerToken,
+			headers := cloneMCPHeaders(s.Headers)
+			if s.BearerToken != "" && !containsMCPHeader(headers, "authorization") {
+				if headers == nil {
+					headers = make(map[string]string)
 				}
+				headers["Authorization"] = "Bearer " + s.BearerToken
+			}
+			if len(headers) > 0 {
+				entry["headers"] = headers
 			}
 		}
 		mcpServers[name] = entry
@@ -151,6 +159,26 @@ func writeMCPConfig(dir string, servers []agent.MCPServerConfig) (string, error)
 		return "", err
 	}
 	return path, nil
+}
+
+func cloneMCPHeaders(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+
+func containsMCPHeader(headers map[string]string, target string) bool {
+	for key := range headers {
+		if strings.EqualFold(key, target) {
+			return true
+		}
+	}
+	return false
 }
 
 // ——— 通用工具 ———

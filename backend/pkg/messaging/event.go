@@ -106,8 +106,10 @@ type RunEventBody struct {
 	RunCompleted *RunCompletedPayload `json:"run_completed,omitempty"`
 	// Error 仅在 run.failed 时填充。
 	Error *RunEventError `json:"error,omitempty"`
-	// AssistantPKID is the DigitalAssistant primary key ID when this event is associated with an assistant.
+	// AssistantPKID 是 leros_digital_assistant.id（主键），用于 worker 侧持久化关联（如 llm_history）。
 	AssistantPKID uint `json:"assistant_pk_id,omitempty"`
+	// AssistantID 是 leros_digital_assistant.public_id，用于 server/UI 侧展示和 SSE 过滤。
+	AssistantID string `json:"assistant_id,omitempty"`
 }
 
 // RunEventPayload 携带流事件的特定内容。

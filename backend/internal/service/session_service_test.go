@@ -59,7 +59,6 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&types.FileUpload{},
 		&types.ProjectFile{},
 		&types.WorkerDeployment{},
-		&types.OrgSkillInstallation{},
 	); err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
 	}
@@ -86,7 +85,6 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err := db.Create(&types.UserOrg{
 		UserID: 1,
 		OrgID:  1,
-		Uin:    1,
 	}).Error; err != nil {
 		t.Fatalf("failed to seed test user org: %v", err)
 	}
@@ -1108,7 +1106,7 @@ func TestFailedSessionMessageStoresContentAndErrorMsgSeparately(t *testing.T) {
 		Status:      string(types.MessageStatusCancelled),
 		CreatedAt:   time.Now().UTC(),
 		RunID:       "run-abc-123",
-		AssistantID: 1,
+		AssistantID: "da_public_1",
 	})
 	if err != nil {
 		t.Fatalf("FailedSessionMessage failed: %v", err)
@@ -1610,13 +1608,15 @@ func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 	}
 
 	session := &types.Session{
-		PublicID:  "sess_hist",
-		Type:      types.SessionTypeTask,
-		Uin:       1,
-		OrgID:     1,
-		ProjectID: &proj.ID,
-		Status:    string(types.SessionStatusActive),
-		Title:     "history test",
+		PublicID:             "sess_hist",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          1,     // DigitalAssistant.ID (PK)，用于 publishWorkerTask 历史查询
+		AllocatedAssistantID: 10001, // 实为 WorkerID，与 AssistantID 错开暴露 Bug
+		ProjectID:            &proj.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "history test",
 	}
 	if err := db.CreateSession(ctx, database, session); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1644,6 +1644,7 @@ func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 		Sequence:    2,
 		SenderName:  "AI助手",
 		Timestamp:   time.Now().UnixMilli(),
+		AssistantID: 1, // 与 session.AssistantID 对齐，让 GetLastAssistantMessageCreatedAt 能查到
 	}
 	if err := db.CreateMessage(ctx, database, histAssistant); err != nil {
 		t.Fatalf("create history assistant message: %v", err)
@@ -1715,7 +1716,7 @@ func TestConvertToContractSessionMessageAlwaysIncludesNormalizedUsage(t *testing
 		},
 	}
 
-	converted := convertToContractSessionMessage(msg, "sess_1")
+	converted := convertToContractSessionMessage(msg, "sess_1", "assistant_pub_1")
 	if converted.Usage == nil {
 		t.Fatalf("expected usage object")
 	}
@@ -1724,7 +1725,7 @@ func TestConvertToContractSessionMessageAlwaysIncludesNormalizedUsage(t *testing
 		t.Fatalf("unexpected normalized usage: %#v", converted.Usage)
 	}
 
-	converted = convertToContractSessionMessage(&types.SessionMessage{}, "sess_1")
+	converted = convertToContractSessionMessage(&types.SessionMessage{}, "sess_1", "")
 	if converted.Usage == nil {
 		t.Fatalf("expected zero usage object")
 	}
@@ -2043,7 +2044,7 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 		RequestID:         "test-req",
 		StateStartSeq:     500,
 		RunID:             "run-abc-123",
-		AssistantID:       assistant.ID,
+		AssistantID:       assistant.PublicID,
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionRunStarted failed: %v", err)
@@ -2080,7 +2081,7 @@ func TestHandleSessionRunStartedPublishesAssistantReplyStarted(t *testing.T) {
 		t.Fatalf("assistant_name = %q, want %q", data.AssistantName, "Alpha")
 	}
 	if data.AssistantID == nil || *data.AssistantID != assistant.PublicID {
-		t.Fatalf("assistant_id = %v, want %d", data.AssistantID, assistant.ID)
+		t.Fatalf("assistant_id = %v, want %s", data.AssistantID, assistant.PublicID)
 	}
 }
 
@@ -2359,7 +2360,7 @@ func TestCreateInitialMessage_EmptySummonCreatesAssistantBoundSession(t *testing
 		t.Fatalf("message id = %q, want empty for empty summon", resp.MessageID)
 	}
 	if resp.AssistantID != assistant.PublicID {
-		t.Fatalf("response assistant id = %q, want %q", resp.AssistantID, assistant.PublicID)
+		t.Fatalf("response assistant_id = %q, want %q", resp.AssistantID, assistant.PublicID)
 	}
 
 	var session types.Session

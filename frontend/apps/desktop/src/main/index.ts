@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
-import { type DesktopPolicyDocument, desktopOpenPolicyPdfChannel } from "../shared/auto-update";
+import {
+	type DesktopPolicyDocument,
+	desktopOpenExternalChannel,
+	desktopOpenPolicyPdfChannel,
+} from "../shared/auto-update";
 import {
 	isAppQuitPrepared,
 	isAppQuitting,
@@ -10,10 +14,21 @@ import {
 	prepareWindowForHide,
 } from "./app-lifecycle";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
+import { shouldOpenExternalUrl } from "./external-navigation";
+import { configureTrayInteractions } from "./tray-interactions";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let mainWindowHideInProgress = false;
+// F9 不能作为系统修饰键，需自行跟踪按住状态，用于正式版开发者工具快捷键。
+let isF9HeldForDevTools = false;
+
+// 中文注释：银河麒麟/UKUI 主要通过 X11 WM_CLASS 将运行窗口关联到 .desktop 启动器。
+// 显式固定 class，避免不同 Electron/Chromium 版本使用产品名或可执行文件名导致匹配失败。
+if (process.platform === "linux") {
+	app.commandLine.appendSwitch("class", "leros-desktop");
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -71,11 +86,33 @@ function createWindow(): void {
 		return { action: "deny" };
 	});
 
+	mainWindow.webContents.on("will-navigate", (event, url) => {
+		const devRendererUrl = is.dev ? process.env.ELECTRON_RENDERER_URL : undefined;
+		if (!shouldOpenExternalUrl(url, devRendererUrl)) {
+			return;
+		}
+
+		event.preventDefault();
+		void shell.openExternal(url);
+	});
+
 	mainWindow.webContents.on("before-input-event", (event, input) => {
+		if (input.key === "F9") {
+			// F9 无焦点切换等默认副作用，按住时拦截，避免单独按下产生其它行为。
+			event.preventDefault();
+			isF9HeldForDevTools = input.type === "keyDown";
+			return;
+		}
+
+		// 正式版开发者工具：F9 + Ctrl + Alt + I（掺入功能键，避免纯 Ctrl/Alt/Shift 组合易冲突）。
 		const isDevToolsShortcut =
-			input.key.toLowerCase() === "d" &&
-			((process.platform === "darwin" && input.meta && input.shift) ||
-				(process.platform !== "darwin" && input.control && input.alt));
+			input.type === "keyDown" &&
+			input.key.toLowerCase() === "i" &&
+			isF9HeldForDevTools &&
+			input.control &&
+			input.alt &&
+			!input.shift &&
+			!input.meta;
 
 		if (!isDevToolsShortcut) return;
 
@@ -86,6 +123,10 @@ function createWindow(): void {
 		}
 	});
 
+	mainWindow.on("blur", () => {
+		isF9HeldForDevTools = false;
+	});
+
 	mainWindow.on("close", (event) => {
 		if (isAppQuitting()) return;
 
@@ -94,6 +135,7 @@ function createWindow(): void {
 	});
 
 	mainWindow.on("closed", () => {
+		isF9HeldForDevTools = false;
 		mainWindow = null;
 	});
 
@@ -152,14 +194,7 @@ function createTray(): void {
 
 	tray = new Tray(trayIcon);
 	tray.setToolTip("Lework");
-	tray.on("click", handleTrayClick);
-	tray.on("right-click", () => {
-		tray?.popUpContextMenu(buildTrayMenu());
-	});
-}
-
-function handleTrayClick(): void {
-	tray?.popUpContextMenu(buildTrayMenu());
+	configureTrayInteractions(tray, process.platform, buildTrayMenu, showMainWindow);
 }
 
 function buildTrayMenu(): Menu {
@@ -207,6 +242,15 @@ async function quitApp(): Promise<void> {
 ipcMain.handle(desktopOpenPolicyPdfChannel, async (_event, document: DesktopPolicyDocument) => {
 	const result = await shell.openPath(getPolicyPdfPath(document));
 	return result === "";
+});
+
+ipcMain.handle(desktopOpenExternalChannel, async (_event, url: unknown) => {
+	if (typeof url !== "string" || !shouldOpenExternalUrl(url)) {
+		return false;
+	}
+
+	await shell.openExternal(url);
+	return true;
 });
 
 app.whenReady().then(() => {

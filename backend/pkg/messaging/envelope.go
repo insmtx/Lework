@@ -9,7 +9,6 @@
 //	  cmd.run         - 会话/task 执行命令，保留 session-keyed debounce
 //	  cmd.control     - cancel run 等控制命令，不经过防抖
 //	  cmd.interaction - approval resolve、question answer
-//	  cmd.skill       - skill install/list/detail/import/uninstall，request/reply
 //	  cmd.file        - project file restore，request/reply
 //
 //	Worker -> Server/UI:
@@ -44,11 +43,20 @@ type TraceContext struct {
 
 // RouteContext 携带消息路由信息，用于消息投递和租户隔离。
 type RouteContext struct {
-	OrgID       uint   `json:"org_id"`
-	SessionID   string `json:"session_id,omitempty"`
-	WorkerID    uint   `json:"worker_id,omitempty"`
-	AssistantID string `json:"assistant_id,omitempty"`
-	ClientIP    string `json:"client_ip,omitempty"`
+	OrgID     uint   `json:"org_id"`
+	SessionID string `json:"session_id,omitempty"` // SessionID 是 leros_session.public_id，用于消息路由和租户隔离。
+
+	// WorkerID 是 leros_worker_deployment.worker_id（worker 主键），用于 worker 消息分发。
+	WorkerID uint `json:"worker_id,omitempty"`
+	// WorkerPublicID 是 leros_worker_deployment.public_id，用于日志展示和对外追溯。
+	WorkerPublicID string `json:"worker_public_id,omitempty"`
+
+	// AssistantID 是 leros_digital_assistant.id（assistant 主键），用于内部关联和 llm_history 记录。
+	AssistantID uint `json:"assistant_id,omitempty"`
+	// AssistantPublicID 是 leros_digital_assistant.public_id，用于对外标识和 SSE 过滤。
+	AssistantPublicID string `json:"assistant_public_id,omitempty"`
+
+	ClientIP string `json:"client_ip,omitempty"`
 }
 
 // Envelope 是通用消息信封，用于所有 MQ topic 上的消息传输。

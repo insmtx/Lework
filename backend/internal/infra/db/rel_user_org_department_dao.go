@@ -11,56 +11,46 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// CreateMemberDepartment 创建组织成员部门关联。
-func CreateMemberDepartment(ctx context.Context, d *gorm.DB, relation *types.MemberDepartment) error {
-	return d.WithContext(ctx).Create(relation).Error
+// MemberDeptCond 成员-部门关联查询条件，内嵌 BaseCond 提供通用过滤能力。
+// Use pointer embedding so that when no basic filtering is needed, it can be nil.
+type MemberDeptCond struct {
+	*BaseCond
+	Uin          uint
+	OrgID        uint
+	DepartmentID uint
+	IsPrimary    *bool
 }
 
-// CreateMemberDepartments 批量创建组织成员部门关联。
-func CreateMemberDepartments(ctx context.Context, d *gorm.DB, relations []*types.MemberDepartment) error {
-	if len(relations) == 0 {
-		return nil
+// BuildCondition 将 MemberDeptCond 转换为 GORM 查询条件。
+func (c *MemberDeptCond) BuildCondition(db *gorm.DB, tableName string) *gorm.DB {
+	if c.BaseCond != nil {
+		db = c.BaseCond.BuildCondition(db, tableName)
 	}
-	return d.WithContext(ctx).Create(relations).Error
-}
-
-// GetMemberDepartmentByID 根据主键获取组织成员部门关联。
-func GetMemberDepartmentByID(ctx context.Context, d *gorm.DB, id uint) (*types.MemberDepartment, error) {
-	var entity types.MemberDepartment
-	err := d.WithContext(ctx).
-		Where("id = ? AND deleted_at IS NULL", id).
-		First(&entity).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
+	if c.Uin != 0 {
+		db = db.Where(tableName+".uin = ?", c.Uin)
 	}
-	return &entity, nil
+	if c.OrgID != 0 {
+		db = db.Where(tableName+".org_id = ?", c.OrgID)
+	}
+	if c.DepartmentID != 0 {
+		db = db.Where(tableName+".department_id = ?", c.DepartmentID)
+	}
+	if c.IsPrimary != nil {
+		db = db.Where(tableName+".is_primary = ?", *c.IsPrimary)
+	}
+	return db
 }
 
-// UpdateMemberDepartment 保存组织成员部门关联。
-func UpdateMemberDepartment(ctx context.Context, d *gorm.DB, relation *types.MemberDepartment) error {
-	return d.WithContext(ctx).Save(relation).Error
+// MemberDepartmentEntityDao 封装了 MemberDepartment 实体的泛型 DAO。
+type MemberDepartmentEntityDao struct {
+	*GenericDao[types.MemberDepartment]
 }
 
-// DeleteMemberDepartment 软删除组织成员部门关联。
-func DeleteMemberDepartment(ctx context.Context, d *gorm.DB, id uint) error {
-	return d.WithContext(ctx).Delete(&types.MemberDepartment{}, id).Error
-}
-
-// DeleteMemberDepartmentsByUin 删除指定组织成员的部门关联。
-func DeleteMemberDepartmentsByUin(ctx context.Context, d *gorm.DB, uin uint) error {
-	return d.WithContext(ctx).
-		Where("uin = ?", uin).
-		Delete(&types.MemberDepartment{}).Error
-}
-
-// DeleteMemberDepartmentsByUinAndOrgID 删除指定组织成员在指定组织下的部门关联。
-func DeleteMemberDepartmentsByUinAndOrgID(ctx context.Context, d *gorm.DB, uin, orgID uint) error {
-	return d.WithContext(ctx).
-		Where("uin = ? AND org_id = ?", uin, orgID).
-		Delete(&types.MemberDepartment{}).Error
+// NewMemberDepartmentEntityDao creates a MemberDepartmentEntityDao bound to the given DB connection.
+func NewMemberDepartmentEntityDao(db *gorm.DB) *MemberDepartmentEntityDao {
+	return &MemberDepartmentEntityDao{
+		GenericDao: NewGenericDao[types.MemberDepartment](db),
+	}
 }
 
 // CountMemberDepartments 统计组织成员部门关联。
@@ -71,6 +61,47 @@ func CountMemberDepartments(ctx context.Context, d *gorm.DB, opt *types.PageQuer
 		return 0, err
 	}
 	return total, nil
+}
+
+// CreateMemberDepartment 创建组织成员部门关联。
+func CreateMemberDepartment(ctx context.Context, d *gorm.DB, relation *types.MemberDepartment) error {
+	return d.WithContext(ctx).Create(relation).Error
+}
+
+// GetMemberDepartmentByID 按 ID 查询组织成员部门关联。
+func GetMemberDepartmentByID(ctx context.Context, d *gorm.DB, id uint) (*types.MemberDepartment, error) {
+	var entity types.MemberDepartment
+	err := d.WithContext(ctx).Where("id = ?", id).First(&entity).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entity, nil
+}
+
+// UpdateMemberDepartment 更新组织成员部门关联。
+func UpdateMemberDepartment(ctx context.Context, d *gorm.DB, relation *types.MemberDepartment) error {
+	return d.WithContext(ctx).Save(relation).Error
+}
+
+// DeleteMemberDepartment 删除组织成员部门关联。
+func DeleteMemberDepartment(ctx context.Context, d *gorm.DB, id uint) error {
+	return d.WithContext(ctx).Delete(&types.MemberDepartment{}, id).Error
+}
+
+// ListMemberDepartmentsByUinAndOrgID 查询组织成员在指定组织下的部门关联列表。
+func ListMemberDepartmentsByUinAndOrgID(ctx context.Context, d *gorm.DB, uin uint, orgID uint) ([]*types.MemberDepartment, error) {
+	var entities []*types.MemberDepartment
+	err := d.WithContext(ctx).
+		Where("uin = ? AND org_id = ? AND deleted_at IS NULL", uin, orgID).
+		Order("is_primary DESC, id ASC").
+		Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
 }
 
 // ListMemberDepartments 分页查询组织成员部门关联。
@@ -106,26 +137,6 @@ func ListMemberDepartments(ctx context.Context, d *gorm.DB, opt *types.PageQuery
 		return nil, 0, err
 	}
 	return entities, total, nil
-}
-
-// ListMemberDepartmentsByUin 查询指定组织成员的部门关联。
-func ListMemberDepartmentsByUin(ctx context.Context, d *gorm.DB, uin uint) ([]*types.MemberDepartment, error) {
-	var entities []*types.MemberDepartment
-	err := d.WithContext(ctx).
-		Where("uin = ? AND deleted_at IS NULL", uin).
-		Order("is_primary DESC, id ASC").
-		Find(&entities).Error
-	return entities, err
-}
-
-// ListMemberDepartmentsByUinAndOrgID 查询指定组织成员的部门关联。
-func ListMemberDepartmentsByUinAndOrgID(ctx context.Context, d *gorm.DB, uin, orgID uint) ([]*types.MemberDepartment, error) {
-	var entities []*types.MemberDepartment
-	err := d.WithContext(ctx).
-		Where("uin = ? AND org_id = ? AND deleted_at IS NULL", uin, orgID).
-		Order("is_primary DESC, id ASC").
-		Find(&entities).Error
-	return entities, err
 }
 
 func buildMemberDepartmentQuery(ctx context.Context, d *gorm.DB, opt *types.PageQuery) *gorm.DB {

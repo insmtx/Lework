@@ -8,7 +8,7 @@ import (
 
 type AuthProvider interface {
 	RegisterByEmail(ctx context.Context, req *RegisterByEmailInput) (*AuthTokens, error)
-	LoginByEmail(ctx context.Context, req *LoginByEmailInput) (*AuthTokens, error)
+	LoginByPassword(ctx context.Context, req *LoginByPasswordInput) (*LoginByPasswordOutput, error)
 	SendPhoneLoginCode(ctx context.Context, req *SendPhoneLoginCodeInput) (*SendPhoneLoginCodeOutput, error)
 	LoginByPhoneCode(ctx context.Context, req *LoginByPhoneCodeInput) (*AuthTokens, error)
 	RefreshToken(ctx context.Context, req *RefreshTokenInput) (*AuthTokens, error)
@@ -22,6 +22,7 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, req *CreateUserInput) (*CreateUserResponse, error)
 	GetUser(ctx context.Context, publicID string, phone string) (*UserInfo, error)
 	UpdateUser(ctx context.Context, publicID string, req *UpdateUserInput) (*UserInfo, error)
+	UpdateCurrentUser(ctx context.Context, req *UpdateCurrentUserInput) (*UserInfo, error)
 	DeleteUser(ctx context.Context, publicID string) error
 	ListUser(ctx context.Context, req *ListUserInput) (*UserList, error)
 
@@ -61,4 +62,24 @@ type TokenParser interface {
 	ParseUser(ctx context.Context, tokenStr string) (*types.Caller, error)
 	ParseWorker(ctx context.Context, tokenStr string) (*types.Caller, error)
 	IssueWorker(ctx context.Context, orgID, workerID uint, bootstrapToken string) (token string, expiredAt int64, err error)
+}
+
+// CreateAPIKeyInput describes a user-owned API key requested from the identity provider.
+type CreateAPIKeyInput struct {
+	Name         string
+	Purpose      string
+	ResourceType string
+	ResourceID   uint
+	ExpireHours  int
+}
+
+// CreatedAPIKey contains the opaque API key returned once by the identity provider.
+type CreatedAPIKey struct {
+	ID     uint
+	APIKey string
+}
+
+// APIKeyIssuer creates API keys for the user carried by the request context.
+type APIKeyIssuer interface {
+	CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*CreatedAPIKey, error)
 }

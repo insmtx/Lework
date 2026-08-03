@@ -2,11 +2,12 @@
 
 import {
 	type AuthUser,
+	type PluginComposerOption,
+	type PluginListItem,
 	type Project,
 	type ProjectMember,
+	pluginApi,
 	projectMembersToInputs,
-	type SkillInstalledItem,
-	skillMarketplaceApi,
 	useLayoutStore,
 	useProjectsMenuCapabilities,
 } from "@leros/store";
@@ -30,11 +31,24 @@ import {
 } from "@leros/ui/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
-import { Bot, CalendarDays, Check, MessageSquare, Plus, Search, Sparkles, X } from "lucide-react";
+import {
+	Bot,
+	CalendarDays,
+	Check,
+	MessageSquare,
+	Plus,
+	Search,
+	Server,
+	Sparkles,
+	X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
+import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
+import { FieldWithError, RequiredMark, useFormFieldValidation } from "../form/formValidation";
+import { bindSkillsToProject, useSkillPickerOptions } from "../input/useSkillPickerOptions";
 import type { AppNavigation } from "../layout/LeftRail";
 import { ProjectIcon } from "../layout/project-icon";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
@@ -49,84 +63,6 @@ type ProjectsHubViewProps = {
 	navigation?: AppNavigation;
 };
 
-type SkillOption = {
-	code: string;
-	label: string;
-	description: string;
-	keywords: string[];
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function stringFromValue(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
-
-function skillItemFromValue(value: unknown): SkillInstalledItem | null {
-	if (!isRecord(value)) return null;
-
-	const name = stringFromValue(value.name || value.skill_id || value.id);
-	if (!name) return null;
-
-	return {
-		name,
-		display_name: stringFromValue(value.display_name),
-		description: stringFromValue(value.description),
-		category: stringFromValue(value.category),
-		source: stringFromValue(value.source || value.source_type),
-		trust: stringFromValue(value.trust),
-	};
-}
-
-function normalizeInstalledSkillsPayload(value: unknown): SkillInstalledItem[] {
-	const toItems = (items: unknown[]) =>
-		items.map(skillItemFromValue).filter((item): item is SkillInstalledItem => item !== null);
-
-	if (Array.isArray(value)) return toItems(value);
-	if (!isRecord(value)) return [];
-
-	const nestedData = value.data;
-	if (isRecord(nestedData)) {
-		if (Array.isArray(nestedData.skills)) return toItems(nestedData.skills);
-		if (Array.isArray(nestedData.items)) return toItems(nestedData.items);
-	}
-
-	if (Array.isArray(value.skills)) return toItems(value.skills);
-	if (Array.isArray(value.items)) return toItems(value.items);
-	return [];
-}
-
-function installedSkillToOption(skill: SkillInstalledItem): SkillOption {
-	const label = skill.display_name || skill.name;
-	return {
-		code: skill.name,
-		label,
-		description: skill.description || skill.category || "已安装技能",
-		keywords: [
-			label,
-			skill.name,
-			skill.description,
-			skill.category,
-			skill.source,
-			skill.trust,
-		].filter(Boolean),
-	};
-}
-
-function buildCreateProjectMetadata(skills: SkillOption[]): Record<string, unknown> {
-	return {
-		extra: {
-			skills: skills.map((skill) => ({
-				code: skill.code,
-				name: skill.label,
-				description: skill.description,
-			})),
-		},
-	};
-}
-
 function authUserToOwnerMember(user: AuthUser | null): ProjectMember[] {
 	if (!user?.publicId) return [];
 	return [
@@ -136,7 +72,8 @@ function authUserToOwnerMember(user: AuthUser | null): ProjectMember[] {
 			publicId: user.publicId,
 			type: "user",
 			role: "owner",
-			name: user.name || user.phone || user.email || "我",
+			// 中文注释：与左下角个人中心一致，优先组织内 uin_name，避免跨组织显示成全局 name。
+			name: user.uinName || user.name || user.phone || user.email || "我",
 			description: [user.email, user.phone].filter(Boolean).join(" / "),
 			avatarUrl: user.avatarUrl,
 		},
@@ -536,14 +473,20 @@ function CreateProjectDialog({
 	const [description, setDescription] = useState("");
 	const [selectedMembers, setSelectedMembers] = useState<ProjectMember[]>(ownerMembers);
 	const [memberOpen, setMemberOpen] = useState(false);
-	const [selectedSkills, setSelectedSkills] = useState<SkillOption[]>([]);
+	const [selectedSkills, setSelectedSkills] = useState<PluginComposerOption[]>([]);
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
-	const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
-	const [skillsLoading, setSkillsLoading] = useState(false);
-	const [skillsLoaded, setSkillsLoaded] = useState(false);
-	const [skillsError, setSkillsError] = useState<string | null>(null);
+	const [selectedMCPs, setSelectedMCPs] = useState<PluginListItem[]>([]);
+	const [mcpOptions, setMCPOptions] = useState<PluginListItem[]>([]);
+	const [mcpOpen, setMCPOpen] = useState(false);
+	const [mcpSearch, setMCPSearch] = useState("");
+	const [mcpsLoading, setMCPsLoading] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
+	const { resetValidation, shouldShowError, handleFieldBlur } = useFormFieldValidation();
+	const { skillOptions, skillsLoading, skillsError } = useSkillPickerOptions({
+		includeBuiltin: false,
+		enabled: open && skillOpen,
+	});
 
 	useEffect(() => {
 		if (!open) {
@@ -553,78 +496,120 @@ function CreateProjectDialog({
 			setMemberOpen(false);
 			setSelectedSkills([]);
 			setSkillSearch("");
+			setSelectedMCPs([]);
+			setMCPOptions([]);
+			setMCPSearch("");
 			setSubmitting(false);
+			resetValidation();
 			return;
 		}
 		setSelectedMembers((current) => mergeOwnerMember(ownerMembers, current));
-	}, [open, ownerMembers]);
+	}, [open, ownerMembers, resetValidation]);
 
 	useEffect(() => {
-		if (!skillOpen || skillsLoaded) return;
-
-		setSkillsLoading(true);
-		setSkillsError(null);
-		skillMarketplaceApi
-			.installed()
+		if (!open || !mcpOpen) return;
+		let cancelled = false;
+		setMCPsLoading(true);
+		pluginApi
+			.list({ kind: "mcp", status: "active", limit: 100 })
 			.then((response) => {
-				const raw = normalizeInstalledSkillsPayload(response.data);
-				setSkillOptions(raw.map(installedSkillToOption));
-				setSkillsLoaded(true);
+				if (!cancelled) setMCPOptions(response.data.data.plugins ?? []);
 			})
-			.catch((error: unknown) => {
-				const message = error instanceof Error ? error.message : "技能加载失败";
-				setSkillsError(message);
-				setSkillOptions([]);
+			.catch(() => {
+				if (!cancelled) setMCPOptions([]);
 			})
 			.finally(() => {
-				setSkillsLoading(false);
+				if (!cancelled) setMCPsLoading(false);
 			});
-	}, [skillOpen, skillsLoaded]);
+		return () => {
+			cancelled = true;
+		};
+	}, [mcpOpen, open]);
 
 	const selectedSkillCodes = useMemo(
 		() => selectedSkills.map((skill) => skill.code),
 		[selectedSkills],
 	);
+	const selectedSkillCodeSet = useMemo(
+		() => new Set(selectedSkillCodes.map((code) => code.toLowerCase())),
+		[selectedSkillCodes],
+	);
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
-		return skillOptions.filter((skill) => {
-			if (selectedSkillCodes.includes(skill.code)) return false;
+		return (skillOptions ?? []).filter((skill) => {
+			if (selectedSkillCodeSet.has(skill.code.toLowerCase())) return false;
 			if (!query) return true;
-			return [skill.label, skill.code, skill.description, ...skill.keywords]
+			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
+		});
+	}, [selectedSkillCodeSet, skillOptions, skillSearch]);
+	const selectedMCPIDs = useMemo(
+		() => new Set(selectedMCPs.map((connector) => connector.public_id)),
+		[selectedMCPs],
+	);
+	const filteredMCPs = useMemo(() => {
+		const query = mcpSearch.trim().toLowerCase();
+		return mcpOptions.filter((connector) => {
+			if (selectedMCPIDs.has(connector.public_id)) return false;
+			if (!query) return true;
+			return [connector.name, connector.code, connector.description]
+				.filter(Boolean)
 				.join(" ")
 				.toLowerCase()
 				.includes(query);
 		});
-	}, [selectedSkillCodes, skillOptions, skillSearch]);
+	}, [mcpOptions, mcpSearch, selectedMCPIDs]);
 
-	const addSkill = (skill: SkillOption) => {
+	const addSkill = (skill: PluginComposerOption) => {
 		setSelectedSkills((current) => {
-			if (current.some((item) => item.code === skill.code)) return current;
+			if (current.some((item) => item.code.toLowerCase() === skill.code.toLowerCase())) {
+				return current;
+			}
 			return [...current, skill];
 		});
 	};
 
 	const removeSkill = (skillCode: string) => {
-		setSelectedSkills((current) => current.filter((skill) => skill.code !== skillCode));
+		setSelectedSkills((current) =>
+			current.filter((skill) => skill.code.toLowerCase() !== skillCode.toLowerCase()),
+		);
 	};
 
+	const trimmedName = name.trim();
+	const nameValid = trimmedName.length > 0;
+	const showNameError = shouldShowError("name") && !nameValid;
+
 	const submit = async () => {
-		const trimmedName = name.trim();
-		if (!trimmedName || submitting) return;
+		if (!nameValid || submitting) return;
 
 		setSubmitting(true);
 		try {
-			const metadata =
-				selectedSkills.length > 0 ? buildCreateProjectMetadata(selectedSkills) : undefined;
-			// 中文注释：成员走 CreateProject.members 正式字段，技能仍保存在项目元数据里。
 			const project = await onCreate({
 				name: trimmedName,
 				description: description.trim(),
 				members: projectMembersToInputs(mergeOwnerMember(ownerMembers, selectedMembers)),
-				metadata,
 			});
 			if (project) {
+				const binding = await bindSkillsToProject(project.id, selectedSkills);
+				const mcpResults = await Promise.allSettled(
+					selectedMCPs.map((connector) =>
+						pluginApi.addToProject({
+							public_id: project.id,
+							plugin_id: connector.public_id,
+						}),
+					),
+				);
+				const failedMCPCount = mcpResults.filter((result) => result.status === "rejected").length;
 				onCreated(project);
+				if (binding.failedCount > 0) {
+					toast.error(
+						binding.installedButUnboundCount > 0
+							? `${binding.failedCount} 个技能关联失败，其中 ${binding.installedButUnboundCount} 个已安装到组织`
+							: `${binding.failedCount} 个技能关联失败`,
+					);
+				}
+				if (failedMCPCount > 0) {
+					toast.error(`${failedMCPCount} 个 MCP 连接器关联失败`);
+				}
 			}
 		} finally {
 			setSubmitting(false);
@@ -651,24 +636,29 @@ function CreateProjectDialog({
 				</DialogHeader>
 
 				<div className="mt-5 space-y-5">
-					<label className="block">
-						<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
-							项目名称
-						</span>
-						<div className="relative">
-							<input
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-								placeholder="请输入项目名称"
-								maxLength={30}
-								autoFocus
-								className="h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-white px-3 pr-14 text-sm text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
-							/>
-							<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--leros-text-subtle)]">
-								{name.length}/30
+					<FieldWithError error={showNameError ? "请输入项目名称" : undefined}>
+						<label className="block" htmlFor="create-project-name">
+							<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
+								项目名称
+								<RequiredMark />
 							</span>
-						</div>
-					</label>
+							<div className="relative">
+								<input
+									id="create-project-name"
+									value={name}
+									onChange={(event) => setName(event.target.value)}
+									onBlur={handleFieldBlur("name")}
+									placeholder="请输入项目名称"
+									maxLength={30}
+									autoFocus
+									className="h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-white px-3 pr-14 text-sm text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+								/>
+								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--leros-text-subtle)]">
+									{name.length}/30
+								</span>
+							</div>
+						</label>
+					</FieldWithError>
 
 					<label className="block">
 						<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
@@ -823,6 +813,89 @@ function CreateProjectDialog({
 								</div>
 							)}
 						</div>
+
+						<div className="rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
+							<div className="flex items-center justify-between gap-3">
+								<div className="flex items-center gap-2">
+									<Server className="size-4 text-[var(--leros-text-muted)]" />
+									<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+										MCP 连接器{" "}
+										<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
+									</div>
+								</div>
+								<Popover open={mcpOpen} onOpenChange={setMCPOpen}>
+									<PopoverTrigger
+										type="button"
+										className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium hover:bg-[var(--leros-surface-soft)]"
+									>
+										+ 添加
+									</PopoverTrigger>
+									<PopoverContent
+										align="end"
+										side="top"
+										sideOffset={10}
+										className="w-[340px] p-1.5"
+									>
+										<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+											<div className="px-2 py-1 text-sm font-semibold text-slate-800">
+												选择 MCP 连接器
+											</div>
+											<CommandInput
+												value={mcpSearch}
+												onValueChange={setMCPSearch}
+												placeholder="搜索 MCP 连接器"
+											/>
+											<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+											<CommandList className="max-h-64 px-1">
+												<CommandEmpty className="py-6 text-slate-400">
+													没有可继续添加的 MCP 连接器
+												</CommandEmpty>
+												<CommandGroup className="p-0">
+													{mcpsLoading && (
+														<div className="px-2 py-1.5 text-xs text-slate-400">加载中...</div>
+													)}
+													{filteredMCPs.map((connector) => (
+														<CommandItem
+															key={connector.public_id}
+															value={connector.name}
+															onSelect={() => setSelectedMCPs((current) => [...current, connector])}
+															className="rounded-lg px-2 py-1.5"
+														>
+															<MCPConnectorIcon code={connector.code} name={connector.name} />
+															<div className="min-w-0 flex-1">
+																<div className="truncate font-medium">{connector.name}</div>
+																<div className="truncate text-xs text-slate-400">
+																	{connector.description || connector.code}
+																</div>
+															</div>
+														</CommandItem>
+													))}
+												</CommandGroup>
+											</CommandList>
+										</Command>
+									</PopoverContent>
+								</Popover>
+							</div>
+							{selectedMCPs.length > 0 && (
+								<div className="mt-3 flex flex-wrap gap-1.5">
+									{selectedMCPs.map((connector) => (
+										<button
+											key={connector.public_id}
+											type="button"
+											onClick={() =>
+												setSelectedMCPs((current) =>
+													current.filter((item) => item.public_id !== connector.public_id),
+												)
+											}
+											className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100"
+										>
+											{connector.name}
+											<X className="size-3" />
+										</button>
+									))}
+								</div>
+							)}
+						</div>
 					</div>
 				</div>
 
@@ -830,7 +903,7 @@ function CreateProjectDialog({
 					<Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
 						取消
 					</Button>
-					<Button type="button" onClick={submit} disabled={!name.trim() || submitting}>
+					<Button type="button" onClick={submit} disabled={!nameValid || submitting}>
 						确定
 					</Button>
 				</DialogFooter>

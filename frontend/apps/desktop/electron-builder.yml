@@ -46,7 +46,10 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
 linux:
+  icon: resources/linux-icons
   executableName: leros-desktop
+  # 中文注释：让 .desktop 文件名、Electron app_id 与 StartupWMClass 保持一致，Linux 任务栏才能关联应用图标。
+  syncDesktopName: true
   maintainer: "support@insmtx.com"
   category: Development
   target:

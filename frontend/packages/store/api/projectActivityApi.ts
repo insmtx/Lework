@@ -16,6 +16,8 @@ export type ProjectActivitySkill = {
 export type ProjectActivityPayload = {
 	added_skills: ProjectActivitySkill[];
 	removed_skills: ProjectActivitySkill[];
+	added_mcps?: ProjectActivitySkill[];
+	removed_mcps?: ProjectActivitySkill[];
 	added_members: ProjectActivityActor[];
 	removed_members: ProjectActivityActor[];
 	added_ai_teammates: ProjectActivityActor[];

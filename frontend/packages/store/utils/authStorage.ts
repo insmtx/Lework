@@ -15,6 +15,7 @@ export type StoredAuthOrg = {
 export type StoredAuthUser = {
 	publicId?: string;
 	name: string;
+	uinName?: string;
 	email: string;
 	phone?: string;
 	avatarUrl?: string;
@@ -50,6 +51,8 @@ type RefreshTokenPayload = {
 			name: string;
 			logo?: string;
 			is_default?: boolean;
+			created_by_uin?: number;
+			created_by_user_id?: number;
 		};
 		organizations: {
 			id: number;
@@ -59,6 +62,8 @@ type RefreshTokenPayload = {
 			name: string;
 			logo?: string;
 			is_default?: boolean;
+			created_by_uin?: number;
+			created_by_user_id?: number;
 		}[];
 		user_info: {
 			id: number;
@@ -67,6 +72,7 @@ type RefreshTokenPayload = {
 			email: string;
 			phone?: string;
 			avatar_url?: string;
+			uin_name?: string;
 		};
 	};
 };
@@ -228,6 +234,7 @@ function toStoredAuthOrg(org: {
 	name: string;
 	logo?: string;
 	is_default?: boolean;
+	created_by_uin?: number;
 	created_by_user_id?: number;
 }): StoredAuthOrg {
 	return {
@@ -238,6 +245,7 @@ function toStoredAuthOrg(org: {
 		name: org.name,
 		logo: org.logo,
 		isDefault: org.is_default,
+		createdByUin: org.created_by_uin,
 		createdByUserId: org.created_by_user_id,
 	};
 }

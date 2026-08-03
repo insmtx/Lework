@@ -116,10 +116,12 @@ func (s *Service) Run(
 
 	// 3. Prepare.
 	prepared, cleanup, err := s.preparer.Prepare(ctx, cloned)
+	if cleanup != nil {
+		defer cleanup()
+	}
 	if err != nil {
 		return s.finishError(ctx, cloned, nil, j, "prepare", err, startedAt)
 	}
-	defer cleanup()
 
 	// 4. Execute via agent.Executor.
 	// Create event router that filters internal events (execution.*, plan.ready)

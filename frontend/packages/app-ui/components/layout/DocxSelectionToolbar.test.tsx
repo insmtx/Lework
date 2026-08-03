@@ -61,4 +61,72 @@ describe("DocxSelectionToolbar", () => {
 		fireEvent.scroll(container);
 		expect(toolbar?.style.top).toBe("490px");
 	});
+
+	it("opens the polish menu downward when the top boundary has insufficient space", () => {
+		const container = document.createElement("div");
+		Object.defineProperties(container, {
+			clientHeight: { value: 600 },
+			getBoundingClientRect: {
+				value: () => new DOMRect(40, 80, 800, 600),
+			},
+		});
+		document.body.appendChild(container);
+
+		render(
+			<DocxSelectionToolbar
+				anchor={{ x: 140, y: 120, width: 100, height: 24 }}
+				portalContainer={container}
+				busy={false}
+				onPolish={vi.fn()}
+				onAddToConversation={vi.fn()}
+			/>,
+		);
+
+		const trigger = screen.getByRole("button", { name: "AI 润色" });
+		const menu = container.querySelector<HTMLElement>("[data-docx-polish-menu]");
+		Object.defineProperty(trigger, "getBoundingClientRect", {
+			value: () => new DOMRect(160, 100, 120, 44),
+		});
+		Object.defineProperty(menu, "offsetHeight", { value: 220 });
+
+		fireEvent.mouseEnter(trigger);
+
+		expect(menu?.dataset.placement).toBe("bottom");
+		expect(menu?.dataset.origin).toBe("top-left");
+		expect(menu?.classList.contains("top-full")).toBe(true);
+	});
+
+	it("keeps the preferred upward placement when the menu fits", () => {
+		const container = document.createElement("div");
+		Object.defineProperties(container, {
+			clientHeight: { value: 600 },
+			getBoundingClientRect: {
+				value: () => new DOMRect(40, 80, 800, 600),
+			},
+		});
+		document.body.appendChild(container);
+
+		render(
+			<DocxSelectionToolbar
+				anchor={{ x: 140, y: 420, width: 100, height: 24 }}
+				portalContainer={container}
+				busy={false}
+				onPolish={vi.fn()}
+				onAddToConversation={vi.fn()}
+			/>,
+		);
+
+		const trigger = screen.getByRole("button", { name: "AI 润色" });
+		const menu = container.querySelector<HTMLElement>("[data-docx-polish-menu]");
+		Object.defineProperty(trigger, "getBoundingClientRect", {
+			value: () => new DOMRect(160, 400, 120, 44),
+		});
+		Object.defineProperty(menu, "offsetHeight", { value: 220 });
+
+		fireEvent.mouseEnter(trigger);
+
+		expect(menu?.dataset.placement).toBe("top");
+		expect(menu?.dataset.origin).toBe("bottom-left");
+		expect(menu?.classList.contains("bottom-full")).toBe(true);
+	});
 });

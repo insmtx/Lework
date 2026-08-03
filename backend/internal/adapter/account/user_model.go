@@ -7,16 +7,16 @@ import (
 )
 
 type UserInfo struct {
-	ID        uint      `json:"id"`
-	PublicID  string    `json:"public_id"`
-	Uin       uint      `json:"uin"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email,omitempty"`
-	Phone     string    `json:"phone,omitempty"`
+	ID          uint                  `json:"id"`
+	PublicID    string                `json:"public_id"`
+	Uin         uint                  `json:"uin"`
+	Name        string                `json:"name"`
+	Email       string                `json:"email,omitempty"`
+	Phone       string                `json:"phone,omitempty"`
 	AvatarURL   string                `json:"avatar_url,omitempty"`
 	Departments []OrgMemberDepartment `json:"departments,omitempty"`
-	CreatedAt   time.Time             `json:"created_at"`
-	UpdatedAt   time.Time             `json:"updated_at"`
+	CreatedAt   *time.Time            `json:"created_at,omitempty"`
+	UpdatedAt   *time.Time            `json:"updated_at,omitempty"`
 }
 
 type CreateUserInput struct {
@@ -27,6 +27,11 @@ type CreateUserInput struct {
 }
 
 type UpdateUserInput struct {
+	Name  string  `json:"name"`
+	Email *string `json:"email"`
+}
+
+type UpdateCurrentUserInput struct {
 	Name      string  `json:"name"`
 	AvatarURL string  `json:"avatar_url"`
 	Email     *string `json:"email"`

@@ -16,6 +16,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 		ExecutionMode: agentrundomain.ExecutionMode(task.ExecutionMode),
 		Assistant: agentrundomain.AssistantContext{
 			ID:           task.Execution.AssistantID,
+			PublicID:     task.Execution.AssistantPublicID,
 			Name:         task.Execution.AssistantName,
 			Description:  task.Execution.AssistantDesc,
 			SystemPrompt: task.Execution.SystemPrompt,
@@ -68,14 +69,28 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			RequireApproval: task.Policy.RequireApproval,
 			PermissionMode:  task.Policy.PermissionMode,
 		},
+		Plugins: pluginSnapshotsFromTask(task.Plugins),
 		BusinessKeys: agentrundomain.BusinessKeys{
-			ProjectPKID:   task.ProjectID,
-			SessionPKID:   task.SessionID,
-			MessagePKID:   task.MessageID,
-			AssistantPKID: task.AssistantID,
-			UinPK:         task.Uin,
+			ProjectPKID:       task.ProjectID,
+			SessionPKID:       task.SessionID,
+			MessagePKID:       task.MessageID,
+			AssistantID:       task.AssistantID,
+			AssistantPublicID: task.Route.AssistantPublicID,
+			WorkerPublicID:    task.Route.WorkerPublicID,
+			UinPK:             task.Uin,
 		},
 	}
+}
+
+func pluginSnapshotsFromTask(snapshots []messaging.PluginSnapshot) []agentrundomain.PluginSnapshot {
+	if len(snapshots) == 0 {
+		return nil
+	}
+	result := make([]agentrundomain.PluginSnapshot, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		result = append(result, agentrundomain.PluginSnapshot{PluginID: snapshot.PluginID, Code: snapshot.Code, Kind: snapshot.Kind, Revision: snapshot.Revision, Definition: append([]byte(nil), snapshot.Definition...)})
+	}
+	return result
 }
 
 func inputMessagesFromTask(messages []messaging.ChatMessage) []agentrundomain.InputMessage {

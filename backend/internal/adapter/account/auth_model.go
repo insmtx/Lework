@@ -15,9 +15,17 @@ type RegisterByEmailInput struct {
 	Name            string `json:"name,omitempty"`
 }
 
-type LoginByEmailInput struct {
-	Email    string `json:"email"`
+type LoginByPasswordInput struct {
+	Account  string `json:"account"`
 	Password string `json:"password"`
+}
+
+type LoginByPasswordOutput struct {
+	UserID        uint          `json:"user_id"`
+	RefreshToken  string        `json:"refresh_token"`
+	Organizations []AuthOrgInfo `json:"organizations"`
+	UserInfo      AuthUserInfo  `json:"user_info"`
+	LoginWay      int           `json:"login_way"`
 }
 
 type SendPhoneLoginCodeInput struct {
@@ -88,6 +96,7 @@ type AuthUserInfo struct {
 	Email     string `json:"email"`
 	Phone     string `json:"phone,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
+	UinName   string `json:"uin_name"`
 }
 
 type AuthOrgInfo struct {
@@ -100,4 +109,5 @@ type AuthOrgInfo struct {
 	CreatedByUin    uint   `json:"created_by_uin,omitempty"`
 	CreatedByUserID uint   `json:"created_by_user_id,omitempty"`
 	Uin             uint   `json:"uin,omitempty"`
+	UserName        string `json:"uin_name"`
 }

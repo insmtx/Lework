@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
 	"net/mail"
@@ -20,7 +19,6 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
@@ -39,7 +37,7 @@ const (
 	phoneCodeResendInterval = 2 * time.Minute
 	defaultPhoneCode        = "123456"
 	maxUserOrganizations    = 1
-	defaultWorkerTokenTTL   = 24 * time.Hour
+	defaultWorkerTokenTTL   = 3650 * 24 * time.Hour
 )
 
 type authAdapter struct {
@@ -48,6 +46,12 @@ type authAdapter struct {
 	smsSender          sms.SmsSender
 	defaultPhoneCode   string
 	workerProvisioning account.WorkerProvisioner
+	userRepo           *userRepo
+	orgRepo            *orgRepo
+	userOrgRepo        *userOrgRepo
+	departmentRepo     *departmentRepo
+	memberDeptRepo     *memberDeptRepo
+	authRepo           *authRepo
 }
 
 func NewAuth(d *gorm.DB, jwtSecret string, smsSender sms.SmsSender, provisioning account.WorkerProvisioner) *authAdapter {
@@ -58,6 +62,12 @@ func NewAuth(d *gorm.DB, jwtSecret string, smsSender sms.SmsSender, provisioning
 		smsSender:          smsSender,
 		defaultPhoneCode:   code,
 		workerProvisioning: provisioning,
+		userRepo:           newUserRepo(d),
+		orgRepo:            newOrgRepo(d),
+		userOrgRepo:        newUserOrgRepo(d),
+		departmentRepo:     newDepartmentRepo(d),
+		memberDeptRepo:     newMemberDeptRepo(d),
+		authRepo:           newAuthRepo(d),
 	}
 }
 
@@ -74,7 +84,7 @@ func (s *authAdapter) RegisterByEmail(ctx context.Context, req *account.Register
 		return nil, err
 	}
 
-	existing, err := db.GetUserByEmail(ctx, s.db, email)
+	existing, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +110,7 @@ func (s *authAdapter) RegisterByEmail(ctx context.Context, req *account.Register
 			Name:     name,
 			Email:    email,
 		}
-		if err := db.CreateUser(ctx, tx, user); err != nil {
+		if err := s.userRepo.withTx(tx).Create(ctx, user); err != nil {
 			if db.IsUniqueConstraintError(err) {
 				return accounterror.ErrEmailAlreadyExists
 			}
@@ -111,57 +121,98 @@ func (s *authAdapter) RegisterByEmail(ctx context.Context, req *account.Register
 		return nil, err
 	}
 
-	refreshToken, err := s.generateRefreshToken(ctx, user.ID)
+	refreshToken, err := s.generateRefreshToken(ctx, user.ID, localauth.LoginWayPassword)
 	if err != nil {
 		return nil, err
 	}
 
-	return &account.AuthTokens{
-		LoginStatus:  account.LoginStatusNeedCreateCompany,
-		RefreshToken: refreshToken,
-		UserInfo: account.AuthUserInfo{
-			ID:        user.ID,
-			PublicID:  user.PublicID,
-			Name:      user.Name,
-			Email:     user.Email,
-			AvatarURL: user.AvatarURL,
-		},
-	}, nil
+	if err := s.assignDefaultOrganization(ctx, user); err != nil {
+		logs.ErrorContextf(ctx, "RegisterByEmail: assign default org failed: email=%s error=%v", email, err)
+		return &account.AuthTokens{
+			LoginStatus:  account.LoginStatusNeedCreateCompany,
+			RefreshToken: refreshToken,
+			UserInfo: account.AuthUserInfo{
+				ID:        user.ID,
+				PublicID:  user.PublicID,
+				Name:      user.Name,
+				Email:     user.Email,
+				AvatarURL: user.AvatarURL,
+			},
+		}, nil
+	}
+	return s.buildLoginResponse(ctx, user, localauth.LoginWayPassword)
 }
 
-func (s *authAdapter) LoginByEmail(ctx context.Context, req *account.LoginByEmailInput) (*account.AuthTokens, error) {
+func (s *authAdapter) LoginByPassword(ctx context.Context, req *account.LoginByPasswordInput) (*account.LoginByPasswordOutput, error) {
 	if s.db == nil {
 		return nil, accounterror.ErrDatabaseRequired
 	}
 
-	email, err := normalizeEmail(req.Email)
-	if err != nil {
-		return nil, err
+	accountStr := strings.TrimSpace(req.Account)
+	if accountStr == "" {
+		return nil, accounterror.ErrAccountRequired
 	}
 	if strings.TrimSpace(req.Password) == "" {
 		return nil, accounterror.ErrPasswordRequired
 	}
 
-	if err := s.ensureLoginAllowed(ctx, email); err != nil {
+	var user *types.User
+	var identifier string
+
+	if strings.Contains(accountStr, "@") {
+		email, err := normalizeEmail(accountStr)
+		if err != nil {
+			return nil, err
+		}
+		identifier = email
+		user, err = s.userRepo.GetByEmail(ctx, email)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		phone, err := normalizePhone(accountStr)
+		if err != nil {
+			return nil, err
+		}
+		identifier = phone
+		user, err = s.userRepo.GetByPhone(ctx, phone)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.ensureLoginAllowed(ctx, identifier); err != nil {
 		return nil, err
 	}
 
-	user, err := db.GetUserByEmail(ctx, s.db, email)
+	if user == nil || user.Password == "" {
+		s.recordLoginFailure(ctx, identifier)
+		return nil, accounterror.ErrInvalidAccountOrPassword
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		s.recordLoginFailure(ctx, identifier)
+		return nil, accounterror.ErrInvalidAccountOrPassword
+	}
+
+	s.clearLoginFailures(ctx, identifier)
+
+	refreshToken, err := s.generateRefreshToken(ctx, user.ID, localauth.LoginWayPassword)
 	if err != nil {
 		return nil, err
 	}
-	if user == nil || user.Password == "" {
-		s.recordLoginFailure(ctx, email)
-		return nil, accounterror.ErrInvalidEmailOrPassword
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		s.recordLoginFailure(ctx, email)
-		logs.WarnContextf(ctx, "LoginByEmail: password not match for email=%s: %v", email, err)
-		return nil, accounterror.ErrInvalidEmailOrPassword
+
+	organizations, err := s.userOrganizationInfos(ctx, user.ID, user.Name)
+	if err != nil {
+		return nil, err
 	}
 
-	s.clearLoginFailures(ctx, email)
-	return s.buildLoginResponse(ctx, user)
+	return &account.LoginByPasswordOutput{
+		UserID:        user.ID,
+		RefreshToken:  refreshToken,
+		Organizations: organizations,
+		UserInfo:      authUserInfoFromModel(user),
+		LoginWay:      localauth.LoginWayPassword,
+	}, nil
 }
 
 func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *account.SendPhoneLoginCodeInput) (*account.SendPhoneLoginCodeOutput, error) {
@@ -177,7 +228,7 @@ func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *account.SendP
 	now := time.Now()
 	s.cleanupExpiredAuthData(ctx, now)
 
-	latestCode, err := db.GetActiveAuthPhoneVerificationCode(ctx, s.db, phone, now)
+	latestCode, err := s.authRepo.GetActivePhoneCode(ctx, phone, now)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +250,7 @@ func (s *authAdapter) SendPhoneLoginCode(ctx context.Context, req *account.SendP
 		return nil, mapSMSSendError(err)
 	}
 
-	if err := db.CreateAuthPhoneVerificationCode(ctx, s.db, &types.AuthPhoneVerificationCode{
+	if err := s.authRepo.CreatePhoneCode(ctx, &types.AuthPhoneVerificationCode{
 		Phone:     phone,
 		CodeHash:  hashPhoneCode(phone, code),
 		ExpiresAt: now.Add(phoneCodeExpire),
@@ -236,7 +287,7 @@ func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *account.LoginBy
 
 	now := time.Now()
 	s.cleanupExpiredAuthData(ctx, now)
-	savedCode, err := db.GetActiveAuthPhoneVerificationCode(ctx, s.db, phone, now)
+	savedCode, err := s.authRepo.GetActivePhoneCode(ctx, phone, now)
 	if err != nil {
 		return nil, err
 	}
@@ -250,12 +301,12 @@ func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *account.LoginBy
 		isNew bool
 	)
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := db.MarkAuthPhoneVerificationCodeUsed(ctx, tx, savedCode.ID, now); err != nil {
+		if err := s.authRepo.withTx(tx).MarkPhoneCodeUsed(ctx, savedCode.ID, now); err != nil {
 			return err
 		}
 
 		var err error
-		user, err = db.GetUserByPhone(ctx, tx, phone)
+		user, err = s.userRepo.withTx(tx).GetByPhone(ctx, phone)
 		if err != nil {
 			return err
 		}
@@ -265,7 +316,7 @@ func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *account.LoginBy
 				Name:     phone,
 				Phone:    phone,
 			}
-			if err := db.CreateUser(ctx, tx, user); err != nil {
+			if err := s.userRepo.withTx(tx).Create(ctx, user); err != nil {
 				return err
 			}
 			isNew = true
@@ -278,25 +329,28 @@ func (s *authAdapter) LoginByPhoneCode(ctx context.Context, req *account.LoginBy
 	s.clearLoginFailures(ctx, phone)
 
 	if isNew {
-		refreshToken, err := s.generateRefreshToken(ctx, user.ID)
-		if err != nil {
-			return nil, err
+		if err := s.assignDefaultOrganization(ctx, user); err != nil {
+			logs.ErrorContextf(ctx, "LoginByPhoneCode: assign default org failed: phone=%s error=%v", sms.MaskPhone(phone), err)
+			refreshToken, tokErr := s.generateRefreshToken(ctx, user.ID, localauth.LoginWayPhone)
+			if tokErr != nil {
+				return nil, tokErr
+			}
+			return &account.AuthTokens{
+				LoginStatus:  account.LoginStatusNeedCreateCompany,
+				RefreshToken: refreshToken,
+				UserInfo: account.AuthUserInfo{
+					ID:        user.ID,
+					PublicID:  user.PublicID,
+					Name:      user.Name,
+					Phone:     user.Phone,
+					AvatarURL: user.AvatarURL,
+				},
+				Edition: account.EditionOSS,
+			}, nil
 		}
-		return &account.AuthTokens{
-			LoginStatus:  account.LoginStatusNeedCreateCompany,
-			RefreshToken: refreshToken,
-			UserInfo: account.AuthUserInfo{
-				ID:        user.ID,
-				PublicID:  user.PublicID,
-				Name:      user.Name,
-				Phone:     user.Phone,
-				AvatarURL: user.AvatarURL,
-			},
-			Edition: account.EditionOSS,
-		}, nil
 	}
 
-	result, err := s.buildLoginResponse(ctx, user)
+	result, err := s.buildLoginResponse(ctx, user, localauth.LoginWayPhone)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +371,7 @@ func (s *authAdapter) RefreshToken(ctx context.Context, req *account.RefreshToke
 	tokenHash := hashRefreshToken(refreshToken)
 	s.cleanupExpiredAuthData(ctx, now)
 
-	savedToken, err := db.GetActiveAuthRefreshToken(ctx, s.db, tokenHash, now)
+	savedToken, err := s.authRepo.GetActiveRefreshToken(ctx, tokenHash, now)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +382,7 @@ func (s *authAdapter) RefreshToken(ctx context.Context, req *account.RefreshToke
 		return nil, accounterror.ErrRefreshTokenInvalid
 	}
 
-	userOrg, err := db.GetUserOrgByUin(ctx, s.db, savedToken.Uin)
+	userOrg, err := s.userOrgRepo.GetByUin(ctx, savedToken.Uin)
 	if err != nil {
 		return nil, err
 	}
@@ -336,14 +390,14 @@ func (s *authAdapter) RefreshToken(ctx context.Context, req *account.RefreshToke
 		return nil, accounterror.ErrUserOrgNotFound
 	}
 
-	user, err := db.GetUserByID(ctx, s.db, userOrg.UserID)
+	user, err := s.userRepo.GetByID(ctx, userOrg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
 		return nil, accounterror.ErrUserNotFound
 	}
-	org, err := db.GetOrgByID(ctx, s.db, userOrg.OrgID)
+	org, err := s.orgRepo.GetByID(ctx, userOrg.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -351,10 +405,10 @@ func (s *authAdapter) RefreshToken(ctx context.Context, req *account.RefreshToke
 		return nil, accounterror.ErrOrgNotFound
 	}
 
-	if err := db.RevokeAuthRefreshToken(ctx, s.db, tokenHash, now); err != nil {
+	if err := s.authRepo.RevokeRefreshToken(ctx, tokenHash, now); err != nil {
 		return nil, err
 	}
-	return s.buildTokenResponse(ctx, user, userOrg, org)
+	return s.buildTokenResponse(ctx, user, userOrg, org, savedToken.LoginWay)
 }
 
 func (s *authAdapter) ChooseUin(ctx context.Context, req *account.ChooseUinInput) (*account.AuthTokens, error) {
@@ -373,7 +427,7 @@ func (s *authAdapter) ChooseUin(ctx context.Context, req *account.ChooseUinInput
 	tokenHash := hashRefreshToken(refreshToken)
 	s.cleanupExpiredAuthData(ctx, now)
 
-	savedToken, err := db.GetActiveAuthRefreshToken(ctx, s.db, tokenHash, now)
+	savedToken, err := s.authRepo.GetActiveRefreshToken(ctx, tokenHash, now)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +443,7 @@ func (s *authAdapter) ChooseUin(ctx context.Context, req *account.ChooseUinInput
 		return nil, accounterror.ErrUserNotFound
 	}
 
-	targetUserOrg, err := db.GetUserOrgByUin(ctx, s.db, req.Uin)
+	targetUserOrg, err := s.userOrgRepo.GetByUin(ctx, req.Uin)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +454,7 @@ func (s *authAdapter) ChooseUin(ctx context.Context, req *account.ChooseUinInput
 		return nil, accounterror.ErrUserOrgNotAllowed
 	}
 
-	org, err := db.GetOrgByID(ctx, s.db, targetUserOrg.OrgID)
+	org, err := s.orgRepo.GetByID(ctx, targetUserOrg.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -408,10 +462,15 @@ func (s *authAdapter) ChooseUin(ctx context.Context, req *account.ChooseUinInput
 		return nil, accounterror.ErrOrgNotFound
 	}
 
-	if err := db.RevokeAuthRefreshToken(ctx, s.db, tokenHash, now); err != nil {
+	if err := s.authRepo.RevokeRefreshToken(ctx, tokenHash, now); err != nil {
 		return nil, err
 	}
-	return s.buildTokenResponse(ctx, user, targetUserOrg, org)
+	if s.workerProvisioning != nil {
+		if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, user.ID); err != nil {
+			logs.WarnContextf(ctx, "ChooseUin: ensure default worker for org %d: %v", org.ID, err)
+		}
+	}
+	return s.buildTokenResponse(ctx, user, targetUserOrg, org, req.LoginWay)
 }
 
 func (s *authAdapter) SwitchOrganization(ctx context.Context, req *account.SwitchOrganizationInput) (*account.AuthTokens, error) {
@@ -419,145 +478,60 @@ func (s *authAdapter) SwitchOrganization(ctx context.Context, req *account.Switc
 }
 
 func (s *authAdapter) CreateOrganization(ctx context.Context, req *account.CreateOrganizationInput) (*account.AuthTokens, error) {
-	if s.db == nil {
-		return nil, accounterror.ErrDatabaseRequired
-	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return nil, errors.New("组织名称不能为空")
-	}
+	return nil, accounterror.ErrNotImplementedEdition
+}
 
-	caller, _ := localauth.FromContext(ctx)
-	hasJWT := caller != nil && caller.State == types.AuthStateSucc && caller.Uin != 0
-
-	var user *types.User
-	if hasJWT {
-		var err error
-		user, err = s.resolveUserByCaller(ctx, caller)
+// assignDefaultOrganization 将用户自动关联到 OSS 默认组织，创建 user_org 和 department 关联。
+func (s *authAdapter) assignDefaultOrganization(ctx context.Context, user *types.User) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		defaultOrg, err := s.orgRepo.withTx(tx).GetByCode(ctx, "default_org")
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("query default org: %w", err)
 		}
-	} else {
-		var err error
-		user, err = s.resolveUserByRefreshToken(ctx, req.RefreshToken)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if user == nil {
-		return nil, accounterror.ErrUserNotFound
-	}
-
-	var (
-		org     *types.Organization
-		userOrg *types.UserOrg
-	)
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var lockedUser types.User
-		if err := tx.WithContext(ctx).
-			Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&lockedUser, user.ID).Error; err != nil {
-			return err
+		if defaultOrg == nil {
+			return fmt.Errorf("默认组织 default_org 不存在")
 		}
 
-		orgCount, err := db.CountUserOrgsByUserID(ctx, tx, user.ID)
+		existing, err := s.userOrgRepo.withTx(tx).GetByUserIDAndOrgID(ctx, user.ID, defaultOrg.ID)
 		if err != nil {
 			return err
 		}
-		if orgCount >= maxUserOrganizations {
-			return accounterror.ErrOrganizationLimitExceeded
+		if existing != nil {
+			return nil
 		}
 
-		orgCode := fmt.Sprintf("org_%s", snowflake.GenerateIDBase58())
-		org = &types.Organization{
-			PublicID: fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
-			Type:     "company",
-			Code:     orgCode,
-			Name:     name,
-			Status:   "active",
-		}
-		if err := db.CreateOrg(ctx, tx, org); err != nil {
-			return err
-		}
-		if err := db.CloneSystemLLMModelsByOrg(ctx, tx, 1, org.ID); err != nil {
-			return fmt.Errorf("clone system llm models: %w", err)
-		}
-
-		userOrg = &types.UserOrg{
+		userOrg := &types.UserOrg{
 			UserID:    user.ID,
-			OrgID:     org.ID,
+			OrgID:     defaultOrg.ID,
 			IsDefault: true,
 		}
-		if err := db.CreateUserOrg(ctx, tx, userOrg); err != nil {
-			return err
-		}
-		userOrg.Uin = userOrg.ID
-		if err := db.UpdateUserOrg(ctx, tx, userOrg); err != nil {
+		if err := s.userOrgRepo.withTx(tx).Create(ctx, userOrg); err != nil {
 			return err
 		}
 
-		org.CreatedByUin = userOrg.Uin
-		if err := db.UpdateOrg(ctx, tx, org); err != nil {
-			return err
-		}
-
-		department := &types.Department{
-			Name:     org.Name,
-			ParentID: 0,
-			Sort:     db.DepartmentSortGap,
-			OrgID:    org.ID,
-		}
-		if err := db.CreateDepartment(ctx, tx, department); err != nil {
-			return err
-		}
-
-		existing, err := db.ListMemberDepartmentsByUinAndOrgID(ctx, tx, userOrg.Uin, org.ID)
+		rootDept, err := s.departmentRepo.withTx(tx).GetDefaultRoot(ctx, defaultOrg.ID)
 		if err != nil {
 			return err
 		}
-		for _, rel := range existing {
-			if rel.DepartmentID == department.ID {
-				return errors.New("组织成员部门关联已存在")
+		if rootDept == nil {
+			rootDept = &types.Department{
+				Name:     defaultOrg.Name,
+				ParentID: 0,
+				Sort:     db.DepartmentSortGap,
+				OrgID:    defaultOrg.ID,
+			}
+			if err := s.departmentRepo.withTx(tx).Create(ctx, rootDept); err != nil {
+				return err
 			}
 		}
 
-		if err := db.CreateMemberDepartment(ctx, tx, &types.MemberDepartment{
-			Uin:          userOrg.Uin,
-			OrgID:        org.ID,
-			DepartmentID: department.ID,
+		return s.memberDeptRepo.withTx(tx).Create(ctx, &types.MemberDepartment{
+			Uin:          userOrg.ID,
+			OrgID:        defaultOrg.ID,
+			DepartmentID: rootDept.ID,
 			IsPrimary:    true,
-		}); err != nil {
-			return err
-		}
-		if s.workerProvisioning != nil {
-			if _, err := s.workerProvisioning.EnsureDefaultWorkerForOrg(ctx, org.ID, userOrg.Uin); err != nil {
-				return fmt.Errorf("ensure default worker deployment: %w", err)
-			}
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	organizations, err := s.userOrganizationInfos(ctx, user.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	orgInfo := authOrgInfo(org, userOrg.IsDefault)
-	if account.IsFilePublicID(orgInfo.Logo) {
-		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
-			orgInfo.Logo = logoMap[orgInfo.Logo]
-		}
-	}
-	return &account.AuthTokens{
-		LoginStatus:   account.LoginStatusSuccess,
-		Uin:           userOrg.Uin,
-		RefreshToken:  req.RefreshToken,
-		UserInfo:      authUserInfoFromModel(user),
-		Org:           orgInfo,
-		Organizations: organizations,
-	}, nil
+		})
+	})
 }
 
 func (s *authAdapter) AuthSession(ctx context.Context) (*account.AuthSessionOutput, error) {
@@ -570,12 +544,12 @@ func (s *authAdapter) AuthSession(ctx context.Context) (*account.AuthSessionOutp
 		return nil, accounterror.ErrLoginRequired
 	}
 
-	userOrg, err := db.GetUserOrgByUinAndOrgID(ctx, s.db, caller.Uin, caller.OrgID)
+	userOrg, err := s.userOrgRepo.GetByUinAndOrgID(ctx, caller.Uin, caller.OrgID)
 	if err != nil {
 		return nil, err
 	}
 	if userOrg == nil {
-		userOrg, err = db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+		userOrg, err = s.userOrgRepo.GetByUin(ctx, caller.Uin)
 		if err != nil {
 			return nil, err
 		}
@@ -584,7 +558,7 @@ func (s *authAdapter) AuthSession(ctx context.Context) (*account.AuthSessionOutp
 		return nil, accounterror.ErrUserOrgNotFound
 	}
 
-	user, err := db.GetUserByID(ctx, s.db, userOrg.UserID)
+	user, err := s.userRepo.GetByID(ctx, userOrg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -596,15 +570,22 @@ func (s *authAdapter) AuthSession(ctx context.Context) (*account.AuthSessionOutp
 	if err != nil {
 		return nil, err
 	}
+
+	if account.IsFilePublicID(user.AvatarURL) {
+		if avatarMap, err := resolveSingleAvatarMap(ctx, s.db, userOrg.OrgID, user.AvatarURL); err == nil && avatarMap != nil {
+			user.AvatarURL = avatarMap[user.AvatarURL]
+		}
+	}
+
 	return s.buildAuthSessionResponse(ctx, user, userOrg, org)
 }
 
-func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*account.AuthTokens, error) {
-	token, expiredAt, err := s.generateJWT(userOrg)
+func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization, loginWay int) (*account.AuthTokens, error) {
+	token, expiredAt, err := s.generateJWT(userOrg, loginWay)
 	if err != nil {
 		return nil, err
 	}
-	refreshToken, err := s.generateRefreshToken(ctx, userOrg.Uin)
+	refreshToken, err := s.generateRefreshToken(ctx, userOrg.ID, loginWay)
 	if err != nil {
 		return nil, err
 	}
@@ -618,20 +599,20 @@ func (s *authAdapter) buildTokenResponse(ctx context.Context, user *types.User, 
 		JwtToken:      token,
 		RefreshToken:  refreshToken,
 		ExpiredAt:     expiredAt,
-		Uin:           userOrg.Uin,
+		Uin:           userOrg.ID,
 		UserInfo:      session.UserInfo,
 		Org:           session.Org,
 		Organizations: session.Organizations,
 	}, nil
 }
 
-func (s *authAdapter) buildLoginResponse(ctx context.Context, user *types.User) (*account.AuthTokens, error) {
-	refreshToken, err := s.generateRefreshToken(ctx, user.ID)
+func (s *authAdapter) buildLoginResponse(ctx context.Context, user *types.User, loginWay int) (*account.AuthTokens, error) {
+	refreshToken, err := s.generateRefreshToken(ctx, user.ID, loginWay)
 	if err != nil {
 		return nil, err
 	}
 
-	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	organizations, err := s.userOrganizationInfos(ctx, user.ID, user.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -645,14 +626,14 @@ func (s *authAdapter) buildLoginResponse(ctx context.Context, user *types.User) 
 }
 
 func (s *authAdapter) resolveUserByCaller(ctx context.Context, caller *types.Caller) (*types.User, error) {
-	userOrg, err := db.GetUserOrgByUin(ctx, s.db, caller.Uin)
+	userOrg, err := s.userOrgRepo.GetByUin(ctx, caller.Uin)
 	if err != nil {
 		return nil, err
 	}
 	if userOrg == nil {
 		return nil, accounterror.ErrUserOrgNotFound
 	}
-	return db.GetUserByID(ctx, s.db, userOrg.UserID)
+	return s.userRepo.GetByID(ctx, userOrg.UserID)
 }
 
 func (s *authAdapter) resolveUserByRefreshToken(ctx context.Context, refreshToken string) (*types.User, error) {
@@ -661,7 +642,7 @@ func (s *authAdapter) resolveUserByRefreshToken(ctx context.Context, refreshToke
 		return nil, accounterror.ErrRefreshTokenRequired
 	}
 	tokenHash := hashRefreshToken(refreshToken)
-	savedToken, err := db.GetActiveAuthRefreshToken(ctx, s.db, tokenHash, time.Now())
+	savedToken, err := s.authRepo.GetActiveRefreshToken(ctx, tokenHash, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -676,7 +657,7 @@ func (s *authAdapter) resolveUserByRefreshTokenKey(ctx context.Context, key uint
 		return nil, accounterror.ErrRefreshTokenInvalid
 	}
 
-	user, err := db.GetUserByID(ctx, s.db, key)
+	user, err := s.userRepo.GetByID(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -684,12 +665,12 @@ func (s *authAdapter) resolveUserByRefreshTokenKey(ctx context.Context, key uint
 		return user, nil
 	}
 
-	userOrg, err := db.GetUserOrgByUin(ctx, s.db, key)
+	userOrg, err := s.userOrgRepo.GetByUin(ctx, key)
 	if err != nil {
 		return nil, err
 	}
 	if userOrg != nil {
-		return db.GetUserByID(ctx, s.db, userOrg.UserID)
+		return s.userRepo.GetByID(ctx, userOrg.UserID)
 	}
 
 	return nil, accounterror.ErrUserNotFound
@@ -707,11 +688,12 @@ func authUserInfoFromModel(user *types.User) account.AuthUserInfo {
 }
 
 func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.User, userOrg *types.UserOrg, org *types.Organization) (*account.AuthSessionOutput, error) {
-	organizations, err := s.userOrganizationInfos(ctx, user.ID)
+	organizations, err := s.userOrganizationInfos(ctx, user.ID, user.Name)
 	if err != nil {
 		return nil, err
 	}
 	orgInfo := authOrgInfo(org, userOrg.IsDefault)
+	orgInfo.Uin = userOrg.ID
 	if account.IsFilePublicID(orgInfo.Logo) {
 		if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, orgInfo.Logo); err == nil && logoMap != nil {
 			orgInfo.Logo = logoMap[orgInfo.Logo]
@@ -725,22 +707,24 @@ func (s *authAdapter) buildAuthSessionResponse(ctx context.Context, user *types.
 			Email:     user.Email,
 			Phone:     user.Phone,
 			AvatarURL: user.AvatarURL,
+			UinName:   user.Name,
 		},
 		Org:           orgInfo,
 		Organizations: organizations,
 	}, nil
 }
 
-func (s *authAdapter) generateJWT(userOrg *types.UserOrg) (string, int64, error) {
+func (s *authAdapter) generateJWT(userOrg *types.UserOrg, loginWay int) (string, int64, error) {
 	if s.jwtSecret == "" {
 		return "", 0, accounterror.ErrJWTSecretRequired
 	}
 	return localauth.GenerateUserToken(localauth.UserClaims{
-		Uin: userOrg.Uin,
+		Uin:      userOrg.ID,
+		LoginWay: loginWay,
 	}, s.jwtSecret, accessTokenExpire)
 }
 
-func (s *authAdapter) generateRefreshToken(ctx context.Context, uin uint) (string, error) {
+func (s *authAdapter) generateRefreshToken(ctx context.Context, uin uint, loginWay int) (string, error) {
 	token, err := randomToken()
 	if err != nil {
 		return "", err
@@ -748,9 +732,10 @@ func (s *authAdapter) generateRefreshToken(ctx context.Context, uin uint) (strin
 
 	now := time.Now()
 	s.cleanupExpiredAuthData(ctx, now)
-	if err := db.CreateAuthRefreshToken(ctx, s.db, &types.AuthRefreshToken{
+	if err := s.authRepo.CreateRefreshToken(ctx, &types.AuthRefreshToken{
 		TokenHash: hashRefreshToken(token),
 		Uin:       uin,
+		LoginWay:  loginWay,
 		ExpiresAt: now.Add(refreshTokenExpire),
 	}); err != nil {
 		return "", fmt.Errorf("store refresh token: %w", err)
@@ -759,7 +744,7 @@ func (s *authAdapter) generateRefreshToken(ctx context.Context, uin uint) (strin
 }
 
 func (s *authAdapter) userOrgWithOrganization(ctx context.Context, database *gorm.DB, userOrg *types.UserOrg) (*types.UserOrg, *types.Organization, error) {
-	org, err := db.GetOrgByID(ctx, database, userOrg.OrgID)
+	org, err := s.orgRepo.GetByID(ctx, userOrg.OrgID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -769,8 +754,8 @@ func (s *authAdapter) userOrgWithOrganization(ctx context.Context, database *gor
 	return userOrg, org, nil
 }
 
-func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([]account.AuthOrgInfo, error) {
-	userOrgs, err := db.GetUserOrgsByUserID(ctx, s.db, userID)
+func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint, userName string) ([]account.AuthOrgInfo, error) {
+	userOrgs, err := s.userOrgRepo.ListByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -782,7 +767,7 @@ func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([
 	for _, userOrg := range userOrgs {
 		orgIDs = append(orgIDs, userOrg.OrgID)
 	}
-	orgs, err := db.GetOrgsByIDs(ctx, s.db, orgIDs)
+	orgs, err := s.orgRepo.GetByIDs(ctx, orgIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -798,6 +783,8 @@ func (s *authAdapter) userOrganizationInfos(ctx context.Context, userID uint) ([
 			continue
 		}
 		info := authOrgInfo(org, userOrg.IsDefault)
+		info.Uin = userOrg.ID
+		info.UserName = userName
 		if account.IsFilePublicID(info.Logo) {
 			if logoMap, err := resolveSingleOrgLogoMap(ctx, s.db, userOrg.OrgID, info.Logo); err == nil && logoMap != nil {
 				info.Logo = logoMap[info.Logo]
@@ -825,7 +812,7 @@ func (s *authAdapter) ensureLoginAllowed(ctx context.Context, email string) erro
 	now := time.Now()
 	s.cleanupExpiredAuthData(ctx, now)
 
-	attempt, err := db.GetAuthLoginAttempt(ctx, s.db, email)
+	attempt, err := s.authRepo.GetLoginAttempt(ctx, email)
 	if err != nil {
 		return err
 	}
@@ -840,9 +827,9 @@ func (s *authAdapter) ensureLoginAllowed(ctx context.Context, email string) erro
 
 func (s *authAdapter) recordLoginFailure(ctx context.Context, email string) {
 	now := time.Now()
-	attempt, err := db.GetAuthLoginAttempt(ctx, s.db, email)
+	attempt, err := s.authRepo.GetLoginAttempt(ctx, email)
 	if err != nil {
-		logs.WarnContextf(ctx, "LoginByEmail: get login attempt failed: %v", err)
+		logs.WarnContextf(ctx, "recordLoginFailure: get login attempt failed: %v", err)
 		return
 	}
 
@@ -856,14 +843,14 @@ func (s *authAdapter) recordLoginFailure(ctx context.Context, email string) {
 		attempt.FailureCount++
 	}
 
-	if err := db.SaveAuthLoginAttempt(ctx, s.db, attempt); err != nil {
-		logs.WarnContextf(ctx, "LoginByEmail: save login attempt failed: %v", err)
+	if err := s.authRepo.SaveLoginAttempt(ctx, attempt); err != nil {
+		logs.WarnContextf(ctx, "recordLoginFailure: save login attempt failed: %v", err)
 	}
 }
 
 func (s *authAdapter) clearLoginFailures(ctx context.Context, email string) {
-	if err := db.DeleteAuthLoginAttempt(ctx, s.db, email); err != nil {
-		logs.WarnContextf(ctx, "LoginByEmail: clear login attempt counter failed: %v", err)
+	if err := s.authRepo.DeleteLoginAttempt(ctx, email); err != nil {
+		logs.WarnContextf(ctx, "clearLoginFailures: clear login attempt counter failed: %v", err)
 	}
 }
 
@@ -871,13 +858,13 @@ func (s *authAdapter) cleanupExpiredAuthData(ctx context.Context, now time.Time)
 	if s.db == nil {
 		return
 	}
-	if err := db.DeleteExpiredAuthRefreshTokens(ctx, s.db, now); err != nil {
+	if err := s.authRepo.DeleteExpiredRefreshTokens(ctx, now); err != nil {
 		logs.WarnContextf(ctx, "cleanup expired auth refresh tokens failed: %v", err)
 	}
-	if err := db.DeleteExpiredAuthLoginAttempts(ctx, s.db, now); err != nil {
+	if err := s.authRepo.DeleteExpiredLoginAttempts(ctx, now); err != nil {
 		logs.WarnContextf(ctx, "cleanup expired auth login attempts failed: %v", err)
 	}
-	if err := db.DeleteExpiredAuthPhoneVerificationCodes(ctx, s.db, now); err != nil {
+	if err := s.authRepo.DeleteExpiredPhoneCodes(ctx, now); err != nil {
 		logs.WarnContextf(ctx, "cleanup expired auth phone verification codes failed: %v", err)
 	}
 }

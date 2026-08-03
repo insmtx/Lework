@@ -45,7 +45,7 @@ var feedbackTypeLabels = map[string]string{
 
 type SubmitFeedbackRequest struct {
 	OrgID         uint
-	UserID        uint
+	Uin           uint
 	Type          string
 	Content       string
 	AttachmentIDs []string
@@ -63,7 +63,7 @@ type SubmitFeedbackResult struct {
 
 type feedbackJob struct {
 	orgID          uint
-	userID         uint
+	uin            uint
 	typeLabel      string
 	content        string
 	attachmentIDs  []string
@@ -95,7 +95,7 @@ func (s *FeedbackService) SubmitFeedback(ctx context.Context, req *SubmitFeedbac
 	if req == nil {
 		return nil, fmt.Errorf("request is required")
 	}
-	if req.OrgID == 0 || req.UserID == 0 {
+	if req.OrgID == 0 || req.Uin == 0 {
 		return nil, ErrFeedbackNotAuthenticated
 	}
 
@@ -129,7 +129,7 @@ func (s *FeedbackService) validateFeedbackJob(ctx context.Context, req *SubmitFe
 		return nil, ErrFeedbackTooManyFiles
 	}
 
-	user, err := s.userRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.userRepo.GetUserByUin(ctx, req.Uin)
 	if err != nil || user == nil {
 		return nil, ErrFeedbackSubmitFailed
 	}
@@ -147,7 +147,7 @@ func (s *FeedbackService) validateFeedbackJob(ctx context.Context, req *SubmitFe
 	submitterName, submitterPhone := resolveFeedbackSubmitter(user.Name, user.Phone)
 	return &feedbackJob{
 		orgID:          req.OrgID,
-		userID:         req.UserID,
+		uin:            req.Uin,
 		typeLabel:      typeLabel,
 		content:        content,
 		attachmentIDs:  append([]string(nil), req.AttachmentIDs...),
@@ -162,7 +162,7 @@ func (s *FeedbackService) processFeedbackAsync(ctx context.Context, job *feedbac
 		return
 	}
 
-	summary := summarizeFeedbackBestEffort(ctx, s.db, s.modelInvoker, job.orgID, job.typeLabel, job.content, job.userID)
+	summary := summarizeFeedbackBestEffort(ctx, s.db, s.modelInvoker, job.orgID, job.typeLabel, job.content, job.uin)
 
 	attachmentTokens, err := s.uploadAttachments(ctx, job.orgID, job.attachmentIDs)
 	if err != nil {

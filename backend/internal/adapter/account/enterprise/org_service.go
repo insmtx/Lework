@@ -128,7 +128,7 @@ func (s *org) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberI
 	}
 	return &account.OrgMember{
 		Uin:       resp.Employee.Uin,
-		UserName:  resp.Employee.UserName,
+		UserName:  resp.Employee.Name,
 		UserPhone: resp.Employee.Phone,
 	}, nil
 }
@@ -142,7 +142,7 @@ func (s *org) GetOrgMember(ctx context.Context, id uint, uin uint) (*account.Org
 	}
 	return &account.OrgMember{
 		Uin:       resp.Uin,
-		UserName:  resp.UserName,
+		UserName:  resp.Name,
 		UserPhone: resp.Phone,
 	}, nil
 }
@@ -166,7 +166,7 @@ func (s *org) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateO
 	}
 	return &account.OrgMember{
 		Uin:       resp.Employee.Uin,
-		UserName:  resp.Employee.UserName,
+		UserName:  resp.Employee.Name,
 		UserPhone: resp.Employee.Phone,
 	}, nil
 }
@@ -185,7 +185,7 @@ func (s *org) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInp
 	for _, emp := range resp.Employees {
 		items = append(items, account.OrgMember{
 			Uin:       emp.Uin,
-			UserName:  emp.UserName,
+			UserName:  emp.Name,
 			UserPhone: emp.Phone,
 		})
 	}

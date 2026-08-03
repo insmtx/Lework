@@ -8,28 +8,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/pkg/accounterror"
 	"github.com/insmtx/Leros/backend/types"
 )
 
 type builtinTokenParser struct {
-	db        *gorm.DB
-	jwtSecret string
-	workerCfg *config.WorkerAuthConfig
+	jwtSecret   string
+	workerCfg   *config.WorkerAuthConfig
+	userOrgRepo *userOrgRepo
+	workerStore *workerStore
 }
 
 // NewTokenParser creates a builtin TokenParser backed by the local JWT
 // secret and database.
 func NewTokenParser(database *gorm.DB, jwtSecret string, workerCfg *config.WorkerAuthConfig) *builtinTokenParser {
 	return &builtinTokenParser{
-		db:        database,
-		jwtSecret: strings.TrimSpace(jwtSecret),
-		workerCfg: workerCfg,
+		jwtSecret:   strings.TrimSpace(jwtSecret),
+		workerCfg:   workerCfg,
+		userOrgRepo: newUserOrgRepo(database),
+		workerStore: newWorkerStore(database),
 	}
 }
 
@@ -40,7 +41,7 @@ func (p *builtinTokenParser) ParseUser(ctx context.Context, tokenStr string) (*t
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	userOrg, err := db.GetUserOrgByUin(queryCtx, p.db, claims.Uin)
+	userOrg, err := p.userOrgRepo.GetByUin(queryCtx, claims.Uin)
 	if err != nil {
 		return &types.Caller{Uin: claims.Uin, Kind: types.CallerKindUser, State: types.AuthStateFailed}, nil
 	}
@@ -48,7 +49,7 @@ func (p *builtinTokenParser) ParseUser(ctx context.Context, tokenStr string) (*t
 		return &types.Caller{Uin: claims.Uin, Kind: types.CallerKindUser, State: types.AuthStateFailed}, nil
 	}
 	return &types.Caller{
-		Uin:   userOrg.Uin,
+		Uin:   userOrg.ID,
 		OrgID: userOrg.OrgID,
 		Kind:  types.CallerKindUser,
 		State: types.AuthStateSucc,
@@ -98,8 +99,8 @@ func (p *builtinTokenParser) validateBootstrapToken(ctx context.Context, orgID, 
 			}
 		}
 	}
-	if p.db != nil {
-		deployment, err := db.GetWorkerDeploymentByOrgWorkerID(ctx, p.db, orgID, workerID)
+	if p.workerStore != nil {
+		deployment, err := p.workerStore.GetDeploymentByOrgWorkerID(ctx, orgID, workerID)
 		if err != nil {
 			return err
 		}
@@ -114,10 +115,10 @@ func (p *builtinTokenParser) validateBootstrapToken(ctx context.Context, orgID, 
 }
 
 func (p *builtinTokenParser) validateWorker(ctx context.Context, orgID, workerID uint) error {
-	if p.db == nil {
+	if p.workerStore == nil {
 		return nil
 	}
-	deployment, err := db.GetWorkerDeploymentByOrgWorkerID(ctx, p.db, orgID, workerID)
+	deployment, err := p.workerStore.GetDeploymentByOrgWorkerID(ctx, orgID, workerID)
 	if err != nil {
 		return err
 	}
@@ -128,7 +129,7 @@ func (p *builtinTokenParser) validateWorker(ctx context.Context, orgID, workerID
 		}
 		assistantID = deployment.DigitalAssistantID
 	}
-	assistant, err := db.GetDigitalAssistantByID(ctx, p.db, assistantID)
+	assistant, err := p.workerStore.GetDigitalAssistantByID(ctx, assistantID)
 	if err != nil {
 		return err
 	}

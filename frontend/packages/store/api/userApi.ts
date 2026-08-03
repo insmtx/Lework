@@ -20,11 +20,13 @@ export type UserInfo = {
 export type UpdateUserParams = {
 	public_id: string;
 	name?: string;
-	avatar_url?: string;
 	email?: string;
-	bio?: string;
-	company?: string;
-	location?: string;
+};
+
+export type UpdateCurrentUserParams = {
+	name?: string;
+	email?: string;
+	avatar_url?: string;
 };
 
 export type ListUsersParams = {
@@ -40,4 +42,7 @@ export const userApi = {
 
 	update: (params: UpdateUserParams) =>
 		apiClient.post<BackendDataResponse<UserInfo>>("/UpdateUser", params),
+
+	updateCurrent: (params: UpdateCurrentUserParams) =>
+		apiClient.post<BackendDataResponse<UserInfo>>("/UpdateCurrentUser", params),
 };

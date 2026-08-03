@@ -84,6 +84,12 @@ type Session struct {
 	// session - 所属组织ID，0表示未设置，INTEGER，NOT NULL，DEFAULT 0
 	OrgID uint `gorm:"column:org_id;type:integer;default:0;not null;index"`
 
+	// session - 关联数字助手ID，0表示不关联，BIGINT，DEFAULT 0
+	AssistantID uint `gorm:"column:assistant_id;type:bigint;default:0;index"`
+
+	// session - 分配的数字员工ID，0表示未分配，BIGINT，DEFAULT 0
+	AllocatedAssistantID uint `gorm:"column:allocated_assistant_id;type:bigint;default:0;index"`
+
 	// session - 关联任务ID，允许为空，BIGINT，INDEX（scope=task时绑定）
 	TaskID *uint `gorm:"column:task_id;type:bigint;uniqueIndex:uni_session_project_task"`
 

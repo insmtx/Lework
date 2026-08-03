@@ -108,8 +108,8 @@ type ToolContext struct {
 	RunID string
 	// TraceID 是跨服务关联的分布式追踪标识。
 	TraceID string
-	// AssistantID 是执行本次运行的助手标识。
-	AssistantID string
+	// AssistantPublicID 是执行本次运行的助手public_id。
+	AssistantPublicID string
 	// UserID 是发起本次运行的人类用户标识。
 	UserID string
 	// AccountID 是租户或组织账号标识。
@@ -132,6 +132,9 @@ type ToolContext struct {
 type ToolMetadata struct {
 	RepoDir              string
 	ArtifactManifestPath string
+	// SkillDir is the explicit per-run Skill catalog root. Tools must not fall
+	// back to the worker-wide directory when this is set.
+	SkillDir string
 }
 
 type toolContextKey struct{}

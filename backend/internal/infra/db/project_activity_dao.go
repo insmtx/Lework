@@ -65,43 +65,6 @@ func ListProjectActivities(ctx context.Context, db *gorm.DB, opt ProjectActivity
 	return activities, nil
 }
 
-// GetSkillsByCodes 批量按项目 skill code 查询本地技能。
-func GetSkillsByCodes(ctx context.Context, db *gorm.DB, orgID uint, codes []string) ([]*types.Skill, error) {
-	codes = uniqueNonEmptyStrings(codes)
-	if len(codes) == 0 {
-		return nil, nil
-	}
-
-	var entities []*types.Skill
-	err := db.WithContext(ctx).
-		Where("org_id = ? AND code IN (?)", orgID, codes).
-		Where("deleted_at IS NULL").
-		Find(&entities).Error
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
-// GetSkillMarketplaceItemsBySkillIDs 批量按 skill_id 查询市场缓存技能。
-func GetSkillMarketplaceItemsBySkillIDs(ctx context.Context, db *gorm.DB, skillIDs []string) ([]*types.SkillMarketplaceItem, error) {
-	skillIDs = uniqueNonEmptyStrings(skillIDs)
-	if len(skillIDs) == 0 {
-		return nil, nil
-	}
-
-	var entities []*types.SkillMarketplaceItem
-	err := db.WithContext(ctx).
-		Where("skill_id IN (?)", skillIDs).
-		Where("deleted_at IS NULL").
-		Order("updated_at DESC").
-		Find(&entities).Error
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
 func uniqueNonEmptyStrings(values []string) []string {
 	seen := make(map[string]bool, len(values))
 	result := make([]string, 0, len(values))

@@ -14,7 +14,6 @@ import {
 	type PermissionStore,
 	permissionSlice,
 } from "./slices/permissionSlice";
-import { type SkillAction, type SkillStore, skillSlice } from "./slices/skillSlice";
 import { type TopicAction, type TopicStore, topicSlice } from "./slices/topicSlice";
 import type { SliceCreator } from "./types";
 
@@ -24,7 +23,6 @@ export type AppStore = AuthStore &
 	ChatStore &
 	DAStore &
 	PermissionStore &
-	SkillStore &
 	GlobalConfigStore;
 export type AppAction = AuthAction &
 	LayoutAction &
@@ -32,7 +30,6 @@ export type AppAction = AuthAction &
 	ChatAction &
 	DigitalAssistantAction &
 	PermissionAction &
-	SkillAction &
 	GlobalConfigAction;
 
 const createStore: SliceCreator<AppStore> = (...params) => ({
@@ -42,7 +39,6 @@ const createStore: SliceCreator<AppStore> = (...params) => ({
 	...chatSlice(...params),
 	...daSlice(...params),
 	...permissionSlice(...params),
-	...skillSlice(...params),
 	...globalConfigSlice(...params),
 });
 
@@ -68,9 +64,6 @@ export const useChatStore = <T>(selector: (state: ChatStore & ChatAction) => T):
 	useAppStore(selector);
 
 export const useDAStore = <T>(selector: (state: DAStore & DigitalAssistantAction) => T): T =>
-	useAppStore(selector);
-
-export const useSkillStore = <T>(selector: (state: SkillStore & SkillAction) => T): T =>
 	useAppStore(selector);
 
 export const useGlobalConfigStore = <T>(

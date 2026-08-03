@@ -69,6 +69,23 @@ func handleRunStateMessage(ctx context.Context, service contract.SessionService,
 		return
 	}
 
+	fields := make([]interface{}, 0, 8)
+	if runEvent.Trace.ReqID != "" {
+		fields = append(fields, "req_id", runEvent.Trace.ReqID)
+	}
+	if runEvent.Route.SessionID != "" {
+		fields = append(fields, "session_id", runEvent.Route.SessionID)
+	}
+	if runEvent.Route.AssistantID != 0 {
+		fields = append(fields, "assistant_id", runEvent.Route.AssistantID)
+	}
+	if runEvent.Route.WorkerID != 0 {
+		fields = append(fields, "worker_id", runEvent.Route.WorkerID)
+	}
+	if len(fields) > 0 {
+		ctx = logs.WithContextFields(ctx, fields...)
+	}
+
 	logs.InfoContextf(ctx, "received run state event: type=%s session_id=%s run_id=%s seq=%d",
 		runEvent.Body.Event, runEvent.Route.SessionID, runEvent.Trace.RunID, runEvent.Body.Seq)
 
@@ -113,6 +130,7 @@ func handleRunStartedEvent(ctx context.Context, service contract.SessionService,
 		StreamStartSeq:    0, // set asynchronously by session_run_stream_projector
 		StateStartSeq:     meta.Sequence.Stream,
 		RunID:             runEvent.Trace.RunID,
+		AssistantID:       runEvent.Body.AssistantID,
 	}); err != nil {
 		logs.WarnContextf(ctx, "handle session run started failed: session_id=%s error=%v", runEvent.Route.SessionID, err)
 	}
@@ -174,7 +192,7 @@ func handleRunCompletedEvent(ctx context.Context, service contract.SessionServic
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
 		RunID:             runEvent.Trace.RunID,
-		AssistantID:       runEvent.Body.AssistantPKID,
+		AssistantID:       runEvent.Body.AssistantID,
 	}
 	if err := service.CompleteSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "complete session message: %v", err)
@@ -211,7 +229,7 @@ func handleRunFailedEvent(ctx context.Context, service contract.SessionService, 
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
 		RunID:             runEvent.Trace.RunID,
-		AssistantID:       runEvent.Body.AssistantPKID,
+		AssistantID:       runEvent.Body.AssistantID,
 	}
 	if runEvent.Body.Error != nil {
 		req.ErrorCode = runEvent.Body.Error.Code
@@ -240,7 +258,7 @@ func handleRunCancelledEvent(ctx context.Context, service contract.SessionServic
 		Seq:               runEvent.Body.Seq,
 		CreatedAt:         runEvent.CreatedAt,
 		RunID:             runEvent.Trace.RunID,
-		AssistantID:       runEvent.Body.AssistantPKID,
+		AssistantID:       runEvent.Body.AssistantID,
 	}
 	if err := service.FailedSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "cancelled session message: %v", err)
@@ -412,10 +430,19 @@ func recordSkillInvocationsFromMessaging(ctx context.Context, db *gorm.DB, orgID
 
 		source, skillID := "Leros", skillName
 		resourceID := ""
-		if item, err := infradb.GetBuiltinSkillByID(ctx, db, skillName); err == nil && item != nil {
-			source = "Leros"
-			skillID = item.SkillID
-			resourceID = fmt.Sprintf("%d", item.ID)
+		var plugin types.Plugin
+		if err := db.WithContext(ctx).
+			Where(
+				"owner_scope = ? AND org_id = ? AND code = ? AND kind = ? AND deleted_at IS NULL",
+				types.OwnerScopeOrganization,
+				orgID,
+				skillName,
+				"skill",
+			).
+			First(&plugin).Error; err == nil && plugin.ID != 0 {
+			source = "organization"
+			skillID = plugin.Code
+			resourceID = plugin.PublicID
 		}
 		records = append(records, &types.MessageResource{
 			ResourceID:   resourceID,

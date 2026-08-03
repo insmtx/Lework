@@ -52,6 +52,59 @@ func TestDriverPassesPreparedProviderSession(t *testing.T) {
 	}
 }
 
+func TestDriverPassesRunScopedEnvironment(t *testing.T) {
+	invoker := &fakeInvoker{result: InvocationResult{Message: "done"}}
+	driver := newTestDriver(t, invoker)
+	request := testExecutionRequest()
+	request.ExtraEnv = []string{
+		"NETEASE_EMAIL_USER=user@example.com",
+		"NETEASE_EMAIL_PASS=client-authorization-code",
+	}
+
+	if _, err := driver.RunInvocation(context.Background(), request, nil); err != nil {
+		t.Fatalf("RunInvocation() error = %v", err)
+	}
+	if !reflect.DeepEqual(invoker.request.ExtraEnv, request.ExtraEnv) {
+		t.Fatalf("InvocationRequest ExtraEnv = %#v", invoker.request.ExtraEnv)
+	}
+	request.ExtraEnv[0] = "NETEASE_EMAIL_USER=changed@example.com"
+	if invoker.request.ExtraEnv[0] != "NETEASE_EMAIL_USER=user@example.com" {
+		t.Fatalf("InvocationRequest ExtraEnv shares caller slice: %#v", invoker.request.ExtraEnv)
+	}
+}
+
+func TestDriverMergesRunMCPServersWithoutOverridingBaseline(t *testing.T) {
+	invoker := &fakeInvoker{result: InvocationResult{Message: "done"}}
+	driver, err := NewDriver("fake", invoker, agent.RuntimeAdapterOptions{
+		MCPServers: []agent.MCPServerConfig{
+			{Name: "leros", URL: "http://127.0.0.1/builtin"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewDriver() error = %v", err)
+	}
+	request := testExecutionRequest()
+	request.MCPServers = []agent.MCPServerConfig{
+		{Name: "LEROS", URL: "https://example.com/override"},
+		{Name: "docs", URL: "https://example.com/mcp", Headers: map[string]string{"X-Token": "secret"}},
+	}
+
+	if _, err := driver.RunInvocation(context.Background(), request, nil); err != nil {
+		t.Fatalf("RunInvocation() error = %v", err)
+	}
+	if len(invoker.request.MCPServers) != 2 {
+		t.Fatalf("MCPServers = %#v", invoker.request.MCPServers)
+	}
+	if invoker.request.MCPServers[0].URL != "http://127.0.0.1/builtin" ||
+		invoker.request.MCPServers[1].Name != "docs" {
+		t.Fatalf("merged MCPServers = %#v", invoker.request.MCPServers)
+	}
+	request.MCPServers[1].Headers["X-Token"] = "changed"
+	if invoker.request.MCPServers[1].Headers["X-Token"] != "secret" {
+		t.Fatalf("merged headers shared request map: %#v", invoker.request.MCPServers[1].Headers)
+	}
+}
+
 func TestDriverForwardsStronglyTypedNodeEvents(t *testing.T) {
 	invoker := &fakeInvoker{
 		events: []agent.NodeEvent{

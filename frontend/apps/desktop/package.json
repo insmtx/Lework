@@ -1,8 +1,9 @@
 {
   "name": "@leros/desktop",
-  "version": "0.3.3",
+  "version": "0.3.7",
   "description": "Leros desktop application",
   "author": "insmtx",
+  "desktopName": "leros-desktop.desktop",
   "private": true,
   "repository": {
     "type": "git",
@@ -16,6 +17,11 @@
     "build": "pnpm run compile",
     "icons": "node scripts/generate-icons.mjs",
     "dist": "node scripts/dist-local.mjs",
+    "dist:private": "node scripts/dist-private.mjs",
+    "dist:private:mac:arm64": "node scripts/dist-private-target.mjs --mac --arm64",
+    "dist:private:mac:x64": "node scripts/dist-private-target.mjs --mac --x64",
+    "dist:private:win:x64": "node scripts/dist-private-target.mjs --win --x64",
+    "dist:private:linux:x64": "node scripts/dist-private-target.mjs --linux --x64",
     "dist:dir": "pnpm run icons && pnpm run compile && electron-builder --dir --publish never",
     "dist:mac:arm64": "pnpm run icons && pnpm run compile && electron-builder --mac --arm64 --publish never",
     "dist:mac:x64": "pnpm run icons && pnpm run compile && electron-builder --mac --x64 --publish never",

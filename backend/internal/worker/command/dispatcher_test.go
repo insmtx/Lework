@@ -123,25 +123,16 @@ func (s *stubInteractionHandler) HandleInteractionCommand(_ context.Context, _ m
 	return nil
 }
 
-type stubSkillHandler struct {
-	called bool
-}
-
 type stubFileHandler struct{}
 
 func (s *stubFileHandler) HandleFileCommand(_ context.Context, _ messaging.WorkerCommand) error {
 	return nil
 }
 
-func (s *stubSkillHandler) HandleSkillCommand(_ context.Context, _ messaging.WorkerCommand, _ *nats.Msg) error {
-	s.called = true
-	return nil
-}
-
 func TestNewRequiresAllHandlers(t *testing.T) {
 	sub := newMockSubscriber()
 	cfg := Config{OrgID: 1, WorkerID: 2}
-	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}, File: &stubFileHandler{}}
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, File: &stubFileHandler{}}
 	d, err := New(cfg, sub, handlers)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -151,10 +142,10 @@ func TestNewRequiresAllHandlers(t *testing.T) {
 	}
 }
 
-func TestDispatcherRunSubscribesFiveLanes(t *testing.T) {
+func TestDispatcherRunSubscribesFourLanes(t *testing.T) {
 	sub := newMockSubscriber()
 	sub.unblock = make(chan struct{})
-	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}, File: &stubFileHandler{}}
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, File: &stubFileHandler{}}
 	d, err := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -163,7 +154,7 @@ func TestDispatcherRunSubscribesFiveLanes(t *testing.T) {
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run(ctx) }()
-	for range 5 {
+	for range 4 {
 		select {
 		case <-sub.started:
 		case <-time.After(2 * time.Second):
@@ -182,15 +173,15 @@ func TestDispatcherRunSubscribesFiveLanes(t *testing.T) {
 	if sub.manualCount() != 1 {
 		t.Fatalf("expected 1 manual subscription (run lane), got %d", sub.manualCount())
 	}
-	if sub.autoCount() != 4 {
-		t.Fatalf("expected 4 auto subscriptions (control, interaction, skill, file), got %d", sub.autoCount())
+	if sub.autoCount() != 3 {
+		t.Fatalf("expected 3 auto subscriptions (control, interaction, file), got %d", sub.autoCount())
 	}
 }
 
 func TestDispatcherRunPropagatesSubscribeError(t *testing.T) {
 	sub := newMockSubscriber()
 	sub.returnErr = fmt.Errorf("subscribe failed")
-	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}, File: &stubFileHandler{}}
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, File: &stubFileHandler{}}
 	d, _ := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
 	err := d.Run(context.Background())
 	if err == nil {
@@ -200,12 +191,12 @@ func TestDispatcherRunPropagatesSubscribeError(t *testing.T) {
 
 func TestDispatcherRunReturnsNilOnContextCancel(t *testing.T) {
 	sub := newMockSubscriber()
-	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}, File: &stubFileHandler{}}
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, File: &stubFileHandler{}}
 	d, _ := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() { errCh <- d.Run(ctx) }()
-	for range 5 {
+	for range 4 {
 		select {
 		case <-sub.started:
 		case <-time.After(2 * time.Second):
@@ -224,7 +215,7 @@ func TestDispatcherRunReturnsNilOnContextCancel(t *testing.T) {
 }
 
 func TestDispatcherParseCommand(t *testing.T) {
-	d, _ := New(Config{OrgID: 1, WorkerID: 2}, newMockSubscriber(), Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}, File: &stubFileHandler{}})
+	d, _ := New(Config{OrgID: 1, WorkerID: 2}, newMockSubscriber(), Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, File: &stubFileHandler{}})
 
 	valid := &messaging.WorkerCommand{Type: messaging.MessageTypeWorkerCommand, ID: "test"}
 	data, _ := json.Marshal(valid)
@@ -244,7 +235,7 @@ func TestDispatcherParseCommand(t *testing.T) {
 
 func TestDispatcherHandleRunCallsTermOnParseFailure(t *testing.T) {
 	sub := newMockSubscriber()
-	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, Skill: &stubSkillHandler{}, File: &stubFileHandler{}}
+	handlers := Handlers{Run: &stubRunHandler{}, Control: &stubControlHandler{}, Interaction: &stubInteractionHandler{}, File: &stubFileHandler{}}
 	d, _ := New(Config{OrgID: 1, WorkerID: 2}, sub, handlers)
 
 	delivery := &dispatcherDelivery{}

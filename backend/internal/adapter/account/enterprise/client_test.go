@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 )
 
@@ -88,6 +89,57 @@ func TestUploadFileByMultipart_Success(t *testing.T) {
 	}
 	if string(receivedBody) != "fake-image-data" {
 		t.Errorf("expected body fake-image-data, got %s", string(receivedBody))
+	}
+}
+
+func TestCreateAPIKeyUsesCurrentBearerAndExpectedEnvelope(t *testing.T) {
+	var received createAPIKeyRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v5/account.CreateAPIKey" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer current-user-token" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		var envelope struct {
+			Cmd     string              `json:"cmd"`
+			Request createAPIKeyRequest `json:"request"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Cmd != "account.CreateAPIKey" {
+			t.Errorf("cmd = %q", envelope.Cmd)
+		}
+		received = envelope.Request
+		_ = json.NewEncoder(w).Encode(iamResponse{
+			Code:     0,
+			Response: json.RawMessage(`{"api_key":"yg-created-key","id":12}`),
+		})
+	}))
+	defer srv.Close()
+
+	client := newIAMClient(&config.IAMConfig{BaseURL: srv.URL}, "test")
+	ctx := localauth.WithBearerToken(context.Background(), "current-user-token")
+	result, err := client.CreateAPIKey(ctx, account.CreateAPIKeyInput{
+		Name:         "SingerOS CoreKG MCP",
+		Purpose:      "mcp_connector",
+		ResourceType: "mcp",
+		ResourceID:   0,
+		ExpireHours:  0,
+	})
+	if err != nil {
+		t.Fatalf("CreateAPIKey() error = %v", err)
+	}
+	if result.APIKey != "yg-created-key" || result.ID != 12 {
+		t.Fatalf("result = %#v", result)
+	}
+	if received.Name != "SingerOS CoreKG MCP" ||
+		received.Purpose != "mcp_connector" ||
+		received.ResourceType != "mcp" ||
+		received.ResourceID != 0 ||
+		received.ExpireHours != 0 {
+		t.Fatalf("request = %#v", received)
 	}
 }
 

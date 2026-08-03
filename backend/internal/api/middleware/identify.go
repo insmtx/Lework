@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"strings"
 	"time"
@@ -24,7 +26,7 @@ const (
 
 var skipAuthPaths = map[string]bool{
 	"/v1/RegisterByEmail":    true,
-	"/v1/LoginByEmail":       true,
+	"/v1/LoginByPassword":    true,
 	"/v1/SendPhoneLoginCode": true,
 	"/v1/LoginByPhoneCode":   true,
 	"/v1/RefreshToken":       true,
@@ -123,6 +125,17 @@ func parseCallerFromRequest(ctx *gin.Context, parser adapteraccount.TokenParser)
 	reqCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
 
+	if isWorkerToken(tokenStr) {
+		workerCaller, workerErr := parser.ParseWorker(reqCtx, tokenStr)
+		if workerErr == nil && workerCaller != nil && workerCaller.State == types.AuthStateSucc {
+			return workerCaller, tokenStr
+		}
+		if workerErr != nil {
+			logs.WarnContextw(ctx, "parse worker token failed", "error", workerErr)
+		}
+		return &types.Caller{State: types.AuthStateFailed}, tokenStr
+	}
+
 	userCaller, userErr := parser.ParseUser(reqCtx, tokenStr)
 	if userErr == nil && userCaller != nil && userCaller.State == types.AuthStateSucc {
 		return userCaller, tokenStr
@@ -146,4 +159,22 @@ func extractTokenFromHeader(authHeader string) string {
 		return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	}
 	return strings.TrimSpace(authHeader)
+}
+
+func isWorkerToken(tokenStr string) bool {
+	parts := strings.Split(tokenStr, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	var payload struct {
+		Aud string `json:"aud"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false
+	}
+	return payload.Aud == "worker"
 }

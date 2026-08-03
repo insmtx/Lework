@@ -21,8 +21,16 @@ func NormalizeMCPServerConfig(cfg agent.MCPServerConfig) agent.MCPServerConfig {
 		cfg.Name = "leros"
 	}
 	cfg.URL = strings.TrimSpace(cfg.URL)
-	cfg.BearerToken = strings.TrimSpace(cfg.BearerToken)
 	cfg.Command = strings.TrimSpace(cfg.Command)
+	cfg.Transport = strings.ToLower(strings.TrimSpace(cfg.Transport))
+	if cfg.Transport == "" {
+		if cfg.Command != "" {
+			cfg.Transport = "stdio"
+		} else if cfg.URL != "" {
+			cfg.Transport = "http"
+		}
+	}
+	cfg.BearerToken = strings.TrimSpace(cfg.BearerToken)
 	return cfg
 }
 

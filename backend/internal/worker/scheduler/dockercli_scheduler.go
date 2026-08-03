@@ -358,3 +358,17 @@ func (ds *DockerCLIScheduler) List(ctx context.Context) ([]*worker.WorkerInstanc
 	}
 	return result, nil
 }
+
+func (ds *DockerCLIScheduler) Shutdown(ctx context.Context) error {
+	ds.mu.RLock()
+	instanceIDs := make([]string, 0, len(ds.instances))
+	for id := range ds.instances {
+		instanceIDs = append(instanceIDs, id)
+	}
+	ds.mu.RUnlock()
+
+	for _, id := range instanceIDs {
+		ds.Stop(ctx, id)
+	}
+	return nil
+}

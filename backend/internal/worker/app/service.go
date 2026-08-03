@@ -14,11 +14,11 @@ import (
 	runtimecli "github.com/insmtx/Leros/backend/internal/cli"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
-	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
 	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
 	lifecyclecontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
+	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/runtimehost"
+	"github.com/insmtx/Leros/backend/internal/worker/skillsync"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/insmtx/Leros/backend/tools"
 	artifactdeclare "github.com/insmtx/Leros/backend/tools/artifact_declare"
@@ -34,7 +34,6 @@ type Options struct {
 	LLMConfig         *config.LLMConfig
 	CLIConfig         *config.CLIEnginesConfig
 	DefaultRuntime    string
-	CLISkillDirs      []string
 	GiteaCfg          *config.GiteaConfig
 	Env               string
 	InteractionRouter *runtimehost.InteractionRouter
@@ -43,7 +42,9 @@ type Options struct {
 	SessionDBPath     string
 	ServerAddr        string
 	OrgID             uint
+	WorkerID          uint
 	AuthToken         string
+	SkillPublisher    skillsync.Publisher
 }
 
 // Service is the Worker composition root.
@@ -56,7 +57,7 @@ type Service struct {
 
 func NewService(ctx context.Context, opts Options) (*Service, error) {
 	env := tools.NewRegistry()
-	if err := registerTools(env, opts.CLISkillDirs, opts.MemoryStore); err != nil {
+	if err := registerTools(env, opts.MemoryStore); err != nil {
 		return nil, fmt.Errorf("register runtime tools: %w", err)
 	}
 	logs.Infof("Loaded %d tools for runtime", len(env.List()))
@@ -120,17 +121,50 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 		wm = agentrun.NewWorkspaceManager(opts.Env, opts.GiteaCfg.Endpoint, opts.GiteaCfg.Owner, opts.GiteaCfg.AccessToken)
 	}
 	ai = agentrun.NewAttachmentIngestor()
+	skillsRoot, err := leros.SkillsDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve worker Skill repository: %w", err)
+	}
+	skillRepository, err := skillsync.NewRepository(skillsRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := skillRepository.Ensure(ctx); err != nil {
+		return nil, fmt.Errorf("initialize worker Skill repository: %w", err)
+	}
+	skillPreparer := agentrun.NewPluginSkillPreparerWithBaseline(
+		opts.ServerAddr,
+		opts.AuthToken,
+		skillRepository,
+	)
 	if opts.ModelStore == nil {
 		return nil, fmt.Errorf("model store is required")
 	}
-	preparer := agentrun.NewPreparerWithTools(
+	preparer := agentrun.NewPreparerWithSkillPreparer(
 		lifecycleBuilder,
 		wm,
 		ai,
 		opts.ModelStore,
 		agentrun.NewToolProvider(env),
+		skillPreparer,
 	)
 	finalizer := agentrun.NewFinalizer()
+	if opts.SkillPublisher != nil {
+		skillProcessor, err := skillsync.NewProcessor(
+			opts.OrgID,
+			opts.WorkerID,
+			opts.ServerAddr,
+			opts.AuthToken,
+			skillRepository,
+			opts.SkillPublisher,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create Skill post-run processor: %w", err)
+		}
+		finalizer = agentrun.NewFinalizerWithPostRunProcessor(
+			&skillPostRunAdapter{processor: skillProcessor},
+		)
+	}
 	journalFactory := agentrun.NewJournalFactory()
 
 	// Build the agent-level Executor and Registry.
@@ -157,13 +191,14 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 		}
 		sessionStore = ss
 		sqliteSessionStore = ss
-		preparer = agentrun.NewPreparerWithSessionStore(
+		preparer = agentrun.NewPreparerWithSessionStoreAndSkills(
 			lifecycleBuilder,
 			wm,
 			ai,
 			opts.ModelStore,
 			agentrun.NewToolProvider(env),
 			sessionStore,
+			skillPreparer,
 		)
 	}
 
@@ -181,6 +216,25 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	}
 
 	return s, nil
+}
+
+type skillPostRunAdapter struct {
+	processor *skillsync.Processor
+}
+
+func (a *skillPostRunAdapter) Process(
+	ctx context.Context,
+	run *agentrun.PreparedRun,
+	_ *agentrundomain.RunResult,
+) error {
+	if a == nil || a.processor == nil || run == nil || run.Request == nil {
+		return fmt.Errorf("Skill post-run adapter context is required")
+	}
+	return a.processor.Process(ctx, skillsync.RunContext{
+		RunID:     run.Request.RunID,
+		ProjectID: run.Request.BusinessKeys.ProjectPKID,
+		ActorUIN:  run.Request.BusinessKeys.UinPK,
+	})
 }
 
 // Close releases Worker-host resources created by the composition root.
@@ -262,25 +316,14 @@ func buildMCPServersFromConfig(cliCfg *config.CLIEnginesConfig) []agent.MCPServe
 	return []agent.MCPServerConfig{cfg}
 }
 
-func registerTools(registry *tools.Registry, cliSkillDirs []string, memoryStore *localmemory.Store) error {
+func registerTools(registry *tools.Registry, memoryStore *localmemory.Store) error {
 	if err := registry.Register(artifactdeclare.NewTool()); err != nil {
 		return fmt.Errorf("register artifact declare tool: %w", err)
 	}
 	if err := skillusetools.Register(registry); err != nil {
 		return fmt.Errorf("register skill use tool: %w", err)
 	}
-	onSkillMutation := func(ctx context.Context, kind skillstore.MutationKind, name, action string) {
-		if len(cliSkillDirs) > 0 {
-			switch kind {
-			case skillstore.MutationCreate:
-				_ = skilllinks.EnsureExternalSkillLink(name, cliSkillDirs)
-			case skillstore.MutationDelete:
-				_ = skilllinks.RemoveExternalSkillLink(name, cliSkillDirs)
-			}
-		}
-	}
-
-	if err := skillmanagetools.RegisterWithMutation(registry, onSkillMutation); err != nil {
+	if err := skillmanagetools.Register(registry); err != nil {
 		return fmt.Errorf("register skill manage tool: %w", err)
 	}
 	if err := memorytools.RegisterWithStore(registry, memoryStore); err != nil {

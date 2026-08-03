@@ -488,8 +488,6 @@ github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZ
 github.com/xyproto/randomstring v1.0.5/go.mod h1:rgmS5DeNXLivK7YprL0pY+lTuhNQW3iGxZ18UQApw/E=
 github.com/yargevad/filepathx v1.0.0 h1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5FYc=
 github.com/yargevad/filepathx v1.0.0/go.mod h1:BprfX/gpYNJHJfc35GjRRpVcwWXS89gGulUIU5tK3tA=
-github.com/ygpkg/storage-go v0.0.6 h1:biSB5pd9PdDHp8PFUC6jveuSIfmDWfFzvbPVO3vjWq4=
-github.com/ygpkg/storage-go v0.0.6/go.mod h1:sfq8wVZNOUPUbLBrNCu8xAqxBwjWaQgk9TGrSpTSy+A=
 github.com/ygpkg/storage-go v0.0.7 h1:4mYzO7dh0ATq0FkqGooDkcXg3MxYAv+NjYzJ9DRmn0E=
 github.com/ygpkg/storage-go v0.0.7/go.mod h1:sfq8wVZNOUPUbLBrNCu8xAqxBwjWaQgk9TGrSpTSy+A=
 github.com/ygpkg/yg-go v1.23.66 h1:ueP8/wIjx1jOIl7vVHJnAPf4ETikw6zN8gPl/KXlv+c=

@@ -221,12 +221,6 @@ func (h *SessionHandler) ListSessions(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
-type SessionEventsRequest struct {
-	SessionID   string `json:"session_id" binding:"required"`
-	Replay      bool   `json:"replay,omitempty"`
-	AssistantID string `json:"assistant_id,omitempty"`
-}
-
 // @Summary 订阅会话事件流
 // @Description 通过SSE订阅会话的事件流
 // @Tags Session
@@ -239,7 +233,7 @@ type SessionEventsRequest struct {
 // @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
 // @Router /SessionEvents [post]
 func (h *SessionHandler) SessionEvents(ctx *gin.Context) {
-	var req SessionEventsRequest
+	var req contract.SessionEventsRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return

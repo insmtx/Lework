@@ -306,13 +306,16 @@ func (s *permissionCore) memberActionAllowed(action types.Action, operatorRole t
 		}
 		return true
 	case types.ResourceRoleAdmin:
+		if ctx.IsSelf && (action == types.ActionProjectMemberDelete || action == types.ActionProjectMemberLeave) {
+			return false
+		}
 		if ctx.TargetRole == types.ResourceRoleOwner {
 			return false
 		}
 		if ctx.NewRole == types.ResourceRoleOwner {
 			return false
 		}
-		return action == types.ActionProjectMemberCreate || action == types.ActionProjectMemberUpdate || action == types.ActionProjectMemberDelete
+		return action == types.ActionProjectMemberCreate || action == types.ActionProjectMemberUpdate || action == types.ActionProjectMemberDelete || action == types.ActionProjectMemberList
 	case types.ResourceRoleMember:
 		return action == types.ActionProjectMemberList
 	}

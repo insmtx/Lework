@@ -14,6 +14,7 @@ var (
 	ErrPasswordContainsWhitespace  = accounterror.ErrPasswordContainsWhitespace
 	ErrPasswordStrength            = accounterror.ErrPasswordStrength
 	ErrEmailAlreadyExists          = accounterror.ErrEmailAlreadyExists
+	ErrPhoneAlreadyExists          = accounterror.ErrPhoneAlreadyExists
 	ErrInvalidEmailOrPassword      = accounterror.ErrInvalidEmailOrPassword
 	ErrLoginAttemptsExceeded       = accounterror.ErrLoginAttemptsExceeded
 	ErrPhoneRequired               = accounterror.ErrPhoneRequired

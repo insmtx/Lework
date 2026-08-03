@@ -104,6 +104,39 @@ type iamEditDepartmentEmployeeReq struct {
 	DepartmentIDs []uint `json:"department_ids"`
 }
 
+type iamListEmployeeReq struct {
+	Uins         []uint `json:"uins"`
+	UserIDs      []uint `json:"user_ids"`
+	EmployeeIDs  []uint `json:"employee_ids"`
+	SysRole      string `json:"sys_role"`
+	DepartmentID uint   `json:"department_id"`
+	Nickname     string `json:"nickname"`
+	LoginName    string `json:"login_name"`
+	Phone        string `json:"phone"`
+	Email        string `json:"email"`
+	Offset       int    `json:"offset"`
+	Limit        int    `json:"limit"`
+}
+
+type iamEmployeeItem struct {
+	Uin           uint      `json:"uin"`
+	UserID        uint      `json:"user_id"`
+	EmployeeID    uint      `json:"employee_id"`
+	Nickname      string    `json:"nickname"`
+	LoginName     string    `json:"login_name"`
+	Email         string    `json:"email"`
+	Phone         string    `json:"phone"`
+	AvatarURL     string    `json:"avatar_url"`
+	SysRole       string    `json:"sys_role"`
+	DepartmentIDs []uint    `json:"department_ids"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type iamListEmployeeResp struct {
+	Total int64             `json:"total"`
+	Items []iamEmployeeItem `json:"items"`
+}
+
 // ─── IAM Response Types ────────────────────────────────────────────────────────
 
 type iamLoginThirdResponseBody struct {
@@ -130,27 +163,27 @@ type iamUserInfo struct {
 }
 
 type iamLoginUin struct {
-	Uin            iamUinInfo `json:"uin"`
-	Name           string     `json:"name,omitempty"`
-	CompanyLogo    string     `json:"company_logo,omitempty"`
-	CompanyName    string     `json:"company_name,omitempty"`
-	Role           string     `json:"role,omitempty"`
-	CompanyStatus  string     `json:"company_status,omitempty"`
-	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
-	CompanyUserID  uint       `json:"company_user_id,omitempty"`
-	CreatedByUin   uint       `json:"created_by_uin,omitempty"`
-	CreatedByUserID uint      `json:"created_by_user_id,omitempty"`
+	Uin             iamUinInfo `json:"uin"`
+	Name            string     `json:"name,omitempty"`
+	CompanyLogo     string     `json:"company_logo,omitempty"`
+	CompanyName     string     `json:"company_name,omitempty"`
+	Role            string     `json:"role,omitempty"`
+	CompanyStatus   string     `json:"company_status,omitempty"`
+	LastLoginAt     *time.Time `json:"last_login_at,omitempty"`
+	CompanyUserID   uint       `json:"company_user_id,omitempty"`
+	CreatedByUin    uint       `json:"created_by_uin,omitempty"`
+	CreatedByUserID uint       `json:"created_by_user_id,omitempty"`
 }
 
 type iamUinInfo struct {
-	ID          uint      `json:"ID"`
-	CreatedAt   time.Time `json:"CreatedAt"`
-	UserID      uint      `json:"user_id"`
-	SubjectType string    `json:"subject_type"`
-	SubjectID   uint      `json:"subject_id"`
-	UinStatus   string    `json:"uin_status"`
-	Issuer      string    `json:"issuer"`
-	Name        string    `json:"name"`
+	ID          uint       `json:"ID"`
+	CreatedAt   time.Time  `json:"CreatedAt"`
+	UserID      uint       `json:"user_id"`
+	SubjectType string     `json:"subject_type"`
+	SubjectID   uint       `json:"subject_id"`
+	UinStatus   string     `json:"uin_status"`
+	Issuer      string     `json:"issuer"`
+	Name        string     `json:"name"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 }
 
@@ -214,18 +247,24 @@ type iamEmployeeInfo struct {
 	Email     string `json:"email"`
 }
 
+type iamDepartmentInfo struct {
+	ID        uint   `json:"id"`
+	Name      string `json:"name"`
+	IsPrimary int8   `json:"is_primary"`
+}
+
 type iamDepartmentTreeEmployee struct {
-	Uin           uint      `json:"uin"`
-	CreatedAt     time.Time `json:"created_at"`
-	UserName      string    `json:"user_name"`
-	Name          string    `json:"name"`
-	Email         string    `json:"email"`
-	Phone         string    `json:"phone"`
-	AvatarURL     string    `json:"avatar_url"`
-	EmployeeID    uint      `json:"employee_id"`
-	UserID        uint      `json:"user_id"`
-	Role          string    `json:"role"`
-	DepartmentIDs []uint    `json:"department_ids"`
+	Uin            uint                `json:"uin"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UserName       string              `json:"user_name"`
+	Name           string              `json:"name"`
+	Email          string              `json:"email"`
+	Phone          string              `json:"phone"`
+	AvatarURL      string              `json:"avatar_url"`
+	EmployeeID     uint                `json:"employee_id"`
+	UserID         uint                `json:"user_id"`
+	Role           string              `json:"role"`
+	DepartmentList []iamDepartmentInfo `json:"department_list"`
 }
 
 type iamDepartmentTreeResponseBody struct {
@@ -299,6 +338,7 @@ func mapUinListToAuthOrgInfos(uins []iamLoginUin) []account.AuthOrgInfo {
 			Uin:             uin.Uin.ID,
 			CreatedByUin:    uin.CreatedByUin,
 			CreatedByUserID: uin.CreatedByUserID,
+			UserName:        uin.Uin.Name,
 		})
 	}
 	return infos
@@ -324,6 +364,7 @@ func mapDepartmentTreeEmployeeToUserInfo(emp iamDepartmentTreeEmployee) account.
 		Email:     emp.Email,
 		Phone:     emp.Phone,
 		AvatarURL: emp.AvatarURL,
+		CreatedAt: &emp.CreatedAt,
 	}
 }
 
@@ -447,16 +488,16 @@ type iamGetCompanyMemberReq struct {
 }
 
 type iamGetCompanyMemberResp struct {
-	Uin           uint   `json:"uin"`
-	UserName      string `json:"user_name"`
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	Phone         string `json:"phone"`
-	AvatarURL     string `json:"avatar_url"`
-	EmployeeID    uint   `json:"employee_id"`
-	UserID        uint   `json:"user_id"`
-	Role          string `json:"role"`
-	DepartmentIDs []uint `json:"department_ids"`
+	Uin            uint                `json:"uin"`
+	UserName       string              `json:"user_name"`
+	Name           string              `json:"name"`
+	Email          string              `json:"email"`
+	Phone          string              `json:"phone"`
+	AvatarURL      string              `json:"avatar_url"`
+	EmployeeID     uint                `json:"employee_id"`
+	UserID         uint                `json:"user_id"`
+	Role           string              `json:"role"`
+	DepartmentList []iamDepartmentInfo `json:"department_list"`
 }
 
 type iamAuthSessionResp struct {
@@ -522,4 +563,18 @@ func mapListDepartmentToContract(dept iamDepartmentPayloadWithPaths) account.Dep
 		CreatedAt: dept.CreatedAt,
 		UpdatedAt: dept.UpdatedAt,
 	}
+}
+
+func mapLoginPasswordToOutput(resp *iamLoginThirdResponseBody) *account.LoginByPasswordOutput {
+	organizations := mapUinListToAuthOrgInfos(resp.Uin)
+	output := &account.LoginByPasswordOutput{
+		UserID:        resp.UserID,
+		RefreshToken:  resp.RefreshToken,
+		Organizations: organizations,
+		LoginWay:      resp.LoginWay,
+	}
+	if resp.UserInfo != nil {
+		output.UserInfo = mapIAMUserInfoToAuthUserInfo(resp.UserInfo)
+	}
+	return output
 }

@@ -13,16 +13,16 @@ import (
 
 func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
 	database := setupTestDB(t)
-	if err := database.Create(&types.UserOrg{
+	userOrg := &types.UserOrg{
 		UserID: 1,
 		OrgID:  2,
-		Uin:    100,
-	}).Error; err != nil {
+	}
+	if err := database.Create(userOrg).Error; err != nil {
 		t.Fatalf("seed second user org: %v", err)
 	}
 
 	ctx := auth.WithContext(context.Background(), &types.Caller{
-		Uin:   100,
+		Uin:   userOrg.ID,
 		OrgID: 2,
 		State: types.AuthStateSucc,
 	}, &types.Trace{
@@ -116,14 +116,16 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 		t.Fatalf("create task: %v", err)
 	}
 	session := &types.Session{
-		PublicID:  "sess_persona",
-		Type:      types.SessionTypeTask,
-		Uin:       1,
-		OrgID:     1,
-		ProjectID: &project.ID,
-		TaskID:    &task.ID,
-		Status:    string(types.SessionStatusActive),
-		Title:     "Persona Session",
+		PublicID:             "sess_persona",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID + 10000,
+		ProjectID:            &project.ID,
+		TaskID:               &task.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "Persona Session",
 	}
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
@@ -154,8 +156,8 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantPersona(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode run command: %v", err)
 	}
-	if payload.Execution.AssistantID != "assistant-bid-strategist" {
-		t.Fatalf("execution assistant id = %q, want assistant-bid-strategist", payload.Execution.AssistantID)
+	if payload.Execution.AssistantPublicID != "assistant-bid-strategist" {
+		t.Fatalf("execution assistant id = %q, want assistant-bid-strategist", payload.Execution.AssistantPublicID)
 	}
 	if payload.Execution.AssistantName != assistant.Name {
 		t.Fatalf("execution assistant name = %q, want %q", payload.Execution.AssistantName, assistant.Name)
@@ -218,14 +220,16 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 		t.Fatalf("create task: %v", err)
 	}
 	session := &types.Session{
-		PublicID:  "sess_persona_evolution",
-		Type:      types.SessionTypeTask,
-		Uin:       1,
-		OrgID:     1,
-		ProjectID: &project.ID,
-		TaskID:    &task.ID,
-		Status:    string(types.SessionStatusActive),
-		Title:     "Persona Evolution Session",
+		PublicID:             "sess_persona_evolution",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID + 10000,
+		ProjectID:            &project.ID,
+		TaskID:               &task.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "Persona Evolution Session",
 	}
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
@@ -275,32 +279,44 @@ func TestMessagePosterPublishWorkerTaskInjectsAssistantEvolutionContext(t *testi
 	}
 }
 
-func TestSyncSkillEntriesToProject_SkipsNonProjectSession(t *testing.T) {
+func TestResolveSkillMarketplaceScopesPluginByOrganization(t *testing.T) {
 	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
+	if err := database.AutoMigrate(&types.Plugin{}); err != nil {
+		t.Fatalf("migrate plugins: %v", err)
+	}
+	for _, plugin := range []types.Plugin{
+		{PublicID: "plugin_other", OrgID: 2, Code: "review", Kind: "skill", Name: "Other", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+		{PublicID: "plugin_current", OrgID: 1, Code: "review", Kind: "skill", Name: "Current", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 1, UpdatedBy: 1},
+	} {
+		if err := database.Create(&plugin).Error; err != nil {
+			t.Fatalf("create plugin: %v", err)
+		}
+	}
 	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
-
-	session := &types.Session{PublicID: "sess_no_project", OrgID: 1}
-	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal"})
+	source, skillID, resourceID := poster.resolveSkillMarketplace(context.Background(), 1, "review")
+	if source != "organization" || skillID != "review" || resourceID != "plugin_current" {
+		t.Fatalf("resolved Skill = (%q, %q, %q)", source, skillID, resourceID)
+	}
 }
 
-func TestSyncSkillEntriesToProject_AddsSkill(t *testing.T) {
+func TestWriteSkillInvokeResourcesDoesNotMutateProjectMetadata(t *testing.T) {
 	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
-
+	if err := database.AutoMigrate(&types.Plugin{}, &types.MessageResource{}); err != nil {
+		t.Fatalf("migrate Skill invocation models: %v", err)
+	}
 	project := &types.Project{
-		PublicID: "prj_sync_skill_add",
+		PublicID: "project_skill_invoke",
 		OrgID:    1,
 		OwnerID:  1,
-		Name:     "Sync Skill Test",
+		Name:     "Skill Invoke",
 		Status:   string(types.ProjectStatusActive),
+		Metadata: types.ObjectMetadata{Extra: map[string]interface{}{"note": "keep"}},
 	}
 	if err := database.Create(project).Error; err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 	session := &types.Session{
-		PublicID:  "sess_sync_skill_add",
+		PublicID:  "session_skill_invoke",
 		OrgID:     1,
 		Uin:       1,
 		ProjectID: &project.ID,
@@ -309,145 +325,154 @@ func TestSyncSkillEntriesToProject_AddsSkill(t *testing.T) {
 	if err := database.Create(session).Error; err != nil {
 		t.Fatalf("create session: %v", err)
 	}
+	message := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "/review 请检查",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusPending),
+	}
+	if err := database.Create(message).Error; err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	plugin := &types.Plugin{
+		PublicID:  "plugin_review",
+		OrgID:     1,
+		Code:      "review",
+		Kind:      "skill",
+		Name:      "Review",
+		Status:    types.PluginStatusActive,
+		Origin:    "org",
+		CreatedBy: 1,
+		UpdatedBy: 1,
+	}
+	if err := database.Create(plugin).Error; err != nil {
+		t.Fatalf("create plugin: %v", err)
+	}
 
-	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal"})
+	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
+	poster.writeSkillInvokeResources(context.Background(), session, message)
 
+	var resource types.MessageResource
+	if err := database.First(&resource).Error; err != nil {
+		t.Fatalf("load message resource: %v", err)
+	}
+	if resource.ResourceID != plugin.PublicID {
+		t.Fatalf("resource ID = %q, want %q", resource.ResourceID, plugin.PublicID)
+	}
 	var refreshed types.Project
 	if err := database.First(&refreshed, project.ID).Error; err != nil {
 		t.Fatalf("reload project: %v", err)
 	}
-	if refreshed.Metadata.Extra == nil {
-		t.Fatal("expected project metadata extra to be initialized")
+	if _, exists := refreshed.Metadata.Extra["skills"]; exists {
+		t.Fatalf("project metadata unexpectedly contains skills: %#v", refreshed.Metadata.Extra)
 	}
-	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
-	if !ok || len(rawSkills) != 1 {
-		t.Fatalf("expected 1 skill in project metadata, got %d", len(rawSkills))
+}
+
+// TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID 验证群聊历史注入时
+// publishWorkerTask 用 session.AssistantID（DigitalAssistant.ID）而非
+// session.AllocatedAssistantID（WorkerID）作为 GetLastAssistantMessageCreatedAt 过滤条件。
+//
+// 回归 Bug：修复前 main 分支 message_poster.go:776 把 session.AllocatedAssistantID
+// 当 AssistantID 传入查询，由于 AI 回复消息写入时 SessionMessage.AssistantID 是
+// DigitalAssistant.ID（PK），SQL WHERE assistant_id=<WorkerID> 永远查不到记录，
+// 导致每次都从 session 创建时间增量取所有消息，把整个会话历史塞入 LLM 上下文，
+// 触发"任务串线"问题。
+func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	recorder := &recordingEventBus{}
+	poster := NewMessagePoster(database, newTestPermissionService(database), recorder, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil)
+
+	assistant := seedReadyAssistant(t, database, "code-reviewer", "代码审查员", "按代码审查员身份回答")
+
+	proj := &types.Project{PublicID: "prj_hist2", OrgID: 1, OwnerID: 1, Name: "HistProject2", Status: string(types.ProjectStatusActive)}
+	if err := database.Create(proj).Error; err != nil {
+		t.Fatalf("create project: %v", err)
 	}
-	entry, ok := rawSkills[0].(map[string]interface{})
+
+	session := &types.Session{
+		PublicID:             "sess_hist2",
+		Type:                 types.SessionTypeTask,
+		Uin:                  1,
+		OrgID:                1,
+		AssistantID:          assistant.ID,
+		AllocatedAssistantID: assistant.ID + 10000,
+		ProjectID:            &proj.ID,
+		Status:               string(types.SessionStatusActive),
+		Title:                "history test 2",
+	}
+	if err := database.Create(session).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	histUser := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "历史用户提问",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusCompleted),
+		Sequence:    1,
+		SenderName:  "张三",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := database.Create(histUser).Error; err != nil {
+		t.Fatalf("create history user message: %v", err)
+	}
+
+	histAssistant := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleAssistant),
+		Content:     "历史AI回复",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusCompleted),
+		Sequence:    2,
+		SenderName:  "AI助手",
+		Timestamp:   time.Now().UnixMilli(),
+		AssistantID: assistant.ID,
+	}
+	if err := database.Create(histAssistant).Error; err != nil {
+		t.Fatalf("create history assistant message: %v", err)
+	}
+
+	message := &types.SessionMessage{
+		SessionID:   session.ID,
+		Role:        string(types.MessageRoleUser),
+		Content:     "这是当前消息",
+		MessageType: string(types.MessageTypeText),
+		Status:      string(types.MessageStatusPending),
+		Sequence:    3,
+		SenderName:  "李四",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := database.Create(message).Error; err != nil {
+		t.Fatalf("create current message: %v", err)
+	}
+
+	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID}); err != nil {
+		t.Fatalf("publishWorkerTask failed: %v", err)
+	}
+
+	cmd, ok := recorder.event.(messaging.WorkerCommand)
 	if !ok {
-		t.Fatal("skill entry is not a map")
-	}
-	if entry["code"] != "tech-design-proposal" {
-		t.Fatalf("skill code = %q, want tech-design-proposal", entry["code"])
-	}
-	if entry["name"] != "tech-design-proposal" {
-		t.Fatalf("skill name = %q, want tech-design-proposal", entry["name"])
-	}
-}
-
-func TestSyncSkillEntriesToProject_DeduplicatesSkills(t *testing.T) {
-	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
-
-	project := &types.Project{
-		PublicID: "prj_sync_skill_dedup",
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     "Sync Skill Dedup",
-		Status:   string(types.ProjectStatusActive),
-		Metadata: types.ObjectMetadata{
-			Extra: map[string]interface{}{
-				"skills": []interface{}{
-					map[string]interface{}{"code": "code-review", "name": "Code Review"},
-				},
-			},
-		},
-	}
-	if err := database.Create(project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
-	}
-	session := &types.Session{
-		PublicID:  "sess_sync_skill_dedup",
-		OrgID:     1,
-		Uin:       1,
-		ProjectID: &project.ID,
-		Status:    string(types.SessionStatusActive),
-	}
-	if err := database.Create(session).Error; err != nil {
-		t.Fatalf("create session: %v", err)
+		t.Fatalf("expected WorkerCommand, got %T", recorder.event)
 	}
 
-	poster.syncSkillEntriesToProject(ctx, session, []string{"code-review", "code-review"})
-
-	var refreshed types.Project
-	if err := database.First(&refreshed, project.ID).Error; err != nil {
-		t.Fatalf("reload project: %v", err)
-	}
-	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
-	if !ok {
-		t.Fatal("expected skills in project metadata")
-	}
-	if len(rawSkills) != 1 {
-		t.Fatalf("expected 1 skill after dedup, got %d", len(rawSkills))
-	}
-}
-
-func TestSyncSkillEntriesToProject_MultipleSkills(t *testing.T) {
-	database := setupTestDB(t)
-	ctx := setupTestContextWithCaller(t)
-	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{}, nil, nil, "test", nil, nil)
-
-	project := &types.Project{
-		PublicID: "prj_sync_skill_multi",
-		OrgID:    1,
-		OwnerID:  1,
-		Name:     "Sync Skill Multi",
-		Status:   string(types.ProjectStatusActive),
-	}
-	if err := database.Create(project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
-	}
-	session := &types.Session{
-		PublicID:  "sess_sync_skill_multi",
-		OrgID:     1,
-		Uin:       1,
-		ProjectID: &project.ID,
-		Status:    string(types.SessionStatusActive),
-	}
-	if err := database.Create(session).Error; err != nil {
-		t.Fatalf("create session: %v", err)
+	if cmd.Route.AssistantPublicID != assistant.PublicID {
+		t.Errorf("cmd.Route.AssistantPublicID = %s, want %s (assistant.PublicID)",
+			cmd.Route.AssistantPublicID, assistant.PublicID)
 	}
 
-	poster.syncSkillEntriesToProject(ctx, session, []string{"tech-design-proposal", "code-review"})
-
-	var refreshed types.Project
-	if err := database.First(&refreshed, project.ID).Error; err != nil {
-		t.Fatalf("reload project: %v", err)
-	}
-	rawSkills, ok := refreshed.Metadata.Extra["skills"].([]interface{})
-	if !ok || len(rawSkills) != 2 {
-		t.Fatalf("expected 2 skills, got %d", len(rawSkills))
-	}
-}
-
-func TestSkillNameInProjectSkills(t *testing.T) {
-	skills := []interface{}{
-		map[string]interface{}{"code": "code-review", "name": "Code Review"},
-		map[string]interface{}{"code": "tech-design", "name": "tech-design"},
+	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
 	}
 
-	tests := []struct {
-		name      string
-		skills    []interface{}
-		skillName string
-		want      bool
-	}{
-		{"exact match code", skills, "code-review", true},
-		{"case insensitive code", skills, "Code-Review", true},
-		{"exact match name", skills, "tech-design", true},
-		{"case insensitive name", skills, "Tech-Design", true},
-		{"not found", skills, "not-a-skill", false},
-		{"empty", skills, "", false},
-		{"nil skills", nil, "anything", false},
+	messages := payload.Input.Messages
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 input message (current only, windowStart aligned to histAssistant), got %d: %+v", len(messages), messages)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := skillNameInProjectSkills(tt.skills, tt.skillName)
-			if got != tt.want {
-				t.Fatalf("skillNameInProjectSkills(%q) = %v, want %v", tt.skillName, got, tt.want)
-			}
-		})
+	if messages[0].Content != "这是当前消息" {
+		t.Errorf("current content = %q, want %q", messages[0].Content, "这是当前消息")
 	}
 }

@@ -100,3 +100,40 @@ func TestFinalizerReturnsPreparedWorkspaceGitFailure(t *testing.T) {
 		t.Fatalf("FinalizeRequired() error = %v, want git failure", err)
 	}
 }
+
+func TestFinalizerRunsPostProcessorOnlyForCompletedRun(t *testing.T) {
+	processor := &postRunProcessorStub{}
+	finalizer := NewFinalizerWithPostRunProcessor(processor)
+	run := &PreparedRun{Request: &agentrundomain.RunRequest{RunID: "run-1"}}
+	finalizer.PostRunBestEffort(
+		context.Background(),
+		run,
+		&agentrundomain.RunResult{Status: agentrundomain.RunStatusFailed},
+		JournalSnapshot{},
+	)
+	if processor.calls != 0 {
+		t.Fatalf("failed Run post-processing calls = %d", processor.calls)
+	}
+	finalizer.PostRunBestEffort(
+		context.Background(),
+		run,
+		&agentrundomain.RunResult{Status: agentrundomain.RunStatusCompleted},
+		JournalSnapshot{},
+	)
+	if processor.calls != 1 {
+		t.Fatalf("completed Run post-processing calls = %d", processor.calls)
+	}
+}
+
+type postRunProcessorStub struct {
+	calls int
+}
+
+func (p *postRunProcessorStub) Process(
+	context.Context,
+	*PreparedRun,
+	*agentrundomain.RunResult,
+) error {
+	p.calls++
+	return nil
+}

@@ -8,6 +8,7 @@ const (
 	CodeForbidden             = 40301
 	CodeNotFound              = 40401
 	CodeInternalError         = 50001
+	CodeNotImplemented        = 50101
 	CodeValidationError       = 40002
 	CodeClientUpgradeRequired = 42601
 )

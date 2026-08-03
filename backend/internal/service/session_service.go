@@ -588,7 +588,16 @@ func (s *sessionService) HandleSessionRunStarted(ctx context.Context, req *contr
 		return err
 	}
 
-	publishAssistantReplyStartedEvent(ctx, s.db, s.eventbus, session, req.RunID, req.AssistantID)
+	assistantID := uint(0)
+	if req.AssistantID != "" {
+		resolved, err := resolveAssistantByPublicID(ctx, s.db, session.OrgID, req.AssistantID)
+		if err != nil {
+			logs.WarnContextf(ctx, "resolve assistant public id %s: %v", req.AssistantID, err)
+		} else {
+			assistantID = resolved
+		}
+	}
+	publishAssistantReplyStartedEvent(ctx, s.db, s.eventbus, session, req.RunID, assistantID)
 
 	logs.InfoContextf(ctx, "handled session run started: session_id=%s run_id=%s state_start_seq=%d reply_ids=%v",
 		req.SessionID, req.RunID, req.StateStartSeq, req.ReplyToMessageIDs)
@@ -739,29 +748,27 @@ func (s *sessionService) ClearSessionMessages(ctx context.Context, sessionID str
 //   - run.state:  terminal, approval, question 等关键状态事件
 //
 // 两个 lane 的事件互不重复，Seq 去重仅作保底。
-func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, assistantPublicID string, sink contract.SessionEventSink) error {
+func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID string, replay bool, assistantID string, sink contract.SessionEventSink) error {
 	session, caller, err := s.getSessionForCaller(ctx, sessionPID)
 	if err != nil {
 		return err
 	}
 
-	var filterAssistantID string
 	var filterWorkerID uint
-	if assistantPublicID != "" {
-		filterAssistantID = assistantPublicID
-		assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, assistantPublicID)
+	if assistantID != "" {
+		assistantID, err := resolveAssistantByPublicID(ctx, s.db, caller.OrgID, assistantID)
 		if err != nil {
 			return err
 		}
 		if assistantID == 0 {
-			return fmt.Errorf("digital assistant not found: %s", assistantPublicID)
+			return fmt.Errorf("digital assistant not found: %d", assistantID)
 		}
 		deployment, err := db.GetWorkerDeploymentByAssistantID(ctx, s.db, assistantID)
 		if err != nil {
 			return fmt.Errorf("resolve assistant worker deployment: %w", err)
 		}
 		if deployment == nil {
-			return fmt.Errorf("worker deployment not found for assistant %s", assistantPublicID)
+			return fmt.Errorf("worker deployment not found for assistant %d", assistantID)
 		}
 		if deployment.OrgID != caller.OrgID {
 			return errors.New("permission denied: assistant belongs to different org")
@@ -813,12 +820,7 @@ func (s *sessionService) StreamSessionEvents(ctx context.Context, sessionPID str
 		if runEvent.Body.Seq == 0 {
 			return
 		}
-		if filterAssistantID != "" && runEvent.Route.AssistantID != "" &&
-			runEvent.Route.AssistantID != filterAssistantID {
-			return
-		}
-		if filterWorkerID > 0 && runEvent.Route.AssistantID == "" &&
-			runEvent.Route.WorkerID != filterWorkerID {
+		if filterWorkerID > 0 && runEvent.Route.WorkerID != filterWorkerID {
 			return
 		}
 		if replay && !runEventMatchesReplyIDs(runEvent, replayState.MessageIDs) {
@@ -1082,6 +1084,7 @@ func publishAssistantReplyStartedEvent(
 		data.AssistantID = &publicID
 		if da, err := db.GetDigitalAssistantByID(ctx, gdb, assistantID); err == nil && da != nil {
 			data.AssistantName = da.Name
+			data.SenderName = da.Name
 		} else if err != nil {
 			logs.WarnContextf(ctx, "publishAssistantReplyStartedEvent: get assistant %d: %v", assistantID, err)
 		}
@@ -1123,7 +1126,7 @@ func normalizeMessageUsage(usage *types.MessageUsage) types.MessageUsage {
 	return normalized
 }
 
-func convertToContractSessionMessage(message *types.SessionMessage, publicID string) *contract.SessionMessage {
+func convertToContractSessionMessage(message *types.SessionMessage, publicID, assistantID string) *contract.SessionMessage {
 	result := &contract.SessionMessage{
 		ID:          fmt.Sprintf("%d", message.ID),
 		SessionID:   publicID,
@@ -1137,6 +1140,7 @@ func convertToContractSessionMessage(message *types.SessionMessage, publicID str
 		SenderUin:   message.SenderUin,
 		SenderName:  message.SenderName,
 		RunID:       message.RunID,
+		AssistantID: assistantID,
 	}
 
 	if message.Chunks != nil && len(message.Chunks) > 0 {
@@ -1174,7 +1178,8 @@ func (s *sessionService) convertToContractSessionMessage(
 	message *types.SessionMessage,
 	publicID string,
 ) *contract.SessionMessage {
-	result := convertToContractSessionMessage(message, publicID)
+	assistantID := assistantIDToPublicID(ctx, s.db, message.AssistantID)
+	result := convertToContractSessionMessage(message, publicID, assistantID)
 	if message == nil {
 		return result
 	}
@@ -1432,11 +1437,18 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 
 	// 群聊模式下为 AI 回复填充发送者名称（反查 DigitalAssistant.Name）
 	assistantName := ""
-	if req.AssistantID > 0 {
-		if da, err := db.GetDigitalAssistantByID(ctx, s.db, req.AssistantID); err == nil && da != nil {
-			assistantName = da.Name
-		} else if err != nil {
-			logs.WarnContextf(ctx, "complete session message: get assistant %d: %v", req.AssistantID, err)
+	assistantDBID := uint(0)
+	if req.AssistantID != "" {
+		resolved, err := resolveAssistantByPublicID(ctx, s.db, session.OrgID, req.AssistantID)
+		if err != nil {
+			logs.WarnContextf(ctx, "complete session message: resolve assistant %s: %v", req.AssistantID, err)
+		} else if resolved > 0 {
+			assistantDBID = resolved
+			if da, err := db.GetDigitalAssistantByID(ctx, s.db, resolved); err == nil && da != nil {
+				assistantName = da.Name
+			} else if err != nil {
+				logs.WarnContextf(ctx, "complete session message: get assistant %d: %v", resolved, err)
+			}
 		}
 	}
 
@@ -1450,7 +1462,7 @@ func (s *sessionService) CompleteSessionMessage(ctx context.Context, req *contra
 		Timestamp:   req.CreatedAt.UnixMilli(),
 		SenderName:  assistantName,
 		RunID:       req.RunID,
-		AssistantID: req.AssistantID,
+		AssistantID: assistantDBID,
 	}
 
 	if req.Chunks != nil && len(req.Chunks) > 0 {
@@ -1514,11 +1526,18 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 
 	// 群聊模式下为 AI 回复填充发送者名称（反查 DigitalAssistant.Name）
 	assistantName := ""
-	if req.AssistantID > 0 {
-		if da, err := db.GetDigitalAssistantByID(ctx, s.db, req.AssistantID); err == nil && da != nil {
-			assistantName = da.Name
-		} else if err != nil {
-			logs.WarnContextf(ctx, "failed session message: get assistant %d: %v", req.AssistantID, err)
+	assistantDBID := uint(0)
+	if req.AssistantID != "" {
+		resolved, err := resolveAssistantByPublicID(ctx, s.db, session.OrgID, req.AssistantID)
+		if err != nil {
+			logs.WarnContextf(ctx, "failed session message: resolve assistant %s: %v", req.AssistantID, err)
+		} else if resolved > 0 {
+			assistantDBID = resolved
+			if da, err := db.GetDigitalAssistantByID(ctx, s.db, resolved); err == nil && da != nil {
+				assistantName = da.Name
+			} else if err != nil {
+				logs.WarnContextf(ctx, "failed session message: get assistant %d: %v", resolved, err)
+			}
 		}
 	}
 
@@ -1538,7 +1557,7 @@ func (s *sessionService) FailedSessionMessage(ctx context.Context, req *contract
 		Timestamp:   req.CreatedAt.UnixMilli(),
 		SenderName:  assistantName,
 		RunID:       req.RunID,
-		AssistantID: req.AssistantID,
+		AssistantID: assistantDBID,
 	}
 	if msgEntity.Content == "" {
 		msgEntity.Content = req.ErrorMsg

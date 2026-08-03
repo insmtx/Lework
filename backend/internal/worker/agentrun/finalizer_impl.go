@@ -27,12 +27,25 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
+// PostRunProcessor handles an independent best-effort concern after a successful Run.
+type PostRunProcessor interface {
+	Process(context.Context, *PreparedRun, *agentrundomain.RunResult) error
+}
+
 // finalizer is the concrete RunFinalizer implementation.
-type finalizer struct{}
+type finalizer struct {
+	postRunProcessor PostRunProcessor
+}
 
 // NewFinalizer creates a new RunFinalizer.
 func NewFinalizer() Finalizer {
 	return &finalizer{}
+}
+
+// NewFinalizerWithPostRunProcessor creates a finalizer with an isolated
+// best-effort post-run processor.
+func NewFinalizerWithPostRunProcessor(processor PostRunProcessor) Finalizer {
+	return &finalizer{postRunProcessor: processor}
 }
 
 // FinalizeRequired performs the required finalization steps in order:
@@ -95,19 +108,20 @@ func (f *finalizer) FinalizeRequired(
 	}, nil
 }
 
-// PostRunBestEffort executes best-effort tasks after the terminal event.
-// Currently performs no operations — learning is deferred to a separate phase.
+// PostRunBestEffort executes independent tasks after the terminal event.
 func (f *finalizer) PostRunBestEffort(
 	ctx context.Context,
 	run *PreparedRun,
 	result *agentrundomain.RunResult,
 	snapshot JournalSnapshot,
 ) {
-	// Learning, metrics, and diagnostics will be wired here in a follow-up.
-	// Errors must not modify the run result.
-	_ = ctx
-	_ = run
-	_ = result
+	if f == nil || f.postRunProcessor == nil || result == nil ||
+		result.Status != agentrundomain.RunStatusCompleted {
+		return
+	}
+	if err := f.postRunProcessor.Process(ctx, run, result); err != nil {
+		logs.WarnContextf(ctx, "post-run processing failed without changing Run status: %v", err)
+	}
 }
 
 // reconcileWorkspace runs Git diff fallback to detect auto-generated artifacts

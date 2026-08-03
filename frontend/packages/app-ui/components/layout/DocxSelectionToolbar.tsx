@@ -9,12 +9,35 @@ import {
 	Sparkles,
 	WandSparkles,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DOCX_TONES, type DocxPolishAction, type DocxTone } from "./docx-selection-edit";
 import type { OfficeRect } from "./office-selection";
 
 type MenuState = "closed" | "open" | "closing";
+type VerticalMenuPlacement = "top" | "bottom";
+
+const MENU_GAP_PX = 8;
+
+function resolveVerticalMenuPlacement({
+	triggerRect,
+	menuHeight,
+	boundaryTop,
+	boundaryBottom,
+}: {
+	triggerRect: Pick<DOMRect, "top" | "bottom">;
+	menuHeight: number;
+	boundaryTop: number;
+	boundaryBottom: number;
+}): VerticalMenuPlacement {
+	const requiredSpace = menuHeight + MENU_GAP_PX;
+	const spaceAbove = triggerRect.top - boundaryTop;
+	const spaceBelow = boundaryBottom - triggerRect.bottom;
+
+	if (spaceAbove >= requiredSpace) return "top";
+	if (spaceBelow >= requiredSpace) return "bottom";
+	return spaceBelow > spaceAbove ? "bottom" : "top";
+}
 
 export function DocxSelectionToolbar({
 	anchor,
@@ -31,6 +54,9 @@ export function DocxSelectionToolbar({
 }) {
 	const [menuState, setMenuState] = useState<MenuState>("closed");
 	const [toneMenuState, setToneMenuState] = useState<MenuState>("closed");
+	const [menuPlacement, setMenuPlacement] = useState<VerticalMenuPlacement>("top");
+	const polishTriggerRef = useRef<HTMLButtonElement>(null);
+	const polishMenuRef = useRef<HTMLDivElement>(null);
 	const closeTimerRef = useRef<number | null>(null);
 	const hoverTimerRef = useRef<number | null>(null);
 	const toneCloseTimerRef = useRef<number | null>(null);
@@ -52,6 +78,46 @@ export function DocxSelectionToolbar({
 		};
 	}, [anchor, portalContainer]);
 
+	const updateMenuPlacement = useCallback(() => {
+		const trigger = polishTriggerRef.current;
+		const menu = polishMenuRef.current;
+		if (!trigger || !menu) return;
+
+		const triggerRect = trigger.getBoundingClientRect();
+		const menuHeight =
+			menu.offsetHeight || menu.scrollHeight || menu.getBoundingClientRect().height;
+		if (menuHeight <= 0) return;
+
+		if (portalContainer) {
+			const containerRect = portalContainer.getBoundingClientRect();
+			const boundaryTop = containerRect.top + portalContainer.clientTop;
+			const boundaryBottom =
+				portalContainer.clientHeight > 0
+					? boundaryTop + portalContainer.clientHeight
+					: containerRect.bottom;
+			setMenuPlacement(
+				resolveVerticalMenuPlacement({
+					triggerRect,
+					menuHeight,
+					boundaryTop,
+					boundaryBottom,
+				}),
+			);
+			return;
+		}
+
+		const viewportTop = window.visualViewport?.offsetTop ?? 0;
+		const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+		setMenuPlacement(
+			resolveVerticalMenuPlacement({
+				triggerRect,
+				menuHeight,
+				boundaryTop: viewportTop,
+				boundaryBottom: viewportTop + viewportHeight,
+			}),
+		);
+	}, [portalContainer]);
+
 	useEffect(() => {
 		return () => {
 			for (const timer of [closeTimerRef, hoverTimerRef, toneCloseTimerRef, toneHoverTimerRef]) {
@@ -59,6 +125,18 @@ export function DocxSelectionToolbar({
 			}
 		};
 	}, []);
+
+	useEffect(() => {
+		if (menuState !== "open") return;
+
+		updateMenuPlacement();
+		window.addEventListener("resize", updateMenuPlacement);
+		portalContainer?.addEventListener("scroll", updateMenuPlacement, { passive: true });
+		return () => {
+			window.removeEventListener("resize", updateMenuPlacement);
+			portalContainer?.removeEventListener("scroll", updateMenuPlacement);
+		};
+	}, [menuState, portalContainer, updateMenuPlacement]);
 
 	const dropdownCloseMs = () =>
 		Number.parseFloat(
@@ -70,6 +148,7 @@ export function DocxSelectionToolbar({
 		if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
 		hoverTimerRef.current = null;
 		closeTimerRef.current = null;
+		updateMenuPlacement();
 		setMenuState("open");
 	};
 
@@ -138,6 +217,7 @@ export function DocxSelectionToolbar({
 				>
 					<legend className="sr-only">AI 润色操作</legend>
 					<button
+						ref={polishTriggerRef}
 						type="button"
 						aria-expanded={menuState === "open"}
 						disabled={busy}
@@ -149,13 +229,16 @@ export function DocxSelectionToolbar({
 						AI 润色
 					</button>
 					<div
-						data-origin="bottom-left"
+						ref={polishMenuRef}
+						data-docx-polish-menu
+						data-placement={menuPlacement}
+						data-origin={menuPlacement === "top" ? "bottom-left" : "top-left"}
 						aria-hidden={menuState !== "open"}
 						onMouseEnter={openMenu}
 						onMouseLeave={scheduleCloseMenu}
-						className={`t-dropdown absolute bottom-full left-0 mb-2 w-44 overflow-visible rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl ${
-							menuState === "open" ? "is-open" : menuState === "closing" ? "is-closing" : ""
-						}`}
+						className={`t-dropdown absolute left-0 w-44 overflow-visible rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl ${
+							menuPlacement === "top" ? "bottom-full mb-2" : "top-full mt-2"
+						} ${menuState === "open" ? "is-open" : menuState === "closing" ? "is-closing" : ""}`}
 					>
 						<ActionButton
 							icon={<Sparkles className="size-4" />}

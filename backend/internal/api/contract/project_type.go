@@ -106,6 +106,8 @@ type ProjectActivitySkill struct {
 type ProjectActivityPayloadView struct {
 	AddedSkills        []ProjectActivitySkill `json:"added_skills"`
 	RemovedSkills      []ProjectActivitySkill `json:"removed_skills"`
+	AddedMCPs          []ProjectActivitySkill `json:"added_mcps"`
+	RemovedMCPs        []ProjectActivitySkill `json:"removed_mcps"`
 	AddedMembers       []ProjectActivityActor `json:"added_members"`
 	RemovedMembers     []ProjectActivityActor `json:"removed_members"`
 	AddedAITeammates   []ProjectActivityActor `json:"added_ai_teammates"`
@@ -133,6 +135,29 @@ type ProjectDetail struct {
 	Session *Session            `json:"session,omitempty"`
 	Tasks   []ProjectTaskItem   `json:"tasks"`
 	Members []ProjectMemberItem `json:"members"`
+}
+
+// ProjectPlugin is a project-authorized organization plugin.
+type ProjectPlugin struct {
+	PublicID        string `json:"public_id"`
+	Code            string `json:"code"`
+	Kind            string `json:"kind"`
+	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
+	Status          string `json:"status"`
+	CurrentRevision int    `json:"current_revision"`
+}
+
+// ListProjectPluginsRequest filters plugins bound to a project.
+type ListProjectPluginsRequest struct {
+	PublicID string `json:"public_id" binding:"required"`
+	Kind     string `json:"kind,omitempty"`
+}
+
+// UpdateProjectPluginRequest binds or unbinds one organization plugin.
+type UpdateProjectPluginRequest struct {
+	PublicID string `json:"public_id" binding:"required"`
+	PluginID string `json:"plugin_id" binding:"required"`
 }
 
 // ProjectTaskItem 项目详情中的任务项，包含关联的会话信息

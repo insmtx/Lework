@@ -93,7 +93,7 @@ export function MessageTimeline({
 				</div>
 			)}
 			{messages.map((msg: Message) => (
-				<div key={msg.id} className="py-0.5">
+				<div key={msg.id} className="min-w-0 py-0.5">
 					{msg.role === "user" ? (
 						<UserMessageBubble message={msg} />
 					) : msg.role === "assistant" ? (

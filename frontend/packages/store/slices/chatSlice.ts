@@ -1,38 +1,34 @@
-import { FetchSSEClient } from "@leros/ui/lib/fetch-sse";
-import { API_BASE_URL } from "../api/config";
-import { projectFileApi } from "../api/projectFileApi";
+/**
+ * 对话 Zustand slice（facade / 编排层）。
+ *
+ * 本文件只负责：装配 SessionStream / GlobalEvents / HistoryLoader / Composer / send deps，
+ * 对外暴露与旧版兼容的 ChatStore 方法，以及 re-export 纯函数。
+ * 业务实现已下沉到 `../chat/*`（勿在本文件新增大段协议/映射逻辑）。
+ */
 import { sessionApi } from "../api/sessionApi";
-import type {
-	BackendApprovalDecisionPayload,
-	BackendApprovalRequestPayload,
-	BackendMessage,
-	BackendMessageAttachment,
-	BackendMessageChunk,
-	BackendMessageMetadata,
-	BackendQuestionAnswerPayload,
-	BackendQuestionRequestPayload,
-	BackendRuntimeTodoItem,
-	BackendSessionArtifactPayload,
-	BackendSessionEventPayload,
-	BackendToolCall,
-	BackendWorkTitleUpdatedPayload,
-	SSEMessageEvent,
-} from "../api/types";
 import {
-	buildComposerFolderUploadSummaryMessage,
-	COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE,
-	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
-	isComposerUploadAllowedFile,
-	isEmptyUploadFile,
-	partitionComposerFolderFiles,
-} from "../constants/composer-upload";
+	allLocalMessagesBelongToSession,
+	type ChatState,
+	getApprovalStatus,
+	initialChatState,
+	resolveActiveRunIdForCancel,
+	retainLocalMessagesForSession,
+} from "../chat";
+import { Composer } from "../chat/composer";
+import { ChatEffects } from "../chat/effects";
+import { GlobalEventsManager } from "../chat/globalEvents";
+import { HistoryLoader } from "../chat/historyLoader";
 import {
-	FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE,
-	getFileRelativePath,
-	getFolderNameFromFiles,
-	isFolderUploadSizeExceeded,
-} from "../constants/upload";
-import { mockModelOptions } from "../mocks/chatMocks";
+	bootstrapNewTaskSession as bootstrapNewTaskSessionImpl,
+	createEmptyAssistantMessage,
+	createOptimisticUserMessage,
+	type SendPipelineDeps,
+	type SendProjectMessageOptions,
+	sendMessage as sendMessageImpl,
+	sendProjectMessage as sendProjectMessageImpl,
+	sendTaskRoomMessage as sendTaskRoomMessageImpl,
+} from "../chat/send";
+import { SessionStream } from "../chat/sessionStream";
 import type { SliceCreator } from "../types";
 import type {
 	ApprovalAction,
@@ -40,72 +36,28 @@ import type {
 	Attachment,
 	ExecutionMode,
 	Message,
-	MessageArtifact,
-	MessageAttachment,
 	MessageMetadata,
-	MessageProcessStep,
-	MessageRole,
-	MessageUsage,
-	ModelOption,
-	QuestionItem,
 	QuestionRequest,
-	RuntimeTodoItem,
-	TodoStatus,
-	ToolCall,
 	ToolCallStatus,
 } from "../types/chat";
 import { flattenActions } from "../utils";
-import { getValidJwtToken } from "../utils/authStorage";
-import { formatFileSize, parseOptionalTimestamp } from "../utils/format";
-import { mapComposerAttachments, mapOutgoingAttachments } from "../utils/messageAttachments";
-import {
-	buildMessageMetadata,
-	enrichAssistantMessageMetrics,
-	latencyFromRunCompletedTimes,
-} from "../utils/messageMetrics";
 
-export type ChatState = {
-	messagesMap: Record<string, Message>;
-	messageIds: string[];
-	streamingMessageId: string | null;
-	isGenerating: boolean;
-	pendingBootstrapSessionId: string | null;
-	cancellingSessionId: string | null;
-	streamCancelRef: (() => void) | null;
-
-	inputText: string;
-	inputAttachments: Attachment[];
-	inputFocused: boolean;
-	selectedModel: string;
-	executionMode: ExecutionMode;
-	modelOptions: ModelOption[];
-	activeSessionId: string | null;
-
-	tokenUsage: { total: number; currentSession: number };
-};
+export type { ChatState } from "../chat";
+export {
+	allLocalMessagesBelongToSession,
+	applySessionEventToMessage,
+	attachAssistantReplyTargets,
+	createAssistantSessionEventsWaitingMessage,
+	insertGlobalUserMessageId,
+	isTaskRoomAssistantPlaceholder,
+	mapBackendMessage,
+	retainLocalMessagesForSession,
+} from "../chat";
 
 export type ChatAction = Pick<ChatActionImpl, keyof ChatActionImpl>;
 export type ChatStore = ChatState & ChatAction;
 
-const _initialState: ChatState = {
-	messagesMap: {},
-	messageIds: [],
-	streamingMessageId: null,
-	isGenerating: false,
-	pendingBootstrapSessionId: null,
-	cancellingSessionId: null,
-	streamCancelRef: null,
-
-	inputText: "",
-	inputAttachments: [],
-	inputFocused: false,
-	selectedModel: "gpt-4",
-	executionMode: "default",
-	modelOptions: mockModelOptions,
-	activeSessionId: null,
-
-	tokenUsage: { total: 0, currentSession: 0 },
-};
+const _initialState: ChatState = initialChatState;
 
 type SetState = (
 	partial: ChatStore | Partial<ChatStore> | ((state: ChatStore) => ChatStore | Partial<ChatStore>),
@@ -114,1552 +66,10 @@ type SetState = (
 
 type FullStoreGet = () => Record<string, unknown>;
 
-export function mapBackendMessage(msg: BackendMessage): Message {
-	const message: Message = {
-		id: String(msg.id),
-		conversationId: msg.session_id ?? msg.conversation_id ?? "",
-		role: msg.role as MessageRole,
-		content: msg.content ?? "",
-		timestamp: msg.timestamp ?? new Date(msg.created_at).getTime(),
-		sequence: msg.sequence,
-		runId: msg.run_id,
-		author:
-			msg.role === "user" && msg.sender_uin !== undefined
-				? {
-						id: String(msg.sender_uin),
-						name: msg.sender_name || "用户",
-						type: "user",
-					}
-				: msg.role === "assistant" && msg.sender_name
-					? {
-							id: msg.run_id ?? String(msg.id),
-							name: msg.sender_name,
-							type: "assistant",
-						}
-					: undefined,
-		metadata: buildMessageMetadata(msg.metadata),
-		usage: mapUsage(msg.usage),
-	};
-
-	let mapped = applySessionEventsToMessage(message, msg.chunks, {
-		appendContent: !message.content,
-		finalContent: message.content,
-		// 中文注释：历史消息的 chunks 只用于还原执行过程，不能重新把已落库回复标成生成中。
-		markStreaming: false,
-	});
-	if (
-		mapped.role === "assistant" &&
-		mapped.todos?.length &&
-		mapped.status !== "failed" &&
-		mapped.status !== "streaming" &&
-		mapped.status !== "waiting" &&
-		mapped.status !== "sending" &&
-		(mapped.status === "completed" ||
-			Boolean(mapped.content?.trim() || mapped.processSteps?.length))
-	) {
-		mapped = {
-			...mapped,
-			todos: completeTodos(mapped.todos),
-		};
-	}
-	if (msg.artifacts?.length) {
-		const artifacts = msg.artifacts
-			.map(mapArtifactPayload)
-			.filter((artifact): artifact is MessageArtifact => artifact !== undefined);
-		if (artifacts.length) {
-			mapped = {
-				...mapped,
-				artifacts: mergeArtifacts(mapped.artifacts, artifacts),
-			};
-		}
-	}
-	if (msg.attachments?.length) {
-		const messageCreatedAt = parseOptionalTimestamp(msg.created_at) ?? msg.timestamp;
-		const attachments = msg.attachments
-			.map((attachment) => mapBackendAttachment(attachment, messageCreatedAt))
-			.filter((attachment): attachment is MessageAttachment => attachment !== undefined);
-		if (attachments.length) {
-			mapped = { ...mapped, attachments };
-		}
-	}
-	return enrichAssistantMessageMetrics(mapped);
-}
-
-function mapBackendAttachment(
-	attachment: BackendMessageAttachment,
-	messageCreatedAt?: number,
-): MessageAttachment | undefined {
-	const fileUploadId = attachment.file_upload_id?.trim();
-	if (!fileUploadId) return undefined;
-
-	return {
-		id: fileUploadId,
-		fileUploadId,
-		name: attachment.name?.trim() || fileUploadId,
-		mimeType: attachment.mime_type?.trim() || "application/octet-stream",
-		size: attachment.size ?? 0,
-		relativePath: attachment.relative_path?.trim() || undefined,
-		createdAt: messageCreatedAt,
-		url: attachment.PublicURL?.trim() || attachment.public_url?.trim() || undefined,
-	};
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function normalizeSkillDirectiveName(skillName: string): string {
-	return skillName.trim().replace(/^\/+/, "");
-}
-
-function appendSkillDirectiveToInput(inputText: string, skillName: string): string {
-	const normalizedName = normalizeSkillDirectiveName(skillName);
-	if (!normalizedName) return inputText;
-
-	const token = `/${normalizedName}`;
-	const tokenPattern = new RegExp(`(^|\\s)${escapeRegExp(token)}(?=\\s|$)`);
-	const trimmed = inputText.trimStart();
-	if (tokenPattern.test(trimmed)) {
-		return trimmed.endsWith(" ") ? trimmed : `${trimmed} `;
-	}
-
-	const directivePrefixMatch = trimmed.match(/^((?:\/[^\s/]+\s+)*)/);
-	const directivePrefix = directivePrefixMatch?.[0] ?? "";
-	const rest = trimmed.slice(directivePrefix.length);
-	const nextDirectivePrefix = directivePrefix
-		? `${directivePrefix.trimEnd()} ${token} `
-		: `${token} `;
-
-	return `${nextDirectivePrefix}${rest}`;
-}
-
-function replaceSkillDirectiveInInput(inputText: string, skillName: string): string {
-	const normalizedName = normalizeSkillDirectiveName(skillName);
-	if (!normalizedName) return inputText;
-
-	const token = `/${normalizedName}`;
-	const trimmed = inputText.trimStart();
-	const rest = trimmed.replace(/^(?:\/[^\s/]+\s+)*/, "");
-	return rest ? `${token} ${rest}` : `${token} `;
-}
-
-function revokeLocalAttachmentUrls(attachments: Attachment[]) {
-	for (const attachment of attachments) {
-		if (attachment.url?.startsWith("blob:")) {
-			URL.revokeObjectURL(attachment.url);
-		}
-	}
-}
-
-function mapToolCalls(tcList?: BackendToolCall[]): ToolCall[] | undefined {
-	if (!tcList) return undefined;
-	return tcList.map((tc) => ({
-		id: tc.id,
-		name: tc.name,
-		arguments: tc.arguments ?? {},
-		status: normalizeToolCallStatus(tc.status),
-		result: tc.result,
-		duration: tc.duration,
-	}));
-}
-
-type NormalizedSessionEvent = Exclude<BackendMessageChunk, string> | SSEMessageEvent;
-type SessionEventLike = BackendMessageChunk | SSEMessageEvent;
-type BackendGlobalMessagePayload = {
-	id?: string | number;
-	message_id?: string | number;
-	sender_type?: "human" | "assistant" | string;
-	sender_uin?: number;
-	sender_name?: string;
-	content?: string;
-	message_type?: string;
-	sequence?: number;
-	attachments?: BackendMessageAttachment[];
-	created_at?: string;
-	run_id?: string;
-	assistant_id?: string;
-	assistant_name?: string;
-	metadata?: BackendMessageMetadata;
-};
-type BackendGlobalPayload = BackendGlobalMessagePayload | BackendWorkTitleUpdatedPayload;
-type BackendGlobalEventBase<TType extends string = string, TPayload = BackendGlobalPayload> = {
-	type?: TType;
-	project_id?: string;
-	task_id?: string;
-	session_id?: string;
-	timestamp?: number;
-	payload?: TPayload;
-	data?: TPayload;
-};
-type BackendGlobalMessageCreatedEvent = BackendGlobalEventBase<
-	"message.created",
-	BackendGlobalMessagePayload
->;
-type BackendGlobalWorkTitleUpdatedEvent = BackendGlobalEventBase<
-	"work.title.updated",
-	BackendWorkTitleUpdatedPayload
->;
-type BackendGlobalEvent =
-	| BackendGlobalMessageCreatedEvent
-	| BackendGlobalWorkTitleUpdatedEvent
-	| BackendGlobalEventBase;
-
-function extractAssistantIdsFromMetadata(metadata?: MessageMetadata): string[] | undefined {
-	const assistantIds = Array.from(
-		new Set(
-			(metadata?.composerTokens ?? [])
-				.filter((token) => token.kind === "assistant" && token.id?.trim())
-				.map((token) => token.id?.trim())
-				.filter((id): id is string => Boolean(id)),
-		),
-	);
-	// 中文注释：只有显式选择 AI 队友时才传 assistant_ids，避免覆盖后端默认分配逻辑。
-	return assistantIds.length > 0 ? assistantIds : undefined;
-}
-
-function buildBackendMessageMetadata(
-	metadata?: MessageMetadata,
-): BackendMessageMetadata | undefined {
-	if (!metadata) return undefined;
-
-	const extra: Record<string, unknown> = {};
-	if (metadata.composerTokens?.length) extra.composerTokens = metadata.composerTokens;
-	if (metadata.displayContent?.trim()) extra.displayContent = metadata.displayContent;
-	if (metadata.displayComposerTokens?.length) {
-		extra.displayComposerTokens = metadata.displayComposerTokens;
-	}
-	if (metadata.invokedAssistant) extra.invokedAssistant = metadata.invokedAssistant;
-
-	// 中文注释：复用 message metadata.extra 透传输入框展示态，避免新增后端字段。
-	return Object.keys(extra).length > 0 ? { extra } : undefined;
-}
-
-function mapGlobalMessageAttachments(
-	attachments: BackendMessageAttachment[] | undefined,
-	messageCreatedAt?: number,
-): MessageAttachment[] | undefined {
-	const mapped = attachments
-		?.map((attachment) => mapBackendAttachment(attachment, messageCreatedAt))
-		.filter((attachment): attachment is MessageAttachment => attachment !== undefined);
-	return mapped?.length ? mapped : undefined;
-}
-
-function getReplyTargetMessageId(runId?: string): string | undefined {
-	const match = runId?.match(/^req_(.+)$/);
-	return match?.[1]?.trim() || undefined;
-}
-
-function buildReplyToFromMessage(message?: Message): Message["replyTo"] | undefined {
-	if (message?.role !== "user") return undefined;
-	const content = (message.metadata?.displayContent ?? message.content).trim();
-	if (!content && !message.attachments?.length) return undefined;
-	return {
-		messageId: message.id,
-		authorName: message.author?.name,
-		content,
-	};
-}
-
-function resolveActiveRunIdForCancel(state: Pick<ChatState, "streamingMessageId" | "messagesMap">) {
-	const streamingMessage = state.streamingMessageId
-		? state.messagesMap[state.streamingMessageId]
-		: undefined;
-	// 中文注释：run_id 由 GlobalEvents 的 message.created 写入流式 assistant 消息，取消时一并传给后端。
-	return streamingMessage?.runId?.trim() || undefined;
-}
-
-function resolveReplyToFromRunId(
-	runId: string | undefined,
-	messagesMap: Record<string, Message>,
-	sessionId?: string,
-): Message["replyTo"] | undefined {
-	const replyTargetMessageId = getReplyTargetMessageId(runId);
-	if (!replyTargetMessageId) return undefined;
-	const target = messagesMap[replyTargetMessageId];
-	if (!target || (sessionId && target.conversationId !== sessionId)) return undefined;
-	return buildReplyToFromMessage(target);
-}
-
-export function attachAssistantReplyTargets(messages: Message[]): Message[] {
-	const messagesMap = Object.fromEntries(messages.map((message) => [message.id, message]));
-	return messages.map((message) => {
-		if (message.role !== "assistant" || message.replyTo) return message;
-		const replyTo = resolveReplyToFromRunId(message.runId, messagesMap, message.conversationId);
-		if (!replyTo) return message;
-		return { ...message, replyTo };
-	});
-}
-
-function mapUsage(usage?: {
-	input_tokens?: number;
-	output_tokens?: number;
-	total_tokens?: number;
-}): MessageUsage | undefined {
-	if (!usage) return undefined;
-	if (
-		usage.input_tokens === undefined &&
-		usage.output_tokens === undefined &&
-		usage.total_tokens === undefined
-	) {
-		return undefined;
-	}
-	return {
-		inputTokens: usage.input_tokens,
-		outputTokens: usage.output_tokens,
-		totalTokens: usage.total_tokens,
-	};
-}
-
-function normalizeToolCallStatus(status?: string): ToolCallStatus {
-	switch (status) {
-		case "success":
-		case "completed":
-			return "success";
-		case "error":
-		case "failed":
-			return "error";
-		case "running":
-		case "in_progress":
-			return "running";
-		default:
-			return "pending";
-	}
-}
-
-function normalizeTodoStatus(status?: string): TodoStatus {
-	switch (status) {
-		case "in_progress":
-			return "in_progress";
-		case "completed":
-			return "completed";
-		case "cancelled":
-			return "cancelled";
-		default:
-			return "pending";
-	}
-}
-
-function completeTodos(todos: RuntimeTodoItem[] | undefined): RuntimeTodoItem[] | undefined {
-	if (!todos?.length || todos.every((todo) => todo.status === "completed")) {
-		return todos;
-	}
-	return todos.map((todo) =>
-		todo.status === "completed" ? todo : { ...todo, status: "completed" },
-	);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function normalizeSessionEvent(event: SessionEventLike): NormalizedSessionEvent | undefined {
-	if (typeof event === "string") {
-		try {
-			const parsed = JSON.parse(event) as unknown;
-			if (isRecord(parsed) && typeof parsed.type === "string") {
-				return parsed as NormalizedSessionEvent;
-			}
-		} catch {
-			return undefined;
-		}
-		return undefined;
-	}
-
-	if (typeof event.type !== "string") return undefined;
-	return event as NormalizedSessionEvent;
-}
-
-function getEventPayload(event: NormalizedSessionEvent): BackendSessionEventPayload {
-	if (Array.isArray(event.payload)) {
-		return { todos: event.payload };
-	}
-	if (isRecord(event.payload)) {
-		return event.payload as BackendSessionEventPayload;
-	}
-	return event as BackendSessionEventPayload;
-}
-
-function getEventContent(
-	event: NormalizedSessionEvent,
-	payload: BackendSessionEventPayload,
-): string {
-	return (
-		payload.content ??
-		payload.message ??
-		("content" in event ? event.content : undefined) ??
-		("chunk" in event ? event.chunk : undefined) ??
-		""
-	);
-}
-
-function getRunResultMessage(payload: BackendSessionEventPayload): string | undefined {
-	if (typeof payload.message === "string" && payload.message.trim()) {
-		return payload.message;
-	}
-	if (!payload.result || typeof payload.result !== "object") return undefined;
-	const value = payload.result as { message?: unknown };
-	return typeof value.message === "string" ? value.message : undefined;
-}
-
-function getRunFailedMessage(payload: BackendSessionEventPayload): string | undefined {
-	if (typeof payload.error === "string" && payload.error.trim()) {
-		return payload.error;
-	}
-	return getRunResultMessage(payload);
-}
-
-function splitThinkingStepContent(content: string): string[] {
-	const normalized = content.replace(/\r\n/g, "\n");
-	const withStageBoundaries = normalized.replace(
-		/\n(?=(?:\*\*)?(?:下一步|接下来|现在|然后|最后|首先)[：:]?|#{1,6}\s)/g,
-		"\n\n",
-	);
-
-	return withStageBoundaries
-		.split(/\n{2,}/)
-		.map((segment) => segment.trim())
-		.filter(Boolean);
-}
-
-function createThinkingStepsFromContent(content: string, startIndex: number): MessageProcessStep[] {
-	const thinkingSegments = splitThinkingStepContent(content);
-	return thinkingSegments.map((segment, index) => ({
-		id: `thinking-${startIndex + index + 1}`,
-		type: "thinking" as const,
-		content: segment,
-	}));
-}
-
-function rebuildTrailingThinkingSteps(
-	steps: MessageProcessStep[] | undefined,
-	content: string,
-): MessageProcessStep[] {
-	const stableSteps = [...(steps ?? [])];
-	return [...stableSteps, ...createThinkingStepsFromContent(content, stableSteps.length)];
-}
-
-function appendProcessThinkingStep(
-	steps: MessageProcessStep[] | undefined,
-	delta: string,
-): MessageProcessStep[] {
-	if (!delta) return steps ?? [];
-
-	const next = [...(steps ?? [])];
-	const lastStep = next.at(-1);
-	if (lastStep?.type === "thinking") {
-		return rebuildTrailingThinkingSteps(next.slice(0, -1), lastStep.content + delta);
-	}
-
-	return rebuildTrailingThinkingSteps(next, delta);
-}
-
-function appendProcessToolCallStep(
-	steps: MessageProcessStep[] | undefined,
-	toolCallId: string,
-): MessageProcessStep[] {
-	if (!toolCallId) return steps ?? [];
-	if (steps?.some((step) => step.type === "tool_call" && step.toolCallId === toolCallId)) {
-		return steps;
-	}
-
-	return [
-		...(steps ?? []),
-		{
-			id: `tool-call-${toolCallId}`,
-			type: "tool_call",
-			toolCallId,
-		},
-	];
-}
-
-type ApplySessionEventOptions = {
-	appendContent: boolean;
-	finalContent?: string;
-	markStreaming?: boolean;
-};
-
-function applyStreamingState<T extends Message>(message: T, options: ApplySessionEventOptions): T {
-	if (options.markStreaming === false) return message;
-	return {
-		...message,
-		status: "streaming",
-		statusText: undefined,
-	};
-}
-
-function shouldAppendMessageDeltaToProcess(
-	content: string,
-	options: ApplySessionEventOptions,
-): boolean {
-	const trimmedContent = content.trim();
-	if (!trimmedContent) return false;
-
-	const finalContent = options.finalContent?.trim();
-	if (!finalContent) return true;
-
-	// 历史消息里最终回答已在 content 字段，属于最终回答的 delta 不再放入执行过程。
-	return !finalContent.includes(trimmedContent);
-}
-
-function pruneFinalContentProcessSteps(
-	steps: MessageProcessStep[] | undefined,
-	finalContent: string | undefined,
-): MessageProcessStep[] | undefined {
-	const trimmedFinalContent = finalContent?.trim();
-	if (!steps?.length || !trimmedFinalContent) return steps;
-
-	const nextSteps = steps.filter((step) => {
-		if (step.type !== "thinking") return true;
-		const content = step.content.trim();
-		return !!content && !trimmedFinalContent.includes(content);
-	});
-
-	return nextSteps.length ? nextSteps : undefined;
-}
-
-function metadataFromPayload(payload: BackendSessionEventPayload): MessageMetadata | undefined {
-	const usage = mapUsage(payload.usage ?? payload);
-	const streamLatency = latencyFromRunCompletedTimes(payload.started_at, payload.completed_at);
-	return buildMessageMetadata(
-		{
-			...payload.metadata,
-			model: payload.metadata?.model ?? payload.model,
-			latency: payload.metadata?.latency ?? streamLatency,
-		},
-		usage,
-	);
-}
-
-function mergeToolCalls(current: ToolCall[] | undefined, updates: ToolCall[]): ToolCall[] {
-	return updates.reduce((acc, update) => upsertToolCall(acc, update), current ?? []);
-}
-
-function getTodoItemsFromValue(value: unknown): BackendRuntimeTodoItem[] | undefined {
-	if (!Array.isArray(value)) return undefined;
-	if (!value.every(isRecord)) return undefined;
-	return value as BackendRuntimeTodoItem[];
-}
-
-function mapTodoItems(items: BackendRuntimeTodoItem[]): RuntimeTodoItem[] {
-	return items.map((item, index) => ({
-		id: item.id?.trim() || `todo-${index + 1}`,
-		title: item.title?.trim() || `待办 ${index + 1}`,
-		status: normalizeTodoStatus(item.status),
-		priority: item.priority,
-	}));
-}
-
-function mapArtifactPayload(payload: BackendSessionArtifactPayload): MessageArtifact | undefined {
-	const artifactID = payload.artifact_id?.trim();
-	if (!artifactID) return undefined;
-
-	const artifactType = payload.artifact_type?.trim() || "file";
-	const mimeType = payload.mime_type?.trim();
-	const filename = payload.filename?.trim();
-	const title = payload.title?.trim() || filename || artifactID;
-	const type =
-		mimeType?.startsWith("image/") || artifactType === "image"
-			? "image"
-			: artifactType === "spreadsheet"
-				? "spreadsheet"
-				: "document";
-
-	return {
-		id: artifactID,
-		name: filename || title,
-		title,
-		description: payload.description?.trim() || undefined,
-		type,
-		artifactType,
-		mimeType,
-		size: formatFileSize(payload.file_size ?? 0),
-		updatedAt: parseOptionalTimestamp(payload.created_at),
-		downloadUrl: "",
-		storageUri: payload.storage_uri?.trim() || undefined,
-		sha256: payload.sha256,
-		versionNo: payload.version_no,
-	};
-}
-
-function mergeArtifacts(
-	current: MessageArtifact[] | undefined,
-	updates: MessageArtifact[],
-): MessageArtifact[] {
-	const next = [...(current ?? [])];
-	for (const update of updates) {
-		const index = next.findIndex((artifact) => artifact.id === update.id);
-		if (index === -1) {
-			next.push(update);
-			continue;
-		}
-		next[index] = { ...next[index], ...update };
-	}
-	return next;
-}
-
-function normalizeApprovalAction(action?: string): ApprovalAction | undefined {
-	switch (action) {
-		case "approve":
-		case "deny":
-		case "always":
-			return action;
-		default:
-			return undefined;
-	}
-}
-
-function getApprovalStatus(action?: string): ApprovalRequest["status"] {
-	switch (action) {
-		case "approve":
-			return "approved";
-		case "deny":
-			return "denied";
-		case "always":
-			return "always";
-		default:
-			return "pending";
-	}
-}
-
-function mapApprovalRequestPayload(
-	payload: BackendApprovalRequestPayload,
-	assistantId?: string,
-): ApprovalRequest | undefined {
-	const requestId = payload.request_id?.trim();
-	if (!requestId) return undefined;
-
-	return {
-		requestId,
-		toolName: payload.tool_name?.trim() || "Tool",
-		toolCallId: payload.tool_call_id?.trim() || undefined,
-		description: payload.description?.trim() || "需要审批后继续执行",
-		arguments: payload.arguments,
-		metadata: payload.metadata,
-		status: "pending",
-		assistantId,
-	};
-}
-
-function mapApprovalDecisionPayload(
-	payload: BackendApprovalDecisionPayload,
-): Pick<ApprovalRequest, "requestId" | "status" | "action" | "reason"> | undefined {
-	const requestId = payload.request_id?.trim();
-	if (!requestId) return undefined;
-	const action = normalizeApprovalAction(payload.action);
-
-	return {
-		requestId,
-		status: getApprovalStatus(action),
-		action,
-		reason: payload.reason?.trim() || undefined,
-	};
-}
-
-function mergeApprovalRequest(
-	current: ApprovalRequest[] | undefined,
-	update: ApprovalRequest,
-): ApprovalRequest[] {
-	const list = current ?? [];
-	const index = list.findIndex((approval) => approval.requestId === update.requestId);
-	if (index === -1) return [...list, update];
-
-	const existing = list[index];
-	if (!existing) return [...list, update];
-
-	const next = [...list];
-	next[index] = {
-		...existing,
-		...update,
-		status: existing.status === "pending" ? update.status : existing.status,
-		action: existing.action ?? update.action,
-		reason: existing.reason ?? update.reason,
-		error: existing.status === "error" ? existing.error : update.error,
-	};
-	return next;
-}
-
-function mergeApprovalDecision(
-	current: ApprovalRequest[] | undefined,
-	decision: Pick<ApprovalRequest, "requestId" | "status" | "action" | "reason">,
-): ApprovalRequest[] {
-	const list = current ?? [];
-	const index = list.findIndex((approval) => approval.requestId === decision.requestId);
-	if (index === -1) {
-		return [
-			...list,
-			{
-				requestId: decision.requestId,
-				toolName: "Tool",
-				description: "审批已处理",
-				status: decision.status,
-				action: decision.action,
-				reason: decision.reason,
-			},
-		];
-	}
-
-	const existing = list[index];
-	if (!existing) return list;
-
-	const next = [...list];
-	next[index] = {
-		...existing,
-		status: decision.status,
-		action: decision.action ?? existing.action,
-		reason: decision.reason ?? existing.reason,
-		error: undefined,
-	};
-	return next;
-}
-
-function getApprovalRequestPayload(
-	payload: BackendSessionEventPayload,
-): BackendApprovalRequestPayload | undefined {
-	if (payload.approval_request) return payload.approval_request;
-	if (payload.request_id || payload.tool_name) return payload;
-	return undefined;
-}
-
-function getApprovalDecisionPayload(
-	payload: BackendSessionEventPayload,
-): BackendApprovalDecisionPayload | undefined {
-	if (payload.approval_decision) return payload.approval_decision;
-	if (payload.request_id || payload.action) return payload;
-	return undefined;
-}
-
-function getQuestionRequestPayload(
-	payload: BackendSessionEventPayload,
-): BackendQuestionRequestPayload | undefined {
-	if (payload.question_request) return payload.question_request;
-	if (payload.request_id && payload.questions) return payload as BackendQuestionRequestPayload;
-	return undefined;
-}
-
-function getQuestionAnswerPayload(
-	payload: BackendSessionEventPayload,
-): BackendQuestionAnswerPayload | undefined {
-	if (payload.question_answer) return payload.question_answer;
-	if (payload.request_id && payload.answers) return payload as BackendQuestionAnswerPayload;
-	return undefined;
-}
-
-function mapQuestionRequestPayload(
-	payload: BackendQuestionRequestPayload,
-	assistantId?: string,
-): QuestionRequest | undefined {
-	const requestId = payload.request_id?.trim();
-	if (!requestId) return undefined;
-
-	const questions: QuestionItem[] = (payload.questions ?? []).map((q) => ({
-		question: q.question,
-		header: q.header,
-		options: (q.options ?? []).map((o) => ({
-			label: o.label,
-			description: o.description,
-		})),
-		multiple: q.multiple ?? false,
-		custom: q.custom ?? false,
-	}));
-
-	return {
-		requestId,
-		questions,
-		assistantId,
-		toolCallId: payload.tool_call_id?.trim() || undefined,
-		messageId: payload.message_id?.trim() || undefined,
-		interactionType: payload.interaction_type?.trim() || undefined,
-		metadata: payload.metadata,
-		status: "pending",
-	};
-}
-
-function mapQuestionAnswerPayload(
-	payload: BackendQuestionAnswerPayload,
-): Pick<QuestionRequest, "requestId" | "status" | "answers"> | undefined {
-	const requestId = payload.request_id?.trim();
-	if (!requestId) return undefined;
-
-	return {
-		requestId,
-		status: "answered",
-		answers: payload.answers ?? [],
-	};
-}
-
-function mergeQuestionRequest(
-	current: QuestionRequest[] | undefined,
-	update: QuestionRequest,
-): QuestionRequest[] {
-	const list = current ?? [];
-	const index = list.findIndex((q) => q.requestId === update.requestId);
-	if (index === -1) return [...list, update];
-
-	const next = [...list];
-	next[index] = {
-		...next[index],
-		...update,
-		status:
-			(next[index]?.status ?? "pending") === "pending"
-				? update.status
-				: (next[index]?.status ?? "pending"),
-	};
-	return next;
-}
-
-function mergeQuestionAnswer(
-	current: QuestionRequest[] | undefined,
-	answer: Pick<QuestionRequest, "requestId" | "status" | "answers">,
-): QuestionRequest[] {
-	const list = current ?? [];
-	const index = list.findIndex((q) => q.requestId === answer.requestId);
-	if (index === -1) {
-		return [
-			...list,
-			{
-				requestId: answer.requestId,
-				questions: [],
-				status: answer.status,
-				answers: answer.answers,
-			},
-		];
-	}
-
-	const next = [...list];
-	const existing = next[index];
-	if (!existing) return list;
-
-	next[index] = {
-		...existing,
-		status: answer.status,
-		answers: answer.answers ?? existing.answers,
-		error: undefined,
-	};
-	return next;
-}
-
-function getTodoItems(
-	event: NormalizedSessionEvent,
-	payload: BackendSessionEventPayload,
-): RuntimeTodoItem[] | undefined {
-	const payloadTodos = getTodoItemsFromValue(payload.todos);
-	if (payloadTodos) return mapTodoItems(payloadTodos);
-
-	if ("todos" in event) {
-		const eventTodos = getTodoItemsFromValue(event.todos);
-		if (eventTodos) return mapTodoItems(eventTodos);
-	}
-
-	const rawPayloadTodos = getTodoItemsFromValue(event.payload);
-	if (rawPayloadTodos) return mapTodoItems(rawPayloadTodos);
-
-	return undefined;
-}
-
-function upsertToolCall(current: ToolCall[] | undefined, update: ToolCall): ToolCall[] {
-	const list = current ?? [];
-	const index = list.findIndex((tc) => tc.id === update.id);
-	if (index === -1) return [...list, update];
-
-	const existing = list[index];
-	if (!existing) return [...list, update];
-
-	const next = [...list];
-	next[index] = {
-		...existing,
-		...update,
-		name: update.name || existing.name,
-		arguments: {
-			...existing.arguments,
-			...update.arguments,
-		},
-		result: update.result ?? existing.result,
-		duration: update.duration ?? existing.duration,
-	};
-	return next;
-}
-
-function mapToolCallEvent(
-	eventType: string,
-	payload: BackendSessionEventPayload,
-): ToolCall | undefined {
-	const id = payload.tool_call_id ?? payload.id;
-	if (!id) return undefined;
-
-	const status =
-		eventType === "tool_call.result" || eventType === "tool_call.completed"
-			? normalizeToolCallStatus(payload.status ?? (payload.is_error ? "error" : "success"))
-			: eventType === "tool_call.failed"
-				? "error"
-				: "running";
-
-	return {
-		id,
-		name: payload.name ?? id,
-		arguments: payload.arguments ?? {},
-		status,
-		result: payload.result ?? payload.error,
-		duration: payload.duration ?? payload.elapsed_ms,
-	};
-}
-
-export function applySessionEventToMessage(
-	message: Message,
-	event: SessionEventLike,
-	eventType: string | undefined,
-	options: ApplySessionEventOptions,
-): Message {
-	const normalizedEvent = normalizeSessionEvent(event);
-	if (!normalizedEvent) return message;
-
-	const normalizedEventType = eventType ?? normalizedEvent.type;
-	const payload = getEventPayload(normalizedEvent);
-
-	if (
-		payload.tool_calls?.length ||
-		("tool_calls" in normalizedEvent && normalizedEvent.tool_calls?.length)
-	) {
-		const toolCalls = mapToolCalls(
-			payload.tool_calls ??
-				("tool_calls" in normalizedEvent ? normalizedEvent.tool_calls : undefined),
-		);
-		if (toolCalls?.length) {
-			return {
-				...message,
-				toolCalls: mergeToolCalls(message.toolCalls, toolCalls),
-			};
-		}
-	}
-
-	switch (normalizedEventType) {
-		case "todo.snapshot":
-		case "todo.updated": {
-			const todos = getTodoItems(normalizedEvent, payload);
-			if (!todos) return message;
-			return { ...message, todos };
-		}
-		case "artifact.declared": {
-			const artifact = mapArtifactPayload(payload);
-			if (!artifact) return message;
-			return {
-				...message,
-				artifacts: mergeArtifacts(message.artifacts, [artifact]),
-			};
-		}
-		case "approval.requested": {
-			const approvalPayload = getApprovalRequestPayload(payload);
-			const approval = approvalPayload
-				? mapApprovalRequestPayload(
-						approvalPayload,
-						"assistant_id" in normalizedEvent ? normalizedEvent.assistant_id : undefined,
-					)
-				: undefined;
-			if (!approval) return message;
-			return {
-				...message,
-				approvals: mergeApprovalRequest(message.approvals, approval),
-			};
-		}
-		case "approval.resolved": {
-			const decisionPayload = getApprovalDecisionPayload(payload);
-			const decision = decisionPayload ? mapApprovalDecisionPayload(decisionPayload) : undefined;
-			if (!decision) return message;
-			return {
-				...message,
-				approvals: mergeApprovalDecision(message.approvals, decision),
-			};
-		}
-		case "question.asked": {
-			const questionPayload = getQuestionRequestPayload(payload);
-			const question = questionPayload
-				? mapQuestionRequestPayload(
-						questionPayload,
-						"assistant_id" in normalizedEvent ? normalizedEvent.assistant_id : undefined,
-					)
-				: undefined;
-			if (!question) return message;
-			return {
-				...message,
-				questions: mergeQuestionRequest(message.questions, question),
-			};
-		}
-		case "plan.published": {
-			if (!payload.file_id || !payload.directive) return message;
-			const directive = payload.directive;
-			// Deduplicate: skip if this file_id already exists in message content.
-			if (message.content.includes(directive)) return message;
-			return {
-				...message,
-				content: message.content ? `${message.content}\n${directive}` : directive,
-			};
-		}
-		case "question.answered": {
-			const answerPayload = getQuestionAnswerPayload(payload);
-			const answer = answerPayload ? mapQuestionAnswerPayload(answerPayload) : undefined;
-			if (!answer) return message;
-			return {
-				...message,
-				questions: mergeQuestionAnswer(message.questions, answer),
-			};
-		}
-		case "message.delta":
-		case "message.result": {
-			const content = getEventContent(normalizedEvent, payload);
-			if (!content) return message;
-
-			const shouldAppendProcessStep =
-				normalizedEventType === "message.delta" &&
-				shouldAppendMessageDeltaToProcess(content, options);
-			if (!shouldAppendProcessStep) return message;
-
-			return applyStreamingState(
-				{
-					...message,
-					processSteps: appendProcessThinkingStep(message.processSteps, content),
-				},
-				options,
-			);
-		}
-		case "reasoning.delta": {
-			const thinking = payload.thinking ?? getEventContent(normalizedEvent, payload);
-			if (!thinking) return message;
-			return applyStreamingState(
-				{
-					...message,
-					processSteps: appendProcessThinkingStep(message.processSteps, thinking),
-				},
-				options,
-			);
-		}
-		case "tool_call.started":
-		case "tool_call.delta":
-		case "tool_call.arguments":
-		case "tool_call.result":
-		case "tool_call.output":
-		case "tool_call.completed":
-		case "tool_call.failed": {
-			const toolCall = mapToolCallEvent(normalizedEventType, payload);
-			if (!toolCall) return message;
-			return applyStreamingState(
-				{
-					...message,
-					toolCalls: upsertToolCall(message.toolCalls, toolCall),
-					processSteps: appendProcessToolCallStep(message.processSteps, toolCall.id),
-				},
-				options,
-			);
-		}
-		case "run.completed": {
-			const resultMessage = getRunResultMessage(payload);
-			const metadata = metadataFromPayload(payload);
-			const usage = mapUsage(payload.usage ?? payload);
-			const artifacts = payload.artifacts
-				?.map(mapArtifactPayload)
-				.filter((artifact): artifact is MessageArtifact => artifact !== undefined);
-			return enrichAssistantMessageMetrics({
-				...message,
-				status: "completed",
-				statusText: undefined,
-				content: options.appendContent && resultMessage ? resultMessage : message.content,
-				processSteps: pruneFinalContentProcessSteps(message.processSteps, resultMessage),
-				todos: completeTodos(message.todos),
-				artifacts: artifacts?.length
-					? mergeArtifacts(message.artifacts, artifacts)
-					: message.artifacts,
-				metadata: metadata ? { ...message.metadata, ...metadata } : message.metadata,
-				usage: usage ?? message.usage,
-			});
-		}
-		case "run.failed": {
-			const failedMessage = getRunFailedMessage(payload);
-			if (!failedMessage) return message;
-			return {
-				...message,
-				status: "failed",
-				statusText: undefined,
-				// 中文注释：失败事件也要回填到当前 assistant 消息里，避免界面只剩空占位。
-				content: failedMessage,
-			};
-		}
-		case "run.cancelled": {
-			return {
-				...message,
-				status: "failed",
-				statusText: undefined,
-				// 取消结果由后端持久化后回拉，避免前端默认文案与后端结果短暂闪烁。
-				content: message.content,
-			};
-		}
-		default:
-			return message;
-	}
-}
-
-function applySessionEventsToMessage(
-	message: Message,
-	events: BackendMessageChunk[] | undefined,
-	options: ApplySessionEventOptions,
-): Message {
-	if (!events?.length) return message;
-	return events.reduce(
-		(current, event) => applySessionEventToMessage(current, event, undefined, options),
-		message,
-	);
-}
-
-function isOptimisticMessage(message: Message): boolean {
-	return message.id.startsWith("msg-user-") || message.id.startsWith("msg-assistant-");
-}
-
-function normalizedMessageContent(message: Message): string {
-	return message.content.trim().replace(/\s+/g, " ");
-}
-
-function isGlobalUserEchoMessage(message: Message | undefined, incoming: Message): boolean {
-	if (!message || message.conversationId !== incoming.conversationId || message.role !== "user") {
-		return false;
-	}
-	if (normalizedMessageContent(message) !== normalizedMessageContent(incoming)) return false;
-
-	const authorMatches =
-		!message.author ||
-		!incoming.author ||
-		message.author.id === "current-user" ||
-		incoming.author.id === "current-user" ||
-		message.author.id === "user" ||
-		incoming.author.id === "user" ||
-		message.author.id === incoming.author.id ||
-		message.author.name === incoming.author.name;
-	if (!authorMatches) return false;
-
-	const isLocalEchoCandidate =
-		isOptimisticMessage(message) || !message.author || message.author.id === "current-user";
-	const isRecentEcho = Math.abs(message.timestamp - incoming.timestamp) <= 30_000;
-	// 中文注释：GlobalEvents 可能回推本地 optimistic 或刷新后刚拉到的历史消息；倒序匹配最新同内容用户消息，避免页面重复显示。
-	return isLocalEchoCandidate || isRecentEcho;
-}
-
-function isAssistantStreamPlaceholderId(messageId: string): boolean {
-	return (
-		messageId.startsWith("msg-assistant-waiting-") ||
-		messageId.startsWith("msg-assistant-resume-") ||
-		messageId.startsWith("msg-assistant-poll-")
-	);
-}
-
-// 中文注释：任务群聊占位 assistant 在提前建立 SessionEvents 后可能已进入 streaming，但仍需被 GlobalEvents 替换。
-export function isTaskRoomAssistantPlaceholder(
-	message: Message | undefined,
-	sessionId: string,
-): boolean {
-	return (
-		message?.conversationId === sessionId &&
-		message.role === "assistant" &&
-		isAssistantStreamPlaceholderId(message.id) &&
-		(message.status === "waiting" || message.status === "streaming" || message.status === undefined)
-	);
-}
-
-// 中文注释：GlobalEvents 晚到并替换占位 assistant 时，保留已收到的流式片段。
-function inheritStreamingAssistantState(target: Message, source?: Message): Message {
-	if (!source) return target;
-	return {
-		...target,
-		replyTo: target.replyTo ?? source.replyTo,
-		content: source.content || target.content,
-		toolCalls: source.toolCalls ?? target.toolCalls,
-		todos: source.todos ?? target.todos,
-		processSteps: source.processSteps ?? target.processSteps,
-		approvals: source.approvals ?? target.approvals,
-		questions: source.questions ?? target.questions,
-		artifacts: source.artifacts ?? target.artifacts,
-		metadata: source.metadata ?? target.metadata,
-		usage: source.usage ?? target.usage,
-		status: source.status === "streaming" ? "streaming" : target.status,
-		statusText: source.status === "streaming" ? undefined : target.statusText,
-	};
-}
-
-// 中文注释：run 已落库但 SessionEvents 未收到终端事件时，用 DB 同步兜底。
-const SESSION_EVENTS_IDLE_FALLBACK_MS = 10_000;
-const TASK_ROOM_ASSISTANT_START_FALLBACK_MS = 60_000;
-const ASSISTANT_SESSION_EVENTS_WAITING_TEXT = "AI 员工已接单，正在生成回复...";
-
-export function createAssistantSessionEventsWaitingMessage(
-	sessionId: string,
-	id: string,
-	timestamp = Date.now(),
-): Message {
-	return {
-		id,
-		conversationId: sessionId,
-		role: "assistant",
-		content: "",
-		timestamp,
-		status: "waiting",
-		// 中文注释：刷新恢复 SSE 回放时保留明确等待态，避免只显示空白生成中占位。
-		statusText: ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
-		author: {
-			id: "pending-assistant",
-			name: "Lework",
-			type: "assistant",
-		},
-	};
-}
-
-function messageMergeKey(message: Message): string | undefined {
-	const content = normalizedMessageContent(message);
-	if (!content) return undefined;
-	return `${message.role}:${content}`;
-}
-
-function countMatchingMessages(messages: Message[], target: Message, targetIndex?: number): number {
-	const key = messageMergeKey(target);
-	if (!key) return 0;
-
-	let count = 0;
-	const end = targetIndex ?? messages.length - 1;
-	for (let index = 0; index <= end; index += 1) {
-		const message = messages[index];
-		if (message && messageMergeKey(message) === key) {
-			count += 1;
-		}
-	}
-	return count;
-}
-
-function countMessagesByRole(messages: Message[], role: MessageRole, targetIndex?: number): number {
-	let count = 0;
-	const end = targetIndex ?? messages.length - 1;
-	for (let index = 0; index <= end; index += 1) {
-		if (messages[index]?.role === role) {
-			count += 1;
-		}
-	}
-	return count;
-}
-
-function findMessageByRoleOccurrence(
-	messages: Message[],
-	role: MessageRole,
-	occurrence: number,
-): Message | undefined {
-	if (occurrence <= 0) return undefined;
-
-	let count = 0;
-	for (const message of messages) {
-		if (message.role !== role) continue;
-		count += 1;
-		if (count === occurrence) {
-			return message;
-		}
-	}
-	return undefined;
-}
-
-function findPersistedMessageMatch(
-	persistedMessages: Message[],
-	localMessages: Message[],
-	localMessage: Message,
-	localIndex?: number,
-): Message | undefined {
-	const exactMatch = persistedMessages.find((message) => message.id === localMessage.id);
-	if (exactMatch) return exactMatch;
-
-	if (!isOptimisticMessage(localMessage)) return undefined;
-
-	// 中文注释：流式阶段的 optimistic 消息和落库消息 id 不同，这里按同角色出现顺序兜底配对，
-	// 避免 markdown/空白字符略有差异时把同一轮回复渲染成两条。
-	const roleOccurrence = countMessagesByRole(localMessages, localMessage.role, localIndex);
-	return findMessageByRoleOccurrence(persistedMessages, localMessage.role, roleOccurrence);
-}
-
-function shouldKeepLocalMessage(
-	persistedMessages: Message[],
-	localMessages: Message[],
-	localMessage: Message,
-	localIndex: number,
-): boolean {
-	if (findPersistedMessageMatch(persistedMessages, localMessages, localMessage, localIndex)) {
-		return false;
-	}
-	if (!isOptimisticMessage(localMessage)) return true;
-	if (!messageMergeKey(localMessage)) return true;
-
-	const localOccurrence = countMatchingMessages(localMessages, localMessage, localIndex);
-	const persistedOccurrence = countMatchingMessages(persistedMessages, localMessage);
-	return persistedOccurrence < localOccurrence;
-}
-
-function compareMessages(a: Message, b: Message): number {
-	if (a.sequence !== undefined && b.sequence !== undefined) {
-		return a.sequence - b.sequence;
-	}
-	return a.timestamp - b.timestamp;
-}
-
-function mergeMessageAttachments(
-	persistedAttachments: MessageAttachment[] | undefined,
-	localAttachments: MessageAttachment[] | undefined,
-): MessageAttachment[] | undefined {
-	if (!persistedAttachments?.length) return persistedAttachments;
-	if (!localAttachments?.length) return persistedAttachments;
-
-	const localByUploadId = new Map(
-		localAttachments.map((attachment) => [attachment.fileUploadId, attachment] as const),
-	);
-
-	return persistedAttachments.map((attachment) => {
-		const localAttachment = localByUploadId.get(attachment.fileUploadId);
-		if (!localAttachment?.url?.startsWith("blob:")) return attachment;
-		return {
-			...attachment,
-			url: localAttachment.url,
-			size: attachment.size || localAttachment.size,
-			storageUri: attachment.storageUri || localAttachment.storageUri,
-		};
-	});
-}
-
-function reconcilePersistedMessagesWithLocal(
-	persistedMessages: Message[],
-	localMessages: Message[],
-): Message[] {
-	return persistedMessages.map((persistedMessage, persistedIndex) => {
-		const roleOccurrence = countMessagesByRole(
-			persistedMessages,
-			persistedMessage.role,
-			persistedIndex,
-		);
-		const localMatch =
-			localMessages.find((localMessage) => localMessage.id === persistedMessage.id) ??
-			localMessages.find((localMessage) => {
-				if (localMessage.role !== persistedMessage.role) return false;
-				if (messageMergeKey(localMessage) !== messageMergeKey(persistedMessage)) return false;
-				return (
-					countMatchingMessages(localMessages, localMessage) ===
-					countMatchingMessages(persistedMessages, persistedMessage)
-				);
-			}) ??
-			findMessageByRoleOccurrence(localMessages, persistedMessage.role, roleOccurrence);
-
-		if (!localMatch?.attachments?.length || !persistedMessage.attachments?.length) {
-			return persistedMessage;
-		}
-
-		return {
-			...persistedMessage,
-			attachments: mergeMessageAttachments(persistedMessage.attachments, localMatch.attachments),
-		};
-	});
-}
-
-function mergeSessionMessages(persistedMessages: Message[], localMessages: Message[]): Message[] {
-	const reconciledPersistedMessages = reconcilePersistedMessagesWithLocal(
-		persistedMessages,
-		localMessages,
-	);
-	const merged = [...reconciledPersistedMessages];
-	localMessages.forEach((localMessage, index) => {
-		if (!shouldKeepLocalMessage(reconciledPersistedMessages, localMessages, localMessage, index)) {
-			return;
-		}
-		if (merged.some((message) => message.id === localMessage.id)) return;
-		merged.push(localMessage);
-	});
-	return merged.sort(compareMessages);
-}
-
-function getSessionLocalMessages(state: ChatState, sessionId: string): Message[] {
-	return state.messageIds
-		.map((id) => state.messagesMap[id])
-		.filter((message): message is Message => message?.conversationId === sessionId);
-}
-
-function isActiveStreamingMessage(message: Message | undefined): boolean {
-	return message?.status === "waiting" || message?.status === "streaming";
-}
-
-/** 切换 session 时仅保留目标会话消息，并同步流式状态，避免多任务并发时消息串台。 */
-export function retainLocalMessagesForSession(state: ChatState, sessionId: string): ChatState {
-	const retainedIds: string[] = [];
-	const retainedMap: Record<string, Message> = {};
-
-	for (const id of state.messageIds) {
-		const message = state.messagesMap[id];
-		if (message?.conversationId === sessionId) {
-			retainedIds.push(id);
-			retainedMap[id] = message;
-		}
-	}
-
-	const streamingMessageId =
-		state.streamingMessageId && retainedMap[state.streamingMessageId]
-			? state.streamingMessageId
-			: (retainedIds.findLast((id) => isActiveStreamingMessage(retainedMap[id])) ?? null);
-	const streamingMessage = streamingMessageId ? retainedMap[streamingMessageId] : undefined;
-	const isGenerating = isActiveStreamingMessage(streamingMessage);
-
-	return {
-		...state,
-		messagesMap: retainedMap,
-		messageIds: retainedIds,
-		streamingMessageId,
-		isGenerating,
-		streamCancelRef: isGenerating ? state.streamCancelRef : null,
-	};
-}
-
-export function allLocalMessagesBelongToSession(state: ChatState, sessionId: string): boolean {
-	if (state.messageIds.length === 0) return true;
-	return state.messageIds.every((id) => state.messagesMap[id]?.conversationId === sessionId);
-}
-
-function parseWorkTitleUpdatedRecord(
-	payload: unknown,
-	fallbackSessionId?: string,
-): BackendWorkTitleUpdatedPayload | null {
-	if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-		return null;
-	}
-	const record = payload as Record<string, unknown>;
-	if (typeof record.project_id !== "string" || typeof record.project_name !== "string") {
-		return null;
-	}
-	return {
-		project_id: record.project_id,
-		project_name: record.project_name,
-		task_id: typeof record.task_id === "string" ? record.task_id : undefined,
-		task_title: typeof record.task_title === "string" ? record.task_title : undefined,
-		session_id:
-			typeof record.session_id === "string" ? record.session_id : (fallbackSessionId ?? ""),
-		session_title: typeof record.session_title === "string" ? record.session_title : undefined,
-	};
-}
-
-function parseWorkTitleUpdatedPayload(
-	data: SSEMessageEvent,
-): BackendWorkTitleUpdatedPayload | null {
-	return parseWorkTitleUpdatedRecord(data.payload, data.session_id);
-}
-
-function parseGlobalEvent(raw: string, fallbackType?: string): BackendGlobalEvent | null {
-	try {
-		const parsed = JSON.parse(raw) as BackendGlobalEvent;
-		return {
-			...parsed,
-			type: fallbackType ?? parsed.type,
-		};
-	} catch {
-		return null;
-	}
-}
-
-function getGlobalMessagePayload(event: BackendGlobalEvent): BackendGlobalMessagePayload {
-	const payload = event.data ?? event.payload;
-	return isRecord(payload) ? (payload as BackendGlobalMessagePayload) : {};
-}
-
-function createGlobalUserMessageFromEvent(
-	event: BackendGlobalEvent,
-	payload: BackendGlobalMessagePayload,
-): Message | undefined {
-	const sessionId = event.session_id;
-	const content = payload.content ?? "";
-	const createdAt = parseOptionalTimestamp(payload.created_at) ?? event.timestamp;
-	const attachments = mapGlobalMessageAttachments(payload.attachments, createdAt);
-	const metadata = buildMessageMetadata(payload.metadata);
-	if (!sessionId || (!content.trim() && !attachments?.length)) return undefined;
-
-	const messageKey = payload.message_id ?? payload.id ?? payload.sequence;
-	const messageId =
-		messageKey !== undefined
-			? String(messageKey)
-			: `global-user-${sessionId}-${event.timestamp || createdAt || Date.now()}`;
-
-	return {
-		id: messageId,
-		conversationId: sessionId,
-		role: "user",
-		content,
-		timestamp: event.timestamp || createdAt || Date.now(),
-		sequence: payload.sequence,
-		status: "completed",
-		author: {
-			id: payload.sender_uin !== undefined ? String(payload.sender_uin) : "user",
-			name: payload.sender_name || "用户",
-			type: "user",
-		},
-		attachments,
-		metadata,
-	};
-}
-
-export function insertGlobalUserMessageId(
-	messageIds: string[],
-	messagesMap: Record<string, Message>,
-	incoming: Message,
-	activeStreamingMessageId?: string | null,
-): string[] {
-	const existingIndex = messageIds.indexOf(incoming.id);
-	if (existingIndex >= 0) return messageIds;
-
-	const activeStreamingAssistantIndex = activeStreamingMessageId
-		? messageIds.indexOf(activeStreamingMessageId)
-		: -1;
-	if (activeStreamingAssistantIndex >= 0) {
-		const activeStreamingMessage = messagesMap[activeStreamingMessageId ?? ""];
-		if (
-			activeStreamingMessage?.conversationId === incoming.conversationId &&
-			activeStreamingMessage.role === "assistant" &&
-			(activeStreamingMessage.status === "waiting" || activeStreamingMessage.status === "streaming")
-		) {
-			// 中文注释：只锚定本轮正在生成的 assistant，避免历史回放消息被标记为 streaming 后抢走插入位置。
-			return [
-				...messageIds.slice(0, activeStreamingAssistantIndex),
-				incoming.id,
-				...messageIds.slice(activeStreamingAssistantIndex),
-			];
-		}
-	}
-
-	let waitingAssistantIndex = -1;
-	for (let index = messageIds.length - 1; index >= 0; index -= 1) {
-		const message = messagesMap[messageIds[index] ?? ""];
-		if (isTaskRoomAssistantPlaceholder(message, incoming.conversationId)) {
-			waitingAssistantIndex = index;
-			break;
-		}
-	}
-	if (waitingAssistantIndex >= 0) {
-		// 中文注释：兜底使用最新任务等待占位，确保用户问题仍显示在本轮回复前。
-		return [
-			...messageIds.slice(0, waitingAssistantIndex),
-			incoming.id,
-			...messageIds.slice(waitingAssistantIndex),
-		];
-	}
-
-	const streamingAssistantIndex = messageIds.findIndex((id) => {
-		const message = messagesMap[id];
-		return (
-			message?.conversationId === incoming.conversationId &&
-			message.role === "assistant" &&
-			message.status === "waiting"
-		);
-	});
-	if (streamingAssistantIndex >= 0) {
-		// 中文注释：兼容非任务占位的等待态 assistant，仍然只允许 waiting 作为插入锚点。
-		return [
-			...messageIds.slice(0, streamingAssistantIndex),
-			incoming.id,
-			...messageIds.slice(streamingAssistantIndex),
-		];
-	}
-
-	return [...messageIds, incoming.id];
-}
-
+/**
+ * 解析某个 session 所属的 projectId（优先任务详情页上下文，否则扫 projects 列表）。
+ * 供 SessionStream 终态刷新项目详情定位项目。
+ */
 function resolveProjectIdForSession(
 	fullState: {
 		activeTaskDetailProjectId?: string | null;
@@ -1682,20 +92,97 @@ export class ChatActionImpl {
 	readonly #set: SetState;
 	readonly #get: () => ChatStore;
 	readonly #fullGet: FullStoreGet;
-	#sseClient: FetchSSEClient | null = null;
-	#sseSessionId: string | null = null;
-	#sseAssistantMsgId: string | null = null;
-	#sseIdleFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-	#globalEventsClient: FetchSSEClient | null = null;
-	#globalEventsStartPromise: Promise<void> | null = null;
-	#pendingGlobalMessageEvents: BackendGlobalEvent[] = [];
-	#messageLoadPromises = new Map<string, Promise<void>>();
-	#uploadAbortControllers = new Map<string, AbortController>();
+	readonly #sessionStream: SessionStream;
+	readonly #globalEvents: GlobalEventsManager;
+	readonly #historyLoader: HistoryLoader;
+	readonly #composer: Composer;
+	readonly #effects: ChatEffects;
+	readonly #sendDeps: SendPipelineDeps;
 
 	constructor(set: SetState, get: () => ChatStore, fullGet: FullStoreGet) {
 		this.#set = set;
 		this.#get = get;
 		this.#fullGet = fullGet;
+
+		/** 部分更新 ChatState（兼容 Zustand set 的函数式写法）。 */
+		const setChat = (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => {
+			if (typeof partial === "function") {
+				this.#set((state) => partial(state));
+				return;
+			}
+			this.#set(partial);
+		};
+
+		/** 写入联合 store 任意字段（layout + chat）。 */
+		const setStore = (partial: Record<string, unknown>) => {
+			(this.#set as (p: Record<string, unknown>) => void)(partial);
+		};
+
+		this.#effects = new ChatEffects({
+			setStore,
+			fullGet: () => this.#fullGet(),
+		});
+
+		this.#composer = new Composer({
+			get: () => this.#get(),
+			set: setChat,
+		});
+
+		this.#sessionStream = new SessionStream({
+			get: () => this.#get(),
+			set: setChat,
+			updateMessage: (id, value) => this.#dispatchChat({ type: "updateMessage", id, value }),
+			loadConversationMessages: (sessionId, options) =>
+				this.#historyLoader.load(sessionId, options),
+			fullGet: () => this.#fullGet(),
+			refreshProjectForSession: (sessionId) => {
+				const fullState = this.#fullGet() as {
+					activeTaskDetailProjectId?: string | null;
+					fetchProjectDetail?: (projectId: string) => Promise<void>;
+					projects?: Array<{ id: string; tasks: Array<{ sessionId?: string }> }>;
+				};
+				const projectId = resolveProjectIdForSession(fullState, sessionId);
+				if (projectId) {
+					void fullState.fetchProjectDetail?.(projectId);
+				}
+			},
+		});
+
+		this.#historyLoader = new HistoryLoader({
+			get: () => this.#get(),
+			set: setChat,
+			startSessionStream: (sessionId, assistantMsgId, replay, assistantId) =>
+				this.#sessionStream.start(sessionId, assistantMsgId, replay, assistantId),
+		});
+
+		this.#globalEvents = new GlobalEventsManager({
+			get: () => this.#get(),
+			set: setChat,
+			fullGet: () => this.#fullGet(),
+			addMessage: (message) => this.#dispatchChat({ type: "addMessage", value: message }),
+			startSessionStream: (sessionId, assistantMsgId, replay, assistantId) =>
+				this.#sessionStream.start(sessionId, assistantMsgId, replay, assistantId),
+			finishStream: () => this.#sessionStream.finish(),
+			loadConversationMessages: (sessionId, options) =>
+				this.#historyLoader.load(sessionId, options),
+		});
+
+		this.#sendDeps = {
+			get: () => this.#get(),
+			set: setChat,
+			setStore,
+			fullGet: () => this.#fullGet(),
+			addMessage: (message) => this.#dispatchChat({ type: "addMessage", value: message }),
+			updateMessage: (id, value) => this.#dispatchChat({ type: "updateMessage", id, value }),
+			startGlobalEvents: () => this.#globalEvents.start(),
+			drainGlobalEvents: (sessionId) => this.#globalEvents.drain(sessionId),
+			startSessionStream: (sessionId, assistantMsgId, replay, assistantId) =>
+				this.#sessionStream.start(sessionId, assistantMsgId, replay, assistantId),
+			finishStream: () => this.#sessionStream.finish(),
+			loadConversationMessages: (sessionId, options) =>
+				this.#historyLoader.load(sessionId, options),
+			effects: this.#effects,
+		};
 	}
 
 	#dispatchChat = (action: ChatActionType) => {
@@ -1707,83 +194,28 @@ export class ChatActionImpl {
 		const switchingSession = state.activeSessionId !== sessionId;
 
 		if (switchingSession) {
-			if (this.#sseClient && this.#sseSessionId !== sessionId) {
-				this.#sseClient.close();
-				this.#sseClient = null;
-				this.#resetSSEBinding();
-			}
+			this.#sessionStream.closeIfBoundToOtherSession(sessionId);
 			this.#set((current) => retainLocalMessagesForSession(current, sessionId));
 		}
 
 		this.#set({ activeSessionId: sessionId });
-		this.#drainPendingGlobalEvents(sessionId);
+		this.#globalEvents.drain(sessionId);
 	};
 
 	allMessagesBelongToSession = (sessionId: string) => {
 		return allLocalMessagesBelongToSession(this.#get(), sessionId);
 	};
 
-	// 中文注释：新建任务跳转任务详情前写入等待占位；若带附件则同步展示乐观用户消息（含文件夹）。
+	/** 新建任务跳转前写入等待占位（实现见 send/bootstrap）。 */
 	bootstrapNewTaskSession = (
 		sessionId: string,
 		content: string,
-		_options?: {
+		options?: {
 			attachments?: Attachment[];
 			metadata?: MessageMetadata;
 		},
 	) => {
-		const trimmed = content.trim();
-		const optimisticAttachments = mapComposerAttachments(_options?.attachments);
-		if (!sessionId || (!trimmed && !optimisticAttachments?.length)) return;
-
-		const now = Date.now();
-		const userMsg: Message | null =
-			trimmed || optimisticAttachments?.length
-				? {
-						id: `msg-user-${now}`,
-						conversationId: sessionId,
-						role: "user",
-						content: trimmed,
-						timestamp: now,
-						status: "sending",
-						attachments: optimisticAttachments,
-						metadata: _options?.metadata,
-					}
-				: null;
-		const assistantMsg: Message = {
-			id: `msg-assistant-waiting-${now}`,
-			conversationId: sessionId,
-			role: "assistant",
-			content: "",
-			timestamp: now + 100,
-			status: "waiting",
-			statusText: "正在提交问题并分配 AI 员工...",
-			// 中文注释：等待 GlobalEvents 回填前，先用本次输入的 @ 队友信息稳定展示头像和名称。
-			metadata: _options?.metadata,
-			replyTo: userMsg ? buildReplyToFromMessage(userMsg) : undefined,
-			author: {
-				id: "pending-assistant",
-				name: "Lework",
-				type: "assistant",
-			},
-		};
-		const messagesMap: Record<string, Message> = {
-			[assistantMsg.id]: assistantMsg,
-		};
-		const messageIds = [assistantMsg.id];
-		if (userMsg) {
-			messagesMap[userMsg.id] = userMsg;
-			messageIds.unshift(userMsg.id);
-		}
-		this.#set({
-			activeSessionId: sessionId,
-			messagesMap,
-			messageIds,
-			streamingMessageId: assistantMsg.id,
-			isGenerating: true,
-			pendingBootstrapSessionId: sessionId,
-		});
-		this.#drainPendingGlobalEvents(sessionId);
+		bootstrapNewTaskSessionImpl(this.#sendDeps, sessionId, content, options);
 	};
 
 	// 中文注释：bootstrap 标记会阻止历史加载；仅在消息已被页面卸载清理时手动清除。
@@ -1797,343 +229,17 @@ export class ChatActionImpl {
 		return state.messageIds.some((id) => state.messagesMap[id]?.conversationId === sessionId);
 	};
 
+	/** 幂等启动 GlobalEvents 长连接（实现见 GlobalEventsManager）。 */
 	startGlobalEvents = async () => {
-		if (this.#globalEventsClient) return;
-		if (this.#globalEventsStartPromise) return this.#globalEventsStartPromise;
-
-		// 中文注释：Shell 与工作台可能同时触发启动，先占用启动 Promise，避免刷新时打开两条 GlobalEvents 长连接。
-		this.#globalEventsStartPromise = (async () => {
-			try {
-				const token = await getValidJwtToken();
-				if (!token || this.#globalEventsClient) return;
-
-				const client = new FetchSSEClient(`${API_BASE_URL}/GlobalEvents`, {
-					method: "POST",
-					headers: { Authorization: `Bearer ${token}` },
-					body: {},
-					onMessage: (event) => {
-						const data = parseGlobalEvent(event.data, event.type);
-						if (!data) return;
-						this.#handleGlobalEvent(data);
-					},
-					onError: (err) => {
-						console.error("GlobalEvents SSE error:", err);
-						this.#globalEventsClient?.close();
-						this.#globalEventsClient = null;
-					},
-				});
-
-				this.#globalEventsClient = client;
-				void client.connect();
-			} catch (err) {
-				console.error("startGlobalEvents error:", err);
-			} finally {
-				this.#globalEventsStartPromise = null;
-			}
-		})();
-
-		return this.#globalEventsStartPromise;
+		return this.#globalEvents.start();
 	};
 
+	/** 关闭 GlobalEvents 长连接。 */
 	stopGlobalEvents = () => {
-		this.#globalEventsClient?.close();
-		this.#globalEventsClient = null;
-		this.#globalEventsStartPromise = null;
+		this.#globalEvents.stop();
 	};
 
-	#isCurrentGlobalSession = (event: BackendGlobalEvent) => {
-		const sessionId = event.session_id;
-		if (!sessionId) return false;
-		const state = this.#get();
-		if (state.activeSessionId === sessionId) return true;
-		const fullState = this.#fullGet() as { activeTaskDetailSessionId?: string | null };
-		return fullState.activeTaskDetailSessionId === sessionId;
-	};
-
-	#handleGlobalEvent = (event: BackendGlobalEvent) => {
-		if (event.type === "work.title.updated") {
-			const workTitlePayload = parseWorkTitleUpdatedRecord(
-				event.data ?? event.payload,
-				event.session_id,
-			);
-			if (workTitlePayload) {
-				const fullState = this.#fullGet() as {
-					applyWorkTitleUpdated?: (payload: BackendWorkTitleUpdatedPayload) => void;
-				};
-				fullState.applyWorkTitleUpdated?.(workTitlePayload);
-			}
-			return;
-		}
-		if (event.type !== "message.created") return;
-		if (!this.#isCurrentGlobalSession(event)) {
-			this.#bufferPendingGlobalEvent(event);
-			return;
-		}
-		this.#applyGlobalMessageEvent(event);
-	};
-
-	#applyGlobalMessageEvent = (event: BackendGlobalEvent) => {
-		const payload = getGlobalMessagePayload(event);
-		if (payload.sender_type === "human") {
-			this.#mergeGlobalUserMessage(event, payload);
-			return;
-		}
-		if (payload.sender_type === "assistant") {
-			this.#startGlobalAssistantResponse(event, payload);
-		}
-	};
-
-	#bufferPendingGlobalEvent = (event: BackendGlobalEvent) => {
-		if (!event.session_id) return;
-		const cutoff = Date.now() - 2 * 60_000;
-		// 中文注释：GlobalEvents 可能早于任务详情路由激活，短暂缓存避免新建任务首条消息丢失。
-		this.#pendingGlobalMessageEvents = [...this.#pendingGlobalMessageEvents, event]
-			.filter((item) => (item.timestamp ?? Date.now()) >= cutoff)
-			.slice(-50);
-	};
-
-	#drainPendingGlobalEvents = (sessionId: string) => {
-		if (!sessionId || !this.#pendingGlobalMessageEvents.length) return;
-		const matched: BackendGlobalEvent[] = [];
-		const rest: BackendGlobalEvent[] = [];
-		for (const event of this.#pendingGlobalMessageEvents) {
-			if (event.session_id === sessionId) {
-				matched.push(event);
-			} else {
-				rest.push(event);
-			}
-		}
-		this.#pendingGlobalMessageEvents = rest;
-		for (const event of matched) {
-			this.#applyGlobalMessageEvent(event);
-		}
-	};
-
-	#mergeGlobalUserMessage = (event: BackendGlobalEvent, payload: BackendGlobalMessagePayload) => {
-		const sessionId = event.session_id;
-		if (!sessionId) return;
-		const incoming = createGlobalUserMessageFromEvent(event, payload);
-		if (!incoming) return;
-
-		this.#set((state) => {
-			const existingId =
-				state.messageIds.find((id) => id === incoming.id) ??
-				state.messageIds.find((id) => {
-					const message = state.messagesMap[id];
-					return (
-						message?.conversationId === sessionId &&
-						message.sequence !== undefined &&
-						message.sequence === payload.sequence
-					);
-				}) ??
-				[...state.messageIds]
-					.reverse()
-					.find((id) => isGlobalUserEchoMessage(state.messagesMap[id], incoming));
-
-			if (!existingId) {
-				const nextMap = { ...state.messagesMap, [incoming.id]: incoming };
-				return {
-					messagesMap: nextMap,
-					messageIds: insertGlobalUserMessageId(
-						state.messageIds,
-						nextMap,
-						incoming,
-						state.streamingMessageId,
-					),
-				};
-			}
-
-			const nextMap = { ...state.messagesMap };
-			const current = nextMap[existingId];
-			delete nextMap[existingId];
-			nextMap[incoming.id] = {
-				...current,
-				...incoming,
-				attachments:
-					mergeMessageAttachments(incoming.attachments, current?.attachments) ??
-					incoming.attachments ??
-					current?.attachments,
-				// 中文注释：实时回推可能带有落库后的展示 metadata，本地没有时不能把它覆盖丢。
-				metadata: current?.metadata ?? incoming.metadata,
-			};
-			return {
-				messagesMap: nextMap,
-				messageIds: state.messageIds.map((id) => (id === existingId ? incoming.id : id)),
-			};
-		});
-	};
-
-	#startGlobalAssistantResponse = (
-		event: BackendGlobalEvent,
-		payload: BackendGlobalMessagePayload,
-	) => {
-		const sessionId = event.session_id;
-		const runId = payload.run_id;
-		if (!sessionId || !runId) return;
-
-		const responseMessageId = `msg-assistant-${runId}`;
-		const state = this.#get();
-		// 取消命令发送后，GlobalEvents 中可能仍有本轮迟到的 assistant started。
-		// 不能为已取消的 run 再创建「AI 员工已接单」占位或重新建立 SSE。
-		if (state.cancellingSessionId === sessionId) return;
-		if (state.messagesMap[responseMessageId]) return;
-		const currentStreamingMessage = state.streamingMessageId
-			? state.messagesMap[state.streamingMessageId]
-			: undefined;
-		// 中文注释：仅当当前流式消息已绑定本轮 runId 时跳过，避免重复处理同一条 GlobalEvents。
-		if (
-			currentStreamingMessage?.conversationId === sessionId &&
-			currentStreamingMessage.runId === runId
-		) {
-			return;
-		}
-		const waitingPlaceholderId = [...state.messageIds]
-			.reverse()
-			.find((id) => isTaskRoomAssistantPlaceholder(state.messagesMap[id], sessionId));
-
-		const assistantMsg: Message = {
-			id: responseMessageId,
-			conversationId: sessionId,
-			runId,
-			role: "assistant",
-			content: "",
-			timestamp: event.timestamp || Date.now(),
-			status: "streaming",
-			statusText: "AI 员工已接单，正在生成回复...",
-			// 中文注释：后端当前用 req_用户消息ID 作为 run_id，前端据此展示本轮 AI 回复对应的问题。
-			replyTo: resolveReplyToFromRunId(runId, state.messagesMap, sessionId),
-			author: {
-				id: payload.assistant_id !== undefined ? String(payload.assistant_id) : runId,
-				name: payload.assistant_name || payload.sender_name || "Lework",
-				type: "assistant",
-			},
-		};
-
-		if (waitingPlaceholderId) {
-			this.#set((currentState) => {
-				const placeholder = currentState.messagesMap[waitingPlaceholderId];
-				const nextMap = { ...currentState.messagesMap };
-				delete nextMap[waitingPlaceholderId];
-				nextMap[assistantMsg.id] = inheritStreamingAssistantState(assistantMsg, placeholder);
-				return {
-					messagesMap: nextMap,
-					messageIds: currentState.messageIds.map((id) =>
-						id === waitingPlaceholderId ? assistantMsg.id : id,
-					),
-				};
-			});
-		} else {
-			this.#dispatchChat({ type: "addMessage", value: assistantMsg });
-		}
-		this.#set({
-			streamingMessageId: assistantMsg.id,
-			isGenerating: true,
-			activeSessionId: sessionId,
-			pendingBootstrapSessionId: null,
-		});
-		// 中文注释：GlobalEvents 监听到新 assistant 消息后，再按 runtime 状态决定走 SessionEvents 或 DB 同步。
-		void this.#startAssistantStreamAfterGlobalEvent(sessionId, assistantMsg, payload.assistant_id);
-	};
-
-	#startAssistantStreamAfterGlobalEvent = async (
-		sessionId: string,
-		assistantMsg: Message,
-		assistantId?: string,
-	) => {
-		try {
-			const sessionRes = await sessionApi.get({ session_id: sessionId });
-			const runtimeStatus = sessionRes.data.data?.runtime_status;
-			if (runtimeStatus !== "responding") {
-				// 中文注释：GlobalEvents 晚到时 run 可能已结束，直接从 DB 拉最新消息渲染，避免 replay 空挂。
-				await this.loadConversationMessages(sessionId, { resumeStream: false });
-				this.#finishStream();
-				return;
-			}
-		} catch (err) {
-			console.error("startAssistantStreamAfterGlobalEvent get session error:", err);
-		}
-		// 中文注释：run 仍在进行，由 GlobalEvents 触发 SessionEvents 回放本轮回复事件。
-		this.#startSSE(sessionId, assistantMsg.id, true, assistantId);
-	};
-
-	#startTaskRoomAssistantFallback = async (sessionId: string, assistantMsgId: string) => {
-		try {
-			const sessionRes = await sessionApi.get({ session_id: sessionId });
-			const baselineMessageCount = sessionRes.data.data?.message_count ?? 0;
-			const pollResult = await pollRuntimeStatus(
-				sessionId,
-				TASK_ROOM_ASSISTANT_START_FALLBACK_MS,
-				baselineMessageCount,
-			);
-			const state = this.#get();
-			// 中文注释：GlobalEvents 正常到达后会替换等待占位，此时兜底不再接管，避免重复开流。
-			if (
-				state.activeSessionId !== sessionId ||
-				state.streamingMessageId !== assistantMsgId ||
-				!state.isGenerating
-			) {
-				return;
-			}
-			if (pollResult?.status === "responding") {
-				const current = state.messagesMap[assistantMsgId];
-				if (current) {
-					this.#dispatchChat({
-						type: "updateMessage",
-						id: assistantMsgId,
-						value: {
-							...current,
-							status: "streaming",
-							statusText: ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
-						},
-					});
-				}
-				this.#startSSE(sessionId, assistantMsgId, true);
-				return;
-			}
-			if (pollResult?.status === "completed") {
-				await this.loadConversationMessages(sessionId, { resumeStream: false });
-				this.#finishStream();
-				return;
-			}
-			const current = this.#get().messagesMap[assistantMsgId];
-			if (current) {
-				this.#dispatchChat({
-					type: "updateMessage",
-					id: assistantMsgId,
-					value: {
-						...current,
-						status: "failed",
-						statusText: "AI 员工暂未接单，请稍后重试。",
-					},
-				});
-			}
-			this.#finishStream();
-		} catch (err) {
-			console.error("startTaskRoomAssistantFallback error:", err);
-			const state = this.#get();
-			if (
-				state.activeSessionId !== sessionId ||
-				state.streamingMessageId !== assistantMsgId ||
-				!state.isGenerating
-			) {
-				return;
-			}
-			const current = state.messagesMap[assistantMsgId];
-			if (current) {
-				this.#dispatchChat({
-					type: "updateMessage",
-					id: assistantMsgId,
-					value: {
-						...current,
-						status: "failed",
-						statusText: "AI 员工接单状态查询失败，请稍后重试。",
-					},
-				});
-			}
-			this.#finishStream();
-		}
-	};
-
+	/** 任务群聊续聊（实现见 send/sendTaskRoomMessage）。 */
 	sendTaskRoomMessage = async (
 		content: string,
 		params: {
@@ -2144,232 +250,33 @@ export class ChatActionImpl {
 		},
 		attachments?: Attachment[],
 	) => {
-		const trimmed = content.trim();
-		if (
-			(!trimmed && !attachments?.length) ||
-			!params.projectId ||
-			!params.taskId ||
-			!params.sessionId
-		) {
-			return null;
-		}
-		if (this.#get().isGenerating) return null;
-
-		const now = Date.now();
-		const userMsg: Message = {
-			id: `msg-user-${now}`,
-			conversationId: params.sessionId,
-			role: "user",
-			content: trimmed,
-			timestamp: now,
-			status: "sending",
-			attachments: mapComposerAttachments(attachments),
-			metadata: params.metadata,
-		};
-		const assistantMsg: Message = {
-			id: `msg-assistant-waiting-${now}`,
-			conversationId: params.sessionId,
-			role: "assistant",
-			content: "",
-			timestamp: now + 100,
-			status: "waiting",
-			statusText: "正在提交问题并分配 AI 员工...",
-			// 中文注释：等待 GlobalEvents 回填前，先用本次输入的 @ 队友信息稳定展示头像和名称。
-			metadata: params.metadata,
-			replyTo: buildReplyToFromMessage(userMsg),
-			author: {
-				id: "pending-assistant",
-				name: "Lework",
-				type: "assistant",
-			},
-		};
-		// GlobalEvents 用于以持久化数据回填；先展示本地用户消息，确保回复永远不会排在提问之前。
-		this.#dispatchChat({ type: "addMessage", value: userMsg });
-		this.#dispatchChat({ type: "addMessage", value: assistantMsg });
-		this.#set({
-			streamingMessageId: assistantMsg.id,
-			isGenerating: true,
-			activeSessionId: params.sessionId,
-		});
-
-		try {
-			void this.startGlobalEvents();
-			await sessionApi.addMessage({
-				session_id: params.sessionId,
-				role: "user",
-				content: trimmed,
-				execution_mode: this.#get().executionMode,
-				assistant_ids: extractAssistantIdsFromMetadata(params.metadata),
-				message_type: "text",
-				attachments: mapOutgoingAttachments(attachments),
-				metadata: buildBackendMessageMetadata(params.metadata),
-			});
-		} catch (err) {
-			this.#dispatchChat({
-				type: "updateMessage",
-				id: assistantMsg.id,
-				value: {
-					...assistantMsg,
-					status: "failed",
-					statusText: "消息提交失败，请稍后重试。",
-				},
-			});
-			this.#finishStream();
-			console.error("sendTaskRoomMessage addMessage error:", err);
-			return null;
-		}
-
-		this.#set({
-			// 中文注释：任务群聊按 GlobalEvents -> SessionEvents 强顺序启动，发送成功后等待 GlobalEvents 再拉流。
-			streamingMessageId: assistantMsg.id,
-			isGenerating: true,
-			inputText: "",
-			inputAttachments: [],
-			activeSessionId: params.sessionId,
-		});
-		// 中文注释：若 worker started 全局事件缺失或延迟，轮询 runtime_status 兜底接管，避免页面永久停在生成中。
-		void this.#startTaskRoomAssistantFallback(params.sessionId, assistantMsg.id);
-
-		return { project_id: params.projectId, task_id: params.taskId, session_id: params.sessionId };
+		return sendTaskRoomMessageImpl(this.#sendDeps, content, params, attachments);
 	};
 
+	/** 纯 chat 发送（实现见 send/sendMessage）。 */
 	sendMessage = async (content: string, attachments?: Attachment[], metadata?: MessageMetadata) => {
-		// 仅上传附件而无文字时后端会报错，必须要求有文本内容
-		if (!content.trim()) return false;
-
-		const state = this.#get();
-		// 中文注释：生成中禁止再次发送，避免新的请求把上一条流式响应直接顶掉。
-		if (state.isGenerating) return false;
-		let { activeSessionId } = state;
-
-		if (!activeSessionId) {
-			try {
-				const res = await sessionApi.create({ type: "chat", title: "新会话" });
-				const session = res.data.data;
-				if (!session) return false;
-				activeSessionId = session.session_id;
-				const conv = {
-					id: session.session_id,
-					title: session.title || "未命名会话",
-					sessionId: session.session_id,
-					type: session.type,
-					status: session.status,
-					createdAt: new Date(session.created_at).getTime(),
-					updatedAt: new Date(session.updated_at).getTime(),
-				};
-				const prevState = this.#fullGet() as {
-					conversations: Array<typeof conv>;
-					activeConversationId: string | null;
-					conversationsLoaded: boolean;
-				};
-				(this.#set as (partial: Record<string, unknown>) => void)({
-					activeSessionId,
-					conversations: [conv, ...prevState.conversations],
-					activeConversationId: conv.id,
-					conversationsLoaded: true,
-				});
-			} catch (err) {
-				console.error("Auto-create conversation error:", err);
-				return false;
-			}
-		}
-
-		try {
-			await sessionApi.addMessage({
-				session_id: activeSessionId,
-				role: "user",
-				content,
-				execution_mode: state.executionMode,
-				assistant_ids: extractAssistantIdsFromMetadata(metadata),
-				message_type: "text",
-				attachments: mapOutgoingAttachments(attachments),
-				metadata: buildBackendMessageMetadata(metadata),
-			});
-		} catch (err) {
-			console.error("sendMessage addMessage error:", err);
-			return false;
-		}
-
-		const now = Date.now();
-		const userMsg: Message = {
-			id: `msg-user-${now}`,
-			conversationId: activeSessionId,
-			role: "user",
-			content,
-			timestamp: now,
-			attachments: mapComposerAttachments(attachments),
-			metadata,
-		};
-
-		const assistantMsg: Message = {
-			id: `msg-assistant-${now}`,
-			conversationId: activeSessionId,
-			role: "assistant",
-			content: "",
-			timestamp: now + 100,
-			replyTo: buildReplyToFromMessage(userMsg),
-		};
-
-		this.#dispatchChat({ type: "addMessage", value: userMsg });
-		this.#dispatchChat({ type: "addMessage", value: assistantMsg });
-		this.#set({
-			streamingMessageId: assistantMsg.id,
-			isGenerating: true,
-			inputText: "",
-			inputAttachments: [],
-		});
-
-		this.#startSSE(activeSessionId, assistantMsg.id);
-		return true;
+		return sendMessageImpl(this.#sendDeps, content, attachments, metadata);
 	};
 
+	/**
+	 * 项目首页 / 工作台新建任务（实现见 send/sendProjectMessage）。
+	 * options 供工作台透传 assistantIds / await 详情等，不改变 ChatInput 原有四参调用。
+	 */
 	sendProjectMessage = async (
 		content: string,
 		projectId?: string | null,
 		attachments?: Attachment[],
 		metadata?: MessageMetadata,
+		options?: SendProjectMessageOptions,
 	) => {
-		const trimmed = content.trim();
-		if (!trimmed || !projectId) return null;
-		if (this.#get().isGenerating) return null;
-
-		try {
-			void this.startGlobalEvents();
-			const res = await sessionApi.createInitialMessage({
-				content: trimmed,
-				execution_mode: this.#get().executionMode,
-				project_id: projectId,
-				assistant_ids: extractAssistantIdsFromMetadata(metadata),
-				metadata: buildBackendMessageMetadata(metadata),
-				attachments: mapOutgoingAttachments(attachments),
-			});
-			const data = res.data.data;
-			if (!data?.project_id || !data?.task_id || !data?.session_id) return null;
-
-			this.bootstrapNewTaskSession(data.session_id, trimmed, { attachments, metadata });
-
-			(this.#set as (partial: Record<string, unknown>) => void)({
-				activeProjectId: data.project_id,
-				activeTaskDetailProjectId: data.project_id,
-				activeTaskDetailTaskId: data.task_id,
-				activeTaskDetailSessionId: data.session_id,
-				currentView: "taskDetail",
-				activeProjectTab: "chat",
-				conversationListOpen: false,
-				inputText: "",
-				inputAttachments: [],
-			});
-
-			const fullState = this.#fullGet() as {
-				fetchProjectDetail?: (projectId: string) => Promise<void>;
-			};
-			// 中文注释：项目详情刷新放到后台，避免阻塞路由跳转到任务对话页。
-			void fullState.fetchProjectDetail?.(data.project_id);
-			return data;
-		} catch (err) {
-			console.error("sendProjectMessage error:", err);
-			return null;
-		}
+		return sendProjectMessageImpl(
+			this.#sendDeps,
+			content,
+			projectId,
+			attachments,
+			metadata,
+			options,
+		);
 	};
 
 	startSessionResponseStream = async (
@@ -2400,23 +307,11 @@ export class ChatActionImpl {
 			inputAttachments: [],
 		});
 
-		const fallbackUserMsg: Message = {
-			id: `msg-user-${now}`,
-			conversationId: sessionId,
-			role: "user",
-			content: trimmed,
-			timestamp: now,
-			attachments: mapComposerAttachments(attachments),
+		const fallbackUserMsg = createOptimisticUserMessage(sessionId, trimmed, now, {
+			attachments,
 			metadata,
-		};
-		const assistantMsg: Message = {
-			id: `msg-assistant-${now}`,
-			conversationId: sessionId,
-			role: "assistant",
-			content: "",
-			timestamp: now + 100,
-			replyTo: buildReplyToFromMessage(fallbackUserMsg),
-		};
+		});
+		const assistantMsg = createEmptyAssistantMessage(sessionId, now, fallbackUserMsg);
 
 		const messagesMap: Record<string, Message> = {};
 		const messageIds: string[] = [];
@@ -2439,158 +334,9 @@ export class ChatActionImpl {
 		this.#startSSE(sessionId, assistantMsg.id);
 	};
 
-	#clearSSEIdleFallback = () => {
-		if (this.#sseIdleFallbackTimer) {
-			clearTimeout(this.#sseIdleFallbackTimer);
-			this.#sseIdleFallbackTimer = null;
-		}
-	};
-
-	#resetSSEBinding = () => {
-		this.#clearSSEIdleFallback();
-		this.#sseSessionId = null;
-		this.#sseAssistantMsgId = null;
-	};
-
-	#scheduleSSEIdleFallback = (sessionId: string) => {
-		this.#clearSSEIdleFallback();
-		this.#sseIdleFallbackTimer = setTimeout(() => {
-			const state = this.#get();
-			if (this.#sseSessionId !== sessionId || !state.isGenerating) return;
-			void this.#recoverStaleSessionStream(sessionId);
-		}, SESSION_EVENTS_IDLE_FALLBACK_MS);
-	};
-
-	#recoverStaleSessionStream = async (sessionId: string) => {
-		this.#resetSSEBinding();
-		if (this.#sseClient) {
-			this.#sseClient.close();
-			this.#sseClient = null;
-		}
-		try {
-			await this.loadConversationMessages(sessionId, { resumeStream: false });
-		} catch (err) {
-			console.error("recoverStaleSessionStream error:", err);
-		} finally {
-			this.#finishStream();
-		}
-	};
-
-	#startSSE = async (
-		sessionId: string,
-		assistantMsgId: string,
-		replay = false,
-		assistantId?: string,
-	) => {
-		if (this.#sseClient) {
-			this.#sseClient.close();
-			this.#sseClient = null;
-		}
-		this.#resetSSEBinding();
-		this.#sseSessionId = sessionId;
-		this.#sseAssistantMsgId = assistantMsgId;
-
-		const url = `${API_BASE_URL}/SessionEvents`;
-		const token = await getValidJwtToken();
-		if (!token) {
-			this.#finishStream();
-			return;
-		}
-		const client = new FetchSSEClient(url, {
-			method: "POST",
-			headers: { Authorization: `Bearer ${token}` },
-			body: {
-				session_id: sessionId,
-				...(replay ? { replay: true } : {}),
-				...(assistantId !== undefined ? { assistant_id: assistantId } : {}),
-			},
-			onOpen: () => {
-				this.#scheduleSSEIdleFallback(sessionId);
-			},
-			onMessage: (event) => {
-				this.#clearSSEIdleFallback();
-				try {
-					const data = JSON.parse(event.data) as SSEMessageEvent;
-					const eventType = event.type ?? data.type;
-
-					if (eventType === "work.title.updated") {
-						const workTitlePayload = parseWorkTitleUpdatedPayload(data);
-						if (workTitlePayload) {
-							const fullState = this.#fullGet() as {
-								applyWorkTitleUpdated?: (payload: BackendWorkTitleUpdatedPayload) => void;
-							};
-							fullState.applyWorkTitleUpdated?.(workTitlePayload);
-						}
-						return;
-					}
-
-					const targetAssistantMsgId = this.#sseAssistantMsgId ?? assistantMsgId;
-					const msg = this.#get().messagesMap[targetAssistantMsgId];
-					if (msg) {
-						const nextMsg = applySessionEventToMessage(msg, data, eventType, {
-							appendContent: true,
-						});
-						if (nextMsg !== msg) {
-							this.#dispatchChat({
-								type: "updateMessage",
-								id: targetAssistantMsgId,
-								value: nextMsg,
-							});
-						}
-					}
-
-					if (
-						eventType === "run.completed" ||
-						eventType === "run.failed" ||
-						eventType === "run.cancelled"
-					) {
-						this.#resetSSEBinding();
-						this.#finishStream();
-						this.#sseClient?.close();
-						this.#sseClient = null;
-						// 清除取消标记
-						this.#set({ cancellingSessionId: null });
-						// 会话结束后回拉历史消息，确保持久化 usage 能立即参与页面汇总展示。
-						void this.loadConversationMessages(sessionId, {
-							resumeStream: false,
-						});
-						const fullState = this.#fullGet() as {
-							activeTaskDetailProjectId?: string | null;
-							fetchProjectDetail?: (projectId: string) => Promise<void>;
-							projects?: Array<{
-								id: string;
-								tasks: Array<{ sessionId?: string }>;
-							}>;
-						};
-						const projectId = resolveProjectIdForSession(fullState, sessionId);
-						if (projectId) {
-							void fullState.fetchProjectDetail?.(projectId);
-						}
-					}
-				} catch (err) {
-					// 正文只接受 run.completed 的最终结果，解析失败的流片段不再兜底写入正文。
-					console.error("SSE message parse error:", err);
-				}
-			},
-			onError: (err) => {
-				console.error("SSE error:", err);
-				this.#resetSSEBinding();
-				this.#finishStream();
-			},
-		});
-
-		this.#set({ streamCancelRef: () => client.close() });
-		void client.connect();
-		this.#sseClient = client;
-	};
-
-	#finishStream = () => {
-		this.#clearSSEIdleFallback();
-		this.#set({
-			streamingMessageId: null,
-			isGenerating: false,
-			streamCancelRef: null,
-		});
+	/** 打开 SessionEvents（实现见 SessionStream）。 */
+	#startSSE = (sessionId: string, assistantMsgId: string, replay = false, assistantId?: string) => {
+		void this.#sessionStream.start(sessionId, assistantMsgId, replay, assistantId);
 	};
 
 	cancelGeneration = () => {
@@ -2637,198 +383,13 @@ export class ChatActionImpl {
 		}
 	};
 
+	/** 加载会话历史 / 进页 resume（实现见 HistoryLoader）。 */
 	loadConversationMessages = async (sessionId: string, options?: { resumeStream?: boolean }) => {
-		if (this.#get().pendingBootstrapSessionId === sessionId) return;
-		const loading = this.#messageLoadPromises.get(sessionId);
-		if (loading) return loading;
-
-		const loadPromise = this.#loadConversationMessages(sessionId, options).finally(() => {
-			this.#messageLoadPromises.delete(sessionId);
-		});
-		this.#messageLoadPromises.set(sessionId, loadPromise);
-		return loadPromise;
-	};
-
-	#fetchAllConversationMessages = async (sessionId: string) => {
-		const perPage = 100;
-		let page = 1;
-		let total = Number.POSITIVE_INFINITY;
-		const items: BackendMessage[] = [];
-
-		while (items.length < total) {
-			const res = await sessionApi.getMessages(sessionId, page, perPage);
-			const data = res.data.data;
-			const pageItems = data?.items ?? [];
-			total = data?.total ?? items.length + pageItems.length;
-			items.push(...pageItems);
-
-			// 中文注释：当最后一页不足 perPage 或后端未返回更多记录时，直接停止翻页，避免无意义请求。
-			if (pageItems.length < perPage || pageItems.length === 0) {
-				break;
-			}
-
-			page += 1;
-		}
-
-		return items;
-	};
-
-	#loadConversationMessages = async (
-		sessionId: string,
-		options?: { resumeStream?: boolean },
-	): Promise<void> => {
-		try {
-			const shouldCheckRuntime = options?.resumeStream !== false;
-			let runtimeStatus: string | undefined;
-			let messageCount: number | undefined;
-			if (shouldCheckRuntime) {
-				try {
-					const sessionRes = await sessionApi.get({ session_id: sessionId });
-					runtimeStatus = sessionRes.data.data?.runtime_status;
-					messageCount = sessionRes.data.data?.message_count;
-				} catch (err) {
-					console.error("loadConversationMessages get session error:", err);
-				}
-			}
-
-			const stateBeforeLoad = this.#get();
-			const optimisticCountBeforeLoad = getSessionLocalMessages(stateBeforeLoad, sessionId).filter(
-				isOptimisticMessage,
-			).length;
-			const items = await this.#fetchAllConversationMessages(sessionId);
-
-			const persistedMessages = attachAssistantReplyTargets(items.map(mapBackendMessage));
-			const state = this.#get();
-			if (state.pendingBootstrapSessionId === sessionId) return;
-			const localSessionMessages = getSessionLocalMessages(state, sessionId);
-			const optimisticCountAfterLoad = localSessionMessages.filter(isOptimisticMessage).length;
-			// 如果请求发出后，这个 session 在本地新插入了 optimistic 消息，说明当前返回值已经过时，
-			// 直接丢弃，避免把“刚发出去的用户消息”又覆盖没。
-			if (optimisticCountAfterLoad > optimisticCountBeforeLoad) return;
-			// 生成中或刚完成但本地仍有 optimistic 消息时，优先保留本地消息；
-			// 同时过滤掉空内容 assistant 占位，避免在落库后与真实 assistant 重复显示。
-			const shouldPreserveLocalMessages =
-				state.activeSessionId === sessionId &&
-				(state.isGenerating ||
-					state.cancellingSessionId === sessionId ||
-					optimisticCountAfterLoad > 0);
-			const reconcilingLocalMessages = shouldPreserveLocalMessages
-				? localSessionMessages.filter(
-						(message) =>
-							!isOptimisticMessage(message) ||
-							message.role !== "assistant" ||
-							state.isGenerating ||
-							Boolean(normalizedMessageContent(message)),
-					)
-				: [];
-			// 请求返回时若用户已经切到别的 session，则忽略这次结果，避免旧请求反写当前会话。
-			if (state.activeSessionId !== sessionId) return;
-			const messages = reconcilingLocalMessages.length
-				? mergeSessionMessages(persistedMessages, reconcilingLocalMessages)
-				: persistedMessages;
-			const shouldResumeStream =
-				runtimeStatus === "responding" &&
-				state.cancellingSessionId !== sessionId &&
-				!(
-					state.isGenerating &&
-					state.activeSessionId === sessionId &&
-					state.streamingMessageId !== null
-				);
-			// 中文注释：最后一条仍是 user 说明 assistant 尚未落库，需轮询/SSE 回放（含 workbench 选中已有任务发消息）。
-			const pendingAssistantReply = messages[messages.length - 1]?.role === "user";
-			const shouldPoll =
-				shouldCheckRuntime &&
-				runtimeStatus !== "responding" &&
-				pendingAssistantReply &&
-				!shouldResumeStream;
-			const resumeMessage: Message | undefined = shouldResumeStream
-				? createAssistantSessionEventsWaitingMessage(
-						sessionId,
-						`msg-assistant-resume-${Date.now()}`,
-					)
-				: undefined;
-			if (resumeMessage) {
-				messages.push(resumeMessage);
-			}
-
-			const maps: Record<string, Message> = {};
-			const ids: string[] = [];
-			for (const m of messages) {
-				maps[m.id] = m;
-				ids.push(m.id);
-			}
-
-			this.#set({
-				messagesMap: maps,
-				messageIds: ids,
-				...(resumeMessage
-					? {
-							streamingMessageId: resumeMessage.id,
-							isGenerating: true,
-						}
-					: {}),
-			});
-			if (resumeMessage) {
-				this.#startSSE(sessionId, resumeMessage.id, true);
-			}
-
-			// workbench 跳转场景：runtime_status 尚未流转，后台轮询等待 responding 后建 SSE 回放
-			if (shouldPoll) {
-				// 先插入 assistant 占位消息，显示"任务执行中"的 UI 状态
-				const pollPlaceholderMsg: Message = {
-					id: `msg-assistant-poll-${Date.now()}`,
-					conversationId: sessionId,
-					role: "assistant",
-					content: "",
-					timestamp: Date.now(),
-				};
-				this.#set({
-					messagesMap: {
-						...this.#get().messagesMap,
-						[pollPlaceholderMsg.id]: pollPlaceholderMsg,
-					},
-					messageIds: [...this.#get().messageIds, pollPlaceholderMsg.id],
-					streamingMessageId: pollPlaceholderMsg.id,
-					isGenerating: true,
-				});
-				const baselineMessageCount = messageCount ?? messages.length;
-				pollRuntimeStatus(sessionId, 60_000, baselineMessageCount).then((pollResult) => {
-					if (!pollResult) return;
-					const st = this.#get();
-					if (st.activeSessionId !== sessionId) return;
-					if (pollResult.status === "responding") {
-						// 用回放占位替换轮询占位，SSE 回放接管输出
-						const resumeMsgId = `msg-assistant-resume-${Date.now()}`;
-						const newMap = { ...st.messagesMap };
-						delete newMap[pollPlaceholderMsg.id];
-						const resumeMsg = createAssistantSessionEventsWaitingMessage(sessionId, resumeMsgId);
-						newMap[resumeMsgId] = resumeMsg;
-						const newIds = st.messageIds.map((id) =>
-							id === pollPlaceholderMsg.id ? resumeMsgId : id,
-						);
-						this.#set({
-							messagesMap: newMap,
-							messageIds: newIds,
-							streamingMessageId: resumeMsgId,
-							isGenerating: true,
-						});
-						this.#startSSE(sessionId, resumeMsgId, true);
-					} else {
-						// 消息已增加但未 responding，重新拉取消息列表同步最新数据
-						this.#loadConversationMessages(sessionId, { resumeStream: false });
-					}
-				});
-			}
-		} catch (err) {
-			console.error("loadConversationMessages error:", err);
-		}
+		return this.#historyLoader.load(sessionId, options);
 	};
 
 	resetLocalMessages = () => {
-		if (this.#sseClient) {
-			this.#sseClient.close();
-			this.#sseClient = null;
-		}
+		this.#sessionStream.close();
 		this.#set({
 			messagesMap: {},
 			messageIds: [],
@@ -2842,10 +403,7 @@ export class ChatActionImpl {
 
 	/** 只关闭 SSE 连接并重置流标记位，保留 messagesMap/messageIds/activeSessionId 等会话数据。 */
 	closeSseConnection = () => {
-		if (this.#sseClient) {
-			this.#sseClient.close();
-			this.#sseClient = null;
-		}
+		this.#sessionStream.close();
 		this.#set({
 			streamingMessageId: null,
 			isGenerating: false,
@@ -2853,255 +411,76 @@ export class ChatActionImpl {
 		});
 	};
 
-	/** 关闭 SSE 连接并清空本地消息数据，保留 activeSessionId 等会话路由状态。 */
+	/**
+	 * 关闭 SSE 连接并清空本地消息数据，保留 activeSessionId 等会话路由状态。
+	 * 同时清掉 pendingBootstrap，避免「GlobalEvents 未到 assistant 就离开」后标记残留，
+	 * 再进任务详情时被场景 1 守卫挡住、走不了场景 2 hydration。
+	 */
 	clearLocalMessages = () => {
-		if (this.#sseClient) {
-			this.#sseClient.close();
-			this.#sseClient = null;
-		}
+		this.#sessionStream.close();
 		this.#set({
 			messagesMap: {},
 			messageIds: [],
 			streamingMessageId: null,
 			isGenerating: false,
+			pendingBootstrapSessionId: null,
 			streamCancelRef: null,
 		});
 	};
 
+	/** 更新输入框文本（实现见 Composer）。 */
 	setInputText = (text: string) => {
-		this.#set({ inputText: text });
+		this.#composer.setInputText(text);
 	};
 
+	/** 切换执行模式（实现见 Composer）。 */
 	setExecutionMode = (executionMode: ExecutionMode) => {
-		this.#set({ executionMode });
+		this.#composer.setExecutionMode(executionMode);
 	};
 
+	/** 清空 composer 草稿（实现见 Composer）。 */
 	clearComposerInput = () => {
-		const state = this.#get();
-		revokeLocalAttachmentUrls(state.inputAttachments);
-		this.#set({ inputText: "", inputAttachments: [] });
+		this.#composer.clearComposerInput();
 	};
 
+	/** 追加 skill 指令（实现见 Composer）。 */
 	appendSkillDirective = (skillName: string) => {
-		this.#set((state) => ({
-			inputText: appendSkillDirectiveToInput(state.inputText, skillName),
-		}));
+		this.#composer.appendSkillDirective(skillName);
 	};
 
+	/** 替换 skill 指令前缀（实现见 Composer）。 */
 	replaceSkillDirective = (skillName: string) => {
-		this.#set((state) => ({
-			inputText: replaceSkillDirectiveInInput(state.inputText, skillName),
-		}));
+		this.#composer.replaceSkillDirective(skillName);
 	};
 
+	/** 添加本地附件（实现见 Composer）。 */
 	addAttachment = (file: File) => {
-		const id = `att-${Date.now()}`;
-		const url = URL.createObjectURL(file);
-		const attachment: Attachment = {
-			id,
-			type: file.type.startsWith("image/") ? "image" : "file",
-			name: file.name,
-			size: file.size,
-			url,
-			file,
-			mimeType: file.type,
-		};
-		this.#set((state) => ({
-			inputAttachments: [...state.inputAttachments, attachment],
-		}));
+		this.#composer.addAttachment(file);
 	};
 
+	/** 上传单个项目文件到 composer（实现见 Composer）。 */
 	addUploadedAttachment = async (projectId: string, file: File) => {
-		if (isEmptyUploadFile(file)) {
-			throw new Error(COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE);
-		}
-		if (!isComposerUploadAllowedFile(file)) {
-			throw new Error(COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE);
-		}
-
-		const attachmentId = `att-${Date.now()}`;
-		const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
-		const abortController = new AbortController();
-		this.#uploadAbortControllers.set(attachmentId, abortController);
-		const placeholder: Attachment = {
-			id: attachmentId,
-			type: file.type.startsWith("image/") ? "image" : "file",
-			name: file.name,
-			size: file.size,
-			url: previewUrl,
-			file,
-			mimeType: file.type,
-			uploadStatus: "uploading",
-		};
-
-		this.#set((state) => ({
-			inputAttachments: [...state.inputAttachments, placeholder],
-		}));
-
-		try {
-			const response = await projectFileApi.upload({
-				projectId,
-				projectPublicId: projectId,
-				file,
-				signal: abortController.signal,
-			});
-			const payload = response.data;
-
-			const attachment: Attachment = {
-				id: attachmentId,
-				type: file.type.startsWith("image/") ? "image" : "file",
-				name: payload.original_name || payload.filename || file.name,
-				size: payload.file_size ?? payload.size ?? file.size,
-				url: previewUrl,
-				file,
-				path: payload.public_id || payload.storage_uri || payload.path,
-				fileUploadId: payload.public_id,
-				mimeType: payload.mime_type || file.type,
-				storageUri: payload.storage_uri,
-				uploadStatus: "completed",
-			};
-
-			this.#set((state) => ({
-				inputAttachments: state.inputAttachments.map((item) =>
-					item.id === attachmentId ? attachment : item,
-				),
-			}));
-
-			return { attachment, message: response.message, cancelled: false as const };
-		} catch (err) {
-			if (abortController.signal.aborted) {
-				return { attachment: placeholder, message: "", cancelled: true as const };
-			}
-			this.removeAttachment(attachmentId);
-			throw err;
-		} finally {
-			this.#uploadAbortControllers.delete(attachmentId);
-		}
+		return this.#composer.addUploadedAttachment(projectId, file);
 	};
 
+	/** 上传文件夹到 composer（实现见 Composer）。 */
 	addUploadedFolderAttachment = async (projectId: string, files: File[]) => {
-		if (!files.length) {
-			throw new Error("未选择文件夹内容");
-		}
-		if (isFolderUploadSizeExceeded(files)) {
-			throw new Error(FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE);
-		}
-
-		const { uploadable, skippedEmpty, skippedType } = partitionComposerFolderFiles(files);
-		if (uploadable.length === 0) {
-			throw new Error(
-				buildComposerFolderUploadSummaryMessage(0, skippedEmpty.length, skippedType.length),
-			);
-		}
-
-		const folderName = getFolderNameFromFiles(files);
-		const attachmentId = `att-folder-${Date.now()}`;
-		const estimatedSize = uploadable.reduce((sum, file) => sum + file.size, 0);
-		const abortController = new AbortController();
-		this.#uploadAbortControllers.set(attachmentId, abortController);
-
-		const placeholder: Attachment = {
-			id: attachmentId,
-			type: "folder",
-			name: folderName,
-			size: estimatedSize,
-			uploadStatus: "uploading",
-		};
-
-		this.#set((state) => ({
-			inputAttachments: [...state.inputAttachments, placeholder],
-		}));
-
-		try {
-			const folderFiles: NonNullable<Attachment["folderFiles"]> = [];
-			let totalSize = 0;
-
-			for (const file of uploadable) {
-				if (abortController.signal.aborted) {
-					return { attachment: placeholder, message: "", cancelled: true as const };
-				}
-
-				const response = await projectFileApi.upload({
-					projectId,
-					projectPublicId: projectId,
-					file,
-					signal: abortController.signal,
-				});
-				const payload = response.data;
-				if (!payload?.public_id) {
-					throw new Error("上传接口未返回 public_id");
-				}
-
-				const relativePath = getFileRelativePath(file);
-				const displayName = payload.original_name || payload.filename || file.name;
-				const fileSize = payload.file_size ?? payload.size ?? file.size;
-
-				folderFiles.push({
-					fileUploadId: payload.public_id,
-					name: displayName,
-					relativePath,
-					mimeType: payload.mime_type || file.type || "application/octet-stream",
-					size: fileSize,
-				});
-				totalSize += fileSize;
-			}
-
-			const attachment: Attachment = {
-				id: attachmentId,
-				type: "folder",
-				name: folderName,
-				size: totalSize,
-				folderFiles,
-				uploadStatus: "completed",
-			};
-
-			this.#set((state) => ({
-				inputAttachments: state.inputAttachments.map((item) =>
-					item.id === attachmentId ? attachment : item,
-				),
-			}));
-
-			return {
-				attachment,
-				cancelled: false as const,
-				message: buildComposerFolderUploadSummaryMessage(
-					uploadable.length,
-					skippedEmpty.length,
-					skippedType.length,
-				),
-			};
-		} catch (err) {
-			if (abortController.signal.aborted) {
-				return { attachment: placeholder, message: "", cancelled: true as const };
-			}
-			this.removeAttachment(attachmentId);
-			throw err;
-		} finally {
-			this.#uploadAbortControllers.delete(attachmentId);
-		}
+		return this.#composer.addUploadedFolderAttachment(projectId, files);
 	};
 
+	/** 移除 composer 附件（实现见 Composer）。 */
 	removeAttachment = (id: string) => {
-		const abortController = this.#uploadAbortControllers.get(id);
-		if (abortController) {
-			abortController.abort();
-			this.#uploadAbortControllers.delete(id);
-		}
-
-		const state = this.#get();
-		const att = state.inputAttachments.find((a) => a.id === id);
-		if (att?.url?.startsWith("blob:")) URL.revokeObjectURL(att.url);
-		this.#set((state) => ({
-			inputAttachments: state.inputAttachments.filter((a) => a.id !== id),
-		}));
+		this.#composer.removeAttachment(id);
 	};
 
+	/** 标记输入框焦点（实现见 Composer）。 */
 	setInputFocused = (focused: boolean) => {
-		this.#set({ inputFocused: focused });
+		this.#composer.setInputFocused(focused);
 	};
 
+	/** 选择模型（实现见 Composer）。 */
 	setSelectedModel = (modelId: string) => {
-		this.#set({ selectedModel: modelId });
+		this.#composer.setSelectedModel(modelId);
 	};
 
 	resendMessage = async (messageId: string) => {
@@ -3399,29 +778,3 @@ export const chatSlice: SliceCreator<ChatStore> = (...params) => ({
 		),
 	]),
 });
-
-/** 轮询等待 session 的 runtime_status 变为 "responding"，最长等待 timeoutMs 毫秒。 */
-async function pollRuntimeStatus(
-	sessionId: string,
-	timeoutMs: number,
-	baselineMessageCount: number,
-): Promise<{ status: string; messageCount?: number } | undefined> {
-	const startTime = Date.now();
-	const POLL_INTERVAL = 2000;
-	while (Date.now() - startTime < timeoutMs) {
-		await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
-		try {
-			const res = await sessionApi.get({ session_id: sessionId });
-			const status = res.data.data?.runtime_status;
-			const messageCount = res.data.data?.message_count;
-			if (status === "responding") return { status: "responding", messageCount };
-			// 中文注释：以进入轮询时的消息数为基线，避免已有历史的 session 因 messageCount > 1 被误判为已完成。
-			if (messageCount !== undefined && messageCount > baselineMessageCount && status === "idle") {
-				return { status: "completed", messageCount };
-			}
-		} catch {
-			// 轮询失败继续
-		}
-	}
-	return undefined;
-}

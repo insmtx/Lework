@@ -17,9 +17,16 @@ import (
 )
 
 // buildSkillLoadingContext 构建 Skill 加载指令 + available_skills 数据。
-func (b *ContextBuilder) buildSkillLoadingContext(ctx context.Context) string {
+func (b *ContextBuilder) buildSkillLoadingContext(ctx context.Context, req *agentrundomain.RunRequest) string {
 	var skillsData string
-	summaries, err := skillcatalog.List()
+	catalog, err := catalogForRequest(req)
+	if err != nil {
+		logs.WarnContextf(ctx, "resolve run skill catalog: %v", err)
+	}
+	var summaries []skillcatalog.Summary
+	if err == nil {
+		summaries, err = catalog.List()
+	}
 	if err == nil && len(summaries) > 0 {
 		var sb strings.Builder
 		sb.WriteString("\n")
@@ -71,7 +78,7 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundom
 		sectionNames = append(sectionNames, "tool_enforcement")
 	}
 
-	if skillLoading := strings.TrimSpace(b.buildSkillLoadingContext(ctx)); skillLoading != "" {
+	if skillLoading := strings.TrimSpace(b.buildSkillLoadingContext(ctx, req)); skillLoading != "" {
 		sections = append(sections, skillLoading)
 		sectionNames = append(sectionNames, "skill_loading")
 	}
@@ -115,6 +122,13 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundom
 	logs.InfoContextf(ctx, "Agent system prompt built: run_id=%s trace_id=%s sections=%s section_count=%d prompt_len=%d",
 		requestRunID(req), requestTraceID(req), strings.Join(sectionNames, ","), len(sections), len(prompt))
 	return prompt, nil
+}
+
+func catalogForRequest(req *agentrundomain.RunRequest) (*skillcatalog.Catalog, error) {
+	if req != nil && strings.TrimSpace(req.Workspace.SkillDir) != "" {
+		return skillcatalog.NewCatalog(req.Workspace.SkillDir)
+	}
+	return skillcatalog.NewCatalogFromDefault()
 }
 
 func buildAssistantPersonaContext(req *agentrundomain.RunRequest) string {
