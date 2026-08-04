@@ -8,7 +8,6 @@ import { useEffect, useRef } from "react";
 import { AIMessageBubble } from "./AIMessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { UserMessageBubble } from "./UserMessageBubble";
-import { WelcomeScreen } from "./WelcomeScreen";
 
 function formatTime(timestamp: number): string {
 	const date = new Date(timestamp);
@@ -113,17 +112,28 @@ export function MessageTimeline({
 		<div
 			ref={scrollRef}
 			data-slot="message-timeline"
+			onWheel={(event) => {
+				// 鼠标滚轮步进小：向上滚时立刻退出跟随，避免等 onScroll 时仍在底部附近又被重新打开。
+				if (event.deltaY < 0) {
+					autoFollowRef.current = false;
+				}
+			}}
 			onScroll={(event) => {
 				const container = event.currentTarget;
 				const distanceToBottom =
 					container.scrollHeight - container.scrollTop - container.clientHeight;
 
-				autoFollowRef.current = distanceToBottom <= 120;
+				// 滞回：贴底附近（≤120）不因小幅上滚重新打开跟随；真正回到底部（≤4）才恢复。
+				if (distanceToBottom <= 4) {
+					autoFollowRef.current = true;
+				} else if (distanceToBottom > 120) {
+					autoFollowRef.current = false;
+				}
 			}}
 			className={cn("no-scrollbar min-h-0 flex-1 overflow-y-auto", className)}
 		>
 			{isEmpty ? (
-				(emptyState ?? <WelcomeScreen />)
+				(emptyState ?? null)
 			) : contentShellClassName ? (
 				<div className={contentShellClassName}>
 					<div className={cn("flex w-full flex-col gap-3", contentClassName)}>{messageList}</div>

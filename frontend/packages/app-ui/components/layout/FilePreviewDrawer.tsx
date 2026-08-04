@@ -890,6 +890,24 @@ function FilePreviewContent({
 		);
 	}
 
+	if (previewKind === "video" && preview.objectUrl) {
+		return (
+			<div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+				<div className="aspect-video w-full overflow-hidden bg-slate-950">
+					<video
+						src={preview.objectUrl}
+						controls
+						preload="metadata"
+						className="h-full w-full object-cover"
+					>
+						<track kind="captions" />
+						当前环境不支持播放此视频，请下载后查看。
+					</video>
+				</div>
+			</div>
+		);
+	}
+
 	if (previewKind === "pdf" && preview.buffer) {
 		return (
 			<div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-white shadow-sm">

@@ -5,17 +5,12 @@
 
 export type { BootstrapNewTaskOptions } from "./bootstrap";
 export { bootstrapNewTaskSession } from "./bootstrap";
-export type { SendPipelineDeps, StreamOpenStrategy } from "./deps";
+export type { SendPipelineDeps } from "./deps";
 export {
 	buildBackendMessageMetadata,
 	extractAssistantIdsFromMetadata,
 } from "./metadata";
-export {
-	createEmptyAssistantMessage,
-	createOptimisticUserMessage,
-	createWaitingAssistantMessage,
-} from "./optimistic";
-export { sendMessage } from "./sendMessage";
+export { createOptimisticUserMessage, createWaitingAssistantMessage } from "./optimistic";
 export type { SendProjectMessageOptions } from "./sendProjectMessage";
 export { sendProjectMessage } from "./sendProjectMessage";
 export type { SendTaskRoomParams, SendTaskRoomResult } from "./sendTaskRoomMessage";

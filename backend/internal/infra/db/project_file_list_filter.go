@@ -20,7 +20,7 @@ type ProjectFileListFilter struct {
 // ValidProjectFileExtFilter reports whether file_ext is a supported filter key.
 func ValidProjectFileExtFilter(fileExt string) bool {
 	switch strings.TrimSpace(fileExt) {
-	case "pdf", "docx", "xlsx", "pptx", "md", "image", "text":
+	case "pdf", "docx", "xlsx", "pptx", "md", "image", "video", "text":
 		return true
 	default:
 		return false
@@ -107,7 +107,10 @@ func matchesProjectFileExtGroup(relativePath, fileExt string) bool {
 	case "md":
 		return ext == ".md" || ext == ".markdown"
 	case "image":
-		return ext == ".jpg" || ext == ".jpeg" || ext == ".png"
+		return ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".gif" ||
+			ext == ".bmp" || ext == ".webp" || ext == ".svg"
+	case "video":
+		return ext == ".mp4" || ext == ".mov" || ext == ".avi"
 	case "text":
 		return ext == ".txt" || ext == ".json" || ext == ".yaml" || ext == ".yml" ||
 			ext == ".log" || ext == ".html" || ext == ".htm"

@@ -17,8 +17,16 @@ export type FilePreviewKind =
 	| "html"
 	| "text"
 	| "image"
+	| "video"
 	| "pdf"
 	| "unsupported";
+
+const PREVIEW_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"];
+const PREVIEW_VIDEO_EXTENSIONS = [".mp4", ".mov", ".avi"];
+
+function hasPreviewExtension(name: string, extensions: string[]): boolean {
+	return extensions.some((extension) => name.endsWith(extension));
+}
 
 export type FilePreviewItem = {
 	name: string;
@@ -67,8 +75,11 @@ export function detectFilePreviewKind(item: FilePreviewItem | null): FilePreview
 	if (mimeType.includes("html") || name.endsWith(".html") || name.endsWith(".htm")) {
 		return "html";
 	}
-	if (mimeType.startsWith("image/")) {
+	if (mimeType.startsWith("image/") || hasPreviewExtension(name, PREVIEW_IMAGE_EXTENSIONS)) {
 		return "image";
+	}
+	if (mimeType.startsWith("video/") || hasPreviewExtension(name, PREVIEW_VIDEO_EXTENSIONS)) {
+		return "video";
 	}
 	if (mimeType === "application/pdf" || mimeType.includes("pdf") || name.endsWith(".pdf")) {
 		return "pdf";

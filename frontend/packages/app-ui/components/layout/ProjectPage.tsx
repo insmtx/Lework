@@ -182,11 +182,15 @@ export function ProjectPage({
 
 	const handleOpenTask = (task: ProjectTask) => {
 		if (!resolvedProjectId) return;
-		if (navigation) {
-			navigation.goToTaskDetail(resolvedProjectId, task.id, task.sessionId ?? null);
+		if (!task.sessionId) {
+			toast.warning("当前任务缺少会话，无法打开详情");
 			return;
 		}
-		openTaskDetail(resolvedProjectId, task.id, task.sessionId ?? null);
+		if (navigation) {
+			navigation.goToTaskDetail(resolvedProjectId, task.id, task.sessionId);
+			return;
+		}
+		openTaskDetail(resolvedProjectId, task.id, task.sessionId);
 	};
 
 	const handleBackToProjects = () => {

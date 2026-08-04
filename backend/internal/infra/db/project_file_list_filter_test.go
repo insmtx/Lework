@@ -26,6 +26,15 @@ func TestMatchesProjectFileExtGroup(t *testing.T) {
 		{artifacts + "/readme.md", "md", true},
 		{artifacts + "/readme.markdown", "md", true},
 		{uploads + "/photo.jpg", "image", true},
+		{uploads + "/photo.jpeg", "image", true},
+		{uploads + "/photo.png", "image", true},
+		{uploads + "/animation.gif", "image", true},
+		{uploads + "/bitmap.bmp", "image", true},
+		{uploads + "/photo.webp", "image", true},
+		{uploads + "/vector.svg", "image", true},
+		{uploads + "/movie.mp4", "video", true},
+		{uploads + "/movie.mov", "video", true},
+		{uploads + "/movie.avi", "video", true},
 		{uploads + "/config.json", "text", true},
 	}
 
@@ -40,7 +49,8 @@ func TestMatchesProjectFileExtGroup(t *testing.T) {
 func TestValidProjectFileExtFilter(t *testing.T) {
 	t.Parallel()
 
-	if !ValidProjectFileExtFilter("pdf") || ValidProjectFileExtFilter("unknown") {
+	if !ValidProjectFileExtFilter("pdf") || !ValidProjectFileExtFilter("video") ||
+		ValidProjectFileExtFilter("unknown") {
 		t.Fatal("ValidProjectFileExtFilter returned unexpected values")
 	}
 }

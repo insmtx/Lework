@@ -11,43 +11,6 @@ import type {
 	BackendSession,
 } from "./types";
 
-export type CreateSessionParams = {
-	type: string;
-	title?: string;
-	assistant_id?: string;
-	session_id?: string;
-	user_id?: number;
-	expired_at?: string;
-	metadata?: {
-		user_agent?: string;
-		ip_address?: string;
-		tags?: string[];
-		extra?: Record<string, unknown>;
-	};
-};
-
-export type UpdateSessionParams = {
-	session_id: string;
-	title?: string;
-	expired_at?: string;
-	metadata?: {
-		user_agent?: string;
-		ip_address?: string;
-		tags?: string[];
-		extra?: Record<string, unknown>;
-	};
-};
-
-export type ListSessionsParams = {
-	page?: number;
-	per_page?: number;
-	type?: string;
-	status?: string;
-	keyword?: string;
-	assistant_id?: string;
-	user_id?: number;
-};
-
 export type GetSessionParams = {
 	id?: number;
 	session_id?: string;
@@ -119,11 +82,7 @@ export type CreateInitialMessageParams = {
 };
 
 const SESSION_ENDPOINTS = {
-	create: "/CreateSession",
-	list: "/ListSessions",
 	get: "/GetSession",
-	update: "/UpdateSession",
-	delete: "/DeleteSession",
 	addMessage: "/AddMessage",
 	getMessages: "/GetSessionMessages",
 	deleteMessage: "/DeleteMessage",
@@ -133,20 +92,8 @@ const SESSION_ENDPOINTS = {
 };
 
 export const sessionApi = {
-	create: (params: CreateSessionParams) =>
-		apiClient.post<BackendDataResponse<BackendSession>>(SESSION_ENDPOINTS.create, params),
-
-	list: (params: ListSessionsParams) =>
-		apiClient.post<BackendPaginatedResponse<BackendSession>>(SESSION_ENDPOINTS.list, params),
-
 	get: (params: GetSessionParams) =>
 		apiClient.post<BackendDataResponse<BackendSession>>(SESSION_ENDPOINTS.get, params),
-
-	update: (params: UpdateSessionParams) =>
-		apiClient.post<BackendDataResponse<BackendSession>>(SESSION_ENDPOINTS.update, params),
-
-	delete: (sessionId: string) =>
-		apiClient.post<BackendDataResponse<null>>(SESSION_ENDPOINTS.delete, { session_id: sessionId }),
 
 	addMessage: (params: AddMessageParams) =>
 		apiClient.post<BackendDataResponse<BackendMessage>>(SESSION_ENDPOINTS.addMessage, params),

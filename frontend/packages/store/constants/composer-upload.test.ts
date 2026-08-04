@@ -21,14 +21,33 @@ describe("composer-upload", () => {
 		expect(getNativeFileInputAccept("image/*", "MacIntel")).toBe("image/*");
 	});
 
+	it("exposes images and videos in the native file picker", () => {
+		expect(COMPOSER_UPLOAD_ACCEPT.split(",")).toEqual(
+			expect.arrayContaining(["image/*", "video/*", ".mp4", ".mov", ".avi"]),
+		);
+	});
+
 	it("accepts allowed extensions", () => {
-		expect(isComposerUploadAllowedFileName("report.pdf")).toBe(true);
-		expect(isComposerUploadAllowedFileName("notes.docx")).toBe(true);
-		expect(isComposerUploadAllowedFileName("sheet.XLSX")).toBe(true);
-		expect(isComposerUploadAllowedFileName("slide.ppt")).toBe(true);
-		expect(isComposerUploadAllowedFileName("readme.md")).toBe(true);
-		expect(isComposerUploadAllowedFileName("photo.JPG")).toBe(true);
-		expect(isComposerUploadAllowedFileName("plain.txt")).toBe(true);
+		for (const fileName of [
+			"report.pdf",
+			"notes.docx",
+			"sheet.XLSX",
+			"slide.ppt",
+			"readme.md",
+			"photo.JPG",
+			"photo.jpeg",
+			"photo.png",
+			"animation.gif",
+			"bitmap.bmp",
+			"photo.webp",
+			"vector.svg",
+			"movie.mp4",
+			"movie.mov",
+			"movie.avi",
+			"plain.txt",
+		]) {
+			expect(isComposerUploadAllowedFileName(fileName), fileName).toBe(true);
+		}
 	});
 
 	it("rejects unsupported extensions", () => {

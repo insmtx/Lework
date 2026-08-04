@@ -20,11 +20,8 @@ import { GlobalEventsManager } from "../chat/globalEvents";
 import { HistoryLoader } from "../chat/historyLoader";
 import {
 	bootstrapNewTaskSession as bootstrapNewTaskSessionImpl,
-	createEmptyAssistantMessage,
-	createOptimisticUserMessage,
 	type SendPipelineDeps,
 	type SendProjectMessageOptions,
-	sendMessage as sendMessageImpl,
 	sendProjectMessage as sendProjectMessageImpl,
 	sendTaskRoomMessage as sendTaskRoomMessageImpl,
 } from "../chat/send";
@@ -253,11 +250,6 @@ export class ChatActionImpl {
 		return sendTaskRoomMessageImpl(this.#sendDeps, content, params, attachments);
 	};
 
-	/** 纯 chat 发送（实现见 send/sendMessage）。 */
-	sendMessage = async (content: string, attachments?: Attachment[], metadata?: MessageMetadata) => {
-		return sendMessageImpl(this.#sendDeps, content, attachments, metadata);
-	};
-
 	/**
 	 * 项目首页 / 工作台新建任务（实现见 send/sendProjectMessage）。
 	 * options 供工作台透传 assistantIds / await 详情等，不改变 ChatInput 原有四参调用。
@@ -277,61 +269,6 @@ export class ChatActionImpl {
 			metadata,
 			options,
 		);
-	};
-
-	startSessionResponseStream = async (
-		sessionId: string,
-		content: string,
-		attachments?: Attachment[],
-		metadata?: MessageMetadata,
-	) => {
-		const trimmed = content.trim();
-		if (!sessionId || !trimmed) return;
-
-		const state = this.#get();
-		if (state.isGenerating) return;
-		if (state.activeSessionId === sessionId && state.isGenerating) {
-			if (state.pendingBootstrapSessionId === sessionId) {
-				this.#set({ pendingBootstrapSessionId: null });
-			}
-			return;
-		}
-
-		const now = Date.now();
-		this.#set({
-			activeSessionId: sessionId,
-			streamingMessageId: null,
-			isGenerating: true,
-			pendingBootstrapSessionId: sessionId,
-			inputText: "",
-			inputAttachments: [],
-		});
-
-		const fallbackUserMsg = createOptimisticUserMessage(sessionId, trimmed, now, {
-			attachments,
-			metadata,
-		});
-		const assistantMsg = createEmptyAssistantMessage(sessionId, now, fallbackUserMsg);
-
-		const messagesMap: Record<string, Message> = {};
-		const messageIds: string[] = [];
-		for (const message of [fallbackUserMsg, assistantMsg]) {
-			messagesMap[message.id] = message;
-			messageIds.push(message.id);
-		}
-
-		this.#set({
-			activeSessionId: sessionId,
-			messagesMap,
-			messageIds,
-			streamingMessageId: assistantMsg.id,
-			isGenerating: true,
-			pendingBootstrapSessionId: null,
-			inputText: "",
-			inputAttachments: [],
-		});
-
-		this.#startSSE(sessionId, assistantMsg.id);
 	};
 
 	/** 打开 SessionEvents（实现见 SessionStream）。 */

@@ -58,7 +58,7 @@ async function parseErrorMessage(response: Response): Promise<string> {
 		// 保持默认错误信息即可
 	}
 	if (message === "unsupported file type") {
-		return COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE;
+		return `服务端拒绝了该文件类型。${COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE}`;
 	}
 	if (message === "empty file is not allowed") {
 		return COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE;

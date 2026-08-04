@@ -14,8 +14,8 @@
   - `sessionStream.ts` — SessionEvents 短连接
   - `globalEvents.ts` — GlobalEvents 长连接 + message.created
   - `historyLoader.ts` — 进页 hydration / resume / poll
-  - `send/*` — 三条发送 + bootstrap / optimistic
-  - `effects.ts` — conversations / taskDetail / fetchProjectDetail
+  - `send/*` — 两条发送 + bootstrap / optimistic
+  - `effects.ts` — taskDetail / fetchProjectDetail
   - `composer.ts` — 输入草稿 / 附件上传 / skill 指令
 - 开流规则：
   - 问答（CreateInitialMessage / AddMessage）→ 仅 GlobalEvents assistant 后开 SessionEvents
@@ -36,9 +36,8 @@
 
 ```text
 ChatInput
-  ├─ 纯 chat 页        → sendMessage
-  ├─ 项目首页          → sendProjectMessage
-  └─ 任务详情（群聊）  → sendTaskRoomMessage
+  ├─ 项目首页 / 无 session 任务 → sendProjectMessage
+  └─ 任务详情（已有 session）  → sendTaskRoomMessage
          │
          ▼
    chatSlice（messagesMap / isGenerating / SSE）
@@ -60,35 +59,16 @@ ChatInput
 | 条件 | 调的 store 方法 | 产品场景 |
 |---|---|---|
 | 项目变体 + `taskDetail` + 已有 project/task/session | `sendTaskRoomMessage` | 任务详情里继续聊 |
+| 项目变体 + `taskDetail` + 有 project/task、无 session | `sendProjectMessage`（带 `taskId`） | 任务详情补建会话 |
 | 项目变体 + `project` | `sendProjectMessage` | 项目首页发首条，创建任务并跳转 |
-| 其它（含纯 `/chat`） | `sendMessage` | 独立会话聊天 |
 
-共同约束：`isGenerating === true` 时禁止再发。
+共同约束：`isGenerating === true` 时禁止再发。旧独立 `/chat` + `CreateSession` 路径已下线。
 
 ---
 
-## 3. 三条发送路径（前端逐步）
+## 3. 两条发送路径（前端逐步）
 
-### 路径 A：`sendMessage`（纯会话）
-
-```text
-校验 content
-  → 无 activeSessionId？ CreateSession
-  → AddMessage
-  → 本地插入 user + 空 assistant（乐观 ID）
-  → isGenerating=true, streamingMessageId=assistantId
-  → 立刻开 SessionEvents（replay=false）
-  → 收流直到 run.completed|failed|cancelled
-  → finishStream + GetSessionMessages 对齐
-```
-
-特点：
-
-- **不依赖 GlobalEvents**
-- 发完立刻开流，路径最短
-- 乐观 assistant id：`msg-assistant-{ts}`
-
-### 路径 B：`sendProjectMessage`（项目首页新建任务）
+### 路径 A：`sendProjectMessage`（项目首页新建任务 / 无 session 任务）
 
 ```text
 确保 GlobalEvents 已连接
@@ -111,7 +91,7 @@ ChatInput
 - 开流顺序硬性依赖：**GlobalEvents → SessionEvents**
 - `pendingBootstrapSessionId` 会挡住过早的 `loadConversationMessages`，避免空屏/冲掉乐观消息
 
-### 路径 C：`sendTaskRoomMessage`（任务详情跟聊）
+### 路径 B：`sendTaskRoomMessage`（任务详情跟聊）
 
 ```text
 本地先插 user(sending) + waiting assistant
@@ -120,12 +100,12 @@ ChatInput
   → AddMessage
   → 成功后仍保持 waiting，等 GlobalEvents
   → 同时启动 runtime_status 轮询兜底（#startTaskRoomAssistantFallback）
-  → GlobalEvents assistant 到达后同路径 B：替换占位 → SessionEvents(replay)
+  → GlobalEvents assistant 到达后同路径 A：替换占位 → SessionEvents(replay)
 ```
 
 特点：
 
-- 和路径 A 一样调 `AddMessage`，但**故意不开立刻 SSE**
+- 调 `AddMessage`，但**故意不开立刻 SSE**
 - 必须等 GlobalEvents 才知道「哪个 assistant / 哪个 run」接了单
 - AddMessage 失败：waiting 气泡标 failed，finishStream
 
@@ -135,9 +115,8 @@ ChatInput
 
 | 时机 | API | 谁调用 |
 |---|---|---|
-| 无会话时创建 | `POST /CreateSession` | `sendMessage` |
-| 项目首页首条 | `POST /CreateInitialMessage` | `sendProjectMessage` |
-| 已有会话发消息 | `POST /AddMessage` | `sendMessage` / `sendTaskRoomMessage` |
+| 项目首页首条 / 无 session 任务 | `POST /CreateInitialMessage` | `sendProjectMessage` |
+| 已有会话发消息 | `POST /AddMessage` | `sendTaskRoomMessage` |
 | 拉历史 | `POST /GetSessionMessages` | `loadConversationMessages`；流结束后也会再拉 |
 | 看是否还在生成 | `POST /GetSession`（用 `runtime_status`） | 加载/回放/兜底轮询 |
 | 会话流式 | `POST /SessionEvents`（SSE） | `#startSSE` |
@@ -176,7 +155,6 @@ SSE 实现：`FetchSSEClient`（POST + Bearer），不是浏览器 `EventSource`
 | 前缀 | 含义 |
 |---|---|
 | `msg-user-{ts}` | 乐观用户消息 |
-| `msg-assistant-{ts}` | 纯 chat 乐观 assistant |
 | `msg-assistant-waiting-{ts}` | 等 GlobalEvents 的占位 |
 | `msg-assistant-resume-{ts}` | 进页回放占位 |
 | `msg-assistant-poll-{ts}` | 等 runtime_status 的临时占位 |
@@ -237,10 +215,6 @@ SSE 实现：`FetchSSEClient`（POST + Bearer），不是浏览器 `EventSource`
 
 ## 7. 进页 / 切会话：加载与回放
 
-### 纯 chat：`CenterCanvas`
-
-`activeSessionId` 变化 → `loadConversationMessages(sessionId)`（默认允许 resume）。
-
 ### 任务详情：`TaskDetailPage`
 
 - 有 `pendingBootstrapSessionId` 且本地已有消息 → **不 resume**，等 GlobalEvents
@@ -275,17 +249,17 @@ SSE 实现：`FetchSSEClient`（POST + Bearer），不是浏览器 `EventSource`
 
 ---
 
-## 9. 三条路径对照（重构对照表）
+## 9. 两条路径对照
 
-| | A 纯 chat | B 新建任务 | C 任务群聊 |
-|---|---|---|---|
-| 写接口 | CreateSession? + AddMessage | CreateInitialMessage | AddMessage |
-| 乐观 UI | user + 空 assistant | user + **waiting** | user + **waiting** |
-| GlobalEvents | 不需要 | 需要 | 需要 |
-| 开 SessionEvents 时机 | 发送成功立刻 | GlobalEvents assistant 之后 | 同左 |
-| replay | 否（新流） | 是 | 是 |
-| 跳转 | 无 | 去 taskDetail | 已在 taskDetail |
-| 兜底 | SSE idle / 终态拉历史 | runtime 轮询 + bootstrap 缓冲 | 同左 + taskRoom fallback |
+| | A 新建任务 | B 任务群聊 |
+|---|---|---|
+| 写接口 | CreateInitialMessage | AddMessage |
+| 乐观 UI | user + **waiting** | user + **waiting** |
+| GlobalEvents | 需要 | 需要 |
+| 开 SessionEvents 时机 | GlobalEvents assistant 之后 | 同左 |
+| replay | 是 | 是 |
+| 跳转 | 去 taskDetail | 已在 taskDetail |
+| 兜底 | runtime 轮询 + bootstrap 缓冲 | 同左 + taskRoom fallback |
 
 ---
 
@@ -305,7 +279,7 @@ SSE 实现：`FetchSSEClient`（POST + Bearer），不是浏览器 `EventSource`
 当前乱点几乎都在 `chatSlice`（约 3k+ 行）。按前端职责可拆：
 
 1. **send pipelines**  
-   `sendMessage` / `sendProjectMessage` / `sendTaskRoomMessage` / `bootstrapNewTaskSession`  
+   `sendProjectMessage` / `sendTaskRoomMessage` / `bootstrapNewTaskSession`  
    → 只负责「调哪个写接口 + 插什么乐观消息」
 
 2. **sessionStream**  
@@ -322,7 +296,7 @@ SSE 实现：`FetchSSEClient`（POST + Bearer），不是浏览器 `EventSource`
 
 目标行为（重构验收）：
 
-- 三条发送路径对外产品行为不变
+- 两条发送路径对外产品行为不变
 - `isGenerating` 锁发送语义不变
 - waiting → streaming → completed 的 UI 过渡不变
 - 进页回放 / bootstrap 不丢首条乐观消息

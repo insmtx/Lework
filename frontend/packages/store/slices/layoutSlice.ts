@@ -1,6 +1,5 @@
 import type { ProjectMemberInput } from "../api/projectApi";
 import { projectApi } from "../api/projectApi";
-import { sessionApi } from "../api/sessionApi";
 import { taskApi } from "../api/taskApi";
 import type {
 	BackendNewMessageData,
@@ -65,15 +64,6 @@ export {
 const storedLeftRailPreferences = readStoredLeftRailPreferences();
 
 export type WorkspaceMode = "remote" | "local";
-
-export type Conversation = {
-	id: string;
-	title: string;
-	type: string;
-	status: string;
-	createdAt: number;
-	updatedAt: number;
-};
 
 export type Workspace = {
 	id: string;
@@ -204,7 +194,6 @@ export type NavItem = {
 };
 
 export type ViewMode =
-	| "chat"
 	| "workbench"
 	| "tasks"
 	| "project"
@@ -220,9 +209,7 @@ export type LayoutState = {
 	leftRailCollapsed: boolean;
 	leftRailWidth: number;
 	rightRailCollapsed: boolean;
-	conversationListOpen: boolean;
 	currentView: ViewMode;
-	activeConversationId: string | null;
 	activeWorkspaceId: string | null;
 	activeProjectId: string | null;
 	activeWorkbenchProjectId: string | null;
@@ -230,13 +217,10 @@ export type LayoutState = {
 	activeProjectTab: ProjectTab;
 	workspaces: Workspace[];
 	projects: Project[];
-	conversations: Conversation[];
-	conversationsLoaded: boolean;
 	inputFocused: boolean;
 	activeRightTab: "shortcuts" | "inbox" | "artifacts";
 	navGroups: NavGroup[];
 	collapsedNavGroups: Set<string>;
-	conversationSearchQuery: string;
 	activeTaskDetailProjectId: string | null;
 	activeTaskDetailTaskId: string | null;
 	activeTaskDetailSessionId: string | null;
@@ -251,17 +235,6 @@ export type LayoutState = {
 
 export type LayoutAction = Pick<LayoutActionImpl, keyof LayoutActionImpl>;
 export type LayoutStore = LayoutState & LayoutAction;
-
-function mapSessionToConversation(s: BackendSession): Conversation {
-	return {
-		id: s.session_id,
-		title: s.title || "未命名会话",
-		type: s.type,
-		status: s.status,
-		createdAt: new Date(s.created_at).getTime(),
-		updatedAt: new Date(s.updated_at).getTime(),
-	};
-}
 
 function mapBackendProject(bp: BackendProject): Project {
 	const metadata = bp.metadata ?? undefined;
@@ -471,9 +444,7 @@ const _initialState: LayoutState = {
 	leftRailCollapsed: storedLeftRailPreferences.collapsed,
 	leftRailWidth: storedLeftRailPreferences.width,
 	rightRailCollapsed: false,
-	conversationListOpen: true,
 	currentView: "workbench",
-	activeConversationId: null,
 	activeWorkspaceId: null,
 	activeProjectId: null,
 	activeWorkbenchProjectId: null,
@@ -484,8 +455,6 @@ const _initialState: LayoutState = {
 		{ id: "local-1", name: "本地工作区", mode: "local", collapsed: false },
 	],
 	projects: [],
-	conversations: [],
-	conversationsLoaded: false,
 	inputFocused: false,
 	activeRightTab: "shortcuts",
 	navGroups: [
@@ -507,7 +476,6 @@ const _initialState: LayoutState = {
 		},
 	],
 	collapsedNavGroups: new Set(),
-	conversationSearchQuery: "",
 	activeTaskDetailProjectId: null,
 	activeTaskDetailTaskId: null,
 	activeTaskDetailSessionId: null,
@@ -567,10 +535,8 @@ export class LayoutActionImpl {
 		this.#set({ leftRailWidth: nextWidth });
 	};
 
-	toggleConversationList = () => {
-		this.#set((state) => ({
-			conversationListOpen: !state.conversationListOpen,
-		}));
+	toggleRightRail = () => {
+		this.#set((state) => ({ rightRailCollapsed: !state.rightRailCollapsed }));
 	};
 
 	switchView = (view: ViewMode) => {
@@ -580,7 +546,6 @@ export class LayoutActionImpl {
 		}
 		this.#set({
 			currentView: view,
-			conversationListOpen: view === "chat",
 			...(view === "workbench"
 				? {
 						activeWorkbenchProjectId: null,
@@ -610,7 +575,6 @@ export class LayoutActionImpl {
 			activeProjectId: projectId,
 			activeProjectTab: "chat",
 			currentView: "project",
-			conversationListOpen: false,
 			activeTaskDetailProjectId: null,
 			activeTaskDetailTaskId: null,
 			activeTaskDetailSessionId: null,
@@ -630,7 +594,6 @@ export class LayoutActionImpl {
 			activeProjectId: projectId,
 			activeProjectTab: tab,
 			currentView: "project",
-			conversationListOpen: false,
 			activeTaskDetailProjectId: null,
 			activeTaskDetailTaskId: null,
 			activeTaskDetailSessionId: null,
@@ -771,7 +734,6 @@ export class LayoutActionImpl {
 						activeTaskDetailTaskId: data.task_id,
 						activeTaskDetailSessionId: data.session_id,
 						currentView: "taskDetail",
-						conversationListOpen: false,
 						executionMode: mode,
 					} as Partial<LayoutState>);
 
@@ -811,7 +773,7 @@ export class LayoutActionImpl {
 		}
 	};
 
-	openTaskDetail = (projectId: string, taskId: string, sessionId: string | null = null) => {
+	openTaskDetail = (projectId: string, taskId: string, sessionId: string) => {
 		const state = this.#get();
 		if (
 			state.currentView !== "taskDetail" ||
@@ -829,7 +791,7 @@ export class LayoutActionImpl {
 		});
 	};
 
-	setTaskDetailRoute = (projectId: string, taskId: string, sessionId: string | null = null) => {
+	setTaskDetailRoute = (projectId: string, taskId: string, sessionId: string) => {
 		const state = this.#get();
 		if (
 			state.currentView !== "taskDetail" ||
@@ -845,7 +807,6 @@ export class LayoutActionImpl {
 			activeTaskDetailTaskId: taskId,
 			activeTaskDetailSessionId: sessionId,
 			currentView: "taskDetail",
-			conversationListOpen: false,
 		});
 	};
 
@@ -1136,18 +1097,6 @@ export class LayoutActionImpl {
 	}) => {
 		this.#set((state) => {
 			const existing = state.projects.find((project) => project.id === payload.project_id);
-			const updatedConversations =
-				payload.session_id && payload.session_title
-					? state.conversations.map((conversation) =>
-							conversation.id === payload.session_id
-								? {
-										...conversation,
-										title: payload.session_title ?? conversation.title,
-										updatedAt: Date.now(),
-									}
-								: conversation,
-						)
-					: state.conversations;
 			if (!existing) {
 				const now = Date.now();
 				const task =
@@ -1180,7 +1129,6 @@ export class LayoutActionImpl {
 						},
 						...state.projects,
 					],
-					conversations: updatedConversations,
 				};
 			}
 
@@ -1202,7 +1150,6 @@ export class LayoutActionImpl {
 						),
 					};
 				}),
-				conversations: updatedConversations,
 			};
 		});
 	};
@@ -1273,89 +1220,12 @@ export class LayoutActionImpl {
 		}
 	};
 
-	toggleRightRail = () => {
-		this.#set((state) => ({ rightRailCollapsed: !state.rightRailCollapsed }));
-	};
-
 	toggleWorkspaceCollapse = (workspaceId: string) => {
 		this.#set((state) => ({
 			workspaces: state.workspaces.map((w) =>
 				w.id === workspaceId ? { ...w, collapsed: !w.collapsed } : w,
 			),
 		}));
-	};
-
-	switchConversation = (conversationId: string) => {
-		this.#set({ activeConversationId: conversationId });
-	};
-
-	fetchConversations = async () => {
-		if (this.#get().conversationsLoaded) return;
-		try {
-			const res = await sessionApi.list({ page: 1, per_page: 50 });
-			const items = res.data.data?.items ?? [];
-			this.#set({
-				conversations: items.map(mapSessionToConversation),
-				conversationsLoaded: true,
-			});
-		} catch (err) {
-			console.error("fetchConversations error:", err);
-		}
-	};
-
-	createConversation = async (title: string) => {
-		try {
-			const res = await sessionApi.create({
-				type: "chat",
-				title: title || "新会话",
-			});
-			const session = res.data.data;
-			if (!session) throw new Error("No session data returned");
-			const conv = mapSessionToConversation(session);
-			this.#set((state) => ({
-				conversations: [conv, ...state.conversations],
-				activeConversationId: conv.id,
-				conversationsLoaded: true,
-			}));
-			return conv;
-		} catch (err) {
-			console.error("createConversation error:", err);
-			return null;
-		}
-	};
-
-	deleteConversation = async (conversationId: string) => {
-		const state = this.#get();
-		const conv = state.conversations.find((c) => c.id === conversationId);
-		if (!conv) return;
-
-		try {
-			await sessionApi.delete(conv.id);
-			this.#set((state) => ({
-				conversations: state.conversations.filter((c) => c.id !== conversationId),
-				activeConversationId:
-					state.activeConversationId === conversationId ? null : state.activeConversationId,
-			}));
-		} catch (err) {
-			console.error("deleteConversation error:", err);
-		}
-	};
-
-	updateConversationTitle = async (conversationId: string, title: string) => {
-		const state = this.#get();
-		const conv = state.conversations.find((c) => c.id === conversationId);
-		if (!conv) return;
-
-		try {
-			await sessionApi.update({ session_id: conv.id, title });
-			this.#set((state) => ({
-				conversations: state.conversations.map((c) =>
-					c.id === conversationId ? { ...c, title, updatedAt: Date.now() } : c,
-				),
-			}));
-		} catch (err) {
-			console.error("updateConversationTitle error:", err);
-		}
 	};
 
 	setInputFocused = (focused: boolean) => {
@@ -1378,23 +1248,16 @@ export class LayoutActionImpl {
 		});
 	};
 
-	setConversationSearchQuery = (query: string) => {
-		this.#set({ conversationSearchQuery: query });
-	};
-
 	resetAuthScopedData = () => {
 		this.#projectsFetchEpoch += 1;
 		this.#fetchProjectsPromise = null;
 		this.#set({
 			currentView: "workbench",
-			activeConversationId: null,
 			activeProjectId: null,
 			activeWorkbenchProjectId: null,
 			activeWorkbenchTaskId: null,
 			activeProjectTab: "chat",
 			projects: [],
-			conversations: [],
-			conversationsLoaded: false,
 			activeTaskDetailProjectId: null,
 			activeTaskDetailTaskId: null,
 			activeTaskDetailSessionId: null,

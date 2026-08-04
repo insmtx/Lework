@@ -3,14 +3,13 @@
 import {
 	AiTeammatesView,
 	AssistantListView,
-	CenterCanvas,
 	ProjectPage,
 	ProjectsHubView,
 	SkillMarketView,
 	TaskDetailPage,
 	WorkbenchPanel,
 } from "@leros/app-ui";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useWebNavigation } from "./LerosShell";
 
 type ProjectTab = "chat" | "tasks" | "files" | "activity";
@@ -26,10 +25,6 @@ export function WorkbenchRoutePage() {
 	const navigation = useWebNavigation();
 
 	return <WorkbenchPanel navigation={navigation} />;
-}
-
-export function ChatRoutePage() {
-	return <CenterCanvas />;
 }
 
 export function ProjectRoutePage({ tab = "chat" }: { tab?: ProjectTab }) {
@@ -52,14 +47,13 @@ export function ProjectRoutePage({ tab = "chat" }: { tab?: ProjectTab }) {
 
 export function TaskDetailRoutePage() {
 	const navigation = useWebNavigation();
-	const params = useParams<{ projectId: string; taskId: string }>();
-	const searchParams = useSearchParams();
+	const params = useParams<{ projectId: string; taskId: string; sessionId: string }>();
 
 	return (
 		<TaskDetailPage
 			projectId={params.projectId}
 			taskId={params.taskId}
-			sessionId={searchParams.get("sessionId")}
+			sessionId={params.sessionId}
 			navigation={navigation}
 		/>
 	);

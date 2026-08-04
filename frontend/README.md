@@ -14,7 +14,6 @@ frontend/
 │   │   │   ├── (shell)/         # 应用壳路由组（LeftRail + 页面内容）
 │   │   │   │   ├── layout.tsx   # 路由页面共享 Shell
 │   │   │   │   ├── workbench/   # /workbench
-│   │   │   │   ├── chat/        # /chat
 │   │   │   │   ├── projects/    # /projects/[projectId] 及子路由
 │   │   │   │   ├── assistants/  # /assistants
 │   │   │   │   ├── tasks/       # /tasks
@@ -269,11 +268,10 @@ Web 和 Desktop 使用同一套路由语义。Web 通过 Next.js App Router 暴�
 |------|------|------|
 | `/` | Redirect | Web 和 Desktop 均跳转到 `/workbench` |
 | `/workbench` | Workbench | 工作台首页 |
-| `/chat` | Chat | 通用会话页 |
 | `/projects/:projectId` | Project | 项目会话 tab |
 | `/projects/:projectId/tasks` | Project | 项目任务 tab |
 | `/projects/:projectId/files` | Project | 项目文件 tab |
-| `/projects/:projectId/tasks/:taskId?sessionId=xxx` | TaskDetail | 任务详情和任务会话 |
+| `/projects/:projectId/tasks/:taskId/sessions/:sessionId` | TaskDetail | 任务详情和任务会话 |
 | `/assistants` | Assistants | AI 队友列表 |
 | `/tasks` | Placeholder | 全局任务页占位 |
 | `/skills` | Placeholder | 技能页占位 |
@@ -291,7 +289,7 @@ type AppNavigation = {
   currentPath: string;
   goToRoute(route: ViewMode): void;
   goToProject(projectId: string): void;
-  goToTaskDetail(projectId: string, taskId: string, sessionId?: string | null): void;
+  goToTaskDetail(projectId: string, taskId: string, sessionId: string): void;
 };
 ```
 

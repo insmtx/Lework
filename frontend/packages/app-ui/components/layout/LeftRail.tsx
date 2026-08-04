@@ -106,7 +106,7 @@ export type AppNavigation = {
 	goToRoute: (route: ViewMode) => void;
 	goToProject: (projectId: string) => void;
 	goToProjectTasks: (projectId: string) => void;
-	goToTaskDetail: (projectId: string, taskId: string, sessionId?: string | null) => void;
+	goToTaskDetail: (projectId: string, taskId: string, sessionId: string) => void;
 };
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -368,7 +368,7 @@ export function LeftRail({
 	}, [isOrgCreator, orgAdminDialogOpen]);
 
 	const handleNavClick = (item: NavItem) => {
-		const view = navIdToView[item.id] ?? "chat";
+		const view = navIdToView[item.id] ?? "workbench";
 		const navigate = () => {
 			if (navigation) {
 				navigation.goToRoute(view);
@@ -423,11 +423,15 @@ export function LeftRail({
 
 	const handleOpenTask = (projectId: string, task: ProjectTask) => {
 		requireAuth(() => {
-			if (navigation) {
-				navigation.goToTaskDetail(projectId, task.id, task.sessionId ?? null);
+			if (!task.sessionId) {
+				toast.warning("当前任务缺少会话，无法打开详情");
 				return;
 			}
-			openTaskDetail(projectId, task.id, task.sessionId ?? null);
+			if (navigation) {
+				navigation.goToTaskDetail(projectId, task.id, task.sessionId);
+				return;
+			}
+			openTaskDetail(projectId, task.id, task.sessionId);
 		});
 	};
 
@@ -561,7 +565,7 @@ export function LeftRail({
 	};
 
 	const isItemActive = (item: NavItem) => {
-		const view = navIdToView[item.id] ?? "chat";
+		const view = navIdToView[item.id] ?? "workbench";
 		if (navigation) {
 			return getRouteActive(navigation.currentPath, view);
 		}
@@ -1568,7 +1572,6 @@ function DesktopUpdateMenuSection() {
 
 function getRouteActive(path: string, view: ViewMode) {
 	if (view === "workbench") return path === "/" || path.startsWith("/workbench");
-	if (view === "chat") return path.startsWith("/chat");
 	if (view === "digitalAssistant") {
 		return path.startsWith("/assistants") || path.startsWith("/ai-teammates");
 	}

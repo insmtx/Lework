@@ -193,7 +193,6 @@ export {
 	isSystemDefaultAssistant,
 } from "./slices/digitalAssistantSlice";
 export type {
-	Conversation,
 	LayoutAction,
 	LayoutState,
 	LayoutStore,

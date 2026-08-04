@@ -40,6 +40,9 @@ const (
 	stateStartSeqKey               = "state_start_seq"
 	replyToMessageIDsKey           = "reply_to_message_ids"
 	sessionProcessingWindow        = 30 * time.Minute
+	// globalEventsBackpressureWindow 是 StreamGlobalEvents 向连接推送事件时的
+	// 最大背压等待窗口：channel 满时先等待排空，超时仍未排空才丢弃并告警。
+	globalEventsBackpressureWindow = time.Second
 	workTitleMaxRunes              = 50
 	artifactVersionLookupAttempts  = 8
 	artifactVersionLookupDelay     = 50 * time.Millisecond
@@ -942,10 +945,14 @@ func (s *sessionService) StreamGlobalEvents(ctx context.Context, orgID, userID u
 		if member, err := db.IsProjectUserMember(ctx, s.db, orgID, userID, payload.ProjectID); err != nil || !member {
 			return
 		}
+		// 带超时的背压写：channel 满时短暂等待排空再投递，避免瞬时拥塞下
+		// 事件被立即静默丢弃（否则 assistant 的 message.created 一旦丢，
+		// 前端永远等不到第二次返回、不会开流）。等待窗口内持续积压才丢弃。
 		select {
 		case ch <- &payload:
-		default:
-			logs.WarnContextf(ctx, "global events: channel full, dropping event type=%s seq=%d", payload.Type, payload.Seq)
+		case <-time.After(globalEventsBackpressureWindow):
+			logs.WarnContextf(ctx, "global events: channel full, dropping event type=%s seq=%d after %v",
+				payload.Type, payload.Seq, globalEventsBackpressureWindow)
 		}
 	}
 

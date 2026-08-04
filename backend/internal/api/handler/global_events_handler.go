@@ -66,7 +66,9 @@ func (h *GlobalEventsHandler) GlobalEvents(ctx *gin.Context) {
 	ctx.Header("Connection", "keep-alive")
 	ctx.Header("Access-Control-Allow-Origin", "*")
 
-	eventChan := make(chan *messaging.GlobalEventPayload, 32)
+	// eventChan 容量放大以吸收 SSE 慢消费 / 高并发消息带来的瞬时积压，
+	// 避免全局事件被下游静默丢弃（见 StreamGlobalEvents 的背压写）。
+	eventChan := make(chan *messaging.GlobalEventPayload, 1024)
 
 	go func() {
 		defer close(eventChan)

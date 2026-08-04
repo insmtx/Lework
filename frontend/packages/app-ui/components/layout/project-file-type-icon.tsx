@@ -6,6 +6,8 @@ const FILE_PPTX_ICON_SRC = new URL("../../assets/icons/file-pptx.svg", import.me
 const FILE_MD_ICON_SRC = new URL("../../assets/icons/file-md.svg", import.meta.url).href;
 const FILE_TEXT_ICON_SRC = new URL("../../assets/icons/file-text.svg", import.meta.url).href;
 const FILE_PDF_ICON_SRC = new URL("../../assets/icons/file-pdf.svg", import.meta.url).href;
+const FILE_PICTURE_ICON_SRC = new URL("../../assets/icons/file-picture.svg", import.meta.url).href;
+const FILE_VIDEO_ICON_SRC = new URL("../../assets/icons/file-video.svg", import.meta.url).href;
 const FILE_PICTURE_JPEG_ICON_SRC = new URL(
 	"../../assets/icons/file-picture-jpeg.svg",
 	import.meta.url,
@@ -31,6 +33,17 @@ export function getProjectFileIconSrc(fileName: string): string {
 	}
 	if (lowerPath.endsWith(".png")) {
 		return FILE_PICTURE_PNG_ICON_SRC;
+	}
+	if (
+		lowerPath.endsWith(".gif") ||
+		lowerPath.endsWith(".bmp") ||
+		lowerPath.endsWith(".webp") ||
+		lowerPath.endsWith(".svg")
+	) {
+		return FILE_PICTURE_ICON_SRC;
+	}
+	if (lowerPath.endsWith(".mp4") || lowerPath.endsWith(".mov") || lowerPath.endsWith(".avi")) {
+		return FILE_VIDEO_ICON_SRC;
 	}
 	if (lowerPath.endsWith(".pdf")) {
 		return FILE_PDF_ICON_SRC;

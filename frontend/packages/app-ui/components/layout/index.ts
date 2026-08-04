@@ -1,6 +1,5 @@
 "use client";
 
-export { CenterCanvas } from "./CenterCanvas";
 export { type AppNavigation, LeftRail } from "./LeftRail";
 export { ProjectPage } from "./ProjectPage";
 export { Shell } from "./Shell";

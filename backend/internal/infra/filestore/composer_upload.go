@@ -19,6 +19,13 @@ var composerAllowedExtensions = map[string]struct{}{
 	".png":      {},
 	".jpg":      {},
 	".jpeg":     {},
+	".gif":      {},
+	".bmp":      {},
+	".webp":     {},
+	".svg":      {},
+	".mp4":      {},
+	".mov":      {},
+	".avi":      {},
 	".txt":      {},
 }
 

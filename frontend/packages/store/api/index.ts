@@ -100,10 +100,7 @@ export { projectApi } from "./projectApi";
 export type {
 	AddMessageParams,
 	CreateInitialMessageParams,
-	CreateSessionParams,
 	GetSessionParams,
-	ListSessionsParams,
-	UpdateSessionParams,
 } from "./sessionApi";
 export { sessionApi } from "./sessionApi";
 export type {

@@ -18,7 +18,6 @@ export function useWebNavigation(): AppNavigation {
 		currentPath: pathname,
 		goToRoute(route) {
 			const routePath = {
-				chat: "/chat",
 				workbench: "/workbench",
 				tasks: "/tasks",
 				project: "/workbench",
@@ -30,6 +29,10 @@ export function useWebNavigation(): AppNavigation {
 				skills: "/skills",
 				settings: "/settings",
 			}[route];
+			if (!routePath) {
+				router.push("/workbench");
+				return;
+			}
 			router.push(routePath);
 		},
 		goToProject(projectId) {
@@ -39,8 +42,9 @@ export function useWebNavigation(): AppNavigation {
 			router.push(`/projects/${projectId}/tasks`);
 		},
 		goToTaskDetail(projectId, taskId, sessionId) {
-			const search = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
-			router.push(`/projects/${projectId}/tasks/${taskId}${search}`);
+			router.push(
+				`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/sessions/${encodeURIComponent(sessionId)}`,
+			);
 		},
 	};
 }

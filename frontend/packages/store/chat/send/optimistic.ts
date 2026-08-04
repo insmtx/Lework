@@ -1,7 +1,7 @@
 /**
  * 发送路径统一的乐观消息构造。
  *
- * 可以做：构造 msg-user-* / msg-assistant-waiting-* / 空 assistant 占位。
+ * 可以做：构造 msg-user-* / msg-assistant-waiting-* 占位。
  * 不可以做：写 store、发 HTTP、开 SSE。
  */
 import type { Attachment, Message, MessageMetadata } from "../../types/chat";
@@ -12,7 +12,7 @@ import { buildReplyToFromMessage } from "../messageReducer";
 export type OptimisticUserOptions = {
 	attachments?: Attachment[];
 	metadata?: MessageMetadata;
-	/** 任务场景用 sending；纯 chat 成功后插入可不带 status */
+	/** 任务场景用 sending */
 	status?: Message["status"];
 };
 
@@ -67,24 +67,5 @@ export function createWaitingAssistantMessage(
 			name: "Lework",
 			type: "assistant",
 		},
-	};
-}
-
-/**
- * 构造纯 chat 空 assistant 占位（msg-assistant-*，无 waiting 文案）。
- * 配合 StreamOpenStrategy=immediate，AddMessage 成功后立刻开 SessionEvents。
- */
-export function createEmptyAssistantMessage(
-	sessionId: string,
-	now: number,
-	replyToUser: Message,
-): Message {
-	return {
-		id: `msg-assistant-${now}`,
-		conversationId: sessionId,
-		role: "assistant",
-		content: "",
-		timestamp: now + 100,
-		replyTo: buildReplyToFromMessage(replyToUser),
 	};
 }

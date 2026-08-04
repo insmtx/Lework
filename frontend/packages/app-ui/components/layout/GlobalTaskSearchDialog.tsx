@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/comp
 import { cn } from "@leros/ui/lib/utils";
 import { Loader2, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { renderHighlightedText } from "../common/searchText";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectIcon } from "./project-icon";
@@ -161,6 +162,10 @@ export function GlobalTaskSearchDialog({
 	const handleOpenTask = (task: BackendTask) => {
 		const sessionId = resolveTaskSessionId(task);
 		onOpenChange(false);
+		if (!sessionId) {
+			toast.warning("当前任务缺少会话，无法打开详情");
+			return;
+		}
 		if (navigation) {
 			navigation.goToTaskDetail(task.project_id, task.public_id, sessionId);
 			return;

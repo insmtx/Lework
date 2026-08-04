@@ -12,7 +12,6 @@ import { AuthProvider } from "../auth";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
 import { PermissionDeniedListener } from "../permission/PermissionDeniedListener";
 import { FrontendEventTracker } from "../telemetry/FrontendEventTracker";
-import { CenterCanvas } from "./CenterCanvas";
 import { FilePreviewHost } from "./FilePreviewHost";
 import { type AppNavigation, LeftRail } from "./LeftRail";
 import { ProjectPage } from "./ProjectPage";
@@ -30,6 +29,7 @@ export function Shell({
 }) {
 	const [isClientMounted, setIsClientMounted] = useState(false);
 	const currentView = useLayoutStore((s) => s.currentView);
+	const activeTaskDetailSessionId = useLayoutStore((s) => s.activeTaskDetailSessionId);
 	const { startGlobalEvents, stopGlobalEvents } = useChatStore((s) => s);
 	const orgId = useAuthStore((s) => s.authUser?.currentOrg?.id);
 	const invalidateAll = usePermissionStore((s) => s.invalidateAll);
@@ -74,11 +74,12 @@ export function Shell({
 				<LeftRail logoSrc={logoSrc} navigation={navigation} />
 				{children ?? (
 					<>
-						{currentView === "chat" && <CenterCanvas />}
 						{currentView === "workbench" && <WorkbenchPanel />}
 						{currentView === "tasks" && <EmptyPage />}
 						{currentView === "project" && <ProjectPage />}
-						{currentView === "taskDetail" && <TaskDetailPage />}
+						{currentView === "taskDetail" && activeTaskDetailSessionId && (
+							<TaskDetailPage sessionId={activeTaskDetailSessionId} />
+						)}
 						{currentView === "digitalAssistant" && <AssistantListView />}
 					</>
 				)}

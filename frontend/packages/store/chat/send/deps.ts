@@ -9,13 +9,6 @@ import type { ChatEffects } from "../effects";
 import type { ChatState } from "../state";
 
 /**
- * SessionEvents 开流策略（产品路径固化，避免 send 里散落布尔分支）。
- * - immediate：纯 chat，AddMessage 成功后立刻开 SessionEvents(replay=false)
- * - afterGlobalAssistant：任务场景，等 GlobalEvents assistant 后再开（本模块只插 waiting）
- */
-export type StreamOpenStrategy = "immediate" | "afterGlobalAssistant";
-
-/**
  * 发送管道所需依赖。
  */
 export type SendPipelineDeps = {
@@ -24,7 +17,7 @@ export type SendPipelineDeps = {
 	/** 部分更新对话状态（含 composer 清空等 ChatState 字段） */
 	set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void;
 	/**
-	 * 写入跨 slice 字段（conversations / currentView 等）。
+	 * 写入跨 slice 字段（currentView 等）。
 	 * 优先走 effects；少量直接 set 仅用于兼容 Zustand 联合 store。
 	 */
 	setStore: (partial: Record<string, unknown>) => void;

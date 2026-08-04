@@ -1,7 +1,6 @@
 import {
 	type AppNavigation,
 	AssistantListView,
-	CenterCanvas,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
@@ -10,15 +9,7 @@ import {
 	WorkbenchPanel,
 } from "@leros/app-ui";
 
-import {
-	Navigate,
-	Route,
-	Routes,
-	useLocation,
-	useNavigate,
-	useParams,
-	useSearchParams,
-} from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { DesktopSettingsPage } from "./components/DesktopSettingsPage";
 
@@ -32,8 +23,6 @@ export function AppRoutes() {
 
 				<Route path="/workbench" element={<WorkbenchRoutePage />} />
 
-				<Route path="/chat" element={<CenterCanvas />} />
-
 				<Route path="/projects" element={<ProjectsHubRoutePage />} />
 
 				<Route path="/projects/:projectId" element={<ProjectRoutePage />} />
@@ -44,7 +33,10 @@ export function AppRoutes() {
 
 				<Route path="/projects/:projectId/activity" element={<ProjectRoutePage tab="activity" />} />
 
-				<Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailRoutePage />} />
+				<Route
+					path="/projects/:projectId/tasks/:taskId/sessions/:sessionId"
+					element={<TaskDetailRoutePage />}
+				/>
 
 				<Route path="/assistants" element={<AssistantListView navigation={navigation} />} />
 
@@ -74,8 +66,6 @@ function useDesktopNavigation(): AppNavigation {
 
 		goToRoute(route) {
 			const routePath = {
-				chat: "/chat",
-
 				workbench: "/workbench",
 
 				tasks: "/tasks",
@@ -97,7 +87,7 @@ function useDesktopNavigation(): AppNavigation {
 				settings: "/settings",
 			}[route];
 
-			navigate(routePath);
+			navigate(routePath ?? "/workbench");
 		},
 
 		goToProject(projectId) {
@@ -109,9 +99,9 @@ function useDesktopNavigation(): AppNavigation {
 		},
 
 		goToTaskDetail(projectId, taskId, sessionId) {
-			const search = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
-
-			navigate(`/projects/${projectId}/tasks/${taskId}${search}`);
+			navigate(
+				`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/sessions/${encodeURIComponent(sessionId)}`,
+			);
 		},
 	};
 }
@@ -151,15 +141,13 @@ function ProjectRoutePage({ tab = "chat" }: { tab?: "chat" | "tasks" | "files" |
 function TaskDetailRoutePage() {
 	const navigation = useDesktopNavigation();
 
-	const { projectId = "", taskId = "" } = useParams();
-
-	const [searchParams] = useSearchParams();
+	const { projectId = "", taskId = "", sessionId = "" } = useParams();
 
 	return (
 		<TaskDetailPage
 			projectId={projectId}
 			taskId={taskId}
-			sessionId={searchParams.get("sessionId")}
+			sessionId={sessionId}
 			navigation={navigation}
 		/>
 	);

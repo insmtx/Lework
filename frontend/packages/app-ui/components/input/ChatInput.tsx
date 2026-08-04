@@ -99,7 +99,6 @@ export function ChatInput({
 		executionMode,
 		modelOptions,
 		setInputText,
-		sendMessage,
 		sendProjectMessage,
 		sendTaskRoomMessage,
 		submitApprovalDecision,
@@ -335,16 +334,13 @@ export function ChatInput({
 					composerMetadata,
 				);
 				submitted = taskEntry;
-				if (taskEntry?.project_id && taskEntry?.task_id) {
+				if (taskEntry?.project_id && taskEntry?.task_id && taskEntry.session_id) {
 					// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
-					navigation?.goToTaskDetail(
-						taskEntry.project_id,
-						taskEntry.task_id,
-						taskEntry.session_id ?? null,
-					);
+					navigation?.goToTaskDetail(taskEntry.project_id, taskEntry.task_id, taskEntry.session_id);
 				}
 			} else {
-				submitted = await sendMessage(outgoingContent, outgoingAttachments, composerMetadata);
+				// 中文注释：任务详情依赖路径中的 sessionId；未知场景拒绝发送。
+				return;
 			}
 
 			if (!submitted) return;
@@ -370,7 +366,6 @@ export function ChatInput({
 		isGenerating,
 		docxSelectionDraft,
 		navigation,
-		sendMessage,
 		sendProjectMessage,
 		sendTaskRoomMessage,
 	]);

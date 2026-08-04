@@ -11,6 +11,7 @@ export type ProjectFileTypeFilter =
 	| "pptx"
 	| "md"
 	| "image"
+	| "video"
 	| "text";
 
 export const PROJECT_FILE_TYPE_FILTER_OPTIONS: Array<{
@@ -25,6 +26,7 @@ export const PROJECT_FILE_TYPE_FILTER_OPTIONS: Array<{
 	{ value: "pptx", label: "PPT" },
 	{ value: "md", label: "Markdown" },
 	{ value: "image", label: "图片" },
+	{ value: "video", label: "视频" },
 	{ value: "text", label: "文本" },
 ];
 
