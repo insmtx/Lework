@@ -25,15 +25,17 @@ export function getFilePublicUrlFromStorageUri(storageUri?: string): string | un
 	return `${getAPIOriginURL()}/${parts.map(encodeURIComponent).join("/")}`;
 }
 
+// 中文注释：预览内容统一走服务端流式下载，避免 /files/preview 302 到
+// storage.base_url（私有化常为内网主机如 leros:8080）导致浏览器 ERR_NAME_NOT_RESOLVED。
 export function getFilePreviewUrl(storageUri: string): string {
-	return `${API_BASE_URL}/files/preview?storage_uri=${encodeURIComponent(storageUri)}`;
+	return `${API_BASE_URL}/files/download?storage_uri=${encodeURIComponent(storageUri)}`;
 }
 
 export function getFilePreviewUrlByPublicId(publicId: string): string {
-	return `${API_BASE_URL}/files/preview?public_id=${encodeURIComponent(publicId)}`;
+	return `${API_BASE_URL}/files/download?public_id=${encodeURIComponent(publicId)}`;
 }
 
-// 中文注释：通过 storage_uri 预览/下载文件，需携带 JWT 认证
+// 中文注释：通过 storage_uri 预览/下载文件，需携带 JWT 认证；内容由服务端代理流式返回
 export async function fetchFilePreviewByStorageUri(
 	storageUri: string,
 	options?: { signal?: AbortSignal },
@@ -48,7 +50,7 @@ export async function fetchFilePreviewByStorageUri(
 	return response;
 }
 
-// 中文注释：通过 public_id 预览/下载文件，需携带 JWT 认证
+// 中文注释：通过 public_id 预览/下载文件，需携带 JWT 认证；内容由服务端代理流式返回
 export async function fetchFilePreviewByPublicId(
 	publicId: string,
 	options?: { signal?: AbortSignal },
@@ -63,7 +65,7 @@ export async function fetchFilePreviewByPublicId(
 	return response;
 }
 
-// 中文注释：统一走 preview 接口，优先 storage_uri，其次 public_id
+// 中文注释：统一走服务端流式 download，优先 storage_uri，其次 public_id
 export async function fetchFilePreview(
 	identity: { storageUri?: string; publicId?: string },
 	options?: { signal?: AbortSignal },

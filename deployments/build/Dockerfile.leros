@@ -41,6 +41,7 @@ ENV TZ=Asia/Shanghai
 
 COPY --from=builder /build/leros /leros
 COPY --from=builder /build/backend/skills /app/backend/skills
+COPY --from=builder /build/deployments/dev/seed /app/deployments/dev/seed
 
 WORKDIR /app
 

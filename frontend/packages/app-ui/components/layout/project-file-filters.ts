@@ -10,6 +10,7 @@ export type ProjectFileTypeFilter =
 	| "xlsx"
 	| "pptx"
 	| "md"
+	| "html"
 	| "image"
 	| "video"
 	| "text";
@@ -25,6 +26,7 @@ export const PROJECT_FILE_TYPE_FILTER_OPTIONS: Array<{
 	{ value: "xlsx", label: "Excel" },
 	{ value: "pptx", label: "PPT" },
 	{ value: "md", label: "Markdown" },
+	{ value: "html", label: "HTML" },
 	{ value: "image", label: "图片" },
 	{ value: "video", label: "视频" },
 	{ value: "text", label: "文本" },

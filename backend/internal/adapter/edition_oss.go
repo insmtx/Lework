@@ -32,6 +32,6 @@ func (e *ossEdition) Org() account.OrgRepository               { return e.org }
 func (e *ossEdition) Department() account.DepartmentRepository { return e.department }
 func (e *ossEdition) TokenParser() account.TokenParser         { return e.tokenParser }
 func (e *ossEdition) APIKeyIssuer() account.APIKeyIssuer       { return nil }
-func (e *ossEdition) Edition() string                          { return "oss" }
+func (e *ossEdition) Edition() string                          { return account.EditionOSS }
 func (e *ossEdition) DeployMode() string                       { return "saas" }
 func (e *ossEdition) MaxOrgsPerUser() int                      { return 1 }

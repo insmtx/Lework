@@ -187,6 +187,13 @@ func (d *Dispatcher) parseCommand(data []byte) (messaging.WorkerCommand, error) 
 // 由 handler 根据处理阶段决定确认方式（Ack/Term/Nak/NakWithDelay/InProgress）。
 // 消息解析失败时直接 Term，其余错误由 handler 内部处理。
 func (d *Dispatcher) handleRun(ctx context.Context, msg *nats.Msg) {
+	// 标记 worker 是否真的收到 cmd.run 投递，用于与 server 侧 published run command
+	// 配对定位"投递层丢失 vs 处理层失败"（第 5 点不触发的关键分界）。
+	var metaSeq uint64
+	if meta, err := msg.Metadata(); err == nil && meta != nil {
+		metaSeq = meta.Sequence.Stream
+	}
+	logs.InfoContextf(ctx, "worker received run cmd delivery: subject=%s stream_seq=%d", msg.Subject, metaSeq)
 	d.handleRunDelivery(ctx, msg.Data, eventbus.NewManualDelivery(msg))
 }
 

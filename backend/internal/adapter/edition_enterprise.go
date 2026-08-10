@@ -35,7 +35,7 @@ func (e *enterpriseEdition) Org() account.OrgRepository               { return e
 func (e *enterpriseEdition) Department() account.DepartmentRepository { return e.department }
 func (e *enterpriseEdition) TokenParser() account.TokenParser         { return e.tokenParser }
 func (e *enterpriseEdition) APIKeyIssuer() account.APIKeyIssuer       { return e.apiKeyIssuer }
-func (e *enterpriseEdition) Edition() string                          { return "enterprise" }
+func (e *enterpriseEdition) Edition() string                          { return account.EditionEnterprise }
 
 // TODO: 后续从配置读取 deploy_mode，当前硬编码
 func (e *enterpriseEdition) DeployMode() string { return "saas" }

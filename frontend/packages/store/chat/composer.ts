@@ -21,6 +21,7 @@ import {
 	isFolderUploadSizeExceeded,
 } from "../constants/upload";
 import type { Attachment, ExecutionMode } from "../types/chat";
+import { revokeAttachmentObjectUrls } from "../utils/messageAttachments";
 import type { ChatState } from "./state";
 
 /**
@@ -80,15 +81,6 @@ function replaceSkillDirectiveInInput(inputText: string, skillName: string): str
 	return rest ? `${token} ${rest}` : `${token} `;
 }
 
-/** 释放本地附件 blob URL，避免上传/移除后泄漏 object URL。 */
-function revokeLocalAttachmentUrls(attachments: Attachment[]) {
-	for (const attachment of attachments) {
-		if (attachment.url?.startsWith("blob:")) {
-			URL.revokeObjectURL(attachment.url);
-		}
-	}
-}
-
 /**
  * 管理输入草稿、附件上传与 skill 指令，不触碰对话流状态机。
  */
@@ -114,7 +106,7 @@ export class Composer {
 	/** 清空草稿与附件，并释放本地 blob URL。 */
 	clearComposerInput = () => {
 		const state = this.#deps.get();
-		revokeLocalAttachmentUrls(state.inputAttachments);
+		revokeAttachmentObjectUrls(state.inputAttachments);
 		this.#deps.set({ inputText: "", inputAttachments: [] });
 	};
 
@@ -338,7 +330,7 @@ export class Composer {
 
 		const state = this.#deps.get();
 		const att = state.inputAttachments.find((a) => a.id === id);
-		if (att?.url?.startsWith("blob:")) URL.revokeObjectURL(att.url);
+		revokeAttachmentObjectUrls(att ? [att] : undefined);
 		this.#deps.set((s) => ({
 			inputAttachments: s.inputAttachments.filter((a) => a.id !== id),
 		}));

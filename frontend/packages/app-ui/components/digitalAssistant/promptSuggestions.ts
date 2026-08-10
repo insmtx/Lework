@@ -13,10 +13,17 @@ export function buildPromptSuggestions(assistant: { name: string; expertise: str
 	]).slice(0, 3);
 }
 
-/** 召唤队友时的默认开场 prompt（仅在需要主动发首条消息时使用）。 */
-export function buildDefaultSummonPrompt(assistant: { name: string; expertise: string[] }): string {
-	const domain = assistant.expertise[0] || assistant.name;
-	return `请以“${assistant.name}”的身份，先介绍你能如何帮我处理${domain}相关任务，并给出一个可执行的开始方案。`;
+/** 召唤队友时的默认开场 prompt（带入工作台输入框）。预设队友沿用角色介绍文案，自定义队友用通用开场。 */
+export function buildDefaultSummonPrompt(assistant: {
+	name: string;
+	expertise: string[];
+	source?: string;
+}): string {
+	if (assistant.source === "template") {
+		const domain = assistant.expertise[0] || assistant.name;
+		return `请以“${assistant.name}”的身份，先介绍你能如何帮我处理${domain}相关任务，并给出一个可执行的开始方案。`;
+	}
+	return "告诉我你想完成什么，我会帮你梳理目标、拆解任务，并给出可执行的下一步方案。";
 }
 
 /** 从队友信息中提取特征关键词（来源标签 + 擅长领域，取前 3 个）。 */

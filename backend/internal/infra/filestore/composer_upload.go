@@ -16,6 +16,8 @@ var composerAllowedExtensions = map[string]struct{}{
 	".pptx":     {},
 	".md":       {},
 	".markdown": {},
+	".html":     {},
+	".htm":      {},
 	".png":      {},
 	".jpg":      {},
 	".jpeg":     {},
@@ -23,9 +25,6 @@ var composerAllowedExtensions = map[string]struct{}{
 	".bmp":      {},
 	".webp":     {},
 	".svg":      {},
-	".mp4":      {},
-	".mov":      {},
-	".avi":      {},
 	".txt":      {},
 }
 

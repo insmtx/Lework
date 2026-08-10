@@ -120,21 +120,6 @@ func TestCreateDigitalAssistantFromTemplateIncrementsUseCount(t *testing.T) {
 
 func TestSeedAITeammateTemplatesUploadsMissingAvatarAndPreservesExisting(t *testing.T) {
 	database := setupAITeammateTemplateDB(t)
-	if err := database.Create(&types.Organization{
-		PublicID: "org_test",
-		Code:     "default_org",
-		Name:     "默认组织",
-		Type:     "company",
-		Status:   "active",
-	}).Error; err != nil {
-		t.Fatalf("seed org: %v", err)
-	}
-	if err := database.Create(&types.User{
-		PublicID: "usr_test",
-		Name:     "Admin",
-	}).Error; err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
 	if err := database.Create(&types.AITeammateTemplate{
 		Code:         "contract-review-expert",
 		Name:         "旧合同专家",

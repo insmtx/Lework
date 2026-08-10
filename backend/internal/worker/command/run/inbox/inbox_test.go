@@ -3,6 +3,7 @@ package inbox
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -89,5 +90,50 @@ func TestSQLiteRunInboxDeletesExpiredTerminalRecords(t *testing.T) {
 	}
 	if deleted != 1 {
 		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+}
+
+func TestSQLiteRunInboxCountByStatus(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewSQLiteRunInbox(filepath.Join(t.TempDir(), "inbox.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteRunInbox() error = %v", err)
+	}
+	defer store.Close()
+
+	command := messaging.WorkerCommand{ID: "message-1"}
+	// 三条不同 command_id 的记录，其中一条转为 processing（避免 command_id 唯一索引冲突）。
+	for _, seq := range []uint64{1, 2, 3} {
+		command.ID = "message-" + strconv.FormatUint(seq, 10)
+		if _, _, err := store.PutIfAbsent(ctx, "topic.run", seq, command); err != nil {
+			t.Fatalf("PutIfAbsent(%d) error = %v", seq, err)
+		}
+	}
+	if err := store.MarkProcessing(ctx, "topic.run", 1); err != nil {
+		t.Fatalf("MarkProcessing() error = %v", err)
+	}
+
+	pending, err := store.CountByStatus(ctx, "topic.run", StatusPending)
+	if err != nil {
+		t.Fatalf("CountByStatus(pending) error = %v", err)
+	}
+	if pending != 2 {
+		t.Fatalf("pending count = %d, want 2", pending)
+	}
+	processing, err := store.CountByStatus(ctx, "topic.run", StatusProcessing)
+	if err != nil {
+		t.Fatalf("CountByStatus(processing) error = %v", err)
+	}
+	if processing != 1 {
+		t.Fatalf("processing count = %d, want 1", processing)
+	}
+
+	// 只统计话题相关的记录。
+	other, err := store.CountByStatus(ctx, "other.topic", StatusPending)
+	if err != nil {
+		t.Fatalf("CountByStatus(other) error = %v", err)
+	}
+	if other != 0 {
+		t.Fatalf("other-topic pending count = %d, want 0", other)
 	}
 }

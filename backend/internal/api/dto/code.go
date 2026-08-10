@@ -7,6 +7,7 @@ const (
 	CodeUnauthorized          = 40101
 	CodeForbidden             = 40301
 	CodeNotFound              = 40401
+	CodeConflict              = 40901
 	CodeInternalError         = 50001
 	CodeNotImplemented        = 50101
 	CodeValidationError       = 40002

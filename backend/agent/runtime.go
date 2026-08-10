@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-
-	"github.com/insmtx/Leros/backend/types"
 )
 
 const (
@@ -19,14 +17,14 @@ const (
 	RunSkillsDirEnvVar = "LEROS_RUN_SKILLS_DIR"
 )
 
-// ExecutionMode is an alias of types.ExecutionMode for backward compatibility.
-type ExecutionMode = types.ExecutionMode
+// ExecutionMode controls runtime behavior independently from any host business model.
+type ExecutionMode string
 
 const (
 	// ExecutionModeDefault keeps the runtime's normal execution behavior.
-	ExecutionModeDefault = types.ExecutionModeDefault
+	ExecutionModeDefault ExecutionMode = "default"
 	// ExecutionModePlan requests planning behavior when the runtime supports it.
-	ExecutionModePlan = types.ExecutionModePlan
+	ExecutionModePlan ExecutionMode = "plan"
 )
 
 // Message is a business-neutral conversation message supplied to a Runtime.
@@ -41,6 +39,21 @@ type ModelConfig struct {
 	Model    string
 	APIKey   string
 	BaseURL  string
+	// Vision 表示该模型是否声明支持图片（多模态）输入。
+	Vision bool
+}
+
+// Attachment is a multimodal file (e.g. an image) supplied with one execution.
+// Data holds the raw bytes when the file is inlined (e.g. embedded as a base64
+// data URL); runtimes decide how to attach them. When Data is empty, the file may
+// still be materialized on disk under Filesystem.UploadRelDir, which the runtime
+// can combine with Name to locate it. It is intended for vision/multimodal-capable
+// inputs only — plain text attachments should stay in the prompt.
+type Attachment struct {
+	MIME string
+	// Name is the display filename (e.g. "头像.jpeg"); it is not a path.
+	Name string
+	Data []byte
 }
 
 // ExecutionPolicy controls generic runtime behavior.
@@ -55,6 +68,11 @@ type FilesystemContext struct {
 	RepoDir  string
 	TaskDir  string
 	SkillDir string
+	// UploadRelDir is the workspace-relative subdirectory (relative to RepoDir)
+	// where attachments are materialized on disk, e.g. "uploads". Runtimes may
+	// combine it with an Attachment.Name to locate a non-inlined attachment.
+	// It is empty when no uploads directory is provisioned.
+	UploadRelDir string
 }
 
 // ProviderSession carries pre-resolved provider session information for resume.
@@ -75,6 +93,7 @@ type ExecutionRequest struct {
 	SystemPrompt    string
 	Prompt          string
 	Messages        []Message
+	Attachments     []Attachment
 	Model           ModelConfig
 	Tools           []Tool
 	MCPServers      []MCPServerConfig

@@ -59,6 +59,8 @@ export type GlobalEventsDeps = {
 		sessionId: string,
 		options?: { resumeStream?: boolean },
 	) => Promise<void>;
+	/** 按 session 刷新项目详情（新成员发言时补齐成员列表） */
+	refreshProjectForSession?: (sessionId: string) => void;
 };
 
 /**
@@ -237,7 +239,9 @@ export class GlobalEventsManager {
 					const message = state.messagesMap[id];
 					return (
 						message?.conversationId === sessionId &&
+						message.role === "user" &&
 						message.sequence !== undefined &&
+						payload.sequence !== undefined &&
 						message.sequence === payload.sequence
 					);
 				}) ??
@@ -276,6 +280,9 @@ export class GlobalEventsManager {
 				messageIds: state.messageIds.map((id) => (id === existingId ? incoming.id : id)),
 			};
 		});
+
+		// 中文注释：GE 真人消息到达即刷 DetailProject，补齐新成员头像；SE 终态仍会再刷一次。
+		this.#deps.refreshProjectForSession?.(sessionId);
 	};
 
 	/**
@@ -291,6 +298,8 @@ export class GlobalEventsManager {
 		// 取消命令发送后，GlobalEvents 中可能仍有本轮迟到的 assistant started。
 		// 不能为已取消的 run 再创建「AI 员工已接单」占位或重新建立 SSE。
 		if (state.cancellingSessionId === sessionId) return;
+		// 中文注释：本轮已超时报错后，忽略迟到的 GE assistant，避免再插入「已接单」并开 SE。
+		if (state.suppressedReplySessionId === sessionId) return;
 		if (state.messagesMap[responseMessageId]) return;
 		const currentStreamingMessage = state.streamingMessageId
 			? state.messagesMap[state.streamingMessageId]

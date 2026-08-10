@@ -6,14 +6,19 @@ import {
 	formatFileSize,
 	formatTime,
 	useAuthStore,
+	useLayoutStore,
 } from "@leros/store";
 import type { Message, MessageAttachment } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import { Check, Copy, Folder, ImageIcon, LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ProtectedImage } from "../avatar/ProtectedImage";
 import { openMessageAttachmentPreview } from "../layout/file-preview-store";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { MessageContentWithComposerTokens } from "./MessageContentWithComposerTokens";
+
+// Button 的 size 只支持预设枚举，这里用受支持的尺寸并通过 className 微调成更紧凑的操作按钮。
+const compactActionButtonClassName = "size-[26px]";
 
 function CopyButton({ text }: { text: string }) {
 	const [copied, setCopied] = useState(false);
@@ -26,7 +31,9 @@ function CopyButton({ text }: { text: string }) {
 		<Button
 			variant="ghost"
 			size="icon-xs"
-			className={copied ? "text-green-400" : "text-slate-300 hover:text-slate-400"}
+			className={`${compactActionButtonClassName} ${
+				copied ? "text-green-500" : "text-slate-400 hover:text-slate-600"
+			}`}
 			onClick={handleCopy}
 		>
 			{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -34,8 +41,20 @@ function CopyButton({ text }: { text: string }) {
 	);
 }
 
-export function UserMessageBubble({ message }: { message: Message }) {
+export function UserMessageBubble({
+	message,
+	projectId,
+}: {
+	message: Message;
+	projectId?: string;
+}) {
 	const authUser = useAuthStore((state) => state.authUser);
+	const projectMembers = useLayoutStore((s) =>
+		projectId ? s.projects.find((project) => project.id === projectId)?.members : undefined,
+	);
+	const isProjectDetailFetching = useLayoutStore((s) =>
+		projectId ? s.projectDetailFetchingIds.includes(projectId) : false,
+	);
 	const displayContent = message.metadata?.displayContent ?? message.content;
 	const visibleText = displayContent.trim();
 	const referenceIds = new Set(
@@ -58,20 +77,36 @@ export function UserMessageBubble({ message }: { message: Message }) {
 	const authorName = isOwnMessage
 		? (authUser?.uinName ?? authUser?.name ?? message.author?.name)
 		: message.author?.name;
+	// 中文注释：消息体本身不带头像，按 sender_uin 从项目成员补全真人队友头像。
+	const authorMember = useMemo(() => {
+		if (isOwnMessage) return undefined;
+		const authorId = message.author?.id;
+		if (!authorId || !projectMembers?.length) return undefined;
+		return projectMembers.find(
+			(member) => member.type === "user" && String(member.memberId) === authorId,
+		);
+	}, [isOwnMessage, message.author?.id, projectMembers]);
+	const authorAvatarUrl =
+		message.author?.avatarUrl?.trim() || authorMember?.avatarUrl?.trim() || undefined;
+	// 中文注释：仅在 DetailProject 请求中且尚未解析到成员/url 时空白占位；已移除成员等确认不在列表后走默认头像。
+	const avatarPending =
+		!isOwnMessage && !authorAvatarUrl && !authorMember && isProjectDetailFetching;
 
 	return (
 		<div
 			data-slot="user-message"
-			className={`group flex min-w-0 w-full items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
+			className={`flex min-w-0 w-full items-start gap-2.5 ${isOwnMessage ? "justify-end" : "justify-start"}`}
 		>
-			{!isOwnMessage && <UserAvatar name={authorName ?? "用户"} />}
+			{!isOwnMessage && (
+				<UserAvatar name={authorName ?? "用户"} src={authorAvatarUrl} pending={avatarPending} />
+			)}
 			{/* 中文注释：min-w-0 让 max-w 在 flex 布局下真正生效，避免无空格长串把气泡撑出可视区。 */}
 			<div
 				className={`flex min-w-0 max-w-[78%] flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
 			>
 				<div
 					className={`mb-1.5 flex items-center gap-2 text-xs text-slate-400 ${
-						isOwnMessage ? "justify-end opacity-0 transition-opacity group-hover:opacity-100" : ""
+						isOwnMessage ? "justify-end" : ""
 					}`}
 				>
 					{!isOwnMessage && authorName && (
@@ -80,7 +115,6 @@ export function UserMessageBubble({ message }: { message: Message }) {
 					{isOwnMessage && authorName && <span>{authorName}</span>}
 					{message.status === "sending" && <span className="text-xs text-slate-400">发送中</span>}
 					<span>{formatTime(message.timestamp)}</span>
-					{!isOwnMessage && visibleText && <CopyButton text={displayContent} />}
 				</div>
 				{attachments.length > 0 && (
 					<div className={`mb-2 flex flex-col gap-2 ${isOwnMessage ? "items-end" : "items-start"}`}>
@@ -123,13 +157,12 @@ export function UserMessageBubble({ message }: { message: Message }) {
 						>
 							<MessageContentWithComposerTokens message={message} />
 						</div>
-						{isOwnMessage && (
-							<div className="mt-2 flex justify-end">
-								<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-									<CopyButton text={displayContent} />
-								</div>
+						{/* 中文注释：复制按钮与名称/时间一致，常显不依赖悬停。 */}
+						<div className={`mt-2 flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+							<div className="flex items-center gap-0.5">
+								<CopyButton text={displayContent} />
 							</div>
-						)}
+						</div>
 					</>
 				)}
 			</div>
@@ -137,12 +170,38 @@ export function UserMessageBubble({ message }: { message: Message }) {
 	);
 }
 
-function UserAvatar({ name }: { name: string }) {
+function UserAvatar({
+	name,
+	src,
+	pending = false,
+}: {
+	name: string;
+	src?: string;
+	pending?: boolean;
+}) {
+	const frameClassName = "size-8 shrink-0 rounded-full";
 	const initial = name.trim().slice(0, 1).toUpperCase() || "U";
-	return (
+	const defaultFallback = (
 		<div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-200 to-slate-300 text-xs font-semibold text-slate-600 ring-1 ring-white">
 			{initial}
 		</div>
+	);
+	// 中文注释：等成员快照/图片字节到达前用空白占位，交给浏览器原生加载，不做额外渐显。
+	const blankPlaceholder = <div className={frameClassName} aria-hidden />;
+
+	// 中文注释：没有头像 url 时才展示默认头像；尚未从 DetailProject 拿到成员信息时保持空白。
+	if (!src) {
+		return pending ? blankPlaceholder : defaultFallback;
+	}
+
+	return (
+		<ProtectedImage
+			src={src}
+			alt={name}
+			className={`${frameClassName} object-cover ring-1 ring-white`}
+			loadingFallback={blankPlaceholder}
+			fallback={defaultFallback}
+		/>
 	);
 }
 

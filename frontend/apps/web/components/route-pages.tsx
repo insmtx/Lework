@@ -3,6 +3,8 @@
 import {
 	AiTeammatesView,
 	AssistantListView,
+	AutomationExecutionPage,
+	AutomationListView,
 	ProjectPage,
 	ProjectsHubView,
 	SkillMarketView,
@@ -69,6 +71,19 @@ export function SkillsRoutePage() {
 	const navigation = useWebNavigation();
 
 	return <SkillMarketView navigation={navigation} />;
+}
+
+export function AutomationRoutePage() {
+	const navigation = useWebNavigation();
+
+	return <AutomationListView navigation={navigation} />;
+}
+
+export function AutomationExecutionRoutePage() {
+	const navigation = useWebNavigation();
+	const params = useParams<{ publicId: string }>();
+
+	return <AutomationExecutionPage automationPublicId={params.publicId} navigation={navigation} />;
 }
 
 export function AiTeammatesRoutePage() {

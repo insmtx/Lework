@@ -5,6 +5,7 @@ import (
 
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 // RequestFromWorkerTask converts the internal runTask into the agent runtime boundary.
@@ -61,6 +62,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			APIKey:       task.Model.APIKey,
 			BaseURL:      task.Model.BaseURL,
 			BaseURLHasV1: task.Model.BaseURLHasV1,
+			Vision:       task.Model.Vision,
 		},
 		Capability: agentrundomain.CapabilityContext{
 			AllowedTools: append([]string(nil), task.Execution.Tools...),
@@ -120,6 +122,9 @@ func attachmentsFromTask(attachments []messaging.Attachment) []agentrundomain.At
 			MimeType: attachment.MimeType,
 			URL:      attachment.URL,
 		})
+	}
+	for _, a := range result {
+		logs.Infof("[forensic][mapper] attachment from task: name=%q mime=%q url_nonempty=%v", a.Name, a.MimeType, a.URL != "")
 	}
 	return result
 }

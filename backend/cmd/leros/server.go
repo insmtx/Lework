@@ -21,6 +21,7 @@ import (
 	infrasms "github.com/insmtx/Leros/backend/internal/infra/sms"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
+	"github.com/insmtx/Leros/backend/internal/seed"
 	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
@@ -34,6 +35,11 @@ var (
 	serverConfigPath    string
 	serverWorkspaceRoot string
 )
+
+// defaultSeedScriptDir 是 SQL 种子脚本目录，相对进程工作目录。
+// 本地开发（cwd=仓库根）指向 deployments/dev/seed；容器内 WORKDIR=/app，
+// 与 Dockerfile COPY 的 /app/deployments/dev/seed 对齐，故无需配置。
+const defaultSeedScriptDir = "deployments/dev/seed"
 
 func newServerCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -73,7 +79,7 @@ func newServerCommand() *cobra.Command {
 
 			var db *gorm.DB
 			if cfg.Database != nil && cfg.Database.URL != "" {
-				db, err = infradb.InitDB(*cfg.Database, cfg.LLM)
+				db, err = infradb.InitDB(*cfg.Database)
 				if err != nil {
 					logs.Fatalf("Failed to initialize database: %v", err)
 					return
@@ -91,72 +97,6 @@ func newServerCommand() *cobra.Command {
 				return
 			}
 			logs.Info("Storage initialized successfully")
-			if db != nil {
-				if err := service.SeedAITeammateTemplates(cmd.Context(), db, ""); err != nil {
-					logs.Fatalf("Failed to seed AI teammate templates: %v", err)
-					return
-				}
-				report, err := service.SyncBuiltinServerSkillMarketplace(cmd.Context(), db, "")
-				if err != nil {
-					logs.Warnf("Built-in server Skill marketplace sync skipped: %v", err)
-				} else {
-					for _, failure := range report.Failures {
-						logs.Warnf(
-							"Failed to sync built-in server Skill %s: %v",
-							failure.Code,
-							failure.Err,
-						)
-					}
-					logs.Infof(
-						"Built-in server Skill marketplace sync complete: scanned=%d created=%d updated=%d unchanged=%d failed=%d",
-						report.Scanned,
-						report.Created,
-						report.Updated,
-						report.Unchanged,
-						len(report.Failures),
-					)
-				}
-			}
-
-			connectorReport, connectorErr := service.SyncBuiltinConnectorTemplates(cmd.Context(), db, "")
-			if connectorErr != nil {
-				logs.Warnf("Built-in connector sync skipped: %v", connectorErr)
-			} else {
-				for _, failure := range connectorReport.Failures {
-					logs.Warnf("Failed to sync built-in connector %s: %v", failure.Code, failure.Err)
-				}
-				logs.Infof(
-					"Built-in connector sync complete: scanned=%d created=%d updated=%d unchanged=%d restored=%d failed=%d",
-					connectorReport.Scanned,
-					connectorReport.Created,
-					connectorReport.Updated,
-					connectorReport.Unchanged,
-					connectorReport.Restored,
-					len(connectorReport.Failures),
-				)
-			}
-
-			workerReport, workerErr := service.SyncBuiltinWorkerSkills(cmd.Context(), db, "")
-			if workerErr != nil {
-				logs.Warnf("Built-in worker Skill sync skipped: %v", workerErr)
-			} else {
-				for _, failure := range workerReport.Failures {
-					logs.Warnf(
-						"Failed to sync built-in worker Skill %s: %v",
-						failure.Code,
-						failure.Err,
-					)
-				}
-				logs.Infof(
-					"Built-in worker Skill sync complete: scanned=%d created=%d updated=%d unchanged=%d restored=%d failed=%d",
-					workerReport.Scanned,
-					workerReport.Created,
-					workerReport.Updated,
-					workerReport.Unchanged,
-					workerReport.Restored,
-					len(workerReport.Failures),
-				)
-			}
 
 			var modelInvoker modelrouter.Invoker
 			if db != nil {
@@ -184,7 +124,13 @@ func newServerCommand() *cobra.Command {
 				WorkerProvisioning: workerProvisioning,
 			})
 
-			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, db, modelInvoker)
+			if db != nil {
+				if err := seed.Run(cmd.Context(), db, edition, seed.Options{LLMConfig: cfg.LLM, SQLScriptDir: defaultSeedScriptDir}); err != nil {
+					logs.Fatalf("Failed to seed initial data: %v", err)
+				}
+			}
+
+			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, publisher, db, modelInvoker)
 
 			srv := &http.Server{
 				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),

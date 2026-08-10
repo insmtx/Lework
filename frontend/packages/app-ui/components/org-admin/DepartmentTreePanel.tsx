@@ -1,6 +1,12 @@
 "use client";
 
-import { type Department, orgAdminApi, type User, useAuthStore } from "@leros/store";
+import {
+	type Department,
+	isPrivateDeployment,
+	orgAdminApi,
+	type User,
+	useAuthStore,
+} from "@leros/store";
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
@@ -43,6 +49,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
 	FieldWithError,
+	isValidEmail,
 	isValidPhone,
 	RequiredMark,
 	useFormFieldValidation,
@@ -269,11 +276,13 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 		if (!orgId) return;
 		setSubmitting(true);
 		try {
-			// 中文注释：CreateUser 会按手机号复用已注册账号或创建账号，并绑定到当前组织。
+			// 中文注释：CreateUser 会按手机号/邮箱复用已注册账号或创建账号，并绑定到当前组织。
+			const trimmedPhone = phone.trim();
+			const trimmedEmail = email.trim();
 			await orgAdminApi.createUser({
 				name: name.trim(),
-				phone: phone.trim(),
-				email: email.trim() || undefined,
+				phone: trimmedPhone || undefined,
+				email: trimmedEmail || undefined,
 				department_ids: departmentIds,
 			});
 			toast.success("成员已添加");
@@ -459,7 +468,9 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 							{isDefaultUser ? (
 								<>
 									<p className="mt-2 max-w-sm text-xs leading-relaxed text-[var(--leros-text-subtle)]">
-										点击下方按钮通过手机号添加成员到当前组织
+										{isPrivateDeployment
+											? "点击下方按钮通过邮箱添加成员到当前组织"
+											: "点击下方按钮通过手机号添加成员到当前组织"}
 										{selectedDepartment ? `或「${selectedDepartment.name}」部门` : ""}
 									</p>
 									<Button
@@ -490,7 +501,7 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 								<TableHeader>
 									<TableRow>
 										<TableHead>用户名</TableHead>
-										<TableHead>手机号</TableHead>
+										<TableHead>{isPrivateDeployment ? "邮箱" : "手机号"}</TableHead>
 										<TableHead>创建时间</TableHead>
 										<TableHead>操作</TableHead>
 									</TableRow>
@@ -504,7 +515,9 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 											>
 												{member.name ?? "未命名"}
 											</TableCell>
-											<TableCell className="truncate">{member.phone ?? "-"}</TableCell>
+											<TableCell className="truncate">
+												{isPrivateDeployment ? member.email?.trim() || "-" : (member.phone ?? "-")}
+											</TableCell>
 											<TableCell className="truncate">
 												{formatMemberCreatedAt(member.created_at)}
 											</TableCell>
@@ -663,17 +676,22 @@ function AddMemberDialog({
 
 	const trimmedName = name.trim();
 	const trimmedPhone = phone.trim();
+	const trimmedEmail = email.trim();
 	const nameValid = trimmedName.length > 0;
 	const phoneValid = isValidPhone(trimmedPhone);
+	const emailValid = isValidEmail(trimmedEmail);
 	const departmentValid = selectedIds.length > 0;
 	const showNameError = shouldShowError("name") && !nameValid;
 	const showPhoneError = shouldShowError("phone") && !phoneValid;
+	const showEmailError = shouldShowError("email") && !emailValid;
 	const showDepartmentError = shouldShowError("department") && !departmentValid;
-	const canSubmitMember = nameValid && phoneValid && departmentValid;
+	const canSubmitMember = isPrivateDeployment
+		? nameValid && emailValid && departmentValid
+		: nameValid && phoneValid && departmentValid;
 
 	const handleSubmit = () => {
 		if (!canSubmitMember) return;
-		onSubmit(trimmedName, trimmedPhone, email, selectedIds);
+		onSubmit(trimmedName, trimmedPhone, trimmedEmail, selectedIds);
 	};
 
 	return (
@@ -682,8 +700,9 @@ function AddMemberDialog({
 				<DialogHeader className="shrink-0 px-6 py-4">
 					<DialogTitle>添加成员</DialogTitle>
 					<DialogDescription>
-						输入手机号后会复用已有账号或创建账号，并添加到「{orgName}
-						」；第一个选择的部门将作为主部门
+						{isPrivateDeployment
+							? `输入邮箱后会复用已有账号或创建账号，并添加到「${orgName}」；第一个选择的部门将作为主部门`
+							: `输入手机号后会复用已有账号或创建账号，并添加到「${orgName}」；第一个选择的部门将作为主部门`}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -706,47 +725,76 @@ function AddMemberDialog({
 						/>
 					</FieldWithError>
 
-					<FieldWithError
-						error={
-							showPhoneError
-								? trimmedPhone.length === 0
-									? "请输入手机号"
-									: "请输入正确的手机号"
-								: undefined
-						}
-					>
-						<label
-							htmlFor="create-member-phone"
-							className="text-sm font-medium text-[var(--leros-text-strong)]"
+					{isPrivateDeployment ? null : (
+						<FieldWithError
+							error={
+								showPhoneError
+									? trimmedPhone.length === 0
+										? "请输入手机号"
+										: "请输入正确的手机号"
+									: undefined
+							}
 						>
-							手机号
-							<RequiredMark />
-						</label>
-						<Input
-							id="create-member-phone"
-							type="tel"
-							inputMode="numeric"
-							value={phone}
-							onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))}
-							onBlur={handleFieldBlur("phone")}
-							placeholder="请输入手机号"
-						/>
-					</FieldWithError>
+							<label
+								htmlFor="create-member-phone"
+								className="text-sm font-medium text-[var(--leros-text-strong)]"
+							>
+								手机号
+								<RequiredMark />
+							</label>
+							<Input
+								id="create-member-phone"
+								type="tel"
+								inputMode="numeric"
+								value={phone}
+								onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 11))}
+								onBlur={handleFieldBlur("phone")}
+								placeholder="请输入手机号"
+							/>
+						</FieldWithError>
+					)}
 
-					<div className="space-y-2">
-						<label
-							htmlFor="create-member-email"
-							className="text-sm font-medium text-[var(--leros-text-strong)]"
+					{isPrivateDeployment ? (
+						<FieldWithError
+							error={
+								showEmailError
+									? trimmedEmail.length === 0
+										? "请输入邮箱"
+										: "请输入正确的邮箱"
+									: undefined
+							}
 						>
-							邮箱（选填）
-						</label>
-						<Input
-							id="create-member-email"
-							value={email}
-							onChange={(event) => setEmail(event.target.value)}
-							placeholder="请输入邮箱"
-						/>
-					</div>
+							<label
+								htmlFor="create-member-email"
+								className="text-sm font-medium text-[var(--leros-text-strong)]"
+							>
+								邮箱
+								<RequiredMark />
+							</label>
+							<Input
+								id="create-member-email"
+								value={email}
+								onChange={(event) => setEmail(event.target.value)}
+								onBlur={handleFieldBlur("email")}
+								placeholder="请输入邮箱"
+							/>
+						</FieldWithError>
+					) : (
+						<div className="space-y-2">
+							<label
+								htmlFor="create-member-email"
+								className="text-sm font-medium text-[var(--leros-text-strong)]"
+							>
+								邮箱（选填）
+							</label>
+							<Input
+								id="create-member-email"
+								value={email}
+								onChange={(event) => setEmail(event.target.value)}
+								placeholder="请输入邮箱"
+							/>
+						</div>
+					)}
 
 					<FieldWithError error={showDepartmentError ? "请选择所属部门" : undefined}>
 						<div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -881,8 +929,13 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 						/>
 					</div>
 					<div className="space-y-2">
-						<span className="text-sm font-medium text-[var(--leros-text-strong)]">手机号</span>
-						<Input value={member.phone ?? "-"} disabled />
+						<span className="text-sm font-medium text-[var(--leros-text-strong)]">
+							{isPrivateDeployment ? "邮箱" : "手机号"}
+						</span>
+						<Input
+							value={isPrivateDeployment ? member.email?.trim() || "-" : (member.phone ?? "-")}
+							disabled
+						/>
 					</div>
 				</div>
 				<DialogFooter className="mt-6">

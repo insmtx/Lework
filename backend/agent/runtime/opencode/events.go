@@ -89,6 +89,15 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
+		// FORENSIC: 记录所有文本 delta，验证失败时 assistant 文本 delta 是否到达
+		if props.Field == "text" && props.Delta != "" {
+			head := props.Delta
+			if len(head) > 60 {
+				head = head[:60]
+			}
+			logs.Infof("[opencode][forensic] text delta: execution_id=%s session_id=%s message_id=%s part_id=%s head=%q",
+				st.executionID, props.SessionID, props.MessageID, props.PartID, head)
+		}
 		if props.Field != "text" || props.Delta == "" {
 			return
 		}
@@ -117,6 +126,14 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 			}
 			// 完整文本（非 synthetic）
 			if !isTrue(part.Synthetic) && part.Text != "" {
+				// FORENSIC: 记录是谁在更新 lastTextEnded —— 用户输入 part 还是当前 assistant part
+				isCur := part.MessageID != "" && part.MessageID == st.messageID
+				head := part.Text
+				if len(head) > 60 {
+					head = head[:60]
+				}
+				logs.Infof("[opencode][forensic] lastTextEnded update: execution_id=%s session_id=%s part_msg_id=%s cur_msg_id=%s is_cur_part=%v synthetic=%v head=%q",
+					st.executionID, props.SessionID, part.MessageID, st.messageID, isCur, isTrue(part.Synthetic), head)
 				st.lastTextEnded = part.Text
 				logs.Debugf("[opencode] text part updated: execution_id=%s session_id=%s message_id=%s text_len=%d",
 					st.executionID, props.SessionID, part.MessageID, len(part.Text))

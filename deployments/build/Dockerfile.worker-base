@@ -1,15 +1,29 @@
 FROM registry.yygu.cn/library/ubuntu:24.04
 
+# 构建版次：
+#   EDITION=saas     (默认) SaaS 精简版：仅保留投标/Excel/Word/PDF 常用 Python 库，不安装
+#                     重型 LaTeX 与音视频处理链，镜像更小。
+#   EDITION=private  私有化完整版：含 TeX Live、Poppler、Ghostscript、Pandoc、
+#                     ImageMagick、Inkscape、Matplotlib、FFmpeg、Tesseract(含中文 OCR) 等。
+# Make 目标 docker-build-worker-base 默认构建 saas；
+# docker-build-worker-base-private 以 EDITION=private 构建。
 ARG TARGETARCH
+ARG EDITION=saas
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
 ARG OPENCODE_VERSION=1.17.20
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG NODE_VERSION=22.14.0
 
 # Configure aliyun apt mirrors
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
     && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
 
+# 两版共用的基础 apt 包：
+# - libreoffice (apt 稳定版，不上 26.8 alpha)：DOCX/DOC/ODT/XLSX/PPTX/PDF 转换与渲染
+# - CJK 字体与替代字体：保证中文文档正常渲染
+# - python3.12 + python3-pip：文档处理运行时
+# - fontconfig、libsqlite3-0 等：基础工具链
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
@@ -76,14 +90,65 @@ RUN soffice --version \
     && fc-cache -f \
     && fc-list :lang=zh-cn | head -20
 
-# Configure pip aliyun mirror and install Python dependencies
+# Only install private-edition heavy document/media toolchain:
+#   - TeX Live (XeLaTeX/LuaLaTeX/pdfLaTeX + 中文字体)：自定义字体 PDF 排版
+#   - Poppler、Ghostscript、Pandoc：PDF 渲染/转换、格式互转
+#   - ImageMagick、Inkscape、Matplotlib（含 lib、apt 包）、FFmpeg：图像/矢量图/音视频
+#   - Tesseract + eng + chi_sim：OCR（含中文 OCR 语言包）
+# SaaS 精简版跳过此段，镜像更小。
+RUN if [ "$EDITION" = "private" ]; then \
+      apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        texlive-xetex \
+        texlive-luatex \
+        texlive-latex-base \
+        texlive-latex-recommended \
+        texlive-fonts-recommended \
+        texlive-lang-chinese \
+        poppler-utils \
+        ghostscript \
+        pandoc \
+        imagemagick \
+        inkscape \
+        python3-matplotlib \
+        ffmpeg \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-chi-sim \
+        tesseract-ocr-osd \
+        libvips \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Configure pip aliyun mirror and install Python dependencies.
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_DEFAULT_TIMEOUT=120 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
-RUN pip3 install --break-system-packages requests
+# Common Python document-processing libraries (both editions):
+#   - python-docx / lxml：DOCX 读写与内部 XML 处理
+#   - openpyxl / xlsxwriter / pandas：Excel 读写与分析
+#   - python-pptx：PPTX 读写
+#   - PyMuPDF / pypdf / pdfplumber / pdfminer.six / reportlab：PDF 处理与生成
+#   - Pillow：图像处理
+# SaaS 版也装这些轻量库（投标/Excel/Word 技能依赖）。
+RUN pip3 install --break-system-packages \
+    requests \
+    python-docx==1.2.0 \
+    lxml==6.0.2 \
+    openpyxl==3.1.5 \
+    xlsxwriter==3.2.9 \
+    pandas==2.2.3 \
+    python-pptx==1.0.2 \
+    PyMuPDF==1.26.6 \
+    pypdf==6.10.0 \
+    pdfplumber==0.11.8 \
+    pdfminer.six==20251107 \
+    reportlab==4.4.9 \
+    Pillow==12.2.0
+# private 版额外安装 pdfminer.six（上面已装）与 Ghostscript 绑定的 Python 包装暂略；
+# 如需 matplotlib 非 apt 版本可在此段补充（apt python3-matplotlib 已能满足基本图表生成）。
 
 # Install Node.js 22 LTS from npmmirror (multi-arch: amd64/arm64)
-ENV NODE_VERSION=22.14.0
+# NODE_VERSION 由顶层 ARG 提供，不再在 ENV 中重复声明
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
         amd64) node_arch="x64" ;; \
@@ -104,6 +169,26 @@ RUN npm config set registry https://registry.npmmirror.com \
     && codex --version \
     && opencode --version \
     && npm cache clean --force
+
+# Node 文档组件库（两版共用）：docx / PptxGenJS / pdf-lib / sharp。
+#体积可控（sharp 走 npm 预编译二进制），技能脚本可直接 require。
+RUN npm install -g \
+    docx@9.6.1 \
+    pptxgenjs@4.0.1 \
+    pdf-lib@1.17.1 \
+    sharp@0.34.5 \
+    && npm cache clean --force
+
+# private 版额外安装 Playwright + Chromium 浏览器（用于 HTML/PDF/截图等场景）。
+# SaaS 不装 Playwright（浏览器二进制体积大，SaaS 镜像偏小）。
+# 使用 npmmirror 镜像下载 Chromium，避免官方 cdn.playwright.dev 在国内拉取超慢。
+RUN if [ "$EDITION" = "private" ]; then \
+      npm install -g playwright@1.61.1; \
+      PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers \
+      PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright \
+      npx --yes playwright@1.61.1 install --with-deps chromium; \
+      npm cache clean --force; \
+    fi
 
 RUN useradd -m -s /bin/bash leros \
     && mkdir -p /workspace \

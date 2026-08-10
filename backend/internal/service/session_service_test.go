@@ -51,6 +51,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&types.Task{},
 		&types.Session{},
 		&types.SessionMessage{},
+		&types.ReliableTask{},
+		&types.ProjectionReceipt{},
 		&types.DigitalAssistant{},
 		&types.DigitalAssistantPromptBlock{},
 		&types.DigitalAssistantMemory{},
@@ -1612,7 +1614,7 @@ func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 		Type:                 types.SessionTypeTask,
 		Uin:                  1,
 		OrgID:                1,
-		AssistantID:          1,     // DigitalAssistant.ID (PK)，用于 publishWorkerTask 历史查询
+		AssistantID:          1,     // DigitalAssistant.ID (PK)，用于 buildWorkerTask 历史查询
 		AllocatedAssistantID: 10001, // 实为 WorkerID，与 AssistantID 错开暴露 Bug
 		ProjectID:            &proj.ID,
 		Status:               string(types.SessionStatusActive),
@@ -1664,8 +1666,9 @@ func TestPublishWorkerTaskHistoryContext(t *testing.T) {
 		t.Fatalf("create current message: %v", err)
 	}
 
-	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: 1, WorkerID: 1}); err != nil {
-		t.Fatalf("publishWorkerTask failed: %v", err)
+	_, cmd, err := poster.buildWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: 1, WorkerID: 1})
+	if err != nil {
+		t.Fatalf("buildWorkerTask failed: %v", err)
 	}
 
 	cmd, ok := bus.event.(messaging.WorkerCommand)

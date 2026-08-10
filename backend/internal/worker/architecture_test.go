@@ -15,6 +15,9 @@ func TestOnlyRuntimeBoundaryPackagesDependOnAgentContracts(t *testing.T) {
 		"agentrun",
 		"app",
 		"runtimehost",
+		// run(Coordinator) 通过 agent.InteractionWaitObserver 注入交互等待生命周期到运行 ctx，
+		// 因此允许其跨入 agent 契约边界（见 interaction_wait.go）。
+		"run",
 	}
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {

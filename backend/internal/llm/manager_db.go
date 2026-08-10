@@ -42,9 +42,20 @@ func modelConfigFromEntity(m *types.LLMModel) *ModelConfig {
 		IsDefault:    m.IsDefault,
 		IsSystem:     m.IsSystem,
 		Config:       map[string]any(m.Config),
+		Vision:       VisionFromConfig(m.Config),
 		CreatedAt:    m.CreatedAt,
 		UpdatedAt:    m.UpdatedAt,
 	}
+}
+
+// VisionFromConfig 从扩展配置中解包视觉能力标志。
+// 缺省（无 config 或未声明 vision）即 false。仅在此处触碰 map。
+func VisionFromConfig(config types.LLMModelConfig) bool {
+	if len(config) == 0 {
+		return false
+	}
+	v, ok := config["vision"].(bool)
+	return ok && v
 }
 
 // --- helper 函数（从 service/llm_model_service.go 迁移，保持行为不变） ---
@@ -142,16 +153,25 @@ func lastRunes(value string, count int) string {
 	return string(runes[len(runes)-count:])
 }
 
+// ProbeResult 记录连通性探测结果，供其他包（如 seed）在构建模型配置时判定上游是否需要 /v1 前缀。
+type ProbeResult struct {
+	V1Success   bool
+	NoV1Success bool
+}
+
 // probeResult 记录连通性探测结果
-type probeResult struct {
-	v1Success   bool
-	noV1Success bool
+type probeResult = ProbeResult
+
+// ProbeConnectivity 对指定URL进行连通性探测，分别尝试带 /v1 和不带 /v1 的端点。
+// 优先探测 preferV1 指示的候选地址，成功后立即返回。
+func ProbeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL string, preferV1 bool) *ProbeResult {
+	return probeConnectivity(ctx, provider, modelName, apiKey, baseURL, preferV1)
 }
 
 // probeConnectivity 对指定URL进行连通性探测，分别尝试带 /v1 和不带 /v1 的端点。
 // 优先探测 preferV1 指示的候选地址，成功后立即返回。
-func probeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL string, preferV1 bool) *probeResult {
-	result := &probeResult{}
+func probeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL string, preferV1 bool) *ProbeResult {
+	result := &ProbeResult{}
 	baseURL = normalizeLLMBaseURL(baseURL)
 
 	// Build candidate URLs
@@ -163,8 +183,8 @@ func probeConnectivity(ctx context.Context, provider, modelName, apiKey, baseURL
 		url    string
 		result *bool
 	}{
-		{withV1URL, &result.v1Success},
-		{noV1URL, &result.noV1Success},
+		{withV1URL, &result.V1Success},
+		{noV1URL, &result.NoV1Success},
 	}
 	if !preferV1 {
 		candidates[0], candidates[1] = candidates[1], candidates[0]
@@ -241,10 +261,10 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 	var probeResult *probeResult
 	if provider == string(types.LLMProviderOpenAI) || provider == string(types.LLMProviderCustom) {
 		probeResult = m.probeFunc(ctx, provider, req.Model, req.APIKey, baseURL, hasV1)
-		if probeResult == nil || (!probeResult.v1Success && !probeResult.noV1Success) {
+		if probeResult == nil || (!probeResult.V1Success && !probeResult.NoV1Success) {
 			return nil, errors.New("connectivity test failed: could not connect with or without /v1 prefix, check base_url, api_key and network")
 		}
-		hasV1 = probeResult.v1Success
+		hasV1 = probeResult.V1Success
 	}
 
 	status := req.Status
@@ -423,10 +443,10 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			provider := model.Provider
 			if provider == string(types.LLMProviderOpenAI) || provider == string(types.LLMProviderCustom) {
 				probeResult := m.probeFunc(ctx, provider, model.ModelName, model.APIKeyEncrypted, model.BaseURL, model.BaseURLHasV1)
-				if probeResult == nil || (!probeResult.v1Success && !probeResult.noV1Success) {
+				if probeResult == nil || (!probeResult.V1Success && !probeResult.NoV1Success) {
 					return errors.New("connectivity test failed after update: could not connect with or without /v1 prefix, check the updated fields")
 				}
-				model.BaseURLHasV1 = probeResult.v1Success
+				model.BaseURLHasV1 = probeResult.V1Success
 			} else {
 				// For non-OpenAI providers, keep existing flag or detect from URL path pattern
 				hasV1 := detectURLHasV1(model.BaseURL + "/v1/chat/completions")

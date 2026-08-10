@@ -1,6 +1,8 @@
 import {
 	type AppNavigation,
 	AssistantListView,
+	AutomationExecutionPage,
+	AutomationListView,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
@@ -48,6 +50,10 @@ export function AppRoutes() {
 
 				<Route path="/knowledge" element={<EmptyRoutePage />} />
 
+				<Route path="/automation" element={<AutomationListView navigation={navigation} />} />
+
+				<Route path="/automation/:publicId" element={<AutomationExecutionRoutePage />} />
+
 				<Route path="/settings" element={<DesktopSettingsPage />} />
 
 				<Route path="*" element={<Navigate to="/workbench" replace />} />
@@ -84,6 +90,8 @@ function useDesktopNavigation(): AppNavigation {
 
 				skills: "/skills",
 
+				automation: "/automation",
+
 				settings: "/settings",
 			}[route];
 
@@ -102,6 +110,10 @@ function useDesktopNavigation(): AppNavigation {
 			navigate(
 				`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/sessions/${encodeURIComponent(sessionId)}`,
 			);
+		},
+
+		goToAutomationDetail(publicId) {
+			navigate(`/automation/${encodeURIComponent(publicId)}`);
 		},
 	};
 }
@@ -165,4 +177,11 @@ function ProjectsHubRoutePage() {
 	const navigation = useDesktopNavigation();
 
 	return <ProjectsHubView navigation={navigation} />;
+}
+
+function AutomationExecutionRoutePage() {
+	const navigation = useDesktopNavigation();
+	const { publicId = "" } = useParams();
+
+	return <AutomationExecutionPage automationPublicId={publicId} navigation={navigation} />;
 }

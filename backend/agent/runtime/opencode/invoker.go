@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -203,9 +204,7 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req cli.Invocatio
 		},
 		System: req.SystemPrompt,
 		Agent:  openCodeAgent(req.ExecutionMode),
-		Parts: []messagePart{
-			{Type: "text", Text: req.Prompt},
-		},
+		Parts:  buildMessageParts(req.Prompt, req.UploadRelDir, req.Attachments),
 	}
 	msgResp, err := st.srv.SendMessage(ctx, st.sessionID, msgReq)
 	if err != nil {
@@ -228,6 +227,9 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req cli.Invocatio
 	st.mu.Lock()
 	st.messageID = msgResp.Info.ID
 	st.mu.Unlock()
+	// FORENSIC: 同步 message 响应返回的事件时序
+	logs.Infof("[opencode][forensic] SendMessage sync returned: execution_id=%s session_id=%s message_id=%s role=%s elapsed=%s",
+		req.ExecutionID, st.sessionID, msgResp.Info.ID, msgResp.Info.Role, time.Since(startedAt).Truncate(time.Millisecond))
 	logs.InfoContextf(ctx, "OpenCode send message completed: execution_id=%s session_id=%s message_id=%s elapsed=%s",
 		req.ExecutionID, st.sessionID, msgResp.Info.ID, time.Since(startedAt).Truncate(time.Millisecond))
 	// 响应事件由 SSE 流式路径处理，同步响应体中的 parts 不再处理
@@ -238,6 +240,36 @@ func openCodeAgent(mode agent.ExecutionMode) string {
 		return "plan"
 	}
 	return "build"
+}
+
+// buildMessageParts 组装用户消息的 parts。纯文本始终作为第一个 text part，
+// 随后按顺序追加多模态（当前仅图片）附件为 file part（data: base64 内联）。
+// PDF/音视频已在 preparer 层退出多模态管线，不会带 Data 进入本函数。
+// file part 的 Filename 优先使用 uploadRelDir 与附件 Name 拼接的工作区相对路径
+// （与落盘一致，例如 uploads/头像.jpeg），以保证 opencode read 等工具能按该路径
+// 定位到真实文件；uploadRelDir 为空时回退为仅用 Name。仅有 Name 而无 Data 的
+// 大文件不在此内联，由上层以文本提示其路径。
+func buildMessageParts(prompt string, uploadRelDir string, attachments []agent.Attachment) []messagePart {
+	parts := []messagePart{{Type: "text", Text: prompt}}
+	for _, att := range attachments {
+		if len(att.Data) == 0 {
+			continue
+		}
+		name := strings.TrimSpace(att.Name)
+		relDir := strings.TrimSpace(uploadRelDir)
+		filename := name
+		if relDir != "" && name != "" {
+			filename = relDir + "/" + name
+		}
+		parts = append(parts, messagePart{
+			Type:     "file",
+			MIME:     strings.TrimSpace(att.MIME),
+			Filename: filename,
+			URL:      "data:" + strings.TrimSpace(att.MIME) + ";base64," + base64.StdEncoding.EncodeToString(att.Data),
+		})
+		logs.Infof("[forensic][msgparts] appended file part: name=%q filename=%q mime=%q data_len=%d", name, filename, strings.TrimSpace(att.MIME), len(att.Data))
+	}
+	return parts
 }
 
 // ============================================================================
@@ -330,6 +362,18 @@ func (st *runState) waitCompletion(ctx context.Context, cancelMessage, cancelSSE
 		case <-st.msgDone:
 			logs.Debugf("OpenCode completion watcher received message completion: execution_id=%s session_id=%s elapsed=%s",
 				st.executionID, st.sessionID, time.Since(st.startedAt).Truncate(time.Millisecond))
+			// FORENSIC: msgDone 触发时 lastTextEnded 的当前值与时序
+			st.mu.Lock()
+			lt := st.lastTextEnded
+			ltHead := lt
+			if len(ltHead) > 60 {
+				ltHead = ltHead[:60]
+			}
+			forensicRunErr := st.runErr
+			logs.Infof("[opencode][forensic] msgDone fired: execution_id=%s session_id=%s message_id=%s lastTextEnded_len=%d head=%q begins_with_user=%v runErr=%q",
+				st.executionID, st.sessionID, st.messageID, len(lt), ltHead, strings.HasPrefix(lt, "【用户问题】"), st.runErr)
+			_ = forensicRunErr
+			st.mu.Unlock()
 			// 正常完成路径：给 SSE 流一个短窗口收集 trailing error
 			st.mu.Lock()
 			hasRunErr := st.runErr != ""
@@ -386,12 +430,34 @@ complete:
 	usage := st.tokenUsage
 	st.mu.Unlock()
 
+	// FORENSIC: 最终将作为 Result.Message 发布的文本
+	ftHead := finalText
+	if len(ftHead) > 60 {
+		ftHead = ftHead[:60]
+	}
+	logs.Infof("[opencode][forensic] final text captured: execution_id=%s session_id=%s message_id=%s run_err=%v lastTextEnded_len=%d head=%q begins_with_user=%v",
+		st.executionID, st.sessionID, st.messageID, hasRunErr, len(finalText), ftHead, strings.HasPrefix(finalText, "【用户问题】"))
+
 	if hasRunErr {
 		logs.Warnf("OpenCode invocation completed with error: execution_id=%s session_id=%s elapsed=%s err=%s",
 			st.executionID, st.sessionID, time.Since(st.startedAt).Truncate(time.Millisecond), runErr)
 		st.resultChan <- cli.InvocationResult{
 			ProviderSessionID: st.sessionID,
 			Err:               fmt.Errorf("%s", runErr),
+		}
+		return
+	}
+	// 回声兜底：opencode 在部分多模态路径下（如大图被内部重编码时）不通过 SSE
+	// 上报生成的文本，导致 lastTextEnded 停留在用户输入 part。此时若最终文本
+	// 是用户输入（prompt）的逐字回声，而非真实回复，视为本次调用失败以便上层
+	// 触发重试，避免把无意义的回声当作 assistant 回复落库。
+	if strings.HasPrefix(strings.TrimSpace(finalText), "【用户问题】") {
+		errMsg := "opencode returned the user prompt as its answer (no assistant text streamed)"
+		logs.Warnf("[opencode][echo-guard] blocked echo reply: execution_id=%s session_id=%s message_id=%s output_len=%d err=%s",
+			st.executionID, st.sessionID, st.messageID, len(finalText), errMsg)
+		st.resultChan <- cli.InvocationResult{
+			ProviderSessionID: st.sessionID,
+			Err:               fmt.Errorf("%s", errMsg),
 		}
 		return
 	}

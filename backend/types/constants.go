@@ -168,6 +168,55 @@ const (
 	TaskTypeCron    TaskType = "cron"
 )
 
+// AutomationScheduleMode 表示自动化的底层调度计算模式
+type AutomationScheduleMode string
+
+const (
+	// AutomationScheduleModeCalendar 按本地日历边界执行
+	AutomationScheduleModeCalendar AutomationScheduleMode = "calendar"
+	// AutomationScheduleModeInterval 从锚点开始按固定时长执行
+	AutomationScheduleModeInterval AutomationScheduleMode = "interval"
+)
+
+// AutomationCalendarPreset 表示日历类预设类型。
+//
+// 预设只用于前端表单生成/回显配置，不参与后端执行算法选择；执行算法只依赖
+// calendar/interval 两种规范化规则。
+type AutomationCalendarPreset string
+
+const (
+	AutomationPresetDaily   AutomationCalendarPreset = "daily"
+	AutomationPresetWeekly  AutomationCalendarPreset = "weekly"
+	AutomationPresetMonthly AutomationCalendarPreset = "monthly"
+	AutomationPresetHourly  AutomationCalendarPreset = "hourly"
+)
+
+// AutomationExecutionStatus 表示一次自动化执行的生命周期状态
+type AutomationExecutionStatus string
+
+const (
+	// AutomationExecutionQueued 已生成，等待派发
+	AutomationExecutionQueued AutomationExecutionStatus = "queued"
+	// AutomationExecutionRunning 已派发并开始执行
+	AutomationExecutionRunning AutomationExecutionStatus = "running"
+	// AutomationExecutionSucceeded 执行成功
+	AutomationExecutionSucceeded AutomationExecutionStatus = "succeeded"
+	// AutomationExecutionFailed 执行失败
+	AutomationExecutionFailed AutomationExecutionStatus = "failed"
+	// AutomationExecutionSkipped 因上一轮仍活跃等原因被跳过
+	AutomationExecutionSkipped AutomationExecutionStatus = "skipped"
+)
+
+// AutomationExecutionTriggerType 表示一次执行的触发来源
+type AutomationExecutionTriggerType string
+
+const (
+	// AutomationTriggerScheduled 周期触发
+	AutomationTriggerScheduled AutomationExecutionTriggerType = "scheduled"
+	// AutomationTriggerManual 手动触发（立即运行）
+	AutomationTriggerManual AutomationExecutionTriggerType = "manual"
+)
+
 // ArtifactType 表示产出物的类型
 type ArtifactType string
 

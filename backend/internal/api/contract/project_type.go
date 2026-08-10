@@ -16,8 +16,10 @@ type Project struct {
 	Status      string                 `json:"status"`
 	TaskCount   int64                  `json:"task_count"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	// AutomationID 关联的自动化主键（自动化为该自动化创建时非空，用于标记时钟图标）
+	AutomationID *uint     `json:"automation_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // MemberInput 创建/编辑项目时传入的成员项

@@ -64,6 +64,22 @@ func RunEventStreamWildcard() string {
 	return "org.*.session.*.run.stream"
 }
 
+// WorkerOpsStatusSubject 构建 server -> worker 运维状态查询 subject。
+//
+// 该 subject 走 Core NATS request/reply，不进入 JetStream 任务队列，
+// 因此不注册到任何 stream，也不参与 WorkerCommandWildcard。
+//
+// 格式：org.<org_id>.worker.<worker_id>.ops.status
+func WorkerOpsStatusSubject(orgID, workerID uint) (string, error) {
+	if orgID == 0 {
+		return "", fmt.Errorf("org_id is required")
+	}
+	if workerID == 0 {
+		return "", fmt.Errorf("worker_id is required")
+	}
+	return fmt.Sprintf("org.%d.worker.%d.ops.status", orgID, workerID), nil
+}
+
 // ProjectNotifySubject 构建 project 级全局通知 subject。
 //
 // 格式：org.<org_id>.project.<project_id>.notify

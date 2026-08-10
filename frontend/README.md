@@ -187,10 +187,16 @@ pnpm dist:desktop
 
 # 当前系统的未打包目录，适合最快速验证
 pnpm dist:desktop:dir
+
+# 私有化完整安装包（当前系统）
+pnpm dist:desktop:private
+
+# 私有化未打包目录，适合本地快速验证私有化流程
+pnpm dist:desktop:private:dir
 ```
 
 产物输出到 `apps/desktop/dist/`。本地 `dist:*` 命令固定使用 `--publish never`，只生成安装包，不会上传 Release。
-`pnpm dist:desktop` 用于快速验证当前系统包：macOS 默认只生成 ZIP，避免部分本地/沙箱环境无法调用 `hdiutil` 创建 DMG；Windows 默认生成 NSIS 安装包；Linux 默认生成 AppImage 和 `.deb`。`pnpm dist:desktop:dir` 只生成未打包应用目录，适合最快速验证 Electron/Vite 构建和应用启动。正式 macOS Release 请使用 `dist:desktop:mac:arm64` / `dist:desktop:mac:x64` 或 tag workflow。
+`pnpm dist:desktop` 用于快速验证当前系统包：macOS 默认只生成 ZIP，避免部分本地/沙箱环境无法调用 `hdiutil` 创建 DMG；Windows 默认生成 NSIS 安装包；Linux 默认生成 AppImage 和 `.deb`。`pnpm dist:desktop:dir` / `pnpm dist:desktop:private:dir` 只生成未打包应用目录，适合最快速验证 Electron/Vite 构建和应用启动；后者会注入私有化部署标记。正式 macOS Release 请使用 `dist:desktop:mac:arm64` / `dist:desktop:mac:x64` 或 tag workflow。
 
 ### GitHub Release 发布
 

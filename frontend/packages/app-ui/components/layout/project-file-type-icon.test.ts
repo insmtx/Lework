@@ -14,4 +14,10 @@ describe("getProjectFileIconSrc", () => {
 		expect(icon).toBe(getProjectFileIconSrc("video.mp4"));
 		expect(icon).not.toBe(getProjectFileIconSrc("notes.txt"));
 	});
+
+	it.each(["html", "htm"])("uses the HTML icon for .%s", (extension) => {
+		const icon = getProjectFileIconSrc(`page.${extension}`);
+		expect(icon).toBe(getProjectFileIconSrc("page.html"));
+		expect(icon).not.toBe(getProjectFileIconSrc("notes.txt"));
+	});
 });

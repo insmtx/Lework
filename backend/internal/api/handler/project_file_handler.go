@@ -46,7 +46,7 @@ func (h *ProjectFileHandler) RegisterRoutes(r gin.IRouter) {
 // @Param resource_type query string false "资源类型：user_upload | artifact | plan；默认排除 plan"
 // @Param task_id query string false "Task public ID，传入时仅返回该任务的产物文件"
 // @Param node_type query string false "节点类型：folder | file；默认返回文件与文件夹"
-// @Param file_ext query string false "文件类型分组：pdf | docx | xlsx | pptx | md | image | video | text"
+// @Param file_ext query string false "文件类型分组：pdf | docx | xlsx | pptx | md | html | image | video | text"
 // @Success 200 {object} dto.Response "成功响应"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"

@@ -93,6 +93,7 @@ export function TaskDetailPage({
 		activeTaskDetailTaskId,
 		projects,
 		fetchProjects,
+		fetchProjectDetail,
 		setTaskDetailRoute,
 		setProjectRoute,
 		switchProject,
@@ -228,6 +229,12 @@ export function TaskDetailPage({
 	useEffect(() => {
 		fetchProjects();
 	}, [fetchProjects]);
+
+	useEffect(() => {
+		// 中文注释：群聊展示真人队友头像依赖详情接口返回的 members.avatar_url，列表接口不含成员。
+		if (!resolvedProjectId) return;
+		void fetchProjectDetail(resolvedProjectId);
+	}, [resolvedProjectId, fetchProjectDetail]);
 
 	useEffect(() => {
 		if (!projectId || !taskId || !sessionId) return;

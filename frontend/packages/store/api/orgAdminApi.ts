@@ -122,7 +122,12 @@ export const orgAdminApi = {
 			keyword: params.keyword,
 		}),
 
-	createUser: (params: { name: string; phone: string; email?: string; department_ids: number[] }) =>
+	createUser: (params: {
+		name: string;
+		phone?: string;
+		email?: string;
+		department_ids: number[];
+	}) =>
 		apiClient.post<BackendDataResponse<User>>(ENDPOINTS.createUser, {
 			name: params.name,
 			phone: params.phone,

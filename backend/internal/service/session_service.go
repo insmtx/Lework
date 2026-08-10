@@ -53,30 +53,36 @@ const (
 var ErrNoReplyMessageIDs = errors.New("no reply message ids in stream event")
 
 type sessionService struct {
-	db           *gorm.DB
-	perm         *PermissionService
-	eventbus     eventbus.EventBus
-	inferrer     AssistantInferrer
-	giteaClient  *gitea.Client
-	giteaCfg     *config.GiteaConfig
-	env          string
-	modelInvoker modelrouter.Invoker
-	userRepo     account.UserRepository
-	orgRepo      account.OrgRepository
+	db              *gorm.DB
+	perm            *PermissionService
+	eventbus        eventbus.EventBus
+	inferrer        AssistantInferrer
+	giteaClient     *gitea.Client
+	giteaCfg        *config.GiteaConfig
+	env             string
+	modelInvoker    modelrouter.Invoker
+	userRepo        account.UserRepository
+	orgRepo         account.OrgRepository
+	dispatchEnabled bool
 }
 
-func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker, userRepo account.UserRepository, orgRepo account.OrgRepository) contract.SessionService {
+func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker, userRepo account.UserRepository, orgRepo account.OrgRepository, dispatchEnabled ...bool) contract.SessionService {
+	enabled := true
+	if len(dispatchEnabled) > 0 {
+		enabled = dispatchEnabled[0]
+	}
 	return &sessionService{
-		db:           db,
-		perm:         perm,
-		eventbus:     eventbus,
-		inferrer:     inferrer,
-		giteaClient:  giteaClient,
-		giteaCfg:     giteaCfg,
-		env:          env,
-		modelInvoker: modelInvoker,
-		userRepo:     userRepo,
-		orgRepo:      orgRepo,
+		db:              db,
+		perm:            perm,
+		eventbus:        eventbus,
+		inferrer:        inferrer,
+		giteaClient:     giteaClient,
+		giteaCfg:        giteaCfg,
+		env:             env,
+		modelInvoker:    modelInvoker,
+		userRepo:        userRepo,
+		orgRepo:         orgRepo,
+		dispatchEnabled: enabled,
 	}
 }
 
@@ -305,6 +311,9 @@ func (s *sessionService) ListSessions(ctx context.Context, req *contract.ListSes
 }
 
 func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
+	if !s.dispatchEnabled {
+		return nil, ErrRunDispatchUnavailable
+	}
 	if req.Role == "" {
 		return nil, errors.New("role is required")
 	}
@@ -312,9 +321,36 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		return nil, errors.New("content is required")
 	}
 
-	session, _, err := s.getSessionForCaller(ctx, sessionID)
+	session, caller, err := s.getSessionForCaller(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+
+	// 中文注释：续聊已有 Session 时，将请求携带的连接器关联到其项目；关联失败返回错误，
+	// 不会发布本次 Worker 任务。项目已绑定的连接器幂等成功。
+	if caller != nil && session.ProjectID != nil && *session.ProjectID != 0 && len(req.ConnectorIDs) > 0 {
+		project, err := db.GetProjectByID(ctx, s.db, *session.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("get project for connector binding: %w", err)
+		}
+		if project == nil {
+			return nil, fmt.Errorf("project %d not found for connector binding", *session.ProjectID)
+		}
+		// 中文注释：以当前 caller（而非 Session 创建者）身份绑定，保证项目更新权限与连接器可见性
+		// 均作用于发起本次请求的用户。
+		if _, err := bindConnectorsToProject(
+			ctx,
+			s.db,
+			s.perm,
+			caller,
+			project,
+			req.ConnectorIDs,
+			func(c context.Context, tx *gorm.DB, act *types.Caller, projectPublicID string, action types.ProjectActivityAction, payload types.ProjectActivityPayload) error {
+				return recordUserRepoActivity(c, tx, s.userRepo, act.Uin, projectPublicID, action, payload)
+			},
+		); err != nil {
+			return nil, fmt.Errorf("bind connectors to project: %w", err)
+		}
 	}
 
 	resolveAttachmentURLs(ctx, s.db, session.OrgID, req.Attachments)
@@ -384,10 +420,13 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 }
 
 func (s *sessionService) newMessagePoster() *MessagePoster {
-	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.userRepo, s.orgRepo)
+	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.userRepo, s.orgRepo, s.dispatchEnabled)
 }
 
 func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {
+	if !s.dispatchEnabled {
+		return nil, ErrRunDispatchUnavailable
+	}
 	if strings.TrimSpace(req.Content) == "" && len(req.AssistantIDs) == 0 && len(req.Attachments) == 0 {
 		return nil, errors.New("content is required")
 	}
@@ -941,8 +980,17 @@ func (s *sessionService) StreamGlobalEvents(ctx context.Context, orgID, userID u
 		if meta, err := msg.Metadata(); err == nil {
 			payload.Seq = meta.Sequence.Stream
 		}
-		// 权限过滤：仅转发用户所属 project 的事件，支持动态新增 project
+		// 权限过滤：仅转发用户所属 project 的事件，支持动态新增 project。
+		// 命中拒绝或查询失败都显式打日志，避免 assistant message.created 被
+		// 静默丢弃后前端永远等不到开流、却难以定位。
 		if member, err := db.IsProjectUserMember(ctx, s.db, orgID, userID, payload.ProjectID); err != nil || !member {
+			if err != nil {
+				logs.WarnContextf(ctx, "global events: member check error, skip type=%s project_id=%d user_id=%d err=%v",
+					payload.Type, payload.ProjectID, userID, err)
+			} else {
+				logs.WarnContextf(ctx, "global events: skip non-member event type=%s session_id=%s project_id=%d user_id=%d",
+					payload.Type, payload.SessionID, payload.ProjectID, userID)
+			}
 			return
 		}
 		// 带超时的背压写：channel 满时短暂等待排空再投递，避免瞬时拥塞下
@@ -951,8 +999,8 @@ func (s *sessionService) StreamGlobalEvents(ctx context.Context, orgID, userID u
 		select {
 		case ch <- &payload:
 		case <-time.After(globalEventsBackpressureWindow):
-			logs.WarnContextf(ctx, "global events: channel full, dropping event type=%s seq=%d after %v",
-				payload.Type, payload.Seq, globalEventsBackpressureWindow)
+			logs.WarnContextf(ctx, "global events: channel full, dropping event type=%s session_id=%s seq=%d after %v",
+				payload.Type, payload.SessionID, payload.Seq, globalEventsBackpressureWindow)
 		}
 	}
 
@@ -1189,6 +1237,13 @@ func (s *sessionService) convertToContractSessionMessage(
 	result := convertToContractSessionMessage(message, publicID, assistantID)
 	if message == nil {
 		return result
+	}
+	if task, err := db.GetReliableTaskBySource(ctx, s.db, "session_message", strconv.FormatUint(uint64(message.ID), 10)); err != nil {
+		logs.WarnContextf(ctx, "load reliable task for message %d: %v", message.ID, err)
+	} else if task != nil {
+		result.DispatchState = string(task.Status)
+		result.QueueDeadlineAt = &task.DeadlineAt
+		result.LastDispatchError = task.LastError
 	}
 	if len(message.Chunks) > 0 {
 		result.Chunks = result.Chunks[:0]

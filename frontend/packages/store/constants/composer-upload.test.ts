@@ -21,10 +21,9 @@ describe("composer-upload", () => {
 		expect(getNativeFileInputAccept("image/*", "MacIntel")).toBe("image/*");
 	});
 
-	it("exposes images and videos in the native file picker", () => {
-		expect(COMPOSER_UPLOAD_ACCEPT.split(",")).toEqual(
-			expect.arrayContaining(["image/*", "video/*", ".mp4", ".mov", ".avi"]),
-		);
+	it("exposes images in the native file picker", () => {
+		expect(COMPOSER_UPLOAD_ACCEPT.split(",")).toEqual(expect.arrayContaining(["image/*"]));
+		expect(COMPOSER_UPLOAD_ACCEPT).not.toContain("video/*");
 	});
 
 	it("accepts allowed extensions", () => {
@@ -34,6 +33,8 @@ describe("composer-upload", () => {
 			"sheet.XLSX",
 			"slide.ppt",
 			"readme.md",
+			"page.html",
+			"legacy.htm",
 			"photo.JPG",
 			"photo.jpeg",
 			"photo.png",
@@ -41,9 +42,6 @@ describe("composer-upload", () => {
 			"bitmap.bmp",
 			"photo.webp",
 			"vector.svg",
-			"movie.mp4",
-			"movie.mov",
-			"movie.avi",
 			"plain.txt",
 		]) {
 			expect(isComposerUploadAllowedFileName(fileName), fileName).toBe(true);
@@ -54,6 +52,9 @@ describe("composer-upload", () => {
 		expect(isComposerUploadAllowedFileName("package.zip")).toBe(false);
 		expect(isComposerUploadAllowedFileName("py.typed")).toBe(false);
 		expect(isComposerUploadAllowedFileName("no-extension")).toBe(false);
+		expect(isComposerUploadAllowedFileName("movie.mp4")).toBe(false);
+		expect(isComposerUploadAllowedFileName("movie.mov")).toBe(false);
+		expect(isComposerUploadAllowedFileName("movie.avi")).toBe(false);
 	});
 
 	it("extracts extension from nested paths", () => {

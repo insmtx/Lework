@@ -147,11 +147,16 @@ func (r *handlerRuntime) Execute(_ context.Context, _ agent.ExecutionRequest, _ 
 type mockInbox struct {
 	mu      sync.Mutex
 	records map[string]*inboxRecord
+	// nilInsertSeq 若非零，则 PutIfAbsent 对该 seq 返回 (false, nil, nil)，
+	// 用于复现 command_id 冲突但 (topic, stream_seq) 无记录的边界 panic。
+	nilInsertSeq uint64
 }
 type inboxRecord struct {
-	status  inbox.Status
-	errMsg  string
-	command messaging.WorkerCommand
+	status    inbox.Status
+	errMsg    string
+	command   messaging.WorkerCommand
+	createdAt int64
+	updatedAt int64
 }
 
 func newMockInbox() *mockInbox { return &mockInbox{records: make(map[string]*inboxRecord)} }
@@ -160,17 +165,24 @@ func (m *mockInbox) PutIfAbsent(_ context.Context, topic string, streamSeq uint6
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := keyOf(topic, streamSeq)
+	now := time.Now().Unix()
 	if r, ok := m.records[key]; ok {
-		return false, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: r.status}, nil
+		return false, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: r.status, CreatedAt: r.createdAt, UpdatedAt: r.updatedAt}, nil
 	}
-	m.records[key] = &inboxRecord{status: inbox.StatusPending, command: cmd}
-	return true, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: inbox.StatusPending}, nil
+	// nilInsertSeq 模拟「插入被唯一索引拒绝但 (topic, stream_seq) 无记录」的边界场景，
+	// 即真实 SQLite 中按 command_id 冲突时 PutIfAbsent 会返回 (false, nil, nil)。
+	if streamSeq == m.nilInsertSeq {
+		return false, nil, nil
+	}
+	m.records[key] = &inboxRecord{status: inbox.StatusPending, command: cmd, createdAt: now, updatedAt: now}
+	return true, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: inbox.StatusPending, CreatedAt: now, UpdatedAt: now}, nil
 }
 func (m *mockInbox) MarkProcessing(_ context.Context, topic string, seq uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r, ok := m.records[keyOf(topic, seq)]; ok {
 		r.status = inbox.StatusProcessing
+		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
@@ -179,6 +191,7 @@ func (m *mockInbox) MarkCompleted(_ context.Context, topic string, seq uint64) e
 	defer m.mu.Unlock()
 	if r, ok := m.records[keyOf(topic, seq)]; ok {
 		r.status = inbox.StatusCompleted
+		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
@@ -188,6 +201,7 @@ func (m *mockInbox) MarkFailed(_ context.Context, topic string, seq uint64, errM
 	if r, ok := m.records[keyOf(topic, seq)]; ok {
 		r.status = inbox.StatusFailed
 		r.errMsg = errMsg
+		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
@@ -201,11 +215,21 @@ func (m *mockInbox) GetNonTerminal(_ context.Context, topic string) ([]inbox.Rec
 			// Key format is "topic:seq" — extract the seq.
 			if len(k) > len(topic)+1 && k[:len(topic)] == topic && k[len(topic)] == ':' {
 				seq := parseSeq(k[len(topic)+1:])
-				recs = append(recs, inbox.Record{Topic: topic, StreamSeq: seq, Status: r.status, Command: cmdJSON(r.command)})
+				recs = append(recs, inbox.Record{Topic: topic, StreamSeq: seq, Status: r.status, Command: cmdJSON(r.command), CreatedAt: r.createdAt, UpdatedAt: r.updatedAt})
 			}
 		}
 	}
 	return recs, nil
+}
+func (m *mockInbox) ResetProcessing(_ context.Context, topic string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, record := range m.records {
+		if record.status == inbox.StatusProcessing && len(key) > len(topic)+1 && key[:len(topic)] == topic && key[len(topic)] == ':' {
+			record.status = inbox.StatusPending
+		}
+	}
+	return nil
 }
 func (m *mockInbox) DeleteTerminalBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
 	return 0, nil
@@ -219,6 +243,21 @@ func (m *mockInbox) status(key string) inbox.Status {
 		return r.status
 	}
 	return ""
+}
+
+func (m *mockInbox) CountByStatus(_ context.Context, topic string, status inbox.Status) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for k, r := range m.records {
+		if r.status != status {
+			continue
+		}
+		if len(k) > len(topic)+1 && k[:len(topic)] == topic && k[len(topic)] == ':' {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func keyOf(topic string, seq uint64) string { return topic + ":" + itoa(seq) }
@@ -367,6 +406,38 @@ func TestHandlerAsyncDedupInflight(t *testing.T) {
 	h.stateMu.Unlock()
 	if owned {
 		t.Fatal("delivery ownership was not released after completion")
+	}
+}
+
+// TestHandlerPutIfAbsentNilRecord verifies that a PutIfAbsent returning
+// (false, nil, nil) — a command_id-unique collides but the (topic, stream_seq)
+// has no row, as raised by automation cron re-dispatch — does not panic on a
+// nil existing record and still executes + Acks the command.
+func TestHandlerPutIfAbsentNilRecord(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: 5 * time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	ib.nilInsertSeq = 200
+	h.runInbox = ib
+
+	delivery := newFakeDelivery(200)
+	if err := h.HandleRunCommand(context.Background(), standardCommand(), delivery); err != nil {
+		t.Fatalf("HandleRunCommand error = %v", err)
+	}
+	if ack, nak, term, _ := delivery.snapshot(); ack || !nak || term {
+		t.Fatalf("disposition = ack:%v nak:%v term:%v, want Nak only", ack, nak, term)
+	}
+
+	<-runtime.started
+	close(runtime.release)
+
+	if ok := h.Drain(2 * time.Second); !ok {
+		t.Fatal("Drain should succeed")
 	}
 }
 
@@ -563,7 +634,7 @@ func TestRecoverNonTerminal(t *testing.T) {
 	}
 }
 
-func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
+func TestHandlerAcknowledgesWhileAdmissionIsFull(t *testing.T) {
 	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
 	close(runtime.release)
 	registry := agent.NewRegistry()
@@ -574,6 +645,8 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 		OrgID:          1,
 		WorkerID:       2,
 		MaxConcurrency: 1,
+		// 执行槽满不应阻塞 NATS 回调；消息应先持久化并确认。
+		MaxInflight:    2,
 		DebounceWindow: time.Millisecond,
 		InboxDBPath:    ":memory:",
 	}, &handlerPublisher{}, svc)
@@ -592,22 +665,21 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 		done <- h.HandleRunCommand(context.Background(), standardCommand(), delivery)
 	}()
 
-	deadline := time.After(time.Second)
-	for {
-		_, _, _, inProgress := delivery.snapshot()
-		if inProgress > 0 {
-			break
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("HandleRunCommand() error = %v", err)
 		}
-		select {
-		case <-deadline:
-			t.Fatal("InProgress was not called while admission was full")
-		default:
-			time.Sleep(time.Millisecond)
-		}
+	case <-time.After(time.Second):
+		t.Fatal("HandleRunCommand blocked on a full execution admission semaphore")
+	}
+	ack, _, _, _ := delivery.snapshot()
+	if !ack {
+		t.Fatal("run command was not Acked after durable inbox admission")
 	}
 
-	<-h.sem
-	if err := <-done; err != nil {
+	<-h.sem // release one background execution slot
+	if err := h.execCtx.Err(); err != nil {
 		t.Fatalf("HandleRunCommand() error = %v", err)
 	}
 	<-runtime.started
@@ -615,4 +687,113 @@ func TestHandlerSendsInProgressWhileAdmissionIsFull(t *testing.T) {
 		t.Fatal("Drain should succeed after the admitted task completes")
 	}
 	<-h.sem
+}
+
+// TestHandlerMissingSessionTerm verifies live run missing RouteSessionID is Term'd,
+// not written to inbox, not executing.
+func TestHandlerMissingSessionTerm(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	close(runtime.release)
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	h.runInbox = ib
+
+	cmd := messaging.NewRunCommand("no-session", messaging.RouteContext{OrgID: 1, WorkerID: 2}, // 无 SessionID
+		messaging.TraceContext{}, messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}}, nil)
+	d := newFakeDelivery(61)
+	if err := h.HandleRunCommand(context.Background(), cmd, d); err == nil {
+		t.Fatal("HandleRunCommand() should return error for missing session")
+	}
+	if _, _, term, _ := d.snapshot(); !term {
+		t.Fatal("Term should be called for missing session")
+	}
+	ib.mu.Lock()
+	recordCount := len(ib.records)
+	ib.mu.Unlock()
+	if recordCount != 0 {
+		t.Fatalf("inbox should have no records for missing-session run, got %d", recordCount)
+	}
+}
+
+// TestHandlerRouteOrgWorkerZeroFilled verifies OrgID/WorkerID==0 are filled from config.
+func TestHandlerRouteOrgWorkerZeroFilled(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	close(runtime.release)
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 7, WorkerID: 9, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	h.runInbox = ib
+
+	cmd := messaging.NewRunCommand("zero-route", messaging.RouteContext{OrgID: 0, WorkerID: 0, SessionID: "s"},
+		messaging.TraceContext{}, messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}}, nil)
+	d := newFakeDelivery(62)
+	if err := h.HandleRunCommand(context.Background(), cmd, d); err != nil {
+		t.Fatalf("HandleRunCommand() error = %v", err)
+	}
+	if ack, _, _, _ := d.snapshot(); !ack {
+		t.Fatal("valid run with default-filled route should Ack")
+	}
+	ib.mu.Lock()
+	recordCount := len(ib.records)
+	ib.mu.Unlock()
+	if recordCount == 0 {
+		t.Fatal("valid run should be written to inbox")
+	}
+}
+
+// TestHandlerRecoveryMissingSessionMarkFailed verifies recovery record missing session is MarkFailed,
+// not resubmitted to Coordinator / not executed.
+func TestHandlerRecoveryMissingSessionMarkFailed(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	close(runtime.release)
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, _ := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 2, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	defer h.Close()
+	ib := newMockInbox()
+	h.runInbox = ib
+
+	topic := h.RunSubject()
+	// 插入一条缺失 session 的记录（崩溃恢复）。
+	cmd := messaging.NewRunCommand("recover-no-session", messaging.RouteContext{OrgID: 1, WorkerID: 2}, // 无 SessionID
+		messaging.TraceContext{}, messaging.RunCommandPayload{TaskType: messaging.TaskTypeAgentRun, Model: messaging.ModelOptions{Provider: "o", Model: "m", APIKey: "k"}}, nil)
+	ib.PutIfAbsent(context.Background(), topic, 200, cmd)
+
+	if err := h.RecoverNonTerminal(context.Background()); err != nil {
+		t.Fatalf("RecoverNonTerminal error = %v", err)
+	}
+
+	// 等待 record 被标记为 Failed（缺失 session 的恢复不进入 Runtime）。
+	deadline := time.After(3 * time.Second)
+	for {
+		if s := ib.status(inboxKey(topic, 200)); s == inbox.StatusFailed {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("recovery missing-session record was not marked Failed")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	// Runtime 不应被启动。
+	select {
+	case <-runtime.started:
+		t.Fatal("Runtime should not start for missing-session recovered record")
+	default:
+	}
+	if !h.Drain(2 * time.Second) {
+		t.Fatal("Drain should succeed")
+	}
 }

@@ -9,6 +9,8 @@ func TestValidateComposerUploadFilename(t *testing.T) {
 		"sheet.XLSX",
 		"slide.ppt",
 		"readme.md",
+		"page.html",
+		"legacy.htm",
 		"photo.JPG",
 		"photo.jpeg",
 		"photo.png",
@@ -16,9 +18,6 @@ func TestValidateComposerUploadFilename(t *testing.T) {
 		"bitmap.bmp",
 		"photo.webp",
 		"vector.svg",
-		"movie.mp4",
-		"movie.mov",
-		"movie.avi",
 		"plain.txt",
 		"folder/sub/file.pdf",
 	}
@@ -33,6 +32,9 @@ func TestValidateComposerUploadFilename(t *testing.T) {
 		"py.typed",
 		"no-extension",
 		"",
+		"movie.mp4",
+		"movie.mov",
+		"movie.avi",
 	}
 	for _, name := range rejected {
 		if err := ValidateComposerUploadFilename(name); err == nil {

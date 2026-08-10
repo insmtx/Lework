@@ -101,6 +101,9 @@ type RunEventBody struct {
 	Event             RunEventType    `json:"event"`
 	Payload           RunEventPayload `json:"payload"`
 	ReplyToMessageIDs []string        `json:"reply_to_message_ids,omitempty"`
+	// MemberCommandIDs / MemberRunIDs 标识同一 Session 合并批次中的所有源命令。
+	MemberCommandIDs []string `json:"member_command_ids,omitempty"`
+	MemberRunIDs     []string `json:"member_run_ids,omitempty"`
 
 	// RunCompleted 仅在终端事件（run.completed/failed/cancelled）时填充。
 	RunCompleted *RunCompletedPayload `json:"run_completed,omitempty"`

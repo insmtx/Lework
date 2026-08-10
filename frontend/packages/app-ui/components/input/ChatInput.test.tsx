@@ -160,6 +160,7 @@ describe("ChatInput", () => {
 					goToProject: vi.fn(),
 					goToProjectTasks: vi.fn(),
 					goToTaskDetail: mockGoToTaskDetail,
+					goToAutomationDetail: vi.fn(),
 				}}
 			/>,
 		);

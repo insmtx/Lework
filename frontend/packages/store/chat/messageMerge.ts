@@ -13,7 +13,12 @@ import type {
 import type { Message, MessageAttachment, MessageRole } from "../types/chat";
 import { parseOptionalTimestamp } from "../utils/format";
 import { buildMessageMetadata } from "../utils/messageMetrics";
-import { isRecord, mapBackendAttachment } from "./messageReducer";
+import {
+	buildReplyToFromMessage,
+	isRecord,
+	mapBackendAttachment,
+	resolveReplyToFromRunId,
+} from "./messageReducer";
 import type { ChatState } from "./state";
 
 /** GlobalEvents `message.created` 的 payload 形状（人/助手共用字段）。 */
@@ -101,7 +106,10 @@ export function normalizedMessageContent(message: Message): string {
 
 /**
  * 判断本地 user 消息是否与 GlobalEvents 回推的 human 消息是同一条（回声）。
- * 用于合并乐观发送，避免时间线上出现重复用户气泡。
+ * 仅用于合并「自己发出的」乐观消息，避免时间线上出现重复用户气泡。
+ *
+ * 注意：不能按同文案/同昵称/无 author 去匹配已落库消息，否则群聊里队友提问会被
+ * 合并进旧气泡，表现为底部只见模型回复、结束后历史回拉才出现提问。
  */
 export function isGlobalUserEchoMessage(message: Message | undefined, incoming: Message): boolean {
 	if (!message || message.conversationId !== incoming.conversationId || message.role !== "user") {
@@ -109,22 +117,8 @@ export function isGlobalUserEchoMessage(message: Message | undefined, incoming: 
 	}
 	if (normalizedMessageContent(message) !== normalizedMessageContent(incoming)) return false;
 
-	const authorMatches =
-		!message.author ||
-		!incoming.author ||
-		message.author.id === "current-user" ||
-		incoming.author.id === "current-user" ||
-		message.author.id === "user" ||
-		incoming.author.id === "user" ||
-		message.author.id === incoming.author.id ||
-		message.author.name === incoming.author.name;
-	if (!authorMatches) return false;
-
-	const isLocalEchoCandidate =
-		isOptimisticMessage(message) || !message.author || message.author.id === "current-user";
-	const isRecentEcho = Math.abs(message.timestamp - incoming.timestamp) <= 30_000;
-	// GlobalEvents 可能回推本地 optimistic 或刷新后刚拉到的历史消息；倒序匹配最新同内容用户消息，避免页面重复显示。
-	return isLocalEchoCandidate || isRecentEcho;
+	// 中文注释：只认本地乐观发送或 current-user 标记；他人/历史消息即便文案相同也必须新插一条。
+	return isOptimisticMessage(message) || message.author?.id === "current-user";
 }
 
 /**
@@ -180,20 +174,52 @@ export function inheritStreamingAssistantState(target: Message, source?: Message
 /** SessionEvents 长时间无事件时，用拉历史兜底的等待毫秒数。 */
 export const SESSION_EVENTS_IDLE_FALLBACK_MS = 10_000;
 
-/** 任务群聊发出后，等不到 GlobalEvents assistant 时启动 runtime 轮询的超时。 */
+/** SessionEvents 发起后一直无法成功建连（onOpen）时的超时毫秒数。 */
+export const SESSION_EVENTS_CONNECT_FALLBACK_MS = 60_000;
+
+/** 发出后等不到 GlobalEvents assistant 时的完整等待窗口（不因 responding 提前失败）。 */
 export const TASK_ROOM_ASSISTANT_START_FALLBACK_MS = 60_000;
 
 /** assistant 已接单、等待 SessionEvents 正文时的占位文案。 */
 export const ASSISTANT_SESSION_EVENTS_WAITING_TEXT = "AI 员工已接单，正在生成回复...";
 
+/** GlobalEvents 只回 human、始终无 assistant 时的超时报错正文。 */
+export const ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT =
+	"回复超时：系统已收到你的提问，但 AI 员工未能成功接单。请稍后重试。";
+
+/** SessionEvents 一直无法成功建连时的超时报错正文。 */
+export const ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT = "回复超时：无法建立实时回复连接，请稍后重试。";
+
+/**
+ * 判断是否为前端本地写入的回复超时报错气泡（waiting/resume/poll 或超时正文）。
+ * 离开再进时应丢弃，避免历史里堆叠多条客户端超时残留。
+ */
+export function isClientReplyTimeoutMessage(message: Message | undefined): boolean {
+	if (!message || message.role !== "assistant" || message.status !== "failed") return false;
+	if (isAssistantStreamPlaceholderId(message.id)) return true;
+	const content = message.content.trim();
+	return (
+		content === ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT ||
+		content === ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT ||
+		// 中文注释：兼容旧版带「刷新页面」的超时报错正文，离开再进时同样清掉。
+		(isOptimisticMessage(message) && content.startsWith("回复超时："))
+	);
+}
+
 /**
  * 构造「等待 SessionEvents」的 assistant 占位消息。
  * 用于进页回放、GlobalEvents 已到但 SSE 尚未出内容等场景。
+ * 可透传 replyTo/author/runId，避免离开再进后「回复某某」引用条短暂消失。
  */
 export function createAssistantSessionEventsWaitingMessage(
 	sessionId: string,
 	id: string,
 	timestamp = Date.now(),
+	options?: {
+		replyTo?: Message["replyTo"];
+		author?: Message["author"];
+		runId?: string;
+	},
 ): Message {
 	return {
 		id,
@@ -204,11 +230,61 @@ export function createAssistantSessionEventsWaitingMessage(
 		status: "waiting",
 		// 刷新恢复 SSE 回放时保留明确等待态，避免只显示空白生成中占位。
 		statusText: ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
-		author: {
+		...(options?.runId ? { runId: options.runId } : {}),
+		...(options?.replyTo ? { replyTo: options.replyTo } : {}),
+		author: options?.author ?? {
 			id: "pending-assistant",
 			name: "Lework",
 			type: "assistant",
 		},
+	};
+}
+
+/**
+ * 为 resume/poll 占位解析 replyTo / author / runId。
+ * 群聊下优先沿用本地 streaming 的 replyTo，其次用 runId（req_<userMsgId>）精确绑到提问者，
+ * 最后才回落到时间线末条 user，避免把「回复某某」指到后来插队发言的队友。
+ */
+export function resolveSessionEventsWaitingContext(
+	sessionId: string,
+	localMessages: Message[],
+	timelineMessages: Message[],
+): {
+	replyTo?: Message["replyTo"];
+	author?: Message["author"];
+	runId?: string;
+} {
+	const localAssistant = [...localMessages]
+		.reverse()
+		.find(
+			(message) =>
+				message.conversationId === sessionId &&
+				message.role === "assistant" &&
+				(message.status === "waiting" ||
+					message.status === "streaming" ||
+					message.status === undefined) &&
+				Boolean(message.replyTo || message.runId || message.author),
+		);
+
+	const messagesForLookup = Object.fromEntries(
+		[...timelineMessages, ...localMessages].map((message) => [message.id, message]),
+	);
+	const replyToFromRunId = resolveReplyToFromRunId(
+		localAssistant?.runId,
+		messagesForLookup,
+		sessionId,
+	);
+
+	const lastUser =
+		[...timelineMessages].reverse().find((message) => message.role === "user") ??
+		[...localMessages]
+			.reverse()
+			.find((message) => message.conversationId === sessionId && message.role === "user");
+
+	return {
+		replyTo: localAssistant?.replyTo ?? replyToFromRunId ?? buildReplyToFromMessage(lastUser),
+		author: localAssistant?.author,
+		runId: localAssistant?.runId,
 	};
 }
 
@@ -331,7 +407,8 @@ function compareMessages(a: Message, b: Message): number {
 }
 
 /**
- * 合并落库附件与本地附件：保留本地 blob 预览 URL，避免历史回拉后预览图立刻失效。
+ * 合并落库附件与本地附件：只补 size/storageUri，不回填 blob/data。
+ * 消息缩略图统一走 fileUploadId / 持久 URL（与 mapComposerAttachments 同策略）。
  */
 export function mergeMessageAttachments(
 	persistedAttachments: MessageAttachment[] | undefined,
@@ -346,10 +423,9 @@ export function mergeMessageAttachments(
 
 	return persistedAttachments.map((attachment) => {
 		const localAttachment = localByUploadId.get(attachment.fileUploadId);
-		if (!localAttachment?.url?.startsWith("blob:")) return attachment;
+		if (!localAttachment) return attachment;
 		return {
 			...attachment,
-			url: localAttachment.url,
 			size: attachment.size || localAttachment.size,
 			storageUri: attachment.storageUri || localAttachment.storageUri,
 		};
@@ -357,7 +433,7 @@ export function mergeMessageAttachments(
 }
 
 /**
- * 把落库消息与本地同轮消息对齐后，把本地 blob 附件 URL 写回落库消息。
+ * 把落库消息与本地同轮消息对齐后，合并附件元数据（不回填临时预览 URL）。
  */
 function reconcilePersistedMessagesWithLocal(
 	persistedMessages: Message[],

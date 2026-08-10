@@ -27,4 +27,10 @@ describe("detectFilePreviewKind", () => {
 		expect(detectFilePreviewKind({ name: "asset", mimeType: "image/avif" })).toBe("image");
 		expect(detectFilePreviewKind({ name: "asset", mimeType: "video/webm" })).toBe("video");
 	});
+
+	it("previews HTML and HTM files in the sandboxed HTML viewer", () => {
+		expect(detectFilePreviewKind({ name: "page.html" })).toBe("html");
+		expect(detectFilePreviewKind({ name: "legacy.htm" })).toBe("html");
+		expect(detectFilePreviewKind({ name: "page", mimeType: "text/html" })).toBe("html");
+	});
 });

@@ -13,7 +13,12 @@ import { ChevronRight } from "lucide-react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { AssistantAvatar } from "./AssistantAvatar";
 import { isAssistantAvailable } from "./assistantStatus";
-import { buildFeatureKeywords, buildPromptSuggestions, uniqueNonEmpty } from "./promptSuggestions";
+import {
+	buildDefaultSummonPrompt,
+	buildFeatureKeywords,
+	buildPromptSuggestions,
+	uniqueNonEmpty,
+} from "./promptSuggestions";
 
 type AssistantDetailDialogProps = {
 	assistant: DigitalAssistantItem | null;
@@ -34,9 +39,10 @@ export function AssistantDetailDialog({
 		return <Dialog open={open} onOpenChange={onOpenChange} />;
 	}
 
+	const isPresetAssistant = assistant.source === "template";
 	const featureKeywords = buildFeatureKeywords(assistant);
 	const expertise = uniqueNonEmpty(assistant.expertise);
-	const promptSuggestions = buildPromptSuggestions(assistant);
+	const promptSuggestions = isPresetAssistant ? buildPromptSuggestions(assistant) : [];
 	const buttonState = resolveSummonButtonState(assistant);
 
 	return (
@@ -95,28 +101,31 @@ export function AssistantDetailDialog({
 							</div>
 						</section>
 
-						<section>
-							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">
-								试试这样问我
-							</h3>
-							<div className="mt-3 space-y-3">
-								{promptSuggestions.map((prompt) => (
-									<button
-										key={prompt}
-										type="button"
-										className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-3 text-left text-sm leading-6 text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:text-[var(--leros-text-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-										onClick={() => onSummon(assistant, prompt)}
-										disabled={summoning || buttonState.disabled}
-									>
-										<span className="min-w-0 flex-1">“{prompt}”</span>
-										<ChevronRight
-											className="size-4 shrink-0 text-[var(--leros-text-subtle)]"
-											aria-hidden="true"
-										/>
-									</button>
-								))}
-							</div>
-						</section>
+						{/* 中文注释：预设队友保留「试试这样问我」；自定义队友仅展示能力介绍与擅长领域。 */}
+						{isPresetAssistant ? (
+							<section>
+								<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">
+									试试这样问我
+								</h3>
+								<div className="mt-3 space-y-3">
+									{promptSuggestions.map((prompt) => (
+										<button
+											key={prompt}
+											type="button"
+											className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-3 text-left text-sm leading-6 text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:text-[var(--leros-text-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+											onClick={() => onSummon(assistant, prompt)}
+											disabled={summoning || buttonState.disabled}
+										>
+											<span className="min-w-0 flex-1">“{prompt}”</span>
+											<ChevronRight
+												className="size-4 shrink-0 text-[var(--leros-text-subtle)]"
+												aria-hidden="true"
+											/>
+										</button>
+									))}
+								</div>
+							</section>
+						) : null}
 					</div>
 				</div>
 
@@ -124,7 +133,7 @@ export function AssistantDetailDialog({
 					<Button
 						type="button"
 						className="h-10 w-full rounded-lg bg-[var(--leros-text-strong)] text-sm font-semibold text-white hover:bg-[var(--leros-text)] disabled:bg-[var(--leros-text-subtle)]"
-						onClick={() => onSummon(assistant)}
+						onClick={() => onSummon(assistant, buildDefaultSummonPrompt(assistant))}
 						disabled={summoning || buttonState.disabled}
 					>
 						{summoning ? "召唤中" : buttonState.label}

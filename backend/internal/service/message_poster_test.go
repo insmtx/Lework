@@ -370,7 +370,7 @@ func TestWriteSkillInvokeResourcesDoesNotMutateProjectMetadata(t *testing.T) {
 }
 
 // TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID 验证群聊历史注入时
-// publishWorkerTask 用 session.AssistantID（DigitalAssistant.ID）而非
+// buildWorkerTask 用 session.AssistantID（DigitalAssistant.ID）而非
 // session.AllocatedAssistantID（WorkerID）作为 GetLastAssistantMessageCreatedAt 过滤条件。
 //
 // 回归 Bug：修复前 main 分支 message_poster.go:776 把 session.AllocatedAssistantID
@@ -449,13 +449,9 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 		t.Fatalf("create current message: %v", err)
 	}
 
-	if err := poster.publishWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID}); err != nil {
-		t.Fatalf("publishWorkerTask failed: %v", err)
-	}
-
-	cmd, ok := recorder.event.(messaging.WorkerCommand)
-	if !ok {
-		t.Fatalf("expected WorkerCommand, got %T", recorder.event)
+	_, cmd, err := poster.buildWorkerTask(ctx, session, message, types.ExecutionModeDefault, &MessageRoutingOverride{AssistantID: assistant.ID, WorkerID: assistant.ID})
+	if err != nil {
+		t.Fatalf("buildWorkerTask failed: %v", err)
 	}
 
 	if cmd.Route.AssistantPublicID != assistant.PublicID {
@@ -474,5 +470,14 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 	}
 	if messages[0].Content != "这是当前消息" {
 		t.Errorf("current content = %q, want %q", messages[0].Content, "这是当前消息")
+	}
+}
+
+func TestNormalizeExecutionModePreservesPlanWireValue(t *testing.T) {
+	if got := normalizeExecutionMode(types.ExecutionModePlan); got != types.ExecutionModePlan {
+		t.Fatalf("normalizeExecutionMode(plan) = %q, want %q", got, types.ExecutionModePlan)
+	}
+	if got := string(normalizeExecutionMode(types.ExecutionModePlan)); got != "plan" {
+		t.Fatalf("plan wire value = %q, want plan", got)
 	}
 }

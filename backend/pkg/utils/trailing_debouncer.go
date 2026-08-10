@@ -114,6 +114,25 @@ func (d *TrailingDebouncer[T]) Close() {
 	d.mu.Unlock()
 }
 
+// PendingValues returns a point-in-time copy of values that are still inside
+// their debounce window. Values already handed to the handler are not included.
+// It is intended for read-only observability and must not be mutated by callers.
+func (d *TrailingDebouncer[T]) PendingValues() []T {
+	if d == nil {
+		return nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	values := make([]T, 0, len(d.entries))
+	for _, entry := range d.entries {
+		if entry != nil && entry.hasPending {
+			values = append(values, entry.pending)
+		}
+	}
+	return values
+}
+
 func (d *TrailingDebouncer[T]) flush(key string, seq uint64) {
 	ctx, value, ok := d.takeReady(key, seq)
 	if !ok {

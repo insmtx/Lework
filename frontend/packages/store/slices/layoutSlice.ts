@@ -40,6 +40,7 @@ type ChatSendBridge = {
 			taskId: string;
 			sessionId: string;
 			metadata?: MessageMetadata;
+			connectorIds?: string[];
 		},
 		attachments?: Attachment[],
 	) => Promise<{
@@ -147,6 +148,7 @@ export type Project = {
 	description: string;
 	objective?: string;
 	metadata?: Record<string, unknown>;
+	automationId?: number;
 	skills: ProjectSkill[];
 	members: ProjectMember[];
 	taskCount: number;
@@ -203,6 +205,7 @@ export type ViewMode =
 	| "aiTeammates"
 	| "knowledge"
 	| "skills"
+	| "automation"
 	| "settings";
 
 export type LayoutState = {
@@ -225,6 +228,8 @@ export type LayoutState = {
 	activeTaskDetailTaskId: string | null;
 	activeTaskDetailSessionId: string | null;
 	projectDetailLoading: boolean;
+	/** 正在拉取 DetailProject 的项目 public_id（含非首刷），用于头像等 UI 区分「加载中」与「确认无成员」。 */
+	projectDetailFetchingIds: string[];
 	projectDetailError: string | null;
 	activeProjectSessionId: string | null;
 	projectSessionId: string | null;
@@ -243,6 +248,7 @@ function mapBackendProject(bp: BackendProject): Project {
 		id: bp.public_id,
 		name: bp.name,
 		description: bp.description ?? "",
+		automationId: bp.automation_id,
 		taskCount: bp.task_count ?? 0,
 		createdAt: new Date(bp.created_at).getTime(),
 		updatedAt: new Date(bp.updated_at).getTime(),
@@ -467,6 +473,7 @@ const _initialState: LayoutState = {
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "插件", icon: "IconSkill" },
 				{ id: "knowledge", label: "资源库", icon: "IconKnowledge" },
+				{ id: "automation", label: "自动化", icon: "IconAutomation" },
 			],
 		},
 		{
@@ -480,6 +487,7 @@ const _initialState: LayoutState = {
 	activeTaskDetailTaskId: null,
 	activeTaskDetailSessionId: null,
 	projectDetailLoading: false,
+	projectDetailFetchingIds: [],
 	projectDetailError: null,
 	activeProjectSessionId: null,
 	projectSessionId: null,
@@ -669,6 +677,7 @@ export class LayoutActionImpl {
 		attachments?: Attachment[],
 		_metadata?: MessageMetadata,
 		assistantIds?: string[],
+		connectorIds?: string[],
 	) => {
 		const trimmed = content.trim();
 		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，或仅附件提问。
@@ -747,6 +756,7 @@ export class LayoutActionImpl {
 							taskId: data.task_id,
 							sessionId: data.session_id,
 							metadata: _metadata,
+							connectorIds,
 						},
 						attachments,
 					);
@@ -759,18 +769,15 @@ export class LayoutActionImpl {
 			}
 		}
 
-		try {
-			return await chat.sendProjectMessage(trimmed, workbenchProjectId, attachments, _metadata, {
-				assistantIds,
-				taskId: selectedTaskId,
-				executionMode: mode,
-				allowEmptyContent: true,
-				fromWorkbench: true,
-			});
-		} catch (err) {
-			console.error("sendWorkbenchMessage error:", err);
-			return null;
-		}
+		// 中文注释：CreateInitialMessage 失败需向上抛出，由 WorkbenchPanel toast 提示。
+		return await chat.sendProjectMessage(trimmed, workbenchProjectId, attachments, _metadata, {
+			assistantIds,
+			taskId: selectedTaskId,
+			executionMode: mode,
+			allowEmptyContent: true,
+			fromWorkbench: true,
+			connectorIds,
+		});
 	};
 
 	openTaskDetail = (projectId: string, taskId: string, sessionId: string) => {
@@ -1160,10 +1167,18 @@ export class LayoutActionImpl {
 
 		const promise = this.#loadProjectDetail(projectId);
 		this.#fetchProjectDetailPromises.set(projectId, promise);
+		this.#set((state) =>
+			state.projectDetailFetchingIds.includes(projectId)
+				? state
+				: { projectDetailFetchingIds: [...state.projectDetailFetchingIds, projectId] },
+		);
 		try {
 			await promise;
 		} finally {
 			this.#fetchProjectDetailPromises.delete(projectId);
+			this.#set((state) => ({
+				projectDetailFetchingIds: state.projectDetailFetchingIds.filter((id) => id !== projectId),
+			}));
 		}
 	};
 
@@ -1262,6 +1277,7 @@ export class LayoutActionImpl {
 			activeTaskDetailTaskId: null,
 			activeTaskDetailSessionId: null,
 			projectDetailLoading: false,
+			projectDetailFetchingIds: [],
 			projectDetailError: null,
 			activeProjectSessionId: null,
 			projectSessionId: null,

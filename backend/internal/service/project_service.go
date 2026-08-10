@@ -1649,15 +1649,16 @@ func convertToContractProject(project *types.Project) *contract.Project {
 	}
 
 	return &contract.Project{
-		PublicID:    project.PublicID,
-		Name:        project.Name,
-		Description: project.Description,
-		Objective:   project.Objective,
-		OwnerID:     project.OwnerID,
-		Status:      project.Status,
-		Metadata:    metadata,
-		CreatedAt:   project.CreatedAt,
-		UpdatedAt:   project.UpdatedAt,
+		PublicID:     project.PublicID,
+		Name:         project.Name,
+		Description:  project.Description,
+		Objective:    project.Objective,
+		OwnerID:      project.OwnerID,
+		Status:       project.Status,
+		Metadata:     metadata,
+		AutomationID: project.AutomationID,
+		CreatedAt:    project.CreatedAt,
+		UpdatedAt:    project.UpdatedAt,
 	}
 }
 

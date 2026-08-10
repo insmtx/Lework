@@ -27,6 +27,7 @@ export function useWebNavigation(): AppNavigation {
 				aiTeammates: "/assistants",
 				knowledge: "/knowledge",
 				skills: "/skills",
+				automation: "/automation",
 				settings: "/settings",
 			}[route];
 			if (!routePath) {
@@ -45,6 +46,9 @@ export function useWebNavigation(): AppNavigation {
 			router.push(
 				`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/sessions/${encodeURIComponent(sessionId)}`,
 			);
+		},
+		goToAutomationDetail(publicId) {
+			router.push(`/automation/${encodeURIComponent(publicId)}`);
 		},
 	};
 }

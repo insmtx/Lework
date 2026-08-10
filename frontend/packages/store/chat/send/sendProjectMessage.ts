@@ -2,13 +2,15 @@
  * 路径 B：项目首页 / 工作台「新建任务」发送。
  *
  * 可以做：CreateInitialMessage、bootstrap 乐观 waiting、经 effects 跳转 taskDetail。
- * 不可以做：立刻开 SessionEvents（开流策略=afterGlobalAssistant，由 GlobalEvents 触发）。
+ * 不可以做：立刻开 SessionEvents（开流策略=afterGlobalAssistant，由 GlobalEvents 触发）；
+ * 不可以先 navigate 再 bootstrap（详情页会误 load 成冷进页 resume/poll）。
  */
 
 import { sessionApi } from "../../api/sessionApi";
 import type { BackendNewMessageData } from "../../api/types";
 import type { Attachment, MessageMetadata } from "../../types/chat";
 import { mapOutgoingAttachments } from "../../utils/messageAttachments";
+import { waitForGlobalAssistantOrFail } from "./assistantFallback";
 import { bootstrapNewTaskSession } from "./bootstrap";
 import type { SendPipelineDeps } from "./deps";
 import { buildBackendMessageMetadata, extractAssistantIdsFromMetadata } from "./metadata";
@@ -30,6 +32,8 @@ export type SendProjectMessageOptions = {
 	allowEmptyContent?: boolean;
 	/** 工作台导航：清 workbench 选中；并 await 项目详情 */
 	fromWorkbench?: boolean;
+	/** 关联到项目的连接器插件 Public ID（仅服务端关联用，不写入消息正文） */
+	connectorIds?: string[];
 };
 
 /**
@@ -68,11 +72,15 @@ export async function sendProjectMessage(
 			...(projectId ? { project_id: projectId } : {}),
 			...(options?.taskId ? { task_id: options.taskId } : {}),
 			...(assistantIds?.length ? { assistant_ids: assistantIds } : {}),
+			...(options?.connectorIds?.length ? { connector_ids: options.connectorIds } : {}),
 			metadata: buildBackendMessageMetadata(resolvedMetadata),
 			attachments: mapOutgoingAttachments(resolvedAttachments),
 		});
 		const data = res.data.data;
-		if (!data?.project_id || !data?.task_id || !data?.session_id) return null;
+		// 中文注释：接口成功但缺关键字段视为失败，交给调用方提示用户，避免静默无响应。
+		if (!data?.project_id || !data?.task_id || !data?.session_id) {
+			throw new Error("服务端返回数据不完整");
+		}
 
 		const navigateOpts = {
 			projectId: data.project_id,
@@ -83,26 +91,25 @@ export async function sendProjectMessage(
 			awaitProjectDetail: Boolean(options?.fromWorkbench),
 		} as const;
 
-		if (options?.fromWorkbench) {
-			// 中文注释：工作台原先 await 详情后再 bootstrap，保证跳转后 store 有任务列表可供标题 patch。
-			await deps.effects.navigateToTaskDetail(navigateOpts);
-			bootstrapNewTaskSession(deps, data.session_id, trimmed, {
-				attachments: resolvedAttachments,
-				metadata: resolvedMetadata,
-			});
-		} else {
-			// 中文注释：项目首页必须先打 pendingBootstrap，再切视图，避免详情页 remount 清掉乐观等待态。
-			bootstrapNewTaskSession(deps, data.session_id, trimmed, {
-				attachments: resolvedAttachments,
-				metadata: resolvedMetadata,
-			});
-			await deps.effects.navigateToTaskDetail(navigateOpts);
+		// 中文注释：工作台与项目首页都必须先 bootstrap（pendingBootstrap + waiting），再切视图。
+		// 若先 navigate，详情页 effect 会在占位写好前 loadConversationMessages，把问答路径误判成冷进页 resume/poll。
+		bootstrapNewTaskSession(deps, data.session_id, trimmed, {
+			attachments: resolvedAttachments,
+			metadata: resolvedMetadata,
+		});
+		await deps.effects.navigateToTaskDetail(navigateOpts);
+
+		// 中文注释：新建任务同样等待 GlobalEvents assistant；满 1 分钟仍无接单则正文报错。
+		const assistantMsgId = deps.get().streamingMessageId;
+		if (assistantMsgId) {
+			void waitForGlobalAssistantOrFail(deps, data.session_id, assistantMsgId);
 		}
 
 		deps.effects.clearComposer();
 		return data;
 	} catch (err) {
 		console.error("sendProjectMessage error:", err);
-		return null;
+		// 中文注释：不再吞掉 CreateInitialMessage 失败，由 UI 层 toast 提示。
+		throw err;
 	}
 }

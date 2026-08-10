@@ -23,6 +23,12 @@ export type ChatState = {
 	pendingBootstrapSessionId: string | null;
 	/** 取消中的 session；等 run.cancelled 终态后再收尾 */
 	cancellingSessionId: string | null;
+	/**
+	 * 本轮回复已超时收尾的 session。
+	 * 用于挡住迟到的 GlobalEvents assistant / 超时后因 isGenerating 变 false 触发的 resume，
+	 * 离开页面（closeSseConnection）或用户再次发送时清除。
+	 */
+	suppressedReplySessionId: string | null;
 	/** 兼容旧字段：取消流式的回调引用（现主要由私有 SSE client 管理） */
 	streamCancelRef: (() => void) | null;
 
@@ -53,6 +59,7 @@ export const initialChatState: ChatState = {
 	isGenerating: false,
 	pendingBootstrapSessionId: null,
 	cancellingSessionId: null,
+	suppressedReplySessionId: null,
 	streamCancelRef: null,
 
 	inputText: "",

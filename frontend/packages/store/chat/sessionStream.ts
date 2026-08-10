@@ -1,7 +1,7 @@
 /**
  * 单会话 SessionEvents（短连接 SSE）生命周期管理。
  *
- * 可以做：建立/关闭 SessionEvents、idle 超时兜底、把事件应用到 streaming assistant、
+ * 可以做：建立/关闭 SessionEvents、建连超时兜底、idle 超时拉历史、把事件应用到 streaming assistant、
  * run 终态后 finish 并触发历史回拉。
  * 不可以做：决定「该不该发消息」、解析 GlobalEvents、改 layout 导航；
  * 对 layout/project 的副作用通过 deps 回调交给编排层。
@@ -11,7 +11,12 @@ import { API_BASE_URL } from "../api/config";
 import type { BackendWorkTitleUpdatedPayload, SSEMessageEvent } from "../api/types";
 import type { Message } from "../types/chat";
 import { getValidJwtToken } from "../utils/authStorage";
-import { parseWorkTitleUpdatedPayload, SESSION_EVENTS_IDLE_FALLBACK_MS } from "./messageMerge";
+import {
+	ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT,
+	parseWorkTitleUpdatedPayload,
+	SESSION_EVENTS_CONNECT_FALLBACK_MS,
+	SESSION_EVENTS_IDLE_FALLBACK_MS,
+} from "./messageMerge";
 import { applySessionEventToMessage } from "./messageReducer";
 import type { ChatState } from "./state";
 
@@ -46,6 +51,7 @@ export class SessionStream {
 	#sessionId: string | null = null;
 	#assistantMsgId: string | null = null;
 	#idleFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+	#connectFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(deps: SessionStreamDeps) {
 		this.#deps = deps;
@@ -69,11 +75,54 @@ export class SessionStream {
 		}
 	};
 
-	/** 清空 session/assistant 绑定与 idle 定时器（不关 client）。 */
+	/** 清除建连超时定时器。 */
+	#clearConnectFallback = () => {
+		if (this.#connectFallbackTimer) {
+			clearTimeout(this.#connectFallbackTimer);
+			this.#connectFallbackTimer = null;
+		}
+	};
+
+	/** 清空 session/assistant 绑定与定时器（不关 client）。 */
 	#resetBinding = () => {
 		this.#clearIdleFallback();
+		this.#clearConnectFallback();
 		this.#sessionId = null;
 		this.#assistantMsgId = null;
+	};
+
+	/**
+	 * 发起连接后启动建连计时：一直进不了 onOpen 则判定 SE 调用失败并报错。
+	 */
+	#scheduleConnectFallback = (sessionId: string, assistantMsgId: string) => {
+		this.#clearConnectFallback();
+		this.#connectFallbackTimer = setTimeout(() => {
+			const state = this.#deps.get();
+			if (this.#sessionId !== sessionId || !state.isGenerating) return;
+			this.#failConnectTimeout(sessionId, assistantMsgId);
+		}, SESSION_EVENTS_CONNECT_FALLBACK_MS);
+	};
+
+	/**
+	 * SessionEvents 长时间无法成功建连：写入正文报错、抑制后续 resume/GE，并关流。
+	 */
+	#failConnectTimeout = (sessionId: string, assistantMsgId: string) => {
+		const msg = this.#deps.get().messagesMap[assistantMsgId];
+		this.#resetBinding();
+		if (this.#client) {
+			this.#client.close();
+			this.#client = null;
+		}
+		if (msg) {
+			this.#deps.updateMessage(assistantMsgId, {
+				...msg,
+				status: "failed",
+				statusText: undefined,
+				content: ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT,
+			});
+		}
+		this.#deps.set({ suppressedReplySessionId: sessionId });
+		this.finish();
 	};
 
 	/**
@@ -132,6 +181,9 @@ export class SessionStream {
 			return;
 		}
 
+		// 中文注释：在 fetch 挂起、迟迟进不了 onOpen 时，用建连超时兜底（区别于建连后的 idle）。
+		this.#scheduleConnectFallback(sessionId, assistantMsgId);
+
 		const client = new FetchSSEClient(url, {
 			method: "POST",
 			headers: { Authorization: `Bearer ${token}` },
@@ -141,6 +193,7 @@ export class SessionStream {
 				...(assistantId !== undefined ? { assistant_id: assistantId } : {}),
 			},
 			onOpen: () => {
+				this.#clearConnectFallback();
 				this.#scheduleIdleFallback(sessionId);
 			},
 			onMessage: (event) => {
@@ -195,6 +248,15 @@ export class SessionStream {
 			},
 			onError: (err) => {
 				console.error("SSE error:", err);
+				const assistantMsgId = this.#assistantMsgId;
+				const sessionId = this.#sessionId;
+				// 中文注释：建连阶段（尚未 onOpen）失败时写入报错；已建连后的错误仍走原 finish 收尾。
+				const stillConnecting = this.#connectFallbackTimer !== null;
+				if (stillConnecting && sessionId && assistantMsgId) {
+					this.#failConnectTimeout(sessionId, assistantMsgId);
+					return;
+				}
+				this.#clearConnectFallback();
 				this.#resetBinding();
 				this.finish();
 			},
@@ -211,6 +273,7 @@ export class SessionStream {
 	 */
 	finish = () => {
 		this.#clearIdleFallback();
+		this.#clearConnectFallback();
 		this.#deps.set({
 			streamingMessageId: null,
 			isGenerating: false,
@@ -224,6 +287,7 @@ export class SessionStream {
 	 */
 	close = () => {
 		this.#clearIdleFallback();
+		this.#clearConnectFallback();
 		if (this.#client) {
 			this.#client.close();
 			this.#client = null;

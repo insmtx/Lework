@@ -22,6 +22,14 @@ type runJournal struct {
 	maxSeq       int64
 	events       []messaging.RunEventRecord
 
+	// publishMu 保护单个 Run 的事件发布串行化，避免并发发布打乱 seq 顺序。
+	// 同时只串行化本 Run 的 NATS IO，不阻塞其它 Run 的并行发布。
+	publishMu sync.Mutex
+	// publishCond 按 seq 顺序放行发布：只有 nextPublishSeq 对应的事件才能发布，
+	// 保证"按 seq 顺序发布"而非仅"不并发发布"。
+	publishCond    *sync.Cond
+	nextPublishSeq int64
+
 	toolFailures int
 	toolNames    []string
 	messageCount int
@@ -36,9 +44,11 @@ func NewJournal(
 	publisher RunEventPublisher,
 ) Journal {
 	journal := &runJournal{
-		eventContext: cloneEventContext(eventContext),
-		publisher:    publisher,
+		eventContext:   cloneEventContext(eventContext),
+		publisher:      publisher,
+		nextPublishSeq: 1, // 与 maxSeq 从 0 递增对齐：首个 seq 为 1
 	}
+	journal.publishCond = sync.NewCond(&journal.publishMu)
 	if req != nil {
 		journal.runID = req.RunID
 		journal.traceID = req.TraceID
@@ -65,6 +75,10 @@ func (j *runJournal) Record(ctx context.Context, draft RunEventDraft) error {
 		occurredAt = time.Now().UTC()
 	}
 
+	// 状态变更（分配 seq、归档、观察）在状态锁下完成；NATS IO 在锁外执行，
+	// 避免持有状态锁进行外部发布阻塞同 Run 的其它状态更新。
+	// 注意：归档失败时不得跳过发布闸门，否则后续 seq 会永久等待——必须保证每个
+	// 已分配 seq 都完整经过闸门（归档是尽力而为的快照，失败不影响事件发布）。
 	j.mu.Lock()
 	j.maxSeq++
 	body.Seq = j.maxSeq
@@ -72,23 +86,41 @@ func (j *runJournal) Record(ctx context.Context, draft RunEventDraft) error {
 		body.ReplyToMessageIDs = append([]string(nil), j.eventContext.ReplyToMessageIDs...)
 	}
 	j.observeLocked(body)
+	var archiveErr error
 	if !isTerminalRunEvent(body.Event) {
 		record, recordErr := archiveRecord(body, occurredAt, j.eventContext.AssistantPublicID)
 		if recordErr != nil {
-			j.mu.Unlock()
-			return recordErr
+			archiveErr = recordErr
+		} else {
+			j.events = append(j.events, record)
 		}
-		j.events = append(j.events, record)
 	}
 	event := j.envelopeLocked(body, occurredAt)
 	publisher := j.publisher
-	if publisher == nil {
-		j.mu.Unlock()
-		return nil
-	}
-	err = publisher.PublishRunEvent(ctx, event)
+	seq := body.Seq
 	j.mu.Unlock()
-	return err
+
+	// 按 seq 顺序发布：获取发布锁后，必须等自己的 seq 轮到（nextPublishSeq）才能发布。
+	// 这样不仅避免并发，更保证"低 seq 先发布"，杜绝乱序。锁内不做其它状态 IO，
+	// 不阻塞同 Run 的其它状态更新，也不阻塞其它 Run 的并行发布。
+	j.publishMu.Lock()
+	for seq != j.nextPublishSeq {
+		j.publishCond.Wait()
+	}
+	var publishErr error
+	if publisher != nil {
+		publishErr = publisher.PublishRunEvent(ctx, event)
+	}
+	// 无论是否实际发布（如无 publisher）、或归档失败，都推进闸门，避免后续 seq 永久等待。
+	j.nextPublishSeq++
+	j.publishCond.Broadcast()
+	j.publishMu.Unlock()
+
+	// 归档失败：返回归档错误，但事件已发布、闸门已推进，不影响后续事件。
+	if archiveErr != nil {
+		return fmt.Errorf("archive run event: %w", archiveErr)
+	}
+	return publishErr
 }
 
 func (j *runJournal) Snapshot() JournalSnapshot {
@@ -127,6 +159,7 @@ func (j *runJournal) envelopeLocked(
 	}
 	body.AssistantPKID = j.eventContext.AssistantID
 	body.AssistantID = j.eventContext.AssistantPublicID
+	body.MemberCommandIDs = append([]string(nil), j.eventContext.MemberCommandIDs...)
 	return messaging.RunEvent{
 		ID:        fmt.Sprintf("%s:%d", runID, body.Seq),
 		Type:      messaging.MessageTypeRunEvent,
@@ -322,6 +355,7 @@ func cloneRunEventRecords(records []messaging.RunEventRecord) []messaging.RunEve
 
 func cloneEventContext(eventContext EventContext) EventContext {
 	eventContext.ReplyToMessageIDs = append([]string(nil), eventContext.ReplyToMessageIDs...)
+	eventContext.MemberCommandIDs = append([]string(nil), eventContext.MemberCommandIDs...)
 	return eventContext
 }
 

@@ -74,9 +74,11 @@ func (r *Driver) RunInvocation(
 		WorkDir:         workDir,
 		TaskDir:         request.Filesystem.TaskDir,
 		SkillDir:        request.Filesystem.SkillDir,
+		UploadRelDir:    request.Filesystem.UploadRelDir,
 		SystemPrompt:    strings.TrimSpace(request.SystemPrompt),
 		Prompt:          request.Prompt,
 		Messages:        append([]agent.Message(nil), request.Messages...),
+		Attachments:     append([]agent.Attachment(nil), request.Attachments...),
 		Tools:           append([]agent.Tool(nil), request.Tools...),
 		AllowedTools:    append([]string(nil), request.Policy.AllowedTools...),
 		TraceID:         request.TraceID,
@@ -251,8 +253,10 @@ func ConsumeEvents(
 					Runtime:     metadataString(p.Metadata, "engine"),
 				})
 				if decErr != nil {
-					logs.WarnContextf(ctx, "approval handler error: %v", decErr)
-					continue
+					// 交互等待失败（容量满/超时/取消）：必须以错误终止当前执行，
+					// 否则 Runtime 仍在等待决策，任务会卡成不可恢复状态。
+					logs.WarnContextf(ctx, "approval handler error, terminating run: %v", decErr)
+					return InvocationResult{}, decErr
 				}
 				if wErr := handle.Responder.WriteDecision(p.RequestID, decision.Action); wErr != nil {
 					logs.WarnContextf(ctx, "write approval decision to stdin: %v", wErr)
@@ -308,8 +312,10 @@ func ConsumeEvents(
 					Runtime:     metadataString(p.Metadata, "engine"),
 				})
 				if decErr != nil {
-					logs.WarnContextf(ctx, "question handler error: %v", decErr)
-					continue
+					// 交互等待失败（容量满/超时/取消）：必须以错误终止当前执行，
+					// 否则 Runtime 仍在等待答案，任务会卡成不可恢复状态。
+					logs.WarnContextf(ctx, "question handler error, terminating run: %v", decErr)
+					return InvocationResult{}, decErr
 				}
 				if wErr := handle.Questions.WriteAnswer(p.RequestID, answer.Answers); wErr != nil {
 					logs.WarnContextf(ctx, "write question answer: %v", wErr)

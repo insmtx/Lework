@@ -10,6 +10,8 @@ export const COMPOSER_UPLOAD_ALLOWED_EXTENSIONS = [
 	".pptx",
 	".md",
 	".markdown",
+	".html",
+	".htm",
 	".png",
 	".jpg",
 	".jpeg",
@@ -17,19 +19,12 @@ export const COMPOSER_UPLOAD_ALLOWED_EXTENSIONS = [
 	".bmp",
 	".webp",
 	".svg",
-	".mp4",
-	".mov",
-	".avi",
 	".txt",
 ] as const;
 
 // 原生文件选择器对纯扩展名列表的解析不一致，尤其是 macOS/Electron 下的视频文件。
-// MIME 通配符负责让图片、视频可选择，选中后仍由扩展名白名单做精确校验。
-export const COMPOSER_UPLOAD_ACCEPT = [
-	"image/*",
-	"video/*",
-	...COMPOSER_UPLOAD_ALLOWED_EXTENSIONS,
-].join(",");
+// MIME 通配符负责让图片可选择，选中后仍由扩展名白名单做精确校验。
+export const COMPOSER_UPLOAD_ACCEPT = ["image/*", ...COMPOSER_UPLOAD_ALLOWED_EXTENSIONS].join(",");
 
 export function getNativeFileInputAccept(
 	accept: string,
@@ -45,7 +40,7 @@ export function getComposerUploadAccept(platform?: string): string | undefined {
 }
 
 export const COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE =
-	"仅支持上传 PDF、Word、Excel、PPT、Markdown、图片（JPG/JPEG/PNG/GIF/BMP/WEBP/SVG）、视频（MP4/MOV/AVI）、TXT 文件";
+	"仅支持上传 PDF、Word、Excel、PPT、Markdown、HTML、图片（JPG/JPEG/PNG/GIF/BMP/WEBP/SVG）、TXT 文件";
 
 export const COMPOSER_UPLOAD_EMPTY_FILE_MESSAGE = "不能上传空文件";
 

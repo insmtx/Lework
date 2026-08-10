@@ -50,6 +50,10 @@ type messageRequest struct {
 type messagePart struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+	// file part（多模态，对齐 opencode v1 SessionV1.FilePartInput：{type,mime,filename,url}）
+	MIME     string `json:"mime,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
 // messageResponse 是 POST /session/:id/message 的响应体。
@@ -238,14 +242,27 @@ type providerOptions struct {
 
 // modelConfig 描述单个模型的配置。
 type modelConfig struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Limit       modelLimit `json:"limit"`
-	Cost        modelCost  `json:"cost"`
-	ToolCall    bool       `json:"tool_call"`
-	Attachment  bool       `json:"attachment"`
-	Reasoning   bool       `json:"reasoning"`
-	Temperature bool       `json:"temperature"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Limit       modelLimit      `json:"limit"`
+	Cost        modelCost       `json:"cost"`
+	ToolCall    bool            `json:"tool_call"`
+	Attachment  bool            `json:"attachment"`
+	Reasoning   bool            `json:"reasoning"`
+	Temperature bool            `json:"temperature"`
+	Modalities  *modalityConfig `json:"modalities,omitempty"`
+}
+
+// modalityConfig 描述模型的模态能力，对齐 opencode config 的 modalities 字段。
+// 声明 input 中的某个模态时 opencode 判定 capabilities.input.<modality>=true，
+// 对应类型的附件才会传给模型；未声明的模态被降级为提示文本（不整轮失败）。
+// 注意：应只声明该模型真正支持的模态——若声明了模型并不支持的类型
+// （如视频），opencode 会将其原样传给 AI SDK，后者对不支持的 file part
+// 返回硬错误而非优雅降级。output 主要影响模型输出能力的声明
+// （目前源码无运行时门控），同样只声明模型实际支持的输出。
+type modalityConfig struct {
+	Input  []string `json:"input"`
+	Output []string `json:"output,omitempty"`
 }
 
 // modelLimit 描述模型的上下文限制。

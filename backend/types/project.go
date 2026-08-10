@@ -47,6 +47,11 @@ type Project struct {
 
 	// project - 元数据（JSON格式存储标签等扩展信息），JSONB，允许为空
 	Metadata ObjectMetadata `gorm:"column:metadata;type:jsonb"`
+
+	// project - 关联的自动化主键（自动化为该自动化创建），BIGINT，可空，INDEX
+	AutomationID *uint `gorm:"column:automation_id;type:bigint;index"`
+	// project - 项目代数（该自动化下第几代项目），INTEGER，可空，DEFAULT 0
+	AutomationGeneration int `gorm:"column:automation_generation;type:integer;default:0"`
 }
 
 // TableName 指定Project结构体对应的数据库表名

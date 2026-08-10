@@ -25,7 +25,7 @@ export function buildSkillWorkbenchPrefill(
 
 export function buildAssistantWorkbenchPrefill(
 	assistantIdentity: string,
-	assistant: { name: string; expertise: string[] },
+	assistant: { name: string; expertise: string[]; source?: string },
 	prompt?: string,
 ): {
 	value: string;

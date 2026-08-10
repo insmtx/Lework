@@ -41,6 +41,9 @@ func TestBuildAttachmentText_SingleAttachment(t *testing.T) {
 	if !strings.Contains(got, "- foo.txt") {
 		t.Fatalf("expected '- foo.txt' in %q", got)
 	}
+	if !strings.Contains(got, "Location: uploads/foo.txt") {
+		t.Fatalf("expected 'Location: uploads/foo.txt' in %q", got)
+	}
 	if !strings.Contains(got, "URL: http://example.com/foo.txt") {
 		t.Fatalf("expected 'URL: http://example.com/foo.txt' in %q", got)
 	}
@@ -62,9 +65,59 @@ func TestBuildAttachmentText_MultipleAttachments(t *testing.T) {
 	if !strings.Contains(got, "- b.png") {
 		t.Fatalf("expected '- b.png' in %q", got)
 	}
-	lineCount := strings.Count(got, "\n")
-	if lineCount < 6 {
-		t.Fatalf("expected at least 6 newlines for 2 attachments, got %d in %q", lineCount, got)
+	if !strings.Contains(got, "Location: uploads/a.txt") {
+		t.Fatalf("expected uploads location for text attachment in %q", got)
+	}
+	// 图片已内联为视觉内容，不应再提示按路径读取
+	if strings.Contains(got, "Location: uploads/b.png") {
+		t.Fatalf("image attachment should not carry a read location hint, got %q", got)
+	}
+	if !strings.Contains(got, "do NOT call the read tool on them") {
+		t.Fatalf("expected inline-visual hint in %q", got)
+	}
+}
+
+func TestBuildAttachmentText_ImageDoesNotPromptRead(t *testing.T) {
+	attachments := []Attachment{
+		{Name: "screen.png", URL: "http://a", MimeType: "image/png"},
+	}
+	got := BuildAttachmentText(attachments)
+
+	if !strings.Contains(got, "visual content is already provided") {
+		t.Fatalf("expected inline-visual wording for image in %q", got)
+	}
+	if strings.Contains(got, "read them on disk") {
+		t.Fatalf("image should not be routed to on-disk read instructions, got %q", got)
+	}
+	if strings.Contains(got, "Location:") {
+		t.Fatalf("image should not carry a read location hint, got %q", got)
+	}
+}
+
+// TestBuildAttachmentText_NonImageMultimodalRoutedToRead 验证在能力收窄（仅 image 内联
+// 为视觉）后，PDF/音视频等其它多模态附件不再提示"已内联"，而按路径读取。
+func TestBuildAttachmentText_NonImageMultimodalRoutedToRead(t *testing.T) {
+	attachments := []Attachment{
+		{Name: "clip.mp4", URL: "http://v", MimeType: "video/mp4"},
+		{Name: "doc.pdf", URL: "http://p", MimeType: "application/pdf"},
+		{Name: "audio.mp3", URL: "http://a3", MimeType: "audio/mpeg"},
+	}
+	got := BuildAttachmentText(attachments)
+
+	if strings.Contains(got, "visual content is already provided") {
+		t.Fatalf("non-image multimodal should not be treated as inline visual, got %q", got)
+	}
+	if !strings.Contains(got, "read them on disk") {
+		t.Fatalf("expected on-disk read instructions for non-image multimodal, got %q", got)
+	}
+	for _, wanted := range []string{
+		"Location: uploads/clip.mp4",
+		"Location: uploads/doc.pdf",
+		"Location: uploads/audio.mp3",
+	} {
+		if !strings.Contains(got, wanted) {
+			t.Fatalf("expected %q in %q", wanted, got)
+		}
 	}
 }
 

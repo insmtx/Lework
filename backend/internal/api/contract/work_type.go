@@ -12,6 +12,7 @@ type NewMessageRequest struct {
 	ProjectID     string                    `json:"project_id,omitempty"`
 	TaskID        string                    `json:"task_id,omitempty"`
 	AssistantIDs  []string                  `json:"assistant_ids,omitempty"`
+	ConnectorIDs  []string                  `json:"connector_ids,omitempty"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Objective     string                    `json:"objective,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`

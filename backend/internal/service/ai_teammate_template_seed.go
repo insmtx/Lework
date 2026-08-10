@@ -32,10 +32,6 @@ func SeedAITeammateTemplates(ctx context.Context, database *gorm.DB, avatarDir s
 		return errors.New("database is required")
 	}
 
-	owner, err := resolveSeedOwner(ctx, database)
-	if err != nil {
-		return err
-	}
 	resolvedAvatarDir := resolveAITeammateTemplateAvatarDir(avatarDir)
 
 	for _, template := range defaultAITeammateTemplates() {
@@ -44,7 +40,7 @@ func SeedAITeammateTemplates(ctx context.Context, database *gorm.DB, avatarDir s
 			return fmt.Errorf("find ai teammate template %s: %w", template.Code, err)
 		}
 		if existing == nil || strings.TrimSpace(existing.Avatar) == "" {
-			avatar, err := uploadAITeammateTemplateAvatar(ctx, database, resolvedAvatarDir, owner, template.Code)
+			avatar, err := uploadAITeammateTemplateAvatar(ctx, database, resolvedAvatarDir, template.Code)
 			if err != nil {
 				return err
 			}
@@ -59,38 +55,7 @@ func SeedAITeammateTemplates(ctx context.Context, database *gorm.DB, avatarDir s
 	return nil
 }
 
-type seedOwner struct {
-	orgID   uint
-	ownerID uint
-}
-
-func resolveSeedOwner(ctx context.Context, database *gorm.DB) (seedOwner, error) {
-	var org types.Organization
-	err := database.WithContext(ctx).Where("code = ?", "default_org").First(&org).Error
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return seedOwner{}, fmt.Errorf("find default org: %w", err)
-		}
-		if err := database.WithContext(ctx).Order("id ASC").First(&org).Error; err != nil {
-			return seedOwner{}, fmt.Errorf("find seed org: %w", err)
-		}
-	}
-
-	var user types.User
-	err = database.WithContext(ctx).Where("email = ?", "admin@leros.local").First(&user).Error
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return seedOwner{}, fmt.Errorf("find default user: %w", err)
-		}
-		if err := database.WithContext(ctx).Order("id ASC").First(&user).Error; err != nil {
-			return seedOwner{}, fmt.Errorf("find seed user: %w", err)
-		}
-	}
-
-	return seedOwner{orgID: org.ID, ownerID: user.ID}, nil
-}
-
-func uploadAITeammateTemplateAvatar(ctx context.Context, database *gorm.DB, avatarDir string, owner seedOwner, code string) (string, error) {
+func uploadAITeammateTemplateAvatar(ctx context.Context, database *gorm.DB, avatarDir string, code string) (string, error) {
 	data, source, err := readAITeammateTemplateAvatar(avatarDir, code)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrNotExist) {
@@ -110,9 +75,10 @@ func uploadAITeammateTemplateAvatar(ctx context.Context, database *gorm.DB, avat
 		Filename:     filename,
 		OriginalName: filename,
 		MimeType:     mimeType,
-		OrgID:        owner.orgID,
-		OwnerID:      owner.ownerID,
-		ObjectKey:    fmt.Sprintf("%s/%d/ai-teammate-template/%s", filestore.PurposeAvatar, owner.orgID, filename),
+		OwnerScope:   types.OwnerScopeSystem,
+		OrgID:        0,
+		OwnerID:      0,
+		ObjectKey:    fmt.Sprintf("%s/ai-teammate-template/%s", filestore.PurposeAvatar, filename),
 		Purpose:      filestore.PurposeAvatar,
 		Size:         int64(len(data)),
 	})

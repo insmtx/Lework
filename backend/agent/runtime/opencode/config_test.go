@@ -66,6 +66,64 @@ func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildConfigContentDeclaresImageModalityOnlyForVisionModel(t *testing.T) {
+	for _, vision := range []bool{true, false} {
+		content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-4o", Vision: vision}, nil)
+		if err != nil {
+			t.Fatalf("build config content (vision=%v): %v", vision, err)
+		}
+
+		var cfg configContent
+		if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+			t.Fatalf("unmarshal config content: %v", err)
+		}
+
+		p, ok := cfg.Provider[providerID]
+		if !ok {
+			t.Fatalf("provider %q missing: %#v", providerID, cfg.Provider)
+		}
+		m, ok := p.Models["gpt-4o"]
+		if !ok {
+			t.Fatalf("model gpt-4o missing: %#v", p.Models)
+		}
+
+		if vision {
+			if m.Modalities == nil || m.Modalities.Input == nil {
+				t.Fatalf("vision model modalities missing: %#v", m.Modalities)
+			}
+			contains := func(list []string, want string) bool {
+				for _, s := range list {
+					if s == want {
+						return true
+					}
+				}
+				return false
+			}
+			if !contains(m.Modalities.Input, "image") {
+				t.Fatalf("vision model modalities.Input lacks image: %#v", m.Modalities.Input)
+			}
+			// 仅声明模型真正支持的模态；未声明（video/audio/pdf）由 opencode 降级，
+			// 避免声明过宽导致 AI SDK 层对不支持的 file part 返回硬错误。
+			for _, unsupported := range []string{"audio", "video", "pdf"} {
+				if contains(m.Modalities.Input, unsupported) {
+					t.Fatalf("vision model modalities.Input should not declare %q: %#v", unsupported, m.Modalities.Input)
+				}
+			}
+			if m.Modalities.Output == nil || len(m.Modalities.Output) == 0 {
+				t.Fatalf("vision model modalities.Output missing: %#v", m.Modalities.Output)
+			}
+			if !contains(m.Modalities.Output, "text") {
+				t.Fatalf("vision model modalities.Output lacks text: %#v", m.Modalities.Output)
+			}
+			if len(m.Modalities.Output) != 1 {
+				t.Fatalf("vision model modalities.Output should declare text only: %#v", m.Modalities.Output)
+			}
+		} else if m.Modalities != nil {
+			t.Fatalf("non-vision model should omit modalities, got %#v", m.Modalities)
+		}
+	}
+}
+
 func TestBuildMCPConfigIncludesProjectHeadersAndPreservesExplicitAuthorization(t *testing.T) {
 	sourceHeaders := map[string]string{"Authorization": "Custom token", "X-Tenant": "one"}
 	config := buildMCPConfig([]agent.MCPServerConfig{

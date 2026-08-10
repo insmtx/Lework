@@ -10,6 +10,8 @@ export type {
 	BackendGlobalMessagePayload,
 } from "./messageMerge";
 export {
+	ASSISTANT_GLOBAL_EVENTS_TIMEOUT_TEXT,
+	ASSISTANT_SESSION_EVENTS_TIMEOUT_TEXT,
 	ASSISTANT_SESSION_EVENTS_WAITING_TEXT,
 	allLocalMessagesBelongToSession,
 	createAssistantSessionEventsWaitingMessage,
@@ -18,6 +20,7 @@ export {
 	getSessionLocalMessages,
 	inheritStreamingAssistantState,
 	insertGlobalUserMessageId,
+	isClientReplyTimeoutMessage,
 	isGlobalUserEchoMessage,
 	isOptimisticMessage,
 	isTaskRoomAssistantPlaceholder,
@@ -27,7 +30,9 @@ export {
 	parseGlobalEvent,
 	parseWorkTitleUpdatedPayload,
 	parseWorkTitleUpdatedRecord,
+	resolveSessionEventsWaitingContext,
 	retainLocalMessagesForSession,
+	SESSION_EVENTS_CONNECT_FALLBACK_MS,
 	SESSION_EVENTS_IDLE_FALLBACK_MS,
 	TASK_ROOM_ASSISTANT_START_FALLBACK_MS,
 } from "./messageMerge";

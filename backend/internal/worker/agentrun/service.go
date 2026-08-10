@@ -212,7 +212,7 @@ func (s *Service) finishError(
 
 	status := agentrundomain.RunStatusFailed
 	message := ""
-	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+	if errors.Is(runErr, context.Canceled) {
 		status = agentrundomain.RunStatusCancelled
 		message = "已取消"
 	}

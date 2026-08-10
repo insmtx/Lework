@@ -187,6 +187,38 @@ func TestSkillPackageUploadedSubject(t *testing.T) {
 	}
 }
 
+func TestWorkerOpsStatusSubject(t *testing.T) {
+	tests := []struct {
+		name     string
+		orgID    uint
+		workerID uint
+		want     string
+		wantErr  bool
+	}{
+		{name: "ok", orgID: 1, workerID: 2, want: "org.1.worker.2.ops.status"},
+		{name: "missing orgID", orgID: 0, workerID: 1, wantErr: true},
+		{name: "missing workerID", orgID: 1, workerID: 0, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := WorkerOpsStatusSubject(tt.orgID, tt.workerID)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestCommandLane(t *testing.T) {
 	tests := []struct {
 		cmdType CommandType

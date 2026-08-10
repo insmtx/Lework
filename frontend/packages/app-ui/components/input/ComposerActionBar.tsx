@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Bot,
+	Cable,
 	ClipboardPenLine,
 	FileText,
 	Folder,
@@ -23,6 +24,7 @@ import {
 	WandSparkles,
 } from "lucide-react";
 import { type ReactNode, type RefObject, useMemo, useState } from "react";
+import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 import type { ComposerAssistantOption, StructuredComposerHandle } from "./StructuredComposer";
@@ -43,6 +45,12 @@ type ComposerActionBarProps = {
 	executionMode?: "default" | "plan";
 	setExecutionMode?: (mode: "default" | "plan") => void;
 	isGenerating?: boolean;
+	/** 连接器候选与选中状态：用于「添加连接器」多选弹窗。已选项在上方独立区域，可在此移除。 */
+	connectorOptions?: PluginComposerOption[];
+	connectorsLoading?: boolean;
+	selectedConnectorIds?: string[];
+	onSelectConnector?: (publicId: string) => void;
+	onRemoveConnector?: (publicId: string) => void;
 };
 
 function dedupeValues(values: string[]): string[] {
@@ -77,11 +85,18 @@ export function ComposerActionBar({
 	executionMode,
 	setExecutionMode,
 	isGenerating,
+	connectorOptions = [],
+	connectorsLoading,
+	selectedConnectorIds = [],
+	onSelectConnector,
+	onRemoveConnector,
 }: ComposerActionBarProps) {
 	const [assistantOpen, setAssistantOpen] = useState(false);
 	const [assistantSearch, setAssistantSearch] = useState("");
 	const [skillOpen, setSkillOpen] = useState(false);
 	const [skillSearch, setSkillSearch] = useState("");
+	const [connectorOpen, setConnectorOpen] = useState(false);
+	const [connectorSearch, setConnectorSearch] = useState("");
 	const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
 	const derivedSkillsLoading = skillOpen && skillsLoading;
 
@@ -118,6 +133,24 @@ export function ComposerActionBar({
 			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
 	}, [selectedSkillCodes, skillOptions, skillSearch]);
+	const filteredConnectors = useMemo(() => {
+		const query = connectorSearch.trim().toLowerCase();
+		return connectorOptions.filter((connector) => {
+			if (connector.pluginId && selectedConnectorIds.includes(connector.pluginId)) {
+				return false;
+			}
+			if (!query) return true;
+			return [connector.label, connector.code, connector.description]
+				.join(" ")
+				.toLowerCase()
+				.includes(query);
+		});
+	}, [connectorOptions, connectorSearch, selectedConnectorIds]);
+	const selectedConnectors = useMemo(() => {
+		return selectedConnectorIds
+			.map((publicId) => connectorOptions.find((item) => item.pluginId === publicId))
+			.filter((item): item is PluginComposerOption => Boolean(item));
+	}, [connectorOptions, selectedConnectorIds]);
 
 	const allowAction = () => (onBeforeAction ? onBeforeAction() : true);
 	const assistantSkillButtonClassName = cn(
@@ -161,7 +194,7 @@ export function ComposerActionBar({
 									event.preventDefault();
 								}
 							}}
-							className="order-4 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+							className="order-5 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
 						>
 							<Plus className="size-4" />
 							<span>上传文件</span>
@@ -206,7 +239,7 @@ export function ComposerActionBar({
 							if (!allowAction()) return;
 							onUpload();
 						}}
-						className="order-4 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+						className="order-5 inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
 					>
 						<Plus className="size-4" />
 						<span>上传文件</span>
@@ -233,7 +266,7 @@ export function ComposerActionBar({
 							event.preventDefault();
 						}
 					}}
-					className={cn(assistantSkillButtonClassName, "order-3")}
+					className={cn(assistantSkillButtonClassName, "order-4")}
 				>
 					<Bot className="size-4" />
 					<span>召唤AI队友</span>
@@ -362,6 +395,133 @@ export function ComposerActionBar({
 												)}
 											</div>
 											<div className="truncate text-xs text-slate-400">{skill.description}</div>
+										</div>
+									</CommandItem>
+								))}
+							</CommandGroup>
+						</CommandList>
+					</Command>
+				</PopoverContent>
+			</Popover>
+			<Popover
+				open={connectorOpen}
+				onOpenChange={(open) => {
+					setConnectorOpen(open);
+					if (!open) setConnectorSearch("");
+				}}
+			>
+				<PopoverTrigger
+					type="button"
+					disabled={disableAssistantAndSkill}
+					onClick={(event) => {
+						if (disableAssistantAndSkill) {
+							event.preventDefault();
+							return;
+						}
+						if (connectorOpen) return;
+						if (event.defaultPrevented) return;
+						if (!allowAction()) {
+							event.preventDefault();
+						}
+					}}
+					className={cn(assistantSkillButtonClassName, "order-3")}
+				>
+					<Cable className="size-4" />
+					<span>添加连接器</span>
+					{selectedConnectorIds.length > 0 && (
+						<span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-medium leading-none text-white">
+							{selectedConnectorIds.length}
+						</span>
+					)}
+				</PopoverTrigger>
+				{/* 中文注释：固定在按钮上方，避免视口碰撞策略把选择弹窗动态翻到下方。 */}
+				<PopoverContent
+					align="start"
+					side="top"
+					sideOffset={10}
+					collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+					className="w-[340px] p-1.5"
+				>
+					<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+						<div className="px-2 py-1 text-sm font-semibold text-slate-800">选择连接器</div>
+						<CommandInput
+							value={connectorSearch}
+							onValueChange={setConnectorSearch}
+							placeholder="搜索连接器"
+							className="placeholder:text-slate-300"
+						/>
+						<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+						<CommandList className="max-h-72 overflow-y-auto px-1">
+							{selectedConnectors.length > 0 && (
+								<>
+									<div className="px-2 py-1 text-xs font-semibold text-slate-400">已选连接器</div>
+									<CommandGroup className="p-0">
+										{selectedConnectors.map((connector) => {
+											const publicId = connector.pluginId ?? connector.code;
+											return (
+												<CommandItem
+													key={publicId}
+													value={`selected:${connector.label}`}
+													onSelect={() => {
+														if (onRemoveConnector) {
+															onRemoveConnector(publicId);
+														}
+													}}
+													className="rounded-lg px-2 py-1.5"
+												>
+													<MCPConnectorIcon
+														code={connector.code}
+														name={connector.label}
+														className="size-7 shrink-0 rounded-lg"
+													/>
+													<div className="min-w-0 flex-1">
+														<span className="truncate font-medium text-slate-700">
+															{connector.label}
+														</span>
+													</div>
+													<span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+														已选
+													</span>
+												</CommandItem>
+											);
+										})}
+									</CommandGroup>
+									<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
+								</>
+							)}
+							<div className="px-2 pb-1 pt-1 text-xs font-semibold text-slate-400">可选连接器</div>
+							<CommandEmpty className="py-6 text-slate-400">
+								{connectorOptions.length === 0 && !connectorsLoading
+									? "没有可用的连接器"
+									: "没有可继续添加的连接器"}
+							</CommandEmpty>
+							<CommandGroup className="p-0">
+								{connectorsLoading && connectorOptions.length === 0 && (
+									<div className="px-2 py-1.5 text-xs text-slate-400">连接器加载中...</div>
+								)}
+								{filteredConnectors.map((connector) => (
+									<CommandItem
+										key={connector.pluginId ?? connector.code}
+										value={connector.label}
+										onSelect={() => {
+											if (connector.pluginId && onSelectConnector) {
+												onSelectConnector(connector.pluginId);
+											}
+										}}
+										className="rounded-lg px-2 py-1.5"
+									>
+										<MCPConnectorIcon
+											code={connector.code}
+											name={connector.label}
+											className="size-7 shrink-0 rounded-lg"
+										/>
+										<div className="min-w-0 flex-1">
+											<div className="flex items-center gap-1.5 truncate font-medium">
+												<span className="truncate">
+													{renderHighlightedText(connector.label, connectorSearch)}
+												</span>
+											</div>
+											<div className="truncate text-xs text-slate-400">{connector.description}</div>
 										</div>
 									</CommandItem>
 								))}

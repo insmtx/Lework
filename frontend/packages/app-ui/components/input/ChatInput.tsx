@@ -27,6 +27,7 @@ import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { Checkbox } from "@leros/ui/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
+import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	AlertCircle,
@@ -69,6 +70,7 @@ import {
 	type StructuredComposerHandle,
 } from "./StructuredComposer";
 import { FOLDER_UPLOAD_SIZE_EXCEEDED_MESSAGE, isFolderUploadSizeExceeded } from "./upload-folder";
+import { useComposerConnectorOptions } from "./useComposerConnectorOptions";
 import { useComposerSkillOptions } from "./useComposerSkillOptions";
 
 export const PROJECT_ATTACHMENT_ACCEPT = COMPOSER_UPLOAD_ACCEPT;
@@ -136,6 +138,7 @@ export function ChatInput({
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const folderInputRef = useRef<HTMLInputElement>(null);
 	const previousProjectSkillCodesRef = useRef<string[] | null>(null);
+	const previousConnectorProjectIdRef = useRef<string | null | undefined>(undefined);
 	const [showModelDropdown, setShowModelDropdown] = useState(false);
 	const { draft: docxSelectionDraft } = useDocxSelectionComposerStore();
 
@@ -152,6 +155,16 @@ export function ChatInput({
 	const { skillOptions, skillsLoading } = useComposerSkillOptions(
 		isProjectVariant ? currentProjectId : null,
 	);
+	const { connectorOptions, connectorsLoading } = useComposerConnectorOptions({
+		projectId: isProjectVariant ? currentProjectId : null,
+	});
+	const [selectedConnectorIds, setSelectedConnectorIds] = useState<string[]>([]);
+	const handleSelectConnector = useCallback((publicId: string) => {
+		setSelectedConnectorIds((prev) => (prev.includes(publicId) ? prev : [...prev, publicId]));
+	}, []);
+	const handleRemoveConnector = useCallback((publicId: string) => {
+		setSelectedConnectorIds((prev) => prev.filter((id) => id !== publicId));
+	}, []);
 	const projectAssistantOptions = useMemo<ComposerAssistantOption[] | undefined>(() => {
 		if (!isProjectVariant) return undefined;
 		return (
@@ -259,6 +272,18 @@ export function ChatInput({
 		}
 	}, [inputText, isProjectVariant, projectSkillCodes, setInputText]);
 
+	// 中文注释：连接器关联是项目级配置，切换项目后清空已选连接器，避免跨项目残留。
+	useEffect(() => {
+		const key = isProjectVariant ? currentProjectId : undefined;
+		if (previousConnectorProjectIdRef.current === key) {
+			return;
+		}
+		previousConnectorProjectIdRef.current = key;
+		if (selectedConnectorIds.length > 0) {
+			setSelectedConnectorIds([]);
+		}
+	}, [currentProjectId, isProjectVariant, selectedConnectorIds.length]);
+
 	const submitMessage = useCallback(async () => {
 		// 中文注释：真实 SessionEvents 当前由单条 SSE 连接接管，生成中先阻止重复发送。
 		if (isGenerating) return;
@@ -323,20 +348,32 @@ export function ChatInput({
 						taskId: activeTaskDetailTaskId,
 						sessionId: activeTaskDetailSessionId,
 						metadata: composerMetadata,
+						connectorIds: selectedConnectorIds,
 					},
 					outgoingAttachments,
 				);
 			} else if (isProjectVariant && currentView === "project") {
-				const taskEntry = await sendProjectMessage(
-					outgoingContent,
-					activeProjectId,
-					outgoingAttachments,
-					composerMetadata,
-				);
-				submitted = taskEntry;
-				if (taskEntry?.project_id && taskEntry?.task_id && taskEntry.session_id) {
-					// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
-					navigation?.goToTaskDetail(taskEntry.project_id, taskEntry.task_id, taskEntry.session_id);
+				try {
+					const taskEntry = await sendProjectMessage(
+						outgoingContent,
+						activeProjectId,
+						outgoingAttachments,
+						composerMetadata,
+						{ connectorIds: selectedConnectorIds },
+					);
+					submitted = taskEntry;
+					if (taskEntry?.project_id && taskEntry?.task_id && taskEntry.session_id) {
+						// 中文注释：项目首页创建出真实任务后，立即跳到任务详情页，避免仍停留在项目首页的新建任务视图。
+						navigation?.goToTaskDetail(
+							taskEntry.project_id,
+							taskEntry.task_id,
+							taskEntry.session_id,
+						);
+					}
+				} catch (err) {
+					console.error("ChatInput createInitialMessage error:", err);
+					toast.error(`创建任务失败：${getRequestErrorMessage(err) ?? "请稍后重试"}`);
+					return;
 				}
 			} else {
 				// 中文注释：任务详情依赖路径中的 sessionId；未知场景拒绝发送。
@@ -344,6 +381,8 @@ export function ChatInput({
 			}
 
 			if (!submitted) return;
+			// 中文注释：发送成功后清空已选连接器；失败时不进入这里，保留以便重试。
+			setSelectedConnectorIds([]);
 			if (docxSelectionDraft && activeSelectionReference) {
 				docxSelectionComposerActions.markSubmitted(pendingVersionSync);
 				docxSelectionComposerActions.clearDraft(docxSelectionDraft.id);
@@ -368,6 +407,7 @@ export function ChatInput({
 		navigation,
 		sendProjectMessage,
 		sendTaskRoomMessage,
+		selectedConnectorIds,
 	]);
 
 	const uploadProjectAttachment = useCallback(
@@ -598,6 +638,11 @@ export function ChatInput({
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
 									isGenerating={isGenerating}
+									connectorOptions={connectorOptions}
+									connectorsLoading={connectorsLoading}
+									selectedConnectorIds={selectedConnectorIds}
+									onSelectConnector={handleSelectConnector}
+									onRemoveConnector={handleRemoveConnector}
 								/>
 							) : (
 								<>

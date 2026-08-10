@@ -9,14 +9,6 @@ import { AIMessageBubble } from "./AIMessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { UserMessageBubble } from "./UserMessageBubble";
 
-function formatTime(timestamp: number): string {
-	const date = new Date(timestamp);
-	return date.toLocaleTimeString("zh-CN", {
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
-
 export function MessageTimeline({
 	emptyState,
 	className,
@@ -84,17 +76,10 @@ export function MessageTimeline({
 
 	const messageList = (
 		<>
-			{messages.length > 0 && (
-				<div className="flex items-center justify-center py-1">
-					<span className="rounded-full bg-white/70 px-3 py-1 text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/50">
-						{formatTime(messages[0]?.timestamp ?? 0)}
-					</span>
-				</div>
-			)}
 			{messages.map((msg: Message) => (
 				<div key={msg.id} className="min-w-0 py-0.5">
 					{msg.role === "user" ? (
-						<UserMessageBubble message={msg} />
+						<UserMessageBubble message={msg} projectId={projectId} />
 					) : msg.role === "assistant" ? (
 						<AIMessageBubble
 							message={msg}

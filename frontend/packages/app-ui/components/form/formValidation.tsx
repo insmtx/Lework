@@ -71,7 +71,12 @@ export function shouldValidateFieldBlur(event: FocusEvent<HTMLElement>): boolean
 }
 
 export const PHONE_PATTERN = /^1[3-9]\d{9}$/;
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function isValidPhone(value: string) {
 	return PHONE_PATTERN.test(value.trim());
+}
+
+export function isValidEmail(value: string) {
+	return EMAIL_PATTERN.test(value.trim());
 }

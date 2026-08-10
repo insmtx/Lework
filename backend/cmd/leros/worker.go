@@ -44,6 +44,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/router"
 	"github.com/insmtx/Leros/backend/internal/worker/runtimehost"
+	"github.com/insmtx/Leros/backend/internal/worker/status"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -287,6 +288,11 @@ func runTaskWorker(defaultRuntime string) {
 		logs.Fatalf("Failed to resolve state db path: %v", err)
 		return
 	}
+	runCfg := cfg.Run.Effective()
+	logs.Infof("worker.run.scheduler.config max_concurrency=%d max_inflight=%d max_queued_commands=%d queue_start_timeout_seconds=%d max_run_duration_seconds=%d max_interaction_waits=%d interaction_timeout_seconds=%d debounce_ms=%d",
+		runCfg.MaxConcurrency, runCfg.MaxInflight,
+		runCfg.MaxQueuedCommands, runCfg.QueueStartTimeoutSeconds, runCfg.MaxRunDurationSeconds,
+		runCfg.MaxInteractionWaits, runCfg.InteractionTimeoutSeconds, runCfg.DebounceMS)
 	runtimeService, err := app.NewService(ctx, app.Options{
 		CLIConfig:         cfg.CLI,
 		DefaultRuntime:    defaultRuntime,
@@ -309,10 +315,19 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 	runHandler, err := run.New(run.Config{
-		OrgID:       cfg.OrgID,
-		WorkerID:    cfg.WorkerID,
-		Env:         cfg.Env,
-		InboxDBPath: inboxDBPath,
+		OrgID:                  cfg.OrgID,
+		WorkerID:               cfg.WorkerID,
+		Env:                    cfg.Env,
+		MaxConcurrency:         runCfg.MaxConcurrency,
+		MaxInflight:            runCfg.MaxInflight,
+		MaxQueuedCommands:      runCfg.MaxQueuedCommands,
+		QueueRetry:             time.Duration(runCfg.QueueRetrySeconds) * time.Second,
+		QueueStartTimeout:      time.Duration(runCfg.QueueStartTimeoutSeconds) * time.Second,
+		MaxRunDuration:         time.Duration(runCfg.MaxRunDurationSeconds) * time.Second,
+		MaxInteractionWaits:    runCfg.MaxInteractionWaits,
+		InteractionWaitTimeout: time.Duration(runCfg.InteractionTimeoutSeconds) * time.Second,
+		DebounceWindow:         time.Duration(runCfg.DebounceMS) * time.Millisecond,
+		InboxDBPath:            inboxDBPath,
 	}, bus, runtimeService.AgentRunService())
 	if err != nil {
 		cancel()
@@ -368,6 +383,28 @@ func runTaskWorker(defaultRuntime string) {
 		}
 	}()
 
+	// 运维状态查询订阅：独立于 dispatcher 的 JetStream lane，
+	// 使用 Core NATS 直接回答 org.<org_id>.worker.<worker_id>.ops.status。
+	// 随共享 ctx 取消而停止，不加入 dispatcher 生命周期。
+	statusSvc, err := status.New(status.Config{
+		OrgID:    cfg.OrgID,
+		WorkerID: cfg.WorkerID,
+	}, bus.Conn(), runHandler)
+	if err != nil {
+		cancel()
+		_ = runtimeService.Close()
+		_ = bus.Close()
+		logs.Fatalf("Failed to create worker status service: %v", err)
+		return
+	}
+	statusDone := make(chan struct{})
+	go func() {
+		defer close(statusDone)
+		if err := statusSvc.Start(ctx); err != nil && err != context.Canceled {
+			logs.Errorf("Worker status subscriber exited with error: %v", err)
+		}
+	}()
+
 	go worker.StartParentWatcher()
 
 	// 设置生命周期强制退出超时。
@@ -383,10 +420,14 @@ func runTaskWorker(defaultRuntime string) {
 		// 2. 停止准入，不再增加 WaitGroup 计数。
 		runHandler.StopAdmission()
 
-		// 3. 等待 dispatcher goroutine 退出，确保没有活跃的回调访问 Handler。
+		// 3. 等待 Core NATS 状态订阅及其在途查询退出，避免关闭本地 inbox 后
+		// 仍由运维回调读取状态。
+		<-statusDone
+
+		// 4. 等待 dispatcher goroutine 退出，确保没有活跃的回调访问 Handler。
 		<-dispatcherDone
 
-		// 4. Drain 正在执行的后台任务（含恢复 feeder），等待它们完成。
+		// 5. Drain 正在执行的后台任务（含恢复 feeder），等待它们完成。
 		if runHandler.Drain(drainTimeout) {
 			logs.Info("Worker drain complete, closing handler")
 			if err := runHandler.Close(); err != nil {

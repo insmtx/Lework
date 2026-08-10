@@ -40,7 +40,7 @@ import (
 //
 // 根据配置初始化并注册 GitHub、GitLab 等渠道连接器，
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
-func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, db *gorm.DB, modelInvoker modelrouter.Invoker) (*gin.Engine, worker.WorkerScheduler) {
+func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, requester eventbus.CoreRequester, db *gorm.DB, modelInvoker modelrouter.Invoker) (*gin.Engine, worker.WorkerScheduler) {
 	r := gin.New()
 
 	// ── 全局中间件（必须在 r.Group / RegisterRoutes 之前挂载）────────────────────
@@ -144,7 +144,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		logs.Info("LLM model routes registered successfully")
 
 		inferrer := service.NewDefaultAssistantInferrer(1)
-		sessionService := service.NewSessionService(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, modelInvoker, userRepo, orgRepo)
+		sessionService := service.NewSessionService(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, modelInvoker, userRepo, orgRepo, !cfg.Server.DisableEventConsumers)
 		handler.RegisterSessionRoutes(authed, sessionService, permSvc)
 		handler.RegisterGlobalEventRoutes(authed, sessionService)
 		logs.Info("Session routes registered successfully")
@@ -163,6 +163,10 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		taskService := service.NewTaskService(db, permSvc)
 		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
+
+		automationService := service.NewAutomationService(db)
+		handler.RegisterAutomationRoutes(authed, automationService)
+		logs.Info("Automation routes registered successfully")
 
 		fileService := service.NewFileService(db)
 		fileHandler := handler.NewFileHandler(fileService)
@@ -191,8 +195,16 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterFeedbackRoutes(v1, feedbackService)
 		logs.Info("Feedback routes registered successfully")
 
+		// Worker 运维状态查询（Core NATS request/reply）。即使消息总线未初始化，
+		// 也保留路由并返回 503，避免调用方因依赖状态而得到不稳定的 404。
+		workerOpsService := service.NewWorkerOpsService(requester, 3*time.Second)
+		handler.RegisterWorkerOpsRoutes(authed, workerOpsService)
+		logs.Info("Worker ops routes registered successfully")
+
 		// Start background consumers
 		if !cfg.Server.DisableEventConsumers {
+			go service.NewReliableTaskDispatcher(db, eventbus, service.NewSessionMessageTaskExpiryProjector(db)).Run(context.Background())
+			logs.Info("Reliable task outbox dispatcher started")
 			// 统一的 run state projector，消费 org.*.session.*.run.state
 			// 替代旧分散的 StartSessionRunStarted + StartSessionArtifactDeclared + StartSessionCompleted
 			go runnable.StartSessionRunStateProjector(context.Background(), sessionService, eventbus, db)
@@ -212,6 +224,12 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		if workerScheduler != nil {
 			go service.StartWorkerDeploymentReconciler(context.Background(), db, workerScheduler, cfg.Scheduler, eventbus)
 			logs.Info("Worker deployment reconciler started")
+		}
+
+		// 自动化定时任务调度器（阶段二）；受 server.automation_scheduler.enabled 门控
+		automationPoster := service.NewMessagePoster(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, userRepo, orgRepo, !cfg.Server.DisableEventConsumers)
+		if !cfg.Server.DisableEventConsumers && service.StartAutomationScheduler(context.Background(), db, cfg.AutomationScheduler, automationPoster) {
+			logs.Info("Automation scheduler started")
 		}
 	}
 

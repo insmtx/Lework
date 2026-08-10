@@ -40,15 +40,15 @@ func managerWithProbe(db *gorm.DB, probe func(context.Context, string, string, s
 }
 
 func mockProbeSuccessV1(_ context.Context, _, _, _, _ string, _ bool) *probeResult {
-	return &probeResult{v1Success: true, noV1Success: false}
+	return &probeResult{V1Success: true, NoV1Success: false}
 }
 
 func mockProbeSuccessNoV1(_ context.Context, _, _, _, _ string, _ bool) *probeResult {
-	return &probeResult{v1Success: false, noV1Success: true}
+	return &probeResult{V1Success: false, NoV1Success: true}
 }
 
 func mockProbeAlwaysFail(_ context.Context, _, _, _, _ string, _ bool) *probeResult {
-	return &probeResult{v1Success: false, noV1Success: false}
+	return &probeResult{V1Success: false, NoV1Success: false}
 }
 
 func countDefaultLLMModels(t *testing.T, database *gorm.DB, orgID uint) int64 {
@@ -670,5 +670,39 @@ func TestBuildLLMEndpointURL(t *testing.T) {
 				t.Fatalf("BuildLLMEndpointURL(%q, %v) = %q, want %q", tt.baseURL, tt.hasV1, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestProbeResultExportAssertsProbeResult 断言导出类型 ProbeResult 与私有 probeResult 是同一类型，
+// 且字段经导出名暴露，供 seed 等跨包复用。
+func TestProbeResultExportAssertsProbeResult(t *testing.T) {
+	var pProbe *probeResult
+	var pExported *ProbeResult
+	_ = pProbe
+	_ = pExported
+
+	r := &ProbeResult{V1Success: true, NoV1Success: false}
+	if !r.V1Success || r.NoV1Success {
+		t.Fatalf("unexpected ProbeResult fields: %+v", r)
+	}
+}
+
+func TestVisionFromConfig(t *testing.T) {
+	cases := []struct {
+		name   string
+		config types.LLMModelConfig
+		want   bool
+	}{
+		{name: "nil config", config: nil, want: false},
+		{name: "empty config", config: types.LLMModelConfig{}, want: false},
+		{name: "no vision key", config: types.LLMModelConfig{"purpose": "translation"}, want: false},
+		{name: "vision false", config: types.LLMModelConfig{"vision": false}, want: false},
+		{name: "vision true", config: types.LLMModelConfig{"vision": true}, want: true},
+		{name: "vision non-bool", config: types.LLMModelConfig{"vision": "yes"}, want: false},
+	}
+	for _, tc := range cases {
+		if got := VisionFromConfig(tc.config); got != tc.want {
+			t.Fatalf("%s: VisionFromConfig() = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

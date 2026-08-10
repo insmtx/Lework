@@ -15,6 +15,7 @@ type LLMConfig struct {
 	APIKey      string                `yaml:"api_key"`               // API Key
 	Model       string                `yaml:"model,omitempty"`       // Default model
 	BaseURL     string                `yaml:"base_url,omitempty"`    // Custom base URL
+	Vision      bool                  `yaml:"vision,omitempty"`      // Default model supports image (multimodal) input
 	Translation *LLMTranslationConfig `yaml:"translation,omitempty"` // Built-in translation model
 }
 
@@ -33,21 +34,31 @@ type Config struct {
 		DisableEventConsumers bool      `yaml:"disable_event_consumers,omitempty"` // 是否禁用后台事件消费者
 		JWT                   JWTConfig `yaml:"jwt,omitempty"`                     // JWT 认证配置
 	} `yaml:"server,omitempty"` // 服务器地址
-	Env           string              `yaml:"env,omitempty"`
-	WorkspaceRoot string              `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
-	Log           LogConfig           `yaml:"log,omitempty" json:"log,omitempty"`
-	Logger        LogsConfig          `yaml:"logger,omitempty" json:"logger,omitempty"`
-	NATS          *NATSConfig         `yaml:"nats,omitempty"`
-	Database      *DatabaseConfig     `yaml:"database,omitempty"`
-	LLM           *LLMConfig          `yaml:"llm,omitempty"`
-	Scheduler     *SchedulerConfig    `yaml:"scheduler,omitempty"`
-	Storage       *StorageConfig      `yaml:"storage,omitempty"`
-	Gitea         *GiteaConfig        `yaml:"gitea,omitempty"`
-	WorkerAuth    *WorkerAuthConfig   `yaml:"worker_auth,omitempty" json:"worker_auth,omitempty"`
-	Aliyun        *AliyunConfig       `yaml:"aliyun,omitempty" json:"aliyun,omitempty"`
-	ClientUpdate  *ClientUpdateConfig `yaml:"client_update,omitempty" json:"client_update,omitempty"`
-	Feishu        *FeishuConfig       `yaml:"feishu,omitempty" json:"feishu,omitempty"`
-	Auth          *IAMConfig          `yaml:"auth,omitempty" json:"auth,omitempty"`
+	Env                 string                     `yaml:"env,omitempty"`
+	WorkspaceRoot       string                     `yaml:"workspace_root,omitempty" json:"workspace_root,omitempty"`
+	Log                 LogConfig                  `yaml:"log,omitempty" json:"log,omitempty"`
+	Logger              LogsConfig                 `yaml:"logger,omitempty" json:"logger,omitempty"`
+	NATS                *NATSConfig                `yaml:"nats,omitempty"`
+	Database            *DatabaseConfig            `yaml:"database,omitempty"`
+	LLM                 *LLMConfig                 `yaml:"llm,omitempty"`
+	Scheduler           *SchedulerConfig           `yaml:"scheduler,omitempty"`
+	Storage             *StorageConfig             `yaml:"storage,omitempty"`
+	Gitea               *GiteaConfig               `yaml:"gitea,omitempty"`
+	WorkerAuth          *WorkerAuthConfig          `yaml:"worker_auth,omitempty" json:"worker_auth,omitempty"`
+	Aliyun              *AliyunConfig              `yaml:"aliyun,omitempty" json:"aliyun,omitempty"`
+	ClientUpdate        *ClientUpdateConfig        `yaml:"client_update,omitempty" json:"client_update,omitempty"`
+	Feishu              *FeishuConfig              `yaml:"feishu,omitempty" json:"feishu,omitempty"`
+	Auth                *IAMConfig                 `yaml:"auth,omitempty" json:"auth,omitempty"`
+	AutomationScheduler *AutomationSchedulerConfig `yaml:"automation_scheduler,omitempty" json:"automation_scheduler,omitempty"`
+}
+
+// AutomationSchedulerConfig 配置自动化定时任务的 Planner/Dispatcher 后台调度。
+type AutomationSchedulerConfig struct {
+	// Enabled 是否启动 Planner/Dispatcher（阶段二功能开关）。
+	// nil 或未配置时默认开启；显式 false 表示关闭。
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// PlannerInterval Planner 扫描间隔（秒），缺省 30
+	PlannerInterval int `yaml:"planner_interval,omitempty" json:"planner_interval,omitempty"`
 }
 
 // FeishuConfig configures Feishu Open Platform integration for feedback Bitable sync.

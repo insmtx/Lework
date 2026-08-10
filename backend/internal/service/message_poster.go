@@ -38,29 +38,38 @@ import (
 // MessagePoster 无状态的消息投递器，负责消息创建、统计更新、事件发布、Worker 任务投递。
 // 多个 goroutine 可安全并发使用。
 type MessagePoster struct {
-	db          *gorm.DB
-	perm        *PermissionService
-	eventbus    eventbus.EventBus
-	inferrer    AssistantInferrer
-	giteaClient *gitea.Client
-	giteaCfg    *config.GiteaConfig
-	env         string
-	userRepo    account.UserRepository
-	orgRepo     account.OrgRepository
+	db              *gorm.DB
+	perm            *PermissionService
+	eventbus        eventbus.EventBus
+	inferrer        AssistantInferrer
+	giteaClient     *gitea.Client
+	giteaCfg        *config.GiteaConfig
+	env             string
+	userRepo        account.UserRepository
+	orgRepo         account.OrgRepository
+	dispatchEnabled bool
 }
 
+// ErrRunDispatchUnavailable is returned when this Server cannot accept Worker work.
+var ErrRunDispatchUnavailable = errors.New("run dispatch unavailable")
+
 // NewMessagePoster 创建 MessagePoster 实例。
-func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository, orgRepo account.OrgRepository) *MessagePoster {
+func NewMessagePoster(db *gorm.DB, perm *PermissionService, eb eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository, orgRepo account.OrgRepository, dispatchEnabled ...bool) *MessagePoster {
+	enabled := true
+	if len(dispatchEnabled) > 0 {
+		enabled = dispatchEnabled[0]
+	}
 	return &MessagePoster{
-		db:          db,
-		perm:        perm,
-		eventbus:    eb,
-		inferrer:    inferrer,
-		giteaClient: giteaClient,
-		giteaCfg:    giteaCfg,
-		env:         env,
-		userRepo:    userRepo,
-		orgRepo:     orgRepo,
+		db:              db,
+		perm:            perm,
+		eventbus:        eb,
+		inferrer:        inferrer,
+		giteaClient:     giteaClient,
+		giteaCfg:        giteaCfg,
+		env:             env,
+		userRepo:        userRepo,
+		orgRepo:         orgRepo,
+		dispatchEnabled: enabled,
 	}
 }
 
@@ -71,14 +80,30 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller 
 
 	var name string
 	if caller.OrgID > 0 {
-		orgMember, err := p.orgRepo.GetOrgMember(ctx, 0, caller.Uin)
-		if err != nil || orgMember == nil {
+		if p.orgRepo != nil {
+			orgMember, err := p.orgRepo.GetOrgMember(ctx, 0, caller.Uin)
+			if err == nil && orgMember != nil {
+				return orgMember.UserName
+			}
+		}
+		var relation types.UserOrg
+		if err := p.db.WithContext(ctx).First(&relation, caller.Uin).Error; err != nil {
 			return ""
 		}
-		name = orgMember.UserName
+		var user types.User
+		if err := p.db.WithContext(ctx).First(&user, relation.UserID).Error; err != nil {
+			return ""
+		}
+		name = user.Name
 	} else {
-		user, err := p.userRepo.GetUserByUin(ctx, caller.Uin)
-		if err != nil || user == nil {
+		if p.userRepo != nil {
+			user, err := p.userRepo.GetUserByUin(ctx, caller.Uin)
+			if err == nil && user != nil {
+				return user.Name
+			}
+		}
+		var user types.User
+		if err := p.db.WithContext(ctx).First(&user, caller.Uin).Error; err != nil {
 			return ""
 		}
 		name = user.Name
@@ -87,10 +112,29 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, caller 
 }
 
 // MessageRoutingOverride 消息级别的路由覆盖，用于在同个 session 内将消息发给不同的 assistant/worker。
-// 决定消息发往哪个 worker 的唯一依据。publishWorkerTask 要求 routing 必须非 nil 且 WorkerID > 0。
+// 决定消息发往哪个 worker 的唯一依据。RunCommandFactory 要求 routing 必须非 nil 且 WorkerID > 0。
 type MessageRoutingOverride struct {
 	AssistantID uint
 	WorkerID    uint
+}
+
+// MessageExecutionOptions supplies source-independent execution policy for one persisted user message.
+type MessageExecutionOptions struct {
+	// QueueDeadline is the latest time the Worker may start this message.
+	QueueDeadline *time.Time
+}
+
+// runCommandID 决定运行命令的稳定 ID。所有消息入口都使用相同的 session+sequence 规则。
+func runCommandID(session *types.Session, message *types.SessionMessage) string {
+	return fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence)
+}
+
+// runNotAfter 将调用方提供的 not_after 转为 RFC3339 字符串写入命令 payload。
+func runNotAfter(opts *MessageExecutionOptions) string {
+	if opts != nil && opts.QueueDeadline != nil {
+		return opts.QueueDeadline.UTC().Format(time.RFC3339)
+	}
+	return ""
 }
 
 // PostMessage 在已有 session 上创建一条消息并完成后续投递（统计、EventBus、WorkerTask）。
@@ -101,40 +145,88 @@ func (p *MessagePoster) PostMessage(
 	executionMode types.ExecutionMode,
 	buildMessage func(sequence int64) *types.SessionMessage,
 	routing *MessageRoutingOverride,
+	postOpts ...*MessageExecutionOptions,
 ) (*types.SessionMessage, error) {
-	sequence, err := infradb.GetNextSequence(ctx, p.db, session.ID)
+	if !p.dispatchEnabled {
+		return nil, ErrRunDispatchUnavailable
+	}
+	var opts *MessageExecutionOptions
+	if len(postOpts) > 0 && postOpts[0] != nil {
+		opts = postOpts[0]
+	}
+	var message *types.SessionMessage
+	var queued bool
+	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		sequence, err := infradb.GetNextSequence(ctx, tx, session.ID)
+		if err != nil {
+			return err
+		}
+		message = buildMessage(sequence)
+		message.SessionID = session.ID
+		if message.MessageType == "" {
+			message.MessageType = string(types.MessageTypeText)
+		}
+
+		// 群聊模式下为用户消息填充发送者身份（AI 队友回复由 CompleteSessionMessage 填充）
+		if message.Role == string(types.MessageRoleUser) && message.SenderUin == nil {
+			if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 {
+				uid := caller.Uin
+				message.SenderUin = &uid
+				message.SenderName = p.resolveSenderNameFromCaller(ctx, caller)
+			}
+		}
+
+		if err := infradb.CreateMessage(ctx, tx, message); err != nil {
+			return fmt.Errorf("create message: %w", err)
+		}
+		now := time.Now().UTC()
+		if err := infradb.IncrementMessageCount(ctx, tx, session.ID); err != nil {
+			return err
+		}
+		if err := infradb.UpdateLastMessageAt(ctx, tx, session.ID, now); err != nil {
+			return err
+		}
+
+		deadline := now.Add(30 * time.Minute)
+		if opts != nil && opts.QueueDeadline != nil {
+			deadline = opts.QueueDeadline.UTC()
+		}
+		// The transport record and Worker command must share the same start deadline:
+		// publication can succeed while the Worker inbox is still waiting for a compute slot.
+		effectiveOpts := &MessageExecutionOptions{QueueDeadline: &deadline}
+		posterTx := *p
+		posterTx.db = tx
+		topic, command, err := posterTx.buildWorkerTask(ctx, session, message, executionMode, routing, effectiveOpts)
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(command)
+		if err != nil {
+			return fmt.Errorf("marshal reliable task payload: %w", err)
+		}
+		if err := infradb.CreateReliableTask(ctx, tx, &types.ReliableTask{
+			TaskID:        command.ID,
+			Kind:          "worker.run",
+			Destination:   topic,
+			ContentType:   "application/json",
+			Payload:       payload,
+			SourceType:    "session_message",
+			SourceID:      strconv.FormatUint(uint64(message.ID), 10),
+			PartitionKey:  session.PublicID,
+			Status:        types.ReliableTaskPending,
+			NextAttemptAt: now,
+			DeadlineAt:    deadline,
+		}); err != nil {
+			return fmt.Errorf("create reliable task for topic %s: %w", topic, err)
+		}
+		queued = true
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	message := buildMessage(sequence)
-	message.SessionID = session.ID
-	if message.MessageType == "" {
-		message.MessageType = string(types.MessageTypeText)
-	}
-
-	// 群聊模式下为用户消息填充发送者身份（AI 队友回复由 CompleteSessionMessage 填充）
-	if message.Role == string(types.MessageRoleUser) && message.SenderUin == nil {
-		if caller, _ := auth.FromContext(ctx); caller != nil && caller.Uin > 0 {
-			uid := caller.Uin
-			message.SenderUin = &uid
-			message.SenderName = p.resolveSenderNameFromCaller(ctx, caller)
-		}
-	}
-
-	if err := infradb.CreateMessage(ctx, p.db, message); err != nil {
-		return nil, fmt.Errorf("create message: %w", err)
-	}
-
-	logs.DebugContextf(ctx, "created message seq=%d in session=%s", sequence, session.PublicID)
-
-	now := time.Now()
-	if err := infradb.IncrementMessageCount(ctx, p.db, session.ID); err != nil {
-		return nil, err
-	}
-	if err := infradb.UpdateLastMessageAt(ctx, p.db, session.ID, now); err != nil {
-		return nil, err
-	}
+	logs.DebugContextf(ctx, "created message seq=%d in session=%s", message.Sequence, session.PublicID)
 
 	logs.DebugContextf(ctx, "published message events for session=%s", session.PublicID)
 
@@ -145,10 +237,9 @@ func (p *MessagePoster) PostMessage(
 	logs.InfoContextf(ctx, "published message.created (human): session_id=%s message_id=%d project_id=%v",
 		session.PublicID, message.ID, session.ProjectID)
 
-	if err := p.publishWorkerTask(ctx, session, message, executionMode, routing); err != nil {
-		return nil, err
+	if queued {
+		logs.InfoContextf(ctx, "queued reliable task: session_id=%s message_id=%d", session.PublicID, message.ID)
 	}
-
 	return message, nil
 }
 
@@ -177,6 +268,23 @@ func (p *MessagePoster) RunNewMessage(
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
 		return nil, err
 	}
+	// 中文注释：先将请求携带的连接器关联到项目，再创建 Session/Task，保证 Worker 发布前绑定已落地。
+	if len(o.req.ConnectorIDs) > 0 {
+		if _, err := bindConnectorsToProject(
+			ctx,
+			p.db,
+			p.perm,
+			o.caller,
+			o.project,
+			o.req.ConnectorIDs,
+			func(c context.Context, tx *gorm.DB, caller *types.Caller, projectPublicID string, action types.ProjectActivityAction, payload types.ProjectActivityPayload) error {
+				return recordUserRepoActivity(ctx, tx, p.userRepo, caller.Uin, projectPublicID, action, payload)
+			},
+		); err != nil {
+			logs.ErrorContextf(ctx, "NewMessage bind connectors failed: %v", err)
+			return nil, fmt.Errorf("bind connectors to project: %w", err)
+		}
+	}
 	if err := o.ensureProjectSession(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage ensureProjectSession failed: %v", err)
 		return nil, err
@@ -200,7 +308,7 @@ func (p *MessagePoster) RunNewMessage(
 	resolveAttachmentURLs(ctx, p.db, caller.OrgID, req.Attachments)
 
 	// 中文注释：content 为空时表示"召唤队友落地空对话"——仅创建 Project/Task/Session + 分配 worker，不发首条消息。
-	// 后续用户在任务详情页发送的消息走 AddMessage 路径，persona 通过 publishWorkerTask 自动注入。
+	// 后续用户在任务详情页发送的消息走 AddMessage 路径，persona 通过统一命令工厂自动注入。
 	var messageID string
 	if strings.TrimSpace(req.Content) != "" || len(req.Attachments) > 0 {
 		message, err := p.PostMessage(ctx, o.taskSession, req.ExecutionMode, func(sequence int64) *types.SessionMessage {
@@ -802,13 +910,19 @@ func filterEmptyStrings(values ...string) []string {
 	return result
 }
 
-func (p *MessagePoster) publishWorkerTask(
+// buildWorkerTask constructs a stable command without publishing it, so the Server can persist it atomically.
+func (p *MessagePoster) buildWorkerTask(
 	ctx context.Context,
 	session *types.Session,
 	message *types.SessionMessage,
 	executionMode types.ExecutionMode,
 	routing *MessageRoutingOverride,
-) error {
+	postOpts ...*MessageExecutionOptions,
+) (string, messaging.WorkerCommand, error) {
+	var opts *MessageExecutionOptions
+	if len(postOpts) > 0 && postOpts[0] != nil {
+		opts = postOpts[0]
+	}
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
 	if orgID == 0 && caller != nil {
@@ -816,19 +930,19 @@ func (p *MessagePoster) publishWorkerTask(
 	}
 
 	if routing == nil || routing.WorkerID == 0 {
-		return fmt.Errorf("no assistant routing provided for worker task: session %s", session.PublicID)
+		return "", messaging.WorkerCommand{}, fmt.Errorf("no assistant routing provided for worker task: session %s", session.PublicID)
 	}
 	effectiveAssistantID := routing.AssistantID
 	effectiveWorkerID := routing.WorkerID
 
 	topic, err := messaging.WorkerCommandSubject(orgID, effectiveWorkerID, messaging.LaneRun)
 	if err != nil {
-		return fmt.Errorf("failed to construct worker command topic: %w", err)
+		return "", messaging.WorkerCommand{}, fmt.Errorf("failed to construct worker command topic: %w", err)
 	}
 
 	projectPublicID, taskPublicID, err := p.resolveWorkspaceIDs(ctx, session)
 	if err != nil {
-		return err
+		return "", messaging.WorkerCommand{}, err
 	}
 	if taskPublicID == "" {
 		taskPublicID = fmt.Sprintf("task_%d", message.ID)
@@ -836,7 +950,7 @@ func (p *MessagePoster) publishWorkerTask(
 	requestID := fmt.Sprintf("req_%d", message.ID)
 	modelOptions, err := p.resolveWorkerTaskModel(ctx, orgID)
 	if err != nil {
-		return err
+		return "", messaging.WorkerCommand{}, err
 	}
 
 	var inputMessages []messaging.ChatMessage
@@ -846,12 +960,12 @@ func (p *MessagePoster) publishWorkerTask(
 	if session.Type == types.SessionTypeTask || session.Type == types.SessionTypeProject {
 		lastTime, err := infradb.GetLastAssistantMessageCreatedAt(ctx, p.db, session.ID, effectiveAssistantID)
 		if err != nil {
-			logs.WarnContextf(ctx, "publishWorkerTask: get last assistant message time: %v", err)
+			logs.WarnContextf(ctx, "buildWorkerTask: get last assistant message time: %v", err)
 		}
 		if lastTime != nil {
 			incremental, err := infradb.GetSessionMessagesInRange(ctx, p.db, session.ID, *lastTime)
 			if err != nil {
-				logs.WarnContextf(ctx, "publishWorkerTask: get session messages in range: %v", err)
+				logs.WarnContextf(ctx, "buildWorkerTask: get session messages in range: %v", err)
 			} else {
 				seen := make(map[uint]bool)
 				for _, hm := range incremental {
@@ -887,11 +1001,11 @@ func (p *MessagePoster) publishWorkerTask(
 	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
 	pluginSnapshots, err := p.resolveProjectPluginSnapshots(ctx, orgID, coalesceUintPtr(session.ProjectID))
 	if err != nil {
-		return fmt.Errorf("resolve project plugin snapshots: %w", err)
+		return "", messaging.WorkerCommand{}, fmt.Errorf("resolve project plugin snapshots: %w", err)
 	}
 
 	cmd := withRequestTrace(ctx, messaging.NewRunCommand(
-		fmt.Sprintf("msg_%d_%d", session.ID, message.Sequence),
+		runCommandID(session, message),
 		messaging.RouteContext{
 			OrgID:             orgID,
 			SessionID:         session.PublicID,
@@ -934,6 +1048,7 @@ func (p *MessagePoster) publishWorkerTask(
 			AssistantID:       routing.AssistantID,
 			AssistantPublicID: assistantIDToPublicID(ctx, p.db, routing.AssistantID),
 			Uin:               session.Uin,
+			NotAfter:          runNotAfter(opts),
 		},
 		&messaging.RunCommandMetadata{
 			SessionID:   session.PublicID,
@@ -942,13 +1057,7 @@ func (p *MessagePoster) publishWorkerTask(
 		},
 	))
 
-	if err := p.eventbus.Publish(ctx, topic, cmd); err != nil {
-		logs.ErrorContextf(ctx, "Failed to publish message to assistant %d: %v", effectiveAssistantID, err)
-		return fmt.Errorf("failed to publish message to assistant: %w", err)
-	}
-	logs.InfoContextf(ctx, "published run command: topic=%s org_id=%d worker_id=%d assistant_id=%d session_id=%s run_id=%s message_id=%d sequence=%d",
-		topic, orgID, effectiveWorkerID, effectiveAssistantID, session.PublicID, requestID, message.ID, message.Sequence)
-	return nil
+	return topic, cmd, nil
 }
 
 func (p *MessagePoster) resolveProjectPluginSnapshots(ctx context.Context, orgID, projectID uint) ([]messaging.PluginSnapshot, error) {
@@ -1048,6 +1157,7 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 		BaseURL:      model.BaseURL,
 		BaseURLHasV1: model.BaseURLHasV1,
 		APIKey:       model.APIKeyEncrypted,
+		Vision:       llm.VisionFromConfig(model.Config),
 	}, nil
 }
 

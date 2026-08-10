@@ -72,7 +72,9 @@ type EventContext struct {
 	RunID             string
 	ParentID          string
 	ReplyToMessageIDs []string
-	ClientIP          string
+	// MemberCommandIDs contains every durable command merged into this execution batch.
+	MemberCommandIDs []string
+	ClientIP         string
 }
 
 // RunEventPublisher publishes a fully constructed Worker/Server business event.

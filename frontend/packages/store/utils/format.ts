@@ -1,9 +1,45 @@
+const WEEKDAY_NAMES = [
+	"\u661f\u671f\u65e5",
+	"\u661f\u671f\u4e00",
+	"\u661f\u671f\u4e8c",
+	"\u661f\u671f\u4e09",
+	"\u661f\u671f\u56db",
+	"\u661f\u671f\u4e94",
+	"\u661f\u671f\u516d",
+] as const;
+
+function pad2(value: number): string {
+	return String(value).padStart(2, "0");
+}
+
+function startOfLocalDay(date: Date): number {
+	return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function formatClockTime(date: Date): string {
+	return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+/** 按微信会话消息时间规则展示：今天 / 昨天 / 近7天星期 / 今年月日 / 跨年年月日。 */
 export function formatTime(timestamp: number): string {
 	const date = new Date(timestamp);
-	return date.toLocaleTimeString("zh-CN", {
-		hour: "2-digit",
-		minute: "2-digit",
-	});
+	const now = new Date();
+	const timePart = formatClockTime(date);
+	const dayDiff = Math.floor((startOfLocalDay(now) - startOfLocalDay(date)) / 86_400_000);
+
+	if (dayDiff <= 0) {
+		return timePart;
+	}
+	if (dayDiff === 1) {
+		return `\u6628\u5929 ${timePart}`;
+	}
+	if (dayDiff < 7) {
+		return `${WEEKDAY_NAMES[date.getDay()]} ${timePart}`;
+	}
+	if (date.getFullYear() === now.getFullYear()) {
+		return `${date.getMonth() + 1}\u6708${date.getDate()}\u65e5 ${timePart}`;
+	}
+	return `${date.getFullYear()}\u5e74${date.getMonth() + 1}\u6708${date.getDate()}\u65e5 ${timePart}`;
 }
 
 export function formatDate(timestamp: number): string {

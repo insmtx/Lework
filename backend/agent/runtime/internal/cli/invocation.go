@@ -17,9 +17,11 @@ type InvocationRequest struct {
 	WorkDir         string
 	TaskDir         string
 	SkillDir        string
+	UploadRelDir    string
 	SystemPrompt    string
 	Prompt          string
 	Messages        []agent.Message
+	Attachments     []agent.Attachment
 	Tools           []agent.Tool
 	AllowedTools    []string
 	TraceID         string

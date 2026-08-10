@@ -38,6 +38,7 @@ type AddMessageRequest struct {
 	Content       string                    `json:"content" binding:"required"`
 	ExecutionMode types.ExecutionMode       `json:"execution_mode,omitempty" binding:"omitempty,oneof=default plan"`
 	AssistantIDs  []string                  `json:"assistant_ids,omitempty"`
+	ConnectorIDs  []string                  `json:"connector_ids,omitempty"`
 	MessageType   string                    `json:"message_type,omitempty"`
 	Chunks        []types.MessageChunk      `json:"chunks,omitempty"`
 	Attachments   []types.MessageAttachment `json:"attachments,omitempty"`
@@ -85,24 +86,27 @@ type Session struct {
 
 // SessionMessage is the API response shape for a persisted conversation message.
 type SessionMessage struct {
-	ID          string                    `json:"id"`
-	SessionID   string                    `json:"session_id"`
-	Role        string                    `json:"role"`
-	Content     string                    `json:"content"`
-	ErrorMsg    string                    `json:"error_msg,omitempty"`
-	Chunks      []SessionEvent            `json:"chunks,omitempty"`
-	Artifacts   []types.MessageArtifact   `json:"artifacts,omitempty"`
-	Attachments []types.MessageAttachment `json:"attachments,omitempty"`
-	Timestamp   int64                     `json:"timestamp"`
-	MessageType string                    `json:"message_type,omitempty"`
-	Metadata    *types.ObjectMetadata     `json:"metadata,omitempty"`
-	Usage       *types.MessageUsage       `json:"usage,omitempty"`
-	Sequence    int64                     `json:"sequence"`
-	CreatedAt   time.Time                 `json:"created_at"`
-	SenderUin   *uint                     `json:"sender_uin,omitempty"`
-	SenderName  string                    `json:"sender_name,omitempty"`
-	RunID       string                    `json:"run_id,omitempty"`
-	AssistantID string                    `json:"assistant_id,omitempty"`
+	ID                string                    `json:"id"`
+	SessionID         string                    `json:"session_id"`
+	Role              string                    `json:"role"`
+	Content           string                    `json:"content"`
+	ErrorMsg          string                    `json:"error_msg,omitempty"`
+	Chunks            []SessionEvent            `json:"chunks,omitempty"`
+	Artifacts         []types.MessageArtifact   `json:"artifacts,omitempty"`
+	Attachments       []types.MessageAttachment `json:"attachments,omitempty"`
+	Timestamp         int64                     `json:"timestamp"`
+	MessageType       string                    `json:"message_type,omitempty"`
+	Metadata          *types.ObjectMetadata     `json:"metadata,omitempty"`
+	Usage             *types.MessageUsage       `json:"usage,omitempty"`
+	Sequence          int64                     `json:"sequence"`
+	CreatedAt         time.Time                 `json:"created_at"`
+	SenderUin         *uint                     `json:"sender_uin,omitempty"`
+	SenderName        string                    `json:"sender_name,omitempty"`
+	RunID             string                    `json:"run_id,omitempty"`
+	AssistantID       string                    `json:"assistant_id,omitempty"`
+	DispatchState     string                    `json:"dispatch_state,omitempty"`
+	QueueDeadlineAt   *time.Time                `json:"queue_deadline_at,omitempty"`
+	LastDispatchError string                    `json:"last_dispatch_error,omitempty"`
 }
 
 // SessionEvent is the public event shape embedded in persisted message chunks.

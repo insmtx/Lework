@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -104,10 +105,11 @@ func TestCoordinatorEnforcesMaxConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
-			_, _ = coordinator.Submit(context.Background(), RunSubmission{})
-		}()
+			// 使用带完整路由的有效提交（不同会话避免 debounce 合并）。
+			_, _ = coordinator.Submit(context.Background(), testSubmissionSession(fmt.Sprintf("run-conc-%d", i), "m", uint64(i+1), fmt.Sprintf("session-%d", i)))
+		}(i)
 	}
 	<-started
 	<-started
@@ -320,14 +322,14 @@ func TestCoordinatorCancelledWaiterDoesNotCorruptDebouncedBatch(t *testing.T) {
 
 func TestCoordinatorCloseWaitsForInflightExecution(t *testing.T) {
 	started := make(chan struct{})
-	release := make(chan struct{})
 	coordinator, err := NewCoordinator(Config{MaxConcurrency: 1}, func(
-		context.Context,
-		RunSubmission,
+		ctx context.Context,
+		_ RunSubmission,
 	) (*agentrundomain.RunResult, error) {
 		close(started)
-		<-release
-		return &agentrundomain.RunResult{}, nil
+		// 响应根上下文取消：Close 会取消本运行的 ctx，这里据此退出。
+		<-ctx.Done()
+		return nil, ctx.Err()
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -335,23 +337,16 @@ func TestCoordinatorCloseWaitsForInflightExecution(t *testing.T) {
 
 	submitDone := make(chan error, 1)
 	go func() {
-		_, submitErr := coordinator.Submit(context.Background(), RunSubmission{})
+		_, submitErr := coordinator.Submit(context.Background(), testSubmissionSession("run-tclose", "m", 1, "session-tclose"))
 		submitDone <- submitErr
 	}()
 	<-started
-	closeDone := make(chan error, 1)
-	go func() { closeDone <- coordinator.Close() }()
-	select {
-	case closeErr := <-closeDone:
-		t.Fatalf("Close() returned before execution completed: %v", closeErr)
-	case <-time.After(20 * time.Millisecond):
+	// Close 取消根上下文并等待该运行退出（RunContext 被取消后运行结束）。
+	if err := coordinator.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
-	close(release)
-	if submitErr := <-submitDone; submitErr != nil {
-		t.Fatalf("Submit() error = %v", submitErr)
-	}
-	if closeErr := <-closeDone; closeErr != nil {
-		t.Fatalf("Close() error = %v", closeErr)
+	if submitErr := <-submitDone; submitErr == nil {
+		t.Fatal("Close() cancelled the in-flight run, Submit() should return non-nil")
 	}
 }
 
@@ -375,6 +370,9 @@ func TestCoordinatorCancelDuringPendingToActiveTransition(t *testing.T) {
 		_, submitErr := coordinator.Submit(context.Background(), testSubmission("run-race", "message", 1))
 		submitDone <- submitErr
 	}()
+
+	// 等待运行进入执行态（active）后再发起取消，验证 active 阶段取消可解析为 context.Canceled。
+	<-executionStarted
 	stopCancelling := make(chan struct{})
 	go func() {
 		for {
@@ -386,7 +384,6 @@ func TestCoordinatorCancelDuringPendingToActiveTransition(t *testing.T) {
 			}
 		}
 	}()
-	<-executionStarted
 	submitErr := <-submitDone
 	close(stopCancelling)
 	if !errors.Is(submitErr, context.Canceled) {

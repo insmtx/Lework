@@ -9,6 +9,7 @@
     "build": "turbo build",
     "dist:desktop": "pnpm --filter @leros/desktop dist",
     "dist:desktop:private": "pnpm --filter @leros/desktop dist:private",
+    "dist:desktop:private:dir": "pnpm --filter @leros/desktop dist:private:dir",
     "dist:desktop:private:mac:arm64": "pnpm --filter @leros/desktop dist:private:mac:arm64",
     "dist:desktop:private:mac:x64": "pnpm --filter @leros/desktop dist:private:mac:x64",
     "dist:desktop:private:win:x64": "pnpm --filter @leros/desktop dist:private:win:x64",

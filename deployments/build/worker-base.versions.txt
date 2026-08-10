@@ -1,0 +1,54 @@
+# worker-base 构建 ARG 默认值集中参考（Dockerfile.worker-base 来源）。
+# 修改版本时同步更新 Dockerfile.worker-base 顶部的 ARG 默认值与这里的版本号。
+
+# 构建版次
+#   saas     SaaS 精简版（只保留投标/Excel/Word/PDF 常用 Python 库与 Node 文档组件，默认）
+#   private  私有化完整版（含 LaTeX、Poppler、Ghostscript、Pandoc、ImageMagick、
+#            Inkscape、Matplotlib、FFmpeg、Tesseract、Playwright 等）
+EDITION=saas
+
+# Node 版本（多架构：amd64/arm64）
+NODE_VERSION=22.14.0
+
+# AI 编程助手（npm 全局安装）
+CLAUDE_CODE_VERSION=latest
+CODEX_VERSION=latest
+OPENCODE_VERSION=1.17.20
+
+# Python 文档处理库（两版统一固定版本，保证技能脚本可复现）
+#   参考 GPT 沙箱环境组件表版本；改动前务必确认技能 scripts/publish_output.py、
+#   render_docx.py、convert_doc_to_docx.py 等已就绪。
+PYTHON_DOCX=1.2.0
+LXML=6.0.2
+OPENPYXL=3.1.5
+XLSXWRITER=3.2.9
+PANDAS=2.2.3
+PYTHON_PPTX=1.0.2
+PYMUPDF=1.26.6
+PYPDF=6.10.0
+PDFPLUMBER=0.11.8
+PDFMINER_SIX=20251107
+REPORTLAB=4.4.9
+PILLOW=12.2.0
+
+# Node 文档组件（npm 全局安装）
+DOCX=9.6.1
+PPTXGENJS=4.0.1
+PDF_LIB=1.17.1
+SHARP=0.34.5
+PLAYWRIGHT=1.61.1
+
+# apt 包（随 Ubuntu 24.04 仓库浮动，以下为构建参考版本）
+#   LibreOffice    -> apt 稳定版（未升级到 26.8 alpha，按决策维持）
+#   TeX Live      -> texlive-xetex / texlive-luatex / texlive-latex-base /
+#                    texlive-latex-recommended + texlive-fonts-recommended +
+#                    texlive-lang-chinese
+#                    （Ubuntu 24.04 源里无独立 texlive-pdftex 包，pdfTeX 由
+#                     texlive-binaries/texlive-latex-base 提供）
+#   Tesseract     -> tesseract-ocr + tesseract-ocr-eng + tesseract-ocr-chi-sim +
+#                    tesseract-ocr-osd
+#   其余          -> poppler-utils / ghostscript / pandoc / imagemagick /
+#                    inkscape / python3-matplotlib / ffmpeg / libvips
+
+# pip 镜像（默认阿里云）
+PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/

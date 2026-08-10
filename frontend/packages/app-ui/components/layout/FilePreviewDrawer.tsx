@@ -3,13 +3,14 @@
 import { type BackendProjectFileVersion, projectFileApi, useChatStore } from "@leros/store";
 import { cn } from "@leros/ui/lib/utils";
 import {
+	Check,
 	ChevronsLeftRightEllipsis,
+	Copy,
 	Download,
 	FileText,
 	History,
 	LoaderCircle,
 	RotateCcw,
-	ShieldCheck,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -763,6 +764,40 @@ function FilePreviewContent({
 	onHtmlViewChange: (view: "preview" | "source") => void;
 	onOfficeSelectionChange: (selection: OfficeTextSelection | null) => void;
 }) {
+	const [copiedHtmlText, setCopiedHtmlText] = useState<string | null>(null);
+	const copyResetTimerRef = useRef<number | null>(null);
+	const htmlCopied =
+		preview.status === "ready" && preview.text !== undefined && copiedHtmlText === preview.text;
+
+	useEffect(
+		() => () => {
+			if (copyResetTimerRef.current !== null) {
+				window.clearTimeout(copyResetTimerRef.current);
+			}
+		},
+		[],
+	);
+
+	const handleCopyHtml = async () => {
+		if (preview.status !== "ready" || preview.text === undefined) return;
+
+		try {
+			await navigator.clipboard.writeText(preview.text);
+			setCopiedHtmlText(preview.text);
+			toast.success("HTML 源码已复制");
+			if (copyResetTimerRef.current !== null) {
+				window.clearTimeout(copyResetTimerRef.current);
+			}
+			copyResetTimerRef.current = window.setTimeout(() => {
+				setCopiedHtmlText(null);
+				copyResetTimerRef.current = null;
+			}, 1500);
+		} catch (error) {
+			console.error("Failed to copy HTML source", error);
+			toast.error("复制失败，请重试");
+		}
+	};
+
 	if (preview.status === "loading" || preview.status === "idle") {
 		return (
 			<div className="flex flex-1 items-center justify-center text-sm text-[var(--leros-text-muted)]">
@@ -843,15 +878,19 @@ function FilePreviewContent({
 							</button>
 						))}
 					</div>
-					{htmlView === "preview" && (
-						<span
-							title="当前仅支持基础静态预览，包含脚本或复杂交互的页面请下载后用浏览器打开。"
-							className="inline-flex items-center gap-1 text-[11px] text-[var(--leros-text-muted)]"
-						>
-							<ShieldCheck className="size-3.5 text-emerald-600" />
-							安全预览
-						</span>
-					)}
+					<button
+						type="button"
+						onClick={() => void handleCopyHtml()}
+						title="复制 HTML 源码"
+						aria-label="复制 HTML 源码"
+						className={cn(
+							"inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] transition-colors hover:bg-white hover:text-[var(--leros-text-strong)]",
+							htmlCopied ? "text-emerald-600" : "text-[var(--leros-text-muted)]",
+						)}
+					>
+						{htmlCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+						<span aria-live="polite">{htmlCopied ? "已复制" : "复制源码"}</span>
+					</button>
 				</div>
 				{htmlView === "preview" && preview.objectUrl ? (
 					<iframe

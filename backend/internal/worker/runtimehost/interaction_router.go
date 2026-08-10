@@ -46,8 +46,20 @@ func NewInteractionRouter() *InteractionRouter {
 // Approval 方法（实现 ApprovalHandler 接口）
 // ============================================================================
 
+// beginInteractionWait 从 ctx 中解析交互等待观察者（由 Coordinator 注入），
+// 若有则开启交互等待并释放计算槽。返回 end 和开启是否成功。
+func beginInteractionWait(ctx context.Context, requestID, kind string) (func() error, error) {
+	observer := agent.InteractionWaitObserverFromContext(ctx)
+	if observer == nil {
+		return nil, nil
+	}
+	return observer.BeginInteractionWait(ctx, requestID, kind)
+}
+
 // RequestApproval 注册 pending approval 并阻塞等待前端 HTTP 回传决策。
-// 实现 ApprovalHandler 接口。
+// 实现 ApprovalHandler 接口。若运行 ctx 注入了 InteractionWaitObserver，
+// 则等待期间释放计算槽，等待结束重新获取。
+// 结束状态显式处理：resolved / cancelled / timeout / reacquire_failed。
 func (r *InteractionRouter) RequestApproval(ctx context.Context, req *agent.ApprovalRequest) (*agent.ApprovalDecision, error) {
 	ch := make(chan *agent.ApprovalDecision, 1)
 	r.mu.Lock()
@@ -66,10 +78,34 @@ func (r *InteractionRouter) RequestApproval(ctx context.Context, req *agent.Appr
 		r.mu.Unlock()
 	}()
 
+	// 等待期间释放计算槽、进入交互等待槽。
+	end, err := beginInteractionWait(ctx, req.RequestID, "approval")
+	if err != nil {
+		// 交互等待容量满：以明确错误结束任务。
+		return nil, fmt.Errorf("approval wait rejected: %w", err)
+	}
+
+	if end == nil {
+		// 无观察者：保持原有阻塞行为。
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case decision := <-ch:
+			return decision, nil
+		}
+	}
+
 	select {
 	case <-ctx.Done():
+		// cancelled / timeout：取消优先，仍调用 end() 释放交互槽；end 内 reacquire 会失败并记录。
+		_ = end()
 		return nil, ctx.Err()
 	case decision := <-ch:
+		// resolved：先重取计算槽，失败（reacquire_failed）则作为最终错误返回 Runtime。
+		if resumeErr := end(); resumeErr != nil {
+			logs.WarnContextf(ctx, "InteractionRouter: resume approval run failed request_id=%s: %v", req.RequestID, resumeErr)
+			return nil, fmt.Errorf("resume approval run after wait: %w", resumeErr)
+		}
 		return decision, nil
 	}
 }
@@ -114,7 +150,9 @@ func (r *InteractionRouter) GetApprovalResponder(requestID string) agent.Approva
 // ============================================================================
 
 // RequestAnswer 注册 pending question 并阻塞等待前端 HTTP 回传答案。
-// 实现 QuestionHandler 接口。
+// 实现 QuestionHandler 接口。若运行 ctx 注入了 InteractionWaitObserver，
+// 则等待期间释放计算槽，等待结束重新获取。
+// 结束状态显式处理：resolved / cancelled / timeout / reacquire_failed。
 func (r *InteractionRouter) RequestAnswer(ctx context.Context, req *agent.QuestionRequest) (*agent.QuestionAnswer, error) {
 	ch := make(chan *agent.QuestionAnswer, 1)
 	r.mu.Lock()
@@ -133,10 +171,34 @@ func (r *InteractionRouter) RequestAnswer(ctx context.Context, req *agent.Questi
 		r.mu.Unlock()
 	}()
 
+	// 等待期间释放计算槽、进入交互等待槽。
+	end, err := beginInteractionWait(ctx, req.RequestID, "question")
+	if err != nil {
+		// 交互等待容量满：以明确错误结束任务。
+		return nil, fmt.Errorf("question wait rejected: %w", err)
+	}
+
+	if end == nil {
+		// 无观察者：保持原有阻塞行为。
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case answer := <-ch:
+			return answer, nil
+		}
+	}
+
 	select {
 	case <-ctx.Done():
+		// cancelled / timeout：取消优先，仍调用 end() 释放交互槽。
+		_ = end()
 		return nil, ctx.Err()
 	case answer := <-ch:
+		// resolved：先重取计算槽，失败（reacquire_failed）则作为最终错误返回 Runtime。
+		if resumeErr := end(); resumeErr != nil {
+			logs.WarnContextf(ctx, "InteractionRouter: resume question run failed request_id=%s: %v", req.RequestID, resumeErr)
+			return nil, fmt.Errorf("resume question run after wait: %w", resumeErr)
+		}
 		return answer, nil
 	}
 }

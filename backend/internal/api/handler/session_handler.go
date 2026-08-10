@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/internal/service"
 )
 
 type SessionHandler struct {
@@ -516,6 +518,10 @@ func (h *SessionHandler) SubmitApproval(ctx *gin.Context) {
 
 func handleSessionServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()
+	if errors.Is(err, service.ErrRunDispatchUnavailable) {
+		ctx.JSON(http.StatusServiceUnavailable, dto.Error(dto.CodeInternalError, errMsg))
+		return
+	}
 	if errMsg == "user not authenticated or org not set" {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeUnauthorized, errMsg))
 		return

@@ -15,6 +15,17 @@ export type {
 	SendPhoneLoginCodeResponse,
 } from "./authApi";
 export { authApi } from "./authApi";
+export type {
+	CreateAutomationParams,
+	DeleteAutomationParams,
+	GetAutomationExecutionParams,
+	GetAutomationParams,
+	ListAutomationExecutionsParams,
+	ListAutomationsParams,
+	RunAutomationNowParams,
+	UpdateAutomationParams,
+} from "./automationApi";
+export { automationApi } from "./automationApi";
 export { apiClient } from "./client";
 export {
 	API_BASE_URL,
@@ -113,6 +124,13 @@ export type {
 export { taskApi } from "./taskApi";
 export type {
 	BackendAssistantConfig,
+	BackendAutomation,
+	BackendAutomationCalendarConfig,
+	BackendAutomationExecution,
+	BackendAutomationIntervalConfig,
+	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleSpec,
+	BackendAutomationSpec,
 	BackendBaseResponse,
 	BackendChannelRef,
 	BackendDataResponse,

@@ -48,4 +48,17 @@ describe("electron-builder 桌面图标与资源配置", () => {
 			/extraResources:[\s\S]*from:\s*resources\/privacy-policy\.pdf[\s\S]*to:\s*privacy-policy\.pdf/,
 		);
 	});
+
+	it("Windows NSIS 应保留默认运行中确认，并用映像名强杀避免手动关闭兜底", () => {
+		const config = readFileSync(builderConfigPath, "utf8");
+		const installerScript = readFileSync(resolve(__dirname, "../../../nsis/installer.nsh"), "utf8");
+
+		expect(config).toMatch(/nsis:[\s\S]*include:\s*nsis\/installer\.nsh/);
+		expect(installerScript).toContain("!macro customCheckAppRunning");
+		expect(installerScript).toContain("$(appRunning)");
+		expect(installerScript).toContain("taskkill /F /IM");
+		expect(installerScript).toContain("/T");
+		expect(installerScript).not.toContain("继续安装需要强制关闭");
+		expect(installerScript).not.toContain("leros_force_kill_attempt");
+	});
 });

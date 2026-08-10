@@ -17,6 +17,14 @@ export type {
 	SendPhoneLoginCodeResponse,
 } from "./api/authApi";
 export { authApi } from "./api/authApi";
+export type {
+	CreateAutomationParams,
+	DeleteAutomationParams,
+	GetAutomationParams,
+	ListAutomationsParams,
+	UpdateAutomationParams,
+} from "./api/automationApi";
+export { automationApi } from "./api/automationApi";
 export { clientUpdateApi } from "./api/clientUpdateApi";
 export type {
 	ClientApp,
@@ -119,6 +127,12 @@ export { sessionApi } from "./api/sessionApi";
 export { taskApi } from "./api/taskApi";
 export type {
 	BackendAITeammateTemplate,
+	BackendAutomation,
+	BackendAutomationCalendarConfig,
+	BackendAutomationIntervalConfig,
+	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleSpec,
+	BackendAutomationSpec,
 	BackendProjectFileVersion,
 	BackendProjectFileVersionList,
 	BackendTask,
@@ -129,6 +143,7 @@ export type { AppAction, AppStore } from "./appStore";
 export {
 	useAppStore,
 	useAuthStore,
+	useAutomationStore,
 	useChatStore,
 	useDAStore,
 	useGlobalConfigStore,
@@ -181,6 +196,13 @@ export type {
 } from "./permission/types";
 export { Action, CODE_FORBIDDEN, PERMISSION_DENIED_EVENT } from "./permission/types";
 export type { AuthAction, AuthState, AuthStore, AuthUser } from "./slices/authSlice";
+export type {
+	AutomationAction,
+	AutomationExecutionItem,
+	AutomationItem,
+	AutomationState,
+	AutomationStore,
+} from "./slices/automationSlice";
 export type { ChatAction, ChatState, ChatStore } from "./slices/chatSlice";
 export type {
 	DAStore,
@@ -287,6 +309,7 @@ export {
 	trackPageStay,
 	trackPageView,
 } from "./utils/frontendEventTracker";
+export { revokeAttachmentObjectUrls } from "./utils/messageAttachments";
 export {
 	buildMessageMetadata,
 	getAssistantMessageFooterSegments,

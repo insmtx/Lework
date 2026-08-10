@@ -26,6 +26,7 @@ import { AssistantDeleteDialog } from "./AssistantDeleteDialog";
 import { AssistantDetailDialog } from "./AssistantDetailDialog";
 import { AssistantEditDialog } from "./AssistantEditDialog";
 import { isAssistantAvailable } from "./assistantStatus";
+import { buildDefaultSummonPrompt } from "./promptSuggestions";
 
 export function AssistantListView({ navigation }: { navigation?: AppNavigation }) {
 	const { isAuthenticated, requireAuth } = useAuth();
@@ -256,7 +257,12 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 						<Button
 							className="h-10 w-full"
 							onClick={() => {
-								if (createdAssistantReady) handleSummonAssistant(createdAssistantReady);
+								if (createdAssistantReady) {
+									handleSummonAssistant(
+										createdAssistantReady,
+										buildDefaultSummonPrompt(createdAssistantReady),
+									);
+								}
 								setCreatedAssistantReady(null);
 							}}
 						>

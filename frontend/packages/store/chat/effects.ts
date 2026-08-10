@@ -5,6 +5,9 @@
  * 不可以做：发 HTTP 消息、开 SSE、改 Message 气泡内容。
  */
 
+import type { Attachment } from "../types/chat";
+import { revokeAttachmentObjectUrls } from "../utils/messageAttachments";
+
 /**
  * effects 写入联合 store 所需的最小能力。
  */
@@ -39,6 +42,7 @@ export class ChatEffects {
 
 	/**
 	 * 新建/续聊任务后写入 taskDetail 路由状态，并按需刷新项目详情。
+	 * 调用方须先 bootstrap（若有），再调用本方法，避免详情页在 waiting 写好前误 load。
 	 * 项目首页不 await 详情；工作台新建 await，保证跳转后 store 有任务列表。
 	 */
 	navigateToTaskDetail = async (options: NavigateToTaskDetailOptions) => {
@@ -73,8 +77,10 @@ export class ChatEffects {
 		void fullState.fetchProjectDetail(projectId);
 	};
 
-	/** 清空 composer 草稿（ChatState 字段）。 */
+	/** 清空 composer 草稿，并按统一策略释放本地 blob 预览。 */
 	clearComposer = () => {
+		const state = this.#deps.fullGet() as { inputAttachments?: Attachment[] };
+		revokeAttachmentObjectUrls(state.inputAttachments);
 		this.#deps.setStore({
 			inputText: "",
 			inputAttachments: [],

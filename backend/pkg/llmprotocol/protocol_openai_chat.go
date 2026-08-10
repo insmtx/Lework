@@ -793,18 +793,27 @@ func encodeOpenAIChatMessages(ir *IRRequest) []interface{} {
 
 		em := map[string]interface{}{"role": baseRole}
 		hasContent := false
+		hasImage := false
+		var contentParts []interface{} // 有序内容段：有图片/文件时以数组形式输出 content
+		var contentText string
 		var toolCalls []interface{}
 		var reasoningContent string
 
 		flushMessage := func() {
+			if hasImage {
+				em["content"] = contentParts
+			} else {
+				if contentText != "" {
+					em["content"] = contentText
+				} else if _, ok := em["content"]; !ok && len(toolCalls) == 0 && baseRole != "tool" {
+					em["content"] = ""
+				}
+			}
 			if len(toolCalls) > 0 {
 				em["tool_calls"] = toolCalls
 			}
 			if reasoningContent != "" {
 				em["reasoning_content"] = reasoningContent
-			}
-			if _, ok := em["content"]; !ok && len(toolCalls) == 0 && baseRole != "tool" {
-				em["content"] = ""
 			}
 			if hasContent || len(toolCalls) > 0 || reasoningContent != "" || baseRole != "tool" {
 				msgs = append(msgs, em)
@@ -812,17 +821,41 @@ func encodeOpenAIChatMessages(ir *IRRequest) []interface{} {
 			em = map[string]interface{}{"role": baseRole}
 			toolCalls = nil
 			reasoningContent = ""
+			contentParts = nil
+			contentText = ""
 			hasContent = false
+			hasImage = false
 		}
 
 		for _, part := range m.Parts {
 			switch part.Type {
 			case IRPartText:
-				if existing, ok := em["content"].(string); ok {
-					em["content"] = existing + part.Text
+				if hasImage {
+					contentParts = append(contentParts, map[string]interface{}{
+						"type": "text",
+						"text": part.Text,
+					})
 				} else {
-					em["content"] = part.Text
+					contentText += part.Text
 				}
+				hasContent = true
+			case IRPartImage:
+				if !hasImage {
+					hasImage = true
+					if contentText != "" {
+						contentParts = append(contentParts, map[string]interface{}{
+							"type": "text",
+							"text": contentText,
+						})
+						contentText = ""
+					}
+				}
+				contentParts = append(contentParts, map[string]interface{}{
+					"type": "image_url",
+					"image_url": map[string]interface{}{
+						"url": part.Metadata["url"],
+					},
+				})
 				hasContent = true
 			case IRPartToolCall:
 				if part.ToolCall != nil {

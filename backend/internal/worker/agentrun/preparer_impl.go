@@ -1,8 +1,12 @@
 package agentrun
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"golang.org/x/image/draw"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/internal/consts"
@@ -190,6 +196,122 @@ func downloadAttachment(ctx context.Context, url string, destPath string) error 
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil
+}
+
+// maxMultimodalInlineBytes 限制以 data: URL 内联进 runtime 的多模态附件大小。
+// 超过该阈值的大文件不再读取字节内联（Data 为空），其上落盘位置由调用方通过
+// Filesystem.UploadRelDir 提供给 runtime，由 runtime 侧按路径读取，避免单条消息
+// 字节/上下文膨胀超限。
+var maxMultimodalInlineBytes = 100 * 1024 * 1024 // 100MiB
+
+// multimodalAttachmentsForRuntime 从输入附件中筛出多模态文件（仅图片）并下载其字节，
+// 用于 runtime 的多模态输入。失败的下载跳过并仅告警（非致命）。
+// 返回的每个 agent.Attachment 携带 MIME 与原始文件名 Name；是否内联由 Data 决定。
+// PDF/音视频已退出多模态管线：不在此下载内联，统一走 BuildAttachmentText 的按路径读取。
+func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrundomain.Attachment) []agent.Attachment {
+	var result []agent.Attachment
+	for _, att := range attachments {
+		if !agentrundomain.IsVisualMime(att.MimeType) {
+			continue
+		}
+		base := strings.TrimSpace(att.Name)
+		if base == "" {
+			continue
+		}
+		u := strings.TrimSpace(att.URL)
+		if u == "" {
+			continue
+		}
+		logs.Infof("[forensic][multimodal] target: name=%q mime=%q url=%q", base, att.MimeType, u)
+		a := agent.Attachment{
+			MIME: att.MimeType,
+			Name: base,
+		}
+		data, err := downloadAttachmentBytes(ctx, u)
+		if err != nil {
+			logs.WarnContextf(ctx, "fetch multimodal attachment %q: %v", att.Name, err)
+			continue
+		}
+		// FORENSIC-DOWNSCALE: 记录内联前的原始字节与声明的 MIME
+		logs.Infof("[forensic][downscale] before: name=%q mime=%q size=%d", base, att.MimeType, len(data))
+		if resized, newMIME, err := downscaleMultimodalImage(data, att.MimeType); err == nil && resized != nil {
+			data = resized
+			// 缩放到 jpeg 后固定声明 image/jpeg，避免 opencode 对大图执行 PNG 重编码路径导致 SSE 不推送
+			a.MIME = newMIME
+			logs.Infof("[forensic][downscale] resized: name=%q size=%d input_mime=%q output_mime=%q", base, len(data), att.MimeType, newMIME)
+		} else if err != nil {
+			logs.Debugf("downscale multimodal attachment %q skipped: %v", base, err)
+		}
+		if len(data) > maxMultimodalInlineBytes {
+			logs.WarnContextf(ctx, "multimodal attachment %q exceeds %d bytes, skip inline and read via uploads path",
+				att.Name, maxMultimodalInlineBytes)
+		} else {
+			a.Data = data
+		}
+		result = append(result, a)
+	}
+	return result
+}
+
+// maxMultimodalSide 内联多模态图片的最长边像素阈值。
+// opencode 对超出此尺寸的图片（如 2048x2048）会触发内部 PNG 重编码路径，
+// 该路径下生成的文本不会通过 SSE 流式上报，导致 worker 只拿到用户输入回声。
+// 此处预先缩放到阈值内，规避该缺陷并减小传输体积。
+const maxMultimodalSide = 1600
+
+// downscaleMultimodalImage 将图片按最长边缩放到 maxMultimodalSide 以内（等比），
+// 并统一重新编码为 JPEG。解码失败或无需缩放时返回 nil（不修改原数据）。
+func downscaleMultimodalImage(data []byte, mime string) ([]byte, string, error) {
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return nil, "", fmt.Errorf("invalid image bounds %dx%d", w, h)
+	}
+	if w <= maxMultimodalSide && h <= maxMultimodalSide {
+		// 已满足尺寸要求，无需缩放（保持原 MIME 不变）
+		return nil, strings.TrimSpace(mime), nil
+	}
+	sw, sh := w, h
+	if w > h {
+		sh = h * maxMultimodalSide / w
+		sw = maxMultimodalSide
+	} else {
+		sw = w * maxMultimodalSide / h
+		sh = maxMultimodalSide
+	}
+	if sw < 1 {
+		sw = 1
+	}
+	if sh < 1 {
+		sh = 1
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, sw, sh))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Over, nil)
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), "image/jpeg", nil
+}
+
+func downloadAttachmentBytes(ctx context.Context, url string) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // preparer is the concrete RunPreparer implementation.
@@ -373,6 +495,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 		Model:    cloned.Model.Model,
 		APIKey:   cloned.Model.APIKey,
 		BaseURL:  cloned.Model.BaseURL,
+		Vision:   cloned.Model.Vision,
 	}
 
 	messages := make([]agent.Message, 0, len(cloned.Conversation.Messages))
@@ -397,6 +520,8 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 	}
 	sort.Strings(runtimeEnv)
 
+	attachments := multimodalAttachmentsForRuntime(ctx, cloned.Input.Attachments)
+
 	return &PreparedRun{
 		Request: req,
 		Execution: agent.ExecutionRequest{
@@ -409,6 +534,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			SystemPrompt: systemPrompt,
 			Prompt:       prompt,
 			Messages:     messages,
+			Attachments:  attachments,
 			Tools:        runtimeTools,
 			MCPServers:   mcpServers,
 			ExtraEnv:     runtimeEnv,
@@ -419,10 +545,11 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			},
 			ProviderSession: providerSession,
 			Filesystem: agent.FilesystemContext{
-				WorkDir:  workspace.WorkDir,
-				RepoDir:  workspace.RepoDir,
-				TaskDir:  workspace.TaskDir,
-				SkillDir: workspace.SkillDir,
+				WorkDir:      workspace.WorkDir,
+				RepoDir:      workspace.RepoDir,
+				TaskDir:      workspace.TaskDir,
+				SkillDir:     workspace.SkillDir,
+				UploadRelDir: consts.RepoDirUploads,
 			},
 		},
 		Workspace: workspace,

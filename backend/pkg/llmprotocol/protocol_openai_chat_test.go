@@ -771,6 +771,86 @@ func TestOpenAIChatDecodeStreamEvent(t *testing.T) {
 
 // EncodeStreamEvent tests
 
+func TestOpenAIChatEncodeRequest_WithImage(t *testing.T) {
+	t.Run("round_trip_preserves_image_url", func(t *testing.T) {
+		raw := parseJSON(t, `{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"text","text":"what is this"},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo=="}}]}]}`)
+		ir, err := testAdapter.DecodeRequest(raw)
+		if err != nil {
+			t.Fatalf("DecodeRequest() error = %v", err)
+		}
+		body, err := testAdapter.EncodeRequest(ir)
+		if err != nil {
+			t.Fatalf("EncodeRequest() error = %v", err)
+		}
+		msgs, _ := getList(body, "messages")
+		if len(msgs) != 1 {
+			t.Fatalf("len(messages) = %d, want 1", len(msgs))
+		}
+		m, _ := msgs[0].(map[string]interface{})
+		content, ok := m["content"].([]interface{})
+		if !ok {
+			t.Fatalf("content not an array: %T (%#v)", m["content"], m["content"])
+		}
+		var hasImage bool
+		for _, item := range content {
+			pm, _ := item.(map[string]interface{})
+			if getString(pm, "type") == "image_url" {
+				img, _ := pm["image_url"].(map[string]interface{})
+				if getString(img, "url") == "data:image/png;base64,iVBORw0KGgo==" {
+					hasImage = true
+				}
+			}
+		}
+		if !hasImage {
+			t.Errorf("image_url part lost after round-trip: %#v", content)
+		}
+	})
+
+	t.Run("encode_image_after_text", func(t *testing.T) {
+		ir := &IRRequest{
+			Model: "gpt-4o",
+			Messages: []IRMessage{{Role: IRRoleUser, Parts: []IRContentPart{
+				{Type: IRPartText, Text: "describe"},
+				{Type: IRPartImage, Metadata: map[string]string{"url": "data:image/png;base64,AAAA"}},
+			}}},
+		}
+		body, err := testAdapter.EncodeRequest(ir)
+		if err != nil {
+			t.Fatalf("EncodeRequest() error = %v", err)
+		}
+		msgs, _ := getList(body, "messages")
+		m, _ := msgs[0].(map[string]interface{})
+		content, ok := m["content"].([]interface{})
+		if !ok || len(content) != 2 {
+			t.Fatalf("content = %#v, want 2-element array", m["content"])
+		}
+		first, _ := content[0].(map[string]interface{})
+		second, _ := content[1].(map[string]interface{})
+		if getString(first, "type") != "text" || getString(first, "text") != "describe" {
+			t.Errorf("first part = %#v", first)
+		}
+		if getString(second, "type") != "image_url" {
+			t.Errorf("second part = %#v", second)
+		}
+	})
+
+	t.Run("encode_text_only_still_string", func(t *testing.T) {
+		ir := &IRRequest{
+			Model:    "gpt-4o",
+			Messages: []IRMessage{{Role: IRRoleUser, Parts: []IRContentPart{{Type: IRPartText, Text: "hello"}}}},
+		}
+		body, err := testAdapter.EncodeRequest(ir)
+		if err != nil {
+			t.Fatalf("EncodeRequest() error = %v", err)
+		}
+		msgs, _ := getList(body, "messages")
+		m, _ := msgs[0].(map[string]interface{})
+		if getString(m, "content") != "hello" {
+			t.Errorf("text-only content = %#v, want string", m["content"])
+		}
+	})
+}
+
 func TestOpenAIChatEncodeStreamEvent(t *testing.T) {
 	t.Run("message_start", func(t *testing.T) {
 		ev := &IRStreamEvent{Type: IRStreamMessageStart, ResponseID: "chatcmpl-s1", ResponseModel: "gpt-4o"}

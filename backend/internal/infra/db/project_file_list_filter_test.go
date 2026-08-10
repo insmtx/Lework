@@ -36,6 +36,9 @@ func TestMatchesProjectFileExtGroup(t *testing.T) {
 		{uploads + "/movie.mov", "video", true},
 		{uploads + "/movie.avi", "video", true},
 		{uploads + "/config.json", "text", true},
+		{uploads + "/page.html", "html", true},
+		{uploads + "/legacy.htm", "html", true},
+		{uploads + "/page.html", "text", false},
 	}
 
 	for _, tc := range cases {
@@ -49,7 +52,8 @@ func TestMatchesProjectFileExtGroup(t *testing.T) {
 func TestValidProjectFileExtFilter(t *testing.T) {
 	t.Parallel()
 
-	if !ValidProjectFileExtFilter("pdf") || !ValidProjectFileExtFilter("video") ||
+	if !ValidProjectFileExtFilter("pdf") || !ValidProjectFileExtFilter("html") ||
+		!ValidProjectFileExtFilter("video") ||
 		ValidProjectFileExtFilter("unknown") {
 		t.Fatal("ValidProjectFileExtFilter returned unexpected values")
 	}

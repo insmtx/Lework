@@ -175,6 +175,9 @@ type SessionMessage struct {
 
 	// session_message - 关联的 AI 队友 ID（AI 回复时填充，用户消息为 0），BIGINT，DEFAULT 0，INDEX
 	AssistantID uint `gorm:"column:assistant_id;type:bigint;default:0;index"`
+
+	// session_message - 自动化执行记录主键（首条自动化指令消息），BIGINT，可空，唯一索引
+	AutomationExecutionID *uint `gorm:"column:automation_execution_id;type:bigint;index"`
 }
 
 // TableName 指定SessionMessage结构体对应的数据库表名

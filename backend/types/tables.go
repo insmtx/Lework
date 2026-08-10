@@ -47,6 +47,10 @@ const (
 	TableNameSession = tablenamePrefix + "session"
 	// TableNameSessionMessage 会话消息表名
 	TableNameSessionMessage = tablenamePrefix + "session_message"
+	// TableNameReliableTask 通用可靠任务 Outbox 表名。
+	TableNameReliableTask = tablenamePrefix + "reliable_task"
+	// TableNameProjectionReceipt 通用事件投影回执表名。
+	TableNameProjectionReceipt = tablenamePrefix + "projection_receipt"
 
 	// TableNameLLMModel LLM模型配置表名
 	TableNameLLMModel = tablenamePrefix + "llm_model"
@@ -97,4 +101,13 @@ const (
 	TableNameDepartment = tablenamePrefix + "department"
 	// TableNameMemberDepartment 组织成员部门关联表名
 	TableNameMemberDepartment = tablenamePrefix + "rel_user_org_department"
+
+	// TableNameSeedRecord SQL 种子执行记录表名
+	TableNameSeedRecord = tablenamePrefix + "seed_record"
+
+	// TableNameAutomation 自动化定时任务配置表名
+	TableNameAutomation = tablenamePrefix + "automation"
+
+	// TableNameAutomationExecution 自动化执行记录表名
+	TableNameAutomationExecution = tablenamePrefix + "automation_execution"
 )

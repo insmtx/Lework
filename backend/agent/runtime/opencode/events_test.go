@@ -541,6 +541,37 @@ func TestWaitCompletionCompletedWhenNoError(t *testing.T) {
 	}
 }
 
+// Test that a prompt-echo final text (user prompt mistaken for assistant text)
+// is treated as a failure so it never lands as a completed assistant reply.
+func TestWaitCompletionRejectsPromptEchoWhenNoError(t *testing.T) {
+	st := &runState{
+		evtChan:       make(chan agent.NodeEvent, 16),
+		resultChan:    make(chan cli.InvocationResult, 1),
+		msgDone:       make(chan struct{}),
+		sseDone:       make(chan struct{}),
+		sseTerminal:   make(chan struct{}),
+		lastTextEnded: "【用户问题】\n[1] 用户 「宋浩」发送：「解读下这个图片」\n\n[Attachments]...",
+	}
+	close(st.msgDone)
+	close(st.sseDone)
+	close(st.sseTerminal)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go st.waitCompletion(ctx, func() {}, func() {})
+
+	for range st.evtChan {
+	}
+	result := <-st.resultChan
+	if result.Err == nil {
+		t.Fatalf("expected echo reply to be rejected, got %#v", result)
+	}
+	if result.Message != "" {
+		t.Fatalf("echo reply must not be promoted into assistant message, got %q", result.Message)
+	}
+}
+
 // Test that diagnostic errors are not promoted into assistant message content.
 func TestWaitCompletionFailedKeepsErrorOutOfResult(t *testing.T) {
 	const errMsg = "no enabled provider model for \"test\""

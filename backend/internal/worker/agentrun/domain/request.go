@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/insmtx/Leros/backend/internal/consts"
 )
 
 // InputType describes the primary shape of the run input.
@@ -146,6 +148,9 @@ type Attachment struct {
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
 	URL      string `json:"url,omitempty"`
+	// Data holds decoded bytes for multimodal attachments (e.g. images).
+	// It is populated in-process by the preparer and never serialized.
+	Data []byte `json:"-"`
 }
 
 // RuntimeOptions controls runtime execution behavior.
@@ -163,6 +168,8 @@ type ModelOptions struct {
 	BaseURL      string  `json:"base_url,omitempty"`
 	BaseURLHasV1 bool    `json:"base_url_has_v1,omitempty"`
 	Temperature  float64 `json:"temperature,omitempty"`
+	// Vision 表示该模型是否支持图片（多模态）输入。
+	Vision bool `json:"vision,omitempty"`
 }
 
 // CapabilityContext describes allowed capabilities for one run.
@@ -177,23 +184,63 @@ type PolicyContext struct {
 }
 
 // BuildAttachmentText formats input attachments as a text block for prompt injection.
+//
+// 仅图片作为视觉内容随消息内联注入（见 preparer 的 multimodalAttachmentsForRuntime
+// 与 opencode 的 modalityConfig：vision 模型只声明 image 输入），模型可直接查看，
+// 无需再调用 read 工具；PDF/音视频不具视觉能力，由 opencode 降级为文本提示，
+// 因此归入"按路径读取"。文本块据此分流，避免模型对图片调用 read 拿到
+// "Image read successfully"后产生幻觉。
 func BuildAttachmentText(attachments []Attachment) string {
 	if len(attachments) == 0 {
 		return ""
 	}
+	var inline, external []Attachment
+	for _, a := range attachments {
+		if IsVisualMime(a.MimeType) {
+			inline = append(inline, a)
+		} else {
+			external = append(external, a)
+		}
+	}
 	var sb strings.Builder
 	sb.WriteString("\n[Attachments]\n")
-	sb.WriteString("The following files were attached by the user in this message, read them to understand their content:\n")
-	for _, a := range attachments {
-		sb.WriteString(fmt.Sprintf("- %s\n", a.Name))
-		if a.URL != "" {
-			sb.WriteString(fmt.Sprintf("  URL: %s\n", a.URL))
+	if len(inline) > 0 {
+		sb.WriteString("The user attached the following files. Their visual content is already provided in this message, you can see them directly (do NOT call the read tool on them):\n")
+		for _, a := range inline {
+			sb.WriteString(fmt.Sprintf("- %s", a.Name))
+			if a.MimeType != "" {
+				sb.WriteString(fmt.Sprintf(" (%s)", a.MimeType))
+			}
+			sb.WriteString("\n")
 		}
-		if a.MimeType != "" {
-			sb.WriteString(fmt.Sprintf("  Type: %s\n", a.MimeType))
+	}
+	if len(external) > 0 {
+		sb.WriteString("The following files were attached by the user in this message, read them on disk to understand their content:\n")
+		for _, a := range external {
+			sb.WriteString(fmt.Sprintf("- %s\n", a.Name))
+			if a.Name != "" {
+				sb.WriteString(fmt.Sprintf("  Location: %s/%s\n", consts.RepoDirUploads, a.Name))
+			}
+			if a.URL != "" {
+				sb.WriteString(fmt.Sprintf("  URL: %s\n", a.URL))
+			}
+			if a.MimeType != "" {
+				sb.WriteString(fmt.Sprintf("  Type: %s\n", a.MimeType))
+			}
 		}
 	}
 	return sb.String()
+}
+
+// IsVisualMime 判断附件是否随消息内联为视觉内容。仅图片如此——vision 模型声明的
+// 输入模态只含 image（见 opencode modalityConfig），PDF/音视频已整体退出多模态管线，
+// 一律按磁盘路径读取，不再作为视觉输入。
+func IsVisualMime(mime string) bool {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	if mime == "" {
+		return false
+	}
+	return strings.HasPrefix(mime, "image/")
 }
 
 // BuildUserInput joins the user-side messages from the request into a formatted text.

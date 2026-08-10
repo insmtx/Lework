@@ -11,6 +11,7 @@ import {
 	type ChatState,
 	getApprovalStatus,
 	initialChatState,
+	isClientReplyTimeoutMessage,
 	resolveActiveRunIdForCancel,
 	retainLocalMessagesForSession,
 } from "../chat";
@@ -46,6 +47,7 @@ export {
 	attachAssistantReplyTargets,
 	createAssistantSessionEventsWaitingMessage,
 	insertGlobalUserMessageId,
+	isGlobalUserEchoMessage,
 	isTaskRoomAssistantPlaceholder,
 	mapBackendMessage,
 	retainLocalMessagesForSession,
@@ -125,6 +127,18 @@ export class ChatActionImpl {
 			set: setChat,
 		});
 
+		const refreshProjectForSession = (sessionId: string) => {
+			const fullState = this.#fullGet() as {
+				activeTaskDetailProjectId?: string | null;
+				fetchProjectDetail?: (projectId: string) => Promise<void>;
+				projects?: Array<{ id: string; tasks: Array<{ sessionId?: string }> }>;
+			};
+			const projectId = resolveProjectIdForSession(fullState, sessionId);
+			if (projectId) {
+				void fullState.fetchProjectDetail?.(projectId);
+			}
+		};
+
 		this.#sessionStream = new SessionStream({
 			get: () => this.#get(),
 			set: setChat,
@@ -132,17 +146,7 @@ export class ChatActionImpl {
 			loadConversationMessages: (sessionId, options) =>
 				this.#historyLoader.load(sessionId, options),
 			fullGet: () => this.#fullGet(),
-			refreshProjectForSession: (sessionId) => {
-				const fullState = this.#fullGet() as {
-					activeTaskDetailProjectId?: string | null;
-					fetchProjectDetail?: (projectId: string) => Promise<void>;
-					projects?: Array<{ id: string; tasks: Array<{ sessionId?: string }> }>;
-				};
-				const projectId = resolveProjectIdForSession(fullState, sessionId);
-				if (projectId) {
-					void fullState.fetchProjectDetail?.(projectId);
-				}
-			},
+			refreshProjectForSession,
 		});
 
 		this.#historyLoader = new HistoryLoader({
@@ -150,6 +154,7 @@ export class ChatActionImpl {
 			set: setChat,
 			startSessionStream: (sessionId, assistantMsgId, replay, assistantId) =>
 				this.#sessionStream.start(sessionId, assistantMsgId, replay, assistantId),
+			finishStream: () => this.#sessionStream.finish(),
 		});
 
 		this.#globalEvents = new GlobalEventsManager({
@@ -162,6 +167,7 @@ export class ChatActionImpl {
 			finishStream: () => this.#sessionStream.finish(),
 			loadConversationMessages: (sessionId, options) =>
 				this.#historyLoader.load(sessionId, options),
+			refreshProjectForSession,
 		});
 
 		this.#sendDeps = {
@@ -244,6 +250,7 @@ export class ChatActionImpl {
 			taskId: string;
 			sessionId: string;
 			metadata?: MessageMetadata;
+			connectorIds?: string[];
 		},
 		attachments?: Attachment[],
 	) => {
@@ -334,6 +341,7 @@ export class ChatActionImpl {
 			streamingMessageId: null,
 			isGenerating: false,
 			pendingBootstrapSessionId: null,
+			suppressedReplySessionId: null,
 			streamCancelRef: null,
 		});
 	};
@@ -341,10 +349,25 @@ export class ChatActionImpl {
 	/** 只关闭 SSE 连接并重置流标记位，保留 messagesMap/messageIds/activeSessionId 等会话数据。 */
 	closeSseConnection = () => {
 		this.#sessionStream.close();
-		this.#set({
-			streamingMessageId: null,
-			isGenerating: false,
-			streamCancelRef: null,
+		this.#set((state) => {
+			const retainedIds: string[] = [];
+			const retainedMap: Record<string, Message> = {};
+			for (const id of state.messageIds) {
+				const message = state.messagesMap[id];
+				// 中文注释：离开时清掉本地超时报错气泡，避免再进首屏仍看到上一轮客户端超时残留。
+				if (!message || isClientReplyTimeoutMessage(message)) continue;
+				retainedIds.push(id);
+				retainedMap[id] = message;
+			}
+			return {
+				messagesMap: retainedMap,
+				messageIds: retainedIds,
+				streamingMessageId: null,
+				isGenerating: false,
+				streamCancelRef: null,
+				// 中文注释：离开页面后允许再进时对 responding 做 resume；停留页内的超时抑制仍由发送路径清除。
+				suppressedReplySessionId: null,
+			};
 		});
 	};
 
@@ -361,6 +384,7 @@ export class ChatActionImpl {
 			streamingMessageId: null,
 			isGenerating: false,
 			pendingBootstrapSessionId: null,
+			suppressedReplySessionId: null,
 			streamCancelRef: null,
 		});
 	};

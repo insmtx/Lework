@@ -19,6 +19,7 @@ export type BootstrapNewTaskOptions = {
 /**
  * 新建任务跳转任务详情前写入等待占位。
  * 若带附件则同步展示乐观用户消息；pendingBootstrapSessionId 阻止 historyLoader 冲掉乐观态。
+ * 调用方必须在 navigateToTaskDetail 之前执行本函数。
  */
 export function bootstrapNewTaskSession(
 	deps: SendPipelineDeps,
@@ -60,6 +61,8 @@ export function bootstrapNewTaskSession(
 		streamingMessageId: assistantMsg.id,
 		isGenerating: true,
 		pendingBootstrapSessionId: sessionId,
+		// 中文注释：新一轮发送解除上一轮超时抑制，允许再次等待 GE assistant。
+		suppressedReplySessionId: null,
 	});
 	deps.drainGlobalEvents(sessionId);
 }

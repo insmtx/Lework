@@ -143,7 +143,7 @@ export function AIMessageBubble({
 	};
 
 	return (
-		<div data-slot="ai-message" className="group flex items-start gap-3">
+		<div data-slot="ai-message" className="flex items-start gap-3">
 			{assistantDisplay.useDefaultBrand ? (
 				<AssistantChatAvatar />
 			) : (
@@ -237,7 +237,7 @@ export function AIMessageBubble({
 						{metricSegments.length > 0 && (
 							<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
 						)}
-						<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+						<div className="flex items-center gap-0.5">
 							<CopyButton text={content} />
 							{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
 								<Button
@@ -706,18 +706,20 @@ function MessageArtifactList({
 						<MessageArtifactIcon fileName={artifact.name} />
 					</div>
 					<div className="min-w-0">
-						<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-slate-700">
+						<div className="min-w-0 truncate text-sm font-semibold leading-5 text-slate-700">
 							<span className="truncate">{artifact.name}</span>
+						</div>
+						<div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[13px] leading-4 text-slate-400">
 							{artifact.versionNo ? (
 								<span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-blue-600">
 									V{artifact.versionNo}
 								</span>
 							) : null}
-						</div>
-						<div className="mt-0.5 truncate text-[13px] leading-4 text-slate-400">
-							{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
-								.filter(Boolean)
-								.join(" · ")}
+							<span className="min-w-0 truncate">
+								{[artifact.size, artifact.updatedAt ? formatArtifactTime(artifact.updatedAt) : ""]
+									.filter(Boolean)
+									.join(" · ")}
+							</span>
 						</div>
 					</div>
 				</button>

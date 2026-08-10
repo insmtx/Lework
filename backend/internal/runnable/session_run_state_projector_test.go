@@ -451,7 +451,7 @@ func TestFailedSessionMessageUsesAssistantIDFromRoute(t *testing.T) {
 		},
 	}
 
-	handleRunFailedEvent(context.Background(), svc, runEvent)
+	handleRunFailedEvent(context.Background(), svc, nil, runEvent)
 
 	if svc.failedReq == nil {
 		t.Fatal("FailedSessionMessage was not called")

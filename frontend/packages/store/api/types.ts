@@ -357,6 +357,7 @@ export type BackendProject = {
 	owner_id?: number;
 	org_id?: number;
 	task_count?: number;
+	automation_id?: number;
 	metadata?: Record<string, unknown>;
 	created_at: string;
 	updated_at: string;
@@ -462,4 +463,96 @@ export type BackendNewMessageData = {
 	session_id: string;
 	message_id?: string;
 	assistant_id?: string;
+};
+
+// ---------- Automation ----------
+
+export type BackendAutomationCalendarConfig = {
+	preset: string;
+	hour: number;
+	minute: number;
+	days_of_week?: number[];
+	days_of_month?: number[];
+};
+
+export type BackendAutomationIntervalConfig = {
+	interval_minutes?: number;
+	interval_unit?: string;
+	interval_seconds?: number;
+	anchor_at?: string;
+};
+
+export type BackendAutomationScheduleFormConfig = {
+	mode: string;
+	calendar?: BackendAutomationCalendarConfig;
+	interval?: BackendAutomationIntervalConfig;
+	timezone?: string;
+};
+
+export type BackendAutomationSpec = {
+	version: number;
+	mode: string;
+	expression?: string;
+	month_day_overflow?: string;
+	anchor_at?: string;
+	interval_seconds?: number;
+	timezone: string;
+};
+
+export type BackendAutomationScheduleSpec = {
+	form_config: BackendAutomationScheduleFormConfig;
+	spec: BackendAutomationSpec;
+};
+
+export type BackendAutomation = {
+	public_id: string;
+	org_id: number;
+	owner_id: number;
+	name: string;
+	instruction?: string;
+	enabled: boolean;
+	schedule_mode: string;
+	schedule_spec?: BackendAutomationScheduleSpec;
+	timezone: string;
+	assistant_id: number;
+	next_run_at?: string;
+	summary?: string;
+	has_active_execution?: boolean;
+	last_execution_status?: string;
+	last_execution_time?: string;
+	last_execution_public_id?: string;
+	last_task_id?: number;
+	project_id?: number;
+	created_at: string;
+	updated_at: string;
+};
+
+export type BackendAutomationExecution = {
+	public_id: string;
+	automation_id: number;
+	org_id: number;
+	owner_id: number;
+	trigger_type: string;
+	status: string;
+	scheduled_at: string;
+	not_after?: string;
+	started_at?: string;
+	finished_at?: string;
+	name_snapshot: string;
+	instruction_snapshot?: string;
+	assistant_id_snapshot: number;
+	missed_count: number;
+	project_id?: number;
+	task_id?: number;
+	session_id?: number;
+	message_id?: number;
+	project_public_id?: string;
+	task_public_id?: string;
+	session_public_id?: string;
+	message_public_id?: string;
+	run_id?: string;
+	attempt_count: number;
+	error_code?: string;
+	error_msg?: string;
+	created_at: string;
 };

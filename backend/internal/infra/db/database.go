@@ -5,7 +5,6 @@
 package db
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/ygpkg/yg-go/dbtools"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/config"
@@ -110,7 +108,7 @@ const dbName = "leros"
 //
 // 使用 dbtools 初始化数据库连接，并根据配置决定是否启用调试模式，
 // 最后运行数据库迁移来创建所有必要的表结构。
-func InitDB(cfg config.DatabaseConfig, llmCfg *config.LLMConfig) (*gorm.DB, error) {
+func InitDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	if cfg.URL == "" {
 		return nil, fmt.Errorf("database URL is required")
 	}
@@ -128,11 +126,6 @@ func InitDB(cfg config.DatabaseConfig, llmCfg *config.LLMConfig) (*gorm.DB, erro
 	// 运行数据库迁移
 	if err := runMigrations(db); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	// 初始化开发数据（默认组织、用户、用户组织关联、默认 LLM 模型）
-	if err := InitDevData(db, llmCfg); err != nil {
-		return nil, fmt.Errorf("failed to init dev data: %w", err)
 	}
 
 	logs.Info("Database connection initialized successfully")
@@ -159,6 +152,8 @@ func runMigrations(db *gorm.DB) error {
 		&types.WorkerDeployment{},
 		&types.Session{},
 		&types.SessionMessage{},
+		&types.ReliableTask{},
+		&types.ProjectionReceipt{},
 		&types.LLMModel{},
 		&types.LLMHistory{},
 		&types.Project{},
@@ -179,6 +174,9 @@ func runMigrations(db *gorm.DB) error {
 		&types.MessageResource{},
 		&types.Department{},
 		&types.MemberDepartment{},
+		&types.SeedRecord{},
+		&types.Automation{},
+		&types.AutomationExecution{},
 	}
 
 	if err := renameLegacyColumns(db); err != nil {
@@ -885,286 +883,9 @@ func renameLegacyTables(db *gorm.DB) error {
 	return nil
 }
 
-// InitDevData 初始化开发环境数据（仅在数据为空时执行）
-// 包括：默认组织、默认用户、用户组织关联、默认 LLM 模型
-func InitDevData(db *gorm.DB, llmCfg *config.LLMConfig) error {
-	// 初始化默认组织
-	var orgCount int64
-	db.Model(&types.Organization{}).Count(&orgCount)
-	if orgCount == 0 {
-		defaultOrg := &types.Organization{
-			PublicID: fmt.Sprintf("org_%s", snowflake.GenerateIDBase58()),
-			Code:     "default_org",
-			Name:     "默认组织",
-			Type:     "company",
-			Status:   "active",
-		}
-		if err := db.Create(defaultOrg).Error; err != nil {
-			return fmt.Errorf("failed to create default org: %w", err)
-		}
-		logs.Info("Default organization created")
-	}
-
-	// 初始化默认用户
-	var userCount int64
-	db.Model(&types.User{}).Count(&userCount)
-	if userCount == 0 {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("Admin123456"), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("failed to hash password: %w", err)
-		}
-
-		defaultUser := &types.User{
-			PublicID: fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
-			Name:     "Admin User",
-			Email:    "admin@leros.local",
-			Password: string(hashedPassword),
-		}
-		if err := db.Create(defaultUser).Error; err != nil {
-			return fmt.Errorf("failed to create default user: %w", err)
-		}
-		logs.Info("Default user created (login: admin)")
-	}
-
-	// 初始化用户组织关联
-	var userOrgCount int64
-	db.Model(&types.UserOrg{}).Count(&userOrgCount)
-	if userOrgCount == 0 {
-		var user types.User
-		var org types.Organization
-		if err := db.Where("email = ?", "admin@leros.local").First(&user).Error; err != nil {
-			return fmt.Errorf("failed to find default user: %w", err)
-		}
-		if err := db.Where("code = ?", "default_org").First(&org).Error; err != nil {
-			return fmt.Errorf("failed to find default org: %w", err)
-		}
-
-		userOrg := &types.UserOrg{
-			UserID:    user.ID,
-			OrgID:     org.ID,
-			IsDefault: true,
-		}
-		if err := db.Create(userOrg).Error; err != nil {
-			return fmt.Errorf("failed to create default user-org: %w", err)
-		}
-		logs.Infof("Default user-org association created (id=%d, user_id=%d, org_id=%d)", userOrg.ID, userOrg.UserID, userOrg.OrgID)
-	}
-
-	if err := seedDefaultWorkerDeployment(db); err != nil {
-		return err
-	}
-
-	// 初始化默认 LLM 模型（仅在表为空且配置中提供 LLM 配置时执行）
-	var modelCount int64
-	db.Model(&types.LLMModel{}).Count(&modelCount)
-	if modelCount == 0 && llmCfg != nil && llmCfg.APIKey != "" {
-		modelName := llmCfg.Model
-		if modelName == "" {
-			modelName = "default"
-		}
-
-		defaultLLMModel := &types.LLMModel{
-			OrgID:           1,
-			Code:            "llm_default",
-			Name:            llmCfg.Provider,
-			Description:     "Default LLM model from config",
-			Provider:        llmCfg.Provider,
-			ModelName:       modelName,
-			BaseURL:         llmCfg.BaseURL,
-			APIKeyEncrypted: llmCfg.APIKey,
-			APIKeyMasked:    maskAPIKey(llmCfg.APIKey),
-			MaxTokens:       4096,
-			Temperature:     0.7,
-			TimeoutSec:      120,
-			Status:          string(types.LLMModelStatusActive),
-			IsDefault:       true,
-			IsSystem:        true,
-		}
-		if err := db.Create(defaultLLMModel).Error; err != nil {
-			return fmt.Errorf("failed to create default LLM model: %w", err)
-		}
-		logs.Infof("Default LLM model created (provider=%s, model=%s)", llmCfg.Provider, modelName)
-	}
-
-	if err := seedSystemLLMModels(db, llmCfg); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func seedSystemLLMModels(d *gorm.DB, llmCfg *config.LLMConfig) error {
-	spec, ok := buildSystemTranslationLLMModelSpec(llmCfg)
-	if !ok {
-		logs.Warn("System translation LLM model skipped: no api_key configured")
-		return nil
-	}
-
-	var existing types.LLMModel
-	err := d.Where("org_id = ? AND code = ?", spec.OrgID, spec.Code).First(&existing).Error
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("find system translation LLM model: %w", err)
-		}
-		if err := d.Create(spec).Error; err != nil {
-			return fmt.Errorf("create system translation LLM model: %w", err)
-		}
-		logs.Infof("System translation LLM model created (provider=%s, model=%s)", spec.Provider, spec.ModelName)
-		return nil
-	}
-
-	if !existing.IsSystem {
-		logs.Warnf("System translation LLM model skipped: code %q is occupied by non-system model", spec.Code)
-		return nil
-	}
-
-	logs.Infof("System translation LLM model already exists, skip initialization (provider=%s, model=%s)", existing.Provider, existing.ModelName)
-	return nil
-}
-
-func buildSystemTranslationLLMModelSpec(llmCfg *config.LLMConfig) (*types.LLMModel, bool) {
-	if llmCfg == nil {
-		return nil, false
-	}
-
-	provider := strings.TrimSpace(string(types.LLMProviderDeepSeek))
-	modelName := "deepseek-v4-flash"
-	baseURL := strings.TrimSpace(llmCfg.BaseURL)
-	apiKey := strings.TrimSpace(llmCfg.APIKey)
-
-	if llmCfg.Translation != nil {
-		if v := strings.TrimSpace(llmCfg.Translation.Provider); v != "" {
-			provider = v
-		}
-		if v := strings.TrimSpace(llmCfg.Translation.Model); v != "" {
-			modelName = v
-		}
-		if v := strings.TrimSpace(llmCfg.Translation.BaseURL); v != "" {
-			baseURL = v
-		}
-		if v := strings.TrimSpace(llmCfg.Translation.APIKey); v != "" {
-			apiKey = v
-		}
-	}
-
-	baseURL = strings.TrimRight(baseURL, "/")
-	baseURLHasV1 := strings.HasSuffix(baseURL, "/v1")
-	if baseURLHasV1 {
-		baseURL = strings.TrimSuffix(baseURL, "/v1")
-	}
-
-	if apiKey == "" {
-		return nil, false
-	}
-
-	return &types.LLMModel{
-		OrgID:           1,
-		Code:            SystemTranslationLLMModelCode,
-		Name:            "内置翻译模型",
-		Description:     "用于 Skill 描述和文档翻译的快速系统模型",
-		Provider:        provider,
-		ModelName:       modelName,
-		BaseURL:         baseURL,
-		BaseURLHasV1:    baseURLHasV1,
-		APIKeyEncrypted: apiKey,
-		APIKeyMasked:    maskAPIKey(apiKey),
-		MaxTokens:       4096,
-		Temperature:     0.1,
-		TimeoutSec:      60,
-		Status:          string(types.LLMModelStatusActive),
-		IsDefault:       false,
-		IsSystem:        true,
-		Config: types.LLMModelConfig{
-			"purpose": "translation",
-		},
-	}, true
-}
-
-func seedDefaultWorkerDeployment(d *gorm.DB) error {
-	var org types.Organization
-	if err := d.Where("code = ?", "default_org").First(&org).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("failed to find default org for worker: %w", err)
-		}
-		if err := d.Order("id ASC").First(&org).Error; err != nil {
-			return fmt.Errorf("failed to find any org for worker: %w", err)
-		}
-	}
-
-	var user types.User
-	if err := d.Where("email = ?", "admin@leros.local").First(&user).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("failed to find default user for worker: %w", err)
-		}
-		if err := d.Order("id ASC").First(&user).Error; err != nil {
-			return fmt.Errorf("failed to find any user for worker: %w", err)
-		}
-	}
-
-	assistant := &types.DigitalAssistant{}
-	code := fmt.Sprintf("%so%d", types.DefaultDigitalAssistantPublicIDPrefix, org.ID)
-	err := d.Where("org_id = ? AND public_id = ?", org.ID, code).First(assistant).Error
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("find default worker assistant: %w", err)
-		}
-		assistant = &types.DigitalAssistant{
-			PublicID:     code,
-			OrgID:        org.ID,
-			OwnerID:      user.ID,
-			Name:         "lework",
-			Description:  "你工作和生活中的 AI 队友",
-			Status:       "active",
-			SystemPrompt: "你的名称是 lework。你是用户工作和生活中的 AI 队友，让工作，乐起来。用户询问你是谁、你能做什么时，请按 lework 的身份回答，不要称自己为默认数字员工。",
-		}
-		if err := d.Create(assistant).Error; err != nil {
-			return fmt.Errorf("create default worker assistant: %w", err)
-		}
-	}
-
-	var existingDeployment types.WorkerDeployment
-	err = d.Where("org_id = ? AND worker_id = ?", org.ID, 1).First(&existingDeployment).Error
-	if err == nil {
-		if existingDeployment.DigitalAssistantID != assistant.ID {
-			existingDeployment.DigitalAssistantID = assistant.ID
-			if err := d.Save(&existingDeployment).Error; err != nil {
-				return fmt.Errorf("rebind default worker deployment: %w", err)
-			}
-			logs.Infof("Default worker deployment rebound to %s (org_id=%d, worker_id=1)", code, org.ID)
-		}
-		return nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("find default worker deployment: %w", err)
-	}
-
-	deployment := &types.WorkerDeployment{
-		OrgID:              org.ID,
-		DigitalAssistantID: assistant.ID,
-		WorkerID:           1,
-		DeploymentName:     fmt.Sprintf("leros-worker-o%d-w%d", org.ID, 1),
-		Namespace:          "default",
-		Status:             string(types.WorkerDeploymentStatusPending),
-		WorkspacePath:      "/data/workspace",
-	}
-	if err := d.Create(deployment).Error; err != nil {
-		return fmt.Errorf("create default worker deployment: %w", err)
-	}
-	logs.Infof("Default worker deployment created (org_id=%d, worker_id=1)", org.ID)
-	return nil
-}
-
 // GetDB 获取默认的数据库实例
 func GetDB() *gorm.DB {
 	return dbtools.DB(dbName)
-}
-
-// maskAPIKey 将 API Key 脱敏显示
-func maskAPIKey(key string) string {
-	if len(key) <= 7 {
-		return "***"
-	}
-	return key[:3] + "***" + key[len(key)-4:]
 }
 
 type projectFileVersionGroup struct {

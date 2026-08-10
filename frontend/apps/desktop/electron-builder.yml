@@ -45,6 +45,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  # 中文注释：保留默认「正在运行」确认框；确认后按映像名 /F /T 结束进程，避免路径误判落入手动关闭兜底。
+  include: nsis/installer.nsh
 linux:
   icon: resources/linux-icons
   executableName: leros-desktop

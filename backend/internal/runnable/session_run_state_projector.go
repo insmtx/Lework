@@ -46,12 +46,40 @@ func StartSessionRunStateProjector(
 	persister := &declaredArtifactPersister{db: db}
 
 	Run(ctx, "session_run_state_projector", func(ctx context.Context) {
-		if err := eb.Subscribe(ctx, topic, messaging.SessionRunStateConsumer(), func(msg *nats.Msg) {
-			handleRunStateMessage(ctx, service, persister, db, msg)
+		if err := eb.SubscribeManualDurable(ctx, topic, messaging.SessionRunStateConsumer(), func(msg *nats.Msg) {
+			handleRunStateDelivery(ctx, service, persister, db, msg)
 		}); err != nil {
 			logs.ErrorContextf(ctx, "subscribe to %s failed: %v", topic, err)
 		}
 	})
+}
+
+// handleRunStateDelivery confirms only after a durable receipt is written. A database outage is retried by
+// JetStream; malformed events are terminal because retrying cannot make them valid.
+func handleRunStateDelivery(ctx context.Context, service contract.SessionService, persister *declaredArtifactPersister, db *gorm.DB, msg *nats.Msg) {
+	delivery := eventbus.NewManualDelivery(msg)
+	var event messaging.RunEvent
+	if err := json.Unmarshal(msg.Data, &event); err != nil || event.Type != messaging.MessageTypeRunEvent || event.Route.SessionID == "" || event.ID == "" {
+		logs.WarnContextf(ctx, "discard malformed run state event: %v", err)
+		_ = delivery.Term()
+		return
+	}
+	inserted, err := infradb.CreateProjectionReceipt(ctx, db, &types.ProjectionReceipt{
+		Consumer: messaging.SessionRunStateConsumer(), EventID: event.ID, RunID: event.Trace.RunID, SessionID: event.Route.SessionID, EventType: string(event.Body.Event),
+	})
+	if err != nil {
+		logs.WarnContextf(ctx, "persist run event receipt id=%s: %v", event.ID, err)
+		_ = delivery.NakWithDelay(5 * time.Second)
+		return
+	}
+	if !inserted {
+		_ = delivery.Ack()
+		return
+	}
+	handleRunStateMessage(ctx, service, persister, db, msg)
+	if err := delivery.Ack(); err != nil {
+		logs.WarnContextf(ctx, "ack run state event id=%s: %v", event.ID, err)
+	}
 }
 
 func handleRunStateMessage(ctx context.Context, service contract.SessionService, persister *declaredArtifactPersister, db *gorm.DB, msg *nats.Msg) {
@@ -95,7 +123,7 @@ func handleRunStateMessage(ctx context.Context, service contract.SessionService,
 
 	switch runEvent.Body.Event {
 	case messaging.RunEventRunStarted:
-		handleRunStartedEvent(ctx, service, msg, runEvent)
+		handleRunStartedEvent(ctx, service, db, msg, runEvent)
 
 	case messaging.RunEventArtifactDeclared:
 		handleArtifactDeclaredEvent(ctx, persister, runEvent)
@@ -107,17 +135,17 @@ func handleRunStateMessage(ctx context.Context, service contract.SessionService,
 		handleRunCompletedEvent(ctx, service, db, runEvent)
 
 	case messaging.RunEventRunFailed:
-		handleRunFailedEvent(ctx, service, runEvent)
+		handleRunFailedEvent(ctx, service, db, runEvent)
 
 	case messaging.RunEventRunCancelled:
-		handleRunCancelledEvent(ctx, service, runEvent)
+		handleRunCancelledEvent(ctx, service, db, runEvent)
 
 	default:
 		logs.DebugContextf(ctx, "ignoring run state event: %s", runEvent.Body.Event)
 	}
 }
 
-func handleRunStartedEvent(ctx context.Context, service contract.SessionService, msg *nats.Msg, runEvent messaging.RunEvent) {
+func handleRunStartedEvent(ctx context.Context, service contract.SessionService, db *gorm.DB, msg *nats.Msg, runEvent messaging.RunEvent) {
 	meta, err := msg.Metadata()
 	if err != nil {
 		logs.WarnContextf(ctx, "run started missing nats metadata: session_id=%s error=%v", runEvent.Route.SessionID, err)
@@ -134,6 +162,7 @@ func handleRunStartedEvent(ctx context.Context, service contract.SessionService,
 	}); err != nil {
 		logs.WarnContextf(ctx, "handle session run started failed: session_id=%s error=%v", runEvent.Route.SessionID, err)
 	}
+	handleAutomationRunEvent(ctx, db, runEvent)
 	logs.InfoContextf(ctx, "handled run started: session_id=%s run_id=%s state_start_seq=%d reply_ids=%v",
 		runEvent.Route.SessionID, runEvent.Trace.RunID, meta.Sequence.Stream, runEvent.Body.ReplyToMessageIDs)
 }
@@ -198,9 +227,11 @@ func handleRunCompletedEvent(ctx context.Context, service contract.SessionServic
 		logs.WarnContextf(ctx, "complete session message: %v", err)
 	}
 	recordSkillInvocationsFromMessaging(ctx, db, runEvent.Route.OrgID, runEvent.Route.SessionID, completed.Events)
+	// 回写自动化执行状态：queued/running → succeeded
+	handleAutomationRunEvent(ctx, db, runEvent)
 }
 
-func handleRunFailedEvent(ctx context.Context, service contract.SessionService, runEvent messaging.RunEvent) {
+func handleRunFailedEvent(ctx context.Context, service contract.SessionService, db *gorm.DB, runEvent messaging.RunEvent) {
 	content := runEvent.Body.Payload.Content
 	errMsg := runEvent.Body.Payload.Content
 	status := string(types.MessageStatusFailed)
@@ -237,9 +268,10 @@ func handleRunFailedEvent(ctx context.Context, service contract.SessionService, 
 	if err := service.FailedSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "failed session message: %v", err)
 	}
+	handleAutomationRunEvent(ctx, db, runEvent)
 }
 
-func handleRunCancelledEvent(ctx context.Context, service contract.SessionService, runEvent messaging.RunEvent) {
+func handleRunCancelledEvent(ctx context.Context, service contract.SessionService, db *gorm.DB, runEvent messaging.RunEvent) {
 	completed := runEvent.Body.RunCompleted
 	content := "已取消"
 	if completed != nil && completed.Result.Message != "" {
@@ -263,6 +295,7 @@ func handleRunCancelledEvent(ctx context.Context, service contract.SessionServic
 	if err := service.FailedSessionMessage(ctx, req); err != nil {
 		logs.WarnContextf(ctx, "cancelled session message: %v", err)
 	}
+	handleAutomationRunEvent(ctx, db, runEvent)
 }
 
 func cancellationError(runEvent messaging.RunEvent) string {

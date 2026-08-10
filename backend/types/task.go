@@ -28,6 +28,9 @@ type Task struct {
 	Status      string     `gorm:"column:status;type:varchar(50);not null;default:'created';index"`
 	Deadline    *time.Time `gorm:"column:deadline;index"`
 
+	// cron 任务的自动化执行记录主键，BIGINT，可空，唯一索引（防止 Dispatcher 重试重复建 Task）
+	AutomationExecutionID *uint `gorm:"column:automation_execution_id;type:bigint;index"`
+
 	Metadata ObjectMetadata `gorm:"column:metadata;type:jsonb"`
 }
 

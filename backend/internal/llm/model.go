@@ -39,8 +39,10 @@ type ModelConfig struct {
 	IsDefault    bool
 	IsSystem     bool
 	Config       map[string]any
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// Vision 表示该模型是否支持图片（多模态）输入，来源为 Config["vision"]。
+	Vision    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // CallRecord 记录一次 LLM 调用的完整信息，用于审计和用量统计。

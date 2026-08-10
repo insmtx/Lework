@@ -215,6 +215,10 @@ clientUpdate:
 # 以下默认值即合规配置，一般无需改动；需特殊调优见 https://traefik.github.io/charts
 traefik:
   enabled: false
+  image:
+  registry: registry.yygu.cn
+  repository: rancher/mirrored-library-traefik
+  tag: "3.3.6"
   ingressClass:
     name: leros-traefik    # 启用时自动用此名，不与 k3s 的 traefik 撞
   service:

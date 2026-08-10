@@ -22,6 +22,7 @@ export type AddMessageParams = {
 	content: string;
 	execution_mode?: "default" | "plan";
 	assistant_ids?: string[];
+	connector_ids?: string[];
 	message_type?: string;
 	attachments?: OutgoingMessageAttachment[];
 	thinking?: string;
@@ -77,6 +78,7 @@ export type CreateInitialMessageParams = {
 	task_id?: string;
 	message_type?: string;
 	assistant_ids?: string[];
+	connector_ids?: string[];
 	metadata?: BackendMessageMetadata;
 	attachments?: OutgoingMessageAttachment[];
 };
