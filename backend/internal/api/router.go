@@ -99,6 +99,8 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	logs.Info("Worker server routes registered successfully")
 
 	// ── 公开路由（无需 org 认证）──────────────────────────────────────────────────
+	fileService := service.NewFileService(db)
+	fileHandler := handler.NewFileHandler(fileService)
 	{
 		handler.RegisterPluginOAuthCallbackRoutes(v1, pluginService)
 		logs.Info("Plugin OAuth callback routes registered successfully")
@@ -120,6 +122,11 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 		handler.RegisterGlobalRoutes(v1, edition, &cfg)
 		logs.Info("Global routes registered successfully")
+
+		// 文件读路由（download/preview）：允许匿名访问体系级（system）共享资源
+		// （如 AI 队友模板头像、官方插件产物），组织私有文件仍需登录。
+		fileHandler.RegisterAnonymousRoutes(v1)
+		logs.Info("File anonymous read routes registered successfully")
 	}
 
 	// ── 内部路由（worker 上报，不走 RequireCallerOrg）─────────────
@@ -168,10 +175,8 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterAutomationRoutes(authed, automationService)
 		logs.Info("Automation routes registered successfully")
 
-		fileService := service.NewFileService(db)
-		fileHandler := handler.NewFileHandler(fileService)
-		fileHandler.RegisterRoutes(authed)
-		logs.Info("File routes registered successfully")
+		fileHandler.RegisterAuthedRoutes(authed)
+		logs.Info("File upload route registered successfully")
 
 		orgService := edition.Org()
 		handler.RegisterOrgRoutes(authed, orgService)

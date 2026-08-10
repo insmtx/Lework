@@ -46,7 +46,7 @@ func seedLLM(ctx context.Context, db *gorm.DB, llmCfg *config.LLMConfig) error {
 		if modelName == "" {
 			modelName = "default"
 		}
-		baseURL := strings.TrimSpace(llmCfg.BaseURL)
+		baseURL := llm.NormalizeLLMBaseURL(llmCfg.BaseURL)
 		hasV1, err := resolveLLMHasV1(ctx, llmCfg.Provider, modelName, llmCfg.APIKey, baseURL, preferV1ForBaseURL(baseURL))
 		if err != nil {
 			return err
@@ -58,7 +58,7 @@ func seedLLM(ctx context.Context, db *gorm.DB, llmCfg *config.LLMConfig) error {
 			Description:     "Default LLM model from config",
 			Provider:        llmCfg.Provider,
 			ModelName:       modelName,
-			BaseURL:         strings.TrimRight(baseURL, "/"),
+			BaseURL:         baseURL,
 			BaseURLHasV1:    hasV1,
 			APIKeyEncrypted: llmCfg.APIKey,
 			APIKeyMasked:    maskAPIKey(llmCfg.APIKey),
@@ -69,8 +69,34 @@ func seedLLM(ctx context.Context, db *gorm.DB, llmCfg *config.LLMConfig) error {
 			IsDefault:       true,
 			IsSystem:        true,
 		}
+		cfg := types.LLMModelConfig{}
 		if llmCfg.Vision {
-			defaultLLMModel.Config = types.LLMModelConfig{"vision": true}
+			cfg["vision"] = true
+		}
+		if llmCfg.TopP != nil {
+			cfg["top_p"] = *llmCfg.TopP
+		}
+		if llmCfg.FrequencyPenalty != nil {
+			cfg["frequency_penalty"] = *llmCfg.FrequencyPenalty
+		}
+		if llmCfg.PresencePenalty != nil {
+			cfg["presence_penalty"] = *llmCfg.PresencePenalty
+		}
+		if llmCfg.Limit != nil && (llmCfg.Limit.Context > 0 || llmCfg.Limit.Output > 0) {
+			limit := map[string]interface{}{}
+			if llmCfg.Limit.Context > 0 {
+				limit["context"] = llmCfg.Limit.Context
+			}
+			if llmCfg.Limit.Output > 0 {
+				limit["output"] = llmCfg.Limit.Output
+			}
+			cfg["limit"] = limit
+			if llmCfg.Limit.Output > 0 {
+				defaultLLMModel.MaxTokens = llmCfg.Limit.Output
+			}
+		}
+		if len(cfg) > 0 {
+			defaultLLMModel.Config = cfg
 		}
 		if err := infradb.CreateLLMModel(ctx, db, defaultLLMModel); err != nil {
 			return err
@@ -146,7 +172,7 @@ func buildSystemTranslationLLMModelSpec(ctx context.Context, llmCfg *config.LLMC
 		return nil, false, nil
 	}
 
-	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = llm.NormalizeLLMBaseURL(baseURL)
 	baseURLHasV1, err := resolveLLMHasV1(ctx, provider, modelName, apiKey, baseURL, preferV1ForBaseURL(baseURL))
 	if err != nil {
 		return nil, false, err

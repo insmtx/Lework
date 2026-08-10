@@ -41,6 +41,13 @@ type ModelConfig struct {
 	BaseURL  string
 	// Vision 表示该模型是否声明支持图片（多模态）输入。
 	Vision bool
+	// TopP/FrequencyPenalty/PresencePenalty 采样参数，仅 opencode runtime 消费。
+	TopP             *float64
+	FrequencyPenalty *float64
+	PresencePenalty  *float64
+	// ContextLimit/OutputLimit 模型上下文与单次输出上限；0 表示未设置，走默认。
+	ContextLimit int
+	OutputLimit  int
 }
 
 // Attachment is a multimodal file (e.g. an image) supplied with one execution.

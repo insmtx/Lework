@@ -491,11 +491,16 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 
 	// 8. Build ExecutionSpec.
 	model := agent.ModelConfig{
-		Provider: cloned.Model.Provider,
-		Model:    cloned.Model.Model,
-		APIKey:   cloned.Model.APIKey,
-		BaseURL:  cloned.Model.BaseURL,
-		Vision:   cloned.Model.Vision,
+		Provider:         cloned.Model.Provider,
+		Model:            cloned.Model.Model,
+		APIKey:           cloned.Model.APIKey,
+		BaseURL:          cloned.Model.BaseURL,
+		Vision:           cloned.Model.Vision,
+		TopP:             cloned.Model.TopP,
+		FrequencyPenalty: cloned.Model.FrequencyPenalty,
+		PresencePenalty:  cloned.Model.PresencePenalty,
+		ContextLimit:     cloned.Model.ContextLimit,
+		OutputLimit:      cloned.Model.OutputLimit,
 	}
 
 	messages := make([]agent.Message, 0, len(cloned.Conversation.Messages))

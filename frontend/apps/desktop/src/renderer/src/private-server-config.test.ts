@@ -2,8 +2,10 @@
 
 import {
 	normalizeAPIBaseURL,
+	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
 	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
 	readPrivateServerBaseURL,
+	resolveIsPrivateDeployment,
 	savePrivateServerBaseURL,
 	testServerConnection,
 } from "@leros/store";
@@ -12,7 +14,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 describe("private server config", () => {
 	afterEach(() => {
 		window.localStorage.removeItem(PRIVATE_SERVER_CONFIG_STORAGE_KEY);
+		window.localStorage.removeItem(PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY);
 		vi.unstubAllGlobals();
+	});
+
+	it("forces private deployment when the localStorage override key exists", () => {
+		expect(resolveIsPrivateDeployment()).toBe(false);
+
+		window.localStorage.setItem(PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY, "1");
+		expect(resolveIsPrivateDeployment()).toBe(true);
 	});
 
 	it("normalizes root and v1 service addresses", () => {

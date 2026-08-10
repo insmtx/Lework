@@ -78,6 +78,7 @@
 | 文档 | 说明 |
 |------|------|
 | [operations/troubleshooting.md](operations/troubleshooting.md) | 故障排除指南 |
+| [operations/worker-status-api.md](operations/worker-status-api.md) | Worker 运维状态查询接口与响应字段 |
 | [operations/issue-labels.md](operations/issue-labels.md) | Issue 标签体系 |
 | [operations/project-structure.md](operations/project-structure.md) | 项目结构与文件索引 |
 

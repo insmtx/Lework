@@ -1,0 +1,17 @@
+{{- if .Values.account.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leros.accountName" (dict "root" . "type" "service") }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: account
+spec:
+  type: {{ .Values.account.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.account.service.port }}
+      targetPort: http
+  selector:
+    {{- include "leros.selectorLabels" (dict "root" . "component" "account") | nindent 4 }}
+{{- end -}}

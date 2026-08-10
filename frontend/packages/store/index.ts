@@ -38,8 +38,10 @@ export {
 	hasPrivateServerConfiguration,
 	isPrivateDeployment,
 	normalizeAPIBaseURL,
+	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
 	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
 	readPrivateServerBaseURL,
+	resolveIsPrivateDeployment,
 	savePrivateServerBaseURL,
 	testServerConnection,
 } from "./api/config";
@@ -312,6 +314,5 @@ export {
 export { revokeAttachmentObjectUrls } from "./utils/messageAttachments";
 export {
 	buildMessageMetadata,
-	getAssistantMessageFooterSegments,
 	latencyFromRunCompletedTimes,
 } from "./utils/messageMetrics";

@@ -17,6 +17,21 @@ type LLMConfig struct {
 	BaseURL     string                `yaml:"base_url,omitempty"`    // Custom base URL
 	Vision      bool                  `yaml:"vision,omitempty"`      // Default model supports image (multimodal) input
 	Translation *LLMTranslationConfig `yaml:"translation,omitempty"` // Built-in translation model
+
+	// TopP 采样温度（核采样），仅 opencode runtime 注入。无需设置可省略。
+	TopP *float64 `yaml:"top_p,omitempty"`
+	// FrequencyPenalty 频率惩罚，仅 opencode runtime 注入。无需设置可省略。
+	FrequencyPenalty *float64 `yaml:"frequency_penalty,omitempty"`
+	// PresencePenalty 存在惩罚，仅 opencode runtime 注入。无需设置可省略。
+	PresencePenalty *float64 `yaml:"presence_penalty,omitempty"`
+	// Limit 上下文/输出 token 上限，仅 opencode runtime 覆盖生效。不设置走默认。
+	Limit *LLMLimitConfig `yaml:"limit,omitempty"`
+}
+
+// LLMLimitConfig 描述模型上下文窗口与单次输出上限。
+type LLMLimitConfig struct {
+	Context int `yaml:"context,omitempty"`
+	Output  int `yaml:"output,omitempty"`
 }
 
 // LLMTranslationConfig configures the built-in fast translation model.

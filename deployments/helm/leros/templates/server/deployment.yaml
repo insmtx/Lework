@@ -75,6 +75,8 @@ spec:
               value: {{ .Values.server.ginMode | quote }}
             - name: LEROS_WORKSPACE_ROOT
               value: "/workspace"
+            - name: LEROS_STORAGE_LOCAL_DIR
+              value: {{ .Values.storage.localDir | quote }}
             - name: LLM_API_KEY
               valueFrom:
                 secretKeyRef:

@@ -1,0 +1,108 @@
+{{- if and .Values.account.enabled (not .Values.account.reuseCorekg) .Values.account.initialize -}}
+# post-install/post-upgrade 初始化 Job：建表（--migrate-db）+ 种子数据（init）。
+# 仅情况 2（复用 corekg 时不初始化，数据库由 corekg 侧负责）执行。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "leros.accountName" (dict "root" . "type" "deployment") }}-init
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: account
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-weight: "-5"
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "leros.selectorLabels" (dict "root" . "component" "account") | nindent 8 }}
+        app.kubernetes.io/component: account-init
+    spec:
+      {{- with (include "leros.imagePullSecrets" . | trim) }}
+      {{ . | nindent 6 }}
+      {{- end }}
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-middleware
+          image: {{ .Values.worker.workspaceInitImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              {{- if .Values.mysql.enabled }}
+              echo "waiting for mysql at {{ include "leros.fullname" . }}-mysql:3306"
+              until nc -z -w 2 {{ include "leros.fullname" . }}-mysql 3306; do
+                echo "mysql not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "mysql is ready"
+              {{- end }}
+              {{- if .Values.redis.enabled }}
+              echo "waiting for redis at {{ include "leros.fullname" . }}-redis:6379"
+              until nc -z -w 2 {{ include "leros.fullname" . }}-redis 6379; do
+                echo "redis not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "redis is ready"
+              {{- end }}
+      containers:
+        - name: {{ .Values.account.containerName }}-init
+          image: {{ .Values.account.image | quote }}
+          imagePullPolicy: {{ .Values.account.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo ">> migrate-db"
+              {{ .Values.account.initCommand.binary }} --migrate-db -c /etc/account/config.yaml
+              echo ">> init seed"
+              {{ .Values.account.initCommand.binary }} init -c /etc/account/config.yaml {{- if .Values.account.initCommand.settingFile }} --setting-file {{ .Values.account.initCommand.settingFile }}{{- end }}
+          env:
+            {{- if .Values.account.init.issuer }}
+            - name: IAM_INIT_ISSUER
+              value: {{ .Values.account.init.issuer | quote }}
+            {{- end }}
+            {{- if .Values.account.init.jwtSecret }}
+            - name: IAM_INIT_JWT_SECRET
+              value: {{ .Values.account.init.jwtSecret | quote }}
+            {{- end }}
+            {{- if .Values.account.init.company }}
+            - name: IAM_INIT_COMPANY
+              value: {{ .Values.account.init.company | quote }}
+            {{- end }}
+            {{- if .Values.account.init.adminEmail }}
+            - name: IAM_INIT_ADMIN_EMAIL
+              value: {{ .Values.account.init.adminEmail | quote }}
+            {{- end }}
+            {{- if .Values.account.init.domain }}
+            - name: IAM_INIT_DOMAIN
+              value: {{ .Values.account.init.domain | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/account/
+              readOnly: true
+            {{- if .Values.account.initCommand.settingFile }}
+            - name: settings
+              mountPath: /etc/yg-iam/
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "leros.accountName" (dict "root" . "type" "configMap") }}
+            items:
+              - key: config.yaml
+                path: config.yaml
+        {{- if .Values.account.initCommand.settingFile }}
+        - name: settings
+          configMap:
+            name: {{ .Values.account.initCommand.settingsConfigMap }}
+            items:
+              - key: core_settings.yaml
+                path: core_settings.yaml
+        {{- end }}
+{{- end -}}

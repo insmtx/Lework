@@ -251,6 +251,8 @@ type modelConfig struct {
 	Reasoning   bool            `json:"reasoning"`
 	Temperature bool            `json:"temperature"`
 	Modalities  *modalityConfig `json:"modalities,omitempty"`
+	// Options 采样参数等透传项，原样进入请求体 providerOptions（驼峰键）。
+	Options map[string]any `json:"options,omitempty"`
 }
 
 // modalityConfig 描述模型的模态能力，对齐 opencode config 的 modalities 字段。

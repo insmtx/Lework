@@ -63,6 +63,111 @@ postgresql:
     url: ""
 
 # =============================================================================
+# MySQL 数据库（account 服务使用）
+# =============================================================================
+mysql:
+  enabled: false
+  image: registry.yygu.cn/library/mysql:8.4
+  imagePullPolicy: IfNotPresent
+  username: account_user
+  password: "@MYSQL_PASSWORD@"
+  rootPassword: "@MYSQL_ROOT_PASSWORD@"
+  database: account_db
+  hostPath: <dataHostPath>/mysql
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1, memory: 1Gi }
+  external:
+    # mysql.enabled=false 且 account.reuseCorekg=false 时必填：account 使用的 MySQL 完整 DSN
+    # 例：mysql://user:pass@host:3306/db?charset=utf8mb4&parseTime=true&loc=Local
+    url: ""
+
+# =============================================================================
+# Redis 缓存（account 服务使用）
+# =============================================================================
+redis:
+  enabled: false
+  image: registry.yygu.cn/library/redis:7.4
+  imagePullPolicy: IfNotPresent
+  password: "@REDIS_PASSWORD@"
+  hostPath: <dataHostPath>/redis
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  external:
+    # redis.enabled=false 时必填：account 使用的 Redis 地址
+    # 例：redis://:pass@host:6379/0
+    url: ""
+
+# =============================================================================
+# Account 服务（依赖 MySQL 与 Redis；用于统一登录）
+# =============================================================================
+# 两种部署情况：
+#   1) 复用 corekg：reuseCorekg=true，不部署内置 MySQL/Redis，account 连 corekg
+#      命名空间下的 MySQL/Redis Service；此时 account 无需初始化（数据在 corekg 侧）。
+#   2) 独立部署：reuseCorekg=false（默认），随 chart 部署内置 MySQL/Redis，并通过
+#      初始化 Job 执行 --migrate-db + init 完成建表与种子数据。
+account:
+  enabled: false
+  image: registry.yygu.cn/ygapp/account-api:v0.1.0
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  strategy: Recreate
+  containerName: account-api
+  env: test
+  openDocsApi: true
+  logLevel: debug
+  logger:
+    file:
+      enabled: false
+      filename: /data/account/log/default.log
+      maxSize: 10
+      maxAge: 15
+      maxBackups: 5
+      compress: true
+  # reuseCorekg=true 时：直接复用 corekg 命名空间下的 MySQL/Redis，不部署中间件、不初始化。
+  reuseCorekg: false
+  corekg:
+    namespace: corekg-test          # corekg 所在命名空间
+    mysqlService: mysql # corekg 的 MySQL Service 名
+    redisService: redis # corekg 的 Redis Service 名
+    # 以下可覆盖，留空回退到 mysql/redis 顶层值（username/password/database）
+    mysqlUsername: "root"
+    mysqlPassword: ""
+    mysqlDatabase: "yygu_db"
+    redisPassword: ""
+  # 独立部署（reuseCorekg=false）时是否执行初始化 Job（建表 + 种子数据）
+  initialize: true
+  init:
+    issuer: "yygu"                       # IAM_INIT_ISSUER，必填
+    jwtSecret: ""                        # IAM_INIT_JWT_SECRET（≥32 字符），生产必改，留空则不注入（用镜像默认）
+    company: "default-company"           # IAM_INIT_COMPANY
+    adminEmail: "admin@admin.com"        # IAM_INIT_ADMIN_EMAIL，必填
+    domain: "localhost"                  # IAM_INIT_DOMAIN
+  initCommand:
+    binary: account                      # account 镜像内的二进制名
+    settingFile: ""                      # 非空则挂载 core_settings.yaml 并传 --setting-file
+    settingsConfigMap: ""                # settingFile 非空时必填：含 core_settings.yaml 的 ConfigMap 名
+  # account 服务自身的 JWT / 会话配置（写入 config.yaml 的 account 块；jwtSecret 非空才渲染）
+  jwtSecret: ""
+  pltJwtSecret: ""
+  jwtExpire: "8h"
+  refreshTokenTtl: "30m"
+  loginWindow: "30m"
+  serviceNameOverride: ""
+  deploymentNameOverride: ""
+  configMapNameOverride: ""
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+  service:
+    type: ClusterIP
+    port: 8080
+
+# =============================================================================
 # NATS JetStream 消息队列
 # =============================================================================
 nats:
@@ -162,6 +267,15 @@ llm:
   provider: openai                             # openai | anthropic | deepseek 等
   model: deepseek-chat                         # 模型名，如 gpt-4o / deepseek-chat / qwen-plus
   baseUrl: "https://api.deepseek.com/v1"       # 模型服务地址，如 https://api.openai.com/v1
+  vision: false                                 # 默认模型是否支持图片（多模态）输入，seed 时写入模型配置
+  # 采样参数（可选，仅 opencode runtime 生效）。留空则走模型/服务默认；填数字，勿加引号。
+  # limit 留空时回退默认 {context:200000, output:16384}。
+  top_p: ""                                      # 核采样（0-1），如 0.95
+  frequency_penalty: ""                          # 频率惩罚（-2 ~ 2），如 0.1
+  presence_penalty: ""                           # 存在惩罚（-2 ~ 2），如 0
+  limit:
+    context: ""                                  # 上下文窗口大小（token），如 82144
+    output: ""                                   # 单次输出上限（token），如 42768
   translation:
     enabled: false
     provider: ""
@@ -266,3 +380,11 @@ ingress:
     enabled: false
     host: ""
     annotations: {}
+  account:
+    enabled: false
+    host: ""
+    annotations: {}
+    tls: []
+    paths:
+      - path: /v5/account
+        pathType: Prefix

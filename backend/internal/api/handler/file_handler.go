@@ -23,8 +23,14 @@ func NewFileHandler(service contract.FileService) *FileHandler {
 	return &FileHandler{service: service}
 }
 
-func (h *FileHandler) RegisterRoutes(r gin.IRouter) {
+// RegisterAuthedRoutes 注册需要登录（RequireCallerOrg）的文件写操作路由。
+func (h *FileHandler) RegisterAuthedRoutes(r gin.IRouter) {
 	r.POST("/files/upload", h.UploadFile)
+}
+
+// RegisterAnonymousRoutes 注册允许匿名访问的文件读操作路由。
+// 匿名访问仅放行体系级（system）共享资源；组织私有文件仍需登录。
+func (h *FileHandler) RegisterAnonymousRoutes(r gin.IRouter) {
 	r.GET("/files/download", h.DownloadFile)
 	r.GET("/files/preview", h.PresignDownloadURL)
 }
@@ -118,9 +124,9 @@ func (h *FileHandler) DownloadFile(ctx *gin.Context) {
 	}
 
 	caller, _ := auth.FromGinContext(ctx)
-	if caller == nil || caller.OrgID == 0 {
-		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, "not authenticated"))
-		return
+	orgID := uint(0)
+	if caller != nil && caller.OrgID != 0 {
+		orgID = caller.OrgID
 	}
 
 	var reader io.ReadCloser
@@ -128,9 +134,14 @@ func (h *FileHandler) DownloadFile(ctx *gin.Context) {
 	var err error
 
 	if fileID != "" {
-		reader, info, err = h.service.DownloadFile(ctx, caller.OrgID, fileID)
+		reader, info, err = h.service.DownloadFile(ctx, orgID, fileID)
 	} else {
-		reader, info, err = h.service.DownloadFileByURI(ctx, caller.OrgID, storageURI)
+		// 按 storage_uri 直读对象不区分归属，仅允许已登录方使用。
+		if orgID == 0 {
+			ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, "not authenticated"))
+			return
+		}
+		reader, info, err = h.service.DownloadFileByURI(ctx, orgID, storageURI)
 	}
 	if err != nil {
 		if err.Error() == "get file download failed" {
@@ -178,12 +189,19 @@ func (h *FileHandler) PresignDownloadURL(ctx *gin.Context) {
 	}
 
 	caller, _ := auth.FromGinContext(ctx)
-	if caller == nil || caller.OrgID == 0 {
+	orgID := uint(0)
+	if caller != nil && caller.OrgID != 0 {
+		orgID = caller.OrgID
+	}
+
+	// 匿名请求仅允许通过 public_id 访问体系级（system）共享资源；
+	// 直接按 storage_uri 预签名（不区分归属）只限已登录方使用。
+	if fileID == "" && orgID == 0 {
 		ctx.JSON(http.StatusUnauthorized, dto.Error(dto.CodeInternalError, "not authenticated"))
 		return
 	}
 
-	url, err := h.service.PresignDownloadURL(ctx, caller.OrgID, fileID, storageURI)
+	url, err := h.service.PresignDownloadURL(ctx, orgID, fileID, storageURI)
 	if err != nil {
 		if err.Error() == "get presign download url failed" {
 			ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, "file not found"))

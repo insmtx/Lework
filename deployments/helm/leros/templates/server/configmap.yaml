@@ -63,6 +63,28 @@ data:
       api_key: "${LLM_API_KEY}"
       model: {{ .Values.llm.model | quote }}
       base_url: {{ .Values.llm.baseUrl | quote }}
+      {{- if ne .Values.llm.vision false }}
+      vision: {{ .Values.llm.vision }}
+      {{- end }}
+      # 采样参数（可选，仅 opencode runtime 生效）。留空不写入，走模型/服务默认。
+      {{- if .Values.llm.top_p }}
+      top_p: {{ .Values.llm.top_p }}
+      {{- end }}
+      {{- if .Values.llm.frequency_penalty }}
+      frequency_penalty: {{ .Values.llm.frequency_penalty }}
+      {{- end }}
+      {{- if .Values.llm.presence_penalty }}
+      presence_penalty: {{ .Values.llm.presence_penalty }}
+      {{- end }}
+      {{- if and .Values.llm.limit (or .Values.llm.limit.context .Values.llm.limit.output) }}
+      limit:
+        {{- if .Values.llm.limit.context }}
+        context: {{ .Values.llm.limit.context }}
+        {{- end }}
+        {{- if .Values.llm.limit.output }}
+        output: {{ .Values.llm.limit.output }}
+        {{- end }}
+      {{- end }}
       {{- if .Values.llm.translation.enabled }}
       translation:
         provider: {{ .Values.llm.translation.provider | quote }}

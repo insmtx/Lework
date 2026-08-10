@@ -12,6 +12,9 @@ ConfigMap / Secret / RBAC，可选的 PostgreSQL、NATS JetStream、Traefik、We
 | **Worker 基础设施** | ConfigMap + Secret | 无常驻 Deployment，由 Server 内置 reconciler 按需创建 |
 | **PostgreSQL** | StatefulSet + Service | 内置数据库（默认开启，走 hostPath） |
 | **NATS JetStream** | StatefulSet + Service | 内置消息队列（默认开启，走 hostPath） |
+| **MySQL** | StatefulSet + Service | 内置数据库（account 服务用，默认关闭） |
+| **Redis** | StatefulSet + Service | 内置缓存（account 服务用，默认关闭） |
+| **Account** | Deployment + Service + ConfigMap + Job | 统一登录账号服务（依赖 MySQL/Redis；初始化 Job 走 hook，默认关闭） |
 | **Web 前端** | Deployment + Service | 可选（默认关闭） |
 | **Traefik** | 子 chart | 可选 Ingress Controller（默认关闭，复用 k3s 自带） |
 | **ImagePullSecret** | Secret | 私有镜像仓库认证 |
@@ -125,6 +128,8 @@ dataHostPath: /opt/leros-data
 |------|----------|----------|
 | PostgreSQL | `<dataHostPath>/postgresql` | `postgresql.hostPath` |
 | NATS | `<dataHostPath>/nats` | `nats.hostPath` |
+| MySQL | `<dataHostPath>/mysql` | `mysql.hostPath` |
+| Redis | `<dataHostPath>/redis` | `redis.hostPath` |
 | Worker workspace | `<dataHostPath>/workspace` | `worker.workspaceHostPathRoot` |
 | Leros 存储 | `<dataHostPath>/storage` | `storage.hostPath` |
 
@@ -138,6 +143,9 @@ dataHostPath: /opt/leros-data
 | `server.image` | `registry.yygu.cn/insmtx/leros:latest` | Server 镜像 |
 | `worker.image` | `registry.yygu.cn/insmtx/leros-worker:latest` | Worker 镜像 |
 | `web.image` | `registry.yygu.cn/insmtx/leros-web:latest` | Web 镜像（默认关闭） |
+| `mysql.image` | `registry.yygu.cn/library/mysql:8.4` | MySQL 镜像（默认关闭） |
+| `redis.image` | `registry.yygu.cn/library/redis:7.4` | Redis 镜像（默认关闭） |
+| `account.image` | `registry.yygu.cn/ygapp/account-api:v0.1.0` | Account 镜像（默认关闭） |
 | `worker.workspaceInitImage` | `busybox_1.36.1` | worker init 容器镜像 |
 
 ### 数据库与消息队列
@@ -153,6 +161,87 @@ nats:
   enabled: false
   external:
     url: "nats://ext-host:4222"
+```
+
+### Account 服务
+
+Account 是独立账号服务，用于统一登录，依赖 MySQL 与 Redis。默认关闭。支持两种部署情况，
+通过 `account.reuseCorekg` 切换：
+
+#### 情况 1：复用 corekg（reuseCorekg=true）
+
+corekg 已部署时，不部署内置 MySQL/Redis，account 直接连接 corekg 命名空间下的
+MySQL/Redis Service；此时**不做初始化**（数据由 corekg 侧负责）：
+
+```yaml
+account:
+  enabled: true
+  reuseCorekg: true
+  image: registry.yygu.cn/ygapp/account-api:v0.1.0
+  corekg:
+    namespace: corekg          # corekg 所在命名空间
+    mysqlService: corekg-mysql # corekg 的 MySQL Service 名
+    redisService: corekg-redis # corekg 的 Redis Service 名
+    # 凭据留空回退到 mysql/redis 顶层值；corekg 凭据不同时显式覆盖：
+    # mysqlUsername: "xxx"
+    # mysqlPassword: "xxx"
+    # mysqlDatabase: "xxx"
+    # redisPassword: "xxx"
+mysql:
+  enabled: false
+redis:
+  enabled: false
+```
+
+#### 情况 2：独立部署（默认，reuseCorekg=false）
+
+corekg 未部署时，随 chart 部署内置 MySQL/Redis，并通过**初始化 Job**（`post-install`/
+`post-upgrade` hook）依次执行 `--migrate-db` 建表与 `init` 种子数据：
+
+```yaml
+account:
+  enabled: true
+  reuseCorekg: false                 # 默认
+  initialize: true                   # 是否执行初始化 Job
+  init:
+    issuer: "yygu"                   # IAM_INIT_ISSUER
+    jwtSecret: "<≥32位密钥，生产必改>"   # IAM_INIT_JWT_SECRET
+    company: "default-company"
+    adminEmail: "admin@admin.com"
+    domain: "localhost"
+mysql:
+  enabled: true
+redis:
+  enabled: true
+```
+
+> 初始化 Job 的 `image` 复用 `account.image`，二进制由 `account.initCommand.binary`
+> 指定（默认 `account`）；如需自定义 `core_settings.yaml`，设置
+> `account.initCommand.settingFile` 与 `account.initCommand.settingsConfigMap`。
+
+也可给两种情况的 account 都改用**外部实例**（此时不部署内置中间件，也不做初始化）：
+
+```yaml
+mysql:
+  enabled: false
+  external:
+    url: "mysql://user:pass@host:3306/db?charset=utf8mb4&parseTime=true&loc=Local"
+redis:
+  enabled: false
+  external:
+    url: "redis://:pass@host:6379/0"
+```
+
+对外暴露 Account（可选，复用 ingress 链路）：
+```yaml
+ingress:
+  enabled: true
+  account:
+    enabled: true
+    host: ""                     # 有域名填入；默认如下路径前缀
+    paths:
+      - path: /v5/account
+        pathType: Prefix
 ```
 
 ### LLM
@@ -179,6 +268,13 @@ llm:
 | `LLM_API_KEY` | `llm.apiKey` | LLM 密钥 |
 | `LEROS_STORAGE_SIGN_SECRET` | `storage.signSecret` | 预签名 URL 校验密钥 |
 | `LEROS_BASE_URL` | `server.baseUrl` | 留空自动用集群内部 Service 地址 |
+| MySQL Password | `mysql.password` | MySQL 业务用户密码（`gen-values.sh` 随机生成） |
+| MySQL Root Password | `mysql.rootPassword` | MySQL 根密码（`gen-values.sh` 随机生成） |
+| Redis Password | `redis.password` | Redis 访问密码（`gen-values.sh` 随机生成） |
+
+> Account 的连接串与 `account.init.jwtSecret` 直接写入 ConfigMap（明文），非自动生成，
+> 由部署者填写；生产环境请自行用外部 Secret/加密方案加固，勿在仓库中提交真实密钥。
+
 
 ## 升级
 

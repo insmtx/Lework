@@ -398,6 +398,12 @@ type ModelOptions struct {
 	APIKey       string `json:"api_key,omitempty"`
 	// Vision 表示该模型是否支持图片（多模态）输入。
 	Vision bool `json:"vision,omitempty"`
+
+	TopP             *float64 `json:"top_p,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	ContextLimit     int      `json:"context_limit,omitempty"`
+	OutputLimit      int      `json:"output_limit,omitempty"`
 }
 
 type RuntimeOptions struct {

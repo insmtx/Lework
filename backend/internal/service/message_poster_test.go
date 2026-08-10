@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -13,6 +14,14 @@ import (
 
 func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
 	database := setupTestDB(t)
+	// PostMessage→publishWorkerTask 会按项目解析插件快照，需补齐插件相关表。
+	if err := database.AutoMigrate(
+		&types.ProjectPluginBinding{},
+		&types.Plugin{},
+		&types.PluginRevision{},
+	); err != nil {
+		t.Fatalf("migrate plugin tables: %v", err)
+	}
 	userOrg := &types.UserOrg{
 		UserID: 1,
 		OrgID:  2,
@@ -20,16 +29,30 @@ func TestMessagePosterPostMessageFillsSenderNameFromUserOrgUin(t *testing.T) {
 	if err := database.Create(userOrg).Error; err != nil {
 		t.Fatalf("seed second user org: %v", err)
 	}
+	if err := database.Create(&types.LLMModel{
+		OrgID:           2,
+		Code:            "default-org2",
+		Name:            "Default",
+		Provider:        "openai",
+		ModelName:       "gpt-test",
+		BaseURL:         "https://api.openai.com",
+		BaseURLHasV1:    true,
+		APIKeyEncrypted: "sk-test",
+		Status:          string(types.LLMModelStatusActive),
+		IsDefault:       true,
+	}).Error; err != nil {
+		t.Fatalf("seed org 2 default llm model: %v", err)
+	}
 
 	ctx := auth.WithContext(context.Background(), &types.Caller{
-		Uin:   userOrg.ID,
+		Uin:   100,
 		OrgID: 2,
 		State: types.AuthStateSucc,
 	}, &types.Trace{
 		RequestID: "test-request-id",
 		TraceID:   "test-trace-id",
 	})
-	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, nil)
+	poster := NewMessagePoster(database, newTestPermissionService(database), &recordingEventBus{}, &mockInferrer{assistantID: 1}, nil, nil, "test", nil, newTestOrgRepoForSender("Test User"))
 	assistant := seedReadyAssistant(t, database, "sender-name", "Sender Name Assistant", "answer")
 	project := &types.Project{
 		PublicID: "prj_sender_name",

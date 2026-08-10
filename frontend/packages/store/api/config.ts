@@ -13,6 +13,8 @@ declare const process:
 
 const DEFAULT_API_BASE_URL = "http://localhost:8080/v1";
 export const PRIVATE_SERVER_CONFIG_STORAGE_KEY = "leros-private-server-base-url";
+/** 本地调试用：存在该 key 时强制走私有化模式，无需打包 private 构建。 */
+export const PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY = "leros-private-deployment-mode";
 const PRIVATE_DEPLOYMENT_MODE = "private";
 const CONNECTION_TEST_TIMEOUT_MS = 8000;
 
@@ -29,7 +31,26 @@ function getViteDeploymentMode(): string | undefined {
 	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEROS_DEPLOYMENT_MODE;
 }
 
-export const isPrivateDeployment = getViteDeploymentMode() === PRIVATE_DEPLOYMENT_MODE;
+function hasPrivateDeploymentModeOverride(): boolean {
+	if (typeof window === "undefined") return false;
+
+	try {
+		return window.localStorage.getItem(PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY) !== null;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * 是否私有化客户端。
+ * 优先看 localStorage 覆盖开关；未设置时回退到构建环境变量 VITE_LEROS_DEPLOYMENT_MODE。
+ * 通过 DevTools 增删覆盖项后需刷新页面才会生效。
+ */
+export function resolveIsPrivateDeployment(): boolean {
+	return hasPrivateDeploymentModeOverride() || getViteDeploymentMode() === PRIVATE_DEPLOYMENT_MODE;
+}
+
+export const isPrivateDeployment = resolveIsPrivateDeployment();
 
 export function normalizeAPIBaseURL(value: string): string {
 	const trimmed = value.trim();
@@ -128,7 +149,7 @@ function isGlobalConfigResponse(value: unknown): boolean {
 
 function resolveAPIBaseURL(): string {
 	const baseURL =
-		(isPrivateDeployment ? readPrivateServerBaseURL() : null) ||
+		(resolveIsPrivateDeployment() ? readPrivateServerBaseURL() : null) ||
 		getViteAPIBaseURL() ||
 		getNextAPIBaseURL() ||
 		DEFAULT_API_BASE_URL;

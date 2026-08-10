@@ -9,6 +9,9 @@ set -euo pipefail
 #   @NATS_PASSWORD@       随机生成 16 位
 #   @JWT_SECRET@          随机生成 32 位
 #   @STORAGE_SIGN_SECRET@ 随机生成 32 位
+#   @MYSQL_PASSWORD@      随机生成 16 位
+#   @MYSQL_ROOT_PASSWORD@ 随机生成 16 位
+#   @REDIS_PASSWORD@      随机生成 16 位
 #   @REGISTRY@            --registry 传入，不传则留空
 #   @REGISTRY_USER@       --user 传入
 #   @REGISTRY_PASS@       --pass 传入
@@ -72,6 +75,9 @@ PG_PASSWORD=$(gen_password)
 NATS_PASSWORD=$(gen_password)
 JWT_SECRET=$(gen_secret)
 STORAGE_SIGN_SECRET=$(gen_secret)
+MYSQL_PASSWORD=$(gen_password)
+MYSQL_ROOT_PASSWORD=$(gen_password)
+REDIS_PASSWORD=$(gen_password)
 
 echo ""
 echo "[keys] 生成随机密钥："
@@ -79,6 +85,9 @@ echo "   PostgreSQL Password : ${PG_PASSWORD}"
 echo "   NATS Password       : ${NATS_PASSWORD}"
 echo "   JWT Secret          : ${JWT_SECRET}"
 echo "   Storage Sign Secret : ${STORAGE_SIGN_SECRET}"
+echo "   MySQL Password      : ${MYSQL_PASSWORD}"
+echo "   MySQL Root Password : ${MYSQL_ROOT_PASSWORD}"
+echo "   Redis Password      : ${REDIS_PASSWORD}"
 echo ""
 
 # -------------------------------
@@ -103,6 +112,9 @@ sed_inplace \
   -e "s|@NATS_PASSWORD@|${NATS_PASSWORD}|g" \
   -e "s|@JWT_SECRET@|${JWT_SECRET}|g" \
   -e "s|@STORAGE_SIGN_SECRET@|${STORAGE_SIGN_SECRET}|g" \
+  -e "s|@MYSQL_PASSWORD@|${MYSQL_PASSWORD}|g" \
+  -e "s|@MYSQL_ROOT_PASSWORD@|${MYSQL_ROOT_PASSWORD}|g" \
+  -e "s|@REDIS_PASSWORD@|${REDIS_PASSWORD}|g" \
   -e "s|@REGISTRY@|${REGISTRY}|g" \
   -e "s|@REGISTRY_USER@|${REGISTRY_USER}|g" \
   -e "s|@REGISTRY_PASS@|${REGISTRY_PASS}|g" \

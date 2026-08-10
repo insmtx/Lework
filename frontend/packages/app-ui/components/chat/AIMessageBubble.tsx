@@ -4,7 +4,7 @@ import {
 	fetchFilePreviewByPublicId,
 	formatArtifactTime,
 	formatTime,
-	getAssistantMessageFooterSegments,
+	formatTokenCount,
 	messageArtifactToProjectArtifact,
 	sortProjectArtifactsByNewestFirst,
 	useAppStore,
@@ -18,6 +18,7 @@ import type {
 	ToolCall,
 } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	Check,
@@ -28,6 +29,7 @@ import {
 	RefreshCw,
 	Rows3,
 	Wrench,
+	Zap,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC } from "../../assets";
@@ -74,6 +76,48 @@ function CopyButton({ text }: { text: string }) {
 		>
 			{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
 		</Button>
+	);
+}
+
+/** 消息操作栏旁的轻量 token 指示器：数字为主，悬停看输入/输出拆分。 */
+function MessageTokenUsage({ message }: { message: Message }) {
+	const totalTokens = message.usage?.totalTokens ?? message.metadata?.tokens;
+	if (totalTokens === undefined || totalTokens <= 0) return null;
+
+	const inputTokens = message.usage?.inputTokens;
+	const outputTokens = message.usage?.outputTokens;
+	const hasBreakdown =
+		(inputTokens !== undefined && inputTokens > 0) ||
+		(outputTokens !== undefined && outputTokens > 0);
+	const totalLabel = formatTokenCount(totalTokens);
+	// 中文注释：hover 与复制按钮一致——ghost 的 muted 底 + slate-400→slate-600。
+	const badgeClassName =
+		"inline-flex h-[26px] items-center gap-1 rounded-[min(var(--radius-md),10px)] px-1.5 text-[11px] tabular-nums text-slate-400 transition-all hover:bg-muted hover:text-slate-600";
+
+	const badgeContent = (
+		<>
+			<Zap className="size-3.5 shrink-0" aria-hidden="true" />
+			<span>{totalLabel}</span>
+		</>
+	);
+
+	if (!hasBreakdown) {
+		return (
+			<span className={badgeClassName} title={totalLabel}>
+				{badgeContent}
+			</span>
+		);
+	}
+
+	return (
+		<Tooltip>
+			<TooltipTrigger className={badgeClassName} aria-label={totalLabel}>
+				{badgeContent}
+			</TooltipTrigger>
+			<TooltipContent side="top">
+				输入 {formatTokenCount(inputTokens ?? 0)} · 输出 {formatTokenCount(outputTokens ?? 0)}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 
@@ -132,9 +176,6 @@ export function AIMessageBubble({
 	const replyPreviewContent = resolveReplyPreviewContent(message);
 	const statusLabel = message.status === "waiting" ? "等待中" : "正在思考";
 	const statusText = message.statusText?.trim();
-	const metricSegments = SHOW_ASSISTANT_MESSAGE_METRICS
-		? getAssistantMessageFooterSegments(message)
-		: [];
 
 	const copyPlanContent = async (fileID: string) => {
 		const response = await fetchFilePreviewByPublicId(fileID);
@@ -233,10 +274,7 @@ export function AIMessageBubble({
 				)}
 
 				{!isStreaming && (
-					<div className="mt-2 flex items-center gap-3">
-						{metricSegments.length > 0 && (
-							<div className="text-[13px] text-slate-400">{metricSegments.join(" · ")}</div>
-						)}
+					<div className="mt-1.5 flex items-center gap-1">
 						<div className="flex items-center gap-0.5">
 							<CopyButton text={content} />
 							{SHOW_ASSISTANT_MESSAGE_REGENERATE_BUTTON && (
@@ -250,6 +288,7 @@ export function AIMessageBubble({
 								</Button>
 							)}
 						</div>
+						{SHOW_ASSISTANT_MESSAGE_METRICS ? <MessageTokenUsage message={message} /> : null}
 					</div>
 				)}
 			</div>

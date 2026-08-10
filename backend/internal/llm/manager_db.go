@@ -24,28 +24,48 @@ func modelConfigFromEntity(m *types.LLMModel) *ModelConfig {
 	if m == nil {
 		return nil
 	}
+	sampling := types.SamplingParamsFromConfig(m.Config)
 	return &ModelConfig{
-		ID:           m.ID,
-		OrgID:        m.OrgID,
-		Code:         m.Code,
-		Name:         m.Name,
-		Description:  m.Description,
-		Provider:     m.Provider,
-		ModelName:    m.ModelName,
-		BaseURL:      m.BaseURL,
-		BaseURLHasV1: m.BaseURLHasV1,
-		APIKey:       m.APIKeyEncrypted,
-		MaxTokens:    m.MaxTokens,
-		Temperature:  m.Temperature,
-		TimeoutSec:   m.TimeoutSec,
-		Status:       m.Status,
-		IsDefault:    m.IsDefault,
-		IsSystem:     m.IsSystem,
-		Config:       map[string]any(m.Config),
-		Vision:       VisionFromConfig(m.Config),
-		CreatedAt:    m.CreatedAt,
-		UpdatedAt:    m.UpdatedAt,
+		ID:               m.ID,
+		OrgID:            m.OrgID,
+		Code:             m.Code,
+		Name:             m.Name,
+		Description:      m.Description,
+		Provider:         m.Provider,
+		ModelName:        m.ModelName,
+		BaseURL:          m.BaseURL,
+		BaseURLHasV1:     m.BaseURLHasV1,
+		APIKey:           m.APIKeyEncrypted,
+		MaxTokens:        m.MaxTokens,
+		Temperature:      m.Temperature,
+		TimeoutSec:       m.TimeoutSec,
+		Status:           m.Status,
+		IsDefault:        m.IsDefault,
+		IsSystem:         m.IsSystem,
+		Config:           map[string]any(m.Config),
+		Vision:           VisionFromConfig(m.Config),
+		TopP:             sampling.TopP,
+		FrequencyPenalty: sampling.FrequencyPenalty,
+		PresencePenalty:  sampling.PresencePenalty,
+		ContextLimit:     contextLimit(sampling.Limit),
+		OutputLimit:      outputLimit(sampling.Limit),
+		CreatedAt:        m.CreatedAt,
+		UpdatedAt:        m.UpdatedAt,
 	}
+}
+
+func contextLimit(l *types.LLMLimitFields) int {
+	if l == nil {
+		return 0
+	}
+	return l.Context
+}
+
+func outputLimit(l *types.LLMLimitFields) int {
+	if l == nil {
+		return 0
+	}
+	return l.Output
 }
 
 // VisionFromConfig 从扩展配置中解包视觉能力标志。
@@ -72,6 +92,9 @@ var llmEndpointSuffixes = []string{
 	":generateContent",
 	":streamGenerateContent",
 }
+
+// NormalizeLLMBaseURL 导出规范化包装，供 seed 等跨包复用。
+func NormalizeLLMBaseURL(baseURL string) string { return normalizeLLMBaseURL(baseURL) }
 
 // normalizeLLMBaseURL 清理 base_url 上的已知端点后缀和尾部斜杠，
 // 仅保留根地址部分。

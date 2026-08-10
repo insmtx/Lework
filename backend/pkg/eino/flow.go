@@ -41,6 +41,11 @@ func (noopStreamSink) EmitReasoningDelta(context.Context, string, string) error 
 	return nil
 }
 
+// DefaultMaxIterations 为 ReAct 循环的默认轮数上限。
+// eino ADK ChatModelAgent 迭代上限默认 20，超出即报 "exceeds max iterations"；
+// 此处抬升至 30 以支撑多轮工具调用任务。
+const DefaultMaxIterations = 30
+
 // Flow runs a tool-calling Eino agent loop.
 type Flow struct {
 	agent        adk.Agent
@@ -55,6 +60,8 @@ type FlowConfig struct {
 	Tools        []einotool.BaseTool
 	SystemPrompt string
 	Messages     []adk.Message
+	// MaxIterations 限制 agent ReAct 循环轮数；0 则使用 DefaultMaxIterations。
+	MaxIterations int
 }
 
 // NewFlow creates a reusable Eino agent flow.
@@ -66,11 +73,17 @@ func NewFlow(ctx context.Context, cfg *FlowConfig) (*Flow, error) {
 		return nil, fmt.Errorf("tool-calling model is required")
 	}
 
+	maxIter := cfg.MaxIterations
+	if maxIter <= 0 {
+		maxIter = DefaultMaxIterations
+	}
+
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "EinoAgent",
-		Description: "Eino runtime agent",
-		Model:       cfg.Model,
-		Instruction: cfg.SystemPrompt,
+		Name:          "EinoAgent",
+		Description:   "Eino runtime agent",
+		Model:         cfg.Model,
+		Instruction:   cfg.SystemPrompt,
+		MaxIterations: maxIter,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: cfg.Tools,

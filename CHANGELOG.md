@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.3.10] - 2026-08-10
+
+### Token 消耗展示、OpenCode 采样参数与 Helm 统一登录
+
+本版本在助手回复中展示 Token 消耗，支持 OpenCode 按模型注入采样参数，完善 Helm 统一登录与部署配置，并修复 AI 队友模板头像与 Eino 迭代上限相关问题。
+
+- 助手回复下方展示本次 Token 消耗
+- OpenCode 支持按模型注入采样参数
+- Helm 新增 account 服务及内置 MySQL/Redis，支持统一登录；修复 MySQL DSN 生成格式
+- Eino ReAct 迭代上限调整为 30
+- 桌面端支持 localStorage 覆盖开关，便于本地调试私有化模式
+- 修复 AI 队友模板失效头像 seed 覆盖重传，并支持匿名访问 system 文件
+- 补充 Worker 状态查询文档与 llm.vision 多模态配置示例
+
 ## [v0.3.9] - 2026-08-07
 
 ### Agent 定时自动化、图片多模态与私有化/对话体验修复

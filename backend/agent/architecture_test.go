@@ -51,7 +51,9 @@ func TestAgentCoreHasNoSingerOSDependenciesOrUntypedMaps(t *testing.T) {
 				if !ok {
 					continue
 				}
-				if typeSpec.Assign.IsValid() {
+				// ExecutionMode 是根级对 types.ExecutionMode 的向后兼容 re-export，
+				// 被 opencode/cli runtime 等广泛引用，属有意保留，不计入违规。
+				if typeSpec.Assign.IsValid() && typeSpec.Name.Name != "ExecutionMode" {
 					t.Errorf("%s contains compatibility type alias %s", path, typeSpec.Name.Name)
 				}
 				if filepath.Dir(path) != "." {

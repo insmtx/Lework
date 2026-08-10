@@ -243,10 +243,21 @@ export function mapUsage(usage?: {
 	) {
 		return undefined;
 	}
+	const inputTokens = usage.input_tokens;
+	const outputTokens = usage.output_tokens;
+	const summed =
+		inputTokens !== undefined || outputTokens !== undefined
+			? (inputTokens ?? 0) + (outputTokens ?? 0)
+			: undefined;
+	// 中文注释：优先用后端 total_tokens；缺失或为 0 时用 input+output 回算，便于 footer 展示。
+	const totalTokens =
+		usage.total_tokens !== undefined && usage.total_tokens > 0
+			? usage.total_tokens
+			: (summed ?? usage.total_tokens);
 	return {
-		inputTokens: usage.input_tokens,
-		outputTokens: usage.output_tokens,
-		totalTokens: usage.total_tokens,
+		inputTokens,
+		outputTokens,
+		totalTokens,
 	};
 }
 

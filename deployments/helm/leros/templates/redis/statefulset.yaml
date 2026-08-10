@@ -1,0 +1,78 @@
+{{- if .Values.redis.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leros.fullname" . }}-redis
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: 6379
+  selector:
+    {{- include "leros.selectorLabels" (dict "root" . "component" "redis") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "leros.fullname" . }}-redis
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: {{ include "leros.fullname" . }}-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "leros.selectorLabels" (dict "root" . "component" "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "leros.selectorLabels" (dict "root" . "component" "redis") | nindent 8 }}
+    spec:
+      {{- with (include "leros.imagePullSecrets" . | trim) }}
+      {{ . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.redis.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image | quote }}
+          imagePullPolicy: {{ .Values.redis.imagePullPolicy }}
+          command: ["redis-server"]
+          args: ["--requirepass", {{ .Values.redis.password | quote }}, "--appendonly", "yes"]
+          ports:
+            - name: tcp-redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- with .Values.redis.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli -h 127.0.0.1 -p 6379 -a {{ .Values.redis.password }} ping | grep PONG"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli -h 127.0.0.1 -p 6379 -a {{ .Values.redis.password }} ping | grep PONG"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+      volumes:
+        - name: data
+          hostPath:
+            path: {{ include "leros.hostPath" (dict "root" . "path" .Values.redis.hostPath) | quote }}
+            type: DirectoryOrCreate
+{{- end -}}

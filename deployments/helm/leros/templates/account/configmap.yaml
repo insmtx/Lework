@@ -1,0 +1,54 @@
+{{- if .Values.account.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "leros.accountName" (dict "root" . "type" "configMap") }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: account
+data:
+  config.yaml: |
+    # 由 Helm chart 渲染的 Account 服务配置。
+    # 连接串直接写入（reuseCorekg 时复用 corekg 命名空间的 MySQL/Redis，否则用内置或 external.url）。
+    main:
+      app: account
+      http_addr: {{ printf ":%s" (.Values.account.service.port | toString) | quote }}
+      open_docs_api: {{ .Values.account.openDocsApi }}
+      env: {{ .Values.account.env | quote }}
+      database_conns:
+        core: {{ include "leros.mysqlURL" . | quote }}
+        account: {{ include "leros.mysqlURL" . | quote }}
+
+    redis:
+      addr: {{ include "leros.redisURL" . | quote }}
+
+    logger:
+      default:
+        - writer: console
+          level: {{ .Values.account.logLevel | quote }}
+        {{- if .Values.account.logger.file.enabled }}
+        - writer: file
+          level: {{ .Values.account.logLevel | quote }}
+          filename: {{ .Values.account.logger.file.filename | quote }}
+          maxsize: {{ .Values.account.logger.file.maxSize }}
+          maxage: {{ .Values.account.logger.file.maxAge }}
+          maxbackups: {{ .Values.account.logger.file.maxBackups }}
+          localtime: true
+          compress: {{ .Values.account.logger.file.compress }}
+        {{- end }}
+      gorm:
+        - writer: console
+          level: {{ .Values.account.logLevel | quote }}
+      access:
+        - writer: console
+          level: {{ .Values.account.logLevel | quote }}
+
+    {{- if .Values.account.jwtSecret }}
+    account:
+      jwt_secret: {{ .Values.account.jwtSecret | quote }}
+      plt_jwt_secret: {{ default .Values.account.jwtSecret .Values.account.pltJwtSecret | quote }}
+      jwt_expire: {{ .Values.account.jwtExpire | quote }}
+      refresh_token_ttl: {{ .Values.account.refreshTokenTtl | quote }}
+      login_window: {{ .Values.account.loginWindow | quote }}
+    {{- end }}
+{{- end -}}

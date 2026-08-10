@@ -124,6 +124,61 @@ func TestBuildConfigContentDeclaresImageModalityOnlyForVisionModel(t *testing.T)
 	}
 }
 
+func TestBuildConfigContentInjectsSamplingParamsAndLimit(t *testing.T) {
+	topP := 0.95
+	freq := 0.1
+	presence := 0.0
+	content, err := buildConfigContent(agent.ModelConfig{
+		Model:            "Qwen3.6-27B",
+		TopP:             &topP,
+		FrequencyPenalty: &freq,
+		PresencePenalty:  &presence,
+		ContextLimit:     82144,
+		OutputLimit:      42768,
+	}, nil)
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	m := cfg.Provider[providerID].Models["Qwen3.6-27B"]
+	if m.Limit.Context != 82144 || m.Limit.Output != 42768 {
+		t.Fatalf("limit = %#v, want {82144,42768}", m.Limit)
+	}
+	if m.Options == nil {
+		t.Fatalf("options missing: %#v", m)
+	}
+	if v, ok := m.Options["top_p"].(float64); !ok || v != 0.95 {
+		t.Fatalf("top_p = %#v, want 0.95", m.Options["top_p"])
+	}
+	if v, ok := m.Options["frequency_penalty"].(float64); !ok || v != 0.1 {
+		t.Fatalf("frequency_penalty = %#v, want 0.1", m.Options["frequency_penalty"])
+	}
+	if v, ok := m.Options["presence_penalty"].(float64); !ok || v != 0 {
+		t.Fatalf("presence_penalty = %#v, want 0", m.Options["presence_penalty"])
+	}
+}
+
+func TestBuildConfigContentFallsBackToDefaultLimit(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "default-model"}, nil)
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	m := cfg.Provider[providerID].Models["default-model"]
+	if m.Limit.Context != 200000 || m.Limit.Output != 16384 {
+		t.Fatalf("limit = %#v, want default {200000,16384}", m.Limit)
+	}
+	if m.Options != nil {
+		t.Fatalf("options should be nil when no sampling params, got %#v", m.Options)
+	}
+}
+
 func TestBuildMCPConfigIncludesProjectHeadersAndPreservesExplicitAuthorization(t *testing.T) {
 	sourceHeaders := map[string]string{"Authorization": "Custom token", "X-Tenant": "one"}
 	config := buildMCPConfig([]agent.MCPServerConfig{

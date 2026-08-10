@@ -53,6 +53,14 @@ llm:
   api_key: "${LLM_API_KEY}"
   model: "qwen3.6-plus"
   base_url: "https://api.yygu.cn/v3/llm.chat/"
+  # 以下均为可选参数，缺省即走模型/服务默认值；base_url 填根地址即可（带不带 /v1 均可），启动时 seed 会自动规范化 /v1 前缀。
+  vision: false              # 默认模型是否支持图片（多模态）输入，seed 时写入模型配置
+  top_p: 0.95                # 核采样（0-1）
+  frequency_penalty: 0.1     # 频率惩罚（-2 ~ 2）
+  presence_penalty: 0        # 存在惩罚（-2 ~ 2）
+  limit:
+    context: 82144           # 上下文窗口大小（token）
+    output: 42768            # 单次输出上限（token）
   translation:
     provider: "deepseek"
     api_key: "${LLM_API_KEY}"

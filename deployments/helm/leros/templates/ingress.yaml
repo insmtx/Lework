@@ -88,4 +88,51 @@ spec:
                   number: {{ .Values.web.service.port }}
     {{- end }}
 {{- end -}}
+{{- if and .Values.account.enabled .Values.ingress.account.enabled -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "leros.accountName" (dict "root" . "type" "deployment") }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: account
+  {{- with .Values.ingress.account.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ include "leros.ingressClassName" . | quote }}
+  {{- with .Values.ingress.account.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- if .Values.ingress.account.host }}
+    - host: {{ .Values.ingress.account.host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.account.paths }}
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "leros.accountName" (dict "root" $ "type" "service") }}
+                port:
+                  number: {{ $.Values.account.service.port }}
+          {{- end }}
+    {{- else }}
+    - http:
+        paths:
+          {{- range .Values.ingress.account.paths }}
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "leros.accountName" (dict "root" $ "type" "service") }}
+                port:
+                  number: {{ $.Values.account.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end -}}
 {{- end -}}

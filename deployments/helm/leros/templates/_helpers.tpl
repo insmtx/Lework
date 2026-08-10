@@ -124,6 +124,26 @@ Server Secret name.
 {{- end -}}
 
 {{/*
+Account 组件命名。经 .type 区分返回 service/deployment/configMap/secret 资源名。
+统一走 nameOverride，默认 <fullname>-account。
+用法：{{ include "leros.accountName" (dict "root" . "type" "service") }}
+*/}}
+{{- define "leros.accountName" -}}
+{{- $prefix := printf "%s-account" (include "leros.fullname" .root) -}}
+{{- if eq .type "service" -}}
+{{- default $prefix .root.Values.account.serviceNameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else if eq .type "deployment" -}}
+{{- default $prefix .root.Values.account.deploymentNameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else if eq .type "configMap" -}}
+{{- default $prefix .root.Values.account.configMapNameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else if eq .type "secret" -}}
+{{- printf "%s-secret" $prefix | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $prefix -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Build database URL. Uses builtin postgresql when enabled, otherwise external.url.
 */}}
 {{- define "leros.databaseURL" -}}
@@ -131,6 +151,45 @@ Build database URL. Uses builtin postgresql when enabled, otherwise external.url
 {{- printf "postgres://%s:%s@%s-postgresql:5432/%s?sslmode=disable" .Values.postgresql.username .Values.postgresql.password (include "leros.fullname" .) .Values.postgresql.database -}}
 {{- else -}}
 {{- required "postgresql.enabled=false 时必须设置 postgresql.external.url" .Values.postgresql.external.url -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Build MySQL URL. 优先级：
+  1) account.reuseCorekg=true → 复用 corekg 命名空间的 MySQL（可配置 service 名/凭据）
+  2) mysql.enabled → 内置 MySQL（account 独立部署场景）
+  3) 否则用 mysql.external.url
+内置 DSIs 带 mysql:// scheme（yg-iam 要求的连接串格式）。
+*/}}
+{{- define "leros.mysqlURL" -}}
+{{- if and .Values.account.enabled .Values.account.reuseCorekg -}}
+{{- $cg := .Values.account.corekg | default dict -}}
+{{- $db := default .Values.mysql.database (default "" $cg.mysqlDatabase) -}}
+{{- $user := default .Values.mysql.username (default "" $cg.mysqlUsername) -}}
+{{- $pass := default .Values.mysql.password (default "" $cg.mysqlPassword) -}}
+{{- printf "mysql://%s:%s@%s.%s:3306/%s?charset=utf8mb4&parseTime=true&loc=Local&timeout=5s" $user $pass $cg.mysqlService (default "corekg" $cg.namespace) $db -}}
+{{- else if .Values.mysql.enabled -}}
+{{- printf "mysql://%s:%s@%s-mysql:3306/%s?charset=utf8mb4&parseTime=true&loc=Local&timeout=5s" .Values.mysql.username .Values.mysql.password (include "leros.fullname" .) .Values.mysql.database -}}
+{{- else -}}
+{{- required "mysql.enabled=false 时必须设置 mysql.external.url" .Values.mysql.external.url -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Redis 地址。优先级：
+  1) account.reuseCorekg=true → 复用 corekg 命名空间的 Redis
+  2) redis.enabled → 内置 Redis（account 独立部署场景）
+  3) 否则用 redis.external.url
+*/}}
+{{- define "leros.redisURL" -}}
+{{- if and .Values.account.enabled .Values.account.reuseCorekg -}}
+{{- $cg := .Values.account.corekg | default dict -}}
+{{- $pass := default .Values.redis.password (default "" $cg.redisPassword) -}}
+{{- printf "redis://:%s@%s.%s:6379/0" $pass $cg.redisService (default "corekg" $cg.namespace) -}}
+{{- else if .Values.redis.enabled -}}
+{{- printf "redis://:%s@%s-redis:6379/0" .Values.redis.password (include "leros.fullname" .) -}}
+{{- else -}}
+{{- required "redis.enabled=false 时必须设置 redis.external.url" .Values.redis.external.url -}}
 {{- end -}}
 {{- end -}}
 

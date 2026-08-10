@@ -1,0 +1,111 @@
+{{- if .Values.account.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "leros.accountName" (dict "root" . "type" "deployment") }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: account
+spec:
+  replicas: {{ .Values.account.replicas }}
+  strategy:
+    type: {{ .Values.account.strategy }}
+  selector:
+    matchLabels:
+      {{- include "leros.selectorLabels" (dict "root" . "component" "account") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "leros.selectorLabels" (dict "root" . "component" "account") | nindent 8 }}
+    spec:
+      {{- with (include "leros.imagePullSecrets" . | trim) }}
+      {{ . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.account.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-middleware
+          image: {{ .Values.worker.workspaceInitImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              {{- if .Values.account.reuseCorekg }}
+              {{- $cg := .Values.account.corekg | default dict }}
+              echo "waiting for mysql at {{ $cg.mysqlService }}.{{ default "corekg" $cg.namespace }}:3306"
+              until nc -z -w 2 {{ $cg.mysqlService }}.{{ default "corekg" $cg.namespace }} 3306; do
+                echo "mysql not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "mysql is ready"
+              echo "waiting for redis at {{ $cg.redisService }}.{{ default "corekg" $cg.namespace }}:6379"
+              until nc -z -w 2 {{ $cg.redisService }}.{{ default "corekg" $cg.namespace }} 6379; do
+                echo "redis not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "redis is ready"
+              {{- else }}
+              {{- if .Values.mysql.enabled }}
+              echo "waiting for mysql at {{ include "leros.fullname" . }}-mysql:3306"
+              until nc -z -w 2 {{ include "leros.fullname" . }}-mysql 3306; do
+                echo "mysql not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "mysql is ready"
+              {{- end }}
+              {{- if .Values.redis.enabled }}
+              echo "waiting for redis at {{ include "leros.fullname" . }}-redis:6379"
+              until nc -z -w 2 {{ include "leros.fullname" . }}-redis 6379; do
+                echo "redis not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "redis is ready"
+              {{- end }}
+              {{- end }}
+      containers:
+        - name: {{ .Values.account.containerName }}
+          image: {{ .Values.account.image | quote }}
+          imagePullPolicy: {{ .Values.account.imagePullPolicy }}
+          args: ["--config=/etc/account/config.yaml"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.account.service.port }}
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/account/
+              readOnly: true
+            - name: account-logs
+              mountPath: /data/account/log
+          {{- with .Values.account.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "leros.accountName" (dict "root" . "type" "configMap") }}
+            items:
+              - key: config.yaml
+                path: config.yaml
+        - name: account-logs
+          emptyDir: {}
+{{- end -}}

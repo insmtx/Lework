@@ -187,3 +187,100 @@ func TestEmbeddedAITeammateTemplateAvatarsMatchDefaultTemplates(t *testing.T) {
 		}
 	}
 }
+
+func TestSeedAITeammateTemplatesReinitBrokenSystemAvatar(t *testing.T) {
+	database := setupAITeammateTemplateDB(t)
+	if err := filestore.Init(&config.StorageConfig{
+		Driver:     "local",
+		LocalDir:   t.TempDir(),
+		Bucket:     "test-bucket",
+		BaseURL:    "http://localhost:8080",
+		SignSecret: "test-secret",
+	}); err != nil {
+		t.Fatalf("init filestore: %v", err)
+	}
+
+	// 预置模板，其头像指向不存在的 system 文件记录（记录缺失 → 需要重传）。
+	if err := database.Create(&types.AITeammateTemplate{
+		Code:         "bid-strategist",
+		Name:         "旧投标策略师",
+		Avatar:       "file_stale_missing",
+		SystemPrompt: "旧提示词",
+		Category:     "bidding",
+		Status:       string(contract.AITeammateTemplateStatusActive),
+		IsSystem:     true,
+	}).Error; err != nil {
+		t.Fatalf("create template with stale avatar: %v", err)
+	}
+
+	if err := SeedAITeammateTemplates(context.Background(), database, ""); err != nil {
+		t.Fatalf("seed ai teammate templates: %v", err)
+	}
+
+	var template types.AITeammateTemplate
+	if err := database.Where("code = ?", "bid-strategist").First(&template).Error; err != nil {
+		t.Fatalf("find reloaded template: %v", err)
+	}
+	if template.Avatar == "" || template.Avatar == "file_stale_missing" {
+		t.Fatalf("stale avatar was not reinitialized: %q", template.Avatar)
+	}
+	var upload types.FileUpload
+	if err := database.Where("public_id = ?", template.Avatar).First(&upload).Error; err != nil {
+		t.Fatalf("reinitialized avatar not backed by file record: %v", err)
+	}
+	if upload.OwnerScope != types.OwnerScopeSystem {
+		t.Fatalf("reinitialized avatar scope = %q, want system", upload.OwnerScope)
+	}
+}
+
+func TestSeedAITeammateTemplatesPreservesValidSystemAvatar(t *testing.T) {
+	database := setupAITeammateTemplateDB(t)
+	if err := filestore.Init(&config.StorageConfig{
+		Driver:     "local",
+		LocalDir:   t.TempDir(),
+		Bucket:     "test-bucket",
+		BaseURL:    "http://localhost:8080",
+		SignSecret: "test-secret",
+	}); err != nil {
+		t.Fatalf("init filestore: %v", err)
+	}
+
+	// 预置一个真实、有效（StorageURI 指向可读对象）的 system 头像。
+	existing, err := uploadAITeammateTemplateAvatar(context.Background(), database, "", "data-analysis-expert")
+	if err != nil {
+		t.Fatalf("upload initial avatar: %v", err)
+	}
+	if existing == "" {
+		t.Fatal("upload initial avatar returned empty")
+	}
+	if err := database.Create(&types.AITeammateTemplate{
+		Code:         "data-analysis-expert",
+		Name:         "旧数据分析专家",
+		Avatar:       existing,
+		SystemPrompt: "旧提示词",
+		Category:     "data",
+		Status:       string(contract.AITeammateTemplateStatusActive),
+		IsSystem:     true,
+	}).Error; err != nil {
+		t.Fatalf("create template with valid avatar: %v", err)
+	}
+
+	avatarDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(avatarDir, "data-analysis-expert.png"), []byte("png"), 0644); err != nil {
+		t.Fatalf("write avatar: %v", err)
+	}
+	if err := SeedAITeammateTemplates(context.Background(), database, avatarDir); err != nil {
+		t.Fatalf("seed ai teammate templates: %v", err)
+	}
+
+	var template types.AITeammateTemplate
+	if err := database.Where("code = ?", "data-analysis-expert").First(&template).Error; err != nil {
+		t.Fatalf("find reloaded template: %v", err)
+	}
+	if template.Avatar != existing {
+		t.Fatalf("valid avatar not preserved: got %q, want %q", template.Avatar, existing)
+	}
+	if template.Name == "旧数据分析专家" {
+		t.Fatal("expected non-avatar fields to be updated even when avatar is kept")
+	}
+}

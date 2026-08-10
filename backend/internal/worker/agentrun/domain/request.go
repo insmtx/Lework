@@ -170,6 +170,13 @@ type ModelOptions struct {
 	Temperature  float64 `json:"temperature,omitempty"`
 	// Vision 表示该模型是否支持图片（多模态）输入。
 	Vision bool `json:"vision,omitempty"`
+
+	TopP             *float64 `json:"top_p,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	// ContextLimit/OutputLimit 模型上下文与单次输出上限；0 表示未设置。
+	ContextLimit int `json:"context_limit,omitempty"`
+	OutputLimit  int `json:"output_limit,omitempty"`
 }
 
 // CapabilityContext describes allowed capabilities for one run.

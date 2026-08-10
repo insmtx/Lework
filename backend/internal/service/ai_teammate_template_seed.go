@@ -15,6 +15,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
@@ -39,20 +40,56 @@ func SeedAITeammateTemplates(ctx context.Context, database *gorm.DB, avatarDir s
 		if err != nil {
 			return fmt.Errorf("find ai teammate template %s: %w", template.Code, err)
 		}
-		if existing == nil || strings.TrimSpace(existing.Avatar) == "" {
-			avatar, err := uploadAITeammateTemplateAvatar(ctx, database, resolvedAvatarDir, template.Code)
+
+		// 既有头像若失效（记录缺失或存储对象不可读），重新上传并通过独立 DAO
+		// 显式覆盖，绕过 UpsertAITeammateTemplate 对既有头像的保留逻辑。
+		if existing != nil && strings.TrimSpace(existing.Avatar) != "" {
+			reinit, err := systemAvatarReinitNeeded(ctx, database, existing.Avatar)
 			if err != nil {
-				return err
+				return fmt.Errorf("check ai teammate template avatar %s: %w", template.Code, err)
 			}
-			if avatar != "" {
-				template.Avatar = avatar
+			if reinit {
+				avatar, err := uploadAITeammateTemplateAvatar(ctx, database, resolvedAvatarDir, template.Code)
+				if err != nil {
+					return err
+				}
+				if avatar != "" && avatar != existing.Avatar {
+					if err := infradb.UpdateAITeammateTemplateAvatarByCode(ctx, database, template.Code, avatar); err != nil {
+						return fmt.Errorf("update ai teammate template avatar %s: %w", template.Code, err)
+					}
+				}
 			}
+		} else if avatar, err := uploadAITeammateTemplateAvatar(ctx, database, resolvedAvatarDir, template.Code); err != nil {
+			return err
+		} else if avatar != "" {
+			template.Avatar = avatar
 		}
+
 		if err := infradb.UpsertAITeammateTemplate(ctx, database, template); err != nil {
 			return fmt.Errorf("upsert ai teammate template %s: %w", template.Code, err)
 		}
 	}
 	return nil
+}
+
+// systemAvatarReinitNeeded 判断模板既有头像是否需要重新初始化。
+// 模板头像以系统级（system）文件存储：FileUpload 记录缺失、或底层存储
+// 对象无法读取（HeadObject 失败）时视为失效，需要 seed 重新上传内嵌资源。
+func systemAvatarReinitNeeded(ctx context.Context, database *gorm.DB, avatar string) (bool, error) {
+	if strings.TrimSpace(avatar) == "" || !account.IsFilePublicID(avatar) {
+		return false, nil
+	}
+	file, err := infradb.GetSystemFileUploadByPublicID(ctx, database, avatar)
+	if err != nil {
+		return false, err
+	}
+	if file == nil {
+		return true, nil
+	}
+	if _, err := filestore.ResolvePublicURL(ctx, file.StorageURI); err != nil {
+		return true, nil
+	}
+	return false, nil
 }
 
 func uploadAITeammateTemplateAvatar(ctx context.Context, database *gorm.DB, avatarDir string, code string) (string, error) {

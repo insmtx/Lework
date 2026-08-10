@@ -1150,15 +1150,35 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 	if strings.TrimSpace(model.Provider) == "" || strings.TrimSpace(model.ModelName) == "" || strings.TrimSpace(model.APIKeyEncrypted) == "" {
 		return messaging.ModelOptions{}, errors.New("default llm model config is incomplete")
 	}
+	sampling := types.SamplingParamsFromConfig(model.Config)
 	return messaging.ModelOptions{
-		ModelID:      model.ID,
-		Provider:     model.Provider,
-		Model:        model.ModelName,
-		BaseURL:      model.BaseURL,
-		BaseURLHasV1: model.BaseURLHasV1,
-		APIKey:       model.APIKeyEncrypted,
-		Vision:       llm.VisionFromConfig(model.Config),
+		ModelID:          model.ID,
+		Provider:         model.Provider,
+		Model:            model.ModelName,
+		BaseURL:          model.BaseURL,
+		BaseURLHasV1:     model.BaseURLHasV1,
+		APIKey:           model.APIKeyEncrypted,
+		Vision:           llm.VisionFromConfig(model.Config),
+		TopP:             sampling.TopP,
+		FrequencyPenalty: sampling.FrequencyPenalty,
+		PresencePenalty:  sampling.PresencePenalty,
+		ContextLimit:     samplingLimitContext(sampling.Limit),
+		OutputLimit:      samplingLimitOutput(sampling.Limit),
 	}, nil
+}
+
+func samplingLimitContext(l *types.LLMLimitFields) int {
+	if l == nil {
+		return 0
+	}
+	return l.Context
+}
+
+func samplingLimitOutput(l *types.LLMLimitFields) int {
+	if l == nil {
+		return 0
+	}
+	return l.Output
 }
 
 func convertMessageToMessagingAttachments(attachments types.MessageAttachmentSlice) []messaging.Attachment {

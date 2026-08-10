@@ -9,8 +9,8 @@ import { AIMessageBubble } from "./AIMessageBubble";
 vi.mock("@leros/store", () => ({
 	formatArtifactTime: () => "",
 	formatTime: () => "10:00",
+	formatTokenCount: (count: number) => String(count),
 	fetchFilePreviewByPublicId: vi.fn(async () => new Response("完整计划内容")),
-	getAssistantMessageFooterSegments: () => [],
 	messageArtifactToProjectArtifact: vi.fn(),
 	sortProjectArtifactsByNewestFirst: (artifacts: unknown[]) => artifacts,
 	useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>

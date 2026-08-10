@@ -59,7 +59,9 @@ func setupFileRouter(t *testing.T, svc contract.FileService, caller *types.Calle
 	})
 
 	h := NewFileHandler(svc)
-	h.RegisterRoutes(router.Group("/v1"))
+	g := router.Group("/v1")
+	h.RegisterAuthedRoutes(g)
+	h.RegisterAnonymousRoutes(g)
 	return router
 }
 
@@ -237,13 +239,15 @@ func TestDownloadFile_NoFileID(t *testing.T) {
 }
 
 func TestDownloadFile_Unauthenticated(t *testing.T) {
+	var capturedOrgID uint
 	svc := &mockFileService{
 		downloadFn: func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
-			t.Error("download should not be called when not authenticated")
-			return nil, nil, nil
+			capturedOrgID = orgID
+			// 匿名请求只放行 system 文件；organization 文件在此返回 not found。
+			return nil, nil, errors.New("get file download failed")
 		},
 		downloadByURIFn: func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
-			t.Error("download by URI should not be called when not authenticated")
+			t.Error("download by URI should not be called for anonymous public_id request")
 			return nil, nil, nil
 		},
 	}
@@ -253,8 +257,63 @@ func TestDownloadFile_Unauthenticated(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
+	if capturedOrgID != 0 {
+		t.Fatalf("anonymous download orgID = %d, want 0", capturedOrgID)
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for anonymous organization file, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDownloadFile_AnonymousSystemFile(t *testing.T) {
+	svc := &mockFileService{
+		downloadFn: func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			if orgID != 0 {
+				t.Fatalf("anonymous download orgID = %d, want 0", orgID)
+			}
+			return io.NopCloser(strings.NewReader("system avatar")), &contract.FileDownloadInfo{
+				FileName: "avatar.png",
+				MimeType: "image/png",
+				Size:     13,
+			}, nil
+		},
+		downloadByURIFn: func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			return nil, nil, nil
+		},
+	}
+	router := setupFileRouter(t, svc, unauthenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files/download?public_id=file_system_avatar", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for anonymous system file, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "system avatar" {
+		t.Errorf("expected body 'system avatar', got '%s'", rec.Body.String())
+	}
+}
+
+func TestDownloadFile_AnonymousByURIDenied(t *testing.T) {
+	svc := &mockFileService{
+		downloadFn: func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			t.Error("download should not be called for anonymous storage_uri request")
+			return nil, nil, nil
+		},
+		downloadByURIFn: func(ctx context.Context, orgID uint, storageURI string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
+			t.Error("download by URI should not be called for anonymous request")
+			return nil, nil, nil
+		},
+	}
+	router := setupFileRouter(t, svc, unauthenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files/download?storage_uri=local://bucket/x", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 401 for anonymous storage_uri download, got %d", rec.Code)
 	}
 }
 
@@ -492,10 +551,12 @@ func TestPresignDownloadURL_NoParams(t *testing.T) {
 }
 
 func TestPresignDownloadURL_Unauthenticated(t *testing.T) {
+	var capturedOrgID uint
 	svc := &mockFileService{
 		presignFn: func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
-			t.Error("presign should not be called when not authenticated")
-			return "", nil
+			capturedOrgID = orgID
+			// 匿名 public_id 请求只放行 system 文件；organization 文件在此 not found。
+			return "", errors.New("get presign download url failed")
 		},
 	}
 	router := setupFileRouter(t, svc, unauthenticatedCaller())
@@ -504,8 +565,49 @@ func TestPresignDownloadURL_Unauthenticated(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
+	if capturedOrgID != 0 {
+		t.Fatalf("anonymous presign orgID = %d, want 0", capturedOrgID)
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for anonymous organization file, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPresignDownloadURL_AnonymousSystemFile(t *testing.T) {
+	svc := &mockFileService{
+		presignFn: func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
+			if orgID != 0 {
+				t.Fatalf("anonymous presign orgID = %d, want 0", orgID)
+			}
+			return "https://presigned/system-avatar", nil
+		},
+	}
+	router := setupFileRouter(t, svc, unauthenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files/preview?public_id=file_system_avatar", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302 for anonymous system file, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPresignDownloadURL_AnonymousByURIDenied(t *testing.T) {
+	svc := &mockFileService{
+		presignFn: func(ctx context.Context, orgID uint, publicID, storageURI string) (string, error) {
+			t.Error("presign should not be called for anonymous storage_uri request")
+			return "", nil
+		},
+	}
+	router := setupFileRouter(t, svc, unauthenticatedCaller())
+
+	req := httptest.NewRequest("GET", "/v1/files/preview?storage_uri=local://bucket/x", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 401 for anonymous storage_uri presign, got %d", rec.Code)
 	}
 }
 
