@@ -35,8 +35,11 @@ export {
 	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
 	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
 	readPrivateServerBaseURL,
+	readServerBaseURL,
 	resolveIsPrivateDeployment,
+	SERVER_CONFIG_STORAGE_KEY,
 	savePrivateServerBaseURL,
+	saveServerBaseURL,
 	testServerConnection,
 } from "./config";
 export type {
@@ -53,6 +56,16 @@ export type {
 	FrontendEventExtra,
 } from "./frontendEventApi";
 export { FRONTEND_EVENT_ENDPOINT, frontendEventApi } from "./frontendEventApi";
+export type {
+	BackendModel,
+	CreateModelParams,
+	GetModelParams,
+	ListModelsParams,
+	TestModelParams,
+	TestModelResult,
+	UpdateModelParams,
+} from "./modelApi";
+export { modelApi } from "./modelApi";
 export type {
 	GetOfficialPluginLatestVersionParams,
 	InstallOfficialPluginResponse,

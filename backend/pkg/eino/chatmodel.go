@@ -27,18 +27,24 @@ const (
 	ProviderOpenRouter = "openrouter"
 	// ProviderAnthropic identifies the Anthropic provider.
 	ProviderAnthropic = "anthropic"
+
+	// defaultMaxTokens 是模型未配置最大输出 token 数时的兜底值。
+	defaultMaxTokens = 4096
 )
 
 // ChatModelConfig contains provider-neutral chat model settings.
 type ChatModelConfig struct {
-	Provider        string
-	APIKey          string
-	Model           string
-	BaseURL         string
-	MaxTokens       int
-	ResponseFormat  *einoopenai.ChatCompletionResponseFormat
-	Temperature     *float32
-	ReasoningEffort einoopenai.ReasoningEffortLevel
+	Provider         string
+	APIKey           string
+	Model            string
+	BaseURL          string
+	MaxTokens        int
+	TopP             *float32
+	FrequencyPenalty *float32
+	PresencePenalty  *float32
+	Temperature      *float32
+	ResponseFormat   *einoopenai.ChatCompletionResponseFormat
+	ReasoningEffort  einoopenai.ReasoningEffortLevel
 }
 
 // NewChatModel creates an Eino tool-calling chat model for a supported provider.
@@ -69,13 +75,21 @@ func NewChatModel(ctx context.Context, cfg *ChatModelConfig) (einomodel.ToolCall
 }
 
 func newOpenAICompatibleChatModel(ctx context.Context, cfg *ChatModelConfig) (einomodel.ToolCallingChatModel, error) {
+	maxTokens := cfg.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxTokens
+	}
 	chatModel, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
-		APIKey:          cfg.APIKey,
-		BaseURL:         cfg.BaseURL,
-		Model:           cfg.Model,
-		ResponseFormat:  cfg.ResponseFormat,
-		ReasoningEffort: cfg.ReasoningEffort,
-		Temperature:     cfg.Temperature,
+		APIKey:           cfg.APIKey,
+		BaseURL:          cfg.BaseURL,
+		Model:            cfg.Model,
+		ResponseFormat:   cfg.ResponseFormat,
+		ReasoningEffort:  cfg.ReasoningEffort,
+		Temperature:      cfg.Temperature,
+		TopP:             cfg.TopP,
+		FrequencyPenalty: cfg.FrequencyPenalty,
+		PresencePenalty:  cfg.PresencePenalty,
+		MaxTokens:        &maxTokens,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create eino openai chat model: %w", err)
@@ -91,14 +105,16 @@ func newClaudeChatModel(ctx context.Context, cfg *ChatModelConfig) (einomodel.To
 
 	maxTokens := cfg.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 4096
+		maxTokens = defaultMaxTokens
 	}
 
 	chatModel, err := einoclaude.NewChatModel(ctx, &einoclaude.Config{
-		APIKey:    cfg.APIKey,
-		BaseURL:   baseURL,
-		Model:     cfg.Model,
-		MaxTokens: maxTokens,
+		APIKey:      cfg.APIKey,
+		BaseURL:     baseURL,
+		Model:       cfg.Model,
+		MaxTokens:   maxTokens,
+		Temperature: cfg.Temperature,
+		TopP:        cfg.TopP,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create eino claude chat model: %w", err)

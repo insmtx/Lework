@@ -5,6 +5,7 @@ import {
 	type PluginComposerOption,
 	type PluginListItem,
 	pluginApi,
+	pluginToComposerOption,
 } from "@leros/store";
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -66,6 +67,25 @@ afterEach(() => {
 });
 
 describe("Skill picker option merging", () => {
+	it("prefers translated marketplace display names", () => {
+		const result = marketplaceToSkillOption(
+			marketplaceItem("market", "English Skill", { display_name: "中文技能" }),
+		);
+
+		expect(result.label).toBe("中文技能");
+		expect(result.keywords).toContain("中文技能");
+	});
+
+	it("prefers translated organization display names", () => {
+		const organizationSkill = plugin("organization", "English Skill");
+		organizationSkill.display_name = "中文技能";
+
+		const result = pluginToComposerOption(organizationSkill, "organization");
+
+		expect(result.label).toBe("中文技能");
+		expect(result.keywords).toContain("中文技能");
+	});
+
 	it("keeps project, organization, marketplace, and builtin priority by code only", () => {
 		const result = mergeSkillOptions(
 			[option("shared", "Project", "project")],

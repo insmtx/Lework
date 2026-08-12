@@ -188,7 +188,7 @@ func TestMCPListEnsuresCoreKGConnection(t *testing.T) {
 func TestCoreKGMCPPlatformIsUnavailableWithoutIAMIssuer(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
 	createTestMCPChannel(t, database, "https://example.com/mcp")
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	platforms, err := service.ListMCPPlatforms(context.Background(), 10, 20)
 	if err != nil {
 		t.Fatalf("ListMCPPlatforms() error = %v", err)
@@ -245,7 +245,7 @@ func TestMCPPlatformsSkipMissingInactiveAndInvalidChannels(t *testing.T) {
 
 func TestCoreKGProviderSurvivesMCPUpdate(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	created, err := service.AddMCPPlugin(context.Background(), 10, 20, &contract.AddMCPPluginRequest{
 		MCPPluginConfig: contract.MCPPluginConfig{
 			Code:     coreKGPluginCode(10, 20),

@@ -16,9 +16,9 @@ describe("MCPConnectorIcon", () => {
 	});
 
 	it("uses the CoreKG platform logo for CoreKG connector identities", () => {
-		render(<MCPConnectorIcon code="corekg-0123456789abcdef" name="CoreKG" />);
+		render(<MCPConnectorIcon code="corekg-0123456789abcdef" name="知识库" />);
 
-		expect(screen.getByRole("img", { name: "CoreKG Logo" })).toHaveAttribute("src");
+		expect(screen.getByRole("img", { name: "知识库 Logo" })).toHaveAttribute("src");
 	});
 
 	it.each([

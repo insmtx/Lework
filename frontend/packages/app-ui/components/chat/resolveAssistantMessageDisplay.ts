@@ -2,6 +2,7 @@ import {
 	type DigitalAssistantItem,
 	isSystemDefaultAssistant,
 	type ProjectMember,
+	readBrandName,
 } from "@leros/store";
 import type { ComposerToken, Message } from "@leros/store/types/chat";
 
@@ -12,7 +13,9 @@ export type AssistantMessageDisplay = {
 	avatarUrl?: string;
 };
 
-const DEFAULT_ASSISTANT_NAME = "Lework";
+function getDefaultAssistantName(): string {
+	return readBrandName();
+}
 
 function getReplyTargetMessageId(runId?: string): string | undefined {
 	const match = runId?.match(/^req_(.+)$/);
@@ -91,7 +94,7 @@ function resolveAssistantProfile(
 		};
 	}
 
-	return { name: tokenName || DEFAULT_ASSISTANT_NAME };
+	return { name: tokenName || getDefaultAssistantName() };
 }
 
 function resolveInvokedAssistantProfile(
@@ -156,7 +159,7 @@ export function resolveAssistantMessageDisplay(params: {
 				avatarUrl: invokedProfile.avatarUrl,
 			};
 		}
-		return { useDefaultBrand: true, name: DEFAULT_ASSISTANT_NAME };
+		return { useDefaultBrand: true, name: getDefaultAssistantName() };
 	}
 
 	const profile = resolveAssistantProfile(assistantToken, assistants, projectMembers);

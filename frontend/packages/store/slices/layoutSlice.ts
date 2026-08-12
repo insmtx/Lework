@@ -201,8 +201,10 @@ export type ViewMode =
 	| "project"
 	| "projectsHub"
 	| "taskDetail"
-	| "digitalAssistant"
-	| "aiTeammates"
+	| "orgProfile"
+	| "orgDepartments"
+	| "orgAssistants"
+	| "orgModels"
 	| "knowledge"
 	| "skills"
 	| "automation"
@@ -469,10 +471,11 @@ const _initialState: LayoutState = {
 			label: "",
 			items: [
 				{ id: "workbench", label: "新建任务", icon: "IconTask" },
-				{ id: "ai-teammates", label: "AI队友", icon: "IconAITeammate" },
+				// 中文注释：AI 队友入口已迁移至组织管理侧栏，主侧栏不再展示。
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "插件", icon: "IconSkill" },
-				{ id: "knowledge", label: "资源库", icon: "IconKnowledge" },
+				// 中文注释：资源库入口暂时隐藏，恢复时取消下行注释。
+				// { id: "knowledge", label: "资源库", icon: "IconKnowledge" },
 				{ id: "automation", label: "自动化", icon: "IconAutomation" },
 			],
 		},
@@ -510,7 +513,7 @@ export const createLayoutSlice = (set: SetState, get: () => LayoutStore) =>
 export class LayoutActionImpl {
 	readonly #set: SetState;
 	readonly #get: () => LayoutStore;
-	#fetchProjectsPromise: Promise<void> | null = null;
+	#fetchProjectsPromise: Promise<boolean> | null = null;
 	#fetchProjectDetailPromises = new Map<string, Promise<void>>();
 	#projectDetailLoadedIds = new Set<string>();
 	#projectsFetchEpoch = 0;
@@ -817,12 +820,13 @@ export class LayoutActionImpl {
 		});
 	};
 
-	fetchProjects = async () => {
-		if (!readStoredAuthUser()?.jwtToken) return;
+	fetchProjects = async (): Promise<boolean> => {
+		if (!readStoredAuthUser()?.jwtToken) return false;
 		if (this.#fetchProjectsPromise) return this.#fetchProjectsPromise;
 
 		const fetchEpoch = this.#projectsFetchEpoch;
 		this.#fetchProjectsPromise = (async () => {
+			let succeeded = false;
 			try {
 				const pageSize = 100;
 				let offset = 0;
@@ -840,7 +844,7 @@ export class LayoutActionImpl {
 					offset += pageItems.length;
 				}
 
-				if (fetchEpoch !== this.#projectsFetchEpoch) return;
+				if (fetchEpoch !== this.#projectsFetchEpoch) return false;
 
 				const apiProjects = items.map(mapBackendProject);
 				this.#set((state) => ({
@@ -848,6 +852,7 @@ export class LayoutActionImpl {
 						? mergeProjectsFromListResult(apiProjects, state.projects)
 						: [],
 				}));
+				succeeded = true;
 			} catch (err) {
 				console.error("fetchProjects error:", err);
 			} finally {
@@ -855,6 +860,7 @@ export class LayoutActionImpl {
 					this.#fetchProjectsPromise = null;
 				}
 			}
+			return succeeded;
 		})();
 
 		return this.#fetchProjectsPromise;

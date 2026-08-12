@@ -20,11 +20,12 @@ export function useCan(action: Action, resource: ResourceRef | null | undefined,
 
 export function useEnsureCapabilities(items: BatchCheckItem[], enabled = true) {
 	const ensureCapabilities = useAppStore((state) => state.ensureCapabilities);
+	const permissionRevision = useAppStore((state) => state.permissionRevision);
 
 	useEffect(() => {
 		if (!enabled || items.length === 0) return;
 		void ensureCapabilities(items);
-	}, [enabled, ensureCapabilities, items]);
+	}, [enabled, ensureCapabilities, items, permissionRevision]);
 }
 
 export function useProjectCapabilities(projectPublicId: string | null | undefined) {

@@ -88,9 +88,11 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	r.Use(ygmiddleware.Recovery())
 
 	v1 := r.Group("/v1")
+	displayTranslation := service.NewSkillDisplayTranslationService(db)
 	pluginService := service.NewPluginServiceWithAPIKeyIssuer(
 		db,
 		edition.APIKeyIssuer(),
+		displayTranslation,
 	)
 
 	// Worker server routes 注册公开管理端点；放在全局中间件之后以继承 CORS/Logger/Recovery。
@@ -146,7 +148,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterAITeammateTemplateRoutes(authed, aiTeammateTemplateService)
 		logs.Info("AI teammate template routes registered successfully")
 
-		llmModelService := service.NewLLMModelService(db)
+		llmModelService := service.NewLLMModelService(db, orgRepo)
 		handler.RegisterLLMModelRoutes(authed, llmModelService)
 		logs.Info("LLM model routes registered successfully")
 
@@ -156,7 +158,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterGlobalEventRoutes(authed, sessionService)
 		logs.Info("Session routes registered successfully")
 
-		projectService := service.NewProjectServiceWithInferrerAndPublisher(db, permSvc, inferrer, giteaClient, cfg.Gitea, cfg.Env, eventbus, userRepo)
+		projectService := service.NewProjectServiceWithInferrerAndPublisher(db, permSvc, inferrer, giteaClient, cfg.Gitea, cfg.Env, eventbus, userRepo, displayTranslation)
 		handler.RegisterProjectRoutes(authed, projectService, permSvc)
 		logs.Info("Project routes registered successfully")
 
@@ -171,7 +173,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
 
-		automationService := service.NewAutomationService(db)
+		automationService := service.NewAutomationService(db, permSvc)
 		handler.RegisterAutomationRoutes(authed, automationService)
 		logs.Info("Automation routes registered successfully")
 
@@ -192,7 +194,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 		handler.RegisterPluginRoutes(authed, pluginService)
 		logs.Info("Plugin repository routes registered successfully")
-		officialPluginMarketplaceService := service.NewOfficialPluginMarketplaceService(db)
+		officialPluginMarketplaceService := service.NewOfficialPluginMarketplaceService(db, displayTranslation)
 		handler.RegisterOfficialPluginMarketplaceRoutes(authed, officialPluginMarketplaceService)
 		logs.Info("Official plugin marketplace routes registered successfully")
 

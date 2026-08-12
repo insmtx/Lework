@@ -626,11 +626,26 @@ func formatInterval(seconds int64) string {
 
 func weekDayDesc(dows []int) string {
 	names := []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
-	parts := make([]string, 0, len(dows))
+	// 与前端表单展示一致：周一至周六按 1-6 升序、周日(0)排在末尾
+	sorted := make([]int, 0, len(dows))
 	for _, d := range dows {
 		if d >= 0 && d <= 6 {
-			parts = append(parts, names[d])
+			sorted = append(sorted, d)
 		}
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if a == 0 {
+			return false
+		}
+		if b == 0 {
+			return true
+		}
+		return a < b
+	})
+	parts := make([]string, 0, len(sorted))
+	for _, d := range sorted {
+		parts = append(parts, names[d])
 	}
 	return strings.Join(parts, "、")
 }

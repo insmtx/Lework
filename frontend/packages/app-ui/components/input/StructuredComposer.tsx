@@ -1,5 +1,6 @@
 "use client";
 
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import type { PluginComposerOption } from "@leros/store";
 import type { ComposerToken } from "@leros/store/types/chat";
 import {
@@ -106,6 +107,9 @@ type StructuredComposerProps = {
 	assistantDirectivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
 	assistantSelectionMode?: "single" | "multiple";
+	inputSize?: "default" | "compact";
+	pickerPlacement?: "top" | "bottom";
+	pickerSize?: "default" | "compact";
 	prefill?: {
 		id: string;
 		value: string;
@@ -261,13 +265,22 @@ function commandPickerValue(option: CommandOption): string {
 	return `${option.kind}:${option.item.code}`;
 }
 
-function resolveVirtualSkillTokens(value: string, tokens: InsertedToken[]): InsertedToken[] {
+function resolveVirtualSkillTokens(
+	value: string,
+	tokens: InsertedToken[],
+	skillOptions: ComposerSkillOption[] = [],
+): InsertedToken[] {
 	const result: InsertedToken[] = [];
-	const matches = value.matchAll(/(?:^|\s)\/([a-z0-9-]+)(?=\s|$)/g);
+	const knownSkillCodes = new Set(
+		[...Array.from(VIRTUAL_SKILL_DIRECTIVES), ...skillOptions.map((skill) => skill.code)].map(
+			(code) => code.toLowerCase(),
+		),
+	);
+	const matches = value.matchAll(/(?:^|\s)\/([A-Za-z][A-Za-z0-9_-]*)(?=\s|$)/g);
 
 	for (const match of matches) {
 		const skillName = match[1] ?? "";
-		if (!VIRTUAL_SKILL_DIRECTIVES.has(skillName)) continue;
+		if (!knownSkillCodes.has(skillName.toLowerCase())) continue;
 
 		const matchedText = match[0] ?? "";
 		const start = (match.index ?? 0) + (matchedText.startsWith("/") ? 0 : 1);
@@ -325,13 +338,18 @@ function resolveDisplayTokens(
 	value: string,
 	tokens: InsertedToken[],
 	assistantOptions: AssistantOption[] = [],
+	skillOptions: ComposerSkillOption[] = [],
 ): InsertedToken[] {
 	const explicitTokens = tokens.filter(
 		(token) => value.slice(token.start, token.end) === token.label,
 	);
 	// 中文注释：召唤队友跳转时可能只恢复了文本，这里按项目队友把 @队友名 补成可发送的结构化 token。
 	const assistantTokens = resolveVirtualAssistantTokens(value, explicitTokens, assistantOptions);
-	const skillTokens = resolveVirtualSkillTokens(value, [...explicitTokens, ...assistantTokens]);
+	const skillTokens = resolveVirtualSkillTokens(
+		value,
+		[...explicitTokens, ...assistantTokens],
+		skillOptions,
+	);
 	return sortTokens([...explicitTokens, ...assistantTokens, ...skillTokens]);
 }
 
@@ -868,6 +886,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			assistantDirectivesDisabled = false,
 			onProjectTrigger,
 			assistantSelectionMode = "multiple",
+			inputSize = "default",
+			pickerPlacement = "top",
+			pickerSize = "default",
 			prefill,
 			onPrefillConsumed,
 		},
@@ -892,9 +913,10 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			() => assistantOptions,
 			[assistantOptions],
 		);
+		const mergedSkillOptions = useMemo(() => skillOptions ?? [], [skillOptions]);
 		const displayTokens = useMemo(
-			() => resolveDisplayTokens(value, tokens, availableAssistantOptions),
-			[availableAssistantOptions, tokens, value],
+			() => resolveDisplayTokens(value, tokens, availableAssistantOptions, mergedSkillOptions),
+			[availableAssistantOptions, mergedSkillOptions, tokens, value],
 		);
 		const selectedAssistantNames = useMemo(
 			() =>
@@ -926,8 +948,6 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					.includes(query);
 			});
 		}, [assistantSearch, availableAssistantOptions, selectedAssistantNames, trigger?.kind]);
-
-		const mergedSkillOptions = useMemo(() => skillOptions ?? [], [skillOptions]);
 
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");
@@ -995,13 +1015,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				buildEditorContent(
 					editor,
 					nextValue,
-					resolveDisplayTokens(nextValue, nextTokens, availableAssistantOptions),
+					resolveDisplayTokens(
+						nextValue,
+						nextTokens,
+						availableAssistantOptions,
+						mergedSkillOptions,
+					),
 					availableAssistantOptions,
 				);
 				pendingCaretRef.current = null;
 				focusAt(nextCaret);
 			},
-			[availableAssistantOptions, focusAt, onChange],
+			[availableAssistantOptions, focusAt, mergedSkillOptions, onChange],
 		);
 
 		const getActiveTrigger = useCallback((text: string, caret: number) => {
@@ -1073,7 +1098,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			const editor = editorRef.current;
 			if (!editor) return;
 
-			const resolvedTokens = resolveDisplayTokens(value, tokens, availableAssistantOptions);
+			const resolvedTokens = resolveDisplayTokens(
+				value,
+				tokens,
+				availableAssistantOptions,
+				mergedSkillOptions,
+			);
 			const snapshot = extractSnapshot(editor);
 
 			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, resolvedTokens)) {
@@ -1085,7 +1115,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				setCaretOffset(editor, pendingCaretRef.current);
 				pendingCaretRef.current = null;
 			}
-		}, [availableAssistantOptions, tokens, value]);
+		}, [availableAssistantOptions, mergedSkillOptions, tokens, value]);
 
 		useEffect(() => {
 			if (!isEmptyEditorValue(value)) return;
@@ -1154,7 +1184,12 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 			if (!composingRef.current) {
 				const caret = getCaretOffset(editor);
-				const nextTokens = resolveDisplayTokens(text, snapshot.tokens, availableAssistantOptions);
+				const nextTokens = resolveDisplayTokens(
+					text,
+					snapshot.tokens,
+					availableAssistantOptions,
+					mergedSkillOptions,
+				);
 				if (isCursorInsideToken(caret, nextTokens)) {
 					setTrigger(null);
 					return;
@@ -1176,6 +1211,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			directivesDisabled,
 			assistantDirectivesDisabled,
 			getActiveTrigger,
+			mergedSkillOptions,
 			notifyProjectTrigger,
 			onChange,
 		]);
@@ -1333,6 +1369,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					currentValue,
 					tokensRef.current,
 					availableAssistantOptions,
+					mergedSkillOptions,
 				);
 				const target = currentTokens.find(
 					(token) => token.kind === kind && token.label === normalizedLabel,
@@ -1378,7 +1415,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				dismissTrigger(false);
 				commitProgrammaticEdit(nextValue, nextTokens, start);
 			},
-			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger],
+			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger, mergedSkillOptions],
 		);
 
 		const removeAssistantToken = useCallback(
@@ -1457,12 +1494,18 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				removeSkill: removeSkillToken,
 				setContent,
 				getComposerTokens: () =>
-					resolveDisplayTokens(valueRef.current, tokensRef.current, availableAssistantOptions),
+					resolveDisplayTokens(
+						valueRef.current,
+						tokensRef.current,
+						availableAssistantOptions,
+						mergedSkillOptions,
+					),
 			}),
 			[
 				availableAssistantOptions,
 				insertToolbarToken,
 				insertTrigger,
+				mergedSkillOptions,
 				removeAssistantToken,
 				removeSkillToken,
 				setContent,
@@ -1582,6 +1625,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					currentValue,
 					tokensRef.current,
 					availableAssistantOptions,
+					mergedSkillOptions,
 				);
 				const caret = selection.start;
 				const target =
@@ -1627,7 +1671,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				commitProgrammaticEdit(nextValue, nextTokens, start);
 				return true;
 			},
-			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger],
+			[availableAssistantOptions, commitProgrammaticEdit, dismissTrigger, mergedSkillOptions],
 		);
 
 		const handleKeyDown = useCallback(
@@ -1695,129 +1739,188 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 		const inputSpacingClass = isProjectVariant
 			? // 中文注释：编辑器滚动区域会裁切标签外扩的 ring，四周各保留 1px 安全间距。
-				"min-h-[96px] rounded-none px-px py-px text-sm leading-6"
+				inputSize === "compact"
+				? "min-h-[72px] rounded-none px-px py-px text-sm leading-6"
+				: "min-h-[96px] rounded-none px-px py-px text-sm leading-6"
 			: "min-h-[80px] rounded-2xl px-5 py-4 pb-2 text-xs leading-5";
 
 		return (
 			<div className="relative">
 				{trigger && (
-					<div
-						ref={pickerRef}
-						role="dialog"
-						aria-label={trigger.kind === "assistant" ? "选择 AI 队友" : "选择技能"}
-						onBlur={() => {
-							setTimeout(() => {
-								const activeElement = document.activeElement;
-								if (
-									activeElement &&
-									(pickerRef.current?.contains(activeElement) ||
-										editorRef.current?.contains(activeElement))
-								) {
-									return;
-								}
-								dismissTrigger();
-							}, 100);
+					<PopoverPrimitive.Root
+						open
+						onOpenChange={(nextOpen) => {
+							if (!nextOpen) dismissTrigger();
 						}}
-						// 圆角容器需留足内边距，避免 overflow-hidden 裁切顶部标题文字
-						className="absolute bottom-full left-0 z-30 mb-2 w-full max-w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_12px_36px_rgba(15,23,42,0.12)] backdrop-blur"
 					>
-						<Command
-							shouldFilter={false}
-							value={activePickerValue}
-							onValueChange={handlePickerValueChange}
-							className="rounded-xl! bg-transparent p-0"
-						>
-							<div className="px-2 py-1 text-sm font-semibold text-slate-800">
-								{trigger.kind === "assistant" ? <>选择 AI 队友</> : <>选择技能</>}
-							</div>
-							<CommandInput
-								value={trigger.kind === "assistant" ? assistantSearch : commandSearch}
-								onValueChange={trigger.kind === "assistant" ? setAssistantSearch : setCommandSearch}
-								placeholder={trigger.kind === "assistant" ? "搜索 AI 队友" : "搜索技能"}
-								className="placeholder:text-slate-300"
-							/>
-							<CommandSeparator className="mx-1 my-2 bg-slate-200/80" />
-							<CommandList className="max-h-60 px-1">
-								<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
-								{trigger.kind === "assistant" ? (
-									<CommandGroup className="p-0">
-										{filteredAssistants.map((assistant, index) => (
-											<CommandItem
-												key={assistant.id}
-												value={assistantPickerValue(assistant)}
-												data-picker-item-value={assistantPickerValue(assistant)}
-												onMouseDown={(event: MouseEvent<HTMLElement>) => event.preventDefault()}
-												onSelect={() => selectToken("assistant", assistant, trigger)}
-												className={cn(
-													"rounded-lg px-2 py-1.5",
-													index === activeIndex && "bg-slate-100",
-												)}
-											>
-												<AssistantAvatar
-													name={assistant.name}
-													src={assistant.avatarUrl}
-													size="sm"
-												/>
-												<div className="min-w-0 flex-1">
-													<div className="truncate font-medium text-slate-700">
-														{renderHighlightedText(assistant.name, assistantSearch)}
-													</div>
-													{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
-													{assistant.roleName ? (
-														<div className="truncate text-xs text-slate-500">
-															{renderHighlightedText(assistant.roleName, assistantSearch)}
-														</div>
-													) : null}
-												</div>
-											</CommandItem>
-										))}
-									</CommandGroup>
-								) : (
-									<CommandGroup className="p-0">
-										{skillsLoading && (
-											<div className="px-2 py-1.5 text-xs text-slate-400">加载 Skills...</div>
-										)}
-										{filteredSkills.map((skill, index) => (
-											<CommandItem
-												key={`skill-${skill.code}`}
-												value={commandPickerValue({
-													kind: "skill",
-													item: skill,
-												})}
-												data-picker-item-value={commandPickerValue({
-													kind: "skill",
-													item: skill,
-												})}
-												onMouseDown={(event: MouseEvent<HTMLElement>) => event.preventDefault()}
-												onSelect={() => selectToken("skill", skill, trigger)}
-												className={cn(
-													"rounded-lg px-2 py-1.5",
-													index === activeIndex && "bg-slate-100",
-												)}
-											>
-												<div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
-													<Sparkles className="size-3.5" />
-												</div>
-												<div className="min-w-0 flex-1">
-													<div className="flex items-center gap-1.5 truncate font-medium">
-														<span className="truncate">
-															{renderHighlightedText(skill.label, commandSearch)}
-														</span>
-														{(skill.source === "builtin" || skill.origin === "builtin_worker") && (
-															<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
-																系统
-															</span>
-														)}
-													</div>
-													<div className="truncate text-xs text-slate-400">{skill.description}</div>
-												</div>
-											</CommandItem>
-										))}
-									</CommandGroup>
-								)}
-							</CommandList>
-						</Command>
-					</div>
+						<PopoverPrimitive.Portal>
+							<PopoverPrimitive.Positioner
+								anchor={editorRef}
+								positionMethod="fixed"
+								side={pickerPlacement}
+								sideOffset={8}
+								align="start"
+								collisionPadding={16}
+								data-skill-picker-positioner
+								className="z-[60]"
+							>
+								<PopoverPrimitive.Popup
+									ref={pickerRef}
+									role="dialog"
+									aria-label={trigger.kind === "assistant" ? "选择 AI 队友" : "选择技能"}
+									onBlur={() => {
+										setTimeout(() => {
+											const activeElement = document.activeElement;
+											if (
+												activeElement &&
+												(pickerRef.current?.contains(activeElement) ||
+													editorRef.current?.contains(activeElement))
+											) {
+												return;
+											}
+											dismissTrigger();
+										}, 100);
+									}}
+									// 圆角容器需留足内边距，避免 overflow-hidden 裁切顶部标题文字
+									className={cn(
+										"overflow-hidden border border-slate-200/80 bg-white/95 shadow-[0_12px_36px_rgba(15,23,42,0.12)] backdrop-blur",
+										pickerSize === "compact"
+											? "w-[min(300px,calc(100vw-2rem))] rounded-xl p-1.5"
+											: "w-full max-w-[360px] rounded-2xl p-2",
+									)}
+								>
+									<Command
+										shouldFilter={false}
+										value={activePickerValue}
+										onValueChange={handlePickerValueChange}
+										className="rounded-xl! bg-transparent p-0"
+									>
+										<div
+											className={cn(
+												"px-2 py-1 font-semibold text-slate-800",
+												pickerSize === "compact" ? "text-xs" : "text-sm",
+											)}
+										>
+											{trigger.kind === "assistant" ? <>选择 AI 队友</> : <>选择技能</>}
+										</div>
+										<CommandInput
+											value={trigger.kind === "assistant" ? assistantSearch : commandSearch}
+											onValueChange={
+												trigger.kind === "assistant" ? setAssistantSearch : setCommandSearch
+											}
+											placeholder={trigger.kind === "assistant" ? "搜索 AI 队友" : "搜索技能"}
+											className="placeholder:text-slate-300"
+										/>
+										<CommandSeparator
+											className={cn(
+												"mx-1 bg-slate-200/80",
+												pickerSize === "compact" ? "my-1" : "my-2",
+											)}
+										/>
+										<CommandList
+											className={cn("px-1", pickerSize === "compact" ? "max-h-48" : "max-h-60")}
+										>
+											<CommandEmpty className="py-8 text-slate-400">没有匹配项</CommandEmpty>
+											{trigger.kind === "assistant" ? (
+												<CommandGroup className="p-0">
+													{filteredAssistants.map((assistant, index) => (
+														<CommandItem
+															key={assistant.id}
+															value={assistantPickerValue(assistant)}
+															data-picker-item-value={assistantPickerValue(assistant)}
+															onMouseDown={(event: MouseEvent<HTMLElement>) =>
+																event.preventDefault()
+															}
+															onSelect={() => selectToken("assistant", assistant, trigger)}
+															className={cn(
+																pickerSize === "compact"
+																	? "rounded-md px-1.5 py-1"
+																	: "rounded-lg px-2 py-1.5",
+																index === activeIndex && "bg-slate-100",
+															)}
+														>
+															<AssistantAvatar
+																name={assistant.name}
+																src={assistant.avatarUrl}
+																size="sm"
+															/>
+															<div className="min-w-0 flex-1">
+																<div className="truncate font-medium text-slate-700">
+																	{renderHighlightedText(assistant.name, assistantSearch)}
+																</div>
+																{/* 中文注释：选择弹窗固定两行，名称在上、角色名称在下。 */}
+																{assistant.roleName ? (
+																	<div className="truncate text-xs text-slate-500">
+																		{renderHighlightedText(assistant.roleName, assistantSearch)}
+																	</div>
+																) : null}
+															</div>
+														</CommandItem>
+													))}
+												</CommandGroup>
+											) : (
+												<CommandGroup className="p-0">
+													{skillsLoading && (
+														<div className="px-2 py-1.5 text-xs text-slate-400">加载 Skills...</div>
+													)}
+													{filteredSkills.map((skill, index) => (
+														<CommandItem
+															key={`skill-${skill.code}`}
+															value={commandPickerValue({
+																kind: "skill",
+																item: skill,
+															})}
+															data-picker-item-value={commandPickerValue({
+																kind: "skill",
+																item: skill,
+															})}
+															onMouseDown={(event: MouseEvent<HTMLElement>) =>
+																event.preventDefault()
+															}
+															onSelect={() => selectToken("skill", skill, trigger)}
+															className={cn(
+																pickerSize === "compact"
+																	? "rounded-md px-1.5 py-1"
+																	: "rounded-lg px-2 py-1.5",
+																index === activeIndex && "bg-slate-100",
+															)}
+														>
+															<div
+																className={cn(
+																	"flex shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600",
+																	pickerSize === "compact" ? "size-6" : "size-7",
+																)}
+															>
+																<Sparkles
+																	className={pickerSize === "compact" ? "size-3" : "size-3.5"}
+																/>
+															</div>
+															<div className="min-w-0 flex-1">
+																<div className="flex items-center gap-1.5 truncate font-medium">
+																	<span className="truncate">
+																		{renderHighlightedText(skill.label, commandSearch)}
+																	</span>
+																	{(skill.source === "builtin" ||
+																		skill.origin === "builtin_worker") && (
+																		<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+																			系统
+																		</span>
+																	)}
+																</div>
+																<div className="truncate text-xs text-slate-400">
+																	{skill.description}
+																</div>
+															</div>
+														</CommandItem>
+													))}
+												</CommandGroup>
+											)}
+										</CommandList>
+									</Command>
+								</PopoverPrimitive.Popup>
+							</PopoverPrimitive.Positioner>
+						</PopoverPrimitive.Portal>
+					</PopoverPrimitive.Root>
 				)}
 
 				{isEmptyEditorValue(value) && (

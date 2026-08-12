@@ -40,6 +40,7 @@ func modelConfigFromEntity(m *types.LLMModel) *ModelConfig {
 		Temperature:      m.Temperature,
 		TimeoutSec:       m.TimeoutSec,
 		Status:           m.Status,
+		Purpose:          m.Purpose,
 		IsDefault:        m.IsDefault,
 		IsSystem:         m.IsSystem,
 		Config:           map[string]any(m.Config),
@@ -268,12 +269,15 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 	if strings.TrimSpace(req.APIKey) == "" {
 		return nil, errors.New("api_key is required")
 	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, errors.New("name is required")
+	}
+	if req.Purpose == "" {
+		return nil, errors.New("purpose is required")
+	}
 
 	code := generateLLMModelCode()
-	name := req.Name
-	if name == "" {
-		name = req.Model
-	}
+	name := strings.TrimSpace(req.Name)
 	provider := req.Provider
 	if provider == "" {
 		provider = string(types.LLMProviderOpenAI)
@@ -295,6 +299,8 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 		status = string(types.LLMModelStatusActive)
 	}
 
+	purpose := req.Purpose
+
 	model := &types.LLMModel{
 		OrgID:           orgID,
 		Code:            code,
@@ -310,20 +316,27 @@ func (m *ManagerDb) Create(ctx context.Context, orgID uint, req *CreateRequest) 
 		Temperature:     0.7,
 		TimeoutSec:      120,
 		Status:          status,
+		Purpose:         purpose,
 		IsDefault:       req.IsDefault,
 		Config:          types.LLMModelConfig(req.Config),
+	}
+	if req.MaxTokens != nil && *req.MaxTokens > 0 {
+		model.MaxTokens = *req.MaxTokens
+	}
+	if req.Temperature != nil {
+		model.Temperature = *req.Temperature
 	}
 
 	if err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if !model.IsDefault {
-			hasModels, err := db.OrgHasLLMModels(ctx, tx, orgID)
+			hasModels, err := db.OrgHasLLMModels(ctx, tx, orgID, purpose)
 			if err != nil {
 				return err
 			}
 			model.IsDefault = !hasModels
 		}
 		if model.IsDefault {
-			if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, 0); err != nil {
+			if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, 0, purpose); err != nil {
 				return err
 			}
 		}
@@ -422,10 +435,31 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			return errors.New("permission denied")
 		}
 
+		// 启用中的模型不可编辑业务配置（启用/禁用走独立的 SetStatus 接口）。
+		isEditOperation := req.Name != "" || req.Description != nil || req.Provider != "" ||
+			req.Model != "" || req.BaseURL != nil || req.APIKey != nil || req.Config != nil ||
+			req.MaxTokens != nil || req.Temperature != nil || req.Purpose != nil
+		if isEditOperation {
+			// 编辑业务配置时名称与用途必填，不允许保留旧值或清空。
+			if req.Name == "" {
+				return errors.New("name is required")
+			}
+			if req.Purpose == nil || *req.Purpose == "" {
+				return errors.New("purpose is required")
+			}
+		}
+		if isEditOperation && model.Status == string(types.LLMModelStatusActive) {
+			return errors.New("启用中的模型不可编辑，请先禁用")
+		}
+		// 只能将启用中的模型设为默认。
+		if req.IsDefault != nil && *req.IsDefault && model.Status != string(types.LLMModelStatusActive) {
+			return errors.New("只能将启用中的模型设为默认")
+		}
+
 		needsReDetect := false
 
 		if req.Name != "" {
-			model.Name = req.Name
+			model.Name = strings.TrimSpace(req.Name)
 		}
 		if req.Description != nil {
 			model.Description = *req.Description
@@ -447,16 +481,35 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 			model.APIKeyMasked = maskAPIKey(*req.APIKey)
 			needsReDetect = true
 		}
-		if req.Status != "" {
-			model.Status = req.Status
-		}
 		if req.Config != nil {
 			model.Config = types.LLMModelConfig(*req.Config)
 		}
+		if req.MaxTokens != nil {
+			model.MaxTokens = *req.MaxTokens
+		}
+		if req.Temperature != nil {
+			model.Temperature = *req.Temperature
+		}
+		prevPurpose := model.Purpose
+		if req.Purpose != nil {
+			model.Purpose = *req.Purpose
+		}
 		if req.IsDefault != nil {
+			prevDefault := model.IsDefault
 			model.IsDefault = *req.IsDefault
+			if prevPurpose != model.Purpose && prevDefault {
+				// 默认模型变更用途：需保证原用途仍有一个默认，否则回填或拒绝。
+				if err := m.backfillOrRejectDefault(ctx, tx, orgID, prevPurpose, model.ID); err != nil {
+					return err
+				}
+			}
 			if model.IsDefault {
-				if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, model.ID); err != nil {
+				if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, model.ID, model.Purpose); err != nil {
+					return err
+				}
+			} else if prevDefault {
+				// 取消用途内唯一默认：需保证该用途仍有一个默认，否则回填或拒绝。
+				if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
 					return err
 				}
 			}
@@ -484,6 +537,42 @@ func (m *ManagerDb) Update(ctx context.Context, orgID uint, id uint, req *Update
 	return modelConfigFromEntity(model), nil
 }
 
+// SetStatus 启用或禁用指定 ID 的模型配置，orgID 用于校验归属。
+// 仅允许合法状态：LLMModelStatusActive 与 LLMModelStatusInactive。
+// 禁用默认模型前需保证该用途仍有一个启用中的默认，否则回填或拒绝。
+func (m *ManagerDb) SetStatus(ctx context.Context, orgID uint, id uint, status string) (*ModelConfig, error) {
+	if status != string(types.LLMModelStatusActive) && status != string(types.LLMModelStatusInactive) {
+		return nil, errors.New("invalid status")
+	}
+	var model *types.LLMModel
+	if err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		model, err = db.GetLLMModelByID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if model == nil {
+			return errors.New("llm model not found")
+		}
+		if model.OrgID != orgID {
+			return errors.New("permission denied")
+		}
+
+		if status == string(types.LLMModelStatusInactive) && model.IsDefault {
+			// 禁用默认模型前需保证该用途仍有一个启用中的默认，否则拒绝禁用。
+			if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
+				return err
+			}
+			model.IsDefault = false
+		}
+		model.Status = status
+		return db.UpdateLLMModel(ctx, tx, model)
+	}); err != nil {
+		return nil, err
+	}
+	return modelConfigFromEntity(model), nil
+}
+
 // Delete 删除指定 ID 的模型配置，orgID 用于校验归属。
 func (m *ManagerDb) Delete(ctx context.Context, orgID uint, id uint) error {
 	return m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -497,8 +586,55 @@ func (m *ManagerDb) Delete(ctx context.Context, orgID uint, id uint) error {
 		if model.OrgID != orgID {
 			return errors.New("permission denied")
 		}
+		if model.IsSystem {
+			return errors.New("系统内置模型不可删除")
+		}
+		if model.Status == string(types.LLMModelStatusActive) {
+			return errors.New("启用中的模型不可删除，请先禁用")
+		}
+		if model.IsDefault {
+			// 删除用途内唯一默认前，需保证该用途删除后仍有一个默认。
+			if err := m.backfillOrRejectDefault(ctx, tx, orgID, model.Purpose, model.ID); err != nil {
+				return err
+			}
+		}
 		return db.DeleteLLMModel(ctx, tx, id)
 	})
+}
+
+// backfillOrRejectDefault 在取消/删除一个默认模型时，保证目标用途仍保留一个默认。
+// 若该用途除 excludeID 外仍存在默认模型，直接返回成功；否则尝试把该用途内其余任一 active 模型设为默认；
+// 若该用途已无其他活跃模型，则拒绝该操作并返回错误。
+// 仅在事务内调用。
+func (m *ManagerDb) backfillOrRejectDefault(ctx context.Context, tx *gorm.DB, orgID uint, purpose types.LLMModelPurpose, excludeID uint) error {
+	var otherDefault int64
+	q := db.QueryByPurpose(tx.Model(&types.LLMModel{}), purpose).
+		Where("org_id = ? AND is_default = ? AND status = ?", orgID, true, string(types.LLMModelStatusActive)).
+		Where("id != ?", excludeID)
+	if err := q.Count(&otherDefault).Error; err != nil {
+		return err
+	}
+	if otherDefault > 0 {
+		return nil
+	}
+
+	var candidate types.LLMModel
+	q2 := db.QueryByPurpose(tx.Model(&types.LLMModel{}), purpose).
+		Where("org_id = ? AND status = ?", orgID, string(types.LLMModelStatusActive)).
+		Where("id != ?", excludeID).
+		Order("updated_at DESC").
+		First(&candidate)
+	if q2.Error != nil {
+		if errors.Is(q2.Error, gorm.ErrRecordNotFound) {
+			return errors.New("该用途下没有其他启用中的模型可设为默认，无法禁用当前默认模型")
+		}
+		return q2.Error
+	}
+	if err := db.ClearOrgDefaultLLMModels(ctx, tx, orgID, candidate.ID, purpose); err != nil {
+		return err
+	}
+	candidate.IsDefault = true
+	return db.UpdateLLMModel(ctx, tx, &candidate)
 }
 
 // List 按分页和过滤条件查询组织内模型配置列表。
@@ -509,6 +645,9 @@ func (m *ManagerDb) List(ctx context.Context, orgID uint, req *ListRequest) (*Li
 	}
 	if req.Status != nil && *req.Status != "" {
 		opt.AddFilter("status", *req.Status)
+	}
+	if req.Purpose != nil && *req.Purpose != "" {
+		opt.AddFilter("purpose", *req.Purpose)
 	}
 	if req.Keyword != nil && *req.Keyword != "" {
 		opt.AddFilter("keyword", *req.Keyword)
@@ -661,9 +800,13 @@ func ResolveDefaultLLMModel(ctx context.Context, database *gorm.DB, orgID uint) 
 	return db.GetDefaultLLMModel(ctx, database, orgID)
 }
 
-// ResolveSystemTranslationLLMModel 解析组织的系统翻译 LLM 模型。
-// 若组织缺少系统模型，先从 org_id=1 克隆再查询。
+// ResolveSystemTranslationLLMModel resolves an active translation model owned by orgID.
+// A missing model is cloned from the system seed organization into orgID; cross-org
+// fallback is not allowed because model execution is authorized per organization.
 func ResolveSystemTranslationLLMModel(ctx context.Context, database *gorm.DB, orgID uint) (*types.LLMModel, error) {
+	if orgID == 0 {
+		return nil, errors.New("organization is required")
+	}
 	model, err := db.GetSystemTranslationLLMModel(ctx, database, orgID)
 	if err != nil {
 		return nil, err
@@ -676,13 +819,9 @@ func ResolveSystemTranslationLLMModel(ctx context.Context, database *gorm.DB, or
 		return nil, nil
 	}
 
-	cloned, err := db.EnsureOrgSystemLLMModels(ctx, database, orgID)
+	_, err = db.EnsureOrgSystemTranslationLLMModel(ctx, database, orgID)
 	if err != nil {
-		logs.WarnContextf(ctx, "[llm] ensure system models for org %d: %v", orgID, err)
-		return db.GetSystemTranslationLLMModel(ctx, database, 1)
-	}
-	if !cloned {
-		return db.GetSystemTranslationLLMModel(ctx, database, 1)
+		return nil, fmt.Errorf("ensure system translation model for org %d: %w", orgID, err)
 	}
 	return db.GetSystemTranslationLLMModel(ctx, database, orgID)
 }

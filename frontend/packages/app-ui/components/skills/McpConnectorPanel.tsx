@@ -171,6 +171,31 @@ function formConfig(form: MCPForm): MCPPluginConfig {
 	};
 }
 
+/** CoreKG 对用户展示为「知识库」，描述中去掉 CoreKG 字样（兼容大小写）。 */
+function isCoreKGPlatformCode(code: string) {
+	return code.trim().toLocaleLowerCase() === "corekg";
+}
+
+function displayMCPPlatform(platform: MCPPlatform): MCPPlatform {
+	if (!isCoreKGPlatformCode(platform.code)) return platform;
+	return {
+		...platform,
+		name: "知识库",
+		description: platform.description
+			.replace(/corekg/gi, "")
+			.replace(/\s+/g, " ")
+			.trim(),
+	};
+}
+
+function platformMatchesKeyword(platform: MCPPlatform, query: string) {
+	// 知识库不再暴露 corekg 品牌：搜索不匹配 code，也不匹配 corekg 关键字
+	const haystack = isCoreKGPlatformCode(platform.code)
+		? [platform.name, platform.description]
+		: [platform.name, platform.code, platform.description];
+	return haystack.filter(Boolean).join(" ").toLocaleLowerCase().includes(query);
+}
+
 function mcpDefinition(
 	definition: MCPPluginDefinition | { schema: "connector/v1" } | undefined,
 ): MCPPluginDefinition {
@@ -216,7 +241,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 			});
 			setConnectors(connectorResponse.data.data.plugins ?? []);
 			const platformResponse = await pluginApi.listMCPPlatforms();
-			setPlatforms(platformResponse.data.data.platforms ?? []);
+			setPlatforms((platformResponse.data.data.platforms ?? []).map(displayMCPPlatform));
 		} catch (requestError) {
 			setError(requestErrorMessage(requestError, "加载失败"));
 		} finally {
@@ -251,12 +276,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 	const visiblePlatforms = useMemo(() => {
 		const query = keyword.trim().toLocaleLowerCase();
 		if (!query) return platforms;
-		return platforms.filter((platform) =>
-			[platform.name, platform.code, platform.description]
-				.join(" ")
-				.toLocaleLowerCase()
-				.includes(query),
-		);
+		return platforms.filter((platform) => platformMatchesKeyword(platform, query));
 	}, [keyword, platforms]);
 
 	const openCreateDialog = () => {
@@ -553,7 +573,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 							<div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
 								{visiblePlatforms.map((platform) => {
 									const connecting = connectingPlatform === platform.code;
-									const isManagedCoreKG = platform.code === "corekg";
+									const isManagedCoreKG = isCoreKGPlatformCode(platform.code);
 									const connectionDisabled =
 										!isAuthenticated ||
 										connecting ||

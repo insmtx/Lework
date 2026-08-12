@@ -165,7 +165,7 @@ func TestCreateTask_AllowsMemberWithoutServiceGate(t *testing.T) {
 
 func TestDeleteProject_CascadesTasks(t *testing.T) {
 	database := setupTestDB(t)
-	projectService := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil)
+	projectService := NewProjectService(database, newTestPermissionService(database), nil, nil, "test", nil, NewSkillDisplayTranslationService(database))
 	taskService := NewTaskService(database, newTestPermissionService(database))
 	ctx := setupTestContextWithCaller(t)
 

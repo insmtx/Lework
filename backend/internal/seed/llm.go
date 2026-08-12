@@ -54,7 +54,7 @@ func seedLLM(ctx context.Context, db *gorm.DB, llmCfg *config.LLMConfig) error {
 		defaultLLMModel := &types.LLMModel{
 			OrgID:           1,
 			Code:            defaultLLMModelCode,
-			Name:            llmCfg.Provider,
+			Name:            "内置对话模型",
 			Description:     "Default LLM model from config",
 			Provider:        llmCfg.Provider,
 			ModelName:       modelName,
@@ -66,6 +66,7 @@ func seedLLM(ctx context.Context, db *gorm.DB, llmCfg *config.LLMConfig) error {
 			Temperature:     0.7,
 			TimeoutSec:      120,
 			Status:          string(types.LLMModelStatusActive),
+			Purpose:         types.LLMModelPurposeConversation,
 			IsDefault:       true,
 			IsSystem:        true,
 		}
@@ -152,6 +153,8 @@ func buildSystemTranslationLLMModelSpec(ctx context.Context, llmCfg *config.LLMC
 	modelName := "deepseek-v4-flash"
 	baseURL := strings.TrimSpace(llmCfg.BaseURL)
 	apiKey := strings.TrimSpace(llmCfg.APIKey)
+	isDefault := true
+	var isDefaultOverride *bool
 
 	if llmCfg.Translation != nil {
 		if v := strings.TrimSpace(llmCfg.Translation.Provider); v != "" {
@@ -166,6 +169,10 @@ func buildSystemTranslationLLMModelSpec(ctx context.Context, llmCfg *config.LLMC
 		if v := strings.TrimSpace(llmCfg.Translation.APIKey); v != "" {
 			apiKey = v
 		}
+		isDefaultOverride = llmCfg.Translation.IsDefault
+	}
+	if isDefaultOverride != nil {
+		isDefault = *isDefaultOverride
 	}
 
 	if apiKey == "" {
@@ -193,7 +200,8 @@ func buildSystemTranslationLLMModelSpec(ctx context.Context, llmCfg *config.LLMC
 		Temperature:     0.1,
 		TimeoutSec:      60,
 		Status:          string(types.LLMModelStatusActive),
-		IsDefault:       false,
+		Purpose:         types.LLMModelPurposeTranslation,
+		IsDefault:       isDefault,
 		IsSystem:        true,
 		Config: types.LLMModelConfig{
 			"purpose": "translation",

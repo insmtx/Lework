@@ -43,8 +43,7 @@ var (
 	_ CoreRequester = (*natsBus)(nil)
 )
 
-// NewNATS 创建一个新的 NATS JetStream 客户端实例
-// 在初始化阶段创建所有预配置的 Streams
+// NewNATS 创建一个新的 NATS JetStream 客户端实例，并确保预配置 Stream 可用。
 func NewNATS(url string) (*natsBus, error) {
 	conn, err := nats.Connect(url)
 	if err != nil {
@@ -64,7 +63,7 @@ func NewNATS(url string) (*natsBus, error) {
 		js:   js,
 	}
 
-	if err := bus.initStreams(); err != nil {
+	if err := bus.ensureStreams(); err != nil {
 		conn.Close()
 		logs.Errorf("Failed to initialize NATS streams: %v", err)
 		return nil, fmt.Errorf("failed to initialize NATS streams: %w", err)
@@ -74,62 +73,57 @@ func NewNATS(url string) (*natsBus, error) {
 	return bus, nil
 }
 
-// initStreams 在初始化阶段创建或更新所有预配置的 Stream
-func (p *natsBus) initStreams() error {
-	// 先清理可能冲突的旧 streams
-	existingStreamsCh := p.js.StreamNames()
-	var existingStreams []string
-	for name := range existingStreamsCh {
-		existingStreams = append(existingStreams, name)
-	}
-	for _, name := range existingStreams {
-		info, err := p.js.StreamInfo(name)
-		if err != nil {
+// ensureStreams 创建缺失的预配置 Stream，并更新同名 Stream。
+//
+// Subject overlap 是 NATS 全局资源冲突，不能由任意 Server/Worker 启动过程
+// 擅自删除。若既有 Stream 已承接对应 subject，则保留它并让按 subject 的
+// 发布和订阅继续使用实际路由。
+func (p *natsBus) ensureStreams() error {
+	for _, cfg := range messaging.StreamConfigs() {
+		if _, err := p.js.StreamInfo(cfg.Name); err == nil {
+			if _, err := p.js.UpdateStream(&cfg); err != nil {
+				return fmt.Errorf("update JetStream stream %q: %w", cfg.Name, err)
+			}
+			logs.Infof("Updated JetStream stream '%s' with subjects: %v", cfg.Name, cfg.Subjects)
 			continue
 		}
-		// 检查是否与预配置的 stream 冲突（同 subjects 但不同名）
-		isConfigured := false
-		for _, cfg := range messaging.StreamConfigs() {
-			if name == cfg.Name {
-				isConfigured = true
-				break
-			}
-			// 判断 subjects 是否重叠
-			if hasOverlap(info.Config.Subjects, cfg.Subjects) {
-				logs.Warnf("Deleting conflicting stream '%s' (subjects: %v)", name, info.Config.Subjects)
-				if err := p.js.DeleteStream(name); err != nil {
-					logs.Warnf("Failed to delete conflicting stream '%s': %v", name, err)
-				}
-			}
-		}
-		// 如果 stream 已存在但不是我们配置的，检查其 subjects
-		if !isConfigured {
-			for _, subj := range info.Config.Subjects {
-				for _, cfg := range messaging.StreamConfigs() {
-					if hasOverlap([]string{subj}, cfg.Subjects) {
-						logs.Warnf("Deleting conflicting stream '%s' with subject %q", name, subj)
-						_ = p.js.DeleteStream(name)
-						break
-					}
-				}
-			}
-		}
-	}
 
-	for _, cfg := range messaging.StreamConfigs() {
 		_, addErr := p.js.AddStream(&cfg)
 		if addErr == nil {
 			logs.Infof("Created JetStream stream '%s' with subjects: %v", cfg.Name, cfg.Subjects)
 			continue
 		}
 
-		// AddStream 失败，尝试 UpdateStream
-		if _, err := p.js.UpdateStream(&cfg); err != nil {
-			return fmt.Errorf("failed to initialize stream '%s': AddStream=%v, UpdateStream=%w", cfg.Name, addErr, err)
+		conflicts, err := p.findOverlappingStreams(cfg.Name, cfg.Subjects)
+		if err != nil {
+			return fmt.Errorf("inspect conflicting streams for %q: %w", cfg.Name, err)
 		}
-		logs.Infof("Updated JetStream stream '%s' with subjects: %v", cfg.Name, cfg.Subjects)
+		if len(conflicts) > 0 {
+			logs.Warnf("JetStream stream %q was not created because existing streams overlap its subjects; preserving existing streams: expected_subjects=%v conflicts=%v",
+				cfg.Name, cfg.Subjects, conflicts)
+			continue
+		}
+		return fmt.Errorf("create JetStream stream %q: %w", cfg.Name, addErr)
 	}
 	return nil
+}
+
+func (p *natsBus) findOverlappingStreams(expectedName string, subjects []string) ([]string, error) {
+	streamNames := p.js.StreamNames()
+	conflicts := make([]string, 0)
+	for name := range streamNames {
+		if name == expectedName {
+			continue
+		}
+		info, err := p.js.StreamInfo(name)
+		if err != nil {
+			return nil, err
+		}
+		if hasOverlap(info.Config.Subjects, subjects) {
+			conflicts = append(conflicts, fmt.Sprintf("%s:%v", name, info.Config.Subjects))
+		}
+	}
+	return conflicts, nil
 }
 
 // hasOverlap 检查两组 subjects 是否有重叠
@@ -499,13 +493,13 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 	if startSeq <= 0 {
 		return p.subscribeNewOnly(ctx, topic, handler)
 	}
-	streamName := messaging.StreamNameFromSubject(topic)
 	p.mu.RLock()
 	if p.closed.Load() {
 		p.mu.RUnlock()
 		return fmt.Errorf("NATS client is closed")
 	}
-	if streamName != "" {
+	streamName, resolveErr := p.js.StreamNameBySubject(topic)
+	if resolveErr == nil && streamName != "" {
 		info, err := p.js.StreamInfo(streamName)
 		if err != nil {
 			logs.WarnContextf(ctx, "Failed to inspect stream %s before subscribing to %s from seq %d: %v", streamName, topic, startSeq, err)
@@ -520,6 +514,8 @@ func (p *natsBus) SubscribeFrom(ctx context.Context, topic string, startSeq int6
 			p.mu.RUnlock()
 			return p.subscribeNewOnly(ctx, topic, handler)
 		}
+	} else if resolveErr != nil {
+		logs.DebugContextf(ctx, "Skip stream sequence precheck for topic %s: %v", topic, resolveErr)
 	}
 	sub, err := p.js.Subscribe(topic, handler,
 		nats.StartSequence(uint64(startSeq)),

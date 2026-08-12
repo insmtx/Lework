@@ -70,11 +70,31 @@ func (s *PermissionService) GuardTask(ctx context.Context, caller Caller, public
 }
 
 // GuardByPublicID 通过资源类型分发到对应的 Guard 方法，支持 PermGuard 中间件在不知道资源类型的
-// 情况下统一调用。当前支持 project 和 task；未知类型返回错误。
+// 情况下统一调用。task:create 的资源定位点是项目，但策略应按项目下的任务动作解释。
+// 当前支持 project 和 task；未知类型返回错误。
 func (s *PermissionService) GuardByPublicID(ctx context.Context, caller Caller, resourceType types.ResourceType, publicID string, actions ...Action) error {
 	switch resourceType {
 	case types.ResourceTypeProject:
-		return s.GuardProject(ctx, caller, publicID, actions...)
+		projectActions := make([]Action, 0, len(actions))
+		projectTaskActions := make([]Action, 0, len(actions))
+		for _, action := range actions {
+			if action == ActionTaskCreate {
+				projectTaskActions = append(projectTaskActions, action)
+				continue
+			}
+			projectActions = append(projectActions, action)
+		}
+		if len(projectActions) > 0 {
+			if err := s.GuardProject(ctx, caller, publicID, projectActions...); err != nil {
+				return err
+			}
+		}
+		for _, action := range projectTaskActions {
+			if err := s.GuardProjectTaskAction(ctx, caller, publicID, action); err != nil {
+				return err
+			}
+		}
+		return nil
 	case types.ResourceTypeTask:
 		return s.GuardTask(ctx, caller, publicID, actions...)
 	default:

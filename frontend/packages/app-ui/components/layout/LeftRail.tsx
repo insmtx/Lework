@@ -3,6 +3,7 @@
 import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
 import {
 	Action,
+	API_BASE_URL,
 	getNativeFileInputAccept,
 	isPrivateDeployment,
 	LEFT_RAIL_MAX_WIDTH,
@@ -34,8 +35,10 @@ import {
 import { Input } from "@leros/ui/components/ui/input";
 import { cn } from "@leros/ui/lib/utils";
 import {
+	ArrowLeft,
 	ArrowLeftRight,
 	Blocks,
+	Bot,
 	Building2,
 	Camera,
 	Check,
@@ -45,7 +48,9 @@ import {
 	ChevronsRight,
 	ClipboardList,
 	Clock,
+	Contact,
 	ExternalLink,
+	FileText,
 	Inbox,
 	Loader2,
 	LogOut,
@@ -73,9 +78,9 @@ import {
 	ProtectedImage,
 } from "../avatar/ProtectedImage";
 import { FeedbackDialog } from "../feedback/FeedbackDialog";
-import { OrgAdminDialog } from "../org-admin/OrgAdminDialog";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 import { CanGate } from "../permission/CanGate";
+import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
 import { preventRailMenuClickThrough, runRailMenuAction } from "../project/ProjectActionsMenu";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
@@ -98,6 +103,12 @@ function handleRailMenuOpenChange(open: boolean) {
 	}
 }
 
+function openCurrentEnvironmentInDesktop() {
+	const deepLink = new URL("leros://open");
+	deepLink.searchParams.set("server", API_BASE_URL);
+	window.location.assign(deepLink.toString());
+}
+
 type PublicEnv = {
 	readonly VITE_LEROS_APP_VERSION?: string;
 };
@@ -114,6 +125,9 @@ export type AppNavigation = {
 const iconMap: Record<string, React.ReactNode> = {
 	IconTask: <ClipboardList className="size-5" />,
 	IconAITeammate: <Users className="size-5" />,
+	IconOrgProfile: <FileText className="size-5" />,
+	IconOrgContacts: <Contact className="size-5" />,
+	IconOrgModels: <Bot className="size-5" />,
 	IconProjectsHub: <ProjectIcon className="size-5" />,
 	IconSkill: <Blocks className="size-5" />,
 	IconKnowledge: <Inbox className="size-5" />,
@@ -123,12 +137,35 @@ const iconMap: Record<string, React.ReactNode> = {
 
 const navIdToView: Record<string, ViewMode> = {
 	workbench: "workbench",
-	"ai-teammates": "digitalAssistant",
 	"projects-hub": "projectsHub",
 	knowledge: "knowledge",
 	skills: "skills",
 	automation: "automation",
+	"org-profile": "orgProfile",
+	"org-departments": "orgDepartments",
+	"org-assistants": "orgAssistants",
+	"org-models": "orgModels",
 };
+
+const ORG_ADMIN_NAV_ITEMS: NavItem[] = [
+	{ id: "org-profile", label: "组织信息管理", icon: "IconOrgProfile" },
+	{ id: "org-departments", label: "通讯录", icon: "IconOrgContacts" },
+	{ id: "org-assistants", label: "AI队友", icon: "IconAITeammate" },
+	{ id: "org-models", label: "模型管理", icon: "IconOrgModels" },
+];
+
+function isOrgAdminPath(path?: string): boolean {
+	return Boolean(path?.startsWith("/org"));
+}
+
+function isOrgAdminView(view: ViewMode): boolean {
+	return (
+		view === "orgProfile" ||
+		view === "orgDepartments" ||
+		view === "orgAssistants" ||
+		view === "orgModels"
+	);
+}
 
 const appVersion = getAppVersion();
 const brandVersionLabel = appVersion.startsWith("v") ? appVersion : `v${appVersion}`;
@@ -140,6 +177,7 @@ export function LeftRail({
 	logoSrc?: string;
 	navigation?: AppNavigation;
 }) {
+	const { logo: customBrandLogo, name: brandName } = useBrandIdentity();
 	const {
 		navGroups,
 		projects,
@@ -182,7 +220,6 @@ export function LeftRail({
 		projectId: string;
 	} | null>(null);
 	const [accountDialogOpen, setAccountDialogOpen] = useState(false);
-	const [orgAdminDialogOpen, setOrgAdminDialogOpen] = useState(false);
 	const [orgSwitchDialogOpen, setOrgSwitchDialogOpen] = useState(false);
 	const [orgSwitchPanelMode, setOrgSwitchPanelMode] = useState<"switch" | "create">("switch");
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
@@ -193,6 +230,7 @@ export function LeftRail({
 	);
 	const [taskLoadedProjectIds, setTaskLoadedProjectIds] = useState<Set<string>>(() => new Set());
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
+	const isDesktopApp = getDesktopUpdateApi() !== null;
 
 	const resetProjectExpansionState = useCallback(() => {
 		setExpandedProjectIds(new Set());
@@ -352,7 +390,7 @@ export function LeftRail({
 		resetProjectExpansionState();
 	}, [user?.currentOrg?.id, resetProjectExpansionState]);
 
-	// 中文注释：组织管理后台仅组织创建者可见；enterprise 用 createdByUserId，OSS 用 createdByUin。
+	// 中文注释：组织管理入口仅组织创建者可见；enterprise 用 createdByUserId，OSS 用 createdByUin。
 	const currentOrgMeta =
 		user?.organizations?.find((org) => org.id === user?.currentOrg?.id) ?? user?.currentOrg;
 	const isOrgCreator = Boolean(
@@ -366,10 +404,19 @@ export function LeftRail({
 					user.uin === currentOrgMeta.createdByUin)),
 	);
 
+	const inOrgAdminMode = navigation
+		? isOrgAdminPath(navigation.currentPath)
+		: isOrgAdminView(currentView);
+
 	useEffect(() => {
-		if (isOrgCreator || !orgAdminDialogOpen) return;
-		setOrgAdminDialogOpen(false);
-	}, [isOrgCreator, orgAdminDialogOpen]);
+		// 中文注释：非创建者不应停留在组织管理页（含直达路由），自动回到新建任务首页。
+		if (isOrgCreator || !inOrgAdminMode) return;
+		if (navigation) {
+			navigation.goToRoute("workbench");
+			return;
+		}
+		switchView("workbench");
+	}, [inOrgAdminMode, isOrgCreator, navigation, switchView]);
 
 	const handleNavClick = (item: NavItem) => {
 		const view = navIdToView[item.id] ?? "workbench";
@@ -381,6 +428,25 @@ export function LeftRail({
 			switchView(view);
 		};
 		navigate();
+	};
+
+	const handleOpenOrgAdmin = () => {
+		if (!isOrgCreator) return;
+		requireAuth(() => {
+			if (navigation) {
+				navigation.goToRoute("orgProfile");
+				return;
+			}
+			switchView("orgProfile");
+		});
+	};
+
+	const handleBackToWorkbench = () => {
+		if (navigation) {
+			navigation.goToRoute("workbench");
+			return;
+		}
+		switchView("workbench");
 	};
 
 	const handleProjectClick = (projectId: string) => {
@@ -616,18 +682,38 @@ export function LeftRail({
 			<div className="leros-brand">
 				<div className="leros-brand-main">
 					<div className="leros-logo-placeholder" aria-hidden="true">
-						<img
-							src={logoSrc}
-							alt=""
-							className="leros-logo-image"
-							onError={(event) => {
-								event.currentTarget.hidden = true;
-							}}
-						/>
+						{customBrandLogo ? (
+							<ProtectedImage
+								src={customBrandLogo}
+								alt=""
+								className="leros-logo-image"
+								fallback={
+									<img
+										src={logoSrc}
+										alt=""
+										className="leros-logo-image"
+										onError={(event) => {
+											event.currentTarget.hidden = true;
+										}}
+									/>
+								}
+							/>
+						) : (
+							<img
+								src={logoSrc}
+								alt=""
+								className="leros-logo-image"
+								onError={(event) => {
+									event.currentTarget.hidden = true;
+								}}
+							/>
+						)}
 						<Network className="size-5" />
 					</div>
 					<div className="leros-sidebar-expandable min-w-0">
-						<div className="leros-brand-title">Lework</div>
+						<div className="leros-brand-title" title={brandName}>
+							{brandName}
+						</div>
 						<div className="leros-brand-version">{brandVersionLabel}</div>
 					</div>
 				</div>
@@ -660,59 +746,94 @@ export function LeftRail({
 			</div>
 
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-				<nav className="leros-nav shrink-0" aria-label="主导航">
-					{navGroups
-						.filter((group) => group.id !== "projects")
-						.map((group) => (
-							<div key={group.id} className="leros-nav-section">
-								{group.label ? <div className="leros-nav-section-label">{group.label}</div> : null}
-								<div className="space-y-1">
-									{group.items.map((item: NavItem) => (
-										<NavItemButton
-											key={item.id}
-											item={item}
-											active={isItemActive(item)}
-											collapsed={leftRailCollapsed}
-											onClick={() => handleNavClick(item)}
-										/>
-									))}
-								</div>
-							</div>
-						))}
-				</nav>
-
-				{!leftRailCollapsed && (
-					<section className="leros-nav leros-nav-section mb-0 flex min-h-0 flex-1 flex-col">
-						<div
-							className={cn(
-								"leros-nav-section-label shrink-0",
-								"normal-case leading-snug tracking-normal font-normal",
-							)}
+				{inOrgAdminMode ? (
+					<nav className="leros-nav shrink-0" aria-label="组织管理导航">
+						{/* 中文注释：组织管理模式下提供显式返回主界面入口，样式与侧栏导航项保持一致。 */}
+						<button
+							type="button"
+							onClick={handleBackToWorkbench}
+							className={cn("leros-nav-item mb-1", leftRailCollapsed && "justify-center")}
+							title="返回主界面"
+							aria-label="返回主界面"
 						>
-							<span className="text-sm">最近项目</span>
+							<span className="leros-nav-icon">
+								<ArrowLeft className="size-5" />
+							</span>
+							<span className={cn("flex-1 truncate font-medium", leftRailCollapsed && "hidden")}>
+								返回主界面
+							</span>
+						</button>
+						<div className="space-y-1">
+							{ORG_ADMIN_NAV_ITEMS.map((item) => (
+								<NavItemButton
+									key={item.id}
+									item={item}
+									active={isItemActive(item)}
+									collapsed={leftRailCollapsed}
+									onClick={() => handleNavClick(item)}
+								/>
+							))}
 						</div>
-						<ProjectList
-							projects={visibleProjects}
-							activeProjectId={activeProjectId}
-							activeTaskDetailProjectId={activeTaskDetailProjectId}
-							activeTaskDetailTaskId={activeTaskDetailTaskId}
-							currentView={currentView}
-							currentPath={navigation?.currentPath}
-							expandedProjectIds={expandedProjectIds}
-							expandedTaskProjectIds={expandedTaskProjectIds}
-							loadingTaskProjectIds={loadingTaskProjectIds}
-							onToggleProject={handleToggleProject}
-							onEnterProject={handleProjectClick}
-							onOpenTask={handleOpenTask}
-							onExpandTasks={handleExpandProjectTasks}
-							onRenameProject={handleOpenRename}
-							onDeleteProject={setDeleteTarget}
-							onLeaveProject={setLeaveTarget}
-							onRenameTask={handleOpenTaskRename}
-							onDeleteTask={(task, projectId) => setDeleteTaskTarget({ task, projectId })}
-							collapsed={false}
-						/>
-					</section>
+					</nav>
+				) : (
+					<>
+						<nav className="leros-nav shrink-0" aria-label="主导航">
+							{navGroups
+								.filter((group) => group.id !== "projects")
+								.map((group) => (
+									<div key={group.id} className="leros-nav-section">
+										{group.label ? (
+											<div className="leros-nav-section-label">{group.label}</div>
+										) : null}
+										<div className="space-y-1">
+											{group.items.map((item: NavItem) => (
+												<NavItemButton
+													key={item.id}
+													item={item}
+													active={isItemActive(item)}
+													collapsed={leftRailCollapsed}
+													onClick={() => handleNavClick(item)}
+												/>
+											))}
+										</div>
+									</div>
+								))}
+						</nav>
+
+						{!leftRailCollapsed && (
+							<section className="leros-nav leros-nav-section mb-0 flex min-h-0 flex-1 flex-col">
+								<div
+									className={cn(
+										"leros-nav-section-label shrink-0",
+										"normal-case leading-snug tracking-normal font-normal",
+									)}
+								>
+									<span className="text-sm">最近项目</span>
+								</div>
+								<ProjectList
+									projects={visibleProjects}
+									activeProjectId={activeProjectId}
+									activeTaskDetailProjectId={activeTaskDetailProjectId}
+									activeTaskDetailTaskId={activeTaskDetailTaskId}
+									currentView={currentView}
+									currentPath={navigation?.currentPath}
+									expandedProjectIds={expandedProjectIds}
+									expandedTaskProjectIds={expandedTaskProjectIds}
+									loadingTaskProjectIds={loadingTaskProjectIds}
+									onToggleProject={handleToggleProject}
+									onEnterProject={handleProjectClick}
+									onOpenTask={handleOpenTask}
+									onExpandTasks={handleExpandProjectTasks}
+									onRenameProject={handleOpenRename}
+									onDeleteProject={setDeleteTarget}
+									onLeaveProject={setLeaveTarget}
+									onRenameTask={handleOpenTaskRename}
+									onDeleteTask={(task, projectId) => setDeleteTaskTarget({ task, projectId })}
+									collapsed={false}
+								/>
+							</section>
+						)}
+					</>
 				)}
 			</div>
 
@@ -771,6 +892,12 @@ export function LeftRail({
 									<span>系统设置</span>
 								</DropdownMenuItem>
 							) : null}
+							{isDesktopApp ? null : (
+								<DropdownMenuItem onClick={openCurrentEnvironmentInDesktop}>
+									<ExternalLink className="size-4 shrink-0" />
+									<span>在桌面端打开</span>
+								</DropdownMenuItem>
+							)}
 							{/* 其他菜单项先注释隐藏；恢复时记得同步恢复对应 import。 */}
 							{/*
 							<DropdownMenuItem>
@@ -787,14 +914,9 @@ export function LeftRail({
 								<span>账户管理</span>
 							</DropdownMenuItem>
 							{isOrgCreator ? (
-								<DropdownMenuItem
-									onClick={() => {
-										if (!requireAuth()) return;
-										setOrgAdminDialogOpen(true);
-									}}
-								>
+								<DropdownMenuItem onClick={handleOpenOrgAdmin}>
 									<Building2 className="size-4 shrink-0" />
-									<span>组织管理后台</span>
+									<span>组织管理</span>
 								</DropdownMenuItem>
 							) : null}
 							{canSwitchOrganization ? (
@@ -868,7 +990,6 @@ export function LeftRail({
 				onOpenChange={setAccountDialogOpen}
 				onUserChange={setAuthUser}
 			/>
-			<OrgAdminDialog open={orgAdminDialogOpen} onOpenChange={setOrgAdminDialogOpen} />
 			{isPrivateDeployment ? null : (
 				<FeedbackDialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen} />
 			)}
@@ -1586,10 +1707,10 @@ function DesktopUpdateMenuSection() {
 
 function getRouteActive(path: string, view: ViewMode) {
 	if (view === "workbench") return path === "/" || path.startsWith("/workbench");
-	if (view === "digitalAssistant") {
-		return path.startsWith("/assistants") || path.startsWith("/ai-teammates");
-	}
-	if (view === "aiTeammates") return path.startsWith("/ai-teammates");
+	if (view === "orgAssistants") return path.startsWith("/org/assistants");
+	if (view === "orgProfile") return path.startsWith("/org/profile") || path === "/org";
+	if (view === "orgDepartments") return path.startsWith("/org/departments");
+	if (view === "orgModels") return path.startsWith("/org/models");
 	if (view === "projectsHub") return path === "/projects";
 	if (view === "skills") return path.startsWith("/skills");
 	if (view === "knowledge") return path.startsWith("/knowledge");

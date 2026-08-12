@@ -36,8 +36,9 @@ type Automation struct {
 	// automation - 每轮发送给 Agent 的完整指令，TEXT，允许为空
 	Instruction string `gorm:"column:instruction;type:text"`
 
-	// automation - 是否接受周期触发，BOOLEAN，NOT NULL，DEFAULT TRUE
-	Enabled bool `gorm:"column:enabled;type:boolean;not null;default:true"`
+	// automation - 是否接受周期触发，BOOLEAN，NOT NULL，DEFAULT TRUE。
+	// 使用指针是为了让 GORM 区分显式 false 与未赋值的零值，从而不会用数据库默认值覆盖 false。
+	Enabled *bool `gorm:"column:enabled;type:boolean;not null;default:true"`
 
 	// automation - 调度模式（calendar/interval），只表示底层计算模式，VARCHAR(16)，NOT NULL
 	ScheduleMode string `gorm:"column:schedule_mode;type:varchar(16);not null"`
@@ -67,6 +68,17 @@ type Automation struct {
 // TableName 指定Automation结构体对应的数据库表名
 func (Automation) TableName() string {
 	return TableNameAutomation
+}
+
+// IsEnabled 返回自动化是否接受周期触发。
+// nil 仅用于兼容尚未赋值的模型，语义与数据库默认值 true 保持一致。
+func (a *Automation) IsEnabled() bool {
+	return a == nil || a.Enabled == nil || *a.Enabled
+}
+
+// SetEnabled 设置自动化的启停状态，并保留显式 false 供 ORM 持久化。
+func (a *Automation) SetEnabled(enabled bool) {
+	a.Enabled = &enabled
 }
 
 // AutomationScheduleFormConfig 表示前端表单的编辑模型（用于回显）

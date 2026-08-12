@@ -49,31 +49,45 @@ var skillAutoInstallLocks = struct {
 }
 
 type pluginService struct {
-	db           *gorm.DB
-	apiKeyIssuer account.APIKeyIssuer
-	oauth        *connectorOAuthManager
+	db                 *gorm.DB
+	apiKeyIssuer       account.APIKeyIssuer
+	oauth              *connectorOAuthManager
+	displayTranslation *SkillDisplayTranslationService
 }
 
 // NewPluginService creates the independent plugin repository service.
-func NewPluginService(database *gorm.DB) contract.PluginService {
-	return &pluginService{db: database, oauth: newConnectorOAuthManager()}
+func NewPluginService(database *gorm.DB, displayTranslation *SkillDisplayTranslationService) contract.PluginService {
+	return &pluginService{
+		db:                 database,
+		oauth:              newConnectorOAuthManager(),
+		displayTranslation: displayTranslation,
+	}
 }
 
 // NewPluginServiceWithAPIKeyIssuer enables platform connectors backed by the configured IAM service.
 func NewPluginServiceWithAPIKeyIssuer(
 	database *gorm.DB,
 	issuer account.APIKeyIssuer,
+	displayTranslation *SkillDisplayTranslationService,
 ) contract.PluginService {
 	return &pluginService{
-		db:           database,
-		apiKeyIssuer: issuer,
-		oauth:        newConnectorOAuthManager(),
+		db:                 database,
+		apiKeyIssuer:       issuer,
+		oauth:              newConnectorOAuthManager(),
+		displayTranslation: displayTranslation,
 	}
 }
 
 // NewOfficialPluginMarketplaceService creates the dedicated official catalogue service.
-func NewOfficialPluginMarketplaceService(database *gorm.DB) contract.OfficialPluginMarketplaceService {
-	return &pluginService{db: database, oauth: newConnectorOAuthManager()}
+func NewOfficialPluginMarketplaceService(
+	database *gorm.DB,
+	displayTranslation *SkillDisplayTranslationService,
+) contract.OfficialPluginMarketplaceService {
+	return &pluginService{
+		db:                 database,
+		oauth:              newConnectorOAuthManager(),
+		displayTranslation: displayTranslation,
+	}
 }
 
 func (s *pluginService) ListPlugins(
@@ -111,6 +125,57 @@ func (s *pluginService) ListPlugins(
 	for _, plugin := range plugins {
 		result = append(result, pluginView(plugin))
 	}
+	if s.displayTranslation == nil {
+		logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s use=false reason=service_unavailable",
+			orgID, types.PluginTranslationSourceOrganization)
+	} else if orgID == 0 {
+		logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s use=false reason=organization_missing",
+			types.PluginTranslationSourceOrganization)
+	} else {
+		pluginIDs := make([]uint, 0, len(plugins))
+		for _, plugin := range plugins {
+			if plugin.Kind == "skill" {
+				pluginIDs = append(pluginIDs, plugin.ID)
+			}
+		}
+		revisions, revisionErr := infradb.ListCurrentPluginRevisionsByPluginIDs(ctx, s.db, pluginIDs)
+		if revisionErr != nil {
+			logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s use=false reason=revision_lookup_failed: %v",
+				orgID, types.PluginTranslationSourceOrganization, revisionErr)
+		} else {
+			sources := make([]skillTranslationSource, 0, len(plugins))
+			positions := make([]int, 0, len(plugins))
+			for index, plugin := range plugins {
+				if plugin.Kind != "skill" {
+					continue
+				}
+				revision, exists := revisions[plugin.ID]
+				if !exists {
+					logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s source_id=%d revision_id=0 use=false reason=revision_unavailable",
+						orgID, types.PluginTranslationSourceOrganization, plugin.ID)
+					continue
+				}
+				revisionCopy := revision
+				sources = append(sources, skillTranslationSource{
+					sourceType:  types.PluginTranslationSourceOrganization,
+					sourceID:    plugin.ID,
+					revision:    &revisionCopy,
+					name:        plugin.Name,
+					description: plugin.Description,
+				})
+				positions = append(positions, index)
+			}
+			translations := s.displayTranslation.translateMetadata(ctx, orgID, sources)
+			for index, source := range sources {
+				key := skillTranslationKey{
+					sourceType: source.sourceType,
+					sourceID:   source.sourceID,
+					revisionID: source.revision.ID,
+				}
+				applyTranslatedMetadata(&result[positions[index]], translations[key])
+			}
+		}
+	}
 	return &contract.ListPluginsResponse{Plugins: result}, nil
 }
 
@@ -146,7 +211,31 @@ func (s *pluginService) GetPlugin(
 		return nil, err
 	}
 	if revision == nil {
+		if plugin.Kind == "skill" {
+			logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s source_id=%d revision_id=0 use=false reason=revision_unavailable",
+				orgID, types.PluginTranslationSourceOrganization, plugin.ID)
+		}
 		return &contract.GetPluginResponse{Plugin: &view}, nil
+	}
+	var skillSource *skillTranslationSource
+	if plugin.Kind == "skill" && s.displayTranslation == nil {
+		logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s source_id=%d revision_id=%d use=false reason=service_unavailable",
+			orgID, types.PluginTranslationSourceOrganization, plugin.ID, revision.ID)
+	} else if plugin.Kind == "skill" && s.displayTranslation != nil {
+		source := skillTranslationSource{
+			sourceType:  types.PluginTranslationSourceOrganization,
+			sourceID:    plugin.ID,
+			revision:    revision,
+			name:        plugin.Name,
+			description: plugin.Description,
+		}
+		key := skillTranslationKey{
+			sourceType: source.sourceType,
+			sourceID:   source.sourceID,
+			revisionID: source.revision.ID,
+		}
+		applyTranslatedMetadata(&view, s.displayTranslation.translateMetadata(ctx, orgID, []skillTranslationSource{source})[key])
+		skillSource = &source
 	}
 	if !isBundleDefinition(plugin.Kind) {
 		definition, redactErr := redactConnectorSecrets(revision.Definition)
@@ -165,6 +254,16 @@ func (s *pluginService) GetPlugin(
 	contentView, err := pluginRevisionContentView(revision, content)
 	if err != nil {
 		return nil, err
+	}
+	if skillSource != nil && content != nil {
+		skillSource.content = content.EntrypointContent
+		translatedBody, translateErr := s.displayTranslation.translateDocumentBody(ctx, orgID, *skillSource)
+		if translateErr != nil {
+			logs.WarnContextf(ctx, "translate organization Skill document: org=%d plugin=%s revision_id=%d: %v",
+				orgID, plugin.PublicID, revision.ID, translateErr)
+		} else if translatedBody != "" && contentView != nil {
+			contentView.SkillMD = translatedBody
+		}
 	}
 	return &contract.GetPluginResponse{Plugin: &view, Content: contentView}, nil
 }
@@ -329,11 +428,13 @@ func (s *pluginService) ListOfficialPluginMarketplaceItems(
 	}
 
 	result := make([]contract.OfficialPluginMarketplaceItemView, 0, len(items))
+	targets := make([]marketplaceDisplayTarget, 0, len(items))
 	for _, item := range items {
+		state := stateByIdentity[pluginIdentityKey(item.Kind, item.Code)]
 		view, visible, err := s.organizationMarketplaceItemView(
 			ctx,
 			&item,
-			stateByIdentity[pluginIdentityKey(item.Kind, item.Code)],
+			state,
 			false,
 		)
 		if err != nil {
@@ -342,8 +443,12 @@ func (s *pluginService) ListOfficialPluginMarketplaceItems(
 		}
 		if visible {
 			result = append(result, view)
+			targets = append(targets, marketplaceDisplayTarget{
+				itemID: item.ID, viewIndex: len(result) - 1, item: item, state: state,
+			})
 		}
 	}
+	s.translateMarketplaceMetadata(ctx, orgID, targets, result)
 	return &contract.ListOfficialPluginMarketplaceItemsResponse{Items: result}, nil
 }
 
@@ -382,7 +487,157 @@ func (s *pluginService) GetOfficialPluginMarketplaceItem(
 	if !visible {
 		return nil, contract.ErrPluginNotFound
 	}
+	target := marketplaceDisplayTarget{itemID: item.ID, viewIndex: 0, item: *item, state: state}
+	translatedViews := []contract.OfficialPluginMarketplaceItemView{view}
+	s.translateMarketplaceMetadata(ctx, orgID, []marketplaceDisplayTarget{target}, translatedViews)
+	view = translatedViews[0]
+	if err := s.translateMarketplaceDocument(ctx, orgID, &target, &view); err != nil {
+		logs.WarnContextf(ctx, "translate marketplace Skill document %q: %v", item.Code, err)
+	}
 	return &view, nil
+}
+
+type marketplaceDisplayTarget struct {
+	itemID    uint
+	viewIndex int
+	item      types.PluginMarketplaceItem
+	state     *infradb.OrganizationPluginMarketplaceState
+	sourceRev *types.PluginRevision
+}
+
+// translateMarketplaceMetadata overlays validated Chinese display text on marketplace views.
+func (s *pluginService) translateMarketplaceMetadata(
+	ctx context.Context,
+	orgID uint,
+	targets []marketplaceDisplayTarget,
+	views []contract.OfficialPluginMarketplaceItemView,
+) {
+	if s.displayTranslation == nil {
+		logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s use=false reason=service_unavailable_or_invalid_request",
+			orgID, types.PluginTranslationSourceMarketplace)
+		return
+	}
+	if orgID == 0 {
+		logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s use=false reason=organization_missing",
+			types.PluginTranslationSourceMarketplace)
+		return
+	}
+	if len(targets) == 0 {
+		logs.InfoContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s use=false reason=no_targets",
+			orgID, types.PluginTranslationSourceMarketplace)
+		return
+	}
+
+	sources := make([]skillTranslationSource, 0, len(targets))
+	positions := make([]int, 0, len(targets))
+	for index := range targets {
+		target := &targets[index]
+		if target.item.Kind != "skill" || target.viewIndex < 0 || target.viewIndex >= len(views) {
+			continue
+		}
+		revision, err := s.resolveMarketplaceTranslationRevision(ctx, target)
+		if err != nil || revision == nil {
+			if err != nil {
+				logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s source_id=%d revision_id=0 use=false reason=revision_resolve_failed code=%s: %v",
+					orgID, types.PluginTranslationSourceMarketplace, target.itemID, target.item.Code, err)
+			} else {
+				logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s source_id=%d revision_id=0 use=false reason=revision_unavailable code=%s",
+					orgID, types.PluginTranslationSourceMarketplace, target.itemID, target.item.Code)
+			}
+			continue
+		}
+		target.sourceRev = revision
+		view := views[target.viewIndex]
+		sources = append(sources, skillTranslationSource{
+			sourceType:  types.PluginTranslationSourceMarketplace,
+			sourceID:    target.itemID,
+			revision:    revision,
+			name:        view.Name,
+			description: view.Description,
+		})
+		positions = append(positions, target.viewIndex)
+	}
+	translations := s.displayTranslation.translateMetadata(ctx, orgID, sources)
+	for index, source := range sources {
+		key := skillTranslationKey{
+			sourceType: source.sourceType,
+			sourceID:   source.sourceID,
+			revisionID: source.revision.ID,
+		}
+		applyTranslatedMarketplaceMetadata(&views[positions[index]], translations[key])
+	}
+}
+
+// translateMarketplaceDocument overlays a validated translated body on one detail response.
+func (s *pluginService) translateMarketplaceDocument(
+	ctx context.Context,
+	orgID uint,
+	target *marketplaceDisplayTarget,
+	view *contract.OfficialPluginMarketplaceItemView,
+) error {
+	if s.displayTranslation == nil || target == nil || view == nil || view.Content == nil || target.item.Kind != "skill" {
+		return nil
+	}
+	revision, err := s.resolveMarketplaceTranslationRevision(ctx, target)
+	if err != nil {
+		return err
+	}
+	if revision == nil {
+		return nil
+	}
+	fullContent, err := s.loadMarketplaceDisplayDocument(ctx, target, revision)
+	if err != nil || fullContent == "" {
+		return err
+	}
+	body, err := s.displayTranslation.translateDocumentBody(ctx, orgID, skillTranslationSource{
+		sourceType: types.PluginTranslationSourceMarketplace,
+		sourceID:   target.itemID,
+		revision:   revision,
+		content:    fullContent,
+	})
+	if err != nil {
+		return err
+	}
+	if body != "" {
+		view.Content.SkillMD = body
+	}
+	return nil
+}
+
+func (s *pluginService) resolveMarketplaceTranslationRevision(
+	ctx context.Context,
+	target *marketplaceDisplayTarget,
+) (*types.PluginRevision, error) {
+	if target == nil {
+		return nil, nil
+	}
+	if marketplaceStateMatchesItem(target.state, &target.item) && target.state.SourcePluginRevisionID != nil {
+		return infradb.GetPluginRevisionByID(ctx, s.db, *target.state.SourcePluginRevisionID)
+	}
+	if target.item.Status != "published" || target.item.DeletedAt.Valid {
+		return nil, nil
+	}
+	_, revision, _, err := loadMarketplaceSource(ctx, s.db, &target.item, false)
+	return revision, err
+}
+
+func (s *pluginService) loadMarketplaceDisplayDocument(
+	ctx context.Context,
+	target *marketplaceDisplayTarget,
+	sourceRevision *types.PluginRevision,
+) (string, error) {
+	revisionID := sourceRevision.ID
+	if marketplaceStateMatchesItem(target.state, &target.item) && target.state.RevisionID > 0 {
+		revisionID = target.state.RevisionID
+	}
+	content, err := infradb.GetPluginRevisionContent(ctx, s.db, revisionID)
+	if err != nil {
+		return "", err
+	}
+	if content == nil {
+		return "", nil
+	}
+	return content.EntrypointContent, nil
 }
 
 // GetOfficialPluginLatestVersion reports the current published official revision by stable identity.

@@ -35,14 +35,18 @@ const mockUser = {
 };
 
 vi.mock("@leros/store", () => ({
+	Action: {},
 	authenticatedFetch: (...args: unknown[]) => mockAuthenticatedFetch(...args),
 	fetchFilePreviewByPublicId: (...args: unknown[]) => mockFetchFilePreviewByPublicId(...args),
+	getNativeFileInputAccept: () => "image/*",
+	isPrivateDeployment: false,
 	normalizeFilePublicId: (value?: string) => value?.match(/file_[A-Za-z0-9_-]+/)?.[0],
 	LEFT_RAIL_MAX_WIDTH: 360,
 	LEFT_RAIL_MIN_WIDTH: 220,
 	projectFileApi: {},
 	useProjectMenuCapabilities: () => ({ loading: false, hasAny: false }),
 	useProjectsMenuCapabilities: vi.fn(),
+	useTaskCapabilities: () => ({ loading: false, can: () => false }),
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			navGroups: [],
@@ -97,6 +101,10 @@ vi.mock("../auth", () => ({
 
 vi.mock("../avatar/DiceBearAvatar", () => ({
 	DiceBearAvatar: () => <div data-testid="dicebear-avatar" />,
+}));
+
+vi.mock("../private-deployment/useBrandIdentity", () => ({
+	useBrandIdentity: () => ({ logo: null, name: "Lework" }),
 }));
 
 vi.mock("../../assets", () => ({

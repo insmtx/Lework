@@ -168,6 +168,8 @@ type ModelOptions struct {
 	BaseURL      string  `json:"base_url,omitempty"`
 	BaseURLHasV1 bool    `json:"base_url_has_v1,omitempty"`
 	Temperature  float64 `json:"temperature,omitempty"`
+	// MaxTokens 默认最大输出 token 数；0 表示未配置，走 provider 默认。
+	MaxTokens int `json:"max_tokens,omitempty"`
 	// Vision 表示该模型是否支持图片（多模态）输入。
 	Vision bool `json:"vision,omitempty"`
 

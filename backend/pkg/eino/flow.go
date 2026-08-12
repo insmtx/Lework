@@ -43,8 +43,8 @@ func (noopStreamSink) EmitReasoningDelta(context.Context, string, string) error 
 
 // DefaultMaxIterations 为 ReAct 循环的默认轮数上限。
 // eino ADK ChatModelAgent 迭代上限默认 20，超出即报 "exceeds max iterations"；
-// 此处抬升至 30 以支撑多轮工具调用任务。
-const DefaultMaxIterations = 30
+// 此处抬升至 50 以支撑多轮工具调用任务。
+const DefaultMaxIterations = 50
 
 // Flow runs a tool-calling Eino agent loop.
 type Flow struct {

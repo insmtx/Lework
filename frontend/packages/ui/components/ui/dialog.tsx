@@ -6,8 +6,14 @@ import { XIcon } from "lucide-react";
 import type * as React from "react";
 import { Button } from "./button";
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-	return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+function Dialog({ disablePointerDismissal = true, ...props }: DialogPrimitive.Root.Props) {
+	return (
+		<DialogPrimitive.Root
+			data-slot="dialog"
+			disablePointerDismissal={disablePointerDismissal}
+			{...props}
+		/>
+	);
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {

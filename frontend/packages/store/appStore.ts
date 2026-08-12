@@ -14,6 +14,7 @@ import {
 	globalConfigSlice,
 } from "./slices/globalConfigSlice";
 import { type LayoutAction, type LayoutStore, layoutSlice } from "./slices/layoutSlice";
+import { type ModelAction, type ModelStore, modelSlice } from "./slices/modelSlice";
 import {
 	type PermissionAction,
 	type PermissionStore,
@@ -29,7 +30,8 @@ export type AppStore = AuthStore &
 	DAStore &
 	PermissionStore &
 	GlobalConfigStore &
-	AutomationStore;
+	AutomationStore &
+	ModelStore;
 export type AppAction = AuthAction &
 	LayoutAction &
 	TopicAction &
@@ -37,7 +39,8 @@ export type AppAction = AuthAction &
 	DigitalAssistantAction &
 	PermissionAction &
 	GlobalConfigAction &
-	AutomationAction;
+	AutomationAction &
+	ModelAction;
 
 const createStore: SliceCreator<AppStore> = (...params) => {
 	const layout = layoutSlice(...params);
@@ -51,12 +54,14 @@ const createStore: SliceCreator<AppStore> = (...params) => {
 		...permissionSlice(...params),
 		...globalConfigSlice(...params),
 		...automationSlice(...params),
+		...modelSlice(...params),
 		// 中文注释：layout 与 DA 都导出了 resetAuthScopedData，对象展开时后者会盖掉前者，
 		// 导致登出只清助手、不清 projects。这里合并成一次调用，两个入口都生效。
 		resetAuthScopedData: () => {
 			layout.resetAuthScopedData();
 			da.resetAuthScopedData();
 			automationSlice(...params).resetAuthScopedData();
+			modelSlice(...params).resetAuthScopedData();
 		},
 	};
 };
@@ -92,3 +97,6 @@ export const useGlobalConfigStore = <T>(
 export const useAutomationStore = <T>(
 	selector: (state: AutomationStore & AutomationAction) => T,
 ): T => useAppStore(selector);
+
+export const useModelStore = <T>(selector: (state: ModelStore & ModelAction) => T): T =>
+	useAppStore(selector);

@@ -12,6 +12,7 @@ type Manager interface {
 	GetByModelCode(ctx context.Context, orgID uint, code string) (*ModelConfig, error)
 	GetByModelID(ctx context.Context, orgID uint, modelID uint) (*ModelConfig, error)
 	Update(ctx context.Context, orgID uint, id uint, req *UpdateRequest) (*ModelConfig, error)
+	SetStatus(ctx context.Context, orgID uint, id uint, status string) (*ModelConfig, error)
 	Delete(ctx context.Context, orgID uint, id uint) error
 	List(ctx context.Context, orgID uint, req *ListRequest) (*ListModelResult, error)
 	TestConnectivity(ctx context.Context, orgID uint, req *TestRequest) (*TestResult, error)

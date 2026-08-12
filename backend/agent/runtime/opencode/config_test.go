@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/insmtx/Leros/backend/agent"
@@ -240,5 +241,40 @@ func TestBuildMCPConfigBridgesSSEThroughMCPRemote(t *testing.T) {
 	command, ok := entry["command"].([]string)
 	if !ok || len(command) != 6 || command[0] != "npx" || command[5] != "sse-only" {
 		t.Fatalf("MCP command = %#v", entry["command"])
+	}
+}
+
+func TestSanitizeConfigContentRemovesAPIKeyAndKeepsBaseURL(t *testing.T) {
+	input := `{"provider":{"leros-provider":{"options":{"apiKey":"sk-secret","baseURL":"https://llm.example.com"},
+"models":{"gpt-test":{"limit":{"context":82144,"output":42768},"options":{"top_p":0.5,"frequency_penalty":0.1}}}}}}`
+	out := sanitizeConfigContent(input)
+	if strings.Contains(out, "sk-secret") {
+		t.Fatalf("sanitized config still contains apiKey value: %s", out)
+	}
+	if strings.Contains(out, "apiKey") {
+		t.Fatalf("sanitized config still has apiKey key: %s", out)
+	}
+	if !strings.Contains(out, "https://llm.example.com") {
+		t.Fatalf("sanitized config lost baseURL: %s", out)
+	}
+	for _, want := range []string{"82144", "42768", "0.5", "0.1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("sanitized config missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestSanitizeConfigContentKeepsValidJSON(t *testing.T) {
+	out := sanitizeConfigContent(`{"provider":{"leros-provider":{"options":{"apiKey":"sk-x","baseURL":"u"}}}}`)
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("sanitized config is not valid JSON: %v; out=%s", err, out)
+	}
+}
+
+func TestSanitizeConfigContentFallsBackOnInvalidInput(t *testing.T) {
+	input := "not-json{"
+	if out := sanitizeConfigContent(input); out != input {
+		t.Fatalf("invalid config should pass through unchanged, got %q", out)
 	}
 }

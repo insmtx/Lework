@@ -232,7 +232,7 @@ worker:
   config:
     logLevel: info
     cli:
-      default: leros
+      default: opencode
 
   workspaceHostPathRoot: <dataHostPath>/workspace
   workspaceMountRoot: /workspace

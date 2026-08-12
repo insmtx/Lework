@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/adk"
 	einotool "github.com/cloudwego/eino/components/tool"
@@ -101,11 +102,19 @@ func (s einoStreamSink) EmitReasoningDelta(ctx context.Context, messageID string
 }
 
 func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, emitter *nodeEmitter) (string, *agent.Usage, error) {
+	// 按模型上下文窗口对输入做预算截断，避免长对话累计超过 ContextLimit 触发上游拒绝。
+	applyInputBudget(&req)
+
 	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
-		Provider: req.Model.Provider,
-		APIKey:   req.Model.APIKey,
-		Model:    req.Model.Model,
-		BaseURL:  req.Model.BaseURL,
+		Provider:         req.Model.Provider,
+		APIKey:           req.Model.APIKey,
+		Model:            req.Model.Model,
+		BaseURL:          req.Model.BaseURL,
+		MaxTokens:        req.Model.MaxTokens,
+		Temperature:      float32Ptr(req.Model.Temperature),
+		TopP:             float32PtrIf(req.Model.TopP),
+		FrequencyPenalty: float32PtrIf(req.Model.FrequencyPenalty),
+		PresencePenalty:  float32PtrIf(req.Model.PresencePenalty),
 	})
 	if err != nil {
 		return "", nil, err
@@ -208,6 +217,111 @@ func (r *Runner) buildSystemPrompt(req agent.ExecutionRequest) string {
 		prompt += "\n\n" + hint
 	}
 	return prompt
+}
+
+// float32Ptr 将温度等标量转为 *float32；v<=0（未配置）时返回 nil，交给 provider 使用默认值。
+func float32Ptr(v float64) *float32 {
+	if v <= 0 {
+		return nil
+	}
+	f := float32(v)
+	return &f
+}
+
+// float32PtrIf 将可选的 *float64 采样参数转为 *float32，保持 nil 语义。
+func float32PtrIf(v *float64) *float32 {
+	if v == nil {
+		return nil
+	}
+	f := float32(*v)
+	return &f
+}
+
+// inputBudgetRatio 输入 token 预算占整体上下文窗口的比例，余量留给推理输出，避免触发上游拒绝。
+const inputBudgetRatio = 0.7
+
+// estimateTokenCount 粗略估算文本 token 数：按 utf8 字符数除以 4（保守，宁可多估避免超限），
+// 至少计为 1。
+func estimateTokenCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := utf8.RuneCountInString(s)
+	if n <= 0 {
+		return 0
+	}
+	return n/4 + 1
+}
+
+// truncateByChars 将字符串按字符数截断到 maxChars，超出时仅保留头部。maxChars<=0 时返回空串。
+func truncateByChars(s string, maxChars int) string {
+	if maxChars <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= maxChars {
+		return s
+	}
+	runes := []rune(s)
+	if maxChars >= len(runes) {
+		return s
+	}
+	return string(runes[:maxChars])
+}
+
+// applyInputBudget 根据模型上下文 window（ContextLimit，token）对历史消息与当前 prompt 做字符级 token
+// 预算截断：优先保留最近消息并丢弃最旧消息，直至估算总量不超过预算；仍超预算的单条内容做字符级截断。
+// ContextLimit<=0 表示未配置，直接返回保持原行为。
+func applyInputBudget(req *agent.ExecutionRequest) {
+	if req == nil || req.Model.ContextLimit <= 0 {
+		return
+	}
+
+	budget := int(float64(req.Model.ContextLimit) * inputBudgetRatio)
+	if budget <= 0 {
+		return
+	}
+
+	curPrompt := req.Prompt
+	promptTok := estimateTokenCount(curPrompt)
+	if promptTok > budget {
+		// 单条 prompt 已超过整体预算：按 budget 字符量截断 prompt，余量完全留给 prompt。
+		charCap := budget * 4
+		req.Prompt = truncateByChars(curPrompt, charCap)
+		req.Messages = nil
+		return
+	}
+
+	remain := budget - promptTok
+	if remain <= 0 {
+		req.Messages = nil
+		return
+	}
+
+	// 从最近到最旧累加消息 token，保留累计不超 remain 的最近消息；超出的旧消息丢弃。
+	kept := make([]agent.Message, 0, len(req.Messages))
+	used := 0
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		msg := req.Messages[i]
+		n := estimateTokenCount(msg.Content)
+		if used+n > remain {
+			// 本条加入即超预算：若已保留任何消息则丢弃本条（保持消息完整），
+			// 否则本条是唯一且超预算，按字符截断其内容。
+			if used == 0 {
+				charCap := remain * 4
+				msg.Content = truncateByChars(msg.Content, charCap)
+				kept = append(kept, msg)
+			}
+			break
+		}
+		kept = append(kept, msg)
+		used += n
+	}
+
+	// 反转回时间正序。
+	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
+		kept[i], kept[j] = kept[j], kept[i]
+	}
+	req.Messages = kept
 }
 
 func formatLLMResultForLog(message interface{ String() string }) string {

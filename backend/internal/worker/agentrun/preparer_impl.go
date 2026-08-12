@@ -496,6 +496,8 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 		APIKey:           cloned.Model.APIKey,
 		BaseURL:          cloned.Model.BaseURL,
 		Vision:           cloned.Model.Vision,
+		MaxTokens:        cloned.Model.MaxTokens,
+		Temperature:      cloned.Model.Temperature,
 		TopP:             cloned.Model.TopP,
 		FrequencyPenalty: cloned.Model.FrequencyPenalty,
 		PresencePenalty:  cloned.Model.PresencePenalty,

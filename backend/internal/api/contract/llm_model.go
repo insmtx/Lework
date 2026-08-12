@@ -16,6 +16,9 @@ type LLMModelService interface {
 	// 更新LLM模型配置
 	UpdateLLMModel(ctx context.Context, id uint, req *UpdateLLMModelRequest) (*LLMModel, error)
 
+	// 启用或禁用LLM模型配置
+	SetLLMModelStatus(ctx context.Context, id uint, status string) (*LLMModel, error)
+
 	// 删除LLM模型配置
 	DeleteLLMModel(ctx context.Context, id uint) error
 

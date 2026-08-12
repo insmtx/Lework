@@ -504,3 +504,54 @@ func TestNormalizeExecutionModePreservesPlanWireValue(t *testing.T) {
 		t.Fatalf("plan wire value = %q, want plan", got)
 	}
 }
+
+// testOrgRepo 是 account.OrgRepository 的测试替身，仅 GetOrgMember 返回固定 userName，
+// 其余方法返回零值，供 NewMessagePoster 解析 sender_name 的测试使用。
+type testOrgRepo struct {
+	userName string
+}
+
+// newTestOrgRepoForSender 构造一个 GetOrgMember 返回给定 user 名的 OrgRepository 替身。
+func newTestOrgRepoForSender(userName string) account.OrgRepository {
+	return &testOrgRepo{userName: userName}
+}
+
+func (r *testOrgRepo) CreateOrg(ctx context.Context, req *account.CreateOrgInput) (*account.Org, error) {
+	return nil, nil
+}
+
+func (r *testOrgRepo) GetOrg(ctx context.Context, publicID string, code string) (*account.Org, error) {
+	return nil, nil
+}
+
+func (r *testOrgRepo) UpdateOrg(ctx context.Context, publicID string, req *account.UpdateOrgInput) (*account.Org, error) {
+	return nil, nil
+}
+
+func (r *testOrgRepo) DeleteOrg(ctx context.Context, publicID string) error {
+	return nil
+}
+
+func (r *testOrgRepo) ListOrgs(ctx context.Context, req *account.ListOrgsInput) (*account.OrgList, error) {
+	return nil, nil
+}
+
+func (r *testOrgRepo) CreateOrgMember(ctx context.Context, req *account.CreateOrgMemberInput) (*account.OrgMember, error) {
+	return nil, nil
+}
+
+func (r *testOrgRepo) GetOrgMember(ctx context.Context, id uint, uin uint) (*account.OrgMember, error) {
+	return &account.OrgMember{Uin: uin, UserName: r.userName}, nil
+}
+
+func (r *testOrgRepo) UpdateOrgMember(ctx context.Context, id uint, req *account.UpdateOrgMemberInput) (*account.OrgMember, error) {
+	return nil, nil
+}
+
+func (r *testOrgRepo) ListOrgMembers(ctx context.Context, req *account.ListOrgMembersInput) (*account.OrgMemberList, error) {
+	return nil, nil
+}
+
+func (r *testOrgRepo) IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error) {
+	return false, nil
+}

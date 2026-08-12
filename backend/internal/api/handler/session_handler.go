@@ -228,7 +228,7 @@ func (h *SessionHandler) ListSessions(ctx *gin.Context) {
 // @Tags Session
 // @Accept json
 // @Produce text/event-stream
-// @Param body body SessionEventsRequest true "订阅事件请求"
+// @Param body body contract.SessionEventsRequest true "订阅事件请求"
 // @Success 200 {string} string "SSE事件流"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"

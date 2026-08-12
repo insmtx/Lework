@@ -147,11 +147,15 @@ func (r *handlerRuntime) Execute(_ context.Context, _ agent.ExecutionRequest, _ 
 type mockInbox struct {
 	mu      sync.Mutex
 	records map[string]*inboxRecord
+	nextID  uint64
 	// nilInsertSeq 若非零，则 PutIfAbsent 对该 seq 返回 (false, nil, nil)，
 	// 用于复现 command_id 冲突但 (topic, stream_seq) 无记录的边界 panic。
 	nilInsertSeq uint64
 }
 type inboxRecord struct {
+	id        uint64
+	topic     string
+	streamSeq uint64
 	status    inbox.Status
 	errMsg    string
 	command   messaging.WorkerCommand
@@ -167,38 +171,40 @@ func (m *mockInbox) PutIfAbsent(_ context.Context, topic string, streamSeq uint6
 	key := keyOf(topic, streamSeq)
 	now := time.Now().Unix()
 	if r, ok := m.records[key]; ok {
-		return false, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: r.status, CreatedAt: r.createdAt, UpdatedAt: r.updatedAt}, nil
+		return false, &inbox.Record{ID: r.id, Topic: topic, StreamSeq: streamSeq, CommandID: r.command.ID, Status: r.status, CreatedAt: r.createdAt, UpdatedAt: r.updatedAt}, nil
 	}
 	// nilInsertSeq 模拟「插入被唯一索引拒绝但 (topic, stream_seq) 无记录」的边界场景，
 	// 即真实 SQLite 中按 command_id 冲突时 PutIfAbsent 会返回 (false, nil, nil)。
 	if streamSeq == m.nilInsertSeq {
 		return false, nil, nil
 	}
-	m.records[key] = &inboxRecord{status: inbox.StatusPending, command: cmd, createdAt: now, updatedAt: now}
-	return true, &inbox.Record{Topic: topic, StreamSeq: streamSeq, Status: inbox.StatusPending, CreatedAt: now, UpdatedAt: now}, nil
+	m.nextID++
+	record := &inboxRecord{id: m.nextID, topic: topic, streamSeq: streamSeq, status: inbox.StatusPending, command: cmd, createdAt: now, updatedAt: now}
+	m.records[key] = record
+	return true, &inbox.Record{ID: record.id, Topic: topic, StreamSeq: streamSeq, CommandID: cmd.ID, Status: inbox.StatusPending, CreatedAt: now, UpdatedAt: now}, nil
 }
-func (m *mockInbox) MarkProcessing(_ context.Context, topic string, seq uint64) error {
+func (m *mockInbox) MarkProcessing(_ context.Context, recordID uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if r, ok := m.records[keyOf(topic, seq)]; ok {
+	if r := m.byID(recordID); r != nil {
 		r.status = inbox.StatusProcessing
 		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
-func (m *mockInbox) MarkCompleted(_ context.Context, topic string, seq uint64) error {
+func (m *mockInbox) MarkCompleted(_ context.Context, recordID uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if r, ok := m.records[keyOf(topic, seq)]; ok {
+	if r := m.byID(recordID); r != nil {
 		r.status = inbox.StatusCompleted
 		r.updatedAt = time.Now().Unix()
 	}
 	return nil
 }
-func (m *mockInbox) MarkFailed(_ context.Context, topic string, seq uint64, errMsg string) error {
+func (m *mockInbox) MarkFailed(_ context.Context, recordID uint64, errMsg string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if r, ok := m.records[keyOf(topic, seq)]; ok {
+	if r := m.byID(recordID); r != nil {
 		r.status = inbox.StatusFailed
 		r.errMsg = errMsg
 		r.updatedAt = time.Now().Unix()
@@ -215,7 +221,7 @@ func (m *mockInbox) GetNonTerminal(_ context.Context, topic string) ([]inbox.Rec
 			// Key format is "topic:seq" — extract the seq.
 			if len(k) > len(topic)+1 && k[:len(topic)] == topic && k[len(topic)] == ':' {
 				seq := parseSeq(k[len(topic)+1:])
-				recs = append(recs, inbox.Record{Topic: topic, StreamSeq: seq, Status: r.status, Command: cmdJSON(r.command), CreatedAt: r.createdAt, UpdatedAt: r.updatedAt})
+				recs = append(recs, inbox.Record{ID: r.id, Topic: topic, StreamSeq: seq, CommandID: r.command.ID, Status: r.status, Command: cmdJSON(r.command), CreatedAt: r.createdAt, UpdatedAt: r.updatedAt})
 			}
 		}
 	}
@@ -235,6 +241,15 @@ func (m *mockInbox) DeleteTerminalBefore(_ context.Context, _ string, _ time.Tim
 	return 0, nil
 }
 func (m *mockInbox) Close() error { return nil }
+
+func (m *mockInbox) byID(recordID uint64) *inboxRecord {
+	for _, record := range m.records {
+		if record.id == recordID {
+			return record
+		}
+	}
+	return nil
+}
 
 func (m *mockInbox) status(key string) inbox.Status {
 	m.mu.Lock()
@@ -372,7 +387,7 @@ func TestHandlerAsyncDedupInflight(t *testing.T) {
 	}
 
 	<-runtime.started
-	key := inboxKey(h.RunSubject(), 44)
+	key := inboxKey(1)
 	h.stateMu.Lock()
 	_, owned := h.inflight[key]
 	h.stateMu.Unlock()
@@ -409,10 +424,51 @@ func TestHandlerAsyncDedupInflight(t *testing.T) {
 	}
 }
 
-// TestHandlerPutIfAbsentNilRecord verifies that a PutIfAbsent returning
-// (false, nil, nil) — a command_id-unique collides but the (topic, stream_seq)
-// has no row, as raised by automation cron re-dispatch — does not panic on a
-// nil existing record and still executes + Acks the command.
+func TestHandlerAcceptsNewCommandWhenStreamSequenceWasReused(t *testing.T) {
+	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	registry := agent.NewRegistry()
+	registry.Register("test", runtime)
+	registry.SetDefault("test")
+	svc := agentrun.NewService(handlerPreparer{}, agent.NewExecutor(registry), handlerFinalizer{}, agentrun.NewJournalFactory(), nil)
+	h, err := New(Config{OrgID: 1, WorkerID: 2, MaxConcurrency: 1, DebounceWindow: time.Millisecond, InboxDBPath: ":memory:"}, &handlerPublisher{}, svc)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer h.Close()
+
+	old := standardCommand()
+	old.ID = "msg-old"
+	_, oldRecord, err := h.RunInbox().PutIfAbsent(context.Background(), h.RunSubject(), 82, old)
+	if err != nil {
+		t.Fatalf("insert old inbox record: %v", err)
+	}
+	if err := h.RunInbox().MarkCompleted(context.Background(), oldRecord.ID); err != nil {
+		t.Fatalf("complete old inbox record: %v", err)
+	}
+
+	current := standardCommand()
+	current.ID = "msg-new"
+	delivery := newFakeDelivery(82)
+	if err := h.HandleRunCommand(context.Background(), current, delivery); err != nil {
+		t.Fatalf("HandleRunCommand() error = %v", err)
+	}
+	if ack, nak, term, _ := delivery.snapshot(); !ack || nak || term {
+		t.Fatalf("delivery disposition = ack:%v nak:%v term:%v, want Ack only", ack, nak, term)
+	}
+
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second):
+		t.Fatal("new command was not dispatched after stream sequence reuse")
+	}
+	close(runtime.release)
+	if ok := h.Drain(2 * time.Second); !ok {
+		t.Fatal("Drain() timed out")
+	}
+}
+
+// TestHandlerPutIfAbsentNilRecord verifies that an inconsistent storage result
+// does not panic or execute an unknown command; the delivery remains retryable.
 func TestHandlerPutIfAbsentNilRecord(t *testing.T) {
 	runtime := &handlerRuntime{started: make(chan struct{}), release: make(chan struct{})}
 	registry := agent.NewRegistry()
@@ -432,12 +488,10 @@ func TestHandlerPutIfAbsentNilRecord(t *testing.T) {
 	if ack, nak, term, _ := delivery.snapshot(); ack || !nak || term {
 		t.Fatalf("disposition = ack:%v nak:%v term:%v, want Nak only", ack, nak, term)
 	}
-
-	<-runtime.started
-	close(runtime.release)
-
-	if ok := h.Drain(2 * time.Second); !ok {
-		t.Fatal("Drain should succeed")
+	select {
+	case <-runtime.started:
+		t.Fatal("inconsistent inbox result must not execute the command")
+	default:
 	}
 }
 
@@ -777,7 +831,7 @@ func TestHandlerRecoveryMissingSessionMarkFailed(t *testing.T) {
 	// 等待 record 被标记为 Failed（缺失 session 的恢复不进入 Runtime）。
 	deadline := time.After(3 * time.Second)
 	for {
-		if s := ib.status(inboxKey(topic, 200)); s == inbox.StatusFailed {
+		if s := ib.status(topic + ":200"); s == inbox.StatusFailed {
 			break
 		}
 		select {

@@ -1,6 +1,7 @@
 import type { DigitalAssistantItem, ProjectMember } from "@leros/store";
+import { BRAND_NAME_STORAGE_KEY } from "@leros/store";
 import type { Message } from "@leros/store/types/chat";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { resolveAssistantMessageDisplay } from "./resolveAssistantMessageDisplay";
 
@@ -71,6 +72,10 @@ function assistantMessage(overrides: Partial<Message> = {}): Message {
 }
 
 describe("resolveAssistantMessageDisplay", () => {
+	afterEach(() => {
+		window.localStorage.removeItem(BRAND_NAME_STORAGE_KEY);
+	});
+
 	it("uses default brand when user did not mention an assistant", () => {
 		const messagesMap = {
 			"101": userMessage("101"),
@@ -86,6 +91,25 @@ describe("resolveAssistantMessageDisplay", () => {
 		expect(display).toEqual({
 			useDefaultBrand: true,
 			name: "Lework",
+		});
+	});
+
+	it("uses custom brand name from local storage for the default assistant", () => {
+		window.localStorage.setItem(BRAND_NAME_STORAGE_KEY, "Acme");
+		const messagesMap = {
+			"101": userMessage("101"),
+		};
+
+		const display = resolveAssistantMessageDisplay({
+			message: assistantMessage(),
+			messagesMap,
+			assistants,
+			projectMembers,
+		});
+
+		expect(display).toEqual({
+			useDefaultBrand: true,
+			name: "Acme",
 		});
 	});
 

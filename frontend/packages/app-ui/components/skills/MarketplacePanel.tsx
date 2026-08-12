@@ -16,7 +16,7 @@ function officialToSkillCard(item: OfficialPluginMarketplaceItem): SkillMarketpl
 		source_type: "official",
 		skill_id: item.public_id,
 		name: item.code,
-		display_name: item.name,
+		display_name: item.display_name || item.name,
 		description: item.description ?? "",
 		version: item.version,
 		author: item.author,

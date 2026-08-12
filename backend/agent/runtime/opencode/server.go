@@ -218,6 +218,7 @@ func startSingleOpenCodeServer(ctx context.Context, binary, workDir string, base
 	if err != nil {
 		return nil, err
 	}
+	logs.Infof("OpenCode config injected: content=%s", sanitizeConfigContent(configContent))
 	logs.Debugf("OpenCode server config prepared: provider=%s model=%s mcp_count=%d database=%s",
 		providerID, modelCfg.Model, len(mcpServers), databasePath)
 

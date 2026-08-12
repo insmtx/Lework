@@ -9,8 +9,9 @@ import {
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
-import { Camera, Loader2 } from "lucide-react";
-import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Label } from "@leros/ui/components/ui/label";
+import { Building2, Camera, Loader2 } from "lucide-react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ORGANIZATION_DEFAULT_AVATAR_SRC } from "../../assets";
 import { ProtectedImage } from "../avatar/ProtectedImage";
@@ -26,13 +27,7 @@ function revokeObjectURLSafe(url?: string) {
 	}
 }
 
-export function OrgProfilePanel({
-	compact = false,
-	active = true,
-}: {
-	compact?: boolean;
-	active?: boolean;
-}) {
+export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 	const user = useAuthStore((s) => s.authUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
 	const syncOrganizationProfile = useAuthStore((s) => s.syncOrganizationProfile);
@@ -45,6 +40,7 @@ export function OrgProfilePanel({
 	const [org, setOrg] = useState<Pick<OrgInfo, "name" | "logo"> | null>(null);
 	const [nameDraft, setNameDraft] = useState("");
 	const [initialName, setInitialName] = useState("");
+	const [initialLogo, setInitialLogo] = useState<string | undefined>();
 	const [logoPreview, setLogoPreview] = useState<string | undefined>();
 	const [pendingLogoUrl, setPendingLogoUrl] = useState<string | undefined>();
 
@@ -75,19 +71,15 @@ export function OrgProfilePanel({
 		setLoading(true);
 		clearLogoPreview();
 		try {
-			// 中文注释：基本信息读取暂时直接使用 AuthSession 返回的当前组织，避免依赖为空的 public_id。
+			// 中文注释：组织信息管理只编辑名称与图标，优先使用 AuthSession，避免依赖为空的 public_id。
 			const data = {
 				name: currentOrgName,
 				logo: currentOrgLogo,
 			};
-
-			// 中文注释：保留原 GetOrg 查询逻辑，后续确认接口契约后可恢复。
-			// const resp = await orgAdminApi.getOrg({ public_id: orgPublicId });
-			// const data = resp.data.data;
 			setOrg(data);
 			setNameDraft(data.name);
 			setInitialName(data.name);
-			// 中文注释：组织接口已可直接返回资源地址；保留原值也兼容尚未迁移的 file public_id。
+			setInitialLogo(data.logo);
 			setPendingLogoUrl(data.logo);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "组织信息加载失败";
@@ -107,6 +99,12 @@ export function OrgProfilePanel({
 		if (!active || !currentOrgId || !currentOrgName) return;
 		void loadData();
 	}, [active, currentOrgId, currentOrgName, loadData]);
+
+	const dirty = useMemo(() => {
+		return (
+			nameDraft.trim() !== initialName.trim() || (pendingLogoUrl ?? "") !== (initialLogo ?? "")
+		);
+	}, [initialLogo, initialName, nameDraft, pendingLogoUrl]);
 
 	const handleProtectedLogoLoaded = useCallback(() => {
 		clearLogoPreview();
@@ -148,8 +146,6 @@ export function OrgProfilePanel({
 
 	const handleSave = async () => {
 		if (!user) return;
-		// 中文注释：暂时保留原 public_id 判空逻辑，允许保存接口自行返回当前契约错误。
-		// if (!orgPublicId || !user) return;
 		const trimmedName = nameDraft.trim();
 		if (!trimmedName) {
 			toast.error("组织名称不能为空");
@@ -166,7 +162,10 @@ export function OrgProfilePanel({
 			const updated = resp.data.data;
 			setOrg(updated);
 			setInitialName(updated.name);
+			setInitialLogo(updated.logo);
+			setNameDraft(updated.name);
 			setPendingLogoUrl(updated.logo);
+			clearLogoPreview();
 			if (user.currentOrg?.id) {
 				syncOrganizationProfile(user.currentOrg.id, { name: updated.name, logo: updated.logo });
 			}
@@ -182,7 +181,7 @@ export function OrgProfilePanel({
 	const handleCancel = () => {
 		setNameDraft(initialName);
 		clearLogoPreview();
-		setPendingLogoUrl(org?.logo);
+		setPendingLogoUrl(initialLogo ?? org?.logo);
 	};
 
 	// 中文注释：仅在组织尚未设置图标或原图不可用时显示固定默认头像，不影响用户上传并保存自定义图标。
@@ -196,7 +195,7 @@ export function OrgProfilePanel({
 
 	if (!user?.currentOrg) {
 		return (
-			<div className="rounded-2xl border border-[var(--leros-control-border)] bg-white p-8 text-sm text-[var(--leros-text-subtle)]">
+			<div className="py-8 text-sm text-[var(--leros-text-subtle)]">
 				请先登录并选择组织后再管理组织信息。
 			</div>
 		);
@@ -204,95 +203,106 @@ export function OrgProfilePanel({
 
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center py-24 text-sm text-[var(--leros-text-subtle)]">
+			<div className="flex h-full items-center justify-center py-24 text-sm text-[var(--leros-text-subtle)]">
 				<Loader2 className="mr-2 size-4 animate-spin" />
 				加载中...
 			</div>
 		);
 	}
 
-	return (
-		<div className={compact ? undefined : "mx-auto max-w-3xl"}>
-			{!compact && (
-				<h1 className="mb-6 text-xl font-semibold text-[var(--leros-text-strong)]">基本信息</h1>
-			)}
-			<div
-				className={
-					compact
-						? "space-y-6"
-						: "rounded-2xl border border-[var(--leros-control-border)] bg-white p-6 md:p-8"
-				}
+	const actions = (
+		<div className="flex gap-3">
+			<Button type="button" variant="outline" onClick={handleCancel} disabled={saving || !dirty}>
+				取消
+			</Button>
+			<Button
+				type="button"
+				onClick={() => void handleSave()}
+				disabled={saving || uploadingLogo || !dirty}
 			>
-				<div className={compact ? "space-y-6" : "space-y-8"}>
-					<section>
-						<h2 className="mb-4 text-sm font-semibold text-[var(--leros-text-strong)]">组织图标</h2>
-						<div className="flex items-start gap-5">
-							<button
-								type="button"
-								className="group relative size-20 shrink-0 overflow-hidden rounded-full bg-[var(--leros-primary-softer)] ring-4 ring-slate-100"
-								onClick={() => fileInputRef.current?.click()}
-								disabled={uploadingLogo}
-								aria-label="上传组织图标"
-							>
-								<ProtectedImage
-									src={pendingLogoUrl}
-									localSrc={logoPreview}
-									alt={user.currentOrg.name}
-									className="h-full w-full object-cover"
-									fallback={orgLogoFallback}
-									onProtectedSrcLoaded={handleProtectedLogoLoaded}
-									onProtectedSrcNotFound={() => setPendingLogoUrl(undefined)}
-								/>
-								<span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-									{uploadingLogo ? (
-										<Loader2 className="size-5 animate-spin text-white" />
-									) : (
-										<Camera className="size-5 text-white" />
-									)}
-								</span>
-							</button>
-							<div className="min-w-0 pt-1 text-xs leading-5 text-[var(--leros-text-subtle)]">
-								<p>支持图片格式：jpg/jpeg/png</p>
-								<p>图片大小不超过 5M</p>
-								<p>为保证展示效果，请上传 1:1 比例的图片</p>
-							</div>
-							<input
-								ref={fileInputRef}
-								type="file"
-								accept={getNativeFileInputAccept("image/jpeg,image/jpg,image/png,image/webp")}
-								className="hidden"
-								onChange={(event) => {
-									void handleLogoChange(event);
-								}}
+				{saving ? <Loader2 className="size-4 animate-spin" /> : null}
+				保存
+			</Button>
+		</div>
+	);
+
+	return (
+		<div className="flex w-full flex-col gap-5">
+			<section className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-5 sm:p-6">
+				<div className="mb-5 border-b border-[var(--leros-control-border)] pb-4">
+					<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">组织标识</h2>
+					<p className="mt-1 text-xs leading-5 text-[var(--leros-text-subtle)]">
+						图标与名称会展示在侧栏、组织切换与协作场景中。
+					</p>
+				</div>
+
+				<div className="flex flex-col gap-6">
+					<div className="flex items-start gap-4">
+						<button
+							type="button"
+							className="group relative size-24 shrink-0 overflow-hidden rounded-2xl bg-[var(--leros-primary-softer)] ring-4 ring-slate-100"
+							onClick={() => fileInputRef.current?.click()}
+							disabled={uploadingLogo}
+							aria-label="上传组织图标"
+						>
+							<ProtectedImage
+								src={pendingLogoUrl}
+								localSrc={logoPreview}
+								alt={user.currentOrg.name}
+								className="h-full w-full object-cover"
+								fallback={orgLogoFallback}
+								onProtectedSrcLoaded={handleProtectedLogoLoaded}
+								onProtectedSrcNotFound={() => setPendingLogoUrl(undefined)}
 							/>
+							<span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+								{uploadingLogo ? (
+									<Loader2 className="size-5 animate-spin text-white" />
+								) : (
+									<Camera className="size-5 text-white" />
+								)}
+							</span>
+						</button>
+						<div className="min-w-0 space-y-1.5 pt-1 text-xs leading-5 text-[var(--leros-text-subtle)]">
+							<p className="flex items-center gap-1.5 font-medium text-[var(--leros-text-muted)]">
+								<Building2 className="size-3.5" />
+								组织图标
+							</p>
+							<p>支持 jpg / jpeg / png / webp</p>
+							<p>大小不超过 5M，建议 1:1 比例</p>
+							<p>点击图标即可重新上传</p>
 						</div>
-					</section>
-
-					<section>
-						<h2 className="mb-3 text-sm font-semibold text-[var(--leros-text-strong)]">组织名称</h2>
-						<Input
-							value={nameDraft}
-							onChange={(event) => setNameDraft(event.target.value)}
-							placeholder="请输入组织名称"
-							className="max-w-md"
+						<input
+							ref={fileInputRef}
+							type="file"
+							accept={getNativeFileInputAccept("image/jpeg,image/jpg,image/png,image/webp")}
+							className="hidden"
+							onChange={(event) => {
+								void handleLogoChange(event);
+							}}
 						/>
-					</section>
-				</div>
+					</div>
 
-				<div className={compact ? "mt-6 flex justify-end gap-3" : "mt-10 flex justify-end gap-3"}>
-					<Button type="button" variant="outline" onClick={handleCancel} disabled={saving}>
-						取消
-					</Button>
-					<Button
-						type="button"
-						onClick={() => void handleSave()}
-						disabled={saving || uploadingLogo}
-					>
-						{saving ? <Loader2 className="size-4 animate-spin" /> : null}
-						保存
-					</Button>
+					<div className="space-y-2">
+						<Label htmlFor="org-profile-name" className="text-xs text-[var(--leros-text-muted)]">
+							组织名称 <span className="text-red-500">*</span>
+						</Label>
+						<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+							<Input
+								id="org-profile-name"
+								value={nameDraft}
+								onChange={(event) => setNameDraft(event.target.value)}
+								placeholder="请输入组织名称"
+								className="h-11 max-w-md"
+								maxLength={64}
+							/>
+							{actions}
+						</div>
+						<p className="text-xs text-[var(--leros-text-subtle)]">
+							用于成员识别当前组织，建议使用公司或团队正式名称。
+						</p>
+					</div>
 				</div>
-			</div>
+			</section>
 		</div>
 	);
 }

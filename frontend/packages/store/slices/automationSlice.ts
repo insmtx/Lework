@@ -26,6 +26,8 @@ export type AutomationItem = {
 	lastExecutionPublicId?: string;
 	lastTaskId?: number;
 	projectId?: number;
+	projectPublicId?: string;
+	projectName?: string;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -121,6 +123,8 @@ function mapBackendAutomation(a: BackendAutomation): AutomationItem {
 		lastExecutionPublicId: a.last_execution_public_id,
 		lastTaskId: a.last_task_id,
 		projectId: a.project_id,
+		projectPublicId: a.project_public_id,
+		projectName: a.project_name,
 		createdAt: new Date(a.created_at).getTime(),
 		updatedAt: new Date(a.updated_at).getTime(),
 	};
@@ -198,7 +202,8 @@ export class AutomationSliceImpl {
 		schedule_mode: string;
 		schedule: BackendAutomationScheduleFormConfig;
 		timezone?: string;
-	}): Promise<AutomationItem | null> => {
+		project_public_id?: string;
+	}): Promise<{ ok: boolean; status?: number }> => {
 		try {
 			const res = await automationApi.create(params);
 			const data = res.data.data;
@@ -209,10 +214,11 @@ export class AutomationSliceImpl {
 				loaded: true,
 				error: null,
 			}));
-			return item;
+			return { ok: true };
 		} catch (err) {
 			console.error("createAutomation error:", err);
-			return null;
+			const status = (err as { response?: { status?: number } })?.response?.status ?? 0;
+			return { ok: false, status };
 		}
 	};
 
@@ -225,8 +231,9 @@ export class AutomationSliceImpl {
 			schedule_mode?: string;
 			schedule?: BackendAutomationScheduleFormConfig;
 			timezone?: string;
+			project_public_id?: string;
 		},
-	): Promise<AutomationItem | null> => {
+	): Promise<{ ok: boolean; status?: number }> => {
 		try {
 			const res = await automationApi.update({ public_id: publicId, ...params });
 			const data = res.data.data;
@@ -236,10 +243,11 @@ export class AutomationSliceImpl {
 				automations: state.automations.map((a) => (a.publicId === item.publicId ? item : a)),
 				error: null,
 			}));
-			return item;
+			return { ok: true };
 		} catch (err) {
 			console.error("updateAutomation error:", err);
-			return null;
+			const status = (err as { response?: { status?: number } })?.response?.status ?? 0;
+			return { ok: false, status };
 		}
 	};
 

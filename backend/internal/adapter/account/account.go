@@ -48,6 +48,9 @@ type OrgRepository interface {
 	GetOrgMember(ctx context.Context, id uint, uin uint) (*OrgMember, error)
 	UpdateOrgMember(ctx context.Context, id uint, req *UpdateOrgMemberInput) (*OrgMember, error)
 	ListOrgMembers(ctx context.Context, req *ListOrgMembersInput) (*OrgMemberList, error)
+
+	// IsOrgCreator 报告 uin 是否为 orgID 组织的创建者。org 不存在返回 (false, nil)。
+	IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error)
 }
 
 type DepartmentRepository interface {

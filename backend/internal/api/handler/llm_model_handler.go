@@ -26,6 +26,7 @@ func (h *LLMModelHandler) RegisterRoutes(r gin.IRouter) {
 	r.POST("/GetLLMModel", h.GetLLMModel)
 	r.POST("/GetDefaultLLMModel", h.GetDefaultLLMModel)
 	r.POST("/UpdateLLMModel", h.UpdateLLMModel)
+	r.POST("/SetLLMModelStatus", h.SetLLMModelStatus)
 	r.POST("/DeleteLLMModel", h.DeleteLLMModel)
 	r.POST("/ListLLMModels", h.ListLLMModels)
 	r.POST("/TestLLMModel", h.TestLLMModel)
@@ -164,6 +165,34 @@ func (h *LLMModelHandler) UpdateLLMModel(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// @Summary 启用或禁用LLM模型
+// @Description 根据ID启用或禁用LLM模型配置
+// @Tags LLMModel
+// @Accept json
+// @Produce json
+// @Param body body contract.SetLLMModelStatusRequest true "启用/禁用LLM模型请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Failure 400 {object} dto.ErrorResponse "请求参数错误"
+// @Failure 401 {object} dto.ErrorResponse "未认证"
+// @Failure 403 {object} dto.ErrorResponse "权限不足"
+// @Failure 404 {object} dto.ErrorResponse "资源不存在"
+// @Failure 500 {object} dto.ErrorResponse "内部服务器错误"
+// @Router /SetLLMModelStatus [post]
+func (h *LLMModelHandler) SetLLMModelStatus(ctx *gin.Context) {
+	var req contract.SetLLMModelStatusRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+
+	result, err := h.service.SetLLMModelStatus(ctx, req.ID, req.Status)
+	if err != nil {
+		handleLLMModelServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 type DeleteLLMModelRequest struct {
 	ID uint `json:"id" binding:"required"`
 }
@@ -257,7 +286,7 @@ func handleLLMModelServiceError(ctx *gin.Context, err error) {
 	errMsg := err.Error()
 
 	if isPermissionDenied(err) {
-		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeInternalError, errMsg))
+		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, errMsg))
 		return
 	}
 
@@ -277,7 +306,12 @@ func handleLLMModelServiceError(ctx *gin.Context, err error) {
 		"model is required",
 		"base_url is required",
 		"api_key is required",
-		"llm model with this code already exists":
+		"llm model with this code already exists",
+		"invalid status",
+		"启用中的模型不可编辑，请先禁用",
+		"只能将启用中的模型设为默认",
+		"启用中的模型不可删除，请先禁用",
+		"该用途下没有其他启用中的模型可设为默认，无法禁用当前默认模型":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	default:
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))

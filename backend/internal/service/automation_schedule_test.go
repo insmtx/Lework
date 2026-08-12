@@ -295,6 +295,21 @@ func TestBuildAutomationSummary(t *testing.T) {
 	}
 }
 
+func TestBuildAutomationSummary_WeekdaySundayLast(t *testing.T) {
+	// 周日(0)与周一(1)、周三(3)同时选中时，摘要按界面固定顺序“周一、周三、周日”展示
+	spec := &types.AutomationScheduleSpec{
+		Spec: types.AutomationScheduleSpecItem{
+			Mode:       "calendar",
+			Expression: "30 9 * * 1,3,0",
+			Timezone:   "Asia/Shanghai",
+		},
+	}
+	summary := buildAutomationSummary(spec)
+	if summary != "每周周一、周三、周日 09:30" {
+		t.Fatalf("unexpected summary: %s", summary)
+	}
+}
+
 func TestBuildAutomationSummary_Hourly(t *testing.T) {
 	spec := &types.AutomationScheduleSpec{
 		Spec: types.AutomationScheduleSpecItem{

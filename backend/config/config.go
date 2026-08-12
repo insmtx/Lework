@@ -36,10 +36,11 @@ type LLMLimitConfig struct {
 
 // LLMTranslationConfig configures the built-in fast translation model.
 type LLMTranslationConfig struct {
-	Provider string `yaml:"provider,omitempty"` // LLM Provider for translation
-	APIKey   string `yaml:"api_key,omitempty"`  // API Key for translation
-	Model    string `yaml:"model,omitempty"`    // Translation model
-	BaseURL  string `yaml:"base_url,omitempty"` // Translation base URL
+	Provider  string `yaml:"provider,omitempty"`   // LLM Provider for translation
+	APIKey    string `yaml:"api_key,omitempty"`    // API Key for translation
+	Model     string `yaml:"model,omitempty"`      // Translation model
+	BaseURL   string `yaml:"base_url,omitempty"`   // Translation base URL
+	IsDefault *bool  `yaml:"is_default,omitempty"` // 是否作为翻译类默认模型，缺省 false
 }
 
 // Config 是 Leros 的主配置结构，包含所有子系统的配置

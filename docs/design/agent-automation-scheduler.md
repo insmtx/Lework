@@ -119,7 +119,9 @@ flowchart LR
 
 - Automation 是长期调度配置，不是 Task。
 - AutomationExecution 表示一次计划触发或手动触发。
-- 自动化项目在第一次执行时创建，不在保存计划时创建。
+- 自动化项目默认在第一次执行时懒创建，不在保存计划时创建（"新项目"）。
+- **关联项目（可选）**：用户可在创建/编辑时显式关联一个已有项目作为执行项目。关联校验同组织、拥有 `task:create` 权限且固定 AI 队友已绑定；不修改该项目原有的 `AutomationID` 归属字段（project_generation 保持 0）。
+- 编辑时回显当前关联项目；存在活动（queued/running）执行时禁止实际更换关联（返回 409）；关联失效或项目被删除后，下次执行自动创建单调递增的新一代专属项目。清空关联时保留历史专属项目的最大代数，确保不会复用旧项目。
 - 当前自动化项目存在时，每轮只新增 Task、Task Session 和首条消息。
 - 项目被软删除后，下次执行创建新一代项目。
 - 每轮必须创建独立 Task 和 Session，不复用上一轮会话。
@@ -300,7 +302,7 @@ flowchart TB
 | `schedule_spec` | jsonb | 版本化规范化规则；包含 calendar expression 或 interval 锚点/间隔 |
 | `timezone` | varchar(64) | IANA 时区 |
 | `assistant_id` | bigint | 创建时固定的默认 AI 队友 |
-| `project_id` | bigint nullable | 当前自动化项目 |
+| `project_id` | bigint nullable | 当前自动化项目。既可能是用户显式关联的既有项目（project_generation=0），也可能是懒创建的专属项目 |
 | `project_generation` | integer | 当前项目代数，初始为 0 |
 | `next_run_at` | timestamp nullable | 下一次计划时间，UTC |
 | `last_run_at` | timestamp nullable | 最近一次实际生成 execution 的时间 |
@@ -424,9 +426,12 @@ Project：
 1. 校验调用者、名称、指令和 schedule。
 2. 校验 `mode`、`preset/config`、时区和边界策略，并编译为 `schedule_spec`。
 3. 解析组织默认 AI 队友并校验状态。
-4. 写入 Automation。
-5. 启用时计算严格晚于当前时间的 `next_run_at`。
-6. 返回计划详情，不创建项目、任务或 execution。
+4. （可选）若提交 `project_public_id`：校验项目存在且属同组织、调用者有 `task:create` 权限、固定 AI 队友已绑定；通过则写入 `project_id`（`project_generation` 保持 0）。
+5. 写入 Automation。
+6. 启用时计算严格晚于当前时间的 `next_run_at`。
+7. 返回计划详情，不创建项目、任务或 execution（项目首次执行懒创建）。
+
+更新请求 `project_public_id` 三态：省略=保持原关联；`""`=切回默认新项目；非空=关联指定项目。实际更换/清空关联时若有活动执行返回 409，且关联校验、活动执行检查与其他配置字段更新在同一事务提交。响应 `Automation` 额外暴露 `project_public_id`、`project_name`（保留数字 `project_id` 兼容旧调用）。
 
 ### 8.3 查询响应
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
@@ -20,15 +21,24 @@ var (
 	ErrAutomationNotFound = errors.New("automation not found")
 	// ErrAutomationForbidden 表示无权访问该自动化
 	ErrAutomationForbidden = errors.New("automation forbidden")
+	// ErrAutomationLinkNotFound 表示关联项目不存在或不属于当前组织
+	ErrAutomationLinkNotFound = errors.New("automation link project not found")
+	// ErrAutomationLinkForbidden 表示当前用户在关联项目上无 task:create 权限
+	ErrAutomationLinkForbidden = errors.New("automation link project forbidden")
+	// ErrAutomationLinkUnavailable 表示固定 AI 队友无法在关联项目中执行
+	ErrAutomationLinkUnavailable = errors.New("automation link project unavailable")
+	// ErrAutomationProjectChangeConflict 表示存在活动执行时更换关联项目
+	ErrAutomationProjectChangeConflict = errors.New("automation_project_change_conflict")
 )
 
 type automationService struct {
-	db *gorm.DB
+	db   *gorm.DB
+	perm *PermissionService
 }
 
 // NewAutomationService 构造自动化服务
-func NewAutomationService(db *gorm.DB) contract.AutomationService {
-	return &automationService{db: db}
+func NewAutomationService(db *gorm.DB, perm *PermissionService) contract.AutomationService {
+	return &automationService{db: db, perm: perm}
 }
 
 // generateAutomationPublicID 生成自动化对外 ID
@@ -84,19 +94,31 @@ func (s *automationService) CreateAutomation(ctx context.Context, req *contract.
 		return nil, ErrNoDefaultAssistantInOrg
 	}
 
+	// 可选：显式关联既有项目（先校验权限与队友绑定，再设置关联）
+	var linkProjectID *uint
+	if strings.TrimSpace(req.ProjectPublicID) != "" {
+		proj, linkErr := s.resolveLinkProject(ctx, caller, req.ProjectPublicID, assistantID)
+		if linkErr != nil {
+			return nil, linkErr
+		}
+		id := proj.ID
+		linkProjectID = &id
+	}
+
 	automation := &types.Automation{
 		OrgID:        caller.OrgID,
 		OwnerID:      caller.Uin,
 		PublicID:     generateAutomationPublicID(),
 		Name:         name,
 		Instruction:  instruction,
-		Enabled:      enabled,
 		ScheduleMode: mode,
 		ScheduleSpec: *spec,
 		Timezone:     timezone,
 		AssistantID:  assistantID,
 		NextRunAt:    nextRunAt,
+		ProjectID:    linkProjectID, // 关联既有项目；否则 nil（首次执行懒创建）
 	}
+	automation.SetEnabled(enabled)
 	if err := db.CreateAutomation(ctx, s.db, automation); err != nil {
 		return nil, err
 	}
@@ -133,6 +155,83 @@ func (s *automationService) UpdateAutomation(ctx context.Context, publicID strin
 	if err != nil {
 		return nil, err
 	}
+
+	// 关联目标在写事务前预校验；任何失败均发生在配置字段写入之前。
+	// 写事务内仍会锁定 automation 并检查活动执行，保证最终提交原子。
+	var requestedProjectID *uint
+	if req.ProjectPublicID != nil && strings.TrimSpace(*req.ProjectPublicID) != "" {
+		current, loadErr := db.GetAutomationByPublicID(ctx, s.db, caller.OrgID, publicID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if current == nil {
+			return nil, ErrAutomationNotFound
+		}
+		if ownerErr := s.checkOwner(caller, current); ownerErr != nil {
+			return nil, ownerErr
+		}
+		proj, resolveErr := s.resolveLinkProject(ctx, caller, *req.ProjectPublicID, current.AssistantID)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		id := proj.ID
+		requestedProjectID = &id
+	}
+
+	// 配置字段与关联项目必须在同一事务内更新：关联校验或活动执行冲突时，不能留下半次更新。
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var automation types.Automation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("org_id = ? AND public_id = ?", caller.OrgID, publicID).First(&automation).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAutomationNotFound
+			}
+			return err
+		}
+		if err := s.checkOwner(caller, &automation); err != nil {
+			return err
+		}
+		if err := applyAutomationUpdate(&automation, req); err != nil {
+			return err
+		}
+
+		targetProjectID := requestedProjectID
+		projectChanged := false
+		projectGeneration := automation.ProjectGeneration
+		if req.ProjectPublicID != nil {
+			projectChanged = (targetProjectID == nil && automation.ProjectID != nil) ||
+				(targetProjectID != nil && (automation.ProjectID == nil || *targetProjectID != *automation.ProjectID))
+			if projectChanged {
+				active, activeErr := db.HasActiveExecution(ctx, tx, automation.ID)
+				if activeErr != nil {
+					return activeErr
+				}
+				if active {
+					return ErrAutomationProjectChangeConflict
+				}
+				if targetProjectID == nil {
+					generation, generationErr := db.MaxAutomationProjectGeneration(ctx, tx, automation.OrgID, automation.ID)
+					if generationErr != nil {
+						return generationErr
+					}
+					projectGeneration = generation
+				} else {
+					projectGeneration = 0
+				}
+			}
+		}
+
+		if err := db.UpdateAutomation(ctx, tx, &automation); err != nil {
+			return err
+		}
+		if projectChanged {
+			return db.UpdateAutomationProjectLink(ctx, tx, automation.ID, targetProjectID, projectGeneration)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
 	automation, err := db.GetAutomationByPublicID(ctx, s.db, caller.OrgID, publicID)
 	if err != nil {
 		return nil, err
@@ -140,77 +239,64 @@ func (s *automationService) UpdateAutomation(ctx context.Context, publicID strin
 	if automation == nil {
 		return nil, ErrAutomationNotFound
 	}
-	if err := s.checkOwner(caller, automation); err != nil {
-		return nil, err
-	}
+	out := toContractAutomation(automation)
+	s.enrichAutomation(ctx, automation, out)
+	return out, nil
+}
 
-	// 名称
+// applyAutomationUpdate 将请求中的非关联配置应用到 automation；不写数据库，供事务统一提交。
+func applyAutomationUpdate(automation *types.Automation, req *contract.UpdateAutomationRequest) error {
 	if strings.TrimSpace(req.Name) != "" {
 		if len([]rune(req.Name)) > 50 {
-			return nil, errors.New("invalid automation name")
+			return errors.New("invalid automation name")
 		}
 		automation.Name = strings.TrimSpace(req.Name)
 	}
-	// 指令：传了就必须非空
 	if req.Instruction != nil {
 		if strings.TrimSpace(*req.Instruction) == "" {
-			return nil, errors.New("invalid automation instruction")
+			return errors.New("invalid automation instruction")
 		}
 		automation.Instruction = strings.TrimSpace(*req.Instruction)
 	}
 
-	// 修改周期/时区：必须提交完整 schedule，重新编译
 	scheduleChanged := false
 	if req.Schedule != nil {
-		// mode 以 schedule.mode 为权威来源，顶层 schedule_mode（如有）必须与之一致
 		topMode := ""
 		if req.ScheduleMode != nil {
 			topMode = *req.ScheduleMode
 		}
-		newSpec, compileErr := compileScheduleSpec(req.Schedule, automation.Timezone, topMode)
-		if compileErr != nil {
-			return nil, compileErr
+		newSpec, err := compileScheduleSpec(req.Schedule, automation.Timezone, topMode)
+		if err != nil {
+			return err
 		}
 		automation.ScheduleSpec = *newSpec
 		automation.ScheduleMode = newSpec.Spec.Mode
 		automation.Timezone = newSpec.Spec.Timezone
 		scheduleChanged = true
 	} else if req.Timezone != nil && *req.Timezone != "" {
-		// 仅改时区：重新校验并沿用现有规则
-		if _, tzErr := validateTimezone(*req.Timezone); tzErr != nil {
-			return nil, tzErr
+		if _, err := validateTimezone(*req.Timezone); err != nil {
+			return err
 		}
 		automation.Timezone = *req.Timezone
-		// 重新生成时区后的 next_run_at
 		automation.ScheduleSpec.Spec.Timezone = *req.Timezone
 		if automation.ScheduleSpec.FormConfig != nil {
 			automation.ScheduleSpec.FormConfig.Timezone = *req.Timezone
 		}
 		scheduleChanged = true
 	}
-
-	// 启停状态
-	if req.Enabled != nil && *req.Enabled != automation.Enabled {
-		automation.Enabled = *req.Enabled
+	if req.Enabled != nil && *req.Enabled != automation.IsEnabled() {
+		automation.SetEnabled(*req.Enabled)
 		scheduleChanged = true
 	}
-
-	// 重新计算或清空 next_run_at；启用态若无法算出下一次执行时间，则拒绝保存
-	if scheduleChanged {
-		nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.Enabled, time.Now().UTC())
-		if automation.Enabled && nextRunAt == nil {
-			return nil, errInvalidAutomationSchedule
-		}
-		automation.NextRunAt = nextRunAt
+	if !scheduleChanged {
+		return nil
 	}
-
-	if err := db.UpdateAutomation(ctx, s.db, automation); err != nil {
-		return nil, err
+	nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.IsEnabled(), time.Now().UTC())
+	if automation.IsEnabled() && nextRunAt == nil {
+		return errInvalidAutomationSchedule
 	}
-
-	out := toContractAutomation(automation)
-	s.enrichAutomation(ctx, automation, out)
-	return out, nil
+	automation.NextRunAt = nextRunAt
+	return nil
 }
 
 // DeleteAutomation 软删除自动化
@@ -259,10 +345,13 @@ func (s *automationService) ListAutomations(ctx context.Context, req *contract.L
 		return nil, err
 	}
 
+	// 批量预载关联项目摘要，避免逐条回填 project_* 造成 N+1
+	projMap := s.loadProjectSummaries(ctx, entities)
+
 	items := make([]contract.Automation, 0, len(entities))
 	for _, e := range entities {
 		item := toContractAutomation(e)
-		s.enrichAutomation(ctx, e, item)
+		s.enrichAutomationWithProjects(ctx, e, item, projMap)
 		items = append(items, *item)
 	}
 	return &contract.AutomationList{
@@ -273,12 +362,72 @@ func (s *automationService) ListAutomations(ctx context.Context, req *contract.L
 	}, nil
 }
 
+// loadProjectSummaries 一次性按 id 批量加载 entities 涉及的项目，返回 id -> project 映射（供列表回填）。
+func (s *automationService) loadProjectSummaries(ctx context.Context, entities []*types.Automation) map[uint]*types.Project {
+	m := make(map[uint]*types.Project)
+	var ids []uint
+	seen := make(map[uint]bool)
+	for _, e := range entities {
+		if e == nil || e.ProjectID == nil {
+			continue
+		}
+		if !seen[*e.ProjectID] {
+			seen[*e.ProjectID] = true
+			ids = append(ids, *e.ProjectID)
+		}
+	}
+	if len(ids) == 0 {
+		return m
+	}
+	projects, err := db.GetProjectsByIDs(ctx, s.db, ids)
+	if err != nil {
+		return m
+	}
+	for _, p := range projects {
+		if p != nil {
+			m[p.ID] = p
+		}
+	}
+	return m
+}
+
 // checkOwner 校验自动化归属
 func (s *automationService) checkOwner(caller *types.Caller, automation *types.Automation) error {
 	if caller.Uin != automation.OwnerID {
 		return ErrAutomationForbidden
 	}
 	return nil
+}
+
+// resolveLinkProject 校验并解析关联的既有项目。
+//
+// 依次校验：
+//   - 项目存在且属于调用者组织（GetProjectByPublicID 已按 org 过滤）；否则 ErrAutomationLinkNotFound。
+//   - 调用者在项目下拥有 task:create 权限；否则 ErrAutomationLinkForbidden。
+//   - 固定 AI 队友（assistantID）已绑定到项目；否则 ErrAutomationLinkUnavailable。
+//
+// 返回项目，供调用方取 ID 及回填响应。
+func (s *automationService) resolveLinkProject(ctx context.Context, caller *types.Caller, projectPublicID string, assistantID uint) (*types.Project, error) {
+	proj, err := db.GetProjectByPublicID(ctx, s.db, caller.OrgID, projectPublicID)
+	if err != nil {
+		return nil, err
+	}
+	if proj == nil {
+		return nil, ErrAutomationLinkNotFound
+	}
+	if s.perm != nil {
+		if perr := s.perm.RequireProjectTaskAction(ctx, types.PermissionCaller{OrgID: caller.OrgID, Uin: caller.Uin}, proj, types.ActionTaskCreate); perr != nil {
+			return nil, ErrAutomationLinkForbidden
+		}
+	}
+	bound, berr := db.IsProjectAssistantBound(ctx, s.db, caller.OrgID, proj.ID, assistantID)
+	if berr != nil {
+		return nil, berr
+	}
+	if !bound {
+		return nil, ErrAutomationLinkUnavailable
+	}
+	return proj, nil
 }
 
 // RunAutomationNow 手动触发一次执行（立即运行）。
@@ -432,7 +581,7 @@ func toContractAutomation(a *types.Automation) *contract.Automation {
 		OwnerID:      a.OwnerID,
 		Name:         a.Name,
 		Instruction:  a.Instruction,
-		Enabled:      a.Enabled,
+		Enabled:      a.IsEnabled(),
 		ScheduleMode: a.ScheduleMode,
 		Timezone:     a.Timezone,
 		AssistantID:  a.AssistantID,
@@ -452,6 +601,29 @@ func toContractAutomation(a *types.Automation) *contract.Automation {
 func (s *automationService) enrichAutomation(ctx context.Context, a *types.Automation, out *contract.Automation) {
 	if a == nil || out == nil {
 		return
+	}
+	s.enrichAutomationWithProjects(ctx, a, out, nil)
+}
+
+// enrichAutomationWithProjects 在 enrichAutomation 基础上，回填关联项目摘要。
+//
+// projMap 可为 nil（单条详情场景，逐条查一次项目），也可由 loadProjectSummaries 提供（列表批量，避免 N+1）。
+func (s *automationService) enrichAutomationWithProjects(ctx context.Context, a *types.Automation, out *contract.Automation, projMap map[uint]*types.Project) {
+	if a == nil || out == nil {
+		return
+	}
+	// 回填关联项目的 public_id / name（展示用，不落库）
+	if a.ProjectID != nil {
+		var p *types.Project
+		if projMap != nil {
+			p = projMap[*a.ProjectID]
+		} else {
+			p, _ = db.GetProjectByID(ctx, s.db, *a.ProjectID)
+		}
+		if p != nil {
+			out.ProjectPublicID = p.PublicID
+			out.ProjectName = p.Name
+		}
 	}
 	active, err := db.HasActiveExecution(ctx, s.db, a.ID)
 	if err != nil {

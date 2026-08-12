@@ -25,7 +25,7 @@ type TranslateDocumentItem struct {
 type SkillDescriptionTranslator interface {
 	// Translate 批量生成中文展示名并翻译描述。
 	// 返回 map[skill_id]TranslatedSkillText，出错或无法翻译时返回空 map。
-	Translate(ctx context.Context, items []TranslateItem) (map[string]TranslatedSkillText, error)
+	Translate(ctx context.Context, orgID uint, items []TranslateItem) (map[string]TranslatedSkillText, error)
 
 	// TranslateDocument 批量翻译整篇 SKILL.md。
 	// 保留 YAML frontmatter、标题层级、列表、代码块、链接、表格等 Markdown 结构，
@@ -33,5 +33,5 @@ type SkillDescriptionTranslator interface {
 	// 返回 map[skill_id]translatedFullContent。
 	// 某篇翻译结果无法被 catalog.ParseDocument 解析时，该条目不出现在结果 map 中
 	// 并记录 warning（调用方据此回退原始 SKILL.md）。
-	TranslateDocument(ctx context.Context, items []TranslateDocumentItem) (map[string]string, error)
+	TranslateDocument(ctx context.Context, orgID uint, items []TranslateDocumentItem) (map[string]string, error)
 }

@@ -523,6 +523,8 @@ export type BackendAutomation = {
 	last_execution_public_id?: string;
 	last_task_id?: number;
 	project_id?: number;
+	project_public_id?: string;
+	project_name?: string;
 	created_at: string;
 	updated_at: string;
 };

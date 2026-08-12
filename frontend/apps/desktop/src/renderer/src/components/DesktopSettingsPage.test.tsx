@@ -5,9 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@leros/store", () => ({
-	isPrivateDeployment: false,
-}));
+vi.mock("@leros/store", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@leros/store")>();
+	return {
+		...actual,
+		isPrivateDeployment: false,
+	};
+});
 
 import { DesktopSettingsPage } from "./DesktopSettingsPage";
 

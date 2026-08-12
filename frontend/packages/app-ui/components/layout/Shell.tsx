@@ -9,7 +9,7 @@ import {
 } from "@leros/store";
 import { type ReactNode, useEffect, useState } from "react";
 import { AuthProvider } from "../auth";
-import { AssistantListView } from "../digitalAssistant/AssistantListView";
+import { OrgAdminPage } from "../org-admin/OrgAdminPage";
 import { PermissionDeniedListener } from "../permission/PermissionDeniedListener";
 import { FrontendEventTracker } from "../telemetry/FrontendEventTracker";
 import { FilePreviewHost } from "./FilePreviewHost";
@@ -80,7 +80,10 @@ export function Shell({
 						{currentView === "taskDetail" && activeTaskDetailSessionId && (
 							<TaskDetailPage sessionId={activeTaskDetailSessionId} />
 						)}
-						{currentView === "digitalAssistant" && <AssistantListView />}
+						{currentView === "orgProfile" && <OrgAdminPage section="profile" />}
+						{currentView === "orgDepartments" && <OrgAdminPage section="departments" />}
+						{currentView === "orgAssistants" && <OrgAdminPage section="assistants" />}
+						{currentView === "orgModels" && <OrgAdminPage section="models" />}
 					</>
 				)}
 			</div>

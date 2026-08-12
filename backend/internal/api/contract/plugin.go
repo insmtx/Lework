@@ -38,6 +38,7 @@ type PluginView struct {
 	Code            string `json:"code"`
 	Kind            string `json:"kind"`
 	Name            string `json:"name"`
+	DisplayName     string `json:"display_name,omitempty"`
 	Description     string `json:"description,omitempty"`
 	Status          string `json:"status"`
 	Origin          string `json:"origin"`
@@ -248,6 +249,7 @@ type OfficialPluginMarketplaceItemView struct {
 	Code                 string                     `json:"code"`
 	Kind                 string                     `json:"kind"`
 	Name                 string                     `json:"name"`
+	DisplayName          string                     `json:"display_name,omitempty"`
 	Description          string                     `json:"description,omitempty"`
 	Author               string                     `json:"author"`
 	Version              string                     `json:"version"`

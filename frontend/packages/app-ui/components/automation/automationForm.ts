@@ -161,17 +161,53 @@ export function formatTime(hour: number, minute: number): string {
 	return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
-const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+export const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
-function weekDaysText(days: number[]): string {
+export function weekDaysText(days: number[]): string {
 	return days
 		.map((d) => WEEKDAY_LABELS[d] ?? "")
 		.filter(Boolean)
 		.join("、");
 }
 
-function monthDaysText(days: number[]): string {
+export function monthDaysText(days: number[]): string {
 	return days.map((d) => `${d}日`).join("、");
+}
+
+/** 将界面固定顺序要求映射到数组：周日(0)排在数组末尾，其余按 1-6 升序 */
+function sortWithSundayLast(days: number[]): number[] {
+	return [...days].sort((a, b) => {
+		if (a === 0) return 1;
+		if (b === 0) return -1;
+		return a - b;
+	});
+}
+
+/**
+ * 在日历数组中切换某个值：勾选则追加、取消则移除。
+ * 始终去重并按界面固定顺序返回；至少保留一项，不允许取消唯一的选中项（返回原数组）。
+ * - weekday：周一到周六按 1-6 升序，周日(0)排在末尾
+ * - numeric：按数值升序（每月日期 1-31）
+ */
+export function toggleCalendarArray(
+	arr: number[],
+	value: number,
+	{ order }: { order: "weekday" | "numeric" },
+): number[] {
+	const next = arr.includes(value) ? arr.filter((d) => d !== value) : [...arr, value];
+	if (next.length === 0) return arr;
+	const deduped = Array.from(new Set(next));
+	return order === "weekday" ? sortWithSundayLast(deduped) : [...deduped].sort((a, b) => a - b);
+}
+
+/**
+ * 生成下拉触发区域的选中摘要（完整选项由 `weekDaysText`/`monthDaysText` 在周期摘要中展示）：
+ * 选中 1-2 项显示名称（“周一、周三”），3 项及以上显示“已选 N 项”。
+ */
+export function formatSelectionPreview(days: number[], formatter: (d: number) => string): string {
+	if (days.length === 0) return "未选择";
+	if (days.length >= 3) return `已选 ${days.length} 项`;
+	return days.map(formatter).join("、");
 }
 
 /** 计算下一次执行时间的客户端预览（浏览器时区近似，最终以服务端为准） */

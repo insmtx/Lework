@@ -2234,7 +2234,7 @@ const docTemplate = `{
         },
         "/GlobalConfig": {
             "get": {
-                "description": "返回服务端通用全局配置信息（当前返回 edition 字段）",
+                "description": "返回服务端通用全局配置信息（edition、deploy_mode、max_orgs_per_user）",
                 "produces": [
                     "application/json"
                 ],
@@ -2888,9 +2888,9 @@ const docTemplate = `{
                 }
             }
         },
-        "/LoginByEmail": {
+        "/LoginByPassword": {
             "post": {
-                "description": "使用邮箱和密码登录并获取访问令牌",
+                "description": "使用账号（邮箱或手机号）和密码登录；统一返回 refresh_token，需后续调用 ChooseUin 选择组织获取 JWT",
                 "consumes": [
                     "application/json"
                 ],
@@ -2900,15 +2900,15 @@ const docTemplate = `{
                 "tags": [
                     "Auth"
                 ],
-                "summary": "邮箱登录",
+                "summary": "账号密码登录",
                 "parameters": [
                     {
-                        "description": "邮箱登录请求",
+                        "description": "账号密码登录请求",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/contract.LoginByEmailRequest"
+                            "$ref": "#/definitions/contract.LoginByPasswordRequest"
                         }
                     }
                 ],
@@ -3174,7 +3174,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handler.SessionEventsRequest"
+                            "$ref": "#/definitions/contract.SessionEventsRequest"
                         }
                     }
                 ],
@@ -3193,6 +3193,70 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/SetLLMModelStatus": {
+            "post": {
+                "description": "根据ID启用或禁用LLM模型配置",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "LLMModel"
+                ],
+                "summary": "启用或禁用LLM模型",
+                "parameters": [
+                    {
+                        "description": "启用/禁用LLM模型请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.SetLLMModelStatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "资源不存在",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -3279,6 +3343,58 @@ const docTemplate = `{
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/contract.TestLLMModelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "内部服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/UpdateCurrentUser": {
+            "post": {
+                "description": "当前登录用户修改自己的信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "User"
+                ],
+                "summary": "更新当前用户信息",
+                "parameters": [
+                    {
+                        "description": "更新当前用户请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.UpdateCurrentUserRequest"
                         }
                     }
                 ],
@@ -4126,6 +4242,78 @@ const docTemplate = `{
                 }
             }
         },
+        "/ops/workers/status": {
+            "get": {
+                "description": "根据 orgid 和 workerid 查询指定 Worker 的本地运行状态快照。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Ops"
+                ],
+                "summary": "查询 Worker 状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "组织 ID",
+                        "name": "orgid",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Worker ID",
+                        "name": "workerid",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Worker 状态快照",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "组织不匹配",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Worker 响应格式错误",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "NATS 不可用",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "504": {
+                        "description": "Worker 响应超时",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/presigned/{bucket}/{key}": {
             "get": {
                 "description": "消费预签名下载 URL（可选 token/expires 参数进行签名校验；不带参数时直接公开访问）",
@@ -4305,7 +4493,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "文件类型分组：pdf | docx | xlsx | pptx | md | image | text",
+                        "description": "文件类型分组：pdf | docx | xlsx | pptx | md | html | image | video | text",
                         "name": "file_ext",
                         "in": "query"
                     }
@@ -4610,6 +4798,38 @@ const docTemplate = `{
                 }
             }
         },
+        "contract.CreateAutomationRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "schedule",
+                "schedule_mode"
+            ],
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "instruction": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "project_public_id": {
+                    "description": "ProjectPublicID 关联的既有项目对外 ID（可选）。空/省略：使用默认新项目（首次执行懒创建）。",
+                    "type": "string"
+                },
+                "schedule": {
+                    "$ref": "#/definitions/types.AutomationScheduleFormConfig"
+                },
+                "schedule_mode": {
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.CreateDepartmentRequest": {
             "type": "object",
             "properties": {
@@ -4699,7 +4919,9 @@ const docTemplate = `{
             "required": [
                 "api_key",
                 "base_url",
-                "model"
+                "model",
+                "name",
+                "purpose"
             ],
             "properties": {
                 "api_key": {
@@ -4718,6 +4940,9 @@ const docTemplate = `{
                 "is_default": {
                     "type": "boolean"
                 },
+                "max_tokens": {
+                    "type": "integer"
+                },
                 "model": {
                     "type": "string"
                 },
@@ -4727,8 +4952,14 @@ const docTemplate = `{
                 "provider": {
                     "type": "string"
                 },
+                "purpose": {
+                    "type": "string"
+                },
                 "status": {
                     "type": "string"
+                },
+                "temperature": {
+                    "type": "number"
                 }
             }
         },
@@ -4929,6 +5160,17 @@ const docTemplate = `{
                 }
             }
         },
+        "contract.DeleteAutomationRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.DigitalAssistant": {
             "type": "object",
             "properties": {
@@ -4985,6 +5227,74 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "contract.GetAutomationExecutionRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.GetAutomationRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.ListAutomationExecutionsRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "list_all": {
+                    "type": "boolean"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "public_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.ListAutomationsRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "keyword": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "list_all": {
+                    "type": "boolean"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "schedule_mode": {
+                    "type": "string"
                 }
             }
         },
@@ -5053,6 +5363,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "provider": {
+                    "type": "string"
+                },
+                "purpose": {
                     "type": "string"
                 },
                 "status": {
@@ -5250,10 +5563,10 @@ const docTemplate = `{
                 }
             }
         },
-        "contract.LoginByEmailRequest": {
+        "contract.LoginByPasswordRequest": {
             "type": "object",
             "properties": {
-                "email": {
+                "account": {
                     "type": "string"
                 },
                 "password": {
@@ -5327,10 +5640,53 @@ const docTemplate = `{
                 }
             }
         },
+        "contract.RunAutomationNowRequest": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "public_id": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.SendPhoneLoginCodeRequest": {
             "type": "object",
             "properties": {
                 "phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.SessionEventsRequest": {
+            "type": "object",
+            "required": [
+                "session_id"
+            ],
+            "properties": {
+                "assistant_id": {
+                    "type": "string"
+                },
+                "replay": {
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.SetLLMModelStatusRequest": {
+            "type": "object",
+            "required": [
+                "id",
+                "status"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "status": {
                     "type": "string"
                 }
             }
@@ -5365,6 +5721,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.UpdateCurrentUserRequest": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -5431,8 +5801,17 @@ const docTemplate = `{
         "dto.GlobalConfigData": {
             "type": "object",
             "properties": {
+                "deploy_mode": {
+                    "type": "string"
+                },
                 "edition": {
                     "type": "string"
+                },
+                "max_orgs_per_user": {
+                    "type": "integer"
+                },
+                "phone_code_login_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -5475,6 +5854,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.MessageChunk"
+                    }
+                },
+                "connector_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 },
                 "content": {
@@ -5717,23 +6102,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.SessionEventsRequest": {
-            "type": "object",
-            "required": [
-                "session_id"
-            ],
-            "properties": {
-                "assistant_id": {
-                    "type": "string"
-                },
-                "replay": {
-                    "type": "boolean"
-                },
-                "session_id": {
-                    "type": "string"
-                }
-            }
-        },
         "handler.UpdateDigitalAssistantRequest": {
             "type": "object",
             "required": [
@@ -5784,7 +6152,9 @@ const docTemplate = `{
         "handler.UpdateLLMModelRequest": {
             "type": "object",
             "required": [
-                "id"
+                "id",
+                "name",
+                "purpose"
             ],
             "properties": {
                 "api_key": {
@@ -5806,6 +6176,9 @@ const docTemplate = `{
                 "is_default": {
                     "type": "boolean"
                 },
+                "max_tokens": {
+                    "type": "integer"
+                },
                 "model": {
                     "type": "string"
                 },
@@ -5815,8 +6188,11 @@ const docTemplate = `{
                 "provider": {
                     "type": "string"
                 },
-                "status": {
+                "purpose": {
                     "type": "string"
+                },
+                "temperature": {
+                    "type": "number"
                 }
             }
         },
@@ -5976,9 +6352,6 @@ const docTemplate = `{
                 "public_id"
             ],
             "properties": {
-                "avatar_url": {
-                    "type": "string"
-                },
                 "email": {
                     "type": "string"
                 },
@@ -5986,6 +6359,40 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "public_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.automationUpdateRequestBody": {
+            "type": "object",
+            "required": [
+                "public_id"
+            ],
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "instruction": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "project_public_id": {
+                    "description": "ProjectPublicID 关联项目三态：\n  nil：保持原关联；\"\"：切回默认新项目；非空：关联指定项目。",
+                    "type": "string"
+                },
+                "public_id": {
+                    "type": "string"
+                },
+                "schedule": {
+                    "$ref": "#/definitions/types.AutomationScheduleFormConfig"
+                },
+                "schedule_mode": {
+                    "description": "修改周期时必须提交完整 schedule",
+                    "type": "string"
+                },
+                "timezone": {
                     "type": "string"
                 }
             }
@@ -6133,6 +6540,87 @@ const docTemplate = `{
                 },
                 "uin": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.AutomationCalendarConfig": {
+            "type": "object",
+            "properties": {
+                "days_of_month": {
+                    "description": "DaysOfMonth 每月预设的日期集合（1-31）",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "days_of_week": {
+                    "description": "DaysOfWeek 每周预设的星期集合（0=周日，6=周六），0-6",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "hour": {
+                    "description": "Hour 小时（0-23）",
+                    "type": "integer"
+                },
+                "minute": {
+                    "description": "Minute 分钟（0-59）",
+                    "type": "integer"
+                },
+                "preset": {
+                    "description": "Preset 预设类型：daily/weekly/monthly/hourly",
+                    "type": "string"
+                }
+            }
+        },
+        "types.AutomationIntervalConfig": {
+            "type": "object",
+            "properties": {
+                "anchor_at": {
+                    "description": "AnchorAt 本地时区锚点时间（ISO8601，不带时区偏移，解释为指定时区）",
+                    "type": "string"
+                },
+                "interval_minutes": {
+                    "description": "IntervalMinutes 间隔分钟数（表单友好字段，服务端换算为秒并生成 interval_seconds）",
+                    "type": "integer"
+                },
+                "interval_seconds": {
+                    "description": "IntervalSeconds 间隔秒数",
+                    "type": "integer"
+                },
+                "interval_unit": {
+                    "description": "IntervalUnit 间隔单位，只用于回显：minute/hour/day",
+                    "type": "string"
+                }
+            }
+        },
+        "types.AutomationScheduleFormConfig": {
+            "type": "object",
+            "properties": {
+                "calendar": {
+                    "description": "Calendar 日历类预设配置（mode == \"calendar\" 时有效）",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AutomationCalendarConfig"
+                        }
+                    ]
+                },
+                "interval": {
+                    "description": "Interval 固定间隔配置（mode == \"interval\" 时有效）",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AutomationIntervalConfig"
+                        }
+                    ]
+                },
+                "mode": {
+                    "description": "Mode 调度模式（calendar/interval），与 Automation 的 schedule_mode 保持一致",
+                    "type": "string"
+                },
+                "timezone": {
+                    "description": "Timezone 表单发起时的 IANA 时区",
+                    "type": "string"
                 }
             }
         },

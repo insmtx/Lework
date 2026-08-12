@@ -176,7 +176,7 @@ function DepartmentTreeItem({
 	);
 }
 
-export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) {
+export function DepartmentTreePanel() {
 	const user = useAuthStore((s) => s.authUser);
 	const setAuthUser = useAuthStore((s) => s.setAuthUser);
 	const refreshAuthSession = useAuthStore((s) => s.refreshAuthSession);
@@ -378,30 +378,17 @@ export function DepartmentTreePanel({ compact = false }: { compact?: boolean }) 
 
 	if (!user?.currentOrg) {
 		return (
-			<div className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface,#fff)] p-8 text-sm text-[var(--leros-text-subtle)]">
+			<div className="px-10 py-8 text-sm text-[var(--leros-text-subtle)]">
 				请先登录并选择组织后再管理部门。
 			</div>
 		);
 	}
 
 	return (
-		<div
-			className={cn("flex h-full min-h-0 flex-col", compact ? "min-h-[480px]" : "min-h-[560px]")}
-		>
-			{!compact && (
-				<div className="mb-4 flex shrink-0 items-center justify-between gap-3">
-					<h1 className="text-xl font-semibold text-[var(--leros-text-strong)]">通讯录</h1>
-				</div>
-			)}
-
+		<div className="flex h-full min-h-0 flex-col">
 			{/* 中文注释：小屏改为上下布局，避免固定的部门栏宽度挤压通讯录内容。 */}
-			<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface,#fff)] md:flex-row">
-				<aside
-					className={cn(
-						"flex h-44 shrink-0 flex-col border-b border-[var(--leros-control-border)] md:h-auto md:border-b-0 md:border-r",
-						compact ? "w-full md:w-[240px]" : "w-full md:w-[280px]",
-					)}
-				>
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface,#fff)] md:flex-row">
+				<aside className="flex h-44 w-full shrink-0 flex-col border-b border-[var(--leros-control-border)] md:h-auto md:w-[280px] md:border-b-0 md:border-r">
 					<div className="border-b border-[var(--leros-control-border)] p-3">
 						<div className="relative">
 							<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-subtle)]" />

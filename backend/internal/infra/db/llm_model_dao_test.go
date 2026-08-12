@@ -39,6 +39,7 @@ func newTestLLMModel(orgID uint, code string) *types.LLMModel {
 		Temperature:     0.7,
 		TimeoutSec:      120,
 		Status:          string(types.LLMModelStatusActive),
+		Purpose:         PurposeFromCode(code),
 	}
 }
 
@@ -190,7 +191,7 @@ func TestGetDefaultLLMModel(t *testing.T) {
 	}
 }
 
-func TestGetSystemTranslationLLMModel(t *testing.T) {
+func TestGetSystemTranslationLLMModelOnlyReturnsTheCurrentOrganizationModel(t *testing.T) {
 	database := setupLLMModelTestDB(t)
 	ctx := context.Background()
 
@@ -225,18 +226,145 @@ func TestGetSystemTranslationLLMModel(t *testing.T) {
 
 	retrieved, err = GetSystemTranslationLLMModel(ctx, database, 3)
 	if err != nil {
-		t.Fatalf("GetSystemTranslationLLMModel fallback failed: %v", err)
+		t.Fatalf("GetSystemTranslationLLMModel for non-system model failed: %v", err)
 	}
-	if retrieved == nil || retrieved.OrgID != 1 {
-		t.Fatalf("expected fallback system translation model, got %#v", retrieved)
+	if retrieved != nil {
+		t.Fatalf("expected no cross-organization fallback, got %#v", retrieved)
 	}
 
 	missing, err := GetSystemTranslationLLMModel(ctx, database, 4)
 	if err != nil {
-		t.Fatalf("GetSystemTranslationLLMModel inactive fallback failed: %v", err)
+		t.Fatalf("GetSystemTranslationLLMModel for inactive model failed: %v", err)
 	}
-	if missing == nil || missing.OrgID != 1 {
-		t.Fatalf("expected fallback for inactive org model, got %#v", missing)
+	if missing != nil {
+		t.Fatalf("expected inactive model to be unavailable, got %#v", missing)
+	}
+}
+
+func TestEnsureOrgSystemTranslationLLMModelCopiesOnlyTranslationModel(t *testing.T) {
+	database := setupLLMModelTestDB(t)
+	ctx := context.Background()
+
+	translation := newTestLLMModel(1, SystemTranslationLLMModelCode)
+	translation.IsSystem = true
+	other := newTestLLMModel(1, "llm_default")
+	other.IsSystem = true
+	for _, model := range []*types.LLMModel{translation, other} {
+		if err := CreateLLMModel(ctx, database, model); err != nil {
+			t.Fatalf("create source model: %v", err)
+		}
+	}
+
+	created, err := EnsureOrgSystemTranslationLLMModel(ctx, database, 2)
+	if err != nil || !created {
+		t.Fatalf("ensure translation model = %v, %v", created, err)
+	}
+	model, err := GetSystemTranslationLLMModel(ctx, database, 2)
+	if err != nil || model == nil || model.OrgID != 2 || model.Code != SystemTranslationLLMModelCode {
+		t.Fatalf("target translation model = %#v, %v", model, err)
+	}
+	var count int64
+	if err := database.Model(&types.LLMModel{}).Where("org_id = ?", 2).Count(&count).Error; err != nil {
+		t.Fatalf("count target models: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("target organization received %d models, want only translation model", count)
+	}
+}
+
+// TestTranslationDefaultPriority 验证翻译类默认标记者可被解析（跨单条模型时仍稳定返回）。
+func TestTranslationDefaultPriority(t *testing.T) {
+	database := setupLLMModelTestDB(t)
+	ctx := context.Background()
+
+	transDefault := newTestLLMModel(1, SystemTranslationLLMModelCode)
+	transDefault.IsSystem = true
+	transDefault.IsDefault = true
+	transDefault.ModelName = "deepseek-v4.5"
+
+	for _, m := range []*types.LLMModel{transDefault} {
+		if err := CreateLLMModel(ctx, database, m); err != nil {
+			t.Fatalf("CreateLLMModel failed: %v", err)
+		}
+	}
+
+	retrieved, err := GetSystemTranslationLLMModel(ctx, database, 1)
+	if err != nil {
+		t.Fatalf("GetSystemTranslationLLMModel failed: %v", err)
+	}
+	if retrieved == nil || !retrieved.IsDefault || retrieved.ModelName != "deepseek-v4.5" {
+		t.Fatalf("expected default translation model, got %#v", retrieved)
+	}
+}
+
+// TestGetDefaultLLMModelExcludesTranslation 验证对话默认模型不受翻译类默认影响。
+func TestGetDefaultLLMModelExcludesTranslation(t *testing.T) {
+	database := setupLLMModelTestDB(t)
+	ctx := context.Background()
+
+	conv := newTestLLMModel(1, "conv")
+	conv.IsDefault = true
+
+	trans := newTestLLMModel(1, SystemTranslationLLMModelCode)
+	trans.IsSystem = true
+	trans.IsDefault = true
+
+	for _, m := range []*types.LLMModel{conv, trans} {
+		if err := CreateLLMModel(ctx, database, m); err != nil {
+			t.Fatalf("CreateLLMModel failed: %v", err)
+		}
+	}
+
+	retrieved, err := GetDefaultLLMModel(ctx, database, 1)
+	if err != nil {
+		t.Fatalf("GetDefaultLLMModel failed: %v", err)
+	}
+	if retrieved == nil || retrieved.Code != "conv" {
+		t.Fatalf("expected conversation default, got %#v", retrieved)
+	}
+}
+
+// TestClearOrgDefaultLLMModelsByClass 验证清除默认仅作用域于指定类，不影响另一类。
+func TestClearOrgDefaultLLMModelsByClass(t *testing.T) {
+	database := setupLLMModelTestDB(t)
+	ctx := context.Background()
+
+	conv := newTestLLMModel(1, "conv")
+	conv.IsDefault = true
+
+	trans := newTestLLMModel(1, SystemTranslationLLMModelCode)
+	trans.IsSystem = true
+	trans.IsDefault = true
+
+	for _, m := range []*types.LLMModel{conv, trans} {
+		if err := CreateLLMModel(ctx, database, m); err != nil {
+			t.Fatalf("CreateLLMModel failed: %v", err)
+		}
+	}
+
+	// 仅清除对话用途默认，翻译用途默认应保留。
+	if err := ClearOrgDefaultLLMModels(ctx, database, 1, 0, types.LLMModelPurposeConversation); err != nil {
+		t.Fatalf("ClearOrgDefaultLLMModels conversation failed: %v", err)
+	}
+
+	var transDefault int64
+	if err := database.Model(&types.LLMModel{}).
+		Where("org_id = ? AND purpose = ? AND is_default = ?", 1, types.LLMModelPurposeTranslation, true).
+		Count(&transDefault).Error; err != nil {
+		t.Fatalf("count translation default failed: %v", err)
+	}
+	if transDefault != 1 {
+		t.Fatalf("expected translation default preserved, got %d", transDefault)
+	}
+
+	var convDefault int64
+	if err := database.Model(&types.LLMModel{}).
+		Where("org_id = ? AND purpose = ? AND is_default = ?", 1, types.LLMModelPurposeConversation, true).
+		Count(&convDefault).Error; err != nil {
+		t.Fatalf("count conversation default failed: %v", err)
+	}
+	if convDefault != 0 {
+		t.Fatalf("expected conversation default cleared, got %d", convDefault)
 	}
 }
 

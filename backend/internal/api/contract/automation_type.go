@@ -37,6 +37,10 @@ type Automation struct {
 	LastTaskID *uint `json:"last_task_id,omitempty"`
 	// ProjectID 当前自动化项目主键
 	ProjectID *uint `json:"project_id,omitempty"`
+	// ProjectPublicID 当前自动化项目的对外 ID（用于前端跳转/回显）
+	ProjectPublicID string `json:"project_public_id,omitempty"`
+	// ProjectName 当前自动化项目的名称（用于前端展示）
+	ProjectName string `json:"project_name,omitempty"`
 }
 
 // CreateAutomationRequest 创建自动化请求
@@ -47,6 +51,8 @@ type CreateAutomationRequest struct {
 	ScheduleMode string                              `json:"schedule_mode" binding:"required"`
 	Schedule     *types.AutomationScheduleFormConfig `json:"schedule" binding:"required"`
 	Timezone     string                              `json:"timezone,omitempty"`
+	// ProjectPublicID 关联的既有项目对外 ID（可选）。空/省略：使用默认新项目（首次执行懒创建）。
+	ProjectPublicID string `json:"project_public_id,omitempty"`
 }
 
 // UpdateAutomationRequest 更新自动化请求（部分更新）
@@ -58,6 +64,9 @@ type UpdateAutomationRequest struct {
 	ScheduleMode *string                             `json:"schedule_mode,omitempty"`
 	Schedule     *types.AutomationScheduleFormConfig `json:"schedule,omitempty"`
 	Timezone     *string                             `json:"timezone,omitempty"`
+	// ProjectPublicID 关联项目三态：
+	//   nil：保持原关联；""：切回默认新项目；非空：关联指定项目。
+	ProjectPublicID *string `json:"project_public_id,omitempty"`
 }
 
 // ListAutomationsRequest 查询自动化列表请求

@@ -63,6 +63,8 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 			BaseURL:          task.Model.BaseURL,
 			BaseURLHasV1:     task.Model.BaseURLHasV1,
 			Vision:           task.Model.Vision,
+			Temperature:      task.Model.Temperature,
+			MaxTokens:        task.Model.MaxTokens,
 			TopP:             task.Model.TopP,
 			FrequencyPenalty: task.Model.FrequencyPenalty,
 			PresencePenalty:  task.Model.PresencePenalty,

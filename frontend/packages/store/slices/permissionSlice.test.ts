@@ -10,9 +10,9 @@ type TestState = PermissionState & {
 	};
 };
 
-function createPermissionActions() {
+function createPermissionActions(initialDecisions: PermissionState["decisions"] = {}) {
 	let state: TestState = {
-		decisions: {},
+		decisions: initialDecisions,
 		permissionRevision: 0,
 		authUser: { currentOrg: { id: 1 } },
 	};
@@ -63,6 +63,35 @@ describe("PermissionActionImpl.ensureCapabilities", () => {
 		});
 		await Promise.all([first, second]);
 
+		expect(actions.can(item.action, item.resource)).toBe(true);
+	});
+
+	it("失效已拒绝结果后会重新查询权限", async () => {
+		const item: BatchCheckItem = {
+			action: "task:create",
+			resource: { type: "project", publicId: "project-1" },
+		};
+		const batchCheck = vi.spyOn(permissionApi, "batchCheck").mockResolvedValue({
+			data: {
+				code: 0,
+				message: "success",
+				data: [
+					{
+						action: item.action,
+						resource: { type: item.resource.type, public_id: item.resource.publicId },
+						allowed: true,
+					},
+				],
+			},
+		} as never);
+		const { actions } = createPermissionActions({
+			"1:project:project-1:task:create": { allowed: false },
+		});
+
+		actions.invalidate(item.resource);
+		await actions.ensureCapabilities([item]);
+
+		expect(batchCheck).toHaveBeenCalledTimes(1);
 		expect(actions.can(item.action, item.resource)).toBe(true);
 	});
 });

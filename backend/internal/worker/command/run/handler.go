@@ -112,8 +112,8 @@ type Handler struct {
 	// Admission semaphore limits concurrent inflight submissions.
 	sem chan struct{}
 
-	// inflight tracks stream_seq currently owned by this process.
-	// Key is "topic:stream_seq".
+	// inflight tracks local inbox records currently owned by this process.
+	// Stream sequences can be reused after a JetStream stream is recreated.
 	inflight map[string]struct{}
 
 	// stateMu protects admissionOpen and inflight map.
@@ -373,14 +373,14 @@ func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messa
 		return fmt.Errorf("run inbox full: queued=%d limit=%d", pending+processing, h.cfg.MaxQueuedCommands)
 	}
 
-	inserted, existing, err := h.runInbox.PutIfAbsent(ctx, topic, seq, cmd)
+	inserted, record, err := h.runInbox.PutIfAbsent(ctx, topic, seq, cmd)
 	if err != nil {
 		_ = delivery.NakWithDelay(h.cfg.QueueRetry)
 		return fmt.Errorf("inbox PutIfAbsent: %w", err)
 	}
 
 	if !inserted {
-		if existing == nil {
+		if record == nil {
 			_ = delivery.NakWithDelay(h.cfg.QueueRetry)
 			// The SQLite implementation treats this as a storage inconsistency and
 			// returns an error. Keep the callback non-terminal so JetStream can
@@ -389,12 +389,12 @@ func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messa
 		}
 		// command_id is the execution identity. A redelivery with a different
 		// stream sequence must never create a second execution.
-		if existing.IsTerminal() {
+		if record.IsTerminal() {
 			h.ack(ctx, delivery)
 			return nil
 		}
 
-		ikey := inboxKey(existing.Topic, existing.StreamSeq)
+		ikey := inboxKey(record.ID)
 		h.stateMu.Lock()
 		_, owned := h.inflight[ikey]
 		if owned {
@@ -412,10 +412,10 @@ func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messa
 		h.submissions.Add(1)
 		h.stateMu.Unlock()
 		// Continue processing the original persisted record, not this delivery.
-		topic, seq = existing.Topic, existing.StreamSeq
+		topic, seq = record.Topic, record.StreamSeq
 	} else {
 		// New record — register under state lock.
-		ikey := inboxKey(topic, seq)
+		ikey := inboxKey(record.ID)
 		h.stateMu.Lock()
 		if !h.admissionOpen {
 			h.stateMu.Unlock()
@@ -442,7 +442,7 @@ func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messa
 	)
 
 	// 5. Start goroutine then Ack.
-	go h.dispatchAsync(task, topic, inboxKey(topic, seq))
+	go h.dispatchAsync(task, record.ID, inboxKey(record.ID))
 	h.ack(ctx, delivery)
 
 	return nil
@@ -493,7 +493,7 @@ func (h *Handler) releaseAdmission() {
 
 // dispatchAsync 构建 RunSubmission 并调用 Coordinator.Submit 异步执行。
 // 在后台 goroutine 中运行，执行完成后更新 inbox 状态为 completed 或 failed。
-func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
+func (h *Handler) dispatchAsync(task runTask, recordID uint64, iKey string) {
 	defer h.submissions.Done()
 	defer h.releaseInflight(iKey)
 
@@ -504,16 +504,12 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 			// into a terminal failure merely because this process is stopping.
 			return
 		}
-		for _, s := range task.DeliverySeqs {
-			h.markTerminal(execCtx, topic, s, err, false)
-		}
+		h.markTerminal(execCtx, recordID, err, false)
 		return
 	}
 	defer h.releaseAdmission()
-	for _, s := range task.DeliverySeqs {
-		if err := h.runInbox.MarkProcessing(execCtx, topic, s); err != nil {
-			logs.WarnContextf(execCtx, "mark inbox processing topic=%s seq=%d: %v", topic, s, err)
-		}
+	if err := h.runInbox.MarkProcessing(execCtx, recordID); err != nil {
+		logs.WarnContextf(execCtx, "mark inbox processing record_id=%d: %v", recordID, err)
 	}
 
 	req := RequestFromWorkerTask(task)
@@ -543,9 +539,7 @@ func (h *Handler) dispatchAsync(task runTask, topic, iKey string) {
 		task.Trace.RunID, task.Route.SessionID, task.Route.WorkerID, task.Route.OrgID)
 	_, execErr := h.coordinator.Submit(execCtx, submission)
 
-	for _, s := range task.DeliverySeqs {
-		h.markTerminal(execCtx, topic, s, execErr, false)
-	}
+	h.markTerminal(execCtx, recordID, execErr, false)
 
 	if execErr != nil {
 		logs.WarnContextf(execCtx, "Run command execution error: msg_id=%s task_id=%s run_id=%s session_id=%s: %v",
@@ -636,14 +630,14 @@ func (h *Handler) RecoverNonTerminal(ctx context.Context) error {
 	// Register all records as owned before starting the feeder.
 	h.stateMu.Lock()
 	for _, rec := range records {
-		ikey := inboxKey(rec.Topic, rec.StreamSeq)
+		ikey := inboxKey(rec.ID)
 		h.inflight[ikey] = struct{}{}
 	}
 	h.stateMu.Unlock()
 
 	// Start the recovery feeder goroutine.
 	h.recoveryWG.Add(1)
-	go h.runRecoveryFeeder(records, topic)
+	go h.runRecoveryFeeder(records)
 
 	return nil
 }
@@ -651,7 +645,7 @@ func (h *Handler) RecoverNonTerminal(ctx context.Context) error {
 // runRecoveryFeeder 将恢复的 inbox 记录逐个通过 semaphore 调度执行。
 // 每次从 semaphore 获取一个槽位后启动一个 goroutine 处理记录，
 // 与实时投递共享同一套并发限流和生命周期管理。
-func (h *Handler) runRecoveryFeeder(records []inbox.Record, topic string) {
+func (h *Handler) runRecoveryFeeder(records []inbox.Record) {
 	defer h.recoveryWG.Done()
 
 	for _, rec := range records {
@@ -674,28 +668,28 @@ func (h *Handler) runRecoveryFeeder(records []inbox.Record, topic string) {
 		h.submissions.Add(1)
 		h.stateMu.Unlock()
 
-		ikey := inboxKey(rec.Topic, rec.StreamSeq)
+		ikey := inboxKey(rec.ID)
 
-		go h.recoverRecord(rec, topic, ikey)
+		go h.recoverRecord(rec, ikey)
 	}
 }
 
 // recoverRecord 处理一条恢复的 inbox 记录：反序列化命令、校验 payload、
 // 构建任务并提交给 Coordinator。执行完成后更新 inbox 状态。
-func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
+func (h *Handler) recoverRecord(rec inbox.Record, ikey string) {
 	defer h.submissions.Done()
 	defer h.releaseAdmission()
 	defer h.releaseInflight(ikey)
 
 	var cmd messaging.WorkerCommand
 	if err := json.Unmarshal([]byte(rec.Command), &cmd); err != nil {
-		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery unmarshal: %v", err))
+		_ = h.runInbox.MarkFailed(h.execCtx, rec.ID, fmt.Sprintf("recovery unmarshal: %v", err))
 		return
 	}
 
 	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&cmd.Body)
 	if err != nil {
-		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery payload decode: %v", err))
+		_ = h.runInbox.MarkFailed(h.execCtx, rec.ID, fmt.Sprintf("recovery payload decode: %v", err))
 		return
 	}
 
@@ -728,13 +722,13 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 	nrm, routeErr := h.normalizeRunRoute(task)
 	if routeErr != nil {
 		h.logRouteReject(task, routeErr)
-		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery route invalid: %v", routeErr))
+		_ = h.runInbox.MarkFailed(h.execCtx, rec.ID, fmt.Sprintf("recovery route invalid: %v", routeErr))
 		return
 	}
 	task = nrm
 	if err := h.validateRouteTask(task); err != nil {
 		h.logRouteReject(task, err)
-		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, fmt.Sprintf("recovery route invalid: %v", err))
+		_ = h.runInbox.MarkFailed(h.execCtx, rec.ID, fmt.Sprintf("recovery route invalid: %v", err))
 		return
 	}
 
@@ -742,15 +736,15 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 	if !task.NotAfter.IsZero() && time.Now().After(task.NotAfter) {
 		logs.WarnContextf(h.execCtx, "Recovered run command expired, marking failed: id=%s not_after=%s",
 			task.ID, task.NotAfter.Format(time.RFC3339))
-		_ = h.runInbox.MarkFailed(h.execCtx, topic, rec.StreamSeq, "run command expired (not_after)")
+		_ = h.runInbox.MarkFailed(h.execCtx, rec.ID, "run command expired (not_after)")
 		return
 	}
 
 	execCtx := withRunLogFields(h.execCtx, task)
 
 	// Mark processing.
-	if err := h.runInbox.MarkProcessing(execCtx, topic, rec.StreamSeq); err != nil {
-		logs.ErrorContextf(execCtx, "Failed to mark recovered inbox processing: topic=%s seq=%d: %v", topic, rec.StreamSeq, err)
+	if err := h.runInbox.MarkProcessing(execCtx, rec.ID); err != nil {
+		logs.ErrorContextf(execCtx, "Failed to mark recovered inbox processing: record_id=%d: %v", rec.ID, err)
 	}
 
 	logs.InfoContextf(execCtx,
@@ -784,7 +778,7 @@ func (h *Handler) recoverRecord(rec inbox.Record, topic, ikey string) {
 
 	_, execErr := h.coordinator.Submit(execCtx, submission)
 
-	h.markTerminal(execCtx, topic, rec.StreamSeq, execErr, true)
+	h.markTerminal(execCtx, rec.ID, execErr, true)
 }
 
 // --- Control command handling ---
@@ -1014,7 +1008,7 @@ func (h *Handler) ack(ctx context.Context, delivery eventbus.ManualDelivery) {
 	}
 }
 
-func (h *Handler) markTerminal(logCtx context.Context, topic string, seq uint64, execErr error, recovered bool) {
+func (h *Handler) markTerminal(logCtx context.Context, recordID uint64, execErr error, recovered bool) {
 	markCtx, cancel := context.WithTimeout(context.Background(), inboxTerminalTimeout)
 	defer cancel()
 
@@ -1023,19 +1017,19 @@ func (h *Handler) markTerminal(logCtx context.Context, topic string, seq uint64,
 		source = "recovery"
 	}
 	if execErr != nil {
-		if err := h.runInbox.MarkFailed(markCtx, topic, seq, execErr.Error()); err != nil {
-			logs.ErrorContextf(logCtx, "Failed to mark inbox failed: source=%s topic=%s seq=%d: %v", source, topic, seq, err)
+		if err := h.runInbox.MarkFailed(markCtx, recordID, execErr.Error()); err != nil {
+			logs.ErrorContextf(logCtx, "Failed to mark inbox failed: source=%s record_id=%d: %v", source, recordID, err)
 			return
 		}
-		logs.InfoContextf(logCtx, "Marked inbox failed: source=%s topic=%s seq=%d", source, topic, seq)
+		logs.InfoContextf(logCtx, "Marked inbox failed: source=%s record_id=%d", source, recordID)
 		return
 	}
 
-	if err := h.runInbox.MarkCompleted(markCtx, topic, seq); err != nil {
-		logs.ErrorContextf(logCtx, "Failed to mark inbox completed: source=%s topic=%s seq=%d: %v", source, topic, seq, err)
+	if err := h.runInbox.MarkCompleted(markCtx, recordID); err != nil {
+		logs.ErrorContextf(logCtx, "Failed to mark inbox completed: source=%s record_id=%d: %v", source, recordID, err)
 		return
 	}
-	logs.InfoContextf(logCtx, "Marked inbox completed: source=%s topic=%s seq=%d", source, topic, seq)
+	logs.InfoContextf(logCtx, "Marked inbox completed: source=%s record_id=%d", source, recordID)
 }
 
 func replyToMessageIDs(messages []messaging.ChatMessage) []string {
@@ -1106,8 +1100,8 @@ func validateModelConfig(model messaging.ModelOptions) error {
 	return nil
 }
 
-func inboxKey(topic string, seq uint64) string {
-	return fmt.Sprintf("%s:%d", topic, seq)
+func inboxKey(recordID uint64) string {
+	return fmt.Sprintf("inbox:%d", recordID)
 }
 
 // parseRunNotAfter 解析命令 payload 中的 not_after（RFC3339）；解析失败返回零值（不限制）。

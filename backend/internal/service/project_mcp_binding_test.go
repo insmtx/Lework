@@ -63,6 +63,7 @@ func TestProjectMCPBindingUsesOrganizationPluginAndMCPActivity(t *testing.T) {
 		nil,
 		"test",
 		newTestUserRepo(map[string]uint{"usr_test": 1, "usr_other": 2}),
+		NewSkillDisplayTranslationService(database),
 	)
 	ctx := setupTestContextWithCaller(t)
 	request := &contract.UpdateProjectPluginRequest{

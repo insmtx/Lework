@@ -399,6 +399,11 @@ type ModelOptions struct {
 	// Vision 表示该模型是否支持图片（多模态）输入。
 	Vision bool `json:"vision,omitempty"`
 
+	// Temperature 默认采样温度；0 表示未配置，走 provider 默认。
+	Temperature float64 `json:"temperature,omitempty"`
+	// MaxTokens 默认最大输出 token 数；0 表示未配置，走 provider 默认。
+	MaxTokens int `json:"max_tokens,omitempty"`
+
 	TopP             *float64 `json:"top_p,omitempty"`
 	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
 	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`

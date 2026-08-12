@@ -58,7 +58,7 @@ function SelectContent({
 	sideOffset = 4,
 	align = "center",
 	alignOffset = 0,
-	alignItemWithTrigger = true,
+	alignItemWithTrigger = false,
 	showScrollButtons = false,
 	...props
 }: SelectPrimitive.Popup.Props &

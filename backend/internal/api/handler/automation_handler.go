@@ -269,17 +269,21 @@ func handleAutomationServiceError(ctx *gin.Context, err error) {
 
 	switch errMsg {
 	case "automation not found",
-		"automation_execution_not_found":
+		"automation_execution_not_found",
+		"automation link project not found":
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, errMsg))
-	case "automation forbidden":
+	case "automation forbidden",
+		"automation link project forbidden":
 		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, errMsg))
-	case "automation_run_in_progress":
+	case "automation_run_in_progress",
+		"automation_project_change_conflict":
 		ctx.JSON(http.StatusConflict, dto.Error(dto.CodeConflict, errMsg))
 	case "invalid automation name",
 		"invalid automation instruction",
 		"invalid_automation_schedule",
 		"invalid_automation_timezone",
 		"no default assistant in organization",
+		"automation link project unavailable",
 		"public_id is required":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	default:

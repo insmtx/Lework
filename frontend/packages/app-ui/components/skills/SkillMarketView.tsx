@@ -10,6 +10,7 @@ import { useAuth } from "../auth";
 import type { AppNavigation } from "../layout";
 import { navigateToWorkbench } from "../layout/workbench-navigation";
 import { buildSkillWorkbenchPrefill } from "../layout/workbench-prefill";
+import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { MarketplacePanel } from "./MarketplacePanel";
 import { McpConnectorPanel } from "./McpConnectorPanel";
 import { MySkillsPanel } from "./MySkillsPanel";
@@ -26,6 +27,7 @@ const SKILL_SOURCE_TAB_CLASS =
 	"h-8 rounded-md border border-[var(--leros-control-border)] bg-white px-3 text-xs font-medium text-[var(--leros-text-muted)] shadow-none hover:text-[var(--leros-text-strong)] data-active:border-[var(--leros-primary)] data-active:bg-[var(--leros-primary-soft)] data-active:text-[var(--leros-primary)]";
 
 export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) {
+	const { name: brandName } = useBrandIdentity();
 	const { isAuthenticated, requireAuth } = useAuth();
 	const [pluginTab, setPluginTab] = useState<PluginTab>("skills");
 	const [skillSourceTab, setSkillSourceTab] = useState<SkillSourceTab>("marketplace");
@@ -159,7 +161,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	const activeSectionTitle = skillSourceTab === "marketplace" ? "技能市场" : "组织共享";
 	const activeSectionDescription =
 		skillSourceTab === "marketplace"
-			? "由 Lework 统一维护，未启用的技能将在首次使用时自动准备。"
+			? `由 ${brandName} 统一维护，未启用的技能将在首次使用时自动准备。`
 			: "组织成员创作或导入并共享使用的技能。";
 
 	return (
@@ -183,11 +185,11 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 						variant="line"
 						className="!h-full self-stretch gap-6 rounded-none bg-transparent p-0"
 					>
-						<TabsTrigger value="mcp" className={PLUGIN_TAB_CLASS}>
-							MCP 连接器
-						</TabsTrigger>
 						<TabsTrigger value="skills" className={PLUGIN_TAB_CLASS}>
 							技能库
+						</TabsTrigger>
+						<TabsTrigger value="mcp" className={PLUGIN_TAB_CLASS}>
+							MCP 连接器
 						</TabsTrigger>
 					</TabsList>
 					<div aria-hidden="true" />

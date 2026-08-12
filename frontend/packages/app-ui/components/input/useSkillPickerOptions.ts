@@ -60,15 +60,15 @@ export function marketplaceToSkillOption(
 ): PluginComposerOption {
 	return {
 		code: item.code,
-		label: item.name || item.code,
+		label: item.display_name || item.name || item.code,
 		description: item.description ?? "",
 		source: "marketplace",
 		origin: "marketplace",
 		pluginId: item.installed_plugin_id,
 		marketplaceItemId: item.public_id,
 		organizationOverride: item.organization_override,
-		keywords: [item.name, item.code, item.description].filter((value): value is string =>
-			Boolean(value),
+		keywords: [item.name, item.display_name, item.code, item.description].filter(
+			(value): value is string => Boolean(value),
 		),
 	};
 }

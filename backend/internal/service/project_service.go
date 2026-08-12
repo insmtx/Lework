@@ -47,14 +47,15 @@ type projectActivityCursor struct {
 }
 
 type projectService struct {
-	db          *gorm.DB
-	perm        *PermissionService
-	inferrer    AssistantInferrer
-	giteaClient *gitea.Client
-	giteaCfg    *config.GiteaConfig
-	env         string
-	publisher   mq.Publisher
-	userRepo    account.UserRepository
+	db                 *gorm.DB
+	perm               *PermissionService
+	inferrer           AssistantInferrer
+	giteaClient        *gitea.Client
+	giteaCfg           *config.GiteaConfig
+	env                string
+	publisher          mq.Publisher
+	userRepo           account.UserRepository
+	displayTranslation *SkillDisplayTranslationService
 }
 
 // fileTreeEntry 文件树 walk 阶段收集的扁平条目
@@ -66,26 +67,28 @@ type fileTreeEntry struct {
 }
 
 // NewProjectService 创建项目服务实例
-func NewProjectService(db *gorm.DB, perm *PermissionService, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository) contract.ProjectService {
+func NewProjectService(db *gorm.DB, perm *PermissionService, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository, displayTranslation *SkillDisplayTranslationService) contract.ProjectService {
 	return &projectService{
-		db:          db,
-		perm:        perm,
-		giteaClient: giteaClient,
-		giteaCfg:    giteaCfg,
-		env:         env,
-		userRepo:    userRepo,
+		db:                 db,
+		perm:               perm,
+		giteaClient:        giteaClient,
+		giteaCfg:           giteaCfg,
+		env:                env,
+		userRepo:           userRepo,
+		displayTranslation: displayTranslation,
 	}
 }
 
-func NewProjectServiceWithInferrer(db *gorm.DB, perm *PermissionService, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository) contract.ProjectService {
+func NewProjectServiceWithInferrer(db *gorm.DB, perm *PermissionService, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, userRepo account.UserRepository, displayTranslation *SkillDisplayTranslationService) contract.ProjectService {
 	return &projectService{
-		db:          db,
-		perm:        perm,
-		inferrer:    inferrer,
-		giteaClient: giteaClient,
-		giteaCfg:    giteaCfg,
-		env:         env,
-		userRepo:    userRepo,
+		db:                 db,
+		perm:               perm,
+		inferrer:           inferrer,
+		giteaClient:        giteaClient,
+		giteaCfg:           giteaCfg,
+		env:                env,
+		userRepo:           userRepo,
+		displayTranslation: displayTranslation,
 	}
 }
 
@@ -98,16 +101,18 @@ func NewProjectServiceWithInferrerAndPublisher(
 	env string,
 	publisher mq.Publisher,
 	userRepo account.UserRepository,
+	displayTranslation *SkillDisplayTranslationService,
 ) contract.ProjectService {
 	return &projectService{
-		db:          db,
-		perm:        perm,
-		inferrer:    inferrer,
-		giteaClient: giteaClient,
-		giteaCfg:    giteaCfg,
-		env:         env,
-		publisher:   publisher,
-		userRepo:    userRepo,
+		db:                 db,
+		perm:               perm,
+		inferrer:           inferrer,
+		giteaClient:        giteaClient,
+		giteaCfg:           giteaCfg,
+		env:                env,
+		publisher:          publisher,
+		userRepo:           userRepo,
+		displayTranslation: displayTranslation,
 	}
 }
 
@@ -346,6 +351,57 @@ func (s *projectService) ListProjectPlugins(ctx context.Context, req *contract.L
 	result := make([]contract.ProjectPlugin, 0, len(plugins))
 	for _, plugin := range plugins {
 		result = append(result, contract.ProjectPlugin{PublicID: plugin.PublicID, Code: plugin.Code, Kind: plugin.Kind, Name: plugin.Name, Description: plugin.Description, Status: plugin.Status, CurrentRevision: plugin.CurrentRevision})
+	}
+	if s.displayTranslation == nil {
+		logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s project=%s use=false reason=service_unavailable",
+			caller.OrgID, types.PluginTranslationSourceOrganization, req.PublicID)
+	} else if caller.OrgID == 0 {
+		logs.WarnContextf(ctx, "Skill display translation not used: phase=metadata source_type=%s project=%s use=false reason=organization_missing",
+			types.PluginTranslationSourceOrganization, req.PublicID)
+	} else {
+		pluginIDs := make([]uint, 0, len(plugins))
+		for _, plugin := range plugins {
+			if plugin.Kind == "skill" {
+				pluginIDs = append(pluginIDs, plugin.ID)
+			}
+		}
+		revisions, revisionErr := db.ListCurrentPluginRevisionsByPluginIDs(ctx, s.db, pluginIDs)
+		if revisionErr != nil {
+			logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s project=%s use=false reason=revision_lookup_failed: %v",
+				caller.OrgID, types.PluginTranslationSourceOrganization, req.PublicID, revisionErr)
+		} else {
+			sources := make([]skillTranslationSource, 0, len(plugins))
+			positions := make([]int, 0, len(plugins))
+			for index, plugin := range plugins {
+				if plugin.Kind != "skill" {
+					continue
+				}
+				revision, exists := revisions[plugin.ID]
+				if !exists {
+					logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s source_id=%d revision_id=0 project=%s use=false reason=revision_unavailable",
+						caller.OrgID, types.PluginTranslationSourceOrganization, plugin.ID, req.PublicID)
+					continue
+				}
+				revisionCopy := revision
+				sources = append(sources, skillTranslationSource{
+					sourceType:  types.PluginTranslationSourceOrganization,
+					sourceID:    plugin.ID,
+					revision:    &revisionCopy,
+					name:        plugin.Name,
+					description: plugin.Description,
+				})
+				positions = append(positions, index)
+			}
+			translations := s.displayTranslation.translateMetadata(ctx, caller.OrgID, sources)
+			for index, source := range sources {
+				key := skillTranslationKey{
+					sourceType: source.sourceType,
+					sourceID:   source.sourceID,
+					revisionID: source.revision.ID,
+				}
+				applyTranslatedProjectMetadata(&result[positions[index]], translations[key])
+			}
+		}
 	}
 	return result, nil
 }

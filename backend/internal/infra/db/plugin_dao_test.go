@@ -24,6 +24,7 @@ func setupPluginDAOTestDB(t *testing.T) *gorm.DB {
 		&types.PluginRevisionContent{},
 		&types.ProjectPluginBinding{},
 		&types.PluginMarketplaceItem{},
+		&types.PluginTranslation{},
 		&types.FileUpload{},
 	); err != nil {
 		t.Fatalf("migrate plugin models: %v", err)
@@ -43,6 +44,7 @@ func TestPluginSchemaIndexesAndNoForeignKeys(t *testing.T) {
 		types.TableNamePluginRevisionContent,
 		types.TableNameProjectPluginBinding,
 		types.TableNamePluginMarketplaceItem,
+		types.TableNamePluginTranslation,
 	} {
 		if !database.Migrator().HasTable(tableName) {
 			t.Fatalf("table %s was not created", tableName)
@@ -58,14 +60,28 @@ func TestPluginSchemaIndexesAndNoForeignKeys(t *testing.T) {
 		"ux_plugin_marketplace_public_id",
 		"ux_plugin_marketplace_source",
 		"ux_plugin_marketplace_plugin",
+		"ux_plugin_translation_scope",
+		"idx_plugin_translation_source_revision",
 	} {
 		if !database.Migrator().HasIndex(types.TableNamePlugin, indexName) &&
 			!database.Migrator().HasIndex(types.TableNamePluginRevision, indexName) &&
 			!database.Migrator().HasIndex(types.TableNamePluginRevisionContent, indexName) &&
 			!database.Migrator().HasIndex(types.TableNameProjectPluginBinding, indexName) &&
-			!database.Migrator().HasIndex(types.TableNamePluginMarketplaceItem, indexName) {
+			!database.Migrator().HasIndex(types.TableNamePluginMarketplaceItem, indexName) &&
+			!database.Migrator().HasIndex(types.TableNamePluginTranslation, indexName) {
 			t.Fatalf("index %s was not created", indexName)
 		}
+	}
+	var translationIndexColumns []struct {
+		Seq  int
+		Name string
+	}
+	if err := database.Raw("PRAGMA index_info('idx_plugin_translation_source_revision')").Scan(&translationIndexColumns).Error; err != nil {
+		t.Fatalf("inspect plugin translation query index: %v", err)
+	}
+	if len(translationIndexColumns) != 3 || translationIndexColumns[0].Name != "source_type" ||
+		translationIndexColumns[1].Name != "source_id" || translationIndexColumns[2].Name != "plugin_revision_id" {
+		t.Fatalf("plugin translation query index columns = %#v", translationIndexColumns)
 	}
 	if !database.Migrator().HasColumn(types.TableNamePluginRevision, "definition") {
 		t.Fatalf("table %s is missing definition", types.TableNamePluginRevision)
@@ -89,6 +105,7 @@ func TestPluginSchemaIndexesAndNoForeignKeys(t *testing.T) {
 		types.TableNamePluginRevisionContent,
 		types.TableNameProjectPluginBinding,
 		types.TableNamePluginMarketplaceItem,
+		types.TableNamePluginTranslation,
 	} {
 		var foreignKeys []struct{ Table string }
 		if err := database.Raw("PRAGMA foreign_key_list(" + tableName + ")").Scan(&foreignKeys).Error; err != nil {
@@ -100,9 +117,69 @@ func TestPluginSchemaIndexesAndNoForeignKeys(t *testing.T) {
 	}
 }
 
+func TestPluginTranslationUpsertsBySourceRevisionAndLocale(t *testing.T) {
+	database := setupPluginDAOTestDB(t)
+	ctx := context.Background()
+	metadata := &types.PluginTranslation{
+		OrgID: 7, SourceType: types.PluginTranslationSourceMarketplace, SourceID: 11, PluginRevisionID: 101, SourceRevision: 1,
+		Locale: "zh-CN", MetadataSourceHash: "metadata-v1", TranslatedName: "中文技能",
+		TranslatedDescription: "中文描述",
+	}
+	if err := UpsertPluginTranslationMetadata(ctx, database, metadata); err != nil {
+		t.Fatalf("upsert metadata translation: %v", err)
+	}
+	if err := UpsertPluginTranslationDocument(ctx, database, &types.PluginTranslation{
+		OrgID: 7, SourceType: types.PluginTranslationSourceMarketplace, SourceID: 11, PluginRevisionID: 101, SourceRevision: 1,
+		Locale: "zh-CN", SkillMDSourceHash: "document-v1", TranslatedSkillMD: "中文正文",
+	}); err != nil {
+		t.Fatalf("upsert document translation: %v", err)
+	}
+	rows, err := ListPluginTranslations(ctx, database, 7, types.PluginTranslationSourceMarketplace, []uint{11}, "zh-CN")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list translation cache = %#v, %v", rows, err)
+	}
+	if rows[0].TranslatedName != "中文技能" || rows[0].TranslatedSkillMD != "中文正文" {
+		t.Fatalf("translation cache fields = %#v", rows[0])
+	}
+
+	if err := UpsertPluginTranslationMetadata(ctx, database, &types.PluginTranslation{
+		OrgID: 7, SourceType: types.PluginTranslationSourceMarketplace, SourceID: 11, PluginRevisionID: 102, SourceRevision: 2,
+		Locale: "zh-CN", MetadataSourceHash: "metadata-v2", TranslatedName: "新版技能",
+	}); err != nil {
+		t.Fatalf("upsert second revision translation: %v", err)
+	}
+	rows, err = ListPluginTranslations(ctx, database, 7, types.PluginTranslationSourceMarketplace, []uint{11}, "zh-CN")
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("list versioned translation cache = %#v, %v", rows, err)
+	}
+	otherOrg, err := ListPluginTranslations(ctx, database, 8, types.PluginTranslationSourceMarketplace, []uint{11}, "zh-CN")
+	if err != nil || len(otherOrg) != 0 {
+		t.Fatalf("cross-organization translation cache = %#v, %v", otherOrg, err)
+	}
+	if err := UpsertPluginTranslationMetadata(ctx, database, &types.PluginTranslation{
+		OrgID: 7, SourceType: types.PluginTranslationSourceOrganization, SourceID: 11, PluginRevisionID: 101, SourceRevision: 1,
+		Locale: "zh-CN", MetadataSourceHash: "organization-metadata-v1", TranslatedName: "组织技能",
+	}); err != nil {
+		t.Fatalf("upsert organization translation: %v", err)
+	}
+	organizationRows, err := ListPluginTranslations(ctx, database, 7, types.PluginTranslationSourceOrganization, []uint{11}, "zh-CN")
+	if err != nil || len(organizationRows) != 1 || organizationRows[0].TranslatedName != "组织技能" {
+		t.Fatalf("organization translation cache = %#v, %v", organizationRows, err)
+	}
+	marketplaceRows, err := ListPluginTranslations(ctx, database, 7, types.PluginTranslationSourceMarketplace, []uint{11}, "zh-CN")
+	if err != nil || len(marketplaceRows) != 2 {
+		t.Fatalf("marketplace cache was mixed with organization cache = %#v, %v", marketplaceRows, err)
+	}
+}
+
 func TestPluginDAOEnforcesBusinessConstraints(t *testing.T) {
 	database := setupPluginDAOTestDB(t)
 	ctx := context.Background()
+	if err := database.Create(&types.PluginTranslation{
+		OrgID: 1, SourceType: "invalid", SourceID: 1, PluginRevisionID: 1, SourceRevision: 1, Locale: "zh-CN",
+	}).Error; err == nil {
+		t.Fatal("expected invalid plugin translation source type to fail")
+	}
 
 	plugin := &types.Plugin{PublicID: "plg_alpha", OrgID: 1, Code: "alpha", Kind: "skill", Name: "Alpha", Status: types.PluginStatusActive, Origin: "org", CreatedBy: 9, UpdatedBy: 9}
 	if err := CreatePlugin(ctx, database, plugin); err != nil {

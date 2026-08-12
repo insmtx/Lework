@@ -1,8 +1,8 @@
 import {
 	type AppNavigation,
-	AssistantListView,
 	AutomationExecutionPage,
 	AutomationListView,
+	OrgAdminPage,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
@@ -40,15 +40,22 @@ export function AppRoutes() {
 					element={<TaskDetailRoutePage />}
 				/>
 
-				<Route path="/assistants" element={<AssistantListView navigation={navigation} />} />
+				<Route path="/org" element={<Navigate to="/org/profile" replace />} />
 
-				<Route path="/ai-teammates" element={<Navigate to="/assistants" replace />} />
+				<Route path="/org/profile" element={<OrgAdminRoutePage section="profile" />} />
+
+				<Route path="/org/departments" element={<OrgAdminRoutePage section="departments" />} />
+
+				<Route path="/org/assistants" element={<OrgAdminRoutePage section="assistants" />} />
+
+				<Route path="/org/models" element={<OrgAdminRoutePage section="models" />} />
 
 				<Route path="/tasks" element={<EmptyRoutePage />} />
 
 				<Route path="/skills" element={<SkillMarketView navigation={navigation} />} />
 
-				<Route path="/knowledge" element={<EmptyRoutePage />} />
+				{/* 中文注释：资源库路由暂时隐藏，直接访问时回退到工作台。 */}
+				<Route path="/knowledge" element={<Navigate to="/workbench" replace />} />
 
 				<Route path="/automation" element={<AutomationListView navigation={navigation} />} />
 
@@ -82,9 +89,13 @@ function useDesktopNavigation(): AppNavigation {
 
 				taskDetail: "/workbench",
 
-				digitalAssistant: "/assistants",
+				orgProfile: "/org/profile",
 
-				aiTeammates: "/assistants",
+				orgDepartments: "/org/departments",
+
+				orgAssistants: "/org/assistants",
+
+				orgModels: "/org/models",
 
 				knowledge: "/knowledge",
 
@@ -163,6 +174,16 @@ function TaskDetailRoutePage() {
 			navigation={navigation}
 		/>
 	);
+}
+
+function OrgAdminRoutePage({
+	section,
+}: {
+	section: "profile" | "departments" | "assistants" | "models";
+}) {
+	const navigation = useDesktopNavigation();
+
+	return <OrgAdminPage section={section} navigation={navigation} />;
 }
 
 function EmptyRoutePage() {

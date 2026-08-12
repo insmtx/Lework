@@ -7,6 +7,7 @@ export interface PluginListItem {
 	code: string;
 	kind: string;
 	name: string;
+	display_name?: string;
 	description?: string;
 	status: string;
 	origin: string;
@@ -207,7 +208,7 @@ export function pluginToSkillCard(plugin: PluginListItem): SkillMarketplaceItem 
 		source_type: "organization",
 		skill_id: plugin.public_id,
 		name: plugin.code,
-		display_name: plugin.name,
+		display_name: plugin.display_name || plugin.name,
 		description: plugin.description ?? "",
 		version: `r${plugin.current_revision}`,
 		author: "组织插件",
@@ -241,14 +242,14 @@ export function pluginToComposerOption(
 		source ?? (plugin.origin === "builtin_worker" ? "builtin" : "organization");
 	return {
 		code: plugin.code,
-		label: plugin.name || plugin.code,
+		label: plugin.display_name || plugin.name || plugin.code,
 		description: plugin.description ?? "",
 		source: resolvedSource,
 		origin: plugin.origin,
 		pluginId: resolvedSource === "builtin" ? undefined : plugin.public_id,
 		projectAssociated: resolvedSource === "project",
-		keywords: [plugin.name, plugin.code, plugin.description].filter((item): item is string =>
-			Boolean(item),
+		keywords: [plugin.name, plugin.display_name, plugin.code, plugin.description].filter(
+			(item): item is string => Boolean(item),
 		),
 	};
 }

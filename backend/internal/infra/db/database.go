@@ -5,6 +5,8 @@
 package db
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -22,6 +24,7 @@ import (
 var legacyTables = []string{
 	"leros_artifact",
 	"leros_organization_profile",
+	"leros_plugin_marketplace_translation",
 }
 
 // legacyColumnsToDrop 记录了从模型中被移除但数据库中残留的列。
@@ -99,6 +102,7 @@ var legacyIndexes = []string{
 	"idx_leros_project_file_file_public_id",
 	"idx_project_file_version",
 	"idx_project_file_path_version",
+	"idx_llm_model_org_default",
 }
 
 // dbName 是数据库名称常量
@@ -170,6 +174,7 @@ func runMigrations(db *gorm.DB) error {
 		&types.PluginRevisionContent{},
 		&types.ProjectPluginBinding{},
 		&types.PluginMarketplaceItem{},
+		&types.PluginTranslation{},
 		&types.MCPChannel{},
 		&types.MessageResource{},
 		&types.Department{},
@@ -213,6 +218,14 @@ func runMigrations(db *gorm.DB) error {
 	}
 
 	if err := backfillSystemLLMModelsForEnterpriseOrgs(db); err != nil {
+		return err
+	}
+
+	if err := backfillLLMModelPurpose(db); err != nil {
+		return err
+	}
+
+	if err := backfillLLMModelClassDefaults(db); err != nil {
 		return err
 	}
 
@@ -561,6 +574,179 @@ func backfillSystemLLMModelsForEnterpriseOrgs(d *gorm.DB) error {
 		logs.Warnf("[migration] backfillSystemLLMModelsForEnterpriseOrgs: %v", err)
 	}
 	return nil
+}
+
+// backfillLLMModelPurpose 为存量 LLM 模型回填用途字段（purpose）。
+// 旧版本没有 purpose 列；新增列后存量行的默认值为 conversation，需把原翻译类模型（code==llm_translation）
+// 置为 translation，其余保持 conversation。幂等执行。
+func backfillLLMModelPurpose(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameLLMModel) || !d.Migrator().HasColumn(&types.LLMModel{}, "purpose") {
+		return nil
+	}
+	ctx := context.Background()
+	if err := d.WithContext(ctx).Model(&types.LLMModel{}).
+		Where("code = ?", SystemTranslationLLMModelCode).
+		Where("deleted_at IS NULL").
+		Update("purpose", types.LLMModelPurposeTranslation).Error; err != nil {
+		logs.Warnf("[migration] backfillLLMModelPurpose mark translation: %v", err)
+	}
+	return nil
+}
+
+// backfillLLMModelClassDefaults 收敛 LLM 模型默认标记，保证每个组织内每个用途各有且仅有一个默认模型。
+// 幂等执行，分三步：
+//  1. 补建缺失用途：对缺少某用途系统模型的组织，从 org_id=1 克隆对应用途系统模型。
+//  2. 收敛唯一默认：每用途内默认数 >1 时保留一条（is_system 优先、updated_at 新优先）清其余；=0 且用途内有 active 模型时选一条设为默认。
+//  3. 同步系统对话模型名称：将 org_id=1 的系统内置对话模型名称统一为“内置对话模型”。
+//
+// 步骤 2、3 用 Go + GORM 实现以保证跨数据库（postgres/mysql/sqlite）可移植。
+func backfillLLMModelClassDefaults(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameLLMModel) {
+		return nil
+	}
+	ctx := context.Background()
+
+	// 1. 遍历所有组织，补建缺失用途系统模型。
+	for orgID := range collectAllOrgIDs(d, ctx) {
+		for _, purpose := range allPurposes() {
+			// 仅当该用途下完全没有模型时才补建系统模型（不覆盖用户自建模型）。
+			hasAny, err := purposeHasAnyModel(d, ctx, orgID, purpose)
+			if err != nil {
+				logs.Warnf("[migration] backfillLLMModelClassDefaults check org %d purpose %v: %v", orgID, purpose, err)
+				continue
+			}
+			if hasAny {
+				continue
+			}
+			if purpose == types.LLMModelPurposeTranslation {
+				if err := CloneTranslationLLMModelsByOrg(ctx, d, 1, orgID); err != nil {
+					logs.Warnf("[migration] backfillLLMModelClassDefaults clone translation for org %d: %v", orgID, err)
+				}
+			} else {
+				if err := CloneSystemLLMModelsByOrg(ctx, d, 1, orgID); err != nil {
+					logs.Warnf("[migration] backfillLLMModelClassDefaults clone conversation for org %d: %v", orgID, err)
+				}
+			}
+		}
+	}
+
+	// 2. 收敛每类唯一默认：遍历所有组织与两类。
+	for orgID := range collectAllOrgIDs(d, ctx) {
+		if err := convergeAllClassDefaults(d, ctx, orgID); err != nil {
+			logs.Warnf("[migration] backfillLLMModelClassDefaults converge org %d: %v", orgID, err)
+		}
+	}
+
+	// 3. 同步 org_id=1 系统对话模型名称。
+	if err := d.WithContext(ctx).Model(&types.LLMModel{}).
+		Where("org_id = ? AND is_system = ? AND deleted_at IS NULL", 1, true).
+		Where("purpose = ?", types.LLMModelPurposeConversation).
+		Update("name", "内置对话模型").Error; err != nil {
+		logs.Warnf("[migration] backfillLLMModelClassDefaults sync name: %v", err)
+	}
+
+	return nil
+}
+
+// collectAllOrgIDs 收集曾出现过的所有组织 ID（含 llm_model 表、organization 表与 digital_assistant 表），并恒包含 org_id=1。
+func collectAllOrgIDs(d *gorm.DB, ctx context.Context) map[uint]struct{} {
+	set := map[uint]struct{}{1: {}}
+
+	if d.Migrator().HasTable(types.TableNameLLMModel) {
+		var ids []uint
+		if err := d.WithContext(ctx).Model(&types.LLMModel{}).
+			Distinct("org_id").Pluck("org_id", &ids).Error; err == nil {
+			for _, id := range ids {
+				set[id] = struct{}{}
+			}
+		}
+	}
+	if d.Migrator().HasTable(types.TableNameOrganization) {
+		var ids []uint
+		if err := d.WithContext(ctx).Model(&types.Organization{}).
+			Where("deleted_at IS NULL").Pluck("id", &ids).Error; err == nil {
+			for _, id := range ids {
+				set[id] = struct{}{}
+			}
+		}
+	}
+	if d.Migrator().HasTable(types.TableNameDigitalAssistant) {
+		var ids []uint
+		if err := d.WithContext(ctx).Model(&types.DigitalAssistant{}).
+			Where("deleted_at IS NULL").Distinct("org_id").Pluck("org_id", &ids).Error; err == nil {
+			for _, id := range ids {
+				set[id] = struct{}{}
+			}
+		}
+	}
+	return set
+}
+
+// allPurposes 返回全部模型用途枚举值，用于收敛逻辑遍历。
+func allPurposes() []types.LLMModelPurpose {
+	return []types.LLMModelPurpose{
+		types.LLMModelPurposeConversation,
+		types.LLMModelPurposeTranslation,
+	}
+}
+
+// purposeHasAnyModel 判断指定组织指定用途内是否存在任何模型（含 inactive / 软删除除外）。
+func purposeHasAnyModel(d *gorm.DB, ctx context.Context, orgID uint, purpose types.LLMModelPurpose) (bool, error) {
+	var count int64
+	err := QueryByPurpose(d.WithContext(ctx).Model(&types.LLMModel{}), purpose).
+		Where("org_id = ?", orgID).
+		Where("deleted_at IS NULL").
+		Count(&count).Error
+	return count > 0, err
+}
+
+// convergeAllClassDefaults 对指定组织的所有用途分别收敛唯一默认。
+func convergeAllClassDefaults(d *gorm.DB, ctx context.Context, orgID uint) error {
+	for _, purpose := range allPurposes() {
+		if err := convergePurposeDefault(d, ctx, orgID, purpose); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// convergePurposeDefault 保证指定组织指定用途下有且仅有一个默认模型。
+func convergePurposeDefault(d *gorm.DB, ctx context.Context, orgID uint, purpose types.LLMModelPurpose) error {
+	var defaults []types.LLMModel
+	if err := QueryByPurpose(d.WithContext(ctx).Model(&types.LLMModel{}), purpose).
+		Where("org_id = ? AND is_default = ?", orgID, true).
+		Where("deleted_at IS NULL").
+		Order("is_system DESC, updated_at DESC").
+		Find(&defaults).Error; err != nil {
+		return err
+	}
+
+	switch len(defaults) {
+	case 1:
+		return nil
+	case 0:
+		var candidate types.LLMModel
+		err := QueryByPurpose(d.WithContext(ctx).Model(&types.LLMModel{}), purpose).
+			Where("org_id = ? AND status = ?", orgID, string(types.LLMModelStatusActive)).
+			Where("deleted_at IS NULL").
+			Order("is_system DESC, updated_at DESC").
+			First(&candidate).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return d.WithContext(ctx).Model(&types.LLMModel{}).
+			Where("id = ?", candidate.ID).Update("is_default", true).Error
+	default:
+		ids := make([]uint, 0, len(defaults)-1)
+		for _, m := range defaults[1:] {
+			ids = append(ids, m.ID)
+		}
+		return d.WithContext(ctx).Model(&types.LLMModel{}).
+			Where("id IN ?", ids).Update("is_default", false).Error
+	}
 }
 
 // backfillProjectResourceBindings 将存量 project + project_member 回填为统一资源权限模型。

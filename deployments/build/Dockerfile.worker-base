@@ -128,6 +128,7 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
 #   - openpyxl / xlsxwriter / pandas：Excel 读写与分析
 #   - python-pptx：PPTX 读写
 #   - PyMuPDF / pypdf / pdfplumber / pdfminer.six / reportlab：PDF 处理与生成
+#   - xlrd：读取老式 .xls（Excel 97-2003）文件
 #   - Pillow：图像处理
 # SaaS 版也装这些轻量库（投标/Excel/Word 技能依赖）。
 RUN pip3 install --break-system-packages \
@@ -143,6 +144,7 @@ RUN pip3 install --break-system-packages \
     pdfplumber==0.11.8 \
     pdfminer.six==20251107 \
     reportlab==4.4.9 \
+    xlrd==2.0.1 \
     Pillow==12.2.0
 # private 版额外安装 pdfminer.six（上面已装）与 Ghostscript 绑定的 Python 包装暂略；
 # 如需 matplotlib 非 apt 版本可在此段补充（apt python3-matplotlib 已能满足基本图表生成）。

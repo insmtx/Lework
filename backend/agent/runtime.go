@@ -41,7 +41,11 @@ type ModelConfig struct {
 	BaseURL  string
 	// Vision 表示该模型是否声明支持图片（多模态）输入。
 	Vision bool
-	// TopP/FrequencyPenalty/PresencePenalty 采样参数，仅 opencode runtime 消费。
+	// MaxTokens 默认最大输出 token 数；0 表示未配置，走 runtime/provider 默认。
+	MaxTokens int
+	// Temperature 默认采样温度；0 表示未配置，走 provider 默认。
+	Temperature float64
+	// TopP/FrequencyPenalty/PresencePenalty 采样参数。
 	TopP             *float64
 	FrequencyPenalty *float64
 	PresencePenalty  *float64

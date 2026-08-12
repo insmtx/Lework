@@ -70,10 +70,16 @@ func TestSeedLLMDefaultAndTranslation(t *testing.T) {
 	if models[0].OrgID != 1 || models[0].Code != "llm_default" {
 		t.Fatalf("unexpected default model: %+v", models[0])
 	}
+	if models[0].Name != "内置对话模型" {
+		t.Fatalf("expected default model name 内置对话模型, got %q", models[0].Name)
+	}
 	foundTranslation := false
 	for _, m := range models {
 		if m.Code == infradb.SystemTranslationLLMModelCode && m.OrgID == 1 && m.IsSystem {
 			foundTranslation = true
+			if !m.IsDefault {
+				t.Fatalf("expected translation model to be default, got %+v", m)
+			}
 		}
 	}
 	if !foundTranslation {

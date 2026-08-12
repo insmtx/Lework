@@ -18,7 +18,7 @@ import (
 
 func TestMCPPluginCreateUpdateAndDetail(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	ctx := context.Background()
 
 	created, err := service.AddMCPPlugin(ctx, 10, 20, &contract.AddMCPPluginRequest{
@@ -104,7 +104,7 @@ func TestMCPPluginCreateUpdateAndDetail(t *testing.T) {
 
 func TestMCPPluginCreateGeneratesStableCode(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	ctx := context.Background()
 
 	first, err := service.AddMCPPlugin(ctx, 10, 20, &contract.AddMCPPluginRequest{
@@ -157,7 +157,7 @@ func TestMCPPluginCreateGeneratesStableCode(t *testing.T) {
 
 func TestMCPPluginCreateAndUpdateStdioDefinition(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	ctx := context.Background()
 
 	created, err := service.AddMCPPlugin(ctx, 10, 20, &contract.AddMCPPluginRequest{
@@ -204,7 +204,7 @@ func TestMCPPluginCreateAndUpdateStdioDefinition(t *testing.T) {
 
 func TestMCPPluginsAreVisibleAndGloballyManagedOnlyByCreator(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	ctx := context.Background()
 
 	mine, err := service.AddMCPPlugin(ctx, 10, 20, &contract.AddMCPPluginRequest{
@@ -304,7 +304,8 @@ func TestMCPPluginConnectionTestReturnsToolCount(t *testing.T) {
 	}))
 	defer httpServer.Close()
 
-	service := NewPluginService(setupPluginServiceTestDB(t))
+	database := setupPluginServiceTestDB(t)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	result, err := service.TestMCPPlugin(context.Background(), &contract.TestMCPPluginRequest{
 		URL:         httpServer.URL,
 		BearerToken: "test-token",
@@ -319,7 +320,7 @@ func TestMCPPluginConnectionTestReturnsToolCount(t *testing.T) {
 
 func TestMCPPluginValidationAndDuplicateCode(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	ctx := context.Background()
 
 	for name, config := range map[string]contract.MCPPluginConfig{

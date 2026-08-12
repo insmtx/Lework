@@ -12,33 +12,28 @@ const storeMocks = vi.hoisted(() => ({
 	testServerConnection: vi.fn(),
 }));
 
-const reloadMocks = vi.hoisted(() => ({
-	reloadDesktopRenderer: vi.fn(),
-}));
-
 vi.mock("@leros/store", () => ({
 	isPrivateDeployment: true,
 	...storeMocks,
 }));
-
-vi.mock("../utils/reload", () => reloadMocks);
 
 import { PrivateServerSettingsCard } from "./PrivateServerSettingsCard";
 
 describe("PrivateServerSettingsCard", () => {
 	let container: HTMLDivElement;
 	let root: Root;
+	let onReload: ReturnType<typeof vi.fn<() => void>>;
 
 	beforeEach(() => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
+		onReload = vi.fn<() => void>();
 		storeMocks.readPrivateServerBaseURL.mockReturnValue("https://old.example.com/v1");
 		storeMocks.clearStoredAuthUser.mockReset();
 		storeMocks.savePrivateServerBaseURL.mockReset();
 		storeMocks.testServerConnection.mockReset();
 		storeMocks.normalizeAPIBaseURL.mockImplementation((value: string) => value);
-		reloadMocks.reloadDesktopRenderer.mockReset();
 	});
 
 	afterEach(() => {
@@ -48,11 +43,13 @@ describe("PrivateServerSettingsCard", () => {
 
 	it("requires a successful test before saving a changed address", async () => {
 		storeMocks.testServerConnection.mockResolvedValue("https://new.example.com/v1");
-		await act(async () => root.render(<PrivateServerSettingsCard />));
+		await act(async () => root.render(<PrivateServerSettingsCard onReload={onReload} />));
 
 		const input = container.querySelector("input");
 		if (!input) throw new Error("server address input was not rendered");
-		setInputValue(input, "https://new.example.com/v1");
+		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+		setter?.call(input, "https://new.example.com/v1");
+		input.dispatchEvent(new Event("input", { bubbles: true }));
 
 		const saveButton = getButton(container, "保存并重新加载");
 		expect(saveButton.disabled).toBe(true);
@@ -64,15 +61,9 @@ describe("PrivateServerSettingsCard", () => {
 		await act(async () => saveButton.click());
 		expect(storeMocks.savePrivateServerBaseURL).toHaveBeenCalledWith("https://new.example.com/v1");
 		expect(storeMocks.clearStoredAuthUser).toHaveBeenCalledOnce();
-		expect(reloadMocks.reloadDesktopRenderer).toHaveBeenCalledOnce();
+		expect(onReload).toHaveBeenCalledOnce();
 	});
 });
-
-function setInputValue(input: HTMLInputElement, value: string) {
-	const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-	setter?.call(input, value);
-	input.dispatchEvent(new Event("input", { bubbles: true }));
-}
 
 function getButton(container: HTMLElement, label: string): HTMLButtonElement {
 	const button = [...container.querySelectorAll("button")].find((item) =>

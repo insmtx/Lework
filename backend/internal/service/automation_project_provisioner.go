@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"code.gitea.io/sdk/gitea"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/infra/db"
@@ -33,53 +33,74 @@ func NewAutomationProjectProvisioner(db *gorm.DB, giteaClient *gitea.Client, git
 
 // EnsureProject 返回自动化当前的可用项目；不存在或已删时创建新一代。
 func (p *AutomationProjectProvisioner) EnsureProject(ctx context.Context, a *types.Automation) (*types.Project, error) {
-	// 1. 复用当前项目（若仍存在且未删除）
-	if a.ProjectID != nil {
-		proj, err := db.GetProjectByID(ctx, p.db, *a.ProjectID)
-		if err != nil {
-			return nil, err
-		}
-		if proj != nil && !proj.DeletedAt.Valid {
-			return proj, nil
-		}
-	}
-
-	// 2. 创建新一代项目（generation+1）
-	generation := a.ProjectGeneration + 1
-	proj := &types.Project{}
+	var project *types.Project
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 幂等恢复：并发下另一实例可能已创建
-		existing, err := db.GetAutomationProjectByGeneration(ctx, tx, a.OrgID, a.ID, generation)
-		if err != nil {
+		// 与关联项目更新共享同一行锁，避免执行器使用旧关联覆盖用户刚保存的选择。
+		var automation types.Automation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND org_id = ?", a.ID, a.OrgID).First(&automation).Error; err != nil {
 			return err
-		}
-		if existing != nil {
-			*proj = *existing
-			return nil
 		}
 
-		created, err := p.createProject(ctx, tx, a, generation)
+		// 1. 复用当前项目（若仍存在、未删除且固定 AI 队友仍可执行）。
+		if automation.ProjectID != nil {
+			current, err := db.GetProjectByID(ctx, tx, *automation.ProjectID)
+			if err != nil {
+				return err
+			}
+			if current != nil && !current.DeletedAt.Valid {
+				usable, usableErr := p.projectUsable(ctx, tx, &automation, current.ID)
+				if usableErr != nil {
+					return usableErr
+				}
+				if usable {
+					project = current
+					return nil
+				}
+			}
+		}
+
+		// 2. 创建新的、单调递增的专属项目代数；不能复用历史项目，也避免软删除项目的 public_id 冲突。
+		latestGeneration, err := db.MaxAutomationProjectGeneration(ctx, tx, automation.OrgID, automation.ID)
 		if err != nil {
 			return err
 		}
-		*proj = *created
+		generation := latestGeneration + 1
+		created, err := p.createProject(ctx, tx, &automation, generation)
+		if err != nil {
+			return err
+		}
+		if err := db.UpdateAutomationProjectLink(ctx, tx, automation.ID, &created.ID, generation); err != nil {
+			return err
+		}
+		project = created
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	return project, nil
+}
 
-	// 3. 回填 Automation.ProjectID / ProjectGeneration
-	if err := p.db.WithContext(ctx).Model(&types.Automation{}).
-		Where("id = ?", a.ID).
-		Updates(map[string]interface{}{
-			"project_id":         proj.ID,
-			"project_generation": generation,
-			"updated_at":         time.Now(),
-		}).Error; err != nil {
-		logs.WarnContextf(ctx, "provisioner backfill automation project failed: %v", err)
+// projectUsable 判断自动化当前项目是否仍可复用。
+//
+// 由于 EnsureProject 由 Dispatcher 调用、无 caller 上下文，这里做**保守**检查：
+// ① 固定 AI 队友（automation.AssistantID）仍绑定为该项目成员（否则 execution 无法路由）；
+// ② 自动化 owner 仍是项目成员（权限/Create-Update 已强校验，此处兜底成员身份）。
+// 任一明确不满足时由上层创建下一代；查询错误必须返回，让 Dispatcher 重试而非永久改写关联。
+func (p *AutomationProjectProvisioner) projectUsable(ctx context.Context, database *gorm.DB, a *types.Automation, projectID uint) (bool, error) {
+	bound, err := db.IsProjectAssistantBound(ctx, database, a.OrgID, projectID, a.AssistantID)
+	if err != nil {
+		return false, err
 	}
-	return proj, nil
+	if !bound {
+		return false, nil
+	}
+	member, err := db.IsProjectUserMember(ctx, database, a.OrgID, a.OwnerID, projectID)
+	if err != nil {
+		return false, err
+	}
+	return member, nil
 }
 
 func (p *AutomationProjectProvisioner) createProject(ctx context.Context, tx *gorm.DB, a *types.Automation, generation int) (*types.Project, error) {

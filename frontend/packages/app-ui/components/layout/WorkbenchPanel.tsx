@@ -59,6 +59,7 @@ import {
 } from "../input/upload-folder";
 import { useComposerConnectorOptions } from "../input/useComposerConnectorOptions";
 import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
+import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectIcon } from "./project-icon";
@@ -248,6 +249,7 @@ function detectDesktopApp(): boolean {
 }
 
 export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
+	const { name: brandName } = useBrandIdentity();
 	const composerUploadAccept = getComposerUploadAccept(
 		typeof navigator === "undefined" ? undefined : navigator.platform,
 	);
@@ -954,7 +956,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 								你好，今天我们从哪里开始？
 							</h2>
 							<p className="text-lg  text-[var(--leros-text-muted)]">
-								告诉Lework你的目标，我们会帮你拆解任务、分配执行，并交付结果
+								告诉{brandName}你的目标，我们会帮你拆解任务、分配执行，并交付结果
 							</p>
 						</div>
 					</div>

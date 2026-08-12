@@ -39,6 +39,9 @@ func (m *mockManager) GetByModelID(ctx context.Context, orgID uint, modelID uint
 func (m *mockManager) Update(ctx context.Context, orgID uint, id uint, req *llm.UpdateRequest) (*llm.ModelConfig, error) {
 	return nil, nil
 }
+func (m *mockManager) SetStatus(ctx context.Context, orgID uint, id uint, status string) (*llm.ModelConfig, error) {
+	return nil, nil
+}
 func (m *mockManager) Delete(ctx context.Context, orgID uint, id uint) error {
 	return nil
 }

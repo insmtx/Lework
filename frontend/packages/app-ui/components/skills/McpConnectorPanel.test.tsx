@@ -108,7 +108,7 @@ describe("McpConnectorPanel", () => {
 						{
 							code: "corekg",
 							name: "CoreKG",
-							description: "连接知识库、知识图谱与智能问答能力",
+							description: "CoreKG 连接知识库、知识图谱与智能问答能力",
 							auto_connect_supported: true,
 							connected: true,
 							plugin_id: "plugin_corekg",
@@ -152,8 +152,11 @@ describe("McpConnectorPanel", () => {
 		expect(screen.getByText("文档连接器")).toBeInTheDocument();
 		expect(screen.getByText("平台连接器")).toBeInTheDocument();
 		expect(screen.getByText("自定义连接器")).toBeInTheDocument();
+		expect(screen.getByText("知识库")).toBeInTheDocument();
+		expect(screen.getByText("连接知识库、知识图谱与智能问答能力")).toBeInTheDocument();
+		expect(screen.queryByText(/CoreKG/)).not.toBeInTheDocument();
 		expect(screen.getByText("已连接")).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "管理 CoreKG" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "管理 知识库" })).not.toBeInTheDocument();
 		expect(screen.queryByText("自定义 MCP 服务")).not.toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "管理 浏览器连接器" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "管理 文档连接器" })).toBeInTheDocument();
@@ -223,7 +226,7 @@ describe("McpConnectorPanel", () => {
 		render(<McpConnectorPanel />);
 
 		expect(await screen.findByText("浏览器连接器")).toBeInTheDocument();
-		expect(screen.getAllByText("CoreKG")).toHaveLength(1);
+		expect(screen.getAllByText("知识库")).toHaveLength(1);
 		expect(screen.getByText("共 1 个")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "管理 浏览器连接器" })).toBeInTheDocument();
 	});
@@ -269,7 +272,7 @@ describe("McpConnectorPanel", () => {
 		render(<McpConnectorPanel />);
 
 		expect(await screen.findByText("已连接")).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "管理 CoreKG" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "管理 知识库" })).not.toBeInTheDocument();
 		expect(screen.queryByText("测试连接")).not.toBeInTheDocument();
 		expect(screen.queryByText("断开连接")).not.toBeInTheDocument();
 	});
@@ -436,6 +439,64 @@ describe("McpConnectorPanel", () => {
 			target: { value: "不存在" },
 		});
 		expect(screen.getByText("暂无符合条件的连接器")).toBeInTheDocument();
+	});
+
+	it.each([
+		"corekg",
+		"CoreKG",
+		"COREKG",
+	])("hides the knowledge base platform from %s search", async (keyword) => {
+		mockPluginListMCPPlatforms.mockResolvedValueOnce({
+			data: {
+				data: {
+					platforms: [
+						{
+							code: "corekg",
+							name: "CoreKG",
+							description: "COREKG 连接知识库",
+							auto_connect_supported: true,
+							connected: false,
+						},
+					],
+				},
+			},
+		});
+		render(<McpConnectorPanel />);
+
+		expect(await screen.findByText("知识库")).toBeInTheDocument();
+		expect(screen.getByText("连接知识库")).toBeInTheDocument();
+		expect(screen.queryByText(/CoreKG|COREKG/i)).not.toBeInTheDocument();
+
+		fireEvent.change(screen.getByRole("searchbox", { name: "搜索 MCP 连接器" }), {
+			target: { value: keyword },
+		});
+		expect(screen.queryByText("知识库")).not.toBeInTheDocument();
+		expect(screen.getByText("暂无符合条件的连接器")).toBeInTheDocument();
+	});
+
+	it("keeps the knowledge base platform searchable by 知识库", async () => {
+		mockPluginListMCPPlatforms.mockResolvedValueOnce({
+			data: {
+				data: {
+					platforms: [
+						{
+							code: "corekg",
+							name: "CoreKG",
+							description: "连接知识库",
+							auto_connect_supported: true,
+							connected: false,
+						},
+					],
+				},
+			},
+		});
+		render(<McpConnectorPanel />);
+
+		expect(await screen.findByText("知识库")).toBeInTheDocument();
+		fireEvent.change(screen.getByRole("searchbox", { name: "搜索 MCP 连接器" }), {
+			target: { value: "知识库" },
+		});
+		expect(screen.getByText("知识库")).toBeInTheDocument();
 	});
 
 	it("creates an HTTP MCP without exposing or sending code", async () => {

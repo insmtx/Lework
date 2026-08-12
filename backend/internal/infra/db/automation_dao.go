@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -46,6 +47,20 @@ func GetAutomationByPublicID(ctx context.Context, db *gorm.DB, orgID uint, publi
 // UpdateAutomation 更新自动化
 func UpdateAutomation(ctx context.Context, db *gorm.DB, automation *types.Automation) error {
 	return db.WithContext(ctx).Save(automation).Error
+}
+
+// UpdateAutomationProjectLink 仅更新自动化的关联项目（project_id 与 project_generation）。
+//
+// 用 map 做部分更新以支持把 project_id 置 NULL；generation 由调用方提供，避免清空关联时
+// 丢失已创建专属项目的最大代数。
+func UpdateAutomationProjectLink(ctx context.Context, db *gorm.DB, id uint, projectID *uint, generation int) error {
+	return db.WithContext(ctx).Model(&types.Automation{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"project_id":         projectID,
+			"project_generation": generation,
+			"updated_at":         time.Now(),
+		}).Error
 }
 
 // DeleteAutomationByPublicID 软删除自动化
@@ -107,6 +122,16 @@ func GetAutomationProjectByGeneration(ctx context.Context, db *gorm.DB, orgID, a
 		return nil, err
 	}
 	return &entity, nil
+}
+
+// MaxAutomationProjectGeneration 返回自动化历史专属项目的最大代数。
+// 使用 Unscoped 包含软删除项目：其 public_id 仍受唯一约束，下一代不能复用被删除项目的代数。
+func MaxAutomationProjectGeneration(ctx context.Context, db *gorm.DB, orgID, automationID uint) (int, error) {
+	var generation int
+	err := db.WithContext(ctx).Unscoped().Model(&types.Project{}).
+		Where("org_id = ? AND automation_id = ?", orgID, automationID).
+		Select("COALESCE(MAX(automation_generation), 0)").Scan(&generation).Error
+	return generation, err
 }
 
 // ListAutomationProjects 列出某自动化全部非删除项目（按代数升序）。

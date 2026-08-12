@@ -12,20 +12,31 @@ import (
 // errNotAuthenticated 表示认证上下文中缺少有效的组织身份。
 var errNotAuthenticated = errors.New("user not authenticated or org not set")
 
+// orgCreatorChecker 判断 uin 是否为 orgID 组织的创建者。
+// 由 account 层（oss/enterprise 各自实现）注入，保证组织权限判定走 edition 抽象而非本模块直查。
+type orgCreatorChecker interface {
+	IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error)
+}
+
 // ContractAdapter 将 llm.Manager 适配为 contract.LLMModelService。
 type ContractAdapter struct {
-	manager Manager
+	manager         Manager
+	orgCreatorCheck orgCreatorChecker
 }
 
 // NewContractAdapter 创建一个实现 contract.LLMModelService 的适配器。
-func NewContractAdapter(manager Manager) contract.LLMModelService {
-	return &ContractAdapter{manager: manager}
+// orgCreatorCheck 提供组织创建者的权限判定，nil 时禁用校验（仅测试用）。
+func NewContractAdapter(manager Manager, orgCreatorCheck orgCreatorChecker) contract.LLMModelService {
+	return &ContractAdapter{manager: manager, orgCreatorCheck: orgCreatorCheck}
 }
 
 // CreateLLMModel 创建 LLM 模型配置。
 func (a *ContractAdapter) CreateLLMModel(ctx context.Context, req *contract.CreateLLMModelRequest) (*contract.LLMModel, error) {
 	orgID, err := orgIDFromContext(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
 		return nil, err
 	}
 	cfg, err := a.manager.Create(ctx, orgID, &CreateRequest{
@@ -36,8 +47,11 @@ func (a *ContractAdapter) CreateLLMModel(ctx context.Context, req *contract.Crea
 		BaseURL:     req.BaseURL,
 		APIKey:      req.APIKey,
 		Status:      req.Status,
+		Purpose:     types.LLMModelPurpose(req.Purpose),
 		IsDefault:   req.IsDefault,
 		Config:      req.Config,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
 	})
 	if err != nil {
 		return nil, err
@@ -49,6 +63,9 @@ func (a *ContractAdapter) CreateLLMModel(ctx context.Context, req *contract.Crea
 func (a *ContractAdapter) GetLLMModel(ctx context.Context, id uint, code string) (*contract.LLMModel, error) {
 	orgID, err := orgIDFromContext(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
 		return nil, err
 	}
 	cfg, err := a.manager.Get(ctx, orgID, id, code)
@@ -64,6 +81,9 @@ func (a *ContractAdapter) GetDefaultLLMModel(ctx context.Context) (*contract.LLM
 	if err != nil {
 		return nil, err
 	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
+		return nil, err
+	}
 	cfg, err := a.manager.GetDefault(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -77,6 +97,9 @@ func (a *ContractAdapter) UpdateLLMModel(ctx context.Context, id uint, req *cont
 	if err != nil {
 		return nil, err
 	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
+		return nil, err
+	}
 	cfg, err := a.manager.Update(ctx, orgID, id, &UpdateRequest{
 		Name:        req.Name,
 		Description: req.Description,
@@ -84,10 +107,28 @@ func (a *ContractAdapter) UpdateLLMModel(ctx context.Context, id uint, req *cont
 		Model:       req.Model,
 		BaseURL:     req.BaseURL,
 		APIKey:      req.APIKey,
-		Status:      req.Status,
+		Purpose:     purposePtr(req.Purpose),
 		IsDefault:   req.IsDefault,
 		Config:      req.Config,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return modelConfigToContract(cfg), nil
+}
+
+// SetLLMModelStatus 启用或禁用 LLM 模型配置。
+func (a *ContractAdapter) SetLLMModelStatus(ctx context.Context, id uint, status string) (*contract.LLMModel, error) {
+	orgID, err := orgIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
+		return nil, err
+	}
+	cfg, err := a.manager.SetStatus(ctx, orgID, id, status)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +141,9 @@ func (a *ContractAdapter) DeleteLLMModel(ctx context.Context, id uint) error {
 	if err != nil {
 		return err
 	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
+		return err
+	}
 	return a.manager.Delete(ctx, orgID, id)
 }
 
@@ -109,9 +153,13 @@ func (a *ContractAdapter) ListLLMModels(ctx context.Context, req *contract.ListL
 	if err != nil {
 		return nil, err
 	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
+		return nil, err
+	}
 	result, err := a.manager.List(ctx, orgID, &ListRequest{
 		Provider: req.Provider,
 		Status:   req.Status,
+		Purpose:  req.Purpose,
 		Keyword:  req.Keyword,
 		Offset:   req.Offset,
 		Limit:    req.Limit,
@@ -135,6 +183,9 @@ func (a *ContractAdapter) ListLLMModels(ctx context.Context, req *contract.ListL
 func (a *ContractAdapter) TestLLMModel(ctx context.Context, req *contract.TestLLMModelRequest) (*contract.TestLLMModelResponse, error) {
 	orgID, err := orgIDFromContext(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.requireOrgCreator(ctx, orgID); err != nil {
 		return nil, err
 	}
 	result, err := a.manager.TestConnectivity(ctx, orgID, &TestRequest{
@@ -166,6 +217,38 @@ func orgIDFromContext(ctx context.Context) (uint, error) {
 	return caller.OrgID, nil
 }
 
+// requireOrgCreator 校验当前 caller 是否为 orgID 组织的创建者。
+// 非创建者返回 permission denied，由 handler 映射为 403。
+func (a *ContractAdapter) requireOrgCreator(ctx context.Context, orgID uint) error {
+	caller, _ := auth.FromContext(ctx)
+	if caller == nil || caller.OrgID == 0 || caller.State != types.AuthStateSucc {
+		return errNotAuthenticated
+	}
+	if a.orgCreatorCheck == nil {
+		return errors.New("permission denied")
+	}
+	if orgID == 0 {
+		orgID = caller.OrgID
+	}
+	ok, err := a.orgCreatorCheck.IsOrgCreator(ctx, orgID, caller.Uin)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("permission denied")
+	}
+	return nil
+}
+
+// purposePtr 将 *string 用途转换为 *types.LLMModelPurpose。
+func purposePtr(s *string) *types.LLMModelPurpose {
+	if s == nil {
+		return nil
+	}
+	p := types.LLMModelPurpose(*s)
+	return &p
+}
+
 // modelConfigToContract 将领域类型 ModelConfig 转换为 contract.LLMModel。
 // APIKey 字段做脱敏处理，不暴露明文。
 func modelConfigToContract(cfg *ModelConfig) *contract.LLMModel {
@@ -187,6 +270,7 @@ func modelConfigToContract(cfg *ModelConfig) *contract.LLMModel {
 		Temperature:  cfg.Temperature,
 		TimeoutSec:   cfg.TimeoutSec,
 		Status:       cfg.Status,
+		Purpose:      string(cfg.Purpose),
 		IsDefault:    cfg.IsDefault,
 		IsSystem:     cfg.IsSystem,
 		Config:       cfg.Config,

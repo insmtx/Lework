@@ -1,10 +1,9 @@
 "use client";
 
 import {
-	AiTeammatesView,
-	AssistantListView,
 	AutomationExecutionPage,
 	AutomationListView,
+	OrgAdminPage,
 	ProjectPage,
 	ProjectsHubView,
 	SkillMarketView,
@@ -61,10 +60,14 @@ export function TaskDetailRoutePage() {
 	);
 }
 
-export function AssistantsRoutePage() {
+export function OrgAdminRoutePage({
+	section,
+}: {
+	section: "profile" | "departments" | "assistants" | "models";
+}) {
 	const navigation = useWebNavigation();
 
-	return <AssistantListView navigation={navigation} />;
+	return <OrgAdminPage section={section} navigation={navigation} />;
 }
 
 export function SkillsRoutePage() {
@@ -84,10 +87,6 @@ export function AutomationExecutionRoutePage() {
 	const params = useParams<{ publicId: string }>();
 
 	return <AutomationExecutionPage automationPublicId={params.publicId} navigation={navigation} />;
-}
-
-export function AiTeammatesRoutePage() {
-	return <AiTeammatesView />;
 }
 
 export function ProjectsHubRoutePage() {

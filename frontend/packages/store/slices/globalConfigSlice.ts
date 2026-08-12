@@ -8,8 +8,8 @@ export type GlobalConfigState = {
 	/** null 表示尚未拉到 GlobalConfig，不做数量上限判断。 */
 	maxOrgsPerUser: number | null;
 	/**
-	 * 是否开启手机号验证码登录。
-	 * 公有云默认 true；私有化客户端固定为 false（仅账号密码登录）。
+	 * 是否开启手机号验证码登录（GlobalConfig 透传；登录 UI 不以此为准）。
+	 * 登录展示以客户端 isPrivateDeployment 为准：私有化账密，其余验证码。
 	 */
 	phoneCodeLoginEnabled: boolean;
 };

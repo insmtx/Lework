@@ -659,3 +659,119 @@ func ListPluginMarketplaceItems(ctx context.Context, database *gorm.DB, filter P
 	}
 	return items, nil
 }
+
+// ListPluginTranslations returns cached translations for one organization and source IDs.
+// The caller selects the source revision and falls back to the original content when no matching row exists.
+func ListPluginTranslations(
+	ctx context.Context,
+	database *gorm.DB,
+	orgID uint,
+	sourceType string,
+	sourceIDs []uint,
+	locale string,
+) ([]types.PluginTranslation, error) {
+	if len(sourceIDs) == 0 {
+		return []types.PluginTranslation{}, nil
+	}
+
+	var translations []types.PluginTranslation
+	err := database.WithContext(ctx).
+		Where("org_id = ? AND source_type = ? AND source_id IN ? AND locale = ?", orgID, sourceType, sourceIDs, locale).
+		Order("source_id ASC, plugin_revision_id ASC").
+		Find(&translations).Error
+	return translations, err
+}
+
+// ListCurrentPluginRevisionsByPluginIDs returns the newest published revision for each plugin.
+func ListCurrentPluginRevisionsByPluginIDs(
+	ctx context.Context,
+	database *gorm.DB,
+	pluginIDs []uint,
+) (map[uint]types.PluginRevision, error) {
+	result := make(map[uint]types.PluginRevision, len(pluginIDs))
+	if len(pluginIDs) == 0 {
+		return result, nil
+	}
+
+	var revisions []types.PluginRevision
+	err := database.WithContext(ctx).
+		Where("plugin_id IN ? AND status = ?", pluginIDs, "published").
+		Order("plugin_id ASC, revision DESC").
+		Find(&revisions).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, revision := range revisions {
+		if _, exists := result[revision.PluginID]; !exists {
+			result[revision.PluginID] = revision
+		}
+	}
+	return result, nil
+}
+
+// UpsertPluginTranslationMetadata updates only the cached name and description for one source revision.
+func UpsertPluginTranslationMetadata(
+	ctx context.Context,
+	database *gorm.DB,
+	translation *types.PluginTranslation,
+) error {
+	if translation == nil {
+		return fmt.Errorf("plugin metadata translation is required")
+	}
+	return database.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "org_id"},
+				{Name: "source_type"},
+				{Name: "source_id"},
+				{Name: "plugin_revision_id"},
+				{Name: "locale"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"source_revision",
+				"metadata_source_hash",
+				"translated_name",
+				"translated_description",
+				"updated_at",
+			}),
+		}).
+		Create(translation).Error
+}
+
+// UpsertPluginTranslationDocument updates only the cached translated SKILL.md for one source revision.
+func UpsertPluginTranslationDocument(
+	ctx context.Context,
+	database *gorm.DB,
+	translation *types.PluginTranslation,
+) error {
+	if translation == nil {
+		return fmt.Errorf("plugin document translation is required")
+	}
+	return database.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "org_id"},
+				{Name: "source_type"},
+				{Name: "source_id"},
+				{Name: "plugin_revision_id"},
+				{Name: "locale"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"source_revision",
+				"skill_md_source_hash",
+				"translated_skill_md",
+				"updated_at",
+			}),
+		}).
+		Create(translation).Error
+}
+
+// DeletePluginTranslations removes display cache rows for one source kind.
+func DeletePluginTranslations(ctx context.Context, database *gorm.DB, sourceType string, sourceIDs []uint) error {
+	if len(sourceIDs) == 0 {
+		return nil
+	}
+	return database.WithContext(ctx).
+		Where("source_type = ? AND source_id IN ?", sourceType, sourceIDs).
+		Delete(&types.PluginTranslation{}).Error
+}

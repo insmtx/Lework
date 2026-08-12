@@ -28,13 +28,14 @@ func TestToggleAutomationEnabledOnly(t *testing.T) {
 	// 先建一条自动化
 	now := time.Now().UTC()
 	next := now.Add(time.Hour)
+	initialEnabled := true
 	automation := &types.Automation{
 		OrgID:        1,
 		OwnerID:      7,
 		PublicID:     "auto_test_1",
 		Name:         "测试自动化",
 		Instruction:  "测试指令",
-		Enabled:      true,
+		Enabled:      &initialEnabled,
 		ScheduleMode: "interval",
 		ScheduleSpec: types.AutomationScheduleSpec{
 			Spec: types.AutomationScheduleSpecItem{
@@ -49,7 +50,7 @@ func TestToggleAutomationEnabledOnly(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	svc := NewAutomationService(db)
+	svc := NewAutomationService(db, nil)
 	ctx := auth.WithContext(context.Background(), &types.Caller{Uin: 7, OrgID: 1, State: types.AuthStateSucc}, nil)
 
 	// 只传 enabled=false（停用）

@@ -145,6 +145,7 @@ type ProjectPlugin struct {
 	Code            string `json:"code"`
 	Kind            string `json:"kind"`
 	Name            string `json:"name"`
+	DisplayName     string `json:"display_name,omitempty"`
 	Description     string `json:"description,omitempty"`
 	Status          string `json:"status"`
 	CurrentRevision int    `json:"current_revision"`

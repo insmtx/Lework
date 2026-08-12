@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.3.11] - 2026-08-12
+
+### 模型与组织管理、自动化增强与私有化品牌
+
+本版本新增系统级模型管理与独立组织管理页，增强自动化调度能力，完善私有化品牌与登录分流，并修复 Worker 序列复用与 Helm Ingress 等问题。
+
+- 新增模型管理（组织创建者）：必填校验、仅停用可编辑/删除、连接测试与启用/禁用
+- 组织管理改为独立页面，并纳入模型管理入口
+- 自动化支持指令中选择技能、多选执行周期与关联已有项目；修复创建停用任务状态被覆盖
+- SaaS 登录仅验证码，私有化仅账密；私有化支持自定义品牌展示，统一暂时隐藏资源库
+- 私有化部署 UI 抽到 app-ui 供 Web/Desktop 共用；支持从 Web 打开对应环境桌面端
+- CoreKG 平台连接器展示为知识库；技能展示内容支持中文翻译
+- Worker 基础镜像安装 xlrd 支持读取 .xls；Eino 迭代上限调整为 50；worker CLI 默认值改为 opencode
+- OpenCode native 运行透传采样参数与 budget input
+- 修复 Worker 序列复用导致的命令丢失、Helm ingress 模板换行被吃掉、devtools 快捷键与插件页 tab 顺序
+
 ## [v0.3.10] - 2026-08-10
 
 ### Token 消耗展示、OpenCode 采样参数与 Helm 统一登录
@@ -11,6 +27,7 @@
 - Helm 新增 account 服务及内置 MySQL/Redis，支持统一登录；修复 MySQL DSN 生成格式
 - Eino ReAct 迭代上限调整为 30
 - 桌面端支持 localStorage 覆盖开关，便于本地调试私有化模式
+- macOS 正式版调试快捷键改为仅应用聚焦时生效的 Command+Option+Shift+I，避免功能键冲突与状态误判
 - 修复 AI 队友模板失效头像 seed 覆盖重传，并支持匿名访问 system 文件
 - 补充 Worker 状态查询文档与 llm.vision 多模态配置示例
 

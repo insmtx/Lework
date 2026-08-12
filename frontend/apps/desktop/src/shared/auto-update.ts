@@ -4,6 +4,7 @@ export const desktopUpdateCheckChannel = "leros-desktop:update-check";
 export const desktopUpdateRestartChannel = "leros-desktop:update-restart";
 export const desktopOpenPolicyPdfChannel = "leros-desktop:open-policy-pdf";
 export const desktopOpenExternalChannel = "leros-desktop:open-external";
+export const desktopOpenServerChannel = "leros-desktop:open-server";
 
 export type DesktopUpdatePhase =
 	| "idle"
@@ -37,5 +38,6 @@ export interface DesktopUpdateApi {
 	quitAndInstall: () => Promise<boolean>;
 	openPolicyPdf: (document: DesktopPolicyDocument) => Promise<boolean>;
 	openExternal: (url: string) => Promise<boolean>;
+	onOpenServer: (listener: (serverURL: string) => void) => () => void;
 	subscribe: (listener: (state: DesktopUpdateState) => void) => () => void;
 }

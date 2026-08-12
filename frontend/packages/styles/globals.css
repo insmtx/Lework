@@ -104,7 +104,7 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.t-dropdown {
-		transition: none !important;
+		transition: none;
 	}
 }
 
@@ -191,6 +191,9 @@
 	}
 
 	.leros-brand-title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 18px;
 		font-weight: 700;
 		line-height: 1.25;

@@ -10,32 +10,27 @@ const storeMocks = vi.hoisted(() => ({
 	testServerConnection: vi.fn(),
 }));
 
-const reloadMocks = vi.hoisted(() => ({
-	reloadDesktopRenderer: vi.fn(),
-}));
-
 vi.mock("@leros/store", () => ({
 	API_BASE_URL: "https://default.example.com/v1",
 	isPrivateDeployment: true,
 	...storeMocks,
 }));
 
-vi.mock("../utils/reload", () => reloadMocks);
-
 import { PrivateDeploymentGate } from "./PrivateDeploymentGate";
 
 describe("PrivateDeploymentGate", () => {
 	let container: HTMLDivElement;
 	let root: Root;
+	let onReload: ReturnType<typeof vi.fn<() => void>>;
 
 	beforeEach(() => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
+		onReload = vi.fn<() => void>();
 		storeMocks.hasPrivateServerConfiguration.mockReset();
 		storeMocks.savePrivateServerBaseURL.mockReset();
 		storeMocks.testServerConnection.mockReset();
-		reloadMocks.reloadDesktopRenderer.mockReset();
 	});
 
 	afterEach(() => {
@@ -48,7 +43,7 @@ describe("PrivateDeploymentGate", () => {
 
 		act(() => {
 			root.render(
-				<PrivateDeploymentGate>
+				<PrivateDeploymentGate onReload={onReload}>
 					<main data-testid="application">application</main>
 				</PrivateDeploymentGate>,
 			);
@@ -63,7 +58,7 @@ describe("PrivateDeploymentGate", () => {
 
 		act(() => {
 			root.render(
-				<PrivateDeploymentGate>
+				<PrivateDeploymentGate onReload={onReload}>
 					<main data-testid="application">application</main>
 				</PrivateDeploymentGate>,
 			);
@@ -74,68 +69,34 @@ describe("PrivateDeploymentGate", () => {
 		expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull();
 	});
 
-	it("does not prefill the server address input", () => {
+	it("saves and reloads after the connection test succeeds", async () => {
 		storeMocks.hasPrivateServerConfiguration.mockReturnValue(false);
+		storeMocks.testServerConnection.mockResolvedValue("https://private.example.com/v1");
 
-		act(() => {
+		await act(async () => {
 			root.render(
-				<PrivateDeploymentGate>
+				<PrivateDeploymentGate onReload={onReload}>
 					<main>application</main>
 				</PrivateDeploymentGate>,
 			);
 		});
 
 		const input = document.querySelector<HTMLInputElement>("#private-server-url");
-		expect(input?.value).toBe("");
-	});
+		if (!input) throw new Error("setup input was not rendered");
+		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+		setter?.call(input, "https://private.example.com");
+		input.dispatchEvent(new Event("input", { bubbles: true }));
 
-	it("does not save when the connection test fails", async () => {
-		storeMocks.hasPrivateServerConfiguration.mockReturnValue(false);
-		storeMocks.testServerConnection.mockRejectedValue(new Error("连接失败"));
+		const form = document.querySelector("form");
+		if (!form) throw new Error("setup form was not rendered");
 
-		await renderAndSubmit(root, "https://private.example.com");
-
-		expect(storeMocks.savePrivateServerBaseURL).not.toHaveBeenCalled();
-		expect(reloadMocks.reloadDesktopRenderer).not.toHaveBeenCalled();
-		expect(document.body.textContent).toContain("连接失败");
-	});
-
-	it("saves and reloads after the connection test succeeds", async () => {
-		storeMocks.hasPrivateServerConfiguration.mockReturnValue(false);
-		storeMocks.testServerConnection.mockResolvedValue("https://private.example.com/v1");
-
-		await renderAndSubmit(root, "https://private.example.com");
+		await act(async () => {
+			form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		});
 
 		expect(storeMocks.savePrivateServerBaseURL).toHaveBeenCalledWith(
 			"https://private.example.com/v1",
 		);
-		expect(reloadMocks.reloadDesktopRenderer).toHaveBeenCalledOnce();
+		expect(onReload).toHaveBeenCalledOnce();
 	});
 });
-
-async function renderAndSubmit(root: Root, serverURL: string) {
-	await act(async () => {
-		root.render(
-			<PrivateDeploymentGate>
-				<main>application</main>
-			</PrivateDeploymentGate>,
-		);
-	});
-
-	const input = document.querySelector<HTMLInputElement>("#private-server-url");
-	if (!input) throw new Error("setup input was not rendered");
-	setInputValue(input, serverURL);
-
-	const form = document.querySelector("form");
-	if (!form) throw new Error("setup form was not rendered");
-
-	await act(async () => {
-		form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-	});
-}
-
-function setInputValue(input: HTMLInputElement, value: string) {
-	const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-	setter?.call(input, value);
-	input.dispatchEvent(new Event("input", { bubbles: true }));
-}

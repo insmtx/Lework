@@ -11,6 +11,28 @@ definitions:
       user_id:
         type: integer
     type: object
+  contract.CreateAutomationRequest:
+    properties:
+      enabled:
+        type: boolean
+      instruction:
+        type: string
+      name:
+        type: string
+      project_public_id:
+        description: ProjectPublicID 关联的既有项目对外 ID（可选）。空/省略：使用默认新项目（首次执行懒创建）。
+        type: string
+      schedule:
+        $ref: '#/definitions/types.AutomationScheduleFormConfig'
+      schedule_mode:
+        type: string
+      timezone:
+        type: string
+    required:
+    - name
+    - schedule
+    - schedule_mode
+    type: object
   contract.CreateDepartmentRequest:
     properties:
       name:
@@ -79,18 +101,26 @@ definitions:
         type: string
       is_default:
         type: boolean
+      max_tokens:
+        type: integer
       model:
         type: string
       name:
         type: string
       provider:
         type: string
+      purpose:
+        type: string
       status:
         type: string
+      temperature:
+        type: number
     required:
     - api_key
     - base_url
     - model
+    - name
+    - purpose
     type: object
   contract.CreateMemberDepartmentRequest:
     properties:
@@ -222,6 +252,13 @@ definitions:
       phone:
         type: string
     type: object
+  contract.DeleteAutomationRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
   contract.DigitalAssistant:
     properties:
       avatar:
@@ -260,6 +297,50 @@ definitions:
         type: string
       version:
         type: integer
+    type: object
+  contract.GetAutomationExecutionRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
+  contract.GetAutomationRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
+  contract.ListAutomationExecutionsRequest:
+    properties:
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+      public_id:
+        type: string
+      status:
+        type: string
+    required:
+    - public_id
+    type: object
+  contract.ListAutomationsRequest:
+    properties:
+      enabled:
+        type: boolean
+      keyword:
+        type: string
+      limit:
+        type: integer
+      list_all:
+        type: boolean
+      offset:
+        type: integer
+      schedule_mode:
+        type: string
     type: object
   contract.ListDepartmentRequest:
     properties:
@@ -304,6 +385,8 @@ definitions:
       offset:
         type: integer
       provider:
+        type: string
+      purpose:
         type: string
       status:
         type: string
@@ -432,9 +515,9 @@ definitions:
       offset:
         type: integer
     type: object
-  contract.LoginByEmailRequest:
+  contract.LoginByPasswordRequest:
     properties:
-      email:
+      account:
         type: string
       password:
         type: string
@@ -483,10 +566,38 @@ definitions:
       password:
         type: string
     type: object
+  contract.RunAutomationNowRequest:
+    properties:
+      public_id:
+        type: string
+    required:
+    - public_id
+    type: object
   contract.SendPhoneLoginCodeRequest:
     properties:
       phone:
         type: string
+    type: object
+  contract.SessionEventsRequest:
+    properties:
+      assistant_id:
+        type: string
+      replay:
+        type: boolean
+      session_id:
+        type: string
+    required:
+    - session_id
+    type: object
+  contract.SetLLMModelStatusRequest:
+    properties:
+      id:
+        type: integer
+      status:
+        type: string
+    required:
+    - id
+    - status
     type: object
   contract.SwitchOrganizationRequest:
     properties:
@@ -508,6 +619,15 @@ definitions:
       model:
         type: string
       provider:
+        type: string
+    type: object
+  contract.UpdateCurrentUserRequest:
+    properties:
+      avatar_url:
+        type: string
+      email:
+        type: string
+      name:
         type: string
     type: object
   contract.WorkerDeploymentStatus:
@@ -550,8 +670,14 @@ definitions:
     type: object
   dto.GlobalConfigData:
     properties:
+      deploy_mode:
+        type: string
       edition:
         type: string
+      max_orgs_per_user:
+        type: integer
+      phone_code_login_enabled:
+        type: boolean
     type: object
   dto.Response:
     properties:
@@ -576,6 +702,10 @@ definitions:
       chunks:
         items:
           $ref: '#/definitions/types.MessageChunk'
+        type: array
+      connector_ids:
+        items:
+          type: string
         type: array
       content:
         type: string
@@ -733,17 +863,6 @@ definitions:
       replay_since_seq:
         type: integer
     type: object
-  handler.SessionEventsRequest:
-    properties:
-      assistant_id:
-        type: string
-      replay:
-        type: boolean
-      session_id:
-        type: string
-    required:
-    - session_id
-    type: object
   handler.UpdateDigitalAssistantRequest:
     properties:
       avatar:
@@ -790,16 +909,22 @@ definitions:
         type: integer
       is_default:
         type: boolean
+      max_tokens:
+        type: integer
       model:
         type: string
       name:
         type: string
       provider:
         type: string
-      status:
+      purpose:
         type: string
+      temperature:
+        type: number
     required:
     - id
+    - name
+    - purpose
     type: object
   handler.UpdateOrgMemberRequest:
     properties:
@@ -902,13 +1027,36 @@ definitions:
     type: object
   handler.UpdateUserRequest:
     properties:
-      avatar_url:
-        type: string
       email:
         type: string
       name:
         type: string
       public_id:
+        type: string
+    required:
+    - public_id
+    type: object
+  handler.automationUpdateRequestBody:
+    properties:
+      enabled:
+        type: boolean
+      instruction:
+        type: string
+      name:
+        type: string
+      project_public_id:
+        description: |-
+          ProjectPublicID 关联项目三态：
+            nil：保持原关联；""：切回默认新项目；非空：关联指定项目。
+        type: string
+      public_id:
+        type: string
+      schedule:
+        $ref: '#/definitions/types.AutomationScheduleFormConfig'
+      schedule_mode:
+        description: 修改周期时必须提交完整 schedule
+        type: string
+      timezone:
         type: string
     required:
     - public_id
@@ -1007,6 +1155,60 @@ definitions:
         type: integer
     required:
     - id
+    type: object
+  types.AutomationCalendarConfig:
+    properties:
+      days_of_month:
+        description: DaysOfMonth 每月预设的日期集合（1-31）
+        items:
+          type: integer
+        type: array
+      days_of_week:
+        description: DaysOfWeek 每周预设的星期集合（0=周日，6=周六），0-6
+        items:
+          type: integer
+        type: array
+      hour:
+        description: Hour 小时（0-23）
+        type: integer
+      minute:
+        description: Minute 分钟（0-59）
+        type: integer
+      preset:
+        description: Preset 预设类型：daily/weekly/monthly/hourly
+        type: string
+    type: object
+  types.AutomationIntervalConfig:
+    properties:
+      anchor_at:
+        description: AnchorAt 本地时区锚点时间（ISO8601，不带时区偏移，解释为指定时区）
+        type: string
+      interval_minutes:
+        description: IntervalMinutes 间隔分钟数（表单友好字段，服务端换算为秒并生成 interval_seconds）
+        type: integer
+      interval_seconds:
+        description: IntervalSeconds 间隔秒数
+        type: integer
+      interval_unit:
+        description: IntervalUnit 间隔单位，只用于回显：minute/hour/day
+        type: string
+    type: object
+  types.AutomationScheduleFormConfig:
+    properties:
+      calendar:
+        allOf:
+        - $ref: '#/definitions/types.AutomationCalendarConfig'
+        description: Calendar 日历类预设配置（mode == "calendar" 时有效）
+      interval:
+        allOf:
+        - $ref: '#/definitions/types.AutomationIntervalConfig'
+        description: Interval 固定间隔配置（mode == "interval" 时有效）
+      mode:
+        description: Mode 调度模式（calendar/interval），与 Automation 的 schedule_mode 保持一致
+        type: string
+      timezone:
+        description: Timezone 表单发起时的 IANA 时区
+        type: string
     type: object
   types.ExecutionMode:
     enum:
@@ -2543,7 +2745,7 @@ paths:
       - User
   /GlobalConfig:
     get:
-      description: 返回服务端通用全局配置信息（当前返回 edition 字段）
+      description: 返回服务端通用全局配置信息（edition、deploy_mode、max_orgs_per_user）
       produces:
       - application/json
       responses:
@@ -2967,18 +3169,18 @@ paths:
       summary: 查询用户列表
       tags:
       - User
-  /LoginByEmail:
+  /LoginByPassword:
     post:
       consumes:
       - application/json
-      description: 使用邮箱和密码登录并获取访问令牌
+      description: 使用账号（邮箱或手机号）和密码登录；统一返回 refresh_token，需后续调用 ChooseUin 选择组织获取 JWT
       parameters:
-      - description: 邮箱登录请求
+      - description: 账号密码登录请求
         in: body
         name: body
         required: true
         schema:
-          $ref: '#/definitions/contract.LoginByEmailRequest'
+          $ref: '#/definitions/contract.LoginByPasswordRequest'
       produces:
       - application/json
       responses:
@@ -3002,7 +3204,7 @@ paths:
           description: 内部服务器错误
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
-      summary: 邮箱登录
+      summary: 账号密码登录
       tags:
       - Auth
   /LoginByPhoneCode:
@@ -3152,7 +3354,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/handler.SessionEventsRequest'
+          $ref: '#/definitions/contract.SessionEventsRequest'
       produces:
       - text/event-stream
       responses:
@@ -3175,6 +3377,48 @@ paths:
       summary: 订阅会话事件流
       tags:
       - Session
+  /SetLLMModelStatus:
+    post:
+      consumes:
+      - application/json
+      description: 根据ID启用或禁用LLM模型配置
+      parameters:
+      - description: 启用/禁用LLM模型请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.SetLLMModelStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: 资源不存在
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 启用或禁用LLM模型
+      tags:
+      - LLMModel
   /SwitchOrganization:
     post:
       consumes:
@@ -3243,6 +3487,40 @@ paths:
       summary: 测试LLM模型
       tags:
       - LLMModel
+  /UpdateCurrentUser:
+    post:
+      consumes:
+      - application/json
+      description: 当前登录用户修改自己的信息
+      parameters:
+      - description: 更新当前用户请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.UpdateCurrentUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: 内部服务器错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 更新当前用户信息
+      tags:
+      - User
   /UpdateDepartment:
     post:
       consumes:
@@ -3778,6 +4056,54 @@ paths:
       summary: 上传文件
       tags:
       - File
+  /ops/workers/status:
+    get:
+      description: 根据 orgid 和 workerid 查询指定 Worker 的本地运行状态快照。
+      parameters:
+      - description: 组织 ID
+        in: query
+        name: orgid
+        required: true
+        type: integer
+      - description: Worker ID
+        in: query
+        name: workerid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Worker 状态快照
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: 组织不匹配
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "502":
+          description: Worker 响应格式错误
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "503":
+          description: NATS 不可用
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "504":
+          description: Worker 响应超时
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: 查询 Worker 状态
+      tags:
+      - Ops
   /presigned/{bucket}/{key}:
     get:
       description: 消费预签名下载 URL（可选 token/expires 参数进行签名校验；不带参数时直接公开访问）
@@ -3896,7 +4222,8 @@ paths:
         in: query
         name: node_type
         type: string
-      - description: 文件类型分组：pdf | docx | xlsx | pptx | md | image | text
+      - description: 文件类型分组：pdf | docx | xlsx | pptx | md | html | image | video |
+          text
         in: query
         name: file_ext
         type: string

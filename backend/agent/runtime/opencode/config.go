@@ -123,6 +123,32 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 	return string(data), nil
 }
 
+// sanitizeConfigContent 返回适合写入日志的 config JSON 字符串。
+// 剔除每个 provider options 下的 apiKey 字段以避免密钥落入日志；
+// baseURL 及采样参数等其余字段原样保留。config 无法解析时原样返回，
+// 不阻塞日志输出（调用方不应因脱敏失败而中断启动流程）。
+func sanitizeConfigContent(configContent string) string {
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(configContent), &cfg); err != nil {
+		return configContent
+	}
+	providers, ok := cfg["provider"].(map[string]any)
+	if ok {
+		for _, v := range providers {
+			opts, ok := v.(map[string]any)["options"].(map[string]any)
+			if !ok {
+				continue
+			}
+			delete(opts, "apiKey")
+		}
+	}
+	cleaned, err := json.Marshal(cfg)
+	if err != nil {
+		return configContent
+	}
+	return string(cleaned)
+}
+
 // buildMCPConfig 将 MCPServerConfig 列表转为 opencode V1 MCP schema 格式。
 //
 // opencode V1 MCP schema:

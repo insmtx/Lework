@@ -1159,6 +1159,8 @@ func (p *MessagePoster) resolveWorkerTaskModel(ctx context.Context, orgID uint) 
 		BaseURLHasV1:     model.BaseURLHasV1,
 		APIKey:           model.APIKeyEncrypted,
 		Vision:           llm.VisionFromConfig(model.Config),
+		Temperature:      model.Temperature,
+		MaxTokens:        model.MaxTokens,
 		TopP:             sampling.TopP,
 		FrequencyPenalty: sampling.FrequencyPenalty,
 		PresencePenalty:  sampling.PresencePenalty,

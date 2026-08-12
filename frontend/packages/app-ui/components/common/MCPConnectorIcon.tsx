@@ -44,7 +44,7 @@ export function MCPConnectorIcon({
 		return (
 			<img
 				src={COREKG_ICON_SRC}
-				alt={`${name || "CoreKG"} Logo`}
+				alt={`${name || "知识库"} Logo`}
 				className={cn("size-7 shrink-0 rounded-lg", className)}
 			/>
 		);

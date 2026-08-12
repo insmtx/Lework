@@ -688,6 +688,21 @@ func (s *org) requireDefaultOrgUser(ctx context.Context, uin, orgID uint) error 
 	return nil
 }
 
+// IsOrgCreator 报告 uin 是否为 orgID 组织的创建者。org 不存在返回 (false, nil)。
+func (s *org) IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error) {
+	if orgID == 0 {
+		return false, nil
+	}
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		return false, err
+	}
+	if org == nil {
+		return false, nil
+	}
+	return org.CreatedByUin == uin, nil
+}
+
 func convertToContractOrg(org *types.Organization, logoURLMap map[string]string) *account.Org {
 	if org == nil {
 		return nil

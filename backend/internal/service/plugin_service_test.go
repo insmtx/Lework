@@ -38,6 +38,7 @@ func setupPluginServiceTestDB(t *testing.T) *gorm.DB {
 		&types.PluginRevisionContent{},
 		&types.ProjectPluginBinding{},
 		&types.PluginMarketplaceItem{},
+		&types.PluginTranslation{},
 		&types.MCPChannel{},
 		&types.FileUpload{},
 	); err != nil {
@@ -191,6 +192,22 @@ func createPluginServiceOrganizationSkill(
 	if err := database.Create(revision).Error; err != nil {
 		t.Fatalf("create organization revision: %v", err)
 	}
+	reader, err := filestore.OpenFileUpload(context.Background(), file)
+	if err != nil {
+		t.Fatalf("open organization artifact: %v", err)
+	}
+	archive, err := io.ReadAll(reader)
+	reader.Close()
+	if err != nil {
+		t.Fatalf("read organization artifact: %v", err)
+	}
+	content, err := buildSkillRevisionContent(archive, file.Sha256)
+	if err != nil {
+		t.Fatalf("build organization content: %v", err)
+	}
+	if err := database.Create(content.model(revision.ID)).Error; err != nil {
+		t.Fatalf("create organization content: %v", err)
+	}
 	return file, plugin, revision
 }
 
@@ -267,7 +284,7 @@ func TestPluginServiceScopesListsAndDeletes(t *testing.T) {
 		t.Fatalf("create marketplace item: %v", err)
 	}
 
-	service := NewPluginService(database)
+	service := NewPluginService(database, NewSkillDisplayTranslationService(database))
 	list, err := service.ListPlugins(ctx, 1, 8, &contract.ListPluginsRequest{})
 	if err != nil || len(list.Plugins) != 1 || list.Plugins[0].PublicID != plugin.PublicID {
 		t.Fatalf("organization list = %#v, %v", list, err)
@@ -546,7 +563,7 @@ func TestOfficialPluginMarketplaceInstallsAndTracksOfficialVersion(t *testing.T)
 	if err := database.Create(&types.PluginMarketplaceItem{PublicID: "mkt_archived", PluginID: sourcePlugin.ID, Kind: "skill", Code: "archived", Name: "Archived", Author: "Lework", SourceType: "builtin", SourceRef: "archived", Status: "archived", Tags: types.PluginStringList{}, PublishedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	service := NewOfficialPluginMarketplaceService(database)
+	service := NewOfficialPluginMarketplaceService(database, NewSkillDisplayTranslationService(database))
 	list, err := service.ListOfficialPluginMarketplaceItems(ctx, 7, &contract.ListOfficialPluginMarketplaceItemsRequest{Kind: "skill"})
 	if err != nil || len(list.Items) != 1 || list.Items[0].PublicID != item.PublicID ||
 		list.Items[0].Version != "1" || list.Items[0].Author != "Lework" {

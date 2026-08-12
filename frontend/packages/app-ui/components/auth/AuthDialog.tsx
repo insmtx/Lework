@@ -11,7 +11,6 @@ import {
 	useAuthStore,
 	useChatStore,
 	useDAStore,
-	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
 } from "@leros/store";
@@ -342,8 +341,8 @@ function AuthDialog({
 	onOpenChange: (open: boolean) => void;
 	onAuthenticated: (login: PendingOrganizationLoginResponse) => Promise<void>;
 }) {
-	const phoneCodeLoginEnabled = useGlobalConfigStore((s) => s.phoneCodeLoginEnabled);
-	const [mode, setMode] = useState<AuthMode>(phoneCodeLoginEnabled ? "phone" : "password");
+	// 中文注释：私有化仅账号密码；其余（SaaS）仅手机号验证码。不依赖 GlobalConfig 开关。
+	const mode: AuthMode = isPrivateDeployment ? "password" : "phone";
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
 	const [account, setAccount] = useState("");
@@ -370,10 +369,7 @@ function AuthDialog({
 		setTouched({});
 		setErrorMessage("");
 		setShowPassword(false);
-		if (!phoneCodeLoginEnabled || (mode !== "phone" && mode !== "password")) {
-			setMode("password");
-		}
-	}, [open, phoneCodeLoginEnabled]);
+	}, [open]);
 
 	useEffect(() => {
 		if (countdown <= 0) return;
@@ -518,36 +514,6 @@ function AuthDialog({
 					<DialogTitle className="mt-5 text-center text-3xl font-semibold tracking-normal">
 						欢迎来到Lework
 					</DialogTitle>
-
-					{phoneCodeLoginEnabled && (
-						/* 中文注释：登录方式 Tab 切换——手机号验证码 / 账号密码 */
-						<div className="mt-5 flex w-full rounded-[14px] bg-[#e8ebf2] p-1">
-							<button
-								type="button"
-								onClick={() => setMode("phone")}
-								className={cn(
-									"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
-									mode === "phone"
-										? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-										: "text-[#8b95a5] hover:text-[#070d1c]",
-								)}
-							>
-								验证码登录
-							</button>
-							<button
-								type="button"
-								onClick={() => setMode("password")}
-								className={cn(
-									"flex-1 rounded-[11px] py-2 text-sm font-medium transition-colors",
-									mode === "password"
-										? "bg-white text-[#070d1c] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-										: "text-[#8b95a5] hover:text-[#070d1c]",
-								)}
-							>
-								密码登录
-							</button>
-						</div>
-					)}
 
 					{mode === "phone" ? (
 						<form onSubmit={handlePhoneSubmit} className="mt-5 flex w-full flex-col gap-3">

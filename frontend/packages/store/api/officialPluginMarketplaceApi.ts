@@ -7,6 +7,7 @@ export interface OfficialPluginMarketplaceItem {
 	code: string;
 	kind: string;
 	name: string;
+	display_name?: string;
 	description?: string;
 	author: string;
 	version: string;
