@@ -1,7 +1,7 @@
 ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
-ARG GO_BUILDER_IMAGE=registry.yygu.cn/library/golang:1.25
+ARG GO_BUILDER_IMAGE=registry.example.com/library/golang:1.25
 
 FROM ${GO_BUILDER_IMAGE} AS builder
 
@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/go/ \
     CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
 
-FROM registry.yygu.cn/library/ubuntu:24.04
+FROM registry.example.com/library/ubuntu:24.04
 
 ARG TARGETARCH
 ARG CLAUDE_CODE_VERSION=latest

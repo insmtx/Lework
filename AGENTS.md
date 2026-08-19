@@ -7,7 +7,7 @@
 ### 构建命令
 
 - `go build -o ./bundles/leros ./backend/cmd/leros/` - 构建主 Lework 后端服务（输出到 `./bundles/`）
-- `make docker-build` - 构建 Docker 镜像（标签：registry.yygu.cn/insmtx/Lework:latest）
+- `make docker-build` - 构建 Docker 镜像（标签：ghcr.io/your-org/leros:latest）
 - `make docker-run` - 在本地运行 Docker 镜像
 - `make run` - 以前台模式启动 docker-compose 服务
 - `make run-detached` - 以分离模式（后台）启动 docker-compose 服务

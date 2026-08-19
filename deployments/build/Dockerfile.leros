@@ -2,7 +2,7 @@ ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
-FROM registry.yygu.cn/library/golang:1.25 AS builder
+FROM registry.example.com/library/golang:1.25 AS builder
 
 WORKDIR /build
 
@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/go/ \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
 
-FROM registry.yygu.cn/insmtx/leros-base:latest
+FROM registry.example.com/insmtx/leros-base:latest
 
 COPY --from=builder /build/leros /leros
 COPY --from=builder /build/backend/skills /app/backend/skills

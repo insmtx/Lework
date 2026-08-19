@@ -206,7 +206,7 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 	scheduler := &fakeWorkerScheduler{needsReconcile: true}
 	cfg := &config.SchedulerConfig{
 		ServerAddr:  "http://leros:8080",
-		WorkerImage: "registry.yygu.cn/insmtx/leros-worker:v2",
+		WorkerImage: "registry.example.com/your-org/leros-worker:v2",
 	}
 	if err := reconcileWorkerDeployment(ctx, database, scheduler, cfg, deployment, nil); err != nil {
 		t.Fatalf("reconcile deployment: %v", err)

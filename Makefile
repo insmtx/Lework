@@ -1,6 +1,6 @@
 PROJECT ?= insmtx
 APP?= leros
-REGISTRY ?= registry.yygu.cn
+REGISTRY ?= registry.example.com
 
 .PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend
 
@@ -144,4 +144,4 @@ dev-frontend:
 	 --network host \
 	 -v $(PWD)/frontend:/app \
 	 -w /app \
-	 registry.yygu.cn/base/node:24 bash 
+	 registry.example.com/base/node:24 bash 

@@ -35,7 +35,7 @@ variables:
   ENV: "$[[ inputs.environment ]]"
   APP: "$[[ inputs.app ]]"
   UPDATE_WORKER_IMAGE: "$[[ inputs.update_worker_image ]]"
-  K3S_NAMESPACE_TEST: "insmtx-test"
+  K3S_NAMESPACE_TEST: "leros-test"
   K3S_SERVER_DEPLOYMENT: "leros"
   K3S_SERVER_CONTAINER: "leros"
   K3S_SERVER_CONFIGMAP: "leros-server-config"
@@ -44,7 +44,7 @@ variables:
 
 uint-test:
   stage: test
-  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  image: docker:28.5-dind
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -57,7 +57,7 @@ uint-test:
 
 frontend-typecheck:
   stage: test
-  image: registry.yygu.cn/library/node:24-alpine
+  image: node:24-alpine
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: on_success
@@ -92,10 +92,10 @@ build-image:
     - when: on_success
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
-  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  image: docker:28.5-dind
   before_script:
     - echo "PIPELINE_STATUS=failed" > build.env
-    - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
+    - echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USERNAME" --password-stdin "$REGISTRY_HOST"
   script:
     - echo $[[ inputs.app ]] $[[ inputs.environment ]]
     - export APP=$[[ inputs.app ]]
@@ -108,7 +108,7 @@ build-image:
         export DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEROS_API_BASE_URL=$NEXT_PUBLIC_LEROS_API_BASE_URL --build-arg LEROS_API_BASE_URL=$NEXT_PUBLIC_LEROS_API_BASE_URL"
         echo "Building web image with API base URL: $NEXT_PUBLIC_LEROS_API_BASE_URL"
       fi
-    - export REGISTRY="$HARBOR_HOST"
+    - export REGISTRY="$REGISTRY_HOST"
     - make push-image
     - echo "PIPELINE_STATUS=success" > build.env
     - export IMAGE_TAG=$(make image-tag)
@@ -130,16 +130,16 @@ build-worker-image:
     - when: never
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
-  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  image: docker:28.5-dind
   before_script:
-    - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
+    - echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USERNAME" --password-stdin "$REGISTRY_HOST"
   script:
     - export APP=leros-worker
-    - export REGISTRY="$HARBOR_HOST"
+    - export REGISTRY="$REGISTRY_HOST"
     - make push-image
     - export WORKER_IMAGE_TAG=$(make image-tag)
     - echo "WORKER_IMAGE_TAG=${WORKER_IMAGE_TAG}" > worker.env
-    - echo "WORKER_IMAGE=${HARBOR_HOST}/${PRJ}/leros-worker:${WORKER_IMAGE_TAG}" >> worker.env
+    - echo "WORKER_IMAGE=${REGISTRY_HOST}/${PRJ}/leros-worker:${WORKER_IMAGE_TAG}" >> worker.env
     - cat worker.env
   artifacts:
     reports:
@@ -147,7 +147,7 @@ build-worker-image:
 
 deploy:
   stage: deploy
-  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
+  image: gitlab-cd:2
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -167,9 +167,9 @@ deploy:
             exit 1
           fi
           DEPLOY_HOST="$DEPLOY_HOST_TEST"
-          echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
-          UPDATE_SCRIPT="./update_yygu.sh"
-          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-insmtx-test}"
+          echo "$SSH_KEY_TEST" | base64 -d > ~/.ssh/id_rsa
+          UPDATE_SCRIPT="./update.sh"
+          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-leros-test}"
       elif [ "${ENV}" = "prod" ]; then
           if [ -z "$DEPLOY_HOST_PROD" ]; then
             echo "Required deploy variable is missing: DEPLOY_HOST_PROD"
@@ -180,8 +180,8 @@ deploy:
             exit 1
           fi
           DEPLOY_HOST="$DEPLOY_HOST_PROD"
-          echo "$SSH_KEY_P31" | base64 -d > ~/.ssh/id_rsa
-          UPDATE_SCRIPT="./update_yygu.sh"
+          echo "$SSH_KEY_PROD" | base64 -d > ~/.ssh/id_rsa
+          UPDATE_SCRIPT="./update.sh"
           K3S_NAMESPACE="$K3S_NAMESPACE_PROD"
       else
           echo "Unknown ENV: $ENV"
@@ -200,7 +200,7 @@ deploy:
           exit 1
         fi
 
-        SERVER_IMAGE="${HARBOR_HOST}/${PRJ}/${APP}:${IMAGE_TAG}"
+        SERVER_IMAGE="${REGISTRY_HOST}/${PRJ}/${APP}:${IMAGE_TAG}"
         scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deployments/k3s/update-leros-images.sh "$DEPLOY_HOST:/tmp/update-leros-images.sh"
         if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "$DEPLOY_HOST" \
           "K3S_NAMESPACE='${K3S_NAMESPACE}' K3S_SERVER_DEPLOYMENT='${K3S_SERVER_DEPLOYMENT}' K3S_SERVER_CONTAINER='${K3S_SERVER_CONTAINER}' K3S_SERVER_CONFIGMAP='${K3S_SERVER_CONFIGMAP}' K3S_SERVER_CONFIG_KEY='${K3S_SERVER_CONFIG_KEY}' bash /tmp/update-leros-images.sh '${SERVER_IMAGE}' '${WORKER_IMAGE}'"; then
@@ -474,7 +474,7 @@ desktop-build-win-x64:
 
 desktop-update-k3s-client-version:
   stage: notify
-  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
+  image: gitlab-cd:2
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -494,8 +494,8 @@ desktop-update-k3s-client-version:
             exit 1
           fi
           DEPLOY_HOST="$DEPLOY_HOST_TEST"
-          echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
-          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-insmtx-test}"
+          echo "$SSH_KEY_TEST" | base64 -d > ~/.ssh/id_rsa
+          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-leros-test}"
       elif [ "${ENV}" = "prod" ]; then
           if [ -z "$DEPLOY_HOST_PROD" ]; then
             echo "Required deploy variable is missing: DEPLOY_HOST_PROD"
@@ -506,7 +506,7 @@ desktop-update-k3s-client-version:
             exit 1
           fi
           DEPLOY_HOST="$DEPLOY_HOST_PROD"
-          echo "$SSH_KEY_P31" | base64 -d > ~/.ssh/id_rsa
+          echo "$SSH_KEY_PROD" | base64 -d > ~/.ssh/id_rsa
           K3S_NAMESPACE="$K3S_NAMESPACE_PROD"
       else
           echo "Unknown ENV: $ENV"
@@ -528,7 +528,7 @@ desktop-update-k3s-client-version:
 
 notify:
   stage: notify
-  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:curl_8.12.1
+  image: curlimages/curl
   dependencies:
     - build-image
   rules:

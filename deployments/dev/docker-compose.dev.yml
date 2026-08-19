@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgresql:
-    image: registry.yygu.cn/library/postgres:17.9
+    image: registry.example.com/library/postgres:17.9
     container_name: leros-dev-postgresql
     environment:
       POSTGRES_DB: leros_dev_db
@@ -22,7 +22,7 @@ services:
       - leros-dev-network
 
   nats:
-    image: registry.yygu.cn/library/nats:2.12.7
+    image: registry.example.com/library/nats:2.12.7
     container_name: leros-dev-nats
     command: ["--jetstream"]
     ports:

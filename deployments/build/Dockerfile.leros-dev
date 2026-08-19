@@ -1,4 +1,4 @@
-FROM registry.yygu.cn/library/golang:1.25 AS builder
+FROM registry.example.com/library/golang:1.25 AS builder
 
 WORKDIR /build
 
@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/go/ \
     CGO_ENABLED=0 \
     go build -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
 
-FROM registry.yygu.cn/library/ubuntu:24.04
+FROM registry.example.com/library/ubuntu:24.04
 
 # Configure aliyun apt mirrors
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
