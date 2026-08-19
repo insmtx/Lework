@@ -43,14 +43,14 @@ imagePullSecret:
 
 # 额外引用已存在的 imagePullSecrets
 imagePullSecrets: []
-  # - name: insmtx-registry
+  # - name: leros-registry
 
 # =============================================================================
 # PostgreSQL 数据库
 # =============================================================================
 postgresql:
   enabled: true
-  image: registry.yygu.cn/library/postgres:18.4
+  image: postgres:18.4
   username: leros_user
   password: "@PG_PASSWORD@"
   database: leros_db
@@ -67,7 +67,7 @@ postgresql:
 # =============================================================================
 mysql:
   enabled: false
-  image: registry.yygu.cn/library/mysql:8.4
+  image: mysql:8.4
   imagePullPolicy: IfNotPresent
   username: account_user
   password: "@MYSQL_PASSWORD@"
@@ -88,7 +88,7 @@ mysql:
 # =============================================================================
 redis:
   enabled: false
-  image: registry.yygu.cn/library/redis:7.4
+  image: redis:7.4
   imagePullPolicy: IfNotPresent
   password: "@REDIS_PASSWORD@"
   hostPath: <dataHostPath>/redis
@@ -111,7 +111,7 @@ redis:
 #      初始化 Job 执行 --migrate-db + init 完成建表与种子数据。
 account:
   enabled: false
-  image: registry.yygu.cn/ygapp/account-api:v0.1.0
+  image: account-api:v0.1.0
   imagePullPolicy: IfNotPresent
   replicas: 1
   strategy: Recreate
@@ -136,7 +136,7 @@ account:
     # 以下可覆盖，留空回退到 mysql/redis 顶层值（username/password/database）
     mysqlUsername: "root"
     mysqlPassword: ""
-    mysqlDatabase: "yygu_db"
+    mysqlDatabase: "leros_db"
     redisPassword: ""
   # 独立部署（reuseCorekg=false）时是否执行初始化 Job（建表 + 种子数据）
   initialize: true
@@ -172,7 +172,7 @@ account:
 # =============================================================================
 nats:
   enabled: true
-  image: registry.yygu.cn/library/nats:2.12.7
+  image: nats:2.12.7
   hostPath: <dataHostPath>/nats
   nodeSelector: {}
   resources:
@@ -189,7 +189,7 @@ nats:
 # Leros Server（HTTP API 服务，常驻 Deployment）
 # =============================================================================
 server:
-  image: registry.yygu.cn/insmtx/leros:latest
+  image: leros:latest
   imagePullPolicy: IfNotPresent
   replicas: 1
 
@@ -223,10 +223,10 @@ server:
 # Worker 基础设施
 # =============================================================================
 worker:
-  image: registry.yygu.cn/insmtx/leros-worker:latest
+  image: leros-worker:latest
   imagePullPolicy: IfNotPresent
   modelrouterDebug: false
-  workspaceInitImage: registry.cn-beijing.aliyuncs.com/yygu/corekg:busybox_1.36.1
+  workspaceInitImage: busybox:1.36.1
 
   configMapNameOverride: ""
   secretNameOverride: ""
@@ -250,7 +250,7 @@ worker:
 # =============================================================================
 web:
   enabled: false
-  image: registry.yygu.cn/insmtx/leros-web:latest
+  image: leros-web:latest
   imagePullPolicy: IfNotPresent
   replicas: 1
   apiBaseUrl: ""
@@ -310,7 +310,7 @@ llm:
 #     description: 连接 CatAPI API 市场中的工具与服务
 #     status: active
 #     transport: http
-#     url: https://api.insmtx.com/v6/api/mcp
+#     url: https://api.example.com/v6/api/mcp
 #     bindings:
 #       mcp_headers:
 #         Authorization: "Bearer {{api_key}}"
@@ -410,7 +410,7 @@ clientUpdate:
 traefik:
   enabled: false
   image:
-  registry: registry.yygu.cn
+  registry: localhost
   repository: rancher/mirrored-library-traefik
   tag: "3.3.6"
   ingressClass:

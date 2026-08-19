@@ -18,7 +18,7 @@ roc (openrpacloud/roc)
       ├── 实名认证（个人+企业）
       └── 私有化部署
 
-identity-platform (yygu/yg-iam)
+identity-platform (yygu/iam)
   └── 从 roc 剥离的精简身份平台
       ├── 认证：密码 + 微信/企微 + API Key（去掉了 OBO）
       ├── 权限：仅 SysRole（sys_admin/sys_employee）

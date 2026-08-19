@@ -135,12 +135,12 @@ pnpm install
 # Web 应用
 cp apps/web/.env.example apps/web/.env.local
 # 然后设置：
-# NEXT_PUBLIC_LEROS_API_BASE_URL=http://192.144.198.60:8080/v1
+# NEXT_PUBLIC_LEROS_API_BASE_URL=http://localhost:8080/v1
 
 # Desktop 应用
 cp apps/desktop/.env.example apps/desktop/.env.local
 # 然后设置：
-# VITE_LEROS_API_BASE_URL=http://192.144.198.60:8080/v1
+# VITE_LEROS_API_BASE_URL=http://localhost:8080/v1
 ```
 
 ```bash

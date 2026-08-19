@@ -41,7 +41,7 @@ variables:
   ENV: "$[[ inputs.environment ]]"
   APP: "$[[ inputs.app ]]"
   UPDATE_WORKER_IMAGE: "$[[ inputs.update_worker_image ]]"
-  K3S_NAMESPACE_TEST: "insmtx-test"
+  K3S_NAMESPACE_TEST: "leros-test"
   K3S_SERVER_DEPLOYMENT: "leros"
   K3S_SERVER_CONTAINER: "leros"
   K3S_SERVER_CONFIGMAP: "leros-server-config"
@@ -50,7 +50,7 @@ variables:
 
 uint-test:
   stage: test
-  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  image: docker:28.5-dind
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -63,7 +63,7 @@ uint-test:
 
 frontend-typecheck:
   stage: test
-  image: registry.yygu.cn/library/node:24-alpine
+  image: node:24-alpine
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: on_success
@@ -98,7 +98,7 @@ build-image:
     - when: on_success
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
-  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  image: docker:28.5-dind
   before_script:
     - echo "PIPELINE_STATUS=failed" > build.env
     - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
@@ -137,7 +137,7 @@ build-worker-image:
     - when: never
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
-  image: registry.cn-beijing.aliyuncs.com/wa/hub:docker_28.5-dind-1
+  image: docker:28.5-dind
   before_script:
     - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
   script:
@@ -155,7 +155,7 @@ build-worker-image:
 
 deploy:
   stage: deploy
-  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
+  image: gitlab-runner:latest
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -177,7 +177,7 @@ deploy:
           DEPLOY_HOST="$DEPLOY_HOST_TEST"
           echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
           UPDATE_SCRIPT="./update_yygu.sh"
-          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-insmtx-test}"
+          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-leros-test}"
       elif [ "${ENV}" = "prod" ]; then
           if [ -z "$DEPLOY_HOST_PROD" ]; then
             echo "Required deploy variable is missing: DEPLOY_HOST_PROD"
@@ -550,7 +550,7 @@ desktop-build-win-x64:
 
 desktop-build-linux-x64:
   extends: .desktop-build-template
-  image: registry.yygu.cn/library/node:24
+  image: node:24
   tags:
     - ubuntu
   variables:
@@ -561,7 +561,7 @@ desktop-build-linux-x64:
 
 desktop-update-k3s-client-version:
   stage: notify
-  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
+  image: gitlab-runner:latest
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -587,7 +587,7 @@ desktop-update-k3s-client-version:
           fi
           DEPLOY_HOST="$DEPLOY_HOST_TEST"
           echo "$SSH_KEY_T29" | base64 -d > ~/.ssh/id_rsa
-          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-insmtx-test}"
+          K3S_NAMESPACE="${K3S_NAMESPACE_TEST:-leros-test}"
       elif [ "${ENV}" = "prod" ]; then
           if [ -z "$DEPLOY_HOST_PROD" ]; then
             echo "Required deploy variable is missing: DEPLOY_HOST_PROD"
@@ -620,7 +620,7 @@ desktop-update-k3s-client-version:
 
 notify:
   stage: notify
-  image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:curl_8.12.1
+  image: curlimages/curl:8.12.1
   dependencies:
     - build-image
   rules:

@@ -1,4 +1,4 @@
-FROM registry.yygu.cn/library/node:24-alpine AS build
+FROM node:24-alpine AS build
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -37,7 +37,7 @@ RUN if [ -n "$NEXT_PUBLIC_LEROS_API_BASE_URL" ]; then \
     pnpm turbo build --filter=@leros/web
 
 # --- 运行阶段：Next.js standalone server ---
-FROM registry.yygu.cn/library/node:24-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 # ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

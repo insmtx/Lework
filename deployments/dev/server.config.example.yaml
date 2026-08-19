@@ -65,7 +65,7 @@ llm:
   provider: "openai"
   api_key: "${LLM_API_KEY}"
   model: "qwen3.6-plus"
-  base_url: "https://api.yygu.cn/v3/llm.chat/"
+  base_url: "https://api.example.com/v3/llm.chat/"
   # 以下均为可选参数，缺省即走模型/服务默认值；base_url 填根地址即可（带不带 /v1 均可），启动时 seed 会自动规范化 /v1 前缀。
   vision: false # 默认模型是否支持图片（多模态）输入，seed 时写入模型配置
   top_p: 0.95 # 核采样（0-1）
@@ -78,7 +78,7 @@ llm:
     provider: "deepseek"
     api_key: "${LLM_API_KEY}"
     model: "deepseek-v4-flash"
-    base_url: "https://api.yygu.cn/v3/llm.chat/"
+    base_url: "https://api.example.com/v3/llm.chat/"
 
 gitea:
   enabled: false
@@ -104,7 +104,7 @@ mcp_connectors:
     description: 知识库服务
     status: active
     transport: http
-    url: https://tapi.yygu.cn/v3/keapi/mcp
+    url: https://tapi.example.com/v3/keapi/mcp
     bindings:
       mcp_headers:
         Authorization: "Bearer {{api_key}}"
@@ -118,7 +118,7 @@ mcp_connectors:
     description: 连接 CatAPI API 市场中的工具与服务
     status: active
     transport: http
-    url: https://api.insmtx.com/v6/api/mcp
+    url: https://api.example.com/v6/api/mcp
     bindings:
       mcp_headers:
         Authorization: "Bearer {{api_key}}"

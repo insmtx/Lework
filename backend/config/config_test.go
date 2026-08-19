@@ -62,7 +62,7 @@ func TestConfigParsesMCPConnectors(t *testing.T) {
     name: CatAPI
     status: active
     transport: http
-    url: https://api.insmtx.com/v6/api/mcp
+    url: https://api.example.com/v6/api/mcp
     bindings:
       mcp_headers:
         Authorization: "Bearer {{api_key}}"
@@ -117,7 +117,7 @@ func TestDevelopmentServerExampleIncludesBearerBindings(t *testing.T) {
 		connectors[connector.Channel] = connector
 	}
 	catapi := connectors["catapi"]
-	if catapi.URL != "https://api.insmtx.com/v6/api/mcp" || catapi.Transport != "http" ||
+	if catapi.URL != "https://api.example.com/v6/api/mcp" || catapi.Transport != "http" ||
 		catapi.Bindings.MCPHeaders["Authorization"] != "Bearer {{api_key}}" || catapi.Auth.Description == "" {
 		t.Fatalf("CatAPI example = %#v", catapi)
 	}

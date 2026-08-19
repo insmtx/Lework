@@ -25,16 +25,16 @@ scheduler:
   mode: k8s
   kubernetes_connection: in_cluster
   kubeconfig_context: default
-  namespace: insmtx-test
+  namespace: leros-test
 
   # Workers connect to the existing Leros Server Service inside k3s.
   server_addr: leros:8080
 
-  worker_image: registry.yygu.cn/insmtx/leros-worker:v0.1.17-48_7be46eb
-  workspace_init_image: registry.cn-beijing.aliyuncs.com/yygu/corekg:busybox_1.36.1
+  worker_image: leros-worker:latest
+  workspace_init_image: busybox:1.36.1
   config_map: leros-worker-config
   secret: leros-secret
-  image_pull_secret: insmtx-registry
+  image_pull_secret: leros-registry
   workspace_host_path_root: /data/workspace
   workspace_mount_root: /workspace
   storage_host_path: /data/leros-storage
@@ -52,7 +52,7 @@ llm:
   provider: "openai"
   api_key: "${LLM_API_KEY}"
   model: "qwen3.6-plus"
-  base_url: "https://api.yygu.cn/v3/llm.chat/"
+  base_url: "https://api.example.com/v3/llm.chat/"
   # 以下均为可选参数，缺省即走模型/服务默认值；base_url 填根地址即可（带不带 /v1 均可），启动时 seed 会自动规范化 /v1 前缀。
   vision: false              # 默认模型是否支持图片（多模态）输入，seed 时写入模型配置
   top_p: 0.95                # 核采样（0-1）
@@ -65,7 +65,7 @@ llm:
     provider: "deepseek"
     api_key: "${LLM_API_KEY}"
     model: "deepseek-v4-flash"
-    base_url: "https://api.yygu.cn/v3/llm.chat/"
+    base_url: "https://api.example.com/v3/llm.chat/"
 
 storage:
   driver: local

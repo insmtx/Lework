@@ -87,7 +87,7 @@ spec:
               readOnly: true
             {{- if .Values.account.initCommand.settingFile }}
             - name: settings
-              mountPath: /etc/yg-iam/
+              mountPath: /etc/iam/
               readOnly: true
             {{- end }}
       volumes:

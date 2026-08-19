@@ -21,7 +21,7 @@ set -euo pipefail
 #   ./gen-values.sh                                        # 生成 values.yaml
 #   ./gen-values.sh --force                                # 强制覆盖已有文件
 #   ./gen-values.sh -f prod.yaml                           # 指定输出文件名
-#   ./gen-values.sh --registry registry.yygu.cn \
+#   ./gen-values.sh --registry localhost \
 #                  --user myuser --pass mypass            # 同时填入镜像仓库凭证
 # =============================================================================
 

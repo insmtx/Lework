@@ -140,14 +140,14 @@ dataHostPath: /opt/leros-data
 | `imagePullSecret.enabled` | `true` | chart 是否创建 ImagePullSecret |
 | `imagePullSecret.registry/username/password` | - | dockerconfigjson 所需 |
 | `imagePullSecrets` | `[]` | 引用已存在的 ImagePullSecret |
-| `server.image` | `registry.yygu.cn/insmtx/leros:latest` | Server 镜像 |
-| `worker.image` | `registry.yygu.cn/insmtx/leros-worker:latest` | Worker 镜像 |
+| `server.image` | `leros:latest` | Server 镜像 |
+| `worker.image` | `leros-worker:latest` | Worker 镜像 |
 | `worker.imagePullPolicy` | `IfNotPresent` | Worker 容器镜像拉取策略 |
 | `worker.modelrouterDebug` | `false` | 在 worker 上启用 modelrouter 调试日志（`LEROS_MODELROUTER_DEBUG=true`） |
-| `web.image` | `registry.yygu.cn/insmtx/leros-web:latest` | Web 镜像（默认关闭） |
-| `mysql.image` | `registry.yygu.cn/library/mysql:8.4` | MySQL 镜像（默认关闭） |
-| `redis.image` | `registry.yygu.cn/library/redis:7.4` | Redis 镜像（默认关闭） |
-| `account.image` | `registry.yygu.cn/ygapp/account-api:v0.1.0` | Account 镜像（默认关闭） |
+| `web.image` | `leros-web:latest` | Web 镜像（默认关闭） |
+| `mysql.image` | `mysql:8.4` | MySQL 镜像（默认关闭） |
+| `redis.image` | `redis:7.4` | Redis 镜像（默认关闭） |
+| `account.image` | `account-api:v0.1.0` | Account 镜像（默认关闭） |
 | `worker.workspaceInitImage` | `busybox_1.36.1` | worker init 容器镜像 |
 
 ### 数据库与消息队列
@@ -179,7 +179,7 @@ MySQL/Redis Service；此时**不做初始化**（数据由 corekg 侧负责）�
 account:
   enabled: true
   reuseCorekg: true
-  image: registry.yygu.cn/ygapp/account-api:v0.1.0
+  image: account-api:v0.1.0
   corekg:
     namespace: corekg          # corekg 所在命名空间
     mysqlService: corekg-mysql # corekg 的 MySQL Service 名
@@ -310,7 +310,7 @@ worker:
   configMapNameOverride: leros-worker-config
   secretNameOverride: leros-secret
 imagePullSecret:
-  name: insmtx-registry
+  name: leros-registry
 ```
 
 ## 故障排查

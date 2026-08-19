@@ -93,7 +93,7 @@ func TestSeedLLMStoresProbeHasV1(t *testing.T) {
 	cfg := &config.LLMConfig{
 		Provider: "openai",
 		Model:    "deepseek/deepseek-v4-flash",
-		BaseURL:  "https://api.yygu.cn/v3/llm.chat/",
+		BaseURL:  "https://api.example.com/v3/llm.chat/",
 		APIKey:   "sk-test-0123456789",
 	}
 
@@ -121,7 +121,7 @@ func TestSeedLLMBlocksWhenProbeFails(t *testing.T) {
 	cfg := &config.LLMConfig{
 		Provider: "openai",
 		Model:    "deepseek/deepseek-v4-flash",
-		BaseURL:  "https://api.yygu.cn/v3/llm.chat/",
+		BaseURL:  "https://api.example.com/v3/llm.chat/",
 		APIKey:   "sk-test-0123456789",
 	}
 

@@ -301,7 +301,7 @@ func testConnectorServiceSpecs() []types.MCPConnectorSpec {
 func TestNormalizeSystemConnectorSpecValidatesBindingTemplates(t *testing.T) {
 	base := types.MCPConnectorSpec{
 		Channel: "catapi", Name: "CatAPI", Status: types.MCPChannelStatusActive,
-		Transport: "http", URL: "https://api.insmtx.com/v6/api/mcp",
+		Transport: "http", URL: "https://api.example.com/v6/api/mcp",
 		AuthType: types.MCPChannelAuthTypeForm,
 		AuthConfig: types.MCPChannelAuthConfig{Fields: []types.MCPChannelAuthField{{
 			Key: "api_key", Label: "API Key", Type: "password", Required: true,

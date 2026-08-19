@@ -1,4 +1,4 @@
-FROM registry.yygu.cn/library/ubuntu:24.04
+FROM ubuntu:24.04
 
 # 构建版次：
 #   EDITION=saas     (默认) SaaS 精简版：仅保留投标/Excel/Word/PDF 常用 Python 库，不安装

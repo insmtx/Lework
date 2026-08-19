@@ -1,6 +1,6 @@
 PROJECT ?= insmtx
 APP?= leros
-REGISTRY ?= registry.yygu.cn
+REGISTRY ?= localhost
 
 .PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend docker-build-worker-base docker-build-worker-base-private docker-push-worker-base docker-push-worker-base-private docker-build-worker docker-build-web docker-build-tag docker-push-tag image-tag
 
@@ -175,4 +175,4 @@ dev-frontend:
 	 --network host \
 	 -v $(PWD)/frontend:/app \
 	 -w /app \
-	 registry.yygu.cn/base/node:24 bash 
+	 node:24 bash 

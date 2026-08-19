@@ -159,7 +159,7 @@ Build MySQL URL. 优先级：
   1) account.reuseCorekg=true → 复用 corekg 命名空间的 MySQL（可配置 service 名/凭据）
   2) mysql.enabled → 内置 MySQL（account 独立部署场景）
   3) 否则用 mysql.external.url
-内置 DSIs 带 mysql:// scheme（yg-iam 要求的连接串格式）。
+内置 DSIs 带 mysql:// scheme（iam 要求的连接串格式）。
 */}}
 {{- define "leros.mysqlURL" -}}
 {{- if and .Values.account.enabled .Values.account.reuseCorekg -}}

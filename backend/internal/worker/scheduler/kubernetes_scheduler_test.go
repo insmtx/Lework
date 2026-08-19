@@ -20,7 +20,7 @@ func TestWorkerContainerImageFindsNamedWorkerContainer(t *testing.T) {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{Name: "sidecar", Image: "sidecar:v1"},
-						{Name: "leros-worker-o12-w1", Image: "registry.yygu.cn/insmtx/leros-worker:v2"},
+						{Name: "leros-worker-o12-w1", Image: "leros-worker:v2"},
 					},
 				},
 			},
@@ -28,7 +28,7 @@ func TestWorkerContainerImageFindsNamedWorkerContainer(t *testing.T) {
 	}
 
 	got := workerContainerImage(deployment)
-	if got != "registry.yygu.cn/insmtx/leros-worker:v2" {
+	if got != "leros-worker:v2" {
 		t.Fatalf("worker image = %q", got)
 	}
 }
@@ -51,7 +51,7 @@ func TestWorkerContainerImageFallsBackForSingleContainer(t *testing.T) {
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
-						{Name: "legacy-worker", Image: "registry.yygu.cn/insmtx/leros-worker:v1"},
+						{Name: "legacy-worker", Image: "leros-worker:v1"},
 					},
 				},
 			},
@@ -59,7 +59,7 @@ func TestWorkerContainerImageFallsBackForSingleContainer(t *testing.T) {
 	}
 
 	got := workerContainerImage(deployment)
-	if got != "registry.yygu.cn/insmtx/leros-worker:v1" {
+	if got != "leros-worker:v1" {
 		t.Fatalf("worker image = %q", got)
 	}
 }

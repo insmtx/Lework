@@ -51,7 +51,7 @@ func iamCfgFromEnvOrConfig(t *testing.T) *config.IAMConfig {
 		baseURL = "http://127.0.0.1:8080"
 	}
 	if domainName == "" {
-		domainName = "leros.test.insmtx.com"
+		domainName = "leros.example.com"
 	}
 
 	return &config.IAMConfig{BaseURL: baseURL, DomainName: domainName}
@@ -433,14 +433,14 @@ func TestCreateUser_Success(t *testing.T) {
 	ctx := loginContext(t)
 	svc := setupIAMUser(t)
 	created, err := svc.CreateUser(ctx, &account.CreateUserInput{
-		Email: "integration-test@yygu.cn",
+		Email: "integration-test@example.com",
 		Name:  "Integration Test User",
 	})
 	if err != nil {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
-	if created.Email != "integration-test@yygu.cn" {
-		t.Fatalf("Email = %q, want %q", created.Email, "integration-test@yygu.cn")
+	if created.Email != "integration-test@example.com" {
+		t.Fatalf("Email = %q, want %q", created.Email, "integration-test@example.com")
 	}
 	t.Logf("create user success: name=%s email=%s", created.Name, created.Email)
 }
@@ -795,7 +795,7 @@ func TestMapLoginThirdToAuthTokenResponse_Complete(t *testing.T) {
 		UserInfo: &iamUserInfo{
 			ID:        100,
 			Name:      "Test User",
-			Email:     "test@yygu.cn",
+			Email:     "test@example.com",
 			Phone:     "13800000000",
 			AvatarURL: "https://example.com/avatar.png",
 		},
@@ -890,7 +890,7 @@ func TestMapIAMUserInfoToAuthUserInfo(t *testing.T) {
 	iamInfo := &iamUserInfo{
 		ID:        42,
 		Name:      "Alice",
-		Email:     "alice@yygu.cn",
+		Email:     "alice@example.com",
 		Phone:     "13811112222",
 		AvatarURL: "https://img.example.com/a.png",
 	}
@@ -901,7 +901,7 @@ func TestMapIAMUserInfoToAuthUserInfo(t *testing.T) {
 	if result.Name != "Alice" {
 		t.Errorf("Name = %q", result.Name)
 	}
-	if result.Email != "alice@yygu.cn" {
+	if result.Email != "alice@example.com" {
 		t.Errorf("Email = %q", result.Email)
 	}
 	if result.AvatarURL != "https://img.example.com/a.png" {
@@ -946,7 +946,7 @@ func TestMapDetailPersonalCenterToUserInfo(t *testing.T) {
 		UserInfo: iamUserInfo{
 			ID:        55,
 			Name:      "Bob",
-			Email:     "bob@yygu.cn",
+			Email:     "bob@example.com",
 			Phone:     "13900001111",
 			AvatarURL: "https://img.example.com/b.png",
 		},
@@ -961,7 +961,7 @@ func TestMapDetailPersonalCenterToUserInfo(t *testing.T) {
 	if result.Name != "Bob" {
 		t.Errorf("Name = %q", result.Name)
 	}
-	if result.Email != "bob@yygu.cn" {
+	if result.Email != "bob@example.com" {
 		t.Errorf("Email = %q", result.Email)
 	}
 }
@@ -972,7 +972,7 @@ func TestMapDepartmentTreeEmployeeToUserInfo(t *testing.T) {
 		EmployeeID: 10,
 		UserID:     55,
 		Name:       "Test Emp",
-		Email:      "emp@yygu.cn",
+		Email:      "emp@example.com",
 		Phone:      "13800002222",
 	}
 	result := mapDepartmentTreeEmployeeToUserInfo(emp)
@@ -988,7 +988,7 @@ func TestMapDepartmentTreeEmployeeToUserInfo(t *testing.T) {
 	if result.Name != "Test Emp" {
 		t.Errorf("Name = %q", result.Name)
 	}
-	if result.Email != "emp@yygu.cn" {
+	if result.Email != "emp@example.com" {
 		t.Errorf("Email = %q", result.Email)
 	}
 }

@@ -1,7 +1,7 @@
 # 账号认证体系收敛技术方案
 
 > 设计日期：2026-07-09
-> 涉及项目：Lework、identity-platform (yg-iam)
+> 涉及项目：Lework、identity-platform (iam)
 > 状态：v2（根据 review 修订）
 
 ---

@@ -66,9 +66,9 @@ make docker-build-worker-base WORKER_BASE_EDITION=private
 
 ### worker 镜像如何引用 base
 
-`Dockerfile.worker` 默认 `FROM registry.yygu.cn/insmtx/leros-worker-base:private`（通过 `ARG WORKER_BASE_IMAGE`，构建时 `--build-arg WORKER_BASE_IMAGE=...:saas` 切换）。
+`Dockerfile.worker` 默认 `FROM leros-worker-base:base`（通过 `ARG WORKER_BASE_IMAGE`，构建时 `--build-arg WORKER_BASE_IMAGE=...:saas` 切换）。
 SaaS 部署构建 worker 时：
 
 ```bash
-make docker-build-worker WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/leros-worker-base:saas
+make docker-build-worker WORKER_BASE_IMAGE=leros-worker-base:saas
 ```

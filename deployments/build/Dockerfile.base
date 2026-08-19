@@ -1,4 +1,4 @@
-FROM registry.yygu.cn/library/ubuntu:24.04
+FROM ubuntu:24.04
 
 # Configure aliyun apt mirrors
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \

@@ -19,7 +19,7 @@ jobs:
       PROJECT: leros
       REGISTRY_HOST: ${{ secrets.DOCKER_REGISTRY_HOST }}
       ENV: test
-      K8S_NS: insmtx-test
+      K8S_NS: leros-test
       DEPLOY_TARGET: ${{ github.event.inputs.deploy_target }}
     outputs:
       image_tag: ${{ steps.step_env.outputs.image_tag }}
@@ -47,7 +47,7 @@ jobs:
         uses: appleboy/ssh-action@master
         env:
           REGISTRY_HOST: ${{ secrets.DOCKER_REGISTRY_HOST }}
-          K8S_NS: insmtx-test
+          K8S_NS: leros-test
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}

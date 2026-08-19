@@ -1,9 +1,9 @@
 ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
-ARG GO_BUILDER_IMAGE=registry.yygu.cn/library/golang:1.25
+ARG GO_BUILDER_IMAGE=golang:1.25
 ARG BUILD_TAGS=
-ARG WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/leros-worker-base:saas
+ARG WORKER_BASE_IMAGE=leros-worker-base:saas
 
 FROM ${GO_BUILDER_IMAGE} AS builder
 
