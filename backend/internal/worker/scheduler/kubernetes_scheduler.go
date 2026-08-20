@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -489,12 +490,12 @@ func (s *KubernetesScheduler) serverAddr(spec *worker.WorkerSpec) string {
 	return strings.TrimSpace(s.config.ServerAddr)
 }
 
-func (s *KubernetesScheduler) workspacePath(_, _ uint) string {
+func (s *KubernetesScheduler) workspacePath(orgID, workerID uint) string {
 	root := strings.TrimSpace(s.config.WorkspaceHostPathRoot)
 	if root == "" {
 		root = defaultWorkspaceHostPathRoot
 	}
-	return root
+	return joinHostPath(root, orgID, workerID)
 }
 
 func (s *KubernetesScheduler) workspaceMountPath(_, _ uint) string {
@@ -521,6 +522,17 @@ func (s *KubernetesScheduler) storageMountPath() string {
 
 func deploymentName(orgID, workerID uint) string {
 	return fmt.Sprintf("leros-worker-o%d-w%d", orgID, workerID)
+}
+
+// joinHostPath 在宿主根路径下追加 Deployment 名称二级目录，使每个 worker
+// 使用独立的 workspace 宿主目录（如 /data/workspace/leros-worker-o1001-w3），
+// 目录名与 Deployment 名称一一对应，实现物理隔离。
+// workerID 为 0 时返回根路径本身，避免拼出无意义的目录。
+func joinHostPath(root string, orgID, workerID uint) string {
+	if workerID == 0 {
+		return root
+	}
+	return filepath.Join(root, deploymentName(orgID, workerID))
 }
 
 func boolPtr(value bool) *bool                                       { return &value }

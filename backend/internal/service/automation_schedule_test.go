@@ -96,8 +96,8 @@ func TestCompileScheduleSpec_Interval(t *testing.T) {
 	if spec.Spec.IntervalSeconds != 1800 {
 		t.Fatalf("unexpected interval seconds: %d", spec.Spec.IntervalSeconds)
 	}
-	if spec.Spec.AnchorAt == "" {
-		t.Fatalf("anchor_at should not be empty")
+	if spec.Spec.OriginAt == "" {
+		t.Fatalf("origin_at should not be empty")
 	}
 }
 
@@ -324,21 +324,7 @@ func TestBuildAutomationSummary_Hourly(t *testing.T) {
 	}
 }
 
-func TestCompileScheduleSpec_InvalidAnchor(t *testing.T) {
-	form := &types.AutomationScheduleFormConfig{
-		Mode: "interval",
-		Interval: &types.AutomationIntervalConfig{
-			IntervalMinutes: 30,
-			AnchorAt:        "not-a-time",
-		},
-		Timezone: "Asia/Shanghai",
-	}
-	if _, err := compileScheduleSpec(form, "", ""); err == nil {
-		t.Fatalf("expected error for invalid anchor")
-	}
-}
-
-func TestCompileScheduleSpec_IntervalBackfillsAnchorIntoFormConfig(t *testing.T) {
+func TestCompileScheduleSpec_IntervalUsesOriginWithoutFormAnchor(t *testing.T) {
 	form := &types.AutomationScheduleFormConfig{
 		Mode: "interval",
 		Interval: &types.AutomationIntervalConfig{
@@ -350,12 +336,11 @@ func TestCompileScheduleSpec_IntervalBackfillsAnchorIntoFormConfig(t *testing.T)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	// 缺省锚点应回填到 form_config，保证编辑回显
-	if spec.FormConfig == nil || spec.FormConfig.Interval == nil || spec.FormConfig.Interval.AnchorAt == "" {
-		t.Fatalf("expected anchor backfilled into form_config, got %+v", spec.FormConfig)
+	if spec.FormConfig == nil || spec.FormConfig.Interval == nil || spec.FormConfig.Interval.AnchorAt != "" {
+		t.Fatalf("expected no form anchor, got %+v", spec.FormConfig)
 	}
-	if spec.Spec.AnchorAt == "" {
-		t.Fatalf("expected anchor in spec")
+	if spec.Spec.OriginAt == "" {
+		t.Fatalf("expected origin in spec")
 	}
 }
 

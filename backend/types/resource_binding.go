@@ -16,14 +16,17 @@ const (
 	ResourceRoleAdmin ResourceRole = "admin"
 	// ResourceRoleMember 授予 member 级别的策略权限。
 	ResourceRoleMember ResourceRole = "member"
+	// ResourceRoleViewer 授予 viewer 级别的策略权限（插件协作只读）。
+	ResourceRoleViewer ResourceRole = "viewer"
 )
 
 // ResourceRoleStrength 定义各资源角色的强度值，用于跨资源层继承时取最高角色。
-// owner > admin > member；未知角色强度视为 0。
+// owner > admin > member > viewer；未知角色强度视为 0。
 var ResourceRoleStrength = map[ResourceRole]int{
 	ResourceRoleOwner:  3,
 	ResourceRoleAdmin:  2,
 	ResourceRoleMember: 1,
+	ResourceRoleViewer: 0,
 }
 
 // ResourceBinding 表示用户或助手在资源上的身份绑定。
@@ -55,6 +58,7 @@ var validRoles = map[ResourceRole]struct{}{
 	ResourceRoleOwner:  {},
 	ResourceRoleAdmin:  {},
 	ResourceRoleMember: {},
+	ResourceRoleViewer: {},
 }
 
 // Validate 校验 ResourceBinding 字段约束。

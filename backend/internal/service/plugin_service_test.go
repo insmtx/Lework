@@ -40,6 +40,10 @@ func setupPluginServiceTestDB(t *testing.T) *gorm.DB {
 		&types.PluginMarketplaceItem{},
 		&types.PluginTranslation{},
 		&types.MCPChannel{},
+		&types.Resource{},
+		&types.ResourceBinding{},
+		&types.User{},
+		&types.UserOrg{},
 		&types.FileUpload{},
 	); err != nil {
 		t.Fatalf("migrate plugin service models: %v", err)
@@ -57,6 +61,30 @@ func setupPluginServiceTestStorage(t *testing.T) {
 		SignSecret: "plugin-test-secret",
 	}); err != nil {
 		t.Fatalf("initialize plugin test storage: %v", err)
+	}
+}
+
+// seedPluginResourceOwner 为直接创建的插件补种活动权限资源与 owner 绑定。
+func seedPluginResourceOwner(t *testing.T, database *gorm.DB, orgID, pluginID, ownerUin uint) {
+	t.Helper()
+	resource := &types.Resource{
+		OrgID:                 orgID,
+		Uin:                   ownerUin,
+		Type:                  types.ResourceTypePlugin,
+		BizID:                 pluginID,
+		ParentResourcePathIDs: types.ResourcePathIDs{},
+	}
+	if err := database.Create(resource).Error; err != nil {
+		t.Fatalf("seed plugin resource: %v", err)
+	}
+	uin := ownerUin
+	if err := database.Create(&types.ResourceBinding{
+		OrgID:      orgID,
+		Uin:        &uin,
+		ResourceID: resource.ID,
+		Role:       types.ResourceRoleOwner,
+	}).Error; err != nil {
+		t.Fatalf("seed plugin owner binding: %v", err)
 	}
 }
 
@@ -171,6 +199,7 @@ func createPluginServiceOrganizationSkill(
 		Code:            code,
 		Kind:            "skill",
 		Name:            code,
+		Visibility:      types.PluginVisibilityPublic,
 		Status:          types.PluginStatusActive,
 		Origin:          "org",
 		CurrentRevision: 1,
@@ -180,6 +209,7 @@ func createPluginServiceOrganizationSkill(
 	if err := database.Create(plugin).Error; err != nil {
 		t.Fatalf("create organization plugin: %v", err)
 	}
+	seedPluginResourceOwner(t, database, orgID, plugin.ID, ownerID)
 	revision := &types.PluginRevision{
 		PluginID:        plugin.ID,
 		Revision:        1,
@@ -258,10 +288,11 @@ func addPluginServiceSystemRevision(
 func TestPluginServiceScopesListsAndDeletes(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
 	ctx := context.Background()
-	plugin := &types.Plugin{PublicID: "plg_service", OrgID: 1, Code: "service", Kind: "skill", Name: "Service", Status: types.PluginStatusActive, Origin: "org", CurrentRevision: 1, CreatedBy: 8, UpdatedBy: 8}
+	plugin := &types.Plugin{PublicID: "plg_service", OrgID: 1, Code: "service", Kind: "skill", Name: "Service", Visibility: types.PluginVisibilityPublic, Status: types.PluginStatusActive, Origin: "org", CurrentRevision: 1, CreatedBy: 8, UpdatedBy: 8}
 	if err := database.Create(plugin).Error; err != nil {
 		t.Fatalf("create plugin: %v", err)
 	}
+	seedPluginResourceOwner(t, database, 1, plugin.ID, 8)
 	if err := database.Create(&types.PluginRevision{PluginID: plugin.ID, Revision: 1, Status: "published", Definition: []byte(`{"schema":"skill/v1","artifact":{"file_upload_id":"file_service","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`), PublishedByType: "user", PublishedByID: 8, PublishedAt: time.Now()}).Error; err != nil {
 		t.Fatalf("create revision: %v", err)
 	}
@@ -331,6 +362,7 @@ func TestPluginServiceReturnsCurrentContentSnapshot(t *testing.T) {
 	if err := database.Create(plugin).Error; err != nil {
 		t.Fatalf("create plugin: %v", err)
 	}
+	seedPluginResourceOwner(t, database, 1, plugin.ID, 8)
 	revision := &types.PluginRevision{
 		PluginID: plugin.ID, Revision: 2, Status: "published",
 		Definition:      []byte(`{"schema":"skill/v1","artifact":{"file_upload_id":"file_content","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`),
@@ -409,7 +441,7 @@ func TestAddSkillPluginCreatesContentSnapshotsFromZIPAndMarkdown(t *testing.T) {
 				t.Fatalf("upload Skill source: %v", err)
 			}
 			service := &pluginService{db: database}
-			if err := service.AddSkillPlugin(ctx, 1, 9, &contract.AddSkillPluginRequest{
+			if _, err := service.AddSkillPlugin(ctx, 1, 9, &contract.AddSkillPluginRequest{
 				Mode:         contract.SkillAddModeFile,
 				FileUploadID: file.PublicID,
 			}); err != nil {
@@ -440,6 +472,7 @@ func TestPublishSkillRevisionReactivatesArchivedPlugin(t *testing.T) {
 	if err := database.Create(plugin).Error; err != nil {
 		t.Fatalf("create plugin: %v", err)
 	}
+	seedPluginResourceOwner(t, database, 1, plugin.ID, 9)
 	if err := database.Create(&types.PluginRevision{PluginID: plugin.ID, Revision: 1, Status: "published", Definition: []byte(`{"schema":"skill/v1","artifact":{"file_upload_id":"file_old","sha256":"old"}}`), PublishedByType: "user", PublishedByID: 8, PublishedAt: time.Now()}).Error; err != nil {
 		t.Fatalf("create revision: %v", err)
 	}
@@ -458,7 +491,7 @@ func TestPublishSkillRevisionReactivatesArchivedPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build content draft: %v", err)
 	}
-	if err := service.publishSkillRevision(context.Background(), 1, 9, "archived", "Archived", "", definition, contentDraft); err != nil {
+	if _, err := service.publishSkillRevision(context.Background(), 1, 9, "archived", "Archived", "", definition, contentDraft); err != nil {
 		t.Fatalf("publish revision: %v", err)
 	}
 
@@ -494,7 +527,7 @@ func TestDeletedSkillReusesIdentityAndPublishesNextVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build content draft: %v", err)
 	}
-	if err := service.publishSkillRevision(ctx, 1, 9, "restored", "Restored", "", definition, contentDraft); err != nil {
+	if _, err := service.publishSkillRevision(ctx, 1, 9, "restored", "Restored", "", definition, contentDraft); err != nil {
 		t.Fatalf("publish first revision: %v", err)
 	}
 	var original types.Plugin
@@ -513,7 +546,7 @@ func TestDeletedSkillReusesIdentityAndPublishesNextVersion(t *testing.T) {
 	if _, err := service.DeletePlugin(ctx, 1, 9, original.PublicID, &contract.DeletePluginRequest{}); err != nil {
 		t.Fatalf("delete plugin: %v", err)
 	}
-	if err := service.publishSkillRevision(ctx, 1, 10, "restored", "Restored", "", definition, contentDraft); err != nil {
+	if _, err := service.publishSkillRevision(ctx, 1, 10, "restored", "Restored", "", definition, contentDraft); err != nil {
 		t.Fatalf("restore plugin: %v", err)
 	}
 
@@ -878,7 +911,7 @@ func TestPluginInstallationStatusTracksMarketplaceSourceAndLatestRevision(t *tes
 	localPlugin := &types.Plugin{
 		PublicID: "plugin_local_status", OwnerScope: types.OwnerScopeOrganization,
 		OrgID: 8, Code: "status-skill", Kind: "skill", Name: "Local Status Skill",
-		Status: types.PluginStatusActive, Origin: "org", CurrentRevision: 1,
+		Visibility: types.PluginVisibilityPublic, Status: types.PluginStatusActive, Origin: "org", CurrentRevision: 1,
 		CreatedBy: 8, UpdatedBy: 8,
 	}
 	if err := database.Create(localPlugin).Error; err != nil {
@@ -988,7 +1021,7 @@ func TestPluginInstallationStatusRejectsIncompleteMarketplaceLineage(t *testing.
 	plugin := &types.Plugin{
 		PublicID: "plugin_incomplete_lineage", OwnerScope: types.OwnerScopeOrganization,
 		OrgID: 7, Code: "incomplete-lineage", Kind: "skill", Name: "Incomplete",
-		Status: types.PluginStatusActive, Origin: "marketplace", CurrentRevision: 1,
+		Visibility: types.PluginVisibilityPublic, Status: types.PluginStatusActive, Origin: "marketplace", CurrentRevision: 1,
 		CreatedBy: 9, UpdatedBy: 9,
 	}
 	if err := database.Create(plugin).Error; err != nil {
@@ -1052,7 +1085,7 @@ func TestPluginInstallationStatusRejectsIncompleteMarketplaceLineage(t *testing.
 	invalidPlugin := &types.Plugin{
 		PublicID: "plugin_invalid_lineage", OwnerScope: types.OwnerScopeOrganization,
 		OrgID: 7, Code: "invalid-lineage", Kind: "skill", Name: "Invalid",
-		Status: types.PluginStatusActive, Origin: "marketplace", CurrentRevision: 1,
+		Visibility: types.PluginVisibilityPublic, Status: types.PluginStatusActive, Origin: "marketplace", CurrentRevision: 1,
 		CreatedBy: 9, UpdatedBy: 9,
 	}
 	if err := database.Create(invalidPlugin).Error; err != nil {
@@ -1214,6 +1247,7 @@ func TestOrganizationSkillDownloadResolvesCurrentRevisionByCode(t *testing.T) {
 		Code:            "current-download",
 		Kind:            "skill",
 		Name:            "Current Download",
+		Visibility:      types.PluginVisibilityPublic,
 		Status:          types.PluginStatusActive,
 		Origin:          "org",
 		CurrentRevision: 2,
@@ -1431,6 +1465,7 @@ func TestSkillDownloadURLsPreservesOrganizationSkillsAndSortsMixedResults(t *tes
 		19,
 		&contract.ResolveSkillDownloadURLsRequest{
 			SkillCodes: []string{"z-existing", "missing", "b-invalid", "a-market"},
+			ActorUin:   8,
 		},
 	)
 	if err != nil || len(resolved.Skills) != 2 {

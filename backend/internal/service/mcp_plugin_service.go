@@ -75,6 +75,7 @@ func (s *pluginService) AddMCPPlugin(
 			Kind:            "mcp",
 			Name:            config.Name,
 			Description:     config.Description,
+			Visibility:      types.PluginVisibilityPrivate,
 			Status:          types.PluginStatusActive,
 			Origin:          "org",
 			CurrentRevision: 0,
@@ -105,6 +106,9 @@ func (s *pluginService) AddMCPPlugin(
 			return err
 		}
 		created.CurrentRevision = 1
+		if err := ensurePluginResourceOwner(ctx, tx, orgID, created.ID, uin); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {

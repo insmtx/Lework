@@ -3,7 +3,9 @@
 import {
 	officialPluginMarketplaceApi,
 	type PluginInstallationStatus,
+	type PluginPermission,
 	type PluginRevisionFile,
+	type PluginVisibility,
 	pluginApi,
 } from "@leros/store";
 import {
@@ -33,10 +35,12 @@ import {
 	Loader2,
 	RefreshCw,
 	Trash2,
+	UsersRound,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
+import { PluginPermissionDialog } from "./PluginPermissionDialog";
 import { SkillFileTree } from "./SkillFileTree";
 import { canUpdateOrganizationSkill } from "./skillInstallationState";
 
@@ -57,6 +61,8 @@ interface SkillDetailData {
 	latest_version?: string;
 	update_available: boolean;
 	organization_override: boolean;
+	visibility?: PluginVisibility;
+	permission?: PluginPermission;
 	files: PluginRevisionFile[];
 	has_content_snapshot: boolean;
 }
@@ -91,6 +97,7 @@ export function SkillDetailView({
 	const [mounted, setMounted] = useState(false);
 	const [stickyHeaderActive, setStickyHeaderActive] = useState(false);
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+	const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 
 	// Gate fetch on mounted to avoid StrictMode double-fire
@@ -163,6 +170,8 @@ export function SkillDetailView({
 					marketplace_available: false,
 					update_available: false,
 					organization_override: false,
+					visibility: plugin.visibility,
+					permission: plugin.permission,
 					files: content?.files ?? [],
 					has_content_snapshot: content !== null,
 				});
@@ -234,11 +243,21 @@ export function SkillDetailView({
 	}, [onUse, skill]);
 
 	const canUpdateOrganization = canUpdateOrganizationSkill(installationStatus);
+	const canManagePermissions =
+		skill?.source === "organization" &&
+		(skill.permission?.role === "owner" || skill.permission?.role === "admin");
+	const canEditOrganization =
+		skill?.source === "organization" &&
+		(skill.permission?.role === "owner" || skill.permission?.role === "admin");
+	const canDeleteOrganization =
+		skill?.source === "organization" && skill.permission?.role === "owner";
 	const canUpdateMarketplace =
 		skill?.source === "official" &&
 		skill.installed &&
 		skill.marketplace_available &&
 		skill.update_available;
+	const hasOrganizationMenuActions =
+		canManagePermissions || (canUpdateOrganization && canEditOrganization) || canDeleteOrganization;
 
 	// Loading state
 	if (loading) {
@@ -400,41 +419,51 @@ export function SkillDetailView({
 							>
 								去使用
 							</Button>
-							<DropdownMenu>
-								<DropdownMenuTrigger
-									render={(props) => (
-										<Button
-											size="sm"
-											variant="ghost"
-											{...props}
-											aria-label="更多操作"
-											className="rounded-lg px-2 py-2 hover:bg-[var(--leros-surface-soft)]"
-										>
-											<Ellipsis className="size-4" />
-										</Button>
-									)}
-								/>
-								<DropdownMenuContent align="end" className="w-32">
-									{canUpdateOrganization && (
-										<DropdownMenuItem onClick={handleInstall} disabled={installing}>
-											{installing ? (
-												<Loader2 className="size-3.5 mr-2 animate-spin" />
-											) : (
-												<RefreshCw className="size-3.5 mr-2" />
-											)}
-											{installing ? "更新中..." : "更新"}
-										</DropdownMenuItem>
-									)}
-									<DropdownMenuItem
-										onClick={() => setDeleteDialogOpen(true)}
-										disabled={installing}
-										className="text-xs text-red-600 focus:text-red-600"
-									>
-										<Trash2 className="size-3.5 mr-2" />
-										删除
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
+							{hasOrganizationMenuActions && (
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={(props) => (
+											<Button
+												size="sm"
+												variant="ghost"
+												{...props}
+												aria-label="更多操作"
+												className="rounded-lg px-2 py-2 hover:bg-[var(--leros-surface-soft)]"
+											>
+												<Ellipsis className="size-4" />
+											</Button>
+										)}
+									/>
+									<DropdownMenuContent align="end" className="w-32">
+										{canManagePermissions && (
+											<DropdownMenuItem onClick={() => setPermissionDialogOpen(true)}>
+												<UsersRound className="mr-2 size-3.5" />
+												共享
+											</DropdownMenuItem>
+										)}
+										{canUpdateOrganization && canEditOrganization && (
+											<DropdownMenuItem onClick={handleInstall} disabled={installing}>
+												{installing ? (
+													<Loader2 className="size-3.5 mr-2 animate-spin" />
+												) : (
+													<RefreshCw className="size-3.5 mr-2" />
+												)}
+												{installing ? "更新中..." : "更新"}
+											</DropdownMenuItem>
+										)}
+										{canDeleteOrganization && (
+											<DropdownMenuItem
+												onClick={() => setDeleteDialogOpen(true)}
+												disabled={installing}
+												className="text-xs text-red-600 focus:text-red-600"
+											>
+												<Trash2 className="size-3.5 mr-2" />
+												删除
+											</DropdownMenuItem>
+										)}
+									</DropdownMenuContent>
+								</DropdownMenu>
+							)}
 						</div>
 					) : (
 						<div className="flex shrink-0 items-center gap-2">
@@ -596,6 +625,23 @@ export function SkillDetailView({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+
+			<PluginPermissionDialog
+				open={permissionDialogOpen}
+				onOpenChange={setPermissionDialogOpen}
+				plugin={{
+					public_id: skill.skill_id,
+					name: skill.name,
+					display_name: skill.display_name,
+					kind: skill.category,
+				}}
+				permission={skill.permission}
+				onSaved={(settings) => {
+					setSkill((current) =>
+						current ? { ...current, visibility: settings.visibility } : current,
+					);
+				}}
+			/>
 		</div>
 	);
 }

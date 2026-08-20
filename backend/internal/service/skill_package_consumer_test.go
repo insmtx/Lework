@@ -101,7 +101,7 @@ func TestProcessSkillPackageUploadedIsIdempotentAndDoesNotCreateProjectFile(t *t
 	}
 	downloads, err := (&pluginService{db: database}).ResolveSkillDownloadURLs(
 		ctx,
-		7, types.CallerKindUser, 1,
+		7, types.CallerKindUser, 9,
 		&contract.ResolveSkillDownloadURLsRequest{SkillCodes: []string{"demo"}},
 	)
 	if err != nil || len(downloads.Skills) != 1 || downloads.Skills[0].DownloadURL == "" {
@@ -126,6 +126,7 @@ func TestProcessSkillPackageUploadedIsIdempotentAndDoesNotCreateProjectFile(t *t
 	}
 	if err := processSkillPackageUploaded(ctx, database, 7, messaging.SkillPackageUploadedEvent{
 		EventID: "skill_evt_org_only", WorkerID: 4, RunID: "run-2",
+		ActorUIN:  9,
 		SkillCode: "org-only", ChangeType: messaging.SkillChangeCreated,
 		StorageURI: orgOnlyPut.Path.URI(), SHA256: hex.EncodeToString(orgOnlyDigest[:]),
 		FileSize: int64(len(orgOnlyArchive)), Filename: "org-only.zip", MimeType: "application/zip",
@@ -172,6 +173,7 @@ func TestProcessSkillPackageUploadedRejectsStorageURISHAConflict(t *testing.T) {
 	}
 	event := messaging.SkillPackageUploadedEvent{
 		EventID: "skill_evt_conflict", WorkerID: 4, RunID: "run-1",
+		ActorUIN:  9,
 		SkillCode: "demo", ChangeType: messaging.SkillChangeUpdated,
 		StorageURI: putResult.Path.URI(), SHA256: sha256Hex,
 		FileSize: int64(len(archive)), Filename: "demo.zip", MimeType: "application/zip",
@@ -180,5 +182,65 @@ func TestProcessSkillPackageUploadedRejectsStorageURISHAConflict(t *testing.T) {
 	var permanent *permanentSkillPackageError
 	if err == nil || !errors.As(err, &permanent) {
 		t.Fatalf("error = %v, want permanent conflict", err)
+	}
+}
+
+func TestProcessSkillPackageUploadedRejectsViewerUpdate(t *testing.T) {
+	ctx := context.Background()
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+
+	document := []byte("---\nname: demo\ndescription: demo helper\n---\n\nUse demo.\n")
+	archive, err := skillcache.GenerateSkillZip(document, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(archive)
+	sha256Hex := hex.EncodeToString(digest[:])
+	putResult, err := filestore.GetStorage().PutObject(
+		ctx, filestore.DefaultBucket(), "viewer/demo.zip",
+		bytes.NewReader(archive), storage.WithContentType("application/zip"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createEvent := messaging.SkillPackageUploadedEvent{
+		EventID: "skill_evt_create", WorkerID: 4, RunID: "run-1",
+		ActorUIN: 9, SkillCode: "demo", ChangeType: messaging.SkillChangeCreated,
+		StorageURI: putResult.Path.URI(), SHA256: sha256Hex,
+		FileSize: int64(len(archive)), Filename: "demo.zip", MimeType: "application/zip",
+	}
+	if err := processSkillPackageUploaded(ctx, database, 7, createEvent); err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	// 给 uin=10 添加 viewer 绑定，使其可查看但不可编辑。
+	var plugin types.Plugin
+	if err := database.Where("org_id = ? AND code = ?", 7, "demo").First(&plugin).Error; err != nil {
+		t.Fatal(err)
+	}
+	var resource types.Resource
+	if err := database.Where("org_id = ? AND type = ? AND biz_id = ?",
+		7, types.ResourceTypePlugin, plugin.ID).First(&resource).Error; err != nil {
+		t.Fatal(err)
+	}
+	viewerUin := uint(10)
+	if err := database.Create(&types.ResourceBinding{
+		OrgID: 7, Uin: &viewerUin, ResourceID: resource.ID, Role: types.ResourceRoleViewer,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// viewer 提交修改应被永久拒绝（Term），而不是无限重试。
+	updateEvent := messaging.SkillPackageUploadedEvent{
+		EventID: "skill_evt_update", WorkerID: 4, RunID: "run-2",
+		ActorUIN: 10, SkillCode: "demo", ChangeType: messaging.SkillChangeUpdated,
+		StorageURI: putResult.Path.URI(), SHA256: sha256Hex,
+		FileSize: int64(len(archive)), Filename: "demo.zip", MimeType: "application/zip",
+	}
+	err = processSkillPackageUploaded(ctx, database, 7, updateEvent)
+	var permanent *permanentSkillPackageError
+	if err == nil || !errors.As(err, &permanent) {
+		t.Fatalf("error = %v, want permanent forbidden", err)
 	}
 }

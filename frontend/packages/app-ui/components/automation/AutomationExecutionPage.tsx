@@ -1,7 +1,7 @@
 "use client";
 
 import type { AutomationExecutionItem, AutomationItem } from "@leros/store";
-import { useAutomationStore } from "@leros/store";
+import { skillChipsToPlainText, useAutomationStore } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import { Switch } from "@leros/ui/components/ui/switch";
 import { cn } from "@leros/ui/lib/utils";
@@ -12,6 +12,7 @@ import type { AppNavigation } from "../layout";
 import { AutomationDeleteDialog } from "./AutomationDeleteDialog";
 import { AutomationFormDialog } from "./AutomationFormDialog";
 import { buildFormSummary, buildScheduleFormState } from "./automationForm";
+import { formatLocalDateTime } from "./automationTime";
 
 export type AutomationExecutionPageProps = {
 	automationPublicId: string;
@@ -166,7 +167,7 @@ export function AutomationExecutionPage({
 												: "text-slate-600 hover:bg-slate-50",
 										)}
 									>
-										<span>{formatExecutionTime(exec.scheduledAt || exec.createdAt)}</span>
+										<span>{formatLocalDateTime(exec.scheduledAt || exec.createdAt)}</span>
 										<span
 											className={cn(
 												"size-2 rounded-full shrink-0 ml-2",
@@ -196,7 +197,7 @@ export function AutomationExecutionPage({
 						<div>
 							<div className="text-xs font-medium text-slate-400 mb-1.5">任务指令</div>
 							<div className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap rounded-lg bg-slate-50/70 p-3.5 border border-slate-100/80 font-normal">
-								{currentAutomation?.instruction || "暂无指令"}
+								{skillChipsToPlainText(currentAutomation?.instruction || "") || "暂无指令"}
 							</div>
 						</div>
 					</div>
@@ -229,16 +230,6 @@ function getScheduleText(automation?: AutomationItem | null): string {
 		if (summary) return summary;
 	}
 	return automation.scheduleMode || "周期触发";
-}
-
-function formatExecutionTime(value?: string | number): string {
-	if (!value) return "—";
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return String(value);
-	const pad = (n: number) => String(n).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-		date.getHours(),
-	)}:${pad(date.getMinutes())}`;
 }
 
 function statusLabel(status: string): string {

@@ -39,6 +39,21 @@ const (
 	ActionTaskUpdate Action = "task:update"
 	// ActionTaskDelete 删除任务。
 	ActionTaskDelete Action = "task:delete"
+
+	// ActionPluginView 查看插件详情与版本。
+	ActionPluginView Action = "plugin:view"
+	// ActionPluginUse 在任务执行中使用插件。
+	ActionPluginUse Action = "plugin:use"
+	// ActionPluginUpdate 编辑插件内容。
+	ActionPluginUpdate Action = "plugin:update"
+	// ActionPluginDelete 删除插件。
+	ActionPluginDelete Action = "plugin:delete"
+	// ActionPluginPermissionRead 读取插件权限配置。
+	ActionPluginPermissionRead Action = "plugin:permission.read"
+	// ActionPluginPermissionUpdate 更新插件成员权限配置。
+	ActionPluginPermissionUpdate Action = "plugin:permission.update"
+	// ActionPluginVisibilityUpdate 修改插件公开性。
+	ActionPluginVisibilityUpdate Action = "plugin:visibility.update"
 )
 
 // PermissionCaller 表示权限判断中的请求主体。

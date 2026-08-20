@@ -272,7 +272,7 @@ describe("attachAssistantReplyTargets", () => {
 				timestamp: 1,
 				author: {
 					id: "3",
-					name: "18435155690",
+					name: "13800000000",
 					type: "user",
 				},
 			},
@@ -290,7 +290,7 @@ describe("attachAssistantReplyTargets", () => {
 
 		expect(result[1]?.replyTo).toEqual({
 			messageId: "475",
-			authorName: "18435155690",
+			authorName: "13800000000",
 			content: "北京的天气",
 		});
 	});

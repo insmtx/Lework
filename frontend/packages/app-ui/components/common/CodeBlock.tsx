@@ -3,7 +3,7 @@
 import { Switch } from "@leros/ui/components/ui/switch";
 import { cn } from "@leros/ui/lib/utils";
 import { Moon, Sun } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
 import {
 	CODE_BLOCK_THEME_EVENT,
@@ -15,9 +15,10 @@ import {
 type CodeBlockProps = {
 	children?: ReactNode;
 	className?: string;
+	containerClassName?: string;
 };
 
-export function CodeBlock({ children, className }: CodeBlockProps) {
+export function CodeBlock({ children, className, containerClassName }: CodeBlockProps) {
 	const [theme, setTheme] = useState<CodeBlockTheme>("light");
 
 	useEffect(() => {
@@ -33,21 +34,34 @@ export function CodeBlock({ children, className }: CodeBlockProps) {
 	}, []);
 
 	const isDark = theme === "dark";
+	const scrollbarVars = isDark
+		? {
+				"--scrollbar-thumb": "oklch(1 0 0 / 42%)",
+				"--scrollbar-thumb-hover": "oklch(1 0 0 / 62%)",
+				"--scrollbar-track": "oklch(1 0 0 / 12%)",
+			}
+		: {
+				"--scrollbar-thumb": "oklch(0 0 0 / 22%)",
+				"--scrollbar-thumb-hover": "oklch(0 0 0 / 34%)",
+				"--scrollbar-track": "oklch(0 0 0 / 6%)",
+			};
 
 	return (
 		<div
 			data-slot="code-block"
 			data-theme={theme}
+			style={scrollbarVars as CSSProperties}
 			className={cn(
-				"not-prose my-2 overflow-hidden rounded-lg border shadow-none",
+				"not-prose my-2 flex flex-col overflow-hidden rounded-lg border shadow-none",
 				isDark
 					? "border-slate-600 bg-slate-800 text-slate-100"
 					: "border-slate-200 bg-slate-50 text-slate-800",
+				containerClassName,
 			)}
 		>
 			<div
 				className={cn(
-					"flex items-center justify-end gap-1 px-3 pt-3",
+					"flex shrink-0 items-center justify-end gap-1 px-3 pt-3",
 					isDark ? "text-slate-400" : "text-slate-500",
 				)}
 			>

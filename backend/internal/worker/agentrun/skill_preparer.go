@@ -14,13 +14,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/insmtx/Leros/backend/internal/service"
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillarchive "github.com/insmtx/Leros/backend/internal/skill/archive"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
+	"github.com/insmtx/Leros/backend/internal/worker/skillsync"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -34,6 +34,19 @@ type SkillPreparer interface {
 type SkillBaselineCommitter interface {
 	CommitInstalled(context.Context, []string) error
 	Restore(context.Context, string) error
+}
+
+type taskSkillDirectoryImporter interface {
+	ImportTaskSkillDirs(context.Context, string)
+}
+
+type lockedSkillBaselineCommitter interface {
+	CommitInstalledLocked(context.Context, []string) error
+	RestoreLocked(context.Context, string) error
+}
+
+type taskSkillRepositoryResetter interface {
+	RestoreAll(context.Context) error
 }
 
 // PluginSkillPreparer installs project Skill bundles into the worker workspace
@@ -68,8 +81,6 @@ type pluginSkillDescriptor struct {
 	ConnectorRef *connectorSkillDownloadRef
 }
 
-var skillInstallLocks sync.Map // map[string]*sync.Mutex, keyed by the worker skills root.
-
 // NewPluginSkillPreparer creates the worker implementation. A zero server
 // address is valid only when no project Skill artifact needs downloading.
 func NewPluginSkillPreparer(serverAddr, authToken string) *PluginSkillPreparer {
@@ -92,33 +103,38 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 	if req == nil {
 		return "", func() {}, fmt.Errorf("run request is required")
 	}
+	policy := applyDisabledPluginPolicy(ctx, req)
 	viewRoot, err := taskSkillViewRoot(workspace)
 	if err != nil {
 		return "", func() {}, err
 	}
+	cleanup := func() {
+		importTaskSkillDirs(ctx, p.baselineCommitter, viewRoot)
+		resetTaskSkillRepository(ctx, p.baselineCommitter)
+		removeTaskSkillView(viewRoot)
+	}
+	importTaskSkillDirs(ctx, p.baselineCommitter, viewRoot)
 	if err := resetTaskSkillView(viewRoot); err != nil {
-		return "", func() {}, fmt.Errorf("prepare task skill directory: %w", err)
+		logs.WarnContextf(ctx, "prepare task Skill directory failed; continuing without run Skill view: root=%s error=%v", viewRoot, err)
+		return "", cleanup, nil
 	}
-	cleanup := func() { removeSkillLinks(viewRoot) }
-	if err := linkSkillChildren(systemSkillsDir(), viewRoot); err != nil {
-		cleanup()
-		return "", cleanup, fmt.Errorf("link worker system skills: %w", err)
+	if err := linkSkillChildren(systemSkillsDir(), viewRoot, policy); err != nil {
+		logs.WarnContextf(ctx, "link worker system Skills failed; continuing: root=%s error=%v", viewRoot, err)
 	}
-	p.preparePluginSkills(ctx, req.Plugins, viewRoot)
-	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot); err != nil {
+	p.preparePluginSkills(ctx, req.Plugins, viewRoot, policy)
+	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot, policy); err != nil {
 		return "", cleanup, fmt.Errorf("prepare invoked skills: %w", err)
 	}
 	return viewRoot, cleanup, nil
 }
 
-func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots []agentrundomain.PluginSnapshot, viewRoot string) {
+func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots []agentrundomain.PluginSnapshot, viewRoot string, policy disabledPluginPolicy) {
 	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
 	if err != nil {
 		logs.WarnContextf(ctx, "resolve worker Skill directory failed: %v", err)
 		return
 	}
-	lockValue, _ := skillInstallLocks.LoadOrStore(skillsRoot, &sync.Mutex{})
-	installLock := lockValue.(*sync.Mutex)
+	installLock := skillsync.SkillRepositoryLock(skillsRoot)
 	installLock.Lock()
 	defer installLock.Unlock()
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
@@ -152,6 +168,10 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 			continue
 		}
 		if descriptor == nil {
+			continue
+		}
+		if policy.skillDisabled(descriptor.Code) {
+			logs.InfoContextf(ctx, "disabled embedded Skill for run: code=%s plugin_id=%s", descriptor.Code, snapshot.PluginID)
 			continue
 		}
 		code, err := organizationSkillName(descriptor.Code)
@@ -248,7 +268,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(ctx context.Context, snapshots
 
 // prepareInvokedSkills installs the latest organization Skill when an explicit
 // invocation is not actually available in the prepared run view.
-func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages []agentrundomain.InputMessage, viewRoot string) error {
+func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages []agentrundomain.InputMessage, viewRoot string, policy disabledPluginPolicy) error {
 	missing := make(map[string]struct{})
 	for _, message := range messages {
 		if message.Role != "user" {
@@ -258,6 +278,10 @@ func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages
 			code, err := organizationSkillName(token)
 			if err != nil {
 				logs.WarnContextf(ctx, "skip invalid invoked Skill %q: %v", token, err)
+				continue
+			}
+			if policy.skillDisabled(code) {
+				logs.InfoContextf(ctx, "skip explicitly invoked disabled Skill: code=%s", code)
 				continue
 			}
 			if isSystemSkill(code) || hasSkillDocument(filepath.Join(viewRoot, code)) {
@@ -290,8 +314,7 @@ func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []s
 	if err != nil {
 		return fmt.Errorf("resolve worker Skill directory: %w", err)
 	}
-	lockValue, _ := skillInstallLocks.LoadOrStore(skillsRoot, &sync.Mutex{})
-	installLock := lockValue.(*sync.Mutex)
+	installLock := skillsync.SkillRepositoryLock(skillsRoot)
 	installLock.Lock()
 	defer installLock.Unlock()
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
@@ -348,7 +371,13 @@ func (p *PluginSkillPreparer) commitInstalledBaseline(ctx context.Context, codes
 	if p == nil || p.baselineCommitter == nil {
 		return
 	}
-	if err := p.baselineCommitter.CommitInstalled(ctx, codes); err != nil {
+	var err error
+	if locked, ok := p.baselineCommitter.(lockedSkillBaselineCommitter); ok {
+		err = locked.CommitInstalledLocked(ctx, codes)
+	} else {
+		err = p.baselineCommitter.CommitInstalled(ctx, codes)
+	}
+	if err != nil {
 		logs.WarnContextf(ctx, "commit Worker Skill baseline failed: %v", err)
 	}
 }
@@ -357,7 +386,13 @@ func (p *PluginSkillPreparer) restoreInstalledBaseline(ctx context.Context, code
 	if p == nil || p.baselineCommitter == nil {
 		return
 	}
-	if err := p.baselineCommitter.Restore(ctx, code); err != nil {
+	var err error
+	if locked, ok := p.baselineCommitter.(lockedSkillBaselineCommitter); ok {
+		err = locked.RestoreLocked(ctx, code)
+	} else {
+		err = p.baselineCommitter.Restore(ctx, code)
+	}
+	if err != nil {
 		logs.WarnContextf(ctx, "restore local-only Worker Skill %q baseline failed: %v", code, err)
 	}
 }
@@ -577,29 +612,11 @@ func taskSkillViewRoot(workspace WorkspacePreparation) (string, error) {
 }
 
 func resetTaskSkillView(root string) error {
+	if err := os.RemoveAll(root); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		path := filepath.Join(root, entry.Name())
-		info, statErr := os.Lstat(path)
-		if statErr != nil {
-			return statErr
-		}
-		if info.Mode()&os.ModeSymlink == 0 {
-			return fmt.Errorf("refuse to replace non-symlink %s", path)
-		}
-		paths = append(paths, path)
-	}
-	for _, path := range paths {
-		if err := os.Remove(path); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -696,7 +713,7 @@ func isHex(value string) bool {
 	return true
 }
 
-func linkSkillChildren(source, destination string) error {
+func linkSkillChildren(source, destination string, policy disabledPluginPolicy) error {
 	entries, err := os.ReadDir(source)
 	if os.IsNotExist(err) {
 		return nil
@@ -712,6 +729,9 @@ func linkSkillChildren(source, destination string) error {
 		if err != nil {
 			continue
 		}
+		if policy.skillDisabled(name) {
+			continue
+		}
 		if err := replaceRunSkillLink(filepath.Join(source, name), filepath.Join(destination, name)); err != nil {
 			return err
 		}
@@ -723,29 +743,45 @@ func replaceRunSkillLink(source, target string) error {
 	info, err := os.Lstat(target)
 	if err == nil {
 		if info.Mode()&os.ModeSymlink == 0 {
-			return fmt.Errorf("refuse to replace non-symlink %s", target)
+			logs.Warnf("skip Skill link because target is not a symlink: path=%s", target)
+			return nil
 		}
 		if err := os.Remove(target); err != nil {
-			return err
+			logs.Warnf("remove stale Skill link failed: path=%s error=%v", target, err)
+			return nil
 		}
 	} else if !os.IsNotExist(err) {
-		return err
+		logs.Warnf("inspect Skill link target failed: path=%s error=%v", target, err)
+		return nil
 	}
-	return os.Symlink(source, target)
+	if err := os.Symlink(source, target); err != nil {
+		logs.Warnf("create Skill link failed: source=%s target=%s error=%v", source, target, err)
+	}
+	return nil
 }
 
-func removeSkillLinks(root string) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
+func removeTaskSkillView(root string) {
+	if err := os.RemoveAll(root); err != nil {
+		logs.Warnf("remove task Skill directory failed: root=%s error=%v", root, err)
+	}
+}
+
+func importTaskSkillDirs(ctx context.Context, committer SkillBaselineCommitter, root string) {
+	importer, ok := committer.(taskSkillDirectoryImporter)
+	if !ok {
 		return
 	}
-	for _, entry := range entries {
-		path := filepath.Join(root, entry.Name())
-		if info, statErr := os.Lstat(path); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-			_ = os.Remove(path)
-		}
+	importer.ImportTaskSkillDirs(ctx, root)
+}
+
+func resetTaskSkillRepository(ctx context.Context, committer SkillBaselineCommitter) {
+	resetter, ok := committer.(taskSkillRepositoryResetter)
+	if !ok {
+		return
 	}
-	_ = os.Remove(root)
+	if err := resetter.RestoreAll(context.WithoutCancel(ctx)); err != nil {
+		logs.WarnContextf(ctx, "restore Worker Skill repository during task cleanup failed: %v", err)
+	}
 }
 
 func safeSkillName(value string) (string, error) { return safePathID(value) }

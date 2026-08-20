@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { CodeBlock } from "../common/CodeBlock";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { DocxSelectionToolbar } from "./DocxSelectionToolbar";
 import {
@@ -901,9 +902,12 @@ function FilePreviewContent({
 						className="min-h-0 flex-1 border-0 bg-white"
 					/>
 				) : (
-					<pre className="min-h-0 flex-1 overflow-auto bg-slate-950 p-4 text-xs leading-6 text-slate-100">
+					<CodeBlock
+						containerClassName="my-0 min-h-0 flex-1 rounded-none border-0"
+						className="min-h-0 flex-1 overflow-auto"
+					>
 						{preview.text}
-					</pre>
+					</CodeBlock>
 				)}
 			</div>
 		);

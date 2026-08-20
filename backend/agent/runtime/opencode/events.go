@@ -70,7 +70,9 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 		if err := json.Unmarshal(propsJSON, &props); err != nil {
 			return
 		}
-		if props.Info.ID != "" {
+		// messageID 语义为「当前 assistant message」，仅当其确为 assistant
+		// 消息时记录，避免被先到达的 user 消息（message.updated）覆盖。
+		if props.Info.Role == "assistant" && props.Info.ID != "" {
 			st.messageID = props.Info.ID
 		}
 		if props.Info.Role == "assistant" {
@@ -120,12 +122,18 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 
 		switch part.Type {
 		case "text":
-			// 记录 messageID（首次 text part 出现时）
+			// 仅记录 assistant message 的 messageID（首次 text part 出现时）。
+			// st.messageID 语义为「当前 assistant message」，不应被 user 文本污染。
 			if st.messageID == "" && part.MessageID != "" {
 				st.messageID = part.MessageID
 			}
-			// 完整文本（非 synthetic）
-			if !isTrue(part.Synthetic) && part.Text != "" {
+			// 完整文本（非 synthetic）：仅接受属于当前 assistant message 的
+			// text part 作为最终回复。user 消息的 text part（形如「【用户问题】…」）
+			// 时序上必然早于 assistant 回复；一旦 assistant 的 PartUpdated 事件
+			// 因竞态延迟/丢失，若仍把 user 文本写入 lastTextEnded 就会触发回声误判。
+			// 强制要求 part.MessageID 与当前 assistant messageID 一致，从根上杜绝
+			// 用户输入污染 lastTextEnded。
+			if !isTrue(part.Synthetic) && part.Text != "" && isAssistantTextPart(st, part.MessageID) {
 				// FORENSIC: 记录是谁在更新 lastTextEnded —— 用户输入 part 还是当前 assistant part
 				isCur := part.MessageID != "" && part.MessageID == st.messageID
 				head := part.Text
@@ -418,6 +426,22 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 
 func isTrue(b *bool) bool {
 	return b != nil && *b
+}
+
+// isAssistantTextPart 判断该 text part 是否属于当前 assistant message。
+// 调用方必须持有 st.mu。
+//
+// 当 st.messageID 尚未确定（为空）时，任何 text part 都可能是 assistant 的
+// 首个文本（此时无法区分 user/assistant），故宽松放行，交由后续事件修正；
+// 一旦 st.messageID 已确定（assistant messageID），则仅接受与之匹配的 text part，
+// 拒绝 user 消息文本（「【用户问题】…」）写入 lastTextEnded。
+func isAssistantTextPart(st *runState, partMessageID string) bool {
+	partMessageID = strings.TrimSpace(partMessageID)
+	if st.messageID == "" {
+		// assistant messageID 尚未确定，无法可靠区分，放行。
+		return true
+	}
+	return partMessageID == st.messageID
 }
 
 func isFilteredToolName(toolName string) bool {

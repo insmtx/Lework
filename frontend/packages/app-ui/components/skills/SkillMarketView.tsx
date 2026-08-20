@@ -18,7 +18,7 @@ import { SkillDetailView } from "./SkillDetailView";
 import { SkillImportDialog } from "./SkillImportDialog";
 
 type PluginTab = "mcp" | "skills";
-type SkillSourceTab = "marketplace" | "mine";
+type SkillSourceTab = "marketplace" | "mine" | "owned";
 
 const PLUGIN_TAB_CLASS =
 	"!h-full flex-none rounded-none border-x-0 border-t-0 border-b-2 border-b-transparent bg-transparent px-1 text-sm font-medium leading-none text-[var(--leros-text-muted)] shadow-none after:hidden hover:text-[var(--leros-text-strong)] data-active:!border-b-[var(--leros-primary)] data-active:!bg-transparent data-active:!text-[var(--leros-text-strong)] data-active:!shadow-none";
@@ -35,11 +35,13 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	const [selectedSource, setSelectedSource] = useState<"official" | "organization">("official");
 	const [importDialogOpen, setImportDialogOpen] = useState(false);
 	const [mySkillsRefreshSeq, setMySkillsRefreshSeq] = useState(0);
+	const [ownedSkillsRefreshSeq, setOwnedSkillsRefreshSeq] = useState(0);
 	const [marketplaceRefreshSeq, setMarketplaceRefreshSeq] = useState(0);
 	const [keyword, setKeyword] = useState("");
 	const [debouncedKeyword, setDebouncedKeyword] = useState("");
 	const [marketplaceCount, setMarketplaceCount] = useState(0);
 	const [mySkillsCount, setMySkillsCount] = useState(0);
+	const [ownedSkillsCount, setOwnedSkillsCount] = useState(0);
 	const { setWorkbenchComposerPrefill, selectWorkbenchProject, selectWorkbenchTask, switchView } =
 		useLayoutStore((state) => state);
 
@@ -49,8 +51,8 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	}, [keyword]);
 
 	const goUseSkill = useCallback(
-		(skillCode: string): boolean => {
-			const prefill = buildSkillWorkbenchPrefill(skillCode);
+		(skillCode: string, displayName?: string): boolean => {
+			const prefill = buildSkillWorkbenchPrefill(skillCode, undefined, displayName);
 			selectWorkbenchProject(null);
 			selectWorkbenchTask(null);
 			setWorkbenchComposerPrefill(prefill);
@@ -73,7 +75,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 
 	const handleCardUse = useCallback(
 		(skill: SkillMarketplaceItem) => {
-			goUseSkill(skill.name);
+			goUseSkill(skill.name, skill.display_name);
 		},
 		[goUseSkill],
 	);
@@ -83,8 +85,8 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	}, []);
 
 	const handleDetailUse = useCallback(
-		(skillCode: string) => {
-			goUseSkill(skillCode);
+		(skillCode: string, displayLabel?: string) => {
+			goUseSkill(skillCode, displayLabel);
 		},
 		[goUseSkill],
 	);
@@ -116,7 +118,17 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	const handleSkillSourceChange = useCallback(
 		(nextTab: string) => {
 			if (nextTab === "mine") {
-				requireAuth(() => setSkillSourceTab("mine"));
+				requireAuth(() => {
+					setSkillSourceTab("mine");
+					setMySkillsRefreshSeq((sequence) => sequence + 1);
+				});
+				return;
+			}
+			if (nextTab === "owned") {
+				requireAuth(() => {
+					setSkillSourceTab("owned");
+					setOwnedSkillsRefreshSeq((sequence) => sequence + 1);
+				});
 				return;
 			}
 			setSkillSourceTab("marketplace");
@@ -132,11 +144,14 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 
 	const handleImportSuccess = useCallback(() => {
 		setMySkillsRefreshSeq((sequence) => sequence + 1);
+		setOwnedSkillsRefreshSeq((sequence) => sequence + 1);
 		setMarketplaceRefreshSeq((sequence) => sequence + 1);
+		setSkillSourceTab("owned");
 	}, []);
 
 	const handleOfficialInstall = useCallback(() => {
 		setMySkillsRefreshSeq((sequence) => sequence + 1);
+		setOwnedSkillsRefreshSeq((sequence) => sequence + 1);
 		setMarketplaceRefreshSeq((sequence) => sequence + 1);
 	}, []);
 
@@ -157,12 +172,24 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 		);
 	}
 
-	const activeCount = skillSourceTab === "marketplace" ? marketplaceCount : mySkillsCount;
-	const activeSectionTitle = skillSourceTab === "marketplace" ? "技能市场" : "组织共享";
+	const activeCount =
+		skillSourceTab === "marketplace"
+			? marketplaceCount
+			: skillSourceTab === "owned"
+				? ownedSkillsCount
+				: mySkillsCount;
+	const activeSectionTitle =
+		skillSourceTab === "marketplace"
+			? "技能市场"
+			: skillSourceTab === "owned"
+				? "我的"
+				: "组织共享";
 	const activeSectionDescription =
 		skillSourceTab === "marketplace"
 			? `由 ${brandName} 统一维护，未启用的技能将在首次使用时自动准备。`
-			: "组织成员创作或导入并共享使用的技能。";
+			: skillSourceTab === "owned"
+				? "由你拥有和管理的技能，可配置公开范围和协作权限。"
+				: "组织成员创作或导入并共享使用的技能。";
 
 	return (
 		<div
@@ -236,6 +263,9 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 										<TabsTrigger value="mine" className={SKILL_SOURCE_TAB_CLASS}>
 											组织共享 <span className="ml-1.5 opacity-60">{mySkillsCount}</span>
 										</TabsTrigger>
+										<TabsTrigger value="owned" className={SKILL_SOURCE_TAB_CLASS}>
+											我的 <span className="ml-1.5 opacity-60">{ownedSkillsCount}</span>
+										</TabsTrigger>
 									</TabsList>
 
 									<div className="ml-auto flex shrink-0 items-center gap-2">
@@ -292,7 +322,22 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 										onUse={handleCardUse}
 										refreshSeq={mySkillsRefreshSeq}
 										keyword={debouncedKeyword}
+										relation="shared"
+										excludeMarketplaceBased
 										onCountChange={setMySkillsCount}
+									/>
+								</TabsContent>
+
+								<TabsContent value="owned" keepMounted={isAuthenticated} className="outline-none">
+									<MySkillsPanel
+										onCardClick={handleCardClick}
+										onUse={handleCardUse}
+										refreshSeq={ownedSkillsRefreshSeq}
+										keyword={debouncedKeyword}
+										relation="owner"
+										cardVariant="owned"
+										emptyMessage="你还没有拥有的技能"
+										onCountChange={setOwnedSkillsCount}
 									/>
 								</TabsContent>
 							</div>

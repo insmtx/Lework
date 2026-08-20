@@ -6,6 +6,7 @@ import {
 	formatTime,
 	formatTokenCount,
 	messageArtifactToProjectArtifact,
+	skillChipsToPlainText,
 	sortProjectArtifactsByNewestFirst,
 	useAppStore,
 	useChatStore,
@@ -43,6 +44,7 @@ import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { openPlanPreview, openProjectArtifactPreview } from "../layout/file-preview-store";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 import { AssistantChatAvatar } from "./AssistantChatAvatar";
+import { MessageContentWithComposerTokens } from "./MessageContentWithComposerTokens";
 import { resolveAssistantMessageDisplay } from "./resolveAssistantMessageDisplay";
 import { ThinkingProcessIcon } from "./ThinkingProcessIcon";
 
@@ -174,6 +176,10 @@ export function AIMessageBubble({
 	const assistantRoleName = assistantDisplay.roleName;
 	const replyAuthorName = message.replyTo?.authorName?.trim() || "用户";
 	const replyPreviewContent = resolveReplyPreviewContent(message);
+	const replyPreviewPlain = replyPreviewContent ? skillChipsToPlainText(replyPreviewContent) : "";
+	const replySourceMessage = message.replyTo?.messageId
+		? messagesMap[message.replyTo.messageId]
+		: undefined;
 	const statusLabel = message.status === "waiting" ? "等待中" : "正在思考";
 	const statusText = message.statusText?.trim();
 
@@ -205,7 +211,7 @@ export function AIMessageBubble({
 				{replyPreviewContent && (
 					<div
 						className="mb-2 w-fit max-w-[78%] min-w-0 rounded-lg bg-[#f3f3f4] px-4 py-2"
-						title={`${replyAuthorName}：${replyPreviewContent}`}
+						title={`${replyAuthorName}：${replyPreviewPlain}`}
 					>
 						<div className="flex min-w-0 items-center border-l-[3px] border-l-neutral-200 pl-4">
 							<div className="min-w-0 truncate text-[13px] leading-normal text-neutral-400">
@@ -218,7 +224,15 @@ export function AIMessageBubble({
 								</span>
 								<span>{replyAuthorName}</span>
 								<span>：</span>
-								<span>{replyPreviewContent}</span>
+								<MessageContentWithComposerTokens
+									message={
+										replySourceMessage ?? {
+											content: replyPreviewContent,
+										}
+									}
+									inlineLayout
+									className="text-neutral-400"
+								/>
 							</div>
 						</div>
 					</div>

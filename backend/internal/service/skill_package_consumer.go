@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 
+	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
@@ -90,6 +91,10 @@ func processSkillPackageUploaded(
 	if err := validateSkillPackageEvent(event); err != nil {
 		return permanentSkillError(err)
 	}
+	actorID := event.ActorUIN
+	if actorID == 0 {
+		return permanentSkillError(fmt.Errorf("actor_uin is required"))
+	}
 
 	rawArchive, err := readUploadedSkillPackage(ctx, event.StorageURI)
 	if err != nil {
@@ -113,10 +118,6 @@ func processSkillPackageUploaded(
 		return permanentSkillError(fmt.Errorf("Skill manifest name does not match event code"))
 	}
 
-	actorID := event.ActorUIN
-	if actorID == 0 {
-		actorID = event.WorkerID
-	}
 	return database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		fileUpload, err := infradb.GetFileUploadByStorageURI(ctx, tx, orgID, event.StorageURI)
 		if err != nil {
@@ -167,6 +168,9 @@ func processSkillPackageUploaded(
 			},
 		)
 		if err != nil {
+			if errors.Is(err, contract.ErrPluginForbidden) || errors.Is(err, contract.ErrPluginNotFound) {
+				return permanentSkillError(fmt.Errorf("publish organization Skill revision: %w", err))
+			}
 			return fmt.Errorf("publish organization Skill revision: %w", err)
 		}
 		if event.ProjectID == 0 {

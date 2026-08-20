@@ -21,6 +21,8 @@ const (
 	ResourceTypeArtifact ResourceType = "artifact"
 	// ResourceTypeTask 表示项目下的任务资源。
 	ResourceTypeTask ResourceType = "task"
+	// ResourceTypePlugin 表示组织插件资源（Skill/MCP）。
+	ResourceTypePlugin ResourceType = "plugin"
 )
 
 // ResourcePathIDs 按资源树顺序存储祖先资源 ID。

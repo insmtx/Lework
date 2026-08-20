@@ -64,6 +64,7 @@ import { useAuth } from "../auth";
 import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { ChatInput } from "../input/ChatInput";
+import { getSkillSourceLabel } from "../input/skillSourceLabel";
 import {
 	bindSkillToProject,
 	ProjectSkillBindingError,
@@ -1117,8 +1118,13 @@ function ProjectConfigSidebar({
 												>
 													<SkillPickerIcon />
 													<div className="min-w-0 flex-1">
-														<div className="truncate font-medium">
-															{renderHighlightedText(skill.label, skillSearch)}
+														<div className="flex items-center gap-1.5 truncate font-medium">
+															<span className="truncate">
+																{renderHighlightedText(skill.label, skillSearch)}
+															</span>
+															<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+																{getSkillSourceLabel(skill)}
+															</span>
 														</div>
 														<div className="truncate text-xs text-slate-400">
 															{renderHighlightedText(
@@ -1304,7 +1310,7 @@ function pluginToProjectSkill(plugin: PluginListItem): ProjectSkill {
 	return {
 		publicId: plugin.public_id,
 		code: plugin.code,
-		name: plugin.name,
+		name: plugin.display_name || plugin.name || plugin.code,
 		description: plugin.description,
 		category: plugin.kind,
 		source: "organization",

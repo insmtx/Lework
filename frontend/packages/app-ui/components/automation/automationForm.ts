@@ -3,6 +3,7 @@
 import type {
 	BackendAutomationCalendarConfig,
 	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleInput,
 } from "@leros/store";
 
 export type AutomationCalendarFormState = {
@@ -15,8 +16,6 @@ export type AutomationCalendarFormState = {
 
 export type AutomationIntervalFormState = {
 	intervalMinutes: number;
-	/** 锚点时刻（本地时区 HH:MM），固定间隔从该时刻起按周期推进，缺省 00:00 */
-	anchorTime: string;
 };
 
 export type AutomationScheduleFormState = {
@@ -36,7 +35,6 @@ export const DEFAULT_SCHEDULE_FORM: AutomationScheduleFormState = {
 	},
 	interval: {
 		intervalMinutes: 30,
-		anchorTime: "00:00",
 	},
 };
 
@@ -52,7 +50,6 @@ export function buildScheduleFormState(
 			calendar: DEFAULT_SCHEDULE_FORM.calendar,
 			interval: {
 				intervalMinutes: Math.max(1, Math.round(intervalSeconds / 60)),
-				anchorTime: extractAnchorTime(interval?.anchor_at),
 			},
 		};
 	}
@@ -74,7 +71,7 @@ export function buildScheduleFormState(
 export function buildScheduleRequest(
 	state: AutomationScheduleFormState,
 	timezone: string,
-): BackendAutomationScheduleFormConfig {
+): BackendAutomationScheduleInput {
 	if (state.mode === "interval") {
 		return {
 			mode: "interval",
@@ -83,8 +80,6 @@ export function buildScheduleRequest(
 				interval_minutes: state.interval.intervalMinutes,
 				interval_unit: "minute",
 				interval_seconds: state.interval.intervalMinutes * 60,
-				// 锚点以本地 HH:MM 提交，服务端按所选时区解释
-				anchor_at: state.interval.anchorTime,
 			},
 		};
 	}
@@ -112,29 +107,6 @@ export function getBrowserTimezone(): string {
 	} catch {
 		return "Asia/Shanghai";
 	}
-}
-
-/** 从后端 anchor_at（HH:MM 或完整时间戳）中提取本地 HH:MM 用于表单回显 */
-export function extractAnchorTime(anchorAt: string | undefined): string {
-	if (!anchorAt) return "00:00";
-	const m = /^(\d{1,2}):(\d{2})/.exec(anchorAt.trim());
-	if (m && m[1] !== undefined && m[2] !== undefined) {
-		return `${m[1].padStart(2, "0")}:${m[2].padStart(2, "0")}`;
-	}
-	const date = new Date(anchorAt);
-	if (!Number.isNaN(date.getTime())) {
-		return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-	}
-	return "00:00";
-}
-
-/** 取得今天「时:分」对应的 Date（浏览器本地时区） */
-function todayAt(hhmm: string): Date {
-	const m = /^(\d{1,2}):(\d{2})/.exec(hhmm.trim());
-	if (!m) return new Date(NaN);
-	const d = new Date();
-	d.setHours(Number(m[1]), Number(m[2]), 0, 0);
-	return d;
 }
 
 /** 生成周期摘要（用于表单预览） */
@@ -210,44 +182,39 @@ export function formatSelectionPreview(days: number[], formatter: (d: number) =>
 	return days.map(formatter).join("、");
 }
 
-/** 计算下一次执行时间的客户端预览（浏览器时区近似，最终以服务端为准） */
+/** 计算下一次执行时间；日历规则先按任务时区计算，再返回绝对时间。 */
 export function computeNextRunPreview(
 	state: AutomationScheduleFormState,
-	from = new Date(),
+	timezoneOrFrom: string | Date = getBrowserTimezone(),
+	maybeFrom = new Date(),
 ): Date | null {
+	const timezone = timezoneOrFrom instanceof Date ? getBrowserTimezone() : timezoneOrFrom;
+	const from = timezoneOrFrom instanceof Date ? timezoneOrFrom : maybeFrom;
 	const now = from.getTime();
 	if (state.mode === "interval") {
 		const intervalMs = state.interval.intervalMinutes * 60_000;
-		const anchor = todayAt(state.interval.anchorTime);
-		// 从锚点时刻起按周期推进到严格晚于 now 的下一次 occurrence
-		if (Number.isNaN(anchor.getTime())) {
-			return new Date(now + intervalMs);
-		}
-		let next = anchor.getTime();
-		while (next <= now) {
-			next += intervalMs;
-		}
-		return new Date(next);
+		return new Date(now + intervalMs);
 	}
-	if (state.calendar.preset === "hourly") {
-		const next = new Date(now);
-		next.setSeconds(0, 0);
-		next.setMinutes(state.calendar.minute);
-		if (next.getTime() <= now) {
-			next.setHours(next.getHours() + 1, state.calendar.minute, 0, 0);
-		}
-		return next;
-	}
-	const hour = state.calendar.hour;
-	const minute = state.calendar.minute;
+	const formatter = createZonedFormatter(timezone);
+	if (!formatter) return new Date(now);
+	const current = zonedParts(from, timezone, formatter);
+	if (!current) return new Date(now);
+	let hourStart = state.calendar.preset === "hourly" ? current.hour : state.calendar.hour;
+	const hourEnd = state.calendar.preset === "hourly" ? 23 : state.calendar.hour;
 	// 逐日向后探测（上限 400 天）
 	for (let i = 0; i < 400; i++) {
-		const base = new Date(now);
-		base.setDate(base.getDate() + i);
-		if (!matchesCalendarDay(base, state.calendar)) continue;
-		const cand = new Date(base);
-		cand.setHours(hour, minute, 0, 0);
-		if (cand.getTime() > now) return cand;
+		const base = calendarDate(current.year, current.month, current.day, i);
+		if (
+			!base ||
+			(state.calendar.preset !== "hourly" && !matchesCalendarDay(base, state.calendar))
+		) {
+			continue;
+		}
+		for (let hour = hourStart; hour <= hourEnd; hour++) {
+			const candidate = zonedDateTimeToUtc(base, hour, state.calendar.minute, timezone, formatter);
+			if (candidate && candidate.getTime() > now) return candidate;
+		}
+		if (state.calendar.preset === "hourly") hourStart = 0;
 	}
 	return null;
 }
@@ -257,16 +224,112 @@ function matchesCalendarDay(date: Date, c: AutomationCalendarFormState): boolean
 		case "daily":
 			return true;
 		case "weekly":
-			return c.daysOfWeek.includes(date.getDay());
+			return c.daysOfWeek.includes(date.getUTCDay());
 		case "monthly": {
 			// 月末回退：目标月份没有该日期时命中最后一天
-			const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+			const lastDay = new Date(
+				Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
+			).getUTCDate();
 			return c.daysOfMonth.some((d) => {
-				if (d <= lastDay) return date.getDate() === d;
-				return date.getDate() === lastDay && lastDay < d;
+				if (d <= lastDay) return date.getUTCDate() === d;
+				return date.getUTCDate() === lastDay && lastDay < d;
 			});
 		}
 		default:
 			return false;
 	}
+}
+
+type ZonedParts = { year: number; month: number; day: number; hour: number; minute: number };
+
+type ZonedFormatter = Intl.DateTimeFormat;
+
+function createZonedFormatter(timezone: string): ZonedFormatter | null {
+	try {
+		return new Intl.DateTimeFormat("en-US", {
+			timeZone: timezone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			hourCycle: "h23",
+		});
+	} catch {
+		return null;
+	}
+}
+
+function zonedParts(
+	date: Date,
+	timezone: string,
+	formatter = createZonedFormatter(timezone),
+): ZonedParts | null {
+	try {
+		if (!formatter) return null;
+		const parts = formatter.formatToParts(date);
+		const values = Object.fromEntries(
+			parts.map((part) => [part.type, Number(part.value)]),
+		) as Record<string, number>;
+		const year = values.year ?? NaN;
+		const month = values.month ?? NaN;
+		const day = values.day ?? NaN;
+		const hour = values.hour ?? NaN;
+		const minute = values.minute ?? NaN;
+		if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+		return { year, month, day, hour, minute };
+	} catch {
+		return null;
+	}
+}
+
+function calendarDate(year: number, month: number, day: number, offsetDays: number): Date | null {
+	const value = new Date(Date.UTC(year, month - 1, day + offsetDays));
+	return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function zonedDateTimeToUtc(
+	date: Date,
+	hour: number,
+	minute: number,
+	timezone: string,
+	formatter?: ZonedFormatter,
+): Date | null {
+	const target = Date.UTC(
+		date.getUTCFullYear(),
+		date.getUTCMonth(),
+		date.getUTCDate(),
+		hour,
+		minute,
+		0,
+		0,
+	);
+	let guess = target;
+	for (let i = 0; i < 4; i++) {
+		const actual = zonedParts(new Date(guess), timezone, formatter);
+		if (!actual) return null;
+		const actualAsUtc = Date.UTC(
+			actual.year,
+			actual.month - 1,
+			actual.day,
+			actual.hour,
+			actual.minute,
+			0,
+			0,
+		);
+		guess += target - actualAsUtc;
+	}
+	const result = new Date(guess);
+	const actual = zonedParts(result, timezone, formatter);
+	if (
+		!actual ||
+		actual.year !== date.getUTCFullYear() ||
+		actual.month !== date.getUTCMonth() + 1 ||
+		actual.day !== date.getUTCDate() ||
+		actual.hour !== hour ||
+		actual.minute !== minute
+	) {
+		return null;
+	}
+	return result;
 }

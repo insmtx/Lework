@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/AddMessage": {
             "post": {
-                "description": "向指定会话添加一条消息",
+                "description": "向指定会话添加一条消息；工具场景可传 scene/output_format（或 metadata 同名字段）与带 attachment_role 的附件",
                 "consumes": [
                     "application/json"
                 ],
@@ -4845,6 +4845,37 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "contract.AutomationIntervalInput": {
+            "type": "object",
+            "properties": {
+                "interval_minutes": {
+                    "type": "integer"
+                },
+                "interval_seconds": {
+                    "type": "integer"
+                },
+                "interval_unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.AutomationScheduleInput": {
+            "type": "object",
+            "properties": {
+                "calendar": {
+                    "$ref": "#/definitions/types.AutomationCalendarConfig"
+                },
+                "interval": {
+                    "$ref": "#/definitions/contract.AutomationIntervalInput"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.ChooseUinRequest": {
             "type": "object",
             "properties": {
@@ -4884,7 +4915,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "schedule": {
-                    "$ref": "#/definitions/types.AutomationScheduleFormConfig"
+                    "$ref": "#/definitions/contract.AutomationScheduleInput"
                 },
                 "schedule_mode": {
                     "type": "string"
@@ -5957,7 +5988,15 @@ const docTemplate = `{
                 "metadata": {
                     "$ref": "#/definitions/types.ObjectMetadata"
                 },
+                "output_format": {
+                    "description": "OutputFormat 是工具场景要求生成的最终交付格式，如 docx、pdf、pptx、md。",
+                    "type": "string"
+                },
                 "role": {
+                    "type": "string"
+                },
+                "scene": {
+                    "description": "Scene 区分普通问答与工具场景；空或 normal 为普通问答，bid_comparison 为标书对比。",
                     "type": "string"
                 },
                 "session_id": {
@@ -6461,7 +6500,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "schedule": {
-                    "$ref": "#/definitions/types.AutomationScheduleFormConfig"
+                    "$ref": "#/definitions/contract.AutomationScheduleInput"
                 },
                 "schedule_mode": {
                     "description": "修改周期时必须提交完整 schedule",
@@ -6649,56 +6688,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.AutomationIntervalConfig": {
-            "type": "object",
-            "properties": {
-                "anchor_at": {
-                    "description": "AnchorAt 本地时区锚点时间（ISO8601，不带时区偏移，解释为指定时区）",
-                    "type": "string"
-                },
-                "interval_minutes": {
-                    "description": "IntervalMinutes 间隔分钟数（表单友好字段，服务端换算为秒并生成 interval_seconds）",
-                    "type": "integer"
-                },
-                "interval_seconds": {
-                    "description": "IntervalSeconds 间隔秒数",
-                    "type": "integer"
-                },
-                "interval_unit": {
-                    "description": "IntervalUnit 间隔单位，只用于回显：minute/hour/day",
-                    "type": "string"
-                }
-            }
-        },
-        "types.AutomationScheduleFormConfig": {
-            "type": "object",
-            "properties": {
-                "calendar": {
-                    "description": "Calendar 日历类预设配置（mode == \"calendar\" 时有效）",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AutomationCalendarConfig"
-                        }
-                    ]
-                },
-                "interval": {
-                    "description": "Interval 固定间隔配置（mode == \"interval\" 时有效）",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AutomationIntervalConfig"
-                        }
-                    ]
-                },
-                "mode": {
-                    "description": "Mode 调度模式（calendar/interval），与 Automation 的 schedule_mode 保持一致",
-                    "type": "string"
-                },
-                "timezone": {
-                    "description": "Timezone 表单发起时的 IANA 时区",
-                    "type": "string"
-                }
-            }
-        },
         "types.ExecutionMode": {
             "type": "string",
             "enum": [
@@ -6716,6 +6705,10 @@ const docTemplate = `{
                 "PublicURL": {
                     "type": "string"
                 },
+                "attachment_role": {
+                    "description": "AttachmentRole 是工具场景赋予附件的语义角色；空表示普通附件。",
+                    "type": "string"
+                },
                 "file_upload_id": {
                     "type": "string"
                 },
@@ -6723,9 +6716,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
-                    "type": "string"
-                },
-                "purpose": {
                     "type": "string"
                 },
                 "relative_path": {
@@ -6793,6 +6783,14 @@ const docTemplate = `{
                 },
                 "key": {
                     "description": "元数据 - 对象存储键",
+                    "type": "string"
+                },
+                "output_format": {
+                    "description": "OutputFormat 工具场景要求的最终交付格式（如 docx、pdf）。",
+                    "type": "string"
+                },
+                "scene": {
+                    "description": "Scene 新建任务场景（如 bid_comparison）；空表示普通问答。",
                     "type": "string"
                 },
                 "tags": {

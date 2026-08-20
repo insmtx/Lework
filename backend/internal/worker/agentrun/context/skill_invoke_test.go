@@ -11,7 +11,19 @@ import (
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Leros/backend/types"
 )
+
+func withChips(instruction string, codes ...string) string {
+	parts := make([]string, 0, len(codes)+1)
+	for _, code := range codes {
+		parts = append(parts, skilltoken.FormatChip(code, "技能"))
+	}
+	if instruction != "" {
+		parts = append(parts, instruction)
+	}
+	return strings.Join(parts, " ")
+}
 
 func setupSkillsRoot(t *testing.T) string {
 	t.Helper()
@@ -63,7 +75,7 @@ func TestApplyInvokedSkillsSingleSkill(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch 查今天 AI 新闻"},
+				{Role: "user", Content: withChips("查今天 AI 新闻", "anysearch")},
 			},
 		},
 	}
@@ -116,6 +128,28 @@ func TestApplyInvokedSkillsNoSkill(t *testing.T) {
 	}
 }
 
+func TestApplyInvokedSkillsKeepsDisabledSkillAsPlainText(t *testing.T) {
+	setupSkillsRoot(t)
+	req := &agentrundomain.RunRequest{
+		Policy: agentrundomain.PolicyContext{DisabledPlugins: []types.DisabledPlugin{{
+			Kind: types.DisabledPluginKindSkill,
+			Code: "lework-automation-manager",
+		}}},
+		Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{
+			Role:    "user",
+			Content: withChips("执行任务", "lework-automation-manager"),
+		}}},
+	}
+
+	if err := ApplyInvokedSkills(context.Background(), req); err != nil {
+		t.Fatalf("ApplyInvokedSkills() error = %v", err)
+	}
+	content := req.Input.Messages[0].Content
+	if content != "lework-automation-manager 执行任务" {
+		t.Fatalf("disabled Skill chip should remain plain text, got %q", content)
+	}
+}
+
 func TestApplyInvokedSkillsEmptyMessages(t *testing.T) {
 	setupSkillsRoot(t)
 
@@ -139,7 +173,7 @@ func TestApplyInvokedSkillsMultiSkillSingleMessage(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch /xiaohongshu 写一篇笔记"},
+				{Role: "user", Content: withChips("写一篇笔记", "anysearch", "xiaohongshu")},
 			},
 		},
 	}
@@ -178,8 +212,8 @@ func TestApplyInvokedSkillsMultiMessagesDedup(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch 查资料"},
-				{Role: "user", Content: "/anysearch /xiaohongshu 写笔记"},
+				{Role: "user", Content: withChips("查资料", "anysearch")},
+				{Role: "user", Content: withChips("写笔记", "anysearch", "xiaohongshu")},
 			},
 		},
 	}
@@ -204,11 +238,11 @@ func TestApplyInvokedSkillsMultiMessagesDedup(t *testing.T) {
 	if !strings.Contains(msg2, "RedNote writing guide") {
 		t.Fatalf("msg2 should contain xiaohongshu body")
 	}
-	if !strings.Contains(msg2, "1 skill(s):") {
+	if !strings.Contains(msg2, "1 skill(s): xiaohongshu") {
 		t.Fatalf("msg2 should say 1 skill (only new ones), got: %s", msg2)
 	}
-	if strings.Contains(msg2, "anysearch") {
-		t.Fatalf("msg2 should NOT contain anysearch at all (deduped, header only lists new skills), got: %s", msg2)
+	if !strings.Contains(msg2, "anysearch xiaohongshu 写笔记") {
+		t.Fatalf("msg2 user instruction should keep catalog codes, got: %s", msg2)
 	}
 }
 
@@ -219,8 +253,8 @@ func TestApplyInvokedSkillsDuplicateOnlyMessageStripsToken(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch 查资料"},
-				{Role: "user", Content: "/anysearch 继续查更多"},
+				{Role: "user", Content: withChips("查资料", "anysearch")},
+				{Role: "user", Content: withChips("继续查更多", "anysearch")},
 			},
 		},
 	}
@@ -231,8 +265,8 @@ func TestApplyInvokedSkillsDuplicateOnlyMessageStripsToken(t *testing.T) {
 	}
 
 	msg2 := req.Input.Messages[1].Content
-	if msg2 != "继续查更多" {
-		t.Fatalf("expected duplicate-only message to keep only stripped user text, got: %s", msg2)
+	if msg2 != "anysearch 继续查更多" {
+		t.Fatalf("expected duplicate-only message to keep catalog code + user text, got: %s", msg2)
 	}
 	if strings.Contains(msg2, "0 skill(s)") || strings.Contains(msg2, "Search instructions") {
 		t.Fatalf("expected duplicate-only message to avoid prompt injection, got: %s", msg2)
@@ -246,7 +280,7 @@ func TestApplyInvokedSkillsNoInstruction(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch"},
+				{Role: "user", Content: withChips("", "anysearch")},
 			},
 		},
 	}
@@ -271,7 +305,7 @@ func TestApplyInvokedSkillsNotFound(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/unknown 查资料"},
+				{Role: "user", Content: withChips("查资料", "unknown")},
 			},
 		},
 	}
@@ -282,6 +316,26 @@ func TestApplyInvokedSkillsNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected 'not found' error, got: %v", err)
+	}
+}
+
+func TestApplyInvokedSkillsPlainTextWithoutSkillChip(t *testing.T) {
+	setupSkillsRoot(t)
+
+	req := &agentrundomain.RunRequest{
+		Input: agentrundomain.InputContext{
+			Messages: []agentrundomain.InputMessage{
+				{Role: "user", Content: "普通问题，没有技能"},
+			},
+		},
+	}
+
+	err := ApplyInvokedSkills(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ApplyInvokedSkills: %v", err)
+	}
+	if req.Input.Messages[0].Content != "普通问题，没有技能" {
+		t.Fatalf("content = %q", req.Input.Messages[0].Content)
 	}
 }
 
@@ -303,7 +357,35 @@ func TestApplyInvokedSkillsNotAtStart(t *testing.T) {
 	}
 
 	if req.Input.Messages[0].Content != original {
-		t.Fatalf("expected content unchanged when /skill not at start, got: %s", req.Input.Messages[0].Content)
+		t.Fatalf("expected content unchanged when no skill chip is present, got: %s", req.Input.Messages[0].Content)
+	}
+}
+
+func TestApplyInvokedSkillsChipInMiddle(t *testing.T) {
+	skillsDir := setupSkillsRoot(t)
+	writeTestSkill(t, skillsDir, "anysearch", "Search engine", "Search instructions body")
+
+	req := &agentrundomain.RunRequest{
+		Input: agentrundomain.InputContext{
+			Messages: []agentrundomain.InputMessage{
+				{Role: "user", Content: "请先 " + skilltoken.FormatChip("anysearch", "联网搜索") + " 再总结"},
+			},
+		},
+	}
+
+	err := ApplyInvokedSkills(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ApplyInvokedSkills: %v", err)
+	}
+	content := req.Input.Messages[0].Content
+	if !strings.Contains(content, "Search instructions body") {
+		t.Fatalf("expected chip in the middle to invoke, got: %s", content)
+	}
+	if !strings.Contains(content, "请先 anysearch 再总结") {
+		t.Fatalf("expected catalog code kept as instruction, got: %s", content)
+	}
+	if strings.Contains(content, "skill-chip") {
+		t.Fatalf("model prompt should not keep chip html, got: %s", content)
 	}
 }
 
@@ -336,7 +418,7 @@ func TestApplyInvokedSkillsSkipNonUser(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "assistant", Content: "/anysearch 我来帮你查"},
+				{Role: "assistant", Content: withChips("我来帮你查", "anysearch")},
 				{Role: "user", Content: "hi"},
 			},
 		},
@@ -364,7 +446,7 @@ func TestApplyInvokedSkillsDashDashNotStripped(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch -- 查今天 AI 新闻"},
+				{Role: "user", Content: withChips("-- 查今天 AI 新闻", "anysearch")},
 			},
 		},
 	}
@@ -388,7 +470,7 @@ func TestApplyInvokedSkillsPreservesTokenOrder(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/skillB /skillA 内容"},
+				{Role: "user", Content: withChips("内容", "skillB", "skillA")},
 			},
 		},
 	}
@@ -418,7 +500,7 @@ func TestApplyInvokedSkillsIntraMessageDedup(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch /anysearch 内容"},
+				{Role: "user", Content: withChips("内容", "anysearch") + " " + skilltoken.FormatChip("anysearch", "技能")},
 			},
 		},
 	}
@@ -444,7 +526,7 @@ func TestApplyInvokedSkillsSupportingFiles(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/review 审查代码"},
+				{Role: "user", Content: withChips("审查代码", "review")},
 			},
 		},
 	}
@@ -470,7 +552,7 @@ func TestApplyInvokedSkillsAbsoluteDir(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/anysearch 查资料"},
+				{Role: "user", Content: withChips("查资料", "anysearch")},
 			},
 		},
 	}
@@ -482,8 +564,8 @@ func TestApplyInvokedSkillsAbsoluteDir(t *testing.T) {
 
 	content := req.Input.Messages[0].Content
 	// 验证展示的是绝对路径（非相对）
-	expectedAbsDir := filepath.Join(skillsDir, "anysearch")
-	if !strings.Contains(content, expectedAbsDir) {
+	expectedAbsDir := filepath.ToSlash(filepath.Join(skillsDir, "anysearch"))
+	if !strings.Contains(filepath.ToSlash(content), expectedAbsDir) {
 		t.Fatalf("expected absolute skill directory %q in content, got: %s", expectedAbsDir, content)
 	}
 }
@@ -495,7 +577,7 @@ func TestApplyInvokedSkillsManifestNameDisplayed(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/ANYSEARCH 查资料"},
+				{Role: "user", Content: withChips("查资料", "ANYSEARCH")},
 			},
 		},
 	}
@@ -518,8 +600,8 @@ func TestApplyInvokedSkillsErrorPreventsProcessing(t *testing.T) {
 	req := &agentrundomain.RunRequest{
 		Input: agentrundomain.InputContext{
 			Messages: []agentrundomain.InputMessage{
-				{Role: "user", Content: "/valid_skill 先查"},
-				{Role: "user", Content: "/unknown_skill 再查"},
+				{Role: "user", Content: withChips("先查", "valid_skill")},
+				{Role: "user", Content: withChips("再查", "unknown_skill")},
 			},
 		},
 	}
@@ -534,56 +616,6 @@ func TestApplyInvokedSkillsNilRequest(t *testing.T) {
 	err := ApplyInvokedSkills(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("ApplyInvokedSkills with nil request should not error: %v", err)
-	}
-}
-
-func TestParseSkillTokensBasic(t *testing.T) {
-	tokens, remaining := skilltoken.ParseTokens("/anysearch 查资料")
-	if len(tokens) != 1 || tokens[0] != "anysearch" {
-		t.Fatalf("expected [anysearch], got %v", tokens)
-	}
-	if remaining != "查资料" {
-		t.Fatalf("expected '查资料', got %q", remaining)
-	}
-}
-
-func TestParseSkillTokensMultiple(t *testing.T) {
-	tokens, remaining := skilltoken.ParseTokens("/anysearch /xiaohongshu 写笔记")
-	if len(tokens) != 2 || tokens[0] != "anysearch" || tokens[1] != "xiaohongshu" {
-		t.Fatalf("expected [anysearch xiaohongshu], got %v", tokens)
-	}
-	if remaining != "写笔记" {
-		t.Fatalf("expected '写笔记', got %q", remaining)
-	}
-}
-
-func TestParseSkillTokensNoMatch(t *testing.T) {
-	tokens, remaining := skilltoken.ParseTokens("请帮我查 /anysearch")
-	if len(tokens) != 0 {
-		t.Fatalf("expected no tokens, got %v", tokens)
-	}
-	if remaining != "请帮我查 /anysearch" {
-		t.Fatalf("expected full content unchanged, got %q", remaining)
-	}
-}
-
-func TestParseSkillTokensOnlySkill(t *testing.T) {
-	tokens, remaining := skilltoken.ParseTokens("/anysearch")
-	if len(tokens) != 1 || tokens[0] != "anysearch" {
-		t.Fatalf("expected [anysearch], got %v", tokens)
-	}
-	if remaining != "" {
-		t.Fatalf("expected empty remaining, got %q", remaining)
-	}
-}
-
-func TestParseSkillTokensWithUnderscore(t *testing.T) {
-	tokens, remaining := skilltoken.ParseTokens("/my_skill-01 内容")
-	if len(tokens) != 1 || tokens[0] != "my_skill-01" {
-		t.Fatalf("expected [my_skill-01], got %v", tokens)
-	}
-	if remaining != "内容" {
-		t.Fatalf("expected '内容', got %q", remaining)
 	}
 }
 

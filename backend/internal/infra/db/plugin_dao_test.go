@@ -25,6 +25,8 @@ func setupPluginDAOTestDB(t *testing.T) *gorm.DB {
 		&types.ProjectPluginBinding{},
 		&types.PluginMarketplaceItem{},
 		&types.PluginTranslation{},
+		&types.Resource{},
+		&types.ResourceBinding{},
 		&types.FileUpload{},
 	); err != nil {
 		t.Fatalf("migrate plugin models: %v", err)
@@ -453,24 +455,34 @@ func TestPluginOwnerScopeConstraintsAndOrganizationVisibility(t *testing.T) {
 	}
 }
 
-func TestListPluginsFiltersOnlyMCPByCreator(t *testing.T) {
+func TestListPluginsFiltersByPermission(t *testing.T) {
 	database := setupPluginDAOTestDB(t)
 	ctx := context.Background()
 	plugins := []types.Plugin{
 		{
 			PublicID: "plugin_mcp_mine", OwnerScope: types.OwnerScopeOrganization,
 			OrgID: 1, Code: "mcp-mine", Kind: "mcp", Name: "Mine",
-			Status: types.PluginStatusActive, Origin: "org", CreatedBy: 10, UpdatedBy: 10,
+			Visibility: types.PluginVisibilityPrivate, Status: types.PluginStatusActive, Origin: "org", CreatedBy: 10, UpdatedBy: 10,
 		},
 		{
 			PublicID: "plugin_mcp_other", OwnerScope: types.OwnerScopeOrganization,
 			OrgID: 1, Code: "mcp-other", Kind: "mcp", Name: "Other",
-			Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
+			Visibility: types.PluginVisibilityPrivate, Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
 		},
 		{
 			PublicID: "plugin_skill_shared", OwnerScope: types.OwnerScopeOrganization,
 			OrgID: 1, Code: "skill-shared", Kind: "skill", Name: "Shared",
-			Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
+			Visibility: types.PluginVisibilityPublic, Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
+		},
+		{
+			PublicID: "plugin_skill_private_viewer", OwnerScope: types.OwnerScopeOrganization,
+			OrgID: 1, Code: "skill-private-viewer", Kind: "skill", Name: "Private Viewer",
+			Visibility: types.PluginVisibilityPrivate, Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
+		},
+		{
+			PublicID: "plugin_skill_private_other", OwnerScope: types.OwnerScopeOrganization,
+			OrgID: 1, Code: "skill-private-other", Kind: "skill", Name: "Private Other",
+			Visibility: types.PluginVisibilityPrivate, Status: types.PluginStatusActive, Origin: "org", CreatedBy: 11, UpdatedBy: 11,
 		},
 	}
 	for index := range plugins {
@@ -478,6 +490,11 @@ func TestListPluginsFiltersOnlyMCPByCreator(t *testing.T) {
 			t.Fatalf("create plugin %d: %v", index, err)
 		}
 	}
+	bindPluginOwner(t, ctx, database, plugins[0].ID, 10)
+	bindPluginOwner(t, ctx, database, plugins[1].ID, 11)
+	bindPluginRole(t, ctx, database, plugins[3].ID, 11, types.ResourceRoleOwner)
+	bindPluginRole(t, ctx, database, plugins[3].ID, 10, types.ResourceRoleViewer)
+	bindPluginOwner(t, ctx, database, plugins[4].ID, 11)
 
 	visible, err := ListPlugins(ctx, database, 1, PluginListFilter{ViewerUin: 10})
 	if err != nil {
@@ -487,7 +504,8 @@ func TestListPluginsFiltersOnlyMCPByCreator(t *testing.T) {
 	for _, plugin := range visible {
 		ids[plugin.PublicID] = true
 	}
-	if !ids["plugin_mcp_mine"] || !ids["plugin_skill_shared"] || ids["plugin_mcp_other"] {
+	if !ids["plugin_mcp_mine"] || !ids["plugin_skill_shared"] || !ids["plugin_skill_private_viewer"] ||
+		ids["plugin_mcp_other"] || ids["plugin_skill_private_other"] {
 		t.Fatalf("visible plugins = %#v", visible)
 	}
 
@@ -500,7 +518,79 @@ func TestListPluginsFiltersOnlyMCPByCreator(t *testing.T) {
 	skills, err := ListPlugins(ctx, database, 1, PluginListFilter{
 		Kind: "skill", ViewerUin: 10,
 	})
-	if err != nil || len(skills) != 1 || skills[0].PublicID != "plugin_skill_shared" {
+	skillIDs := make(map[string]bool, len(skills))
+	for _, plugin := range skills {
+		skillIDs[plugin.PublicID] = true
+	}
+	if err != nil || len(skills) != 2 || !skillIDs["plugin_skill_shared"] || !skillIDs["plugin_skill_private_viewer"] {
 		t.Fatalf("shared Skill list = %#v, %v", skills, err)
 	}
+
+	owned, err := ListPlugins(ctx, database, 1, PluginListFilter{
+		ViewerUin: 10, Relation: "owner",
+	})
+	if err != nil || len(owned) != 1 || owned[0].PublicID != "plugin_mcp_mine" {
+		t.Fatalf("owner relation list = %#v, %v", owned, err)
+	}
+
+	// owner 的私有 Skill：已分享的出现在「组织共享」（shared），未分享的仅出现在「我的」（owner）。
+	shared, err := ListPlugins(ctx, database, 1, PluginListFilter{
+		ViewerUin: 11, Relation: "shared",
+	})
+	sharedIDs := make(map[string]bool, len(shared))
+	for _, plugin := range shared {
+		sharedIDs[plugin.PublicID] = true
+	}
+	if err != nil || len(shared) != 3 ||
+		!sharedIDs["plugin_skill_shared"] || !sharedIDs["plugin_skill_private_viewer"] || !sharedIDs["plugin_mcp_other"] ||
+		sharedIDs["plugin_skill_private_other"] {
+		t.Fatalf("shared relation list = %#v, %v", shared, err)
+	}
+
+	ownerOwned, err := ListPlugins(ctx, database, 1, PluginListFilter{
+		ViewerUin: 11, Relation: "owner",
+	})
+	ownerOwnedIDs := make(map[string]bool, len(ownerOwned))
+	for _, plugin := range ownerOwned {
+		ownerOwnedIDs[plugin.PublicID] = true
+	}
+	if err != nil || len(ownerOwned) != 3 ||
+		!ownerOwnedIDs["plugin_skill_private_viewer"] || !ownerOwnedIDs["plugin_skill_private_other"] || !ownerOwnedIDs["plugin_mcp_other"] {
+		t.Fatalf("owner-owned relation list = %#v, %v", ownerOwned, err)
+	}
+}
+
+func bindPluginRole(t *testing.T, ctx context.Context, database *gorm.DB, pluginID, uin uint, role types.ResourceRole) {
+	t.Helper()
+	resource, err := GetResourceByBizID(ctx, database, 1, types.ResourceTypePlugin, pluginID)
+	if err != nil {
+		t.Fatalf("get plugin resource: %v", err)
+	}
+	if resource == nil {
+		resource = &types.Resource{
+			OrgID:                 1,
+			Uin:                   uin,
+			Type:                  types.ResourceTypePlugin,
+			BizID:                 pluginID,
+			ParentResourcePathIDs: types.ResourcePathIDs{},
+		}
+		if err := CreateResource(ctx, database, resource); err != nil {
+			t.Fatalf("create plugin resource: %v", err)
+		}
+	}
+	uinCopy := uin
+	binding := &types.ResourceBinding{
+		OrgID:      1,
+		Uin:        &uinCopy,
+		ResourceID: resource.ID,
+		Role:       role,
+	}
+	if err := CreateResourceBinding(ctx, database, binding); err != nil {
+		t.Fatalf("create plugin %s binding: %v", role, err)
+	}
+}
+
+func bindPluginOwner(t *testing.T, ctx context.Context, database *gorm.DB, pluginID, ownerUin uint) {
+	t.Helper()
+	bindPluginRole(t, ctx, database, pluginID, ownerUin, types.ResourceRoleOwner)
 }

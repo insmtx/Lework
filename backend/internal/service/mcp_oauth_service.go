@@ -430,7 +430,7 @@ func (s *pluginService) createPendingOAuthConnector(
 		plugin := &types.Plugin{
 			PublicID: publicID, OwnerScope: types.OwnerScopeOrganization, OrgID: orgID,
 			Code: code, Kind: "mcp", Name: channel.Name, Description: channel.Description,
-			Status: types.PluginStatusActive, Origin: "org", CreatedBy: uin, UpdatedBy: uin,
+			Visibility: types.PluginVisibilityPrivate, Status: types.PluginStatusActive, Origin: "org", CreatedBy: uin, UpdatedBy: uin,
 		}
 		if err := tx.Create(plugin).Error; err != nil {
 			return err
@@ -443,7 +443,10 @@ func (s *pluginService) createPendingOAuthConnector(
 		if err := tx.Create(revision).Error; err != nil {
 			return err
 		}
-		return infradbSetCurrentRevision(ctx, tx, plugin.ID, 1, uin)
+		if err := infradbSetCurrentRevision(ctx, tx, plugin.ID, 1, uin); err != nil {
+			return err
+		}
+		return ensurePluginResourceOwner(ctx, tx, orgID, plugin.ID, uin)
 	})
 }
 

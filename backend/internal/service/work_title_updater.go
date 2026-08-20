@@ -17,6 +17,7 @@ import (
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
+	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/prompts"
 	"github.com/insmtx/Leros/backend/types"
@@ -178,7 +179,7 @@ func (u *WorkTitleUpdater) UpdateAfterFirstTurn(ctx context.Context, sessionPubl
 	if u.modelInvoker != nil {
 		titles, err = generateShortWorkTitles(ctx, u.db, u.modelInvoker, workTitleGenerationInput{
 			OrgID:            session.OrgID,
-			UserMessage:      firstMsg.Content,
+			UserMessage:      skilltoken.PlainText(firstMsg.Content),
 			AssistantMessage: assistantMessage,
 			ReqID:            reqID,
 			ProjectID:        project.ID,

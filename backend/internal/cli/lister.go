@@ -41,6 +41,10 @@ func ListSessions(ctx context.Context, serverAddr, authToken string, req *contra
 
 // doListRequest 发送列表类 API 请求的通用封装。
 func doListRequest(ctx context.Context, serverAddr, authToken, endpoint string, reqBody, target interface{}) error {
+	return doListRequestWithHeaders(ctx, serverAddr, authToken, endpoint, reqBody, target, nil)
+}
+
+func doListRequestWithHeaders(ctx context.Context, serverAddr, authToken, endpoint string, reqBody, target interface{}, headers map[string]string) error {
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -56,6 +60,7 @@ func doListRequest(ctx context.Context, serverAddr, authToken, endpoint string, 
 	if authToken != "" {
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
+	setRequestHeaders(req, headers)
 
 	resp, err := client.Do(req)
 	if err != nil {

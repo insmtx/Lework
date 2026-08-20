@@ -113,7 +113,7 @@ type AutomationCalendarConfig struct {
 type AutomationIntervalConfig struct {
 	// IntervalSeconds 间隔秒数
 	IntervalSeconds int64 `json:"interval_seconds,omitempty"`
-	// AnchorAt 本地时区锚点时间（ISO8601，不带时区偏移，解释为指定时区）
+	// AnchorAt 仅用于读取 v1 存量规则；新建/更新请求不再接受该字段。
 	AnchorAt string `json:"anchor_at,omitempty"`
 	// IntervalMinutes 间隔分钟数（表单友好字段，服务端换算为秒并生成 interval_seconds）
 	IntervalMinutes int `json:"interval_minutes,omitempty"`
@@ -131,8 +131,10 @@ type AutomationScheduleSpecItem struct {
 	Expression string `json:"expression,omitempty"`
 	// Policy 边界策略（月末回退等）
 	Policy *AutomationSchedulePolicy `json:"policy,omitempty"`
-	// AnchorAt 固定间隔模式的本地锚点时间
+	// AnchorAt 固定间隔模式的 v1 本地锚点时间，仅用于兼容存量规则。
 	AnchorAt string `json:"anchor_at,omitempty"`
+	// OriginAt v2 固定间隔模式的绝对起算时间（RFC3339 UTC）。
+	OriginAt string `json:"origin_at,omitempty"`
 	// IntervalSeconds 固定间隔模式的间隔秒数
 	IntervalSeconds int64 `json:"interval_seconds,omitempty"`
 	// Timezone 规则生效时区

@@ -158,7 +158,9 @@ Core commands:
   chat       Start an interactive chat session with a running server
   session    List and inspect sessions
   project    Manage projects
+  skill      Manage organization and project skills
   task       Manage tasks
+  automation Manage scheduled automations
 
 Examples:
   leros server --config config.yaml
@@ -171,6 +173,7 @@ Examples:
   leros session get <session-id>
   leros project ls
   leros task ls --project-id <id>
+  leros automation ls
 
 Authentication:
   leros login

@@ -132,6 +132,10 @@ func ListProjectFiles(ctx context.Context, serverAddr, authToken, projectID, res
 
 // doPostRequest 发送 POST JSON API 请求的通用封装。
 func doPostRequest(ctx context.Context, serverAddr, authToken, endpoint string, reqBody, target interface{}) error {
+	return doPostRequestWithHeaders(ctx, serverAddr, authToken, endpoint, reqBody, target, nil)
+}
+
+func doPostRequestWithHeaders(ctx context.Context, serverAddr, authToken, endpoint string, reqBody, target interface{}, headers map[string]string) error {
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -147,8 +151,18 @@ func doPostRequest(ctx context.Context, serverAddr, authToken, endpoint string, 
 	if authToken != "" {
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
+	setRequestHeaders(req, headers)
 
 	return doRequest(client, req, target)
+}
+
+func setRequestHeaders(req *http.Request, headers map[string]string) {
+	for key, value := range headers {
+		if key == "" || value == "" {
+			continue
+		}
+		req.Header.Set(key, value)
+	}
 }
 
 // doGetRequest 发送 GET API 请求的通用封装（用于 REST 风格端点）。
@@ -191,6 +205,9 @@ func doRequest(client *http.Client, req *http.Request, target interface{}) error
 		return fmt.Errorf("api error [%d]: %s", apiResp.Code, apiResp.Message)
 	}
 
+	if target == nil || len(bytes.TrimSpace(apiResp.Data)) == 0 || string(bytes.TrimSpace(apiResp.Data)) == "null" {
+		return nil
+	}
 	if err := json.Unmarshal(apiResp.Data, target); err != nil {
 		return fmt.Errorf("decode data: %w", err)
 	}

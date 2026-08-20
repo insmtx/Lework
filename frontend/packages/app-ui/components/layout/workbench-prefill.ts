@@ -4,17 +4,19 @@ import { buildDefaultSummonPrompt } from "../digitalAssistant/promptSuggestions"
 export function buildSkillWorkbenchPrefill(
 	code: string,
 	prompt?: string,
+	displayName?: string,
 ): {
 	value: string;
 	tokens: ComposerToken[];
 } {
-	const token = `/${code}`;
+	const token = `/${displayName?.trim() || code}`;
 	const promptSuffix = prompt ? `${prompt}` : "";
 	return {
 		value: `${token} ${promptSuffix}`,
 		tokens: [
 			{
 				kind: "skill",
+				id: code,
 				label: token,
 				start: 0,
 				end: token.length,

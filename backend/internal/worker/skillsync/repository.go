@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/insmtx/Leros/backend/internal/worker/identity"
 	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 const managedIgnoreRules = `# Leros worker-managed paths
@@ -21,11 +23,15 @@ const managedIgnoreRules = `# Leros worker-managed paths
 runs/
 .skill-install-*/
 .skill-backup-*/
+.skill-task-backup-*/
+.skill-task-txn-*/
 **/__pycache__/
 **/.cache/
 *.tmp
 .DS_Store
 `
+
+const taskSkillTransactionPrefix = ".skill-task-txn-"
 
 // Change is one top-level organization Skill changed from the committed baseline.
 type Change struct {
@@ -36,6 +42,26 @@ type Change struct {
 // Repository manages the dedicated Git baseline for worker organization Skills.
 type Repository struct {
 	root string
+	lock *sync.Mutex
+}
+
+var repositoryLocks sync.Map // map[string]*sync.Mutex, keyed by absolute Skill root.
+var fallbackRepositoryLock sync.Mutex
+
+// SkillRepositoryLock returns the process-wide lock for one Skill root.
+// Prepare and post-run synchronization share it so a reset cannot race with
+// a project Skill installation.
+func SkillRepositoryLock(root string) *sync.Mutex {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return &fallbackRepositoryLock
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return &fallbackRepositoryLock
+	}
+	lockValue, _ := repositoryLocks.LoadOrStore(absolute, &sync.Mutex{})
+	return lockValue.(*sync.Mutex)
 }
 
 // NewRepository creates a repository manager for one explicit Skill root.
@@ -48,7 +74,7 @@ func NewRepository(root string) (*Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve Skill repository root: %w", err)
 	}
-	return &Repository{root: absolute}, nil
+	return &Repository{root: absolute, lock: SkillRepositoryLock(absolute)}, nil
 }
 
 // Root returns the managed Skill repository root.
@@ -59,8 +85,146 @@ func (r *Repository) Root() string {
 	return r.root
 }
 
+func (r *Repository) repositoryLock() *sync.Mutex {
+	if r != nil && r.lock != nil {
+		return r.lock
+	}
+	return &fallbackRepositoryLock
+}
+
+// ImportTaskSkillDirs moves run-created directories into the persistent Skill
+// repository. It deliberately does not validate Skill contents; validation and
+// publication belong to Processor. Non-directory entries are left for the
+// task-view cleanup so one unexpected entry cannot block post-run processing.
+func (r *Repository) ImportTaskSkillDirs(ctx context.Context, sourceRoot string) {
+	if r == nil || strings.TrimSpace(sourceRoot) == "" {
+		return
+	}
+	r.repositoryLock().Lock()
+	defer r.repositoryLock().Unlock()
+	r.importTaskSkillDirs(ctx, sourceRoot)
+}
+
+func (r *Repository) importTaskSkillDirs(ctx context.Context, sourceRoot string) {
+	if err := r.recoverTaskSkillTransactions(ctx); err != nil {
+		logs.WarnContextf(ctx, "recover interrupted task Skill moves failed: root=%s error=%v", r.root, err)
+	}
+	sourceRoot, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		logs.WarnContextf(ctx, "resolve task Skill directory failed: root=%s error=%v", sourceRoot, err)
+		return
+	}
+	if sameOrChildPath(sourceRoot, r.root) {
+		logs.WarnContextf(ctx, "skip task Skill import from managed repository: source=%s root=%s", sourceRoot, r.root)
+		return
+	}
+	sourceInfo, err := os.Lstat(sourceRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		logs.WarnContextf(ctx, "inspect task Skill directory failed: root=%s error=%v", sourceRoot, err)
+		return
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.IsDir() {
+		logs.WarnContextf(ctx, "skip non-directory task Skill root: root=%s", sourceRoot)
+		return
+	}
+	entries, err := os.ReadDir(sourceRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		logs.WarnContextf(ctx, "read task Skill directory failed: root=%s error=%v", sourceRoot, err)
+		return
+	}
+	if err := os.MkdirAll(r.root, 0o755); err != nil {
+		logs.WarnContextf(ctx, "create Worker Skill directory failed: root=%s error=%v", r.root, err)
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		source := filepath.Join(sourceRoot, name)
+		info, statErr := os.Lstat(source)
+		if statErr != nil {
+			logs.WarnContextf(ctx, "inspect task Skill entry failed: path=%s error=%v", source, statErr)
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		if !info.IsDir() {
+			logs.WarnContextf(ctx, "skip non-directory task Skill entry: path=%s", source)
+			continue
+		}
+		if _, err := validSkillCode(name); err != nil {
+			logs.WarnContextf(ctx, "skip reserved or invalid task Skill directory: path=%s error=%v", source, err)
+			continue
+		}
+		if err := r.replaceWithTaskSkill(ctx, source, filepath.Join(r.root, name)); err != nil {
+			logs.WarnContextf(ctx, "move task Skill directory failed: source=%s target=%s error=%v", source, filepath.Join(r.root, name), err)
+		}
+	}
+}
+
+func (r *Repository) replaceWithTaskSkill(ctx context.Context, source, target string) error {
+	name, err := validSkillCode(filepath.Base(target))
+	if err != nil {
+		return err
+	}
+	target = filepath.Join(r.root, name)
+	targetInfo, err := os.Lstat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.Rename(source, target)
+	}
+	if err != nil {
+		return err
+	}
+	if targetInfo == nil {
+		return fmt.Errorf("inspect target Skill %q returned no file information", name)
+	}
+
+	txn, err := os.MkdirTemp(r.root, taskSkillTransactionPrefix)
+	if err != nil {
+		return err
+	}
+	keepTxn := true
+	defer func() {
+		if keepTxn {
+			return
+		}
+		if removeErr := os.RemoveAll(txn); removeErr != nil {
+			logs.WarnContextf(ctx, "remove completed task Skill transaction failed: path=%s error=%v", txn, removeErr)
+		}
+	}()
+	if err := os.WriteFile(filepath.Join(txn, "target"), []byte(name+"\n"), 0o600); err != nil {
+		return err
+	}
+	backup := filepath.Join(txn, "backup")
+	if err := os.Rename(target, backup); err != nil {
+		return err
+	}
+	if err := os.Rename(source, target); err != nil {
+		if recoverErr := recoverTaskSkillTransaction(txn); recoverErr != nil {
+			logs.WarnContextf(ctx, "restore replaced Worker Skill after move failure failed: target=%s error=%v", target, recoverErr)
+		}
+		return err
+	}
+	keepTxn = false
+	return nil
+}
+
 // Ensure initializes the dedicated repository and commits existing content as a baseline.
 func (r *Repository) Ensure(ctx context.Context) error {
+	if r == nil {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	r.repositoryLock().Lock()
+	defer r.repositoryLock().Unlock()
+	return r.ensure(ctx)
+}
+
+func (r *Repository) ensure(ctx context.Context) error {
 	if r == nil || r.root == "" {
 		return fmt.Errorf("Skill repository is not initialized")
 	}
@@ -78,6 +242,9 @@ func (r *Repository) Ensure(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := r.recoverTaskSkillTransactions(ctx); err != nil {
+		logs.WarnContextf(ctx, "recover interrupted task Skill moves failed: root=%s error=%v", r.root, err)
+	}
 	if !r.hasHEAD(ctx) {
 		if _, err := r.git(ctx, "add", "-A"); err != nil {
 			return err
@@ -93,9 +260,98 @@ func (r *Repository) Ensure(ctx context.Context) error {
 	return nil
 }
 
+func (r *Repository) recoverTaskSkillTransactions(ctx context.Context) error {
+	if r == nil || strings.TrimSpace(r.root) == "" {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	entries, err := os.ReadDir(r.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var recoveredErr error
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), taskSkillTransactionPrefix) {
+			continue
+		}
+		txn := filepath.Join(r.root, entry.Name())
+		if !entry.IsDir() {
+			logs.WarnContextf(ctx, "remove invalid task Skill transaction entry: path=%s", txn)
+			if removeErr := os.Remove(txn); removeErr != nil {
+				recoveredErr = errors.Join(recoveredErr, removeErr)
+			}
+			continue
+		}
+		if err := recoverTaskSkillTransaction(txn); err != nil {
+			recoveredErr = errors.Join(recoveredErr, err)
+			logs.WarnContextf(ctx, "recover task Skill transaction failed: path=%s error=%v", txn, err)
+		}
+	}
+	return recoveredErr
+}
+
+func recoverTaskSkillTransaction(txn string) error {
+	raw, err := os.ReadFile(filepath.Join(txn, "target"))
+	if err != nil {
+		return err
+	}
+	name, err := validSkillCode(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(filepath.Dir(txn), name)
+	backup := filepath.Join(txn, "backup")
+	_, targetErr := os.Lstat(target)
+	_, backupErr := os.Lstat(backup)
+	switch {
+	case targetErr == nil:
+		// The new Skill reached its target. The old copy is only a backup now.
+		return os.RemoveAll(txn)
+	case !errors.Is(targetErr, os.ErrNotExist):
+		return targetErr
+	case backupErr == nil:
+		if err := os.Rename(backup, target); err != nil {
+			return err
+		}
+		return os.RemoveAll(txn)
+	case errors.Is(backupErr, os.ErrNotExist):
+		return os.RemoveAll(txn)
+	default:
+		return backupErr
+	}
+}
+
+func sameOrChildPath(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	rel, err := filepath.Rel(root, path)
+	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
+}
+
 // CommitInstalled commits server-installed Skills and the install manifest as baseline.
 func (r *Repository) CommitInstalled(ctx context.Context, codes []string) error {
-	if err := r.Ensure(ctx); err != nil {
+	if r == nil {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	r.repositoryLock().Lock()
+	defer r.repositoryLock().Unlock()
+	return r.commitInstalled(ctx, codes)
+}
+
+// CommitInstalledLocked commits a baseline while the caller holds
+// SkillRepositoryLock(r.Root()). It exists for the prepare phase, which keeps
+// the shared lock while replacing the installed Skill and its manifest.
+func (r *Repository) CommitInstalledLocked(ctx context.Context, codes []string) error {
+	if r == nil {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	return r.commitInstalled(ctx, codes)
+}
+
+func (r *Repository) commitInstalled(ctx context.Context, codes []string) error {
+	if err := r.ensure(ctx); err != nil {
 		return err
 	}
 	paths := make([]string, 0, len(codes)+1)
@@ -113,7 +369,16 @@ func (r *Repository) CommitInstalled(ctx context.Context, codes []string) error 
 
 // Changes returns publishable changes and separately reports local deletions.
 func (r *Repository) Changes(ctx context.Context) ([]Change, []string, error) {
-	if err := r.Ensure(ctx); err != nil {
+	if r == nil {
+		return nil, nil, fmt.Errorf("Skill repository is not initialized")
+	}
+	r.repositoryLock().Lock()
+	defer r.repositoryLock().Unlock()
+	return r.changes(ctx)
+}
+
+func (r *Repository) changes(ctx context.Context) ([]Change, []string, error) {
+	if err := r.ensure(ctx); err != nil {
 		return nil, nil, err
 	}
 	output, err := r.git(ctx, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".")
@@ -163,6 +428,24 @@ func (r *Repository) Changes(ctx context.Context) ([]Change, []string, error) {
 
 // Restore precisely returns one Skill to the committed baseline.
 func (r *Repository) Restore(ctx context.Context, code string) error {
+	if r == nil {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	r.repositoryLock().Lock()
+	defer r.repositoryLock().Unlock()
+	return r.restore(ctx, code)
+}
+
+// RestoreLocked restores one Skill while the caller holds
+// SkillRepositoryLock(r.Root()).
+func (r *Repository) RestoreLocked(ctx context.Context, code string) error {
+	if r == nil {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	return r.restore(ctx, code)
+}
+
+func (r *Repository) restore(ctx context.Context, code string) error {
 	code, err := validSkillCode(code)
 	if err != nil {
 		return err
@@ -178,9 +461,47 @@ func (r *Repository) Restore(ctx context.Context, code string) error {
 	return nil
 }
 
+// RestoreAll discards Run-owned changes under the managed Skill root while
+// preserving the Worker-synchronized .system cache. The repository lock must
+// cover the full post-run sync so another Run cannot recreate files between
+// restore and clean.
+func (r *Repository) RestoreAll(ctx context.Context) error {
+	if r == nil {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	r.repositoryLock().Lock()
+	defer r.repositoryLock().Unlock()
+	return r.restoreAll(ctx)
+}
+
+func (r *Repository) restoreAll(ctx context.Context) error {
+	if r == nil || strings.TrimSpace(r.root) == "" {
+		return fmt.Errorf("Skill repository is not initialized")
+	}
+	var restoreErr, cleanErr error
+	if _, err := r.git(ctx, "restore", "--source=HEAD", "--staged", "--worktree", "--", "."); err != nil {
+		restoreErr = err
+		logs.WarnContextf(ctx, "restore Worker Skill Git baseline failed: root=%s error=%v", r.root, err)
+	}
+	if _, err := r.git(ctx, "clean", "-fdx", "-e", "/.system/", "--", "."); err != nil {
+		cleanErr = err
+		logs.WarnContextf(ctx, "clean Worker Skill Git repository failed: root=%s error=%v", r.root, err)
+	}
+	return errors.Join(restoreErr, cleanErr)
+}
+
 // CommittedInstallManifest reads sync policy only from the trusted Git baseline.
 func (r *Repository) CommittedInstallManifest(ctx context.Context) (*skillstate.Manifest, error) {
-	if err := r.Ensure(ctx); err != nil {
+	if r == nil {
+		return nil, fmt.Errorf("Skill repository is not initialized")
+	}
+	r.repositoryLock().Lock()
+	defer r.repositoryLock().Unlock()
+	return r.committedInstallManifest(ctx)
+}
+
+func (r *Repository) committedInstallManifest(ctx context.Context) (*skillstate.Manifest, error) {
+	if err := r.ensure(ctx); err != nil {
 		return nil, err
 	}
 	paths, err := r.git(ctx, "ls-tree", "--name-only", "HEAD", "--", ".seed-manifest")

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,11 @@ func (b *ContextBuilder) BuildSystemPrompt(ctx context.Context, req *agentrundom
 	if communication := strings.TrimSpace(prompts.Get(prompts.KeyAgentSystemCommunication)); communication != "" {
 		sections = append(sections, communication)
 		sectionNames = append(sectionNames, "communication")
+	}
+
+	if outputBoundary := strings.TrimSpace(prompts.Get(prompts.KeyAgentSystemOutputBoundary)); outputBoundary != "" {
+		sections = append(sections, outputBoundary)
+		sectionNames = append(sectionNames, "output_boundary")
 	}
 
 	if multiSpeaker := strings.TrimSpace(prompts.Get(prompts.KeyAgentSystemMultiSpeakerContext)); multiSpeaker != "" {
@@ -193,17 +199,57 @@ func buildMemoryContext(ctx context.Context, reader MemoryReader) string {
 }
 
 func buildProjectContextSection(req *agentrundomain.RunRequest) string {
-	if req == nil || len(req.Project.Members) == 0 {
+	if req == nil || (len(req.Project.Members) == 0 && len(req.Input.Messages) == 0) {
 		return ""
 	}
 	var sb strings.Builder
 	sb.WriteString("## 协作成员\n")
+	sb.WriteString("\n### 用户\n")
 	for _, m := range req.Project.Members {
-		label := "用户"
-		if m.MemberType == "assistant" {
-			label = "AI 队友"
+		if strings.TrimSpace(strings.ToLower(m.MemberType)) != "user" {
+			continue
 		}
-		sb.WriteString(fmt.Sprintf("- %s：%s（%s）\n", label, m.Name, m.MemberRole))
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			name = "未命名用户"
+		}
+		role := strings.TrimSpace(m.MemberRole)
+		if role == "" {
+			role = "member"
+		}
+		sb.WriteString(fmt.Sprintf("- %s（用户 ID：%d；角色：%s）\n", name, m.MemberID, role))
+	}
+
+	sb.WriteString("\n### AI 队友\n")
+	for _, m := range req.Project.Members {
+		if strings.TrimSpace(strings.ToLower(m.MemberType)) != "assistant" {
+			continue
+		}
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			name = "未命名队友"
+		}
+		role := strings.TrimSpace(m.MemberRole)
+		if role == "" {
+			role = "member"
+		}
+		sb.WriteString(fmt.Sprintf("- %s（角色：%s）\n", name, role))
+	}
+
+	sb.WriteString("\n### 本轮用户消息\n")
+	for _, message := range req.Input.Messages {
+		if strings.TrimSpace(strings.ToLower(message.Role)) != "user" || strings.TrimSpace(message.ID) == "" {
+			continue
+		}
+		name := strings.TrimSpace(message.SenderName)
+		if name == "" {
+			name = "未命名用户"
+		}
+		userID := "未提供"
+		if message.SenderUserID != nil {
+			userID = strconv.FormatUint(uint64(*message.SenderUserID), 10)
+		}
+		sb.WriteString(fmt.Sprintf("- message_id=%s：%s（用户 ID：%s）\n", message.ID, name, userID))
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -232,13 +278,17 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 		return ""
 	}
 	projectID := strings.TrimSpace(req.Workspace.ProjectID)
+	if projectID == "" {
+		return ""
+	}
+	minimal := fmt.Sprintf("## 工作区信息\n\n- 项目 ID: %s", projectID)
 	taskID := strings.TrimSpace(req.Workspace.TaskID)
 	if taskID == "" {
 		taskID = strings.TrimSpace(req.TaskID)
 	}
 	requestID := strings.TrimSpace(req.Workspace.RequestID)
-	if req.Workspace.OrgID == 0 || projectID == "" || taskID == "" || requestID == "" {
-		return ""
+	if req.Workspace.OrgID == 0 || taskID == "" || requestID == "" {
+		return minimal
 	}
 	plan, err := agentworkspace.ResolveTaskWorkspace(agentworkspace.TaskWorkspaceRequest{
 		OrgID:            req.Workspace.OrgID,
@@ -248,7 +298,7 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 		RequestedWorkDir: req.Runtime.WorkDir,
 	})
 	if err != nil {
-		return ""
+		return minimal
 	}
 	gitRepoLabel := "否"
 	if isGitRepository(plan.RepoDir) {
@@ -256,6 +306,7 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 	}
 	return fmt.Sprintf(`## 工作区信息
 
+- 项目 ID: %s
 - 项目根目录: %s
 - 是否为 Git 仓库: %s
 
@@ -264,7 +315,7 @@ func buildWorkspaceContext(req *agentrundomain.RunRequest) string {
 - 不需要让用户看见的临时文件、中间产物，应在项目临时目录: %s 中创建。
 
 **运行系统环境：**
-- Host: %s`, plan.RepoDir, gitRepoLabel, plan.TurnTmpDir, runtime.GOOS)
+- Host: %s`, projectID, plan.RepoDir, gitRepoLabel, plan.TurnTmpDir, runtime.GOOS)
 }
 
 func isGitRepository(repoDir string) bool {

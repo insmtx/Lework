@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // CommandType 表示 server 发给 worker 的命令类型。
@@ -378,10 +380,11 @@ type TaskInput struct {
 }
 
 type ChatMessage struct {
-	ID         string      `json:"id,omitempty"`
-	Role       MessageRole `json:"role"`
-	Content    string      `json:"content"`
-	SenderName string      `json:"sender_name,omitempty"`
+	ID           string      `json:"message_id,omitempty"`
+	Role         MessageRole `json:"role"`
+	Content      string      `json:"content"`
+	SenderUserID *uint       `json:"sender_user_id,omitempty"`
+	SenderName   string      `json:"sender_name,omitempty"`
 }
 
 type Attachment struct {
@@ -421,6 +424,7 @@ type RuntimeOptions struct {
 }
 
 type TaskPolicy struct {
-	RequireApproval bool   `json:"require_approval,omitempty"`
-	PermissionMode  string `json:"permission_mode,omitempty"`
+	RequireApproval bool                   `json:"require_approval,omitempty"`
+	PermissionMode  string                 `json:"permission_mode,omitempty"`
+	DisabledPlugins []types.DisabledPlugin `json:"disabled_plugins,omitempty"`
 }

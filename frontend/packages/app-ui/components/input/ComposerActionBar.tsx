@@ -1,6 +1,6 @@
 "use client";
 
-import type { PluginComposerOption } from "@leros/store";
+import { type PluginComposerOption, skillCodeFromToken } from "@leros/store";
 import {
 	Command,
 	CommandEmpty,
@@ -28,6 +28,7 @@ import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 import type { ComposerAssistantOption, StructuredComposerHandle } from "./StructuredComposer";
+import { getSkillSourceLabel } from "./skillSourceLabel";
 
 type ComposerActionBarProps = {
 	inputValue: string;
@@ -40,6 +41,7 @@ type ComposerActionBarProps = {
 	assistantOptions?: ComposerAssistantOption[];
 	skillOptions?: PluginComposerOption[];
 	skillsLoading?: boolean;
+	onSkillPickerOpen?: () => void;
 	disableAssistantAndSkill?: boolean;
 	assistantSelectionMode?: "single" | "multiple";
 	executionMode?: "default" | "plan";
@@ -65,9 +67,20 @@ function parseSelectedAssistantNames(value: string): string[] {
 	);
 }
 
-function parseSelectedSlashLabels(value: string): string[] {
+function selectedSkillCodesFromComposer(
+	composerRef: RefObject<StructuredComposerHandle | null>,
+	skillOptions: PluginComposerOption[],
+): string[] {
+	const tokens = composerRef.current?.getComposerTokens() ?? [];
 	return dedupeValues(
-		Array.from(value.matchAll(/(?:^|\s)\/([^\s@/]+)/g)).map((match) => match[1] ?? ""),
+		tokens
+			.filter((token) => token.kind === "skill")
+			.map((token) => {
+				const id = skillCodeFromToken(token);
+				if (id) return id;
+				const raw = token.label.replace(/^\/+/, "").trim();
+				return skillOptions.find((skill) => skill.label === raw || skill.code === raw)?.code ?? "";
+			}),
 	);
 }
 
@@ -82,6 +95,7 @@ export function ComposerActionBar({
 	assistantOptions = [],
 	skillOptions = [],
 	skillsLoading,
+	onSkillPickerOpen,
 	disableAssistantAndSkill = false,
 	assistantSelectionMode = "multiple",
 	executionMode,
@@ -105,6 +119,11 @@ export function ComposerActionBar({
 	const derivedSkillsLoading = skillOpen && skillsLoading;
 
 	useEffect(() => {
+		if (!skillOpen) return;
+		onSkillPickerOpen?.();
+	}, [onSkillPickerOpen, skillOpen]);
+
+	useEffect(() => {
 		if (connectorDisabled) {
 			setConnectorOpen(false);
 			setConnectorSearch("");
@@ -115,10 +134,13 @@ export function ComposerActionBar({
 		() => parseSelectedAssistantNames(inputValue),
 		[inputValue],
 	);
-	const selectedSlashLabels = useMemo(() => parseSelectedSlashLabels(inputValue), [inputValue]);
 	const selectedSkillCodes = useMemo(
-		() => selectedSlashLabels.filter((code) => skillOptions.some((option) => option.code === code)),
-		[selectedSlashLabels, skillOptions],
+		() => selectedSkillCodesFromComposer(composerRef, skillOptions),
+		[composerRef, inputValue, skillOptions],
+	);
+	const selectedSkillCodeSet = useMemo(
+		() => new Set(selectedSkillCodes.map((code) => code.toLowerCase())),
+		[selectedSkillCodes],
 	);
 	const filteredAssistants = useMemo(() => {
 		const query = assistantSearch.trim().toLowerCase();
@@ -139,11 +161,11 @@ export function ComposerActionBar({
 	const filteredSkills = useMemo(() => {
 		const query = skillSearch.trim().toLowerCase();
 		return skillOptions.filter((skill) => {
-			if (selectedSkillCodes.includes(skill.code)) return false;
+			if (selectedSkillCodeSet.has(skill.code.toLowerCase())) return false;
 			if (!query) return true;
 			return [skill.label, skill.code, skill.description].join(" ").toLowerCase().includes(query);
 		});
-	}, [selectedSkillCodes, skillOptions, skillSearch]);
+	}, [selectedSkillCodeSet, skillOptions, skillSearch]);
 	const filteredConnectors = useMemo(() => {
 		const query = connectorSearch.trim().toLowerCase();
 		return connectorOptions.filter((connector) => {
@@ -410,11 +432,9 @@ export function ComposerActionBar({
 												<span className="truncate">
 													{renderHighlightedText(skill.label, skillSearch)}
 												</span>
-												{(skill.source === "builtin" || skill.origin === "builtin_worker") && (
-													<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
-														系统
-													</span>
-												)}
+												<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+													{getSkillSourceLabel(skill)}
+												</span>
 											</div>
 											<div className="truncate text-xs text-slate-400">{skill.description}</div>
 										</div>

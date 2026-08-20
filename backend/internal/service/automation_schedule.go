@@ -20,7 +20,7 @@ import (
 
 const (
 	// AutomationScheduleVersion 当前规范化调度规则版本
-	AutomationScheduleVersion = 1
+	AutomationScheduleVersion = types.AutomationScheduleVersion
 	// minIntervalSeconds 固定间隔最小秒数（5 分钟）
 	minIntervalSeconds = 300
 )
@@ -176,6 +176,15 @@ func resolveScheduleMode(topMode string, formCfg *types.AutomationScheduleFormCo
 // cfg.Timezone 优先；若为空回退到 fallbackTimezone（来自请求顶层 timezone 字段，
 // 或浏览器 IANA 时区）。mode 来源统一为 formCfg.Mode（与顶层 schedule_mode 对齐）。
 func compileScheduleSpec(formCfg *types.AutomationScheduleFormConfig, fallbackTimezone, topMode string) (*types.AutomationScheduleSpec, error) {
+	return compileScheduleSpecAt(formCfg, fallbackTimezone, topMode, time.Now().UTC())
+}
+
+// compileScheduleSpecAt 编译调度规则，并用同一个时间基准生成 interval 起算点。
+func compileScheduleSpecAt(
+	formCfg *types.AutomationScheduleFormConfig,
+	fallbackTimezone, topMode string,
+	now time.Time,
+) (*types.AutomationScheduleSpec, error) {
 	if formCfg == nil {
 		return nil, errInvalidAutomationSchedule
 	}
@@ -227,20 +236,7 @@ func compileScheduleSpec(formCfg *types.AutomationScheduleFormConfig, fallbackTi
 		}
 		spec.Spec.IntervalSeconds = intervalSeconds
 
-		// 锚点在编译期立即解析并校验，避免保存启用态却带回显坏锚点的计划。
-		loc, _ := validateTimezone(timezone)
-		anchorAt := strings.TrimSpace(formCfg.Interval.AnchorAt)
-		if anchorAt == "" {
-			// 缺省锚点 = 当前本地时间整点零分；语义为“从保存时刻起按间隔执行”
-			now := time.Now().In(loc)
-			anchorAt = time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, loc).Format(time.RFC3339)
-			// 回填到表单配置，保证编辑回显可见
-			formCfg.Interval.AnchorAt = anchorAt
-		}
-		if _, err := parseAnchor(anchorAt, loc); err != nil {
-			return nil, err
-		}
-		spec.Spec.AnchorAt = anchorAt
+		spec.Spec.OriginAt = now.UTC().Format(time.RFC3339Nano)
 	default:
 		return nil, errInvalidAutomationSchedule
 	}
@@ -262,7 +258,10 @@ func computeNextRunAt(spec *types.AutomationScheduleSpec, enabled bool, now time
 	case string(types.AutomationScheduleModeCalendar):
 		next, err = nextCalendar(now, spec.Spec.Expression, spec.Spec.Policy, loc)
 	case string(types.AutomationScheduleModeInterval):
-		next, err = nextInterval(now, spec.Spec.AnchorAt, spec.Spec.IntervalSeconds, loc)
+		if spec.Spec.OriginAt == "" {
+			return nil
+		}
+		next, err = nextIntervalFromOrigin(now, spec.Spec.OriginAt, spec.Spec.IntervalSeconds)
 	default:
 		return nil
 	}
@@ -321,7 +320,10 @@ func ComputeOccurrenceWindow(spec *types.AutomationScheduleSpec, oldNextRunAt, n
 		}
 		return nil, errors.New(errCodeInvalidSchedule)
 	case string(types.AutomationScheduleModeInterval):
-		return computeIntervalWindow(spec, oldNextRunAt, now, loc), nil
+		if spec.Spec.OriginAt == "" {
+			return nil, errInvalidAutomationSchedule
+		}
+		return computeIntervalWindowFromOrigin(spec, oldNextRunAt, now), nil
 	default:
 		return nil, errInvalidAutomationSchedule
 	}
@@ -472,6 +474,51 @@ func nextInterval(now time.Time, anchorAt string, intervalSeconds int64, loc *ti
 	return next, nil
 }
 
+// nextIntervalFromOrigin 计算 v2 固定间隔规则的下一次绝对 occurrence。
+func nextIntervalFromOrigin(now time.Time, originAt string, intervalSeconds int64) (time.Time, error) {
+	interval := time.Duration(intervalSeconds) * time.Second
+	if interval <= 0 {
+		return time.Time{}, errInvalidAutomationSchedule
+	}
+	origin, err := time.Parse(time.RFC3339Nano, originAt)
+	if err != nil {
+		return time.Time{}, errInvalidAutomationSchedule
+	}
+	origin = origin.UTC()
+	nowUTC := now.UTC()
+	if nowUTC.Before(origin) {
+		return origin, nil
+	}
+	elapsed := nowUTC.Sub(origin)
+	steps := elapsed/interval + 1
+	return origin.Add(steps * interval), nil
+}
+
+// computeIntervalWindowFromOrigin 计算 v2 固定间隔规则的遗漏窗口。
+func computeIntervalWindowFromOrigin(
+	spec *types.AutomationScheduleSpec,
+	oldNextRunAt, now time.Time,
+) *OccurrenceWindow {
+	interval := time.Duration(spec.Spec.IntervalSeconds) * time.Second
+	if interval <= 0 {
+		return &OccurrenceWindow{Next: now.UTC()}
+	}
+	oldUTC := oldNextRunAt.UTC()
+	nowUTC := now.UTC()
+	if nowUTC.Before(oldUTC) {
+		return &OccurrenceWindow{LatestDue: oldUTC, Next: oldUTC}
+	}
+	elapsed := nowUTC.Sub(oldUTC)
+	dueSteps := elapsed / interval
+	latest := oldUTC.Add(dueSteps * interval)
+	next := latest.Add(interval)
+	missed := int(dueSteps) - 1
+	if missed < 0 {
+		missed = 0
+	}
+	return &OccurrenceWindow{LatestDue: latest, MissedCount: missed, Next: next}
+}
+
 // computeIntervalWindow 用算术（非循环）计算 interval 的遗漏窗口。
 //
 // 绝对锚点 = oldNextRunAt 所在日期的锚点相位；网格沿同一时间轴按 interval 推进。
@@ -537,9 +584,11 @@ func nextIntervalCounted(now, base time.Time, interval time.Duration) (time.Time
 
 // anchorGridPoint 返回 t 所在日期、以 anchor 相位为起点的网格点。
 func anchorGridPoint(t time.Time, anchor time.Time) time.Time {
-	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+	loc := anchor.Location()
+	local := t.In(loc)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 	return time.Date(day.Year(), day.Month(), day.Day(),
-		anchor.Hour(), anchor.Minute(), anchor.Second(), anchor.Nanosecond(), t.Location())
+		anchor.Hour(), anchor.Minute(), anchor.Second(), anchor.Nanosecond(), loc)
 }
 
 // parseAnchor 解析本地时区锚点。

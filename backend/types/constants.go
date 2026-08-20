@@ -172,9 +172,11 @@ const (
 type AutomationScheduleMode string
 
 const (
+	// AutomationScheduleVersion 当前规范化调度规则版本。
+	AutomationScheduleVersion = 2
 	// AutomationScheduleModeCalendar 按本地日历边界执行
 	AutomationScheduleModeCalendar AutomationScheduleMode = "calendar"
-	// AutomationScheduleModeInterval 从锚点开始按固定时长执行
+	// AutomationScheduleModeInterval 从起算时间开始按固定时长执行
 	AutomationScheduleModeInterval AutomationScheduleMode = "interval"
 )
 

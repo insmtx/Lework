@@ -226,7 +226,7 @@ func TestMCPPluginsAreVisibleAndGloballyManagedOnlyByCreator(t *testing.T) {
 	if err := database.Create(&types.Plugin{
 		PublicID: "plugin_shared_skill", OwnerScope: types.OwnerScopeOrganization,
 		OrgID: 10, Code: "shared-skill", Kind: "skill", Name: "Shared Skill",
-		Status: types.PluginStatusActive, Origin: "org", CreatedBy: 21, UpdatedBy: 21,
+		Visibility: types.PluginVisibilityPublic, Status: types.PluginStatusActive, Origin: "org", CreatedBy: 21, UpdatedBy: 21,
 	}).Error; err != nil {
 		t.Fatalf("create shared skill: %v", err)
 	}

@@ -29,9 +29,9 @@ type ProjectService interface {
 
 	ListProjectPlugins(ctx context.Context, req *ListProjectPluginsRequest) ([]ProjectPlugin, error)
 
-	AddProjectPlugin(ctx context.Context, req *UpdateProjectPluginRequest) error
+	AddProjectPlugin(ctx context.Context, req *UpdateProjectPluginRequest) (*ProjectPluginMutationResult, error)
 
-	RemoveProjectPlugin(ctx context.Context, req *UpdateProjectPluginRequest) error
+	RemoveProjectPlugin(ctx context.Context, req *UpdateProjectPluginRequest) (*ProjectPluginMutationResult, error)
 
 	GetProjectMemory(ctx context.Context, publicID string) (*ProjectMemory, error)
 

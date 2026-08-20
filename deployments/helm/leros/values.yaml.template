@@ -35,7 +35,7 @@ nodeSelector: {}
 # 私有镜像仓库认证。enabled=true 时 chart 会创建对应 Secret（kubernetes.io/dockerconfigjson）。
 # 如已存在同名 Secret，设 enabled=false 并通过 imagePullSecrets 引用。
 imagePullSecret:
-  enabled: true
+  enabled: false
   name: leros-registry
   registry: "@REGISTRY@"
   username: "@REGISTRY_USER@"
@@ -408,7 +408,7 @@ clientUpdate:
 # 子 chart 已内置为 charts/traefik-34.2.0.tgz（file://charts，无需 helm dep update）。
 # 以下默认值即合规配置，一般无需改动；需特殊调优见 https://traefik.github.io/charts
 traefik:
-  enabled: false
+  enabled: true
   image:
   registry: registry.yygu.cn
   repository: rancher/mirrored-library-traefik
@@ -416,10 +416,10 @@ traefik:
   ingressClass:
     name: leros-traefik    # 启用时自动用此名，不与 k3s 的 traefik 撞
   service:
-    type: ClusterIP
+    type: NodePort
   ports:
     web:
-      hostPort: 8080        # 启用时自动错开 k3s 占用的 80
+      hostPort: 38081        # 启用时自动错开 k3s 占用的 80
     websecure:
       hostPort: 8443        # 启用时自动错开 k3s 占用的 443
   resources:
@@ -439,13 +439,13 @@ traefik:
 #        ingress.enabled: false
 #        server.service:
 #          type: NodePort
-#          nodePort: 30080     # http://<节点IP>:30080 访问
+#          nodePort: 38081      # http://<节点IP>:38081  访问
 #   2) 用集群已有的其他 Controller（如 nginx-ingress）：
 #        traefik.enabled: false
 #        ingress.enabled: true
 #        ingress.className: nginx
 ingress:
-  enabled: false
+  enabled: true
   className: ""             # 留空自动跟随；nginx 集群填 nginx 等
   tls: []
   server:
@@ -461,7 +461,7 @@ ingress:
     host: ""
     annotations: {}
   account:
-    enabled: false
+    enabled: true
     host: ""
     annotations: {}
     tls: []

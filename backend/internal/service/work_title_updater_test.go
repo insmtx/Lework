@@ -296,3 +296,47 @@ func TestWorkTitleUpdater_MissingLLMIsBestEffortAndMarksAttempt(t *testing.T) {
 		t.Fatal("expected project attempt marker even when llm is missing")
 	}
 }
+
+func TestWorkTitleUpdater_PassesPlainTextUserMessageToLLM(t *testing.T) {
+	database := setupTestDB(t)
+	bus := &recordingEventBus{}
+	ctx := setupTestContextWithCaller(t)
+	raw := `<skill-chip data-code="bid-plan">投标计划制定</skill-chip> 测试`
+	fallback := fallbackWorkTitle(raw)
+	if fallback != "投标计划制定 测试" {
+		t.Fatalf("fallback title for UI must stay Chinese, got %q", fallback)
+	}
+	project := &types.Project{
+		PublicID: "prj_plain_title",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     fallback,
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := infradb.CreateProject(ctx, database, project); err != nil {
+		t.Fatalf("CreateProject failed: %v", err)
+	}
+	session := createTaskInProjectForTitleTest(t, database, project, "task_plain_title", "sess_plain_title", raw, fallback)
+
+	withMockShortTitleGenerator(t, func(_ context.Context, _ *gorm.DB, _ modelrouter.Invoker, input workTitleGenerationInput) (generatedWorkTitles, error) {
+		if strings.Contains(input.UserMessage, "skill-chip") {
+			t.Fatalf("title LLM must not receive raw skill-chip HTML, got %q", input.UserMessage)
+		}
+		if strings.Contains(input.UserMessage, "投标计划制定") {
+			t.Fatalf("title LLM must receive catalog code, not Chinese label, got %q", input.UserMessage)
+		}
+		if input.UserMessage != "bid-plan 测试" {
+			t.Fatalf("UserMessage = %q", input.UserMessage)
+		}
+		return generatedWorkTitles{
+			ProjectTitle: "投标计划",
+			TaskTitle:    "投标计划制定",
+			SessionTitle: "投标计划制定",
+		}, nil
+	})
+
+	updater := NewWorkTitleUpdater(database, bus, &stubModelInvoker{})
+	if err := updater.UpdateAfterFirstTurn(ctx, session.PublicID, "assistant reply"); err != nil {
+		t.Fatalf("UpdateAfterFirstTurn failed: %v", err)
+	}
+}

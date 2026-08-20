@@ -1,5 +1,25 @@
 basePath: /v1
 definitions:
+  contract.AutomationIntervalInput:
+    properties:
+      interval_minutes:
+        type: integer
+      interval_seconds:
+        type: integer
+      interval_unit:
+        type: string
+    type: object
+  contract.AutomationScheduleInput:
+    properties:
+      calendar:
+        $ref: '#/definitions/types.AutomationCalendarConfig'
+      interval:
+        $ref: '#/definitions/contract.AutomationIntervalInput'
+      mode:
+        type: string
+      timezone:
+        type: string
+    type: object
   contract.ChooseUinRequest:
     properties:
       login_way:
@@ -23,7 +43,7 @@ definitions:
         description: ProjectPublicID 关联的既有项目对外 ID（可选）。空/省略：使用默认新项目（首次执行懒创建）。
         type: string
       schedule:
-        $ref: '#/definitions/types.AutomationScheduleFormConfig'
+        $ref: '#/definitions/contract.AutomationScheduleInput'
       schedule_mode:
         type: string
       timezone:
@@ -726,7 +746,13 @@ definitions:
         type: string
       metadata:
         $ref: '#/definitions/types.ObjectMetadata'
+      output_format:
+        description: OutputFormat 是工具场景要求生成的最终交付格式，如 docx、pdf、pptx、md。
+        type: string
       role:
+        type: string
+      scene:
+        description: Scene 区分普通问答与工具场景；空或 normal 为普通问答，bid_comparison 为标书对比。
         type: string
       session_id:
         type: string
@@ -1059,7 +1085,7 @@ definitions:
       public_id:
         type: string
       schedule:
-        $ref: '#/definitions/types.AutomationScheduleFormConfig'
+        $ref: '#/definitions/contract.AutomationScheduleInput'
       schedule_mode:
         description: 修改周期时必须提交完整 schedule
         type: string
@@ -1185,38 +1211,6 @@ definitions:
         description: Preset 预设类型：daily/weekly/monthly/hourly
         type: string
     type: object
-  types.AutomationIntervalConfig:
-    properties:
-      anchor_at:
-        description: AnchorAt 本地时区锚点时间（ISO8601，不带时区偏移，解释为指定时区）
-        type: string
-      interval_minutes:
-        description: IntervalMinutes 间隔分钟数（表单友好字段，服务端换算为秒并生成 interval_seconds）
-        type: integer
-      interval_seconds:
-        description: IntervalSeconds 间隔秒数
-        type: integer
-      interval_unit:
-        description: IntervalUnit 间隔单位，只用于回显：minute/hour/day
-        type: string
-    type: object
-  types.AutomationScheduleFormConfig:
-    properties:
-      calendar:
-        allOf:
-        - $ref: '#/definitions/types.AutomationCalendarConfig'
-        description: Calendar 日历类预设配置（mode == "calendar" 时有效）
-      interval:
-        allOf:
-        - $ref: '#/definitions/types.AutomationIntervalConfig'
-        description: Interval 固定间隔配置（mode == "interval" 时有效）
-      mode:
-        description: Mode 调度模式（calendar/interval），与 Automation 的 schedule_mode 保持一致
-        type: string
-      timezone:
-        description: Timezone 表单发起时的 IANA 时区
-        type: string
-    type: object
   types.ExecutionMode:
     enum:
     - default
@@ -1229,13 +1223,14 @@ definitions:
     properties:
       PublicURL:
         type: string
+      attachment_role:
+        description: AttachmentRole 是工具场景赋予附件的语义角色；空表示普通附件。
+        type: string
       file_upload_id:
         type: string
       mime_type:
         type: string
       name:
-        type: string
-      purpose:
         type: string
       relative_path:
         type: string
@@ -1282,6 +1277,12 @@ definitions:
       key:
         description: 元数据 - 对象存储键
         type: string
+      output_format:
+        description: OutputFormat 工具场景要求的最终交付格式（如 docx、pdf）。
+        type: string
+      scene:
+        description: Scene 新建任务场景（如 bid_comparison）；空表示普通问答。
+        type: string
       tags:
         description: 元数据 - 项目标签
         items:
@@ -1302,7 +1303,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: 向指定会话添加一条消息
+      description: 向指定会话添加一条消息；工具场景可传 scene/output_format（或 metadata 同名字段）与带 attachment_role
+        的附件
       parameters:
       - description: 添加消息请求
         in: body

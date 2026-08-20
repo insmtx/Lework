@@ -303,7 +303,8 @@ func (s *pluginService) createPlatformConnector(
 		created = types.Plugin{
 			PublicID: "plugin_" + uuid.NewString(), OwnerScope: types.OwnerScopeOrganization,
 			OrgID: orgID, Code: code, Kind: "mcp", Name: channel.Name,
-			Description: channel.Description, Status: types.PluginStatusActive,
+			Description: channel.Description, Visibility: types.PluginVisibilityPrivate,
+			Status: types.PluginStatusActive,
 			Origin: "org", CreatedBy: uin, UpdatedBy: uin,
 		}
 		if err := infradb.CreatePlugin(ctx, tx, &created); err != nil {
@@ -321,6 +322,9 @@ func (s *pluginService) createPlatformConnector(
 			return err
 		}
 		created.CurrentRevision = 1
+		if err := ensurePluginResourceOwner(ctx, tx, orgID, created.ID, uin); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {

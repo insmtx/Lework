@@ -43,10 +43,10 @@ func TestCreateAutomationPreservesDisabled(t *testing.T) {
 		Instruction:  "测试指令",
 		Enabled:      &disabled,
 		ScheduleMode: "interval",
-		Schedule: &types.AutomationScheduleFormConfig{
+		Schedule: &contract.AutomationScheduleInput{
 			Mode:     "interval",
 			Timezone: "Asia/Shanghai",
-			Interval: &types.AutomationIntervalConfig{IntervalMinutes: 30},
+			Interval: &contract.AutomationIntervalInput{IntervalMinutes: 30},
 		},
 		Timezone: "Asia/Shanghai",
 	})
@@ -72,10 +72,10 @@ func TestCreateAutomationPreservesDisabled(t *testing.T) {
 		Name:         "默认启用自动化",
 		Instruction:  "测试默认状态",
 		ScheduleMode: "interval",
-		Schedule: &types.AutomationScheduleFormConfig{
+		Schedule: &contract.AutomationScheduleInput{
 			Mode:     "interval",
 			Timezone: "Asia/Shanghai",
-			Interval: &types.AutomationIntervalConfig{IntervalMinutes: 30},
+			Interval: &contract.AutomationIntervalInput{IntervalMinutes: 30},
 		},
 		Timezone: "Asia/Shanghai",
 	})

@@ -45,6 +45,7 @@ func TestProjectMCPBindingUsesOrganizationPluginAndMCPActivity(t *testing.T) {
 	if err := database.Create(plugin).Error; err != nil {
 		t.Fatalf("create plugin: %v", err)
 	}
+	seedPluginResourceOwner(t, database, 1, plugin.ID, 1)
 	if err := database.Create(&types.PluginRevision{
 		PluginID:        plugin.ID,
 		Revision:        1,
@@ -71,10 +72,10 @@ func TestProjectMCPBindingUsesOrganizationPluginAndMCPActivity(t *testing.T) {
 		PluginID: plugin.PublicID,
 	}
 	otherUserCtx := setupTestContextWithCallerUin(t, 2)
-	if err := service.AddProjectPlugin(otherUserCtx, request); err == nil {
+	if _, err := service.AddProjectPlugin(otherUserCtx, request); err == nil {
 		t.Fatal("other user must not add an MCP they did not create")
 	}
-	if err := service.AddProjectPlugin(ctx, request); err != nil {
+	if _, err := service.AddProjectPlugin(ctx, request); err != nil {
 		t.Fatalf("AddProjectPlugin() error = %v", err)
 	}
 	plugins, err := service.ListProjectPlugins(otherUserCtx, &contract.ListProjectPluginsRequest{
@@ -99,7 +100,7 @@ func TestProjectMCPBindingUsesOrganizationPluginAndMCPActivity(t *testing.T) {
 		t.Fatalf("add activity = %#v", addedActivity)
 	}
 
-	if err := service.RemoveProjectPlugin(otherUserCtx, request); err != nil {
+	if _, err := service.RemoveProjectPlugin(otherUserCtx, request); err != nil {
 		t.Fatalf("other user RemoveProjectPlugin() error = %v", err)
 	}
 	var removedActivity types.ProjectActivity

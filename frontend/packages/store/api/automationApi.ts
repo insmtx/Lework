@@ -2,7 +2,7 @@ import { apiClient } from "./client";
 import type {
 	BackendAutomation,
 	BackendAutomationExecution,
-	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleInput,
 	BackendDataResponse,
 	BackendPaginatedResponse,
 } from "./types";
@@ -12,7 +12,7 @@ export type CreateAutomationParams = {
 	instruction?: string;
 	enabled?: boolean;
 	schedule_mode: string;
-	schedule: BackendAutomationScheduleFormConfig;
+	schedule: BackendAutomationScheduleInput;
 	timezone?: string;
 	// 关联既有项目（可选）；省略/空串 => 默认新项目（首次执行懒创建）
 	project_public_id?: string;
@@ -24,7 +24,7 @@ export type UpdateAutomationParams = {
 	instruction?: string;
 	enabled?: boolean;
 	schedule_mode?: string;
-	schedule?: BackendAutomationScheduleFormConfig;
+	schedule?: BackendAutomationScheduleInput;
 	timezone?: string;
 	// 关联项目三态：省略=保持原关联；""=切回默认新项目；非空=关联指定项目
 	project_public_id?: string;

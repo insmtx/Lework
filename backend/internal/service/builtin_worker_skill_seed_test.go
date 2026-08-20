@@ -60,6 +60,82 @@ func TestSyncWorkerSkillsCreatesSystemPlugin(t *testing.T) {
 	}
 }
 
+func TestSyncWorkerSkillsSkipsHiddenSystemSkills(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	sourceDir := t.TempDir()
+	writeBuiltinSkillTestFiles(t, sourceDir, "visible-worker-skill", "", "Visible.")
+	writeBuiltinSkillTestFiles(t, filepath.Join(sourceDir, ".system"), "lework-hidden-skill", "", "Hidden.")
+
+	report, err := SyncBuiltinWorkerSkills(context.Background(), database, sourceDir)
+	if err != nil {
+		t.Fatalf("sync worker skills: %v", err)
+	}
+	if report.Scanned != 1 || report.Created != 1 || len(report.Failures) != 0 {
+		t.Fatalf("sync report = %#v", report)
+	}
+
+	hiddenPlugin, err := infradb.GetSystemPluginByCode(context.Background(), database, "skill", "lework-hidden-skill")
+	if err != nil {
+		t.Fatalf("lookup hidden plugin: %v", err)
+	}
+	if hiddenPlugin != nil {
+		t.Fatalf("hidden Skill should not be published: %#v", hiddenPlugin)
+	}
+
+	response, err := (&pluginService{db: database}).ListBuiltinSkills(context.Background())
+	if err != nil {
+		t.Fatalf("list builtin skills: %v", err)
+	}
+	if len(response.Plugins) != 1 || response.Plugins[0].Code != "visible-worker-skill" {
+		t.Fatalf("builtin Skill response = %#v", response.Plugins)
+	}
+}
+
+func TestSyncWorkerSkillsArchivesSkillMovedToHiddenSystemDirectory(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	sourceDir := t.TempDir()
+	writeBuiltinSkillTestFiles(t, sourceDir, "lework-moved-skill", "", "LeWork.")
+
+	if _, err := SyncBuiltinWorkerSkills(context.Background(), database, sourceDir); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+	hiddenRoot := filepath.Join(sourceDir, ".system")
+	if err := os.MkdirAll(hiddenRoot, 0o755); err != nil {
+		t.Fatalf("create hidden source directory: %v", err)
+	}
+	if err := os.Rename(
+		filepath.Join(sourceDir, "lework-moved-skill"),
+		filepath.Join(hiddenRoot, "lework-moved-skill"),
+	); err != nil {
+		t.Fatalf("move Skill to hidden source directory: %v", err)
+	}
+
+	report, err := SyncBuiltinWorkerSkills(context.Background(), database, sourceDir)
+	if err != nil {
+		t.Fatalf("sync after move: %v", err)
+	}
+	if report.Scanned != 0 {
+		t.Fatalf("hidden Skill should not be scanned, got %d", report.Scanned)
+	}
+
+	plugin, err := infradb.GetSystemPluginByCode(context.Background(), database, "skill", "lework-moved-skill")
+	if err != nil || plugin == nil {
+		t.Fatalf("moved Skill plugin = %#v, %v", plugin, err)
+	}
+	if plugin.Status != types.PluginStatusArchived {
+		t.Fatalf("moved Skill status = %s, want %s", plugin.Status, types.PluginStatusArchived)
+	}
+	response, err := (&pluginService{db: database}).ListBuiltinSkills(context.Background())
+	if err != nil {
+		t.Fatalf("list builtin skills after move: %v", err)
+	}
+	if len(response.Plugins) != 0 {
+		t.Fatalf("moved hidden Skill should not be returned: %#v", response.Plugins)
+	}
+}
+
 func TestSyncWorkerSkillsIdempotent(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
 	setupPluginServiceTestStorage(t)

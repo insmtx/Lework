@@ -1,7 +1,13 @@
 "use client";
 
 import type { AutomationItem } from "@leros/store";
-import { useAutomationStore, useLayoutStore } from "@leros/store";
+import {
+	prepareOutgoingComposer,
+	skillChipsToComposerState,
+	useAutomationStore,
+	useLayoutStore,
+} from "@leros/store";
+import type { ComposerToken } from "@leros/store/types/chat";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Command,
@@ -36,9 +42,9 @@ import {
 } from "@leros/ui/components/ui/select";
 import { Switch } from "@leros/ui/components/ui/switch";
 import { Check, ChevronsUpDown, Clock, FolderOpen } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { StructuredComposer } from "../input/StructuredComposer";
+import { StructuredComposer, type StructuredComposerHandle } from "../input/StructuredComposer";
 import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { ProjectIcon } from "../layout/project-icon";
 import {
@@ -53,6 +59,7 @@ import {
 	toggleCalendarArray,
 	WEEKDAY_LABELS,
 } from "./automationForm";
+import { formatLocalDateTime } from "./automationTime";
 
 const WEEKDAY_OPTIONS = [
 	{ label: "周一", value: 1 },
@@ -86,6 +93,12 @@ export function AutomationFormDialog({
 	const [form, setForm] = useState<AutomationScheduleFormState>(DEFAULT_SCHEDULE_FORM);
 	const [name, setName] = useState("");
 	const [instruction, setInstruction] = useState("");
+	const [instructionPrefill, setInstructionPrefill] = useState<{
+		id: string;
+		value: string;
+		tokens: ComposerToken[];
+	}>();
+	const composerRef = useRef<StructuredComposerHandle>(null);
 	const [enabled, setEnabled] = useState(true);
 	const [timezone, setTimezone] = useState(getBrowserTimezone());
 	const [submitting, setSubmitting] = useState(false);
@@ -98,7 +111,7 @@ export function AutomationFormDialog({
 
 	const isEdit = Boolean(editTarget);
 	const { skillOptions, skillsLoading } = useComposerSkillOptions(selectedProjectId || null, open);
-	const nextRunPreview = useMemo(() => computeNextRunPreview(form), [form]);
+	const nextRunPreview = useMemo(() => computeNextRunPreview(form, timezone), [form, timezone]);
 
 	// ListProjects 已按当前用户的项目绑定过滤；关联项目的最终可用性仍由保存接口权威校验。
 	// 不在弹窗中二次权限过滤，避免首次打开时因批量权限请求未完成而隐藏完整项目列表。
@@ -154,9 +167,16 @@ export function AutomationFormDialog({
 
 	useEffect(() => {
 		if (!open) return;
+		const prefillId = `automation-instruction-${editTarget?.publicId ?? "new"}-${Date.now()}`;
 		if (editTarget) {
+			const restored = skillChipsToComposerState(editTarget.instruction ?? "");
 			setName(editTarget.name);
-			setInstruction(editTarget.instruction ?? "");
+			setInstruction(restored.value);
+			setInstructionPrefill({
+				id: prefillId,
+				value: restored.value,
+				tokens: restored.tokens,
+			});
 			setEnabled(editTarget.enabled);
 			// 编辑时使用服务端已保存的时区，不覆盖已有配置
 			setTimezone(editTarget.timezone || getBrowserTimezone());
@@ -166,6 +186,7 @@ export function AutomationFormDialog({
 			// 创建时使用浏览器 IANA 时区
 			setName("");
 			setInstruction("");
+			setInstructionPrefill({ id: prefillId, value: "", tokens: [] });
 			setEnabled(true);
 			setTimezone(getBrowserTimezone());
 			setForm(DEFAULT_SCHEDULE_FORM);
@@ -185,6 +206,14 @@ export function AutomationFormDialog({
 			return;
 		}
 		const schedule = buildScheduleRequest(form, timezone);
+		const prepared = prepareOutgoingComposer(
+			instruction,
+			composerRef.current?.getComposerTokens() ?? [],
+		);
+		if (!prepared.content.trim()) {
+			toast.error("请填写名称和任务指令");
+			return;
+		}
 		setSubmitting(true);
 		try {
 			if (isEdit && editTarget) {
@@ -193,7 +222,7 @@ export function AutomationFormDialog({
 				const projectChanged = selectedProjectId !== prevProject;
 				const params: Parameters<typeof updateAutomation>[1] = {
 					name: name.trim(),
-					instruction: instruction.trim(),
+					instruction: prepared.content,
 					enabled,
 					schedule_mode: form.mode,
 					schedule,
@@ -212,7 +241,7 @@ export function AutomationFormDialog({
 				// 仅当选择已有项目时提交 project_public_id；选"新项目"不发送
 				const params: Parameters<typeof createAutomation>[0] = {
 					name: name.trim(),
-					instruction: instruction.trim(),
+					instruction: prepared.content,
 					enabled,
 					schedule_mode: form.mode,
 					schedule,
@@ -390,6 +419,7 @@ export function AutomationFormDialog({
 							</span>
 							<div className="rounded-lg border border-slate-200 bg-white transition-colors focus-within:border-[#4f46e5] focus-within:outline-none">
 								<StructuredComposer
+									ref={composerRef}
 									value={instruction}
 									onChange={setInstruction}
 									onSubmit={() => void handleSubmit()}
@@ -403,6 +433,7 @@ export function AutomationFormDialog({
 									pickerSize="compact"
 									skillOptions={skillOptions}
 									skillsLoading={skillsLoading}
+									prefill={instructionPrefill}
 								/>
 							</div>
 						</div>
@@ -676,7 +707,7 @@ export function AutomationFormDialog({
 							<p className="flex items-center gap-1.5">
 								<span className="text-slate-400">下一次执行：</span>
 								<span className="font-normal text-slate-800">
-									{nextRunPreview ? formatISO(nextRunPreview) : "—"}
+									{nextRunPreview ? formatLocalDateTime(nextRunPreview) : "—"}
 								</span>
 								<span className="text-slate-400"></span>
 							</p>
@@ -716,9 +747,4 @@ export function AutomationFormDialog({
 			</DialogContent>
 		</Dialog>
 	);
-}
-
-function formatISO(date: Date): string {
-	const pad = (n: number) => String(n).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

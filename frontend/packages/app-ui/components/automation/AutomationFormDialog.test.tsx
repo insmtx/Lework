@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import type { AutomationItem } from "@leros/store";
+import { skillChipMarkup } from "@leros/store";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,18 +56,22 @@ const { skillPickerMock, storeMock } = vi.hoisted(() => ({
 	},
 }));
 
-vi.mock("@leros/store", () => ({
-	useAutomationStore: (selector: (state: unknown) => unknown) =>
-		selector({
-			createAutomation: storeMock.createAutomation,
-			updateAutomation: storeMock.updateAutomation,
-		}),
-	useLayoutStore: (selector: (state: unknown) => unknown) =>
-		selector({
-			projects: mockProjects,
-			fetchProjects: storeMock.fetchProjects,
-		}),
-}));
+vi.mock("@leros/store", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@leros/store")>();
+	return {
+		...actual,
+		useAutomationStore: (selector: (state: unknown) => unknown) =>
+			selector({
+				createAutomation: storeMock.createAutomation,
+				updateAutomation: storeMock.updateAutomation,
+			}),
+		useLayoutStore: (selector: (state: unknown) => unknown) =>
+			selector({
+				projects: mockProjects,
+				fetchProjects: storeMock.fetchProjects,
+			}),
+	};
+});
 
 vi.mock("../input/useComposerSkillOptions", () => ({
 	useComposerSkillOptions: () => skillPickerMock,
@@ -254,7 +259,7 @@ describe("AutomationFormDialog Skill 指令", () => {
 
 		await waitFor(() => {
 			expect(textbox.querySelector('[data-mention-kind="skill"]')).toBeInTheDocument();
-			expect(textbox).toHaveTextContent("daily-report");
+			expect(textbox).toHaveTextContent("日报 Skill");
 		});
 		await waitFor(() => expect(document.activeElement).toBe(textbox));
 		await user.keyboard("{Enter}");
@@ -263,7 +268,7 @@ describe("AutomationFormDialog Skill 指令", () => {
 			expect(storeMock.createAutomation).toHaveBeenCalledWith(
 				expect.objectContaining({
 					name: "日报自动化",
-					instruction: "/daily-report",
+					instruction: skillChipMarkup("daily-report", "日报 Skill"),
 				}),
 			),
 		);
@@ -273,7 +278,7 @@ describe("AutomationFormDialog Skill 指令", () => {
 		const editTarget: AutomationItem = {
 			publicId: "auto-skill",
 			name: "日报自动化",
-			instruction: "请使用 /daily-report 生成日报",
+			instruction: `${skillChipMarkup("daily-report", "日报 Skill")} 生成日报`,
 			enabled: true,
 			scheduleMode: "schedule",
 			timezone: "Asia/Shanghai",

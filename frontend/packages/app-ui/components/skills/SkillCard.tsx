@@ -6,7 +6,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 
 interface SkillCardProps {
 	skill: SkillMarketplaceItem;
-	variant?: "marketplace" | "mine";
+	variant?: "marketplace" | "mine" | "owned";
 	/** Called when the card body is clicked (for navigation to detail page) */
 	onClick?: (skill: SkillMarketplaceItem) => void;
 	/** Uses the Skill directly without installing it from the browser. */
@@ -14,7 +14,8 @@ interface SkillCardProps {
 }
 
 export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: SkillCardProps) {
-	const isMine = variant === "mine";
+	const isMine = variant === "mine" || variant === "owned";
+	const showVisibility = variant === "owned";
 	const displayName = skill.display_name || skill.name;
 	const marketplaceStatus =
 		!isMine && skill.installed && skill.marketplace_available === false
@@ -27,6 +28,24 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 							className: "border-blue-200 bg-blue-50 text-blue-700",
 						}
 					: null;
+	const ownedStatus =
+		showVisibility && skill.visibility
+			? {
+					label: skill.visibility === "public" ? "公开" : "私有",
+					className:
+						skill.visibility === "public"
+							? "border-green-200 bg-green-50 text-green-700"
+							: "border-slate-200 bg-slate-100 text-slate-600",
+				}
+			: null;
+	const roleStatus =
+		variant === "mine" && skill.permission
+			? skill.permission.role === "owner"
+				? { label: "所有者", className: "border-amber-200 bg-amber-50 text-amber-700" }
+				: skill.permission.role === "admin"
+					? { label: "管理员", className: "border-violet-200 bg-violet-50 text-violet-700" }
+					: null
+			: null;
 
 	const handleCardClick = () => {
 		onClick?.(skill);
@@ -79,15 +98,28 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 						</p>
 					</div>
 				</div>
-				<span
-					className={cn(
-						"shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
-						marketplaceStatus?.className ??
-							"border-transparent bg-[var(--leros-primary-soft)] text-[var(--leros-primary)]",
+				<div className="flex shrink-0 items-center gap-1">
+					<span
+						className={cn(
+							"rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+							marketplaceStatus?.className ??
+								ownedStatus?.className ??
+								"border-transparent bg-[var(--leros-primary-soft)] text-[var(--leros-primary)]",
+						)}
+					>
+						{marketplaceStatus?.label ?? ownedStatus?.label ?? (isMine ? "组织技能" : "技能市场")}
+					</span>
+					{roleStatus && (
+						<span
+							className={cn(
+								"rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+								roleStatus.className,
+							)}
+						>
+							{roleStatus.label}
+						</span>
 					)}
-				>
-					{marketplaceStatus?.label ?? (isMine ? "组织技能" : "技能市场")}
-				</span>
+				</div>
 			</div>
 
 			<p className="mt-2.5 h-10 line-clamp-2 overflow-hidden text-[12px] leading-5 text-[var(--leros-text-muted)]">

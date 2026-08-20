@@ -53,7 +53,7 @@ func newAutoExecPublicID() string {
 
 // CreateAutomation 创建自动化计划
 func (s *automationService) CreateAutomation(ctx context.Context, req *contract.CreateAutomationRequest) (*contract.Automation, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -71,14 +71,15 @@ func (s *automationService) CreateAutomation(ctx context.Context, req *contract.
 		enabled = *req.Enabled
 	}
 
-	// 编译并校验调度规则（含时区、锚点校验），mode 以 schedule.mode 为权威来源
-	spec, err := compileScheduleSpec(req.Schedule, req.Timezone, req.ScheduleMode)
+	now := time.Now().UTC()
+	// 编译并校验调度规则（含时区、interval 起算点），mode 以 schedule.mode 为权威来源
+	spec, err := compileScheduleSpecAt(req.Schedule.FormConfig(), req.Timezone, req.ScheduleMode, now)
 	if err != nil {
 		return nil, err
 	}
 
 	// 启用时必须在保存前成功计算出下一次执行时间，避免保存启用态却 next_run_at 为空
-	nextRunAt := computeNextRunAt(spec, enabled, time.Now().UTC())
+	nextRunAt := computeNextRunAt(spec, enabled, now)
 	if enabled && nextRunAt == nil {
 		return nil, errInvalidAutomationSchedule
 	}
@@ -130,7 +131,7 @@ func (s *automationService) CreateAutomation(ctx context.Context, req *contract.
 
 // GetAutomation 查询自动化详情
 func (s *automationService) GetAutomation(ctx context.Context, publicID string) (*contract.Automation, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +152,7 @@ func (s *automationService) GetAutomation(ctx context.Context, publicID string) 
 
 // UpdateAutomation 更新自动化（部分更新）
 func (s *automationService) UpdateAutomation(ctx context.Context, publicID string, req *contract.UpdateAutomationRequest) (*contract.Automation, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -246,6 +247,7 @@ func (s *automationService) UpdateAutomation(ctx context.Context, publicID strin
 
 // applyAutomationUpdate 将请求中的非关联配置应用到 automation；不写数据库，供事务统一提交。
 func applyAutomationUpdate(automation *types.Automation, req *contract.UpdateAutomationRequest) error {
+	now := time.Now().UTC()
 	if strings.TrimSpace(req.Name) != "" {
 		if len([]rune(req.Name)) > 50 {
 			return errors.New("invalid automation name")
@@ -259,39 +261,71 @@ func applyAutomationUpdate(automation *types.Automation, req *contract.UpdateAut
 		automation.Instruction = strings.TrimSpace(*req.Instruction)
 	}
 
-	scheduleChanged := false
+	// recalculateNextRunAt 只表示调度时间语义发生变化。表单每次编辑都会回传完整
+	// schedule，不能把“保存相同规则”误认为需要推进执行游标。
+	recalculateNextRunAt := false
+	resetIntervalOrigin := false
 	if req.Schedule != nil {
 		topMode := ""
 		if req.ScheduleMode != nil {
 			topMode = *req.ScheduleMode
 		}
-		newSpec, err := compileScheduleSpec(req.Schedule, automation.Timezone, topMode)
+		fallbackTimezone := automation.Timezone
+		if req.Timezone != nil && strings.TrimSpace(*req.Timezone) != "" {
+			fallbackTimezone = *req.Timezone
+		}
+		previousSpec := automation.ScheduleSpec
+		newSpec, err := compileScheduleSpecAt(req.Schedule.FormConfig(), fallbackTimezone, topMode, now)
 		if err != nil {
 			return err
+		}
+		recalculateNextRunAt = scheduleDefinitionChanged(&previousSpec, newSpec)
+		resetIntervalOrigin = recalculateNextRunAt
+		if !resetIntervalOrigin && newSpec.Spec.Mode == string(types.AutomationScheduleModeInterval) {
+			if previousSpec.Spec.OriginAt == "" {
+				// Startup migration should have upgraded every persisted v1 rule. If a
+				// caller still presents an un-migrated row, repair it instead of saving
+				// an interval that the v2 runtime cannot evaluate.
+				resetIntervalOrigin = true
+				recalculateNextRunAt = true
+			} else {
+				newSpec.Spec.OriginAt = previousSpec.Spec.OriginAt
+			}
 		}
 		automation.ScheduleSpec = *newSpec
 		automation.ScheduleMode = newSpec.Spec.Mode
 		automation.Timezone = newSpec.Spec.Timezone
-		scheduleChanged = true
 	} else if req.Timezone != nil && *req.Timezone != "" {
-		if _, err := validateTimezone(*req.Timezone); err != nil {
+		newTimezone := normalizeTimezone(*req.Timezone)
+		if _, err := validateTimezone(newTimezone); err != nil {
 			return err
 		}
-		automation.Timezone = *req.Timezone
-		automation.ScheduleSpec.Spec.Timezone = *req.Timezone
-		if automation.ScheduleSpec.FormConfig != nil {
-			automation.ScheduleSpec.FormConfig.Timezone = *req.Timezone
+		if automation.Timezone != newTimezone || automation.ScheduleSpec.Spec.Timezone != newTimezone {
+			automation.Timezone = newTimezone
+			automation.ScheduleSpec.Spec.Timezone = newTimezone
+			if automation.ScheduleSpec.FormConfig != nil {
+				automation.ScheduleSpec.FormConfig.Timezone = newTimezone
+			}
+			recalculateNextRunAt = true
+			resetIntervalOrigin = automation.ScheduleMode == string(types.AutomationScheduleModeInterval)
 		}
-		scheduleChanged = true
 	}
-	if req.Enabled != nil && *req.Enabled != automation.IsEnabled() {
+	wasEnabled := automation.IsEnabled()
+	if req.Enabled != nil && *req.Enabled != wasEnabled {
 		automation.SetEnabled(*req.Enabled)
-		scheduleChanged = true
+		recalculateNextRunAt = true
+		if *req.Enabled && !wasEnabled && automation.ScheduleMode == string(types.AutomationScheduleModeInterval) {
+			resetIntervalOrigin = true
+		}
 	}
-	if !scheduleChanged {
+	if !recalculateNextRunAt {
 		return nil
 	}
-	nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.IsEnabled(), time.Now().UTC())
+	if resetIntervalOrigin && automation.ScheduleMode == string(types.AutomationScheduleModeInterval) {
+		automation.ScheduleSpec.Spec.Version = AutomationScheduleVersion
+		automation.ScheduleSpec.Spec.OriginAt = now.Format(time.RFC3339Nano)
+	}
+	nextRunAt := computeNextRunAt(&automation.ScheduleSpec, automation.IsEnabled(), now)
 	if automation.IsEnabled() && nextRunAt == nil {
 		return errInvalidAutomationSchedule
 	}
@@ -299,9 +333,29 @@ func applyAutomationUpdate(automation *types.Automation, req *contract.UpdateAut
 	return nil
 }
 
+func scheduleDefinitionChanged(oldSpec, newSpec *types.AutomationScheduleSpec) bool {
+	if oldSpec == nil || newSpec == nil {
+		return true
+	}
+	if oldSpec.Spec.Mode != newSpec.Spec.Mode || oldSpec.Spec.Timezone != newSpec.Spec.Timezone {
+		return true
+	}
+	if oldSpec.Spec.IntervalSeconds != newSpec.Spec.IntervalSeconds || oldSpec.Spec.Expression != newSpec.Spec.Expression {
+		return true
+	}
+	var oldOverflow, newOverflow string
+	if oldSpec.Spec.Policy != nil {
+		oldOverflow = oldSpec.Spec.Policy.MonthDayOverflow
+	}
+	if newSpec.Spec.Policy != nil {
+		newOverflow = newSpec.Spec.Policy.MonthDayOverflow
+	}
+	return oldOverflow != newOverflow
+}
+
 // DeleteAutomation 软删除自动化
 func (s *automationService) DeleteAutomation(ctx context.Context, publicID string) error {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -320,7 +374,7 @@ func (s *automationService) DeleteAutomation(ctx context.Context, publicID strin
 
 // ListAutomations 分页查询当前用户自动化列表
 func (s *automationService) ListAutomations(ctx context.Context, req *contract.ListAutomationsRequest) (*contract.AutomationList, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +488,7 @@ func (s *automationService) resolveLinkProject(ctx context.Context, caller *type
 //
 // 停用状态也可调用；不修改 next_run_at；有活动 execution 时返回冲突错误。
 func (s *automationService) RunAutomationNow(ctx context.Context, publicID string) (*contract.AutomationExecution, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +542,7 @@ func (s *automationService) RunAutomationNow(ctx context.Context, publicID strin
 
 // ListAutomationExecutions 分页查询某自动化的执行历史。
 func (s *automationService) ListAutomationExecutions(ctx context.Context, req *contract.ListAutomationExecutionsRequest) (*contract.AutomationExecutionList, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +582,7 @@ func (s *automationService) ListAutomationExecutions(ctx context.Context, req *c
 
 // GetAutomationExecution 查询单条执行详情
 func (s *automationService) GetAutomationExecution(ctx context.Context, publicID string) (*contract.AutomationExecution, error) {
-	caller, err := requireCallerOrg(ctx)
+	caller, err := s.automationCallerFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -585,16 +639,24 @@ func toContractAutomation(a *types.Automation) *contract.Automation {
 		ScheduleMode: a.ScheduleMode,
 		Timezone:     a.Timezone,
 		AssistantID:  a.AssistantID,
-		NextRunAt:    a.NextRunAt,
+		NextRunAt:    utcTimePtr(a.NextRunAt),
 		ProjectID:    a.ProjectID,
-		CreatedAt:    a.CreatedAt,
-		UpdatedAt:    a.UpdatedAt,
+		CreatedAt:    a.CreatedAt.UTC(),
+		UpdatedAt:    a.UpdatedAt.UTC(),
 	}
 	// 返回调度配置副本，避免共享底层指针
 	spec := a.ScheduleSpec
 	out.ScheduleSpec = &spec
 	out.Summary = buildAutomationSummary(&spec)
 	return out
+}
+
+func utcTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	utc := value.UTC()
+	return &utc
 }
 
 // enrichAutomationExecutions 填充自动化的执行状态聚合（最近执行、活跃标识、任务入口）。
@@ -636,7 +698,7 @@ func (s *automationService) enrichAutomationWithProjects(ctx context.Context, a 
 		return
 	}
 	out.LastExecutionStatus = string(latest.Status)
-	out.LastExecutionTime = &latest.ScheduledAt
+	out.LastExecutionTime = utcTimePtr(&latest.ScheduledAt)
 	out.LastExecutionPublicID = latest.PublicID
 	out.LastTaskID = latest.TaskID
 }
@@ -650,10 +712,10 @@ func toContractExecution(ex *types.AutomationExecution) *contract.AutomationExec
 		OwnerID:             ex.OwnerID,
 		TriggerType:         string(ex.TriggerType),
 		Status:              string(ex.Status),
-		ScheduledAt:         ex.ScheduledAt,
-		NotAfter:            ex.NotAfter,
-		StartedAt:           ex.StartedAt,
-		FinishedAt:          ex.FinishedAt,
+		ScheduledAt:         ex.ScheduledAt.UTC(),
+		NotAfter:            utcTimePtr(ex.NotAfter),
+		StartedAt:           utcTimePtr(ex.StartedAt),
+		FinishedAt:          utcTimePtr(ex.FinishedAt),
 		NameSnapshot:        ex.NameSnapshot,
 		InstructionSnapshot: ex.InstructionSnapshot,
 		AssistantIDSnapshot: ex.AssistantIDSnapshot,
@@ -666,7 +728,7 @@ func toContractExecution(ex *types.AutomationExecution) *contract.AutomationExec
 		AttemptCount:        ex.AttemptCount,
 		ErrorCode:           ex.ErrorCode,
 		ErrorMsg:            ex.ErrorMsg,
-		CreatedAt:           ex.CreatedAt,
+		CreatedAt:           ex.CreatedAt.UTC(),
 	}
 }
 

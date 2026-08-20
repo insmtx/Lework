@@ -21,6 +21,7 @@ describe("private deployment build marker", () => {
 			resolve(desktopRoot, "scripts/dist-private-target.mjs"),
 			"utf8",
 		);
+		const distRunScript = readFileSync(resolve(desktopRoot, "scripts/dist-run.mjs"), "utf8");
 		const desktopPackage = JSON.parse(
 			readFileSync(resolve(desktopRoot, "package.json"), "utf8"),
 		) as {
@@ -42,10 +43,15 @@ describe("private deployment build marker", () => {
 		expect(desktopPackage.scripts?.["dist:private:linux:x64"]).toBe(
 			"node scripts/dist-private-target.mjs --linux --x64",
 		);
+		expect(desktopPackage.scripts?.["dist:private:linux:arm64"]).toBe(
+			"node scripts/dist-private-target.mjs --linux AppImage:arm64 deb:arm64",
+		);
 		expect(privateBuildScript).toContain('VITE_LEROS_DEPLOYMENT_MODE = "private"');
 		expect(privateBuildScript).toContain('import("./dist-local.mjs")');
 		expect(privateTargetScript).toContain('VITE_LEROS_DEPLOYMENT_MODE = "private"');
 		expect(privateTargetScript).toContain("runDesktopDist(builderArgs)");
+		expect(distRunScript).toContain("-linux-${arch}-private.${ext}");
+		expect(desktopPackage.scripts?.["dist:linux:arm64"]).toContain("AppImage:arm64 deb:arm64");
 	});
 
 	it("keeps renderer workspace packages out of production dependencies", () => {

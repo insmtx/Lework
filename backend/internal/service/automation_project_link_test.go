@@ -111,14 +111,13 @@ func linkReqProject(link *string) *string {
 	return &v
 }
 
-func defaultIntervalSchedule() *types.AutomationScheduleFormConfig {
-	return &types.AutomationScheduleFormConfig{
+func defaultIntervalSchedule() *contract.AutomationScheduleInput {
+	return &contract.AutomationScheduleInput{
 		Mode: "interval",
-		Interval: &types.AutomationIntervalConfig{
+		Interval: &contract.AutomationIntervalInput{
 			IntervalSeconds: 300,
 			IntervalMinutes: 5,
 			IntervalUnit:    "minute",
-			AnchorAt:        "00:00",
 		},
 		Timezone: "Asia/Shanghai",
 	}

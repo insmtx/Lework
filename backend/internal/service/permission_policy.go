@@ -34,6 +34,15 @@ const (
 	ActionTaskView   = types.ActionTaskView
 	ActionTaskUpdate = types.ActionTaskUpdate
 	ActionTaskDelete = types.ActionTaskDelete
+
+	// 插件相关动作
+	ActionPluginView             = types.ActionPluginView
+	ActionPluginUse              = types.ActionPluginUse
+	ActionPluginUpdate           = types.ActionPluginUpdate
+	ActionPluginDelete           = types.ActionPluginDelete
+	ActionPluginPermissionRead   = types.ActionPluginPermissionRead
+	ActionPluginPermissionUpdate = types.ActionPluginPermissionUpdate
+	ActionPluginVisibilityUpdate = types.ActionPluginVisibilityUpdate
 )
 
 // ActionSet 是动作集合，用于 O(1) 查找。
@@ -100,6 +109,28 @@ var SystemPolicy = PermissionPolicy{
 		types.ResourceRoleOwner:  actionSet(ActionTaskCreate, ActionTaskView, ActionTaskUpdate, ActionTaskDelete),
 		types.ResourceRoleAdmin:  actionSet(ActionTaskCreate, ActionTaskView, ActionTaskUpdate, ActionTaskDelete),
 		types.ResourceRoleMember: actionSet(ActionTaskCreate, ActionTaskView, ActionTaskUpdate, ActionTaskDelete),
+	},
+	types.ResourceTypePlugin: {
+		types.ResourceRoleOwner: actionSet(
+			ActionPluginView,
+			ActionPluginUse,
+			ActionPluginUpdate,
+			ActionPluginDelete,
+			ActionPluginPermissionRead,
+			ActionPluginPermissionUpdate,
+			ActionPluginVisibilityUpdate,
+		),
+		types.ResourceRoleAdmin: actionSet(
+			ActionPluginView,
+			ActionPluginUse,
+			ActionPluginUpdate,
+			ActionPluginPermissionRead,
+			ActionPluginPermissionUpdate,
+		),
+		types.ResourceRoleViewer: actionSet(
+			ActionPluginView,
+			ActionPluginUse,
+		),
 	},
 }
 

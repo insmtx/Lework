@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -40,18 +41,11 @@ func (h *ProjectHandler) RegisterRoutes(r gin.IRouter) {
 		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectUpdate, extractUpdateProjectPublicID),
 		h.UpdateProject,
 	)
-	r.POST("/ListProjectPlugins",
-		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectView, extractProjectPublicID),
-		h.ListProjectPlugins,
-	)
-	r.POST("/AddProjectPlugin",
-		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectUpdate, extractProjectPublicID),
-		h.AddProjectPlugin,
-	)
-	r.POST("/RemoveProjectPlugin",
-		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectUpdate, extractProjectPublicID),
-		h.RemoveProjectPlugin,
-	)
+	// Project Plugin permissions are evaluated in the service because Worker
+	// identities must first resolve worker_id to the bound AI teammate.
+	r.POST("/ListProjectPlugins", h.ListProjectPlugins)
+	r.POST("/AddProjectPlugin", h.AddProjectPlugin)
+	r.POST("/RemoveProjectPlugin", h.RemoveProjectPlugin)
 	r.POST("/DeleteProject",
 		PermGuard(h.permSvc, types.ResourceTypeProject, types.ActionProjectDelete, extractDeleteProjectPublicID),
 		h.DeleteProject,
@@ -289,11 +283,16 @@ func (h *ProjectHandler) AddProjectPlugin(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	if err := h.service.AddProjectPlugin(ctx, &req); err != nil {
+	if err := validateProjectPluginMutationRequest(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.AddProjectPlugin(ctx, &req)
+	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
-	ctx.JSON(http.StatusOK, dto.Success(nil))
+	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
 // RemoveProjectPlugin removes one project plugin authorization.
@@ -303,11 +302,31 @@ func (h *ProjectHandler) RemoveProjectPlugin(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	if err := h.service.RemoveProjectPlugin(ctx, &req); err != nil {
+	if err := validateProjectPluginMutationRequest(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.RemoveProjectPlugin(ctx, &req)
+	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, err.Error()))
 		return
 	}
-	ctx.JSON(http.StatusOK, dto.Success(nil))
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+func validateProjectPluginMutationRequest(req *contract.UpdateProjectPluginRequest) error {
+	pluginID := strings.TrimSpace(req.PluginID)
+	pluginCode := strings.TrimSpace(req.PluginCode)
+	if pluginID == "" && pluginCode == "" {
+		return errors.New("plugin_id or plugin_code is required")
+	}
+	if pluginID != "" && pluginCode != "" {
+		return errors.New("plugin_id and plugin_code cannot be used together")
+	}
+	if pluginCode != "" && strings.TrimSpace(req.Kind) == "" {
+		return errors.New("kind is required with plugin_code")
+	}
+	return nil
 }
 
 type DeleteProjectRequest struct {

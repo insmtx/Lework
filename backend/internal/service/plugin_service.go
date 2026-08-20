@@ -51,6 +51,7 @@ var skillAutoInstallLocks = struct {
 type pluginService struct {
 	db                 *gorm.DB
 	apiKeyIssuer       account.APIKeyIssuer
+	userRepo           account.UserRepository
 	oauth              *connectorOAuthManager
 	displayTranslation *SkillDisplayTranslationService
 }
@@ -68,11 +69,13 @@ func NewPluginService(database *gorm.DB, displayTranslation *SkillDisplayTransla
 func NewPluginServiceWithAPIKeyIssuer(
 	database *gorm.DB,
 	issuer account.APIKeyIssuer,
+	userRepo account.UserRepository,
 	displayTranslation *SkillDisplayTranslationService,
 ) contract.PluginService {
 	return &pluginService{
 		db:                 database,
 		apiKeyIssuer:       issuer,
+		userRepo:           userRepo,
 		oauth:              newConnectorOAuthManager(),
 		displayTranslation: displayTranslation,
 	}
@@ -114,16 +117,26 @@ func (s *pluginService) ListPlugins(
 		Kind:                    req.Kind,
 		Status:                  req.Status,
 		Keyword:                 req.Keyword,
+		Offset:                  max(req.Offset, 0),
 		Limit:                   limit,
+		Relation:                strings.TrimSpace(req.Relation),
 		ExcludeMarketplaceBased: req.ExcludeMarketplaceBased,
 		ViewerUin:               uin,
 	})
 	if err != nil {
 		return nil, err
 	}
+	pluginIDs := make([]uint, 0, len(plugins))
+	for _, plugin := range plugins {
+		pluginIDs = append(pluginIDs, plugin.ID)
+	}
+	viewerRoles, err := infradb.ListPluginViewerRoles(ctx, s.db, orgID, uin, pluginIDs)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]contract.PluginView, 0, len(plugins))
 	for _, plugin := range plugins {
-		result = append(result, pluginView(plugin))
+		result = append(result, pluginViewWithRole(plugin, viewerRoles[plugin.ID]))
 	}
 	if s.displayTranslation == nil {
 		logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s use=false reason=service_unavailable",
@@ -245,10 +258,11 @@ func (s *pluginService) GetPlugin(
 	if err != nil {
 		return nil, err
 	}
-	if plugin == nil || !pluginVisibleToUser(plugin, uin) {
-		return nil, contract.ErrPluginNotFound
+	role, err := s.pluginAccess().ResolveRole(ctx, orgID, uin, plugin)
+	if err != nil {
+		return nil, err
 	}
-	view := pluginView(*plugin)
+	view := pluginViewWithRole(*plugin, role)
 	revision, err := infradb.GetCurrentPluginRevision(ctx, s.db, plugin)
 	if err != nil {
 		return nil, err
@@ -342,8 +356,11 @@ func (s *pluginService) GetPluginInstallationStatus(
 	if plugin == nil {
 		return result, nil
 	}
-	if !pluginVisibleToUser(plugin, uin) {
-		return result, nil
+	if _, err := s.pluginAccess().ResolveRole(ctx, orgID, uin, plugin); err != nil {
+		if errors.Is(err, contract.ErrPluginNotFound) {
+			return result, nil
+		}
+		return nil, err
 	}
 	result.Installed = true
 	result.PluginID = plugin.PublicID
@@ -783,7 +800,8 @@ func (s *pluginService) installMarketplaceSkillIntoOrg(
 		plugin = types.Plugin{
 			PublicID: "plugin_" + uuid.NewString(), OwnerScope: types.OwnerScopeOrganization,
 			OrgID: orgID, Code: item.Code, Kind: "skill", Name: item.Name,
-			Description: item.Description, Status: types.PluginStatusActive,
+			Description: item.Description, Visibility: types.PluginVisibilityPublic,
+			Status: types.PluginStatusActive,
 			Origin: "marketplace", CreatedBy: publishedByID, UpdatedBy: publishedByID,
 		}
 		insert := tx.WithContext(ctx).
@@ -952,8 +970,8 @@ func (s *pluginService) ListPluginVersions(
 	if err != nil {
 		return nil, err
 	}
-	if plugin == nil || !pluginVisibleToUser(plugin, uin) {
-		return nil, contract.ErrPluginNotFound
+	if err := s.pluginAccess().RequireView(ctx, orgID, uin, plugin); err != nil {
+		return nil, err
 	}
 	revisions, err := infradb.ListPluginRevisions(ctx, s.db, orgID, pluginID)
 	if err != nil {
@@ -992,8 +1010,8 @@ func (s *pluginService) DeletePlugin(ctx context.Context, orgID, uin uint, plugi
 		}
 		return &contract.DeletePluginResponse{Operation: "project_unbound"}, nil
 	}
-	if !pluginVisibleToUser(plugin, uin) {
-		return nil, contract.ErrPluginNotFound
+	if err := s.pluginAccess().RequireDelete(ctx, orgID, uin, plugin); err != nil {
+		return nil, err
 	}
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -1004,6 +1022,9 @@ func (s *pluginService) DeletePlugin(ctx context.Context, orgID, uin uint, plugi
 		if !deleted {
 			return contract.ErrPluginNotFound
 		}
+		if err := softDeletePluginPermissionResource(ctx, tx, orgID, plugin.ID); err != nil {
+			return err
+		}
 		return infradb.RemoveProjectPluginBindingsByPlugin(ctx, tx, plugin.ID)
 	})
 	if err != nil {
@@ -1012,63 +1033,59 @@ func (s *pluginService) DeletePlugin(ctx context.Context, orgID, uin uint, plugi
 	return &contract.DeletePluginResponse{Operation: "deleted"}, nil
 }
 
-func pluginVisibleToUser(plugin *types.Plugin, uin uint) bool {
-	return plugin != nil && (plugin.Kind != "mcp" || plugin.CreatedBy == uin)
-}
-
-func (s *pluginService) AddSkillPlugin(ctx context.Context, orgID, uin uint, req *contract.AddSkillPluginRequest) error {
+func (s *pluginService) AddSkillPlugin(ctx context.Context, orgID, uin uint, req *contract.AddSkillPluginRequest) (*contract.AddSkillPluginResponse, error) {
 	if req == nil {
-		return fmt.Errorf("add skill request is required")
+		return nil, fmt.Errorf("add skill request is required")
 	}
 	switch strings.TrimSpace(req.Mode) {
 	case contract.SkillAddModeGitHub:
 		if strings.TrimSpace(req.FileUploadID) != "" {
-			return fmt.Errorf("github mode requires github_url only")
+			return nil, fmt.Errorf("github mode requires github_url only")
 		}
 		return s.importSkillPluginFromGitHub(ctx, orgID, uin, strings.TrimSpace(req.GitHubURL))
 	case contract.SkillAddModeFile:
 		if strings.TrimSpace(req.GitHubURL) != "" {
-			return fmt.Errorf("file mode requires file_upload_id only")
+			return nil, fmt.Errorf("file mode requires file_upload_id only")
 		}
 	default:
-		return fmt.Errorf("mode must be file or github")
+		return nil, fmt.Errorf("mode must be file or github")
 	}
 	if strings.TrimSpace(req.FileUploadID) == "" {
-		return fmt.Errorf("file_upload_id is required")
+		return nil, fmt.Errorf("file_upload_id is required")
 	}
 	file, err := infradb.GetFileUploadByPublicID(ctx, s.db, orgID, strings.TrimSpace(req.FileUploadID))
 	if err != nil || file == nil {
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return fmt.Errorf("file not found")
+		return nil, fmt.Errorf("file not found")
 	}
 	reader, _, err := filestore.OpenFileByPublicID(ctx, s.db, orgID, file.PublicID)
 	if err != nil {
-		return fmt.Errorf("open skill package: %w", err)
+		return nil, fmt.Errorf("open skill package: %w", err)
 	}
 	defer reader.Close()
 	sourceArchive, err := io.ReadAll(io.LimitReader(reader, 100_000_000))
 	if err != nil {
-		return fmt.Errorf("read skill package: %w", err)
+		return nil, fmt.Errorf("read skill package: %w", err)
 	}
 	isMarkdown := strings.HasSuffix(strings.ToLower(file.OriginalName), ".md")
 	switch {
 	case strings.HasSuffix(strings.ToLower(file.OriginalName), ".zip"):
 	case isMarkdown:
 		if err := validateSkillMDFromBytes(sourceArchive); err != nil {
-			return fmt.Errorf("validate SKILL.md: %w", err)
+			return nil, fmt.Errorf("validate SKILL.md: %w", err)
 		}
 		sourceArchive, err = skillcache.GenerateSkillZip(sourceArchive, nil)
 		if err != nil {
-			return fmt.Errorf("package SKILL.md: %w", err)
+			return nil, fmt.Errorf("package SKILL.md: %w", err)
 		}
 	default:
-		return fmt.Errorf("skill package must be a .zip archive or a SKILL.md file")
+		return nil, fmt.Errorf("skill package must be a .zip archive or a SKILL.md file")
 	}
 	prepared, err := prepareSkillPackage(sourceArchive)
 	if err != nil {
-		return fmt.Errorf("prepare Skill package: %w", err)
+		return nil, fmt.Errorf("prepare Skill package: %w", err)
 	}
 	code, name, description := prepared.Manifest.Name, prepared.Manifest.Name, prepared.Manifest.Description
 	artifactFile := file
@@ -1084,16 +1101,23 @@ func (s *pluginService) AddSkillPlugin(ctx context.Context, orgID, uin uint, req
 			ObjectKey: fmt.Sprintf("plugins/%d/skills/%s.zip", orgID, uuid.NewString()), Purpose: filestore.PurposeArtifact,
 		})
 		if err != nil {
-			return fmt.Errorf("store normalized skill package: %w", err)
+			return nil, fmt.Errorf("store normalized skill package: %w", err)
 		}
 	}
 	definition, err := json.Marshal(skillDefinition{Schema: "skill/v1", Artifact: &ArtifactDefinition{FileUploadID: artifactFile.PublicID, SHA256: prepared.SHA256, SizeBytes: artifactFile.FileSize, ContentType: "application/zip"}})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return s.publishSkillRevision(
+	result, err := s.publishSkillRevision(
 		ctx, orgID, uin, code, name, description, definition, prepared.Content,
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &contract.AddSkillPluginResponse{
+		Operation: result.Operation,
+		Plugin:    pluginViewWithRole(*result.Plugin, types.ResourceRoleOwner),
+	}, nil
 }
 
 // ResolveSkillDownloadURLs returns current downloadable Skill artifacts and omits unavailable codes.
@@ -1112,10 +1136,30 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 	if err != nil {
 		return nil, err
 	}
+
+	actorUin := req.ActorUin
+	if callerKind == types.CallerKindUser {
+		actorUin = callerID
+	}
+	var project *types.Project
+	if projectID := strings.TrimSpace(req.ProjectID); projectID != "" {
+		project, err = infradb.GetProjectByPublicID(ctx, s.db, orgID, projectID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	allowedCodes, err := s.downloadableSkillCodes(ctx, orgID, actorUin, project, codes)
+	if err != nil {
+		return nil, err
+	}
+
 	existingCodes := make(map[string]bool, len(rows))
 	result := make([]contract.SkillDownloadURL, 0, len(rows))
 	for _, row := range rows {
 		existingCodes[row.Code] = true
+		if !allowedCodes[row.Code] {
+			continue
+		}
 		artifact, err := ArtifactFromDefinition("skill", row.Definition)
 		if err != nil || artifact == nil {
 			continue
@@ -1369,13 +1413,13 @@ func normalizedPluginSHA256(value string) (string, error) {
 	return value, nil
 }
 
-func (s *pluginService) importSkillPluginFromGitHub(ctx context.Context, orgID, uin uint, githubURL string) error {
+func (s *pluginService) importSkillPluginFromGitHub(ctx context.Context, orgID, uin uint, githubURL string) (*contract.AddSkillPluginResponse, error) {
 	if strings.TrimSpace(githubURL) == "" {
-		return fmt.Errorf("github_url is required")
+		return nil, fmt.Errorf("github_url is required")
 	}
 	skillID, version, err := parseGitHubSkillImportURL(githubURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	source := skillfetch.NewGitHubSource()
 	var bundle *skillfetch.SkillBundle
@@ -1385,19 +1429,19 @@ func (s *pluginService) importSkillPluginFromGitHub(ctx context.Context, orgID, 
 		bundle, err = source.FetchVersion(ctx, skillID, version)
 	}
 	if err != nil {
-		return fmt.Errorf("fetch GitHub skill: %w", err)
+		return nil, fmt.Errorf("fetch GitHub skill: %w", err)
 	}
 	defer os.RemoveAll(bundle.TempDir)
 	archive, err := skillcache.GenerateSkillZip(bundle.Content, bundle.Files)
 	if err != nil {
-		return fmt.Errorf("package GitHub skill: %w", err)
+		return nil, fmt.Errorf("package GitHub skill: %w", err)
 	}
 	if err := validateZipSkill(archive); err != nil {
-		return fmt.Errorf("validate GitHub skill package: %w", err)
+		return nil, fmt.Errorf("validate GitHub skill package: %w", err)
 	}
 	code, _, _, err := pluginIdentityFromSkillArchive(archive)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	file, err := filestore.Upload(ctx, s.db, filestore.UploadParams{
 		Data: archive, Filename: "skill-" + uuid.NewString() + ".zip", OriginalName: code + ".zip",
@@ -1406,7 +1450,7 @@ func (s *pluginService) importSkillPluginFromGitHub(ctx context.Context, orgID, 
 		ObjectKey: fmt.Sprintf("plugins/%d/skills/%s.zip", orgID, uuid.NewString()), Purpose: filestore.PurposeArtifact,
 	})
 	if err != nil {
-		return fmt.Errorf("store GitHub skill package: %w", err)
+		return nil, fmt.Errorf("store GitHub skill package: %w", err)
 	}
 	return s.AddSkillPlugin(ctx, orgID, uin, &contract.AddSkillPluginRequest{Mode: contract.SkillAddModeFile, FileUploadID: file.PublicID})
 }
@@ -1523,8 +1567,8 @@ func (s *pluginService) publishSkillRevision(
 	rawCode, rawName, description string,
 	definition json.RawMessage,
 	contentDraft *skillRevisionContentDraft,
-) error {
-	_, err := s.publishSkillRevisionWithScope(ctx, s.db, skillPublishRequest{
+) (*skillPublishResult, error) {
+	return s.publishSkillRevisionWithScope(ctx, s.db, skillPublishRequest{
 		OwnerScope:  types.OwnerScopeOrganization,
 		OrgID:       orgID,
 		ActorID:     uin,
@@ -1536,7 +1580,6 @@ func (s *pluginService) publishSkillRevision(
 		Definition:  definition,
 		Content:     contentDraft,
 	})
-	return err
 }
 
 type skillPublishRequest struct {
@@ -1630,7 +1673,8 @@ func (s *pluginService) publishSkillRevisionWithScope(
 			plugin = types.Plugin{
 				PublicID: "plugin_" + uuid.NewString(), OwnerScope: request.OwnerScope,
 				OrgID: request.OrgID, Code: code, Kind: "skill", Name: name,
-				Description: request.Description, Status: types.PluginStatusActive,
+				Description: request.Description, Visibility: types.PluginVisibilityPrivate,
+				Status: types.PluginStatusActive,
 				Origin: request.Origin, CreatedBy: request.ActorID, UpdatedBy: request.ActorID,
 			}
 			insert := tx.WithContext(ctx).
@@ -1673,6 +1717,18 @@ func (s *pluginService) publishSkillRevisionWithScope(
 			plugin.Name, plugin.Description = name, request.Description
 			plugin.Status, plugin.Origin, plugin.UpdatedBy =
 				types.PluginStatusActive, request.Origin, request.ActorID
+		}
+
+		if request.OwnerScope == types.OwnerScopeOrganization {
+			if created || restored {
+				// 新建或恢复时由当前操作者成为唯一 owner。
+				if err := ensurePluginResourceOwner(ctx, tx, request.OrgID, plugin.ID, request.ActorID); err != nil {
+					return err
+				}
+			} else if err := newPluginAccessManager(tx).RequireUpdatePermission(ctx, request.OrgID, request.ActorID, &plugin); err != nil {
+				// 更新已有 code 时校验 update 权限并保留原 owner。
+				return err
+			}
 		}
 
 		var revisions []types.PluginRevision
@@ -1753,16 +1809,25 @@ func normalizePluginListLimit(limit int) int {
 }
 
 func pluginView(plugin types.Plugin) contract.PluginView {
-	return contract.PluginView{
+	return pluginViewWithRole(plugin, "")
+}
+
+func pluginViewWithRole(plugin types.Plugin, role types.ResourceRole) contract.PluginView {
+	view := contract.PluginView{
 		PublicID:        plugin.PublicID,
 		Code:            plugin.Code,
 		Kind:            plugin.Kind,
 		Name:            plugin.Name,
 		Description:     plugin.Description,
+		Visibility:      string(plugin.Visibility),
 		Status:          plugin.Status,
 		Origin:          plugin.Origin,
 		CurrentRevision: plugin.CurrentRevision,
 	}
+	if role != "" {
+		view.Permission = &contract.PluginPermission{Role: role}
+	}
+	return view
 }
 
 func officialPluginMarketplaceItemView(

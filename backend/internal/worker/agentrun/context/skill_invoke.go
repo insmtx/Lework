@@ -8,11 +8,14 @@ import (
 	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// ApplyInvokedSkills parses leading /skill tokens from user messages, loads
-// matching SKILL.md content, strips the tokens, and rewrites message content.
+// ApplyInvokedSkills loads SKILL.md for codes on user messages and rewrites
+// those messages into a prompt that includes the skill bodies. Chip HTML is
+// replaced with catalog codes in the user-instruction section (never Chinese
+// labels, never raw HTML).
 func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) error {
 	if req == nil || len(req.Input.Messages) == 0 {
 		return nil
@@ -28,13 +31,15 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 			continue
 		}
 
-		tokens, remaining := skilltoken.ParseTokens(msg.Content)
+		tokens := skilltoken.ParseTokensOnly(msg.Content)
 		if len(tokens) == 0 {
+			msg.Content = skilltoken.PlainText(msg.Content)
 			continue
 		}
+		plain := skilltoken.PlainText(msg.Content)
 		anyMatched = true
-		logs.InfoContextf(ctx, "Skill invoke tokens parsed: msg_index=%d raw_tokens=%v original_len=%d remaining_len=%d",
-			i, tokens, len(msg.Content), len(remaining))
+		logs.InfoContextf(ctx, "Skill invoke codes: msg_index=%d codes=%v content_len=%d",
+			i, tokens, len(msg.Content))
 
 		dedupedTokens := dedupeOrderedLower(tokens)
 		if len(dedupedTokens) < len(tokens) {
@@ -45,6 +50,10 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 		newTokens := make([]string, 0, len(dedupedTokens))
 		skippedDedup := make([]string, 0)
 		for _, name := range dedupedTokens {
+			if req.IsPluginDisabled(types.DisabledPluginKindSkill, name) {
+				logs.InfoContextf(ctx, "disabled Skill invocation kept as plain text: msg_index=%d skill=%q", i, name)
+				continue
+			}
 			if !seenSkills[strings.ToLower(name)] {
 				newTokens = append(newTokens, name)
 			} else {
@@ -53,6 +62,10 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 		}
 		if len(skippedDedup) > 0 {
 			logs.DebugContextf(ctx, "Skill invoke cross-message dedup: msg_index=%d skipped=%v", i, skippedDedup)
+		}
+		if len(newTokens) == 0 {
+			msg.Content = plain
+			continue
 		}
 
 		catalog, err := catalogForRequest(req)
@@ -72,9 +85,9 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 			seenSkills[strings.ToLower(entry.Manifest.Name)] = true
 		}
 		if len(entries) == 0 {
-			msg.Content = remaining
-			logs.InfoContextf(ctx, "Skill invoke duplicate tokens stripped: msg_index=%d new_content_len=%d",
+			logs.InfoContextf(ctx, "Skill invoke duplicate codes ignored: msg_index=%d content_len=%d",
 				i, len(msg.Content))
+			msg.Content = plain
 			continue
 		}
 
@@ -96,7 +109,7 @@ func ApplyInvokedSkills(ctx context.Context, req *agentrundomain.RunRequest) err
 		for j, entry := range entries {
 			loadedNames[j] = entry.Manifest.Name
 		}
-		msg.Content = buildSkillInvokePrompt(loadedNames, entries, filesMap, remaining)
+		msg.Content = buildSkillInvokePrompt(loadedNames, entries, filesMap, plain)
 		logs.InfoContextf(ctx, "Skill invoke message rewritten: msg_index=%d loaded=%v new_prompt_len=%d",
 			i, loadedNames, len(msg.Content))
 	}

@@ -78,3 +78,38 @@ describe("SkillCard marketplace state", () => {
 		expect(screen.queryByText("已安装，可直接使用")).not.toBeInTheDocument();
 	});
 });
+
+describe("SkillCard organization role capsule", () => {
+	afterEach(cleanup);
+
+	it("shows an owner capsule on a mine card", () => {
+		render(
+			<SkillCard
+				variant="mine"
+				skill={skill({ source_type: "organization", permission: { role: "owner" } })}
+			/>,
+		);
+		expect(screen.getByText("所有者")).toBeInTheDocument();
+	});
+
+	it("shows an admin capsule on a mine card", () => {
+		render(
+			<SkillCard
+				variant="mine"
+				skill={skill({ source_type: "organization", permission: { role: "admin" } })}
+			/>,
+		);
+		expect(screen.getByText("管理员")).toBeInTheDocument();
+	});
+
+	it("does not show a role capsule for a viewer", () => {
+		render(
+			<SkillCard
+				variant="mine"
+				skill={skill({ source_type: "organization", permission: { role: "viewer" } })}
+			/>,
+		);
+		expect(screen.queryByText("所有者")).not.toBeInTheDocument();
+		expect(screen.queryByText("管理员")).not.toBeInTheDocument();
+	});
+});

@@ -5,3 +5,7 @@ export { ProjectPage } from "./ProjectPage";
 export { Shell } from "./Shell";
 export { TaskDetailPage } from "./TaskDetailPage";
 export { WorkbenchPanel } from "./WorkbenchPanel";
+export {
+	buildAssistantWorkbenchPrefill,
+	buildSkillWorkbenchPrefill,
+} from "./workbench-prefill";

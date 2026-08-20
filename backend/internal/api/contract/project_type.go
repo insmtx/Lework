@@ -148,6 +148,7 @@ type ProjectPlugin struct {
 	DisplayName     string `json:"display_name,omitempty"`
 	Description     string `json:"description,omitempty"`
 	Status          string `json:"status"`
+	Origin          string `json:"origin"`
 	CurrentRevision int    `json:"current_revision"`
 }
 
@@ -155,12 +156,27 @@ type ProjectPlugin struct {
 type ListProjectPluginsRequest struct {
 	PublicID string `json:"public_id" binding:"required"`
 	Kind     string `json:"kind,omitempty"`
+	Keyword  string `json:"keyword,omitempty"`
+	Offset   int    `json:"offset,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
 }
 
 // UpdateProjectPluginRequest binds or unbinds one organization plugin.
 type UpdateProjectPluginRequest struct {
-	PublicID string `json:"public_id" binding:"required"`
-	PluginID string `json:"plugin_id" binding:"required"`
+	PublicID   string `json:"public_id" binding:"required"`
+	PluginID   string `json:"plugin_id,omitempty"`
+	PluginCode string `json:"plugin_code,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+}
+
+// ProjectPluginMutationResult reports the effective project association state.
+type ProjectPluginMutationResult struct {
+	ProjectID  string `json:"project_id"`
+	PluginID   string `json:"plugin_id,omitempty"`
+	PluginCode string `json:"plugin_code"`
+	Kind       string `json:"kind"`
+	Associated bool   `json:"associated"`
+	Changed    bool   `json:"changed"`
 }
 
 // ProjectTaskItem 项目详情中的任务项，包含关联的会话信息

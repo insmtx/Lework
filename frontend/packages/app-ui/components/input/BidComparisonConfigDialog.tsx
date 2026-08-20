@@ -394,7 +394,7 @@ function FilePickerSection({
 		<div>
 			<div className="mb-2 flex items-end justify-between">
 				<div className="text-sm font-semibold text-slate-800">
-					{title} {required ? <span className="text-[var(--leros-primary)]">*</span> : null}
+					{title} {required ? <span className="text-red-500">*</span> : null}
 				</div>
 				<span className="text-xs text-slate-400">{limitText}</span>
 			</div>

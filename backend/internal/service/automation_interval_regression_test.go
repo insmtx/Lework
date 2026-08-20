@@ -11,11 +11,11 @@ import (
 // 期望 Next = 15:35 CST（下一个整 5 分钟刻度），而不是跳到 8 小时后。
 func TestComputeOccurrenceWindow_IntervalUTCNoDrift(t *testing.T) {
 	loc := mustLoc(t)
-	oldNextUTC := time.Date(2026, 8, 6, 15, 15, 0, 0, loc).UTC().Add(5 * time.Minute) // 15:20 CST
+	oldNextUTC := time.Date(2026, 8, 6, 15, 20, 0, 0, loc).UTC() // 15:20 CST
 	now := time.Date(2026, 8, 6, 15, 34, 0, 0, loc).UTC()
 
 	spec := &types.AutomationScheduleSpec{Spec: types.AutomationScheduleSpecItem{
-		Mode: "interval", IntervalSeconds: 300, AnchorAt: "00:00", Timezone: "Asia/Shanghai",
+		Version: 2, Mode: "interval", IntervalSeconds: 300, OriginAt: "2026-08-06T07:15:00Z", Timezone: "Asia/Shanghai",
 	}}
 	w, err := ComputeOccurrenceWindow(spec, oldNextUTC, now)
 	if err != nil {
@@ -38,11 +38,11 @@ func TestComputeOccurrenceWindow_IntervalUTCNoDrift(t *testing.T) {
 // now=15:34 → Next=15:35（00:00 起算的最近 >now 刻度），LatestDue=15:30，missed = k-1 个整周期。
 func TestComputeOccurrenceWindow_IntervalAnchorGrid(t *testing.T) {
 	loc := mustLoc(t)
-	oldNextUTC := time.Date(2026, 8, 6, 15, 22, 0, 0, loc).UTC() // 15:22
+	oldNextUTC := time.Date(2026, 8, 6, 15, 25, 0, 0, loc).UTC() // 15:25
 	now := time.Date(2026, 8, 6, 15, 34, 0, 0, loc).UTC()        // 15:34
 
 	spec := &types.AutomationScheduleSpec{Spec: types.AutomationScheduleSpecItem{
-		Mode: "interval", IntervalSeconds: 300, AnchorAt: "00:00", Timezone: "Asia/Shanghai",
+		Version: 2, Mode: "interval", IntervalSeconds: 300, OriginAt: "2026-08-06T07:20:00Z", Timezone: "Asia/Shanghai",
 	}}
 	w, err := ComputeOccurrenceWindow(spec, oldNextUTC, now)
 	if err != nil {

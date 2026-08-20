@@ -113,11 +113,35 @@ describe("buildScheduleRequest", () => {
 		expect(req.calendar?.preset).toBe("monthly");
 		expect(req.calendar?.days_of_month).toEqual([2, 14, 31]);
 	});
+
+	it("interval 请求不再提交 anchor_at", () => {
+		const state = buildScheduleFormState({
+			mode: "interval",
+			interval: { interval_minutes: 30 },
+		});
+		const req = buildScheduleRequest(state, "Asia/Shanghai");
+		if (req.mode !== "interval") throw new Error("unexpected");
+		expect(req.interval).toEqual({
+			interval_minutes: 30,
+			interval_unit: "minute",
+			interval_seconds: 1800,
+		});
+		expect("anchor_at" in (req.interval ?? {})).toBe(false);
+	});
 });
 
 describe("computeNextRunPreview", () => {
 	// 2026-08-11 是周二。用固定基准时间便于断言。
 	const base = new Date(2026, 7, 11, 0, 0, 0); // 2026-08-11 00:00 本地
+
+	it("interval 从当前时刻开始计算，不依赖锚点", () => {
+		const state = buildScheduleFormState({
+			mode: "interval",
+			interval: { interval_minutes: 30 },
+		});
+		const next = computeNextRunPreview(state, base);
+		expect(next?.getTime()).toBe(base.getTime() + 30 * 60_000);
+	});
 
 	it("多星期命中最近的选中星期", () => {
 		const state = buildScheduleFormState(
@@ -152,6 +176,13 @@ describe("computeNextRunPreview", () => {
 		expect(next?.getMonth()).toBe(1); // 2 月
 		expect(next?.getDate()).toBe(28);
 		expect(next?.getHours()).toBe(9);
+	});
+
+	it("按任务时区计算日历预览，再返回绝对时间", () => {
+		const state = buildScheduleFormState(calendarConfig({ preset: "daily", hour: 9, minute: 0 }));
+		const from = new Date("2026-08-10T23:00:00Z"); // 上海 8 月 11 日 07:00
+		const next = computeNextRunPreview(state, "Asia/Shanghai", from);
+		expect(next?.toISOString()).toBe("2026-08-11T01:00:00.000Z");
 	});
 });
 

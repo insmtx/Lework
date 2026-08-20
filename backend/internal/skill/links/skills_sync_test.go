@@ -29,6 +29,57 @@ func TestSyncToLerosDirCreatesSystemSkillsDirectory(t *testing.T) {
 	}
 }
 
+func TestSyncToLerosDirIncludesHiddenSystemSkills(t *testing.T) {
+	builtinRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	writeSyncTestSkill(t, filepath.Join(builtinRoot, "review-flow"), "review-flow", "visible")
+	writeSyncTestSkill(t, filepath.Join(builtinRoot, ".system", "lework-skill-manager"), "lework-skill-manager", "hidden")
+
+	if err := SyncToLerosDir(builtinRoot); err != nil {
+		t.Fatalf("sync to leros dir: %v", err)
+	}
+
+	targetRoot := filepath.Join(workspaceRoot, ".leros", "skills", ".system")
+	for _, name := range []string{"review-flow", "lework-skill-manager"} {
+		if _, err := os.Stat(filepath.Join(targetRoot, name, skillManifestFile)); err != nil {
+			t.Fatalf("synced Skill %q: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(targetRoot, ".system", "lework-skill-manager")); !os.IsNotExist(err) {
+		t.Fatalf("hidden source directory should not be nested in target, err=%v", err)
+	}
+}
+
+func TestSyncToLerosDirIncludesHiddenSkillsWithoutVisibleSkills(t *testing.T) {
+	builtinRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	writeSyncTestSkill(t, filepath.Join(builtinRoot, ".system", "lework-automation-manager"), "lework-automation-manager", "hidden")
+
+	if err := SyncToLerosDir(builtinRoot); err != nil {
+		t.Fatalf("sync hidden Skill only: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspaceRoot, ".leros", "skills", ".system", "lework-automation-manager", skillManifestFile)); err != nil {
+		t.Fatalf("synced hidden Skill: %v", err)
+	}
+}
+
+func TestSyncToLerosDirRejectsDuplicateVisibleAndHiddenSkills(t *testing.T) {
+	builtinRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+
+	writeSyncTestSkill(t, filepath.Join(builtinRoot, "duplicate"), "duplicate", "visible")
+	writeSyncTestSkill(t, filepath.Join(builtinRoot, ".system", "duplicate"), "duplicate", "hidden")
+
+	if err := SyncToLerosDir(builtinRoot); err == nil {
+		t.Fatal("expected duplicate visible and hidden Skill to fail")
+	}
+}
+
 func TestResolveBuiltinSkillsSourceFindsProjectParent(t *testing.T) {
 	root := t.TempDir()
 	writeSyncTestSkill(t, filepath.Join(root, "backend", "skills", "worker", "review-flow"), "review-flow", "test body")

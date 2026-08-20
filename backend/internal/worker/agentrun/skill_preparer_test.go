@@ -20,7 +20,9 @@ import (
 	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
+	"github.com/insmtx/Leros/backend/internal/worker/skillsync"
 	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
@@ -62,6 +64,118 @@ func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
 	}
 }
 
+func TestPluginSkillPreparerCleanupPreservesSystemSkillForOverlappingRun(t *testing.T) {
+	ctx := context.Background()
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	systemSkillDir := filepath.Join(workspaceRoot, ".leros", "skills", ".system", "review")
+	if err := os.MkdirAll(systemSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(systemSkillDir, "SKILL.md"), []byte("---\nname: review\ndescription: review\n---\nReview.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repository, err := skillsync.NewRepository(filepath.Join(workspaceRoot, ".leros", "skills"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preparer := NewPluginSkillPreparerWithBaseline("", "", repository)
+
+	firstView, firstCleanup, err := preparer.PrepareSkills(
+		ctx,
+		&agentrundomain.RunRequest{RunID: "run-first"},
+		WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondView, secondCleanup, err := preparer.PrepareSkills(
+		ctx,
+		&agentrundomain.RunRequest{RunID: "run-second"},
+		WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	if err != nil {
+		firstCleanup()
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(firstView, "review", "SKILL.md")); err != nil {
+		firstCleanup()
+		secondCleanup()
+		t.Fatalf("first run system Skill link is unavailable: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(secondView, "review", "SKILL.md")); err != nil {
+		firstCleanup()
+		secondCleanup()
+		t.Fatalf("second run system Skill link is unavailable: %v", err)
+	}
+
+	firstCleanup()
+	if _, err := os.Stat(filepath.Join(systemSkillDir, "SKILL.md")); err != nil {
+		secondCleanup()
+		t.Fatalf("first run cleanup removed the system Skill: %v", err)
+	}
+	catalog, err := skillcatalog.NewCatalog(secondView)
+	if err != nil {
+		secondCleanup()
+		t.Fatal(err)
+	}
+	if _, err := catalog.Get("review"); err != nil {
+		secondCleanup()
+		t.Fatalf("second run system Skill became unavailable after first cleanup: %v", err)
+	}
+
+	secondCleanup()
+	if _, err := os.Stat(filepath.Join(systemSkillDir, "SKILL.md")); err != nil {
+		t.Fatalf("second run cleanup removed the system Skill: %v", err)
+	}
+}
+
+func TestPluginSkillPreparerFiltersDisabledSystemSkill(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	for _, code := range []string{"review", "lework-automation-manager"} {
+		systemSkill := filepath.Join(workspaceRoot, ".leros", "skills", ".system", code)
+		if err := os.MkdirAll(systemSkill, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(systemSkill, "SKILL.md"), []byte("---\nname: "+code+"\ndescription: test\n---\nTest.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	taskDir := t.TempDir()
+	prepared, cleanup, err := NewPluginSkillPreparer("", "").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID: "run-disabled-system-skill",
+			Policy: agentrundomain.PolicyContext{DisabledPlugins: []types.DisabledPlugin{{
+				Kind: types.DisabledPluginKindSkill,
+				Code: "lework-automation-manager",
+			}}},
+			Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{
+				Role: "user", Content: "run the workflow",
+			}}},
+		},
+		WorkspacePreparation{TaskDir: taskDir},
+	)
+	if err != nil {
+		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	defer cleanup()
+
+	if _, err := os.Lstat(filepath.Join(prepared, "review")); err != nil {
+		t.Fatalf("expected review Skill link: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prepared, "lework-automation-manager")); !os.IsNotExist(err) {
+		t.Fatalf("disabled automation Skill should not be linked, err=%v", err)
+	}
+}
+
 func TestPluginSkillPreparerUsesWorkDirWithoutProjectTask(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
@@ -80,7 +194,7 @@ func TestPluginSkillPreparerUsesWorkDirWithoutProjectTask(t *testing.T) {
 	}
 }
 
-func TestPluginSkillPreparerResetsOnlyTaskSkillSymlinks(t *testing.T) {
+func TestPluginSkillPreparerResetsTaskSkillView(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
 	taskDir := t.TempDir()
@@ -109,18 +223,23 @@ func TestPluginSkillPreparerResetsOnlyTaskSkillSymlinks(t *testing.T) {
 	}
 
 	manual := filepath.Join(viewRoot, "manual")
-	if err := os.WriteFile(manual, []byte("keep"), 0o644); err != nil {
+	if err := os.MkdirAll(manual, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := NewPluginSkillPreparer("", "").PrepareSkills(
+	if err := os.WriteFile(filepath.Join(manual, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prepared, cleanup, err = NewPluginSkillPreparer("", "").PrepareSkills(
 		context.Background(),
-		&agentrundomain.RunRequest{RunID: "blocked-run"},
+		&agentrundomain.RunRequest{RunID: "best-effort-run"},
 		WorkspacePreparation{TaskDir: taskDir},
-	); err == nil || !strings.Contains(err.Error(), "refuse to replace non-symlink") {
+	)
+	if err != nil {
 		t.Fatalf("PrepareSkills() error = %v", err)
 	}
-	if got, err := os.ReadFile(manual); err != nil || string(got) != "keep" {
-		t.Fatalf("manual task Skill file changed: %q, %v", got, err)
+	cleanup()
+	if _, err := os.Stat(manual); !os.IsNotExist(err) {
+		t.Fatalf("stale task Skill file was not cleaned: %v", err)
 	}
 }
 
@@ -379,6 +498,9 @@ func TestPluginSnapshotSkillRequiresArtifactSHAForCacheIdentity(t *testing.T) {
 type skillBaselineCommitterStub struct {
 	commits  [][]string
 	restores []string
+	imports  []string
+	resets   int
+	importFn func(string)
 }
 
 func (s *skillBaselineCommitterStub) CommitInstalled(_ context.Context, codes []string) error {
@@ -389,6 +511,73 @@ func (s *skillBaselineCommitterStub) CommitInstalled(_ context.Context, codes []
 func (s *skillBaselineCommitterStub) Restore(_ context.Context, code string) error {
 	s.restores = append(s.restores, code)
 	return nil
+}
+
+func (s *skillBaselineCommitterStub) ImportTaskSkillDirs(_ context.Context, root string) {
+	s.imports = append(s.imports, root)
+	if s.importFn != nil {
+		s.importFn(root)
+	}
+}
+
+func (s *skillBaselineCommitterStub) RestoreAll(context.Context) error {
+	s.resets++
+	return nil
+}
+
+func TestPluginSkillPreparerImportsStaleTaskSkillBeforeReset(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	taskDir := t.TempDir()
+	viewRoot := filepath.Join(taskDir, "skills")
+	stale := filepath.Join(viewRoot, "stale")
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	destination := t.TempDir()
+	committer := &skillBaselineCommitterStub{
+		importFn: func(root string) {
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				return
+			}
+			for _, entry := range entries {
+				info, err := os.Lstat(filepath.Join(root, entry.Name()))
+				if err != nil || !info.IsDir() {
+					continue
+				}
+				_ = os.Rename(filepath.Join(root, entry.Name()), filepath.Join(destination, entry.Name()))
+			}
+		},
+	}
+	preparer := NewPluginSkillPreparerWithBaseline("", "", committer)
+	prepared, cleanup, err := preparer.PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{RunID: "recover-stale-task-skill"},
+		WorkspacePreparation{TaskDir: taskDir},
+	)
+	if err != nil {
+		t.Fatalf("PrepareSkills() error = %v", err)
+	}
+	if prepared != viewRoot {
+		t.Fatalf("prepared Skill directory = %q", prepared)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "stale", "SKILL.md")); err != nil {
+		t.Fatalf("stale task Skill was not imported before reset: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale task Skill remained in task view: %v", err)
+	}
+	cleanup()
+	if len(committer.imports) != 2 {
+		t.Fatalf("task Skill import calls = %d, want prepare and cleanup", len(committer.imports))
+	}
+	if committer.resets != 1 {
+		t.Fatalf("task Skill repository resets = %d, want cleanup reset", committer.resets)
+	}
 }
 
 func TestPluginSkillPreparerRepairsLegacyAndInvalidManifestEntries(t *testing.T) {
@@ -525,7 +714,7 @@ func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 	defer server.Close()
 	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
 		context.Background(),
-		&agentrundomain.RunRequest{RunID: "run-invoked", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/docx create a report"}}}},
+		&agentrundomain.RunRequest{RunID: "run-invoked", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: `<skill-chip data-code="docx">docx</skill-chip> create a report`}}}},
 		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
@@ -583,7 +772,7 @@ func TestPluginSkillPreparerRetriesInvokedProjectSkillAfterProjectPreparationFai
 			},
 			Input: agentrundomain.InputContext{
 				Messages: []agentrundomain.InputMessage{{
-					Role: "user", Content: "/car-selection choose a family car",
+					Role: "user", Content: `<skill-chip data-code="car-selection">car-selection</skill-chip> choose a family car`,
 				}},
 			},
 		},
@@ -624,7 +813,7 @@ func TestPluginSkillPreparerReturnsInvokedSkillPreparationError(t *testing.T) {
 		&agentrundomain.RunRequest{
 			RunID: "run-missing-invoked",
 			Input: agentrundomain.InputContext{
-				Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/missing do work"}},
+				Messages: []agentrundomain.InputMessage{{Role: "user", Content: `<skill-chip data-code="missing">missing</skill-chip> do work`}},
 			},
 		},
 		WorkspacePreparation{TaskDir: t.TempDir()},

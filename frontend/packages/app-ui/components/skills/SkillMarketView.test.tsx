@@ -59,6 +59,7 @@ describe("SkillMarketView plugin layout", () => {
 		expect(screen.getByRole("searchbox", { name: "搜索技能" })).toBeInTheDocument();
 		expect(screen.getByRole("tab", { name: "技能市场 0" })).toBeInTheDocument();
 		expect(screen.getByRole("tab", { name: "组织共享 0" })).toBeInTheDocument();
+		expect(screen.getByRole("tab", { name: "我的 0" })).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "全部分类" })).not.toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "导入技能" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "创建技能" })).toBeInTheDocument();

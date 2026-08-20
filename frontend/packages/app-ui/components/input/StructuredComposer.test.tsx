@@ -48,9 +48,11 @@ function placeCaretAtEnd(element: HTMLElement) {
 function TestHarness({
 	skillOptions,
 	onValueChange,
+	onSkillPickerOpen,
 }: {
 	skillOptions: ComposerSkillOption[];
 	onValueChange?: (value: string) => void;
+	onSkillPickerOpen?: () => void;
 }) {
 	const [value, setValue] = useState("");
 
@@ -69,6 +71,7 @@ function TestHarness({
 			placeholder="请输入"
 			isProjectVariant
 			skillOptions={skillOptions}
+			onSkillPickerOpen={onSkillPickerOpen}
 		/>
 	);
 }
@@ -223,7 +226,13 @@ function ProjectTriggerHarness({
 	);
 }
 
-function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) => void }) {
+function ActionBarHarness({
+	onValueChange,
+	onSkillPickerOpen,
+}: {
+	onValueChange?: (value: string) => void;
+	onSkillPickerOpen?: () => void;
+}) {
 	const [value, setValue] = useState("");
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const skillOptions: ComposerSkillOption[] = [
@@ -259,7 +268,12 @@ function ActionBarHarness({ onValueChange }: { onValueChange?: (value: string) =
 				isProjectVariant
 				skillOptions={skillOptions}
 			/>
-			<ComposerActionBar inputValue={value} composerRef={composerRef} skillOptions={skillOptions} />
+			<ComposerActionBar
+				inputValue={value}
+				composerRef={composerRef}
+				skillOptions={skillOptions}
+				onSkillPickerOpen={onSkillPickerOpen}
+			/>
 		</div>
 	);
 }
@@ -365,7 +379,50 @@ describe("StructuredComposer", () => {
 		});
 	});
 
-	it("技能展示名称与 code 不同时仍插入 /code", async () => {
+	it("打开技能选择器时刷新一次，关闭后重开时再次刷新", async () => {
+		const user = userEvent.setup();
+		const onSkillPickerOpen = vi.fn();
+
+		render(
+			<TestHarness
+				onSkillPickerOpen={onSkillPickerOpen}
+				skillOptions={[{ code: "docx", label: "docx", description: "", keywords: [] }]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("/");
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(1));
+
+		await user.keyboard("{Enter}");
+		await user.click(textbox);
+		placeCaretAtEnd(textbox);
+		await user.keyboard("/");
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(2));
+	});
+
+	it("技能搜索框内继续输入时不重复刷新", async () => {
+		const user = userEvent.setup();
+		const onSkillPickerOpen = vi.fn();
+
+		render(
+			<TestHarness
+				onSkillPickerOpen={onSkillPickerOpen}
+				skillOptions={[{ code: "docx", label: "docx", description: "", keywords: [] }]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("/");
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(1));
+
+		await user.type(screen.getByPlaceholderText("搜索技能"), "doc");
+		expect(onSkillPickerOpen).toHaveBeenCalledTimes(1);
+	});
+
+	it("技能展示名称与 code 不同时插入展示名，并把 code 放进 token id", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();
 
@@ -391,11 +448,20 @@ describe("StructuredComposer", () => {
 		await user.keyboard("{Enter}");
 
 		await waitFor(() => {
-			expect(handleValueChange).toHaveBeenLastCalledWith("/doc-coauthoring ");
+			expect(handleValueChange).toHaveBeenLastCalledWith("/文档协作 ");
+		});
+		await waitFor(() => {
+			const mention = textbox.querySelector(
+				'[data-mention-node="true"][data-mention-kind="skill"]',
+			);
+			expect(mention).toBeInTheDocument();
+			expect(mention).toHaveAttribute("data-mention-label", "/文档协作");
+			expect(mention).toHaveAttribute("data-mention-id", "doc-coauthoring");
+			expect(mention).toHaveTextContent("文档协作");
 		});
 	});
 
-	it("完整列表中只有内置技能显示系统文案", async () => {
+	it("完整列表中的技能显示对应来源标签", async () => {
 		const user = userEvent.setup();
 
 		render(
@@ -432,11 +498,11 @@ describe("StructuredComposer", () => {
 
 		expect(await screen.findByText("内置技能")).toBeInTheDocument();
 		expect(screen.getAllByText("系统")).toHaveLength(1);
-		expect(screen.queryByText("组织")).not.toBeInTheDocument();
-		expect(screen.queryByText("技能市场")).not.toBeInTheDocument();
+		expect(screen.getAllByText("市场")).toHaveLength(1);
+		expect(screen.getAllByText("组织")).toHaveLength(1);
 	});
 
-	it("添加技能按钮使用 code 插入市场技能且只标记内置技能", async () => {
+	it("添加技能按钮使用 code 插入市场技能并显示来源标签", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();
 
@@ -445,11 +511,35 @@ describe("StructuredComposer", () => {
 		await user.click(screen.getByRole("button", { name: "添加技能" }));
 		expect(await screen.findByText("市场展示名称")).toBeInTheDocument();
 		expect(screen.getAllByText("系统")).toHaveLength(1);
+		expect(screen.getAllByText("市场")).toHaveLength(1);
 		await user.click(screen.getByText("市场展示名称"));
 
 		await waitFor(() => {
-			expect(handleValueChange).toHaveBeenLastCalledWith("/market-code ");
+			expect(handleValueChange).toHaveBeenLastCalledWith("/市场展示名称 ");
 		});
+		await waitFor(() => {
+			const mention = screen
+				.getByRole("textbox", { name: "请输入" })
+				.querySelector('[data-mention-node="true"][data-mention-kind="skill"]');
+			expect(mention).toHaveAttribute("data-mention-label", "/市场展示名称");
+			expect(mention).toHaveAttribute("data-mention-id", "market-code");
+			expect(mention).toHaveTextContent("市场展示名称");
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("内置展示名称")).toBeInTheDocument();
+			expect(screen.getAllByText("市场展示名称")).toHaveLength(1);
+		});
+	});
+
+	it("工具栏打开技能弹窗时触发刷新", async () => {
+		const user = userEvent.setup();
+		const onSkillPickerOpen = vi.fn();
+
+		render(<ActionBarHarness onSkillPickerOpen={onSkillPickerOpen} />);
+
+		await user.click(screen.getByRole("button", { name: "添加技能" }));
+		await waitFor(() => expect(onSkillPickerOpen).toHaveBeenCalledTimes(1));
 	});
 
 	it("连续选择多个技能时第一个技能仍保持 mention 样式", async () => {
@@ -484,6 +574,7 @@ describe("StructuredComposer", () => {
 			expect(handleValueChange).toHaveBeenLastCalledWith("/doc-coauthoring ");
 		});
 
+		await user.click(textbox);
 		await user.keyboard("/");
 		await user.click((await screen.findAllByText("weather"))[0] as HTMLElement);
 
@@ -622,7 +713,9 @@ describe("StructuredComposer", () => {
 		});
 		expect(screen.queryByText("已选技能")).not.toBeInTheDocument();
 
-		await user.click((await screen.findAllByText("docx"))[0] as HTMLElement);
+		const remainingSkill = (await screen.findAllByText("docx"))[0] as HTMLElement;
+		expect(screen.queryAllByText("anysearch")).toHaveLength(1);
+		await user.click(remainingSkill);
 		await waitFor(() => {
 			const mentions = textbox.querySelectorAll(
 				'[data-mention-node="true"][data-mention-kind="skill"]',

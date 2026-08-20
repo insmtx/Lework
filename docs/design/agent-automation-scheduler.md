@@ -158,7 +158,7 @@ flowchart LR
 | `mode` | 用途 | 核心参数 |
 |---|---|---|
 | `calendar` | 按本地日历边界执行 | 规范化日历表达式、时区和边界策略 |
-| `interval` | 从锚点开始按固定时长执行 | `anchor_at`、`interval_seconds`、时区 |
+| `interval` | 从创建/重新启用时刻按固定时长执行 | `origin_at`、`interval_seconds`、时区 |
 
 前端可以提供以下友好预设，但预设只负责生成和回显配置，不负责选择后端执行算法：
 
@@ -168,7 +168,7 @@ flowchart LR
 | 每周执行 | `calendar` | 每周一 09:00 |
 | 每月执行 | `calendar` + 月末策略 | 每月 31 日 09:00 |
 | 每整点执行 | `calendar` | 每个本地小时的 00 分 |
-| 按固定间隔执行 | `interval` | 从 00:00 起每 30 分钟 |
+| 按固定间隔执行 | `interval` | 创建后每 30 分钟 |
 
 `calendar` 的表达式由服务端根据结构化表单参数生成和校验，第一版不允许用户直接编辑表达式。这样新增“每两小时整点”等展示选项时，只需增加预设转换，不需要新增 Planner 分支或数据库字段。
 
@@ -176,7 +176,7 @@ flowchart LR
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "mode": "calendar",
   "expression": "0 9 * * 1",
   "policy": {
@@ -189,9 +189,9 @@ flowchart LR
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "mode": "interval",
-  "anchor_at": "2026-08-05T00:00:00+08:00",
+  "origin_at": "2026-08-05T00:00:00Z",
   "interval_seconds": 1800
 }
 ```
@@ -202,8 +202,9 @@ flowchart LR
 
 - 创建时前端提交浏览器 IANA 时区，例如 `Asia/Shanghai`。
 - 后端必须用 IANA 时区库验证，不接受仅 UTC 偏移量。
-- 日历规则先在用户当地时间中计算，固定间隔先解析本地锚点，再以 UTC 保存 `next_run_at`。
+- 日历规则先在任务配置时区中计算，固定间隔以绝对 `origin_at` 加 elapsed duration 计算，再以 UTC 保存 `next_run_at`。
 - `next_run_at` 始终保存 UTC，Planner 只按 UTC 扫描，不解析 UI 文案或预设名称。
+- API 的绝对时间字段统一以 RFC3339 UTC 返回；页面将其转换为当前浏览器/操作系统本地时间展示，并单独显示任务配置时区。
 - 编辑时使用服务端已保存时区初始化，不能用当前浏览器时区静默覆盖。
 
 ### 5.3 月末与夏令时
@@ -211,7 +212,7 @@ flowchart LR
 - 日历规则配置 29、30 或 31 日，而目标月份没有该日期时，在该月最后一天执行。
 - 夏令时切换导致目标当地时间不存在时，顺延到当天第一个有效时间。
 - 夏令时回拨导致目标当地时间出现两次时，选择第一次，只生成一个 occurrence。
-- 固定间隔按锚点和实际持续时间计算，不因为 UI 预设名称变化而改变语义；跨 DST 的行为必须在规则中固定为 elapsed duration。
+- 固定间隔按绝对起算时间和实际持续时间计算，不因为 UI 预设名称变化而改变语义；跨 DST 的行为必须在规则中固定为 elapsed duration。
 
 ### 5.4 下一次时间
 
@@ -299,7 +300,7 @@ flowchart TB
 | `instruction` | text | 每轮发送给 Agent 的完整指令 |
 | `enabled` | boolean | 是否接受周期触发 |
 | `schedule_mode` | varchar(16) | `calendar/interval`，只表示底层计算模式 |
-| `schedule_spec` | jsonb | 版本化规范化规则；包含 calendar expression 或 interval 锚点/间隔 |
+| `schedule_spec` | jsonb | 版本化规范化规则；包含 calendar expression 或 interval 起算时间/间隔 |
 | `timezone` | varchar(64) | IANA 时区 |
 | `assistant_id` | bigint | 创建时固定的默认 AI 队友 |
 | `project_id` | bigint nullable | 当前自动化项目。既可能是用户显式关联的既有项目（project_generation=0），也可能是懒创建的专属项目 |
@@ -410,7 +411,6 @@ Project：
   "schedule": {
     "mode": "interval",
     "config": {
-      "anchor_at": "2026-08-05T00:00:00",
       "interval_value": 30,
       "interval_unit": "minute"
     },
@@ -502,7 +502,7 @@ HTTP 建议映射：参数错误 400、权限 403、不存在 404、活动冲突
 必须提供：
 
 - `Compile`：将表单的 `preset/config` 编译为版本化 `schedule_spec`。
-- `Validate`：验证模式、表达式/锚点、间隔、时区和边界策略。
+- `Validate`：验证模式、表达式、起算时间、间隔、时区和边界策略。
 - `NextAfter`：计算严格晚于基准时间的下一次 occurrence。
 - `LatestDue`：计算恢复时最近一次遗漏、遗漏数量和未来下一次。
 - `Summary`：根据规范化规则生成前端展示摘要。
@@ -510,7 +510,7 @@ HTTP 建议映射：参数错误 400、权限 403、不存在 404、活动冲突
 计算策略：
 
 - `calendar`：解析服务端生成的日历表达式，在目标 IANA 时区中计算，再转 UTC。
-- `interval`：将本地锚点解析为明确的时间点，使用 `anchor + k * interval` 计算，不逐条枚举固定间隔。
+- `interval`：服务端生成绝对 `origin_at`，使用 `origin + k * interval` 计算，不要求客户端传入起算时间。
 
 实现要求：
 
@@ -723,7 +723,7 @@ Store 负责：
 - 自动化名称，最多 50 个字符。
 - 任务指令，必填。
 - 执行规则：日历类预设或固定间隔。
-- 日历预设对应的星期、日期和时间，或固定间隔的锚点和间隔值。
+- 日历预设对应的星期、日期和时间，或固定间隔的间隔值。
 - 规则摘要和下一次执行时间。
 - 当前/已保存 IANA 时区，只读展示。
 - 是否启用。
@@ -832,7 +832,7 @@ Store 负责：
 - 增加“自动化”导航、Web/Desktop 路由和页面容器。
 - 增加 `automationApi` 和 `automationSlice`。
 - 实现自动化列表卡片。
-- 实现创建/编辑弹窗：名称、指令、日历类预设或固定间隔、时间/锚点、星期/日期、时区和启用状态。
+- 实现创建/编辑弹窗：名称、指令、日历类预设或固定间隔、时间、星期/日期、时区和启用状态。
 - 创建时读取浏览器 IANA 时区；编辑时使用服务端返回的时区，不覆盖已有配置。
 - 实现保存成功后的列表刷新和详情回显。
 - 实现启停、删除确认、失败回滚和错误提示。
@@ -915,7 +915,7 @@ Store 负责：
 
 #### 阶段二验收标准
 
-- 日历类预设和固定间隔计划按目标时区/锚点语义执行。
+- 日历类预设按目标时区语义执行，固定间隔按服务端生成的起算时间执行。
 - 月末回退、DST、停用不补跑和服务恢复遗漏折叠符合规则。
 - 上一轮未完成时下一轮明确记录为 skipped。
 - 立即运行不影响下一次计划时间。
@@ -1025,7 +1025,7 @@ Store 负责：
 ### 14.2 阶段二：定时执行测试
 
 - 日历类预设和固定间隔下一次执行。
-- 固定间隔的整数运算、锚点和跨 DST elapsed duration 语义。
+- 固定间隔的整数运算、起算时间和跨 DST elapsed duration 语义。
 - 月末 29/30/31 日。
 - 非法时区、星期、日期和时间。
 - DST 缺失时间和重复时间。

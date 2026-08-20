@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/insmtx/Leros/backend/internal/consts"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 // InputType describes the primary shape of the run input.
@@ -139,9 +140,11 @@ type InputContext struct {
 
 // InputMessage is a simple role/content message snapshot.
 type InputMessage struct {
-	Role       string `json:"role"`
-	Content    string `json:"content"`
-	SenderName string `json:"sender_name,omitempty"`
+	ID           string `json:"message_id,omitempty"`
+	Role         string `json:"role"`
+	Content      string `json:"content"`
+	SenderUserID *uint  `json:"sender_user_id,omitempty"`
+	SenderName   string `json:"sender_name,omitempty"`
 }
 
 // Attachment describes an input attachment made available to the run.
@@ -192,24 +195,46 @@ type CapabilityContext struct {
 
 // PolicyContext carries policy knobs for one run.
 type PolicyContext struct {
-	RequireApproval bool   `json:"require_approval,omitempty"`
-	PermissionMode  string `json:"permission_mode,omitempty"`
+	RequireApproval bool                   `json:"require_approval,omitempty"`
+	PermissionMode  string                 `json:"permission_mode,omitempty"`
+	DisabledPlugins []types.DisabledPlugin `json:"disabled_plugins,omitempty"`
+}
+
+// IsPluginDisabled reports whether one Skill or MCP code is excluded from the
+// current run. Matching is case-insensitive because catalog and plugin codes
+// are user-facing identifiers at the transport boundary.
+func (r *RunRequest) IsPluginDisabled(kind types.DisabledPluginKind, code string) bool {
+	if r == nil {
+		return false
+	}
+	code = strings.TrimSpace(code)
+	kind = types.DisabledPluginKind(strings.ToLower(strings.TrimSpace(string(kind))))
+	if code == "" {
+		return false
+	}
+	for _, disabled := range r.Policy.DisabledPlugins {
+		if types.DisabledPluginKind(strings.ToLower(strings.TrimSpace(string(disabled.Kind)))) == kind && strings.EqualFold(strings.TrimSpace(disabled.Code), code) {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildAttachmentText formats input attachments as a text block for prompt injection.
 //
-// 仅图片作为视觉内容随消息内联注入（见 preparer 的 multimodalAttachmentsForRuntime
-// 与 opencode 的 modalityConfig：vision 模型只声明 image 输入），模型可直接查看，
-// 无需再调用 read 工具；PDF/音视频不具视觉能力，由 opencode 降级为文本提示，
-// 因此归入"按路径读取"。文本块据此分流，避免模型对图片调用 read 拿到
-// "Image read successfully"后产生幻觉。
+// 图片只有在字节真正下载成功（Data 非空）时才作为视觉内容随消息内联注入
+// （见 preparer 的 multimodalAttachmentsForRuntime 与 opencode 的 modalityConfig：
+// vision 模型只声明 image 输入），模型可直接查看，无需再调用 read 工具；
+// 下载失败（Data 为空）的图片与 PDF/音视频一样归入"按路径读取"，避免模型
+// 在既无像素又无路径的情况下凭空脑补。文本块据此分流，避免模型对图片调用
+// read 拿到 "Image read successfully"后产生幻觉。
 func BuildAttachmentText(attachments []Attachment) string {
 	if len(attachments) == 0 {
 		return ""
 	}
 	var inline, external []Attachment
 	for _, a := range attachments {
-		if IsVisualMime(a.MimeType) {
+		if IsVisualMime(a.MimeType) && len(a.Data) > 0 {
 			inline = append(inline, a)
 		} else {
 			external = append(external, a)
@@ -288,10 +313,14 @@ func BuildUserInput(req *RunRequest) string {
 					name = "user"
 				}
 			}
+			messageRef := fmt.Sprintf("message_id=%s", message.ID)
+			if strings.TrimSpace(message.ID) == "" {
+				messageRef = fmt.Sprintf("message_index=%d", i+1)
+			}
 			if message.Role == "assistant" {
-				lines = append(lines, fmt.Sprintf("【AI 队友回复】\n[%d] AI 队友 「%s」发送：「%s」", i+1, name, message.Content))
+				lines = append(lines, fmt.Sprintf("【AI 队友回复】\n[%s] AI 队友「%s」发送：「%s」", messageRef, name, message.Content))
 			} else {
-				lines = append(lines, fmt.Sprintf("【用户问题】\n[%d] 用户 「%s」发送：「%s」", i+1, name, message.Content))
+				lines = append(lines, fmt.Sprintf("【用户问题】\n[%s] 用户「%s」发送：「%s」", messageRef, name, message.Content))
 			}
 		}
 		return strings.Join(lines, "\n")
@@ -315,6 +344,7 @@ func CloneRequest(req *RunRequest) *RunRequest {
 	clone.Input.Attachments = copyAttachments(req.Input.Attachments)
 
 	clone.Capability.AllowedTools = copyStringSlice(req.Capability.AllowedTools)
+	clone.Policy.DisabledPlugins = append([]types.DisabledPlugin(nil), req.Policy.DisabledPlugins...)
 	clone.Plugins = make([]PluginSnapshot, len(req.Plugins))
 	for i, plugin := range req.Plugins {
 		clone.Plugins[i] = plugin

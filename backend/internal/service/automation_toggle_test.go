@@ -87,4 +87,32 @@ func TestToggleAutomationEnabledOnly(t *testing.T) {
 	if upd2.NextRunAt == nil {
 		t.Fatalf("re-enable should recompute next_run_at, got nil")
 	}
+	var afterEnable types.Automation
+	if err := db.First(&afterEnable, automation.ID).Error; err != nil {
+		t.Fatalf("reload after re-enable: %v", err)
+	}
+	originBeforeEdit := afterEnable.ScheduleSpec.Spec.OriginAt
+	nextBeforeEdit := *afterEnable.NextRunAt
+	name := "只改名称"
+	if _, err := svc.UpdateAutomation(ctx, "auto_test_1", &contract.UpdateAutomationRequest{Name: name}); err != nil {
+		t.Fatalf("name update: %v", err)
+	}
+	var afterNameEdit types.Automation
+	if err := db.First(&afterNameEdit, automation.ID).Error; err != nil {
+		t.Fatalf("reload after name update: %v", err)
+	}
+	if afterNameEdit.ScheduleSpec.Spec.OriginAt != originBeforeEdit || afterNameEdit.NextRunAt == nil || !afterNameEdit.NextRunAt.Equal(nextBeforeEdit) {
+		t.Fatalf("name edit changed schedule origin/next: origin=%q next=%v", afterNameEdit.ScheduleSpec.Spec.OriginAt, afterNameEdit.NextRunAt)
+	}
+	sameTimezone := "Asia/Shanghai"
+	if _, err := svc.UpdateAutomation(ctx, "auto_test_1", &contract.UpdateAutomationRequest{Timezone: &sameTimezone}); err != nil {
+		t.Fatalf("same timezone update: %v", err)
+	}
+	var afterSameTimezone types.Automation
+	if err := db.First(&afterSameTimezone, automation.ID).Error; err != nil {
+		t.Fatalf("reload after same timezone update: %v", err)
+	}
+	if afterSameTimezone.ScheduleSpec.Spec.OriginAt != originBeforeEdit || afterSameTimezone.NextRunAt == nil || !afterSameTimezone.NextRunAt.Equal(nextBeforeEdit) {
+		t.Fatalf("same timezone edit changed schedule origin/next: origin=%q next=%v", afterSameTimezone.ScheduleSpec.Spec.OriginAt, afterSameTimezone.NextRunAt)
+	}
 }

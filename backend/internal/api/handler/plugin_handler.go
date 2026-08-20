@@ -32,6 +32,8 @@ func RegisterPluginRoutes(r gin.IRouter, service contract.PluginService) {
 	r.DELETE("/plugins/:plugin_id", deletePlugin(service))
 	r.GET("/plugins/:plugin_id", getPlugin(service))
 	r.GET("/plugins/:plugin_id/versions", listPluginVersions(service))
+	r.GET("/plugins/:plugin_id/permissions", getPluginPermissions(service))
+	r.PUT("/plugins/:plugin_id/permissions", updatePluginPermissions(service))
 }
 
 // RegisterPluginOAuthCallbackRoutes registers callbacks that must remain reachable before login completes.
@@ -379,8 +381,45 @@ func addSkillPlugin(service contract.PluginService) gin.HandlerFunc {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "mode must be file or github"))
 			return
 		}
-		err := service.AddSkillPlugin(ctx, caller.OrgID, caller.Uin, &req)
-		writePluginServiceResult(ctx, nil, err)
+		result, err := service.AddSkillPlugin(ctx, caller.OrgID, caller.Uin, &req)
+		writePluginServiceResult(ctx, result, err)
+	}
+}
+
+func getPluginPermissions(service contract.PluginService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		caller, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
+		pluginID := strings.TrimSpace(ctx.Param("plugin_id"))
+		if pluginID == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "plugin_id is required"))
+			return
+		}
+		result, err := service.GetPluginPermissions(ctx, caller.OrgID, caller.Uin, pluginID)
+		writePluginServiceResult(ctx, result, err)
+	}
+}
+
+func updatePluginPermissions(service contract.PluginService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		caller, ok := pluginCaller(ctx)
+		if !ok {
+			return
+		}
+		pluginID := strings.TrimSpace(ctx.Param("plugin_id"))
+		if pluginID == "" {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "plugin_id is required"))
+			return
+		}
+		var req contract.UpdatePluginPermissionsRequest
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+			return
+		}
+		result, err := service.UpdatePluginPermissions(ctx, caller.OrgID, caller.Uin, pluginID, &req)
+		writePluginServiceResult(ctx, result, err)
 	}
 }
 
@@ -407,6 +446,14 @@ func writePluginServiceResult(ctx *gin.Context, result interface{}, err error) {
 	}
 	if errors.Is(err, contract.ErrPluginNotFound) {
 		ctx.JSON(http.StatusNotFound, dto.Error(dto.CodeNotFound, err.Error()))
+		return
+	}
+	if errors.Is(err, contract.ErrPluginForbidden) {
+		ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, err.Error()))
+		return
+	}
+	if errors.Is(err, contract.ErrPluginPermissionUnsupported) || errors.Is(err, contract.ErrInvalidPluginPermission) {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
 	if errors.Is(err, contract.ErrInvalidPluginConfig) {

@@ -56,6 +56,8 @@ vi.mock("@leros/store", () => ({
 	getComposerUploadAccept: () => ".txt",
 	isComposerUploadAllowedFile: () => true,
 	isEmptyUploadFile: () => false,
+	hasComposerSkillTokens: () => false,
+	prepareOutgoingComposer: (content: string) => ({ content }),
 	useDAStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			assistants: [],

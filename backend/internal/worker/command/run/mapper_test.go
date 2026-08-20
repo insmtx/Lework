@@ -6,6 +6,7 @@ import (
 
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Leros/backend/types"
 )
 
 func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
@@ -39,6 +40,10 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 				{Role: messaging.MessageRoleUser, Content: "hello"},
 			},
 		},
+		Policy: messaging.TaskPolicy{DisabledPlugins: []types.DisabledPlugin{{
+			Kind: types.DisabledPluginKindSkill,
+			Code: "lework-automation-manager",
+		}}},
 	}
 
 	req := RequestFromWorkerTask(task)
@@ -70,6 +75,9 @@ func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {
 	if req.Assistant.SystemPrompt != "按投标策略师身份执行" {
 		t.Fatalf("assistant system prompt = %q, want persona prompt", req.Assistant.SystemPrompt)
 	}
+	if len(req.Policy.DisabledPlugins) != 1 || req.Policy.DisabledPlugins[0].Code != "lework-automation-manager" {
+		t.Fatalf("disabled plugin policy = %#v", req.Policy.DisabledPlugins)
+	}
 }
 
 func TestReplyToMessageIDsDeduplicatesInputMessageIDs(t *testing.T) {
@@ -85,12 +93,16 @@ func TestReplyToMessageIDsDeduplicatesInputMessageIDs(t *testing.T) {
 }
 
 func TestInputMessagesFromTaskPreservesSenderName(t *testing.T) {
+	firstUserID := uint(1001)
 	got := inputMessagesFromTask([]messaging.ChatMessage{
-		{ID: "1", Role: messaging.MessageRoleUser, Content: "hi", SenderName: "Alice"},
+		{ID: "1", Role: messaging.MessageRoleUser, Content: "hi", SenderUserID: &firstUserID, SenderName: "Alice"},
 		{ID: "2", Role: messaging.MessageRoleAssistant, Content: "hello", SenderName: "Alpha"},
 	})
-	if len(got) != 2 || got[0].SenderName != "Alice" || got[1].SenderName != "Alpha" {
-		t.Fatalf("sender names not preserved: %+v", got)
+	if len(got) != 2 || got[0].ID != "1" || got[0].SenderName != "Alice" || got[1].SenderName != "Alpha" {
+		t.Fatalf("message metadata not preserved: %+v", got)
+	}
+	if got[0].SenderUserID == nil || *got[0].SenderUserID != firstUserID {
+		t.Fatalf("sender user ID not preserved: %+v", got[0].SenderUserID)
 	}
 }
 

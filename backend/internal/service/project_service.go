@@ -344,13 +344,17 @@ func (s *projectService) ListProjectPlugins(ctx context.Context, req *contract.L
 	if project == nil {
 		return nil, errors.New("project not found")
 	}
+	if _, err := s.authorizeProjectPluginAction(ctx, s.db, caller, project, nil, types.ActionProjectView); err != nil {
+		return nil, err
+	}
 	plugins, err := db.ListProjectPlugins(ctx, s.db, caller.OrgID, project.ID, req.Kind)
 	if err != nil {
 		return nil, err
 	}
+	plugins = filterProjectPlugins(plugins, req.Keyword, req.Offset, req.Limit)
 	result := make([]contract.ProjectPlugin, 0, len(plugins))
 	for _, plugin := range plugins {
-		result = append(result, contract.ProjectPlugin{PublicID: plugin.PublicID, Code: plugin.Code, Kind: plugin.Kind, Name: plugin.Name, Description: plugin.Description, Status: plugin.Status, CurrentRevision: plugin.CurrentRevision})
+		result = append(result, contract.ProjectPlugin{PublicID: plugin.PublicID, Code: plugin.Code, Kind: plugin.Kind, Name: plugin.Name, Description: plugin.Description, Status: plugin.Status, Origin: plugin.Origin, CurrentRevision: plugin.CurrentRevision})
 	}
 	if s.displayTranslation == nil {
 		logs.WarnContextf(ctx, "Skill display translation not used: org=%d phase=metadata source_type=%s project=%s use=false reason=service_unavailable",
@@ -407,15 +411,16 @@ func (s *projectService) ListProjectPlugins(ctx context.Context, req *contract.L
 }
 
 // AddProjectPlugin creates one active project plugin binding.
-func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.UpdateProjectPluginRequest) error {
+func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.UpdateProjectPluginRequest) (*contract.ProjectPluginMutationResult, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if req == nil || strings.TrimSpace(req.PublicID) == "" || strings.TrimSpace(req.PluginID) == "" {
-		return errors.New("public_id and plugin_id are required")
+	if err := validateUpdateProjectPluginRequest(req); err != nil {
+		return nil, err
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var result *contract.ProjectPluginMutationResult
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		project, err := db.GetProjectByPublicID(ctx, tx, caller.OrgID, req.PublicID)
 		if err != nil {
 			return err
@@ -423,24 +428,20 @@ func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.Upd
 		if project == nil {
 			return errors.New("project not found")
 		}
-		if err := s.permWithDB(tx).RequireProject(
-			ctx,
-			FromTypeCaller(caller),
-			project,
-			types.ActionProjectUpdate,
-		); err != nil {
-			return err
-		}
-		plugin, err := db.GetPluginByPublicID(ctx, tx, caller.OrgID, req.PluginID)
+		plugin, err := resolveProjectPlugin(ctx, tx, caller.OrgID, req)
 		if err != nil {
 			return err
 		}
-		if plugin == nil || plugin.Status != types.PluginStatusActive {
-			return errors.New("plugin not found")
+		deployment, err := s.authorizeProjectPluginAction(ctx, tx, caller, project, plugin, types.ActionProjectUpdate)
+		if err != nil {
+			return err
 		}
-		if plugin.Kind == "mcp" && plugin.CreatedBy != caller.Uin {
-			return errors.New("plugin not found")
+		if caller.Kind != types.CallerKindWorker {
+			if err := newPluginAccessManager(tx).RequireUse(ctx, caller.OrgID, caller.Uin, plugin); err != nil {
+				return err
+			}
 		}
+		result = newProjectPluginMutationResult(project, plugin, true, false)
 		bound, err := db.ListProjectPlugins(ctx, tx, caller.OrgID, project.ID, plugin.Kind)
 		if err != nil {
 			return err
@@ -453,21 +454,24 @@ func (s *projectService) AddProjectPlugin(ctx context.Context, req *contract.Upd
 		if err := db.CreateProjectPluginBinding(ctx, tx, &types.ProjectPluginBinding{ProjectID: project.ID, PluginID: plugin.ID, Enabled: true, Config: []byte(`{}`), CreatedBy: caller.Uin, UpdatedBy: caller.Uin}); err != nil {
 			return err
 		}
+		result.Changed = true
 		action, payload := projectPluginActivity(plugin, true)
-		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, action, payload, nil)
+		return s.createProjectPluginActivity(ctx, tx, project.PublicID, caller, deployment, action, payload)
 	})
+	return result, err
 }
 
 // RemoveProjectPlugin removes one project plugin binding.
-func (s *projectService) RemoveProjectPlugin(ctx context.Context, req *contract.UpdateProjectPluginRequest) error {
+func (s *projectService) RemoveProjectPlugin(ctx context.Context, req *contract.UpdateProjectPluginRequest) (*contract.ProjectPluginMutationResult, error) {
 	caller, err := requireCallerOrg(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if req == nil || strings.TrimSpace(req.PublicID) == "" || strings.TrimSpace(req.PluginID) == "" {
-		return errors.New("public_id and plugin_id are required")
+	if err := validateUpdateProjectPluginRequest(req); err != nil {
+		return nil, err
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var result *contract.ProjectPluginMutationResult
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		project, err := db.GetProjectByPublicID(ctx, tx, caller.OrgID, req.PublicID)
 		if err != nil {
 			return err
@@ -475,30 +479,192 @@ func (s *projectService) RemoveProjectPlugin(ctx context.Context, req *contract.
 		if project == nil {
 			return errors.New("project not found")
 		}
-		if err := s.permWithDB(tx).RequireProject(
-			ctx,
-			FromTypeCaller(caller),
-			project,
-			types.ActionProjectUpdate,
-		); err != nil {
-			return err
-		}
-		plugin, err := db.GetPluginByPublicID(ctx, tx, caller.OrgID, req.PluginID)
+		plugin, err := resolveProjectPlugin(ctx, tx, caller.OrgID, req)
 		if err != nil {
 			return err
 		}
-		if plugin == nil {
-			return errors.New("plugin not found")
+		deployment, err := s.authorizeProjectPluginAction(ctx, tx, caller, project, plugin, types.ActionProjectUpdate)
+		if err != nil {
+			return err
 		}
+		result = newProjectPluginMutationResult(project, plugin, false, false)
 		removed, err := db.RemoveProjectPluginBinding(ctx, tx, project.ID, plugin.ID)
 		if err != nil {
 			return err
 		}
 		if !removed {
-			return errors.New("project plugin not found")
+			return nil
 		}
+		result.Changed = true
 		action, payload := projectPluginActivity(plugin, false)
-		return s.createProjectActivity(ctx, tx, project.PublicID, caller.Uin, action, payload, nil)
+		return s.createProjectPluginActivity(ctx, tx, project.PublicID, caller, deployment, action, payload)
+	})
+	return result, err
+}
+
+func validateUpdateProjectPluginRequest(req *contract.UpdateProjectPluginRequest) error {
+	if req == nil || strings.TrimSpace(req.PublicID) == "" {
+		return errors.New("public_id is required")
+	}
+	pluginID := strings.TrimSpace(req.PluginID)
+	pluginCode := strings.TrimSpace(req.PluginCode)
+	if pluginID == "" && pluginCode == "" {
+		return errors.New("plugin_id or plugin_code is required")
+	}
+	if pluginID != "" && pluginCode != "" {
+		return errors.New("plugin_id and plugin_code cannot be used together")
+	}
+	if pluginCode != "" && strings.TrimSpace(req.Kind) == "" {
+		return errors.New("kind is required with plugin_code")
+	}
+	return nil
+}
+
+func resolveProjectPlugin(
+	ctx context.Context,
+	database *gorm.DB,
+	orgID uint,
+	req *contract.UpdateProjectPluginRequest,
+) (*types.Plugin, error) {
+	var (
+		plugin *types.Plugin
+		err    error
+	)
+	if pluginID := strings.TrimSpace(req.PluginID); pluginID != "" {
+		plugin, err = db.GetPluginByPublicID(ctx, database, orgID, pluginID)
+	} else {
+		plugin, err = db.GetOrganizationPluginByIdentity(
+			ctx,
+			database,
+			orgID,
+			strings.TrimSpace(req.Kind),
+			strings.TrimSpace(req.PluginCode),
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if plugin == nil || plugin.Status != types.PluginStatusActive {
+		return nil, errors.New("plugin not found")
+	}
+	if kind := strings.TrimSpace(req.Kind); kind != "" && plugin.Kind != kind {
+		return nil, errors.New("plugin not found")
+	}
+	return plugin, nil
+}
+
+func (s *projectService) authorizeProjectPluginAction(
+	ctx context.Context,
+	database *gorm.DB,
+	caller *types.Caller,
+	project *types.Project,
+	plugin *types.Plugin,
+	action types.Action,
+) (*types.WorkerDeployment, error) {
+	if caller.Kind != types.CallerKindWorker {
+		return nil, s.permWithDB(database).RequireProject(ctx, FromTypeCaller(caller), project, action)
+	}
+	if caller.WorkerID == 0 {
+		return nil, errors.New("permission denied: worker identity is required")
+	}
+	deployment, err := db.GetWorkerDeploymentByOrgWorkerID(ctx, database, caller.OrgID, caller.WorkerID)
+	if err != nil {
+		return nil, err
+	}
+	if deployment == nil || deployment.DigitalAssistantID == 0 {
+		return nil, errors.New("permission denied: worker deployment not found")
+	}
+	bound, err := db.IsProjectAssistantBound(ctx, database, caller.OrgID, project.ID, deployment.DigitalAssistantID)
+	if err != nil {
+		return nil, err
+	}
+	if !bound {
+		return nil, errors.New("permission denied: worker is not bound to project")
+	}
+	if action == types.ActionProjectUpdate && (plugin == nil || plugin.Kind != "skill") {
+		return nil, errors.New("permission denied: worker may only manage project skills")
+	}
+	return deployment, nil
+}
+
+func newProjectPluginMutationResult(
+	project *types.Project,
+	plugin *types.Plugin,
+	associated, changed bool,
+) *contract.ProjectPluginMutationResult {
+	return &contract.ProjectPluginMutationResult{
+		ProjectID:  project.PublicID,
+		PluginID:   plugin.PublicID,
+		PluginCode: plugin.Code,
+		Kind:       plugin.Kind,
+		Associated: associated,
+		Changed:    changed,
+	}
+}
+
+func filterProjectPlugins(plugins []types.Plugin, keyword string, offset, limit int) []types.Plugin {
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword != "" {
+		filtered := make([]types.Plugin, 0, len(plugins))
+		for _, plugin := range plugins {
+			if strings.Contains(strings.ToLower(plugin.Code), keyword) ||
+				strings.Contains(strings.ToLower(plugin.Name), keyword) ||
+				strings.Contains(strings.ToLower(plugin.Description), keyword) {
+				filtered = append(filtered, plugin)
+			}
+		}
+		plugins = filtered
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(plugins) {
+		return []types.Plugin{}
+	}
+	plugins = plugins[offset:]
+	if limit > 0 && limit < len(plugins) {
+		plugins = plugins[:limit]
+	}
+	return plugins
+}
+
+func (s *projectService) createProjectPluginActivity(
+	ctx context.Context,
+	tx *gorm.DB,
+	projectID string,
+	caller *types.Caller,
+	deployment *types.WorkerDeployment,
+	actionType types.ProjectActivityAction,
+	payload types.ProjectActivityPayload,
+) error {
+	operatorID := ""
+	if caller.Kind == types.CallerKindWorker {
+		if deployment == nil {
+			return errors.New("worker deployment is required")
+		}
+		assistant, err := db.GetDigitalAssistantByID(ctx, tx, deployment.DigitalAssistantID)
+		if err != nil {
+			return err
+		}
+		if assistant == nil || assistant.OrgID != caller.OrgID || strings.TrimSpace(assistant.PublicID) == "" {
+			return errors.New("worker assistant not found")
+		}
+		operatorID = assistant.PublicID
+	} else {
+		var err error
+		operatorID, err = s.publicIDForUser(ctx, caller.Uin)
+		if err != nil {
+			return err
+		}
+	}
+	payload = normalizeProjectActivityPayload(payload)
+	return db.CreateProjectActivity(ctx, tx, &types.ProjectActivity{
+		ProjectID:  projectID,
+		OperatorID: operatorID,
+		ActionType: actionType,
+		Payload:    payload,
+		Version:    1,
+		CreatedAt:  time.Now(),
 	})
 }
 

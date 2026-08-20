@@ -479,10 +479,17 @@ export type BackendAutomationIntervalConfig = {
 	interval_minutes?: number;
 	interval_unit?: string;
 	interval_seconds?: number;
-	anchor_at?: string;
 };
 
 export type BackendAutomationScheduleFormConfig = {
+	mode: string;
+	calendar?: BackendAutomationCalendarConfig;
+	interval?: BackendAutomationIntervalConfig;
+	timezone?: string;
+};
+
+/** 创建/更新自动化的输入结构；不包含旧版 anchor_at。 */
+export type BackendAutomationScheduleInput = {
 	mode: string;
 	calendar?: BackendAutomationCalendarConfig;
 	interval?: BackendAutomationIntervalConfig;
@@ -495,6 +502,7 @@ export type BackendAutomationSpec = {
 	expression?: string;
 	month_day_overflow?: string;
 	anchor_at?: string;
+	origin_at?: string;
 	interval_seconds?: number;
 	timezone: string;
 };

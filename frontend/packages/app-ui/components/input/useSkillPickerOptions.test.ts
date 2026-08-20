@@ -164,6 +164,31 @@ describe("Skill picker option merging", () => {
 		expect(install).not.toHaveBeenCalled();
 	});
 
+	it("project chat scope loads only bound and builtin Skills", async () => {
+		const organization = vi.spyOn(pluginApi, "list");
+		const marketplace = vi.spyOn(officialPluginMarketplaceApi, "list");
+		vi.spyOn(pluginApi, "listProject").mockResolvedValue({
+			data: { code: 0, message: "success", data: [plugin("project", "Project")] },
+		} as Awaited<ReturnType<typeof pluginApi.listProject>>);
+		vi.spyOn(pluginApi, "listBuiltinSkills").mockResolvedValue({
+			data: {
+				code: 0,
+				message: "success",
+				data: { plugins: [plugin("builtin", "Builtin", "builtin_worker")] },
+			},
+		} as Awaited<ReturnType<typeof pluginApi.listBuiltinSkills>>);
+
+		const result = await loadSkillPickerOptions({
+			projectId: "project_1",
+			includeBuiltin: true,
+			scope: "project",
+		});
+
+		expect(result.options.map((item) => item.code)).toEqual(["project", "builtin"]);
+		expect(organization).not.toHaveBeenCalled();
+		expect(marketplace).not.toHaveBeenCalled();
+	});
+
 	it("loads Skills after authentication enables the picker", async () => {
 		const organization = vi.spyOn(pluginApi, "list").mockResolvedValue({
 			data: {

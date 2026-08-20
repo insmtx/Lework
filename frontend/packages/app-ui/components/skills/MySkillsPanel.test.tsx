@@ -53,15 +53,29 @@ describe("MySkillsPanel", () => {
 		});
 	});
 
-	it("requests only organization-owned Skills without marketplace lineage", async () => {
-		render(<MySkillsPanel />);
+	it("requests shared Skills without marketplace lineage for the 组织共享 tab", async () => {
+		render(<MySkillsPanel relation="shared" excludeMarketplaceBased />);
 
 		expect(await screen.findByText("Custom")).toBeInTheDocument();
 		await waitFor(() =>
 			expect(mockPluginList).toHaveBeenCalledWith({
 				kind: "skill",
 				status: "active",
+				relation: "shared",
 				exclude_marketplace_based: true,
+			}),
+		);
+	});
+
+	it("uses the owner relation for the 我的 tab", async () => {
+		render(<MySkillsPanel relation="owner" emptyMessage="你还没有拥有的技能" />);
+
+		expect(await screen.findByText("Custom")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(mockPluginList).toHaveBeenCalledWith({
+				kind: "skill",
+				status: "active",
+				relation: "owner",
 			}),
 		);
 	});

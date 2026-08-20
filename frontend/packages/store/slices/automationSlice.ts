@@ -3,6 +3,7 @@ import type {
 	BackendAutomation,
 	BackendAutomationExecution,
 	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleInput,
 } from "../api/types";
 import type { SliceCreator } from "../types";
 import { flattenActions } from "../utils";
@@ -200,7 +201,7 @@ export class AutomationSliceImpl {
 		instruction?: string;
 		enabled?: boolean;
 		schedule_mode: string;
-		schedule: BackendAutomationScheduleFormConfig;
+		schedule: BackendAutomationScheduleInput;
 		timezone?: string;
 		project_public_id?: string;
 	}): Promise<{ ok: boolean; status?: number }> => {
@@ -229,7 +230,7 @@ export class AutomationSliceImpl {
 			instruction?: string;
 			enabled?: boolean;
 			schedule_mode?: string;
-			schedule?: BackendAutomationScheduleFormConfig;
+			schedule?: BackendAutomationScheduleInput;
 			timezone?: string;
 			project_public_id?: string;
 		},

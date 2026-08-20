@@ -9,15 +9,18 @@ import { useSkillPickerOptions } from "./useSkillPickerOptions";
 export function useComposerSkillOptions(
 	projectId: string | null | undefined,
 	enabled = true,
+	scope: "all" | "project" = "all",
 ): {
 	skillOptions: ComposerSkillOption[] | undefined;
 	skillsLoading: boolean;
+	reloadSkillOptions: () => Promise<void>;
 } {
-	const { skillOptions, skillsLoading } = useSkillPickerOptions({
+	const { skillOptions, skillsLoading, reloadSkillOptions } = useSkillPickerOptions({
 		projectId,
 		includeBuiltin: true,
+		scope,
 		enabled,
 	});
 
-	return { skillOptions, skillsLoading };
+	return { skillOptions, skillsLoading, reloadSkillOptions };
 }

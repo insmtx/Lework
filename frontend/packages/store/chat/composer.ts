@@ -2,7 +2,7 @@
  * 对话输入框（composer）草稿与附件上传。
  *
  * 可以做：维护 inputText / inputAttachments / executionMode / 焦点与模型选择；
- * 本地附件与项目文件/文件夹上传、skill 指令插入、清空草稿并释放 blob URL。
+ * 本地附件与项目文件/文件夹上传、清空草稿并释放 blob URL。
  * 不可以做：发消息、开 SSE、改 messagesMap / isGenerating。
  */
 import { projectFileApi } from "../api/projectFileApi";
@@ -34,55 +34,8 @@ export type ComposerDeps = {
 	set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void;
 };
 
-/** 转义正则特殊字符，供 skill 指令 token 匹配使用。 */
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** 规范化 skill 名：去空白并去掉前导 `/`。 */
-function normalizeSkillDirectiveName(skillName: string): string {
-	return skillName.trim().replace(/^\/+/, "");
-}
-
 /**
- * 在输入框文本前追加 `/{skill}` 指令；已存在则只保证末尾有空格，避免重复插入。
- */
-function appendSkillDirectiveToInput(inputText: string, skillName: string): string {
-	const normalizedName = normalizeSkillDirectiveName(skillName);
-	if (!normalizedName) return inputText;
-
-	const token = `/${normalizedName}`;
-	const tokenPattern = new RegExp(`(^|\\s)${escapeRegExp(token)}(?=\\s|$)`);
-	const trimmed = inputText.trimStart();
-	if (tokenPattern.test(trimmed)) {
-		return trimmed.endsWith(" ") ? trimmed : `${trimmed} `;
-	}
-
-	const directivePrefixMatch = trimmed.match(/^((?:\/[^\s/]+\s+)*)/);
-	const directivePrefix = directivePrefixMatch?.[0] ?? "";
-	const rest = trimmed.slice(directivePrefix.length);
-	const nextDirectivePrefix = directivePrefix
-		? `${directivePrefix.trimEnd()} ${token} `
-		: `${token} `;
-
-	return `${nextDirectivePrefix}${rest}`;
-}
-
-/**
- * 用单个 `/{skill}` 替换输入框开头的全部 skill 指令前缀（切换 skill 时用）。
- */
-function replaceSkillDirectiveInInput(inputText: string, skillName: string): string {
-	const normalizedName = normalizeSkillDirectiveName(skillName);
-	if (!normalizedName) return inputText;
-
-	const token = `/${normalizedName}`;
-	const trimmed = inputText.trimStart();
-	const rest = trimmed.replace(/^(?:\/[^\s/]+\s+)*/, "");
-	return rest ? `${token} ${rest}` : `${token} `;
-}
-
-/**
- * 管理输入草稿、附件上传与 skill 指令，不触碰对话流状态机。
+ * 管理输入草稿与附件上传，不触碰对话流状态机。
  */
 export class Composer {
 	readonly #deps: ComposerDeps;
@@ -108,20 +61,6 @@ export class Composer {
 		const state = this.#deps.get();
 		revokeAttachmentObjectUrls(state.inputAttachments);
 		this.#deps.set({ inputText: "", inputAttachments: [] });
-	};
-
-	/** 在输入框追加 `/{skill}` 指令（已存在则不重复）。 */
-	appendSkillDirective = (skillName: string) => {
-		this.#deps.set((state) => ({
-			inputText: appendSkillDirectiveToInput(state.inputText, skillName),
-		}));
-	};
-
-	/** 用单个 skill 指令替换输入框开头的全部 skill 前缀。 */
-	replaceSkillDirective = (skillName: string) => {
-		this.#deps.set((state) => ({
-			inputText: replaceSkillDirectiveInInput(state.inputText, skillName),
-		}));
 	};
 
 	/** 添加仅本地预览的附件（未走项目上传接口，如纯 chat）。 */

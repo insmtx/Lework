@@ -8,9 +8,25 @@ describe("buildSkillWorkbenchPrefill", () => {
 			tokens: [
 				{
 					kind: "skill",
+					id: "demo-code",
 					label: "/demo-code",
 					start: 0,
 					end: 10,
+				},
+			],
+		});
+	});
+
+	it("uses the display name in content and keeps the Skill code on the token", () => {
+		expect(buildSkillWorkbenchPrefill("demo-code", undefined, "演示技能")).toEqual({
+			value: "/演示技能 ",
+			tokens: [
+				{
+					kind: "skill",
+					id: "demo-code",
+					label: "/演示技能",
+					start: 0,
+					end: 5,
 				},
 			],
 		});

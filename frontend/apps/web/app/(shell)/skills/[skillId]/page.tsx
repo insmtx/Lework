@@ -1,7 +1,7 @@
 "use client";
 
-import { SkillDetailView } from "@leros/app-ui";
-import { useChatStore, useLayoutStore } from "@leros/store";
+import { SkillDetailView, buildSkillWorkbenchPrefill } from "@leros/app-ui";
+import { useLayoutStore } from "@leros/store";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -10,26 +10,33 @@ export default function SkillDetailPage() {
 	const params = useParams<{ skillId: string }>();
 	const router = useRouter();
 	const skillId = params.skillId;
-	const replaceSkillDirective = useChatStore((s) => s.replaceSkillDirective);
-	const { activeProjectId, projects, setProjectRoute } = useLayoutStore((s) => ({
-		activeProjectId: s.activeProjectId,
-		projects: s.projects,
-		setProjectRoute: s.setProjectRoute,
-	}));
+	const { activeProjectId, projects, setProjectRoute, setProjectComposerPrefill } = useLayoutStore(
+		(s) => ({
+			activeProjectId: s.activeProjectId,
+			projects: s.projects,
+			setProjectRoute: s.setProjectRoute,
+			setProjectComposerPrefill: s.setProjectComposerPrefill,
+		}),
+	);
 
 	const handleUse = useCallback(
-		(nextSkillId: string) => {
+		(nextSkillId: string, displayLabel?: string) => {
 			const targetProjectId = activeProjectId ?? projects[0]?.id;
 			if (!targetProjectId) {
 				toast.error("请先创建或选择项目");
 				return;
 			}
 
-			replaceSkillDirective(nextSkillId);
+			const prefill = buildSkillWorkbenchPrefill(nextSkillId, undefined, displayLabel);
+			setProjectComposerPrefill({
+				projectId: targetProjectId,
+				value: prefill.value,
+				tokens: prefill.tokens,
+			});
 			setProjectRoute(targetProjectId, "chat");
 			router.push(`/projects/${targetProjectId}`);
 		},
-		[activeProjectId, projects, replaceSkillDirective, router, setProjectRoute],
+		[activeProjectId, projects, router, setProjectComposerPrefill, setProjectRoute],
 	);
 
 	return (

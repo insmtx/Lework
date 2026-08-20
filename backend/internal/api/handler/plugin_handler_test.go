@@ -71,8 +71,19 @@ func (*pluginHandlerTestService) DeletePlugin(context.Context, uint, uint, strin
 	return &contract.DeletePluginResponse{Operation: "archived"}, nil
 }
 
-func (*pluginHandlerTestService) AddSkillPlugin(context.Context, uint, uint, *contract.AddSkillPluginRequest) error {
-	return nil
+func (*pluginHandlerTestService) GetPluginPermissions(context.Context, uint, uint, string) (*contract.PluginPermissionSettingsView, error) {
+	return &contract.PluginPermissionSettingsView{}, nil
+}
+
+func (*pluginHandlerTestService) UpdatePluginPermissions(context.Context, uint, uint, string, *contract.UpdatePluginPermissionsRequest) (*contract.PluginPermissionSettingsView, error) {
+	return &contract.PluginPermissionSettingsView{}, nil
+}
+
+func (*pluginHandlerTestService) AddSkillPlugin(context.Context, uint, uint, *contract.AddSkillPluginRequest) (*contract.AddSkillPluginResponse, error) {
+	return &contract.AddSkillPluginResponse{
+		Operation: "created",
+		Plugin:    contract.PluginView{PublicID: "plugin_skill", Code: "skill", Kind: "skill"},
+	}, nil
 }
 
 func (s *pluginHandlerTestService) AddMCPPlugin(

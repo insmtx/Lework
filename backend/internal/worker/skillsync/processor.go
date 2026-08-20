@@ -54,13 +54,14 @@ type Processor struct {
 	httpClient *http.Client
 }
 
-// RunContext carries only the business identifiers needed for Skill publication.
+// RunContext carries publication identifiers and the task Skill view to import.
 type RunContext struct {
 	RunID               string
 	ProjectID           uint
 	ActorUIN            uint
 	PublishChanges      bool
 	LocalOnlySkillCodes []string
+	TaskSkillDir        string
 }
 
 // NewProcessor creates a worker Skill post-run processor.
@@ -92,10 +93,23 @@ func NewProcessor(
 
 // Process restores local-only Skills and publishes eligible successful-Run changes.
 func (p *Processor) Process(ctx context.Context, run RunContext) error {
-	if p == nil || strings.TrimSpace(run.RunID) == "" {
+	if p == nil || p.repository == nil || strings.TrimSpace(run.RunID) == "" {
 		return fmt.Errorf("Skill post-run context is required")
 	}
-	changes, deleted, err := p.repository.Changes(ctx)
+	lock := p.repository.repositoryLock()
+	lock.Lock()
+	defer lock.Unlock()
+	defer func() {
+		p.repository.importTaskSkillDirs(ctx, run.TaskSkillDir)
+		if err := p.repository.restoreAll(context.WithoutCancel(ctx)); err != nil {
+			logs.WarnContextf(ctx, "restore Worker Skill repository after Run failed: %v", err)
+		}
+	}()
+	if err := p.repository.ensure(ctx); err != nil {
+		return err
+	}
+	p.repository.importTaskSkillDirs(ctx, run.TaskSkillDir)
+	changes, deleted, err := p.repository.changes(ctx)
 	if err != nil {
 		return err
 	}
@@ -106,7 +120,7 @@ func (p *Processor) Process(ctx context.Context, run RunContext) error {
 			localOnly[code] = struct{}{}
 		}
 	}
-	manifest, manifestErr := p.repository.CommittedInstallManifest(ctx)
+	manifest, manifestErr := p.repository.committedInstallManifest(ctx)
 	if manifestErr == nil {
 		for code, record := range manifest.Records {
 			if record.SyncPolicy == skillstate.SyncPolicyLocalOnly {
@@ -122,14 +136,14 @@ func (p *Processor) Process(ctx context.Context, run RunContext) error {
 		if !isLocalOnly && !run.PublishChanges {
 			continue
 		}
-		if err := p.repository.Restore(ctx, code); err != nil {
+		if err := p.repository.restore(ctx, code); err != nil {
 			logs.WarnContextf(ctx, "restore deleted Skill %q: %v", code, err)
 		}
 	}
 	publishable := make([]Change, 0, len(changes))
 	for _, change := range changes {
 		if _, isLocalOnly := localOnly[change.Code]; isLocalOnly {
-			if err := p.repository.Restore(ctx, change.Code); err != nil {
+			if err := p.repository.restore(ctx, change.Code); err != nil {
 				logs.WarnContextf(ctx, "restore local-only Skill %q: %v", change.Code, err)
 			}
 			continue
@@ -221,7 +235,7 @@ func (p *Processor) publishChange(
 	if err := p.publisher.Publish(ctx, subject, event); err != nil {
 		return fmt.Errorf("publish Skill package event: %w", err)
 	}
-	if err := p.repository.Restore(ctx, change.Code); err != nil {
+	if err := p.repository.restore(ctx, change.Code); err != nil {
 		return fmt.Errorf("restore published Skill: %w", err)
 	}
 	return nil

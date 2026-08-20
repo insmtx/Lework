@@ -404,7 +404,7 @@ export function ProjectTaskPickerField({
 		<div className={className}>
 			<div className="mb-2 text-sm font-semibold text-slate-800">
 				{allowSelectTask ? "选择项目 / 任务" : "选择项目 / 新建任务"}{" "}
-				<span className="text-[var(--leros-primary)]">*</span>
+				<span className="text-red-500">*</span>
 			</div>
 			<Popover
 				open={open}

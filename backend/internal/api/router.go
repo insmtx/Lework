@@ -92,6 +92,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	pluginService := service.NewPluginServiceWithAPIKeyIssuer(
 		db,
 		edition.APIKeyIssuer(),
+		userRepo,
 		displayTranslation,
 	)
 

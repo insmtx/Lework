@@ -3,6 +3,7 @@ package agentrun
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -207,10 +208,14 @@ var maxMultimodalInlineBytes = 100 * 1024 * 1024 // 100MiB
 // multimodalAttachmentsForRuntime 从输入附件中筛出多模态文件（仅图片）并下载其字节，
 // 用于 runtime 的多模态输入。失败的下载跳过并仅告警（非致命）。
 // 返回的每个 agent.Attachment 携带 MIME 与原始文件名 Name；是否内联由 Data 决定。
+// 成功内联的字节会同步回填到源 attachments[i].Data，供 BuildAttachmentText 判定
+// 该图片是否真正内联成功：内联成功的图片提示"无需 read"，失败的图片降级为按路径读取，
+// 避免模型在既无像素又无路径的情况下凭空脑补（文不对题）。
 // PDF/音视频已退出多模态管线：不在此下载内联，统一走 BuildAttachmentText 的按路径读取。
 func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrundomain.Attachment) []agent.Attachment {
 	var result []agent.Attachment
-	for _, att := range attachments {
+	for i := range attachments {
+		att := &attachments[i]
 		if !agentrundomain.IsVisualMime(att.MimeType) {
 			continue
 		}
@@ -247,6 +252,8 @@ func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrun
 				att.Name, maxMultimodalInlineBytes)
 		} else {
 			a.Data = data
+			// 回填源附件，标记内联成功，供 BuildAttachmentText 与 opencode 分流判定。
+			att.Data = data
 		}
 		result = append(result, a)
 	}
@@ -259,8 +266,23 @@ func multimodalAttachmentsForRuntime(ctx context.Context, attachments []agentrun
 // 此处预先缩放到阈值内，规避该缺陷并减小传输体积。
 const maxMultimodalSide = 1600
 
-// downscaleMultimodalImage 将图片按最长边缩放到 maxMultimodalSide 以内（等比），
-// 并统一重新编码为 JPEG。解码失败或无需缩放时返回 nil（不修改原数据）。
+// maxMultimodalBase64Bytes 内联多模态图片 base64 编码后的字节数阈值。
+// 对齐 opencode Image.normalize 的 MAX_BASE64_BYTES（5MiB）：opencode 对
+// base64 超过该阈值的图片同样触发内部重编码路径，即使像素尺寸未超过
+// maxMultimodalSide 也会导致 SSE 不推送文本。仅靠像素阈值无法覆盖此类图片，
+// 故按字节维度预先重编码为 JPEG 压到阈值内。
+const maxMultimodalBase64Bytes = 5 * 1024 * 1024
+
+// jpegQualityLadder 是 base64 字节超限时按降序尝试的 JPEG 质量阶梯。
+// 与 opencode 的 JPEG_QUALITIES 思路一致：优先画质，逐步降质压到阈值内。
+var jpegQualityLadder = []int{85, 70, 55, 40}
+
+// downscaleMultimodalImage 将图片归一化到 opencode 不会触发内部重编码的范围内：
+//   - 像素维度：最长边缩放到 maxMultimodalSide 以内（等比）；
+//   - 字节维度：base64 超过 maxMultimodalBase64Bytes 时按质量阶梯重新编码为 JPEG。
+//
+// 解码失败时返回 error（不修改原数据）；无需任何处理时返回 nil（调用方沿用原数据）；
+// 处理后统一返回 "image/jpeg"。
 func downscaleMultimodalImage(data []byte, mime string) ([]byte, string, error) {
 	src, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -271,31 +293,63 @@ func downscaleMultimodalImage(data []byte, mime string) ([]byte, string, error) 
 	if w <= 0 || h <= 0 {
 		return nil, "", fmt.Errorf("invalid image bounds %dx%d", w, h)
 	}
-	if w <= maxMultimodalSide && h <= maxMultimodalSide {
-		// 已满足尺寸要求，无需缩放（保持原 MIME 不变）
+
+	// 目标像素尺寸：长边超过阈值时等比缩到 maxMultimodalSide。
+	sw, sh := w, h
+	if w > maxMultimodalSide || h > maxMultimodalSide {
+		if w > h {
+			sh = h * maxMultimodalSide / w
+			sw = maxMultimodalSide
+		} else {
+			sw = w * maxMultimodalSide / h
+			sh = maxMultimodalSide
+		}
+		if sw < 1 {
+			sw = 1
+		}
+		if sh < 1 {
+			sh = 1
+		}
+	}
+
+	// 预处理阶段仅做像素归一化（含解码重采样）；只有当像素或字节超限时才进入编码。
+	needEncode := sw != w || sh != h || base64Len(data) > maxMultimodalBase64Bytes
+	if !needEncode {
+		// 尺寸与字节均达标，无需处理（保持原 MIME 不变）
 		return nil, strings.TrimSpace(mime), nil
 	}
-	sw, sh := w, h
-	if w > h {
-		sh = h * maxMultimodalSide / w
-		sw = maxMultimodalSide
-	} else {
-		sw = w * maxMultimodalSide / h
-		sh = maxMultimodalSide
+
+	srcImg := src
+	if sw != w || sh != h {
+		dst := image.NewRGBA(image.Rect(0, 0, sw, sh))
+		draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Over, nil)
+		srcImg = dst
 	}
-	if sw < 1 {
-		sw = 1
+
+	// 优先以中等质量编码，若字节仍超限则按质量阶梯逐级降质。
+	for _, quality := range jpegQualityLadder {
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, srcImg, &jpeg.Options{Quality: quality}); err != nil {
+			return nil, "", err
+		}
+		if base64Len(buf.Bytes()) <= maxMultimodalBase64Bytes {
+			return buf.Bytes(), "image/jpeg", nil
+		}
 	}
-	if sh < 1 {
-		sh = 1
-	}
-	dst := image.NewRGBA(image.Rect(0, 0, sw, sh))
-	draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Over, nil)
+
+	// 阶梯降质仍无法压到阈值内：返回最低质量结果，避免内联体积无界膨胀。
+	// 此时 opencode 可能仍会触发重编码，但已是最优可内联结果。
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+	if err := jpeg.Encode(&buf, srcImg, &jpeg.Options{Quality: jpegQualityLadder[len(jpegQualityLadder)-1]}); err != nil {
 		return nil, "", err
 	}
 	return buf.Bytes(), "image/jpeg", nil
+}
+
+// base64Len 返回 data 的 base64 编码（标准无换行）后的字符串长度。
+// 与 opencode 的 Buffer.byteLength(base64, "utf8") 对齐：均按 base64 文本长度计。
+func base64Len(data []byte) int {
+	return base64.StdEncoding.EncodedLen(len(data))
 }
 
 func downloadAttachmentBytes(ctx context.Context, url string) ([]byte, error) {
@@ -416,6 +470,7 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 
 	// Clone so we don't modify the original request.
 	cloned := agentrundomain.CloneRequest(req)
+	applyDisabledPluginPolicy(ctx, cloned)
 
 	// 1. Validate model config.
 	if err := validateModelConfig(cloned); err != nil {
@@ -474,6 +529,12 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 		p.attachmentIng.IngestAttachments(ctx, cloned)
 	}
 
+	// 6.5. Download multimodal (image) bytes and backfill inline state before
+	// building the prompt, so BuildAttachmentText can correctly distinguish
+	// successfully-inlined images (no read hint) from failed/large ones (read via
+	// uploads path) and avoid prompting the model to hallucinate.
+	attachments := multimodalAttachmentsForRuntime(ctx, cloned.Input.Attachments)
+
 	// 7. Build user prompt from the prepared clone so skill rewrites are retained.
 	prompt := agentrundomain.BuildUserInput(cloned)
 	if attachmentText := agentrundomain.BuildAttachmentText(cloned.Input.Attachments); attachmentText != "" {
@@ -526,8 +587,6 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 		runtimeEnv = append(runtimeEnv, agent.RunSkillsDirEnvVar+"="+workspace.SkillDir)
 	}
 	sort.Strings(runtimeEnv)
-
-	attachments := multimodalAttachmentsForRuntime(ctx, cloned.Input.Attachments)
 
 	return &PreparedRun{
 		Request: req,

@@ -268,6 +268,9 @@ func TestProjectSkillListUsesOrganizationDisplayTranslation(t *testing.T) {
 	if plugins[0].DisplayName != "中文技能" || plugins[0].Description != "中文展示描述" {
 		t.Fatalf("translated project Skill view = %#v", plugins[0])
 	}
+	if plugins[0].Origin != "org" {
+		t.Fatalf("project Skill origin = %q, want org", plugins[0].Origin)
+	}
 }
 
 func containsTranslationRevision(rows []types.PluginTranslation, revisionID uint) bool {

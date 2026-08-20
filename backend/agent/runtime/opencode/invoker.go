@@ -239,6 +239,17 @@ func (st *runState) sendAndProcessMessage(ctx context.Context, req cli.Invocatio
 	}
 	st.mu.Lock()
 	st.messageID = msgResp.Info.ID
+	// 关键修复：从同步响应体的 parts 中提取 assistant 的完整文本作为最终兜底。
+	// 此前依赖 SSE 的 message.part.updated(text) 事件回填 lastTextEnded，但该事件
+	// 与 SendMessage 同步返回（msgDone）之间存在竞态——msgDone 触发后 cancelSSE
+	// 可能丢弃尚未消费的 assistant text part 事件，导致 lastTextEnded 停留在用户
+	// 输入（回声误判）或为空。同步响应体里已携带有完整 assistant 文本，直接采用，
+	// 从根本上规避 SSE 竞态。
+	if text := assistantTextFromParts(msgResp.Parts); text != "" {
+		st.lastTextEnded = text
+		logs.Infof("[opencode][forensic] lastTextEnded from sync response: execution_id=%s session_id=%s message_id=%s text_len=%d",
+			req.ExecutionID, st.sessionID, msgResp.Info.ID, len(text))
+	}
 	st.mu.Unlock()
 	// FORENSIC: 同步 message 响应返回的事件时序
 	logs.Infof("[opencode][forensic] SendMessage sync returned: execution_id=%s session_id=%s message_id=%s role=%s elapsed=%s",
@@ -253,6 +264,21 @@ func openCodeAgent(mode agent.ExecutionMode) string {
 		return "plan"
 	}
 	return "build"
+}
+
+// assistantTextFromParts 从消息响应的 parts 中提取首个非空 text part 的完整文本。
+// opencode /session/:id/message 同步响应体里包含最后一轮 assistant 的完整文本；
+// 此处作为 lastTextEnded 的可靠来源，规避 SSE 事件竞态丢失的风险。
+func assistantTextFromParts(parts []messagePartResp) string {
+	for _, p := range parts {
+		if p.Type != "text" {
+			continue
+		}
+		if text := strings.TrimSpace(p.Text); text != "" {
+			return p.Text
+		}
+	}
+	return ""
 }
 
 // buildMessageParts 组装用户消息的 parts。纯文本始终作为第一个 text part，
@@ -465,9 +491,11 @@ complete:
 	// 是用户输入（prompt）的逐字回声，而非真实回复，视为本次调用失败以便上层
 	// 触发重试，避免把无意义的回声当作 assistant 回复落库。
 	if strings.HasPrefix(strings.TrimSpace(finalText), "【用户问题】") {
-		errMsg := "opencode returned the user prompt as its answer (no assistant text streamed)"
-		logs.Warnf("[opencode][echo-guard] blocked echo reply: execution_id=%s session_id=%s message_id=%s output_len=%d err=%s",
-			st.executionID, st.sessionID, st.messageID, len(finalText), errMsg)
+		// 温和的中文用户提示，不透露底层引擎(opencode)与内部技术细节。
+		// 日志仍保留英文技术描述便于排障。
+		errMsg := "抱歉，本次未生成有效回复，请稍后重试或换个提问方式。"
+		logs.Warnf("[opencode][echo-guard] blocked echo reply (opencode returned the user prompt as its answer, no assistant text streamed): execution_id=%s session_id=%s message_id=%s output_len=%d",
+			st.executionID, st.sessionID, st.messageID, len(finalText))
 		st.resultChan <- cli.InvocationResult{
 			ProviderSessionID: st.sessionID,
 			Err:               fmt.Errorf("%s", errMsg),

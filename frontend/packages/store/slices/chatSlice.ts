@@ -406,16 +406,6 @@ export class ChatActionImpl {
 		this.#composer.clearComposerInput();
 	};
 
-	/** 追加 skill 指令（实现见 Composer）。 */
-	appendSkillDirective = (skillName: string) => {
-		this.#composer.appendSkillDirective(skillName);
-	};
-
-	/** 替换 skill 指令前缀（实现见 Composer）。 */
-	replaceSkillDirective = (skillName: string) => {
-		this.#composer.replaceSkillDirective(skillName);
-	};
-
 	/** 添加本地附件（实现见 Composer）。 */
 	addAttachment = (file: File) => {
 		this.#composer.addAttachment(file);

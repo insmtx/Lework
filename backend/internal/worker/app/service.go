@@ -243,6 +243,7 @@ func (a *skillPostRunAdapter) Process(
 		ActorUIN:            run.Request.BusinessKeys.UinPK,
 		PublishChanges:      result.Status == agentrundomain.RunStatusCompleted,
 		LocalOnlySkillCodes: agentrun.ConnectorSkillCodes(run.Request.Plugins),
+		TaskSkillDir:        run.Workspace.SkillDir,
 	})
 }
 

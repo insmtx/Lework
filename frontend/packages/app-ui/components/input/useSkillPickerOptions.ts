@@ -21,6 +21,7 @@ type SkillPickerSourceResult<T> = {
 type SkillPickerLoadParams = {
 	projectId?: string | null;
 	includeBuiltin: boolean;
+	scope?: "all" | "project";
 };
 
 type UseSkillPickerOptionsParams = SkillPickerLoadParams & {
@@ -76,6 +77,7 @@ export function marketplaceToSkillOption(
 export async function loadSkillPickerOptions({
 	projectId,
 	includeBuiltin,
+	scope = "all",
 }: SkillPickerLoadParams): Promise<{
 	options: PluginComposerOption[];
 	error: string | null;
@@ -85,16 +87,22 @@ export async function loadSkillPickerOptions({
 				.listProject({ public_id: projectId, kind: "skill" })
 				.then((response) => (response.data.code === 0 ? response.data.data : []))
 		: Promise.resolve([]);
-	const organizationRequest = pluginApi
-		.list({ kind: "skill", status: "active", limit: SKILL_PICKER_LIMIT })
-		.then((response) =>
-			response.data.code === 0 ? (response.data.data.plugins ?? []) : Promise.reject(),
-		);
-	const marketplaceRequest = officialPluginMarketplaceApi
-		.list({ kind: "skill", limit: SKILL_PICKER_LIMIT })
-		.then((response) =>
-			response.data.code === 0 ? (response.data.data.items ?? []) : Promise.reject(),
-		);
+	const organizationRequest =
+		scope === "project"
+			? Promise.resolve([] as PluginListItem[])
+			: pluginApi
+					.list({ kind: "skill", status: "active", limit: SKILL_PICKER_LIMIT })
+					.then((response) =>
+						response.data.code === 0 ? (response.data.data.plugins ?? []) : Promise.reject(),
+					);
+	const marketplaceRequest =
+		scope === "project"
+			? Promise.resolve([] as OfficialPluginMarketplaceItem[])
+			: officialPluginMarketplaceApi
+					.list({ kind: "skill", limit: SKILL_PICKER_LIMIT })
+					.then((response) =>
+						response.data.code === 0 ? (response.data.data.items ?? []) : Promise.reject(),
+					);
 	const builtinRequest: Promise<PluginListItem[]> = includeBuiltin
 		? pluginApi
 				.listBuiltinSkills()
@@ -109,15 +117,22 @@ export async function loadSkillPickerOptions({
 		loadSource(marketplaceRequest),
 		loadSource(builtinRequest),
 	]);
-	const requestedGeneralSources = includeBuiltin
-		? [organization, marketplace, builtin]
-		: [organization, marketplace];
+	const requestedGeneralSources =
+		scope === "project"
+			? includeBuiltin
+				? [project, builtin]
+				: [project]
+			: includeBuiltin
+				? [organization, marketplace, builtin]
+				: [organization, marketplace];
 
 	return {
 		options: mergeSkillOptions(
 			project.items.map((item) => pluginToComposerOption(item, "project")),
-			organization.items.map((item) => pluginToComposerOption(item, "organization")),
-			marketplace.items.map(marketplaceToSkillOption),
+			scope === "project"
+				? []
+				: organization.items.map((item) => pluginToComposerOption(item, "organization")),
+			scope === "project" ? [] : marketplace.items.map(marketplaceToSkillOption),
 			builtin.items.map((item) => pluginToComposerOption(item, "builtin")),
 		),
 		error: requestedGeneralSources.every((source) => source.failed) ? "技能加载失败" : null,
@@ -188,6 +203,7 @@ export async function bindSkillsToProject(
 export function useSkillPickerOptions({
 	projectId,
 	includeBuiltin,
+	scope = "all",
 	enabled = true,
 }: UseSkillPickerOptionsParams): {
 	skillOptions: PluginComposerOption[] | undefined;
@@ -201,17 +217,17 @@ export function useSkillPickerOptions({
 
 	const reloadSkillOptions = useCallback(async () => {
 		setSkillsLoading(true);
-		const result = await loadSkillPickerOptions({ projectId, includeBuiltin });
+		const result = await loadSkillPickerOptions({ projectId, includeBuiltin, scope });
 		setSkillOptions(result.options);
 		setSkillsError(result.error);
 		setSkillsLoading(false);
-	}, [includeBuiltin, projectId]);
+	}, [includeBuiltin, projectId, scope]);
 
 	useEffect(() => {
 		if (!enabled) return;
 		let cancelled = false;
 		setSkillsLoading(true);
-		void loadSkillPickerOptions({ projectId, includeBuiltin }).then((result) => {
+		void loadSkillPickerOptions({ projectId, includeBuiltin, scope }).then((result) => {
 			if (cancelled) return;
 			setSkillOptions(result.options);
 			setSkillsError(result.error);
@@ -220,7 +236,7 @@ export function useSkillPickerOptions({
 		return () => {
 			cancelled = true;
 		};
-	}, [enabled, includeBuiltin, projectId]);
+	}, [enabled, includeBuiltin, projectId, scope]);
 
 	return { skillOptions, skillsLoading, skillsError, reloadSkillOptions };
 }

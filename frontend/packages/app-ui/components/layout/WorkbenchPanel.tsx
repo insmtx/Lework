@@ -13,6 +13,8 @@ import {
 	partitionComposerFolderFiles,
 	projectFileApi,
 	revokeAttachmentObjectUrls,
+	hasComposerSkillTokens,
+	prepareOutgoingComposer,
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
@@ -69,28 +71,11 @@ import { formatProjectTaskPickerLabel, ProjectTaskPickerContent } from "./Projec
 import { ProjectIcon } from "./project-icon";
 
 function removeWorkbenchDirectiveTokens(value: string): string {
-	// 中文注释：选择已有项目后不再支持临时召唤队友，需要同步移除输入框中已插入的 @ 指令 token，但保留 /skill 指令。
+	// 中文注释：选择已有项目后不再支持临时召唤队友，需要同步移除输入框中已插入的 @ 指令 token；技能 mention 保留。
 	return value
 		.replace(/(^|\s)@[^\s@/]+(?=\s|$)/g, " ")
 		.replace(/[ \t]{2,}/g, " ")
 		.trimStart();
-}
-
-function buildComposerMetadata(
-	content: string,
-	tokens: ComposerToken[],
-): MessageMetadata | undefined {
-	const trimmed = content.trim();
-	if (!trimmed || tokens.length === 0) return undefined;
-	const leadingOffset = content.length - content.trimStart().length;
-	const composerTokens = tokens
-		.map((token) => ({
-			...token,
-			start: token.start - leadingOffset,
-			end: token.end - leadingOffset,
-		}))
-		.filter((token) => token.start >= 0 && trimmed.slice(token.start, token.end) === token.label);
-	return composerTokens.length > 0 ? { composerTokens } : undefined;
 }
 
 function buildInvokedAssistantMetadata(
@@ -206,7 +191,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const uploadAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
 	const attachmentsRef = useRef<Attachment[]>([]);
-	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+	const { skillOptions, skillsLoading, reloadSkillOptions } = useComposerSkillOptions(
 		activeWorkbenchProjectId ?? null,
 		isAuthenticated,
 	);
@@ -316,7 +301,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		setSelectedConnectorIds([]);
 	}, [activeWorkbenchProjectId]);
 
-	const performSend = async (content: string) => {
+	const performSend = async () => {
 		// 中文注释：首页新建任务不应被其他任务的全局生成态锁住，只拦截本输入框的重复提交。
 		if (sendingRef.current) return;
 		sendingRef.current = true;
@@ -324,17 +309,27 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		try {
 			await startGlobalEvents();
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
-			const composerMetadata = buildComposerMetadata(input, composerTokens);
+			const prepared = prepareOutgoingComposer(input, composerTokens);
+			if (
+				!prepared.content &&
+				attachments.length === 0
+			) {
+				return;
+			}
 			const mentionedAssistant = activeWorkbenchProjectId
 				? null
-				: resolveMentionedAssistant(content, composerTokens, availableAssistantOptions);
+				: resolveMentionedAssistant(
+						prepared.content || input,
+						prepared.metadata?.composerTokens ?? composerTokens,
+						availableAssistantOptions,
+					);
 			const messageMetadata = mentionedAssistant
-				? buildInvokedAssistantMetadata(composerMetadata, mentionedAssistant)
-				: composerMetadata;
+				? buildInvokedAssistantMetadata(prepared.metadata, mentionedAssistant)
+				: prepared.metadata;
 			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids。
 			const mentionedAssistantIds = mentionedAssistant ? [mentionedAssistant.id] : undefined;
 			const data = await sendWorkbenchMessage(
-				content,
+				prepared.content,
 				activeWorkbenchProjectId,
 				executionMode,
 				attachments,
@@ -342,6 +337,10 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				mentionedAssistantIds,
 				selectedConnectorIds,
 			);
+			const hasInvokedSkill = hasComposerSkillTokens(prepared.content);
+			if (data && activeWorkbenchProjectId && hasInvokedSkill) {
+				void reloadSkillOptions();
+			}
 			if (navigation && data?.project_id && data?.task_id && data?.session_id) {
 				navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
 			}
@@ -365,11 +364,11 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		if (!content || sendingRef.current) return;
 		if (!isAuthenticated) {
 			requireAuth(() => {
-				void performSend(content);
+				void performSend();
 			});
 			return;
 		}
-		await performSend(content);
+		await performSend();
 	};
 
 	const uploadWorkbenchAttachment = useCallback(

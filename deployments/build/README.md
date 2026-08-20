@@ -21,13 +21,14 @@
 |---|:---:|:---:|
 | Ubuntu 24.04 + apt 基础包 | ✅ | ✅ |
 | LibreOffice（apt 稳定版） | ✅ | ✅ |
+| Pandoc | ✅ | ✅ |
 | CJK 字体 + Windows 字体别名表 | ✅ | ✅ |
 | Python 3.12 + pip 镜像 | ✅ | ✅ |
 | Node.js 22.14 + claude-code/codex/opencode | ✅ | ✅ |
 | Python 文档库（python-docx、lxml、openpyxl、xlsxwriter、pandas、python-pptx、PyMuPDF、pypdf、pdfplumber、pdfminer.six、reportlab、Pillow） | ✅ | ✅ |
 | Node 文档组件（docx、PptxGenJS、pdf-lib、sharp） | ✅ | ✅ |
 | TeX Live（XeLaTeX/LuaLaTeX/pdfLaTeX + 中文字体） | ❌ | ✅ |
-| Poppler、Ghostscript、Pandoc | ❌ | ✅ |
+| Poppler、Ghostscript | ❌ | ✅ |
 | ImageMagick、Inkscape、Matplotlib | ❌ | ✅ |
 | FFmpeg | ❌ | ✅ |
 | Tesseract OCR（eng + chi_sim + osd） | ❌ | ✅ |

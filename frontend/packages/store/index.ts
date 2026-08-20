@@ -125,8 +125,14 @@ export type {
 	PluginComposerOption,
 	PluginInstallationStatus,
 	PluginListItem,
+	PluginPermission,
+	PluginPermissionMember,
+	PluginPermissionRole,
+	PluginPermissionSettings,
+	PluginPermissionUser,
 	PluginRevisionContent,
 	PluginRevisionFile,
+	PluginVisibility,
 	ProjectPluginItem,
 	StartMCPPlatformOAuthResponse,
 	TestMCPPluginParams,
@@ -160,6 +166,7 @@ export type {
 	BackendAutomationCalendarConfig,
 	BackendAutomationIntervalConfig,
 	BackendAutomationScheduleFormConfig,
+	BackendAutomationScheduleInput,
 	BackendAutomationScheduleSpec,
 	BackendAutomationSpec,
 	BackendProjectFileVersion,
@@ -181,6 +188,17 @@ export {
 	usePermissionStore,
 	useTopicStore,
 } from "./appStore";
+export type { ParsedSkillChip } from "./chat/send/composerSkills";
+export {
+	formatTaskDisplayTitle,
+	hasComposerSkillTokens,
+	parseSkillChips,
+	prepareOutgoingComposer,
+	skillChipMarkup,
+	skillChipsToComposerState,
+	skillChipsToPlainText,
+	skillCodeFromToken,
+} from "./chat/send/composerSkills";
 export {
 	buildComposerFolderUploadSummaryMessage,
 	COMPOSER_UPLOAD_ACCEPT,

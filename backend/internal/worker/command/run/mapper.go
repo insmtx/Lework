@@ -5,6 +5,7 @@ import (
 
 	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -79,6 +80,7 @@ func RequestFromWorkerTask(task runTask) *agentrundomain.RunRequest {
 		Policy: agentrundomain.PolicyContext{
 			RequireApproval: task.Policy.RequireApproval,
 			PermissionMode:  task.Policy.PermissionMode,
+			DisabledPlugins: append([]types.DisabledPlugin(nil), task.Policy.DisabledPlugins...),
 		},
 		Plugins: pluginSnapshotsFromTask(task.Plugins),
 		BusinessKeys: agentrundomain.BusinessKeys{
@@ -111,12 +113,22 @@ func inputMessagesFromTask(messages []messaging.ChatMessage) []agentrundomain.In
 	result := make([]agentrundomain.InputMessage, 0, len(messages))
 	for _, message := range messages {
 		result = append(result, agentrundomain.InputMessage{
-			Role:       string(message.Role),
-			Content:    message.Content,
-			SenderName: message.SenderName,
+			ID:           message.ID,
+			Role:         string(message.Role),
+			Content:      message.Content,
+			SenderUserID: cloneUserID(message.SenderUserID),
+			SenderName:   message.SenderName,
 		})
 	}
 	return result
+}
+
+func cloneUserID(value *uint) *uint {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func attachmentsFromTask(attachments []messaging.Attachment) []agentrundomain.Attachment {

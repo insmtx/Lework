@@ -10,6 +10,7 @@ export type UserInfo = {
 	email?: string;
 	phone?: string;
 	avatar_url?: string;
+	departments?: Array<{ department_id: number; name: string; is_primary?: boolean }>;
 	bio?: string;
 	company?: string;
 	location?: string;

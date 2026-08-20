@@ -50,22 +50,43 @@ const (
 	PluginStatusArchived = "archived"
 )
 
+// PluginVisibility 表示插件在组织内的可见范围。
+type PluginVisibility string
+
+const (
+	// PluginVisibilityPublic 表示插件对组织成员公开。
+	PluginVisibilityPublic PluginVisibility = "public"
+	// PluginVisibilityPrivate 表示插件仅对直接授权成员可见。
+	PluginVisibilityPrivate PluginVisibility = "private"
+)
+
+// ValidPluginVisibility 判断 visibility 是否为合法值。
+func ValidPluginVisibility(v PluginVisibility) bool {
+	return v == PluginVisibilityPublic || v == PluginVisibilityPrivate
+}
+
+// DefaultPluginVisibility 返回插件创建时的默认可见范围（skill 与 mcp 均为 private）。
+func DefaultPluginVisibility() PluginVisibility {
+	return PluginVisibilityPrivate
+}
+
 // Plugin is a scope-owned plugin identity shared by organizations and the system catalogue.
 type Plugin struct {
 	gorm.Model
 
-	PublicID        string     `gorm:"column:public_id;type:varchar(255);not null"`
-	OwnerScope      OwnerScope `gorm:"column:owner_scope;type:varchar(32);not null;default:'organization';index;check:chk_plugin_owner_scope,(owner_scope = 'organization' AND org_id > 0) OR (owner_scope = 'system' AND org_id = 0)"`
-	OrgID           uint       `gorm:"column:org_id;type:bigint;not null"`
-	Code            string     `gorm:"column:code;type:varchar(128);not null"`
-	Kind            string     `gorm:"column:kind;type:varchar(32);not null"`
-	Name            string     `gorm:"column:name;type:varchar(255);not null"`
-	Description     string     `gorm:"column:description;type:text"`
-	Status          string     `gorm:"column:status;type:varchar(32);not null;default:'active'"`
-	Origin          string     `gorm:"column:origin;type:varchar(32);not null;default:'org'"`
-	CurrentRevision int        `gorm:"column:current_revision;type:integer;not null;default:0"`
-	CreatedBy       uint       `gorm:"column:created_by;type:bigint;not null"`
-	UpdatedBy       uint       `gorm:"column:updated_by;type:bigint;not null"`
+	PublicID        string           `gorm:"column:public_id;type:varchar(255);not null"`
+	OwnerScope      OwnerScope       `gorm:"column:owner_scope;type:varchar(32);not null;default:'organization';index;check:chk_plugin_owner_scope,(owner_scope = 'organization' AND org_id > 0) OR (owner_scope = 'system' AND org_id = 0)"`
+	OrgID           uint             `gorm:"column:org_id;type:bigint;not null"`
+	Code            string           `gorm:"column:code;type:varchar(128);not null"`
+	Kind            string           `gorm:"column:kind;type:varchar(32);not null;check:chk_plugin_mcp_private,(kind <> 'mcp' OR visibility = 'private')"`
+	Name            string           `gorm:"column:name;type:varchar(255);not null"`
+	Description     string           `gorm:"column:description;type:text"`
+	Visibility      PluginVisibility `gorm:"column:visibility;type:varchar(16);not null;default:'private';check:chk_plugin_visibility,visibility IN ('public','private')"`
+	Status          string           `gorm:"column:status;type:varchar(32);not null;default:'active'"`
+	Origin          string           `gorm:"column:origin;type:varchar(32);not null;default:'org'"`
+	CurrentRevision int              `gorm:"column:current_revision;type:integer;not null;default:0"`
+	CreatedBy       uint             `gorm:"column:created_by;type:bigint;not null"`
+	UpdatedBy       uint             `gorm:"column:updated_by;type:bigint;not null"`
 }
 
 // TableName returns the plugin table name.

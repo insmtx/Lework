@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/insmtx/Leros/backend/internal/infra/db"
+	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -288,6 +289,12 @@ func (d *AutomationDispatcher) dispatchExecution(ctx context.Context,
 			routing,
 			&MessageExecutionOptions{
 				QueueDeadline: ex.NotAfter,
+				Policy: messaging.TaskPolicy{
+					DisabledPlugins: []types.DisabledPlugin{{
+						Kind: types.DisabledPluginKindSkill,
+						Code: "lework-automation-manager",
+					}},
+				},
 			},
 		)
 		if err != nil {

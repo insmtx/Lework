@@ -65,9 +65,13 @@ type PluginListFilter struct {
 	Kind                    string
 	Status                  string
 	Keyword                 string
+	Offset                  int
 	Limit                   int
 	ExcludeMarketplaceBased bool
 	ViewerUin               uint
+	// Relation filters to plugins where the viewer holds a direct role binding
+	// (owner/admin/viewer). Empty means the default viewer-scoped list.
+	Relation string
 }
 
 // PluginMarketplaceListFilter constrains a marketplace list query.
@@ -160,11 +164,48 @@ func ListPlugins(ctx context.Context, database *gorm.DB, orgID uint, filter Plug
 		query = query.Where("p.kind = ?", kind)
 	}
 	if filter.ViewerUin > 0 {
-		switch strings.TrimSpace(filter.Kind) {
-		case "mcp":
-			query = query.Where("p.created_by = ?", filter.ViewerUin)
-		case "":
-			query = query.Where("p.kind <> ? OR p.created_by = ?", "mcp", filter.ViewerUin)
+		switch strings.TrimSpace(filter.Relation) {
+		case "owner", "admin", "viewer":
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM "+types.TableNameResource+" AS r "+
+					"JOIN "+types.TableNameResourceBinding+" AS b ON b.resource_id = r.id AND b.deleted_at IS NULL "+
+					"WHERE r.type = ? AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL "+
+					"AND b.uin = ? AND b.resource_role = ?)",
+				types.ResourceTypePlugin, filter.ViewerUin, strings.TrimSpace(filter.Relation),
+			)
+		case "shared":
+			// 「组织共享」列表：公开 Skill + 有直接角色且已被分享的私有 Skill + 拥有的 MCP。
+			query = query.Where(
+				"(p.kind = ? AND p.visibility = ?) OR EXISTS (SELECT 1 FROM "+types.TableNameResource+" AS r "+
+					"JOIN "+types.TableNameResourceBinding+" AS b ON b.resource_id = r.id AND b.deleted_at IS NULL "+
+					"WHERE r.type = ? AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL "+
+					"AND b.uin = ? AND ((p.kind = ? AND p.visibility = ? AND b.resource_role IN (?, ?, ?) "+
+					"AND EXISTS (SELECT 1 FROM "+types.TableNameResourceBinding+" AS b2 "+
+					"WHERE b2.resource_id = r.id AND b2.deleted_at IS NULL AND b2.resource_role IN (?, ?))) "+
+					"OR (p.kind = ? AND b.resource_role = ?)))",
+				"skill", types.PluginVisibilityPublic,
+				types.ResourceTypePlugin, filter.ViewerUin,
+				"skill", types.PluginVisibilityPrivate,
+				types.ResourceRoleOwner, types.ResourceRoleAdmin, types.ResourceRoleViewer,
+				types.ResourceRoleAdmin, types.ResourceRoleViewer,
+				"mcp", types.ResourceRoleOwner,
+			)
+		default:
+			// 默认列表（组织共享 + MCP 面板）：
+			// - 公开 Skill 对组织成员隐式可见；
+			// - 私有 Skill 对拥有直接角色（owner/admin/viewer）的成员可见；
+			// - MCP 固定私有、owner-only，通过 owner 绑定发现。
+			query = query.Where(
+				"(p.kind = ? AND p.visibility = ?) OR EXISTS (SELECT 1 FROM "+types.TableNameResource+" AS r "+
+					"JOIN "+types.TableNameResourceBinding+" AS b ON b.resource_id = r.id AND b.deleted_at IS NULL "+
+					"WHERE r.type = ? AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL "+
+					"AND b.uin = ? AND ((p.kind = ? AND p.visibility = ? AND b.resource_role IN (?, ?, ?)) OR (p.kind = ? AND b.resource_role = ?)))",
+				"skill", types.PluginVisibilityPublic,
+				types.ResourceTypePlugin, filter.ViewerUin,
+				"skill", types.PluginVisibilityPrivate,
+				types.ResourceRoleOwner, types.ResourceRoleAdmin, types.ResourceRoleViewer,
+				"mcp", types.ResourceRoleOwner,
+			)
 		}
 	}
 	if status := strings.TrimSpace(filter.Status); status != "" {
@@ -185,12 +226,48 @@ func ListPlugins(ctx context.Context, database *gorm.DB, orgID uint, filter Plug
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
 	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
 
 	var plugins []types.Plugin
 	if err := query.Order("p.kind ASC, p.code ASC, p.public_id ASC").Find(&plugins).Error; err != nil {
 		return nil, err
 	}
 	return plugins, nil
+}
+
+// ListPluginViewerRoles resolves the direct viewer role for each plugin ID in a
+// single join. Plugins without a direct binding are omitted from the result.
+func ListPluginViewerRoles(
+	ctx context.Context,
+	database *gorm.DB,
+	orgID, uin uint,
+	pluginIDs []uint,
+) (map[uint]types.ResourceRole, error) {
+	result := make(map[uint]types.ResourceRole)
+	if uin == 0 || len(pluginIDs) == 0 {
+		return result, nil
+	}
+	type pluginRoleRow struct {
+		BizID uint
+		Role  types.ResourceRole
+	}
+	var rows []pluginRoleRow
+	err := database.WithContext(ctx).
+		Table(types.TableNameResource+" AS r").
+		Select("r.biz_id, b.resource_role AS role").
+		Joins("JOIN "+types.TableNameResourceBinding+" AS b ON b.resource_id = r.id AND b.deleted_at IS NULL").
+		Where("r.org_id = ? AND r.type = ? AND r.biz_id IN ? AND r.deleted_at IS NULL AND b.uin = ?",
+			orgID, types.ResourceTypePlugin, pluginIDs, uin).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.BizID] = row.Role
+	}
+	return result, nil
 }
 
 // ListOrganizationPluginMarketplaceStates returns active organization plugins
@@ -451,6 +528,16 @@ func RemoveProjectPluginBindingsByPlugin(ctx context.Context, database *gorm.DB,
 	return database.WithContext(ctx).
 		Where("plugin_id = ?", pluginID).
 		Delete(&types.ProjectPluginBinding{}).Error
+}
+
+// IsPluginBoundToProject reports whether a plugin has an active, enabled project binding.
+func IsPluginBoundToProject(ctx context.Context, database *gorm.DB, projectID, pluginID uint) (bool, error) {
+	var count int64
+	err := database.WithContext(ctx).
+		Model(&types.ProjectPluginBinding{}).
+		Where("project_id = ? AND plugin_id = ? AND enabled = ? AND deleted_at IS NULL", projectID, pluginID, true).
+		Count(&count).Error
+	return count > 0, err
 }
 
 // ListProjectPlugins returns active organization plugins authorized for a project.

@@ -82,7 +82,7 @@ func (p *MessagePoster) resolveSenderNameFromCaller(ctx context.Context, databas
 	if caller.OrgID > 0 {
 		if p.orgRepo != nil {
 			orgMember, err := p.orgRepo.GetOrgMember(ctx, 0, caller.Uin)
-			if err == nil && orgMember != nil {
+			if err == nil && orgMember != nil && strings.TrimSpace(orgMember.UserName) != "" {
 				return orgMember.UserName
 			}
 		}
@@ -122,6 +122,8 @@ type MessageRoutingOverride struct {
 type MessageExecutionOptions struct {
 	// QueueDeadline is the latest time the Worker may start this message.
 	QueueDeadline *time.Time
+	// Policy contains run-scoped execution restrictions supplied by the caller.
+	Policy messaging.TaskPolicy
 }
 
 // runCommandID 决定运行命令的稳定 ID。所有消息入口都使用相同的 session+sequence 规则。
@@ -195,6 +197,9 @@ func (p *MessagePoster) PostMessage(
 		// The transport record and Worker command must share the same start deadline:
 		// publication can succeed while the Worker inbox is still waiting for a compute slot.
 		effectiveOpts := &MessageExecutionOptions{QueueDeadline: &deadline}
+		if opts != nil {
+			effectiveOpts.Policy = opts.Policy
+		}
 		posterTx := *p
 		posterTx.db = tx
 		topic, command, err := posterTx.buildWorkerTask(ctx, session, message, executionMode, routing, effectiveOpts)
@@ -268,6 +273,19 @@ func (p *MessagePoster) RunNewMessage(
 	if err := o.resolveOrCreateProject(); err != nil {
 		logs.ErrorContextf(ctx, "NewMessage resolveOrCreateProject failed: %v", err)
 		return nil, err
+	}
+	if skilltoken.HasInvokedSkills(req.Content) {
+		result := bindInvokedSkillsToProject(
+			ctx,
+			p.db,
+			o.project,
+			o.caller,
+			req.Content,
+			func(c context.Context, tx *gorm.DB, caller *types.Caller, projectPublicID string, action types.ProjectActivityAction, payload types.ProjectActivityPayload) error {
+				return recordUserRepoActivity(c, tx, p.userRepo, caller.Uin, projectPublicID, action, payload)
+			},
+		)
+		logInvokedSkillBindingResult(ctx, o.project, result)
 	}
 	// 中文注释：先将请求携带的连接器关联到项目，再创建 Session/Task，保证 Worker 发布前绑定已落地。
 	if len(o.req.ConnectorIDs) > 0 {
@@ -396,7 +414,7 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 	}
 
 	title := o.defaultTitle("新的队友对话")
-	runes := []rune(strings.TrimSpace(o.req.Content))
+	runes := []rune(skilltoken.DisplayText(strings.TrimSpace(o.req.Content)))
 	if len(runes) > 0 && len(runes) <= 50 {
 		title = string(runes)
 	} else if len(runes) > 50 {
@@ -575,7 +593,7 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 	}
 
 	taskTitle := o.defaultTitle("新的队友任务")
-	runes := []rune(strings.TrimSpace(o.req.Content))
+	runes := []rune(skilltoken.DisplayText(strings.TrimSpace(o.req.Content)))
 	if len(runes) > 0 && len(runes) <= 50 {
 		taskTitle = string(runes)
 	} else if len(runes) > 50 {
@@ -671,7 +689,7 @@ func (p *MessagePoster) buildExecutionTarget(ctx context.Context, session *types
 	}
 	systemPrompt := da.SystemPrompt
 	if message != nil {
-		evolution, err := p.buildAssistantEvolutionContext(ctx, assistantID, message.Content)
+		evolution, err := p.buildAssistantEvolutionContext(ctx, assistantID, skilltoken.DisplayText(message.Content))
 		if err != nil {
 			logs.WarnContextf(ctx, "buildExecutionTarget: assistant %d evolution context skipped: %v", assistantID, err)
 		} else if evolution.promptExtension != "" {
@@ -834,6 +852,17 @@ func (p *MessagePoster) buildProjectContext(ctx context.Context, session *types.
 			}
 		}
 	}
+	// The organization member directory is the canonical display-name source
+	// for both project members and message senders. Keep the user repository as
+	// a fallback for environments where the directory is unavailable.
+	if len(userIDs) > 0 && p.orgRepo != nil {
+		for _, uin := range userIDs {
+			member, err := p.orgRepo.GetOrgMember(ctx, 0, uin)
+			if err == nil && member != nil && strings.TrimSpace(member.UserName) != "" {
+				userMap[uin] = member.UserName
+			}
+		}
+	}
 	assistantMap := make(map[uint]string)
 	if len(assistantIDs) > 0 {
 		if assistants, err := infradb.GetAssistantsByIDs(ctx, p.db, assistantIDs); err == nil {
@@ -930,6 +959,10 @@ func (p *MessagePoster) buildWorkerTask(
 	if len(postOpts) > 0 && postOpts[0] != nil {
 		opts = postOpts[0]
 	}
+	policy := messaging.TaskPolicy{}
+	if opts != nil {
+		policy = opts.Policy
+	}
 	caller, _ := auth.FromContext(ctx)
 	orgID := session.OrgID
 	if orgID == 0 && caller != nil {
@@ -987,10 +1020,11 @@ func (p *MessagePoster) buildWorkerTask(
 					}
 					seen[hm.ID] = true
 					inputMessages = append(inputMessages, messaging.ChatMessage{
-						ID:         fmt.Sprintf("%d", hm.ID),
-						Role:       messaging.MessageRole(hm.Role),
-						Content:    hm.Content,
-						SenderName: hm.SenderName,
+						ID:           fmt.Sprintf("%d", hm.ID),
+						Role:         messaging.MessageRole(hm.Role),
+						Content:      hm.Content,
+						SenderUserID: hm.SenderUin,
+						SenderName:   hm.SenderName,
 					})
 				}
 			}
@@ -999,10 +1033,11 @@ func (p *MessagePoster) buildWorkerTask(
 	}
 	// 当前新消息追加末尾，携带发言者身份
 	inputMessages = append(inputMessages, messaging.ChatMessage{
-		ID:         fmt.Sprintf("%d", message.ID),
-		Role:       messaging.MessageRoleUser,
-		Content:    message.Content,
-		SenderName: message.SenderName,
+		ID:           fmt.Sprintf("%d", message.ID),
+		Role:         messaging.MessageRoleUser,
+		Content:      message.Content,
+		SenderUserID: message.SenderUin,
+		SenderName:   message.SenderName,
 	})
 	executionTarget := p.buildExecutionTarget(ctx, session, effectiveAssistantID, message)
 	projectContext := p.buildProjectContext(ctx, session, effectiveAssistantID)
@@ -1033,6 +1068,7 @@ func (p *MessagePoster) buildWorkerTask(
 		messaging.RunCommandPayload{
 			TaskType:      messaging.TaskTypeAgentRun,
 			ExecutionMode: string(normalizeExecutionMode(executionMode)),
+			Policy:        policy,
 			Actor: messaging.ActorContext{
 				UserID:      fmt.Sprintf("%d", session.Uin),
 				DisplayName: "",
@@ -1408,9 +1444,7 @@ func (p *MessagePoster) buildRepoName(orgID uint, projectPublicID string) string
 	return fmt.Sprintf("%s-%d-%s", p.env, orgID, projectPublicID)
 }
 
-// writeSkillInvokeResources parses /skill tokens from message content and writes
-// message_resource records so that skill invocations are tracked at the service layer
-// before the worker task is published.
+// writeSkillInvokeResources writes message_resource records from skill chips in content.
 func (p *MessagePoster) writeSkillInvokeResources(ctx context.Context, session *types.Session, message *types.SessionMessage) {
 	if p.db == nil || message == nil || session == nil {
 		return

@@ -66,4 +66,33 @@ describe("CodeBlock theme switch", () => {
 		});
 		expect(window.localStorage.getItem(CODE_BLOCK_THEME_STORAGE_KEY)).toBe("light");
 	});
+
+	it("applies containerClassName to the outer wrapper", () => {
+		render(
+			<CodeBlock containerClassName="my-0 flex-1">
+				<code>html</code>
+			</CodeBlock>,
+		);
+
+		expect(document.querySelector('[data-slot="code-block"]')).toHaveClass("my-0", "flex-1");
+	});
+
+	it("uses a higher-contrast scrollbar in dark theme", async () => {
+		window.localStorage.setItem(CODE_BLOCK_THEME_STORAGE_KEY, "dark");
+
+		render(
+			<CodeBlock>
+				<code>html</code>
+			</CodeBlock>,
+		);
+
+		await waitFor(() => {
+			const block = document.querySelector('[data-slot="code-block"]');
+			expect(block).toHaveAttribute("data-theme", "dark");
+			expect(block).toHaveStyle({
+				"--scrollbar-thumb": "oklch(1 0 0 / 42%)",
+				"--scrollbar-track": "oklch(1 0 0 / 12%)",
+			});
+		});
+	});
 });

@@ -1,17 +1,24 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	servicepkg "github.com/insmtx/Leros/backend/internal/service"
 )
+
+const automationTargetUserIDHeader = "X-Leros-Target-User-Id"
 
 // AutomationHandler 处理自动化相关的 HTTP 请求。
 //
-// Phase 1 采用 owner 作用域权限：service 层根据 caller.Uin 校验自动化归属，
+// Phase 1 采用 owner 作用域权限：service 层根据调用者的用户 ID 校验自动化归属，
 // 不依赖 Resource/PermGuard 中间件。
 type AutomationHandler struct {
 	service contract.AutomationService
@@ -57,7 +64,12 @@ func (h *AutomationHandler) CreateAutomation(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	result, err := h.service.CreateAutomation(ctx, &req)
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.CreateAutomation(requestCtx, &req)
 	if err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
@@ -83,7 +95,12 @@ func (h *AutomationHandler) GetAutomation(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	result, err := h.service.GetAutomation(ctx, req.PublicID)
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.GetAutomation(requestCtx, req.PublicID)
 	if err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
@@ -114,7 +131,12 @@ func (h *AutomationHandler) UpdateAutomation(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "public_id is required"))
 		return
 	}
-	result, err := h.service.UpdateAutomation(ctx, req.PublicID, &req.UpdateAutomationRequest)
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.UpdateAutomation(requestCtx, req.PublicID, &req.UpdateAutomationRequest)
 	if err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
@@ -141,7 +163,12 @@ func (h *AutomationHandler) DeleteAutomation(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	if err := h.service.DeleteAutomation(ctx, req.PublicID); err != nil {
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	if err := h.service.DeleteAutomation(requestCtx, req.PublicID); err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
 	}
@@ -165,7 +192,12 @@ func (h *AutomationHandler) ListAutomations(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	result, err := h.service.ListAutomations(ctx, &req)
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.ListAutomations(requestCtx, &req)
 	if err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
@@ -192,7 +224,12 @@ func (h *AutomationHandler) RunAutomationNow(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	result, err := h.service.RunAutomationNow(ctx, req.PublicID)
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.RunAutomationNow(requestCtx, req.PublicID)
 	if err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
@@ -218,7 +255,12 @@ func (h *AutomationHandler) ListAutomationExecutions(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	result, err := h.service.ListAutomationExecutions(ctx, &req)
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.ListAutomationExecutions(requestCtx, &req)
 	if err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
@@ -243,7 +285,12 @@ func (h *AutomationHandler) GetAutomationExecution(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
 		return
 	}
-	result, err := h.service.GetAutomationExecution(ctx, req.PublicID)
+	requestCtx, err := automationRequestContext(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.GetAutomationExecution(requestCtx, req.PublicID)
 	if err != nil {
 		handleAutomationServiceError(ctx, err)
 		return
@@ -259,6 +306,10 @@ type automationUpdateRequestBody struct {
 
 // handleAutomationServiceError 将 automation service 错误映射为 HTTP 状态码
 func handleAutomationServiceError(ctx *gin.Context, err error) {
+	if errors.Is(err, servicepkg.ErrAutomationTargetUserIDRequired) {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
 	errMsg := err.Error()
 
 	switch errMsg {
@@ -289,4 +340,19 @@ func handleAutomationServiceError(ctx *gin.Context, err error) {
 	default:
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))
 	}
+}
+
+// automationRequestContext carries the optional target user ID from the Agent
+// CLI to the service layer. The service uses the worker organization scope
+// together with this ID when querying automation records.
+func automationRequestContext(ctx *gin.Context) (context.Context, error) {
+	raw := strings.TrimSpace(ctx.GetHeader(automationTargetUserIDHeader))
+	if raw == "" {
+		return ctx, nil
+	}
+	userID, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || userID == 0 {
+		return nil, errors.New("target user id must be a positive integer")
+	}
+	return servicepkg.WithAutomationTargetUserID(ctx, uint(userID)), nil
 }

@@ -986,3 +986,89 @@ func todoItemsFromEventPayload(t *testing.T, event agent.NodeEvent) []agent.Runt
 	t.Fatal("payload is not TodoUpdatedPayload")
 	return nil
 }
+
+// TestHandleSSEEventUserTextDoesNotOverwriteLastTextEnded 验证根因修复：
+// 一旦 assistant messageID 已确定，user 消息的 text part（「【用户问题】…」）
+// 不得写入 lastTextEnded，避免在 assistant PartUpdated 事件因竞态延迟/丢失时
+// 把用户输入误判为最终回复（回声）。
+func TestHandleSSEEventUserTextDoesNotOverwriteLastTextEnded(t *testing.T) {
+	st := &runState{
+		evtChan:       make(chan agent.NodeEvent, 4),
+		messageID:     "msg_assistant",
+		lastTextEnded: "reply",
+	}
+
+	// user text part 到达，messageID 与当前 assistant messageID 不一致。
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "message.part.updated",
+		Properties: map[string]any{
+			"sessionID": "ses_1",
+			"part": map[string]any{
+				"id":        "prt_user",
+				"messageID": "msg_user",
+				"type":      "text",
+				"text":      "【用户问题】\n[1] 用户 「宋浩」发送：「总结下这个图片」",
+			},
+		},
+	})
+
+	if st.lastTextEnded != "reply" {
+		t.Fatalf("lastTextEnded = %q, want unchanged %q (user text must not overwrite)", st.lastTextEnded, "reply")
+	}
+}
+
+// TestHandleSSEEventAssistantTextUpdatesLastTextEnded 验证 assistant text part
+// 正确覆盖 lastTextEnded（messageID 匹配时）。
+func TestHandleSSEEventAssistantTextUpdatesLastTextEnded(t *testing.T) {
+	st := &runState{
+		evtChan:       make(chan agent.NodeEvent, 4),
+		messageID:     "msg_assistant",
+		lastTextEnded: "reply",
+	}
+
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "message.part.updated",
+		Properties: map[string]any{
+			"sessionID": "ses_1",
+			"part": map[string]any{
+				"id":        "prt_assistant",
+				"messageID": "msg_assistant",
+				"type":      "text",
+				"text":      "这张图片展示了两只可爱的猫咪…",
+			},
+		},
+	})
+
+	if st.lastTextEnded != "这张图片展示了两只可爱的猫咪…" {
+		t.Fatalf("lastTextEnded = %q, want assistant reply", st.lastTextEnded)
+	}
+}
+
+// TestAssistantTextFromParts 验证从同步响应体 parts 提取 assistant 完整文本，
+// 跳过空文本与非 text part，规避 SSE 竞态丢失导致的回声误判。
+func TestAssistantTextFromParts(t *testing.T) {
+	parts := []messagePartResp{
+		{Type: "step-start"},
+		{Type: "text", Text: "这是一段回复"},
+		{Type: "tool", ToolName: "read"},
+	}
+	if got := assistantTextFromParts(parts); got != "这是一段回复" {
+		t.Fatalf("assistantTextFromParts = %q, want %q", got, "这是一段回复")
+	}
+
+	// 空文本、仅空白文本应被跳过。
+	empty := []messagePartResp{
+		{Type: "text", Text: ""},
+		{Type: "text", Text: "   "},
+		{Type: "step-finish"},
+	}
+	if got := assistantTextFromParts(empty); got != "" {
+		t.Fatalf("assistantTextFromParts(empty) = %q, want empty", got)
+	}
+
+	// 无 text part 时返回空。
+	none := []messagePartResp{{Type: "tool", ToolName: "read"}}
+	if got := assistantTextFromParts(none); got != "" {
+		t.Fatalf("assistantTextFromParts(none) = %q, want empty", got)
+	}
+}

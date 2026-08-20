@@ -18,4 +18,6 @@ export interface SkillMarketplaceItem {
 	latest_version?: string;
 	update_available?: boolean;
 	organization_override?: boolean;
+	visibility?: "public" | "private";
+	permission?: { role: "owner" | "admin" | "viewer" };
 }

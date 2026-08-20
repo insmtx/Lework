@@ -12,10 +12,16 @@ import (
 var (
 	// ErrPluginNotFound indicates a plugin resource is not visible in the requested scope.
 	ErrPluginNotFound = errors.New("plugin not found")
+	// ErrPluginForbidden indicates a plugin is visible but the caller lacks the requested permission.
+	ErrPluginForbidden = errors.New("permission denied")
 	// ErrPluginImportNotImplemented indicates that package publication is deferred to a later phase.
 	ErrPluginImportNotImplemented = errors.New("plugin import is not implemented")
 	// ErrInvalidPluginConfig indicates that a plugin configuration failed validation.
 	ErrInvalidPluginConfig = errors.New("invalid plugin config")
+	// ErrPluginPermissionUnsupported indicates the plugin type does not support sharing configuration.
+	ErrPluginPermissionUnsupported = errors.New("plugin permission configuration is not supported for this plugin type")
+	// ErrInvalidPluginPermission indicates an invalid permission update request.
+	ErrInvalidPluginPermission = errors.New("invalid plugin permission request")
 )
 
 const (
@@ -28,21 +34,30 @@ type ListPluginsRequest struct {
 	Status                  string `form:"status" json:"status,omitempty"`
 	Category                string `form:"category" json:"category,omitempty"`
 	Keyword                 string `form:"keyword" json:"keyword,omitempty"`
+	Offset                  int    `form:"offset" json:"offset,omitempty"`
 	Limit                   int    `form:"limit" json:"limit,omitempty"`
+	Relation                string `form:"relation" json:"relation,omitempty"`
 	ExcludeMarketplaceBased bool   `form:"exclude_marketplace_based" json:"exclude_marketplace_based,omitempty"`
+}
+
+// PluginPermission is the caller's direct role on one plugin.
+type PluginPermission struct {
+	Role types.ResourceRole `json:"role,omitempty"`
 }
 
 // PluginView is the safe API representation of an organization plugin.
 type PluginView struct {
-	PublicID        string `json:"public_id"`
-	Code            string `json:"code"`
-	Kind            string `json:"kind"`
-	Name            string `json:"name"`
-	DisplayName     string `json:"display_name,omitempty"`
-	Description     string `json:"description,omitempty"`
-	Status          string `json:"status"`
-	Origin          string `json:"origin"`
-	CurrentRevision int    `json:"current_revision"`
+	PublicID        string            `json:"public_id"`
+	Code            string            `json:"code"`
+	Kind            string            `json:"kind"`
+	Name            string            `json:"name"`
+	DisplayName     string            `json:"display_name,omitempty"`
+	Description     string            `json:"description,omitempty"`
+	Visibility      string            `json:"visibility,omitempty"`
+	Permission      *PluginPermission `json:"permission,omitempty"`
+	Status          string            `json:"status"`
+	Origin          string            `json:"origin"`
+	CurrentRevision int               `json:"current_revision"`
 }
 
 // ListPluginsResponse contains organization plugins.
@@ -132,6 +147,12 @@ type AddSkillPluginRequest struct {
 	Mode         string `json:"mode"`
 	FileUploadID string `json:"file_upload_id"`
 	GitHubURL    string `json:"github_url"`
+}
+
+// AddSkillPluginResponse reports the result of importing or publishing a Skill.
+type AddSkillPluginResponse struct {
+	Operation string     `json:"operation"`
+	Plugin    PluginView `json:"plugin"`
 }
 
 // MCPPluginConfig is the organization-managed HTTP or stdio MCP configuration.
@@ -234,6 +255,10 @@ type ConnectorSkillRef struct {
 type ResolveSkillDownloadURLsRequest struct {
 	SkillCodes      []string            `json:"skill_codes"`
 	ConnectorSkills []ConnectorSkillRef `json:"connector_skills,omitempty"`
+	// ActorUin 标识任务执行的实际用户，避免把 Worker 身份误当成插件 owner。
+	ActorUin uint `json:"actor_uin,omitempty"`
+	// ProjectID 是任务运行所在项目，存在有效项目绑定时按项目运行授权允许下载。
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // SkillDownloadURL is the worker-safe projection of one current Skill artifact.
@@ -299,6 +324,48 @@ type InstallOfficialPluginResponse struct {
 	Plugin    PluginView `json:"plugin"`
 }
 
+// PluginPermissionUserView 是权限接口返回的公开用户展示信息。
+type PluginPermissionUserView struct {
+	PublicID    string                       `json:"public_id"`
+	Name        string                       `json:"name"`
+	Email       string                       `json:"email,omitempty"`
+	AvatarURL   string                       `json:"avatar_url,omitempty"`
+	Departments []PluginPermissionDepartment `json:"departments,omitempty"`
+}
+
+// PluginPermissionDepartment 是成员部门展示信息。
+type PluginPermissionDepartment struct {
+	DepartmentID uint   `json:"department_id"`
+	Name         string `json:"name"`
+}
+
+// PluginPermissionMemberView 是权限接口返回的成员展示信息。
+type PluginPermissionMemberView struct {
+	User PluginPermissionUserView `json:"user"`
+	Role types.ResourceRole       `json:"role"`
+}
+
+// PluginPermissionSettingsView 是权限读取/更新接口的响应。
+type PluginPermissionSettingsView struct {
+	Visibility types.PluginVisibility       `json:"visibility"`
+	Members    []PluginPermissionMemberView `json:"members"`
+}
+
+// PluginPermissionMemberInput 是权限更新接口写入的成员身份。
+// 身份标识为 user.public_id，展示字段由服务端重新解析，不信任写入值。
+type PluginPermissionMemberInput struct {
+	User struct {
+		PublicID string `json:"public_id"`
+	} `json:"user"`
+	Role types.ResourceRole `json:"role"`
+}
+
+// UpdatePluginPermissionsRequest 全量替换插件权限配置。
+type UpdatePluginPermissionsRequest struct {
+	Visibility types.PluginVisibility        `json:"visibility"`
+	Members    []PluginPermissionMemberInput `json:"members"`
+}
+
 // OfficialPluginMarketplaceService isolates official catalogue reads and installs from organization plugin APIs.
 type OfficialPluginMarketplaceService interface {
 	ListOfficialPluginMarketplaceItems(ctx context.Context, orgID uint, req *ListOfficialPluginMarketplaceItemsRequest) (*ListOfficialPluginMarketplaceItemsResponse, error)
@@ -319,7 +386,9 @@ type PluginService interface {
 	GetPluginInstallationStatus(ctx context.Context, orgID, uin uint, req *GetPluginInstallationStatusRequest) (*PluginInstallationStatusResponse, error)
 	ListPluginVersions(ctx context.Context, orgID, uin uint, pluginID string) (*ListPluginVersionsResponse, error)
 	DeletePlugin(ctx context.Context, orgID, uin uint, pluginID string, req *DeletePluginRequest) (*DeletePluginResponse, error)
-	AddSkillPlugin(ctx context.Context, orgID, uin uint, req *AddSkillPluginRequest) error
+	GetPluginPermissions(ctx context.Context, orgID, uin uint, pluginID string) (*PluginPermissionSettingsView, error)
+	UpdatePluginPermissions(ctx context.Context, orgID, uin uint, pluginID string, req *UpdatePluginPermissionsRequest) (*PluginPermissionSettingsView, error)
+	AddSkillPlugin(ctx context.Context, orgID, uin uint, req *AddSkillPluginRequest) (*AddSkillPluginResponse, error)
 	AddMCPPlugin(ctx context.Context, orgID, uin uint, req *AddMCPPluginRequest) (*PluginView, error)
 	UpdateMCPPlugin(ctx context.Context, orgID, uin uint, pluginID string, req *UpdateMCPPluginRequest) (*PluginView, error)
 	TestMCPPlugin(ctx context.Context, req *TestMCPPluginRequest) (*TestMCPPluginResponse, error)

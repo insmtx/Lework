@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/insmtx/Leros/backend/types"
 )
 
 func TestEnvelopeJSONShape(t *testing.T) {
@@ -11,6 +13,10 @@ func TestEnvelopeJSONShape(t *testing.T) {
 
 	payload := RunCommandPayload{
 		TaskType: TaskTypeAgentRun,
+		Policy: TaskPolicy{DisabledPlugins: []types.DisabledPlugin{{
+			Kind: types.DisabledPluginKindSkill,
+			Code: "lework-automation-manager",
+		}}},
 		Actor: ActorContext{
 			UserID: "user-1",
 		},
@@ -74,6 +80,9 @@ func TestEnvelopeJSONShape(t *testing.T) {
 	}
 	if decodedPayload.Input.Messages[0].Content != "hello" {
 		t.Errorf("expected message content 'hello', got %q", decodedPayload.Input.Messages[0].Content)
+	}
+	if len(decodedPayload.Policy.DisabledPlugins) != 1 || decodedPayload.Policy.DisabledPlugins[0].Code != "lework-automation-manager" {
+		t.Fatalf("disabled plugin policy was not preserved: %#v", decodedPayload.Policy.DisabledPlugins)
 	}
 }
 

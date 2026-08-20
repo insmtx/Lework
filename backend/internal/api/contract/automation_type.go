@@ -43,14 +43,51 @@ type Automation struct {
 	ProjectName string `json:"project_name,omitempty"`
 }
 
+// AutomationScheduleInput 是创建/更新请求的调度输入模型。
+// 它不暴露存量 v1 的 anchor_at；旧字段只存在于数据库回填模型中。
+type AutomationScheduleInput struct {
+	Mode     string                          `json:"mode"`
+	Calendar *types.AutomationCalendarConfig `json:"calendar,omitempty"`
+	Interval *AutomationIntervalInput        `json:"interval,omitempty"`
+	Timezone string                          `json:"timezone,omitempty"`
+}
+
+// AutomationIntervalInput 是不含 legacy anchor_at 的固定间隔请求模型。
+type AutomationIntervalInput struct {
+	IntervalSeconds int64  `json:"interval_seconds,omitempty"`
+	IntervalMinutes int    `json:"interval_minutes,omitempty"`
+	IntervalUnit    string `json:"interval_unit,omitempty"`
+}
+
+// FormConfig 转为内部存储/编译使用的表单结构。
+func (s *AutomationScheduleInput) FormConfig() *types.AutomationScheduleFormConfig {
+	if s == nil {
+		return nil
+	}
+	var interval *types.AutomationIntervalConfig
+	if s.Interval != nil {
+		interval = &types.AutomationIntervalConfig{
+			IntervalSeconds: s.Interval.IntervalSeconds,
+			IntervalMinutes: s.Interval.IntervalMinutes,
+			IntervalUnit:    s.Interval.IntervalUnit,
+		}
+	}
+	return &types.AutomationScheduleFormConfig{
+		Mode:     s.Mode,
+		Calendar: s.Calendar,
+		Interval: interval,
+		Timezone: s.Timezone,
+	}
+}
+
 // CreateAutomationRequest 创建自动化请求
 type CreateAutomationRequest struct {
-	Name         string                              `json:"name" binding:"required"`
-	Instruction  string                              `json:"instruction,omitempty"`
-	Enabled      *bool                               `json:"enabled,omitempty"`
-	ScheduleMode string                              `json:"schedule_mode" binding:"required"`
-	Schedule     *types.AutomationScheduleFormConfig `json:"schedule" binding:"required"`
-	Timezone     string                              `json:"timezone,omitempty"`
+	Name         string                   `json:"name" binding:"required"`
+	Instruction  string                   `json:"instruction,omitempty"`
+	Enabled      *bool                    `json:"enabled,omitempty"`
+	ScheduleMode string                   `json:"schedule_mode" binding:"required"`
+	Schedule     *AutomationScheduleInput `json:"schedule" binding:"required"`
+	Timezone     string                   `json:"timezone,omitempty"`
 	// ProjectPublicID 关联的既有项目对外 ID（可选）。空/省略：使用默认新项目（首次执行懒创建）。
 	ProjectPublicID string `json:"project_public_id,omitempty"`
 }
@@ -61,9 +98,9 @@ type UpdateAutomationRequest struct {
 	Instruction *string `json:"instruction,omitempty"`
 	Enabled     *bool   `json:"enabled,omitempty"`
 	// 修改周期时必须提交完整 schedule
-	ScheduleMode *string                             `json:"schedule_mode,omitempty"`
-	Schedule     *types.AutomationScheduleFormConfig `json:"schedule,omitempty"`
-	Timezone     *string                             `json:"timezone,omitempty"`
+	ScheduleMode *string                  `json:"schedule_mode,omitempty"`
+	Schedule     *AutomationScheduleInput `json:"schedule,omitempty"`
+	Timezone     *string                  `json:"timezone,omitempty"`
 	// ProjectPublicID 关联项目三态：
 	//   nil：保持原关联；""：切回默认新项目；非空：关联指定项目。
 	ProjectPublicID *string `json:"project_public_id,omitempty"`

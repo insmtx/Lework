@@ -1,6 +1,6 @@
 "use client";
 
-import type { AutomationItem } from "@leros/store";
+import { type AutomationItem, skillChipsToPlainText } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	DropdownMenu,
@@ -11,6 +11,7 @@ import {
 import { Switch } from "@leros/ui/components/ui/switch";
 import { cn } from "@leros/ui/lib/utils";
 import { Calendar, Clock, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
+import { formatLocalDateTime } from "./automationTime";
 
 export type AutomationCardProps = {
 	automation: AutomationItem;
@@ -57,7 +58,7 @@ export function AutomationCard({
 
 				{/* 任务指令 */}
 				<p className="mt-2.5 line-clamp-2 min-h-9 w-full text-xs leading-relaxed text-slate-500">
-					{automation.instruction || "暂无指令"}
+					{skillChipsToPlainText(automation.instruction || "") || "暂无指令"}
 				</p>
 			</button>
 
@@ -75,7 +76,7 @@ export function AutomationCard({
 						<span>
 							下次：
 							<span className="font-medium text-slate-600">
-								{automation.nextRunAt ? formatNextRun(automation.nextRunAt) : "—"}
+								{automation.nextRunAt ? formatLocalDateTime(automation.nextRunAt) : "—"}
 							</span>
 						</span>
 					</div>
@@ -134,11 +135,4 @@ export function AutomationCard({
 			</div>
 		</div>
 	);
-}
-
-function formatNextRun(value: string): string {
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return value;
-	const pad = (n: number) => String(n).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

@@ -9,6 +9,7 @@ import type {
 	BackendTask,
 } from "../api/types";
 import type { SendProjectMessageOptions } from "../chat/send";
+import { formatTaskDisplayTitle } from "../chat/send/composerSkills";
 import { handlePermissionDenied } from "../permission/errors";
 import type { SliceCreator } from "../types";
 import type { Attachment, ComposerToken, MessageMetadata } from "../types/chat";
@@ -250,7 +251,7 @@ function mapBackendProject(bp: BackendProject): Project {
 	const backendMembers = (bp as BackendProject & { members?: BackendProjectMemberItem[] }).members;
 	return {
 		id: bp.public_id,
-		name: bp.name,
+		name: formatTaskDisplayTitle(bp.name),
 		description: bp.description ?? "",
 		automationId: bp.automation_id,
 		taskCount: bp.task_count ?? 0,
@@ -436,7 +437,7 @@ function mapBackendTask(bt: BackendTask): ProjectTask {
 	const taskWithSession = bt as BackendTask & { session?: BackendSession };
 	return {
 		id: bt.public_id,
-		title: bt.title,
+		title: formatTaskDisplayTitle(bt.title),
 		meta: bt.description ?? bt.task_type ?? "",
 		status: (bt.status as ProjectTaskStatus) ?? "todo",
 		// 中文注释：保留任务更新时间，供左侧最近项目列表展示相对时间。
@@ -719,7 +720,7 @@ export class LayoutActionImpl {
 								p.id === workbenchProjectId
 									? {
 											...p,
-											name: detail.name,
+											name: formatTaskDisplayTitle(detail.name),
 											description: detail.description ?? "",
 											objective: detail.objective,
 											updatedAt: new Date(detail.updated_at).getTime(),
@@ -1011,7 +1012,7 @@ export class LayoutActionImpl {
 					p.id === projectId
 						? {
 								...p,
-								name: detail.name,
+								name: formatTaskDisplayTitle(detail.name),
 								description: detail.description ?? "",
 								objective: detail.objective,
 								updatedAt: new Date(detail.updated_at).getTime(),
@@ -1131,7 +1132,7 @@ export class LayoutActionImpl {
 						? [
 								{
 									id: payload.task_id,
-									title: payload.task_title ?? payload.project_name,
+									title: formatTaskDisplayTitle(payload.task_title ?? payload.project_name),
 									meta: "",
 									status: "todo" as const,
 									updatedAt: now,
@@ -1143,7 +1144,7 @@ export class LayoutActionImpl {
 					projects: [
 						{
 							id: payload.project_id,
-							name: payload.project_name,
+							name: formatTaskDisplayTitle(payload.project_name),
 							description: "",
 							skills: [],
 							members: [],
@@ -1164,13 +1165,13 @@ export class LayoutActionImpl {
 					if (project.id !== payload.project_id) return project;
 					return {
 						...project,
-						name: payload.project_name,
+						name: formatTaskDisplayTitle(payload.project_name),
 						updatedAt: Date.now(),
 						tasks: project.tasks.map((task) =>
 							payload.task_id && task.id === payload.task_id
 								? {
 										...task,
-										title: payload.task_title ?? task.title,
+										title: formatTaskDisplayTitle(payload.task_title ?? task.title),
 										sessionId: payload.session_id ?? task.sessionId,
 									}
 								: task,

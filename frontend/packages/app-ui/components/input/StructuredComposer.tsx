@@ -31,6 +31,7 @@ import { createDiceBearAvatarDataUri } from "../avatar/DiceBearAvatar";
 import { loadProtectedImageDisplayURL } from "../avatar/ProtectedImage";
 import { renderHighlightedText } from "../common/searchText";
 import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
+import { getSkillSourceLabel } from "./skillSourceLabel";
 
 type DirectiveKind = "assistant" | "command" | "project";
 type TokenKind = "assistant" | "skill" | "reference";
@@ -78,8 +79,6 @@ function isComposingKeyboardEvent(event: KeyboardEvent<HTMLDivElement>): boolean
 	return event.nativeEvent.isComposing || event.keyCode === 229;
 }
 
-const VIRTUAL_SKILL_DIRECTIVES = new Set(["skill-creator"]);
-
 export type StructuredComposerHandle = {
 	openAssistantPicker: () => void;
 	openCommandPicker: () => void;
@@ -103,6 +102,7 @@ type StructuredComposerProps = {
 	assistantOptions?: ComposerAssistantOption[];
 	skillOptions?: ComposerSkillOption[];
 	skillsLoading?: boolean;
+	onSkillPickerOpen?: () => void;
 	directivesDisabled?: boolean;
 	assistantDirectivesDisabled?: boolean;
 	onProjectTrigger?: (query: string, clearTrigger: () => void, dismissTrigger: () => void) => void;
@@ -265,40 +265,6 @@ function commandPickerValue(option: CommandOption): string {
 	return `${option.kind}:${option.item.code}`;
 }
 
-function resolveVirtualSkillTokens(
-	value: string,
-	tokens: InsertedToken[],
-	skillOptions: ComposerSkillOption[] = [],
-): InsertedToken[] {
-	const result: InsertedToken[] = [];
-	const knownSkillCodes = new Set(
-		[...Array.from(VIRTUAL_SKILL_DIRECTIVES), ...skillOptions.map((skill) => skill.code)].map(
-			(code) => code.toLowerCase(),
-		),
-	);
-	const matches = value.matchAll(/(?:^|\s)\/([A-Za-z][A-Za-z0-9_-]*)(?=\s|$)/g);
-
-	for (const match of matches) {
-		const skillName = match[1] ?? "";
-		if (!knownSkillCodes.has(skillName.toLowerCase())) continue;
-
-		const matchedText = match[0] ?? "";
-		const start = (match.index ?? 0) + (matchedText.startsWith("/") ? 0 : 1);
-		const end = start + skillName.length + 1;
-		const overlapsExistingToken = tokens.some((token) => start < token.end && end > token.start);
-		if (overlapsExistingToken) continue;
-
-		result.push({
-			label: `/${skillName}`,
-			start,
-			end,
-			kind: "skill",
-		});
-	}
-
-	return result;
-}
-
 function resolveVirtualAssistantTokens(
 	value: string,
 	tokens: InsertedToken[],
@@ -338,27 +304,52 @@ function resolveDisplayTokens(
 	value: string,
 	tokens: InsertedToken[],
 	assistantOptions: AssistantOption[] = [],
-	skillOptions: ComposerSkillOption[] = [],
+	_skillOptions: ComposerSkillOption[] = [],
 ): InsertedToken[] {
 	const explicitTokens = tokens.filter(
 		(token) => value.slice(token.start, token.end) === token.label,
 	);
 	// 中文注释：召唤队友跳转时可能只恢复了文本，这里按项目队友把 @队友名 补成可发送的结构化 token。
 	const assistantTokens = resolveVirtualAssistantTokens(value, explicitTokens, assistantOptions);
-	const skillTokens = resolveVirtualSkillTokens(
-		value,
-		[...explicitTokens, ...assistantTokens],
-		skillOptions,
-	);
-	return sortTokens([...explicitTokens, ...assistantTokens, ...skillTokens]);
+	return sortTokens([...explicitTokens, ...assistantTokens]);
 }
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function formatSkillTokenDisplayLabel(label: string): string {
+function skillTokenCode(label: string): string {
 	return label.startsWith("/") ? label.slice(1) : label;
+}
+
+function resolveSkillTokenCode(
+	token: InsertedToken,
+	skillOptions: ComposerSkillOption[] = [],
+): string {
+	if (token.id) return token.id;
+	const raw = skillTokenCode(token.label);
+	const byCode = skillOptions.find((skill) => skill.code.toLowerCase() === raw.toLowerCase());
+	if (byCode) return byCode.code;
+	const byLabel = skillOptions.find((skill) => skill.label === raw);
+	return byLabel?.code ?? raw;
+}
+
+function formatSkillTokenDisplayLabel(
+	label: string,
+	skillOptions: ComposerSkillOption[] = [],
+	skillCode?: string,
+): string {
+	if (skillCode) {
+		const option = skillOptions.find(
+			(skill) => skill.code.toLowerCase() === skillCode.toLowerCase(),
+		);
+		if (option?.label) return option.label;
+	}
+	const code = skillTokenCode(label);
+	const option = skillOptions.find(
+		(skill) => skill.code.toLowerCase() === code.toLowerCase() || skill.label === code,
+	);
+	return option?.label || code;
 }
 
 function formatAssistantTokenDisplayLabel(label: string): string {
@@ -569,16 +560,22 @@ function buildAssistantMentionIconShell(
 	return iconShell;
 }
 
-function buildSkillMentionIconShell(token: InsertedToken): HTMLSpanElement {
+function buildSkillMentionIconShell(
+	token: InsertedToken,
+	skillOptions: ComposerSkillOption[],
+): HTMLSpanElement {
 	const iconShell = document.createElement("span");
 	iconShell.dataset.mentionRemove = "true";
 	iconShell.dataset.mentionLabel = token.label;
 	iconShell.dataset.mentionKind = token.kind;
 	iconShell.setAttribute("role", "button");
 	iconShell.setAttribute("tabindex", "-1");
-	iconShell.setAttribute("aria-label", `移除技能 ${formatSkillTokenDisplayLabel(token.label)}`);
+	iconShell.setAttribute(
+		"aria-label",
+		`移除技能 ${formatSkillTokenDisplayLabel(token.label, skillOptions, token.id)}`,
+	);
 	iconShell.className =
-		"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md bg-white text-violet-600 [&_svg]:block";
+		"relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md text-violet-600 [&_svg]:block";
 	const sparklesIcon = createSkillSparklesIcon();
 	sparklesIcon.classList.add("transition-opacity", "group-hover:opacity-0");
 	const removeControl = document.createElement("span");
@@ -614,6 +611,7 @@ function buildEditorContent(
 	value: string,
 	tokens: InsertedToken[],
 	assistantOptions: AssistantOption[],
+	skillOptions: ComposerSkillOption[] = [],
 ) {
 	const fragment = document.createDocumentFragment();
 	const orderedTokens = sortTokens(tokens);
@@ -649,8 +647,8 @@ function buildEditorContent(
 				"group inline-flex items-center gap-1 rounded-lg bg-violet-50 px-1.5 py-0.5 text-xs font-medium leading-5 text-violet-700 ring-1 ring-violet-100 align-baseline";
 			const label = document.createElement("span");
 			label.className = "truncate";
-			label.textContent = formatSkillTokenDisplayLabel(token.label);
-			mention.append(buildSkillMentionIconShell(token), label);
+			label.textContent = formatSkillTokenDisplayLabel(token.label, skillOptions, token.id);
+			mention.append(buildSkillMentionIconShell(token, skillOptions), label);
 		} else if (token.kind === "reference") {
 			mention.className =
 				"group inline-flex max-w-[240px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium leading-4 text-slate-600 align-middle";
@@ -882,6 +880,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			assistantOptions = [],
 			skillOptions,
 			skillsLoading,
+			onSkillPickerOpen,
 			directivesDisabled = false,
 			assistantDirectivesDisabled = false,
 			onProjectTrigger,
@@ -932,9 +931,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				dedupeValues(
 					displayTokens
 						.filter((token) => token.kind === "skill")
-						.map((token) => token.label.replace(/^\//, "")),
+						.map((token) => resolveSkillTokenCode(token, mergedSkillOptions)),
 				),
-			[displayTokens],
+			[displayTokens, mergedSkillOptions],
 		);
 
 		const filteredAssistants = useMemo(() => {
@@ -952,7 +951,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const filteredSkills = useMemo(() => {
 			const query = normalizeSearchValue(trigger?.kind === "command" ? commandSearch : "");
 			return mergedSkillOptions.filter((skill) => {
-				if (selectedSkillCodes.includes(skill.code)) return false;
+				if (selectedSkillCodes.some((code) => code.toLowerCase() === skill.code.toLowerCase())) {
+					return false;
+				}
 				return matchesCommandQuery(skill, query);
 			});
 		}, [commandSearch, selectedSkillCodes, mergedSkillOptions, trigger]);
@@ -1022,6 +1023,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 						mergedSkillOptions,
 					),
 					availableAssistantOptions,
+					mergedSkillOptions,
 				);
 				pendingCaretRef.current = null;
 				focusAt(nextCaret);
@@ -1048,6 +1050,11 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		useEffect(() => {
 			setActiveIndex(0);
 		}, [trigger?.kind, trigger?.query]);
+
+		useEffect(() => {
+			if (trigger?.kind !== "command") return;
+			onSkillPickerOpen?.();
+		}, [onSkillPickerOpen, trigger?.kind]);
 
 		useEffect(() => {
 			if (trigger?.kind === "command") {
@@ -1108,7 +1115,13 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 
 			if (snapshot.text !== value || !areTokensEqual(snapshot.tokens, resolvedTokens)) {
 				// 只在纯文本或 mention 结构失配时重建 DOM，避免每次输入都打断用户的光标位置。
-				buildEditorContent(editor, value, resolvedTokens, availableAssistantOptions);
+				buildEditorContent(
+					editor,
+					value,
+					resolvedTokens,
+					availableAssistantOptions,
+					mergedSkillOptions,
+				);
 			}
 
 			if (pendingCaretRef.current !== null) {
@@ -1306,7 +1319,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		);
 
 		const insertToolbarToken = useCallback(
-			(kind: TokenKind, rawLabel: string) => {
+			(kind: TokenKind, rawLabel: string, tokenId?: string) => {
 				const editor = editorRef.current;
 				const currentSnapshot =
 					kind === "assistant" && assistantSelectionMode === "single"
@@ -1336,6 +1349,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				)}${insertion}${currentValue.slice(cursor)}`;
 				const insertedToken: InsertedToken = {
 					label: rawLabel,
+					id: tokenId,
 					start: tokenStart,
 					end: tokenStart + rawLabel.length,
 					kind,
@@ -1371,9 +1385,15 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					availableAssistantOptions,
 					mergedSkillOptions,
 				);
-				const target = currentTokens.find(
-					(token) => token.kind === kind && token.label === normalizedLabel,
-				);
+				const target = currentTokens.find((token) => {
+					if (token.kind !== kind) return false;
+					if (token.label === normalizedLabel) return true;
+					if (kind === "skill") {
+						const raw = skillTokenCode(normalizedLabel);
+						return token.id === raw || token.id === normalizedLabel;
+					}
+					return false;
+				});
 				if (!target) return;
 
 				let start = target.start;
@@ -1489,7 +1509,13 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				openCommandPicker: () => insertTrigger("command"),
 				insertAssistant: (assistantName: string) =>
 					insertToolbarToken("assistant", `@${assistantName}`),
-				insertSkill: (skillLabel: string) => insertToolbarToken("skill", `/${skillLabel}`),
+				insertSkill: (skillLabel: string) => {
+					const option = mergedSkillOptions.find(
+						(skill) => skill.code === skillLabel || skill.label === skillLabel,
+					);
+					const displayLabel = option?.label || skillLabel;
+					insertToolbarToken("skill", `/${displayLabel}`, option?.code ?? skillLabel);
+				},
 				removeAssistant: removeAssistantToken,
 				removeSkill: removeSkillToken,
 				setContent,
@@ -1525,13 +1551,16 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					dismissTrigger(false);
 					return;
 				}
-				if (kind === "skill" && selectedSkillCodes.includes(skillCode)) {
+				if (
+					kind === "skill" &&
+					selectedSkillCodes.some((code) => code.toLowerCase() === skillCode.toLowerCase())
+				) {
 					dismissTrigger(false);
 					return;
 				}
 				const label = isAssistant
 					? `@${(option as AssistantOption).name}`
-					: `/${(option as ComposerSkillOption).code}`;
+					: `/${(option as ComposerSkillOption).label || (option as ComposerSkillOption).code}`;
 				const currentValue = valueRef.current;
 				const currentTokens = tokensRef.current;
 				const followingText = currentValue.slice(activeTrigger.end);
@@ -1543,8 +1572,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				)}${label}${trailingSpace}${followingText}`;
 				const insertedToken: InsertedToken = {
 					label,
-					// 中文注释：AI 队友 token 需要保留 public_id，项目/任务发送时会转换为 assistant_ids。
-					id: isAssistant ? (option as AssistantOption).id : undefined,
+					id: isAssistant ? (option as AssistantOption).id : skillCode || undefined,
 					start: activeTrigger.start,
 					end: activeTrigger.start + label.length,
 					kind: isAssistant ? "assistant" : "skill",
@@ -1900,12 +1928,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 																	<span className="truncate">
 																		{renderHighlightedText(skill.label, commandSearch)}
 																	</span>
-																	{(skill.source === "builtin" ||
-																		skill.origin === "builtin_worker") && (
-																		<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
-																			系统
-																		</span>
-																	)}
+																	<span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500">
+																		{getSkillSourceLabel(skill)}
+																	</span>
 																</div>
 																<div className="truncate text-xs text-slate-400">
 																	{skill.description}

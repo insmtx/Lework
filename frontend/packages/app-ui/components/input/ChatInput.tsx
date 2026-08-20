@@ -6,10 +6,12 @@ import {
 	COMPOSER_UPLOAD_SUCCESS_MESSAGE,
 	COMPOSER_UPLOAD_TYPE_REJECTED_MESSAGE,
 	getComposerUploadAccept,
+	hasComposerSkillTokens,
 	isComposerUploadAllowedFile,
 	isEmptyUploadFile,
 	isSystemDefaultAssistant,
 	type ProjectMember,
+	prepareOutgoingComposer,
 	projectFileApi,
 	useChatStore,
 	useDAStore,
@@ -72,10 +74,7 @@ import {
 	ensureBidComparisonFilesUploaded,
 } from "./bidComparisonAttachments";
 import { ComposerActionBar } from "./ComposerActionBar";
-import {
-	BidComparisonEntryButton,
-	ComposerUsageTipsPanel,
-} from "./ComposerUsageTipsPanel";
+import { BidComparisonEntryButton, ComposerUsageTipsPanel } from "./ComposerUsageTipsPanel";
 import { buildComposerUsageTips } from "./composerUsageTips";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
@@ -179,9 +178,14 @@ export function ChatInput({
 	const currentProject = projects.find((project) => project.id === currentProjectId);
 	const projectConnectorsDisabled =
 		isProjectVariant && hasMultipleHumanProjectMembers(currentProject?.members ?? []);
-	const { skillOptions, skillsLoading } = useComposerSkillOptions(
+	const { skillOptions, skillsLoading, reloadSkillOptions } = useComposerSkillOptions(
 		isProjectVariant ? currentProjectId : null,
+		true,
+		isProjectVariant ? "project" : "all",
 	);
+	const handleSkillPickerOpen = useCallback(() => {
+		void reloadSkillOptions();
+	}, [reloadSkillOptions]);
 	const { connectorOptions, connectorsLoading } = useComposerConnectorOptions({
 		projectId: isProjectVariant ? currentProjectId : null,
 	});
@@ -378,12 +382,12 @@ export function ChatInput({
 		const removedCodes = previousCodes.filter((code) => !currentCodes.has(code));
 		if (removedCodes.length === 0) return;
 
-		const nextInput = removeSkillDirectives(inputText, removedCodes);
-		if (nextInput !== inputText) {
-			// 中文注释：项目维度移除技能后，同步清理输入框中已经插入的对应技能指令。
-			setInputText(nextInput);
+		// 中文注释：项目维度移除技能后，按 token.id（catalog code）清理输入框里的技能 mention。
+		if (!composerRef.current) return;
+		for (const code of removedCodes) {
+			composerRef.current.removeSkill(code);
 		}
-	}, [inputText, isProjectVariant, projectSkillCodes, setInputText]);
+	}, [isProjectVariant, projectSkillCodes]);
 
 	// 中文注释：连接器关联是项目级配置，切换项目后清空已选连接器，避免跨项目残留。
 	useEffect(() => {
@@ -410,6 +414,7 @@ export function ChatInput({
 		const trimmedInput = inputText.trim();
 		if (trimmedInput) {
 			const composerTokens = composerRef.current?.getComposerTokens() ?? [];
+			const prepared = prepareOutgoingComposer(inputText, composerTokens);
 			const activeSelectionReference = docxSelectionDraft
 				? composerTokens.find(
 						(token) =>
@@ -418,9 +423,9 @@ export function ChatInput({
 							inputText.slice(token.start, token.end) === token.label,
 					)
 				: undefined;
-			let outgoingContent = trimmedInput;
+			let outgoingContent = prepared.content;
 			const outgoingAttachments = inputAttachments;
-			let composerMetadata = buildComposerMetadata(inputText, composerTokens);
+			let composerMetadata = prepared.metadata;
 			let pendingVersionSync: PendingDocxVersionSync | null = null;
 
 			if (docxSelectionDraft && activeSelectionReference) {
@@ -446,7 +451,7 @@ export function ChatInput({
 				outgoingContent = request.content;
 				const visibleMetadata = buildComposerMetadata(inputText, composerTokens);
 				composerMetadata = {
-					...visibleMetadata,
+					...prepared.metadata,
 					displayContent: trimmedInput,
 					displayComposerTokens: visibleMetadata?.composerTokens,
 				};
@@ -501,6 +506,10 @@ export function ChatInput({
 			}
 
 			if (!submitted) return;
+			const hasInvokedSkill = hasComposerSkillTokens(outgoingContent);
+			if (isProjectVariant && currentProjectId && hasInvokedSkill) {
+				void reloadSkillOptions();
+			}
 			// 中文注释：发送成功后清空已选连接器；失败时不进入这里，保留以便重试。
 			setSelectedConnectorIds([]);
 			if (docxSelectionDraft && activeSelectionReference) {
@@ -517,6 +526,7 @@ export function ChatInput({
 		inputText,
 		inputAttachments,
 		isProjectVariant,
+		currentProjectId,
 		currentView,
 		activeProjectId,
 		activeTaskDetailProjectId,
@@ -527,6 +537,7 @@ export function ChatInput({
 		navigation,
 		sendProjectMessage,
 		sendTaskRoomMessage,
+		reloadSkillOptions,
 		selectedConnectorIds,
 		projectConnectorsDisabled,
 	]);
@@ -765,6 +776,7 @@ export function ChatInput({
 							assistantOptions={projectAssistantOptions}
 							skillOptions={skillOptions}
 							skillsLoading={skillsLoading}
+							onSkillPickerOpen={handleSkillPickerOpen}
 							assistantSelectionMode="single"
 							prefill={activeProjectComposerPrefill}
 							onPrefillConsumed={consumeProjectComposerPrefill}
@@ -786,6 +798,7 @@ export function ChatInput({
 									assistantOptions={projectAssistantOptions}
 									skillOptions={skillOptions}
 									skillsLoading={skillsLoading}
+									onSkillPickerOpen={handleSkillPickerOpen}
 									assistantSelectionMode="single"
 									executionMode={executionMode}
 									setExecutionMode={setExecutionMode}
@@ -1054,18 +1067,6 @@ function projectMemberToComposerAssistantOption(member: ProjectMember): Composer
 		description: member.description || (member.isDefault ? "默认 AI 队友" : "AI 队友"),
 		avatarUrl: member.avatarUrl,
 	};
-}
-
-function removeSkillDirectives(value: string, removedLabels: string[]): string {
-	let nextValue = value;
-	for (const label of removedLabels) {
-		nextValue = nextValue.replace(new RegExp(`(^|\\s)/${escapeRegExp(label)}(?=\\s|$)`, "g"), "$1");
-	}
-	return nextValue.replace(/[ \t]{2,}/g, " ").trimStart();
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function ApprovalDecisionInput({

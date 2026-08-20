@@ -371,7 +371,7 @@ func TestWriteSkillInvokeResourcesDoesNotMutateProjectMetadata(t *testing.T) {
 	message := &types.SessionMessage{
 		SessionID:   session.ID,
 		Role:        string(types.MessageRoleUser),
-		Content:     "/review 请检查",
+		Content:     `<skill-chip data-code="review">review</skill-chip> 请检查`,
 		MessageType: string(types.MessageTypeText),
 		Status:      string(types.MessageStatusPending),
 	}
@@ -456,6 +456,7 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 		MessageType: string(types.MessageTypeText),
 		Status:      string(types.MessageStatusCompleted),
 		Sequence:    1,
+		SenderUin:   uintPtr(7),
 		SenderName:  "张三",
 		Timestamp:   time.Now().UnixMilli(),
 	}
@@ -485,6 +486,7 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 		MessageType: string(types.MessageTypeText),
 		Status:      string(types.MessageStatusPending),
 		Sequence:    3,
+		SenderUin:   uintPtr(8),
 		SenderName:  "李四",
 		Timestamp:   time.Now().UnixMilli(),
 	}
@@ -513,6 +515,9 @@ func TestPublishWorkerTaskHistoryContextUsesAssistantIDNotWorkerID(t *testing.T)
 	}
 	if messages[0].Content != "这是当前消息" {
 		t.Errorf("current content = %q, want %q", messages[0].Content, "这是当前消息")
+	}
+	if messages[0].SenderUserID == nil || *messages[0].SenderUserID != 8 || messages[0].SenderName != "李四" {
+		t.Errorf("current sender = %#v, want user ID 8 / 李四", messages[0])
 	}
 }
 

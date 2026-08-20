@@ -17,6 +17,7 @@ import (
 )
 
 const skillManifestFile = "SKILL.md"
+const hiddenSkillSourceDir = ".system"
 
 var errNoSkillDirs = errors.New("no skill directories found")
 
@@ -102,7 +103,7 @@ const seedManifestFile = ".seed-manifest"
 
 // syncSkillDir synchronizes protected worker built-ins and tracks their hashes.
 func syncSkillDir(sourceDir string, targetDir string) error {
-	skillDirs, err := listSkillDirs(sourceDir)
+	skillSources, err := listSkillSources(sourceDir)
 	if err != nil {
 		return err
 	}
@@ -117,23 +118,22 @@ func syncSkillDir(sourceDir string, targetDir string) error {
 		oldManifest = make(map[string]string)
 	}
 
-	newManifest := make(map[string]string, len(skillDirs))
-	for _, skillName := range skillDirs {
-		sourceSkillDir := filepath.Join(sourceDir, skillName)
-		sourceHash, err := computeDirHash(sourceSkillDir)
+	newManifest := make(map[string]string, len(skillSources))
+	for _, skillSource := range skillSources {
+		sourceHash, err := computeDirHash(skillSource.path)
 		if err != nil {
-			return fmt.Errorf("compute hash for %s: %w", skillName, err)
+			return fmt.Errorf("compute hash for %s: %w", skillSource.name, err)
 		}
-		newManifest[skillName] = sourceHash
+		newManifest[skillSource.name] = sourceHash
 
-		oldHash := oldManifest[skillName]
+		oldHash := oldManifest[skillSource.name]
 		if sourceHash != oldHash {
-			logs.Infof("skill %s changed (old=%s, new=%s), syncing...", skillName, oldHash, sourceHash)
-			if err := copyDir(sourceSkillDir, filepath.Join(targetDir, skillName)); err != nil {
-				return fmt.Errorf("copy skill %s: %w", skillName, err)
+			logs.Infof("skill %s changed (old=%s, new=%s), syncing...", skillSource.name, oldHash, sourceHash)
+			if err := copyDir(skillSource.path, filepath.Join(targetDir, skillSource.name)); err != nil {
+				return fmt.Errorf("copy skill %s: %w", skillSource.name, err)
 			}
 		} else {
-			logs.Debugf("skill %s unchanged, skipping", skillName)
+			logs.Debugf("skill %s unchanged, skipping", skillSource.name)
 		}
 	}
 
@@ -152,16 +152,58 @@ func syncSkillDir(sourceDir string, targetDir string) error {
 	return nil
 }
 
-func listSkillDirs(sourceDir string) ([]string, error) {
-	entries, err := os.ReadDir(sourceDir)
-	if err != nil {
+type skillSource struct {
+	name string
+	path string
+}
+
+func listSkillSources(sourceDir string) ([]skillSource, error) {
+	var skillSources []skillSource
+	if err := appendSkillSources(&skillSources, sourceDir); err != nil {
 		return nil, err
 	}
 
-	var skillDirs []string
+	hiddenSourceDir := filepath.Join(sourceDir, hiddenSkillSourceDir)
+	if info, err := os.Stat(hiddenSourceDir); err == nil {
+		if info.IsDir() {
+			if err := appendSkillSources(&skillSources, hiddenSourceDir); err != nil {
+				return nil, err
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	if len(skillSources) == 0 {
+		return nil, fmt.Errorf("%w in %s", errNoSkillDirs, sourceDir)
+	}
+
+	sort.Slice(skillSources, func(left, right int) bool {
+		return skillSources[left].name < skillSources[right].name
+	})
+	seen := make(map[string]string, len(skillSources))
+	for _, source := range skillSources {
+		if previousPath, exists := seen[source.name]; exists {
+			return nil, fmt.Errorf("duplicate built-in Skill %q in %s and %s", source.name, previousPath, source.path)
+		}
+		seen[source.name] = source.path
+	}
+	return skillSources, nil
+}
+
+func appendSkillSources(skillSources *[]skillSource, sourceDir string) error {
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return err
+	}
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			logs.Debugf("Skipping non-directory entry in skills root: %s", filepath.Join(sourceDir, entry.Name()))
+			continue
+		}
+		if entry.Name() == hiddenSkillSourceDir {
+			logs.Debugf("Skipping hidden Skill source directory: %s", filepath.Join(sourceDir, entry.Name()))
 			continue
 		}
 		manifestPath := filepath.Join(sourceDir, entry.Name(), skillManifestFile)
@@ -174,12 +216,12 @@ func listSkillDirs(sourceDir string) ([]string, error) {
 			logs.Debugf("Skipping directory where %s is a directory: %s", skillManifestFile, filepath.Join(sourceDir, entry.Name()))
 			continue
 		}
-		skillDirs = append(skillDirs, entry.Name())
+		*skillSources = append(*skillSources, skillSource{
+			name: entry.Name(),
+			path: filepath.Join(sourceDir, entry.Name()),
+		})
 	}
-	if len(skillDirs) == 0 {
-		return nil, fmt.Errorf("%w in %s", errNoSkillDirs, sourceDir)
-	}
-	return skillDirs, nil
+	return nil
 }
 
 // computeDirHash computes a deterministic SHA256 hash for an entire directory.

@@ -13,6 +13,10 @@ interface MySkillsPanelProps {
 	refreshSeq?: number;
 	keyword?: string;
 	category?: SkillCatalogCategory;
+	relation?: "owner" | "admin" | "viewer" | "shared";
+	excludeMarketplaceBased?: boolean;
+	cardVariant?: "mine" | "owned";
+	emptyMessage?: string;
 	onCountChange?: (count: number) => void;
 }
 
@@ -22,6 +26,10 @@ export function MySkillsPanel({
 	refreshSeq = 0,
 	keyword = "",
 	category = "all",
+	relation,
+	excludeMarketplaceBased,
+	cardVariant = "mine",
+	emptyMessage,
 	onCountChange,
 }: MySkillsPanelProps) {
 	const [skills, setSkills] = useState<SkillMarketplaceItem[]>([]);
@@ -37,12 +45,14 @@ export function MySkillsPanel({
 		setLoading(true);
 		setError(null);
 		try {
-			const resp = await pluginApi.list({
+			const params = {
 				kind: "skill",
 				status: "active",
-				exclude_marketplace_based: true,
 				...(keyword ? { keyword } : {}),
-			});
+				...(relation ? { relation } : {}),
+				...(excludeMarketplaceBased ? { exclude_marketplace_based: true } : {}),
+			};
+			const resp = await pluginApi.list(params);
 			const list = (resp.data.data.plugins ?? []).map(pluginToSkillCard);
 			setSkills(list);
 		} catch (err: any) {
@@ -51,7 +61,7 @@ export function MySkillsPanel({
 		} finally {
 			setLoading(false);
 		}
-	}, [keyword]);
+	}, [keyword, relation, excludeMarketplaceBased]);
 
 	useEffect(() => {
 		if (!mounted) return;
@@ -103,7 +113,7 @@ export function MySkillsPanel({
 		return (
 			<div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--leros-control-border)] bg-white py-20 text-[var(--leros-text-subtle)]">
 				<p className="text-sm">
-					{keyword || category !== "all" ? "暂无符合条件的技能" : "暂无组织技能"}
+					{keyword || category !== "all" ? "暂无符合条件的技能" : (emptyMessage ?? "暂无组织技能")}
 				</p>
 				{!keyword && category === "all" && (
 					<p className="mt-1 text-xs">可通过创作或导入添加组织自有技能</p>
@@ -119,7 +129,7 @@ export function MySkillsPanel({
 				<SkillCard
 					key={skill.skill_id}
 					skill={skill}
-					variant="mine"
+					variant={cardVariant}
 					onClick={onCardClick}
 					onUse={onUse}
 				/>

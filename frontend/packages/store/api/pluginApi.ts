@@ -12,6 +12,33 @@ export interface PluginListItem {
 	status: string;
 	origin: string;
 	current_revision: number;
+	visibility?: PluginVisibility;
+	permission?: PluginPermission;
+}
+
+export type PluginVisibility = "public" | "private";
+export type PluginPermissionRole = "owner" | "admin" | "viewer";
+
+export interface PluginPermission {
+	role: PluginPermissionRole;
+}
+
+export interface PluginPermissionUser {
+	public_id: string;
+	name: string;
+	email?: string;
+	avatar_url?: string;
+	departments?: Array<{ department_id: number; name: string }>;
+}
+
+export interface PluginPermissionMember {
+	user: PluginPermissionUser;
+	role: PluginPermissionRole;
+}
+
+export interface PluginPermissionSettings {
+	visibility: PluginVisibility;
+	members: PluginPermissionMember[];
 }
 
 export interface ListPluginsResponse {
@@ -181,6 +208,7 @@ export interface ListPluginsParams {
 	kind?: string;
 	status?: string;
 	keyword?: string;
+	relation?: "owner" | "admin" | "viewer" | "shared";
 	limit?: number;
 	exclude_marketplace_based?: boolean;
 }
@@ -191,11 +219,17 @@ export interface AddSkillPluginParams {
 	github_url?: string;
 }
 
+export interface AddSkillPluginResponse {
+	operation: "created" | "updated" | "unchanged";
+	plugin: PluginListItem;
+}
+
 function cleanListParams(params: ListPluginsParams): Record<string, string | number> {
 	const result: Record<string, string | number> = {};
 	if (params.kind) result.kind = params.kind;
 	if (params.status) result.status = params.status;
 	if (params.keyword) result.keyword = params.keyword;
+	if (params.relation) result.relation = params.relation;
 	if (params.limit !== undefined) result.limit = params.limit;
 	if (params.exclude_marketplace_based !== undefined) {
 		result.exclude_marketplace_based = params.exclude_marketplace_based ? 1 : 0;
@@ -218,6 +252,8 @@ export function pluginToSkillCard(plugin: PluginListItem): SkillMarketplaceItem 
 		icon: "",
 		installs: 0,
 		verified: false,
+		visibility: plugin.visibility,
+		permission: plugin.permission,
 	};
 }
 
@@ -291,6 +327,15 @@ export const pluginApi = {
 		}),
 	get: (pluginID: string) =>
 		apiClient.get<BackendDataResponse<GetPluginResponse>>(`/plugins/${pluginID}`),
+	getPermissions: (pluginID: string) =>
+		apiClient.get<BackendDataResponse<PluginPermissionSettings>>(
+			`/plugins/${pluginID}/permissions`,
+		),
+	updatePermissions: (pluginID: string, params: PluginPermissionSettings) =>
+		apiClient.put<BackendDataResponse<PluginPermissionSettings>>(
+			`/plugins/${pluginID}/permissions`,
+			params,
+		),
 	getInstallationStatus: (params: GetPluginInstallationStatusParams) =>
 		apiClient.get<BackendDataResponse<PluginInstallationStatus>>("/plugins/installation-status", {
 			params: { kind: params.kind, code: params.code },
@@ -298,7 +343,7 @@ export const pluginApi = {
 	delete: (pluginID: string) =>
 		apiClient.delete<BackendDataResponse<DeletePluginResponse>>(`/plugins/${pluginID}`),
 	addSkill: (params: AddSkillPluginParams) =>
-		apiClient.post<BackendDataResponse<null>>("/plugins/skills", params),
+		apiClient.post<BackendDataResponse<AddSkillPluginResponse>>("/plugins/skills", params),
 	addMCP: (params: MCPPluginConfig) =>
 		apiClient.post<BackendDataResponse<PluginListItem>>("/plugins/mcp", params),
 	updateMCP: (pluginID: string, params: MCPPluginConfig) =>

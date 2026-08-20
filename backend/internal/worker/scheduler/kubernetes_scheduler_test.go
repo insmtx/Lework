@@ -64,10 +64,10 @@ func TestWorkerContainerImageFallsBackForSingleContainer(t *testing.T) {
 	}
 }
 
-func TestKubernetesWorkspacePathsUseSingleWorkspaceDirectory(t *testing.T) {
+func TestKubernetesWorkspaceHostPathPerWorkerMountPathShared(t *testing.T) {
 	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{}}
 
-	if got, want := scheduler.workspacePath(1, 2), "/data/workspace"; got != want {
+	if got, want := scheduler.workspacePath(1, 2), "/data/workspace/leros-worker-o1-w2"; got != want {
 		t.Fatalf("workspace host path = %q, want %q", got, want)
 	}
 	if got, want := scheduler.workspaceMountPath(1, 2), "/workspace"; got != want {
@@ -76,11 +76,24 @@ func TestKubernetesWorkspacePathsUseSingleWorkspaceDirectory(t *testing.T) {
 
 	scheduler.config.WorkspaceHostPathRoot = "/mnt/leros"
 	scheduler.config.WorkspaceMountRoot = "/worker-space"
-	if got, want := scheduler.workspacePath(3, 4), "/mnt/leros"; got != want {
+	if got, want := scheduler.workspacePath(3, 4), "/mnt/leros/leros-worker-o3-w4"; got != want {
 		t.Fatalf("custom workspace host path = %q, want %q", got, want)
 	}
 	if got, want := scheduler.workspaceMountPath(3, 4), "/worker-space"; got != want {
 		t.Fatalf("custom workspace mount path = %q, want %q", got, want)
+	}
+}
+
+func TestKubernetesStoragePathSharedWithoutWorkerDirectory(t *testing.T) {
+	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{}}
+
+	if got, want := scheduler.storageHostPath(), "/data/leros-storage"; got != want {
+		t.Fatalf("storage host path = %q, want shared %q", got, want)
+	}
+
+	scheduler.config.StorageHostPath = "/data/custom-storage"
+	if got, want := scheduler.storageHostPath(), "/data/custom-storage"; got != want {
+		t.Fatalf("custom storage host path = %q, want %q", got, want)
 	}
 }
 
