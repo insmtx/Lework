@@ -15,7 +15,7 @@
     "dev": "electron-vite dev",
     "compile": "electron-vite build",
     "build": "pnpm run compile",
-    "icons": "node scripts/generate-icons.mjs",
+    "icons": "node scripts/inject-deploy-config.mjs && node scripts/generate-icons.mjs",
     "dist": "node scripts/dist-local.mjs",
     "dist:private": "node scripts/dist-private.mjs",
     "dist:private:dir": "node scripts/dist-private-target.mjs --dir",

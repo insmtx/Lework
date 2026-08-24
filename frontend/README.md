@@ -195,6 +195,22 @@ pnpm dist:desktop:private
 pnpm dist:desktop:private:dir
 ```
 
+私有化品牌注入（可选，不设则仍为 Lework）：
+
+```bash
+# 只设客户标识。若 frontend/private/logo/{mode}/ 不存在，沿用官方 Logo
+LEROS_DEPLOY_MODE=acme pnpm dist:desktop:private:win:x64
+
+# 目录内放好 logo.svg 或 logo.png 后，打包进客户 Logo
+# frontend/private/logo/acme/logo.svg
+LEROS_DEPLOY_MODE=acme pnpm dist:desktop:private:win:x64
+
+# 同时替换界面品牌名
+LEROS_DEPLOY_MODE=acme LEROS_DEPLOY_APP_NAME=AcmeAI pnpm dist:desktop:private:win:x64
+```
+
+约定见 [private/README.md](private/README.md)。CI 私有化包上传到 COS `application/private/{mode}/`，官网隐藏入口为 `/download?edition=private&mode={mode}`；SaaS Linux 为 `/download?platform=linux`。
+
 产物输出到 `apps/desktop/dist/`。本地 `dist:*` 命令固定使用 `--publish never`，只生成安装包，不会上传 Release。
 `pnpm dist:desktop` 用于快速验证当前系统包：macOS 默认只生成 ZIP，避免部分本地/沙箱环境无法调用 `hdiutil` 创建 DMG；Windows 默认生成 NSIS 安装包；Linux 默认生成 AppImage 和 `.deb`。`pnpm dist:desktop:dir` / `pnpm dist:desktop:private:dir` 只生成未打包应用目录，适合最快速验证 Electron/Vite 构建和应用启动；后者会注入私有化部署标记。正式 macOS Release 请使用 `dist:desktop:mac:arm64` / `dist:desktop:mac:x64` 或 tag workflow。
 
