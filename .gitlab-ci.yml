@@ -6,7 +6,8 @@ spec:
         - test
         - prod
         - image
-      description: 发布的环境选择，image为仅构建镜像
+        - private
+      description: 发布的环境选择，image为仅构建镜像，private为桌面端私有化打包
     app:
       default: leros
       options:
@@ -27,12 +28,6 @@ spec:
         - enterprise
         - oss
       description: '构建版本类型，oss=社区版，enterprise=企业版'
-    desktop_deployment_mode:
-      default: public
-      options:
-        - public
-        - private
-      description: '桌面端 public=SaaS 安装包，private=私有化安装包'
     desktop_deploy_mode:
       default: ""
       description: '私有化客户标识，对应 frontend/private/logo/{mode}/ 与 COS private/{mode}/；可空'
@@ -53,7 +48,6 @@ variables:
   ENV: "$[[ inputs.environment ]]"
   APP: "$[[ inputs.app ]]"
   UPDATE_WORKER_IMAGE: "$[[ inputs.update_worker_image ]]"
-  DESKTOP_DEPLOYMENT_MODE: "$[[ inputs.desktop_deployment_mode ]]"
   LEROS_DEPLOY_MODE: "$[[ inputs.desktop_deploy_mode ]]"
   LEROS_DEPLOY_APP_NAME: "$[[ inputs.desktop_app_name ]]"
   K3S_NAMESPACE_TEST: "insmtx-test"
@@ -174,6 +168,8 @@ deploy:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
     - if: '$APP == "desktop"'
+      when: never
+    - if: '$ENV == "private"'
       when: never
     - if: '$ENV != "image"'
       when: on_success
@@ -484,7 +480,10 @@ deploy:
       prefix="${DESKTOP_COS_PREFIX#/}"
       prefix="${prefix%/}"
       printf '%s\n' "$version" > "$CI_PROJECT_DIR/LATEST.txt"
-      deployment_mode="${DESKTOP_DEPLOYMENT_MODE:-public}"
+      deployment_mode="public"
+      if [ "$ENV" = "private" ]; then
+        deployment_mode="private"
+      fi
       name_suffix=""
       private_script_infix=""
       if [ "$deployment_mode" = "private" ]; then
@@ -744,7 +743,7 @@ desktop-update-k3s-client-version:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
-    - if: '$APP == "desktop" && $ENV != "image" && $DESKTOP_DEPLOYMENT_MODE != "private"'
+    - if: '$APP == "desktop" && $ENV != "image" && $ENV != "private"'
       when: on_success
     - when: never
   needs:

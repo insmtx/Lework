@@ -58,14 +58,15 @@ describe("private deployment build marker", () => {
 	it("keeps private GitLab packages off the SaaS COS prefix", () => {
 		const gitlabCi = readFileSync(resolve(desktopRoot, "../../../.gitlab-ci.yml"), "utf8");
 
-		expect(gitlabCi).toContain("desktop_deployment_mode");
+		expect(gitlabCi).toContain("- private");
+		expect(gitlabCi).toContain('if [ "$ENV" = "private" ]');
 		expect(gitlabCi).toContain("dist:desktop${private_script_infix}");
 		expect(gitlabCi).toContain('name_suffix="-private"');
 		expect(gitlabCi).toContain("${root_prefix}/private/${deploy_mode}");
 		expect(gitlabCi).toContain("skip COS upload to keep SaaS packages untouched");
 		expect(gitlabCi).toContain("Invalid LEROS_DEPLOY_MODE");
 		expect(gitlabCi).toContain("/download?edition=private&mode=${deploy_mode}");
-		expect(gitlabCi).toContain('$DESKTOP_DEPLOYMENT_MODE != "private"');
+		expect(gitlabCi).toContain('$ENV != "private"');
 	});
 
 	it("keeps renderer workspace packages out of production dependencies", () => {
