@@ -39,6 +39,14 @@ export {
 	saveBrandLogo,
 	saveBrandName,
 } from "./api/branding";
+export type { DeployConfig, DeployVersion } from "./api/deploy-config";
+export {
+	DEFAULT_DEPLOY_APP_NAME,
+	DEFAULT_DEPLOY_CONFIG,
+	readDeployAppName,
+	readDeployConfig,
+	readDeployLogo,
+} from "./api/deploy-config";
 export { clientUpdateApi } from "./api/clientUpdateApi";
 export type {
 	ClientApp,
