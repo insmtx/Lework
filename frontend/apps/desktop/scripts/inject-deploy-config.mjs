@@ -40,9 +40,9 @@ export async function injectDeployConfig ({
 	frontendRoot: frontendRootArg = frontendRoot,
 	rendererPublicDir: rendererPublicDirArg = rendererPublicDir,
 } = {}) {
-	const sanitizedMode = sanitizeDeployMode(mode)
-	const trimmedAppName = typeof appName === "string" ? appName.trim() : ""
 	const version = deploymentMode === "private" ? "private" : "public"
+	const sanitizedMode = version === "private" ? sanitizeDeployMode(mode) : ""
+	const trimmedAppName = version === "private" && typeof appName === "string" ? appName.trim() : ""
 	const resolvedPublicDir = rendererPublicDirArg
 	const resolvedBrandDir = join(resolvedPublicDir, "brand")
 	const resolvedConfigPath = join(resolvedPublicDir, "config.js")

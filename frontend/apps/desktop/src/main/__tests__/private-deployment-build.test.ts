@@ -63,8 +63,8 @@ describe("private deployment build marker", () => {
 		expect(gitlabCi).toContain("dist:desktop${private_script_infix}");
 		expect(gitlabCi).toContain('name_suffix="-private"');
 		expect(gitlabCi).toContain("${root_prefix}/private/${deploy_mode}");
-		expect(gitlabCi).toContain("default: null");
 		expect(gitlabCi).toContain("Private desktop build requires LEROS_DEPLOY_MODE");
+		expect(gitlabCi).toContain("Ignoring desktop_deploy_mode/desktop_app_name because environment=");
 		expect(gitlabCi).toContain("Invalid LEROS_DEPLOY_MODE");
 		expect(gitlabCi).toContain("/download?edition=private&mode=${deploy_mode}");
 		expect(gitlabCi).toContain('$ENV != "private"');
