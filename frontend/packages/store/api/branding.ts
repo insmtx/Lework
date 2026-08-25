@@ -1,3 +1,5 @@
+import { readDeployAppName, readDeployLogo } from "./deploy-config";
+
 /** 存在该 key 时，私有化系统设置展示品牌 Logo / 品牌名编辑区。 */
 export const BRANDING_SETTINGS_ENABLED_STORAGE_KEY = "leros-branding-settings-enabled";
 /** 自定义系统 Logo（通常为上传后的 file public_id）。 */
@@ -6,6 +8,7 @@ export const BRAND_LOGO_STORAGE_KEY = "leros-brand-logo";
 export const BRAND_NAME_STORAGE_KEY = "leros-brand-name";
 
 export const BRANDING_CHANGED_EVENT = "leros-branding-changed";
+
 export const DEFAULT_BRAND_NAME = "Lework";
 
 function notifyBrandingChanged() {
@@ -47,9 +50,9 @@ export function isBrandingSettingsEnabled(): boolean {
 	}
 }
 
-/** 读取自定义 Logo；未配置时返回 null，调用方应回退系统默认。 */
+/** 读取自定义 Logo；优先 localStorage，其次打包注入，未配置时返回 null。 */
 export function readBrandLogo(): string | null {
-	return readStorageItem(BRAND_LOGO_STORAGE_KEY);
+	return readStorageItem(BRAND_LOGO_STORAGE_KEY) ?? readDeployLogo();
 }
 
 export function saveBrandLogo(value: string): string {
@@ -65,9 +68,9 @@ export function clearBrandLogo() {
 	writeStorageItem(BRAND_LOGO_STORAGE_KEY, null);
 }
 
-/** 读取品牌名；未配置时返回默认 Lework。 */
+/** 读取品牌名；优先 localStorage，其次打包注入的 appName，否则默认 Lework。 */
 export function readBrandName(fallback: string = DEFAULT_BRAND_NAME): string {
-	return readStorageItem(BRAND_NAME_STORAGE_KEY) ?? fallback;
+	return readStorageItem(BRAND_NAME_STORAGE_KEY) ?? readDeployAppName() ?? fallback;
 }
 
 /** 读取已保存的自定义品牌名（不含默认回退），供设置页表单使用。 */

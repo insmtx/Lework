@@ -28,6 +28,12 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# 客户私有化 Logo，不进开源仓
+private/logo/*/
+
+# 打包时从 private/logo 拷入的品牌资源
+apps/desktop/src/renderer/public/brand/
+
 # Logs
 *.log
 npm-debug.log*

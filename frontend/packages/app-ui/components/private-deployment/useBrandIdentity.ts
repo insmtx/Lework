@@ -21,5 +21,9 @@ export function useBrandIdentity() {
 		};
 	}, []);
 
+	useEffect(() => {
+		document.title = name;
+	}, [name]);
+
 	return { logo, name };
 }

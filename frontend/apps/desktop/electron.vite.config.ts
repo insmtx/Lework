@@ -17,6 +17,7 @@ export default defineConfig({
 		plugins: [externalizeDepsPlugin()],
 	},
 	renderer: {
+		publicDir: resolve("src/renderer/public"),
 		server: {
 			port: Number(process.env.DESKTOP_RENDERER_PORT) || 5175,
 			strictPort: true,

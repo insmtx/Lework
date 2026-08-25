@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -6,8 +7,16 @@ import sharp from 'sharp'
 
 const currentDir = dirname(fileURLToPath(import.meta.url))
 const appDir = resolve(currentDir, '..')
-const sourceLogo = resolve(appDir, '../../packages/app-ui/assets/logo.svg')
+const defaultLogo = resolve(appDir, '../../packages/app-ui/assets/logo.svg')
 const sourceTrayLogo = resolve(appDir, '../../packages/app-ui/assets/logo-white.svg')
+const injectedLogoSvg = join(appDir, 'src/renderer/public/brand/logo.svg')
+const injectedLogoPng = join(appDir, 'src/renderer/public/brand/logo.png')
+const sourceLogo = existsSync(injectedLogoSvg)
+  ? injectedLogoSvg
+  : existsSync(injectedLogoPng)
+    ? injectedLogoPng
+    : defaultLogo
+const sourceTrayLogoResolved = sourceLogo === defaultLogo ? sourceTrayLogo : sourceLogo
 const resourcesDir = join(appDir, 'resources')
 
 const iconPngPath = join(resourcesDir, 'icon.png')
@@ -25,7 +34,7 @@ await mkdir(resourcesDir, { recursive: true })
 await mkdir(linuxIconsDir, { recursive: true })
 await sharp(await renderIcon(1024)).toFile(iconPngPath)
 await sharp(await renderMacIcon(1024)).toFile(iconMacPngPath)
-await sharp(await renderIcon(128, { source: sourceTrayLogo, logoScale: 0.9 })).toFile(trayIconPngPath)
+await sharp(await renderIcon(128, { source: sourceTrayLogoResolved, logoScale: 0.9 })).toFile(trayIconPngPath)
 
 // 中文注释：银河麒麟/UKUI 等桌面只会从标准 hicolor 尺寸目录中查找任务栏图标，
 // 不能只依赖 1024x1024 图标，因此为 Linux 安装包生成完整的 freedesktop 图标集。
