@@ -5,7 +5,6 @@ import {
 	type DesktopPolicyDocument,
 	desktopOpenExternalChannel,
 	desktopOpenPolicyPdfChannel,
-	desktopOpenServerChannel,
 } from "../shared/auto-update";
 import {
 	isAppQuitPrepared,
@@ -15,7 +14,6 @@ import {
 	prepareWindowForHide,
 } from "./app-lifecycle";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
-import { desktopDeepLinkScheme, extractDesktopServerURL } from "./deep-link";
 import { isProductionDevToolsShortcut } from "./devtools-shortcut";
 import { shouldOpenExternalUrl } from "./external-navigation";
 import { configureTrayInteractions } from "./tray-interactions";
@@ -23,7 +21,6 @@ import { configureTrayInteractions } from "./tray-interactions";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let mainWindowHideInProgress = false;
-let pendingServerURL = extractDesktopServerURL(process.argv);
 
 // 中文注释：银河麒麟/UKUI 主要通过 X11 WM_CLASS 将运行窗口关联到 .desktop 启动器。
 // 显式固定 class，避免不同 Electron/Chromium 版本使用产品名或可执行文件名导致匹配失败。
@@ -116,28 +113,11 @@ function createWindow(): void {
 		mainWindow = null;
 	});
 
-	mainWindow.webContents.on("did-finish-load", sendPendingServerURL);
-
 	if (is.dev && process.env.ELECTRON_RENDERER_URL) {
 		mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
 	} else {
 		mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
 	}
-}
-
-function setServerURLFromDeepLink(deepLink: string): void {
-	const serverURL = extractDesktopServerURL([deepLink]);
-	if (!serverURL) return;
-
-	pendingServerURL = serverURL;
-	sendPendingServerURL();
-}
-
-function sendPendingServerURL(): void {
-	if (!pendingServerURL || !mainWindow || mainWindow.isDestroyed()) return;
-
-	mainWindow.webContents.send(desktopOpenServerChannel, pendingServerURL);
-	pendingServerURL = null;
 }
 
 function openMainWindowDevTools(): void {
@@ -255,11 +235,6 @@ ipcMain.handle(desktopOpenExternalChannel, async (_event, url: unknown) => {
 
 app.whenReady().then(() => {
 	electronApp.setAppUserModelId("com.leros.desktop");
-	if (process.defaultApp && process.argv[1]) {
-		app.setAsDefaultProtocolClient(desktopDeepLinkScheme, process.execPath, [process.argv[1]]);
-	} else {
-		app.setAsDefaultProtocolClient(desktopDeepLinkScheme);
-	}
 
 	app.on("browser-window-created", (_, window) => {
 		optimizer.watchWindowShortcuts(window);
@@ -279,18 +254,8 @@ app.whenReady().then(() => {
 	});
 });
 
-app.on("open-url", (event, url) => {
-	event.preventDefault();
-	setServerURLFromDeepLink(url);
-});
-
-app.on("second-instance", (_event, commandLine) => {
-	const serverURL = extractDesktopServerURL(commandLine);
-	if (serverURL) {
-		pendingServerURL = serverURL;
-	}
+app.on("second-instance", () => {
 	focusMainWindow();
-	sendPendingServerURL();
 });
 
 app.on("window-all-closed", () => {

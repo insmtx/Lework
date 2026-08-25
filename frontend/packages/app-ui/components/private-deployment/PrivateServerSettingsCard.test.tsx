@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const storeMocks = vi.hoisted(() => ({
 	clearStoredAuthUser: vi.fn(),
 	normalizeAPIBaseURL: vi.fn((value: string) => value),
-	readPrivateServerBaseURL: vi.fn(),
-	savePrivateServerBaseURL: vi.fn(),
+	readServerBaseURL: vi.fn(),
+	saveServerBaseURL: vi.fn(),
 	testServerConnection: vi.fn(),
 }));
 
@@ -29,9 +29,9 @@ describe("PrivateServerSettingsCard", () => {
 		document.body.appendChild(container);
 		root = createRoot(container);
 		onReload = vi.fn<() => void>();
-		storeMocks.readPrivateServerBaseURL.mockReturnValue("https://old.example.com/v1");
+		storeMocks.readServerBaseURL.mockReturnValue("https://old.example.com/v1");
 		storeMocks.clearStoredAuthUser.mockReset();
-		storeMocks.savePrivateServerBaseURL.mockReset();
+		storeMocks.saveServerBaseURL.mockReset();
 		storeMocks.testServerConnection.mockReset();
 		storeMocks.normalizeAPIBaseURL.mockImplementation((value: string) => value);
 	});
@@ -59,7 +59,7 @@ describe("PrivateServerSettingsCard", () => {
 		expect(saveButton.disabled).toBe(false);
 
 		await act(async () => saveButton.click());
-		expect(storeMocks.savePrivateServerBaseURL).toHaveBeenCalledWith("https://new.example.com/v1");
+		expect(storeMocks.saveServerBaseURL).toHaveBeenCalledWith("https://new.example.com/v1");
 		expect(storeMocks.clearStoredAuthUser).toHaveBeenCalledOnce();
 		expect(onReload).toHaveBeenCalledOnce();
 	});

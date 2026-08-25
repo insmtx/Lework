@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const storeMocks = vi.hoisted(() => ({
 	hasPrivateServerConfiguration: vi.fn(),
-	savePrivateServerBaseURL: vi.fn(),
+	saveServerBaseURL: vi.fn(),
 	testServerConnection: vi.fn(),
 }));
 
@@ -29,7 +29,7 @@ describe("PrivateDeploymentGate", () => {
 		root = createRoot(container);
 		onReload = vi.fn<() => void>();
 		storeMocks.hasPrivateServerConfiguration.mockReset();
-		storeMocks.savePrivateServerBaseURL.mockReset();
+		storeMocks.saveServerBaseURL.mockReset();
 		storeMocks.testServerConnection.mockReset();
 	});
 
@@ -94,9 +94,7 @@ describe("PrivateDeploymentGate", () => {
 			form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 		});
 
-		expect(storeMocks.savePrivateServerBaseURL).toHaveBeenCalledWith(
-			"https://private.example.com/v1",
-		);
+		expect(storeMocks.saveServerBaseURL).toHaveBeenCalledWith("https://private.example.com/v1");
 		expect(onReload).toHaveBeenCalledOnce();
 	});
 });

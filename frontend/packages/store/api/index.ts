@@ -33,12 +33,9 @@ export {
 	isPrivateDeployment,
 	normalizeAPIBaseURL,
 	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
-	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
-	readPrivateServerBaseURL,
 	readServerBaseURL,
 	resolveIsPrivateDeployment,
 	SERVER_CONFIG_STORAGE_KEY,
-	savePrivateServerBaseURL,
 	saveServerBaseURL,
 	testServerConnection,
 } from "./config";
