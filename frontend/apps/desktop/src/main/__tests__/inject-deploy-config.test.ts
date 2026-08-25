@@ -54,6 +54,25 @@ describe("inject deploy config", () => {
 		expect(packed).toContain("<svg");
 	});
 
+	it("ignores mode and appName for public/SaaS packages", async () => {
+		const root = await mkdtemp(join(tmpdir(), "leros-deploy-"));
+		dirs.push(root);
+		const modeDir = join(root, "private/logo/acme");
+		await mkdir(modeDir, { recursive: true });
+		await writeFile(join(modeDir, "logo.svg"), "<svg></svg>");
+		const result = await injectDeployConfig({
+			mode: "acme",
+			appName: "AcmeAI",
+			deploymentMode: "public",
+			frontendRoot: root,
+			rendererPublicDir: join(root, "public"),
+		});
+		expect(result.version).toBe("public");
+		expect(result.mode).toBe("");
+		expect(result.appName).toBe("Lework");
+		expect(result.logo).toBe("");
+	});
+
 	it("fails when the mode directory exists but has no logo file", async () => {
 		const root = await mkdtemp(join(tmpdir(), "leros-deploy-"));
 		dirs.push(root);

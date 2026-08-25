@@ -29,17 +29,11 @@ spec:
         - oss
       description: '构建版本类型，oss=社区版，enterprise=企业版'
     desktop_deploy_mode:
-      description: '私有化客户标识，对应 frontend/private/logo/{mode}/ 与 COS private/{mode}/；仅 desktop + private 显示且必填'
-      rules:
-        - if: '$[[ inputs.app ]] == "desktop" && $[[ inputs.environment ]] == "private"'
-          default: null
-        - default: ""
+      default: ""
+      description: '仅 environment=private 的桌面打包生效；此时必填，对应 frontend/private/logo/{mode}/ 与 COS private/{mode}/。SaaS（test/prod）即使填写也会被忽略'
     desktop_app_name:
-      description: '可选桌面品牌名，留空则仍为 Lework；仅 desktop + private 显示'
-      rules:
-        - if: '$[[ inputs.app ]] == "desktop" && $[[ inputs.environment ]] == "private"'
-          default: ""
-        - default: ""
+      default: ""
+      description: '仅 environment=private 的桌面打包生效；可选，留空则为 Lework。SaaS 即使填写也会被忽略'
 ---
 
 stages:
@@ -474,6 +468,23 @@ deploy:
       if [ -z "$DESKTOP_VERSION" ]; then
         echo "desktop package version is required"
         exit 1
+      fi
+    - |
+      if [ "$ENV" = "private" ]; then
+        if [ -z "$LEROS_DEPLOY_MODE" ]; then
+          echo "Private desktop build requires LEROS_DEPLOY_MODE (desktop_deploy_mode)"
+          exit 1
+        fi
+        if ! printf '%s' "$LEROS_DEPLOY_MODE" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+          echo "Invalid LEROS_DEPLOY_MODE: $LEROS_DEPLOY_MODE"
+          exit 1
+        fi
+      else
+        if [ -n "${LEROS_DEPLOY_MODE:-}" ] || [ -n "${LEROS_DEPLOY_APP_NAME:-}" ]; then
+          echo "Ignoring desktop_deploy_mode/desktop_app_name because environment=$ENV (only used when environment=private)"
+        fi
+        export LEROS_DEPLOY_MODE=""
+        export LEROS_DEPLOY_APP_NAME=""
       fi
     - cd frontend
     - pnpm config set store-dir "$CI_PROJECT_DIR/frontend/.pnpm-store"
