@@ -3,17 +3,20 @@
 import {
 	normalizeAPIBaseURL,
 	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
-	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
-	readPrivateServerBaseURL,
+	readServerBaseURL,
 	resolveIsPrivateDeployment,
-	savePrivateServerBaseURL,
+	SERVER_CONFIG_STORAGE_KEY,
+	saveServerBaseURL,
 	testServerConnection,
 } from "@leros/store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY = "leros-private-server-base-url";
+
 describe("private server config", () => {
 	afterEach(() => {
-		window.localStorage.removeItem(PRIVATE_SERVER_CONFIG_STORAGE_KEY);
+		window.localStorage.removeItem(SERVER_CONFIG_STORAGE_KEY);
+		window.localStorage.removeItem(LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY);
 		window.localStorage.removeItem(PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY);
 		vi.unstubAllGlobals();
 	});
@@ -43,12 +46,25 @@ describe("private server config", () => {
 	});
 
 	it("persists the normalized service address", () => {
-		savePrivateServerBaseURL("https://leros.example.com");
+		saveServerBaseURL("https://leros.example.com");
 
-		expect(window.localStorage.getItem(PRIVATE_SERVER_CONFIG_STORAGE_KEY)).toBe(
+		expect(window.localStorage.getItem(SERVER_CONFIG_STORAGE_KEY)).toBe(
 			"https://leros.example.com/v1",
 		);
-		expect(readPrivateServerBaseURL()).toBe("https://leros.example.com/v1");
+		expect(readServerBaseURL()).toBe("https://leros.example.com/v1");
+	});
+
+	it("migrates the legacy private server address into the shared key", () => {
+		window.localStorage.setItem(
+			LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY,
+			"https://legacy.example.com/v1",
+		);
+
+		expect(readServerBaseURL()).toBe("https://legacy.example.com/v1");
+		expect(window.localStorage.getItem(SERVER_CONFIG_STORAGE_KEY)).toBe(
+			"https://legacy.example.com/v1",
+		);
+		expect(window.localStorage.getItem(LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY)).toBeNull();
 	});
 
 	it("accepts only a Lework GlobalConfig response", async () => {

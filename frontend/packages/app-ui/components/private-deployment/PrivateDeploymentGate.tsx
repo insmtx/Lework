@@ -3,7 +3,7 @@
 import {
 	hasPrivateServerConfiguration,
 	isPrivateDeployment,
-	savePrivateServerBaseURL,
+	saveServerBaseURL,
 	testServerConnection,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
@@ -51,7 +51,7 @@ function PrivateServerSetupDialog({ onReload }: { onReload: () => void }) {
 		try {
 			const normalized = await testServerConnection(serverURL);
 			setConnectionPassed(true);
-			savePrivateServerBaseURL(normalized);
+			saveServerBaseURL(normalized);
 			onReload();
 		} catch (error) {
 			setErrorMessage(error instanceof Error ? error.message : "无法连接后端服务");

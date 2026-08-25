@@ -1,10 +1,6 @@
 appId: com.leros.desktop
 productName: Lework
 icon: resources/icon.png
-protocols:
-  - name: Lework
-    schemes:
-      - leros
 directories:
   buildResources: build
   output: dist

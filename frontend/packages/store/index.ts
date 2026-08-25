@@ -61,15 +61,20 @@ export {
 	isPrivateDeployment,
 	normalizeAPIBaseURL,
 	PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY,
-	PRIVATE_SERVER_CONFIG_STORAGE_KEY,
-	readPrivateServerBaseURL,
 	readServerBaseURL,
 	resolveIsPrivateDeployment,
 	SERVER_CONFIG_STORAGE_KEY,
-	savePrivateServerBaseURL,
 	saveServerBaseURL,
 	testServerConnection,
 } from "./api/config";
+export type { DeployConfig, DeployVersion } from "./api/deploy-config";
+export {
+	DEFAULT_DEPLOY_APP_NAME,
+	DEFAULT_DEPLOY_CONFIG,
+	readDeployAppName,
+	readDeployConfig,
+	readDeployLogo,
+} from "./api/deploy-config";
 export type {
 	CreateDAParams,
 	DigitalAssistantPermission,
@@ -211,8 +216,8 @@ export {
 	usePermissionStore,
 	useTopicStore,
 } from "./appStore";
-export type { ParsedSkillChip } from "./chat/send/composerSkills";
 export { ASSISTANT_REPLY_TIMEOUT_RETRY_HINT } from "./chat";
+export type { ParsedSkillChip } from "./chat/send/composerSkills";
 export {
 	formatTaskDisplayTitle,
 	hasComposerSkillTokens,

@@ -29,11 +29,17 @@ spec:
         - oss
       description: '构建版本类型，oss=社区版，enterprise=企业版'
     desktop_deploy_mode:
-      default: ""
-      description: '私有化客户标识，对应 frontend/private/logo/{mode}/ 与 COS private/{mode}/；可空'
+      description: '私有化客户标识，对应 frontend/private/logo/{mode}/ 与 COS private/{mode}/；仅 desktop + private 显示且必填'
+      rules:
+        - if: '$[[ inputs.app ]] == "desktop" && $[[ inputs.environment ]] == "private"'
+          default: null
+        - default: ""
     desktop_app_name:
-      default: ""
-      description: '可选桌面品牌名，留空则仍为 Lework'
+      description: '可选桌面品牌名，留空则仍为 Lework；仅 desktop + private 显示'
+      rules:
+        - if: '$[[ inputs.app ]] == "desktop" && $[[ inputs.environment ]] == "private"'
+          default: ""
+        - default: ""
 ---
 
 stages:
@@ -571,6 +577,18 @@ deploy:
             Lework-${version}-linux-amd64${name_suffix}.deb
           "
           ;;
+        linux-arm64)
+          build_script="dist:desktop${private_script_infix}:linux:arm64"
+          release_dir="desktop-release/linux-arm64"
+          cos_target_dir="linux/arm64"
+          latest_file="latest-linux.yml"
+          root_installer="Lework-${version}-linux-arm64${name_suffix}.deb"
+          linux_alt_installer="Lework-${version}-linux-aarch64${name_suffix}.deb"
+          build_with_signing="false"
+          payload_files="
+            Lework-${version}-linux-arm64${name_suffix}.deb
+          "
+          ;;
         *)
           echo "Unsupported DESKTOP_TARGET: $DESKTOP_TARGET"
           exit 1
@@ -621,7 +639,7 @@ deploy:
         trap - EXIT
       fi
 
-      if [ "$DESKTOP_TARGET" = "linux-x64" ] && [ ! -f "frontend/apps/desktop/dist/${root_installer}" ] && [ -n "${linux_alt_installer:-}" ] && [ -f "frontend/apps/desktop/dist/${linux_alt_installer}" ]; then
+      if [ -n "${linux_alt_installer:-}" ] && [ ! -f "frontend/apps/desktop/dist/${root_installer}" ] && [ -f "frontend/apps/desktop/dist/${linux_alt_installer}" ]; then
         cp "frontend/apps/desktop/dist/${linux_alt_installer}" "frontend/apps/desktop/dist/${root_installer}"
       fi
 
@@ -634,7 +652,8 @@ deploy:
       if [ "$deployment_mode" = "private" ]; then
         deploy_mode="${LEROS_DEPLOY_MODE}"
         if [ -z "$deploy_mode" ]; then
-          echo "Private desktop build without LEROS_DEPLOY_MODE; skip COS upload to keep SaaS packages untouched"
+          echo "Private desktop build requires LEROS_DEPLOY_MODE (desktop_deploy_mode)"
+          exit 1
         elif ! printf '%s' "$deploy_mode" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
           echo "Invalid LEROS_DEPLOY_MODE: $deploy_mode"
           exit 1
@@ -737,6 +756,23 @@ desktop-build-linux-x64:
     - !reference [".desktop-before-linux", before_script]
     - !reference [".desktop-before-base", before_script]
 
+desktop-build-linux-arm64:
+  extends: .desktop-build-template
+  image: registry.yygu.cn/library/node:24
+  tags:
+    - ubuntu
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - if: '$APP == "desktop" && $ENV == "private"'
+      when: on_success
+    - when: never
+  variables:
+    DESKTOP_TARGET: linux-arm64
+  before_script:
+    - !reference [".desktop-before-linux", before_script]
+    - !reference [".desktop-before-base", before_script]
+
 desktop-update-k3s-client-version:
   stage: notify
   image: registry.ap-southeast-1.aliyuncs.com/wa/openrpa:gitlab_cd-2
@@ -754,6 +790,8 @@ desktop-update-k3s-client-version:
     - job: desktop-build-win-x64
       optional: true
     - job: desktop-build-linux-x64
+      optional: true
+    - job: desktop-build-linux-arm64
       optional: true
   before_script:
     - mkdir -p ~/.ssh

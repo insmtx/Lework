@@ -4,8 +4,8 @@ import {
 	clearStoredAuthUser,
 	isPrivateDeployment,
 	normalizeAPIBaseURL,
-	readPrivateServerBaseURL,
-	savePrivateServerBaseURL,
+	readServerBaseURL,
+	saveServerBaseURL,
 	testServerConnection,
 } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { reloadApp } from "./reload";
 
 export function PrivateServerSettingsCard({ onReload = reloadApp }: { onReload?: () => void }) {
-	const currentServerURL = readPrivateServerBaseURL() ?? "";
+	const currentServerURL = readServerBaseURL() ?? "";
 	const [serverURL, setServerURL] = useState(currentServerURL);
 	const [testedURL, setTestedURL] = useState<string | null>(null);
 	const [testing, setTesting] = useState(false);
@@ -67,7 +67,7 @@ export function PrivateServerSettingsCard({ onReload = reloadApp }: { onReload?:
 		}
 
 		setSaving(true);
-		savePrivateServerBaseURL(normalized);
+		saveServerBaseURL(normalized);
 		if (normalized !== currentServerURL) {
 			clearStoredAuthUser();
 		}

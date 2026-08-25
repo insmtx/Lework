@@ -8,7 +8,7 @@ describe("private deployment build marker", () => {
 	it("injects the deployment mode into the renderer build", () => {
 		const viteConfig = readFileSync(resolve(desktopRoot, "electron.vite.config.ts"), "utf8");
 
-		expect(viteConfig).toContain("publicDir: resolve(\"src/renderer/public\")");
+		expect(viteConfig).toContain('publicDir: resolve("src/renderer/public")');
 		expect(viteConfig).toContain('process.env.VITE_LEROS_DEPLOYMENT_MODE ?? "public"');
 	});
 
@@ -63,10 +63,15 @@ describe("private deployment build marker", () => {
 		expect(gitlabCi).toContain("dist:desktop${private_script_infix}");
 		expect(gitlabCi).toContain('name_suffix="-private"');
 		expect(gitlabCi).toContain("${root_prefix}/private/${deploy_mode}");
-		expect(gitlabCi).toContain("skip COS upload to keep SaaS packages untouched");
+		expect(gitlabCi).toContain("default: null");
+		expect(gitlabCi).toContain("Private desktop build requires LEROS_DEPLOY_MODE");
 		expect(gitlabCi).toContain("Invalid LEROS_DEPLOY_MODE");
 		expect(gitlabCi).toContain("/download?edition=private&mode=${deploy_mode}");
 		expect(gitlabCi).toContain('$ENV != "private"');
+		expect(gitlabCi).toContain("desktop-build-linux-arm64:");
+		expect(gitlabCi).toContain('$APP == "desktop" && $ENV == "private"');
+		expect(gitlabCi).toContain("dist:desktop${private_script_infix}:linux:arm64");
+		expect(gitlabCi).toContain("Lework-${version}-linux-arm64${name_suffix}.deb");
 	});
 
 	it("keeps renderer workspace packages out of production dependencies", () => {

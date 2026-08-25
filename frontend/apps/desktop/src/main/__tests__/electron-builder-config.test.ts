@@ -25,12 +25,6 @@ describe("electron-builder 桌面图标与资源配置", () => {
 		expect(config).toMatch(/win:\s*\n\s*icon:\s*resources\/icon\.ico/);
 	});
 
-	it("应注册 leros 协议，供 Web 端唤起桌面端", () => {
-		const config = readFileSync(builderConfigPath, "utf8");
-
-		expect(config).toMatch(/protocols:[\s\S]*schemes:\s*\n\s*-\s*leros/);
-	});
-
 	it("Linux 应同步 desktopName，确保任务栏窗口能关联应用图标", () => {
 		const config = readFileSync(builderConfigPath, "utf8");
 		const desktopPackage = JSON.parse(readFileSync(desktopPackagePath, "utf8")) as {

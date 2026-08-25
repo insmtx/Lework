@@ -13,7 +13,7 @@ declare const process:
 
 const DEFAULT_API_BASE_URL = "http://localhost:8080/v1";
 export const SERVER_CONFIG_STORAGE_KEY = "leros-server-base-url";
-export const PRIVATE_SERVER_CONFIG_STORAGE_KEY = "leros-private-server-base-url";
+const LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY = "leros-private-server-base-url";
 /** 本地调试用：存在该 key 时强制走私有化模式，无需打包 private 构建。 */
 export const PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY = "leros-private-deployment-mode";
 const PRIVATE_DEPLOYMENT_MODE = "private";
@@ -82,25 +82,22 @@ export function normalizeAPIBaseURL(value: string): string {
 	return url.toString().replace(/\/+$/, "");
 }
 
-export function readPrivateServerBaseURL(): string | null {
-	if (typeof window === "undefined") return null;
-
-	try {
-		const stored = window.localStorage.getItem(PRIVATE_SERVER_CONFIG_STORAGE_KEY);
-		return stored ? normalizeAPIBaseURL(stored) : null;
-	} catch {
-		return null;
-	}
-}
-
 export function readServerBaseURL(): string | null {
 	if (typeof window === "undefined") return null;
 
 	try {
-		const stored =
-			window.localStorage.getItem(SERVER_CONFIG_STORAGE_KEY) ??
-			window.localStorage.getItem(PRIVATE_SERVER_CONFIG_STORAGE_KEY);
-		return stored ? normalizeAPIBaseURL(stored) : null;
+		const stored = window.localStorage.getItem(SERVER_CONFIG_STORAGE_KEY);
+		if (stored) {
+			return normalizeAPIBaseURL(stored);
+		}
+
+		const legacy = window.localStorage.getItem(LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY);
+		if (!legacy) return null;
+
+		const normalized = normalizeAPIBaseURL(legacy);
+		window.localStorage.setItem(SERVER_CONFIG_STORAGE_KEY, normalized);
+		window.localStorage.removeItem(LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY);
+		return normalized;
 	} catch {
 		return null;
 	}
@@ -113,22 +110,12 @@ export function saveServerBaseURL(value: string): string {
 
 	const normalized = normalizeAPIBaseURL(value);
 	window.localStorage.setItem(SERVER_CONFIG_STORAGE_KEY, normalized);
-	return normalized;
-}
-
-export function savePrivateServerBaseURL(value: string): string {
-	if (typeof window === "undefined") {
-		throw new Error("当前环境不支持保存服务地址");
-	}
-
-	const normalized = normalizeAPIBaseURL(value);
-	window.localStorage.setItem(PRIVATE_SERVER_CONFIG_STORAGE_KEY, normalized);
-	window.localStorage.setItem(SERVER_CONFIG_STORAGE_KEY, normalized);
+	window.localStorage.removeItem(LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY);
 	return normalized;
 }
 
 export function hasPrivateServerConfiguration(): boolean {
-	return readPrivateServerBaseURL() !== null;
+	return readServerBaseURL() !== null;
 }
 
 export async function testServerConnection(value: string): Promise<string> {
