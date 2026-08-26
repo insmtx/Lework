@@ -25,9 +25,7 @@ describe("inject deploy config", () => {
 	it("rejects unsafe S3 domains", () => {
 		expect(() => sanitizeS3Domain("not-a-url")).toThrow(/Invalid LEROS_DEPLOY_S3_DOMAIN/);
 		expect(() => sanitizeS3Domain("javascript:alert(1)")).toThrow(/Invalid LEROS_DEPLOY_S3_DOMAIN/);
-		expect(sanitizeS3Domain("https://leros-1395325824.cos.ap-beijing.myqcloud.com/")).toBe(
-			"https://leros-1395325824.cos.ap-beijing.myqcloud.com",
-		);
+		expect(sanitizeS3Domain("https://cdn.example.com/")).toBe("https://cdn.example.com");
 	});
 
 	it("keeps default logo when S3 domain is missing", async () => {
@@ -59,15 +57,13 @@ describe("inject deploy config", () => {
 		const result = await injectDeployConfig({
 			mode: "acme",
 			appName: "AcmeAI",
-			s3Domain: "https://leros-1395325824.cos.ap-beijing.myqcloud.com",
+			s3Domain: "https://cdn.example.com",
 			deploymentMode: "private",
 			rendererPublicDir: publicDir,
 			fetchImpl,
 		});
 		expect(result.logo).toBe("./brand/logo.svg");
-		expect(fetchImpl).toHaveBeenCalledWith(
-			"https://leros-1395325824.cos.ap-beijing.myqcloud.com/fronted/acme/logo.svg",
-		);
+		expect(fetchImpl).toHaveBeenCalledWith("https://cdn.example.com/fronted/acme/logo.svg");
 		const packed = await readFile(join(publicDir, "brand/logo.svg"), "utf8");
 		expect(packed).toContain("remote");
 	});
