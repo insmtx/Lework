@@ -49,6 +49,7 @@ PLAYWRIGHT=1.61.1
 #                    tesseract-ocr-osd
 #   其余          -> poppler-utils / ghostscript / pandoc / imagemagick /
 #                    inkscape / python3-matplotlib / ffmpeg / libvips
+#   ripgrep       -> OpenCode skill/grep/glob（两版共用，避免运行时从 GitHub 拉 rg）
 
 # pip 镜像（默认阿里云）
 PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/

@@ -25,6 +25,8 @@ RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu
 # - CJK 字体与替代字体：保证中文文档正常渲染
 # - python3.12 + python3-pip：文档处理运行时
 # - fontconfig、libsqlite3-0 等：基础工具链
+# - ripgrep：OpenCode 的 skill/grep/glob 依赖 PATH 上的 rg；未安装时会在运行时从
+#   GitHub Releases 下载，测试/生产出网失败会长时间卡住并报 ripgrep execution failed
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
@@ -38,6 +40,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     pandoc \
     python3.12 \
     python3-pip \
+    ripgrep \
     fonts-noto-cjk \
     fonts-noto-cjk-extra \
     fonts-wqy-zenhei \
@@ -45,7 +48,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     fonts-arphic-uming \
     fonts-arphic-ukai \
     fontconfig \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rg --version
 
 # Map common Windows/MS Office CJK font names to the installed Noto/WenQuanYi fonts,
 # so LibreOffice documents requesting SimSun/SimHei/FangSong/KaiTi/Microsoft YaHei/
