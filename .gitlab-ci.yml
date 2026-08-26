@@ -30,10 +30,13 @@ spec:
       description: '构建版本类型，oss=社区版，enterprise=企业版'
     desktop_deploy_mode:
       default: ""
-      description: '仅 environment=private 的桌面打包生效；此时必填，对应 frontend/private/logo/{mode}/ 与 COS private/{mode}/。SaaS（test/prod）即使填写也会被忽略'
+      description: '仅 environment=private 的桌面打包生效；此时必填，对应 COS 安装包目录 private/{mode}/ 与 logo 路径 fronted/{mode}/。SaaS（test/prod）即使填写也会被忽略'
     desktop_app_name:
       default: ""
       description: '仅 environment=private 的桌面打包生效；可选，留空则为 Lework。SaaS 即使填写也会被忽略'
+    desktop_s3_domain:
+      default: ""
+      description: '仅 environment=private 的桌面打包生效；可选，S3 域名（需含 https://）。填写后必须能从 {域名}/fronted/{mode}/ 下载到 logo.svg 或 logo.png，否则打包失败。SaaS 即使填写也会被忽略'
 ---
 
 stages:
@@ -50,6 +53,7 @@ variables:
   UPDATE_WORKER_IMAGE: "$[[ inputs.update_worker_image ]]"
   LEROS_DEPLOY_MODE: "$[[ inputs.desktop_deploy_mode ]]"
   LEROS_DEPLOY_APP_NAME: "$[[ inputs.desktop_app_name ]]"
+  LEROS_DEPLOY_S3_DOMAIN: "$[[ inputs.desktop_s3_domain ]]"
   K3S_NAMESPACE_TEST: "insmtx-test"
   K3S_SERVER_DEPLOYMENT: "leros"
   K3S_SERVER_CONTAINER: "leros"
@@ -480,11 +484,12 @@ deploy:
           exit 1
         fi
       else
-        if [ -n "${LEROS_DEPLOY_MODE:-}" ] || [ -n "${LEROS_DEPLOY_APP_NAME:-}" ]; then
-          echo "Ignoring desktop_deploy_mode/desktop_app_name because environment=$ENV (only used when environment=private)"
+        if [ -n "${LEROS_DEPLOY_MODE:-}" ] || [ -n "${LEROS_DEPLOY_APP_NAME:-}" ] || [ -n "${LEROS_DEPLOY_S3_DOMAIN:-}" ]; then
+          echo "Ignoring desktop_deploy_mode/desktop_app_name/desktop_s3_domain because environment=$ENV (only used when environment=private)"
         fi
         export LEROS_DEPLOY_MODE=""
         export LEROS_DEPLOY_APP_NAME=""
+        export LEROS_DEPLOY_S3_DOMAIN=""
       fi
     - cd frontend
     - pnpm config set store-dir "$CI_PROJECT_DIR/frontend/.pnpm-store"
