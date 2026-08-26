@@ -28,7 +28,6 @@ import (
 	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
 	skillusetools "github.com/insmtx/Leros/backend/tools/skill_use"
 	todotools "github.com/insmtx/Leros/backend/tools/todo"
-	visionanalyzetools "github.com/insmtx/Leros/backend/tools/vision_analyze"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -345,9 +344,6 @@ func registerTools(registry *tools.Registry, memoryStore *localmemory.Store) err
 	}
 	if err := nodetools.Register(registry); err != nil {
 		return fmt.Errorf("register node tools: %w", err)
-	}
-	if err := registry.Register(visionanalyzetools.NewTool()); err != nil {
-		return fmt.Errorf("register vision analyze tool: %w", err)
 	}
 	return nil
 }
