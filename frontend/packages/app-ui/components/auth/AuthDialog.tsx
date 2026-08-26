@@ -346,8 +346,8 @@ function AuthDialog({
 }) {
 	const phoneCodeLoginEnabled = useGlobalConfigStore((s) => s.phoneCodeLoginEnabled);
 	// 中文注释：私有化客户端按 GlobalConfig 二选一；SaaS 客户端固定手机号，与填了什么服务地址无关。
-	const mode: AuthMode =
-		isPrivateDeployment && !phoneCodeLoginEnabled ? "password" : "phone";
+	const mode: AuthMode = isPrivateDeployment && !phoneCodeLoginEnabled ? "password" : "phone";
+	const { logo: customBrandLogo, name: brandName } = useBrandIdentity();
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
 	const [account, setAccount] = useState("");
