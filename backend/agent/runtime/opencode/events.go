@@ -185,6 +185,10 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 				if isFilteredToolName(toolName) || st.isFilteredToolCall(callID) {
 					return
 				}
+				if st.activeToolCalls == nil {
+					st.activeToolCalls = make(map[string]string)
+				}
+				st.activeToolCalls[callID] = toolName
 				logs.Infof("[opencode] tool started: execution_id=%s session_id=%s tool=%s call_id=%s",
 					st.executionID, props.SessionID, toolName, callID)
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionStart, &agent.ToolExecutionStartPayload{
@@ -200,6 +204,7 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 						st.executionID, props.SessionID, toolName, callID)
 					return
 				}
+				delete(st.activeToolCalls, callID)
 				logs.Infof("[opencode] tool completed: execution_id=%s session_id=%s tool=%s call_id=%s output_len=%d",
 					st.executionID, props.SessionID, toolName, callID, len(part.State.Output))
 				sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
@@ -216,6 +221,7 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 						st.executionID, props.SessionID, toolName, callID)
 					return
 				}
+				delete(st.activeToolCalls, callID)
 				toolErr := part.State.Error
 				if toolErr == "" {
 					toolErr = "tool execution failed"

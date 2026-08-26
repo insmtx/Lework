@@ -74,6 +74,7 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest)
 		startedAt:         startedAt,
 		workDir:           workDir,
 		filteredToolCalls: make(map[string]string),
+		activeToolCalls:   make(map[string]string),
 		sseDone:           make(chan struct{}),
 		msgDone:           make(chan struct{}),
 		sseTerminal:       make(chan struct{}),
@@ -147,6 +148,7 @@ type runState struct {
 	workDir           string
 	session           *sessionResponse
 	filteredToolCalls map[string]string
+	activeToolCalls   map[string]string
 	reasoningParts    map[string]struct{} // reasoning partID 集合，用于 message.part.delta 过滤
 	sseDone           chan struct{}
 	msgDone           chan struct{}
@@ -461,6 +463,7 @@ complete:
 	case <-time.After(5 * time.Second):
 		logs.Warnf("OpenCode SSE stream did not close within 5s after cancel, proceeding anyway")
 	}
+	st.emitMissingToolCompletions()
 
 	st.mu.Lock()
 	hasRunErr := st.runErr != ""
@@ -520,6 +523,35 @@ func (st *runState) abortSession() {
 	}
 	if err := st.srv.Abort(context.Background(), st.sessionID); err != nil {
 		logs.Warnf("OpenCode abort session failed: session_id=%s err=%v", st.sessionID, err)
+	}
+}
+
+// emitMissingToolCompletions closes tool calls whose completed SSE event was
+// lost after OpenCode already returned the final assistant message. The
+// message request is synchronous, so at this point OpenCode has finished its
+// tool loop; the synthetic result only repairs observability and explicitly
+// says that the original tool output was unavailable.
+func (st *runState) emitMissingToolCompletions() {
+	st.mu.Lock()
+	missing := make(map[string]string, len(st.activeToolCalls))
+	for callID, name := range st.activeToolCalls {
+		missing[callID] = name
+	}
+	st.activeToolCalls = make(map[string]string)
+	st.mu.Unlock()
+
+	for callID, name := range missing {
+		sendEventPayloadTo(st.evtChan, agent.NodeEventToolExecutionEnd, &agent.ToolExecutionEndPayload{
+			ToolCallID: callID,
+			Name:       name,
+			IsError:    false,
+			Result: agent.MarshalRawJSON(map[string]string{
+				"status":  "completed",
+				"message": "OpenCode 未返回工具原始输出，已根据最终消息结束本次调用",
+			}),
+		})
+		logs.Warnf("[opencode] synthesized missing tool completion: execution_id=%s session_id=%s tool=%s call_id=%s",
+			st.executionID, st.sessionID, name, callID)
 	}
 }
 
