@@ -50,7 +50,7 @@ describe("PrivateDeploymentGate", () => {
 		});
 
 		expect(container.querySelector('[data-testid="application"]')).not.toBeNull();
-		expect(document.body.textContent).not.toContain("连接私有化服务");
+		expect(document.body.textContent).not.toContain("连接服务");
 	});
 
 	it("blocks the application with a dialog that has no close button", () => {
@@ -65,7 +65,9 @@ describe("PrivateDeploymentGate", () => {
 		});
 
 		expect(container.querySelector('[data-testid="application"]')).toBeNull();
-		expect(document.body.textContent).toContain("连接私有化服务");
+		expect(document.body.textContent).toContain("连接服务");
+		expect(document.body.textContent).not.toContain("Lework");
+		expect(document.body.textContent).not.toContain("私有化");
 		expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull();
 	});
 

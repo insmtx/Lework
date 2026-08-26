@@ -11,6 +11,7 @@ import {
 	useAuthStore,
 	useChatStore,
 	useDAStore,
+	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
 } from "@leros/store";
@@ -341,8 +342,10 @@ function AuthDialog({
 	onOpenChange: (open: boolean) => void;
 	onAuthenticated: (login: PendingOrganizationLoginResponse) => Promise<void>;
 }) {
-	// 中文注释：私有化仅账号密码；其余（SaaS）仅手机号验证码。不依赖 GlobalConfig 开关。
-	const mode: AuthMode = isPrivateDeployment ? "password" : "phone";
+	const phoneCodeLoginEnabled = useGlobalConfigStore((s) => s.phoneCodeLoginEnabled);
+	// 中文注释：私有化客户端按 GlobalConfig 二选一；SaaS 客户端固定手机号，与填了什么服务地址无关。
+	const mode: AuthMode =
+		isPrivateDeployment && !phoneCodeLoginEnabled ? "password" : "phone";
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
 	const [account, setAccount] = useState("");
@@ -385,14 +388,9 @@ function AuthDialog({
 	const normalizedAccount = account.trim();
 	const phoneValid = /^1[3-9]\d{9}$/.test(normalizedPhone);
 	const codeValid = /^\d{4,8}$/.test(normalizedCode);
-	// 中文注释：私有化仅支持邮箱登录；其他环境含 @ 为邮箱，否则为手机号。
+	// 中文注释：账密登录仅校验邮箱；手机号验证码走另一套表单。
 	const accountValid =
-		normalizedAccount.length > 0 &&
-		(isPrivateDeployment
-			? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedAccount)
-			: normalizedAccount.includes("@")
-				? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedAccount)
-				: /^1[3-9]\d{9}$/.test(normalizedAccount));
+		normalizedAccount.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedAccount);
 	const passwordValid = password.length >= 8;
 	const canSubmitPhone = phoneValid && codeValid && agreed;
 	const canSubmitPassword = accountValid && passwordValid && agreed;
@@ -608,24 +606,16 @@ function AuthDialog({
 					) : (
 						<form onSubmit={handlePasswordSubmit} className="mt-5 flex w-full flex-col gap-3">
 							<DialogDescription className="text-center text-sm text-[#8b95a5]">
-								{isPrivateDeployment ? "使用邮箱登录" : "使用邮箱或手机号登录"}
+								使用邮箱登录
 							</DialogDescription>
-							<FieldWithError
-								error={
-									showAccountError
-										? isPrivateDeployment
-											? "请输入正确的邮箱"
-											: "请输入正确的邮箱或手机号"
-										: undefined
-								}
-							>
+							<FieldWithError error={showAccountError ? "请输入正确的邮箱" : undefined}>
 								<AuthField icon={<Mail className="size-4" />} invalid={showAccountError}>
 									<Input
 										type="text"
 										value={account}
 										onChange={(event) => setAccount(event.target.value)}
 										onBlur={handleFieldBlur("account")}
-										placeholder={isPrivateDeployment ? "请输入邮箱" : "请输入邮箱或手机号"}
+										placeholder="请输入邮箱"
 										className="h-[52px] border-0 bg-transparent px-0 text-base text-[#070d1c] shadow-none placeholder:text-[#9aa3b2] focus-visible:ring-0"
 									/>
 								</AuthField>

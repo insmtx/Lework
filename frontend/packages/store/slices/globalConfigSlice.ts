@@ -8,8 +8,8 @@ export type GlobalConfigState = {
 	/** null 表示尚未拉到 GlobalConfig，不做数量上限判断。 */
 	maxOrgsPerUser: number | null;
 	/**
-	 * 是否开启手机号验证码登录（GlobalConfig 透传；登录 UI 不以此为准）。
-	 * 登录展示以客户端 isPrivateDeployment 为准：私有化账密，其余验证码。
+	 * 是否开启手机号验证码登录（GlobalConfig 透传）。
+	 * 私有化客户端据此二选一：true 仅手机号，false 仅邮箱账密；SaaS 客户端固定仅手机号。
 	 */
 	phoneCodeLoginEnabled: boolean;
 };
@@ -56,16 +56,14 @@ export class GlobalConfigActionImpl {
 			if (result.code !== 0 || !result.data?.edition) return false;
 
 			const maxOrgsPerUser = result.data.max_orgs_per_user;
-			// 中文注释：edition / 组织上限以服务端为准；私有化客户端不展示验证码登录，忽略服务端该开关。
+			// 中文注释：edition / 组织上限 / 验证码登录开关均以服务端为准。
 			this.#set({
 				edition: result.data.edition,
 				maxOrgsPerUser:
 					typeof maxOrgsPerUser === "number" && Number.isFinite(maxOrgsPerUser)
 						? maxOrgsPerUser
 						: null,
-				phoneCodeLoginEnabled: isPrivateDeployment
-					? false
-					: result.data.phone_code_login_enabled !== false,
+				phoneCodeLoginEnabled: result.data.phone_code_login_enabled !== false,
 			});
 			return true;
 		} catch (error) {

@@ -72,9 +72,9 @@ function PrivateServerSetupDialog({ onReload }: { onReload: () => void }) {
 							<Server className="size-6" />
 						</div>
 						<DialogHeader>
-							<DialogTitle className="text-2xl text-slate-950">连接私有化服务</DialogTitle>
+							<DialogTitle className="text-2xl text-slate-950">连接服务</DialogTitle>
 							<DialogDescription className="leading-6 text-slate-600">
-								首次使用前，请配置 Lework 后端服务地址。连接测试通过后才能进入应用。
+								首次使用前，请配置后端服务地址。连接测试通过后即可进入应用。
 							</DialogDescription>
 						</DialogHeader>
 					</div>
@@ -91,7 +91,7 @@ function PrivateServerSetupDialog({ onReload }: { onReload: () => void }) {
 									setErrorMessage("");
 									setConnectionPassed(false);
 								}}
-								placeholder="https://leros.example.com"
+								placeholder="http://192.144.230.208:38081"
 								autoFocus
 								disabled={testing}
 								aria-invalid={Boolean(errorMessage)}
