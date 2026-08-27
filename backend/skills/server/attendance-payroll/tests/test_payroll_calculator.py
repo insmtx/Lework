@@ -2,6 +2,7 @@ import io
 import json
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -256,6 +257,19 @@ class PayrollCalculatorTest(unittest.TestCase):
         )
         self.assertEqual(rows["payroll_detail"], [])
 
+    def test_unmatched_person_does_not_keep_attendance_category(self):
+        rows = calculate(
+            [],
+            [],
+            [{"name": "周八", "project": "A项目", "category": "甲司外包",
+              "actual_work_days": 21}],
+            "2026-06", None, None, attendance_project="A项目",
+        )
+        detail = rows["payroll_detail"][0]
+        self.assertEqual(detail["项目"], "A项目")
+        self.assertEqual(detail["人员类别"], "")
+        self.assertTrue(any("人员类别未认定" in item["说明"] for item in rows["review_exceptions"]))
+
     def test_ignored_review_always_uses_enrolled_category(self):
         rows = calculate(
             [{"name": "钱在册", "project": "A项目", "category": "项目经理", "status": "在册"}],
@@ -427,6 +441,27 @@ class PayrollCalculatorTest(unittest.TestCase):
             )
             self.assertEqual({row["姓名"] for row in rows["payroll_detail"]}, {"甲", "乙"})
 
+    def test_payroll_rows_keep_each_project_contiguous(self):
+        rows = calculate(
+            [],
+            [
+                {"name": "乙", "project": "B项目", "category": "外包",
+                 "position_salary": 2000, "performance": 1000},
+                {"name": "甲", "project": "A项目", "category": "外包",
+                 "position_salary": 2000, "performance": 1000},
+                {"name": "丙", "project": "A项目", "category": "外包",
+                 "position_salary": 2000, "performance": 1000},
+            ],
+            [
+                {"name": "甲", "project": "A项目", "category": "外包", "actual_work_days": 21},
+                {"name": "乙", "project": "B项目", "category": "外包", "actual_work_days": 21},
+                {"name": "丙", "project": "A项目", "category": "外包", "actual_work_days": 21},
+            ],
+            "2026-06", None, None,
+        )
+        self.assertEqual([row["项目"] for row in rows["payroll_detail"]], ["A项目", "A项目", "B项目"])
+        self.assertEqual([row["姓名"] for row in rows["payroll_detail"]], ["甲", "丙", "乙"])
+
     def test_conflicting_attendance_months_are_blocked(self):
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "june.json"
@@ -457,7 +492,15 @@ class PayrollCalculatorTest(unittest.TestCase):
         path = Path("B项目2026年5月甲司外包人员工资表.xlsx")
         self.assertEqual(source_hints(path), ("B项目", "甲司外包"))
         self.assertEqual(
+            source_hints(Path("B项目2026年5月份甲司外包人员工资表.xlsx")),
+            ("B项目", "甲司外包"),
+        )
+        self.assertEqual(
             source_hints(Path("B项目2026年5月甲司人员工资表.xlsx")),
+            ("B项目", "甲司"),
+        )
+        self.assertEqual(
+            source_hints(Path("B项目2026年5月份甲司人员工资表.xlsx")),
             ("B项目", "甲司"),
         )
 
@@ -537,6 +580,22 @@ class PayrollCalculatorTest(unittest.TestCase):
         )
         self.assertEqual(rows["payroll_detail"][0]["事假天数"], 0)
         self.assertEqual(rows["payroll_detail"][0]["绩效工资"], 2175)
+
+    def test_sparse_excel_used_range_does_not_scan_the_whole_sheet(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "B项目2026年5月外包人员工资表.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(["姓名", "项目", "人员类别", "基本工资", "绩效工资"])
+            sheet.append(["张三", "B项目", "外包", 3200, 4200])
+            sheet.cell(row=50000, column=1, value="远行")
+            workbook.save(path)
+            started = time.perf_counter()
+            rows = read_rows(path)
+            self.assertLess(time.perf_counter() - started, 2)
+            names = [row.get("name") for row in rows]
+            self.assertIn("张三", names)
+            self.assertNotIn("远行", names)
 
     def test_personal_leave_requires_shi_mark_not_month_remainder(self):
         history = [{"name": "周七", "project": "C项目", "category": "外包",

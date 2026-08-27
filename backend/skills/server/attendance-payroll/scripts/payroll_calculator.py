@@ -31,6 +31,10 @@ ERROR_INPUT = 2
 ERROR_BLOCKED = 3
 ERROR_OUTPUT = 4
 MONEY = "0.00"
+# 人工工资表格式化整列时，openpyxl 会把 used range 扩到十几万行。
+MAX_SHEET_ROWS = 2000
+MAX_SHEET_COLS = 48
+EMPTY_ROW_STOP = 40
 
 # Workbook sheet titles written by this calculator. A file that contains all of
 # them is a generated result, not a human historical payroll sheet.
@@ -175,7 +179,8 @@ def source_hints(path: Path) -> tuple[str, str]:
     if "劳务派遣" in name:
         category = "劳务派遣"
     else:
-        vendor = re.search(r"((?:(?![年月日])[\u4e00-\u9fff]){2,4}外包)", name)
+        # 「5月份甲司外包」里的「份」属于月份，不能算进供应商简称。
+        vendor = re.search(r"((?:(?![年月日份])[\u4e00-\u9fff]){2,4}外包)", name)
         if vendor:
             category = vendor.group(1)
         elif "外包" in name:
@@ -183,7 +188,7 @@ def source_hints(path: Path) -> tuple[str, str]:
         elif "外聘" in name:
             category = "外聘"
         else:
-            dated = re.match(r"^.+?20\d{2}年(?:\d{1,2}月)?(.*)$", name)
+            dated = re.match(r"^.+?20\d{2}年(?:\d{1,2}月份?)?(.*)$", name)
             if dated:
                 tail = re.sub(r"\.(xlsx|xls)$", "", dated.group(1), flags=re.I)
                 tail = re.sub(r"(?:人员)?(?:工资表|工资).*$", "", clean(tail))
@@ -262,11 +267,18 @@ def formula_cell_number(
     return number(value)
 
 
+def is_blank_row(values: list[Any] | tuple[Any, ...]) -> bool:
+    return all(value is None or (isinstance(value, str) and not value.strip()) for value in values)
+
+
 def worksheet_values(sheet: Any) -> list[tuple[Any, ...]]:
     """Return display values while preserving formulas without cached Excel results."""
     cache: dict[str, float | None] = {}
-    rows = []
-    for row in sheet.iter_rows():
+    rows: list[tuple[Any, ...]] = []
+    empty_streak = 0
+    max_row = min(sheet.max_row or 1, MAX_SHEET_ROWS)
+    max_col = min(sheet.max_column or 1, MAX_SHEET_COLS)
+    for row in sheet.iter_rows(min_row=1, max_row=max_row, max_col=max_col):
         values = []
         for cell in row:
             value = cell.value
@@ -275,6 +287,13 @@ def worksheet_values(sheet: Any) -> list[tuple[Any, ...]]:
                 values.append(resolved if resolved is not None else value)
             else:
                 values.append(value)
+        if is_blank_row(values):
+            empty_streak += 1
+            if empty_streak >= EMPTY_ROW_STOP and any(not is_blank_row(item) for item in rows):
+                break
+            rows.append(tuple(values))
+            continue
+        empty_streak = 0
         rows.append(tuple(values))
     return rows
 
@@ -931,6 +950,10 @@ def calculate(
             or clean(roster_row.get("category")) or clean(base.get("category"))
             or clean(roster_row.get("_category_hint")) or clean(base.get("_category_hint"))
         )
+        # 底表和历史都没有此人时，考勤 JSON 里的类别是识图猜测，不能当成用工类别。
+        if not roster_row and not base:
+            resolved_category = ""
+            issues.append("未在底表和历史工资中匹配，人员类别未认定")
         if len(records) > 1:
             issues.append("同一姓名+项目+类别存在多条考勤记录")
         actual, personal_leave = attendance_days(record, month)
@@ -1053,8 +1076,28 @@ def calculate(
         exceptions.append({"姓名": row.get("name"), "项目": row.get("project"),
                            "人员类别": "在册", "类型": "可忽略",
                            "说明": "在册人员不进入外聘工资核算"})
-    return {"payroll_detail": details, "baseline": baselines, "attendance": attendance_out,
-            "reconciliation": reconciliation, "review_exceptions": exceptions}
+    return {
+        "payroll_detail": grouped_by_project(details),
+        "baseline": grouped_by_project(baselines),
+        "attendance": grouped_by_project(attendance_out),
+        "reconciliation": grouped_by_project(reconciliation),
+        "review_exceptions": grouped_by_project(exceptions),
+    }
+
+
+def grouped_by_project(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep each project as a contiguous block, in the order projects first appear."""
+    project_order: dict[str, int] = {}
+    for row in rows:
+        key = clean(row.get("项目"))
+        if key not in project_order:
+            project_order[key] = len(project_order)
+    return [
+        row for _, row in sorted(
+            enumerate(rows),
+            key=lambda item: (project_order[clean(item[1].get("项目"))], item[0]),
+        )
+    ]
 
 
 def write_workbook(result: dict[str, list[dict[str, Any]]], output: Path) -> None:
