@@ -58,7 +58,8 @@ packages/app-ui/components/layout/
 ├── CenterCanvas.tsx    # 中栏 - 聊天交互区
 ├── ConversationListPanel.tsx # 会话列表面板
 ├── RightRail.tsx       # 右栏 - 快捷/收件/工件
-├── WorkbenchPanel.tsx  # 工作台占位/入口面板
+├── WorkbenchPage.tsx   # 工作台功能入口（工资核算、标书对比等）
+├── NewTaskPage.tsx     # 新建任务首页
 └── index.ts            # barrel 导出
 ```
 
@@ -99,7 +100,7 @@ accordion, alert, alert-dialog, aspect-ratio, avatar, badge, breadcrumb, button,
 packages/app-ui/components/
 ├── chat/              # AI/User 消息气泡、时间轴、工具调用、欢迎页
 ├── input/             # ChatInput
-├── layout/            # Shell、LeftRail、CenterCanvas、WorkbenchPanel
+├── layout/            # Shell、LeftRail、WorkbenchPage、NewTaskPage
 └── digitalAssistant/  # Assistant 列表、卡片、详情、创建/编辑/删除弹窗
 ```
 
@@ -146,7 +147,7 @@ apps/web/app/page.tsx
       │   ├─ ChatHeader
       │   ├─ MessageTimeline
       │   └─ ChatInput
-      └─ WorkbenchPanel / AssistantListView
+      └─ NewTaskPage / WorkbenchPage / AssistantListView
 
 apps/desktop/src/renderer/src/routes.tsx
   └─ @lework/app-ui Shell

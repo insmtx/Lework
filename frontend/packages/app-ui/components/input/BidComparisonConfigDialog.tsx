@@ -77,10 +77,6 @@ export function BidComparisonConfigDialog({
 	projects = [],
 	initialProjectId,
 	initialTaskId,
-	hideTargetPicker = false,
-	allowSelectTask = true,
-	lockProjectSelection = false,
-	continueInCurrentTask = false,
 	onProjectChange,
 }: {
 	open: boolean;
@@ -89,14 +85,6 @@ export function BidComparisonConfigDialog({
 	projects?: BidComparisonProjectOption[];
 	initialProjectId?: string | null;
 	initialTaskId?: string | null;
-	/** 项目新建任务 / 任务详情等已有默认目标时，不展示项目任务选择。 */
-	hideTargetPicker?: boolean;
-	/** 与工作台问答一致：可选已有任务；为 false 时仅选项目（隐含新建任务）。 */
-	allowSelectTask?: boolean;
-	/** 项目中新建任务固定当前项目，避免跨项目创建。 */
-	lockProjectSelection?: boolean;
-	/** 任务详情续聊场景，用于文案提示。 */
-	continueInCurrentTask?: boolean;
 	onProjectChange?: (projectId: string) => void;
 }) {
 	const [targetProjectId, setTargetProjectId] = useState(initialProjectId ?? "");
@@ -129,13 +117,7 @@ export function BidComparisonConfigDialog({
 		}
 	}, [onProjectChange, open, targetProjectId]);
 
-	const dialogDescription = continueInCurrentTask
-		? "选择文件后，将在当前任务中开始标书对比"
-		: hideTargetPicker
-			? "选择文件后，将新建任务并开始标书对比"
-			: allowSelectTask
-				? "选择项目/任务与文件后，开始标书对比"
-				: "选择项目与文件后，将新建任务并开始标书对比";
+	const dialogDescription = "选择项目/任务与文件后，开始标书对比";
 
 	const chooseUploadedFiles = (files: FileList | null, kind: "main" | "compare") => {
 		const selectedFiles = Array.from(files ?? []).map(
@@ -187,7 +169,7 @@ export function BidComparisonConfigDialog({
 		try {
 			await onSave({
 				projectId: targetProjectId || undefined,
-				taskId: allowSelectTask || continueInCurrentTask ? targetTaskId || undefined : undefined,
+				taskId: targetTaskId || undefined,
 				mainFile,
 				compareFiles,
 				reportFormat,
@@ -211,31 +193,26 @@ export function BidComparisonConfigDialog({
 							<BidComparisonIcon className="size-5" />
 						</div>
 						<div>
-							<DialogTitle className="text-base">
-								{continueInCurrentTask ? "标书对比" : "新建标书对比"}
-							</DialogTitle>
+							<DialogTitle className="text-base">标书对比</DialogTitle>
 							<DialogDescription className="mt-1 text-xs">{dialogDescription}</DialogDescription>
 						</div>
 					</div>
 				</DialogHeader>
 
 				<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-7 py-5">
-					{!hideTargetPicker ? (
-						<ProjectTaskPickerField
-							projects={projects}
-							projectId={targetProjectId}
-							taskId={targetTaskId}
-							disabled={lockProjectSelection}
-							allowNewProject={!lockProjectSelection}
-							allowSelectTask={allowSelectTask}
-							onLoadProjectTasks={onProjectChange}
-							onSelect={(nextProjectId, nextTaskId) => {
-								setTargetProjectId(nextProjectId);
-								setTargetTaskId(nextTaskId);
-								if (nextProjectId) onProjectChange?.(nextProjectId);
-							}}
-						/>
-					) : null}
+					<ProjectTaskPickerField
+						projects={projects}
+						projectId={targetProjectId}
+						taskId={targetTaskId}
+						allowNewProject
+						allowSelectTask
+						onLoadProjectTasks={onProjectChange}
+						onSelect={(nextProjectId, nextTaskId) => {
+							setTargetProjectId(nextProjectId);
+							setTargetTaskId(nextTaskId);
+							if (nextProjectId) onProjectChange?.(nextProjectId);
+						}}
+					/>
 					<FilePickerSection
 						title="投标文件"
 						required

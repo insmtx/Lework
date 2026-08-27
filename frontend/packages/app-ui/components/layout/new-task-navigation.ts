@@ -1,6 +1,6 @@
 import type { AppNavigation } from "./LeftRail";
 
-export function navigateToWorkbench(
+export function navigateToNewTask(
 	navigation: AppNavigation | undefined,
 	switchView: (view: "chat") => void,
 ) {

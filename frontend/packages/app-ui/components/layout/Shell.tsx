@@ -14,10 +14,10 @@ import { PermissionDeniedListener } from "../permission/PermissionDeniedListener
 import { FrontendEventTracker } from "../telemetry/FrontendEventTracker";
 import { FilePreviewHost } from "./FilePreviewHost";
 import { type AppNavigation, LeftRail } from "./LeftRail";
-import { PayrollWorkbench } from "./PayrollWorkbench";
+import { NewTaskPage } from "./NewTaskPage";
 import { ProjectPage } from "./ProjectPage";
 import { TaskDetailPage } from "./TaskDetailPage";
-import { WorkbenchPanel } from "./WorkbenchPanel";
+import { WorkbenchPage } from "./WorkbenchPage";
 
 export function Shell({
 	logoSrc,
@@ -75,8 +75,8 @@ export function Shell({
 				<LeftRail logoSrc={logoSrc} navigation={navigation} />
 				{children ?? (
 					<>
-						{currentView === "chat" && <WorkbenchPanel />}
-						{currentView === "workbench" && <PayrollWorkbench />}
+						{currentView === "chat" && <NewTaskPage />}
+						{currentView === "workbench" && <WorkbenchPage />}
 						{currentView === "tasks" && <EmptyPage />}
 						{currentView === "project" && <ProjectPage />}
 						{currentView === "taskDetail" && activeTaskDetailSessionId && (

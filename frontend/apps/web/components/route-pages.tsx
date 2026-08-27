@@ -6,10 +6,10 @@ import {
 	OrgAdminPage,
 	ProjectPage,
 	ProjectsHubView,
-	PayrollWorkbench,
+	WorkbenchPage,
 	SkillMarketView,
 	TaskDetailPage,
-	WorkbenchPanel,
+	NewTaskPage,
 } from "@leros/app-ui";
 import { useParams, useRouter } from "next/navigation";
 import { useWebNavigation } from "./LerosShell";
@@ -26,13 +26,13 @@ function projectTabPath(projectId: string, tab: ProjectTab): string {
 export function WorkbenchRoutePage() {
 	const navigation = useWebNavigation();
 
-	return <PayrollWorkbench navigation={navigation} />;
+	return <WorkbenchPage navigation={navigation} />;
 }
 
-export function ChatRoutePage() {
+export function NewTaskRoutePage() {
 	const navigation = useWebNavigation();
 
-	return <WorkbenchPanel navigation={navigation} />;
+	return <NewTaskPage navigation={navigation} />;
 }
 
 export function ProjectRoutePage({ tab = "chat" }: { tab?: ProjectTab }) {

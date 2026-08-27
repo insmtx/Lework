@@ -67,16 +67,7 @@ import {
 	PROJECT_MCP_COLLABORATION_WARNING,
 } from "../layout/project-mcp-collaboration-warning";
 import { AttachmentPreview } from "./AttachmentPreview";
-import { type BidComparisonConfig, BidComparisonConfigDialog } from "./BidComparisonConfigDialog";
-import {
-	bidComparisonConfigToAttachments,
-	bidComparisonOutputFormat,
-	bidComparisonPrompt,
-	ensureBidComparisonFilesUploaded,
-} from "./bidComparisonAttachments";
 import { ComposerActionBar } from "./ComposerActionBar";
-import { BidComparisonEntryButton, ComposerUsageTipsPanel } from "./ComposerUsageTipsPanel";
-import { buildComposerUsageTips } from "./composerUsageTips";
 import { QuestionAnswerInput } from "./QuestionAnswerInput";
 import {
 	type ComposerAssistantOption,
@@ -93,20 +84,11 @@ export function ChatInput({
 	variant = "default",
 	projectLayoutMode = "sidebar-expanded",
 	navigation,
-	bidComparisonEntry = "auto",
 }: {
 	variant?: "default" | "project";
 	/** 项目页聊天区布局：随右侧栏展开/收起切换宽度与留白 */
 	projectLayoutMode?: ProjectChatLayoutMode;
 	navigation?: AppNavigation;
-	/**
-	 * 标书对比入口：
-	 * - auto：项目新建任务展示使用提示+按钮，任务详情仅按钮
-	 * - button：仅标书对比按钮（任务详情）
-	 * - tips：使用提示面板含标书对比
-	 * - none：不展示
-	 */
-	bidComparisonEntry?: "auto" | "button" | "tips" | "none";
 }) {
 	const projectAttachmentAccept = getComposerUploadAccept(
 		typeof navigator === "undefined" ? undefined : navigator.platform,
@@ -150,13 +132,11 @@ export function ChatInput({
 		currentView,
 		projectComposerPrefill,
 		projects,
-		fetchTasks,
 		consumeProjectComposerPrefill,
 	} = useLayoutStore((s) => s);
 	const { assistants, assistantsLoaded, fetchAssistants } = useDAStore((s) => s);
 
 	const composerRef = useRef<StructuredComposerHandle | null>(null);
-	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
 	const lastAppliedSelectionDraftRef = useRef<{
 		id: string;
 		suggestedPrompt?: string;
@@ -250,104 +230,6 @@ export function ChatInput({
 		[skillOptions],
 	);
 	const isNewProjectTaskView = isProjectVariant && currentView === "project";
-	const isTaskDetailView =
-		isProjectVariant &&
-		(currentView === "taskDetail" ||
-			Boolean(activeTaskDetailTaskId && activeTaskDetailSessionId && currentView !== "project"));
-	const showBidComparisonTips =
-		bidComparisonEntry === "tips" || (bidComparisonEntry === "auto" && isNewProjectTaskView);
-	const showBidComparisonButtonOnly =
-		bidComparisonEntry === "button" || (bidComparisonEntry === "auto" && isTaskDetailView);
-	const showBidComparisonDialog = showBidComparisonTips || showBidComparisonButtonOnly;
-	const composerUsageTips = useMemo(
-		() => (showBidComparisonTips ? buildComposerUsageTips(currentProject) : []),
-		[showBidComparisonTips, currentProject],
-	);
-	const applyUsageTip = useCallback(
-		(prompt: string) => {
-			if (composerRef.current) {
-				composerRef.current.setContent(prompt);
-				return;
-			}
-			setInputText(prompt);
-		},
-		[setInputText],
-	);
-	const startBidComparison = useCallback(
-		async (config: BidComparisonConfig) => {
-			if (composerLocked) return;
-			try {
-				const projectId = config.projectId || currentProjectId;
-				if (!projectId) {
-					toast.error("请先选择项目");
-					throw new Error("请先选择项目");
-				}
-				const resolved = await ensureBidComparisonFilesUploaded(config, projectId);
-				const attachments = bidComparisonConfigToAttachments(resolved);
-				const prompt = bidComparisonPrompt(resolved);
-				const outputFormat = bidComparisonOutputFormat(resolved);
-
-				if (bidComparisonEntry === "button" || isTaskDetailView) {
-					const taskId = activeTaskDetailTaskId;
-					const sessionId = activeTaskDetailSessionId;
-					if (!taskId || !sessionId) {
-						toast.error("当前任务会话未就绪");
-						throw new Error("当前任务会话未就绪");
-					}
-					const result = await sendTaskRoomMessage(
-						prompt,
-						{
-							projectId,
-							taskId,
-							sessionId,
-							scene: "bid_comparison",
-							outputFormat,
-						},
-						attachments,
-					);
-					if (!result) {
-						toast.error("启动标书对比失败，请稍后重试");
-						throw new Error("启动标书对比失败，请稍后重试");
-					}
-					return;
-				}
-
-				const taskEntry = await sendProjectMessage(prompt, projectId, attachments, undefined, {
-					scene: "bid_comparison",
-					outputFormat,
-				});
-				if (!taskEntry) {
-					toast.error("启动标书对比失败，请稍后重试");
-					throw new Error("启动标书对比失败，请稍后重试");
-				}
-				if (taskEntry.project_id && taskEntry.task_id && taskEntry.session_id) {
-					navigation?.goToTaskDetail(taskEntry.project_id, taskEntry.task_id, taskEntry.session_id);
-				}
-			} catch (err) {
-				console.error("ChatInput bid comparison upload error:", err);
-				const message = err instanceof Error ? err.message.trim() : "";
-				const alreadyToasted =
-					message === "请先选择项目" ||
-					message === "当前任务会话未就绪" ||
-					message === "启动标书对比失败，请稍后重试";
-				if (!alreadyToasted) {
-					toast.error(getRequestErrorMessage(err) ?? "启动标书对比失败");
-				}
-				throw err;
-			}
-		},
-		[
-			activeTaskDetailSessionId,
-			activeTaskDetailTaskId,
-			bidComparisonEntry,
-			currentProjectId,
-			isTaskDetailView,
-			navigation,
-			sendProjectMessage,
-			sendTaskRoomMessage,
-			composerLocked,
-		],
-	);
 	const activeProjectComposerPrefill =
 		isProjectVariant &&
 		currentView === "project" &&
@@ -706,40 +588,6 @@ export function ChatInput({
 			)}
 		>
 			<div className={cn("mx-auto w-full max-w-[1040px]", isProjectVariant && projectLayout.inner)}>
-				{showBidComparisonTips ? (
-					<ComposerUsageTipsPanel
-						tips={composerUsageTips}
-						onApply={applyUsageTip}
-						onBidComparisonClick={() => setBidComparisonOpen(true)}
-					/>
-				) : null}
-				{showBidComparisonButtonOnly ? (
-					<div className="mb-4">
-						<BidComparisonEntryButton
-							disabled={composerLocked}
-							onClick={() => setBidComparisonOpen(true)}
-						/>
-					</div>
-				) : null}
-				{showBidComparisonDialog ? (
-					<BidComparisonConfigDialog
-						open={bidComparisonOpen}
-						onOpenChange={setBidComparisonOpen}
-						onSave={startBidComparison}
-						initialProjectId={currentProjectId}
-						initialTaskId={showBidComparisonButtonOnly ? activeTaskDetailTaskId : null}
-						hideTargetPicker
-						allowSelectTask={false}
-						continueInCurrentTask={showBidComparisonButtonOnly}
-						lockProjectSelection
-						onProjectChange={fetchTasks}
-						projects={projects.map((project) => ({
-							id: project.id,
-							name: project.name,
-							tasks: project.tasks,
-						}))}
-					/>
-				) : null}
 				<div
 					className={cn(
 						// 中文注释：focus 时使用无偏移阴影，避免 shadow-xl 只在下方显影

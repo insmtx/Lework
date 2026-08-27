@@ -1,5 +1,5 @@
 import { WorkbenchRoutePage } from "@/components/route-pages";
 
-export default function WorkbenchPage() {
+export default function WorkbenchRoute() {
 	return <WorkbenchRoutePage />;
 }

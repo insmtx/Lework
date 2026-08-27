@@ -3,13 +3,13 @@ import {
 	AutomationExecutionPage,
 	AutomationListView,
 	OrgAdminPage,
-	PayrollWorkbench,
+	WorkbenchPage,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
 	SkillMarketView,
 	TaskDetailPage,
-	WorkbenchPanel,
+	NewTaskPage,
 } from "@leros/app-ui";
 
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -24,7 +24,7 @@ export function AppRoutes() {
 			<Routes>
 				<Route path="/" element={<Navigate to="/chat" replace />} />
 
-				<Route path="/chat" element={<ChatRoutePage />} />
+				<Route path="/chat" element={<NewTaskRoutePage />} />
 
 				<Route path="/workbench" element={<WorkbenchRoutePage />} />
 
@@ -137,13 +137,13 @@ function useDesktopNavigation(): AppNavigation {
 function WorkbenchRoutePage() {
 	const navigation = useDesktopNavigation();
 
-	return <PayrollWorkbench navigation={navigation} />;
+	return <WorkbenchPage navigation={navigation} />;
 }
 
-function ChatRoutePage() {
+function NewTaskRoutePage() {
 	const navigation = useDesktopNavigation();
 
-	return <WorkbenchPanel navigation={navigation} />;
+	return <NewTaskPage navigation={navigation} />;
 }
 
 function projectTabPath(projectId: string, tab: "chat" | "tasks" | "files" | "activity"): string {

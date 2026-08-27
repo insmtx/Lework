@@ -1,12 +1,12 @@
 "use client";
 
 export { type AppNavigation, LeftRail } from "./LeftRail";
+export { NewTaskPage } from "./NewTaskPage";
 export { ProjectPage } from "./ProjectPage";
-export { PayrollWorkbench } from "./PayrollWorkbench";
 export { Shell } from "./Shell";
 export { TaskDetailPage } from "./TaskDetailPage";
-export { WorkbenchPanel } from "./WorkbenchPanel";
+export { WorkbenchPage } from "./WorkbenchPage";
 export {
-	buildAssistantWorkbenchPrefill,
-	buildSkillWorkbenchPrefill,
-} from "./workbench-prefill";
+	buildAssistantNewTaskPrefill,
+	buildSkillNewTaskPrefill,
+} from "./new-task-prefill";

@@ -1,6 +1,6 @@
 "use client";
 
-import { SkillDetailView, buildSkillWorkbenchPrefill } from "@leros/app-ui";
+import { SkillDetailView, buildSkillNewTaskPrefill } from "@leros/app-ui";
 import { useLayoutStore } from "@leros/store";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback } from "react";
@@ -27,7 +27,7 @@ export default function SkillDetailPage() {
 				return;
 			}
 
-			const prefill = buildSkillWorkbenchPrefill(nextSkillId, undefined, displayLabel);
+			const prefill = buildSkillNewTaskPrefill(nextSkillId, undefined, displayLabel);
 			setProjectComposerPrefill({
 				projectId: targetProjectId,
 				value: prefill.value,

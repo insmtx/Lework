@@ -38,16 +38,6 @@ import { toast } from "sonner";
 import { useAuth } from "../auth";
 import { isAssistantAvailable } from "../digitalAssistant/assistantStatus";
 import { AttachmentPreview } from "../input/AttachmentPreview";
-import {
-	type BidComparisonConfig,
-	BidComparisonConfigDialog,
-} from "../input/BidComparisonConfigDialog";
-import {
-	bidComparisonConfigToAttachments,
-	bidComparisonOutputFormat,
-	bidComparisonPrompt,
-	ensureBidComparisonFilesUploaded,
-} from "../input/bidComparisonAttachments";
 import { ComposerActionBar } from "../input/ComposerActionBar";
 import { ComposerUsageTipsPanel } from "../input/ComposerUsageTipsPanel";
 import { buildComposerUsageTips } from "../input/composerUsageTips";
@@ -165,7 +155,7 @@ function detectDesktopApp(): boolean {
 	return Boolean(win.electron ?? win.lerosDesktop);
 }
 
-export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
+export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 	const { name: brandName } = useBrandIdentity();
 	const composerUploadAccept = getComposerUploadAccept(
 		typeof navigator === "undefined" ? undefined : navigator.platform,
@@ -220,7 +210,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
 	const [isDesktopApp, setIsDesktopApp] = useState(false);
-	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
 	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
 	const wasAuthenticatedRef = useRef(isAuthenticated);
 
@@ -349,7 +338,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 				setSelectedConnectorIds([]);
 			}
 		} catch (err) {
-			console.error("WorkbenchPanel createInitialMessage error:", err);
+			console.error("NewTaskPage createInitialMessage error:", err);
 			toast.error(`创建任务失败：${getRequestErrorMessage(err) ?? "请稍后重试"}`);
 		} finally {
 			sendingRef.current = false;
@@ -642,42 +631,6 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 		setInput(prompt);
 	}, []);
 
-	const startBidComparison = useCallback(
-		async (config: BidComparisonConfig) => {
-			try {
-				const resolved = await ensureBidComparisonFilesUploaded(config, config.projectId);
-				// 中文注释：与问答一致——有任务则续聊，无任务则新建；显式传 taskId（可为空）避免回落到工作台条旧选中。
-				const data = await sendWorkbenchMessage(
-					bidComparisonPrompt(resolved),
-					resolved.projectId,
-					executionMode,
-					bidComparisonConfigToAttachments(resolved),
-					undefined,
-					undefined,
-					undefined,
-					"bid_comparison",
-					bidComparisonOutputFormat(resolved),
-					resolved.taskId ?? null,
-				);
-				if (!data?.project_id || !data.task_id || !data.session_id) {
-					toast.error("启动标书对比失败，请确认所选任务未在回复中后重试");
-					throw new Error("启动标书对比失败，请确认所选任务未在回复中后重试");
-				}
-				if (navigation) {
-					navigation.goToTaskDetail(data.project_id, data.task_id, data.session_id);
-				}
-			} catch (err) {
-				console.error("WorkbenchPanel bid comparison upload error:", err);
-				const message = err instanceof Error ? err.message.trim() : "";
-				if (message !== "启动标书对比失败，请确认所选任务未在回复中后重试") {
-					toast.error(getRequestErrorMessage(err) ?? "启动标书对比失败");
-				}
-				throw err;
-			}
-		},
-		[executionMode, navigation, sendWorkbenchMessage],
-	);
-
 	const clearProjectTriggerText = useCallback(() => {
 		projectTriggerClearRef.current?.();
 		projectTriggerClearRef.current = null;
@@ -847,27 +800,9 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 						</div>
 					</div>
 
-					<ComposerUsageTipsPanel
-						tips={workbenchUsageTips}
-						onApply={applyUsageTip}
-						onBidComparisonClick={() => setBidComparisonOpen(true)}
-					/>
-					<BidComparisonConfigDialog
-						open={bidComparisonOpen}
-						onOpenChange={setBidComparisonOpen}
-						onSave={startBidComparison}
-						initialProjectId={activeWorkbenchProjectId}
-						initialTaskId={activeWorkbenchTaskId}
-						allowSelectTask
-						onProjectChange={fetchTasks}
-						projects={projects.map((project) => ({
-							id: project.id,
-							name: project.name,
-							tasks: project.tasks,
-						}))}
-					/>
+					<ComposerUsageTipsPanel tips={workbenchUsageTips} onApply={applyUsageTip} />
 
-					{/* 中文注释：工作台输入卡片与 ChatInput 的 project 变体保持同一套边框、阴影与内边距规范。 */}
+					{/* 中文注释：新建任务输入卡片与 ChatInput 的 project 变体保持同一套边框、阴影与内边距规范。 */}
 					{/* 中文注释：输入框保持完整圆角，和 Codex 一样作为上层卡片悬浮在项目选择条之上。 */}
 					<div className="relative z-10 flex flex-col rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-slate-200/70 transition-all focus-within:shadow-[0_0_24px_rgba(15,23,42,0.12)] focus-within:ring-slate-200/70">
 						<input
@@ -953,7 +888,7 @@ export function WorkbenchPanel({ navigation }: { navigation?: AppNavigation }) {
 									size="icon"
 									onClick={handleSend}
 									disabled={isSending || !input.trim() || hasUploadingAttachments}
-									// 中文注释：工作台发送按钮与项目/任务页保持同一视觉规格。
+									// 中文注释：新建任务发送按钮与项目/任务页保持同一视觉规格。
 									className="size-9 min-w-0 rounded-xl bg-black !text-white shadow-sm hover:bg-blue-700 disabled:bg-[#f3f3f4] disabled:!text-slate-400"
 								>
 									<SendHorizonal

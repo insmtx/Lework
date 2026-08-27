@@ -153,7 +153,7 @@ const nextConfig: NextConfig = {
 
 `@lework/app-ui` 承载 Web 与 Desktop 共用的业务组合组件：
 
-- `components/layout`：`Shell`、`LeftRail`、`CenterCanvas`、`WorkbenchPanel`
+- `components/layout`：`Shell`、`LeftRail`、`WorkbenchPage`、`NewTaskPage`
 - `components/chat`：消息气泡、时间轴、欢迎页、工具调用展示
 - `components/input`：`ChatInput`
 - `components/digitalAssistant`：列表、详情、创建/编辑/删除弹窗

@@ -787,7 +787,7 @@ export class LayoutActionImpl {
 			}
 		}
 
-		// 中文注释：CreateInitialMessage 失败需向上抛出，由 WorkbenchPanel toast 提示。
+		// 中文注释：CreateInitialMessage 失败需向上抛出，由 NewTaskPage toast 提示。
 		return await chat.sendProjectMessage(trimmed, workbenchProjectId, attachments, _metadata, {
 			assistantIds,
 			taskId: selectedTaskId,

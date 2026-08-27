@@ -11,15 +11,25 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
+import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
 import { Calculator, FileSpreadsheet, FolderOpen, Upload, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BidComparisonIcon } from "../../assets";
 import { useAuth } from "../auth";
 import {
+	type BidComparisonConfig,
+	BidComparisonConfigDialog,
 	type BidComparisonProjectFile,
 	ProjectFilePicker,
 } from "../input/BidComparisonConfigDialog";
+import {
+	bidComparisonConfigToAttachments,
+	bidComparisonOutputFormat,
+	bidComparisonPrompt,
+	ensureBidComparisonFilesUploaded,
+} from "../input/bidComparisonAttachments";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectTaskPickerField } from "./ProjectTaskPicker";
 
@@ -49,10 +59,11 @@ function payrollStarterPrompt(files: SelectedFile[]): string {
 	].join("\n");
 }
 
-export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation }) {
+export function WorkbenchPage({ navigation }: { navigation?: AppNavigation }) {
 	const { projects, fetchProjects, fetchTasks, sendWorkbenchMessage } = useLayoutStore((s) => s);
 	const { isAuthenticated, requireAuth } = useAuth();
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
 	const [projectId, setProjectId] = useState("");
 	const [taskId, setTaskId] = useState("");
 	const [files, setFiles] = useState<SelectedFile[]>([]);
@@ -72,6 +83,39 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 			void fetchProjects();
 			setDialogOpen(true);
 		});
+	};
+
+	const openBidComparison = () => {
+		requireAuth(() => {
+			void fetchProjects();
+			setBidComparisonOpen(true);
+		});
+	};
+
+	const startBidComparison = async (config: BidComparisonConfig) => {
+		try {
+			const resolved = await ensureBidComparisonFilesUploaded(config, config.projectId);
+			const result = await sendWorkbenchMessage(
+				bidComparisonPrompt(resolved),
+				resolved.projectId,
+				"default",
+				bidComparisonConfigToAttachments(resolved),
+				undefined,
+				undefined,
+				undefined,
+				"bid_comparison",
+				bidComparisonOutputFormat(resolved),
+				resolved.taskId ?? null,
+			);
+			if (!result?.project_id || !result.task_id || !result.session_id) {
+				throw new Error("启动标书对比失败，请确认所选任务未在回复中后重试");
+			}
+			navigation?.goToTaskDetail(result.project_id, result.task_id, result.session_id);
+		} catch (error) {
+			console.error("WorkbenchPage start bid comparison error:", error);
+			toast.error(getRequestErrorMessage(error) ?? "启动标书对比失败");
+			throw error;
+		}
 	};
 
 	const resetDialog = () => {
@@ -168,17 +212,16 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 		const role = filePickerRole;
 		setFiles((current) => {
 			const uploads = current.filter((file) => file.role === role && !file.publicId);
-			const projectFiles = selected
-				.map((file) => ({
-					id: `payroll-project-${file.publicId}`,
-					name: file.name,
-					publicId: file.publicId,
-					projectId: file.projectId,
-					storageUri: file.storageUri,
-					mimeType: file.mimeType,
-					size: file.size ?? 0,
-					role,
-				}));
+			const projectFiles = selected.map((file) => ({
+				id: `payroll-project-${file.publicId}`,
+				name: file.name,
+				publicId: file.publicId,
+				projectId: file.projectId,
+				storageUri: file.storageUri,
+				mimeType: file.mimeType,
+				size: file.size ?? 0,
+				role,
+			}));
 			return [...current.filter((file) => file.role !== role), ...uploads, ...projectFiles];
 		});
 		setFilePickerRole(null);
@@ -214,7 +257,7 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 			resetDialog();
 			navigation?.goToTaskDetail(result.project_id, result.task_id, result.session_id);
 		} catch (error) {
-			console.error("PayrollWorkbench start analysis error:", error);
+			console.error("WorkbenchPage start analysis error:", error);
 			toast.error(error instanceof Error ? error.message : "启动工资核算分析失败");
 		} finally {
 			setSubmitting(false);
@@ -232,6 +275,25 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 			<main className="flex min-h-0 flex-1 flex-col px-6 py-6">
 				<div className="w-full">
 					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+						<button
+							type="button"
+							onClick={openBidComparison}
+							className={cn(
+								"group flex min-h-[132px] cursor-pointer flex-col rounded-lg border border-slate-200 bg-white p-4",
+								"text-left transition-colors hover:border-[var(--leros-primary-soft)]",
+								"hover:bg-[var(--leros-primary-softer)]/35",
+							)}
+						>
+							<div className="flex size-10 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+								<BidComparisonIcon className="size-5" />
+							</div>
+							<h3 className="mt-4 text-sm font-semibold text-[var(--leros-text-strong)]">
+								标书对比
+							</h3>
+							<p className="mt-1 text-xs leading-5 text-[var(--leros-text-muted)]">
+								选择投标文件与对比文件，发起标书对比分析任务。
+							</p>
+						</button>
 						<button
 							type="button"
 							onClick={openDialog}
@@ -308,9 +370,7 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 												{title} <span className="text-red-500">*</span>
 											</div>
 										</div>
-										<span className="shrink-0 text-xs text-slate-400">
-											{roleFiles.length} 个
-										</span>
+										<span className="shrink-0 text-xs text-slate-400">{roleFiles.length} 个</span>
 									</div>
 									<div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3">
 										{roleFiles.length ? (
@@ -451,6 +511,13 @@ export function PayrollWorkbench({ navigation }: { navigation?: AppNavigation })
 					) : null}
 				</DialogContent>
 			</Dialog>
+			<BidComparisonConfigDialog
+				open={bidComparisonOpen}
+				onOpenChange={setBidComparisonOpen}
+				onSave={startBidComparison}
+				onProjectChange={fetchTasks}
+				projects={projectOptions}
+			/>
 		</div>
 	);
 }

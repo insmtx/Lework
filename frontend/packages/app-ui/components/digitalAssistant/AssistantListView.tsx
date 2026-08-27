@@ -17,8 +17,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
 import type { AppNavigation } from "../layout";
-import { navigateToWorkbench } from "../layout/workbench-navigation";
-import { buildAssistantWorkbenchPrefill } from "../layout/workbench-prefill";
+import { navigateToNewTask } from "../layout/new-task-navigation";
+import { buildAssistantNewTaskPrefill } from "../layout/new-task-prefill";
 import { AssistantAvatar } from "./AssistantAvatar";
 import { AssistantCard } from "./AssistantCard";
 import { AssistantCreateDialog } from "./AssistantCreateDialog";
@@ -127,9 +127,9 @@ export function AssistantListView({ navigation }: { navigation?: AppNavigation }
 			selectWorkbenchProject(null);
 			selectWorkbenchTask(null);
 			setWorkbenchComposerPrefill(
-				buildAssistantWorkbenchPrefill(assistantIdentity, assistant, prompt),
+				buildAssistantNewTaskPrefill(assistantIdentity, assistant, prompt),
 			);
-			navigateToWorkbench(navigation, switchView);
+			navigateToNewTask(navigation, switchView);
 			toast.success(`已成功召唤 ${assistant.name}`);
 			setDetailTarget(null);
 		});

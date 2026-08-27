@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildSkillWorkbenchPrefill } from "./workbench-prefill";
+import { buildSkillNewTaskPrefill } from "./new-task-prefill";
 
-describe("buildSkillWorkbenchPrefill", () => {
+describe("buildSkillNewTaskPrefill", () => {
 	it("uses the stable Skill code for the slash token", () => {
-		expect(buildSkillWorkbenchPrefill("demo-code")).toEqual({
+		expect(buildSkillNewTaskPrefill("demo-code")).toEqual({
 			value: "/demo-code ",
 			tokens: [
 				{
@@ -18,7 +18,7 @@ describe("buildSkillWorkbenchPrefill", () => {
 	});
 
 	it("uses the display name in content and keeps the Skill code on the token", () => {
-		expect(buildSkillWorkbenchPrefill("demo-code", undefined, "演示技能")).toEqual({
+		expect(buildSkillNewTaskPrefill("demo-code", undefined, "演示技能")).toEqual({
 			value: "/演示技能 ",
 			tokens: [
 				{
@@ -33,7 +33,7 @@ describe("buildSkillWorkbenchPrefill", () => {
 	});
 
 	it("keeps the optional prompt after the code token", () => {
-		expect(buildSkillWorkbenchPrefill("skill-creator", "请创建技能").value).toBe(
+		expect(buildSkillNewTaskPrefill("skill-creator", "请创建技能").value).toBe(
 			"/skill-creator 请创建技能",
 		);
 	});

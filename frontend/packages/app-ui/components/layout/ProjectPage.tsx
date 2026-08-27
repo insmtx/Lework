@@ -551,7 +551,6 @@ function ProjectChat({
 				variant="project"
 				projectLayoutMode={layoutMode}
 				navigation={navigation}
-				bidComparisonEntry="tips"
 			/>
 		</div>
 	);

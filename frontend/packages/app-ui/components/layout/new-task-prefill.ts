@@ -1,7 +1,7 @@
 import type { ComposerToken } from "@leros/store/types/chat";
 import { buildDefaultSummonPrompt } from "../digitalAssistant/promptSuggestions";
 
-export function buildSkillWorkbenchPrefill(
+export function buildSkillNewTaskPrefill(
 	code: string,
 	prompt?: string,
 	displayName?: string,
@@ -25,7 +25,7 @@ export function buildSkillWorkbenchPrefill(
 	};
 }
 
-export function buildAssistantWorkbenchPrefill(
+export function buildAssistantNewTaskPrefill(
 	assistantIdentity: string,
 	assistant: { name: string; expertise: string[]; source?: string },
 	prompt?: string,

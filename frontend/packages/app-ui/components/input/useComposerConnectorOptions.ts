@@ -80,7 +80,7 @@ export async function loadComposerConnectorOptions({
 
 /**
  * 输入框「添加连接器」候选 Hook。包装 loadComposerConnectorOptions，
- * 暴露加载状态与重新加载能力，供 ChatInput / WorkbenchPanel 消费。
+ * 暴露加载状态与重新加载能力，供 ChatInput / NewTaskPage 消费。
  */
 export function useComposerConnectorOptions({
 	projectId,

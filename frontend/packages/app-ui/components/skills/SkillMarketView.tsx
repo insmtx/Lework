@@ -8,8 +8,8 @@ import { Import, Plus, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import type { AppNavigation } from "../layout";
-import { navigateToWorkbench } from "../layout/workbench-navigation";
-import { buildSkillWorkbenchPrefill } from "../layout/workbench-prefill";
+import { navigateToNewTask } from "../layout/new-task-navigation";
+import { buildSkillNewTaskPrefill } from "../layout/new-task-prefill";
 import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { MarketplacePanel } from "./MarketplacePanel";
 import { McpConnectorPanel } from "./McpConnectorPanel";
@@ -52,11 +52,11 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 
 	const goUseSkill = useCallback(
 		(skillCode: string, displayName?: string): boolean => {
-			const prefill = buildSkillWorkbenchPrefill(skillCode, undefined, displayName);
+			const prefill = buildSkillNewTaskPrefill(skillCode, undefined, displayName);
 			selectWorkbenchProject(null);
 			selectWorkbenchTask(null);
 			setWorkbenchComposerPrefill(prefill);
-			navigateToWorkbench(navigation, switchView);
+			navigateToNewTask(navigation, switchView);
 			return true;
 		},
 		[
@@ -97,14 +97,14 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 
 	const openCreateSkill = useCallback(() => {
 		requireAuth(() => {
-			const prefill = buildSkillWorkbenchPrefill(
+			const prefill = buildSkillNewTaskPrefill(
 				"skill-creator",
 				"请创建一个用于「XXXXXX」的技能。",
 			);
 			selectWorkbenchProject(null);
 			selectWorkbenchTask(null);
 			setWorkbenchComposerPrefill(prefill);
-			navigateToWorkbench(navigation, switchView);
+			navigateToNewTask(navigation, switchView);
 		});
 	}, [
 		requireAuth,
