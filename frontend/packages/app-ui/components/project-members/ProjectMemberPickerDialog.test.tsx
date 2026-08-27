@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectMemberPickerDialog } from "./ProjectMemberPickerDialog";
 
@@ -157,5 +158,51 @@ describe("ProjectMemberPickerDialog AI 队友刷新", () => {
 
 		await waitFor(() => expect(mocks.fetchAssistants).toHaveBeenCalledTimes(2));
 		await screen.findByText("新队友");
+	});
+});
+
+describe("ProjectMemberPickerDialog 真人队友", () => {
+	beforeEach(() => {
+		mocks.assistants = [];
+		mocks.fetchAssistants.mockReset();
+		mocks.fetchAssistants.mockResolvedValue(true);
+		mocks.listHumanMembers.mockReset();
+		mocks.listHumanMembers.mockResolvedValue([
+			{
+				public_id: "user-alice",
+				name: "Alice",
+				email: "alice@example.com",
+				created_at: "",
+				updated_at: "",
+			},
+		]);
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("左侧只负责添加，角色在右侧选择且不展示成员标签", async () => {
+		const user = userEvent.setup();
+		renderDialog(true);
+
+		await user.click(screen.getByRole("button", { name: "真人队友" }));
+		await screen.findByText("Alice");
+
+		expect(screen.queryByLabelText("设置 Alice 的项目角色")).not.toBeInTheDocument();
+
+		await user.click(screen.getByTitle("点击添加"));
+
+		const selectedPanel = screen.getByText(/已选择 1 位/).parentElement;
+		expect(selectedPanel).toBeTruthy();
+		expect(within(selectedPanel as HTMLElement).getByText("Alice")).toBeInTheDocument();
+		expect(
+			within(selectedPanel as HTMLElement).getByLabelText("设置 Alice 的项目角色"),
+		).toBeInTheDocument();
+		expect(within(selectedPanel as HTMLElement).queryByText("已加入")).not.toBeInTheDocument();
+
+		const candidateList = screen.getByPlaceholderText("搜索成员名称").closest("div");
+		expect(candidateList).toBeTruthy();
+		expect(within(candidateList as HTMLElement).queryByText("Alice")).not.toBeInTheDocument();
 	});
 });
