@@ -12,6 +12,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronDown, LoaderCircle, Search, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProtectedImage } from "../avatar/ProtectedImage";
+import { AssistantAvatar } from "../digitalAssistant/AssistantAvatar";
 import {
 	buildProjectActivityActionParts,
 	formatProjectActivitySummary,
@@ -103,12 +104,30 @@ function ActivityOperatorAvatar({ name, avatarUrl }: { name: string; avatarUrl?:
 	return fallback;
 }
 
+function ActivityParticipantAvatar({
+	name,
+	avatarUrl,
+	participantType,
+}: {
+	name: string;
+	avatarUrl?: string;
+	participantType: "user" | "assistant";
+}) {
+	if (participantType === "assistant") {
+		return <AssistantAvatar name={name} src={avatarUrl} size="sm" />;
+	}
+
+	return <ActivityOperatorAvatar name={name} avatarUrl={avatarUrl} />;
+}
+
 function ProjectActivityActorListPart({
 	label,
 	actors,
+	participantType,
 }: {
 	label: "成员" | "AI队友";
 	actors: ProjectActivityActor[];
+	participantType: "user" | "assistant";
 }) {
 	if (actors.length === 0) {
 		return <span>{label}</span>;
@@ -125,7 +144,11 @@ function ProjectActivityActorListPart({
 						className="inline-flex items-center gap-1"
 					>
 						{index > 0 ? <span>，</span> : null}
-						<ActivityOperatorAvatar name={displayName} avatarUrl={actor.avatar_url} />
+						<ActivityParticipantAvatar
+							name={displayName}
+							avatarUrl={actor.avatar_url}
+							participantType={participantType}
+						/>
 						<span className="font-semibold">{displayName}</span>
 					</span>
 				);
@@ -141,6 +164,7 @@ function renderProjectActivityActionPart(part: ProjectActivityTextPart, index: n
 				key={`actor-list-${part.label}-${index}`}
 				label={part.label}
 				actors={part.actors}
+				participantType={part.participantType}
 			/>
 		);
 	}

@@ -44,22 +44,6 @@ function addRemoveMCPParts(verb: string, items: ProjectActivitySkill[]): Project
 	return segment;
 }
 
-function addRemoveParticipantNameParts(
-	verb: string,
-	label: "AI队友",
-	items: ProjectActivityActor[],
-): ProjectActivityTextPart[] {
-	const names = items
-		.map((item) => item.name?.trim())
-		.filter(Boolean)
-		.join("，");
-	const segment: ProjectActivityTextPart[] = [{ type: "text", text: `${verb} ${label} ` }];
-	if (names) {
-		segment.push({ type: "text", text: names, bold: true });
-	}
-	return segment;
-}
-
 function addRemoveActorParts(
 	verb: string,
 	label: "成员" | "AI队友",
@@ -121,7 +105,7 @@ export function buildProjectActivityActionParts(
 		if (payload.added_ai_teammates.length > 0) {
 			appendActionSegment(
 				parts,
-				addRemoveParticipantNameParts("添加了", "AI队友", payload.added_ai_teammates),
+				addRemoveActorParts("添加了", "AI队友", payload.added_ai_teammates, "assistant"),
 			);
 		}
 		if (payload.removed_members.length > 0) {
@@ -133,7 +117,7 @@ export function buildProjectActivityActionParts(
 		if (payload.removed_ai_teammates.length > 0) {
 			appendActionSegment(
 				parts,
-				addRemoveParticipantNameParts("移除了", "AI队友", payload.removed_ai_teammates),
+				addRemoveActorParts("移除了", "AI队友", payload.removed_ai_teammates, "assistant"),
 			);
 		}
 		return parts.length > 0 ? parts : [{ type: "text", text: "更新了项目成员" }];
