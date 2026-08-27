@@ -1072,3 +1072,54 @@ func TestAssistantTextFromParts(t *testing.T) {
 		t.Fatalf("assistantTextFromParts(none) = %q, want empty", got)
 	}
 }
+
+func TestTruncateToolOutputKeepsSmallResult(t *testing.T) {
+	got := truncateToolOutput("ok")
+	if got != "ok" {
+		t.Fatalf("truncateToolOutput = %q, want %q", got, "ok")
+	}
+}
+
+func TestTruncateToolOutputCutsHugeResult(t *testing.T) {
+	huge := strings.Repeat("x", maxToolResultBytes+4096)
+	got := truncateToolOutput(huge)
+	if len(got) >= len(huge) {
+		t.Fatalf("truncated len=%d, original=%d", len(got), len(huge))
+	}
+	if !strings.Contains(got, "truncated") {
+		t.Fatalf("truncated output missing marker: %q", got[len(got)-80:])
+	}
+}
+
+func TestHandleSSEEventTruncatesHugeToolOutput(t *testing.T) {
+	st := &runState{evtChan: make(chan agent.NodeEvent, 1)}
+	huge := strings.Repeat("x", maxToolResultBytes+4096)
+	st.handleSSEEvent(context.Background(), sseEvent{
+		Type: "message.part.updated",
+		Properties: map[string]any{
+			"part": map[string]any{
+				"type":   "tool",
+				"callID": "call_img",
+				"tool":   "read",
+				"state": map[string]any{
+					"status": "completed",
+					"output": huge,
+				},
+			},
+		},
+	})
+	event := readEvent(t, st.evtChan)
+	if event.Type != agent.NodeEventToolExecutionEnd {
+		t.Fatalf("type=%s, want tool_execution.end", event.Type)
+	}
+	payload, ok := event.Payload.(*agent.ToolExecutionEndPayload)
+	if !ok {
+		t.Fatalf("payload type = %T", event.Payload)
+	}
+	if len(payload.Result) >= len(huge) {
+		t.Fatalf("forwarded result len=%d, original output=%d", len(payload.Result), len(huge))
+	}
+	if !strings.Contains(string(payload.Result), "truncated") {
+		t.Fatalf("forwarded result missing truncated marker")
+	}
+}

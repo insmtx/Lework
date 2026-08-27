@@ -3,12 +3,21 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/ygpkg/yg-go/logs"
+)
+
+const (
+	// maxToolResultBytes 是转发给 UI/Journal 的工具输出上限。
+	// OpenCode 图片 read 的 completed 事件可能携带数 MB 的 base64，原样转发会撑爆
+	// 事件通道和 NATS；截断后仍发出 tool_execution.end，过程区才能结束转圈。
+	maxToolResultBytes = 32 * 1024
 )
 
 // ============================================================================
@@ -51,7 +60,7 @@ func usageFromOpenCodeTokens(tokens *v1Tokens) *agent.Usage {
 // handleSSEEvent 解析 SSE 事件并将消息相关事件转换为引擎事件。
 // 处理新版 OpenCode V2 session 发布的 V1 事件（message.part.* 等）。
 func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
-	logs.Debugf("[opencode] SSE event: type=%s id=%s props=%+v", event.Type, event.ID, event.Properties)
+	logs.Debugf("[opencode] SSE event: type=%s id=%s", event.Type, event.ID)
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -206,7 +215,7 @@ func (st *runState) handleSSEEvent(ctx context.Context, event sseEvent) {
 					ToolCallID: callID,
 					Name:       toolName,
 					IsError:    false,
-					Result:     agent.MarshalRawJSON(part.State.Output),
+					Result:     agent.MarshalRawJSON(truncateToolOutput(part.State.Output)),
 				})
 
 			case "error":
@@ -442,6 +451,18 @@ func isAssistantTextPart(st *runState, partMessageID string) bool {
 		return true
 	}
 	return partMessageID == st.messageID
+}
+
+// truncateToolOutput 截断工具输出，避免图片 read 的 base64 进入 NodeEvent。
+func truncateToolOutput(output string) string {
+	if len(output) <= maxToolResultBytes {
+		return output
+	}
+	truncated := output[:maxToolResultBytes]
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated + fmt.Sprintf("\n...[truncated %d bytes]", len(output)-len(truncated))
 }
 
 func isFilteredToolName(toolName string) bool {

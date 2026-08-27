@@ -841,3 +841,25 @@ func TestWaitHealthyContextCancelNoRetry(t *testing.T) {
 		t.Fatalf("elapsed=%v, should return quickly on cancel", elapsed)
 	}
 }
+
+func TestScanSSEStreamAcceptsLineOver1MB(t *testing.T) {
+	pad := strings.Repeat("a", 3*1024*1024/2)
+	payload, err := json.Marshal(map[string]any{
+		"type":       "server.heartbeat",
+		"properties": map[string]any{"pad": pad},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	body := "data: " + string(payload) + "\n\n"
+	ch := make(chan sseEvent, 1)
+	scanSSEStream(context.Background(), strings.NewReader(body), ch)
+	close(ch)
+	event, ok := <-ch
+	if !ok {
+		t.Fatal("expected SSE event for >1MB line, channel empty")
+	}
+	if event.Type != "server.heartbeat" {
+		t.Fatalf("type=%s, want server.heartbeat", event.Type)
+	}
+}

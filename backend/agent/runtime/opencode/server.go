@@ -52,6 +52,11 @@ const (
 
 	// healthCheckAttemptTimeout 限制单次健康检查（包括响应体读取）的总耗时。
 	healthCheckAttemptTimeout = 2500 * time.Millisecond
+
+	// maxSSELineBytes 是 OpenCode SSE 单行上限。
+	// 图片 read 的 completed 事件会把页图 base64 塞进 payload，旧的 1MB 上限会
+	// 让 scanner 直接失败并丢弃后续全部事件，过程区就会停在第二次 read 转圈。
+	maxSSELineBytes = 16 * 1024 * 1024
 )
 
 // healthResult 描述单次健康检查的结果。
@@ -951,61 +956,62 @@ func (s *OpenCodeServer) ConnectSSE(ctx context.Context, workDir string) (<-chan
 			resp.Body.Close()
 		}()
 
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max line
-
-		var dataLines []string
-
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			line := scanner.Text()
-
-			// SSE 空行表示事件结束
-			if line == "" {
-				if len(dataLines) > 0 {
-					event := parseSSEData(dataLines)
-					if event != nil {
-						select {
-						case ch <- *event:
-						case <-ctx.Done():
-							return
-						}
-					}
-					dataLines = dataLines[:0]
-				}
-				continue
-			}
-
-			// 跳过注释行
-			if strings.HasPrefix(line, ":") {
-				continue
-			}
-
-			// 收集 data: 行
-			if data, found := strings.CutPrefix(line, "data:"); found {
-				data = strings.TrimSpace(data)
-				if data != "" {
-					dataLines = append(dataLines, data)
-				}
-			}
-			// 也接受 event: 和 id: 行（当前忽略，按需使用 data 中的 type 字段）
-		}
-
-		if err := scanner.Err(); err != nil {
-			if errors.Is(err, context.Canceled) {
-				logs.Debugf("SSE scanner stopped (ctx cancelled): %v", err)
-			} else {
-				logs.Warnf("SSE scanner error: %v", err)
-			}
-		}
+		scanSSEStream(ctx, resp.Body, ch)
 	}()
 
 	return ch, nil
+}
+
+// scanSSEStream 从 SSE 响应体解析事件并写入 ch，直到流结束或 ctx 取消。
+func scanSSEStream(ctx context.Context, body io.Reader, ch chan<- sseEvent) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineBytes)
+
+	var dataLines []string
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		line := scanner.Text()
+		if line == "" {
+			if len(dataLines) > 0 {
+				event := parseSSEData(dataLines)
+				if event != nil {
+					select {
+					case ch <- *event:
+					case <-ctx.Done():
+						return
+					}
+				}
+				dataLines = dataLines[:0]
+			}
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if data, found := strings.CutPrefix(line, "data:"); found {
+			data = strings.TrimSpace(data)
+			if data != "" {
+				dataLines = append(dataLines, data)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			logs.Debugf("SSE scanner stopped (ctx cancelled): %v", err)
+			return
+		}
+		if errors.Is(err, bufio.ErrTooLong) {
+			logs.Warnf("SSE scanner line exceeded %d bytes; subsequent OpenCode events dropped: %v", maxSSELineBytes, err)
+			return
+		}
+		logs.Warnf("SSE scanner error: %v", err)
+	}
 }
 
 // parseSSEData 从 SSE data 行解析事件。
@@ -1019,7 +1025,11 @@ func parseSSEData(lines []string) *sseEvent {
 
 	var event sseEvent
 	if err := json.Unmarshal([]byte(data), &event); err != nil {
-		logs.Warnf("Failed to parse SSE event: %v, data=%s", err, data)
+		head := data
+		if len(head) > 256 {
+			head = head[:256]
+		}
+		logs.Warnf("Failed to parse SSE event: %v, data_len=%d head=%q", err, len(data), head)
 		return nil
 	}
 

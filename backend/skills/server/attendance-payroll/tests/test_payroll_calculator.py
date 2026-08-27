@@ -526,7 +526,7 @@ class PayrollCalculatorTest(unittest.TestCase):
         )
         self.assertEqual(rows["payroll_detail"][0]["加班天数"], 4)
 
-    def test_leave_days_is_personal_leave_but_compensatory_leave_is_not_deducted(self):
+    def test_leave_days_is_not_personal_leave(self):
         history = [{"name": "请假", "project": "B项目", "category": "外包",
                     "position_salary": 5000, "performance": 2175}]
         rows = calculate(
@@ -535,8 +535,43 @@ class PayrollCalculatorTest(unittest.TestCase):
               "actual_work_days": 21, "leave_days": 2, "comp_leave_days": 3}],
             "2026-06", None, None,
         )
-        self.assertEqual(rows["payroll_detail"][0]["事假天数"], 2)
-        self.assertEqual(rows["payroll_detail"][0]["绩效工资"], 1975)
+        self.assertEqual(rows["payroll_detail"][0]["事假天数"], 0)
+        self.assertEqual(rows["payroll_detail"][0]["绩效工资"], 2175)
+
+    def test_personal_leave_requires_shi_mark_not_month_remainder(self):
+        history = [{"name": "周七", "project": "C项目", "category": "外包",
+                    "position_salary": 3200, "performance": 4200}]
+        remainder = calculate(
+            [], history,
+            [{"name": "周七", "project": "C项目", "category": "外包",
+              "actual_work_days": 26, "personal_leave_days": 4}],
+            "2026-06", None, None,
+        )
+        self.assertEqual(remainder["payroll_detail"][0]["事假天数"], 0)
+        self.assertEqual(remainder["payroll_detail"][0]["绩效工资"], 4200)
+        self.assertEqual(remainder["payroll_detail"][0]["加班天数"], 4)
+
+        rest_marks = calculate(
+            [], history,
+            [{"name": "周七", "project": "C项目", "category": "外包",
+              "actual_work_days": 26,
+              "personal_leave_days": 4,
+              "daily_marks": ["8"] * 26 + ["休", "换", "休", "调"]}],
+            "2026-06", None, None,
+        )
+        self.assertEqual(rest_marks["payroll_detail"][0]["事假天数"], 0)
+        self.assertEqual(rest_marks["payroll_detail"][0]["绩效工资"], 4200)
+
+        marked = calculate(
+            [], history,
+            [{"name": "周七", "project": "C项目", "category": "外包",
+              "actual_work_days": 21,
+              "personal_leave_days": 9,
+              "daily_marks": ["8"] * 21 + ["事", "事"]}],
+            "2026-06", None, None,
+        )
+        self.assertEqual(marked["payroll_detail"][0]["事假天数"], 2)
+        self.assertEqual(marked["payroll_detail"][0]["绩效工资"], 4200 - 4200 / 21.75 * 2)
 
     def test_generated_result_workbook_is_rejected_as_sole_history(self):
         with tempfile.TemporaryDirectory() as directory:

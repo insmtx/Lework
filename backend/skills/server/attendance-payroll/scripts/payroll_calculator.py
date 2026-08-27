@@ -518,7 +518,28 @@ def attendance_records_from_paths(
     return next(iter(months), None), project, records
 
 
-def attendance_days(record: dict[str, Any]) -> tuple[float | None, float]:
+def attendance_mark_values(record: dict[str, Any]) -> list[str]:
+    marks = record.get("daily_marks", record.get("days", []))
+    if isinstance(marks, dict):
+        marks = list(marks.values())
+    if not isinstance(marks, (list, tuple)):
+        return []
+    return [clean(mark) for mark in marks if clean(mark)]
+
+
+def is_personal_leave_mark(mark: str) -> bool:
+    normalized = clean(mark)
+    return normalized in {"事", "事假"} or normalized.startswith("事假")
+
+
+def month_length(month: str | None) -> int | None:
+    match = re.fullmatch(r"(\d{4})-(\d{1,2})", (month or "").strip())
+    if not match:
+        return None
+    return calendar.monthrange(int(match.group(1)), int(match.group(2)))[1]
+
+
+def attendance_days(record: dict[str, Any], month: str | None = None) -> tuple[float | None, float]:
     actual = number(record.get(
         "actual_work_days",
         record.get(
@@ -532,25 +553,25 @@ def attendance_days(record: dict[str, Any]) -> tuple[float | None, float]:
             ),
         ),
     ))
+    marks = attendance_mark_values(record)
     if actual is None:
-        marks = record.get("daily_marks", record.get("days", []))
-        if isinstance(marks, dict):
-            marks = list(marks.values())
-        actual = float(sum(1 for mark in marks if clean(mark).lower() in {
+        actual = float(sum(1 for mark in marks if mark.lower() in {
             "8", "出勤", "上班", "正常", "加班", "周末加班", "节假日加班",
             "√", "✔", "1"
         }))
         if not marks:
             actual = None
-    # leave_days is a vision shorthand for personal leave. Compensatory leave
-    # is intentionally excluded: approved 调休 does not deduct performance.
+    # 事假只认格子里的「事/事假」。休、换、调、周末缺口和加班日都不是事假；
+    # 也不能把 leave_days 或「整月天数−出勤」当成事假来扣绩效。
+    if marks:
+        return actual, float(sum(1 for mark in marks if is_personal_leave_mark(mark)))
     leave = number(record.get(
         "personal_leave_days",
-        record.get(
-            "leave_days",
-            record.get("personal_leave", record.get("事假天数")),
-        ),
+        record.get("personal_leave", record.get("事假天数")),
     )) or 0
+    days = month_length(month)
+    if leave and actual is not None and days is not None and math.isclose(actual + leave, days, abs_tol=1e-6):
+        return actual, 0
     return actual, leave
 
 
@@ -912,7 +933,7 @@ def calculate(
         )
         if len(records) > 1:
             issues.append("同一姓名+项目+类别存在多条考勤记录")
-        actual, personal_leave = attendance_days(record)
+        actual, personal_leave = attendance_days(record, month)
         if not has_attendance_evidence(record):
             issues.append("缺少实际出勤字段或每日考勤，未将缺失误作零出勤")
         sick = number(record.get("sick_leave_days")) or 0

@@ -544,6 +544,7 @@ func sendEventPayloadTo(ch chan<- agent.NodeEvent, eventType agent.NodeEventType
 	select {
 	case ch <- agent.NodeEvent{Type: eventType, Payload: payload}:
 	default:
+		logs.Warnf("[opencode] dropped node event (channel full): type=%s", eventType)
 	}
 }
 
@@ -555,5 +556,6 @@ func sendEventDirect(ch chan<- agent.NodeEvent, evt agent.NodeEvent) {
 	select {
 	case ch <- evt:
 	default:
+		logs.Warnf("[opencode] dropped node event (channel full): type=%s", evt.Type)
 	}
 }
