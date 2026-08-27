@@ -134,6 +134,8 @@ function ProjectFileTreeTableRow({
 	const expandChildrenAsTree = layout === "flat" && showFullPath;
 
 	const treeIndent = layout === "flat" ? 0 : depth * 20;
+	// 首级文件没有展开箭头，不再预留 24px 空槽，让文件名与表头「名称」左对齐。
+	const isRootLevelFile = depth === 0 && !isDirectory;
 	const folderStats = isDirectory && layout === "tree" ? getProjectFolderStats(node) : null;
 	const displaySize = isDirectory ? (folderStats?.size ?? node.size ?? 0) : node.size;
 	const displayCreatedAt = isDirectory
@@ -167,7 +169,7 @@ function ProjectFileTreeTableRow({
 								className={cn("size-4 transition-transform", expanded && "rotate-90")}
 							/>
 						</button>
-					) : (
+					) : isRootLevelFile ? null : (
 						<span className="inline-block size-6 shrink-0" />
 					)}
 					{isDirectory ? (
@@ -191,7 +193,10 @@ function ProjectFileTreeTableRow({
 							type="button"
 							data-file-preview-trigger
 							onClick={() => onPreview?.(node)}
-							className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/50"
+							className={cn(
+								"flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg py-1 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/50",
+								isRootLevelFile ? "pr-2" : "px-2",
+							)}
 							title="查看"
 						>
 							<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
