@@ -16,7 +16,7 @@ const PROJECT_PICKER_PANEL_CLASS = cn(
 	"w-[360px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur",
 	PROJECT_PICKER_MAX_HEIGHT,
 );
-const PROJECT_PICKER_LIST_CLASS = "no-scrollbar mt-1 max-h-60 space-y-1 overflow-y-auto";
+const PROJECT_PICKER_LIST_CLASS = "no-scrollbar max-h-60 space-y-1 overflow-y-auto";
 const PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX = 250;
 const PROJECT_PICKER_SUBMENU_VIEWPORT_MARGIN_PX = 16;
 const PROJECT_PICKER_ROW_HEIGHT_PX = 40;
@@ -36,13 +36,15 @@ function estimateSubmenuHeightForFlip(
 	project: ProjectTaskPickerProject | undefined,
 	isLoadingTasks: boolean,
 ): number {
+	// 中文注释：右侧始终含「新建任务」一行；已有任务时再加分割线与任务行。
 	let contentHeight = PROJECT_PICKER_ROW_HEIGHT_PX;
 	if (submenu.startsWith("project:")) {
 		const taskCount = project?.tasks.length ?? 0;
 		if (taskCount > 0) {
-			contentHeight = taskCount * PROJECT_PICKER_ROW_HEIGHT_PX;
+			contentHeight +=
+				PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX + taskCount * PROJECT_PICKER_ROW_HEIGHT_PX;
 		} else if (isLoadingTasks) {
-			contentHeight = PROJECT_PICKER_ROW_HEIGHT_PX;
+			contentHeight += PROJECT_PICKER_ROW_HEIGHT_PX;
 		}
 	}
 	return Math.min(
@@ -78,6 +80,22 @@ function projectPickerRowClass(selected: boolean) {
 
 function projectPickerPlaceholderRowClass() {
 	return cn(projectPickerRowClass(false), "pointer-events-none text-xs text-slate-400");
+}
+
+function NewTaskPickerRow({
+	selected,
+	onClick,
+}: {
+	selected: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<button type="button" onClick={onClick} className={projectPickerRowClass(selected)}>
+			<Plus className="size-4 shrink-0" />
+			<span className="min-w-0 flex-1 truncate">新建任务</span>
+			{selected ? <Check className="size-4 shrink-0" /> : null}
+		</button>
+	);
 }
 
 export function formatProjectTaskPickerLabel(
@@ -228,7 +246,10 @@ export function ProjectTaskPickerContent({
 	return (
 		<div ref={pickerRootRef} className="relative">
 			<div className={PROJECT_PICKER_PANEL_CLASS}>
-				<Command shouldFilter={false} className="rounded-xl! bg-transparent p-0">
+				<Command
+					shouldFilter={false}
+					className="rounded-xl! bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:p-0"
+				>
 					<CommandInput
 						value={searchQuery}
 						onValueChange={handleSearchChange}
@@ -236,7 +257,28 @@ export function ProjectTaskPickerContent({
 						className="placeholder:text-slate-300"
 					/>
 				</Command>
-				<div ref={projectListRefCallback} className={PROJECT_PICKER_LIST_CLASS}>
+				{allowNewProject ? (
+					<div className="mt-1 mb-1">
+						<button
+							type="button"
+							onMouseEnter={(event) => showSubmenuAtRow(event.currentTarget, "new-project")}
+							onClick={() => onSelectNewProject?.()}
+							className={projectPickerRowClass(!hasProjectSelection)}
+						>
+							<Plus className="size-4 shrink-0" />
+							<span className="min-w-0 flex-1 truncate">新建项目</span>
+							{!hasProjectSelection ? <Check className="size-4 shrink-0" /> : null}
+							<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
+						</button>
+					</div>
+				) : null}
+				<div
+					ref={projectListRefCallback}
+					className={cn(
+						PROJECT_PICKER_LIST_CLASS,
+						allowNewProject ? "border-t border-slate-100 pt-1" : "mt-1",
+					)}
+				>
 					{filteredProjects.map((project) => {
 						const projectSelected = selectedProjectId === project.id;
 						return (
@@ -265,19 +307,6 @@ export function ProjectTaskPickerContent({
 						<div className="px-3 py-8 text-center text-sm text-slate-400">没有匹配的项目</div>
 					) : null}
 				</div>
-				{allowNewProject ? (
-					<div className="mt-1 border-t border-slate-100 pt-1">
-						<button
-							type="button"
-							onMouseEnter={(event) => showSubmenuAtRow(event.currentTarget, "new-project")}
-							className={projectPickerRowClass(false)}
-						>
-							<Plus className="size-4 shrink-0" />
-							<span className="min-w-0 flex-1 truncate">新建项目</span>
-							<ChevronRight className="size-3.5 shrink-0 text-slate-400" />
-						</button>
-					</div>
-				) : null}
 			</div>
 
 			{allowNewProject && hoveredSubmenu === "new-project" ? (
@@ -285,15 +314,7 @@ export function ProjectTaskPickerContent({
 					className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
 					style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
 				>
-					<button
-						type="button"
-						onClick={() => onSelectNewProject?.()}
-						className={projectPickerRowClass(!hasProjectSelection)}
-					>
-						<Plus className="size-4 shrink-0" />
-						<span className="min-w-0 flex-1 truncate">新建空白项目</span>
-						{!hasProjectSelection ? <Check className="size-4 shrink-0" /> : null}
-					</button>
+					<NewTaskPickerRow selected={!hasProjectSelection} onClick={() => onSelectNewProject?.()} />
 				</div>
 			) : null}
 
@@ -303,58 +324,60 @@ export function ProjectTaskPickerContent({
 					style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
 				>
 					<div className="relative">
-						<div
-							className={cn(
-								"space-y-1",
-								hoveredProjectTaskLoading &&
-									hoveredProject.tasks.length > 0 &&
-									"pointer-events-none",
-							)}
-						>
+						<div className="space-y-1">
+							<NewTaskPickerRow
+								selected={selectedProjectId === hoveredProject.id && !selectedTaskId}
+								onClick={() => onSelectProject(hoveredProject)}
+							/>
 							{hoveredProjectTaskLoading && hoveredProject.tasks.length === 0 ? (
 								<div className={projectPickerPlaceholderRowClass()}>
 									<LoaderCircle className="size-4 shrink-0 animate-spin opacity-75" />
 									<span className="min-w-0 flex-1 truncate">任务加载中...</span>
 								</div>
 							) : hoveredProject.tasks.length > 0 ? (
-								hoveredProject.tasks.map((task) => {
-									const isResponding = task.runtimeStatus === "responding";
-									const selected =
-										!isResponding &&
-										selectedProjectId === hoveredProject.id &&
-										selectedTaskId === task.id;
-									return (
-										<button
-											key={task.id}
-											type="button"
-											disabled={isResponding}
-											onClick={() => onSelectTask(hoveredProject, task)}
-											className={cn(
-												projectPickerRowClass(selected),
-												isResponding && "cursor-not-allowed opacity-60",
-											)}
-										>
-											<ListTodo className="size-4 shrink-0 opacity-75" />
-											<span className="min-w-0 flex-1 truncate">{task.title}</span>
-											{isResponding ? (
-												<span className="shrink-0 text-xs text-slate-400">回复中</span>
-											) : (
-												selected && <Check className="size-4 shrink-0" />
-											)}
-										</button>
-									);
-								})
-							) : (
-								<div className={projectPickerPlaceholderRowClass()}>
-									<span className="min-w-0 flex-1 truncate">暂无任务，选择项目后将新建任务</span>
+								<div className="relative space-y-1 border-t border-slate-100 pt-1">
+									<div
+										className={cn(
+											"space-y-1",
+											hoveredProjectTaskLoading && "pointer-events-none",
+										)}
+									>
+										{hoveredProject.tasks.map((task) => {
+											const isResponding = task.runtimeStatus === "responding";
+											const selected =
+												!isResponding &&
+												selectedProjectId === hoveredProject.id &&
+												selectedTaskId === task.id;
+											return (
+												<button
+													key={task.id}
+													type="button"
+													disabled={isResponding}
+													onClick={() => onSelectTask(hoveredProject, task)}
+													className={cn(
+														projectPickerRowClass(selected),
+														isResponding && "cursor-not-allowed opacity-60",
+													)}
+												>
+													<ListTodo className="size-4 shrink-0 opacity-75" />
+													<span className="min-w-0 flex-1 truncate">{task.title}</span>
+													{isResponding ? (
+														<span className="shrink-0 text-xs text-slate-400">回复中</span>
+													) : (
+														selected && <Check className="size-4 shrink-0" />
+													)}
+												</button>
+											);
+										})}
+									</div>
+									{hoveredProjectTaskLoading ? (
+										<div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/80">
+											<LoaderCircle className="size-4 shrink-0 animate-spin text-slate-400" />
+										</div>
+									) : null}
 								</div>
-							)}
+							) : null}
 						</div>
-						{hoveredProjectTaskLoading && hoveredProject.tasks.length > 0 ? (
-							<div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/80">
-								<LoaderCircle className="size-4 shrink-0 animate-spin text-slate-400" />
-							</div>
-						) : null}
 					</div>
 				</div>
 			) : null}
