@@ -24,6 +24,7 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@leros/ui/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
 import {
 	ChartNoAxesCombined,
@@ -342,41 +343,64 @@ export function AssistantCreateDialog({
 							</div>
 						) : templates.length > 0 ? (
 							<div className="mt-3 grid gap-3 md:grid-cols-2">
-								{templates.map((template) => (
-									<div
-										key={template.id}
-										className={cn(
-											"flex items-center gap-3 rounded-xl border p-3 transition-colors",
-											selectedTemplate?.id === template.id && !customMode
-												? "border-[#4f46e5] bg-slate-50"
-												: "border-slate-200 hover:border-[#4f46e5]",
-										)}
-									>
-										<button
-											type="button"
-											className="flex min-w-0 flex-1 items-center gap-3 text-left"
-											onClick={() => selectTemplate(template)}
-										>
-											<AssistantAvatar name={template.name} src={template.avatar} />
-											<span className="min-w-0 flex-1">
-												<span className="block text-sm font-medium text-slate-900">
-													{template.name}
+								{templates.map((template) => {
+									const description = template.description?.trim() ?? "";
+									const cardClassName = cn(
+										"flex items-center gap-3 rounded-xl border p-3 transition-colors",
+										selectedTemplate?.id === template.id && !customMode
+											? "border-[#4f46e5] bg-slate-50"
+											: "border-slate-200 hover:border-[#4f46e5]",
+									);
+									const cardBody = (
+										<>
+											<button
+												type="button"
+												className="flex min-w-0 flex-1 items-center gap-3 text-left"
+												onClick={() => selectTemplate(template)}
+											>
+												<AssistantAvatar name={template.name} src={template.avatar} />
+												<span className="min-w-0 flex-1">
+													<span className="block text-sm font-medium text-slate-900">
+														{template.name}
+													</span>
+													<span className="mt-1 block truncate text-xs text-slate-500">
+														{template.description}
+													</span>
 												</span>
-												<span className="mt-1 block truncate text-xs text-slate-500">
-													{template.description}
-												</span>
-											</span>
-										</button>
-										<Button
-											type="button"
-											variant="ghost"
-											size="sm"
-											onClick={() => setDetailTemplate(template)}
-										>
-											查看详情
-										</Button>
-									</div>
-								))}
+											</button>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												onClick={() => setDetailTemplate(template)}
+											>
+												查看详情
+											</Button>
+										</>
+									);
+									if (!description) {
+										return (
+											<div key={template.id} className={cardClassName}>
+												{cardBody}
+											</div>
+										);
+									}
+									return (
+										<Tooltip key={template.id}>
+											{/* 中文注释：用 div 承接悬浮，避免 TooltipTrigger 默认 button 与卡片内按钮嵌套。 */}
+											<TooltipTrigger render={<div className={cardClassName} />}>
+												{cardBody}
+											</TooltipTrigger>
+											<TooltipContent
+												side="bottom"
+												align="start"
+												className="max-w-sm whitespace-normal text-left leading-5"
+											>
+												{description}
+											</TooltipContent>
+										</Tooltip>
+									);
+								})}
 							</div>
 						) : (
 							<div className="flex h-40 items-center justify-center text-sm text-slate-500">
