@@ -51,22 +51,15 @@ export function AutomationDeleteDialog({
 				if (!nextOpen && !submitting) onOpenChange(false);
 			}}
 		>
-			<DialogContent className="max-w-[420px] p-0 sm:rounded-2xl">
-				<DialogHeader className="border-b border-slate-200 px-6 py-5">
+			<DialogContent className="sm:max-w-md" showCloseButton={false}>
+				<DialogHeader>
 					<DialogTitle>删除自动化</DialogTitle>
-					<DialogDescription>此操作不可撤销</DialogDescription>
+					<DialogDescription>
+						确定要删除 <strong>{target?.name ?? ""}</strong>{" "}
+						吗？此操作不可撤销。删除后不再产生新的周期执行，已有执行记录和项目结果将保留。
+					</DialogDescription>
 				</DialogHeader>
-				<div className="px-6 py-5 text-sm leading-6 text-slate-600">
-					<p>
-						确定删除自动化“
-						<span className="font-semibold text-slate-800">{target?.name ?? ""}</span>
-						”吗？
-					</p>
-					<p className="mt-2 text-xs text-slate-400">
-						删除后不再产生新的周期执行，已有执行记录和项目结果将保留。
-					</p>
-				</div>
-				<DialogFooter className="border-t border-slate-200 px-6 py-4">
+				<DialogFooter className="mt-4">
 					<Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
 						取消
 					</Button>

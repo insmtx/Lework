@@ -281,14 +281,14 @@ export function ModelManagementView() {
 					if (!open && !deleting) setDeleteTarget(null);
 				}}
 			>
-				<DialogContent className="gap-0 p-0 sm:max-w-sm">
-					<DialogHeader className="border-b border-slate-100 px-6 py-5">
+				<DialogContent className="sm:max-w-md" showCloseButton={false}>
+					<DialogHeader>
 						<DialogTitle>删除模型</DialogTitle>
 						<DialogDescription>
 							确定要删除「{deleteTarget?.name || deleteTarget?.model}」吗？该操作不可撤销。
 						</DialogDescription>
 					</DialogHeader>
-					<DialogFooter className="border-t border-slate-100 px-6 py-4">
+					<DialogFooter className="mt-4">
 						<Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
 							取消
 						</Button>
