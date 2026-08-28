@@ -482,6 +482,17 @@ export class ChatActionImpl {
 			console.warn("submitApprovalDecision: missing assistantId, request may fail");
 		}
 
+		if (message?.status === "failed" || message?.status === "completed") {
+			this.#dispatchChat({
+				type: "updateApprovalStatus",
+				messageId,
+				requestId,
+				status: "expired",
+				error: undefined,
+			});
+			return;
+		}
+
 		this.#dispatchChat({
 			type: "updateApprovalStatus",
 			messageId,
@@ -533,6 +544,17 @@ export class ChatActionImpl {
 		const assistantId = question?.assistantId;
 		if (!assistantId) {
 			console.warn("submitQuestionAnswer: missing assistantId, request may fail");
+		}
+
+		if (message?.status === "failed" || message?.status === "completed") {
+			this.#dispatchChat({
+				type: "updateQuestionStatus",
+				messageId,
+				requestId,
+				status: "expired",
+				error: undefined,
+			});
+			return;
 		}
 
 		this.#dispatchChat({

@@ -81,6 +81,9 @@ export function mapBackendMessage(msg: BackendMessage): Message {
 		// 中文注释：历史消息的 chunks 只用于还原执行过程，不能重新把已落库回复标成生成中。
 		markStreaming: false,
 	});
+	// 中文注释：落库消息都是终态。超时取消后 chunks 里常只剩 approval.requested，
+	// 若不在此过期，切回会话会再次弹出权限确认框。
+	mapped = withExpiredPendingInteractions(mapped);
 	if (
 		mapped.role === "assistant" &&
 		mapped.todos?.length &&
@@ -303,6 +306,55 @@ export function completeTodos(todos: RuntimeTodoItem[] | undefined): RuntimeTodo
 	return todos.map((todo) =>
 		todo.status === "completed" ? todo : { ...todo, status: "completed" },
 	);
+}
+
+function isOpenApprovalStatus(status: ApprovalRequest["status"]): boolean {
+	return status === "pending" || status === "submitting" || status === "error";
+}
+
+function isOpenQuestionStatus(status: QuestionRequest["status"]): boolean {
+	return status === "pending" || status === "submitting" || status === "error";
+}
+
+/**
+ * run 已结束时把未决审批标为 expired，避免输入区继续弹出确认框。
+ */
+export function expirePendingApprovals(
+	approvals: ApprovalRequest[] | undefined,
+): ApprovalRequest[] | undefined {
+	if (!approvals?.length || !approvals.some((approval) => isOpenApprovalStatus(approval.status))) {
+		return approvals;
+	}
+	return approvals.map((approval) =>
+		isOpenApprovalStatus(approval.status)
+			? { ...approval, status: "expired", error: undefined }
+			: approval,
+	);
+}
+
+/**
+ * run 已结束时把未决问答标为 expired，避免输入区继续弹出提问框。
+ */
+export function expirePendingQuestions(
+	questions: QuestionRequest[] | undefined,
+): QuestionRequest[] | undefined {
+	if (!questions?.length || !questions.some((question) => isOpenQuestionStatus(question.status))) {
+		return questions;
+	}
+	return questions.map((question) =>
+		isOpenQuestionStatus(question.status)
+			? { ...question, status: "expired", error: undefined }
+			: question,
+	);
+}
+
+function withExpiredPendingInteractions(message: Message): Message {
+	const approvals = expirePendingApprovals(message.approvals);
+	const questions = expirePendingQuestions(message.questions);
+	if (approvals === message.approvals && questions === message.questions) {
+		return message;
+	}
+	return { ...message, approvals, questions };
 }
 
 /** 类型守卫：判断值是否为非 null 的普通对象。 */
@@ -1090,39 +1142,40 @@ export function applySessionEventToMessage(
 			const artifacts = payload.artifacts
 				?.map(mapArtifactPayload)
 				.filter((artifact): artifact is MessageArtifact => artifact !== undefined);
-			return enrichAssistantMessageMetrics({
-				...message,
-				status: "completed",
-				statusText: undefined,
-				content: options.appendContent && resultMessage ? resultMessage : message.content,
-				processSteps: pruneFinalContentProcessSteps(message.processSteps, resultMessage),
-				todos: completeTodos(message.todos),
-				artifacts: artifacts?.length
-					? mergeArtifacts(message.artifacts, artifacts)
-					: message.artifacts,
-				metadata: metadata ? { ...message.metadata, ...metadata } : message.metadata,
-				usage: usage ?? message.usage,
-			});
+			return enrichAssistantMessageMetrics(
+				withExpiredPendingInteractions({
+					...message,
+					status: "completed",
+					statusText: undefined,
+					content: options.appendContent && resultMessage ? resultMessage : message.content,
+					processSteps: pruneFinalContentProcessSteps(message.processSteps, resultMessage),
+					todos: completeTodos(message.todos),
+					artifacts: artifacts?.length
+						? mergeArtifacts(message.artifacts, artifacts)
+						: message.artifacts,
+					metadata: metadata ? { ...message.metadata, ...metadata } : message.metadata,
+					usage: usage ?? message.usage,
+				}),
+			);
 		}
 		case "run.failed": {
 			const failedMessage = getRunFailedMessage(payload);
-			if (!failedMessage) return message;
-			return {
+			return withExpiredPendingInteractions({
 				...message,
 				status: "failed",
 				statusText: undefined,
 				// 中文注释：失败事件也要回填到当前 assistant 消息里，避免界面只剩空占位。
-				content: failedMessage,
-			};
+				content: failedMessage || message.content,
+			});
 		}
 		case "run.cancelled": {
-			return {
+			return withExpiredPendingInteractions({
 				...message,
 				status: "failed",
 				statusText: undefined,
 				// 取消结果由后端持久化后回拉，避免前端默认文案与后端结果短暂闪烁。
 				content: message.content,
-			};
+			});
 		}
 		default:
 			return message;

@@ -44,6 +44,8 @@ export {
 	applySessionEventToMessage,
 	attachAssistantReplyTargets,
 	buildReplyToFromMessage,
+	expirePendingApprovals,
+	expirePendingQuestions,
 	getApprovalStatus,
 	mapBackendAttachment,
 	mapBackendMessage,

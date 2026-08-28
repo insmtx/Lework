@@ -15,9 +15,16 @@ export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
 export type ApprovalAction = "approve" | "deny" | "always";
 
-export type ApprovalStatus = "pending" | "approved" | "denied" | "always" | "submitting" | "error";
+export type ApprovalStatus =
+	| "pending"
+	| "approved"
+	| "denied"
+	| "always"
+	| "submitting"
+	| "error"
+	| "expired";
 
-export type QuestionStatus = "pending" | "answered" | "submitting" | "error";
+export type QuestionStatus = "pending" | "answered" | "submitting" | "error" | "expired";
 
 export type ExecutionMode = "default" | "plan";
 

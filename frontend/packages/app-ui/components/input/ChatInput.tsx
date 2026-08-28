@@ -834,6 +834,8 @@ function findPendingApproval(
 		if (!message) continue;
 		if (activeSessionId && message.conversationId !== activeSessionId) continue;
 
+		if (message.status === "failed" || message.status === "completed") continue;
+
 		const approval = [...(message.approvals ?? [])]
 			.reverse()
 			.find(
@@ -861,6 +863,7 @@ function findPendingQuestion(
 	if (!lastId) return null;
 	const lastMessage = messagesMap[lastId];
 	if (!lastMessage?.questions?.length) return null;
+	if (lastMessage.status === "failed" || lastMessage.status === "completed") return null;
 
 	const question = lastMessage.questions[lastMessage.questions.length - 1];
 	if (
