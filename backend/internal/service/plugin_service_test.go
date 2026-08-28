@@ -1283,6 +1283,101 @@ func TestOrganizationSkillDownloadResolvesCurrentRevisionByCode(t *testing.T) {
 	}
 }
 
+func TestPrivateSkillDownloadAllowsUseRolesAndProjectBinding(t *testing.T) {
+	database := setupPluginServiceTestDB(t)
+	setupPluginServiceTestStorage(t)
+	ctx := context.Background()
+	_, definition := uploadPluginServiceSkillArtifact(t, database, 7, 8, "private-download", "private Skill")
+	plugin := &types.Plugin{
+		PublicID:        "plugin_private_download",
+		OwnerScope:      types.OwnerScopeOrganization,
+		OrgID:           7,
+		Code:            "private-download",
+		Kind:            "skill",
+		Name:            "Private Download",
+		Visibility:      types.PluginVisibilityPrivate,
+		Status:          types.PluginStatusActive,
+		Origin:          "org",
+		CurrentRevision: 1,
+		CreatedBy:       8,
+		UpdatedBy:       8,
+	}
+	if err := database.Create(plugin).Error; err != nil {
+		t.Fatalf("create private plugin: %v", err)
+	}
+	seedPluginResourceOwner(t, database, 7, plugin.ID, 8)
+	if err := database.Create(&types.PluginRevision{
+		PluginID: plugin.ID, Revision: 1, Status: "published", Definition: definition,
+		PublishedByType: "user", PublishedByID: 8, PublishedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create private revision: %v", err)
+	}
+
+	var resource types.Resource
+	if err := database.Where(
+		"org_id = ? AND type = ? AND biz_id = ?", 7, types.ResourceTypePlugin, plugin.ID,
+	).First(&resource).Error; err != nil {
+		t.Fatalf("load private plugin resource: %v", err)
+	}
+	for _, item := range []struct {
+		uin  uint
+		role types.ResourceRole
+	}{
+		{uin: 9, role: types.ResourceRoleAdmin},
+		{uin: 10, role: types.ResourceRoleViewer},
+	} {
+		uin := item.uin
+		if err := database.Create(&types.ResourceBinding{OrgID: 7, Uin: &uin, ResourceID: resource.ID, Role: item.role}).Error; err != nil {
+			t.Fatalf("create %s binding: %v", item.role, err)
+		}
+	}
+
+	service := &pluginService{db: database}
+	for _, uin := range []uint{8, 9, 10} {
+		resolved, err := service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindWorker, 99, &contract.ResolveSkillDownloadURLsRequest{
+			SkillCodes: []string{plugin.Code}, ActorUin: uin,
+		})
+		if err != nil || len(resolved.Skills) != 1 || resolved.Skills[0].DownloadURL == "" {
+			t.Fatalf("use role %d resolution = %#v, %v", uin, resolved, err)
+		}
+		userResolved, err := service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindUser, uin, &contract.ResolveSkillDownloadURLsRequest{
+			SkillCodes: []string{plugin.Code}, ActorUin: 11,
+		})
+		if err != nil || len(userResolved.Skills) != 1 || userResolved.Skills[0].DownloadURL == "" {
+			t.Fatalf("user use role %d resolution = %#v, %v", uin, userResolved, err)
+		}
+	}
+
+	denied, err := service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindWorker, 99, &contract.ResolveSkillDownloadURLsRequest{
+		SkillCodes: []string{plugin.Code}, ActorUin: 11,
+	})
+	if err != nil || len(denied.Skills) != 0 {
+		t.Fatalf("unprivileged resolution = %#v, %v", denied, err)
+	}
+
+	project := &types.Project{PublicID: "project_private_download", OrgID: 7, OwnerID: 8, Name: "Private Download"}
+	if err := database.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if err := database.Create(&types.ProjectPluginBinding{
+		ProjectID: project.ID, PluginID: plugin.ID, Enabled: true, Config: []byte(`{}`), CreatedBy: 8, UpdatedBy: 8,
+	}).Error; err != nil {
+		t.Fatalf("bind private plugin to project: %v", err)
+	}
+	projectResolved, err := service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindWorker, 99, &contract.ResolveSkillDownloadURLsRequest{
+		SkillCodes: []string{plugin.Code}, ActorUin: 11, ProjectID: project.PublicID,
+	})
+	if err != nil || len(projectResolved.Skills) != 1 {
+		t.Fatalf("project-bound resolution = %#v, %v", projectResolved, err)
+	}
+	userProjectResolved, err := service.ResolveSkillDownloadURLs(ctx, 7, types.CallerKindUser, 11, &contract.ResolveSkillDownloadURLsRequest{
+		SkillCodes: []string{plugin.Code}, ActorUin: 8, ProjectID: project.PublicID,
+	})
+	if err != nil || len(userProjectResolved.Skills) != 0 {
+		t.Fatalf("user project authorization bypass = %#v, %v", userProjectResolved, err)
+	}
+}
+
 func TestSkillDownloadURLsAutoInstallsMarketplaceSkillOnlyForWorker(t *testing.T) {
 	database := setupPluginServiceTestDB(t)
 	setupPluginServiceTestStorage(t)

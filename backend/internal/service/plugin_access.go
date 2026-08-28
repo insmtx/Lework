@@ -227,14 +227,14 @@ func (s *pluginService) authorizeSkillDownload(
 	if actorUin == 0 {
 		return false, nil
 	}
-	role, err := s.pluginAccess().ResolveRole(ctx, orgID, actorUin, plugin)
+	err := s.pluginAccess().RequireUse(ctx, orgID, actorUin, plugin)
 	if err != nil {
-		if errors.Is(err, contract.ErrPluginNotFound) {
+		if errors.Is(err, contract.ErrPluginNotFound) || errors.Is(err, contract.ErrPluginForbidden) {
 			return false, nil
 		}
 		return false, err
 	}
-	return role != "", nil
+	return true, nil
 }
 
 // ensurePluginResourceOwner 幂等创建插件的活动权限资源与 owner 绑定。

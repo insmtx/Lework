@@ -73,6 +73,13 @@ type connectorSkillDownloadRef struct {
 	Revision int    `json:"revision"`
 }
 
+// skillDownloadContext carries the trusted run identity needed by the server
+// to authorize private Skill downloads without treating the Worker as owner.
+type skillDownloadContext struct {
+	ActorUIN  uint
+	ProjectID string
+}
+
 type pluginSkillDescriptor struct {
 	Code         string
 	Revision     int
@@ -105,10 +112,15 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 	if req == nil {
 		return "", func() {}, fmt.Errorf("run request is required")
 	}
+	downloadContext := skillDownloadContext{
+		ActorUIN:  req.BusinessKeys.UinPK,
+		ProjectID: strings.TrimSpace(req.Workspace.ProjectID),
+	}
 	policy := applyDisabledPluginPolicy(ctx, req)
 	viewRoot, err := taskSkillViewRoot(workspace)
 	if err != nil {
-		return "", func() {}, err
+		logs.WarnContextf(ctx, "resolve task Skill directory failed; continuing without run Skill view: error=%v", err)
+		return "", func() {}, nil
 	}
 	cleanup := func() {
 		importTaskSkillDirs(ctx, p.baselineCommitter, viewRoot)
@@ -123,12 +135,12 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 	if err := linkSkillChildren(systemSkillsDir(), viewRoot, policy); err != nil {
 		logs.WarnContextf(ctx, "link worker system Skills failed; continuing: root=%s error=%v", viewRoot, err)
 	}
-	p.preparePluginSkills(ctx, req.Plugins, viewRoot, policy)
-	if err := p.prepareSceneSkills(ctx, req, viewRoot); err != nil {
-		return "", cleanup, fmt.Errorf("prepare scene skills: %w", err)
+	p.preparePluginSkills(ctx, req.Plugins, viewRoot, policy, downloadContext)
+	if err := p.prepareSceneSkills(ctx, req, viewRoot, downloadContext); err != nil {
+		logs.WarnContextf(ctx, "prepare scene Skills failed; continuing without failed Skills: error=%v", err)
 	}
-	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot, policy); err != nil {
-		return "", cleanup, fmt.Errorf("prepare invoked skills: %w", err)
+	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot, policy, downloadContext); err != nil {
+		logs.WarnContextf(ctx, "prepare invoked Skills failed; continuing without failed Skills: error=%v", err)
 	}
 	return viewRoot, cleanup, nil
 }
@@ -137,6 +149,7 @@ func (p *PluginSkillPreparer) prepareSceneSkills(
 	ctx context.Context,
 	req *agentrundomain.RunRequest,
 	viewRoot string,
+	downloadContext skillDownloadContext,
 ) error {
 	if req == nil || !strings.EqualFold(strings.TrimSpace(req.Input.Scene), salaryAccountingScene) {
 		return nil
@@ -144,7 +157,7 @@ func (p *PluginSkillPreparer) prepareSceneSkills(
 	const code = "attendance-payroll"
 	// 场景 Skill 包含会随代码一起演进的确定性计算器。不能因为任务视图
 	// 已经存在旧副本就跳过刷新，否则工资规则修复不会进入本次运行。
-	if err := p.installLatestSkills(ctx, []string{code}, viewRoot, salaryAccountingScene); err != nil {
+	if err := p.installLatestSkills(ctx, []string{code}, viewRoot, salaryAccountingScene, downloadContext); err != nil {
 		return err
 	}
 	logs.InfoContextf(ctx, "installed scene Skill %q for scene=%s", code, salaryAccountingScene)
@@ -156,6 +169,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(
 	snapshots []agentrundomain.PluginSnapshot,
 	viewRoot string,
 	policy disabledPluginPolicy,
+	downloadContext skillDownloadContext,
 ) {
 	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
 	if err != nil {
@@ -244,7 +258,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(
 			standardCodes = append(standardCodes, code)
 		}
 		sort.Strings(standardCodes)
-		downloads, err := p.resolveDownloadURLs(ctx, standardCodes, connectorRefs, "")
+		downloads, err := p.resolveDownloadURLs(ctx, standardCodes, connectorRefs, "", downloadContext)
 		if err != nil {
 			logs.WarnContextf(ctx, "resolve project Skill download URLs failed: %v", err)
 		} else {
@@ -296,7 +310,13 @@ func (p *PluginSkillPreparer) preparePluginSkills(
 
 // prepareInvokedSkills installs the latest organization Skill when an explicit
 // invocation is not actually available in the prepared run view.
-func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages []agentrundomain.InputMessage, viewRoot string, policy disabledPluginPolicy) error {
+func (p *PluginSkillPreparer) prepareInvokedSkills(
+	ctx context.Context,
+	messages []agentrundomain.InputMessage,
+	viewRoot string,
+	policy disabledPluginPolicy,
+	downloadContext skillDownloadContext,
+) error {
 	missing := make(map[string]struct{})
 	for _, message := range messages {
 		if message.Role != "user" {
@@ -330,14 +350,19 @@ func (p *PluginSkillPreparer) prepareInvokedSkills(ctx context.Context, messages
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
-	return p.installLatestSkills(ctx, codes, viewRoot, "")
+	return p.installLatestSkills(ctx, codes, viewRoot, "", downloadContext)
 }
 
 func isSystemSkill(code string) bool {
 	return hasSkillDocument(filepath.Join(systemSkillsDir(), code))
 }
 
-func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []string, viewRoot, scene string) error {
+func (p *PluginSkillPreparer) installLatestSkills(
+	ctx context.Context,
+	codes []string,
+	viewRoot, scene string,
+	downloadContext skillDownloadContext,
+) error {
 	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
 	if err != nil {
 		return fmt.Errorf("resolve worker Skill directory: %w", err)
@@ -353,7 +378,7 @@ func (p *PluginSkillPreparer) installLatestSkills(ctx context.Context, codes []s
 	if err != nil {
 		return fmt.Errorf("read worker Skill install manifest: %w", err)
 	}
-	downloads, err := p.resolveDownloadURLs(ctx, codes, nil, scene)
+	downloads, err := p.resolveDownloadURLs(ctx, codes, nil, scene, downloadContext)
 	if err != nil {
 		return fmt.Errorf("resolve download URLs: %w", err)
 	}
@@ -430,6 +455,7 @@ func (p *PluginSkillPreparer) resolveDownloadURLs(
 	codes []string,
 	connectorRefs []connectorSkillDownloadRef,
 	scene string,
+	downloadContext skillDownloadContext,
 ) (map[string]skillDownloadURLResponse, error) {
 	if p == nil || strings.TrimSpace(p.serverAddr) == "" {
 		return nil, fmt.Errorf("server address is required")
@@ -438,7 +464,15 @@ func (p *PluginSkillPreparer) resolveDownloadURLs(
 		SkillCodes      []string                    `json:"skill_codes"`
 		ConnectorSkills []connectorSkillDownloadRef `json:"connector_skills,omitempty"`
 		Scene           string                      `json:"scene,omitempty"`
-	}{SkillCodes: codes, ConnectorSkills: connectorRefs, Scene: scene})
+		ActorUIN        uint                        `json:"actor_uin,omitempty"`
+		ProjectID       string                      `json:"project_id,omitempty"`
+	}{
+		SkillCodes:      codes,
+		ConnectorSkills: connectorRefs,
+		Scene:           scene,
+		ActorUIN:        downloadContext.ActorUIN,
+		ProjectID:       downloadContext.ProjectID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("encode skill download URL request: %w", err)
 	}

@@ -257,6 +257,16 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 			if got := request.Header.Get("Authorization"); got != "Bearer worker-token" {
 				t.Fatalf("download URL authorization = %q", got)
 			}
+			var payload struct {
+				ActorUIN  uint   `json:"actor_uin"`
+				ProjectID string `json:"project_id"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.ActorUIN != 31 || payload.ProjectID != "project-xlsx" {
+				t.Fatalf("download authorization context = actor_uin:%d project_id:%q", payload.ActorUIN, payload.ProjectID)
+			}
 			downloadURLRequests++
 			packages := [][]byte{firstPackage, secondPackage}
 			if downloadURLRequests > len(packages) {
@@ -277,7 +287,12 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 	defer server.Close()
 	baseline := &skillBaselineCommitterStub{}
 	preparer := NewPluginSkillPreparerWithBaseline(server.URL, "worker-token", baseline)
-	firstRequest := &agentrundomain.RunRequest{RunID: "run-one", Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 1, firstPackage)}}
+	firstRequest := &agentrundomain.RunRequest{
+		RunID:        "run-one",
+		Workspace:    agentrundomain.WorkspaceContext{ProjectID: "project-xlsx"},
+		BusinessKeys: agentrundomain.BusinessKeys{UinPK: 31},
+		Plugins:      []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 1, firstPackage)},
+	}
 	firstView, firstCleanup, err := preparer.PrepareSkills(context.Background(), firstRequest, WorkspacePreparation{TaskDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("install first skill: %v", err)
@@ -296,7 +311,13 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 		t.Fatalf("legacy plugin cache must not be created, err=%v", err)
 	}
 
-	_, secondCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-two", Plugins: firstRequest.Plugins, Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/xlsx reuse project Skill"}}}}, WorkspacePreparation{TaskDir: t.TempDir()})
+	_, secondCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{
+		RunID:        "run-two",
+		Workspace:    agentrundomain.WorkspaceContext{ProjectID: "project-xlsx"},
+		BusinessKeys: agentrundomain.BusinessKeys{UinPK: 31},
+		Plugins:      firstRequest.Plugins,
+		Input:        agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: "/xlsx reuse project Skill"}}},
+	}, WorkspacePreparation{TaskDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("reuse installed skill: %v", err)
 	}
@@ -305,7 +326,12 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 		t.Fatalf("expected matching install to skip requests, urls=%d downloads=%d", downloadURLRequests, packageDownloads)
 	}
 
-	_, thirdCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{RunID: "run-three", Plugins: []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 2, secondPackage)}}, WorkspacePreparation{TaskDir: t.TempDir()})
+	_, thirdCleanup, err := preparer.PrepareSkills(context.Background(), &agentrundomain.RunRequest{
+		RunID:        "run-three",
+		Workspace:    agentrundomain.WorkspaceContext{ProjectID: "project-xlsx"},
+		BusinessKeys: agentrundomain.BusinessKeys{UinPK: 31},
+		Plugins:      []agentrundomain.PluginSnapshot{testPluginSkillSnapshot("xlsx", 2, secondPackage)},
+	}, WorkspacePreparation{TaskDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("update installed skill: %v", err)
 	}
@@ -697,12 +723,17 @@ func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 			requests++
 			var body struct {
 				SkillCodes []string `json:"skill_codes"`
+				ActorUIN   uint     `json:"actor_uin"`
+				ProjectID  string   `json:"project_id"`
 			}
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
 			if len(body.SkillCodes) != 1 || body.SkillCodes[0] != "docx" {
 				t.Fatalf("requested Skill codes = %#v", body.SkillCodes)
+			}
+			if body.ActorUIN != 42 || body.ProjectID != "project-invoked" {
+				t.Fatalf("download authorization context = actor_uin:%d project_id:%q", body.ActorUIN, body.ProjectID)
 			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{"code": 0, "data": map[string]any{"skills": []map[string]any{{"code": "docx", "revision": 3, "sha256": testPackageHash(packageBytes), "download_url": server.URL + "/package"}}}})
 		case "/package":
@@ -714,7 +745,14 @@ func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 	defer server.Close()
 	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
 		context.Background(),
-		&agentrundomain.RunRequest{RunID: "run-invoked", Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{{Role: "user", Content: `<skill-chip data-code="docx">docx</skill-chip> create a report`}}}},
+		&agentrundomain.RunRequest{
+			RunID:        "run-invoked",
+			Workspace:    agentrundomain.WorkspaceContext{ProjectID: "project-invoked"},
+			BusinessKeys: agentrundomain.BusinessKeys{UinPK: 42},
+			Input: agentrundomain.InputContext{Messages: []agentrundomain.InputMessage{
+				{Role: "user", Content: `<skill-chip data-code="docx">docx</skill-chip> create a report`},
+			}},
+		},
 		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
@@ -794,7 +832,7 @@ func TestPluginSkillPreparerRetriesInvokedProjectSkillAfterProjectPreparationFai
 	}
 }
 
-func TestPluginSkillPreparerReturnsInvokedSkillPreparationError(t *testing.T) {
+func TestPluginSkillPreparerSkipsUnavailableInvokedSkillWithoutFailingRun(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -808,7 +846,7 @@ func TestPluginSkillPreparerReturnsInvokedSkillPreparationError(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	_, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
+	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
 		context.Background(),
 		&agentrundomain.RunRequest{
 			RunID: "run-missing-invoked",
@@ -819,8 +857,73 @@ func TestPluginSkillPreparerReturnsInvokedSkillPreparationError(t *testing.T) {
 		WorkspacePreparation{TaskDir: t.TempDir()},
 	)
 	defer cleanup()
-	if err == nil || !strings.Contains(err.Error(), `Skill "missing": server returned no download URL`) {
-		t.Fatalf("explicit Skill error = %v", err)
+	if err != nil {
+		t.Fatalf("unavailable invoked Skill must not fail run preparation: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prepared, "missing")); !os.IsNotExist(err) {
+		t.Fatalf("unavailable invoked Skill must not create run link, err=%v", err)
+	}
+}
+
+func TestPluginSkillPreparerSkipsUnavailableSceneSkillWithoutFailingRun(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/plugins/skills/download-urls" {
+			http.NotFound(writer, request)
+			return
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"code": 0,
+			"data": map[string]any{"skills": []any{}},
+		})
+	}))
+	defer server.Close()
+	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID:        "run-unavailable-scene",
+			BusinessKeys: agentrundomain.BusinessKeys{UinPK: 42},
+			Input:        agentrundomain.InputContext{Scene: salaryAccountingScene},
+		},
+		WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("unavailable scene Skill must not fail run preparation: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prepared, "attendance-payroll")); !os.IsNotExist(err) {
+		t.Fatalf("unavailable scene Skill must not create run link, err=%v", err)
+	}
+}
+
+func TestPluginSkillPreparerSkipsDownloadRequestFailureWithoutFailingRun(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/plugins/skills/download-urls" {
+			http.Error(writer, "temporary failure", http.StatusServiceUnavailable)
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
+		context.Background(),
+		&agentrundomain.RunRequest{
+			RunID: "run-download-failure",
+			Input: agentrundomain.InputContext{
+				Messages: []agentrundomain.InputMessage{{Role: "user", Content: `<skill-chip data-code="query-time">query-time</skill-chip> query`}},
+			},
+		},
+		WorkspacePreparation{TaskDir: t.TempDir()},
+	)
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("download request failure must not fail run preparation: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prepared, "query-time")); !os.IsNotExist(err) {
+		t.Fatalf("download request failure must not create run link, err=%v", err)
 	}
 }
 

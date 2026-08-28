@@ -1142,10 +1142,12 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 		actorUin = callerID
 	}
 	var project *types.Project
-	if projectID := strings.TrimSpace(req.ProjectID); projectID != "" {
-		project, err = infradb.GetProjectByPublicID(ctx, s.db, orgID, projectID)
-		if err != nil {
-			return nil, err
+	if callerKind == types.CallerKindWorker {
+		if projectID := strings.TrimSpace(req.ProjectID); projectID != "" {
+			project, err = infradb.GetProjectByPublicID(ctx, s.db, orgID, projectID)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	allowedCodes, err := s.downloadableSkillCodes(ctx, orgID, actorUin, project, codes)
@@ -1176,18 +1178,30 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 		}
 		existingCodes[row.Code] = true
 		if !allowedCodes[row.Code] {
+			logs.WarnContextf(
+				ctx,
+				"skip Skill download URL: permission denied code=%s caller_kind=%s actor_uin=%d project_id=%s",
+				row.Code, callerKind, actorUin, strings.TrimSpace(req.ProjectID),
+			)
 			continue
 		}
 		artifact, err := ArtifactFromDefinition("skill", row.Definition)
-		if err != nil || artifact == nil {
+		if err != nil {
+			logs.WarnContextf(ctx, "skip Skill download URL: invalid artifact definition code=%s error=%v", row.Code, err)
+			continue
+		}
+		if artifact == nil {
+			logs.WarnContextf(ctx, "skip Skill download URL: missing artifact definition code=%s", row.Code)
 			continue
 		}
 		sha, err := normalizedPluginSHA256(artifact.SHA256)
 		if err != nil {
+			logs.WarnContextf(ctx, "skip Skill download URL: invalid artifact SHA-256 code=%s error=%v", row.Code, err)
 			continue
 		}
 		downloadURL, err := s.resolveSkillArtifactDownloadURL(ctx, orgID, row, artifact, sha)
 		if err != nil {
+			logs.WarnContextf(ctx, "skip Skill download URL: artifact unavailable code=%s error=%v", row.Code, err)
 			continue
 		}
 		result = append(result, contract.SkillDownloadURL{Code: row.Code, Revision: row.Revision, SHA256: sha, DownloadURL: downloadURL})
