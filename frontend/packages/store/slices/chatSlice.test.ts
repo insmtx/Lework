@@ -80,6 +80,61 @@ describe("applySessionEventToMessage waiting status", () => {
 	});
 });
 
+describe("pending approval expiry", () => {
+	const pendingApprovalMessage = (): Message => ({
+		...assistantMessage(),
+		status: "streaming",
+		approvals: [
+			{
+				requestId: "approval-1",
+				toolName: "shell",
+				description: "Run command",
+				status: "pending",
+			},
+		],
+	});
+
+	it("expires pending approval when the run is cancelled", () => {
+		const result = applySessionEventToMessage(
+			pendingApprovalMessage(),
+			{ type: "run.cancelled", payload: {} },
+			"run.cancelled",
+			{ appendContent: true },
+		);
+
+		expect(result.status).toBe("failed");
+		expect(result.approvals?.[0]?.status).toBe("expired");
+	});
+
+	it("does not restore a pending approval from cancelled history chunks", () => {
+		const result = mapBackendMessage({
+			id: "assistant-1",
+			session_id: "session-1",
+			role: "assistant",
+			content: "已取消",
+			timestamp: 1,
+			message_type: "text",
+			sequence: 2,
+			created_at: "2026-08-28T08:00:00.000Z",
+			chunks: [
+				{
+					type: "approval.requested",
+					session_id: "session-1",
+					payload: {
+						request_id: "approval-1",
+						tool_name: "shell",
+						description: "Run command",
+					},
+					sequence: 1,
+					timestamp: 1,
+				},
+			],
+		});
+
+		expect(result.approvals?.[0]?.status).toBe("expired");
+	});
+});
+
 describe("createAssistantSessionEventsWaitingMessage", () => {
 	it("keeps the waiting status when restoring an active SessionEvents replay", () => {
 		const message = createAssistantSessionEventsWaitingMessage(
