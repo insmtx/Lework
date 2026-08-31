@@ -44,9 +44,9 @@ class PayrollCalculatorTest(unittest.TestCase):
             history = self.make_book(
                 directory, "history.xlsx",
                 ["姓名", "项目", "人员类别", "基本工资", "绩效工资", "工龄工资",
-                 "职称工资", "施工补贴", "1-3月话补", "降温费", "交通补助", "应发工资"],
-                [["张三", "A项目", "外聘", 10000, 3000, 200, 100, 50, 300, 200, 100, 0],
-                 ["李四", "A项目", "外聘", 9000, 2000, 0, 0, 40, 200, 0, 0, 0]],
+                 "职称工资", "施工补贴", "1-3月话补", "降温费", "交通补助", "双休日加班", "应发工资"],
+                [["张三", "A项目", "外聘", 10000, 3000, 200, 100, 50, 300, 200, 100, 920, 0],
+                 ["李四", "A项目", "外聘", 9000, 2000, 0, 0, 40, 200, 0, 0, 0, 0]],
             )
             rows = calculate(
                 read_rows(roster), read_rows(history),
@@ -78,7 +78,7 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_missing_workdays_does_not_block_other_items(self):
         rows = calculate(
             [], [{"name": "王五", "project": "B", "category": "外聘",
-                  "position_salary": 5000, "performance": 1000}],
+                  "position_salary": 5000, "performance": 1000, "overtime_amount": 460}],
             [{"name": "王五", "project": "B", "category": "外聘",
               "actual_work_days": 20}],
             "2026-05", None, None,
@@ -98,6 +98,49 @@ class PayrollCalculatorTest(unittest.TestCase):
         self.assertIsNone(detail["实际出勤"])
         self.assertTrue(any("缺少实际出勤" in item["说明"] for item in rows["review_exceptions"]))
 
+    def test_historical_zero_overtime_is_not_calculated(self):
+        rows = calculate(
+            [],
+            [{"name": "一口价", "project": "B", "category": "外聘",
+              "position_salary": 7500, "performance": 0, "overtime_amount": 0}],
+            [{"name": "一口价", "project": "B", "category": "外聘",
+              "actual_work_days": 25}],
+            "2026-06", None, None,
+        )
+        detail = rows["payroll_detail"][0]
+        self.assertEqual(detail["加班天数"], 0)
+        self.assertEqual(detail["加班费"], 0)
+        self.assertEqual(detail["应发工资"], 7500)
+        self.assertIsNone(rows["baseline"][0]["加班标准"])
+
+    def test_missing_historical_overtime_is_not_derived_from_salary(self):
+        rows = calculate(
+            [],
+            [{"name": "一口价", "project": "B", "category": "外聘",
+              "position_salary": 7000}],
+            [{"name": "一口价", "project": "B", "category": "外聘",
+              "actual_work_days": 25}],
+            "2026-06", None, None,
+        )
+        self.assertEqual(rows["payroll_detail"][0]["加班费"], 0)
+        self.assertEqual(rows["payroll_detail"][0]["加班天数"], 0)
+
+    def test_shuangxiuri_header_maps_to_overtime_amount(self):
+        with tempfile.TemporaryDirectory() as directory:
+            history = self.make_book(
+                directory, "history.xlsx",
+                ["姓名", "项目", "人员类别", "基本工资", "绩效工资", "双休日加班"],
+                [["张三", "A项目", "外聘", 5000, 1000, 460]],
+            )
+            rows = calculate(
+                [], read_rows(history),
+                [{"name": "张三", "project": "A项目", "category": "外聘",
+                  "actual_work_days": 22}],
+                "2026-06", None, None,
+            )
+            self.assertEqual(rows["payroll_detail"][0]["加班天数"], 1)
+            self.assertEqual(rows["payroll_detail"][0]["加班费"], 460)
+
     def test_construction_total_is_normalized_to_daily_standard(self):
         rows = calculate(
             [],
@@ -116,10 +159,10 @@ class PayrollCalculatorTest(unittest.TestCase):
             [],
             [{"name": "甲", "项目": "D", "category": "外聘",
               "position_salary": 5000, "performance": 1000,
-              "hot": 600, "construction_day": 30},
+              "hot": 600, "construction_day": 30, "overtime_amount": 460},
              {"name": "乙", "项目": "D", "category": "外聘",
               "position_salary": 5000, "performance": 1000,
-              "hot": 0, "construction_day": 30}],
+              "hot": 0, "construction_day": 30, "overtime_amount": 460}],
             [{"name": "甲", "project": "D", "category": "外聘",
               "actual_work_days": 22, "加班天数": 2},
              {"name": "乙", "project": "D", "category": "外聘",
@@ -149,7 +192,7 @@ class PayrollCalculatorTest(unittest.TestCase):
         rows = calculate(
             [],
             [{"name": "孙八", "项目": "F", "category": "外聘",
-              "position_salary": 5000, "performance": 1000}],
+              "position_salary": 5000, "performance": 1000, "overtime_amount": 460}],
             [{"name": "孙八", "project": "F", "category": "外聘",
               "actual_work_days": 27,
               "daily_marks": {
@@ -163,7 +206,7 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_overtime_counts_one_day_for_each_worked_weekend_without_schedule(self):
         rows = calculate(
             [], [{"name": "周末", "project": "A项目", "category": "外包",
-                  "position_salary": 3800, "performance": 1000}],
+                  "position_salary": 3800, "performance": 1000, "overtime_amount": 1050}],
             [{"name": "周末", "project": "A项目", "category": "外包",
               "actual_work_days": 24, "weekend_attendance_dates": [
                   "2026-06-06", "2026-06-14", "2026-06-20", "2026-06-28",
@@ -177,7 +220,7 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_june_uses_verified_overtime_public_rule(self):
         rows = calculate(
             [], [{"name": "赵六", "project": "A项目", "category": "外包",
-                  "position_salary": 3800, "performance": 1000}],
+                  "position_salary": 3800, "performance": 1000, "overtime_amount": 1400}],
             [{"name": "赵六", "project": "A项目", "category": "外包",
               "actual_work_days": 26, "overtime_days": 4}],
             "2026-06", 26, 4, "single",
@@ -189,7 +232,7 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_june_holiday_reduces_base_workdays_before_overtime_cap(self):
         rows = calculate(
             [], [{"name": "节日", "project": "A项目", "category": "外包",
-                  "position_salary": 3800, "performance": 1000}],
+                  "position_salary": 3800, "performance": 1000, "overtime_amount": 1400}],
             [{"name": "节日", "project": "A项目", "category": "外包",
               "actual_work_days": 25, "holiday_dates": [
                   "2026-06-19", "2026-06-20", "2026-06-21",
@@ -386,7 +429,7 @@ class PayrollCalculatorTest(unittest.TestCase):
     def test_calendar_fallback_and_workbook_freeze_panes(self):
         rows = calculate(
             [], [{"name": "节日", "project": "B项目", "category": "外聘",
-                  "position_salary": 3800, "performance": 1000}],
+                  "position_salary": 3800, "performance": 1000, "overtime_amount": 1400}],
             [{"name": "节日", "project": "B项目", "category": "外聘", "actual_work_days": 26}],
             "2026-06", None, None,
         )
@@ -561,7 +604,7 @@ class PayrollCalculatorTest(unittest.TestCase):
         rows = calculate(
             [],
             [{"name": "端午", "project": "B项目", "category": "外包",
-              "position_salary": 3800, "performance": 1000}],
+              "position_salary": 3800, "performance": 1000, "overtime_amount": 1400}],
             [{"name": "端午", "project": "B项目", "category": "外包",
               "actual_work_days": 25,
               "holiday_dates": ["2026-06-20", "2026-06-21"]}],
@@ -599,7 +642,7 @@ class PayrollCalculatorTest(unittest.TestCase):
 
     def test_personal_leave_requires_shi_mark_not_month_remainder(self):
         history = [{"name": "周七", "project": "C项目", "category": "外包",
-                    "position_salary": 3200, "performance": 4200}]
+                    "position_salary": 3200, "performance": 4200, "overtime_amount": 848}]
         remainder = calculate(
             [], history,
             [{"name": "周七", "project": "C项目", "category": "外包",
@@ -631,6 +674,38 @@ class PayrollCalculatorTest(unittest.TestCase):
         )
         self.assertEqual(marked["payroll_detail"][0]["事假天数"], 2)
         self.assertEqual(marked["payroll_detail"][0]["绩效工资"], 4200 - 4200 / 21.75 * 2)
+
+    def test_printed_attendance_must_equal_mark_count(self):
+        history = [{"name": "对账", "project": "C项目", "category": "外包",
+                    "position_salary": 2000, "performance": 1000, "overtime_amount": 184}]
+        mismatched = calculate(
+            [], history,
+            [{"name": "对账", "project": "C项目", "category": "外包",
+              "actual_work_days": 25, "marked_work_days": 26}],
+            "2026-06", None, None,
+        )
+        self.assertEqual(mismatched["payroll_detail"][0]["实际出勤"], 25)
+        self.assertTrue(any("印刷实际出勤与出勤符号天数不一致" in item["说明"]
+                            for item in mismatched["review_exceptions"]))
+
+        matched = calculate(
+            [], history,
+            [{"name": "对账", "project": "C项目", "category": "外包",
+              "actual_work_days": 26, "marked_work_days": 26}],
+            "2026-06", None, None,
+        )
+        self.assertFalse(any("印刷实际出勤与出勤符号天数不一致" in item["说明"]
+                             for item in matched["review_exceptions"]))
+
+        partial = calculate(
+            [], history,
+            [{"name": "对账", "project": "C项目", "category": "外包",
+              "actual_work_days": 27,
+              "daily_marks": {"2026-06-06": "出勤", "2026-06-07": "出勤"}}],
+            "2026-06", None, None,
+        )
+        self.assertFalse(any("印刷实际出勤与出勤符号天数不一致" in item["说明"]
+                             for item in partial["review_exceptions"]))
 
     def test_generated_result_workbook_is_rejected_as_sole_history(self):
         with tempfile.TemporaryDirectory() as directory:

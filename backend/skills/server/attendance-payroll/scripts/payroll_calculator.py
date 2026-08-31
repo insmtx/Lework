@@ -89,7 +89,7 @@ ALIASES = {
     "hot": ("降温费", "高温补贴"),
     "overtime_standard": ("双休日加班标准", "加班标准", "双休日加班（标准）"),
     "overtime_count": ("双休日加班个数", "加班个数", "双休日加班（个数）"),
-    "overtime_amount": ("双休日加班金额", "加班金额", "双休日加班（金额）"),
+    "overtime_amount": ("双休日加班金额", "加班金额", "双休日加班（金额）", "双休日加班"),
     "historical_gross": ("应发工资", "人工应发工资", "应发"),
     "work_days": ("工作天数", "实际出勤", "出勤天数"),
 }
@@ -574,10 +574,7 @@ def attendance_days(record: dict[str, Any], month: str | None = None) -> tuple[f
     ))
     marks = attendance_mark_values(record)
     if actual is None:
-        actual = float(sum(1 for mark in marks if mark.lower() in {
-            "8", "出勤", "上班", "正常", "加班", "周末加班", "节假日加班",
-            "√", "✔", "1"
-        }))
+        actual = float(sum(1 for mark in marks if is_attendance_mark(mark)))
         if not marks:
             actual = None
     # 事假只认格子里的「事/事假」。休、换、调、周末缺口和加班日都不是事假；
@@ -602,6 +599,17 @@ def has_attendance_evidence(record: dict[str, Any]) -> bool:
     return any(number(record.get(field)) is not None for field in fields) or bool(
         record.get("daily_marks") or record.get("days")
     )
+
+
+def historical_overtime_eligible(base: dict[str, Any]) -> bool:
+    """历史未计加班费的一口价人员，当月也不计算加班费。"""
+    if not base:
+        return False
+    for field in ("overtime_amount", "overtime_count", "overtime_standard"):
+        value = number(base.get(field))
+        if value is not None and value > 0:
+            return True
+    return False
 
 
 def explicit_overtime_days(record: dict[str, Any]) -> float | None:
@@ -786,6 +794,43 @@ def is_attendance_mark(mark: Any) -> bool:
     }
 
 
+def counted_attendance_marks(record: dict[str, Any], month: str | None = None) -> float | None:
+    """Count 8/√ attendance marks when the grid is complete enough to audit."""
+    explicit = number(record.get("marked_work_days", record.get("符号出勤天数")))
+    if explicit is not None:
+        return explicit
+    raw = record.get("daily_marks", record.get("days"))
+    needed = month_length(month) or 20
+    if isinstance(raw, dict):
+        values = list(raw.values())
+        if len(raw) < needed:
+            return None
+    elif isinstance(raw, (list, tuple)):
+        values = list(raw)
+        if sum(1 for value in values if clean(value)) < needed:
+            return None
+    else:
+        return None
+    return float(sum(1 for mark in values if is_attendance_mark(mark)))
+
+
+def attendance_mark_mismatch_issue(
+    record: dict[str, Any],
+    actual: float | None,
+    month: str | None,
+) -> str | None:
+    """Require printed 实际出勤 to equal the count of attendance marks."""
+    counted = counted_attendance_marks(record, month)
+    if actual is None or counted is None or math.isclose(actual, counted, abs_tol=1e-6):
+        return None
+    printed = int(actual) if float(actual).is_integer() else actual
+    marks = int(counted) if float(counted).is_integer() else counted
+    return (
+        f"印刷实际出勤与出勤符号天数不一致（印刷{printed}，符号{marks}），"
+        "工资按印刷实际出勤计算，需人工复核"
+    )
+
+
 def attendance_overtime_days(
     record: dict[str, Any],
     month: str | None,
@@ -959,6 +1004,9 @@ def calculate(
         actual, personal_leave = attendance_days(record, month)
         if not has_attendance_evidence(record):
             issues.append("缺少实际出勤字段或每日考勤，未将缺失误作零出勤")
+        mismatch = attendance_mark_mismatch_issue(record, actual, month)
+        if mismatch:
+            issues.append(mismatch)
         sick = number(record.get("sick_leave_days")) or 0
         absent = number(record.get("absent_days")) or 0
         for label, value in (("病假", sick), ("旷工", absent)):
@@ -1009,8 +1057,9 @@ def calculate(
         construction = ((actual or 0) * construction_day
                         if construction_day is not None and not record.get("cross_project") else 0)
 
-        overtime_standard = number(base.get("overtime_standard"))
-        if overtime_standard is None and position is not None:
+        pays_overtime = historical_overtime_eligible(base)
+        overtime_standard = number(base.get("overtime_standard")) if pays_overtime else None
+        if pays_overtime and overtime_standard is None and position is not None:
             overtime_standard = round(position / 21.75) * 2
         overtime_days = 0
         overtime_amount = 0
@@ -1019,7 +1068,9 @@ def calculate(
         calendar_overtime_cap = weekend_slots(month)
         if calendar_overtime_cap is not None:
             effective_overtime_cap = float(calendar_overtime_cap)
-        if effective_base_workdays is None or effective_overtime_cap is None:
+        if not pays_overtime:
+            overtime_standard = None
+        elif effective_base_workdays is None or effective_overtime_cap is None:
             issues.append("缺少当月基础工作日或计划加班上限，加班费未计算")
         elif overtime_standard is not None and actual is not None:
             overtime_days = min(max(actual - effective_base_workdays, 0), effective_overtime_cap)
