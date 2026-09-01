@@ -23,6 +23,7 @@ let mockIsAuthenticated = true;
 let mockProjects: Array<{
 	id: string;
 	name: string;
+	updatedAt: number;
 	tasks: Array<{ id: string; title: string }>;
 }> = [];
 
