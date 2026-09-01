@@ -65,9 +65,8 @@ const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sid
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const TASK_DETAIL_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const TASK_DETAIL_RIGHT_SIDEBAR_MAX_WIDTH = 440;
-// 中文注释：任务详情页文件列表填充右侧栏剩余空间，文件较多时只在该区域内滚动。
-const TASK_DETAIL_FILE_LIST_CLASS =
-	"min-h-0 flex flex-1 flex-col space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
+// 中文注释：任务文件随内容增高，不再单独滚动，由右侧栏整体 overflow 承接。
+const TASK_DETAIL_FILE_LIST_CLASS = "space-y-3";
 
 function truncateBreadcrumbText(text?: string | null, maxLength = 10) {
 	if (!text) {
@@ -583,10 +582,10 @@ export function TaskDetailPage({
 
 				{!rightSidebarCollapsed && (
 					<aside
-						className="relative flex shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 pt-6 pb-[6px] transition-[width] duration-200 ease-out"
+						className="relative flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 pt-6 pb-[6px] transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
-						<div className="no-scrollbar min-h-0 flex flex-1 flex-col space-y-8 overflow-y-auto pr-1">
+						<div className="no-scrollbar min-h-0 flex-1 space-y-8 overflow-y-auto pr-1">
 							<div>
 								<div>
 									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">任务侧栏</p>
@@ -636,7 +635,7 @@ export function TaskDetailPage({
 									<TaskTodoProgressPanel todos={latestTodos} isRunActive={isTaskRunActive} />
 								</section>
 							)}
-							<section className="flex min-h-0 flex-1 flex-col">
+							<section>
 								<div className="mb-3 flex items-center justify-between">
 									<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务文件</h3>
 								</div>
