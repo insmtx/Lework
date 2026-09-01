@@ -291,6 +291,7 @@ export type {
 	NavItem,
 	Project,
 	ProjectArtifact,
+	ProjectListPage,
 	ProjectMember,
 	ProjectMemberType,
 	ProjectMessage,
@@ -304,9 +305,14 @@ export type {
 	WorkspaceMode,
 } from "./slices/layoutSlice";
 export {
+	appendProjectsFromListResult,
+	fetchProjectListPage,
 	LEFT_RAIL_MAX_WIDTH,
 	LEFT_RAIL_MIN_WIDTH,
+	mergeProjectsFromListResult,
+	PROJECT_LIST_PAGE_SIZE,
 	projectMembersToInputs,
+	upsertProjectsIntoCache,
 } from "./slices/layoutSlice";
 export type { ModelAction, ModelItem, ModelState, ModelStore } from "./slices/modelSlice";
 export {

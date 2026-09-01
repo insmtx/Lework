@@ -57,6 +57,7 @@ import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { openPendingAttachmentPreview } from "./file-preview-store";
 import type { AppNavigation } from "./LeftRail";
+import { usePaginatedProjectList } from "../project/usePaginatedProjectList";
 import { formatProjectTaskPickerLabel, ProjectTaskPickerContent } from "./ProjectTaskPicker";
 import { ProjectIcon } from "./project-icon";
 
@@ -209,6 +210,10 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 	const [isSending, setIsSending] = useState(false);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
+	const projectList = usePaginatedProjectList({
+		enabled: isAuthenticated,
+		keyword: projectSearch,
+	});
 	const [isDesktopApp, setIsDesktopApp] = useState(false);
 	const applyingWorkbenchPrefillIdRef = useRef<string | null>(null);
 	const wasAuthenticatedRef = useRef(isAuthenticated);
@@ -925,7 +930,11 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 							className="!flex-none w-auto overflow-visible rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
 						>
 							<ProjectTaskPickerContent
-								projects={isAuthenticated ? projects : []}
+								projects={projectList.projects}
+								listLoading={projectList.loading}
+								hasMore={projectList.hasMore}
+								loadingMore={projectList.loadingMore}
+								onLoadMore={projectList.loadMore}
 								selectedProjectId={activeWorkbenchProjectId}
 								selectedTaskId={activeWorkbenchTaskId}
 								searchQuery={projectSearch}

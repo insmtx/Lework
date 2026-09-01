@@ -39,7 +39,7 @@ describe("getVisibleLeftRailItems", () => {
 });
 
 describe("getRecentProjectsForLeftRail", () => {
-	it("会返回全部项目并按更新时间倒序排列", () => {
+	it("会按更新时间倒序排列当前已加载的项目", () => {
 		const projects = [
 			{ id: "project-1", updatedAt: 100 },
 			{ id: "project-2", updatedAt: 90 },

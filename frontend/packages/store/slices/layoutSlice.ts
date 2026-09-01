@@ -225,7 +225,10 @@ export type LayoutState = {
 	activeWorkbenchTaskId: string | null;
 	activeProjectTab: ProjectTab;
 	workspaces: Workspace[];
+	/** 已打开/列表触及过的项目实体缓存，不是任何 UI 的完整列表。 */
 	projects: Project[];
+	/** 创建/删除/离开/切组织后递增，驱动各列表独立重新拉第一页。 */
+	projectsMutationEpoch: number;
 	inputFocused: boolean;
 	activeRightTab: "shortcuts" | "inbox" | "artifacts";
 	navGroups: NavGroup[];
@@ -246,6 +249,16 @@ export type LayoutState = {
 
 export type LayoutAction = Pick<LayoutActionImpl, keyof LayoutActionImpl>;
 export type LayoutStore = LayoutState & LayoutAction;
+
+/** 各项目列表/选择器独立分页时的默认页大小。 */
+export const PROJECT_LIST_PAGE_SIZE = 20;
+
+export type ProjectListPage = {
+	items: Project[];
+	total: number;
+	offset: number;
+	hasMore: boolean;
+};
 
 function mapBackendProject(bp: BackendProject): Project {
 	const metadata = bp.metadata ?? undefined;
@@ -292,8 +305,48 @@ export function mergeProjectsFromListResult(
 		};
 	});
 
-	// 中文注释：列表接口已按分页拉取完整项目集，因此这里只保留接口中仍存在的项目，避免已删除项目继续残留在本地状态里。
+	// 中文注释：首页刷新只覆盖本页结果；未出现在本页的本地项目由调用方决定是否丢弃。
 	return mergedApiProjects;
+}
+
+export function appendProjectsFromListResult(
+	apiProjects: Project[],
+	localProjects: Project[],
+): Project[] {
+	const localIds = new Set(localProjects.map((project) => project.id));
+	const mergedPage = mergeProjectsFromListResult(apiProjects, localProjects);
+	const appended = mergedPage.filter((project) => !localIds.has(project.id));
+	return [...localProjects, ...appended];
+}
+
+export function upsertProjectsIntoCache(incoming: Project[], localProjects: Project[]): Project[] {
+	const mergedIncoming = mergeProjectsFromListResult(incoming, localProjects);
+	const incomingIds = new Set(mergedIncoming.map((project) => project.id));
+	const keptLocal = localProjects.filter((project) => !incomingIds.has(project.id));
+	return [...mergedIncoming, ...keptLocal];
+}
+
+export async function fetchProjectListPage(params: {
+	keyword?: string;
+	offset?: number;
+	limit?: number;
+}): Promise<ProjectListPage> {
+	const offset = params.offset ?? 0;
+	const limit = params.limit ?? PROJECT_LIST_PAGE_SIZE;
+	const res = await projectApi.list({
+		keyword: params.keyword,
+		offset,
+		limit,
+	});
+	const data = res.data.data;
+	const items = (data?.items ?? []).map(mapBackendProject);
+	const total = data?.total ?? 0;
+	return {
+		items,
+		total,
+		offset,
+		hasMore: offset + items.length < total && items.length > 0,
+	};
 }
 
 function mapBackendProjectMember(member: BackendProjectMemberItem): ProjectMember {
@@ -467,6 +520,7 @@ const _initialState: LayoutState = {
 		{ id: "local-1", name: "本地工作区", mode: "local", collapsed: false },
 	],
 	projects: [],
+	projectsMutationEpoch: 0,
 	inputFocused: false,
 	activeRightTab: "shortcuts",
 	navGroups: [
@@ -845,30 +899,9 @@ export class LayoutActionImpl {
 		this.#fetchProjectsPromise = (async () => {
 			let succeeded = false;
 			try {
-				const pageSize = 100;
-				let offset = 0;
-				let total = Number.POSITIVE_INFINITY;
-				const items: BackendProject[] = [];
-
-				// 中文注释：多个页面壳会同时请求项目列表，复用同一个分页拉取流程，避免刷新时重复打 ListProjects。
-				while (offset < total) {
-					const res = await projectApi.list({ offset, limit: pageSize });
-					const data = res.data.data;
-					const pageItems = data?.items ?? [];
-					total = data?.total ?? 0;
-					items.push(...pageItems);
-					if (pageItems.length === 0) break;
-					offset += pageItems.length;
-				}
-
+				const page = await fetchProjectListPage({ offset: 0, limit: PROJECT_LIST_PAGE_SIZE });
 				if (fetchEpoch !== this.#projectsFetchEpoch) return false;
-
-				const apiProjects = items.map(mapBackendProject);
-				this.#set((state) => ({
-					projects: apiProjects.length
-						? mergeProjectsFromListResult(apiProjects, state.projects)
-						: [],
-				}));
+				this.upsertProjects(page.items);
 				succeeded = true;
 			} catch (err) {
 				console.error("fetchProjects error:", err);
@@ -883,6 +916,13 @@ export class LayoutActionImpl {
 		return this.#fetchProjectsPromise;
 	};
 
+	upsertProjects = (incoming: Project[]) => {
+		if (incoming.length === 0) return;
+		this.#set((state) => ({
+			projects: upsertProjectsIntoCache(incoming, state.projects),
+		}));
+	};
+
 	createProject = async (params: {
 		name: string;
 		description?: string;
@@ -895,7 +935,8 @@ export class LayoutActionImpl {
 			if (!bp) throw new Error("No data returned");
 			const item = mapBackendProject(bp);
 			this.#set((state) => ({
-				projects: [item, ...state.projects],
+				projects: [item, ...state.projects.filter((project) => project.id !== item.id)],
+				projectsMutationEpoch: state.projectsMutationEpoch + 1,
 			}));
 			return item;
 		} catch (err) {
@@ -962,6 +1003,7 @@ export class LayoutActionImpl {
 					state.activeWorkbenchProjectId === publicId ? null : state.activeWorkbenchProjectId,
 				activeWorkbenchTaskId:
 					state.activeWorkbenchProjectId === publicId ? null : state.activeWorkbenchTaskId,
+				projectsMutationEpoch: state.projectsMutationEpoch + 1,
 			}));
 			return true;
 		} catch (err) {
@@ -987,6 +1029,7 @@ export class LayoutActionImpl {
 					state.activeTaskDetailProjectId === publicId ? null : state.activeTaskDetailTaskId,
 				activeTaskDetailSessionId:
 					state.activeTaskDetailProjectId === publicId ? null : state.activeTaskDetailSessionId,
+				projectsMutationEpoch: state.projectsMutationEpoch + 1,
 			}));
 			const store = this.#get() as LayoutStore & {
 				invalidate?: (resource?: { type: "project"; publicId: string }) => void;
@@ -1001,30 +1044,32 @@ export class LayoutActionImpl {
 	};
 
 	fetchTasks = async (projectId: string) => {
-		const project = this.#get().projects.find((p) => p.id === projectId);
-		if (!project) return;
-
 		try {
 			const res = await projectApi.detail({ public_id: projectId });
 			const detail = res.data.data;
 			if (!detail) throw new Error("No data returned");
+			const mapped = mapBackendProject(detail);
 			const tasks = (detail.tasks ?? []).map(mapBackendTask);
-			this.#set((s) => ({
-				projects: s.projects.map((p) =>
-					p.id === projectId
-						? {
-								...p,
-								name: formatTaskDisplayTitle(detail.name),
-								description: detail.description ?? "",
-								objective: detail.objective,
-								updatedAt: new Date(detail.updated_at).getTime(),
-								tasks,
-							}
-						: p,
-				),
-				projectSessionId: detail.session?.session_id ?? s.projectSessionId,
-				projectSessionProjectId: detail.session?.session_id ? projectId : s.projectSessionProjectId,
-			}));
+			this.#set((s) => {
+				const exists = s.projects.some((p) => p.id === projectId);
+				const nextProject = {
+					...(s.projects.find((p) => p.id === projectId) ?? mapped),
+					name: formatTaskDisplayTitle(detail.name),
+					description: detail.description ?? "",
+					objective: detail.objective,
+					updatedAt: new Date(detail.updated_at).getTime(),
+					tasks,
+				};
+				return {
+					projects: exists
+						? s.projects.map((p) => (p.id === projectId ? nextProject : p))
+						: [nextProject, ...s.projects],
+					projectSessionId: detail.session?.session_id ?? s.projectSessionId,
+					projectSessionProjectId: detail.session?.session_id
+						? projectId
+						: s.projectSessionProjectId,
+				};
+			});
 		} catch (err) {
 			console.error("fetchTasks error:", err);
 		}
@@ -1296,6 +1341,7 @@ export class LayoutActionImpl {
 			activeWorkbenchTaskId: null,
 			activeProjectTab: "chat",
 			projects: [],
+			projectsMutationEpoch: this.#get().projectsMutationEpoch + 1,
 			activeTaskDetailProjectId: null,
 			activeTaskDetailTaskId: null,
 			activeTaskDetailSessionId: null,

@@ -35,6 +35,7 @@ import {
 	Bot,
 	CalendarDays,
 	Check,
+	Loader2,
 	MessageSquare,
 	Plus,
 	Search,
@@ -45,6 +46,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../auth";
+import { ListLoadMoreSentinel } from "../common/ListLoadMoreSentinel";
 import { MCPConnectorIcon } from "../common/MCPConnectorIcon";
 import { renderHighlightedText } from "../common/searchText";
 import { FieldWithError, RequiredMark, useFormFieldValidation } from "../form/formValidation";
@@ -52,6 +54,7 @@ import { bindSkillsToProject, useSkillPickerOptions } from "../input/useSkillPic
 import type { AppNavigation } from "../layout/LeftRail";
 import { ProjectIcon } from "../layout/project-icon";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
+import { usePaginatedProjectList } from "../project/usePaginatedProjectList";
 import {
 	ProjectMemberChip,
 	ProjectMemberPickerDialog,
@@ -109,8 +112,6 @@ function formatProjectDate(timestamp: number) {
 
 export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 	const {
-		projects,
-		fetchProjects,
 		createProject,
 		updateProject,
 		deleteProject,
@@ -120,14 +121,22 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 		switchView,
 	} = useLayoutStore((s) => s);
 	const { isAuthenticated, requireAuth } = useAuth();
-	const visibleProjects = isAuthenticated ? projects : [];
-	useProjectsMenuCapabilities(visibleProjects.map((project) => project.id));
 	const [keyword, setKeyword] = useState("");
 	const [createOpen, setCreateOpen] = useState(false);
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
 	const [renameValue, setRenameValue] = useState("");
 	const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 	const [leaveTarget, setLeaveTarget] = useState<Project | null>(null);
+	const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
+	const projectList = usePaginatedProjectList({
+		enabled: isAuthenticated,
+		keyword,
+	});
+	const displayedProjects = projectList.projects;
+	useProjectsMenuCapabilities(displayedProjects.map((project) => project.id));
+	const isSearching = keyword.trim().length > 0;
+	const showInitialLoading =
+		isAuthenticated && projectList.loading && displayedProjects.length === 0;
 
 	useEffect(() => {
 		if (isAuthenticated) return;
@@ -136,21 +145,6 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 		setDeleteTarget(null);
 		setLeaveTarget(null);
 	}, [isAuthenticated]);
-
-	useEffect(() => {
-		if (!isAuthenticated) return;
-		fetchProjects();
-	}, [fetchProjects, isAuthenticated]);
-
-	const filteredProjects = useMemo(() => {
-		const query = keyword.trim().toLowerCase();
-		const sorted = [...visibleProjects].sort((a, b) => b.createdAt - a.createdAt);
-		if (!query) return sorted;
-
-		return sorted.filter((project) =>
-			[project.name, project.description].join(" ").toLowerCase().includes(query),
-		);
-	}, [keyword, visibleProjects]);
 
 	const openProject = (projectId: string) => {
 		requireAuth(() => {
@@ -259,34 +253,48 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 				<div className="mb-4 flex shrink-0 items-center justify-between gap-4">
 					<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">我的项目</h2>
 					<span className="text-xs text-[var(--leros-text-subtle)]">
-						{filteredProjects.length} 个项目
+						{projectList.total} 个项目
 					</span>
 				</div>
 
-				<div className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">
-					{filteredProjects.length === 0 ? (
+				<div ref={setListRoot} className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">
+					{showInitialLoading ? (
+						<div className="flex min-h-[280px] items-center justify-center">
+							<Loader2 className="size-5 animate-spin text-[var(--leros-text-subtle)]" />
+						</div>
+					) : displayedProjects.length === 0 ? (
 						<div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-[var(--leros-control-border)] bg-white/70 px-6 text-center">
 							<div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
 								<ProjectIcon className="size-6" />
 							</div>
-							<p className="text-sm font-semibold text-[var(--leros-text-strong)]">还没有项目</p>
+							<p className="text-sm font-semibold text-[var(--leros-text-strong)]">
+								{isSearching ? "没有匹配的项目" : "还没有项目"}
+							</p>
 							<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
-								点击右上角新建一个空项目。
+								{isSearching ? "试试其他关键词。" : "点击右上角新建一个空项目。"}
 							</p>
 						</div>
 					) : (
-						<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-							{filteredProjects.map((project) => (
-								<ProjectCard
-									key={project.id}
-									project={project}
-									onOpen={openProject}
-									onRename={openRename}
-									onDelete={setDeleteTarget}
-									onLeave={setLeaveTarget}
-								/>
-							))}
-						</div>
+						<>
+							<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+								{displayedProjects.map((project) => (
+									<ProjectCard
+										key={project.id}
+										project={project}
+										onOpen={openProject}
+										onRename={openRename}
+										onDelete={setDeleteTarget}
+										onLeave={setLeaveTarget}
+									/>
+								))}
+							</div>
+							<ListLoadMoreSentinel
+								hasMore={projectList.hasMore}
+								loading={projectList.loadingMore}
+								onLoadMore={projectList.loadMore}
+								root={listRoot}
+							/>
+						</>
 					)}
 				</div>
 			</main>

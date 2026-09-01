@@ -9,7 +9,9 @@ import { cn } from "@leros/ui/lib/utils";
 import { Loader2, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ListLoadMoreSentinel } from "../common/ListLoadMoreSentinel";
 import { renderHighlightedText } from "../common/searchText";
+import { usePaginatedProjectList } from "../project/usePaginatedProjectList";
 import type { AppNavigation } from "./LeftRail";
 import { ProjectIcon } from "./project-icon";
 
@@ -53,11 +55,11 @@ export function GlobalTaskSearchDialog({
 	onOpenChange: (open: boolean) => void;
 	navigation?: AppNavigation;
 }) {
-	const { projects, fetchProjects, openTaskDetail } = useLayoutStore((state) => ({
-		projects: state.projects,
-		fetchProjects: state.fetchProjects,
-		openTaskDetail: state.openTaskDetail,
-	}));
+	const cachedProjects = useLayoutStore((state) => state.projects);
+	const openTaskDetail = useLayoutStore((state) => state.openTaskDetail);
+	const projectList = usePaginatedProjectList({ enabled: open });
+	const projects = projectList.projects;
+	const [selectRoot, setSelectRoot] = useState<HTMLDivElement | null>(null);
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const requestIdRef = useRef(0);
 	const loadingTimerRef = useRef<number | null>(null);
@@ -70,15 +72,12 @@ export function GlobalTaskSearchDialog({
 
 	const selectedProjectLabel = useMemo(() => {
 		if (selectedProjectId === ALL_PROJECTS_VALUE) return "全部项目";
-		return projects.find((project) => project.id === selectedProjectId)?.name ?? "全部项目";
-	}, [projects, selectedProjectId]);
-
-	useEffect(() => {
-		if (!open) return;
-		if (projects.length === 0) {
-			void fetchProjects();
-		}
-	}, [fetchProjects, open, projects.length]);
+		return (
+			projects.find((project) => project.id === selectedProjectId)?.name ??
+			cachedProjects.find((project) => project.id === selectedProjectId)?.name ??
+			"全部项目"
+		);
+	}, [cachedProjects, projects, selectedProjectId]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -155,7 +154,9 @@ export function GlobalTaskSearchDialog({
 	const resolveTaskSessionId = (task: BackendTask): string | null => {
 		const sessionIdFromTask = task.session?.session_id?.trim();
 		if (sessionIdFromTask) return sessionIdFromTask;
-		const project = projects.find((item) => item.id === task.project_id);
+		const project =
+			projects.find((item) => item.id === task.project_id) ??
+			cachedProjects.find((item) => item.id === task.project_id);
 		return project?.tasks.find((item) => item.id === task.public_id)?.sessionId ?? null;
 	};
 
@@ -205,6 +206,7 @@ export function GlobalTaskSearchDialog({
 									</span>
 								</SelectTrigger>
 								<SelectContent
+									ref={setSelectRoot}
 									align="start"
 									side="bottom"
 									sideOffset={8}
@@ -233,6 +235,14 @@ export function GlobalTaskSearchDialog({
 											</span>
 										</SelectItem>
 									))}
+									<ListLoadMoreSentinel
+										hasMore={projectList.hasMore}
+										loading={
+											projectList.loadingMore || (projectList.loading && projects.length === 0)
+										}
+										onLoadMore={projectList.loadMore}
+										root={selectRoot}
+									/>
 								</SelectContent>
 							</Select>
 						</div>

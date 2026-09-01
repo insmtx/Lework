@@ -16,6 +16,7 @@ import { cn } from "@leros/ui/lib/utils";
 import { Eye, FileText, FolderOpen, LoaderCircle, Search, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BidComparisonIcon } from "../../assets";
+import { ListLoadMoreSentinel } from "../common/ListLoadMoreSentinel";
 import { filePreviewActions } from "../layout/file-preview-store";
 import { ProjectTaskPickerField } from "../layout/ProjectTaskPicker";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
@@ -24,6 +25,7 @@ import {
 	type ProjectFileNode,
 	parseProjectFileList,
 } from "../layout/project-files";
+import { usePaginatedProjectList } from "../project/usePaginatedProjectList";
 
 export type BidComparisonProjectFile = {
 	name: string;
@@ -201,7 +203,6 @@ export function BidComparisonConfigDialog({
 
 				<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-7 py-5">
 					<ProjectTaskPickerField
-						projects={projects}
 						projectId={targetProjectId}
 						taskId={targetTaskId}
 						allowNewProject
@@ -428,7 +429,6 @@ function FilePickerSection({
 export function ProjectFilePicker({
 	open,
 	mode,
-	projects,
 	initialSelected = [],
 	reservedCount = 0,
 	maxCountOverride,
@@ -438,7 +438,7 @@ export function ProjectFilePicker({
 }: {
 	open: boolean;
 	mode: "main" | "compare";
-	projects: BidComparisonProjectOption[];
+	projects?: BidComparisonProjectOption[];
 	initialSelected?: BidComparisonProjectFile[];
 	/** 中文注释：已占用的本地上传名额，对比文件总上限仍为 10。 */
 	reservedCount?: number;
@@ -449,8 +449,10 @@ export function ProjectFilePicker({
 }) {
 	const maxCount = maxCountOverride ?? (mode === "main" ? 1 : Math.max(0, 10 - reservedCount));
 	const title = titleOverride ?? (mode === "main" ? "选择投标文件" : "选择对比文件");
-	// 中文注释：项目顺序与侧边栏一致，不做名称重排。
-	const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? "");
+	const projectList = usePaginatedProjectList({ enabled: open });
+	const projects = projectList.projects;
+	const [selectRoot, setSelectRoot] = useState<HTMLDivElement | null>(null);
+	const [selectedProjectId, setSelectedProjectId] = useState("");
 	const [projectTrees, setProjectTrees] = useState<Record<string, ProjectFileNode[]>>({});
 	const [loading, setLoading] = useState(false);
 	const [loadError, setLoadError] = useState("");
@@ -460,6 +462,13 @@ export function ProjectFilePicker({
 	initialSelectedRef.current = initialSelected;
 
 	const selectedProject = projects.find((project) => project.id === selectedProjectId);
+
+	useEffect(() => {
+		if (!open) return;
+		if (!selectedProjectId && projects[0]?.id) {
+			setSelectedProjectId(projects[0].id);
+		}
+	}, [open, projects, selectedProjectId]);
 	const selectedFiles = useMemo(() => Object.values(selectedMap), [selectedMap]);
 	const totalSelectedCount = selectedFiles.length + (mode === "compare" ? reservedCount : 0);
 	const totalMaxCount = mode === "main" ? 1 : maxCount + reservedCount;
@@ -597,9 +606,10 @@ export function ProjectFilePicker({
 							</SelectTrigger>
 							{projects.length > 0 ? (
 								<SelectContent
+									ref={setSelectRoot}
 									align="start"
 									side="bottom"
-									className="z-[70] max-h-64 min-w-[var(--anchor-width)] rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+									className="z-[70] max-h-64 min-w-[var(--anchor-width)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
 								>
 									{projects.map((project) => (
 										<SelectItem
@@ -610,6 +620,15 @@ export function ProjectFilePicker({
 											{project.name}
 										</SelectItem>
 									))}
+									<ListLoadMoreSentinel
+										hasMore={projectList.hasMore}
+										loading={
+											projectList.loadingMore || (projectList.loading && projects.length === 0)
+										}
+										onLoadMore={projectList.loadMore}
+										root={selectRoot}
+										className="py-2"
+									/>
 								</SelectContent>
 							) : null}
 						</Select>

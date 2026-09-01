@@ -77,12 +77,14 @@ import {
 	cacheProtectedImageDataURL,
 	ProtectedImage,
 } from "../avatar/ProtectedImage";
+import { ListLoadMoreSentinel } from "../common/ListLoadMoreSentinel";
 import { FeedbackDialog } from "../feedback/FeedbackDialog";
 import { OrganizationSwitchPanel } from "../org-admin/OrganizationSwitchPanel";
 import { CanGate } from "../permission/CanGate";
 import { useBrandIdentity } from "../private-deployment/useBrandIdentity";
 import { ProjectActionsDropdown } from "../project/ProjectActionsDropdown";
 import { preventRailMenuClickThrough, runRailMenuAction } from "../project/ProjectActionsMenu";
+import { usePaginatedProjectList } from "../project/usePaginatedProjectList";
 import { GlobalTaskSearchDialog } from "./GlobalTaskSearchDialog";
 import { getRecentProjectsForLeftRail } from "./left-rail-list-utils";
 import { ProjectIcon } from "./project-icon";
@@ -176,14 +178,12 @@ export function LeftRail({
 	const { logo: customBrandLogo, name: brandName } = useBrandIdentity();
 	const {
 		navGroups,
-		projects,
 		currentView,
 		activeProjectId,
 		activeTaskDetailProjectId,
 		activeTaskDetailTaskId,
 		leftRailCollapsed,
 		leftRailWidth,
-		fetchProjects,
 		fetchTasks,
 		deleteProject,
 		deleteTask,
@@ -203,7 +203,8 @@ export function LeftRail({
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 	// 中文注释：OSS 版无多组织切换，隐藏左下角用户菜单中的「切换组织」入口。
 	const canSwitchOrganization = edition !== "oss";
-	const visibleProjects = isAuthenticated ? projects : [];
+	const projectList = usePaginatedProjectList({ enabled: isAuthenticated });
+	const visibleProjects = isAuthenticated ? projectList.projects : [];
 	useProjectsMenuCapabilities(visibleProjects.map((project) => project.id));
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
 	const [renameTask, setRenameTask] = useState<ProjectTask | null>(null);
@@ -368,12 +369,6 @@ export function LeftRail({
 	};
 	/* ── end Desktop update notifier ── */
 
-	useEffect(() => {
-		if (!isAuthenticated) return;
-		void fetchProjects();
-	}, [fetchProjects, isAuthenticated]);
-
-	// 中文注释：项目展开态属于当前登录会话的浏览上下文，登出后应重置，避免重新登录后仍显示空的展开列表。
 	useEffect(() => {
 		if (isAuthenticated) return;
 		resetProjectExpansionState();
@@ -816,6 +811,9 @@ export function LeftRail({
 									onRenameTask={handleOpenTaskRename}
 									onDeleteTask={(task, projectId) => setDeleteTaskTarget({ task, projectId })}
 									collapsed={false}
+									hasMore={projectList.hasMore}
+									loadingMore={projectList.loadingMore}
+									onLoadMore={projectList.loadMore}
 								/>
 							</section>
 						)}
@@ -1730,6 +1728,9 @@ function ProjectList({
 	onRenameTask,
 	onDeleteTask,
 	collapsed,
+	hasMore,
+	loadingMore,
+	onLoadMore,
 }: {
 	projects: Project[];
 	activeProjectId: string | null;
@@ -1750,11 +1751,16 @@ function ProjectList({
 	onRenameTask: (task: ProjectTask) => void;
 	onDeleteTask: (task: ProjectTask, projectId: string) => void;
 	collapsed: boolean;
+	hasMore?: boolean;
+	loadingMore?: boolean;
+	onLoadMore?: () => void;
 }) {
 	const recentProjects = getRecentProjectsForLeftRail(projects);
+	const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
 
 	return (
 		<div
+			ref={setScrollRoot}
 			className={cn("no-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto", !collapsed && "pr-1")}
 		>
 			{recentProjects.map((project) => {
@@ -1875,6 +1881,14 @@ function ProjectList({
 					</div>
 				);
 			})}
+			{onLoadMore ? (
+				<ListLoadMoreSentinel
+					hasMore={Boolean(hasMore)}
+					loading={Boolean(loadingMore)}
+					onLoadMore={onLoadMore}
+					root={scrollRoot}
+				/>
+			) : null}
 		</div>
 	);
 }

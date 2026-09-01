@@ -1,12 +1,15 @@
 "use client";
 
 import type { Project, ProjectTask } from "@leros/store";
+import { useLayoutStore } from "@leros/store";
 import { Command, CommandInput } from "@leros/ui/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
 import { cn } from "@leros/ui/lib/utils";
 import { Check, ChevronDown, ChevronRight, ListTodo, LoaderCircle, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ListLoadMoreSentinel } from "../common/ListLoadMoreSentinel";
 import { renderHighlightedText } from "../common/searchText";
+import { usePaginatedProjectList } from "../project/usePaginatedProjectList";
 import { ProjectIcon } from "./project-icon";
 
 export type ProjectTaskPickerProject = Pick<Project, "id" | "name" | "tasks">;
@@ -24,6 +27,7 @@ const PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX = 12;
 const PROJECT_PICKER_SUBMENU_PADDING_TOP_PX = 6;
 const PROJECT_PICKER_SUBMENU_PANEL_CLASS =
 	"no-scrollbar absolute left-[calc(100%+4px)] z-50 w-[260px] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.16)] backdrop-blur";
+const PROJECT_PICKER_HOVER_SUBMENU_MS = 500;
 
 function getFilteredProjects(projects: ProjectTaskPickerProject[], query: string) {
 	const keyword = query.trim().toLowerCase();
@@ -33,24 +37,33 @@ function getFilteredProjects(projects: ProjectTaskPickerProject[], query: string
 
 function estimateSubmenuHeightForFlip(
 	submenu: string,
-	project: ProjectTaskPickerProject | undefined,
-	isLoadingTasks: boolean,
+	taskCount: number,
+	showTasks: boolean,
+	isLoading: boolean,
 ): number {
-	// 中文注释：右侧始终含「新建任务」一行；已有任务时再加分割线与任务行。
 	let contentHeight = PROJECT_PICKER_ROW_HEIGHT_PX;
 	if (submenu.startsWith("project:")) {
-		const taskCount = project?.tasks.length ?? 0;
-		if (taskCount > 0) {
+		const listCount = showTasks && taskCount > 0 ? taskCount : isLoading ? 1 : 0;
+		if (listCount > 0) {
 			contentHeight +=
-				PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX + taskCount * PROJECT_PICKER_ROW_HEIGHT_PX;
-		} else if (isLoadingTasks) {
-			contentHeight += PROJECT_PICKER_ROW_HEIGHT_PX;
+				PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX + listCount * PROJECT_PICKER_ROW_HEIGHT_PX;
 		}
 	}
 	return Math.min(
 		PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX,
 		contentHeight + PROJECT_PICKER_SUBMENU_BLOCK_PADDING_PX,
 	);
+}
+
+function isRowVisibleInClip(row: HTMLElement, clip: HTMLElement | null): boolean {
+	const rowRect = row.getBoundingClientRect();
+	if (rowRect.height <= 0 || rowRect.width <= 0) return false;
+	if (!clip) {
+		return rowRect.bottom > 0 && rowRect.top < window.innerHeight;
+	}
+	const clipRect = clip.getBoundingClientRect();
+	const overlap = Math.min(rowRect.bottom, clipRect.bottom) - Math.max(rowRect.top, clipRect.top);
+	return overlap >= rowRect.height * 0.6;
 }
 
 function resolveSubmenuTop(rootRect: DOMRect, rowTop: number, submenuHeight: number): number {
@@ -79,16 +92,10 @@ function projectPickerRowClass(selected: boolean) {
 }
 
 function projectPickerPlaceholderRowClass() {
-	return cn(projectPickerRowClass(false), "pointer-events-none text-xs text-slate-400");
+	return cn(projectPickerRowClass(false), "pointer-events-none text-slate-400");
 }
 
-function NewTaskPickerRow({
-	selected,
-	onClick,
-}: {
-	selected: boolean;
-	onClick: () => void;
-}) {
+function NewTaskPickerRow({ selected, onClick }: { selected: boolean; onClick: () => void }) {
 	return (
 		<button type="button" onClick={onClick} className={projectPickerRowClass(selected)}>
 			<Plus className="size-4 shrink-0" />
@@ -111,7 +118,13 @@ export function formatProjectTaskPickerLabel(
 }
 
 export type ProjectTaskPickerContentProps = {
-	projects: ProjectTaskPickerProject[];
+	projects?: ProjectTaskPickerProject[];
+	listLoading?: boolean;
+	hasMore?: boolean;
+	loadingMore?: boolean;
+	onLoadMore?: () => void;
+	/** When false, skip fetching even if `projects` is omitted. */
+	listEnabled?: boolean;
 	selectedProjectId?: string | null;
 	selectedTaskId?: string | null;
 	searchQuery: string;
@@ -129,7 +142,12 @@ export type ProjectTaskPickerContentProps = {
 
 /** 中文注释：工作台与标书对比共用的项目/任务选择面板，含右侧二级任务侧边栏。 */
 export function ProjectTaskPickerContent({
-	projects,
+	projects: projectsProp,
+	listLoading: listLoadingProp,
+	hasMore: hasMoreProp,
+	loadingMore: loadingMoreProp,
+	onLoadMore: onLoadMoreProp,
+	listEnabled = true,
 	selectedProjectId,
 	selectedTaskId,
 	searchQuery,
@@ -143,17 +161,41 @@ export function ProjectTaskPickerContent({
 	scrollSelectedIntoView = false,
 }: ProjectTaskPickerContentProps) {
 	const pickerRootRef = useRef<HTMLDivElement>(null);
+	const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
 	const submenuRowRef = useRef<HTMLElement | null>(null);
 	const [hoveredSubmenu, setHoveredSubmenu] = useState<"new-project" | `project:${string}` | null>(
 		null,
 	);
 	const [submenuTop, setSubmenuTop] = useState(0);
 	const [loadingTaskProjectIds, setLoadingTaskProjectIds] = useState<Set<string>>(() => new Set());
+	const [revealedTaskProjectId, setRevealedTaskProjectId] = useState<string | null>(null);
+	const submenuTimerRef = useRef<number | null>(null);
+	const hoverSessionRef = useRef(0);
+	const lastPointerRef = useRef({ x: 0, y: 0 });
+	const scrollSettleTimerRef = useRef<number | null>(null);
 
-	const filteredProjects = useMemo(
-		() => getFilteredProjects(projects, searchQuery),
-		[projects, searchQuery],
-	);
+	const clearSubmenuTimer = useCallback(() => {
+		if (submenuTimerRef.current == null) return;
+		window.clearTimeout(submenuTimerRef.current);
+		submenuTimerRef.current = null;
+	}, []);
+
+	const beginHoverSession = useCallback(() => {
+		hoverSessionRef.current += 1;
+		clearSubmenuTimer();
+		setRevealedTaskProjectId(null);
+	}, [clearSubmenuTimer]);
+	const shouldFetchList = projectsProp == null && listEnabled;
+	const projectList = usePaginatedProjectList({
+		enabled: shouldFetchList,
+		keyword: searchQuery,
+	});
+	const projects = projectsProp ?? projectList.projects;
+	const visibleProjects = projectsProp ? getFilteredProjects(projects, searchQuery) : projects;
+	const listLoading = shouldFetchList ? projectList.loading : Boolean(listLoadingProp);
+	const listHasMore = shouldFetchList ? projectList.hasMore : Boolean(hasMoreProp);
+	const listLoadingMore = shouldFetchList ? projectList.loadingMore : Boolean(loadingMoreProp);
+	const onLoadMore = shouldFetchList ? projectList.loadMore : onLoadMoreProp;
 	const hoveredProject =
 		hoveredSubmenu?.startsWith("project:") === true
 			? projects.find((project) => project.id === hoveredSubmenu.slice("project:".length))
@@ -161,12 +203,15 @@ export function ProjectTaskPickerContent({
 	const hoveredProjectTaskLoading = hoveredProject
 		? loadingTaskProjectIds.has(hoveredProject.id)
 		: false;
+	const showHoveredProjectTasks =
+		Boolean(hoveredProject) &&
+		revealedTaskProjectId === hoveredProject?.id &&
+		!hoveredProjectTaskLoading;
 	const hasProjectSelection = Boolean(selectedProjectId);
 
 	const loadProjectTasksIfNeeded = useCallback(
-		(projectId: string) => {
-			const project = projects.find((item) => item.id === projectId);
-			if (!project || !onLoadProjectTasks || loadingTaskProjectIds.has(projectId)) {
+		(projectId: string, session: number) => {
+			if (!onLoadProjectTasks || loadingTaskProjectIds.has(projectId)) {
 				return;
 			}
 			setLoadingTaskProjectIds((current) => new Set(current).add(projectId));
@@ -176,51 +221,117 @@ export function ProjectTaskPickerContent({
 					next.delete(projectId);
 					return next;
 				});
+				if (session !== hoverSessionRef.current) return;
+				setRevealedTaskProjectId(projectId);
 			});
 		},
-		[loadingTaskProjectIds, onLoadProjectTasks, projects],
+		[loadingTaskProjectIds, onLoadProjectTasks],
+	);
+
+	const hideHoveredProject = useCallback(() => {
+		beginHoverSession();
+		setHoveredSubmenu(null);
+		setSubmenuTop(0);
+		submenuRowRef.current = null;
+	}, [beginHoverSession]);
+
+	const openSubmenu = useCallback(
+		(row: HTMLElement, submenu: "new-project" | `project:${string}`, session: number) => {
+			const clip = listRoot?.contains(row) ? listRoot : null;
+			if (!isRowVisibleInClip(row, clip)) return;
+			const root = pickerRootRef.current;
+			submenuRowRef.current = row;
+			setHoveredSubmenu(submenu);
+			if (root) {
+				const rootRect = root.getBoundingClientRect();
+				const rowTop = row.getBoundingClientRect().top - rootRect.top;
+				const isProject = submenu.startsWith("project:");
+				const submenuHeight = estimateSubmenuHeightForFlip(submenu, 0, false, isProject);
+				setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
+			}
+			if (submenu.startsWith("project:")) {
+				loadProjectTasksIfNeeded(submenu.slice("project:".length), session);
+			}
+		},
+		[listRoot, loadProjectTasksIfNeeded],
 	);
 
 	const showSubmenuAtRow = useCallback(
 		(row: HTMLElement, submenu: "new-project" | `project:${string}`) => {
 			if (submenu.startsWith("project:") && !allowSelectTask) {
-				setHoveredSubmenu(null);
-				setSubmenuTop(0);
-				submenuRowRef.current = null;
+				hideHoveredProject();
 				return;
 			}
-			const root = pickerRootRef.current;
+			if (hoveredSubmenu === submenu) return;
+			hideHoveredProject();
+			const session = hoverSessionRef.current;
 			submenuRowRef.current = row;
-			setHoveredSubmenu(submenu);
-			if (root) {
-				const projectId = submenu.startsWith("project:") ? submenu.slice("project:".length) : null;
-				const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
-				const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
-				const rootRect = root.getBoundingClientRect();
-				const rowTop = row.getBoundingClientRect().top - rootRect.top;
-				const submenuHeight = estimateSubmenuHeightForFlip(submenu, project, isLoadingTasks);
-				setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
-			}
-			if (submenu.startsWith("project:")) {
-				loadProjectTasksIfNeeded(submenu.slice("project:".length));
-			}
+			submenuTimerRef.current = window.setTimeout(() => {
+				submenuTimerRef.current = null;
+				if (session !== hoverSessionRef.current) return;
+				openSubmenu(row, submenu, session);
+			}, PROJECT_PICKER_HOVER_SUBMENU_MS);
 		},
-		[allowSelectTask, loadProjectTasksIfNeeded, loadingTaskProjectIds, projects],
+		[allowSelectTask, hideHoveredProject, hoveredSubmenu, openSubmenu],
 	);
+
+	useEffect(() => () => clearSubmenuTimer(), [clearSubmenuTimer]);
+
+	useEffect(() => {
+		if (!listRoot) return;
+		const onScroll = () => {
+			const row = submenuRowRef.current;
+			if (!row || !listRoot.contains(row)) return;
+			hideHoveredProject();
+			if (scrollSettleTimerRef.current != null) {
+				window.clearTimeout(scrollSettleTimerRef.current);
+			}
+			scrollSettleTimerRef.current = window.setTimeout(() => {
+				scrollSettleTimerRef.current = null;
+				const { x, y } = lastPointerRef.current;
+				const el = document.elementFromPoint(x, y);
+				if (!(el instanceof Element)) return;
+				const item = el.closest("[data-project-picker-item]");
+				if (!(item instanceof HTMLElement)) return;
+				const projectId = item.getAttribute("data-project-picker-item");
+				if (!projectId) return;
+				showSubmenuAtRow(item, `project:${projectId}`);
+			}, 80);
+		};
+		listRoot.addEventListener("scroll", onScroll, { passive: true });
+		return () => {
+			listRoot.removeEventListener("scroll", onScroll);
+			if (scrollSettleTimerRef.current != null) {
+				window.clearTimeout(scrollSettleTimerRef.current);
+			}
+		};
+	}, [hideHoveredProject, listRoot, showSubmenuAtRow]);
 
 	useEffect(() => {
 		const row = submenuRowRef.current;
 		const root = pickerRootRef.current;
 		if (!row || !root || !hoveredSubmenu) return;
+		if (listRoot?.contains(row) && !isRowVisibleInClip(row, listRoot)) {
+			hideHoveredProject();
+			return;
+		}
 
 		const projectId = hoveredSubmenu.startsWith("project:")
 			? hoveredSubmenu.slice("project:".length)
 			: null;
-		const project = projectId ? projects.find((item) => item.id === projectId) : undefined;
-		const isLoadingTasks = projectId ? loadingTaskProjectIds.has(projectId) : false;
+		const showTasks = projectId != null && revealedTaskProjectId === projectId;
+		const isLoading = projectId != null && loadingTaskProjectIds.has(projectId);
+		const taskCount = showTasks
+			? (projects.find((item) => item.id === projectId)?.tasks.length ?? 0)
+			: 0;
 		const rootRect = root.getBoundingClientRect();
 		const rowTop = row.getBoundingClientRect().top - rootRect.top;
-		const submenuHeight = estimateSubmenuHeightForFlip(hoveredSubmenu, project, isLoadingTasks);
+		const submenuHeight = estimateSubmenuHeightForFlip(
+			hoveredSubmenu,
+			taskCount,
+			showTasks,
+			isLoading,
+		);
 		setSubmenuTop(resolveSubmenuTop(rootRect, rowTop, submenuHeight));
 		// 中文注释：仅在切换 hover 目标时重算位置；任务列表刷新/首次加载只向下展开，避免 submenuTop 跳变导致底部抖动。
 	}, [hoveredSubmenu]);
@@ -238,13 +349,17 @@ export function ProjectTaskPickerContent({
 
 	const handleSearchChange = (value: string) => {
 		onSearchQueryChange(value);
-		setHoveredSubmenu(null);
-		setSubmenuTop(0);
-		submenuRowRef.current = null;
+		hideHoveredProject();
 	};
 
 	return (
-		<div ref={pickerRootRef} className="relative">
+		<div
+			ref={pickerRootRef}
+			className="relative"
+			onPointerMove={(event) => {
+				lastPointerRef.current = { x: event.clientX, y: event.clientY };
+			}}
+		>
 			<div className={PROJECT_PICKER_PANEL_CLASS}>
 				<Command
 					shouldFilter={false}
@@ -261,6 +376,7 @@ export function ProjectTaskPickerContent({
 					<div className="mt-1 mb-1">
 						<button
 							type="button"
+							data-project-picker-new=""
 							onMouseEnter={(event) => showSubmenuAtRow(event.currentTarget, "new-project")}
 							onClick={() => onSelectNewProject?.()}
 							className={projectPickerRowClass(!hasProjectSelection)}
@@ -273,13 +389,19 @@ export function ProjectTaskPickerContent({
 					</div>
 				) : null}
 				<div
-					ref={projectListRefCallback}
+					ref={(node) => {
+						setListRoot(node);
+						projectListRefCallback(node);
+					}}
 					className={cn(
 						PROJECT_PICKER_LIST_CLASS,
 						allowNewProject ? "border-t border-slate-100 pt-1" : "mt-1",
 					)}
 				>
-					{filteredProjects.map((project) => {
+					{listLoading && visibleProjects.length === 0 ? (
+						<div className="px-3 py-8 text-center text-sm text-slate-400">正在加载项目...</div>
+					) : null}
+					{visibleProjects.map((project) => {
 						const projectSelected = selectedProjectId === project.id;
 						return (
 							<button
@@ -303,8 +425,17 @@ export function ProjectTaskPickerContent({
 							</button>
 						);
 					})}
-					{filteredProjects.length === 0 ? (
+					{!listLoading && visibleProjects.length === 0 ? (
 						<div className="px-3 py-8 text-center text-sm text-slate-400">没有匹配的项目</div>
+					) : null}
+					{onLoadMore ? (
+						<ListLoadMoreSentinel
+							hasMore={listHasMore}
+							loading={listLoadingMore}
+							onLoadMore={onLoadMore}
+							root={listRoot}
+							className="py-2"
+						/>
 					) : null}
 				</div>
 			</div>
@@ -314,7 +445,10 @@ export function ProjectTaskPickerContent({
 					className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
 					style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
 				>
-					<NewTaskPickerRow selected={!hasProjectSelection} onClick={() => onSelectNewProject?.()} />
+					<NewTaskPickerRow
+						selected={!hasProjectSelection}
+						onClick={() => onSelectNewProject?.()}
+					/>
 				</div>
 			) : null}
 
@@ -323,62 +457,48 @@ export function ProjectTaskPickerContent({
 					className={PROJECT_PICKER_SUBMENU_PANEL_CLASS}
 					style={{ top: submenuTop, maxHeight: PROJECT_PICKER_SUBMENU_MAX_HEIGHT_PX }}
 				>
-					<div className="relative">
-						<div className="space-y-1">
-							<NewTaskPickerRow
-								selected={selectedProjectId === hoveredProject.id && !selectedTaskId}
-								onClick={() => onSelectProject(hoveredProject)}
-							/>
-							{hoveredProjectTaskLoading && hoveredProject.tasks.length === 0 ? (
-								<div className={projectPickerPlaceholderRowClass()}>
-									<LoaderCircle className="size-4 shrink-0 animate-spin opacity-75" />
-									<span className="min-w-0 flex-1 truncate">任务加载中...</span>
-								</div>
-							) : hoveredProject.tasks.length > 0 ? (
-								<div className="relative space-y-1 border-t border-slate-100 pt-1">
-									<div
+					<NewTaskPickerRow
+						selected={selectedProjectId === hoveredProject.id && !selectedTaskId}
+						onClick={() => onSelectProject(hoveredProject)}
+					/>
+					{hoveredProjectTaskLoading ? (
+						<div className="space-y-1 border-t border-slate-100 pt-1">
+							<div className={projectPickerPlaceholderRowClass()}>
+								<LoaderCircle className="size-4 shrink-0 animate-spin opacity-75" />
+								<span className="min-w-0 flex-1 truncate">任务加载中...</span>
+							</div>
+						</div>
+					) : showHoveredProjectTasks && hoveredProject.tasks.length > 0 ? (
+						<div className="space-y-1 border-t border-slate-100 pt-1">
+							{hoveredProject.tasks.map((task) => {
+								const isResponding = task.runtimeStatus === "responding";
+								const selected =
+									!isResponding &&
+									selectedProjectId === hoveredProject.id &&
+									selectedTaskId === task.id;
+								return (
+									<button
+										key={task.id}
+										type="button"
+										disabled={isResponding}
+										onClick={() => onSelectTask(hoveredProject, task)}
 										className={cn(
-											"space-y-1",
-											hoveredProjectTaskLoading && "pointer-events-none",
+											projectPickerRowClass(selected),
+											isResponding && "cursor-not-allowed opacity-60",
 										)}
 									>
-										{hoveredProject.tasks.map((task) => {
-											const isResponding = task.runtimeStatus === "responding";
-											const selected =
-												!isResponding &&
-												selectedProjectId === hoveredProject.id &&
-												selectedTaskId === task.id;
-											return (
-												<button
-													key={task.id}
-													type="button"
-													disabled={isResponding}
-													onClick={() => onSelectTask(hoveredProject, task)}
-													className={cn(
-														projectPickerRowClass(selected),
-														isResponding && "cursor-not-allowed opacity-60",
-													)}
-												>
-													<ListTodo className="size-4 shrink-0 opacity-75" />
-													<span className="min-w-0 flex-1 truncate">{task.title}</span>
-													{isResponding ? (
-														<span className="shrink-0 text-xs text-slate-400">回复中</span>
-													) : (
-														selected && <Check className="size-4 shrink-0" />
-													)}
-												</button>
-											);
-										})}
-									</div>
-									{hoveredProjectTaskLoading ? (
-										<div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/80">
-											<LoaderCircle className="size-4 shrink-0 animate-spin text-slate-400" />
-										</div>
-									) : null}
-								</div>
-							) : null}
+										<ListTodo className="size-4 shrink-0 opacity-75" />
+										<span className="min-w-0 flex-1 truncate">{task.title}</span>
+										{isResponding ? (
+											<span className="shrink-0 text-xs text-slate-400">回复中</span>
+										) : (
+											selected && <Check className="size-4 shrink-0" />
+										)}
+									</button>
+								);
+							})}
 						</div>
-					</div>
+					) : null}
 				</div>
 			) : null}
 		</div>
@@ -386,7 +506,6 @@ export function ProjectTaskPickerContent({
 }
 
 export type ProjectTaskPickerFieldProps = {
-	projects: ProjectTaskPickerProject[];
 	projectId?: string | null;
 	taskId?: string | null;
 	disabled?: boolean;
@@ -400,7 +519,6 @@ export type ProjectTaskPickerFieldProps = {
 
 /** 中文注释：表单场景的项目/任务下拉，复用与工作台相同的选择面板。 */
 export function ProjectTaskPickerField({
-	projects,
 	projectId,
 	taskId,
 	disabled,
@@ -412,8 +530,13 @@ export function ProjectTaskPickerField({
 }: ProjectTaskPickerFieldProps) {
 	const [open, setOpen] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
+	const projectList = usePaginatedProjectList({
+		enabled: true,
+		keyword: searchQuery,
+	});
+	const cachedProjects = useLayoutStore((state) => state.projects);
 	const label = formatProjectTaskPickerLabel(
-		projects,
+		cachedProjects,
 		projectId,
 		allowSelectTask ? taskId : null,
 	);
@@ -451,7 +574,11 @@ export function ProjectTaskPickerField({
 					className="z-[70] !flex-none w-auto overflow-visible rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
 				>
 					<ProjectTaskPickerContent
-						projects={projects}
+						projects={projectList.projects}
+						listLoading={projectList.loading}
+						hasMore={projectList.hasMore}
+						loadingMore={projectList.loadingMore}
+						onLoadMore={projectList.loadMore}
 						selectedProjectId={projectId}
 						selectedTaskId={allowSelectTask ? taskId : null}
 						searchQuery={searchQuery}
