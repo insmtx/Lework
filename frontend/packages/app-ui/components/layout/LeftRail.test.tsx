@@ -52,6 +52,10 @@ vi.mock("@leros/store", () => ({
 		hasMore: false,
 	}),
 	mergeProjectsFromListResult: (items: unknown[]) => items,
+	upsertProjectsIntoCache: (incoming: Array<{ id: string }>, local: Array<{ id: string }>) => {
+		const incomingIds = new Set(incoming.map((project) => project.id));
+		return [...incoming, ...local.filter((project) => !incomingIds.has(project.id))];
+	},
 	appendProjectsFromListResult: (incoming: unknown[], local: unknown[]) => [...local, ...incoming],
 	projectFileApi: {},
 	useProjectMenuCapabilities: () => ({ loading: false, hasAny: false }),
