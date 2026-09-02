@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -36,37 +39,24 @@ func (h *FileHandler) RegisterAnonymousRoutes(r gin.IRouter) {
 }
 
 // @Summary 上传文件
-// @Description 上传文件到系统
+// @Description 上传文件到系统。请求体以 multipart/form-data 流式解析，purpose/source_id/local-path 等表单字段必须位于 file part 之前，file 之后的字段不会被读取。
 // @Tags File
 // @Accept multipart/form-data
 // @Produce json
-// @Param file formData file true "上传文件"
-// @Param purpose formData string false "文件用途（默认 attachment）"
-// @Param source_id formData string false "来源ID（可选）"
+// @Param file formData file true "文件（须为最后一个 form part）"
+// @Param purpose formData string false "文件用途（默认 attachment；须在 file part 之前）"
+// @Param source_id formData string false "来源ID（可选；须在 file part 之前）"
+// @Param local-path formData string false "本地路径（composer 上传用，可选；须在 file part 之前）"
 // @Success 200 {object} dto.Response "上传成功"
 // @Failure 400 {object} dto.ErrorResponse "请求参数错误"
 // @Failure 401 {object} dto.ErrorResponse "未认证"
 // @Router /files/upload [post]
 func (h *FileHandler) UploadFile(ctx *gin.Context) {
-	fileHeader, err := ctx.FormFile("file")
+	mr, err := ctx.Request.MultipartReader()
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file is required"))
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "invalid multipart request"))
 		return
 	}
-
-	purpose := strings.TrimSpace(ctx.PostForm("purpose"))
-	if purpose == "" {
-		purpose = filestore.PurposeAttachment
-	}
-
-	sourceID := strings.TrimSpace(ctx.PostForm("source_id"))
-
-	file, err := fileHeader.Open()
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, "failed to open file"))
-		return
-	}
-	defer file.Close()
 
 	caller, _ := auth.FromGinContext(ctx)
 	if caller == nil || caller.OrgID == 0 {
@@ -74,34 +64,145 @@ func (h *FileHandler) UploadFile(ctx *gin.Context) {
 		return
 	}
 
-	localPath := strings.TrimSpace(ctx.PostForm("local-path"))
+	purpose := filestore.PurposeAttachment
+	var sourceID, localPath string
+	var filePart *multipart.Part
+
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "invalid multipart request"))
+			return
+		}
+		switch part.FormName() {
+		case "file":
+			// file 必须作为最后一个有效 part：请求体是单遍流式解析，
+			// 一旦命中 file 就停止读字段（继续 NextPart 会排空 file 内容），
+			// 其后的任何字段都不会生效，仅在上传成功后整体排空。
+			filePart = part
+		case "purpose":
+			v, err := readMultipartField(part, 64)
+			if err != nil {
+				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "invalid multipart request"))
+				return
+			}
+			if v != "" {
+				purpose = v
+			}
+		case "source_id":
+			v, err := readMultipartField(part, 256)
+			if err != nil {
+				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "invalid multipart request"))
+				return
+			}
+			sourceID = v
+		case "local-path":
+			v, err := readMultipartField(part, 1024)
+			if err != nil {
+				ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "invalid multipart request"))
+				return
+			}
+			localPath = v
+		default:
+			io.Copy(io.Discard, part)
+		}
+		if filePart != nil {
+			break
+		}
+	}
+
+	if filePart == nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, "file is required"))
+		return
+	}
+
+	// purpose/source_id 会拼入对象存储 key 的路径段，限制字符集与长度，
+	// 避免破坏 key 结构（路径分隔符、".." 等），给出明确的 4xx 而不是底层 500。
+	if !validKeySegment(purpose) {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "invalid purpose"))
+		return
+	}
+	if sourceID != "" && !validKeySegment(sourceID) {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "invalid source_id"))
+		return
+	}
+
 	if localPath != "" {
 		if err := filestore.ValidateComposerUploadFilename(localPath); err != nil {
 			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "unsupported file type"))
 			return
 		}
-		if fileHeader.Size == 0 {
-			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "empty file is not allowed"))
-			return
-		}
 	}
 
 	result, err := h.service.UploadFile(ctx, &contract.UploadFileRequest{
-		OrgID:    caller.OrgID,
-		OwnerID:  caller.Uin,
-		File:     file,
-		Filename: fileHeader.Filename,
-		FileSize: fileHeader.Size,
-		MimeType: fileHeader.Header.Get("Content-Type"),
-		Purpose:  purpose,
-		SourceID: sourceID,
+		OrgID:        caller.OrgID,
+		OwnerID:      caller.Uin,
+		File:         filePart,
+		Filename:     filePart.FileName(),
+		MimeType:     filePart.Header.Get("Content-Type"),
+		Purpose:      purpose,
+		SourceID:     sourceID,
+		RelativePath: localPath,
 	})
 	if err != nil {
+		if errors.Is(err, filestore.ErrUploadTooLarge) {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "file size exceeds maximum allowed size"))
+			return
+		}
+		if errors.Is(err, filestore.ErrEmptyFile) {
+			ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeValidationError, "empty file is not allowed"))
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, "upload file failed"))
 		return
 	}
 
+	drainMultipartReader(mr)
+
 	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+func readMultipartField(part *multipart.Part, maxLen int) (string, error) {
+	b, err := io.ReadAll(io.LimitReader(part, int64(maxLen+1)))
+	if err != nil {
+		return "", err
+	}
+	if len(b) > maxLen {
+		return "", errMultipartFieldTooLarge
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// errMultipartFieldTooLarge 表示 multipart 文本字段超过允许的最大长度。
+var errMultipartFieldTooLarge = errors.New("multipart form field too large")
+
+// keySegmentRe 允许的 multipart 字段字符集（字母数字及 _.-，用于拼入对象存储 key 的路径段）。
+var keySegmentRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+// validKeySegment 校验将拼入对象存储 key 的字段值（purpose / source_id），
+// 拒绝路径分隔符、空白、".." 及超长输入。
+func validKeySegment(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	if strings.Contains(s, "..") {
+		return false
+	}
+	return keySegmentRe.MatchString(s)
+}
+
+// drainMultipartReader 消费 multipart 剩余内容，保证请求体被完整读取、连接可复用。
+func drainMultipartReader(mr *multipart.Reader) {
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			return
+		}
+		io.Copy(io.Discard, part)
+	}
 }
 
 // @Summary 下载文件

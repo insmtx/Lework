@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -105,9 +106,116 @@ func Upload(ctx context.Context, db *gorm.DB, params UploadParams) (*types.FileU
 	}
 
 	if err := infradb.CreateFileUpload(ctx, db, fileUpload); err != nil {
+		// 对象已写入存储但记录创建失败，尽力清理，避免残留孤儿对象。
+		if derr := st.DeleteObject(ctx, DefaultBucket(), params.ObjectKey); derr != nil {
+			return nil, fmt.Errorf("create file upload record: %w (cleanup object failed: %v)", err, derr)
+		}
 		return nil, fmt.Errorf("create file upload record: %w", err)
 	}
 	return fileUpload, nil
+}
+
+// ErrUploadTooLarge 表示上传文件超过允许的最大大小。
+var ErrUploadTooLarge = errors.New("file size exceeds maximum allowed size")
+
+// ErrEmptyFile 表示上传了空文件。
+var ErrEmptyFile = errors.New("empty file is not allowed")
+
+// UploadStreamParams 流式上传参数。
+type UploadStreamParams struct {
+	Filename     string
+	OriginalName string
+	MimeType     string
+	OwnerScope   types.OwnerScope
+	OrgID        uint
+	OwnerID      uint
+	ObjectKey    string
+	Purpose      string
+	Metadata     map[string]interface{}
+}
+
+// UploadStream 以流式方式写入 filestore 并同时计算 sha256，避免将整个文件读入内存。
+// 数据经固定大小的缓冲从 reader 直接流向对象存储；当写入字节数超过 maxSize 或
+// 文件为空时，会清理已写入对象并返回 ErrUploadTooLarge / ErrEmptyFile。
+func UploadStream(ctx context.Context, db *gorm.DB, params UploadStreamParams, reader io.Reader, maxSize int64) (*types.FileUpload, error) {
+	if params.Filename == "" {
+		return nil, fmt.Errorf("filename is required")
+	}
+	if params.MimeType == "" {
+		return nil, fmt.Errorf("mime type is required")
+	}
+	if params.ObjectKey == "" {
+		return nil, fmt.Errorf("object key is required")
+	}
+	if maxSize <= 0 {
+		return nil, fmt.Errorf("max size must be positive")
+	}
+	params.OwnerScope = types.NormalizeOwnerScope(params.OwnerScope)
+	if err := validateOwner(params.OwnerScope, params.OrgID, params.OwnerID); err != nil {
+		return nil, err
+	}
+
+	counting := &countingReader{r: reader}
+	hasher := sha256.New()
+	st := GetStorage()
+	putResult, err := st.PutObject(ctx, DefaultBucket(), params.ObjectKey,
+		io.TeeReader(io.LimitReader(counting, maxSize+1), hasher),
+		storage.WithContentType(params.MimeType),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("put object: %w", err)
+	}
+	if counting.n > maxSize {
+		_ = st.DeleteObject(ctx, DefaultBucket(), params.ObjectKey)
+		return nil, ErrUploadTooLarge
+	}
+	if counting.n == 0 {
+		_ = st.DeleteObject(ctx, DefaultBucket(), params.ObjectKey)
+		return nil, ErrEmptyFile
+	}
+
+	publicID := GenerateFilePublicID()
+	originalName := params.OriginalName
+	if originalName == "" {
+		originalName = params.Filename
+	}
+	fileUpload := &types.FileUpload{
+		PublicID:     publicID,
+		OwnerScope:   params.OwnerScope,
+		OrgID:        params.OrgID,
+		OwnerID:      params.OwnerID,
+		Filename:     params.Filename,
+		OriginalName: originalName,
+		MimeType:     params.MimeType,
+		FileSize:     counting.n,
+		StorageURI:   putResult.Path.URI(),
+		Sha256:       hex.EncodeToString(hasher.Sum(nil)),
+		Purpose:      params.Purpose,
+		Status:       "active",
+		Metadata: types.ObjectMetadata{
+			Extra: params.Metadata,
+		},
+	}
+
+	if err := infradb.CreateFileUpload(ctx, db, fileUpload); err != nil {
+		// 对象已写入存储但记录创建失败，尽力清理，避免残留孤儿对象。
+		if derr := st.DeleteObject(ctx, DefaultBucket(), params.ObjectKey); derr != nil {
+			return nil, fmt.Errorf("create file upload record: %w (cleanup object failed: %v)", err, derr)
+		}
+		return nil, fmt.Errorf("create file upload record: %w", err)
+	}
+	return fileUpload, nil
+}
+
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // OpenFileByPublicID 通过 FileUpload.PublicID 从 filestore 打开文件流

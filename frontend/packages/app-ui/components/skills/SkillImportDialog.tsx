@@ -190,8 +190,9 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 		try {
 			// Step 1: Upload file
 			const formData = new FormData();
-			formData.append("file", file);
+			// 后端 /files/upload 为单遍流式解析，file 必须作为最后一个 form part（purpose 等字段须在其之前）。
 			formData.append("purpose", "artifact");
+			formData.append("file", file);
 
 			const uploadResponse = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
 				method: "POST",
