@@ -52,7 +52,8 @@ const { skillPickerMock, storeMock } = vi.hoisted(() => ({
 	storeMock: {
 		createAutomation: vi.fn(async () => ({ ok: true, status: undefined })),
 		updateAutomation: vi.fn(async () => ({ ok: true, status: undefined })),
-		fetchProjects: vi.fn(async () => true),
+		fetchProjectListPage: vi.fn(),
+		upsertProjects: vi.fn(),
 	},
 }));
 
@@ -60,6 +61,7 @@ vi.mock("@leros/store", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@leros/store")>();
 	return {
 		...actual,
+		fetchProjectListPage: (...args: unknown[]) => storeMock.fetchProjectListPage(...args),
 		useAutomationStore: (selector: (state: unknown) => unknown) =>
 			selector({
 				createAutomation: storeMock.createAutomation,
@@ -68,7 +70,8 @@ vi.mock("@leros/store", async (importOriginal) => {
 		useLayoutStore: (selector: (state: unknown) => unknown) =>
 			selector({
 				projects: mockProjects,
-				fetchProjects: storeMock.fetchProjects,
+				projectsMutationEpoch: 0,
+				upsertProjects: storeMock.upsertProjects,
 			}),
 	};
 });
@@ -102,8 +105,26 @@ async function switchToMonthly(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(() => {
 	mockProjects = [];
-	storeMock.fetchProjects.mockReset();
-	storeMock.fetchProjects.mockResolvedValue(true);
+	storeMock.fetchProjectListPage.mockReset();
+	storeMock.fetchProjectListPage.mockImplementation(async () => ({
+		items: mockProjects.map((project) => ({
+			id: project.id,
+			name: project.name,
+			description: "",
+			skills: [],
+			members: [],
+			taskCount: 0,
+			createdAt: 0,
+			updatedAt: 0,
+			messages: [],
+			tasks: [],
+			files: [],
+		})),
+		total: mockProjects.length,
+		offset: 0,
+		hasMore: false,
+	}));
+	storeMock.upsertProjects.mockReset();
 });
 
 afterEach(() => {
@@ -404,10 +425,10 @@ describe("AutomationFormDialog 关联项目选择", () => {
 	});
 
 	it("首次打开时已有项目仍在加载会展示加载提示", async () => {
-		let resolveFetch: ((value: boolean) => void) | undefined;
-		storeMock.fetchProjects.mockImplementationOnce(
+		let resolveFetch: ((value: unknown) => void) | undefined;
+		storeMock.fetchProjectListPage.mockImplementationOnce(
 			() =>
-				new Promise<boolean>((resolve) => {
+				new Promise((resolve) => {
 					resolveFetch = resolve;
 				}),
 		);
@@ -417,7 +438,7 @@ describe("AutomationFormDialog 关联项目选择", () => {
 		await user.click(screen.getByRole("button", { name: /^新项目$/ }));
 		expect(await screen.findByText("正在加载已有项目...")).toBeInTheDocument();
 
-		resolveFetch?.(true);
+		resolveFetch?.({ items: [], total: 0, offset: 0, hasMore: false });
 	});
 
 	it("编辑切回默认新项目时提交 project_public_id 空串", async () => {

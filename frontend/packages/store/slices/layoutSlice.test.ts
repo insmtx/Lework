@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { projectApi } from "../api/projectApi";
+import * as authStorage from "../utils/authStorage";
 import type { Project, ProjectMember } from "./layoutSlice";
-import { LayoutActionImpl, mergeProjectsFromListResult } from "./layoutSlice";
+import {
+	appendProjectsFromListResult,
+	LayoutActionImpl,
+	mergeProjectsFromListResult,
+	PROJECT_LIST_PAGE_SIZE,
+	upsertProjectsIntoCache,
+} from "./layoutSlice";
 
 function createProject(
 	overrides: Partial<Project> & Pick<Project, "id" | "name" | "updatedAt">,
@@ -83,6 +90,36 @@ describe("mergeProjectsFromListResult", () => {
 		const mergedProjects = mergeProjectsFromListResult(apiProjects, localProjects);
 
 		expect(mergedProjects.map((project) => project.id)).toEqual(["project-1"]);
+	});
+});
+
+describe("appendProjectsFromListResult", () => {
+	it("追加分页时保留已加载项目，并跳过重复 id", () => {
+		const localProjects = [
+			createProject({
+				id: "project-1",
+				name: "已加载",
+				updatedAt: 20,
+				tasks: [{ id: "task-1", title: "任务 1", meta: "", status: "todo" }],
+			}),
+		];
+		const apiProjects = [
+			createProject({
+				id: "project-1",
+				name: "重复项",
+				updatedAt: 30,
+			}),
+			createProject({
+				id: "project-2",
+				name: "下一页",
+				updatedAt: 10,
+			}),
+		];
+
+		const mergedProjects = appendProjectsFromListResult(apiProjects, localProjects);
+
+		expect(mergedProjects.map((project) => project.id)).toEqual(["project-1", "project-2"]);
+		expect(mergedProjects[0]?.tasks.map((task) => task.id)).toEqual(["task-1"]);
 	});
 });
 
@@ -247,5 +284,72 @@ describe("LayoutActionImpl.sendWorkbenchMessage", () => {
 		);
 		expect(bootstrapNewTaskSession).not.toHaveBeenCalled();
 		expect(loadConversationMessages).toHaveBeenCalledBefore(sendTaskRoomMessage);
+	});
+});
+
+describe("upsertProjectsIntoCache", () => {
+	it("写入实体缓存时保留未出现在本页的本地项目", () => {
+		const localProjects = [
+			createProject({ id: "project-local", name: "本地项目", updatedAt: 5 }),
+			createProject({
+				id: "project-1",
+				name: "旧名称",
+				updatedAt: 10,
+				tasks: [{ id: "task-1", title: "任务 1", meta: "", status: "todo" }],
+			}),
+		];
+		const incoming = [
+			createProject({
+				id: "project-1",
+				name: "新名称",
+				updatedAt: 20,
+			}),
+		];
+
+		const cached = upsertProjectsIntoCache(incoming, localProjects);
+
+		expect(cached.map((project) => project.id)).toEqual(["project-1", "project-local"]);
+		expect(cached[0]?.name).toBe("新名称");
+		expect(cached[0]?.tasks.map((task) => task.id)).toEqual(["task-1"]);
+	});
+});
+
+describe("LayoutActionImpl.fetchProjects", () => {
+	it("只请求第一页写入实体缓存，并保留未出现在本页的本地项目", async () => {
+		vi.spyOn(authStorage, "readStoredAuthUser").mockReturnValue({ jwtToken: "token" } as never);
+		const list = vi.spyOn(projectApi, "list").mockResolvedValue({
+			data: {
+				code: 0,
+				message: "ok",
+				data: {
+					total: 45,
+					items: Array.from({ length: PROJECT_LIST_PAGE_SIZE }, (_, index) => ({
+						public_id: `project-${index + 1}`,
+						name: `project-${index + 1}`,
+						created_at: "2026-01-01T00:00:00Z",
+						updated_at: "2026-01-01T00:00:00Z",
+					})),
+				},
+			},
+		} as never);
+		const state = {
+			projects: [createProject({ id: "project-local", name: "本地项目", updatedAt: 1 })],
+			projectsMutationEpoch: 0,
+		};
+		const setState = (partial: unknown) => {
+			const update =
+				typeof partial === "function"
+					? (partial as (current: typeof state) => Partial<typeof state>)(state)
+					: (partial as Partial<typeof state>);
+			Object.assign(state, update);
+		};
+		const actions = new LayoutActionImpl(setState as never, (() => state) as never);
+
+		await expect(actions.fetchProjects()).resolves.toBe(true);
+
+		expect(list).toHaveBeenCalledTimes(1);
+		expect(list).toHaveBeenCalledWith({ offset: 0, limit: PROJECT_LIST_PAGE_SIZE });
+		expect(state.projects).toHaveLength(PROJECT_LIST_PAGE_SIZE + 1);
+		expect(state.projects.some((project) => project.id === "project-local")).toBe(true);
 	});
 });

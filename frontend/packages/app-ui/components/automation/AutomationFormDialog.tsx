@@ -44,9 +44,11 @@ import { Switch } from "@leros/ui/components/ui/switch";
 import { Check, ChevronsUpDown, Clock, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ListLoadMoreSentinel } from "../common/ListLoadMoreSentinel";
 import { StructuredComposer, type StructuredComposerHandle } from "../input/StructuredComposer";
 import { useComposerSkillOptions } from "../input/useComposerSkillOptions";
 import { ProjectIcon } from "../layout/project-icon";
+import { usePaginatedProjectList } from "../project/usePaginatedProjectList";
 import {
 	type AutomationScheduleFormState,
 	buildFormSummary,
@@ -89,8 +91,7 @@ export function AutomationFormDialog({
 	onClose,
 }: AutomationFormDialogProps) {
 	const { createAutomation, updateAutomation } = useAutomationStore((s) => s);
-	const projects = useLayoutStore((s) => s.projects);
-	const fetchProjects = useLayoutStore((s) => s.fetchProjects);
+	const cachedProjects = useLayoutStore((s) => s.projects);
 	const [form, setForm] = useState<AutomationScheduleFormState>(DEFAULT_SCHEDULE_FORM);
 	const [name, setName] = useState("");
 	const [instruction, setInstruction] = useState("");
@@ -107,61 +108,46 @@ export function AutomationFormDialog({
 	const [selectedProjectId, setSelectedProjectId] = useState("");
 	const [projectSearch, setProjectSearch] = useState("");
 	const [projectPickerOpen, setProjectPickerOpen] = useState(false);
-	const [projectListLoading, setProjectListLoading] = useState(false);
-	const [projectListReady, setProjectListReady] = useState(false);
+	const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
+	const projectList = usePaginatedProjectList({
+		enabled: open,
+		keyword: projectSearch,
+	});
+	const existingProjects = projectList.projects;
+	const projectListLoading = projectList.loading && existingProjects.length === 0;
 
 	const isEdit = Boolean(editTarget);
 	const { skillOptions, skillsLoading } = useComposerSkillOptions(selectedProjectId || null, open);
 	const nextRunPreview = useMemo(() => computeNextRunPreview(form, timezone), [form, timezone]);
 
-	// ListProjects 已按当前用户的项目绑定过滤；关联项目的最终可用性仍由保存接口权威校验。
-	// 不在弹窗中二次权限过滤，避免首次打开时因批量权限请求未完成而隐藏完整项目列表。
-	useEffect(() => {
-		if (!open) {
-			setProjectListLoading(false);
-			setProjectListReady(false);
-			return;
-		}
-
-		let active = true;
-		setProjectListLoading(true);
-		setProjectListReady(false);
-		void fetchProjects()
-			.then((succeeded) => {
-				if (!active) return;
-				setProjectListReady(succeeded);
-				setProjectListLoading(false);
-			})
-			.catch(() => {
-				if (!active) return;
-				setProjectListReady(false);
-				setProjectListLoading(false);
-			});
-
-		return () => {
-			active = false;
-		};
-	}, [fetchProjects, open]);
-
-	// 已有项目按搜索词过滤。列表接口已确保当前用户可见，服务端在保存时继续校验权限和 AI 队友绑定。
-	const existingProjects = useMemo(() => {
-		const q = projectSearch.trim().toLowerCase();
-		return projects.filter((p) => !q || p.name.toLowerCase().includes(q));
-	}, [projectSearch, projects]);
-
 	// 当前选中项目的展示名（用于触发按钮）；未选中显示"新项目"
 	const selectedProjectLabel = useMemo(() => {
 		if (!selectedProjectId) return "";
-		return projects.find((p) => p.id === selectedProjectId)?.name ?? editTarget?.projectName ?? "";
-	}, [editTarget?.projectName, projects, selectedProjectId]);
+		return (
+			cachedProjects.find((p) => p.id === selectedProjectId)?.name ??
+			existingProjects.find((p) => p.id === selectedProjectId)?.name ??
+			editTarget?.projectName ??
+			""
+		);
+	}, [cachedProjects, editTarget?.projectName, existingProjects, selectedProjectId]);
 
-	// 编辑时选中了项目但该项目已不在用户可访问的项目列表中 => 提示改选
 	const selectedProjectIsUnavailable = useMemo(() => {
 		if (!isEdit || !editTarget?.projectPublicId) return false;
-		if (!projectListReady || projectListLoading) return false;
+		if (projectList.loading || projectSearch.trim() || projectList.hasMore) return false;
 		const pid = editTarget.projectPublicId;
-		return !projects.some((project) => project.id === pid);
-	}, [editTarget?.projectPublicId, isEdit, projectListLoading, projectListReady, projects]);
+		return (
+			!existingProjects.some((project) => project.id === pid) &&
+			!cachedProjects.some((project) => project.id === pid)
+		);
+	}, [
+		cachedProjects,
+		editTarget?.projectPublicId,
+		existingProjects,
+		isEdit,
+		projectList.hasMore,
+		projectList.loading,
+		projectSearch,
+	]);
 
 	// 编辑且存在活动执行时禁止更换项目
 	const projectDisabled = Boolean(editTarget?.hasActiveExecution);
@@ -476,7 +462,7 @@ export function AutomationFormDialog({
 												onValueChange={setProjectSearch}
 												placeholder="搜索项目"
 											/>
-											<CommandList className="max-h-60">
+											<CommandList ref={setListRoot} className="max-h-60">
 												<CommandGroup heading="新项目" className="p-0">
 													<CommandItem
 														value="__default__"
@@ -520,6 +506,13 @@ export function AutomationFormDialog({
 															)}
 														</CommandItem>
 													))}
+													<ListLoadMoreSentinel
+														hasMore={projectList.hasMore}
+														loading={projectList.loadingMore}
+														onLoadMore={projectList.loadMore}
+														root={listRoot}
+														className="py-2"
+													/>
 												</CommandGroup>
 											</CommandList>
 										</Command>

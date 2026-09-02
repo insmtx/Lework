@@ -341,7 +341,6 @@ export function WorkbenchPage({ navigation }: { navigation?: AppNavigation }) {
 
 					<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-7 py-5">
 						<ProjectTaskPickerField
-							projects={projectOptions}
 							projectId={projectId}
 							taskId={taskId}
 							allowNewProject

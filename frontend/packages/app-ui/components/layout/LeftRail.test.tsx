@@ -6,7 +6,6 @@ import { LeftRail } from "./LeftRail";
 
 const mockAuthenticatedFetch = vi.fn();
 const mockFetchFilePreviewByPublicId = vi.fn();
-const mockFetchProjects = vi.fn();
 const mockFetchTasks = vi.fn();
 const mockDeleteProject = vi.fn();
 const mockSetLeftRailCollapsed = vi.fn();
@@ -15,6 +14,7 @@ const mockSwitchView = vi.fn();
 const mockSwitchProject = vi.fn();
 const mockOpenTaskDetail = vi.fn();
 const mockUpdateProject = vi.fn();
+const mockUpsertProjects = vi.fn();
 const mockClearComposerInput = vi.fn();
 const mockSetAuthUser = vi.fn();
 const mockLogout = vi.fn();
@@ -23,6 +23,7 @@ let mockIsAuthenticated = true;
 let mockProjects: Array<{
 	id: string;
 	name: string;
+	updatedAt: number;
 	tasks: Array<{ id: string; title: string }>;
 }> = [];
 
@@ -43,6 +44,15 @@ vi.mock("@leros/store", () => ({
 	normalizeFilePublicId: (value?: string) => value?.match(/file_[A-Za-z0-9_-]+/)?.[0],
 	LEFT_RAIL_MAX_WIDTH: 360,
 	LEFT_RAIL_MIN_WIDTH: 220,
+	PROJECT_LIST_PAGE_SIZE: 20,
+	fetchProjectListPage: async () => ({
+		items: mockProjects,
+		total: mockProjects.length,
+		offset: 0,
+		hasMore: false,
+	}),
+	mergeProjectsFromListResult: (items: unknown[]) => items,
+	appendProjectsFromListResult: (incoming: unknown[], local: unknown[]) => [...local, ...incoming],
 	projectFileApi: {},
 	useProjectMenuCapabilities: () => ({ loading: false, hasAny: false }),
 	useProjectsMenuCapabilities: vi.fn(),
@@ -55,9 +65,10 @@ vi.mock("@leros/store", () => ({
 			activeProjectId: null,
 			activeTaskDetailProjectId: "project-1",
 			activeTaskDetailTaskId: "task-1",
+			projectsMutationEpoch: 0,
 			leftRailCollapsed: false,
 			leftRailWidth: 240,
-			fetchProjects: mockFetchProjects,
+			upsertProjects: mockUpsertProjects,
 			fetchTasks: mockFetchTasks,
 			deleteProject: mockDeleteProject,
 			setLeftRailCollapsed: mockSetLeftRailCollapsed,
@@ -135,7 +146,6 @@ describe("LeftRail avatar download", () => {
 			ok: true,
 			blob: async () => new Blob(["avatar"], { type: "image/png" }),
 		});
-		mockFetchProjects.mockReset();
 		mockFetchTasks.mockReset();
 		mockDeleteProject.mockReset();
 		mockSetLeftRailCollapsed.mockReset();
@@ -168,8 +178,7 @@ describe("LeftRail avatar download", () => {
 describe("LeftRail project expansion", () => {
 	beforeEach(() => {
 		mockIsAuthenticated = true;
-		mockProjects = [{ id: "project-1", name: "测试项目", tasks: [] }];
-		mockFetchProjects.mockReset();
+		mockProjects = [{ id: "project-1", name: "测试项目", tasks: [], updatedAt: 1 }];
 		mockFetchTasks.mockReset();
 		window.localStorage.clear();
 	});
@@ -179,7 +188,7 @@ describe("LeftRail project expansion", () => {
 
 		const { rerender } = render(<LeftRail />);
 
-		fireEvent.click(screen.getByText("测试项目"));
+		fireEvent.click(await screen.findByText("测试项目"));
 		await waitFor(() => {
 			expect(screen.getByText("暂无任务")).toBeInTheDocument();
 		});
@@ -197,7 +206,7 @@ describe("LeftRail project expansion", () => {
 
 		const { rerender } = render(<LeftRail />);
 
-		fireEvent.click(screen.getByText("测试项目"));
+		fireEvent.click(await screen.findByText("测试项目"));
 		await waitFor(() => {
 			expect(screen.getByText("暂无任务")).toBeInTheDocument();
 		});
@@ -217,7 +226,7 @@ describe("LeftRail project expansion", () => {
 		);
 
 		render(<LeftRail />);
-		fireEvent.click(screen.getByText("测试项目"));
+		fireEvent.click(await screen.findByText("测试项目"));
 
 		expect(screen.getByText("任务加载中...")).toBeInTheDocument();
 		expect(screen.queryByText("暂无任务")).not.toBeInTheDocument();
