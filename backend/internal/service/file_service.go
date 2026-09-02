@@ -30,7 +30,7 @@ func NewFileService(db *gorm.DB) contract.FileService {
 	return &fileService{db: db}
 }
 
-const maxUploadSize = 100 << 20 // 100MB
+const maxUploadSize = 500 << 20 // 500MB
 
 func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
 	caller, err := requireCallerOrg(ctx)
