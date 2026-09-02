@@ -113,7 +113,8 @@ async function uploadLooseFile({
 	signal,
 }: UploadLooseFileParams): Promise<BackendDataResponse<BackendUploadFilePayload>> {
 	const formData = new FormData();
-	formData.append("file", file);
+	// 后端 /files/upload 为单遍流式解析：purpose/source_id/local-path 等表单字段须位于
+	// file part 之前，file 之后的字段不会被读取，因此 file 必须最后 append。
 	formData.append("purpose", purpose);
 	if (source_id) {
 		formData.append("source_id", source_id);
@@ -121,6 +122,7 @@ async function uploadLooseFile({
 	if (withLocalPath) {
 		formData.append("local-path", resolveComposerUploadFileName(file));
 	}
+	formData.append("file", file);
 
 	const response = await authenticatedFetch(`${API_BASE_URL}/files/upload`, {
 		method: "POST",

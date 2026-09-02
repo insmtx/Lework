@@ -17,7 +17,6 @@ type UploadFileRequest struct {
 	OwnerID      uint
 	File         io.Reader
 	Filename     string
-	FileSize     int64
 	MimeType     string
 	Purpose      string
 	SourceID     string

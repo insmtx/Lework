@@ -18,6 +18,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -216,6 +217,132 @@ func TestUploadFile_ServiceError(t *testing.T) {
 	}
 }
 
+func TestUploadFile_TooLargeMappedTo400(t *testing.T) {
+	svc := &mockFileService{
+		uploadFn: func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
+			return nil, filestore.ErrUploadTooLarge
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "test.txt")
+	part.Write([]byte("hello"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/v1/files/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized upload, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUploadFile_EmptyMappedTo400(t *testing.T) {
+	svc := &mockFileService{
+		uploadFn: func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
+			return nil, filestore.ErrEmptyFile
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "test.txt")
+	part.Write([]byte("hello"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/v1/files/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty upload, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUploadFile_InvalidPurpose(t *testing.T) {
+	svc := &mockFileService{
+		uploadFn: func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
+			t.Error("upload should not be called with invalid purpose")
+			return nil, nil
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	_ = w.WriteField("purpose", "../avatar")
+	part, _ := w.CreateFormFile("file", "test.png")
+	part.Write([]byte("image data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/v1/files/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid purpose, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUploadFile_InvalidSourceID(t *testing.T) {
+	svc := &mockFileService{
+		uploadFn: func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
+			t.Error("upload should not be called with invalid source_id")
+			return nil, nil
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	_ = w.WriteField("source_id", "a/b")
+	part, _ := w.CreateFormFile("file", "test.png")
+	part.Write([]byte("image data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/v1/files/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid source_id, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUploadFile_FieldTooLong(t *testing.T) {
+	svc := &mockFileService{
+		uploadFn: func(ctx context.Context, req *contract.UploadFileRequest) (*contract.UploadFileResult, error) {
+			t.Error("upload should not be called with oversized field")
+			return nil, nil
+		},
+	}
+	router := setupFileRouter(t, svc, authenticatedCaller())
+
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	_ = w.WriteField("purpose", strings.Repeat("a", 100)) // 超过 64 字节上限
+	part, _ := w.CreateFormFile("file", "test.png")
+	part.Write([]byte("image data"))
+	w.Close()
+
+	req := httptest.NewRequest("POST", "/v1/files/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized field, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDownloadFile_NoFileID(t *testing.T) {
 	svc := &mockFileService{
 		downloadFn: func(ctx context.Context, orgID uint, fileID string) (io.ReadCloser, *contract.FileDownloadInfo, error) {
@@ -396,7 +523,7 @@ func TestDownloadFile_InvalidFileOpen(t *testing.T) {
 	part.Write([]byte("hello"))
 	w.Close()
 
-	truncated := bytes.NewReader(body.Bytes()[:len(body.Bytes())-50])
+	truncated := bytes.NewReader(body.Bytes()[:20]) // 截断到 part header 之前，NextPart 无法读到有效 part。
 	req := httptest.NewRequest("POST", "/v1/files/upload", truncated)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	rec := httptest.NewRecorder()

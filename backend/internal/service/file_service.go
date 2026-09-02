@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -38,15 +39,9 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 		return nil, err
 	}
 
-	data, err := io.ReadAll(io.LimitReader(req.File, maxUploadSize+1))
-	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
-	}
-	if int64(len(data)) > maxUploadSize {
-		return nil, fmt.Errorf("file size exceeds maximum allowed size of %dMB", maxUploadSize/(1<<20))
-	}
-
-	detectedMime := http.DetectContentType(data[:min(len(data), 512)])
+	bufReader := bufio.NewReaderSize(req.File, 512)
+	head, _ := bufReader.Peek(512)
+	detectedMime := http.DetectContentType(head)
 	mimeType := req.MimeType
 	if mediaType, _, err := mime.ParseMediaType(detectedMime); err == nil {
 		mimeType = mediaType
@@ -64,17 +59,15 @@ func (s *fileService) UploadFile(ctx context.Context, req *contract.UploadFileRe
 		key = fmt.Sprintf("%s/%d/uploads/%s", req.Purpose, caller.OrgID, storeFilename)
 	}
 
-	file, err := filestore.Upload(ctx, s.db, filestore.UploadParams{
-		Data:         data,
+	file, err := filestore.UploadStream(ctx, s.db, filestore.UploadStreamParams{
 		Filename:     storeFilename,
 		OriginalName: req.Filename,
 		MimeType:     mimeType,
-		Size:         int64(len(data)),
 		OrgID:        caller.OrgID,
 		OwnerID:      caller.Uin,
 		ObjectKey:    key,
 		Purpose:      req.Purpose,
-	})
+	}, bufReader, maxUploadSize)
 	if err != nil {
 		return nil, fmt.Errorf("upload file: %w", err)
 	}
