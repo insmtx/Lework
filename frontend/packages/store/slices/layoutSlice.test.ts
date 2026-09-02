@@ -312,6 +312,22 @@ describe("upsertProjectsIntoCache", () => {
 		expect(cached[0]?.name).toBe("新名称");
 		expect(cached[0]?.tasks.map((task) => task.id)).toEqual(["task-1"]);
 	});
+
+	it("合并当前分页时不会丢掉问答刚写入缓存的新项目", () => {
+		const pageItems = [createProject({ id: "project-1", name: "旧项目", updatedAt: 10 })];
+		const cache = [
+			createProject({ id: "project-from-qa", name: "新问答", updatedAt: 20 }),
+			...pageItems,
+		];
+
+		expect(mergeProjectsFromListResult(pageItems, cache).map((project) => project.id)).toEqual([
+			"project-1",
+		]);
+		expect(upsertProjectsIntoCache(pageItems, cache).map((project) => project.id)).toEqual([
+			"project-1",
+			"project-from-qa",
+		]);
+	});
 });
 
 describe("LayoutActionImpl.fetchProjects", () => {

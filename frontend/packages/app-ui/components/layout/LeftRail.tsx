@@ -203,7 +203,10 @@ export function LeftRail({
 	const { isHydrated, isAuthenticated, openAuthDialog, requireAuth, logout, user } = useAuth();
 	// 中文注释：OSS 版无多组织切换，隐藏左下角用户菜单中的「切换组织」入口。
 	const canSwitchOrganization = edition !== "oss";
-	const projectList = usePaginatedProjectList({ enabled: isAuthenticated });
+	const projectList = usePaginatedProjectList({
+		enabled: isAuthenticated,
+		includeCachedProjects: true,
+	});
 	const visibleProjects = isAuthenticated ? projectList.projects : [];
 	useProjectsMenuCapabilities(visibleProjects.map((project) => project.id));
 	const [renameProject, setRenameProject] = useState<Project | null>(null);
