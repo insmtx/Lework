@@ -4,6 +4,7 @@ import type { QuestionRequest } from "@leros/store/types/chat";
 import { Badge } from "@leros/ui/components/ui/badge";
 import { Button } from "@leros/ui/components/ui/button";
 import { Input } from "@leros/ui/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
 import { cn } from "@leros/ui/lib/utils";
 import { AlertCircle, ChevronLeft, ChevronRight, Info, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -393,8 +394,22 @@ export function QuestionAnswerInput({
 					{/* Header */}
 					<div className="flex items-start justify-between gap-3 px-3.5 pb-2 pt-2.5 sm:px-4">
 						<div className="flex min-w-0 items-center gap-2">
-							<h3 className="truncate text-[15px] font-semibold leading-5 text-slate-950">
-								{currentQuestion.question}
+							<h3 className="min-w-0 text-[15px] font-semibold leading-5 text-slate-950">
+								<Tooltip>
+									{/* 中文注释：标题单行截断，用 span 承接悬浮，避免 TooltipTrigger 默认 button 嵌套进标题。 */}
+									<TooltipTrigger
+										render={<span className="block min-w-0 cursor-default truncate" />}
+									>
+										{currentQuestion.question}
+									</TooltipTrigger>
+									<TooltipContent
+										side="top"
+										align="start"
+										className="max-w-sm whitespace-normal break-words text-left leading-5"
+									>
+										{currentQuestion.question}
+									</TooltipContent>
+								</Tooltip>
 							</h3>
 							<div className="shrink-0">
 								<QuestionStatusBadge question={question} />

@@ -140,4 +140,34 @@ describe("QuestionAnswerInput", () => {
 
 		expect(handleAnswer).toHaveBeenCalledWith("message-1", "request-1", [["测试架构师"]]);
 	});
+
+	it("问题标题过长时悬浮展示全文", async () => {
+		const user = userEvent.setup();
+		const longQuestion =
+			"请确认本次要比对的招标文件版本、投标文件范围，以及是否需要把报价明细、技术偏离表和商务条款一起纳入评审结论？";
+
+		render(
+			<QuestionAnswerInput
+				question={makeQuestion({
+					questions: [
+						{
+							question: longQuestion,
+							options: [{ label: "全部纳入" }, { label: "仅技术偏离表" }],
+							multiple: false,
+							custom: false,
+						},
+					],
+				})}
+				messageId="message-1"
+				variant="default"
+				onAnswer={vi.fn()}
+			/>,
+		);
+
+		await user.hover(screen.getByText(longQuestion, { selector: '[data-slot="tooltip-trigger"]' }));
+
+		expect(
+			await screen.findByText(longQuestion, { selector: '[data-slot="tooltip-content"]' }),
+		).toBeInTheDocument();
+	});
 });
