@@ -304,6 +304,7 @@ export function ChatInput({
 	const submitMessage = useCallback(async () => {
 		// 中文注释：真实 SessionEvents 当前由单条 SSE 连接接管，生成中先阻止重复发送。
 		if (isGenerating) return;
+		if (inputAttachments.some((attachment) => attachment.uploadStatus === "uploading")) return;
 		// 中文注释：客户端超时报错未落库，停留当前对话窗口时禁止续聊，避免第二轮真人消息落库分叉。
 		if (isReplyLocked) {
 			toast.error(`当前回复已超时，${ASSISTANT_REPLY_TIMEOUT_RETRY_HINT}`);
@@ -627,6 +628,7 @@ export function ChatInput({
 							value={inputText}
 							onChange={setInputText}
 							onSubmit={submitMessage}
+							submitDisabled={!canSend}
 							onPasteFiles={handlePasteFiles}
 							onFocus={() => setInputFocused(true)}
 							onBlur={() => setInputFocused(false)}

@@ -94,6 +94,8 @@ type StructuredComposerProps = {
 	value: string;
 	onChange: (value: string) => void;
 	onSubmit: () => void;
+	/** 与发送按钮禁用态对齐，为 true 时 Enter / 项目态 Ctrl/Cmd+Enter 不触发提交。 */
+	submitDisabled?: boolean;
 	onPasteFiles: (event: ClipboardEvent<HTMLElement>) => void;
 	onFocus: () => void;
 	onBlur: () => void;
@@ -873,6 +875,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 			value,
 			onChange,
 			onSubmit,
+			submitDisabled = false,
 			onPasteFiles,
 			onFocus,
 			onBlur,
@@ -1784,7 +1787,9 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					isProjectVariant && event.key === "Enter" && (event.metaKey || event.ctrlKey);
 				if (submitByEnter || submitByShortcut) {
 					event.preventDefault();
-					onSubmit();
+					if (!submitDisabled) {
+						onSubmit();
+					}
 				}
 			},
 			[
@@ -1794,6 +1799,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				pickerItemCount,
 				removeAdjacentTokenByKeyboard,
 				selectActiveItem,
+				submitDisabled,
 				trigger,
 			],
 		);

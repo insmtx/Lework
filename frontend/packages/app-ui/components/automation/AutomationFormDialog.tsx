@@ -410,6 +410,7 @@ export function AutomationFormDialog({
 									value={instruction}
 									onChange={setInstruction}
 									onSubmit={() => void handleSubmit()}
+									submitDisabled={!formValid || submitting}
 									onPasteFiles={(event) => event.preventDefault()}
 									onFocus={() => undefined}
 									onBlur={() => undefined}
