@@ -6,6 +6,7 @@ import {
 	mergeProjectsFromListResult,
 	PROJECT_LIST_PAGE_SIZE,
 	type Project,
+	upsertProjectsIntoCache,
 	useLayoutStore,
 } from "@leros/store";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,8 +16,16 @@ export function usePaginatedProjectList(options: {
 	keyword?: string;
 	debounceMs?: number;
 	pageSize?: number;
+	/** 把缓存里尚未出现在当前分页的项目一并展示（侧栏最近项目需要，搜索/选择器不能开）。 */
+	includeCachedProjects?: boolean;
 }) {
-	const { enabled, keyword = "", debounceMs = 300, pageSize = PROJECT_LIST_PAGE_SIZE } = options;
+	const {
+		enabled,
+		keyword = "",
+		debounceMs = 300,
+		pageSize = PROJECT_LIST_PAGE_SIZE,
+		includeCachedProjects = false,
+	} = options;
 	const upsertProjects = useLayoutStore((state) => state.upsertProjects);
 	const mutationEpoch = useLayoutStore((state) => state.projectsMutationEpoch);
 	const projectCache = useLayoutStore((state) => state.projects);
@@ -116,8 +125,11 @@ export function usePaginatedProjectList(options: {
 	]);
 
 	const projects = useMemo(
-		() => mergeProjectsFromListResult(items, projectCache),
-		[items, projectCache],
+		() =>
+			includeCachedProjects
+				? upsertProjectsIntoCache(items, projectCache)
+				: mergeProjectsFromListResult(items, projectCache),
+		[includeCachedProjects, items, projectCache],
 	);
 
 	return {

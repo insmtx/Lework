@@ -358,6 +358,29 @@ describe("StructuredComposer", () => {
 		expect(handleSubmit).not.toHaveBeenCalled();
 	});
 
+	it("submitDisabled 时按 Enter 不会触发发送", () => {
+		const handleSubmit = vi.fn();
+
+		render(
+			<StructuredComposer
+				value="已输入内容"
+				onChange={vi.fn()}
+				onSubmit={handleSubmit}
+				submitDisabled
+				onPasteFiles={vi.fn()}
+				onFocus={vi.fn()}
+				onBlur={vi.fn()}
+				placeholder="请输入"
+				isProjectVariant
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		fireEvent.keyDown(textbox, { key: "Enter", code: "Enter" });
+
+		expect(handleSubmit).not.toHaveBeenCalled();
+	});
+
 	it("通过 / 选择技能后会补齐尾部空格", async () => {
 		const user = userEvent.setup();
 		const handleValueChange = vi.fn();

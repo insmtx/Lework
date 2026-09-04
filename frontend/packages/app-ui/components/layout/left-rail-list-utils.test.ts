@@ -60,4 +60,18 @@ describe("getRecentProjectsForLeftRail", () => {
 			"project-6",
 		]);
 	});
+
+	it("会把后插入但更新时间最新的项目排到最前", () => {
+		const projects = [
+			{ id: "project-old", updatedAt: 100 },
+			{ id: "project-from-qa", updatedAt: 200 },
+		];
+
+		const visibleProjects = getRecentProjectsForLeftRail(projects);
+
+		expect(visibleProjects.map((project) => project.id)).toEqual([
+			"project-from-qa",
+			"project-old",
+		]);
+	});
 });

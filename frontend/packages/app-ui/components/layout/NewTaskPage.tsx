@@ -353,7 +353,7 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 
 	const handleSend = async () => {
 		const content = input.trim();
-		if (!content || sendingRef.current) return;
+		if (!content || sendingRef.current || hasUploadingAttachments) return;
 		if (!isAuthenticated) {
 			requireAuth(() => {
 				void performSend();
@@ -845,6 +845,7 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 								onSubmit={() => {
 									void handleSend();
 								}}
+								submitDisabled={isSending || !input.trim() || hasUploadingAttachments}
 								onPasteFiles={handlePasteFiles}
 								onFocus={() => undefined}
 								onBlur={() => undefined}
