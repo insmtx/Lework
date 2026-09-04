@@ -19,7 +19,7 @@
 ![Protocol](./docs/images/badges/protocol-mcp.svg)
 [![Website](./docs/images/badges/website.svg)](https://leros.ai/)
 
-**目录** · [项目简介](#项目简介) · [一分钟理解](#一分钟理解) · [协作流程](#协作流程) · [核心实体](#核心实体) · [核心特性](#核心特性) · [系统架构](#系统架构) · [快速开始](#快速开始) · [开发指南](#开发指南) · [MCP Server](#mcp-server) · [生态与联动](#生态与联动) · [相关文档](#相关文档) · [贡献指南](#贡献指南) · [社区与支持](#社区与支持) · [许可证](#许可证)
+**目录** · [项目简介](#项目简介) · [界面预览](#界面预览) · [一分钟理解](#一分钟理解) · [协作流程](#协作流程) · [核心实体](#核心实体) · [核心特性](#核心特性) · [系统架构](#系统架构) · [快速开始](#快速开始) · [开发指南](#开发指南) · [MCP Server](#mcp-server) · [生态与联动](#生态与联动) · [相关文档](#相关文档) · [贡献指南](#贡献指南) · [社区与支持](#社区与支持) · [许可证](#许可证)
 
 </div>
 
@@ -56,6 +56,28 @@ Lework 是一个面向企业与团队的开源 AI 工作平台。它是 [智慧�
 - 前端为 `frontend/` 下的 **pnpm + turbo monorepo**，含 Web 主界面（Next.js / React / TypeScript）与桌面端应用；
 - 任务与事件经 **NATS JetStream** 分发，Agent 执行由 `backend/agent` 承载，支持 native / claude / codex / opencode 等多种运行时；
 - 内置 **MCP Server**（对外暴露 Leros 运行时能力），同时作为 **MCP 客户端**通过连接器接入外部系统与知识库（如 CoreKG）。
+
+## 界面预览
+
+**桌面工作台**（新建任务、任务规划与拆解、@ 调用 AI 队友）：
+
+<p align="center"><img src="./docs/images/ui-workbench.png" width="800" alt="桌面工作台" /></p>
+
+**AI 队友**（浏览、召唤与创建 AI 队友）：
+
+<p align="center"><img src="./docs/images/ui-ai-teammate.png" width="800" alt="AI 队友" /></p>
+
+**插件 · 技能库**（发现、导入和关联技能，管理 MCP 连接器）：
+
+<p align="center"><img src="./docs/images/ui-plugin-skills.png" width="800" alt="技能库" /></p>
+
+**自动化**（按周期用固定指令与技能自动执行）：
+
+<p align="center"><img src="./docs/images/ui-automation.png" width="800" alt="自动化" /></p>
+
+**连接 CoreKG 知识库**（通过 MCP 连接器在任务中检索企业知识、补充上下文并关联来源）：
+
+<p align="center"><img src="./docs/images/ui-corekg.png" width="800" alt="连接 CoreKG 知识库" /></p>
 
 ## 一分钟理解
 
