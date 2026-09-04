@@ -55,7 +55,7 @@ Lework 是一个面向企业与团队的开源 AI 工作平台。它是 [智慧�
 - 服务端为 **Go 单体仓库**（module `github.com/insmtx/Leros`，Go 1.25），既能以聚合单体一键部署，也可按需拆分；
 - 前端为 `frontend/` 下的 **pnpm + turbo monorepo**，含 Web 主界面（Next.js / React / TypeScript）与桌面端应用；
 - 任务与事件经 **NATS JetStream** 分发，Agent 执行由 `backend/agent` 承载，支持 native / claude / codex / opencode 等多种运行时；
-- 内置 **MCP Server**（对外暴露 Leros 运行时能力），同时作为 **MCP 客户端**通过连接器接入外部系统与知识库（如 CoreKG）。
+- 内置 **MCP Server**（对外暴露 Lework 运行时能力），同时作为 **MCP 客户端**通过连接器接入外部系统与知识库（如 CoreKG）。
 
 ## 界面预览
 
@@ -148,7 +148,7 @@ Lework 是一个面向企业与团队的开源 AI 工作平台。它是 [智慧�
 |---|---|
 | 工具调用 | 连接知识库、MCP 连接器、浏览器与外部系统 |
 | MCP 连接器 | 作为 MCP 客户端接入外部系统 / 工具（如 CoreKG 知识库），需关联到项目后使用 |
-| MCP Server | 同时内置 MCP Server（StreamableHTTP），对外暴露 Leros 运行时能力，详见 [MCP Server](#mcp-server) |
+| MCP Server | 同时内置 MCP Server（StreamableHTTP），对外暴露 Lework 运行时能力，详见 [MCP Server](#mcp-server) |
 | 自动化 | 按指定周期，用固定任务指令与技能让 AI 队友自动执行 |
 | 规划模式 | 复杂任务先让 AI 梳理步骤、范围与执行方案，确认后再执行 |
 | 多运行时 | native / claude / codex / opencode 等 Agent 运行时 |
@@ -303,12 +303,12 @@ Lework 在 MCP 生态里是**双角色**：既作为 **MCP Server** 对外暴露
 
 ### 对外暴露能力（MCP Server）
 
-`backend/internal/worker/mcp` 内置 **MCP (Model Context Protocol) Server**，用标准协议对外暴露 Leros 的运行时能力，AI 代理可直接把 Leros 当作可调用的"同事"来接入。
+`backend/internal/worker/mcp` 内置 **MCP (Model Context Protocol) Server**，用标准协议对外暴露 Lework 的运行时能力，AI 代理可直接把 Lework 当作可调用的"同事"来接入。
 
 | 项目 | 说明 |
 |---|---|
 | 传输 | StreamableHTTP（MCP 服务端，`backend/internal/worker/mcp`） |
-| 暴露能力 | 通过 `tools.Tool` 注册的 Leros 工具（如 `skill_manage` 等）映射为 MCP Tool |
+| 暴露能力 | 通过 `tools.Tool` 注册的 Lework 工具（如 `skill_manage` 等）映射为 MCP Tool |
 | 鉴权 | 实例级 Token 鉴权（`NewServerWithToken`） |
 
 工具清单与接入方式见仓库内实现：`backend/internal/worker/mcp` 与 `backend/tools/`。
