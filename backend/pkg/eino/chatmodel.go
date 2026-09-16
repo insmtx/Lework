@@ -82,6 +82,7 @@ func newOpenAICompatibleChatModel(ctx context.Context, cfg *ChatModelConfig) (ei
 	chatModel, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
 		APIKey:           cfg.APIKey,
 		BaseURL:          cfg.BaseURL,
+		HTTPClient:       newJSONGuardingHTTPClient(),
 		Model:            cfg.Model,
 		ResponseFormat:   cfg.ResponseFormat,
 		ReasoningEffort:  cfg.ReasoningEffort,
@@ -111,6 +112,7 @@ func newClaudeChatModel(ctx context.Context, cfg *ChatModelConfig) (einomodel.To
 	chatModel, err := einoclaude.NewChatModel(ctx, &einoclaude.Config{
 		APIKey:      cfg.APIKey,
 		BaseURL:     baseURL,
+		HTTPClient:  newJSONGuardingHTTPClient(),
 		Model:       cfg.Model,
 		MaxTokens:   maxTokens,
 		Temperature: cfg.Temperature,

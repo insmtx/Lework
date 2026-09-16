@@ -760,55 +760,33 @@ func (m *ManagerDb) TestConnectivity(ctx context.Context, orgID uint, req *TestR
 		return nil, errors.New("model is required")
 	}
 
-	// Build endpoint URL using the stored flag
+	// 按已知（或猜测的）前缀构造端点。
 	endpointURL := BuildLLMEndpointURL(baseURL, baseURLHasV1)
 
 	start := time.Now()
-	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
-		Provider: provider,
-		APIKey:   apiKey,
-		Model:    modelName,
-		BaseURL:  endpointURL,
-	})
+	responseMessage, callErr := callConnectivityEndpoint(ctx, provider, apiKey, modelName, endpointURL)
+
+	// 前缀猜错时换另一侧重试一次。临时配置（未落库）没有 /v1 首选项，
+	// BaseURLHasV1 恒为零值 false；若首次调用因"请求路径不对"失败——上游把网关首页
+	// 当成 API 响应返回（如 New API / one-api），或该路径 404——说明前缀猜错了。
+	// 只有真正调通才采纳重试结果，否则仍返回首次调用的错误。
+	if callErr != nil && supportsV1PrefixSwitch(provider) && isEndpointPathError(callErr) {
+		altHasV1 := !baseURLHasV1
+		altEndpointURL := BuildLLMEndpointURL(baseURL, altHasV1)
+		if altMessage, altErr := callConnectivityEndpoint(ctx, provider, apiKey, modelName, altEndpointURL); altErr == nil {
+			endpointURL, baseURLHasV1, responseMessage, callErr = altEndpointURL, altHasV1, altMessage, nil
+		}
+	}
+
 	latencyMS := time.Since(start).Milliseconds()
-	if err != nil {
+	if callErr != nil {
 		return &TestResult{
 			Success:      false,
-			Message:      err.Error(),
+			Message:      connectivityErrorMessage(callErr),
 			Endpoint:     endpointURL,
 			LatencyMS:    latencyMS,
 			BaseURLHasV1: baseURLHasV1,
 		}, nil
-	}
-
-	flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
-		Model:        chatModel,
-		SystemPrompt: "You are testing Leros LLM connectivity. Reply with only: ok",
-	})
-	if err != nil {
-		return &TestResult{
-			Success:      false,
-			Message:      err.Error(),
-			Endpoint:     endpointURL,
-			LatencyMS:    time.Since(start).Milliseconds(),
-			BaseURLHasV1: baseURLHasV1,
-		}, nil
-	}
-
-	message, err := flow.Generate(ctx, "Reply with only: ok")
-	latencyMS = time.Since(start).Milliseconds()
-	if err != nil {
-		return &TestResult{
-			Success:      false,
-			Message:      err.Error(),
-			Endpoint:     endpointURL,
-			LatencyMS:    latencyMS,
-			BaseURLHasV1: baseURLHasV1,
-		}, nil
-	}
-	responseMessage := "model call succeeded"
-	if message != nil && strings.TrimSpace(message.Content) != "" {
-		responseMessage = strings.TrimSpace(message.Content)
 	}
 	return &TestResult{
 		Success:      true,
@@ -817,6 +795,88 @@ func (m *ManagerDb) TestConnectivity(ctx context.Context, orgID uint, req *TestR
 		LatencyMS:    latencyMS,
 		BaseURLHasV1: baseURLHasV1,
 	}, nil
+}
+
+const (
+	// connectivityTestSystemPrompt 连通性测试的系统提示词。
+	connectivityTestSystemPrompt = "You are testing Leros LLM connectivity. Reply with only: ok"
+	// connectivityTestUserPrompt 连通性测试的用户输入。
+	connectivityTestUserPrompt = "Reply with only: ok"
+	// connectivityTestSuccessMessage 上游未返回文本内容时的兜底成功提示。
+	connectivityTestSuccessMessage = "model call succeeded"
+)
+
+// callConnectivityEndpoint 用指定端点执行一次连通性调用，返回模型回复文本。
+// 与 TestConnectivity 共用同一套提示词，保证不同前缀的两次调用可比。
+func callConnectivityEndpoint(ctx context.Context, provider, apiKey, modelName, endpointURL string) (string, error) {
+	chatModel, err := pkgeino.NewChatModel(ctx, &pkgeino.ChatModelConfig{
+		Provider: provider,
+		APIKey:   apiKey,
+		Model:    modelName,
+		BaseURL:  endpointURL,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	flow, err := pkgeino.NewFlow(ctx, &pkgeino.FlowConfig{
+		Model:        chatModel,
+		SystemPrompt: connectivityTestSystemPrompt,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	message, err := flow.Generate(ctx, connectivityTestUserPrompt)
+	if err != nil {
+		return "", err
+	}
+	if message != nil && strings.TrimSpace(message.Content) != "" {
+		return strings.TrimSpace(message.Content), nil
+	}
+	return connectivityTestSuccessMessage, nil
+}
+
+// supportsV1PrefixSwitch 判断该 provider 是否走 OpenAI 兼容协议。
+// 只有这类上游使用 ".../v1/chat/completions" 形式的路径，切换 /v1 前缀才有意义；
+// anthropic 等协议由 SDK 自行拼接路径前缀，切换反而会拼出错误地址。
+func supportsV1PrefixSwitch(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case pkgeino.ProviderOpenAI, pkgeino.ProviderCustom, pkgeino.ProviderDeepSeek,
+		pkgeino.ProviderQwen, pkgeino.ProviderGemini, pkgeino.ProviderArk, pkgeino.ProviderOpenRouter:
+		return true
+	default:
+		return false
+	}
+}
+
+// isEndpointPathError 判断错误是否由"请求路径不对"引起，从而可以通过切换 /v1 前缀修复：
+// 上游返回 HTML 页面而非 JSON（网关首页兜底路由），或该路径不存在（404）。
+// 其余错误（401 鉴权失败、模型名不存在等）重试另一种前缀没有意义。
+func isEndpointPathError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if pkgeino.IsUpstreamNotJSON(err) {
+		return true
+	}
+	msg := err.Error()
+	// 兼容未经过响应守卫的链路：JSON 解析器读到 HTML 首页时报出的语法错误。
+	return strings.Contains(msg, "invalid character '<'") || strings.Contains(msg, "404")
+}
+
+// connectivityErrorMessage 把响应守卫产生的错误压平成单条可读信息。
+// TestResult.Message 会直接展示给用户，因此去掉 eino/SDK 的包裹前缀
+// （"failed to create chat completion"、node path 等），只保留定位问题所需的内容。
+func connectivityErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var notJSON *pkgeino.UpstreamNotJSONError
+	if errors.As(err, &notJSON) {
+		return notJSON.Error()
+	}
+	return err.Error()
 }
 
 // ResolveDefaultLLMModel 解析组织的默认 LLM 模型。
