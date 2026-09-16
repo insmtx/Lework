@@ -27,6 +27,21 @@ logger:
 
 cli:
   default: "leros"
+  # MCP 注入策略：约束外部 CLI 连接 MCP 的行为。
+  # 外部 CLI（opencode）会在首个 LLM 请求之前同步连接全部 MCP，默认单 server 30s
+  # 且串行尝试两种 transport，因此一个不可达的 MCP 最坏阻塞 60s，直接体现为首 token 延迟。
+  mcp:
+    # 连接超时（毫秒）。<=0 表示沿用外部 CLI 默认值（30s）。
+    timeout_ms: 1500
+    # 需要禁用的 MCP 名称（大小写不敏感）：以 enabled=false 注入，直接跳过连接。
+    disabled: []
+
+# Worker 调度容量与运行生命周期。
+run:
+  # trailing debounce 窗口（毫秒）。首 token 延迟敏感场景下调到 1 可去掉这段固定等待，
+  # 代价是同一窗口内的多条用户消息不再合并为一次运行。<=0 时回落默认 1500。
+  debounce_ms: 1
+  max_concurrency: 10
 
 gitea:
   enabled: false

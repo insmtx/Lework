@@ -210,8 +210,17 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		logs.Info("Worker ops routes registered successfully")
 
 		// Start background consumers
+		// runDispatcher 在下面的消费器分支中构造，并同时注入消息投递与自动化调度，
+		// 因此声明在外层作用域。
+		var runDispatcher *service.ReliableTaskDispatcher
 		if !cfg.Server.DisableEventConsumers {
-			go service.NewReliableTaskDispatcher(db, eventbus, service.NewSessionMessageTaskExpiryProjector(db)).Run(context.Background())
+			runDispatcher = service.NewReliableTaskDispatcher(db, eventbus, service.NewSessionMessageTaskExpiryProjector(db))
+			// 装配发件箱唤醒器：消息入库提交后立刻派发，避免固定轮询间隔进入首 token 关键路径。
+			// 轮询仍然保留作为兜底（其它写入方、唤醒丢失、跨进程写入）。
+			if aware, ok := sessionService.(service.RunDispatchNotifierAware); ok {
+				aware.SetRunDispatchNotifier(runDispatcher)
+			}
+			go runDispatcher.Run(context.Background())
 			logs.Info("Reliable task outbox dispatcher started")
 			// 统一的 run state projector，消费 org.*.session.*.run.state
 			// 替代旧分散的 StartSessionRunStarted + StartSessionArtifactDeclared + StartSessionCompleted
@@ -236,6 +245,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 		// 自动化定时任务调度器（阶段二）；受 server.automation_scheduler.enabled 门控
 		automationPoster := service.NewMessagePoster(db, permSvc, eventbus, inferrer, giteaClient, cfg.Gitea, cfg.Env, userRepo, orgRepo, !cfg.Server.DisableEventConsumers)
+		if runDispatcher != nil {
+			automationPoster.SetRunDispatchNotifier(runDispatcher)
+		}
 		if !cfg.Server.DisableEventConsumers && service.StartAutomationScheduler(context.Background(), db, cfg.AutomationScheduler, automationPoster) {
 			logs.Info("Automation scheduler started")
 		}

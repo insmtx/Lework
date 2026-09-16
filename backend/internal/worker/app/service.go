@@ -92,6 +92,7 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 		runtime, err := newRuntime(normalized, status.Path, agent.RuntimeAdapterOptions{
 			InteractionHandler: opts.InteractionRouter,
 			MCPServers:         buildMCPServersFromConfig(opts.CLIConfig),
+			MCPPolicy:          buildMCPInjectPolicy(opts.CLIConfig),
 		})
 		if err != nil {
 			return nil, err
@@ -324,6 +325,18 @@ func buildMCPServersFromConfig(cliCfg *config.CLIEnginesConfig) []agent.MCPServe
 		return nil
 	}
 	return []agent.MCPServerConfig{cfg}
+}
+
+// buildMCPInjectPolicy 把 worker 的 MCP 配置转换为注入到外部 CLI 的 MCP 策略。
+// 未配置时返回零值，表示不改变外部 CLI 的默认连接行为。
+func buildMCPInjectPolicy(cliCfg *config.CLIEnginesConfig) agent.MCPInjectPolicy {
+	if cliCfg == nil || cliCfg.MCP == nil {
+		return agent.MCPInjectPolicy{}
+	}
+	return agent.MCPInjectPolicy{
+		TimeoutMS: cliCfg.MCP.TimeoutMS,
+		Disabled:  append([]string(nil), cliCfg.MCP.Disabled...),
+	}
 }
 
 func registerTools(registry *tools.Registry, memoryStore *localmemory.Store) error {

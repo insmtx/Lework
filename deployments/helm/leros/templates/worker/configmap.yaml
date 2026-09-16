@@ -24,6 +24,19 @@ data:
 
     cli:
       default: {{ .Values.worker.config.cli.default | quote }}
+      {{- with .Values.worker.config.cli.mcp }}
+
+      # MCP 注入策略：外部 CLI 会在首个 LLM 请求之前同步连接全部 MCP，
+      # 未设上限时一个不可达的 MCP 足以把首 token 阻塞到分钟级。
+      mcp:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.worker.config.run }}
+
+    # 调度容量与运行生命周期；debounce_ms 是首 token 前的固定等待。
+    run:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     {{- with .Values.worker.config.gitea }}
 
     gitea:

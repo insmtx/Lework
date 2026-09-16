@@ -65,6 +65,17 @@ type sessionService struct {
 	userRepo        account.UserRepository
 	orgRepo         account.OrgRepository
 	dispatchEnabled bool
+	// dispatchNotifier 由 SetRunDispatchNotifier 在服务开始接收请求前注入。
+	dispatchNotifier RunDispatchNotifier
+}
+
+// SetRunDispatchNotifier 注入发件箱唤醒器，用于在消息入库提交后立刻派发 Worker 任务。
+// 必须在服务开始接收请求前调用。
+func (s *sessionService) SetRunDispatchNotifier(notifier RunDispatchNotifier) {
+	if s == nil {
+		return
+	}
+	s.dispatchNotifier = notifier
 }
 
 func NewSessionService(db *gorm.DB, perm *PermissionService, eventbus eventbus.EventBus, inferrer AssistantInferrer, giteaClient *gitea.Client, giteaCfg *config.GiteaConfig, env string, modelInvoker modelrouter.Invoker, userRepo account.UserRepository, orgRepo account.OrgRepository, dispatchEnabled ...bool) contract.SessionService {
@@ -478,7 +489,9 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 }
 
 func (s *sessionService) newMessagePoster() *MessagePoster {
-	return NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.userRepo, s.orgRepo, s.dispatchEnabled)
+	poster := NewMessagePoster(s.db, s.perm, s.eventbus, s.inferrer, s.giteaClient, s.giteaCfg, s.env, s.userRepo, s.orgRepo, s.dispatchEnabled)
+	poster.SetRunDispatchNotifier(s.dispatchNotifier)
+	return poster
 }
 
 func (s *sessionService) CreateInitialMessage(ctx context.Context, req *contract.NewMessageRequest) (*contract.NewMessageResponse, error) {

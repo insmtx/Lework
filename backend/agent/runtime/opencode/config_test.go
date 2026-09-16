@@ -36,6 +36,7 @@ func TestBuildServerEnvOverridesInheritedOpenCodeDB(t *testing.T) {
 		"secret",
 		"{}",
 		"/workspace/.opencode/opencode.db",
+		"",
 		[]string{"OPENCODE_DB=/tmp/inherited.db"},
 	)
 
@@ -44,6 +45,82 @@ func TestBuildServerEnvOverridesInheritedOpenCodeDB(t *testing.T) {
 		if item == "OPENCODE_DB=/tmp/inherited.db" {
 			t.Fatalf("inherited OPENCODE_DB was not overridden: %#v", env)
 		}
+	}
+}
+
+func TestEnsureOpenCodeConfigHomeCreatesIsolatedDirectory(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), openCodeDataDirName)
+
+	home, err := ensureOpenCodeConfigHome(dataDir)
+	if err != nil {
+		t.Fatalf("ensure opencode config home: %v", err)
+	}
+
+	want := filepath.Join(dataDir, openCodeConfigHomeName)
+	if home != want {
+		t.Fatalf("config home = %q, want %q", home, want)
+	}
+	info, err := os.Stat(home)
+	if err != nil {
+		t.Fatalf("stat config home: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("config home %q is not a directory", home)
+	}
+}
+
+func TestEnsureOpenCodeConfigHomeSkipsEmptyDataDir(t *testing.T) {
+	home, err := ensureOpenCodeConfigHome("  ")
+	if err != nil {
+		t.Fatalf("ensure opencode config home: %v", err)
+	}
+	if home != "" {
+		t.Fatalf("empty data dir should skip isolation, got %q", home)
+	}
+}
+
+// XDG_CONFIG_HOME 是切断宿主机 ~/.config/opencode 全局配置的唯一手段：
+// 不设置它时，宿主机的 mcp/plugin 条目会被深度合入并泄漏进每次运行。
+func TestBuildServerEnvInjectsIsolatedConfigHome(t *testing.T) {
+	env := buildServerEnv(
+		"secret",
+		"{}",
+		"/workspace/.opencode/opencode.db",
+		"/workspace/.opencode/config-home",
+		[]string{"XDG_CONFIG_HOME=/home/operator/.config"},
+	)
+
+	assertEnvContains(t, env, "XDG_CONFIG_HOME=/workspace/.opencode/config-home")
+	for _, item := range env {
+		if item == "XDG_CONFIG_HOME=/home/operator/.config" {
+			t.Fatalf("inherited XDG_CONFIG_HOME was not overridden: %#v", env)
+		}
+	}
+}
+
+func TestBuildServerEnvOmitsConfigHomeWhenIsolationDisabled(t *testing.T) {
+	env := buildServerEnv("secret", "{}", "", "", nil)
+
+	for _, item := range env {
+		if strings.HasPrefix(item, "XDG_CONFIG_HOME=") {
+			t.Fatalf("empty config home should not inject XDG_CONFIG_HOME: %#v", env)
+		}
+	}
+}
+
+// 关闭内置插件与宿主机级技能发现：这些工作同样发生在首个 LLM 请求之前，
+// 属于每条消息重复支付的一次性成本。
+func TestBuildServerEnvDisablesDefaultPluginsAndExternalSkills(t *testing.T) {
+	env := buildServerEnv("secret", "{}", "", "", nil)
+
+	for _, want := range []string{
+		"OPENCODE_DISABLE_DEFAULT_PLUGINS=1",
+		"OPENCODE_DISABLE_EXTERNAL_SKILLS=1",
+		"OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1",
+		"OPENCODE_PURE=1",
+		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
+	} {
+		assertEnvContains(t, env, want)
 	}
 }
 
@@ -276,6 +353,60 @@ func TestBuildMCPConfigBridgesSSEThroughMCPRemote(t *testing.T) {
 	command, ok := entry["command"].([]string)
 	if !ok || len(command) != 6 || command[0] != "npx" || command[5] != "sse-only" {
 		t.Fatalf("MCP command = %#v", entry["command"])
+	}
+}
+
+// timeout 同时约束 opencode 的连接阶段：单 server 会按 transport 串行尝试两种方式，
+// 每次都用该值，默认 30s，因此不可达 MCP 最坏阻塞 60s。enabled=false 则直接跳过连接。
+func TestBuildMCPConfigEmitsTimeoutAndDisabled(t *testing.T) {
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{Name: "slow", URL: "https://example.com/mcp", TimeoutMS: 1500},
+		{Name: "dead", URL: "https://dead.example.com/mcp", Disabled: true},
+		{Name: "sse-slow", Transport: "sse", URL: "https://example.com/sse", TimeoutMS: 2000},
+		{Name: "stdio-slow", Command: "npx", Args: []string{"-y", "@example/mcp"}, TimeoutMS: 2500, Disabled: true},
+	})
+
+	remote, ok := config["slow"].(map[string]any)
+	if !ok || remote["timeout"] != 1500 {
+		t.Fatalf("remote timeout = %#v, want 1500", config["slow"])
+	}
+	if _, exists := remote["enabled"]; exists {
+		t.Fatalf("non-disabled MCP should not emit enabled: %#v", remote)
+	}
+
+	dead, ok := config["dead"].(map[string]any)
+	if !ok || dead["enabled"] != false {
+		t.Fatalf("disabled MCP enabled flag = %#v, want false", config["dead"])
+	}
+	if _, exists := dead["timeout"]; exists {
+		t.Fatalf("MCP without timeout should not emit it: %#v", dead)
+	}
+
+	sse, ok := config["sse-slow"].(map[string]any)
+	if !ok || sse["timeout"] != 2000 || sse["type"] != "local" {
+		t.Fatalf("sse entry = %#v, want local type with timeout 2000", config["sse-slow"])
+	}
+
+	stdio, ok := config["stdio-slow"].(map[string]any)
+	if !ok || stdio["timeout"] != 2500 || stdio["enabled"] != false {
+		t.Fatalf("stdio entry = %#v, want timeout 2500 and enabled false", config["stdio-slow"])
+	}
+}
+
+// 未设置策略时不得产生新键，保证与历史注入内容逐字节一致。
+func TestBuildMCPConfigOmitsOverridesWhenUnset(t *testing.T) {
+	config := buildMCPConfig([]agent.MCPServerConfig{
+		{Name: "docs", URL: "https://example.com/mcp"},
+	})
+	entry, ok := config["docs"].(map[string]any)
+	if !ok {
+		t.Fatalf("MCP entry = %#v", config["docs"])
+	}
+	if _, exists := entry["timeout"]; exists {
+		t.Fatalf("unexpected timeout key: %#v", entry)
+	}
+	if _, exists := entry["enabled"]; exists {
+		t.Fatalf("unexpected enabled key: %#v", entry)
 	}
 }
 
