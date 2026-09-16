@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_DEPLOY_CONFIG, readDeployAppName, readDeployConfig, readDeployLogo } from "./deploy-config";
+import {
+	DEFAULT_DEPLOY_CONFIG,
+	readDeployAppName,
+	readDeployConfig,
+	readDeployLogo,
+	readXidianDemoLogin,
+	resolveXidianDemoLogin,
+	XIDIAN_DEMO_LOGIN,
+} from "./deploy-config";
 
 describe("deploy config", () => {
 	afterEach(() => {
@@ -33,5 +41,23 @@ describe("deploy config", () => {
 		window.__DEPLOYCONFIG = { version: "private", mode: "acme", appName: "Lework", logo: "" };
 		expect(readDeployAppName()).toBeNull();
 		expect(readDeployLogo()).toBeNull();
+	});
+
+	it("prefills xidian demo login only for private xidian mode", () => {
+		expect(resolveXidianDemoLogin(false, "xidian")).toBeNull();
+		expect(resolveXidianDemoLogin(true, "acme")).toBeNull();
+		expect(resolveXidianDemoLogin(true, "Xidian")).toEqual({
+			account: XIDIAN_DEMO_LOGIN.account,
+			password: XIDIAN_DEMO_LOGIN.password,
+		});
+	});
+
+	it("reads xidian demo login from packed deploy config", () => {
+		window.__DEPLOYCONFIG = { version: "private", mode: "xidian", appName: "Lework", logo: "" };
+		expect(readXidianDemoLogin(true)).toEqual({
+			account: "abc@xidian.com",
+			password: "abc123456",
+		});
+		expect(readXidianDemoLogin(false)).toBeNull();
 	});
 });

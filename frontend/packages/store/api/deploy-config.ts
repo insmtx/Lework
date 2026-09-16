@@ -62,3 +62,26 @@ export function readDeployAppName(): string | null {
 	if (!appName || appName === DEFAULT_DEPLOY_APP_NAME) return null;
 	return appName;
 }
+
+const XIDIAN_DEPLOY_MODE = "xidian";
+
+/** 西电私有化演示登录账号，仅用于打开登录窗时回填。 */
+export const XIDIAN_DEMO_LOGIN = {
+	account: "abc@xidian.com",
+	password: "abc123456",
+} as const;
+
+/** 私有化且部署 mode=xidian 时回填演示账密。 */
+export function resolveXidianDemoLogin(
+	isPrivate: boolean,
+	mode: string,
+): { account: string; password: string } | null {
+	if (!isPrivate) return null;
+	if (mode.trim().toLowerCase() !== XIDIAN_DEPLOY_MODE) return null;
+	return XIDIAN_DEMO_LOGIN;
+}
+
+/** 读取当前打包配置下的西电演示账密；不满足条件时返回 null。 */
+export function readXidianDemoLogin(isPrivate: boolean): { account: string; password: string } | null {
+	return resolveXidianDemoLogin(isPrivate, readDeployConfig().mode);
+}

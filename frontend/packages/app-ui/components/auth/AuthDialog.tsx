@@ -8,6 +8,7 @@ import {
 	authApi,
 	isPrivateDeployment,
 	type PendingOrganizationLoginResponse,
+	readXidianDemoLogin,
 	useAuthStore,
 	useChatStore,
 	useDAStore,
@@ -347,6 +348,7 @@ function AuthDialog({
 	const phoneCodeLoginEnabled = useGlobalConfigStore((s) => s.phoneCodeLoginEnabled);
 	// 中文注释：私有化客户端按 GlobalConfig 二选一；SaaS 客户端固定手机号，与填了什么服务地址无关。
 	const mode: AuthMode = isPrivateDeployment && !phoneCodeLoginEnabled ? "password" : "phone";
+	const xidianDemoLogin = readXidianDemoLogin(isPrivateDeployment);
 	const { logo: customBrandLogo, name: brandName } = useBrandIdentity();
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
@@ -365,8 +367,8 @@ function AuthDialog({
 		if (!open) return;
 		setPhone("");
 		setCode("");
-		setAccount("");
-		setPassword("");
+		setAccount(xidianDemoLogin?.account ?? "");
+		setPassword(xidianDemoLogin?.password ?? "");
 		setAgreed(true);
 		setSendingCode(false);
 		setCountdown(0);
@@ -374,7 +376,7 @@ function AuthDialog({
 		setTouched({});
 		setErrorMessage("");
 		setShowPassword(false);
-	}, [open]);
+	}, [open, xidianDemoLogin]);
 
 	useEffect(() => {
 		if (countdown <= 0) return;
