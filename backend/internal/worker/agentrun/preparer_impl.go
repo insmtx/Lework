@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/image/draw"
 
@@ -29,6 +31,51 @@ import (
 	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
 	"github.com/ygpkg/yg-go/logs"
 )
+
+// 附件下载的超时约束。
+//
+// 附件下载发生在 run.started 之后、首个 LLM 请求之前，且失败只告警不终止运行，
+// 因此没有任何超时时，一个不可达的附件域名会把单次运行阻塞在 TCP 建连上
+// （实测 ~30.6s/次；带两个附件时叠加成 61s 的首 token 延迟档位）。
+// 建连超时是消除该档位的关键：域名不可达时会在该时限内失败，
+// 而总超时对正常的大附件保持宽松（单附件上限 100MiB 仍需时间下载）。
+const (
+	// attachmentDialTimeout 是附件下载的建连与 TLS 握手超时。
+	attachmentDialTimeout = 10 * time.Second
+	// attachmentResponseHeaderTimeout 是等待响应头的超时。
+	attachmentResponseHeaderTimeout = 30 * time.Second
+	// attachmentTotalTimeout 是单个附件下载的总时长上限。
+	attachmentTotalTimeout = 120 * time.Second
+)
+
+// attachmentHTTPClient 是附件下载专用客户端；不使用 http.DefaultClient，
+// 后者没有超时且全局共享，会把整个运行时阻塞在慢附件上。
+var attachmentHTTPClient = newAttachmentHTTPClient(
+	attachmentDialTimeout,
+	attachmentResponseHeaderTimeout,
+	attachmentTotalTimeout,
+)
+
+// newAttachmentHTTPClient 按给定超时构造附件下载客户端。
+// 抽成函数是为了让测试注入毫秒级超时，验证下载路径确实受限而非挂起。
+//
+// 实现上从 http.DefaultTransport 克隆后只覆盖超时项，而不是新造一个 Transport：
+// 后者会一并丢掉 ProxyFromEnvironment（附件域名常需经代理访问，丢掉会导致
+// 下载绕开代理而失败）、ForceAttemptHTTP2 与连接池默认值。替换 http.DefaultClient
+// 的目的是给下载加上限，不是改变它的可达性与协议行为。
+func newAttachmentHTTPClient(dialTimeout, responseHeaderTimeout, totalTimeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{
+		Timeout:   dialTimeout,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	transport.TLSHandshakeTimeout = dialTimeout
+	transport.ResponseHeaderTimeout = responseHeaderTimeout
+	return &http.Client{
+		Timeout:   totalTimeout,
+		Transport: transport,
+	}
+}
 
 // WorkspaceManager prepares task workspaces (clone/populate repo).
 type WorkspaceManager interface {
@@ -180,7 +227,7 @@ func downloadAttachment(ctx context.Context, url string, destPath string) error 
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := attachmentHTTPClient.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("http get: %w", err)
 	}
@@ -357,7 +404,7 @@ func downloadAttachmentBytes(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := attachmentHTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("http get: %w", err)
 	}

@@ -18,6 +18,7 @@ type Driver struct {
 	invoker            Invoker
 	interactionHandler agent.InteractionHandler
 	mcpServers         []agent.MCPServerConfig
+	mcpPolicy          agent.MCPInjectPolicy
 }
 
 // NewDriver creates shared infrastructure for one concrete CLI Runtime.
@@ -41,6 +42,7 @@ func NewDriver(
 		option := options[0]
 		driver.interactionHandler = option.InteractionHandler
 		driver.mcpServers = append([]agent.MCPServerConfig(nil), option.MCPServers...)
+		driver.mcpPolicy = option.MCPPolicy
 	}
 	return driver, nil
 }
@@ -87,7 +89,7 @@ func (r *Driver) RunInvocation(
 		ExtraEnv:        append([]string(nil), request.ExtraEnv...),
 		PermissionMode:  request.Policy.PermissionMode,
 		ApprovalHandler: r.interactionHandler,
-		MCPServers:      mergeMCPServers(r.mcpServers, request.MCPServers),
+		MCPServers:      r.mcpPolicy.Apply(mergeMCPServers(r.mcpServers, request.MCPServers)),
 	})
 	if err != nil {
 		return agent.ExecutionResult{}, err

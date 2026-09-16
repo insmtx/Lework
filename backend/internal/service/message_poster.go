@@ -48,6 +48,17 @@ type MessagePoster struct {
 	userRepo        account.UserRepository
 	orgRepo         account.OrgRepository
 	dispatchEnabled bool
+	// dispatchNotifier 由 SetRunDispatchNotifier 在服务开始接收请求前注入，
+	// 用于在可靠任务入库提交后立刻唤醒发件箱派发器。
+	dispatchNotifier RunDispatchNotifier
+}
+
+// SetRunDispatchNotifier 注入发件箱唤醒器。必须在服务开始接收请求前调用。
+func (p *MessagePoster) SetRunDispatchNotifier(notifier RunDispatchNotifier) {
+	if p == nil {
+		return
+	}
+	p.dispatchNotifier = notifier
 }
 
 // ErrRunDispatchUnavailable is returned when this Server cannot accept Worker work.
@@ -245,6 +256,10 @@ func (p *MessagePoster) PostMessage(
 
 	if queued {
 		logs.InfoContextf(ctx, "queued reliable task: session_id=%s message_id=%d", session.PublicID, message.ID)
+		// 事务已提交，立刻唤醒派发器：把发件箱的固定轮询等待从关键路径移除。
+		if p.dispatchNotifier != nil {
+			p.dispatchNotifier.NotifyRunDispatch()
+		}
 	}
 	return message, nil
 }

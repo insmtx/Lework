@@ -103,4 +103,11 @@ type CLIEnginesConfig struct {
 type MCPConfig struct {
 	URL         string `yaml:"url,omitempty" json:"url,omitempty"`
 	BearerToken string `yaml:"bearer_token,omitempty" json:"bearer_token,omitempty"`
+	// TimeoutMS 是注入到外部 CLI 的 MCP 连接超时（毫秒）。
+	// 外部 CLI 默认 30s/次且单 server 串行尝试两种 transport，未设上限时一个不可达
+	// 的 MCP 会把首 token 阻塞到分钟级。<=0 表示不下发，沿用外部 CLI 默认值。
+	TimeoutMS int `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
+	// Disabled 列出需要标记为禁用的 MCP 名称（大小写不敏感）。
+	// 命中的 MCP 会以 enabled=false 注入，外部 CLI 直接跳过连接。
+	Disabled []string `yaml:"disabled,omitempty" json:"disabled,omitempty"`
 }

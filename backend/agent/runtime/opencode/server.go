@@ -242,11 +242,15 @@ func startSingleOpenCodeServer(
 	if err != nil {
 		return nil, err
 	}
+	configHome, err := ensureOpenCodeConfigHome(dataDir)
+	if err != nil {
+		return nil, err
+	}
 	logs.Infof("OpenCode config injected: content=%s", sanitizeConfigContent(configContent))
-	logs.Debugf("OpenCode server config prepared: provider=%s model=%s mcp_count=%d database=%s",
-		providerID, modelCfg.Model, len(mcpServers), databasePath)
+	logs.Debugf("OpenCode server config prepared: provider=%s model=%s mcp_count=%d database=%s config_home=%s",
+		providerID, modelCfg.Model, len(mcpServers), databasePath, configHome)
 
-	serverEnv := buildServerEnv(password, configContent, databasePath, baseEnv)
+	serverEnv := buildServerEnv(password, configContent, databasePath, configHome, baseEnv)
 
 	// 4. 启动子进程
 	addr := fmt.Sprintf("127.0.0.1:%d", port)

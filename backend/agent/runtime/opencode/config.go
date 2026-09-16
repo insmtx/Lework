@@ -24,6 +24,17 @@ const (
 	openCodeDataDirName = ".opencode"
 	// openCodeDBName 是 OpenCode 会话数据库文件名。
 	openCodeDBName = "opencode.db"
+	// openCodeConfigHomeName 是 opencode 数据目录下用作 XDG_CONFIG_HOME 的子目录。
+	//
+	// 为什么需要它：opencode 的全局配置目录固定为 $XDG_CONFIG_HOME/opencode，
+	// 只设置 OPENCODE_CONFIG_DIR 不会改变该路径，因此宿主机的
+	// ~/.config/opencode/opencode.json 仍会被读取并深度合入最终配置
+	// （其中的 mcp/plugin 条目会泄漏进每一次运行）。把 XDG_CONFIG_HOME 指向
+	// 该隔离目录后，全局配置不再存在，注入的 OPENCODE_CONFIG_CONTENT 即最终配置。
+	//
+	// 注意：该目录必须持久存在。它是配置目录而非缓存目录，不能与
+	// XDG_CACHE_HOME 混用——清空缓存目录会使 models.json 缺失。
+	openCodeConfigHomeName = "config-home"
 )
 
 // buildConfigContent 根据 ModelConfig、MCPServerConfig 列表和任务 Skill 目录
@@ -158,6 +169,10 @@ func sanitizeConfigContent(configContent string) string {
 //
 //	Remote (HTTP):  { "type": "remote", "url": "...", "headers": { "Authorization": "Bearer ..." } }
 //	Local (stdio):  { "type": "local", "command": ["cmd", ...], "environment": { ... } }
+//
+// 两种形态都支持 timeout(毫秒) 与 enabled。timeout 同时作用于连接阶段：
+// opencode 对单个 server 会按连接方式串行尝试（streamable-http → sse），
+// 每次都用该 timeout，默认值 30s，因此一个不可达的 MCP 最坏阻塞 60s。
 func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 	if len(mcps) == 0 {
 		return nil
@@ -171,7 +186,7 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 		if m.URL != "" {
 			if strings.EqualFold(m.Transport, "sse") {
 				command := []string{"npx", "-y", "mcp-remote", m.URL, "--transport", "sse-only"}
-				mcpServers[name] = map[string]any{"type": "local", "command": command}
+				mcpServers[name] = applyMCPOverrides(map[string]any{"type": "local", "command": command}, m)
 				continue
 			}
 			// HTTP 传输 — remote type
@@ -189,7 +204,7 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 			if len(headers) > 0 {
 				entry["headers"] = headers
 			}
-			mcpServers[name] = entry
+			mcpServers[name] = applyMCPOverrides(entry, m)
 		} else if m.Command != "" {
 			// Stdio 传输 — local type
 			cmdArgs := []string{m.Command}
@@ -201,10 +216,22 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 			if len(m.Env) > 0 {
 				entry["environment"] = m.Env
 			}
-			mcpServers[name] = entry
+			mcpServers[name] = applyMCPOverrides(entry, m)
 		}
 	}
 	return mcpServers
+}
+
+// applyMCPOverrides 按 MCP 策略写入 timeout 与 enabled。
+// 仅在显式设置时写入，未设置时不产生额外键，保持与历史注入内容一致。
+func applyMCPOverrides(entry map[string]any, m agent.MCPServerConfig) map[string]any {
+	if m.TimeoutMS > 0 {
+		entry["timeout"] = m.TimeoutMS
+	}
+	if m.Disabled {
+		entry["enabled"] = false
+	}
+	return entry
 }
 
 func cloneHeaders(source map[string]string) map[string]string {
@@ -241,10 +268,26 @@ func ensureOpenCodeDBPath(dataDir string) (string, error) {
 	return filepath.Join(dir, openCodeDBName), nil
 }
 
+// ensureOpenCodeConfigHome 创建并返回隔离用的 XDG_CONFIG_HOME 目录。
+// 返回空字符串表示未启用隔离（dataDir 为空），调用方应跳过该环境变量。
+func ensureOpenCodeConfigHome(dataDir string) (string, error) {
+	dir := strings.TrimSpace(dataDir)
+	if dir == "" {
+		return "", nil
+	}
+	home := filepath.Join(dir, openCodeConfigHomeName)
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return "", fmt.Errorf("create opencode config home %s: %w", home, err)
+	}
+	return home, nil
+}
+
 // buildServerEnv 构建 opcode serve 子进程所需的环境变量。
 // 返回格式为 "KEY=VALUE" 的字符串切片，附加到 baseEnv 之后。
-func buildServerEnv(password, configContent, databasePath string, baseEnv []string) []string {
-	env := make([]string, 0, 13)
+//
+// configHome 为隔离用的 XDG_CONFIG_HOME；为空表示不隔离（保持历史行为）。
+func buildServerEnv(password, configContent, databasePath, configHome string, baseEnv []string) []string {
+	env := make([]string, 0, 18)
 
 	// 服务器认证
 	env = append(env, "OPENCODE_SERVER_PASSWORD="+password)
@@ -258,10 +301,26 @@ func buildServerEnv(password, configContent, databasePath string, baseEnv []stri
 	}
 
 	// 隔离环境变量：确保子进程不读取宿主机的配置文件或插件
+	//
+	// XDG_CONFIG_HOME 是唯一能切断宿主机 ~/.config/opencode 全局配置的手段：
+	// opencode 的全局配置路径固定为 $XDG_CONFIG_HOME/opencode，而
+	// OPENCODE_CONFIG_DIR 只影响附加的配置目录扫描，不改变该路径。
+	// 宿主机全局配置中的 mcp/plugin 条目会被深度合入并泄漏进每次运行。
+	if configHome != "" {
+		env = append(env, "XDG_CONFIG_HOME="+configHome)
+	}
 	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
 	env = append(env, "OPENCODE_PURE=1")
+	// 内置插件是 Codex/Copilot/Modal/GitLab/Poe/Cloudflare/Azure/DigitalOcean/
+	// Snowflake/Xai 等第三方 provider 的鉴权插件；Leros 注入自建的 OpenAI 兼容
+	// provider 并自带 API Key，不经过这些鉴权流程，禁用它们不影响任何既有能力。
+	env = append(env, "OPENCODE_DISABLE_DEFAULT_PLUGINS=1")
 	env = append(env, "OPENCODE_DISABLE_AUTOUPDATE=1")
 	env = append(env, "OPENCODE_DISABLE_MODELS_FETCH=1")
+	// 关闭宿主机级技能发现：~/.claude 与 ~/.agents 的目录扫描同样发生在
+	// 首个 LLM 请求之前，且这些技能并不属于当前会话。
+	env = append(env, "OPENCODE_DISABLE_EXTERNAL_SKILLS=1")
+	env = append(env, "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1")
 
 	// 启用 plan mode 和 CLI client 模式
 	env = append(env, "OPENCODE_EXPERIMENTAL_PLAN_MODE=true")

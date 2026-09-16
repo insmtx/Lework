@@ -235,6 +235,14 @@ worker:
     logLevel: info
     cli:
       default: opencode
+      # mcp 可选：timeout_ms 约束 MCP 连接超时（毫秒），disabled 列出需跳过的 MCP 名称。
+      # mcp:
+      #   timeout_ms: 1500
+      #   disabled: []
+    # run 可选：debounce_ms 是首 token 前的固定等待窗口（毫秒），调小可降低延迟，
+    # 代价是窗口内的多条消息不再合并为一次运行。
+    # run:
+    #   debounce_ms: 1
 
   workspaceHostPathRoot: <dataHostPath>/workspace
   workspaceMountRoot: /workspace

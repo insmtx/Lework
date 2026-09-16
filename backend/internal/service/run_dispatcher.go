@@ -33,12 +33,29 @@ type TransactionalReliableTaskExpiryProjector interface {
 	ProjectExpiredReliableTasksTx(ctx context.Context, tx *gorm.DB, tasks []types.ReliableTask) error
 }
 
+// RunDispatchNotifier 由写入可靠任务发件箱的调用方在事务提交后触发，
+// 使派发器立刻开始下一次扫描，把固定轮询间隔从首 token 关键路径上移除。
+//
+// 实现必须是非阻塞的：通知只用于压缩等待，丢失通知由派发器自身的兜底轮询兜住。
+type RunDispatchNotifier interface {
+	NotifyRunDispatch()
+}
+
+// RunDispatchNotifierAware 是可选能力：需要唤醒发件箱的服务实现它，
+// 装配阶段据此注入派发器，避免把该能力放进对外契约接口。
+type RunDispatchNotifierAware interface {
+	SetRunDispatchNotifier(notifier RunDispatchNotifier)
+}
+
 // ReliableTaskDispatcher publishes opaque durable tasks. It deliberately has no business-command dependency.
 type ReliableTaskDispatcher struct {
 	db        *gorm.DB
 	publisher eventbus.Publisher
 	expiry    ReliableTaskExpiryProjector
 	owner     string
+	// notify 容量为 1：多次并发唤醒会被合并成一次扫描，扫描本身按批次取任务，
+	// 不会漏掉同批写入的记录。
+	notify chan struct{}
 }
 
 func NewReliableTaskDispatcher(db *gorm.DB, publisher eventbus.Publisher, expiry ...ReliableTaskExpiryProjector) *ReliableTaskDispatcher {
@@ -46,10 +63,29 @@ func NewReliableTaskDispatcher(db *gorm.DB, publisher eventbus.Publisher, expiry
 	if len(expiry) > 0 {
 		projector = expiry[0]
 	}
-	return &ReliableTaskDispatcher{db: db, publisher: publisher, expiry: projector, owner: fmt.Sprintf("reliable-task-dispatcher-%d", time.Now().UnixNano())}
+	return &ReliableTaskDispatcher{
+		db:        db,
+		publisher: publisher,
+		expiry:    projector,
+		owner:     fmt.Sprintf("reliable-task-dispatcher-%d", time.Now().UnixNano()),
+		notify:    make(chan struct{}, 1),
+	}
+}
+
+// NotifyRunDispatch 请求立即扫描一次发件箱。永不阻塞。
+func (d *ReliableTaskDispatcher) NotifyRunDispatch() {
+	if d == nil || d.notify == nil {
+		return
+	}
+	select {
+	case d.notify <- struct{}{}:
+	default:
+		// 已有待处理的唤醒信号：本次写入会被那次扫描的批次一起取出。
+	}
 }
 
 // Run blocks until ctx is cancelled and continuously publishes due outbox records.
+// 轮询间隔只是兜底：正常情况下由 NotifyRunDispatch 驱动扫描。
 func (d *ReliableTaskDispatcher) Run(ctx context.Context) {
 	if d == nil || d.db == nil || d.publisher == nil {
 		logs.WarnContextf(ctx, "run dispatch outbox disabled: missing database or publisher")
@@ -63,6 +99,7 @@ func (d *ReliableTaskDispatcher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-d.notify:
 		}
 	}
 }
