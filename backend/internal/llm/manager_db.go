@@ -97,6 +97,10 @@ var llmEndpointSuffixes = []string{
 // NormalizeLLMBaseURL 导出规范化包装，供 seed 等跨包复用。
 func NormalizeLLMBaseURL(baseURL string) string { return normalizeLLMBaseURL(baseURL) }
 
+// DetectURLHasV1 导出 /v1 路径段探测包装，供 seed 等跨包在无法实测连通性时推断前缀。
+// 必须在规范化之前调用：normalizeLLMBaseURL 会剥掉 /v1。
+func DetectURLHasV1(rawURL string) bool { return detectURLHasV1(rawURL) }
+
 // normalizeLLMBaseURL 清理 base_url 上的已知端点后缀和尾部斜杠，
 // 仅保留根地址部分。
 func normalizeLLMBaseURL(baseURL string) string {

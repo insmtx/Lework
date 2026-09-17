@@ -36,12 +36,26 @@ func withProbeSuccessNoV1(t *testing.T) {
 	t.Cleanup(func() { probeLLMHasV1Fn = orig })
 }
 
-// withProbeAlwaysFail 用"探测全部失败"替身替换探针，验证失败阻断。
+// withProbeAlwaysFail 用"探测全部失败"替身替换探针，验证失败降级而非阻断。
+// 同时断言探测收到带超时的 context，避免上游挂起把启动拖死。
 func withProbeAlwaysFail(t *testing.T) {
 	t.Helper()
 	orig := probeLLMHasV1Fn
-	probeLLMHasV1Fn = func(_ context.Context, _, _, _, _ string, _ bool) *llm.ProbeResult {
+	probeLLMHasV1Fn = func(ctx context.Context, _, _, _, _ string, _ bool) *llm.ProbeResult {
+		if _, ok := ctx.Deadline(); !ok {
+			t.Errorf("probe context must carry a deadline to bound startup delay")
+		}
 		return &llm.ProbeResult{}
+	}
+	t.Cleanup(func() { probeLLMHasV1Fn = orig })
+}
+
+// withProbeNilResult 用"探测无任何结果"替身替换探针（上游超时等场景）。
+func withProbeNilResult(t *testing.T) {
+	t.Helper()
+	orig := probeLLMHasV1Fn
+	probeLLMHasV1Fn = func(_ context.Context, _, _, _, _ string, _ bool) *llm.ProbeResult {
+		return nil
 	}
 	t.Cleanup(func() { probeLLMHasV1Fn = orig })
 }
@@ -115,7 +129,9 @@ func TestSeedLLMStoresProbeHasV1(t *testing.T) {
 	}
 }
 
-func TestSeedLLMBlocksWhenProbeFails(t *testing.T) {
+// TestSeedLLMProceedsWhenProbeFails 验证模型不可用不会阻断初始化：
+// 探测全部失败时仍落库两个模型，base_url_has_v1 回退到 base_url 是否显式带 /v1。
+func TestSeedLLMProceedsWhenProbeFails(t *testing.T) {
 	withProbeAlwaysFail(t)
 	db := newLLMTestDB(t)
 	cfg := &config.LLMConfig{
@@ -125,8 +141,67 @@ func TestSeedLLMBlocksWhenProbeFails(t *testing.T) {
 		APIKey:   "sk-test-0123456789",
 	}
 
-	if err := seedLLM(context.Background(), db, cfg); err == nil {
-		t.Fatal("expected seedLLM to fail when connectivity probe fails")
+	if err := seedLLM(context.Background(), db, cfg); err != nil {
+		t.Fatalf("seedLLM must not fail on probe failure, got %v", err)
+	}
+
+	var models []types.LLMModel
+	if err := db.Find(&models).Error; err != nil {
+		t.Fatalf("list models: %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models seeded despite probe failure, got %d", len(models))
+	}
+	for _, m := range models {
+		if m.BaseURLHasV1 {
+			t.Fatalf("expected fallback BaseURLHasV1=false for base_url without /v1, got true for code=%s", m.Code)
+		}
+	}
+}
+
+// TestSeedLLMProbeFailureKeepsV1Hint 验证探测失败时的回退遵循 base_url 显式 /v1 后缀。
+func TestSeedLLMProbeFailureKeepsV1Hint(t *testing.T) {
+	withProbeAlwaysFail(t)
+	db := newLLMTestDB(t)
+	cfg := &config.LLMConfig{
+		Provider: "openai",
+		Model:    "gpt-4o",
+		BaseURL:  "https://api.example.com/v1",
+		APIKey:   "sk-test-0123456789",
+	}
+
+	if err := seedLLM(context.Background(), db, cfg); err != nil {
+		t.Fatalf("seedLLM must not fail on probe failure, got %v", err)
+	}
+
+	var defaultModel types.LLMModel
+	if err := db.Where("code = ?", defaultLLMModelCode).First(&defaultModel).Error; err != nil {
+		t.Fatalf("find default model: %v", err)
+	}
+	if !defaultModel.BaseURLHasV1 {
+		t.Fatal("expected fallback BaseURLHasV1=true when base_url explicitly carries /v1")
+	}
+}
+
+// TestSeedLLMProceedsWhenProbeReturnsNil 验证探测完全无结果（如上游超时）时同样不阻断启动。
+func TestSeedLLMProceedsWhenProbeReturnsNil(t *testing.T) {
+	withProbeNilResult(t)
+	db := newLLMTestDB(t)
+	cfg := &config.LLMConfig{
+		Provider: "openai",
+		Model:    "gpt-4o",
+		BaseURL:  "https://api.example.com",
+		APIKey:   "sk-test-0123456789",
+	}
+
+	if err := seedLLM(context.Background(), db, cfg); err != nil {
+		t.Fatalf("seedLLM must not fail on nil probe result, got %v", err)
+	}
+
+	var count int64
+	db.Model(&types.LLMModel{}).Count(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 models seeded despite nil probe result, got %d", count)
 	}
 }
 
@@ -204,6 +279,57 @@ func TestSeedLLMDefaultModelVisionFalse(t *testing.T) {
 	}
 	if _, ok := defaultModel.Config["vision"]; ok {
 		t.Fatalf("expected no vision flag when config Vision unset, got config=%+v", defaultModel.Config)
+	}
+}
+
+func TestPreferV1ForBaseURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		baseURL string
+		want    bool
+	}{
+		{"root", "https://api.deepseek.com", false},
+		{"root with slash", "https://api.deepseek.com/", false},
+		{"v1 suffix", "https://api.deepseek.com/v1", true},
+		{"v1 suffix with slash", "https://api.deepseek.com/v1/", true},
+		{"surrounding spaces", " https://api.deepseek.com/v1 ", true},
+		{"full v1 endpoint", "https://gw.example.com/v1/chat/completions", true},
+		{"endpoint without v1", "https://gw.example.com/chat/completions", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := preferV1ForBaseURL(c.baseURL); got != c.want {
+				t.Errorf("preferV1ForBaseURL(%q) = %v, want %v", c.baseURL, got, c.want)
+			}
+		})
+	}
+}
+
+// TestSeedLLMProbeFailureKeepsV1HintForFullEndpoint 验证探测失败时，
+// 即使 base_url 写的是完整端点（.../v1/chat/completions）也能推断出 /v1 前缀。
+func TestSeedLLMProbeFailureKeepsV1HintForFullEndpoint(t *testing.T) {
+	withProbeAlwaysFail(t)
+	db := newLLMTestDB(t)
+	cfg := &config.LLMConfig{
+		Provider: "openai",
+		Model:    "gpt-4o",
+		BaseURL:  "https://gw.example.com/v1/chat/completions",
+		APIKey:   "sk-test-0123456789",
+	}
+
+	if err := seedLLM(context.Background(), db, cfg); err != nil {
+		t.Fatalf("seedLLM must not fail on probe failure, got %v", err)
+	}
+
+	var defaultModel types.LLMModel
+	if err := db.Where("code = ?", defaultLLMModelCode).First(&defaultModel).Error; err != nil {
+		t.Fatalf("find default model: %v", err)
+	}
+	if !defaultModel.BaseURLHasV1 {
+		t.Fatal("expected fallback BaseURLHasV1=true for base_url with explicit /v1 path segment")
+	}
+	if defaultModel.BaseURL != "https://gw.example.com" {
+		t.Fatalf("expected normalized base_url, got %q", defaultModel.BaseURL)
 	}
 }
 
