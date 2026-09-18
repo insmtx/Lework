@@ -8,7 +8,7 @@ import (
 
 func TestWorkerConfigParsesRunBlock(t *testing.T) {
 	var cfg WorkerConfig
-	body := []byte("org_id: 1\nworker_id: 2\nrun:\n  max_concurrency: 8\n  max_inflight: 16\n  max_interaction_waits: 5\n  debounce_ms: 1000\n  interaction_timeout_seconds: 300\n")
+	body := []byte("org_id: 1\nworker_id: 2\nrun:\n  max_concurrency: 8\n  max_inflight: 16\n  max_interaction_waits: 5\n  debounce_ms: 1000\n  interaction_timeout_seconds: 300\n  progress_idle_timeout_seconds: 1800\n")
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		t.Fatalf("unmarshal worker config: %v", err)
 	}
@@ -17,7 +17,8 @@ func TestWorkerConfigParsesRunBlock(t *testing.T) {
 	}
 	eff := cfg.Run.Effective()
 	if eff.MaxConcurrency != 8 || eff.MaxInflight != 16 || eff.MaxInteractionWaits != 5 ||
-		eff.DebounceMS != 1000 || eff.InteractionTimeoutSeconds != 300 {
+		eff.DebounceMS != 1000 || eff.InteractionTimeoutSeconds != 300 ||
+		eff.ProgressIdleTimeoutSeconds != 1800 {
 		t.Fatalf("effective run config = %+v", eff)
 	}
 }
@@ -40,6 +41,9 @@ func TestRunConfigEffectiveAppliesDefaults(t *testing.T) {
 	}
 	if eff.InteractionTimeoutSeconds != 600 {
 		t.Fatalf("default InteractionTimeoutSeconds = %d, want 600", eff.InteractionTimeoutSeconds)
+	}
+	if eff.ProgressIdleTimeoutSeconds != 600 {
+		t.Fatalf("default ProgressIdleTimeoutSeconds = %d, want 600", eff.ProgressIdleTimeoutSeconds)
 	}
 }
 

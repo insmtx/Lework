@@ -4,6 +4,7 @@ package opencode
 
 import (
 	"context"
+	"time"
 
 	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
 )
@@ -14,11 +15,12 @@ type Adapter struct {
 }
 
 // NewAdapter 创建 OpenCode Runtime 适配器（serve 模式）。
-func NewAdapter(binary string, extraEnv map[string]string, dataDir string) *Adapter {
+// progressIdleTimeout 为宿主配置的进度空闲超时，<=0 时使用内置缺省值。
+func NewAdapter(binary string, extraEnv map[string]string, dataDir string, progressIdleTimeout time.Duration) *Adapter {
 	if binary == "" {
 		binary = "opencode"
 	}
-	return &Adapter{invoker: NewServerInvoker(binary, extraEnv, dataDir)}
+	return &Adapter{invoker: NewServerInvoker(binary, extraEnv, dataDir, progressIdleTimeout)}
 }
 
 // Prepare performs provider-specific workspace setup.

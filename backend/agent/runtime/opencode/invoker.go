@@ -14,6 +14,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 )
 
+// defaultProgressIdleTimeout 是宿主未配置进度空闲超时时的内置缺省值。
 const defaultProgressIdleTimeout = 10 * time.Minute
 
 // ============================================================================
@@ -24,14 +25,21 @@ type ServerInvoker struct {
 	binary  string
 	baseEnv []string
 	dataDir string
+	// progressIdleTimeout 由宿主（Worker 配置）注入；<=0 时回退内置缺省值。
+	progressIdleTimeout time.Duration
 }
 
 // NewServerInvoker 创建新的 ServerInvoker。
-func NewServerInvoker(binary string, extraEnv map[string]string, dataDir string) *ServerInvoker {
+// progressIdleTimeout <= 0 时使用 defaultProgressIdleTimeout。
+func NewServerInvoker(binary string, extraEnv map[string]string, dataDir string, progressIdleTimeout time.Duration) *ServerInvoker {
+	if progressIdleTimeout <= 0 {
+		progressIdleTimeout = defaultProgressIdleTimeout
+	}
 	return &ServerInvoker{
-		binary:  binary,
-		baseEnv: runtimeprocess.BuildBaseEnv(extraEnv),
-		dataDir: dataDir,
+		binary:              binary,
+		baseEnv:             runtimeprocess.BuildBaseEnv(extraEnv),
+		dataDir:             dataDir,
+		progressIdleTimeout: progressIdleTimeout,
 	}
 }
 
@@ -42,7 +50,7 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest)
 	startedAt := time.Now()
 	logs.InfoContextf(ctx,
 		"OpenCode invocation starting: execution_id=%s trace_id=%s mode=%s model=%s resume=%v provider_session_id=%s work_dir=%s progress_timeout=%s",
-		req.ExecutionID, req.TraceID, req.ExecutionMode, req.Model.Model, req.Resume, req.SessionID, workDir, defaultProgressIdleTimeout,
+		req.ExecutionID, req.TraceID, req.ExecutionMode, req.Model.Model, req.Resume, req.SessionID, workDir, inv.progressIdleTimeout,
 	)
 	// 1. 启动 OpenCode 服务（healthCheckTimeout=0 使用默认 15s/次）
 	srv, err := startOpenCodeServer(
@@ -78,7 +86,7 @@ func (inv *ServerInvoker) Invoke(ctx context.Context, req cli.InvocationRequest)
 		msgDone:           make(chan struct{}),
 		sseTerminal:       make(chan struct{}),
 		progressCh:        make(chan struct{}, 1),
-		progressTimeout:   defaultProgressIdleTimeout,
+		progressTimeout:   inv.progressIdleTimeout,
 	}
 	// 2. 会话管理
 	logs.InfoContextf(ctx, "OpenCode session phase starting: execution_id=%s resume=%v provider_session_id=%s", req.ExecutionID, req.Resume, req.SessionID)

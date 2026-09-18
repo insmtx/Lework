@@ -20,12 +20,13 @@ type Runtime struct {
 }
 
 // New creates an OpenCode Runtime backed by the configured CLI binary.
+// 进度空闲超时来自宿主配置 options.ProgressIdleTimeout，零值沿用内置缺省值。
 func New(
 	binary string,
 	options agent.RuntimeAdapterOptions,
 	dataDir string,
 ) (*Runtime, error) {
-	return NewWithInvoker(NewAdapter(binary, nil, dataDir), options)
+	return NewWithInvoker(NewAdapter(binary, nil, dataDir, options.ProgressIdleTimeout), options)
 }
 
 // NewWithInvoker creates an OpenCode Runtime with an injected process invoker.
