@@ -289,24 +289,25 @@ func runTaskWorker(defaultRuntime string) {
 		return
 	}
 	runCfg := cfg.Run.Effective()
-	logs.Infof("worker.run.scheduler.config max_concurrency=%d max_inflight=%d max_queued_commands=%d queue_start_timeout_seconds=%d max_run_duration_seconds=%d max_interaction_waits=%d interaction_timeout_seconds=%d debounce_ms=%d",
+	logs.Infof("worker.run.scheduler.config max_concurrency=%d max_inflight=%d max_queued_commands=%d queue_start_timeout_seconds=%d max_run_duration_seconds=%d max_interaction_waits=%d interaction_timeout_seconds=%d progress_idle_timeout_seconds=%d debounce_ms=%d",
 		runCfg.MaxConcurrency, runCfg.MaxInflight,
 		runCfg.MaxQueuedCommands, runCfg.QueueStartTimeoutSeconds, runCfg.MaxRunDurationSeconds,
-		runCfg.MaxInteractionWaits, runCfg.InteractionTimeoutSeconds, runCfg.DebounceMS)
+		runCfg.MaxInteractionWaits, runCfg.InteractionTimeoutSeconds, runCfg.ProgressIdleTimeoutSeconds, runCfg.DebounceMS)
 	runtimeService, err := app.NewService(ctx, app.Options{
-		CLIConfig:         cfg.CLI,
-		DefaultRuntime:    defaultRuntime,
-		GiteaCfg:          cfg.Gitea,
-		Env:               cfg.Env,
-		InteractionRouter: interactionRouter,
-		ModelStore:        modelStore,
-		MemoryStore:       memoryStore,
-		SessionDBPath:     inboxDBPath,
-		ServerAddr:        cfg.ServerAddr,
-		OrgID:             cfg.OrgID,
-		WorkerID:          cfg.WorkerID,
-		AuthToken:         cfg.AuthToken,
-		SkillPublisher:    bus,
+		CLIConfig:           cfg.CLI,
+		DefaultRuntime:      defaultRuntime,
+		GiteaCfg:            cfg.Gitea,
+		Env:                 cfg.Env,
+		InteractionRouter:   interactionRouter,
+		ModelStore:          modelStore,
+		MemoryStore:         memoryStore,
+		SessionDBPath:       inboxDBPath,
+		ServerAddr:          cfg.ServerAddr,
+		OrgID:               cfg.OrgID,
+		WorkerID:            cfg.WorkerID,
+		AuthToken:           cfg.AuthToken,
+		SkillPublisher:      bus,
+		ProgressIdleTimeout: time.Duration(runCfg.ProgressIdleTimeoutSeconds) * time.Second,
 	})
 	if err != nil {
 		cancel()

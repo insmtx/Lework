@@ -235,6 +235,14 @@ worker:
     logLevel: info
     cli:
       default: opencode
+    # 可选：渲染到 worker 容器 /app/config/config.yaml 的顶层 run 块。
+    # 留空（{}）时不渲染该块，由代码内置默认值兜底（见 docs/operations/private-deployment-config.md）。
+    # 常用键：
+    #   progress_idle_timeout_seconds: 600    # 外部 CLI 无进度事件的最长等待，默认 600（10 分钟）
+    #   interaction_timeout_seconds: 600      # 审批/问题等待硬超时，默认 600
+    #   max_concurrency: 10                   # 计算并发槽，默认 10
+    #   max_run_duration_seconds: 14400       # 单个 Run 硬超时，默认 14400
+    run: {}
 
   workspaceHostPathRoot: <dataHostPath>/workspace
   workspaceMountRoot: /workspace

@@ -46,6 +46,9 @@ type Options struct {
 	WorkerID          uint
 	AuthToken         string
 	SkillPublisher    skillsync.Publisher
+	// ProgressIdleTimeout 外部 CLI Runtime 单次 Run 内无进度输出的最长等待时间；
+	// 零值表示由 Runtime 使用内置缺省值。
+	ProgressIdleTimeout time.Duration
 }
 
 // Service is the Worker composition root.
@@ -90,8 +93,9 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 		}
 		normalized := normalizeRuntimeKind(status.Name)
 		runtime, err := newRuntime(normalized, status.Path, agent.RuntimeAdapterOptions{
-			InteractionHandler: opts.InteractionRouter,
-			MCPServers:         buildMCPServersFromConfig(opts.CLIConfig),
+			InteractionHandler:  opts.InteractionRouter,
+			MCPServers:          buildMCPServersFromConfig(opts.CLIConfig),
+			ProgressIdleTimeout: opts.ProgressIdleTimeout,
 		})
 		if err != nil {
 			return nil, err

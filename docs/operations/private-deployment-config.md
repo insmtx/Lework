@@ -149,6 +149,7 @@ Helm values 占位符：
 | `run.queue_retry_seconds` | 队列满载时向 JetStream 延迟重投秒数 | `15` |
 | `run.queue_start_timeout_seconds` | 命令允许开始执行的最长等待 | `1800` |
 | `run.max_run_duration_seconds` | 单个 Run 的硬超时 | `14400` |
+| `run.progress_idle_timeout_seconds` | 外部 CLI（opencode）单次 Run 内无进度事件的最长等待，超时以“长时间未操作”中止本次 Run | `600` |
 
 > `RunConfig` 的归一化默认值统一在 `backend/config/worker.go` 的 `Effective()` 中处理，缺省项按上表回填。
 
@@ -160,6 +161,7 @@ Helm values 占位符：
 | `worker.modelrouterDebug` | 是否开启 ModelRouter 调试 |
 | `worker.workspaceInitImage` | workspace 初始化镜像 |
 | `worker.config.logLevel` / `cli.default` | 日志级别与默认 CLI 引擎 |
+| `worker.config.run.*` | Worker 运行参数，键名与 `run` 块一致（如 `progress_idle_timeout_seconds`、`max_concurrency`）；留空不渲染，由代码默认值兜底 |
 | `worker.workspaceHostPathRoot` / `workspaceMountRoot` | 工作空间宿主机/容器路径 |
 | `worker.storageHostPath` / `storageMountPath` | 存储宿主机/容器路径 |
 | `worker.nodeSelector` / `resources` | 节点选择与资源 |

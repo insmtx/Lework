@@ -29,6 +29,7 @@ type WorkerConfig struct {
 //   - QueueRetrySeconds < 1 -> 15
 //   - QueueStartTimeoutSeconds < 1 -> 1800
 //   - MaxRunDurationSeconds < 1 -> 14400
+//   - ProgressIdleTimeoutSeconds < 1 -> 600
 //
 // 归一化只在此处进行；Handler / Coordinator 复用该结果，不再重复定义另一套默认值，
 // 保证启动日志打印的就是最终生效值。
@@ -68,6 +69,9 @@ func (c *RunConfig) Effective() RunConfig {
 	if eff.MaxRunDurationSeconds <= 0 {
 		eff.MaxRunDurationSeconds = 14400
 	}
+	if eff.ProgressIdleTimeoutSeconds <= 0 {
+		eff.ProgressIdleTimeoutSeconds = 600
+	}
 	return eff
 }
 
@@ -91,6 +95,10 @@ type RunConfig struct {
 	QueueStartTimeoutSeconds int `yaml:"queue_start_timeout_seconds,omitempty" json:"queue_start_timeout_seconds,omitempty" default:"1800"`
 	// MaxRunDurationSeconds Run 从真正开始执行起的硬超时。
 	MaxRunDurationSeconds int `yaml:"max_run_duration_seconds,omitempty" json:"max_run_duration_seconds,omitempty" default:"14400"`
+	// ProgressIdleTimeoutSeconds 外部 CLI Runtime（opencode）单次 Run 内无任何进度
+	// 事件的最长等待时间（秒），缺省 600（10 分钟）。它只在 SSE 完全静默时计时，
+	// 任何业务事件都会重置；到期即中止本次 Run 以便释放计算槽，用户可回复“继续”恢复。
+	ProgressIdleTimeoutSeconds int `yaml:"progress_idle_timeout_seconds,omitempty" json:"progress_idle_timeout_seconds,omitempty" default:"600"`
 }
 
 // CLIEnginesConfig is the configuration for external AI coding CLIs.

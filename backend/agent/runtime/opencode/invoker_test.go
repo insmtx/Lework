@@ -3,9 +3,27 @@ package opencode
 import (
 	"encoding/base64"
 	"testing"
+	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
 )
+
+// TestNewServerInvokerProgressIdleTimeout 验证进度空闲超时可被宿主配置覆盖，
+// 且未配置（零值/负值）时回退内置缺省值 10 分钟。
+func TestNewServerInvokerProgressIdleTimeout(t *testing.T) {
+	custom := NewServerInvoker("opencode", nil, "", 30*time.Minute)
+	if custom.progressIdleTimeout != 30*time.Minute {
+		t.Fatalf("progressIdleTimeout = %s, want 30m", custom.progressIdleTimeout)
+	}
+
+	for _, zero := range []time.Duration{0, -time.Second} {
+		fallback := NewServerInvoker("opencode", nil, "", zero)
+		if fallback.progressIdleTimeout != defaultProgressIdleTimeout {
+			t.Fatalf("progressIdleTimeout for %s = %s, want default %s",
+				zero, fallback.progressIdleTimeout, defaultProgressIdleTimeout)
+		}
+	}
+}
 
 // TestBuildMessagePartsEmbedsAllDataBackedAttachments 验证所有携带内联数据的
 // 多模态附件都注入为 file part，且 Filename 由 uploadRelDir 与 Name 拼接（带 uploads/ 前缀）。

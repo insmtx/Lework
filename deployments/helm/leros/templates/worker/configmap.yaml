@@ -24,6 +24,11 @@ data:
 
     cli:
       default: {{ .Values.worker.config.cli.default | quote }}
+    {{- with .Values.worker.config.run }}
+
+    run:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     {{- with .Values.worker.config.gitea }}
 
     gitea:
