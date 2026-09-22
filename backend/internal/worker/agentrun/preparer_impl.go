@@ -577,9 +577,19 @@ func (p *preparer) Prepare(ctx context.Context, req *agentrundomain.RunRequest) 
 			return nil, cleanup, fmt.Errorf("prepare runtime tools: %w", err)
 		}
 	}
+	runtimeKind := strings.TrimSpace(cloned.Runtime.Kind)
 	var mcpServers []agent.MCPServerConfig
-	if strings.EqualFold(strings.TrimSpace(cloned.Runtime.Kind), agent.RuntimeKindOpenCode) {
+	if runtimeSupportsMCPConnectors(runtimeKind) {
 		mcpServers = prepareMCPServers(ctx, cloned.Plugins)
+		if len(mcpServers) > 0 {
+			logs.InfoContextf(ctx, "connector MCP prepared for run: runtime=%s count=%d servers=%s",
+				runtimeKind, len(mcpServers), describeConnectorMCP(mcpServers))
+		}
+	} else if pluginCount := countMCPPluginSnapshots(cloned.Plugins); pluginCount > 0 {
+		// 中文注释：连接器只对自带 MCP 客户端的 CLI runtime 生效，内置 runtime 不支持时必须显式告警，
+		// 否则「项目已绑定连接器但模型没有工具」在日志里完全不可见。
+		logs.WarnContextf(ctx, "connector MCP skipped: runtime %q does not accept MCP connectors: plugin_count=%d",
+			runtimeKind, pluginCount)
 	}
 	connectorEnv := prepareConnectorRuntimeEnv(ctx, cloned.Plugins)
 	runtimeEnv := append([]string(nil), connectorEnv...)
@@ -795,4 +805,48 @@ func (p *preparer) resolveProviderSession(ctx context.Context, req *agentrundoma
 		}
 	}
 	return agent.ProviderSession{}
+}
+
+// runtimeSupportsMCPConnectors 判断该 runtime 是否接受运行期注入的 MCP 连接器配置。
+// claude/codex/opencode 各自携带 MCP 客户端，内置 leros runtime 只暴露内置工具注册表。
+func runtimeSupportsMCPConnectors(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case agent.RuntimeKindClaude, agent.RuntimeKindCodex, agent.RuntimeKindOpenCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// countMCPPluginSnapshots 统计快照中的 MCP 连接器数量，用于在 runtime 不支持时给出告警。
+func countMCPPluginSnapshots(snapshots []agentrundomain.PluginSnapshot) int {
+	count := 0
+	for _, snapshot := range snapshots {
+		if strings.EqualFold(strings.TrimSpace(snapshot.Kind), "mcp") {
+			count++
+		}
+	}
+	return count
+}
+
+// describeConnectorMCP 输出连接器 MCP 的日志摘要：名称、传输方式、主机名与是否携带
+// 认证信息，绝不包含凭据值。
+func describeConnectorMCP(configs []agent.MCPServerConfig) string {
+	parts := make([]string, 0, len(configs))
+	for _, config := range configs {
+		transportKind := strings.TrimSpace(config.Transport)
+		if transportKind == "" {
+			transportKind = "stdio"
+		}
+		auth := "none"
+		if len(config.Headers) > 0 || strings.TrimSpace(config.BearerToken) != "" {
+			auth = "present"
+		}
+		item := fmt.Sprintf("%s[%s,auth=%s", config.Name, transportKind, auth)
+		if parsed, err := url.Parse(strings.TrimSpace(config.URL)); err == nil && parsed.Host != "" {
+			item += ",host=" + parsed.Host
+		}
+		parts = append(parts, item+"]")
+	}
+	return strings.Join(parts, " ")
 }

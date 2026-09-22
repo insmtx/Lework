@@ -184,6 +184,7 @@ func TestCodexUsesTaskRootAndPreservesRunEnvironment(t *testing.T) {
 		t.Fatalf("Codex home = %q", got)
 	}
 	env := buildAppServerEnv(
+		context.Background(),
 		[]string{agent.RunSkillsDirEnvVar + "=" + taskDir + "/skills", "NETEASE_EMAIL_USER=user@example.com"},
 		agent.ModelConfig{APIKey: "test-key", BaseURL: "https://example.com"},
 		nil,

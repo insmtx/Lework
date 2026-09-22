@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,11 +146,71 @@ func sanitizeConfigContent(configContent string) string {
 			delete(opts, "apiKey")
 		}
 	}
+	redactMCPCredentials(cfg)
 	cleaned, err := json.Marshal(cfg)
 	if err != nil {
 		return configContent
 	}
 	return string(cleaned)
+}
+
+// redactMCPCredentials 抹掉 MCP 服务端配置中的凭据：请求头与环境变量的值，以及
+// URL 查询串中形如 access_token/api_key 的参数。键名保留，便于排查「哪个连接器
+// 带了认证头」而不泄露凭据本身。
+func redactMCPCredentials(cfg map[string]any) {
+	servers, ok := cfg["mcp"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, raw := range servers {
+		server, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, field := range []string{"headers", "environment"} {
+			values, ok := server[field].(map[string]any)
+			if !ok {
+				continue
+			}
+			for key := range values {
+				values[key] = "***"
+			}
+		}
+		if rawURL, ok := server["url"].(string); ok {
+			server["url"] = redactURLCredentials(rawURL)
+		}
+	}
+}
+
+// redactURLCredentials 将 URL 查询串中的敏感参数值替换为 ***。
+func redactURLCredentials(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.RawQuery == "" {
+		return rawURL
+	}
+	query := parsed.Query()
+	changed := false
+	for key := range query {
+		if isSensitiveQueryKey(key) {
+			query.Set(key, "***")
+			changed = true
+		}
+	}
+	if !changed {
+		return rawURL
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+// isSensitiveQueryKey 判断查询参数名是否可能承载凭据。
+func isSensitiveQueryKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+	switch normalized {
+	case "access_token", "token", "api_key", "apikey", "key", "secret", "password":
+		return true
+	}
+	return strings.Contains(normalized, "token") || strings.Contains(normalized, "secret")
 }
 
 // buildMCPConfig 将 MCPServerConfig 列表转为 opencode V1 MCP schema 格式。
@@ -169,8 +230,12 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 			name = "leros"
 		}
 		if m.URL != "" {
-			if strings.EqualFold(m.Transport, "sse") {
+			if runtimeprocess.NeedsSSEBridge(m) {
 				command := []string{"npx", "-y", "mcp-remote", m.URL, "--transport", "sse-only"}
+				// 中文注释：SSE 桥接必须显式传递认证头，否则远端 MCP 以未认证身份握手失败；
+				// 凭据经 ${ENV} 间接引用，避免 token 落进进程命令行与配置文件（后者会写日志）。
+				headerArgs, _ := runtimeprocess.BuildMCPRemoteHeaderArgs(m)
+				command = append(command, headerArgs...)
 				mcpServers[name] = map[string]any{"type": "local", "command": command}
 				continue
 			}

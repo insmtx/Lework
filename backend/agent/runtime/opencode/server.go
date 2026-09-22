@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/insmtx/Leros/backend/agent"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -225,7 +226,7 @@ func startSingleOpenCodeServer(
 	if err != nil {
 		return nil, fmt.Errorf("pick free port: %w", err)
 	}
-	logs.Debugf("OpenCode server port selected: port=%d workDir=%s", port, workDir)
+	logs.DebugContextf(ctx, "OpenCode server port selected: port=%d workDir=%s", port, workDir)
 
 	// 2. 生成随机密码
 	password, err := generatePassword()
@@ -242,11 +243,12 @@ func startSingleOpenCodeServer(
 	if err != nil {
 		return nil, err
 	}
-	logs.Infof("OpenCode config injected: content=%s", sanitizeConfigContent(configContent))
-	logs.Debugf("OpenCode server config prepared: provider=%s model=%s mcp_count=%d database=%s",
-		providerID, modelCfg.Model, len(mcpServers), databasePath)
+	logs.InfoContextf(ctx, "OpenCode config injected: provider=%s model=%s mcp_count=%d database=%s mcp_servers=%s",
+		providerID, modelCfg.Model, len(mcpServers), databasePath, runtimeprocess.DescribeMCPServers(mcpServers))
+	logs.DebugContextf(ctx, "OpenCode config content: %s", sanitizeConfigContent(configContent))
 
 	serverEnv := buildServerEnv(password, configContent, databasePath, baseEnv)
+	serverEnv = append(serverEnv, runtimeprocess.BuildMCPRemoteHeaderEnv(mcpServers)...)
 
 	// 4. 启动子进程
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
