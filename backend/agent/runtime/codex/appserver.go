@@ -51,13 +51,13 @@ func startAppServer(ctx context.Context, binary, workDir string, baseEnv []strin
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		return nil, fmt.Errorf("create codex-home dir: %w", err)
 	}
-	if err := writeCodexConfigToml(codexHome, modelCfg, mcpServers); err != nil {
+	if err := writeCodexConfigToml(ctx, codexHome, modelCfg, mcpServers); err != nil {
 		return nil, err
 	}
 
 	cmd := exec.CommandContext(ctx, binary, "app-server", "--listen", "stdio://")
 	cmd.Dir = workDir
-	cmd.Env = buildAppServerEnv(baseEnv, modelCfg, mcpServers, codexHome)
+	cmd.Env = buildAppServerEnv(ctx, baseEnv, modelCfg, mcpServers, codexHome)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -245,7 +245,7 @@ func (s *AppServer) RespondApproval(ctx context.Context, reqID sonic.NoCopyRawMe
 // config.toml 生成
 // ============================================================================
 
-func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig) error {
+func writeCodexConfigToml(ctx context.Context, codexHome string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig) error {
 	baseURL := strings.TrimRight(strings.TrimSpace(modelCfg.BaseURL), "/")
 	if baseURL != "" && !strings.HasSuffix(baseURL, "/v1") {
 		baseURL += "/v1"
@@ -275,7 +275,6 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 	b.WriteString("wire_api = \"responses\"\n")
 	b.WriteString("requires_openai_auth = false\n")
 
-	tokenEnvVar := runtimeprocess.LerosMCPTokenEnvVar()
 	for _, m := range mcpServers {
 		if m.Name == "" {
 			continue
@@ -308,9 +307,10 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 			if strings.EqualFold(m.Transport, "sse") {
 				args = append(args, "--transport", "sse-only")
 			}
-			if m.BearerToken != "" {
-				args = append(args, "--header", fmt.Sprintf("Authorization: Bearer ${%s}", tokenEnvVar))
-			}
+			// 中文注释：显式请求头（连接器渲染出的 Authorization）与 BearerToken 统一走
+			// ${ENV} 间接引用，避免凭据被写进 config.toml。
+			headerArgs, _ := runtimeprocess.BuildMCPRemoteHeaderArgs(m)
+			args = append(args, headerArgs...)
 			b.WriteString("args = [")
 			for i, arg := range args {
 				if i > 0 {
@@ -326,7 +326,8 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 	if err := os.WriteFile(configPath, []byte(b.String()), 0o600); err != nil {
 		return fmt.Errorf("write config.toml: %w", err)
 	}
-	logs.Infof("Codex config.toml written: %s", configPath)
+	logs.InfoContextf(ctx, "Codex config.toml written: path=%s mcp_count=%d mcp_servers=%s",
+		configPath, len(mcpServers), runtimeprocess.DescribeMCPServers(mcpServers))
 	return nil
 }
 
@@ -334,7 +335,7 @@ func writeCodexConfigToml(codexHome string, modelCfg agent.ModelConfig, mcpServe
 // 环境变量
 // ============================================================================
 
-func buildAppServerEnv(baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, codexHome string) []string {
+func buildAppServerEnv(ctx context.Context, baseEnv []string, modelCfg agent.ModelConfig, mcpServers []agent.MCPServerConfig, codexHome string) []string {
 	env := runtimeprocess.BuildRunEnv(baseEnv, nil, nil)
 	env = append(env, "CODEX_QUIET_MODE=1")
 	env = append(env, "CODEX_HOME="+codexHome)
@@ -349,7 +350,10 @@ func buildAppServerEnv(baseEnv []string, modelCfg agent.ModelConfig, mcpServers 
 			break
 		}
 	}
-	logs.Infof("Codex app-server env: CODEX_HOME=%s OPENAI_API_KEY=%s OPENAI_API_BASE=%s OPENAI_BASE_URL=%s",
+	// URL 型 MCP 服务端一律经 mcp-remote 桥接，凭据经独立环境变量注入，
+	// 供 config.toml 中的 ${ENV} 展开。
+	env = append(env, runtimeprocess.BuildMCPRemoteHeaderEnvForURL(mcpServers)...)
+	logs.InfoContextf(ctx, "Codex app-server env: CODEX_HOME=%s OPENAI_API_KEY=%s OPENAI_API_BASE=%s OPENAI_BASE_URL=%s",
 		codexHome,
 		maskKey(modelEnv["OPENAI_API_KEY"]),
 		modelEnv["OPENAI_API_BASE"],

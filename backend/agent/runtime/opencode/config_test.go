@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/agent"
+	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
 )
 
 func TestEnsureOpenCodeDBPathUsesConfiguredDataDir(t *testing.T) {
@@ -311,5 +312,58 @@ func TestSanitizeConfigContentFallsBackOnInvalidInput(t *testing.T) {
 	input := "not-json{"
 	if out := sanitizeConfigContent(input); out != input {
 		t.Fatalf("invalid config should pass through unchanged, got %q", out)
+	}
+}
+
+func TestBuildMCPConfigBridgesSSEWithAuthHeaders(t *testing.T) {
+	config := buildMCPConfig([]agent.MCPServerConfig{{
+		Name:      "baidu-netdisk",
+		Transport: "sse",
+		URL:       "https://mcp-pan.baidu.com/sse",
+		Headers:   map[string]string{"Authorization": "Bearer access-token"},
+	}})
+	entry, ok := config["baidu-netdisk"].(map[string]any)
+	if !ok || entry["type"] != "local" {
+		t.Fatalf("MCP entry = %#v", config["baidu-netdisk"])
+	}
+	command, ok := entry["command"].([]string)
+	if !ok || len(command) != 8 {
+		t.Fatalf("MCP command = %#v", entry["command"])
+	}
+	joined := strings.Join(command, " ")
+	if strings.Contains(joined, "access-token") {
+		t.Fatalf("凭据不应出现在命令行: %s", joined)
+	}
+	if !strings.Contains(joined, "--header Authorization:${") {
+		t.Fatalf("SSE 桥接缺少认证头参数: %s", joined)
+	}
+}
+
+func TestBuildMCPRemoteHeaderEnvFeedsSSEHeaders(t *testing.T) {
+	env := runtimeprocess.BuildMCPRemoteHeaderEnv([]agent.MCPServerConfig{{
+		Name:      "baidu-netdisk",
+		Transport: "sse",
+		URL:       "https://mcp-pan.baidu.com/sse",
+		Headers:   map[string]string{"Authorization": "Bearer access-token"},
+	}})
+	if len(env) != 1 || !strings.HasSuffix(env[0], "=Bearer access-token") {
+		t.Fatalf("MCP header env = %#v", env)
+	}
+}
+
+func TestSanitizeConfigContentRedactsMCPCredentials(t *testing.T) {
+	input := `{"mcp":{"baidu":{"type":"remote","url":"https://mcp-pan.baidu.com/sse?access_token=abc",` +
+		`"headers":{"Authorization":"Bearer abc"}}},"provider":{"p":{"options":{"apiKey":"sk-x"}}}}`
+	out := sanitizeConfigContent(input)
+	for _, secret := range []string{"abc", "sk-x", "Bearer"} {
+		if strings.Contains(out, secret) {
+			t.Fatalf("sanitized config still contains %q: %s", secret, out)
+		}
+	}
+	if !strings.Contains(out, "mcp-pan.baidu.com") {
+		t.Fatalf("sanitized config lost MCP host: %s", out)
+	}
+	if !strings.Contains(out, "Authorization") {
+		t.Fatalf("sanitized config should keep header names for troubleshooting: %s", out)
 	}
 }
