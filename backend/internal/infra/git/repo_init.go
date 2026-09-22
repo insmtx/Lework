@@ -89,13 +89,16 @@ func CreateRepoWithRetry(ctx context.Context, client *gitea.Client, opts gitea.C
 		reqCtx, cancel := context.WithTimeout(ctx, createRepoTimeout)
 		client.SetContext(reqCtx)
 		repo, resp, err := client.CreateRepo(opts)
-		if resp != nil {
-			logs.InfoContextf(ctx, "[infra_git] create repo %s failed: status=%d response=%+v err=%v", opts.Name, resp.StatusCode, resp, err)
-		}
 		cancel()
 		if err == nil {
 			return repo, nil
 		}
+		// 中文注释：只在真正失败时记录，避免把 201 Created 这类成功响应误报为 failed。
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		logs.WarnContextf(ctx, "[infra_git] create repo %s failed: status=%d response=%+v err=%v", opts.Name, status, resp, err)
 		lastErr = err
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("create gitea repo %s: context done: %w", opts.Name, ctx.Err())
