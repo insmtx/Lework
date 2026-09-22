@@ -240,8 +240,13 @@ func (p *MessagePoster) PostMessage(
 
 	publishMessageCreatedEvent(ctx, p.db, p.eventbus, session, message)
 
-	logs.InfoContextf(ctx, "published message.created (human): session_id=%s message_id=%d project_id=%v",
-		session.PublicID, message.ID, session.ProjectID)
+	// 中文注释：ProjectID 是 *uint，必须先解引用再打日志，否则输出的是指针地址。
+	projectID := uint(0)
+	if session.ProjectID != nil {
+		projectID = *session.ProjectID
+	}
+	logs.InfoContextf(ctx, "published message.created (human): session_id=%s message_id=%d project_id=%d",
+		session.PublicID, message.ID, projectID)
 
 	if queued {
 		logs.InfoContextf(ctx, "queued reliable task: session_id=%s message_id=%d", session.PublicID, message.ID)
