@@ -45,6 +45,7 @@ go.work.sum
 bundles/
 deployments/env/config.yaml
 example/
+.dsh
 
 .cache/
 
