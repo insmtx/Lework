@@ -222,7 +222,7 @@ redis:
 #### 情况 2：独立部署（默认，reuseCorekg=false）
 
 corekg 未部署时，随 chart 部署内置 MySQL/Redis，并通过**初始化 Job**（`post-install`/
-`post-upgrade` hook）依次执行 `--migrate-db` 建表与 `init` 种子数据：
+`post-upgrade` hook）执行 `init` 完成建表（`init` 内部 migrate）与种子数据：
 
 ```yaml
 account:
@@ -242,8 +242,9 @@ redis:
 ```
 
 > 初始化 Job 的 `image` 复用 `account.image`，二进制由 `account.initCommand.binary`
-> 指定（默认 `account`）；如需自定义 `core_settings.yaml`，设置
-> `account.initCommand.settingFile` 与 `account.initCommand.settingsConfigMap`。
+> 指定（默认 `account`）。`core_settings.yaml` 默认由 chart 按 `account.settings.*`
+> 自动生成 ConfigMap（`account.settings.create=true`）并挂载给 init Job；如需复用已有
+> ConfigMap，设 `account.settings.create=false` 且 `account.initCommand.settingsConfigMap=<名称>`。
 
 也可给两种情况的 account 都改用**外部实例**（此时不部署内置中间件，也不做初始化）：
 

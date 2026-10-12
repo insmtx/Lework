@@ -122,7 +122,7 @@ data:
     {{- end }}
     {{- if .Values.auth.enabled }}
     auth:
-      base_url: {{ .Values.auth.baseUrl | quote }}
-      domain_name: {{ .Values.auth.domainName | quote }}
+      base_url: {{ include "leros.authBaseURL" . | quote }}
+      domain_name: {{ include "leros.loginDomain" . | quote }}
       phone_code_login_enabled: {{ .Values.auth.phoneCodeLoginEnabled }}
     {{- end }}

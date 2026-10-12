@@ -42,13 +42,4 @@ data:
       access:
         - writer: console
           level: {{ .Values.account.logLevel | quote }}
-
-    {{- if .Values.account.jwtSecret }}
-    account:
-      jwt_secret: {{ .Values.account.jwtSecret | quote }}
-      plt_jwt_secret: {{ default .Values.account.jwtSecret .Values.account.pltJwtSecret | quote }}
-      jwt_expire: {{ .Values.account.jwtExpire | quote }}
-      refresh_token_ttl: {{ .Values.account.refreshTokenTtl | quote }}
-      login_window: {{ .Values.account.loginWindow | quote }}
-    {{- end }}
 {{- end -}}

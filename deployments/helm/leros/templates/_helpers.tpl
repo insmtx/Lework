@@ -144,6 +144,74 @@ Account 组件命名。经 .type 区分返回 service/deployment/configMap/secre
 {{- end -}}
 
 {{/*
+Account core_settings ConfigMap 名称。默认 <fullname>-account-settings，
+可用 account.settings.configMapName 覆盖（例如复用已有 ConfigMap 时）。
+用法：{{ include "leros.accountSettingsName" . }}
+*/}}
+{{- define "leros.accountSettingsName" -}}
+{{- $s := .Values.account.settings | default dict -}}
+{{- default (printf "%s-account-settings" (include "leros.fullname" .)) $s.configMapName | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Redis core_settings 用的地址（bare host:port，不含 scheme），优先级同 leros.redisURL：
+  1) account.reuseCorekg=true → 复用 corekg 命名空间的 Redis
+  2) redis.enabled → 内置 Redis
+  3) 否则解析 redis.external.url
+*/}}
+{{- define "leros.redisCoreSettingsAddr" -}}
+{{- if and .Values.account.enabled .Values.account.reuseCorekg -}}
+{{- $cg := .Values.account.corekg | default dict -}}
+{{- printf "%s.%s:6379" $cg.redisService (default "corekg" $cg.namespace) -}}
+{{- else if .Values.redis.enabled -}}
+{{- printf "%s-redis:6379" (include "leros.fullname" .) -}}
+{{- else -}}
+{{- $u := urlParse (required "redis.enabled=false 时必须设置 redis.external.url" .Values.redis.external.url) -}}
+{{- if contains ":" $u.host -}}{{- $u.host -}}{{- else -}}{{- printf "%s:6379" $u.host -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Redis core_settings 用的密码，优先级同 leros.redisCoreSettingsAddr。
+*/}}
+{{- define "leros.redisCoreSettingsPassword" -}}
+{{- if and .Values.account.enabled .Values.account.reuseCorekg -}}
+{{- $cg := .Values.account.corekg | default dict -}}
+{{- default .Values.redis.password (default "" $cg.redisPassword) -}}
+{{- else if .Values.redis.enabled -}}
+{{- .Values.redis.password -}}
+{{- else -}}
+{{- $u := urlParse (required "redis.enabled=false 时必须设置 redis.external.url" .Values.redis.external.url) -}}
+{{- if $u.userinfo -}}{{- splitList ":" $u.userinfo | last -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+IAM/account 的 base_url（enterprise 版服务端使用）。
+auth.baseUrl 留空时自动用集群内 account Service 地址：http://<fullname>-account:<port>。
+*/}}
+{{- define "leros.authBaseURL" -}}
+{{- if .Values.auth.baseUrl -}}
+{{- .Values.auth.baseUrl -}}
+{{- else -}}
+{{- printf "http://%s:%v" (include "leros.accountName" (dict "root" . "type" "service")) .Values.account.service.port -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+登录域名（单一来源）。auth.domainName 优先；为空且 account 由本 chart 托管时，
+回退到 account.init.domain。这样 server 查询 IAM 的 domain_name 与 account 初始化
+写入 admin_login_setting 的域名始终一致，避免"登录方式配置不存在"（code=50999）。
+*/}}
+{{- define "leros.loginDomain" -}}
+{{- if .Values.auth.domainName -}}
+{{- .Values.auth.domainName -}}
+{{- else if .Values.account.enabled -}}
+{{- .Values.account.init.domain -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Build database URL. Uses builtin postgresql when enabled, otherwise external.url.
 */}}
 {{- define "leros.databaseURL" -}}

@@ -67,7 +67,7 @@ postgresql:
 # =============================================================================
 mysql:
   enabled: false
-  image: registry.yygu.cn/library/mysql:8.4
+  image: registry.cn-beijing.aliyuncs.com/yygu/corekg:mysql_8.4.5
   imagePullPolicy: IfNotPresent
   username: account_user
   password: "@MYSQL_PASSWORD@"
@@ -88,7 +88,7 @@ mysql:
 # =============================================================================
 redis:
   enabled: false
-  image: registry.yygu.cn/library/redis:7.4
+  image: registry.cn-beijing.aliyuncs.com/yygu/corekg:redis_8.2
   imagePullPolicy: IfNotPresent
   password: "@REDIS_PASSWORD@"
   hostPath: <dataHostPath>/redis
@@ -108,7 +108,7 @@ redis:
 #   1) 复用 corekg：reuseCorekg=true，不部署内置 MySQL/Redis，account 连 corekg
 #      命名空间下的 MySQL/Redis Service；此时 account 无需初始化（数据在 corekg 侧）。
 #   2) 独立部署：reuseCorekg=false（默认），随 chart 部署内置 MySQL/Redis，并通过
-#      初始化 Job 执行 --migrate-db + init 完成建表与种子数据。
+#      初始化 Job 执行 init 完成建表（init 内部 migrate）与种子数据。
 account:
   enabled: false
   image: registry.yygu.cn/ygapp/account-api:v0.1.0
@@ -142,20 +142,24 @@ account:
   initialize: true
   init:
     issuer: "yygu"                       # IAM_INIT_ISSUER，必填
-    jwtSecret: ""                        # IAM_INIT_JWT_SECRET（≥32 字符），生产必改，留空则不注入（用镜像默认）
+    jwtSecret: "@JWT_SECRET@"            # IAM_INIT_JWT_SECRET：登录 token 签名密钥（写入 core_settings）；gen-values.sh 生成时与 server.jwtSecret 同一个随机值
     company: "default-company"           # IAM_INIT_COMPANY
     adminEmail: "admin@admin.com"        # IAM_INIT_ADMIN_EMAIL，必填
-    domain: "localhost"                  # IAM_INIT_DOMAIN
+    domain: "localhost"                  # IAM_INIT_DOMAIN；仅当 auth.domainName 留空时作为登录域名的兜底（两者需一致）
   initCommand:
     binary: account                      # account 镜像内的二进制名
-    settingFile: ""                      # 非空则挂载 core_settings.yaml 并传 --setting-file
-    settingsConfigMap: ""                # settingFile 非空时必填：含 core_settings.yaml 的 ConfigMap 名
-  # account 服务自身的 JWT / 会话配置（写入 config.yaml 的 account 块；jwtSecret 非空才渲染）
-  jwtSecret: ""
-  pltJwtSecret: ""
-  jwtExpire: "8h"
-  refreshTokenTtl: "30m"
-  loginWindow: "30m"
+    settingFile: "/etc/yg-iam/core_settings.yaml"  # 非空则挂载 core_settings.yaml 并传 --setting-file
+    settingsConfigMap: ""                # 仅当 account.settings.create=false 时生效：指定已有的含 core_settings.yaml 的 ConfigMap 名
+  # core_settings 种子（chart 自动生成 ConfigMap，account init 通过 --setting-file 读取）
+  # jwt-__IAM_ISSUER__ / __IAM_JWT_SECRET__ 占位符由 account init 用 IAM_INIT_* 环境变量替换。
+  settings:
+    create: true                         # 是否由 chart 生成 core_settings ConfigMap（false 时用 settingsConfigMap 指定的）
+    configMapName: ""                    # 留空默认 <fullname>-account-settings
+    aesKey: "G2HX+F+411lK/O8c"           # 登录密码 AES 加解密 key，前后端需一致
+    jwtExpire: "720h"                    # 登录 access token 有效期（写入 core_settings 的 core.jwt-<issuer>.expire），默认 30 天
+    websiteName: "Leros"
+    websiteDescription: ""
+    maxLoginTry: 5
   serviceNameOverride: ""
   deploymentNameOverride: ""
   configMapNameOverride: ""
@@ -285,7 +289,7 @@ llm:
   presence_penalty: ""                           # 存在惩罚（-2 ~ 2），如 0
   limit:
     context: ""                                  # 上下文窗口大小（token），如 82144
-    output: ""                                   # 单次输出上限（token），如 42768
+    output: ""                                   # 单次输出上限（token），如 8192
   translation:
     enabled: false
     provider: ""
@@ -375,8 +379,8 @@ llm:
 # =============================================================================
 auth:
   enabled: true                                # 是否启用 IAM 企业版认证
-  baseUrl: ""                                  # IAM 服务地址，如 https://iam.example.com
-  domainName: ""                               # 域名，用于登录配置查询
+  baseUrl: ""                                  # IAM 服务地址；留空则自动用集群内 account Service（http://<fullname>-account:8080）
+  domainName: ""                               # 登录域名（auth.domain_name，用于登录配置查询）；留空时回退到 account.init.domain
   phoneCodeLoginEnabled: false                 # 是否开启手机号验证码登录（默认关闭）
 
 # =============================================================================
@@ -418,9 +422,9 @@ clientUpdate:
 traefik:
   enabled: true
   image:
-  registry: registry.yygu.cn
-  repository: rancher/mirrored-library-traefik
-  tag: "3.3.6"
+    registry: registry.yygu.cn
+    repository: rancher/mirrored-library-traefik
+    tag: "3.3.6"
   ingressClass:
     name: leros-traefik    # 启用时自动用此名，不与 k3s 的 traefik 撞
   service:

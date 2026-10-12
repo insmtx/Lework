@@ -1,0 +1,65 @@
+{{- $s := .Values.account.settings | default dict -}}
+{{- $create := true -}}
+{{- if hasKey $s "create" -}}{{- $create = $s.create -}}{{- end -}}
+{{- if and .Values.account.enabled (not .Values.account.reuseCorekg) .Values.account.initialize $create -}}
+# 由 Helm 生成的 account core_settings 种子文件（account init --setting-file 使用）。
+# jwt-__IAM_ISSUER__ / __IAM_JWT_SECRET__ 占位符由 account init 用环境变量
+# IAM_INIT_ISSUER / IAM_INIT_JWT_SECRET 在运行时替换。
+# 如需接入已有 ConfigMap：account.settings.create=false 且 account.initCommand.settingsConfigMap=<名称>。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "leros.accountSettingsName" . }}
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: account
+data:
+  core_settings.yaml: |
+    - group: core
+      key: jwt-__IAM_ISSUER__
+      name: JWT 签名密钥
+      describe: JWT 签名配置
+      value_type: yaml
+      value: |
+        secret: __IAM_JWT_SECRET__
+        expire: {{ $s.jwtExpire | default "2h" }}
+    - group: core
+      key: website-info
+      name: 网站信息
+      describe: 平台网站信息
+      value_type: yaml
+      value: |
+        name: {{ $s.websiteName | default "Leros" }}
+        description: {{ $s.websiteDescription | default "" | quote }}
+        logo: ""
+    - group: account
+      key: aeskey
+      name: 隐私信息加密key
+      describe: AES 对称加密 key，用于加解密登录密码
+      value_type: secret
+      value: {{ $s.aesKey | default "G2HX+F+411lK/O8c" | quote }}
+    - group: account
+      key: max_login_try
+      name: 登陆最大尝试次数
+      describe: 密码登录连续失败上限
+      value_type: int64
+      value: {{ $s.maxLoginTry | default 5 | quote }}
+    - group: core
+      key: loc_redis
+      name: Redis(dev)
+      describe: Redis 连接配置（dev）
+      value_type: yaml
+      value: |
+        addr: {{ include "leros.redisCoreSettingsAddr" . }}
+        password: {{ include "leros.redisCoreSettingsPassword" . | quote }}
+        db: 0
+    - group: core
+      key: redis
+      name: Redis
+      describe: Redis 连接配置（线上）
+      value_type: yaml
+      value: |
+        addr: {{ include "leros.redisCoreSettingsAddr" . }}
+        password: {{ include "leros.redisCoreSettingsPassword" . | quote }}
+        db: 0
+{{- end }}
