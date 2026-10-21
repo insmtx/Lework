@@ -216,6 +216,21 @@ def _text_sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _normalize_scope_display(text: str) -> str:
+    """Normalize only presentation markup; names, counts, and scope text stay exact."""
+    text = text.replace("**", "").replace("__", "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = []
+    for line in text.split("\n"):
+        line = line.strip()
+        line = re.sub(r"^(?:[-*+]|\d+[.)、])[ \t]+", "、", line)
+        lines.append(line)
+    text = "".join(lines)
+    text = re.sub(r"([：:、])(?:[-*+]|\d+[.)、])[ \t]+", r"\1、", text)
+    text = re.sub(r"(工资核算范围|纳入|排除事项)\s*[:：]\s*", r"\1：", text)
+    text = re.sub(r"\s*([、，,;；。])\s*", r"\1", text)
+    return re.sub(r"(?<=\d)\s+(?=人)", "", text)
+
+
 def _positive_id_list(value: object, label: str) -> list[int]:
     if not isinstance(value, list) or not value or any(
         isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in value
@@ -584,7 +599,7 @@ def _execution_context(evidence: dict, conversation: list[dict]) -> dict:
     }
 
 
-def _validate_project_submission(evidence: dict, scope: dict, batch_context: dict) -> None:
+def _validate_project_submission(evidence: dict, scope: dict, batch_context: dict) -> dict:
     attendance_path = evidence.get("attendance_path")
     matches_path = evidence.get("person_matches_path")
     submission_path = evidence.get("submission_request_path")
@@ -602,6 +617,7 @@ def _validate_project_submission(evidence: dict, scope: dict, batch_context: dic
         raise GateError(str(exc)) from exc
     if verified["binding"].get("attendance_sha256") != scope["attendance_sha256"]:
         raise GateError("PROJECT_BINDING_SUBMISSION_ATTENDANCE_MISMATCH")
+    return verified
 
 
 def _execution_intent(text: str, scope_count: int) -> bool:
@@ -624,9 +640,49 @@ def _execution_intent(text: str, scope_count: int) -> bool:
     return not stated_counts or all(value == scope_count for value in stated_counts)
 
 
-def _scope_change_intent(text: str) -> bool:
+def _scope_change_intent(
+    text: str,
+    unchanged_exclusions: list[str] | None = None,
+    ambiguous_exclusions: list[str] | None = None,
+) -> bool:
     """Recognize bounded, structural requests to alter the displayed people set."""
     normalized = re.sub(r"\s+", "", text)
+    normalized = normalized.replace("排除事项", "")
+    for person in ambiguous_exclusions or []:
+        if not isinstance(person, str) or not person:
+            continue
+        name = re.escape(person)
+        if re.search(
+            rf"{name}(?:本次|这次)?(?:仍然?|还是|继续|保持|维持)?"
+            rf"(?:暂不|不)(?:纳入|参与|计入)(?:本次|这次)?(?:工资)?核算?",
+            normalized,
+        ):
+            return True
+    for person in unchanged_exclusions or []:
+        if not isinstance(person, str) or not person:
+            continue
+        name = re.escape(person)
+        # A listed exclusion is only exempt when the message explicitly keeps it
+        # excluded. Positive inclusion language must remain visible to the change
+        # detector, even when the name is already listed as an exclusion.
+        positive_inclusion_patterns = (
+            rf"{name}(?:本次|这次)?(?:还是|仍然?|改为|改成|调整为)?"
+            rf"(?:纳入|参与|计入|加入)(?:本次|这次)?(?:工资)?核算?",
+            rf"(?:把|将){name}(?:也)?(?:算上|纳入|加入|加上|补进|算进去)",
+        )
+        if any(re.search(pattern, normalized) for pattern in positive_inclusion_patterns):
+            return True
+        reaffirmation_patterns = (
+            rf"(?:继续|保持|维持|仍然?)排除{name}",
+            rf"{name}(?:本次|这次)?(?:仍然?|还是|继续|保持|维持)?"
+            rf"(?:暂不|不)(?:纳入|参与|计入)(?:本次|这次)?(?:工资)?核算?",
+            rf"(?:本次|这次)(?:仍然?|还是|继续)?(?:暂不|不)"
+            rf"(?:纳入|参与|计入){name}(?:工资)?核算?",
+        )
+        if re.search(rf"{name}.{{0,16}}(?:但|不过|除非|如果|若|否则|改为|改成|替换)", normalized):
+            return True
+        for pattern in reaffirmation_patterns:
+            normalized = re.sub(pattern, "", normalized)
     name = r"[\u3400-\u9fffA-Za-z·]{1,16}"
     patterns = (
         rf"(?:把|将){name}(?:也)?(?:算上|纳入|加入|加上|补进|算进去)",
@@ -639,6 +695,22 @@ def _scope_change_intent(text: str) -> bool:
         r"(?:调整|变更|增减|更换|替换).{0,8}(?:人员名单|人员范围|处理范围|名单)",
     )
     return any(re.search(pattern, normalized) for pattern in patterns)
+
+
+def _unambiguous_excluded_names(context: dict) -> list[str]:
+    included_names = {person.get("name") for person in context.get("people", [])
+                      if isinstance(person, dict) and isinstance(person.get("name"), str)}
+    excluded_names = {person.get("name") for person in context.get("exclusions", [])
+                      if isinstance(person, dict) and isinstance(person.get("name"), str)}
+    return sorted(name for name in excluded_names - included_names if name)
+
+
+def _ambiguous_excluded_names(context: dict) -> list[str]:
+    included_names = {person.get("name") for person in context.get("people", [])
+                      if isinstance(person, dict) and isinstance(person.get("name"), str)}
+    excluded_names = {person.get("name") for person in context.get("exclusions", [])
+                      if isinstance(person, dict) and isinstance(person.get("name"), str)}
+    return sorted(name for name in excluded_names & included_names if name)
 
 
 def _conversation(value: object, user_messages: list[str]) -> list[dict]:
@@ -667,7 +739,7 @@ def _scope_display_index(conversation: list[dict], scope: dict, context: dict, s
     if conversation[index]["role"] != "assistant":
         raise GateError("EXECUTION_SCOPE_DISPLAY_NOT_ASSISTANT")
     text = conversation[index]["content"]
-    compact = re.sub(r"\s+", "", text).replace(":", "：")
+    compact = _normalize_scope_display(text)
     if "工资核算范围：" not in compact:
         raise GateError("EXECUTION_SCOPE_DISPLAY_MARKER_MISSING")
     count_pattern = rf"(?<!\d){len(context['people'])}人"
@@ -688,10 +760,19 @@ def _scope_display_index(conversation: list[dict], scope: dict, context: dict, s
         raise GateError("EXECUTION_SCOPE_DISPLAY_SUMMARY_MISMATCH")
     exclusion_text = compact[exclusion_start + len("排除事项："):exclusions_end].strip("。；;")
     displayed_exclusions = [] if exclusion_text in {"", "无", "暂无"} else [
-        item.strip("。；;") for item in re.split(r"[；;]", exclusion_text) if item.strip("。；;")
+        item.strip("。；;") for item in re.split(r"[；;、]", exclusion_text) if item.strip("。；;")
     ]
-    expected_exclusions = sorted(f"{item['name']}：{item['reason']}" for item in context["exclusions"])
-    if sorted(displayed_exclusions) != expected_exclusions:
+    remaining_exclusions = list(context["exclusions"])
+    for displayed in displayed_exclusions:
+        matches = [index for index, expected in enumerate(remaining_exclusions)
+                   if re.fullmatch(
+                       re.escape(expected["name"]) + r"\s*[:：]\s*" + re.escape(expected["reason"]),
+                       displayed,
+                   )]
+        if len(matches) != 1:
+            raise GateError("EXECUTION_SCOPE_DISPLAY_EXCLUSIONS_INCOMPLETE")
+        remaining_exclusions.pop(matches[0])
+    if remaining_exclusions:
         raise GateError("EXECUTION_SCOPE_DISPLAY_EXCLUSIONS_INCOMPLETE")
     if supplied.get("scope_sha256") != context["scope_sha256"]:
         raise GateError("EXECUTION_SCOPE_DISPLAY_BINDING_MISMATCH")
@@ -699,7 +780,7 @@ def _scope_display_index(conversation: list[dict], scope: dict, context: dict, s
         raise GateError("EXECUTION_SCOPE_SIDE_EFFECTS_NOT_DISCLOSED")
     scope_markers = [
         i for i, item in enumerate(conversation)
-        if item["role"] == "assistant" and "工资核算范围" in re.sub(r"\s+", "", item["content"])
+        if item["role"] == "assistant" and "工资核算范围" in _normalize_scope_display(item["content"])
     ]
     if not scope_markers or scope_markers[-1] != index:
         raise GateError("EXECUTION_SCOPE_DISPLAY_NOT_LATEST")
@@ -724,7 +805,10 @@ def _authorize_payroll_execution(request: dict, messages: list[str], evidence: d
         _scope(evidence.get("attendance_review"), "ATTENDANCE_REVIEW", "DECLARED"),
         evidence.get("attendance_confirmation"),
     )
-    if _scope_change_intent(current_message):
+    unchanged_exclusions = _unambiguous_excluded_names(context)
+    if _scope_change_intent(
+        current_message, unchanged_exclusions, _ambiguous_excluded_names(context),
+    ):
         raise GateError("EXECUTION_AUTHORIZATION_SCOPE_CHANGE_REQUIRES_REVIEW")
     if not _execution_intent(current_message, len(context["people"])):
         if re.search(r"(?<!\d)\d+\s*人", current_message):
@@ -781,7 +865,10 @@ def _validate_execution_authorization(
             != _text_sha256(conversation[display_index]["content"])
             or token.get("authorization_message_sha256") != _text_sha256(messages[auth_index])):
         raise GateError("PAYROLL_EXECUTION_AUTHORIZATION_MESSAGE_CHANGED")
-    if _scope_change_intent(messages[auth_index]):
+    unchanged_exclusions = _unambiguous_excluded_names(context)
+    if _scope_change_intent(
+        messages[auth_index], unchanged_exclusions, _ambiguous_excluded_names(context),
+    ):
         raise GateError("PAYROLL_EXECUTION_AUTHORIZATION_SCOPE_CHANGE_REQUIRES_REVIEW")
     if not _execution_intent(messages[auth_index], len(context["people"])):
         raise GateError("PAYROLL_EXECUTION_AUTHORIZATION_STALE")
@@ -822,9 +909,7 @@ def _attendance_confirmation(
     candidate = confirmation
     if candidate is None:
         current = messages[-1]
-        if _negated(current) or _uncertain(current) or not any(
-            word in current for word in ("确认考勤", "考勤确认", "考勤没问题")
-        ):
+        if not _is_attendance_confirmation(current):
             raise GateError("ATTENDANCE_CONFIRMATION_REQUIRED")
         candidate = {
             "status": "CONFIRMED_FOR_CURRENT_REVIEW",
@@ -845,10 +930,8 @@ def _attendance_confirmation(
     if {key: candidate.get(key) for key in ("month", "version", "attendance_sha256", "record_ids")} != scope:
         raise GateError("ATTENDANCE_CONFIRMATION_STALE")
     message = messages[confirmation_index]
-    if (
-        _negated(message) or _uncertain(message)
-        or not any(word in message for word in ("确认考勤", "考勤确认", "考勤没问题"))
-    ):
+    payroll_task = _has_payroll_workflow_intent(messages[:confirmation_index])
+    if not _is_attendance_confirmation(message, require_project_binding=payroll_task):
         raise GateError("ATTENDANCE_CONFIRMATION_MESSAGE_INVALID")
     return {
         "status": "CONFIRMED_FOR_CURRENT_REVIEW",
@@ -856,6 +939,48 @@ def _attendance_confirmation(
         "confirmation_message_index": confirmation_index,
         "message_source_verified": False,
     }
+
+
+def _require_joint_project_confirmation(evidence: dict, messages: list[str], scope: dict) -> None:
+    attendance_path = evidence.get("attendance_path")
+    if not isinstance(attendance_path, str) or not attendance_path:
+        raise GateError("PROJECT_BINDING_REQUIRED_BEFORE_PAYROLL_CONFIRMATION")
+    roster_path, binding_path = project_binding.default_paths(attendance_path)
+    try:
+        verified = project_binding.validate(attendance_path, roster_path, binding_path)
+    except project_binding.ProjectBindingError as exc:
+        raise GateError("PROJECT_BINDING_REQUIRED_BEFORE_PAYROLL_CONFIRMATION") from exc
+    binding = verified["binding"]
+    confirmation = binding.get("user_confirmation")
+    if (binding.get("month") != scope["month"]
+            or binding.get("attendance_sha256") != scope["attendance_sha256"]
+            or not isinstance(confirmation, dict)
+            or not project_binding.is_combined_attendance_confirmation(confirmation.get("message", ""))
+            or confirmation.get("message") not in messages):
+        raise GateError("JOINT_ATTENDANCE_PROJECT_CONFIRMATION_REQUIRED")
+
+
+def _is_attendance_confirmation(message: str, require_project_binding: bool = False) -> bool:
+    """Accept a complete attendance confirmation, including the joined project-binding form."""
+    if project_binding.is_combined_attendance_confirmation(message):
+        return True
+    if require_project_binding:
+        return False
+    if _negated(message) or _uncertain(message) or "?" in message or "？" in message:
+        return False
+    normalized = re.sub(r"[\s，,。；;：:！？!?]", "", message)
+    return normalized in {
+        "确认考勤", "我确认考勤", "好的确认考勤", "好确认考勤",
+        "考勤确认", "我考勤确认", "考勤没问题", "考勤没有问题",
+    }
+
+
+def _has_payroll_workflow_intent(messages: list[str]) -> bool:
+    """Detect an existing explicit payroll-processing request, not a write authorization."""
+    nouns = ("工资", "薪资", "薪酬")
+    actions = ("核算", "计算", "工资覆盖", "历史工资", "薪资覆盖", "薪酬覆盖")
+    return any(any(noun in message for noun in nouns) and any(action in message for action in actions)
+               for message in messages)
 
 
 def _verify_current_attendance(path: object, review_scope: dict) -> None:
@@ -927,21 +1052,29 @@ def _evaluate(request: dict) -> dict:
         if not any("考勤" in message and any(word in message for word in ("识别", "核对", "确认表")) for message in messages):
             result["error"] = "ATTENDANCE_REVIEW_NOT_REQUESTED"
             return result
+        next_action = (
+            "PREPARE_CURRENT_ROSTER_AND_DISPLAY_REVIEW_WITH_ALL_PROJECT_BINDINGS_THEN_WAIT_FOR_ONE_CONFIRMATION"
+            if _has_payroll_workflow_intent(messages)
+            else "DELIVER_ATTENDANCE_REVIEW_AND_STOP"
+        )
         return {**result, "ok": True, "status": "STAGE_ADMITTED", "error": None,
-                "next_action": "DELIVER_ATTENDANCE_REVIEW_AND_STOP"}
+                "next_action": next_action}
 
     if action == "IDENTITY_MATCHING":
         review_scope = _scope(review, "ATTENDANCE_REVIEW", "DECLARED")
         match_words = ("人员匹配", "匹配人员", "身份匹配")
         explicit_current_match = any(word in current_message for word in match_words)
         prior_match_directive = any(any(word in message for word in match_words) for message in messages[:-1])
-        if not (explicit_current_match or prior_match_directive):
+        if not (explicit_current_match or prior_match_directive or
+                _has_payroll_workflow_intent(messages[:-1])):
             result["error"] = "IDENTITY_MATCHING_NOT_EXPLICITLY_REQUESTED"
             return result
         try:
             confirmed = _attendance_confirmation(
                 messages, review, review_scope, evidence.get("attendance_confirmation"),
             )
+            if _has_payroll_workflow_intent(messages[:confirmed["confirmation_message_index"]]):
+                _require_joint_project_confirmation(evidence, messages, review_scope)
         except GateError as exc:
             result["error"] = str(exc)
             return result
@@ -959,17 +1092,12 @@ def _evaluate(request: dict) -> dict:
             confirmed = _attendance_confirmation(
                 messages, review, review_scope, evidence.get("attendance_confirmation"),
             )
+            if _has_payroll_workflow_intent(messages[:confirmed["confirmation_message_index"]]):
+                _require_joint_project_confirmation(evidence, messages, review_scope)
         except GateError as exc:
             result["error"] = str(exc)
             return result
-        payroll_directive = any(
-            "工资" in message and any(word in message for word in ("核算", "工资覆盖", "历史工资"))
-            for message in messages[:-1]
-        )
-        current_request = "工资" in current_message and any(
-            word in current_message for word in ("核算", "工资覆盖", "历史工资")
-        )
-        if not current_request and not payroll_directive:
+        if not _has_payroll_workflow_intent(messages):
             result["error"] = "SALARY_WORKFLOW_NOT_REQUESTED"
             return result
         return {**result, "ok": True, "status": "STAGE_ADMITTED", "error": None,
@@ -1039,7 +1167,7 @@ def _evaluate(request: dict) -> dict:
                 batch_context = _batch_scope(evidence.get("batch_context"), selected)
                 operations = _payroll_operation_state(evidence, selected, batch_context)
                 _require_no_prior_payroll_write(operations, selected)
-                _validate_project_submission(evidence, selected, batch_context)
+                validated_submission = _validate_project_submission(evidence, selected, batch_context)
             except GateError as exc:
                 result["error"] = str(exc)
                 return result
@@ -1051,7 +1179,9 @@ def _evaluate(request: dict) -> dict:
                         "people": context["people"],
                         "execution_scope_sha256": context["scope_sha256"],
                     },
-                    "next_action": "SUBMIT_ATTENDANCE_SAME_SCOPE_AFTER_FRESH_CHECKS"}
+                    "validated_submission_request": validated_submission["submission_request"],
+                    "submission_request_sha256": validated_submission["submission_request_sha256"],
+                    "next_action": "PASS_VALIDATED_SUBMISSION_REQUEST_VERBATIM_TO_MCP_AND_READ_BACK_FIXED_OPERATION"}
 
         selected = _scope(scope_review, "SUBMISSION_SCOPE_REVIEW", "CONFIRMED")
         final_readiness = _scope(readiness, "SALARY_READINESS", "COVERAGE_CHECKED")
@@ -1084,13 +1214,15 @@ def _evaluate(request: dict) -> dict:
             batch_context = _batch_scope(evidence.get("batch_context"), selected)
             operations = _payroll_operation_state(evidence, selected, batch_context)
             _require_no_prior_payroll_write(operations, selected)
-            _validate_project_submission(evidence, selected, batch_context)
+            validated_submission = _validate_project_submission(evidence, selected, batch_context)
         except GateError as exc:
             result["error"] = str(exc)
             return result
         return {**result, "ok": True, "status": "WRITE_STAGE_ELIGIBLE", "error": None,
                 "authorization_text_checked": True,
-                "next_action": "VERIFY_MESSAGE_IN_CURRENT_CONVERSATION_AND_BATCH_RECEIPT_BEFORE_SUBMIT"}
+                "validated_submission_request": validated_submission["submission_request"],
+                "submission_request_sha256": validated_submission["submission_request_sha256"],
+                "next_action": "PASS_VALIDATED_SUBMISSION_REQUEST_VERBATIM_TO_MCP_AND_READ_BACK_FIXED_OPERATION"}
 
     if action == "PAYROLL_PRECHECK":
         submitted = _scope(submission, "SUBMISSION_RECEIPT", "SUCCEEDED")

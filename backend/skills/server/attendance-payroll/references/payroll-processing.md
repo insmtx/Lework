@@ -4,7 +4,7 @@
 
 ## 阶段准入与停顿
 
-正常业务顺序为 `ATTENDANCE_REVIEW + PROJECT_BINDING → IDENTITY_MATCHING → SALARY_READINESS → PAYROLL_EXECUTION → ATTENDANCE_SUBMISSION → PAYROLL_PRECHECK → PAYROLL_CALCULATION → PAYROLL_EXPORT`。首次考勤任务只交付 Markdown 核对表和简短中文摘要，然后停止；不得在聊天中输出完整人员表。首次确认考勤时一并确认所有来源项目到 Payroll 项目的关系，不另增用户确认轮次。展示项目映射时使用月份和全部标准映射行，并把展示消息及映射摘要与当时考勤 SHA、花名册响应 SHA 一并纳入绑定请求；用户可简短确认“确认以上考勤及项目对应关系”或“确认上述项目映射”，不必重述项目名。展示缺项、映射被改、展示晚于确认、考勤或花名册变化、否定/疑问/范围变更语句都会阻断。跨轮次考勤确认仍绑定当前任务可见用户消息序号，以及确认后 Review 的月份、版本、`attendance.json` SHA-256 和人员范围；更正或 Review 版本/摘要改变后必须重新确认。人员匹配与只读工资覆盖检查继续按原指令意图推进。覆盖检查不是正式 Precheck 或写入授权。覆盖检查后使用统一格式展示唯一范围和排除原因，并说明正式提交、正式预检查和工资核算顺序；随后等待一次明确工资核算执行授权。
+正常业务顺序为 `ATTENDANCE_REVIEW + PROJECT_BINDING → IDENTITY_MATCHING → SALARY_READINESS → PAYROLL_EXECUTION → ATTENDANCE_SUBMISSION → PAYROLL_PRECHECK → PAYROLL_CALCULATION → PAYROLL_EXPORT`。仅考勤任务首次只交付 Markdown 核对表和简短中文摘要，然后停止；不得在聊天中输出完整人员表。原始请求明确包含工资处理意图时，首次确认前先只读获取当前 `list_roster`、准备完整项目候选，再在**同一条助手消息**展示考勤 Review、月份、人数、核对表、全部项目映射和待核事项。用户用一次明确回复同时确认考勤事实与项目映射；不得先单独询问考勤确认，再补查项目并重复确认。门禁的 `ATTENDANCE_REVIEW` 路由应先返回准备当前花名册并联合展示的下一步；`project_binding.py confirm` 要求消息中包含当前月份、准确人数、核对表/确认表、待核事项及所有映射，并验证完整展示早于同一确认消息。展示缺项、映射被改、展示晚于确认、考勤或花名册变化、否定/疑问/范围变更语句都会阻断。跨轮次确认仍绑定当前任务可见用户消息序号，以及 Review 的月份、版本、`attendance.json` SHA-256 和人员范围；更正或摘要改变后必须重新确认。Skills-only 门禁只约束正常流程，不能强制运行时实际展示或认证消息来源。人员匹配与只读工资覆盖检查继续按原指令意图推进。覆盖检查不是正式 Precheck 或写入授权。覆盖检查后按下方固定文本格式展示唯一范围和排除原因，随后等待一次明确工资核算执行授权。
 
 ### Task 级项目绑定
 
@@ -17,7 +17,7 @@ python3 scripts/project_binding.py prepare \
   --output <workdir>/.attendance-work/project-binding.json
 ```
 
-将脚本给出的所有来源项目和精确的 Payroll 项目候选一并展示给用户。在首次考勤确认消息中，要求用户明确确认每一组“来源项目 → Payroll 项目”关系；不能从相似名称、文件名、旧 Task、`roster_id` 或候选排序猜测。根据确认原文构造包含 `month`、`attendance_sha256`、`candidate_response_sha256`、完整 `bindings` 和 `user_confirmation`（消息序号及原文）的请求，再运行：
+将脚本给出的所有来源项目和精确的 Payroll 项目候选一并展示给用户。在工资任务的首次联合展示中，同时给出当前考勤核对表、月份、准确人数、待核事项和每组“来源项目 → Payroll 项目”关系；用户只需明确确认上述全部内容，无需逐个复述项目名。候选未准备或映射不完整时，不得先发出单独的考勤确认请求。不能从相似名称、文件名、旧 Task、`roster_id` 或候选排序猜测。根据确认原文构造包含 `month`、`attendance_sha256`、`candidate_response_sha256`、完整 `bindings` 和 `user_confirmation`（消息序号及原文）的请求，再运行：
 
 ```sh
 python3 scripts/project_binding.py confirm \
@@ -29,7 +29,7 @@ python3 scripts/project_binding.py confirm \
 
 脚本要求每个来源项目恰有一个当前花名册候选项目映射，并绑定当前月份、考勤 SHA、花名册响应 SHA 和确认消息摘要。一个 Task 可包含多个项目但只能有一个工资月份；之后所有人员按来源项目使用此映射。全部项目合并为一个核算范围、一个固定 Batch、一次提交、一次正式 Precheck 和一次核算；同一 Payroll Person ID 重复出现时提交前阻断。源字段 `source_project_snapshot` 保留原考勤项目名，`project_snapshot` 采用用户确认的 Payroll 项目名。项目绑定变化、考勤 SHA 变化或花名册响应变化时，身份映射和后续覆盖/范围证据必须重新生成。项目确认不代表身份匹配，不代表范围认可，也不代表 Payroll 写入授权。
 
-提交前 `workflow_gate.py` 会确定性地重新验证 Task 项目绑定、当前考勤、人员映射摘要和实际提交请求中的逐人员来源/目标项目字段；单次授权与兼容的旧提交路径都经过该校验。请求必须使用当前绑定项目，不能先提交后靠导出器发现错名。Excel 导出也再次验证项目绑定和快照字段一致性。
+提交前 `workflow_gate.py` 会确定性地重新验证 Task 项目绑定、当前考勤、人员映射摘要和实际提交请求中的逐人员事实。成功响应中的 `validated_submission_request` 是门禁读取并检查的完整请求对象，`submission_request_sha256` 绑定本次读取的文件内容。Agent 必须把这个对象原样作为 MCP 参数；禁止手工重组、截断或按样例挑选 `records`。门禁会将每条记录按当前 `record_id → payroll_person_id` 身份关系重新投影，并复用工作簿导出器的 Payroll DTO 校验，比较姓名、项目、汇总字段和全部逐日事实；Payroll DTO 没有 `record_id` 字段，若请求额外携带则因结构不符合 DTO 而阻断。单次授权与兼容的旧提交路径都经过该校验。写入后必须立即只读核查固定操作回执及完整人员范围；未知、缺失或不一致时停止，不重试。Skill 不能强制控制 Agent 最终传给 MCP 的参数，因此这只是正常 Skill 流程的校验，不能声称是 Runtime 参数强制保证。Excel 导出也再次验证项目绑定和快照字段一致性。
 
 项目候选及对话消息清单由 Agent 根据工具响应和可见对话构造；Skill 脚本核对消息索引顺序、角色、原文摘要、完整映射及当前业务摘要，但不能认证 MCP 响应或 Runtime 用户消息的真实性，也不能阻止 Agent 直接绕过 Skill 调用 MCP。该本地检查不是 Runtime 级认证。缺少证据或对应不完整时失败关闭。
 
@@ -64,6 +64,15 @@ python3 scripts/workflow_gate.py --request <workdir>/workflow-gate-request.json
 ### 一次性工资核算执行授权（F3.2）
 
 正常路径将范围展示和两个独立写授权收敛为一次业务授权。调用 `PAYROLL_EXECUTION` 前，必须有当前有效考勤确认、身份映射、有效历史工资覆盖报告、唯一的 `matched + COVERED` 默认范围，以及已通过只读核验的固定批次上下文。所有 `ambiguous` / `pending_confirmation` 记录必须保持原身份状态；若用户决定某条仅暂不纳入本次核算，必须先有下述独立排除决定，否则仍阻断。向用户展示月份、准确纳入人员及所有排除人员和原因，并明确说明后续将**正式提交考勤、执行正式预检查、通过后进行工资核算**。范围展示消息位置和其范围摘要随授权证据提交检查；授权消息必须晚于该展示，且有明确工资核算意图、无否定或疑问、没有与范围冲突的人数。
+
+机器解析字段采用稳定文本模板，不要在关键字段内部加入强调标记。有限规范化允许 `**`/`__` 粗体、行首列表标记、冒号、空白和换行差异；月份、人数、纳入名单、排除名单及原因仍须完整一致：
+
+```text
+工资核算范围：2026-06，共 31 人
+纳入：张三、李四
+排除事项：王五：缺少历史工资；赵六：身份待核实
+后续将正式提交考勤、执行正式预检查，并在通过后进行工资核算。
+```
 
 对仍为 `ambiguous` 或 `pending_confirmation` 的记录，用户可以明确决定该稳定 `record_id` 本次暂不纳入。此决定是独立的 `evidence.scope_exclusion_decisions`，不得写入或伪装成 `person-matches.json` 的身份状态。每项必须含 `record_id`、姓名、具体排除原因、当前月份、Review 版本、考勤 SHA、身份映射 SHA、`confirmation_message_index`、`confirmation_message_sha256`，并标记 `message_source_verified=false`。门禁核验确认消息确实对应当前传入对话中的用户消息，提及该人员并明确表达本次不纳入；决策集合必须与全部 unresolved identity conflicts 一一对应。决策摘要绑定范围摘要和一次性授权；输入版本/映射、决定或授权范围变化都会使旧证据失效。没有确认、证据过期、目标不是未解决身份记录、或有其他未处理冲突时阻断。正常 `unmatched` 继续按既有规则列为身份待核并不进入匹配候选范围。
 
@@ -216,3 +225,8 @@ Payroll 当前 Go 实现的 `payload_sha256` 是对 `BATCH_SNAPSHOT` 的 `{atten
 脚本成功返回 `ok=true` 和输出路径后，确认文件存在，再调用 `artifact_declare` 声明该新文件并检查 `ok=true`。不得在完整 SUCCESS 后另行询问是否导出。若导出失败，应报告“工资核算已完成，但正式工资表导出失败”；若文件已生成但声明失败，应说明文件生成成功、交付未完成。任何导出/声明重试都只重试对应步骤，不得再次调用 `calculate_payroll`；已有成功核算结果先按原 `operation_id` 只读核实并复用。PARTIAL、FAILED、结果不明、回执缺失、范围漂移、DTO 或来源绑定校验失败时停止，不得绕过导出器。Artifact `ok=true` 证明声明成功，不证明 UI 已显示。阶段门禁是 Skill 正常路径约束，不是可阻止任意 Shell 或 MCP 调用的 Runtime 权限边界。
 
 身份和范围的自然语言展示使用“已关联 / 待核实 / 暂不纳入”，不向业务用户展示内部枚举或要求其选择恢复策略。
+# Payroll 处理与执行边界
+
+始终使用当前 Runtime 注册的 Payroll MCP 工具。禁止自行编写 HTTP/MCP 客户端、直接请求 MCP URL、读取 Runtime 配置或凭据环境变量，也不得把 Bearer Token 写入脚本、命令行、JSON、日志、异常、Artifact 或聊天。工具缺失/不可用时停止并报告，不以临时客户端替代。该约束只规定 Skill 正常路径；它不是 Runtime 权限边界，也不证明 MCP 凭据对 Agent 进程不可见。
+
+正常两次业务确认：第一次在同一展示中核对考勤事实与所有项目映射，用户明确确认后不再分别追问考勤或项目关系；第二次在唯一工资范围、纳入人员、排除人员及正式操作顺序完整展示后，用户明确授权按该范围核算。已明确展示的排除事项无需用户再次复述，也不要求重确认整份考勤。若考勤事实、项目绑定、身份或纳入范围实质变化，重新展示受影响内容并取得新的相应确认；既有排除人员维持原展示决定本身不构成范围变化。

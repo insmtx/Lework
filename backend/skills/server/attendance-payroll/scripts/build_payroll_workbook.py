@@ -571,19 +571,55 @@ def _validate_source_bindings(data: dict, gate_path: Path, calculation_path: Pat
     identity_people = identity.get("people")
     if not isinstance(identity_people, list):
         raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
-    expected_identity = set()
     source_by_id = {person["record_id"]: person for person in people}
-    for record_id, match in matches_by_id.items():
-        pid = match.get("payroll_person_id") if match.get("status") == "matched" else None
-        if pid in calc_ids:
-            expected_identity.add((record_id, pid, source_by_id[record_id].get("name")))
-    actual_identity = set()
+    identity_record_ids = identity.get("record_ids")
+    if (identity.get("month") != month or identity.get("version") != review.get("version")
+            or identity.get("attendance_sha256") != attendance_sha
+            or not isinstance(identity_record_ids, list)
+            or any(not isinstance(record_id, str) for record_id in identity_record_ids)
+            or len(identity_record_ids) != len(set(identity_record_ids))
+            or set(identity_record_ids) != set(source_by_id)):
+        raise ExportError("IDENTITY_MAPPING_SOURCE_SCOPE_MISMATCH")
+    expected_identity = {
+        record_id: (match["status"], match.get("payroll_person_id"), source_by_id[record_id].get("name"))
+        for record_id, match in matches_by_id.items()
+    }
+    actual_identity = {}
     for item in identity_people:
         item = _obj(item, "IDENTITY_MAPPING_PERSON")
-        if item.get("payroll_person_id") in calc_ids:
-            actual_identity.add((item.get("record_id"), item.get("payroll_person_id"), item.get("name")))
+        record_id, name, status = item.get("record_id"), item.get("name"), item.get("status")
+        pid = item.get("payroll_person_id")
+        if (not isinstance(record_id, str) or record_id not in source_by_id or record_id in actual_identity
+                or name != source_by_id[record_id].get("name")
+                or status not in {"matched", "unmatched", "ambiguous", "pending_confirmation"}):
+            raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+        if status == "matched":
+            pid = _person_id(pid, "IDENTITY_MAPPING_PERSON_ID")
+        elif pid is not None:
+            raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+        actual_identity[record_id] = (status, pid, name)
+    if set(actual_identity) != set(expected_identity):
+        raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
     if actual_identity != expected_identity:
         raise ExportError("IDENTITY_MAPPING_SOURCE_MISMATCH")
+    matched_by_pid = {
+        pid: (record_id, name)
+        for record_id, (status, pid, name) in actual_identity.items()
+        if status == "matched"
+    }
+    if len(matched_by_pid) != sum(status == "matched" for status, _, _ in actual_identity.values()):
+        raise ExportError("IDENTITY_MAPPING_PERSON_ID_DUPLICATE")
+    selected_identity = {
+        (matched_by_pid[pid][0], pid, matched_by_pid[pid][1])
+        for pid in calc_ids if pid in matched_by_pid
+    }
+    expected_calculation_identity = {
+        (record_id, record.get("payroll_person_id"), record.get("name_snapshot"))
+        for record_id, record in snapshot_by_record.items()
+        if record.get("payroll_person_id") in calc_ids
+    }
+    if selected_identity != expected_calculation_identity or len(selected_identity) != len(calc_ids):
+        raise ExportError("IDENTITY_CALCULATION_SCOPE_MISMATCH")
     submission_receipt = _obj(evidence.get("submission_receipt"), "SUBMISSION_RECEIPT")
     payload_sha = submission_receipt.get("payload_sha256")
     if not isinstance(payload_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", payload_sha):
@@ -710,7 +746,7 @@ def _validate_gate(path: Path, month: str, calculation: dict) -> dict:
     if len(calc_by_id) != len(calculation["items"]):
         raise ExportError("CALCULATION_PERSON_SCOPE_INVALID")
     expected_people = None
-    for evidence_part in (receipt, precheck, scope_review, _obj(evidence.get("identity_matching"), "IDENTITY_MATCHING")):
+    for evidence_part in (receipt, precheck, scope_review):
         people = evidence_part.get("people")
         if not isinstance(people, list):
             raise ExportError("GATE_CALCULATION_PEOPLE_MISMATCH")
@@ -729,6 +765,67 @@ def _validate_gate(path: Path, month: str, calculation: dict) -> dict:
         if expected_people is not None and set(mapped) != expected_people:
             raise ExportError("GATE_CALCULATION_PEOPLE_MISMATCH")
         expected_people = set(mapped)
+
+    # Identity evidence covers the whole attendance document. The three
+    # execution records above cover only the authorized/calculated subset.
+    # Keep those contracts separate, then bind the calculated subset back to
+    # unique, positively matched identity rows.
+    identity = _obj(evidence.get("identity_matching"), "IDENTITY_MATCHING")
+    identity_people = identity.get("people")
+    attendance_review = _obj(evidence.get("attendance_review"), "ATTENDANCE_REVIEW")
+    review_people = attendance_review.get("people")
+    identity_record_ids = identity.get("record_ids")
+    review_record_ids = attendance_review.get("record_ids")
+    if (not isinstance(identity_people, list) or not isinstance(review_people, list)
+            or identity.get("month") != attendance_review.get("month")
+            or identity.get("version") != attendance_review.get("version")
+            or identity.get("attendance_sha256") != attendance_review.get("attendance_sha256")
+            or not isinstance(identity_record_ids, list) or not isinstance(review_record_ids, list)
+            or any(not isinstance(record_id, str) or not record_id.strip()
+                   for record_id in identity_record_ids + review_record_ids)
+            or len(identity_record_ids) != len(set(identity_record_ids))
+            or len(review_record_ids) != len(set(review_record_ids))
+            or set(identity_record_ids) != set(review_record_ids)):
+        raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+    review_by_record = {}
+    for person in review_people:
+        person = _obj(person, "ATTENDANCE_REVIEW_PERSON")
+        record_id, name = person.get("record_id"), person.get("name")
+        if not isinstance(record_id, str) or not record_id.strip() or record_id in review_by_record:
+            raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+        review_by_record[record_id] = name
+    if set(review_by_record) != set(review_record_ids):
+        raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+
+    identities_by_record = {}
+    matched_by_pid = {}
+    for raw in identity_people:
+        person = _obj(raw, "IDENTITY_MAPPING_PERSON")
+        record_id, name, status = person.get("record_id"), person.get("name"), person.get("status")
+        pid = person.get("payroll_person_id")
+        if (not isinstance(record_id, str) or record_id not in review_by_record
+                or record_id in identities_by_record or name != review_by_record[record_id]
+                or status not in {"matched", "unmatched", "ambiguous", "pending_confirmation"}):
+            raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+        if status == "matched":
+            pid = _person_id(pid, "IDENTITY_PAYROLL_PERSON_ID")
+            if pid in matched_by_pid:
+                raise ExportError("IDENTITY_MAPPING_PERSON_ID_DUPLICATE")
+            matched_by_pid[pid] = (record_id, name)
+        elif pid is not None:
+            raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+        identities_by_record[record_id] = (status, pid, name)
+    if set(identities_by_record) != set(review_by_record):
+        raise ExportError("IDENTITY_MAPPING_EVIDENCE_INVALID")
+
+    calculated_people = set()
+    for pid, name in calc_by_id.items():
+        identity_row = matched_by_pid.get(pid)
+        if identity_row is None or identity_row[1] != name:
+            raise ExportError("GATE_CALCULATION_PEOPLE_MISMATCH")
+        calculated_people.add((identity_row[0], pid, name))
+    if calculated_people != expected_people:
+        raise ExportError("GATE_CALCULATION_PEOPLE_MISMATCH")
     if precheck.get("batch_id") != batch or precheck.get("snapshot_id", calculation.get("precheck_snapshot_id")) != calculation.get("precheck_snapshot_id"):
         raise ExportError("GATE_PRECHECK_BINDING_MISMATCH")
     return gate

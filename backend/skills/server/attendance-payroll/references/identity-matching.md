@@ -4,6 +4,8 @@
 
 ## 只读资料来源
 
+仅通过当前 Runtime 注册的受管 Payroll MCP 工具读取人员资料。不得自行创建 HTTP/MCP 客户端，不得读取、复制或落盘其 Bearer Token，也不得将 Token 写入脚本、命令、JSON、日志、异常或 Artifact。若受管工具不可用，停止并报告；不得以自建请求替代。该 Skill 约束不构成 Runtime 级凭据隔离或调用强制控制。
+
 1. 调用 Payroll MCP `list_roster` 获取当前有效花名册。其记录含 `roster_id`、`name`、`project_name`、`company_name`、`employee_type`、`position` 和 `gender`，**不含 `payroll_person_id`**。两个 ID 属于不同业务标识，禁止按数值相同、顺序或历史样本推导关联。
 2. 项目名称先通过任务级项目绑定确定。静态 `project-aliases.json` 已不再参与运行；每个来源项目都必须由用户从当前 `list_roster` 返回的项目候选中明确选择一个 Payroll 项目。单项目和多项目都使用同一流程，一个任务只允许一个工资月份及一份完整绑定。执行前将 `list_roster` 原始 JSON 原样保存到 `<workdir>/.attendance-work/payroll-roster.json`，不得编辑或从 `roster_id` 推断 Payroll 人员 ID。生成项目绑定确认清单：
 
@@ -19,6 +21,8 @@
    ```text
    考勤月份：2026-06
    考勤人数：XX 人
+   考勤确认表：考勤确认表.md
+   待核事项：无（如有则列出必要事项）
    项目对应关系：
    来源项目：瀚阅府西苑项目 → Payroll 项目：瀚阅府
    请确认考勤事实及以上项目对应关系。
@@ -48,6 +52,8 @@
 
    将文件中的 `records` 数组原样传给 `resolve_payroll_person_candidates`，并把实际发送的整个请求体原样保存为 `candidate-query.json`。每批最多 100 条，`client_ref` 必须唯一。脚本使用当前确认的 Payroll 项目名生成候选查询，并省略 `position` 查询字段，避免岗位变更造成候选过滤或冲突；岗位仍作为可解释的辅助信息检查。
 4. 将请求批量传给只读接口 `resolve_payroll_person_candidates`，并把完整请求和响应分别保存为候选查询与响应文件。Payroll 的人员关联在独立关系数据中；该响应才可提供 `payroll_person_id` 与 `roster_id` 的明确关联。候选含身份字段、`matched_fields`、`conflicting_fields`、`match_status`、`review_reasons` 及证据。该工具只返回候选，不会替用户确认或写入 Payroll。
+
+   候选响应必须是当前 Task 中实际受管 MCP 调用返回的完整原文；不得用脚本、手工 ID 表、花名册或其他 Task 数据重建候选对象。候选查询文件必须对应当前考勤月份和全部当前 `record_id`，响应中的 `client_ref` 集合必须与查询集合完全相同。`person_matches.py` 会校验集合、字段和原始文件摘要，但本地文件及 SHA-256 只能绑定内容，不能认证 MCP 来源。当前 Runtime 没有向该 Skill 脚本提供可验证的工具调用收据；因此若 Agent 无法直接取得并原样保存当前 Task 的受管工具响应，必须停止身份匹配，不得把本地模拟或重建结果当作真实候选。此边界不是脚本可强制执行的来源认证；要获得机器可验证保证，需要 Runtime 提供绑定 Task、工具名、请求摘要和原始响应摘要的可信只读调用收据。
 
 把工具返回的 JSON 响应保存为临时输入文件，调用：
 

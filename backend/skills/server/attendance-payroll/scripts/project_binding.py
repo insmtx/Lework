@@ -24,6 +24,10 @@ CONFIRMATION_FORMS = (
     "以上项目对应关系正确",
     "确认按上述项目归属处理",
 )
+COMBINED_ATTENDANCE_CONFIRMATION_FORMS = (
+    "确认以上考勤及项目对应关系",
+    "确认以上考勤和项目对应关系",
+)
 
 
 class ProjectBindingError(ValueError):
@@ -84,6 +88,16 @@ def _is_confirmation(message: str, bindings: list[dict[str, str]]) -> bool:
     return normalized in allowed
 
 
+def is_combined_attendance_confirmation(message: str) -> bool:
+    """Recognize the exact first-turn confirmation for attendance and project binding."""
+    if not isinstance(message, str) or any(mark in message for mark in ("?", "？")):
+        return False
+    allowed = {_normalize_confirmation(form) for form in COMBINED_ATTENDANCE_CONFIRMATION_FORMS}
+    for prefix in ("好", "好的", "我"):
+        allowed.update(_normalize_confirmation(prefix + form) for form in COMBINED_ATTENDANCE_CONFIRMATION_FORMS)
+    return _normalize_confirmation(message) in allowed
+
+
 def _conversation_message(messages: object, index: object, role: str, content: object,
                           content_sha256: object, error_code: str) -> str:
     if isinstance(index, bool) or not isinstance(index, int) or index < 0:
@@ -102,9 +116,16 @@ def _conversation_message(messages: object, index: object, role: str, content: o
     return content
 
 
-def _validate_display_content(message: str, month: str, bindings: list[dict[str, str]]) -> None:
-    if f"考勤月份：{month}" not in message:
+def _validate_display_content(message: str, month: str, bindings: list[dict[str, str]], people_count: int) -> None:
+    compact = re.sub(r"\s+", "", message).replace(":", "：")
+    if f"考勤月份：{month}" not in compact:
         raise ProjectBindingError("PROJECT_BINDING_DISPLAY_MONTH_MISSING")
+    if f"考勤人数：{people_count}人" not in compact:
+        raise ProjectBindingError("PROJECT_BINDING_DISPLAY_ATTENDANCE_COUNT_MISSING")
+    if not any(label in compact for label in ("考勤确认表", "考勤核对表")):
+        raise ProjectBindingError("PROJECT_BINDING_DISPLAY_REVIEW_MISSING")
+    if not any(label in compact for label in ("待核事项：", "异常事项：")):
+        raise ProjectBindingError("PROJECT_BINDING_DISPLAY_EXCEPTIONS_MISSING")
     for row in bindings:
         expected_line = f"来源项目：{row['source_project_name']} → Payroll 项目：{row['payroll_project_name']}"
         if expected_line not in message:
@@ -205,9 +226,11 @@ def prepare(attendance_path: str | Path, roster_path: str | Path) -> dict:
     attendance, attendance_raw = _read(attendance_path)
     roster, roster_raw = _read(roster_path)
     month, source_projects = _sources(attendance)
+    people_count = len(attendance["people"])
     return {
         "status": "PROJECT_BINDING_REQUIRED",
         "month": month,
+        "people_count": people_count,
         "attendance_sha256": _sha(attendance_raw),
         "candidate_response_sha256": _sha(roster_raw),
         "candidate_source": "list_roster",
@@ -263,7 +286,7 @@ def confirm(attendance_path: str | Path, roster_path: str | Path, request_path: 
             or display.get("bindings") != normalized_bindings
             or display.get("mapping_sha256") != mapping_sha256):
         raise ProjectBindingError("PROJECT_BINDING_DISPLAY_EVIDENCE_MISMATCH")
-    _validate_display_content(display_message, prepared["month"], normalized_bindings)
+    _validate_display_content(display_message, prepared["month"], normalized_bindings, prepared["people_count"])
     confirmation = request.get("user_confirmation")
     if not isinstance(confirmation, dict):
         raise ProjectBindingError("PROJECT_BINDING_USER_CONFIRMATION_REQUIRED")
@@ -378,7 +401,7 @@ def validate(attendance_path: str | Path, roster_path: str | Path, binding_path:
         raise ProjectBindingError("PROJECT_BINDING_DISPLAY_EVIDENCE_INVALID")
     if not _is_confirmation(confirmation["message"], normalized_bindings):
         raise ProjectBindingError("PROJECT_BINDING_CONFIRMATION_INVALID")
-    _validate_display_content(display["message"], month, normalized_bindings)
+    _validate_display_content(display["message"], month, normalized_bindings, len(attendance["people"]))
     project_map = {}
     for source, target in mapping.items():
         for value in (source, target):
@@ -395,7 +418,7 @@ def validate_submission(attendance_path: str | Path, matches_path: str | Path, s
     verified = validate(attendance_path, roster_path, binding_path)
     attendance, attendance_raw = _read(attendance_path)
     matches, _ = _read(matches_path)
-    submission, _ = _read(submission_path)
+    submission, submission_raw = _read(submission_path)
     if (not isinstance(matches, dict) or matches.get("schema_version") != 1
             or matches.get("attendance_sha256") != _sha(attendance_raw)
             or matches.get("project_binding_sha256") != verified["binding"]["binding_sha256"]):
@@ -435,6 +458,7 @@ def validate_submission(attendance_path: str | Path, matches_path: str | Path, s
             raise ProjectBindingError("PROJECT_BINDING_SOURCE_PROJECT_UNBOUND")
         expected_by_pid[payroll_id] = (source.strip(), target)
     seen = set()
+    ordered_ids = []
     for record in records:
         if not isinstance(record, dict):
             raise ProjectBindingError("PROJECT_BINDING_SUBMISSION_RECORD_INVALID")
@@ -442,6 +466,7 @@ def validate_submission(attendance_path: str | Path, matches_path: str | Path, s
         if isinstance(payroll_id, bool) or not isinstance(payroll_id, int) or payroll_id in seen:
             raise ProjectBindingError("PROJECT_BINDING_SUBMISSION_PAYROLL_ID_INVALID_OR_DUPLICATE")
         seen.add(payroll_id)
+        ordered_ids.append(payroll_id)
         expected = expected_by_pid.get(payroll_id)
         if expected is None:
             raise ProjectBindingError("PROJECT_BINDING_SUBMISSION_SCOPE_MISMATCH")
@@ -450,7 +475,38 @@ def validate_submission(attendance_path: str | Path, matches_path: str | Path, s
             raise ProjectBindingError("PROJECT_BINDING_SUBMISSION_PROJECT_MISMATCH")
     if seen != set(expected_by_pid):
         raise ProjectBindingError("PROJECT_BINDING_SUBMISSION_SCOPE_MISMATCH")
-    return verified
+
+    # Reuse the exporter's canonical projection so the pre-write gate checks the
+    # complete Payroll DTO against the same source mapping as workbook export.
+    try:
+        import build_payroll_workbook as workbook
+
+        workbook._keys(submission, workbook.SUBMISSION_ROOT_KEYS, workbook.SUBMISSION_ROOT_KEYS,
+                       "SUBMISSION_REQUEST")
+        canonical_ids = [match_by_record[record_id].get("payroll_person_id") for record_id in selected_record_ids]
+        if ordered_ids != canonical_ids:
+            raise ProjectBindingError("PROJECT_BINDING_SUBMISSION_SCOPE_ORDER_MISMATCH")
+        for record_id in selected_record_ids:
+            match = match_by_record[record_id]
+            source_person = person_by_record[record_id]
+            expected = workbook._attendance_record_projection(
+                source_person, match, month, verified["project_map"], allow_unmapped_statuses=False,
+            )
+            expected.pop("unmapped_days", None)
+            actual = records[canonical_ids.index(match["payroll_person_id"])]
+            workbook._keys(actual, workbook.SUBMISSION_RECORD_KEYS,
+                           workbook.ATTENDANCE_RECORD_REQUIRED_KEYS, "SUBMISSION_REQUEST_RECORD")
+            workbook._compare_attendance_record(expected, actual)
+    except ProjectBindingError:
+        raise
+    except (workbook.ExportError, KeyError, TypeError, ValueError) as exc:
+        raise ProjectBindingError("PROJECT_BINDING_SUBMISSION_PAYLOAD_MISMATCH") from exc
+
+    return {
+        **verified,
+        "submission_request": submission,
+        "submission_request_sha256": _sha(submission_raw),
+    }
 
 
 def _default_paths(attendance: str) -> tuple[Path, Path]:
