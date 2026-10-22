@@ -863,8 +863,8 @@ notify:
     - when: always
   script:
     - |
-      if [ -z "$WEWORK_WEBHOOK_KEY" ]; then
-        echo "Required notify variable is missing: WEWORK_WEBHOOK_KEY"
+      if [ -z "$FEISHU_WEBHOOK_URL" ]; then
+        echo "Required notify variable is missing: FEISHU_WEBHOOK_URL"
         exit 1
       fi
     - echo "${PIPELINE_STATUS}"
@@ -874,9 +874,20 @@ notify:
       else
         MSG="【${ENV}环境】服务组件${PRJ}/${APP}:${IMAGE_TAG} 更新失败"
       fi
-      curl -H "Content-Type: application/json;charset=utf-8" \
-        -d "{\"msgtype\": \"text\",\"text\": {\"content\":\"${MSG}\"}}" \
-        "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WEWORK_WEBHOOK_KEY}"
+      # 兜底转义：IMAGE_TAG 由 VERSION_GIT_COMMIT 组成，正常情况下不含引号/反斜杠
+      ESCAPED_MSG=$(printf '%s' "${MSG}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+      PAYLOAD="{\"msg_type\":\"text\",\"content\":{\"text\":\"${ESCAPED_MSG}\"}}"
+      # 飞书在 token 错误/关键词未命中时同样返回 HTTP 200，只能靠响应体里的 code 判断是否送达
+      HTTP_CODE=$(curl -sS --max-time 10 -o /tmp/feishu-resp.txt -w '%{http_code}' \
+        -H "Content-Type: application/json;charset=utf-8" \
+        -d "${PAYLOAD}" \
+        "${FEISHU_WEBHOOK_URL}") || HTTP_CODE="000"
+      RESP=$(cat /tmp/feishu-resp.txt 2>/dev/null || true)
+      echo "Feishu notify HTTP ${HTTP_CODE}: ${RESP}"
+      case "${RESP}" in
+        *'"code":0'*) echo "Feishu notify sent" ;;
+        *) echo "WARNING: Feishu 返回非 0 code，通知可能未送达（检查 webhook token / 关键词 / 签名）" ;;
+      esac
 
 workflow:
   rules:
