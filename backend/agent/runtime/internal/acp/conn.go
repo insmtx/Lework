@@ -411,6 +411,7 @@ type Client struct {
 	lastActivity     time.Time
 	permissionBridge *PermissionBridge
 	formBridge       *FormBridge
+	updateSink       func(acpsdk.SessionNotification)
 
 	permissionPolicy string
 }
@@ -446,11 +447,24 @@ func (c *Client) SetPermissionPolicy(policy string) {
 // （设计文档 §3.2.1）。P1 只做内存追加。
 func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotification) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.lastActivity = time.Now()
 	c.updates = append(c.updates, params)
 	c.observe(params.Update)
+	sink := c.updateSink
+	c.mu.Unlock()
+	// sink 只允许做非阻塞入队；这里必须在锁外调用，避免与 Snapshot 互锁。
+	if sink != nil {
+		sink(params)
+	}
 	return nil
+}
+
+// SetUpdateSink 注册逐条通知的消费者（装配层把它接入 Translator）。
+// sink 绝不能阻塞：SDK 的通知线程一旦被卡住，Prompt 永远不会返回（§3.2.1）。
+func (c *Client) SetUpdateSink(sink func(acpsdk.SessionNotification)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.updateSink = sink
 }
 
 func (c *Client) observe(update acpsdk.SessionUpdate) {
