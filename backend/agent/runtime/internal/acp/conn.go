@@ -410,6 +410,7 @@ type Client struct {
 	stats            *Stats
 	lastActivity     time.Time
 	permissionBridge *PermissionBridge
+	formBridge       *FormBridge
 
 	permissionPolicy string
 }
@@ -425,6 +426,13 @@ func (c *Client) SetPermissionBridge(bridge *PermissionBridge) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.permissionBridge = bridge
+}
+
+// SetFormBridge 启用表单桥：elicitation 转成 question.asked 并等待答案回写。
+func (c *Client) SetFormBridge(bridge *FormBridge) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.formBridge = bridge
 }
 
 // SetPermissionPolicy 设置权限应答策略，必须在 Start 之前调用（探针内部使用）。
@@ -561,6 +569,13 @@ func (c *Client) UnstableCreateElicitation(
 		return acpsdk.UnstableCreateElicitationResponse{}, ctx.Err()
 	default:
 	}
+	c.mu.Lock()
+	formBridge := c.formBridge
+	c.mu.Unlock()
+	if formBridge != nil {
+		return formBridge.HandleForm(ctx, req)
+	}
+
 	if req.Form == nil {
 		return acpsdk.UnstableCreateElicitationResponse{
 			Decline: &acpsdk.UnstableCreateElicitationDecline{},

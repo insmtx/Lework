@@ -16,6 +16,7 @@ type Stats struct {
 	UnknownUpdates  atomic.Int64
 	DroppedEvents   atomic.Int64
 	ProtocolErrors  atomic.Int64
+	FormDeclines    atomic.Int64
 }
 
 // StatsSnapshot 是计数器的只读快照。
@@ -24,6 +25,7 @@ type StatsSnapshot struct {
 	UnknownUpdates  int64
 	DroppedEvents   int64
 	ProtocolErrors  int64
+	FormDeclines    int64
 }
 
 // Snapshot 返回当前计数。
@@ -36,6 +38,7 @@ func (s *Stats) Snapshot() StatsSnapshot {
 		UnknownUpdates:  s.UnknownUpdates.Load(),
 		DroppedEvents:   s.DroppedEvents.Load(),
 		ProtocolErrors:  s.ProtocolErrors.Load(),
+		FormDeclines:    s.FormDeclines.Load(),
 	}
 }
 
