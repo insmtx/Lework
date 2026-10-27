@@ -4,9 +4,56 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 )
+
+// Stats 是传输层计数器；由 opencode 在收尾时读取并打日志，
+// 不要在 opencode 包里另建同名计数器（设计文档 §11 / 计划 W2-2）。
+type Stats struct {
+	ResumeFallbacks atomic.Int64
+	UnknownUpdates  atomic.Int64
+	DroppedEvents   atomic.Int64
+	ProtocolErrors  atomic.Int64
+}
+
+// StatsSnapshot 是计数器的只读快照。
+type StatsSnapshot struct {
+	ResumeFallbacks int64
+	UnknownUpdates  int64
+	DroppedEvents   int64
+	ProtocolErrors  int64
+}
+
+// Snapshot 返回当前计数。
+func (s *Stats) Snapshot() StatsSnapshot {
+	if s == nil {
+		return StatsSnapshot{}
+	}
+	return StatsSnapshot{
+		ResumeFallbacks: s.ResumeFallbacks.Load(),
+		UnknownUpdates:  s.UnknownUpdates.Load(),
+		DroppedEvents:   s.DroppedEvents.Load(),
+		ProtocolErrors:  s.ProtocolErrors.Load(),
+	}
+}
+
+// ConfigMismatchError 表示注入的配置没有在 agent 侧生效。
+// opencode 把它映射为 runtime_version_mismatch 类错误码并快速失败（计划 W2-2）。
+type ConfigMismatchError struct {
+	Option string
+	Want   string
+	Got    string
+	Reason string
+}
+
+func (e *ConfigMismatchError) Error() string {
+	if e.Reason != "" {
+		return fmt.Sprintf("acp config mismatch (%s): %s", e.Option, e.Reason)
+	}
+	return fmt.Sprintf("acp config mismatch (%s): got %q, want %q", e.Option, e.Got, e.Want)
+}
 
 // Session 是 ACP 会话的最小句柄。
 type Session struct {
@@ -14,6 +61,48 @@ type Session struct {
 	ID      acpsdk.SessionId
 	Cwd     string
 	Options []acpsdk.SessionConfigOption
+}
+
+// ResumeOrNewSession 优先 resume 已有会话；失败时降级新建并累加 ResumeFallbacks。
+// 返回值 resumed 表示是否真的续上了旧会话（false 表示已降级）。
+func (c *Conn) ResumeOrNewSession(
+	ctx context.Context,
+	sessionID string,
+	cwd string,
+	mcp []acpsdk.McpServer,
+) (sess *Session, resumed bool, err error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID != "" {
+		resumedSess, resumeErr := c.ResumeSession(ctx, acpsdk.SessionId(sessionID), cwd)
+		if resumeErr == nil {
+			return resumedSess, true, nil
+		}
+		// 旧 v1 会话 id 在 v2 库里不存在、或 cwd 不一致，都属预期降级。
+		c.stats.ResumeFallbacks.Add(1)
+	}
+	newSess, err := c.NewSession(ctx, cwd, mcp)
+	if err != nil {
+		return nil, false, err
+	}
+	return newSess, false, nil
+}
+
+// ResumeSession 续上已有会话；调用方负责在失败时决定是否降级。
+func (c *Conn) ResumeSession(ctx context.Context, id acpsdk.SessionId, cwd string) (*Session, error) {
+	if id == "" {
+		return nil, fmt.Errorf("acp session/resume: sessionId is required")
+	}
+	if strings.TrimSpace(cwd) == "" {
+		return nil, fmt.Errorf("acp session/resume: cwd is required")
+	}
+	resp, err := c.sdk.ResumeSession(ctx, acpsdk.ResumeSessionRequest{
+		SessionId: id,
+		Cwd:       cwd,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("acp session/resume: %w", err)
+	}
+	return &Session{conn: c, ID: id, Cwd: cwd, Options: resp.ConfigOptions}, nil
 }
 
 // NewSession 在 cwd 下新建会话。
@@ -102,10 +191,10 @@ func (s *Session) RequireModel(want string) error {
 	}
 	got, ok := s.ModelCurrentValue()
 	if !ok {
-		return fmt.Errorf("acp config injection lost: configOptions has no model option")
+		return &ConfigMismatchError{Option: "model", Reason: "configOptions has no model option"}
 	}
 	if got != want {
-		return fmt.Errorf("acp config injection mismatch: model currentValue=%q, want %q", got, want)
+		return &ConfigMismatchError{Option: "model", Want: want, Got: got}
 	}
 	return nil
 }

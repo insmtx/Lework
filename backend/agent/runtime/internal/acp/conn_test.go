@@ -155,6 +155,8 @@ const fakeACPScript = `#!/usr/bin/env python3
 import json, os, sys, time
 
 mode = os.environ.get("FAKE_ACP_MODE", "ok")
+resume = os.environ.get("FAKE_ACP_RESUME", "ok")
+model = os.environ.get("FAKE_ACP_MODEL", "")
 count_file = os.environ.get("FAKE_ACP_COUNT_FILE")
 if count_file:
     with open(count_file, "a") as handle:
@@ -163,6 +165,12 @@ if count_file:
 def send(payload):
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+def config_options():
+    if not model:
+        return []
+    return [{"id": "model", "name": "Model", "type": "select",
+             "currentValue": model, "options": []}]
 
 for line in sys.stdin:
     line = line.strip()
@@ -194,5 +202,14 @@ for line in sys.stdin:
             sys.exit(0)
     elif method == "session/new":
         send({"jsonrpc": "2.0", "id": message_id,
-              "result": {"sessionId": "s1", "configOptions": []}})
+              "result": {"sessionId": "s1", "configOptions": config_options()}})
+    elif method == "session/resume":
+        if resume == "fail":
+            send({"jsonrpc": "2.0", "id": message_id,
+                  "error": {"code": -32602,
+                            "message": "session " + str(message.get("params", {}).get("sessionId")) +
+                                       " does not belong to cwd"}})
+        else:
+            send({"jsonrpc": "2.0", "id": message_id,
+                  "result": {"configOptions": config_options()}})
 `

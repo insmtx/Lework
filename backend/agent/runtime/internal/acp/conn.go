@@ -72,6 +72,7 @@ type Conn struct {
 	client *Client
 	sdk    *acpsdk.ClientSideConnection
 	init   acpsdk.InitializeResponse
+	stats  *Stats
 	stderr *lineBuffer
 
 	closeOnce sync.Once
@@ -146,9 +147,11 @@ func startOnce(ctx context.Context, cfg Config) (*Conn, error) {
 		cmd:    cmd,
 		stdin:  stdin,
 		client: NewClient(),
+		stats:  &Stats{},
 		stderr: newLineBuffer(40),
 		waitCh: make(chan error, 1),
 	}
+	conn.client.stats = conn.stats
 	conn.client.SetPermissionPolicy(cfg.PermissionPolicy)
 	go conn.captureStderr(stderrPipe)
 	go func() { conn.waitCh <- cmd.Wait() }()
@@ -197,6 +200,9 @@ func (c *Conn) Initialize() acpsdk.InitializeResponse { return c.init }
 
 // Client 暴露观测侧（收到的 update、反向请求），只读用途。
 func (c *Conn) Client() *Client { return c.client }
+
+// Stats 暴露传输层计数器，供 opencode 在收尾时读取。
+func (c *Conn) Stats() *Stats { return c.stats }
 
 // PID 返回 ACP 子进程（supervisor）的 pid；私有 serve 是它的子进程。
 func (c *Conn) PID() int {
@@ -361,6 +367,7 @@ type Client struct {
 	text         strings.Builder
 	elicitations []ElicitationRecord
 	permissions  []acpsdk.RequestPermissionRequest
+	stats        *Stats
 
 	permissionPolicy string
 }
@@ -441,6 +448,9 @@ func (c *Client) observe(update acpsdk.SessionUpdate) {
 		c.kinds["session_info_update"]++
 	default:
 		c.kinds["unknown"]++
+		if c.stats != nil {
+			c.stats.UnknownUpdates.Add(1)
+		}
 	}
 }
 
