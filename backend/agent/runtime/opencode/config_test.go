@@ -367,3 +367,17 @@ func TestSanitizeConfigContentRedactsMCPCredentials(t *testing.T) {
 		t.Fatalf("sanitized config should keep header names for troubleshooting: %s", out)
 	}
 }
+
+func TestBuildConfigContentEnablesExperimentalTodo(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "")
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	if cfg.Experimental == nil || !cfg.Experimental.Todo {
+		t.Fatalf("experimental.todo not enabled: %+v", cfg.Experimental)
+	}
+}

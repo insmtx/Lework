@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ type toolRuntimeState struct {
 	filtered  bool
 	startedAt time.Time
 	rawInput  any
+	todoHash  string
 }
 
 // Translator 把 ACP 的 SessionUpdate 映射为 NodeEvent。
@@ -187,6 +189,9 @@ func (t *Translator) handleToolCallUpdate(call *acpsdk.SessionToolCallUpdate) []
 	if IsFilteredTool(name) {
 		state.filtered = true
 	}
+	if name == "todowrite" {
+		return t.handleTodoInput(call, state)
+	}
 	if state.filtered {
 		return nil
 	}
@@ -231,6 +236,32 @@ func (t *Translator) handleToolCallUpdate(call *acpsdk.SessionToolCallUpdate) []
 	default:
 		return nil
 	}
+}
+
+// handleTodoInput 把 todowrite 的 RawInput.todos 转成 todo.updated；
+// 同内容重复帧不重复发事件（上游会随进度反复发送完整列表）。
+func (t *Translator) handleTodoInput(
+	call *acpsdk.SessionToolCallUpdate,
+	state *toolRuntimeState,
+) []agent.NodeEvent {
+	raw := call.RawInput
+	if raw == nil {
+		raw = state.rawInput
+	}
+	todos := ParseTodos(raw)
+	if len(todos) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(todos)
+	if err != nil {
+		return nil
+	}
+	signature := string(encoded)
+	if signature == state.todoHash {
+		return nil
+	}
+	state.todoHash = signature
+	return []agent.NodeEvent{agent.NewTodoUpdatedEvent(todos)}
 }
 
 // ensureStarted 处理「没收到 in_progress 直接 completed/failed」的异常顺序，

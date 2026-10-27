@@ -101,8 +101,9 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 				},
 			},
 		},
-		Model: providerID + "/" + modelID,
-		Agent: map[string]agentConfig{"build": {Prompt: openCodeBuildAgentPrompt}},
+		Model:        providerID + "/" + modelID,
+		Agent:        map[string]agentConfig{"build": {Prompt: openCodeBuildAgentPrompt}},
+		Experimental: &experimentalConfig{Todo: true},
 		Permission: map[string]any{
 			"*": "allow",
 			"bash": map[string]string{

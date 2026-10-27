@@ -212,13 +212,19 @@ type sessionErrorProps struct {
 
 // configContent 是 OPENCODE_CONFIG_CONTENT 的顶层结构。
 type configContent struct {
-	Schema     string                    `json:"$schema,omitempty"`
-	Provider   map[string]providerConfig `json:"provider"`
-	Model      string                    `json:"model,omitempty"`
-	Agent      map[string]agentConfig    `json:"agent,omitempty"`
-	Permission map[string]any            `json:"permission,omitempty"`
-	MCP        map[string]any            `json:"mcp,omitempty"`
-	Skills     *skillsConfig             `json:"skills,omitempty"`
+	Schema       string                    `json:"$schema,omitempty"`
+	Provider     map[string]providerConfig `json:"provider"`
+	Model        string                    `json:"model,omitempty"`
+	Agent        map[string]agentConfig    `json:"agent,omitempty"`
+	Permission   map[string]any            `json:"permission,omitempty"`
+	MCP          map[string]any            `json:"mcp,omitempty"`
+	Skills       *skillsConfig             `json:"skills,omitempty"`
+	Experimental *experimentalConfig       `json:"experimental,omitempty"`
+}
+
+// experimentalConfig 打开 OpenCode v2 的实验特性；待办在 v2 需要显式开启。
+type experimentalConfig struct {
+	Todo bool `json:"todo,omitempty"`
 }
 
 // skillsConfig configures additional OpenCode Skill search paths.

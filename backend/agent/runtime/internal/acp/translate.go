@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	acpsdk "github.com/coder/acp-go-sdk"
+	"github.com/insmtx/Leros/backend/agent"
 )
 
 const (
@@ -88,6 +89,62 @@ func TruncateToolOutput(output string) string {
 		truncated = truncated[:len(truncated)-1]
 	}
 	return truncated + fmt.Sprintf("\n...[truncated %d bytes]", len(output)-len(truncated))
+}
+
+// ParseTodos 从 todowrite 的 RawInput 解析待办列表。
+// 上游字段是 content/status/priority（不是 title）；ID 按序号生成 todo_<n>。
+func ParseTodos(raw any) []agent.RuntimeTodoItem {
+	object, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	list, ok := object["todos"].([]any)
+	if !ok || len(list) == 0 {
+		return nil
+	}
+	items := make([]agent.RuntimeTodoItem, 0, len(list))
+	for index, entry := range list {
+		todo, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		title := firstStringField(todo, "content", "title", "text")
+		if title == "" {
+			continue
+		}
+		items = append(items, agent.RuntimeTodoItem{
+			ID:       fmt.Sprintf("todo_%d", index),
+			Title:    title,
+			Status:   normalizeTodoStatus(firstStringField(todo, "status")),
+			Priority: firstStringField(todo, "priority"),
+		})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return items
+}
+
+func firstStringField(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func normalizeTodoStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "in_progress", "in-progress", "running", "active", "started":
+		return "in_progress"
+	case "completed", "complete", "done", "success":
+		return "completed"
+	case "cancelled", "canceled", "deleted", "declined":
+		return "cancelled"
+	default:
+		return "pending"
+	}
 }
 
 // marshalArguments 把 RawInput 原样编码为 ToolExecutionStartPayload.Arguments。
