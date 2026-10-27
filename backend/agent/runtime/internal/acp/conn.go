@@ -76,7 +76,9 @@ type Conn struct {
 	stderr *lineBuffer
 
 	closeOnce sync.Once
-	waitCh    chan error
+	doneCh    chan struct{}
+	waitMu    sync.Mutex
+	waitErr   error
 }
 
 // Start 启动 `opencode acp` 并完成 initialize。
@@ -149,12 +151,19 @@ func startOnce(ctx context.Context, cfg Config) (*Conn, error) {
 		client: NewClient(),
 		stats:  &Stats{},
 		stderr: newLineBuffer(40),
-		waitCh: make(chan error, 1),
+		doneCh: make(chan struct{}),
 	}
 	conn.client.stats = conn.stats
 	conn.client.SetPermissionPolicy(cfg.PermissionPolicy)
+	conn.client.Touch()
 	go conn.captureStderr(stderrPipe)
-	go func() { conn.waitCh <- cmd.Wait() }()
+	go func() {
+		err := cmd.Wait()
+		conn.waitMu.Lock()
+		conn.waitErr = err
+		conn.waitMu.Unlock()
+		close(conn.doneCh)
+	}()
 
 	var frames *frameRecorder
 	if cfg.FrameSink != nil {
@@ -231,15 +240,46 @@ func (c *Conn) Close() error {
 			_ = c.cmd.Process.Signal(syscall.SIGTERM)
 		}
 		select {
-		case <-c.waitCh:
+		case <-c.doneCh:
 		case <-time.After(shutdownGrace):
-			if c.cmd.Process != nil {
-				_ = c.cmd.Process.Kill()
-			}
-			<-c.waitCh
+			c.killProcess()
+			<-c.doneCh
 		}
 	})
 	return nil
+}
+
+// Cancel 主动向 agent 发 session/cancel。
+// 只在「ctx 仍然活着但判定卡住」时调用；ctx 取消路径由 SDK 自己发（§3.3）。
+func (c *Conn) Cancel(ctx context.Context, id acpsdk.SessionId) error {
+	if id == "" {
+		return fmt.Errorf("acp cancel: sessionId is required")
+	}
+	if err := c.sdk.Cancel(ctx, acpsdk.CancelNotification{SessionId: id}); err != nil {
+		return fmt.Errorf("acp session/cancel: %w", err)
+	}
+	return nil
+}
+
+// Kill 立即强杀子进程并等待回收（取消排空超时后的兜底）。
+func (c *Conn) Kill() {
+	if c == nil {
+		return
+	}
+	c.killProcess()
+	select {
+	case <-c.doneCh:
+	case <-time.After(time.Second):
+	}
+}
+
+// Done 在子进程退出后关闭，供调用方感知崩溃（§3.2「SDK Done 关闭」）。
+func (c *Conn) Done() <-chan struct{} { return c.doneCh }
+
+func (c *Conn) killProcess() {
+	if c.cmd != nil && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
 }
 
 func (c *Conn) captureStderr(r io.Reader) {
@@ -368,6 +408,7 @@ type Client struct {
 	elicitations []ElicitationRecord
 	permissions  []acpsdk.RequestPermissionRequest
 	stats        *Stats
+	lastActivity time.Time
 
 	permissionPolicy string
 }
@@ -389,6 +430,7 @@ func (c *Client) SetPermissionPolicy(policy string) {
 func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotification) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.lastActivity = time.Now()
 	c.updates = append(c.updates, params)
 	c.observe(params.Update)
 	return nil
@@ -458,6 +500,7 @@ func (c *Client) observe(update acpsdk.SessionUpdate) {
 // 才能验证 completed 帧的 Name 回填；生产实现见设计文档 §6。
 func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
 	c.mu.Lock()
+	c.lastActivity = time.Now()
 	c.permissions = append(c.permissions, params)
 	c.mu.Unlock()
 
@@ -514,6 +557,7 @@ func (c *Client) UnstableCreateElicitation(
 	}
 
 	c.mu.Lock()
+	c.lastActivity = time.Now()
 	c.elicitations = append(c.elicitations, ElicitationRecord{
 		Message:    req.Form.Message,
 		Properties: req.Form.RequestedSchema.Properties,
@@ -582,6 +626,20 @@ func (c *Client) WaitForTerminalExit(
 	acpsdk.WaitForTerminalExitRequest,
 ) (acpsdk.WaitForTerminalExitResponse, error) {
 	return acpsdk.WaitForTerminalExitResponse{}, acpsdk.NewMethodNotFound("terminal/wait_for_exit")
+}
+
+// Touch 标记一次活动；连接建立时调用，避免看门狗把启动期算作空闲。
+func (c *Client) Touch() {
+	c.mu.Lock()
+	c.lastActivity = time.Now()
+	c.mu.Unlock()
+}
+
+// LastActivity 返回最近一次通知/反向请求的时间。
+func (c *Client) LastActivity() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastActivity
 }
 
 // Snapshot 返回当前观测结果的拷贝。

@@ -157,7 +157,11 @@ import json, os, sys, time
 mode = os.environ.get("FAKE_ACP_MODE", "ok")
 resume = os.environ.get("FAKE_ACP_RESUME", "ok")
 model = os.environ.get("FAKE_ACP_MODEL", "")
+prompt_mode = os.environ.get("FAKE_ACP_PROMPT", "ok")
 count_file = os.environ.get("FAKE_ACP_COUNT_FILE")
+cancel_file = os.environ.get("FAKE_ACP_CANCEL_FILE")
+pending_prompt = None
+
 if count_file:
     with open(count_file, "a") as handle:
         handle.write("spawn\n")
@@ -182,6 +186,7 @@ for line in sys.stdin:
         continue
     method = message.get("method")
     message_id = message.get("id")
+
     if method == "initialize":
         if mode == "timeout":
             time.sleep(3600)
@@ -207,9 +212,26 @@ for line in sys.stdin:
         if resume == "fail":
             send({"jsonrpc": "2.0", "id": message_id,
                   "error": {"code": -32602,
-                            "message": "session " + str(message.get("params", {}).get("sessionId")) +
-                                       " does not belong to cwd"}})
+                            "message": "session does not belong to cwd"}})
         else:
             send({"jsonrpc": "2.0", "id": message_id,
                   "result": {"configOptions": config_options()}})
+    elif method == "session/prompt":
+        if prompt_mode == "auth":
+            send({"jsonrpc": "2.0", "id": message_id,
+                  "error": {"code": -32000, "message": "provider authentication required"}})
+        elif prompt_mode in ("silent", "ignore-cancel"):
+            pending_prompt = message_id
+        else:
+            send({"jsonrpc": "2.0", "id": message_id,
+                  "result": {"stopReason": "end_turn",
+                             "usage": {"inputTokens": 7, "outputTokens": 1, "totalTokens": 8}}})
+    elif method == "session/cancel":
+        if cancel_file:
+            with open(cancel_file, "a") as handle:
+                handle.write("cancel\n")
+        if prompt_mode != "ignore-cancel" and pending_prompt is not None:
+            send({"jsonrpc": "2.0", "id": pending_prompt,
+                  "result": {"stopReason": "cancelled"}})
+            pending_prompt = None
 `
