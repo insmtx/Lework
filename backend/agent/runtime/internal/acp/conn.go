@@ -49,6 +49,9 @@ type Config struct {
 	// FrameSink 非空时，把双向原始 JSON-RPC 帧按 ndjson 追加写入，
 	// 每行 {"dir":"c2a"|"a2c","line":"..."}，供 W6-2 回放。
 	FrameSink io.Writer
+	// PermissionPolicy 决定探针对 session/request_permission 的应答：
+	// "" / "once" 选 allow_once；"reject" 选 reject_once（权限隔离实测用）。
+	PermissionPolicy string
 }
 
 // Conn 持有 ACP 子进程与 SDK 连接。
@@ -104,6 +107,7 @@ func Start(ctx context.Context, cfg Config) (*Conn, error) {
 		stderr: newLineBuffer(40),
 		waitCh: make(chan error, 1),
 	}
+	conn.client.SetPermissionPolicy(cfg.PermissionPolicy)
 	go conn.captureStderr(stderrPipe)
 	go func() { conn.waitCh <- cmd.Wait() }()
 
@@ -276,11 +280,12 @@ func (r *frameReader) Read(p []byte) (int, error) {
 // ToolCallState 是某个 toolCallId 的合并视图：start 帧带 Title/Kind，
 // completed 帧不再带 Title，因此必须按 id 回填（设计文档 §13.2 缺口 1）。
 type ToolCallState struct {
-	ID       string
-	Title    string
-	Kind     string
-	Status   string
-	RawInput any
+	ID        string
+	Title     string
+	Kind      string
+	Status    string
+	RawInput  any
+	RawOutput any
 }
 
 // ElicitationRecord 是一次表单请求的观测结果。
@@ -299,11 +304,20 @@ type Client struct {
 	text         strings.Builder
 	elicitations []ElicitationRecord
 	permissions  []acpsdk.RequestPermissionRequest
+
+	permissionPolicy string
 }
 
 // NewClient 创建观测客户端。
 func NewClient() *Client {
 	return &Client{kinds: map[string]int{}, toolCalls: map[string]*ToolCallState{}}
+}
+
+// SetPermissionPolicy 设置权限应答策略，必须在 Start 之前调用（探针内部使用）。
+func (c *Client) SetPermissionPolicy(policy string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.permissionPolicy = strings.ToLower(strings.TrimSpace(policy))
 }
 
 // SessionUpdate 必须立即返回：阻塞会让 SDK 水位不推进、Prompt 永不返回
@@ -355,6 +369,9 @@ func (c *Client) observe(update acpsdk.SessionUpdate) {
 		if call.RawInput != nil {
 			state.RawInput = call.RawInput
 		}
+		if call.RawOutput != nil {
+			state.RawOutput = call.RawOutput
+		}
 	case update.UsageUpdate != nil:
 		c.kinds["usage_update"]++
 	case update.AvailableCommandsUpdate != nil:
@@ -383,10 +400,14 @@ func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPer
 	default:
 	}
 
+	wantKind := acpsdk.PermissionOptionKindAllowOnce
+	if c.permissionPolicy == "reject" {
+		wantKind = acpsdk.PermissionOptionKindRejectOnce
+	}
 	optionID := ""
 	for _, opt := range params.Options {
-		if string(opt.OptionId) == "once" {
-			optionID = "once"
+		if opt.Kind == wantKind {
+			optionID = string(opt.OptionId)
 			break
 		}
 		if optionID == "" {

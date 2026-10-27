@@ -66,6 +66,32 @@ func configOptionValue(options []acpsdk.SessionConfigOption, id string) (string,
 	return "", false
 }
 
+// ConfigOptionValues 返回某个 select 型 configOption 的全部候选值，
+// 用于验证自定义 agent 是否真的注册进了 mode 列表。
+func (s *Session) ConfigOptionValues(id string) []string {
+	for _, option := range s.Options {
+		selectOption := option.Select
+		if selectOption == nil || string(selectOption.Id) != id {
+			continue
+		}
+		values := make([]string, 0, 8)
+		if ungrouped := selectOption.Options.Ungrouped; ungrouped != nil {
+			for _, item := range *ungrouped {
+				values = append(values, string(item.Value))
+			}
+		}
+		if grouped := selectOption.Options.Grouped; grouped != nil {
+			for _, group := range *grouped {
+				for _, item := range group.Options {
+					values = append(values, string(item.Value))
+				}
+			}
+		}
+		return values
+	}
+	return nil
+}
+
 // RequireModel 校验注入的模型确实生效。
 // 上游对配置错误只回 provider.invalid-request（探针 README 的坑 1），
 // 因此必须在建会话后立即比对，而不是等 Prompt 失败。

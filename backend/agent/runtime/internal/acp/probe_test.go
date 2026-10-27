@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 )
@@ -33,41 +34,23 @@ func TestOpenCodeACPProbe(t *testing.T) {
 		t.Fatalf("build probe config: %v", err)
 	}
 
-	root := t.TempDir()
-	workDir := filepath.Join(root, "workspace")
-	for _, dir := range []string{
-		workDir,
-		filepath.Join(root, "xdg", "data"),
-		filepath.Join(root, "xdg", "config"),
-		filepath.Join(root, "xdg", "state"),
-		filepath.Join(root, "xdg", "cache"),
-		filepath.Join(root, "data"),
-	} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("create probe dir %s: %v", dir, err)
-		}
-	}
-	if err := os.WriteFile(
-		filepath.Join(workDir, "README.md"),
-		[]byte("# probe workspace\nhello from readme\n"),
-		0o644,
-	); err != nil {
-		t.Fatalf("write probe README: %v", err)
-	}
+	root, workDir := newProbeWorkspace(t)
 
 	frameSink, closeSink := openFrameSink(t)
 	if closeSink != nil {
 		defer closeSink()
 	}
 
-	env := []string{
-		"XDG_DATA_HOME=" + filepath.Join(root, "xdg", "data"),
-		"XDG_CONFIG_HOME=" + filepath.Join(root, "xdg", "config"),
-		"XDG_STATE_HOME=" + filepath.Join(root, "xdg", "state"),
-		"XDG_CACHE_HOME=" + filepath.Join(root, "xdg", "cache"),
-		"OPENCODE_DB=" + filepath.Join(root, "data", "opencode.db"),
-		"OPENCODE_CONFIG_CONTENT=" + configContent,
-	}
+	env := append(probeBaseEnv(root), "OPENCODE_CONFIG_CONTENT="+configContent)
+
+	// 全局库隔离：探针全程只用 OPENCODE_DB/XDG 指向的临时库，
+	// 真实 ~/.local/share/opencode/opencode.db 的 mtime/size 必须不变。
+	dbPath, dbBefore, hasGlobalDB := fingerprintGlobalDB()
+	defer func() {
+		if hasGlobalDB {
+			assertFileUnchanged(t, dbPath, dbBefore)
+		}
+	}()
 
 	conn, err := Start(context.Background(), Config{
 		Binary:    binary,
@@ -231,10 +214,15 @@ func snapshotToolTitles(snapshot ClientSnapshot) []string {
 
 func openFrameSink(t *testing.T) (io.Writer, func()) {
 	t.Helper()
+	return openFrameSinkNamed(t, "opencode-2.1.4-probe.ndjson")
+}
+
+func openFrameSinkNamed(t *testing.T, name string) (io.Writer, func()) {
+	t.Helper()
 	if os.Getenv("LEROS_ACP_RECORD") != "1" {
 		return nil, nil
 	}
-	path := filepath.Join("testdata", "acp", "opencode-2.1.4-probe.ndjson")
+	path := filepath.Join("testdata", "acp", name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("create frame dir: %v", err)
 	}
@@ -246,21 +234,62 @@ func openFrameSink(t *testing.T) (io.Writer, func()) {
 	return f, func() { _ = f.Close() }
 }
 
-// probeConfigContent 生成 OPENCODE_CONFIG_CONTENT。
+// newProbeWorkspace 准备隔离的 workspace 与 XDG 目录。
+func newProbeWorkspace(t *testing.T) (root, workDir string) {
+	t.Helper()
+	root = t.TempDir()
+	workDir = filepath.Join(root, "workspace")
+	for _, dir := range []string{
+		workDir,
+		filepath.Join(root, "xdg", "data"),
+		filepath.Join(root, "xdg", "config"),
+		filepath.Join(root, "xdg", "state"),
+		filepath.Join(root, "xdg", "cache"),
+		filepath.Join(root, "data"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create probe dir %s: %v", dir, err)
+		}
+	}
+	// macOS 的 /tmp 是 /private/tmp 的软链；权限规则按真实路径匹配，
+	// 这里统一解析，避免 allow 规则因路径前缀不同而失效。
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
+	if err := os.WriteFile(
+		filepath.Join(workDir, "README.md"),
+		[]byte("# probe workspace\nhello from readme\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write probe README: %v", err)
+	}
+	return root, workDir
+}
+
+func probeBaseEnv(root string) []string {
+	return []string{
+		"XDG_DATA_HOME=" + filepath.Join(root, "xdg", "data"),
+		"XDG_CONFIG_HOME=" + filepath.Join(root, "xdg", "config"),
+		"XDG_STATE_HOME=" + filepath.Join(root, "xdg", "state"),
+		"XDG_CACHE_HOME=" + filepath.Join(root, "xdg", "cache"),
+		"OPENCODE_DB=" + filepath.Join(root, "data", "opencode.db"),
+	}
+}
+
+// probeConfigMap 读取现有 opencode 配置并裁剪成最小注入配置。
 // 默认只注入模型；LEROS_ACP_PROBE_CONFIG_FILE 指向一份已有 opencode 配置时，
 // 取该配置里对应 provider 的条目（含 baseURL/凭据）并裁掉 mcp 等无关段。
-func probeConfigContent(model string) (string, error) {
+func probeConfigMap(model string) (map[string]any, error) {
 	path := strings.TrimSpace(os.Getenv("LEROS_ACP_PROBE_CONFIG_FILE"))
-	if path == "" {
-		return fmt.Sprintf(`{"model":%q}`, model), nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	var cfg map[string]any
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return "", err
+	cfg := map[string]any{}
+	if path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return nil, err
+		}
 	}
 	cfg["model"] = model
 	delete(cfg, "mcp")
@@ -270,11 +299,54 @@ func probeConfigContent(model string) (string, error) {
 			cfg["provider"] = map[string]any{providerID: entry}
 		}
 	}
+	return cfg, nil
+}
+
+func probeConfigContent(model string) (string, error) {
+	cfg, err := probeConfigMap(model)
+	if err != nil {
+		return "", err
+	}
 	out, err := json.Marshal(cfg)
 	if err != nil {
 		return "", err
 	}
 	return string(out), nil
+}
+
+type fileFingerprint struct {
+	Size    int64
+	ModTime time.Time
+}
+
+// fingerprintGlobalDB 记录真实全局库的指纹；文件不存在时返回 false（跳过断言）。
+func fingerprintGlobalDB() (string, fileFingerprint, bool) {
+	path := strings.TrimSpace(os.Getenv("LEROS_ACP_PROBE_GLOBAL_DB"))
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fileFingerprint{}, false
+		}
+		path = filepath.Join(home, ".local", "share", "opencode", "opencode.db")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return path, fileFingerprint{}, false
+	}
+	return path, fileFingerprint{Size: info.Size(), ModTime: info.ModTime()}, true
+}
+
+func assertFileUnchanged(t *testing.T, path string, want fileFingerprint) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Errorf("global opencode db disappeared: %v", err)
+		return
+	}
+	if info.Size() != want.Size || !info.ModTime().Equal(want.ModTime) {
+		t.Errorf("global opencode db changed: size %d->%d, mtime %s->%s",
+			want.Size, info.Size(), want.ModTime, info.ModTime())
+	}
 }
 
 func envOrDefault(key, fallback string) string {
