@@ -1,7 +1,10 @@
 package acp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +14,19 @@ import (
 
 	acpsdk "github.com/coder/acp-go-sdk"
 )
+
+const fakeAgentEnv = "LEROS_ACP_FAKE_AGENT"
+
+// TestFakeACPAgentProcess 是测试用 ACP agent 的入口：父测试用 os.Args[0]
+// 重新执行测试二进制并带 -test.run 指向本函数，通过环境变量切换行为。
+// 这样失败路径单测不依赖 python/node 等外部解释器。
+func TestFakeACPAgentProcess(t *testing.T) {
+	if os.Getenv(fakeAgentEnv) != "1" {
+		t.Skip("helper process for fake ACP agent")
+	}
+	serveFakeACP()
+	os.Exit(0)
+}
 
 func TestStartSpawnFailure(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing-opencode")
@@ -31,18 +47,10 @@ func TestStartSpawnFailure(t *testing.T) {
 }
 
 func TestStartInitializeTimeoutRetriesOnce(t *testing.T) {
-	binary, countFile := writeFakeACP(t, "timeout")
+	cfg, countFile := fakeACPConfig(t, "timeout")
 
 	startedAt := time.Now()
-	_, err := Start(context.Background(), Config{
-		Binary: binary,
-		Env: []string{
-			"FAKE_ACP_MODE=timeout",
-			"FAKE_ACP_COUNT_FILE=" + countFile,
-		},
-		// python 冷启动本身要几十毫秒，超时窗口留足，避免进程还没执行到脚本就被杀。
-		StartupTimeout: 600 * time.Millisecond,
-	})
+	_, err := Start(context.Background(), cfg)
 	elapsed := time.Since(startedAt)
 
 	if err == nil {
@@ -60,16 +68,9 @@ func TestStartInitializeTimeoutRetriesOnce(t *testing.T) {
 }
 
 func TestStartInitializeErrorRetriesOnce(t *testing.T) {
-	binary, countFile := writeFakeACP(t, "error")
+	cfg, countFile := fakeACPConfig(t, "error")
 
-	_, err := Start(context.Background(), Config{
-		Binary: binary,
-		Env: []string{
-			"FAKE_ACP_MODE=error",
-			"FAKE_ACP_COUNT_FILE=" + countFile,
-		},
-		StartupTimeout: time.Second,
-	})
+	_, err := Start(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected initialize error")
 	}
@@ -85,16 +86,9 @@ func TestStartInitializeErrorRetriesOnce(t *testing.T) {
 }
 
 func TestStartAuthErrorDoesNotRetry(t *testing.T) {
-	binary, countFile := writeFakeACP(t, "auth")
+	cfg, countFile := fakeACPConfig(t, "auth")
 
-	_, err := Start(context.Background(), Config{
-		Binary: binary,
-		Env: []string{
-			"FAKE_ACP_MODE=auth",
-			"FAKE_ACP_COUNT_FILE=" + countFile,
-		},
-		StartupTimeout: time.Second,
-	})
+	_, err := Start(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected auth error")
 	}
@@ -108,13 +102,9 @@ func TestStartAuthErrorDoesNotRetry(t *testing.T) {
 }
 
 func TestConnFailsAfterPeerExit(t *testing.T) {
-	binary, _ := writeFakeACP(t, "exit-after-init")
+	cfg, _ := fakeACPConfig(t, "exit-after-init")
 
-	conn, err := Start(context.Background(), Config{
-		Binary:         binary,
-		Env:            []string{"FAKE_ACP_MODE=exit-after-init"},
-		StartupTimeout: time.Second,
-	})
+	conn, err := Start(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -127,16 +117,158 @@ func TestConnFailsAfterPeerExit(t *testing.T) {
 	}
 }
 
-// writeFakeACP 生成一个最小 ACP agent（python），用 FAKE_ACP_MODE 切换行为。
-func writeFakeACP(t *testing.T, mode string) (binary, countFile string) {
+// fakeACPConfig 返回以当前测试二进制为 agent 的启动配置，并给出 spawn 计数文件。
+func fakeACPConfig(t *testing.T, mode string) (Config, string) {
 	t.Helper()
-	dir := t.TempDir()
-	binary = filepath.Join(dir, "fake-acp-"+mode)
-	countFile = filepath.Join(dir, "spawns.log")
-	if err := os.WriteFile(binary, []byte(fakeACPScript), 0o755); err != nil {
-		t.Fatalf("write fake acp: %v", err)
+	countFile := filepath.Join(t.TempDir(), "spawns.log")
+	return Config{
+		Binary: os.Args[0],
+		Args:   fakeACPArgs(),
+		Env: []string{
+			fakeAgentEnv + "=1",
+			"FAKE_ACP_MODE=" + mode,
+			"FAKE_ACP_COUNT_FILE=" + countFile,
+		},
+		StartupTimeout: 2 * time.Second,
+	}, countFile
+}
+
+func fakeACPArgs() []string {
+	return []string{"-test.run=^TestFakeACPAgentProcess$"}
+}
+
+// serveFakeACP 实现最小的 ACP agent 状态机，行为由 FAKE_ACP_* 环境变量控制。
+func serveFakeACP() {
+	mode := os.Getenv("FAKE_ACP_MODE")
+	resume := os.Getenv("FAKE_ACP_RESUME")
+	model := os.Getenv("FAKE_ACP_MODEL")
+	promptMode := os.Getenv("FAKE_ACP_PROMPT")
+	countFile := os.Getenv("FAKE_ACP_COUNT_FILE")
+	cancelFile := os.Getenv("FAKE_ACP_CANCEL_FILE")
+	if countFile != "" {
+		appendLine(countFile, "spawn")
 	}
-	return binary, countFile
+
+	out := bufio.NewWriter(os.Stdout)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	var pendingPrompt json.RawMessage
+
+	reply := func(id json.RawMessage, result any) {
+		writeJSON(out, map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+	}
+	replyErr := func(id json.RawMessage, code int, message string) {
+		writeJSON(out, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"error":   map[string]any{"code": code, "message": message},
+		})
+	}
+
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var message struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if err := json.Unmarshal(line, &message); err != nil {
+			continue
+		}
+
+		switch message.Method {
+		case "initialize":
+			switch mode {
+			case "timeout":
+				// 永不回复，等父进程超时/SIGTERM；用 Sleep 循环而不是空 select，
+				// 避免 Go 运行时判定「所有 goroutine 都在睡觉」后 fatal。
+				for {
+					time.Sleep(time.Hour)
+				}
+			case "auth":
+				replyErr(message.ID, -32000, "Authentication required")
+				continue
+			case "error":
+				replyErr(message.ID, -32603, "boom")
+				continue
+			}
+			reply(message.ID, map[string]any{
+				"protocolVersion": 1,
+				"agentCapabilities": map[string]any{
+					"sessionCapabilities": map[string]any{},
+				},
+				"authMethods": []any{},
+			})
+			if mode == "exit-after-init" {
+				os.Exit(0)
+			}
+		case "session/new":
+			reply(message.ID, map[string]any{
+				"sessionId":     "s1",
+				"configOptions": fakeConfigOptions(model),
+			})
+		case "session/resume":
+			if resume == "fail" {
+				replyErr(message.ID, -32602, "session does not belong to cwd")
+				continue
+			}
+			reply(message.ID, map[string]any{"configOptions": fakeConfigOptions(model)})
+		case "session/prompt":
+			switch promptMode {
+			case "auth":
+				replyErr(message.ID, -32000, "provider authentication required")
+			case "silent", "ignore-cancel":
+				pendingPrompt = append(json.RawMessage(nil), message.ID...)
+			default:
+				reply(message.ID, map[string]any{
+					"stopReason": "end_turn",
+					"usage":      map[string]any{"inputTokens": 7, "outputTokens": 1, "totalTokens": 8},
+				})
+			}
+		case "session/cancel":
+			if cancelFile != "" {
+				appendLine(cancelFile, "cancel")
+			}
+			if promptMode != "ignore-cancel" && pendingPrompt != nil {
+				reply(pendingPrompt, map[string]any{"stopReason": "cancelled"})
+				pendingPrompt = nil
+			}
+		}
+	}
+}
+
+func fakeConfigOptions(model string) []any {
+	if model == "" {
+		return []any{}
+	}
+	return []any{map[string]any{
+		"id":           "model",
+		"name":         "Model",
+		"type":         "select",
+		"currentValue": model,
+		"options":      []any{},
+	}}
+}
+
+func writeJSON(out *bufio.Writer, payload any) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	_, _ = out.Write(data)
+	_ = out.WriteByte('\n')
+	_ = out.Flush()
+}
+
+func appendLine(path, line string) {
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.WriteString(line + "\n")
 }
 
 func countLines(t *testing.T, path string) int {
@@ -146,92 +278,7 @@ func countLines(t *testing.T, path string) int {
 		if os.IsNotExist(err) {
 			return 0
 		}
-		t.Fatalf("read spawn log: %v", err)
+		t.Fatalf("read log: %v", err)
 	}
 	return len(strings.Fields(string(data)))
 }
-
-const fakeACPScript = `#!/usr/bin/env python3
-import json, os, sys, time
-
-mode = os.environ.get("FAKE_ACP_MODE", "ok")
-resume = os.environ.get("FAKE_ACP_RESUME", "ok")
-model = os.environ.get("FAKE_ACP_MODEL", "")
-prompt_mode = os.environ.get("FAKE_ACP_PROMPT", "ok")
-count_file = os.environ.get("FAKE_ACP_COUNT_FILE")
-cancel_file = os.environ.get("FAKE_ACP_CANCEL_FILE")
-pending_prompt = None
-
-if count_file:
-    with open(count_file, "a") as handle:
-        handle.write("spawn\n")
-
-def send(payload):
-    sys.stdout.write(json.dumps(payload) + "\n")
-    sys.stdout.flush()
-
-def config_options():
-    if not model:
-        return []
-    return [{"id": "model", "name": "Model", "type": "select",
-             "currentValue": model, "options": []}]
-
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        message = json.loads(line)
-    except Exception:
-        continue
-    method = message.get("method")
-    message_id = message.get("id")
-
-    if method == "initialize":
-        if mode == "timeout":
-            time.sleep(3600)
-            continue
-        if mode == "auth":
-            send({"jsonrpc": "2.0", "id": message_id,
-                  "error": {"code": -32000, "message": "Authentication required"}})
-            continue
-        if mode == "error":
-            send({"jsonrpc": "2.0", "id": message_id,
-                  "error": {"code": -32603, "message": "boom"}})
-            continue
-        send({"jsonrpc": "2.0", "id": message_id, "result": {
-            "protocolVersion": 1,
-            "agentCapabilities": {"sessionCapabilities": {}},
-            "authMethods": []}})
-        if mode == "exit-after-init":
-            sys.exit(0)
-    elif method == "session/new":
-        send({"jsonrpc": "2.0", "id": message_id,
-              "result": {"sessionId": "s1", "configOptions": config_options()}})
-    elif method == "session/resume":
-        if resume == "fail":
-            send({"jsonrpc": "2.0", "id": message_id,
-                  "error": {"code": -32602,
-                            "message": "session does not belong to cwd"}})
-        else:
-            send({"jsonrpc": "2.0", "id": message_id,
-                  "result": {"configOptions": config_options()}})
-    elif method == "session/prompt":
-        if prompt_mode == "auth":
-            send({"jsonrpc": "2.0", "id": message_id,
-                  "error": {"code": -32000, "message": "provider authentication required"}})
-        elif prompt_mode in ("silent", "ignore-cancel"):
-            pending_prompt = message_id
-        else:
-            send({"jsonrpc": "2.0", "id": message_id,
-                  "result": {"stopReason": "end_turn",
-                             "usage": {"inputTokens": 7, "outputTokens": 1, "totalTokens": 8}}})
-    elif method == "session/cancel":
-        if cancel_file:
-            with open(cancel_file, "a") as handle:
-                handle.write("cancel\n")
-        if prompt_mode != "ignore-cancel" and pending_prompt is not None:
-            send({"jsonrpc": "2.0", "id": pending_prompt,
-                  "result": {"stopReason": "cancelled"}})
-            pending_prompt = None
-`

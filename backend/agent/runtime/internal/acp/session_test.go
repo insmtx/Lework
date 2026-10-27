@@ -3,6 +3,8 @@ package acp
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -95,11 +97,12 @@ func TestRequireModelMissingOption(t *testing.T) {
 
 func startFakeConn(t *testing.T, env []string) (*Conn, string) {
 	t.Helper()
-	binary, countFile := writeFakeACP(t, "ok")
-	env = append(env, "FAKE_ACP_COUNT_FILE="+countFile)
+	countFile := filepath.Join(t.TempDir(), "spawns.log")
+	env = append(env, fakeAgentEnv+"=1", "FAKE_ACP_COUNT_FILE="+countFile)
 	workDir := t.TempDir()
 	conn, err := Start(context.Background(), Config{
-		Binary:         binary,
+		Binary:         os.Args[0],
+		Args:           fakeACPArgs(),
 		Dir:            workDir,
 		Env:            env,
 		StartupTimeout: 2 * time.Second,
