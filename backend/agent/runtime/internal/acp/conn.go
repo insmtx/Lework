@@ -400,15 +400,16 @@ type ElicitationRecord struct {
 
 // Client 实现 acp.Client 以及实验性的 UnstableCreateElicitation。
 type Client struct {
-	mu           sync.Mutex
-	updates      []acpsdk.SessionNotification
-	kinds        map[string]int
-	toolCalls    map[string]*ToolCallState
-	text         strings.Builder
-	elicitations []ElicitationRecord
-	permissions  []acpsdk.RequestPermissionRequest
-	stats        *Stats
-	lastActivity time.Time
+	mu               sync.Mutex
+	updates          []acpsdk.SessionNotification
+	kinds            map[string]int
+	toolCalls        map[string]*ToolCallState
+	text             strings.Builder
+	elicitations     []ElicitationRecord
+	permissions      []acpsdk.RequestPermissionRequest
+	stats            *Stats
+	lastActivity     time.Time
+	permissionBridge *PermissionBridge
 
 	permissionPolicy string
 }
@@ -416,6 +417,14 @@ type Client struct {
 // NewClient 创建观测客户端。
 func NewClient() *Client {
 	return &Client{kinds: map[string]int{}, toolCalls: map[string]*ToolCallState{}}
+}
+
+// SetPermissionBridge 启用权限桥：RequestPermission 转成 approval.requested
+// 事件并等待 cli.Runner 回写决策（W5 装配时由 invoker 注入）。
+func (c *Client) SetPermissionBridge(bridge *PermissionBridge) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.permissionBridge = bridge
 }
 
 // SetPermissionPolicy 设置权限应答策略，必须在 Start 之前调用（探针内部使用）。
@@ -503,6 +512,13 @@ func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPer
 	c.lastActivity = time.Now()
 	c.permissions = append(c.permissions, params)
 	c.mu.Unlock()
+
+	c.mu.Lock()
+	bridge := c.permissionBridge
+	c.mu.Unlock()
+	if bridge != nil {
+		return bridge.HandlePermission(ctx, params)
+	}
 
 	select {
 	case <-ctx.Done():
