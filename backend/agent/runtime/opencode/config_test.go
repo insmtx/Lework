@@ -381,3 +381,45 @@ func TestBuildConfigContentEnablesExperimentalTodo(t *testing.T) {
 		t.Fatalf("experimental.todo not enabled: %+v", cfg.Experimental)
 	}
 }
+
+func TestBuildConfigContentWithPlanMode(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "", withPlanMode())
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	if cfg.DefaultAgent != PlanAgentName {
+		t.Fatalf("default_agent = %q, want %q", cfg.DefaultAgent, PlanAgentName)
+	}
+	plan, ok := cfg.Agents[PlanAgentName]
+	if !ok {
+		t.Fatalf("missing %s agent: %#v", PlanAgentName, cfg.Agents)
+	}
+	if plan.Mode != "primary" || plan.System != PlanSystemPrompt {
+		t.Fatalf("plan agent = %+v", plan)
+	}
+
+	index := map[string]int{}
+	for position, rule := range plan.Permissions {
+		index[rule.Action+"/"+rule.Resource] = position
+	}
+	denyAll, ok := index["edit/*"]
+	if !ok {
+		t.Fatalf("missing edit deny *: %+v", plan.Permissions)
+	}
+	allowPlans, ok := index["edit/.opencode/plans/*"]
+	if !ok {
+		t.Fatalf("missing plans allow: %+v", plan.Permissions)
+	}
+	if denyAll > allowPlans {
+		t.Fatalf("allow must come after deny *: %+v", plan.Permissions)
+	}
+	for _, key := range []string{"shell/*", "external_directory/*", "question/*"} {
+		if _, ok := index[key]; !ok {
+			t.Fatalf("missing permission %s: %+v", key, plan.Permissions)
+		}
+	}
+}

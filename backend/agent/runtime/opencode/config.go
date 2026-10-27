@@ -29,7 +29,12 @@ const (
 
 // buildConfigContent 根据 ModelConfig、MCPServerConfig 列表和任务 Skill 目录
 // 生成 OPENCODE_CONFIG_CONTENT JSON 字符串。
-func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig, skillDir string) (string, error) {
+func buildConfigContent(
+	modelCfg agent.ModelConfig,
+	mcps []agent.MCPServerConfig,
+	skillDir string,
+	options ...configOption,
+) (string, error) {
 	modelID := modelCfg.Model
 	if modelID == "" {
 		modelID = "default"
@@ -119,6 +124,9 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 	}
 	if skillDir = strings.TrimSpace(skillDir); skillDir != "" {
 		cfg.Skills = &skillsConfig{Paths: []string{skillDir}}
+	}
+	for _, option := range options {
+		option(&cfg)
 	}
 
 	data, err := json.Marshal(cfg)

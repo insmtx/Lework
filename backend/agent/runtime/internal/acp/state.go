@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,9 @@ type Translator struct {
 	lastTextMessageID string
 	reasoningText     map[string]string
 	tools             map[string]*toolRuntimeState
+	workDir           string
+	planPath          string
+	planDisplay       string
 }
 
 // NewTranslator 创建映射器；stats 可为 nil（单测里不关心计数时）。
@@ -44,6 +48,20 @@ func NewTranslator(stats *Stats) *Translator {
 		reasoningText:   map[string]string{},
 		tools:           map[string]*toolRuntimeState{},
 	}
+}
+
+// SetWorkDir 设置工作目录，用于把工具入参路径归一成绝对路径做计划跟踪。
+func (t *Translator) SetWorkDir(dir string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.workDir = dir
+}
+
+// PlanArtifact 返回本轮最近一次成功写入的计划文件（绝对路径与展示路径）。
+func (t *Translator) PlanArtifact() (path, display string, ok bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.planPath, t.planDisplay, t.planPath != ""
 }
 
 // Handle 映射一条通知；返回 0..n 个事件（工具卡补 start 时可能是 2 个）。
@@ -217,6 +235,7 @@ func (t *Translator) handleToolCallUpdate(call *acpsdk.SessionToolCallUpdate) []
 		events := t.ensureStarted(id, name, state)
 		state.ended = true
 		text := TruncateToolOutput(toolContentText(call.Content))
+		t.recordPlanArtifact(name, state)
 		return append(events, agent.NewToolExecutionEndEvent(
 			id, DisplayToolName(name), marshalResult(text), elapsedMS(state, t.now()),
 		))
@@ -236,6 +255,48 @@ func (t *Translator) handleToolCallUpdate(call *acpsdk.SessionToolCallUpdate) []
 	default:
 		return nil
 	}
+}
+
+// recordPlanArtifact 记录计划文件写入：仅成功的 edit/write/patch，
+// 且路径必须落在 <workDir>/.opencode/plans/*.md（设计文档 §8.3）。
+func (t *Translator) recordPlanArtifact(name string, state *toolRuntimeState) {
+	if state == nil || t.workDir == "" {
+		return
+	}
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if state.kind != string(acpsdk.ToolKindEdit) && lower != "write" && lower != "edit" && lower != "patch" && lower != "apply_patch" {
+		return
+	}
+	path := rawInputPath(state.rawInput)
+	if path == "" {
+		return
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(t.workDir, path)
+	}
+	path = filepath.Clean(path)
+	relative, err := filepath.Rel(t.workDir, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return
+	}
+	if filepath.Dir(relative) != filepath.Join(".opencode", "plans") || filepath.Ext(path) != ".md" {
+		return
+	}
+	t.planPath = path
+	t.planDisplay = relative
+}
+
+func rawInputPath(raw any) string {
+	object, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	for _, key := range []string{"path", "filePath", "file_path", "file"} {
+		if value, ok := object[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // handleTodoInput 把 todowrite 的 RawInput.todos 转成 todo.updated；

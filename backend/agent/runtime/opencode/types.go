@@ -212,14 +212,31 @@ type sessionErrorProps struct {
 
 // configContent 是 OPENCODE_CONFIG_CONTENT 的顶层结构。
 type configContent struct {
-	Schema       string                    `json:"$schema,omitempty"`
-	Provider     map[string]providerConfig `json:"provider"`
-	Model        string                    `json:"model,omitempty"`
-	Agent        map[string]agentConfig    `json:"agent,omitempty"`
-	Permission   map[string]any            `json:"permission,omitempty"`
-	MCP          map[string]any            `json:"mcp,omitempty"`
-	Skills       *skillsConfig             `json:"skills,omitempty"`
-	Experimental *experimentalConfig       `json:"experimental,omitempty"`
+	Schema       string                     `json:"$schema,omitempty"`
+	Provider     map[string]providerConfig  `json:"provider"`
+	Model        string                     `json:"model,omitempty"`
+	Agent        map[string]agentConfig     `json:"agent,omitempty"`
+	Permission   map[string]any             `json:"permission,omitempty"`
+	MCP          map[string]any             `json:"mcp,omitempty"`
+	Skills       *skillsConfig              `json:"skills,omitempty"`
+	Experimental *experimentalConfig        `json:"experimental,omitempty"`
+	DefaultAgent string                     `json:"default_agent,omitempty"`
+	Agents       map[string]planAgentConfig `json:"agents,omitempty"`
+}
+
+// planAgentConfig 是 v2 原生 primary agent 定义（与 v1 的 agentConfig 不同）。
+type planAgentConfig struct {
+	Mode        string           `json:"mode"`
+	Description string           `json:"description,omitempty"`
+	System      string           `json:"system,omitempty"`
+	Permissions []permissionRule `json:"permissions,omitempty"`
+}
+
+// permissionRule 对应 v2 agents.permissions 的 {action,resource,effect}。
+type permissionRule struct {
+	Action   string `json:"action"`
+	Resource string `json:"resource"`
+	Effect   string `json:"effect"`
 }
 
 // experimentalConfig 打开 OpenCode v2 的实验特性；待办在 v2 需要显式开启。
