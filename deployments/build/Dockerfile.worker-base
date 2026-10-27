@@ -11,7 +11,7 @@ ARG TARGETARCH
 ARG EDITION=saas
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
-ARG OPENCODE_VERSION=1.18.16
+ARG OPENCODE_VERSION=2.1.4
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 ARG NODE_VERSION=22.14.0
 
@@ -171,7 +171,7 @@ RUN npm config set registry https://registry.npmmirror.com \
     && npm install -g \
         "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
         "@openai/codex@${CODEX_VERSION}" \
-        "opencode-ai@${OPENCODE_VERSION}" \
+        "@opencode/cli@${OPENCODE_VERSION}" \
     && claude --version \
     && codex --version \
     && opencode --version \

@@ -13,7 +13,7 @@ NODE_VERSION=22.14.0
 # AI 编程助手（npm 全局安装）
 CLAUDE_CODE_VERSION=latest
 CODEX_VERSION=latest
-OPENCODE_VERSION=1.17.20
+OPENCODE_VERSION=2.1.4
 
 # Python 文档处理库（两版统一固定版本，保证技能脚本可复现）
 #   参考 GPT 沙箱环境组件表版本；改动前务必确认技能 scripts/publish_output.py、

@@ -103,7 +103,8 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 		runtimes[normalized] = runtime
 		registeredKinds[normalized] = struct{}{}
 		cliNames = append(cliNames, normalized)
-		logs.Infof("Registering agent runtime: %s", normalized)
+		logs.Infof("Registering agent runtime: %s (version=%s path=%s)",
+			normalized, status.Version, status.Path)
 	}
 
 	if len(runtimes) == 0 {
