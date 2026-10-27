@@ -11,12 +11,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
@@ -32,6 +34,15 @@ const (
 	// shutdownGrace 是 Close 等待子进程自行退出的上限；与设计文档 §3.3 一致。
 	shutdownGrace = 5 * time.Second
 	defaultBinary = "opencode"
+	// startMaxAttempts 是启动总尝试次数：首次 + 失败后重试 1 次（§3.1）。
+	startMaxAttempts = 2
+)
+
+// 启动失败分类，调用方可用 errors.Is 区分；重试策略见 Start。
+var (
+	ErrSpawnFailed       = errors.New("acp spawn failed")
+	ErrInitializeFailed  = errors.New("acp initialize failed")
+	ErrInitializeTimeout = errors.New("acp initialize timeout")
 )
 
 // Config 描述一次 ACP 子进程会话。
@@ -68,8 +79,26 @@ type Conn struct {
 }
 
 // Start 启动 `opencode acp` 并完成 initialize。
-// 任何一步失败都会回收子进程，避免探针留下孤儿。
+//
+// 失败分类（设计文档 §3.2）：spawn 失败不重试；Initialize 超时/一般错误
+// 重试 1 次（新进程）；-32000（凭据缺失）不重试，直接交给调用方映射错误码。
 func Start(ctx context.Context, cfg Config) (*Conn, error) {
+	cfg = normalizeConfig(cfg)
+	var lastErr error
+	for attempt := 1; attempt <= startMaxAttempts; attempt++ {
+		conn, err := startOnce(ctx, cfg)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		if attempt == startMaxAttempts || !retryableStartError(err) {
+			break
+		}
+	}
+	return nil, lastErr
+}
+
+func normalizeConfig(cfg Config) Config {
 	if strings.TrimSpace(cfg.Binary) == "" {
 		cfg.Binary = defaultBinary
 	}
@@ -79,7 +108,19 @@ func Start(ctx context.Context, cfg Config) (*Conn, error) {
 	if cfg.StartupTimeout <= 0 {
 		cfg.StartupTimeout = DefaultStartupTimeout
 	}
+	return cfg
+}
 
+// retryableStartError 只对「重开一个进程可能成功」的失败重试。
+func retryableStartError(err error) bool {
+	var requestErr *acpsdk.RequestError
+	if errors.As(err, &requestErr) {
+		return requestErr.Code != -32000
+	}
+	return !errors.Is(err, ErrSpawnFailed)
+}
+
+func startOnce(ctx context.Context, cfg Config) (*Conn, error) {
 	cmd := exec.CommandContext(ctx, cfg.Binary, cfg.Args...)
 	cmd.Dir = cfg.Dir
 	cmd.Env = append(os.Environ(), cfg.Env...)
@@ -97,7 +138,8 @@ func Start(ctx context.Context, cfg Config) (*Conn, error) {
 		return nil, fmt.Errorf("open acp stderr: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start %s %s: %w", cfg.Binary, strings.Join(cfg.Args, " "), err)
+		return nil, fmt.Errorf("%w: %s %s: %v",
+			ErrSpawnFailed, cfg.Binary, strings.Join(cfg.Args, " "), err)
 	}
 
 	conn := &Conn{
@@ -135,14 +177,16 @@ func Start(ctx context.Context, cfg Config) (*Conn, error) {
 	})
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("initialize acp: %w%s", err, conn.stderrSuffix())
+		if initCtx.Err() != nil {
+			return nil, fmt.Errorf("%w: %w%s",
+				ErrInitializeTimeout, initCtx.Err(), conn.stderrSuffix())
+		}
+		return nil, fmt.Errorf("%w: %w%s", ErrInitializeFailed, err, conn.stderrSuffix())
 	}
 	if resp.ProtocolVersion != acpsdk.ProtocolVersionNumber {
 		_ = conn.Close()
-		return nil, fmt.Errorf(
-			"acp protocol version %d is not supported (want %d)",
-			resp.ProtocolVersion, acpsdk.ProtocolVersionNumber,
-		)
+		return nil, fmt.Errorf("%w: protocol version %d is not supported (want %d)",
+			ErrInitializeFailed, resp.ProtocolVersion, acpsdk.ProtocolVersionNumber)
 	}
 	conn.init = resp
 	return conn, nil
@@ -153,6 +197,14 @@ func (c *Conn) Initialize() acpsdk.InitializeResponse { return c.init }
 
 // Client 暴露观测侧（收到的 update、反向请求），只读用途。
 func (c *Conn) Client() *Client { return c.client }
+
+// PID 返回 ACP 子进程（supervisor）的 pid；私有 serve 是它的子进程。
+func (c *Conn) PID() int {
+	if c == nil || c.cmd == nil || c.cmd.Process == nil {
+		return 0
+	}
+	return c.cmd.Process.Pid
+}
 
 // StderrTail 返回子进程 stderr 的最后 n 行，失败诊断用。
 func (c *Conn) StderrTail(n int) []string { return c.stderr.tail(n) }
@@ -166,6 +218,11 @@ func (c *Conn) Close() error {
 	c.closeOnce.Do(func() {
 		if c.stdin != nil {
 			_ = c.stdin.Close()
+		}
+		// stdin 关闭后先 SIGTERM，给上游 5s 清理私有 serve 的窗口；
+		// 与设计文档 §3.3 的「stdin → SIGTERM → 最多 5s → SIGKILL」一致。
+		if c.cmd.Process != nil {
+			_ = c.cmd.Process.Signal(syscall.SIGTERM)
 		}
 		select {
 		case <-c.waitCh:
