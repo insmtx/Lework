@@ -195,7 +195,7 @@ cmd_start() {
   echo -e "  API:    ${BLUE}http://localhost:${SERVER_PORT}/v1${NC}"
   echo -e "  Worker: ${BLUE}http://localhost:${WORKER_PORT}/health${NC}"
   echo -e "  Logs:   $LOG_DIR (make dev-logs)"
-  echo -e "  Stop:   make dev-stop"
+  echo -e "  Stop:   make dev-down"
 }
 
 cmd_stop() {

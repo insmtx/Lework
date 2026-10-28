@@ -53,7 +53,7 @@ Start server + worker + frontend together (infrastructure must already be runnin
 make dev-up       # alias: make dev-all
 make dev-status   # 查看 8080/8081/3005 状态
 make dev-logs     # 查看三个服务的最近日志
-make dev-down     # 停止 dev-up 启动的进程（别名 make dev-stop）
+make dev-down     # 停止 dev-up 启动的进程
 ```
 
 `dev-up` 是**重启语义**：
