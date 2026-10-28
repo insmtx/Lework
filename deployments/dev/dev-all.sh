@@ -15,7 +15,7 @@ NEXT_DIR="$ROOT_DIR/frontend/apps/web/.next"
 SERVER_PORT="${DEV_SERVER_PORT:-8080}"
 WORKER_PORT="${DEV_WORKER_PORT:-8081}"
 WEB_PORT="${DEV_WEB_PORT:-3005}"
-NEXT_CACHE_MAX_MB="${DEV_NEXT_CACHE_MAX_MB:-2048}"
+NEXT_CACHE_MAX_MB="${DEV_NEXT_CACHE_MAX_MB:-512}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 
@@ -195,6 +195,7 @@ cmd_start() {
   echo -e "  API:    ${BLUE}http://localhost:${SERVER_PORT}/v1${NC}"
   echo -e "  Worker: ${BLUE}http://localhost:${WORKER_PORT}/health${NC}"
   echo -e "  Logs:   $LOG_DIR (make dev-logs)"
+  echo -e "  Stop:   make dev-stop"
 }
 
 cmd_stop() {
