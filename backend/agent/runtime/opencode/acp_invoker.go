@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -170,7 +171,7 @@ func (inv *ACPInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*
 	go func() {
 		defer close(results)
 		defer conn.Close()
-		resp, promptErr := sess.PromptWithOptions(ctx, req.Prompt, acp.PromptOptions{
+		resp, promptErr := sess.PromptBlocks(ctx, promptBlocks(req), acp.PromptOptions{
 			IdleTimeout: inv.progressIdleTimeout,
 		})
 		close(updates)
@@ -206,6 +207,29 @@ func (inv *ACPInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*
 		Responder: permissionBridge,
 		Questions: formBridge,
 	}, nil
+}
+
+// promptBlocks 把文本与图片附件组装成 ACP 内容块。
+// 仅有路径无字节的附件不内联，退化为一行文本说明（设计文档 §5.1）。
+func promptBlocks(req cli.InvocationRequest) []acpsdk.ContentBlock {
+	blocks := make([]acpsdk.ContentBlock, 0, len(req.Attachments)+1)
+	blocks = append(blocks, acpsdk.TextBlock(req.Prompt))
+	for _, attachment := range req.Attachments {
+		if len(attachment.Data) == 0 {
+			name := strings.TrimSpace(attachment.Name)
+			if name == "" {
+				name = "attachment"
+			}
+			blocks = append(blocks, acpsdk.TextBlock(fmt.Sprintf("\n[附件 %s 未内联，仅提供文件名]", name)))
+			continue
+		}
+		mimeType := strings.TrimSpace(attachment.MIME)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		blocks = append(blocks, acpsdk.ImageBlock(base64.StdEncoding.EncodeToString(attachment.Data), mimeType))
+	}
+	return blocks
 }
 
 // emitPlanAware 在计划模式下把 formBridge 的 question 事件包装成

@@ -97,8 +97,18 @@ func (s *Session) PromptWithOptions(
 	text string,
 	opts PromptOptions,
 ) (acpsdk.PromptResponse, error) {
-	if strings.TrimSpace(text) == "" {
-		return acpsdk.PromptResponse{}, fmt.Errorf("acp prompt text is required")
+	return s.PromptBlocks(ctx, []acpsdk.ContentBlock{acpsdk.TextBlock(text)}, opts)
+}
+
+// PromptBlocks 发送任意内容块（文本 + 图片），供多模态附件使用。
+// 空闲/取消语义与 PromptWithOptions 相同。
+func (s *Session) PromptBlocks(
+	ctx context.Context,
+	blocks []acpsdk.ContentBlock,
+	opts PromptOptions,
+) (acpsdk.PromptResponse, error) {
+	if len(blocks) == 0 {
+		return acpsdk.PromptResponse{}, fmt.Errorf("acp prompt content is required")
 	}
 	if opts.CancelDrainTimeout <= 0 {
 		opts.CancelDrainTimeout = defaultCancelDrain
@@ -118,7 +128,7 @@ func (s *Session) PromptWithOptions(
 	go func() {
 		resp, err := s.conn.sdk.Prompt(promptCtx, acpsdk.PromptRequest{
 			SessionId: s.ID,
-			Prompt:    []acpsdk.ContentBlock{acpsdk.TextBlock(text)},
+			Prompt:    blocks,
 		})
 		results <- promptResult{resp: resp, err: err}
 	}()
