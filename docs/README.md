@@ -56,6 +56,7 @@
 | [design/git-storage.md](design/git-storage.md) | 文件存储技术方案 |
 | [design/presigned-url.md](design/presigned-url.md) | 预签名 URL 设计 |
 | [design/ai-teammate-worker-deployment.md](design/ai-teammate-worker-deployment.md) | AI 队友维护与 Worker 动态部署技术设计 |
+| [design/2026-10-27-opencode-v2-runtime-migration-design.md](design/2026-10-27-opencode-v2-runtime-migration-design.md) | opencode v2 迁移方案与协议选型评估（HTTP API / ACP 对比、成本、回滚与灰度） |
 
 ### 前端文档
 

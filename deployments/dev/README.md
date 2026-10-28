@@ -45,6 +45,26 @@ After starting infrastructure, start components independently:
 ./dev-frontend.sh
 ```
 
+### One Command
+
+Start server + worker + frontend together (infrastructure must already be running):
+
+```bash
+make dev-up       # alias: make dev-all
+make dev-status   # 查看 8080/8081/3005 状态
+make dev-logs     # 查看三个服务的最近日志
+make dev-down     # 停止 dev-up 启动的进程
+```
+
+`dev-up` 是**重启语义**：
+
+- 先停掉自己启动的进程，并清理占用 8080/8081/3005 的 dev 残留进程；遇到非 dev 进程会拒绝清理并报错，不误杀其他应用；
+- 启动前若 `frontend/apps/web/.next` 超过 `DEV_NEXT_CACHE_MAX_MB`（默认 512MB）会自动清理；
+- 启动后对前端做 HTTP 探活，端口在但请求无响应时自动清 `.next` 并重启一次；
+- 强制清缓存启动：`DEV_NEXT_CACHE_MAX_MB=1 make dev-up`。
+
+日志与 pid 文件在 `deployments/dev/logs/`。
+
 ### Windows Quick Start
 
 If you are developing on Windows, use the tracked PowerShell/CMD wrappers under `deployments/dev/`:

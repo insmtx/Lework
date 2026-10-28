@@ -4,68 +4,156 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/insmtx/Leros/backend/agent"
 )
 
-var planQuestionPathPattern = regexp.MustCompile(`^Plan at (.+) is complete\.`)
+// PlanAgentName 是 v2 计划模式的 primary agent 名。
+const PlanAgentName = "leros-plan"
 
-func (st *runState) resolvePlanPath(questions []agent.QuestionItem) (string, string, error) {
-	expectedName := ""
-	if st.session != nil && st.session.Slug != "" && st.session.Time.Created > 0 {
-		expectedName = fmt.Sprintf("%d-%s.md", st.session.Time.Created, st.session.Slug)
-	}
+// PlanSystemPrompt 要求模型写完计划文件后调用 question 工具，
+// header/问题/选项必须与前端既有契约一致（设计文档 §8.3）。
+// v2 没有 plan_exit，确认表单只能靠提示词触发，因此这里把「必须最后一步调用」
+// 写成硬约束；仍不合规时由 PlanRetryPrompt 补一次追问。
+const PlanSystemPrompt = `You are the Leros plan agent.
+Write the implementation plan as Markdown to a file under .opencode/plans/ (for example .opencode/plans/plan.md).
+Do not modify files outside .opencode/plans. Do not call plan_exit; it does not exist in this runtime.
 
-	baseDir := st.workDir
-	if strings.TrimSpace(baseDir) == "" && st.session != nil && strings.TrimSpace(st.session.Directory) != "" {
-		baseDir = st.session.Directory
-	}
+MANDATORY FINAL STEP: once the plan file is written, you MUST call the question tool before
+producing any other output — it is the last action of this turn:
+- title: 计划确认
+- description: 以下是当前计划，是否执行？
+- options: exactly two options, in this order: "Yes" then "No"
+- multiple: false
+Never end the turn without this question call. If the plan file is already written, call the question tool immediately.`
 
-	questionPath := extractPlanPath(questions)
-	if questionPath != "" {
-		path := questionPath
-		if !filepath.IsAbs(path) {
-			if strings.TrimSpace(baseDir) == "" {
-				return "", questionPath, errors.New("plan file base directory is unavailable")
-			}
-			path = filepath.Join(baseDir, path)
-		}
-		path = filepath.Clean(path)
-		if err := validatePlanPath(path, expectedName); err != nil {
-			return "", questionPath, err
-		}
-		return path, questionPath, nil
-	}
+// PlanRetryPrompt 是一次性兜底追问：模型写完计划却没按契约问 Yes/No 时，
+// 在同一 ACP session 内补发一次；只允许一次，避免不合规时无限烧 token。
+const PlanRetryPrompt = `You did not call the question tool, so the user cannot confirm the plan yet.
+Call the question tool NOW with exactly these arguments:
+- title: 计划确认
+- description: 以下是当前计划，是否执行？
+- options: exactly two options, in this order: "Yes" then "No"
+- multiple: false
+Do not rewrite the plan file and do not produce any other output.`
 
-	if expectedName == "" || strings.TrimSpace(baseDir) == "" {
-		return "", "", errors.New("plan file path is unavailable")
+// ShouldRetryPlanConfirmation 判定是否值得补一次确认追问：
+// 计划模式、首轮正常结束（无请求错误、ctx 未取消）、已写入合法计划文件，
+// 但本轮没有产出计划确认表单。
+func ShouldRetryPlanConfirmation(mode agent.ExecutionMode, confirmed, hasPlan bool, promptErr, ctxErr error) bool {
+	if mode != agent.ExecutionModePlan || confirmed || !hasPlan {
+		return false
 	}
-	path := filepath.Join(baseDir, ".opencode", "plans", expectedName)
-	displayPath := filepath.Join(".opencode", "plans", expectedName)
-	return path, displayPath, nil
+	return promptErr == nil && ctxErr == nil
 }
 
-func validatePlanPath(path, expectedName string) error {
-	if filepath.Ext(path) != ".md" || filepath.Base(filepath.Dir(path)) != "plans" {
-		return errors.New("plan file path is invalid")
+// configOption 在基础配置上追加 v2 段（目前只有计划模式使用）。
+type configOption func(*configContent)
+
+// withPlanMode 注入 leros-plan：deny 在前、allow 在后的相对 glob，
+// 并显式 deny shell（否则 edit deny 可被 shell 绕过，设计文档 §8.2）。
+func withPlanMode() configOption {
+	return func(cfg *configContent) {
+		cfg.DefaultAgent = PlanAgentName
+		if cfg.Agents == nil {
+			cfg.Agents = map[string]planAgentConfig{}
+		}
+		cfg.Agents[PlanAgentName] = planAgentConfig{
+			Mode:        "primary",
+			Description: "Leros plan mode",
+			System:      PlanSystemPrompt,
+			Permissions: []permissionRule{
+				{Action: "question", Resource: "*", Effect: "allow"},
+				{Action: "read", Resource: "*", Effect: "allow"},
+				{Action: "edit", Resource: "*", Effect: "deny"},
+				{Action: "shell", Resource: "*", Effect: "deny"},
+				{Action: "external_directory", Resource: "*", Effect: "deny"},
+				{Action: "edit", Resource: ".opencode/plans/*", Effect: "allow"},
+			},
+		}
 	}
-	if expectedName != "" && filepath.Base(path) != expectedName {
-		return errors.New("plan file does not match the current session")
+}
+
+// IsPlanConfirmation 判定一次 question 表单是否是计划确认：
+// mode == plan、本轮有成功写入的计划文件、表单恰 1 题且选项恰为 Yes/No。
+func IsPlanConfirmation(mode agent.ExecutionMode, planPath string, questions []agent.QuestionItem) bool {
+	if mode != agent.ExecutionModePlan || strings.TrimSpace(planPath) == "" {
+		return false
+	}
+	if len(questions) != 1 {
+		return false
+	}
+	options := questions[0].Options
+	if len(options) != 2 {
+		return false
+	}
+	yes, no := strings.TrimSpace(options[0].Label), strings.TrimSpace(options[1].Label)
+	return yes == "Yes" && no == "No"
+}
+
+// ValidatePlanArtifact 是放宽后的计划产物校验：父目录必须是 plans、扩展名 .md。
+func ValidatePlanArtifact(path, workDir string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("plan path is empty")
+	}
+	if !filepath.IsAbs(path) {
+		if strings.TrimSpace(workDir) == "" {
+			return errors.New("plan path is relative and workDir is unavailable")
+		}
+		path = filepath.Join(workDir, path)
+	}
+	path = filepath.Clean(path)
+	if filepath.Ext(path) != ".md" || filepath.Base(filepath.Dir(path)) != "plans" {
+		return errors.New("plan file must be a .md under a plans directory")
+	}
+	if strings.TrimSpace(workDir) != "" {
+		relative, err := filepath.Rel(workDir, path)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return errors.New("plan file is outside the workspace")
+		}
 	}
 	return nil
 }
 
-func extractPlanPath(questions []agent.QuestionItem) string {
-	if questions == nil {
-		return ""
+// PlanConfirmationInteractionType 是前端识别计划确认的固定值，必须逐字保留。
+const PlanConfirmationInteractionType = "plan_confirmation"
+
+// PlanReadyPayloadFor 构造 plan.ready 的 payload：路径必须落在
+// <workDir>/.opencode/plans/*.md，DisplayPath 用相对工作区的展示路径。
+func PlanReadyPayloadFor(workDir, planPath, providerSessionID string) (agent.PlanReadyPayload, error) {
+	if err := ValidatePlanArtifact(planPath, workDir); err != nil {
+		return agent.PlanReadyPayload{}, err
 	}
-	for _, question := range questions {
-		match := planQuestionPathPattern.FindStringSubmatch(strings.TrimSpace(question.Question))
-		if len(match) == 2 {
-			return strings.TrimSpace(match[1])
-		}
+	display, err := filepath.Rel(workDir, planPath)
+	if err != nil {
+		return agent.PlanReadyPayload{}, fmt.Errorf("resolve plan display path: %w", err)
 	}
-	return ""
+	return agent.PlanReadyPayload{
+		Path:              filepath.Clean(planPath),
+		DisplayPath:       display,
+		ProviderSessionID: providerSessionID,
+	}, nil
+}
+
+// PlanConfirmationBundle 在判定成立时返回「先 plan.ready、再把问句标记为
+// plan_confirmation」的事件序列与改写后的 payload；不成立时 ok=false，
+// 由调用方计数 plan_contract_miss 并继续（不失败，设计文档 §8.3）。
+func PlanConfirmationBundle(
+	workDir string,
+	planPath string,
+	providerSessionID string,
+	mode agent.ExecutionMode,
+	payload agent.QuestionAskedPayload,
+) ([]agent.NodeEvent, agent.QuestionAskedPayload, bool) {
+	if !IsPlanConfirmation(mode, planPath, payload.Questions) {
+		return nil, payload, false
+	}
+	ready, err := PlanReadyPayloadFor(workDir, planPath, providerSessionID)
+	if err != nil {
+		return nil, payload, false
+	}
+	payload.InteractionType = PlanConfirmationInteractionType
+	return []agent.NodeEvent{agent.NewPlanReadyEvent(ready.Path, ready.DisplayPath, ready.ProviderSessionID)}, payload, true
 }
