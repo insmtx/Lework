@@ -53,7 +53,10 @@ func TestSmokeMatrixProbe(t *testing.T) {
 	}
 
 	t.Run("text_and_resume", func(t *testing.T) {
-		first, firstEvents := runSmoke(t, invoker, baseRequest("smoke-text-1", "只回答两个字：收到"), handler)
+		first, firstEvents, err := runSmoke(t, invoker, baseRequest("smoke-text-1", "只回答两个字：收到"), handler)
+		if err != nil {
+			t.Fatalf("text: %v", err)
+		}
 		if strings.TrimSpace(first.Message) == "" {
 			t.Fatalf("first message empty; events=%v", eventTypes(firstEvents))
 		}
@@ -67,7 +70,10 @@ func TestSmokeMatrixProbe(t *testing.T) {
 		resume := baseRequest("smoke-text-2", "只回答两个字：继续")
 		resume.Resume = true
 		resume.SessionID = first.ProviderSessionID
-		second, _ := runSmoke(t, invoker, resume, handler)
+		second, _, err := runSmoke(t, invoker, resume, handler)
+		if err != nil {
+			t.Fatalf("resume: %v", err)
+		}
 		if second.ProviderSessionID != first.ProviderSessionID {
 			t.Fatalf("resume changed session: %q -> %q", first.ProviderSessionID, second.ProviderSessionID)
 		}
@@ -77,8 +83,11 @@ func TestSmokeMatrixProbe(t *testing.T) {
 	})
 
 	t.Run("tool_cards", func(t *testing.T) {
-		_, events := runSmoke(t, invoker, baseRequest("smoke-tools",
+		_, events, err := runSmoke(t, invoker, baseRequest("smoke-tools",
 			"请用 bash 工具执行 `echo hello`，然后用 read 工具读取 README.md，最后用一句话总结。"), handler)
+		if err != nil {
+			t.Fatalf("tools: %v", err)
+		}
 		names := map[string]bool{}
 		for _, event := range events {
 			if event.Type == agent.NodeEventToolExecutionStart {
@@ -96,8 +105,11 @@ func TestSmokeMatrixProbe(t *testing.T) {
 			t.Fatal(err)
 		}
 		handler.approveAction = agent.ApprovalActionApprove
-		_, approveEvents := runSmoke(t, invoker, baseRequest("smoke-perm-approve",
+		_, approveEvents, approveErr := runSmoke(t, invoker, baseRequest("smoke-perm-approve",
 			"请用 bash 工具执行命令 `rm -rf build`，不要做别的事。"), handler)
+		if approveErr != nil {
+			t.Fatalf("approve: %v", approveErr)
+		}
 		if _, err := os.Stat(buildDir); !os.IsNotExist(err) {
 			t.Fatalf("approved rm did not delete build dir; events=%v", eventTypes(approveEvents))
 		}
@@ -107,26 +119,65 @@ func TestSmokeMatrixProbe(t *testing.T) {
 			t.Fatal(err)
 		}
 		handler.approveAction = agent.ApprovalActionDeny
-		_, denyEvents := runSmoke(t, invoker, baseRequest("smoke-perm-deny",
+		// 拒绝后 opencode 会以 cancelled 结束本轮、没有正文；这属于预期，不是 smoke 失败。
+		_, denyEvents, denyErr := runSmoke(t, invoker, baseRequest("smoke-perm-deny",
 			"请用 bash 工具执行命令 `rm -rf keep`，不要做别的事。"), handler)
+		t.Logf("deny result: %v (events=%v)", denyErr, eventTypes(denyEvents))
 		if _, err := os.Stat(keepDir); err != nil {
 			t.Fatalf("denied rm still deleted keep dir; events=%v", eventTypes(denyEvents))
+		}
+	})
+
+	t.Run("permission_cross_task", func(t *testing.T) {
+		// 任务 A 批准 rm 后，任务 B（新进程/新 session）对同一类操作仍必须重新询问。
+		dirA := filepath.Join(workDir, "cross-a")
+		dirB := filepath.Join(workDir, "cross-b")
+		for _, dir := range []string{dirA, dirB} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		handler.approveAction = agent.ApprovalActionApprove
+		handler.resetApprovals()
+		if _, _, err := runSmoke(t, invoker, baseRequest("smoke-cross-a",
+			"请用 bash 工具执行命令 `rm -rf cross-a`，不要做别的事。"), handler); err != nil {
+			t.Fatalf("task A: %v", err)
+		}
+		if handler.approvalCount() == 0 {
+			t.Fatal("task A did not ask for approval")
+		}
+
+		handler.approveAction = agent.ApprovalActionDeny
+		handler.resetApprovals()
+		_, _, _ = runSmoke(t, invoker, baseRequest("smoke-cross-b",
+			"请用 bash 工具执行命令 `rm -rf cross-b`，不要做别的事。"), handler)
+		if handler.approvalCount() == 0 {
+			t.Fatal("task B was auto-approved after task A (saved rules leaked)")
+		}
+		if _, err := os.Stat(dirB); err != nil {
+			t.Fatalf("task B deny did not keep dir: %v", err)
 		}
 	})
 
 	t.Run("question_form", func(t *testing.T) {
 		handler.approveAction = agent.ApprovalActionApprove
 		handler.answer = [][]string{{"是"}}
-		_, events := runSmoke(t, invoker, baseRequest("smoke-form",
+		_, events, err := runSmoke(t, invoker, baseRequest("smoke-form",
 			"请调用 question 工具向我提一个问题「是否继续？」，选项为：是 / 否。必须调用工具，不要直接回答。"), handler)
+		if err != nil {
+			t.Fatalf("form: %v", err)
+		}
 		if !hasEvent(events, agent.NodeEventQuestionAsked) || !hasEvent(events, agent.NodeEventQuestionAnswered) {
 			t.Fatalf("question events missing: %v", eventTypes(events))
 		}
 	})
 
 	t.Run("todo", func(t *testing.T) {
-		_, events := runSmoke(t, invoker, baseRequest("smoke-todo",
+		_, events, err := runSmoke(t, invoker, baseRequest("smoke-todo",
 			"请调用 todowrite 工具创建两条待办：准备环境、运行测试。必须调用工具，不要只回答。"), handler)
+		if err != nil {
+			t.Fatalf("todo: %v", err)
+		}
 		if !hasEvent(events, agent.NodeEventTodoUpdated) {
 			t.Fatalf("todo.updated missing: %v", eventTypes(events))
 		}
@@ -137,7 +188,10 @@ func TestSmokeMatrixProbe(t *testing.T) {
 		req := baseRequest("smoke-plan",
 			"请把清理构建目录的计划写入 .opencode/plans/smoke-plan.md，然后按系统提示发起确认。")
 		req.ExecutionMode = agent.ExecutionModePlan
-		result, events := runSmoke(t, invoker, req, handler)
+		result, events, planErr := runSmoke(t, invoker, req, handler)
+		if planErr != nil {
+			t.Fatalf("plan: %v", planErr)
+		}
 		planReady := hasEvent(events, agent.NodeEventPlanReady)
 		confirm := false
 		for _, event := range events {
@@ -183,12 +237,29 @@ func (o *smokeObserver) snapshot() []agent.NodeEvent {
 }
 
 type smokeHandler struct {
+	mu            sync.Mutex
 	approveAction string
 	answer        [][]string
+	approvals     int
 }
 
 func (h *smokeHandler) RequestApproval(_ context.Context, req *agent.ApprovalRequest) (*agent.ApprovalDecision, error) {
+	h.mu.Lock()
+	h.approvals++
+	h.mu.Unlock()
 	return &agent.ApprovalDecision{RequestID: req.RequestID, Action: h.approveAction}, nil
+}
+
+func (h *smokeHandler) approvalCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.approvals
+}
+
+func (h *smokeHandler) resetApprovals() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.approvals = 0
 }
 
 func (h *smokeHandler) RequestAnswer(_ context.Context, req *agent.QuestionRequest) (*agent.QuestionAnswer, error) {
@@ -200,7 +271,7 @@ func runSmoke(
 	invoker *ACPInvoker,
 	req cli.InvocationRequest,
 	handler *smokeHandler,
-) (cli.InvocationResult, []agent.NodeEvent) {
+) (cli.InvocationResult, []agent.NodeEvent, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -210,11 +281,8 @@ func runSmoke(
 	}
 	defer handle.Process.Stop()
 	observer := &smokeObserver{}
-	result, err := cli.ConsumeEvents(ctx, observer, handle, req.ExecutionID, "smoke", handler, handler)
-	if err != nil {
-		t.Fatalf("consume %s: %v", req.ExecutionID, err)
-	}
-	return result, observer.snapshot()
+	result, consumeErr := cli.ConsumeEvents(ctx, observer, handle, req.ExecutionID, "smoke", handler, handler)
+	return result, observer.snapshot(), consumeErr
 }
 
 func hasEvent(events []agent.NodeEvent, want agent.NodeEventType) bool {
