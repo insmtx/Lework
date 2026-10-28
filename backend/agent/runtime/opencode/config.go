@@ -135,30 +135,61 @@ func buildConfigContent(
 }
 
 // sanitizeConfigContent 返回适合写入日志的 config JSON 字符串。
-// 剔除每个 provider options 下的 apiKey 字段以避免密钥落入日志；
-// baseURL 及采样参数等其余字段原样保留。config 无法解析时原样返回，
-// 不阻塞日志输出（调用方不应因脱敏失败而中断启动流程）。
+// 同时覆盖两种 provider 形状：
+//   - v1：provider.<id>.options.{apiKey,headers}
+//   - v2：providers.<id>.{settings.{apiKey,headers}, headers}
+//
+// 密钥删除、请求头值置为 ***；baseURL、采样参数等其余字段原样保留。
+// config 无法解析时原样返回，不阻塞日志输出（调用方不应因脱敏失败而中断流程）。
 func sanitizeConfigContent(configContent string) string {
 	var cfg map[string]any
 	if err := json.Unmarshal([]byte(configContent), &cfg); err != nil {
 		return configContent
 	}
-	providers, ok := cfg["provider"].(map[string]any)
-	if ok {
-		for _, v := range providers {
-			opts, ok := v.(map[string]any)["options"].(map[string]any)
-			if !ok {
-				continue
-			}
-			delete(opts, "apiKey")
-		}
-	}
+	sanitizeProviderMap(cfg["provider"])
+	sanitizeProviderMap(cfg["providers"])
 	redactMCPCredentials(cfg)
 	cleaned, err := json.Marshal(cfg)
 	if err != nil {
 		return configContent
 	}
 	return string(cleaned)
+}
+
+// sanitizeProviderMap 处理 v1 与 v2 的 provider 容器（值形状不同，按字段探测）。
+func sanitizeProviderMap(raw any) {
+	providers, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	for _, entry := range providers {
+		provider, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, field := range []string{"options", "settings"} {
+			settings, ok := provider[field].(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, key := range []string{"apiKey", "api_key", "api-key"} {
+				delete(settings, key)
+			}
+			redactHeaderValues(settings["headers"])
+		}
+		redactHeaderValues(provider["headers"])
+	}
+}
+
+// redactHeaderValues 保留请求头键名、把值替换为 ***。
+func redactHeaderValues(raw any) {
+	headers, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	for key := range headers {
+		headers[key] = "***"
+	}
 }
 
 // redactMCPCredentials 抹掉 MCP 服务端配置中的凭据：请求头与环境变量的值，以及
@@ -175,13 +206,7 @@ func redactMCPCredentials(cfg map[string]any) {
 			continue
 		}
 		for _, field := range []string{"headers", "environment"} {
-			values, ok := server[field].(map[string]any)
-			if !ok {
-				continue
-			}
-			for key := range values {
-				values[key] = "***"
-			}
+			redactHeaderValues(server[field])
 		}
 		if rawURL, ok := server["url"].(string); ok {
 			server["url"] = redactURLCredentials(rawURL)

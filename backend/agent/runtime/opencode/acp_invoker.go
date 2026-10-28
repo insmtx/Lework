@@ -70,6 +70,8 @@ func (inv *ACPInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*
 	if err != nil {
 		return nil, err
 	}
+	// 只记录脱敏后的配置：provider apiKey 已删除、请求头值已替换为 ***。
+	logs.DebugContextf(ctx, "opencode acp config: %s", sanitizeConfigContent(configContent))
 	databasePath, err := ensureOpenCodeDBPath(inv.dataDir)
 	if err != nil {
 		return nil, err

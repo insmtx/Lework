@@ -407,3 +407,39 @@ func TestBuildConfigContentWithPlanMode(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizeConfigContentV2Shape(t *testing.T) {
+	input := `{
+		"providers": {
+			"magpie": {
+				"settings": {"apiKey": "sk-v2-secret", "baseURL": "https://v2.example.com", "headers": {"X-Api-Key": "v2-header-secret"}},
+				"headers": {"Authorization": "Bearer top-secret"},
+				"models": {"m1": {"options": {"top_p": 0.5}}}
+			}
+		}
+	}`
+	out := sanitizeConfigContent(input)
+	for _, secret := range []string{"sk-v2-secret", "v2-header-secret", "top-secret"} {
+		if strings.Contains(out, secret) {
+			t.Fatalf("sanitized config leaked %q: %s", secret, out)
+		}
+	}
+	if !strings.Contains(out, "https://v2.example.com") || !strings.Contains(out, "0.5") {
+		t.Fatalf("sanitized config lost non-secret fields: %s", out)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("sanitized config is not valid JSON: %v", err)
+	}
+}
+
+func TestSanitizeConfigContentV1Headers(t *testing.T) {
+	input := `{"provider":{"leros-provider":{"options":{"apiKey":"sk-v1","headers":{"Authorization":"Bearer v1-secret"},"baseURL":"https://v1.example.com"}}}}`
+	out := sanitizeConfigContent(input)
+	if strings.Contains(out, "sk-v1") || strings.Contains(out, "v1-secret") {
+		t.Fatalf("sanitized config leaked v1 secrets: %s", out)
+	}
+	if !strings.Contains(out, "https://v1.example.com") {
+		t.Fatalf("sanitized config lost baseURL: %s", out)
+	}
+}
