@@ -32,22 +32,6 @@ func TestEnsureOpenCodeDBPathUsesConfiguredDataDir(t *testing.T) {
 	}
 }
 
-func TestBuildServerEnvOverridesInheritedOpenCodeDB(t *testing.T) {
-	env := buildServerEnv(
-		"secret",
-		"{}",
-		"/workspace/.opencode/opencode.db",
-		[]string{"OPENCODE_DB=/tmp/inherited.db"},
-	)
-
-	assertEnvContains(t, env, "OPENCODE_DB=/workspace/.opencode/opencode.db")
-	for _, item := range env {
-		if item == "OPENCODE_DB=/tmp/inherited.db" {
-			t.Fatalf("inherited OPENCODE_DB was not overridden: %#v", env)
-		}
-	}
-}
-
 func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
 	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "")
 	if err != nil {

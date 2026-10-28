@@ -1,8 +1,6 @@
 package opencode
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -313,45 +311,4 @@ func ensureOpenCodeDBPath(dataDir string) (string, error) {
 		return "", fmt.Errorf("create opencode data directory %s: %w", dir, err)
 	}
 	return filepath.Join(dir, openCodeDBName), nil
-}
-
-// buildServerEnv 构建 opcode serve 子进程所需的环境变量。
-// 返回格式为 "KEY=VALUE" 的字符串切片，附加到 baseEnv 之后。
-func buildServerEnv(password, configContent, databasePath string, baseEnv []string) []string {
-	env := make([]string, 0, 13)
-
-	// 服务器认证
-	env = append(env, "OPENCODE_SERVER_PASSWORD="+password)
-	env = append(env, "OPENCODE_SERVER_USERNAME=opencode")
-
-	// 注入完整配置（provider、model、API key、base URL）
-	env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
-	// 将 session 等 SQLite 数据持久化到 worker 工作目录。
-	if databasePath != "" {
-		env = append(env, "OPENCODE_DB="+databasePath)
-	}
-
-	// 隔离环境变量：确保子进程不读取宿主机的配置文件或插件
-	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
-	env = append(env, "OPENCODE_PURE=1")
-	env = append(env, "OPENCODE_DISABLE_AUTOUPDATE=1")
-	env = append(env, "OPENCODE_DISABLE_MODELS_FETCH=1")
-
-	// 启用 plan mode 和 CLI client 模式
-	env = append(env, "OPENCODE_EXPERIMENTAL_PLAN_MODE=true")
-	env = append(env, "OPENCODE_CLIENT=cli")
-
-	// 启用 EXA web search 功能
-	env = append(env, "OPENCODE_ENABLE_EXA=1")
-
-	return runtimeprocess.BuildRunEnv(baseEnv, env, nil)
-}
-
-// generatePassword 生成 32 位随机十六进制密码。
-func generatePassword() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate random password: %w", err)
-	}
-	return hex.EncodeToString(b), nil
 }
