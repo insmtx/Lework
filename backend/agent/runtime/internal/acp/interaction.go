@@ -122,7 +122,7 @@ func (b *PermissionBridge) payload(
 	if call.Title != nil {
 		title = *call.Title
 	}
-	name := ToolNameFromUpdate(kind, title)
+	name := toolNameForPermission(kind, title)
 	if name == "" {
 		name = "tool"
 	}
@@ -137,6 +137,24 @@ func (b *PermissionBridge) payload(
 		Description: description,
 		Arguments:   marshalArguments(call.RawInput),
 		Metadata:    map[string]string{"engine": "opencode"},
+	}
+}
+
+// toolNameForPermission 推导审批卡片上的工具名。
+// permission 帧的 Title 可能是文件路径（实测 edit 就是），因此优先用 Kind：
+// execute→bash、edit→write、read→read，其余按 Kind 原样；Kind 缺失才回退 Title。
+func toolNameForPermission(kind, title string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case string(acpsdk.ToolKindExecute):
+		return "bash"
+	case string(acpsdk.ToolKindEdit):
+		return "write"
+	case string(acpsdk.ToolKindRead):
+		return "read"
+	case "":
+		return DisplayToolName(ToolNameFromUpdate("", title))
+	default:
+		return DisplayToolName(kind)
 	}
 }
 

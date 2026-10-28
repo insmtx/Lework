@@ -274,3 +274,40 @@ func assertSelected(t *testing.T, resp acpsdk.RequestPermissionResponse, wantOpt
 		t.Fatal("empty option id")
 	}
 }
+
+func TestPermissionBridgeUsesKindForToolName(t *testing.T) {
+	events := make(chan agent.NodeEvent, 1)
+	bridge := NewPermissionBridge("s1", func(event agent.NodeEvent) error {
+		events <- event
+		return nil
+	})
+	kind := acpsdk.ToolKindEdit
+	title := "/workspace/notes.md"
+	request := acpsdk.RequestPermissionRequest{
+		SessionId: "s1",
+		ToolCall: acpsdk.ToolCallUpdate{
+			ToolCallId: "c-edit",
+			Kind:       &kind,
+			Title:      &title,
+			RawInput:   map[string]any{"path": "/workspace/notes.md"},
+		},
+		Options: permissionRequest().Options,
+	}
+	done := make(chan acpsdk.RequestPermissionResponse, 1)
+	go func() {
+		resp, _ := bridge.HandlePermission(context.Background(), request)
+		done <- resp
+	}()
+	event := mustEvent(t, events)
+	payload := event.Payload.(*agent.ApprovalRequestedPayload)
+	if payload.ToolName != "write" {
+		t.Fatalf("tool name = %q, want write (kind over title)", payload.ToolName)
+	}
+	if payload.Description != title {
+		t.Fatalf("description = %q, want path %q", payload.Description, title)
+	}
+	if err := bridge.WriteDecision(payload.RequestID, agent.ApprovalActionApprove); err != nil {
+		t.Fatalf("write decision: %v", err)
+	}
+	<-done
+}

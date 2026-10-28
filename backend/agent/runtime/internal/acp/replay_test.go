@@ -130,7 +130,7 @@ func TestReplayFormFrame(t *testing.T) {
 }
 
 func TestReplayPermissionFrame(t *testing.T) {
-	request := replayPermission(t, "synthetic-permission.ndjson")
+	request := replayPermission(t, "opencode-2.1.4-permission.ndjson")
 	events := make(chan agent.NodeEvent, 1)
 	bridge := NewPermissionBridge("ses_replay", func(event agent.NodeEvent) error {
 		events <- event
@@ -144,15 +144,18 @@ func TestReplayPermissionFrame(t *testing.T) {
 
 	event := mustEvent(t, events)
 	payload := event.Payload.(*agent.ApprovalRequestedPayload)
-	if payload.RequestID == "" || payload.ToolName != "bash" {
+	if payload.RequestID == "" || payload.ToolName != "write" || payload.ToolCallID == "" {
 		t.Fatalf("approval payload = %+v", payload)
 	}
 	if err := bridge.WriteDecision(payload.RequestID, agent.ApprovalActionAlways); err != nil {
 		t.Fatalf("write decision: %v", err)
 	}
 	resp := <-done
-	if resp.Outcome.Selected == nil || string(resp.Outcome.Selected.OptionId) != "once" {
-		t.Fatalf("permission response = %+v, want once (always downgraded)", resp.Outcome)
+	if resp.Outcome.Selected == nil || string(resp.Outcome.Selected.OptionId) == "" {
+		t.Fatalf("permission response = %+v, want selected option", resp.Outcome)
+	}
+	if strings.Contains(strings.ToLower(string(resp.Outcome.Selected.OptionId)), "always") {
+		t.Fatalf("always decision must downgrade to once, got %q", resp.Outcome.Selected.OptionId)
 	}
 }
 
