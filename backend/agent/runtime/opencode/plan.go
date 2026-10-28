@@ -32,19 +32,20 @@ type configOption func(*configContent)
 func withPlanMode() configOption {
 	return func(cfg *configContent) {
 		cfg.DefaultAgent = PlanAgentName
-		cfg.Agents = map[string]planAgentConfig{
-			PlanAgentName: {
-				Mode:        "primary",
-				Description: "Leros plan mode",
-				System:      PlanSystemPrompt,
-				Permissions: []permissionRule{
-					{Action: "question", Resource: "*", Effect: "allow"},
-					{Action: "read", Resource: "*", Effect: "allow"},
-					{Action: "edit", Resource: "*", Effect: "deny"},
-					{Action: "shell", Resource: "*", Effect: "deny"},
-					{Action: "external_directory", Resource: "*", Effect: "deny"},
-					{Action: "edit", Resource: ".opencode/plans/*", Effect: "allow"},
-				},
+		if cfg.Agents == nil {
+			cfg.Agents = map[string]planAgentConfig{}
+		}
+		cfg.Agents[PlanAgentName] = planAgentConfig{
+			Mode:        "primary",
+			Description: "Leros plan mode",
+			System:      PlanSystemPrompt,
+			Permissions: []permissionRule{
+				{Action: "question", Resource: "*", Effect: "allow"},
+				{Action: "read", Resource: "*", Effect: "allow"},
+				{Action: "edit", Resource: "*", Effect: "deny"},
+				{Action: "shell", Resource: "*", Effect: "deny"},
+				{Action: "external_directory", Resource: "*", Effect: "deny"},
+				{Action: "edit", Resource: ".opencode/plans/*", Effect: "allow"},
 			},
 		}
 	}

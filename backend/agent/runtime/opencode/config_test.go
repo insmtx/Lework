@@ -378,6 +378,9 @@ func TestBuildConfigContentWithPlanMode(t *testing.T) {
 	if cfg.DefaultAgent != PlanAgentName {
 		t.Fatalf("default_agent = %q, want %q", cfg.DefaultAgent, PlanAgentName)
 	}
+	if _, ok := cfg.Agents["build"]; !ok {
+		t.Fatalf("plan mode dropped native build agent: %#v", cfg.Agents)
+	}
 	plan, ok := cfg.Agents[PlanAgentName]
 	if !ok {
 		t.Fatalf("missing %s agent: %#v", PlanAgentName, cfg.Agents)
@@ -441,5 +444,20 @@ func TestSanitizeConfigContentV1Headers(t *testing.T) {
 	}
 	if !strings.Contains(out, "https://v1.example.com") {
 		t.Fatalf("sanitized config lost baseURL: %s", out)
+	}
+}
+
+func TestBuildConfigContentInjectsNativeBuildAgent(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "")
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	build, ok := cfg.Agents["build"]
+	if !ok || build.Mode != "primary" || build.System != openCodeBuildAgentPrompt {
+		t.Fatalf("native build agent = %+v", cfg.Agents)
 	}
 }

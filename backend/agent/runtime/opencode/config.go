@@ -104,8 +104,12 @@ func buildConfigContent(
 				},
 			},
 		},
-		Model:        providerID + "/" + modelID,
-		Agent:        map[string]agentConfig{"build": {Prompt: openCodeBuildAgentPrompt}},
+		Model: providerID + "/" + modelID,
+		Agent: map[string]agentConfig{"build": {Prompt: openCodeBuildAgentPrompt}},
+		Agents: map[string]planAgentConfig{
+			// v2 原生形状：legacy agent.build.prompt 仍保留兼容，两者一致。
+			"build": {Mode: "primary", System: openCodeBuildAgentPrompt},
+		},
 		Experimental: &experimentalConfig{Todo: true},
 		Permission: map[string]any{
 			"*": "allow",
