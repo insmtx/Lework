@@ -45,6 +45,19 @@ After starting infrastructure, start components independently:
 ./dev-frontend.sh
 ```
 
+### One Command
+
+Start server + worker + frontend together (infrastructure must already be running):
+
+```bash
+make dev-up       # alias: make dev-all
+make dev-status   # 查看 8080/8081/3005 状态
+make dev-logs     # 查看三个服务的最近日志
+make dev-down     # 停止 dev-up 启动的进程
+```
+
+日志与 pid 文件在 `deployments/dev/logs/`。若前端首次请求长时间无响应，可删除 `frontend/apps/web/.next` 后重试（Next dev 缓存问题）。
+
 ### Windows Quick Start
 
 If you are developing on Windows, use the tracked PowerShell/CMD wrappers under `deployments/dev/`:

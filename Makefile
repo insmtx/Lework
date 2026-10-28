@@ -2,7 +2,7 @@ PROJECT ?= insmtx
 APP?= leros
 REGISTRY ?= registry.yygu.cn
 
-.PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend docker-build-worker-base docker-build-worker-base-private docker-push-worker-base docker-push-worker-base-private docker-build-worker docker-build-web docker-build-tag docker-push-tag image-tag
+.PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend dev-up dev-all dev-down dev-status dev-logs docker-build-worker-base docker-build-worker-base-private docker-push-worker-base docker-push-worker-base-private docker-build-worker docker-build-web docker-build-tag docker-push-tag image-tag
 
 # GO='GOOS=windows GOARCH=386 go'
 VERSION := $(shell git describe --tags | sed 's/\(.*\)-.*/\1/')
@@ -176,3 +176,21 @@ dev-frontend:
 	 -v $(PWD)/frontend:/app \
 	 -w /app \
 	 registry.yygu.cn/base/node:24 bash 
+
+# 一键启动本地开发栈：server + worker + frontend（后台运行，日志在 deployments/dev/logs）。
+# 前置条件：PostgreSQL/NATS 已就绪（沿用 server/worker config），opencode 2.1.x 在 PATH。
+dev-up:
+	cd deployments/dev && ./dev-all.sh start
+
+# dev-all 作为 dev-up 的别名，便于记忆
+dev-all: dev-up
+
+# 停止 dev-up 启动的进程（只按 pid 文件停自己启动的，不动外部进程）
+dev-down:
+	cd deployments/dev && ./dev-all.sh stop
+
+dev-status:
+	cd deployments/dev && ./dev-all.sh status
+
+dev-logs:
+	cd deployments/dev && ./dev-all.sh logs
