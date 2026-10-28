@@ -13,6 +13,9 @@ ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
 ARG OPENCODE_VERSION=2.1.4
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+
+# 镜像自描述：构建后可用 docker inspect 核对实际 pin
+LABEL org.leros.opencode.version="${OPENCODE_VERSION}"
 ARG NODE_VERSION=22.14.0
 
 # Configure aliyun apt mirrors
@@ -174,7 +177,8 @@ RUN npm config set registry https://registry.npmmirror.com \
         "@opencode/cli@${OPENCODE_VERSION}" \
     && claude --version \
     && codex --version \
-    && opencode --version \
+    && test "$(opencode --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" = "${OPENCODE_VERSION}" \
+    && echo "opencode ${OPENCODE_VERSION} verified" \
     && npm cache clean --force
 
 # Node 文档组件库（两版共用）：docx / PptxGenJS / pdf-lib / sharp。
