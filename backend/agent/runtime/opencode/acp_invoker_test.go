@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	acpsdk "github.com/coder/acp-go-sdk"
+	"github.com/insmtx/Leros/backend/agent"
 )
 
 func TestInvocationError(t *testing.T) {
@@ -59,5 +60,39 @@ func TestUsageFromACP(t *testing.T) {
 
 	if zero := usageFromACP(nil); zero == nil || zero.TotalTokens != 0 {
 		t.Fatalf("nil usage fallback = %+v", zero)
+	}
+}
+
+func TestACPMCPServersMapsTransports(t *testing.T) {
+	servers := acpMCPServers([]agent.MCPServerConfig{
+		{Name: "sse-srv", Transport: "sse", URL: "https://example.com/sse", Headers: map[string]string{"Authorization": "Bearer secret"}},
+		{Name: "http-srv", Transport: "http", URL: "https://example.com/mcp"},
+		{Name: "stdio-srv", Command: "node", Args: []string{"server.js"}, Env: map[string]string{"TOKEN": "x"}},
+	})
+	if len(servers) != 3 {
+		t.Fatalf("servers = %d, want 3", len(servers))
+	}
+	sse := servers[0]
+	if sse.Stdio == nil || sse.Http != nil {
+		t.Fatalf("sse must use stdio bridge: %+v", sse)
+	}
+	if sse.Stdio.Command != "npx" {
+		t.Fatalf("sse bridge command = %q", sse.Stdio.Command)
+	}
+	joined := strings.Join(sse.Stdio.Args, " ")
+	if !strings.Contains(joined, "mcp-remote") || !strings.Contains(joined, "sse-only") {
+		t.Fatalf("sse bridge args = %v", sse.Stdio.Args)
+	}
+	if strings.Contains(joined, "secret") {
+		t.Fatalf("sse token leaked into args: %v", sse.Stdio.Args)
+	}
+	if len(sse.Stdio.Env) == 0 {
+		t.Fatal("sse headers must be passed via env")
+	}
+	if servers[1].Http == nil || servers[1].Http.Type != "http" {
+		t.Fatalf("http server mapping = %+v", servers[1])
+	}
+	if servers[2].Stdio == nil || servers[2].Stdio.Command != "node" {
+		t.Fatalf("stdio server mapping = %+v", servers[2])
 	}
 }

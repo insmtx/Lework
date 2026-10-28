@@ -81,7 +81,7 @@ func (inv *ACPInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*
 	env := append([]string{}, inv.baseEnv...)
 	env = append(env, req.ExtraEnv...)
 	env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
-	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_PURE=1", "OPENCODE_DISABLE_AUTOUPDATE=1")
+	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_CLAUDE_CODE=1", "OPENCODE_PURE=1", "OPENCODE_DISABLE_AUTOUPDATE=1")
 	if databasePath != "" {
 		env = append(env, "OPENCODE_DB="+databasePath)
 	}
@@ -102,10 +102,14 @@ func (inv *ACPInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*
 	if req.Resume {
 		resumeID = strings.TrimSpace(req.SessionID)
 	}
-	sess, _, err := conn.ResumeOrNewSession(ctx, resumeID, workDir, acpMCPServers(req.MCPServers))
+	sess, resumed, err := conn.ResumeOrNewSession(ctx, resumeID, workDir, acpMCPServers(req.MCPServers))
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
+	}
+	if req.Resume && resumeID != "" && !resumed {
+		logs.Warnf("opencode acp resume_fallback: execution_id=%s requested_session=%s new_session=%s",
+			req.ExecutionID, resumeID, sess.ID)
 	}
 	wantModel := ""
 	if strings.TrimSpace(req.Model.Model) != "" {
@@ -282,6 +286,22 @@ func acpMCPServers(configs []agent.MCPServerConfig) []acpsdk.McpServer {
 			continue
 		}
 		switch {
+		case runtimeprocess.NeedsSSEBridge(config):
+			// opencode v2.1.4 的 mcpCapabilities.sse=false，不能直接下发 SSE；
+			// 沿用 v1 的 mcp-remote stdio 桥，请求头仍走环境变量避免凭据落盘。
+			headerArgs, headerEnv := runtimeprocess.BuildMCPRemoteHeaderArgs(config)
+			args := []string{"-y", "mcp-remote", config.URL, "--transport", "sse-only"}
+			args = append(args, headerArgs...)
+			environment := make([]acpsdk.EnvVariable, 0, len(headerEnv))
+			for key, value := range headerEnv {
+				environment = append(environment, acpsdk.EnvVariable{Name: key, Value: value})
+			}
+			servers = append(servers, acpsdk.McpServer{Stdio: &acpsdk.McpServerStdio{
+				Name:    name,
+				Command: "npx",
+				Args:    args,
+				Env:     environment,
+			}})
 		case strings.TrimSpace(config.URL) != "":
 			headers := make([]acpsdk.HttpHeader, 0, len(config.Headers)+1)
 			for key, value := range config.Headers {
