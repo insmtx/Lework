@@ -177,7 +177,8 @@ dev-frontend:
 	 -w /app \
 	 registry.yygu.cn/base/node:24 bash 
 
-# 一键启动本地开发栈：server + worker + frontend（后台运行，日志在 deployments/dev/logs）。
+# 一键重启本地开发栈：server + worker + frontend（后台运行，日志在 deployments/dev/logs）。
+# 会先停掉旧的 dev 进程并清理端口；.next 超阈值或前端无响应时自动清缓存重启。
 # 前置条件：PostgreSQL/NATS 已就绪（沿用 server/worker config），opencode 2.1.x 在 PATH。
 dev-up:
 	cd deployments/dev && ./dev-all.sh start
