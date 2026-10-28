@@ -183,18 +183,7 @@ func (inv *ACPInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*
 			Usage:             usage,
 			ProviderSessionID: string(sess.ID),
 		}
-		switch {
-		case promptErr != nil:
-			result.Err = promptErr
-		case ctx.Err() != nil:
-			result.Err = ctx.Err()
-		case stopReason == acpsdk.StopReasonRefusal:
-			result.Err = fmt.Errorf("模型拒绝回答本次请求，请调整提问后重试。")
-		case finalText == "":
-			result.Err = fmt.Errorf("%s", fallbackReply)
-		case strings.HasPrefix(finalText, "【用户问题】"):
-			result.Err = fmt.Errorf("%s", fallbackReply)
-		default:
+		if result.Err = invocationError(ctx.Err(), promptErr, stopReason, finalText); result.Err == nil {
 			emit(agent.NewMessageEndEvent(finalText, usage))
 		}
 		if result.Err != nil {
@@ -298,6 +287,25 @@ func acpMCPServers(configs []agent.MCPServerConfig) []acpsdk.McpServer {
 }
 
 var _ cli.Invoker = (*ACPInvoker)(nil)
+
+// invocationError 是终态判定：取消/协议错误/拒答/空正文/回声都映射为可读错误。
+// 单独抽成纯函数，便于对 execution.failed 契约做回放/单测。
+func invocationError(ctxErr, promptErr error, stopReason acpsdk.StopReason, finalText string) error {
+	switch {
+	case promptErr != nil:
+		return promptErr
+	case ctxErr != nil:
+		return ctxErr
+	case stopReason == acpsdk.StopReasonRefusal:
+		return fmt.Errorf("模型拒绝回答本次请求，请调整提问后重试。")
+	case strings.TrimSpace(finalText) == "":
+		return fmt.Errorf("%s", fallbackReply)
+	case strings.HasPrefix(strings.TrimSpace(finalText), "【用户问题】"):
+		return fmt.Errorf("%s", fallbackReply)
+	default:
+		return nil
+	}
+}
 
 func usageFromACP(usage *acpsdk.Usage) *agent.Usage {
 	if usage == nil {
