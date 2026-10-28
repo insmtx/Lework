@@ -14,15 +14,39 @@ const PlanAgentName = "leros-plan"
 
 // PlanSystemPrompt 要求模型写完计划文件后调用 question 工具，
 // header/问题/选项必须与前端既有契约一致（设计文档 §8.3）。
+// v2 没有 plan_exit，确认表单只能靠提示词触发，因此这里把「必须最后一步调用」
+// 写成硬约束；仍不合规时由 PlanRetryPrompt 补一次追问。
 const PlanSystemPrompt = `You are the Leros plan agent.
 Write the implementation plan as Markdown to a file under .opencode/plans/ (for example .opencode/plans/plan.md).
-Do not modify files outside .opencode/plans.
-After the plan file is written, call the question tool with:
+Do not modify files outside .opencode/plans. Do not call plan_exit; it does not exist in this runtime.
+
+MANDATORY FINAL STEP: once the plan file is written, you MUST call the question tool before
+producing any other output — it is the last action of this turn:
 - title: 计划确认
 - description: 以下是当前计划，是否执行？
-- options: exactly "Yes" and "No"
+- options: exactly two options, in this order: "Yes" then "No"
 - multiple: false
-Do not call plan_exit; it does not exist in this runtime.`
+Never end the turn without this question call. If the plan file is already written, call the question tool immediately.`
+
+// PlanRetryPrompt 是一次性兜底追问：模型写完计划却没按契约问 Yes/No 时，
+// 在同一 ACP session 内补发一次；只允许一次，避免不合规时无限烧 token。
+const PlanRetryPrompt = `You did not call the question tool, so the user cannot confirm the plan yet.
+Call the question tool NOW with exactly these arguments:
+- title: 计划确认
+- description: 以下是当前计划，是否执行？
+- options: exactly two options, in this order: "Yes" then "No"
+- multiple: false
+Do not rewrite the plan file and do not produce any other output.`
+
+// ShouldRetryPlanConfirmation 判定是否值得补一次确认追问：
+// 计划模式、首轮正常结束（无请求错误、ctx 未取消）、已写入合法计划文件，
+// 但本轮没有产出计划确认表单。
+func ShouldRetryPlanConfirmation(mode agent.ExecutionMode, confirmed, hasPlan bool, promptErr, ctxErr error) bool {
+	if mode != agent.ExecutionModePlan || confirmed || !hasPlan {
+		return false
+	}
+	return promptErr == nil && ctxErr == nil
+}
 
 // configOption 在基础配置上追加 v2 段（目前只有计划模式使用）。
 type configOption func(*configContent)

@@ -11,6 +11,7 @@ import (
 
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/insmtx/Leros/backend/agent"
+	"github.com/ygpkg/yg-go/logs"
 )
 
 // ErrUnknownRequestID 表示决策到达时请求已结算或不存在。
@@ -27,8 +28,18 @@ type PermissionBridge struct {
 	nonce     int64
 
 	mu      sync.Mutex
-	pending map[string]chan agent.ApprovalDecision
-	seq     atomic.Uint64
+	pending map[string]*pendingPermission
+	// always 是本轮 execution 内的"总是允许"记忆：key = 工具种类 + 资源原文。
+	// 只在内存里存活，随 bridge 销毁而失效，因此不会像 ACP 的 allow_always
+	// 那样把规则写进 opencode 的 saved 规则表、跨任务永久放行。
+	always map[string]struct{}
+	seq    atomic.Uint64
+}
+
+// pendingPermission 保存一次等待中的审批，key 用于决定 always 记忆的粒度。
+type pendingPermission struct {
+	decisions chan agent.ApprovalDecision
+	key       string
 }
 
 // NewPermissionBridge 创建权限桥；emit 负责把 approval.requested 送入事件通道。
@@ -40,21 +51,33 @@ func NewPermissionBridge(sessionID string, emit func(agent.NodeEvent) error) *Pe
 		sessionID: sessionID,
 		emit:      emit,
 		nonce:     time.Now().UnixNano(),
-		pending:   map[string]chan agent.ApprovalDecision{},
+		pending:   map[string]*pendingPermission{},
+		always:    map[string]struct{}{},
 	}
 }
 
 // HandlePermission 实现 acp.Client.RequestPermission 的桥接语义。
 // ctx 取消时返回 Cancelled（不悬挂），并清理等待表。
+//
+// 若用户此前在本轮任务里对该「工具种类+资源」勾过"总是允许"，这里直接按
+// approve 应答并且不发 approval.requested：等价于 v1 里 saved 规则命中后
+// opencode 不再询问的表现，但作用域仅限本次执行。
 func (b *PermissionBridge) HandlePermission(
 	ctx context.Context,
 	params acpsdk.RequestPermissionRequest,
 ) (acpsdk.RequestPermissionResponse, error) {
+	key := permissionKey(params)
+	if b.alwaysAllowed(key) {
+		logs.DebugContextf(ctx, "acp permission auto-approved by in-execution always rule: session=%s key=%s",
+			b.sessionID, key)
+		return permissionResponse(agent.ApprovalActionApprove, params.Options), nil
+	}
+
 	requestID := b.newRequestID()
 	decisions := make(chan agent.ApprovalDecision, 1)
 
 	b.mu.Lock()
-	b.pending[requestID] = decisions
+	b.pending[requestID] = &pendingPermission{decisions: decisions, key: key}
 	b.mu.Unlock()
 	defer b.forget(requestID)
 
@@ -71,10 +94,10 @@ func (b *PermissionBridge) HandlePermission(
 }
 
 // WriteDecision 实现 agent.ApprovalResponder，由 cli.Runner 在用户决策后调用。
-// 同一 requestID 只允许写一次。
+// 同一 requestID 只允许写一次；always 会在此登记本轮记忆。
 func (b *PermissionBridge) WriteDecision(requestID string, action string) error {
 	b.mu.Lock()
-	decisions, ok := b.pending[requestID]
+	pending, ok := b.pending[requestID]
 	if ok {
 		delete(b.pending, requestID)
 	}
@@ -85,11 +108,16 @@ func (b *PermissionBridge) WriteDecision(requestID string, action string) error 
 
 	decision := agent.ApprovalDecision{RequestID: requestID, Action: normalizeAction(action)}
 	select {
-	case decisions <- decision:
-		return nil
+	case pending.decisions <- decision:
 	default:
 		return fmt.Errorf("approval %s is already resolved", requestID)
 	}
+	if decision.Action == agent.ApprovalActionAlways && pending.key != "" {
+		b.mu.Lock()
+		b.always[pending.key] = struct{}{}
+		b.mu.Unlock()
+	}
+	return nil
 }
 
 // Pending 返回当前等待中的请求数（测试与可观测性用）。
@@ -97,6 +125,49 @@ func (b *PermissionBridge) Pending() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.pending)
+}
+
+func (b *PermissionBridge) alwaysAllowed(key string) bool {
+	if key == "" {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.always[key]
+	return ok
+}
+
+// permissionKey 生成 always 记忆的匹配键：工具种类 + 资源原文。
+// 资源优先取文件路径，其次命令，最后回退标题。任一侧缺失都返回空串，
+// 表示作用域无法界定——此时不记忆、每次照常询问（安全侧收紧）。
+func permissionKey(params acpsdk.RequestPermissionRequest) string {
+	call := params.ToolCall
+	kind := ""
+	if call.Kind != nil {
+		kind = strings.ToLower(strings.TrimSpace(string(*call.Kind)))
+	}
+	resource := permissionResource(call)
+	if kind == "" || resource == "" {
+		return ""
+	}
+	return kind + "\x00" + resource
+}
+
+func permissionResource(call acpsdk.ToolCallUpdate) string {
+	if path := rawInputPath(call.RawInput); path != "" {
+		return path
+	}
+	if object, ok := call.RawInput.(map[string]any); ok {
+		for _, key := range []string{"command", "cmd"} {
+			if value, ok := object[key].(string); ok && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	if call.Title != nil {
+		return strings.TrimSpace(*call.Title)
+	}
+	return ""
 }
 
 func (b *PermissionBridge) forget(requestID string) {
@@ -171,7 +242,8 @@ func normalizeAction(action string) string {
 }
 
 // permissionResponse 映射 Leros 动作到 ACP 选项：
-// approve/always → allow_once（always 在 wire 降级为 once，不留保存规则），
+// approve/always → allow_once（always 在 wire 上永不落到 allow_always，因此不会
+// 写入 opencode 的 saved 规则表；它的"总是允许"语义由 PermissionBridge 的记忆承担），
 // deny → reject_once。找不到对应选项时返回 Cancelled，避免误放行。
 func permissionResponse(
 	action string,

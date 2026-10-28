@@ -27,6 +27,12 @@ func TestInvocationError(t *testing.T) {
 		{"empty text", nil, nil, acpsdk.StopReasonEndTurn, "   ", fallbackReply},
 		{"echo", nil, nil, acpsdk.StopReasonEndTurn, "【用户问题】重复", fallbackReply},
 		{"max tokens is success", nil, nil, acpsdk.StopReasonMaxTokens, "partial", ""},
+		// 用户拒绝工具：v2 表现为 cancelled + 空正文，必须是专用文案而不是通用失败文案。
+		{"rejected tool", nil, nil, acpsdk.StopReasonCancelled, "", rejectedReply},
+		// 用户点停止会让 ctx 取消，此时不能被误标成"拒绝工具"。
+		{"user abort is not rejection", context.Canceled, nil, acpsdk.StopReasonCancelled, "", context.Canceled.Error()},
+		// 取消但已有正文：仍按已有正文成功处理，避免吞掉部分输出。
+		{"cancelled with text", nil, nil, acpsdk.StopReasonCancelled, "部分结果", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

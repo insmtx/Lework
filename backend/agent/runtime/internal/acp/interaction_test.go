@@ -100,14 +100,14 @@ func TestPermissionBridgeActions(t *testing.T) {
 	}
 }
 
-func TestPermissionBridgeAlwaysKeepsNoSavedRules(t *testing.T) {
+func TestPermissionBridgeAlwaysRepeatsWithinExecution(t *testing.T) {
 	events := make(chan agent.NodeEvent, 4)
 	bridge := NewPermissionBridge("s1", func(event agent.NodeEvent) error {
 		events <- event
 		return nil
 	})
 
-	answer := func(action string) {
+	answer := func() acpsdk.RequestPermissionResponse {
 		done := make(chan acpsdk.RequestPermissionResponse, 1)
 		go func() {
 			resp, _ := bridge.HandlePermission(context.Background(), permissionRequest())
@@ -115,23 +115,101 @@ func TestPermissionBridgeAlwaysKeepsNoSavedRules(t *testing.T) {
 		}()
 		event := mustEvent(t, events)
 		requestID := event.Payload.(*agent.ApprovalRequestedPayload).RequestID
-		if err := bridge.WriteDecision(requestID, action); err != nil {
+		if err := bridge.WriteDecision(requestID, agent.ApprovalActionAlways); err != nil {
 			t.Fatalf("write decision: %v", err)
 		}
 		select {
 		case resp := <-done:
-			assertSelected(t, resp, "once")
+			return resp
 		case <-time.After(time.Second):
 			t.Fatal("permission handler did not return")
+			return acpsdk.RequestPermissionResponse{}
 		}
 	}
 
-	answer(agent.ApprovalActionAlways)
-	// 同一工具第二次请求必须再次经过用户，而不是被 always 自动放行。
-	answer(agent.ApprovalActionAlways)
+	assertSelected(t, answer(), "once")
+
+	// 同一 execution 内、同工具+同命令再次请求：直接放行且不再发审批事件。
+	done := make(chan acpsdk.RequestPermissionResponse, 1)
+	go func() {
+		resp, _ := bridge.HandlePermission(context.Background(), permissionRequest())
+		done <- resp
+	}()
+	select {
+	case resp := <-done:
+		assertSelected(t, resp, "once")
+	case <-time.After(time.Second):
+		t.Fatal("remembered always rule did not auto-approve")
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("unexpected second approval event: %s", event.Type)
+	default:
+	}
 	if bridge.Pending() != 0 {
 		t.Fatalf("pending = %d, want 0", bridge.Pending())
 	}
+
+	// 资源不同（换命令）不能命中记忆，必须重新询问。
+	other := permissionRequest()
+	otherTitle := "pwd"
+	other.ToolCall.Title = &otherTitle
+	other.ToolCall.RawInput = map[string]any{"command": "pwd"}
+	otherDone := make(chan acpsdk.RequestPermissionResponse, 1)
+	go func() {
+		resp, _ := bridge.HandlePermission(context.Background(), other)
+		otherDone <- resp
+	}()
+	otherEvent := mustEvent(t, events)
+	if err := bridge.WriteDecision(otherEvent.Payload.(*agent.ApprovalRequestedPayload).RequestID,
+		agent.ApprovalActionDeny); err != nil {
+		t.Fatalf("write decision: %v", err)
+	}
+	select {
+	case resp := <-otherDone:
+		assertSelected(t, resp, "reject")
+	case <-time.After(time.Second):
+		t.Fatal("permission handler did not return")
+	}
+}
+
+func TestPermissionBridgeAlwaysDoesNotLeakAcrossExecutions(t *testing.T) {
+	events := make(chan agent.NodeEvent, 2)
+	bridge := NewPermissionBridge("s1", func(event agent.NodeEvent) error {
+		events <- event
+		return nil
+	})
+	done := make(chan struct{}, 1)
+	go func() {
+		_, _ = bridge.HandlePermission(context.Background(), permissionRequest())
+		done <- struct{}{}
+	}()
+	event := mustEvent(t, events)
+	if err := bridge.WriteDecision(event.Payload.(*agent.ApprovalRequestedPayload).RequestID,
+		agent.ApprovalActionAlways); err != nil {
+		t.Fatalf("write decision: %v", err)
+	}
+	<-done
+
+	// 下一个任务/执行是新的 bridge：没有 saved 规则，必须重新询问。
+	fresh := NewPermissionBridge("s2", func(event agent.NodeEvent) error {
+		events <- event
+		return nil
+	})
+	freshDone := make(chan struct{}, 1)
+	go func() {
+		_, _ = fresh.HandlePermission(context.Background(), permissionRequest())
+		freshDone <- struct{}{}
+	}()
+	freshEvent := mustEvent(t, events)
+	if freshEvent.Type != agent.NodeEventApprovalRequested {
+		t.Fatalf("event type = %s, want approval.requested", freshEvent.Type)
+	}
+	if err := fresh.WriteDecision(freshEvent.Payload.(*agent.ApprovalRequestedPayload).RequestID,
+		agent.ApprovalActionApprove); err != nil {
+		t.Fatalf("write decision: %v", err)
+	}
+	<-freshDone
 }
 
 func TestPermissionBridgeContextCancelled(t *testing.T) {

@@ -123,6 +123,15 @@ func TestSmokeMatrixProbe(t *testing.T) {
 		_, denyEvents, denyErr := runSmoke(t, invoker, baseRequest("smoke-perm-deny",
 			"请用 bash 工具执行命令 `rm -rf keep`，不要做别的事。"), handler)
 		t.Logf("deny result: %v (events=%v)", denyErr, eventTypes(denyEvents))
+		if denyErr != nil {
+			// 拒绝场景不能落到通用失败文案，否则用户会以为模型故障而不是自己拒绝了工具。
+			if strings.TrimSpace(denyErr.Error()) == fallbackReply {
+				t.Fatalf("denied turn surfaced generic failure text %q; want dedicated rejection message", fallbackReply)
+			}
+			if !strings.Contains(denyErr.Error(), rejectedReply) {
+				t.Logf("deny surfaced other actionable error (acceptable): %v", denyErr)
+			}
+		}
 		if _, err := os.Stat(keepDir); err != nil {
 			t.Fatalf("denied rm still deleted keep dir; events=%v", eventTypes(denyEvents))
 		}
@@ -207,6 +216,63 @@ func TestSmokeMatrixProbe(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(workDir, ".opencode", "plans", "smoke-plan.md")); err != nil {
 			t.Fatalf("plan file missing: %v", err)
+		}
+	})
+
+	t.Run("always_repeats_within_task", func(t *testing.T) {
+		// 验收口径：勾「总是允许」后，同一任务内同工具+同资源不再复问；
+		// 但不得写 saved 规则（跨任务仍询问，见 permission_cross_task）。
+		handler.approveAction = agent.ApprovalActionAlways
+		defer func() { handler.approveAction = agent.ApprovalActionApprove }()
+		handler.resetApprovals()
+
+		target := filepath.Join(workDir, "always")
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		result, events, alwaysErr := runSmoke(t, invoker, baseRequest("smoke-always",
+			"请用 bash 工具把命令 `rm -rf always` 连续执行两次（分两条独立命令，不要合并、不要加其他命令）。"),
+			handler)
+		starts := 0
+		for _, event := range events {
+			if event.Type == agent.NodeEventToolExecutionStart {
+				starts++
+			}
+		}
+		t.Logf("always result: err=%v starts=%d approvals=%d msg=%q", alwaysErr, starts, handler.approvalCount(), result.Message)
+		if starts < 2 {
+			t.Skip("模型没有真的执行两次同样的命令，本环境无法判定 always 记忆")
+		}
+		if got := handler.approvalCount(); got != 1 {
+			t.Fatalf("approvals = %d, want 1（第二次同命令应命中本任务记忆）", got)
+		}
+	})
+
+	t.Run("plan_retry_fallback", func(t *testing.T) {
+		// 用户明确禁止问确认 → 首轮必然不合规，运行层的一次性追问应把确认表单救回来。
+		handler.answer = [][]string{{"Yes"}}
+		req := baseRequest("smoke-plan-retry",
+			"请把计划写入 .opencode/plans/smoke-retry.md。写完后立刻结束本轮，"+
+				"禁止调用 question 工具，也不要向我确认任何内容。")
+		req.ExecutionMode = agent.ExecutionModePlan
+		result, events, retryErr := runSmoke(t, invoker, req, handler)
+		planReady := hasEvent(events, agent.NodeEventPlanReady)
+		confirm := false
+		for _, event := range events {
+			if payload, ok := event.Payload.(*agent.QuestionAskedPayload); ok &&
+				payload.InteractionType == "plan_confirmation" {
+				confirm = true
+			}
+		}
+		if !confirm {
+			t.Skipf("retry still not compliant in this environment (plan_ready=%v result=%q err=%v events=%v)",
+				planReady, result.Message, retryErr, eventTypes(events))
+		}
+		if !planReady {
+			t.Fatalf("confirmation emitted without plan.ready; events=%v", eventTypes(events))
+		}
+		if _, err := os.Stat(filepath.Join(workDir, ".opencode", "plans", "smoke-retry.md")); err != nil {
+			t.Fatalf("plan file missing after retry: %v", err)
 		}
 	})
 
