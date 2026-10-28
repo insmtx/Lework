@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
@@ -125,22 +126,34 @@ func (inv *ACPInvoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*
 		defer close(translatorDone)
 		for notification := range updates {
 			for _, event := range translator.Handle(notification) {
-				events <- event
+				select {
+				case events <- event:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()
+	var dropWarnOnce sync.Once
 	conn.Client().SetUpdateSink(func(notification acpsdk.SessionNotification) {
 		select {
 		case updates <- notification:
 		default:
-			// 超限丢弃并计数，绝不阻塞 SDK 通知线程。
+			// 超限丢弃并计数，绝不阻塞 SDK 通知线程；首次丢弃打一次 warn。
 			conn.Stats().DroppedEvents.Add(1)
+			dropWarnOnce.Do(func() {
+				logs.Warnf("opencode acp update queue full; dropping session updates (execution_id=%s)", req.ExecutionID)
+			})
 		}
 	})
 
 	emit := func(event agent.NodeEvent) error {
-		events <- event
-		return nil
+		select {
+		case events <- event:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	permissionBridge := acp.NewPermissionBridge(string(sess.ID), emit)
 	formBridge := acp.NewFormBridge(string(sess.ID), conn.Stats(), func(event agent.NodeEvent) error {
