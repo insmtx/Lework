@@ -104,8 +104,8 @@ func TestKubernetesWorkspaceSpecDriftDetectsLegacyWorkspacePath(t *testing.T) {
 		WorkerID: 1,
 	}
 	deployment := scheduler.buildDeployment(spec)
-	if scheduler.workspaceSpecDrifted(deployment, spec) {
-		t.Fatal("fresh deployment should match desired workspace spec")
+	if fields := scheduler.driftFields(deployment, spec); len(fields) != 0 {
+		t.Fatalf("fresh deployment drift = %v, want none", fields)
 	}
 
 	deployment.Spec.Template.Spec.Volumes[1].HostPath.Path = "/data/leros-workspaces"
@@ -124,7 +124,7 @@ func TestKubernetesWorkspaceSpecDriftDetectsLegacyWorkspacePath(t *testing.T) {
 	deployment.Spec.Template.Spec.InitContainers[0].Args = []string{"chmod -R 0777 /leros-workspaces"}
 	deployment.Spec.Template.Spec.InitContainers[0].VolumeMounts[0].MountPath = "/leros-workspaces"
 
-	if !scheduler.workspaceSpecDrifted(deployment, spec) {
+	if fields := scheduler.driftFields(deployment, spec); len(fields) == 0 {
 		t.Fatal("legacy workspace paths should require reconcile")
 	}
 }
@@ -190,8 +190,8 @@ func TestResourcesDriftedDetectsMissingResources(t *testing.T) {
 	deployment := scheduler.buildDeployment(spec)
 	// 清除容器资源模拟旧 deployment
 	deployment.Spec.Template.Spec.Containers[0].Resources = corev1.ResourceRequirements{}
-	if !scheduler.resourcesDrifted(deployment, spec) {
-		t.Fatal("missing resources should be detected as drift")
+	if fields := scheduler.driftFields(deployment, spec); !containsField(fields, "resources") {
+		t.Fatalf("missing resources drift = %v, want resources field", fields)
 	}
 }
 
@@ -204,8 +204,8 @@ func TestResourcesDriftedNoDriftWhenMatch(t *testing.T) {
 		},
 	}}
 	deployment := scheduler.buildDeployment(spec)
-	if scheduler.resourcesDrifted(deployment, spec) {
-		t.Fatal("matching resources should not be detected as drift")
+	if fields := scheduler.driftFields(deployment, spec); containsField(fields, "resources") {
+		t.Fatalf("matching resources drift = %v, want none", fields)
 	}
 }
 
@@ -221,7 +221,7 @@ func TestResourcesDriftedDetectsQuantityChange(t *testing.T) {
 	deployment.Spec.Template.Spec.Containers[0].Resources = corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 	}
-	if !scheduler.resourcesDrifted(deployment, spec) {
-		t.Fatal("different cpu limit should be detected as drift")
+	if fields := scheduler.driftFields(deployment, spec); !containsField(fields, "resources") {
+		t.Fatalf("different cpu limit drift = %v, want resources field", fields)
 	}
 }

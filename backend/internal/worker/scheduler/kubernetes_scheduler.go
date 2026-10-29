@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/worker"
@@ -41,6 +44,16 @@ const (
 type KubernetesScheduler struct {
 	config *config.SchedulerConfig
 	client kubernetes.Interface
+	// deployments 允许单测注入轻量实现；生产路径由 client 构造。
+	deployments typedappsv1.DeploymentInterface
+}
+
+// deploymentsAPI 统一取 Deployment 客户端，避免各处重复拼 namespace。
+func (s *KubernetesScheduler) deploymentsAPI() typedappsv1.DeploymentInterface {
+	if s.deployments != nil {
+		return s.deployments
+	}
+	return s.deploymentsAPI()
 }
 
 var _ worker.WorkerScheduler = (*KubernetesScheduler)(nil)
@@ -95,19 +108,14 @@ func kubeconfigRESTConfig(cfg *config.SchedulerConfig) (*rest.Config, error) {
 }
 
 func (s *KubernetesScheduler) Start(ctx context.Context, spec *worker.WorkerSpec) (*worker.WorkerInstance, error) {
-	if spec == nil {
-		return nil, fmt.Errorf("worker spec is required")
-	}
-	if spec.OrgID == 0 {
-		return nil, fmt.Errorf("org_id is required")
-	}
-	if spec.WorkerID == 0 {
-		return nil, fmt.Errorf("worker_id is required")
+	if err := validateWorkerSpec(spec); err != nil {
+		return nil, err
 	}
 	deployment := s.buildDeployment(spec)
-	existing, err := s.client.AppsV1().Deployments(s.namespace()).Get(ctx, deployment.Name, metav1.GetOptions{})
+	api := s.deploymentsAPI()
+	_, err := api.Get(ctx, deployment.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		if _, err := s.client.AppsV1().Deployments(s.namespace()).Create(ctx, deployment, metav1.CreateOptions{}); err != nil {
+		if _, err := api.Create(ctx, deployment, metav1.CreateOptions{}); err != nil {
 			return nil, fmt.Errorf("create worker deployment: %w", err)
 		}
 		return s.instanceFromDeployment(deployment, "created"), nil
@@ -115,18 +123,73 @@ func (s *KubernetesScheduler) Start(ctx context.Context, spec *worker.WorkerSpec
 	if err != nil {
 		return nil, fmt.Errorf("get worker deployment: %w", err)
 	}
-	deployment.ResourceVersion = existing.ResourceVersion
-	if _, err := s.client.AppsV1().Deployments(s.namespace()).Update(ctx, deployment, metav1.UpdateOptions{}); err != nil {
+
+	// 冲突（409）在多副本 server 或高频 reconcile 下会出现。直接返回会让 reconciler
+	// 标 Failed，下一轮再重来；这里按 k8s 惯例重读最新 ResourceVersion 后重试。
+	var applied *appsv1.Deployment
+	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		current, getErr := api.Get(ctx, deployment.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		next := deployment.DeepCopy()
+		s.preserveExternalFields(next, current)
+		next.ResourceVersion = current.ResourceVersion
+		updated, updateErr := api.Update(ctx, next, metav1.UpdateOptions{})
+		if updateErr != nil {
+			return updateErr
+		}
+		applied = updated
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("update worker deployment: %w", err)
 	}
-	return s.instanceFromDeployment(deployment, "updated"), nil
+	if applied == nil {
+		applied = deployment
+	}
+	return s.instanceFromDeployment(applied, "updated"), nil
+}
+
+// CurrentBootstrapToken 返回线上 Deployment 正在使用的 bootstrap token。
+// 读不到（Deployment 不存在）时返回空串，由 reconciler 决定是否生成新 token。
+func (s *KubernetesScheduler) CurrentBootstrapToken(ctx context.Context, deploymentName string) (string, error) {
+	if strings.TrimSpace(deploymentName) == "" {
+		return "", fmt.Errorf("deployment name is required")
+	}
+	deployment, err := s.deploymentsAPI().Get(ctx, deploymentName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return bootstrapTokenFromDeployment(deployment), nil
+}
+
+// bootstrapTokenFromDeployment 从 env 或 args 里取出 token；env 是主路径，args 兼容旧部署。
+func bootstrapTokenFromDeployment(deployment *appsv1.Deployment) string {
+	if deployment == nil {
+		return ""
+	}
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if token := envValue(container.Env, "LEROS_WORKER_BOOTSTRAP_TOKEN"); token != "" {
+			return token
+		}
+	}
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if token := argValue(container.Args, "--bootstrap-token"); token != "" {
+			return token
+		}
+	}
+	return ""
 }
 
 func (s *KubernetesScheduler) Stop(ctx context.Context, workerID string) error {
 	if strings.TrimSpace(workerID) == "" {
 		return fmt.Errorf("worker_id is required")
 	}
-	err := s.client.AppsV1().Deployments(s.namespace()).Delete(ctx, workerID, metav1.DeleteOptions{})
+	err := s.deploymentsAPI().Delete(ctx, workerID, metav1.DeleteOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
@@ -134,7 +197,7 @@ func (s *KubernetesScheduler) Stop(ctx context.Context, workerID string) error {
 }
 
 func (s *KubernetesScheduler) Health(ctx context.Context, workerID string) error {
-	deployment, err := s.client.AppsV1().Deployments(s.namespace()).Get(ctx, workerID, metav1.GetOptions{})
+	deployment, err := s.deploymentsAPI().Get(ctx, workerID, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return fmt.Errorf("%w: %s", worker.ErrWorkerNotFound, workerID)
 	}
@@ -148,7 +211,7 @@ func (s *KubernetesScheduler) Health(ctx context.Context, workerID string) error
 }
 
 func (s *KubernetesScheduler) List(ctx context.Context) ([]*worker.WorkerInstance, error) {
-	list, err := s.client.AppsV1().Deployments(s.namespace()).List(ctx, metav1.ListOptions{
+	list, err := s.deploymentsAPI().List(ctx, metav1.ListOptions{
 		LabelSelector: "app=leros,component=worker",
 	})
 	if err != nil {
@@ -170,34 +233,145 @@ func (s *KubernetesScheduler) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
+// validateWorkerSpec 集中校验调度所需的最小字段，避免 Start/漂移检查各写一份。
+func validateWorkerSpec(spec *worker.WorkerSpec) error {
 	if spec == nil {
-		return false, fmt.Errorf("worker spec is required")
+		return fmt.Errorf("worker spec is required")
 	}
 	if spec.OrgID == 0 {
-		return false, fmt.Errorf("org_id is required")
+		return fmt.Errorf("org_id is required")
 	}
 	if spec.WorkerID == 0 {
-		return false, fmt.Errorf("worker_id is required")
+		return fmt.Errorf("worker_id is required")
 	}
-	deployment, err := s.client.AppsV1().Deployments(s.namespace()).Get(ctx, deploymentName(spec.OrgID, spec.WorkerID), metav1.GetOptions{})
+	return nil
+}
+
+// DriftFields 返回与期望 spec 不一致的“自有字段”名，用于 reconciler 日志与判定。
+//
+// 只比较 Leros 自己写入的字段：resources 仅在配置显式声明时比较，准入控制注入的
+// resources/env 一律忽略——否则 LimitRange 之类的默认值会让 drift 永远为真，
+// 每轮 reconcile 都全量覆盖一次，Pod 被 Recreate 反复替换。
+func (s *KubernetesScheduler) DriftFields(ctx context.Context, spec *worker.WorkerSpec) ([]string, error) {
+	if err := validateWorkerSpec(spec); err != nil {
+		return nil, err
+	}
+	deployment, err := s.deploymentsAPI().Get(
+		ctx, deploymentName(spec.OrgID, spec.WorkerID), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return true, nil
+		return []string{"deployment"}, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("get worker deployment: %w", err)
+		return nil, fmt.Errorf("get worker deployment: %w", err)
 	}
-	currentImage := workerContainerImage(deployment)
-	if currentImage == "" {
-		return true, nil
+	return s.driftFields(deployment, spec), nil
+}
+
+func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.WorkerSpec) (bool, error) {
+	fields, err := s.DriftFields(ctx, spec)
+	if err != nil {
+		return false, err
 	}
-	if currentImage != s.workerImage(spec) {
-		return true, nil
+	return len(fields) > 0, nil
+}
+
+// driftFields 是 DriftFields 的纯函数部分，便于单测直接喂 Deployment。
+func (s *KubernetesScheduler) driftFields(deployment *appsv1.Deployment, spec *worker.WorkerSpec) []string {
+	if deployment == nil {
+		return []string{"deployment"}
 	}
-	if s.resourcesDrifted(deployment, spec) {
-		return true, nil
+	mountPath := s.workspaceMountPath(spec.OrgID, spec.WorkerID)
+	name := deploymentName(spec.OrgID, spec.WorkerID)
+	container := containerByName(deployment.Spec.Template.Spec.Containers, name)
+	if container == nil {
+		container = containerByName(deployment.Spec.Template.Spec.Containers, defaultWorkerContainerName)
 	}
-	return s.workspaceSpecDrifted(deployment, spec), nil
+	if container == nil {
+		return []string{"container"}
+	}
+
+	fields := make([]string, 0, 8)
+	add := func(field string) { fields = append(fields, field) }
+
+	if container.Name != name {
+		add("container.name")
+	}
+	if strings.TrimSpace(container.Image) != s.workerImage(spec) {
+		add("image")
+	}
+	if container.ImagePullPolicy != s.workerImagePullPolicy() {
+		add("imagePullPolicy")
+	}
+	if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
+		add("replicas")
+	}
+
+	expectedEnv := map[string]string{
+		"LEROS_ORG_ID":         strconv.FormatUint(uint64(spec.OrgID), 10),
+		"LEROS_WORKER_ID":      strconv.FormatUint(uint64(spec.WorkerID), 10),
+		"LEROS_SERVER_ADDR":    s.serverAddr(spec),
+		"LEROS_WORKSPACE_ROOT": mountPath,
+	}
+	for _, key := range sortedStringKeys(expectedEnv) {
+		if envValue(container.Env, key) != expectedEnv[key] {
+			add("env." + key)
+		}
+	}
+	// 配置注入的 env 只比 key 是否一致，不把值写进日志（可能含密钥）。
+	for _, key := range sortedStringKeys(s.config.Env) {
+		if envValue(container.Env, key) != strings.TrimSpace(s.config.Env[key]) {
+			add("env." + key)
+		}
+	}
+
+	expectedArgs := map[string]string{
+		"--config":         defaultWorkerConfigFile,
+		"--workspace-root": mountPath,
+		"--listen-addr":    defaultWorkerListenAddr,
+	}
+	for _, flag := range sortedStringKeys(expectedArgs) {
+		if argValue(container.Args, flag) != expectedArgs[flag] {
+			add("arg." + flag)
+		}
+	}
+
+	if mountPathForVolume(container.VolumeMounts, "workspace") != mountPath {
+		add("workspace.mountPath")
+	}
+	if hostPathForVolume(deployment.Spec.Template.Spec.Volumes, "workspace") != s.workspacePath(spec.OrgID, spec.WorkerID) {
+		add("workspace.hostPath")
+	}
+	if configMapVolumeName(deployment.Spec.Template.Spec.Volumes, "config") != s.configMap() {
+		add("configMap")
+	}
+
+	if storageHostPath := s.storageHostPath(); storageHostPath != "" {
+		if hostPathForVolume(deployment.Spec.Template.Spec.Volumes, "leros-storage") != storageHostPath {
+			add("storage.hostPath")
+		}
+		if mountPathForVolume(container.VolumeMounts, "leros-storage") != s.storageMountPath() {
+			add("storage.mountPath")
+		}
+	}
+
+	initContainer := containerByName(deployment.Spec.Template.Spec.InitContainers, defaultWorkspaceInitContainerName)
+	switch {
+	case initContainer == nil:
+		add("initContainer")
+	case mountPathForVolume(initContainer.VolumeMounts, "workspace") != mountPath:
+		add("initContainer.workspace")
+	case len(initContainer.Args) == 0 || initContainer.Args[0] != "chmod -R 0777 "+mountPath:
+		add("initContainer.args")
+	}
+
+	// resources 只有配置显式声明时才归 Leros 管；为空时忽略准入控制注入的默认值。
+	desiredResources := s.workerResources()
+	if !resourceRequirementsEmpty(desiredResources) &&
+		!resourceRequirementsEqual(desiredResources, container.Resources) {
+		add("resources")
+	}
+
+	return fields
 }
 
 func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.Deployment {
@@ -353,37 +527,30 @@ func workerContainerImage(deployment *appsv1.Deployment) string {
 	return ""
 }
 
-func (s *KubernetesScheduler) workspaceSpecDrifted(deployment *appsv1.Deployment, spec *worker.WorkerSpec) bool {
-	if deployment == nil || spec == nil {
-		return true
+// configMapVolumeName 返回 config 卷引用的 ConfigMap 名，用于 drift 判定。
+func configMapVolumeName(volumes []corev1.Volume, name string) string {
+	for _, volume := range volumes {
+		if volume.Name == name && volume.ConfigMap != nil {
+			return strings.TrimSpace(volume.ConfigMap.Name)
+		}
 	}
-	desiredHostPath := s.workspacePath(spec.OrgID, spec.WorkerID)
-	desiredMountPath := s.workspaceMountPath(spec.OrgID, spec.WorkerID)
-	podSpec := deployment.Spec.Template.Spec
-	if hostPathForVolume(podSpec.Volumes, "workspace") != desiredHostPath {
-		return true
+	return ""
+}
+
+// resourceRequirementsEmpty 判断期望资源是否为空；为空表示 Leros 不管理 resources，
+// 因而忽略准入控制（如 LimitRange）注入的默认值。
+func resourceRequirementsEmpty(r corev1.ResourceRequirements) bool {
+	return len(r.Limits) == 0 && len(r.Requests) == 0
+}
+
+// sortedStringKeys 让 drift 字段顺序稳定，便于日志比对。
+func sortedStringKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
 	}
-	workerContainer := containerByName(podSpec.Containers, deploymentName(spec.OrgID, spec.WorkerID))
-	if workerContainer == nil {
-		return true
-	}
-	if mountPathForVolume(workerContainer.VolumeMounts, "workspace") != desiredMountPath {
-		return true
-	}
-	if envValue(workerContainer.Env, "LEROS_WORKSPACE_ROOT") != desiredMountPath {
-		return true
-	}
-	if argValue(workerContainer.Args, "--workspace-root") != desiredMountPath {
-		return true
-	}
-	initContainer := containerByName(podSpec.InitContainers, defaultWorkspaceInitContainerName)
-	if initContainer == nil {
-		return true
-	}
-	if mountPathForVolume(initContainer.VolumeMounts, "workspace") != desiredMountPath {
-		return true
-	}
-	return len(initContainer.Args) == 0 || initContainer.Args[0] != "chmod -R 0777 "+desiredMountPath
+	sort.Strings(keys)
+	return keys
 }
 
 func containerByName(containers []corev1.Container, name string) *corev1.Container {
@@ -453,6 +620,65 @@ func (s *KubernetesScheduler) configMap() string {
 		return value
 	}
 	return "leros-worker-config"
+}
+
+// ownedEnvNames 是 Leros 自己写入、允许被 Update 覆盖的 env 名。
+func (s *KubernetesScheduler) ownedEnvNames() map[string]struct{} {
+	owned := map[string]struct{}{
+		"LEROS_ORG_ID":                 {},
+		"LEROS_WORKER_ID":              {},
+		"LEROS_SERVER_ADDR":            {},
+		"LEROS_WORKSPACE_ROOT":         {},
+		"LEROS_WORKER_BOOTSTRAP_TOKEN": {},
+		"LLM_API_KEY":                  {},
+	}
+	for key := range s.config.Env {
+		owned[key] = struct{}{}
+	}
+	return owned
+}
+
+// preserveExternalFields 把当前 Deployment 上非 Leros 拥有的字段合并回期望 spec。
+// 全量 Update 会抹掉准入控制（LimitRange / webhook）与运维注入的 annotations、
+// labels、env；虽然 drift 判据已经忽略它们，但一次真实漂移修复不应顺手清掉。
+func (s *KubernetesScheduler) preserveExternalFields(next, current *appsv1.Deployment) {
+	if next == nil || current == nil {
+		return
+	}
+	next.Annotations = mergeStringMaps(current.Annotations, next.Annotations)
+	next.Labels = mergeStringMaps(current.Labels, next.Labels)
+	next.Spec.Template.Annotations = mergeStringMaps(current.Spec.Template.Annotations, next.Spec.Template.Annotations)
+	next.Spec.Template.Labels = mergeStringMaps(current.Spec.Template.Labels, next.Spec.Template.Labels)
+
+	if len(next.Spec.Template.Spec.Containers) == 0 || len(current.Spec.Template.Spec.Containers) == 0 {
+		return
+	}
+	owned := s.ownedEnvNames()
+	target := &next.Spec.Template.Spec.Containers[0]
+	for _, env := range current.Spec.Template.Spec.Containers[0].Env {
+		if _, ok := owned[env.Name]; ok {
+			continue
+		}
+		if envValue(target.Env, env.Name) != "" {
+			continue
+		}
+		target.Env = append(target.Env, env)
+	}
+}
+
+// mergeStringMaps 返回 base 与 override 的并集，override 优先。
+func mergeStringMaps(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	merged := make(map[string]string, len(base)+len(override))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range override {
+		merged[key] = value
+	}
+	return merged
 }
 
 func (s *KubernetesScheduler) workerImage(spec *worker.WorkerSpec) string {
@@ -564,15 +790,6 @@ func toCoreV1Resources(r config.ResourceRequirements) corev1.ResourceRequirement
 		}
 	}
 	return req
-}
-
-// resourcesDrifted 判断现有 worker 容器的资源限制是否与期望配置不一致。
-func (s *KubernetesScheduler) resourcesDrifted(deployment *appsv1.Deployment, spec *worker.WorkerSpec) bool {
-	container := containerByName(deployment.Spec.Template.Spec.Containers, deploymentName(spec.OrgID, spec.WorkerID))
-	if container == nil {
-		return true
-	}
-	return !resourceRequirementsEqual(s.workerResources(), container.Resources)
 }
 
 func resourceRequirementsEqual(a, b corev1.ResourceRequirements) bool {

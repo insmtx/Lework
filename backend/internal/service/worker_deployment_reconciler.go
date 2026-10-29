@@ -101,12 +101,14 @@ func reconcileWorkerDeployment(
 	}
 
 	if deployment.Status == string(types.WorkerDeploymentStatusReady) {
-		needsReconcile, err := workerNeedsReconcile(ctx, workerScheduler, workerSpec(schedulerConfig, deployment, assistant))
+		needsReconcile, driftFields, err := workerNeedsReconcile(
+			ctx, workerScheduler, workerSpec(schedulerConfig, deployment, assistant))
 		if err != nil {
 			return err
 		}
 		if needsReconcile {
-			logs.Infof("Worker deployment %s drifted from desired spec; reconciling", deployment.DeploymentName)
+			logs.Infof("Worker deployment %s drifted from desired spec; reconciling fields=%v",
+				deployment.DeploymentName, driftFields)
 			return startWorkerDeployment(ctx, database, workerScheduler, schedulerConfig, deployment, assistant)
 		}
 		if err := workerScheduler.Health(ctx, deployment.DeploymentName); err != nil {
@@ -160,29 +162,62 @@ func startWorkerDeployment(
 	deployment *types.WorkerDeployment,
 	assistant *types.DigitalAssistant,
 ) error {
-	bootstrapToken, err := auth.GenerateBootstrapToken()
+	spec := workerSpec(schedulerConfig, deployment, assistant)
+	bootstrapToken, err := resolveBootstrapToken(ctx, workerScheduler, deployment)
 	if err != nil {
 		return err
 	}
-	if err := db.MarkWorkerDeploymentStarted(ctx, database, deployment.ID, auth.HashBootstrapToken(bootstrapToken)); err != nil {
-		return err
-	}
-
-	spec := workerSpec(schedulerConfig, deployment, assistant)
 	spec.BootstrapToken = bootstrapToken
+
 	if _, err := workerScheduler.Start(ctx, spec); err != nil {
 		_ = db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusFailed), err.Error())
 		return err
 	}
-	return db.MarkWorkerDeploymentStatus(ctx, database, deployment.ID, string(types.WorkerDeploymentStatusProvisioning), "")
+	// Apply 成功后才提交 token hash。反过来会在 Update 失败时留下“DB 已轮转、
+	// 线上仍是旧 token”的分叉，老 Pod 重启换票就会 401。
+	return db.MarkWorkerDeploymentStarted(ctx, database, deployment.ID, auth.HashBootstrapToken(bootstrapToken))
 }
 
-func workerNeedsReconcile(ctx context.Context, workerScheduler worker.WorkerScheduler, spec *worker.WorkerSpec) (bool, error) {
+// resolveBootstrapToken 优先复用线上 Deployment 正在使用的 token。
+//
+// token 会写进 Pod template，轮转一次就等于触发一次 Recreate；只有线上没有 token
+// （首次创建）时才生成新的。DB hash 与线上不一致时以线上为准——正在运行的 Pod 用的是
+// 线上 token，把它回写进 DB 可以在下一轮自愈，而不是制造一次 401。
+func resolveBootstrapToken(
+	ctx context.Context,
+	workerScheduler worker.WorkerScheduler,
+	deployment *types.WorkerDeployment,
+) (string, error) {
+	if reader, ok := workerScheduler.(worker.WorkerBootstrapTokenReader); ok {
+		liveToken, err := reader.CurrentBootstrapToken(ctx, deployment.DeploymentName)
+		if err != nil {
+			return "", fmt.Errorf("read current bootstrap token: %w", err)
+		}
+		if liveToken = strings.TrimSpace(liveToken); liveToken != "" {
+			return liveToken, nil
+		}
+	}
+	return auth.GenerateBootstrapToken()
+}
+
+func workerNeedsReconcile(
+	ctx context.Context,
+	workerScheduler worker.WorkerScheduler,
+	spec *worker.WorkerSpec,
+) (bool, []string, error) {
+	if reporter, ok := workerScheduler.(worker.WorkerSpecDriftReporter); ok {
+		fields, err := reporter.DriftFields(ctx, spec)
+		if err != nil {
+			return false, nil, err
+		}
+		return len(fields) > 0, fields, nil
+	}
 	reconciler, ok := workerScheduler.(worker.WorkerSpecReconciler)
 	if !ok {
-		return false, nil
+		return false, nil, nil
 	}
-	return reconciler.NeedsReconcile(ctx, spec)
+	needs, err := reconciler.NeedsReconcile(ctx, spec)
+	return needs, nil, err
 }
 
 func workerSpec(
