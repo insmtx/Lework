@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -488,6 +489,50 @@ type issueWorkerTokenAPIResponse struct {
 	} `json:"data"`
 }
 
+// 换取 auth token 的重试参数。变量化是为了让单测用毫秒级参数。
+var (
+	tokenRetryInitial = 1 * time.Second
+	tokenRetryMax     = 30 * time.Second
+	tokenRetryBudget  = 10 * time.Minute
+)
+
+// workerTokenError 区分“可重试的换票失败”和配置/契约错误：
+// 401/403 在服务端轮转 bootstrap token 时是瞬时的，5xx 与网络错误同样可重试；
+// 4xx（除 401/403）与业务 code 非 0 属于配置问题，重试没有意义。
+type workerTokenError struct {
+	statusCode int
+	message    string
+	cause      error
+	business   bool
+}
+
+func (e *workerTokenError) Error() string {
+	switch {
+	case e.business:
+		return "worker token request failed: " + e.message
+	case e.statusCode != 0 && e.message != "":
+		return fmt.Sprintf("worker token request failed with status %d: %s", e.statusCode, e.message)
+	case e.statusCode != 0:
+		return fmt.Sprintf("worker token request failed with status %d", e.statusCode)
+	default:
+		return fmt.Sprintf("worker token request failed: %v", e.cause)
+	}
+}
+
+func (e *workerTokenError) Unwrap() error { return e.cause }
+
+func (e *workerTokenError) retryable() bool {
+	if e.business {
+		return false
+	}
+	if e.statusCode == 0 {
+		return true
+	}
+	return e.statusCode == http.StatusUnauthorized ||
+		e.statusCode == http.StatusForbidden ||
+		e.statusCode >= http.StatusInternalServerError
+}
+
 func ensureWorkerAuthToken(ctx context.Context, cfg *config.WorkerConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("config is required")
@@ -503,12 +548,60 @@ func ensureWorkerAuthToken(ctx context.Context, cfg *config.WorkerConfig) error 
 		return fmt.Errorf("worker.server_addr is required to request auth token")
 	}
 
-	token, err := requestWorkerAuthToken(ctx, cfg.ServerAddr, bootstrapToken, cfg.OrgID, cfg.WorkerID)
+	token, err := requestWorkerAuthTokenWithRetry(ctx, cfg.ServerAddr, bootstrapToken, cfg.OrgID, cfg.WorkerID)
 	if err != nil {
 		return err
 	}
 	cfg.AuthToken = token
 	return nil
+}
+
+// requestWorkerAuthTokenWithRetry 用指数退避消化 token 轮转窗口。
+//
+// 服务端每轮 reconcile 都可能轮转 bootstrap token，Pod 里的 env 跑不赢它；
+// 直接 Fatalf 会让 kubelet 以秒级频率重启容器，与服务端 reconcile 共振。
+// 这里给 10 分钟预算，覆盖服务端一个 reconcile 周期（10s）绰绰有余，只有预算
+// 耗尽才让进程退出。
+func requestWorkerAuthTokenWithRetry(
+	ctx context.Context,
+	serverAddr, bootstrapToken string,
+	orgID, workerID uint,
+) (string, error) {
+	deadline := time.Now().Add(tokenRetryBudget)
+	delay := tokenRetryInitial
+	var lastErr error
+
+	for attempt := 1; ; attempt++ {
+		token, err := requestWorkerAuthToken(ctx, serverAddr, bootstrapToken, orgID, workerID)
+		if err == nil {
+			return token, nil
+		}
+		var tokenErr *workerTokenError
+		if !errors.As(err, &tokenErr) || !tokenErr.retryable() {
+			return "", err
+		}
+		lastErr = err
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return "", fmt.Errorf("worker bootstrap token rejected after %s of retries: %w", tokenRetryBudget, lastErr)
+		}
+		sleep := delay
+		if sleep > remaining {
+			sleep = remaining
+		}
+		logs.Warnf("worker bootstrap token not accepted (attempt %d): %v; retrying in %s", attempt, err, sleep)
+
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("worker bootstrap token retry aborted: %w", ctx.Err())
+		case <-time.After(sleep):
+		}
+		delay *= 2
+		if delay > tokenRetryMax {
+			delay = tokenRetryMax
+		}
+	}
 }
 
 func requestWorkerAuthToken(ctx context.Context, serverAddr, bootstrapToken string, orgID, workerID uint) (string, error) {
@@ -533,16 +626,19 @@ func requestWorkerAuthToken(ctx context.Context, serverAddr, bootstrapToken stri
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("request worker token: %w", err)
+		return "", &workerTokenError{cause: err}
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("read worker token response: %w", err)
+		return "", &workerTokenError{cause: fmt.Errorf("read worker token response: %w", err)}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("worker token request failed with status %d: %s", resp.StatusCode, string(respBody))
+		return "", &workerTokenError{
+			statusCode: resp.StatusCode,
+			message:    truncateTokenResponseBody(respBody),
+		}
 	}
 
 	var apiResp issueWorkerTokenAPIResponse
@@ -550,12 +646,23 @@ func requestWorkerAuthToken(ctx context.Context, serverAddr, bootstrapToken stri
 		return "", fmt.Errorf("decode worker token response: %w", err)
 	}
 	if apiResp.Code != 0 {
-		return "", fmt.Errorf("worker token request failed: %s", apiResp.Message)
+		return "", &workerTokenError{business: true, message: apiResp.Message}
 	}
 	if strings.TrimSpace(apiResp.Data.AuthToken) == "" {
-		return "", fmt.Errorf("worker token response missing auth_token")
+		return "", &workerTokenError{business: true, message: "worker token response missing auth_token"}
 	}
 	return apiResp.Data.AuthToken, nil
+}
+
+// truncateTokenResponseBody 把响应体压成一行并截断，避免把服务端内部信息整段刷进日志。
+func truncateTokenResponseBody(body []byte) string {
+	flat := strings.Join(strings.Fields(string(body)), " ")
+	const maxLen = 300
+	runes := []rune(flat)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen]) + "..."
+	}
+	return flat
 }
 
 func workerTokenEndpoint(serverAddr string) string {
