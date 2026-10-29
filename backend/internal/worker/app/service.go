@@ -12,7 +12,6 @@ import (
 	nativeruntime "github.com/insmtx/Leros/backend/agent/runtime/native"
 	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
 	"github.com/insmtx/Leros/backend/config"
-	runtimecli "github.com/insmtx/Leros/backend/internal/cli"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
@@ -83,29 +82,11 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	registeredKinds[nativeruntime.Kind] = struct{}{}
 	logs.Infof("Registering agent runtime: %s", nativeruntime.Kind)
 
-	cliNames := make([]string, 0, 3)
-	for _, status := range runtimecli.DiscoverAvailableCLI() {
-		if !status.Installed {
-			continue
-		}
-		if opts.InteractionRouter == nil {
-			return nil, fmt.Errorf("interaction router is required for runtime %q", status.Name)
-		}
-		normalized := normalizeRuntimeKind(status.Name)
-		runtime, err := newRuntime(normalized, status.Path, agent.RuntimeAdapterOptions{
-			InteractionHandler:  opts.InteractionRouter,
-			MCPServers:          buildMCPServersFromConfig(opts.CLIConfig),
-			ProgressIdleTimeout: opts.ProgressIdleTimeout,
-		})
-		if err != nil {
-			return nil, err
-		}
-		runtimes[normalized] = runtime
-		registeredKinds[normalized] = struct{}{}
-		cliNames = append(cliNames, normalized)
-		logs.Infof("Registering agent runtime: %s (version=%s path=%s)",
-			normalized, status.Version, status.Path)
+	cliNames, unavailableRuntimes, err := registerCLIRuntimes(ctx, opts, runtimes, registeredKinds)
+	if err != nil {
+		return nil, err
 	}
+	logs.Infof("agent runtimes ready=%v unavailable=%v", sortedRuntimeKinds(registeredKinds), unavailableRuntimes)
 
 	if len(runtimes) == 0 {
 		return nil, fmt.Errorf("no agent runtime is available")
@@ -116,7 +97,7 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	if selectedDefault == "" {
 		selectedDefault = agent.RuntimeKindLeros
 	}
-	normalizedDefault := normalizeRuntimeKind(selectedDefault)
+	normalizedDefault := fallbackDefaultRuntime(selectedDefault, registeredKinds, unavailableRuntimes)
 	if _, ok := registeredKinds[normalizedDefault]; !ok {
 		return nil, fmt.Errorf("default agent runtime %q is not available", selectedDefault)
 	}
