@@ -106,7 +106,7 @@ func TestVersionRequireACPCompatible(t *testing.T) {
 func TestProbeVersionRunsBinary(t *testing.T) {
 	binary := writeFakeOpencode(t, `echo "2.1.4"`)
 
-	got, err := ProbeVersion(context.Background(), binary)
+	got, err := ProbeVersion(context.Background(), binary, defaultProbeTimeout)
 	if err != nil {
 		t.Fatalf("ProbeVersion: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestProbeVersionRunsBinary(t *testing.T) {
 func TestProbeVersionRejectsUnrecognizedOutput(t *testing.T) {
 	binary := writeFakeOpencode(t, `echo "abc"`)
 
-	_, err := ProbeVersion(context.Background(), binary)
+	_, err := ProbeVersion(context.Background(), binary, defaultProbeTimeout)
 	if err == nil {
 		t.Fatal("expected error for unrecognized version output")
 	}
@@ -133,7 +133,7 @@ func TestProbeVersionRejectsUnrecognizedOutput(t *testing.T) {
 func TestProbeVersionIncludesFailureDetail(t *testing.T) {
 	binary := writeFakeOpencode(t, "echo 'EPERM: open log failed' >&2; exit 3")
 
-	_, err := ProbeVersion(context.Background(), binary)
+	_, err := ProbeVersion(context.Background(), binary, defaultProbeTimeout)
 	if err == nil {
 		t.Fatal("expected error for failing binary")
 	}
@@ -143,7 +143,7 @@ func TestProbeVersionIncludesFailureDetail(t *testing.T) {
 }
 
 func TestProbeVersionPropagatesExecFailure(t *testing.T) {
-	_, err := ProbeVersion(context.Background(), filepath.Join(t.TempDir(), "missing-opencode"))
+	_, err := ProbeVersion(context.Background(), filepath.Join(t.TempDir(), "missing-opencode"), defaultProbeTimeout)
 	if err == nil {
 		t.Fatal("expected error for missing binary")
 	}
@@ -158,7 +158,7 @@ func TestProbeVersionHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := ProbeVersion(ctx, binary)
+	_, err := ProbeVersion(ctx, binary, defaultProbeTimeout)
 	if err == nil {
 		t.Fatal("expected error for canceled context")
 	}

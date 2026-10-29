@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -11,9 +12,8 @@ import (
 )
 
 const (
-	// versionProbeTimeout 是探测 opencode 版本的上限。CLI 启动在冷缓存下可能较慢，
-	// 但超过 5s 基本可判定为卡死，不应阻塞 worker 启动。
-	versionProbeTimeout = 5 * time.Second
+	// defaultProbeTimeout 是调用方未指定超时时的兜底上限。
+	defaultProbeTimeout = 5 * time.Second
 	// requiredMajor / requiredMinor 锁定 ACP 迁移验证过的版本窗口 2.1.x。
 	// 2.1.x 内 resume/usage 形状稳定；升级窗口必须重跑契约测试。
 	requiredMajor = 2
@@ -21,6 +21,13 @@ const (
 	// defaultBinary 与 NewAdapter 的缺省值保持一致。
 	defaultBinary  = "opencode"
 	installCommand = "npm install -g @opencode/cli@2.1.4"
+)
+
+var (
+	// probeWaitDelay 限制进程退出后等待管道关闭的时间。opencode 这类 SEA 程序会派生
+	// 子进程，子进程继承 stdout 时 CombinedOutput 会一直卡在管道读上，单靠
+	// exec.CommandContext 的 kill 不足以给探测加上硬上限。
+	probeWaitDelay = 2 * time.Second
 )
 
 // versionPattern 与 backend/internal/cli/discovery.go 中 opencode 的版本正则
@@ -79,21 +86,36 @@ func (v Version) RequireACPCompatible() error {
 	)
 }
 
-// ProbeVersion 执行 `<binary> --version` 并解析版本号，最多等待 5s。
-// binary 为空时回退到 PATH 上的 `opencode`。ctx 取消会立即终止探测。
-func ProbeVersion(ctx context.Context, binary string) (Version, error) {
+// ProbeVersion 执行 `<binary> --version` 并解析版本号，最多等待 timeout。
+// binary 为空时回退到 PATH 上的 `opencode`；timeout <= 0 使用内置缺省值。
+// ctx 取消会立即终止探测；进程退出后最多再等 probeWaitDelay 让管道关闭。
+func ProbeVersion(ctx context.Context, binary string, timeout time.Duration) (Version, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if strings.TrimSpace(binary) == "" {
 		binary = defaultBinary
 	}
+	if timeout <= 0 {
+		timeout = defaultProbeTimeout
+	}
 
-	probeCtx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	output, err := exec.CommandContext(probeCtx, binary, "--version").CombinedOutput()
+	cmd := exec.CommandContext(probeCtx, binary, "--version")
+	// 子进程继承 stdout 时，管道在孙进程退出前不会关闭；WaitDelay 保证 Wait 有硬上限，
+	// 否则“超时”只是杀了直接子进程，调用方仍会一直阻塞。
+	cmd.WaitDelay = probeWaitDelay
+
+	output, err := cmd.CombinedOutput()
 	trimmed := strings.TrimSpace(string(output))
+	if err != nil && errors.Is(err, exec.ErrWaitDelay) {
+		// 进程正常退出、只是孙进程还占着管道：版本输出已经读全，按成功处理。
+		if version, ok := ParseVersion(trimmed); ok {
+			return version, nil
+		}
+	}
 	if err != nil {
 		if probeCtx.Err() != nil {
 			return Version{}, fmt.Errorf("probe %s --version: %w", binary, probeCtx.Err())
