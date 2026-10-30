@@ -452,3 +452,68 @@ func TestBackfillPluginResourcesIsIdempotent(t *testing.T) {
 		t.Fatalf("plugin owner bindings = %#v", bindings)
 	}
 }
+
+func TestBackfillTaskAssigneeBindingsIsIdempotent(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(&types.Project{}, &types.Task{}, &types.Resource{}, &types.ResourceBinding{}, &types.DigitalAssistant{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	project := &types.Project{PublicID: "prj_assignee_backfill", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)}
+	if err := CreateProject(ctx, database, project); err != nil {
+		t.Fatal(err)
+	}
+	resource := &types.Resource{OrgID: 1, Uin: 1, Type: types.ResourceTypeProject, BizID: project.ID}
+	if err := CreateResource(ctx, database, resource); err != nil {
+		t.Fatal(err)
+	}
+	assistant := &types.DigitalAssistant{
+		PublicID:   "asst_assignee_backfill",
+		OrgID:      1,
+		OwnerID:    1,
+		Name:       "Backfill",
+		Status:     string(types.DigitalAssistantStatusActive),
+		Visibility: types.DigitalAssistantVisibilityPublic,
+		Source:     "custom",
+	}
+	if err := CreateDigitalAssistant(ctx, database, assistant); err != nil {
+		t.Fatal(err)
+	}
+	task := &types.Task{
+		PublicID:   "task_assignee_backfill",
+		OrgID:      1,
+		OwnerID:    1,
+		ProjectID:  project.ID,
+		AssigneeID: &assistant.ID,
+		Title:      "legacy assigned task",
+		Status:     string(types.TaskStatusCreated),
+	}
+	if err := CreateTask(ctx, database, task); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := backfillTaskAssigneeBindings(database); err != nil {
+			t.Fatalf("backfill run %d: %v", i, err)
+		}
+	}
+	binding, err := GetResourceBindingByAssistantID(ctx, database, resource.ID, assistant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding == nil {
+		t.Fatal("expected task assignee binding to be backfilled")
+	}
+	var count int64
+	if err := database.Model(&types.ResourceBinding{}).
+		Where("resource_id = ? AND assistant_id = ?", resource.ID, assistant.ID).
+		Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("binding count = %d, want 1", count)
+	}
+}

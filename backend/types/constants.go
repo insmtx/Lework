@@ -155,6 +155,7 @@ const (
 	TaskStatusPendingAssignment TaskStatus = "pending_assignment"
 	TaskStatusInProgress        TaskStatus = "in_progress"
 	TaskStatusPendingApproval   TaskStatus = "pending_approval"
+	TaskStatusPendingAcceptance TaskStatus = "pending_acceptance"
 	TaskStatusCompleted         TaskStatus = "completed"
 	TaskStatusFailed            TaskStatus = "failed"
 	TaskStatusCancelled         TaskStatus = "cancelled"

@@ -629,16 +629,28 @@ func (o *newMessageOrchestrator) resolveOrCreateTask() error {
 		taskTitle = string(runes[:50])
 	}
 
+	var assigneeID uint
+	if len(o.assistantIDs) > 0 {
+		assigneeID = o.assistantIDs[0]
+		if err := bindTaskAssignee(o.ctx, o.poster.db, o.caller, o.project, assigneeID); err != nil {
+			return fmt.Errorf("bind task assignee: %w", err)
+		}
+	}
 	taskID := fmt.Sprintf("task_%s", snowflake.GenerateIDBase58())
 	o.task = &types.Task{
-		PublicID:    taskID,
-		OrgID:       o.caller.OrgID,
-		OwnerID:     o.caller.Uin,
-		ProjectID:   o.project.ID,
-		TaskType:    types.TaskTypeGeneral,
-		Title:       taskTitle,
-		Description: o.req.Content,
-		Status:      string(types.TaskStatusCreated),
+		PublicID:           taskID,
+		OrgID:              o.caller.OrgID,
+		OwnerID:            o.caller.Uin,
+		ProjectID:          o.project.ID,
+		TaskType:           types.TaskTypeGeneral,
+		Title:              taskTitle,
+		Description:        o.req.Content,
+		ExpectedOutput:     strings.TrimSpace(o.req.ExpectedOutput),
+		AcceptanceCriteria: strings.TrimSpace(o.req.AcceptanceCriteria),
+		Status:             string(types.TaskStatusCreated),
+	}
+	if assigneeID > 0 {
+		o.task.AssigneeID = &assigneeID
 	}
 	if err := infradb.CreateTask(o.ctx, o.poster.db, o.task); err != nil {
 		return fmt.Errorf("create task: %w", err)
@@ -663,9 +675,19 @@ func (o *newMessageOrchestrator) defaultTitle(fallback string) string {
 }
 
 func (o *newMessageOrchestrator) createTaskSession() error {
-	assistantID, workerID, err := resolveProjectAssistantWorker(o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer)
+	assistantID, workerID, hasAssignee, err := resolveTaskAssigneeWorker(
+		o.ctx, o.poster.db, o.caller.OrgID, o.task.ID, o.poster.inferrer,
+	)
 	if err != nil {
 		return err
+	}
+	if !hasAssignee {
+		assistantID, workerID, err = resolveProjectAssistantWorker(
+			o.ctx, o.poster.db, o.caller.OrgID, o.project.ID, o.assistantIDs, o.poster.inferrer,
+		)
+		if err != nil {
+			return err
+		}
 	}
 	o.taskRoute = &MessageRoutingOverride{AssistantID: assistantID, WorkerID: workerID}
 	taskSessionID := fmt.Sprintf("sess_%s", snowflake.GenerateIDBase58())

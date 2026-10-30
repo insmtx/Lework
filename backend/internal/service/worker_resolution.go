@@ -11,6 +11,9 @@ import (
 	"github.com/insmtx/Leros/backend/types"
 )
 
+// ErrAssistantWorkerNotReady 表示队友本身存在，但其 Worker 尚未就绪，消息无法投递。
+var ErrAssistantWorkerNotReady = errors.New("assistant worker not ready")
+
 func resolveRuntimeWorker(ctx context.Context, database *gorm.DB, orgID, assistantID uint, inferrer AssistantInferrer) (uint, uint, error) {
 	if database == nil {
 		return assistantID, assistantID, nil
@@ -35,13 +38,13 @@ func resolveRuntimeWorker(ctx context.Context, database *gorm.DB, orgID, assista
 			return 0, 0, err
 		}
 		if deployment == nil {
-			return 0, 0, errors.New("worker deployment not found for assistant")
+			return 0, 0, fmt.Errorf("%w: worker deployment not found for assistant %d", ErrAssistantWorkerNotReady, assistantID)
 		}
 		if deployment.OrgID != orgID {
 			return 0, 0, errors.New("worker deployment organization mismatch")
 		}
 		if deployment.Status != string(types.WorkerDeploymentStatusReady) {
-			return 0, 0, fmt.Errorf("worker deployment is not ready: %s", deployment.Status)
+			return 0, 0, fmt.Errorf("%w: worker deployment is not ready: %s", ErrAssistantWorkerNotReady, deployment.Status)
 		}
 		return assistantID, deployment.WorkerID, nil
 	}
@@ -148,6 +151,44 @@ func resolveDefaultBindingWorker(ctx context.Context, database *gorm.DB, orgID, 
 		return 0, 0, ErrNoDefaultAssistant
 	}
 	return resolveRuntimeWorker(ctx, database, orgID, *binding.AssistantID, inferrer)
+}
+
+// resolveTaskAssigneeWorker 解析任务指派队友对应的 (assistantID, workerID)。
+// 返回 ok=false 表示任务未设置 assignee，调用方应继续使用原有路由。
+func resolveTaskAssigneeWorker(
+	ctx context.Context,
+	database *gorm.DB,
+	orgID, taskID uint,
+	inferrer AssistantInferrer,
+) (uint, uint, bool, error) {
+	if database == nil || taskID == 0 {
+		return 0, 0, false, nil
+	}
+	task, err := infradb.GetTaskByID(ctx, database, orgID, taskID)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if task == nil || task.AssigneeID == nil || *task.AssigneeID == 0 {
+		return 0, 0, false, nil
+	}
+
+	assistantID, workerID, err := resolveProjectAssistantWorker(
+		ctx, database, orgID, task.ProjectID, []uint{*task.AssigneeID}, inferrer,
+	)
+	if err != nil {
+		if !errors.Is(err, ErrAssistantWorkerNotReady) {
+			return 0, 0, true, err
+		}
+		name := fmt.Sprintf("#%d", *task.AssigneeID)
+		if assistant, getErr := infradb.GetDigitalAssistantByID(ctx, database, *task.AssigneeID); getErr == nil && assistant != nil && assistant.Name != "" {
+			name = assistant.Name
+		}
+		return 0, 0, true, fmt.Errorf(
+			"%w: 队友 %s 的 Worker 未就绪，请先启动 Worker: %v",
+			ErrAssistantWorkerNotReady, name, err,
+		)
+	}
+	return assistantID, workerID, true, nil
 }
 
 func firstOrDefault(ids []uint) uint {

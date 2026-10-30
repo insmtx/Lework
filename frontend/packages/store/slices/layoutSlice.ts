@@ -92,6 +92,7 @@ export type ProjectTask = {
 	title: string;
 	meta: string;
 	status: ProjectTaskStatus;
+	backendStatus?: string;
 	updatedAt?: number;
 	sessionId?: string;
 	runtimeStatus?: ProjectTaskRuntimeStatus;
@@ -99,6 +100,12 @@ export type ProjectTask = {
 	deadline?: string;
 	description?: string;
 	assistantId?: string;
+	expectedOutput?: string;
+	acceptanceCriteria?: string;
+	resultSummary?: string;
+	acceptedBy?: number;
+	acceptedAt?: string;
+	acceptanceNote?: string;
 };
 
 export type ProjectArtifact = {
@@ -486,13 +493,36 @@ function extractProjectSkills(metadata?: Record<string, unknown>): ProjectSkill[
 		.filter((item): item is ProjectSkill => item !== null);
 }
 
+function normalizeProjectTaskStatus(status?: string): ProjectTaskStatus {
+	switch (status) {
+		case "completed":
+		case "done":
+			return "done";
+		case "in_progress":
+		case "pending_acceptance":
+		case "pending_approval":
+		case "paused":
+		case "failed":
+			return "in_progress";
+		default:
+			return "todo";
+	}
+}
+
 function mapBackendTask(bt: BackendTask): ProjectTask {
 	const taskWithSession = bt as BackendTask & { session?: BackendSession };
 	return {
 		id: bt.public_id,
 		title: formatTaskDisplayTitle(bt.title),
 		meta: bt.description ?? bt.task_type ?? "",
-		status: (bt.status as ProjectTaskStatus) ?? "todo",
+		status: normalizeProjectTaskStatus(bt.status),
+		backendStatus: bt.status,
+		expectedOutput: bt.expected_output,
+		acceptanceCriteria: bt.acceptance_criteria,
+		resultSummary: bt.result_summary,
+		acceptedBy: bt.accepted_by,
+		acceptedAt: bt.accepted_at,
+		acceptanceNote: bt.acceptance_note,
 		// 中文注释：保留任务更新时间，供左侧最近项目列表展示相对时间。
 		updatedAt: parseOptionalTimestamp(bt.updated_at),
 		sessionId: taskWithSession.session?.session_id,
@@ -740,6 +770,7 @@ export class LayoutActionImpl {
 		scene?: string,
 		outputFormat?: string,
 		taskId?: string | null,
+		taskDetails?: { expectedOutput?: string; acceptanceCriteria?: string },
 	) => {
 		const trimmed = content.trim();
 		// 中文注释：允许空内容 + assistant_ids 召唤队友落地空对话，或仅附件提问。
@@ -849,6 +880,8 @@ export class LayoutActionImpl {
 			connectorIds: resolvedConnectorIds,
 			scene,
 			outputFormat,
+			expectedOutput: taskDetails?.expectedOutput,
+			acceptanceCriteria: taskDetails?.acceptanceCriteria,
 		});
 	};
 

@@ -192,6 +192,8 @@ export type {
 	BackendProjectFileVersion,
 	BackendProjectFileVersionList,
 	BackendTask,
+	BackendTaskDeliverableFile,
+	BackendTaskDeliverables,
 } from "./api/types";
 export type { UpdateCurrentUserParams, UpdateUserParams, UserInfo } from "./api/userApi";
 export { userApi } from "./api/userApi";

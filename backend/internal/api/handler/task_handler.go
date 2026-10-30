@@ -10,6 +10,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/api/contract"
 	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/types"
 )
 
@@ -44,6 +45,32 @@ func (h *TaskHandler) RegisterRoutes(r gin.IRouter) {
 		h.DeleteTask,
 	)
 	r.POST("/ListTasks", h.ListTasks)
+	r.POST("/GetTaskDeliverables",
+		PermGuard(h.permSvc, types.ResourceTypeTask, types.ActionTaskView, extractTaskIDField),
+		h.GetTaskDeliverables,
+	)
+	r.POST("/AcceptTask",
+		PermGuard(h.permSvc, types.ResourceTypeTask, types.ActionTaskUpdate, extractTaskIDField),
+		h.AcceptTask,
+	)
+	r.POST("/RejectTask",
+		PermGuard(h.permSvc, types.ResourceTypeTask, types.ActionTaskUpdate, extractTaskIDField),
+		h.RejectTask,
+	)
+}
+
+// extractTaskIDField 从 task_id 字段提取任务 public_id（验收相关接口统一使用 task_id）。
+func extractTaskIDField(body []byte) (string, error) {
+	var req struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", err
+	}
+	if req.TaskID == "" {
+		return "", errors.New("task_id is required")
+	}
+	return req.TaskID, nil
 }
 
 // extractTaskPublicID 从请求 body 提取任务 public_id，供 PermGuard 使用。
@@ -255,6 +282,70 @@ func (h *TaskHandler) ListTasks(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, dto.Success(result))
 }
 
+// @Summary 查询任务交付物
+// @Description 聚合任务会话产物、项目文件与 run 结果摘要
+// @Tags Task
+// @Accept json
+// @Produce json
+// @Param body body contract.GetTaskDeliverablesRequest true "查询交付物请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Router /GetTaskDeliverables [post]
+func (h *TaskHandler) GetTaskDeliverables(ctx *gin.Context) {
+	var req contract.GetTaskDeliverablesRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.GetTaskDeliverables(ctx, req.TaskID)
+	if err != nil {
+		handleTaskServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 验收通过任务
+// @Tags Task
+// @Accept json
+// @Produce json
+// @Param body body contract.AcceptTaskRequest true "验收请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Router /AcceptTask [post]
+func (h *TaskHandler) AcceptTask(ctx *gin.Context) {
+	var req contract.AcceptTaskRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.AcceptTask(ctx, req.TaskID, req.Note)
+	if err != nil {
+		handleTaskServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
+// @Summary 验收驳回任务
+// @Tags Task
+// @Accept json
+// @Produce json
+// @Param body body contract.RejectTaskRequest true "驳回请求"
+// @Success 200 {object} dto.Response "成功响应"
+// @Router /RejectTask [post]
+func (h *TaskHandler) RejectTask(ctx *gin.Context) {
+	var req contract.RejectTaskRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, err.Error()))
+		return
+	}
+	result, err := h.service.RejectTask(ctx, req.TaskID, req.Note)
+	if err != nil {
+		handleTaskServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, dto.Success(result))
+}
+
 // ================================================================
 // Error Handling
 // ================================================================
@@ -275,11 +366,21 @@ func handleTaskServiceError(ctx *gin.Context, err error) {
 	case "title is required",
 		"title cannot be empty",
 		"public_id is required",
-		"project_id is required":
+		"project_id is required",
+		"task_id is required",
+		"acceptance note is required",
+		"digital assistant not found",
+		"digital assistant is not active":
 		ctx.JSON(http.StatusBadRequest, dto.Error(dto.CodeInvalidParams, errMsg))
 	default:
 		if isPermissionDenied(err) {
 			ctx.JSON(http.StatusForbidden, dto.Error(dto.CodeForbidden, errMsg))
+			return
+		}
+		if errors.Is(err, service.ErrTaskNotPendingAcceptance) ||
+			errors.Is(err, service.ErrInvalidTaskStatusTransition) ||
+			errors.Is(err, service.ErrAssistantWorkerNotReady) {
+			ctx.JSON(http.StatusConflict, dto.Error(dto.CodeConflict, errMsg))
 			return
 		}
 		ctx.JSON(http.StatusInternalServerError, dto.Error(dto.CodeInternalError, errMsg))

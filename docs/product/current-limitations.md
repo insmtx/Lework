@@ -7,22 +7,21 @@
 | 能力 | 当前实现 |
 |---|---|
 | 项目 | 创建项目、项目成员、项目会话、项目文件 |
-| 任务 | 创建任务记录、标题/描述/优先级、指派 `assignee_id`（仅存储与展示）、任务列表与详情 |
-| 会话执行 | 在项目会话中发消息，由项目绑定的 AI 队友执行；一条消息只路由一个 assistant |
+| 任务 | 创建任务记录、标题/描述、预期产出、验收标准，指派 `assignee_id`；任务列表与详情 |
+| 会话执行 | 任务已指派队友时由 assignee 执行，否则由项目绑定的 AI 队友执行；一条消息只路由一个 assistant |
 | 运行时 | `native` / `claude` / `codex` / `opencode`，需环境内安装对应 CLI |
-| 产物 | Run workspace 下的 `.leros/artifacts`、`artifact_declare` 工具、文件上传/下载 |
+| 产物 | Run workspace 下的 `.leros/artifacts`、`artifact_declare` 工具、文件上传/下载；任务详情聚合产物与变更文件 |
 | 技能 | 内置技能、技能安装/关联、MCP 连接器（如 CoreKG） |
-| 自动化 | cron / interval 自动化任务；其状态随 Run 事件投影 |
+| 验收闭环 | 普通任务 Run 成功后进入 `pending_acceptance`；任务详情可「通过」或「驳回」，驳回会向任务会话发送返工消息 |
+| 自动化 | cron / interval 自动化任务；其状态随 Run 事件投影，cron 结束直接 `completed` |
 | 部署 | 单机 AIO（server + 内置 worker + PostgreSQL + NATS + Nginx 同源 Web） |
 
 ## 尚未实现，不要对外承诺
 
 | 能力 | 事实 |
 |---|---|
-| 任务预期产出 / 验收标准 | `Task` 无对应字段；M1 计划新增 |
-| 任务验收 / 驳回状态 | 无 `pending_acceptance`，无验收 API |
-| assignee 驱动执行 | 路由取项目 `assistant_ids` 或默认 assistant；`assignee_id` 不参与路由 |
-| Run → 普通任务状态回写 | 只有自动化任务有事件投影；普通任务状态不随 Run 流转 |
+| 首次启动向导 | 仍依赖环境变量 seed 管理员；M1 的 `/setup` 向导未实现 |
+| 示例项目 / Golden Demo | 代码闭环已具备，但 AIO 实机全链路演示尚未验证 |
 | 多 Agent 并行 / 工作流 | 未实现；`firstOrDefault` 只选一个 assistant |
 | 内置知识库 | 无写入/检索链路；只有外部 MCP（如 CoreKG）知识检索 |
 | AI 队友长期记忆 | `DigitalAssistantMemory` / `PromptBlock` 有 DAO 无生产写入方；真实记忆是 Run 级 `.leros/memory` 文件 |
@@ -52,8 +51,9 @@
 ## 验证状态
 
 - `go build ./...`、`go build -tags enterprise ./...` 通过。
-- `go test ./...` 存在两个基线失败（自动化时间窗口、agentrun finalizer）和一个 SQLite 锁偶发失败；均可在 `1458925a` 复现或为并发偶发。
-- 前端四个包 typecheck 通过；Web 测试通过；app-ui 有既有的偶发/失败用例，与本次改动无关。
+- `go test ./...` 全绿。
+- 前端四个包 typecheck 通过；`pnpm -r test` 全绿（app-ui 318、web 3、desktop 40）。
+- M1 核心闭环（任务验收字段、assignee 路由、Run 状态投影、验收/驳回 API、任务详情 UI）已验证；AIO 整机 Golden Demo 仍需实机启动。
 
 ## 相关文档
 

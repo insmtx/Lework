@@ -1,6 +1,12 @@
 "use client";
 
-import type { BackendProjectFileVersion, DigitalAssistantItem, ProjectTask } from "@leros/store";
+import type {
+	BackendProjectFileVersion,
+	BackendTask,
+	BackendTaskDeliverables,
+	DigitalAssistantItem,
+	ProjectTask,
+} from "@leros/store";
 import {
 	Action,
 	formatArtifactTime,
@@ -58,6 +64,7 @@ import {
 	type ProjectFileNode,
 	sortProjectFilesByUploadedTimeDesc,
 } from "./project-files";
+import { TaskAcceptancePanel } from "./TaskAcceptancePanel";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
 
@@ -93,6 +100,7 @@ export function TaskDetailPage({
 		projects,
 		fetchProjects,
 		fetchProjectDetail,
+		fetchTasks,
 		setTaskDetailRoute,
 		setProjectRoute,
 		switchProject,
@@ -121,6 +129,8 @@ export function TaskDetailPage({
 	const [renameDialogOpen, setRenameDialogOpen] = useState(false);
 	const [renameValue, setRenameValue] = useState("");
 	const [taskFiles, setTaskFiles] = useState<ProjectFileNode[]>([]);
+	const [deliverables, setDeliverables] = useState<BackendTaskDeliverables | null>(null);
+	const [deliverablesLoading, setDeliverablesLoading] = useState(false);
 	const [rightSidebarWidth, setRightSidebarWidth] = useState(
 		TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH,
 	);
@@ -305,12 +315,24 @@ export function TaskDetailPage({
 						id: bt.public_id,
 						title: bt.title,
 						meta: bt.description ?? bt.task_type ?? "",
-						status: (bt.status as ProjectTask["status"]) ?? "todo",
+						status:
+							bt.status === "completed" || bt.status === "done"
+								? "done"
+								: bt.status === "created" || !bt.status
+									? "todo"
+									: "in_progress",
+						backendStatus: bt.status,
 						sessionId: bt.session?.session_id,
 						taskType: bt.task_type,
 						deadline: bt.deadline,
 						description: bt.description,
 						assistantId: bt.session?.assistant_id,
+						expectedOutput: bt.expected_output,
+						acceptanceCriteria: bt.acceptance_criteria,
+						resultSummary: bt.result_summary,
+						acceptedBy: bt.accepted_by,
+						acceptedAt: bt.accepted_at,
+						acceptanceNote: bt.acceptance_note,
 					});
 				}
 			})
@@ -320,6 +342,64 @@ export function TaskDetailPage({
 
 		fetchTaskFiles();
 	}, [resolvedTaskId, fetchTaskFiles]);
+
+	const loadDeliverables = useCallback(async (taskID: string) => {
+		setDeliverablesLoading(true);
+		try {
+			const res = await taskApi.deliverables({ task_id: taskID });
+			setDeliverables(res.data.data ?? null);
+		} catch (err) {
+			console.error("TaskDetailPage fetch deliverables error:", err);
+			setDeliverables(null);
+		} finally {
+			setDeliverablesLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (!resolvedTaskId) {
+			setDeliverables(null);
+			return;
+		}
+		void loadDeliverables(resolvedTaskId);
+	}, [resolvedTaskId, loadDeliverables]);
+
+	// run 结束后后端才把任务投影为 pending_acceptance；这里主动刷新任务与交付物，
+	// 避免用户停留在详情页时验收条要等刷新才出现。
+	const previousTaskRunActiveRef = useRef(false);
+	useEffect(() => {
+		const wasActive = previousTaskRunActiveRef.current;
+		previousTaskRunActiveRef.current = isTaskRunActive;
+		if (!wasActive || isTaskRunActive || !resolvedTaskId) return;
+		if (resolvedProjectId) void fetchTasks(resolvedProjectId);
+		void loadDeliverables(resolvedTaskId);
+	}, [isTaskRunActive, resolvedTaskId, resolvedProjectId, fetchTasks, loadDeliverables]);
+
+	const applyAcceptanceResult = useCallback(
+		(updated: BackendTask) => {
+			setTask((current) => {
+				if (!current) return current;
+				return {
+					...current,
+					backendStatus: updated.status,
+					status:
+						updated.status === "completed" || updated.status === "done"
+							? "done"
+							: updated.status === "created" || !updated.status
+								? "todo"
+								: "in_progress",
+					expectedOutput: updated.expected_output,
+					acceptanceCriteria: updated.acceptance_criteria,
+					resultSummary: updated.result_summary,
+					acceptedBy: updated.accepted_by,
+					acceptedAt: updated.accepted_at,
+					acceptanceNote: updated.acceptance_note,
+				};
+			});
+			if (resolvedProjectId) void fetchTasks(resolvedProjectId);
+		},
+		[fetchTasks, resolvedProjectId],
+	);
 
 	useEffect(() => {
 		if (!storeTask) return;
@@ -333,7 +413,12 @@ export function TaskDetailPage({
 				current.sessionId === storeTask.sessionId &&
 				current.taskType === storeTask.taskType &&
 				current.deadline === storeTask.deadline &&
-				current.description === storeTask.description
+				current.description === storeTask.description &&
+				current.backendStatus === storeTask.backendStatus &&
+				current.expectedOutput === storeTask.expectedOutput &&
+				current.acceptanceCriteria === storeTask.acceptanceCriteria &&
+				current.resultSummary === storeTask.resultSummary &&
+				current.acceptanceNote === storeTask.acceptanceNote
 			) {
 				return current;
 			}
@@ -534,6 +619,15 @@ export function TaskDetailPage({
 
 			<div className="min-h-0 min-w-0 flex flex-1">
 				<main className="min-w-0 flex min-h-0 flex-1 flex-col">
+					{task && (
+						<TaskAcceptancePanel
+							task={task}
+							deliverables={deliverables}
+							loading={deliverablesLoading}
+							onAccepted={applyAcceptanceResult}
+							onRejected={applyAcceptanceResult}
+						/>
+					)}
 					{/* 中文注释：任务详情页作为壳层里的 flex item 以及中间主列本身都必须允许收缩，避免小窗口下被聊天内容宽度和右侧栏共同撑出可视区域。 */}
 					<MessageTimeline
 						emptyState={

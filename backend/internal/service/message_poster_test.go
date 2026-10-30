@@ -12,6 +12,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/internal/adapter/account"
 	"github.com/insmtx/Leros/backend/internal/api/auth"
+	"github.com/insmtx/Leros/backend/internal/api/contract"
 	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
 	"github.com/insmtx/Leros/backend/pkg/messaging"
 	"github.com/insmtx/Leros/backend/types"
@@ -579,4 +580,43 @@ func (r *testOrgRepo) ListOrgMembers(ctx context.Context, req *account.ListOrgMe
 
 func (r *testOrgRepo) IsOrgCreator(ctx context.Context, orgID, uin uint) (bool, error) {
 	return false, nil
+}
+
+func TestResolveOrCreateTaskPersistsAcceptanceFieldsAndAssignee(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	caller, err := requireCallerOrg(ctx)
+	if err != nil {
+		t.Fatalf("requireCallerOrg: %v", err)
+	}
+	project := mustCreateTaskProjectForM1(t, database, "prj_new_message_acceptance")
+	assistant := seedAssistantForTaskM1(t, database, "NewMessageBuilder", string(types.DigitalAssistantStatusActive))
+
+	orchestrator := &newMessageOrchestrator{
+		poster:       &MessagePoster{db: database},
+		ctx:          ctx,
+		caller:       caller,
+		project:      project,
+		assistantIDs: []uint{assistant.ID},
+		req: &contract.NewMessageRequest{
+			Content:            "修复空输入崩溃",
+			ExpectedOutput:     "修复补丁 + 单元测试",
+			AcceptanceCriteria: "go test ./... 通过",
+		},
+	}
+	if err := orchestrator.resolveOrCreateTask(); err != nil {
+		t.Fatalf("resolveOrCreateTask: %v", err)
+	}
+	if orchestrator.task == nil {
+		t.Fatal("task was not created")
+	}
+	if orchestrator.task.AssigneeID == nil || *orchestrator.task.AssigneeID != assistant.ID {
+		t.Fatalf("assignee = %#v, want %d", orchestrator.task.AssigneeID, assistant.ID)
+	}
+	if orchestrator.task.ExpectedOutput != "修复补丁 + 单元测试" {
+		t.Fatalf("expected_output = %q", orchestrator.task.ExpectedOutput)
+	}
+	if orchestrator.task.AcceptanceCriteria != "go test ./... 通过" {
+		t.Fatalf("acceptance_criteria = %q", orchestrator.task.AcceptanceCriteria)
+	}
 }

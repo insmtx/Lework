@@ -2694,3 +2694,89 @@ func TestCreateInitialMessage_RejectsAssistantBeforeDeploymentReady(t *testing.T
 		t.Fatalf("error = %q, want deployment not ready error", err.Error())
 	}
 }
+
+func TestAddMessageRoutesTaskToAssignee(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := setupTestContextWithCaller(t)
+	project := &types.Project{
+		PublicID: "prj_task_assignee_route",
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "Assignee Route",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := db.CreateProject(ctx, database, project); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	seedProjectResourceOwner(t, database, project, 1)
+	resource, err := db.GetResourceByBizID(ctx, database, 1, types.ResourceTypeProject, project.ID)
+	if err != nil || resource == nil {
+		t.Fatalf("project resource: %v %#v", err, resource)
+	}
+	defaultAssistant := seedReadyAssistant(t, database, "task-default", "Default", "default")
+	assignee := seedReadyAssistant(t, database, "task-builder", "Builder", "builder")
+	for _, assistantID := range []uint{defaultAssistant.ID, assignee.ID} {
+		id := assistantID
+		if err := db.CreateResourceBinding(ctx, database, &types.ResourceBinding{
+			OrgID:       1,
+			AssistantID: &id,
+			ResourceID:  resource.ID,
+			Role:        types.ResourceRoleMember,
+		}); err != nil {
+			t.Fatalf("bind assistant %d: %v", assistantID, err)
+		}
+	}
+
+	task := &types.Task{
+		PublicID:   "task_assignee_route_message",
+		OrgID:      1,
+		OwnerID:    1,
+		ProjectID:  project.ID,
+		AssigneeID: &assignee.ID,
+		Title:      "由 Builder 执行",
+		Status:     string(types.TaskStatusCreated),
+	}
+	if err := db.CreateTask(ctx, database, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	session := &types.Session{
+		PublicID:  "sess_task_assignee_route",
+		Type:      types.SessionTypeTask,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		TaskID:    &task.ID,
+		Status:    string(types.SessionStatusActive),
+		Title:     task.Title,
+	}
+	if err := db.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	service := NewSessionService(database, newTestPermissionService(database), &mockEventBus{}, &mockInferrer{assistantID: defaultAssistant.ID}, nil, nil, "test", nil, nil, nil)
+	if _, err := service.AddMessage(ctx, session.PublicID, &contract.AddMessageRequest{
+		Role:    string(types.MessageRoleUser),
+		Content: "开始",
+	}); err != nil {
+		t.Fatalf("AddMessage: %v", err)
+	}
+
+	var queued types.ReliableTask
+	if err := database.Where("source_type = ?", "session_message").Order("id DESC").First(&queued).Error; err != nil {
+		t.Fatalf("load reliable task: %v", err)
+	}
+	var command messaging.WorkerCommand
+	if err := json.Unmarshal(queued.Payload, &command); err != nil {
+		t.Fatalf("decode command: %v", err)
+	}
+	payload, err := messaging.DecodeCommandPayload[messaging.RunCommandPayload](&command.Body)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.AssistantID != assignee.ID {
+		t.Fatalf("routed assistant = %d, want assignee %d", payload.AssistantID, assignee.ID)
+	}
+	if payload.AssistantID == defaultAssistant.ID {
+		t.Fatal("message must not route to project default assistant when task has assignee")
+	}
+}

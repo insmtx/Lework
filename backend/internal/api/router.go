@@ -177,7 +177,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		projectFileHandler.RegisterRoutes(authed)
 		logs.Info("Project file routes registered successfully")
 
-		taskService := service.NewTaskService(db, permSvc)
+		taskService := service.NewTaskServiceWithSession(db, permSvc, sessionService)
 		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
 
@@ -227,6 +227,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 			// Stream projector records the stream lane start seq for SSE replay.
 			go runnable.StartSessionRunStreamProjector(context.Background(), sessionService, eventbus)
 			logs.Info("Session run stream projector started")
+			// 任务状态投影：普通任务 run 完成后进入 pending_acceptance。
+			go runnable.StartTaskRunStateProjector(context.Background(), eventbus, db)
+			logs.Info("Task run state projector started")
 			go service.StartSkillPackageUploadedConsumer(context.Background(), db, eventbus)
 			logs.Info("Skill package uploaded consumer started")
 		} else {

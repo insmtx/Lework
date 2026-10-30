@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -20,7 +21,7 @@ func setupResolveTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := d.AutoMigrate(&types.Project{}, &types.Resource{}, &types.ResourceBinding{}, &types.WorkerDeployment{}, &types.DigitalAssistant{}); err != nil {
+	if err := d.AutoMigrate(&types.Project{}, &types.Resource{}, &types.ResourceBinding{}, &types.Task{}, &types.WorkerDeployment{}, &types.DigitalAssistant{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	ctx := context.Background()
@@ -149,5 +150,80 @@ func TestResolveDefaultRuntimeWorkerInferrerFallbackNoDBNoInferrer(t *testing.T)
 	_, _, err := resolveDefaultRuntimeWorker(context.Background(), nil, 1, nil)
 	if !errors.Is(err, ErrNoDefaultAssistantInOrg) {
 		t.Fatalf("want ErrNoDefaultAssistantInOrg, got %v", err)
+	}
+}
+
+func TestResolveTaskAssigneeWorkerUsesAssignee(t *testing.T) {
+	d := setupResolveTestDB(t)
+	ctx := context.Background()
+	project := &types.Project{PublicID: "p_assignee_route", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)}
+	if err := infradb.CreateProject(ctx, d, project); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	resource := &types.Resource{OrgID: 1, Uin: 1, Type: types.ResourceTypeProject, BizID: project.ID}
+	if err := infradb.CreateResource(ctx, d, resource); err != nil {
+		t.Fatalf("create project resource: %v", err)
+	}
+	seedAssistantBinding(t, ctx, d, resource.ID, 100)
+	assignee := uint(100)
+	task := &types.Task{
+		PublicID:   "task_assignee_route",
+		OrgID:      1,
+		OwnerID:    1,
+		ProjectID:  project.ID,
+		AssigneeID: &assignee,
+		Title:      "route to assignee",
+		Status:     string(types.TaskStatusCreated),
+	}
+	if err := infradb.CreateTask(ctx, d, task); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	assistantID, workerID, ok, err := resolveTaskAssigneeWorker(ctx, d, 1, task.ID, nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !ok || assistantID != 100 || workerID != 1000 {
+		t.Fatalf("got ok=%v assistant=%d worker=%d, want 100/1000", ok, assistantID, workerID)
+	}
+}
+
+func TestResolveTaskAssigneeWorkerReturnsReadableErrorWhenWorkerNotReady(t *testing.T) {
+	d := setupResolveTestDB(t)
+	ctx := context.Background()
+	project := &types.Project{PublicID: "p_assignee_not_ready", OrgID: 1, OwnerID: 1, Name: "P", Status: string(types.ProjectStatusActive)}
+	if err := infradb.CreateProject(ctx, d, project); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	resource := &types.Resource{OrgID: 1, Uin: 1, Type: types.ResourceTypeProject, BizID: project.ID}
+	if err := infradb.CreateResource(ctx, d, resource); err != nil {
+		t.Fatalf("create project resource: %v", err)
+	}
+	seedAssistantBinding(t, ctx, d, resource.ID, 100)
+	if err := d.Model(&types.WorkerDeployment{}).
+		Where("digital_assistant_id = ?", 100).
+		Update("status", string(types.WorkerDeploymentStatusPending)).Error; err != nil {
+		t.Fatalf("set deployment pending: %v", err)
+	}
+	assignee := uint(100)
+	task := &types.Task{
+		PublicID:   "task_assignee_not_ready",
+		OrgID:      1,
+		OwnerID:    1,
+		ProjectID:  project.ID,
+		AssigneeID: &assignee,
+		Title:      "route to not-ready assignee",
+		Status:     string(types.TaskStatusCreated),
+	}
+	if err := infradb.CreateTask(ctx, d, task); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	_, _, _, err := resolveTaskAssigneeWorker(ctx, d, 1, task.ID, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrAssistantWorkerNotReady) || !strings.Contains(err.Error(), "Assistant 100") {
+		t.Fatalf("error = %v, want not-ready with assistant name", err)
 	}
 }

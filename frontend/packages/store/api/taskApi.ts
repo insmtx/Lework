@@ -1,10 +1,17 @@
 import { apiClient } from "./client";
-import type { BackendDataResponse, BackendPaginatedResponse, BackendTask } from "./types";
+import type {
+	BackendDataResponse,
+	BackendPaginatedResponse,
+	BackendTask,
+	BackendTaskDeliverables,
+} from "./types";
 
 export type CreateTaskParams = {
 	project_id: string;
 	title: string;
 	description?: string;
+	expected_output?: string;
+	acceptance_criteria?: string;
 	assignee_id?: number;
 	task_type?: string;
 	deadline?: string;
@@ -31,6 +38,8 @@ export type UpdateTaskParams = {
 	project_id?: string;
 	title?: string;
 	description?: string;
+	expected_output?: string;
+	acceptance_criteria?: string;
 	status?: string;
 	assignee_id?: number;
 	task_type?: string;
@@ -42,12 +51,24 @@ export type DeleteTaskParams = {
 	public_id: string;
 };
 
+export type TaskDeliverablesParams = {
+	task_id: string;
+};
+
+export type AcceptanceParams = {
+	task_id: string;
+	note?: string;
+};
+
 const TASK_ENDPOINTS = {
 	create: "/CreateTask",
 	list: "/ListTasks",
 	get: "/GetTask",
 	update: "/UpdateTask",
 	delete: "/DeleteTask",
+	deliverables: "/GetTaskDeliverables",
+	accept: "/AcceptTask",
+	reject: "/RejectTask",
 };
 
 export const taskApi = {
@@ -65,4 +86,16 @@ export const taskApi = {
 
 	delete: (params: DeleteTaskParams) =>
 		apiClient.post<BackendDataResponse<null>>(TASK_ENDPOINTS.delete, params),
+
+	deliverables: (params: TaskDeliverablesParams) =>
+		apiClient.post<BackendDataResponse<BackendTaskDeliverables>>(
+			TASK_ENDPOINTS.deliverables,
+			params,
+		),
+
+	accept: (params: AcceptanceParams) =>
+		apiClient.post<BackendDataResponse<BackendTask>>(TASK_ENDPOINTS.accept, params),
+
+	reject: (params: AcceptanceParams) =>
+		apiClient.post<BackendDataResponse<BackendTask>>(TASK_ENDPOINTS.reject, params),
 };

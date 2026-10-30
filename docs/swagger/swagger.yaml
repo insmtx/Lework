@@ -1,5 +1,14 @@
 basePath: /v1
 definitions:
+  contract.AcceptTaskRequest:
+    properties:
+      note:
+        type: string
+      task_id:
+        type: string
+    required:
+    - task_id
+    type: object
   contract.AutomationIntervalInput:
     properties:
       interval_minutes:
@@ -240,11 +249,15 @@ definitions:
     type: object
   contract.CreateTaskRequest:
     properties:
+      acceptance_criteria:
+        type: string
       assignee_id:
         type: integer
       deadline:
         type: string
       description:
+        type: string
+      expected_output:
         type: string
       metadata:
         additionalProperties: true
@@ -270,6 +283,8 @@ definitions:
       name:
         type: string
       phone:
+        type: string
+      role:
         type: string
     type: object
   contract.DeleteAutomationRequest:
@@ -357,6 +372,13 @@ definitions:
         type: string
     required:
     - public_id
+    type: object
+  contract.GetTaskDeliverablesRequest:
+    properties:
+      task_id:
+        type: string
+    required:
+    - task_id
     type: object
   contract.ListAutomationExecutionsRequest:
     properties:
@@ -611,6 +633,15 @@ definitions:
         type: string
       password:
         type: string
+    type: object
+  contract.RejectTaskRequest:
+    properties:
+      note:
+        type: string
+      task_id:
+        type: string
+    required:
+    - task_id
     type: object
   contract.RunAutomationNowRequest:
     properties:
@@ -1075,11 +1106,15 @@ definitions:
     type: object
   handler.UpdateTaskRequest:
     properties:
+      acceptance_criteria:
+        type: string
       assignee_id:
         type: integer
       deadline:
         type: string
       description:
+        type: string
+      expected_output:
         type: string
       metadata:
         additionalProperties: true
@@ -1104,6 +1139,8 @@ definitions:
       name:
         type: string
       public_id:
+        type: string
+      role:
         type: string
     required:
     - public_id
@@ -1358,6 +1395,27 @@ info:
   title: Leros API
   version: "1.0"
 paths:
+  /AcceptTask:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 验收请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.AcceptTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: 验收通过任务
+      tags:
+      - Task
   /AddMessage:
     post:
       consumes:
@@ -2807,6 +2865,28 @@ paths:
       summary: 获取任务详情
       tags:
       - Task
+  /GetTaskDeliverables:
+    post:
+      consumes:
+      - application/json
+      description: 聚合任务会话产物、项目文件与 run 结果摘要
+      parameters:
+      - description: 查询交付物请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.GetTaskDeliverablesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: 查询任务交付物
+      tags:
+      - Task
   /GetUser:
     post:
       consumes:
@@ -3411,6 +3491,27 @@ paths:
       summary: 邮箱注册
       tags:
       - Auth
+  /RejectTask:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 驳回请求
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/contract.RejectTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功响应
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: 验收驳回任务
+      tags:
+      - Task
   /SendPhoneLoginCode:
     post:
       consumes:
@@ -4201,20 +4302,25 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: 上传文件到系统
+      description: 上传文件到系统。请求体以 multipart/form-data 流式解析，purpose/source_id/local-path
+        等表单字段必须位于 file part 之前，file 之后的字段不会被读取。
       parameters:
-      - description: 上传文件
+      - description: 文件（须为最后一个 form part）
         in: formData
         name: file
         required: true
         type: file
-      - description: 文件用途（默认 attachment）
+      - description: 文件用途（默认 attachment；须在 file part 之前）
         in: formData
         name: purpose
         type: string
-      - description: 来源ID（可选）
+      - description: 来源ID（可选；须在 file part 之前）
         in: formData
         name: source_id
+        type: string
+      - description: 本地路径（composer 上传用，可选；须在 file part 之前）
+        in: formData
+        name: local-path
         type: string
       produces:
       - application/json
