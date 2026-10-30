@@ -68,6 +68,7 @@ const organizationPlugin = {
 	status: "active",
 	origin: "marketplace",
 	current_revision: 3,
+	permission: { role: "admin" },
 };
 
 const updateStatus = {
