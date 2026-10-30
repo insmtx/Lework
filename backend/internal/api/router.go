@@ -19,14 +19,12 @@ import (
 	"github.com/insmtx/Leros/backend/internal/api/middleware"
 	"github.com/insmtx/Leros/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/runnable"
 	"github.com/insmtx/Leros/backend/internal/service"
 	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/scheduler"
-	workerserver "github.com/insmtx/Leros/backend/internal/worker/server"
 	"github.com/nats-io/nats.go"
 	ygmiddleware "github.com/ygpkg/yg-go/apis/runtime/middleware"
 	"github.com/ygpkg/yg-go/logs"
@@ -109,10 +107,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	managedCredentials := service.NewManagedCredentialService(managedCredentialProviders)
 	pluginService := service.NewPluginServiceWithManagedCredentials(db, managedCredentials, userRepo, displayTranslation)
 
-	// Worker server routes 注册公开管理端点；放在全局中间件之后以继承 CORS/Logger/Recovery。
-	workerManager := workerserver.NewServer(workerScheduler)
-	workerManager.RegisterRoutes(r)
-	logs.Info("Worker server routes registered successfully")
+	// 旧版 Worker WebSocket 管理端点（/ws/worker、/ListWorkers、/ShutdownWorker、
+	// /CreateWorker）已删除：它们不鉴权且与 NATS 运维链路重复。运维查询统一走
+	// 下方 authed 组内的 /v1/WorkerOps/*。
 
 	// ── 公开路由（无需 org 认证）──────────────────────────────────────────────────
 	fileService := service.NewFileService(db)
@@ -120,9 +117,6 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	{
 		handler.RegisterPluginOAuthCallbackRoutes(v1, pluginService)
 		logs.Info("Plugin OAuth callback routes registered successfully")
-
-		websocket.RegisterWebSocketRoutes(v1, eventbus)
-		logs.Info("WebSocket connector registered successfully")
 
 		handler.RegisterAuthRoutes(v1, authService)
 		logs.Info("Auth routes registered successfully")
