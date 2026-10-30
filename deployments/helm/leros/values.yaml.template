@@ -398,6 +398,36 @@ storage:
   useSSL: false
 
 # =============================================================================
+# Spark 单机设备管理（只读采集器，独立 Deployment）
+# =============================================================================
+# 采集器以独立 Pod 运行，只在 Unix socket 上提供 GET /status；后端仅做只读预检，
+# 不包含启停、关机、维护或恢复能力。启用时必须填写 node / hostId / orgId / workerIds，
+# 否则后端 /v1/ops/spark/* 返回 spark_not_configured。
+spark:
+  enabled: false
+  image: ""                     # 例：registry.yygu.cn/insmtx/leros-power-agent:<tag>
+  imagePullPolicy: IfNotPresent
+  node: ""                      # 本机 Kubernetes 节点名（必填），如 master
+  hostId: ""                    # sha256("lework-spark:" + /etc/machine-id) 的十六进制
+  orgId: 0                      # 安装绑定的组织 ID
+  workerIds: []                 # 位于该主机的 Worker ID
+  socket:
+    dir: /run/leros-power
+    fileName: agent.sock
+  dockerSocket: /var/run/docker.sock
+  dockerGroupId: 988            # 宿主机 docker 组 GID：stat -c %g /var/run/docker.sock
+  runAsGroup: 999               # 与 Server 运行组一致，保证 socket 0660 可读
+  machineIdHostPath: /etc/machine-id
+  machineIdPath: /host/etc/machine-id
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
+# =============================================================================
 # 客户端版本策略（可选）
 # =============================================================================
 clientUpdate:

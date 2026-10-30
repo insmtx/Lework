@@ -108,6 +108,16 @@ data:
       use_ssl: {{ .Values.storage.useSSL }}
       {{- end }}
 
+    {{- if .Values.spark.enabled }}
+    spark:
+      socket_path: {{ printf "%s/%s" (dig "socket" "dir" "/run/leros-power" .Values.spark) (dig "socket" "fileName" "agent.sock" .Values.spark) | quote }}
+      host_id: {{ .Values.spark.hostId | quote }}
+      org_id: {{ .Values.spark.orgId }}
+      {{- with .Values.spark.workerIds }}
+      worker_ids:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
     {{- if .Values.clientUpdate.desktop.enabled }}
     client_update:
       desktop:

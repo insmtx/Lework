@@ -2,7 +2,7 @@ apiVersion: v2
 name: leros
 description: Leros AI Agent 平台 Helm Chart，面向 k3s 私有化部署。
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.21"
 keywords:
   - leros

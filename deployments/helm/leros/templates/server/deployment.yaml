@@ -100,6 +100,11 @@ spec:
             # server 本地存储（local driver 时存放上传文件）
             - name: storage
               mountPath: {{ .Values.storage.localDir | quote }}
+            {{- if .Values.spark.enabled }}
+            # 与 Spark 只读采集器共享的 Unix socket 目录（connect(2) 需要写权限，故不设 readOnly）
+            - name: spark-socket
+              mountPath: {{ dig "socket" "dir" "/run/leros-power" .Values.spark }}
+            {{- end }}
           {{- with .Values.server.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -123,3 +128,9 @@ spec:
           hostPath:
             path: {{ include "leros.hostPath" (dict "root" . "path" .Values.storage.hostPath) | quote }}
             type: DirectoryOrCreate
+        {{- if .Values.spark.enabled }}
+        - name: spark-socket
+          hostPath:
+            path: {{ dig "socket" "dir" "/run/leros-power" .Values.spark | quote }}
+            type: Directory
+        {{- end }}

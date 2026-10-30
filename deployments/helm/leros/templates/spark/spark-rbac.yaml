@@ -1,0 +1,34 @@
+{{- if .Values.spark.enabled }}
+# 只读权限：需要跨命名空间列出 Pod（-A 采集）与读取节点 machineID。
+# 不授予 secrets/pods-exec/portforward 等任何写或进入权限。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "leros.fullname" . }}-spark
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: spark
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "leros.fullname" . }}-spark
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: spark
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "leros.fullname" . }}-spark
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "leros.fullname" . }}-spark
+    namespace: {{ .Release.Namespace }}
+{{- end }}

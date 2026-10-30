@@ -1,0 +1,121 @@
+{{- if .Values.spark.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "leros.fullname" . }}-spark
+  labels:
+    {{- include "leros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: spark
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "leros.selectorLabels" (dict "root" . "component" "spark") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "leros.selectorLabels" (dict "root" . "component" "spark") | nindent 8 }}
+    spec:
+      {{- with (include "leros.imagePullSecrets" . | trim) }}
+      {{ . | nindent 6 }}
+      {{- end }}
+      serviceAccountName: {{ include "leros.fullname" . }}-spark
+      {{- with .Values.spark.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: {{ .Values.spark.runAsGroup | default 999 }}
+        fsGroup: {{ .Values.spark.runAsGroup | default 999 }}
+        supplementalGroups:
+          - {{ .Values.spark.dockerGroupId | default 988 }}
+      initContainers:
+        # hostPath 目录不会被 kubelet 改属主，这里显式创建并交给采集器用户。
+        - name: init-socket-dir
+          image: {{ .Values.worker.workspaceInitImage | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              # hostPath 目录属于 root，创建后需要 chown 给非特权采集器用户
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p {{ dig "socket" "dir" "/run/leros-power" .Values.spark }}
+              # 上一次 Pod 异常退出会留下 socket 文件，清理后再启动，避免绑定失败
+              rm -f {{ printf "%s/%s" (dig "socket" "dir" "/run/leros-power" .Values.spark) (dig "socket" "fileName" "agent.sock" .Values.spark) }}
+              chown 10001:{{ .Values.spark.runAsGroup | default 999 }} {{ dig "socket" "dir" "/run/leros-power" .Values.spark }}
+              chmod 0770 {{ dig "socket" "dir" "/run/leros-power" .Values.spark }}
+          volumeMounts:
+            - name: spark-socket
+              mountPath: {{ dig "socket" "dir" "/run/leros-power" .Values.spark }}
+      containers:
+        - name: power-agent
+          image: {{ .Values.spark.image | quote }}
+          imagePullPolicy: {{ .Values.spark.imagePullPolicy | default "IfNotPresent" }}
+          args: ["--node", {{ required "spark.node is required when spark.enabled=true" .Values.spark.node | quote }}, "--socket", {{ printf "%s/%s" (dig "socket" "dir" "/run/leros-power" .Values.spark) (dig "socket" "fileName" "agent.sock" .Values.spark) | quote }}]
+          env:
+            - name: SPARK_MACHINE_ID_PATH
+              value: {{ .Values.spark.machineIdPath | default "/host/etc/machine-id" | quote }}
+            - name: SPARK_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: spark-socket
+              mountPath: {{ dig "socket" "dir" "/run/leros-power" .Values.spark }}
+            - name: machine-id
+              mountPath: /host/etc/machine-id
+              readOnly: true
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          {{- with .Values.spark.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "test -S {{ printf "%s/%s" (dig "socket" "dir" "/run/leros-power" .Values.spark) (dig "socket" "fileName" "agent.sock" .Values.spark) }}"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -S {{ printf "%s/%s" (dig "socket" "dir" "/run/leros-power" .Values.spark) (dig "socket" "fileName" "agent.sock" .Values.spark) }}"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: spark-socket
+          hostPath:
+            path: {{ dig "socket" "dir" "/run/leros-power" .Values.spark | quote }}
+            type: DirectoryOrCreate
+        - name: machine-id
+          hostPath:
+            path: {{ .Values.spark.machineIdHostPath | default "/etc/machine-id" | quote }}
+            type: File
+        - name: docker-sock
+          hostPath:
+            path: {{ .Values.spark.dockerSocket | default "/var/run/docker.sock" | quote }}
+            type: Socket
+        - name: tmp
+          emptyDir: {}
+{{- end }}
