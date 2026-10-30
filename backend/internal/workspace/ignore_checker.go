@@ -77,16 +77,20 @@ var builtinExcludedDirs = map[string]bool{
 	"dist": true, "build": true, "target": true,
 }
 
-// ShouldSkipArtifactFile reports whether an absolute file path should be
-// excluded from artifact publication. It checks the path against builtin
-// excluded dirs and builtin excluded file names.
-func ShouldSkipArtifactFile(absPath string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(absPath), "/") {
+// ShouldSkipArtifactFile reports whether a repository-relative file path
+// should be excluded from artifact publication. It checks the path against
+// builtin excluded dirs and builtin excluded file names.
+//
+// 必须传仓库相对路径：传绝对路径会把系统临时目录 /tmp 当成被排除的 tmp/，
+// 导致位于 /tmp 下的工作区产物被静默丢弃。
+func ShouldSkipArtifactFile(relPath string) bool {
+	relPath = pathpkg.Clean(filepath.ToSlash(strings.TrimSpace(relPath)))
+	for _, part := range strings.Split(relPath, "/") {
 		if builtinExcludedDirs[strings.ToLower(part)] {
 			return true
 		}
 	}
-	base := filepath.Base(absPath)
+	base := pathpkg.Base(relPath)
 	if base == ".DS_Store" || base == "Thumbs.db" || base == ".gitignore" {
 		return true
 	}
