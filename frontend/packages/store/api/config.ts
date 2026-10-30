@@ -28,6 +28,11 @@ function getViteAPIBaseURL(): string | undefined {
 	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEROS_API_BASE_URL;
 }
 
+function getServerRuntimeAPIBaseURL(): string | undefined {
+	if (typeof process === "undefined") return undefined;
+	return process.env?.LEROS_API_BASE_URL || process.env?.NEXT_PUBLIC_LEROS_API_BASE_URL;
+}
+
 function getViteDeploymentMode(): string | undefined {
 	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEROS_DEPLOYMENT_MODE;
 }
@@ -57,6 +62,15 @@ export function normalizeAPIBaseURL(value: string): string {
 	const trimmed = value.trim();
 	if (!trimmed) {
 		throw new Error("请输入后端服务地址");
+	}
+
+	// 一体机/同源部署：允许 /v1 这样的相对地址，由前置反向代理转发到后端。
+	// 协议相对地址（//host）仍然拒绝，避免被误当成相对路径。
+	if (trimmed.startsWith("/")) {
+		if (trimmed.startsWith("//")) {
+			throw new Error("服务地址格式无效，请输入完整的 http:// 或 https:// 地址");
+		}
+		return trimmed.replace(/\/+$/, "") || "/";
 	}
 
 	let url: URL;
@@ -160,8 +174,12 @@ function isGlobalConfigResponse(value: unknown): boolean {
 }
 
 function resolveAPIBaseURL(): string {
-	const baseURL =
-		readServerBaseURL() || getViteAPIBaseURL() || getNextAPIBaseURL() || DEFAULT_API_BASE_URL;
+	const isServer = typeof window === "undefined";
+	// 服务端渲染优先读运行时 LEROS_API_BASE_URL（容器内可用 http://leros:8080/v1），
+	// 浏览器端优先读用户配置，其次读构建期 NEXT_PUBLIC_*（一体机构建为 /v1）。
+	const baseURL = isServer
+		? getServerRuntimeAPIBaseURL() || DEFAULT_API_BASE_URL
+		: readServerBaseURL() || getViteAPIBaseURL() || getNextAPIBaseURL() || DEFAULT_API_BASE_URL;
 
 	return normalizeAPIBaseURL(baseURL);
 }

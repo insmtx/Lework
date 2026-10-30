@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
@@ -31,7 +33,27 @@ func seedAccount(ctx context.Context, db *gorm.DB) error {
 }
 
 var defaultOrgCode = "default_org"
-var adminEmail = "admin@leros.local"
+
+const (
+	defaultAdminEmail    = "admin@leros.local"
+	defaultAdminPassword = "Admin123456"
+)
+
+// adminCredentials 返回首次启动时创建管理员的凭据。
+//
+// 生产环境必须显式提供 LEROS_ADMIN_PASSWORD，避免一体机/私有化部署带着
+// 公开的默认密码上线。本地开发保留默认值，方便 make dev-server 直接登录。
+func adminCredentials() (email, password string) {
+	email = strings.TrimSpace(os.Getenv("LEROS_ADMIN_EMAIL"))
+	if email == "" {
+		email = defaultAdminEmail
+	}
+	password = os.Getenv("LEROS_ADMIN_PASSWORD")
+	if password == "" && !strings.EqualFold(strings.TrimSpace(os.Getenv("LEROS_ENV")), "production") {
+		password = defaultAdminPassword
+	}
+	return email, password
+}
 
 func seedDefaultOrganization(ctx context.Context, db *gorm.DB) error {
 	var orgCount int64
@@ -63,20 +85,24 @@ func seedDefaultUser(ctx context.Context, db *gorm.DB) error {
 	if userCount != 0 {
 		return nil
 	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("Admin123456"), bcrypt.DefaultCost)
+	email, password := adminCredentials()
+	if password == "" {
+		return errors.New("LEROS_ADMIN_PASSWORD is required when LEROS_ENV=production")
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 	defaultUser := &types.User{
 		PublicID: fmt.Sprintf("usr_%s", snowflake.GenerateIDBase58()),
 		Name:     "Admin User",
-		Email:    adminEmail,
+		Email:    email,
 		Password: string(hashedPassword),
 	}
 	if err := db.WithContext(ctx).Create(defaultUser).Error; err != nil {
 		return err
 	}
-	logs.Info("seed: default user created (login: admin)")
+	logs.Infof("seed: default user created (email=%s)", email)
 	return nil
 }
 
@@ -88,8 +114,9 @@ func seedDefaultUserOrg(ctx context.Context, db *gorm.DB) error {
 	if uoCount != 0 {
 		return nil
 	}
+	email, _ := adminCredentials()
 	var user types.User
-	if err := db.WithContext(ctx).Where("email = ?", adminEmail).First(&user).Error; err != nil {
+	if err := db.WithContext(ctx).Where("email = ?", email).First(&user).Error; err != nil {
 		return err
 	}
 	var org types.Organization
@@ -120,8 +147,9 @@ func seedDefaultWorkerDeployment(ctx context.Context, db *gorm.DB) error {
 		}
 	}
 
+	email, _ := adminCredentials()
 	var user types.User
-	if err := db.WithContext(ctx).Where("email = ?", adminEmail).First(&user).Error; err != nil {
+	if err := db.WithContext(ctx).Where("email = ?", email).First(&user).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}

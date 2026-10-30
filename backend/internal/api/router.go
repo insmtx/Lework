@@ -45,6 +45,11 @@ import (
 func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, requester eventbus.CoreRequester, db *gorm.DB, modelInvoker modelrouter.Invoker) (*gin.Engine, worker.WorkerScheduler) {
 	r := gin.New()
 
+	// 容器/一体机健康检查：不依赖数据库与消息队列，仅表示 HTTP 进程已就绪。
+	r.GET("/healthz", func(ctx *gin.Context) {
+		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
 	// ── 全局中间件（必须在 r.Group / RegisterRoutes 之前挂载）────────────────────
 	// Gin 的 RouterGroup.Group() 与 handle() 通过 combineHandlers 值拷贝当前
 	// Handlers 切片。若先 Group/注册路由再 r.Use，已注册路由的处理链拿不到

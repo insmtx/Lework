@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/insmtx/Leros/backend/types"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -68,6 +69,39 @@ func TestSeedAccountCreatesDefaultOrgUserAndWorker(t *testing.T) {
 	}
 	if dep.DigitalAssistantID != da.ID {
 		t.Fatalf("deployment assistant id mismatch: %d != %d", dep.DigitalAssistantID, da.ID)
+	}
+}
+
+func TestSeedAccountUsesAdminEnv(t *testing.T) {
+	t.Setenv("LEROS_ADMIN_EMAIL", "ops@example.com")
+	t.Setenv("LEROS_ADMIN_PASSWORD", "S3cure-pass!")
+
+	db := newAccountTestDB(t)
+	if err := seedAccount(context.Background(), db); err != nil {
+		t.Fatalf("seedAccount: %v", err)
+	}
+
+	var user types.User
+	if err := db.Where("email = ?", "ops@example.com").First(&user).Error; err != nil {
+		t.Fatalf("admin user from env missing: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte("S3cure-pass!")); err != nil {
+		t.Fatalf("admin password does not match env value: %v", err)
+	}
+
+	var uo types.UserOrg
+	if err := db.Where("user_id = ?", user.ID).First(&uo).Error; err != nil {
+		t.Fatalf("user-org missing for env admin: %v", err)
+	}
+}
+
+func TestSeedAccountRequiresAdminPasswordInProduction(t *testing.T) {
+	t.Setenv("LEROS_ENV", "production")
+	t.Setenv("LEROS_ADMIN_PASSWORD", "")
+
+	db := newAccountTestDB(t)
+	if err := seedAccount(context.Background(), db); err == nil {
+		t.Fatal("expected seedAccount to reject missing admin password in production")
 	}
 }
 

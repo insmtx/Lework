@@ -40,6 +40,8 @@ FROM ${WORKER_BASE_IMAGE}
 
 COPY --from=builder /build/leros /leros
 COPY --from=builder /build/backend/skills /app/backend/skills
+# 一体机用 worker 镜像直接跑 server，server 启动时执行 deployments/dev/seed 下的 SQL 种子。
+COPY --from=builder /build/deployments/dev/seed /app/deployments/dev/seed
 
 RUN ln -sf /leros /usr/local/bin/leros \
     && mkdir -p /app/config /workspace \
