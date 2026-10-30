@@ -182,6 +182,8 @@ export { projectFileApi } from "./api/projectFileApi";
 export type { HumanProjectMemberOption } from "./api/projectMemberApi";
 export { projectMemberApi } from "./api/projectMemberApi";
 export { sessionApi } from "./api/sessionApi";
+export type { SparkCheck, SparkPreflight, SparkStatus } from "./api/sparkApi";
+export { sparkApi } from "./api/sparkApi";
 export { taskApi } from "./api/taskApi";
 export type {
 	BackendAITeammateTemplate,

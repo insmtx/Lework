@@ -71,6 +71,34 @@ describe("PrivateDeploymentGate", () => {
 		expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull();
 	});
 
+	it("keeps manual input alongside discovery and never saves on selection", async () => {
+		storeMocks.hasPrivateServerConfiguration.mockReturnValue(false);
+		await act(async () =>
+			root.render(
+				<PrivateDeploymentGate
+					onReload={onReload}
+					renderDiscovery={(select) => (
+						<button type="button" onClick={() => select("http://spark.local:38081/v1")}>
+							发现 Spark
+						</button>
+					)}
+				>
+					<main>application</main>
+				</PrivateDeploymentGate>,
+			),
+		);
+		const input = document.querySelector<HTMLInputElement>("#private-server-url");
+		expect(input).not.toBeNull();
+		const selectButton = [...document.querySelectorAll("button")].find(
+			(b) => b.textContent === "发现 Spark",
+		);
+		await act(async () => selectButton?.click());
+		expect(input?.value).toBe("http://spark.local:38081/v1");
+		expect(input?.disabled).toBe(false);
+		expect(storeMocks.saveServerBaseURL).not.toHaveBeenCalled();
+		expect(storeMocks.testServerConnection).not.toHaveBeenCalled();
+	});
+
 	it("saves and reloads after the connection test succeeds", async () => {
 		storeMocks.hasPrivateServerConfiguration.mockReturnValue(false);
 		storeMocks.testServerConnection.mockResolvedValue("https://private.example.com/v1");

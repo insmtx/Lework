@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spark · 连接验证</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#17202e;font:15px/1.6 system-ui,sans-serif}main{max-width:760px;margin:64px auto;padding:0 24px}h1{margin:8px 0;font-size:32px}h2{font-size:18px;margin:0}p{color:#617084}header{margin-bottom:30px}.tag{color:#4f46e5;font-size:13px}section{background:white;border:1px solid #e0e5ed;border-radius:16px;padding:24px;margin:18px 0}.row{display:flex;align-items:center;justify-content:space-between;gap:16px}button{border:0;border-radius:9px;padding:10px 16px;background:#4f46e5;color:white;cursor:pointer;white-space:nowrap}button.secondary{background:#eef0f7;color:#39445a}button:disabled{opacity:.5;cursor:wait}input{font:inherit;min-width:0;flex:1;padding:10px 12px;border:1px solid #cbd3df;border-radius:9px}.device{padding:18px 0;border-top:1px solid #edf0f5}.device:first-child{margin-top:20px}.detail{color:#68758a;font-size:13px;word-break:break-all}.result{white-space:pre-wrap;padding:14px;border-radius:9px;background:#eff8f2;color:#235d3b;margin-top:16px}.result.error{background:#fff1f0;color:#a8342c}#empty{padding:24px 0 6px}.muted{font-size:13px}label{display:block;margin:16px 0 8px}@media(max-width:520px){main{margin-top:28px}.row{flex-wrap:wrap}input{flex-basis:100%}}
+</style>
+<main>
+<header><span class="tag">LEWORK · 最小功能验证</span><h1>连接你的 Spark</h1><p>笔记本与 Spark 接入同一局域网，即可搜索设备。</p></header>
+<section><div class="row"><h2>附近的设备</h2><button id="rescan" class="secondary">重新搜索</button></div><p id="status" class="muted" aria-live="polite">正在搜索局域网广播…</p><div id="devices"></div><div id="empty" class="detail">暂未发现设备。你也可以直接在下方手动填写地址。</div></section>
+<section><h2>手动连接</h2><label for="address">后端服务地址</label><form id="manual" class="row"><input id="address" type="url" required placeholder="http://172.16.0.64:38081"><button>测试连接</button></form><p class="muted">自动发现不可用时仍可手填。当前原型只测试连接，不保存地址、不登录。</p></section>
+<div id="result" hidden aria-live="polite"></div>
+<p class="muted">本页独立运行，不会修改 Lework 客户端已保存的后端地址和登录状态。</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);let signature='';let count=0;
+async function api(path,body){const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw new Error(data.error);return data;}
+async function test(address,button){button.disabled=true;const out=$('result');out.hidden=false;out.className='result';out.textContent='正在验证 Lework 服务…';try{const data=await api('/api/test',{address});out.textContent='连接成功 · '+(data.edition==='enterprise'?'企业版':'内置认证版')+'\n'+data.url+'\n验证接口：GlobalConfig';}catch(e){out.className='result error';out.textContent='连接失败：'+e.message;}finally{button.disabled=false;}}
+function render(services){const next=JSON.stringify(services);if(next===signature)return;signature=next;$('devices').replaceChildren();for(const service of services){const box=document.createElement('div');box.className='device row';const content=document.createElement('div');const name=document.createElement('strong');name.textContent=service.name;const detail=document.createElement('div');detail.className='detail';detail.textContent=service.url;const ip=document.createElement('div');ip.className='detail';ip.textContent='网络地址：'+service.addresses.join('、');const button=document.createElement('button');button.textContent='测试连接';button.onclick=()=>test(service.url,button);content.append(name,detail,ip);box.append(content,button);$('devices').append(box);} $('empty').hidden=services.length>0;}
+async function poll(){try{const data=await api('/api/services');render(data.services);count++;$('status').textContent=data.error?'发现服务异常：'+data.error:data.services.length?'已发现 '+data.services.length+' 个服务 · 列表自动更新':count<8?'正在搜索局域网广播…':'暂未发现服务，请确认 Spark 已开启广播且处于同一局域网。';}catch(e){$('status').textContent='原型服务不可用：'+e.message;}setTimeout(poll,1000);}
+$('rescan').onclick=async()=>{try{count=0;await api('/api/rescan',{});}catch(e){$('status').textContent=e.message;}};
+$('manual').onsubmit=e=>{e.preventDefault();test($('address').value,e.submitter);};poll();
+</script>
+</html>

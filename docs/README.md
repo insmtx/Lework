@@ -50,6 +50,9 @@
 | 文档 | 说明 |
 |------|------|
 | [design/tech-design.md](design/tech-design.md) | 技术设计（技能 Schema、渲染引擎） |
+| [design/2026-10-29-spark-lan-discovery-design.md](design/2026-10-29-spark-lan-discovery-design.md) | Spark 局域网自动发现与手动连接兼容设计（第一版已实现） |
+| [design/2026-10-29-spark-wired-persistent.md](design/2026-10-29-spark-wired-persistent.md) | Spark 用户网口持久直连、安装和回退 |
+| [design/2026-10-29-spark-single-host-power.md](design/2026-10-29-spark-single-host-power.md) | Spark 单机安全关机设计（只读预检与维护准入已实现，启停/关机待完成） |
 | [design/project-file-version-management.md](design/project-file-version-management.md) | 项目产物文件版本管理设计 |
 | [design/2026-07-04-agent-runtime-architecture-refactor.md](design/2026-07-04-agent-runtime-architecture-refactor.md) | Agent Runtime 最终架构优化设计 |
 | [design/2026-07-04-agent-runtime-implementation-plan.md](design/2026-07-04-agent-runtime-implementation-plan.md) | Agent Runtime 架构优化实施开发方案 |

@@ -126,6 +126,8 @@ export async function testServerConnection(value: string): Promise<string> {
 	try {
 		const response = await fetch(`${normalized}/GlobalConfig`, {
 			method: "GET",
+			credentials: "omit",
+			redirect: "error",
 			headers: { Accept: "application/json" },
 			signal: controller.signal,
 		});

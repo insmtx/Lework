@@ -1,5 +1,7 @@
 package messaging
 
+import "github.com/insmtx/Leros/backend/types"
+
 // ---- Worker 运维状态查询（Core NATS request/reply） ----
 
 // WorkerStatusRequest 是 Server -> Worker 的运维状态查询请求。
@@ -35,6 +37,7 @@ type WorkerRunSummary struct {
 // （经 debounce 合并后进入 per-session 队列或等待计算槽的批次）；
 // NATS 尚未投递到 Worker 的积压不计入该字段。
 type WorkerStatusSnapshot struct {
+	Maintenance *types.SparkMaintenanceState `json:"maintenance,omitempty"`
 	// OrgID / WorkerID 标识生成该快照的 Worker，用于 Server 校验回复归属。
 	OrgID          uint `json:"org_id"`
 	WorkerID       uint `json:"worker_id"`

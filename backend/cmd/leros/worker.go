@@ -31,6 +31,7 @@ import (
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/maintenance"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
 	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
 	builtin "github.com/insmtx/Leros/backend/internal/skill/builtin"
@@ -328,6 +329,7 @@ func runTaskWorker(defaultRuntime string) {
 		MaxInteractionWaits:    runCfg.MaxInteractionWaits,
 		InteractionWaitTimeout: time.Duration(runCfg.InteractionTimeoutSeconds) * time.Second,
 		DebounceWindow:         time.Duration(runCfg.DebounceMS) * time.Millisecond,
+		Maintenance:            maintenance.NewReader(cfg.SparkMaintenance),
 		InboxDBPath:            inboxDBPath,
 	}, bus, runtimeService.AgentRunService())
 	if err != nil {

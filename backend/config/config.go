@@ -45,6 +45,7 @@ type LLMTranslationConfig struct {
 
 // Config 是 Leros 的主配置结构，包含所有子系统的配置
 type Config struct {
+	Spark  SparkConfig `yaml:"spark,omitempty" json:"spark,omitempty"`
 	Server struct {
 		Port                  string    `yaml:"port,omitempty"`                    // 服务器端口
 		DisableEventConsumers bool      `yaml:"disable_event_consumers,omitempty"` // 是否禁用后台事件消费者
@@ -229,4 +230,19 @@ type IAMConfig struct {
 	BaseURL               string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	DomainName            string `yaml:"domain_name,omitempty" json:"domain_name,omitempty"`
 	PhoneCodeLoginEnabled *bool  `yaml:"phone_code_login_enabled,omitempty" json:"phone_code_login_enabled,omitempty"`
+}
+
+// SparkConfig binds optional host observations to one privately managed organization.
+type SparkConfig struct {
+	Maintenance *SparkMaintenanceConfig `yaml:"maintenance,omitempty" json:"maintenance,omitempty"`
+	SocketPath  string                  `yaml:"socket_path,omitempty" json:"socket_path,omitempty"`
+	HostID      string                  `yaml:"host_id,omitempty" json:"host_id,omitempty"`
+	OrgID       uint                    `yaml:"org_id,omitempty" json:"org_id,omitempty"`
+	WorkerIDs   []uint                  `yaml:"worker_ids,omitempty" json:"worker_ids,omitempty"`
+}
+
+// SparkMaintenanceConfig binds read-only admission control to an operations-owned host state directory.
+type SparkMaintenanceConfig struct {
+	StatePath string `yaml:"state_path" json:"state_path"`
+	HostID    string `yaml:"host_id" json:"host_id"`
 }

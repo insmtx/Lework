@@ -94,3 +94,17 @@ func TestQueryWorkerStatusRejectsMismatchedIdentity(t *testing.T) {
 		t.Fatalf("err = %v, want ErrWorkerBadResponse", err)
 	}
 }
+
+func TestPreflightRejectsIncompleteMaintenanceState(t *testing.T) {
+	data, _ := json.Marshal(messaging.WorkerStatusSnapshot{OrgID: 1, WorkerID: 2, SnapshotAt: time.Now().Unix()})
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["maintenance"] = json.RawMessage(`{"configured":true,"known":true,"host_id":"host","revision":1,"operation_id":"op"}`)
+	data, _ = json.Marshal(fields)
+	svc := NewWorkerOpsService(&fakeRequester{reply: &nats.Msg{Data: data}}, time.Second)
+	if _, err := svc.QueryWorkerStatusForPreflight(context.Background(), 1, 2); !errors.Is(err, ErrWorkerBadResponse) {
+		t.Fatalf("missing active accepted: %v", err)
+	}
+}

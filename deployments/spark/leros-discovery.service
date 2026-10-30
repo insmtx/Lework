@@ -1,0 +1,19 @@
+[Unit]
+Description=Lework LAN discovery publisher
+After=network-online.target avahi-daemon.service
+Wants=network-online.target avahi-daemon.service
+
+[Service]
+Type=simple
+User=avahi
+EnvironmentFile=/etc/leros-discovery.conf
+ExecStart=/usr/bin/python3 /usr/local/lib/leros-discovery/discovery.py --interface ${LAN_INTERFACE} --port ${SERVICE_PORT} --scheme ${SERVICE_SCHEME} --id-file /var/lib/leros-discovery/id
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

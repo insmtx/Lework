@@ -21,9 +21,11 @@ import (
 	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/infra/websocket"
 	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Leros/backend/internal/maintenance"
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/runnable"
 	"github.com/insmtx/Leros/backend/internal/service"
+	"github.com/insmtx/Leros/backend/internal/spark"
 	"github.com/insmtx/Leros/backend/internal/worker"
 	"github.com/insmtx/Leros/backend/internal/worker/scheduler"
 	workerserver "github.com/insmtx/Leros/backend/internal/worker/server"
@@ -147,7 +149,8 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 
 	// ── 鉴权路由（RequireCallerOrg 统一拦截未认证/未绑定 org 的请求）─────────────
 	permSvc := service.NewPermissionService(db, service.NewPermissionCore(db))
-	authed := v1.Group("/", middleware.RequireCallerOrg())
+	maintenanceReader := maintenance.NewReader(cfg.Spark.Maintenance)
+	authed := v1.Group("/", middleware.RequireCallerOrg(), middleware.SparkMaintenance(maintenanceReader))
 	{
 		payrollProxy := handler.NewPayrollProxyHandler(cfg.PayrollProxy.Endpoint, managedCredentials)
 		handler.RegisterPayrollProxyRoutes(authed, payrollProxy)
@@ -218,11 +221,15 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		// 也保留路由并返回 503，避免调用方因依赖状态而得到不稳定的 404。
 		workerOpsService := service.NewWorkerOpsService(requester, 3*time.Second)
 		handler.RegisterWorkerOpsRoutes(authed, workerOpsService)
+		handler.RegisterSparkRoutes(authed, spark.NewService(cfg.Spark, workerOpsService), orgRepo)
 		logs.Info("Worker ops routes registered successfully")
 
 		// Start background consumers
 		if !cfg.Server.DisableEventConsumers {
-			go service.NewReliableTaskDispatcher(db, eventbus, service.NewSessionMessageTaskExpiryProjector(db)).Run(context.Background())
+			go service.NewReliableTaskDispatcher(db, eventbus, service.NewSessionMessageTaskExpiryProjector(db)).WithAdmissionGate(func() bool {
+				state := maintenanceReader.Read()
+				return state.Known && !state.Active
+			}).Run(context.Background())
 			logs.Info("Reliable task outbox dispatcher started")
 			// 统一的 run state projector，消费 org.*.session.*.run.state
 			// 替代旧分散的 StartSessionRunStarted + StartSessionArtifactDeclared + StartSessionCompleted

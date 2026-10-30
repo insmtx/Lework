@@ -21,9 +21,16 @@ import { Input } from "@leros/ui/components/ui/input";
 import { CheckCircle2, LoaderCircle, Save, Server, Wifi } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import type { RenderServerDiscovery } from "./discovery";
 import { reloadApp } from "./reload";
 
-export function PrivateServerSettingsCard({ onReload = reloadApp }: { onReload?: () => void }) {
+export function PrivateServerSettingsCard({
+	onReload = reloadApp,
+	renderDiscovery,
+}: {
+	onReload?: () => void;
+	renderDiscovery?: RenderServerDiscovery;
+}) {
 	const currentServerURL = readServerBaseURL() ?? "";
 	const [serverURL, setServerURL] = useState(currentServerURL);
 	const [testedURL, setTestedURL] = useState<string | null>(null);
@@ -67,11 +74,14 @@ export function PrivateServerSettingsCard({ onReload = reloadApp }: { onReload?:
 		}
 
 		setSaving(true);
-		saveServerBaseURL(normalized);
-		if (normalized !== currentServerURL) {
-			clearStoredAuthUser();
+		try {
+			if (normalized !== currentServerURL) clearStoredAuthUser();
+			saveServerBaseURL(normalized);
+			onReload();
+		} catch (error) {
+			setSaving(false);
+			setErrorMessage(error instanceof Error ? error.message : "保存失败，请重试");
 		}
-		onReload();
 	};
 
 	const canSave = Boolean(testedURL) && !testing && !saving;
@@ -92,6 +102,11 @@ export function PrivateServerSettingsCard({ onReload = reloadApp }: { onReload?:
 				</div>
 			</CardHeader>
 			<CardContent className="space-y-4">
+				{renderDiscovery?.((url) => {
+					setServerURL(url);
+					setTestedURL(null);
+					setErrorMessage("");
+				}, testing || saving)}
 				<label className="block space-y-2" htmlFor="private-server-settings-url">
 					<span className="text-sm font-medium text-slate-800">后端服务地址</span>
 					<Input

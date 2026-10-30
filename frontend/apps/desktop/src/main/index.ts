@@ -15,6 +15,7 @@ import {
 } from "./app-lifecycle";
 import { getDesktopUpdateState, registerDesktopAutoUpdate } from "./auto-update";
 import { isProductionDevToolsShortcut } from "./devtools-shortcut";
+import { registerDiscovery } from "./discovery";
 import { shouldOpenExternalUrl } from "./external-navigation";
 import { configureTrayInteractions } from "./tray-interactions";
 
@@ -243,6 +244,7 @@ app.whenReady().then(() => {
 	createWindow();
 	createTray();
 	registerDesktopAutoUpdate();
+	registerDiscovery(() => mainWindow);
 
 	app.on("activate", () => {
 		if (!mainWindow || mainWindow.isDestroyed()) {

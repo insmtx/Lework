@@ -65,6 +65,7 @@ type Config struct {
 	QueueStartTimeout time.Duration
 	MaxRunDuration    time.Duration
 	InboxDBPath       string // required
+	Maintenance       MaintenanceReader
 }
 
 // runTask is the internal expanded task representation.
@@ -117,8 +118,10 @@ type Handler struct {
 	inflight map[string]struct{}
 
 	// stateMu protects admissionOpen and inflight map.
-	stateMu       sync.Mutex
-	admissionOpen bool
+	admissionBarrier sync.RWMutex
+	recoveryFailed   atomic.Bool
+	stateMu          sync.Mutex
+	admissionOpen    bool
 
 	// execCtx is the root context for all async goroutines.
 	execCtx    context.Context
@@ -358,6 +361,12 @@ func (h *Handler) HandleRunCommand(ctx context.Context, cmd messaging.WorkerComm
 // NATS callback only validates, persists, registers ownership and ACKs. Execution-slot waiting happens later
 // in dispatchAsync, so one blocked Session cannot hold the subscription callback or prevent later messages admission.
 func (h *Handler) admit(ctx context.Context, topic string, seq uint64, cmd messaging.WorkerCommand, task runTask, delivery eventbus.ManualDelivery) error {
+	h.admissionBarrier.RLock()
+	defer h.admissionBarrier.RUnlock()
+	if state := h.maintenanceState(); !state.Known || state.Active {
+		_ = delivery.NakWithDelay(h.cfg.QueueRetry)
+		return errMaintenanceActive
+	}
 	pending, err := h.runInbox.CountByStatus(ctx, topic, inbox.StatusPending)
 	if err != nil {
 		_ = delivery.NakWithDelay(h.cfg.QueueRetry)
@@ -605,7 +614,7 @@ func withRunLogFields(ctx context.Context, task runTask) context.Context {
 // 通过 semaphore 逐个恢复执行。
 //
 // 必须在 NATS 订阅开始前调用，确保崩溃恢复的消息不会被实时消息插队。
-func (h *Handler) RecoverNonTerminal(ctx context.Context) error {
+func (h *Handler) recoverNonTerminalNow(ctx context.Context) error {
 	topic := h.RunSubject()
 
 	// Clean up old terminal records.
@@ -613,9 +622,6 @@ func (h *Handler) RecoverNonTerminal(ctx context.Context) error {
 		logs.WarnContextf(ctx, "Failed to clean old inbox records: %v", err)
 	}
 
-	if err := h.runInbox.ResetProcessing(ctx, topic); err != nil {
-		return fmt.Errorf("reset interrupted inbox records: %w", err)
-	}
 	records, err := h.runInbox.GetNonTerminal(ctx, topic)
 	if err != nil {
 		return fmt.Errorf("get non-terminal inbox records: %w", err)
@@ -629,10 +635,16 @@ func (h *Handler) RecoverNonTerminal(ctx context.Context) error {
 
 	// Register all records as owned before starting the feeder.
 	h.stateMu.Lock()
+	unowned := records[:0]
 	for _, rec := range records {
 		ikey := inboxKey(rec.ID)
+		if _, exists := h.inflight[ikey]; exists {
+			continue
+		}
 		h.inflight[ikey] = struct{}{}
+		unowned = append(unowned, rec)
 	}
+	records = unowned
 	h.stateMu.Unlock()
 
 	// Start the recovery feeder goroutine.
@@ -856,6 +868,9 @@ func (h *Handler) RunInbox() inbox.RunInbox {
 //
 // 摘要只包含定位与生命周期字段，不携带 prompt、模型配置、环境变量或原始命令。
 func (h *Handler) Status(ctx context.Context) messaging.WorkerStatusSnapshot {
+	h.admissionBarrier.Lock()
+	defer h.admissionBarrier.Unlock()
+	maintenanceState := h.maintenanceState()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -865,6 +880,13 @@ func (h *Handler) Status(ctx context.Context) messaging.WorkerStatusSnapshot {
 		SnapshotAt: time.Now().UTC().Unix(),
 	}
 
+	snapshot.Maintenance = &maintenanceState
+	if !maintenanceState.Known {
+		addSnapshotError(&snapshot, "maintenance_state_unavailable")
+	}
+	if h.recoveryFailed.Load() {
+		addSnapshotError(&snapshot, "maintenance_recovery_failed")
+	}
 	coord := h.coordinator.Status()
 	snapshot.MaxConcurrency = coord.MaxConcurrency
 	snapshot.ComputeBusyCount = coord.ComputeBusyCount

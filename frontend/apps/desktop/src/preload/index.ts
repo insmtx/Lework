@@ -12,6 +12,7 @@ import {
 	desktopUpdateGetStateChannel,
 	desktopUpdateRestartChannel,
 } from "../shared/auto-update";
+import { type DiscoveryApi, discoveryScanChannel } from "../shared/discovery";
 
 const desktopUpdateApi: DesktopUpdateApi = {
 	getState: () => ipcRenderer.invoke(desktopUpdateGetStateChannel),
@@ -33,10 +34,14 @@ const desktopUpdateApi: DesktopUpdateApi = {
 	},
 };
 
+const discoveryApi: DiscoveryApi = { scan: () => ipcRenderer.invoke(discoveryScanChannel) };
+
 if (process.contextIsolated) {
 	contextBridge.exposeInMainWorld("electron", electronAPI);
+	contextBridge.exposeInMainWorld("lerosDiscovery", discoveryApi);
 	contextBridge.exposeInMainWorld("lerosDesktop", desktopUpdateApi);
 } else {
 	window.electron = electronAPI;
+	window.lerosDiscovery = discoveryApi;
 	window.lerosDesktop = desktopUpdateApi;
 }

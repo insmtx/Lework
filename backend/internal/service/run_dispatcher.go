@@ -35,10 +35,11 @@ type TransactionalReliableTaskExpiryProjector interface {
 
 // ReliableTaskDispatcher publishes opaque durable tasks. It deliberately has no business-command dependency.
 type ReliableTaskDispatcher struct {
-	db        *gorm.DB
-	publisher eventbus.Publisher
-	expiry    ReliableTaskExpiryProjector
-	owner     string
+	db               *gorm.DB
+	publisher        eventbus.Publisher
+	expiry           ReliableTaskExpiryProjector
+	owner            string
+	admissionAllowed func() bool
 }
 
 func NewReliableTaskDispatcher(db *gorm.DB, publisher eventbus.Publisher, expiry ...ReliableTaskExpiryProjector) *ReliableTaskDispatcher {
@@ -47,6 +48,16 @@ func NewReliableTaskDispatcher(db *gorm.DB, publisher eventbus.Publisher, expiry
 		projector = expiry[0]
 	}
 	return &ReliableTaskDispatcher{db: db, publisher: publisher, expiry: projector, owner: fmt.Sprintf("reliable-task-dispatcher-%d", time.Now().UnixNano())}
+}
+
+// WithAdmissionGate must be configured before Run; it preserves pending records while admission is paused.
+func (d *ReliableTaskDispatcher) WithAdmissionGate(allowed func() bool) *ReliableTaskDispatcher {
+	d.admissionAllowed = allowed
+	return d
+}
+
+func (d *ReliableTaskDispatcher) admissionOpen() bool {
+	return d.admissionAllowed == nil || d.admissionAllowed()
 }
 
 // Run blocks until ctx is cancelled and continuously publishes due outbox records.
@@ -70,6 +81,9 @@ func (d *ReliableTaskDispatcher) Run(ctx context.Context) {
 func (d *ReliableTaskDispatcher) scan(ctx context.Context) {
 	now := time.Now().UTC()
 	d.expireDue(ctx, now)
+	if !d.admissionOpen() {
+		return
+	}
 	rows, err := infradb.LeaseReliableTasks(ctx, d.db, now, d.owner, reliableTaskLease, reliableTaskBatchSize)
 	if err != nil {
 		logs.WarnContextf(ctx, "lease run dispatches: %v", err)
@@ -106,6 +120,9 @@ func (d *ReliableTaskDispatcher) expireDue(ctx context.Context, now time.Time) {
 }
 
 func (d *ReliableTaskDispatcher) publishOne(ctx context.Context, row types.ReliableTask) {
+	if !d.admissionOpen() {
+		return
+	}
 	// json.RawMessage keeps the durable JSON payload intact while using the existing EventBus transport.
 	err := d.publisher.Publish(ctx, row.Destination, json.RawMessage(row.Payload))
 	attempt := row.AttemptCount + 1

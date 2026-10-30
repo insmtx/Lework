@@ -1,10 +1,20 @@
 "use client";
 
 import { isBrandingSettingsEnabled, isPrivateDeployment } from "@leros/store";
+import type { ReactNode } from "react";
 import { BrandingSettingsCard } from "./BrandingSettingsCard";
+import type { RenderServerDiscovery } from "./discovery";
 import { PrivateServerSettingsCard } from "./PrivateServerSettingsCard";
 
-export function PrivateSettingsPage({ onReload }: { onReload?: () => void }) {
+export function PrivateSettingsPage({
+	onReload,
+	renderDiscovery,
+	deviceManagement,
+}: {
+	onReload?: () => void;
+	renderDiscovery?: RenderServerDiscovery;
+	deviceManagement?: ReactNode;
+}) {
 	if (!isPrivateDeployment) {
 		return null;
 	}
@@ -23,7 +33,8 @@ export function PrivateSettingsPage({ onReload }: { onReload?: () => void }) {
 					</p>
 				</div>
 
-				<PrivateServerSettingsCard onReload={onReload} />
+				<PrivateServerSettingsCard onReload={onReload} renderDiscovery={renderDiscovery} />
+				{deviceManagement}
 				{showBrandingSettings ? <BrandingSettingsCard /> : null}
 			</div>
 		</div>

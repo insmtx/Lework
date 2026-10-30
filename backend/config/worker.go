@@ -1,8 +1,9 @@
 package config
 
 type WorkerConfig struct {
-	OrgID    uint `yaml:"org_id" json:"org_id"`
-	WorkerID uint `yaml:"worker_id" json:"worker_id"`
+	SparkMaintenance *SparkMaintenanceConfig `yaml:"spark_maintenance,omitempty" json:"spark_maintenance,omitempty"`
+	OrgID            uint                    `yaml:"org_id" json:"org_id"`
+	WorkerID         uint                    `yaml:"worker_id" json:"worker_id"`
 
 	ServerAddr     string `yaml:"server_addr,omitempty" json:"server_addr,omitempty"`
 	AuthToken      string `yaml:"auth_token,omitempty" json:"auth_token,omitempty"`

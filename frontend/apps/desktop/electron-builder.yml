@@ -23,6 +23,10 @@ asarUnpack:
   - resources/**
 mac:
   icon: resources/icon-mac.png
+  extendInfo:
+    NSLocalNetworkUsageDescription: "发现并连接同一局域网中的 Lework 设备。"
+    NSBonjourServices:
+      - _lework._tcp
   category: public.app-category.developer-tools
   hardenedRuntime: true
   notarize: true

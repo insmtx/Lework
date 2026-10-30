@@ -18,14 +18,17 @@ import {
 import { Input } from "@leros/ui/components/ui/input";
 import { CheckCircle2, LoaderCircle, Server } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
+import type { RenderServerDiscovery } from "./discovery";
 import { reloadApp } from "./reload";
 
 export function PrivateDeploymentGate({
 	children,
 	onReload = reloadApp,
+	renderDiscovery,
 }: {
 	children: ReactNode;
 	onReload?: () => void;
+	renderDiscovery?: RenderServerDiscovery;
 }) {
 	const requiresConfiguration = isPrivateDeployment && !hasPrivateServerConfiguration();
 
@@ -33,10 +36,16 @@ export function PrivateDeploymentGate({
 		return children;
 	}
 
-	return <PrivateServerSetupDialog onReload={onReload} />;
+	return <PrivateServerSetupDialog onReload={onReload} renderDiscovery={renderDiscovery} />;
 }
 
-function PrivateServerSetupDialog({ onReload }: { onReload: () => void }) {
+function PrivateServerSetupDialog({
+	onReload,
+	renderDiscovery,
+}: {
+	onReload: () => void;
+	renderDiscovery?: RenderServerDiscovery;
+}) {
 	const [serverURL, setServerURL] = useState("");
 	const [testing, setTesting] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
@@ -63,7 +72,7 @@ function PrivateServerSetupDialog({ onReload }: { onReload: () => void }) {
 	return (
 		<Dialog open disablePointerDismissal onOpenChange={() => undefined}>
 			<DialogContent
-				className="max-w-130 rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
+				className="max-h-[90vh] overflow-y-auto max-w-130 rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
 				showCloseButton={false}
 			>
 				<form onSubmit={handleSubmit}>
@@ -80,6 +89,11 @@ function PrivateServerSetupDialog({ onReload }: { onReload: () => void }) {
 					</div>
 
 					<div className="space-y-4 px-7 py-6">
+						{renderDiscovery?.((url) => {
+							setServerURL(url);
+							setErrorMessage("");
+							setConnectionPassed(false);
+						}, testing)}
 						<label className="block space-y-2" htmlFor="private-server-url">
 							<span className="text-sm font-medium text-slate-800">后端服务地址</span>
 							<Input

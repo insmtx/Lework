@@ -44,6 +44,15 @@ var (
 
 // QueryWorkerStatus 查询指定 Worker 的本地运行状态快照。
 func (s *WorkerOpsService) QueryWorkerStatus(ctx context.Context, orgID, workerID uint) (*messaging.WorkerStatusSnapshot, error) {
+	return s.queryWorkerStatus(ctx, orgID, workerID, false)
+}
+
+// QueryWorkerStatusForPreflight rejects incomplete counters instead of interpreting absent fields as idle.
+func (s *WorkerOpsService) QueryWorkerStatusForPreflight(ctx context.Context, orgID, workerID uint) (*messaging.WorkerStatusSnapshot, error) {
+	return s.queryWorkerStatus(ctx, orgID, workerID, true)
+}
+
+func (s *WorkerOpsService) queryWorkerStatus(ctx context.Context, orgID, workerID uint, strict bool) (*messaging.WorkerStatusSnapshot, error) {
 	if s.requester == nil {
 		return nil, ErrWorkerUnavailable
 	}
@@ -76,6 +85,9 @@ func (s *WorkerOpsService) QueryWorkerStatus(ctx context.Context, orgID, workerI
 	if snapshot.OrgID != orgID || snapshot.WorkerID != workerID || snapshot.SnapshotAt <= 0 {
 		return nil, fmt.Errorf("%w: response identity or timestamp mismatch", ErrWorkerBadResponse)
 	}
+	if strict && (!workerCountersPresent(reply.Data) || !workerMaintenancePresent(reply.Data)) {
+		return nil, fmt.Errorf("%w: incomplete task or maintenance fields", ErrWorkerBadResponse)
+	}
 	return &snapshot, nil
 }
 
@@ -97,4 +109,51 @@ func isNATSTimeout(ctx context.Context, err error) bool {
 		return true
 	}
 	return false
+}
+
+// 预检使用字段存在性，不能把旧协议缺省整数当作零任务；普通状态接口保留兼容行为。
+func workerCountersPresent(data []byte) bool {
+	var c struct {
+		Running     *int `json:"running_count"`
+		Waiting     *int `json:"waiting_count"`
+		Debounce    *int `json:"debounce_waiting_count"`
+		Coordinator *int `json:"coordinator_waiting_count"`
+		Admission   *int `json:"admission_waiting_count"`
+		Accepted    *int `json:"accepted_count"`
+		Compute     *int `json:"compute_busy_count"`
+		Interaction *int `json:"interaction_waiting_count"`
+		Pending     *int `json:"inbox_pending_count"`
+		Processing  *int `json:"inbox_processing_count"`
+	}
+	if err := json.Unmarshal(data, &c); err != nil {
+		return false
+	}
+	return c.Running != nil && c.Waiting != nil && c.Debounce != nil && c.Coordinator != nil &&
+		c.Admission != nil && c.Accepted != nil && c.Compute != nil && c.Interaction != nil &&
+		c.Pending != nil && c.Processing != nil
+}
+
+// 旧 Worker 可缺少整个维护字段；已声明协议时，不把缺省布尔值当成明确状态。
+func workerMaintenancePresent(data []byte) bool {
+	var envelope struct {
+		Maintenance json.RawMessage `json:"maintenance"`
+	}
+	if json.Unmarshal(data, &envelope) != nil {
+		return false
+	}
+	if len(envelope.Maintenance) == 0 || string(envelope.Maintenance) == "null" {
+		return true
+	}
+	var state struct {
+		Configured  *bool   `json:"configured"`
+		Known       *bool   `json:"known"`
+		Active      *bool   `json:"active"`
+		HostID      *string `json:"host_id"`
+		Revision    *uint64 `json:"revision"`
+		OperationID *string `json:"operation_id"`
+	}
+	if json.Unmarshal(envelope.Maintenance, &state) != nil {
+		return false
+	}
+	return state.Configured != nil && state.Known != nil && state.Active != nil && state.HostID != nil && state.Revision != nil && state.OperationID != nil
 }

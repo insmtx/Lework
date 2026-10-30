@@ -1,0 +1,24 @@
+[Unit]
+Description=Lework Spark read-only power preflight agent
+After=network-online.target docker.service k3s.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lework
+Group=lework
+EnvironmentFile=/etc/leros-power-agent.conf
+ExecStart=/usr/bin/python3 /usr/local/lib/leros-spark/power_agent.py --node ${SPARK_NODE} --socket /run/leros-power/agent.sock
+RuntimeDirectory=leros-power
+RuntimeDirectoryMode=0750
+UMask=0117
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
