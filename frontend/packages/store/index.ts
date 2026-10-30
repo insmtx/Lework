@@ -66,9 +66,6 @@ export {
 	readDeployAppName,
 	readDeployConfig,
 	readDeployLogo,
-	readXidianDemoLogin,
-	resolveXidianDemoLogin,
-	XIDIAN_DEMO_LOGIN,
 } from "./api/deploy-config";
 export type {
 	CreateDAParams,

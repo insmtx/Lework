@@ -2,15 +2,15 @@ import {
 	type AppNavigation,
 	AutomationExecutionPage,
 	AutomationListView,
+	NewTaskPage,
 	OrgAdminPage,
 	PayrollAccountingPage,
-	WorkbenchPage,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
 	SkillMarketView,
 	TaskDetailPage,
-	NewTaskPage,
+	WorkbenchPage,
 } from "@leros/app-ui";
 
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -60,9 +60,6 @@ export function AppRoutes() {
 
 				<Route path="/skills" element={<SkillMarketView navigation={navigation} />} />
 
-				{/* 中文注释：资源库路由暂时隐藏，直接访问时回退到工作台。 */}
-				<Route path="/knowledge" element={<Navigate to="/chat" replace />} />
-
 				<Route path="/automation" element={<AutomationListView navigation={navigation} />} />
 
 				<Route path="/automation/:publicId" element={<AutomationExecutionRoutePage />} />
@@ -104,8 +101,6 @@ function useDesktopNavigation(): AppNavigation {
 				orgAssistants: "/org/assistants",
 
 				orgModels: "/org/models",
-
-				knowledge: "/knowledge",
 
 				skills: "/skills",
 
