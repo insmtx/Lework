@@ -34,6 +34,7 @@
 | [architecture/mq-subject.md](architecture/mq-subject.md) | MQ Subject 架构 |
 | [architecture/system-design.md](architecture/system-design.md) | 系统架构设计 |
 | [architecture/design-philosophy.md](architecture/design-philosophy.md) | 设计哲学 |
+| [architecture/2026-10-30-product-architecture-as-built.md](architecture/2026-10-30-product-architecture-as-built.md) | 基于代码事实的产品架构快照（As-Built，含量化差距与决策清单） |
 
 ### 产品文档
 
@@ -44,6 +45,7 @@
 | [product/todo.md](product/todo.md) | 后端开发 TODO |
 | [product/lework-product-whitepaper.md](product/lework-product-whitepaper.md) | Lework 产品功能白皮书（Markdown） |
 | [product/lework-product-whitepaper.pdf](product/lework-product-whitepaper.pdf) | Lework 产品功能白皮书（PDF） |
+| [product/2026-10-30-core-product-development-plan.md](product/2026-10-30-core-product-development-plan.md) | 核心产品开发计划：范围裁决、M0–M4 路线、任务闭环改造与开源发布清单 |
 
 ### 技术设计
 
