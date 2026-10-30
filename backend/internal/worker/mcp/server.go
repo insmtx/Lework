@@ -3,6 +3,8 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,7 +32,16 @@ type Server struct {
 
 // NewServer 使用当前公开的工具创建 Leros MCP 服务器。
 func NewServer() *Server {
-	return NewServerWithTools(NewTools()...)
+	return NewServerWithToken(newRandomToken())
+}
+
+func newRandomToken() string {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		logs.Warnf("MCP: generate random token failed: %v", err)
+		return ""
+	}
+	return hex.EncodeToString(buf)
 }
 
 // NewServerWithToken creates the public MCP server with instance-scoped authentication.

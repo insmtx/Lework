@@ -24,6 +24,7 @@ func TestCORS_MustBeAppliedBefore_V1Group(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("correct order: Use before Group", func(t *testing.T) {
+		t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
 		r := gin.New()
 		r.Use(middleware.CORS()) // 先挂中间件
 
@@ -45,6 +46,7 @@ func TestCORS_MustBeAppliedBefore_V1Group(t *testing.T) {
 	})
 
 	t.Run("wrong order: Group before Use (regression guard)", func(t *testing.T) {
+		t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
 		r := gin.New()
 		v1 := r.Group("/v1") // 此时 r.Handlers 为空，v1 快照空副本
 
@@ -68,6 +70,47 @@ func TestCORS_MustBeAppliedBefore_V1Group(t *testing.T) {
 			t.Fatalf("unexpected CORS Allow-Origin in wrong-order case: %q (gin behavior may have changed)", got)
 		}
 	})
+}
+
+func TestCORS_DoesNotEchoUnknownOrigin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
+
+	r := gin.New()
+	r.Use(middleware.CORS())
+	r.GET("/v1/Echo", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/v1/Echo", nil)
+	req.Header.Set("Origin", "http://evil.example.com")
+	r.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("unknown origin must not be echoed, got %q", got)
+	}
+}
+
+func TestCORS_UsesPublicURLFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "")
+	t.Setenv("LEROS_PUBLIC_URL", "https://leros.example.com")
+
+	r := gin.New()
+	r.Use(middleware.CORS())
+	r.GET("/v1/Echo", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/v1/Echo", nil)
+	req.Header.Set("Origin", "https://leros.example.com")
+	r.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://leros.example.com" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want public URL origin", got)
+	}
 }
 
 // assertCORSHeaders 断言响应包含 middleware.CORS() 注入的全套头。

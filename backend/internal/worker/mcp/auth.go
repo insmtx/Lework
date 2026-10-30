@@ -31,8 +31,10 @@ func requireToken(expectedToken string) gin.HandlerFunc {
 }
 
 func validateToken(token string, expectedToken string) bool {
+	// 未配置 token 时不能放行：worker 的 MCP 端口可能绑定在 0.0.0.0，
+	// 空 token 等于把工具执行能力暴露给同网段任意客户端。
 	if expectedToken == "" {
-		return true
+		return false
 	}
 	return tokenMatches(token, expectedToken)
 }

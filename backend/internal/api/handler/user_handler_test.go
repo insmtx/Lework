@@ -66,7 +66,7 @@ func setupUserTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 		t.Fatalf("failed to seed default org: %v", err)
 	}
 
-	t.Setenv("LEROS_DEV", "true")
+	t.Setenv("LEROS_DEV_ALLOW_UNAUTH", "true")
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	tokenParser := oss.NewTokenParser(database, "test-secret", nil)

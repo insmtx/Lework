@@ -350,7 +350,7 @@ func setupEnterpriseUserHandler(t *testing.T, mock *mockIAMServer) *gin.Engine {
 	t.Helper()
 
 	iamCfg := &config.IAMConfig{BaseURL: mock.srv.URL, DomainName: "test"}
-	t.Setenv("LEROS_DEV", "true")
+	t.Setenv("LEROS_DEV_ALLOW_UNAUTH", "true")
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 

@@ -40,6 +40,8 @@ func doRequest(t *testing.T, router *gin.Engine, path string, body string) *http
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	// 让本地调试免鉴权开关（LEROS_DEV_ALLOW_UNAUTH）在 httptest 中也被视为回环请求。
+	req.RemoteAddr = "127.0.0.1:12345"
 	router.ServeHTTP(w, req)
 	return w
 }

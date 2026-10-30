@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -76,8 +77,27 @@ func CallerMiddleware(parser adapteraccount.TokenParser, database *gorm.DB) gin.
 	}
 }
 
+// devUnauthAllowed 是本地调试用的显式免鉴权开关。
+//
+// 历史上 LEROS_DEV=true 会直接放行所有请求，生产环境一旦误设就是完全鉴权绕过。
+// 现在必须同时满足：显式 LEROS_DEV_ALLOW_UNAUTH=true、非 production、请求来自回环地址。
+func devUnauthAllowed(ctx *gin.Context) bool {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("LEROS_DEV_ALLOW_UNAUTH")), "true") {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("LEROS_ENV")), "production") {
+		return false
+	}
+	host := strings.TrimSpace(ctx.Request.RemoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func parseCallerFromRequest(ctx *gin.Context, parser adapteraccount.TokenParser) (*types.Caller, string) {
-	if os.Getenv("LEROS_DEV") == "true" {
+	if devUnauthAllowed(ctx) {
 		return &types.Caller{
 			Uin:   1,
 			OrgID: 1,

@@ -30,6 +30,7 @@ import (
 
 	"github.com/insmtx/Leros/backend/agent"
 	"github.com/insmtx/Leros/backend/config"
+	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
 	"github.com/insmtx/Leros/backend/internal/infra/mq"
 	"github.com/insmtx/Leros/backend/internal/llm"
 	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
@@ -230,7 +231,17 @@ func runTaskWorker(defaultRuntime string) {
 	})
 	var mcpToken string
 	if cfg.CLI != nil && cfg.CLI.MCP != nil {
-		mcpToken = cfg.CLI.MCP.BearerToken
+		mcpToken = strings.TrimSpace(cfg.CLI.MCP.BearerToken)
+	}
+	if mcpToken == "" {
+		// MCP 端口默认监听 0.0.0.0，不能以空 token 启动。随机 token 同时注入
+		// 引擎的 MCP 配置，保证只有当前 worker 拉起的运行时能调用。
+		generated, err := localauth.GenerateBootstrapToken()
+		if err != nil {
+			logs.Fatalf("Failed to generate worker MCP token: %v", err)
+			return
+		}
+		mcpToken = generated
 	}
 	modelStore := modelrouter.NewModelStore()
 	modelStore.SetOrgID(cfg.OrgID)
@@ -267,10 +278,15 @@ func runTaskWorker(defaultRuntime string) {
 			cfg.CLI = updatedCLICfg
 		}
 		// 默认注入 Leros MCP，确保引擎启动时始终携带业务 MCP 工具（per-run 注入路径）。
-		if cfg.CLI != nil && cfg.CLI.MCP == nil && workerListenAddr != "" {
-			cfg.CLI.MCP = &config.MCPConfig{
-				URL: buildWorkerMCPURL(workerListenAddr),
+		if cfg.CLI != nil && workerListenAddr != "" {
+			if cfg.CLI.MCP == nil {
+				cfg.CLI.MCP = &config.MCPConfig{}
 			}
+			if strings.TrimSpace(cfg.CLI.MCP.URL) == "" {
+				cfg.CLI.MCP.URL = buildWorkerMCPURL(workerListenAddr)
+			}
+			// 必须与 MCP server 实际校验的 token 一致；即使 bootstrap 改写了配置也以这里为准。
+			cfg.CLI.MCP.BearerToken = mcpToken
 		}
 	}
 	interactionRouter := runtimehost.NewInteractionRouter()
