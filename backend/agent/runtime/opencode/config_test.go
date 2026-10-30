@@ -32,22 +32,6 @@ func TestEnsureOpenCodeDBPathUsesConfiguredDataDir(t *testing.T) {
 	}
 }
 
-func TestBuildServerEnvOverridesInheritedOpenCodeDB(t *testing.T) {
-	env := buildServerEnv(
-		"secret",
-		"{}",
-		"/workspace/.opencode/opencode.db",
-		[]string{"OPENCODE_DB=/tmp/inherited.db"},
-	)
-
-	assertEnvContains(t, env, "OPENCODE_DB=/workspace/.opencode/opencode.db")
-	for _, item := range env {
-		if item == "OPENCODE_DB=/tmp/inherited.db" {
-			t.Fatalf("inherited OPENCODE_DB was not overridden: %#v", env)
-		}
-	}
-}
-
 func TestBuildConfigContentSetsBuildAgentPrompt(t *testing.T) {
 	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "")
 	if err != nil {
@@ -365,5 +349,115 @@ func TestSanitizeConfigContentRedactsMCPCredentials(t *testing.T) {
 	}
 	if !strings.Contains(out, "Authorization") {
 		t.Fatalf("sanitized config should keep header names for troubleshooting: %s", out)
+	}
+}
+
+func TestBuildConfigContentEnablesExperimentalTodo(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "")
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	if cfg.Experimental == nil || !cfg.Experimental.Todo {
+		t.Fatalf("experimental.todo not enabled: %+v", cfg.Experimental)
+	}
+}
+
+func TestBuildConfigContentWithPlanMode(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "", withPlanMode())
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	if cfg.DefaultAgent != PlanAgentName {
+		t.Fatalf("default_agent = %q, want %q", cfg.DefaultAgent, PlanAgentName)
+	}
+	if _, ok := cfg.Agents["build"]; !ok {
+		t.Fatalf("plan mode dropped native build agent: %#v", cfg.Agents)
+	}
+	plan, ok := cfg.Agents[PlanAgentName]
+	if !ok {
+		t.Fatalf("missing %s agent: %#v", PlanAgentName, cfg.Agents)
+	}
+	if plan.Mode != "primary" || plan.System != PlanSystemPrompt {
+		t.Fatalf("plan agent = %+v", plan)
+	}
+
+	index := map[string]int{}
+	for position, rule := range plan.Permissions {
+		index[rule.Action+"/"+rule.Resource] = position
+	}
+	denyAll, ok := index["edit/*"]
+	if !ok {
+		t.Fatalf("missing edit deny *: %+v", plan.Permissions)
+	}
+	allowPlans, ok := index["edit/.opencode/plans/*"]
+	if !ok {
+		t.Fatalf("missing plans allow: %+v", plan.Permissions)
+	}
+	if denyAll > allowPlans {
+		t.Fatalf("allow must come after deny *: %+v", plan.Permissions)
+	}
+	for _, key := range []string{"shell/*", "external_directory/*", "question/*"} {
+		if _, ok := index[key]; !ok {
+			t.Fatalf("missing permission %s: %+v", key, plan.Permissions)
+		}
+	}
+}
+
+func TestSanitizeConfigContentV2Shape(t *testing.T) {
+	input := `{
+		"providers": {
+			"magpie": {
+				"settings": {"apiKey": "sk-v2-secret", "baseURL": "https://v2.example.com", "headers": {"X-Api-Key": "v2-header-secret"}},
+				"headers": {"Authorization": "Bearer top-secret"},
+				"models": {"m1": {"options": {"top_p": 0.5}}}
+			}
+		}
+	}`
+	out := sanitizeConfigContent(input)
+	for _, secret := range []string{"sk-v2-secret", "v2-header-secret", "top-secret"} {
+		if strings.Contains(out, secret) {
+			t.Fatalf("sanitized config leaked %q: %s", secret, out)
+		}
+	}
+	if !strings.Contains(out, "https://v2.example.com") || !strings.Contains(out, "0.5") {
+		t.Fatalf("sanitized config lost non-secret fields: %s", out)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("sanitized config is not valid JSON: %v", err)
+	}
+}
+
+func TestSanitizeConfigContentV1Headers(t *testing.T) {
+	input := `{"provider":{"leros-provider":{"options":{"apiKey":"sk-v1","headers":{"Authorization":"Bearer v1-secret"},"baseURL":"https://v1.example.com"}}}}`
+	out := sanitizeConfigContent(input)
+	if strings.Contains(out, "sk-v1") || strings.Contains(out, "v1-secret") {
+		t.Fatalf("sanitized config leaked v1 secrets: %s", out)
+	}
+	if !strings.Contains(out, "https://v1.example.com") {
+		t.Fatalf("sanitized config lost baseURL: %s", out)
+	}
+}
+
+func TestBuildConfigContentInjectsNativeBuildAgent(t *testing.T) {
+	content, err := buildConfigContent(agent.ModelConfig{Model: "gpt-test"}, nil, "")
+	if err != nil {
+		t.Fatalf("build config content: %v", err)
+	}
+	var cfg configContent
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config content: %v", err)
+	}
+	build, ok := cfg.Agents["build"]
+	if !ok || build.Mode != "primary" || build.System != openCodeBuildAgentPrompt {
+		t.Fatalf("native build agent = %+v", cfg.Agents)
 	}
 }

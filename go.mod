@@ -9,6 +9,7 @@ require (
 	github.com/cloudwego/eino v0.8.9
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.18
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.12
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gin-contrib/cors v1.7.2
 	github.com/gin-gonic/gin v1.10.1

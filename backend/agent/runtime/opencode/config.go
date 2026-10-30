@@ -1,8 +1,6 @@
 package opencode
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -29,7 +27,12 @@ const (
 
 // buildConfigContent 根据 ModelConfig、MCPServerConfig 列表和任务 Skill 目录
 // 生成 OPENCODE_CONFIG_CONTENT JSON 字符串。
-func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig, skillDir string) (string, error) {
+func buildConfigContent(
+	modelCfg agent.ModelConfig,
+	mcps []agent.MCPServerConfig,
+	skillDir string,
+	options ...configOption,
+) (string, error) {
 	modelID := modelCfg.Model
 	if modelID == "" {
 		modelID = "default"
@@ -103,6 +106,11 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 		},
 		Model: providerID + "/" + modelID,
 		Agent: map[string]agentConfig{"build": {Prompt: openCodeBuildAgentPrompt}},
+		Agents: map[string]planAgentConfig{
+			// v2 原生形状：legacy agent.build.prompt 仍保留兼容，两者一致。
+			"build": {Mode: "primary", System: openCodeBuildAgentPrompt},
+		},
+		Experimental: &experimentalConfig{Todo: true},
 		Permission: map[string]any{
 			"*": "allow",
 			"bash": map[string]string{
@@ -119,6 +127,9 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 	if skillDir = strings.TrimSpace(skillDir); skillDir != "" {
 		cfg.Skills = &skillsConfig{Paths: []string{skillDir}}
 	}
+	for _, option := range options {
+		option(&cfg)
+	}
 
 	data, err := json.Marshal(cfg)
 	if err != nil {
@@ -128,30 +139,61 @@ func buildConfigContent(modelCfg agent.ModelConfig, mcps []agent.MCPServerConfig
 }
 
 // sanitizeConfigContent 返回适合写入日志的 config JSON 字符串。
-// 剔除每个 provider options 下的 apiKey 字段以避免密钥落入日志；
-// baseURL 及采样参数等其余字段原样保留。config 无法解析时原样返回，
-// 不阻塞日志输出（调用方不应因脱敏失败而中断启动流程）。
+// 同时覆盖两种 provider 形状：
+//   - v1：provider.<id>.options.{apiKey,headers}
+//   - v2：providers.<id>.{settings.{apiKey,headers}, headers}
+//
+// 密钥删除、请求头值置为 ***；baseURL、采样参数等其余字段原样保留。
+// config 无法解析时原样返回，不阻塞日志输出（调用方不应因脱敏失败而中断流程）。
 func sanitizeConfigContent(configContent string) string {
 	var cfg map[string]any
 	if err := json.Unmarshal([]byte(configContent), &cfg); err != nil {
 		return configContent
 	}
-	providers, ok := cfg["provider"].(map[string]any)
-	if ok {
-		for _, v := range providers {
-			opts, ok := v.(map[string]any)["options"].(map[string]any)
-			if !ok {
-				continue
-			}
-			delete(opts, "apiKey")
-		}
-	}
+	sanitizeProviderMap(cfg["provider"])
+	sanitizeProviderMap(cfg["providers"])
 	redactMCPCredentials(cfg)
 	cleaned, err := json.Marshal(cfg)
 	if err != nil {
 		return configContent
 	}
 	return string(cleaned)
+}
+
+// sanitizeProviderMap 处理 v1 与 v2 的 provider 容器（值形状不同，按字段探测）。
+func sanitizeProviderMap(raw any) {
+	providers, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	for _, entry := range providers {
+		provider, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, field := range []string{"options", "settings"} {
+			settings, ok := provider[field].(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, key := range []string{"apiKey", "api_key", "api-key"} {
+				delete(settings, key)
+			}
+			redactHeaderValues(settings["headers"])
+		}
+		redactHeaderValues(provider["headers"])
+	}
+}
+
+// redactHeaderValues 保留请求头键名、把值替换为 ***。
+func redactHeaderValues(raw any) {
+	headers, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	for key := range headers {
+		headers[key] = "***"
+	}
 }
 
 // redactMCPCredentials 抹掉 MCP 服务端配置中的凭据：请求头与环境变量的值，以及
@@ -168,13 +210,7 @@ func redactMCPCredentials(cfg map[string]any) {
 			continue
 		}
 		for _, field := range []string{"headers", "environment"} {
-			values, ok := server[field].(map[string]any)
-			if !ok {
-				continue
-			}
-			for key := range values {
-				values[key] = "***"
-			}
+			redactHeaderValues(server[field])
 		}
 		if rawURL, ok := server["url"].(string); ok {
 			server["url"] = redactURLCredentials(rawURL)
@@ -304,45 +340,4 @@ func ensureOpenCodeDBPath(dataDir string) (string, error) {
 		return "", fmt.Errorf("create opencode data directory %s: %w", dir, err)
 	}
 	return filepath.Join(dir, openCodeDBName), nil
-}
-
-// buildServerEnv 构建 opcode serve 子进程所需的环境变量。
-// 返回格式为 "KEY=VALUE" 的字符串切片，附加到 baseEnv 之后。
-func buildServerEnv(password, configContent, databasePath string, baseEnv []string) []string {
-	env := make([]string, 0, 13)
-
-	// 服务器认证
-	env = append(env, "OPENCODE_SERVER_PASSWORD="+password)
-	env = append(env, "OPENCODE_SERVER_USERNAME=opencode")
-
-	// 注入完整配置（provider、model、API key、base URL）
-	env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
-	// 将 session 等 SQLite 数据持久化到 worker 工作目录。
-	if databasePath != "" {
-		env = append(env, "OPENCODE_DB="+databasePath)
-	}
-
-	// 隔离环境变量：确保子进程不读取宿主机的配置文件或插件
-	env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
-	env = append(env, "OPENCODE_PURE=1")
-	env = append(env, "OPENCODE_DISABLE_AUTOUPDATE=1")
-	env = append(env, "OPENCODE_DISABLE_MODELS_FETCH=1")
-
-	// 启用 plan mode 和 CLI client 模式
-	env = append(env, "OPENCODE_EXPERIMENTAL_PLAN_MODE=true")
-	env = append(env, "OPENCODE_CLIENT=cli")
-
-	// 启用 EXA web search 功能
-	env = append(env, "OPENCODE_ENABLE_EXA=1")
-
-	return runtimeprocess.BuildRunEnv(baseEnv, env, nil)
-}
-
-// generatePassword 生成 32 位随机十六进制密码。
-func generatePassword() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate random password: %w", err)
-	}
-	return hex.EncodeToString(b), nil
 }
