@@ -46,6 +46,7 @@
 | [product/lework-product-whitepaper.md](product/lework-product-whitepaper.md) | Lework 产品功能白皮书（Markdown） |
 | [product/lework-product-whitepaper.pdf](product/lework-product-whitepaper.pdf) | Lework 产品功能白皮书（PDF） |
 | [product/2026-10-30-core-product-development-plan.md](product/2026-10-30-core-product-development-plan.md) | 核心产品开发计划：范围裁决、M0–M4 路线、任务闭环改造与开源发布清单 |
+| [product/current-limitations.md](product/current-limitations.md) | 当前能力边界：今天可用 / 路线图 / 安全默认值 / 部署事实 |
 
 ### 技术设计
 
