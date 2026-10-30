@@ -3,7 +3,6 @@
 import { useLayoutStore } from "@leros/store";
 import { getRequestErrorMessage } from "@leros/ui/lib/request";
 import { cn } from "@leros/ui/lib/utils";
-import { Calculator } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { BidComparisonIcon } from "../../assets";
@@ -19,29 +18,16 @@ import {
 	ensureBidComparisonFilesUploaded,
 } from "../input/bidComparisonAttachments";
 import type { AppNavigation } from "./LeftRail";
-import { PayrollAccountingPage } from "./PayrollAccountingPage";
-import { WORKBENCH_PAYROLL_PATH } from "./payroll-accounting-mock";
 
 export function WorkbenchPage({ navigation }: { navigation?: AppNavigation }) {
 	const { projects, fetchProjects, fetchTasks, sendWorkbenchMessage } = useLayoutStore((s) => s);
 	const { requireAuth } = useAuth();
 	const [bidComparisonOpen, setBidComparisonOpen] = useState(false);
-	const [payrollPageOpen, setPayrollPageOpen] = useState(false);
 
 	const projectOptions = useMemo(
 		() => projects.map((project) => ({ id: project.id, name: project.name, tasks: project.tasks })),
 		[projects],
 	);
-
-	const openPayrollAccounting = () => {
-		requireAuth(() => {
-			if (navigation?.goToPath) {
-				navigation.goToPath(WORKBENCH_PAYROLL_PATH);
-				return;
-			}
-			setPayrollPageOpen(true);
-		});
-	};
 
 	const openBidComparison = () => {
 		requireAuth(() => {
@@ -76,32 +62,6 @@ export function WorkbenchPage({ navigation }: { navigation?: AppNavigation }) {
 		}
 	};
 
-	if (payrollPageOpen) {
-		return (
-			<PayrollAccountingPage
-				navigation={{
-					currentPath: navigation?.currentPath ?? WORKBENCH_PAYROLL_PATH,
-					goToRoute: (route) => {
-						if (route === "workbench") setPayrollPageOpen(false);
-						navigation?.goToRoute(route);
-					},
-					goToPath: (path) => {
-						if (path === "/workbench") {
-							setPayrollPageOpen(false);
-							return;
-						}
-						navigation?.goToPath?.(path);
-					},
-					goToProject: (projectId) => navigation?.goToProject(projectId),
-					goToProjectTasks: (projectId) => navigation?.goToProjectTasks(projectId),
-					goToTaskDetail: (projectId, taskId, sessionId) =>
-						navigation?.goToTaskDetail(projectId, taskId, sessionId),
-					goToAutomationDetail: (publicId) => navigation?.goToAutomationDetail(publicId),
-				}}
-			/>
-		);
-	}
-
 	return (
 		<div className="flex h-full min-h-0 flex-1 flex-col bg-[var(--leros-app-bg)]">
 			<header className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-5">
@@ -130,25 +90,6 @@ export function WorkbenchPage({ navigation }: { navigation?: AppNavigation }) {
 							</h3>
 							<p className="mt-1 text-xs leading-5 text-[var(--leros-text-muted)]">
 								选择投标文件与对比文件，发起标书对比分析任务。
-							</p>
-						</button>
-						<button
-							type="button"
-							onClick={openPayrollAccounting}
-							className={cn(
-								"group flex min-h-[132px] cursor-pointer flex-col rounded-lg border border-slate-200 bg-white p-4",
-								"text-left transition-colors hover:border-[var(--leros-primary-soft)]",
-								"hover:bg-[var(--leros-primary-softer)]/35",
-							)}
-						>
-							<div className="flex size-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-								<Calculator className="size-5" />
-							</div>
-							<h3 className="mt-4 text-sm font-semibold text-[var(--leros-text-strong)]">
-								考勤工资核算
-							</h3>
-							<p className="mt-1 text-xs leading-5 text-[var(--leros-text-muted)]">
-								提交当月考勤并发起核算；人员底表和历史工资可选填。
 							</p>
 						</button>
 					</div>

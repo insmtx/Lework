@@ -354,7 +354,7 @@ func TestGitDiffReconcileFiltersAttendanceWorkFiles(t *testing.T) {
 	write(".attendance-work/person-matches.json", []byte("internal"))
 	write(".attendance-pages/doc-1/page-1.png", []byte("image"))
 	write("考勤确认表.md", []byte("attendance review"))
-	write("2026年6月工资核算表.xlsx", []byte("payroll workbook"))
+	write("2026年6月核算表.xlsx", []byte("workbook"))
 	write("ordinary-report.md", []byte("ordinary diff"))
 	turnDir := filepath.Join(repoDir, ".leros", "tasks", "1", "turns", "req1")
 	if err := os.MkdirAll(turnDir, 0o755); err != nil {
@@ -382,13 +382,13 @@ func TestGitDiffReconcileFiltersAttendanceWorkFiles(t *testing.T) {
 	write(".attendance-work/attendance.json", []byte("private"))
 	write(".attendance-pages/doc-1/page-1.json", []byte("private"))
 	write("考勤确认表.md", []byte("attendance review"))
-	write("2026年6月工资核算表.xlsx", []byte("payroll workbook"))
+	write("2026年6月核算表.xlsx", []byte("workbook"))
 	manifest = []byte(
 		`{"path":".attendance-work/attendance.json","is_final":true}` + "\n" +
 			`{"path":".attendance-pages/doc-1/page-1.json","is_final":true}` + "\n" +
 			`{"path":"考勤确认表.md","is_final":true}` + "\n" +
 			`{"path":"考勤确认表.md","is_final":true}` + "\n" +
-			`{"path":"2026年6月工资核算表.xlsx","is_final":true}` + "\n",
+			`{"path":"2026年6月核算表.xlsx","is_final":true}` + "\n",
 	)
 	if err := os.WriteFile(manifestPath, manifest, 0o644); err != nil {
 		t.Fatal(err)
@@ -404,7 +404,7 @@ func TestGitDiffReconcileFiltersAttendanceWorkFiles(t *testing.T) {
 	for _, record := range records {
 		seen[record.RelativePath] = true
 	}
-	if !seen["考勤确认表.md"] || !seen["2026年6月工资核算表.xlsx"] {
+	if !seen["考勤确认表.md"] || !seen["2026年6月核算表.xlsx"] {
 		t.Fatalf("formal business files missing: %#v", records)
 	}
 	for _, path := range []string{".attendance-work/attendance.json", ".attendance-pages/doc-1/page-1.json"} {

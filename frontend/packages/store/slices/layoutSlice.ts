@@ -1,4 +1,3 @@
-import { pluginApi } from "../api/pluginApi";
 import type { ProjectMemberInput } from "../api/projectApi";
 import { projectApi } from "../api/projectApi";
 import { taskApi } from "../api/taskApi";
@@ -755,41 +754,7 @@ export class LayoutActionImpl {
 				: taskId
 			: null;
 		const chat = this.#get() as LayoutStore & ChatSendBridge;
-		let resolvedConnectorIds = connectorIds;
-		if (scene === "salary_accounting") {
-			try {
-				const platformsResponse = await pluginApi.listMCPPlatforms();
-				const payroll = platformsResponse.data.data.platforms.find(
-					(platform) => platform.code === "payroll",
-				);
-				if (!payroll?.auto_connect_supported) {
-					throw new Error("Payroll connector is unavailable");
-				}
-				let pluginId = payroll.plugin_id;
-				if (!payroll.connected || !pluginId) {
-					const connected = await pluginApi.connectMCPPlatform(payroll.code);
-					pluginId = connected.data.data.plugin.public_id;
-				}
-				if (!pluginId) {
-					throw new Error("Payroll connector did not return a plugin");
-				}
-				const projectBindings = workbenchProjectId
-					? await pluginApi.listProject({ public_id: workbenchProjectId, kind: "mcp" })
-					: null;
-				if (projectBindings && projectBindings.data.code !== 0) {
-					throw new Error("Project connector bindings are unavailable");
-				}
-				const projectHasPayroll = Boolean(
-					projectBindings?.data.data.some((plugin) => plugin.public_id === pluginId),
-				);
-				if (!projectHasPayroll) {
-					resolvedConnectorIds = [...new Set([...(connectorIds ?? []), pluginId])];
-				}
-			} catch (error) {
-				console.error("sendWorkbenchMessage ensure Payroll connector error:", error);
-				return null;
-			}
-		}
+		const resolvedConnectorIds = connectorIds;
 
 		// 中文注释：选中已有任务则续聊（含标书对比等工具场景）；未选任务则 CreateInitialMessage 新建。
 		if (workbenchProjectId && selectedTaskId) {

@@ -4,7 +4,6 @@ import {
 	AutomationListView,
 	NewTaskPage,
 	OrgAdminPage,
-	PayrollAccountingPage,
 	ProjectPage,
 	ProjectsHubView,
 	Shell,
@@ -28,8 +27,6 @@ export function AppRoutes() {
 				<Route path="/chat" element={<NewTaskRoutePage />} />
 
 				<Route path="/workbench" element={<WorkbenchRoutePage />} />
-
-				<Route path="/workbench/payroll" element={<PayrollAccountingRoutePage />} />
 
 				<Route path="/projects" element={<ProjectsHubRoutePage />} />
 
@@ -140,12 +137,6 @@ function WorkbenchRoutePage() {
 	const navigation = useDesktopNavigation();
 
 	return <WorkbenchPage navigation={navigation} />;
-}
-
-function PayrollAccountingRoutePage() {
-	const navigation = useDesktopNavigation();
-
-	return <PayrollAccountingPage navigation={navigation} />;
 }
 
 function NewTaskRoutePage() {

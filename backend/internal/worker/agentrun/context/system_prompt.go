@@ -268,8 +268,6 @@ func buildSceneContextSection(req *agentrundomain.RunRequest) string {
 		return scenePrompt + "\n\n## 本次最终交付格式\n\n" +
 			"本次配置的最终交付格式为 `" + outputFormat + "`。该结构化配置优先于用户正文中的格式描述，" +
 			"必须直接生成该格式的最终文件。"
-	case "salary_accounting":
-		return strings.TrimSpace(prompts.Get(prompts.KeyAgentSceneSalaryAccounting))
 	default:
 		return ""
 	}

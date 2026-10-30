@@ -148,9 +148,6 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	permSvc := service.NewPermissionService(db, service.NewPermissionCore(db))
 	authed := v1.Group("/", middleware.RequireCallerOrg())
 	{
-		payrollProxy := handler.NewPayrollProxyHandler(cfg.PayrollProxy.Endpoint, managedCredentials)
-		handler.RegisterPayrollProxyRoutes(authed, payrollProxy)
-
 		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioningAndUserRepo(db, workerScheduler, workerProvisioningService, userRepo)
 		handler.RegisterDigitalAssistantRoutes(authed, digitalAssistantService)
 		logs.Info("Digital assistant routes registered successfully")

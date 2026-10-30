@@ -6,7 +6,6 @@ import {
 	OrgAdminPage,
 	ProjectPage,
 	ProjectsHubView,
-	PayrollAccountingPage,
 	WorkbenchPage,
 	SkillMarketView,
 	TaskDetailPage,
@@ -28,12 +27,6 @@ export function WorkbenchRoutePage() {
 	const navigation = useWebNavigation();
 
 	return <WorkbenchPage navigation={navigation} />;
-}
-
-export function PayrollAccountingRoutePage() {
-	const navigation = useWebNavigation();
-
-	return <PayrollAccountingPage navigation={navigation} />;
 }
 
 export function NewTaskRoutePage() {

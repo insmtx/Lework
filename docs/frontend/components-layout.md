@@ -58,7 +58,7 @@ packages/app-ui/components/layout/
 ├── CenterCanvas.tsx    # 中栏 - 聊天交互区
 ├── ConversationListPanel.tsx # 会话列表面板
 ├── RightRail.tsx       # 右栏 - 快捷/收件/工件
-├── WorkbenchPage.tsx   # 工作台功能入口（工资核算、标书对比等）
+├── WorkbenchPage.tsx   # 工作台功能入口（标书对比等）
 ├── NewTaskPage.tsx     # 新建任务首页
 └── index.ts            # barrel 导出
 ```

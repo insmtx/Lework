@@ -865,38 +865,6 @@ func TestPluginSkillPreparerSkipsUnavailableInvokedSkillWithoutFailingRun(t *tes
 	}
 }
 
-func TestPluginSkillPreparerSkipsUnavailableSceneSkillWithoutFailingRun(t *testing.T) {
-	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/plugins/skills/download-urls" {
-			http.NotFound(writer, request)
-			return
-		}
-		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"code": 0,
-			"data": map[string]any{"skills": []any{}},
-		})
-	}))
-	defer server.Close()
-	prepared, cleanup, err := NewPluginSkillPreparer(server.URL, "worker-token").PrepareSkills(
-		context.Background(),
-		&agentrundomain.RunRequest{
-			RunID:        "run-unavailable-scene",
-			BusinessKeys: agentrundomain.BusinessKeys{UinPK: 42},
-			Input:        agentrundomain.InputContext{Scene: salaryAccountingScene},
-		},
-		WorkspacePreparation{TaskDir: t.TempDir()},
-	)
-	defer cleanup()
-	if err != nil {
-		t.Fatalf("unavailable scene Skill must not fail run preparation: %v", err)
-	}
-	if _, err := os.Lstat(filepath.Join(prepared, "attendance-payroll")); !os.IsNotExist(err) {
-		t.Fatalf("unavailable scene Skill must not create run link, err=%v", err)
-	}
-}
-
 func TestPluginSkillPreparerSkipsDownloadRequestFailureWithoutFailingRun(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)

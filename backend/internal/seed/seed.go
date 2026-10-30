@@ -62,28 +62,21 @@ func Run(ctx context.Context, db *gorm.DB, edition adapter.Edition, opts Options
 		logBuiltinSkillReport("seed: built-in server skill", report)
 	}
 
-	// 4. 业务内部 Skill 只保存为系统 artifact，不发布到技能市场。
-	if report, err := service.SyncBuiltinInternalServerSkills(ctx, db, ""); err != nil {
-		logs.Warnf("seed: internal server skill sync skipped: %v", err)
-	} else {
-		logBuiltinSkillReport("seed: internal server skill", report)
-	}
-
-	// 5. 配置声明的系统连接器模板（失败仅告警）
+	// 4. 配置声明的系统连接器模板（失败仅告警）
 	if report, err := SyncConfiguredMCPConnectors(ctx, db, "", configuredMCPConnectorSpecs(opts.MCPConnectors)); err != nil {
 		logs.Warnf("seed: configured connector sync skipped: %v", err)
 	} else {
 		logBuiltinSkillReport("seed: configured connector", report)
 	}
 
-	// 6. 内置 worker 技能（失败仅告警）
+	// 5. 内置 worker 技能（失败仅告警）
 	if report, err := service.SyncBuiltinWorkerSkills(ctx, db, ""); err != nil {
 		logs.Warnf("seed: built-in worker skill sync skipped: %v", err)
 	} else {
 		logBuiltinSkillReport("seed: built-in worker skill", report)
 	}
 
-	// 7. 固定 SQL 种子；内置 Skill 必须先同步，供系统翻译脚本按 code 关联。
+	// 6. 固定 SQL 种子；内置 Skill 必须先同步，供系统翻译脚本按 code 关联。
 	if err := RunSQLScripts(ctx, db, opts.SQLScriptDir); err != nil {
 		return err
 	}

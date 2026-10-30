@@ -68,12 +68,6 @@ type Config struct {
 	AutomationScheduler *AutomationSchedulerConfig                 `yaml:"automation_scheduler,omitempty" json:"automation_scheduler,omitempty"`
 	MCPConnectors       []MCPConnectorConfig                       `yaml:"mcp_connectors,omitempty" json:"mcp_connectors,omitempty"`
 	ManagedCredentials  map[string]ManagedCredentialProviderConfig `yaml:"managed_credentials,omitempty" json:"managed_credentials,omitempty"`
-	PayrollProxy        PayrollProxyConfig                         `yaml:"payroll_proxy,omitempty" json:"payroll_proxy,omitempty"`
-}
-
-// PayrollProxyConfig contains the trusted Go Payroll HTTP API base URL.
-type PayrollProxyConfig struct {
-	Endpoint string `yaml:"endpoint" json:"endpoint"`
 }
 
 // ManagedCredentialProviderConfig points to an internal service that resolves credentials for a managed connector.

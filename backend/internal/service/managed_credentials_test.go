@@ -19,7 +19,7 @@ func TestHTTPManagedCredentialProviderResolvesValuesWithLoginToken(t *testing.T)
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		if input.ConnectorCode != "payroll" || input.Purpose != "mcp_connector" {
+		if input.ConnectorCode != "demo" || input.Purpose != "mcp_connector" {
 			t.Errorf("request = %#v", input)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -29,7 +29,7 @@ func TestHTTPManagedCredentialProviderResolvesValuesWithLoginToken(t *testing.T)
 
 	provider := NewHTTPManagedCredentialProvider(server.URL, "test-service-token")
 	ctx := localauth.WithBearerToken(context.Background(), "test-login-token")
-	values, err := provider.Resolve(ctx, ManagedCredentialRequest{ConnectorCode: "payroll", Purpose: "mcp_connector"})
+	values, err := provider.Resolve(ctx, ManagedCredentialRequest{ConnectorCode: "demo", Purpose: "mcp_connector"})
 	if err != nil {
 		t.Fatal(err)
 	}

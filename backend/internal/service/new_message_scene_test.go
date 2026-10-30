@@ -23,72 +23,9 @@ func TestNormalizeMessageScene(t *testing.T) {
 	if err != nil || scene != string(types.MessageSceneBidComparison) {
 		t.Fatalf("bid_comparison scene => %q, %v", scene, err)
 	}
-	scene, err = NormalizeMessageScene("SALARY_ACCOUNTING")
-	if err != nil || scene != string(types.MessageSceneSalaryAccounting) {
-		t.Fatalf("salary_accounting scene => %q, %v", scene, err)
-	}
 	_, err = NormalizeMessageScene("unknown")
 	if !errors.Is(err, ErrInvalidNewMessage) {
 		t.Fatalf("expected ErrInvalidNewMessage, got %v", err)
-	}
-}
-
-func TestValidateNewMessageScene_SalaryAccounting(t *testing.T) {
-	t.Parallel()
-
-	request := &contract.NewMessageRequest{
-		Scene: "salary_accounting",
-		Attachments: []types.MessageAttachment{
-			{FileUploadID: "roster", Name: "人员底表.xlsx", AttachmentRole: "ROSTER"},
-			{FileUploadID: "history", Name: "历史工资表.xlsx", AttachmentRole: "HISTORICAL_PAYROLL"},
-			{FileUploadID: "attendance", Name: "考勤表.pdf", AttachmentRole: "ATTENDANCE"},
-		},
-	}
-	scene, err := ValidateNewMessageScene(request)
-	if err != nil {
-		t.Fatalf("valid salary_accounting: %v", err)
-	}
-	if scene != string(types.MessageSceneSalaryAccounting) {
-		t.Fatalf("scene = %q", scene)
-	}
-	if request.Attachments[0].AttachmentRole != string(types.AttachmentRoleRoster) {
-		t.Fatalf("roster role = %q", request.Attachments[0].AttachmentRole)
-	}
-
-	_, err = ValidateNewMessageScene(&contract.NewMessageRequest{
-		Scene: "salary_accounting",
-		Attachments: []types.MessageAttachment{
-			{FileUploadID: "roster", AttachmentRole: "roster"},
-			{FileUploadID: "history", AttachmentRole: "historical_payroll"},
-		},
-	})
-	if !errors.Is(err, ErrInvalidNewMessage) {
-		t.Fatalf("missing attendance: got %v", err)
-	}
-
-	_, err = ValidateNewMessageScene(&contract.NewMessageRequest{
-		Scene: "salary_accounting",
-		Attachments: []types.MessageAttachment{
-			{FileUploadID: "attendance", AttachmentRole: "attendance"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("attendance-only salary_accounting should pass: %v", err)
-	}
-
-	_, err = ValidateNewMessageScene(&contract.NewMessageRequest{
-		Scene: "salary_accounting",
-		Attachments: []types.MessageAttachment{
-			{FileUploadID: "roster-1", AttachmentRole: "roster"},
-			{FileUploadID: "roster-2", AttachmentRole: "roster"},
-			{FileUploadID: "history-1", AttachmentRole: "historical_payroll"},
-			{FileUploadID: "history-2", AttachmentRole: "historical_payroll"},
-			{FileUploadID: "attendance-1", AttachmentRole: "attendance"},
-			{FileUploadID: "attendance-2", AttachmentRole: "attendance"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("multiple attachments per role should pass: %v", err)
 	}
 }
 

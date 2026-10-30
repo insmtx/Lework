@@ -131,16 +131,16 @@ func TestDevelopmentServerExampleIncludesBearerBindings(t *testing.T) {
 func TestManagedCredentialProviderConfigParses(t *testing.T) {
 	var cfg Config
 	body := []byte(`managed_credentials:
-  payroll:
+  demo:
     endpoint: http://127.0.0.1:8082/v1/credentials.Resolve
-    service_token: ${PAYROLL_CREDENTIAL_TOKEN}
+    service_token: ${DEMO_CREDENTIAL_TOKEN}
 `)
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		t.Fatalf("unmarshal managed credentials: %v", err)
 	}
-	provider := cfg.ManagedCredentials["payroll"]
+	provider := cfg.ManagedCredentials["demo"]
 	if provider.Endpoint != "http://127.0.0.1:8082/v1/credentials.Resolve" ||
-		provider.ServiceToken != "${PAYROLL_CREDENTIAL_TOKEN}" {
-		t.Fatalf("Payroll credential provider = %#v", provider)
+		provider.ServiceToken != "${DEMO_CREDENTIAL_TOKEN}" {
+		t.Fatalf("Demo credential provider = %#v", provider)
 	}
 }

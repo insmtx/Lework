@@ -27,7 +27,6 @@ import (
 const (
 	builtinMarketplaceSourceType = "builtin"
 	builtinMarketplaceAuthor     = "Lework"
-	builtinInternalOrigin        = "builtin_internal"
 )
 
 var builtinMarketplaceSyncMu sync.Mutex
@@ -79,9 +78,6 @@ func SyncBuiltinServerSkillMarketplace(
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-		if entry.Name() == "attendance-payroll" {
-			continue
-		}
 		report.Scanned++
 		operation, err := service.syncBuiltinSkill(
 			ctx, filepath.Join(resolved, entry.Name()), entry.Name(),
@@ -103,88 +99,6 @@ func SyncBuiltinServerSkillMarketplace(
 		}
 	}
 	return report, nil
-}
-
-// SyncBuiltinInternalServerSkills stores business-only server Skills as system
-// artifacts. They deliberately have no marketplace item or organization copy.
-func SyncBuiltinInternalServerSkills(ctx context.Context, database *gorm.DB, sourceDir string) (*BuiltinSkillSyncReport, error) {
-	if database == nil {
-		return nil, fmt.Errorf("database is required")
-	}
-	resolved, err := skilllinks.ResolveBuiltinSkillsSource(sourceDir, "server")
-	if err != nil {
-		return nil, err
-	}
-	report := &BuiltinSkillSyncReport{}
-	if err := syncBuiltinInternalSkill(ctx, database, filepath.Join(resolved, "attendance-payroll"), report); err != nil {
-		report.Failures = append(report.Failures, BuiltinSkillSyncFailure{Code: "attendance-payroll", Err: err})
-	}
-	return report, nil
-}
-
-func syncBuiltinInternalSkill(ctx context.Context, database *gorm.DB, skillDir string, report *BuiltinSkillSyncReport) error {
-	prepared, err := packageBuiltinSkillDirectory(skillDir)
-	if err != nil {
-		return err
-	}
-	if prepared.Manifest.Name != "attendance-payroll" {
-		return fmt.Errorf("internal Skill name %q is invalid", prepared.Manifest.Name)
-	}
-	report.Scanned++
-	archive, artifactSHA, content := prepared.Archive, prepared.SHA256, prepared.Content
-	service := &pluginService{db: database}
-	err = database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		plugin, err := infradb.GetSystemPluginByCode(ctx, tx, "skill", prepared.Manifest.Name)
-		if err != nil {
-			return err
-		}
-		if plugin != nil && plugin.Origin != builtinInternalOrigin {
-			return fmt.Errorf("internal Skill code %q conflicts with origin %q", prepared.Manifest.Name, plugin.Origin)
-		}
-		var current *types.PluginRevision
-		if plugin != nil {
-			current, err = infradb.GetCurrentPluginRevision(ctx, tx, plugin)
-			if err != nil {
-				return err
-			}
-		}
-		currentSHA := ""
-		if current != nil {
-			if artifact, e := ArtifactFromDefinition("skill", current.Definition); e == nil && artifact != nil {
-				currentSHA, _ = normalizedPluginSHA256(artifact.SHA256)
-			}
-		}
-		if currentSHA != artifactSHA {
-			file, err := storeSystemSkillArtifact(ctx, tx, prepared.Manifest.Name, archive, artifactSHA)
-			if err != nil {
-				return err
-			}
-			definition, err := json.Marshal(skillDefinition{
-				Schema:   "skill/v1",
-				Artifact: &ArtifactDefinition{FileUploadID: file.PublicID, SHA256: artifactSHA, SizeBytes: file.FileSize, ContentType: "application/zip"},
-			})
-			if err != nil {
-				return err
-			}
-			published, err := service.publishSkillRevisionWithScope(ctx, tx, skillPublishRequest{
-				OwnerScope: types.OwnerScopeSystem, Origin: builtinInternalOrigin, ActorType: "system",
-				Code: prepared.Manifest.Name, Name: prepared.Manifest.Name, Description: prepared.Manifest.Description,
-				Definition: definition, Content: content,
-			})
-			if err != nil {
-				return err
-			}
-			if published.Operation == "created" {
-				report.Created++
-			} else {
-				report.Updated++
-			}
-		} else {
-			report.Unchanged++
-		}
-		return nil
-	})
-	return err
 }
 
 func (s *pluginService) syncBuiltinSkill(

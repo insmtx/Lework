@@ -88,8 +88,6 @@ type pluginSkillDescriptor struct {
 	ConnectorRef *connectorSkillDownloadRef
 }
 
-const salaryAccountingScene = "salary_accounting"
-
 // NewPluginSkillPreparer creates the worker implementation. A zero server
 // address is valid only when no project Skill artifact needs downloading.
 func NewPluginSkillPreparer(serverAddr, authToken string) *PluginSkillPreparer {
@@ -136,32 +134,10 @@ func (p *PluginSkillPreparer) PrepareSkills(ctx context.Context, req *agentrundo
 		logs.WarnContextf(ctx, "link worker system Skills failed; continuing: root=%s error=%v", viewRoot, err)
 	}
 	p.preparePluginSkills(ctx, req.Plugins, viewRoot, policy, downloadContext)
-	if err := p.prepareSceneSkills(ctx, req, viewRoot, downloadContext); err != nil {
-		logs.WarnContextf(ctx, "prepare scene Skills failed; continuing without failed Skills: error=%v", err)
-	}
 	if err := p.prepareInvokedSkills(ctx, req.Input.Messages, viewRoot, policy, downloadContext); err != nil {
 		logs.WarnContextf(ctx, "prepare invoked Skills failed; continuing without failed Skills: error=%v", err)
 	}
 	return viewRoot, cleanup, nil
-}
-
-func (p *PluginSkillPreparer) prepareSceneSkills(
-	ctx context.Context,
-	req *agentrundomain.RunRequest,
-	viewRoot string,
-	downloadContext skillDownloadContext,
-) error {
-	if req == nil || !strings.EqualFold(strings.TrimSpace(req.Input.Scene), salaryAccountingScene) {
-		return nil
-	}
-	const code = "attendance-payroll"
-	// 场景 Skill 包含会随代码一起演进的确定性计算器。不能因为任务视图
-	// 已经存在旧副本就跳过刷新，否则工资规则修复不会进入本次运行。
-	if err := p.installLatestSkills(ctx, []string{code}, viewRoot, salaryAccountingScene, downloadContext); err != nil {
-		return err
-	}
-	logs.InfoContextf(ctx, "installed scene Skill %q for scene=%s", code, salaryAccountingScene)
-	return nil
 }
 
 func (p *PluginSkillPreparer) preparePluginSkills(
