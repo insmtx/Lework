@@ -20,7 +20,8 @@ echo "[aio] 停止应用（保留 PostgreSQL/NATS）"
 docker compose stop leros web gateway
 
 echo "[aio] 恢复数据库"
-gunzip -c "$DB_FILE" | docker compose exec -T postgres psql -U "$LEROS_DB_USER" -d "$LEROS_DB_NAME"
+gunzip -c "$DB_FILE" | docker compose exec -T -e PGPASSWORD="$LEROS_DB_PASSWORD" postgres \
+  psql -v ON_ERROR_STOP=1 -U "$LEROS_DB_USER" -d "$LEROS_DB_NAME"
 
 if [[ -n "$APP_FILE" ]]; then
   [[ -f "$APP_FILE" ]] || { echo "工作区备份不存在: $APP_FILE" >&2; exit 1; }

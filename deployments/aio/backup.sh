@@ -18,7 +18,8 @@ DB_FILE="$OUT_DIR/leros-db-$TS.sql.gz"
 APP_FILE="$OUT_DIR/leros-app-$TS.tar.gz"
 
 echo "[aio] 备份数据库 -> $DB_FILE"
-docker compose exec -T postgres pg_dump -U "$LEROS_DB_USER" "$LEROS_DB_NAME" | gzip >"$DB_FILE"
+docker compose exec -T -e PGPASSWORD="$LEROS_DB_PASSWORD" postgres \
+  pg_dump -U "$LEROS_DB_USER" --clean --if-exists "$LEROS_DB_NAME" | gzip >"$DB_FILE"
 
 echo "[aio] 备份工作区与文件 -> $APP_FILE"
 tar -czf "$APP_FILE" -C "$SCRIPT_DIR/data/app" storage workspace
