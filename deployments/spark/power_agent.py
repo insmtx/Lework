@@ -17,12 +17,24 @@ MAX_BYTES = 1024 * 1024
 MAX_COMPONENTS = 256
 
 
+# 容器化后宿主机身份通过只读挂载与环境变量提供，默认值保持原生部署行为。
+MACHINE_ID_PATH = '/etc/machine-id'
+DEFAULT_DOCKER_SOCK = 'unix:///var/run/docker.sock'
+
+
 def host_identity():
-    machine = Path('/etc/machine-id').read_text().strip()
+    machine = Path(os.environ.get('SPARK_MACHINE_ID_PATH', MACHINE_ID_PATH)).read_text().strip()
     boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
     if not machine or not boot:
         raise ValueError('host identity unavailable')
-    return hashlib.sha256(('lework-spark:' + machine).encode()).hexdigest(), boot, socket.gethostname()
+    hostname = os.environ.get('SPARK_HOSTNAME') or socket.gethostname()
+    return hashlib.sha256(('lework-spark:' + machine).encode()).hexdigest(), boot, hostname
+
+
+def kubectl_prefix():
+    # 默认走 kubectl 自动发现（kubeconfig 或 Pod 内 ServiceAccount），不接受 shell 展开。
+    extra = os.environ.get('SPARK_KUBECTL_ARGS', '').split()
+    return ['kubectl', *extra]
 
 
 def run_probe(argv):
@@ -53,16 +65,19 @@ def collect_status(node, runner=run_probe, identity=host_identity, now=time.time
     ]
     components = []
     complete = True
+    docker_sock = os.environ.get('SPARK_DOCKER_SOCK', DEFAULT_DOCKER_SOCK)
+    if not re.fullmatch(r'unix:///[A-Za-z0-9._/-]+', docker_sock):
+        raise ValueError('invalid docker socket')
     probes = [
-        ('kubernetes', ['kubectl', '--request-timeout=3s', 'get', 'pods', '-A',
+        ('kubernetes', [*kubectl_prefix(), '--request-timeout=3s', 'get', 'pods', '-A',
                         '--field-selector', 'spec.nodeName=' + node,
                         '-o', 'jsonpath={range .items[*]}{.metadata.namespace}{"\\t"}{.metadata.name}{"\\t"}{.status.phase}{"\\n"}{end}']),
-        ('docker', ['docker', '--host', 'unix:///var/run/docker.sock', 'ps', '-a', '--format', '{{json .}}']),
+        ('docker', ['docker', '--host', docker_sock, 'ps', '-a', '--format', '{{json .}}']),
     ]
     for kind, argv in probes:
         try:
             if kind == 'kubernetes':
-                node_machine = runner(['kubectl', '--request-timeout=3s', 'get', 'node', node,
+                node_machine = runner([*kubectl_prefix(), '--request-timeout=3s', 'get', 'node', node,
                                        '-o', 'jsonpath={.status.nodeInfo.machineID}']).strip()
                 node_host = hashlib.sha256(('lework-spark:' + node_machine).encode()).hexdigest()
                 if not node_machine or node_host != host:

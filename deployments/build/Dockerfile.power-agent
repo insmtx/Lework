@@ -1,0 +1,49 @@
+# Leros Spark power agent —— 只读宿主机采集器（独立容器形态）
+#
+# 只提供 Unix socket 上的 GET /status，不包含任何启停、关机、维护或恢复命令。
+# 需要挂载：宿主机 /var/run/docker.sock（只读）、/etc/machine-id（只读），
+# 以及与 leros Server 共享的 socket 目录。
+FROM registry.yygu.cn/library/ubuntu:24.04
+
+ARG TARGETARCH
+ARG DOCKER_CLI_VERSION=27.5.1
+ARG KUBECTL_VERSION=v1.32.5
+
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        xz-utils \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 多架构：静态 docker CLI + kubectl（仅客户端，不装 dockerd）
+RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+        amd64) docker_arch="x86_64"; kubectl_arch="amd64" ;; \
+        arm64) docker_arch="aarch64"; kubectl_arch="arm64" ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://mirrors.aliyun.com/docker-ce/linux/static/stable/${docker_arch}/docker-${DOCKER_CLI_VERSION}.tgz" -o /tmp/docker.tgz \
+    && tar -xzf /tmp/docker.tgz -C /tmp \
+    && install -m 0755 /tmp/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker /tmp/docker.tgz \
+    && curl -fsSL "https://files.m.daocloud.io/dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}/kubectl" -o /usr/local/bin/kubectl \
+    && chmod 0755 /usr/local/bin/kubectl \
+    && docker --version && kubectl version --client
+
+COPY deployments/spark/power_agent.py /usr/local/lib/leros-spark/power_agent.py
+COPY deployments/build/power-agent-entrypoint.sh /usr/local/bin/power-agent-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/power-agent-entrypoint.sh
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/tmp \
+    SPARK_MACHINE_ID_PATH=/host/etc/machine-id \
+    SPARK_DOCKER_SOCK=unix:///var/run/docker.sock
+
+# 10001 为非特权用户；docker 组由 Pod securityContext.supplementalGroups 提供。
+USER 10001:999
+
+ENTRYPOINT ["/usr/local/bin/power-agent-entrypoint.sh"]
+CMD ["--socket", "/run/leros-power/agent.sock"]
