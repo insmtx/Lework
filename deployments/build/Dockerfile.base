@@ -16,9 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Configure pip aliyun mirror and install Python dependencies
 RUN pip3 install --break-system-packages -i https://mirrors.aliyun.com/pypi/simple/ requests
 
-# Install Node.js 22 LTS from npmmirror
+# Install Node.js 22 LTS from npmmirror (multi-arch: amd64/arm64)
 ENV NODE_VERSION=22.14.0
-RUN curl -fsSL https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz -o /tmp/node.tar.xz \
+ARG TARGETARCH
+RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+        amd64) node_arch="x64" ;; \
+        arm64) node_arch="arm64" ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://npmmirror.com/mirrors/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" -o /tmp/node.tar.xz \
     && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
     && rm /tmp/node.tar.xz
 
