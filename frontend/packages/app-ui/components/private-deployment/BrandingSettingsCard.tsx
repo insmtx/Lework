@@ -7,8 +7,8 @@ import {
 	readCustomBrandName,
 	saveBrandLogo,
 	saveBrandName,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Card,
 	CardContent,
@@ -16,8 +16,8 @@ import {
 	CardFooter,
 	CardHeader,
 	CardTitle,
-} from "@leros/ui/components/ui/card";
-import { Input } from "@leros/ui/components/ui/input";
+} from "@lework/ui/components/ui/card";
+import { Input } from "@lework/ui/components/ui/input";
 import { Camera, LoaderCircle, Palette, Save } from "lucide-react";
 import { type ChangeEvent, useRef, useState } from "react";
 import { toast } from "sonner";

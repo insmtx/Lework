@@ -1,6 +1,6 @@
 "use client";
 
-import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@leros/store";
+import type { AuthUser, NavItem, Project, ProjectTask, ViewMode } from "@lework/store";
 import {
 	Action,
 	getNativeFileInputAccept,
@@ -15,8 +15,8 @@ import {
 	useProjectsMenuCapabilities,
 	userApi,
 	useTaskCapabilities,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -24,15 +24,15 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { Input } from "@leros/ui/components/ui/input";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { Input } from "@lework/ui/components/ui/input";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	ArrowLeft,
 	ArrowLeftRight,
@@ -105,7 +105,7 @@ function handleRailMenuOpenChange(open: boolean) {
 }
 
 type PublicEnv = {
-	readonly VITE_LEROS_APP_VERSION?: string;
+	readonly VITE_LEWORK_APP_VERSION?: string;
 };
 
 export type AppNavigation = {
@@ -657,23 +657,23 @@ export function LeftRail({
 
 	return (
 		<aside
-			className="leros-sidebar relative"
+			className="lework-sidebar relative"
 			data-collapsed={leftRailCollapsed}
 			style={{ width: `${sidebarWidth}px` }}
 		>
-			<div className="leros-brand">
-				<div className="leros-brand-main">
-					<div className="leros-logo-placeholder" aria-hidden="true">
+			<div className="lework-brand">
+				<div className="lework-brand-main">
+					<div className="lework-logo-placeholder" aria-hidden="true">
 						{customBrandLogo ? (
 							<ProtectedImage
 								src={customBrandLogo}
 								alt=""
-								className="leros-logo-image"
+								className="lework-logo-image"
 								fallback={
 									<img
 										src={logoSrc}
 										alt=""
-										className="leros-logo-image"
+										className="lework-logo-image"
 										onError={(event) => {
 											event.currentTarget.hidden = true;
 										}}
@@ -684,7 +684,7 @@ export function LeftRail({
 							<img
 								src={logoSrc}
 								alt=""
-								className="leros-logo-image"
+								className="lework-logo-image"
 								onError={(event) => {
 									event.currentTarget.hidden = true;
 								}}
@@ -692,19 +692,19 @@ export function LeftRail({
 						)}
 						<Network className="size-5" />
 					</div>
-					<div className="leros-sidebar-expandable min-w-0">
-						<div className="leros-brand-title" title={brandName}>
+					<div className="lework-sidebar-expandable min-w-0">
+						<div className="lework-brand-title" title={brandName}>
 							{brandName}
 						</div>
-						<div className="leros-brand-version">{brandVersionLabel}</div>
+						<div className="lework-brand-version">{brandVersionLabel}</div>
 					</div>
 				</div>
 				{/* 中文注释：搜索与收起同属右侧操作区，成组排列避免 space-between 把两者拉开 */}
-				<div className="leros-brand-actions flex shrink-0 items-center gap-0.5">
+				<div className="lework-brand-actions flex shrink-0 items-center gap-0.5">
 					{!leftRailCollapsed ? (
 						<button
 							type="button"
-							className="leros-sidebar-toggle"
+							className="lework-sidebar-toggle"
 							aria-label="全局搜索任务"
 							// 中文注释：全局搜索入口只在左栏展开态展示，收起态保持当前紧凑布局不变。
 							onClick={() => requireAuth(() => setGlobalTaskSearchOpen(true))}
@@ -714,7 +714,7 @@ export function LeftRail({
 					) : null}
 					<button
 						type="button"
-						className="leros-sidebar-toggle"
+						className="lework-sidebar-toggle"
 						aria-label={leftRailCollapsed ? "展开侧边栏" : "收起侧边栏"}
 						onClick={() => setLeftRailCollapsed(!leftRailCollapsed)}
 					>
@@ -729,16 +729,16 @@ export function LeftRail({
 
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 				{inOrgAdminMode ? (
-					<nav className="leros-nav shrink-0" aria-label="组织管理导航">
+					<nav className="lework-nav shrink-0" aria-label="组织管理导航">
 						{/* 中文注释：组织管理模式下提供显式返回主界面入口，样式与侧栏导航项保持一致。 */}
 						<button
 							type="button"
 							onClick={handleBackToWorkbench}
-							className={cn("leros-nav-item mb-1", leftRailCollapsed && "justify-center")}
+							className={cn("lework-nav-item mb-1", leftRailCollapsed && "justify-center")}
 							title="返回主界面"
 							aria-label="返回主界面"
 						>
-							<span className="leros-nav-icon">
+							<span className="lework-nav-icon">
 								<ArrowLeft className="size-5" />
 							</span>
 							<span className={cn("flex-1 truncate font-medium", leftRailCollapsed && "hidden")}>
@@ -759,13 +759,13 @@ export function LeftRail({
 					</nav>
 				) : (
 					<>
-						<nav className="leros-nav shrink-0" aria-label="主导航">
+						<nav className="lework-nav shrink-0" aria-label="主导航">
 							{navGroups
 								.filter((group) => group.id !== "projects")
 								.map((group) => (
-									<div key={group.id} className="leros-nav-section">
+									<div key={group.id} className="lework-nav-section">
 										{group.label ? (
-											<div className="leros-nav-section-label">{group.label}</div>
+											<div className="lework-nav-section-label">{group.label}</div>
 										) : null}
 										<div className="space-y-1">
 											{group.items.map((item: NavItem) => (
@@ -783,10 +783,10 @@ export function LeftRail({
 						</nav>
 
 						{!leftRailCollapsed && (
-							<section className="leros-nav leros-nav-section mb-0 flex min-h-0 flex-1 flex-col">
+							<section className="lework-nav lework-nav-section mb-0 flex min-h-0 flex-1 flex-col">
 								<div
 									className={cn(
-										"leros-nav-section-label shrink-0",
+										"lework-nav-section-label shrink-0",
 										"normal-case leading-snug tracking-normal font-normal",
 									)}
 								>
@@ -822,11 +822,11 @@ export function LeftRail({
 				)}
 			</div>
 
-			<div className="leros-sidebar-footer shrink-0">
+			<div className="lework-sidebar-footer shrink-0">
 				{!isHydrated ? (
-					<div className="leros-profile-trigger" aria-hidden="true">
-						<span className="leros-avatar animate-pulse bg-slate-200" />
-						<div className="leros-sidebar-expandable flex-1 space-y-1.5 overflow-hidden">
+					<div className="lework-profile-trigger" aria-hidden="true">
+						<span className="lework-avatar animate-pulse bg-slate-200" />
+						<div className="lework-sidebar-expandable flex-1 space-y-1.5 overflow-hidden">
 							<span className="block h-3.5 w-24 rounded bg-slate-200" />
 							<span className="block h-2.5 w-16 rounded bg-slate-100" />
 						</div>
@@ -837,15 +837,15 @@ export function LeftRail({
 							render={
 								<button
 									type="button"
-									className="leros-profile-trigger"
+									className="lework-profile-trigger"
 									title={user?.uinName ?? user?.name ?? "个人中心"}
 								>
 									<ProfileAvatar user={user} />
-									<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
-										<p className="truncate text-[14px] font-semibold text-[var(--leros-text-strong)]">
+									<div className="lework-sidebar-expandable flex-1 overflow-hidden text-left">
+										<p className="truncate text-[14px] font-semibold text-[var(--lework-text-strong)]">
 											{user?.uinName ?? user?.name ?? "Lework 用户"}
 										</p>
-										<p className="truncate text-[12px] text-[var(--leros-text-subtle)]">
+										<p className="truncate text-[12px] text-[var(--lework-text-subtle)]">
 											{user?.currentOrg?.name ?? getDisplayPhone(user) ?? "已登录"}
 										</p>
 									</div>
@@ -856,10 +856,10 @@ export function LeftRail({
 							align="start"
 							side="top"
 							sideOffset={10}
-							className="leros-profile-menu border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text)] shadow-[var(--leros-shadow-menu)]"
+							className="lework-profile-menu border-[var(--lework-control-border)] bg-[var(--lework-surface)] text-[var(--lework-text)] shadow-[var(--lework-shadow-menu)]"
 							style={
 								{
-									"--leros-sidebar-menu-width": `${profileTriggerWidth}px`,
+									"--lework-sidebar-menu-width": `${profileTriggerWidth}px`,
 								} as CSSProperties
 							}
 						>
@@ -931,26 +931,26 @@ export function LeftRail({
 				) : (
 					<button
 						type="button"
-						className="leros-profile-trigger"
+						className="lework-profile-trigger"
 						onClick={handleProfileClick}
 						title="登录 / 注册"
 					>
 						<ProfileAvatar user={null} />
-						<div className="leros-sidebar-expandable flex-1 overflow-hidden text-left">
-							<p className="truncate text-[14px] font-semibold text-[var(--leros-text-strong)]">
+						<div className="lework-sidebar-expandable flex-1 overflow-hidden text-left">
+							<p className="truncate text-[14px] font-semibold text-[var(--lework-text-strong)]">
 								登录 / 注册
 							</p>
-							<p className="text-[10px] font-semibold uppercase tracking-tight text-[var(--leros-primary)]">
+							<p className="text-[10px] font-semibold uppercase tracking-tight text-[var(--lework-primary)]">
 								Lework
 							</p>
 						</div>
-						<UserRound className="leros-sidebar-expandable size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+						<UserRound className="lework-sidebar-expandable size-4 shrink-0 text-[var(--lework-text-subtle)]" />
 					</button>
 				)}
 			</div>
 
 			<hr
-				className="leros-sidebar-resize-handle"
+				className="lework-sidebar-resize-handle"
 				tabIndex={0}
 				aria-orientation="vertical"
 				aria-label="调整侧边栏宽度"
@@ -1386,7 +1386,7 @@ function AccountManagementDialog({
 					<div className="relative">
 						<button
 							type="button"
-							className="leros-avatar group relative overflow-hidden bg-transparent text-[11px] font-semibold"
+							className="lework-avatar group relative overflow-hidden bg-transparent text-[11px] font-semibold"
 							style={{ background: "transparent", width: 96, height: 96 }}
 							onClick={() => fileInputRef.current?.click()}
 							disabled={uploadingAvatar}
@@ -1509,7 +1509,7 @@ function ProfileAvatar({ user }: { user: AuthUser | null }) {
 
 	return (
 		<span
-			className="leros-avatar overflow-hidden bg-transparent text-[11px] font-semibold"
+			className="lework-avatar overflow-hidden bg-transparent text-[11px] font-semibold"
 			style={{ background: "transparent" }}
 		>
 			<ProtectedImage
@@ -1542,7 +1542,7 @@ function getDisplayPhone(user: AuthUser | null): string | undefined {
 
 function getAppVersion(): string {
 	const version = (import.meta as ImportMeta & { readonly env?: PublicEnv }).env
-		?.VITE_LEROS_APP_VERSION;
+		?.VITE_LEWORK_APP_VERSION;
 	return version?.trim() || "0.0.0";
 }
 
@@ -1598,7 +1598,7 @@ function getDesktopUpdateApi(): DesktopUpdateApi | null {
 		return null;
 	}
 
-	return ((window as Window & { lerosDesktop?: DesktopUpdateApi }).lerosDesktop ??
+	return ((window as Window & { leworkDesktop?: DesktopUpdateApi }).leworkDesktop ??
 		null) as DesktopUpdateApi | null;
 }
 
@@ -1658,7 +1658,7 @@ function DesktopUpdateMenuSection() {
 	return (
 		<>
 			{updateState.phase === "downloading" && typeof updateState.progressPercent === "number" ? (
-				<div className="leros-profile-menu-progress">
+				<div className="lework-profile-menu-progress">
 					<div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
 						<div
 							className="h-full rounded-full bg-[#34c59a] transition-all"
@@ -1795,12 +1795,12 @@ function ProjectList({
 							}}
 							data-active={active}
 							className={cn(
-								"leros-nav-item group cursor-pointer gap-1 text-sm",
+								"lework-nav-item group cursor-pointer gap-1 text-sm",
 								collapsed && "justify-center",
 							)}
 							title={collapsed ? project.name : undefined}
 						>
-							<span className="flex size-4 shrink-0 items-center justify-center text-[var(--leros-text-subtle)]">
+							<span className="flex size-4 shrink-0 items-center justify-center text-[var(--lework-text-subtle)]">
 								{project.automationId ? <Clock className="size-4" /> : <ProjectIcon />}
 							</span>
 							{!collapsed && (
@@ -1811,7 +1811,7 @@ function ProjectList({
 									{/* 悬停时将操作组移入原生省略号后的视觉留白，保持三个图标的相对间距。 */}
 									<div className="flex shrink-0 items-center transition-transform duration-150 group-hover:-translate-x-3 group-has-[button[data-popup-open]]:-translate-x-3">
 										<span
-											className={cn(railHoverChevronSlotClass, "text-[var(--leros-text-subtle)]")}
+											className={cn(railHoverChevronSlotClass, "text-[var(--lework-text-subtle)]")}
 										>
 											{projectExpanded ? (
 												<ChevronDown className="size-3.5" />
@@ -1832,7 +1832,7 @@ function ProjectList({
 											aria-label={`进入项目 ${project.name}`}
 											className={cn(
 												railHoverExternalLinkSlotClass,
-												"rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]",
+												"rounded-md text-[var(--lework-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--lework-text-strong)]",
 											)}
 											onClick={(event) => {
 												event.stopPropagation();
@@ -1848,7 +1848,7 @@ function ProjectList({
 						{!collapsed && projectExpanded ? (
 							<div className="space-y-1">
 								{isLoadingTasks ? (
-									<div className="flex items-center gap-2 px-8 py-2 text-sm text-[var(--leros-text-subtle)]">
+									<div className="flex items-center gap-2 px-8 py-2 text-sm text-[var(--lework-text-subtle)]">
 										<Loader2 className="size-3.5 animate-spin" />
 										<span>任务加载中...</span>
 									</div>
@@ -1872,7 +1872,7 @@ function ProjectList({
 										);
 									})
 								) : (
-									<div className="px-8 py-2 text-sm text-[var(--leros-text-subtle)]">暂无任务</div>
+									<div className="px-8 py-2 text-sm text-[var(--lework-text-subtle)]">暂无任务</div>
 								)}
 								{showTaskExpandTrigger ? (
 									<TaskExpandButton projectId={project.id} onClick={onExpandTasks} />
@@ -1931,17 +1931,17 @@ function TaskListItem({
 				}
 			}}
 			data-active={active}
-			className="group flex min-h-8 w-full cursor-pointer items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--leros-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] data-[active=true]:bg-[var(--leros-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--leros-primary)]"
+			className="group flex min-h-8 w-full cursor-pointer items-center gap-1 rounded-sm pl-8 pr-2 py-1.5 text-sm text-[var(--lework-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--lework-text)_8%,transparent)] data-[active=true]:bg-[var(--lework-primary-softer)] data-[active=true]:font-semibold data-[active=true]:text-[var(--lework-primary)]"
 			title={task.title}
 		>
 			{task.taskType === "cron" ? (
-				<span className="shrink-0 text-[var(--leros-text-subtle)]">
+				<span className="shrink-0 text-[var(--lework-text-subtle)]">
 					<Clock className="size-3.5" />
 				</span>
 			) : null}
 			<span className="min-w-0 flex-1 truncate text-left">{task.title}</span>
 			{task.updatedAt ? (
-				<span className="shrink-0 text-xs font-normal text-[var(--leros-text-subtle)]">
+				<span className="shrink-0 text-xs font-normal text-[var(--lework-text-subtle)]">
 					{formatRelativeTaskTime(task.updatedAt)}
 				</span>
 			) : null}
@@ -1956,7 +1956,7 @@ function TaskListItem({
 							<button
 								type="button"
 								aria-label={`管理任务 ${task.title}`}
-								className="flex size-6 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]"
+								className="flex size-6 items-center justify-center rounded-md text-[var(--lework-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--lework-text-strong)]"
 								onClick={(event) => event.stopPropagation()}
 								onPointerDown={(event) => event.stopPropagation()}
 							>
@@ -2002,7 +2002,7 @@ function TaskExpandButton({
 		<button
 			type="button"
 			onClick={() => onClick(projectId)}
-			className="flex min-h-8 w-full items-center gap-2 rounded-sm px-8 py-1.5 text-left text-sm text-[var(--leros-text-subtle)] transition-colors hover:bg-[color-mix(in_srgb,var(--leros-text)_8%,transparent)] hover:text-[var(--leros-text-strong)]"
+			className="flex min-h-8 w-full items-center gap-2 rounded-sm px-8 py-1.5 text-left text-sm text-[var(--lework-text-subtle)] transition-colors hover:bg-[color-mix(in_srgb,var(--lework-text)_8%,transparent)] hover:text-[var(--lework-text-strong)]"
 			aria-label="展开显示"
 		>
 			<span className="font-mono text-[16px] leading-none">...</span>
@@ -2042,10 +2042,10 @@ function NavItemButton({
 			type="button"
 			onClick={onClick}
 			data-active={active}
-			className={cn("leros-nav-item", collapsed && "justify-center")}
+			className={cn("lework-nav-item", collapsed && "justify-center")}
 			title={collapsed ? item.label : undefined}
 		>
-			<span className="leros-nav-icon">{icon}</span>
+			<span className="lework-nav-icon">{icon}</span>
 			<span className={cn("flex-1 truncate font-medium", collapsed && "hidden")}>{item.label}</span>
 			{item.badge ? (
 				<span

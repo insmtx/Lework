@@ -3,8 +3,8 @@ import {
 	isSystemDefaultAssistant,
 	type ProjectMember,
 	readBrandName,
-} from "@leros/store";
-import type { ComposerToken, Message } from "@leros/store/types/chat";
+} from "@lework/store";
+import type { ComposerToken, Message } from "@lework/store/types/chat";
 
 export type AssistantMessageDisplay = {
 	useDefaultBrand: boolean;

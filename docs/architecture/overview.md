@@ -1,5 +1,7 @@
 # Lework 架构设计文档
 
+> ⚠️ 本文是 2026-07 的目标架构/历史设计，包含尚未实现的 Event Engine、知识库、独立任务等概念。**当前实现以 [2026-10-30-product-architecture-as-built.md](2026-10-30-product-architecture-as-built.md) 为准。**
+>
 > 基于 **Event Engine + Execution Engine + Agent Runtime 三核架构** 构建的企业级 AI 操作系统
 >
 > cmd.run lane 已升级为异步分发 + 持久化 inbox + at-least-once 崩溃恢复

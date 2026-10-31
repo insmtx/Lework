@@ -1,4 +1,4 @@
-import type { ProjectMember } from "@leros/store";
+import type { ProjectMember } from "@lework/store";
 
 /** 判断右侧项目队友卡片是否允许走快速删除流程。 */
 export function canQuickRemoveProjectMember(

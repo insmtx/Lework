@@ -2,13 +2,13 @@ import {
 	fetchFilePreviewByPublicId,
 	fetchFilePreviewByStorageUri,
 	projectFileApi,
-} from "@leros/store";
+} from "@lework/store";
 import { getOfficeOpenXmlFormat, type OfficeOpenXmlFormat } from "./OfficePreview";
 
 export const FILE_PREVIEW_DRAWER_DEFAULT_WIDTH = 860;
 export const FILE_PREVIEW_DRAWER_MIN_WIDTH = 720;
 export const FILE_PREVIEW_DRAWER_MAX_WIDTH = 1200;
-export const PROJECT_FILE_VERSION_CHANGED_EVENT = "leros:project-file-version-changed";
+export const PROJECT_FILE_VERSION_CHANGED_EVENT = "lework:project-file-version-changed";
 
 export type FilePreviewKind =
 	| OfficeOpenXmlFormat

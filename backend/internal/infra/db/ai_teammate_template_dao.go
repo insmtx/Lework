@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // ListAITeammateTemplates lists preset AI teammate templates with optional filters.

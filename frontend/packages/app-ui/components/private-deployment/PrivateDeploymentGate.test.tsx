@@ -10,7 +10,7 @@ const storeMocks = vi.hoisted(() => ({
 	testServerConnection: vi.fn(),
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	API_BASE_URL: "https://default.example.com/v1",
 	isPrivateDeployment: true,
 	...storeMocks,

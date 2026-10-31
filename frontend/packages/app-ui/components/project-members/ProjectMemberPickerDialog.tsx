@@ -7,9 +7,9 @@ import {
 	type ProjectMember,
 	projectMemberApi,
 	useDAStore,
-} from "@leros/store";
-import { Badge } from "@leros/ui/components/ui/badge";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Badge } from "@lework/ui/components/ui/badge";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Command,
 	CommandEmpty,
@@ -17,7 +17,7 @@ import {
 	CommandInput,
 	CommandItem,
 	CommandList,
-} from "@leros/ui/components/ui/command";
+} from "@lework/ui/components/ui/command";
 import {
 	Dialog,
 	DialogContent,
@@ -25,9 +25,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@lework/ui/components/ui/select";
+import { cn } from "@lework/ui/lib/utils";
 import { LoaderCircle, UserRound, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth";
@@ -343,7 +343,7 @@ export function ProjectMemberPickerDialog({
 
 				<div className="mt-4 grid h-[420px] max-h-[calc(100vh-220px)] min-h-0 gap-4 overflow-hidden sm:grid-cols-[minmax(0,1fr)_340px]">
 					<div className="flex min-h-0 flex-col">
-						<div className="grid h-9 shrink-0 grid-cols-2 rounded-lg bg-[var(--leros-surface-soft)] p-1">
+						<div className="grid h-9 shrink-0 grid-cols-2 rounded-lg bg-[var(--lework-surface-soft)] p-1">
 							<MemberTabButton
 								active={activeTab === "assistant"}
 								onClick={() => setActiveTab("assistant")}
@@ -381,12 +381,12 @@ export function ProjectMemberPickerDialog({
 						</div>
 					</div>
 
-					<div className="flex min-h-0 flex-col rounded-xl border border-[var(--leros-control-border)] bg-white p-3">
-						<div className="mb-2 text-xs font-medium text-[var(--leros-text-muted)]">
+					<div className="flex min-h-0 flex-col rounded-xl border border-[var(--lework-control-border)] bg-white p-3">
+						<div className="mb-2 text-xs font-medium text-[var(--lework-text-muted)]">
 							已选择 {visibleDraftMembers.length} 位
 						</div>
 						{visibleDraftMembers.length === 0 ? (
-							<div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-6 text-center text-xs text-[var(--leros-text-subtle)]">
+							<div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--lework-control-border)] px-3 py-6 text-center text-xs text-[var(--lework-text-subtle)]">
 								暂未选择成员
 							</div>
 						) : (
@@ -412,7 +412,7 @@ export function ProjectMemberPickerDialog({
 					</div>
 				</div>
 
-				<DialogFooter className="mt-5 shrink-0 border-t border-[var(--leros-control-border)] pt-4">
+				<DialogFooter className="mt-5 shrink-0 border-t border-[var(--lework-control-border)] pt-4">
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
 						取消
 					</Button>
@@ -448,8 +448,8 @@ function MemberTabButton({
 			className={cn(
 				"rounded-md px-3 text-sm font-medium transition-colors",
 				active
-					? "bg-white text-[var(--leros-text-strong)] shadow-sm"
-					: "text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]",
+					? "bg-white text-[var(--lework-text-strong)] shadow-sm"
+					: "text-[var(--lework-text-muted)] hover:text-[var(--lework-text-strong)]",
 			)}
 			onClick={onClick}
 		>
@@ -507,7 +507,7 @@ export function MemberRoleSelect({
 			<SelectTrigger
 				size="sm"
 				aria-label={`设置 ${memberName} 的项目角色`}
-				className="h-8 min-w-[88px] shrink-0 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-2.5 text-sm font-medium text-[var(--leros-text)] shadow-none transition-colors hover:border-[var(--leros-control-border)] focus-visible:border-[var(--leros-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--leros-primary)]/12"
+				className="h-8 min-w-[88px] shrink-0 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-2.5 text-sm font-medium text-[var(--lework-text)] shadow-none transition-colors hover:border-[var(--lework-control-border)] focus-visible:border-[var(--lework-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--lework-primary)]/12"
 			>
 				<span className="min-w-0 truncate text-left">{projectRoleOptionLabel(displayRole)}</span>
 			</SelectTrigger>
@@ -516,13 +516,13 @@ export function MemberRoleSelect({
 				side="bottom"
 				sideOffset={4}
 				alignItemWithTrigger={false}
-				className="min-w-[88px] rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-1 shadow-md"
+				className="min-w-[88px] rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] p-1 shadow-md"
 			>
 				{PROJECT_ROLE_OPTIONS.map((option) => (
 					<SelectItem
 						key={option.value}
 						value={option.value}
-						className="rounded-md px-2.5 py-1.5 text-sm font-medium text-[var(--leros-text)]"
+						className="rounded-md px-2.5 py-1.5 text-sm font-medium text-[var(--lework-text)]"
 					>
 						{option.label}
 					</SelectItem>
@@ -600,7 +600,7 @@ function MemberCommandList({
 											preserveListScroll(() => onSelect(member));
 										}}
 										className={cn(
-											"group cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 transition-all hover:border-[var(--leros-primary)]/25 hover:bg-[var(--leros-primary-softer)] hover:shadow-sm active:scale-[0.99] data-selected:bg-[var(--leros-surface-soft)]",
+											"group cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 transition-all hover:border-[var(--lework-primary)]/25 hover:bg-[var(--lework-primary-softer)] hover:shadow-sm active:scale-[0.99] data-selected:bg-[var(--lework-surface-soft)]",
 											member.disabled && "cursor-not-allowed opacity-50",
 										)}
 										title={member.disabled ? undefined : "点击添加"}
@@ -696,25 +696,25 @@ export function ProjectMemberChip({
 	return (
 		<div
 			className={cn(
-				"group flex min-h-[52px] min-w-0 items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2",
+				"group flex min-h-[52px] min-w-0 items-center gap-2 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] py-1.5 pl-1.5 pr-2",
 				className,
 			)}
 		>
 			<MemberAvatar member={member} />
 			<div className="min-w-0 flex-1">
 				<div className="flex min-w-0 items-center gap-1.5">
-					<div className="truncate text-xs font-medium text-[var(--leros-text)]">{member.name}</div>
+					<div className="truncate text-xs font-medium text-[var(--lework-text)]">{member.name}</div>
 					{userRoleLabel && (
 						<Badge
 							variant="outline"
-							className="h-4 shrink-0 px-1.5 py-0 text-[10px] font-normal text-[var(--leros-text-subtle)]"
+							className="h-4 shrink-0 px-1.5 py-0 text-[10px] font-normal text-[var(--lework-text-subtle)]"
 						>
 							{userRoleLabel}
 						</Badge>
 					)}
 				</div>
 				{subtitle ? (
-					<div className="truncate text-[10px] leading-4 text-[var(--leros-text-subtle)]">
+					<div className="truncate text-[10px] leading-4 text-[var(--lework-text-subtle)]">
 						{subtitle}
 					</div>
 				) : null}
@@ -730,7 +730,7 @@ export function ProjectMemberChip({
 				{!readonly && canRemove && onRemove && (
 					<button
 						type="button"
-						className="rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100"
+						className="rounded-full p-0.5 text-[var(--lework-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--lework-control-border)] hover:text-[var(--lework-text)] group-hover:opacity-100"
 						aria-label={`移除成员 ${member.name}`}
 						onClick={onRemove}
 					>

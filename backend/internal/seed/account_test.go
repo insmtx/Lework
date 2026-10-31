@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -43,7 +43,7 @@ func TestSeedAccountCreatesDefaultOrgUserAndWorker(t *testing.T) {
 	}
 
 	var user types.User
-	if err := db.Where("email = ?", "admin@leros.local").First(&user).Error; err != nil {
+	if err := db.Where("email = ?", "admin@lework.local").First(&user).Error; err != nil {
 		t.Fatalf("admin user missing: %v", err)
 	}
 	if string(user.Password) == "" {
@@ -73,8 +73,8 @@ func TestSeedAccountCreatesDefaultOrgUserAndWorker(t *testing.T) {
 }
 
 func TestSeedAccountUsesAdminEnv(t *testing.T) {
-	t.Setenv("LEROS_ADMIN_EMAIL", "ops@example.com")
-	t.Setenv("LEROS_ADMIN_PASSWORD", "S3cure-pass!")
+	t.Setenv("LEWORK_ADMIN_EMAIL", "ops@example.com")
+	t.Setenv("LEWORK_ADMIN_PASSWORD", "S3cure-pass!")
 
 	db := newAccountTestDB(t)
 	if err := seedAccount(context.Background(), db); err != nil {
@@ -96,8 +96,8 @@ func TestSeedAccountUsesAdminEnv(t *testing.T) {
 }
 
 func TestSeedAccountRequiresAdminPasswordInProduction(t *testing.T) {
-	t.Setenv("LEROS_ENV", "production")
-	t.Setenv("LEROS_ADMIN_PASSWORD", "")
+	t.Setenv("LEWORK_ENV", "production")
+	t.Setenv("LEWORK_ADMIN_PASSWORD", "")
 
 	db := newAccountTestDB(t)
 	if err := seedAccount(context.Background(), db); err == nil {

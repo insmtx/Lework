@@ -5,8 +5,8 @@ import (
 )
 
 const (
-	// RuntimeKindLeros is the built-in Leros agent runtime.
-	RuntimeKindLeros = "leros"
+	// RuntimeKindLework is the built-in Lework agent runtime.
+	RuntimeKindLework = "lework"
 	// RuntimeKindClaude is the Claude Code runtime.
 	RuntimeKindClaude = "claude"
 	// RuntimeKindCodex is the Codex CLI runtime.
@@ -14,7 +14,7 @@ const (
 	// RuntimeKindOpenCode is the OpenCode runtime.
 	RuntimeKindOpenCode = "opencode"
 	// RunSkillsDirEnvVar exposes the task-private Skill root to runtime processes.
-	RunSkillsDirEnvVar = "LEROS_RUN_SKILLS_DIR"
+	RunSkillsDirEnvVar = "LEWORK_RUN_SKILLS_DIR"
 )
 
 // ExecutionMode controls runtime behavior independently from any host business model.

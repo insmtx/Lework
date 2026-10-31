@@ -6,27 +6,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	clauderuntime "github.com/insmtx/Leros/backend/agent/runtime/claude"
-	codexruntime "github.com/insmtx/Leros/backend/agent/runtime/codex"
-	nativeruntime "github.com/insmtx/Leros/backend/agent/runtime/native"
-	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
-	"github.com/insmtx/Leros/backend/config"
-	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
-	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
-	lifecyclecontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/runtimehost"
-	"github.com/insmtx/Leros/backend/internal/worker/skillsync"
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/tools"
-	artifactdeclare "github.com/insmtx/Leros/backend/tools/artifact_declare"
-	memorytools "github.com/insmtx/Leros/backend/tools/memory"
-	nodetools "github.com/insmtx/Leros/backend/tools/node"
-	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
-	skillusetools "github.com/insmtx/Leros/backend/tools/skill_use"
-	todotools "github.com/insmtx/Leros/backend/tools/todo"
+	"github.com/insmtx/Lework/backend/agent"
+	clauderuntime "github.com/insmtx/Lework/backend/agent/runtime/claude"
+	codexruntime "github.com/insmtx/Lework/backend/agent/runtime/codex"
+	nativeruntime "github.com/insmtx/Lework/backend/agent/runtime/native"
+	opencoderuntime "github.com/insmtx/Lework/backend/agent/runtime/opencode"
+	"github.com/insmtx/Lework/backend/config"
+	localmemory "github.com/insmtx/Lework/backend/internal/memory/local"
+	modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"
+	"github.com/insmtx/Lework/backend/internal/worker/agentrun"
+	lifecyclecontext "github.com/insmtx/Lework/backend/internal/worker/agentrun/context"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/internal/worker/runtimehost"
+	"github.com/insmtx/Lework/backend/internal/worker/skillsync"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/tools"
+	artifactdeclare "github.com/insmtx/Lework/backend/tools/artifact_declare"
+	memorytools "github.com/insmtx/Lework/backend/tools/memory"
+	nodetools "github.com/insmtx/Lework/backend/tools/node"
+	skillmanagetools "github.com/insmtx/Lework/backend/tools/skill_manage"
+	skillusetools "github.com/insmtx/Lework/backend/tools/skill_use"
+	todotools "github.com/insmtx/Lework/backend/tools/todo"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -95,7 +95,7 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 	// Select default runtime.
 	selectedDefault := selectDefaultRuntime(opts.DefaultRuntime, opts, cliNames)
 	if selectedDefault == "" {
-		selectedDefault = agent.RuntimeKindLeros
+		selectedDefault = agent.RuntimeKindLework
 	}
 	normalizedDefault := fallbackDefaultRuntime(selectedDefault, registeredKinds, unavailableRuntimes)
 	if _, ok := registeredKinds[normalizedDefault]; !ok {
@@ -108,7 +108,7 @@ func NewService(ctx context.Context, opts Options) (*Service, error) {
 		wm = agentrun.NewWorkspaceManager(opts.Env, opts.GiteaCfg.Endpoint, opts.GiteaCfg.Owner, opts.GiteaCfg.AccessToken)
 	}
 	ai = agentrun.NewAttachmentIngestor()
-	skillsRoot, err := leros.SkillsDir()
+	skillsRoot, err := lework.SkillsDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve worker Skill repository: %w", err)
 	}
@@ -280,7 +280,7 @@ func selectDefaultRuntime(defaultRuntime string, opts Options, cliNames []string
 	if opts.CLIConfig != nil && strings.TrimSpace(opts.CLIConfig.Default) != "" {
 		return opts.CLIConfig.Default
 	}
-	return agent.RuntimeKindLeros
+	return agent.RuntimeKindLework
 }
 
 func normalizeRuntimeKind(kind string) string {
@@ -292,7 +292,7 @@ func externalCLIDataDir(kind string) (string, error) {
 	if normalized == "" {
 		return "", fmt.Errorf("runtime kind is required")
 	}
-	return leros.JoinWorkspace("." + normalized)
+	return lework.JoinWorkspace("." + normalized)
 }
 
 func buildMCPServersFromConfig(cliCfg *config.CLIEnginesConfig) []agent.MCPServerConfig {
@@ -300,7 +300,7 @@ func buildMCPServersFromConfig(cliCfg *config.CLIEnginesConfig) []agent.MCPServe
 		return nil
 	}
 	cfg := agent.MCPServerConfig{
-		Name:        "leros",
+		Name:        "lework",
 		URL:         cliCfg.MCP.URL,
 		BearerToken: cliCfg.MCP.BearerToken,
 	}

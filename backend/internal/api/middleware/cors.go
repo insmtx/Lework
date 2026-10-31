@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CORS 只回显白名单来源。显式传参优先，其次读 LEROS_CORS_ALLOWED_ORIGINS，
-// 最后读 LEROS_PUBLIC_URL。未配置时不允许任何跨域来源；同源请求不依赖 CORS 头。
+// CORS 只回显白名单来源。显式传参优先，其次读 LEWORK_CORS_ALLOWED_ORIGINS，
+// 最后读 LEWORK_PUBLIC_URL。未配置时不允许任何跨域来源；同源请求不依赖 CORS 头。
 //
 // 不能继续使用 AllowOriginFunc 恒 true + AllowCredentials：这等于允许任意网站
 // 携带用户 Cookie 调用管理 API。
@@ -44,10 +44,10 @@ func CORS(allowedOrigins ...string) gin.HandlerFunc {
 			"X-Request-ID",
 			"X-Trace-ID",
 			"X-Requested-With",
-			"X-Leros-Client-App",
-			"X-Leros-Client-Version",
-			"X-Leros-Client-Platform",
-			"X-Leros-Client-Arch",
+			"X-Lework-Client-App",
+			"X-Lework-Client-Version",
+			"X-Lework-Client-Platform",
+			"X-Lework-Client-Arch",
 		},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
@@ -58,10 +58,10 @@ func CORS(allowedOrigins ...string) gin.HandlerFunc {
 func buildAllowedOrigins(explicit []string) map[string]struct{} {
 	raw := make([]string, 0, len(explicit)+2)
 	raw = append(raw, explicit...)
-	if env := strings.TrimSpace(os.Getenv("LEROS_CORS_ALLOWED_ORIGINS")); env != "" {
+	if env := strings.TrimSpace(os.Getenv("LEWORK_CORS_ALLOWED_ORIGINS")); env != "" {
 		raw = append(raw, strings.Split(env, ",")...)
 	}
-	if publicURL := strings.TrimSpace(os.Getenv("LEROS_PUBLIC_URL")); publicURL != "" {
+	if publicURL := strings.TrimSpace(os.Getenv("LEWORK_PUBLIC_URL")); publicURL != "" {
 		raw = append(raw, publicURL)
 	}
 

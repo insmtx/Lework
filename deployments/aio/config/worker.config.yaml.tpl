@@ -11,4 +11,4 @@ log:
   level: info
 
 cli:
-  default: "leros"
+  default: "lework"

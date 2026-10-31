@@ -62,13 +62,13 @@ func TestRunConfigEffectiveNormalizesInflightToAtLeastConcurrency(t *testing.T) 
 
 func TestWorkerConfigParsesWorkspaceRootAndLogLevel(t *testing.T) {
 	var cfg WorkerConfig
-	body := []byte("org_id: 1\nworker_id: 2\nworkspace_root: /tmp/leros-workspace\nbootstrap_token: test-bootstrap\nlog:\n  level: warn\n")
+	body := []byte("org_id: 1\nworker_id: 2\nworkspace_root: /tmp/lework-workspace\nbootstrap_token: test-bootstrap\nlog:\n  level: warn\n")
 
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		t.Fatalf("unmarshal worker config: %v", err)
 	}
 
-	if cfg.WorkspaceRoot != "/tmp/leros-workspace" {
+	if cfg.WorkspaceRoot != "/tmp/lework-workspace" {
 		t.Fatalf("workspace root = %q", cfg.WorkspaceRoot)
 	}
 	if cfg.BootstrapToken != "test-bootstrap" {

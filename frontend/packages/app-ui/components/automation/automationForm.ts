@@ -4,7 +4,7 @@ import type {
 	BackendAutomationCalendarConfig,
 	BackendAutomationScheduleFormConfig,
 	BackendAutomationScheduleInput,
-} from "@leros/store";
+} from "@lework/store";
 
 export type AutomationCalendarFormState = {
 	preset: "daily" | "weekly" | "monthly" | "hourly";

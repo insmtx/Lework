@@ -1,7 +1,7 @@
 package types
 
 // OwnerScope identifies whether a resource belongs to one organization or to
-// the Leros system namespace.
+// the Lework system namespace.
 type OwnerScope string
 
 const (

@@ -11,7 +11,7 @@ import (
 	einoschema "github.com/cloudwego/eino/schema"
 	"github.com/ygpkg/yg-go/logs"
 
-	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
+	pkgeino "github.com/insmtx/Lework/backend/pkg/eino"
 )
 
 // CallerEino 是基于 eino 框架的 Caller 接口实现。

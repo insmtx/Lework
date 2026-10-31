@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
 )
 
 // isPermissionDenied reports whether err is a permission denial from PermissionService.

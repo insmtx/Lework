@@ -7,9 +7,9 @@ import {
 	formatTime,
 	useAuthStore,
 	useLayoutStore,
-} from "@leros/store";
-import type { Message, MessageAttachment } from "@leros/store/types/chat";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import type { Message, MessageAttachment } from "@lework/store/types/chat";
+import { Button } from "@lework/ui/components/ui/button";
 import { Check, Copy, Folder, ImageIcon, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ProtectedImage } from "../avatar/ProtectedImage";
@@ -223,15 +223,15 @@ function FolderAttachmentCard({
 
 	return (
 		<div className="relative flex w-[260px] min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm">
-			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]">
 				<Folder className="size-5" aria-hidden="true" />
 			</div>
 			<div className="min-w-0">
-				<div className="truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+				<div className="truncate text-sm font-semibold leading-5 text-[var(--lework-text-strong)]">
 					{name}
 				</div>
 				{meta ? (
-					<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+					<div className="mt-1 truncate text-xs leading-4 text-[var(--lework-text-muted)]">
 						{meta}
 					</div>
 				) : null}
@@ -365,7 +365,7 @@ function ImageAttachmentCard({
 			className="group/attachment relative flex w-[260px] min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-200/70 bg-white/90 px-3.5 py-3 text-left shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/60"
 			title={attachment.name}
 		>
-			<div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--leros-primary-softer)] text-slate-400">
+			<div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--lework-primary-softer)] text-slate-400">
 				{thumbnailUrl ? (
 					<img src={thumbnailUrl} alt={attachment.name} className="h-full w-full object-cover" />
 				) : thumbnailLoading ? (
@@ -375,11 +375,11 @@ function ImageAttachmentCard({
 				)}
 			</div>
 			<div className="min-w-0">
-				<div className="truncate text-sm font-normal leading-5 text-[var(--leros-text-strong)]">
+				<div className="truncate text-sm font-normal leading-5 text-[var(--lework-text-strong)]">
 					{attachment.name}
 				</div>
 				{metaText ? (
-					<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+					<div className="mt-1 truncate text-xs leading-4 text-[var(--lework-text-muted)]">
 						{metaText}
 					</div>
 				) : null}
@@ -412,15 +412,15 @@ function FileAttachmentCard({
 			title={attachment.name}
 		>
 			<AttachmentHoverMask />
-			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
+			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)]">
 				<ProjectFileTypeIcon fileName={attachment.name} />
 			</div>
 			<div className="min-w-0">
-				<div className="truncate text-sm font-normal leading-5 text-[var(--leros-text-strong)]">
+				<div className="truncate text-sm font-normal leading-5 text-[var(--lework-text-strong)]">
 					{attachment.name}
 				</div>
 				{metaText ? (
-					<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+					<div className="mt-1 truncate text-xs leading-4 text-[var(--lework-text-muted)]">
 						{metaText}
 					</div>
 				) : null}

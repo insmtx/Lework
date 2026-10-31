@@ -1,4 +1,4 @@
-name: leros-aio
+name: lework-aio
 
 # 一体机部署：单机跑齐 PostgreSQL、NATS、Server（内含 Worker 进程）、Web、网关。
 # 数据默认落在 ./data，升级不丢；镜像可通过 .env 指定为离线导入的本地镜像。
@@ -11,11 +11,11 @@ x-logging: &default-logging
 
 services:
   postgres:
-    image: ${LEROS_POSTGRES_IMAGE:-postgres:17}
+    image: ${LEWORK_POSTGRES_IMAGE:-postgres:17}
     environment:
-      POSTGRES_DB: ${LEROS_DB_NAME}
-      POSTGRES_USER: ${LEROS_DB_USER}
-      POSTGRES_PASSWORD: ${LEROS_DB_PASSWORD}
+      POSTGRES_DB: ${LEWORK_DB_NAME}
+      POSTGRES_USER: ${LEWORK_DB_USER}
+      POSTGRES_PASSWORD: ${LEWORK_DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,10 +25,10 @@ services:
       retries: 30
     restart: unless-stopped
     logging: *default-logging
-    networks: [leros]
+    networks: [lework]
 
   nats:
-    image: ${LEROS_NATS_IMAGE:-nats:2.12}
+    image: ${LEWORK_NATS_IMAGE:-nats:2.12}
     command: ["-js", "-m", "8222", "-sd", "/data"]
     volumes:
       - nats_data:/data
@@ -40,18 +40,18 @@ services:
       retries: 12
     restart: unless-stopped
     logging: *default-logging
-    networks: [leros]
+    networks: [lework]
 
-  leros:
+  lework:
     # 一体机使用 worker 镜像跑 server：server 的 process scheduler 会在同一容器内
-    # 拉起 /leros worker，从而复用镜像里的文档/浏览器/CLI 工具链。
-    image: ${LEROS_IMAGE:-leros-aio/worker:local}
+    # 拉起 /lework worker，从而复用镜像里的文档/浏览器/CLI 工具链。
+    image: ${LEWORK_IMAGE:-lework-aio/worker:local}
     build:
       context: ../..
       dockerfile: deployments/build/Dockerfile.worker
       args:
-        GO_BUILDER_IMAGE: ${LEROS_GO_BUILDER_IMAGE:-registry.yygu.cn/library/golang:1.25}
-        WORKER_BASE_IMAGE: ${LEROS_WORKER_BASE_IMAGE:-registry.yygu.cn/insmtx/leros-worker-base:saas}
+        GO_BUILDER_IMAGE: ${LEWORK_GO_BUILDER_IMAGE:-registry.yygu.cn/library/golang:1.25}
+        WORKER_BASE_IMAGE: ${LEWORK_WORKER_BASE_IMAGE:-registry.yygu.cn/insmtx/lework-worker-base:saas}
     command: ["server", "--config", "/app/config/server.config.yaml"]
     depends_on:
       postgres:
@@ -59,12 +59,12 @@ services:
       nats:
         condition: service_healthy
     environment:
-      LEROS_ENV: production
-      LEROS_ADMIN_EMAIL: ${LEROS_ADMIN_EMAIL}
-      LEROS_ADMIN_PASSWORD: ${LEROS_ADMIN_PASSWORD}
-      LEROS_WORKSPACE_ROOT: /data/workspace
-      LEROS_PUBLIC_URL: ${LEROS_PUBLIC_BASE_URL}
-      LEROS_CORS_ALLOWED_ORIGINS: ${LEROS_CORS_ALLOWED_ORIGINS:-}
+      LEWORK_ENV: production
+      LEWORK_ADMIN_EMAIL: ${LEWORK_ADMIN_EMAIL}
+      LEWORK_ADMIN_PASSWORD: ${LEWORK_ADMIN_PASSWORD}
+      LEWORK_WORKSPACE_ROOT: /data/workspace
+      LEWORK_PUBLIC_URL: ${LEWORK_PUBLIC_BASE_URL}
+      LEWORK_CORS_ALLOWED_ORIGINS: ${LEWORK_CORS_ALLOWED_ORIGINS:-}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ./config:/app/config:ro
@@ -79,22 +79,22 @@ services:
       start_period: 30s
     restart: unless-stopped
     logging: *default-logging
-    networks: [leros]
+    networks: [lework]
 
   web:
-    image: ${LEROS_WEB_IMAGE:-leros-aio/web:local}
+    image: ${LEWORK_WEB_IMAGE:-lework-aio/web:local}
     build:
       context: ../..
       dockerfile: deployments/build/Dockerfile.web
       args:
-        NEXT_PUBLIC_LEROS_API_BASE_URL: /v1
+        NEXT_PUBLIC_LEWORK_API_BASE_URL: /v1
     environment:
-      LEROS_API_BASE_URL: http://leros:8080/v1
+      LEWORK_API_BASE_URL: http://lework:8080/v1
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       TZ: ${TZ:-Asia/Shanghai}
     depends_on:
-      leros:
+      lework:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/ >/dev/null"]
@@ -104,16 +104,16 @@ services:
       start_period: 20s
     restart: unless-stopped
     logging: *default-logging
-    networks: [leros]
+    networks: [lework]
 
   gateway:
-    image: ${LEROS_NGINX_IMAGE:-nginx:1.27-alpine}
+    image: ${LEWORK_NGINX_IMAGE:-nginx:1.27-alpine}
     ports:
-      - "${LEROS_BIND_ADDR:-0.0.0.0}:${LEROS_HTTP_PORT:-80}:80"
+      - "${LEWORK_BIND_ADDR:-0.0.0.0}:${LEWORK_HTTP_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      leros:
+      lework:
         condition: service_healthy
       web:
         condition: service_healthy
@@ -124,12 +124,12 @@ services:
       retries: 12
     restart: unless-stopped
     logging: *default-logging
-    networks: [leros]
+    networks: [lework]
 
 volumes:
   postgres_data:
   nats_data:
 
 networks:
-  leros:
+  lework:
     driver: bridge

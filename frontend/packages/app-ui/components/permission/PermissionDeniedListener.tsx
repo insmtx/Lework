@@ -1,6 +1,6 @@
 "use client";
 
-import { PERMISSION_DENIED_EVENT } from "@leros/store";
+import { PERMISSION_DENIED_EVENT } from "@lework/store";
 import { useEffect } from "react";
 import { toast } from "sonner";
 

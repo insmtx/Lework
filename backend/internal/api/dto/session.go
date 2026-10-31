@@ -3,7 +3,7 @@ package dto
 import (
 	"encoding/json"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 // MessageDeltaPayload is the public message/reasoning delta payload.

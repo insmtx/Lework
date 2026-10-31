@@ -495,7 +495,7 @@
 
 本版本新增 Web Docker 独立部署与 GitLab CI 构建支持，优化 macOS 桌面端体验和自动更新弹窗版本刷新，增强工作台项目/任务最近上下文持久化，并为 OpenCode 运行链路补充进程启动自愈、V1 事件适配和 SSE 错误传播能力。
 
-- 新增 `Dockerfile.web` 与 leros-web CI 构建入口，支持 Web 前端独立镜像构建与部署
+- 新增 `Dockerfile.web` 与 lework-web CI 构建入口，支持 Web 前端独立镜像构建与部署
 - Web 端 Next 配置支持 standalone 输出，配合 Makefile 镜像构建流程提升容器化部署一致性
 - 优化 macOS 桌面端窗口与视觉体验，补充 macOS 图标资源生成逻辑和相关测试
 - 桌面端自动更新弹窗支持刷新版本信息，修复更新提示中的版本展示滞后问题
@@ -515,7 +515,7 @@
 - Worker Deployment reconciler 支持检测运行中 Worker 镜像是否偏离期望配置，并在漂移时自动重新启动部署
 - Kubernetes Scheduler 新增 WorkerSpecReconciler 能力，通过 Deployment 中的 worker 容器镜像判断是否需要重新收敛
 - Scheduler 配置补充 `worker_image` 传递链路，确保 server 配置中的期望镜像能驱动 k3s worker 更新
-- 新增 k3s 发布脚本 `update-leros-images.sh`，支持更新 server 镜像、写回 `scheduler.worker_image` 并重启 server Deployment
+- 新增 k3s 发布脚本 `update-lework-images.sh`，支持更新 server 镜像、写回 `scheduler.worker_image` 并重启 server Deployment
 - 新增 k3s 部署说明与 server 配置示例，明确 ConfigMap、命名空间、worker 镜像更新开关和生产环境变量要求
 - 工作台输入框支持通过 `#` 触发项目/任务选择，选择完成后自动清理触发文本，提升项目上下文切换效率
 - 项目/任务选择器改为统一搜索弹窗，支持项目与任务高亮匹配、展开任务列表和选择新建项目/任务
@@ -566,7 +566,7 @@
 
 - 统一 Worker Command 架构，重构 Agent Runtime、消息命令、运行协调与事件发布链路，支持 Session Run 取消
 - 重构 git storage 与 Worker/Server 文件提交链路，收敛仓库提交排除规则并增强工作区 artifact 处理
-- 加固 Worker 与 Server 鉴权边界，调整静态资源访问方式并补充 `leros static` 相关 CLI 能力
+- 加固 Worker 与 Server 鉴权边界，调整静态资源访问方式并补充 `lework static` 相关 CLI 能力
 - 新增 OOXML 文件预览能力，支持 Word、Excel、PPT 等 Office 文件在附件、项目文件与产物预览中统一展示
 - 文件预览统一走 authenticated preview 接口，产物文件列表统一使用 `projectFileApi`，减少前端多套文件来源分歧
 - `artifact_declare` 移除强制 `artifacts/` 路径限制，允许更灵活地声明和展示任务产物
@@ -619,7 +619,7 @@
 - Project 全面集成 Gitea，项目文件、工作区仓库与文件树均基于 Gitea 仓库管理
 - Gitea 配置重命名（`url` → `endpoint`），用 `CreateRepo` 替代 `AdminCreateRepo`，提升 API 兼容性
 - Worker git 推送增加详细错误日志、上传路径逃逸修复与 artifact filestore 上传开关控制
-- Worker 支持通过环境变量 `LEROS_GIT_USER_NAME` / `LEROS_GIT_USER_EMAIL` 配置 git commit 作者身份，避免容器内提交失败
+- Worker 支持通过环境变量 `LEWORK_GIT_USER_NAME` / `LEWORK_GIT_USER_EMAIL` 配置 git commit 作者身份，避免容器内提交失败
 - 技能导入系统支持 GitHub 仓库链接直接导入，无需手动 ETL
 - 前端技能导入对话框支持 GitHub URL 输入，扩展技能发现渠道
 - 前端项目页恢复文件上传逻辑并隐藏上传按钮入口，清理 ProjectPage 死代码并修正 TaskDetail 布局
@@ -762,8 +762,8 @@
 - 新增预签名上传、下载及消费接口，支持本地与 S3 存储驱动生成预签名 URL
 - 新增静态资源预签名路由鉴权、令牌校验与配置项，补充默认签名密钥和基础 URL 支持
 - 补充预签名服务、静态资源 handler 与集成测试，并完善 Swagger 文档和使用说明
-- 新增 `leros session messages` 命令，支持分页查询会话消息及 JSON 输出
-- Native Engine 支持加载持久化会话消息作为上下文，并直接使用 Leros 内部 session ID
+- 新增 `lework session messages` 命令，支持分页查询会话消息及 JSON 输出
+- Native Engine 支持加载持久化会话消息作为上下文，并直接使用 Lework 内部 session ID
 - 优化 CLI JSON 输出，将结构化日志重定向至标准错误输出
 - 更新桌面端发布流程的默认 API 地址
 
@@ -805,7 +805,7 @@
 - BuiltinSource 改为 HTTP API 模式，短关键词外部搜索跳过逻辑下沉到 `SkillsShSource.Search`
 - Skill 管理支持删除时清理 CLI symlink，并引入类型化 catalog 错误
 - 修复用户、组织、项目、任务、会话、消息与 artifact 查询中的用户数据隔离问题
-- 新增 `install.sh`，支持将 `leros` 注册为全局系统命令，并补充 Makefile 安装入口
+- 新增 `install.sh`，支持将 `lework` 注册为全局系统命令，并补充 Makefile 安装入口
 - 优化桌面端发布 workflow，移除 COSCLI 上传链路，配置桌面端发布 API 地址注入
 - 优化桌面端发布产物体积，修复 SkillMarketView 中 `offsetRef` 导致的构建问题
 

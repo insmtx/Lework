@@ -4,13 +4,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import desktopPackage from "./package.json";
 
-const deploymentMode = process.env.VITE_LEROS_DEPLOYMENT_MODE ?? "public";
+const deploymentMode = process.env.VITE_LEWORK_DEPLOYMENT_MODE ?? "public";
 
 export default defineConfig({
 	main: {
 		plugins: [externalizeDepsPlugin()],
 		define: {
-			"process.env.LEROS_DEPLOYMENT_MODE": JSON.stringify(deploymentMode),
+			"process.env.LEWORK_DEPLOYMENT_MODE": JSON.stringify(deploymentMode),
 		},
 	},
 	preload: {
@@ -23,8 +23,8 @@ export default defineConfig({
 			strictPort: true,
 		},
 		define: {
-			"import.meta.env.VITE_LEROS_APP_VERSION": JSON.stringify(desktopPackage.version),
-			"import.meta.env.VITE_LEROS_DEPLOYMENT_MODE": JSON.stringify(deploymentMode),
+			"import.meta.env.VITE_LEWORK_APP_VERSION": JSON.stringify(desktopPackage.version),
+			"import.meta.env.VITE_LEWORK_DEPLOYMENT_MODE": JSON.stringify(deploymentMode),
 		},
 		plugins: [react(), tailwindcss()],
 		resolve: {

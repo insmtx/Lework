@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import type { ProjectMember } from "@leros/store";
+import type { ProjectMember } from "@lework/store";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 

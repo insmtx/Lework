@@ -1,11 +1,11 @@
-# Leros Development Environment
+# Lework Development Environment
 
-Docker Compose setup for Leros development environment.
+Docker Compose setup for Lework development environment.
 
 ## Services
 
 This setup brings up the following services:
-- **leros**: Main application server
+- **lework**: Main application server
 - **postgresql**: Database server
 - **nats**: Message broker with JetStream
 
@@ -33,7 +33,7 @@ docker-compose logs -f
 
 ## Ports
 
-- `8080`: Leros API server
+- `8080`: Lework API server
 - `5432`: PostgreSQL server
 - `4222`: NATS server (Client)
 - `8222`: NATS Monitoring

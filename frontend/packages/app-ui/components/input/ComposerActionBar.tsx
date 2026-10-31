@@ -1,6 +1,6 @@
 "use client";
 
-import { type PluginComposerOption, skillCodeFromToken } from "@leros/store";
+import { type PluginComposerOption, skillCodeFromToken } from "@lework/store";
 import {
 	Command,
 	CommandEmpty,
@@ -9,10 +9,10 @@ import {
 	CommandItem,
 	CommandList,
 	CommandSeparator,
-} from "@leros/ui/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	Bot,
 	Cable,
@@ -251,7 +251,7 @@ export function ComposerActionBar({
 						className={cn(
 							"order-1 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900",
 							executionMode === "plan" &&
-								"bg-[var(--leros-primary-softer)] !text-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)] hover:!text-[var(--leros-primary)]",
+								"bg-[var(--lework-primary-softer)] !text-[var(--lework-primary)] hover:bg-[var(--lework-primary-soft)] hover:!text-[var(--lework-primary)]",
 						)}
 					>
 						<ClipboardPenLine className="size-4" />

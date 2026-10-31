@@ -54,7 +54,7 @@ Lework 是一个面向企业与团队的开源 AI 工作平台。它是 [智慧�
 
 ### 技术形态
 
-- 服务端为 **Go 单体仓库**（module `github.com/insmtx/Leros`，Go 1.25），既能以聚合单体一键部署，也可按需拆分；
+- 服务端为 **Go 单体仓库**（module `github.com/insmtx/Lework`，Go 1.25），既能以聚合单体一键部署，也可按需拆分；
 - 前端为 `frontend/` 下的 **pnpm + turbo monorepo**，含 Web 主界面（Next.js / React / TypeScript）与桌面端应用；
 - 任务与事件经 **NATS JetStream** 分发，Agent 执行由 `backend/agent` 承载，支持 native / claude / codex / opencode 等多种运行时；
 - 内置 **MCP Server**（对外暴露 Lework 运行时能力），同时作为 **MCP 客户端**通过连接器接入外部系统与知识库（如 CoreKG）。
@@ -162,8 +162,8 @@ Lework 支持两种认证模式，通过编译时 build tag 选择：
 
 | 模式 | 说明 | 构建命令 |
 |---|---|---|
-| **builtin**（默认） | 内置邮箱/手机/Worker Token 认证，开源版使用 | `go build -o ./bundles/leros ./backend/cmd/leros/` |
-| **enterprise** | 委托至 IAM（身份认证管理）服务，企业版使用 | `go build -tags enterprise -o ./bundles/leros ./backend/cmd/leros/` |
+| **builtin**（默认） | 内置邮箱/手机/Worker Token 认证，开源版使用 | `go build -o ./bundles/lework ./backend/cmd/lework/` |
+| **enterprise** | 委托至 IAM（身份认证管理）服务，企业版使用 | `go build -tags enterprise -o ./bundles/lework ./backend/cmd/lework/` |
 
 企业版需在 `config.yaml` 中配置 IAM 服务地址：
 
@@ -184,7 +184,7 @@ auth:
         ▼
 前端 Lework Web（Next.js）+ 桌面端（frontend/，pnpm + turbo monorepo）
         ▼
-Go 服务层 —— leros（backend/cmd/leros 聚合入口，:8080）
+Go 服务层 —— lework（backend/cmd/lework 聚合入口，:8080）
    · server     HTTP API + 命令入口（chat / session / task / project / skill / login）
    · worker     异步任务 / Agent 执行 worker
    · agent      执行核心：runtime → adapter → executor → tool / interaction / node_event
@@ -227,7 +227,7 @@ cp config.example.yaml config.yaml
 ```bash
 cd deployments/aio
 cp .env.example .env
-# 编辑 .env：设置 LEROS_ADMIN_PASSWORD；把 LEROS_IMAGE / LEROS_WEB_IMAGE 指向你构建或发布的镜像
+# 编辑 .env：设置 LEWORK_ADMIN_PASSWORD；把 LEWORK_IMAGE / LEWORK_WEB_IMAGE 指向你构建或发布的镜像
 ./install.sh
 # 也可以从当前源码构建：./install.sh --build（需要 Docker 构建网络与 worker base 镜像）
 ```
@@ -238,7 +238,7 @@ cp .env.example .env
 
 ```bash
 # 1) 补齐运行配置（见上方“配置约定”）
-# 2) 构建并启动（构建 localhost/env_leros 镜像后拉起 PostgreSQL / NATS / leros / worker）
+# 2) 构建并启动（构建 localhost/env_lework 镜像后拉起 PostgreSQL / NATS / lework / worker）
 make docker-compose-up
 # 镜像已构建时，可直接用 docker-compose 启动
 make run-detached
@@ -247,7 +247,7 @@ docker compose -f deployments/env/docker-compose.yml up -d
 
 启动完成后：
 
-- 服务端 API 位于 **http://localhost:8080**（`leros` 容器，`server --config`）
+- 服务端 API 位于 **http://localhost:8080**（`lework` 容器，`server --config`）
 - 消息总线 NATS JetStream 监控位于 **http://localhost:8222**
 - 前端 Web 默认监听 **http://localhost:3005**
 
@@ -270,14 +270,14 @@ make dev-frontend   # 前端开发容器
 
 ```
 Lework/
-├── backend/            # Go 后端（cmd/leros 为进程入口）
-│   ├── cmd/leros/      #   cobra 命令：server / worker / chat / session / task / project / skill / login 等
+├── backend/            # Go 后端（cmd/lework 为进程入口）
+│   ├── cmd/lework/      #   cobra 命令：server / worker / chat / session / task / project / skill / login 等
 │   ├── agent/          #   执行核心（runtime / adapter / executor / tool / interaction / node_event）
 │   ├── internal/       #   业务逻辑（adapter、api、infra、service、worker、modelrouter、llm 等）
 │   ├── tools/          #   Tool 注册表 + 具体工具（artifact_declare、memory、node、skill_manage、skill_use、todo）
 │   ├── types/          #   领域类型 + DB 表常量
 │   └── config/         #   配置
-├── frontend/           # 前端（pnpm + turbo monorepo：@leros/web、@leros/desktop）
+├── frontend/           # 前端（pnpm + turbo monorepo：@lework/web、@lework/desktop）
 ├── deployments/        # Docker / 私有化部署
 ├── docs/               # 文档（architecture / product / design / frontend / operations / swagger）
 ├── config.example.yaml / minimal-config.yaml
@@ -288,7 +288,7 @@ Lework/
 
 ```bash
 # 构建后端（默认 builtin 认证）
-make build                       # → bundles/leros
+make build                       # → bundles/lework
 # 企业版构建（认证委托 IAM）
 make build BUILD_TAGS=enterprise
 
@@ -308,8 +308,8 @@ go test ./backend/internal/<pkg>
 
 ### 约定与注意
 
-- **模块路径**：所有内部 import 使用 `github.com/insmtx/Leros/...` 前缀；
-- **分层严格**：`cmd/leros`（进程入口，仅生命周期）→ `agent/**`（业务无关执行核心）→ `internal/**`（业务逻辑）→ `types/` / `config/`（共享类型），跨层边界与硬性规则详见根目录 [AGENTS.md](AGENTS.md)；
+- **模块路径**：所有内部 import 使用 `github.com/insmtx/Lework/...` 前缀；
+- **分层严格**：`cmd/lework`（进程入口，仅生命周期）→ `agent/**`（业务无关执行核心）→ `internal/**`（业务逻辑）→ `types/` / `config/`（共享类型），跨层边界与硬性规则详见根目录 [AGENTS.md](AGENTS.md)；
 - **测试非隔离**：多数包级测试依赖真实中间件（PostgreSQL / NATS），建议先 `make dev-up` 再运行相关包级测试；
 - **生成文件勿手改**：`docs/swagger/`（swag 生成）等生成文件不要手动编辑。
 

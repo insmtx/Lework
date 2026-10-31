@@ -1,4 +1,4 @@
-import type { PluginComposerOption } from "@leros/store";
+import type { PluginComposerOption } from "@lework/store";
 
 export type SkillSourceLabel = "系统" | "市场" | "组织";
 

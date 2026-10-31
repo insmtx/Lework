@@ -9,7 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // ListAutomationOptions 自动化列表查询参数

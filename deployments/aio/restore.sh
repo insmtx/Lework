@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 恢复备份。用法:
-#   ./restore.sh data/backups/leros-db-20260101-120000.sql.gz [data/backups/leros-app-....tar.gz]
+#   ./restore.sh data/backups/lework-db-20260101-120000.sql.gz [data/backups/lework-app-....tar.gz]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,11 +17,11 @@ APP_FILE="${2:-}"
 set -a; source .env; set +a
 
 echo "[aio] 停止应用（保留 PostgreSQL/NATS）"
-docker compose stop leros web gateway
+docker compose stop lework web gateway
 
 echo "[aio] 恢复数据库"
-gunzip -c "$DB_FILE" | docker compose exec -T -e PGPASSWORD="$LEROS_DB_PASSWORD" postgres \
-  psql -v ON_ERROR_STOP=1 -U "$LEROS_DB_USER" -d "$LEROS_DB_NAME"
+gunzip -c "$DB_FILE" | docker compose exec -T -e PGPASSWORD="$LEWORK_DB_PASSWORD" postgres \
+  psql -v ON_ERROR_STOP=1 -U "$LEWORK_DB_USER" -d "$LEWORK_DB_NAME"
 
 if [[ -n "$APP_FILE" ]]; then
   [[ -f "$APP_FILE" ]] || { echo "工作区备份不存在: $APP_FILE" >&2; exit 1; }
@@ -34,6 +34,6 @@ fi
 
 echo "[aio] 启动应用"
 docker compose start web gateway
-docker compose up -d --no-build leros
+docker compose up -d --no-build lework
 
 echo "[aio] 恢复完成，请验证: docker compose ps"

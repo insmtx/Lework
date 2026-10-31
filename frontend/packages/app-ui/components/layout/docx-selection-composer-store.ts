@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComposerToken } from "@leros/store/types/chat";
+import type { ComposerToken } from "@lework/store/types/chat";
 import { useSyncExternalStore } from "react";
 import type { FilePreviewItem } from "./file-preview-utils";
 import type { OfficeTextSelection } from "./office-selection";

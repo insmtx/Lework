@@ -56,7 +56,7 @@
 | 容器 pin `1.18.16` | `deployments/build/Dockerfile.worker-base:14`，安装处 `:174`，启动自检 `:177` |
 | 文档记录已漂移（写的是 1.17.20） | `deployments/build/worker-base.versions.txt:16` |
 | 开发机默认 v2、dev 注入 v1 | `deployments/dev/.env:20-23`；`.vscode/launch.json` 的 Server/Worker 两段各一份字面量 PATH |
-| 二进制路径完全由 PATH 决定 | `exec.LookPath("opencode")`（`backend/internal/cli/discovery.go:105`）；`LEROS_AGENT_OPENCODE_BINARY` 只被测试读取（`backend/agent/runtime/real_model_integration_test.go:174-186`） |
+| 二进制路径完全由 PATH 决定 | `exec.LookPath("opencode")`（`backend/internal/cli/discovery.go:105`）；`LEWORK_AGENT_OPENCODE_BINARY` 只被测试读取（`backend/agent/runtime/real_model_integration_test.go:174-186`） |
 | 无版本门禁 | `discovery.go:49-56` 解析版本；`backend/internal/worker/app/service.go:95` 只传路径；`healthResponse.Version` 解码后从不读取（`backend/agent/runtime/opencode/types.go:293-296`） |
 | 上游 v1 仍在维护 | `v1.19.4` 提交于 2026-10-22；`v1.18.16..v1.19.4` 共 538 次提交，以构建/修复为主 |
 | 上游 v2 迭代快 | `v2.0.11`（2026-09-20）→ `v2.1.4`（2026-10-23），含一次 minor |
@@ -233,7 +233,7 @@ ACP 成为默认的前提是「多 runtime」。以下任一情况出现，就�
 |---|---|---|---|
 | **L1 改行为** | 加工具、改 prompt、加权限规则、挂执行前后钩子、多挂一个模型 | 不改 | **无关**（走 v2 插件） |
 | **L2 改源码** | 修上游 bug、加新事件、改终态/权限/计划语义 | patch 或 fork | **有关系**：HTTP 少一层同步维护 |
-| **L3 换实现** | 换成别的 agent 运行时 | 不改 opencode | **弱相关**：走 Leros 自己的 runtime 适配器 |
+| **L3 换实现** | 换成别的 agent 运行时 | 不改 opencode | **弱相关**：走 Lework 自己的 runtime 适配器 |
 
 **L1：v2 的插件是真 API，不是摆设。** 插件可从 `.opencode/plugins/` 或 config 的 `plugins` 加载（`services/www/src/docs/content/build/plugins/index.mdx:14-40`），域覆盖 agent / tool / permission / model / provider / mcp / command / session hook / event 订阅 / aisdk（`packages/plugin/src/effect/plugin.ts:27-40`）。**计划模式本身就是插件实现的**（`packages/core/src/plugin/plan.ts`），这证明「改行为」不必 fork。**唯一的硬限制**：插件只能 `subscribe` 事件、**不能发布新事件类型**（`packages/plugin/src/effect/event.ts:1-3`），而 `/api/event` 又按 `EventManifest.ServerDefinitions` 过滤（`packages/server/src/event-feed.ts:48-50`）。所以插件产生的新信号必须搭既有通道：工具调用、表单、synthetic 消息、session metadata。这也正是 §7.6 计划模式的做法（用 `question` 工具作信号，而不是新增事件）。
 
@@ -311,7 +311,7 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant W as Leros Worker
+    participant W as Lework Worker
     participant S as opencode serve
     W->>S: spawn（cwd=workDir，注入配置）
     loop 就绪探测
@@ -425,7 +425,7 @@ v2 的事实：plan 是**会话内可切换的 primary agent**（`agents.mdx:140
 
 | 方案 | 做法 | 成本 | 风险 |
 |---|---|---|---|
-| **a. 自定义 primary agent（推荐）** | 定义 `leros-plan`：自带 `system`（约定产物路径 + 完成后调 `question` 工具请求确认）与 `permissions`（只 allow `<workDir>/plans/*` 的 `edit`）。**上游 PlanPlugin 只对 `id==="plan"` 生效**（`plan.ts:14`、`:36`），自定义 id 拿不到它的 deny，也不会被注入「只能写全局目录」的提醒 | 6 人日 | 需自证规则顺序；`permission.ts:153` 的 deny 短路要求规则中不得出现 `edit deny *` |
+| **a. 自定义 primary agent（推荐）** | 定义 `lework-plan`：自带 `system`（约定产物路径 + 完成后调 `question` 工具请求确认）与 `permissions`（只 allow `<workDir>/plans/*` 的 `edit`）。**上游 PlanPlugin 只对 `id==="plan"` 生效**（`plan.ts:14`、`:36`），自定义 id 拿不到它的 deny，也不会被注入「只能写全局目录」的提醒 | 6 人日 | 需自证规则顺序；`permission.ts:153` 的 deny 短路要求规则中不得出现 `edit deny *` |
 | b. 沿用内置 plan + 把全局目录映射进工作区 | 让 `~/.opencode/plan` 落到工作区内（依赖 `Global` 是否可覆盖，未公开） | 3 人日 | 依赖内部行为 |
 | c. 沿用内置 plan + 追加 allow | 在 `agents.plan.permissions` 末尾加 allow | 2 人日 | **大概率不可行**（deny 短路 + 顺序敏感），需实测 |
 | d. 降级为只对话、不发布文件 | 删除发布链路 | 1 人日 | 违反 A1，需产品签字 |
@@ -439,7 +439,7 @@ v2 的事实：plan 是**会话内可切换的 primary agent**（`agents.mdx:140
 | 何时发布 | `plan.ready` → 确认 → 新调用 | 收到确认问题的同一轮先发 `plan.ready`（路径取本轮最近的 `write`/`edit` 入参），确认后走原链路 |
 | 只读边界 | 内置 plan 权限 | 自定义 agent 的 `permissions` |
 
-> Leros 侧 `validatePlanPath`（`plan.go:50-58`）需相应放宽，属必改代码。
+> Lework 侧 `validatePlanPath`（`plan.go:50-58`）需相应放宽，属必改代码。
 
 ### 7.7 附件、采样、待办、usage
 
@@ -548,7 +548,7 @@ W3+W4+W5 ─► W6-1 / W6-2 ─► W6-3 ─► W6-4 ─► W6-5
 
 ### 8.4 回滚
 
-**当前代码没有「按任务/按 org 实时切协议」的能力**：runtime kind 在 worker 启动时一次性注册，默认值进程级（`backend/internal/worker/app/service.go:78-121`、`backend/cmd/leros/worker.go:84`）；服务端构造 payload 时从不填 `Runtime.Kind`（`backend/internal/service/message_poster.go:1097` 起）；per-org 改镜像会被 reconciler 拉回全局（`backend/internal/service/worker_deployment_reconciler.go:193-208`）。因此回滚只能是**部署批次级**：
+**当前代码没有「按任务/按 org 实时切协议」的能力**：runtime kind 在 worker 启动时一次性注册，默认值进程级（`backend/internal/worker/app/service.go:78-121`、`backend/cmd/lework/worker.go:84`）；服务端构造 payload 时从不填 `Runtime.Kind`（`backend/internal/service/message_poster.go:1097` 起）；per-org 改镜像会被 reconciler 拉回全局（`backend/internal/service/worker_deployment_reconciler.go:193-208`）。因此回滚只能是**部署批次级**：
 
 | 方案 | 做法 | 代价 |
 |---|---|---|
@@ -779,7 +779,7 @@ W3+W4+W5 ─► W6-1 / W6-2 ─► W6-3 ─► W6-4 ─► W6-5
 | 入口 | `opencode acp` | `dsh --profile acp`（帮助原文：Serve automation clients over ACP stdio） |
 | `initialize` | `protocolVersion:1`、`loadSession:true`、`image:true`、`embeddedContext:true`、`authMethods:[opencode-login]` | `protocolVersion:1`、**无 `loadSession`**、**`image:false`、`embeddedContext:false`**、`authMethods:[]` |
 | `session/new` | ✓ `sessionId` + `configOptions`（`model`/`mode`） | ✓ `sessionId` + `configOptions`（`model` 分组 / `reasoning_effort`） |
-| 按任务注入 provider | **✓ 生效**：`OPENCODE_CONFIG_CONTENT` 注入后 `currentValue` = `leros-probe/deepseek/deepseek-v4-flash` | 未验证自定义 baseURL；默认 provider 需 `DEEPSEEK_API_KEY` |
+| 按任务注入 provider | **✓ 生效**：`OPENCODE_CONFIG_CONTENT` 注入后 `currentValue` = `lework-probe/deepseek/deepseek-v4-flash` | 未验证自定义 baseURL；默认 provider 需 `DEEPSEEK_API_KEY` |
 | 真实一轮 | ✓ `end_turn` + `usage`（含 `cachedReadTokens`） | ✗ 无凭据；**报错直接给修法** |
 | 流式 update | ✓ `agent_message_chunk` / `tool_call` / `tool_call_update` / `usage_update` / `available_commands_update` | 未跑到 |
 | `OPENCODE_DB` 隔离 | ✓ 全局库 `db/wal/shm` 的 mtime+size **完全不变**，本地库长到 7 MB | 不适用 |

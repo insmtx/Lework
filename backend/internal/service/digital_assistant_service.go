@@ -11,12 +11,12 @@ import (
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/worker"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 var _ contract.DigitalAssistantService = (*digitalAssistantService)(nil)

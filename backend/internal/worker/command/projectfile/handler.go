@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/internal/workspace"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/internal/workspace"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 // ReplyPublisher publishes request/reply results through core NATS.
@@ -122,7 +122,7 @@ func downloadAtomically(ctx context.Context, client *http.Client, downloadURL st
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return fmt.Errorf("create project file directory: %w", err)
 	}
-	temporary, err := os.CreateTemp(parent, ".leros-restore-*")
+	temporary, err := os.CreateTemp(parent, ".lework-restore-*")
 	if err != nil {
 		return fmt.Errorf("create restored project file: %w", err)
 	}
@@ -169,10 +169,10 @@ func commitRestoredFile(
 			return "", fmt.Errorf("check restored project file diff: %w", err)
 		}
 		env := append(os.Environ(),
-			"GIT_AUTHOR_NAME="+defaultValue(payload.AuthorName, "leros-project-file-restore"),
-			"GIT_AUTHOR_EMAIL="+defaultValue(payload.AuthorEmail, "project-file-restore@leros.local"),
-			"GIT_COMMITTER_NAME="+defaultValue(payload.AuthorName, "leros-project-file-restore"),
-			"GIT_COMMITTER_EMAIL="+defaultValue(payload.AuthorEmail, "project-file-restore@leros.local"),
+			"GIT_AUTHOR_NAME="+defaultValue(payload.AuthorName, "lework-project-file-restore"),
+			"GIT_AUTHOR_EMAIL="+defaultValue(payload.AuthorEmail, "project-file-restore@lework.local"),
+			"GIT_COMMITTER_NAME="+defaultValue(payload.AuthorName, "lework-project-file-restore"),
+			"GIT_COMMITTER_EMAIL="+defaultValue(payload.AuthorEmail, "project-file-restore@lework.local"),
 		)
 		if err := runGit(ctx, repoDir, env, "commit", "-m", "restore: "+relativePath, "--", relativePath); err != nil {
 			return "", fmt.Errorf("commit restored project file: %w", err)

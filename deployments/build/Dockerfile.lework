@@ -1,0 +1,52 @@
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILD_TAGS=
+
+FROM registry.yygu.cn/library/golang:1.25 AS builder
+
+WORKDIR /build
+
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
+ENV GOPROXY=https://goproxy.cn,direct
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy go mod files first to leverage Docker layer caching with mount cache
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/ \
+    go mod download
+
+# Copy source code
+COPY . .
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILD_TAGS
+
+# Build the application with module cache mounted
+RUN --mount=type=cache,target=/go/ \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -tags="${BUILD_TAGS}" -ldflags="-s -w" -v -o /build/lework ./backend/cmd/lework/
+
+FROM registry.yygu.cn/insmtx/lework-base:latest
+
+COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /usr/share/zoneinfo/Asia/Shanghai
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+ENV TZ=Asia/Shanghai
+
+COPY --from=builder /build/lework /lework
+COPY --from=builder /build/backend/skills /app/backend/skills
+COPY --from=builder /build/deployments/dev/seed /app/deployments/dev/seed
+
+WORKDIR /app
+
+EXPOSE 8080
+
+USER appuser
+
+ENTRYPOINT ["/lework"]

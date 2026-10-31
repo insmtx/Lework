@@ -1,14 +1,14 @@
 "use client";
 
-import type { Project } from "@leros/store";
-import { useProjectMenuCapabilities } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import type { Project } from "@lework/store";
+import { useProjectMenuCapabilities } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { cn } from "@lework/ui/lib/utils";
 import { MoreHorizontal } from "lucide-react";
 import type { MouseEvent } from "react";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
@@ -51,7 +51,7 @@ export function ProjectActionsDropdown({
 				type="button"
 				aria-label={`管理项目 ${project.name}`}
 				className={cn(
-					"flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--leros-text-strong)]",
+					"flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--lework-text-subtle)] transition-[background-color,color] duration-150 hover:bg-black/5 hover:text-[var(--lework-text-strong)]",
 					className,
 				)}
 				onClick={stopPropagation}

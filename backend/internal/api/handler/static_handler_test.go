@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
 )
 
 func setupStaticTestRouter(t *testing.T) *gin.Engine {

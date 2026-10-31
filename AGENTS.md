@@ -1,18 +1,18 @@
 # AGENTS.md
 
-Compact guidance for AI agents working in the Lework/Leros repo. Verified against the codebase on the date below; trust executable sources over any prose here if they conflict.
+Compact guidance for AI agents working in the Lework repo. Verified against the codebase on the date below; trust executable sources over any prose here if they conflict.
 
-> Module path: `github.com/insmtx/Leros` (note: repo dir is `Lework`, Go module is `Leros`). Go 1.25.0.
+> Module path: `github.com/insmtx/Lework`. Go 1.25.0.
 
 ## Commands
 
 Build / check / test (run from repo root):
-- `go build -o ./bundles/leros ./backend/cmd/leros/` — build server (builtin/OSS auth). Binary → `./bundles/` (gitignored).
-- `go build -tags enterprise -o ./bundles/leros ./backend/cmd/leros/` — enterprise build (auth delegated to IAM). See "Editions" below.
+- `go build -o ./bundles/lework ./backend/cmd/lework/` — build server (builtin/OSS auth). Binary → `./bundles/` (gitignored).
+- `go build -tags enterprise -o ./bundles/lework ./backend/cmd/lework/` — enterprise build (auth delegated to IAM). See "Editions" below.
 - `make build` — same as builtin build with `-ldflags="-s -w"`.
 - `make run` / `make run-detached` / `make stop` / `make logs` — docker-compose stack at `deployments/env/docker-compose.yml`.
 - `make dev-setup` — one-time dev bootstrap (see `deployments/dev/dev-setup.sh`); `make dev-server` / `make dev-worker` / `dev-frontend` run each process locally.
-- `make swagger` — generate swagger into `docs/swagger/` from `backend/cmd/leros/server.go` (+ handler/api/types dirs). Only output location is `docs/swagger/`.
+- `make swagger` — generate swagger into `docs/swagger/` from `backend/cmd/lework/server.go` (+ handler/api/types dirs). Only output location is `docs/swagger/`.
 
 Test (no `make test` target exists — CONTRIBUTING.md is wrong on this):
 - `go test ./...` — all (excludes `//go:build integration` and `enterprise` files by default).
@@ -40,7 +40,7 @@ Gate at `backend/internal/adapter/edition.go`. Never import `oss/` from `enterpr
 
 | Layer | Path | May | May NOT |
 |---|---|---|---|
-| Process entry | `backend/cmd/leros/` | cobra commands, `lifecycle.Std().WaitExit()` / `.AddCloseFunc()` / `.Exit()`, signal handling, `log.Fatal` | business logic |
+| Process entry | `backend/cmd/lework/` | cobra commands, `lifecycle.Std().WaitExit()` / `.AddCloseFunc()` / `.Exit()`, signal handling, `log.Fatal` | business logic |
 | Execution core | `backend/agent/**` | generic exec contracts, Runtime Adapter, Tool/Interaction/NodeEvent, internal process wiring | SingerOS business, NATS, business DB, Server API, Worker identity, process lifecycle |
 | Library code | `backend/internal/**` | business logic; surface failures via returned `error` | `os.Exit()`, `lifecycle.Std()`, `log.Fatal`, `panic`, signals, cobra deps |
 | Shared types | `backend/types/`, `backend/config/` | domain types, config structs | any business logic or external deps |
@@ -53,7 +53,7 @@ Practical points:
 
 ## Hard rules
 
-- **No `panic` in library or business code.** Propagate via `error`. Only `cmd/leros` may use `log.Fatal` for unrecoverable startup failures. (`panic` inside test stubs to satisfy unimplemented interface methods is acceptable.)
+- **No `panic` in library or business code.** Propagate via `error`. Only `cmd/lework` may use `log.Fatal` for unrecoverable startup failures. (`panic` inside test stubs to satisfy unimplemented interface methods is acceptable.)
 - **No `map[string]interface{}` for business data** across function signatures, interfaces, or layer boundaries — define a struct or typed map (e.g. `map[string]string`). EXCEPTION: the `tools.Tool` Execute contract (`backend/tools/`) legitimately uses `tools.JSONInput` (= `map[string]interface{}`) as the universal tool I/O shape, and `pkg/llmprotocol` test fixtures use it for raw protocol blobs. Do not "refactor" those away blindly.
 - **Never commit gitignored files.** Before committing run `git status`; `bundles/`, `.env`, `docs/superpowers/`, `deployments/env/config.yaml`, `server.config.yaml`/`worker.config.yaml` under `deployments/dev/`, `.opencode`, logs, etc. are ignored. If accidentally staged, unstage before committing.
 - **DB Schema 变更必须同步迁移逻辑。** 修改 `backend/types/` 中的 GORM 模型（增/删/改名/改约束）时：
@@ -66,11 +66,11 @@ Practical points:
 
 ## Modelrouter — ignore stale v1/v2 claims
 
-Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1) is deprecated in favor of `modelrouter/v2`. **`modelrouter/v2` does not exist.** The real package is `backend/internal/modelrouter/` and is actively used by `cmd/leros/server.go`, `cmd/leros/worker.go`, `internal/worker/router`, `internal/worker/agentrun`, and several `internal/service/*` files (Invoker interface, ModelStore, proxy). A future refactor may move it to `backend/internal/llm/proxy/` (see `docs/design/unified-llm-package.md`), but until then treat `modelrouter` as the source of truth. `backend/internal/llm/` is a newer unified LLM layer (CallRequest/CallResult, recorder, usage) coexisting with it.
+Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1) is deprecated in favor of `modelrouter/v2`. **`modelrouter/v2` does not exist.** The real package is `backend/internal/modelrouter/` and is actively used by `cmd/lework/server.go`, `cmd/lework/worker.go`, `internal/worker/router`, `internal/worker/agentrun`, and several `internal/service/*` files (Invoker interface, ModelStore, proxy). A future refactor may move it to `backend/internal/llm/proxy/` (see `docs/design/unified-llm-package.md`), but until then treat `modelrouter` as the source of truth. `backend/internal/llm/` is a newer unified LLM layer (CallRequest/CallResult, recorder, usage) coexisting with it.
 
 ## Where things actually live (structure evolved; README/old docs lag)
 
-- `backend/cmd/leros/` — cobra entrypoint. Files: `server.go`, `worker.go`, `chat.go`, `session.go`, `task.go`, `project.go`, `skill.go`, `login.go`/`logout.go`/`register.go`.
+- `backend/cmd/lework/` — cobra entrypoint. Files: `server.go`, `worker.go`, `chat.go`, `session.go`, `task.go`, `project.go`, `skill.go`, `login.go`/`logout.go`/`register.go`.
 - `backend/internal/` — adapter (account/oss|enterprise, edition), api (auth, connectors, contract, dto, handler, middleware, router), cli, consts (only `paths.go`), infra (db, filestore, git, gitea, mq, providers, sms, websocket), integration (feishu), llm, memory, modelrouter, projectfile, runnable, service, skill (catalog, store, links, builtin, cache, fetch, token.go), testutil, worker (agentrun, app, command, eventpub, identity, mcp, router, run, runtimehost, scheduler, server, wsproto), workspace.
 - `backend/agent/` — execution core (runtime, adapter, executor, registry, interaction, node_event, observe, tool). `agent/runtime/` holds concrete runtimes: `native`, `claude`, `codex`, `opencode`.
 - `backend/internal/api/connectors/` — webhook/channel connectors (`github`, `gitlab`, `wework`). GitHub webhook handling lives here, not in a top-level `interaction/connectors/` tree as old docs claim.
@@ -82,7 +82,7 @@ Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1
 ## Implementing new functionality (follow strictly)
 
 1. **Search for a reference first.** This project reuses patterns; skipping this is the top rework cause.
-   - New cobra command → mirror a file in `backend/cmd/leros/` (e.g. `task.go`).
+   - New cobra command → mirror a file in `backend/cmd/lework/` (e.g. `task.go`).
    - New HTTP API → `backend/internal/api/handler/`; router wiring in `backend/internal/api/router.go`.
    - New HTTP client call → grep `http.Client` / `http.NewRequest`.
    - Event publish/subscribe → grep `eventbus.Publish` / `mq.Publisher` / NATS usage.
@@ -93,7 +93,7 @@ Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1
 
 ## Code style (Go)
 
-- Imports in three groups separated by blank lines: stdlib → third-party → `github.com/insmtx/Leros/...`. Aliases only to avoid collisions (e.g. `modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"`).
+- Imports in three groups separated by blank lines: stdlib → third-party → `github.com/insmtx/Lework/...`. Aliases only to avoid collisions (e.g. `modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"`).
 - Tabs, not spaces. Run `gofmt -s` before commit. Lines <120 chars.
 - Exported symbols get English GoDoc explaining *why*, not *what*. Comments and commit messages use Chinese.
 - Errors handled explicitly, wrapped with `fmt.Errorf("...: %w", err)`. DI over globals. Pass `context.Context`.
@@ -107,7 +107,7 @@ Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1
 ## Docs
 
 - `docs/README.md` — doc index/spec. Consult first for unfamiliar tasks.
-- Architecture: `docs/architecture/{overview,backend,agent-runtime,workspace-artifact,mq-subject,system-design,design-philosophy}.md` (plus `Lework 权限与资源占用设计文档.md` and `leros-architecture.html`).
+- Architecture: `docs/architecture/{overview,backend,agent-runtime,workspace-artifact,mq-subject,system-design,design-philosophy}.md` (plus `Lework 权限与资源占用设计文档.md` and `lework-architecture.html`).
 - Design notes under `docs/design/` include multi-phase refactor plans (e.g. `unified-llm-package*.md`) — treat as proposals, not implemented state.
 - `docs/operations/project-structure.md` is the most accurate structural reference; `CHANGELOG.md` records history.
 - `docs/product/` holds `prd.md`/`planning.md`/`todo.md`; `docs/design/tech-design.md` (not `docs/TECH_DESIGN.md`). README links `docs/PRD.md`, `docs/ARCHITECTURE.md` etc. by basename, but those root-level files do not exist — the real files are under `docs/<category>/`. Prefer the subpathed versions.

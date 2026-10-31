@@ -94,8 +94,8 @@ Lework 当前 `router.go:79` 写死了 `service.NewAuthServiceWithProvisioning`�
 package adapter
 
 import (
-    "github.com/insmtx/Leros/backend/internal/adapter/builtin"
-    "github.com/insmtx/Leros/backend/internal/api/contract"
+    "github.com/insmtx/Lework/backend/internal/adapter/builtin"
+    "github.com/insmtx/Lework/backend/internal/api/contract"
 )
 
 type Deps struct {
@@ -121,8 +121,8 @@ func NewTokenParser(deps Deps) middleware.TokenParser {
 package adapter
 
 import (
-    "github.com/insmtx/Leros/backend/internal/adapter/identity"
-    "github.com/insmtx/Leros/backend/internal/api/contract"
+    "github.com/insmtx/Lework/backend/internal/adapter/identity"
+    "github.com/insmtx/Lework/backend/internal/api/contract"
 )
 
 // NewAuthService 返回 SaaS 版的 AuthService 实现
@@ -164,10 +164,10 @@ r.Use(middleware.CallerMiddleware(tokenParser, db))
 
 ```bash
 # 开源版
-go build -o ./bundles/leros ./backend/cmd/leros/
+go build -o ./bundles/lework ./backend/cmd/lework/
 
 # SaaS 版
-go build -tags saas -o ./bundles/leros ./backend/cmd/leros/
+go build -tags saas -o ./bundles/lework ./backend/cmd/lework/
 ```
 
 ### 2.4 配置结构
@@ -175,7 +175,7 @@ go build -tags saas -o ./bundles/leros ./backend/cmd/leros/
 ```yaml
 # config.yaml
 auth:
-  # 软切换开关，用于生产环境灰度切换（LEROS_DEV 不应作为生产回滚）
+  # 软切换开关，用于生产环境灰度切换（LEWORK_DEV 不应作为生产回滚）
   mode: "builtin"  # builtin | identity
   identity_platform:
     base_url: "https://iam.example.com/v5"
@@ -252,7 +252,7 @@ backend/internal/
 // middleware/token_parser.go
 package middleware
 
-import "github.com/insmtx/Leros/backend/types"
+import "github.com/insmtx/Lework/backend/types"
 
 // TokenParser 抽象 JWT 解析逻辑，由 adapter factory 按 build tag 注入实现
 type TokenParser interface {
@@ -278,8 +278,8 @@ func CallerMiddleware(parser TokenParser, database *gorm.DB) gin.HandlerFunc {
     return func(ctx *gin.Context) {
         // ... request ID / trace ID 逻辑不变
 
-        // LEROS_DEV 模式保持不变（仅开发环境）
-        if os.Getenv("LEROS_DEV") == "true" {
+        // LEWORK_DEV 模式保持不变（仅开发环境）
+        if os.Getenv("LEWORK_DEV") == "true" {
             return // 固定身份
         }
 
@@ -384,7 +384,7 @@ func (p *identityTokenParser) ParseWorker(ctx context.Context, tokenStr string) 
 │     │   claims.Uin = 42  ← 这是 identity-platform 的 UIN ID     │
 │     │                                                           │
 │     3. db.GetUserOrgByExternalUin(external_uin=42)              │
-│        ├── 查询 leros_user_org 表 WHERE external_uin = 42       │
+│        ├── 查询 lework_user_org 表 WHERE external_uin = 42       │
 │        └── 返回 UserOrg{Uin: 7, OrgID: 3}  ← Lework 本地标识    │
 │                                                                  │
 │     4. 返回 Caller{                                              │
@@ -662,14 +662,14 @@ Lework 调 identity-platform 认证成功
 ```
 
 脚本逻辑：
-1. 从 Lework `leros_user` 表读取存量用户（email, password hash, name, avatar）
+1. 从 Lework `lework_user` 表读取存量用户（email, password hash, name, avatar）
 2. 调用 identity-platform `ImportUser` 接口批量导入
-3. 记录 `user.id ↔ identity user_id` 的映射关系到本地 `leros_user.external_id`
+3. 记录 `user.id ↔ identity user_id` 的映射关系到本地 `lework_user.external_id`
 4. 为每个用户创建 `UserOrg.ExternalUin` 映射
 
 ### 6.4 回滚方案
 
-**严禁在生产环境使用 `LEROS_DEV=true` 作为回滚手段** —— 该开关会绕过所有认证，暴露全部 API。
+**严禁在生产环境使用 `LEWORK_DEV=true` 作为回滚手段** —— 该开关会绕过所有认证，暴露全部 API。
 
 正确的回滚方式：
 1. **软切换**：通过 `auth.mode` 配置项切换 `identity → builtin`，重启服务即可回滚
@@ -700,16 +700,16 @@ Lework 调 identity-platform 认证成功
 
 ```sql
 -- User 表：新增 external_id
-ALTER TABLE leros_user ADD COLUMN external_id BIGINT NULL COMMENT 'identity-platform user.id';
-CREATE INDEX idx_user_external_id ON leros_user(external_id);
+ALTER TABLE lework_user ADD COLUMN external_id BIGINT NULL COMMENT 'identity-platform user.id';
+CREATE INDEX idx_user_external_id ON lework_user(external_id);
 
 -- UserOrg 表：新增 external_uin
-ALTER TABLE leros_user_org ADD COLUMN external_uin BIGINT NULL COMMENT 'identity-platform uin.id';
-CREATE INDEX idx_user_org_external_uin ON leros_user_org(external_uin);
+ALTER TABLE lework_user_org ADD COLUMN external_uin BIGINT NULL COMMENT 'identity-platform uin.id';
+CREATE INDEX idx_user_org_external_uin ON lework_user_org(external_uin);
 
 -- Organization 表：新增 external_company_id
-ALTER TABLE leros_organization ADD COLUMN external_company_id BIGINT NULL COMMENT 'identity-platform company.id';
-CREATE INDEX idx_org_external_company_id ON leros_organization(external_company_id);
+ALTER TABLE lework_organization ADD COLUMN external_company_id BIGINT NULL COMMENT 'identity-platform company.id';
+CREATE INDEX idx_org_external_company_id ON lework_organization(external_company_id);
 ```
 
 ### 8.2 identity-platform 数据库

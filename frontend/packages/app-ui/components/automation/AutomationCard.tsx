@@ -1,15 +1,15 @@
 "use client";
 
-import { type AutomationItem, skillChipsToPlainText } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import { type AutomationItem, skillChipsToPlainText } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { Switch } from "@leros/ui/components/ui/switch";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { Switch } from "@lework/ui/components/ui/switch";
+import { cn } from "@lework/ui/lib/utils";
 import { Calendar, Clock, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import { formatLocalDateTime } from "./automationTime";
 

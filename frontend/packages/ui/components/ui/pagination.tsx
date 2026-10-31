@@ -1,4 +1,4 @@
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import type * as React from "react";
 import { Button } from "./button";

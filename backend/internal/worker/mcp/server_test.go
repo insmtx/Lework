@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Leros/backend/tools"
-	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
+	"github.com/insmtx/Lework/backend/tools"
+	skillmanagetools "github.com/insmtx/Lework/backend/tools/skill_manage"
 )
 
 func TestNewServerRegistersPublicTools(t *testing.T) {

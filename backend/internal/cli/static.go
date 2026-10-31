@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
 )
 
 // StorageConfig represents storage configuration returned by the server.

@@ -8,9 +8,9 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // TestToggleAutomationEnabledOnly 验证卡片开关走 UpdateAutomation 只传 enabled 时：

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/internal/service"
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/internal/service"
+	"github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -25,7 +25,7 @@ func MCPServerConfigFromPluginSnapshot(snapshot domain.PluginSnapshot) (agent.MC
 	if code == "" {
 		return agent.MCPServerConfig{}, fmt.Errorf("mcp snapshot code is required")
 	}
-	if code == "leros" {
+	if code == "lework" {
 		return agent.MCPServerConfig{}, fmt.Errorf("mcp snapshot uses a reserved code")
 	}
 	definition, err := service.MCPFromDefinition(snapshot.Definition)
@@ -122,7 +122,7 @@ func connectorRuntimeEnvAllowed(name string) bool {
 		"OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL":
 		return false
 	}
-	return !strings.HasPrefix(name, "LEROS_")
+	return !strings.HasPrefix(name, "LEWORK_")
 }
 
 func cloneMCPStringMap(source map[string]string) map[string]string {

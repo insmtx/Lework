@@ -8,9 +8,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 type departmentRepo struct {

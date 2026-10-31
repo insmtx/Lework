@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import type { BackendTask, BackendTaskDeliverables, ProjectTask } from "@leros/store";
+import type { BackendTask, BackendTaskDeliverables, ProjectTask } from "@lework/store";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,7 +9,7 @@ import { TaskAcceptancePanel } from "./TaskAcceptancePanel";
 const mockAccept = vi.fn();
 const mockReject = vi.fn();
 
-vi.mock("@leros/store/api/taskApi", () => ({
+vi.mock("@lework/store/api/taskApi", () => ({
 	taskApi: {
 		accept: (...args: unknown[]) => mockAccept(...args),
 		reject: (...args: unknown[]) => mockReject(...args),

@@ -1,6 +1,6 @@
 "use client";
 
-import { trackButtonClick, trackPageStay, trackPageView } from "@leros/store";
+import { trackButtonClick, trackPageStay, trackPageView } from "@lework/store";
 import { useEffect } from "react";
 
 const PAGE_STAY_THRESHOLD_MS = 15_000;

@@ -6,7 +6,7 @@
 
 ## 背景与目标
 
-Leros 通过 `OPENCODE_CONFIG_CONTENT` 注入 opencode 子进程的 provider/model/agent 配置。
+Lework 通过 `OPENCODE_CONFIG_CONTENT` 注入 opencode 子进程的 provider/model/agent 配置。
 当前 `buildConfigContent`（`backend/agent/runtime/opencode/config.go`）硬编码了
 `model.limit = { context: 200000, output: 16384 }`，且不注入任何采样参数
 （topP / frequencyPenalty / presencePenalty）。

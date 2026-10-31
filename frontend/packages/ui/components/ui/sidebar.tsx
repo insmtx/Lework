@@ -2,8 +2,8 @@
 
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { useIsMobile } from "@leros/ui/hooks/use-mobile";
-import { cn } from "@leros/ui/lib/utils";
+import { useIsMobile } from "@lework/ui/hooks/use-mobile";
+import { cn } from "@lework/ui/lib/utils";
 import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeft } from "lucide-react";
 import * as React from "react";

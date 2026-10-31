@@ -15,22 +15,22 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/internal/infra/git"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/internal/projectfile"
-	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
-	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
+	"github.com/insmtx/Lework/backend/internal/infra/git"
+	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
+	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/Lework/backend/internal/projectfile"
+	skilltoken "github.com/insmtx/Lework/backend/internal/skill"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	skillstore "github.com/insmtx/Lework/backend/internal/skill/store"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -485,7 +485,7 @@ func (o *newMessageOrchestrator) resolveOrCreateProject() error {
 		logs.InfoContextf(o.ctx, "created project=%s org=%d user=%d (no gitea)", projectID, o.caller.OrgID, o.caller.Uin)
 	}
 
-	// 创建者的成员身份与权限来源统一为 leros_resource_binding：先建项目资源，再建 owner 绑定。
+	// 创建者的成员身份与权限来源统一为 lework_resource_binding：先建项目资源，再建 owner 绑定。
 	resource := &types.Resource{
 		OrgID: o.caller.OrgID,
 		Uin:   o.caller.Uin,
@@ -1562,7 +1562,7 @@ func (p *MessagePoster) resolveSkillMarketplace(ctx context.Context, orgID uint,
 }
 
 func (p *MessagePoster) readLocalSkillMetadata(ctx context.Context, name string) *skillstore.SkillMetadata {
-	skillsDir, err := leros.SkillsDir()
+	skillsDir, err := lework.SkillsDir()
 	if err != nil {
 		return nil
 	}

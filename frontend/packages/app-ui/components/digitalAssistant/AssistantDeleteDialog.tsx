@@ -1,8 +1,8 @@
 "use client";
 
-import type { DigitalAssistantItem } from "@leros/store";
-import { useDAStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import type { DigitalAssistantItem } from "@lework/store";
+import { useDAStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -10,7 +10,7 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import { useState } from "react";
 import { toast } from "sonner";
 

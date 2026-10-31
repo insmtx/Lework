@@ -1,7 +1,7 @@
 "use client";
 
-import { type FeedbackType, feedbackApi, getClientVersionReport } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import { type FeedbackType, feedbackApi, getClientVersionReport } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -9,9 +9,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Textarea } from "@leros/ui/components/ui/textarea";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dialog";
+import { Textarea } from "@lework/ui/components/ui/textarea";
+import { cn } from "@lework/ui/lib/utils";
 import { Loader2, MessageSquareHeart } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -97,19 +97,19 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
 			}}
 		>
 			<DialogContent
-				className="flex max-h-[min(88vh,720px)] flex-col gap-0 overflow-hidden border-[var(--leros-control-border)] bg-white p-0 shadow-[var(--leros-shadow-menu)] sm:max-w-[520px]"
+				className="flex max-h-[min(88vh,720px)] flex-col gap-0 overflow-hidden border-[var(--lework-control-border)] bg-white p-0 shadow-[var(--lework-shadow-menu)] sm:max-w-[520px]"
 				showCloseButton
 				onPaste={handlePasteImages}
 			>
-				<div className="border-b border-[var(--leros-control-border)] px-6 py-5">
+				<div className="border-b border-[var(--lework-control-border)] px-6 py-5">
 					<DialogHeader className="gap-2 text-left">
 						<div className="flex items-center gap-3">
-							<div className="flex size-10 items-center justify-center rounded-xl bg-[var(--leros-primary-subtle)] text-[var(--leros-primary)]">
+							<div className="flex size-10 items-center justify-center rounded-xl bg-[var(--lework-primary-subtle)] text-[var(--lework-primary)]">
 								<MessageSquareHeart className="size-5" />
 							</div>
 							<div>
 								<DialogTitle className="text-lg">意见反馈</DialogTitle>
-								<DialogDescription className="mt-1 text-[var(--leros-text-muted)]">
+								<DialogDescription className="mt-1 text-[var(--lework-text-muted)]">
 									告诉我们你遇到的问题或建议，帮助我们做得更好
 								</DialogDescription>
 							</div>
@@ -150,13 +150,13 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
 					/>
 				</div>
 
-				<DialogFooter className="border-t border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-6 py-4">
+				<DialogFooter className="border-t border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-6 py-4">
 					<Button
 						type="button"
 						variant="outline"
 						onClick={() => onOpenChange(false)}
 						disabled={submitting}
-						className="border-[var(--leros-control-border)]"
+						className="border-[var(--lework-control-border)]"
 					>
 						取消
 					</Button>

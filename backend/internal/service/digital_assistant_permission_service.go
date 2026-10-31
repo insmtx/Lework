@@ -9,9 +9,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func (s *digitalAssistantService) GetDigitalAssistantPermissions(

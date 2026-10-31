@@ -19,12 +19,12 @@ import { isVersionNewer, parseLinuxUpdateMetadata } from "./linux-update";
 const autoUpdateIntervalMs = 30 * 60 * 1000;
 const initialAutoUpdateDelayMs = 1 * 1000;
 const desktopUpdateBaseURL =
-	"https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/stable";
+	"https://appleros.insmtx.com/application/stable";
 const enableDevAutoUpdate = !app.isPackaged;
 const privateDeploymentUnsupportedMessage = "私有化版本请通过离线安装包更新";
 
 function isPrivateDeploymentBuild(): boolean {
-	return process.env.LEROS_DEPLOYMENT_MODE === "private";
+	return process.env.LEWORK_DEPLOYMENT_MODE === "private";
 }
 
 let updateState: DesktopUpdateState = createState({

@@ -14,18 +14,18 @@ import {
 	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { Checkbox } from "@leros/ui/components/ui/checkbox";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { Checkbox } from "@lework/ui/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Input } from "@leros/ui/components/ui/input";
-import { getRequestErrorMessage } from "@leros/ui/lib/request";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dialog";
+import { Input } from "@lework/ui/components/ui/input";
+import { getRequestErrorMessage } from "@lework/ui/lib/request";
+import { cn } from "@lework/ui/lib/utils";
 import { Eye, EyeOff, Lock, Mail, ShieldCheck, Smartphone } from "lucide-react";
 import {
 	createContext,
@@ -411,7 +411,7 @@ function AuthDialog({
 		event: MouseEvent<HTMLAnchorElement>,
 		document: PolicyDocument,
 	) => {
-		const desktopApi = (window as typeof window & { lerosDesktop?: DesktopPolicyApi }).lerosDesktop;
+		const desktopApi = (window as typeof window & { leworkDesktop?: DesktopPolicyApi }).leworkDesktop;
 		if (!desktopApi?.openPolicyPdf) return;
 
 		event.preventDefault();

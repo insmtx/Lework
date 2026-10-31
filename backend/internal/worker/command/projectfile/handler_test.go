@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 type recordingPublisher struct {
@@ -34,7 +34,7 @@ func (p *recordingPublisher) Publish(subject string, data []byte) error {
 
 func TestHandleFileCommandRestoresAndCommitsFile(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	repoDir := filepath.Join(workspaceRoot, "projects", "1", "prj_test", "repo")
 	filePath := filepath.Join(repoDir, "artifacts", "report.md")
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {

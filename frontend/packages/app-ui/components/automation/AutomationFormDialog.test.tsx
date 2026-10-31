@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import type { AutomationItem } from "@leros/store";
-import { skillChipMarkup } from "@leros/store";
+import type { AutomationItem } from "@lework/store";
+import { skillChipMarkup } from "@lework/store";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,8 +57,8 @@ const { skillPickerMock, storeMock } = vi.hoisted(() => ({
 	},
 }));
 
-vi.mock("@leros/store", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@leros/store")>();
+vi.mock("@lework/store", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@lework/store")>();
 	return {
 		...actual,
 		fetchProjectListPage: (...args: unknown[]) => storeMock.fetchProjectListPage(...args),

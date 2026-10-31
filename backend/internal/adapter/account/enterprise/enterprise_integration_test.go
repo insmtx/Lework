@@ -13,12 +13,12 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/testutil"
-	"github.com/insmtx/Leros/backend/pkg/accounterror"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/testutil"
+	"github.com/insmtx/Lework/backend/pkg/accounterror"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func iamTestEnv(t *testing.T) string {
@@ -51,7 +51,7 @@ func iamCfgFromEnvOrConfig(t *testing.T) *config.IAMConfig {
 		baseURL = "http://127.0.0.1:8080"
 	}
 	if domainName == "" {
-		domainName = "leros.test.insmtx.com"
+		domainName = "lework.test.insmtx.com"
 	}
 
 	return &config.IAMConfig{BaseURL: baseURL, DomainName: domainName}

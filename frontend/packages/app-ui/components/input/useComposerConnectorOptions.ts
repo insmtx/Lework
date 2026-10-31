@@ -5,7 +5,7 @@ import {
 	type PluginListItem,
 	pluginApi,
 	pluginToComposerOption,
-} from "@leros/store";
+} from "@lework/store";
 import { useCallback, useEffect, useState } from "react";
 
 const CONNECTOR_PICKER_LIMIT = 100;

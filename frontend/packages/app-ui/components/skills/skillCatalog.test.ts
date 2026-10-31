@@ -1,4 +1,4 @@
-import type { SkillMarketplaceItem } from "@leros/store";
+import type { SkillMarketplaceItem } from "@lework/store";
 import { describe, expect, it } from "vitest";
 import { filterSkillsByCategory } from "./skillCatalog";
 

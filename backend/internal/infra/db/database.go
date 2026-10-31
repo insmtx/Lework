@@ -1,4 +1,4 @@
-// db 包提供 Leros 的数据库初始化和管理功能
+// db 包提供 Lework 的数据库初始化和管理功能
 //
 // 该包负责数据库连接的初始化、表结构的自动迁移，
 // 以及提供获取数据库实例的方法。
@@ -17,15 +17,15 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/consts"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/consts"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 var legacyTables = []string{
-	"leros_artifact",
-	"leros_organization_profile",
-	"leros_plugin_marketplace_translation",
+	"lework_artifact",
+	"lework_organization_profile",
+	"lework_plugin_marketplace_translation",
 }
 
 // legacyColumnsToDrop 记录了从模型中被移除但数据库中残留的列。
@@ -96,18 +96,18 @@ var tablesToRename = []renameTable{
 }
 
 var legacyIndexes = []string{
-	"idx_leros_user_org_uin",
+	"idx_lework_user_org_uin",
 	"idx_user_org_uin",
-	"idx_leros_project_file_node_type",
-	"idx_leros_project_file_parent_id",
-	"idx_leros_project_file_file_public_id",
+	"idx_lework_project_file_node_type",
+	"idx_lework_project_file_parent_id",
+	"idx_lework_project_file_file_public_id",
 	"idx_project_file_version",
 	"idx_project_file_path_version",
 	"idx_llm_model_org_default",
 }
 
 // dbName 是数据库名称常量
-const dbName = "leros"
+const dbName = "lework"
 
 // InitDB 创建并初始化数据库连接
 //
@@ -464,7 +464,7 @@ func backfillDigitalAssistantVisibility(db *gorm.DB) error {
 	return nil
 }
 
-// backfillPluginResources 为存量组织插件补写 leros_resource(type=plugin) 与 owner 绑定。
+// backfillPluginResources 为存量组织插件补写 lework_resource(type=plugin) 与 owner 绑定。
 // 幂等执行：已存在活动资源或 owner 绑定不会重复创建。
 func backfillPluginResources(db *gorm.DB) error {
 	if !db.Migrator().HasTable(types.TableNamePlugin) ||
@@ -669,18 +669,18 @@ func createPluginIndexes(db *gorm.DB) error {
 		return fmt.Errorf("drop legacy plugin revision content index: %w", err)
 	}
 	statements := []string{
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_org_scope_code ON leros_plugin (org_id, kind, code) WHERE owner_scope = 'organization' AND deleted_at IS NULL",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_system_code ON leros_plugin (kind, code) WHERE owner_scope = 'system' AND deleted_at IS NULL",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_public_id ON leros_plugin (public_id)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_revision_number ON leros_plugin_revision (plugin_id, revision)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_revision_content_revision ON leros_plugin_revision_content (plugin_revision_id)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_revision_source ON leros_plugin_revision (source_plugin_revision_id)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_project_plugin_active ON leros_project_plugin_binding (project_id, plugin_id) WHERE deleted_at IS NULL",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_public_id ON leros_plugin_marketplace_item (public_id)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_source ON leros_plugin_marketplace_item (source_type, source_ref) WHERE deleted_at IS NULL",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_plugin ON leros_plugin_marketplace_item (plugin_id) WHERE plugin_id > 0 AND deleted_at IS NULL",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_org_kind_visibility_status ON leros_plugin (org_id, kind, visibility, status) WHERE deleted_at IS NULL",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_file_upload_system_artifact_sha ON leros_file_upload (sha256) WHERE owner_scope = 'system' AND purpose = 'artifact' AND deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_org_scope_code ON lework_plugin (org_id, kind, code) WHERE owner_scope = 'organization' AND deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_system_code ON lework_plugin (kind, code) WHERE owner_scope = 'system' AND deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_public_id ON lework_plugin (public_id)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_revision_number ON lework_plugin_revision (plugin_id, revision)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_revision_content_revision ON lework_plugin_revision_content (plugin_revision_id)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_revision_source ON lework_plugin_revision (source_plugin_revision_id)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_project_plugin_active ON lework_project_plugin_binding (project_id, plugin_id) WHERE deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_public_id ON lework_plugin_marketplace_item (public_id)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_source ON lework_plugin_marketplace_item (source_type, source_ref) WHERE deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_plugin_marketplace_plugin ON lework_plugin_marketplace_item (plugin_id) WHERE plugin_id > 0 AND deleted_at IS NULL",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_org_kind_visibility_status ON lework_plugin (org_id, kind, visibility, status) WHERE deleted_at IS NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_file_upload_system_artifact_sha ON lework_file_upload (sha256) WHERE owner_scope = 'system' AND purpose = 'artifact' AND deleted_at IS NULL",
 	}
 	for _, statement := range statements {
 		if err := db.Exec(statement).Error; err != nil {
@@ -698,7 +698,7 @@ func migratePluginDefinitions(db *gorm.DB) error {
 		return nil
 	}
 	if db.Migrator().HasColumn(types.TableNamePluginRevision, "artifact_uri") {
-		if err := db.Exec(`UPDATE leros_plugin_revision r SET definition = jsonb_build_object('schema', p.kind || '/v1', 'artifact', jsonb_build_object('file_upload_id', COALESCE((SELECT f.public_id FROM leros_file_upload f WHERE f.storage_uri = r.artifact_uri AND f.deleted_at IS NULL LIMIT 1), ''), 'sha256', r.artifact_sha256, 'size_bytes', r.package_size_bytes, 'content_type', r.content_type)) FROM leros_plugin p WHERE p.id = r.plugin_id AND (r.definition = '{}'::jsonb OR r.definition IS NULL)`).Error; err != nil {
+		if err := db.Exec(`UPDATE lework_plugin_revision r SET definition = jsonb_build_object('schema', p.kind || '/v1', 'artifact', jsonb_build_object('file_upload_id', COALESCE((SELECT f.public_id FROM lework_file_upload f WHERE f.storage_uri = r.artifact_uri AND f.deleted_at IS NULL LIMIT 1), ''), 'sha256', r.artifact_sha256, 'size_bytes', r.package_size_bytes, 'content_type', r.content_type)) FROM lework_plugin p WHERE p.id = r.plugin_id AND (r.definition = '{}'::jsonb OR r.definition IS NULL)`).Error; err != nil {
 			return fmt.Errorf("backfill plugin revision definition: %w", err)
 		}
 		if err := db.Exec("DROP INDEX IF EXISTS ux_plugin_revision_content").Error; err != nil {
@@ -726,7 +726,7 @@ func normalizePluginArtifactFileUploadIDs(db *gorm.DB) error {
 		{table: types.TableNamePluginRevision, name: "plugin revision"},
 	}
 	for _, statement := range statements {
-		query := fmt.Sprintf(`UPDATE %s target SET definition = jsonb_set(target.definition, '{artifact,file_upload_id}', to_jsonb(file.public_id), false) FROM leros_file_upload file WHERE jsonb_typeof(target.definition->'artifact'->'file_upload_id') = 'number' AND file.id = CASE WHEN (target.definition->'artifact'->>'file_upload_id') ~ '^[0-9]+$' THEN (target.definition->'artifact'->>'file_upload_id')::bigint ELSE NULL END`, statement.table)
+		query := fmt.Sprintf(`UPDATE %s target SET definition = jsonb_set(target.definition, '{artifact,file_upload_id}', to_jsonb(file.public_id), false) FROM lework_file_upload file WHERE jsonb_typeof(target.definition->'artifact'->'file_upload_id') = 'number' AND file.id = CASE WHEN (target.definition->'artifact'->>'file_upload_id') ~ '^[0-9]+$' THEN (target.definition->'artifact'->>'file_upload_id')::bigint ELSE NULL END`, statement.table)
 		if err := db.Exec(query).Error; err != nil {
 			return fmt.Errorf("normalize %s file_upload_id: %w", statement.name, err)
 		}
@@ -776,18 +776,18 @@ func dropLegacyIndexes(db *gorm.DB) error {
 // backfillOrganizationProfileFields 将 organization_profile 表中的扩展字段回填到 organization 表。
 // 仅更新 organization 中对应字段为空的行，保证幂等性。
 func backfillOrganizationProfileFields(db *gorm.DB) error {
-	if !db.Migrator().HasTable("leros_organization_profile") {
+	if !db.Migrator().HasTable("lework_organization_profile") {
 		return nil
 	}
 	err := db.Exec(`
-		UPDATE leros_organization AS o
+		UPDATE lework_organization AS o
 		SET
 			description   = CASE WHEN o.description  = '' AND p.description  != '' THEN p.description  ELSE o.description  END,
 			logo          = CASE WHEN o.logo         = '' AND p.logo          != '' THEN p.logo          ELSE o.logo          END,
 			address       = CASE WHEN o.address      = '' AND p.address       != '' THEN p.address       ELSE o.address       END,
 			website       = CASE WHEN o.website      = '' AND p.website       != '' THEN p.website       ELSE o.website       END,
 			created_by_uin = CASE WHEN o.created_by_uin = 0 AND p.uin != 0 THEN p.uin ELSE o.created_by_uin END
-		FROM leros_organization_profile AS p
+		FROM lework_organization_profile AS p
 		WHERE p.org_id = o.id AND p.deleted_at IS NULL AND o.deleted_at IS NULL
 	`).Error
 	if err != nil {
@@ -801,10 +801,10 @@ func backfillUinFromUserOrgID(db *gorm.DB) error {
 	relTable := types.TableNameMemberDepartment
 	if db.Migrator().HasTable(relTable) && db.Migrator().HasColumn(relTable, "user_org_id") {
 		err := db.Exec(`
-			UPDATE leros_rel_user_org_department
+			UPDATE lework_rel_user_org_department
 			SET uin = (
-				SELECT uo.id FROM leros_user_org uo
-				WHERE uo.id = leros_rel_user_org_department.user_org_id
+				SELECT uo.id FROM lework_user_org uo
+				WHERE uo.id = lework_rel_user_org_department.user_org_id
 			)
 			WHERE user_org_id > 0 AND uin = 0
 		`).Error
@@ -816,10 +816,10 @@ func backfillUinFromUserOrgID(db *gorm.DB) error {
 	tokenTable := types.TableNameAuthRefreshToken
 	if db.Migrator().HasTable(tokenTable) && db.Migrator().HasColumn(tokenTable, "user_org_id") {
 		err := db.Exec(`
-			UPDATE leros_auth_refresh_token
+			UPDATE lework_auth_refresh_token
 			SET uin = (
-				SELECT uo.id FROM leros_user_org uo
-				WHERE uo.id = leros_auth_refresh_token.user_org_id
+				SELECT uo.id FROM lework_user_org uo
+				WHERE uo.id = lework_auth_refresh_token.user_org_id
 			)
 			WHERE user_org_id > 0 AND uin = 0
 		`).Error
@@ -837,10 +837,10 @@ func backfillMemberDepartmentOrgID(db *gorm.DB) error {
 		return nil
 	}
 	err := db.Exec(`
-		UPDATE leros_rel_user_org_department
+		UPDATE lework_rel_user_org_department
 		SET org_id = (
-			SELECT uo.org_id FROM leros_user_org uo
-			WHERE uo.id = leros_rel_user_org_department.uin
+			SELECT uo.org_id FROM lework_user_org uo
+			WHERE uo.id = lework_rel_user_org_department.uin
 		)
 		WHERE org_id = 0 AND uin > 0
 	`).Error
@@ -856,12 +856,12 @@ func backfillDefaultDepartments(d *gorm.DB) error {
 		return nil
 	}
 	err := d.Exec(`
-		INSERT INTO leros_department (name, parent_id, parent_ids, sort, org_id, created_at, updated_at)
+		INSERT INTO lework_department (name, parent_id, parent_ids, sort, org_id, created_at, updated_at)
 		SELECT o.name, 0, 'null', 1000, o.id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-		FROM leros_organization o
+		FROM lework_organization o
 		WHERE o.deleted_at IS NULL
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_department d
+			SELECT 1 FROM lework_department d
 			WHERE d.org_id = o.id AND d.parent_id = 0 AND d.deleted_at IS NULL
 		  )
 	`).Error
@@ -904,7 +904,7 @@ func backfillSystemLLMModelsForOrgs(d *gorm.DB) error {
 }
 
 // backfillSystemLLMModelsForEnterpriseOrgs 将系统 LLM 模型回填到缺少它们的存量企业版组织。
-// 企业版组织不写入 leros_organization 表，因此从 leros_digital_assistant 表反查 org_id。
+// 企业版组织不写入 lework_organization 表，因此从 lework_digital_assistant 表反查 org_id。
 func backfillSystemLLMModelsForEnterpriseOrgs(d *gorm.DB) error {
 	if !d.Migrator().HasTable(types.TableNameLLMModel) || !d.Migrator().HasTable(types.TableNameDigitalAssistant) {
 		return nil
@@ -1115,9 +1115,9 @@ func convergePurposeDefault(d *gorm.DB, ctx context.Context, orgID uint, purpose
 
 // backfillProjectResourceBindings 将存量 project + project_member 回填为统一资源权限模型。
 // 步骤：
-//  1. 为缺失的 project 创建 leros_resource(type=project)。
-//  2. 将用户成员回填为 leros_resource_binding（写 uin 列）。
-//  3. 将助手成员回填为 leros_resource_binding（写 assistant_id 列）。
+//  1. 为缺失的 project 创建 lework_resource(type=project)。
+//  2. 将用户成员回填为 lework_resource_binding（写 uin 列）。
+//  3. 将助手成员回填为 lework_resource_binding（写 assistant_id 列）。
 //  4. owner 兜底绑定，防止旧项目 owner 无 project_member 行。
 //
 // 所有 SQL 均幂等（NOT EXISTS 去重），失败仅告警不阻断启动。
@@ -1130,12 +1130,12 @@ func backfillProjectResourceBindings(d *gorm.DB) error {
 
 	// 1. 回填 project 资源
 	if err := d.Exec(`
-		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_path_ids, created_at, updated_at)
+		INSERT INTO lework_resource (org_id, uin, type, biz_id, parent_resource_path_ids, created_at, updated_at)
 		SELECT p.org_id, p.owner_id, 'project', p.id, '{}', NOW(), NOW()
-		FROM leros_project p
+		FROM lework_project p
 		WHERE p.deleted_at IS NULL
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource r
+			SELECT 1 FROM lework_resource r
 			WHERE r.org_id = p.org_id AND r.type = 'project' AND r.biz_id = p.id AND r.deleted_at IS NULL
 		  )
 	`).Error; err != nil {
@@ -1149,16 +1149,16 @@ func backfillProjectResourceBindings(d *gorm.DB) error {
 
 	// 2. 回填用户绑定
 	if err := d.Exec(`
-		INSERT INTO leros_resource_binding (org_id, uin, resource_id, resource_role, created_at, updated_at)
+		INSERT INTO lework_resource_binding (org_id, uin, resource_id, resource_role, created_at, updated_at)
 		SELECT r.org_id, pm.member_id, r.id,
 			CASE pm.member_role WHEN 'owner' THEN 'owner' WHEN 'admin' THEN 'admin' ELSE 'member' END,
 			NOW(), NOW()
-		FROM leros_project_member pm
-		JOIN leros_project p ON p.id = pm.project_id AND p.deleted_at IS NULL
-		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		FROM lework_project_member pm
+		JOIN lework_project p ON p.id = pm.project_id AND p.deleted_at IS NULL
+		JOIN lework_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
 		WHERE pm.deleted_at IS NULL AND pm.member_type = 'user'
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource_binding b
+			SELECT 1 FROM lework_resource_binding b
 			WHERE b.resource_id = r.id AND b.uin = pm.member_id AND b.deleted_at IS NULL
 		  )
 	`).Error; err != nil {
@@ -1167,16 +1167,16 @@ func backfillProjectResourceBindings(d *gorm.DB) error {
 
 	// 3. 回填助手绑定
 	if err := d.Exec(`
-		INSERT INTO leros_resource_binding (org_id, assistant_id, resource_id, resource_role, created_at, updated_at)
+		INSERT INTO lework_resource_binding (org_id, assistant_id, resource_id, resource_role, created_at, updated_at)
 		SELECT r.org_id, pm.member_id, r.id,
 			CASE pm.member_role WHEN 'owner' THEN 'owner' WHEN 'admin' THEN 'admin' ELSE 'member' END,
 			NOW(), NOW()
-		FROM leros_project_member pm
-		JOIN leros_project p ON p.id = pm.project_id AND p.deleted_at IS NULL
-		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		FROM lework_project_member pm
+		JOIN lework_project p ON p.id = pm.project_id AND p.deleted_at IS NULL
+		JOIN lework_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
 		WHERE pm.deleted_at IS NULL AND pm.member_type = 'assistant'
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource_binding b
+			SELECT 1 FROM lework_resource_binding b
 			WHERE b.resource_id = r.id AND b.assistant_id = pm.member_id AND b.deleted_at IS NULL
 		  )
 	`).Error; err != nil {
@@ -1185,13 +1185,13 @@ func backfillProjectResourceBindings(d *gorm.DB) error {
 
 	// 4. owner 兜底绑定
 	if err := d.Exec(`
-		INSERT INTO leros_resource_binding (org_id, uin, resource_id, resource_role, created_at, updated_at)
+		INSERT INTO lework_resource_binding (org_id, uin, resource_id, resource_role, created_at, updated_at)
 		SELECT r.org_id, p.owner_id, r.id, 'owner', NOW(), NOW()
-		FROM leros_project p
-		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		FROM lework_project p
+		JOIN lework_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
 		WHERE p.deleted_at IS NULL AND p.owner_id > 0
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource_binding b
+			SELECT 1 FROM lework_resource_binding b
 			WHERE b.resource_id = r.id AND b.uin = p.owner_id AND b.deleted_at IS NULL
 		  )
 	`).Error; err != nil {
@@ -1216,10 +1216,10 @@ func verifyProjectResourceBindings(d *gorm.DB) error {
 	var missingResource []projectGap
 	if err := d.Raw(`
 		SELECT p.id AS project_id
-		FROM leros_project p
+		FROM lework_project p
 		WHERE p.deleted_at IS NULL
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource r
+			SELECT 1 FROM lework_resource r
 			WHERE r.org_id = p.org_id AND r.type = 'project' AND r.biz_id = p.id AND r.deleted_at IS NULL
 		  )
 		ORDER BY p.id
@@ -1233,7 +1233,7 @@ func verifyProjectResourceBindings(d *gorm.DB) error {
 		for _, g := range missingResource {
 			sample = append(sample, g.ProjectID)
 		}
-		logs.Warnf("[migration] verifyProjectResourceBindings: %d+ projects missing leros_resource, sample project_ids=%v", len(missingResource), sample)
+		logs.Warnf("[migration] verifyProjectResourceBindings: %d+ projects missing lework_resource, sample project_ids=%v", len(missingResource), sample)
 	}
 
 	type ownerGap struct {
@@ -1242,11 +1242,11 @@ func verifyProjectResourceBindings(d *gorm.DB) error {
 	var missingOwner []ownerGap
 	if err := d.Raw(`
 		SELECT p.id AS project_id
-		FROM leros_project p
-		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
+		FROM lework_project p
+		JOIN lework_resource r ON r.type = 'project' AND r.biz_id = p.id AND r.org_id = p.org_id AND r.deleted_at IS NULL
 		WHERE p.deleted_at IS NULL
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource_binding b
+			SELECT 1 FROM lework_resource_binding b
 			WHERE b.resource_id = r.id
 			  AND b.resource_role = 'owner'
 			  AND b.uin IS NOT NULL AND b.uin > 0
@@ -1269,7 +1269,7 @@ func verifyProjectResourceBindings(d *gorm.DB) error {
 	return nil
 }
 
-// backfillTaskResources 为存量任务补写 leros_resource(type=task)，挂到父项目资源下。
+// backfillTaskResources 为存量任务补写 lework_resource(type=task)，挂到父项目资源下。
 func backfillTaskResources(d *gorm.DB) error {
 	if !d.Migrator().HasTable(types.TableNameTask) ||
 		!d.Migrator().HasTable(types.TableNameResource) {
@@ -1277,13 +1277,13 @@ func backfillTaskResources(d *gorm.DB) error {
 	}
 
 	if err := d.Exec(`
-		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
+		INSERT INTO lework_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
 		SELECT t.org_id, t.owner_id, 'task', t.id, r.id, ARRAY[r.id]::bigint[], NOW(), NOW()
-		FROM leros_task t
-		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = t.project_id AND r.org_id = t.org_id AND r.deleted_at IS NULL
+		FROM lework_task t
+		JOIN lework_resource r ON r.type = 'project' AND r.biz_id = t.project_id AND r.org_id = t.org_id AND r.deleted_at IS NULL
 		WHERE t.deleted_at IS NULL
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource tr
+			SELECT 1 FROM lework_resource tr
 			WHERE tr.org_id = t.org_id AND tr.type = 'task' AND tr.biz_id = t.id AND tr.deleted_at IS NULL
 		  )
 	`).Error; err != nil {
@@ -1346,7 +1346,7 @@ func backfillTaskAssigneeBindings(d *gorm.DB) error {
 	return nil
 }
 
-// backfillFileArtifactResources 为存量 project_file 补写 leros_resource(type=file|artifact)，挂到父项目资源下。
+// backfillFileArtifactResources 为存量 project_file 补写 lework_resource(type=file|artifact)，挂到父项目资源下。
 func backfillFileArtifactResources(d *gorm.DB) error {
 	if !d.Migrator().HasTable(types.TableNameProjectFile) ||
 		!d.Migrator().HasTable(types.TableNameResource) ||
@@ -1355,15 +1355,15 @@ func backfillFileArtifactResources(d *gorm.DB) error {
 	}
 
 	if err := d.Exec(`
-		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
+		INSERT INTO lework_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
 		SELECT pf.org_id, COALESCE(NULLIF(pf.uin, 0), p.owner_id), 'file', pf.id, r.id, ARRAY[r.id]::bigint[], NOW(), NOW()
-		FROM leros_project_file pf
-		JOIN leros_project p ON p.id = pf.project_id AND p.deleted_at IS NULL
-		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = pf.project_id AND r.org_id = pf.org_id AND r.deleted_at IS NULL
+		FROM lework_project_file pf
+		JOIN lework_project p ON p.id = pf.project_id AND p.deleted_at IS NULL
+		JOIN lework_resource r ON r.type = 'project' AND r.biz_id = pf.project_id AND r.org_id = pf.org_id AND r.deleted_at IS NULL
 		WHERE pf.deleted_at IS NULL
 		  AND pf.resource_type IN ('user_upload', 'plan')
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource fr
+			SELECT 1 FROM lework_resource fr
 			WHERE fr.org_id = pf.org_id AND fr.type = 'file' AND fr.biz_id = pf.id AND fr.deleted_at IS NULL
 		  )
 	`).Error; err != nil {
@@ -1371,15 +1371,15 @@ func backfillFileArtifactResources(d *gorm.DB) error {
 	}
 
 	if err := d.Exec(`
-		INSERT INTO leros_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
+		INSERT INTO lework_resource (org_id, uin, type, biz_id, parent_resource_id, parent_resource_path_ids, created_at, updated_at)
 		SELECT pf.org_id, COALESCE(NULLIF(pf.uin, 0), p.owner_id), 'artifact', pf.id, r.id, ARRAY[r.id]::bigint[], NOW(), NOW()
-		FROM leros_project_file pf
-		JOIN leros_project p ON p.id = pf.project_id AND p.deleted_at IS NULL
-		JOIN leros_resource r ON r.type = 'project' AND r.biz_id = pf.project_id AND r.org_id = pf.org_id AND r.deleted_at IS NULL
+		FROM lework_project_file pf
+		JOIN lework_project p ON p.id = pf.project_id AND p.deleted_at IS NULL
+		JOIN lework_resource r ON r.type = 'project' AND r.biz_id = pf.project_id AND r.org_id = pf.org_id AND r.deleted_at IS NULL
 		WHERE pf.deleted_at IS NULL
 		  AND pf.resource_type = 'artifact'
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_resource ar
+			SELECT 1 FROM lework_resource ar
 			WHERE ar.org_id = pf.org_id AND ar.type = 'artifact' AND ar.biz_id = pf.id AND ar.deleted_at IS NULL
 		  )
 	`).Error; err != nil {
@@ -1401,18 +1401,18 @@ func backfillMemberDefaultDepartments(d *gorm.DB) error {
 			SELECT id, org_id
 			FROM (
 				SELECT id, org_id, ROW_NUMBER() OVER (PARTITION BY org_id ORDER BY sort ASC, id ASC) AS rn
-				FROM leros_department
+				FROM lework_department
 				WHERE parent_id = 0 AND deleted_at IS NULL
 			) ranked_departments
 			WHERE rn = 1
 		)
-		INSERT INTO leros_rel_user_org_department (uin, org_id, department_id, is_primary, created_at, updated_at)
+		INSERT INTO lework_rel_user_org_department (uin, org_id, department_id, is_primary, created_at, updated_at)
 		SELECT uo.id, uo.org_id, dd.id, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-		FROM leros_user_org uo
+		FROM lework_user_org uo
 		JOIN default_departments dd ON dd.org_id = uo.org_id
 		WHERE uo.deleted_at IS NULL
 		  AND NOT EXISTS (
-			SELECT 1 FROM leros_rel_user_org_department md
+			SELECT 1 FROM lework_rel_user_org_department md
 			WHERE md.uin = uo.id AND md.org_id = uo.org_id AND md.deleted_at IS NULL
 		  )
 	`).Error

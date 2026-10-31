@@ -1,7 +1,7 @@
 "use client";
 
-import { type BackendProjectFileVersion, projectFileApi, useChatStore } from "@leros/store";
-import { cn } from "@leros/ui/lib/utils";
+import { type BackendProjectFileVersion, projectFileApi, useChatStore } from "@lework/store";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	Check,
 	ChevronsLeftRightEllipsis,
@@ -484,7 +484,7 @@ export function FilePreviewDrawer({
 	return (
 		<div
 			ref={drawerRef}
-			className="fixed inset-y-4 right-4 z-[60] flex flex-col overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-2xl"
+			className="fixed inset-y-4 right-4 z-[60] flex flex-col overflow-hidden rounded-2xl border border-[var(--lework-control-border)] bg-[var(--lework-surface)] p-0 shadow-2xl"
 			style={{ width: `${drawerWidth}px`, maxWidth: `${drawerWidth}px` }}
 		>
 			<button
@@ -494,22 +494,22 @@ export function FilePreviewDrawer({
 				onPointerDown={handleDrawerResizeStart}
 				className="absolute left-0 top-0 z-10 flex h-full w-4 -translate-x-1/2 cursor-col-resize items-center justify-center"
 			>
-				<div className="flex h-16 w-2 items-center justify-center rounded-full bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] shadow-sm ring-1 ring-[var(--leros-control-border)]">
+				<div className="flex h-16 w-2 items-center justify-center rounded-full bg-[var(--lework-surface-soft)] text-[var(--lework-text-muted)] shadow-sm ring-1 ring-[var(--lework-control-border)]">
 					<ChevronsLeftRightEllipsis className="size-3" />
 				</div>
 			</button>
-			<div className="flex items-center justify-between border-b border-[var(--leros-control-border)] px-6 py-4">
+			<div className="flex items-center justify-between border-b border-[var(--lework-control-border)] px-6 py-4">
 				<div className="flex min-w-0 items-center gap-2">
-					<div className="truncate text-lg font-medium text-[var(--leros-text-strong)]">
+					<div className="truncate text-lg font-medium text-[var(--lework-text-strong)]">
 						{displayTitle}
 					</div>
 					{displayedVersionNo && displayedVersionNo > 0 ? (
-						<span className="shrink-0 rounded-md bg-[var(--leros-primary-softer)] px-2 py-0.5 text-xs font-semibold text-[var(--leros-primary)]">
+						<span className="shrink-0 rounded-md bg-[var(--lework-primary-softer)] px-2 py-0.5 text-xs font-semibold text-[var(--lework-primary)]">
 							V{displayedVersionNo}
 						</span>
 					) : null}
 					{displayedVersionNo && displayedVersionNo > 0 ? (
-						<span className="shrink-0 text-xs text-[var(--leros-text-muted)]">
+						<span className="shrink-0 text-xs text-[var(--lework-text-muted)]">
 							{isHistoricalVersion ? "历史版本" : "最新"}
 						</span>
 					) : null}
@@ -517,7 +517,7 @@ export function FilePreviewDrawer({
 						<button
 							type="button"
 							onClick={() => selectVersionPublicId(file.publicId ?? "")}
-							className="shrink-0 text-xs font-medium text-[var(--leros-primary)] hover:underline"
+							className="shrink-0 text-xs font-medium text-[var(--lework-primary)] hover:underline"
 						>
 							切换到最新
 						</button>
@@ -528,12 +528,12 @@ export function FilePreviewDrawer({
 						<button
 							type="button"
 							onClick={() => setHistoryOpen((value) => !value)}
-							className="group relative rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--leros-primary)]/30"
+							className="group relative rounded-lg p-2 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lework-primary)]/30"
 							aria-label="历史版本"
 							title={file.versionCount ? `版本历史（${file.versionCount}）` : "版本历史"}
 						>
 							<History className="size-4" />
-							<span className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-[var(--leros-text-strong)] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100">
+							<span className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-[var(--lework-text-strong)] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100">
 								历史版本
 							</span>
 						</button>
@@ -541,26 +541,26 @@ export function FilePreviewDrawer({
 					<button
 						type="button"
 						onClick={() => void handleDownload()}
-						className="group relative rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--leros-primary)]/30"
+						className="group relative rounded-lg p-2 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lework-primary)]/30"
 						aria-label="下载文件"
 						title="下载文件"
 					>
 						<Download className="size-4" />
-						<span className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-[var(--leros-text-strong)] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100">
+						<span className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-[var(--lework-text-strong)] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100">
 							下载文件
 						</span>
 					</button>
 					<button
 						type="button"
 						onClick={closePreview}
-						className="rounded-lg p-2 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
+						className="rounded-lg p-2 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)]"
 						title="关闭"
 					>
 						<X className="size-4" />
 					</button>
 				</div>
 			</div>
-			<div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--leros-surface-soft)]">
+			<div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--lework-surface-soft)]">
 				<div className="flex min-w-0 flex-1 flex-col overflow-hidden p-6">
 					<FilePreviewContent
 						fileName={previewFile?.name || file.name}
@@ -607,17 +607,17 @@ export function FilePreviewDrawer({
 					<div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
 						<div className="flex items-start justify-between gap-4">
 							<div>
-								<h3 className="text-base font-semibold text-[var(--leros-text-strong)]">
+								<h3 className="text-base font-semibold text-[var(--lework-text-strong)]">
 									恢复此版本
 								</h3>
-								<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
+								<p className="mt-2 text-sm leading-6 text-[var(--lework-text-muted)]">
 									恢复后，将基于该历史版本的内容生成一个新版本，并设为当前版本。当前版本及其他历史版本均会保留。
 								</p>
 							</div>
 							<button
 								type="button"
 								onClick={() => setRestoreTarget(null)}
-								className="rounded-lg p-1.5 text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
+								className="rounded-lg p-1.5 text-[var(--lework-text-muted)] hover:bg-[var(--lework-surface-soft)]"
 								disabled={restoring}
 							>
 								<X className="size-4" />
@@ -627,7 +627,7 @@ export function FilePreviewDrawer({
 							<button
 								type="button"
 								onClick={() => setRestoreTarget(null)}
-								className="rounded-lg px-4 py-2 text-sm text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]"
+								className="rounded-lg px-4 py-2 text-sm text-[var(--lework-text-muted)] hover:bg-[var(--lework-surface-soft)]"
 								disabled={restoring}
 							>
 								取消
@@ -635,7 +635,7 @@ export function FilePreviewDrawer({
 							<button
 								type="button"
 								onClick={() => void handleRestoreVersion()}
-								className="inline-flex items-center gap-2 rounded-lg bg-[var(--leros-text-strong)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+								className="inline-flex items-center gap-2 rounded-lg bg-[var(--lework-text-strong)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
 								disabled={restoring}
 							>
 								{restoring ? <LoaderCircle className="size-4 animate-spin" /> : null}
@@ -669,23 +669,23 @@ function FileVersionPanel({
 	const entries = buildProjectFileVersionEntries(versions);
 	const currentEntry = getCurrentProjectFileVersionEntry(entries, currentPublicId);
 	return (
-		<aside className="flex w-52 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-white">
-			<div className="border-b border-[var(--leros-control-border)] px-3 py-2.5">
-				<div className="text-sm font-semibold text-[var(--leros-text-strong)]">历史记录</div>
-				<div className="mt-0.5 text-xs text-[var(--leros-text-muted)]">
+		<aside className="flex w-52 shrink-0 flex-col border-l border-[var(--lework-control-border)] bg-white">
+			<div className="border-b border-[var(--lework-control-border)] px-3 py-2.5">
+				<div className="text-sm font-semibold text-[var(--lework-text-strong)]">历史记录</div>
+				<div className="mt-0.5 text-xs text-[var(--lework-text-muted)]">
 					{versions.length > 0 ? `${versions.length} 个版本` : "查看文件版本"}
 				</div>
 			</div>
 			<div className="min-h-0 flex-1 overflow-auto p-1.5">
 				{loading ? (
-					<div className="flex items-center justify-center py-10 text-xs text-[var(--leros-text-muted)]">
+					<div className="flex items-center justify-center py-10 text-xs text-[var(--lework-text-muted)]">
 						<LoaderCircle className="mr-2 size-3.5 animate-spin" />
 						加载中
 					</div>
 				) : error ? (
-					<div className="px-3 py-8 text-center text-xs text-[var(--leros-danger)]">{error}</div>
+					<div className="px-3 py-8 text-center text-xs text-[var(--lework-danger)]">{error}</div>
 				) : versions.length === 0 ? (
-					<div className="px-3 py-8 text-center text-xs text-[var(--leros-text-muted)]">
+					<div className="px-3 py-8 text-center text-xs text-[var(--lework-text-muted)]">
 						暂无历史版本
 					</div>
 				) : (
@@ -702,17 +702,17 @@ function FileVersionPanel({
 										className={cn(
 											"w-full cursor-pointer rounded-md px-2.5 py-1.5 pr-8 text-left transition-colors",
 											isSelected
-												? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]"
-												: "hover:bg-[var(--leros-surface-soft)]",
+												? "bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]"
+												: "hover:bg-[var(--lework-surface-soft)]",
 										)}
 									>
 										<span className="block truncate text-xs font-semibold">
 											V{version.version_no}
 										</span>
-										<span className="mt-0.5 block truncate text-[10px] text-[var(--leros-text-muted)]">
+										<span className="mt-0.5 block truncate text-[10px] text-[var(--lework-text-muted)]">
 											{formatVersionTime(version.created_at)}
 											{isCurrent ? (
-												<span className="ml-1.5 rounded-full bg-[var(--leros-primary)]/10 px-1 py-0 text-[9px] text-[var(--leros-primary)]">
+												<span className="ml-1.5 rounded-full bg-[var(--lework-primary)]/10 px-1 py-0 text-[9px] text-[var(--lework-primary)]">
 													最新
 												</span>
 											) : null}
@@ -722,7 +722,7 @@ function FileVersionPanel({
 										<button
 											type="button"
 											onClick={() => onRestore(version)}
-											className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--leros-text-muted)] hover:bg-white hover:text-[var(--leros-primary)]"
+											className="absolute right-1.5 top-1.5 rounded p-1 text-[var(--lework-text-muted)] hover:bg-white hover:text-[var(--lework-primary)]"
 											title="恢复"
 										>
 											<RotateCcw className="size-3" />
@@ -801,7 +801,7 @@ function FilePreviewContent({
 
 	if (preview.status === "loading" || preview.status === "idle") {
 		return (
-			<div className="flex flex-1 items-center justify-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center text-sm text-[var(--lework-text-muted)]">
 				<LoaderCircle className="mr-2 size-4 animate-spin" />
 				加载预览中
 			</div>
@@ -810,7 +810,7 @@ function FilePreviewContent({
 
 	if (preview.status === "error") {
 		return (
-			<div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-[var(--lework-text-muted)]">
 				<div>
 					<p>无法加载文件预览</p>
 					<p className="mt-1 text-xs">{preview.message}</p>
@@ -852,7 +852,7 @@ function FilePreviewContent({
 			<div className="min-h-0 flex-1 overflow-auto rounded-xl bg-white px-8 py-7 shadow-sm">
 				<MarkdownRenderer
 					content={preview.text ?? ""}
-					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--leros-text-strong)] prose-p:leading-7"
+					className="prose prose-slate prose-sm max-w-none prose-headings:text-[var(--lework-text-strong)] prose-p:leading-7"
 				/>
 			</div>
 		);
@@ -861,7 +861,7 @@ function FilePreviewContent({
 	if (previewKind === "html" && preview.text !== undefined) {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
-				<div className="flex shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 py-2">
+				<div className="flex shrink-0 items-center justify-between border-b border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 py-2">
 					<div className="flex items-center gap-1">
 						{(["preview", "source"] as const).map((view) => (
 							<button
@@ -871,8 +871,8 @@ function FilePreviewContent({
 								className={cn(
 									"rounded-md px-3 py-1.5 text-xs transition-colors",
 									htmlView === view
-										? "bg-white font-medium text-[var(--leros-text-strong)] shadow-sm"
-										: "text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]",
+										? "bg-white font-medium text-[var(--lework-text-strong)] shadow-sm"
+										: "text-[var(--lework-text-muted)] hover:text-[var(--lework-text-strong)]",
 								)}
 							>
 								{view === "preview" ? "预览" : "源码"}
@@ -885,8 +885,8 @@ function FilePreviewContent({
 						title="复制 HTML 源码"
 						aria-label="复制 HTML 源码"
 						className={cn(
-							"inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] transition-colors hover:bg-white hover:text-[var(--leros-text-strong)]",
-							htmlCopied ? "text-emerald-600" : "text-[var(--leros-text-muted)]",
+							"inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] transition-colors hover:bg-white hover:text-[var(--lework-text-strong)]",
+							htmlCopied ? "text-emerald-600" : "text-[var(--lework-text-muted)]",
 						)}
 					>
 						{htmlCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -915,7 +915,7 @@ function FilePreviewContent({
 
 	if (previewKind === "text") {
 		return (
-			<pre className="min-h-0 flex-1 overflow-auto rounded-xl bg-white p-4 text-sm leading-6 text-[var(--leros-text)] shadow-sm">
+			<pre className="min-h-0 flex-1 overflow-auto rounded-xl bg-white p-4 text-sm leading-6 text-[var(--lework-text)] shadow-sm">
 				{preview.text ?? ""}
 			</pre>
 		);
@@ -964,9 +964,9 @@ function FilePreviewContent({
 	}
 
 	return (
-		<div className="flex flex-1 items-center justify-center rounded-xl bg-white px-8 text-center text-sm text-[var(--leros-text-muted)] shadow-sm">
+		<div className="flex flex-1 items-center justify-center rounded-xl bg-white px-8 text-center text-sm text-[var(--lework-text-muted)] shadow-sm">
 			<div>
-				<FileText className="mx-auto mb-3 size-8 text-[var(--leros-text-subtle)]" />
+				<FileText className="mx-auto mb-3 size-8 text-[var(--lework-text-subtle)]" />
 				<p>此文件类型暂不支持内嵌预览</p>
 				<p className="mt-1 text-xs">请使用下载按钮在本地查看</p>
 			</div>

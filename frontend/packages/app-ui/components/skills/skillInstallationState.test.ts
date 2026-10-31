@@ -1,4 +1,4 @@
-import type { PluginInstallationStatus } from "@leros/store";
+import type { PluginInstallationStatus } from "@lework/store";
 import { describe, expect, it } from "vitest";
 import { canUpdateOrganizationSkill } from "./skillInstallationState";
 

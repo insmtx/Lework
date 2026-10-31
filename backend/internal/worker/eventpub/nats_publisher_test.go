@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 type publisherRecorder struct {

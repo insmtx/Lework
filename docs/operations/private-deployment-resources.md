@@ -1,6 +1,6 @@
 # 私有化资源清单
 
-本文档列出 Leros 私有化部署所需的软硬件资源、镜像、端口、存储与配置依赖，供售前评估、资源申请与交付核对使用。本文档针对 **k3s + Helm** 部署路径（`deployments/helm/leros`）。
+本文档列出 Lework 私有化部署所需的软硬件资源、镜像、端口、存储与配置依赖，供售前评估、资源申请与交付核对使用。本文档针对 **k3s + Helm** 部署路径（`deployments/helm/lework`）。
 
 ## 1. 部署架构概览
 
@@ -8,15 +8,15 @@
 
 | 组件 | 角色 | 必选/可选 |
 |------|------|:---:|
-| `server` | Leros HTTP API 服务（控制平面） | 必选 |
+| `server` | Lework HTTP API 服务（控制平面） | 必选 |
 | `worker` | 任务执行 Worker（工作平面） | 必选 |
 | `web` | 前端 Web 软件包（仅用于测试） | 仅测试 |
-| `postgresql` | Leros 业务数据库 | 必选 |
+| `postgresql` | Lework 业务数据库 | 必选 |
 | `nats` | 消息队列（JetStream） | 必选 |
 | `mysql` | account 统一登录服务数据库 | account 启用时必选 |
 | `redis` | account 服务缓存 | account 启用时必选 |
 | `account` | IAM/统一登录服务 | 可选（企业版认证） |
-| `leros-traefik` | 独立 Ingress 控制器（NodePort 38081） | 可选 |
+| `lework-traefik` | 独立 Ingress 控制器（NodePort 38081） | 可选 |
 | `vLLM` | 大模型推理服务（私有化，Qwen3.6-27B） | 必选 * |
 
 > \* 私有化部署模型不下外网，需本地推理。模型按 `Qwen3.6-27B` 承载，见 `private-deployment-model.md`。
@@ -63,9 +63,9 @@
 | mysql | 50m / 128Mi | 500m / 512Mi |
 | redis | 50m / 64Mi | 300m / 256Mi |
 | account | 10m / 64Mi | 300m / 512Mi |
-| leros-traefik | 50m / 64Mi | 500m / 256Mi |
+| lework-traefik | 50m / 64Mi | 500m / 256Mi |
 
-> 上表为本交付的**建议值**，是 `values.yaml` 配置参考；与 Chart 默认（`deployments/helm/leros/values.yaml.template`）可不同，部署时按需在 `resources` 覆盖即可。小内存环境（最小配置）可将 worker limits 内存进一步下调，重任务（PDF/OCR）再上调。
+> 上表为本交付的**建议值**，是 `values.yaml` 配置参考；与 Chart 默认（`deployments/helm/lework/values.yaml.template`）可不同，部署时按需在 `resources` 覆盖即可。小内存环境（最小配置）可将 worker limits 内存进一步下调，重任务（PDF/OCR）再上调。
 
 ### 2.5 模型推理硬件（GPU，Qwen3.6-27B）
 
@@ -96,17 +96,17 @@
 
 | 镜像 | 说明 | 版次 |
 |------|------|------|
-| `registry.yygu.cn/insmtx/leros:latest` | Leros 服务器 | server |
-| `registry.yygu.cn/insmtx/leros-worker:latest` | Worker（FROM `leros-worker-base`） | worker |
-| `registry.yygu.cn/insmtx/leros-worker-base:saas` | Worker 基础镜像（简化版） | saas |
-| `registry.yygu.cn/insmtx/leros-worker-base:private` | Worker 基础镜像（全量版） | private |
+| `registry.yygu.cn/insmtx/lework:latest` | Lework 服务器 | server |
+| `registry.yygu.cn/insmtx/lework-worker:latest` | Worker（FROM `lework-worker-base`） | worker |
+| `registry.yygu.cn/insmtx/lework-worker-base:saas` | Worker 基础镜像（简化版） | saas |
+| `registry.yygu.cn/insmtx/lework-worker-base:private` | Worker 基础镜像（全量版） | private |
 | `registry.yygu.cn/ygapp/account-api:v0.1.0` | IAM/统一登录 | account |
 
 ### 3.2 中间件镜像
 
 | 镜像 | 用途 |
 |------|------|
-| `registry.yygu.cn/library/postgres:18.4` | PostgreSQL（Leros 业务库） |
+| `registry.yygu.cn/library/postgres:18.4` | PostgreSQL（Lework 业务库） |
 | `registry.yygu.cn/library/nats:2.12.7` | NATS JetStream |
 | `registry.yygu.cn/library/mysql:8.4` | account 的 MySQL |
 | `registry.yygu.cn/library/redis:7.4` | account 的 Redis |
@@ -146,17 +146,17 @@ NATS 默认开启认证，端口不对集群外暴露。访问方式以 Helm Ser
 
 ### 4.2 对外访问端口
 
-本方案部署独立 Traefik（`leros-traefik`）+ Ingress，无域名时用 NodePort 访问。
+本方案部署独立 Traefik（`lework-traefik`）+ Ingress，无域名时用 NodePort 访问。
 
 | 端口 | 用途 | 来源 |
 |------|------|------|
-| `38081`（hostPort/NodePort） | Leros HTTP API / Web 前端 / account | `traefik`（错开 k3s 已占用的 80） |
+| `38081`（hostPort/NodePort） | Lework HTTP API / Web 前端 / account | `traefik`（错开 k3s 已占用的 80） |
 | `8443`（hostPort/NodePort） | HTTPS | `traefik`（错开 k3s 已占用的 443） |
 | `8080`（vLLM） | 模型推理 OpenAI 兼容 API（仅集群/内网） | `vLLM` |
 
 ## 5. 持久化存储
 
-| 宿主机目录（`dataHostPath` 默认 `/data/leros`） | 用途 |
+| 宿主机目录（`dataHostPath` 默认 `/data/lework`） | 用途 |
 |------|------|
 | `<dataHostPath>/postgresql` | PostgreSQL 数据 |
 | `<dataHostPath>/nats` | NATS JetStream 数据 |

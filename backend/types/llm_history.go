@@ -67,15 +67,15 @@ type LLMHistory struct {
 	OutputTruncated bool `gorm:"column:output_truncated;type:boolean;default:false"`
 	// 客户端IP
 	ClientIP string `gorm:"column:client_ip;type:varchar(64);default:''"`
-	// 项目ID，关联 leros_leros_project 表
+	// 项目ID，关联 lework_lework_project 表
 	ProjectID uint `gorm:"column:project_id;type:integer;not null;default:0;index:idx_llm_call_project"`
-	// 会话ID，关联 leros_leros_session 表
+	// 会话ID，关联 lework_lework_session 表
 	SessionID uint `gorm:"column:session_id;type:integer;not null;default:0;index:idx_llm_call_session"`
-	// 消息ID，关联 leros_leros_session_message 表
+	// 消息ID，关联 lework_lework_session_message 表
 	MessageID uint `gorm:"column:message_id;type:integer;not null;default:0"`
-	// 数字助理ID，关联 leros_leros_assistant 表
+	// 数字助理ID，关联 lework_lework_assistant 表
 	AssistantID uint `gorm:"column:assistant_id;type:integer;not null;default:0;index:idx_llm_call_assistant"`
-	// 用户ID，关联 leros_leros_user 表
+	// 用户ID，关联 lework_lework_user 表
 	Uin uint `gorm:"column:uin;type:integer;not null;default:0;index:idx_llm_call_uin"`
 	// 模型调用时的完整输入数据（messages / prompt）
 	Input string `gorm:"column:input;type:text"`

@@ -84,5 +84,5 @@ jobs:
 
       - name: Build web
         env:
-          NEXT_PUBLIC_LEROS_API_BASE_URL: /v1
-        run: pnpm --filter @leros/web build
+          NEXT_PUBLIC_LEWORK_API_BASE_URL: /v1
+        run: pnpm --filter @lework/web build

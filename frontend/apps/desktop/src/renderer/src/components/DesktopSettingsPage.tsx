@@ -1,5 +1,5 @@
-import { PrivateSettingsPage } from "@leros/app-ui";
-import { isPrivateDeployment } from "@leros/store";
+import { PrivateSettingsPage } from "@lework/app-ui";
+import { isPrivateDeployment } from "@lework/store";
 import { Navigate } from "react-router-dom";
 import { reloadDesktopRenderer } from "../utils/reload";
 

@@ -15,7 +15,7 @@ export function sanitizeDeployMode (value) {
 	const mode = typeof value === "string" ? value.trim() : ""
 	if (!mode) return ""
 	if (mode.includes("..") || mode.includes("/") || mode.includes("\\") || !MODE_PATTERN.test(mode)) {
-		throw new Error(`Invalid LEROS_DEPLOY_MODE: ${value}`)
+		throw new Error(`Invalid LEWORK_DEPLOY_MODE: ${value}`)
 	}
 	return mode
 }
@@ -28,10 +28,10 @@ export function sanitizeS3Domain (value) {
 	try {
 		parsed = new URL(raw)
 	} catch {
-		throw new Error(`Invalid LEROS_DEPLOY_S3_DOMAIN: ${value}`)
+		throw new Error(`Invalid LEWORK_DEPLOY_S3_DOMAIN: ${value}`)
 	}
 	if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) {
-		throw new Error(`Invalid LEROS_DEPLOY_S3_DOMAIN: ${value}`)
+		throw new Error(`Invalid LEWORK_DEPLOY_S3_DOMAIN: ${value}`)
 	}
 	const path = parsed.pathname.replace(/\/+$/, "")
 	return path && path !== "/" ? `${parsed.origin}${path}` : parsed.origin
@@ -67,10 +67,10 @@ async function downloadLogoFromS3 (s3Domain, mode, brandDir, fetchImpl) {
 }
 
 export async function injectDeployConfig ({
-	mode = process.env.LEROS_DEPLOY_MODE,
-	appName = process.env.LEROS_DEPLOY_APP_NAME,
-	s3Domain = process.env.LEROS_DEPLOY_S3_DOMAIN,
-	deploymentMode = process.env.VITE_LEROS_DEPLOYMENT_MODE,
+	mode = process.env.LEWORK_DEPLOY_MODE,
+	appName = process.env.LEWORK_DEPLOY_APP_NAME,
+	s3Domain = process.env.LEWORK_DEPLOY_S3_DOMAIN,
+	deploymentMode = process.env.VITE_LEWORK_DEPLOYMENT_MODE,
 	rendererPublicDir: rendererPublicDirArg = rendererPublicDir,
 	fetchImpl = globalThis.fetch,
 } = {}) {
@@ -86,7 +86,7 @@ export async function injectDeployConfig ({
 
 	let logoPublicPath = ""
 	if (sanitizedS3Domain && !sanitizedMode) {
-		throw new Error("LEROS_DEPLOY_S3_DOMAIN requires LEROS_DEPLOY_MODE")
+		throw new Error("LEWORK_DEPLOY_S3_DOMAIN requires LEWORK_DEPLOY_MODE")
 	}
 	if (sanitizedMode && sanitizedS3Domain) {
 		logoPublicPath = await downloadLogoFromS3(sanitizedS3Domain, sanitizedMode, resolvedBrandDir, fetchImpl)
@@ -98,7 +98,7 @@ export async function injectDeployConfig ({
 		}
 	} else if (sanitizedMode) {
 		console.log(
-			`[inject-deploy-config] LEROS_DEPLOY_MODE=${sanitizedMode} but LEROS_DEPLOY_S3_DOMAIN is empty; keep default Lework logo`,
+			`[inject-deploy-config] LEWORK_DEPLOY_MODE=${sanitizedMode} but LEWORK_DEPLOY_S3_DOMAIN is empty; keep default Lework logo`,
 		)
 	}
 

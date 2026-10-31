@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Lework/backend/config"
 )
 
 type mockExecutor struct {
@@ -208,8 +208,8 @@ func TestAgentSystemOutputBoundaryRemainsGeneric(t *testing.T) {
 		"--project-id",
 		"自动化任务",
 		"Skill code",
-		"leros automation",
-		"leros skill",
+		"lework automation",
+		"lework skill",
 	} {
 		if strings.Contains(boundary, forbidden) {
 			t.Fatalf("generic output boundary must not mention business-specific %q: %s", forbidden, boundary)

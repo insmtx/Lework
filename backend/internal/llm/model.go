@@ -8,7 +8,7 @@ import (
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // SchemaMessage 是 eino schema.Message 的类型别名，供其他包在不直接 import eino 的情况下使用。

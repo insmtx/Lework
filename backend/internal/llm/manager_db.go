@@ -13,9 +13,9 @@ import (
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/infra/db"
+	pkgeino "github.com/insmtx/Lework/backend/pkg/eino"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // modelConfigFromEntity 将持久化实体 types.LLMModel 转换为领域类型 ModelConfig。
@@ -803,7 +803,7 @@ func (m *ManagerDb) TestConnectivity(ctx context.Context, orgID uint, req *TestR
 
 const (
 	// connectivityTestSystemPrompt 连通性测试的系统提示词。
-	connectivityTestSystemPrompt = "You are testing Leros LLM connectivity. Reply with only: ok"
+	connectivityTestSystemPrompt = "You are testing Lework LLM connectivity. Reply with only: ok"
 	// connectivityTestUserPrompt 连通性测试的用户输入。
 	connectivityTestUserPrompt = "Reply with only: ok"
 	// connectivityTestSuccessMessage 上游未返回文本内容时的兜底成功提示。

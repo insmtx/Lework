@@ -1,11 +1,11 @@
 # 私有化模型部署（vLLM + Qwen3.6-27B）
 
-本文档说明私有化场景下大模型的本地部署方案。私有化要求模型数据不出内网，采用 **vLLM + NVIDIA GPU** 承载 `Qwen3.6-27B`，对外暴露 OpenAI 兼容接口，由 Leros 的 `llm.baseUrl` 指向该服务。本文以 `Qwen3.6-27B` 为例。
+本文档说明私有化场景下大模型的本地部署方案。私有化要求模型数据不出内网，采用 **vLLM + NVIDIA GPU** 承载 `Qwen3.6-27B`，对外暴露 OpenAI 兼容接口，由 Lework 的 `llm.baseUrl` 指向该服务。本文以 `Qwen3.6-27B` 为例。
 
 ## 1. 部署形态
 
 ```
-Leros Server / Worker
+Lework Server / Worker
         │ llm.provider=openai, llm.baseUrl=http://vllm:8080/v1, llm.model=Qwen3.6-27B
         ▼
    vLLM (OpenAI 兼容 API, 端口 8080)
@@ -13,7 +13,7 @@ Leros Server / Worker
         └─ Qwen3.6-27B 权重（内网私有化）
 ```
 
-- vLLM 提供 `/v1/chat/completions` 等 OpenAI 兼容接口，Leros 直接以 `openai` provider 对接。
+- vLLM 提供 `/v1/chat/completions` 等 OpenAI 兼容接口，Lework 直接以 `openai` provider 对接。
 - 模型权重与推理服务完全在内网，数据不下外网。
 
 ## 2. 硬件要求与并发权衡
@@ -44,7 +44,7 @@ KV Cache 是提高并发的关键，而它受限于"总显存 − 模型权重 �
 | 32K / 16K | 可换得更明显并发提升，适合多数业务（长文档、代码) |
 | 8K 或更低 | 单卡并发最高，适合高并发短对话场景 |
 
-> 建议：**先按业务实际需要的最大输入长度定上下文**，不要盲目开满 128K。并发优先时降低上下文，以 KV Cache 换并发。`max_model_len`（vLLM）与 `llm.limit.context`（Leros）需一致。
+> 建议：**先按业务实际需要的最大输入长度定上下文**，不要盲目开满 128K。并发优先时降低上下文，以 KV Cache 换并发。`max_model_len`（vLLM）与 `llm.limit.context`（Lework）需一致。
 
 ### 2.3 显卡配置（多卡换取更高并发）
 
@@ -77,7 +77,7 @@ KV Cache 是提高并发的关键，而它受限于"总显存 − 模型权重 �
 
 vLLM 可独立部署于 k3s 节点、独立 GPU 服务器，或作为 k3s 内的一个 Deployment（需节点暴露 GPU 与 NVMe 可用内存）。以下以独立 GPU 服务器 + Docker 为例，也可在 k3s 节点上用 `nvidia` runtime 部署。
 
-> 若复用 k3s 节点，需安装 NVIDIA `nvidia-container-toolkit` 并配置 `nvidia` runtime / device plugin，且该节点不会被 Leros 调度器用作普通 worker（模型与任务混部需评估显存与性能）。
+> 若复用 k3s 节点，需安装 NVIDIA `nvidia-container-toolkit` 并配置 `nvidia` runtime / device plugin，且该节点不会被 Lework 调度器用作普通 worker（模型与任务混部需评估显存与性能）。
 
 ### 3.1 拉取模型权重
 
@@ -156,7 +156,7 @@ docker run -d --name vllm-qwen27b \
 |------|------|
 | `--tensor-parallel-size 1` | 并行度，须为 2 的幂（1/2/4/8），等于卡数 |
 | `--trust-remote-code` | 允许加载模型自定义代码 |
-| `--served-model-name Qwen3.6-27B` | 对外注册的模型名，应与 Leros `llm.model` 一致 |
+| `--served-model-name Qwen3.6-27B` | 对外注册的模型名，应与 Lework `llm.model` 一致 |
 | `--gpu-memory-utilization 0.925` | GPU 显存占用比例（实测 0.925 可用） |
 | `--default-chat-template-kwargs '{"enable_thinking": false}'` | 关闭模型思考模式（thinking），加快响应并省显存 |
 | `--max-model-len` | 上下文长度，越大并发越低；并发优先可降到 32K/16K |
@@ -174,7 +174,7 @@ curl http://<vllm-host>:8080/v1/models
 ```
 应返回含 `Qwen3.6-27B` 的模型列表。
 
-### 3.3 接入 Leros
+### 3.3 接入 Lework
 
 vLLM 无鉴权时，`llm.apiKey` 填任意非空占位串即可。在 `my-values.yaml` 中：
 
@@ -192,14 +192,14 @@ llm:
 
 ## 4. 多模态 / 视觉
 
-Leros `llm.vision` 指示默认模型是否支持图片输入。Qwen3.6-27B（文本版）不支持视觉，需视觉能力时应改用 Qwen3.6-VL 系列并在 `llm.vision: true`，相应调整权重与镜像。
+Lework `llm.vision` 指示默认模型是否支持图片输入。Qwen3.6-27B（文本版）不支持视觉，需视觉能力时应改用 Qwen3.6-VL 系列并在 `llm.vision: true`，相应调整权重与镜像。
 
 ## 5. 备选与扩展
 
 | 场景 | 方案 |
 |------|------|
 | 无 GPU / 仅连通性验证 | vLLM CPU 模式或 Ollama（性能很低，仅验证 `llm` 配置连通，且需足够大内存承载权重 51.1 GiB） |
-| 统一模型网关 | 在 Leros 与 vLLM 之间加 ModelRouter/网关，统一多模型路由与熔断 |
+| 统一模型网关 | 在 Lework 与 vLLM 之间加 ModelRouter/网关，统一多模型路由与熔断 |
 | 视觉/多模态 | 改 `Qwen3.6-VL`，`llm.vision: true` |
 
 ## 6. 核对清单
@@ -209,4 +209,4 @@ Leros `llm.vision` 指示默认模型是否支持图片输入。Qwen3.6-27B（�
 - [ ] `llm.baseUrl` 指向 vLLM `:8080/v1`，内网可访问
 - [ ] `curl :8080/v1/models` 返回预期模型
 - [ ] `--max-model-len` 与 `llm.limit.context` 一致；上下文与并发已按业务权衡
-- [ ] 发起一次 Leros 任务，确认走本地模型成功
+- [ ] 发起一次 Lework 任务，确认走本地模型成功

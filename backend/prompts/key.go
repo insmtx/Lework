@@ -1,6 +1,6 @@
 package prompts
 
-const KeyAgentSystemDefault = "agent.system.default" // 角色定义：Leros 助手身份声明
+const KeyAgentSystemDefault = "agent.system.default" // 角色定义：Lework 助手身份声明
 
 // Native Runner 专用 — 在通用提示词之前追加，仅 native agent 使用。
 const (

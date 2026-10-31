@@ -1,4 +1,4 @@
-import type { ProjectActivityActor, ProjectActivityItem, ProjectActivitySkill } from "@leros/store";
+import type { ProjectActivityActor, ProjectActivityItem, ProjectActivitySkill } from "@lework/store";
 
 export type ProjectActivityTextPart =
 	| { type: "text"; text: string; bold?: boolean }

@@ -1,14 +1,14 @@
 "use client";
 
-import type { AutomationItem } from "@leros/store";
+import type { AutomationItem } from "@lework/store";
 import {
 	prepareOutgoingComposer,
 	skillChipsToComposerState,
 	useAutomationStore,
 	useLayoutStore,
-} from "@leros/store";
-import type { ComposerToken } from "@leros/store/types/chat";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import type { ComposerToken } from "@lework/store/types/chat";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Command,
 	CommandGroup,
@@ -16,7 +16,7 @@ import {
 	CommandItem,
 	CommandList,
 	CommandSeparator,
-} from "@leros/ui/components/ui/command";
+} from "@lework/ui/components/ui/command";
 import {
 	Dialog,
 	DialogContent,
@@ -24,23 +24,23 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { Label } from "@leros/ui/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { Label } from "@lework/ui/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from "@leros/ui/components/ui/select";
-import { Switch } from "@leros/ui/components/ui/switch";
+} from "@lework/ui/components/ui/select";
+import { Switch } from "@lework/ui/components/ui/switch";
 import { Check, ChevronsUpDown, Clock, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";

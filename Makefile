@@ -1,5 +1,5 @@
 PROJECT ?= insmtx
-APP?= leros
+APP?= lework
 REGISTRY ?= registry.yygu.cn
 
 .PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend dev-up dev-all dev-down dev-status dev-logs docker-build-worker-base docker-build-worker-base-private docker-push-worker-base docker-push-worker-base-private docker-build-worker docker-build-web docker-build-tag docker-push-tag image-tag aio-build aio-images aio-up aio-down aio-backup
@@ -21,7 +21,7 @@ BUILD_TAGS_FLAG := -tags "$(BUILD_TAGS)"
 endif
 
 build:
-	go build $(BUILD_TAGS_FLAG) -ldflags="$(LDFLAGS)" -v -o ./bundles/leros ./backend/cmd/leros/
+	go build $(BUILD_TAGS_FLAG) -ldflags="$(LDFLAGS)" -v -o ./bundles/lework ./backend/cmd/lework/
 
 install:
 	bash deployments/dev/install.sh
@@ -30,13 +30,13 @@ uninstall:
 	bash deployments/dev/install.sh --uninstall
 
 docker-build-base:
-	docker build -t $(REGISTRY)/$(PROJECT)/leros-base:latest -f deployments/build/Dockerfile.base .
+	docker build -t $(REGISTRY)/$(PROJECT)/lework-base:latest -f deployments/build/Dockerfile.base .
 
 docker-push-base: docker-build-base
-	docker push $(REGISTRY)/$(PROJECT)/leros-base:latest
+	docker push $(REGISTRY)/$(PROJECT)/lework-base:latest
 
-# Worker base: ubuntu + libreoffice + CJK fonts + node + claude-code/codex/opencode + leros user.
-# Independent from leros-base; rebuild whenever Dockerfile.worker-base changes.
+# Worker base: ubuntu + libreoffice + CJK fonts + node + claude-code/codex/opencode + lework user.
+# Independent from lework-base; rebuild whenever Dockerfile.worker-base changes.
 #
 # 版次（Dockerfile.worker-base 顶层 ARG EDITION）：
 #   docker-build-worker-base         WORKER_BASE_EDITION=saas     -> :saas     (SaaS 精简版，默认)
@@ -45,22 +45,22 @@ docker-push-base: docker-build-base
 # Dockerfile.worker 的 FROM 默认显式写 :saas，私有化部署需改成 :private。
 # 也可显式指定：make docker-build-worker-base WORKER_BASE_EDITION=private
 WORKER_BASE_EDITION ?= saas
-WORKER_BASE_IMAGE ?= $(REGISTRY)/$(PROJECT)/leros-worker-base:$(WORKER_BASE_EDITION)
+WORKER_BASE_IMAGE ?= $(REGISTRY)/$(PROJECT)/lework-worker-base:$(WORKER_BASE_EDITION)
 
 docker-build-worker-base:
-	docker build --build-arg EDITION=$(WORKER_BASE_EDITION) -t $(REGISTRY)/$(PROJECT)/leros-worker-base:$(WORKER_BASE_EDITION) -f deployments/build/Dockerfile.worker-base .
+	docker build --build-arg EDITION=$(WORKER_BASE_EDITION) -t $(REGISTRY)/$(PROJECT)/lework-worker-base:$(WORKER_BASE_EDITION) -f deployments/build/Dockerfile.worker-base .
 
 docker-build-worker-base-private:
 	$(MAKE) docker-build-worker-base WORKER_BASE_EDITION=private
 
 docker-push-worker-base: docker-build-worker-base
-	docker push $(REGISTRY)/$(PROJECT)/leros-worker-base:$(WORKER_BASE_EDITION)
+	docker push $(REGISTRY)/$(PROJECT)/lework-worker-base:$(WORKER_BASE_EDITION)
 
 docker-push-worker-base-private:
 	$(MAKE) docker-push-worker-base WORKER_BASE_EDITION=private
 
 docker-build:
-	docker build -t $(REGISTRY)/$(PROJECT)/leros:latest -f deployments/build/Dockerfile.leros .
+	docker build -t $(REGISTRY)/$(PROJECT)/lework:latest -f deployments/build/Dockerfile.lework .
 
 docker-build-worker:
 	docker build --build-arg WORKER_BASE_IMAGE=$(WORKER_BASE_IMAGE) -t $(REGISTRY)/$(PROJECT)/worker:latest -f deployments/build/Dockerfile.worker .
@@ -76,12 +76,12 @@ AIO_WEB_IMAGE ?= $(REGISTRY)/$(PROJECT)/web:latest
 
 aio-build: docker-build-worker-base docker-build-worker
 	docker build -t $(AIO_WEB_IMAGE) \
-		--build-arg NEXT_PUBLIC_LEROS_API_BASE_URL=/v1 \
+		--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=/v1 \
 		-f deployments/build/Dockerfile.web .
 
 aio-images: aio-build
 	docker pull postgres:17 nats:2.12 nginx:1.27-alpine
-	docker save -o $(AIO_DIR)/leros-aio-images.tar \
+	docker save -o $(AIO_DIR)/lework-aio-images.tar \
 		$(AIO_IMAGE) $(AIO_WEB_IMAGE) postgres:17 nats:2.12 nginx:1.27-alpine
 
 aio-up:
@@ -95,13 +95,13 @@ aio-backup:
 
 
 # SERVICE: 服务名，默认使用 APP
-# DOCKERFILE_NAME: Dockerfile 文件名（去掉 lerost- 前缀），如 leros -> leros, leros-worker -> worker
+# DOCKERFILE_NAME: Dockerfile 文件名（去掉 lework- 前缀），如 lework -> lework, lework-worker -> worker
 SERVICE ?= $(APP)
-DOCKERFILE_NAME = $(subst leros-,,$(SERVICE))
+DOCKERFILE_NAME = $(subst lework-,,$(SERVICE))
 
 docker-build-tag:
 	@if [ -z "$(SERVICE)" ]; then \
-		echo "ERROR: SERVICE is not set. Usage: make docker-build-tag SERVICE=leros"; \
+		echo "ERROR: SERVICE is not set. Usage: make docker-build-tag SERVICE=lework"; \
 		exit 1; \
 	fi
 	docker build \
@@ -121,17 +121,17 @@ image-tag:
 	@echo ${IMAGE_TAG}
 
 docker-dev-build:
-	docker build -t $(REGISTRY)/$(PROJECT)/leros-dev:latest -f deployments/build/Dockerfile.leros-dev .
+	docker build -t $(REGISTRY)/$(PROJECT)/lework-dev:latest -f deployments/build/Dockerfile.lework-dev .
 
 docker-push: docker-build
-	docker push $(REGISTRY)/$(PROJECT)/leros:latest
+	docker push $(REGISTRY)/$(PROJECT)/lework:latest
 
-docker-run-leros:
-	-docker rm -f $(PROJECT)-leros-dev
-	docker run -d --name $(PROJECT)-leros-dev -p 8080:8080 $(REGISTRY)/$(PROJECT)/leros:latest
+docker-run-lework:
+	-docker rm -f $(PROJECT)-lework-dev
+	docker run -d --name $(PROJECT)-lework-dev -p 8080:8080 $(REGISTRY)/$(PROJECT)/lework:latest
 
 docker-compose-up: docker-build
-	docker tag $(REGISTRY)/$(PROJECT)/leros:latest localhost/env_$(PROJECT):latest
+	docker tag $(REGISTRY)/$(PROJECT)/lework:latest localhost/env_$(PROJECT):latest
 	docker-compose -f deployments/env/docker-compose.yml up -d
 
 docker-compose-down:
@@ -176,7 +176,7 @@ logs:
 
 swagger:
 	swag init --generalInfo server.go \
-		--dir backend/cmd/leros,backend/internal/api/handler,backend/internal/api,backend/types \
+		--dir backend/cmd/lework,backend/internal/api/handler,backend/internal/api,backend/types \
 		--output docs/swagger --exclude example \
 		--parseDependency --parseDepth 2
 
@@ -195,8 +195,8 @@ dev-worker:
 	cd deployments/dev && ./dev-worker.sh
 
 dev-frontend:
-	-docker rm -f leros-dev-frontend || true
-	docker run -it --name leros-dev-frontend \
+	-docker rm -f lework-dev-frontend || true
+	docker run -it --name lework-dev-frontend \
 	 --network host \
 	 -v $(PWD)/frontend:/app \
 	 -w /app \

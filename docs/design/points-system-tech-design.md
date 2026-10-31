@@ -206,12 +206,12 @@ flowchart TB
 
 | 资源 | 管控方式 | 管控表 | 依据 |
 |------|---------|--------|------|
-| Token 消耗 | **积分扣减** | `leros_points_pool` | 每次调用即消耗，用一次少一次 |
-| 项目数 | **硬上限** | `leros_org_quota` | 创建时占位，删除时释放，非消耗型 |
-| 成员数 | **硬上限** | `leros_org_quota` | 同上 |
-| AI 队友数 | **硬上限** | `leros_org_quota` | 同上 |
-| Skill 数 | **硬上限** | `leros_org_quota` | 同上 |
-| 存储容量 | **硬上限** | `leros_org_quota` | 文件上传占空间，删除释放空间 |
+| Token 消耗 | **积分扣减** | `lework_points_pool` | 每次调用即消耗，用一次少一次 |
+| 项目数 | **硬上限** | `lework_org_quota` | 创建时占位，删除时释放，非消耗型 |
+| 成员数 | **硬上限** | `lework_org_quota` | 同上 |
+| AI 队友数 | **硬上限** | `lework_org_quota` | 同上 |
+| Skill 数 | **硬上限** | `lework_org_quota` | 同上 |
+| 存储容量 | **硬上限** | `lework_org_quota` | 文件上传占空间，删除释放空间 |
 
 判断依据：资源"用一次就没了"走积分扣减；"创建后持续占用、删除后释放"走硬上限。一期 Token 是唯一消耗型资源。
 
@@ -237,7 +237,7 @@ LLM 调用   → used_points += calcTokenCost(input, output)
 
 **生命周期差异：**
 
-| 维度 | `leros_points_pool` | `leros_org_quota` |
+| 维度 | `lework_points_pool` | `lework_org_quota` |
 |------|---------------------|-------------------|
 | 与组织的关系 | 一对一（`org_id` UNIQUE） | 一对多（一个组织可有多条历史配额记录） |
 | 记录数量 | 每组织**只有一行** | 每次购买/升级**新增一行** |
@@ -439,7 +439,7 @@ stateDiagram-v2
 
 ```sql
 -- 套餐模板表
-CREATE TABLE leros_package (
+CREATE TABLE lework_package (
     id                BIGINT AUTO_INCREMENT PRIMARY KEY,
     name              VARCHAR(100) NOT NULL COMMENT '套餐名称',
     description       TEXT COMMENT '套餐描述',
@@ -461,7 +461,7 @@ CREATE TABLE leros_package (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 组织配额记录表
-CREATE TABLE leros_org_quota (
+CREATE TABLE lework_org_quota (
     id                BIGINT AUTO_INCREMENT PRIMARY KEY,
     org_id            BIGINT NOT NULL COMMENT '组织ID',
     package_id        BIGINT NOT NULL COMMENT '关联套餐ID',
@@ -483,7 +483,7 @@ CREATE TABLE leros_org_quota (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 积分池表（乐观锁防超扣，CHECK 约束兜底）
-CREATE TABLE leros_points_pool (
+CREATE TABLE lework_points_pool (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     org_id          BIGINT NOT NULL UNIQUE COMMENT '组织ID（一对一）',
     total_points    BIGINT DEFAULT 0 COMMENT '累计获得积分',
@@ -496,7 +496,7 @@ CREATE TABLE leros_points_pool (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 积分流水表（审计日志）
-CREATE TABLE leros_points_transaction (
+CREATE TABLE lework_points_transaction (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     org_id          BIGINT NOT NULL COMMENT '组织ID',
     tx_type         VARCHAR(20) NOT NULL COMMENT 'topup/consumption/expiration/adjustment',
@@ -512,7 +512,7 @@ CREATE TABLE leros_points_transaction (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 支付订单表
-CREATE TABLE leros_order (
+CREATE TABLE lework_order (
     id                BIGINT AUTO_INCREMENT PRIMARY KEY,
     org_id            BIGINT NOT NULL COMMENT '组织ID',
     package_id        BIGINT NOT NULL COMMENT '套餐ID',
@@ -528,7 +528,7 @@ CREATE TABLE leros_order (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 计费单价配置表
-CREATE TABLE leros_billing_rate (
+CREATE TABLE lework_billing_rate (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     resource_type   VARCHAR(50) NOT NULL UNIQUE COMMENT 'llm_token_input/llm_token_output 等',
     unit            VARCHAR(50) NOT NULL COMMENT 'per_1000_tokens',
@@ -693,7 +693,7 @@ func NewProjectService(...) *ProjectService {
 | `skill` | COUNT (不含软删除) | `max_skills` | SkillService |
 | `storage` | SUM(size) | `max_storage_bytes` | FileService |
 
-> **存储配额性能优化：** 文件存储用 `SUM(size)` 聚合比 COUNT 开销更大，且文件上传频率远高于建项目/成员。为避免每次上传都实时 SUM，在 `leros_organization` 表中增加 `storage_used_bytes` 物化字段，由 FileService 在上传/删除文件时级联增减。`FileService.CountUsage(orgID)` 直接返回该物化字段值，不走实时 SUM 查询。
+> **存储配额性能优化：** 文件存储用 `SUM(size)` 聚合比 COUNT 开销更大，且文件上传频率远高于建项目/成员。为避免每次上传都实时 SUM，在 `lework_organization` 表中增加 `storage_used_bytes` 物化字段，由 FileService 在上传/删除文件时级联增减。`FileService.CountUsage(orgID)` 直接返回该物化字段值，不走实时 SUM 查询。
 
 > **关于可创建组织数约束：** 该约束规则（按用户维度限制、与套餐的关系、边界值等）尚未确定，不纳入当前套餐资源上限体系。详见 PRD §6.2.1 待定约束。
 
@@ -742,7 +742,7 @@ OrgService.CreateOrg()
 | `backend/internal/api/handler/digital_assistant_handler.go` | 路由加 `QuotaCheck("ai_teammate")` | 低 |
 | `backend/internal/api/handler/skill_handler.go` | 路由加 `QuotaCheck("skill")` | 低 |
 | `backend/internal/api/handler/file_handler.go` | 路由加 `QuotaCheck("storage")` | 低 |
-| `backend/cmd/leros/` | 添加 cron 定时任务启动 | 低 |
+| `backend/cmd/lework/` | 添加 cron 定时任务启动 | 低 |
 
 支付回调路由需要独立的公开端点（不经 JWT 鉴权，验签由 PaymentProvider 内部完成）。
 
@@ -753,7 +753,7 @@ OrgService.CreateOrg()
 ### 8.1 乐观锁防超扣
 
 ```sql
-UPDATE leros_points_pool
+UPDATE lework_points_pool
 SET used_points = used_points + ?, version = version + 1
 WHERE org_id = ? AND version = ? AND total_points - used_points >= ?;
 ```
@@ -762,7 +762,7 @@ WHERE org_id = ? AND version = ? AND total_points - used_points >= ?;
 
 > **乐观锁的覆盖范围有限：** 乐观锁只能防止多个扣分事务同时操作同一行时的竞态（同步并发）。但 Token 扣分是异步的——校验余额在先，实际扣分在后。多成员并发推理时，各请求在校验时点看到余额均充足，但后续异步扣分累加后可能超出余额。乐观锁对此时间差无效。请求前积分检查只能降低超用概率，无法完全避免——并发请求各自校验通过，但累加扣分仍可能超出余额。`CHECK` 约束在数据库层兜底拦截超扣写入，对应扣分失败但消息内容保留不变。通过告警监控透支情况。
 
-此外，`leros_points_pool` 表通过 `CHECK (total_points - used_points >= 0)` 约束作为数据库层最后一道防线，即使应用层乐观锁意外绕过，也能在存储层杜绝超扣写入。
+此外，`lework_points_pool` 表通过 `CHECK (total_points - used_points >= 0)` 约束作为数据库层最后一道防线，即使应用层乐观锁意外绕过，也能在存储层杜绝超扣写入。
 
 > **MySQL 版本要求：** `CHECK` 约束仅在 MySQL 8.0.16+ 版本生效并拦截写入，更早版本会静默忽略该约束。本方案要求 MySQL 版本 ≥ 8.0.16。
 
@@ -835,10 +835,10 @@ backend/internal/service/points/
 | 中间件实时查询性能 | 低 | 硬上限校验每次都查 DB COUNT/SUM | 一期组织规模有限可接受；二期引入 Redis 缓存 |
 | 硬上限校验 TOCTOU | 低 | 「查用量 → 判上限 → 放行创建」之间无锁，并发创建可能同时通过校验、突破上限 | 对项目/成员/Skill 等低频操作风险可控；明确此为**尽力而为**式限制，非强一致保证 |
 | 乐观锁重试无限循环 | 低 | 高并发下连续冲突可能导致重试堆积 | 设定重试上限：最多 3 次，间隔 10-50ms 随机退避，超过则记录异常返回用户重试 |
-| 支付回调幂等性 | 高 | 微信可能重复回调 | 回调处理时通过原子 UPDATE 抢占式更新订单状态：`UPDATE leros_order SET status='paid' WHERE order_sn=? AND status='pending'`，仅受影响行数=1 的请求继续走后续配额/积分发放逻辑，其余请求直接返回成功 |
+| 支付回调幂等性 | 高 | 微信可能重复回调 | 回调处理时通过原子 UPDATE 抢占式更新订单状态：`UPDATE lework_order SET status='paid' WHERE order_sn=? AND status='pending'`，仅受影响行数=1 的请求继续走后续配额/积分发放逻辑，其余请求直接返回成功 |
 | 积分池版本冲突 | 低 | 高并发下乐观锁冲突 | 同组织并发扣分场景有限；冲突时按重试上限回滚重试，最多 3 次，间隔 10-50ms 随机退避 |
 | 单价变更历史不可追溯 | 中 | `BillingRate` 单价随时可改，历史流水无法知道当时的定价 | 后续版本在 `PointsTransaction` 中加 `unit_price` 字段快照 |
-| 订单缺少套餐快照 | 低 | `leros_order` 通过 `package_id` 关联套餐，已加 `points_granted` 字段记录本次发放积分数，可满足基本对账需求 | 本期在订单 DDl 中增加 `points_granted` 字段；完整套餐快照后续版本处理 |
+| 订单缺少套餐快照 | 低 | `lework_order` 通过 `package_id` 关联套餐，已加 `points_granted` 字段记录本次发放积分数，可满足基本对账需求 | 本期在订单 DDl 中增加 `points_granted` 字段；完整套餐快照后续版本处理 |
 
 ---
 
@@ -846,14 +846,14 @@ backend/internal/service/points/
 
 ```sql
 -- 套餐
-INSERT INTO leros_package (name, price, sale_price, status, tier_rank, source_type, edition, total_points, max_projects, max_employees, max_ai_teammates, max_skills, max_storage_bytes, period_type)
+INSERT INTO lework_package (name, price, sale_price, status, tier_rank, source_type, edition, total_points, max_projects, max_employees, max_ai_teammates, max_skills, max_storage_bytes, period_type)
 VALUES
 ('免费版', 0, 0, 'online', 1, 'system', 'free_trial', 10000, 5, 10, 3, 5, 1073741824, 'lifetime'),
 ('专业版', 9900, 9900, 'online', 2, 'system', 'professional', 100000, 50, 100, 20, 50, 10737418240, 'month'),
 ('企业版', 49900, 49900, 'online', 3, 'system', 'enterprise', 1000000, -1, -1, -1, -1, 107374182400, 'month');
 
 -- 计费单价
-INSERT INTO leros_billing_rate (resource_type, unit, points_per_unit, is_active) VALUES
+INSERT INTO lework_billing_rate (resource_type, unit, points_per_unit, is_active) VALUES
 ('llm_token_input', 'per_1000_tokens', 1, TRUE),
 ('llm_token_output', 'per_1000_tokens', 2, TRUE),
 ('llm_token_cache_input', 'per_1000_tokens', 1, TRUE),

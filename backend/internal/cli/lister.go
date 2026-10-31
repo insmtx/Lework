@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
 )
 
 // ListProjects 调用服务端 ListProjects API 并返回解析后的结果。

@@ -8,8 +8,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	dbrepo "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	dbrepo "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 const testOrgID uint = 1

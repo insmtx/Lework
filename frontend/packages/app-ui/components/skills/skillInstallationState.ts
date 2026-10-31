@@ -1,4 +1,4 @@
-import type { PluginInstallationStatus } from "@leros/store";
+import type { PluginInstallationStatus } from "@lework/store";
 
 export function canUpdateOrganizationSkill(status: PluginInstallationStatus | null): boolean {
 	return Boolean(

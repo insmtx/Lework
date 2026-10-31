@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/internal/api/middleware"
+	"github.com/insmtx/Lework/backend/internal/api/middleware"
 )
 
 // TestCORS_MustBeAppliedBefore_V1Group 锁定 Gin 的语义陷阱：
@@ -24,7 +24,7 @@ func TestCORS_MustBeAppliedBefore_V1Group(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("correct order: Use before Group", func(t *testing.T) {
-		t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
+		t.Setenv("LEWORK_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
 		r := gin.New()
 		r.Use(middleware.CORS()) // 先挂中间件
 
@@ -46,7 +46,7 @@ func TestCORS_MustBeAppliedBefore_V1Group(t *testing.T) {
 	})
 
 	t.Run("wrong order: Group before Use (regression guard)", func(t *testing.T) {
-		t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
+		t.Setenv("LEWORK_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
 		r := gin.New()
 		v1 := r.Group("/v1") // 此时 r.Handlers 为空，v1 快照空副本
 
@@ -74,7 +74,7 @@ func TestCORS_MustBeAppliedBefore_V1Group(t *testing.T) {
 
 func TestCORS_DoesNotEchoUnknownOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
+	t.Setenv("LEWORK_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3005")
 
 	r := gin.New()
 	r.Use(middleware.CORS())
@@ -94,8 +94,8 @@ func TestCORS_DoesNotEchoUnknownOrigin(t *testing.T) {
 
 func TestCORS_UsesPublicURLFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	t.Setenv("LEROS_CORS_ALLOWED_ORIGINS", "")
-	t.Setenv("LEROS_PUBLIC_URL", "https://leros.example.com")
+	t.Setenv("LEWORK_CORS_ALLOWED_ORIGINS", "")
+	t.Setenv("LEWORK_PUBLIC_URL", "https://lework.example.com")
 
 	r := gin.New()
 	r.Use(middleware.CORS())
@@ -105,10 +105,10 @@ func TestCORS_UsesPublicURLFallback(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/v1/Echo", nil)
-	req.Header.Set("Origin", "https://leros.example.com")
+	req.Header.Set("Origin", "https://lework.example.com")
 	r.ServeHTTP(w, req)
 
-	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://leros.example.com" {
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://lework.example.com" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want public URL origin", got)
 	}
 }

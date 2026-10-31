@@ -54,8 +54,8 @@ func WorkerAddr() string {
 // identity to the current worker's profile.
 func GitAuthorEnv() []string {
 	p := Get()
-	name := fmt.Sprintf("leros-worker-o%d-w%d", p.OrgID, p.WorkerID)
-	email := fmt.Sprintf("worker-w%d@org%d.leros.local", p.WorkerID, p.OrgID)
+	name := fmt.Sprintf("lework-worker-o%d-w%d", p.OrgID, p.WorkerID)
+	email := fmt.Sprintf("worker-w%d@org%d.lework.local", p.WorkerID, p.OrgID)
 	return append(os.Environ(),
 		"GIT_AUTHOR_NAME="+name,
 		"GIT_AUTHOR_EMAIL="+email,

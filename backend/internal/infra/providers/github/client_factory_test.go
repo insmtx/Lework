@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
 )
 
 func TestClientFactoryResolveClientUsesInstallationSelector(t *testing.T) {
@@ -36,11 +36,11 @@ func TestClientFactoryResolveClientUsesInstallationSelector(t *testing.T) {
 					"expires_at":"2026-04-15T12:00:00Z",
 					"permissions":{"contents":"read","pull_requests":"write"}
 				}`), nil
-			case req.Method == http.MethodGet && req.URL.String() == "https://api.github.test/repos/insmtx/Leros":
+			case req.Method == http.MethodGet && req.URL.String() == "https://api.github.test/repos/insmtx/Lework":
 				if req.Header.Get("Authorization") != "Bearer installation-token" {
 					t.Fatalf("expected installation token auth header, got %q", req.Header.Get("Authorization"))
 				}
-				return jsonHTTPResponse(req, `{"id":1,"full_name":"insmtx/Leros"}`), nil
+				return jsonHTTPResponse(req, `{"id":1,"full_name":"insmtx/Lework"}`), nil
 			default:
 				return &http.Response{
 					StatusCode: http.StatusNotFound,
@@ -73,7 +73,7 @@ func TestClientFactoryResolveClientUsesInstallationSelector(t *testing.T) {
 		t.Fatalf("expected one installation token exchange, got %d", installationTokenCalls)
 	}
 
-	_, _, err = resolved.Client.Repositories.Get(context.Background(), "insmtx", "Leros")
+	_, _, err = resolved.Client.Repositories.Get(context.Background(), "insmtx", "Lework")
 	if err != nil {
 		t.Fatalf("call repositories get with installation client: %v", err)
 	}

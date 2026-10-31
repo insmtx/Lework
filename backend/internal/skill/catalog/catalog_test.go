@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 func TestList(t *testing.T) {
@@ -52,14 +52,14 @@ func TestListDerivesNameWithoutFrontmatter(t *testing.T) {
 
 func TestListCreatesMissingDirAndScansEmpty(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	summaries, err := List()
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 
-	expected := filepath.Join(workspaceRoot, ".leros", "skills")
+	expected := filepath.Join(workspaceRoot, ".lework", "skills")
 	if _, err := os.Stat(expected); err != nil {
 		t.Fatalf("expected skills dir to be created at %s: %v", expected, err)
 	}
@@ -128,7 +128,7 @@ description: Installed from marketplace.
 `), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, skillMetadataFileName), []byte(`{"source":"Leros","skill_id":"market-skill"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, skillMetadataFileName), []byte(`{"source":"Lework","skill_id":"market-skill"}`), 0o644); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
 
@@ -139,8 +139,8 @@ description: Installed from marketplace.
 	if len(summaries) != 1 {
 		t.Fatalf("expected 1 skill, got %d", len(summaries))
 	}
-	if summaries[0].Source != "Leros" {
-		t.Fatalf("expected source Leros, got %s", summaries[0].Source)
+	if summaries[0].Source != "Lework" {
+		t.Fatalf("expected source Lework, got %s", summaries[0].Source)
 	}
 	if summaries[0].SkillID != "market-skill" {
 		t.Fatalf("expected skill id market-skill, got %s", summaries[0].SkillID)
@@ -257,8 +257,8 @@ func TestListFiles(t *testing.T) {
 func setupSkillsRoot(t *testing.T) string {
 	t.Helper()
 	rootDir := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, rootDir)
-	skillsDir := filepath.Join(rootDir, ".leros", "skills")
+	t.Setenv(lework.EnvWorkspaceRoot, rootDir)
+	skillsDir := filepath.Join(rootDir, ".lework", "skills")
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		t.Fatalf("mkdir skills root: %v", err)
 	}

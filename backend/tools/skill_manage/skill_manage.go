@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/tools"
+	skillstore "github.com/insmtx/Lework/backend/internal/skill/store"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 const (
@@ -25,8 +25,8 @@ const (
 
 // buildSkillManageDescription 构建包含实际技能目录路径的工具描述。
 func buildSkillManageDescription() string {
-	skillsDir := "~/.leros/skills"
-	if dir, err := leros.SkillsDir(); err == nil {
+	skillsDir := "~/.lework/skills"
+	if dir, err := lework.SkillsDir(); err == nil {
 		skillsDir = dir
 	}
 	return fmt.Sprintf(`管理技能（创建、更新、删除）。技能是你的流程性记忆，用于保存 recurring task 的可复用做法。
@@ -62,7 +62,7 @@ type Tool struct {
 	store *skillstore.SkillStore
 }
 
-// NewTool creates skill_manage with the default Leros skills store.
+// NewTool creates skill_manage with the default Lework skills store.
 func NewTool() (*Tool, error) {
 	store, err := skillstore.NewSkillStore("")
 	if err != nil {

@@ -19,14 +19,14 @@ import (
 
 	"golang.org/x/image/draw"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/internal/consts"
-	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	"github.com/insmtx/Leros/backend/internal/service"
-	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
-	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/internal/consts"
+	modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"
+	"github.com/insmtx/Lework/backend/internal/service"
+	agentruncontext "github.com/insmtx/Lework/backend/internal/worker/agentrun/context"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/internal/worker/identity"
+	agentworkspace "github.com/insmtx/Lework/backend/internal/workspace"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -808,7 +808,7 @@ func (p *preparer) resolveProviderSession(ctx context.Context, req *agentrundoma
 }
 
 // runtimeSupportsMCPConnectors 判断该 runtime 是否接受运行期注入的 MCP 连接器配置。
-// claude/codex/opencode 各自携带 MCP 客户端，内置 leros runtime 只暴露内置工具注册表。
+// claude/codex/opencode 各自携带 MCP 客户端，内置 lework runtime 只暴露内置工具注册表。
 func runtimeSupportsMCPConnectors(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case agent.RuntimeKindClaude, agent.RuntimeKindCodex, agent.RuntimeKindOpenCode:

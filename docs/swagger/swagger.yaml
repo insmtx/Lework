@@ -1391,8 +1391,8 @@ definitions:
 host: localhost:8080
 info:
   contact: {}
-  description: Leros 数字助手平台 API，提供数字助手管理、技能调用、事件处理等功能
-  title: Leros API
+  description: Lework 数字助手平台 API，提供数字助手管理、技能调用、事件处理等功能
+  title: Lework API
   version: "1.0"
 paths:
   /AcceptTask:

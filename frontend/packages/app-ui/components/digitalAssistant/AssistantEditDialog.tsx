@@ -1,13 +1,13 @@
 "use client";
 
-import type { DigitalAssistantItem } from "@leros/store";
+import type { DigitalAssistantItem } from "@lework/store";
 import {
 	digitalAssistantApi,
 	getNativeFileInputAccept,
 	projectFileApi,
 	useDAStore,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -15,7 +15,7 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import { ImagePlus } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -164,7 +164,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 			<DialogContent className="flex max-h-[min(88dvh,640px)] max-w-[min(92vw,560px)] flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
 				<DialogHeader className="shrink-0 border-b border-slate-200 px-6 py-5 sm:px-8">
 					<DialogTitle>编辑AI队友</DialogTitle>
-					<span className="mt-1 w-fit rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--leros-text-muted)]">
+					<span className="mt-1 w-fit rounded-md bg-[var(--lework-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--lework-text-muted)]">
 						{isTemplateAssistant ? "模板创建" : "自定义创建"}
 					</span>
 				</DialogHeader>
@@ -279,7 +279,7 @@ export function AssistantEditDialog({ assistant, open, onOpenChange }: Assistant
 					</div>
 				</div>
 
-				<DialogFooter className="shrink-0 border-t border-[var(--leros-control-border)] bg-white px-6 py-4 sm:px-8">
+				<DialogFooter className="shrink-0 border-t border-[var(--lework-control-border)] bg-white px-6 py-4 sm:px-8">
 					<Button
 						variant="outline"
 						onClick={() => onOpenChange(false)}

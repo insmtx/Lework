@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/worker"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -46,7 +46,7 @@ func NewDockerCLIScheduler(config *config.SchedulerConfig) worker.WorkerSchedule
 }
 
 func containerName(workerID string) string {
-	return fmt.Sprintf("leros-worker-%s", workerID)
+	return fmt.Sprintf("lework-worker-%s", workerID)
 }
 
 func (ds *DockerCLIScheduler) execDocker(ctx context.Context, args ...string) (string, string, error) {
@@ -88,18 +88,18 @@ func (ds *DockerCLIScheduler) buildEnvVars(spec *worker.WorkerSpec) map[string]s
 		serverAddr = strings.TrimSpace(cfg.ServerAddr)
 	}
 	if serverAddr != "" {
-		env["LEROS_SERVER_ADDR"] = serverAddr
+		env["LEWORK_SERVER_ADDR"] = serverAddr
 	}
 	if spec.BootstrapToken != "" {
-		env["LEROS_WORKER_BOOTSTRAP_TOKEN"] = spec.BootstrapToken
+		env["LEWORK_WORKER_BOOTSTRAP_TOKEN"] = spec.BootstrapToken
 	}
 	if spec.OrgID != 0 {
-		env["LEROS_ORG_ID"] = fmt.Sprintf("%d", spec.OrgID)
+		env["LEWORK_ORG_ID"] = fmt.Sprintf("%d", spec.OrgID)
 	}
 	if spec.WorkerID != 0 {
-		env["LEROS_WORKER_ID"] = fmt.Sprintf("%d", spec.WorkerID)
+		env["LEWORK_WORKER_ID"] = fmt.Sprintf("%d", spec.WorkerID)
 	} else {
-		env["LEROS_WORKER_ID"] = spec.ID
+		env["LEWORK_WORKER_ID"] = spec.ID
 	}
 
 	return env

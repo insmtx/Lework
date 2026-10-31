@@ -1,10 +1,10 @@
 "use client";
 
-import type { Project, ProjectTask } from "@leros/store";
-import { useLayoutStore } from "@leros/store";
-import { Command, CommandInput } from "@leros/ui/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
-import { cn } from "@leros/ui/lib/utils";
+import type { Project, ProjectTask } from "@lework/store";
+import { useLayoutStore } from "@lework/store";
+import { Command, CommandInput } from "@lework/ui/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
+import { cn } from "@lework/ui/lib/utils";
 import { Check, ChevronDown, ChevronRight, ListTodo, LoaderCircle, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ListLoadMoreSentinel } from "../common/ListLoadMoreSentinel";
@@ -86,7 +86,7 @@ function projectPickerRowClass(selected: boolean) {
 	return cn(
 		"flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium transition-colors",
 		selected
-			? "bg-[var(--leros-primary-softer)] text-[var(--leros-primary)] ring-1 ring-[var(--leros-primary-soft)]"
+			? "bg-[var(--lework-primary-softer)] text-[var(--lework-primary)] ring-1 ring-[var(--lework-primary-soft)]"
 			: "text-slate-700 hover:bg-slate-100",
 	);
 }
@@ -562,7 +562,7 @@ export function ProjectTaskPickerField({
 				<PopoverTrigger
 					type="button"
 					disabled={disabled}
-					className="flex h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 shadow-none transition-colors hover:border-[var(--leros-primary)]/40 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+					className="flex h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 shadow-none transition-colors hover:border-[var(--lework-primary)]/40 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
 				>
 					<ProjectIcon className="size-4 shrink-0" />
 					<span className="min-w-0 flex-1 truncate">{label}</span>

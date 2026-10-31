@@ -7,7 +7,7 @@ import {
 	type PluginRevisionFile,
 	type PluginVisibility,
 	pluginApi,
-} from "@leros/store";
+} from "@lework/store";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -17,15 +17,15 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
-} from "@leros/ui/components/ui/alert-dialog";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/ui/components/ui/alert-dialog";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@lework/ui/components/ui/tabs";
 import {
 	ArrowLeft,
 	Calendar,
@@ -262,8 +262,8 @@ export function SkillDetailView({
 	// Loading state
 	if (loading) {
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--leros-app-bg)]">
-				<div className="flex flex-col items-center gap-3 text-[var(--leros-text-subtle)]">
+			<div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--lework-app-bg)]">
+				<div className="flex flex-col items-center gap-3 text-[var(--lework-text-subtle)]">
 					<Loader2 className="size-6 animate-spin" />
 					<span className="text-sm">加载技能详情...</span>
 				</div>
@@ -274,15 +274,15 @@ export function SkillDetailView({
 	// Error state
 	if (error || !skill) {
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--leros-app-bg)]">
-				<div className="flex flex-col items-center gap-4 text-[var(--leros-text-subtle)]">
+			<div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--lework-app-bg)]">
+				<div className="flex flex-col items-center gap-4 text-[var(--lework-text-subtle)]">
 					<p className="text-sm">{error ?? "技能不存在"}</p>
 					<div className="flex gap-2">
 						{onBack && (
 							<button
 								type="button"
 								onClick={onBack}
-								className="inline-flex items-center gap-1.5 rounded-md border border-[var(--leros-control-border)] px-3 py-1.5 text-xs text-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)] transition-colors"
+								className="inline-flex items-center gap-1.5 rounded-md border border-[var(--lework-control-border)] px-3 py-1.5 text-xs text-[var(--lework-text-muted)] hover:bg-[var(--lework-surface-soft)] transition-colors"
 							>
 								<ArrowLeft className="size-3.5" />
 								返回市场
@@ -291,7 +291,7 @@ export function SkillDetailView({
 						<button
 							type="button"
 							onClick={fetchSkill}
-							className="rounded-md border border-[var(--leros-control-border)] px-3 py-1.5 text-xs text-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)] transition-colors"
+							className="rounded-md border border-[var(--lework-control-border)] px-3 py-1.5 text-xs text-[var(--lework-primary)] hover:bg-[var(--lework-primary-soft)] transition-colors"
 						>
 							重试
 						</button>
@@ -307,16 +307,16 @@ export function SkillDetailView({
 		<div
 			data-slot="skill-detail-scroll"
 			onScroll={(event) => setStickyHeaderActive(event.currentTarget.scrollTop > 0)}
-			className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--leros-app-bg)] [scrollbar-gutter:stable]"
+			className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--lework-app-bg)] [scrollbar-gutter:stable]"
 		>
 			{/* Keep the primary navigation available while the detail content scrolls. */}
 			{onBack && (
 				<div
 					data-slot="skill-detail-back-bar"
 					data-stuck={stickyHeaderActive}
-					className={`sticky top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-4 border-b bg-[var(--leros-app-bg)] px-6 lg:px-12 xl:px-16 ${
+					className={`sticky top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-4 border-b bg-[var(--lework-app-bg)] px-6 lg:px-12 xl:px-16 ${
 						stickyHeaderActive
-							? "border-[var(--leros-control-border)] shadow-sm"
+							? "border-[var(--lework-control-border)] shadow-sm"
 							: "border-transparent"
 					}`}
 				>
@@ -324,15 +324,15 @@ export function SkillDetailView({
 						<button
 							type="button"
 							onClick={onBack}
-							className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-text-strong)]"
+							className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--lework-text-muted)] transition-colors hover:text-[var(--lework-text-strong)]"
 						>
 							<ArrowLeft className="size-3.5" />
 							返回
 						</button>
 						{stickyHeaderActive && (
 							<>
-								<span className="h-3.5 w-px shrink-0 bg-[var(--leros-control-border)]" />
-								<span className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">
+								<span className="h-3.5 w-px shrink-0 bg-[var(--lework-control-border)]" />
+								<span className="truncate text-sm font-semibold text-[var(--lework-text-strong)]">
 									{displayName}
 								</span>
 							</>
@@ -342,7 +342,7 @@ export function SkillDetailView({
 						<Button
 							size="sm"
 							onClick={handleUse}
-							className="h-7 shrink-0 rounded-lg px-3 text-xs font-medium bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90"
+							className="h-7 shrink-0 rounded-lg px-3 text-xs font-medium bg-[var(--lework-primary)] text-white hover:bg-[var(--lework-primary)]/90"
 						>
 							去使用
 						</Button>
@@ -363,19 +363,19 @@ export function SkillDetailView({
 								className="h-14 w-14 shrink-0 rounded-xl object-cover shadow-sm"
 							/>
 						) : (
-							<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[var(--leros-primary-soft)] text-[var(--leros-primary)] shadow-sm">
+							<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[var(--lework-primary-soft)] text-[var(--lework-primary)] shadow-sm">
 								<span className="text-[28px] font-semibold">
 									{displayName.charAt(0).toUpperCase()}
 								</span>
 							</div>
 						)}
 						<div className="min-w-0">
-							<h1 className="mb-1 break-words text-xl font-semibold leading-tight text-[var(--leros-text-strong)]">
+							<h1 className="mb-1 break-words text-xl font-semibold leading-tight text-[var(--lework-text-strong)]">
 								{displayName}
 							</h1>
 							<div className="flex flex-wrap items-center gap-1.5">
 								{skill.category && (
-									<span className="inline-flex px-2 py-0.5 rounded bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] text-[11px] font-medium border border-[var(--leros-control-border)]">
+									<span className="inline-flex px-2 py-0.5 rounded bg-[var(--lework-surface-soft)] text-[var(--lework-text-muted)] text-[11px] font-medium border border-[var(--lework-control-border)]">
 										{skill.category}
 									</span>
 								)}
@@ -402,7 +402,7 @@ export function SkillDetailView({
 								) : null}
 							</div>
 							{skill.description && (
-								<p className="mt-2 max-w-2xl [overflow-wrap:anywhere] text-xs leading-relaxed text-[var(--leros-text-muted)]">
+								<p className="mt-2 max-w-2xl [overflow-wrap:anywhere] text-xs leading-relaxed text-[var(--lework-text-muted)]">
 									{skill.description}
 								</p>
 							)}
@@ -415,7 +415,7 @@ export function SkillDetailView({
 							<Button
 								size="sm"
 								onClick={handleUse}
-								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md transition-all"
+								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--lework-primary)] text-white hover:bg-[var(--lework-primary)]/90 hover:shadow-md transition-all"
 							>
 								去使用
 							</Button>
@@ -428,7 +428,7 @@ export function SkillDetailView({
 												variant="ghost"
 												{...props}
 												aria-label="更多操作"
-												className="rounded-lg px-2 py-2 hover:bg-[var(--leros-surface-soft)]"
+												className="rounded-lg px-2 py-2 hover:bg-[var(--lework-surface-soft)]"
 											>
 												<Ellipsis className="size-4" />
 											</Button>
@@ -470,7 +470,7 @@ export function SkillDetailView({
 							<Button
 								size="sm"
 								onClick={handleUse}
-								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90 hover:shadow-md transition-all"
+								className="rounded-lg px-4 py-2 text-xs font-medium shadow-sm bg-[var(--lework-primary)] text-white hover:bg-[var(--lework-primary)]/90 hover:shadow-md transition-all"
 							>
 								去使用
 							</Button>
@@ -509,23 +509,23 @@ export function SkillDetailView({
 				{/* Left: tabbed content */}
 				<div className="min-w-0">
 					<Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 w-full">
-						<div className="border-b border-[var(--leros-control-border)] mb-5">
+						<div className="border-b border-[var(--lework-control-border)] mb-5">
 							<TabsList variant="line" className="gap-6">
 								<TabsTrigger
 									value="overview"
-									className="pb-3 text-xs font-medium data-active:text-[var(--leros-primary)]"
+									className="pb-3 text-xs font-medium data-active:text-[var(--lework-primary)]"
 								>
 									概述
 								</TabsTrigger>
 								<TabsTrigger
 									value="files"
-									className="pb-3 text-xs font-medium data-active:text-[var(--leros-primary)]"
+									className="pb-3 text-xs font-medium data-active:text-[var(--lework-primary)]"
 								>
 									文件
 								</TabsTrigger>
 								<TabsTrigger
 									value="versions"
-									className="pb-3 text-xs font-medium data-active:text-[var(--leros-primary)]"
+									className="pb-3 text-xs font-medium data-active:text-[var(--lework-primary)]"
 								>
 									历史版本
 								</TabsTrigger>
@@ -537,10 +537,10 @@ export function SkillDetailView({
 							{skill.skill_md ? (
 								<MarkdownRenderer
 									content={skill.skill_md}
-									className="prose prose-slate prose-sm min-w-0 max-w-none [overflow-wrap:anywhere] prose-headings:text-[var(--leros-text-strong)] prose-p:text-xs prose-p:leading-relaxed prose-p:text-[var(--leros-text-muted)] prose-p:my-1 [&>*]:min-w-0 [&_:not(pre)>code]:break-words [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[11px] [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800 [&_[data-slot=code-block]]:max-w-full [&_[data-slot=code-block][data-theme=light]]:border-slate-300 [&_[data-slot=code-block][data-theme=light]]:bg-white"
+									className="prose prose-slate prose-sm min-w-0 max-w-none [overflow-wrap:anywhere] prose-headings:text-[var(--lework-text-strong)] prose-p:text-xs prose-p:leading-relaxed prose-p:text-[var(--lework-text-muted)] prose-p:my-1 [&>*]:min-w-0 [&_:not(pre)>code]:break-words [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-slate-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[11px] [&_:not(pre)>code]:font-medium [&_:not(pre)>code]:text-slate-800 [&_[data-slot=code-block]]:max-w-full [&_[data-slot=code-block][data-theme=light]]:border-slate-300 [&_[data-slot=code-block][data-theme=light]]:bg-white"
 								/>
 							) : (
-								<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">
+								<div className="flex flex-col items-center justify-center py-10 text-[var(--lework-text-subtle)]">
 									<FileText className="size-6 mb-2 opacity-40" />
 									<p className="text-xs">
 										{!skill.has_content_snapshot ? "暂无内容快照" : "暂无概述内容"}
@@ -554,7 +554,7 @@ export function SkillDetailView({
 							{skill.files && skill.files.length > 0 ? (
 								<SkillFileTree files={skill.files} />
 							) : (
-								<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">
+								<div className="flex flex-col items-center justify-center py-10 text-[var(--lework-text-subtle)]">
 									<FolderOpen className="size-6 mb-2 opacity-40" />
 									<p className="text-xs">
 										{!skill.has_content_snapshot ? "暂无内容快照" : "暂无文件"}
@@ -565,11 +565,11 @@ export function SkillDetailView({
 
 						{/* Versions Tab */}
 						<TabsContent value="versions" className="min-w-0 outline-none">
-							<div className="flex flex-col items-center justify-center py-10 text-[var(--leros-text-subtle)]">
+							<div className="flex flex-col items-center justify-center py-10 text-[var(--lework-text-subtle)]">
 								<Calendar className="size-6 mb-2 opacity-40" />
 								<p className="text-xs">版本历史</p>
 								{skill.version && (
-									<span className="mt-2 inline-flex items-center rounded-md border border-[var(--leros-control-border)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
+									<span className="mt-2 inline-flex items-center rounded-md border border-[var(--lework-control-border)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--lework-text-muted)]">
 										当前版本: v{skill.version}
 									</span>
 								)}
@@ -582,21 +582,21 @@ export function SkillDetailView({
 				<aside className="flex min-w-0 flex-col gap-4 py-3 xl:w-64">
 					<section
 						data-slot="skill-detail-metadata"
-						className="bg-[var(--leros-surface-soft)]/50 p-4 rounded-xl border border-dashed border-[var(--leros-control-border)]"
+						className="bg-[var(--lework-surface-soft)]/50 p-4 rounded-xl border border-dashed border-[var(--lework-control-border)]"
 					>
-						<h5 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-subtle)] mb-3">
+						<h5 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--lework-text-subtle)] mb-3">
 							元数据
 						</h5>
 						<div className="space-y-2 text-[11px]">
 							<div className="flex justify-between">
-								<span className="text-[var(--leros-text-subtle)]">版本</span>
-								<span className="text-[var(--leros-text-strong)] font-medium">
+								<span className="text-[var(--lework-text-subtle)]">版本</span>
+								<span className="text-[var(--lework-text-strong)] font-medium">
 									{skill.version ? `v${skill.version}` : "—"}
 								</span>
 							</div>
 							<div className="flex justify-between">
-								<span className="text-[var(--leros-text-subtle)]">作者</span>
-								<span className="text-[var(--leros-text-strong)] font-medium">
+								<span className="text-[var(--lework-text-subtle)]">作者</span>
+								<span className="text-[var(--lework-text-strong)] font-medium">
 									{skill.author || "—"}
 								</span>
 							</div>

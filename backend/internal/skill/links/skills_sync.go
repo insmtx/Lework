@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/skill/catalog"
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/internal/skill/catalog"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -21,15 +21,15 @@ const hiddenSkillSourceDir = ".system"
 
 var errNoSkillDirs = errors.New("no skill directories found")
 
-// SyncToLerosDir copies worker built-in skills to the protected worker system
-// cache (.leros/skills/.system). Run views link from this directory explicitly.
-func SyncToLerosDir(sourceDir string) error {
+// SyncToLeworkDir copies worker built-in skills to the protected worker system
+// cache (.lework/skills/.system). Run views link from this directory explicitly.
+func SyncToLeworkDir(sourceDir string) error {
 	sourceDir, err := ResolveBuiltinSkillsSource(sourceDir, "worker")
 	if err != nil {
 		return err
 	}
 
-	userDir, err := leros.JoinWorkspace(".leros", "skills", ".system")
+	userDir, err := lework.JoinWorkspace(".lework", "skills", ".system")
 	if err != nil {
 		return err
 	}
@@ -48,14 +48,14 @@ func SyncToLerosDir(sourceDir string) error {
 }
 
 // ResolveBuiltinSkillsSource resolves the built-in skills directory for a given subdir (e.g. "server" or "worker").
-// Priority: 1. sourceDir param, 2. LEROS_SKILLS_DIR env, 3. default locations.
+// Priority: 1. sourceDir param, 2. LEWORK_SKILLS_DIR env, 3. default locations.
 func ResolveBuiltinSkillsSource(sourceDir string, subdir string) (string, error) {
 	skillsRelPath := filepath.Join("backend", "skills", subdir)
 	var candidates []string
 	if strings.TrimSpace(sourceDir) != "" {
 		candidates = append([]string{sourceDir}, candidates...)
 	}
-	if configured := strings.TrimSpace(os.Getenv("LEROS_SKILLS_DIR")); configured != "" {
+	if configured := strings.TrimSpace(os.Getenv("LEWORK_SKILLS_DIR")); configured != "" {
 		candidates = append([]string{configured}, candidates...)
 	}
 	if workingDir, err := os.Getwd(); err == nil {

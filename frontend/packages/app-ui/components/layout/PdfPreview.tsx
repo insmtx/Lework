@@ -523,7 +523,7 @@ export function PdfPreview({
 				aria-label="PDF 阅读区"
 				tabIndex={-1}
 				onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}
-				className="relative min-h-0 flex-1 overflow-auto px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--leros-primary)]/30"
+				className="relative min-h-0 flex-1 overflow-auto px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--lework-primary)]/30"
 			>
 				<div
 					ref={hostRef}
@@ -854,7 +854,7 @@ function PdfPageView({
 							<button
 								type="button"
 								onClick={() => setRetryVersion((value) => value + 1)}
-								className="mt-3 inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)]"
+								className="mt-3 inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-[var(--lework-primary)] hover:bg-[var(--lework-primary-softer)]"
 							>
 								<RefreshCw className="size-3" />
 								重试

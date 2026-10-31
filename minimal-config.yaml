@@ -1,4 +1,4 @@
-# Leros Minimal Configuration (for quick startup)
+# Lework Minimal Configuration (for quick startup)
 # Uncomment database section when you have PostgreSQL setup
 
 github:
@@ -18,9 +18,9 @@ nats:
 
 server:
   jwt:
-    secret: "dev-leros-jwt-secret"
+    secret: "dev-lework-jwt-secret"
 
 # database:
 #   driver: postgres
-#   url: "host=localhost user=leros password=leros dbname=leros port=5432 sslmode=disable"
+#   url: "host=localhost user=lework password=lework dbname=lework port=5432 sslmode=disable"
 #   debug: false

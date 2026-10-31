@@ -9,8 +9,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // setupResolveTestDB 为 resolveProjectAssistantWorker 测试构造内存 sqlite 库：

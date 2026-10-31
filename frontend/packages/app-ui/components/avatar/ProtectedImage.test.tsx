@@ -11,7 +11,7 @@ const storeMocks = vi.hoisted(() => ({
 	},
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	authenticatedFetch: storeMocks.authenticatedFetch,
 	fetchFilePreviewByPublicId: storeMocks.fetchFilePreviewByPublicId,
 	normalizeFilePublicId: storeMocks.normalizeFilePublicId,

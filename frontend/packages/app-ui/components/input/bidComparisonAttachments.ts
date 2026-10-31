@@ -1,5 +1,5 @@
-import { projectFileApi } from "@leros/store";
-import type { Attachment } from "@leros/store/types/chat";
+import { projectFileApi } from "@lework/store";
+import type { Attachment } from "@lework/store/types/chat";
 import type { BidComparisonConfig, BidComparisonProjectFile } from "./BidComparisonConfigDialog";
 
 type UploadBidFileResult = {

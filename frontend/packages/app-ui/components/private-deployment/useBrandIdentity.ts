@@ -1,6 +1,6 @@
 "use client";
 
-import { BRANDING_CHANGED_EVENT, readBrandLogo, readBrandName } from "@leros/store";
+import { BRANDING_CHANGED_EVENT, readBrandLogo, readBrandName } from "@lework/store";
 import { useEffect, useState } from "react";
 
 /** 订阅本地品牌配置变更，供侧边栏等展示位实时回读。 */

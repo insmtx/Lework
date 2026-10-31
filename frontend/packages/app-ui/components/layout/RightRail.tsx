@@ -1,9 +1,9 @@
 "use client";
 
-import { useLayoutStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
-import { cn } from "@leros/ui/lib/utils";
+import { useLayoutStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { ScrollArea } from "@lework/ui/components/ui/scroll-area";
+import { cn } from "@lework/ui/lib/utils";
 import { Bolt, File, FileText, ImageIcon, Inbox, Upload } from "lucide-react";
 
 type QuickAction = {

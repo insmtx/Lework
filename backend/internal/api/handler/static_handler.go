@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
 )
 
 // RegisterStaticRoutes registers static resource presign routes

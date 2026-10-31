@@ -7,7 +7,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Lework/backend/config"
 )
 
 func newSchedulerTestDB(t *testing.T) *gorm.DB {

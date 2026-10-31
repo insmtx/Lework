@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // seedAccount 初始化默认组织、默认管理员、用户-组织关联与默认 worker 部署。幂等。
@@ -35,21 +35,21 @@ func seedAccount(ctx context.Context, db *gorm.DB) error {
 var defaultOrgCode = "default_org"
 
 const (
-	defaultAdminEmail    = "admin@leros.local"
+	defaultAdminEmail    = "admin@lework.local"
 	defaultAdminPassword = "Admin123456"
 )
 
 // adminCredentials 返回首次启动时创建管理员的凭据。
 //
-// 生产环境必须显式提供 LEROS_ADMIN_PASSWORD，避免一体机/私有化部署带着
+// 生产环境必须显式提供 LEWORK_ADMIN_PASSWORD，避免一体机/私有化部署带着
 // 公开的默认密码上线。本地开发保留默认值，方便 make dev-server 直接登录。
 func adminCredentials() (email, password string) {
-	email = strings.TrimSpace(os.Getenv("LEROS_ADMIN_EMAIL"))
+	email = strings.TrimSpace(os.Getenv("LEWORK_ADMIN_EMAIL"))
 	if email == "" {
 		email = defaultAdminEmail
 	}
-	password = os.Getenv("LEROS_ADMIN_PASSWORD")
-	if password == "" && !strings.EqualFold(strings.TrimSpace(os.Getenv("LEROS_ENV")), "production") {
+	password = os.Getenv("LEWORK_ADMIN_PASSWORD")
+	if password == "" && !strings.EqualFold(strings.TrimSpace(os.Getenv("LEWORK_ENV")), "production") {
 		password = defaultAdminPassword
 	}
 	return email, password
@@ -87,7 +87,7 @@ func seedDefaultUser(ctx context.Context, db *gorm.DB) error {
 	}
 	email, password := adminCredentials()
 	if password == "" {
-		return errors.New("LEROS_ADMIN_PASSWORD is required when LEROS_ENV=production")
+		return errors.New("LEWORK_ADMIN_PASSWORD is required when LEWORK_ENV=production")
 	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -199,7 +199,7 @@ func seedDefaultWorkerDeployment(ctx context.Context, db *gorm.DB) error {
 		OrgID:              org.ID,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           1,
-		DeploymentName:     fmt.Sprintf("leros-worker-o%d-w%d", org.ID, 1),
+		DeploymentName:     fmt.Sprintf("lework-worker-o%d-w%d", org.ID, 1),
 		Namespace:          "default",
 		Status:             string(types.WorkerDeploymentStatusPending),
 		WorkspacePath:      "/data/workspace",

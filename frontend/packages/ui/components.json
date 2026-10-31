@@ -12,10 +12,10 @@
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@leros/ui/components",
-    "ui": "@leros/ui/components/ui",
-    "hooks": "@leros/ui/hooks",
-    "lib": "@leros/ui/lib",
-    "utils": "@leros/ui/lib/utils"
+    "components": "@lework/ui/components",
+    "ui": "@lework/ui/components/ui",
+    "hooks": "@lework/ui/hooks",
+    "lib": "@lework/ui/lib",
+    "utils": "@lework/ui/lib/utils"
   }
 }

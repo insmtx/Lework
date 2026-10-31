@@ -14,7 +14,7 @@
 
 ```json
 {
-  "name": "@leros/desktop",
+  "name": "@lework/desktop",
   "version": "0.3.12"
 }
 ```

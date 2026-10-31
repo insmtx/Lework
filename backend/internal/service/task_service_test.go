@@ -9,10 +9,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	dbpkg "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	dbpkg "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func setupTestContextWithCallerUin(t *testing.T, uin uint) context.Context {

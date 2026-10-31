@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
 

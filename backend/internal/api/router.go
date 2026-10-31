@@ -1,4 +1,4 @@
-// api 包提供 Leros 的 HTTP API 层
+// api 包提供 Lework 的 HTTP API 层
 //
 // 该包负责设置和管理 HTTP 路由，处理外部 API 请求，
 // 并注册各种渠道的连接器。
@@ -13,25 +13,25 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter"
-	"github.com/insmtx/Leros/backend/internal/api/handler"
-	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/internal/modelrouter"
-	"github.com/insmtx/Leros/backend/internal/runnable"
-	"github.com/insmtx/Leros/backend/internal/service"
-	"github.com/insmtx/Leros/backend/internal/worker"
-	"github.com/insmtx/Leros/backend/internal/worker/scheduler"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter"
+	"github.com/insmtx/Lework/backend/internal/api/handler"
+	"github.com/insmtx/Lework/backend/internal/api/middleware"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
+	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
+	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/Lework/backend/internal/modelrouter"
+	"github.com/insmtx/Lework/backend/internal/runnable"
+	"github.com/insmtx/Lework/backend/internal/service"
+	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/Lework/backend/internal/worker/scheduler"
 	"github.com/nats-io/nats.go"
 	ygmiddleware "github.com/ygpkg/yg-go/apis/runtime/middleware"
 	"github.com/ygpkg/yg-go/logs"
 
 	"gorm.io/gorm"
 
-	_ "github.com/insmtx/Leros/docs/swagger" // Swagger 文档生成的导入
+	_ "github.com/insmtx/Lework/docs/swagger" // Swagger 文档生成的导入
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )

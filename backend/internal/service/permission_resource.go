@@ -5,8 +5,8 @@ import (
 
 	"gorm.io/gorm"
 
-	infra_db "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	infra_db "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 type resourceStore struct {

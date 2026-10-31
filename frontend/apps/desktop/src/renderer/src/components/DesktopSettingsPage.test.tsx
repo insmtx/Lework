@@ -5,8 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@leros/store", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@leros/store")>();
+vi.mock("@lework/store", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@lework/store")>();
 	return {
 		...actual,
 		isPrivateDeployment: false,

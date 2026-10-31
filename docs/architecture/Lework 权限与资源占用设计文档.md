@@ -6,8 +6,8 @@ Lework 后续会同时承载 Project、KnowledgeBase、Folder、File、Task、Ar
 
 目标方案采用统一资源权限模型：
 
-- 所有可授权对象都是 `leros_resource`。
-- 所有主体和资源的身份关系都是 `leros_resource_binding`。
+- 所有可授权对象都是 `lework_resource`。
+- 所有主体和资源的身份关系都是 `lework_resource_binding`。
 - 具体身份能做什么由代码中的 `PermissionPolicy` 维护。
 - 所有业务入口统一调用 `PermissionService.Can(...)`、`Explain(...)` 或 `BatchCan(...)`。
 - 权限支持资源树继承。
@@ -134,7 +134,7 @@ task:
 用途：统一表达所有资源，并通过父子关系形成资源树。
 
 ```sql
-CREATE TABLE IF NOT EXISTS leros_resource (
+CREATE TABLE IF NOT EXISTS lework_resource (
     id BIGSERIAL PRIMARY KEY,
     org_id INT8 NOT NULL,
     uin INT8 NOT NULL DEFAULT 0,
@@ -147,24 +147,24 @@ CREATE TABLE IF NOT EXISTS leros_resource (
     deleted_at TIMESTAMPTZ NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_leros_resource_active_biz
-    ON leros_resource (org_id, type, biz_id)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_lework_resource_active_biz
+    ON lework_resource (org_id, type, biz_id)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_org_type
-    ON leros_resource (org_id, type)
+CREATE INDEX IF NOT EXISTS idx_lework_resource_org_type
+    ON lework_resource (org_id, type)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_uin
-    ON leros_resource (uin)
+CREATE INDEX IF NOT EXISTS idx_lework_resource_uin
+    ON lework_resource (uin)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_parent
-    ON leros_resource (parent_resource_id)
+CREATE INDEX IF NOT EXISTS idx_lework_resource_parent
+    ON lework_resource (parent_resource_id)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_parent_resource_path_ids
-    ON leros_resource USING GIN (parent_resource_path_ids)
+CREATE INDEX IF NOT EXISTS idx_lework_resource_parent_resource_path_ids
+    ON lework_resource USING GIN (parent_resource_path_ids)
     WHERE deleted_at IS NULL;
 ```
 
@@ -184,7 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_leros_resource_parent_resource_path_ids
 - 根资源的 `parent_resource_id` 为空，`parent_resource_path_ids` 为空数组。
 - 子资源的 `parent_resource_path_ids` 必须等于父资源的 `parent_resource_path_ids + 父资源 id`。
 - 软删除资源不得再作为权限判断对象。
-- 业务表创建对象时必须同步创建对应 `leros_resource` 记录。
+- 业务表创建对象时必须同步创建对应 `lework_resource` 记录。
 - 资源类型合法性由 ResourceService 校验；一期只允许创建 `project`、`file`、`artifact`。
 
 ### 3.2 resource_binding
@@ -192,7 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_leros_resource_parent_resource_path_ids
 用途：表达主体在资源上的身份。它替代长期意义上的 `ProjectMember` 表。
 
 ```sql
-CREATE TABLE IF NOT EXISTS leros_resource_binding (
+CREATE TABLE IF NOT EXISTS lework_resource_binding (
     id BIGSERIAL PRIMARY KEY,
     org_id INT8 NOT NULL,
     uin INT8 NOT NULL DEFAULT 0,
@@ -203,25 +203,25 @@ CREATE TABLE IF NOT EXISTS leros_resource_binding (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMPTZ NULL,
-    CONSTRAINT fk_leros_resource_binding_resource
+    CONSTRAINT fk_lework_resource_binding_resource
         FOREIGN KEY (resource_id)
-        REFERENCES leros_resource (id)
+        REFERENCES lework_resource (id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_leros_resource_binding_active_principal
-    ON leros_resource_binding (resource_id, principal_type, principal_id)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_lework_resource_binding_active_principal
+    ON lework_resource_binding (resource_id, principal_type, principal_id)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_binding_principal
-    ON leros_resource_binding (org_id, principal_type, principal_id)
+CREATE INDEX IF NOT EXISTS idx_lework_resource_binding_principal
+    ON lework_resource_binding (org_id, principal_type, principal_id)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_binding_uin
-    ON leros_resource_binding (uin)
+CREATE INDEX IF NOT EXISTS idx_lework_resource_binding_uin
+    ON lework_resource_binding (uin)
     WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_leros_resource_binding_resource
-    ON leros_resource_binding (resource_id)
+CREATE INDEX IF NOT EXISTS idx_lework_resource_binding_resource
+    ON lework_resource_binding (resource_id)
     WHERE deleted_at IS NULL;
 ```
 
@@ -234,7 +234,7 @@ CREATE INDEX IF NOT EXISTS idx_leros_resource_binding_resource
 - `identity`：资源身份，当前业务只允许 `owner`、`admin`、`member`。合法值由服务层和 PermissionPolicy 控制，不通过数据库 CHECK 限制。
 一致性规则：
 
-- `leros_resource_binding.org_id` 必须与对应 `leros_resource.org_id` 一致。
+- `lework_resource_binding.org_id` 必须与对应 `lework_resource.org_id` 一致。
 - `uin` 不参与最终权限判断；最终权限仍以 `principal_type/principal_id + identity + PermissionPolicy` 为准。
 - 同一资源上，同一主体只能有一条有效绑定。
 - 不在数据库保存 `project:view`、`project:member.update` 等动作。
@@ -379,7 +379,7 @@ BatchCan(ctx, actor, actions, resourceRefs, requestInput) -> []Decision
 1. 解析 caller。
 2. 校验 caller.OrgID。
 3. 根据 resourceRef 查询 resources。
-4. 校验 leros_resource.org_id == caller.OrgID。
+4. 校验 lework_resource.org_id == caller.OrgID。
 5. 查找当前资源上的直接 binding。
 6. 沿 parent_resource_id 查找可继承的祖先 binding。
 7. 汇总直接 binding 与继承 binding。
@@ -442,14 +442,14 @@ FileA   -> 无直接 binding
 
 ```text
 projects.id = 1001
-leros_resource(type='project', biz_id=1001, parent_resource_id=null, parent_resource_path_ids='{}')
-leros_resource_binding(resource_id=project_resource.id, principal=user:creator, identity='owner')
+lework_resource(type='project', biz_id=1001, parent_resource_id=null, parent_resource_path_ids='{}')
+lework_resource_binding(resource_id=project_resource.id, principal=user:creator, identity='owner')
 ```
 
 创建文件：
 
 ```text
-leros_resource(type='file', biz_id=file.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
+lework_resource(type='file', biz_id=file.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
 ```
 
 访问文件：
@@ -462,7 +462,7 @@ Can(actor, "file:download", file_resource)
 创建产物：
 
 ```text
-leros_resource(type='artifact', biz_id=artifact.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
+lework_resource(type='artifact', biz_id=artifact.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
 ```
 
 访问产物：
@@ -476,7 +476,7 @@ Can(actor, "artifact:download", artifact_resource)
 
 ```text
 Can(actor, "task:create", project_resource)  # 经父项目 effective role 解释，任务资源创建前判定
-leros_resource(type='task', biz_id=task.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
+lework_resource(type='task', biz_id=task.id, parent_resource_id=project_resource.id, parent_resource_path_ids='{project_resource.id}')
 ```
 
 访问任务：
@@ -492,7 +492,7 @@ Can(actor, "task:delete", task_resource)
 产物来源关系可以用业务表表达：
 
 ```sql
-CREATE TABLE IF NOT EXISTS leros_artifact_sources (
+CREATE TABLE IF NOT EXISTS lework_artifact_sources (
     artifact_id INT8 NOT NULL,
     source_resource_id INT8 NOT NULL,
     source_type VARCHAR(50) NOT NULL,
@@ -502,7 +502,7 @@ CREATE TABLE IF NOT EXISTS leros_artifact_sources (
 
 `ProjectMember` 迁移规则：
 
-- 老数据中的项目 owner/admin/member 迁移为项目资源上的 `leros_resource_binding`。
+- 老数据中的项目 owner/admin/member 迁移为项目资源上的 `lework_resource_binding`。
 - `viewer` 如仍存在，统一迁移为 `member`。
 - 迁移完成后，鉴权不再读取 `project_members`；应用代码不再写入 `project_members`（表保留供历史数据与启动 backfill）。
 - `projects.owner_id` 仅保留为业务展示或历史兼容字段，不作为最终鉴权来源。
@@ -552,14 +552,14 @@ POST /BatchCheckPermission
 - 当前身份来自哪个资源，是否继承。
 - 当前用户可执行动作。
 - 权限不足时展示后端 reason 映射文案。
-- 成员/协作者管理统一展示 `leros_resource_binding`，不再按 Project、File、Artifact 分裂。
+- 成员/协作者管理统一展示 `lework_resource_binding`，不再按 Project、File、Artifact 分裂。
 
 ## 7. 建设范围与验收
 
 后端必须交付：
 
-- `leros_resource` 表、DAO 和资源树维护。
-- `leros_resource_binding` 表、DAO 和绑定管理。
+- `lework_resource` 表、DAO 和资源树维护。
+- `lework_resource_binding` 表、DAO 和绑定管理。
 - 代码态 `PermissionPolicy`。
 - `PermissionService.Can(...)`、`Explain(...)`、`BatchCan(...)`。
 - 项目创建时同步创建 project resource 和 owner binding。

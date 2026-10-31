@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutStore } from "@leros/store";
+import { useLayoutStore } from "@lework/store";
 import { ChevronRight } from "lucide-react";
 import { useEffect } from "react";
 import { AssistantListView } from "../digitalAssistant/AssistantListView";
@@ -48,20 +48,20 @@ export function OrgAdminPage({ section, navigation }: OrgAdminPageProps) {
 	return (
 		<div
 			data-slot="org-admin-page"
-			className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[var(--leros-surface)]"
+			className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[var(--lework-surface)]"
 		>
-			<header className="flex h-12 shrink-0 items-center border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5">
-				<div className="flex min-w-0 items-center gap-3 text-[var(--leros-text-muted)]">
+			<header className="flex h-12 shrink-0 items-center border-b border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-5">
+				<div className="flex min-w-0 items-center gap-3 text-[var(--lework-text-muted)]">
 					{/* 中文注释：面包屑首项回到新建任务首页，便于从组织管理快速退出。 */}
 					<button
 						type="button"
 						onClick={handleBackToWorkbench}
-						className="text-sm font-normal text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+						className="text-sm font-normal text-[var(--lework-text-muted)] transition-colors hover:text-[var(--lework-primary)]"
 					>
 						新建任务
 					</button>
-					<ChevronRight className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
-					<h1 className="text-sm font-semibold text-[var(--leros-text-strong)]">
+					<ChevronRight className="size-4 shrink-0 text-[var(--lework-text-subtle)]" />
+					<h1 className="text-sm font-semibold text-[var(--lework-text-strong)]">
 						{SECTION_LABELS[section]}
 					</h1>
 				</div>

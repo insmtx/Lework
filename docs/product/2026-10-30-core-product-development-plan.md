@@ -3,7 +3,7 @@
 > 版本：v1.0（2026-10-30）
 > 基线：`1458925a`
 > 配套：`docs/architecture/2026-10-30-product-architecture-as-built.md`（As-Built 事实）
-> 状态：**待决策**。三项决策见 §12，确认后按 §4 执行。
+> 执行状态（2026-10-31）：**M0 与 M1 T1.1–T1.5 已完成**；M1 T1.6 首次启动向导、T1.7 Golden Demo 待完成。三项决策已拍板：License 暂不调整、Payroll 删除、目标用户为独立开发者/小团队。
 
 ---
 
@@ -30,7 +30,7 @@
               → 下一次任务复用项目上下文与技能
 ```
 
-这条闭环里的每一步都必须是**真实的系统行为**，不是 UI 叙事。当前代码只完成了「执行」，没有完成「委托」与「验收」。
+这条闭环里的每一步都必须是**真实的系统行为**，不是 UI 叙事。截至 2026-10-31，「委托」（assignee 路由）、「执行」、「验收」（通过/驳回/返工）已在代码中打通；剩余缺口是首次启动向导与 Golden Demo 的整机验证。
 
 ### 0.3 90 天目标
 
@@ -140,7 +140,7 @@
 
 ```
 backend/
-  cmd/leros/                 # 唯一入口
+  cmd/lework/                 # 唯一入口
   agent/
     runtime/native/          # 默认
     runtime/{claude,codex,opencode}/  # 可选，检测不到就隐藏
@@ -230,6 +230,8 @@ created ──► in_progress ──► pending_acceptance ──► completed
 - `completed` 只能由「验收通过」进入；`pending_acceptance` 只能由人操作离开。
 - 迟到的 run 事件不得覆盖人工终态。
 
+> 实现状态：上述是目标态。当前 `ValidateTaskStatusTransition` 仍允许 `in_progress` / `pending_approval` → `completed`，即通用 `UpdateTask` 可绕过验收；收紧该迁移是 M1 收尾项。
+
 ### 3.4 验收模型（目标态）
 
 最小字段，不引入新聚合：
@@ -291,10 +293,10 @@ created ──► in_progress ──► pending_acceptance ──► completed
 1. 新增 `deployments/quickstart/docker-compose.yml`：
    - `postgres:17`
    - `nats:2.12`
-   - `ghcr.io/insmtx/leros:latest`（server + worker 两个服务）
+   - `ghcr.io/insmtx/lework:latest`（server + worker 两个服务）
    - 健康检查、命名卷、`.env` 注入。
 2. 新增 `deployments/quickstart/.env.example`：
-   - `LEROS_DB_DSN`、`LEROS_NATS_URL`、`LEROS_SECRET_KEY`、`LEROS_PUBLIC_URL`
+   - `LEWORK_DB_DSN`、`LEWORK_NATS_URL`、`LEWORK_SECRET_KEY`、`LEWORK_PUBLIC_URL`
    - 模型 Key 不在 env 里写死，走首次启动向导。
 3. `Makefile` 增加：
    - `make quickstart`：复制 env、`docker compose up -d`、等待健康检查、打印访问地址。
@@ -333,16 +335,16 @@ cd frontend && pnpm -r typecheck && pnpm -r build
 
 ### T0.4 移除默认管理员与开发鉴权后门
 
-**现状**：默认 `admin@leros.local / Admin123456`；`LEROS_DEV=true` 直接放行鉴权。
+**现状**：默认 `admin@lework.local / Admin123456`；`LEWORK_DEV=true` 直接放行鉴权。
 
 **动作**：
 
 1. 删除生产 seed 中的默认管理员；seed 仅保留 dev 环境脚本。
-2. `LEROS_DEV` 不再等价于「跳过鉴权」；新增显式 `LEROS_DEV_ALLOW_UNAUTH=true`，且仅允许 `127.0.0.1`。
+2. `LEWORK_DEV` 不再等价于「跳过鉴权」；新增显式 `LEWORK_DEV_ALLOW_UNAUTH=true`，且仅允许 `127.0.0.1`。
 3. 登录接口加失败限流（按 IP + 账号）。
 4. 首次启动向导见 T1.6；在向导完成前，管理 API 全部拒绝。
 
-**验收**：生产模式无默认账号；`LEROS_DEV=true` 不再绕过鉴权；安全测试覆盖。
+**验收**：生产模式无默认账号；`LEWORK_DEV=true` 不再绕过鉴权；安全测试覆盖。
 
 ### T0.5 安全最小修复集（公开前必须）
 
@@ -350,8 +352,8 @@ cd frontend && pnpm -r typecheck && pnpm -r build
 |---|---|---|
 | Worker 管理端点无鉴权 | `router.go` `RegisterWorkerOpsRoutes` | 要求管理员权限；写操作二次确认 |
 | MCP token 为空放行 | `worker/mcp/auth.go` | 空 token 一律拒绝；常量时间比较 |
-| 模型 Key 明文 | `internal/llm/manager_db.go` | AES-GCM 加密；`LEROS_SECRET_KEY` 派生；启动时迁移 |
-| CORS 任意 Origin + credentials | `middleware/cors.go` | 配置白名单；默认只允许 `LEROS_PUBLIC_URL` |
+| 模型 Key 明文 | `internal/llm/manager_db.go` | AES-GCM 加密；`LEWORK_SECRET_KEY` 派生；启动时迁移 |
+| CORS 任意 Origin + credentials | `middleware/cors.go` | 配置白名单；默认只允许 `LEWORK_PUBLIC_URL` |
 | 文件下载/上传路径 | `filestore` | 路径穿越校验；内容类型白名单 |
 | 默认管理员 | seed | 见 T0.4 |
 
@@ -390,7 +392,7 @@ jobs:
     - pnpm -r test
     - pnpm -r build
   docker:
-    - docker build -f deployments/build/Dockerfile.leros .
+    - docker build -f deployments/build/Dockerfile.lework .
 ```
 
 **验收**：PR 必须全绿才能合并；主分支保护开启。
@@ -624,7 +626,7 @@ POST /v1/Setup
 - 仅当 `COUNT(users)==0` 时允许；否则 409。
 - 创建：管理员用户、组织、默认 AI 队友、默认模型、默认 WorkerDeployment（状态 pending，等 worker 注册）。
 - `api_key` 加密存储（T0.5）。
-- 支持 `LEROS_SETUP_TOKEN`：设置后，Setup 请求必须带 token，防止公网被抢注。
+- 支持 `LEWORK_SETUP_TOKEN`：设置后，Setup 请求必须带 token，防止公网被抢注。
 - 前端三步：管理员账号 → 模型 → 完成（自动创建示例项目可选）。
 
 **测试**
@@ -679,7 +681,7 @@ POST /v1/Setup
 - `goreleaser`：linux/darwin/windows，amd64/arm64，checksums。
 - GHCR 多架构镜像，tag：`latest`、`vX.Y.Z`、`sha-<short>`。
 - `docker compose` 使用固定版本，不依赖私有 registry。
-- 版本注入：`leros version` 输出 commit/date/edition。
+- 版本注入：`lework version` 输出 commit/date/edition。
 - 数据库迁移在启动时自动执行；发布说明标注破坏性变更。
 
 ### T2.3 社区与治理
@@ -721,7 +723,7 @@ POST /v1/Setup
 
 **方案**：
 
-- 新表 `leros_digital_assistant_plugin_binding`（assistant_id, plugin_id, revision_id, enabled）。
+- 新表 `lework_digital_assistant_plugin_binding`（assistant_id, plugin_id, revision_id, enabled）。
 - Run 准备技能时合并：项目绑定 ∪ 队友绑定；同 code 以队友绑定为准。
 - UI：队友详情 → 技能页，可添加/禁用。
 - API：`GET/POST/DELETE /v1/DigitalAssistantPlugins`。
@@ -737,7 +739,7 @@ POST /v1/Setup
 1. Run 终态后，异步生成「交付摘要」：
    - 输入：任务描述、验收标准、最终回复、变更文件列表；
    - 输出：3–5 条事实/决策；
-   - 写入项目工作区 `.leros/memory/project.md`（走现有 local memory store）。
+   - 写入项目工作区 `.lework/memory/project.md`（走现有 local memory store）。
 2. 下次 Run 的 system prompt 注入项目记忆（已有 `BuildPromptBlock` 路径）。
 3. 队友记忆先做「手动提升」：任务详情提供「记住这条」，写入 `DigitalAssistantMemory` + `DigitalAssistantPromptBlock`。
 4. 自动提取队友记忆放 M4，避免早期噪声。
@@ -798,7 +800,7 @@ POST /v1/Setup
 | License 变更引发贡献者异议 | 中 | 中 | 在 CONTRIBUTING 说明；保留历史 tag；必要时发公告 |
 | 任务状态投影与自动化冲突 | 中 | 中 | 独立 consumer + 独立 receipt；cron 保持原语义；表驱动测试 |
 | assignee 路由破坏现有会话 | 中 | 高 | 仅对 `session.task_id != nil` 生效；保留显式 `assistant_ids` 覆盖；灰度开关 |
-| 首次向导被公网抢注 | 低 | 高 | `LEROS_SETUP_TOKEN`；完成后关闭 Setup |
+| 首次向导被公网抢注 | 低 | 高 | `LEWORK_SETUP_TOKEN`；完成后关闭 Setup |
 | 模型 Key 加密迁移失败 | 低 | 高 | 双读兼容；迁移失败不阻塞启动；日志告警 |
 | 开源发布后无人维护 | 中 | 高 | good first issue、CI、明确 roadmap；至少 1 名固定维护者 |
 | 范围再次膨胀 | 高 | 高 | 本计划的「不做清单」写入 CONTRIBUTING；新功能必须映射到闭环 |
@@ -807,7 +809,7 @@ POST /v1/Setup
 
 - M0 删除：整分支回滚 + `pre-core-refactor` tag。
 - M1 数据：只加列，不删列；回滚代码不影响数据。
-- M1 投影：消费者可通过配置关闭（`LEROS_DISABLE_TASK_PROJECTION=true`）。
+- M1 投影：消费者可通过配置关闭（`LEWORK_DISABLE_TASK_PROJECTION=true`）。
 - License：保留历史 `LICENSE` 于 `docs/legal/`，发布说明记录变更。
 
 ---
@@ -845,41 +847,33 @@ T2.1 文档 ─► T2.2 发布 ─► T2.3 社区 ─► T2.5 Go/No-Go ─► v0
 
 ---
 
-## 12. 待决策（阻塞执行）
+## 12. 决策记录
 
 ### 12.1 License
 
-| 方案 | 优点 | 缺点 | 建议 |
+| 方案 | 优点 | 缺点 | 状态 |
 |---|---|---|---|
-| A. Apache-2.0 核心 + 商标政策 + 商业企业版 | 最大采用率；GitHub 识别标准；企业友好 | 云厂商可白嫖 | **推荐**，若目标是「现象级」 |
-| B. AGPL-3.0 核心 + 商业企业版 | 阻止闭源 SaaS 白嫖 | 部分企业直接排除 | 若 SaaS 保护优先 |
-| C. 保留当前自定义许可证 | 保护现有商业 | 不是开源；社区不认；GitHub 标签难看 | 不推荐 |
+| A. Apache-2.0 核心 + 商标政策 + 商业企业版 | 最大采用率；GitHub 识别标准；企业友好 | 云厂商可白嫖 | 未采用 |
+| B. AGPL-3.0 核心 + 商业企业版 | 阻止闭源 SaaS 白嫖 | 部分企业直接排除 | 未采用 |
+| C. 保留当前自定义许可证 | 保护现有商业 | 不是开源；社区不认；GitHub 标签难看 | **暂不调整（已拍板）** |
 
-**需要回答**：核心是 Apache-2.0 还是 AGPL-3.0？
+> 已知风险：当前许可证不是 OSI 认可的开源许可证，与「现象级开源」目标冲突；本轮暂不调整。
 
 ### 12.2 删除范围
 
-**需要回答**：Payroll 是否还有在线客户/合同？
+**已拍板**：Payroll 直接删除。截至 2026-10-31，后端 handler/service/config、前端页面与路由、Skill、系统提示词与种子同步均已移除。
 
-- 有 → 迁 `contrib/payroll` 或独立仓库，主干删路由与 UI。
-- 没有 → 直接删除。
+同样已处理：GitHub/GitLab/WeWork 连接器、旧客户端 WebSocket、Worker 管理 WebSocket、K8s 调度器、西电演示账号、资源库占位页。
 
-同样确认：官方插件市场、GitLab/WeWork 连接器、飞书反馈、k8s 调度是否有外部使用者。
+暂缓：官方插件市场、飞书反馈、多组织切换/创建入口。
 
 ### 12.3 目标用户
 
-**需要回答**：第一阶段主打谁？
-
-- A. 独立开发者/小团队（推荐）：强调 5 分钟上手、BYO key、项目产物。
-- B. 中大型企业：强调权限、审计、私有化、多组织。
-- C. 两者都要：本计划会失焦，不建议。
+**已拍板**：A. 独立开发者/小团队。强调开箱即用、BYO key、项目产物、任务验收；中大型企业能力留在 `enterprise/` 或独立仓库。
 
 ### 12.4 发布节奏
 
-**需要回答**：是否接受「M1 完成即发 v0.1.0，M2 只做发布工程」？
-
-- 是 → 更快拿到反馈，M3 按反馈调整。
-- 否 → 等 M2 完整再发，风险是闭门造车。
+**待决定**：是否接受「M1 完成即发 v0.1.0，M2 只做发布工程」？M1 当前还剩 T1.6 首次启动向导与 T1.7 Golden Demo 实机验证。
 
 ---
 

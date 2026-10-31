@@ -1,4 +1,4 @@
-import type { ProjectMember } from "@leros/store";
+import type { ProjectMember } from "@lework/store";
 import { describe, expect, it } from "vitest";
 
 import { canQuickRemoveProjectMember } from "./project-member-removal";

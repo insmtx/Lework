@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 )
 
 // TestOpenCodeACPPermissionProbe 验证权限桥的真机往返：
 // 配置 edit=ask 后，write 工具触发 session/request_permission，
 // Bridge 产出 approval.requested；approve 落盘、deny 不落盘。
 func TestOpenCodeACPPermissionProbe(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1")
 	}
-	model := envOrDefault("LEROS_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
+	model := envOrDefault("LEWORK_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
 
 	root, workDir := newProbeWorkspace(t)
 	cfg, err := probeConfigMap(model)
@@ -38,7 +38,7 @@ func TestOpenCodeACPPermissionProbe(t *testing.T) {
 		defer closeSink()
 	}
 	conn, err := Start(context.Background(), Config{
-		Binary:    envOrDefault("LEROS_ACP_PROBE_BIN", "opencode"),
+		Binary:    envOrDefault("LEWORK_ACP_PROBE_BIN", "opencode"),
 		Dir:       workDir,
 		Env:       env,
 		FrameSink: frameSink,

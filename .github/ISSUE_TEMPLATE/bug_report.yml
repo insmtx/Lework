@@ -8,7 +8,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        感谢你帮助改进 Leros。请尽量提供可复现的信息，方便维护者快速定位问题。
+        感谢你帮助改进 Lework。请尽量提供可复现的信息，方便维护者快速定位问题。
   - type: textarea
     id: summary
     attributes:

@@ -5,8 +5,8 @@ import {
 	isPrivateDeployment,
 	saveServerBaseURL,
 	testServerConnection,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -14,8 +14,8 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Input } from "@leros/ui/components/ui/input";
+} from "@lework/ui/components/ui/dialog";
+import { Input } from "@lework/ui/components/ui/input";
 import { CheckCircle2, LoaderCircle, Server } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { reloadApp } from "./reload";

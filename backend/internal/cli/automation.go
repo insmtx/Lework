@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
 )
 
 // ListAutomations 调用服务端 ListAutomations API 并返回自动化列表。
@@ -70,6 +70,6 @@ func automationTargetHeaders(targetUserID *uint) map[string]string {
 		return nil
 	}
 	return map[string]string{
-		"X-Leros-Target-User-Id": strconv.FormatUint(uint64(*targetUserID), 10),
+		"X-Lework-Target-User-Id": strconv.FormatUint(uint64(*targetUserID), 10),
 	}
 }

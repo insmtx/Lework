@@ -10,7 +10,7 @@ import {
 	SkillMarketView,
 	TaskDetailPage,
 	WorkbenchPage,
-} from "@leros/app-ui";
+} from "@lework/app-ui";
 
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 

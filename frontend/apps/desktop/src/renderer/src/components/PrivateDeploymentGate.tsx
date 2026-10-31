@@ -1,4 +1,4 @@
-import { PrivateDeploymentGate as SharedPrivateDeploymentGate } from "@leros/app-ui";
+import { PrivateDeploymentGate as SharedPrivateDeploymentGate } from "@lework/app-ui";
 import type { ReactNode } from "react";
 import { reloadDesktopRenderer } from "../utils/reload";
 

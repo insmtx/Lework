@@ -11,8 +11,8 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/pkg/llmprotocol"
+	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/Lework/backend/pkg/llmprotocol"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

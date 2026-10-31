@@ -13,10 +13,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account/oss"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/adapter/account/oss"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/internal/api/middleware"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func setupUserTest(t *testing.T) (*gin.Engine, *gorm.DB) {
@@ -66,7 +66,7 @@ func setupUserTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 		t.Fatalf("failed to seed default org: %v", err)
 	}
 
-	t.Setenv("LEROS_DEV_ALLOW_UNAUTH", "true")
+	t.Setenv("LEWORK_DEV_ALLOW_UNAUTH", "true")
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	tokenParser := oss.NewTokenParser(database, "test-secret", nil)

@@ -13,10 +13,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter/account/enterprise"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/internal/api/middleware"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter/account/enterprise"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/internal/api/middleware"
 )
 
 type mockIAMServer struct {
@@ -350,7 +350,7 @@ func setupEnterpriseUserHandler(t *testing.T, mock *mockIAMServer) *gin.Engine {
 	t.Helper()
 
 	iamCfg := &config.IAMConfig{BaseURL: mock.srv.URL, DomainName: "test"}
-	t.Setenv("LEROS_DEV_ALLOW_UNAUTH", "true")
+	t.Setenv("LEWORK_DEV_ALLOW_UNAUTH", "true")
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 

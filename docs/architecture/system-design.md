@@ -1,5 +1,7 @@
 # 系统架构设计 - Lework
 
+> ⚠️ 本文是 2026-05 的早期设计，知识库、独立任务等能力尚未在代码中实现。**当前实现以 [2026-10-30-product-architecture-as-built.md](2026-10-30-product-architecture-as-built.md) 为准。**
+>
 > **最后更新：2026-05-21**
 
 

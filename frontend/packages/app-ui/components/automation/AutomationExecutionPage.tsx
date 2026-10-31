@@ -1,10 +1,10 @@
 "use client";
 
-import type { AutomationExecutionItem, AutomationItem } from "@leros/store";
-import { skillChipsToPlainText, useAutomationStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { Switch } from "@leros/ui/components/ui/switch";
-import { cn } from "@leros/ui/lib/utils";
+import type { AutomationExecutionItem, AutomationItem } from "@lework/store";
+import { skillChipsToPlainText, useAutomationStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { Switch } from "@lework/ui/components/ui/switch";
+import { cn } from "@lework/ui/lib/utils";
 import { ArrowLeft, Loader2, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth";

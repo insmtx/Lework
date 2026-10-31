@@ -10,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/acp"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/acp"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // TestIdleTimeoutWatchdog 用「挂起不响应」的 mock provider 触发空闲看门狗：
 // 2s 无进展后应主动 cancel，并在 5s 排空窗口内返回 v1 文案，而不是永久卡住。
 func TestIdleTimeoutWatchdog(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x)")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 模拟 provider 挂死：不写响应，等客户端取消或 10s 兜底。

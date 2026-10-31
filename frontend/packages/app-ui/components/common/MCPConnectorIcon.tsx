@@ -1,4 +1,4 @@
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { Server } from "lucide-react";
 
 const BAIDU_NETDISK_ICON_SRC = new URL("../../assets/icons/baidu-netdisk.svg", import.meta.url)

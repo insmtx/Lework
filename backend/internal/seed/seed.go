@@ -6,9 +6,9 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter"
-	"github.com/insmtx/Leros/backend/internal/service"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter"
+	"github.com/insmtx/Lework/backend/internal/service"
 )
 
 // Options 自定义种子初始化行为。

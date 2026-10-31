@@ -13,13 +13,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/internal/consts"
-	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/internal/consts"
+	modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"
+	agentruncontext "github.com/insmtx/Lework/backend/internal/worker/agentrun/context"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	agentworkspace "github.com/insmtx/Lework/backend/internal/workspace"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 type workspaceManagerStub struct {
@@ -85,8 +85,8 @@ func (preparedTool) Execute(context.Context, json.RawMessage) (agent.ToolResult,
 
 func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	skillDir := filepath.Join(workspaceRoot, ".leros", "skills", "review")
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
+	skillDir := filepath.Join(workspaceRoot, ".lework", "skills", "review")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill: %v", err)
 	}
@@ -99,8 +99,8 @@ func TestPreparerUsesOneWorkspaceSnapshotAndPreservesSkillPrompt(t *testing.T) {
 	workspace := WorkspacePreparation{
 		WorkDir:              "/workspace/repo/src",
 		RepoDir:              "/workspace/repo",
-		TaskDir:              "/workspace/repo/.leros/tasks/task-1",
-		ArtifactManifestPath: "/workspace/repo/.leros/tasks/task-1/turns/request-1/artifacts.jsonl",
+		TaskDir:              "/workspace/repo/.lework/tasks/task-1",
+		ArtifactManifestPath: "/workspace/repo/.lework/tasks/task-1/turns/request-1/artifacts.jsonl",
 	}
 	workspaceManager := &workspaceManagerStub{preparation: workspace}
 	sessionProvider := &sessionProviderStub{}

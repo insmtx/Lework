@@ -10,9 +10,9 @@ import {
 	SkillMarketView,
 	TaskDetailPage,
 	NewTaskPage,
-} from "@leros/app-ui";
+} from "@lework/app-ui";
 import { useParams, useRouter } from "next/navigation";
-import { useWebNavigation } from "./LerosShell";
+import { useWebNavigation } from "./LeworkShell";
 
 type ProjectTab = "chat" | "tasks" | "files" | "activity";
 

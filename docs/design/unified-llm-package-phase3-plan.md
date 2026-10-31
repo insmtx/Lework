@@ -46,7 +46,7 @@
 | `backend/internal/worker/agentrun/service_test.go` | Modify | import 改为 llm/proxy |
 | `backend/internal/worker/router/router.go` | Modify | import 改为 llm/proxy |
 | `backend/internal/worker/app/service.go` | Modify | Options.ModelStore 类型改为 `*proxy.ModelStore` |
-| `backend/cmd/leros/worker.go` | Modify | import 改为 llm/proxy + 替换 NewModelStore |
+| `backend/cmd/lework/worker.go` | Modify | import 改为 llm/proxy + 替换 NewModelStore |
 | `backend/internal/modelrouter/` | Delete | 整个包删除 |
 
 ---
@@ -115,9 +115,9 @@ git commit -m "feat(llm/proxy): 迁移 modelrouter 到 llm/proxy 子包 — 解�
 - Modify: `backend/internal/worker/agentrun/service_test.go`
 - Modify: `backend/internal/worker/router/router.go`
 - Modify: `backend/internal/worker/app/service.go`
-- Modify: `backend/cmd/leros/worker.go`
+- Modify: `backend/cmd/lework/worker.go`
 
-**改动模式：** 所有 `modelrouter` import 改为 `proxy "github.com/insmtx/Leros/backend/internal/llm/proxy"`。类型引用 `modelrouter.ModelStore` → `proxy.ModelStore` 等。
+**改动模式：** 所有 `modelrouter` import 改为 `proxy "github.com/insmtx/Lework/backend/internal/llm/proxy"`。类型引用 `modelrouter.ModelStore` → `proxy.ModelStore` 等。
 
 `preparer_impl.go` 的 `resolveModelRouting` 中：
 - `modelrouter.UpstreamConfig` → `proxy.UpstreamConfig`
@@ -132,7 +132,7 @@ git commit -m "feat(llm/proxy): 迁移 modelrouter 到 llm/proxy 子包 — 解�
 - [ ] **Step 1-6: 批量更新 6 个文件的 import 和类型引用**
 - [ ] **Step 7: 验证编译 + worker 测试**
 
-Run: `go build ./backend/cmd/leros/ && go vet ./backend/internal/worker/... && go test ./backend/internal/worker/...`
+Run: `go build ./backend/cmd/lework/ && go vet ./backend/internal/worker/... && go test ./backend/internal/worker/...`
 Expected: 成功
 
 - [ ] **Step 8: 删除 modelrouter 包**
@@ -349,7 +349,7 @@ llm.RegisterUsageRoute(r, llmUsageRecorder)  // 注意：注册在非 authed 组
 - [ ] **Step 4: 在 router.go 注册 usage route**
 - [ ] **Step 5: 验证编译 + 测试**
 
-Run: `go build ./backend/cmd/leros/ && go test ./backend/internal/llm/...`
+Run: `go build ./backend/cmd/lework/ && go test ./backend/internal/llm/...`
 Expected: 成功
 
 - [ ] **Step 6: 提交**
@@ -416,13 +416,13 @@ func (s *ModelStore) SetUsageReporter(fn UsageReportFunc) { s.reportUsage = fn }
 - [ ] **Step 3: 在 worker.go 初始化时注入回调**
 - [ ] **Step 4: 验证编译 + proxy 测试不破坏**
 
-Run: `go build ./backend/cmd/leros/ && go test ./backend/internal/llm/proxy/...`
+Run: `go build ./backend/cmd/lework/ && go test ./backend/internal/llm/proxy/...`
 Expected: 成功
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add backend/internal/llm/proxy/handler.go backend/cmd/leros/worker.go
+git add backend/internal/llm/proxy/handler.go backend/cmd/lework/worker.go
 git commit -m "feat(llm/proxy): 在 HTTP 代理中接入用量上报回调"
 ```
 
@@ -431,7 +431,7 @@ git commit -m "feat(llm/proxy): 在 HTTP 代理中接入用量上报回调"
 ### Task 5: 在 worker.go 初始化 UsageReporter 并注入
 
 **Files:**
-- Modify: `backend/cmd/leros/worker.go`
+- Modify: `backend/cmd/lework/worker.go`
 
 在 `modelStore := proxy.NewModelStore()` 之后，构造 `UsageReporter` 并通过 `SetUsageReporter` 注入回调：
 
@@ -457,13 +457,13 @@ modelStore.SetUsageReporter(func(ctx context.Context, record *proxy.ProxyCallRec
 - [ ] **Step 1: 修改 worker.go 注入 usage reporter**
 - [ ] **Step 2: 验证编译**
 
-Run: `go build ./backend/cmd/leros/`
+Run: `go build ./backend/cmd/lework/`
 Expected: 成功
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add backend/cmd/leros/worker.go
+git add backend/cmd/lework/worker.go
 git commit -m "feat(worker): 注入 UsageReporter 到 proxy — 完成用量上报链路"
 ```
 
@@ -471,11 +471,11 @@ git commit -m "feat(worker): 注入 UsageReporter 到 proxy — 完成用量上�
 
 ## 验收标准
 
-- [ ] `go build ./backend/cmd/leros/` 成功
+- [ ] `go build ./backend/cmd/lework/` 成功
 - [ ] `go test ./backend/internal/llm/...` 全部 PASS（含 proxy 的 17 个迁移测试 + usage_reporter 测试 + Phase 1-2 旧测试）
 - [ ] `go test ./backend/internal/worker/...` 通过
 - [ ] `go vet ./backend/internal/llm/... ./backend/internal/worker/...` 无警告
-- [ ] `gofmt -l backend/internal/llm/ backend/internal/worker/ backend/cmd/leros/` 无输出
+- [ ] `gofmt -l backend/internal/llm/ backend/internal/worker/ backend/cmd/lework/` 无输出
 - [ ] `backend/internal/modelrouter/` 目录已删除
 - [ ] Worker HTTP 代理（`/v1/chat/completions` 等）行为不变
 - [ ] Worker agent run 全链路功能不变

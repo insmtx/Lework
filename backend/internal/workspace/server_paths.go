@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 // WorkerMountedWorkspacePath 返回 server 视角下某个 worker 的 workspace 挂载目录。
@@ -18,7 +18,7 @@ func WorkerMountedWorkspacePath(orgID uint, workerID uint) (string, error) {
 	if workerID == 0 {
 		return "", fmt.Errorf("worker_id is required")
 	}
-	root, err := leros.WorkspaceRoot()
+	root, err := lework.WorkspaceRoot()
 	if err != nil {
 		return "", err
 	}
@@ -38,12 +38,12 @@ func ProjectRepoPath(orgID uint, workerID uint, publicID string) (string, error)
 	return filepath.Join(workspacePath, "projects", fmt.Sprintf("%d", orgID), publicID, "repo"), nil
 }
 
-// FindRepoRoot 从给定的工作目录向上查找包含 .leros 目录的 repo 根目录。
+// FindRepoRoot 从给定的工作目录向上查找包含 .lework 目录的 repo 根目录。
 func FindRepoRoot(workDir string) (string, error) {
 	dir := filepath.Clean(workDir)
 	for {
-		lerosDir := filepath.Join(dir, ".leros")
-		if info, err := os.Stat(lerosDir); err == nil && info.IsDir() {
+		leworkDir := filepath.Join(dir, ".lework")
+		if info, err := os.Stat(leworkDir); err == nil && info.IsDir() {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)
@@ -57,5 +57,5 @@ func FindRepoRoot(workDir string) (string, error) {
 // ProjectMemoryPath 返回项目记忆文件的绝对路径。
 // repoDir 是项目 repo 根目录的绝对路径。
 func ProjectMemoryPath(repoDir string) string {
-	return filepath.Join(repoDir, ".leros", "memory", "project_memory.md")
+	return filepath.Join(repoDir, ".lework", "memory", "project_memory.md")
 }

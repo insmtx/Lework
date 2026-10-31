@@ -9,7 +9,7 @@ const storeMocks = vi.hoisted(() => ({
 	isPrivateDeployment: true,
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	isPrivateDeployment: storeMocks.isPrivateDeployment,
 	isBrandingSettingsEnabled: storeMocks.isBrandingSettingsEnabled,
 }));

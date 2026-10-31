@@ -3,7 +3,7 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG GO_BUILDER_IMAGE=registry.yygu.cn/library/golang:1.25
 ARG BUILD_TAGS=
-ARG WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/leros-worker-base:saas
+ARG WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/lework-worker-base:saas
 
 FROM ${GO_BUILDER_IMAGE} AS builder
 
@@ -33,30 +33,30 @@ ARG BUILD_TAGS
 
 RUN --mount=type=cache,target=/go/ \
     CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -tags="${BUILD_TAGS}" -ldflags="-s -w" -v -o /build/leros ./backend/cmd/leros/
+    go build -tags="${BUILD_TAGS}" -ldflags="-s -w" -v -o /build/lework ./backend/cmd/lework/
 
 ARG WORKER_BASE_IMAGE
 FROM ${WORKER_BASE_IMAGE}
 
-COPY --from=builder /build/leros /leros
+COPY --from=builder /build/lework /lework
 COPY --from=builder /build/backend/skills /app/backend/skills
 # 一体机用 worker 镜像直接跑 server，server 启动时执行 deployments/dev/seed 下的 SQL 种子。
 COPY --from=builder /build/deployments/dev/seed /app/deployments/dev/seed
 
-RUN ln -sf /leros /usr/local/bin/leros \
+RUN ln -sf /lework /usr/local/bin/lework \
     && mkdir -p /app/config /workspace \
-    && chown -R leros:leros /app /workspace /home/leros
+    && chown -R lework:lework /app /workspace /home/lework
 
 WORKDIR /app
 
-ENV LEROS_WORKSPACE_ROOT=/workspace \
-    HOME=/home/leros \
+ENV LEWORK_WORKSPACE_ROOT=/workspace \
+    HOME=/home/lework \
     NODE_PATH=/usr/local/lib/node_modules \
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
 EXPOSE 8081
 
-USER leros
+USER lework
 
-ENTRYPOINT ["/leros"]
+ENTRYPOINT ["/lework"]
 CMD ["worker", "--config", "/app/config/worker.config.yaml", "--workspace-root", "/workspace", "--listen-addr", ":8081"]

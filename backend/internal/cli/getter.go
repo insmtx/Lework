@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
 )
 
 // GetSession 调用服务端 GetSession API 并返回解析后的结果。

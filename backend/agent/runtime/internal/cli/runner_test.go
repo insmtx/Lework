@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 )
 
 func TestDriverReturnsInvocationResult(t *testing.T) {
@@ -77,7 +77,7 @@ func TestDriverMergesRunMCPServersWithoutOverridingBaseline(t *testing.T) {
 	invoker := &fakeInvoker{result: InvocationResult{Message: "done"}}
 	driver, err := NewDriver("fake", invoker, agent.RuntimeAdapterOptions{
 		MCPServers: []agent.MCPServerConfig{
-			{Name: "leros", URL: "http://127.0.0.1/builtin"},
+			{Name: "lework", URL: "http://127.0.0.1/builtin"},
 		},
 	})
 	if err != nil {
@@ -85,7 +85,7 @@ func TestDriverMergesRunMCPServersWithoutOverridingBaseline(t *testing.T) {
 	}
 	request := testExecutionRequest()
 	request.MCPServers = []agent.MCPServerConfig{
-		{Name: "LEROS", URL: "https://example.com/override"},
+		{Name: "LEWORK", URL: "https://example.com/override"},
 		{Name: "docs", URL: "https://example.com/mcp", Headers: map[string]string{"X-Token": "secret"}},
 	}
 

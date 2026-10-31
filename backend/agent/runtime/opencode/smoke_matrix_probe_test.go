@@ -9,19 +9,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // TestSmokeMatrixProbe 是 14 条冒烟里可自动化的后端子集：
 // 文本轮次 + resume、工具卡、权限 approve/deny、表单、待办、计划确认、DB 隔离。
 // 流式观感、取消耗时、空闲超时与前端走查仍留人工。
 //
-//	LEROS_ACP_PROBE=1 LEROS_ACP_PROBE_CONFIG_FILE=... LEROS_ACP_PROBE_MODEL=... \
+//	LEWORK_ACP_PROBE=1 LEWORK_ACP_PROBE_CONFIG_FILE=... LEWORK_ACP_PROBE_MODEL=... \
 //	  go test ./backend/agent/runtime/opencode -run TestSmokeMatrixProbe -v
 func TestSmokeMatrixProbe(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual smoke: set LEROS_ACP_PROBE=1")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual smoke: set LEWORK_ACP_PROBE=1")
 	}
 	model, err := probeModelConfig()
 	if err != nil {

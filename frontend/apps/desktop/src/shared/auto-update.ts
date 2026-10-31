@@ -1,9 +1,9 @@
-export const desktopUpdateEventChannel = "leros-desktop:update-event";
-export const desktopUpdateGetStateChannel = "leros-desktop:update-get-state";
-export const desktopUpdateCheckChannel = "leros-desktop:update-check";
-export const desktopUpdateRestartChannel = "leros-desktop:update-restart";
-export const desktopOpenPolicyPdfChannel = "leros-desktop:open-policy-pdf";
-export const desktopOpenExternalChannel = "leros-desktop:open-external";
+export const desktopUpdateEventChannel = "lework-desktop:update-event";
+export const desktopUpdateGetStateChannel = "lework-desktop:update-get-state";
+export const desktopUpdateCheckChannel = "lework-desktop:update-check";
+export const desktopUpdateRestartChannel = "lework-desktop:update-restart";
+export const desktopOpenPolicyPdfChannel = "lework-desktop:open-policy-pdf";
+export const desktopOpenExternalChannel = "lework-desktop:open-external";
 
 export type DesktopUpdatePhase =
 	| "idle"

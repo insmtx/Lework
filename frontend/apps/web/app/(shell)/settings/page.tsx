@@ -1,7 +1,7 @@
 "use client";
 
-import { PrivateSettingsPage } from "@leros/app-ui";
-import { isPrivateDeployment } from "@leros/store";
+import { PrivateSettingsPage } from "@lework/app-ui";
+import { isPrivateDeployment } from "@lework/store";
 import { redirect } from "next/navigation";
 
 export default function SettingsPage() {

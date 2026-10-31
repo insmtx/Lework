@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
-	"github.com/insmtx/Leros/backend/tools"
+	skillstore "github.com/insmtx/Lework/backend/internal/skill/store"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 func TestToolExecuteCreate(t *testing.T) {
-	t.Setenv("LEROS_WORKSPACE_ROOT", t.TempDir())
+	t.Setenv("LEWORK_WORKSPACE_ROOT", t.TempDir())
 	tool, err := NewTool()
 	if err != nil {
 		t.Fatalf("NewTool: %v", err)
@@ -56,7 +56,7 @@ func TestToolValidateRequiresNewTextForPatch(t *testing.T) {
 
 func TestToolWritesSupportingFileAtArbitraryRelativePath(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 	tool, err := NewTool()
 	if err != nil {
 		t.Fatalf("NewTool: %v", err)
@@ -77,7 +77,7 @@ func TestToolWritesSupportingFileAtArbitraryRelativePath(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("write supporting file: %v", err)
 	}
-	path := filepath.Join(workspaceRoot, ".leros", "skills", "free-layout", "custom", "deep", "info.txt")
+	path := filepath.Join(workspaceRoot, ".lework", "skills", "free-layout", "custom", "deep", "info.txt")
 	if content, err := os.ReadFile(path); err != nil || string(content) != "content" {
 		t.Fatalf("supporting file content=%q err=%v", string(content), err)
 	}

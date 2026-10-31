@@ -1,15 +1,15 @@
 "use client";
 
-import type { DigitalAssistantItem } from "@leros/store";
-import { Badge } from "@leros/ui/components/ui/badge";
-import { Button } from "@leros/ui/components/ui/button";
+import type { DigitalAssistantItem } from "@lework/store";
+import { Badge } from "@lework/ui/components/ui/badge";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { cn } from "@lework/ui/lib/utils";
 import { MoreHorizontal, Pencil, Settings2, Trash2 } from "lucide-react";
 import { AssistantAvatar } from "./AssistantAvatar";
 import {
