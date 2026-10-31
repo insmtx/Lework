@@ -970,10 +970,10 @@ describe("StructuredComposer", () => {
 
 		const textbox = screen.getByRole("textbox", { name: "请输入" });
 		await user.click(textbox);
-		await user.keyboard("#leros");
+		await user.keyboard("#lework");
 
 		await waitFor(() => {
-			expect(handleProjectTrigger).toHaveBeenLastCalledWith("leros");
+			expect(handleProjectTrigger).toHaveBeenLastCalledWith("lework");
 		});
 
 		await user.click(screen.getByRole("button", { name: "select project" }));
@@ -997,10 +997,10 @@ describe("StructuredComposer", () => {
 
 		const textbox = screen.getByRole("textbox", { name: "请输入" });
 		await user.click(textbox);
-		await user.keyboard("#leros");
+		await user.keyboard("#lework");
 
 		await waitFor(() => {
-			expect(handleProjectTrigger).toHaveBeenLastCalledWith("leros");
+			expect(handleProjectTrigger).toHaveBeenLastCalledWith("lework");
 		});
 		handleProjectTrigger.mockClear();
 
@@ -1010,7 +1010,7 @@ describe("StructuredComposer", () => {
 		await user.keyboard(" continue");
 
 		await waitFor(() => {
-			expect(handleValueChange).toHaveBeenLastCalledWith("#leros continue");
+			expect(handleValueChange).toHaveBeenLastCalledWith("#lework continue");
 		});
 		expect(handleProjectTrigger).not.toHaveBeenCalled();
 	});

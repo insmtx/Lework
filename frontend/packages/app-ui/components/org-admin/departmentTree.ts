@@ -1,4 +1,4 @@
-import type { Department } from "@leros/store";
+import type { Department } from "@lework/store";
 
 export type DepartmentTreeNode = Department & {
 	children: DepartmentTreeNode[];

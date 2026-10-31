@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
-	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
+	"github.com/insmtx/Lework/backend/agent"
+	runtimeprocess "github.com/insmtx/Lework/backend/agent/runtime/internal/process"
 )
 
 const (
 	// providerID 是 OpenCode 配置中使用的 provider 标识符。
-	providerID = "leros-provider"
+	providerID = "lework-provider"
 	// providerNpm 使用 @ai-sdk/openai-compatible 通配大多数兼容 API。
 	providerNpm = "@ai-sdk/openai-compatible"
 	// openCodeBuildAgentPrompt 占位替换 OpenCode build agent 的内置 provider baseline prompt。
@@ -263,7 +263,7 @@ func buildMCPConfig(mcps []agent.MCPServerConfig) map[string]any {
 	for _, m := range mcps {
 		name := m.Name
 		if name == "" {
-			name = "leros"
+			name = "lework"
 		}
 		if m.URL != "" {
 			if runtimeprocess.NeedsSSEBridge(m) {

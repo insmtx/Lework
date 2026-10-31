@@ -1,4 +1,4 @@
-// Package mcp 通过 Model Context Protocol 暴露 Leros 运行时能力。
+// Package mcp 通过 Model Context Protocol 暴露 Lework 运行时能力。
 package mcp
 
 import (
@@ -9,17 +9,17 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/insmtx/Leros/backend/tools"
-	artifactdeclaretools "github.com/insmtx/Leros/backend/tools/artifact_declare"
-	memorytools "github.com/insmtx/Leros/backend/tools/memory"
-	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
+	"github.com/insmtx/Lework/backend/tools"
+	artifactdeclaretools "github.com/insmtx/Lework/backend/tools/artifact_declare"
+	memorytools "github.com/insmtx/Lework/backend/tools/memory"
+	skillmanagetools "github.com/insmtx/Lework/backend/tools/skill_manage"
 	mcpsdk "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/ygpkg/yg-go/logs"
 )
 
 const (
-	serverName    = "Leros"
+	serverName    = "Lework"
 	serverVersion = "0.1.0"
 )
 
@@ -30,7 +30,7 @@ type Server struct {
 	authToken string
 }
 
-// NewServer 使用当前公开的工具创建 Leros MCP 服务器。
+// NewServer 使用当前公开的工具创建 Lework MCP 服务器。
 func NewServer() *Server {
 	return NewServerWithToken(newRandomToken())
 }
@@ -51,7 +51,7 @@ func NewServerWithToken(token string) *Server {
 	return server
 }
 
-// NewTools 返回当前通过 MCP 暴露的 Leros 工具。
+// NewTools 返回当前通过 MCP 暴露的 Lework 工具。
 func NewTools() []tools.Tool {
 	ts := []tools.Tool{
 		memorytools.NewTool(),
@@ -65,7 +65,7 @@ func NewTools() []tools.Tool {
 	return ts
 }
 
-// NewServerWithTools 从 Leros 内部工具创建 Leros MCP 服务器。
+// NewServerWithTools 从 Lework 内部工具创建 Lework MCP 服务器。
 func NewServerWithTools(publicTools ...tools.Tool) *Server {
 	sdk := mcpserver.NewMCPServer(
 		serverName,

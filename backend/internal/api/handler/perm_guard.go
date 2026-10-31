@@ -11,9 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/types"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // PermGuarder 是 handler 层对权限校验能力的依赖接口。

@@ -11,7 +11,7 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // CreateSession 创建会话（冲突时更新）
@@ -142,8 +142,8 @@ func ListSessions(ctx context.Context, db *gorm.DB, opt *types.PageQuery) ([]*ty
 		case "assistant_id":
 			if len(filter.Value) > 0 && filter.Value[0] != "" {
 				query = query.Where(`project_id IS NOT NULL AND project_id IN (
-					SELECT r.biz_id FROM leros_resource r
-					INNER JOIN leros_resource_binding rb ON rb.resource_id = r.id AND rb.deleted_at IS NULL
+					SELECT r.biz_id FROM lework_resource r
+					INNER JOIN lework_resource_binding rb ON rb.resource_id = r.id AND rb.deleted_at IS NULL
 					WHERE r.org_id = ? AND r.type = ? AND r.deleted_at IS NULL AND rb.assistant_id = ?
 				)`, opt.OrgID, types.ResourceTypeProject, filter.Value[0])
 			}

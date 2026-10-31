@@ -11,7 +11,7 @@ function getDesktopExternalLinkApi(): DesktopExternalLinkApi | null {
 		return null;
 	}
 
-	return (window as Window & { lerosDesktop?: DesktopExternalLinkApi }).lerosDesktop ?? null;
+	return (window as Window & { leworkDesktop?: DesktopExternalLinkApi }).leworkDesktop ?? null;
 }
 
 export function openExternalLink(href: string): void {

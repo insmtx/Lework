@@ -9,9 +9,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/service"
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/service"
+	skilllinks "github.com/insmtx/Lework/backend/internal/skill/links"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 var configuredConnectorSyncMu sync.Mutex

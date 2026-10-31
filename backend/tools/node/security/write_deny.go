@@ -54,7 +54,7 @@ func GetSafeWriteRoot() string {
 		}
 		return realRoot
 	}
-	root := os.Getenv("LEROS_WRITE_SAFE_ROOT")
+	root := os.Getenv("LEWORK_WRITE_SAFE_ROOT")
 	if root == "" {
 		return ""
 	}
@@ -80,7 +80,7 @@ func IsWriteDenied(path string) error {
 
 	if safeRoot := GetSafeWriteRoot(); safeRoot != "" {
 		if resolved != safeRoot && !strings.HasPrefix(resolved, safeRoot+string(filepath.Separator)) {
-			return fmt.Errorf("write denied: path is outside safe root %s", os.Getenv("LEROS_WRITE_SAFE_ROOT"))
+			return fmt.Errorf("write denied: path is outside safe root %s", os.Getenv("LEWORK_WRITE_SAFE_ROOT"))
 		}
 	}
 

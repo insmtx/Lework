@@ -1,10 +1,10 @@
 "use client";
 
-import type { AutomationItem } from "@leros/store";
-import { useAutomationStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
-import { Skeleton } from "@leros/ui/components/ui/skeleton";
+import type { AutomationItem } from "@lework/store";
+import { useAutomationStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { ScrollArea } from "@lework/ui/components/ui/scroll-area";
+import { Skeleton } from "@lework/ui/components/ui/skeleton";
 import { Clock, Plus, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";

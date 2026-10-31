@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/agent"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 // Preparer converts a business run request into an immutable prepared run.
@@ -57,14 +57,14 @@ type Finalization struct {
 // EventContext carries immutable routing and tracing values for one business run.
 type EventContext struct {
 	OrgID uint
-	// WorkerID 是 leros_worker_deployment.worker_id（worker 主键）。
+	// WorkerID 是 lework_worker_deployment.worker_id（worker 主键）。
 	WorkerID uint
-	// WorkerPublicID 是 leros_worker_deployment.public_id。
+	// WorkerPublicID 是 lework_worker_deployment.public_id。
 	WorkerPublicID string
 	SessionID      string
-	// AssistantID 是 leros_digital_assistant.id（assistant 主键）。
+	// AssistantID 是 lework_digital_assistant.id（assistant 主键）。
 	AssistantID uint
-	// AssistantPublicID 是 leros_digital_assistant.public_id。
+	// AssistantPublicID 是 lework_digital_assistant.public_id。
 	AssistantPublicID string
 	TraceID           string
 	RequestID         string

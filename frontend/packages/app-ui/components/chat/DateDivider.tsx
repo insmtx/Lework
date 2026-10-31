@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDate } from "@leros/store";
+import { formatDate } from "@lework/store";
 
 export function DateDivider({ timestamp }: { timestamp: number }) {
 	return (

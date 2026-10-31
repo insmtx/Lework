@@ -112,7 +112,7 @@ backend/agent/**
   ✕ backend/config
   ✕ backend/pkg/messaging
   ✕ backend/tools
-  ✕ backend/pkg/leros
+  ✕ backend/pkg/lework
 ```
 
 ### agent/runtime/*
@@ -154,14 +154,14 @@ lane 选择由 `messaging.CommandLane` 定义；subject 与 consumer 名称由 `
 
 | 项 | 当前值 | 说明 |
 | -- | ------ | ---- |
-| `MaxConcurrency` 默认值 | `20` | `cmd/leros worker` 当前没有覆盖该值，因此使用 `command/run` 默认值；同时传给 Coordinator 作为执行并发上限。 |
+| `MaxConcurrency` 默认值 | `20` | `cmd/lework worker` 当前没有覆盖该值，因此使用 `command/run` 默认值；同时传给 Coordinator 作为执行并发上限。 |
 | admission semaphore 容量 | `MaxConcurrency * 2`，当前默认 `40` | 限制已准入但尚未完成的异步提交数量，包含等待 Coordinator 的任务。 |
 | Coordinator 执行并发 | `20` | 默认与 `MaxConcurrency` 相同；真正同时执行 Agent Run 的槽位数。 |
 | session-keyed debounce window | `1500ms` | 同一 session key 的 `agent.run` 提交会走 trailing debounce 合并。 |
 | `InProgress` 间隔 | `15s` | 等待 admission semaphore 时周期性延长 NATS ack wait。 |
 | `NakWithDelay` 延迟 | `5s` | 缺少 stream sequence、inbox 写入失败、admission 关闭或 admission 获取失败时使用。 |
 | inbox 终态清理窗口 | `72h` | `RecoverNonTerminal` 启动时清理超过 72 小时的 `completed/failed` 记录。 |
-| inbox 存储 | SQLite，WAL，`busy_timeout=5000ms`，`MaxOpenConns=1` | inbox 与 provider-session bindings 当前共享 `leros.StateDBPath()`。 |
+| inbox 存储 | SQLite，WAL，`busy_timeout=5000ms`，`MaxOpenConns=1` | inbox 与 provider-session bindings 当前共享 `lework.StateDBPath()`。 |
 | inbox 幂等键 | `topic + stream_seq` | `stream_seq` 来自 JetStream metadata；没有该值就不能安全去重。 |
 | Worker command stream 保留 | `72h`，每 subject 最多 `10000` 条，`DiscardOld` | `WORKER_CMD_STREAM` 覆盖 `cmd.run/control/interaction/skill`。 |
 

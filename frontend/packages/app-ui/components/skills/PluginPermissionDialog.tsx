@@ -10,8 +10,8 @@ import {
 	pluginApi,
 	type UserInfo,
 	userApi,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -19,9 +19,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Input } from "@leros/ui/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
+} from "@lework/ui/components/ui/dialog";
+import { Input } from "@lework/ui/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@lework/ui/components/ui/select";
 import { Loader2, Search, UserPlus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -197,22 +197,22 @@ export function PluginPermissionDialog({
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="flex max-h-[min(88dvh,760px)] w-[min(620px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
-				<DialogHeader className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-5 pr-14">
-					<DialogTitle className="text-xl text-[var(--leros-text-strong)]">共享</DialogTitle>
-					<DialogDescription className="text-sm text-[var(--leros-text-muted)]">
+				<DialogHeader className="shrink-0 border-b border-[var(--lework-control-border)] px-6 py-5 pr-14">
+					<DialogTitle className="text-xl text-[var(--lework-text-strong)]">共享</DialogTitle>
+					<DialogDescription className="text-sm text-[var(--lework-text-muted)]">
 						{displayName(plugin)}
 					</DialogDescription>
 				</DialogHeader>
 
 				{loading ? (
-					<div className="flex min-h-64 items-center justify-center text-sm text-[var(--leros-text-subtle)]">
+					<div className="flex min-h-64 items-center justify-center text-sm text-[var(--lework-text-subtle)]">
 						<Loader2 className="mr-2 size-4 animate-spin" />
 						加载权限...
 					</div>
 				) : (
 					<div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
 						<section className="mb-5">
-							<div className="mb-2 text-sm font-semibold text-[var(--leros-text-strong)]">
+							<div className="mb-2 text-sm font-semibold text-[var(--lework-text-strong)]">
 								可见范围
 							</div>
 							<div className="grid grid-cols-2 gap-2">
@@ -224,14 +224,14 @@ export function PluginPermissionDialog({
 										onClick={() => setVisibility(value)}
 										className={`rounded-lg border px-3 py-3 text-left transition-colors ${
 											visibility === value
-												? "border-[var(--leros-primary)] bg-[var(--leros-primary-soft)]"
-												: "border-[var(--leros-control-border)] bg-white"
+												? "border-[var(--lework-primary)] bg-[var(--lework-primary-soft)]"
+												: "border-[var(--lework-control-border)] bg-white"
 										} disabled:cursor-not-allowed disabled:opacity-70`}
 									>
-										<div className="text-sm font-medium text-[var(--leros-text-strong)]">
+										<div className="text-sm font-medium text-[var(--lework-text-strong)]">
 											{value === "public" ? "组织公开" : "私有"}
 										</div>
-										<div className="mt-1 text-xs text-[var(--leros-text-muted)]">
+										<div className="mt-1 text-xs text-[var(--lework-text-muted)]">
 											{value === "public"
 												? "组织成员均可查看和使用。"
 												: "仅协作者可查看；关联项目任务执行时，项目成员仍可使用。"}
@@ -240,20 +240,20 @@ export function PluginPermissionDialog({
 								))}
 							</div>
 							{!canChangeVisibility && (
-								<p className="mt-2 text-xs text-[var(--leros-text-subtle)]">
+								<p className="mt-2 text-xs text-[var(--lework-text-subtle)]">
 									仅所有者可修改可见范围。
 								</p>
 							)}
 						</section>
 
 						<section>
-							<div className="mb-2 text-sm font-semibold text-[var(--leros-text-strong)]">
+							<div className="mb-2 text-sm font-semibold text-[var(--lework-text-strong)]">
 								协作成员
 							</div>
 							{canEditMembers && (
 								<div className="relative mb-3 flex gap-2">
 									<div className="relative min-w-0 flex-1">
-										<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-subtle)]" />
+										<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--lework-text-subtle)]" />
 										<Input
 											value={search}
 											onChange={(event) => setSearch(event.target.value)}
@@ -261,9 +261,9 @@ export function PluginPermissionDialog({
 											className="h-10 pl-9"
 										/>
 										{search.trim() && (
-											<div className="absolute inset-x-0 top-11 z-20 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-white shadow-lg">
+											<div className="absolute inset-x-0 top-11 z-20 overflow-hidden rounded-lg border border-[var(--lework-control-border)] bg-white shadow-lg">
 												{searching ? (
-													<div className="px-3 py-3 text-xs text-[var(--leros-text-subtle)]">
+													<div className="px-3 py-3 text-xs text-[var(--lework-text-subtle)]">
 														搜索中...
 													</div>
 												) : candidates.filter((user) => !memberIDs.has(user.public_id)).length >
@@ -275,24 +275,24 @@ export function PluginPermissionDialog({
 																key={user.public_id}
 																type="button"
 																onClick={() => addMember(user)}
-																className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--leros-surface-soft)]"
+																className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--lework-surface-soft)]"
 															>
-																<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--leros-primary-soft)] text-xs font-medium text-[var(--leros-primary)]">
+																<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--lework-primary-soft)] text-xs font-medium text-[var(--lework-primary)]">
 																	{user.name?.slice(0, 1) || "?"}
 																</span>
 																<span className="min-w-0 flex-1">
-																	<span className="block truncate text-sm text-[var(--leros-text-strong)]">
+																	<span className="block truncate text-sm text-[var(--lework-text-strong)]">
 																		{userLabel(user)}
 																	</span>
-																	<span className="block truncate text-xs text-[var(--leros-text-subtle)]">
+																	<span className="block truncate text-xs text-[var(--lework-text-subtle)]">
 																		{userSecondaryLabel(user)}
 																	</span>
 																</span>
-																<UserPlus className="size-4 text-[var(--leros-primary)]" />
+																<UserPlus className="size-4 text-[var(--lework-primary)]" />
 															</button>
 														))
 												) : (
-													<div className="px-3 py-3 text-xs text-[var(--leros-text-subtle)]">
+													<div className="px-3 py-3 text-xs text-[var(--lework-text-subtle)]">
 														未找到可添加成员
 													</div>
 												)}
@@ -308,16 +308,16 @@ export function PluginPermissionDialog({
 									return (
 										<div
 											key={member.user.public_id}
-											className="flex items-center gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5"
+											className="flex items-center gap-3 rounded-lg border border-[var(--lework-control-border)] bg-white px-3 py-2.5"
 										>
-											<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--leros-primary-soft)] text-sm font-medium text-[var(--leros-primary)]">
+											<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--lework-primary-soft)] text-sm font-medium text-[var(--lework-primary)]">
 												{member.user.name?.slice(0, 1) || "?"}
 											</span>
 											<div className="min-w-0 flex-1">
-												<div className="truncate text-sm font-medium text-[var(--leros-text-strong)]">
+												<div className="truncate text-sm font-medium text-[var(--lework-text-strong)]">
 													{userLabel(member.user)}
 												</div>
-												<div className="truncate text-xs text-[var(--leros-text-subtle)]">
+												<div className="truncate text-xs text-[var(--lework-text-subtle)]">
 													{userSecondaryLabel(member.user)}
 												</div>
 											</div>
@@ -357,13 +357,13 @@ export function PluginPermissionDialog({
 									);
 								})}
 							</div>
-							<div className="mt-4 rounded-lg bg-[var(--leros-primary-soft)] px-3 py-2.5 text-xs leading-5 text-[var(--leros-text-muted)]">
+							<div className="mt-4 rounded-lg bg-[var(--lework-primary-soft)] px-3 py-2.5 text-xs leading-5 text-[var(--lework-text-muted)]">
 								<div>
-									<span className="font-semibold text-[var(--leros-text-strong)]">管理员</span>　
+									<span className="font-semibold text-[var(--lework-text-strong)]">管理员</span>　
 									{ROLE_DESCRIPTIONS.admin}
 								</div>
 								<div className="mt-1">
-									<span className="font-semibold text-[var(--leros-text-strong)]">查看者</span>　
+									<span className="font-semibold text-[var(--lework-text-strong)]">查看者</span>　
 									{ROLE_DESCRIPTIONS.viewer}
 								</div>
 							</div>
@@ -371,7 +371,7 @@ export function PluginPermissionDialog({
 					</div>
 				)}
 
-				<DialogFooter className="shrink-0 border-t border-[var(--leros-control-border)] px-6 py-4">
+				<DialogFooter className="shrink-0 border-t border-[var(--lework-control-border)] px-6 py-4">
 					<Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
 						取消
 					</Button>

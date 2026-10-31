@@ -8,12 +8,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/integration/feishu"
-	"github.com/insmtx/Leros/backend/internal/modelrouter"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/internal/integration/feishu"
+	"github.com/insmtx/Lework/backend/internal/modelrouter"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )

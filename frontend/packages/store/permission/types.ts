@@ -30,7 +30,7 @@ export type Action = (typeof Action)[keyof typeof Action];
 
 export const CODE_FORBIDDEN = 40301;
 
-export const PERMISSION_DENIED_EVENT = "leros-permission-denied";
+export const PERMISSION_DENIED_EVENT = "lework-permission-denied";
 
 export type ResourceType = "project" | "task" | "file" | "artifact" | "assistant";
 

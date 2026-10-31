@@ -4,12 +4,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 func TestExternalCLIDataDirUsesRuntimeKindUnderWorkspace(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	tests := []struct {
 		name string
@@ -37,7 +37,7 @@ func TestExternalCLIDataDirUsesRuntimeKindUnderWorkspace(t *testing.T) {
 }
 
 func TestExternalCLIDataDirRequiresRuntimeKind(t *testing.T) {
-	t.Setenv(leros.EnvWorkspaceRoot, t.TempDir())
+	t.Setenv(lework.EnvWorkspaceRoot, t.TempDir())
 
 	if _, err := externalCLIDataDir("  "); err == nil {
 		t.Fatal("externalCLIDataDir() error = nil, want error")

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 func TestSkillStoreCreatePatchAndSupportingFiles(t *testing.T) {
@@ -271,14 +271,14 @@ func TestSkillStoreRejectsReservedRunsName(t *testing.T) {
 
 func TestDefaultSkillRootUsesWorkspaceRoot(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	root, err := DefaultSkillRoot()
 	if err != nil {
 		t.Fatalf("default root: %v", err)
 	}
 
-	expected := filepath.Join(workspaceRoot, ".leros", "skills")
+	expected := filepath.Join(workspaceRoot, ".lework", "skills")
 	if root != expected {
 		t.Fatalf("expected %s, got %s", expected, root)
 	}
@@ -439,7 +439,7 @@ func newTestStore(t *testing.T) (*SkillStore, string) {
 	home := t.TempDir()
 	root := filepath.Join(home, "project-skills")
 	t.Setenv("HOME", home)
-	t.Setenv(leros.EnvWorkspaceRoot, filepath.Join(home, "workspace"))
+	t.Setenv(lework.EnvWorkspaceRoot, filepath.Join(home, "workspace"))
 
 	store, err := NewSkillStore(root)
 	if err != nil {

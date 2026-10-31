@@ -1,11 +1,11 @@
-# Leros Development Configuration - Server
+# Lework Development Configuration - Server
 env: local
 workspace_root:
 
 server:
   port: 8080
   jwt:
-    secret: "dev-leros-jwt-secret"
+    secret: "dev-lework-jwt-secret"
 
 # 自动化定时任务调度器（Planner/Dispatcher）。默认开启，显式 false 可关闭。
 automation_scheduler:
@@ -20,7 +20,7 @@ client_update:
     force_message: "当前客户端版本过低，请更新后继续使用"
 
 database:
-  url: "postgres://leros_dev_user:leros_dev_password@localhost:5433/leros_dev_db?sslmode=disable"
+  url: "postgres://lework_dev_user:lework_dev_password@localhost:5433/lework_dev_db?sslmode=disable"
   debug: true
 
 nats:
@@ -35,7 +35,7 @@ logger:
       level: debug
     - writer: file
       level: debug
-      filename: ./logs/leros-server.log
+      filename: ./logs/lework-server.log
       maxsize: 10
       maxage: 15
       maxbackups: 5
@@ -88,9 +88,9 @@ gitea:
 
 storage:
   driver: local
-  local_dir: ./leros-storage
-  bucket: leros-dev-bucket
-  sign_secret: "leros-local-presign"
+  local_dir: ./lework-storage
+  bucket: lework-dev-bucket
+  sign_secret: "lework-local-presign"
   base_url: "http://localhost:8080"
 
 # 系统级 MCP 连接器：启动时仅按此列表幂等创建或更新渠道和系统模板；空列表不执行同步。
@@ -177,7 +177,7 @@ mcp_connectors:
       oauth:
         app_key: "${BAIDU_NETDISK_APP_KEY}"
         secret_key: "${BAIDU_NETDISK_SECRET_KEY}"
-        redirect_uri: "${LEROS_BASE_URL}/v1/plugins/mcp/oauth/baidu-netdisk/callback"
+        redirect_uri: "${LEWORK_BASE_URL}/v1/plugins/mcp/oauth/baidu-netdisk/callback"
         scopes:
           - basic
           - netdisk
@@ -185,7 +185,7 @@ mcp_connectors:
 # 本地启动ai队友相关配置 使用这个配置，不需要手动启动worker
 # scheduler:
 #   mode: process
-#   worker_binary: ./bundles/leros
+#   worker_binary: ./bundles/lework
 #   本地项目路径
 #   working_dir: /Users/xxx/lework
 #   server_addr: 127.0.0.1:8080

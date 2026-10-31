@@ -9,10 +9,10 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // defaultLLMModelCode 是初始化时写入的默认 LLM 模型 code。

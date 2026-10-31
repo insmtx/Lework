@@ -1,8 +1,8 @@
 "use client";
 
-import { useLayoutStore } from "@leros/store";
-import { getRequestErrorMessage } from "@leros/ui/lib/request";
-import { cn } from "@leros/ui/lib/utils";
+import { useLayoutStore } from "@lework/store";
+import { getRequestErrorMessage } from "@lework/ui/lib/request";
+import { cn } from "@lework/ui/lib/utils";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { BidComparisonIcon } from "../../assets";
@@ -63,10 +63,10 @@ export function WorkbenchPage({ navigation }: { navigation?: AppNavigation }) {
 	};
 
 	return (
-		<div className="flex h-full min-h-0 flex-1 flex-col bg-[var(--leros-app-bg)]">
-			<header className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-5">
-				<h1 className="text-xl font-semibold text-[var(--leros-text-strong)]">工作台</h1>
-				<p className="mt-2 text-sm text-[var(--leros-text-muted)]">
+		<div className="flex h-full min-h-0 flex-1 flex-col bg-[var(--lework-app-bg)]">
+			<header className="shrink-0 border-b border-[var(--lework-control-border)] px-6 py-5">
+				<h1 className="text-xl font-semibold text-[var(--lework-text-strong)]">工作台</h1>
+				<p className="mt-2 text-sm text-[var(--lework-text-muted)]">
 					选择业务功能，快速开始处理工作资料。
 				</p>
 			</header>
@@ -78,17 +78,17 @@ export function WorkbenchPage({ navigation }: { navigation?: AppNavigation }) {
 							onClick={openBidComparison}
 							className={cn(
 								"group flex min-h-[132px] cursor-pointer flex-col rounded-lg border border-slate-200 bg-white p-4",
-								"text-left transition-colors hover:border-[var(--leros-primary-soft)]",
-								"hover:bg-[var(--leros-primary-softer)]/35",
+								"text-left transition-colors hover:border-[var(--lework-primary-soft)]",
+								"hover:bg-[var(--lework-primary-softer)]/35",
 							)}
 						>
-							<div className="flex size-10 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+							<div className="flex size-10 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]">
 								<BidComparisonIcon className="size-5" />
 							</div>
-							<h3 className="mt-4 text-sm font-semibold text-[var(--leros-text-strong)]">
+							<h3 className="mt-4 text-sm font-semibold text-[var(--lework-text-strong)]">
 								标书对比
 							</h3>
-							<p className="mt-1 text-xs leading-5 text-[var(--leros-text-muted)]">
+							<p className="mt-1 text-xs leading-5 text-[var(--lework-text-muted)]">
 								选择投标文件与对比文件，发起标书对比分析任务。
 							</p>
 						</button>

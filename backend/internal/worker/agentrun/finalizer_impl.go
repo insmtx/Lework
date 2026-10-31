@@ -14,15 +14,15 @@ import (
 
 	"github.com/ygpkg/storage-go"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/internal/cli"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
-	agentworkspace "github.com/insmtx/Leros/backend/internal/workspace"
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/internal/cli"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/internal/worker/identity"
+	agentworkspace "github.com/insmtx/Lework/backend/internal/workspace"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -225,7 +225,7 @@ func uploadArtifacts(
 		return
 	}
 
-	authToken := os.Getenv(leros.EnvAuthToken)
+	authToken := os.Getenv(lework.EnvAuthToken)
 	storageConfig, err := cli.GetStorageConfig(ctx, serverAddr, authToken)
 	if err != nil {
 		logs.WarnContextf(ctx, "get storage config from server: %v", err)

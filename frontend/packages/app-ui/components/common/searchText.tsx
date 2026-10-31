@@ -19,7 +19,7 @@ export function renderHighlightedText(text: string, keyword: string): ReactNode 
 		segments.push(
 			<mark
 				key={`${matchIndex}-${matchEnd}`}
-				className="rounded-sm bg-[var(--leros-primary)]/12 px-0.5 text-[var(--leros-primary)] [box-decoration-break:clone]"
+				className="rounded-sm bg-[var(--lework-primary)]/12 px-0.5 text-[var(--lework-primary)] [box-decoration-break:clone]"
 			>
 				{text.slice(matchIndex, matchEnd)}
 			</mark>,

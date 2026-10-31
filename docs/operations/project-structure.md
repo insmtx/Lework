@@ -72,15 +72,15 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 ## `backend/` - Go 后端
 
-### `backend/cmd/leros/` - 进程入口
+### `backend/cmd/lework/` - 进程入口
 
 该目录是进程生命周期边界，允许 Cobra 命令注册、服务启动、信号等待和 `log.Fatal`。
 
 | 文件 | 说明 |
 |------|------|
 | `main.go` | Cobra 根命令和全局日志配置 |
-| `server.go` | `leros server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
-| `worker.go` | `leros worker`，启动 Worker 及 Runtime Adapter 注册 |
+| `server.go` | `lework server`，启动 HTTP 服务、DB、NATS、Worker Server、路由 |
+| `worker.go` | `lework worker`，启动 Worker 及 Runtime Adapter 注册 |
 | `chat.go` | 本地 CLI 聊天调试 |
 | `project.go` | Project CLI 调试命令 |
 | `session.go` | Session CLI 调试命令 |
@@ -394,21 +394,21 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 1. `backend/internal/api/connectors/<channel>/`：将外部事件标准化。
 2. `backend/pkg/messaging/`：确认或新增强类型 wire contract。
 3. `backend/internal/worker/command/<lane>/`：实现 Command adapter。
-4. `backend/cmd/leros/`：在 composition root 注册依赖。
+4. `backend/cmd/lework/`：在 composition root 注册依赖。
 
 ### 新增 Agent 运行时
 
 1. `backend/agent/runtime.go`：确认纯 `Runtime` 契约。
 2. `backend/agent/runtime/<runtime_name>/`：直接实现 `agent.Runtime`。
 3. `backend/agent/runtime/contract_test.go`：加入共用 contract suite。
-4. `backend/cmd/leros/worker.go`：构造并注册 Runtime。
+4. `backend/cmd/lework/worker.go`：构造并注册 Runtime。
 
 ### 新增外部 CLI 引擎
 
 1. `backend/agent/runtime/<runtime_name>/`：实现具体 Runtime、解析器和 responder。
 2. `backend/agent/runtime/internal/cli/`：只放跨 CLI Runtime 的 invocation/runner 共性。
 3. `backend/agent/runtime/internal/process/`：只放子进程、环境和工作目录共性。
-4. `backend/cmd/leros/worker.go`：实例化并注册，禁止增加全局默认实例。
+4. `backend/cmd/lework/worker.go`：实例化并注册，禁止增加全局默认实例。
 
 ### 新增 Tool
 
@@ -452,7 +452,7 @@ GitHub/GitLab Webhook -> Connector -> NATS -> Worker Command
 
 | 层级 | 路径 | 允许 | 禁止 |
 |------|------|------|------|
-| 进程入口 | `backend/cmd/leros/` | Cobra、进程生命周期、信号处理、`log.Fatal` | 业务逻辑 |
+| 进程入口 | `backend/cmd/lework/` | Cobra、进程生命周期、信号处理、`log.Fatal` | 业务逻辑 |
 | 业务与基础设施库 | `backend/internal/*` | 业务逻辑、运行时、DAO、连接器，通过 `error` 向上传递失败 | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、Cobra 依赖 |
 | 共享类型 | `backend/types/`、`backend/config/` | 领域类型、配置结构、常量 | 业务逻辑、外部系统调用 |
 | 可复用包 | `backend/pkg/` | 无业务状态的共享工具和协议转换 | 依赖上层 `internal` 包 |

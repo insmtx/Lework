@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 func withRequestTrace(ctx context.Context, cmd messaging.WorkerCommand) messaging.WorkerCommand {

@@ -14,7 +14,7 @@ logger:
       level: debug
     - writer: file
       level: info
-      filename: /tmp/leros.log
+      filename: /tmp/lework.log
       maxsize: 10
       maxage: 15
       maxbackups: 5
@@ -42,7 +42,7 @@ logger:
 	if len(outputs) != 3 {
 		t.Fatalf("default outputs = %d, want 3", len(outputs))
 	}
-	if outputs[1].Logger == nil || outputs[1].Logger.Filename != "/tmp/leros.log" {
+	if outputs[1].Logger == nil || outputs[1].Logger.Filename != "/tmp/lework.log" {
 		t.Fatalf("file logger was not converted correctly")
 	}
 	if outputs[2].TencentCLS == nil || outputs[2].TencentCLS.TopicID != "topic-id" {

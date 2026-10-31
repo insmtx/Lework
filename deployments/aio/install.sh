@@ -27,13 +27,13 @@ while [[ $# -gt 0 ]]; do
   --build   从当前源码构建镜像（需要 Docker + 构建网络；离线部署请先 docker load）
 
 环境变量（可选）:
-  LEROS_HTTP_PORT        对外 HTTP 端口，默认 80
-  LEROS_BIND_ADDR        监听地址，默认 0.0.0.0
-  LEROS_PUBLIC_BASE_URL  对外访问地址，用于文件预览/下载链接
-  LEROS_ADMIN_EMAIL      管理员邮箱，默认 admin@leros.local
-  LEROS_ADMIN_PASSWORD   管理员初始密码；不填则自动生成
-  LEROS_IMAGE            Server/Worker 镜像
-  LEROS_WEB_IMAGE        Web 镜像
+  LEWORK_HTTP_PORT        对外 HTTP 端口，默认 80
+  LEWORK_BIND_ADDR        监听地址，默认 0.0.0.0
+  LEWORK_PUBLIC_BASE_URL  对外访问地址，用于文件预览/下载链接
+  LEWORK_ADMIN_EMAIL      管理员邮箱，默认 admin@lework.local
+  LEWORK_ADMIN_PASSWORD   管理员初始密码；不填则自动生成
+  LEWORK_IMAGE            Server/Worker 镜像
+  LEWORK_WEB_IMAGE        Web 镜像
 EOF
       exit 0
       ;;
@@ -54,8 +54,8 @@ gen_secret() {
 }
 
 detect_host() {
-  if [[ -n "${LEROS_PUBLIC_HOST:-}" ]]; then
-    printf '%s' "$LEROS_PUBLIC_HOST"
+  if [[ -n "${LEWORK_PUBLIC_HOST:-}" ]]; then
+    printf '%s' "$LEWORK_PUBLIC_HOST"
     return
   fi
   local ip
@@ -66,8 +66,8 @@ detect_host() {
 public_base_url() {
   local host port scheme
   host="$(detect_host)"
-  port="${LEROS_HTTP_PORT:-80}"
-  scheme="${LEROS_PUBLIC_SCHEME:-http}"
+  port="${LEWORK_HTTP_PORT:-80}"
+  scheme="${LEWORK_PUBLIC_SCHEME:-http}"
   if [[ "$scheme" == "https" || "$port" == "80" ]]; then
     printf '%s://%s' "$scheme" "$host"
   else
@@ -83,33 +83,33 @@ validate_env_value() {
 if [[ ! -f "$ENV_FILE" ]]; then
   log "首次安装：生成 .env 与随机密钥"
 
-  ADMIN_EMAIL="${LEROS_ADMIN_EMAIL:-admin@leros.local}"
-  ADMIN_PASSWORD="${LEROS_ADMIN_PASSWORD:-$(gen_secret 12)}"
+  ADMIN_EMAIL="${LEWORK_ADMIN_EMAIL:-admin@lework.local}"
+  ADMIN_PASSWORD="${LEWORK_ADMIN_PASSWORD:-$(gen_secret 12)}"
   DB_PASSWORD="$(gen_secret 16)"
   JWT_SECRET="$(gen_secret 32)"
   STORAGE_SECRET="$(gen_secret 32)"
-  PUBLIC_BASE_URL="${LEROS_PUBLIC_BASE_URL:-$(public_base_url)}"
+  PUBLIC_BASE_URL="${LEWORK_PUBLIC_BASE_URL:-$(public_base_url)}"
 
-  validate_env_value "LEROS_ADMIN_EMAIL" "$ADMIN_EMAIL"
-  validate_env_value "LEROS_ADMIN_PASSWORD" "$ADMIN_PASSWORD"
-  validate_env_value "LEROS_PUBLIC_BASE_URL" "$PUBLIC_BASE_URL"
+  validate_env_value "LEWORK_ADMIN_EMAIL" "$ADMIN_EMAIL"
+  validate_env_value "LEWORK_ADMIN_PASSWORD" "$ADMIN_PASSWORD"
+  validate_env_value "LEWORK_PUBLIC_BASE_URL" "$PUBLIC_BASE_URL"
 
   cat >"$ENV_FILE" <<EOF
-LEROS_BIND_ADDR=${LEROS_BIND_ADDR:-0.0.0.0}
-LEROS_HTTP_PORT=${LEROS_HTTP_PORT:-80}
-LEROS_PUBLIC_BASE_URL=$PUBLIC_BASE_URL
-LEROS_IMAGE=${LEROS_IMAGE:-registry.yygu.cn/insmtx/worker:latest}
-LEROS_WEB_IMAGE=${LEROS_WEB_IMAGE:-registry.yygu.cn/insmtx/web:latest}
-LEROS_POSTGRES_IMAGE=${LEROS_POSTGRES_IMAGE:-postgres:17}
-LEROS_NATS_IMAGE=${LEROS_NATS_IMAGE:-nats:2.12}
-LEROS_NGINX_IMAGE=${LEROS_NGINX_IMAGE:-nginx:1.27-alpine}
-LEROS_ADMIN_EMAIL=$ADMIN_EMAIL
-LEROS_ADMIN_PASSWORD=$ADMIN_PASSWORD
-LEROS_DB_NAME=${LEROS_DB_NAME:-leros}
-LEROS_DB_USER=${LEROS_DB_USER:-leros}
-LEROS_DB_PASSWORD=$DB_PASSWORD
-LEROS_JWT_SECRET=$JWT_SECRET
-LEROS_STORAGE_SECRET=$STORAGE_SECRET
+LEWORK_BIND_ADDR=${LEWORK_BIND_ADDR:-0.0.0.0}
+LEWORK_HTTP_PORT=${LEWORK_HTTP_PORT:-80}
+LEWORK_PUBLIC_BASE_URL=$PUBLIC_BASE_URL
+LEWORK_IMAGE=${LEWORK_IMAGE:-registry.yygu.cn/insmtx/worker:latest}
+LEWORK_WEB_IMAGE=${LEWORK_WEB_IMAGE:-registry.yygu.cn/insmtx/web:latest}
+LEWORK_POSTGRES_IMAGE=${LEWORK_POSTGRES_IMAGE:-postgres:17}
+LEWORK_NATS_IMAGE=${LEWORK_NATS_IMAGE:-nats:2.12}
+LEWORK_NGINX_IMAGE=${LEWORK_NGINX_IMAGE:-nginx:1.27-alpine}
+LEWORK_ADMIN_EMAIL=$ADMIN_EMAIL
+LEWORK_ADMIN_PASSWORD=$ADMIN_PASSWORD
+LEWORK_DB_NAME=${LEWORK_DB_NAME:-lework}
+LEWORK_DB_USER=${LEWORK_DB_USER:-lework}
+LEWORK_DB_PASSWORD=$DB_PASSWORD
+LEWORK_JWT_SECRET=$JWT_SECRET
+LEWORK_STORAGE_SECRET=$STORAGE_SECRET
 TZ=${TZ:-Asia/Shanghai}
 EOF
   chmod 600 "$ENV_FILE"
@@ -125,12 +125,12 @@ set +a
 mkdir -p "$DATA_DIR/storage" "$DATA_DIR/workspace" "$DATA_DIR/logs" "$SCRIPT_DIR/data/backups" "$SCRIPT_DIR/data/postgres-backup"
 
 # 离线包优先：把镜像 tar 放在本目录即可自动导入。
-if [[ -f "$SCRIPT_DIR/leros-aio-images.tar" ]]; then
-  log "导入离线镜像 leros-aio-images.tar"
-  docker load -i "$SCRIPT_DIR/leros-aio-images.tar"
+if [[ -f "$SCRIPT_DIR/lework-aio-images.tar" ]]; then
+  log "导入离线镜像 lework-aio-images.tar"
+  docker load -i "$SCRIPT_DIR/lework-aio-images.tar"
 fi
 
-# 容器内 worker 用户为 leros（uid 1000）；宿主机目录需可写。
+# 容器内 worker 用户为 lework（uid 1000）；宿主机目录需可写。
 if [[ "$(id -u)" == "0" ]]; then
   chown -R 1000:1000 "$DATA_DIR" || true
 else
@@ -140,12 +140,12 @@ fi
 render() {
   local src="$1" dst="$2"
   sed \
-    -e "s|__DB_USER__|${LEROS_DB_USER}|g" \
-    -e "s|__DB_PASSWORD__|${LEROS_DB_PASSWORD}|g" \
-    -e "s|__DB_NAME__|${LEROS_DB_NAME}|g" \
-    -e "s|__JWT_SECRET__|${LEROS_JWT_SECRET}|g" \
-    -e "s|__STORAGE_SECRET__|${LEROS_STORAGE_SECRET}|g" \
-    -e "s|__PUBLIC_BASE_URL__|${LEROS_PUBLIC_BASE_URL}|g" \
+    -e "s|__DB_USER__|${LEWORK_DB_USER}|g" \
+    -e "s|__DB_PASSWORD__|${LEWORK_DB_PASSWORD}|g" \
+    -e "s|__DB_NAME__|${LEWORK_DB_NAME}|g" \
+    -e "s|__JWT_SECRET__|${LEWORK_JWT_SECRET}|g" \
+    -e "s|__STORAGE_SECRET__|${LEWORK_STORAGE_SECRET}|g" \
+    -e "s|__PUBLIC_BASE_URL__|${LEWORK_PUBLIC_BASE_URL}|g" \
     "$src" >"$dst"
 }
 
@@ -162,7 +162,7 @@ log "启动服务"
 docker compose up -d --no-build --remove-orphans
 
 log "等待服务就绪"
-HEALTH_URL="http://127.0.0.1:${LEROS_HTTP_PORT}/healthz"
+HEALTH_URL="http://127.0.0.1:${LEWORK_HTTP_PORT}/healthz"
 READY=0
 for _ in $(seq 1 90); do
   if command -v curl >/dev/null 2>&1; then
@@ -176,14 +176,14 @@ for _ in $(seq 1 90); do
 done
 
 HOST="$(detect_host)"
-if [[ "${LEROS_HTTP_PORT}" == "80" ]]; then
+if [[ "${LEWORK_HTTP_PORT}" == "80" ]]; then
   ACCESS_URL="http://${HOST}"
 else
-  ACCESS_URL="http://${HOST}:${LEROS_HTTP_PORT}"
+  ACCESS_URL="http://${HOST}:${LEWORK_HTTP_PORT}"
 fi
 
 if [[ "$READY" != "1" ]]; then
-  warn "服务在 180 秒内未通过健康检查，请查看日志：docker compose logs -f leros"
+  warn "服务在 180 秒内未通过健康检查，请查看日志：docker compose logs -f lework"
 else
   log "服务已就绪"
 fi
@@ -194,14 +194,14 @@ cat <<EOF
   Lework 一体机
 ============================================================
   访问地址 : ${ACCESS_URL}
-  管理员   : ${LEROS_ADMIN_EMAIL}
-  初始密码 : ${LEROS_ADMIN_PASSWORD}
+  管理员   : ${LEWORK_ADMIN_EMAIL}
+  初始密码 : ${LEWORK_ADMIN_PASSWORD}
   数据目录 : ${SCRIPT_DIR}/data
   配置文件 : ${SCRIPT_DIR}/config
 
   首次登录后请立即修改管理员密码。
   查看状态 : docker compose ps
-  查看日志 : docker compose logs -f leros
+  查看日志 : docker compose logs -f lework
   备份     : ./backup.sh
 ============================================================
 

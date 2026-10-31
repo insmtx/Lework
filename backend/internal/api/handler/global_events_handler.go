@@ -8,11 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // globalEventsHeartbeatInterval 控制全局 SSE 连接的 keep-alive 心跳间隔。

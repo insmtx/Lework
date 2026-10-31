@@ -1,7 +1,7 @@
 "use client";
 
-import { API_BASE_URL, authenticatedFetch, formatFileSize, pluginApi } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import { API_BASE_URL, authenticatedFetch, formatFileSize, pluginApi } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -9,10 +9,10 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Input } from "@leros/ui/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dialog";
+import { Input } from "@lework/ui/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@lework/ui/components/ui/tabs";
+import { cn } from "@lework/ui/lib/utils";
 import { FileArchive, FileText, GitBranch, Loader2, Upload, X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -246,28 +246,28 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 	return (
 		<Dialog open={open} onOpenChange={handleClose}>
 			<DialogContent
-				className="sm:max-w-md border-[var(--leros-control-border)] bg-white text-[var(--leros-text-strong)] shadow-[var(--leros-shadow-menu)]"
+				className="sm:max-w-md border-[var(--lework-control-border)] bg-white text-[var(--lework-text-strong)] shadow-[var(--lework-shadow-menu)]"
 				showCloseButton={false}
 			>
 				<DialogHeader>
 					<DialogTitle>导入技能</DialogTitle>
-					<DialogDescription className="text-[var(--leros-text-muted)]">
+					<DialogDescription className="text-[var(--lework-text-muted)]">
 						上传包含 SKILL.md 的 .zip 技能包或单独的 SKILL.md，或粘贴 GitHub 链接导入
 					</DialogDescription>
 				</DialogHeader>
 
 				<Tabs value={importMode} onValueChange={handleModeChange} className="mt-2">
-					<TabsList className="w-full bg-[var(--leros-surface-soft)]">
+					<TabsList className="w-full bg-[var(--lework-surface-soft)]">
 						<TabsTrigger
 							value="file"
-							className="w-full text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] dark:hover:text-[var(--leros-text-strong)] data-active:bg-white data-active:text-[var(--leros-text-strong)] dark:data-active:bg-white dark:data-active:text-[var(--leros-text-strong)]"
+							className="w-full text-[var(--lework-text-muted)] hover:text-[var(--lework-text-strong)] dark:hover:text-[var(--lework-text-strong)] data-active:bg-white data-active:text-[var(--lework-text-strong)] dark:data-active:bg-white dark:data-active:text-[var(--lework-text-strong)]"
 						>
 							<Upload className="size-4" />
 							上传文件
 						</TabsTrigger>
 						<TabsTrigger
 							value="github"
-							className="w-full text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)] dark:hover:text-[var(--leros-text-strong)] data-active:bg-white data-active:text-[var(--leros-text-strong)] dark:data-active:bg-white dark:data-active:text-[var(--leros-text-strong)]"
+							className="w-full text-[var(--lework-text-muted)] hover:text-[var(--lework-text-strong)] dark:hover:text-[var(--lework-text-strong)] data-active:bg-white data-active:text-[var(--lework-text-strong)] dark:data-active:bg-white dark:data-active:text-[var(--lework-text-strong)]"
 						>
 							<GitBranch className="size-4" />
 							GitHub 链接
@@ -284,10 +284,10 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 								onDrop={handleDrop}
 								className={cn(
 									"relative border-2 border-dashed rounded-lg px-4 py-3 text-center transition-colors h-full",
-									"border-[var(--leros-control-border)]",
-									"hover:border-[var(--leros-text-muted)]",
+									"border-[var(--lework-control-border)]",
+									"hover:border-[var(--lework-text-muted)]",
 									dragActive && "border-primary bg-primary/5",
-									status === "selected" && "border-[var(--leros-text-muted)]",
+									status === "selected" && "border-[var(--lework-text-muted)]",
 								)}
 							>
 								<label
@@ -305,22 +305,22 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 
 									{status === "idle" || status === "error" ? (
 										<div className="mt-1 flex flex-col items-center gap-1.5">
-											<Upload className="size-8 text-[var(--leros-text-muted)]" />
-											<p className="text-sm text-[var(--leros-text-strong)] text-center">
+											<Upload className="size-8 text-[var(--lework-text-muted)]" />
+											<p className="text-sm text-[var(--lework-text-strong)] text-center">
 												拖拽文件到此处，或点击选择文件
 											</p>
-											<p className="text-xs text-[var(--leros-text-muted)] text-center">
+											<p className="text-xs text-[var(--lework-text-muted)] text-center">
 												支持 .zip 和 .md 格式
 											</p>
 										</div>
 									) : (
 										<div className="flex items-center gap-3 px-2 pr-10">
-											<FileIcon className="size-8 shrink-0 text-[var(--leros-text-muted)]" />
+											<FileIcon className="size-8 shrink-0 text-[var(--lework-text-muted)]" />
 											<div className="flex-1 min-w-0 text-left">
-												<p className="text-sm font-medium text-[var(--leros-text-strong)] truncate">
+												<p className="text-sm font-medium text-[var(--lework-text-strong)] truncate">
 													{file?.name}
 												</p>
-												<p className="text-xs text-[var(--leros-text-muted)]">
+												<p className="text-xs text-[var(--lework-text-muted)]">
 													{file ? formatFileSize(file.size) : ""}
 												</p>
 											</div>
@@ -332,10 +332,10 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 									<button
 										type="button"
 										onClick={handleRemoveFile}
-										className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 transition-colors hover:bg-[var(--leros-control-bg)]"
+										className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 transition-colors hover:bg-[var(--lework-control-bg)]"
 										aria-label="移除文件"
 									>
-										<X className="size-4 text-[var(--leros-text-muted)]" />
+										<X className="size-4 text-[var(--lework-text-muted)]" />
 									</button>
 								)}
 							</section>
@@ -344,7 +344,7 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 						<TabsContent value="github" className="mt-0 h-full min-h-0">
 							<div className="flex h-full flex-col justify-center space-y-2">
 								<div className="flex items-center gap-2">
-									<GitBranch className="size-4 shrink-0 text-[var(--leros-text-muted)]" />
+									<GitBranch className="size-4 shrink-0 text-[var(--lework-text-muted)]" />
 									<Input
 										value={githubUrl}
 										onChange={(e) => {
@@ -357,7 +357,7 @@ export function SkillImportDialog({ open, onOpenChange, onImportSuccess }: Skill
 										placeholder="github.com/owner/repo/tree/main/path/to/skill"
 										disabled={status === "uploading"}
 										aria-label="GitHub 技能链接"
-										className="border-[var(--leros-control-border)] bg-white text-[var(--leros-text-strong)] placeholder:text-[var(--leros-text-muted)] dark:bg-white"
+										className="border-[var(--lework-control-border)] bg-white text-[var(--lework-text-strong)] placeholder:text-[var(--lework-text-muted)] dark:bg-white"
 									/>
 								</div>
 							</div>

@@ -1,6 +1,6 @@
-import { ThemeProvider } from "@leros/ui/components/common/theme-provider";
-import { Toaster } from "@leros/ui/components/ui/sonner";
-import { cn } from "@leros/ui/lib/utils";
+import { ThemeProvider } from "@lework/ui/components/common/theme-provider";
+import { Toaster } from "@lework/ui/components/ui/sonner";
+import { cn } from "@lework/ui/lib/utils";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";

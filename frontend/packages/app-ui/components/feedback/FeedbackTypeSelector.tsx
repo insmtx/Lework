@@ -1,7 +1,7 @@
 "use client";
 
-import type { FeedbackType } from "@leros/store";
-import { cn } from "@leros/ui/lib/utils";
+import type { FeedbackType } from "@lework/store";
+import { cn } from "@lework/ui/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { Bug, Lightbulb, MessageSquareMore, Sparkles } from "lucide-react";
 
@@ -60,8 +60,8 @@ export function FeedbackTypeSelector({ value, onChange }: FeedbackTypeSelectorPr
 							className={cn(
 								"group rounded-lg border px-3 py-2.5 text-left transition-all",
 								selected
-									? "border-[var(--leros-primary)] bg-[var(--leros-primary-subtle)] shadow-sm ring-1 ring-[var(--leros-primary)]/20"
-									: "border-[var(--leros-control-border)] bg-white hover:border-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]",
+									? "border-[var(--lework-primary)] bg-[var(--lework-primary-subtle)] shadow-sm ring-1 ring-[var(--lework-primary)]/20"
+									: "border-[var(--lework-control-border)] bg-white hover:border-[var(--lework-text-muted)] hover:bg-[var(--lework-surface-soft)]",
 							)}
 						>
 							<span className="flex items-start gap-2">
@@ -69,17 +69,17 @@ export function FeedbackTypeSelector({ value, onChange }: FeedbackTypeSelectorPr
 									className={cn(
 										"mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
 										selected
-											? "bg-[var(--leros-primary)] text-white"
-											: "bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] group-hover:text-[var(--leros-text-strong)]",
+											? "bg-[var(--lework-primary)] text-white"
+											: "bg-[var(--lework-surface-soft)] text-[var(--lework-text-muted)] group-hover:text-[var(--lework-text-strong)]",
 									)}
 								>
 									<Icon className="size-3.5" />
 								</span>
 								<span className="min-w-0">
-									<span className="block text-sm font-medium text-[var(--leros-text-strong)]">
+									<span className="block text-sm font-medium text-[var(--lework-text-strong)]">
 										{option.label}
 									</span>
-									<span className="mt-0.5 block text-xs leading-relaxed text-[var(--leros-text-muted)]">
+									<span className="mt-0.5 block text-xs leading-relaxed text-[var(--lework-text-muted)]">
 										{option.hint}
 									</span>
 								</span>

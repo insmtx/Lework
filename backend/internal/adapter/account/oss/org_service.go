@@ -9,13 +9,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/pkg/accounterror"
+	"github.com/insmtx/Lework/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 )
 

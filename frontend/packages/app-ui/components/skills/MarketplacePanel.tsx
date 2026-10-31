@@ -4,7 +4,7 @@ import {
 	type OfficialPluginMarketplaceItem,
 	officialPluginMarketplaceApi,
 	type SkillMarketplaceItem,
-} from "@leros/store";
+} from "@lework/store";
 import { useEffect, useMemo, useState } from "react";
 import { SkillCard } from "./SkillCard";
 import { filterSkillsByCategory, type SkillCatalogCategory } from "./skillCatalog";
@@ -104,11 +104,11 @@ export function MarketplacePanel({
 	return (
 		<div>
 			{!mounted || (isAuthenticated && loading) ? (
-				<div className="flex items-center justify-center py-20 text-sm text-[var(--leros-text-subtle)]">
+				<div className="flex items-center justify-center py-20 text-sm text-[var(--lework-text-subtle)]">
 					加载中...
 				</div>
 			) : visibleItems.length === 0 ? (
-				<div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--leros-control-border)] bg-white py-20 text-[var(--leros-text-subtle)]">
+				<div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--lework-control-border)] bg-white py-20 text-[var(--lework-text-subtle)]">
 					<p className="text-sm">暂无符合条件的技能</p>
 				</div>
 			) : (

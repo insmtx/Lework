@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"github.com/ygpkg/yg-go/logs"
 )

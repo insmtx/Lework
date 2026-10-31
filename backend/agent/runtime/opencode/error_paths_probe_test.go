@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/acp"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/acp"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // TestProviderErrorPaths 验证失败路径的可读性：provider 401/500 必须让结果以
 // 非空、含上游信息的错误失败，而不是静默空结果。
 func TestProviderErrorPaths(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1")
 	}
 	tests := []struct {
 		name     string

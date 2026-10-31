@@ -1,13 +1,13 @@
 # 私有化配置清单
 
-本文档汇总 Leros 私有化部署涉及的配置项，覆盖 Helm `values.yaml`、服务端 `config.yaml` 与 Worker 配置。配置结构与代码定义一一对应，来源为 `backend/config/` 及 `deployments/helm/leros/values.yaml.template`。部署时优先通过 Helm values 管理，`config.yaml` 用于在 Chart 未覆盖时注入底层配置。
+本文档汇总 Lework 私有化部署涉及的配置项，覆盖 Helm `values.yaml`、服务端 `config.yaml` 与 Worker 配置。配置结构与代码定义一一对应，来源为 `backend/config/` 及 `deployments/helm/lework/values.yaml.template`。部署时优先通过 Helm values 管理，`config.yaml` 用于在 Chart 未覆盖时注入底层配置。
 
 ## 1. 配置载体与生成
 
 | 载体 | 路径 | 说明 |
 |------|------|------|
-| Helm Values | `deployments/helm/leros/values.yaml.template` | 主配置模板，占位符由 `gen-values.sh` 替换后生成 `values.yaml` |
-| 生成脚本 | `deployments/helm/leros/gen-values.sh` | 替换随机口令占位符（PG/NATS/JWT/存储签名）；`--registry/--user/--pass` 用于需镜像仓库拉取凭证的场景，私有化预导入镜像时通常不用传 |
+| Helm Values | `deployments/helm/lework/values.yaml.template` | 主配置模板，占位符由 `gen-values.sh` 替换后生成 `values.yaml` |
+| 生成脚本 | `deployments/helm/lework/gen-values.sh` | 替换随机口令占位符（PG/NATS/JWT/存储签名）；`--registry/--user/--pass` 用于需镜像仓库拉取凭证的场景，私有化预导入镜像时通常不用传 |
 | Server config | `deployments/k3s/server.config.example.yaml` | k3s 部署的 Server ConfigMap 配置模板 |
 | 完整示例 | `config.example.yaml` | 根目录完整示例配置 |
 | 最小示例 | `minimal-config.yaml` | 快速启动最小配置 |
@@ -28,14 +28,14 @@ Helm values 占位符：
 
 | 字段 | 说明 | 默认 |
 |------|------|------|
-| `dataHostPath` | 宿主机数据根目录，替换所有组件 `<dataHostPath>` 占位符 | `/data/leros` |
+| `dataHostPath` | 宿主机数据根目录，替换所有组件 `<dataHostPath>` 占位符 | `/data/lework` |
 | `nodeSelector` | 全局节点选择器，私有化须固定组件到同一节点 | `{}` |
 | `imagePullSecret` | 私有镜像仓库凭证（创建 dockerconfigjson Secret）。镜像预导入节点本地时**通常不需**，设 `enabled: false` | `enabled: true` |
 | `imagePullSecrets` | 额外引用已存在的镜像拉取 Secret（从内网仓库拉取时用） | `[]` |
 
 ## 3. 数据库与中间件
 
-### 3.1 PostgreSQL（Leros 业务库）
+### 3.1 PostgreSQL（Lework 业务库）
 
 | 字段 | 说明 |
 |------|------|
@@ -55,7 +55,7 @@ Helm values 占位符：
 | `nats.enabled` | 是否部署内置 NATS |
 | `nats.image` | 镜像（默认 `nats:2.12.7`） |
 | `nats.hostPath` / `nodeSelector` / `resources` | 数据目录 / 节点 / 资源 |
-| `nats.auth` | 是否启用用户名口令认证（默认开启，用户 `leros`） |
+| `nats.auth` | 是否启用用户名口令认证（默认开启，用户 `lework`） |
 | `nats.external.url` | 复用外部 NATS 的连接串 |
 
 > 开启认证时 `nats.external` 需填带口令的连接 URL；Server/Worker 的 `nats.url` 需与之匹配。
@@ -89,7 +89,7 @@ Helm values 占位符：
 | `server.rbac` | 是否创建 RBAC |
 | `server.extraEnv` / `logger` | 额外环境变量与日志配置 |
 
-### 4.2 `config.yaml`（`server.config.example.yaml` → ConfigMap `leros-server-config`）
+### 4.2 `config.yaml`（`server.config.example.yaml` → ConfigMap `lework-server-config`）
 
 与代码 `backend/config.Config` 对应：
 
@@ -239,7 +239,7 @@ llm:
 
 | 字段 | 说明 |
 |------|------|
-| `traefik.enabled` | `true`（部署独立 Traefik `leros-traefik`，错开 k3s 自带 80/443） |
+| `traefik.enabled` | `true`（部署独立 Traefik `lework-traefik`，错开 k3s 自带 80/443） |
 | `traefik.service.type` | `NodePort` |
 | `traefik.ports.web.hostPort` | `38081`（HTTP 访问端口） |
 | `traefik.ports.websecure.hostPort` | `8443`（HTTPS） |

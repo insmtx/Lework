@@ -13,10 +13,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

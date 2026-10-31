@@ -35,8 +35,8 @@ const desktopUpdateApi: DesktopUpdateApi = {
 
 if (process.contextIsolated) {
 	contextBridge.exposeInMainWorld("electron", electronAPI);
-	contextBridge.exposeInMainWorld("lerosDesktop", desktopUpdateApi);
+	contextBridge.exposeInMainWorld("leworkDesktop", desktopUpdateApi);
 } else {
 	window.electron = electronAPI;
-	window.lerosDesktop = desktopUpdateApi;
+	window.leworkDesktop = desktopUpdateApi;
 }

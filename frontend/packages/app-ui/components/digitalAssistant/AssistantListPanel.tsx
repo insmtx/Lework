@@ -1,9 +1,9 @@
 "use client";
 
-import { useDAStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
-import { cn } from "@leros/ui/lib/utils";
+import { useDAStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { ScrollArea } from "@lework/ui/components/ui/scroll-area";
+import { cn } from "@lework/ui/lib/utils";
 import { Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AssistantAvatar } from "./AssistantAvatar";

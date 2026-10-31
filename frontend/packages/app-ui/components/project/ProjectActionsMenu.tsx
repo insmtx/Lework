@@ -1,7 +1,7 @@
 "use client";
 
-import { Action, type Project } from "@leros/store";
-import { DropdownMenuItem } from "@leros/ui/components/ui/dropdown-menu";
+import { Action, type Project } from "@lework/store";
+import { DropdownMenuItem } from "@lework/ui/components/ui/dropdown-menu";
 import { LogOut, Pencil, Trash2 } from "lucide-react";
 import type { MouseEvent, PointerEvent } from "react";
 import { CanGate } from "../permission/CanGate";

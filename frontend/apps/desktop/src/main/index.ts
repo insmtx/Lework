@@ -25,7 +25,7 @@ let mainWindowHideInProgress = false;
 // 中文注释：银河麒麟/UKUI 主要通过 X11 WM_CLASS 将运行窗口关联到 .desktop 启动器。
 // 显式固定 class，避免不同 Electron/Chromium 版本使用产品名或可执行文件名导致匹配失败。
 if (process.platform === "linux") {
-	app.commandLine.appendSwitch("class", "leros-desktop");
+	app.commandLine.appendSwitch("class", "lework-desktop");
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -234,7 +234,7 @@ ipcMain.handle(desktopOpenExternalChannel, async (_event, url: unknown) => {
 });
 
 app.whenReady().then(() => {
-	electronApp.setAppUserModelId("com.leros.desktop");
+	electronApp.setAppUserModelId("com.lework.desktop");
 
 	app.on("browser-window-created", (_, window) => {
 		optimizer.watchWindowShortcuts(window);

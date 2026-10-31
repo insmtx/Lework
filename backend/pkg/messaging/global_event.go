@@ -3,7 +3,7 @@ package messaging
 import (
 	"encoding/json"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // GlobalEventType 标识全局通知事件的类型。

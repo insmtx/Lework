@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 func TestStoreAddReplaceRemove(t *testing.T) {
@@ -53,7 +53,7 @@ func TestStoreBuildPromptBlock(t *testing.T) {
 	if _, err := store.Add(context.Background(), TargetUser, "用户偏好中文回复"); err != nil {
 		t.Fatalf("add user: %v", err)
 	}
-	if _, err := store.Add(context.Background(), TargetMemory, "Leros 提交信息使用中文约定式提交"); err != nil {
+	if _, err := store.Add(context.Background(), TargetMemory, "Lework 提交信息使用中文约定式提交"); err != nil {
 		t.Fatalf("add memory: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestStoreBuildPromptBlock(t *testing.T) {
 		"User Memory:",
 		"Worker Memory:",
 		"用户偏好中文回复",
-		"Leros 提交信息使用中文约定式提交",
+		"Lework 提交信息使用中文约定式提交",
 	} {
 		if !strings.Contains(block, expected) {
 			t.Fatalf("expected prompt block to contain %q, got %s", expected, block)
@@ -76,14 +76,14 @@ func TestStoreBuildPromptBlock(t *testing.T) {
 
 func TestDefaultMemoryRootUsesWorkspaceRoot(t *testing.T) {
 	tempDir := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, tempDir)
+	t.Setenv(lework.EnvWorkspaceRoot, tempDir)
 
 	root, err := DefaultMemoryRoot()
 	if err != nil {
 		t.Fatalf("default root: %v", err)
 	}
 
-	expected := filepath.Join(tempDir, ".leros", "memory")
+	expected := filepath.Join(tempDir, ".lework", "memory")
 	if root != expected {
 		t.Fatalf("got %q, want %q", root, expected)
 	}

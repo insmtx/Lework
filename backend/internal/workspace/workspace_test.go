@@ -7,20 +7,20 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 func TestPrepareTaskWorkspaceClonesPullsAndPreservesTurnDirectories(t *testing.T) {
 	source := t.TempDir()
 	runGit(t, source, "init", "-b", "main")
-	runGit(t, source, "config", "user.name", "Leros Test")
+	runGit(t, source, "config", "user.name", "Lework Test")
 	runGit(t, source, "config", "user.email", "test@example.com")
 	writeWorkspaceFile(t, filepath.Join(source, "README.md"), "first")
 	runGit(t, source, "add", "README.md")
 	runGit(t, source, "commit", "-m", "initial")
 
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	request := TaskWorkspaceRequest{
 		OrgID:            7,
 		ProjectID:        "project-1",
@@ -69,7 +69,7 @@ func TestPrepareTaskWorkspaceClonesPullsAndPreservesTurnDirectories(t *testing.T
 
 func TestPrepareTaskWorkspaceDoesNotCreateAssetsDirForLocalInit(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	plan, err := PrepareTaskWorkspace(context.Background(), TaskWorkspaceRequest{
 		OrgID:     7,
@@ -88,7 +88,7 @@ func TestPrepareTaskWorkspaceDoesNotCreateAssetsDirForLocalInit(t *testing.T) {
 
 func TestPrepareTaskWorkspacePreservesLocalGitRepoWithoutRemote(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	request := TaskWorkspaceRequest{
 		OrgID:     7,
@@ -102,7 +102,7 @@ func TestPrepareTaskWorkspacePreservesLocalGitRepoWithoutRemote(t *testing.T) {
 	}
 	writeWorkspaceFile(t, filepath.Join(plan.RepoDir, "report.md"), "keep me")
 	runGit(t, plan.RepoDir, "add", "report.md")
-	runGit(t, plan.RepoDir, "-c", "user.name=Leros Test", "-c", "user.email=test@example.com", "commit", "-m", "add report")
+	runGit(t, plan.RepoDir, "-c", "user.name=Lework Test", "-c", "user.email=test@example.com", "commit", "-m", "add report")
 
 	request.RequestID = "request-2"
 	plan, err = PrepareTaskWorkspace(context.Background(), request)

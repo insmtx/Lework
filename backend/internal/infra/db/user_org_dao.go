@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -131,7 +131,7 @@ func ListUserOrgs(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 
 	query := d.WithContext(ctx).Table(types.TableNameUserOrg).
 		Where("deleted_at IS NULL").
-		Where("user_id NOT IN (SELECT id FROM leros_user WHERE email = ?)", "admin@leros.local")
+		Where("user_id NOT IN (SELECT id FROM lework_user WHERE email = ?)", "admin@lework.local")
 
 	for _, filter := range opt.Filters {
 		switch filter.Field {
@@ -144,9 +144,9 @@ func ListUserOrgs(ctx context.Context, d *gorm.DB, opt *types.PageQuery) ([]*typ
 		case "department_id":
 			query = query.Where(`
 				EXISTS (
-					SELECT 1 FROM leros_rel_user_org_department md
-					WHERE md.uin = leros_user_org.id
-					  AND md.org_id = leros_user_org.org_id
+					SELECT 1 FROM lework_rel_user_org_department md
+					WHERE md.uin = lework_user_org.id
+					  AND md.org_id = lework_user_org.org_id
 					  AND md.department_id IN (?)
 					  AND md.deleted_at IS NULL
 				)

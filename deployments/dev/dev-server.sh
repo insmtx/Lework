@@ -15,7 +15,7 @@ if [ "$1" = "--build" ] || [ "$1" = "-b" ]; then
     BUILD_FLAG=true
 fi
 
-echo -e "${BLUE}Starting Leros Dev Server...${NC}"
+echo -e "${BLUE}Starting Lework Dev Server...${NC}"
 
 ENV_FILE="$SCRIPT_DIR/.env"
 if [ -f "$ENV_FILE" ]; then
@@ -41,15 +41,15 @@ fi
 
 # Build the binary (auto-detect source changes)
 NEED_BUILD=false
-if [ ! -f "$ROOT_DIR/bundles/leros" ] || [ "$BUILD_FLAG" = true ]; then
+if [ ! -f "$ROOT_DIR/bundles/lework" ] || [ "$BUILD_FLAG" = true ]; then
     NEED_BUILD=true
 else
     if [[ "$(uname -s)" == "Darwin" ]]; then
         LATEST_SRC=$(find "$ROOT_DIR/backend" -name "*.go" -exec stat -f "%m" {} \; 2>/dev/null | sort -rn | head -1)
-        BINARY_MTIME=$(stat -f "%m" "$ROOT_DIR/bundles/leros" 2>/dev/null)
+        BINARY_MTIME=$(stat -f "%m" "$ROOT_DIR/bundles/lework" 2>/dev/null)
     else
         LATEST_SRC=$(find "$ROOT_DIR/backend" -name "*.go" -exec stat -c "%Y" {} \; 2>/dev/null | sort -rn | head -1)
-        BINARY_MTIME=$(stat -c "%Y" "$ROOT_DIR/bundles/leros" 2>/dev/null)
+        BINARY_MTIME=$(stat -c "%Y" "$ROOT_DIR/bundles/lework" 2>/dev/null)
     fi
     if [ -n "$LATEST_SRC" ] && [ -n "$BINARY_MTIME" ] && [ "$LATEST_SRC" -gt "$BINARY_MTIME" ]; then
         NEED_BUILD=true
@@ -58,20 +58,20 @@ else
 fi
 
 if [ "$NEED_BUILD" = true ]; then
-    echo -e "${YELLOW}Building Leros binary...${NC}"
+    echo -e "${YELLOW}Building Lework binary...${NC}"
     cd "$ROOT_DIR"
-    go build -v -o ./bundles/leros ./backend/cmd/leros/
+    go build -v -o ./bundles/lework ./backend/cmd/lework/
     echo -e "${GREEN}Build complete${NC}"
 else
-    echo -e "${GREEN}Using existing Leros binary. Use --build to force rebuild.${NC}"
+    echo -e "${GREEN}Using existing Lework binary. Use --build to force rebuild.${NC}"
 fi
 
 echo -e "${BLUE}Starting server (port 8080)...${NC}"
 
-LEROS_STORAGE_LOCAL_DIR="$ROOT_DIR/leros-storage"
-mkdir -p "$LEROS_STORAGE_LOCAL_DIR"
+LEWORK_STORAGE_LOCAL_DIR="$ROOT_DIR/lework-storage"
+mkdir -p "$LEWORK_STORAGE_LOCAL_DIR"
 # 中文注释：这里传 workspace 挂载根目录，后端会自行补齐 /{org}/{worker}/workspace。
-WORKSPACE_ROOT="${LEROS_WORKSPACE_ROOT:-$ROOT_DIR/.leros-workspace}"
+WORKSPACE_ROOT="${LEWORK_WORKSPACE_ROOT:-$ROOT_DIR/.lework-workspace}"
 
 cd "$ROOT_DIR"
-LEROS_STORAGE_LOCAL_DIR="$LEROS_STORAGE_LOCAL_DIR" ./bundles/leros server --config "$CONFIG_FILE" --workspace-root "$WORKSPACE_ROOT"
+LEWORK_STORAGE_LOCAL_DIR="$LEWORK_STORAGE_LOCAL_DIR" ./bundles/lework server --config "$CONFIG_FILE" --workspace-root "$WORKSPACE_ROOT"

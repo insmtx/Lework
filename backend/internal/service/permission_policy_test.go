@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // TestSystemPolicyValidate 确保系统内置 policy 中所有 action 前缀正确。

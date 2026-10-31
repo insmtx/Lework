@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/insmtx/Leros/backend/internal/api/contract"
+import "github.com/insmtx/Lework/backend/internal/api/contract"
 
 // CreateDigitalAssistantResponse 创建数字助手响应
 type CreateDigitalAssistantResponse struct {

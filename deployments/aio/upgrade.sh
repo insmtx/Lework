@@ -15,9 +15,9 @@ if [[ "${1:-}" == "--build" ]]; then
   docker compose build
 fi
 
-if [[ -f "$SCRIPT_DIR/leros-aio-images.tar" ]]; then
+if [[ -f "$SCRIPT_DIR/lework-aio-images.tar" ]]; then
   echo "[aio] 导入离线镜像"
-  docker load -i "$SCRIPT_DIR/leros-aio-images.tar"
+  docker load -i "$SCRIPT_DIR/lework-aio-images.tar"
 else
   echo "[aio] 拉取镜像（离线环境可忽略失败）"
   docker compose pull || true
@@ -28,12 +28,12 @@ docker compose up -d --no-build --remove-orphans
 
 echo "[aio] 等待健康检查"
 for _ in $(seq 1 60); do
-  if curl -fsS "http://127.0.0.1:${LEROS_HTTP_PORT}/healthz" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${LEWORK_HTTP_PORT}/healthz" >/dev/null 2>&1; then
     echo "[aio] 升级完成"
     exit 0
   fi
   sleep 2
 done
 
-echo "[aio] 健康检查未通过，请查看: docker compose logs -f leros" >&2
+echo "[aio] 健康检查未通过，请查看: docker compose logs -f lework" >&2
 exit 1

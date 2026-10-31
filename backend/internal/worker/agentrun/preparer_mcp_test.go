@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/agent"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
 )
 
 func TestRuntimeSupportsMCPConnectors(t *testing.T) {
@@ -14,7 +14,7 @@ func TestRuntimeSupportsMCPConnectors(t *testing.T) {
 		"claude":   true,
 		"codex":    true,
 		"CODEX":    true,
-		"leros":    false,
+		"lework":   false,
 		"":         false,
 	}
 	for kind, want := range cases {

@@ -1,4 +1,4 @@
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 
 export function ThinkingProcessIcon({ className }: { className?: string }) {
 	return (

@@ -1,4 +1,4 @@
-@import "@leros/styles/globals.css";
+@import "@lework/styles/globals.css";
 
 @source "./**/*.{ts,tsx}";
 
@@ -10,13 +10,13 @@
  */
 
 /* 侧栏顶满窗口顶部，去掉默认上内边距，避免全屏时 Logo 上方出现额外空白。 */
-body.leros-mac-titlebar .leros-sidebar {
+body.lework-mac-titlebar .lework-sidebar {
 	padding-top: 0;
 }
 
 /* 侧栏顶部品牌行为红绿灯让位：上内边距与 Logo 行下移配合 trafficLightPosition，
    让红绿灯落在侧栏浅色背景之上；同时该区域作为窗口拖拽区。 */
-body.leros-mac-titlebar .leros-brand {
+body.lework-mac-titlebar .lework-brand {
 	height: auto;
 	padding-top: 32px;
 	margin-bottom: 24px;
@@ -24,24 +24,24 @@ body.leros-mac-titlebar .leros-brand {
 }
 
 /* 收紧主导航与「最近项目」区块之间的垂直间距。 */
-body.leros-mac-titlebar .leros-nav-section {
+body.lework-mac-titlebar .lework-nav-section {
 	margin-bottom: 20px;
 }
 
 /* 品牌行内的可交互控件恢复可点击（全局搜索、收起侧栏等） */
-body.leros-mac-titlebar .leros-brand button,
-body.leros-mac-titlebar .leros-brand a,
-body.leros-mac-titlebar .leros-brand input {
+body.lework-mac-titlebar .lework-brand button,
+body.lework-mac-titlebar .lework-brand a,
+body.lework-mac-titlebar .lework-brand input {
 	-webkit-app-region: no-drag;
 }
 
 /* 右侧各页面顶栏顶满窗口顶部并作为窗口拖拽区，
    其中的按钮、链接、输入、下拉触发器等交互元素保持可点击。 */
-body.leros-mac-titlebar header {
+body.lework-mac-titlebar header {
 	-webkit-app-region: drag;
 }
 
-body.leros-mac-titlebar
+body.lework-mac-titlebar
 	header
 	:is(button, a, input, select, textarea, [role="button"], [role="tab"], [contenteditable="true"]) {
 	-webkit-app-region: no-drag;
@@ -50,7 +50,7 @@ body.leros-mac-titlebar
 /* Dialog/Sheet 等浮层会叠在顶栏 drag 区域之上；Electron 的 -webkit-app-region: drag
    会按窗口几何穿透上层 DOM，导致关闭按钮等控件热区被“吃掉”、只剩边缘可点。
    浮层整块声明 no-drag，避免组织管理后台等大弹窗右上角关闭键难点。 */
-body.leros-mac-titlebar
+body.lework-mac-titlebar
 :is(
 	[data-slot="dialog-overlay"],
 	[data-slot="dialog-viewport"],

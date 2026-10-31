@@ -458,7 +458,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {
@@ -566,9 +566,9 @@ package llm
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // ContractAdapter 将 llm.Manager 适配为 contract.LLMModelService。
@@ -654,8 +654,8 @@ package service
 import (
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/llm"
 )
 
 // NewLLMModelService 创建 LLM 模型配置服务，委托到 llm.Manager。
@@ -690,7 +690,7 @@ Expected: 全部 PASS
 
 - [ ] **Step 5: 运行全量构建检查**
 
-Run: `go build ./backend/cmd/leros/`
+Run: `go build ./backend/cmd/lework/`
 Expected: 编译成功
 
 - [ ] **Step 6: 提交**
@@ -704,7 +704,7 @@ git commit -m "refactor(service): llm_model_service 委托到 llm.Manager — �
 
 ## 验收标准
 
-- [ ] `go build ./backend/cmd/leros/` 成功
+- [ ] `go build ./backend/cmd/lework/` 成功
 - [ ] `go test ./backend/internal/llm/...` 全部 PASS
 - [ ] `go test ./backend/internal/service/...` 全部 PASS
 - [ ] `go vet ./backend/internal/llm/...` 无警告

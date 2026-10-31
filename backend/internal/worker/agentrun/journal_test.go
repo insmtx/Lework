@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 type concurrencyTrackingPublisher struct {

@@ -9,19 +9,19 @@ spec:
         - private
       description: 发布的环境选择，image为仅构建镜像，private为桌面端私有化打包
     app:
-      default: leros
+      default: lework
       options:
-        - leros
-        - leros-worker
+        - lework
+        - lework-worker
         - desktop
-        - leros-web
+        - lework-web
       description: '选择要发布的应用或模块，desktop为桌面端打包上传COS'
     update_worker_image:
       default: "true"
       options:
         - "true"
         - "false"
-      description: '发布 leros server 时是否同步构建 worker 镜像并更新 scheduler.worker_image'
+      description: '发布 lework server 时是否同步构建 worker 镜像并更新 scheduler.worker_image'
     build_tags:
       default: enterprise
       options:
@@ -51,13 +51,13 @@ variables:
   ENV: "$[[ inputs.environment ]]"
   APP: "$[[ inputs.app ]]"
   UPDATE_WORKER_IMAGE: "$[[ inputs.update_worker_image ]]"
-  LEROS_DEPLOY_MODE: "$[[ inputs.desktop_deploy_mode ]]"
-  LEROS_DEPLOY_APP_NAME: "$[[ inputs.desktop_app_name ]]"
-  LEROS_DEPLOY_S3_DOMAIN: "$[[ inputs.desktop_s3_domain ]]"
+  LEWORK_DEPLOY_MODE: "$[[ inputs.desktop_deploy_mode ]]"
+  LEWORK_DEPLOY_APP_NAME: "$[[ inputs.desktop_app_name ]]"
+  LEWORK_DEPLOY_S3_DOMAIN: "$[[ inputs.desktop_s3_domain ]]"
   K3S_NAMESPACE_TEST: "insmtx-test"
-  K3S_SERVER_DEPLOYMENT: "leros"
-  K3S_SERVER_CONTAINER: "leros"
-  K3S_SERVER_CONFIGMAP: "leros-server-config"
+  K3S_SERVER_DEPLOYMENT: "lework"
+  K3S_SERVER_CONTAINER: "lework"
+  K3S_SERVER_CONFIGMAP: "lework-server-config"
   K3S_SERVER_CONFIG_KEY: "config.yaml"
 
 
@@ -119,13 +119,13 @@ build-image:
     - export APP=$[[ inputs.app ]]
     - export DOCKER_BUILD_ARGS="$DOCKER_BUILD_ARGS $([[ "$[[ inputs.build_tags ]]" = enterprise ]] && echo --build-arg BUILD_TAGS=enterprise)"
     - |
-      if [ "${APP}" = "leros-web" ]; then
-        if [ -z "$NEXT_PUBLIC_LEROS_API_BASE_URL" ]; then
-          echo "Required variable is missing: NEXT_PUBLIC_LEROS_API_BASE_URL"
+      if [ "${APP}" = "lework-web" ]; then
+        if [ -z "$NEXT_PUBLIC_LEWORK_API_BASE_URL" ]; then
+          echo "Required variable is missing: NEXT_PUBLIC_LEWORK_API_BASE_URL"
           exit 1
         fi
-        export DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEROS_API_BASE_URL=$NEXT_PUBLIC_LEROS_API_BASE_URL --build-arg LEROS_API_BASE_URL=$NEXT_PUBLIC_LEROS_API_BASE_URL"
-        echo "Building web image with API base URL: $NEXT_PUBLIC_LEROS_API_BASE_URL"
+        export DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=$NEXT_PUBLIC_LEWORK_API_BASE_URL --build-arg LEWORK_API_BASE_URL=$NEXT_PUBLIC_LEWORK_API_BASE_URL"
+        echo "Building web image with API base URL: $NEXT_PUBLIC_LEWORK_API_BASE_URL"
       fi
     - export REGISTRY="$HARBOR_HOST"
     - make push-image
@@ -144,7 +144,7 @@ build-worker-image:
       when: never
     - if: '$APP == "desktop"'
       when: never
-    - if: '$APP == "leros" && $UPDATE_WORKER_IMAGE == "true"'
+    - if: '$APP == "lework" && $UPDATE_WORKER_IMAGE == "true"'
       when: on_success
     - when: never
   variables:
@@ -153,13 +153,13 @@ build-worker-image:
   before_script:
     - echo "$HARBOR_PASSWORD" | docker login -u "$HARBOR_USERNAME" --password-stdin "$HARBOR_HOST"
   script:
-    - export APP=leros-worker
+    - export APP=lework-worker
     - export DOCKER_BUILD_ARGS="$DOCKER_BUILD_ARGS $([[ "$[[ inputs.build_tags ]]" = enterprise ]] && echo --build-arg BUILD_TAGS=enterprise)"
     - export REGISTRY="$HARBOR_HOST"
     - make push-image
     - export WORKER_IMAGE_TAG=$(make image-tag)
     - echo "WORKER_IMAGE_TAG=${WORKER_IMAGE_TAG}" > worker.env
-    - echo "WORKER_IMAGE=${HARBOR_HOST}/${PRJ}/leros-worker:${WORKER_IMAGE_TAG}" >> worker.env
+    - echo "WORKER_IMAGE=${HARBOR_HOST}/${PRJ}/lework-worker:${WORKER_IMAGE_TAG}" >> worker.env
     - cat worker.env
   artifacts:
     reports:
@@ -215,7 +215,7 @@ deploy:
     # - echo "IMAGE_TAG=$IMAGE_TAG"
     - echo "${PRJ} ${APP} ${IMAGE_TAG} "
     - |
-      if [ "${APP}" = "leros" ] && [ "${UPDATE_WORKER_IMAGE}" = "true" ]; then
+      if [ "${APP}" = "lework" ] && [ "${UPDATE_WORKER_IMAGE}" = "true" ]; then
         if [ -z "${WORKER_IMAGE:-}" ]; then
           echo "UPDATE_WORKER_IMAGE=true but WORKER_IMAGE is empty. Check that build-worker-image ran successfully and exported worker.env."
           echo "PIPELINE_STATUS=failed" > deploy.env
@@ -223,9 +223,9 @@ deploy:
         fi
 
         SERVER_IMAGE="${HARBOR_HOST}/${PRJ}/${APP}:${IMAGE_TAG}"
-        scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deployments/k3s/update-leros-images.sh "$DEPLOY_HOST:/tmp/update-leros-images.sh"
+        scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deployments/k3s/update-lework-images.sh "$DEPLOY_HOST:/tmp/update-lework-images.sh"
         if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "$DEPLOY_HOST" \
-          "K3S_NAMESPACE='${K3S_NAMESPACE}' K3S_SERVER_DEPLOYMENT='${K3S_SERVER_DEPLOYMENT}' K3S_SERVER_CONTAINER='${K3S_SERVER_CONTAINER}' K3S_SERVER_CONFIGMAP='${K3S_SERVER_CONFIGMAP}' K3S_SERVER_CONFIG_KEY='${K3S_SERVER_CONFIG_KEY}' bash /tmp/update-leros-images.sh '${SERVER_IMAGE}' '${WORKER_IMAGE}'"; then
+          "K3S_NAMESPACE='${K3S_NAMESPACE}' K3S_SERVER_DEPLOYMENT='${K3S_SERVER_DEPLOYMENT}' K3S_SERVER_CONTAINER='${K3S_SERVER_CONTAINER}' K3S_SERVER_CONFIGMAP='${K3S_SERVER_CONFIGMAP}' K3S_SERVER_CONFIG_KEY='${K3S_SERVER_CONFIG_KEY}' bash /tmp/update-lework-images.sh '${SERVER_IMAGE}' '${WORKER_IMAGE}'"; then
           echo "PIPELINE_STATUS=success" > deploy.env
         else
           echo "PIPELINE_STATUS=failed" > deploy.env
@@ -255,7 +255,7 @@ deploy:
 .desktop-before-base:
   before_script:
     - |
-      for variable in VITE_LEROS_API_BASE_URL COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX DESKTOP_TARGET; do
+      for variable in VITE_LEWORK_API_BASE_URL COS_SECRET_ID COS_SECRET_KEY COS_BUCKET COS_REGION DESKTOP_COS_ROOT_PREFIX DESKTOP_COS_PREFIX DESKTOP_TARGET; do
         if [ -z "$(eval echo \$$variable)" ]; then
           echo "Required desktop variable is missing: ${variable}"
           exit 1
@@ -475,21 +475,21 @@ deploy:
       fi
     - |
       if [ "$ENV" = "private" ]; then
-        if [ -z "$LEROS_DEPLOY_MODE" ]; then
-          echo "Private desktop build requires LEROS_DEPLOY_MODE (desktop_deploy_mode)"
+        if [ -z "$LEWORK_DEPLOY_MODE" ]; then
+          echo "Private desktop build requires LEWORK_DEPLOY_MODE (desktop_deploy_mode)"
           exit 1
         fi
-        if ! printf '%s' "$LEROS_DEPLOY_MODE" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
-          echo "Invalid LEROS_DEPLOY_MODE: $LEROS_DEPLOY_MODE"
+        if ! printf '%s' "$LEWORK_DEPLOY_MODE" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+          echo "Invalid LEWORK_DEPLOY_MODE: $LEWORK_DEPLOY_MODE"
           exit 1
         fi
       else
-        if [ -n "${LEROS_DEPLOY_MODE:-}" ] || [ -n "${LEROS_DEPLOY_APP_NAME:-}" ] || [ -n "${LEROS_DEPLOY_S3_DOMAIN:-}" ]; then
+        if [ -n "${LEWORK_DEPLOY_MODE:-}" ] || [ -n "${LEWORK_DEPLOY_APP_NAME:-}" ] || [ -n "${LEWORK_DEPLOY_S3_DOMAIN:-}" ]; then
           echo "Ignoring desktop_deploy_mode/desktop_app_name/desktop_s3_domain because environment=$ENV (only used when environment=private)"
         fi
-        export LEROS_DEPLOY_MODE=""
-        export LEROS_DEPLOY_APP_NAME=""
-        export LEROS_DEPLOY_S3_DOMAIN=""
+        export LEWORK_DEPLOY_MODE=""
+        export LEWORK_DEPLOY_APP_NAME=""
+        export LEWORK_DEPLOY_S3_DOMAIN=""
       fi
     - cd frontend
     - pnpm config set store-dir "$CI_PROJECT_DIR/frontend/.pnpm-store"
@@ -666,12 +666,12 @@ deploy:
       cp "frontend/apps/desktop/dist/${latest_file}" "$release_dir/" 2>/dev/null || true
 
       if [ "$deployment_mode" = "private" ]; then
-        deploy_mode="${LEROS_DEPLOY_MODE}"
+        deploy_mode="${LEWORK_DEPLOY_MODE}"
         if [ -z "$deploy_mode" ]; then
-          echo "Private desktop build requires LEROS_DEPLOY_MODE (desktop_deploy_mode)"
+          echo "Private desktop build requires LEWORK_DEPLOY_MODE (desktop_deploy_mode)"
           exit 1
         elif ! printf '%s' "$deploy_mode" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
-          echo "Invalid LEROS_DEPLOY_MODE: $deploy_mode"
+          echo "Invalid LEWORK_DEPLOY_MODE: $deploy_mode"
           exit 1
         else
           private_prefix="${root_prefix}/private/${deploy_mode}"

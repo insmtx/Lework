@@ -1,4 +1,4 @@
-# Leros Configuration with ReAct Agent Extension
+# Lework Configuration with ReAct Agent Extension
 #
 # This updated configuration includes support for ReAct Agent Runtime and 
 # programmer assistant functionality
@@ -27,7 +27,7 @@ database:
 organization:
   id: "default_org"                                  # Default Organization ID
 
-# External CLI engine preference. Leros auto-detects claude and codex from PATH.
+# External CLI engine preference. Lework auto-detects claude and codex from PATH.
 
 cli:
   default: "claude"

@@ -15,9 +15,9 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	adapteraccount "github.com/insmtx/Leros/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/types"
+	adapteraccount "github.com/insmtx/Lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 const (
@@ -79,13 +79,13 @@ func CallerMiddleware(parser adapteraccount.TokenParser, database *gorm.DB) gin.
 
 // devUnauthAllowed 是本地调试用的显式免鉴权开关。
 //
-// 历史上 LEROS_DEV=true 会直接放行所有请求，生产环境一旦误设就是完全鉴权绕过。
-// 现在必须同时满足：显式 LEROS_DEV_ALLOW_UNAUTH=true、非 production、请求来自回环地址。
+// 历史上 LEWORK_DEV=true 会直接放行所有请求，生产环境一旦误设就是完全鉴权绕过。
+// 现在必须同时满足：显式 LEWORK_DEV_ALLOW_UNAUTH=true、非 production、请求来自回环地址。
 func devUnauthAllowed(ctx *gin.Context) bool {
-	if !strings.EqualFold(strings.TrimSpace(os.Getenv("LEROS_DEV_ALLOW_UNAUTH")), "true") {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("LEWORK_DEV_ALLOW_UNAUTH")), "true") {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("LEROS_ENV")), "production") {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("LEWORK_ENV")), "production") {
 		return false
 	}
 	host := strings.TrimSpace(ctx.Request.RemoteAddr)

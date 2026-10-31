@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func newDevBypassTestContext(t *testing.T, remoteAddr string) *gin.Context {
@@ -29,7 +29,7 @@ func TestParseCallerDevBypassRequiresExplicitFlagLoopbackAndNonProduction(t *tes
 		wantBypass bool
 	}{
 		{
-			name:       "LEROS_DEV alone no longer bypasses auth",
+			name:       "LEWORK_DEV alone no longer bypasses auth",
 			dev:        "true",
 			remote:     "127.0.0.1:1234",
 			wantBypass: false,
@@ -63,9 +63,9 @@ func TestParseCallerDevBypassRequiresExplicitFlagLoopbackAndNonProduction(t *tes
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("LEROS_DEV", tc.dev)
-			t.Setenv("LEROS_DEV_ALLOW_UNAUTH", tc.allow)
-			t.Setenv("LEROS_ENV", tc.env)
+			t.Setenv("LEWORK_DEV", tc.dev)
+			t.Setenv("LEWORK_DEV_ALLOW_UNAUTH", tc.allow)
+			t.Setenv("LEWORK_ENV", tc.env)
 
 			caller, _ := parseCallerFromRequest(newDevBypassTestContext(t, tc.remote), nil)
 			if caller == nil {

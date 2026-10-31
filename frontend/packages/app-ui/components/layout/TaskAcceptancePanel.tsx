@@ -1,8 +1,8 @@
 "use client";
 
-import type { BackendTask, BackendTaskDeliverables, ProjectTask } from "@leros/store";
-import { taskApi } from "@leros/store/api/taskApi";
-import { Button } from "@leros/ui/components/ui/button";
+import type { BackendTask, BackendTaskDeliverables, ProjectTask } from "@lework/store";
+import { taskApi } from "@lework/store/api/taskApi";
+import { Button } from "@lework/ui/components/ui/button";
 import { CheckCircle2, FileText, LoaderCircle, XCircle } from "lucide-react";
 import { useState } from "react";
 
@@ -82,14 +82,14 @@ export function TaskAcceptancePanel({
 	return (
 		<section
 			data-testid="task-acceptance-panel"
-			className="mx-4 mt-3 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-4 shadow-sm"
+			className="mx-4 mt-3 rounded-xl border border-[var(--lework-control-border)] bg-[var(--lework-surface)] p-4 shadow-sm"
 		>
 			<div className="flex flex-wrap items-center gap-2">
-				<span className="inline-flex items-center gap-1 rounded-full bg-[var(--leros-primary-softer)] px-2.5 py-1 text-xs font-medium text-[var(--leros-primary)]">
+				<span className="inline-flex items-center gap-1 rounded-full bg-[var(--lework-primary-softer)] px-2.5 py-1 text-xs font-medium text-[var(--lework-primary)]">
 					{statusLabel}
 				</span>
 				{(assigneeName || task.assistantId) && (
-					<span className="text-xs text-[var(--leros-text-muted)]">
+					<span className="text-xs text-[var(--lework-text-muted)]">
 						队友 {assigneeName || task.assistantId}
 					</span>
 				)}
@@ -101,9 +101,9 @@ export function TaskAcceptancePanel({
 			</div>
 
 			{(task.resultSummary || deliverables?.result_summary) && (
-				<div className="mt-3 rounded-lg bg-[var(--leros-surface-soft)] p-3">
-					<p className="text-xs font-semibold text-[var(--leros-text-muted)]">结果摘要</p>
-					<p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--leros-text)]">
+				<div className="mt-3 rounded-lg bg-[var(--lework-surface-soft)] p-3">
+					<p className="text-xs font-semibold text-[var(--lework-text-muted)]">结果摘要</p>
+					<p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--lework-text)]">
 						{task.resultSummary || deliverables?.result_summary}
 					</p>
 				</div>
@@ -120,14 +120,14 @@ export function TaskAcceptancePanel({
 
 			{pending && (
 				<div className="mt-3">
-					<p className="text-xs font-semibold text-[var(--leros-text-muted)]">交付物</p>
+					<p className="text-xs font-semibold text-[var(--lework-text-muted)]">交付物</p>
 					{loading ? (
-						<div className="mt-2 flex items-center gap-2 text-sm text-[var(--leros-text-muted)]">
+						<div className="mt-2 flex items-center gap-2 text-sm text-[var(--lework-text-muted)]">
 							<LoaderCircle className="size-4 animate-spin" />
 							正在加载交付物…
 						</div>
 					) : !hasDeliverables ? (
-						<p className="mt-2 text-sm text-[var(--leros-text-muted)]">
+						<p className="mt-2 text-sm text-[var(--lework-text-muted)]">
 							队友还没有交付，去会话里催一下
 						</p>
 					) : (
@@ -135,18 +135,18 @@ export function TaskAcceptancePanel({
 							{artifacts.map((artifact) => (
 								<li
 									key={artifact.artifact_id ?? artifact.storage_uri ?? artifact.filename}
-									className="flex items-start gap-2 text-sm text-[var(--leros-text)]"
+									className="flex items-start gap-2 text-sm text-[var(--lework-text)]"
 								>
-									<FileText className="mt-0.5 size-4 shrink-0 text-[var(--leros-text-muted)]" />
+									<FileText className="mt-0.5 size-4 shrink-0 text-[var(--lework-text-muted)]" />
 									<span>{artifact.title || artifact.filename || "未命名产物"}</span>
 								</li>
 							))}
 							{files.map((file) => (
 								<li
 									key={file.file_public_id}
-									className="flex items-start gap-2 text-sm text-[var(--leros-text)]"
+									className="flex items-start gap-2 text-sm text-[var(--lework-text)]"
 								>
-									<FileText className="mt-0.5 size-4 shrink-0 text-[var(--leros-text-muted)]" />
+									<FileText className="mt-0.5 size-4 shrink-0 text-[var(--lework-text-muted)]" />
 									<span>{file.relative_path || file.file_public_id}</span>
 								</li>
 							))}
@@ -181,7 +181,7 @@ export function TaskAcceptancePanel({
 						value={rejectNote}
 						onChange={(event) => setRejectNote(event.target.value)}
 						placeholder="请填写驳回意见"
-						className="min-h-20 w-full rounded-md border border-[var(--leros-control-border)] bg-white px-3 py-2 text-sm text-[var(--leros-text)] outline-none focus:border-[var(--leros-primary)]"
+						className="min-h-20 w-full rounded-md border border-[var(--lework-control-border)] bg-white px-3 py-2 text-sm text-[var(--lework-text)] outline-none focus:border-[var(--lework-primary)]"
 					/>
 					<div className="flex gap-2">
 						<Button
@@ -212,8 +212,8 @@ export function TaskAcceptancePanel({
 function TaskField({ label, value }: { label: string; value?: string }) {
 	return (
 		<div>
-			<p className="text-xs font-semibold text-[var(--leros-text-muted)]">{label}</p>
-			<p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--leros-text)]">
+			<p className="text-xs font-semibold text-[var(--lework-text-muted)]">{label}</p>
+			<p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--lework-text)]">
 				{value || "未填写"}
 			</p>
 		</div>

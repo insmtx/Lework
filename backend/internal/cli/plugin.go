@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
 )
 
 // ListOrganizationPlugins lists organization-owned plugins through the typed REST API.

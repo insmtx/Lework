@@ -20,10 +20,10 @@ const (
 )
 
 // defaultGitignore 是新仓库初始写入的 .gitignore 内容，
-// 覆盖 Leros 运行时目录、用户上传、依赖目录、构建产物、编辑器噪声等。
-const defaultGitignore = `# Leros runtime
-.leros/
-!.leros/memory/
+// 覆盖 Lework 运行时目录、用户上传、依赖目录、构建产物、编辑器噪声等。
+const defaultGitignore = `# Lework runtime
+.lework/
+!.lework/memory/
 
 # User uploads (served from object storage, not committed)
 uploads/
@@ -111,7 +111,7 @@ func CreateRepoWithRetry(ctx context.Context, client *gitea.Client, opts gitea.C
 }
 
 // InitRepoStructure 通过 Gitea API 向指定仓库写入初始内容文件
-// (.gitignore 与 .leros/memory/.gitkeep)。
+// (.gitignore 与 .lework/memory/.gitkeep)。
 //
 // 行为：
 //   - client 为 nil 或 fullName 不符合 owner/repo 格式时返回 error

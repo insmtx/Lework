@@ -1,8 +1,8 @@
 type PublicEnv = {
-	readonly NEXT_PUBLIC_LEROS_API_BASE_URL?: string;
-	readonly VITE_LEROS_API_BASE_URL?: string;
-	readonly VITE_LEROS_DEPLOYMENT_MODE?: string;
-	readonly LEROS_API_BASE_URL?: string;
+	readonly NEXT_PUBLIC_LEWORK_API_BASE_URL?: string;
+	readonly VITE_LEWORK_API_BASE_URL?: string;
+	readonly VITE_LEWORK_DEPLOYMENT_MODE?: string;
+	readonly LEWORK_API_BASE_URL?: string;
 };
 
 declare const process:
@@ -12,29 +12,29 @@ declare const process:
 	| undefined;
 
 const DEFAULT_API_BASE_URL = "http://localhost:8080/v1";
-export const SERVER_CONFIG_STORAGE_KEY = "leros-server-base-url";
-const LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY = "leros-private-server-base-url";
+export const SERVER_CONFIG_STORAGE_KEY = "lework-server-base-url";
+const LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY = "lework-private-server-base-url";
 /** 本地调试用：存在该 key 时强制走私有化模式，无需打包 private 构建。 */
-export const PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY = "leros-private-deployment-mode";
+export const PRIVATE_DEPLOYMENT_MODE_STORAGE_KEY = "lework-private-deployment-mode";
 const PRIVATE_DEPLOYMENT_MODE = "private";
 const CONNECTION_TEST_TIMEOUT_MS = 8000;
 
 function getNextAPIBaseURL(): string | undefined {
 	if (typeof process === "undefined") return undefined;
-	return process.env?.NEXT_PUBLIC_LEROS_API_BASE_URL || process.env?.LEROS_API_BASE_URL;
+	return process.env?.NEXT_PUBLIC_LEWORK_API_BASE_URL || process.env?.LEWORK_API_BASE_URL;
 }
 
 function getViteAPIBaseURL(): string | undefined {
-	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEROS_API_BASE_URL;
+	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEWORK_API_BASE_URL;
 }
 
 function getServerRuntimeAPIBaseURL(): string | undefined {
 	if (typeof process === "undefined") return undefined;
-	return process.env?.LEROS_API_BASE_URL || process.env?.NEXT_PUBLIC_LEROS_API_BASE_URL;
+	return process.env?.LEWORK_API_BASE_URL || process.env?.NEXT_PUBLIC_LEWORK_API_BASE_URL;
 }
 
 function getViteDeploymentMode(): string | undefined {
-	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEROS_DEPLOYMENT_MODE;
+	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEWORK_DEPLOYMENT_MODE;
 }
 
 function hasPrivateDeploymentModeOverride(): boolean {
@@ -49,7 +49,7 @@ function hasPrivateDeploymentModeOverride(): boolean {
 
 /**
  * 是否私有化客户端。
- * 优先看 localStorage 覆盖开关；未设置时回退到构建环境变量 VITE_LEROS_DEPLOYMENT_MODE。
+ * 优先看 localStorage 覆盖开关；未设置时回退到构建环境变量 VITE_LEWORK_DEPLOYMENT_MODE。
  * 通过 DevTools 增删覆盖项后需刷新页面才会生效。
  */
 export function resolveIsPrivateDeployment(): boolean {
@@ -175,7 +175,7 @@ function isGlobalConfigResponse(value: unknown): boolean {
 
 function resolveAPIBaseURL(): string {
 	const isServer = typeof window === "undefined";
-	// 服务端渲染优先读运行时 LEROS_API_BASE_URL（容器内可用 http://leros:8080/v1），
+	// 服务端渲染优先读运行时 LEWORK_API_BASE_URL（容器内可用 http://lework:8080/v1），
 	// 浏览器端优先读用户配置，其次读构建期 NEXT_PUBLIC_*（一体机构建为 /v1）。
 	const baseURL = isServer
 		? getServerRuntimeAPIBaseURL() || DEFAULT_API_BASE_URL

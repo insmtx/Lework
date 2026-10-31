@@ -1,8 +1,8 @@
 "use client";
 
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import type { PluginComposerOption } from "@leros/store";
-import type { ComposerToken } from "@leros/store/types/chat";
+import type { PluginComposerOption } from "@lework/store";
+import type { ComposerToken } from "@lework/store/types/chat";
 import {
 	Command,
 	CommandEmpty,
@@ -11,8 +11,8 @@ import {
 	CommandItem,
 	CommandList,
 	CommandSeparator,
-} from "@leros/ui/components/ui/command";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/command";
+import { cn } from "@lework/ui/lib/utils";
 import { Sparkles } from "lucide-react";
 import {
 	type ClipboardEvent,

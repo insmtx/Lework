@@ -1,7 +1,7 @@
 "use client";
 
-import { SkillDetailView, buildSkillNewTaskPrefill } from "@leros/app-ui";
-import { useLayoutStore } from "@leros/store";
+import { SkillDetailView, buildSkillNewTaskPrefill } from "@lework/app-ui";
+import { useLayoutStore } from "@lework/store";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { toast } from "sonner";

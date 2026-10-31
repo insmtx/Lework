@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Lework/backend/config"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -48,8 +48,8 @@ func TestClientUpdateMiddlewareBlocksOldDesktop(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/projects", nil)
-	req.Header.Set("X-Leros-Client-App", "desktop")
-	req.Header.Set("X-Leros-Client-Version", "0.1.12")
+	req.Header.Set("X-Lework-Client-App", "desktop")
+	req.Header.Set("X-Lework-Client-Version", "0.1.12")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -70,8 +70,8 @@ func TestClientUpdateMiddlewareAllowsCurrentDesktop(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/projects", nil)
-	req.Header.Set("X-Leros-Client-App", "desktop")
-	req.Header.Set("X-Leros-Client-Version", "0.1.13")
+	req.Header.Set("X-Lework-Client-App", "desktop")
+	req.Header.Set("X-Lework-Client-Version", "0.1.13")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

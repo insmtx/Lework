@@ -15,7 +15,7 @@ const storeMocks = vi.hoisted(() => ({
 	saveBrandName: vi.fn((value: string) => value.trim() || "Lework"),
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	...storeMocks,
 }));
 

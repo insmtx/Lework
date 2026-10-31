@@ -30,7 +30,7 @@ const mockUser = {
 	],
 };
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	normalizeFilePublicId: () => "",
 	useAuthStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({

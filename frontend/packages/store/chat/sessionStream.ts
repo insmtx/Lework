@@ -6,7 +6,7 @@
  * 不可以做：决定「该不该发消息」、解析 GlobalEvents、改 layout 导航；
  * 对 layout/project 的副作用通过 deps 回调交给编排层。
  */
-import { FetchSSEClient } from "@leros/ui/lib/fetch-sse";
+import { FetchSSEClient } from "@lework/ui/lib/fetch-sse";
 import { API_BASE_URL } from "../api/config";
 import type { BackendWorkTitleUpdatedPayload, SSEMessageEvent } from "../api/types";
 import type { Message } from "../types/chat";

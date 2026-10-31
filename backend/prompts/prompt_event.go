@@ -1,7 +1,7 @@
 package prompts
 
 func init() {
-	Register(KeyEventOrchestratorHeader, "You are handling an external event inside Leros.")
+	Register(KeyEventOrchestratorHeader, "You are handling an external event inside Lework.")
 
 	Register(KeyEventOrchestratorTaskDefault, "Task:\n- Understand what happened from the event payload.\n- Use available skills and tools to gather authoritative details before making claims.\n- If the event requires an external response, decide whether to publish one and keep it evidence-based.")
 

@@ -7,14 +7,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
-	runtimecli "github.com/insmtx/Leros/backend/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	runtimecli "github.com/insmtx/Lework/backend/internal/cli"
 	"github.com/ygpkg/yg-go/logs"
 )
 
 // envStrictRuntimeGate 是应急开关：置 1 时恢复“任一外部 Runtime 启动失败即退出”的
 // 旧行为，便于线上发现降级逻辑异常时快速回退，而不必回滚镜像。
-const envStrictRuntimeGate = "LEROS_STRICT_RUNTIME_GATE"
+const envStrictRuntimeGate = "LEWORK_STRICT_RUNTIME_GATE"
 
 // runtimeBuildFunc 抽成函数类型，是为了让“单个 Runtime 失败只降级该 Runtime”这条
 // 策略可以脱离真实 CLI 单测。
@@ -70,7 +70,7 @@ func registerCLIRuntimes(
 	return kinds, unavailable, nil
 }
 
-// fallbackDefaultRuntime 在请求的默认 Runtime 不可用时回退到原生 leros。
+// fallbackDefaultRuntime 在请求的默认 Runtime 不可用时回退到原生 lework。
 //
 // 显式 `worker opencode` 启动也走回退：进程能活下来、其它 Runtime 可服务，比让整个
 // worker 起不来更符合“单点故障不扩散”的目标；请求里显式指定不可用 Runtime 时，
@@ -78,19 +78,19 @@ func registerCLIRuntimes(
 func fallbackDefaultRuntime(selected string, registered map[string]struct{}, unavailable map[string]string) string {
 	normalized := normalizeRuntimeKind(selected)
 	if normalized == "" {
-		return agent.RuntimeKindLeros
+		return agent.RuntimeKindLework
 	}
 	if _, ok := registered[normalized]; ok {
 		return normalized
 	}
 	if reason := unavailable[normalized]; reason != "" {
 		logs.Warnf("default agent runtime %q is unavailable (%s); falling back to %q",
-			selected, reason, agent.RuntimeKindLeros)
+			selected, reason, agent.RuntimeKindLework)
 	} else {
 		logs.Warnf("default agent runtime %q is not registered; falling back to %q",
-			selected, agent.RuntimeKindLeros)
+			selected, agent.RuntimeKindLework)
 	}
-	return agent.RuntimeKindLeros
+	return agent.RuntimeKindLework
 }
 
 // strictRuntimeGate 报告是否启用了“Runtime 失败即退出”的旧行为。

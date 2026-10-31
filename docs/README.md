@@ -27,14 +27,14 @@
 
 | 文档 | 说明 |
 |------|------|
-| [architecture/overview.md](architecture/overview.md) | AI OS 架构设计（三核架构） |
-| [architecture/backend.md](architecture/backend.md) | 后端包结构设计 |
-| [architecture/agent-runtime.md](architecture/agent-runtime.md) | Agent Runtime 架构 |
+| [architecture/2026-10-30-product-architecture-as-built.md](architecture/2026-10-30-product-architecture-as-built.md) | **当前实现基线**：基于代码事实的产品架构快照（As-Built；2026-10-31 同步 M1 验收闭环、AIO、安全收紧与命名迁移） |
+| [architecture/overview.md](architecture/overview.md) | 早期三核架构目标设计（历史文档，当前实现见 As-Built） |
+| [architecture/backend.md](architecture/backend.md) | 后端包结构设计（部分仍适用） |
+| [architecture/agent-runtime.md](architecture/agent-runtime.md) | Agent Runtime 架构与已落地边界 |
 | [architecture/workspace-artifact.md](architecture/workspace-artifact.md) | Agent 工作空间与产物设计 |
 | [architecture/mq-subject.md](architecture/mq-subject.md) | MQ Subject 架构 |
-| [architecture/system-design.md](architecture/system-design.md) | 系统架构设计 |
+| [architecture/system-design.md](architecture/system-design.md) | 早期系统架构设计（历史文档，当前实现见 As-Built） |
 | [architecture/design-philosophy.md](architecture/design-philosophy.md) | 设计哲学 |
-| [architecture/2026-10-30-product-architecture-as-built.md](architecture/2026-10-30-product-architecture-as-built.md) | 基于代码事实的产品架构快照（As-Built，含量化差距与决策清单） |
 
 ### 产品文档
 

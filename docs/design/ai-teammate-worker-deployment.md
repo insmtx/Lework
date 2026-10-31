@@ -176,7 +176,7 @@ AI 队友支持“提示词分层 + 动态检索”，用于让队友在长期�
 
 #### 5.2.1 DigitalAssistantPromptBlock
 
-表名：`leros_digital_assistant_prompt_block`
+表名：`lework_digital_assistant_prompt_block`
 
 用途：存放 AI 队友的分层提示词片段，例如身份、能力、边界、风格、示例。构造 LLM system prompt 时可按任务选择性注入。
 
@@ -209,7 +209,7 @@ type DigitalAssistantPromptBlock struct {
 
 #### 5.2.2 DigitalAssistantMemory
 
-表名：`leros_digital_assistant_memory`
+表名：`lework_digital_assistant_memory`
 
 用途：存放 AI 队友可进化的长期记忆。记忆不等同于聊天历史，只有被用户确认、系统总结或管理员写入的内容才进入该表。
 
@@ -244,7 +244,7 @@ type DigitalAssistantMemory struct {
 
 #### 5.2.3 AssistantPromptTrace
 
-表名：`leros_assistant_prompt_trace`
+表名：`lework_assistant_prompt_trace`
 
 用途：记录一次 LLM 请求中实际注入了哪些核心提示词版本、分层提示词和长期记忆，用于调试“为什么这个队友这样回答”。
 
@@ -290,7 +290,7 @@ type AssistantPromptTrace struct {
 
 系统会预设一批 AI 队友模板，用于 AI 队友市场、推荐创建和一键添加。模板不是可执行队友，只有用户基于模板创建后才生成 `DigitalAssistant` 和 `WorkerDeployment`。
 
-建议新增表 `leros_ai_teammate_template`：
+建议新增表 `lework_ai_teammate_template`：
 
 ```go
 type AITeammateTemplate struct {
@@ -538,10 +538,10 @@ WorkerDeployment *WorkerDeploymentSummary `json:"worker_deployment,omitempty"`
 Skill 的安装意图属于组织，不属于某一个 worker。后台需要以组织安装表作为 source of truth：
 
 ```text
-leros_org_skill_installation
+lework_org_skill_installation
 - org_id
 - action           # install / import
-- source           # Leros / ClawHub / github
+- source           # Lework / ClawHub / github
 - skill_id
 - version
 - name
@@ -556,7 +556,7 @@ leros_org_skill_installation
 安装流程：
 
 1. 用户安装 marketplace skill 时，先让默认 worker 执行安装并等待结果。
-2. 安装成功后写入 `leros_org_skill_installation`，记录 source、skill_id、version、action。
+2. 安装成功后写入 `lework_org_skill_installation`，记录 source、skill_id、version、action。
 3. 后台查询当前组织下 `ready/provisioning` 的 `WorkerDeployment`，把同一个 skill command 同步到每个 worker。
 4. GitHub 导入使用 `action=import` + `source=github` 记录，后续可按 GitHub 源重放。
 

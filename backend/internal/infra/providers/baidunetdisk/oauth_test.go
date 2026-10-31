@@ -21,7 +21,7 @@ func TestTokenTransportErrorDoesNotExposeRequestSecrets(t *testing.T) {
 		return nil, errors.New(request.URL.String())
 	})})
 	_, err := client.Refresh(context.Background(), AppConfig{
-		AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://leros.example.com/callback",
+		AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://lework.example.com/callback",
 		Scopes: []string{"basic", "netdisk"},
 	}, "refresh-secret")
 	if err == nil || strings.Contains(err.Error(), "secret-key") || strings.Contains(err.Error(), "refresh-secret") {
@@ -32,7 +32,7 @@ func TestTokenTransportErrorDoesNotExposeRequestSecrets(t *testing.T) {
 func TestAuthorizationURLUsesConfiguredApplicationAndState(t *testing.T) {
 	client := NewClient(nil)
 	value, err := client.AuthorizationURL(AppConfig{
-		AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://leros.example.com/callback",
+		AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://lework.example.com/callback",
 		Scopes: []string{"basic", "netdisk"},
 	}, "opaque-state")
 	if err != nil {
@@ -45,7 +45,7 @@ func TestAuthorizationURLUsesConfiguredApplicationAndState(t *testing.T) {
 	query := parsed.Query()
 	if parsed.Scheme != "https" || parsed.Host != "openapi.baidu.com" ||
 		query.Get("client_id") != "app-key" || query.Get("state") != "opaque-state" ||
-		query.Get("scope") != "basic,netdisk" || query.Get("redirect_uri") != "https://leros.example.com/callback" {
+		query.Get("scope") != "basic,netdisk" || query.Get("redirect_uri") != "https://lework.example.com/callback" {
 		t.Fatalf("authorization URL = %q", value)
 	}
 }
@@ -64,7 +64,7 @@ func TestExchangeCodeNormalizesTokenResponseWithoutExposingDescription(t *testin
 		}, nil
 	})})
 	tokens, err := client.ExchangeCode(context.Background(), AppConfig{
-		AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://leros.example.com/callback",
+		AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://lework.example.com/callback",
 		Scopes: []string{"basic", "netdisk"},
 	}, "authorization-code")
 	if err != nil {

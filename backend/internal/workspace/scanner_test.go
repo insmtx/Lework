@@ -37,10 +37,10 @@ func TestGitDiffIntegration(t *testing.T) {
 	os.WriteFile(filepath.Join(repoDir, "test.log"), []byte("test"), 0o644) // .gitignore *.log
 	os.WriteFile(filepath.Join(repoDir, "src", "keep.txt"), []byte("keep"), 0o644)
 
-	// Create .leros dir (should be excluded by git diff fallback)
-	lerosTurnDir := filepath.Join(repoDir, ".leros", "tasks", "1", "turns", "req1")
-	os.MkdirAll(lerosTurnDir, 0o755)
-	os.WriteFile(filepath.Join(lerosTurnDir, "artifacts.jsonl"), []byte(""), 0o644)
+	// Create .lework dir (should be excluded by git diff fallback)
+	leworkTurnDir := filepath.Join(repoDir, ".lework", "tasks", "1", "turns", "req1")
+	os.MkdirAll(leworkTurnDir, 0o755)
+	os.WriteFile(filepath.Join(leworkTurnDir, "artifacts.jsonl"), []byte(""), 0o644)
 
 	// Initial commit to have a clean base
 	exec.Command("git", "-C", repoDir, "add", ".").Run()
@@ -97,10 +97,10 @@ func TestGitDiffIntegration(t *testing.T) {
 		t.Errorf("diff should contain src/newdoc.txt, got: %+v", entries)
 	}
 
-	// Test 2: .gitignored and .leros files should be excluded
+	// Test 2: .gitignored and .lework files should be excluded
 	for _, e := range entries {
-		if strings.HasPrefix(e.Path, ".leros/") || e.Path == ".leros" {
-			t.Errorf("diff should NOT contain .leros/ files, got: %s", e.Path)
+		if strings.HasPrefix(e.Path, ".lework/") || e.Path == ".lework" {
+			t.Errorf("diff should NOT contain .lework/ files, got: %s", e.Path)
 		}
 		if e.Path == "test.log" {
 			t.Errorf("diff should NOT contain test.log (gitignored), got: %s", e.Path)
@@ -235,7 +235,7 @@ func TestManifestPriority(t *testing.T) {
 	exec.Command("git", "-C", repoDir, "add", ".").Run()
 	exec.Command("git", "-C", repoDir, "commit", "-m", "initial").Run()
 
-	turnDir := filepath.Join(repoDir, ".leros", "tasks", "1", "turns", "req1")
+	turnDir := filepath.Join(repoDir, ".lework", "tasks", "1", "turns", "req1")
 	os.MkdirAll(turnDir, 0o755)
 	manifestPath := filepath.Join(turnDir, "artifacts.jsonl")
 
@@ -294,7 +294,7 @@ func TestGitDiffReconcileEnrichesExplicitRename(t *testing.T) {
 		t.Fatalf("rename file: %v", err)
 	}
 
-	turnDir := filepath.Join(repoDir, ".leros", "tasks", "1", "turns", "req1")
+	turnDir := filepath.Join(repoDir, ".lework", "tasks", "1", "turns", "req1")
 	if err := os.MkdirAll(turnDir, 0o755); err != nil {
 		t.Fatalf("create turn directory: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestGitDiffReconcileFiltersAttendanceWorkFiles(t *testing.T) {
 		}
 	}
 	write("seed.txt", []byte("seed"))
-	write(".gitignore", []byte(".leros/\n"))
+	write(".gitignore", []byte(".lework/\n"))
 	runGitTestCommand(t, repoDir, "add", ".")
 	runGitTestCommand(t, repoDir, "commit", "-m", "initial")
 
@@ -356,7 +356,7 @@ func TestGitDiffReconcileFiltersAttendanceWorkFiles(t *testing.T) {
 	write("考勤确认表.md", []byte("attendance review"))
 	write("2026年6月核算表.xlsx", []byte("workbook"))
 	write("ordinary-report.md", []byte("ordinary diff"))
-	turnDir := filepath.Join(repoDir, ".leros", "tasks", "1", "turns", "req1")
+	turnDir := filepath.Join(repoDir, ".lework", "tasks", "1", "turns", "req1")
 	if err := os.MkdirAll(turnDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestGitDiffReconcileFallsBackForOnlyInternalFinalDeclarations(t *testing.T)
 	if err := os.WriteFile(filepath.Join(repoDir, "seed.txt"), []byte("seed"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repoDir, ".gitignore"), []byte(".leros/\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repoDir, ".gitignore"), []byte(".lework/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	runGitTestCommand(t, repoDir, "add", ".")
@@ -446,7 +446,7 @@ func TestGitDiffReconcileFallsBackForOnlyInternalFinalDeclarations(t *testing.T)
 	if err := os.WriteFile(filepath.Join(repoDir, "ordinary-report.md"), []byte("report"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	manifestPath := filepath.Join(repoDir, ".leros", "tasks", "1", "turns", "req1", "artifacts.jsonl")
+	manifestPath := filepath.Join(repoDir, ".lework", "tasks", "1", "turns", "req1", "artifacts.jsonl")
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		t.Fatal(err)
 	}

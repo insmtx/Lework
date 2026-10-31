@@ -6,7 +6,7 @@ import {
 	type PluginListItem,
 	pluginApi,
 	pluginToComposerOption,
-} from "@leros/store";
+} from "@lework/store";
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -41,7 +41,7 @@ function marketplaceItem(
 		kind: "skill",
 		name,
 		description: `${name} description`,
-		author: "Leros",
+		author: "Lework",
 		version: "1",
 		category: "general",
 		tags: [],

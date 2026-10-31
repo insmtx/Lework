@@ -3,8 +3,8 @@ package seed
 import (
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/adapter"
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/adapter"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
 )
 
 type stubEdition struct{ editionName string }

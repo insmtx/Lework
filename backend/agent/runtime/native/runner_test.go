@@ -12,17 +12,17 @@ import (
 	"time"
 
 	einotool "github.com/cloudwego/eino/components/tool"
-	"github.com/insmtx/Leros/backend/agent"
-	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/internal/todo"
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/tools"
-	memorytools "github.com/insmtx/Leros/backend/tools/memory"
-	nodetools "github.com/insmtx/Leros/backend/tools/node"
-	skillmanagetools "github.com/insmtx/Leros/backend/tools/skill_manage"
-	skillusetools "github.com/insmtx/Leros/backend/tools/skill_use"
-	todotools "github.com/insmtx/Leros/backend/tools/todo"
+	"github.com/insmtx/Lework/backend/agent"
+	runtimetodo "github.com/insmtx/Lework/backend/agent/runtime/internal/todo"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	"github.com/insmtx/Lework/backend/internal/worker/agentrun"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/tools"
+	memorytools "github.com/insmtx/Lework/backend/tools/memory"
+	nodetools "github.com/insmtx/Lework/backend/tools/node"
+	skillmanagetools "github.com/insmtx/Lework/backend/tools/skill_manage"
+	skillusetools "github.com/insmtx/Lework/backend/tools/skill_use"
+	todotools "github.com/insmtx/Lework/backend/tools/todo"
 	"github.com/ygpkg/yg-go/logs"
 	"go.uber.org/zap/zapcore"
 )
@@ -170,9 +170,9 @@ func TestToolInvokerEmitsToolEventsForNonTodoTool(t *testing.T) {
 func TestAgentRunRealModel(t *testing.T) {
 	logs.SetLevel(zapcore.DebugLevel)
 
-	apiKey := firstNonEmptyEnv("LEROS_LLM_API_KEY")
+	apiKey := firstNonEmptyEnv("LEWORK_LLM_API_KEY")
 	if apiKey == "" {
-		t.Skip("set LEROS_LLM_API_KEY to run the real model agent test")
+		t.Skip("set LEWORK_LLM_API_KEY to run the real model agent test")
 	}
 
 	ctx, cancel := realModelTestContext(t)
@@ -185,7 +185,7 @@ func TestAgentRunRealModel(t *testing.T) {
 
 	result, err := agt.Execute(ctx, agent.ExecutionRequest{
 		ExecutionID: "run_real_model_message",
-		Prompt:      "Reply with exactly this text: Leros agent runtime ok",
+		Prompt:      "Reply with exactly this text: Lework agent runtime ok",
 		Model:       realModelOptions(apiKey),
 	}, nil)
 	if err != nil {
@@ -195,7 +195,7 @@ func TestAgentRunRealModel(t *testing.T) {
 	if strings.TrimSpace(message) == "" {
 		t.Fatalf("expected non-empty model response")
 	}
-	if !strings.Contains(message, "Leros agent runtime ok") {
+	if !strings.Contains(message, "Lework agent runtime ok") {
 		t.Fatalf("unexpected model response: %s", message)
 	}
 }
@@ -203,9 +203,9 @@ func TestAgentRunRealModel(t *testing.T) {
 func TestAgentRunNodeTool(t *testing.T) {
 	logs.SetLevel(zapcore.DebugLevel)
 
-	apiKey := firstNonEmptyEnv("LEROS_LLM_API_KEY")
+	apiKey := firstNonEmptyEnv("LEWORK_LLM_API_KEY")
 	if apiKey == "" {
-		t.Skip("set LEROS_LLM_API_KEY to run the real model agent tool-call test")
+		t.Skip("set LEWORK_LLM_API_KEY to run the real model agent tool-call test")
 	}
 
 	ctx, cancel := realModelTestContext(t)
@@ -243,9 +243,9 @@ func TestAgentRunNodeTool(t *testing.T) {
 func TestAgentRunWeatherSkillQuery(t *testing.T) {
 	logs.SetLevel(zapcore.DebugLevel)
 
-	apiKey := firstNonEmptyEnv("LEROS_LLM_API_KEY")
+	apiKey := firstNonEmptyEnv("LEWORK_LLM_API_KEY")
 	if apiKey == "" {
-		t.Skip("set LEROS_LLM_API_KEY to run the real model agent weather skill test")
+		t.Skip("set LEWORK_LLM_API_KEY to run the real model agent weather skill test")
 	}
 
 	ctx, cancel := realModelTestContext(t)
@@ -301,8 +301,8 @@ func realModelOptions(apiKey string) agent.ModelConfig {
 	return agent.ModelConfig{
 		Provider: "openai",
 		APIKey:   apiKey,
-		Model:    firstNonEmptyEnv("LEROS_LLM_MODEL"),
-		BaseURL:  firstNonEmptyEnv("LEROS_LLM_BASE_URL"),
+		Model:    firstNonEmptyEnv("LEWORK_LLM_MODEL"),
+		BaseURL:  firstNonEmptyEnv("LEWORK_LLM_BASE_URL"),
 	}
 }
 
@@ -316,14 +316,14 @@ func newBundledRuntimeSkillsCatalog(t *testing.T) string {
 
 	skillsDir := filepath.Join(filepath.Dir(currentFile), "..", "skills")
 	workspaceRoot := filepath.Dir(filepath.Dir(skillsDir))
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	return skillsDir
 }
 
 func realModelTestContext(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
 
-	timeoutValue := strings.TrimSpace(os.Getenv("LEROS_TEST_TIMEOUT"))
+	timeoutValue := strings.TrimSpace(os.Getenv("LEWORK_TEST_TIMEOUT"))
 	if timeoutValue == "" {
 		timeoutValue = "3m"
 	}
@@ -333,7 +333,7 @@ func realModelTestContext(t *testing.T) (context.Context, context.CancelFunc) {
 
 	timeout, err := time.ParseDuration(timeoutValue)
 	if err != nil {
-		t.Fatalf("parse LEROS_TEST_TIMEOUT: %v", err)
+		t.Fatalf("parse LEWORK_TEST_TIMEOUT: %v", err)
 	}
 	return context.WithTimeout(context.Background(), timeout)
 }

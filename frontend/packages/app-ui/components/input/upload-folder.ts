@@ -5,4 +5,4 @@ export {
 	getFolderNameFromFiles,
 	getFolderUploadTotalSize,
 	isFolderUploadSizeExceeded,
-} from "@leros/store/constants/upload";
+} from "@lework/store/constants/upload";

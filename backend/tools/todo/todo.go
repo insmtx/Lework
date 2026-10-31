@@ -1,4 +1,4 @@
-// Package todo exposes the run-scoped runtime todo list as a Leros tool.
+// Package todo exposes the run-scoped runtime todo list as a Lework tool.
 package todo
 
 import (
@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/tools"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 const (
@@ -35,7 +35,7 @@ Rules:
 - Always returns the full current list. When in doubt, use it.`
 )
 
-// Tool lets an internal Leros agent publish its current plan and progress.
+// Tool lets an internal Lework agent publish its current plan and progress.
 type Tool struct {
 	tools.BaseTool
 }

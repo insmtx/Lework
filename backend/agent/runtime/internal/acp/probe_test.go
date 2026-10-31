@@ -19,16 +19,16 @@ import (
 //
 // 需要真实 opencode 2.1.x 与网络（默认用免费模型），因此默认跳过：
 //
-//	LEROS_ACP_PROBE=1 go test ./backend/agent/runtime/internal/acp -run TestOpenCodeACPProbe -v
+//	LEWORK_ACP_PROBE=1 go test ./backend/agent/runtime/internal/acp -run TestOpenCodeACPProbe -v
 //
-// 追加 LEROS_ACP_RECORD=1 把原始帧写入 testdata/acp/，供 W6-2 回放。
+// 追加 LEWORK_ACP_RECORD=1 把原始帧写入 testdata/acp/，供 W6-2 回放。
 func TestOpenCodeACPProbe(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x and network)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x and network)")
 	}
 
-	binary := envOrDefault("LEROS_ACP_PROBE_BIN", "opencode")
-	model := envOrDefault("LEROS_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
+	binary := envOrDefault("LEWORK_ACP_PROBE_BIN", "opencode")
+	model := envOrDefault("LEWORK_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
 	configContent, err := probeConfigContent(model)
 	if err != nil {
 		t.Fatalf("build probe config: %v", err)
@@ -219,7 +219,7 @@ func openFrameSink(t *testing.T) (io.Writer, func()) {
 
 func openFrameSinkNamed(t *testing.T, name string) (io.Writer, func()) {
 	t.Helper()
-	if os.Getenv("LEROS_ACP_RECORD") != "1" {
+	if os.Getenv("LEWORK_ACP_RECORD") != "1" {
 		return nil, nil
 	}
 	path := filepath.Join("testdata", "acp", name)
@@ -277,10 +277,10 @@ func probeBaseEnv(root string) []string {
 }
 
 // probeConfigMap 读取现有 opencode 配置并裁剪成最小注入配置。
-// 默认只注入模型；LEROS_ACP_PROBE_CONFIG_FILE 指向一份已有 opencode 配置时，
+// 默认只注入模型；LEWORK_ACP_PROBE_CONFIG_FILE 指向一份已有 opencode 配置时，
 // 取该配置里对应 provider 的条目（含 baseURL/凭据）并裁掉 mcp 等无关段。
 func probeConfigMap(model string) (map[string]any, error) {
-	path := strings.TrimSpace(os.Getenv("LEROS_ACP_PROBE_CONFIG_FILE"))
+	path := strings.TrimSpace(os.Getenv("LEWORK_ACP_PROBE_CONFIG_FILE"))
 	cfg := map[string]any{}
 	if path != "" {
 		raw, err := os.ReadFile(path)
@@ -321,7 +321,7 @@ type fileFingerprint struct {
 
 // fingerprintGlobalDB 记录真实全局库的指纹；文件不存在时返回 false（跳过断言）。
 func fingerprintGlobalDB() (string, fileFingerprint, bool) {
-	path := strings.TrimSpace(os.Getenv("LEROS_ACP_PROBE_GLOBAL_DB"))
+	path := strings.TrimSpace(os.Getenv("LEWORK_ACP_PROBE_GLOBAL_DB"))
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {

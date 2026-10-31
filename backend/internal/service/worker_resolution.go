@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // ErrAssistantWorkerNotReady 表示队友本身存在，但其 Worker 尚未就绪，消息无法投递。

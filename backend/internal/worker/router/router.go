@@ -8,9 +8,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ygpkg/yg-go/logs"
 
-	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
-	runtimemcp "github.com/insmtx/Leros/backend/internal/worker/mcp"
+	modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"
+	"github.com/insmtx/Lework/backend/internal/worker/identity"
+	runtimemcp "github.com/insmtx/Lework/backend/internal/worker/mcp"
 )
 
 // SetupRouter 创建 worker HTTP 服务的 Gin 引擎并注册所有路由。

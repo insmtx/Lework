@@ -17,18 +17,18 @@ import (
 	"strings"
 	"testing"
 
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
-	"github.com/insmtx/Leros/backend/internal/worker/skillsync"
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/types"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/Lework/backend/internal/worker/skillsync"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	systemSkill := filepath.Join(workspaceRoot, ".leros", "skills", ".system", "review")
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
+	systemSkill := filepath.Join(workspaceRoot, ".lework", "skills", ".system", "review")
 	if err := os.MkdirAll(systemSkill, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +67,8 @@ func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {
 func TestPluginSkillPreparerCleanupPreservesSystemSkillForOverlappingRun(t *testing.T) {
 	ctx := context.Background()
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	systemSkillDir := filepath.Join(workspaceRoot, ".leros", "skills", ".system", "review")
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
+	systemSkillDir := filepath.Join(workspaceRoot, ".lework", "skills", ".system", "review")
 	if err := os.MkdirAll(systemSkillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestPluginSkillPreparerCleanupPreservesSystemSkillForOverlappingRun(t *test
 		t.Fatal(err)
 	}
 
-	repository, err := skillsync.NewRepository(filepath.Join(workspaceRoot, ".leros", "skills"))
+	repository, err := skillsync.NewRepository(filepath.Join(workspaceRoot, ".lework", "skills"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,9 +137,9 @@ func TestPluginSkillPreparerCleanupPreservesSystemSkillForOverlappingRun(t *test
 
 func TestPluginSkillPreparerFiltersDisabledSystemSkill(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	for _, code := range []string{"review", "lework-automation-manager"} {
-		systemSkill := filepath.Join(workspaceRoot, ".leros", "skills", ".system", code)
+		systemSkill := filepath.Join(workspaceRoot, ".lework", "skills", ".system", code)
 		if err := os.MkdirAll(systemSkill, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -178,7 +178,7 @@ func TestPluginSkillPreparerFiltersDisabledSystemSkill(t *testing.T) {
 
 func TestPluginSkillPreparerUsesWorkDirWithoutProjectTask(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	workDir := t.TempDir()
 	prepared, cleanup, err := NewPluginSkillPreparer("", "").PrepareSkills(
 		context.Background(),
@@ -196,7 +196,7 @@ func TestPluginSkillPreparerUsesWorkDirWithoutProjectTask(t *testing.T) {
 
 func TestPluginSkillPreparerResetsTaskSkillView(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	taskDir := t.TempDir()
 	viewRoot := filepath.Join(taskDir, "skills")
 	oldSource := t.TempDir()
@@ -245,7 +245,7 @@ func TestPluginSkillPreparerResetsTaskSkillView(t *testing.T) {
 
 func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	firstPackage := testSkillPackage(t, "xlsx", "first revision")
 	secondPackage := testSkillPackage(t, "xlsx", "second revision")
 	downloadURLRequests := 0
@@ -298,16 +298,16 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 		t.Fatalf("install first skill: %v", err)
 	}
 	defer firstCleanup()
-	skillRoot := filepath.Join(workspaceRoot, ".leros", "skills", "xlsx")
+	skillRoot := filepath.Join(workspaceRoot, ".lework", "skills", "xlsx")
 	if got := readSkillBody(t, skillRoot); got != "first revision" {
 		t.Fatalf("first installed skill body = %q", got)
 	}
 	firstHash := testPackageHash(firstPackage)
-	manifestPath := filepath.Join(workspaceRoot, ".leros", "skills", ".seed-manifest")
+	manifestPath := filepath.Join(workspaceRoot, ".lework", "skills", ".seed-manifest")
 	if got, err := os.ReadFile(manifestPath); err != nil || string(got) != "xlsx:"+firstHash+":1:publish\n" {
 		t.Fatalf("manifest = %q, err=%v", got, err)
 	}
-	if _, err := os.Stat(filepath.Join(workspaceRoot, ".leros", "skills", ".plugins")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(workspaceRoot, ".lework", "skills", ".plugins")); !os.IsNotExist(err) {
 		t.Fatalf("legacy plugin cache must not be created, err=%v", err)
 	}
 
@@ -365,7 +365,7 @@ func TestPluginSkillPreparerInstallsSkillAtWorkerRootAndRefreshesIt(t *testing.T
 
 func TestPluginSkillPreparerInstallsConnectorSkillAsLocalOnlyAndReusesIt(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	packageBytes := testSkillPackage(t, "connector-mail", "mail connector")
 	hash := testPackageHash(packageBytes)
 	downloadURLRequests := 0
@@ -416,7 +416,7 @@ func TestPluginSkillPreparerInstallsConnectorSkillAsLocalOnlyAndReusesIt(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifestPath := filepath.Join(workspaceRoot, ".leros", "skills", ".seed-manifest")
+	manifestPath := filepath.Join(workspaceRoot, ".lework", "skills", ".seed-manifest")
 	if got, err := os.ReadFile(manifestPath); err != nil ||
 		string(got) != "connector-mail:"+hash+":1:local_only\n" {
 		t.Fatalf("connector manifest = %q, err=%v", got, err)
@@ -438,10 +438,10 @@ func TestPluginSkillPreparerInstallsConnectorSkillAsLocalOnlyAndReusesIt(t *test
 
 func TestPluginSkillPreparerReclassifiesLegacyConnectorWithoutDownload(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	packageBytes := testSkillPackage(t, "connector-mail", "mail connector")
 	hash := testPackageHash(packageBytes)
-	skillsRoot := filepath.Join(workspaceRoot, ".leros", "skills")
+	skillsRoot := filepath.Join(workspaceRoot, ".lework", "skills")
 	writeSkillPackageDirectory(t, filepath.Join(skillsRoot, "connector-mail"), packageBytes)
 	manifestPath := filepath.Join(skillsRoot, ".seed-manifest")
 	if err := os.WriteFile(manifestPath, []byte("connector-mail:"+hash+":1\n"), 0o644); err != nil {
@@ -553,7 +553,7 @@ func (s *skillBaselineCommitterStub) RestoreAll(context.Context) error {
 
 func TestPluginSkillPreparerImportsStaleTaskSkillBeforeReset(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	taskDir := t.TempDir()
 	viewRoot := filepath.Join(taskDir, "skills")
 	stale := filepath.Join(viewRoot, "stale")
@@ -608,8 +608,8 @@ func TestPluginSkillPreparerImportsStaleTaskSkillBeforeReset(t *testing.T) {
 
 func TestPluginSkillPreparerRepairsLegacyAndInvalidManifestEntries(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
-	skillsRoot := filepath.Join(workspaceRoot, ".leros", "skills")
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
+	skillsRoot := filepath.Join(workspaceRoot, ".lework", "skills")
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -688,7 +688,7 @@ func TestPluginSkillPreparerRepairsLegacyAndInvalidManifestEntries(t *testing.T)
 
 func TestPluginSkillPreparerSkipsUnresolvedSkillWithoutFailingRun(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/plugins/skills/download-urls" {
 			http.NotFound(writer, request)
@@ -713,7 +713,7 @@ func TestPluginSkillPreparerSkipsUnresolvedSkillWithoutFailingRun(t *testing.T) 
 
 func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	packageBytes := testSkillPackage(t, "docx", "invoked skill")
 	requests := 0
 	var server *httptest.Server
@@ -766,14 +766,14 @@ func TestPluginSkillPreparerFetchesMissingInvokedSkill(t *testing.T) {
 	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("invoked Skill link = %v, %v", info, err)
 	}
-	if _, err := os.Stat(filepath.Join(workspaceRoot, ".leros", "skills", "docx", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(workspaceRoot, ".lework", "skills", "docx", "SKILL.md")); err != nil {
 		t.Fatalf("installed invoked Skill missing: %v", err)
 	}
 }
 
 func TestPluginSkillPreparerRetriesInvokedProjectSkillAfterProjectPreparationFails(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	packageBytes := testSkillPackage(t, "car-selection", "choose a car")
 	requests := 0
 	var server *httptest.Server
@@ -834,7 +834,7 @@ func TestPluginSkillPreparerRetriesInvokedProjectSkillAfterProjectPreparationFai
 
 func TestPluginSkillPreparerSkipsUnavailableInvokedSkillWithoutFailingRun(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/plugins/skills/download-urls" {
 			http.NotFound(writer, request)
@@ -867,7 +867,7 @@ func TestPluginSkillPreparerSkipsUnavailableInvokedSkillWithoutFailingRun(t *tes
 
 func TestPluginSkillPreparerSkipsDownloadRequestFailureWithoutFailingRun(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/v1/plugins/skills/download-urls" {
 			http.Error(writer, "temporary failure", http.StatusServiceUnavailable)

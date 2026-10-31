@@ -1,4 +1,4 @@
-// tools 包定义 Leros 的最小 Tool 抽象。
+// tools 包定义 Lework 的最小 Tool 抽象。
 //
 // 当前阶段只提供基础接口和 agent 运行时注入的上下文信息。
 package tools
@@ -25,7 +25,7 @@ type Property struct {
 	Items       *Property `json:"items,omitempty"`
 }
 
-// Tool 是 Leros 的最小工具接口。
+// Tool 是 Lework 的最小工具接口。
 type Tool interface {
 	Name() string
 	Description() string

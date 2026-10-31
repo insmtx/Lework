@@ -18,9 +18,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 const (
@@ -33,7 +33,7 @@ var (
 	headerNamePattern = regexp.MustCompile(`^[!#$%&'*+\-.^_` + "`" + `|~0-9A-Za-z]+$`)
 	envNamePattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	reservedMCPNames  = map[string]struct{}{
-		"leros": {},
+		"lework": {},
 	}
 )
 
@@ -291,7 +291,7 @@ func (s *pluginService) TestMCPPlugin(
 	}
 	initialize := mcpsdk.InitializeRequest{}
 	initialize.Params.ProtocolVersion = mcpsdk.LATEST_PROTOCOL_VERSION
-	initialize.Params.ClientInfo = mcpsdk.Implementation{Name: "Leros MCP Test", Version: "1.0"}
+	initialize.Params.ClientInfo = mcpsdk.Implementation{Name: "Lework MCP Test", Version: "1.0"}
 	initialize.Params.Capabilities = mcpsdk.ClientCapabilities{}
 	if _, err := client.Initialize(testCtx, initialize); err != nil {
 		return nil, invalidMCPConfig("MCP initialize failed")

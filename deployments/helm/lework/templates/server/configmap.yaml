@@ -1,0 +1,128 @@
+{{- $fullname := include "lework.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lework.serverConfigMapName" . }}
+  labels:
+    {{- include "lework.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+data:
+  config.yaml: |
+    # 由 Helm chart 渲染的 Lework Server 配置。
+    # 敏感字段通过 ${VAR} 占位符引用环境变量（os.ExpandEnv），实际值来自 Secret。
+    env: {{ .Values.server.env | quote }}
+    workspace_root: "/workspace"
+
+    server:
+      port: {{ .Values.server.service.port | quote }}
+      jwt:
+        secret: "${LEWORK_JWT_SECRET}"
+
+    database:
+      url: "${LEWORK_DATABASE_URL}"
+      debug: false
+
+    nats:
+      url: "${LEWORK_NATS_URL}"
+
+    log:
+      level: {{ .Values.server.logLevel | quote }}
+
+    scheduler:
+      mode: k8s
+      kubernetes_connection: in_cluster
+      namespace: {{ .Release.Namespace | quote }}
+      # worker 回连 server 的 Service 地址
+      server_addr: {{ printf "%s:%s" (include "lework.serverServiceName" .) (.Values.server.service.port | toString) | quote }}
+      worker_image: {{ .Values.worker.image | quote }}
+      worker_image_pull_policy: {{ .Values.worker.imagePullPolicy | default "IfNotPresent" | quote }}
+      workspace_init_image: {{ .Values.worker.workspaceInitImage | quote }}
+      config_map: {{ include "lework.workerConfigMapName" . | quote }}
+      secret: {{ include "lework.workerSecretName" . | quote }}
+      {{- if .Values.imagePullSecret.enabled }}
+      image_pull_secret: {{ .Values.imagePullSecret.name | quote }}
+      {{- else if .Values.imagePullSecrets }}
+      image_pull_secret: {{ (index .Values.imagePullSecrets 0).name | quote }}
+      {{- end }}
+      workspace_host_path_root: {{ include "lework.hostPath" (dict "root" . "path" .Values.worker.workspaceHostPathRoot) | quote }}
+      workspace_mount_root: {{ .Values.worker.workspaceMountRoot | quote }}
+      storage_host_path: {{ include "lework.hostPath" (dict "root" . "path" .Values.worker.storageHostPath) | quote }}
+      storage_mount_path: {{ .Values.worker.storageMountPath | quote }}
+      {{- with .Values.worker.nodeSelector }}
+      node_selector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.resources }}
+      worker_resources:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      env:
+        LEWORK_STORAGE_LOCAL_DIR: {{ .Values.worker.storageMountPath | quote }}
+        LEWORK_MODELROUTER_DEBUG: {{ .Values.worker.modelrouterDebug | quote }}
+
+    llm:
+      provider: {{ .Values.llm.provider | quote }}
+      api_key: "${LLM_API_KEY}"
+      model: {{ .Values.llm.model | quote }}
+      base_url: {{ .Values.llm.baseUrl | quote }}
+      {{- if ne .Values.llm.vision false }}
+      vision: {{ .Values.llm.vision }}
+      {{- end }}
+      # 采样参数（可选，仅 opencode runtime 生效）。留空不写入，走模型/服务默认。
+      {{- if .Values.llm.top_p }}
+      top_p: {{ .Values.llm.top_p }}
+      {{- end }}
+      {{- if .Values.llm.frequency_penalty }}
+      frequency_penalty: {{ .Values.llm.frequency_penalty }}
+      {{- end }}
+      {{- if .Values.llm.presence_penalty }}
+      presence_penalty: {{ .Values.llm.presence_penalty }}
+      {{- end }}
+      {{- if and .Values.llm.limit (or .Values.llm.limit.context .Values.llm.limit.output) }}
+      limit:
+        {{- if .Values.llm.limit.context }}
+        context: {{ .Values.llm.limit.context }}
+        {{- end }}
+        {{- if .Values.llm.limit.output }}
+        output: {{ .Values.llm.limit.output }}
+        {{- end }}
+      {{- end }}
+      {{- if .Values.llm.translation.enabled }}
+      translation:
+        provider: {{ .Values.llm.translation.provider | quote }}
+        api_key: "${LLM_API_KEY}"
+        model: {{ .Values.llm.translation.model | quote }}
+        base_url: {{ .Values.llm.translation.baseUrl | quote }}
+      {{- end }}
+
+    storage:
+      driver: {{ .Values.storage.driver | quote }}
+      local_dir: {{ .Values.storage.localDir | quote }}
+      bucket: {{ .Values.storage.bucket | quote }}
+      sign_secret: "${LEWORK_STORAGE_SIGN_SECRET}"
+      base_url: "${LEWORK_BASE_URL}"
+      {{- if or (eq .Values.storage.driver "s3") (eq .Values.storage.driver "minio") }}
+      endpoint: {{ .Values.storage.endpoint | quote }}
+      access_key: {{ .Values.storage.accessKey | quote }}
+      secret_key: {{ .Values.storage.secretKey | quote }}
+      use_ssl: {{ .Values.storage.useSSL }}
+      {{- end }}
+
+    {{- if .Values.clientUpdate.desktop.enabled }}
+    client_update:
+      desktop:
+        min_supported_version: {{ .Values.clientUpdate.desktop.minSupportedVersion | quote }}
+        latest_version: {{ .Values.clientUpdate.desktop.latestVersion | quote }}
+        update_url: {{ .Values.clientUpdate.desktop.updateUrl | quote }}
+        force_message: {{ .Values.clientUpdate.desktop.forceMessage | quote }}
+    {{- end }}
+    {{- if .Values.mcpConnectors }}
+    mcp_connectors:
+{{ toYaml .Values.mcpConnectors | nindent 6 }}
+    {{- end }}
+    {{- if .Values.auth.enabled }}
+    auth:
+      base_url: {{ include "lework.authBaseURL" . | quote }}
+      domain_name: {{ include "lework.loginDomain" . | quote }}
+      phone_code_login_enabled: {{ .Values.auth.phoneCodeLoginEnabled }}
+    {{- end }}

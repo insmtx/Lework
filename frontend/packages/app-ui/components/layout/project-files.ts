@@ -9,18 +9,18 @@ export const PROJECT_FILE_TABLE_MIN_WIDTH_CLASS = "min-w-[960px]";
 
 /** 表格行容器（不在行级加横向 padding，避免 sticky 列在滚动末端位移）。 */
 export const PROJECT_FILE_TABLE_ROW_CLASS =
-	"group/row border-b border-[var(--leros-control-border)]/60 py-4 transition-[background-color] hover:bg-[var(--leros-primary-softer)]/25";
+	"group/row border-b border-[var(--lework-control-border)]/60 py-4 transition-[background-color] hover:bg-[var(--lework-primary-softer)]/25";
 
 /** 首列左侧留白，替代原 grid 上的 pl 方向 padding。 */
 export const PROJECT_FILE_TABLE_LEADING_CELL_CLASS = "pl-5";
 
 /** 横向滚动时固定在右侧的操作列表头。 */
 export const PROJECT_FILE_TABLE_ACTIONS_HEADER_CLASS =
-	"sticky right-0 z-30 shrink-0 border-l border-[var(--leros-control-border)]/60 bg-[var(--leros-surface-soft)] pl-3 pr-5 text-right shadow-[-6px_0_10px_-8px_rgba(15,23,42,0.14)]";
+	"sticky right-0 z-30 shrink-0 border-l border-[var(--lework-control-border)]/60 bg-[var(--lework-surface-soft)] pl-3 pr-5 text-right shadow-[-6px_0_10px_-8px_rgba(15,23,42,0.14)]";
 
 /** 横向滚动时固定在右侧的操作列单元格。 */
 export const PROJECT_FILE_TABLE_ACTIONS_CELL_CLASS =
-	"sticky right-0 z-20 flex shrink-0 items-center justify-end gap-1.5 border-l border-[var(--leros-control-border)]/60 bg-[var(--leros-surface)] pl-3 pr-5 shadow-[-6px_0_10px_-8px_rgba(15,23,42,0.14)] transition-[background-color] group-hover/row:bg-[var(--leros-surface-soft)]";
+	"sticky right-0 z-20 flex shrink-0 items-center justify-end gap-1.5 border-l border-[var(--lework-control-border)]/60 bg-[var(--lework-surface)] pl-3 pr-5 shadow-[-6px_0_10px_-8px_rgba(15,23,42,0.14)] transition-[background-color] group-hover/row:bg-[var(--lework-surface-soft)]";
 
 export type BackendProjectFileNodeLike = {
 	name?: string;

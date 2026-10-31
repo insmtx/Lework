@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestDepartmentDAOCRUDAndList(t *testing.T) {

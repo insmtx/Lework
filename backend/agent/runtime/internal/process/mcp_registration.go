@@ -8,17 +8,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 )
 
 const mcpRegisterTimeout = 10 * time.Second
-const lerosMCPTokenEnvVar = "LEROS_MCP_TOKEN"
+const leworkMCPTokenEnvVar = "LEWORK_MCP_TOKEN"
 
 // NormalizeMCPServerConfig fills defaults for an MCP server registration.
 func NormalizeMCPServerConfig(cfg agent.MCPServerConfig) agent.MCPServerConfig {
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	if cfg.Name == "" {
-		cfg.Name = "leros"
+		cfg.Name = "lework"
 	}
 	cfg.URL = strings.TrimSpace(cfg.URL)
 	cfg.Command = strings.TrimSpace(cfg.Command)
@@ -34,9 +34,9 @@ func NormalizeMCPServerConfig(cfg agent.MCPServerConfig) agent.MCPServerConfig {
 	return cfg
 }
 
-// LerosMCPTokenEnvVar returns the env var name used for CLI MCP bearer token registration.
-func LerosMCPTokenEnvVar() string {
-	return lerosMCPTokenEnvVar
+// LeworkMCPTokenEnvVar returns the env var name used for CLI MCP bearer token registration.
+func LeworkMCPTokenEnvVar() string {
+	return leworkMCPTokenEnvVar
 }
 
 // RunCLICommand runs a CLI command with a bounded timeout.

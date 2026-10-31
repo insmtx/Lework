@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/types"
+	skilltoken "github.com/insmtx/Lework/backend/internal/skill"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

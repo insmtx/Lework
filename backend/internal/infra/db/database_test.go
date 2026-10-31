@@ -8,7 +8,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
@@ -16,7 +16,7 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-	if err := database.Exec("CREATE TABLE leros_plugin_marketplace_translation (id INTEGER PRIMARY KEY, org_id INTEGER)").Error; err != nil {
+	if err := database.Exec("CREATE TABLE lework_plugin_marketplace_translation (id INTEGER PRIMARY KEY, org_id INTEGER)").Error; err != nil {
 		t.Fatalf("create legacy translation table: %v", err)
 	}
 
@@ -39,7 +39,7 @@ func TestRunMigrationsCreatesOrganizationTables(t *testing.T) {
 			t.Fatalf("expected table %s to be migrated", tableName)
 		}
 	}
-	if database.Migrator().HasTable("leros_plugin_marketplace_translation") {
+	if database.Migrator().HasTable("lework_plugin_marketplace_translation") {
 		t.Fatal("legacy marketplace translation table should be removed without data backfill")
 	}
 }

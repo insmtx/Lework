@@ -12,7 +12,7 @@ const { mockOfficialGet, mockInstall, mockPluginGet, mockInstallationStatus, moc
 		mockDelete: vi.fn(),
 	}));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	officialPluginMarketplaceApi: {
 		get: mockOfficialGet,
 		install: mockInstall,

@@ -25,7 +25,7 @@ type CLIToolSpec struct {
 	Default      bool
 }
 
-// BuiltinCLITools lists the external AI coding CLIs Leros can detect.
+// BuiltinCLITools lists the external AI coding CLIs Lework can detect.
 var BuiltinCLITools = []CLIToolSpec{
 	{
 		Name:         "claude",

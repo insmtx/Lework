@@ -6,7 +6,7 @@ import type {
 	BackendTaskDeliverables,
 	DigitalAssistantItem,
 	ProjectTask,
-} from "@leros/store";
+} from "@lework/store";
 import {
 	Action,
 	formatArtifactTime,
@@ -18,9 +18,9 @@ import {
 	useDAStore,
 	useLayoutStore,
 	useTaskCapabilities,
-} from "@leros/store";
-import { taskApi } from "@leros/store/api/taskApi";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { taskApi } from "@lework/store/api/taskApi";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -28,8 +28,8 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dialog";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	ArrowDownToLine,
 	ArrowLeft,
@@ -68,7 +68,7 @@ import { TaskAcceptancePanel } from "./TaskAcceptancePanel";
 import { TaskTodoProgressPanel } from "./TaskTodoProgressPanel";
 import { getLatestAssistantTodos } from "./taskProgress";
 
-const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-task-detail-right-sidebar-width";
+const TASK_DETAIL_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "lework-task-detail-right-sidebar-width";
 const TASK_DETAIL_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const TASK_DETAIL_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const TASK_DETAIL_RIGHT_SIDEBAR_MAX_WIDTH = 440;
@@ -548,7 +548,7 @@ export function TaskDetailPage({
 
 	if (!resolvedProjectId || !resolvedTaskId) {
 		return (
-			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-app-bg)] text-[var(--leros-text-muted)]">
+			<div className="flex h-full flex-1 items-center justify-center bg-[var(--lework-app-bg)] text-[var(--lework-text-muted)]">
 				无任务详情
 			</div>
 		);
@@ -557,19 +557,19 @@ export function TaskDetailPage({
 	return (
 		<div
 			data-slot="task-detail-page"
-			className="flex h-full min-w-0 flex-1 flex-col bg-[var(--leros-surface)]"
+			className="flex h-full min-w-0 flex-1 flex-col bg-[var(--lework-surface)]"
 		>
-			<header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5">
-				<div className="flex min-w-0 items-center gap-3 text-[var(--leros-text-muted)]">
+			<header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-5">
+				<div className="flex min-w-0 items-center gap-3 text-[var(--lework-text-muted)]">
 					{/* 中文注释：任务详情页面包屑与项目页保持一致，三级结构为 项目 > 项目名 > 任务名。 */}
 					<button
 						type="button"
 						onClick={() => navigation?.goToRoute("projectsHub")}
-						className="text-sm font-normal text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+						className="text-sm font-normal text-[var(--lework-text-muted)] transition-colors hover:text-[var(--lework-primary)]"
 					>
 						项目
 					</button>
-					<ChevronRight className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+					<ChevronRight className="size-4 shrink-0 text-[var(--lework-text-subtle)]" />
 					{project && (
 						<>
 							<button
@@ -581,16 +581,16 @@ export function TaskDetailPage({
 									}
 									resolvedProjectId && switchProject(resolvedProjectId);
 								}}
-								className="max-w-[360px] truncate text-sm font-normal text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+								className="max-w-[360px] truncate text-sm font-normal text-[var(--lework-text-muted)] transition-colors hover:text-[var(--lework-primary)]"
 								title={project.name}
 							>
 								{breadcrumbProjectName}
 							</button>
-							<ChevronRight className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+							<ChevronRight className="size-4 shrink-0 text-[var(--lework-text-subtle)]" />
 						</>
 					)}
 					<h1
-						className="max-w-[360px] truncate text-sm font-semibold text-[var(--leros-text-strong)]"
+						className="max-w-[360px] truncate text-sm font-semibold text-[var(--lework-text-strong)]"
 						title={task?.title}
 					>
 						{breadcrumbTaskTitle}
@@ -609,7 +609,7 @@ export function TaskDetailPage({
 								setProjectRoute(resolvedProjectId, "tasks");
 							}
 						}}
-						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 					>
 						<ArrowLeft className="size-3.5" />
 						任务列表
@@ -660,7 +660,7 @@ export function TaskDetailPage({
 				<div className="flex w-14 shrink-0 items-start justify-center pt-6">
 					<button
 						type="button"
-						className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--lework-control-border)] bg-[var(--lework-surface)] text-[var(--lework-text-muted)] shadow-sm transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 						aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
 						aria-expanded={!rightSidebarCollapsed}
 						title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
@@ -676,14 +676,14 @@ export function TaskDetailPage({
 
 				{!rightSidebarCollapsed && (
 					<aside
-						className="relative flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 pt-6 pb-[6px] transition-[width] duration-200 ease-out"
+						className="relative flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-5 pt-6 pb-[6px] transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
 						<div className="no-scrollbar min-h-0 flex-1 space-y-8 overflow-y-auto pr-1">
 							<div>
 								<div>
-									<p className="text-sm font-semibold text-[var(--leros-text-strong)]">任务侧栏</p>
-									<p className="mt-1 text-xs text-[var(--leros-text-muted)]">
+									<p className="text-sm font-semibold text-[var(--lework-text-strong)]">任务侧栏</p>
+									<p className="mt-1 text-xs text-[var(--lework-text-muted)]">
 										查看任务说明、进度和文件概览
 									</p>
 								</div>
@@ -701,7 +701,7 @@ export function TaskDetailPage({
 							{task?.title && (
 								<section>
 									<div className="mb-3 flex items-center justify-between gap-3">
-										<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">
+										<h3 className="text-xs font-semibold text-[var(--lework-text-muted)]">
 											任务名称
 										</h3>
 										<CanGate
@@ -711,19 +711,19 @@ export function TaskDetailPage({
 											<button
 												type="button"
 												onClick={handleOpenRenameDialog}
-												className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-text-strong)]"
+												className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-text-strong)]"
 												title="重命名任务"
 											>
 												<Pencil className="size-3.5" />
 											</button>
 										</CanGate>
 									</div>
-									<p className="text-sm leading-relaxed text-[var(--leros-text)]">{task.title}</p>
+									<p className="text-sm leading-relaxed text-[var(--lework-text)]">{task.title}</p>
 								</section>
 							)}
 							{latestTodos && latestTodos.length > 0 && (
 								<section>
-									<h3 className="mb-3 text-xs font-semibold text-[var(--leros-text-muted)]">
+									<h3 className="mb-3 text-xs font-semibold text-[var(--lework-text-muted)]">
 										任务进度
 									</h3>
 									<TaskTodoProgressPanel todos={latestTodos} isRunActive={isTaskRunActive} />
@@ -731,7 +731,7 @@ export function TaskDetailPage({
 							)}
 							<section>
 								<div className="mb-3 flex items-center justify-between">
-									<h3 className="text-xs font-semibold text-[var(--leros-text-muted)]">任务文件</h3>
+									<h3 className="text-xs font-semibold text-[var(--lework-text-muted)]">任务文件</h3>
 								</div>
 								<TaskFileList
 									files={flatTaskFiles}
@@ -943,28 +943,28 @@ function TaskChatEmptyState({
 		<div className={cn("flex h-full", layout.shell)}>
 			<div className={cn(layout.inner, "flex h-full items-center justify-center")}>
 				<div className="flex max-w-[420px] flex-col items-center text-center">
-					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+					<div className="flex size-12 items-center justify-center rounded-full bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]">
 						<Bot className="size-6" />
 					</div>
-					<h2 className="mt-5 text-lg font-semibold text-[var(--leros-text-strong)]">
+					<h2 className="mt-5 text-lg font-semibold text-[var(--lework-text-strong)]">
 						{teammate ? teammate.name : "任务会话"}
 					</h2>
-					<p className="mt-2 text-sm leading-6 text-[var(--leros-text-muted)]">
+					<p className="mt-2 text-sm leading-6 text-[var(--lework-text-muted)]">
 						{teammate?.description || "在此与 AI 协作完成任务讨论，发送消息即可开始对话。"}
 					</p>
 					{promptSuggestions.length > 0 && (
 						<div className="mt-6 w-full space-y-2">
-							<p className="text-xs font-medium text-[var(--leros-text-subtle)]">试试这样问我</p>
+							<p className="text-xs font-medium text-[var(--lework-text-subtle)]">试试这样问我</p>
 							{promptSuggestions.map((prompt) => (
 								<button
 									key={prompt}
 									type="button"
-									className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-2.5 text-left text-sm leading-6 text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:text-[var(--leros-text-strong)]"
+									className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--lework-control-border)] bg-white px-4 py-2.5 text-left text-sm leading-6 text-[var(--lework-text-muted)] transition-colors hover:border-[var(--lework-primary)] hover:text-[var(--lework-text-strong)]"
 									onClick={() => onPickPrompt?.(prompt)}
 								>
 									<span className="min-w-0 flex-1">“{prompt}”</span>
 									<ChevronRight
-										className="size-4 shrink-0 text-[var(--leros-text-subtle)]"
+										className="size-4 shrink-0 text-[var(--lework-text-subtle)]"
 										aria-hidden="true"
 									/>
 								</button>
@@ -1052,7 +1052,7 @@ function TaskFileList({
 			<div
 				className={cn(
 					TASK_DETAIL_FILE_LIST_CLASS,
-					"items-center justify-center rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]",
+					"items-center justify-center rounded-lg border border-dashed border-[var(--lework-control-border)] px-4 py-8 text-center text-xs text-[var(--lework-text-muted)]",
 				)}
 			>
 				暂无文件
@@ -1089,7 +1089,7 @@ function TaskFileList({
 							<TaskFileCard file={file} isCurrent={!hasHistory} onPreview={onPreview} />
 						)}
 						{versionState?.loading ? (
-							<div className="flex items-center justify-center gap-2 py-1 text-[11px] text-[var(--leros-text-muted)]">
+							<div className="flex items-center justify-center gap-2 py-1 text-[11px] text-[var(--lework-text-muted)]">
 								<LoaderCircle className="size-3 animate-spin" />
 								正在加载历史版本
 							</div>
@@ -1097,7 +1097,7 @@ function TaskFileList({
 							<button
 								type="button"
 								onClick={() => void loadVersions(file)}
-								className="w-full rounded-md px-2 py-1.5 text-[11px] text-[var(--leros-danger)] hover:bg-[var(--leros-danger)]/5"
+								className="w-full rounded-md px-2 py-1.5 text-[11px] text-[var(--lework-danger)] hover:bg-[var(--lework-danger)]/5"
 							>
 								历史版本加载失败，点击重试
 							</button>
@@ -1130,19 +1130,19 @@ function TaskFileCard({
 			type="button"
 			data-file-preview-trigger
 			onClick={() => onPreview(file, version)}
-			className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
+			className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--lework-primary-soft)] hover:bg-[var(--lework-primary-softer)]/35"
 			title={versionNo > 0 ? `预览 V${versionNo}` : "预览文件"}
 		>
-			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
+			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)]">
 				<ProjectFileTypeIcon fileName={name} />
 			</div>
 			<div className="min-w-0 flex-1">
-				<div className="min-w-0 truncate text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+				<div className="min-w-0 truncate text-sm font-semibold leading-5 text-[var(--lework-text-strong)]">
 					<span className="truncate">{name}</span>
 				</div>
-				<div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs leading-4 text-[var(--leros-text-muted)]">
+				<div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs leading-4 text-[var(--lework-text-muted)]">
 					{versionNo > 0 ? (
-						<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
+						<span className="shrink-0 rounded bg-[var(--lework-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--lework-primary)]">
 							V{versionNo}
 						</span>
 					) : null}

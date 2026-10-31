@@ -1,4 +1,4 @@
-import type { SkillMarketplaceItem } from "@leros/store";
+import type { SkillMarketplaceItem } from "@lework/store";
 
 export type SkillCatalogCategory = "all" | "document" | "data" | "code" | "visual";
 

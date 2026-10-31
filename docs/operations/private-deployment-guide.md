@@ -1,6 +1,6 @@
-# Leros 私有化部署手册
+# Lework 私有化部署手册
 
-本手册给出 Leros 平台在客户内网的 **k3s + Helm** 私有化部署完整流程，从前置准备、镜像同步、配置生成到安装验证、升级与运维。私有化建议优先使用 Helm Chart（`deployments/helm/leros`），由 Server 内置 reconciler 按需拉起 Worker。
+本手册给出 Lework 平台在客户内网的 **k3s + Helm** 私有化部署完整流程，从前置准备、镜像同步、配置生成到安装验证、升级与运维。私有化建议优先使用 Helm Chart（`deployments/helm/lework`），由 Server 内置 reconciler 按需拉起 Worker。
 
 配套文档：资源与容量见`private-deployment-resources.md`，全部配置项见`private-deployment-config.md`。
 
@@ -10,7 +10,7 @@
 |----|------|
 | 集群 | k3s / Kubernetes ≥ 1.24，单节点即可 |
 | 工具 | Helm 3、kubectl |
-| 镜像 | `leros` / `leros-worker` 及中间件镜像已预导入节点（内网同步/本地导入） |
+| 镜像 | `lework` / `lework-worker` 及中间件镜像已预导入节点（内网同步/本地导入） |
 | 节点 | 所有组件通过 hostPath 共享数据，**须固定到同一节点** |
 | GPU | vLLM 模型推理用 GPU 节点（可与 k3s 数据节点分离） |
 | 外部网络 | 私有化模型本地部署后可无外网（仅需开机导入所需的模型权重已就位） |
@@ -32,13 +32,13 @@ kubectl get nodes -o wide
 
 ```bash
 # Server 镜像
-make build                                                # ./bundles/leros
+make build                                                # ./bundles/lework
 
 # Worker 基础镜像（私有化完整版建议）
 make docker-build-worker-base-private                     # tag :private
 
 # Worker 镜像（指定 private base）
-make docker-build-worker WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/leros-worker-base:private
+make docker-build-worker WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/lework-worker-base:private
 
 # 前端
 #  见 frontend 目录构建文档
@@ -56,17 +56,17 @@ make docker-build-worker WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/leros-worker-
 
 ```bash
 # 用 crane/skopeo 或 docker save 导出 tar
-skopeo copy docker://registry.yygu.cn/insmtx/leros:latest docker-archive:leros.tar
+skopeo copy docker://registry.yygu.cn/insmtx/lework:latest docker-archive:lework.tar
 ```
 
 将 tar 拷贝到节点后导入（二选一，依 k3s 使用 docker/containerd）：
 
 ```bash
 # containerd（k3s 默认）
-sudo ctr -n k8s.io images import leros.tar
+sudo ctr -n k8s.io images import lework.tar
 
 # docker 运行时
-docker load -i leros.tar
+docker load -i lework.tar
 ```
 
 导入前在 `values.yaml` 关闭凭证并改拉取策略：
@@ -88,10 +88,10 @@ worker:
 ```bash
 # 用 skopeo 从公网/公司仓库同步到客户仓库
 for img in \
-  registry.yygu.cn/insmtx/leros:latest \
-  registry.yygu.cn/insmtx/leros-worker:latest \
-  registry.yygu.cn/insmtx/leros-worker-base:private \
-  registry.yygu.cn/insmtx/leros-web:latest \
+  registry.yygu.cn/insmtx/lework:latest \
+  registry.yygu.cn/insmtx/lework-worker:latest \
+  registry.yygu.cn/insmtx/lework-worker-base:private \
+  registry.yygu.cn/insmtx/lework-web:latest \
   registry.yygu.cn/library/postgres:18.4 \
   registry.yygu.cn/library/nats:2.12.7 \
   registry.yygu.cn/library/mysql:8.4 \
@@ -141,7 +141,7 @@ imagePullSecret:
 基于 Chart 的 `gen-values.sh` 生成 `values.yaml`，随机密钥自动产生：
 
 ```bash
-cd deployments/helm/leros
+cd deployments/helm/lework
 
 # 私有化预导入镜像时无需 --registry/--user/--pass
 ./gen-values.sh -f my-values.yaml
@@ -170,9 +170,9 @@ llm:
 
 # ③ 如需固定版本，覆盖镜像标签（默认 latest）
 server:
-  image: <内网仓库>/leros:1.2.3
+  image: <内网仓库>/lework:1.2.3
 worker:
-  image: <内网仓库>/leros-worker:1.2.3
+  image: <内网仓库>/lework-worker:1.2.3
 ```
 
 > `postgresql/nats/server/worker` 的 `nodeSelector` 自动回退到顶层 `nodeSelector`，无需重复填。
@@ -181,7 +181,7 @@ worker:
 
 ### 3.2 对外访问（独立 Traefik + NodePort 38081）
 
-本方案使用 `values.yaml.template` 默认改动：部署独立 Traefik（`leros-traefik`，NodePort 38081），通过 Ingress 暴露 Server 与 account，无域名时用 `http://<节点IP>:38081` 访问。
+本方案使用 `values.yaml.template` 默认改动：部署独立 Traefik（`lework-traefik`，NodePort 38081），通过 Ingress 暴露 Server 与 account，无域名时用 `http://<节点IP>:38081` 访问。
 
 ```yaml
 # 已在 charts/values.yaml.template 按以下默认生效，无需重复填；如需调整再覆盖：
@@ -206,7 +206,7 @@ ingress:
 ```
 
 > `ingress.account.enabled: true` 依赖 account 服务，需同时启用 `account.enabled: true`（见 3.3）。
-> 独立 Traefik 部署时模板会强制校验"改名（`leros-traefik`）+ 错端口（38081/8443）"以避免与 k3s 自带实例冲突。
+> 独立 Traefik 部署时模板会强制校验"改名（`lework-traefik`）+ 错端口（38081/8443）"以避免与 k3s 自带实例冲突。
 
 ### 3.3 可选组件
 
@@ -216,36 +216,36 @@ ingress:
 ## 4. 安装
 
 ```bash
-helm install leros ./deployments/helm/leros \
-  -n leros --create-namespace \
+helm install lework ./deployments/helm/lework \
+  -n lework --create-namespace \
   -f my-values.yaml
 ```
 
 ### 4.1 验证
 
 ```bash
-kubectl -n leros get pods
-kubectl -n leros get svc
-kubectl -n leros logs deployment/leros
+kubectl -n lework get pods
+kubectl -n lework get svc
+kubectl -n lework logs deployment/lework
 ```
 
 预期状态：
-- `leros-postgresql-*`、`leros-nats-*` 为 `Running`
-- `leros-*`（Server）及（若启用）`leros-account-*` 为 `Running`（Web 前端软件包仅测试时启用）
-- Worker 不常驻：由 Server 启动后按需创建 `leros-worker-o<OrgID>-w<WorkerID>` Deployment
+- `lework-postgresql-*`、`lework-nats-*` 为 `Running`
+- `lework-*`（Server）及（若启用）`lework-account-*` 为 `Running`（Web 前端软件包仅测试时启用）
+- Worker 不常驻：由 Server 启动后按需创建 `lework-worker-o<OrgID>-w<WorkerID>` Deployment
 
 ### 4.2 端到端验证
 
 1. Web/接口可访问（依 3.2 选定的访问方式）。
 2. `curl <vllm-host>:8080/v1/models` 确认本地模型已就绪。
 3. 创建一个数字员工，发起一次任务，确认 Worker 被拉起、模型走本地 vLLM、任务执行成功且产物落盘。
-4. 检查 `leros-storage` 与 `leros-workspace` 目录有产出。
+4. 检查 `lework-storage` 与 `lework-workspace` 目录有产出。
 
 > 生产环境终端用户使用下发的前端软件包（Web/桌面）访问后端接口；Web 镜像仅测试用途。
 
 ## 5. 备份与恢复
 
-私有化数据位于宿主机 `<dataHostPath>`（默认 `/data/leros`）。关键数据：
+私有化数据位于宿主机 `<dataHostPath>`（默认 `/data/lework`）。关键数据：
 
 | 目录/数据 | 说明 |
 |-----------|------|
@@ -255,21 +255,21 @@ kubectl -n leros logs deployment/leros
 | `<dataHostPath>/workspace` | 工作空间 |
 | GPU 机器 `~/models` | 模型权重（`Qwen3.6-27B`，损坏后需重新下载，建议保留 tar 备份） |
 
-**PostgreSQL 逻辑备份**（以 leros 业务库为例）：
+**PostgreSQL 逻辑备份**（以 lework 业务库为例）：
 
 ```bash
-kubectl -n leros exec -it deploy/leros -- bash -c \
-  'pg_dump postgres://leros_user:<pass>@leros-postgresql:5432/leros_db > /backup/dump.sql'
+kubectl -n lework exec -it deploy/lework -- bash -c \
+  'pg_dump postgres://lework_user:<pass>@lework-postgresql:5432/lework_db > /backup/dump.sql'
 ```
 
-> 亦可直接在 Pod 内执行或使用外部备份工具。恢复时将 dump 导入同名库 `leros_db`，随后重启 Server 触发迁移。
+> 亦可直接在 Pod 内执行或使用外部备份工具。恢复时将 dump 导入同名库 `lework_db`，随后重启 Server 触发迁移。
 
-出问题时可参考 `docs/operations/troubleshooting.md` 与 `deployments/helm/leros/README.md` 的故障排查章节。
+出问题时可参考 `docs/operations/troubleshooting.md` 与 `deployments/helm/lework/README.md` 的故障排查章节。
 
 ## 6. 升级
 
 ```bash
-helm upgrade leros ./deployments/helm/leros -n leros -f my-values.yaml
+helm upgrade lework ./deployments/helm/lework -n lework -f my-values.yaml
 ```
 
 > `helm upgrade` 用 values 重渲 Server ConfigMap 会覆盖 `scheduler.worker_image`；如需固定 worker 镜像版本，升级前在 `values.yaml` 同步更新 `worker.image`。
@@ -283,23 +283,23 @@ helm upgrade leros ./deployments/helm/leros -n leros -f my-values.yaml
 ## 7. 卸载
 
 ```bash
-helm uninstall leros -n leros
+helm uninstall lework -n lework
 # 可选：清理宿主机数据目录（数据将永久丢失，路径取决于 dataHostPath）
-# ssh <node> 'rm -rf /data/leros'
+# ssh <node> 'rm -rf /data/lework'
 ```
 
 ## 附录：与现有 k3s 脚本部署兼容
 
-如需与 `deployments/k3s/` 脚本（固定名 `leros` / `leros-server-config` 等）兼容，使用 `*NameOverride`：
+如需与 `deployments/k3s/` 脚本（固定名 `lework` / `lework-server-config` 等）兼容，使用 `*NameOverride`：
 
 ```yaml
 server:
-  serviceNameOverride: leros
-  configMapNameOverride: leros-server-config
-  deploymentNameOverride: leros
+  serviceNameOverride: lework
+  configMapNameOverride: lework-server-config
+  deploymentNameOverride: lework
 worker:
-  configMapNameOverride: leros-worker-config
-  secretNameOverride: leros-secret
+  configMapNameOverride: lework-worker-config
+  secretNameOverride: lework-secret
 imagePullSecret:
   enabled: false          # 私有化预导入镜像时关闭；走内网仓库拉取时改为引用已有 Secret
   name: insmtx-registry

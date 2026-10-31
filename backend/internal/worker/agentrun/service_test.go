@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	modelrouter "github.com/insmtx/Leros/backend/internal/modelrouter"
-	agentruncontext "github.com/insmtx/Leros/backend/internal/worker/agentrun/context"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/agent"
+	modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"
+	agentruncontext "github.com/insmtx/Lework/backend/internal/worker/agentrun/context"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 type preparerFunc func(context.Context, *agentrundomain.RunRequest) (*PreparedRun, func(), error)

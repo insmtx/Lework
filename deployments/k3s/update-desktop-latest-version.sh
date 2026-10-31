@@ -12,9 +12,9 @@ fi
 
 desktop_latest_version="$1"
 
-namespace="${K3S_NAMESPACE:-leros}"
-server_deployment="${K3S_SERVER_DEPLOYMENT:-leros}"
-server_configmap="${K3S_SERVER_CONFIGMAP:-leros-server-config}"
+namespace="${K3S_NAMESPACE:-lework}"
+server_deployment="${K3S_SERVER_DEPLOYMENT:-lework}"
+server_configmap="${K3S_SERVER_CONFIGMAP:-lework-server-config}"
 server_config_key="${K3S_SERVER_CONFIG_KEY:-config.yaml}"
 
 require_command() {

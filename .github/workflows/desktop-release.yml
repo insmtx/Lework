@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 env:
-  VITE_LEROS_API_BASE_URL: ${{ vars.VITE_LEROS_API_BASE_URL || 'https://appleros.insmtx.com/v1' }}
+  VITE_LEWORK_API_BASE_URL: ${{ vars.VITE_LEWORK_API_BASE_URL || 'https://appleros.insmtx.com/v1' }}
 
 jobs:
   build:
@@ -102,7 +102,7 @@ jobs:
 
       - name: Typecheck desktop app
         working-directory: frontend
-        run: pnpm --filter @leros/desktop typecheck
+        run: pnpm --filter @lework/desktop typecheck
 
       - name: Prepare macOS signing credentials
         if: startsWith(matrix.name, 'mac-')

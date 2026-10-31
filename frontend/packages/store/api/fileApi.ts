@@ -26,7 +26,7 @@ export function getFilePublicUrlFromStorageUri(storageUri?: string): string | un
 }
 
 // 中文注释：预览内容统一走服务端流式下载，避免 /files/preview 302 到
-// storage.base_url（私有化常为内网主机如 leros:8080）导致浏览器 ERR_NAME_NOT_RESOLVED。
+// storage.base_url（私有化常为内网主机如 lework:8080）导致浏览器 ERR_NAME_NOT_RESOLVED。
 export function getFilePreviewUrl(storageUri: string): string {
 	return `${API_BASE_URL}/files/download?storage_uri=${encodeURIComponent(storageUri)}`;
 }

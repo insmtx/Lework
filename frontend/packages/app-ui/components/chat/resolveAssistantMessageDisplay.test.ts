@@ -1,6 +1,6 @@
-import type { DigitalAssistantItem, ProjectMember } from "@leros/store";
-import { BRAND_NAME_STORAGE_KEY } from "@leros/store";
-import type { Message } from "@leros/store/types/chat";
+import type { DigitalAssistantItem, ProjectMember } from "@lework/store";
+import { BRAND_NAME_STORAGE_KEY } from "@lework/store";
+import type { Message } from "@lework/store/types/chat";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { resolveAssistantMessageDisplay } from "./resolveAssistantMessageDisplay";

@@ -1,4 +1,4 @@
-import type { Message, RuntimeTodoItem } from "@leros/store/types/chat";
+import type { Message, RuntimeTodoItem } from "@lework/store/types/chat";
 
 function getAssistantTodos(message: Message | undefined): RuntimeTodoItem[] | undefined {
 	if (message?.role !== "assistant") return undefined;

@@ -283,11 +283,11 @@ flowchart TB
 - 业务服务、Planner、Dispatcher 和项目准备放在 `backend/internal/service/` 或独立 `backend/internal/automation/` 包。
 - 通用消息协议放在 `backend/pkg/messaging/`。
 - Worker 过期检查放在 `backend/internal/worker/command/run/`。
-- 进程启动/关闭由 `backend/cmd/leros/` 负责；`internal` 组件只暴露带 context 的启动函数，不调用 lifecycle、panic 或 log.Fatal。
+- 进程启动/关闭由 `backend/cmd/lework/` 负责；`internal` 组件只暴露带 context 的启动函数，不调用 lifecycle、panic 或 log.Fatal。
 
 ## 7. 数据模型计划
 
-### 7.1 `leros_automation`
+### 7.1 `lework_automation`
 
 新增 `types.Automation`：
 
@@ -316,7 +316,7 @@ flowchart TB
 - `(enabled, next_run_at, deleted_at)` 用于 Planner 扫描。
 - `project_id` 普通索引。
 
-### 7.2 `leros_automation_execution`
+### 7.2 `lework_automation_execution`
 
 新增 `types.AutomationExecution`：
 
@@ -998,7 +998,7 @@ Store 负责：
 | Handler | `backend/internal/api/handler/automation_handler.go` |
 | Service/Planner/Dispatcher | `backend/internal/service/automation_*.go` |
 | 路由装配 | `backend/internal/api/router.go` |
-| 进程生命周期 | `backend/cmd/leros/server.go` |
+| 进程生命周期 | `backend/cmd/lework/server.go` |
 | MQ 协议和幂等发布 | `backend/pkg/messaging/command.go`、`backend/internal/infra/mq/` |
 | Worker 过期检查 | `backend/internal/worker/command/run/handler.go` |
 | Run 投影 | `backend/internal/runnable/session_run_state_projector.go` |

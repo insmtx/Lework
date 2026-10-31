@@ -1,4 +1,4 @@
-import { fetchFilePreviewByStorageUri, projectFileApi } from "@leros/store";
+import { fetchFilePreviewByStorageUri, projectFileApi } from "@lework/store";
 import JSZip from "jszip";
 import {
 	collectSelectableFiles,

@@ -5,10 +5,10 @@ import {
 	type ProjectActivityItem,
 	type ProjectMember,
 	projectActivityApi,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
+import { cn } from "@lework/ui/lib/utils";
 import { Check, ChevronDown, LoaderCircle, Search, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProtectedImage } from "../avatar/ProtectedImage";
@@ -219,8 +219,8 @@ function ProjectActivityMemberFilter({
 	const partialDraftSelected = draftCount > 0 && draftCount < totalCount;
 	const confirmDisabled = draftCount === 0;
 	const memberFilterControlSelectedClass =
-		"border-[var(--leros-primary)] bg-[var(--leros-primary)] text-white";
-	const memberFilterControlUnselectedClass = "border-[var(--leros-control-border)] bg-white";
+		"border-[var(--lework-primary)] bg-[var(--lework-primary)] text-white";
+	const memberFilterControlUnselectedClass = "border-[var(--lework-control-border)] bg-white";
 
 	useEffect(() => {
 		if (!open) return;
@@ -262,30 +262,30 @@ function ProjectActivityMemberFilter({
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
 				type="button"
-				className="inline-flex h-9 min-w-[108px] items-center justify-between gap-2 rounded-xl border border-[var(--leros-control-border)] bg-white px-3.5 text-[13px] text-[var(--leros-text-strong)] transition-colors hover:border-[var(--leros-primary)]"
+				className="inline-flex h-9 min-w-[108px] items-center justify-between gap-2 rounded-xl border border-[var(--lework-control-border)] bg-white px-3.5 text-[13px] text-[var(--lework-text-strong)] transition-colors hover:border-[var(--lework-primary)]"
 			>
 				<span>{getFilterTriggerLabel(filter, totalCount)}</span>
-				<ChevronDown className="size-4 text-[var(--leros-text-muted)]" />
+				<ChevronDown className="size-4 text-[var(--lework-text-muted)]" />
 			</PopoverTrigger>
 			<PopoverContent align="end" className="w-[320px] rounded-2xl p-0">
-				<div className="border-b border-[var(--leros-control-border)] px-4 py-3">
+				<div className="border-b border-[var(--lework-control-border)] px-4 py-3">
 					<div className="relative">
-						<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+						<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--lework-text-muted)]" />
 						<input
 							value={searchKeyword}
 							onChange={(event) => setSearchKeyword(event.target.value)}
 							placeholder="搜索成员"
-							className="h-9 w-full rounded-xl border border-[var(--leros-control-border)] bg-white pl-9 pr-3 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
+							className="h-9 w-full rounded-xl border border-[var(--lework-control-border)] bg-white pl-9 pr-3 text-[13px] outline-none transition-colors focus:border-[var(--lework-primary)]"
 						/>
 					</div>
 				</div>
 
 				<div className="flex items-center justify-between px-4 py-3">
-					<span className="text-[13px] font-medium text-[var(--leros-text-strong)]">筛选成员</span>
+					<span className="text-[13px] font-medium text-[var(--lework-text-strong)]">筛选成员</span>
 					<button
 						type="button"
 						onClick={toggleSelectAll}
-						className="inline-flex items-center gap-2 text-[13px] text-[var(--leros-text-strong)]"
+						className="inline-flex items-center gap-2 text-[13px] text-[var(--lework-text-strong)]"
 					>
 						<span
 							className={cn(
@@ -303,7 +303,7 @@ function ProjectActivityMemberFilter({
 
 				<div className="no-scrollbar max-h-[180px] overflow-y-auto px-2 pb-1">
 					{filteredMembers.length === 0 ? (
-						<div className="px-3 py-6 text-center text-[13px] text-[var(--leros-text-muted)]">
+						<div className="px-3 py-6 text-center text-[13px] text-[var(--lework-text-muted)]">
 							{searchKeyword.trim() ? "没有匹配的成员" : "暂无成员"}
 						</div>
 					) : (
@@ -314,7 +314,7 @@ function ProjectActivityMemberFilter({
 									key={publicId}
 									type="button"
 									onClick={() => toggleMember(publicId)}
-									className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/40"
+									className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[var(--lework-primary-softer)]/40"
 								>
 									<span
 										className={cn(
@@ -327,11 +327,11 @@ function ProjectActivityMemberFilter({
 										{selected && <Check className="size-3" />}
 									</span>
 									<div className="min-w-0 flex-1">
-										<div className="truncate text-[13px] font-medium text-[var(--leros-text-strong)]">
+										<div className="truncate text-[13px] font-medium text-[var(--lework-text-strong)]">
 											{member.name}
 										</div>
 										{member.description && (
-											<div className="truncate text-[12px] text-[var(--leros-text-muted)]">
+											<div className="truncate text-[12px] text-[var(--lework-text-muted)]">
 												{member.description}
 											</div>
 										)}
@@ -353,7 +353,7 @@ function ProjectActivityMemberFilter({
 					</Button>
 					<Button
 						type="button"
-						className="h-10 flex-1 bg-[var(--leros-text-strong)] text-white hover:bg-[var(--leros-text-strong)]/90 disabled:opacity-40"
+						className="h-10 flex-1 bg-[var(--lework-text-strong)] text-white hover:bg-[var(--lework-text-strong)]/90 disabled:opacity-40"
 						disabled={confirmDisabled}
 						onClick={handleConfirm}
 					>
@@ -377,7 +377,7 @@ function ProjectActivityRow({ item }: { item: ProjectActivityItem }) {
 			<div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
 				<div className="min-w-0 overflow-hidden">
 					<p
-						className="truncate text-[14px] leading-normal text-[var(--leros-text-strong)]"
+						className="truncate text-[14px] leading-normal text-[var(--lework-text-strong)]"
 						title={summaryText}
 					>
 						<span className="inline-flex items-center gap-1">
@@ -388,7 +388,7 @@ function ProjectActivityRow({ item }: { item: ProjectActivityItem }) {
 					</p>
 				</div>
 				{relativeTime ? (
-					<span className="whitespace-nowrap text-xs font-normal text-[var(--leros-text-subtle)]">
+					<span className="whitespace-nowrap text-xs font-normal text-[var(--lework-text-subtle)]">
 						{relativeTime}
 					</span>
 				) : null}
@@ -459,10 +459,10 @@ export function ProjectActivityPanel({
 			<div className="mx-auto w-full max-w-[1200px]">
 				<div className="mb-7 flex items-center justify-between gap-5">
 					<div>
-						<h2 className="text-[2rem] font-semibold tracking-tight text-[var(--leros-text-strong)]">
+						<h2 className="text-[2rem] font-semibold tracking-tight text-[var(--lework-text-strong)]">
 							动态
 						</h2>
-						<p className="mt-0.5 text-[13px] text-[var(--leros-text-muted)]">
+						<p className="mt-0.5 text-[13px] text-[var(--lework-text-muted)]">
 							查看项目内成员的操作记录
 						</p>
 					</div>
@@ -474,31 +474,31 @@ export function ProjectActivityPanel({
 				</div>
 
 				{loading ? (
-					<div className="flex items-center justify-center py-20 text-[var(--leros-text-muted)]">
+					<div className="flex items-center justify-center py-20 text-[var(--lework-text-muted)]">
 						<LoaderCircle className="size-6 animate-spin" />
 					</div>
 				) : error ? (
-					<div className="rounded-2xl border border-[var(--leros-danger)]/20 bg-[var(--leros-danger-softer)] px-4 py-6 text-center text-sm text-[var(--leros-danger)]">
+					<div className="rounded-2xl border border-[var(--lework-danger)]/20 bg-[var(--lework-danger-softer)] px-4 py-6 text-center text-sm text-[var(--lework-danger)]">
 						{error}
 					</div>
 				) : items.length === 0 ? (
-					<div className="rounded-2xl border border-[var(--leros-control-border)] bg-white px-6 py-16 text-center text-sm text-[var(--leros-text-muted)]">
+					<div className="rounded-2xl border border-[var(--lework-control-border)] bg-white px-6 py-16 text-center text-sm text-[var(--lework-text-muted)]">
 						暂无动态
 					</div>
 				) : (
-					<div className="overflow-hidden rounded-2xl border border-[var(--leros-control-border)] bg-white">
-						<div className="divide-y divide-[var(--leros-control-border)]/60">
+					<div className="overflow-hidden rounded-2xl border border-[var(--lework-control-border)] bg-white">
+						<div className="divide-y divide-[var(--lework-control-border)]/60">
 							{items.map((item) => (
 								<ProjectActivityRow key={item.id} item={item} />
 							))}
 						</div>
 						{nextCursor && (
-							<div className="border-t border-[var(--leros-control-border)] px-5 py-4 text-center">
+							<div className="border-t border-[var(--lework-control-border)] px-5 py-4 text-center">
 								<button
 									type="button"
 									disabled={loadingMore}
 									onClick={() => void loadActivities(nextCursor)}
-									className="inline-flex items-center gap-2 text-[13px] font-medium text-[var(--leros-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
+									className="inline-flex items-center gap-2 text-[13px] font-medium text-[var(--lework-primary)] transition-opacity hover:opacity-80 disabled:opacity-50"
 								>
 									{loadingMore && <LoaderCircle className="size-4 animate-spin" />}
 									加载更多

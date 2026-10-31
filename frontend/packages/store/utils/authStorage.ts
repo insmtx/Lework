@@ -30,8 +30,8 @@ export type StoredAuthUser = {
 	organizations?: StoredAuthOrg[];
 };
 
-export const AUTH_STORAGE_KEY = "leros-auth-user";
-export const AUTH_SESSION_EXPIRED_EVENT = "leros-auth-session-expired";
+export const AUTH_STORAGE_KEY = "lework-auth-user";
+export const AUTH_SESSION_EXPIRED_EVENT = "lework-auth-session-expired";
 
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
 let refreshPromise: Promise<string | null> | null = null;

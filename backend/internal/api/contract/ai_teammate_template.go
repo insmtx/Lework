@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // AITeammateTemplateStatus AI 队友模板状态。

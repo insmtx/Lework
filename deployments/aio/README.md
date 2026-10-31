@@ -16,7 +16,7 @@
 |---|---|---|
 | `postgres` | 业务库 | 命名卷 `postgres_data` |
 | `nats` | 事件/任务队列（JetStream） | 命名卷 `nats_data` |
-| `leros` | Server + 内置 Worker 进程 | `./data/app/{storage,workspace,logs}` |
+| `lework` | Server + 内置 Worker 进程 | `./data/app/{storage,workspace,logs}` |
 | `web` | Next.js 控制台 | 无 |
 | `gateway` | Nginx 同源网关（Web + `/v1` + SSE） | 无 |
 
@@ -24,12 +24,12 @@
 浏览器 :80
   └─ gateway
        ├─ /            → web:3000
-       ├─ /v1/*        → leros:8080
+       ├─ /v1/*        → lework:8080
        ├─ /v1/SessionEvents, /v1/GlobalEvents → SSE（禁缓冲）
-       └─ /leros/*     → 本地文件预签名读写
+       └─ /lework/*     → 本地文件预签名读写
 ```
 
-`leros` 容器使用 **worker 镜像** 运行 server。Server 的 `process` scheduler 会在同一容器内拉起 `/leros worker`，因此文档、浏览器、CLI 工具链都可用，不需要挂 Docker socket，也不需要第二个 worker 容器。
+`lework` 容器使用 **worker 镜像** 运行 server。Server 的 `process` scheduler 会在同一容器内拉起 `/lework worker`，因此文档、浏览器、CLI 工具链都可用，不需要挂 Docker socket，也不需要第二个 worker 容器。
 
 ## 前置条件
 
@@ -48,7 +48,7 @@
 
 ```bash
 # 默认使用 registry.yygu.cn/insmtx/{worker,web}:latest
-# 如需更换，编辑 .env 中的 LEROS_IMAGE / LEROS_WEB_IMAGE
+# 如需更换，编辑 .env 中的 LEWORK_IMAGE / LEWORK_WEB_IMAGE
 ```
 
 **B. 从源码构建（开发机/交付机）**
@@ -61,7 +61,7 @@ make docker-build-worker-base
 
 # 构建 server/worker/web
 make docker-build-worker
-make docker-build-web DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEROS_API_BASE_URL=/v1"
+make docker-build-web DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=/v1"
 ```
 
 然后回到 `deployments/aio`，安装时加 `--build`，或把 `.env` 的镜像名指向本地 tag。
@@ -78,7 +78,7 @@ cd deployments/aio
 1. 生成 `.env`（数据库密码、JWT 密钥、存储签名密钥、管理员初始密码）；
 2. 渲染 `config/server.config.yaml` 与 `config/worker.config.yaml`；
 3. 创建 `./data/app` 并修正权限；
-4. 若存在 `leros-aio-images.tar`，自动 `docker load`；
+4. 若存在 `lework-aio-images.tar`，自动 `docker load`；
 5. `docker compose up -d`；
 6. 等待 `/healthz`，打印访问地址与初始管理员密码。
 
@@ -95,16 +95,16 @@ cd deployments/aio
 docker pull postgres:17
 docker pull nats:2.12
 docker pull nginx:1.27-alpine
-docker save -o leros-aio-images.tar \
+docker save -o lework-aio-images.tar \
   registry.yygu.cn/insmtx/worker:latest \
   registry.yygu.cn/insmtx/web:latest \
   postgres:17 nats:2.12 nginx:1.27-alpine
 
-# 拷贝整个 deployments/aio 目录 + leros-aio-images.tar 到一体机
+# 拷贝整个 deployments/aio 目录 + lework-aio-images.tar 到一体机
 ./install.sh
 ```
 
-脚本检测到 `leros-aio-images.tar` 会自动导入。镜像 tag 必须与 `.env` 中的 `LEROS_IMAGE` / `LEROS_WEB_IMAGE` 一致。
+脚本检测到 `lework-aio-images.tar` 会自动导入。镜像 tag 必须与 `.env` 中的 `LEWORK_IMAGE` / `LEWORK_WEB_IMAGE` 一致。
 
 ## 数据与备份
 
@@ -121,14 +121,14 @@ docker save -o leros-aio-images.tar \
 
 ```bash
 ./backup.sh
-# data/backups/leros-db-<ts>.sql.gz
-# data/backups/leros-app-<ts>.tar.gz
+# data/backups/lework-db-<ts>.sql.gz
+# data/backups/lework-app-<ts>.tar.gz
 ```
 
 恢复：
 
 ```bash
-./restore.sh data/backups/leros-db-<ts>.sql.gz data/backups/leros-app-<ts>.tar.gz
+./restore.sh data/backups/lework-db-<ts>.sql.gz data/backups/lework-app-<ts>.tar.gz
 ```
 
 建议把 `./data/backups` 定时同步到外部存储。
@@ -139,7 +139,7 @@ docker save -o leros-aio-images.tar \
 # 在线：拉取新镜像
 ./upgrade.sh
 
-# 离线：把新 leros-aio-images.tar 放到本目录
+# 离线：把新 lework-aio-images.tar 放到本目录
 ./upgrade.sh
 ```
 
@@ -155,7 +155,7 @@ docker save -o leros-aio-images.tar \
 
 ### 修改对外地址
 
-文件预览/下载链接基于 `storage.base_url`。如果机器 IP 变化，更新 `.env` 的 `LEROS_PUBLIC_BASE_URL`，重新渲染配置并重启：
+文件预览/下载链接基于 `storage.base_url`。如果机器 IP 变化，更新 `.env` 的 `LEWORK_PUBLIC_BASE_URL`，重新渲染配置并重启：
 
 ```bash
 # 编辑 .env
@@ -165,18 +165,18 @@ docker save -o leros-aio-images.tar \
 ## 开机自启
 
 ```bash
-sudo cp systemd/leros-aio.service /etc/systemd/system/
+sudo cp systemd/lework-aio.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now leros-aio
+sudo systemctl enable --now lework-aio
 ```
 
-默认假定安装目录为 `/opt/leros`；如不同，修改 unit 的 `WorkingDirectory`。
+默认假定安装目录为 `/opt/lework`；如不同，修改 unit 的 `WorkingDirectory`。
 
 ## 安全说明
 
-- `LEROS_ENV=production` 时，首次启动必须提供 `LEROS_ADMIN_PASSWORD`，否则服务拒绝初始化。
+- `LEWORK_ENV=production` 时，首次启动必须提供 `LEWORK_ADMIN_PASSWORD`，否则服务拒绝初始化。
 - 默认只暴露网关 80；PostgreSQL / NATS / Server 均不映射到宿主机。
-- 建议在一体机前置一层 HTTPS（Nginx/Caddy/硬件网关），并把 `LEROS_PUBLIC_BASE_URL` 改为 `https://...`。
+- 建议在一体机前置一层 HTTPS（Nginx/Caddy/硬件网关），并把 `LEWORK_PUBLIC_BASE_URL` 改为 `https://...`。
 - 模型 API Key 在控制台配置，不写入 `.env`；后续版本会加密落库。
 - 一体机默认单组织；不要直接暴露到公网。
 
@@ -184,7 +184,7 @@ sudo systemctl enable --now leros-aio
 
 ```bash
 docker compose ps
-docker compose logs -f leros
+docker compose logs -f lework
 docker compose logs -f gateway
 docker compose logs -f web
 ```
@@ -193,12 +193,12 @@ docker compose logs -f web
 
 | 现象 | 排查 |
 |---|---|
-| `leros` 反复重启 | `docker compose logs leros`；多为数据库连接或管理员密码缺失 |
+| `lework` 反复重启 | `docker compose logs lework`；多为数据库连接或管理员密码缺失 |
 | 页面 502 | `web` 未就绪；`docker compose logs web` |
 | 登录后接口 404 | 网关未代理 `/v1`；检查 `nginx/nginx.conf` 与 `docker compose ps` |
-| 文件预览失败 | `LEROS_PUBLIC_BASE_URL` 与实际访问地址不一致 |
+| 文件预览失败 | `LEWORK_PUBLIC_BASE_URL` 与实际访问地址不一致 |
 | 权限错误 | `sudo chown -R 1000:1000 data/app` |
-| worker 未就绪 | 查看日志中的 `worker deployment`；确认 `scheduler.mode=process` 与 `/leros` 存在 |
+| worker 未就绪 | 查看日志中的 `worker deployment`；确认 `scheduler.mode=process` 与 `/lework` 存在 |
 
 ## 已知限制
 

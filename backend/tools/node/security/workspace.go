@@ -5,12 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 // WorkspaceRoot 获取工作区根目录。
 func WorkspaceRoot() (string, error) {
-	return leros.WorkspaceRoot()
+	return lework.WorkspaceRoot()
 }
 
 // RealWorkspaceRoot 获取工作区根目录的真实路径（解析符号链接）。

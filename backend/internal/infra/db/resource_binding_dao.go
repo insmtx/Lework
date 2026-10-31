@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // CreateResourceBinding 创建资源角色绑定记录。
@@ -33,7 +33,7 @@ func GetResourceBindingByID(ctx context.Context, d *gorm.DB, id uint) (*types.Re
 }
 
 // GetResourceBindingByUin 查询指定用户在指定资源上的唯一有效绑定。
-// 利用唯一索引 ux_leros_resource_binding_uin，供 PermissionService 查用户直接绑定。
+// 利用唯一索引 ux_lework_resource_binding_uin，供 PermissionService 查用户直接绑定。
 // 未找到返回 nil, nil。
 func GetResourceBindingByUin(ctx context.Context, d *gorm.DB, resourceID uint, uin uint) (*types.ResourceBinding, error) {
 	var entity types.ResourceBinding
@@ -50,7 +50,7 @@ func GetResourceBindingByUin(ctx context.Context, d *gorm.DB, resourceID uint, u
 }
 
 // GetResourceBindingByAssistantID 查询指定助手在指定资源上的唯一有效绑定。
-// 利用唯一索引 ux_leros_resource_binding_assistant，供 PermissionService 查助手直接绑定。
+// 利用唯一索引 ux_lework_resource_binding_assistant，供 PermissionService 查助手直接绑定。
 // 未找到返回 nil, nil。
 func GetResourceBindingByAssistantID(ctx context.Context, d *gorm.DB, resourceID uint, assistantID uint) (*types.ResourceBinding, error) {
 	var entity types.ResourceBinding
@@ -107,7 +107,7 @@ func ListResourceBindingsByResourceIDs(ctx context.Context, d *gorm.DB, resource
 }
 
 // ListResourceBindingsByUin 查询指定用户在组织内的所有有效绑定。
-// 利用复合索引 idx_leros_resource_binding_org_uin。
+// 利用复合索引 idx_lework_resource_binding_org_uin。
 func ListResourceBindingsByUin(ctx context.Context, d *gorm.DB, orgID uint, uin uint) ([]*types.ResourceBinding, error) {
 	var entities []*types.ResourceBinding
 	if err := d.WithContext(ctx).
@@ -119,7 +119,7 @@ func ListResourceBindingsByUin(ctx context.Context, d *gorm.DB, orgID uint, uin 
 }
 
 // ListResourceBindingsByAssistantID 查询指定助手在组织内的所有有效绑定。
-// 利用复合索引 idx_leros_resource_binding_org_assistant。
+// 利用复合索引 idx_lework_resource_binding_org_assistant。
 func ListResourceBindingsByAssistantID(ctx context.Context, d *gorm.DB, orgID uint, assistantID uint) ([]*types.ResourceBinding, error) {
 	var entities []*types.ResourceBinding
 	if err := d.WithContext(ctx).

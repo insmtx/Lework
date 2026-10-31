@@ -11,8 +11,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // TestLegacyDBUpgradeProbe 演练「v1 时代遗留库 → v2.1.4」：用一份真实老库的副本
@@ -20,15 +20,15 @@ import (
 //
 // 只读副本，绝不碰原始库：
 //
-//	LEROS_ACP_PROBE=1 LEROS_ACP_PROBE_CONFIG_FILE=... LEROS_ACP_PROBE_MODEL=... \
-//	LEROS_ACP_LEGACY_DB=<老库路径> go test ./backend/agent/runtime/opencode -run TestLegacyDBUpgradeProbe -v
+//	LEWORK_ACP_PROBE=1 LEWORK_ACP_PROBE_CONFIG_FILE=... LEWORK_ACP_PROBE_MODEL=... \
+//	LEWORK_ACP_LEGACY_DB=<老库路径> go test ./backend/agent/runtime/opencode -run TestLegacyDBUpgradeProbe -v
 func TestLegacyDBUpgradeProbe(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1")
 	}
-	legacy := os.Getenv("LEROS_ACP_LEGACY_DB")
+	legacy := os.Getenv("LEWORK_ACP_LEGACY_DB")
 	if legacy == "" {
-		t.Skip("manual probe: set LEROS_ACP_LEGACY_DB to a legacy opencode.db")
+		t.Skip("manual probe: set LEWORK_ACP_LEGACY_DB to a legacy opencode.db")
 	}
 	model, err := probeModelConfig()
 	if err != nil {

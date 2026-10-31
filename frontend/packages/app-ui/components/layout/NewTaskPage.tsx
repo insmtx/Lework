@@ -18,12 +18,12 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
-} from "@leros/store";
-import type { Attachment, ComposerToken, MessageMetadata } from "@leros/store/types/chat";
-import { Button } from "@leros/ui/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
-import { getRequestErrorMessage } from "@leros/ui/lib/request";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/store";
+import type { Attachment, ComposerToken, MessageMetadata } from "@lework/store/types/chat";
+import { Button } from "@lework/ui/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
+import { getRequestErrorMessage } from "@lework/ui/lib/request";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	BookOpenText,
 	ChevronDown,
@@ -152,8 +152,8 @@ const WORKBENCH_FEATURE_CARDS: Array<{
 
 function detectDesktopApp(): boolean {
 	if (typeof window === "undefined") return false;
-	const win = window as Window & { electron?: unknown; lerosDesktop?: unknown };
-	return Boolean(win.electron ?? win.lerosDesktop);
+	const win = window as Window & { electron?: unknown; leworkDesktop?: unknown };
+	return Boolean(win.electron ?? win.leworkDesktop);
 }
 
 export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
@@ -758,17 +758,17 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 	return (
 		<div
 			data-slot="workbench-panel"
-			className="min-h-0 flex-1 overflow-y-auto bg-[var(--leros-app-bg)]"
+			className="min-h-0 flex-1 overflow-y-auto bg-[var(--lework-app-bg)]"
 		>
 			{/* Main Content Canvas */}
 			<div className="z-10 mx-auto flex min-h-full w-full max-w-[1080px] flex-col justify-center px-10 py-10">
 				{/* Welcome/Hero Section */}
 				<section>
 					<div className="mb-10 text-center">
-						<h2 className="text-4xl font-semibold tracking-tight text-[var(--leros-primary)] md:text-5xl">
+						<h2 className="text-4xl font-semibold tracking-tight text-[var(--lework-primary)] md:text-5xl">
 							你好，今天我们从哪里开始？
 						</h2>
-						<p className="mt-4 text-base text-[var(--leros-text-muted)] md:text-lg">
+						<p className="mt-4 text-base text-[var(--lework-text-muted)] md:text-lg">
 							告诉{brandName}你的目标，我们会帮你拆解任务、分配执行，并交付结果
 						</p>
 					</div>
@@ -809,10 +809,10 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 											<Icon className="size-5" />
 										</div>
 										<div className="min-w-0 pr-6">
-											<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+											<div className="text-sm font-semibold text-[var(--lework-text-strong)]">
 												{card.title}
 											</div>
-											<p className="mt-1 text-xs leading-relaxed text-[var(--leros-text-muted)]">
+											<p className="mt-1 text-xs leading-relaxed text-[var(--lework-text-muted)]">
 												{card.description}
 											</p>
 										</div>
@@ -916,7 +916,7 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 								onProjectTrigger={handleProjectTrigger}
 							/>
 						</div>
-						<div className="flex items-center justify-between border-t border-[var(--leros-chat-ai-border)] pt-3">
+						<div className="flex items-center justify-between border-t border-[var(--lework-chat-ai-border)] pt-3">
 							<div className="flex items-center gap-3">
 								<ComposerActionBar
 									inputValue={input}

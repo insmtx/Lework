@@ -1,11 +1,11 @@
 "use client";
 
-import type { DigitalAssistantItem } from "@leros/store";
-import { Badge } from "@leros/ui/components/ui/badge";
-import { Button } from "@leros/ui/components/ui/button";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
-import { cn } from "@leros/ui/lib/utils";
+import type { DigitalAssistantItem } from "@lework/store";
+import { Badge } from "@lework/ui/components/ui/badge";
+import { Button } from "@lework/ui/components/ui/button";
+import { ScrollArea } from "@lework/ui/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@lework/ui/components/ui/tabs";
+import { cn } from "@lework/ui/lib/utils";
 import { BookOpen, Bot, Brain, Network, Pencil, Settings, Shield, Star } from "lucide-react";
 import { useState } from "react";
 import { AssistantAvatar } from "./AssistantAvatar";

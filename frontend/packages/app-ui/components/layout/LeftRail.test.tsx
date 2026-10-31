@@ -35,7 +35,7 @@ const mockUser = {
 	currentOrg: { id: 1, name: "组织 1" },
 };
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	Action: {},
 	authenticatedFetch: (...args: unknown[]) => mockAuthenticatedFetch(...args),
 	fetchFilePreviewByPublicId: (...args: unknown[]) => mockFetchFilePreviewByPublicId(...args),

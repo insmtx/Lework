@@ -6,7 +6,7 @@ import {
 	useGlobalConfigStore,
 	useLayoutStore,
 	usePermissionStore,
-} from "@leros/store";
+} from "@lework/store";
 import { type ReactNode, useEffect, useState } from "react";
 import { AuthProvider } from "../auth";
 import { OrgAdminPage } from "../org-admin/OrgAdminPage";
@@ -64,14 +64,14 @@ export function Shell({
 	}, [orgId, startGlobalEvents, stopGlobalEvents]);
 
 	if (!isClientMounted) {
-		return <div className="leros-app-shell" aria-hidden="true" />;
+		return <div className="lework-app-shell" aria-hidden="true" />;
 	}
 
 	return (
 		<AuthProvider logoSrc={logoSrc}>
 			<PermissionDeniedListener />
 			<FrontendEventTracker currentPath={navigation?.currentPath} />
-			<div className="leros-app-shell">
+			<div className="lework-app-shell">
 				<LeftRail logoSrc={logoSrc} navigation={navigation} />
 				<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 					{children ?? (

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
 )
 
 var ErrNoPendingSessionMessages = errors.New("no pending session messages")

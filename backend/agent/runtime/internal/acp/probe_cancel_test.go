@@ -10,10 +10,10 @@ import (
 
 // TestOpenCodeACPCancelLatency 验证真机取消收敛：ctx 取消后 Prompt 必须在 8s 内返回。
 func TestOpenCodeACPCancelLatency(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1")
 	}
-	model := envOrDefault("LEROS_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
+	model := envOrDefault("LEWORK_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
 	root, workDir := newProbeWorkspace(t)
 	content, err := probeConfigContent(model)
 	if err != nil {
@@ -22,7 +22,7 @@ func TestOpenCodeACPCancelLatency(t *testing.T) {
 	env := append(probeBaseEnv(root), "OPENCODE_CONFIG_CONTENT="+content)
 
 	conn, err := Start(context.Background(), Config{
-		Binary: envOrDefault("LEROS_ACP_PROBE_BIN", "opencode"),
+		Binary: envOrDefault("LEWORK_ACP_PROBE_BIN", "opencode"),
 		Dir:    workDir,
 		Env:    env,
 	})

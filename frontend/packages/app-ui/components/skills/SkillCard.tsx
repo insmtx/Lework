@@ -1,8 +1,8 @@
 "use client";
 
-import type { SkillMarketplaceItem } from "@leros/store";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
-import { cn } from "@leros/ui/lib/utils";
+import type { SkillMarketplaceItem } from "@lework/store";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
+import { cn } from "@lework/ui/lib/utils";
 import type { KeyboardEvent, MouseEvent } from "react";
 
 interface SkillCardProps {
@@ -77,9 +77,9 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 						role={onClick ? "button" : undefined}
 						tabIndex={onClick ? 0 : undefined}
 						className={cn(
-							"group flex min-h-[168px] flex-col rounded-lg border border-[var(--leros-control-border)] bg-white p-4 text-left transition-all duration-200",
+							"group flex min-h-[168px] flex-col rounded-lg border border-[var(--lework-control-border)] bg-white p-4 text-left transition-all duration-200",
 							onClick
-								? "cursor-pointer hover:-translate-y-0.5 hover:border-[var(--leros-primary)] hover:shadow-[0_12px_28px_rgba(76,78,230,0.08)]"
+								? "cursor-pointer hover:-translate-y-0.5 hover:border-[var(--lework-primary)] hover:shadow-[0_12px_28px_rgba(76,78,230,0.08)]"
 								: "cursor-default",
 						)}
 					/>
@@ -94,15 +94,15 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 								className="size-9 shrink-0 rounded-md object-cover"
 							/>
 						) : (
-							<div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[var(--leros-primary-soft)] text-sm font-semibold text-[var(--leros-primary)]">
+							<div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[var(--lework-primary-soft)] text-sm font-semibold text-[var(--lework-primary)]">
 								{displayName.charAt(0).toUpperCase()}
 							</div>
 						)}
 						<div className="min-w-0">
-							<h3 className="truncate text-[13px] font-semibold text-[var(--leros-text-strong)]">
+							<h3 className="truncate text-[13px] font-semibold text-[var(--lework-text-strong)]">
 								{displayName}
 							</h3>
-							<p className="mt-0.5 truncate text-[11px] text-[var(--leros-text-subtle)]">
+							<p className="mt-0.5 truncate text-[11px] text-[var(--lework-text-subtle)]">
 								由 {skill.author || skill.source_type} 提供
 							</p>
 						</div>
@@ -113,7 +113,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 								"rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
 								marketplaceStatus?.className ??
 									ownedStatus?.className ??
-									"border-transparent bg-[var(--leros-primary-soft)] text-[var(--leros-primary)]",
+									"border-transparent bg-[var(--lework-primary-soft)] text-[var(--lework-primary)]",
 							)}
 						>
 							{marketplaceStatus?.label ?? ownedStatus?.label ?? (isMine ? "组织技能" : "技能市场")}
@@ -131,7 +131,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 					</div>
 				</div>
 
-				<p className="mt-2.5 h-10 line-clamp-2 overflow-hidden text-[12px] leading-5 text-[var(--leros-text-muted)]">
+				<p className="mt-2.5 h-10 line-clamp-2 overflow-hidden text-[12px] leading-5 text-[var(--lework-text-muted)]">
 					{description}
 				</p>
 
@@ -141,7 +141,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 							{(skill.tags ?? []).slice(0, 3).map((tag: string) => (
 								<span
 									key={tag}
-									className="rounded-md border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-1.5 py-0.5 text-[10px] text-[var(--leros-text-muted)]"
+									className="rounded-md border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-1.5 py-0.5 text-[10px] text-[var(--lework-text-muted)]"
 								>
 									{tag}
 								</span>
@@ -151,7 +151,7 @@ export function SkillCard({ skill, variant = "marketplace", onClick, onUse }: Sk
 							<button
 								type="button"
 								onClick={handleUse}
-								className="h-7 shrink-0 rounded-md bg-[var(--leros-primary)] px-2.5 text-[11px] font-medium text-white transition-opacity hover:opacity-90"
+								className="h-7 shrink-0 rounded-md bg-[var(--lework-primary)] px-2.5 text-[11px] font-medium text-white transition-opacity hover:opacity-90"
 							>
 								使用
 							</button>

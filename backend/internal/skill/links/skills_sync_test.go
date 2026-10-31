@@ -5,21 +5,21 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
-func TestSyncToLerosDirCreatesSystemSkillsDirectory(t *testing.T) {
+func TestSyncToLeworkDirCreatesSystemSkillsDirectory(t *testing.T) {
 	builtinRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	writeSyncTestSkill(t, filepath.Join(builtinRoot, "review-flow"), "review-flow", "test body")
 
-	if err := SyncToLerosDir(builtinRoot); err != nil {
-		t.Fatalf("sync to leros dir: %v", err)
+	if err := SyncToLeworkDir(builtinRoot); err != nil {
+		t.Fatalf("sync to lework dir: %v", err)
 	}
 
-	systemSkillDir := filepath.Join(workspaceRoot, ".leros", "skills", ".system", "review-flow")
+	systemSkillDir := filepath.Join(workspaceRoot, ".lework", "skills", ".system", "review-flow")
 	targetBody, err := os.ReadFile(filepath.Join(systemSkillDir, skillManifestFile))
 	if err != nil {
 		t.Fatalf("read synced skill: %v", err)
@@ -29,19 +29,19 @@ func TestSyncToLerosDirCreatesSystemSkillsDirectory(t *testing.T) {
 	}
 }
 
-func TestSyncToLerosDirIncludesHiddenSystemSkills(t *testing.T) {
+func TestSyncToLeworkDirIncludesHiddenSystemSkills(t *testing.T) {
 	builtinRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	writeSyncTestSkill(t, filepath.Join(builtinRoot, "review-flow"), "review-flow", "visible")
 	writeSyncTestSkill(t, filepath.Join(builtinRoot, ".system", "lework-skill-manager"), "lework-skill-manager", "hidden")
 
-	if err := SyncToLerosDir(builtinRoot); err != nil {
-		t.Fatalf("sync to leros dir: %v", err)
+	if err := SyncToLeworkDir(builtinRoot); err != nil {
+		t.Fatalf("sync to lework dir: %v", err)
 	}
 
-	targetRoot := filepath.Join(workspaceRoot, ".leros", "skills", ".system")
+	targetRoot := filepath.Join(workspaceRoot, ".lework", "skills", ".system")
 	for _, name := range []string{"review-flow", "lework-skill-manager"} {
 		if _, err := os.Stat(filepath.Join(targetRoot, name, skillManifestFile)); err != nil {
 			t.Fatalf("synced Skill %q: %v", name, err)
@@ -52,30 +52,30 @@ func TestSyncToLerosDirIncludesHiddenSystemSkills(t *testing.T) {
 	}
 }
 
-func TestSyncToLerosDirIncludesHiddenSkillsWithoutVisibleSkills(t *testing.T) {
+func TestSyncToLeworkDirIncludesHiddenSkillsWithoutVisibleSkills(t *testing.T) {
 	builtinRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	writeSyncTestSkill(t, filepath.Join(builtinRoot, ".system", "lework-automation-manager"), "lework-automation-manager", "hidden")
 
-	if err := SyncToLerosDir(builtinRoot); err != nil {
+	if err := SyncToLeworkDir(builtinRoot); err != nil {
 		t.Fatalf("sync hidden Skill only: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workspaceRoot, ".leros", "skills", ".system", "lework-automation-manager", skillManifestFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(workspaceRoot, ".lework", "skills", ".system", "lework-automation-manager", skillManifestFile)); err != nil {
 		t.Fatalf("synced hidden Skill: %v", err)
 	}
 }
 
-func TestSyncToLerosDirRejectsDuplicateVisibleAndHiddenSkills(t *testing.T) {
+func TestSyncToLeworkDirRejectsDuplicateVisibleAndHiddenSkills(t *testing.T) {
 	builtinRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, workspaceRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, workspaceRoot)
 
 	writeSyncTestSkill(t, filepath.Join(builtinRoot, "duplicate"), "duplicate", "visible")
 	writeSyncTestSkill(t, filepath.Join(builtinRoot, ".system", "duplicate"), "duplicate", "hidden")
 
-	if err := SyncToLerosDir(builtinRoot); err == nil {
+	if err := SyncToLeworkDir(builtinRoot); err == nil {
 		t.Fatal("expected duplicate visible and hidden Skill to fail")
 	}
 }
@@ -84,7 +84,7 @@ func TestResolveBuiltinSkillsSourceFindsProjectParent(t *testing.T) {
 	root := t.TempDir()
 	writeSyncTestSkill(t, filepath.Join(root, "backend", "skills", "worker", "review-flow"), "review-flow", "test body")
 
-	nestedDir := filepath.Join(root, "backend", "cmd", "leros")
+	nestedDir := filepath.Join(root, "backend", "cmd", "lework")
 	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
 		t.Fatalf("mkdir nested dir: %v", err)
 	}

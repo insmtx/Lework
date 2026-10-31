@@ -1,11 +1,11 @@
 -- Seed preset AI teammate templates for local/dev databases.
 -- Usage:
---   psql "postgres://leros_dev_user:leros_dev_password@localhost:5433/leros_dev_db?sslmode=disable" \
+--   psql "postgres://lework_dev_user:lework_dev_password@localhost:5433/lework_dev_db?sslmode=disable" \
 --     -f deployments/dev/seed-ai-teammate-templates.sql
 --
 -- The script is idempotent by code and does not reset use_count or recommend_count.
 
-INSERT INTO leros_ai_teammate_template (
+INSERT INTO lework_ai_teammate_template (
   created_at,
   updated_at,
   code,

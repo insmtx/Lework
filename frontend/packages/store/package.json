@@ -1,5 +1,5 @@
 {
-  "name": "@leros/store",
+  "name": "@lework/store",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -19,14 +19,14 @@
   },
   "dependencies": {
     "zustand": "^5.0.11",
-    "@leros/ui": "workspace:*"
+    "@lework/ui": "workspace:*"
   },
   "peerDependencies": {
     "react": "catalog:",
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@leros/tsconfig": "workspace:*",
+    "@lework/tsconfig": "workspace:*",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "typescript": "catalog:"

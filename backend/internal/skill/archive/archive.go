@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/insmtx/Leros/backend/internal/skill/catalog"
+	"github.com/insmtx/Lework/backend/internal/skill/catalog"
 )
 
 const (

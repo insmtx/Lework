@@ -15,15 +15,15 @@ import (
 // 冷启动到 Prompt 可用耗时、首 token 耗时、进程数、两进程 RSS 峰值之和。
 // 不做硬性阈值断言，只要求量到非零值（数值随机器与模型变化）。
 //
-//	LEROS_ACP_PROBE=1 LEROS_ACP_PROBE_CONFIG_FILE=... \
+//	LEWORK_ACP_PROBE=1 LEWORK_ACP_PROBE_CONFIG_FILE=... \
 //	  go test ./backend/agent/runtime/internal/acp -run TestOpenCodeACPResources -v
 func TestOpenCodeACPResources(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x and network)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x and network)")
 	}
 
-	binary := envOrDefault("LEROS_ACP_PROBE_BIN", "opencode")
-	model := envOrDefault("LEROS_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
+	binary := envOrDefault("LEWORK_ACP_PROBE_BIN", "opencode")
+	model := envOrDefault("LEWORK_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
 
 	root, workDir := newProbeWorkspace(t)
 	configContent, err := probeConfigContent(model)

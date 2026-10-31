@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/ygpkg/yg-go/apis/constants"
 	"github.com/ygpkg/yg-go/apis/runtime"

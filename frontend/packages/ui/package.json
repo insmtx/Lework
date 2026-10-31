@@ -1,5 +1,5 @@
 {
-  "name": "@leros/ui",
+  "name": "@lework/ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -47,7 +47,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@leros/tsconfig": "workspace:*",
+    "@lework/tsconfig": "workspace:*",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "typescript": "catalog:"

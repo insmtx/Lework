@@ -9,7 +9,7 @@ describe("private deployment build marker", () => {
 		const viteConfig = readFileSync(resolve(desktopRoot, "electron.vite.config.ts"), "utf8");
 
 		expect(viteConfig).toContain('publicDir: resolve("src/renderer/public")');
-		expect(viteConfig).toContain('process.env.VITE_LEROS_DEPLOYMENT_MODE ?? "public"');
+		expect(viteConfig).toContain('process.env.VITE_LEWORK_DEPLOYMENT_MODE ?? "public"');
 	});
 
 	it("provides dedicated private packaging commands", () => {
@@ -46,9 +46,9 @@ describe("private deployment build marker", () => {
 		expect(desktopPackage.scripts?.["dist:private:linux:arm64"]).toBe(
 			"node scripts/dist-private-target.mjs --linux AppImage:arm64 deb:arm64",
 		);
-		expect(privateBuildScript).toContain('VITE_LEROS_DEPLOYMENT_MODE = "private"');
+		expect(privateBuildScript).toContain('VITE_LEWORK_DEPLOYMENT_MODE = "private"');
 		expect(privateBuildScript).toContain('import("./dist-local.mjs")');
-		expect(privateTargetScript).toContain('VITE_LEROS_DEPLOYMENT_MODE = "private"');
+		expect(privateTargetScript).toContain('VITE_LEWORK_DEPLOYMENT_MODE = "private"');
 		expect(privateTargetScript).toContain("runDesktopDist(builderArgs)");
 		expect(distRunScript).toContain("-linux-${arch}-private.${ext}");
 		expect(desktopPackage.scripts?.icons).toContain("inject-deploy-config.mjs");
@@ -63,11 +63,11 @@ describe("private deployment build marker", () => {
 		expect(gitlabCi).toContain("dist:desktop${private_script_infix}");
 		expect(gitlabCi).toContain('name_suffix="-private"');
 		expect(gitlabCi).toContain("${root_prefix}/private/${deploy_mode}");
-		expect(gitlabCi).toContain("Private desktop build requires LEROS_DEPLOY_MODE");
+		expect(gitlabCi).toContain("Private desktop build requires LEWORK_DEPLOY_MODE");
 		expect(gitlabCi).toContain("Ignoring desktop_deploy_mode/desktop_app_name/desktop_s3_domain because environment=");
-		expect(gitlabCi).toContain("LEROS_DEPLOY_S3_DOMAIN");
+		expect(gitlabCi).toContain("LEWORK_DEPLOY_S3_DOMAIN");
 		expect(gitlabCi).toContain("desktop_s3_domain");
-		expect(gitlabCi).toContain("Invalid LEROS_DEPLOY_MODE");
+		expect(gitlabCi).toContain("Invalid LEWORK_DEPLOY_MODE");
 		expect(gitlabCi).toContain("/download?edition=private&mode=${deploy_mode}");
 		expect(gitlabCi).toContain('$ENV != "private"');
 		expect(gitlabCi).toContain("desktop-build-linux-arm64:");
@@ -91,9 +91,9 @@ describe("private deployment build marker", () => {
 			"@electron-toolkit/utils",
 			"electron-updater",
 		]);
-		expect(desktopPackage.devDependencies?.["@leros/app-ui"]).toBe("workspace:*");
-		expect(desktopPackage.devDependencies?.["@leros/store"]).toBe("workspace:*");
-		expect(desktopPackage.devDependencies?.["@leros/ui"]).toBe("workspace:*");
+		expect(desktopPackage.devDependencies?.["@lework/app-ui"]).toBe("workspace:*");
+		expect(desktopPackage.devDependencies?.["@lework/store"]).toBe("workspace:*");
+		expect(desktopPackage.devDependencies?.["@lework/ui"]).toBe("workspace:*");
 		expect(desktopPackage.devDependencies?.react).toBe("catalog:");
 	});
 });

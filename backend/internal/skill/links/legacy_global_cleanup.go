@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 const legacyGlobalSkillLinksCleanupVersion = "remove-global-cli-skill-links-v1"
@@ -35,7 +35,7 @@ type legacyGlobalSkillLinksCleanupMarker struct {
 // CleanupLegacyGlobalSkillLinksOnce removes only legacy global CLI Skill links.
 // It never removes real files, real directories, or links to any other location.
 func CleanupLegacyGlobalSkillLinksOnce() (*LegacyGlobalSkillLinksCleanupReport, error) {
-	stateDir, err := leros.EnsureStateDir()
+	stateDir, err := lework.EnsureStateDir()
 	if err != nil {
 		return nil, err
 	}

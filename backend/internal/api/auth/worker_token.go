@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	WorkerTokenIssuer   = "leros"
+	WorkerTokenIssuer   = "lework"
 	WorkerTokenAudience = "worker"
 	WorkerTokenKind     = "worker"
 	WorkerTokenScopeAPI = "worker:server-api"

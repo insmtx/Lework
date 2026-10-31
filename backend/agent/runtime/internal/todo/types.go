@@ -1,6 +1,6 @@
 package todo
 
-import "github.com/insmtx/Leros/backend/agent"
+import "github.com/insmtx/Lework/backend/agent"
 
 // ToolName is the canonical name used by the planning tool.
 const ToolName = "todo"

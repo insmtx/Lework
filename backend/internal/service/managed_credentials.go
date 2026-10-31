@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
 )
 
 // ManagedCredentialRequest describes the trusted purpose for resolving connector credentials.

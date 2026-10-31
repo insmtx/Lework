@@ -1,6 +1,6 @@
 "use client";
 
-import { isBrandingSettingsEnabled, isPrivateDeployment } from "@leros/store";
+import { isBrandingSettingsEnabled, isPrivateDeployment } from "@lework/store";
 import { BrandingSettingsCard } from "./BrandingSettingsCard";
 import { PrivateServerSettingsCard } from "./PrivateServerSettingsCard";
 
