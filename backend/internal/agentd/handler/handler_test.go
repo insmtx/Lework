@@ -392,8 +392,11 @@ func TestIdempotencyStoreCleansUpOnWrite(t *testing.T) {
 
 func TestUnknownMethod(t *testing.T) {
 	_, err := New(&fakeOpenCode{}, fakeSupervisor{}).Handle(context.Background(), "nope", nil)
-	if err == nil {
-		t.Fatal("expected error")
+	if !errors.Is(err, ErrUnknownMethod) {
+		t.Fatalf("err = %v, want ErrUnknownMethod", err)
+	}
+	if !strings.Contains(err.Error(), `"nope"`) {
+		t.Fatalf("err = %v, want method name", err)
 	}
 }
 

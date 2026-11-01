@@ -6,10 +6,10 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -105,7 +105,9 @@ func (r *Runner) Run(ctx context.Context) error {
 	frames, readErrs := r.readFrames(runCtx)
 	workerErrs := make(chan error, 2)
 	go func() { workerErrs <- r.heartbeat(runCtx) }()
-	go func() { workerErrs <- r.forwardEvents(runCtx) }()
+	if r.events != nil {
+		go func() { workerErrs <- r.forwardEvents(runCtx) }()
+	}
 
 	for {
 		select {
@@ -131,6 +133,9 @@ func (r *Runner) Run(ctx context.Context) error {
 
 		case frame := <-frames:
 			if err := r.dispatch(runCtx, frame); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
 				return err
 			}
 		}
@@ -239,10 +244,6 @@ func (r *Runner) heartbeat(ctx context.Context) error {
 // sequence in I0), so it emits a resync marker and fails the connection; the
 // caller reconnects with backoff and the control plane resynchronizes state.
 func (r *Runner) forwardEvents(ctx context.Context) error {
-	if r.events == nil {
-		return nil
-	}
-
 	events, err := r.events.SubscribeEvents(ctx)
 	if err != nil {
 		return fmt.Errorf("agentd: subscribe opencode events: %w", err)
@@ -334,12 +335,11 @@ func (r *Runner) respond(ctx context.Context, frame protocol.Frame) error {
 	return nil
 }
 
-// errorCode maps a handler error to a stable wire code. handler has no typed
-// error values yet, so the unknown-method case is recognised by the message it
-// generates; every other failure is reported as an internal error. The message
-// is forwarded verbatim and never contains request params.
+// errorCode maps a handler error to a stable wire code. Unknown methods carry
+// handler.ErrUnknownMethod; every other failure is reported as an internal
+// error. The message is forwarded verbatim and never contains request params.
 func errorCode(err error) string {
-	if strings.Contains(err.Error(), "unknown method") {
+	if errors.Is(err, handler.ErrUnknownMethod) {
 		return "method_not_found"
 	}
 	return "internal_error"

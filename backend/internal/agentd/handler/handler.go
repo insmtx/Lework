@@ -78,6 +78,11 @@ type NodeInfo struct {
 	AgentVersion string `json:"agent_version"`
 }
 
+// ErrUnknownMethod reports a method the handler does not implement. It is a
+// sentinel so the runner can map the failure to a stable method_not_found wire
+// code without matching message text.
+var ErrUnknownMethod = errors.New("agentd: unknown method")
+
 // Handler dispatches one request at a time to the OpenCode API or supervisor.
 // It never logs params, so prompt text stays out of agent logs.
 type Handler struct {
@@ -144,7 +149,7 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		return nil, h.opencode.ReplyPermission(ctx, p.SessionID, p.PermissionID, p.Decision, p.Message)
 
 	default:
-		return nil, fmt.Errorf("agentd: unknown method %q", method)
+		return nil, fmt.Errorf("%w %q", ErrUnknownMethod, method)
 	}
 }
 

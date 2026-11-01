@@ -430,6 +430,38 @@ func TestRunnerReturnsInternalErrorForHandlerFailure(t *testing.T) {
 	}
 }
 
+func TestRunnerWithoutEventSourceStaysAlive(t *testing.T) {
+	transport := newFakeTransport()
+	r := New(
+		transport,
+		handler.New(stubOpenCode{}, stubSupervisor{}),
+		nil,
+		RunnerConfig{NodeID: "node-1", AgentVersion: "0.1.0-test"},
+	)
+	cancel, done := runAsync(t, r)
+
+	completeHandshake(t, transport)
+
+	// A nil event source must only disable event forwarding; it must not tear
+	// down an otherwise healthy connection after the handshake.
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned before cancellation: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest, ID: "r5", Method: "node.info"}
+	response := readFrame(t, transport)
+	if response.ID != "r5" || response.Error != nil {
+		t.Fatalf("response = %+v, want successful r5", response)
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v, want nil after cancel", err)
+	}
+}
+
 func TestNewDefaultsHeartbeat(t *testing.T) {
 	r, _, _ := testRunner(t, 0)
 	if r.cfg.Heartbeat != 10*time.Second {
