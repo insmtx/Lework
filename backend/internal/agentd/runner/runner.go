@@ -39,8 +39,12 @@ type EventSource interface {
 // RunnerConfig describes the identity and liveness cadence of this agent.
 type RunnerConfig struct {
 	// NodeID is stamped on every forwarded event so the control plane can
-	// attribute it to a node.
+	// attribute it to a node. The control plane may override it during the
+	// handshake with the ID it assigns.
 	NodeID string
+	// NodeName is the stable human-readable identity reported in hello. The
+	// control plane keys node records by name, so reconnects reuse the ID.
+	NodeName string
 	// AgentVersion is reported during registration.
 	AgentVersion string
 	// Heartbeat is the interval between heartbeat frames. Zero selects the
@@ -146,11 +150,13 @@ func (r *Runner) Run(ctx context.Context) error {
 // dispatches so the control plane can hide features before calling them.
 func (r *Runner) sendHello(ctx context.Context) error {
 	params, err := json.Marshal(struct {
+		NodeName     string   `json:"node_name"`
 		AgentVersion string   `json:"agent_version"`
 		OS           string   `json:"os"`
 		Arch         string   `json:"arch"`
 		Capabilities []string `json:"capabilities"`
 	}{
+		NodeName:     r.cfg.NodeName,
 		AgentVersion: r.cfg.AgentVersion,
 		OS:           runtime.GOOS,
 		Arch:         runtime.GOARCH,
@@ -186,6 +192,11 @@ func (r *Runner) sendHello(ctx context.Context) error {
 // received before welcome are ignored: a peer may heartbeat while it validates
 // the agent. Every inbound frame is validated first so a malformed peer fails
 // fast instead of being partially processed.
+//
+// A welcome result carries the node ID the control plane assigned (or reused).
+// It replaces the configured NodeID so forwarded events are attributed to the
+// registered node; a welcome without a result keeps the configured value for
+// compatibility with peers that do not assign IDs.
 func (r *Runner) awaitWelcome(ctx context.Context) error {
 	for {
 		frame, err := r.transport.Read(ctx)
@@ -196,9 +207,28 @@ func (r *Runner) awaitWelcome(ctx context.Context) error {
 			return fmt.Errorf("agentd: invalid frame: %w", err)
 		}
 		if frame.Type == protocol.FrameWelcome {
-			return nil
+			return r.applyWelcome(frame)
 		}
 	}
+}
+
+// applyWelcome adopts the control-plane-assigned node ID from a welcome frame.
+// An empty result is the I0 fallback; unparsable JSON is a protocol error and
+// fails the handshake instead of silently keeping a possibly wrong identity.
+func (r *Runner) applyWelcome(frame protocol.Frame) error {
+	if len(frame.Result) == 0 {
+		return nil
+	}
+	var result struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := json.Unmarshal(frame.Result, &result); err != nil {
+		return fmt.Errorf("agentd: decode welcome result: %w", err)
+	}
+	if result.NodeID != "" {
+		r.cfg.NodeID = result.NodeID
+	}
+	return nil
 }
 
 // readFrames pumps transport reads into a channel so Run can select on them

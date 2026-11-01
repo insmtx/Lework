@@ -130,9 +130,12 @@ func reconnect(ctx context.Context, cfg *config.Config, client *opencode.Client,
 			logs.Infof("lework-agent: connected to control plane")
 			started := time.Now()
 			runErr := runner.New(conn, requestHandler, client, runner.RunnerConfig{
-				// NodeID is a placeholder in I0: the control plane's welcome
-				// frame carries the real node ID, which is not persisted yet.
+				// NodeID is a placeholder: the welcome frame carries the ID the
+				// control plane assigned (node_...) and the runner switches to
+				// it before forwarding events. NodeName is the stable identity
+				// the control plane keys node records by.
 				NodeID:       cfg.NodeName,
+				NodeName:     cfg.NodeName,
 				AgentVersion: version,
 				Heartbeat:    heartbeatInterval,
 			}).Run(ctx)

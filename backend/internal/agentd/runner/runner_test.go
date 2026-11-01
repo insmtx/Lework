@@ -517,3 +517,110 @@ func TestNewDefaultsHeartbeat(t *testing.T) {
 		t.Fatalf("heartbeat = %v, want 10s", r.cfg.Heartbeat)
 	}
 }
+
+// testRunnerWithConfig builds a runner with an explicit identity so identity
+// tests can vary NodeID/NodeName without disturbing the shared helper.
+func testRunnerWithConfig(cfg RunnerConfig) (*Runner, *fakeTransport, *fakeEvents) {
+	transport := newFakeTransport()
+	events := &fakeEvents{events: make(chan opencode.Event, 8)}
+	return New(
+		transport,
+		handler.New(stubOpenCode{}, stubSupervisor{}),
+		events,
+		cfg,
+	), transport, events
+}
+
+func TestSendHelloIncludesNodeName(t *testing.T) {
+	r, transport, _ := testRunnerWithConfig(RunnerConfig{
+		NodeID:       "node-1",
+		NodeName:     "dev-box",
+		AgentVersion: "0.1.0-test",
+	})
+
+	if err := r.sendHello(context.Background()); err != nil {
+		t.Fatalf("sendHello() = %v, want nil", err)
+	}
+
+	hello := awaitHello(t, transport)
+	if !strings.Contains(string(hello.Params), `"node_name":"dev-box"`) {
+		t.Fatalf("hello params = %s, want node_name dev-box", hello.Params)
+	}
+}
+
+func TestAwaitWelcomeUsesAssignedNodeID(t *testing.T) {
+	r, transport, events := testRunnerWithConfig(RunnerConfig{
+		NodeID:       "node-1",
+		NodeName:     "dev-box",
+		AgentVersion: "0.1.0-test",
+	})
+	cancel, done := runAsync(t, r)
+
+	hello := awaitHello(t, transport)
+	transport.reads <- protocol.Frame{
+		Type:   protocol.FrameWelcome,
+		ID:     hello.ID,
+		Result: json.RawMessage(`{"node_id":"node_assigned"}`),
+	}
+	events.events <- opencode.Event{Type: "session.text.delta", SessionID: "ses_1"}
+
+	frame := readFrame(t, transport)
+	if frame.Type != protocol.FrameEvent || frame.Event == nil {
+		t.Fatalf("frame = %+v, want event frame", frame)
+	}
+	if frame.Event.NodeID != "node_assigned" {
+		t.Fatalf("event node_id = %q, want node_assigned", frame.Event.NodeID)
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v, want nil after cancel", err)
+	}
+}
+
+func TestAwaitWelcomeFallsBackWithoutNodeID(t *testing.T) {
+	r, transport, events := testRunnerWithConfig(RunnerConfig{
+		NodeID:       "node-1",
+		NodeName:     "dev-box",
+		AgentVersion: "0.1.0-test",
+	})
+	cancel, done := runAsync(t, r)
+
+	completeHandshake(t, transport)
+	events.events <- opencode.Event{Type: "session.text.delta", SessionID: "ses_1"}
+
+	frame := readFrame(t, transport)
+	if frame.Type != protocol.FrameEvent || frame.Event == nil {
+		t.Fatalf("frame = %+v, want event frame", frame)
+	}
+	if frame.Event.NodeID != "node-1" {
+		t.Fatalf("event node_id = %q, want configured node-1", frame.Event.NodeID)
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v, want nil after cancel", err)
+	}
+}
+
+func TestAwaitWelcomeRejectsMalformedNodeID(t *testing.T) {
+	r, transport, _ := testRunnerWithConfig(RunnerConfig{
+		NodeID:       "node-1",
+		NodeName:     "dev-box",
+		AgentVersion: "0.1.0-test",
+	})
+	cancel, done := runAsync(t, r)
+
+	hello := awaitHello(t, transport)
+	transport.reads <- protocol.Frame{
+		Type:   protocol.FrameWelcome,
+		ID:     hello.ID,
+		Result: json.RawMessage(`{"node_id":`),
+	}
+
+	err := waitRun(t, done)
+	if err == nil || !strings.Contains(err.Error(), "welcome") {
+		t.Fatalf("Run() = %v, want wrapped welcome decode error", err)
+	}
+	cancel()
+}

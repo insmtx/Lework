@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -109,6 +110,9 @@ func (c *Config) Validate() error {
 	}
 	if u.Host == "" {
 		return fmt.Errorf("config: control_plane_url must include a host")
+	}
+	if strings.TrimSpace(c.NodeName) == "" {
+		return fmt.Errorf("config: node_name is required")
 	}
 	if len(c.WorkspaceRoots) == 0 {
 		return fmt.Errorf("config: workspace_roots must list at least one directory")
