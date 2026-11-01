@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -208,5 +210,68 @@ func TestCloseIsIdempotent(t *testing.T) {
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("second Close() failed: %v", err)
+	}
+}
+
+func TestOpenCreatesParentDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "controlplane.db")
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open() with missing parent directory failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("Close() failed: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected database file at %q: %v", path, err)
+	}
+}
+
+// TestUpsertNodeIgnoresSuppliedIDOnInsert 防止调用方传入的 ID 覆盖已有节点的行：
+// 名称不存在时必须生成新 ID，而不是沿用请求里的 ID。
+func TestUpsertNodeIgnoresSuppliedIDOnInsert(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	existing, err := s.UpsertNode(ctx, Node{Name: "alpha", AgentVersion: "v1"})
+	if err != nil {
+		t.Fatalf("first UpsertNode() failed: %v", err)
+	}
+
+	inserted, err := s.UpsertNode(ctx, Node{ID: existing.ID, Name: "beta", AgentVersion: "v2"})
+	if err != nil {
+		t.Fatalf("second UpsertNode() failed: %v", err)
+	}
+	if inserted.ID == existing.ID {
+		t.Fatalf("UpsertNode() reused caller-supplied ID %q", inserted.ID)
+	}
+	if !strings.HasPrefix(inserted.ID, "node_") {
+		t.Errorf("ID = %q, want prefix %q", inserted.ID, "node_")
+	}
+	if len(inserted.ID) != len("node_")+16 {
+		t.Errorf("ID = %q, want node_ followed by 16 hex chars", inserted.ID)
+	}
+
+	nodes, err := s.ListNodes(ctx)
+	if err != nil {
+		t.Fatalf("ListNodes() failed: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("ListNodes() returned %d nodes, want 2", len(nodes))
+	}
+
+	byID := make(map[string]Node, len(nodes))
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+	if byID[existing.ID].Name != "alpha" || byID[existing.ID].AgentVersion != "v1" {
+		t.Errorf("existing node was modified: %+v", byID[existing.ID])
+	}
+	if byID[inserted.ID].Name != "beta" {
+		t.Errorf("inserted node = %+v, want name beta", byID[inserted.ID])
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +45,14 @@ type Store struct {
 func Open(path string) (*Store, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("store path is required")
+	}
+
+	// 默认数据库位于用户配置目录下，首次运行时父目录可能不存在。
+	// 父目录权限收紧到 0700：其中保存的是本机节点注册信息。
+	if path != ":memory:" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, fmt.Errorf("create store directory for %q: %w", path, err)
+		}
 	}
 
 	database, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
@@ -102,7 +112,9 @@ func (s *Store) UpsertNode(ctx context.Context, n Node) (Node, error) {
 	if len(existing) > 0 {
 		n.ID = existing[0].ID
 		n.CreatedAt = existing[0].CreatedAt
-	} else if n.ID == "" {
+	} else {
+		// 名称不存在时一律生成新 ID：沿用调用方传入的 ID 会在 GORM Save 时
+		// 覆盖另一条节点的行，导致静默改错记录。
 		id, idErr := newNodeID()
 		if idErr != nil {
 			return Node{}, idErr
