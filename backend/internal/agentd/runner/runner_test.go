@@ -126,6 +126,21 @@ func (stubOpenCode) ClosePersistentTerminal(context.Context, string) error {
 	return nil
 }
 
+// fakeRequestHandler is a deterministic RequestHandler for PTY forwarding and
+// shutdown tests. The production handler is exercised separately.
+type fakeRequestHandler struct {
+	events chan protocol.Event
+	closed atomic.Bool
+}
+
+func (f *fakeRequestHandler) Handle(context.Context, string, json.RawMessage) (any, error) {
+	return nil, nil
+}
+
+func (f *fakeRequestHandler) PTYEvents() <-chan protocol.Event { return f.events }
+
+func (f *fakeRequestHandler) ClosePTYs() { f.closed.Store(true) }
+
 type stubSupervisor struct{}
 
 func (stubSupervisor) Ensure(context.Context) (supervisor.Status, error) {
@@ -655,4 +670,73 @@ func TestAwaitWelcomeRejectsMalformedNodeID(t *testing.T) {
 		t.Fatalf("Run() = %v, want wrapped welcome decode error", err)
 	}
 	cancel()
+}
+
+func TestHelloCapabilitiesIncludeI1BMethods(t *testing.T) {
+	r, transport, _ := testRunner(t, 0)
+	if err := r.sendHello(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	hello := awaitHello(t, transport)
+	var params struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(hello.Params, &params); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"session.diff", "session.interrupt",
+		"file.list", "file.read",
+		"pty.create", "pty.attach", "pty.write", "pty.resize", "pty.close",
+	}
+	for _, method := range want {
+		if !contains(params.Capabilities, method) {
+			t.Fatalf("capabilities missing %q: %v", method, params.Capabilities)
+		}
+	}
+}
+
+func TestRunnerForwardsPTYEventsAndClosesOnExit(t *testing.T) {
+	transport := newFakeTransport()
+	requestHandler := &fakeRequestHandler{events: make(chan protocol.Event, 4)}
+	r := New(transport, requestHandler, nil, RunnerConfig{
+		NodeID:       "node-1",
+		AgentVersion: "0.1.0-test",
+	})
+	cancel, done := runAsync(t, r)
+	completeHandshake(t, transport)
+
+	requestHandler.events <- protocol.Event{
+		NodeID:    "",
+		SessionID: "ses_1",
+		Type:      "pty.output",
+		Data:      json.RawMessage(`{"pty_id":"pty_1","data":"aGk="}`),
+	}
+	frame := readFrame(t, transport)
+	if frame.Type != protocol.FrameEvent || frame.Event == nil {
+		t.Fatalf("frame = %+v, want event", frame)
+	}
+	if frame.Event.NodeID != "node-1" || frame.Event.SessionID != "ses_1" || frame.Event.Type != "pty.output" {
+		t.Fatalf("event = %#v", frame.Event)
+	}
+	if frame.Event.Time.IsZero() {
+		t.Fatal("event time was not filled")
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if !requestHandler.closed.Load() {
+		t.Fatal("handler.ClosePTYs was not called")
+	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

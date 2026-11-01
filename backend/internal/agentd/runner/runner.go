@@ -36,6 +36,15 @@ type EventSource interface {
 	SubscribeEvents(ctx context.Context) (<-chan opencode.Event, error)
 }
 
+// RequestHandler is the handler surface the runner drives. It is an interface
+// so tests can supply a deterministic PTY event source without a real agent
+// process; *handler.Handler is the production implementation.
+type RequestHandler interface {
+	Handle(ctx context.Context, method string, params json.RawMessage) (any, error)
+	PTYEvents() <-chan protocol.Event
+	ClosePTYs()
+}
+
 // RunnerConfig describes the identity and liveness cadence of this agent.
 type RunnerConfig struct {
 	// NodeID is stamped on every forwarded event so the control plane can
@@ -56,7 +65,7 @@ type RunnerConfig struct {
 // dial attempt, so no state leaks across reconnects.
 type Runner struct {
 	transport Transport
-	handler   *handler.Handler
+	handler   RequestHandler
 	events    EventSource
 	cfg       RunnerConfig
 
@@ -66,7 +75,7 @@ type Runner struct {
 }
 
 // New builds a runner for one connection attempt.
-func New(transport Transport, requestHandler *handler.Handler, events EventSource, cfg RunnerConfig) *Runner {
+func New(transport Transport, requestHandler RequestHandler, events EventSource, cfg RunnerConfig) *Runner {
 	if cfg.Heartbeat <= 0 {
 		cfg.Heartbeat = defaultHeartbeat
 	}
@@ -105,12 +114,18 @@ func (r *Runner) Run(ctx context.Context) error {
 	// Every worker shares this context so returning from Run stops them.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if r.handler != nil {
+		defer r.handler.ClosePTYs()
+	}
 
 	frames, readErrs := r.readFrames(runCtx)
-	workerErrs := make(chan error, 2)
+	workerErrs := make(chan error, 3)
 	go func() { workerErrs <- r.heartbeat(runCtx) }()
 	if r.events != nil {
 		go func() { workerErrs <- r.forwardEvents(runCtx) }()
+	}
+	if r.handler != nil {
+		go func() { workerErrs <- r.forwardPTYEvents(runCtx) }()
 	}
 
 	for {
@@ -170,7 +185,16 @@ func (r *Runner) sendHello(ctx context.Context) error {
 			"session.create",
 			"session.prompt",
 			"session.messages",
+			"session.diff",
+			"session.interrupt",
 			"permission.reply",
+			"file.list",
+			"file.read",
+			"pty.create",
+			"pty.attach",
+			"pty.write",
+			"pty.resize",
+			"pty.close",
 		},
 	})
 	if err != nil {
@@ -324,6 +348,33 @@ func (r *Runner) forwardEvents(ctx context.Context) error {
 			}
 			if err := r.write(ctx, frame); err != nil {
 				return fmt.Errorf("agentd: write event: %w", err)
+			}
+		}
+	}
+}
+
+// forwardPTYEvents mirrors handler-owned terminal output onto the control-plane
+// connection. The handler channel is intentionally never closed: a reconnect
+// reuses the same handler, and the runner's context ends this goroutine.
+func (r *Runner) forwardPTYEvents(ctx context.Context) error {
+	events := r.handler.PTYEvents()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if event.NodeID == "" {
+				event.NodeID = r.cfg.NodeID
+			}
+			if event.Time.IsZero() {
+				event.Time = time.Now().UTC()
+			}
+			frame := protocol.Frame{Type: protocol.FrameEvent, Event: &event}
+			if err := r.write(ctx, frame); err != nil {
+				return fmt.Errorf("agentd: write pty event: %w", err)
 			}
 		}
 	}
