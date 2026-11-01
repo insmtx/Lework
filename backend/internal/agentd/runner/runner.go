@@ -1,0 +1,355 @@
+// Package runner keeps one control-plane connection alive: it registers the
+// agent, answers requests through the handler, emits OpenCode events, and sends
+// heartbeats. It owns no process lifecycle; callers dial, run, and close.
+package runner
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/insmtx/Lework/backend/internal/agentd/handler"
+	"github.com/insmtx/Lework/backend/internal/agentd/opencode"
+	"github.com/insmtx/Lework/backend/internal/agentd/protocol"
+)
+
+// defaultHeartbeat matches the control plane's idle expectation. It is applied
+// by New so a zero RunnerConfig still produces a usable runner.
+const defaultHeartbeat = 10 * time.Second
+
+// Transport is the frame-level connection to the control plane. It must support
+// one concurrent reader and one concurrent writer; the runner serializes writes
+// itself. *transport.Client satisfies it.
+type Transport interface {
+	Write(ctx context.Context, f protocol.Frame) error
+	Read(ctx context.Context) (protocol.Frame, error)
+	Close() error
+}
+
+// EventSource supplies the OpenCode event feed. *opencode.Client satisfies it.
+type EventSource interface {
+	SubscribeEvents(ctx context.Context) (<-chan opencode.Event, error)
+}
+
+// RunnerConfig describes the identity and liveness cadence of this agent.
+type RunnerConfig struct {
+	// NodeID is stamped on every forwarded event so the control plane can
+	// attribute it to a node.
+	NodeID string
+	// AgentVersion is reported during registration.
+	AgentVersion string
+	// Heartbeat is the interval between heartbeat frames. Zero selects the
+	// 10s default.
+	Heartbeat time.Duration
+}
+
+// Runner drives one connection. It is single-use: a Runner is created for each
+// dial attempt, so no state leaks across reconnects.
+type Runner struct {
+	transport Transport
+	handler   *handler.Handler
+	events    EventSource
+	cfg       RunnerConfig
+
+	// writeMu keeps heartbeat and event writes from interleaving on a transport
+	// that permits only one concurrent writer.
+	writeMu sync.Mutex
+}
+
+// New builds a runner for one connection attempt.
+func New(transport Transport, requestHandler *handler.Handler, events EventSource, cfg RunnerConfig) *Runner {
+	if cfg.Heartbeat <= 0 {
+		cfg.Heartbeat = defaultHeartbeat
+	}
+	return &Runner{
+		transport: transport,
+		handler:   requestHandler,
+		events:    events,
+		cfg:       cfg,
+	}
+}
+
+// Run performs the registration handshake and then serves requests, heartbeats,
+// and events until ctx is canceled or the connection fails. A canceled context
+// is a clean shutdown and returns nil; connection and event-stream failures are
+// returned wrapped so the caller can reconnect with backoff.
+//
+// Run never logs request params or prompt text.
+func (r *Runner) Run(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	if err := r.sendHello(ctx); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+	if err := r.awaitWelcome(ctx); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+
+	// Every worker shares this context so returning from Run stops them.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	frames, readErrs := r.readFrames(runCtx)
+	workerErrs := make(chan error, 2)
+	go func() { workerErrs <- r.heartbeat(runCtx) }()
+	go func() { workerErrs <- r.forwardEvents(runCtx) }()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+
+		case err := <-readErrs:
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("agentd: read frame: %w", err)
+
+		case err := <-workerErrs:
+			if ctx.Err() != nil {
+				return nil
+			}
+			if err == nil {
+				// Only context cancellation makes a worker return nil, which is
+				// already handled by the ctx.Done case.
+				return nil
+			}
+			return err
+
+		case frame := <-frames:
+			if err := r.dispatch(runCtx, frame); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// sendHello registers this agent. Capabilities mirror the methods the handler
+// dispatches so the control plane can hide features before calling them.
+func (r *Runner) sendHello(ctx context.Context) error {
+	params, err := json.Marshal(struct {
+		AgentVersion string   `json:"agent_version"`
+		OS           string   `json:"os"`
+		Arch         string   `json:"arch"`
+		Capabilities []string `json:"capabilities"`
+	}{
+		AgentVersion: r.cfg.AgentVersion,
+		OS:           runtime.GOOS,
+		Arch:         runtime.GOARCH,
+		Capabilities: []string{
+			"node.info",
+			"opencode.status",
+			"opencode.start",
+			"opencode.restart",
+			"opencode.stop",
+			"session.list",
+			"session.create",
+			"session.prompt",
+			"session.messages",
+			"permission.reply",
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("agentd: encode hello params: %w", err)
+	}
+
+	frame := protocol.Frame{
+		Type:   protocol.FrameHello,
+		ID:     fmt.Sprintf("hello-%d", time.Now().UnixNano()),
+		Params: params,
+	}
+	if err := r.write(ctx, frame); err != nil {
+		return fmt.Errorf("agentd: send hello: %w", err)
+	}
+	return nil
+}
+
+// awaitWelcome reads until the control plane acknowledges registration. Frames
+// received before welcome are ignored: a peer may heartbeat while it validates
+// the agent.
+func (r *Runner) awaitWelcome(ctx context.Context) error {
+	for {
+		frame, err := r.transport.Read(ctx)
+		if err != nil {
+			return fmt.Errorf("agentd: read welcome: %w", err)
+		}
+		if frame.Type == protocol.FrameWelcome {
+			return nil
+		}
+	}
+}
+
+// readFrames pumps transport reads into a channel so Run can select on them
+// alongside worker failures. Without the pump a blocked Read would hide an
+// event-stream failure until the next inbound frame arrived.
+func (r *Runner) readFrames(ctx context.Context) (<-chan protocol.Frame, <-chan error) {
+	frames := make(chan protocol.Frame)
+	errs := make(chan error, 1)
+
+	go func() {
+		for {
+			frame, err := r.transport.Read(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			select {
+			case frames <- frame:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return frames, errs
+}
+
+// heartbeat keeps the connection alive while no traffic flows.
+func (r *Runner) heartbeat(ctx context.Context) error {
+	ticker := time.NewTicker(r.cfg.Heartbeat)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := r.write(ctx, protocol.Frame{Type: protocol.FrameHeartbeat}); err != nil {
+				return fmt.Errorf("agentd: write heartbeat: %w", err)
+			}
+		}
+	}
+}
+
+// forwardEvents mirrors the OpenCode event stream onto the control-plane
+// connection. A closed stream means the agent lost events (there is no stable
+// sequence in I0), so it emits a resync marker and fails the connection; the
+// caller reconnects with backoff and the control plane resynchronizes state.
+func (r *Runner) forwardEvents(ctx context.Context) error {
+	if r.events == nil {
+		return nil
+	}
+
+	events, err := r.events.SubscribeEvents(ctx)
+	if err != nil {
+		return fmt.Errorf("agentd: subscribe opencode events: %w", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case event, ok := <-events:
+			if !ok {
+				// Cancellation also closes the source channel; report that as a
+				// clean stop instead of a resync so shutdown stays quiet.
+				if ctx.Err() != nil {
+					return nil
+				}
+				resync := protocol.Event{
+					NodeID: r.cfg.NodeID,
+					Seq:    0,
+					Type:   "agent.resync_required",
+					Time:   time.Now(),
+				}
+				if writeErr := r.write(ctx, protocol.Frame{Type: protocol.FrameEvent, Event: &resync}); writeErr != nil {
+					return fmt.Errorf("agentd: write resync event: %w", writeErr)
+				}
+				return fmt.Errorf("agentd: opencode event stream closed: %w", io.EOF)
+			}
+
+			frame := protocol.Frame{
+				Type: protocol.FrameEvent,
+				Event: &protocol.Event{
+					NodeID:    r.cfg.NodeID,
+					SessionID: event.SessionID,
+					Seq:       0,
+					Type:      event.Type,
+					Data:      event.Data,
+					Time:      time.Now(),
+				},
+			}
+			if err := r.write(ctx, frame); err != nil {
+				return fmt.Errorf("agentd: write event: %w", err)
+			}
+		}
+	}
+}
+
+// dispatch handles one inbound frame. Unknown frame types are ignored so a
+// newer control plane can add frames without tearing down an older agent.
+func (r *Runner) dispatch(ctx context.Context, frame protocol.Frame) error {
+	switch frame.Type {
+	case protocol.FrameRequest:
+		return r.respond(ctx, frame)
+	case protocol.FrameResponse, protocol.FrameCancel, protocol.FrameHeartbeat:
+		// I0 has no server-initiated requests and all agent requests are
+		// short-lived, so responses, cancels, and peer heartbeats need no work.
+		return nil
+	default:
+		return nil
+	}
+}
+
+// respond executes a request and writes its result or error. A handler failure
+// becomes an error frame, not a dropped connection, so one bad request cannot
+// take down event forwarding or heartbeats.
+func (r *Runner) respond(ctx context.Context, frame protocol.Frame) error {
+	result, err := r.handler.Handle(ctx, frame.Method, frame.Params)
+
+	response := protocol.Frame{Type: protocol.FrameResponse, ID: frame.ID}
+	if err != nil {
+		response.Error = &protocol.FrameError{
+			Code:    errorCode(err),
+			Message: err.Error(),
+		}
+	} else {
+		encoded, encodeErr := json.Marshal(result)
+		if encodeErr != nil {
+			response.Error = &protocol.FrameError{
+				Code:    "internal_error",
+				Message: "encode response result",
+			}
+		} else {
+			response.Result = encoded
+		}
+	}
+
+	if writeErr := r.write(ctx, response); writeErr != nil {
+		return fmt.Errorf("agentd: write response: %w", writeErr)
+	}
+	return nil
+}
+
+// errorCode maps a handler error to a stable wire code. handler has no typed
+// error values yet, so the unknown-method case is recognised by the message it
+// generates; every other failure is reported as an internal error. The message
+// is forwarded verbatim and never contains request params.
+func errorCode(err error) string {
+	if strings.Contains(err.Error(), "unknown method") {
+		return "method_not_found"
+	}
+	return "internal_error"
+}
+
+// write serializes outbound frames. transport only allows one concurrent
+// writer, and heartbeats, responses, and events originate on different
+// goroutines.
+func (r *Runner) write(ctx context.Context, frame protocol.Frame) error {
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+	return r.transport.Write(ctx, frame)
+}
