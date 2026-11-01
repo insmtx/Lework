@@ -640,3 +640,52 @@ func TestOversizedFrameClosesConnection(t *testing.T) {
 		}
 	})
 }
+
+// TestHeartbeatTimeoutClosesNodeAndFailsPendingRequests 覆盖静默节点的唯一
+// 存活检测路径：心跳超时 -> 连接关闭 -> 待处理请求失败 -> 注册表移除。
+func TestHeartbeatTimeoutClosesNodeAndFailsPendingRequests(t *testing.T) {
+	env := newGatewayEnvConfig(t, 100*time.Millisecond, nil)
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+
+	requestErr := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		_, err := env.registry.Request(ctx, nodeID, "session.list", nil)
+		requestErr <- err
+	}()
+
+	// 先确认请求确实写到了线上，再静默等待心跳超时。
+	frame := readFrame(t, client)
+	if frame.Type != protocol.FrameRequest || frame.Method != "session.list" {
+		t.Fatalf("frame = %+v, want a session.list request", frame)
+	}
+
+	select {
+	case err := <-requestErr:
+		if !errors.Is(err, node.ErrConnectionClosed) {
+			t.Fatalf("pending request error = %v, want ErrConnectionClosed", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("pending request did not fail after the heartbeat timeout")
+	}
+
+	if err := readUntilError(t, client); err == nil {
+		t.Fatal("agent socket stayed open after the heartbeat timeout")
+	}
+
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, ok := env.registry.Get(nodeID); !ok {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("node still registered after the heartbeat timeout")
+		case <-ticker.C:
+		}
+	}
+}
