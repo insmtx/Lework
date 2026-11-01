@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 )
 
 // createSessionRequest 是 POST /api/sessions 的请求体。
@@ -52,7 +53,14 @@ type permissionReplyParams struct {
 // handleListSessions 透传节点的 session.list 结果。
 func (a *API) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	result, err := a.callAgent(r.Context(), query.Get("node"), "session.list",
+	nodeID := query.Get("node")
+	if nodeID == "" {
+		// 缺少 node 是调用方的问题，不能当成“节点离线”。
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "node is required")
+		return
+	}
+
+	result, err := a.callAgent(r.Context(), nodeID, "session.list",
 		sessionListParams{Directory: query.Get("directory")})
 	if err != nil {
 		a.writeAgentError(w, err)
@@ -64,7 +72,7 @@ func (a *API) handleListSessions(w http.ResponseWriter, r *http.Request) {
 // handleCreateSession 校验绝对目录后转发 session.create。
 func (a *API) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req createSessionRequest
-	if err := decodeRequest(r, &req); err != nil {
+	if err := decodeRequest(w, r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
 	}
@@ -104,11 +112,12 @@ func (a *API) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
 // handleSessionPrompt 校验提示词与幂等键后转发 session.prompt。
 func (a *API) handleSessionPrompt(w http.ResponseWriter, r *http.Request) {
 	var req promptRequest
-	if err := decodeRequest(r, &req); err != nil {
+	if err := decodeRequest(w, r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
 	}
-	if req.Text == "" {
+	if strings.TrimSpace(req.Text) == "" {
+		// 只有空白的提示词与空提示词等价，一样拒绝；合法文本保持原样转发。
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "text is required")
 		return
 	}
@@ -133,8 +142,13 @@ func (a *API) handleSessionPrompt(w http.ResponseWriter, r *http.Request) {
 // handlePermissionReply 转发权限回复。
 func (a *API) handlePermissionReply(w http.ResponseWriter, r *http.Request) {
 	var req permissionReplyRequest
-	if err := decodeRequest(r, &req); err != nil {
+	if err := decodeRequest(w, r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.Decision) == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "decision is required")
 		return
 	}
 

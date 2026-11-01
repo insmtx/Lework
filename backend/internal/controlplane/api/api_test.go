@@ -768,3 +768,97 @@ func TestEventsResyncOnClosedSubscription(t *testing.T) {
 		t.Fatalf("resync frame written %d times, want 1", strings.Count(body, "event: resync"))
 	}
 }
+
+// TestAPICapabilitiesNeverSerializeAsNull 固化浏览器契约：hello 不带
+// capabilities 时存储为 nil，API 仍须输出 []，前端才能安全遍历。
+func TestAPICapabilitiesNeverSerializeAsNull(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, err := env.store.UpsertNode(context.Background(), store.Node{
+		Name:     "bare",
+		LastSeen: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("upsert node: %v", err)
+	}
+
+	list := env.do(http.MethodGet, "/api/nodes", "")
+	requireStatus(t, list, http.StatusOK)
+	if body := list.Body.String(); !strings.Contains(body, `"capabilities":[]`) {
+		t.Fatalf("list body = %q, want capabilities []", body)
+	}
+	nodes := decodeBody[[]nodeResponse](t, list)
+	if len(nodes) != 1 || nodes[0].Capabilities == nil {
+		t.Fatalf("nodes = %+v, want one node with an empty non-nil capabilities slice", nodes)
+	}
+
+	one := env.do(http.MethodGet, "/api/nodes/"+rec.ID, "")
+	requireStatus(t, one, http.StatusOK)
+	if body := one.Body.String(); !strings.Contains(body, `"capabilities":[]`) {
+		t.Fatalf("get body = %q, want capabilities []", body)
+	}
+}
+
+// TestAPIListSessionsRequiresNodeQuery 固化缺少 node 时是调用方错误，
+// 而不是把请求当成节点离线。
+func TestAPIListSessionsRequiresNodeQuery(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	_, agent, _ := env.addNode("dev-box")
+
+	for _, target := range []string{"/api/sessions", "/api/sessions?directory=%2Fwork"} {
+		httpRec := env.do(http.MethodGet, target, "")
+		requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+	}
+	if len(agent.frames) != 0 {
+		t.Fatalf("agent received %d requests, want none", len(agent.frames))
+	}
+}
+
+// TestAPINodeHealthUnknownNode 固化未知节点与 GET /api/nodes/{id} 一致返回 404，
+// 而不是 409 node_offline。
+func TestAPINodeHealthUnknownNode(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	_, agent, _ := env.addNode("dev-box")
+
+	httpRec := env.do(http.MethodGet, "/api/nodes/node_missing/health", "")
+	requireErrorCode(t, httpRec, http.StatusNotFound, "not_found")
+	if len(agent.frames) != 0 {
+		t.Fatalf("agent received %d requests, want none", len(agent.frames))
+	}
+}
+
+// TestAPIInputLimits 覆盖请求体上限与必填字段校验；线协议参数保持不变。
+func TestAPIInputLimits(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, _ := env.addNode("dev-box")
+
+	t.Run("oversized body", func(t *testing.T) {
+		// 超限请求体本身是合法 JSON：没有 MaxBytesReader 时它会被转发给节点，
+		// 有上限时应在解码阶段就以 400 拒绝。
+		oversized := strings.Repeat("a", maxRequestBodyBytes+1)
+		httpRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/prompt",
+			`{"text":"`+oversized+`","idempotency_key":"key-1"}`)
+		requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+	})
+
+	t.Run("missing decision", func(t *testing.T) {
+		httpRec := env.do(http.MethodPost,
+			"/api/sessions/"+rec.ID+"/ses_1/permissions/perm_1/reply", `{"message":"ok"}`)
+		requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+	})
+
+	t.Run("whitespace decision", func(t *testing.T) {
+		httpRec := env.do(http.MethodPost,
+			"/api/sessions/"+rec.ID+"/ses_1/permissions/perm_1/reply", `{"decision":"   "}`)
+		requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+	})
+
+	t.Run("whitespace-only prompt", func(t *testing.T) {
+		httpRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/prompt",
+			`{"text":"  \n\t ","idempotency_key":"key-1"}`)
+		requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+	})
+
+	if len(agent.frames) != 0 {
+		t.Fatalf("agent received %d requests, want none", len(agent.frames))
+	}
+}

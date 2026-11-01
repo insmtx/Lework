@@ -21,6 +21,10 @@ import (
 // 立即失败。
 const defaultRequestTimeout = 30 * time.Second
 
+// maxRequestBodyBytes 是浏览器请求体的上限（1 MiB）。控制面的请求体都很小，
+// 先限制再解码可以避免超大请求体把内存交给对端控制。
+const maxRequestBodyBytes = 1 << 20
+
 // errorResponse 是浏览器 API 的统一错误体。
 type errorResponse struct {
 	Code    string `json:"code"`
@@ -81,8 +85,11 @@ func (a *API) callAgent(ctx context.Context, nodeID, method string, params any) 
 	return a.registry.Request(callCtx, nodeID, method, raw)
 }
 
-// decodeRequest 解析 JSON 请求体；未知字段被忽略，便于前端先行添加字段。
-func decodeRequest(r *http.Request, dst any) error {
+// decodeRequest 解析 JSON 请求体，并把请求体限制在 maxRequestBodyBytes 之内；
+// 未知字段被忽略，便于前端先行添加字段。超限请求体按解码失败处理，调用方
+// 统一回 400。
+func decodeRequest(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		return fmt.Errorf("decode request body: %w", err)
 	}

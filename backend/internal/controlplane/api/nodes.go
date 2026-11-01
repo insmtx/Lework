@@ -34,30 +34,51 @@ func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
 
 // handleGetNode 返回单个节点；未登记过的 ID 返回 404。
 func (a *API) handleGetNode(w http.ResponseWriter, r *http.Request) {
-	views, err := a.listNodes(r.Context())
+	view, ok, err := a.findNode(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
-
-	id := r.PathValue("id")
-	for _, view := range views {
-		if view.ID == id {
-			writeJSON(w, http.StatusOK, view)
-			return
-		}
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return
 	}
-	writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+	writeJSON(w, http.StatusOK, view)
 }
 
 // handleNodeHealth 透传节点 opencode.status 结果。
+//
+// 未登记过的节点返回 404，与 GET /api/nodes/{id} 一致；已登记但当前离线
+// 仍由 callAgent 映射为 409 node_offline。
 func (a *API) handleNodeHealth(w http.ResponseWriter, r *http.Request) {
+	if _, ok, err := a.findNode(r.Context(), r.PathValue("id")); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	} else if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return
+	}
+
 	result, err := a.callAgent(r.Context(), r.PathValue("id"), "opencode.status", nil)
 	if err != nil {
 		a.writeAgentError(w, err)
 		return
 	}
 	writeRawJSON(w, http.StatusOK, result)
+}
+
+// findNode 返回 nodeID 对应的节点视图；未登记时第二个返回值为 false。
+func (a *API) findNode(ctx context.Context, nodeID string) (nodeView, bool, error) {
+	views, err := a.listNodes(ctx)
+	if err != nil {
+		return nodeView{}, false, err
+	}
+	for _, view := range views {
+		if view.ID == nodeID {
+			return view, true, nil
+		}
+	}
+	return nodeView{}, false, nil
 }
 
 // listNodes 合并持久化记录与实时连接状态。持久化记录是身份与 LastSeen
@@ -78,6 +99,11 @@ func (a *API) listNodes(ctx context.Context) ([]nodeView, error) {
 			AgentVersion: rec.AgentVersion,
 			Capabilities: rec.Capabilities,
 			LastSeen:     rec.LastSeen,
+		}
+		// hello 不带 capabilities 时存储里是 nil，直接序列化会得到 null；
+		// 浏览器端需要能安全地遍历，因此统一成空数组。
+		if view.Capabilities == nil {
+			view.Capabilities = []string{}
 		}
 		if info, ok := a.registry.Get(rec.ID); ok {
 			view.Connected = info.Connected
