@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -473,5 +474,136 @@ func TestClientNormalizesBaseURL(t *testing.T) {
 	client := New("http://127.0.0.1:4096/", nil)
 	if client.baseURL != "http://127.0.0.1:4096" {
 		t.Fatalf("baseURL = %q", client.baseURL)
+	}
+}
+
+func TestSessionDiffSendsQueryAndDecodesEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/session/ses_1/diff" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("from") != "msg_a" || q.Get("to") != "msg_b" || q.Get("context") != "3" {
+			t.Errorf("query = %v", q)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"file":"a.txt","patch":"@@","additions":1,"deletions":0,"status":"modified"}]}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).SessionDiff(context.Background(), "ses_1", "msg_a", "msg_b", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].File != "a.txt" || got[0].Additions != 1 || got[0].Status != "modified" {
+		t.Fatalf("diff = %#v", got)
+	}
+}
+
+func TestSessionDiffOmitsEmptyQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("raw query = %q, want empty", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, srv.Client()).SessionDiff(context.Background(), "ses_1", "", "", 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInterruptSendsPostWithoutBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/session/ses_1/interrupt" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("resume") != "true" {
+			t.Errorf("resume = %q", r.URL.Query().Get("resume"))
+		}
+		body, _ := io.ReadAll(r.Body)
+		if len(body) != 0 {
+			t.Errorf("body = %q, want empty", body)
+		}
+		_, _ = w.Write([]byte(`{"interrupted":true}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).Interrupt(context.Background(), "ses_1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Interrupted {
+		t.Fatal("interrupted = false, want true")
+	}
+}
+
+func TestListFilesDecodesEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/fs/list" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("location[directory]") != "/work" || q.Get("path") != "src" {
+			t.Errorf("query = %v", q)
+		}
+		_, _ = w.Write([]byte(`{"location":{"directory":"/work"},"data":[{"path":"a.txt","type":"file"},{"path":"sub/","type":"directory"}]}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListFiles(context.Background(), "/work", "src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Path != "a.txt" || got[0].Type != "file" || got[1].Type != "directory" {
+		t.Fatalf("files = %#v", got)
+	}
+}
+
+func TestReadFileUsesRangeAndReportsTruncation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/fs/read/a.txt" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Range"); got != "bytes=0-3" {
+			t.Errorf("range = %q", got)
+		}
+		if got := r.URL.Query().Get("location[directory]"); got != "/work" {
+			t.Errorf("directory = %q", got)
+		}
+		w.Header().Set("Content-Range", "bytes 0-3/10")
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("abcd"))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Data) != "abcd" || got.Size != 10 || !got.Truncated {
+		t.Fatalf("content = %#v", got)
+	}
+	if got.ContentType != "text/plain" {
+		t.Fatalf("content type = %q", got.ContentType)
+	}
+}
+
+func TestReadFileRejectsErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "missing", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 4); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestEscapePathSegments(t *testing.T) {
+	got := escapePathSegments("dir with space/a#b.txt")
+	if got != "dir%20with%20space/a%23b.txt" {
+		t.Fatalf("escaped = %q", got)
 	}
 }

@@ -67,6 +67,38 @@ type Event struct {
 	Data      json.RawMessage `json:"data,omitempty"`
 }
 
+// FileDiff is one changed file in a session turn diff. Patch is a unified diff;
+// Status is "added", "deleted", or "modified".
+type FileDiff struct {
+	File      string `json:"file"`
+	Patch     string `json:"patch"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Status    string `json:"status"`
+}
+
+// FileInfo is one direct child returned by the OpenCode file list. Directories
+// end with a slash; the Type is "file" or "directory".
+type FileInfo struct {
+	Path string `json:"path"`
+	Type string `json:"type"`
+}
+
+// FileContent is raw bytes read from a workspace file. Size is the total file
+// size when known; Truncated reports that maxBytes cut the body short.
+type FileContent struct {
+	Data        []byte
+	ContentType string
+	Size        int64
+	Truncated   bool
+}
+
+// InterruptResult reports whether an interrupt stopped an active run. An idle
+// session returns false rather than an error.
+type InterruptResult struct {
+	Interrupted bool `json:"interrupted"`
+}
+
 // sessionWire mirrors the v2 Session.Info envelope fields this package reads.
 type sessionWire struct {
 	ID       string `json:"id"`

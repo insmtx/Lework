@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -159,6 +160,119 @@ func (c *Client) Messages(ctx context.Context, sessionID string) ([]Message, err
 		return nil, err
 	}
 	return messages, nil
+}
+
+// SessionDiff returns the turn-scoped diff recorded by OpenCode. from and to
+// are optional user message IDs; context controls the number of surrounding
+// lines. A non-git session returns an empty slice.
+func (c *Client) SessionDiff(ctx context.Context, sessionID, from, to string, context int) ([]FileDiff, error) {
+	path := sessionPath(sessionID) + "/diff"
+	query := url.Values{}
+	if from != "" {
+		query.Set("from", from)
+	}
+	if to != "" {
+		query.Set("to", to)
+	}
+	if context > 0 {
+		query.Set("context", strconv.Itoa(context))
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	var diffs []FileDiff
+	if err := c.doData(ctx, http.MethodGet, path, nil, &diffs); err != nil {
+		return nil, err
+	}
+	return diffs, nil
+}
+
+// Interrupt asks OpenCode to stop the current run. resume controls whether
+// pending steering items resume after the interrupt; it is passed as a query
+// parameter and the request has no body.
+func (c *Client) Interrupt(ctx context.Context, sessionID string, resume bool) (InterruptResult, error) {
+	path := sessionPath(sessionID) + "/interrupt?resume=" + strconv.FormatBool(resume)
+	var result InterruptResult
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, &result); err != nil {
+		return InterruptResult{}, err
+	}
+	return result, nil
+}
+
+// ListFiles returns the direct children of path under directory. The OpenCode
+// list endpoint is not path-confined; callers must confine directory and path
+// to workspace_roots before calling this method.
+func (c *Client) ListFiles(ctx context.Context, directory, path string) ([]FileInfo, error) {
+	query := url.Values{}
+	query.Set("location[directory]", directory)
+	if path != "" {
+		query.Set("path", path)
+	}
+
+	var files []FileInfo
+	if err := c.doData(ctx, http.MethodGet, "/api/fs/list?"+query.Encode(), nil, &files); err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// ReadFile reads at most maxBytes of a workspace file. It uses the Range
+// header so a large file never has to fit in memory; maxBytes <= 0 selects a
+// 512 KiB default. The OpenCode read endpoint is not path-confined, so callers
+// must confine the path first.
+func (c *Client) ReadFile(ctx context.Context, directory, path string, maxBytes int64) (FileContent, error) {
+	if maxBytes <= 0 {
+		maxBytes = 512 << 10
+	}
+
+	query := url.Values{}
+	query.Set("location[directory]", directory)
+	endpoint := c.baseURL + "/api/fs/read/" + escapePathSegments(path) + "?" + query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return FileContent{}, fmt.Errorf("build opencode GET file request: %w", err)
+	}
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", maxBytes-1))
+	c.authorize(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return FileContent{}, fmt.Errorf("opencode read file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return FileContent{}, c.responseError(http.MethodGet, "/api/fs/read", resp)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if err != nil {
+		return FileContent{}, fmt.Errorf("read opencode file body: %w", err)
+	}
+
+	size := int64(len(data))
+	truncated := false
+	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
+		if slash := strings.LastIndexByte(contentRange, '/'); slash >= 0 {
+			if total, parseErr := strconv.ParseInt(contentRange[slash+1:], 10, 64); parseErr == nil {
+				size = total
+				truncated = int64(len(data)) < total
+			}
+		}
+	} else if resp.ContentLength >= 0 {
+		size = resp.ContentLength
+		truncated = int64(len(data)) < resp.ContentLength
+	}
+
+	return FileContent{
+		Data:        data,
+		ContentType: resp.Header.Get("Content-Type"),
+		Size:        size,
+		Truncated:   truncated,
+	}, nil
 }
 
 // Wait blocks until the session is idle and returns. It calls the experimental
@@ -383,6 +497,17 @@ func (c *Client) responseError(method, path string, resp *http.Response) error {
 // hostile or malformed value cannot inject path segments.
 func sessionPath(sessionID string) string {
 	return "/api/session/" + url.PathEscape(sessionID)
+}
+
+// escapePathSegments escapes each segment of a relative file path while keeping
+// the slash separators. OpenCode decodes the path after matching the route, so
+// spaces, '#', and other URL metacharacters must not escape their segment.
+func escapePathSegments(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 // createSessionRequest mirrors the v2 body: the working directory travels
