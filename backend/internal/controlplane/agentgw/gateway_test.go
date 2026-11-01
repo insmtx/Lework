@@ -3,6 +3,7 @@ package agentgw
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/insmtx/Lework/backend/internal/agentd/protocol"
 	"github.com/insmtx/Lework/backend/internal/agentd/transport"
@@ -30,12 +33,23 @@ type gatewayEnv struct {
 	hub      *event.Hub
 	server   *httptest.Server
 
+	// gateway 暴露网关本身，测试可以核对它持有的注册表与写入端。
+	gateway *Gateway
+
 	// handlers 统计仍在运行的 ServeHTTP；httptest 在连接被 hijack 后不再
 	// 等待 handler，必须由测试自己等它退出，否则会在存储关闭后继续访问。
 	handlers sync.WaitGroup
 }
 
 func newGatewayEnv(t *testing.T) *gatewayEnv {
+	t.Helper()
+
+	return newGatewayEnvConfig(t, 5*time.Second, nil)
+}
+
+// newGatewayEnvConfig 用指定心跳超时与写入端工厂启动网关。
+// newWriter 为 nil 时使用网关默认实现。
+func newGatewayEnvConfig(t *testing.T, heartbeat time.Duration, newWriter func(*websocket.Conn) node.Writer) *gatewayEnv {
 	t.Helper()
 
 	// 使用临时文件而非 ":memory:"：网关的读循环与测试在不同连接上并发
@@ -50,16 +64,21 @@ func newGatewayEnv(t *testing.T) *gatewayEnv {
 		registry: node.NewRegistry(),
 		hub:      event.NewHub(),
 	}
-	gw := New(Config{EnrollmentToken: testToken, HeartbeatTimeout: 5 * time.Second}, env.store, env.registry, env.hub)
+	gw := New(Config{EnrollmentToken: testToken, HeartbeatTimeout: heartbeat}, env.store, env.registry, env.hub)
+	if newWriter != nil {
+		gw.newWriter = newWriter
+	}
+	env.gateway = gw
 	env.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		env.handlers.Add(1)
 		defer env.handlers.Done()
 		gw.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() {
-		// 先停止接收新请求，再关闭残留连接，最后等所有 handler 退出。
-		env.server.Close()
+		// 先关闭节点连接让 handler 退出，再停止接收新请求；httptest 的
+		// Close 会等待处理中的 handler，阻塞中的 handler 会拖住它。
 		env.registry.CloseAll()
+		env.server.Close()
 		env.handlers.Wait()
 		if err := env.store.Close(); err != nil {
 			t.Errorf("close store: %v", err)
@@ -450,4 +469,174 @@ func TestBrowserOriginIsRejected(t *testing.T) {
 	if nodes := listNodes(t, env.store); len(nodes) != 0 {
 		t.Fatalf("stored nodes = %d, want 0", len(nodes))
 	}
+}
+
+// blockingWriter 在首次写入时通知测试并阻塞，直到测试显式放行。
+// 它用来固化“welcome 写出前节点不可请求”的登记顺序；后续写入不再阻塞，
+// 这样登记顺序错误时测试会以请求错误失败而不是死锁。
+type blockingWriter struct {
+	inner   *wsWriter
+	started chan struct{}
+	release chan struct{}
+
+	mu      sync.Mutex
+	blocked bool
+}
+
+func (b *blockingWriter) Write(ctx context.Context, f protocol.Frame) error {
+	b.mu.Lock()
+	first := !b.blocked
+	if first {
+		b.blocked = true
+	}
+	b.mu.Unlock()
+
+	if first {
+		close(b.started)
+		select {
+		case <-b.release:
+		case <-ctx.Done():
+		}
+	}
+	return b.inner.Write(ctx, f)
+}
+
+func (b *blockingWriter) Close() error { return b.inner.Close() }
+
+// TestNodeIsNotRequestableBeforeWelcome 证明登记注册表发生在 welcome 成功
+// 写出之后：写入端阻塞时节点已落库，但既不在注册表里，也无法被请求。
+func TestNodeIsNotRequestableBeforeWelcome(t *testing.T) {
+	blocking := &blockingWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	env := newGatewayEnvConfig(t, 5*time.Second, func(ws *websocket.Conn) node.Writer {
+		blocking.inner = &wsWriter{conn: ws}
+		return blocking
+	})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(blocking.release) }) }
+	// 先注册放行清理：测试断言失败时也不能让写入端一直阻塞 handler 退出。
+	t.Cleanup(release)
+	client := env.connect(t)
+
+	writeHello(t, client, defaultHello("dev-box"), "hello-1")
+
+	select {
+	case <-blocking.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("gateway did not attempt to write the welcome frame")
+	}
+
+	// 节点已持久化，但 welcome 未写出：注册表必须仍然为空。
+	if infos := env.registry.List(); len(infos) != 0 {
+		t.Fatalf("registry nodes = %+v before welcome, want none", infos)
+	}
+
+	nodes := listNodes(t, env.store)
+	if len(nodes) != 1 {
+		t.Fatalf("stored nodes = %d, want 1", len(nodes))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := env.registry.Request(ctx, nodes[0].ID, "session.list", nil); !errors.Is(err, node.ErrNodeOffline) {
+		t.Fatalf("request before welcome error = %v, want ErrNodeOffline", err)
+	}
+
+	release()
+	welcome := readFrame(t, client)
+	if welcome.Type != protocol.FrameWelcome {
+		t.Fatalf("frame type = %q, want welcome", welcome.Type)
+	}
+
+	// welcome 之后网关才登记；读与登记并发，因此用短轮询等待。
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if info, ok := env.registry.Get(nodes[0].ID); ok {
+			if !info.Connected {
+				t.Fatal("node registered as disconnected")
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("node was never registered after the welcome frame")
+		case <-ticker.C:
+		}
+	}
+}
+
+// TestOversizedFrameClosesConnection 证明 1 MiB 帧上限同时约束 hello 与后续帧：
+// 超限帧会让对端关闭连接，而不是被无上限地读入内存。
+func TestOversizedFrameClosesConnection(t *testing.T) {
+	// 上限之上再留出余量，确保服务端读取时确实越过 read limit。
+	oversized := strings.Repeat("a", maxFrameBytes+1024)
+
+	writeFrame := func(t *testing.T, client *transport.Client, frame protocol.Frame) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		// 服务端可能在写入完成前就关闭连接，写入错误本身即等价于连接已断开。
+		_ = client.Write(ctx, frame)
+	}
+
+	requireClosed := func(t *testing.T, client *transport.Client) {
+		t.Helper()
+		err := readUntilError(t, client)
+		if err == nil {
+			t.Fatal("connection stayed open after an oversized frame")
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("connection did not close within the read deadline: %v", err)
+		}
+	}
+
+	t.Run("hello", func(t *testing.T) {
+		env := newGatewayEnv(t)
+		client := env.connect(t)
+
+		writeFrame(t, client, protocol.Frame{
+			Type:   protocol.FrameHello,
+			ID:     "hello-big",
+			Params: json.RawMessage(`{"node_name":"` + oversized + `"}`),
+		})
+
+		requireClosed(t, client)
+		if nodes := listNodes(t, env.store); len(nodes) != 0 {
+			t.Fatalf("stored nodes = %d, want 0", len(nodes))
+		}
+	})
+
+	t.Run("post welcome frame", func(t *testing.T) {
+		env := newGatewayEnv(t)
+		client := env.connect(t)
+		nodeID, _ := handshake(t, client, "dev-box")
+
+		writeFrame(t, client, protocol.Frame{
+			Type: protocol.FrameEvent,
+			Event: &protocol.Event{
+				SessionID: "ses_1",
+				Type:      "session.text.delta",
+				Data:      json.RawMessage(`{"text":"` + oversized + `"}`),
+			},
+		})
+
+		requireClosed(t, client)
+
+		deadline := time.After(3 * time.Second)
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if _, ok := env.registry.Get(nodeID); !ok {
+				return
+			}
+			select {
+			case <-deadline:
+				t.Fatal("node still registered after an oversized frame")
+			case <-ticker.C:
+			}
+		}
+	})
 }

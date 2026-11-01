@@ -37,6 +37,11 @@ const (
 
 	// bearerPrefix 是注册令牌在握手头中的前缀。
 	bearerPrefix = "Bearer "
+
+	// maxFrameBytes 是单个入站帧的上限（1 MiB）。gorilla/websocket 默认不限
+	// 帧大小，没有上限时一个恶意或错乱的节点就能让控制面按帧内容分配内存；
+	// 该上限同时覆盖 hello 与后续所有帧。
+	maxFrameBytes = 1 << 20
 )
 
 // Config 是网关的启动配置。
@@ -71,6 +76,10 @@ type Gateway struct {
 	registry *node.Registry
 	hub      *event.Hub
 	upgrader websocket.Upgrader
+
+	// newWriter 构造单连接写入端；默认是 wsWriter，测试可替换为可控写入端，
+	// 用于确定性地阻塞 welcome 写出。
+	newWriter func(*websocket.Conn) node.Writer
 }
 
 // New 创建网关；HeartbeatTimeout 非正时使用默认值。
@@ -83,6 +92,9 @@ func New(cfg Config, st *store.Store, registry *node.Registry, hub *event.Hub) *
 		store:    st,
 		registry: registry,
 		hub:      hub,
+		newWriter: func(ws *websocket.Conn) node.Writer {
+			return &wsWriter{conn: ws}
+		},
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: handshakeTimeout,
 			// agent 不是浏览器，合法请求不带 Origin；带 Origin 的一律拒绝，
@@ -106,6 +118,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Upgrade 已经写过 HTTP 错误响应，这里不再追加内容。
 		return
 	}
+	// 单帧上限必须在读取 hello 之前设置，才能同时约束握手帧与后续帧。
+	ws.SetReadLimit(maxFrameBytes)
 	g.serve(r.Context(), ws)
 }
 
@@ -122,9 +136,13 @@ func (g *Gateway) authorized(r *http.Request) bool {
 
 // serve 读取 hello、登记节点、发送 welcome，然后进入读循环。
 //
+// 登记注册表发生在 welcome 成功写出之后：agent 只认 welcome 帧，会丢弃
+// 之前收到的所有帧，提前登记会让浏览器请求被写进一条尚未就绪的连接并
+// 静默丢失，直到 API 超时。
+//
 // 无论从哪条路径退出，都只注销本连接、刷新最后活跃时间并关闭套接字。
 func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
-	writer := &wsWriter{conn: ws}
+	writer := g.newWriter(ws)
 
 	hello, params, err := readHello(ws)
 	if err != nil {
@@ -148,18 +166,9 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 	}
 
 	conn := node.NewConnection(rec.ID, writer)
-	g.registry.Register(node.Info{
-		ID:           rec.ID,
-		Name:         rec.Name,
-		OS:           rec.OS,
-		Arch:         rec.Arch,
-		AgentVersion: rec.AgentVersion,
-		Capabilities: rec.Capabilities,
-		Connected:    true,
-		LastSeen:     time.Now(),
-	}, conn)
 
-	// 退出时只清理本连接：重连后注册表里已是新连接，指针比较避免误删。
+	// 退出清理必须在 welcome 写出之前安装：welcome 失败时连接尚未登记，
+	// Unregister 会按指针比较安全地跳过，存储刷新与连接关闭仍然生效。
 	defer func() {
 		g.registry.Unregister(rec.ID, conn)
 		// 节点行可能已被删除，这里不因刷新失败而改变退出路径。
@@ -178,6 +187,18 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 	}); err != nil {
 		return
 	}
+
+	// welcome 已成功写出，agent 进入就绪状态，此时才允许请求路由到该连接。
+	g.registry.Register(node.Info{
+		ID:           rec.ID,
+		Name:         rec.Name,
+		OS:           rec.OS,
+		Arch:         rec.Arch,
+		AgentVersion: rec.AgentVersion,
+		Capabilities: rec.Capabilities,
+		Connected:    true,
+		LastSeen:     time.Now(),
+	}, conn)
 
 	for {
 		// 每个入站帧都必须落在心跳窗口内，否则视为节点失联。
