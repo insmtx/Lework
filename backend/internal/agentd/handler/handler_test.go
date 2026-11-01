@@ -6,6 +6,8 @@ import (
 	"errors"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -195,6 +197,147 @@ func TestPromptDoesNotCacheFailure(t *testing.T) {
 	}
 	if oc.prompts != 2 {
 		t.Fatalf("prompts = %d, want 2", oc.prompts)
+	}
+}
+
+// blockingOpenCode keeps the first Prompt call inside the handler until the
+// test has admitted a second caller, so the single-flight path is exercised
+// deterministically instead of depending on scheduler timing.
+type blockingOpenCode struct {
+	fakeOpenCode
+	calls   int32
+	entered chan struct{}
+	release chan struct{}
+	err     error
+}
+
+func (f *blockingOpenCode) Prompt(_ context.Context, _, _ string) (string, error) {
+	atomic.AddInt32(&f.calls, 1)
+	f.entered <- struct{}{}
+	<-f.release
+	return "receipt-concurrent", f.err
+}
+
+// waitSignalContext reports when Done is first observed. idempotencyStore.do
+// evaluates Done only after it joins an in-flight admission, which lets the
+// test prove the second caller reached the wait path before releasing the
+// leader.
+type waitSignalContext struct {
+	context.Context
+	once    sync.Once
+	entered chan struct{}
+}
+
+func (c *waitSignalContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.entered) })
+	return c.Context.Done()
+}
+
+type promptOutcome struct {
+	receipt string
+	err     error
+}
+
+func handlePrompt(h *Handler, ctx context.Context, params json.RawMessage) promptOutcome {
+	result, err := h.Handle(ctx, "session.prompt", params)
+	receipt, _ := result.(string)
+	return promptOutcome{receipt: receipt, err: err}
+}
+
+// runConcurrentPrompt starts one prompt, waits until it is blocked inside
+// Prompt, then starts a second caller with the same key and waits until that
+// caller is parked on the in-flight admission. Only then is the leader
+// released, so both outcomes belong to the same admission.
+func runConcurrentPrompt(t *testing.T, h *Handler, oc *blockingOpenCode, params json.RawMessage) []promptOutcome {
+	t.Helper()
+
+	release := sync.OnceFunc(func() { close(oc.release) })
+	defer release()
+
+	results := make(chan promptOutcome, 2)
+	go func() { results <- handlePrompt(h, context.Background(), params) }()
+
+	select {
+	case <-oc.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first caller did not enter Prompt")
+	}
+
+	waiterCtx := &waitSignalContext{Context: context.Background(), entered: make(chan struct{})}
+	go func() { results <- handlePrompt(h, waiterCtx, params) }()
+
+	// The healthy path signals from the in-flight wait. A second Prompt entry
+	// is also accepted so a regression is reported as a duplicate call rather
+	// than as a timeout.
+	select {
+	case <-waiterCtx.entered:
+	case <-oc.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second caller did not enter the handler")
+	}
+
+	release()
+
+	outcomes := make([]promptOutcome, 0, 2)
+	for i := 0; i < 2; i++ {
+		select {
+		case outcome := <-results:
+			outcomes = append(outcomes, outcome)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for a caller result")
+		}
+	}
+	return outcomes
+}
+
+func TestPromptIdempotencyConcurrent(t *testing.T) {
+	oc := &blockingOpenCode{
+		entered: make(chan struct{}, 2),
+		release: make(chan struct{}),
+	}
+	h := New(oc, fakeSupervisor{})
+	params := json.RawMessage(`{"session_id":"ses_1","text":"hi","idempotency_key":"k1"}`)
+
+	outcomes := runConcurrentPrompt(t, h, oc, params)
+	for i, outcome := range outcomes {
+		if outcome.err != nil {
+			t.Fatalf("caller %d err = %v", i, outcome.err)
+		}
+		if outcome.receipt != "receipt-concurrent" {
+			t.Fatalf("caller %d receipt = %q, want receipt-concurrent", i, outcome.receipt)
+		}
+	}
+	if got := atomic.LoadInt32(&oc.calls); got != 1 {
+		t.Fatalf("prompt calls = %d, want 1", got)
+	}
+}
+
+func TestPromptIdempotencyConcurrentErrorNotCached(t *testing.T) {
+	wantErr := errors.New("admission failed")
+	oc := &blockingOpenCode{
+		entered: make(chan struct{}, 2),
+		release: make(chan struct{}),
+		err:     wantErr,
+	}
+	h := New(oc, fakeSupervisor{})
+	params := json.RawMessage(`{"session_id":"ses_1","text":"hi","idempotency_key":"k1"}`)
+
+	outcomes := runConcurrentPrompt(t, h, oc, params)
+	for i, outcome := range outcomes {
+		if !errors.Is(outcome.err, wantErr) {
+			t.Fatalf("caller %d err = %v, want %v", i, outcome.err, wantErr)
+		}
+	}
+	if got := atomic.LoadInt32(&oc.calls); got != 1 {
+		t.Fatalf("prompt calls = %d, want 1", got)
+	}
+
+	// The shared failure must not be cached: a later retry admits again.
+	if _, err := h.Handle(context.Background(), "session.prompt", params); !errors.Is(err, wantErr) {
+		t.Fatalf("retry err = %v, want %v", err, wantErr)
+	}
+	if got := atomic.LoadInt32(&oc.calls); got != 2 {
+		t.Fatalf("prompt calls after retry = %d, want 2", got)
 	}
 }
 

@@ -149,7 +149,8 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 }
 
 // prompt admits text idempotently: a retry with the same session and
-// idempotency key returns the first receipt without calling opencode again.
+// idempotency key returns the first receipt without calling opencode again,
+// and concurrent retries share one in-flight admission.
 func (h *Handler) prompt(ctx context.Context, params json.RawMessage) (any, error) {
 	var p SessionPromptParams
 	if err := decodeParams("session.prompt", params, &p); err != nil {
@@ -160,17 +161,14 @@ func (h *Handler) prompt(ctx context.Context, params json.RawMessage) (any, erro
 	}
 
 	key := p.SessionID + "\x00" + p.IdempotencyKey
-	if receipt, ok := h.idempotency.get(key); ok {
-		return receipt, nil
-	}
-
-	receipt, err := h.opencode.Prompt(ctx, p.SessionID, p.Text)
+	receipt, err := h.idempotency.do(ctx, key, func(admitCtx context.Context) (string, error) {
+		return h.opencode.Prompt(admitCtx, p.SessionID, p.Text)
+	})
 	if err != nil {
 		// Failures are deliberately not cached: the control plane may retry
 		// the same key, and only a successful admission is safe to replay.
 		return nil, err
 	}
-	h.idempotency.put(key, receipt)
 	return receipt, nil
 }
 
