@@ -58,11 +58,17 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/nodes", a.handleListNodes)
 	mux.HandleFunc("GET /api/nodes/{id}", a.handleGetNode)
 	mux.HandleFunc("GET /api/nodes/{id}/health", a.handleNodeHealth)
+	mux.HandleFunc("GET /api/nodes/{id}/files", a.handleFileList)
+	mux.HandleFunc("GET /api/nodes/{id}/files/content", a.handleFileContent)
 
 	mux.HandleFunc("GET /api/sessions", a.handleListSessions)
 	mux.HandleFunc("POST /api/sessions", a.handleCreateSession)
 	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/messages", a.handleSessionMessages)
 	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/prompt", a.handleSessionPrompt)
+	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/diff", a.handleSessionDiff)
+	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/interrupt", a.handleSessionInterrupt)
+	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/pty", a.handlePTYCreate)
+	mux.HandleFunc("DELETE /api/sessions/{nodeID}/{sessionID}/pty/{ptyID}", a.handlePTYClose)
 	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/permissions/{permissionID}/reply", a.handlePermissionReply)
 
 	mux.HandleFunc("GET /api/events", a.handleEvents)

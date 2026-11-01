@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -861,4 +862,151 @@ func TestAPIInputLimits(t *testing.T) {
 	if len(agent.frames) != 0 {
 		t.Fatalf("agent received %d requests, want none", len(agent.frames))
 	}
+}
+
+func TestAPISessionDiff(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `[{"file":"a.txt","status":"modified"}]`)
+	target := "/api/sessions/" + rec.ID + "/ses_1/diff?directory=" + url.QueryEscape("/work") + "&from=msg_a&to=msg_b&context=3"
+	httpRec := env.do(http.MethodGet, target, "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `[{"file":"a.txt","status":"modified"}]` {
+		t.Fatalf("body = %q, want raw agent result", body)
+	}
+
+	frame := waitFrame(t, got)
+	if frame.Method != "session.diff" {
+		t.Fatalf("method = %q, want session.diff", frame.Method)
+	}
+	params := decodeParamsInto[sessionDiffParams](t, frame)
+	if params.SessionID != "ses_1" || params.Directory != "/work" || params.From != "msg_a" || params.To != "msg_b" || params.Context != 3 {
+		t.Fatalf("params = %+v", params)
+	}
+
+	missing := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/diff", "")
+	requireErrorCode(t, missing, http.StatusBadRequest, "invalid_request")
+
+	badContext := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/diff?directory=%2Fwork&context=-1", "")
+	requireErrorCode(t, badContext, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPISessionInterrupt(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `{"interrupted":true}`)
+	httpRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/interrupt", "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `{"interrupted":true}` {
+		t.Fatalf("body = %q, want raw agent result", body)
+	}
+	frame := waitFrame(t, got)
+	if frame.Method != "session.interrupt" {
+		t.Fatalf("method = %q, want session.interrupt", frame.Method)
+	}
+	params := decodeParamsInto[sessionInterruptParams](t, frame)
+	if params.SessionID != "ses_1" {
+		t.Fatalf("params = %+v", params)
+	}
+}
+
+func TestAPIFileList(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `[{"path":"a.txt","type":"file"}]`)
+	target := "/api/nodes/" + rec.ID + "/files?directory=" + url.QueryEscape("/work") + "&path=src"
+	httpRec := env.do(http.MethodGet, target, "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `[{"path":"a.txt","type":"file"}]` {
+		t.Fatalf("body = %q", body)
+	}
+	frame := waitFrame(t, got)
+	if frame.Method != "file.list" {
+		t.Fatalf("method = %q, want file.list", frame.Method)
+	}
+	params := decodeParamsInto[fileListParams](t, frame)
+	if params.Directory != "/work" || params.Path != "src" {
+		t.Fatalf("params = %+v", params)
+	}
+
+	missing := env.do(http.MethodGet, "/api/nodes/"+rec.ID+"/files", "")
+	requireErrorCode(t, missing, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPIFileContent(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `{"path":"a.txt","encoding":"utf-8","content":"hi","size":2,"truncated":false}`)
+	target := "/api/nodes/" + rec.ID + "/files/content?directory=" + url.QueryEscape("/work") + "&path=a.txt"
+	httpRec := env.do(http.MethodGet, target, "")
+	requireStatus(t, httpRec, http.StatusOK)
+	frame := waitFrame(t, got)
+	if frame.Method != "file.read" {
+		t.Fatalf("method = %q, want file.read", frame.Method)
+	}
+	params := decodeParamsInto[fileReadParams](t, frame)
+	if params.Directory != "/work" || params.Path != "a.txt" || params.MaxBytes != maxFileReadBytes {
+		t.Fatalf("params = %+v", params)
+	}
+
+	missingPath := env.do(http.MethodGet, "/api/nodes/"+rec.ID+"/files/content?directory=%2Fwork", "")
+	requireErrorCode(t, missingPath, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPIPTYCreateAndClose(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `{"id":"pty_1","status":"running"}`)
+	httpRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/pty",
+		`{"directory":"/work"}`)
+	requireStatus(t, httpRec, http.StatusOK)
+	frame := waitFrame(t, got)
+	if frame.Method != "pty.create" {
+		t.Fatalf("method = %q, want pty.create", frame.Method)
+	}
+	params := decodeParamsInto[ptyCreateParams](t, frame)
+	if params.SessionID != "ses_1" || params.Directory != "/work" || params.Cols != 80 || params.Rows != 24 {
+		t.Fatalf("params = %+v", params)
+	}
+
+	got = replyOK(t, agent, conn, `null`)
+	httpRec = env.do(http.MethodDelete, "/api/sessions/"+rec.ID+"/ses_1/pty/pty_1", "")
+	requireStatus(t, httpRec, http.StatusOK)
+	frame = waitFrame(t, got)
+	if frame.Method != "pty.close" {
+		t.Fatalf("method = %q, want pty.close", frame.Method)
+	}
+	closeParams := decodeParamsInto[ptyCloseParams](t, frame)
+	if closeParams.PTYID != "pty_1" {
+		t.Fatalf("params = %+v", closeParams)
+	}
+
+	missing := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/pty", `{}`)
+	requireErrorCode(t, missing, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPINewEndpointsRejectUnknownAndOfflineNode(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+
+	unknown := env.do(http.MethodGet, "/api/nodes/node_missing/files?directory=%2Fwork", "")
+	requireErrorCode(t, unknown, http.StatusNotFound, "not_found")
+
+	rec, _, _ := env.addNode("dev-box")
+	env.registry.CloseAll()
+	offline := env.do(http.MethodGet, "/api/nodes/"+rec.ID+"/files?directory=%2Fwork", "")
+	requireErrorCode(t, offline, http.StatusConflict, "node_offline")
+}
+
+func decodeParamsInto[T any](t *testing.T, frame protocol.Frame) T {
+	t.Helper()
+	var value T
+	if err := json.Unmarshal(frame.Params, &value); err != nil {
+		t.Fatalf("decode params %q: %v", string(frame.Params), err)
+	}
+	return value
 }

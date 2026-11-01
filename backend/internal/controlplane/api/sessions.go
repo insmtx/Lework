@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -48,6 +49,39 @@ type permissionReplyParams struct {
 	PermissionID string `json:"permission_id"`
 	Decision     string `json:"decision"`
 	Message      string `json:"message"`
+}
+
+type sessionDiffParams struct {
+	SessionID string `json:"session_id"`
+	Directory string `json:"directory"`
+	From      string `json:"from,omitempty"`
+	To        string `json:"to,omitempty"`
+	Context   int    `json:"context,omitempty"`
+}
+
+type sessionInterruptParams struct {
+	SessionID string `json:"session_id"`
+}
+
+type ptyCreateRequest struct {
+	Directory string   `json:"directory"`
+	Cols      int      `json:"cols"`
+	Rows      int      `json:"rows"`
+	Command   string   `json:"command"`
+	Args      []string `json:"args"`
+}
+
+type ptyCreateParams struct {
+	SessionID string   `json:"session_id"`
+	Directory string   `json:"directory"`
+	Cols      int      `json:"cols"`
+	Rows      int      `json:"rows"`
+	Command   string   `json:"command"`
+	Args      []string `json:"args"`
+}
+
+type ptyCloseParams struct {
+	PTYID string `json:"pty_id"`
 }
 
 // handleListSessions 透传节点的 session.list 结果。
@@ -159,6 +193,130 @@ func (a *API) handlePermissionReply(w http.ResponseWriter, r *http.Request) {
 			Decision:     req.Decision,
 			Message:      req.Message,
 		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleSessionDiff 转发 turn diff；directory 只用于 agent 侧边界校验。
+func (a *API) handleSessionDiff(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	directory := query.Get("directory")
+	if directory == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory is required")
+		return
+	}
+	if !filepath.IsAbs(directory) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory must be absolute")
+		return
+	}
+	contextLines := 0
+	if raw := query.Get("context"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request", "context must be a non-negative integer")
+			return
+		}
+		contextLines = parsed
+	}
+	nodeID := r.PathValue("nodeID")
+	if !a.requireNode(w, r, nodeID) {
+		return
+	}
+
+	result, err := a.callAgent(r.Context(), nodeID, "session.diff", sessionDiffParams{
+		SessionID: r.PathValue("sessionID"),
+		Directory: directory,
+		From:      query.Get("from"),
+		To:        query.Get("to"),
+		Context:   contextLines,
+	})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleSessionInterrupt 停止当前运行；resume 固定为 false，I1-B 不排队
+// 新的 steering 消息。
+func (a *API) handleSessionInterrupt(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.PathValue("nodeID")
+	if !a.requireNode(w, r, nodeID) {
+		return
+	}
+	result, err := a.callAgent(r.Context(), nodeID, "session.interrupt",
+		sessionInterruptParams{SessionID: r.PathValue("sessionID")})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handlePTYCreate 创建一个绑定到 session 和目录的持久终端。
+func (a *API) handlePTYCreate(w http.ResponseWriter, r *http.Request) {
+	var req ptyCreateRequest
+	if err := decodeRequest(w, r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+		return
+	}
+	if req.Directory == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory is required")
+		return
+	}
+	if !filepath.IsAbs(req.Directory) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory must be absolute")
+		return
+	}
+	if req.Cols == 0 {
+		req.Cols = 80
+	}
+	if req.Rows == 0 {
+		req.Rows = 24
+	}
+	if req.Cols < 1 || req.Cols > 1000 || req.Rows < 1 || req.Rows > 1000 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid terminal size")
+		return
+	}
+	if req.Args == nil {
+		req.Args = []string{}
+	}
+	nodeID := r.PathValue("nodeID")
+	if !a.requireNode(w, r, nodeID) {
+		return
+	}
+
+	result, err := a.callAgent(r.Context(), nodeID, "pty.create", ptyCreateParams{
+		SessionID: r.PathValue("sessionID"),
+		Directory: req.Directory,
+		Cols:      req.Cols,
+		Rows:      req.Rows,
+		Command:   req.Command,
+		Args:      req.Args,
+	})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handlePTYClose 关闭一个终端；浏览器 WebSocket 断开时也会走同一条路径。
+func (a *API) handlePTYClose(w http.ResponseWriter, r *http.Request) {
+	ptyID := r.PathValue("ptyID")
+	if ptyID == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "pty_id is required")
+		return
+	}
+	nodeID := r.PathValue("nodeID")
+	if !a.requireNode(w, r, nodeID) {
+		return
+	}
+	result, err := a.callAgent(r.Context(), nodeID, "pty.close",
+		ptyCloseParams{PTYID: ptyID})
 	if err != nil {
 		a.writeAgentError(w, err)
 		return
