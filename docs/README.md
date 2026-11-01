@@ -47,6 +47,8 @@
 | [product/lework-product-whitepaper.pdf](product/lework-product-whitepaper.pdf) | Lework 产品功能白皮书（PDF） |
 | [product/2026-10-30-core-product-development-plan.md](product/2026-10-30-core-product-development-plan.md) | 核心产品开发计划：范围裁决、M0–M4 路线、任务闭环改造与开源发布清单 |
 | [product/current-limitations.md](product/current-limitations.md) | 当前能力边界：今天可用 / 路线图 / 安全默认值 / 部署事实 |
+| [product/2026-11-01-module-priority.md](product/2026-11-01-module-priority.md) | 模块优先级：P0 核心闭环 / P1 必要支撑 / P2 外围与可冻结能力 |
+| [product/2026-11-01-opencode-control-plane-product-architecture.md](product/2026-11-01-opencode-control-plane-product-architecture.md) | OpenCode 控制面产品架构：单用户多节点、lework-agent、Git 上下文同步、现代 GUI |
 
 ### 技术设计
 
@@ -60,6 +62,7 @@
 | [design/presigned-url.md](design/presigned-url.md) | 预签名 URL 设计 |
 | [design/ai-teammate-worker-deployment.md](design/ai-teammate-worker-deployment.md) | AI 队友维护与 Worker 动态部署技术设计 |
 | [design/2026-10-27-opencode-v2-runtime-migration-design.md](design/2026-10-27-opencode-v2-runtime-migration-design.md) | opencode v2 迁移方案与协议选型评估（HTTP API / ACP 对比、成本、回滚与灰度） |
+| [design/2026-11-01-opencode-control-plane-technical-architecture.md](design/2026-11-01-opencode-control-plane-technical-architecture.md) | OpenCode 控制面技术架构：lework-agent、多节点 WSS、SSE/PTY、Git 同步 |
 
 ### 前端文档
 
