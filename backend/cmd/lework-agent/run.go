@@ -31,6 +31,11 @@ const (
 	initialBackoff = time.Second
 	maxBackoff     = 30 * time.Second
 
+	// backoffResetAfter is the stability window a connection must survive before
+	// a later drop restarts the retry ladder. Without it, a control plane that
+	// accepts then immediately drops would keep the agent at a 1s retry cadence.
+	backoffResetAfter = 10 * time.Second
+
 	// heartbeatInterval matches the control plane's idle expectation.
 	heartbeatInterval = 10 * time.Second
 
@@ -94,7 +99,21 @@ func runAgent(ctx context.Context, configPath string) error {
 
 	// The shared OpenCode service outlives individual connections but not the
 	// agent: stopping it here prevents an orphan when the daemon exits.
-	defer stopService(service)
+	defer stopService(service, cfg.EnrollmentToken)
+
+	// Bootstrap the local service once before dialing. The runner subscribes to
+	// OpenCode events immediately after welcome, so without a running service
+	// every connection would die at subscribe time and reconnect before the
+	// control plane could send opencode.start. A failure here is not fatal: the
+	// control plane may still start the service later via opencode.start, and
+	// the agent can register and report the failure.
+	if _, err := service.Ensure(ctx); err != nil {
+		if ctx.Err() == nil {
+			logs.Warnf("lework-agent: start opencode service: %s", redact(err, cfg.EnrollmentToken))
+		}
+	} else {
+		logs.Infof("lework-agent: opencode service ready")
+	}
 
 	logs.Infof("lework-agent: starting node %q", cfg.NodeName)
 
@@ -122,10 +141,8 @@ func reconnect(ctx context.Context, cfg *config.Config, client *opencode.Client,
 			}
 			logs.Warnf("lework-agent: connect control plane: %s", redact(err, cfg.EnrollmentToken))
 		} else {
-			// A successful handshake resets the delay so the next transient drop
-			// is retried quickly.
-			backoff = initialBackoff
 			logs.Infof("lework-agent: connected to control plane")
+			started := time.Now()
 			runErr := runner.New(conn, requestHandler, client, runner.RunnerConfig{
 				// NodeID is a placeholder in I0: the control plane's welcome
 				// frame carries the real node ID, which is not persisted yet.
@@ -133,6 +150,7 @@ func reconnect(ctx context.Context, cfg *config.Config, client *opencode.Client,
 				AgentVersion: version,
 				Heartbeat:    heartbeatInterval,
 			}).Run(ctx)
+			connectedFor := time.Since(started)
 
 			if closeErr := conn.Close(); closeErr != nil {
 				logs.Warnf("lework-agent: close connection: %s", redact(closeErr, cfg.EnrollmentToken))
@@ -141,6 +159,12 @@ func reconnect(ctx context.Context, cfg *config.Config, client *opencode.Client,
 				return nil
 			}
 			logs.Warnf("lework-agent: connection ended: %s", redact(runErr, cfg.EnrollmentToken))
+
+			// Only a connection that stayed up long enough earns a fresh
+			// ladder. A connect-then-drop loop keeps doubling the delay.
+			if shouldResetBackoff(connectedFor) {
+				backoff = initialBackoff
+			}
 		}
 
 		if err := waitBackoff(ctx, backoff); err != nil {
@@ -153,13 +177,20 @@ func reconnect(ctx context.Context, cfg *config.Config, client *opencode.Client,
 // stopService terminates a managed OpenCode process within shutdownTimeout.
 // It uses a fresh context because the run context is already canceled by the
 // time this deferred call executes.
-func stopService(service *supervisor.Supervisor) {
+func stopService(service *supervisor.Supervisor, enrollmentToken string) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := service.Stop(ctx); err != nil {
-		logs.Warnf("lework-agent: stop opencode service: %s", err)
+		logs.Warnf("lework-agent: stop opencode service: %s", redact(err, enrollmentToken))
 	}
+}
+
+// shouldResetBackoff reports whether a connection lived long enough to count as
+// healthy. Short-lived connections keep climbing the ladder so a control plane
+// that accepts and immediately drops cannot pin the agent at 1s retries.
+func shouldResetBackoff(connectedFor time.Duration) bool {
+	return connectedFor >= backoffResetAfter
 }
 
 // nextBackoff doubles current up to maxBackoff. A non-positive current starts
@@ -241,6 +272,10 @@ func defaultConfigPath() string {
 	return defaultConfigPathFor(runtime.GOOS)
 }
 
+// userConfigDir is a seam so the no-home fallback of defaultConfigPathFor can be
+// tested on every platform. Production always uses os.UserConfigDir.
+var userConfigDir = os.UserConfigDir
+
 // defaultConfigPathFor resolves the platform default. It is split out from
 // defaultConfigPath so every platform's path can be tested on any host.
 func defaultConfigPathFor(goos string) string {
@@ -249,9 +284,9 @@ func defaultConfigPathFor(goos string) string {
 		return "/etc/lework/agent.yaml"
 	case "darwin":
 		// os.UserConfigDir is ~/Library/Application Support on macOS.
-		dir, err := os.UserConfigDir()
+		dir, err := userConfigDir()
 		if err != nil {
-			return filepath.Join("~", "Library", "Application Support", "Lework", "agent.yaml")
+			return "agent.yaml"
 		}
 		return filepath.Join(dir, "Lework", "agent.yaml")
 	case "windows":
@@ -261,7 +296,7 @@ func defaultConfigPathFor(goos string) string {
 		}
 		return filepath.Join(dir, "Lework", "agent.yaml")
 	default:
-		dir, err := os.UserConfigDir()
+		dir, err := userConfigDir()
 		if err != nil {
 			return "agent.yaml"
 		}

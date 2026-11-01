@@ -92,6 +92,18 @@ func TestDefaultConfigPathFor(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigPathForWithoutConfigDir(t *testing.T) {
+	original := userConfigDir
+	userConfigDir = func() (string, error) { return "", errors.New("no home") }
+	t.Cleanup(func() { userConfigDir = original })
+
+	for _, goos := range []string{"darwin", "freebsd"} {
+		if got, want := defaultConfigPathFor(goos), "agent.yaml"; got != want {
+			t.Fatalf("%s fallback = %q, want honest relative %q", goos, got, want)
+		}
+	}
+}
+
 func TestEnvSliceIsSorted(t *testing.T) {
 	got := envSlice(map[string]string{"B": "2", "A": "1"})
 	want := []string{"A=1", "B=2"}
@@ -124,6 +136,24 @@ func TestNextBackoff(t *testing.T) {
 	for _, tt := range tests {
 		if got := nextBackoff(tt.current); got != tt.want {
 			t.Errorf("nextBackoff(%s) = %s, want %s", tt.current, got, tt.want)
+		}
+	}
+}
+
+func TestShouldResetBackoff(t *testing.T) {
+	tests := []struct {
+		connectedFor time.Duration
+		want         bool
+	}{
+		{connectedFor: 0, want: false},
+		{connectedFor: 9 * time.Second, want: false},
+		{connectedFor: backoffResetAfter - time.Millisecond, want: false},
+		{connectedFor: backoffResetAfter, want: true},
+		{connectedFor: time.Minute, want: true},
+	}
+	for _, tt := range tests {
+		if got := shouldResetBackoff(tt.connectedFor); got != tt.want {
+			t.Errorf("shouldResetBackoff(%s) = %t, want %t", tt.connectedFor, got, tt.want)
 		}
 	}
 }
