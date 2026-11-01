@@ -94,6 +94,38 @@ func (stubOpenCode) ReplyPermission(context.Context, string, string, string, str
 	return nil
 }
 
+func (stubOpenCode) SessionDiff(context.Context, string, string, string, int) ([]opencode.FileDiff, error) {
+	return nil, nil
+}
+
+func (stubOpenCode) Interrupt(context.Context, string, bool) (opencode.InterruptResult, error) {
+	return opencode.InterruptResult{}, nil
+}
+
+func (stubOpenCode) ListFiles(context.Context, string, string) ([]opencode.FileInfo, error) {
+	return nil, nil
+}
+
+func (stubOpenCode) ReadFile(context.Context, string, string, int64) (opencode.FileContent, error) {
+	return opencode.FileContent{}, nil
+}
+
+func (stubOpenCode) CreatePersistentTerminal(context.Context, string, opencode.CreateTerminalRequest) (opencode.PersistentTerminal, error) {
+	return opencode.PersistentTerminal{}, nil
+}
+
+func (stubOpenCode) ConnectPersistentTerminal(context.Context, string) (*opencode.TerminalConn, error) {
+	return nil, nil
+}
+
+func (stubOpenCode) ResizePersistentTerminal(context.Context, string, opencode.TerminalSize) error {
+	return nil
+}
+
+func (stubOpenCode) ClosePersistentTerminal(context.Context, string) error {
+	return nil
+}
+
 type stubSupervisor struct{}
 
 func (stubSupervisor) Ensure(context.Context) (supervisor.Status, error) {

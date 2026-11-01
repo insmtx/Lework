@@ -5,7 +5,9 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,8 +15,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/insmtx/Lework/backend/internal/agentd/opencode"
+	"github.com/insmtx/Lework/backend/internal/agentd/protocol"
 	"github.com/insmtx/Lework/backend/internal/agentd/supervisor"
 )
 
@@ -30,6 +34,16 @@ type OpenCodeAPI interface {
 	Prompt(ctx context.Context, sessionID, text string) (string, error)
 	Messages(ctx context.Context, sessionID string) ([]opencode.Message, error)
 	ReplyPermission(ctx context.Context, sessionID, permissionID, decision, message string) error
+
+	SessionDiff(ctx context.Context, sessionID, from, to string, context int) ([]opencode.FileDiff, error)
+	Interrupt(ctx context.Context, sessionID string, resume bool) (opencode.InterruptResult, error)
+	ListFiles(ctx context.Context, directory, path string) ([]opencode.FileInfo, error)
+	ReadFile(ctx context.Context, directory, path string, maxBytes int64) (opencode.FileContent, error)
+
+	CreatePersistentTerminal(ctx context.Context, sessionID string, req opencode.CreateTerminalRequest) (opencode.PersistentTerminal, error)
+	ConnectPersistentTerminal(ctx context.Context, ptyID string) (*opencode.TerminalConn, error)
+	ResizePersistentTerminal(ctx context.Context, ptyID string, size opencode.TerminalSize) error
+	ClosePersistentTerminal(ctx context.Context, ptyID string) error
 }
 
 // SupervisorAPI is the subset of supervisor.Supervisor the handler drives.
@@ -72,6 +86,77 @@ type PermissionReplyParams struct {
 	Message      string `json:"message"`
 }
 
+// SessionDiffParams are the parameters for session.diff. Directory is the
+// session working directory and is required so the agent can confine the
+// request before touching OpenCode.
+type SessionDiffParams struct {
+	SessionID string `json:"session_id"`
+	Directory string `json:"directory"`
+	From      string `json:"from,omitempty"`
+	To        string `json:"to,omitempty"`
+	Context   int    `json:"context,omitempty"`
+}
+
+// SessionInterruptParams are the parameters for session.interrupt.
+type SessionInterruptParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// FileListParams are the parameters for file.list. Path is relative to
+// Directory and may be empty for the root.
+type FileListParams struct {
+	Directory string `json:"directory"`
+	Path      string `json:"path"`
+}
+
+// FileReadParams are the parameters for file.read. MaxBytes is capped by the
+// handler; callers cannot request an unbounded file body.
+type FileReadParams struct {
+	Directory string `json:"directory"`
+	Path      string `json:"path"`
+	MaxBytes  int64  `json:"max_bytes,omitempty"`
+}
+
+// FileReadResult is the browser-safe projection of a file read. Content is
+// text for UTF-8 files and base64 for binary files; Path is always relative.
+type FileReadResult struct {
+	Path      string `json:"path"`
+	Encoding  string `json:"encoding"`
+	Content   string `json:"content"`
+	Size      int64  `json:"size"`
+	Truncated bool   `json:"truncated"`
+}
+
+// PTYCreateParams are the parameters for pty.create.
+type PTYCreateParams struct {
+	SessionID string            `json:"session_id"`
+	Directory string            `json:"directory"`
+	Cols      int               `json:"cols"`
+	Rows      int               `json:"rows"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+}
+
+// PTYIDParams are the parameters shared by pty.attach and pty.close.
+type PTYIDParams struct {
+	PTYID string `json:"pty_id"`
+}
+
+// PTYWriteParams are the parameters for pty.write. Data is base64 so the
+// JSON protocol can carry arbitrary terminal bytes.
+type PTYWriteParams struct {
+	PTYID string `json:"pty_id"`
+	Data  string `json:"data"`
+}
+
+// PTYResizeParams are the parameters for pty.resize.
+type PTYResizeParams struct {
+	PTYID string `json:"pty_id"`
+	Cols  int    `json:"cols"`
+	Rows  int    `json:"rows"`
+}
+
 // NodeInfo is the payload returned by node.info.
 type NodeInfo struct {
 	NodeName     string `json:"node_name"`
@@ -91,9 +176,10 @@ type Handler struct {
 	opencode    OpenCodeAPI
 	supervisor  SupervisorAPI
 	idempotency *idempotencyStore
-	// workspaceRoots confines session.create when non-empty. Roots come from
-	// config.Config.WorkspaceRoots, which Validate already required to be
-	// absolute.
+	pty         *ptyManager
+	// workspaceRoots confines session.create and file/PTY access when non-empty.
+	// Roots come from config.Config.WorkspaceRoots, which Validate already
+	// required to be absolute.
 	workspaceRoots []string
 }
 
@@ -115,11 +201,26 @@ func New(openCode OpenCodeAPI, service SupervisorAPI, opts ...Option) *Handler {
 		opencode:    openCode,
 		supervisor:  service,
 		idempotency: newIdempotencyStore(idempotencyTTL),
+		pty:         newPTYManager(),
 	}
 	for _, opt := range opts {
 		opt(h)
 	}
 	return h
+}
+
+// PTYEvents returns the terminal output/exit stream owned by the handler. The
+// runner forwards these events to the control plane; the channel itself is
+// never closed so a reconnect can reuse the same handler.
+func (h *Handler) PTYEvents() <-chan protocol.Event {
+	return h.pty.events
+}
+
+// ClosePTYs terminates every terminal owned by this handler. It is called when
+// the control-plane connection ends so a dropped agent cannot leave shell
+// processes behind.
+func (h *Handler) ClosePTYs() {
+	h.pty.closeAll(h.opencode)
 }
 
 // Handle executes method with params and returns the value the runner should
@@ -166,6 +267,34 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		}
 		return h.opencode.Messages(ctx, p.SessionID)
 
+	case "session.diff":
+		return h.sessionDiff(ctx, params)
+	case "session.interrupt":
+		var p SessionInterruptParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		if p.SessionID == "" {
+			return nil, errors.New("session.interrupt: session_id is required")
+		}
+		return h.opencode.Interrupt(ctx, p.SessionID, false)
+
+	case "file.list":
+		return h.listFiles(ctx, params)
+	case "file.read":
+		return h.readFile(ctx, params)
+
+	case "pty.create":
+		return h.createPTY(ctx, params)
+	case "pty.attach":
+		return h.attachPTY(params)
+	case "pty.write":
+		return h.writePTY(ctx, params)
+	case "pty.resize":
+		return h.resizePTY(ctx, params)
+	case "pty.close":
+		return h.closePTY(params)
+
 	case "permission.reply":
 		var p PermissionReplyParams
 		if err := decodeParams(method, params, &p); err != nil {
@@ -202,38 +331,347 @@ func (h *Handler) prompt(ctx context.Context, params json.RawMessage) (any, erro
 	return receipt, nil
 }
 
-// confineDirectory enforces workspace_roots on session.create. I0 performs
-// lexical containment only: filepath.Abs cleans the path, but a symlink inside
-// a root can still point outside, which is deferred to I1 together with real
-// path resolution.
+// sessionDiff returns the OpenCode turn diff after enforcing the workspace
+// boundary. OpenCode itself does not accept a directory for this endpoint, so
+// Directory is validated here rather than forwarded.
+func (h *Handler) sessionDiff(ctx context.Context, params json.RawMessage) (any, error) {
+	var p SessionDiffParams
+	if err := decodeParams("session.diff", params, &p); err != nil {
+		return nil, err
+	}
+	if p.SessionID == "" {
+		return nil, errors.New("session.diff: session_id is required")
+	}
+	if p.Directory == "" {
+		return nil, errors.New("session.diff: directory is required")
+	}
+	if err := h.confineDirectory(p.Directory); err != nil {
+		return nil, err
+	}
+	return h.opencode.SessionDiff(ctx, p.SessionID, p.From, p.To, p.Context)
+}
+
+// listFiles confines the requested directory/path and returns direct children.
+func (h *Handler) listFiles(ctx context.Context, params json.RawMessage) (any, error) {
+	var p FileListParams
+	if err := decodeParams("file.list", params, &p); err != nil {
+		return nil, err
+	}
+	if p.Directory == "" {
+		return nil, errors.New("file.list: directory is required")
+	}
+	if err := h.confineDirectory(p.Directory); err != nil {
+		return nil, err
+	}
+	root, err := filepath.Abs(p.Directory)
+	if err != nil {
+		return nil, fmt.Errorf("file.list: resolve directory: %w", err)
+	}
+	target, err := h.confinePath(root, p.Path)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return nil, fmt.Errorf("file.list: resolve relative path: %w", err)
+	}
+	if rel == "." {
+		rel = ""
+	}
+	return h.opencode.ListFiles(ctx, root, filepath.ToSlash(rel))
+}
+
+// readFile confines the requested file and projects it into a JSON-safe result.
+// The 512 KiB cap keeps the base64 response below the agent frame limit.
+func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, error) {
+	var p FileReadParams
+	if err := decodeParams("file.read", params, &p); err != nil {
+		return nil, err
+	}
+	if p.Directory == "" {
+		return nil, errors.New("file.read: directory is required")
+	}
+	if err := h.confineDirectory(p.Directory); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.Path) == "" {
+		return nil, errors.New("file.read: path is required")
+	}
+
+	root, err := filepath.Abs(p.Directory)
+	if err != nil {
+		return nil, fmt.Errorf("file.read: resolve directory: %w", err)
+	}
+	target, err := h.confinePath(root, p.Path)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return nil, fmt.Errorf("file.read: resolve relative path: %w", err)
+	}
+
+	const maxFileBytes = 512 << 10
+	maxBytes := p.MaxBytes
+	if maxBytes <= 0 || maxBytes > maxFileBytes {
+		maxBytes = maxFileBytes
+	}
+
+	content, err := h.opencode.ReadFile(ctx, root, filepath.ToSlash(rel), maxBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	encoding := "base64"
+	encoded := base64.StdEncoding.EncodeToString(content.Data)
+	if utf8.Valid(content.Data) && !bytes.ContainsRune(content.Data, '\x00') {
+		encoding = "utf-8"
+		encoded = string(content.Data)
+	}
+	return FileReadResult{
+		Path:      filepath.ToSlash(rel),
+		Encoding:  encoding,
+		Content:   encoded,
+		Size:      content.Size,
+		Truncated: content.Truncated,
+	}, nil
+}
+
+// createPTY starts a session-scoped terminal. Cwd is the session directory, so
+// it must be inside workspace_roots before any process is spawned.
+func (h *Handler) createPTY(ctx context.Context, params json.RawMessage) (any, error) {
+	var p PTYCreateParams
+	if err := decodeParams("pty.create", params, &p); err != nil {
+		return nil, err
+	}
+	if p.SessionID == "" {
+		return nil, errors.New("pty.create: session_id is required")
+	}
+	if p.Directory == "" {
+		return nil, errors.New("pty.create: directory is required")
+	}
+	if err := h.confineDirectory(p.Directory); err != nil {
+		return nil, err
+	}
+	cwd, err := filepath.Abs(p.Directory)
+	if err != nil {
+		return nil, fmt.Errorf("pty.create: resolve directory: %w", err)
+	}
+
+	if p.Cols <= 0 {
+		p.Cols = 80
+	}
+	if p.Rows <= 0 {
+		p.Rows = 24
+	}
+	if err := validatePTYSize(p.Cols, p.Rows); err != nil {
+		return nil, err
+	}
+	command := p.Command
+	if command == "" {
+		command = os.Getenv("SHELL")
+		if command == "" {
+			command = "/bin/sh"
+		}
+	}
+	args := p.Args
+	if args == nil {
+		args = []string{}
+	}
+	env := p.Env
+	if env == nil {
+		env = map[string]string{}
+	}
+
+	terminal, err := h.opencode.CreatePersistentTerminal(ctx, p.SessionID, opencode.CreateTerminalRequest{
+		Command: command,
+		Args:    args,
+		Cwd:     cwd,
+		Title:   "Lework Terminal",
+		Env:     env,
+		Size:    opencode.TerminalSize{Cols: p.Cols, Rows: p.Rows},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if terminal.ID == "" {
+		return nil, errors.New("pty.create: OpenCode returned an empty terminal id")
+	}
+	h.pty.add(&terminalSession{
+		id:        terminal.ID,
+		sessionID: p.SessionID,
+		cols:      p.Cols,
+		rows:      p.Rows,
+	})
+	return terminal, nil
+}
+
+// attachPTY starts the output pump once. Attaching an already-running terminal
+// is idempotent so a reconnect can subscribe to the same output stream.
+func (h *Handler) attachPTY(params json.RawMessage) (any, error) {
+	var p PTYIDParams
+	if err := decodeParams("pty.attach", params, &p); err != nil {
+		return nil, err
+	}
+	if p.PTYID == "" {
+		return nil, errors.New("pty.attach: pty_id is required")
+	}
+	if err := h.pty.attach(p.PTYID, h.opencode); err != nil {
+		return nil, err
+	}
+	return struct {
+		Attached bool `json:"attached"`
+	}{Attached: true}, nil
+}
+
+// writePTY decodes base64 terminal input and forwards it to OpenCode.
+func (h *Handler) writePTY(ctx context.Context, params json.RawMessage) (any, error) {
+	var p PTYWriteParams
+	if err := decodeParams("pty.write", params, &p); err != nil {
+		return nil, err
+	}
+	if p.PTYID == "" {
+		return nil, errors.New("pty.write: pty_id is required")
+	}
+	data, err := base64.StdEncoding.DecodeString(p.Data)
+	if err != nil {
+		return nil, fmt.Errorf("pty.write: decode data: %w", err)
+	}
+	if len(data) > 64<<10 {
+		return nil, errors.New("pty.write: data exceeds 64 KiB")
+	}
+	if err := h.pty.write(ctx, p.PTYID, data); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+// resizePTY validates and forwards a terminal viewport change.
+func (h *Handler) resizePTY(ctx context.Context, params json.RawMessage) (any, error) {
+	var p PTYResizeParams
+	if err := decodeParams("pty.resize", params, &p); err != nil {
+		return nil, err
+	}
+	if p.PTYID == "" {
+		return nil, errors.New("pty.resize: pty_id is required")
+	}
+	if err := validatePTYSize(p.Cols, p.Rows); err != nil {
+		return nil, err
+	}
+	if err := h.pty.resize(ctx, p.PTYID, p.Cols, p.Rows); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+// closePTY terminates a terminal. A missing ID is a successful no-op.
+func (h *Handler) closePTY(params json.RawMessage) (any, error) {
+	var p PTYIDParams
+	if err := decodeParams("pty.close", params, &p); err != nil {
+		return nil, err
+	}
+	if p.PTYID == "" {
+		return nil, errors.New("pty.close: pty_id is required")
+	}
+	h.pty.close(p.PTYID, h.opencode)
+	return nil, nil
+}
+
+// validatePTYSize keeps column/row values inside the two-byte protocol range
+// used by OpenCode's input_protocol=1 frames.
+func validatePTYSize(cols, rows int) error {
+	if cols < 1 || cols > 1000 || rows < 1 || rows > 1000 {
+		return fmt.Errorf("invalid terminal size %dx%d", cols, rows)
+	}
+	return nil
+}
+
+// confineDirectory enforces workspace_roots on a directory. It returns no
+// error when no roots are configured, preserving the I0 pass-through behavior.
 func (h *Handler) confineDirectory(directory string) error {
 	if len(h.workspaceRoots) == 0 {
 		return nil
 	}
 	if directory == "" {
-		return errors.New("session.create: directory is required when workspace_roots is configured")
+		return errors.New("directory is required when workspace_roots is configured")
+	}
+	_, err := h.resolveWorkspaceDirectory(directory)
+	return err
+}
+
+// resolveWorkspaceDirectory resolves directory and verifies it is inside one
+// configured root. Symlinks are compared after EvalSymlinks so a link inside a
+// root cannot redirect a file or PTY operation outside it.
+func (h *Handler) resolveWorkspaceDirectory(directory string) (string, error) {
+	abs, err := filepath.Abs(directory)
+	if err != nil {
+		return "", fmt.Errorf("resolve directory: %w", err)
+	}
+	if len(h.workspaceRoots) == 0 {
+		return abs, nil
 	}
 
-	dir, err := filepath.Abs(directory)
-	if err != nil {
-		return fmt.Errorf("session.create: resolve directory: %w", err)
+	resolvedTarget := abs
+	if evaluated, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
+		resolvedTarget = evaluated
 	}
+
 	for _, root := range h.workspaceRoots {
 		absRoot, err := filepath.Abs(root)
 		if err != nil {
-			// config.Validate already requires absolute roots, so a malformed
-			// one can never match a request; skip it instead of failing all.
 			continue
 		}
-		rel, err := filepath.Rel(absRoot, dir)
-		if err != nil {
-			continue
+		resolvedRoot := absRoot
+		if evaluated, evalErr := filepath.EvalSymlinks(absRoot); evalErr == nil {
+			resolvedRoot = evaluated
 		}
-		if rel == "." || !escapesRoot(rel) {
-			return nil
+		if pathWithin(resolvedRoot, resolvedTarget) {
+			return abs, nil
 		}
 	}
-	return errors.New("session.create: directory is outside workspace_roots")
+	return "", errors.New("directory is outside workspace_roots")
+}
+
+// confinePath resolves path relative to root and rejects lexical escapes and
+// symlinks whose target resolves outside root.
+func (h *Handler) confinePath(root, path string) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve root: %w", err)
+	}
+	if len(h.workspaceRoots) > 0 {
+		if _, err := h.resolveWorkspaceDirectory(absRoot); err != nil {
+			return "", err
+		}
+	}
+
+	target := filepath.Clean(path)
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(absRoot, target)
+	}
+	if !pathWithin(absRoot, target) {
+		return "", errors.New("path is outside the workspace directory")
+	}
+
+	resolvedRoot := absRoot
+	if evaluated, evalErr := filepath.EvalSymlinks(absRoot); evalErr == nil {
+		resolvedRoot = evaluated
+	}
+	if evaluated, evalErr := filepath.EvalSymlinks(target); evalErr == nil {
+		if !pathWithin(resolvedRoot, evaluated) {
+			return "", errors.New("path resolves outside the workspace directory")
+		}
+	}
+	return target, nil
+}
+
+// pathWithin reports whether target is root or a descendant of root.
+func pathWithin(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || !escapesRoot(rel)
 }
 
 // escapesRoot reports whether a filepath.Rel result points above the root. Rel

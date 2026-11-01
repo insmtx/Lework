@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -42,6 +44,46 @@ type fakeOpenCode struct {
 	replyPermissionID string
 	replyDecision     string
 	replyMessage      string
+
+	diffCalls     int
+	diffSessionID string
+	diffDirectory string
+	diffFrom      string
+	diffTo        string
+	diffContext   int
+	diffs         []opencode.FileDiff
+	diffErr       error
+
+	interruptCalls     int
+	interruptSessionID string
+	interruptResume    bool
+	interruptResult    opencode.InterruptResult
+	interruptErr       error
+
+	listFilesCalls     int
+	listFilesDirectory string
+	listFilesPath      string
+	files              []opencode.FileInfo
+	listFilesErr       error
+
+	readFileCalls     int
+	readFileDirectory string
+	readFilePath      string
+	readFileMaxBytes  int64
+	readFileContent   opencode.FileContent
+	readFileErr       error
+
+	createTerminalCalls   int
+	createTerminalSession string
+	createTerminalReq     opencode.CreateTerminalRequest
+	createTerminal        opencode.PersistentTerminal
+	createTerminalErr     error
+
+	resizeTerminalCalls int
+	resizeTerminalID    string
+	resizeTerminalSize  opencode.TerminalSize
+	closeTerminalCalls  int
+	closeTerminalID     string
 }
 
 func (f *fakeOpenCode) ListSessions(context.Context) ([]opencode.Session, error) {
@@ -83,6 +125,61 @@ func (f *fakeOpenCode) ReplyPermission(
 	f.replyPermissionID = permissionID
 	f.replyDecision = decision
 	f.replyMessage = message
+	return nil
+}
+
+func (f *fakeOpenCode) SessionDiff(_ context.Context, sessionID, from, to string, contextLines int) ([]opencode.FileDiff, error) {
+	f.diffCalls++
+	f.diffSessionID = sessionID
+	f.diffFrom = from
+	f.diffTo = to
+	f.diffContext = contextLines
+	return f.diffs, f.diffErr
+}
+
+func (f *fakeOpenCode) Interrupt(_ context.Context, sessionID string, resume bool) (opencode.InterruptResult, error) {
+	f.interruptCalls++
+	f.interruptSessionID = sessionID
+	f.interruptResume = resume
+	return f.interruptResult, f.interruptErr
+}
+
+func (f *fakeOpenCode) ListFiles(_ context.Context, directory, path string) ([]opencode.FileInfo, error) {
+	f.listFilesCalls++
+	f.listFilesDirectory = directory
+	f.listFilesPath = path
+	return f.files, f.listFilesErr
+}
+
+func (f *fakeOpenCode) ReadFile(_ context.Context, directory, path string, maxBytes int64) (opencode.FileContent, error) {
+	f.readFileCalls++
+	f.readFileDirectory = directory
+	f.readFilePath = path
+	f.readFileMaxBytes = maxBytes
+	return f.readFileContent, f.readFileErr
+}
+
+func (f *fakeOpenCode) CreatePersistentTerminal(_ context.Context, sessionID string, req opencode.CreateTerminalRequest) (opencode.PersistentTerminal, error) {
+	f.createTerminalCalls++
+	f.createTerminalSession = sessionID
+	f.createTerminalReq = req
+	return f.createTerminal, f.createTerminalErr
+}
+
+func (f *fakeOpenCode) ConnectPersistentTerminal(context.Context, string) (*opencode.TerminalConn, error) {
+	return nil, errors.New("fakeOpenCode: terminal connection is not available")
+}
+
+func (f *fakeOpenCode) ResizePersistentTerminal(_ context.Context, ptyID string, size opencode.TerminalSize) error {
+	f.resizeTerminalCalls++
+	f.resizeTerminalID = ptyID
+	f.resizeTerminalSize = size
+	return nil
+}
+
+func (f *fakeOpenCode) ClosePersistentTerminal(_ context.Context, ptyID string) error {
+	f.closeTerminalCalls++
+	f.closeTerminalID = ptyID
 	return nil
 }
 
@@ -628,5 +725,248 @@ func TestOpenCodeLifecyclePropagatesErrors(t *testing.T) {
 		if _, err := h.Handle(context.Background(), method, nil); !errors.Is(err, want) {
 			t.Fatalf("%s err = %v, want %v", method, err, want)
 		}
+	}
+}
+
+func TestSessionDiffConfinesAndPassesParams(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{diffs: []opencode.FileDiff{{File: "a.txt", Status: "modified"}}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(SessionDiffParams{
+		SessionID: "ses_1",
+		Directory: root,
+		From:      "msg_a",
+		To:        "msg_b",
+		Context:   3,
+	})
+	result, err := h.Handle(context.Background(), "session.diff", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.diffCalls != 1 || oc.diffSessionID != "ses_1" || oc.diffFrom != "msg_a" || oc.diffTo != "msg_b" || oc.diffContext != 3 {
+		t.Fatalf("diff call = %d/%q/%q/%q/%d", oc.diffCalls, oc.diffSessionID, oc.diffFrom, oc.diffTo, oc.diffContext)
+	}
+	diffs, ok := result.([]opencode.FileDiff)
+	if !ok || len(diffs) != 1 || diffs[0].File != "a.txt" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestSessionDiffRejectsOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(SessionDiffParams{SessionID: "ses_1", Directory: outside})
+	if _, err := h.Handle(context.Background(), "session.diff", params); err == nil || !strings.Contains(err.Error(), "outside workspace_roots") {
+		t.Fatalf("error = %v", err)
+	}
+	if oc.diffCalls != 0 {
+		t.Fatalf("diff calls = %d", oc.diffCalls)
+	}
+}
+
+func TestSessionInterruptPassesSessionID(t *testing.T) {
+	oc := &fakeOpenCode{interruptResult: opencode.InterruptResult{Interrupted: true}}
+	h := New(oc, fakeSupervisor{})
+
+	params, _ := json.Marshal(SessionInterruptParams{SessionID: "ses_1"})
+	result, err := h.Handle(context.Background(), "session.interrupt", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.interruptCalls != 1 || oc.interruptSessionID != "ses_1" || oc.interruptResume {
+		t.Fatalf("interrupt = %d/%q/%v", oc.interruptCalls, oc.interruptSessionID, oc.interruptResume)
+	}
+	got, ok := result.(opencode.InterruptResult)
+	if !ok || !got.Interrupted {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFileListConfinesRelativePath(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{files: []opencode.FileInfo{{Path: "a.txt", Type: "file"}}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileListParams{Directory: root, Path: "sub"})
+	result, err := h.Handle(context.Background(), "file.list", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.listFilesCalls != 1 || oc.listFilesPath != "sub" || oc.listFilesDirectory != root {
+		t.Fatalf("list = %d/%q/%q", oc.listFilesCalls, oc.listFilesDirectory, oc.listFilesPath)
+	}
+	files, ok := result.([]opencode.FileInfo)
+	if !ok || len(files) != 1 || files[0].Path != "a.txt" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFileListRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileListParams{Directory: root, Path: "../secret"})
+	if _, err := h.Handle(context.Background(), "file.list", params); err == nil {
+		t.Fatal("expected traversal error")
+	}
+	if oc.listFilesCalls != 0 {
+		t.Fatalf("list calls = %d", oc.listFilesCalls)
+	}
+}
+
+func TestFileListRejectsSymlinkOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileListParams{Directory: root, Path: "link"})
+	if _, err := h.Handle(context.Background(), "file.list", params); err == nil {
+		t.Fatal("expected symlink containment error")
+	}
+	if oc.listFilesCalls != 0 {
+		t.Fatalf("list calls = %d", oc.listFilesCalls)
+	}
+}
+
+func TestFileReadReturnsUTF8AndCapsSize(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{readFileContent: opencode.FileContent{Data: []byte("hello"), Size: 5}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileReadParams{Directory: root, Path: "a.txt", MaxBytes: 10 << 20})
+	result, err := h.Handle(context.Background(), "file.read", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.readFileMaxBytes != 512<<10 {
+		t.Fatalf("max bytes = %d, want 512 KiB cap", oc.readFileMaxBytes)
+	}
+	got, ok := result.(FileReadResult)
+	if !ok || got.Encoding != "utf-8" || got.Content != "hello" || got.Path != "a.txt" || got.Size != 5 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFileReadReturnsBase64ForBinary(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{readFileContent: opencode.FileContent{Data: []byte{0, 1, 2}, Size: 3}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileReadParams{Directory: root, Path: "bin.dat"})
+	result, err := h.Handle(context.Background(), "file.read", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := result.(FileReadResult)
+	if !ok || got.Encoding != "base64" {
+		t.Fatalf("result = %#v", result)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(got.Content)
+	if err != nil || string(decoded) != string([]byte{0, 1, 2}) {
+		t.Fatalf("content = %q err=%v", got.Content, err)
+	}
+}
+
+func TestPTYCreateConfinesAndDefaults(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{createTerminal: opencode.PersistentTerminal{ID: "pty_1", Cwd: root, Status: "running"}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(PTYCreateParams{SessionID: "ses_1", Directory: root})
+	result, err := h.Handle(context.Background(), "pty.create", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.createTerminalCalls != 1 || oc.createTerminalSession != "ses_1" {
+		t.Fatalf("create = %d/%q", oc.createTerminalCalls, oc.createTerminalSession)
+	}
+	if oc.createTerminalReq.Size.Cols != 80 || oc.createTerminalReq.Size.Rows != 24 {
+		t.Fatalf("size = %#v", oc.createTerminalReq.Size)
+	}
+	if oc.createTerminalReq.Args == nil || oc.createTerminalReq.Env == nil {
+		t.Fatalf("args/env must be non-nil: %#v", oc.createTerminalReq)
+	}
+	got, ok := result.(opencode.PersistentTerminal)
+	if !ok || got.ID != "pty_1" {
+		t.Fatalf("result = %#v", result)
+	}
+	h.ClosePTYs()
+}
+
+func TestPTYCreateRejectsOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(PTYCreateParams{SessionID: "ses_1", Directory: outside})
+	if _, err := h.Handle(context.Background(), "pty.create", params); err == nil || !strings.Contains(err.Error(), "outside workspace_roots") {
+		t.Fatalf("error = %v", err)
+	}
+	if oc.createTerminalCalls != 0 {
+		t.Fatalf("create calls = %d", oc.createTerminalCalls)
+	}
+}
+
+func TestPTYWriteResizeAndClose(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+	conn := &fakeTerminalConn{}
+	h.pty.add(&terminalSession{id: "pty_1", sessionID: "ses_1", cols: 80, rows: 24, conn: conn})
+
+	writeParams, _ := json.Marshal(PTYWriteParams{PTYID: "pty_1", Data: base64.StdEncoding.EncodeToString([]byte("hi"))})
+	if _, err := h.Handle(context.Background(), "pty.write", writeParams); err != nil {
+		t.Fatal(err)
+	}
+	if string(conn.written) != "hi" {
+		t.Fatalf("written = %q", conn.written)
+	}
+
+	resizeParams, _ := json.Marshal(PTYResizeParams{PTYID: "pty_1", Cols: 100, Rows: 40})
+	if _, err := h.Handle(context.Background(), "pty.resize", resizeParams); err != nil {
+		t.Fatal(err)
+	}
+	if conn.size.Cols != 100 || conn.size.Rows != 40 {
+		t.Fatalf("size = %#v", conn.size)
+	}
+
+	closeParams, _ := json.Marshal(PTYIDParams{PTYID: "pty_1"})
+	if _, err := h.Handle(context.Background(), "pty.close", closeParams); err != nil {
+		t.Fatal(err)
+	}
+	if !conn.closed || oc.closeTerminalCalls != 1 {
+		t.Fatalf("closed=%v closeCalls=%d", conn.closed, oc.closeTerminalCalls)
+	}
+	if _, err := h.Handle(context.Background(), "pty.close", closeParams); err != nil {
+		t.Fatalf("second close: %v", err)
+	}
+}
+
+func TestConfinePath(t *testing.T) {
+	root := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	if _, err := h.confinePath(root, "../x"); err == nil {
+		t.Fatal("expected traversal rejection")
+	}
+	if _, err := h.confinePath(root, "/etc/passwd"); err == nil {
+		t.Fatal("expected absolute outside rejection")
+	}
+	got, err := h.confinePath(root, "sub/file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Join(root, "sub", "file.txt") {
+		t.Fatalf("target = %q", got)
 	}
 }

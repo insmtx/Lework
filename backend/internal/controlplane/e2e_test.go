@@ -264,6 +264,46 @@ func (c *countingOpenCode) ReplyPermission(context.Context, string, string, stri
 	return nil
 }
 
+// SessionDiff 返回空 diff。
+func (c *countingOpenCode) SessionDiff(context.Context, string, string, string, int) ([]opencode.FileDiff, error) {
+	return []opencode.FileDiff{}, nil
+}
+
+// Interrupt 返回未中断状态。
+func (c *countingOpenCode) Interrupt(context.Context, string, bool) (opencode.InterruptResult, error) {
+	return opencode.InterruptResult{}, nil
+}
+
+// ListFiles 返回空列表。
+func (c *countingOpenCode) ListFiles(context.Context, string, string) ([]opencode.FileInfo, error) {
+	return []opencode.FileInfo{}, nil
+}
+
+// ReadFile 返回空内容。
+func (c *countingOpenCode) ReadFile(context.Context, string, string, int64) (opencode.FileContent, error) {
+	return opencode.FileContent{}, nil
+}
+
+// CreatePersistentTerminal 返回固定终端。
+func (c *countingOpenCode) CreatePersistentTerminal(context.Context, string, opencode.CreateTerminalRequest) (opencode.PersistentTerminal, error) {
+	return opencode.PersistentTerminal{ID: "pty_e2e"}, nil
+}
+
+// ConnectPersistentTerminal 不支持真实连接。
+func (c *countingOpenCode) ConnectPersistentTerminal(context.Context, string) (*opencode.TerminalConn, error) {
+	return nil, errors.New("e2e: no terminal connection")
+}
+
+// ResizePersistentTerminal 是空实现。
+func (c *countingOpenCode) ResizePersistentTerminal(context.Context, string, opencode.TerminalSize) error {
+	return nil
+}
+
+// ClosePersistentTerminal 是空实现。
+func (c *countingOpenCode) ClosePersistentTerminal(context.Context, string) error {
+	return nil
+}
+
 // SubscribeEvents 返回一个保持打开的事件通道，直到测试上下文结束。
 func (c *countingOpenCode) SubscribeEvents(ctx context.Context) (<-chan opencode.Event, error) {
 	events := make(chan opencode.Event)
