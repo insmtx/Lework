@@ -6,7 +6,18 @@ import (
 	"testing"
 )
 
+// clearOpenCodePasswordEnv makes a test independent of the daemon's ambient
+// environment, which resolveOpenCodePassword deliberately consults because the
+// child inherits it.
+func clearOpenCodePasswordEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("OPENCODE_PASSWORD", "")
+	t.Setenv("OPENCODE_SERVER_PASSWORD", "")
+}
+
 func TestResolveOpenCodePasswordPrefersOpenCodePassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+
 	env := map[string]string{
 		"OPENCODE_PASSWORD":        "primary",
 		"OPENCODE_SERVER_PASSWORD": "fallback",
@@ -25,6 +36,8 @@ func TestResolveOpenCodePasswordPrefersOpenCodePassword(t *testing.T) {
 }
 
 func TestResolveOpenCodePasswordUsesServerPassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+
 	env := map[string]string{"OPENCODE_SERVER_PASSWORD": "server"}
 
 	password, generated, err := resolveOpenCodePassword(env)
@@ -39,7 +52,79 @@ func TestResolveOpenCodePasswordUsesServerPassword(t *testing.T) {
 	}
 }
 
+func TestResolveOpenCodePasswordUsesInheritedOpenCodePassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+	t.Setenv("OPENCODE_PASSWORD", "inherited")
+
+	password, generated, err := resolveOpenCodePassword(map[string]string{})
+	if err != nil {
+		t.Fatalf("resolveOpenCodePassword() error = %v, want nil", err)
+	}
+	if password != "inherited" {
+		t.Fatalf("password = %q, want the inherited OPENCODE_PASSWORD", password)
+	}
+	if generated {
+		t.Fatal("generated = true, want false when the process env provides a password")
+	}
+}
+
+func TestResolveOpenCodePasswordUsesInheritedServerPassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+	t.Setenv("OPENCODE_SERVER_PASSWORD", "inherited-server")
+
+	password, generated, err := resolveOpenCodePassword(map[string]string{})
+	if err != nil {
+		t.Fatalf("resolveOpenCodePassword() error = %v, want nil", err)
+	}
+	if password != "inherited-server" {
+		t.Fatalf("password = %q, want the inherited OPENCODE_SERVER_PASSWORD", password)
+	}
+	if generated {
+		t.Fatal("generated = true, want false when the process env provides a password")
+	}
+}
+
+func TestResolveOpenCodePasswordInheritedOpenCodePasswordBeatsYAMLServerPassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+	t.Setenv("OPENCODE_PASSWORD", "inherited")
+
+	// The child keeps the inherited OPENCODE_PASSWORD and reads it before the
+	// yaml-supplied OPENCODE_SERVER_PASSWORD, so the inherited value wins.
+	env := map[string]string{"OPENCODE_SERVER_PASSWORD": "yaml-server"}
+
+	password, generated, err := resolveOpenCodePassword(env)
+	if err != nil {
+		t.Fatalf("resolveOpenCodePassword() error = %v, want nil", err)
+	}
+	if password != "inherited" {
+		t.Fatalf("password = %q, want the inherited OPENCODE_PASSWORD", password)
+	}
+	if generated {
+		t.Fatal("generated = true, want false")
+	}
+}
+
+func TestResolveOpenCodePasswordYAMLPasswordBeatsInheritedServerPassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+	t.Setenv("OPENCODE_SERVER_PASSWORD", "inherited-server")
+
+	env := map[string]string{"OPENCODE_PASSWORD": "yaml-primary"}
+
+	password, generated, err := resolveOpenCodePassword(env)
+	if err != nil {
+		t.Fatalf("resolveOpenCodePassword() error = %v, want nil", err)
+	}
+	if password != "yaml-primary" {
+		t.Fatalf("password = %q, want the yaml OPENCODE_PASSWORD", password)
+	}
+	if generated {
+		t.Fatal("generated = true, want false")
+	}
+}
+
 func TestResolveOpenCodePasswordGeneratesURLSafeValue(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+
 	password, generated, err := resolveOpenCodePassword(map[string]string{})
 	if err != nil {
 		t.Fatalf("resolveOpenCodePassword() error = %v, want nil", err)
@@ -64,6 +149,8 @@ func TestResolveOpenCodePasswordGeneratesURLSafeValue(t *testing.T) {
 }
 
 func TestOpenCodeEnvDoesNotMutateInput(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+
 	input := map[string]string{"OPENCODE_LOG": "debug"}
 
 	env, password, err := openCodeEnv(input)
@@ -96,6 +183,8 @@ func TestOpenCodeEnvDoesNotMutateInput(t *testing.T) {
 }
 
 func TestOpenCodeEnvKeepsConfiguredPassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+
 	input := map[string]string{"OPENCODE_SERVER_PASSWORD": "configured"}
 
 	env, password, err := openCodeEnv(input)
@@ -107,5 +196,21 @@ func TestOpenCodeEnvKeepsConfiguredPassword(t *testing.T) {
 	}
 	if env["OPENCODE_SERVER_PASSWORD"] != "configured" {
 		t.Fatalf("env password = %q, want configured", env["OPENCODE_SERVER_PASSWORD"])
+	}
+}
+
+func TestOpenCodeEnvUsesInheritedPassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+	t.Setenv("OPENCODE_PASSWORD", "inherited")
+
+	env, password, err := openCodeEnv(map[string]string{"OPENCODE_LOG": "debug"})
+	if err != nil {
+		t.Fatalf("openCodeEnv() error = %v, want nil", err)
+	}
+	if password != "inherited" {
+		t.Fatalf("password = %q, want the inherited OPENCODE_PASSWORD", password)
+	}
+	if _, ok := env["OPENCODE_SERVER_PASSWORD"]; ok {
+		t.Fatal("a generated password was injected despite the inherited password")
 	}
 }

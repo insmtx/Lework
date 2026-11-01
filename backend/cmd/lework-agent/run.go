@@ -255,17 +255,34 @@ func openCodeEnv(cfgEnv map[string]string) (map[string]string, string, error) {
 }
 
 // resolveOpenCodePassword returns the password the local server and client
-// must share, and whether the agent generated it. OpenCode reads
-// OPENCODE_PASSWORD before OPENCODE_SERVER_PASSWORD, so an operator-provided
-// value of either name wins; only when neither is set does the agent generate
-// a per-process secret. Generated passwords are 32 random bytes in unpadded
-// base64url, which is safe inside an environment value and a Basic Auth header.
+// must share, and whether the agent generated it.
+//
+// The child does not run with only the yaml env: supervisor.mergeEnv starts
+// from os.Environ() and lets spec.Env override individual keys, so a value
+// inherited from systemd Environment= or a shell export is still visible to
+// OpenCode. OpenCode itself checks OPENCODE_PASSWORD before
+// OPENCODE_SERVER_PASSWORD. The effective value for each key is therefore a
+// non-empty yaml override when present, otherwise the inherited process value.
+// Looking at the yaml map alone would generate a fresh password that the child
+// never uses (because it still sees an inherited OPENCODE_PASSWORD), producing
+// a permanent 401 and a 30s health timeout. Generated passwords are 32 random
+// bytes in unpadded base64url, which is safe inside an environment value and a
+// Basic Auth header.
 func resolveOpenCodePassword(env map[string]string) (password string, generated bool, err error) {
-	if value := env["OPENCODE_PASSWORD"]; value != "" {
-		return value, false, nil
+	effectivePassword := env["OPENCODE_PASSWORD"]
+	if effectivePassword == "" {
+		effectivePassword = os.Getenv("OPENCODE_PASSWORD")
 	}
-	if value := env["OPENCODE_SERVER_PASSWORD"]; value != "" {
-		return value, false, nil
+	effectiveServerPassword := env["OPENCODE_SERVER_PASSWORD"]
+	if effectiveServerPassword == "" {
+		effectiveServerPassword = os.Getenv("OPENCODE_SERVER_PASSWORD")
+	}
+
+	if effectivePassword != "" {
+		return effectivePassword, false, nil
+	}
+	if effectiveServerPassword != "" {
+		return effectiveServerPassword, false, nil
 	}
 
 	buf := make([]byte, 32)
