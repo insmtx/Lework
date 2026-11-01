@@ -55,9 +55,23 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	database, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	dsn, err := sqliteDSN(path)
+	if err != nil {
+		return nil, err
+	}
+
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
+	}
+
+	if path == ":memory:" {
+		// 内存库的生命周期与连接绑定：连接池若再打开一条连接，会得到另一个
+		// 空库（表现为 no such table）。共享缓存让所有连接指向同一个内存库，
+		// 单连接池则保证任何时刻只有一个句柄持有它。
+		if err := pinMemoryConnection(database); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := database.AutoMigrate(&Node{}); err != nil {
@@ -69,6 +83,39 @@ func Open(path string) (*Store, error) {
 	}
 
 	return &Store{db: database}, nil
+}
+
+// sqliteDSN 返回打开的 DSN。文件库原样使用；内存库改用带唯一名称的共享
+// 缓存 DSN，避免连接池中每条连接各自得到一个独立空库，同时保证不同 Store
+// 之间互不干扰。
+func sqliteDSN(path string) (string, error) {
+	if path != ":memory:" {
+		return path, nil
+	}
+
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate memory database name: %w", err)
+	}
+	return "file:lework-memory-" + hex.EncodeToString(buf) + "?mode=memory&cache=shared", nil
+}
+
+// pinMemoryConnection 把内存库限制在单个连接上。
+//
+// 共享缓存的内存库在最后一个连接关闭时即被销毁，而连接池可能因并发压力
+// 打开第二条连接；固定为单连接后既不会出现第二个空库，也不会让库在两次
+// 查询之间消失。SQLite 写入本身串行，单连接不会降低实际吞吐。
+func pinMemoryConnection(database *gorm.DB) error {
+	sqlDB, err := database.DB()
+	if err != nil {
+		return fmt.Errorf("get sql database for memory store: %w", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	// 保持空闲连接不被回收，否则最后一个连接关闭会销毁内存库。
+	sqlDB.SetConnMaxIdleTime(0)
+	sqlDB.SetConnMaxLifetime(0)
+	return nil
 }
 
 // Close 关闭底层数据库连接，可重复调用。
