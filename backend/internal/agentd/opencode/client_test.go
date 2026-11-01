@@ -607,3 +607,36 @@ func TestEscapePathSegments(t *testing.T) {
 		t.Fatalf("escaped = %q", got)
 	}
 }
+
+func TestMessageDecodesToolPart(t *testing.T) {
+	var message Message
+	err := json.Unmarshal([]byte(`{
+		"id":"msg_1",
+		"type":"assistant",
+		"content":[
+			{"type":"text","text":"running"},
+			{"type":"tool","id":"call_1","name":"bash","state":{"status":"completed","input":{"command":"ls"},"content":[{"type":"text","text":"a.txt"}]}}
+		]
+	}`), &message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Text != "running" {
+		t.Fatalf("text = %q", message.Text)
+	}
+	if len(message.Parts) != 2 || message.Parts[1].Tool != "bash" || message.Parts[1].CallID != "call_1" {
+		t.Fatalf("parts = %#v", message.Parts)
+	}
+	var state struct {
+		Status  string `json:"status"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(message.Parts[1].State, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "completed" || len(state.Content) != 1 || state.Content[0].Text != "a.txt" {
+		t.Fatalf("state = %#v", state)
+	}
+}

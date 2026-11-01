@@ -48,12 +48,18 @@ type MessageError struct {
 	Status  int    `json:"status,omitempty"`
 }
 
-// ContentPart is a single piece of assistant message content. Only text parts
-// are projected for I0; other types (reasoning, tool) are kept with an empty
-// Text so callers can still count them.
+// ContentPart is a single piece of assistant message content. Text parts carry
+// Text; tool parts keep the tool name, call ID, and raw state (status, input,
+// output, error) so the browser can render a tool card without the agent
+// interpreting provider-specific shapes.
 type ContentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type   string          `json:"type"`
+	Text   string          `json:"text,omitempty"`
+	Tool   string          `json:"tool,omitempty"`
+	CallID string          `json:"callID,omitempty"`
+	Name   string          `json:"name,omitempty"`
+	ID     string          `json:"id,omitempty"`
+	State  json.RawMessage `json:"state,omitempty"`
 }
 
 // Event is one frame from the OpenCode event feed. Type is the event name and
@@ -151,9 +157,18 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.Finish = wire.Finish
 	m.Outcome = wire.Outcome
 	m.Error = wire.Error
-	for _, part := range wire.Content {
+	for i := range wire.Content {
+		part := &wire.Content[i]
 		if part.Type == "text" {
 			m.Text += part.Text
+		}
+		// OpenCode v2 names tool parts with `name` and `id`; normalize to the
+		// stable Tool/CallID fields so consumers do not depend on provider shape.
+		if part.Tool == "" {
+			part.Tool = part.Name
+		}
+		if part.CallID == "" {
+			part.CallID = part.ID
 		}
 	}
 	return nil
