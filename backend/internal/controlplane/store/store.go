@@ -2,6 +2,10 @@
 //
 // 控制面是单用户本地服务，节点数据量小且只需单机持久化，
 // 因此使用 SQLite + GORM；调用方通过 context 控制查询生命周期。
+//
+// 驱动选用纯 Go 的 github.com/glebarez/sqlite（底层 modernc.org/sqlite），
+// 而不是依赖 cgo 的 gorm.io/driver/sqlite：发布镜像与跨平台构建都在
+// CGO_ENABLED=0 下编译，cgo 驱动会让 lework serve 在这些产物里无法打开库。
 package store
 
 import (
@@ -16,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
