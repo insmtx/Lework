@@ -24,6 +24,7 @@ import (
 	"github.com/insmtx/Lework/backend/internal/controlplane/event"
 	"github.com/insmtx/Lework/backend/internal/controlplane/node"
 	"github.com/insmtx/Lework/backend/internal/controlplane/store"
+	"github.com/insmtx/Lework/backend/internal/controlplane/webui"
 )
 
 const (
@@ -71,11 +72,13 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
 	}, st, registry, hub)
 	browserAPI := api.New(st, registry, hub, cfg.RequestTimeout)
+	ui := webui.Handler()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.Handle("/api/agent/connect", gateway)
 	browserAPI.Register(mux)
+	mux.Handle("/", ui)
 
 	return &Server{
 		cfg:      cfg,

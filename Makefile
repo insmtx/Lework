@@ -15,12 +15,27 @@ IMAGE_TAG := ${VERSION}_${GIT_COMMIT}
 
 BUILD_TAGS ?=
 LDFLAGS := -s -w
+CONTROL_PLANE_UI_DIR := frontend/apps/control-plane
+CONTROL_PLANE_EMBED_DIR := backend/internal/controlplane/webui/dist
 
 ifneq ($(BUILD_TAGS),)
 BUILD_TAGS_FLAG := -tags "$(BUILD_TAGS)"
 endif
 
-build:
+# Build the static browser export and copy it into the embedded asset directory.
+# The generated files are ignored; dist/.gitkeep keeps a clean checkout buildable.
+.PHONY: frontend-control-plane control-plane-ui
+frontend-control-plane:
+	cd frontend && pnpm --filter @lework/control-plane build
+	rm -rf $(CONTROL_PLANE_EMBED_DIR)
+	mkdir -p $(CONTROL_PLANE_EMBED_DIR)
+	cp -R $(CONTROL_PLANE_UI_DIR)/out/. $(CONTROL_PLANE_EMBED_DIR)/
+	touch $(CONTROL_PLANE_EMBED_DIR)/.gitkeep
+
+# Convenience alias kept for earlier I1-B notes.
+control-plane-ui: frontend-control-plane
+
+build: frontend-control-plane
 	go build $(BUILD_TAGS_FLAG) -ldflags="$(LDFLAGS)" -v -o ./bundles/lework ./backend/cmd/lework/
 
 install:

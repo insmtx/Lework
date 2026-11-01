@@ -305,3 +305,36 @@ func waitForHealthz(t *testing.T, addr string) {
 	}
 	t.Fatalf("server at %s never became healthy", addr)
 }
+
+// TestServerServesUIOrBuildPlaceholder covers both checkout states: a release
+// build embeds a real index, while a clean checkout has only dist/.gitkeep.
+func TestServerServesUIOrBuildPlaceholder(t *testing.T) {
+	srv := newTestServer(t)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("UI status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body == "" {
+		t.Fatal("UI body is empty")
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("UI content type = %q, want text/html", got)
+	}
+}
+
+// TestServerUnknownAPIPathIsNotSPA prevents a mistyped API route from returning
+// the browser shell with a 200.
+func TestServerUnknownAPIPathIsNotSPA(t *testing.T) {
+	srv := newTestServer(t)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/does-not-exist", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("content type = %q, want application/json", got)
+	}
+}

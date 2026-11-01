@@ -3,6 +3,18 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG BUILD_TAGS=
 
+# The control-plane UI is a static export. Build it before the Go stage so the
+# single lework binary embeds the browser app.
+FROM registry.yygu.cn/base/node:24 AS ui
+
+WORKDIR /ui
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
+
+COPY frontend/ ./
+RUN pnpm install --frozen-lockfile --filter @lework/control-plane...
+RUN pnpm --filter @lework/control-plane build
+
 FROM registry.yygu.cn/library/golang:1.25 AS builder
 
 WORKDIR /build
@@ -23,6 +35,9 @@ RUN --mount=type=cache,target=/go/ \
 
 # Copy source code
 COPY . .
+
+# Real UI assets replace the tracked .gitkeep placeholder in the Go stage.
+COPY --from=ui /ui/apps/control-plane/out/ /build/backend/internal/controlplane/webui/dist/
 
 ARG TARGETOS
 ARG TARGETARCH
