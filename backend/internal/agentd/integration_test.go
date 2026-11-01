@@ -82,6 +82,16 @@ func TestRealOpenCode(t *testing.T) {
 		Dir:    testDir,
 	})
 
+	// Every failure between the first Ensure and the explicit Stop must still
+	// reap the child. The supervisor starts it with context.WithoutCancel, so
+	// the test context alone cannot kill it; Stop is also a no-op when this
+	// supervisor did not spawn the process, so an attach-only run stays safe.
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = service.Stop(stopCtx)
+	})
+
 	// First Ensure spawns; the second must see the tracked process healthy and
 	// attach to it without spawning a duplicate. The mode stays "managed"
 	// because the supervisor still owns the process it started.
