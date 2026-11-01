@@ -266,14 +266,17 @@ func (s *Supervisor) setStatus(running bool, mode string) Status {
 	return s.status
 }
 
-// spec builds the shared-service command. The env slice is copied so a caller
-// mutating cfg.Env cannot change a process that is already starting.
+// spec builds the shared-service command. The agent owns a plain `serve`
+// process on loopback rather than registering with `--service`: the per-user
+// service registration ignores OPENCODE_SERVER_PASSWORD and can displace a
+// user's TUI service, while a plain serve accepts the generated password from
+// its environment. The env slice is copied so a caller mutating cfg.Env cannot
+// change a process that is already starting.
 func (s *Supervisor) spec() Spec {
 	return Spec{
 		Binary: s.cfg.Binary,
 		Args: []string{
 			"serve",
-			"--service",
 			"--hostname", serviceHost,
 			"--port", fmt.Sprintf("%d", s.cfg.Port),
 		},

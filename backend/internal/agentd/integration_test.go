@@ -4,6 +4,11 @@
 // agent. It is gated behind the integration build tag and two environment
 // variables so the default `go test ./...` never touches a real model or a
 // user's OpenCode data directory.
+//
+// The test runs the production supervisor spec unchanged: a plain
+// `opencode serve` bound to loopback, authenticated with the
+// OPENCODE_SERVER_PASSWORD the daemon puts in the child environment in
+// production. There is no test-only command-line or auth adaptation.
 package agentd_test
 
 import (
@@ -55,6 +60,9 @@ const (
 // attaches to) one shared service, and a session prompt completes with a
 // non-empty assistant message.
 //
+// It uses the production command line and env-based password; only the
+// spawner is wrapped to count calls and keep the last process.
+//
 // Run it with:
 //
 //	LEWORK_OPENCODE_BIN="$(command -v opencode)" \
@@ -75,10 +83,13 @@ func TestRealOpenCode(t *testing.T) {
 		nil,
 		opencode.WithPassword(password),
 	)
-	spawner := &countingSpawner{inner: supervisor.ExecSpawner{}, password: password}
+	// The production daemon supplies the password through the same environment
+	// variable; the spawner below only counts and delegates.
+	spawner := &countingSpawner{inner: supervisor.ExecSpawner{}}
 	service := supervisor.New(client, spawner, supervisor.ServiceConfig{
 		Binary: binary,
 		Port:   port,
+		Env:    []string{"OPENCODE_SERVER_PASSWORD=" + password},
 		Dir:    testDir,
 	})
 
@@ -305,34 +316,23 @@ func sameDirectory(got, want string) bool {
 	return gotErr == nil && wantErr == nil && gotReal == wantReal
 }
 
-// countingSpawner adapts the production spec to a stateless `opencode serve`
-// launch and records how many processes were spawned.
-//
-// Why the adaptation: opencode v2.0.32 in --service mode ignores
-// OPENCODE_SERVER_PASSWORD, reads its password from a per-user
-// $XDG_CONFIG_HOME/opencode/service.json, and replaces (and therefore stops)
-// any other service registered in that directory. Spawning it from this test
-// would hijack the user's TUI service. Plain `serve` with an explicit
-// OPENCODE_SERVER_PASSWORD is isolated and still exercises the supervisor's
-// real spawn/attach/stop lifecycle. The production supervisor still passes
-// --service; that gap is recorded in the I0 findings.
+// countingSpawner records how many processes were spawned and remembers the
+// last one. It delegates the supervisor's spec unchanged, so the live test
+// exercises the production command line (`opencode serve` on loopback) and the
+// production auth path (OPENCODE_SERVER_PASSWORD in the child environment).
 type countingSpawner struct {
-	inner    supervisor.Spawner
-	password string
+	inner supervisor.Spawner
 
 	mu   sync.Mutex
 	call int
 	last supervisor.Process
 }
 
-// Spawn strips --service, injects the password, and delegates to ExecSpawner.
+// Spawn delegates unchanged after recording the call.
 func (s *countingSpawner) Spawn(ctx context.Context, spec supervisor.Spec) (supervisor.Process, error) {
 	s.mu.Lock()
 	s.call++
 	s.mu.Unlock()
-
-	spec.Args = withoutServiceFlag(spec.Args)
-	spec.Env = append(spec.Env, "OPENCODE_SERVER_PASSWORD="+s.password)
 
 	process, err := s.inner.Spawn(ctx, spec)
 	if err != nil {
@@ -356,19 +356,6 @@ func (s *countingSpawner) LastProcess() supervisor.Process {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.last
-}
-
-// withoutServiceFlag removes --service while preserving the hostname/port
-// arguments the supervisor built.
-func withoutServiceFlag(args []string) []string {
-	out := make([]string, 0, len(args))
-	for _, arg := range args {
-		if arg == "--service" {
-			continue
-		}
-		out = append(out, arg)
-	}
-	return out
 }
 
 // failingSpawner proves the foreign-attach path never spawns.

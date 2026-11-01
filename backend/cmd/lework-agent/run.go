@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -83,11 +85,23 @@ func runAgent(ctx context.Context, configPath string) error {
 		return fmt.Errorf("invalid agent config %s: %w", configPath, err)
 	}
 
-	client := opencode.New(fmt.Sprintf("http://127.0.0.1:%d", cfg.OpenCode.Port), http.DefaultClient)
+	// The password is shared by the client and the child process. It is derived
+	// or generated once here so a generated value reaches opencode through its
+	// environment and never has to be read back from the server output.
+	env, password, err := openCodeEnv(cfg.OpenCode.Env)
+	if err != nil {
+		return err
+	}
+
+	client := opencode.New(
+		fmt.Sprintf("http://127.0.0.1:%d", cfg.OpenCode.Port),
+		http.DefaultClient,
+		opencode.WithPassword(password),
+	)
 	service := supervisor.New(client, nil, supervisor.ServiceConfig{
 		Binary: cfg.OpenCode.Binary,
 		Port:   cfg.OpenCode.Port,
-		Env:    envSlice(cfg.OpenCode.Env),
+		Env:    envSlice(env),
 		Dir:    "",
 	})
 	requestHandler := handler.New(client, service)
@@ -217,6 +231,48 @@ func waitBackoff(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// openCodeEnv copies the configured environment, resolves the shared service
+// password, and records a generated value so the client and the child process
+// agree on it. The input map is never modified: it belongs to the loaded
+// configuration, and mutating it would leak the password into a value other
+// callers can read.
+func openCodeEnv(cfgEnv map[string]string) (map[string]string, string, error) {
+	env := make(map[string]string, len(cfgEnv)+1)
+	for key, value := range cfgEnv {
+		env[key] = value
+	}
+
+	password, generated, err := resolveOpenCodePassword(env)
+	if err != nil {
+		return nil, "", err
+	}
+	if generated {
+		env["OPENCODE_SERVER_PASSWORD"] = password
+	}
+	return env, password, nil
+}
+
+// resolveOpenCodePassword returns the password the local server and client
+// must share, and whether the agent generated it. OpenCode reads
+// OPENCODE_PASSWORD before OPENCODE_SERVER_PASSWORD, so an operator-provided
+// value of either name wins; only when neither is set does the agent generate
+// a per-process secret. Generated passwords are 32 random bytes in unpadded
+// base64url, which is safe inside an environment value and a Basic Auth header.
+func resolveOpenCodePassword(env map[string]string) (password string, generated bool, err error) {
+	if value := env["OPENCODE_PASSWORD"]; value != "" {
+		return value, false, nil
+	}
+	if value := env["OPENCODE_SERVER_PASSWORD"]; value != "" {
+		return value, false, nil
+	}
+
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", false, fmt.Errorf("generate opencode password: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), true, nil
 }
 
 // envSlice converts the configured OpenCode environment into the KEY=VALUE form

@@ -201,7 +201,7 @@ func TestEnsureStartsWhenUnhealthy(t *testing.T) {
 	}
 }
 
-func TestEnsureSendsServiceArgs(t *testing.T) {
+func TestEnsureSendsServeArgs(t *testing.T) {
 	health := &fakeHealth{err: errors.New("connection refused")}
 	spawner := &recordingSpawner{health: health, proc: &fakeProcess{}}
 	cfg := ServiceConfig{
@@ -216,7 +216,7 @@ func TestEnsureSendsServiceArgs(t *testing.T) {
 		t.Fatalf("Ensure() error = %v, want nil", err)
 	}
 
-	wantArgs := []string{"serve", "--service", "--hostname", "127.0.0.1", "--port", "5000"}
+	wantArgs := []string{"serve", "--hostname", "127.0.0.1", "--port", "5000"}
 	if got := spawner.spec.Binary; got != cfg.Binary {
 		t.Fatalf("spec.Binary = %q, want %q", got, cfg.Binary)
 	}
