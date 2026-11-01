@@ -72,6 +72,10 @@ const (
 
 	// e2eHTTPTimeout 是单次浏览器 API 调用的超时。
 	e2eHTTPTimeout = 5 * time.Second
+
+	// e2eLogSentinel 在日志重定向生效后写入一次，用来证明日志文件确实被捕获；
+	// 缺少它说明“日志里没有令牌”的断言是空检查。
+	e2eLogSentinel = "e2e-log-capture-sentinel"
 )
 
 // TestEndToEnd 是 I1-A 的验收测试：真实控制面 + 真实 agent runner + 桩 OpenCode。
@@ -220,7 +224,7 @@ func TestEndToEnd(t *testing.T) {
 
 	// 7. 机密性：注册令牌绝不能出现在任何 API 响应或日志中。
 	api.assertNoSecret(t, e2eToken)
-	assertFileLacksSecret(t, logPath, e2eToken)
+	assertLogCapture(t, logPath, e2eLogSentinel, e2eToken)
 }
 
 // countingOpenCode 是 handler.OpenCodeAPI 与 runner.EventSource 的桩实现。
@@ -483,8 +487,9 @@ func decodeReceipt(t *testing.T, body []byte) string {
 	return receipt
 }
 
-// captureLogs 把默认日志重定向到临时文件并返回其路径；测试结束时恢复控制台
-// 输出，并断言文件内容不含注册令牌。
+// captureLogs 把默认日志重定向到临时文件并返回其路径。重载后立即通过同一个
+// yg-go 日志实例写入固定哨兵并校验文件，确认捕获确实生效；测试结束时恢复
+// 控制台输出。
 func captureLogs(t *testing.T) string {
 	t.Helper()
 
@@ -492,6 +497,11 @@ func captureLogs(t *testing.T) string {
 	reloadLogs(t, logsconfig.LogsConfig{
 		"default": {{Writer: "file", Encoder: "default", Level: zapcore.InfoLevel, Logger: &lumberjack.Logger{Filename: path}}},
 	})
+
+	// 没有这次写入，日志文件可能从未创建，后续“不含令牌”的断言将永远通过。
+	logs.Infof("%s", e2eLogSentinel)
+	_ = logs.Sync()
+	assertLogCapture(t, path, e2eLogSentinel, "")
 
 	t.Cleanup(func() {
 		// 先刷新文件写入端，再恢复控制台输出，保证断言看到完整日志。
@@ -512,21 +522,70 @@ func reloadLogs(t *testing.T, cfg logsconfig.LogsConfig) {
 	}
 }
 
-// assertFileLacksSecret 断言日志文件不含机密；文件不存在等价于没有日志输出。
-func assertFileLacksSecret(t *testing.T, path, secret string) {
+// checkLogCapture 校验日志文件真实存在、包含哨兵且不包含机密。secret 为空时
+// 只校验哨兵，供 captureLogs 在测试早期确认捕获生效。
+func checkLogCapture(path, sentinel, secret string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read log file %q: %w", path, err)
+	}
+	if !bytes.Contains(data, []byte(sentinel)) {
+		return fmt.Errorf("log file %q does not contain sentinel %q", path, sentinel)
+	}
+	if secret != "" && bytes.Contains(data, []byte(secret)) {
+		return fmt.Errorf("logs leaked the enrollment token: %s", data)
+	}
+	return nil
+}
+
+// assertLogCapture 要求日志捕获真实生效（文件存在且含哨兵）并且不含机密。
+func assertLogCapture(t *testing.T, path, sentinel, secret string) {
 	t.Helper()
 
 	// 文件写入端可能还有缓冲，读取前先刷新。
 	_ = logs.Sync()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return
-		}
-		t.Fatalf("read log file: %v", err)
+	if err := checkLogCapture(path, sentinel, secret); err != nil {
+		t.Fatal(err)
 	}
-	if bytes.Contains(data, []byte(secret)) {
-		t.Fatalf("logs leaked the enrollment token: %s", data)
+}
+
+// TestLogCaptureRequiresSentinel 证明日志断言不是空检查：文件缺失或缺少哨兵
+// 都必须失败，只有捕获生效且不含机密时才算通过。
+func TestLogCaptureRequiresSentinel(t *testing.T) {
+	dir := t.TempDir()
+	sentinel := e2eLogSentinel
+	secret := e2eToken
+
+	withSentinel := filepath.Join(dir, "with-sentinel.log")
+	if err := os.WriteFile(withSentinel, []byte("info "+sentinel+"\n"), 0o600); err != nil {
+		t.Fatalf("write log fixture: %v", err)
+	}
+	withoutSentinel := filepath.Join(dir, "without-sentinel.log")
+	if err := os.WriteFile(withoutSentinel, []byte("info other\n"), 0o600); err != nil {
+		t.Fatalf("write log fixture: %v", err)
+	}
+	leaking := filepath.Join(dir, "leaking.log")
+	if err := os.WriteFile(leaking, []byte("info "+sentinel+" token="+secret+"\n"), 0o600); err != nil {
+		t.Fatalf("write log fixture: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{name: "missing file", path: filepath.Join(dir, "missing.log"), wantErr: true},
+		{name: "missing sentinel", path: withoutSentinel, wantErr: true},
+		{name: "token leaked", path: leaking, wantErr: true},
+		{name: "captured without secret", path: withSentinel, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkLogCapture(tt.path, sentinel, secret)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("checkLogCapture(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+			}
+		})
 	}
 }
