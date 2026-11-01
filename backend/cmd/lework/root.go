@@ -154,6 +154,7 @@ func newRootCommand() *cobra.Command {
 
 Core commands:
   agent      Run the Lework node agent
+  serve      Start the local control plane
   server     Start the HTTP API server
   worker     Start a background task worker
   chat       Start an interactive chat session with a running server
@@ -165,6 +166,7 @@ Core commands:
 
 Examples:
   lework agent --config /etc/lework/agent.yaml
+  lework serve --enrollment-token <token>
   lework server --config config.yaml
   lework server --dev                     # development mode (auto-config)
   lework worker --worker-id 1 --default-runtime lework
@@ -184,9 +186,10 @@ Authentication:
 Use "lework [command] --help" for more information about a command.`,
 		Args: cobra.ArbitraryArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// The node agent loads its own agent.yaml and must not inherit the
-			// legacy CLI/worker config or let it rewrite workspace env vars.
-			if isNodeAgentCommand(cmd) {
+			// The node agent and the control plane are standalone processes:
+			// they load their own configuration and must not inherit the legacy
+			// CLI/worker config or let it rewrite workspace env vars.
+			if isStandaloneCommand(cmd) {
 				return nil
 			}
 			path := cliConfigPath
@@ -252,12 +255,13 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	return root
 }
 
-// isNodeAgentCommand reports whether cmd belongs to the node-agent subtree.
-// The agent has its own config file and lifecycle, so root must not apply the
-// legacy CLI persistent setup to it.
-func isNodeAgentCommand(cmd *cobra.Command) bool {
+// isStandaloneCommand reports whether cmd belongs to a subtree that owns its
+// own configuration and process lifecycle (the node agent or the control plane).
+// Root must not apply the legacy CLI persistent setup to those commands.
+func isStandaloneCommand(cmd *cobra.Command) bool {
 	for current := cmd; current != nil; current = current.Parent() {
-		if current.Name() == "agent" {
+		switch current.Name() {
+		case "agent", "serve":
 			return true
 		}
 	}

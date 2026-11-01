@@ -72,7 +72,7 @@ func TestRootCommandHelp(t *testing.T) {
 			if err != nil {
 				t.Fatalf("execute help: %v", err)
 			}
-			for _, expected := range []string{"agent", "server", "worker", "login", "logout", "session", "skill"} {
+			for _, expected := range []string{"agent", "serve", "server", "worker", "login", "logout", "session", "skill"} {
 				if !strings.Contains(output, expected) {
 					t.Fatalf("help output missing %q:\n%s", expected, output)
 				}

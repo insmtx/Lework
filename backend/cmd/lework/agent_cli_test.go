@@ -123,22 +123,22 @@ func TestRootAgentConfigFlagIsAgentConfig(t *testing.T) {
 	}
 }
 
-func TestIsNodeAgentCommand(t *testing.T) {
+func TestIsStandaloneCommand(t *testing.T) {
 	root := newRootCommand()
-	for _, args := range [][]string{{"agent"}, {"agent", "version"}} {
+	for _, args := range [][]string{{"agent"}, {"agent", "version"}, {"serve"}} {
 		cmd, _, err := root.Find(args)
 		if err != nil || cmd == nil {
 			t.Fatalf("find %v: %v", args, err)
 		}
-		if !isNodeAgentCommand(cmd) {
-			t.Fatalf("%v was not recognized as the node-agent subtree", args)
+		if !isStandaloneCommand(cmd) {
+			t.Fatalf("%v was not recognized as a standalone command", args)
 		}
 	}
 	server, _, err := root.Find([]string{"server"})
 	if err != nil || server == nil {
 		t.Fatalf("find server: %v", err)
 	}
-	if isNodeAgentCommand(server) {
-		t.Fatal("server was incorrectly recognized as the node-agent subtree")
+	if isStandaloneCommand(server) {
+		t.Fatal("server was incorrectly recognized as a standalone command")
 	}
 }

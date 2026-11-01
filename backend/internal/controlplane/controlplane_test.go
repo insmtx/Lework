@@ -1,0 +1,244 @@
+package controlplane
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/insmtx/Lework/backend/internal/controlplane/config"
+	"github.com/insmtx/Lework/backend/internal/controlplane/store"
+)
+
+// testToken 是测试用注册令牌；只参与校验，不写入日志。
+const testToken = "test-enrollment-token"
+
+// testConfig 返回可用的控制面配置，数据库放在内存里。
+func testConfig() config.Config {
+	cfg := config.Default()
+	cfg.EnrollmentToken = testToken
+	cfg.DBPath = ":memory:"
+	cfg.ListenAddr = "127.0.0.1:0"
+	return cfg
+}
+
+// newTestServer 用内存存储组装一台控制面，测试结束时关闭。
+func newTestServer(t *testing.T) *Server {
+	t.Helper()
+
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	srv, err := New(testConfig(), st)
+	if err != nil {
+		_ = st.Close()
+		t.Fatalf("new server: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := srv.Close(); err != nil {
+			t.Errorf("close server: %v", err)
+		}
+	})
+	return srv
+}
+
+// TestServerNewRejectsInvalidConfig 覆盖启动前的配置校验。
+func TestServerNewRejectsInvalidConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*config.Config)
+		want   string
+	}{
+		{
+			name:   "empty token",
+			mutate: func(cfg *config.Config) { cfg.EnrollmentToken = " " },
+			want:   "enrollment_token",
+		},
+		{
+			name:   "non-loopback listen",
+			mutate: func(cfg *config.Config) { cfg.ListenAddr = "0.0.0.0:8787" },
+			want:   "loopback",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, err := store.Open(":memory:")
+			if err != nil {
+				t.Fatalf("open store: %v", err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+
+			cfg := testConfig()
+			tt.mutate(&cfg)
+
+			srv, err := New(cfg, st)
+			if err == nil {
+				_ = srv.Close()
+				t.Fatal("New accepted an invalid config")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("New error = %v, want it to mention %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestServerHealthz 校验健康检查端点。
+func TestServerHealthz(t *testing.T) {
+	srv := newTestServer(t)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode healthz body %q: %v", rec.Body.String(), err)
+	}
+	if body.Status != "ok" {
+		t.Fatalf("status field = %q, want %q", body.Status, "ok")
+	}
+}
+
+// TestServerListNodesEmpty 校验空库返回空 JSON 数组。
+func TestServerListNodesEmpty(t *testing.T) {
+	srv := newTestServer(t)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/nodes", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var views []json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &views); err != nil {
+		t.Fatalf("decode nodes body %q: %v", rec.Body.String(), err)
+	}
+	if len(views) != 0 {
+		t.Fatalf("nodes = %d, want 0", len(views))
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Fatalf("nodes body = %q, want %q", got, "[]")
+	}
+}
+
+// TestServerHandlerWithHTTPTestServer 校验 Handler 可直接交给标准库服务器。
+func TestServerHandlerWithHTTPTestServer(t *testing.T) {
+	srv := newTestServer(t)
+
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("get healthz: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+// TestServerCloseIsIdempotent 校验 Close 关闭存储且可重复调用。
+func TestServerCloseIsIdempotent(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	srv, err := New(testConfig(), st)
+	if err != nil {
+		_ = st.Close()
+		t.Fatalf("new server: %v", err)
+	}
+
+	if err := srv.Close(); err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+	if _, err := st.ListNodes(context.Background()); err == nil {
+		t.Fatal("store is still usable after Close")
+	}
+	if err := srv.Close(); err != nil {
+		t.Fatalf("second close: %v", err)
+	}
+}
+
+// TestServerRunStopsOnContextCancel 校验 Run 在上下文取消后正常退出。
+func TestServerRunStopsOnContextCancel(t *testing.T) {
+	cfg := testConfig()
+	cfg.ListenAddr = freeLoopbackAddr(t)
+
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	srv, err := New(cfg, st)
+	if err != nil {
+		_ = st.Close()
+		t.Fatalf("new server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Run(ctx) }()
+
+	waitForHealthz(t, cfg.ListenAddr)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil after context cancellation", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
+	}
+}
+
+// freeLoopbackAddr 预占一个回环端口后立即释放，供 Run 绑定。
+func freeLoopbackAddr(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve loopback port: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release loopback port: %v", err)
+	}
+	return addr
+}
+
+// waitForHealthz 轮询健康检查，直到服务器开始监听或超时。
+func waitForHealthz(t *testing.T, addr string) {
+	t.Helper()
+
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	url := fmt.Sprintf("http://%s/healthz", addr)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("server at %s never became healthy", addr)
+}
