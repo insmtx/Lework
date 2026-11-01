@@ -107,6 +107,10 @@ func New(client HealthChecker, spawner Spawner, cfg ServiceConfig) *Supervisor {
 // when the port already answers, otherwise it spawns and waits for startup.
 // Calling it repeatedly is safe: it never starts a second process while one is
 // tracked.
+//
+// ctx bounds spawning and health polling only. Once started, the shared service
+// outlives ctx: callers may pass a request-scoped context, and canceling it
+// after Ensure returns does not stop the process. Use Stop to terminate it.
 func (s *Supervisor) Ensure(ctx context.Context) (Status, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -173,7 +177,14 @@ func (s *Supervisor) ensureLocked(ctx context.Context) (Status, error) {
 	if proc == nil {
 		return Status{}, errors.New("agentd: spawner returned no process")
 	}
-	if err := proc.Start(ctx); err != nil {
+	// The shared service must outlive the call that started it: the caller's
+	// context only bounds spawning and health polling, never the process
+	// lifetime. WithoutCancel keeps context values (trace IDs, logging) while
+	// detaching cancellation, so a request-scoped Ensure cannot SIGKILL the
+	// shared opencode later. Only Stop, startup failure, or the child exiting
+	// ends it.
+	serviceCtx := context.WithoutCancel(ctx)
+	if err := proc.Start(serviceCtx); err != nil {
 		return Status{}, fmt.Errorf("agentd: start opencode service: %w", err)
 	}
 	s.proc = proc

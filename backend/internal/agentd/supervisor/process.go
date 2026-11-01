@@ -8,6 +8,9 @@ import (
 
 // Process is one supervised child process. Start hands the lifetime of the
 // process to ctx: canceling ctx or calling Stop must both terminate it.
+// Supervisor deliberately passes a detached context (context.WithoutCancel)
+// to Start, so a shared service outlives the Ensure call that launched it;
+// process lifetime is controlled by Stop.
 type Process interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
