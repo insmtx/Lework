@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/insmtx/Lework/backend/internal/agentd/opencode"
 	"github.com/insmtx/Lework/backend/internal/agentd/supervisor"
@@ -89,15 +91,35 @@ type Handler struct {
 	opencode    OpenCodeAPI
 	supervisor  SupervisorAPI
 	idempotency *idempotencyStore
+	// workspaceRoots confines session.create when non-empty. Roots come from
+	// config.Config.WorkspaceRoots, which Validate already required to be
+	// absolute.
+	workspaceRoots []string
+}
+
+// Option customizes a Handler. It exists so workspace confinement could be
+// added without changing the two-argument New signature every caller uses.
+type Option func(*Handler)
+
+// WithWorkspaceRoots confines session.create to the supplied directories. An
+// empty list preserves the previous pass-through behavior.
+func WithWorkspaceRoots(roots ...string) Option {
+	return func(h *Handler) {
+		h.workspaceRoots = append([]string(nil), roots...)
+	}
 }
 
 // New builds a handler around the OpenCode client and service supervisor.
-func New(openCode OpenCodeAPI, service SupervisorAPI) *Handler {
-	return &Handler{
+func New(openCode OpenCodeAPI, service SupervisorAPI, opts ...Option) *Handler {
+	h := &Handler{
 		opencode:    openCode,
 		supervisor:  service,
 		idempotency: newIdempotencyStore(idempotencyTTL),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // Handle executes method with params and returns the value the runner should
@@ -127,6 +149,9 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 	case "session.create":
 		var p SessionCreateParams
 		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		if err := h.confineDirectory(p.Directory); err != nil {
 			return nil, err
 		}
 		return h.opencode.CreateSession(ctx, p.Directory)
@@ -175,6 +200,47 @@ func (h *Handler) prompt(ctx context.Context, params json.RawMessage) (any, erro
 		return nil, err
 	}
 	return receipt, nil
+}
+
+// confineDirectory enforces workspace_roots on session.create. I0 performs
+// lexical containment only: filepath.Abs cleans the path, but a symlink inside
+// a root can still point outside, which is deferred to I1 together with real
+// path resolution.
+func (h *Handler) confineDirectory(directory string) error {
+	if len(h.workspaceRoots) == 0 {
+		return nil
+	}
+	if directory == "" {
+		return errors.New("session.create: directory is required when workspace_roots is configured")
+	}
+
+	dir, err := filepath.Abs(directory)
+	if err != nil {
+		return fmt.Errorf("session.create: resolve directory: %w", err)
+	}
+	for _, root := range h.workspaceRoots {
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			// config.Validate already requires absolute roots, so a malformed
+			// one can never match a request; skip it instead of failing all.
+			continue
+		}
+		rel, err := filepath.Rel(absRoot, dir)
+		if err != nil {
+			continue
+		}
+		if rel == "." || !escapesRoot(rel) {
+			return nil
+		}
+	}
+	return errors.New("session.create: directory is outside workspace_roots")
+}
+
+// escapesRoot reports whether a filepath.Rel result points above the root. Rel
+// returns ".." or a "../..." prefix for a parent, and an absolute path only on
+// platforms where the two paths cannot be expressed relatively.
+func escapesRoot(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel)
 }
 
 // nodeInfo reports the static node identity used during registration.

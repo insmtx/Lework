@@ -184,12 +184,16 @@ func (r *Runner) sendHello(ctx context.Context) error {
 
 // awaitWelcome reads until the control plane acknowledges registration. Frames
 // received before welcome are ignored: a peer may heartbeat while it validates
-// the agent.
+// the agent. Every inbound frame is validated first so a malformed peer fails
+// fast instead of being partially processed.
 func (r *Runner) awaitWelcome(ctx context.Context) error {
 	for {
 		frame, err := r.transport.Read(ctx)
 		if err != nil {
 			return fmt.Errorf("agentd: read welcome: %w", err)
+		}
+		if err := frame.Validate(); err != nil {
+			return fmt.Errorf("agentd: invalid frame: %w", err)
 		}
 		if frame.Type == protocol.FrameWelcome {
 			return nil
@@ -199,7 +203,8 @@ func (r *Runner) awaitWelcome(ctx context.Context) error {
 
 // readFrames pumps transport reads into a channel so Run can select on them
 // alongside worker failures. Without the pump a blocked Read would hide an
-// event-stream failure until the next inbound frame arrived.
+// event-stream failure until the next inbound frame arrived. A malformed frame
+// stops the pump: the connection cannot be trusted after a protocol violation.
 func (r *Runner) readFrames(ctx context.Context) (<-chan protocol.Frame, <-chan error) {
 	frames := make(chan protocol.Frame)
 	errs := make(chan error, 1)
@@ -209,6 +214,10 @@ func (r *Runner) readFrames(ctx context.Context) (<-chan protocol.Frame, <-chan 
 			frame, err := r.transport.Read(ctx)
 			if err != nil {
 				errs <- err
+				return
+			}
+			if err := frame.Validate(); err != nil {
+				errs <- fmt.Errorf("invalid frame: %w", err)
 				return
 			}
 			select {
@@ -290,8 +299,10 @@ func (r *Runner) forwardEvents(ctx context.Context) error {
 	}
 }
 
-// dispatch handles one inbound frame. Unknown frame types are ignored so a
-// newer control plane can add frames without tearing down an older agent.
+// dispatch handles one inbound frame. readFrames has already validated it, so
+// the default branch is defensive only: unknown frame types are rejected at the
+// read boundary, and adding one requires a protocol-compatible change rather
+// than being silently ignored.
 func (r *Runner) dispatch(ctx context.Context, frame protocol.Frame) error {
 	switch frame.Type {
 	case protocol.FrameRequest:
@@ -345,10 +356,13 @@ func errorCode(err error) string {
 	return "internal_error"
 }
 
-// write serializes outbound frames. transport only allows one concurrent
-// writer, and heartbeats, responses, and events originate on different
-// goroutines.
+// write serializes outbound frames and validates them before they reach the
+// transport. transport only allows one concurrent writer, and heartbeats,
+// responses, and events originate on different goroutines.
 func (r *Runner) write(ctx context.Context, frame protocol.Frame) error {
+	if err := frame.Validate(); err != nil {
+		return fmt.Errorf("agentd: invalid frame: %w", err)
+	}
 	r.writeMu.Lock()
 	defer r.writeMu.Unlock()
 	return r.transport.Write(ctx, frame)

@@ -3,10 +3,14 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/insmtx/Lework/backend/internal/agentd/opencode"
 )
 
 type fakeHealth struct{ err error }
@@ -272,6 +276,58 @@ func TestEnsureDoesNotSpawnTwice(t *testing.T) {
 	}
 	if got := sup.Status(); got.Mode != "managed" {
 		t.Fatalf("Status().Mode = %q, want managed", got.Mode)
+	}
+}
+
+func TestEnsureRejectsUnauthorizedWithoutSpawning(t *testing.T) {
+	health := &fakeHealth{err: fmt.Errorf("health: %w", opencode.ErrUnauthorized)}
+	spawner := &fakeSpawner{health: health, proc: &fakeProcess{}}
+	sup := New(health, spawner, ServiceConfig{Port: 5000})
+
+	_, err := sup.Ensure(context.Background())
+	if err == nil {
+		t.Fatal("Ensure() error = nil, want rejected credentials error")
+	}
+	if !errors.Is(err, opencode.ErrUnauthorized) {
+		t.Fatalf("Ensure() error = %v, want wrapped ErrUnauthorized", err)
+	}
+	if !strings.Contains(err.Error(), "rejected credentials") {
+		t.Fatalf("Ensure() error = %v, want rejected credentials", err)
+	}
+	if spawner.calls != 0 {
+		t.Fatalf("spawner calls = %d, want 0 for a rejected credential", spawner.calls)
+	}
+	if got := sup.Status(); got.Running {
+		t.Fatalf("Status().Running = true, want false")
+	}
+}
+
+func TestEnsureAbandonsTrackedProcessOnUnauthorized(t *testing.T) {
+	health := &fakeHealth{err: errors.New("connection refused")}
+	proc := &fakeProcess{}
+	spawner := &fakeSpawner{health: health, proc: proc}
+	sup := New(health, spawner, ServiceConfig{Port: 5000})
+
+	if _, err := sup.Ensure(context.Background()); err != nil {
+		t.Fatalf("first Ensure() error = %v, want nil", err)
+	}
+
+	// A restarted agent with a different generated password sees 401 from the
+	// child it tracked. It must reap that child instead of spawning a duplicate
+	// on the occupied port.
+	health.err = fmt.Errorf("health: %w", opencode.ErrUnauthorized)
+	_, err := sup.Ensure(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "rejected credentials") {
+		t.Fatalf("Ensure() error = %v, want rejected credentials", err)
+	}
+	if !proc.stopped {
+		t.Fatal("tracked process was not stopped after a rejected credential")
+	}
+	if spawner.calls != 1 {
+		t.Fatalf("spawner calls = %d, want 1 (no duplicate spawn)", spawner.calls)
+	}
+	if got := sup.Status(); got.Running {
+		t.Fatalf("Status().Running = true, want false")
 	}
 }
 

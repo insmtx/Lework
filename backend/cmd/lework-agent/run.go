@@ -104,7 +104,7 @@ func runAgent(ctx context.Context, configPath string) error {
 		Env:    envSlice(env),
 		Dir:    "",
 	})
-	requestHandler := handler.New(client, service)
+	requestHandler := handler.New(client, service, handler.WithWorkspaceRoots(cfg.WorkspaceRoots...))
 
 	// SIGINT/SIGTERM cancel the run loop; the deferred Stop below turns the
 	// cancellation into a clean child-process shutdown.
@@ -242,6 +242,15 @@ func openCodeEnv(cfgEnv map[string]string) (map[string]string, string, error) {
 	env := make(map[string]string, len(cfgEnv)+1)
 	for key, value := range cfgEnv {
 		env[key] = value
+	}
+	// An empty yaml value means "unset", not "clear": the child inherits the
+	// daemon's environment, and mergeEnv would let a copied empty key override
+	// a non-empty inherited password with "". Dropping the empty entries keeps
+	// the effective inherited value and stops an empty key reaching the child.
+	for _, key := range []string{"OPENCODE_PASSWORD", "OPENCODE_SERVER_PASSWORD"} {
+		if env[key] == "" {
+			delete(env, key)
+		}
 	}
 
 	password, generated, err := resolveOpenCodePassword(env)

@@ -387,6 +387,55 @@ func TestRunnerReturnsWrappedReadError(t *testing.T) {
 	cancel()
 }
 
+func TestRunnerRejectsInvalidFrameBeforeWelcome(t *testing.T) {
+	r, transport, _ := testRunner(t, 0)
+	cancel, done := runAsync(t, r)
+
+	awaitHello(t, transport)
+	// A request frame without id and method is malformed; the handshake must
+	// fail instead of ignoring it and waiting for welcome forever.
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest}
+
+	err := waitRun(t, done)
+	if err == nil || !strings.Contains(err.Error(), "invalid frame") {
+		t.Fatalf("Run() = %v, want invalid frame error", err)
+	}
+	cancel()
+}
+
+func TestRunnerRejectsInvalidFrameAfterWelcome(t *testing.T) {
+	r, transport, _ := testRunner(t, 0)
+	cancel, done := runAsync(t, r)
+
+	completeHandshake(t, transport)
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest}
+
+	err := waitRun(t, done)
+	if err == nil || !strings.Contains(err.Error(), "invalid frame") {
+		t.Fatalf("Run() = %v, want invalid frame error", err)
+	}
+	select {
+	case frame := <-transport.writes:
+		t.Fatalf("wrote %+v for an invalid inbound frame, want no response", frame)
+	default:
+	}
+	cancel()
+}
+
+func TestWriteRejectsInvalidFrame(t *testing.T) {
+	r, transport, _ := testRunner(t, 0)
+
+	err := r.write(context.Background(), protocol.Frame{Type: protocol.FrameRequest})
+	if err == nil || !strings.Contains(err.Error(), "invalid frame") {
+		t.Fatalf("write() = %v, want invalid frame error", err)
+	}
+	select {
+	case frame := <-transport.writes:
+		t.Fatalf("transport received %+v, want no write", frame)
+	default:
+	}
+}
+
 func TestRunnerReturnsSubscribeError(t *testing.T) {
 	r, transport, events := testRunner(t, 0)
 	events.err = errors.New("event endpoint unavailable")

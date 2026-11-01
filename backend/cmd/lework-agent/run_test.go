@@ -214,3 +214,33 @@ func TestOpenCodeEnvUsesInheritedPassword(t *testing.T) {
 		t.Fatal("a generated password was injected despite the inherited password")
 	}
 }
+
+func TestOpenCodeEnvEmptyYAMLPasswordDoesNotShadowInherited(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+	t.Setenv("OPENCODE_PASSWORD", "inherited")
+
+	// `OPENCODE_PASSWORD: ""` in agent.yaml must mean "unset" instead of
+	// overriding the inherited value when mergeEnv overlays the child env.
+	input := map[string]string{
+		"OPENCODE_PASSWORD":        "",
+		"OPENCODE_SERVER_PASSWORD": "",
+		"OPENCODE_LOG":             "debug",
+	}
+
+	env, password, err := openCodeEnv(input)
+	if err != nil {
+		t.Fatalf("openCodeEnv() error = %v, want nil", err)
+	}
+	if password != "inherited" {
+		t.Fatalf("password = %q, want the inherited OPENCODE_PASSWORD", password)
+	}
+	if _, ok := env["OPENCODE_PASSWORD"]; ok {
+		t.Fatal("an empty OPENCODE_PASSWORD reached the child env")
+	}
+	if _, ok := env["OPENCODE_SERVER_PASSWORD"]; ok {
+		t.Fatal("an empty OPENCODE_SERVER_PASSWORD reached the child env")
+	}
+	if env["OPENCODE_LOG"] != "debug" {
+		t.Fatalf("unrelated env entry was dropped: %v", env)
+	}
+}

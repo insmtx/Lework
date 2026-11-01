@@ -46,7 +46,8 @@ const (
 // Sentinel errors let callers branch on cause without matching message text.
 var (
 	// ErrUnauthorized reports a rejected basic-auth credential. The supervisor
-	// must not treat it like an unhealthy service and spawn a duplicate.
+	// fails closed on it and reaps any tracked child: a credential mismatch
+	// cannot heal by waiting, and a duplicate spawn would only fail to bind.
 	ErrUnauthorized = errors.New("opencode: unauthorized")
 
 	// ErrExperimentalUnavailable reports that an endpoint under

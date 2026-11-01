@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/insmtx/Lework/backend/internal/agentd/opencode"
 )
 
 // Defaults applied by New when a ServiceConfig leaves them empty.
@@ -154,17 +156,28 @@ func (s *Supervisor) ensureLocked(ctx context.Context) (Status, error) {
 	// attach instead of binding the same database with a second server. When
 	// the answering service is our own child, report it as managed: calling
 	// Ensure again must not downgrade a process the supervisor owns.
-	if err := s.client.Health(ctx); err == nil {
+	healthErr := s.client.Health(ctx)
+	if healthErr == nil {
 		if s.proc != nil {
 			return s.setStatus(true, modeManaged), nil
 		}
 		return s.setStatus(true, modeAttached), nil
 	}
 
+	// A rejected credential cannot heal by waiting, and spawning another child
+	// on the same port would only produce a process that cannot bind. Fail
+	// closed instead of treating the 401 as an unhealthy service.
+	if errors.Is(healthErr, opencode.ErrUnauthorized) {
+		return Status{}, s.rejectUnauthorized(ctx, healthErr)
+	}
+
 	// A tracked process exists but is not answering yet (still booting, or it
 	// died). Wait for it rather than spawning a duplicate on the same port.
 	if s.proc != nil {
 		if err := s.waitHealthy(ctx); err != nil {
+			if errors.Is(err, opencode.ErrUnauthorized) {
+				return Status{}, s.rejectUnauthorized(ctx, err)
+			}
 			return Status{}, s.abandon(ctx, s.proc, err)
 		}
 		return s.setStatus(true, modeManaged), nil
@@ -190,9 +203,28 @@ func (s *Supervisor) ensureLocked(ctx context.Context) (Status, error) {
 	s.proc = proc
 
 	if err := s.waitHealthy(ctx); err != nil {
+		if errors.Is(err, opencode.ErrUnauthorized) {
+			return Status{}, s.rejectUnauthorized(ctx, err)
+		}
 		return Status{}, s.abandon(ctx, proc, err)
 	}
 	return s.setStatus(true, modeManaged), nil
+}
+
+// rejectUnauthorized stops a tracked child whose credential the service
+// rejected and reports a fail-closed error. The password is never included: it
+// only lives in the child environment and this error is safe to log.
+func (s *Supervisor) rejectUnauthorized(ctx context.Context, cause error) error {
+	proc := s.proc
+	s.proc = nil
+	s.setStatus(false, "")
+
+	if proc != nil {
+		if stopErr := proc.Stop(ctx); stopErr != nil {
+			cause = errors.Join(cause, fmt.Errorf("stop opencode service: %w", stopErr))
+		}
+	}
+	return fmt.Errorf("agentd: opencode service at %s rejected credentials: %w", s.baseURL, cause)
 }
 
 // abandon stops a process that failed to become healthy, clearing the tracked
@@ -247,6 +279,11 @@ func (s *Supervisor) waitHealthy(ctx context.Context) error {
 		lastErr = s.client.Health(ctx)
 		if lastErr == nil {
 			return nil
+		}
+		// Waiting cannot fix a credential mismatch; fail immediately instead of
+		// burning the startup timeout on a service that will keep rejecting us.
+		if errors.Is(lastErr, opencode.ErrUnauthorized) {
+			return lastErr
 		}
 
 		select {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ type fakeOpenCode struct {
 	sessions  []opencode.Session
 
 	createdDirectory string
+	createCalls      int
 	createSession    opencode.Session
 
 	messagesCalls     int
@@ -48,6 +50,7 @@ func (f *fakeOpenCode) ListSessions(context.Context) ([]opencode.Session, error)
 }
 
 func (f *fakeOpenCode) CreateSession(_ context.Context, directory string) (opencode.Session, error) {
+	f.createCalls++
 	f.createdDirectory = directory
 	return f.createSession, nil
 }
@@ -475,6 +478,64 @@ func TestSessionCreatePassesDirectory(t *testing.T) {
 	session, ok := result.(opencode.Session)
 	if !ok || session.ID != "ses_new" {
 		t.Fatalf("result = %#v, want session ses_new", result)
+	}
+}
+
+func TestSessionCreateAllowsDirectoryInsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{root, filepath.Join(root, "project")} {
+		t.Run(filepath.Base(directory), func(t *testing.T) {
+			oc := &fakeOpenCode{createSession: opencode.Session{ID: "ses_new"}}
+			h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+			params, err := json.Marshal(SessionCreateParams{Directory: directory})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := h.Handle(context.Background(), "session.create", params)
+			if err != nil {
+				t.Fatalf("Handle() error = %v, want nil", err)
+			}
+			if oc.createCalls != 1 || oc.createdDirectory != directory {
+				t.Fatalf("create = %d/%q, want 1/%q", oc.createCalls, oc.createdDirectory, directory)
+			}
+			session, ok := result.(opencode.Session)
+			if !ok || session.ID != "ses_new" {
+				t.Fatalf("result = %#v, want session ses_new", result)
+			}
+		})
+	}
+}
+
+func TestSessionCreateRejectsOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, err := json.Marshal(SessionCreateParams{Directory: outside})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.Handle(context.Background(), "session.create", params)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace_roots") {
+		t.Fatalf("Handle() error = %v, want outside workspace_roots", err)
+	}
+	if oc.createCalls != 0 {
+		t.Fatalf("create calls = %d, want 0 for a rejected directory", oc.createCalls)
+	}
+}
+
+func TestSessionCreateRejectsEmptyDirectoryWithWorkspaceRoots(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(t.TempDir()))
+
+	_, err := h.Handle(context.Background(), "session.create", json.RawMessage(`{}`))
+	if err == nil || !strings.Contains(err.Error(), "directory is required") {
+		t.Fatalf("Handle() error = %v, want directory is required", err)
+	}
+	if oc.createCalls != 0 {
+		t.Fatalf("create calls = %d, want 0 for an empty directory", oc.createCalls)
 	}
 }
 

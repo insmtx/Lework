@@ -30,6 +30,7 @@ type Config struct {
 	// TLSFingerprint pins the control-plane certificate when the URL is wss.
 	TLSFingerprint string `yaml:"tls_fingerprint"`
 	// WorkspaceRoots lists the absolute directories the agent may serve.
+	// session.create rejects an empty or out-of-root directory when it is set.
 	WorkspaceRoots []string `yaml:"workspace_roots"`
 	// OpenCode configures the local opencode process.
 	OpenCode OpenCodeConfig `yaml:"opencode"`
