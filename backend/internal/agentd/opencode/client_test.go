@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,7 @@ import (
 	"time"
 )
 
-func TestCreateSessionSendsDirectory(t *testing.T) {
+func TestCreateSessionSendsLocationAndDecodesEnvelope(t *testing.T) {
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/session" {
@@ -20,7 +21,9 @@ func TestCreateSessionSendsDirectory(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Error(err)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": "ses_1", "directory": "/work/foo"})
+		_, _ = w.Write([]byte(`{"data":{"id":"ses_1","projectID":"proj_1",` +
+			`"location":{"directory":"/work/foo"},"title":"demo",` +
+			`"time":{"created":1793529419920,"updated":1793529425262}}}`))
 	}))
 	defer srv.Close()
 
@@ -28,21 +31,28 @@ func TestCreateSessionSendsDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "ses_1" {
-		t.Fatalf("id = %q", got.ID)
+	if got.ID != "ses_1" || got.Directory != "/work/foo" || got.Title != "demo" {
+		t.Fatalf("session = %#v", got)
+	}
+	if want := time.UnixMilli(1793529425262).UTC(); !got.UpdatedAt.Equal(want) {
+		t.Fatalf("updatedAt = %v, want %v", got.UpdatedAt, want)
 	}
 	location, _ := gotBody["location"].(map[string]any)
 	if location["directory"] != "/work/foo" {
 		t.Fatalf("body = %#v", gotBody)
 	}
+	if _, topLevel := gotBody["directory"]; topLevel {
+		t.Fatalf("body sent a top-level directory: %#v", gotBody)
+	}
 }
 
-func TestListSessions(t *testing.T) {
+func TestListSessionsDecodesEnvelope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/session" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		_, _ = w.Write([]byte(`[{"id":"ses_1","directory":"/work/foo","title":"demo","updatedAt":"2026-11-01T10:00:00Z"}]`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"ses_1","location":{"directory":"/work/foo"},` +
+			`"title":"demo","time":{"created":1,"updated":1793529425262}}],"cursor":{}}`))
 	}))
 	defer srv.Close()
 
@@ -56,47 +66,60 @@ func TestListSessions(t *testing.T) {
 	if got[0].ID != "ses_1" || got[0].Directory != "/work/foo" || got[0].Title != "demo" {
 		t.Fatalf("session = %#v", got[0])
 	}
-	want := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
-	if !got[0].UpdatedAt.Equal(want) {
-		t.Fatalf("updatedAt = %v, want %v", got[0].UpdatedAt, want)
+}
+
+func TestPromptReturnsAdmissionID(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/session/ses_1/prompt" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Error(err)
+		}
+		_, _ = w.Write([]byte(`{"data":{"id":"msg_admitted","sessionID":"ses_1",` +
+			`"type":"user","payload":{"text":"hi"},"delivery":"steer"}}`))
+	}))
+	defer srv.Close()
+
+	receipt, err := New(srv.URL, srv.Client()).Prompt(context.Background(), "ses_1", "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt != "msg_admitted" {
+		t.Fatalf("receipt = %q", receipt)
+	}
+	if len(gotBody) != 1 || gotBody["text"] != "hi" {
+		t.Fatalf("prompt body = %#v", gotBody)
 	}
 }
 
-func TestPromptAndPermission(t *testing.T) {
-	var promptBody map[string]any
+func TestPromptRejectsMissingAdmissionID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"sessionID":"ses_1"}}`))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, srv.Client()).Prompt(context.Background(), "ses_1", "hi"); err == nil {
+		t.Fatal("expected error for a response without an admission id")
+	}
+}
+
+func TestReplyPermission(t *testing.T) {
 	var replyBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/session/ses_1/prompt":
-			if err := json.NewDecoder(r.Body).Decode(&promptBody); err != nil {
-				t.Error(err)
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"receipt": "rcpt_1"})
-		case r.Method == http.MethodPost && r.URL.Path == "/api/session/ses_1/permission/per_1/reply":
-			if err := json.NewDecoder(r.Body).Decode(&replyBody); err != nil {
-				t.Error(err)
-			}
-			w.WriteHeader(http.StatusNoContent)
-		default:
+		if r.Method != http.MethodPost || r.URL.Path != "/api/session/ses_1/permission/per_1/reply" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
 		}
+		if err := json.NewDecoder(r.Body).Decode(&replyBody); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
 	client := New(srv.URL, srv.Client())
 	ctx := context.Background()
-
-	receipt, err := client.Prompt(ctx, "ses_1", "hi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt != "rcpt_1" {
-		t.Fatalf("receipt = %q", receipt)
-	}
-	if len(promptBody) != 1 || promptBody["text"] != "hi" {
-		t.Fatalf("prompt body = %#v", promptBody)
-	}
 
 	if err := client.ReplyPermission(ctx, "ses_1", "per_1", "once", ""); err != nil {
 		t.Fatal(err)
@@ -113,12 +136,23 @@ func TestPromptAndPermission(t *testing.T) {
 	}
 }
 
-func TestMessages(t *testing.T) {
+func TestMessagesDecodesV2Turns(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/session/ses_1/message" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		_, _ = w.Write([]byte(`[{"id":"msg_1","role":"assistant","parts":[{"type":"text","text":"done"}]}]`))
+		if got := r.URL.Query().Get("order"); got != "asc" {
+			t.Errorf("order = %q, want asc", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "200" {
+			t.Errorf("limit = %q, want 200", got)
+		}
+		_, _ = w.Write([]byte(`{"data":[` +
+			`{"id":"msg_1","type":"user","time":{"created":1},"text":"hi"},` +
+			`{"id":"msg_2","type":"assistant","agent":"build","content":[` +
+			`{"type":"text","text":"O"},{"type":"text","text":"K"}],"finish":"stop"},` +
+			`{"id":"msg_3","type":"idle","outcome":"succeeded"}` +
+			`],"cursor":{}}`))
 	}))
 	defer srv.Close()
 
@@ -126,29 +160,64 @@ func TestMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 {
+	if len(got) != 3 {
 		t.Fatalf("messages = %#v", got)
 	}
-	if got[0].ID != "msg_1" || got[0].Role != "assistant" {
-		t.Fatalf("message = %#v", got[0])
+	if got[0].Role != "user" || got[0].Text != "hi" {
+		t.Fatalf("user turn = %#v", got[0])
 	}
-	if len(got[0].Parts) != 1 || got[0].Parts[0].Type != "text" || got[0].Parts[0].Text != "done" {
-		t.Fatalf("parts = %#v", got[0].Parts)
+	if got[1].Role != "assistant" || got[1].Text != "OK" || got[1].Finish != "stop" {
+		t.Fatalf("assistant turn = %#v", got[1])
+	}
+	if len(got[1].Parts) != 2 || got[1].Parts[0].Type != "text" {
+		t.Fatalf("parts = %#v", got[1].Parts)
+	}
+	if got[2].Role != "idle" || got[2].Outcome != "succeeded" {
+		t.Fatalf("idle turn = %#v", got[2])
 	}
 }
 
-func TestHealth(t *testing.T) {
+func TestMessagesCarriesStructuredError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/health" {
+		_, _ = w.Write([]byte(`{"data":[{"id":"msg_1","type":"idle","outcome":"failed",` +
+			`"error":{"type":"provider.quota","message":"limit reached","status":429}}],"cursor":{}}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).Messages(context.Background(), "ses_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Error == nil || got[0].Error.Type != "provider.quota" || got[0].Error.Status != 429 {
+		t.Fatalf("error = %#v", got[0].Error)
+	}
+}
+
+func TestHealthUsesInfo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/info" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"version":"2.0.32","pid":1,"urls":[],"paths":{"tmp":"/tmp"}}`))
 	}))
 	defer srv.Close()
 
 	// A trailing slash on the base URL must not produce a double slash.
 	if err := New(srv.URL+"/", srv.Client()).Health(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHealthRejectsUnauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"_tag":"UnauthorizedError","message":"Authentication required"}`))
+	}))
+	defer srv.Close()
+
+	err := New(srv.URL, srv.Client(), WithPassword("wrong")).Health(context.Background())
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
 }
 
@@ -162,8 +231,97 @@ func TestHealthReportsStatus(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+	if errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("503 reported as unauthorized: %v", err)
+	}
 	if !strings.Contains(err.Error(), "status 503") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWaitReturnsOnNoContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/experimental/session/ses_1/wait" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, srv.Client()).Wait(context.Background(), "ses_1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitReportsUnavailableEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"_tag":"RouteNotFoundError","message":"not found"}`))
+	}))
+	defer srv.Close()
+
+	err := New(srv.URL, srv.Client()).Wait(context.Background(), "ses_1")
+	if !errors.Is(err, ErrExperimentalUnavailable) {
+		t.Fatalf("err = %v, want ErrExperimentalUnavailable", err)
+	}
+}
+
+func TestWaitReportsServerFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	err := New(srv.URL, srv.Client()).Wait(context.Background(), "ses_1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if errors.Is(err, ErrExperimentalUnavailable) {
+		t.Fatalf("503 reported as unavailable: %v", err)
+	}
+	if !strings.Contains(err.Error(), "status 503") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestClientSendsBasicAuth(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		user, password, ok := r.BasicAuth()
+		if !ok || user != "opencode" || password != "secret" {
+			t.Errorf("basic auth = %q/%q/%v", user, password, ok)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/api/event" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, `data: {"id":"evt_1","type":"server.connected","data":{}}`+"\n\n")
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"id":"ses_1","location":{"directory":"/work"}}}`))
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, srv.Client(), WithPassword("secret"))
+	if _, err := client.CreateSession(context.Background(), "/work"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := client.SubscribeEvents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-events:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for event")
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
 	}
 }
 
@@ -199,8 +357,9 @@ func TestSubscribeEvents(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, "event: message\n"+
-			`data: {"type":"session.text.delta","sessionID":"ses_1","data":{"text":"ok"}}`+"\n\n")
+		_, _ = fmt.Fprint(w, ": heartbeat\n\n"+
+			`data: {"id":"evt_1","created":1793529424244,"type":"session.execution.started",`+
+			`"data":{"sessionID":"ses_1"},"durable":{"aggregateID":"ses_1","seq":2,"version":1}}`+"\n\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -220,19 +379,19 @@ func TestSubscribeEvents(t *testing.T) {
 		if !ok {
 			t.Fatal("channel closed before first event")
 		}
-		if ev.Type != "session.text.delta" {
-			t.Fatalf("type = %q", ev.Type)
+		if ev.ID != "evt_1" || ev.Type != "session.execution.started" {
+			t.Fatalf("event = %#v", ev)
 		}
 		if ev.SessionID != "ses_1" {
 			t.Fatalf("sessionID = %q", ev.SessionID)
 		}
 		var payload struct {
-			Text string `json:"text"`
+			SessionID string `json:"sessionID"`
 		}
 		if err := json.Unmarshal(ev.Data, &payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload.Text != "ok" {
+		if payload.SessionID != "ses_1" {
 			t.Fatalf("data = %s", ev.Data)
 		}
 	case <-time.After(5 * time.Second):
@@ -256,7 +415,7 @@ func TestSubscribeEventsClosesOnContextCancel(t *testing.T) {
 		defer close(release)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, "data: {\"type\":\"session.text.delta\",\"sessionID\":\"ses_1\"}\n\n")
+		_, _ = fmt.Fprint(w, `data: {"id":"evt_1","type":"server.connected","data":{}}`+"\n\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
