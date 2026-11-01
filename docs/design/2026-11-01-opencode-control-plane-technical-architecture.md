@@ -10,8 +10,8 @@ Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 
 - 控制面：Go + SQLite，提供浏览器 API、统一 SSE、Session 级 WebSocket；
 - 前端：Next.js，浏览器只连控制面；
-- 节点侧：每台机器部署 `lework-agent`，由 systemd 常驻；
-- 执行面：`lework-agent` 管理本机 OpenCode 进程，并代理其 HTTP/SSE/WS；
+- 节点侧：每台机器部署 `lework agent`，由 systemd 常驻；
+- 执行面：`lework agent` 管理本机 OpenCode 进程，并代理其 HTTP/SSE/WS；
 - 连接：agent 主动出站连接控制面，节点不暴露任何入站端口；
 - 上下文：Git branch/worktree/merge，由两端 agent 执行；
 - 数据真相：Session、消息、diff、权限、文件均以 OpenCode 为准。
@@ -27,7 +27,7 @@ Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 | D1 | 控制面技术栈 | Go + SQLite | 复用现有 AIO、单二进制、进程与网络能力 |
 | D2 | 前端 | Next.js，本地 Web 优先 | 现代 GUI、开发效率；桌面壳后置 |
 | D3 | 浏览器连接 | 只连 Lework 控制面 | 避免 CORS、token 暴露、多节点直连 |
-| D4 | 节点连接 | `lework-agent` 主动出站 WSS | 节点无需入站端口，穿越 NAT/防火墙 |
+| D4 | 节点连接 | `lework agent` 主动出站 WSS | 节点无需入站端口，穿越 NAT/防火墙 |
 | D5 | OpenCode 生命周期 | agent 管理 | 系统服务只管 agent，进程职责集中 |
 | D6 | OpenCode 暴露 | 只绑定 `127.0.0.1` | 控制面通过 agent 访问，不暴露端口 |
 | D7 | 状态归属 | OpenCode 是唯一真相源 | 避免双状态机漂移 |
@@ -67,7 +67,7 @@ Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 └───────▲──────────────────▲──────────────────▲────────────────┘
         │ WSS outbound      │ WSS outbound      │ WSS outbound
 ┌───────┴──────┐   ┌───────┴──────┐   ┌───────┴───────────────┐
-│ lework-agent │   │ lework-agent │   │ lework-agent          │
+│ lework agent │   │ lework agent │   │ lework agent          │
 │  └ OpenCode  │   │  └ OpenCode  │   │  └ OpenCode           │
 │ Node A       │   │ Node B       │   │ Spark (USB-C vNIC)    │
 └──────────────┘   └──────────────┘   └───────────────────────┘
@@ -79,7 +79,7 @@ Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 |---|---|---|
 | Browser | 展示、交互、局部 UI 状态 | 直接访问节点、保存节点 token |
 | Control Plane | 节点注册、索引、事件聚合、Git 编排、配置编排 | Agent 执行、工具调用、Session 状态 |
-| `lework-agent` | 注册/心跳、OpenCode 进程、本机代理、Git、配置、PTY | 多节点管理、跨机编排 |
+| `lework agent` | 注册/心跳、OpenCode 进程、本机代理、Git、配置、PTY | 多节点管理、跨机编排 |
 | OpenCode | Session、消息、工具、权限、diff、文件、PTY | 多节点管理、跨机 Git 同步 |
 | Git | 分支、worktree、diff、merge | 实时事件、Session 状态 |
 
@@ -121,9 +121,9 @@ type Node struct {
 }
 ```
 
-### 4.2 lework-agent
+### 4.2 lework agent
 
-`lework-agent` 是节点侧常驻进程，由 systemd / launchd / Windows Service 管理。
+`lework agent` 是节点侧常驻进程，由 systemd / launchd / Windows Service 管理。
 
 #### 职责
 
@@ -143,7 +143,7 @@ type Node struct {
 
 ```text
 OS service manager (systemd / launchd / Windows Service)
-  └── lework-agent
+  └── lework agent
         ├── opencode serve --hostname 127.0.0.1 --port <port>
         └── child process logs / health / restart
 ```
@@ -218,7 +218,7 @@ repo_cache_root: /home/me/.lework/cache/repos
 节点：
   执行安装命令
     → 写入 /etc/lework/agent.yaml
-    → systemd 启动 lework-agent
+    → systemd 启动 lework agent
     → agent 连接 wss://.../api/agent/connect
     → 发送 hello（agent 版本、能力、OpenCode 版本）
     → 控制面校验 token，分配 node_id
@@ -389,7 +389,7 @@ SSE 断开
 PTY 是双向流，不能塞进 SSE。控制面提供 **Session 级 WebSocket**：
 
 ```text
-Browser <--WebSocket--> Lework <--agent stream--> lework-agent <--> OpenCode PTY
+Browser <--WebSocket--> Lework <--agent stream--> lework agent <--> OpenCode PTY
 ```
 
 规则：
@@ -846,7 +846,7 @@ Linux 示例：
 Description=Lework Agent
 
 [Service]
-ExecStart=/usr/local/bin/lework-agent --config /etc/lework/agent.yaml
+ExecStart=/usr/local/bin/lework agent --config /etc/lework/agent.yaml
 Restart=always
 User=lework
 
@@ -857,7 +857,7 @@ WantedBy=default.target
 agent 管理 OpenCode：
 
 ```text
-lework-agent
+lework agent
   └── opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
@@ -874,7 +874,7 @@ lework-agent
 ### 8.3 Spark
 
 ```text
-Host (Control Plane) <-- USB-C vNIC --> Spark (lework-agent)
+Host (Control Plane) <-- USB-C vNIC --> Spark (lework agent)
 ```
 
 - Spark 上安装 agent；
@@ -999,8 +999,7 @@ Host (Control Plane) <-- USB-C vNIC --> Spark (lework-agent)
 ### 12.3 新增模块
 
 ```text
-backend/cmd/lework              # 控制面入口
-backend/cmd/lework-agent        # 节点 agent 入口
+backend/cmd/lework              # 控制面与节点 agent 入口
 backend/internal/controlplane/
   api/          # 浏览器 API/SSE/PTY
   agentgw/      # WSS Agent Gateway
@@ -1070,4 +1069,4 @@ backend/internal/agentd/
 
 ## 15. 一句话验收
 
-> 一个 Go 控制面，一个本地 Web GUI，每台机器一个 `lework-agent`；agent 主动出站、管理 OpenCode、执行 Git 与配置，浏览器不直连节点，Session 以 OpenCode 为准。
+> 一个 Go 控制面，一个本地 Web GUI，每台机器一个 `lework agent`；agent 主动出站、管理 OpenCode、执行 Git 与配置，浏览器不直连节点，Session 以 OpenCode 为准。

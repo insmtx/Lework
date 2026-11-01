@@ -8,14 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/Lework/backend/internal/agentd/config"
@@ -45,31 +42,6 @@ const (
 	// agent's exit forever.
 	shutdownTimeout = 10 * time.Second
 )
-
-// newRunCommand builds the daemon command. The config flag carries a platform
-// default so systemd/launchd/Windows Service units can omit it, while operators
-// can always point at an alternate file.
-func newRunCommand() *cobra.Command {
-	var configPath string
-
-	cmd := &cobra.Command{
-		Use:   "run",
-		Short: "Run the agent and connect to the control plane",
-		Long: `Load the agent configuration and keep a control-plane connection alive.
-
-The agent retries with exponential backoff (1s, 2s, 4s, capped at 30s) when the
-control plane is unreachable. The local OpenCode service is stopped on shutdown,
-but it is kept running across reconnects.`,
-		Args:         cobra.NoArgs,
-		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAgent(cmd.Context(), configPath)
-		},
-	}
-
-	cmd.Flags().StringVar(&configPath, "config", defaultConfigPath(), "path to agent.yaml")
-	return cmd
-}
 
 // runAgent wires the daemon and runs it until ctx ends. Config errors are
 // returned before any network or process work happens, which keeps a broken
@@ -345,43 +317,4 @@ func redact(err error, secret string) string {
 		message = strings.ReplaceAll(message, secret, "[redacted]")
 	}
 	return message
-}
-
-// defaultConfigPath returns the conventional agent.yaml location for the
-// running platform. The installation contract is documented in
-// docs/design/2026-11-01-opencode-control-plane-technical-architecture.md.
-func defaultConfigPath() string {
-	return defaultConfigPathFor(runtime.GOOS)
-}
-
-// userConfigDir is a seam so the no-home fallback of defaultConfigPathFor can be
-// tested on every platform. Production always uses os.UserConfigDir.
-var userConfigDir = os.UserConfigDir
-
-// defaultConfigPathFor resolves the platform default. It is split out from
-// defaultConfigPath so every platform's path can be tested on any host.
-func defaultConfigPathFor(goos string) string {
-	switch goos {
-	case "linux":
-		return "/etc/lework/agent.yaml"
-	case "darwin":
-		// os.UserConfigDir is ~/Library/Application Support on macOS.
-		dir, err := userConfigDir()
-		if err != nil {
-			return "agent.yaml"
-		}
-		return filepath.Join(dir, "Lework", "agent.yaml")
-	case "windows":
-		dir := os.Getenv("ProgramData")
-		if dir == "" {
-			return `C:\ProgramData\Lework\agent.yaml`
-		}
-		return filepath.Join(dir, "Lework", "agent.yaml")
-	default:
-		dir, err := userConfigDir()
-		if err != nil {
-			return "agent.yaml"
-		}
-		return filepath.Join(dir, "Lework", "agent.yaml")
-	}
 }

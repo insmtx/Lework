@@ -1,83 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestRootCommandHasRun(t *testing.T) {
-	cmd := newRootCommand()
-	run, _, err := cmd.Find([]string{"run"})
-	if err != nil || run == nil || run.Name() != "run" {
-		t.Fatalf("run command missing: %v", err)
-	}
-}
-
-func TestRootCommandHasVersion(t *testing.T) {
-	cmd := newRootCommand()
-	versionCmd, _, err := cmd.Find([]string{"version"})
-	if err != nil || versionCmd == nil || versionCmd.Name() != "version" {
-		t.Fatalf("version command missing: %v", err)
-	}
-}
-
-func TestVersionCommandPrintsVersion(t *testing.T) {
-	cmd := newRootCommand()
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"version"})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute version: %v", err)
-	}
-	if want := "lework-agent " + version + "\n"; out.String() != want {
-		t.Fatalf("version output = %q, want %q", out.String(), want)
-	}
-}
-
-func TestRunRequiresConfig(t *testing.T) {
-	cmd := newRootCommand()
-	cmd.SetArgs([]string{"run"})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "config") {
-		t.Fatalf("err = %v, want config error", err)
-	}
-}
-
-func TestRunRejectsIncompleteConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "agent.yaml")
-	if err := os.WriteFile(path, []byte("node_name: test-node\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cmd := newRootCommand()
-	cmd.SetArgs([]string{"run", "--config", path})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "control_plane_url") {
-		t.Fatalf("err = %v, want control_plane_url validation error", err)
-	}
-}
-
-func TestRunConfigFlagDefaultsToPlatformPath(t *testing.T) {
-	cmd := newRootCommand()
-	run, _, err := cmd.Find([]string{"run"})
-	if err != nil {
-		t.Fatalf("find run: %v", err)
-	}
-	flag := run.Flags().Lookup("config")
-	if flag == nil {
-		t.Fatal("--config flag missing")
-	}
-	if flag.DefValue != defaultConfigPath() {
-		t.Fatalf("--config default = %q, want %q", flag.DefValue, defaultConfigPath())
-	}
-}
 
 func TestDefaultConfigPathFor(t *testing.T) {
 	if got, want := defaultConfigPathFor("linux"), "/etc/lework/agent.yaml"; got != want {

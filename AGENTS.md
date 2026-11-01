@@ -7,16 +7,18 @@ Compact guidance for AI agents working in the Lework repo. Verified against the 
 ## Commands
 
 Build / check / test (run from repo root):
-- `go build -o ./bundles/lework ./backend/cmd/lework/` — build server (builtin/OSS auth). Binary → `./bundles/` (gitignored).
+- `go build -o ./bundles/lework ./backend/cmd/lework/` — build server (builtin/OSS auth). The same binary also exposes the node agent as `lework agent`.
 - `go build -tags enterprise -o ./bundles/lework ./backend/cmd/lework/` — enterprise build (auth delegated to IAM). See "Editions" below.
 - `make build` — same as builtin build with `-ldflags="-s -w"`.
+- `./bundles/lework agent --config /etc/lework/agent.yaml` — run the node agent (OpenCode supervisor); config defaults to the platform agent.yaml path.
 - `make run` / `make run-detached` / `make stop` / `make logs` — docker-compose stack at `deployments/env/docker-compose.yml`.
 - `make dev-setup` — one-time dev bootstrap (see `deployments/dev/dev-setup.sh`); `make dev-server` / `make dev-worker` / `dev-frontend` run each process locally.
 - `make swagger` — generate swagger into `docs/swagger/` from `backend/cmd/lework/server.go` (+ handler/api/types dirs). Only output location is `docs/swagger/`.
 
 Test (no `make test` target exists — CONTRIBUTING.md is wrong on this):
 - `go test ./...` — all (excludes `//go:build integration` and `enterprise` files by default).
-- `go test -tags integration ./...` — run integration tests (need NATS + DB; helpers in `backend/internal/testutil/`).
+- `go test ./backend/cmd/lework ./backend/internal/agentd/...` — node agent CLI and daemon tests.
+- `go test -tags integration ./...` — run integration tests (need NATS + DB; helpers in `backend/internal/testutil/`); the node-agent integration test also needs a local `opencode` binary.
 - `go test -tags enterprise ./...` — enterprise-only tests (most also need `-tags integration`).
 - `go test ./backend/internal/<pkg>` — single package. `go test -run ^TestName$ ./...` — single test.
 
@@ -70,7 +72,8 @@ Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1
 
 ## Where things actually live (structure evolved; README/old docs lag)
 
-- `backend/cmd/lework/` — cobra entrypoint. Files: `server.go`, `worker.go`, `chat.go`, `session.go`, `task.go`, `project.go`, `skill.go`, `login.go`/`logout.go`/`register.go`.
+- `backend/cmd/lework/` — cobra entrypoint. Files: `server.go`, `worker.go`, `chat.go`, `session.go`, `task.go`, `project.go`, `skill.go`, `login.go`/`logout.go`/`register.go`; node-agent CLI lives in `agent.go`/`agent_run.go` and is exposed as `lework agent`.
+- `backend/internal/agentd/` — node-agent daemon: protocol, OpenCode HTTP/SSE client, process supervisor, request handler, runner, WSS transport, config.
 - `backend/internal/` — adapter (account/oss|enterprise, edition), api (auth, connectors, contract, dto, handler, middleware, router), cli, consts (only `paths.go`), infra (db, filestore, git, gitea, mq, providers, sms, websocket), integration (feishu), llm, memory, modelrouter, projectfile, runnable, service, skill (catalog, store, links, builtin, cache, fetch, token.go), testutil, worker (agentrun, app, command, eventpub, identity, mcp, router, run, runtimehost, scheduler, server, wsproto), workspace.
 - `backend/agent/` — execution core (runtime, adapter, executor, registry, interaction, node_event, observe, tool). `agent/runtime/` holds concrete runtimes: `native`, `claude`, `codex`, `opencode`.
 - `backend/internal/api/connectors/` — webhook/channel connectors (`github`, `gitlab`, `wework`). GitHub webhook handling lives here, not in a top-level `interaction/connectors/` tree as old docs claim.

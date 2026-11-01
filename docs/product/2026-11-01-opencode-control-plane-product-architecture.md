@@ -8,7 +8,7 @@
 
 **Lework = 单用户、多节点的 OpenCode 控制面。**
 
-用现代 GUI 管理不同机器上的 `lework-agent`，由 agent 管理本机 OpenCode 进程，按需把任务上下文通过 Git 带到目标节点执行，并统一管理 Session、Agent、插件、Action 与配置。
+用现代 GUI 管理不同机器上的 `lework agent`，由 agent 管理本机 OpenCode 进程，按需把任务上下文通过 Git 带到目标节点执行，并统一管理 Session、Agent、插件、Action 与配置。
 
 它不是另一个 Agent Runtime，也不是多租户平台。
 
@@ -55,7 +55,7 @@ OpenCode 已经把「执行」做得足够好。缺的是一层**面向个人开
 | Git branch/worktree 任务隔离与跨机同步 | 通用文件同步盘、网盘、远程桌面 |
 | 管理插件、Action、MCP、Agent、模型配置 | 官方插件市场、计费、运营后台 |
 | 本机 Web 优先，桌面壳后置 | 首版做全平台桌面客户端 |
-| Spark USB-C 虚拟网卡接入 | 负责 Spark 上 OpenCode 的启动（由 `lework-agent` 管理） |
+| Spark USB-C 虚拟网卡接入 | 负责 Spark 上 OpenCode 的启动（由 `lework agent` 管理） |
 
 ### 3.3 非目标与反目标
 
@@ -80,8 +80,8 @@ OpenCode 已经把「执行」做得足够好。缺的是一层**面向个人开
 
 | 概念 | 定义 | 说明 |
 |---|---|---|
-| **Node** | 一台运行 `lework-agent` 的机器 | agent 主动连接控制面；由 agent 管理本机 OpenCode 进程 |
-| **Agent** | 节点侧常驻进程 `lework-agent` | 负责注册、心跳、OpenCode 进程管理、Git、配置、PTY 与本地代理 |
+| **Node** | 一台运行 `lework agent` 的机器 | agent 主动连接控制面；由 agent 管理本机 OpenCode 进程 |
+| **Agent** | 节点侧常驻进程 `lework agent` | 负责注册、心跳、OpenCode 进程管理、Git、配置、PTY 与本地代理 |
 | **Project** | 一个逻辑项目 | 包含 Git remote、默认分支、名称 |
 | **Project Location** | Project 在某节点上的工作目录 | `(node_id, directory)`；同一项目可在多节点有 mirror |
 | **Task** | 一次要完成的工作 | 产品上等同于 Session；跨节点执行时附加 Git 上下文，不另建任务状态机 |
@@ -96,11 +96,11 @@ OpenCode 已经把「执行」做得足够好。缺的是一层**面向个人开
 ```text
 Control Plane
   └── Node A
-        └── lework-agent
+        └── lework agent
               ├── OpenCode server (child process)
               └── Project Location /work/foo
   └── Node B
-        └── lework-agent
+        └── lework agent
               ├── OpenCode server (child process)
               └── worktree /work/foo/.lework/task/<id>
 ```
@@ -120,8 +120,8 @@ Project (logical)
 
 - **Project 不是目录**：目录只是 Project 在某个节点上的 Location。
 - **Task 不是新状态机**：Task 的 running/review/merged 只描述 Git 执行上下文，不替代 OpenCode 的 session 状态。
-- **Assignee 不是人**：在个人多机场景里，assignee 就是目标节点上的 `lework-agent`。
-- **Agent 管理进程**：systemd / launchd / Windows Service 只管理 `lework-agent`；agent 负责启动、停止、重启和监控 OpenCode。
+- **Assignee 不是人**：在个人多机场景里，assignee 就是目标节点上的 `lework agent`。
+- **Agent 管理进程**：systemd / launchd / Windows Service 只管理 `lework agent`；agent 负责启动、停止、重启和监控 OpenCode。
 - **上下文按需同步**：不长期复制整个项目；只为一次任务创建最小执行上下文。
 
 ---
@@ -134,7 +134,7 @@ Project (logical)
 添加节点
   → 控制面生成一次性 enrollment token 和安装命令
   → 在目标机器执行安装命令
-  → systemd 启动 lework-agent
+  → systemd 启动 lework agent
   → agent 主动连接控制面，完成注册与心跳
   → agent 启动/接管本机 OpenCode
   → 节点出现在统一节点列表
@@ -152,7 +152,7 @@ Project (logical)
 
 ```text
 OS service manager (systemd / launchd / Windows Service)
-  └── lework-agent
+  └── lework agent
         └── opencode serve (127.0.0.1, agent-owned password)
 ```
 
@@ -258,7 +258,7 @@ Project 在 A
 
 节点详情
   ├── 概览 / 健康
-  ├── lework-agent 状态 / 日志 / 版本
+  ├── lework agent 状态 / 日志 / 版本
   ├── OpenCode 进程状态 / 重启
   ├── 项目与目录
   ├── Session
@@ -305,7 +305,7 @@ Session 详情
 
 | 能力 | 说明 |
 |---|---|
-| 多节点 agent 注册与连接 | `lework-agent` 主动出站；一次性 enrollment；Spark USB-C 入口 |
+| 多节点 agent 注册与连接 | `lework agent` 主动出站；一次性 enrollment；Spark USB-C 入口 |
 | 节点健康与版本 | agent 在线/离线、OpenCode 进程、版本、能力探测 |
 | OpenCode 进程管理 | 启动、停止、重启、日志、崩溃拉起 |
 | 统一 Session 管理 | 跨节点列表、打开、继续、中断、恢复 |
@@ -338,7 +338,7 @@ Session 详情
 
 ### I0：技术验证
 
-**目标**：证明 `lework-agent` 能注册、管理 OpenCode，并完整驱动一个节点。
+**目标**：证明 `lework agent` 能注册、管理 OpenCode，并完整驱动一个节点。
 
 - agent 注册、心跳、token 校验；
 - agent 接管/启动 shared OpenCode service；
@@ -367,7 +367,7 @@ Session 详情
 
 **目标**：解决多机 TUI 管理痛点，并完成 macOS/Windows agent 基础支持。
 
-- `lework-agent` 安装命令、一次性 enrollment、心跳与断线重连；
+- `lework agent` 安装命令、一次性 enrollment、心跳与断线重连；
 - agent 管理 OpenCode 进程；
 - macOS launchd、Windows Service 的安装与进程管理；
 - Unix PTY 与 Windows ConPTY 基础支持；
@@ -439,7 +439,7 @@ Session 详情
 | Agent OS | Linux + macOS + Windows | 节点覆盖三平台；I1 先 Linux，I2/I5 完成三平台验收 |
 | 是否保留任务状态机 | 否 | Task 是 Session 视图；只保留 Git 执行上下文状态 |
 | 是否做组织/权限 | 否 | 目标用户是个人；节点用 agent token 认证 |
-| 默认连接方式 | `lework-agent` 主动出站连接 | 节点不暴露入站端口，避免 SSH/端口/防火墙问题 |
+| 默认连接方式 | `lework agent` 主动出站连接 | 节点不暴露入站端口，避免 SSH/端口/防火墙问题 |
 | OpenCode 进程 | 由 agent 管理 | systemd/launchd/Windows Service 只管 agent，职责集中 |
 | OpenCode service | agent 自持普通 serve；I1 再设计 TUI 共享 | 避免 `--service` 顶掉用户服务；TUI 共享是 I1 目标 |
 | 目标节点仓库 | agent 维护 per-remote 缓存 | 目标节点不需要预先 clone |
@@ -468,4 +468,4 @@ Session 详情
 
 ## 12. 一句话验收
 
-> 一个人，一台控制面，多台运行 `lework-agent` 的节点；从统一 GUI 里选项目、派任务、跨机执行、看 diff、合并结果，不需要再管理多个 TUI，也不需要 SSH 或暴露节点端口。
+> 一个人，一台控制面，多台运行 `lework agent` 的节点；从统一 GUI 里选项目、派任务、跨机执行、看 diff、合并结果，不需要再管理多个 TUI，也不需要 SSH 或暴露节点端口。
