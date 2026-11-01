@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -92,13 +93,21 @@ func (s *Server) Handler() http.Handler {
 
 // Run 启动 HTTP 服务并阻塞，直到监听失败或 ctx 被取消。
 //
-// 监听地址会写入日志，注册令牌绝不出现在日志中。ctx 取消后使用 5 秒
-// 超时优雅退出；http.ErrServerClosed 属于正常退出，不作为错误返回。
+// 监听地址会写入日志，注册令牌绝不出现在日志中。ctx 取消后会先取消所有
+// 请求上下文（常驻的 SSE 流因此能及时退出），再使用 5 秒超时优雅退出；
+// http.ErrServerClosed 属于正常退出，不作为错误返回。
 func (s *Server) Run(ctx context.Context) error {
+	// Shutdown 只等待处理函数返回，不会取消请求上下文。浏览器会常驻
+	// /api/events，因此必须把服务级上下文挂到 BaseContext，退出时主动取消，
+	// 否则正常退出也会一直等到超时。
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
 	srv := &http.Server{
 		Addr:              s.cfg.ListenAddr,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: readHeaderTimeout,
+		BaseContext:       func(net.Listener) context.Context { return runCtx },
 	}
 
 	s.mu.Lock()
@@ -119,13 +128,21 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		return nil
 	case <-ctx.Done():
+		// 显式取消，避免依赖父上下文传播的异步延迟。
+		cancelRun()
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			// 优雅退出失败时强制关闭，保证 Run 不会无限阻塞。
-			_ = srv.Close()
-			return fmt.Errorf("controlplane: shutdown: %w", err)
+			// 残留连接未在超时内退出属于正常退出路径：强制关闭并继续。
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				logs.Warnf("control plane shutdown timed out, closing remaining connections")
+				_ = srv.Close()
+			} else {
+				_ = srv.Close()
+				return fmt.Errorf("controlplane: shutdown: %w", err)
+			}
 		}
 
 		// Shutdown 返回后 ListenAndServe 必然以 ErrServerClosed 结束，

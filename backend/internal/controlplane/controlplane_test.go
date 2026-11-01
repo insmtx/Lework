@@ -208,6 +208,69 @@ func TestServerRunStopsOnContextCancel(t *testing.T) {
 	}
 }
 
+// TestServerRunShutsDownOpenEventStream 校验持有 SSE 长连接时取消上下文仍能及时退出。
+//
+// 浏览器界面会常驻 /api/events，http.Server.Shutdown 本身不会取消请求上下文；
+// 如果服务端不主动取消，优雅退出会一直等到超时并最终报错。
+func TestServerRunShutsDownOpenEventStream(t *testing.T) {
+	cfg := testConfig()
+	cfg.ListenAddr = freeLoopbackAddr(t)
+
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	srv, err := New(cfg, st)
+	if err != nil {
+		_ = st.Close()
+		t.Fatalf("new server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Run(runCtx) }()
+
+	waitForHealthz(t, cfg.ListenAddr)
+
+	// 模拟浏览器订阅事件流：客户端连接独立于 Run 的上下文保持打开。
+	streamCtx, cancelStream := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelStream()
+
+	url := fmt.Sprintf("http://%s/api/events", cfg.ListenAddr)
+	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("new events request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open event stream: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event stream status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("event stream content type = %q, want text/event-stream", got)
+	}
+
+	cancelRun()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil while an event stream was open", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return within 2s while an event stream was open")
+	}
+
+	if err := srv.Close(); err != nil {
+		t.Fatalf("close server: %v", err)
+	}
+}
+
 // freeLoopbackAddr 预占一个回环端口后立即释放，供 Run 绑定。
 func freeLoopbackAddr(t *testing.T) string {
 	t.Helper()
