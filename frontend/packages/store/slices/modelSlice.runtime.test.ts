@@ -44,14 +44,15 @@ describe("model status refresh isolation", () => {
 		await slice.fetchModels();
 		api.test.mockResolvedValue({ data: { data: { success: true } } });
 		await slice.testModel({ id: 1 });
-		expect(state.models[0].connectionTest?.state).toBe("available");
+		expect(state.models[0]).toMatchObject({ id: 1, connectionTest: { state: "available" } });
 		const pending = slice.fetchModels({ silent: true });
 		expect(state.loading).toBe(false);
 		await pending;
-		expect(state.models[0].connectionTest?.state).toBe("available");
+		expect(state.models[0]).toMatchObject({ id: 1, connectionTest: { state: "available" } });
 		api.list.mockResolvedValue(response({ ...model, base_url: "https://other" }));
 		await slice.fetchModels({ silent: true });
-		expect(state.models[0].connectionTest).toBeUndefined();
+		expect(state.models[0]).toMatchObject({ id: 1, baseUrl: "https://other" });
+		expect(state.models[0]?.connectionTest).toBeUndefined();
 	});
 	it("does not apply a test response after logout", async () => {
 		api.list.mockResolvedValue(response());
