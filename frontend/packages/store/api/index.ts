@@ -140,6 +140,8 @@ export type {
 	GetSessionParams,
 } from "./sessionApi";
 export { sessionApi } from "./sessionApi";
+export { inspectSparkDevice, type SparkDevice } from "./sparkDevice";
+export * from "./sparkWorkflowApi";
 export type {
 	CreateTaskParams,
 	DeleteTaskParams,

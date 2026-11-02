@@ -142,6 +142,8 @@ func InitDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
 // 该函数会自动为所有定义的模型创建或更新数据库表结构。
 func runMigrations(db *gorm.DB) error {
 	models := []interface{}{
+		&types.SparkWorkflowHost{},
+		&types.SparkWorkflowOperation{},
 		&types.User{},
 		&types.Organization{},
 		&types.UserOrg{},

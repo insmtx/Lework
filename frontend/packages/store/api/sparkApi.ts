@@ -2,8 +2,40 @@ import { apiClient } from "./client";
 
 export type SparkCheck = { code: string; message: string };
 export type SparkMaintenance = "unsupported" | "unknown" | "paused" | "accepting";
+export type SparkModelControl = {
+	protocol_version: 1;
+	host_id: string;
+	boot_id: string;
+	observed_at: number;
+	model_id: string;
+	label: string;
+	state: "stopped" | "starting" | "ready" | "draining" | "stopping" | "error" | "unknown";
+	revision: number;
+	operation_id: string;
+	action: "none" | "start" | "stop";
+	error_code: string;
+	busy: boolean;
+	can_start: boolean;
+	can_stop: boolean;
+};
+export type SparkModelRequest = {
+	boot_id: string;
+	expected_revision: number;
+	maintenance_revision: number;
+	operation_id: string;
+	action: "start" | "stop";
+};
 export type SparkStatus = {
+	model_control?: SparkModelControl;
 	maintenance?: SparkMaintenance;
+	maintenance_control?: {
+		revision: number;
+		operation_id: string;
+		active: boolean;
+		confirmed: boolean;
+		can_pause: boolean;
+		can_resume: boolean;
+	};
 	valid_until: number;
 	snapshot: {
 		protocol_version: 1;
@@ -32,8 +64,8 @@ export type SparkStatus = {
 		waiting_count: number | null;
 	}[];
 	checks: SparkCheck[];
-	can_start_model: false;
-	can_stop_model: false;
+	can_start_model: boolean;
+	can_stop_model: boolean;
 	can_shutdown: false;
 };
 export type SparkPreflight = { ready: false; checked_at: number; status: SparkStatus };
@@ -58,12 +90,119 @@ const checks = (v: unknown): v is SparkCheck[] =>
 	v.every((c) => record(c) && text(c.code) && text(c.message));
 
 const maintenance = (v: unknown) =>
-	v === undefined || ["unsupported", "unknown", "paused", "accepting"].includes(String(v));
+	v === undefined ||
+	(typeof v === "string" && ["unsupported", "unknown", "paused", "accepting"].includes(v));
+
+function validControl(v: Record<string, unknown>) {
+	const c = v.maintenance_control;
+	if (c === undefined) return true;
+	if (
+		!record(c) ||
+		!count(c.revision) ||
+		c.revision === 0 ||
+		typeof c.operation_id !== "string" ||
+		!/^[A-Za-z0-9_-]{1,128}$/.test(c.operation_id) ||
+		typeof c.active !== "boolean" ||
+		typeof c.confirmed !== "boolean" ||
+		typeof c.can_pause !== "boolean" ||
+		typeof c.can_resume !== "boolean"
+	)
+		return false;
+	const writable = c.revision < Number.MAX_SAFE_INTEGER;
+	if (
+		(c.can_pause && !(c.confirmed && !c.active && writable)) ||
+		(c.can_resume &&
+			!(
+				c.confirmed &&
+				c.active &&
+				writable &&
+				!(record(v.model_control) && (v.model_control.busy || v.model_control.state === "unknown"))
+			))
+	)
+		return false;
+	if (c.confirmed) {
+		const phase = c.active ? "paused" : "accepting";
+		if (
+			v.maintenance !== phase ||
+			!Array.isArray(v.workers) ||
+			v.workers.length === 0 ||
+			!v.workers.every((w) => record(w) && w.maintenance === phase && w.state !== "unknown")
+		)
+			return false;
+	}
+	return true;
+}
+
+function validModel(v: unknown): v is SparkModelControl {
+	if (!record(v)) return false;
+	return (
+		v.protocol_version === 1 &&
+		text(v.host_id) &&
+		text(v.boot_id) &&
+		fresh(v.observed_at) &&
+		text(v.model_id) &&
+		text(v.label) &&
+		typeof v.state === "string" &&
+		["stopped", "starting", "ready", "draining", "stopping", "error", "unknown"].includes(
+			String(v.state),
+		) &&
+		count(v.revision) &&
+		v.revision > 0 &&
+		typeof v.operation_id === "string" &&
+		/^[A-Za-z0-9_-]{1,128}$/.test(v.operation_id) &&
+		typeof v.action === "string" &&
+		["none", "start", "stop"].includes(v.action) &&
+		typeof v.error_code === "string" &&
+		v.error_code.length <= 2048 &&
+		typeof v.busy === "boolean" &&
+		typeof v.can_start === "boolean" &&
+		typeof v.can_stop === "boolean" &&
+		(!["starting", "draining", "stopping"].includes(String(v.state)) || v.busy) &&
+		(!v.can_start || (!v.busy && v.state === "stopped" && v.revision < Number.MAX_SAFE_INTEGER)) &&
+		(!v.can_stop || (!v.busy && v.state === "ready" && v.revision < Number.MAX_SAFE_INTEGER))
+	);
+}
+
+function validModelAuthority(v: Record<string, unknown>) {
+	const m = v.model_control;
+	if (m === undefined) return v.can_start_model === false && v.can_stop_model === false;
+	if (
+		!validModel(m) ||
+		!record(v.snapshot) ||
+		m.host_id !== v.snapshot.host_id ||
+		m.boot_id !== v.snapshot.boot_id ||
+		!count(v.valid_until) ||
+		v.valid_until > m.observed_at + 30 ||
+		v.can_start_model !== m.can_start ||
+		v.can_stop_model !== m.can_stop
+	)
+		return false;
+	if (!m.can_start && !m.can_stop) return true;
+	const c = v.maintenance_control;
+	return (
+		record(c) &&
+		c.active === true &&
+		c.confirmed === true &&
+		v.maintenance === "paused" &&
+		Array.isArray(v.workers) &&
+		v.workers.length > 0 &&
+		v.workers.every(
+			(w) =>
+				record(w) &&
+				w.state === "observed" &&
+				w.maintenance === "paused" &&
+				w.running_count === 0 &&
+				w.waiting_count === 0,
+		)
+	);
+}
 
 function validStatus(v: unknown): v is SparkStatus {
 	if (!record(v) || !record(v.snapshot)) return false;
 	const s = v.snapshot;
 	return (
+		validControl(v) &&
+		validModelAuthority(v) &&
 		maintenance(v.maintenance) &&
 		s.protocol_version === 1 &&
 		text(s.host_id) &&
@@ -110,8 +249,6 @@ function validStatus(v: unknown): v is SparkStatus {
 		count(s.observed_at) &&
 		v.valid_until <= s.observed_at + 30 &&
 		checks(v.checks) &&
-		v.can_start_model === false &&
-		v.can_stop_model === false &&
 		v.can_shutdown === false
 	);
 }
@@ -136,6 +273,62 @@ function failure(error: unknown): Error {
 }
 
 export const sparkApi = {
+	async changeModel(request: SparkModelRequest): Promise<SparkModelControl> {
+		try {
+			// 固定目标由服务端绑定，仅发送协议字段，避免携带调用方扩展参数。
+			const body = {
+				boot_id: request.boot_id,
+				expected_revision: request.expected_revision,
+				maintenance_revision: request.maintenance_revision,
+				operation_id: request.operation_id,
+				action: request.action,
+			};
+			const data = unwrap((await apiClient.post<unknown>("/ops/spark/model", body, options)).data);
+			if (
+				!validModel(data) ||
+				data.boot_id !== request.boot_id ||
+				data.revision !== request.expected_revision + 1 ||
+				data.operation_id !== request.operation_id ||
+				data.action !== request.action
+			)
+				throw invalid();
+			return data;
+		} catch (error) {
+			if (record(error) && error.status === 409)
+				throw new Error("模型或维护状态已变化，请刷新后重新确认。");
+			if (record(error) && (error.status === 401 || error.status === 403)) throw failure(error);
+			throw new Error("模型操作结果尚未确认，请刷新状态核对；不要重复提交。");
+		}
+	},
+	async changeMaintenance(request: {
+		boot_id: string;
+		expected_revision: number;
+		operation_id: string;
+		active: boolean;
+	}): Promise<{ revision: number; operation_id: string; active: boolean }> {
+		try {
+			const data = unwrap(
+				(await apiClient.post<unknown>("/ops/spark/maintenance", request, options)).data,
+			);
+			if (
+				!record(data) ||
+				data.revision !== request.expected_revision + 1 ||
+				data.operation_id !== request.operation_id ||
+				data.active !== request.active
+			)
+				throw invalid();
+			return {
+				revision: data.revision as number,
+				operation_id: data.operation_id as string,
+				active: data.active as boolean,
+			};
+		} catch (error) {
+			if (record(error) && error.status === 409)
+				throw new Error("维护状态已变化，请刷新后重新确认。");
+			if (record(error) && (error.status === 401 || error.status === 403)) throw failure(error);
+			throw new Error("操作结果尚未确认，请刷新状态核对；不要重复提交。");
+		}
+	},
 	async status(): Promise<SparkStatus> {
 		try {
 			const data = unwrap((await apiClient.get<unknown>("/ops/spark/status", options)).data);

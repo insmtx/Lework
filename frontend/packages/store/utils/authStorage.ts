@@ -1,4 +1,9 @@
-import { API_BASE_URL } from "../api/config";
+import {
+	API_BASE_URL,
+	normalizeAPIBaseURL,
+	readServerBaseURL,
+	saveServerBaseURL,
+} from "../api/config";
 
 export type StoredAuthOrg = {
 	id: number;
@@ -34,7 +39,17 @@ export const AUTH_STORAGE_KEY = "leros-auth-user";
 export const AUTH_SESSION_EXPIRED_EVENT = "leros-auth-session-expired";
 
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
-let refreshPromise: Promise<string | null> | null = null;
+let sessionGeneration = 0;
+let pendingRefresh: {
+	generation: number;
+	snapshot: string;
+	promise: Promise<string | null>;
+} | null = null;
+
+// 旧窗口在服务切换后不得再读写新服务的会话。
+function isRuntimeEndpointCurrent(): boolean {
+	return (readServerBaseURL() ?? API_BASE_URL) === API_BASE_URL;
+}
 
 type RefreshTokenPayload = {
 	data?: {
@@ -81,7 +96,7 @@ type RefreshTokenPayload = {
 };
 
 export function readStoredAuthUser(): StoredAuthUser | null {
-	if (typeof window === "undefined") return null;
+	if (typeof window === "undefined" || !isRuntimeEndpointCurrent()) return null;
 
 	try {
 		const stored = window.localStorage.getItem(AUTH_STORAGE_KEY);
@@ -94,7 +109,9 @@ export function readStoredAuthUser(): StoredAuthUser | null {
 }
 
 export function writeStoredAuthUser(user: StoredAuthUser) {
-	if (typeof window === "undefined") return;
+	if (typeof window === "undefined" || !isRuntimeEndpointCurrent()) return;
+	sessionGeneration++;
+	pendingRefresh = null;
 
 	try {
 		window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
@@ -104,13 +121,28 @@ export function writeStoredAuthUser(user: StoredAuthUser) {
 }
 
 export function clearStoredAuthUser() {
-	if (typeof window === "undefined") return;
+	if (typeof window === "undefined" || !isRuntimeEndpointCurrent()) return;
+	sessionGeneration++;
+	pendingRefresh = null;
 
 	try {
 		window.localStorage.removeItem(AUTH_STORAGE_KEY);
 	} catch (err) {
 		console.error("clear auth user error:", err);
 	}
+}
+
+/** Persist an explicitly validated endpoint without carrying credentials across services. */
+export function saveServerConnection(value: string, currentURL = API_BASE_URL): string {
+	const normalized = normalizeAPIBaseURL(value);
+	if (typeof window === "undefined") throw new Error("当前环境不支持保存服务地址");
+	// 清除失败必须中止；地址写入失败允许退出登录，但不能把旧凭据带到新服务。
+	if (normalized !== normalizeAPIBaseURL(currentURL)) {
+		sessionGeneration++;
+		pendingRefresh = null;
+		window.localStorage.removeItem(AUTH_STORAGE_KEY);
+	}
+	return saveServerBaseURL(normalized);
 }
 
 export function readStoredJwtToken(): string | null {
@@ -131,12 +163,23 @@ export async function getValidJwtToken(forceRefresh = false): Promise<string | n
 		return null;
 	}
 
-	if (!refreshPromise) {
-		refreshPromise = refreshStoredAuthToken(user).finally(() => {
-			refreshPromise = null;
+	const snapshot = window.localStorage.getItem(AUTH_STORAGE_KEY) ?? "";
+	const generation = sessionGeneration;
+	if (
+		!pendingRefresh ||
+		pendingRefresh.generation !== generation ||
+		pendingRefresh.snapshot !== snapshot
+	) {
+		const isCurrent = () =>
+			generation === sessionGeneration &&
+			isRuntimeEndpointCurrent() &&
+			window.localStorage.getItem(AUTH_STORAGE_KEY) === snapshot;
+		const promise = refreshStoredAuthToken(user, isCurrent).finally(() => {
+			if (pendingRefresh?.promise === promise) pendingRefresh = null;
 		});
+		pendingRefresh = { generation, snapshot, promise };
 	}
-	return refreshPromise;
+	return pendingRefresh.promise;
 }
 
 export async function authenticatedFetch(
@@ -152,7 +195,10 @@ export async function authenticatedFetch(
 	return fetch(input, withAuthorization(init, refreshedToken));
 }
 
-async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | null> {
+async function refreshStoredAuthToken(
+	user: StoredAuthUser,
+	isCurrent: () => boolean,
+): Promise<string | null> {
 	try {
 		if (!user.refreshToken) {
 			expireStoredAuthSession();
@@ -167,8 +213,9 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 			iamUinID: user.uin,
 			iamUserID: user.userId,
 			loginWay: user.loginWay,
+			isCurrent,
 		});
-		if (!payload) return null;
+		if (!payload || !isCurrent()) return null;
 		const token = payload.data;
 		if (!token?.jwt_token || !token.refresh_token || !token.uin || !token.user_id) {
 			expireStoredAuthSession();
@@ -191,7 +238,7 @@ async function refreshStoredAuthToken(user: StoredAuthUser): Promise<string | nu
 			currentOrg: toStoredAuthOrg(token.org),
 			organizations: toStoredAuthOrgs(token.organizations),
 		});
-		return token.jwt_token;
+		return readStoredAuthUser()?.jwtToken === token.jwt_token ? token.jwt_token : null;
 	} catch (err) {
 		console.error("refresh auth token error:", err);
 		return null;
@@ -203,11 +250,13 @@ async function requestRefreshToken({
 	iamUinID,
 	iamUserID,
 	loginWay: _loginWay,
+	isCurrent,
 }: {
 	refreshToken: string;
 	iamUinID: number;
 	iamUserID: number;
 	loginWay?: number;
+	isCurrent: () => boolean;
 }): Promise<RefreshTokenPayload | null> {
 	const response = await fetch(`${API_BASE_URL}/RefreshToken`, {
 		method: "POST",
@@ -221,7 +270,7 @@ async function requestRefreshToken({
 		}),
 	});
 	if (!response.ok) {
-		if (response.status === 400 || response.status === 401) {
+		if ((response.status === 400 || response.status === 401) && isCurrent()) {
 			expireStoredAuthSession();
 		}
 		return null;

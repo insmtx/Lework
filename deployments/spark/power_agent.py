@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Spark inventory. No model, container, or power mutation commands."""
+"""Spark inventory with optional admission maintenance; no model, container or power actions."""
 import argparse
 import hashlib
 from http.server import BaseHTTPRequestHandler
@@ -58,7 +58,7 @@ def collect_status(node, runner=run_probe, identity=host_identity, now=time.time
         raise ValueError('invalid Kubernetes node name')
     host, boot, hostname = identity()
     checks = [
-        check('execution_disabled', '当前管理服务仅支持只读预检，尚未启用执行能力。'),
+        check('execution_disabled', '模型启停和系统关机能力尚未启用。'),
         check('model_unconfigured', '未配置可管理的本机模型；模型入口不代表推理进程。'),
         check('maintenance_unavailable', '尚未接入可恢复的任务维护与请求排空协议。'),
         check('recovery_unavailable', '服务停止顺序和开机恢复尚未完成验证。'),
@@ -120,29 +120,92 @@ class UnixServer(socketserver.UnixStreamServer):
         return conn, address
 
 
-def make_server(path, collect):
+def make_server(path, collect, maintenance=None, identity=host_identity, model=None):
     if os.path.lexists(path):
         raise FileExistsError('socket path already exists; refusing to replace it')
 
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path != '/status':
-                self.send_error(404)
-                return
-            try:
-                payload = json.dumps(collect(), ensure_ascii=False).encode()
-                self.send_response(200)
-            except Exception:
-                payload = b'{"error":"inventory_unavailable"}'
-                self.send_response(503)
+        def reply(self, status, result):
+            payload = json.dumps(result, ensure_ascii=False).encode()
+            self.send_response(status)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(payload)))
             self.send_header('Cache-Control', 'no-store')
             self.end_headers()
             self.wfile.write(payload)
 
+        def maintenance_status(self):
+            host, boot, _ = identity()
+            state = maintenance.read()
+            if state['host_id'] != host:
+                raise ValueError('host mismatch')
+            return dict(state, boot_id=boot, observed_at=int(time.time()))
+
+        def do_GET(self):
+            try:
+                if self.path == '/status':
+                    self.reply(200, collect())
+                elif self.path == '/maintenance' and maintenance is not None:
+                    self.reply(200, self.maintenance_status())
+                elif self.path == '/model' and model is not None:
+                    self.reply(200, model.observe())
+                else:
+                    self.reply(404, {'error': 'unsupported'})
+            except Exception:
+                self.reply(503, {'error': 'status_unavailable'})
+
         def do_POST(self):
-            self.send_error(405, 'Read-only agent')
+            if maintenance is None or self.path not in ('/maintenance', '/model') or (self.path == '/model' and model is None):
+                self.reply(405, {'error': 'read_only'})
+                return
+            try:
+                lengths = self.headers.get_all('Content-Length', [])
+                if (len(lengths) != 1 or self.headers.get('Transfer-Encoding') is not None
+                        or not lengths[0].isdigit() or not 1 <= int(lengths[0]) <= 2048):
+                    raise ValueError('invalid length')
+                def unique(pairs):
+                    result = {}
+                    for key, value in pairs:
+                        if key in result:
+                            raise ValueError('duplicate field')
+                        result[key] = value
+                    return result
+                body = json.loads(self.rfile.read(int(lengths[0])), object_pairs_hook=unique)
+                if self.path == '/model':
+                    try:
+                        self.reply(200, model.begin(body))
+                    except ValueError:
+                        self.reply(409, {'error': 'model_conflict'})
+                    except Exception:
+                        self.reply(503, {'error': 'model_outcome_unknown'})
+                    return
+                if (not isinstance(body, dict) or set(body) != {
+                        'host_id', 'boot_id', 'expected_revision', 'operation_id', 'active'}
+                        or type(body['expected_revision']) is not int
+                        or not 1 <= body['expected_revision'] < 9007199254740991
+                        or type(body['active']) is not bool
+                        or not isinstance(body['operation_id'], str)
+                        or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', body['operation_id'])):
+                    raise ValueError('invalid request')
+            except (ValueError, TypeError, OSError):
+                self.reply(400, {'error': 'invalid_request'})
+                return
+            try:
+                state = self.maintenance_status()
+                if model is not None and not body['active'] and model.observe()['busy']:
+                    self.reply(409, {'error': 'model_operation_in_progress'})
+                    return
+                if (body['host_id'] != state['host_id'] or body['boot_id'] != state['boot_id']
+                        or body['expected_revision'] != state['revision']
+                        or body['active'] == state['active']
+                        or (not body['active'] and body['operation_id'] != state['operation_id'])):
+                    self.reply(409, {'error': 'maintenance_conflict'})
+                    return
+                # StateStore 的 CAS 与 CLI 共用锁；响应丢失时客户端必须重新读取，禁止重试写入。
+                maintenance.change(body['expected_revision'], body['operation_id'], body['active'])
+                self.reply(200, self.maintenance_status())
+            except (ValueError, TypeError, OSError):
+                self.reply(503, {'error': 'maintenance_outcome_unknown'})
 
         def log_message(self, *_args):
             pass
@@ -160,11 +223,35 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--snapshot', action='store_true')
     mode.add_argument('--socket', help='Unix socket in an operations-owned directory')
+    parser.add_argument('--enable-maintenance', action='store_true', help='opt in to host-owned maintenance writes; requires root')
+    parser.add_argument('--enable-model-control', action='store_true', help='opt in to one installed local model; requires maintenance and root-managed config')
     args = parser.parse_args()
     if args.snapshot:
         print(json.dumps(collect_status(args.node), ensure_ascii=False))
         return
-    server = make_server(args.socket, lambda: collect_status(args.node))
+    maintenance = None
+    if args.enable_maintenance:
+        # 固定安装目录加载，不接受调用者指定状态路径，也不自动初始化状态。
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from maintenance_ctl import STATE_PATH, validate_directory
+        from maintenance_state import StateStore
+        if os.geteuid() != 0:
+            raise PermissionError('maintenance writes require root')
+        validate_directory()
+        maintenance = StateStore(STATE_PATH, host_identity()[0])
+        maintenance.read()
+    model = None
+    if args.enable_model_control:
+        if maintenance is None:
+            raise ValueError('model control requires maintenance')
+        from model_control import DockerModel, JOURNAL_PATH, ModelController, load_config
+        config = load_config()
+        if config['host_id'] != host_identity()[0]:
+            raise ValueError('model host binding mismatch')
+        model = ModelController(config, JOURNAL_PATH, maintenance.read, DockerModel(config),
+                                host_identity, maintenance_guard=maintenance._locked)
+    server = make_server(args.socket, lambda: collect_status(args.node), maintenance=maintenance, model=model)
     try:
         server.serve_forever()
     finally:

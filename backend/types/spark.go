@@ -41,14 +41,16 @@ type SparkWorkerState struct {
 
 // SparkStatus keeps capability decisions separate from observed process states.
 type SparkStatus struct {
-	Maintenance   string             `json:"maintenance"`
-	ValidUntil    int64              `json:"valid_until"`
-	Snapshot      SparkSnapshot      `json:"snapshot"`
-	Workers       []SparkWorkerState `json:"workers"`
-	Checks        []SparkCheck       `json:"checks"`
-	CanStartModel bool               `json:"can_start_model"`
-	CanStopModel  bool               `json:"can_stop_model"`
-	CanShutdown   bool               `json:"can_shutdown"`
+	ModelControl       *SparkModelControl       `json:"model_control,omitempty"`
+	MaintenanceControl *SparkMaintenanceControl `json:"maintenance_control,omitempty"`
+	Maintenance        string                   `json:"maintenance"`
+	ValidUntil         int64                    `json:"valid_until"`
+	Snapshot           SparkSnapshot            `json:"snapshot"`
+	Workers            []SparkWorkerState       `json:"workers"`
+	Checks             []SparkCheck             `json:"checks"`
+	CanStartModel      bool                     `json:"can_start_model"`
+	CanStopModel       bool                     `json:"can_stop_model"`
+	CanShutdown        bool                     `json:"can_shutdown"`
 }
 
 // SparkPreflight is advisory; it is never an authorization token for shutdown.
@@ -67,4 +69,56 @@ type SparkMaintenanceState struct {
 	Revision    uint64 `json:"revision"`
 	OperationID string `json:"operation_id"`
 	ErrorCode   string `json:"error_code,omitempty"`
+}
+
+// SparkMaintenanceControl distinguishes a persisted request from consumer confirmation.
+type SparkMaintenanceControl struct {
+	Revision    uint64 `json:"revision"`
+	OperationID string `json:"operation_id"`
+	Active      bool   `json:"active"`
+	Confirmed   bool   `json:"confirmed"`
+	CanPause    bool   `json:"can_pause"`
+	CanResume   bool   `json:"can_resume"`
+}
+
+// SparkMaintenanceRequest is a compare-and-swap request, never a caller-selected host command.
+type SparkMaintenanceRequest struct {
+	BootID           string `json:"boot_id"`
+	ExpectedRevision uint64 `json:"expected_revision"`
+	OperationID      string `json:"operation_id"`
+	Active           *bool  `json:"active"`
+}
+
+// SparkMaintenanceReceipt confirms persistence only; clients must refresh consumer observations.
+type SparkMaintenanceReceipt struct {
+	Revision    uint64 `json:"revision"`
+	Active      bool   `json:"active"`
+	OperationID string `json:"operation_id"`
+}
+
+// SparkModelRequest binds a model mutation to the observed boot and both control revisions.
+type SparkModelRequest struct {
+	BootID              string `json:"boot_id"`
+	ExpectedRevision    uint64 `json:"expected_revision"`
+	MaintenanceRevision uint64 `json:"maintenance_revision"`
+	OperationID         string `json:"operation_id"`
+	Action              string `json:"action"`
+}
+
+// SparkModelControl separates a verified model observation from permission to change it.
+type SparkModelControl struct {
+	ProtocolVersion int    `json:"protocol_version"`
+	HostID          string `json:"host_id"`
+	BootID          string `json:"boot_id"`
+	ObservedAt      int64  `json:"observed_at"`
+	ModelID         string `json:"model_id"`
+	Label           string `json:"label"`
+	State           string `json:"state"`
+	Revision        uint64 `json:"revision"`
+	OperationID     string `json:"operation_id"`
+	Action          string `json:"action"`
+	ErrorCode       string `json:"error_code"`
+	Busy            bool   `json:"busy"`
+	CanStart        bool   `json:"can_start"`
+	CanStop         bool   `json:"can_stop"`
 }

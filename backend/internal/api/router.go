@@ -44,7 +44,7 @@ import (
 //
 // 根据配置初始化并注册 GitHub、GitLab 等渠道连接器，
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
-func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, requester eventbus.CoreRequester, db *gorm.DB, modelInvoker modelrouter.Invoker) (*gin.Engine, worker.WorkerScheduler) {
+func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, requester eventbus.CoreRequester, db *gorm.DB, modelInvoker modelrouter.Invoker, sparkServices ...*spark.Service) (*gin.Engine, worker.WorkerScheduler) {
 	r := gin.New()
 
 	// ── 全局中间件（必须在 r.Group / RegisterRoutes 之前挂载）────────────────────
@@ -164,7 +164,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		logs.Info("AI teammate template routes registered successfully")
 
 		llmModelService := service.NewLLMModelService(db, orgRepo)
-		handler.RegisterLLMModelRoutes(authed, llmModelService)
+
 		logs.Info("LLM model routes registered successfully")
 
 		inferrer := service.NewDefaultAssistantInferrer(1)
@@ -221,7 +221,12 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		// 也保留路由并返回 503，避免调用方因依赖状态而得到不稳定的 404。
 		workerOpsService := service.NewWorkerOpsService(requester, 3*time.Second)
 		handler.RegisterWorkerOpsRoutes(authed, workerOpsService)
-		handler.RegisterSparkRoutes(authed, spark.NewService(cfg.Spark, workerOpsService), orgRepo)
+		sparkService := spark.NewService(cfg.Spark, workerOpsService)
+		if len(sparkServices) > 0 && sparkServices[0] != nil {
+			sparkService = sparkServices[0]
+		}
+		handler.RegisterSparkRoutes(authed, sparkService, orgRepo)
+		handler.RegisterLLMModelRoutes(authed, service.WithModelRuntime(llmModelService, sparkService))
 		logs.Info("Worker ops routes registered successfully")
 
 		// Start background consumers

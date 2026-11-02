@@ -1,5 +1,7 @@
 # Spark 局域网服务发现
 
+本机 Qwen 模型启停为单独启用的能力，配置与升级步骤见 [模型启停运维说明](../../docs/operations/spark-model-control.md)。代码已接入启动、健康检查、请求排空和正常停止，尚待现场升级与实际启停验收；下文只读模式仍为默认，系统关机仍禁用。
+
 前提：Avahi、python3-dbus、systemd 可用；后端端口对笔记本可达。安装工具不自动安装系统包或修改网卡配置。
 
 将本目录复制到 Spark 后，运维执行（接口/端口按实际部署填写）：
@@ -22,8 +24,9 @@ sudo bash install-discovery.sh --uninstall
 安装失败时查看 journal；恢复对应 .bak 文件并重启该服务可回退。UUID 不是身份凭据，不应据此自动迁移登录令牌。
 
 私有化客户端首次配置时自动搜索，已有配置的用户从“系统设置 → 服务连接 → 搜索局域网设备”主动搜索。
-选择结果只填入地址，必须测试、保存。手填不依赖广播，可继续使用。
-已保存的 .local 名称由操作系统解析，IP 变化无需修改 URL；网络阻止 mDNS 时可手填 IP。
+选择结果会匿名验证可达的候选地址，再保存并连接；切换已有服务时须确认重新登录。手填不依赖广播，可继续使用。
+新版后端须设置 `spark.device_id` 为 `/var/lib/leros-discovery/id` 的值，并设置易辨认的 `spark.device_name`。多网口广播使用同一部署 ID；客户端按声明比对 IP 候选，UUID 不代替登录认证。
+已保存的 `.local` 名称由操作系统解析，IP 变化无需修改该名称；保存 IP 后不会擅自切换已有会话地址，地址失效时重新搜索并选择。网络阻止 mDNS 时可手填可达 IP。
 Windows/Linux 客户端和 macOS 打包权限需要各平台实测，不能仅凭开发态通过视为全部完成。
 
 ## 临时热点共享上网验证
@@ -85,7 +88,9 @@ sudo python3 install_wired.py rollback
 
 ## 单机设备管理：只读预检（2026-10-29）
 
-`power_agent.py` 是独立的只读采集器，不包含启停、关机、维护、恢复命令。`--snapshot` 输出一次清单；Unix socket 模式只提供 `GET /status`，所有 POST 返回 405。没有 TCP 监听，也不使用 mDNS 记录作为授权依据。
+运维安装步骤见 [Spark 设备管理部署清单](../../docs/operations/spark-device-management.md)。
+
+`power_agent.py` 默认只读，不包含模型启停或关机命令。`--snapshot` 输出一次清单；默认 Unix socket 模式只提供 `GET /status`，所有 POST 返回 405。显式增加 `--enable-maintenance` 后，同一代理提供固定本机的 `GET /maintenance` 与 `POST /maintenance`，仅切换任务维护状态；需要 root 及已初始化的持久状态，参见 [维护模式部署](../../docs/operations/spark-maintenance-ui.md)。没有 TCP 监听，也不使用 mDNS 记录作为授权依据。
 
 无需安装即可核对本机：
 
@@ -128,7 +133,9 @@ spark:
 
 本次增加真实 Worker 准入、Server 新任务入口和可靠任务投递的持久维护检查。未配置时保留原行为；一旦配置，缺失、损坏、错主机或不支持的状态文件都拒绝新接单。暂停前已经持久接收的任务继续执行；重启后遗留 inbox 任务等待显式解除维护。维护不会延长任务有效期，过期任务仍按已有规则处理。自动化等来源可能继续产生待执行记录，不能把维护解释为冻结所有业务写入。
 
-`maintenance_state.py` 目前仅提供安装端写入原语 `StateStore.initialize/read/change`，没有 CLI、网络变更入口或 sudo 授权。`change` 校验修订号与操作 ID，通过 flock、临时文件 fsync、同目录 replace 和目录 fsync 持久化。不要由业务容器调用，也不要在恢复出错时删除文件重新初始化。fsync/replace 失败需重新读取确认实际状态，不能仅凭异常假定未写入。
+本机运维命令及现场接入步骤见 [暂停与恢复接单联调](../../docs/operations/spark-maintenance.md)。`maintenance_ctl.py` 提供 root 专用、固定本机路径的初始化、状态读取、暂停及恢复命令；没有网络变更入口，命令不代表消费者已经确认维护。
+
+`maintenance_state.py` 提供安装端写入原语 `StateStore.initialize/read/change`，没有 CLI、网络变更入口或 sudo 授权。`change` 校验修订号与操作 ID，通过 flock、临时文件 fsync、同目录 replace 和目录 fsync 持久化。不要由业务容器调用，也不要在恢复出错时删除文件重新初始化。fsync/replace 失败需重新读取确认实际状态，不能仅凭异常假定未写入。
 
 后续安装控制器时，由运维创建持久目录（示例 `/var/lib/leros-spark`），root 拥有、共享只读数值组、目录权限 2750，写入文件 0640；setgid 保证原子替换后仍可由只读服务组读取。Server/Worker **只读挂载整个状态目录**到相同的容器路径（示例 `/run/leros-spark-state`），不能用单文件 `subPath` 挂载，否则无法看到原子替换。目录应位于本机持久磁盘，不使用临时目录或网络文件系统。普通成员不能写入目录、配置或脚本。
 
@@ -150,3 +157,11 @@ spark_maintenance:
 Server 拦截 AddMessage、CreateInitialMessage、CreateTask、CreateSession、RunAutomationNow，返回 HTTP 503；查询、取消、审批回复和结果上报不受该入口限制。后台投递在领取和发布前检查。已在途的请求/投递最终由 Worker 准入检查兜底；状态查询等待在途准入完成后再生成任务计数，不能仅凭 Server 接单状态宣布排空。
 
 桌面只读显示 Server 和各 Worker 的“尚未接入 / 状态未知 / 已暂停 / 正常接单”。旧 Worker 缺少维护字段表示尚未接入，缺失字段、状态过期或主机不匹配不能显示已暂停。**这不是完整关机功能**：完整排空控制器、模型/服务停止与恢复、系统关机及实机验收仍未完成；全部启停与关机按钮继续禁用。本次没有升级远端镜像、安装维护文件、暂停任务或改变运行服务。
+
+## 停机清单校验器
+
+`shutdown_plan.py` 读取候选登记文件及新鲜设备快照，检查主机绑定、清单覆盖、状态与依赖关系，生成候选停止/恢复顺序。原本停止的目标保持停止。该工具不执行命令、不改变维护状态；`executable` 始终为 `false`，不会开放客户端关机按钮。
+
+用法及字段说明见 [Spark 停机计划校验](../../docs/operations/spark-shutdown-plan.md)。当前采用精确快照 ID，Pod 重建后必须重新核对，不能将输出当作控制器执行计划或已验证的恢复方案。
+
+完整的客户端、网络和管理发布门槛见 [Spark 发布验收](../../docs/operations/spark-production-readiness.md)。

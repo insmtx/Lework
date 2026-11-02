@@ -46,7 +46,15 @@ export type GetModelParams = {
 	code?: string;
 };
 
+export type ModelRuntime = {
+	source: string;
+	state: string;
+	observed_at: number;
+	valid_until: number;
+};
+
 export type BackendModel = {
+	runtime?: ModelRuntime;
 	id: number;
 	org_id: number;
 	code: string;

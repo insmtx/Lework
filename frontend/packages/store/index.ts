@@ -182,8 +182,16 @@ export { projectFileApi } from "./api/projectFileApi";
 export type { HumanProjectMemberOption } from "./api/projectMemberApi";
 export { projectMemberApi } from "./api/projectMemberApi";
 export { sessionApi } from "./api/sessionApi";
-export type { SparkCheck, SparkPreflight, SparkStatus } from "./api/sparkApi";
+export type {
+	SparkCheck,
+	SparkModelControl,
+	SparkModelRequest,
+	SparkPreflight,
+	SparkStatus,
+} from "./api/sparkApi";
 export { sparkApi } from "./api/sparkApi";
+export { inspectSparkDevice, type SparkDevice } from "./api/sparkDevice";
+export * from "./api/sparkWorkflowApi";
 export { taskApi } from "./api/taskApi";
 export type {
 	BackendAITeammateTemplate,
@@ -374,6 +382,7 @@ export {
 	authenticatedFetch,
 	clearStoredAuthUser,
 	getValidJwtToken,
+	saveServerConnection,
 } from "./utils/authStorage";
 export {
 	formatArtifactTime,

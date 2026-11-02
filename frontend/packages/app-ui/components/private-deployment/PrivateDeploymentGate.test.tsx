@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const storeMocks = vi.hoisted(() => ({
 	hasPrivateServerConfiguration: vi.fn(),
-	saveServerBaseURL: vi.fn(),
+	saveServerConnection: vi.fn(),
 	testServerConnection: vi.fn(),
 }));
 
@@ -29,7 +29,7 @@ describe("PrivateDeploymentGate", () => {
 		root = createRoot(container);
 		onReload = vi.fn<() => void>();
 		storeMocks.hasPrivateServerConfiguration.mockReset();
-		storeMocks.saveServerBaseURL.mockReset();
+		storeMocks.saveServerConnection.mockReset();
 		storeMocks.testServerConnection.mockReset();
 	});
 
@@ -71,8 +71,9 @@ describe("PrivateDeploymentGate", () => {
 		expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull();
 	});
 
-	it("keeps manual input alongside discovery and never saves on selection", async () => {
+	it("keeps manual input alongside discovery and validates and saves on selection", async () => {
 		storeMocks.hasPrivateServerConfiguration.mockReturnValue(false);
+		storeMocks.testServerConnection.mockResolvedValue("http://spark.local:38081/v1");
 		await act(async () =>
 			root.render(
 				<PrivateDeploymentGate
@@ -95,8 +96,11 @@ describe("PrivateDeploymentGate", () => {
 		await act(async () => selectButton?.click());
 		expect(input?.value).toBe("http://spark.local:38081/v1");
 		expect(input?.disabled).toBe(false);
-		expect(storeMocks.saveServerBaseURL).not.toHaveBeenCalled();
-		expect(storeMocks.testServerConnection).not.toHaveBeenCalled();
+		expect(storeMocks.saveServerConnection).toHaveBeenCalledWith(
+			"http://spark.local:38081/v1",
+			"https://default.example.com/v1",
+		);
+		expect(onReload).toHaveBeenCalledOnce();
 	});
 
 	it("saves and reloads after the connection test succeeds", async () => {
@@ -124,7 +128,10 @@ describe("PrivateDeploymentGate", () => {
 			form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 		});
 
-		expect(storeMocks.saveServerBaseURL).toHaveBeenCalledWith("https://private.example.com/v1");
+		expect(storeMocks.saveServerConnection).toHaveBeenCalledWith(
+			"https://private.example.com/v1",
+			"https://default.example.com/v1",
+		);
 		expect(onReload).toHaveBeenCalledOnce();
 	});
 });

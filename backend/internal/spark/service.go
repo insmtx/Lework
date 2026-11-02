@@ -20,8 +20,9 @@ type WorkerQuerier interface {
 	QueryWorkerStatusForPreflight(context.Context, uint, uint) (*messaging.WorkerStatusSnapshot, error)
 }
 
-// Service exposes observation only until maintenance and restore adapters are verified.
+// Service keeps maintenance admission separate from model and power control.
 type Service struct {
+	workflow    *Coordinator
 	cfg         config.SparkConfig
 	workers     WorkerQuerier
 	maintenance *maintenance.Reader
@@ -30,6 +31,7 @@ type Service struct {
 // NewService keeps Spark management optional for both existing backend editions.
 func NewService(cfg config.SparkConfig, workers WorkerQuerier) *Service {
 	cfg.WorkerIDs = append([]uint(nil), cfg.WorkerIDs...)
+	cfg.ModelBindings = append([]config.SparkModelBinding(nil), cfg.ModelBindings...)
 	return &Service{cfg: cfg, workers: workers, maintenance: maintenance.NewReader(cfg.Maintenance)}
 }
 
@@ -37,7 +39,7 @@ func NewService(cfg config.SparkConfig, workers WorkerQuerier) *Service {
 func (s *Service) OrgID() uint { return s.cfg.OrgID }
 
 // Status never infers a safe-to-power-off state from an empty inventory or idle worker.
-func (s *Service) Status(ctx context.Context) (types.SparkStatus, error) {
+func (s *Service) rawStatus(ctx context.Context) (types.SparkStatus, error) {
 	var result types.SparkStatus
 	if s.cfg.OrgID == 0 || !shortText(s.cfg.HostID) || !filepath.IsAbs(s.cfg.SocketPath) || len(s.cfg.WorkerIDs) > 32 {
 		return result, ErrNotConfigured
@@ -57,6 +59,7 @@ func (s *Service) Status(ctx context.Context) (types.SparkStatus, error) {
 	}
 	result.Snapshot = snapshot
 	gate := s.maintenance.Read()
+	consumerGates := make([]*types.SparkMaintenanceState, 0, len(s.cfg.WorkerIDs))
 	result.Maintenance = maintenancePhase(&gate, s.cfg.HostID)
 	result.Workers = make([]types.SparkWorkerState, 0, len(s.cfg.WorkerIDs))
 	result.Checks = append([]types.SparkCheck{}, snapshot.Checks...)
@@ -69,9 +72,20 @@ func (s *Service) Status(ctx context.Context) (types.SparkStatus, error) {
 		result.Checks = append(result.Checks, types.SparkCheck{Code: code, Message: message})
 	}
 	// 能力由后端决定，不信任采集器通过清空阻塞项开启变更操作。
-	add("execution_disabled", "当前版本仅支持只读预检，尚未启用执行能力。")
-	add("model_unconfigured", "未配置可管理的本机模型。")
-	add("maintenance_unavailable", "任务维护控制入口和完整排空流程尚未启用。")
+	if s.cfg.ModelControl {
+		checks := result.Checks[:0]
+		for _, check := range result.Checks {
+			if check.Code != "execution_disabled" && check.Code != "model_unconfigured" {
+				checks = append(checks, check)
+			}
+		}
+		result.Checks = checks
+		add("shutdown_disabled", "系统关机能力尚未启用。")
+	} else {
+		add("execution_disabled", "模型启停和系统关机能力尚未启用。")
+		add("model_unconfigured", "未配置可管理的本机模型。")
+	}
+	add("maintenance_unavailable", "完整任务排空流程尚未完成验证。")
 	add("recovery_unavailable", "服务停止顺序和开机恢复尚未完成验证。")
 	if !snapshot.InventoryComplete {
 		add("inventory_incomplete", "工作负载清单不完整，无法确认关机影响。")
@@ -107,6 +121,9 @@ func (s *Service) Status(ctx context.Context) (types.SparkStatus, error) {
 				add("worker_busy", "仍有正在运行、排队或等待交互的任务。")
 			}
 		}
+		if item.State != "unknown" {
+			consumerGates = append(consumerGates, w.Maintenance)
+		}
 		result.Workers = append(result.Workers, item)
 	}
 	// 聚合期间快照可能过期；过期不能作为新的预检返回。
@@ -132,6 +149,8 @@ func (s *Service) Status(ctx context.Context) (types.SparkStatus, error) {
 			result.ValidUntil = until
 		}
 	}
+	s.observeMaintenance(ctx, &result, consumerGates)
+	s.observeModel(ctx, &result)
 	return result, nil
 }
 

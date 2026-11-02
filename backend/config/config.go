@@ -234,15 +234,29 @@ type IAMConfig struct {
 
 // SparkConfig binds optional host observations to one privately managed organization.
 type SparkConfig struct {
-	Maintenance *SparkMaintenanceConfig `yaml:"maintenance,omitempty" json:"maintenance,omitempty"`
-	SocketPath  string                  `yaml:"socket_path,omitempty" json:"socket_path,omitempty"`
-	HostID      string                  `yaml:"host_id,omitempty" json:"host_id,omitempty"`
-	OrgID       uint                    `yaml:"org_id,omitempty" json:"org_id,omitempty"`
-	WorkerIDs   []uint                  `yaml:"worker_ids,omitempty" json:"worker_ids,omitempty"`
+	ModelBindings      []SparkModelBinding     `yaml:"model_bindings,omitempty" json:"model_bindings,omitempty"`
+	ModelWorkflow      bool                    `yaml:"model_workflow,omitempty" json:"model_workflow,omitempty"`
+	DeviceID           string                  `yaml:"device_id,omitempty" json:"device_id,omitempty"`
+	DeviceName         string                  `yaml:"device_name,omitempty" json:"device_name,omitempty"`
+	ModelControl       bool                    `yaml:"model_control,omitempty" json:"model_control,omitempty"`
+	MaintenanceControl bool                    `yaml:"maintenance_control,omitempty" json:"maintenance_control,omitempty"`
+	Maintenance        *SparkMaintenanceConfig `yaml:"maintenance,omitempty" json:"maintenance,omitempty"`
+	SocketPath         string                  `yaml:"socket_path,omitempty" json:"socket_path,omitempty"`
+	HostID             string                  `yaml:"host_id,omitempty" json:"host_id,omitempty"`
+	OrgID              uint                    `yaml:"org_id,omitempty" json:"org_id,omitempty"`
+	WorkerIDs          []uint                  `yaml:"worker_ids,omitempty" json:"worker_ids,omitempty"`
 }
 
 // SparkMaintenanceConfig binds read-only admission control to an operations-owned host state directory.
 type SparkMaintenanceConfig struct {
 	StatePath string `yaml:"state_path" json:"state_path"`
 	HostID    string `yaml:"host_id" json:"host_id"`
+}
+
+// SparkModelBinding ties a saved model endpoint to an operations-owned local runtime.
+type SparkModelBinding struct {
+	LLMModelID uint   `yaml:"llm_model_id" json:"llm_model_id"`
+	ModelID    string `yaml:"model_id" json:"model_id"`
+	ModelName  string `yaml:"model_name" json:"model_name"`
+	BaseURL    string `yaml:"base_url" json:"base_url"`
 }
