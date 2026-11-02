@@ -113,3 +113,8 @@ const (
 	// TableNameAutomationExecution 自动化执行记录表名
 	TableNameAutomationExecution = tablenamePrefix + "automation_execution"
 )
+
+const (
+	TableNameSparkWorkflowHost      = "leros_spark_workflow_host"
+	TableNameSparkWorkflowOperation = "leros_spark_workflow_operation"
+)

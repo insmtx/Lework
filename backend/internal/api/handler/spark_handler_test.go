@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -116,5 +117,120 @@ func TestSparkErrorsAreSanitized(t *testing.T) {
 		if w.Code < 500 || strings.Contains(w.Body.String(), "secret") {
 			t.Fatalf("%d %s", w.Code, w.Body.String())
 		}
+	}
+}
+
+func (f *sparkReaderFake) ChangeMaintenance(context.Context, types.SparkMaintenanceRequest) (types.SparkMaintenanceReceipt, error) {
+	f.calls++
+	return types.SparkMaintenanceReceipt{}, f.err
+}
+func TestMaintenanceMutationAuthorizationAndStrictBody(t *testing.T) {
+	for _, allowed := range []bool{true, false} {
+		r := gin.New()
+		r.Use(func(c *gin.Context) {
+			auth.WithGinContext(c, &types.Caller{Uin: 11, OrgID: 7, Kind: types.CallerKindUser, State: types.AuthStateSucc}, nil, "")
+		})
+		svc := &sparkReaderFake{org: 7}
+		RegisterSparkRoutes(r.Group("/v1"), svc, &sparkAdminFake{allowed: allowed})
+		for _, body := range []string{`null`, `{}`, `{"active":true,"host_id":"other"}`, `{"active":false,"boot_id":"boot","expected_revision":1,"operation_id":"op"} {}`} {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest("POST", "/v1/ops/spark/maintenance", strings.NewReader(body)))
+			want := 400
+			if !allowed {
+				want = 403
+			}
+			if w.Code != want {
+				t.Fatalf("got %d body=%s", w.Code, w.Body)
+			}
+		}
+		if svc.calls != 0 {
+			t.Fatal("invalid mutation reached service")
+		}
+	}
+}
+
+func (f *sparkReaderFake) ChangeModel(context.Context, types.SparkModelRequest) (types.SparkModelControl, error) {
+	f.calls++
+	return types.SparkModelControl{}, f.err
+}
+func TestModelMutationAuthorizationAndStrictBody(t *testing.T) {
+	valid := `{"action":"start","boot_id":"boot","expected_revision":1,"maintenance_revision":2,"operation_id":"op"}`
+	for _, allowed := range []bool{true, false} {
+		for _, body := range []string{valid, `null`, `{}`, strings.Replace(valid, `"start"`, `"shutdown"`, 1), strings.Replace(valid, `"action"`, `"host_id":"other","action"`, 1), valid + ` {}`, strings.Repeat(" ", 2049) + valid} {
+			r := gin.New()
+			r.Use(func(c *gin.Context) {
+				auth.WithGinContext(c, &types.Caller{Uin: 11, OrgID: 7, Kind: types.CallerKindUser, State: types.AuthStateSucc}, nil, "")
+			})
+			svc := &sparkReaderFake{org: 7}
+			RegisterSparkRoutes(r.Group("/v1"), svc, &sparkAdminFake{allowed: allowed})
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/ops/spark/model", strings.NewReader(body)))
+			want := 400
+			if body == valid {
+				want = 200
+			}
+			if !allowed {
+				want = 403
+			}
+			if w.Code != want {
+				t.Fatalf("got %d want %d: %s", w.Code, want, w.Body)
+			}
+			if want != 200 && svc.calls != 0 {
+				t.Fatal("invalid or unauthorized model mutation reached service")
+			}
+		}
+	}
+}
+
+type sparkWorkflowFake struct {
+	sparkReaderFake
+	actor   uint
+	request types.SparkWorkflowRequest
+}
+
+func (f *sparkWorkflowFake) BeginWorkflow(_ context.Context, actor uint, r types.SparkWorkflowRequest) (types.SparkWorkflow, error) {
+	f.actor = actor
+	f.request = r
+	return types.SparkWorkflow{OperationID: r.OperationID, Action: r.Action}, f.err
+}
+func (f *sparkWorkflowFake) WorkflowCurrent(context.Context) (types.SparkWorkflowControl, error) {
+	return types.SparkWorkflowControl{Enabled: true}, f.err
+}
+func (f *sparkWorkflowFake) WorkflowGet(_ context.Context, id string) (types.SparkWorkflow, error) {
+	return types.SparkWorkflow{OperationID: id}, f.err
+}
+func TestSparkWorkflowHTTPContracts(t *testing.T) {
+	for _, admin := range []bool{false, true} {
+		t.Run(fmt.Sprint(admin), func(t *testing.T) {
+			r := gin.New()
+			r.Use(func(c *gin.Context) {
+				auth.WithGinContext(c, &types.Caller{Uin: 11, OrgID: 7, Kind: types.CallerKindUser, State: types.AuthStateSucc}, nil, "")
+			})
+			f := &sparkWorkflowFake{sparkReaderFake: sparkReaderFake{org: 7}}
+			RegisterSparkRoutes(r.Group("/v1"), f, &sparkAdminFake{allowed: admin})
+			for _, tc := range []struct {
+				method, path, body string
+				want               int
+			}{{"GET", "workflows/current", "", 200}, {"GET", "workflows/op", "", 200}, {"POST", "workflows", `{"operation_id":"op","action":"start","boot_id":"boot","expected_model_revision":1,"expected_maintenance_revision":1}`, 202}, {"POST", "workflows", `{"operation_id":"op","action":"shutdown","boot_id":"boot","expected_model_revision":1,"expected_maintenance_revision":1}`, 400}, {"POST", "workflows", `{"operation_id":"op","action":"start","boot_id":"boot","expected_model_revision":1,"expected_maintenance_revision":1,"actor":99}`, 400}} {
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, httptest.NewRequest(tc.method, "/v1/ops/spark/"+tc.path, strings.NewReader(tc.body)))
+				want := tc.want
+				if !admin {
+					want = 403
+				}
+				if w.Code != want {
+					t.Fatalf("%s %d %s", tc.path, w.Code, w.Body.String())
+				}
+			}
+			if admin && f.actor != 11 {
+				t.Fatal("actor did not come from auth")
+			}
+			f.err = errors.New("raw secret database error")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest("GET", "/v1/ops/spark/workflows/current", nil))
+			if strings.Contains(w.Body.String(), "secret") {
+				t.Fatal("raw DB error leaked")
+			}
+		})
 	}
 }

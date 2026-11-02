@@ -1,13 +1,6 @@
 "use client";
 
-import {
-	clearStoredAuthUser,
-	isPrivateDeployment,
-	normalizeAPIBaseURL,
-	readServerBaseURL,
-	saveServerBaseURL,
-	testServerConnection,
-} from "@leros/store";
+import { API_BASE_URL, isPrivateDeployment } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Card,
@@ -18,11 +11,11 @@ import {
 	CardTitle,
 } from "@leros/ui/components/ui/card";
 import { Input } from "@leros/ui/components/ui/input";
-import { CheckCircle2, LoaderCircle, Save, Server, Wifi } from "lucide-react";
+import { LoaderCircle, Save, Server } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import type { RenderServerDiscovery } from "./discovery";
 import { reloadApp } from "./reload";
+import { useServerConnection } from "./useServerConnection";
 
 export function PrivateServerSettingsCard({
 	onReload = reloadApp,
@@ -31,60 +24,10 @@ export function PrivateServerSettingsCard({
 	onReload?: () => void;
 	renderDiscovery?: RenderServerDiscovery;
 }) {
-	const currentServerURL = readServerBaseURL() ?? "";
-	const [serverURL, setServerURL] = useState(currentServerURL);
-	const [testedURL, setTestedURL] = useState<string | null>(null);
-	const [testing, setTesting] = useState(false);
-	const [saving, setSaving] = useState(false);
-	const [errorMessage, setErrorMessage] = useState("");
-
-	if (!isPrivateDeployment) {
-		return null;
-	}
-
-	const handleTest = async () => {
-		setTesting(true);
-		setErrorMessage("");
-		setTestedURL(null);
-
-		try {
-			const normalized = await testServerConnection(serverURL);
-			setServerURL(normalized);
-			setTestedURL(normalized);
-			toast.success("服务连接测试通过");
-		} catch (error) {
-			setErrorMessage(error instanceof Error ? error.message : "无法连接后端服务");
-		} finally {
-			setTesting(false);
-		}
-	};
-
-	const handleSave = () => {
-		let normalized: string;
-		try {
-			normalized = normalizeAPIBaseURL(serverURL);
-		} catch (error) {
-			setErrorMessage(error instanceof Error ? error.message : "服务地址格式无效");
-			return;
-		}
-
-		if (testedURL !== normalized) {
-			setErrorMessage("保存前请先测试当前服务地址");
-			return;
-		}
-
-		setSaving(true);
-		try {
-			if (normalized !== currentServerURL) clearStoredAuthUser();
-			saveServerBaseURL(normalized);
-			onReload();
-		} catch (error) {
-			setSaving(false);
-			setErrorMessage(error instanceof Error ? error.message : "保存失败，请重试");
-		}
-	};
-
-	const canSave = Boolean(testedURL) && !testing && !saving;
+	const [serverURL, setServerURL] = useState(API_BASE_URL);
+	const { testing, errorMessage, pendingURL, connect, confirm, cancel, clearError } =
+		useServerConnection(onReload, true);
+	if (!isPrivateDeployment) return null;
 
 	return (
 		<Card className="border-indigo-100 bg-white/90 shadow-sm backdrop-blur">
@@ -96,17 +39,16 @@ export function PrivateServerSettingsCard({
 					<div>
 						<CardTitle>服务连接</CardTitle>
 						<CardDescription className="mt-1">
-							修改私有化后端地址。新地址测试通过后才可保存。
+							选择附近设备或手动输入地址，验证通过后保存连接。
 						</CardDescription>
 					</div>
 				</div>
 			</CardHeader>
 			<CardContent className="space-y-4">
-				{renderDiscovery?.((url) => {
+				{renderDiscovery?.(async (url) => {
 					setServerURL(url);
-					setTestedURL(null);
-					setErrorMessage("");
-				}, testing || saving)}
+					await connect(url, true);
+				}, testing || Boolean(pendingURL))}
 				<label className="block space-y-2" htmlFor="private-server-settings-url">
 					<span className="text-sm font-medium text-slate-800">后端服务地址</span>
 					<Input
@@ -115,42 +57,49 @@ export function PrivateServerSettingsCard({
 						value={serverURL}
 						onChange={(event) => {
 							setServerURL(event.target.value);
-							setTestedURL(null);
-							setErrorMessage("");
+							cancel();
+							clearError();
 						}}
 						placeholder="https://leros.example.com"
-						disabled={testing || saving}
+						disabled={testing}
 						aria-invalid={Boolean(errorMessage)}
 					/>
 				</label>
 				<p className="text-xs leading-5 text-slate-500">
-					切换服务会清除当前登录状态，并在保存后重新加载应用。
+					保存后会重新加载应用。当前地址保留登录状态；切换服务需要重新登录。
 				</p>
 				{errorMessage ? (
 					<p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
 						{errorMessage}
 					</p>
 				) : null}
-				{testedURL ? (
-					<p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-						<CheckCircle2 className="size-4" />
-						连接测试通过
-					</p>
-				) : null}
+				{pendingURL && (
+					<div
+						role="alertdialog"
+						aria-label="确认切换服务"
+						className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3"
+					>
+						<p className="text-sm">
+							切换到此服务会清除当前登录状态，需要重新登录。请确认这是你要连接的服务。
+						</p>
+						<p className="break-all text-xs">{pendingURL}</p>
+						<Button type="button" onClick={confirm}>
+							确认切换
+						</Button>
+						<Button type="button" variant="outline" onClick={cancel}>
+							取消
+						</Button>
+					</div>
+				)}
 			</CardContent>
 			<CardFooter className="flex justify-end gap-2">
 				<Button
 					type="button"
-					variant="outline"
-					onClick={handleTest}
-					disabled={testing || saving || !serverURL.trim()}
+					onClick={() => void connect(serverURL)}
+					disabled={testing || Boolean(pendingURL) || !serverURL.trim()}
 				>
-					{testing ? <LoaderCircle className="animate-spin" /> : <Wifi />}
-					{testing ? "测试中" : "测试连接"}
-				</Button>
-				<Button type="button" onClick={handleSave} disabled={!canSave}>
-					{saving ? <LoaderCircle className="animate-spin" /> : <Save />}
-					保存并重新加载
+					{testing ? <LoaderCircle className="animate-spin" /> : <Save />}
+					{testing ? "正在验证连接" : "连接并保存，重新加载"}
 				</Button>
 			</CardFooter>
 		</Card>

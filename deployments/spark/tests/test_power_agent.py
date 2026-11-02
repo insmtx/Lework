@@ -6,6 +6,7 @@ import socket
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 MODULE = Path(__file__).resolve().parents[1] / 'power_agent.py'
 
@@ -25,6 +26,47 @@ class PowerAgentTests(unittest.TestCase):
             return runner(argv)
         return self.agent.collect_status('master', runner=probe,
             identity=lambda: (host_id, 'boot-1', 'spark'), now=lambda: 1234)
+
+    def test_container_identity_uses_operations_host_mount(self):
+        with tempfile.TemporaryDirectory() as d:
+            machine = Path(d) / 'machine-id'
+            boot = Path(d) / 'boot-id'
+            machine.write_text('spark-machine\n')
+            boot.write_text('boot-123\n')
+            real_path = Path
+            def path(value):
+                if value == '/proc/sys/kernel/random/boot_id':
+                    return real_path(boot)
+                return real_path(value)
+            with mock.patch.dict('os.environ', {'SPARK_MACHINE_ID_PATH': str(machine), 'SPARK_HOSTNAME': 'master'}), mock.patch.object(self.agent, 'Path', side_effect=path):
+                host, boot_id, hostname = self.agent.host_identity()
+            self.assertEqual(host, hashlib.sha256(b'lework-spark:spark-machine').hexdigest())
+            self.assertEqual(boot_id, 'boot-123')
+            self.assertEqual(hostname, 'master')
+
+    def test_container_probe_environment_survives_model_control_merge(self):
+        calls = []
+        host_id = hashlib.sha256(b'lework-spark:machine-1').hexdigest()
+        def run(argv):
+            calls.append(argv)
+            return 'machine-1' if 'node' in argv and 'get' in argv else ''
+        with mock.patch.dict('os.environ', {
+                'SPARK_KUBECTL_ARGS': '--kubeconfig /tmp/agent-kubeconfig',
+                'SPARK_DOCKER_SOCK': 'unix:///host/run/docker.sock'}):
+            result = self.agent.collect_status('master', runner=run,
+                identity=lambda: (host_id, 'boot-1', 'spark'), now=lambda: 1234)
+        self.assertTrue(result['inventory_complete'])
+        kubectl_calls = [call for call in calls if call[0] == 'kubectl']
+        self.assertEqual(len(kubectl_calls), 2)
+        for call in kubectl_calls:
+            self.assertEqual(call[:3], ['kubectl', '--kubeconfig', '/tmp/agent-kubeconfig'])
+        docker_call = next(call for call in calls if call[0] == 'docker')
+        self.assertEqual(docker_call[:3], ['docker', '--host', 'unix:///host/run/docker.sock'])
+
+    def test_container_probe_rejects_remote_docker_socket(self):
+        with mock.patch.dict('os.environ', {'SPARK_DOCKER_SOCK': 'tcp://remote:2375'}):
+            with self.assertRaises(ValueError):
+                self.collect(lambda _: self.fail('invalid socket must not reach runner'))
 
     def test_inventory_only_contains_allowed_metadata(self):
         calls = []

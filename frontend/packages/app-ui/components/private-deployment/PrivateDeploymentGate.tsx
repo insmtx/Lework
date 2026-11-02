@@ -1,11 +1,6 @@
 "use client";
 
-import {
-	hasPrivateServerConfiguration,
-	isPrivateDeployment,
-	saveServerBaseURL,
-	testServerConnection,
-} from "@leros/store";
+import { hasPrivateServerConfiguration, isPrivateDeployment } from "@leros/store";
 import { Button } from "@leros/ui/components/ui/button";
 import {
 	Dialog,
@@ -16,10 +11,11 @@ import {
 	DialogTitle,
 } from "@leros/ui/components/ui/dialog";
 import { Input } from "@leros/ui/components/ui/input";
-import { CheckCircle2, LoaderCircle, Server } from "lucide-react";
+import { LoaderCircle, Server } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import type { RenderServerDiscovery } from "./discovery";
 import { reloadApp } from "./reload";
+import { useServerConnection } from "./useServerConnection";
 
 export function PrivateDeploymentGate({
 	children,
@@ -47,26 +43,10 @@ function PrivateServerSetupDialog({
 	renderDiscovery?: RenderServerDiscovery;
 }) {
 	const [serverURL, setServerURL] = useState("");
-	const [testing, setTesting] = useState(false);
-	const [errorMessage, setErrorMessage] = useState("");
-	const [connectionPassed, setConnectionPassed] = useState(false);
-
-	const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+	const { testing, errorMessage, connect, clearError, cancel } = useServerConnection(onReload);
+	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		setTesting(true);
-		setErrorMessage("");
-		setConnectionPassed(false);
-
-		try {
-			const normalized = await testServerConnection(serverURL);
-			setConnectionPassed(true);
-			saveServerBaseURL(normalized);
-			onReload();
-		} catch (error) {
-			setErrorMessage(error instanceof Error ? error.message : "无法连接后端服务");
-		} finally {
-			setTesting(false);
-		}
+		void connect(serverURL);
 	};
 
 	return (
@@ -89,10 +69,9 @@ function PrivateServerSetupDialog({
 					</div>
 
 					<div className="space-y-4 px-7 py-6">
-						{renderDiscovery?.((url) => {
+						{renderDiscovery?.(async (url) => {
 							setServerURL(url);
-							setErrorMessage("");
-							setConnectionPassed(false);
+							await connect(url, true);
 						}, testing)}
 						<label className="block space-y-2" htmlFor="private-server-url">
 							<span className="text-sm font-medium text-slate-800">后端服务地址</span>
@@ -102,8 +81,8 @@ function PrivateServerSetupDialog({
 								value={serverURL}
 								onChange={(event) => {
 									setServerURL(event.target.value);
-									setErrorMessage("");
-									setConnectionPassed(false);
+									cancel();
+									clearError();
 								}}
 								placeholder="http://192.144.230.208:38081"
 								autoFocus
@@ -120,18 +99,12 @@ function PrivateServerSetupDialog({
 								{errorMessage}
 							</p>
 						) : null}
-						{connectionPassed ? (
-							<p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-								<CheckCircle2 className="size-4" />
-								连接测试通过，正在进入应用
-							</p>
-						) : null}
 					</div>
 
 					<DialogFooter className="border-t border-slate-100 px-7 py-5">
 						<Button type="submit" disabled={testing || !serverURL.trim()}>
 							{testing ? <LoaderCircle className="animate-spin" /> : <Server />}
-							{testing ? "正在测试连接" : "测试并保存"}
+							{testing ? "正在测试连接" : "连接并保存"}
 						</Button>
 					</DialogFooter>
 				</form>

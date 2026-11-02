@@ -84,6 +84,14 @@
 |------|------|
 | [operations/troubleshooting.md](operations/troubleshooting.md) | 故障排除指南 |
 | [operations/worker-status-api.md](operations/worker-status-api.md) | Worker 运维状态查询接口与响应字段 |
+| [operations/spark-device-management.md](operations/spark-device-management.md) | Spark 设备管理配置清单、部署步骤与回退 |
+| [operations/spark-maintenance-ui.md](operations/spark-maintenance-ui.md) | Spark 管理员维护模式的升级、配置和验收 |
+| [operations/spark-maintenance.md](operations/spark-maintenance.md) | Spark 暂停与恢复接单的运维接入与联调 |
+| [operations/spark-model-control.md](operations/spark-model-control.md) | 本机 Qwen 启停的配置、升级与验收边界（待现场启停验收） |
+| [operations/model-runtime-source.md](operations/model-runtime-source.md) | 模型列表来源绑定、实际状态与连接测试有效期 |
+| [operations/spark-model-workflow.md](operations/spark-model-workflow.md) | 本机模型持久启停、共享操作锁、多副本和异常恢复 |
+| [operations/spark-production-readiness.md](operations/spark-production-readiness.md) | Spark 连接与管理发布门槛、平台矩阵和现场验收记录 |
+| [operations/spark-shutdown-plan.md](operations/spark-shutdown-plan.md) | Spark 停机清单、依赖顺序的只读校验（不执行关机） |
 | [operations/issue-labels.md](operations/issue-labels.md) | Issue 标签体系 |
 | [operations/project-structure.md](operations/project-structure.md) | 项目结构与文件索引 |
 | [operations/private-deployment-resources.md](operations/private-deployment-resources.md) | 私有化资源清单（硬件/镜像/端口/存储） |

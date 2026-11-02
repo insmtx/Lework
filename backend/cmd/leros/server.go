@@ -7,10 +7,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/insmtx/Leros/backend/config"
 	"github.com/insmtx/Leros/backend/internal/adapter"
@@ -23,6 +25,7 @@ import (
 	"github.com/insmtx/Leros/backend/internal/modelrouter"
 	"github.com/insmtx/Leros/backend/internal/seed"
 	"github.com/insmtx/Leros/backend/internal/service"
+	"github.com/insmtx/Leros/backend/internal/spark"
 	"github.com/insmtx/Leros/backend/pkg/leros"
 	"github.com/spf13/cobra"
 	"github.com/ygpkg/yg-go/lifecycle"
@@ -134,7 +137,37 @@ func newServerCommand() *cobra.Command {
 				}
 			}
 
-			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, publisher, db, modelInvoker)
+			sparkService := spark.NewService(cfg.Spark, service.NewWorkerOpsService(publisher, 3*time.Second))
+			workflowCtx, workflowCancel := context.WithCancel(cmd.Context())
+			workflowDone := make(chan struct{})
+			if cfg.Spark.ModelWorkflow {
+				store, err := infradb.NewSparkWorkflowDAO(db, cfg.Spark.OrgID, cfg.Spark.HostID)
+				if err != nil {
+					workflowCancel()
+					logs.Fatalf("Spark workflow durable database initialization failed: %v", err)
+					return
+				}
+				coordinator, err := spark.NewCoordinator(sparkService, store)
+				if err != nil {
+					workflowCancel()
+					logs.Fatalf("Spark workflow initialization failed: %v", err)
+					return
+				}
+				go func() { defer close(workflowDone); coordinator.Run(workflowCtx) }()
+			} else {
+				close(workflowDone)
+			}
+			// 与发布器关闭放在同一个回调，确保先取消并等待协调器。
+			stopWorkflow := func() error {
+				workflowCancel()
+				select {
+				case <-workflowDone:
+					return nil
+				case <-time.After(25 * time.Second):
+					return fmt.Errorf("spark workflow shutdown timed out")
+				}
+			}
+			r, workerScheduler := api.SetupRouter(*cfg, edition, publisher, publisher, db, modelInvoker, sparkService)
 
 			srv := &http.Server{
 				Addr:    fmt.Sprintf(":%s", cfg.Server.Port),
@@ -161,13 +194,17 @@ func newServerCommand() *cobra.Command {
 			}
 
 			lifecycle.Std().AddCloseFunc(func() error {
-				if err := srv.Shutdown(cmd.Context()); err != nil {
-					logs.Errorf("Server forced to shutdown: %v", err)
+				workflowCancel()
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 25*time.Second)
+				defer shutdownCancel()
+				if err := srv.Shutdown(shutdownCtx); err != nil {
+					return err
 				}
-				return nil
+				if err := stopWorkflow(); err != nil {
+					return err
+				}
+				return publisher.Close()
 			})
-
-			lifecycle.Std().AddCloseFunc(publisher.Close)
 			lifecycle.Std().AddCloseFunc(func() error {
 				logs.Close()
 				return nil

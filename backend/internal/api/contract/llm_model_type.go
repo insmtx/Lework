@@ -8,6 +8,7 @@ import (
 
 // LLMModel LLM模型配置响应结构
 type LLMModel struct {
+	Runtime      *types.LLMModelRuntime `json:"runtime,omitempty"`
 	ID           uint                   `json:"id"`
 	OrgID        uint                   `json:"org_id"`
 	Code         string                 `json:"code"`

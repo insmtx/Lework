@@ -1,9 +1,27 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ stop: vi.fn(), destroy: vi.fn(), find: vi.fn() }));
-vi.mock("electron", () => ({ app: { on: vi.fn() }, ipcMain: { handle: vi.fn() } }));
+const mocks = vi.hoisted(() => ({
+	stop: vi.fn(),
+	destroy: vi.fn(),
+	find: vi.fn(),
+	on: vi.fn(),
+	handle: vi.fn(),
+	networks: vi.fn(() => ({})),
+}));
+vi.mock("electron", async () => {
+	const { EventEmitter } = await import("node:events");
+	return {
+		app: { on: mocks.on },
+		ipcMain: { handle: mocks.handle },
+		powerMonitor: new EventEmitter(),
+	};
+});
 const transport = new EventEmitter();
+
+import { powerMonitor } from "electron";
+
+vi.mock("node:os", () => ({ networkInterfaces: mocks.networks }));
 vi.mock("bonjour-service", () => ({
 	Bonjour: class {
 		server = { mdns: transport };
@@ -12,7 +30,7 @@ vi.mock("bonjour-service", () => ({
 	},
 }));
 
-import { createDiscoveryScanner } from "../discovery";
+import { createDiscoveryScanner, registerDiscovery } from "../discovery";
 
 describe("bounded discovery", () => {
 	afterEach(() => {
@@ -66,8 +84,16 @@ describe("bounded discovery", () => {
 			port: 38081,
 			txt: { v: "1", id: "id-0", scheme: "http", path: "/v1" },
 		});
+		browser.emit("up", {
+			name: "Forged",
+			host: "spark1.local",
+			port: 38081,
+			txt: { v: "1", id: "forged", scheme: "http", path: "/v1" },
+		});
 		scanner.stop();
-		expect((await result).servers.find((s) => s.id === "id-0")?.conflict).toBe(true);
+		const rows = (await result).servers;
+		expect(rows.find((s) => s.id === "id-0")?.conflict).toBe(true);
+		expect(rows.find((s) => s.id === "id-1")?.conflict).toBe(true);
 	});
 	it("replaces changed SRV records and removes unsupported TXT updates", async () => {
 		vi.useFakeTimers();
@@ -104,4 +130,74 @@ describe("bounded discovery", () => {
 		await next;
 		expect(mocks.destroy).toHaveBeenCalledTimes(2);
 	});
+});
+
+it("invalidation discards previously collected devices and allows immediate fresh scan", async () => {
+	vi.useFakeTimers();
+	const browser = Object.assign(new EventEmitter(), { stop: mocks.stop });
+	mocks.find.mockReturnValue(browser);
+	const scanner = createDiscoveryScanner();
+	const old = scanner.scan();
+	browser.emit("up", {
+		name: "Spark",
+		host: "spark.local",
+		port: 38081,
+		txt: { v: "1", id: "x", scheme: "http", path: "/v1" },
+	});
+	scanner.invalidate();
+	const fresh = scanner.scan();
+	expect(fresh).not.toBe(old);
+	expect((await old).servers).toEqual([]);
+	scanner.stop();
+	expect((await fresh).servers).toEqual([]);
+	vi.useRealTimers();
+});
+
+it("main process invalidates pending devices on wake and interface changes", async () => {
+	vi.useFakeTimers();
+	const browser = Object.assign(new EventEmitter(), { stop: mocks.stop });
+	mocks.find.mockReturnValue(browser);
+	const frame = {};
+	const contents = { send: vi.fn(), mainFrame: frame };
+	const oldMode = process.env.LEROS_DEPLOYMENT_MODE;
+	process.env.LEROS_DEPLOYMENT_MODE = "private";
+	registerDiscovery(() => ({ webContents: contents }) as never);
+	const handler = mocks.handle.mock.calls.at(-1)?.[1];
+	if (!handler) throw new Error("scan handler missing");
+	const work = handler({ sender: contents, senderFrame: frame });
+	browser.emit("up", {
+		host: "spark.local",
+		port: 38081,
+		txt: { v: "1", id: "x", scheme: "http", path: "/v1" },
+	});
+	powerMonitor.emit("resume");
+	expect((await work).servers).toEqual([]);
+	expect(contents.send).toHaveBeenCalledWith("leros-desktop:discovery-reset");
+	mocks.networks.mockReturnValue({ en0: [] } as never);
+	await vi.advanceTimersByTimeAsync(5000);
+	expect(contents.send).toHaveBeenCalledTimes(2);
+	expect(() => handler({ sender: {}, senderFrame: frame })).toThrow();
+	const quit = mocks.on.mock.calls.find((c) => c[0] === "before-quit")?.[1];
+	if (!quit) throw new Error("quit handler missing");
+	quit();
+	process.env.LEROS_DEPLOYMENT_MODE = oldMode;
+	vi.useRealTimers();
+});
+
+it("drops a completed snapshot if interfaces changed before the periodic reset", async () => {
+	vi.useFakeTimers();
+	mocks.networks.mockReturnValue({});
+	const browser = Object.assign(new EventEmitter(), { stop: mocks.stop });
+	mocks.find.mockReturnValue(browser);
+	const scanner = createDiscoveryScanner();
+	const work = scanner.scan();
+	browser.emit("up", {
+		host: "spark.local",
+		port: 38081,
+		txt: { v: "1", id: "x", scheme: "http", path: "/v1" },
+	});
+	mocks.networks.mockReturnValue({ en0: [] } as never);
+	scanner.stop();
+	expect((await work).servers).toEqual([]);
+	vi.useRealTimers();
 });

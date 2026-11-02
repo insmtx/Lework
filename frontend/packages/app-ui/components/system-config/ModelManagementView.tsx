@@ -31,6 +31,7 @@ import { AlertCircle, Bot, Loader2, MoreHorizontal, Plus, Trash2, Wifi } from "l
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ModelFormDialog } from "./ModelFormDialog";
+import { modelRuntimePresentation } from "./modelRuntime";
 
 const PROVIDER_LABELS: Record<string, string> = {
 	openai: "自定义 (OpenAI 兼容)",
@@ -48,6 +49,7 @@ export function ModelManagementView() {
 		setStatus,
 		testModel,
 	} = useModelStore((s) => s);
+	const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 	const [createOpen, setCreateOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<ModelItem | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<ModelItem | null>(null);
@@ -55,8 +57,19 @@ export function ModelManagementView() {
 	const [testingId, setTestingId] = useState<number | null>(null);
 
 	useEffect(() => {
-		// 中文注释：fetchModels 失败时 error 已写入 store，由下方错误态兜底展示。
-		void fetchModels();
+		let disposed = false;
+		let timer: ReturnType<typeof setTimeout>;
+		const refresh = async (silent: boolean) => {
+			if (!document.hidden) await fetchModels({ silent });
+			if (!disposed) timer = setTimeout(() => void refresh(true), 15000);
+		};
+		void refresh(false);
+		const clock = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+		return () => {
+			disposed = true;
+			clearTimeout(timer);
+			clearInterval(clock);
+		};
 	}, [fetchModels]);
 
 	const handleDelete = useCallback(async () => {
@@ -156,6 +169,9 @@ export function ModelManagementView() {
 					</div>
 				) : (
 					<div className="p-6">
+						<p className="mb-4 text-xs text-slate-500">
+							实际状态独立于启用开关。Spark 状态自动更新；配置模型可通过“测试连接”检测。
+						</p>
 						<Table>
 							<TableHeader>
 								<TableRow>
@@ -164,121 +180,154 @@ export function ModelManagementView() {
 									<TableHead>Model</TableHead>
 									<TableHead>Base URL</TableHead>
 									<TableHead>用途</TableHead>
-									<TableHead>状态</TableHead>
+									<TableHead>来源</TableHead>
+									<TableHead>实际状态</TableHead>
+									<TableHead>启用状态</TableHead>
 									<TableHead>默认</TableHead>
 									<TableHead className="text-right">操作</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{models.map((item) => (
-									<TableRow key={item.id}>
-										<TableCell className="font-medium text-slate-900">
-											{item.name || item.model}
-											{item.isSystem ? (
-												<span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-													系统内置
-												</span>
-											) : null}
-										</TableCell>
-										<TableCell>
-											{PROVIDER_LABELS[item.provider] ?? "自定义 (OpenAI 兼容)"}
-										</TableCell>
-										<TableCell className="truncate">{item.model}</TableCell>
-										<TableCell className="max-w-[240px] truncate text-slate-500">
-											{item.baseUrl}
-										</TableCell>
-										<TableCell>
-											{item.purpose === "translation" ? (
-												<span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-													翻译
-												</span>
-											) : (
-												<span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-													对话
-												</span>
-											)}
-										</TableCell>
-										<TableCell>
-											<span
-												className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-													item.status === "active"
-														? "bg-emerald-50 text-emerald-700"
-														: "bg-slate-100 text-slate-600"
-												}`}
-											>
-												{item.status === "active"
-													? "启用"
-													: item.status === "inactive"
-														? "禁用"
-														: item.status}
-											</span>
-										</TableCell>
-										<TableCell>
-											{item.isDefault ? (
-												<span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600">
-													默认
-												</span>
-											) : (
-												<span className="text-xs text-slate-400">—</span>
-											)}
-										</TableCell>
-										<TableCell className="text-right">
-											<DropdownMenu>
-												<DropdownMenuTrigger
-													render={
-														<Button variant="ghost" size="sm" className="h-8 w-8">
-															<MoreHorizontal className="size-4" />
-														</Button>
+								{models.map((item) => {
+									const observation = modelRuntimePresentation(item, now, !!error);
+									return (
+										<TableRow key={item.id}>
+											<TableCell className="font-medium text-slate-900">
+												{item.name || item.model}
+												{item.isSystem ? (
+													<span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+														系统内置
+													</span>
+												) : null}
+											</TableCell>
+											<TableCell>
+												{PROVIDER_LABELS[item.provider] ?? "自定义 (OpenAI 兼容)"}
+											</TableCell>
+											<TableCell className="truncate">{item.model}</TableCell>
+											<TableCell className="max-w-[240px] truncate text-slate-500">
+												{item.baseUrl}
+											</TableCell>
+											<TableCell>
+												{item.purpose === "translation" ? (
+													<span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+														翻译
+													</span>
+												) : (
+													<span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+														对话
+													</span>
+												)}
+											</TableCell>
+											<TableCell>
+												<span
+													className="whitespace-nowrap text-sm text-slate-600"
+													title={
+														observation.source === "Spark"
+															? "已与当前 Spark 的本机模型绑定"
+															: observation.source === "配置"
+																? "后端保存的模型接口配置"
+																: observation.detail
 													}
-												/>
-												<DropdownMenuContent align="end">
-													<DropdownMenuItem
-														onClick={() => void handleTestModel(item)}
-														disabled={testingId === item.id}
-													>
-														{testingId === item.id ? (
-															<Loader2 className="size-4 animate-spin" />
+												>
+													{observation.source}
+												</span>
+											</TableCell>
+											<TableCell>
+												<span
+													className="inline-flex items-center gap-2 whitespace-nowrap text-sm text-slate-600"
+													title={observation.detail}
+												>
+													<span
+														aria-hidden="true"
+														className={`size-2 shrink-0 rounded-full ${observation.color}`}
+													/>
+													{observation.label}
+												</span>
+											</TableCell>
+											<TableCell>
+												<span
+													className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+														item.status === "active"
+															? "bg-emerald-50 text-emerald-700"
+															: "bg-slate-100 text-slate-600"
+													}`}
+												>
+													{item.status === "active"
+														? "启用"
+														: item.status === "inactive"
+															? "禁用"
+															: item.status}
+												</span>
+											</TableCell>
+											<TableCell>
+												{item.isDefault ? (
+													<span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600">
+														默认
+													</span>
+												) : (
+													<span className="text-xs text-slate-400">—</span>
+												)}
+											</TableCell>
+											<TableCell className="text-right">
+												<DropdownMenu>
+													<DropdownMenuTrigger
+														render={
+															<Button variant="ghost" size="sm" className="h-8 w-8">
+																<MoreHorizontal className="size-4" />
+															</Button>
+														}
+													/>
+													<DropdownMenuContent align="end">
+														<DropdownMenuItem
+															onClick={() => void handleTestModel(item)}
+															disabled={testingId === item.id}
+														>
+															{testingId === item.id ? (
+																<Loader2 className="size-4 animate-spin" />
+															) : (
+																<Wifi className="size-4" />
+															)}
+															测试连接
+														</DropdownMenuItem>
+														{!item.isDefault && item.status === "active" ? (
+															<DropdownMenuItem onClick={() => void handleSetDefault(item)}>
+																设为默认
+															</DropdownMenuItem>
+														) : null}
+														{item.status === "active" ? (
+															<DropdownMenuItem
+																onClick={() => void handleSetStatus(item, "inactive")}
+															>
+																禁用
+															</DropdownMenuItem>
 														) : (
-															<Wifi className="size-4" />
+															<DropdownMenuItem
+																onClick={() => void handleSetStatus(item, "active")}
+															>
+																启用
+															</DropdownMenuItem>
 														)}
-														测试连接
-													</DropdownMenuItem>
-													{!item.isDefault && item.status === "active" ? (
-														<DropdownMenuItem onClick={() => void handleSetDefault(item)}>
-															设为默认
-														</DropdownMenuItem>
-													) : null}
-													{item.status === "active" ? (
-														<DropdownMenuItem
-															onClick={() => void handleSetStatus(item, "inactive")}
-														>
-															禁用
-														</DropdownMenuItem>
-													) : (
-														<DropdownMenuItem onClick={() => void handleSetStatus(item, "active")}>
-															启用
-														</DropdownMenuItem>
-													)}
-													{item.status === "inactive" ? (
-														<DropdownMenuItem onClick={() => setEditTarget(item)}>
-															编辑
-														</DropdownMenuItem>
-													) : null}
-													<DropdownMenuSeparator />
-													{!item.isSystem && item.status === "inactive" ? (
-														<DropdownMenuItem
-															variant="destructive"
-															onClick={() => setDeleteTarget(item)}
-														>
-															<Trash2 className="size-4" />
-															删除
-														</DropdownMenuItem>
-													) : null}
-												</DropdownMenuContent>
-											</DropdownMenu>
-										</TableCell>
-									</TableRow>
-								))}
+														{item.status === "inactive" ? (
+															<DropdownMenuItem onClick={() => setEditTarget(item)}>
+																编辑
+															</DropdownMenuItem>
+														) : null}
+														<DropdownMenuSeparator />
+														{!item.isSystem && item.status === "inactive" ? (
+															<DropdownMenuItem
+																variant="destructive"
+																onClick={() => setDeleteTarget(item)}
+															>
+																<Trash2 className="size-4" />
+																删除
+															</DropdownMenuItem>
+														) : null}
+													</DropdownMenuContent>
+												</DropdownMenu>
+											</TableCell>
+										</TableRow>
+									);
+								})}
 							</TableBody>
 						</Table>
 					</div>

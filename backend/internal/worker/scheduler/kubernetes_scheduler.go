@@ -104,6 +104,9 @@ func (s *KubernetesScheduler) Start(ctx context.Context, spec *worker.WorkerSpec
 	if spec.WorkerID == 0 {
 		return nil, fmt.Errorf("worker_id is required")
 	}
+	if err := s.validateMaintenanceBinding(); err != nil {
+		return nil, err
+	}
 	deployment := s.buildDeployment(spec)
 	existing, err := s.client.AppsV1().Deployments(s.namespace()).Get(ctx, deployment.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -180,6 +183,9 @@ func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.W
 	if spec.WorkerID == 0 {
 		return false, fmt.Errorf("worker_id is required")
 	}
+	if err := s.validateMaintenanceBinding(); err != nil {
+		return false, err
+	}
 	deployment, err := s.client.AppsV1().Deployments(s.namespace()).Get(ctx, deploymentName(spec.OrgID, spec.WorkerID), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return true, nil
@@ -197,7 +203,7 @@ func (s *KubernetesScheduler) NeedsReconcile(ctx context.Context, spec *worker.W
 	if s.resourcesDrifted(deployment, spec) {
 		return true, nil
 	}
-	return s.workspaceSpecDrifted(deployment, spec), nil
+	return s.workspaceSpecDrifted(deployment, spec) || s.maintenanceSpecDrifted(deployment, spec), nil
 }
 
 func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.Deployment {
@@ -314,6 +320,7 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 		},
 		Volumes: volumes,
 	}
+	s.applyMaintenanceBinding(&podSpec, spec)
 	if pullSecret := strings.TrimSpace(s.config.ImagePullSecret); pullSecret != "" {
 		podSpec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pullSecret}}
 	}

@@ -1,9 +1,11 @@
 import type { EventEmitter } from "node:events";
+import { networkInterfaces } from "node:os";
 import { Bonjour, type Browser, type Service } from "bonjour-service";
-import { app, type BrowserWindow, ipcMain } from "electron";
+import { app, type BrowserWindow, ipcMain, powerMonitor } from "electron";
 import {
 	type DiscoveredServer,
 	type DiscoveryResult,
+	discoveryResetChannel,
 	discoveryScanChannel,
 } from "../shared/discovery";
 import { mergeDiscoveryServices, parseDiscoveryService } from "./discovery-protocol";
@@ -11,7 +13,7 @@ import { mergeDiscoveryServices, parseDiscoveryService } from "./discovery-proto
 // 有界快照搜索；所有调用共享一次搜索，结束时释放 UDP socket。
 export function createDiscoveryScanner() {
 	let pending: Promise<DiscoveryResult> | undefined;
-	let cancel: (() => void) | undefined;
+	let cancel: ((discard?: boolean) => void) | undefined;
 	return {
 		scan(): Promise<DiscoveryResult> {
 			if (pending) return pending;
@@ -19,17 +21,24 @@ export function createDiscoveryScanner() {
 				let bonjour: Bonjour | undefined;
 				let browser: Browser | undefined;
 				let ended = false;
+				const initialNetwork = JSON.stringify(networkInterfaces());
 				const candidates = new Map<string, DiscoveredServer>();
-				const finish = (error?: string) => {
+				const finish = (error?: string, discard = false) => {
 					if (ended) return;
 					ended = true;
 					clearTimeout(timer);
 					browser?.stop();
 					bonjour?.destroy();
-					resolve({ servers: mergeDiscoveryServices([...candidates.values()]), error });
+					resolve({
+						servers:
+							discard || initialNetwork !== JSON.stringify(networkInterfaces())
+								? []
+								: mergeDiscoveryServices([...candidates.values()]),
+						error,
+					});
 				};
 				const timer = setTimeout(() => finish(), 8000);
-				cancel = () => finish();
+				cancel = (discard) => finish(undefined, discard);
 				try {
 					bonjour = new Bonjour({}, () =>
 						finish("无法搜索局域网，请检查本地网络权限；也可手动输入地址。"),
@@ -45,17 +54,33 @@ export function createDiscoveryScanner() {
 					}
 					browser = bonjour.find({ type: "lework", protocol: "tcp" });
 					const add = (service: Service) => {
-						const parsed = parseDiscoveryService(service);
+						if (ended) return;
+						const parsed = parseDiscoveryService(
+							service,
+							Object.values(networkInterfaces())
+								.flatMap((n) => n ?? [])
+								.filter((n) => !n.internal),
+						);
 						if (!parsed) return;
 						const key = `${parsed.id}|${parsed.url}`;
 						for (const existing of candidates.values()) {
-							if (existing.id === parsed.id && existing.url !== parsed.url) {
+							if (
+								(existing.id === parsed.id && existing.url !== parsed.url) ||
+								(existing.id !== parsed.id &&
+									new URL(existing.url).hostname === new URL(parsed.url).hostname)
+							) {
 								existing.conflict = true;
 								parsed.conflict = true;
 							}
 						}
 						parsed.conflict ||= candidates.get(key)?.conflict;
-						if (candidates.has(key) || candidates.size < 32) candidates.set(key, parsed);
+						if (candidates.has(key) || candidates.size < 32) {
+							const previous = candidates.get(key);
+							candidates.set(
+								key,
+								previous ? mergeDiscoveryServices([previous, parsed])[0] : parsed,
+							);
+						}
 					};
 					browser.on("up", add);
 					const replace = (next: Service, previous: Service) => {
@@ -73,11 +98,19 @@ export function createDiscoveryScanner() {
 					finish("发现服务启动失败，可继续手动连接。");
 				}
 			});
-			pending = work.finally(() => {
-				pending = undefined;
-				cancel = undefined;
+			const result = work.finally(() => {
+				if (pending === result) {
+					pending = undefined;
+					cancel = undefined;
+				}
 			});
-			return pending;
+			pending = result;
+			return result;
+		},
+		invalidate() {
+			cancel?.(true);
+			pending = undefined;
+			cancel = undefined;
 		},
 		stop() {
 			cancel?.();
@@ -99,5 +132,23 @@ export function registerDiscovery(getWindow: () => BrowserWindow | null) {
 		if (process.env.LEROS_DEPLOYMENT_MODE !== "private") return { servers: [] };
 		return scanner.scan();
 	});
-	app.on("before-quit", () => scanner.stop());
+	let signature = JSON.stringify(networkInterfaces());
+	const reset = () => {
+		scanner.invalidate();
+		getWindow()?.webContents.send(discoveryResetChannel);
+	};
+	const timer = setInterval(() => {
+		const next = JSON.stringify(networkInterfaces());
+		if (next !== signature) {
+			signature = next;
+			reset();
+		}
+	}, 5000);
+	timer.unref();
+	powerMonitor.on("resume", reset);
+	app.on("before-quit", () => {
+		clearInterval(timer);
+		powerMonitor.removeListener("resume", reset);
+		scanner.stop();
+	});
 }

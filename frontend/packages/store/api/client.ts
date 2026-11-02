@@ -30,6 +30,14 @@ apiClient.useResponseInterceptor(async (response, context) => {
 		return response;
 	}
 
+	// 设备控制写入的结果必须由刷新核对，不由认证拦截器自动重放。
+	if (
+		context.config.method === "POST" &&
+		["/ops/spark/maintenance", "/ops/spark/model", "/ops/spark/workflows"].some((path) =>
+			context.url.endsWith(path),
+		)
+	)
+		return response;
 	if (response.status !== 401 || isAuthEndpoint(context.url) || !readStoredAuthUser()) {
 		return response;
 	}

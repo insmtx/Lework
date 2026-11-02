@@ -12,7 +12,11 @@ import {
 	desktopUpdateGetStateChannel,
 	desktopUpdateRestartChannel,
 } from "../shared/auto-update";
-import { type DiscoveryApi, discoveryScanChannel } from "../shared/discovery";
+import {
+	type DiscoveryApi,
+	discoveryResetChannel,
+	discoveryScanChannel,
+} from "../shared/discovery";
 
 const desktopUpdateApi: DesktopUpdateApi = {
 	getState: () => ipcRenderer.invoke(desktopUpdateGetStateChannel),
@@ -34,7 +38,14 @@ const desktopUpdateApi: DesktopUpdateApi = {
 	},
 };
 
-const discoveryApi: DiscoveryApi = { scan: () => ipcRenderer.invoke(discoveryScanChannel) };
+const discoveryApi: DiscoveryApi = {
+	scan: () => ipcRenderer.invoke(discoveryScanChannel),
+	subscribeReset: (listener) => {
+		const handler = () => listener();
+		ipcRenderer.on(discoveryResetChannel, handler);
+		return () => ipcRenderer.removeListener(discoveryResetChannel, handler);
+	},
+};
 
 if (process.contextIsolated) {
 	contextBridge.exposeInMainWorld("electron", electronAPI);
