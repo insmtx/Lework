@@ -79,10 +79,12 @@ export function SparkDiscoveryList({
 		controller.current = abort;
 		const timer = setTimeout(() => abort.abort(), 8000);
 		try {
-			// 保留当前连接路径；新连接才优先尝试已验证的 link-local 候选。
+			// 当前路径可用时优先保留；换网后也验证新候选，避免旧主机名失效阻断重连。
 			const paths = server.candidates ?? [{ url: server.url, transport: "hostname" as const }];
 			const current = paths.find((p) => new URL(p.url).href === new URL(API_BASE_URL).href);
-			const choices = current ? [current] : paths.slice(0, 4);
+			const choices = current
+				? [current, ...paths.filter((path) => path.url !== current.url)].slice(0, 4)
+				: paths.slice(0, 4);
 			const checked = await Promise.all(
 				choices.map(async (path) => {
 					try {
@@ -99,7 +101,11 @@ export function SparkDiscoveryList({
 			if (disabledRef.current) return;
 			const verified = checked
 				.filter((p) => p !== null)
-				.sort((a, b) => rank[a.transport] - rank[b.transport]);
+				.sort((a, b) => {
+					if (a.url === current?.url) return -1;
+					if (b.url === current?.url) return 1;
+					return rank[a.transport] - rank[b.transport];
+				});
 			if (!verified.length) {
 				setMessage("无法验证设备连接，请重试或手动输入已确认的地址。");
 				return;

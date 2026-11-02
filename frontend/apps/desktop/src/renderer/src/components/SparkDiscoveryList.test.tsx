@@ -180,7 +180,7 @@ it("keeps the active hostname path despite a newly available direct path", async
 				?.click(),
 		);
 		expect(select).toHaveBeenCalledWith("http://current.local:38081/v1");
-		expect(inspect).toHaveBeenCalledOnce();
+		expect(inspect).toHaveBeenCalledTimes(2);
 	} finally {
 		act(() => root.unmount());
 	}
@@ -320,5 +320,54 @@ it("searches local interfaces after a main reset even without internet connectiv
 	} finally {
 		act(() => root.unmount());
 		online.mockRestore();
+	}
+});
+
+it.each([
+	"rejected",
+	"timeout",
+])("checks the new LAN address when the saved hostname is %s", async (failure) => {
+	vi.useFakeTimers();
+	inspect.mockImplementation((url, signal) => {
+		if (url.includes("current.local")) {
+			if (failure === "timeout")
+				return new Promise((_, reject) =>
+					signal.addEventListener("abort", () => reject(new Error("timeout"))),
+				);
+			return Promise.reject(new Error("unreachable"));
+		}
+		return Promise.resolve({ id: "a" });
+	});
+	window.lerosDiscovery = {
+		scan: vi.fn().mockResolvedValue({
+			servers: [
+				{
+					id: "a",
+					name: "Spark",
+					url: "http://current.local:38081/v1",
+					candidates: [
+						{ url: "http://192.168.43.6:38081/v1", transport: "local-network" },
+						{ url: "http://current.local:38081/v1", transport: "hostname" },
+					],
+				},
+			],
+		}),
+	};
+	const container = document.createElement("div");
+	const root = createRoot(container);
+	const select = vi.fn();
+	try {
+		await act(async () =>
+			root.render(<SparkDiscoveryList onSelect={select} disabled={false} autoStart />),
+		);
+		await act(async () =>
+			[...container.querySelectorAll("button")]
+				.find((b) => b.textContent?.includes("current.local"))
+				?.click(),
+		);
+		await act(async () => vi.advanceTimersByTimeAsync(8000));
+		expect(select).toHaveBeenCalledExactlyOnceWith("http://192.168.43.6:38081/v1");
+	} finally {
+		act(() => root.unmount());
 	}
 });
