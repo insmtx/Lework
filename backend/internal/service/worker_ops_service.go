@@ -8,8 +8,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/insmtx/Lework/backend/internal/infra/mq"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 )
 

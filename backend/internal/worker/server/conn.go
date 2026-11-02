@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/insmtx/Lework/backend/internal/worker/wsproto"
+	"github.com/insmtx/lework/backend/internal/worker/wsproto"
 )
 
 type WorkerConnection struct {

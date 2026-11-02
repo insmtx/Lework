@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 // TestACPInvokerProbe 是 W5 的端到端验收：真实 opencode ACP 走完

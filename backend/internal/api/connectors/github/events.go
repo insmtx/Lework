@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/go-github/v78/github"
 
-	interactionevent "github.com/insmtx/Lework/backend/pkg/event"
+	interactionevent "github.com/insmtx/lework/backend/pkg/event"
 )
 
 // convertEvent converts GitHub events to Lework interaction events.

@@ -11,8 +11,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 // TestLegacyDBUpgradeProbe 演练「v1 时代遗留库 → v2.1.4」：用一份真实老库的副本

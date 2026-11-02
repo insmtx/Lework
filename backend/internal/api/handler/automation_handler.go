@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	"github.com/insmtx/Lework/backend/internal/api/dto"
-	servicepkg "github.com/insmtx/Lework/backend/internal/service"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	servicepkg "github.com/insmtx/lework/backend/internal/service"
 )
 
 const automationTargetUserIDHeader = "X-Lework-Target-User-Id"

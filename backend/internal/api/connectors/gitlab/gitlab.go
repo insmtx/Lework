@@ -6,9 +6,9 @@ package gitlab
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/api/connectors"
-	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/api/connectors"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
 	"github.com/ygpkg/yg-go/logs"
 )
 

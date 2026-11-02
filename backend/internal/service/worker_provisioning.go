@@ -8,10 +8,10 @@ import (
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	"github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type WorkerProvisioningService struct {

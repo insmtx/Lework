@@ -13,9 +13,9 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func (s *pluginService) ListMCPPlatforms(

@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 const (

@@ -10,10 +10,10 @@ import (
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/acp"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
-	runtimeprocess "github.com/insmtx/Lework/backend/agent/runtime/internal/process"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/acp"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/lework/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 

@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 	mcpsdk "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 func TestClaudeUsesTaskRootForSharedSkills(t *testing.T) {

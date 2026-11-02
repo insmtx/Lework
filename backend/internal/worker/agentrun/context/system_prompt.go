@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	agentworkspace "github.com/insmtx/Lework/backend/internal/workspace"
-	"github.com/insmtx/Lework/backend/prompts"
+	skillcatalog "github.com/insmtx/lework/backend/internal/skill/catalog"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	agentworkspace "github.com/insmtx/lework/backend/internal/workspace"
+	"github.com/insmtx/lework/backend/prompts"
 	"github.com/ygpkg/yg-go/logs"
 )
 

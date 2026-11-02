@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // CreateResourceBinding 创建资源角色绑定记录。

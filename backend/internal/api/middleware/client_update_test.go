@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/lework/backend/config"
 )
 
 func TestCompareVersions(t *testing.T) {

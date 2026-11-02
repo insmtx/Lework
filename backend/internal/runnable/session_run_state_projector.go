@@ -11,14 +11,14 @@ import (
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/infra/filestore"
-	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
-	"github.com/insmtx/Lework/backend/internal/llm"
-	"github.com/insmtx/Lework/backend/internal/workspace"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/workspace"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

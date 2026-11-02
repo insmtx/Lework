@@ -8,8 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type authRepo struct {

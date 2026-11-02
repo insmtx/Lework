@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/api/auth"
 )
 
 func TestClientFactoryResolveClientUsesInstallationSelector(t *testing.T) {
@@ -36,11 +36,11 @@ func TestClientFactoryResolveClientUsesInstallationSelector(t *testing.T) {
 					"expires_at":"2026-04-15T12:00:00Z",
 					"permissions":{"contents":"read","pull_requests":"write"}
 				}`), nil
-			case req.Method == http.MethodGet && req.URL.String() == "https://api.github.test/repos/insmtx/Lework":
+			case req.Method == http.MethodGet && req.URL.String() == "https://api.github.test/repos/insmtx/lework":
 				if req.Header.Get("Authorization") != "Bearer installation-token" {
 					t.Fatalf("expected installation token auth header, got %q", req.Header.Get("Authorization"))
 				}
-				return jsonHTTPResponse(req, `{"id":1,"full_name":"insmtx/Lework"}`), nil
+				return jsonHTTPResponse(req, `{"id":1,"full_name":"insmtx/lework"}`), nil
 			default:
 				return &http.Response{
 					StatusCode: http.StatusNotFound,

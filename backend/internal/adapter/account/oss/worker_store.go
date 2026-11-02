@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	infra_db "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	infra_db "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type workerStore struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/agent"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/agent"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 func TestFinalizerUsesPreparedWorkspaceAndCollectsArtifacts(t *testing.T) {

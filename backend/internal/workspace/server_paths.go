@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
 // WorkerMountedWorkspacePath 返回 server 视角下某个 worker 的 workspace 挂载目录。

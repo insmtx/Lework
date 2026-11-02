@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
 const legacyGlobalSkillLinksCleanupVersion = "remove-global-cli-skill-links-v1"

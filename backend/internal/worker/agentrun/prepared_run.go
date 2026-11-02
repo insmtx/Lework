@@ -1,8 +1,8 @@
 package agentrun
 
 import (
-	"github.com/insmtx/Lework/backend/agent"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/agent"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
 )
 
 // PreparedRun holds the immutable original request and the fully-built execution context.

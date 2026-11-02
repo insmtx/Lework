@@ -94,8 +94,8 @@ Lework 当前 `router.go:79` 写死了 `service.NewAuthServiceWithProvisioning`�
 package adapter
 
 import (
-    "github.com/insmtx/Lework/backend/internal/adapter/builtin"
-    "github.com/insmtx/Lework/backend/internal/api/contract"
+    "github.com/insmtx/lework/backend/internal/adapter/builtin"
+    "github.com/insmtx/lework/backend/internal/api/contract"
 )
 
 type Deps struct {
@@ -121,8 +121,8 @@ func NewTokenParser(deps Deps) middleware.TokenParser {
 package adapter
 
 import (
-    "github.com/insmtx/Lework/backend/internal/adapter/identity"
-    "github.com/insmtx/Lework/backend/internal/api/contract"
+    "github.com/insmtx/lework/backend/internal/adapter/identity"
+    "github.com/insmtx/lework/backend/internal/api/contract"
 )
 
 // NewAuthService 返回 SaaS 版的 AuthService 实现
@@ -252,7 +252,7 @@ backend/internal/
 // middleware/token_parser.go
 package middleware
 
-import "github.com/insmtx/Lework/backend/types"
+import "github.com/insmtx/lework/backend/types"
 
 // TokenParser 抽象 JWT 解析逻辑，由 adapter factory 按 build tag 注入实现
 type TokenParser interface {

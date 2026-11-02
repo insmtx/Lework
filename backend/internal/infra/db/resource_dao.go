@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // CreateResource 创建统一资源记录。

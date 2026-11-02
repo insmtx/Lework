@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
 )
 
 func TestMCPServerConfigFromPluginSnapshot(t *testing.T) {

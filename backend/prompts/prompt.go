@@ -8,7 +8,7 @@ import (
 
 	"github.com/valyala/fasttemplate"
 
-	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/lework/backend/config"
 )
 
 type Executor interface {

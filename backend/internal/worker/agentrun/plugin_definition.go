@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/internal/service"
-	"github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/internal/service"
+	"github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
 	"github.com/ygpkg/yg-go/logs"
 )
 

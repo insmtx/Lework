@@ -117,7 +117,7 @@ git commit -m "feat(llm/proxy): 迁移 modelrouter 到 llm/proxy 子包 — 解�
 - Modify: `backend/internal/worker/app/service.go`
 - Modify: `backend/cmd/lework/worker.go`
 
-**改动模式：** 所有 `modelrouter` import 改为 `proxy "github.com/insmtx/Lework/backend/internal/llm/proxy"`。类型引用 `modelrouter.ModelStore` → `proxy.ModelStore` 等。
+**改动模式：** 所有 `modelrouter` import 改为 `proxy "github.com/insmtx/lework/backend/internal/llm/proxy"`。类型引用 `modelrouter.ModelStore` → `proxy.ModelStore` 等。
 
 `preparer_impl.go` 的 `resolveModelRouting` 中：
 - `modelrouter.UpstreamConfig` → `proxy.UpstreamConfig`

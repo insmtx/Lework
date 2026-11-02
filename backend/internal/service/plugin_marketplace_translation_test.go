@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/skill/catalog"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/skill/catalog"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type fakeSkillDescriptionTranslator struct {

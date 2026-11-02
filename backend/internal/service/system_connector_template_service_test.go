@@ -7,10 +7,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	skilllinks "github.com/insmtx/Lework/backend/internal/skill/links"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	skilllinks "github.com/insmtx/lework/backend/internal/skill/links"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestBuiltinEmailConnectorPackage(t *testing.T) {

@@ -3,7 +3,7 @@ package workspace
 import (
 	"testing"
 
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
 func TestWorkerMountedWorkspacePath(t *testing.T) {

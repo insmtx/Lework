@@ -13,10 +13,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/adapter/account/oss"
-	"github.com/insmtx/Lework/backend/internal/api/dto"
-	"github.com/insmtx/Lework/backend/internal/api/middleware"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account/oss"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	"github.com/insmtx/lework/backend/internal/api/middleware"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupUserTest(t *testing.T) (*gin.Engine, *gorm.DB) {

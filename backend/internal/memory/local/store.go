@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
 const (

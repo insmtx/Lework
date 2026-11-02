@@ -6,11 +6,11 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/insmtx/Lework/backend/pkg/accounterror"
+	"github.com/insmtx/lework/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func uintToFilterValue(v uint) string {

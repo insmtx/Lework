@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
 )
 
 // ─── IAM Request Types ─────────────────────────────────────────────────────────

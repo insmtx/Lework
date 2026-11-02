@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/consts"
+	"github.com/insmtx/lework/backend/internal/consts"
 )
 
 func TestIsPathAllowed(t *testing.T) {

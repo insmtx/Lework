@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 func TestProcessSchedulerHealthRequiresHTTPReady(t *testing.T) {

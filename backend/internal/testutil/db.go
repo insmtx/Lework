@@ -6,10 +6,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/seed"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/seed"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

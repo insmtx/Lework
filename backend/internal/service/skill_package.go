@@ -9,8 +9,8 @@ import (
 	"path"
 	"strings"
 
-	skillcache "github.com/insmtx/Lework/backend/internal/skill/cache"
-	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	skillcache "github.com/insmtx/lework/backend/internal/skill/cache"
+	skillcatalog "github.com/insmtx/lework/backend/internal/skill/catalog"
 )
 
 type preparedSkillPackage struct {

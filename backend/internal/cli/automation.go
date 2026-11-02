@@ -4,7 +4,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/api/contract"
 )
 
 // ListAutomations 调用服务端 ListAutomations API 并返回自动化列表。

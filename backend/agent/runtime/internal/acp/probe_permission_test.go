@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 // TestOpenCodeACPPermissionProbe 验证权限桥的真机往返：

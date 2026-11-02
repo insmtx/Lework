@@ -458,7 +458,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {
@@ -566,9 +566,9 @@ package llm
 import (
 	"context"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // ContractAdapter 将 llm.Manager 适配为 contract.LLMModelService。
@@ -654,8 +654,8 @@ package service
 import (
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/llm"
 )
 
 // NewLLMModelService 创建 LLM 模型配置服务，委托到 llm.Manager。

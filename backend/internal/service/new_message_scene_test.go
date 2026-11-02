@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestNormalizeMessageScene(t *testing.T) {

@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 // TestSayHi 端到端测试：通过 app-server 模式发送 "hi" 并收到真实回复。

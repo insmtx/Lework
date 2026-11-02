@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 // PlanAgentName 是 v2 计划模式的 primary agent 名。

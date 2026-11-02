@@ -9,8 +9,8 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
 func TestLoadConfigAppliesServerLogLevel(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
-	"github.com/insmtx/Lework/backend/tools"
+	skillcatalog "github.com/insmtx/lework/backend/internal/skill/catalog"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 const (

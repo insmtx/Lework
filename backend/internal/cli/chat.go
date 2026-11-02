@@ -14,9 +14,9 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	"github.com/insmtx/Lework/backend/internal/api/dto"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 const (

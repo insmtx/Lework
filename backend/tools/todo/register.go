@@ -3,7 +3,7 @@ package todo
 import (
 	"fmt"
 
-	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 // NewTools returns all built-in runtime todo tools.

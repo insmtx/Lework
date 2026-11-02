@@ -7,7 +7,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/insmtx/Lework.git",
+    "url": "https://github.com/insmtx/lework.git",
     "directory": "frontend/apps/desktop"
   },
   "main": "./out/main/index.js",

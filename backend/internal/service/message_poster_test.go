@@ -10,11 +10,11 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func loadQueuedWorkerCommand(t *testing.T, database *gorm.DB, messageID uint) messaging.WorkerCommand {

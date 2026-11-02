@@ -7,7 +7,7 @@
 LLM 协议转换内核已经拆分到公共包：
 
 ```go
-github.com/insmtx/Lework/backend/pkg/llmprotocol
+github.com/insmtx/lework/backend/pkg/llmprotocol
 ```
 
 `llmprotocol` 负责 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini 与统一 IR 之间的请求/响应/流事件转换。

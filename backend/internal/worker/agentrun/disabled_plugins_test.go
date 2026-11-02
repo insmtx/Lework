@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/types"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestApplyDisabledPluginPolicyFiltersSkillAndMCPSnapshots(t *testing.T) {

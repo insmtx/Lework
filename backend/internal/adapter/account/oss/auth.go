@@ -20,12 +20,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/infra/sms"
-	"github.com/insmtx/Lework/backend/pkg/accounterror"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/sms"
+	"github.com/insmtx/lework/backend/pkg/accounterror"
+	"github.com/insmtx/lework/backend/types"
 )
 
 const (

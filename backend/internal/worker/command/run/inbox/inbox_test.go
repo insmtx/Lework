@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 func TestSQLiteRunInboxLifecycle(t *testing.T) {

@@ -3,8 +3,8 @@ package memory
 import (
 	"fmt"
 
-	localmemory "github.com/insmtx/Lework/backend/internal/memory/local"
-	"github.com/insmtx/Lework/backend/tools"
+	localmemory "github.com/insmtx/lework/backend/internal/memory/local"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 // NewTools returns all built-in memory tools.

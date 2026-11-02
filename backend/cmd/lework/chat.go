@@ -5,7 +5,7 @@ import (
 	"github.com/ygpkg/yg-go/lifecycle"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Lework/backend/internal/cli"
+	"github.com/insmtx/lework/backend/internal/cli"
 )
 
 func newChatCommand() *cobra.Command {

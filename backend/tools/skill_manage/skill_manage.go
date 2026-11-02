@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	skillstore "github.com/insmtx/Lework/backend/internal/skill/store"
-	"github.com/insmtx/Lework/backend/pkg/lework"
-	"github.com/insmtx/Lework/backend/tools"
+	skillstore "github.com/insmtx/lework/backend/internal/skill/store"
+	"github.com/insmtx/lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 const (

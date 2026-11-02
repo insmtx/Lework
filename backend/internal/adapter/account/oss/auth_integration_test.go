@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/pkg/accounterror"
+	"github.com/insmtx/lework/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	"github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/testutil"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/testutil"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupIntegrationTest(t *testing.T) (account.AuthProvider, *gorm.DB) {

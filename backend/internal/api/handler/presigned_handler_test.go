@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/infra/filestore"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
 )
 
 func setupPresignedTestRouter(t *testing.T) *gin.Engine {

@@ -10,7 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // seedAccount 初始化默认组织、默认管理员、用户-组织关联与默认 worker 部署。幂等。

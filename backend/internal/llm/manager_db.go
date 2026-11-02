@@ -13,9 +13,9 @@ import (
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Lework/backend/internal/infra/db"
-	pkgeino "github.com/insmtx/Lework/backend/pkg/eino"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	pkgeino "github.com/insmtx/lework/backend/pkg/eino"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // modelConfigFromEntity 将持久化实体 types.LLMModel 转换为领域类型 ModelConfig。

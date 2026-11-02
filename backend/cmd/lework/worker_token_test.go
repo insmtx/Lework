@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/lework/backend/config"
 )
 
 // withTokenRetryTimings 把退避参数压到毫秒级，避免单测真的等 10 分钟。

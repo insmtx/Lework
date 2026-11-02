@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 // RunStatus is the final SingerOS business status.

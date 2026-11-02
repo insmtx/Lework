@@ -3,8 +3,8 @@ package projectfile_test
 import (
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/consts"
-	"github.com/insmtx/Lework/backend/internal/projectfile"
+	"github.com/insmtx/lework/backend/internal/consts"
+	"github.com/insmtx/lework/backend/internal/projectfile"
 )
 
 func TestNormalizeFolderRelativePath(t *testing.T) {

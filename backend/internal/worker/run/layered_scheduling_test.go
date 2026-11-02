@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/agent"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
 )
 
 // testSubmissionSession 在 testSubmission 基础上覆盖会话，便于多会话/交互测试。

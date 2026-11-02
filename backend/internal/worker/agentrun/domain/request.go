@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/internal/consts"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/consts"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // InputType describes the primary shape of the run input.

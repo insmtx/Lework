@@ -52,7 +52,7 @@ Lework 是一个面向企业与团队的开源 AI 工作平台。它是 [智慧�
 
 ### 技术形态
 
-- 服务端为 **Go 单体仓库**（module `github.com/insmtx/Lework`，Go 1.25），既能以聚合单体一键部署，也可按需拆分；
+- 服务端为 **Go 单体仓库**（module `github.com/insmtx/lework`，Go 1.25），既能以聚合单体一键部署，也可按需拆分；
 - 前端为 `frontend/` 下的 **pnpm + turbo monorepo**，含 Web 主界面（Next.js / React / TypeScript）与桌面端应用；
 - 任务与事件经 **NATS JetStream** 分发，Agent 执行由 `backend/agent` 承载，支持 native / claude / codex / opencode 等多种运行时；
 - 内置 **MCP Server**（对外暴露 Lework 运行时能力），同时作为 **MCP 客户端**通过连接器接入外部系统与知识库（如 CoreKG）。
@@ -209,7 +209,7 @@ Go 服务层 —— lework（backend/cmd/lework 聚合入口，:8080）
 所有含密钥 / 连接串的运行配置一律**不入库**，仓库仅提供 `*.example` 模板；使用时复制为真实文件并填写占位值：
 
 ```bash
-git clone https://github.com/insmtx/Lework.git
+git clone https://github.com/insmtx/lework.git
 cd Lework
 git config pull.rebase true
 
@@ -292,7 +292,7 @@ go test ./backend/internal/<pkg>
 
 ### 约定与注意
 
-- **模块路径**：所有内部 import 使用 `github.com/insmtx/Lework/...` 前缀；
+- **模块路径**：所有内部 import 使用 `github.com/insmtx/lework/...` 前缀；
 - **分层严格**：`cmd/lework`（进程入口，仅生命周期）→ `agent/**`（业务无关执行核心）→ `internal/**`（业务逻辑）→ `types/` / `config/`（共享类型），跨层边界与硬性规则详见根目录 [AGENTS.md](AGENTS.md)；
 - **测试非隔离**：多数包级测试依赖真实中间件（PostgreSQL / NATS），建议先 `make dev-up` 再运行相关包级测试；
 - **生成文件勿手改**：`docs/swagger/`（swag 生成）等生成文件不要手动编辑。
@@ -357,14 +357,14 @@ Lework 是 [智慧矩阵（insmtx）](https://insmtx.com/)企业 AI 产品矩阵
 
 我们欢迎各种形式的贡献——Issue、文档、代码、使用反馈。
 
-- **提 Issue**：前往 [GitHub Issues](https://github.com/insmtx/Lework/issues) 报告缺陷或提出功能建议；
+- **提 Issue**：前往 [GitHub Issues](https://github.com/insmtx/lework/issues) 报告缺陷或提出功能建议；
 - **提 PR**：Fork 本仓库 → 创建功能分支 → 提交变更 → 发起 Pull Request。建议先开 Issue 讨论设计；
 - **开发约定**：动手前请阅读根目录 [AGENTS.md](AGENTS.md)（仓库结构、工程与代码规范）与上方[开发指南](#开发指南)；
 - **数据库迁移**：遵循仓库内迁移规范（见 [AGENTS.md](AGENTS.md) 与 `docs/`）。
 
 ## 社区与支持
 
-- 使用问题 / 缺陷报告：[GitHub Issues](https://github.com/insmtx/Lework/issues)
+- 使用问题 / 缺陷报告：[GitHub Issues](https://github.com/insmtx/lework/issues)
 - 功能需求与讨论：同上，请带 `feature` / `discussion` 标签发起
 - 产品官网：[lework.ai](https://lework.ai/)
 - **📰 近期动态**：最近运营宣传的公众号文章（[阅读全文](https://mp.weixin.qq.com/s/cqudtC3wBAQqLk509HsTWA)）

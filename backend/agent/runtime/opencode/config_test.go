@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/agent"
-	runtimeprocess "github.com/insmtx/Lework/backend/agent/runtime/internal/process"
+	"github.com/insmtx/lework/backend/agent"
+	runtimeprocess "github.com/insmtx/lework/backend/agent/runtime/internal/process"
 )
 
 func TestEnsureOpenCodeDBPathUsesConfiguredDataDir(t *testing.T) {

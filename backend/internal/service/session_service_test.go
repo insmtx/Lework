@@ -10,18 +10,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/internal/api/dto"
-	"github.com/insmtx/Lework/backend/internal/consts"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	"github.com/insmtx/lework/backend/internal/consts"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	db "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/infra/mq"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	db "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {

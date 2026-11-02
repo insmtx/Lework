@@ -8,8 +8,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 func TestWorkerContainerImageFindsNamedWorkerContainer(t *testing.T) {

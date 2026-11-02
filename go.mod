@@ -1,4 +1,4 @@
-module github.com/insmtx/Lework
+module github.com/insmtx/lework
 
 go 1.25.0
 

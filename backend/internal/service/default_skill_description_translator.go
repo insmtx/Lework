@@ -10,8 +10,8 @@ import (
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 
-	"github.com/insmtx/Lework/backend/internal/llm"
-	"github.com/insmtx/Lework/backend/internal/skill/catalog"
+	"github.com/insmtx/lework/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/skill/catalog"
 	"gorm.io/gorm"
 )
 

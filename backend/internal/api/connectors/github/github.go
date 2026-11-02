@@ -13,11 +13,11 @@ import (
 	"github.com/google/go-github/v78/github"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/internal/api/connectors"
-	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/api/connectors"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
 )
 
 const (

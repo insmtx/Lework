@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestGuardByPublicID_ProjectTaskCreateUsesTaskPolicy(t *testing.T) {

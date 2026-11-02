@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/internal/skill/catalog"
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/internal/skill/catalog"
+	"github.com/insmtx/lework/backend/pkg/lework"
 	"github.com/ygpkg/yg-go/logs"
 )
 

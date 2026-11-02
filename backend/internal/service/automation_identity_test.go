@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestAutomationCallerDelegatesWorkerToTargetUserIDWithoutMembershipLookup(t *testing.T) {

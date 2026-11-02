@@ -5,7 +5,7 @@ package testutil
 import (
 	"testing"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestSetup(t *testing.T) {

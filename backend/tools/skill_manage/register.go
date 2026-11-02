@@ -3,7 +3,7 @@ package skillmanage
 import (
 	"fmt"
 
-	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 // Register adds the skill_manage tool to the runtime registry.

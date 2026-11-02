@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 // Adapter 通过 OpenCode CLI 的 ACP 模式执行提示。

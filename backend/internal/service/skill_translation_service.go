@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
-	"github.com/insmtx/Lework/backend/pkg/utils"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	skillcatalog "github.com/insmtx/lework/backend/internal/skill/catalog"
+	"github.com/insmtx/lework/backend/pkg/utils"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )

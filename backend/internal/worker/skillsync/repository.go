@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/insmtx/Lework/backend/internal/worker/identity"
-	"github.com/insmtx/Lework/backend/internal/worker/skillstate"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/internal/worker/identity"
+	"github.com/insmtx/lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
 

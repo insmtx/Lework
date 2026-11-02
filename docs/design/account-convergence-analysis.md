@@ -26,7 +26,7 @@ identity-platform (yygu/yg-iam)
       ├── 去掉了：教育、OAuth2 Connectors、实名认证、私有化
       └── 代码质量优化：增加索引、DAO 模式、单元测试
 
-Lework (insmtx/Lework)
+Lework (insmtx/lework)
   └── AI 自动化平台，独立实现认证
       ├── 认证：邮箱密码 + 手机验证码 + Worker Token
       ├── 权限：仅 MemberRole 类型定义（未使用）

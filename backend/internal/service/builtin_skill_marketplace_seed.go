@@ -16,12 +16,12 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/infra/filestore"
-	skillarchive "github.com/insmtx/Lework/backend/internal/skill/archive"
-	skillcache "github.com/insmtx/Lework/backend/internal/skill/cache"
-	skilllinks "github.com/insmtx/Lework/backend/internal/skill/links"
-	"github.com/insmtx/Lework/backend/types"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	skillarchive "github.com/insmtx/lework/backend/internal/skill/archive"
+	skillcache "github.com/insmtx/lework/backend/internal/skill/cache"
+	skilllinks "github.com/insmtx/lework/backend/internal/skill/links"
+	"github.com/insmtx/lework/backend/types"
 )
 
 const (

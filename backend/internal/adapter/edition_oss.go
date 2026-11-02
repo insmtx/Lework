@@ -3,8 +3,8 @@
 package adapter
 
 import (
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	"github.com/insmtx/Lework/backend/internal/adapter/account/oss"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/adapter/account/oss"
 )
 
 type ossEdition struct {

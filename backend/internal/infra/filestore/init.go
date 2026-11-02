@@ -11,7 +11,7 @@ import (
 	_ "github.com/ygpkg/storage-go/driver/local"
 	_ "github.com/ygpkg/storage-go/driver/minio"
 
-	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/lework/backend/config"
 )
 
 const (

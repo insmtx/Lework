@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/pkg/lework"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 type recordingPublisher struct {

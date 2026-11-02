@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/pkg/lework"
-	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 func TestSkillUseToolListAndGet(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 // TestOpenCodeACPTodoProbe 验证 v2 待办链路：experimental.todo 打开后，

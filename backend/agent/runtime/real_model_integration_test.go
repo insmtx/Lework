@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent"
-	clauderuntime "github.com/insmtx/Lework/backend/agent/runtime/claude"
-	codexruntime "github.com/insmtx/Lework/backend/agent/runtime/codex"
-	nativeruntime "github.com/insmtx/Lework/backend/agent/runtime/native"
-	opencoderuntime "github.com/insmtx/Lework/backend/agent/runtime/opencode"
+	"github.com/insmtx/lework/backend/agent"
+	clauderuntime "github.com/insmtx/lework/backend/agent/runtime/claude"
+	codexruntime "github.com/insmtx/lework/backend/agent/runtime/codex"
+	nativeruntime "github.com/insmtx/lework/backend/agent/runtime/native"
+	opencoderuntime "github.com/insmtx/lework/backend/agent/runtime/opencode"
 	"github.com/ygpkg/yg-go/logs"
 	"go.uber.org/zap/zapcore"
 )

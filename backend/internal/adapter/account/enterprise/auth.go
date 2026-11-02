@@ -11,12 +11,12 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/infra/filestore"
-	"github.com/insmtx/Lework/backend/pkg/accounterror"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	"github.com/insmtx/lework/backend/pkg/accounterror"
 	"github.com/ygpkg/yg-go/logs"
 )
 

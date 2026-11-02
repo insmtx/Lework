@@ -11,7 +11,7 @@ import (
 	"github.com/google/go-github/v78/github"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Lework/backend/pkg/event"
+	"github.com/insmtx/lework/backend/pkg/event"
 )
 
 const (

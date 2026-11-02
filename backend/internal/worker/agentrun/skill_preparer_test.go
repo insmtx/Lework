@@ -17,12 +17,12 @@ import (
 	"strings"
 	"testing"
 
-	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/internal/worker/skillstate"
-	"github.com/insmtx/Lework/backend/internal/worker/skillsync"
-	"github.com/insmtx/Lework/backend/pkg/lework"
-	"github.com/insmtx/Lework/backend/types"
+	skillcatalog "github.com/insmtx/lework/backend/internal/skill/catalog"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/lework/backend/internal/worker/skillsync"
+	"github.com/insmtx/lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestPluginSkillPreparerLinksSystemSkillsAndCleansRunView(t *testing.T) {

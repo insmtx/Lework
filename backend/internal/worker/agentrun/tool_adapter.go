@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/agent"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/lework/backend/agent"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 // Adapt binds a business tools.Tool to run-scoped context and the agent.Tool result contract.

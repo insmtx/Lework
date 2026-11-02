@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/agent"
-	runtimecli "github.com/insmtx/Lework/backend/internal/cli"
+	"github.com/insmtx/lework/backend/agent"
+	runtimecli "github.com/insmtx/lework/backend/internal/cli"
 	"github.com/ygpkg/yg-go/logs"
 )
 

@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // GuardCheck 描述单次资源权限检查所需的三元组。

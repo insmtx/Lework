@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	localmemory "github.com/insmtx/Lework/backend/internal/memory/local"
-	"github.com/insmtx/Lework/backend/internal/workspace"
-	"github.com/insmtx/Lework/backend/tools"
+	localmemory "github.com/insmtx/lework/backend/internal/memory/local"
+	"github.com/insmtx/lework/backend/internal/workspace"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 const (

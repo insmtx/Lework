@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/llm"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -21,14 +21,14 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/internal/infra/filestore"
-	skillcache "github.com/insmtx/Lework/backend/internal/skill/cache"
-	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
-	skillfetch "github.com/insmtx/Lework/backend/internal/skill/fetch"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	skillcache "github.com/insmtx/lework/backend/internal/skill/cache"
+	skillcatalog "github.com/insmtx/lework/backend/internal/skill/catalog"
+	skillfetch "github.com/insmtx/lework/backend/internal/skill/fetch"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

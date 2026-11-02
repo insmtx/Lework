@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Lework/backend/internal/api/dto"
-	"github.com/insmtx/Lework/backend/internal/service"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	"github.com/insmtx/lework/backend/internal/service"
 )
 
 const (

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	baidunetdisk "github.com/insmtx/Lework/backend/internal/infra/providers/baidunetdisk"
-	"github.com/insmtx/Lework/backend/types"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	baidunetdisk "github.com/insmtx/lework/backend/internal/infra/providers/baidunetdisk"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type oauthRoundTripFunc func(*http.Request) (*http.Response, error)

@@ -11,7 +11,7 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // CreateSession 创建会话（冲突时更新）

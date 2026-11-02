@@ -9,8 +9,8 @@ import (
 
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestSyncBuiltinServerSkillMarketplaceCreatesAndUpdatesSystemRevision(t *testing.T) {

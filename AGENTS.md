@@ -2,7 +2,7 @@
 
 Compact guidance for AI agents working in the Lework repo. Verified against the codebase on the date below; trust executable sources over any prose here if they conflict.
 
-> Module path: `github.com/insmtx/Lework`. Go 1.25.0.
+> Module path: `github.com/insmtx/lework`. Go 1.25.0.
 
 ## Commands
 
@@ -93,7 +93,7 @@ Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1
 
 ## Code style (Go)
 
-- Imports in three groups separated by blank lines: stdlib → third-party → `github.com/insmtx/Lework/...`. Aliases only to avoid collisions (e.g. `modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"`).
+- Imports in three groups separated by blank lines: stdlib → third-party → `github.com/insmtx/lework/...`. Aliases only to avoid collisions (e.g. `modelrouter "github.com/insmtx/lework/backend/internal/modelrouter"`).
 - Tabs, not spaces. Run `gofmt -s` before commit. Lines <120 chars.
 - Exported symbols get English GoDoc explaining *why*, not *what*. Comments and commit messages use Chinese.
 - Errors handled explicitly, wrapped with `fmt.Errorf("...: %w", err)`. DI over globals. Pass `context.Context`.

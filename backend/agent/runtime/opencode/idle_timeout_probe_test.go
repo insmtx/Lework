@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/acp"
-	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/acp"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 // TestIdleTimeoutWatchdog 用「挂起不响应」的 mock provider 触发空闲看门狗：

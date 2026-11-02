@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/agent"
-	runtimecli "github.com/insmtx/Lework/backend/internal/cli"
-	"github.com/insmtx/Lework/backend/internal/worker/runtimehost"
+	"github.com/insmtx/lework/backend/agent"
+	runtimecli "github.com/insmtx/lework/backend/internal/cli"
+	"github.com/insmtx/lework/backend/internal/worker/runtimehost"
 )
 
 type stubRuntime struct {

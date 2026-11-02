@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 // withShortProbeTimings 把探测相关的时限压到秒级以内，避免单测真的等 3s/30s。

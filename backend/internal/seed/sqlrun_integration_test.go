@@ -11,7 +11,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // 集成测试：连真实 Postgres，验证 RunSQLScripts 在真实库上的执行、幂等与断点续跑。

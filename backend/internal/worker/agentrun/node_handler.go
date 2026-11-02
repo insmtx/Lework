@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
 

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 func TestToolMetadata(t *testing.T) {

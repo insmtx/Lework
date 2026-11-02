@@ -3,7 +3,7 @@ package contract
 import (
 	"context"
 
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 // SessionEventSink receives projected Server session events.

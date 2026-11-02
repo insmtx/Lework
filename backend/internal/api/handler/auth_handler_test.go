@@ -14,12 +14,12 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	"github.com/insmtx/Lework/backend/internal/adapter/account/oss"
-	"github.com/insmtx/Lework/backend/internal/api/dto"
-	"github.com/insmtx/Lework/backend/internal/infra/sms"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/adapter/account/oss"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	"github.com/insmtx/lework/backend/internal/infra/sms"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupIntegrationTest(t *testing.T) *gin.Engine {

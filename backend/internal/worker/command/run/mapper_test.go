@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
-	"github.com/insmtx/Lework/backend/types"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestRequestFromWorkerTaskMapsWorkspaceContext(t *testing.T) {

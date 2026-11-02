@@ -9,10 +9,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/api/contract"
-	"github.com/insmtx/Lework/backend/internal/worker"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {

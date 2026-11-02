@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 	"testing"
 	"time"
 )

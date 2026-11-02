@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/lework/backend/config"
 )
 
 type mockExecutor struct {

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 	"github.com/ygpkg/yg-go/logs"
 )
 

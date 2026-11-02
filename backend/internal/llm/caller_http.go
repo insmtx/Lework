@@ -13,7 +13,7 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/insmtx/Lework/backend/pkg/llmprotocol"
+	"github.com/insmtx/lework/backend/pkg/llmprotocol"
 	"github.com/ygpkg/yg-go/logs"
 )
 

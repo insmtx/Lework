@@ -1,8 +1,8 @@
 package seed
 
 import (
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // configuredMCPConnectorSpecs maps server configuration into database-neutral connector input.

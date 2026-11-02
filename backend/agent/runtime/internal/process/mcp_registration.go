@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 const mcpRegisterTimeout = 10 * time.Second

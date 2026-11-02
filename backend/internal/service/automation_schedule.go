@@ -15,7 +15,7 @@ import (
 
 	_ "time/tzdata"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 const (

@@ -12,15 +12,15 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/internal/api/auth"
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
-	"github.com/insmtx/Lework/backend/internal/llm"
-	"github.com/insmtx/Lework/backend/internal/modelrouter"
-	skilltoken "github.com/insmtx/Lework/backend/internal/skill"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
-	"github.com/insmtx/Lework/backend/prompts"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/modelrouter"
+	skilltoken "github.com/insmtx/lework/backend/internal/skill"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/prompts"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

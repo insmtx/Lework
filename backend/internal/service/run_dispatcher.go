@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
-	"github.com/insmtx/Lework/backend/types"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )

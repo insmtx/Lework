@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	catalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	catalog "github.com/insmtx/lework/backend/internal/skill/catalog"
 )
 
 // GitHubSource 通过下载 GitHub 仓库 ZIP 获取 Skill。

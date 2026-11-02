@@ -3,7 +3,7 @@ package skilluse
 import (
 	"fmt"
 
-	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 // Register registers all skill catalog tools into the provided registry.

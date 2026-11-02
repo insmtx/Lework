@@ -13,12 +13,12 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/internal/testutil"
-	"github.com/insmtx/Lework/backend/pkg/accounterror"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/testutil"
+	"github.com/insmtx/lework/backend/pkg/accounterror"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func iamTestEnv(t *testing.T) string {

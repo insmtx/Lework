@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	"github.com/insmtx/Lework/backend/types"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestSyncWorkerSkillsCreatesSystemPlugin(t *testing.T) {

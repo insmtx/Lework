@@ -5,7 +5,7 @@ package testutil
 import (
 	"testing"
 
-	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/lework/backend/config"
 	"github.com/nats-io/nats.go"
 )
 

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 type artifactInput struct {

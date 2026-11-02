@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 // mcpRemoteHeaderEnvPrefix 是 SSE 桥接请求头环境变量的统一前缀。

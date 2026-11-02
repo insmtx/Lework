@@ -10,10 +10,10 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	einotool "github.com/cloudwego/eino/components/tool"
-	"github.com/insmtx/Lework/backend/agent"
-	runtimetodo "github.com/insmtx/Lework/backend/agent/runtime/internal/todo"
-	pkgeino "github.com/insmtx/Lework/backend/pkg/eino"
-	"github.com/insmtx/Lework/backend/prompts"
+	"github.com/insmtx/lework/backend/agent"
+	runtimetodo "github.com/insmtx/lework/backend/agent/runtime/internal/todo"
+	pkgeino "github.com/insmtx/lework/backend/pkg/eino"
+	"github.com/insmtx/lework/backend/prompts"
 	"github.com/ygpkg/yg-go/logs"
 )
 

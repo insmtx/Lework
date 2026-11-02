@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	skilltoken "github.com/insmtx/Lework/backend/internal/skill"
-	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/pkg/lework"
-	"github.com/insmtx/Lework/backend/types"
+	skilltoken "github.com/insmtx/lework/backend/internal/skill"
+	skillcatalog "github.com/insmtx/lework/backend/internal/skill/catalog"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func withChips(instruction string, codes ...string) string {

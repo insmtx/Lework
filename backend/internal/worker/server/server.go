@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/insmtx/Lework/backend/internal/worker"
-	"github.com/insmtx/Lework/backend/internal/worker/wsproto"
+	"github.com/insmtx/lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/internal/worker/wsproto"
 	"github.com/ygpkg/yg-go/logs"
 )
 

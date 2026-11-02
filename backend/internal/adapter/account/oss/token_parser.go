@@ -10,10 +10,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/config"
-	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
-	"github.com/insmtx/Lework/backend/pkg/accounterror"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	localauth "github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/pkg/accounterror"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type builtinTokenParser struct {

@@ -30,12 +30,12 @@
 
 ### 1. Fork 仓库
 
-访问 [Lework GitHub 仓库](https://github.com/insmtx/Lework) 并点击右上角的 "Fork" 按钮，创建你自己的派生仓库。
+访问 [Lework GitHub 仓库](https://github.com/insmtx/lework) 并点击右上角的 "Fork" 按钮，创建你自己的派生仓库。
 
 ### 2. 克隆仓库
 
 ```bash
-git clone https://github.com/insmtx/Lework.git
+git clone https://github.com/insmtx/lework.git
 cd Lework
 ```
 
@@ -76,7 +76,7 @@ git push origin feat/your-feature-name
 
 ### 7. 提交 Pull Request
 
-1. 访问 [Lework 仓库](https://github.com/insmtx/Lework)
+1. 访问 [Lework 仓库](https://github.com/insmtx/lework)
 2. 点击 "Pull requests" 标签
 3. 点击 "New pull request"
 4. 选择 "Compare across forks"
@@ -88,7 +88,7 @@ git push origin feat/your-feature-name
 
 ### 报告缺陷
 
-访问 [Issues](https://github.com/insmtx/Lework/issues/new) 提交缺陷报告，请包含：
+访问 [Issues](https://github.com/insmtx/lework/issues/new) 提交缺陷报告，请包含：
 
 1. **详细描述问题现象**
 2. **提供复现步骤**
@@ -97,7 +97,7 @@ git push origin feat/your-feature-name
 
 ### 功能建议
 
-访问 [Issues](https://github.com/insmtx/Lework/issues/new) 提出新功能建议，请说明：
+访问 [Issues](https://github.com/insmtx/lework/issues/new) 提出新功能建议，请说明：
 
 1. **功能描述** - 你想要实现什么
 2. **使用场景** - 为什么需要这个功能
@@ -132,7 +132,7 @@ git push origin feat/your-feature-name
 
 ## 🐛 缺陷报告
 
-提交缺陷报告时，请访问 [Issues](https://github.com/insmtx/Lework/issues) 并尽量包含：
+提交缺陷报告时，请访问 [Issues](https://github.com/insmtx/lework/issues) 并尽量包含：
 
 1. **详细描述问题现象**
 2. **提供复现步骤**
@@ -161,7 +161,7 @@ git push origin feat/your-feature-name
 
 ## 📬 联系方式
 
-- GitHub Issues: [https://github.com/insmtx/Lework/issues](https://github.com/insmtx/Lework/issues)
-- GitHub Discussions: [https://github.com/insmtx/Lework/discussions](https://github.com/insmtx/Lework/discussions)
+- GitHub Issues: [https://github.com/insmtx/lework/issues](https://github.com/insmtx/lework/issues)
+- GitHub Discussions: [https://github.com/insmtx/lework/discussions](https://github.com/insmtx/lework/discussions)
 
 感谢你为 Lework 做出贡献！ 🐶

@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
 const skillFileName = "SKILL.md"

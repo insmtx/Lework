@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
 

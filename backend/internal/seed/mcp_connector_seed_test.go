@@ -7,9 +7,9 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/infra/filestore"
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupConnectorSeedTestDB(t *testing.T) *gorm.DB {

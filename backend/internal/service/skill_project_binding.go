@@ -8,9 +8,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
-	skilltoken "github.com/insmtx/Lework/backend/internal/skill"
-	"github.com/insmtx/Lework/backend/types"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	skilltoken "github.com/insmtx/lework/backend/internal/skill"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

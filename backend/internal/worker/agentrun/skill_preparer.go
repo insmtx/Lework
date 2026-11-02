@@ -15,13 +15,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Lework/backend/internal/service"
-	skilltoken "github.com/insmtx/Lework/backend/internal/skill"
-	skillarchive "github.com/insmtx/Lework/backend/internal/skill/archive"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/internal/worker/skillstate"
-	"github.com/insmtx/Lework/backend/internal/worker/skillsync"
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/internal/service"
+	skilltoken "github.com/insmtx/lework/backend/internal/skill"
+	skillarchive "github.com/insmtx/lework/backend/internal/skill/archive"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/lework/backend/internal/worker/skillsync"
+	"github.com/insmtx/lework/backend/pkg/lework"
 	"github.com/ygpkg/yg-go/logs"
 )
 

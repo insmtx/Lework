@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/lework/backend/internal/api/auth"
 )
 
 func TestUploadFileByMultipart_Success(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 func TestNewDockerCLIScheduler(t *testing.T) {

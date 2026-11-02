@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 
-	"github.com/insmtx/Lework/backend/config"
-	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 // stubDeployments 只实现调度器用到的 Get/Create/Update/Delete，其余方法由嵌入的

@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/ygpkg/storage-go/driver/local"
 
-	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/lework/backend/config"
 )
 
 func initTestStorage(t *testing.T) {

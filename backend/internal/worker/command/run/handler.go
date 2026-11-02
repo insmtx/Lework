@@ -20,13 +20,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	eventbus "github.com/insmtx/Lework/backend/internal/infra/mq"
-	"github.com/insmtx/Lework/backend/internal/worker/agentrun"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Lework/backend/internal/worker/command/run/inbox"
-	"github.com/insmtx/Lework/backend/internal/worker/eventpub"
-	runcoord "github.com/insmtx/Lework/backend/internal/worker/run"
-	"github.com/insmtx/Lework/backend/pkg/messaging"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/internal/worker/agentrun"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/internal/worker/command/run/inbox"
+	"github.com/insmtx/lework/backend/internal/worker/eventpub"
+	runcoord "github.com/insmtx/lework/backend/internal/worker/run"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
 

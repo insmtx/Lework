@@ -10,7 +10,7 @@ Lework 是一个企业级数字员工操作系统，后端基于 Golang，前端
 - 事件与消息平面：NATS JetStream，负责外部事件、Worker 任务和运行流事件的解耦。
 - 工作平面：Worker、Agent Runtime、外部 CLI 引擎和工具系统，负责实际执行任务。
 
-Go Module: `github.com/insmtx/Lework` | Go 1.24
+Go Module: `github.com/insmtx/lework` | Go 1.24
 
 ### 核心依赖
 

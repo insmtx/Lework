@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/insmtx/Lework/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // CommandType 表示 server 发给 worker 的命令类型。

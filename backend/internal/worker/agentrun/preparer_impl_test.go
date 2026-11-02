@@ -13,13 +13,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Lework/backend/agent"
-	"github.com/insmtx/Lework/backend/internal/consts"
-	modelrouter "github.com/insmtx/Lework/backend/internal/modelrouter"
-	agentruncontext "github.com/insmtx/Lework/backend/internal/worker/agentrun/context"
-	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
-	agentworkspace "github.com/insmtx/Lework/backend/internal/workspace"
-	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/internal/consts"
+	modelrouter "github.com/insmtx/lework/backend/internal/modelrouter"
+	agentruncontext "github.com/insmtx/lework/backend/internal/worker/agentrun/context"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	agentworkspace "github.com/insmtx/lework/backend/internal/workspace"
+	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
 type workspaceManagerStub struct {
