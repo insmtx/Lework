@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 )
 

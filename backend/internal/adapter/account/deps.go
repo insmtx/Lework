@@ -1,8 +1,8 @@
 package account
 
 import (
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/infra/sms"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/infra/sms"
 
 	"gorm.io/gorm"
 )

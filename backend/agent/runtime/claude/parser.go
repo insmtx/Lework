@@ -7,9 +7,9 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
-	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/lework/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 

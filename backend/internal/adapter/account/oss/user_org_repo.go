@@ -8,9 +8,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type userOrgRepo struct {

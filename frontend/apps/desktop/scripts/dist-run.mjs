@@ -22,7 +22,7 @@ export function run(command, args) {
 }
 
 function privateArtifactNameArgs() {
-	if (process.env.VITE_LEROS_DEPLOYMENT_MODE !== "private") {
+	if (process.env.VITE_LEWORK_DEPLOYMENT_MODE !== "private") {
 		return [];
 	}
 

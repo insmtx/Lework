@@ -131,7 +131,7 @@ func (r *SourceRouter) SearchWithFilter(ctx context.Context, query string, limit
 	}
 	wg.Wait()
 
-	// 内置源（Leros）优先，每个外部源的 top1 紧随其后，其余按安装量降序排列。
+	// 内置源（Lework）优先，每个外部源的 top1 紧随其后，其余按安装量降序排列。
 	type indexed struct {
 		meta     SkillMeta
 		priority int

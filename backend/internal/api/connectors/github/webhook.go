@@ -11,7 +11,7 @@ import (
 	"github.com/google/go-github/v78/github"
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/pkg/event"
+	"github.com/insmtx/lework/backend/pkg/event"
 )
 
 const (
@@ -83,7 +83,7 @@ func (c *Connector) validateSignature(r *http.Request, payload []byte) bool {
 	return hmac.Equal([]byte(signature), []byte(expected))
 }
 
-// determineTopic maps GitHub event types to Leros topics.
+// determineTopic maps GitHub event types to Lework topics.
 func (c *Connector) determineTopic(eventType string) string {
 	switch eventType {
 	case "issue_comment":

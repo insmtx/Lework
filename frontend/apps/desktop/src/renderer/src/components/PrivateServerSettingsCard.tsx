@@ -1,4 +1,4 @@
-import { PrivateServerSettingsCard as SharedPrivateServerSettingsCard } from "@leros/app-ui";
+import { PrivateServerSettingsCard as SharedPrivateServerSettingsCard } from "@lework/app-ui";
 import { reloadDesktopRenderer } from "../utils/reload";
 
 export function PrivateServerSettingsCard() {

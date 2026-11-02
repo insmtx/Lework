@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/internal/api/middleware"
+	"github.com/insmtx/lework/backend/internal/api/middleware"
 )
 
 // TestCORS_MustBeAppliedBefore_V1Group 锁定 Gin 的语义陷阱：

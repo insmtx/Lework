@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
 	"github.com/ygpkg/yg-go/logs"
 )
 

@@ -7,10 +7,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	dbpkg "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	dbpkg "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupTestContextWithCallerUin(t *testing.T, uin uint) context.Context {

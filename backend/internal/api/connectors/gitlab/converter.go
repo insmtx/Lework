@@ -1,7 +1,7 @@
 package gitlab
 
 import (
-	"github.com/insmtx/Leros/backend/pkg/event"
+	"github.com/insmtx/lework/backend/pkg/event"
 )
 
 type EventConverter struct{}

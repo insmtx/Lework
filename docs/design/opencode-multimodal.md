@@ -6,7 +6,7 @@
 
 ## 背景与现状
 
-Leros 通过 `backend/agent/runtime/opencode/` 包以 `serve` 子进程模式驱动 opencode CLI，两者通过 HTTP REST + SSE 通信。当前该 runtime 只支持纯文本：
+Lework 通过 `backend/agent/runtime/opencode/` 包以 `serve` 子进程模式驱动 opencode CLI，两者通过 HTTP REST + SSE 通信。当前该 runtime 只支持纯文本：
 
 - 附件在 `preparer` 层被下载并注入工作区，但注入给 runtime 的 prompt 只有 `agent.Message{Role,Content}` 字符串与单个 text part（`preparer_impl.go:356-362`、`invoker.go:196-234`）。
 - 用户上传的图片/PDF/音视频只能被模型作为文件用工具读取，**无法作为多模态输入**直接传给模型。
@@ -20,14 +20,14 @@ Leros 通过 `backend/agent/runtime/opencode/` 包以 `serve` 子进程模式驱
 | 事实 | 位置 |
 |---|---|
 | `opencode serve` 的 instance API 根路径为 `/session`，发送端点是 **`POST /session/:sessionID/message`** | `packages/opencode/src/server/routes/instance/httpapi/groups/session.ts:29,82` |
-| 请求体 schema `PromptInput` 含 `parts[TextPartInput \| FilePartInput \| AgentPartInput \| SubtaskPartInput]`，字段与 Leros 的 `messageRequest` 完全对齐 | `packages/opencode/src/session/prompt.ts:1499-1521` |
+| 请求体 schema `PromptInput` 含 `parts[TextPartInput \| FilePartInput \| AgentPartInput \| SubtaskPartInput]`，字段与 Lework 的 `messageRequest` 完全对齐 | `packages/opencode/src/session/prompt.ts:1499-1521` |
 | 图片以 **`FilePartInput`** 传入：`{id?, type:"file", mime, filename?, url, source?}` | `packages/schema/src/v1/session.ts:413-421` |
 | `url` 支持 `data:` base64 内联（`data:<mime>;base64,<bytes>`） | `session/prompt.ts:787` |
 | `mime` 以 `image/` 开头时走图片路径，并触发 `image.normalize`（photon-wasm 自动 resize，缩略失败则原样返回） | `session/prompt.ts:1005-1014` |
 | 模型无视觉能力时，opencode 依据 `capabilities.input.image` 自动降级/擦除图片 part，无需调用方按模型门控 | `transform.ts:10,408-465` |
 | 模型 config `attachment` 能力开关与 `modalities.input` 合并 | `provider/provider.ts:1463-1468` |
 
-> 结论：Leros 适配器已符合 v1.18.13 的 `/session/:sessionID/message` 协议。只需在 `parts[]` 里追加 `{type:"file", mime, filename, url:"data:..."}` 即可实现多模态输入，且上游 `modelrouter`/`llmprotocol` 代理层已原生支持图片 IR（`capability.go:14`、`ir.go`），后续转发无需改动。
+> 结论：Lework 适配器已符合 v1.18.13 的 `/session/:sessionID/message` 协议。只需在 `parts[]` 里追加 `{type:"file", mime, filename, url:"data:..."}` 即可实现多模态输入，且上游 `modelrouter`/`llmprotocol` 代理层已原生支持图片 IR（`capability.go:14`、`ir.go`），后续转发无需改动。
 
 ## 目标
 
@@ -42,7 +42,7 @@ Leros 通过 `backend/agent/runtime/opencode/` 包以 `serve` 子进程模式驱
   - 加 JSONB 键**零 DB 迁移**，新增列则触发 AutoMigrate schema 变更。
   - 多模态是能力集，长期可扩展为 `modalities`；用 JSONB 承载避免"每加一种模态加一列"。
 - **默认值**：`vision` 缺省即 **`false`**（未声明 → 视为无视觉）。理由（健壮性）：
-  - `leros-provider` 是 config-only provider，opencode 侧 `parsed.models = existing?.models ?? {}`（`provider.ts:1436`），`existingModel` 为空，**完全采信我们声明的 `modalities`**，无内置目录覆盖。
+  - `lework-provider` 是 config-only provider，opencode 侧 `parsed.models = existing?.models ?? {}`（`provider.ts:1436`），`existingModel` 为空，**完全采信我们声明的 `modalities`**，无内置目录覆盖。
   - `false` → 不写 `modalities` → opencode 判定各 `capabilities.input.*=false` → 走 `unsupportedParts` **优雅降级**（图被替换为提示文本，模型正常回答其余内容），**绝不会让整轮 400 失败**。
   - `true` → 仅声明图片能力 `modalities:{input:[text,image], output:[text]}` → 图片附件原样传模型，PDF/音视频不声明、按路径读取。
 - **取值路径（方案 A）**：从 `llm_model.config` 解包的类型化 `Vision bool` 沿既有模型下发链路透传，**只在解析处解包一次、下游传类型化值，不跨层传 `map[string]interface{}`**（符合 AGENTS.md 硬规则）。
@@ -271,7 +271,7 @@ if modelCfg.Vision {
 - **空/失败字节**：`buildMessageParts` 里 `len(att.Data)==0` 跳过；`multimodalAttachmentsForRuntime` 下载失败/超限跳过。
 - **超大文件（>100MiB）**：不内联 `Data`（保持为空），runtime 按 `UploadRelDir + "/" + Name` 读取工作区路径；内联 base64 的图片若已超视觉阈值，由 opencode 端 `image.normalize` 自动 resize 缓解。
 - **无视觉模型**：`vision=false` → 不写 `modalities` → `input.*=false` → opencode `unsupportedParts` 优雅降级（图→提示文本），不整轮失败。图片是否被模型消费由 opencode/local server 按模型 `modalities` 能力决定，不存在调用方错误门控。
-- **声明视觉但上游仍拒收**：opencode 把上游 4xx 转为 session error 透传给用户，Leros 不吞错、不重试。
+- **声明视觉但上游仍拒收**：opencode 把上游 4xx 转为 session error 透传给用户，Lework 不吞错、不重试。
 - **PDF/音视频统一走 read**：`preparer` 不再将 `application/pdf` / `audio/*` / `video/*` 注入多模态 `Attachments`，亦不下载其字节，一律经 `BuildAttachmentText` 提示按工作区路径读取；opencode 侧 `modalities.input` 仅声明 `image`，二者一致，无多余内联、无被丢弃的 file part。
 - **判定已下沉**：`domain/request.go` 导出 `IsVisualMime`（仅 image/\*），`preparer_impl.go` 与其共享，不再有各写一份的重复判定。
 - **其它 runtime**：claude/codex/native 不读取新增 `Attachments`/`Vision` 字段，行为不受影响。
@@ -296,7 +296,7 @@ if modelCfg.Vision {
    - `seed/llm_test.go`：`seedLLM` 按 `LLMConfig.Vision` 写入/不写 `Config["vision"]`。
 2. 静态检查：`gofmt -s`、`go vet ./...`、`go build ./...`。
 3. 回归：改动相关包 `opencode`、`internal/cli`、`agentrun`、`command/run`、`internal/service`、`internal/llm`、`internal/seed` 测试全绿；claude/codex/native 测试不受影响。
-4. 端到端（手工）：配一个支持视觉的 OpenAI-compatible 模型（`vision=true` 或 `config.yaml` `llm.vision: true`），`leros chat` 上传图片，校验模型识别图片内容；再验证文本模型（缺省 `false`）发图时优雅降级、PDF/音视频附件分别按各自模型能力验证、纯文本附件行为不变。
+4. 端到端（手工）：配一个支持视觉的 OpenAI-compatible 模型（`vision=true` 或 `config.yaml` `llm.vision: true`），`lework chat` 上传图片，校验模型识别图片内容；再验证文本模型（缺省 `false`）发图时优雅降级、PDF/音视频附件分别按各自模型能力验证、纯文本附件行为不变。
 
 ## 后续
 

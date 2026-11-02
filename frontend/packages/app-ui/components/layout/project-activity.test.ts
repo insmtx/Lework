@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProjectActivityItem } from "@leros/store";
+import type { ProjectActivityItem } from "@lework/store";
 
 import {
 	buildProjectActivityActionParts,

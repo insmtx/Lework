@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 func TestWriteCodexConfigBridgesSSEAndProtectsConfig(t *testing.T) {

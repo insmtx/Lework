@@ -15,7 +15,7 @@ import (
 	acpsdk "github.com/coder/acp-go-sdk"
 )
 
-const fakeAgentEnv = "LEROS_ACP_FAKE_AGENT"
+const fakeAgentEnv = "LEWORK_ACP_FAKE_AGENT"
 
 // TestFakeACPAgentProcess 是测试用 ACP agent 的入口：父测试用 os.Args[0]
 // 重新执行测试二进制并带 -test.run 指向本函数，通过环境变量切换行为。

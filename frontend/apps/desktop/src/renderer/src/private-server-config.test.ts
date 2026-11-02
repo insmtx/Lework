@@ -8,10 +8,10 @@ import {
 	SERVER_CONFIG_STORAGE_KEY,
 	saveServerBaseURL,
 	testServerConnection,
-} from "@leros/store";
+} from "@lework/store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY = "leros-private-server-base-url";
+const LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY = "lework-private-server-base-url";
 
 describe("private server config", () => {
 	afterEach(() => {
@@ -29,8 +29,8 @@ describe("private server config", () => {
 	});
 
 	it("normalizes root and v1 service addresses", () => {
-		expect(normalizeAPIBaseURL(" https://leros.example.com/ ")).toBe(
-			"https://leros.example.com/v1",
+		expect(normalizeAPIBaseURL(" https://lework.example.com/ ")).toBe(
+			"https://lework.example.com/v1",
 		);
 		expect(normalizeAPIBaseURL("http://localhost:8080/v1/")).toBe("http://localhost:8080/v1");
 		expect(normalizeAPIBaseURL("https://host.example.com/api")).toBe(
@@ -39,19 +39,19 @@ describe("private server config", () => {
 	});
 
 	it("rejects unsafe or incomplete service addresses", () => {
-		expect(() => normalizeAPIBaseURL("leros.example.com")).toThrow("完整的");
-		expect(() => normalizeAPIBaseURL("file:///tmp/leros")).toThrow("仅支持");
+		expect(() => normalizeAPIBaseURL("lework.example.com")).toThrow("完整的");
+		expect(() => normalizeAPIBaseURL("file:///tmp/lework")).toThrow("仅支持");
 		expect(() => normalizeAPIBaseURL("https://user:pass@example.com")).toThrow("用户名或密码");
 		expect(() => normalizeAPIBaseURL("https://example.com?token=secret")).toThrow("查询参数");
 	});
 
 	it("persists the normalized service address", () => {
-		saveServerBaseURL("https://leros.example.com");
+		saveServerBaseURL("https://lework.example.com");
 
 		expect(window.localStorage.getItem(SERVER_CONFIG_STORAGE_KEY)).toBe(
-			"https://leros.example.com/v1",
+			"https://lework.example.com/v1",
 		);
-		expect(readServerBaseURL()).toBe("https://leros.example.com/v1");
+		expect(readServerBaseURL()).toBe("https://lework.example.com/v1");
 	});
 
 	it("migrates the legacy private server address into the shared key", () => {
@@ -76,11 +76,11 @@ describe("private server config", () => {
 		);
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(testServerConnection("https://leros.example.com")).resolves.toBe(
-			"https://leros.example.com/v1",
+		await expect(testServerConnection("https://lework.example.com")).resolves.toBe(
+			"https://lework.example.com/v1",
 		);
 		expect(fetchMock).toHaveBeenCalledWith(
-			"https://leros.example.com/v1/GlobalConfig",
+			"https://lework.example.com/v1/GlobalConfig",
 			expect.objectContaining({ method: "GET" }),
 		);
 

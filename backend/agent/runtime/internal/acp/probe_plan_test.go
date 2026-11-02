@@ -14,22 +14,22 @@ import (
 )
 
 // TestOpenCodeACPPlanScope 验证 W1-2 的计划模式注入与权限隔离：
-//  1. 自定义 primary agent `leros-plan` 进入 configOptions.mode 并可被 default_agent 选中；
+//  1. 自定义 primary agent `lework-plan` 进入 configOptions.mode 并可被 default_agent 选中；
 //  2. `.opencode/plans/*` 可写；
 //  3. 工作区外写入被拒（配置 deny + 客户端 reject 双保险）。
 //
 // 默认跳过，运行方式见 TestOpenCodeACPProbe 的注释；需要带 provider 凭据的
-// LEROS_ACP_PROBE_CONFIG_FILE。
+// LEWORK_ACP_PROBE_CONFIG_FILE。
 func TestOpenCodeACPPlanScope(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x and network)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x and network)")
 	}
 
-	binary := envOrDefault("LEROS_ACP_PROBE_BIN", "opencode")
-	model := envOrDefault("LEROS_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
+	binary := envOrDefault("LEWORK_ACP_PROBE_BIN", "opencode")
+	model := envOrDefault("LEWORK_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
 
 	root, workDir := newProbeWorkspace(t)
-	plansDir := envOrDefault("LEROS_ACP_PLAN_TARGET_DIR", filepath.Join(workDir, ".opencode", "plans"))
+	plansDir := envOrDefault("LEWORK_ACP_PLAN_TARGET_DIR", filepath.Join(workDir, ".opencode", "plans"))
 	if err := os.MkdirAll(plansDir, 0o755); err != nil {
 		t.Fatalf("create plans dir: %v", err)
 	}
@@ -45,15 +45,15 @@ func TestOpenCodeACPPlanScope(t *testing.T) {
 	}
 	// 实测（W1-2）：工作区内目标的权限 resource 用「相对 cwd 的 glob」才命中；
 	// 绝对路径只在目标位于工作区外时生效。详见设计文档 §8.2 的实测修正。
-	allowPattern := envOrDefault("LEROS_ACP_PLAN_ALLOW_PATTERN", ".opencode/plans/*")
+	allowPattern := envOrDefault("LEWORK_ACP_PLAN_ALLOW_PATTERN", ".opencode/plans/*")
 	allowPattern = strings.NewReplacer("$PLANSDIR", plansDir, "$WORKDIR", workDir).Replace(allowPattern)
 
-	cfg["default_agent"] = "leros-plan"
+	cfg["default_agent"] = "lework-plan"
 	cfg["agents"] = map[string]any{
-		"leros-plan": map[string]any{
+		"lework-plan": map[string]any{
 			"mode":        "primary",
-			"description": "Leros plan mode",
-			"system":      "You are the Leros plan agent. Write plan files when asked.",
+			"description": "Lework plan mode",
+			"system":      "You are the Lework plan agent. Write plan files when asked.",
 			"permissions": []any{
 				map[string]any{"action": "question", "resource": "*", "effect": "allow"},
 				map[string]any{"action": "read", "resource": "*", "effect": "allow"},
@@ -77,11 +77,11 @@ func TestOpenCodeACPPlanScope(t *testing.T) {
 	// 这里只记录，不作为硬断言；权威信号是 configOptions.mode。
 	t.Run("diagnostic_debug_agents", func(t *testing.T) {
 		ids := listDebugAgentIDs(t, env, workDir)
-		if !containsString(ids, "leros-plan") {
-			t.Skipf("debug agents did not list leros-plan (got %v); "+
+		if !containsString(ids, "lework-plan") {
+			t.Skipf("debug agents did not list lework-plan (got %v); "+
 				"上游在 isolated XDG 下不列自定义 agent，改用 configOptions.mode 验证", ids)
 		}
-		t.Logf("debug agents includes leros-plan: %v", ids)
+		t.Logf("debug agents includes lework-plan: %v", ids)
 	})
 
 	frameSink, closeSink := openFrameSinkNamed(t, "opencode-2.1.4-plan.ndjson")
@@ -115,12 +115,12 @@ func TestOpenCodeACPPlanScope(t *testing.T) {
 		if !ok {
 			t.Fatalf("configOptions has no mode option")
 		}
-		if mode != "leros-plan" {
-			t.Fatalf("mode currentValue=%q, want leros-plan", mode)
+		if mode != "lework-plan" {
+			t.Fatalf("mode currentValue=%q, want lework-plan", mode)
 		}
 		values := sess.ConfigOptionValues("mode")
-		if !containsString(values, "leros-plan") {
-			t.Fatalf("mode values=%v do not contain leros-plan", values)
+		if !containsString(values, "lework-plan") {
+			t.Fatalf("mode values=%v do not contain lework-plan", values)
 		}
 		t.Logf("mode=%s values=%v", mode, values)
 	})

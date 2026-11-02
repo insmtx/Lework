@@ -6,11 +6,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/adapter/account/oss"
-	"github.com/insmtx/Leros/backend/internal/infra/sms"
-	"github.com/insmtx/Leros/backend/internal/testutil"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/adapter/account/oss"
+	"github.com/insmtx/lework/backend/internal/infra/sms"
+	"github.com/insmtx/lework/backend/internal/testutil"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestAuthServiceRegisterByEmail_Integration(t *testing.T) {

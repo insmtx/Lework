@@ -8,7 +8,7 @@ import {
 	type Project,
 	upsertProjectsIntoCache,
 	useLayoutStore,
-} from "@leros/store";
+} from "@lework/store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 export function usePaginatedProjectList(options: {

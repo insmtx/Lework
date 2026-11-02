@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // GetAssistantsByIDs 批量根据ID查询数字助手

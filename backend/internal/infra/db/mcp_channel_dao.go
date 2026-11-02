@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // ListActiveMCPChannels returns active channel configurations in stable channel order.

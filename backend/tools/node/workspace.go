@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/tools"
-	"github.com/insmtx/Leros/backend/tools/node/security"
+	"github.com/insmtx/lework/backend/tools"
+	"github.com/insmtx/lework/backend/tools/node/security"
 )
 
 func resolveToolWorkDir(ctx context.Context, requested string) (string, error) {

@@ -1,7 +1,7 @@
 "use client";
 
-import { Switch } from "@leros/ui/components/ui/switch";
-import { cn } from "@leros/ui/lib/utils";
+import { Switch } from "@lework/ui/components/ui/switch";
+import { cn } from "@lework/ui/lib/utils";
 import { Moon, Sun } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 

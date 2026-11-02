@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
-	clauderuntime "github.com/insmtx/Leros/backend/agent/runtime/claude"
-	codexruntime "github.com/insmtx/Leros/backend/agent/runtime/codex"
-	runtimecli "github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
-	nativeruntime "github.com/insmtx/Leros/backend/agent/runtime/native"
-	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
+	"github.com/insmtx/lework/backend/agent"
+	clauderuntime "github.com/insmtx/lework/backend/agent/runtime/claude"
+	codexruntime "github.com/insmtx/lework/backend/agent/runtime/codex"
+	runtimecli "github.com/insmtx/lework/backend/agent/runtime/internal/cli"
+	nativeruntime "github.com/insmtx/lework/backend/agent/runtime/native"
+	opencoderuntime "github.com/insmtx/lework/backend/agent/runtime/opencode"
 )
 
 type contractBackend struct {
@@ -232,7 +232,7 @@ func TestAPIKeyReachesRuntimes(t *testing.T) {
 	const testAPIKey = "sk-test-secret-key-12345"
 	request := agent.ExecutionRequest{
 		ExecutionID: "api-key-test",
-		Runtime:     "leros",
+		Runtime:     "lework",
 		Model:       agent.ModelConfig{APIKey: testAPIKey, Model: "test-model"},
 	}
 

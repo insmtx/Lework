@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { LerosShell } from "@/components/LerosShell";
+import { LeworkShell } from "@/components/LeworkShell";
 
 export default function ShellLayout({ children }: { children: ReactNode }) {
-	return <LerosShell>{children}</LerosShell>;
+	return <LeworkShell>{children}</LeworkShell>;
 }

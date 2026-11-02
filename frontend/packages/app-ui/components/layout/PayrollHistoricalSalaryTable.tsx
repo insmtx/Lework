@@ -1,13 +1,13 @@
 "use client";
 
-import { Button } from "@leros/ui/components/ui/button";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import { FolderOpen, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";

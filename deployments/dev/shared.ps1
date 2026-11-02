@@ -2,7 +2,7 @@
 
 $script:DevRuntimeStateFile = Join-Path $PSScriptRoot '.runtime-state.json'
 
-function Get-LerosRepoRoot {
+function Get-LeworkRepoRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 }
 
@@ -46,7 +46,7 @@ function Get-BackendBinaryPath {
         [string]$RepoRoot
     )
 
-    return Join-Path $RepoRoot 'bundles\leros.exe'
+    return Join-Path $RepoRoot 'bundles\lework.exe'
 }
 
 function Get-LatestBackendSourceWriteTimeUtc {
@@ -113,7 +113,7 @@ function Ensure-LatestBackendBinary {
     }
 
     # 中文注释：开发脚本默认启动最新后端，避免静默复用旧 bundles 导致接口与源码不一致。
-    Write-Host '[Leros] Backend source changed, rebuilding latest binary...' -ForegroundColor Cyan
+    Write-Host '[Lework] Backend source changed, rebuilding latest binary...' -ForegroundColor Cyan
     & (Join-Path $PSScriptRoot 'rebuild-backend.ps1')
 }
 
@@ -171,7 +171,7 @@ function Set-OptionalGoBuildEnvironment {
 function Wait-DockerReady {
     $dockerExe = Get-DockerExe
 
-    Write-Host '[Leros] Waiting for Docker engine...' -ForegroundColor Cyan
+    Write-Host '[Lework] Waiting for Docker engine...' -ForegroundColor Cyan
     for ($i = 0; $i -lt 30; $i++) {
         & $dockerExe info *> $null
         if ($LASTEXITCODE -eq 0) {
@@ -190,8 +190,8 @@ function Test-DevDatabaseHasDuplicateUserOrgUin {
         [string]$DockerExe
     )
 
-    $query = "SELECT COUNT(*) FROM (SELECT uin FROM leros_user_org GROUP BY uin HAVING COUNT(*) > 1) duplicates;"
-    $duplicateCount = & $DockerExe exec leros-dev-postgresql psql -U leros_dev_user -d leros_dev_db -tAc $query 2>$null
+    $query = "SELECT COUNT(*) FROM (SELECT uin FROM lework_user_org GROUP BY uin HAVING COUNT(*) > 1) duplicates;"
+    $duplicateCount = & $DockerExe exec lework-dev-postgresql psql -U lework_dev_user -d lework_dev_db -tAc $query 2>$null
     if ($LASTEXITCODE -ne 0) {
         return $false
     }
@@ -207,7 +207,7 @@ function Wait-DevPostgresReady {
     )
 
     for ($i = 0; $i -lt 30; $i++) {
-        $health = & $DockerExe inspect --format '{{.State.Health.Status}}' leros-dev-postgresql 2>$null
+        $health = & $DockerExe inspect --format '{{.State.Health.Status}}' lework-dev-postgresql 2>$null
         if ($LASTEXITCODE -eq 0 -and ($health | Out-String).Trim() -eq 'healthy') {
             return
         }
@@ -225,7 +225,7 @@ function Wait-DevNatsReady {
     )
 
     for ($i = 0; $i -lt 30; $i++) {
-        $health = & $DockerExe inspect --format '{{.State.Health.Status}}' leros-dev-nats 2>$null
+        $health = & $DockerExe inspect --format '{{.State.Health.Status}}' lework-dev-nats 2>$null
         if ($LASTEXITCODE -eq 0 -and ($health | Out-String).Trim() -eq 'healthy') {
             return
         }
@@ -261,7 +261,7 @@ function Wait-DevPortReady {
 }
 
 function Get-DefaultCLIConfigPath {
-    return Join-Path $env:USERPROFILE '.leros\config.yaml'
+    return Join-Path $env:USERPROFILE '.lework\config.yaml'
 }
 
 function Get-DevNatsUrlFromConfig {
@@ -291,7 +291,7 @@ function Sync-DevCLIConfig {
     $natsUrl = Get-DevNatsUrlFromConfig
     $cliConfigPath = Get-DefaultCLIConfigPath
     $cliDir = Split-Path $cliConfigPath -Parent
-    $workspaceRoot = Join-Path $RepoRoot '.leros-workspace'
+    $workspaceRoot = Join-Path $RepoRoot '.lework-workspace'
 
     if (-not (Test-Path $cliDir)) {
         New-Item -ItemType Directory -Path $cliDir | Out-Null
@@ -304,7 +304,7 @@ function Sync-DevCLIConfig {
             $content = $content -replace '(?m)^workspace_root:\s*$', "workspace_root: $workspaceRoot"
         }
         Set-Content -Path $cliConfigPath -Value $content -Encoding UTF8
-        Write-Host "[Leros] Created CLI config at $cliConfigPath" -ForegroundColor Cyan
+        Write-Host "[Lework] Created CLI config at $cliConfigPath" -ForegroundColor Cyan
         return
     }
 
@@ -332,7 +332,7 @@ function Sync-DevCLIConfig {
     }
 
     Set-Content -Path $cliConfigPath -Value ($updatedLines -join [Environment]::NewLine) -Encoding UTF8
-    Write-Host "[Leros] Synced NATS/server_addr in CLI config ($cliConfigPath)." -ForegroundColor Cyan
+    Write-Host "[Lework] Synced NATS/server_addr in CLI config ($cliConfigPath)." -ForegroundColor Cyan
 }
 
 function ConvertTo-DevRuntimeHashtable {
@@ -374,21 +374,21 @@ function Start-DevBackendWindows {
 
     $state = ConvertTo-DevRuntimeHashtable -State $RuntimeState
 
-    Write-Host '[Leros] Opening server window...' -ForegroundColor Cyan
+    Write-Host '[Lework] Opening server window...' -ForegroundColor Cyan
     Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-server-dev.ps1" | Out-Null
-    Write-Host "[Leros] Waiting for server on port $($state.serverPort)..." -ForegroundColor Cyan
+    Write-Host "[Lework] Waiting for server on port $($state.serverPort)..." -ForegroundColor Cyan
     Wait-DevPortReady -Port $state.serverPort -ServiceName 'API server'
 
-    Write-Host '[Leros] Opening worker window...' -ForegroundColor Cyan
+    Write-Host '[Lework] Opening worker window...' -ForegroundColor Cyan
     Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-worker-dev.ps1" | Out-Null
-    Write-Host "[Leros] Waiting for worker on port $($state.workerPort)..." -ForegroundColor Cyan
+    Write-Host "[Lework] Waiting for worker on port $($state.workerPort)..." -ForegroundColor Cyan
     Wait-DevPortReady -Port $state.workerPort -ServiceName 'Worker'
 }
 
 function Start-DevFrontendWindow {
-    Write-Host '[Leros] Opening frontend window...' -ForegroundColor Cyan
+    Write-Host '[Lework] Opening frontend window...' -ForegroundColor Cyan
     Start-Process powershell.exe -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\run-frontend-dev.ps1" | Out-Null
-    Write-Host '[Leros] Waiting for frontend on port 3005...' -ForegroundColor Cyan
+    Write-Host '[Lework] Waiting for frontend on port 3005...' -ForegroundColor Cyan
     Wait-DevPortReady -Port 3005 -ServiceName 'Frontend' -MaxAttempts 90
 }
 
@@ -538,7 +538,7 @@ function Get-WorkerWorkspaceRoot {
         [string]$RepoRoot
     )
 
-    return Join-Path $RepoRoot '.leros-workspace'
+    return Join-Path $RepoRoot '.lework-workspace'
 }
 
 function Get-WorkerRecoveryDbPath {
@@ -547,7 +547,7 @@ function Get-WorkerRecoveryDbPath {
         [string]$RepoRoot
     )
 
-    return Join-Path (Get-WorkerWorkspaceRoot -RepoRoot $RepoRoot) '.leros\leros.db'
+    return Join-Path (Get-WorkerWorkspaceRoot -RepoRoot $RepoRoot) '.lework\lework.db'
 }
 
 function Get-ConfiguredDevRuntimeState {
@@ -636,7 +636,7 @@ function Ensure-Administrator {
         return $true
     }
 
-    Write-Host '[Leros] Re-launching with administrator permission...' -ForegroundColor Yellow
+    Write-Host '[Lework] Re-launching with administrator permission...' -ForegroundColor Yellow
     Start-Process -FilePath 'powershell.exe' -ArgumentList @(
         '-ExecutionPolicy', 'Bypass',
         '-File', $ScriptPath
@@ -650,7 +650,7 @@ function Stop-DevProcessesByPorts {
         [int[]]$Ports
     )
 
-    $repoRoot = Get-LerosRepoRoot
+    $repoRoot = Get-LeworkRepoRoot
     $stoppedProcessIds = New-Object 'System.Collections.Generic.HashSet[int]'
 
     foreach ($port in $Ports) {
@@ -679,7 +679,7 @@ function Stop-DevProcessesByPorts {
             & taskkill /PID $pidValue /T /F *> $null
 
             if ($LASTEXITCODE -eq 0) {
-                Write-Host "[Leros] Stopped process tree on port $port (PID: $pidValue)." -ForegroundColor Cyan
+                Write-Host "[Lework] Stopped process tree on port $port (PID: $pidValue)." -ForegroundColor Cyan
                 continue
             }
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

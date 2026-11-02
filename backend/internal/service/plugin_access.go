@@ -6,9 +6,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // pluginAccessManager 集中实现插件固定角色访问策略。

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

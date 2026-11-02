@@ -14,9 +14,9 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	adapteraccount "github.com/insmtx/Leros/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/types"
+	adapteraccount "github.com/insmtx/lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/types"
 )
 
 const (
@@ -77,7 +77,7 @@ func CallerMiddleware(parser adapteraccount.TokenParser, database *gorm.DB) gin.
 }
 
 func parseCallerFromRequest(ctx *gin.Context, parser adapteraccount.TokenParser) (*types.Caller, string) {
-	if os.Getenv("LEROS_DEV") == "true" {
+	if os.Getenv("LEWORK_DEV") == "true" {
 		return &types.Caller{
 			Uin:   1,
 			OrgID: 1,

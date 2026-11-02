@@ -8,10 +8,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/llm"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func newLLMTestDB(t *testing.T) *gorm.DB {

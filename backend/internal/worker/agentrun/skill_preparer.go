@@ -15,13 +15,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/service"
-	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
-	skillarchive "github.com/insmtx/Leros/backend/internal/skill/archive"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
-	"github.com/insmtx/Leros/backend/internal/worker/skillsync"
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/lework/backend/internal/service"
+	skilltoken "github.com/insmtx/lework/backend/internal/skill"
+	skillarchive "github.com/insmtx/lework/backend/internal/skill/archive"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/lework/backend/internal/worker/skillsync"
+	"github.com/insmtx/lework/backend/pkg/lework"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -171,7 +171,7 @@ func (p *PluginSkillPreparer) preparePluginSkills(
 	policy disabledPluginPolicy,
 	downloadContext skillDownloadContext,
 ) {
-	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
+	skillsRoot, err := lework.JoinWorkspace(".lework", "skills")
 	if err != nil {
 		logs.WarnContextf(ctx, "resolve worker Skill directory failed: %v", err)
 		return
@@ -363,7 +363,7 @@ func (p *PluginSkillPreparer) installLatestSkills(
 	viewRoot, scene string,
 	downloadContext skillDownloadContext,
 ) error {
-	skillsRoot, err := leros.JoinWorkspace(".leros", "skills")
+	skillsRoot, err := lework.JoinWorkspace(".lework", "skills")
 	if err != nil {
 		return fmt.Errorf("resolve worker Skill directory: %w", err)
 	}
@@ -686,7 +686,7 @@ func resetTaskSkillView(root string) error {
 }
 
 func systemSkillsDir() string {
-	dir, _ := leros.JoinWorkspace(".leros", "skills", ".system")
+	dir, _ := lework.JoinWorkspace(".lework", "skills", ".system")
 	return dir
 }
 

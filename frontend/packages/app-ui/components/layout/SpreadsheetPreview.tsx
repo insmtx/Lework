@@ -68,7 +68,7 @@ export function SpreadsheetPreview({
 
 	if (result.status === "loading") {
 		return (
-			<div className="flex h-full min-h-[320px] items-center justify-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex h-full min-h-[320px] items-center justify-center text-sm text-[var(--lework-text-muted)]">
 				正在解析表格...
 			</div>
 		);
@@ -76,9 +76,9 @@ export function SpreadsheetPreview({
 
 	if (result.status === "error") {
 		return (
-			<div className="flex h-full min-h-[320px] items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex h-full min-h-[320px] items-center justify-center px-8 text-center text-sm text-[var(--lework-text-muted)]">
 				<div>
-					<AlertCircle className="mx-auto mb-3 size-8 text-[var(--leros-danger)]" />
+					<AlertCircle className="mx-auto mb-3 size-8 text-[var(--lework-danger)]" />
 					<p>无法解析表格文件</p>
 					<p className="mt-1 text-xs">{result.error}</p>
 				</div>
@@ -90,7 +90,7 @@ export function SpreadsheetPreview({
 	const sheet = result.sheets[activeSheetIndex];
 	if (!sheet) {
 		return (
-			<div className="flex h-full min-h-[320px] items-center justify-center text-sm text-[var(--leros-text-muted)]">
+			<div className="flex h-full min-h-[320px] items-center justify-center text-sm text-[var(--lework-text-muted)]">
 				文件中没有可预览的工作表
 			</div>
 		);
@@ -101,9 +101,9 @@ export function SpreadsheetPreview({
 
 	return (
 		<div className="flex h-full min-h-[320px] flex-col overflow-hidden bg-white">
-			<div className="flex shrink-0 items-center gap-2 border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 py-2">
+			<div className="flex shrink-0 items-center gap-2 border-b border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 py-2">
 				<Table2 className="size-4 shrink-0 text-emerald-600" />
-				<div className="min-w-0 flex-1 truncate text-xs text-[var(--leros-text-muted)]">
+				<div className="min-w-0 flex-1 truncate text-xs text-[var(--lework-text-muted)]">
 					{fileName} · {sheet.totalRows.toLocaleString()} 行 × {sheet.totalColumns.toLocaleString()}{" "}
 					列
 				</div>
@@ -115,14 +115,14 @@ export function SpreadsheetPreview({
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-auto">
-				<table className="border-separate border-spacing-0 text-xs text-[var(--leros-text)]">
+				<table className="border-separate border-spacing-0 text-xs text-[var(--lework-text)]">
 					<thead>
 						<tr>
-							<th className="sticky left-0 top-0 z-30 min-w-12 border-b border-r border-[var(--leros-control-border)] bg-slate-200" />
+							<th className="sticky left-0 top-0 z-30 min-w-12 border-b border-r border-[var(--lework-control-border)] bg-slate-200" />
 							{Array.from({ length: visibleColumns }, (_, columnIndex) => (
 								<th
 									key={columnIndex}
-									className="sticky top-0 z-10 min-w-28 border-b border-r border-[var(--leros-control-border)] bg-slate-100 px-2.5 py-1.5 text-center font-medium text-slate-500"
+									className="sticky top-0 z-10 min-w-28 border-b border-r border-[var(--lework-control-border)] bg-slate-100 px-2.5 py-1.5 text-center font-medium text-slate-500"
 								>
 									{columnName(columnIndex)}
 								</th>
@@ -132,14 +132,14 @@ export function SpreadsheetPreview({
 					<tbody>
 						{sheet.rows.map((row, rowIndex) => (
 							<tr key={`${sheet.name}-${rowIndex}`}>
-								<th className="sticky left-0 z-20 min-w-12 border-b border-r border-[var(--leros-control-border)] bg-slate-100 px-2 py-1.5 text-center font-normal text-slate-500">
+								<th className="sticky left-0 z-20 min-w-12 border-b border-r border-[var(--lework-control-border)] bg-slate-100 px-2 py-1.5 text-center font-normal text-slate-500">
 									{rowIndex + 1}
 								</th>
 								{row.map((cell, columnIndex) => (
 									<td
 										key={`${sheet.name}-${rowIndex}-${columnIndex}`}
 										title={cell}
-										className="max-w-64 min-w-28 truncate whitespace-nowrap border-b border-r border-[var(--leros-control-border)] bg-white px-2.5 py-1.5"
+										className="max-w-64 min-w-28 truncate whitespace-nowrap border-b border-r border-[var(--lework-control-border)] bg-white px-2.5 py-1.5"
 									>
 										{cell}
 									</td>
@@ -151,7 +151,7 @@ export function SpreadsheetPreview({
 			</div>
 
 			{result.sheets.length > 1 && (
-				<div className="flex shrink-0 gap-1 overflow-x-auto border-t border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-2 py-1.5">
+				<div className="flex shrink-0 gap-1 overflow-x-auto border-t border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-2 py-1.5">
 					{result.sheets.map((item, index) => (
 						<button
 							key={item.name}
@@ -159,8 +159,8 @@ export function SpreadsheetPreview({
 							onClick={() => setSelectedSheet(index)}
 							className={`shrink-0 rounded-md px-3 py-1.5 text-xs transition-colors ${
 								index === activeSheetIndex
-									? "bg-white font-medium text-emerald-700 shadow-sm ring-1 ring-[var(--leros-control-border)]"
-									: "text-[var(--leros-text-muted)] hover:bg-white/70"
+									? "bg-white font-medium text-emerald-700 shadow-sm ring-1 ring-[var(--lework-control-border)]"
+									: "text-[var(--lework-text-muted)] hover:bg-white/70"
 							}`}
 						>
 							{item.name}

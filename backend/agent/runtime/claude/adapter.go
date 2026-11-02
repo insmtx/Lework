@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/lework/backend/agent/runtime/internal/cli"
 )
 
 // Adapter 通过 Claude Code 执行提示。

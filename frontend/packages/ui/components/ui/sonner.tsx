@@ -1,6 +1,6 @@
 "use client";
 
-import { useTheme } from "@leros/ui/components/common/theme-provider";
+import { useTheme } from "@lework/ui/components/common/theme-provider";
 import { AlertOctagon, AlertTriangle, CircleCheck, Info, Loader } from "lucide-react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 

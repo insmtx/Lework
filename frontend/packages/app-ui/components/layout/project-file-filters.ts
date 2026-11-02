@@ -1,4 +1,4 @@
-import type { GetProjectFilesParams } from "@leros/store";
+import type { GetProjectFilesParams } from "@lework/store";
 
 export type ProjectFileSourceFilter = "all" | "task" | "upload";
 

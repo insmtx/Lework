@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	localauth "github.com/insmtx/lework/backend/internal/api/auth"
 )
 
 func TestUploadFileByMultipart_Success(t *testing.T) {

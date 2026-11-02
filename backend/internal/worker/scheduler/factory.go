@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 const (

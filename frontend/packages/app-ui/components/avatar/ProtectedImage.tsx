@@ -4,10 +4,10 @@ import {
 	authenticatedFetch,
 	fetchFilePreviewByPublicId,
 	normalizeFilePublicId,
-} from "@leros/store";
+} from "@lework/store";
 import { type ReactNode, useEffect, useState } from "react";
 
-const PROTECTED_IMAGE_CACHE_PREFIX = "leros-avatar-cache:";
+const PROTECTED_IMAGE_CACHE_PREFIX = "lework-avatar-cache:";
 
 const memoryCache = new Map<string, string>();
 const inflightLoads = new Map<string, Promise<string>>();

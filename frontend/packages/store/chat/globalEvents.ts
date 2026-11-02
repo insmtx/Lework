@@ -6,7 +6,7 @@
  * 不可以做：解析 SessionEvents delta 正文（交给 sessionStream + messageReducer）；
  * 不直接拼消息正文。
  */
-import { FetchSSEClient } from "@leros/ui/lib/fetch-sse";
+import { FetchSSEClient } from "@lework/ui/lib/fetch-sse";
 import { API_BASE_URL } from "../api/config";
 import { sessionApi } from "../api/sessionApi";
 import type { BackendWorkTitleUpdatedPayload } from "../api/types";

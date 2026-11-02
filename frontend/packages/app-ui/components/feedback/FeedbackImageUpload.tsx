@@ -1,7 +1,7 @@
 "use client";
 
-import { getNativeFileInputAccept, projectFileApi } from "@leros/store";
-import { cn } from "@leros/ui/lib/utils";
+import { getNativeFileInputAccept, projectFileApi } from "@lework/store";
+import { cn } from "@lework/ui/lib/utils";
 import { ImagePlus, Loader2, Upload, X } from "lucide-react";
 import { forwardRef, useCallback, useId, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -150,16 +150,16 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 		const dropZoneClassName = cn(
 			"rounded-lg border border-dashed px-3 py-3 transition-colors",
 			canUploadMore && !isUploading
-				? "border-[var(--leros-control-border)]"
-				: "border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)]/60",
-			dragActive && "border-[var(--leros-primary)] bg-[var(--leros-primary-subtle)]",
+				? "border-[var(--lework-control-border)]"
+				: "border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)]/60",
+			dragActive && "border-[var(--lework-primary)] bg-[var(--lework-primary-subtle)]",
 		);
 
 		return (
 			<div className="space-y-2">
 				<div className="flex items-center justify-between gap-2">
 					<p className="text-xs font-medium text-slate-500">截图附件</p>
-					<span className="text-xs text-[var(--leros-text-subtle)]">
+					<span className="text-xs text-[var(--lework-text-subtle)]">
 						{images.length}/{FEEDBACK_MAX_IMAGES}
 					</span>
 				</div>
@@ -188,15 +188,15 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 							"flex w-full flex-col items-center gap-2 py-2 text-center disabled:cursor-default",
 							canUploadMore &&
 								!isUploading &&
-								"hover:border-[var(--leros-text-muted)] hover:bg-[var(--leros-surface-soft)]",
+								"hover:border-[var(--lework-text-muted)] hover:bg-[var(--lework-surface-soft)]",
 						)}
 					>
-						<div className="flex size-10 items-center justify-center rounded-full bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)]">
+						<div className="flex size-10 items-center justify-center rounded-full bg-[var(--lework-surface-soft)] text-[var(--lework-text-muted)]">
 							<Upload className="size-5" />
 						</div>
 						<div>
-							<p className="text-sm text-[var(--leros-text-strong)]">点击上传、拖拽或粘贴图片</p>
-							<p className="mt-0.5 text-xs text-[var(--leros-text-muted)]">
+							<p className="text-sm text-[var(--lework-text-strong)]">点击上传、拖拽或粘贴图片</p>
+							<p className="mt-0.5 text-xs text-[var(--lework-text-muted)]">
 								支持 JPG、PNG、WebP，最多 {FEEDBACK_MAX_IMAGES} 张
 							</p>
 						</div>
@@ -215,7 +215,7 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 								{images.map((image) => (
 									<div
 										key={image.id}
-										className="group relative size-[72px] overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-white shadow-sm"
+										className="group relative size-[72px] overflow-hidden rounded-lg border border-[var(--lework-control-border)] bg-white shadow-sm"
 									>
 										<img src={image.previewUrl} alt="反馈截图" className="size-full object-cover" />
 										<button
@@ -232,15 +232,15 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 									</div>
 								))}
 								{isUploading ? (
-									<div className="flex size-[72px] items-center justify-center rounded-lg border border-dashed border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)]">
-										<Loader2 className="size-5 animate-spin text-[var(--leros-text-muted)]" />
+									<div className="flex size-[72px] items-center justify-center rounded-lg border border-dashed border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)]">
+										<Loader2 className="size-5 animate-spin text-[var(--lework-text-muted)]" />
 									</div>
 								) : null}
 								{canUploadMore && !isUploading ? (
 									<button
 										type="button"
 										onClick={openFilePicker}
-										className="flex size-[72px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]"
+										className="flex size-[72px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] text-[var(--lework-text-muted)] transition-colors hover:border-[var(--lework-text-muted)] hover:text-[var(--lework-text-strong)]"
 										aria-label="添加图片"
 									>
 										<ImagePlus className="size-4" />
@@ -249,7 +249,7 @@ export const FeedbackImageUpload = forwardRef<FeedbackImageUploadHandle, Feedbac
 								) : null}
 							</div>
 							{canUploadMore ? (
-								<p className="text-center text-xs text-[var(--leros-text-muted)]">
+								<p className="text-center text-xs text-[var(--lework-text-muted)]">
 									支持拖拽或点击添加
 								</p>
 							) : null}

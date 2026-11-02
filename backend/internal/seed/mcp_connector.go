@@ -1,8 +1,8 @@
 package seed
 
 import (
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // configuredMCPConnectorSpecs maps server configuration into database-neutral connector input.

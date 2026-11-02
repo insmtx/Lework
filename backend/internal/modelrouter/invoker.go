@@ -8,7 +8,7 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/llm"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

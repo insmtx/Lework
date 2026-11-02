@@ -7,7 +7,7 @@ import (
 )
 
 func TestCleanupLegacyGlobalSkillLinksOnceRemovesOnlyLegacyLinks(t *testing.T) {
-	stateDir := filepath.Join(t.TempDir(), ".leros")
+	stateDir := filepath.Join(t.TempDir(), ".lework")
 	homeDir := t.TempDir()
 	legacySkillsDir := filepath.Join(stateDir, "skills")
 	if err := os.MkdirAll(filepath.Join(legacySkillsDir, "legacy-skill"), 0o755); err != nil {
@@ -69,7 +69,7 @@ func TestCleanupLegacyGlobalSkillLinksOnceRemovesOnlyLegacyLinks(t *testing.T) {
 }
 
 func TestCleanupLegacyGlobalSkillLinksOnceUsesPersistentMarker(t *testing.T) {
-	stateDir := filepath.Join(t.TempDir(), ".leros")
+	stateDir := filepath.Join(t.TempDir(), ".lework")
 	homeDir := t.TempDir()
 	legacySkillsDir := filepath.Join(stateDir, "skills", "later-skill")
 	if err := os.MkdirAll(legacySkillsDir, 0o755); err != nil {

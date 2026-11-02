@@ -1,14 +1,14 @@
 "use client";
 
-import type { DigitalAssistantItem } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import type { DigitalAssistantItem } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import { ChevronRight } from "lucide-react";
 import { MarkdownRenderer } from "../common/MarkdownRenderer";
 import { AssistantAvatar } from "./AssistantAvatar";
@@ -55,17 +55,17 @@ export function AssistantDetailDialog({
 					<div className="flex items-start gap-4 pr-7">
 						<AssistantAvatar name={assistant.name} src={assistant.avatar} size="lg" />
 						<div className="min-w-0 flex-1">
-							<h2 className="truncate text-xl font-semibold text-[var(--leros-text-strong)]">
+							<h2 className="truncate text-xl font-semibold text-[var(--lework-text-strong)]">
 								{assistant.name}
 							</h2>
 							{assistant.roleName ? (
-								<p className="mt-1 text-sm text-[var(--leros-text-muted)]">{assistant.roleName}</p>
+								<p className="mt-1 text-sm text-[var(--lework-text-muted)]">{assistant.roleName}</p>
 							) : null}
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{featureKeywords.map((keyword) => (
 									<span
 										key={keyword}
-										className="rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--leros-text-muted)]"
+										className="rounded-md bg-[var(--lework-surface-soft)] px-2.5 py-1 text-xs font-medium text-[var(--lework-text-muted)]"
 									>
 										{keyword}
 									</span>
@@ -76,27 +76,27 @@ export function AssistantDetailDialog({
 
 					<div className="mt-6 space-y-5">
 						<section>
-							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">能力介绍</h3>
+							<h3 className="text-sm font-semibold text-[var(--lework-text-strong)]">能力介绍</h3>
 							<MarkdownRenderer
 								content={assistant.description || "暂无能力介绍"}
-								className="prose prose-slate prose-sm mt-3 max-w-2xl prose-p:my-1.5 prose-p:leading-7 prose-p:text-[var(--leros-text-muted)]"
+								className="prose prose-slate prose-sm mt-3 max-w-2xl prose-p:my-1.5 prose-p:leading-7 prose-p:text-[var(--lework-text-muted)]"
 							/>
 						</section>
 
 						<section>
-							<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">擅长领域</h3>
+							<h3 className="text-sm font-semibold text-[var(--lework-text-strong)]">擅长领域</h3>
 							<div className="mt-3 flex flex-wrap gap-3">
 								{expertise.length > 0 ? (
 									expertise.map((tag) => (
 										<span
 											key={tag}
-											className="rounded-md border border-[var(--leros-control-border)] bg-white px-4 py-2 text-sm font-medium text-[var(--leros-text-muted)]"
+											className="rounded-md border border-[var(--lework-control-border)] bg-white px-4 py-2 text-sm font-medium text-[var(--lework-text-muted)]"
 										>
 											{tag}
 										</span>
 									))
 								) : (
-									<span className="text-sm text-[var(--leros-text-subtle)]">暂无</span>
+									<span className="text-sm text-[var(--lework-text-subtle)]">暂无</span>
 								)}
 							</div>
 						</section>
@@ -104,7 +104,7 @@ export function AssistantDetailDialog({
 						{/* 中文注释：预设队友保留「试试这样问我」；自定义队友仅展示能力介绍与擅长领域。 */}
 						{isPresetAssistant ? (
 							<section>
-								<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">
+								<h3 className="text-sm font-semibold text-[var(--lework-text-strong)]">
 									试试这样问我
 								</h3>
 								<div className="mt-3 space-y-3">
@@ -112,13 +112,13 @@ export function AssistantDetailDialog({
 										<button
 											key={prompt}
 											type="button"
-											className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-3 text-left text-sm leading-6 text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:text-[var(--leros-text-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+											className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--lework-control-border)] bg-white px-4 py-3 text-left text-sm leading-6 text-[var(--lework-text-muted)] transition-colors hover:border-[var(--lework-primary)] hover:text-[var(--lework-text-strong)] disabled:cursor-not-allowed disabled:opacity-60"
 											onClick={() => onSummon(assistant, prompt)}
 											disabled={summoning || buttonState.disabled}
 										>
 											<span className="min-w-0 flex-1">“{prompt}”</span>
 											<ChevronRight
-												className="size-4 shrink-0 text-[var(--leros-text-subtle)]"
+												className="size-4 shrink-0 text-[var(--lework-text-subtle)]"
 												aria-hidden="true"
 											/>
 										</button>
@@ -129,10 +129,10 @@ export function AssistantDetailDialog({
 					</div>
 				</div>
 
-				<DialogFooter className="border-t border-[var(--leros-control-border)] bg-white px-5 py-3.5 sm:px-6">
+				<DialogFooter className="border-t border-[var(--lework-control-border)] bg-white px-5 py-3.5 sm:px-6">
 					<Button
 						type="button"
-						className="h-10 w-full rounded-lg bg-[var(--leros-text-strong)] text-sm font-semibold text-white hover:bg-[var(--leros-text)] disabled:bg-[var(--leros-text-subtle)]"
+						className="h-10 w-full rounded-lg bg-[var(--lework-text-strong)] text-sm font-semibold text-white hover:bg-[var(--lework-text)] disabled:bg-[var(--lework-text-subtle)]"
 						onClick={() => onSummon(assistant, buildDefaultSummonPrompt(assistant))}
 						disabled={summoning || buttonState.disabled}
 					>

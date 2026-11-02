@@ -18,11 +18,11 @@ import (
 
 	_ "github.com/ygpkg/storage-go/driver/local"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupPluginServiceTestDB(t *testing.T) *gorm.DB {

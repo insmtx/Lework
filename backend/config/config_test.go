@@ -10,13 +10,13 @@ import (
 
 func TestConfigParsesWorkspaceRootAndLogLevel(t *testing.T) {
 	var cfg Config
-	body := []byte("workspace_root: /tmp/leros\nlog:\n  level: error\nserver:\n  port: \"8080\"\n")
+	body := []byte("workspace_root: /tmp/lework\nlog:\n  level: error\nserver:\n  port: \"8080\"\n")
 
 	if err := yaml.Unmarshal(body, &cfg); err != nil {
 		t.Fatalf("unmarshal config: %v", err)
 	}
 
-	if cfg.WorkspaceRoot != "/tmp/leros" {
+	if cfg.WorkspaceRoot != "/tmp/lework" {
 		t.Fatalf("workspace root = %q", cfg.WorkspaceRoot)
 	}
 	if cfg.Log.Level != "error" {
@@ -56,7 +56,7 @@ func TestConfigParsesMCPConnectors(t *testing.T) {
       oauth:
         app_key: ${BAIDU_NETDISK_APP_KEY}
         secret_key: ${BAIDU_NETDISK_SECRET_KEY}
-        redirect_uri: https://leros.example.com/callback
+        redirect_uri: https://lework.example.com/callback
         scopes: [basic, netdisk]
   - channel: catapi
     name: CatAPI

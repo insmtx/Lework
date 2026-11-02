@@ -6,7 +6,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func setupAccountDAOTestDB(t *testing.T) *gorm.DB {

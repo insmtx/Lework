@@ -11,14 +11,14 @@ import (
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/internal/workspace"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/workspace"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -461,7 +461,7 @@ func recordSkillInvocationsFromMessaging(ctx context.Context, db *gorm.DB, orgID
 		}
 		seen[skillName] = true
 
-		source, skillID := "Leros", skillName
+		source, skillID := "Lework", skillName
 		resourceID := ""
 		var plugin types.Plugin
 		if err := db.WithContext(ctx).

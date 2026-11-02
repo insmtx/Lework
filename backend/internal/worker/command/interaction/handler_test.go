@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 type fakeResolver struct {

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
-	"github.com/insmtx/Leros/backend/tools"
+	localmemory "github.com/insmtx/lework/backend/internal/memory/local"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 func TestToolExecuteAdd(t *testing.T) {

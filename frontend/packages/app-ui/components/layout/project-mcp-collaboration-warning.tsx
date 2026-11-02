@@ -1,7 +1,7 @@
 "use client";
 
-import type { ProjectMember } from "@leros/store";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
+import type { ProjectMember } from "@lework/store";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
 import { TriangleAlert } from "lucide-react";
 
 export const PROJECT_MCP_COLLABORATION_WARNING =

@@ -563,7 +563,7 @@ function getDocxRenderWidth(hostElement: HTMLElement): number {
 
 function PreviewStatus({ label }: { label: string }) {
 	return (
-		<div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--leros-text-muted)]">
+		<div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--lework-text-muted)]">
 			<LoaderCircle className="mr-2 size-4 animate-spin" />
 			{label}
 		</div>
@@ -572,7 +572,7 @@ function PreviewStatus({ label }: { label: string }) {
 
 function PreviewError({ format, message }: { format: OfficeOpenXmlFormat; message: string }) {
 	return (
-		<div className="absolute inset-0 flex items-center justify-center px-8 text-center text-sm text-[var(--leros-text-muted)]">
+		<div className="absolute inset-0 flex items-center justify-center px-8 text-center text-sm text-[var(--lework-text-muted)]">
 			<div>
 				<p>无法加载 {format.toUpperCase()} 预览</p>
 				<p className="mt-1 text-xs">{message}</p>

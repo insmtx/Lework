@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func getOrgIDFromContext(ctx context.Context) (uint, error) {

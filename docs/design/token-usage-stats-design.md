@@ -46,7 +46,7 @@ CacheInputTokens int `gorm:"column:cache_input_tokens;type:integer;default:0"`
 CacheOutputTokens int `gorm:"column:cache_output_tokens;type:integer;default:0"`
 ```
 
-复合索引 `idx_session_msg_usage` 覆盖 `(session_id, deleted_at)` 维度，按 session 聚合走索引扫描。project 维度靠 `leros_session.project_id` 已有索引覆盖 JOIN 条件。
+复合索引 `idx_session_msg_usage` 覆盖 `(session_id, deleted_at)` 维度，按 session 聚合走索引扫描。project 维度靠 `lework_session.project_id` 已有索引覆盖 JOIN 条件。
 
 `MessageUsage` 结构体保留，用于 Service/Contract 层传递聚合结果，不再作为列存储。
 
@@ -55,7 +55,7 @@ CacheOutputTokens int `gorm:"column:cache_output_tokens;type:integer;default:0"`
 在 `runMigrations` 的 `dbtools.InitModel` 之后新增幂等 backfill 函数 `backfillSessionMessageUsageColumns`，仅当旧 `usage` 列存在时执行：
 
 ```sql
-UPDATE leros_session_message
+UPDATE lework_session_message
 SET
   input_tokens        = COALESCE(CAST(usage->>'input_tokens' AS INTEGER), 0),
   output_tokens       = COALESCE(CAST(usage->>'output_tokens' AS INTEGER), 0),
@@ -81,7 +81,7 @@ WHERE usage IS NOT NULL AND usage != '{}'::jsonb;
 ### 索引策略
 
 - `(session_id, deleted_at)` 复合索引 `idx_session_msg_usage` — session 维度聚合走索引扫描
-- project 维度靠 `leros_session.project_id` 已有 `uniqueIndex:uni_session_project_task` 覆盖 JOIN
+- project 维度靠 `lework_session.project_id` 已有 `uniqueIndex:uni_session_project_task` 覆盖 JOIN
 - 不额外加 `assistant_id` 维度索引（YAGNI，当前统计不涉及）
 
 ### 回滚与风险
@@ -103,7 +103,7 @@ WHERE usage IS NOT NULL AND usage != '{}'::jsonb;
 // 按 session 聚合所有 message 的 token 消耗
 func SumSessionUsage(ctx context.Context, db *gorm.DB, sessionID uint) (*types.MessageUsage, error)
 
-// 按 project 聚合（JOIN leros_session 获取 project 下所有 session）
+// 按 project 聚合（JOIN lework_session 获取 project 下所有 session）
 func SumProjectUsage(ctx context.Context, db *gorm.DB, projectID uint) (*types.MessageUsage, error)
 ```
 
@@ -116,7 +116,7 @@ SELECT
   COALESCE(SUM(total_tokens), 0)        AS total_tokens,
   COALESCE(SUM(cache_input_tokens), 0)  AS cache_input_tokens,
   COALESCE(SUM(cache_output_tokens), 0) AS cache_output_tokens
-FROM leros_session_message
+FROM lework_session_message
 WHERE session_id = ? AND deleted_at IS NULL;
 ```
 
@@ -129,8 +129,8 @@ SELECT
   COALESCE(SUM(m.total_tokens), 0)        AS total_tokens,
   COALESCE(SUM(m.cache_input_tokens), 0)  AS cache_input_tokens,
   COALESCE(SUM(m.cache_output_tokens), 0) AS cache_output_tokens
-FROM leros_session_message m
-JOIN leros_session s ON s.id = m.session_id
+FROM lework_session_message m
+JOIN lework_session s ON s.id = m.session_id
 WHERE s.project_id = ? AND s.deleted_at IS NULL AND m.deleted_at IS NULL;
 ```
 
@@ -182,7 +182,7 @@ type GetProjectTokenUsageRequest struct {
 
 ### 后续扩展
 
-当前 `MessageUsage` 结构不含费用金额。如需后续支持成本统计，可在 `MessageUsage` 中增加 `Cost` 字段，通过 `leros_llm_model` 表的单价换算。
+当前 `MessageUsage` 结构不含费用金额。如需后续支持成本统计，可在 `MessageUsage` 中增加 `Cost` 字段，通过 `lework_llm_model` 表的单价换算。
 
 ## 变更清单
 

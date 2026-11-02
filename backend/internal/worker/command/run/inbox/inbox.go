@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 	_ "github.com/mattn/go-sqlite3"
 )
 

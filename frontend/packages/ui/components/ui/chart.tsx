@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 

@@ -4,7 +4,7 @@ import {
 	frontendEventApi,
 } from "../api/frontendEventApi";
 
-const FRONTEND_EVENT_FINGERPRINT_KEY = "leros-frontend-event-fingerprint";
+const FRONTEND_EVENT_FINGERPRINT_KEY = "lework-frontend-event-fingerprint";
 
 let memoryFingerprint = "";
 
@@ -21,7 +21,7 @@ function createFingerprint(): string {
 		return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 	}
 
-	return `leros-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+	return `lework-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function getFrontendEventFingerprint(): string {

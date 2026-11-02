@@ -157,8 +157,8 @@ P03 MCP 运行服务可能尚未部署或未注册该工具（该工具依赖 Pa
 
 ## 可信批次上下文与写入阻断
 
-- Lework Runtime 的 `buildWorkspaceContext()` 在当前请求含项目、Task 和 Request 上下文时，会呈现项目仓库根目录及本轮 Turn 临时目录；临时目录由 `ResolveTaskWorkspace()` 按 `<repo>/.leros/tasks/<task_id>/turns/<request_id>/tmp` 构造。Task ID 没有独立文本字段，但位于固定路径段，跨 Turn 时 Task 路径段稳定、Request 段变化。路径派生是当前上下文的结构性证据，不是密码学认证。
-- 进入批次流程后，只把本轮工作区上下文中给出的项目根目录及 Turn 临时目录传给 `scripts/task_context.py`，不得从用户文本、项目 ID、Turn/Request ID、目录扫描、最近任务或随机值取得 Task ID；旧任务的 Batch ID 不得自动继承。路径不完整、仓库不匹配、结构错误、符号链接或 ID 格式错误时，停止相关流程；不要要求用户查找 `.leros` 目录，也不要询问用户填写 Task ID 或 Batch ID。
+- Lework Runtime 的 `buildWorkspaceContext()` 在当前请求含项目、Task 和 Request 上下文时，会呈现项目仓库根目录及本轮 Turn 临时目录；临时目录由 `ResolveTaskWorkspace()` 按 `<repo>/.lework/tasks/<task_id>/turns/<request_id>/tmp` 构造。Task ID 没有独立文本字段，但位于固定路径段，跨 Turn 时 Task 路径段稳定、Request 段变化。路径派生是当前上下文的结构性证据，不是密码学认证。
+- 进入批次流程后，只把本轮工作区上下文中给出的项目根目录及 Turn 临时目录传给 `scripts/task_context.py`，不得从用户文本、项目 ID、Turn/Request ID、目录扫描、最近任务或随机值取得 Task ID；旧任务的 Batch ID 不得自动继承。路径不完整、仓库不匹配、结构错误、符号链接或 ID 格式错误时，停止相关流程；不要要求用户查找 `.lework` 目录，也不要询问用户填写 Task ID 或 Batch ID。
 - 发现 Task ID：
 
   ```sh

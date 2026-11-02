@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/api/dto"
 )
 
 // RegisterOfficialPluginMarketplaceRoutes registers the official plugin catalogue separately from organization plugins.

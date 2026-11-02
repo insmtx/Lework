@@ -1,0 +1,482 @@
+# =============================================================================
+# Lework Helm Chart 部署配置模板
+# =============================================================================
+# 此文件由 gen-values.sh 读取并替换占位符后生成 values.yaml，请勿直接编辑。
+# 占位符格式：@VAR_NAME@
+#   @PG_PASSWORD@         -> 随机生成
+#   @NATS_PASSWORD@       -> 随机生成
+#   @JWT_SECRET@          -> 随机生成
+#   @STORAGE_SIGN_SECRET@ -> 随机生成
+#   @REGISTRY@            -> 命令行 --registry 传入，不传则留空
+#   @REGISTRY_USER@       -> 命令行 --user 传入
+#   @REGISTRY_PASS@       -> 命令行 --pass 传入
+# llm.apiKey 不自动生成，需手动填写。
+# =============================================================================
+
+# --- 全局覆盖 ---
+nameOverride: ""
+fullnameOverride: ""
+
+# 宿主机数据根目录：所有组件的 hostPath 默认基于此前缀。
+# 各组件 hostPath 字段里的 <dataHostPath> 占位符会被替换为此值。
+# 修改这一处即可全局调整所有数据目录位置。
+dataHostPath: /data/lework
+
+# 全局节点选择器：postgresql/nats/server/worker 默认回退到此。
+# 私有化部署所有组件需固定同一节点让 hostPath 数据共享，填一处即可。
+# 组件各自仍可单独覆盖（postgresql.nodeSelector 等）。
+nodeSelector: {}
+  # kubernetes.io/hostname: node-1
+
+# 命名空间：建议单独 namespace 隔离，默认随 -n 参数
+# namespace: lework
+
+# --- 镜像拉取凭证 ---
+# 私有镜像仓库认证。enabled=true 时 chart 会创建对应 Secret（kubernetes.io/dockerconfigjson）。
+# 如已存在同名 Secret，设 enabled=false 并通过 imagePullSecrets 引用。
+imagePullSecret:
+  enabled: false
+  name: lework-registry
+  registry: "@REGISTRY@"
+  username: "@REGISTRY_USER@"
+  password: "@REGISTRY_PASS@"
+
+# 额外引用已存在的 imagePullSecrets
+imagePullSecrets: []
+  # - name: insmtx-registry
+
+# =============================================================================
+# PostgreSQL 数据库
+# =============================================================================
+postgresql:
+  enabled: true
+  image: registry.yygu.cn/library/postgres:18.4
+  username: lework_user
+  password: "@PG_PASSWORD@"
+  database: lework_db
+  hostPath: <dataHostPath>/postgresql
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1, memory: 1Gi }
+  external:
+    url: ""
+
+# =============================================================================
+# MySQL 数据库（account 服务使用）
+# =============================================================================
+mysql:
+  enabled: false
+  image: registry.cn-beijing.aliyuncs.com/yygu/corekg:mysql_8.4.5
+  imagePullPolicy: IfNotPresent
+  username: account_user
+  password: "@MYSQL_PASSWORD@"
+  rootPassword: "@MYSQL_ROOT_PASSWORD@"
+  database: account_db
+  hostPath: <dataHostPath>/mysql
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1, memory: 1Gi }
+  external:
+    # mysql.enabled=false 且 account.reuseCorekg=false 时必填：account 使用的 MySQL 完整 DSN
+    # 例：mysql://user:pass@host:3306/db?charset=utf8mb4&parseTime=true&loc=Local
+    url: ""
+
+# =============================================================================
+# Redis 缓存（account 服务使用）
+# =============================================================================
+redis:
+  enabled: false
+  image: registry.cn-beijing.aliyuncs.com/yygu/corekg:redis_8.2
+  imagePullPolicy: IfNotPresent
+  password: "@REDIS_PASSWORD@"
+  hostPath: <dataHostPath>/redis
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  external:
+    # redis.enabled=false 时必填：account 使用的 Redis 地址
+    # 例：redis://:pass@host:6379/0
+    url: ""
+
+# =============================================================================
+# Account 服务（依赖 MySQL 与 Redis；用于统一登录）
+# =============================================================================
+# 两种部署情况：
+#   1) 复用 corekg：reuseCorekg=true，不部署内置 MySQL/Redis，account 连 corekg
+#      命名空间下的 MySQL/Redis Service；此时 account 无需初始化（数据在 corekg 侧）。
+#   2) 独立部署：reuseCorekg=false（默认），随 chart 部署内置 MySQL/Redis，并通过
+#      初始化 Job 执行 init 完成建表（init 内部 migrate）与种子数据。
+account:
+  enabled: false
+  image: registry.yygu.cn/ygapp/account-api:v0.1.0
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  strategy: Recreate
+  containerName: account-api
+  env: test
+  openDocsApi: true
+  logLevel: debug
+  logger:
+    file:
+      enabled: false
+      filename: /data/account/log/default.log
+      maxSize: 10
+      maxAge: 15
+      maxBackups: 5
+      compress: true
+  # reuseCorekg=true 时：直接复用 corekg 命名空间下的 MySQL/Redis，不部署中间件、不初始化。
+  reuseCorekg: false
+  corekg:
+    namespace: corekg-test          # corekg 所在命名空间
+    mysqlService: mysql # corekg 的 MySQL Service 名
+    redisService: redis # corekg 的 Redis Service 名
+    # 以下可覆盖，留空回退到 mysql/redis 顶层值（username/password/database）
+    mysqlUsername: "root"
+    mysqlPassword: ""
+    mysqlDatabase: "yygu_db"
+    redisPassword: ""
+  # 独立部署（reuseCorekg=false）时是否执行初始化 Job（建表 + 种子数据）
+  initialize: true
+  init:
+    issuer: "yygu"                       # IAM_INIT_ISSUER，必填
+    jwtSecret: "@JWT_SECRET@"            # IAM_INIT_JWT_SECRET：登录 token 签名密钥（写入 core_settings）；gen-values.sh 生成时与 server.jwtSecret 同一个随机值
+    company: "default-company"           # IAM_INIT_COMPANY
+    adminEmail: "admin@admin.com"        # IAM_INIT_ADMIN_EMAIL，必填
+    domain: "localhost"                  # IAM_INIT_DOMAIN；仅当 auth.domainName 留空时作为登录域名的兜底（两者需一致）
+  initCommand:
+    binary: account                      # account 镜像内的二进制名
+    settingFile: "/etc/yg-iam/core_settings.yaml"  # 非空则挂载 core_settings.yaml 并传 --setting-file
+    settingsConfigMap: ""                # 仅当 account.settings.create=false 时生效：指定已有的含 core_settings.yaml 的 ConfigMap 名
+  # core_settings 种子（chart 自动生成 ConfigMap，account init 通过 --setting-file 读取）
+  # jwt-__IAM_ISSUER__ / __IAM_JWT_SECRET__ 占位符由 account init 用 IAM_INIT_* 环境变量替换。
+  settings:
+    create: true                         # 是否由 chart 生成 core_settings ConfigMap（false 时用 settingsConfigMap 指定的）
+    configMapName: ""                    # 留空默认 <fullname>-account-settings
+    aesKey: "G2HX+F+411lK/O8c"           # 登录密码 AES 加解密 key，前后端需一致
+    jwtExpire: "720h"                    # 登录 access token 有效期（写入 core_settings 的 core.jwt-<issuer>.expire），默认 30 天
+    websiteName: "Lework"
+    websiteDescription: ""
+    maxLoginTry: 5
+  serviceNameOverride: ""
+  deploymentNameOverride: ""
+  configMapNameOverride: ""
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+  service:
+    type: ClusterIP
+    port: 8080
+
+# =============================================================================
+# NATS JetStream 消息队列
+# =============================================================================
+nats:
+  enabled: true
+  image: registry.yygu.cn/library/nats:2.12.7
+  hostPath: <dataHostPath>/nats
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  auth:
+    enabled: true
+    user: lework
+    password: "@NATS_PASSWORD@"
+  external:
+    url: ""
+
+# =============================================================================
+# Lework Server（HTTP API 服务，常驻 Deployment）
+# =============================================================================
+server:
+  image: registry.yygu.cn/insmtx/lework:latest
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+
+  serviceNameOverride: ""
+  configMapNameOverride: ""
+  deploymentNameOverride: ""
+
+  env: prod
+  logLevel: info
+  jwtSecret: "@JWT_SECRET@"
+  baseUrl: ""
+  ginMode: release
+
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: 2, memory: 2Gi }
+
+  service:
+    type: ClusterIP
+    port: 8080
+    nodePort: ""
+    loadBalancerIP: ""
+
+  rbac:
+    create: true
+
+  extraEnv: []
+  logger: {}
+
+# =============================================================================
+# Worker 基础设施
+# =============================================================================
+worker:
+  image: registry.yygu.cn/insmtx/lework-worker:latest
+  imagePullPolicy: IfNotPresent
+  modelrouterDebug: false
+  workspaceInitImage: registry.cn-beijing.aliyuncs.com/yygu/corekg:busybox_1.36.1
+
+  configMapNameOverride: ""
+  secretNameOverride: ""
+
+  config:
+    logLevel: info
+    cli:
+      default: opencode
+    # 可选：渲染到 worker 容器 /app/config/config.yaml 的顶层 run 块。
+    # 留空（{}）时不渲染该块，由代码内置默认值兜底（见 docs/operations/private-deployment-config.md）。
+    # 常用键：
+    #   progress_idle_timeout_seconds: 600    # 外部 CLI 无进度事件的最长等待，默认 600（10 分钟）
+    #   interaction_timeout_seconds: 600      # 审批/问题等待硬超时，默认 600
+    #   max_concurrency: 10                   # 计算并发槽，默认 10
+    #   max_run_duration_seconds: 14400       # 单个 Run 硬超时，默认 14400
+    run: {}
+
+  workspaceHostPathRoot: <dataHostPath>/workspace
+  workspaceMountRoot: /workspace
+  storageHostPath: <dataHostPath>/storage
+  storageMountPath: /lework-storage
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 1, memory: 1Gi }
+
+# =============================================================================
+# Web 前端（可选）
+# =============================================================================
+web:
+  enabled: false
+  image: registry.yygu.cn/insmtx/lework-web:latest
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  apiBaseUrl: ""
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  service:
+    type: ClusterIP
+    port: 3000
+
+# =============================================================================
+# LLM 配置（外挂，API Key 手动填写）
+# =============================================================================
+llm:
+  apiKey: ""                                   # 必填，手动填写模型 API Key
+  provider: openai                             # openai | anthropic | deepseek 等
+  model: deepseek-chat                         # 模型名，如 gpt-4o / deepseek-chat / qwen-plus
+  baseUrl: "https://api.deepseek.com/v1"       # 模型服务地址，如 https://api.openai.com/v1
+  vision: false                                 # 默认模型是否支持图片（多模态）输入，seed 时写入模型配置
+  # 采样参数（可选，仅 opencode runtime 生效）。留空则走模型/服务默认；填数字，勿加引号。
+  # limit 留空时回退默认 {context:200000, output:16384}。
+  top_p: ""                                      # 核采样（0-1），如 0.95
+  frequency_penalty: ""                          # 频率惩罚（-2 ~ 2），如 0.1
+  presence_penalty: ""                           # 存在惩罚（-2 ~ 2），如 0
+  limit:
+    context: ""                                  # 上下文窗口大小（token），如 82144
+    output: ""                                   # 单次输出上限（token），如 8192
+  translation:
+    enabled: false
+    provider: ""
+    model: ""
+    baseUrl: ""
+
+# =============================================================================
+# 系统级 MCP 连接器（可选）
+# =============================================================================
+# 启动时仅按此列表幂等创建或更新渠道和系统模板；空列表（默认）不执行同步。
+# 结构与 server.config.example.yaml 顶层 mcp_connectors 一致。
+# bindings 支持直接凭据字段名或 {{credential}} 模板，动态 Header、查询参数和环境变量统一在此声明。
+# OAuth 密钥等敏感字段可引用 ${VAR} 环境变量，实际值来自 Secret。
+# 示例（取消注释并调整为实际连接器后启用）：
+# mcpConnectors:
+#   - channel: corekg
+#     name: 知识库
+#     description: 知识库服务
+#     status: active
+#     transport: http
+#     url: http://xxxxxxx/v3/keapi/mcp
+#     bindings:
+#       mcp_headers:
+#         Authorization: "Bearer {{api_key}}"
+#     auth:
+#       type: managed
+#       handler: corekg
+#   - channel: catapi
+#     name: CatAPI
+#     description: 连接 CatAPI API 市场中的工具与服务
+#     status: active
+#     transport: http
+#     url: https://api.insmtx.com/v6/api/mcp
+#     bindings:
+#       mcp_headers:
+#         Authorization: "Bearer {{api_key}}"
+#     auth:
+#       type: form
+#       description: 输入 CatAPI API Key，连接后即可使用 API 市场中的工具与服务。请先在 CatAPI 控制台创建 API Key。
+#       fields:
+#         - key: api_key
+#           label: API Key
+#           type: password
+#           required: true
+#           placeholder: 请输入 CatAPI API Key
+#   - channel: netease-mail
+#     name: 邮箱
+#     description: 邮箱服务
+#     status: active
+#     skill_code: connector-netease-mail
+#     bindings:
+#       skill_env:
+#         NETEASE_EMAIL_USER: email
+#         NETEASE_EMAIL_PASS: authorization_code
+#     auth:
+#       type: form
+#       description: 输入邮箱地址和 IMAP/SMTP 授权码（非登录密码）。支持 163、126、yeah.net 等网易邮箱。
+#       fields:
+#         - key: email
+#           label: 邮箱地址
+#           type: text
+#           required: true
+#         - key: authorization_code
+#           label: IMAP/SMTP 授权码
+#           type: password
+#           required: true
+#   - channel: baidu-netdisk
+#     name: 百度网盘
+#     status: inactive
+#     skill_code: connector-baidu-netdisk
+#     transport: sse
+#     url: "https://mcp-pan.baidu.com/sse"
+#     bindings:
+#       mcp_headers:
+#         Authorization: "Bearer {{access_token}}"
+#     auth:
+#       type: oauth
+#       handler: baidu-netdisk
+#       oauth:
+#         app_key: "${BAIDU_NETDISK_APP_KEY}"
+#         secret_key: "${BAIDU_NETDISK_SECRET_KEY}"
+#         redirect_uri: "${LEWORK_BASE_URL}/v1/plugins/mcp/oauth/baidu-netdisk/callback"
+#         scopes: [basic, netdisk]
+
+# =============================================================================
+# Enterprise IAM 认证（仅 enterprise 版本使用）
+# =============================================================================
+auth:
+  enabled: true                                # 是否启用 IAM 企业版认证
+  baseUrl: ""                                  # IAM 服务地址；留空则自动用集群内 account Service（http://<fullname>-account:8080）
+  domainName: ""                               # 登录域名（auth.domain_name，用于登录配置查询）；留空时回退到 account.init.domain
+  phoneCodeLoginEnabled: false                 # 是否开启手机号验证码登录（默认关闭）
+
+# =============================================================================
+# 文件存储
+# =============================================================================
+storage:
+  driver: local               # local | s3 | minio
+  localDir: /lework-storage
+  hostPath: <dataHostPath>/storage
+  bucket: lework-bucket
+  signSecret: "@STORAGE_SIGN_SECRET@"
+  endpoint: ""
+  accessKey: ""
+  secretKey: ""
+  useSSL: false
+
+# =============================================================================
+# 客户端版本策略（可选）
+# =============================================================================
+clientUpdate:
+  desktop:
+    enabled: false
+    minSupportedVersion: "0.1.16"
+    latestVersion: "0.1.21"
+    updateUrl: ""
+    forceMessage: "当前客户端版本过低，请更新后继续使用"
+
+# =============================================================================
+# Traefik Ingress Controller（可选，一键开关）
+# =============================================================================
+# 只需决定是否启用本 chart 的 Traefik，其余全自动：
+#   - enabled=false（默认）→ 复用 k3s 自带 Traefik，零配置
+#   - enabled=true         → 本 chart 部署独立 Traefik，自动改名（lework-traefik）
+#                            + 错端口（8080/8443）与 k3s 自带实例共存，零冲突
+# 启用后访问地址：http://<节点IP>:8080（无域名）或 http://<域名>（有域名）
+#
+# 子 chart 已内置为 charts/traefik-34.2.0.tgz（file://charts，无需 helm dep update）。
+# 以下默认值即合规配置，一般无需改动；需特殊调优见 https://traefik.github.io/charts
+traefik:
+  enabled: true
+  image:
+    registry: registry.yygu.cn
+    repository: rancher/mirrored-library-traefik
+    tag: "3.3.6"
+  ingressClass:
+    name: lework-traefik    # 启用时自动用此名，不与 k3s 的 traefik 撞
+  service:
+    type: NodePort
+  ports:
+    web:
+      hostPort: 38081        # 启用时自动错开 k3s 占用的 80
+    websecure:
+      hostPort: 8443        # 启用时自动错开 k3s 占用的 443
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1, memory: 512Mi }
+
+# =============================================================================
+# Ingress（默认关闭；需对外暴露时开启）
+# =============================================================================
+# 开启后自动按 traefik.enabled 选择 IngressClass：
+#   - traefik.enabled=false → 用 traefik（k3s 自带）
+#   - traefik.enabled=true  → 用 lework-traefik（本 chart 部署）
+# 无需手填 ingress.className，除非用 nginx 等其他 Controller 时显式覆盖。
+#
+# 不用 Traefik（traefik.enabled=false 且无 k3s 自带）时的两种方案：
+#   1) NodePort 直接暴露（无域名最简单）：
+#        ingress.enabled: false
+#        server.service:
+#          type: NodePort
+#          nodePort: 38081      # http://<节点IP>:38081  访问
+#   2) 用集群已有的其他 Controller（如 nginx-ingress）：
+#        traefik.enabled: false
+#        ingress.enabled: true
+#        ingress.className: nginx
+ingress:
+  enabled: true
+  className: ""             # 留空自动跟随；nginx 集群填 nginx 等
+  tls: []
+  server:
+    enabled: true
+    # 有域名填域名；默认留空，用 http://<节点IP>:<traefik hostPort> 访问
+    host: ""
+    annotations: {}
+    paths:
+      - path: /
+        pathType: Prefix
+  web:
+    enabled: false
+    host: ""
+    annotations: {}
+  account:
+    enabled: true
+    host: ""
+    annotations: {}
+    tls: []
+    paths:
+      - path: /v5/account
+        pathType: Prefix

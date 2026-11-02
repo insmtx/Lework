@@ -1,4 +1,4 @@
-import type { BackendProjectFileVersionList } from "@leros/store";
+import type { BackendProjectFileVersionList } from "@lework/store";
 import { describe, expect, it, vi } from "vitest";
 import {
 	buildProjectFileVersionEntries,

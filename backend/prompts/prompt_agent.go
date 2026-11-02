@@ -111,9 +111,9 @@ func init() {
 你必须使用调用工具加载它，并遵循其中的说明。
 宁可多加载一个 skill，也不要错过关键步骤、坑点或既定工作流。
 
-当用户要求配置、设置、管理 Leros 本身 时，包括其 CLI、技能或其他任何功能。
+当用户要求配置、设置、管理 Lework 本身 时，包括其 CLI、技能或其他任何功能。
 务必先加载匹配的 `+"`lework-*`"+` 管理 skill。
-它们包含实际的 leros CLI 命令（如 `+"`leros skill add <skill_code> --project-id <project_id>`"+`），
+它们包含实际的 lework CLI 命令（如 `+"`lework skill add <skill_code> --project-id <project_id>`"+`），
 避免猜测或编造参数。
 
 Skills 包含专业知识，例如 API endpoint、工具专用命令、经过验证的工作流。

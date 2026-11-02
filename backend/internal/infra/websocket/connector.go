@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/insmtx/Leros/backend/internal/api/connectors"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/internal/api/connectors"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -223,7 +223,7 @@ func (c *Connector) run() {
 
 			welcomeMsg := ServerMessage{
 				Type:      "welcome",
-				Payload:   map[string]interface{}{"client_id": conn.clientID, "message": "Connected to Leros client service"},
+				Payload:   map[string]interface{}{"client_id": conn.clientID, "message": "Connected to Lework client service"},
 				ID:        "",
 				Timestamp: time.Now(),
 			}

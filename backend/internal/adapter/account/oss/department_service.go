@@ -7,12 +7,12 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/pkg/accounterror"
+	"github.com/insmtx/lework/backend/pkg/accounterror"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/adapter/account"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type department struct {

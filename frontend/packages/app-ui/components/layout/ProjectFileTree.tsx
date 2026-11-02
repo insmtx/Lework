@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { ChevronRight, Download, Eye, Folder } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -162,7 +162,7 @@ function ProjectFileTreeTableRow({
 						<button
 							type="button"
 							onClick={() => setExpanded((value) => !value)}
-							className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)]"
+							className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)]"
 							aria-label={expanded ? "收起文件夹" : "展开文件夹"}
 						>
 							<ChevronRight
@@ -174,15 +174,15 @@ function ProjectFileTreeTableRow({
 					)}
 					{isDirectory ? (
 						<div className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-1">
-							<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+							<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]">
 								<Folder className="size-4" aria-hidden="true" />
 							</div>
 							<div className="min-w-0 flex-1">
-								<p className="truncate text-[15px] font-semibold text-[var(--leros-text-strong)]">
+								<p className="truncate text-[15px] font-semibold text-[var(--lework-text-strong)]">
 									{node.name}
 								</p>
 								{pathLabel ? (
-									<p className="truncate text-[12px] font-normal text-[var(--leros-text-muted)]">
+									<p className="truncate text-[12px] font-normal text-[var(--lework-text-muted)]">
 										{renderSearchText(pathLabel, searchKeyword)}
 									</p>
 								) : null}
@@ -194,25 +194,25 @@ function ProjectFileTreeTableRow({
 							data-file-preview-trigger
 							onClick={() => onPreview?.(node)}
 							className={cn(
-								"flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg py-1 text-left transition-colors hover:bg-[var(--leros-primary-softer)]/50",
+								"flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg py-1 text-left transition-colors hover:bg-[var(--lework-primary-softer)]/50",
 								isRootLevelFile ? "pr-2" : "px-2",
 							)}
 							title="查看"
 						>
-							<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+							<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]">
 								<ProjectFileTypeIcon fileName={node.name} nodeType={node.nodeType} />
 							</div>
 							<div className="min-w-0 flex-1">
-								<div className="flex min-w-0 items-center gap-1.5 text-[15px] font-semibold text-[var(--leros-text-strong)]">
+								<div className="flex min-w-0 items-center gap-1.5 text-[15px] font-semibold text-[var(--lework-text-strong)]">
 									<span className="truncate">{node.name}</span>
 									{node.versionNo > 0 ? (
-										<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
+										<span className="shrink-0 rounded bg-[var(--lework-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--lework-primary)]">
 											V{node.versionNo}
 										</span>
 									) : null}
 								</div>
 								{pathLabel ? (
-									<p className="truncate text-[12px] font-normal text-[var(--leros-text-muted)]">
+									<p className="truncate text-[12px] font-normal text-[var(--lework-text-muted)]">
 										{renderSearchText(pathLabel, searchKeyword)}
 									</p>
 								) : null}
@@ -221,17 +221,17 @@ function ProjectFileTreeTableRow({
 					)}
 				</div>
 				<div className="min-w-0 truncate text-[13px]">
-					<span className="inline-block max-w-full truncate rounded-md bg-[var(--leros-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--leros-text-muted)]">
+					<span className="inline-block max-w-full truncate rounded-md bg-[var(--lework-surface-soft)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--lework-text-muted)]">
 						{getProjectFileSourceLabel(node)}
 					</span>
 				</div>
-				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--leros-text-muted)]">
+				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--lework-text-muted)]">
 					{getProjectFileTypeLabel(node)}
 				</div>
-				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--leros-text-muted)]">
+				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--lework-text-muted)]">
 					{displaySize > 0 ? formatBytes(displaySize) : "-"}
 				</div>
-				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--leros-text-muted)]">
+				<div className="min-w-0 truncate whitespace-nowrap text-[13px] text-[var(--lework-text-muted)]">
 					{displayCreatedAt ? formatTime(displayCreatedAt) : "-"}
 				</div>
 				<div className={PROJECT_FILE_TABLE_ACTIONS_CELL_CLASS}>
@@ -239,7 +239,7 @@ function ProjectFileTreeTableRow({
 						<button
 							type="button"
 							onClick={() => onDownload?.(node)}
-							className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 							title="下载"
 						>
 							<Download className="size-4" />
@@ -251,7 +251,7 @@ function ProjectFileTreeTableRow({
 								type="button"
 								data-file-preview-trigger
 								onClick={() => onPreview?.(node)}
-								className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 								title="查看"
 							>
 								<Eye className="size-4" />
@@ -260,7 +260,7 @@ function ProjectFileTreeTableRow({
 							<button
 								type="button"
 								onClick={() => onDownload?.(node)}
-								className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 								title="下载"
 							>
 								<Download className="size-4" />
@@ -320,16 +320,16 @@ function ProjectFileTreeCompactRow({
 				<button
 					type="button"
 					onClick={() => setExpanded((value) => !value)}
-					className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-[var(--leros-text-strong)] transition-colors hover:bg-[var(--leros-primary-softer)]/35"
+					className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-[var(--lework-text-strong)] transition-colors hover:bg-[var(--lework-primary-softer)]/35"
 					style={{ paddingLeft: 8 + depth * 14 }}
 				>
 					<ChevronRight
 						className={cn(
-							"size-3.5 shrink-0 text-[var(--leros-text-muted)] transition-transform",
+							"size-3.5 shrink-0 text-[var(--lework-text-muted)] transition-transform",
 							expanded && "rotate-90",
 						)}
 					/>
-					<Folder className="size-4 shrink-0 text-[var(--leros-primary)]" />
+					<Folder className="size-4 shrink-0 text-[var(--lework-primary)]" />
 					<span className="truncate">{node.name}</span>
 				</button>
 				{expanded && node.children.length > 0 ? (
@@ -352,11 +352,11 @@ function ProjectFileTreeCompactRow({
 			type="button"
 			data-file-preview-trigger
 			onClick={() => onPreview?.(node)}
-			className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35"
+			className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] px-3.5 py-3 text-left shadow-sm transition-colors hover:border-[var(--lework-primary-soft)] hover:bg-[var(--lework-primary-softer)]/35"
 			style={{ marginLeft: depth * 14 }}
 			title="预览文件"
 		>
-			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)]">
+			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)]">
 				<ProjectFileTypeIcon
 					fileName={node.name}
 					nodeType={node.nodeType}
@@ -364,15 +364,15 @@ function ProjectFileTreeCompactRow({
 				/>
 			</div>
 			<div className="min-w-0">
-				<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-[var(--leros-text-strong)]">
+				<div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5 text-[var(--lework-text-strong)]">
 					<span className="truncate">{node.name}</span>
 					{node.versionNo > 0 ? (
-						<span className="shrink-0 rounded bg-[var(--leros-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--leros-primary)]">
+						<span className="shrink-0 rounded bg-[var(--lework-primary-softer)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--lework-primary)]">
 							V{node.versionNo}
 						</span>
 					) : null}
 				</div>
-				<div className="mt-1 truncate text-xs leading-4 text-[var(--leros-text-muted)]">
+				<div className="mt-1 truncate text-xs leading-4 text-[var(--lework-text-muted)]">
 					{[
 						node.size > 0 ? formatBytes(node.size) : "",
 						node.createdAt ? formatTime(node.createdAt) : "",

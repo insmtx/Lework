@@ -2,7 +2,7 @@
 
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 
 type ScrollAreaProps = ScrollAreaPrimitive.Root.Props & {
 	hideScrollbar?: boolean;

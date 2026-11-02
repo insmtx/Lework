@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // TestPluginPermissionSettingsResolveOwnerAndUpdateVisibility 回归：

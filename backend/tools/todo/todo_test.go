@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/tools"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/tools"
 )
 
 type testTodoReporter struct {

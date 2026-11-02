@@ -1,4 +1,4 @@
-module github.com/insmtx/Leros
+module github.com/insmtx/lework
 
 go 1.25.0
 

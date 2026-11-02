@@ -1,4 +1,4 @@
-import type { Message, RuntimeTodoItem } from "@leros/store/types/chat";
+import type { Message, RuntimeTodoItem } from "@lework/store/types/chat";
 import { describe, expect, it } from "vitest";
 import { getLatestAssistantTodos } from "./taskProgress";
 

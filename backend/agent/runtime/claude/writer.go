@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/lework/backend/agent"
 )
 
 // buildStreamUserMessage 构建 stream-json 格式的用户消息。

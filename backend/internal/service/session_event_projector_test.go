@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestProjectRunEventPreservesTerminalArchiveForAllStatuses(t *testing.T) {

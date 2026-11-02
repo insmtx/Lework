@@ -1,12 +1,12 @@
 "use client";
 
-import type { RuntimeTodoItem, TodoStatus } from "@leros/store/types/chat";
-import { Button } from "@leros/ui/components/ui/button";
-import { cn } from "@leros/ui/lib/utils";
+import type { RuntimeTodoItem, TodoStatus } from "@lework/store/types/chat";
+import { Button } from "@lework/ui/components/ui/button";
+import { cn } from "@lework/ui/lib/utils";
 import { CheckCircle2, ChevronDown, ChevronUp, Circle, Loader2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const TASK_TODO_PROGRESS_COLLAPSED_STORAGE_KEY = "leros-task-todo-progress-collapsed";
+const TASK_TODO_PROGRESS_COLLAPSED_STORAGE_KEY = "lework-task-todo-progress-collapsed";
 
 const STATUS_LABEL: Record<TodoStatus, string> = {
 	pending: "待开始",
@@ -82,25 +82,25 @@ export function TaskTodoProgressPanel({
 	return (
 		<div
 			data-slot="task-todo-progress-panel"
-			className="rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm"
+			className="rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] shadow-sm"
 		>
 			<div
-				className={cn("px-3.5 py-3", !collapsed && "border-b border-[var(--leros-control-border)]")}
+				className={cn("px-3.5 py-3", !collapsed && "border-b border-[var(--lework-control-border)]")}
 			>
 				<div className="mb-2 flex items-center justify-between gap-2 text-xs">
 					<div className="min-w-0">
-						<span className="font-semibold text-[var(--leros-text-strong)]">
+						<span className="font-semibold text-[var(--lework-text-strong)]">
 							{completedCount}/{total} 完成
 						</span>
 						{activeCount > 0 && (
-							<span className="ml-2 text-[var(--leros-primary)]">{activeCount} 进行中</span>
+							<span className="ml-2 text-[var(--lework-primary)]">{activeCount} 进行中</span>
 						)}
 					</div>
 					<Button
 						type="button"
 						variant="ghost"
 						size="icon-xs"
-						className="-mr-1 text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]"
+						className="-mr-1 text-[var(--lework-text-muted)] hover:text-[var(--lework-text-strong)]"
 						aria-controls={listId}
 						aria-expanded={!collapsed}
 						aria-label={collapsed ? "展开任务进度" : "折叠任务进度"}
@@ -113,9 +113,9 @@ export function TaskTodoProgressPanel({
 						{collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
 					</Button>
 				</div>
-				<div className="h-1.5 overflow-hidden rounded-full bg-[var(--leros-chat-control-bg)]">
+				<div className="h-1.5 overflow-hidden rounded-full bg-[var(--lework-chat-control-bg)]">
 					<div
-						className="h-full rounded-full bg-[var(--leros-primary)] transition-[width] duration-300 ease-out"
+						className="h-full rounded-full bg-[var(--lework-primary)] transition-[width] duration-300 ease-out"
 						style={{ width: `${progressPercent}%` }}
 					/>
 				</div>
@@ -147,19 +147,19 @@ function TaskTodoProgressStep({ todo, isLast }: { todo: RuntimeTodoItem; isLast:
 					aria-hidden
 					className={cn(
 						"absolute left-[11px] top-6 bottom-0 w-px",
-						completed ? "bg-[var(--leros-primary-soft)]" : "bg-[var(--leros-control-border)]",
+						completed ? "bg-[var(--lework-primary-soft)]" : "bg-[var(--lework-control-border)]",
 					)}
 				/>
 			)}
-			<div className="relative z-[1] flex size-6 shrink-0 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)]">
+			<div className="relative z-[1] flex size-6 shrink-0 items-center justify-center rounded-full border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)]">
 				<TodoStatusIcon status={todo.status} />
 			</div>
 			<div className="min-w-0 flex-1 pt-0.5">
 				<p
 					className={cn(
-						"text-sm font-medium leading-5 text-[var(--leros-text-strong)]",
-						completed && "text-[var(--leros-text-muted)] line-through",
-						cancelled && "text-[var(--leros-text-subtle)] line-through",
+						"text-sm font-medium leading-5 text-[var(--lework-text-strong)]",
+						completed && "text-[var(--lework-text-muted)] line-through",
+						cancelled && "text-[var(--lework-text-subtle)] line-through",
 					)}
 				>
 					{todo.title}
@@ -175,13 +175,13 @@ function TaskTodoProgressStep({ todo, isLast }: { todo: RuntimeTodoItem; isLast:
 function TodoStatusIcon({ status }: { status: TodoStatus }) {
 	switch (status) {
 		case "in_progress":
-			return <Loader2 className="size-3.5 animate-spin text-[var(--leros-primary)]" />;
+			return <Loader2 className="size-3.5 animate-spin text-[var(--lework-primary)]" />;
 		case "completed":
-			return <CheckCircle2 className="size-3.5 text-[var(--leros-primary)]" />;
+			return <CheckCircle2 className="size-3.5 text-[var(--lework-primary)]" />;
 		case "cancelled":
-			return <XCircle className="size-3.5 text-[var(--leros-text-subtle)]" />;
+			return <XCircle className="size-3.5 text-[var(--lework-text-subtle)]" />;
 		default:
-			return <Circle className="size-3.5 text-[var(--leros-text-subtle)]" />;
+			return <Circle className="size-3.5 text-[var(--lework-text-subtle)]" />;
 	}
 }
 
@@ -189,10 +189,10 @@ function statusClassName(status: TodoStatus) {
 	switch (status) {
 		case "in_progress":
 		case "completed":
-			return "text-[var(--leros-primary)]";
+			return "text-[var(--lework-primary)]";
 		case "cancelled":
-			return "text-[var(--leros-text-subtle)]";
+			return "text-[var(--lework-text-subtle)]";
 		default:
-			return "text-[var(--leros-text-muted)]";
+			return "text-[var(--lework-text-muted)]";
 	}
 }

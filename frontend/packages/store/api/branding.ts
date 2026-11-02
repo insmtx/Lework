@@ -1,13 +1,13 @@
 import { readDeployAppName, readDeployLogo } from "./deploy-config";
 
 /** 存在该 key 时，私有化系统设置展示品牌 Logo / 品牌名编辑区。 */
-export const BRANDING_SETTINGS_ENABLED_STORAGE_KEY = "leros-branding-settings-enabled";
+export const BRANDING_SETTINGS_ENABLED_STORAGE_KEY = "lework-branding-settings-enabled";
 /** 自定义系统 Logo（通常为上传后的 file public_id）。 */
-export const BRAND_LOGO_STORAGE_KEY = "leros-brand-logo";
+export const BRAND_LOGO_STORAGE_KEY = "lework-brand-logo";
 /** 自定义系统品牌名。 */
-export const BRAND_NAME_STORAGE_KEY = "leros-brand-name";
+export const BRAND_NAME_STORAGE_KEY = "lework-brand-name";
 
-export const BRANDING_CHANGED_EVENT = "leros-branding-changed";
+export const BRANDING_CHANGED_EVENT = "lework-branding-changed";
 
 export const DEFAULT_BRAND_NAME = "Lework";
 

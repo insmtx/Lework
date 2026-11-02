@@ -29,7 +29,7 @@ vi.mock("./file-preview-store", () => ({
 	},
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	pluginApi: {
 		listMCPPlatforms: (...args: unknown[]) => mocks.pluginListMCPPlatforms(...args),
 		listProject: (...args: unknown[]) => mocks.pluginListProject(...args),

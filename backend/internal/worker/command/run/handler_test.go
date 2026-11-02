@@ -14,12 +14,12 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/insmtx/Leros/backend/agent"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/internal/worker/command/run/inbox"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/agent"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/internal/worker/agentrun"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/internal/worker/command/run/inbox"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 // fakeDelivery implements eventbus.ManualDelivery for testing Ack/Term/Nak sequences.

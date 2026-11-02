@@ -1,4 +1,4 @@
-import { type PluginListItem, pluginApi } from "@leros/store";
+import { type PluginListItem, pluginApi } from "@lework/store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadComposerConnectorOptions } from "./useComposerConnectorOptions";
 

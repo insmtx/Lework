@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // ErrInvalidNewMessage 表示 CreateInitialMessage / AddMessage 场景参数不合法。

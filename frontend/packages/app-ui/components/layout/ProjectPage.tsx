@@ -23,8 +23,8 @@ import {
 	useEnsureCapabilities,
 	useLayoutStore,
 	useProjectCapabilities,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Command,
 	CommandEmpty,
@@ -33,7 +33,7 @@ import {
 	CommandItem,
 	CommandList,
 	CommandSeparator,
-} from "@leros/ui/components/ui/command";
+} from "@lework/ui/components/ui/command";
 import {
 	Dialog,
 	DialogContent,
@@ -41,9 +41,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -117,8 +117,8 @@ const projectTabs = [
 	{ id: "activity" as const, label: "动态" },
 ];
 
-const PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "leros-project-config-right-sidebar-width";
-const PROJECT_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "leros-project-right-sidebar-collapsed";
+const PROJECT_RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "lework-project-config-right-sidebar-width";
+const PROJECT_RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "lework-project-right-sidebar-collapsed";
 const PROJECT_RIGHT_SIDEBAR_DEFAULT_WIDTH = 352;
 const PROJECT_RIGHT_SIDEBAR_MIN_WIDTH = 300;
 const PROJECT_RIGHT_SIDEBAR_MAX_WIDTH = 440;
@@ -351,7 +351,7 @@ export function ProjectPage({
 
 	if (!project) {
 		return (
-			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-app-bg)] text-[var(--leros-text-muted)]">
+			<div className="flex h-full flex-1 items-center justify-center bg-[var(--lework-app-bg)] text-[var(--lework-text-muted)]">
 				暂无项目
 			</div>
 		);
@@ -359,10 +359,10 @@ export function ProjectPage({
 
 	if (resolvedProjectId && !projectDetailInitialized) {
 		return (
-			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-surface)]">
+			<div className="flex h-full flex-1 items-center justify-center bg-[var(--lework-surface)]">
 				<div className="flex flex-col items-center gap-3">
-					<LoaderCircle className="size-8 animate-spin text-[var(--leros-text-muted)]" />
-					<p className="text-sm text-[var(--leros-text-muted)]">加载项目详情中...</p>
+					<LoaderCircle className="size-8 animate-spin text-[var(--lework-text-muted)]" />
+					<p className="text-sm text-[var(--lework-text-muted)]">加载项目详情中...</p>
 				</div>
 			</div>
 		);
@@ -370,9 +370,9 @@ export function ProjectPage({
 
 	if (projectDetailError) {
 		return (
-			<div className="flex h-full flex-1 items-center justify-center bg-[var(--leros-surface)]">
+			<div className="flex h-full flex-1 items-center justify-center bg-[var(--lework-surface)]">
 				<div className="flex flex-col items-center gap-3">
-					<p className="text-sm text-[var(--leros-text-muted)]">{projectDetailError}</p>
+					<p className="text-sm text-[var(--lework-text-muted)]">{projectDetailError}</p>
 				</div>
 			</div>
 		);
@@ -381,26 +381,26 @@ export function ProjectPage({
 	return (
 		<div
 			data-slot="project-page"
-			className="flex h-full min-w-0 flex-1 flex-col bg-[var(--leros-surface)]"
+			className="flex h-full min-w-0 flex-1 flex-col bg-[var(--lework-surface)]"
 		>
-			<header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
-				<div className="flex items-center gap-3 text-[var(--leros-text-muted)]">
+			<header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-10">
+				<div className="flex items-center gap-3 text-[var(--lework-text-muted)]">
 					{/* 中文注释：项目详情页顶部保留面包屑，方便从具体项目快速回到项目列表页。 */}
 					<button
 						type="button"
 						onClick={handleBackToProjects}
-						className="text-sm font-normal text-[var(--leros-text-muted)] transition-colors hover:text-[var(--leros-primary)]"
+						className="text-sm font-normal text-[var(--lework-text-muted)] transition-colors hover:text-[var(--lework-primary)]"
 					>
 						项目
 					</button>
-					<ChevronRight className="size-4 text-[var(--leros-text-subtle)]" />
-					<h1 className="max-w-[360px] truncate text-sm font-semibold text-[var(--leros-text-strong)]">
+					<ChevronRight className="size-4 text-[var(--lework-text-subtle)]" />
+					<h1 className="max-w-[360px] truncate text-sm font-semibold text-[var(--lework-text-strong)]">
 						{project.name}
 					</h1>
 				</div>
 			</header>
 
-			<nav className="flex h-[48px] shrink-0 items-end gap-8 border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-10">
+			<nav className="flex h-[48px] shrink-0 items-end gap-8 border-b border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-10">
 				{projectTabs.map((currentTab) => (
 					<button
 						key={currentTab.id}
@@ -415,13 +415,13 @@ export function ProjectPage({
 						className={cn(
 							"relative h-full px-1 pb-2 text-sm font-semibold transition-colors",
 							resolvedTab === currentTab.id
-								? "text-[var(--leros-primary)]"
-								: "text-[var(--leros-text-muted)] hover:text-[var(--leros-text-strong)]",
+								? "text-[var(--lework-primary)]"
+								: "text-[var(--lework-text-muted)] hover:text-[var(--lework-text-strong)]",
 						)}
 					>
 						{currentTab.label}
 						{resolvedTab === currentTab.id && (
-							<span className="absolute bottom-0 left-0 h-0.5 w-full rounded-full bg-[var(--leros-primary)]" />
+							<span className="absolute bottom-0 left-0 h-0.5 w-full rounded-full bg-[var(--lework-primary)]" />
 						)}
 					</button>
 				))}
@@ -432,9 +432,9 @@ export function ProjectPage({
 					className={cn(
 						"min-w-0 flex-1",
 						resolvedTab === "chat"
-							? "flex min-h-0 flex-col bg-[var(--leros-surface)]"
+							? "flex min-h-0 flex-col bg-[var(--lework-surface)]"
 							: resolvedTab === "files" || resolvedTab === "activity"
-								? "min-h-0 overflow-hidden bg-[var(--leros-surface)]"
+								? "min-h-0 overflow-hidden bg-[var(--lework-surface)]"
 								: "overflow-y-auto px-10 py-8",
 					)}
 				>
@@ -460,7 +460,7 @@ export function ProjectPage({
 					<div className="flex w-14 shrink-0 items-start justify-center pt-6">
 						<button
 							type="button"
-							className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] text-[var(--leros-text-muted)] shadow-sm transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--lework-control-border)] bg-[var(--lework-surface)] text-[var(--lework-text-muted)] shadow-sm transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 							aria-label={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
 							aria-expanded={!rightSidebarCollapsed}
 							title={rightSidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
@@ -477,7 +477,7 @@ export function ProjectPage({
 
 				{showProjectSidebar && !rightSidebarCollapsed && (
 					<aside
-						className="relative flex min-h-0 shrink-0 flex-col border-l border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
+						className="relative flex min-h-0 shrink-0 flex-col border-l border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-5 py-6 transition-[width] duration-200 ease-out"
 						style={rightSidebarWidthStyle}
 					>
 						<ProjectConfigSidebar
@@ -920,13 +920,13 @@ function ProjectConfigSidebar({
 	return (
 		<div className="no-scrollbar min-h-0 flex-1 space-y-7 overflow-y-auto pr-1">
 			<div>
-				<p className="text-sm font-semibold text-[var(--leros-text-strong)]">项目配置</p>
-				<p className="mt-1 text-xs text-[var(--leros-text-muted)]">管理项目描述和可用技能</p>
+				<p className="text-sm font-semibold text-[var(--lework-text-strong)]">项目配置</p>
+				<p className="mt-1 text-xs text-[var(--lework-text-muted)]">管理项目描述和可用技能</p>
 			</div>
 
 			<section>
 				<div className="mb-3 flex items-center justify-between gap-3">
-					<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">项目描述</h2>
+					<h2 className="text-sm font-semibold text-[var(--lework-text-strong)]">项目描述</h2>
 					{!editingDescription && (
 						<CanGate
 							action={Action.ProjectUpdate}
@@ -934,7 +934,7 @@ function ProjectConfigSidebar({
 						>
 							<button
 								type="button"
-								className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								className="rounded-full p-1.5 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 								aria-label="编辑项目描述"
 								onClick={() => setEditingDescription(true)}
 							>
@@ -945,7 +945,7 @@ function ProjectConfigSidebar({
 				</div>
 				<div
 					className={cn(
-						"rounded-xl border border-[var(--leros-control-border)] bg-white p-4",
+						"rounded-xl border border-[var(--lework-control-border)] bg-white p-4",
 						compact && "px-3",
 					)}
 				>
@@ -957,16 +957,16 @@ function ProjectConfigSidebar({
 									onChange={(event) => setDescriptionDraft(event.target.value)}
 									placeholder="补充项目目标、背景或协作范围"
 									maxLength={500}
-									className="min-h-28 w-full resize-none rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2 pb-7 pr-16 text-sm leading-6 text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+									className="min-h-28 w-full resize-none rounded-lg border border-[var(--lework-control-border)] bg-white px-3 py-2 pb-7 pr-16 text-sm leading-6 text-[var(--lework-text)] placeholder:text-[var(--lework-text-subtle)] transition-colors focus:border-[var(--lework-primary)] focus:outline-none"
 								/>
-								<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--leros-text-subtle)]">
+								<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--lework-text-subtle)]">
 									{descriptionDraft.length}/500
 								</span>
 							</div>
 							<div className="flex justify-end gap-2">
 								<button
 									type="button"
-									className="rounded-md px-3 py-1.5 text-sm text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-surface-soft)]"
+									className="rounded-md px-3 py-1.5 text-sm text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-surface-soft)]"
 									onClick={() => {
 										setDescriptionDraft(project.description);
 										setEditingDescription(false);
@@ -977,7 +977,7 @@ function ProjectConfigSidebar({
 								</button>
 								<button
 									type="button"
-									className="rounded-md bg-[var(--leros-primary)] px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--leros-primary)]/90 disabled:cursor-not-allowed disabled:opacity-50"
+									className="rounded-md bg-[var(--lework-primary)] px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--lework-primary)]/90 disabled:cursor-not-allowed disabled:opacity-50"
 									onClick={saveDescription}
 									disabled={savingDescription}
 								>
@@ -986,7 +986,7 @@ function ProjectConfigSidebar({
 							</div>
 						</div>
 					) : (
-						<p className="whitespace-pre-wrap text-sm leading-6 text-[var(--leros-text-muted)]">
+						<p className="whitespace-pre-wrap text-sm leading-6 text-[var(--lework-text-muted)]">
 							{project.description || "暂无项目描述"}
 						</p>
 					)}
@@ -996,8 +996,8 @@ function ProjectConfigSidebar({
 			<section>
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2">
-						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">项目队友</h2>
-						<span className="text-xs text-[var(--leros-text-subtle)]">
+						<h2 className="text-sm font-semibold text-[var(--lework-text-strong)]">项目队友</h2>
+						<span className="text-xs text-[var(--lework-text-subtle)]">
 							{visibleProjectMembers.length}
 						</span>
 					</div>
@@ -1007,7 +1007,7 @@ function ProjectConfigSidebar({
 					>
 						<button
 							type="button"
-							className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+							className="rounded-full p-1.5 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 							aria-label="添加项目队友"
 							onClick={() => setMemberDialogOpen(true)}
 							disabled={savingMembers}
@@ -1016,9 +1016,9 @@ function ProjectConfigSidebar({
 						</button>
 					</CanGate>
 				</div>
-				<div className="no-scrollbar max-h-[320px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-3">
+				<div className="no-scrollbar max-h-[320px] overflow-y-auto rounded-xl border border-[var(--lework-control-border)] bg-white p-3">
 					{visibleProjectMembers.length === 0 ? (
-						<p className="px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+						<p className="px-3 py-4 text-center text-xs text-[var(--lework-text-subtle)]">
 							暂无项目队友
 						</p>
 					) : (
@@ -1053,8 +1053,8 @@ function ProjectConfigSidebar({
 			<section>
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2">
-						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">技能</h2>
-						<span className="text-xs text-[var(--leros-text-subtle)]">{projectSkills.length}</span>
+						<h2 className="text-sm font-semibold text-[var(--lework-text-strong)]">技能</h2>
+						<span className="text-xs text-[var(--lework-text-subtle)]">{projectSkills.length}</span>
 					</div>
 					<CanGate
 						action={Action.ProjectUpdate}
@@ -1071,7 +1071,7 @@ function ProjectConfigSidebar({
 						>
 							<PopoverTrigger
 								type="button"
-								className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								className="rounded-full p-1.5 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 								aria-label="添加技能"
 							>
 								<Plus className="size-4" />
@@ -1145,9 +1145,9 @@ function ProjectConfigSidebar({
 						</Popover>
 					</CanGate>
 				</div>
-				<div className="no-scrollbar max-h-[280px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+				<div className="no-scrollbar max-h-[280px] overflow-y-auto rounded-xl border border-[var(--lework-control-border)] bg-white p-4">
 					{projectSkills.length === 0 ? (
-						<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+						<div className="rounded-lg border border-dashed border-[var(--lework-control-border)] px-3 py-4 text-center text-xs text-[var(--lework-text-subtle)]">
 							暂无技能
 						</div>
 					) : (
@@ -1155,7 +1155,7 @@ function ProjectConfigSidebar({
 							{projectSkills.map((skill) => (
 								<div
 									key={skill.publicId ?? skill.code}
-									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
+									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] py-1.5 pl-1.5 pr-2"
 								>
 									<CanGate
 										action={Action.ProjectUpdate}
@@ -1171,12 +1171,12 @@ function ProjectConfigSidebar({
 											disabled={savingSkills}
 										>
 											<Sparkles className="size-3.5 transition-opacity group-hover:opacity-0" />
-											<span className="absolute inline-flex items-center justify-center rounded-full p-0.5 text-[var(--leros-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--leros-control-border)] hover:text-[var(--leros-text)] group-hover:opacity-100">
+											<span className="absolute inline-flex items-center justify-center rounded-full p-0.5 text-[var(--lework-text-subtle)] opacity-0 transition-opacity hover:bg-[var(--lework-control-border)] hover:text-[var(--lework-text)] group-hover:opacity-100">
 												<X className="size-3" />
 											</span>
 										</button>
 									</CanGate>
-									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--leros-text)]">
+									<span className="max-w-[140px] truncate text-xs font-medium text-[var(--lework-text)]">
 										{skill.name}
 									</span>
 								</div>
@@ -1189,9 +1189,9 @@ function ProjectConfigSidebar({
 			<section>
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2">
-						<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">MCP 连接器</h2>
+						<h2 className="text-sm font-semibold text-[var(--lework-text-strong)]">MCP 连接器</h2>
 						<ProjectMCPCollaborationWarning members={project.members} />
-						<span className="text-xs text-[var(--leros-text-subtle)]">{projectMCPs.length}</span>
+						<span className="text-xs text-[var(--lework-text-subtle)]">{projectMCPs.length}</span>
 					</div>
 					<CanGate
 						action={Action.ProjectUpdate}
@@ -1206,7 +1206,7 @@ function ProjectConfigSidebar({
 						>
 							<PopoverTrigger
 								type="button"
-								className="rounded-full p-1.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+								className="rounded-full p-1.5 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 								aria-label="添加 MCP 连接器"
 							>
 								<Plus className="size-4" />
@@ -1255,9 +1255,9 @@ function ProjectConfigSidebar({
 						</Popover>
 					</CanGate>
 				</div>
-				<div className="no-scrollbar max-h-[220px] overflow-y-auto rounded-xl border border-[var(--leros-control-border)] bg-white p-4">
+				<div className="no-scrollbar max-h-[220px] overflow-y-auto rounded-xl border border-[var(--lework-control-border)] bg-white p-4">
 					{projectMCPs.length === 0 ? (
-						<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-3 py-4 text-center text-xs text-[var(--leros-text-subtle)]">
+						<div className="rounded-lg border border-dashed border-[var(--lework-control-border)] px-3 py-4 text-center text-xs text-[var(--lework-text-subtle)]">
 							暂无 MCP 连接器
 						</div>
 					) : (
@@ -1265,7 +1265,7 @@ function ProjectConfigSidebar({
 							{projectMCPs.map((connector) => (
 								<div
 									key={connector.public_id}
-									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] py-1.5 pl-1.5 pr-2"
+									className="group inline-flex items-center gap-2 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] py-1.5 pl-1.5 pr-2"
 								>
 									<CanGate
 										action={Action.ProjectUpdate}
@@ -1339,7 +1339,7 @@ function ProjectEmptyState({ layout }: { layout: ReturnType<typeof getProjectCha
 		<div className={cn("flex h-full", layout.shell)}>
 			<div className={cn(layout.inner, "flex h-full flex-col justify-center py-16")}>
 				<div className="flex items-center gap-5 text-left md:gap-6">
-					<div className="leros-workbench-hero-icon shrink-0">
+					<div className="lework-workbench-hero-icon shrink-0">
 						<img
 							src={PROJECT_NEW_TASK_HERO_OCTOPUS_SRC}
 							alt=""
@@ -1347,10 +1347,10 @@ function ProjectEmptyState({ layout }: { layout: ReturnType<typeof getProjectCha
 						/>
 					</div>
 					<div className="flex min-w-0 flex-col gap-8">
-						<h2 className="text-4xl tracking-tight text-[var(--leros-primary)] md:text-5xl">
+						<h2 className="text-4xl tracking-tight text-[var(--lework-primary)] md:text-5xl">
 							开始新任务
 						</h2>
-						<p className="text-lg text-[var(--leros-text-muted)]">
+						<p className="text-lg text-[var(--lework-text-muted)]">
 							描述需求或目标，Lework 将自动规划、执行、交付，并将产物归档到项目中
 						</p>
 					</div>
@@ -1391,7 +1391,7 @@ function ProjectTasks({
 	return (
 		// 中文注释：任务 tab 需要占用更宽的主内容区域，避免大屏下卡片挤在中间留下过多留白。
 		<div className="mx-auto w-full max-w-[1100px]">
-			<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">任务列表</h2>
+			<h2 className="text-lg font-semibold text-[var(--lework-text-strong)]">任务列表</h2>
 			<div className="mt-4">
 				<ProjectTaskList
 					tasks={tasks}
@@ -1464,7 +1464,7 @@ function TaskInlineActions({
 				<CanGate action={Action.TaskUpdate} resource={resource}>
 					<button
 						type="button"
-						className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+						className="rounded p-0.5 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 						onClick={(event) => {
 							event.stopPropagation();
 							onRename(task);
@@ -1479,7 +1479,7 @@ function TaskInlineActions({
 				<CanGate action={Action.TaskDelete} resource={resource}>
 					<button
 						type="button"
-						className="rounded p-0.5 text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-danger-softer)] hover:text-[var(--leros-danger)]"
+						className="rounded p-0.5 text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-danger-softer)] hover:text-[var(--lework-danger)]"
 						onClick={(event) => {
 							event.stopPropagation();
 							onDelete(task);
@@ -1509,7 +1509,7 @@ function ProjectTaskList({
 }) {
 	if (tasks.length === 0) {
 		return (
-			<div className="rounded-lg border border-dashed border-[var(--leros-control-border)] px-4 py-8 text-center text-xs text-[var(--leros-text-muted)]">
+			<div className="rounded-lg border border-dashed border-[var(--lework-control-border)] px-4 py-8 text-center text-xs text-[var(--lework-text-muted)]">
 				暂无任务
 			</div>
 		);
@@ -1520,9 +1520,9 @@ function ProjectTaskList({
 			<div className={cn(compact ? SIDEBAR_COMPACT_LIST_CLASS : "space-y-3")}>
 				{tasks.map((task) => {
 					const cardClassName = cn(
-						"group relative w-full border border-[var(--leros-control-border)] bg-[var(--leros-surface)] shadow-sm",
+						"group relative w-full border border-[var(--lework-control-border)] bg-[var(--lework-surface)] shadow-sm",
 						onOpen &&
-							"cursor-pointer transition-colors hover:border-[var(--leros-primary-soft)] hover:bg-[var(--leros-primary-softer)]/35",
+							"cursor-pointer transition-colors hover:border-[var(--lework-primary-soft)] hover:bg-[var(--lework-primary-softer)]/35",
 						"rounded-lg",
 					);
 					const contentClassName = cn(
@@ -1531,14 +1531,14 @@ function ProjectTaskList({
 					);
 					const content = (
 						<>
-							<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+							<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]">
 								{/* 主列表和右侧列表统一使用固定任务图标，避免状态图标和语义图标混用。 */}
 								<TaskCardIcon className="size-5" />
 							</div>
 							<div className="min-w-0 flex-1 text-left">
 								<div
 									className={cn(
-										"text-sm font-normal leading-5 text-[var(--leros-text-strong)]",
+										"text-sm font-normal leading-5 text-[var(--lework-text-strong)]",
 										"line-clamp-2",
 									)}
 								>
@@ -1724,53 +1724,53 @@ function ProjectFiles({ projectId }: { projectId: string }) {
 			<div className="mx-auto w-full min-w-0 max-w-[1200px]">
 				<div className="mb-7 flex flex-wrap items-center justify-between gap-4">
 					<div className="min-w-0">
-						<h2 className="text-[2rem] font-semibold tracking-tight text-[var(--leros-text-strong)]">
+						<h2 className="text-[2rem] font-semibold tracking-tight text-[var(--lework-text-strong)]">
 							项目文件
 						</h2>
-						<p className="mt-0.5 text-[13px] text-[var(--leros-text-muted)]">
+						<p className="mt-0.5 text-[13px] text-[var(--lework-text-muted)]">
 							管理当前项目的所有文件资源
 						</p>
 					</div>
 					{/* 中文注释：项目文件页顶部筛选条整体收一档，保持结构不变，只降低高度和横向占比，让桌面端视觉更紧凑。 */}
 					<div className="flex flex-wrap items-end gap-2.5">
 						<div className="flex flex-col gap-1">
-							<span className="text-[12px] text-[var(--leros-text-muted)]">搜索</span>
+							<span className="text-[12px] text-[var(--lework-text-muted)]">搜索</span>
 							<div className="relative">
-								<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+								<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--lework-text-muted)]" />
 								<input
 									value={searchKeyword}
 									onChange={(event) => setSearchKeyword(event.target.value)}
 									placeholder="搜索文件..."
-									className="h-9 w-60 rounded-xl border border-[var(--leros-control-border)] bg-white pl-9 pr-3.5 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
+									className="h-9 w-60 rounded-xl border border-[var(--lework-control-border)] bg-white pl-9 pr-3.5 text-[13px] outline-none transition-colors focus:border-[var(--lework-primary)]"
 								/>
 							</div>
 						</div>
 						<div className="flex flex-col gap-1">
-							<span className="text-[12px] text-[var(--leros-text-muted)]">来源</span>
+							<span className="text-[12px] text-[var(--lework-text-muted)]">来源</span>
 							<div className="relative">
 								<select
 									value={fileSourceFilter}
 									onChange={(event) =>
 										setFileSourceFilter(event.target.value as ProjectFileSourceFilter)
 									}
-									className="h-9 min-w-[132px] cursor-pointer appearance-none rounded-xl border border-[var(--leros-control-border)] bg-white py-0 pl-3.5 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
+									className="h-9 min-w-[132px] cursor-pointer appearance-none rounded-xl border border-[var(--lework-control-border)] bg-white py-0 pl-3.5 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--lework-primary)]"
 								>
 									<option value="all">全部</option>
 									<option value="task">任务文件</option>
 									<option value="upload">上传文件</option>
 								</select>
-								<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+								<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--lework-text-muted)]" />
 							</div>
 						</div>
 						<div className="flex flex-col gap-1">
-							<span className="text-[12px] text-[var(--leros-text-muted)]">类型</span>
+							<span className="text-[12px] text-[var(--lework-text-muted)]">类型</span>
 							<div className="relative">
 								<select
 									value={fileTypeFilter}
 									onChange={(event) =>
 										setFileTypeFilter(event.target.value as ProjectFileTypeFilter)
 									}
-									className="h-9 min-w-[132px] cursor-pointer appearance-none rounded-xl border border-[var(--leros-control-border)] bg-white py-0 pl-3.5 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--leros-primary)]"
+									className="h-9 min-w-[132px] cursor-pointer appearance-none rounded-xl border border-[var(--lework-control-border)] bg-white py-0 pl-3.5 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--lework-primary)]"
 								>
 									{PROJECT_FILE_TYPE_FILTER_OPTIONS.map((option) => (
 										<option key={option.value} value={option.value}>
@@ -1778,11 +1778,11 @@ function ProjectFiles({ projectId }: { projectId: string }) {
 										</option>
 									))}
 								</select>
-								<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-muted)]" />
+								<ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--lework-text-muted)]" />
 							</div>
 						</div>
 						{/* 中文注释：当前只隐藏上传按钮入口，保留上传逻辑和状态处理，后续需要恢复展示时可直接取消注释。 */}
-						{/* <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--leros-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90">
+						{/* <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--lework-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90">
 							<FileText className="size-4" />
 							上传
 							<input
@@ -1797,32 +1797,32 @@ function ProjectFiles({ projectId }: { projectId: string }) {
 				</div>
 
 				{uploading && (
-					<div className="mb-4 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-4 py-3 text-sm text-[var(--leros-text-muted)]">
+					<div className="mb-4 rounded-xl border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-4 py-3 text-sm text-[var(--lework-text-muted)]">
 						正在上传文件...
 					</div>
 				)}
 				{uploadError && (
-					<div className="mb-4 rounded-xl border border-[var(--leros-danger)]/20 bg-[var(--leros-danger-softer)] px-4 py-3 text-sm text-[var(--leros-danger)]">
+					<div className="mb-4 rounded-xl border border-[var(--lework-danger)]/20 bg-[var(--lework-danger-softer)] px-4 py-3 text-sm text-[var(--lework-danger)]">
 						{uploadError}
 					</div>
 				)}
 
 				{showFilesLoading ? (
-					<div className="flex items-center justify-center gap-2 px-6 py-16 text-sm text-[var(--leros-text-muted)]">
+					<div className="flex items-center justify-center gap-2 px-6 py-16 text-sm text-[var(--lework-text-muted)]">
 						<LoaderCircle className="size-5 animate-spin" />
 						<span>加载文件中...</span>
 					</div>
 				) : !hasVisibleNodes ? (
-					<div className="px-6 py-16 text-center text-sm text-[var(--leros-text-muted)]">
+					<div className="px-6 py-16 text-center text-sm text-[var(--lework-text-muted)]">
 						暂无文件
 					</div>
 				) : (
-					<div className="overflow-x-auto rounded-2xl border border-[var(--leros-control-border)] bg-white">
+					<div className="overflow-x-auto rounded-2xl border border-[var(--lework-control-border)] bg-white">
 						<div className={PROJECT_FILE_TABLE_MIN_WIDTH_CLASS}>
 							<div
 								className={cn(
 									PROJECT_FILE_TABLE_GRID_CLASS,
-									"border-b border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--leros-text-muted)]",
+									"border-b border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] py-3.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--lework-text-muted)]",
 								)}
 							>
 								<div className={cn("min-w-0 truncate", PROJECT_FILE_TABLE_LEADING_CELL_CLASS)}>

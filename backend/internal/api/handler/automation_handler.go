@@ -9,12 +9,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	servicepkg "github.com/insmtx/Leros/backend/internal/service"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/api/dto"
+	servicepkg "github.com/insmtx/lework/backend/internal/service"
 )
 
-const automationTargetUserIDHeader = "X-Leros-Target-User-Id"
+const automationTargetUserIDHeader = "X-Lework-Target-User-Id"
 
 // AutomationHandler 处理自动化相关的 HTTP 请求。
 //

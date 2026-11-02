@@ -3,9 +3,9 @@ package run
 import (
 	"strings"
 
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	agentrundomain "github.com/insmtx/lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

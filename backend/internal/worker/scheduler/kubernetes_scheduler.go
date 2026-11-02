@@ -21,23 +21,23 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 const (
 	defaultKubernetesNamespace         = "default"
 	defaultKubernetesConnection        = "auto"
-	defaultWorkerContainerName         = "leros-worker"
+	defaultWorkerContainerName         = "lework-worker"
 	defaultWorkspaceInitContainerName  = "init-workspace"
 	defaultWorkerListenAddr            = ":8081"
 	defaultWorkspaceContainerMountRoot = "/workspace"
 	defaultWorkerConfigMountPath       = "/app/config"
 	defaultWorkerConfigFile            = "/app/config/config.yaml"
 	defaultWorkspaceHostPathRoot       = "/data/workspace"
-	defaultStorageHostPath             = "/data/leros-storage"
-	defaultStorageMountPath            = "/leros-storage"
-	defaultWorkerImage                 = "leros-worker:local"
+	defaultStorageHostPath             = "/data/lework-storage"
+	defaultStorageMountPath            = "/lework-storage"
+	defaultWorkerImage                 = "lework-worker:local"
 	defaultWorkspaceInitImage          = "busybox:1.36.1"
 )
 
@@ -173,7 +173,7 @@ func bootstrapTokenFromDeployment(deployment *appsv1.Deployment) string {
 		return ""
 	}
 	for _, container := range deployment.Spec.Template.Spec.Containers {
-		if token := envValue(container.Env, "LEROS_WORKER_BOOTSTRAP_TOKEN"); token != "" {
+		if token := envValue(container.Env, "LEWORK_WORKER_BOOTSTRAP_TOKEN"); token != "" {
 			return token
 		}
 	}
@@ -212,7 +212,7 @@ func (s *KubernetesScheduler) Health(ctx context.Context, workerID string) error
 
 func (s *KubernetesScheduler) List(ctx context.Context) ([]*worker.WorkerInstance, error) {
 	list, err := s.deploymentsAPI().List(ctx, metav1.ListOptions{
-		LabelSelector: "app=leros,component=worker",
+		LabelSelector: "app=lework,component=worker",
 	})
 	if err != nil {
 		return nil, err
@@ -249,7 +249,7 @@ func validateWorkerSpec(spec *worker.WorkerSpec) error {
 
 // DriftFields 返回与期望 spec 不一致的“自有字段”名，用于 reconciler 日志与判定。
 //
-// 只比较 Leros 自己写入的字段：resources 仅在配置显式声明时比较，准入控制注入的
+// 只比较 Lework 自己写入的字段：resources 仅在配置显式声明时比较，准入控制注入的
 // resources/env 一律忽略——否则 LimitRange 之类的默认值会让 drift 永远为真，
 // 每轮 reconcile 都全量覆盖一次，Pod 被 Recreate 反复替换。
 func (s *KubernetesScheduler) DriftFields(ctx context.Context, spec *worker.WorkerSpec) ([]string, error) {
@@ -307,10 +307,10 @@ func (s *KubernetesScheduler) driftFields(deployment *appsv1.Deployment, spec *w
 	}
 
 	expectedEnv := map[string]string{
-		"LEROS_ORG_ID":         strconv.FormatUint(uint64(spec.OrgID), 10),
-		"LEROS_WORKER_ID":      strconv.FormatUint(uint64(spec.WorkerID), 10),
-		"LEROS_SERVER_ADDR":    s.serverAddr(spec),
-		"LEROS_WORKSPACE_ROOT": mountPath,
+		"LEWORK_ORG_ID":         strconv.FormatUint(uint64(spec.OrgID), 10),
+		"LEWORK_WORKER_ID":      strconv.FormatUint(uint64(spec.WorkerID), 10),
+		"LEWORK_SERVER_ADDR":    s.serverAddr(spec),
+		"LEWORK_WORKSPACE_ROOT": mountPath,
 	}
 	for _, key := range sortedStringKeys(expectedEnv) {
 		if envValue(container.Env, key) != expectedEnv[key] {
@@ -346,10 +346,10 @@ func (s *KubernetesScheduler) driftFields(deployment *appsv1.Deployment, spec *w
 	}
 
 	if storageHostPath := s.storageHostPath(); storageHostPath != "" {
-		if hostPathForVolume(deployment.Spec.Template.Spec.Volumes, "leros-storage") != storageHostPath {
+		if hostPathForVolume(deployment.Spec.Template.Spec.Volumes, "lework-storage") != storageHostPath {
 			add("storage.hostPath")
 		}
-		if mountPathForVolume(container.VolumeMounts, "leros-storage") != s.storageMountPath() {
+		if mountPathForVolume(container.VolumeMounts, "lework-storage") != s.storageMountPath() {
 			add("storage.mountPath")
 		}
 	}
@@ -364,7 +364,7 @@ func (s *KubernetesScheduler) driftFields(deployment *appsv1.Deployment, spec *w
 		add("initContainer.args")
 	}
 
-	// resources 只有配置显式声明时才归 Leros 管；为空时忽略准入控制注入的默认值。
+	// resources 只有配置显式声明时才归 Lework 管；为空时忽略准入控制注入的默认值。
 	desiredResources := s.workerResources()
 	if !resourceRequirementsEmpty(desiredResources) &&
 		!resourceRequirementsEqual(desiredResources, container.Resources) {
@@ -378,23 +378,23 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 	name := deploymentName(spec.OrgID, spec.WorkerID)
 	workspaceMountPath := s.workspaceMountPath(spec.OrgID, spec.WorkerID)
 	labels := map[string]string{
-		"app":                "leros",
-		"component":          "worker",
-		"leros.io/org-id":    strconv.FormatUint(uint64(spec.OrgID), 10),
-		"leros.io/worker-id": strconv.FormatUint(uint64(spec.WorkerID), 10),
+		"app":                 "lework",
+		"component":           "worker",
+		"lework.io/org-id":    strconv.FormatUint(uint64(spec.OrgID), 10),
+		"lework.io/worker-id": strconv.FormatUint(uint64(spec.WorkerID), 10),
 	}
 	for k, v := range spec.Labels {
 		labels[k] = v
 	}
 	replicas := int32(1)
 	env := []corev1.EnvVar{
-		{Name: "LEROS_ORG_ID", Value: strconv.FormatUint(uint64(spec.OrgID), 10)},
-		{Name: "LEROS_WORKER_ID", Value: strconv.FormatUint(uint64(spec.WorkerID), 10)},
-		{Name: "LEROS_SERVER_ADDR", Value: s.serverAddr(spec)},
-		{Name: "LEROS_WORKSPACE_ROOT", Value: workspaceMountPath},
+		{Name: "LEWORK_ORG_ID", Value: strconv.FormatUint(uint64(spec.OrgID), 10)},
+		{Name: "LEWORK_WORKER_ID", Value: strconv.FormatUint(uint64(spec.WorkerID), 10)},
+		{Name: "LEWORK_SERVER_ADDR", Value: s.serverAddr(spec)},
+		{Name: "LEWORK_WORKSPACE_ROOT", Value: workspaceMountPath},
 	}
 	if spec.BootstrapToken != "" {
-		env = append(env, corev1.EnvVar{Name: "LEROS_WORKER_BOOTSTRAP_TOKEN", Value: spec.BootstrapToken})
+		env = append(env, corev1.EnvVar{Name: "LEWORK_WORKER_BOOTSTRAP_TOKEN", Value: spec.BootstrapToken})
 	}
 	for key, value := range s.config.Env {
 		env = append(env, corev1.EnvVar{Name: key, Value: value})
@@ -444,7 +444,7 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 	}
 	if storageHostPath := s.storageHostPath(); storageHostPath != "" {
 		volumes = append(volumes, corev1.Volume{
-			Name: "leros-storage",
+			Name: "lework-storage",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
 					Path: storageHostPath,
@@ -458,7 +458,7 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 		{Name: "workspace", MountPath: workspaceMountPath},
 	}
 	if storageMountPath := s.storageMountPath(); storageMountPath != "" {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{Name: "leros-storage", MountPath: storageMountPath})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{Name: "lework-storage", MountPath: storageMountPath})
 	}
 	podSpec := corev1.PodSpec{
 		NodeSelector: s.config.NodeSelector,
@@ -479,7 +479,7 @@ func (s *KubernetesScheduler) buildDeployment(spec *worker.WorkerSpec) *appsv1.D
 				Name:            name,
 				Image:           s.workerImage(spec),
 				ImagePullPolicy: s.workerImagePullPolicy(),
-				Command:         []string{"/leros"},
+				Command:         []string{"/lework"},
 				Args:            args,
 				Env:             env,
 				VolumeMounts:    volumeMounts,
@@ -537,7 +537,7 @@ func configMapVolumeName(volumes []corev1.Volume, name string) string {
 	return ""
 }
 
-// resourceRequirementsEmpty 判断期望资源是否为空；为空表示 Leros 不管理 resources，
+// resourceRequirementsEmpty 判断期望资源是否为空；为空表示 Lework 不管理 resources，
 // 因而忽略准入控制（如 LimitRange）注入的默认值。
 func resourceRequirementsEmpty(r corev1.ResourceRequirements) bool {
 	return len(r.Limits) == 0 && len(r.Requests) == 0
@@ -619,18 +619,18 @@ func (s *KubernetesScheduler) configMap() string {
 	if value := strings.TrimSpace(s.config.ConfigMap); value != "" {
 		return value
 	}
-	return "leros-worker-config"
+	return "lework-worker-config"
 }
 
-// ownedEnvNames 是 Leros 自己写入、允许被 Update 覆盖的 env 名。
+// ownedEnvNames 是 Lework 自己写入、允许被 Update 覆盖的 env 名。
 func (s *KubernetesScheduler) ownedEnvNames() map[string]struct{} {
 	owned := map[string]struct{}{
-		"LEROS_ORG_ID":                 {},
-		"LEROS_WORKER_ID":              {},
-		"LEROS_SERVER_ADDR":            {},
-		"LEROS_WORKSPACE_ROOT":         {},
-		"LEROS_WORKER_BOOTSTRAP_TOKEN": {},
-		"LLM_API_KEY":                  {},
+		"LEWORK_ORG_ID":                 {},
+		"LEWORK_WORKER_ID":              {},
+		"LEWORK_SERVER_ADDR":            {},
+		"LEWORK_WORKSPACE_ROOT":         {},
+		"LEWORK_WORKER_BOOTSTRAP_TOKEN": {},
+		"LLM_API_KEY":                   {},
 	}
 	for key := range s.config.Env {
 		owned[key] = struct{}{}
@@ -638,7 +638,7 @@ func (s *KubernetesScheduler) ownedEnvNames() map[string]struct{} {
 	return owned
 }
 
-// preserveExternalFields 把当前 Deployment 上非 Leros 拥有的字段合并回期望 spec。
+// preserveExternalFields 把当前 Deployment 上非 Lework 拥有的字段合并回期望 spec。
 // 全量 Update 会抹掉准入控制（LimitRange / webhook）与运维注入的 annotations、
 // labels、env；虽然 drift 判据已经忽略它们，但一次真实漂移修复不应顺手清掉。
 func (s *KubernetesScheduler) preserveExternalFields(next, current *appsv1.Deployment) {
@@ -747,11 +747,11 @@ func (s *KubernetesScheduler) storageMountPath() string {
 }
 
 func deploymentName(orgID, workerID uint) string {
-	return fmt.Sprintf("leros-worker-o%d-w%d", orgID, workerID)
+	return fmt.Sprintf("lework-worker-o%d-w%d", orgID, workerID)
 }
 
 // joinHostPath 在宿主根路径下追加 Deployment 名称二级目录，使每个 worker
-// 使用独立的 workspace 宿主目录（如 /data/workspace/leros-worker-o1001-w3），
+// 使用独立的 workspace 宿主目录（如 /data/workspace/lework-worker-o1001-w3），
 // 目录名与 Deployment 名称一一对应，实现物理隔离。
 // workerID 为 0 时返回根路径本身，避免拼出无意义的目录。
 func joinHostPath(root string, orgID, workerID uint) string {

@@ -1,7 +1,7 @@
 "use client";
 
-import { useLayoutStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import { useLayoutStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import { ArrowLeft, Calculator } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -178,14 +178,14 @@ export function PayrollAccountingPage({ navigation }: { navigation?: AppNavigati
 		<div
 			data-slot="payroll-accounting-page"
 			data-path={WORKBENCH_PAYROLL_PATH}
-			className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--leros-app-bg)]"
+			className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--lework-app-bg)]"
 		>
-			<header className="shrink-0 border-b border-[var(--leros-control-border)] px-4 py-4 sm:px-6 sm:py-5">
+			<header className="shrink-0 border-b border-[var(--lework-control-border)] px-4 py-4 sm:px-6 sm:py-5">
 				<Button
 					type="button"
 					variant="ghost"
 					size="sm"
-					className="-ml-2 mb-2 text-[var(--leros-text-muted)]"
+					className="-ml-2 mb-2 text-[var(--lework-text-muted)]"
 					onClick={goBack}
 				>
 					<ArrowLeft className="size-4" />
@@ -196,7 +196,7 @@ export function PayrollAccountingPage({ navigation }: { navigation?: AppNavigati
 						<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
 							<Calculator className="size-5" />
 						</div>
-						<h1 className="truncate text-xl font-semibold text-[var(--leros-text-strong)]">
+						<h1 className="truncate text-xl font-semibold text-[var(--lework-text-strong)]">
 							考勤工资核算
 						</h1>
 					</div>
@@ -204,7 +204,7 @@ export function PayrollAccountingPage({ navigation }: { navigation?: AppNavigati
 						type="button"
 						disabled={!isAuthenticated || submitting || !canStartPayrollTask(files)}
 						onClick={() => void startAnalysis()}
-						className="shrink-0 bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90"
+						className="shrink-0 bg-[var(--lework-primary)] text-white hover:bg-[var(--lework-primary)]/90"
 					>
 						{submitting ? "启动中..." : "开始核算"}
 					</Button>

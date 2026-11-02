@@ -2,7 +2,7 @@
 
 import { Avatar, Style } from "@dicebear/core";
 import notionists from "@dicebear/styles/notionists.json" with { type: "json" };
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { useMemo } from "react";
 
 const notionistsStyle = new Style(notionists);
@@ -49,7 +49,7 @@ export function DiceBearAvatar({
 		return (
 			<span
 				className={cn(
-					"flex aspect-square items-center justify-center rounded-full bg-[var(--leros-primary)] font-semibold text-white",
+					"flex aspect-square items-center justify-center rounded-full bg-[var(--lework-primary)] font-semibold text-white",
 					className,
 				)}
 			>

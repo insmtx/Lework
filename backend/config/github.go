@@ -1,4 +1,4 @@
-// config 包提供 Leros 的配置加载和配置类型定义
+// config 包提供 Lework 的配置加载和配置类型定义
 //
 // 该包负责从配置文件加载各种配置项，包括 GitHub 应用配置、
 // GitLab 应用配置、RabbitMQ 消息队列配置和数据库配置等。

@@ -4,7 +4,7 @@ import {
 	prepareOutgoingComposer,
 	skillChipMarkup,
 	skillChipsToComposerState,
-} from "@leros/store";
+} from "@lework/store";
 import { describe, expect, it } from "vitest";
 
 describe("prepareOutgoingComposer", () => {

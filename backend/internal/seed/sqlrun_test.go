@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

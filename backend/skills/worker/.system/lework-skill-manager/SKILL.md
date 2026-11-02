@@ -5,7 +5,7 @@ description: 查询组织 Skill、管理项目关联，并说明本地 Skill 的
 
 # LeWork Skill 管理
 
-使用 `leros skill` CLI 查询组织 Skill 和管理项目关联。命令参数使用 Skill 的精确
+使用 `lework skill` CLI 查询组织 Skill 和管理项目关联。命令参数使用 Skill 的精确
 `code`，不要使用名称或内部数据库 ID 替代。
 
 ## 查询和项目关联
@@ -13,10 +13,10 @@ description: 查询组织 Skill、管理项目关联，并说明本地 Skill 的
 解析命令输出时使用 `--json`。
 
 ```text
-leros skill ls [--keyword <关键词>] [--offset N] [--limit N] [--json]
-leros skill ls --project-id <项目 ID> [--keyword <关键词>] [--offset N] [--limit N] [--json]
-leros skill add <skill_code> --project-id <项目 ID> [--json]
-leros skill remove <skill_code> --project-id <项目 ID> [--json]
+lework skill ls [--keyword <关键词>] [--offset N] [--limit N] [--json]
+lework skill ls --project-id <项目 ID> [--keyword <关键词>] [--offset N] [--limit N] [--json]
+lework skill add <skill_code> --project-id <项目 ID> [--json]
+lework skill remove <skill_code> --project-id <项目 ID> [--json]
 ```
 
 - 不传 `--project-id` 时，查询组织内处于启用状态的 Skill。
@@ -34,18 +34,18 @@ ID，应要求用户明确目标项目。
 
 ## 本地 Skill 安装位置
 
-本地文件型 Skill 使用内置 `skill_manage` 工具创建或维护，不通过 `leros skill` CLI
+本地文件型 Skill 使用内置 `skill_manage` 工具创建或维护，不通过 `lework skill` CLI
 安装。默认安装根目录为：
 
 ```text
-<workspace-root>/.leros/skills/
+<workspace-root>/.lework/skills/
 ```
 
-其中 `<workspace-root>` 由 `LEROS_WORKSPACE_ROOT` 指定；未设置时使用 Worker 的默认
+其中 `<workspace-root>` 由 `LEWORK_WORKSPACE_ROOT` 指定；未设置时使用 Worker 的默认
 工作区。每个 Skill 使用自己的目录，目录名就是 Skill code：
 
 ```text
-<workspace-root>/.leros/skills/<skill_code>/
+<workspace-root>/.lework/skills/<skill_code>/
 ├── SKILL.md
 └── 其他附属文件（可选）
 ```
@@ -54,7 +54,7 @@ ID，应要求用户明确目标项目。
 Skill 时，使用 `skill_manage` 的 `create`；需要补充附属文件时使用 `write_file`。
 
 本地 Skill 与组织 Skill、项目关联相互独立：在本地目录创建 Skill 不会自动建立项目
-关联；需要关联已有组织 Skill 时，使用上一节的 `leros skill add`。
+关联；需要关联已有组织 Skill 时，使用上一节的 `lework skill add`。
 
 ## 边界
 

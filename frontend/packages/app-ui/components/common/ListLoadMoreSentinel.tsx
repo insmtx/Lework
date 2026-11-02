@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
@@ -48,7 +48,7 @@ export function ListLoadMoreSentinel({
 			aria-label={loading ? "加载更多" : "还有更多"}
 		>
 			{loading ? (
-				<Loader2 className="size-4 animate-spin text-[var(--leros-text-subtle)]" />
+				<Loader2 className="size-4 animate-spin text-[var(--lework-text-subtle)]" />
 			) : (
 				<span className="sr-only">滚动加载更多</span>
 			)}

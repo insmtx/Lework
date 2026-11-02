@@ -31,9 +31,9 @@ describe("electron-builder 桌面图标与资源配置", () => {
 			desktopName?: string;
 		};
 
-		expect(desktopPackage.desktopName).toBe("leros-desktop.desktop");
+		expect(desktopPackage.desktopName).toBe("lework-desktop.desktop");
 		expect(config).toMatch(
-			/linux:[\s\S]*icon:\s*resources\/linux-icons[\s\S]*executableName:\s*leros-desktop[\s\S]*syncDesktopName:\s*true/,
+			/linux:[\s\S]*icon:\s*resources\/linux-icons[\s\S]*executableName:\s*lework-desktop[\s\S]*syncDesktopName:\s*true/,
 		);
 	});
 
@@ -59,6 +59,6 @@ describe("electron-builder 桌面图标与资源配置", () => {
 		expect(installerScript).toContain("taskkill /F /IM");
 		expect(installerScript).toContain("/T");
 		expect(installerScript).not.toContain("继续安装需要强制关闭");
-		expect(installerScript).not.toContain("leros_force_kill_attempt");
+		expect(installerScript).not.toContain("lework_force_kill_attempt");
 	});
 });

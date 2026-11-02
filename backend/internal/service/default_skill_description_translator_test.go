@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/llm"
+	"github.com/insmtx/lework/backend/internal/llm"
 )
 
 type recordingTranslationCaller struct {

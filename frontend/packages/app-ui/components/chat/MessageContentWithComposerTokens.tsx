@@ -1,8 +1,8 @@
 "use client";
 
-import type { ComposerToken, Message } from "@leros/store/types/chat";
-import { parseSkillChips } from "@leros/store";
-import { cn } from "@leros/ui/lib/utils";
+import type { ComposerToken, Message } from "@lework/store/types/chat";
+import { parseSkillChips } from "@lework/store";
+import { cn } from "@lework/ui/lib/utils";
 import { PanelsTopLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { SkillDirectiveBadge } from "../common/SkillDirectiveBadge";

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 	uploadLoose: vi.fn(),
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	useLayoutStore: (selector: (state: Record<string, unknown>) => unknown) =>
 		selector({
 			projects: [{ id: "p1", name: "Payroll", tasks: [] }],

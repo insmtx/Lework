@@ -66,7 +66,7 @@ def discover_task_context(repo_root: str, turn_tmp_dir: str) -> dict:
     except ValueError as exc:
         raise ContextError("TURN_TMP_OUTSIDE_PROJECT") from exc
     parts = relative.parts
-    if len(parts) != 6 or parts[0] != ".leros" or parts[1] != "tasks" or parts[3] != "turns" or parts[5] != "tmp":
+    if len(parts) != 6 or parts[0] != ".lework" or parts[1] != "tasks" or parts[3] != "turns" or parts[5] != "tmp":
         raise ContextError("TASK_PATH_SHAPE_INVALID")
     task_id, request_id = parts[2], parts[4]
     if not TASK_ID_RE.fullmatch(task_id):

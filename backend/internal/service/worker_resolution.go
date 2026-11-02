@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func resolveRuntimeWorker(ctx context.Context, database *gorm.DB, orgID, assistantID uint, inferrer AssistantInferrer) (uint, uint, error) {

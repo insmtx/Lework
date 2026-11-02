@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/internal/todo"
-	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
+	"github.com/insmtx/lework/backend/agent"
+	runtimetodo "github.com/insmtx/lework/backend/agent/runtime/internal/todo"
+	pkgeino "github.com/insmtx/lework/backend/pkg/eino"
 )
 
 type toolBinding struct {

@@ -3,10 +3,10 @@ package prompts
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/api/auth"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

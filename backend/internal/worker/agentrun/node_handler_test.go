@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/agent"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 type testJournal struct {

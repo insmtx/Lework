@@ -1,4 +1,4 @@
-import type { BackendProjectFileVersion, BackendProjectFileVersionList } from "@leros/store";
+import type { BackendProjectFileVersion, BackendProjectFileVersionList } from "@lework/store";
 
 export type ProjectFileVersionChange = {
 	latest: BackendProjectFileVersion;

@@ -14,13 +14,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	eventbus "github.com/insmtx/Leros/backend/internal/infra/mq"
-	skillarchive "github.com/insmtx/Leros/backend/internal/skill/archive"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/internal/infra/filestore"
+	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
+	skillarchive "github.com/insmtx/lework/backend/internal/skill/archive"
+	"github.com/insmtx/lework/backend/pkg/messaging"
+	"github.com/insmtx/lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 

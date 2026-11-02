@@ -16,7 +16,7 @@ WITH translations(code, metadata_source_hash, translated_name, translated_descri
     ('weather', 'c7a48d901c44ffa803c9b1d8d52ab9624435687d9ca75d4bfda17afb42ab9bb1', '天气查询', '查询当前天气和天气预报，无需 API Key。'),
     ('xlsx', '9c292cbfc1078fcac4134746b2d514a5d17c80f845e282fb01ae5eed12305dba', 'Excel 表格', '创建、读取、编辑和处理 Excel、CSV 与 TSV 表格，包括公式、格式、图表、清洗和转换。')
 )
-INSERT INTO leros_plugin_translation (
+INSERT INTO lework_plugin_translation (
   org_id,
   source_type,
   source_id,
@@ -46,7 +46,7 @@ SELECT
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
 FROM translations t
-JOIN leros_plugin p
+JOIN lework_plugin p
   ON p.code = t.code
  AND p.owner_scope = 'system'
  AND p.org_id = 0
@@ -54,7 +54,7 @@ JOIN leros_plugin p
  AND p.origin = 'builtin_worker'
  AND p.status = 'active'
  AND p.deleted_at IS NULL
-JOIN leros_plugin_revision r
+JOIN lework_plugin_revision r
   ON r.plugin_id = p.id
  AND r.revision = p.current_revision
  AND r.status = 'published'

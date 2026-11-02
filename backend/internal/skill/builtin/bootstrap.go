@@ -2,8 +2,8 @@
 package builtin
 
 import (
-	"github.com/insmtx/Leros/backend/config"
-	runtimecli "github.com/insmtx/Leros/backend/internal/cli"
+	"github.com/insmtx/lework/backend/config"
+	runtimecli "github.com/insmtx/lework/backend/internal/cli"
 	"github.com/ygpkg/yg-go/logs"
 )
 

@@ -12,7 +12,7 @@ const storeMocks = vi.hoisted(() => ({
 	testServerConnection: vi.fn(),
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	isPrivateDeployment: true,
 	...storeMocks,
 }));

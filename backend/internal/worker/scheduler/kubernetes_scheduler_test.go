@@ -8,19 +8,19 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 func TestWorkerContainerImageFindsNamedWorkerContainer(t *testing.T) {
 	deployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: "leros-worker-o12-w1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "lework-worker-o12-w1"},
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{Name: "sidecar", Image: "sidecar:v1"},
-						{Name: "leros-worker-o12-w1", Image: "registry.yygu.cn/insmtx/leros-worker:v2"},
+						{Name: "lework-worker-o12-w1", Image: "registry.yygu.cn/insmtx/lework-worker:v2"},
 					},
 				},
 			},
@@ -28,7 +28,7 @@ func TestWorkerContainerImageFindsNamedWorkerContainer(t *testing.T) {
 	}
 
 	got := workerContainerImage(deployment)
-	if got != "registry.yygu.cn/insmtx/leros-worker:v2" {
+	if got != "registry.yygu.cn/insmtx/lework-worker:v2" {
 		t.Fatalf("worker image = %q", got)
 	}
 }
@@ -37,7 +37,7 @@ func TestKubernetesDeploymentUsesDeploymentNameForWorkerContainer(t *testing.T) 
 	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{}}
 	deployment := scheduler.buildDeployment(&worker.WorkerSpec{OrgID: 12, WorkerID: 1})
 
-	if got, want := deployment.Name, "leros-worker-o12-w1"; got != want {
+	if got, want := deployment.Name, "lework-worker-o12-w1"; got != want {
 		t.Fatalf("deployment name = %q, want %q", got, want)
 	}
 	if got, want := deployment.Spec.Template.Spec.Containers[0].Name, deployment.Name; got != want {
@@ -51,7 +51,7 @@ func TestWorkerContainerImageFallsBackForSingleContainer(t *testing.T) {
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
-						{Name: "legacy-worker", Image: "registry.yygu.cn/insmtx/leros-worker:v1"},
+						{Name: "legacy-worker", Image: "registry.yygu.cn/insmtx/lework-worker:v1"},
 					},
 				},
 			},
@@ -59,7 +59,7 @@ func TestWorkerContainerImageFallsBackForSingleContainer(t *testing.T) {
 	}
 
 	got := workerContainerImage(deployment)
-	if got != "registry.yygu.cn/insmtx/leros-worker:v1" {
+	if got != "registry.yygu.cn/insmtx/lework-worker:v1" {
 		t.Fatalf("worker image = %q", got)
 	}
 }
@@ -67,16 +67,16 @@ func TestWorkerContainerImageFallsBackForSingleContainer(t *testing.T) {
 func TestKubernetesWorkspaceHostPathPerWorkerMountPathShared(t *testing.T) {
 	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{}}
 
-	if got, want := scheduler.workspacePath(1, 2), "/data/workspace/leros-worker-o1-w2"; got != want {
+	if got, want := scheduler.workspacePath(1, 2), "/data/workspace/lework-worker-o1-w2"; got != want {
 		t.Fatalf("workspace host path = %q, want %q", got, want)
 	}
 	if got, want := scheduler.workspaceMountPath(1, 2), "/workspace"; got != want {
 		t.Fatalf("workspace mount path = %q, want %q", got, want)
 	}
 
-	scheduler.config.WorkspaceHostPathRoot = "/mnt/leros"
+	scheduler.config.WorkspaceHostPathRoot = "/mnt/lework"
 	scheduler.config.WorkspaceMountRoot = "/worker-space"
-	if got, want := scheduler.workspacePath(3, 4), "/mnt/leros/leros-worker-o3-w4"; got != want {
+	if got, want := scheduler.workspacePath(3, 4), "/mnt/lework/lework-worker-o3-w4"; got != want {
 		t.Fatalf("custom workspace host path = %q, want %q", got, want)
 	}
 	if got, want := scheduler.workspaceMountPath(3, 4), "/worker-space"; got != want {
@@ -87,7 +87,7 @@ func TestKubernetesWorkspaceHostPathPerWorkerMountPathShared(t *testing.T) {
 func TestKubernetesStoragePathSharedWithoutWorkerDirectory(t *testing.T) {
 	scheduler := &KubernetesScheduler{config: &config.SchedulerConfig{}}
 
-	if got, want := scheduler.storageHostPath(), "/data/leros-storage"; got != want {
+	if got, want := scheduler.storageHostPath(), "/data/lework-storage"; got != want {
 		t.Fatalf("storage host path = %q, want shared %q", got, want)
 	}
 
@@ -108,21 +108,21 @@ func TestKubernetesWorkspaceSpecDriftDetectsLegacyWorkspacePath(t *testing.T) {
 		t.Fatalf("fresh deployment drift = %v, want none", fields)
 	}
 
-	deployment.Spec.Template.Spec.Volumes[1].HostPath.Path = "/data/leros-workspaces"
+	deployment.Spec.Template.Spec.Volumes[1].HostPath.Path = "/data/lework-workspaces"
 	workerContainer := &deployment.Spec.Template.Spec.Containers[0]
-	workerContainer.VolumeMounts[1].MountPath = "/leros-workspaces"
+	workerContainer.VolumeMounts[1].MountPath = "/lework-workspaces"
 	for i := range workerContainer.Env {
-		if workerContainer.Env[i].Name == "LEROS_WORKSPACE_ROOT" {
-			workerContainer.Env[i].Value = "/leros-workspaces"
+		if workerContainer.Env[i].Name == "LEWORK_WORKSPACE_ROOT" {
+			workerContainer.Env[i].Value = "/lework-workspaces"
 		}
 	}
 	for i := 0; i+1 < len(workerContainer.Args); i++ {
 		if workerContainer.Args[i] == "--workspace-root" {
-			workerContainer.Args[i+1] = "/leros-workspaces"
+			workerContainer.Args[i+1] = "/lework-workspaces"
 		}
 	}
-	deployment.Spec.Template.Spec.InitContainers[0].Args = []string{"chmod -R 0777 /leros-workspaces"}
-	deployment.Spec.Template.Spec.InitContainers[0].VolumeMounts[0].MountPath = "/leros-workspaces"
+	deployment.Spec.Template.Spec.InitContainers[0].Args = []string{"chmod -R 0777 /lework-workspaces"}
+	deployment.Spec.Template.Spec.InitContainers[0].VolumeMounts[0].MountPath = "/lework-workspaces"
 
 	if fields := scheduler.driftFields(deployment, spec); len(fields) == 0 {
 		t.Fatal("legacy workspace paths should require reconcile")

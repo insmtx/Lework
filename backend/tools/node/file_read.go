@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/tools"
-	"github.com/insmtx/Leros/backend/tools/node/util"
+	"github.com/insmtx/lework/backend/tools"
+	"github.com/insmtx/lework/backend/tools/node/util"
 )
 
 // NodeFileReadTool reads files from the worker workspace.

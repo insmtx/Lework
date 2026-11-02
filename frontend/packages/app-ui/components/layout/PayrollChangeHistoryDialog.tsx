@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@leros/ui/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@leros/ui/components/ui/dialog";
+import { Button } from "@lework/ui/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@lework/ui/components/ui/dialog";
 import { useEffect, useState } from "react";
 import type { PayrollChangeEvent } from "./payroll-service-client";
 

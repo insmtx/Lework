@@ -1,4 +1,4 @@
-import type { Project, ProjectTask } from "@leros/store";
+import type { Project, ProjectTask } from "@lework/store";
 
 export type ComposerUsageTip = {
 	id: string;

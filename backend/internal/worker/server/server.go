@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/insmtx/Leros/backend/internal/worker"
-	"github.com/insmtx/Leros/backend/internal/worker/wsproto"
+	"github.com/insmtx/lework/backend/internal/worker"
+	"github.com/insmtx/lework/backend/internal/worker/wsproto"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -93,7 +93,7 @@ func (s *WorkerManager) handleWorkerWebSocket(c *gin.Context) {
 	logs.Infof("Worker %s registered", workerID)
 
 	welcomeMsg, err := wsproto.NewPayload(wsproto.MsgTypeWelcome, wsproto.WelcomePayload{
-		Message:  "Connected to Leros worker server",
+		Message:  "Connected to Lework worker server",
 		WorkerID: workerID,
 	})
 	if err != nil {

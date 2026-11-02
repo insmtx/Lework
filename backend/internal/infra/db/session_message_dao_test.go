@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 func TestCreateMessage(t *testing.T) {

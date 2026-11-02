@@ -1,4 +1,4 @@
-export const CLIENT_UPGRADE_REQUIRED_EVENT = "leros:client-upgrade-required";
+export const CLIENT_UPGRADE_REQUIRED_EVENT = "lework:client-upgrade-required";
 
 export type ClientApp = "desktop" | "web";
 
@@ -23,8 +23,8 @@ export type ClientUpdatePolicy = {
 export type ClientUpgradeRequiredEvent = CustomEvent<ClientUpdatePolicy>;
 
 type PublicEnv = {
-	readonly VITE_LEROS_APP_VERSION?: string;
-	readonly NEXT_PUBLIC_LEROS_APP_VERSION?: string;
+	readonly VITE_LEWORK_APP_VERSION?: string;
+	readonly NEXT_PUBLIC_LEWORK_APP_VERSION?: string;
 };
 
 declare const process:
@@ -34,12 +34,12 @@ declare const process:
 	| undefined;
 
 function getViteAppVersion(): string | undefined {
-	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEROS_APP_VERSION;
+	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEWORK_APP_VERSION;
 }
 
 function getNextAppVersion(): string | undefined {
 	if (typeof process === "undefined") return undefined;
-	return process.env?.NEXT_PUBLIC_LEROS_APP_VERSION;
+	return process.env?.NEXT_PUBLIC_LEWORK_APP_VERSION;
 }
 
 export function getClientVersionReport(): ClientVersionReportParams {
@@ -55,10 +55,10 @@ export function getClientVersionReport(): ClientVersionReportParams {
 export function getClientHeaders(): Record<string, string> {
 	const report = getClientVersionReport();
 	return {
-		"X-Leros-Client-App": report.app,
-		"X-Leros-Client-Version": report.version,
-		"X-Leros-Client-Platform": report.platform || "unknown",
-		"X-Leros-Client-Arch": report.arch || "unknown",
+		"X-Lework-Client-App": report.app,
+		"X-Lework-Client-Version": report.version,
+		"X-Lework-Client-Platform": report.platform || "unknown",
+		"X-Lework-Client-Arch": report.arch || "unknown",
 	};
 }
 
@@ -89,7 +89,7 @@ export function readClientUpgradePolicy(value: unknown): ClientUpdatePolicy | nu
 }
 
 function getClientApp(): ClientApp {
-	if (typeof window !== "undefined" && "lerosDesktop" in window) {
+	if (typeof window !== "undefined" && "leworkDesktop" in window) {
 		return "desktop";
 	}
 	return "web";

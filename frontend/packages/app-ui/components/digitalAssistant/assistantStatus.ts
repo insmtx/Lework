@@ -1,4 +1,4 @@
-import type { DigitalAssistantItem } from "@leros/store";
+import type { DigitalAssistantItem } from "@lework/store";
 
 export type AssistantDisplayStatus = {
 	label: string;

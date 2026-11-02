@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/worker"
 )
 
 // stubDeployments 只实现调度器用到的 Get/Create/Update/Delete，其余方法由嵌入的
@@ -69,7 +69,7 @@ func (s *stubDeployments) Delete(_ context.Context, name string, _ metav1.Delete
 
 func testWorkerSpec() *worker.WorkerSpec {
 	return &worker.WorkerSpec{
-		ID:       "leros-worker-o1-w1",
+		ID:       "lework-worker-o1-w1",
 		OrgID:    1,
 		WorkerID: 1,
 		Image:    "img:v1",
@@ -141,7 +141,7 @@ func TestDriftFieldsIgnoresAdmissionInjectedResources(t *testing.T) {
 	}
 }
 
-// TestDriftFieldsIgnoresExternalEnv 外部注入的 env（代理、监控等）不归 Leros 管。
+// TestDriftFieldsIgnoresExternalEnv 外部注入的 env（代理、监控等）不归 Lework 管。
 func TestDriftFieldsIgnoresExternalEnv(t *testing.T) {
 	scheduler := newTestScheduler(t, nil, nil)
 	spec := testWorkerSpec()
@@ -311,7 +311,7 @@ func TestStartPreservesExternalFieldsOnUpdate(t *testing.T) {
 
 	ownedCount := 0
 	for _, env := range updated.Spec.Template.Spec.Containers[0].Env {
-		if env.Name == "LEROS_SERVER_ADDR" {
+		if env.Name == "LEWORK_SERVER_ADDR" {
 			ownedCount++
 		}
 	}

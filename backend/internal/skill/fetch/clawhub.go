@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	catalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	catalog "github.com/insmtx/lework/backend/internal/skill/catalog"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/lework/backend/config"
 	"github.com/ygpkg/yg-go/logs"
 )
 

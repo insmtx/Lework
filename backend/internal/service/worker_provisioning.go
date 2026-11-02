@@ -8,10 +8,10 @@ import (
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/config"
+	"github.com/insmtx/lework/backend/internal/api/contract"
+	"github.com/insmtx/lework/backend/internal/infra/db"
+	"github.com/insmtx/lework/backend/types"
 )
 
 type WorkerProvisioningService struct {
@@ -171,7 +171,7 @@ func (s *WorkerProvisioningService) MarkAssistantStopped(ctx context.Context, da
 }
 
 func workerDeploymentName(orgID, workerID uint) string {
-	return fmt.Sprintf("leros-worker-o%d-w%d", orgID, workerID)
+	return fmt.Sprintf("lework-worker-o%d-w%d", orgID, workerID)
 }
 
 func generateWorkerDeploymentPublicID() string {

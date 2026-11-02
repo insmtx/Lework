@@ -1,11 +1,11 @@
 "use client";
 
-import type { BackendTask } from "@leros/store";
-import { taskApi, useLayoutStore } from "@leros/store";
-import { Dialog, DialogContent, DialogTitle } from "@leros/ui/components/ui/dialog";
-import { Input } from "@leros/ui/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
-import { cn } from "@leros/ui/lib/utils";
+import type { BackendTask } from "@lework/store";
+import { taskApi, useLayoutStore } from "@lework/store";
+import { Dialog, DialogContent, DialogTitle } from "@lework/ui/components/ui/dialog";
+import { Input } from "@lework/ui/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@lework/ui/components/ui/select";
+import { cn } from "@lework/ui/lib/utils";
 import { Loader2, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -178,7 +178,7 @@ export function GlobalTaskSearchDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				showCloseButton={false}
-				className="grid w-full max-w-[880px] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-[28px] border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-0 shadow-[0_32px_90px_rgba(15,23,42,0.18)]"
+				className="grid w-full max-w-[880px] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-[28px] border border-[var(--lework-control-border)] bg-[var(--lework-surface)] p-0 shadow-[0_32px_90px_rgba(15,23,42,0.18)]"
 				style={{
 					height: "min(82dvh, 860px)",
 					minHeight: "min(56dvh, 520px)",
@@ -186,10 +186,10 @@ export function GlobalTaskSearchDialog({
 			>
 				<DialogTitle className="sr-only">全局任务搜索</DialogTitle>
 
-				<div className="shrink-0 border-b border-[var(--leros-control-border)] px-6 pb-5 pt-5">
+				<div className="shrink-0 border-b border-[var(--lework-control-border)] px-6 pb-5 pt-5">
 					<div className="grid grid-cols-[300px_minmax(0,1fr)_40px] items-stretch justify-between gap-3">
 						<div className="flex h-10 min-w-0 items-center gap-3">
-							<span className="shrink-0 text-sm font-medium text-[var(--leros-text-muted)]">
+							<span className="shrink-0 text-sm font-medium text-[var(--lework-text-muted)]">
 								搜索范围
 							</span>
 							<Select
@@ -199,9 +199,9 @@ export function GlobalTaskSearchDialog({
 									setSelectedProjectId(value ?? ALL_PROJECTS_VALUE);
 								}}
 							>
-								<SelectTrigger className="!h-10 min-w-0 flex-1 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-4 py-0 text-sm font-medium text-[var(--leros-text)] shadow-none transition-colors hover:border-[var(--leros-control-border)] focus-visible:border-[var(--leros-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--leros-primary)]/12">
+								<SelectTrigger className="!h-10 min-w-0 flex-1 rounded-xl border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-4 py-0 text-sm font-medium text-[var(--lework-text)] shadow-none transition-colors hover:border-[var(--lework-control-border)] focus-visible:border-[var(--lework-primary)] focus-visible:ring-[3px] focus-visible:ring-[var(--lework-primary)]/12">
 									<span className="flex min-w-0 flex-1 items-center gap-2 pr-2 text-left">
-										<ProjectIcon className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+										<ProjectIcon className="size-4 shrink-0 text-[var(--lework-text-subtle)]" />
 										<span className="min-w-0 truncate">{selectedProjectLabel}</span>
 									</span>
 								</SelectTrigger>
@@ -212,14 +212,14 @@ export function GlobalTaskSearchDialog({
 									sideOffset={8}
 									// 中文注释：关闭与触发器项对齐，避免下拉层向上展开遮挡项目筛选器。
 									alignItemWithTrigger={false}
-									className="no-scrollbar max-h-80 min-w-[280px] overflow-y-auto rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-1.5 shadow-[0_18px_45px_rgba(30,41,59,0.18)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+									className="no-scrollbar max-h-80 min-w-[280px] overflow-y-auto rounded-2xl border border-[var(--lework-control-border)] bg-[var(--lework-surface)] p-1.5 shadow-[0_18px_45px_rgba(30,41,59,0.18)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
 								>
 									<SelectItem
 										value={ALL_PROJECTS_VALUE}
-										className="rounded-xl px-3 py-2 text-sm font-semibold text-[var(--leros-text-strong)]"
+										className="rounded-xl px-3 py-2 text-sm font-semibold text-[var(--lework-text-strong)]"
 									>
 										<span className="flex min-w-0 items-center gap-2">
-											<ProjectIcon className="size-4 shrink-0 text-[var(--leros-primary)]" />
+											<ProjectIcon className="size-4 shrink-0 text-[var(--lework-primary)]" />
 											<span className="min-w-0 truncate">全部项目</span>
 										</span>
 									</SelectItem>
@@ -227,10 +227,10 @@ export function GlobalTaskSearchDialog({
 										<SelectItem
 											key={project.id}
 											value={project.id}
-											className="rounded-xl px-3 py-2 text-sm font-medium text-[var(--leros-text)]"
+											className="rounded-xl px-3 py-2 text-sm font-medium text-[var(--lework-text)]"
 										>
 											<span className="flex min-w-0 items-center gap-2">
-												<ProjectIcon className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+												<ProjectIcon className="size-4 shrink-0 text-[var(--lework-text-subtle)]" />
 												<span className="min-w-0 truncate">{project.name}</span>
 											</span>
 										</SelectItem>
@@ -247,8 +247,8 @@ export function GlobalTaskSearchDialog({
 							</Select>
 						</div>
 
-						<div className="flex h-10 min-w-0 items-center gap-3 rounded-xl border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-4 shadow-none transition-colors focus-within:border-[var(--leros-primary)] focus-within:ring-[3px] focus-within:ring-[var(--leros-primary)]/12">
-							<Search className="size-4 shrink-0 text-[var(--leros-text-subtle)]" />
+						<div className="flex h-10 min-w-0 items-center gap-3 rounded-xl border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-4 shadow-none transition-colors focus-within:border-[var(--lework-primary)] focus-within:ring-[3px] focus-within:ring-[var(--lework-primary)]/12">
+							<Search className="size-4 shrink-0 text-[var(--lework-text-subtle)]" />
 							<Input
 								ref={inputRef}
 								value={keyword}
@@ -265,7 +265,7 @@ export function GlobalTaskSearchDialog({
 										setDebouncedKeyword("");
 										inputRef.current?.focus();
 									}}
-									className="flex size-6 shrink-0 items-center justify-center rounded-full text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
+									className="flex size-6 shrink-0 items-center justify-center rounded-full text-[var(--lework-text-subtle)] transition-colors hover:bg-[var(--lework-chat-control-bg)] hover:text-[var(--lework-text)]"
 								>
 									<X className="size-3.5" />
 								</button>
@@ -276,26 +276,26 @@ export function GlobalTaskSearchDialog({
 							type="button"
 							aria-label="关闭搜索弹窗"
 							onClick={() => onOpenChange(false)}
-							className="flex size-10 items-center justify-center rounded-xl text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-chat-control-bg)] hover:text-[var(--leros-text)]"
+							className="flex size-10 items-center justify-center rounded-xl text-[var(--lework-text-subtle)] transition-colors hover:bg-[var(--lework-chat-control-bg)] hover:text-[var(--lework-text)]"
 						>
 							<X className="size-5" />
 						</button>
 					</div>
 				</div>
 
-				<div className="shrink-0 px-6 pb-3 pt-4 text-sm font-medium text-[var(--leros-text-subtle)]">
+				<div className="shrink-0 px-6 pb-3 pt-4 text-sm font-medium text-[var(--lework-text-subtle)]">
 					{loading ? "正在搜索任务..." : `搜索到 ${total} 个任务`}
 				</div>
 
 				<div className="min-h-0 overflow-y-auto px-4 pb-5 no-scrollbar">
 					<div className="space-y-1 px-2">
 						{loading ? (
-							<div className="flex h-44 items-center justify-center text-sm text-[var(--leros-text-subtle)]">
+							<div className="flex h-44 items-center justify-center text-sm text-[var(--lework-text-subtle)]">
 								<Loader2 className="mr-2 size-4 animate-spin" />
 								正在加载搜索结果
 							</div>
 						) : tasks.length === 0 ? (
-							<div className="flex h-44 items-center justify-center text-sm text-[var(--leros-text-subtle)]">
+							<div className="flex h-44 items-center justify-center text-sm text-[var(--lework-text-subtle)]">
 								没有匹配的任务
 							</div>
 						) : (
@@ -308,18 +308,18 @@ export function GlobalTaskSearchDialog({
 										onClick={() => handleOpenTask(task)}
 										className={cn(
 											"flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors",
-											"hover:bg-[var(--leros-chat-control-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--leros-primary)]/25",
+											"hover:bg-[var(--lework-chat-control-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lework-primary)]/25",
 										)}
 									>
 										<div className="min-w-0 flex-1">
 											<div
-												className="truncate text-[15px] font-semibold text-[var(--leros-text-strong)]"
+												className="truncate text-[15px] font-semibold text-[var(--lework-text-strong)]"
 												title={task.title}
 											>
 												{renderHighlightedText(task.title, debouncedKeyword)}
 											</div>
 										</div>
-										<div className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--leros-text-subtle)]">
+										<div className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--lework-text-subtle)]">
 											<ProjectIcon className="size-3.5 shrink-0" />
 											<span
 												className="max-w-[220px] truncate whitespace-nowrap"

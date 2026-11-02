@@ -19,7 +19,7 @@
 
 ## 架构设计
 
-### 1. 路径提供（`backend/cmd/leros/server.go`）
+### 1. 路径提供（`backend/cmd/lework/server.go`）
 
 SQL 脚本目录以固定相对路径常量提供，**不依赖任何配置**：
 
@@ -34,7 +34,7 @@ const defaultSeedScriptDir = "deployments/dev/seed"
 
 ### 2. 执行记录模型（`backend/types/seed_record.go` + `tables.go`）
 
-新建 GORM 模型 `SeedRecord`（对齐 keinit 的 `InitExecRecourd`），表名 `leros_seed_record`：
+新建 GORM 模型 `SeedRecord`（对齐 keinit 的 `InitExecRecourd`），表名 `lework_seed_record`：
 
 ```go
 // SeedExecStatus 表示一个 SQL seed 文件的执行结果。
@@ -117,7 +117,7 @@ func RunSQLScripts(ctx context.Context, db *gorm.DB, sqlDir string) error
 
 逐文件在**独立执行单元**内（非整体事务），保证断点续跑基于行号记录。
 
-### 7. 挂接入口（`backend/cmd/leros/server.go` 与 `backend/internal/seed/seed.go`）
+### 7. 挂接入口（`backend/cmd/lework/server.go` 与 `backend/internal/seed/seed.go`）
 
 `Options` 增加 `SQLScriptDir string`，`Run` 在 `SeedCoreData` 之后调用：
 
@@ -147,7 +147,7 @@ seed.Options{LLMConfig: cfg.LLM, SQLScriptDir: defaultSeedScriptDir}
 | `backend/internal/seed/env.go` | 新增环境变量读取（仅 `os.Environ()`） |
 | `backend/internal/seed/sqlrun.go` | 新增解析/渲染/执行器 `RunSQLScripts(ctx, db, sqlDir)` |
 | `backend/internal/seed/seed.go` | `Options` 加 `SQLScriptDir`，`Run` 中调用 `RunSQLScripts` |
-| `backend/cmd/leros/server.go` | 定义 `defaultSeedScriptDir` 常量并传入 |
+| `backend/cmd/lework/server.go` | 定义 `defaultSeedScriptDir` 常量并传入 |
 
 ## 测试策略
 

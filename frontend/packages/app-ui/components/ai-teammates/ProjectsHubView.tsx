@@ -10,8 +10,8 @@ import {
 	projectMembersToInputs,
 	useLayoutStore,
 	useProjectsMenuCapabilities,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Command,
 	CommandEmpty,
@@ -20,7 +20,7 @@ import {
 	CommandItem,
 	CommandList,
 	CommandSeparator,
-} from "@leros/ui/components/ui/command";
+} from "@lework/ui/components/ui/command";
 import {
 	Dialog,
 	DialogContent,
@@ -28,9 +28,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	Bot,
 	CalendarDays,
@@ -222,23 +222,23 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 	return (
 		<div
 			data-slot="projects-hub-view"
-			className="flex h-full min-h-0 flex-1 flex-col bg-[var(--leros-app-bg)]"
+			className="flex h-full min-h-0 flex-1 flex-col bg-[var(--lework-app-bg)]"
 		>
-			<header className="shrink-0 border-b border-[var(--leros-control-border)] px-6 py-5">
+			<header className="shrink-0 border-b border-[var(--lework-control-border)] px-6 py-5">
 				<div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
 					<div>
-						<h1 className="text-xl font-semibold text-[var(--leros-text-strong)]">项目</h1>
-						<p className="mt-2 text-sm text-[var(--leros-text-muted)]">多人协同，打造超级团队</p>
+						<h1 className="text-xl font-semibold text-[var(--lework-text-strong)]">项目</h1>
+						<p className="mt-2 text-sm text-[var(--lework-text-muted)]">多人协同，打造超级团队</p>
 					</div>
 					<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
 						<div className="relative flex-1 sm:min-w-[240px] lg:w-[280px]">
-							<Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-subtle)]" />
+							<Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--lework-text-subtle)]" />
 							<input
 								type="text"
 								value={keyword}
 								onChange={(event) => setKeyword(event.target.value)}
 								placeholder="搜索项目"
-								className="h-9 w-full rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface)] pl-9 pr-3 text-sm text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+								className="h-9 w-full rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface)] pl-9 pr-3 text-sm text-[var(--lework-text)] placeholder:text-[var(--lework-text-subtle)] transition-colors focus:border-[var(--lework-primary)] focus:outline-none"
 							/>
 						</div>
 						<Button type="button" size="sm" className="shrink-0 gap-2" onClick={openCreateDialog}>
@@ -251,8 +251,8 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 
 			<main className="flex min-h-0 flex-1 flex-col px-6 py-6">
 				<div className="mb-4 flex shrink-0 items-center justify-between gap-4">
-					<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">我的项目</h2>
-					<span className="text-xs text-[var(--leros-text-subtle)]">
+					<h2 className="text-lg font-semibold text-[var(--lework-text-strong)]">我的项目</h2>
+					<span className="text-xs text-[var(--lework-text-subtle)]">
 						{projectList.total} 个项目
 					</span>
 				</div>
@@ -260,17 +260,17 @@ export function ProjectsHubView({ navigation }: ProjectsHubViewProps) {
 				<div ref={setListRoot} className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">
 					{showInitialLoading ? (
 						<div className="flex min-h-[280px] items-center justify-center">
-							<Loader2 className="size-5 animate-spin text-[var(--leros-text-subtle)]" />
+							<Loader2 className="size-5 animate-spin text-[var(--lework-text-subtle)]" />
 						</div>
 					) : displayedProjects.length === 0 ? (
-						<div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-[var(--leros-control-border)] bg-white/70 px-6 text-center">
-							<div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-[var(--leros-primary-softer)] text-[var(--leros-primary)]">
+						<div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-[var(--lework-control-border)] bg-white/70 px-6 text-center">
+							<div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-[var(--lework-primary-softer)] text-[var(--lework-primary)]">
 								<ProjectIcon className="size-6" />
 							</div>
-							<p className="text-sm font-semibold text-[var(--leros-text-strong)]">
+							<p className="text-sm font-semibold text-[var(--lework-text-strong)]">
 								{isSearching ? "没有匹配的项目" : "还没有项目"}
 							</p>
-							<p className="mt-1 text-sm text-[var(--leros-text-muted)]">
+							<p className="mt-1 text-sm text-[var(--lework-text-muted)]">
 								{isSearching ? "试试其他关键词。" : "点击右上角新建一个空项目。"}
 							</p>
 						</div>
@@ -423,20 +423,20 @@ function ProjectCard({
 			}}
 		>
 			<div className="mb-3 flex items-start gap-3 pr-7">
-				<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-surface-soft)] text-[var(--leros-text-muted)] transition-colors group-hover:bg-[var(--leros-primary-soft)] group-hover:text-[var(--leros-primary)]">
+				<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-surface-soft)] text-[var(--lework-text-muted)] transition-colors group-hover:bg-[var(--lework-primary-soft)] group-hover:text-[var(--lework-primary)]">
 					<ProjectIcon className="size-5" />
 				</div>
 				<div className="min-w-0 flex-1">
-					<h3 className="truncate text-sm font-semibold text-[var(--leros-text-strong)]">
+					<h3 className="truncate text-sm font-semibold text-[var(--lework-text-strong)]">
 						{project.name}
 					</h3>
-					<p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--leros-text-muted)]">
+					<p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--lework-text-muted)]">
 						{project.description || "暂无项目描述"}
 					</p>
 				</div>
 			</div>
 
-			<div className="mt-auto flex items-center justify-between gap-3 text-xs text-[var(--leros-text-subtle)]">
+			<div className="mt-auto flex items-center justify-between gap-3 text-xs text-[var(--lework-text-subtle)]">
 				<div className="flex min-w-0 items-center gap-1.5">
 					<CalendarDays className="size-3.5 shrink-0" />
 					<span className="truncate">创建于 {formatProjectDate(project.createdAt)}</span>
@@ -646,7 +646,7 @@ function CreateProjectDialog({
 				<div className="mt-5 space-y-5">
 					<FieldWithError error={showNameError ? "请输入项目名称" : undefined}>
 						<label className="block" htmlFor="create-project-name">
-							<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
+							<span className="mb-2 block text-sm font-semibold text-[var(--lework-text-strong)]">
 								项目名称
 								<RequiredMark />
 							</span>
@@ -659,9 +659,9 @@ function CreateProjectDialog({
 									placeholder="请输入项目名称"
 									maxLength={30}
 									autoFocus
-									className="h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-white px-3 pr-14 text-sm text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+									className="h-10 w-full rounded-lg border border-[var(--lework-control-border)] bg-white px-3 pr-14 text-sm text-[var(--lework-text)] placeholder:text-[var(--lework-text-subtle)] transition-colors focus:border-[var(--lework-primary)] focus:outline-none"
 								/>
-								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--leros-text-subtle)]">
+								<span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--lework-text-subtle)]">
 									{name.length}/30
 								</span>
 							</div>
@@ -669,7 +669,7 @@ function CreateProjectDialog({
 					</FieldWithError>
 
 					<label className="block">
-						<span className="mb-2 block text-sm font-semibold text-[var(--leros-text-strong)]">
+						<span className="mb-2 block text-sm font-semibold text-[var(--lework-text-strong)]">
 							项目描述
 						</span>
 						<div className="relative">
@@ -678,23 +678,23 @@ function CreateProjectDialog({
 								onChange={(event) => setDescription(event.target.value)}
 								placeholder="简单描述这个项目的目标、背景或协作范围"
 								maxLength={500}
-								className="min-h-28 w-full resize-none rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2 pb-7 pr-16 text-sm leading-6 text-[var(--leros-text)] placeholder:text-[var(--leros-text-subtle)] transition-colors focus:border-[var(--leros-primary)] focus:outline-none"
+								className="min-h-28 w-full resize-none rounded-lg border border-[var(--lework-control-border)] bg-white px-3 py-2 pb-7 pr-16 text-sm leading-6 text-[var(--lework-text)] placeholder:text-[var(--lework-text-subtle)] transition-colors focus:border-[var(--lework-primary)] focus:outline-none"
 							/>
-							<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--leros-text-subtle)]">
+							<span className="pointer-events-none absolute bottom-2 right-3 text-xs text-[var(--lework-text-subtle)]">
 								{description.length}/500
 							</span>
 						</div>
 					</label>
 
 					<div className="space-y-3">
-						<div className="rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
+						<div className="rounded-lg border border-[var(--lework-control-border)] bg-white px-3 py-2.5">
 							<div className="flex items-center justify-between gap-3">
 								<div className="flex items-center gap-2">
-									<Bot className="size-4 text-[var(--leros-text-muted)]" />
+									<Bot className="size-4 text-[var(--lework-text-muted)]" />
 									<div>
-										<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+										<div className="text-sm font-semibold text-[var(--lework-text-strong)]">
 											项目队友{" "}
-											<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
+											<span className="font-normal text-[var(--lework-text-subtle)]">（可选）</span>
 										</div>
 									</div>
 								</div>
@@ -730,19 +730,19 @@ function CreateProjectDialog({
 							/>
 						</div>
 
-						<div className="rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
+						<div className="rounded-lg border border-[var(--lework-control-border)] bg-white px-3 py-2.5">
 							<div className="flex items-center justify-between gap-3">
 								<div className="flex items-center gap-2">
-									<Sparkles className="size-4 text-[var(--leros-text-muted)]" />
-									<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+									<Sparkles className="size-4 text-[var(--lework-text-muted)]" />
+									<div className="text-sm font-semibold text-[var(--lework-text-strong)]">
 										技能{" "}
-										<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
+										<span className="font-normal text-[var(--lework-text-subtle)]">（可选）</span>
 									</div>
 								</div>
 								<Popover open={skillOpen} onOpenChange={setSkillOpen}>
 									<PopoverTrigger
 										type="button"
-										className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-[var(--leros-text)] transition-colors hover:bg-[var(--leros-surface-soft)]"
+										className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-[var(--lework-text)] transition-colors hover:bg-[var(--lework-surface-soft)]"
 									>
 										+ 添加
 									</PopoverTrigger>
@@ -822,19 +822,19 @@ function CreateProjectDialog({
 							)}
 						</div>
 
-						<div className="rounded-lg border border-[var(--leros-control-border)] bg-white px-3 py-2.5">
+						<div className="rounded-lg border border-[var(--lework-control-border)] bg-white px-3 py-2.5">
 							<div className="flex items-center justify-between gap-3">
 								<div className="flex items-center gap-2">
-									<Server className="size-4 text-[var(--leros-text-muted)]" />
-									<div className="text-sm font-semibold text-[var(--leros-text-strong)]">
+									<Server className="size-4 text-[var(--lework-text-muted)]" />
+									<div className="text-sm font-semibold text-[var(--lework-text-strong)]">
 										MCP 连接器{" "}
-										<span className="font-normal text-[var(--leros-text-subtle)]">（可选）</span>
+										<span className="font-normal text-[var(--lework-text-subtle)]">（可选）</span>
 									</div>
 								</div>
 								<Popover open={mcpOpen} onOpenChange={setMCPOpen}>
 									<PopoverTrigger
 										type="button"
-										className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium hover:bg-[var(--leros-surface-soft)]"
+										className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium hover:bg-[var(--lework-surface-soft)]"
 									>
 										+ 添加
 									</PopoverTrigger>
@@ -907,7 +907,7 @@ function CreateProjectDialog({
 					</div>
 				</div>
 
-				<DialogFooter className="mt-6 border-t border-[var(--leros-control-border)] pt-5">
+				<DialogFooter className="mt-6 border-t border-[var(--lework-control-border)] pt-5">
 					<Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
 						取消
 					</Button>

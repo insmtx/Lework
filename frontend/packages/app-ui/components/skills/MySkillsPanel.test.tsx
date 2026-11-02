@@ -7,7 +7,7 @@ const { mockPluginList } = vi.hoisted(() => ({
 	mockPluginList: vi.fn(),
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	pluginApi: {
 		list: mockPluginList,
 	},

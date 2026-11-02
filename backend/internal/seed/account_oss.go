@@ -10,7 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/lework/backend/types"
 )
 
 // seedAccount 初始化默认组织、默认管理员、用户-组织关联与默认 worker 部署。幂等。
@@ -31,7 +31,7 @@ func seedAccount(ctx context.Context, db *gorm.DB) error {
 }
 
 var defaultOrgCode = "default_org"
-var adminEmail = "admin@leros.local"
+var adminEmail = "admin@lework.local"
 
 func seedDefaultOrganization(ctx context.Context, db *gorm.DB) error {
 	var orgCount int64
@@ -171,7 +171,7 @@ func seedDefaultWorkerDeployment(ctx context.Context, db *gorm.DB) error {
 		OrgID:              org.ID,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           1,
-		DeploymentName:     fmt.Sprintf("leros-worker-o%d-w%d", org.ID, 1),
+		DeploymentName:     fmt.Sprintf("lework-worker-o%d-w%d", org.ID, 1),
 		Namespace:          "default",
 		Status:             string(types.WorkerDeploymentStatusPending),
 		WorkspacePath:      "/data/workspace",
