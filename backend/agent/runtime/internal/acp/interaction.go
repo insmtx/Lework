@@ -10,7 +10,7 @@ import (
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -18,7 +18,7 @@ import (
 var ErrUnknownRequestID = errors.New("unknown approval request id")
 
 // PermissionBridge 把 ACP 的 session/request_permission 桥接成
-// Leros 的 approval.requested 事件，并接收 cli.Runner 回写的决策。
+// Lework 的 approval.requested 事件，并接收 cli.Runner 回写的决策。
 //
 // 它与 cli 层的分工：Bridge 只负责「事件 + 等待 + ACP 选项映射」，
 // 用户交互由 cli.Runner 调 InteractionHandler 完成（runner.go:243-275）。
@@ -241,7 +241,7 @@ func normalizeAction(action string) string {
 	}
 }
 
-// permissionResponse 映射 Leros 动作到 ACP 选项：
+// permissionResponse 映射 Lework 动作到 ACP 选项：
 // approve/always → allow_once（always 在 wire 上永不落到 allow_always，因此不会
 // 写入 opencode 的 saved 规则表；它的"总是允许"语义由 PermissionBridge 的记忆承担），
 // deny → reject_once。找不到对应选项时返回 Cancelled，避免误放行。

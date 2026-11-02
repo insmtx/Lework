@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { Sparkles } from "lucide-react";
 
 export function SkillDirectiveBadge({

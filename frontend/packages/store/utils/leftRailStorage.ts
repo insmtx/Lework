@@ -1,5 +1,5 @@
-export const LEFT_RAIL_WIDTH_STORAGE_KEY = "leros-left-rail-width";
-export const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "leros-left-rail-collapsed";
+export const LEFT_RAIL_WIDTH_STORAGE_KEY = "lework-left-rail-width";
+export const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "lework-left-rail-collapsed";
 
 // 左侧栏可拖动宽度的上下限与默认值（px）
 export const LEFT_RAIL_MIN_WIDTH = 236;

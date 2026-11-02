@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
+	"github.com/insmtx/Lework/backend/internal/worker/agentrun"
 	_ "github.com/mattn/go-sqlite3"
 )
 

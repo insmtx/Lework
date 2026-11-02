@@ -3,7 +3,7 @@ package account
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 type WorkerProvisioner interface {

@@ -12,7 +12,7 @@ func TestAutomationTargetHeaders(t *testing.T) {
 	}
 	target := uint(42)
 	headers := automationTargetHeaders(&target)
-	if headers["X-Leros-Target-User-Id"] != "42" {
+	if headers["X-Lework-Target-User-Id"] != "42" {
 		t.Fatalf("target headers = %#v, want user ID 42", headers)
 	}
 }

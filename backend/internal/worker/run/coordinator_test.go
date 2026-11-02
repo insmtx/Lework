@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/internal/worker/agentrun"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
 )
 
 func TestCoordinatorDebounceNotifiesEverySubmission(t *testing.T) {

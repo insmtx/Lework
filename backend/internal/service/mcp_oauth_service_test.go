@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	baidunetdisk "github.com/insmtx/Leros/backend/internal/infra/providers/baidunetdisk"
-	"github.com/insmtx/Leros/backend/types"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	baidunetdisk "github.com/insmtx/Lework/backend/internal/infra/providers/baidunetdisk"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 type oauthRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -38,7 +38,7 @@ func TestBaiduNetdiskOAuthCreatesImmutableActiveRevisionAndRedactsSecrets(t *tes
 			Handler: baiduNetdiskPlatformCode,
 			OAuth: &types.MCPChannelOAuthConfig{
 				AppKey: "app-key", SecretKey: "secret-key",
-				RedirectURI: "https://leros.example.com/v1/plugins/mcp/oauth/baidu-netdisk/callback",
+				RedirectURI: "https://lework.example.com/v1/plugins/mcp/oauth/baidu-netdisk/callback",
 				Scopes:      []string{"basic", "netdisk"},
 			},
 			Bindings: types.MCPChannelAuthBindings{
@@ -154,7 +154,7 @@ func TestBaiduNetdiskOAuthRefreshPublishesSuccessorRevision(t *testing.T) {
 		AuthConfig: types.MCPChannelAuthConfigJSON{
 			Handler: baiduNetdiskPlatformCode,
 			OAuth: &types.MCPChannelOAuthConfig{
-				AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://leros.example.com/callback",
+				AppKey: "app-key", SecretKey: "secret-key", RedirectURI: "https://lework.example.com/callback",
 				Scopes: []string{"basic", "netdisk"},
 			},
 			Bindings: types.MCPChannelAuthBindings{

@@ -7,8 +7,8 @@ import {
 	readServerBaseURL,
 	saveServerBaseURL,
 	testServerConnection,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Card,
 	CardContent,
@@ -16,8 +16,8 @@ import {
 	CardFooter,
 	CardHeader,
 	CardTitle,
-} from "@leros/ui/components/ui/card";
-import { Input } from "@leros/ui/components/ui/input";
+} from "@lework/ui/components/ui/card";
+import { Input } from "@lework/ui/components/ui/input";
 import { CheckCircle2, LoaderCircle, Save, Server, Wifi } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -103,7 +103,7 @@ export function PrivateServerSettingsCard({ onReload = reloadApp }: { onReload?:
 							setTestedURL(null);
 							setErrorMessage("");
 						}}
-						placeholder="https://leros.example.com"
+						placeholder="https://lework.example.com"
 						disabled={testing || saving}
 						aria-invalid={Boolean(errorMessage)}
 					/>

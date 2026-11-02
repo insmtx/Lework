@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/types"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // PermissionBatchChecker 批量权限检查能力，由 api 层适配器注入，避免 handler 直接依赖 service 包。

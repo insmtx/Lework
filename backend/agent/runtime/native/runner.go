@@ -1,4 +1,4 @@
-// Package native implements the built-in Eino-backed Leros runtime.
+// Package native implements the built-in Eino-backed Lework runtime.
 package native
 
 import (
@@ -10,17 +10,17 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	einotool "github.com/cloudwego/eino/components/tool"
-	"github.com/insmtx/Leros/backend/agent"
-	runtimetodo "github.com/insmtx/Leros/backend/agent/runtime/internal/todo"
-	pkgeino "github.com/insmtx/Leros/backend/pkg/eino"
-	"github.com/insmtx/Leros/backend/prompts"
+	"github.com/insmtx/Lework/backend/agent"
+	runtimetodo "github.com/insmtx/Lework/backend/agent/runtime/internal/todo"
+	pkgeino "github.com/insmtx/Lework/backend/pkg/eino"
+	"github.com/insmtx/Lework/backend/prompts"
 	"github.com/ygpkg/yg-go/logs"
 )
 
-// Runner 是 Leros 内置 Eino 运行时入口。
+// Runner 是 Lework 内置 Eino 运行时入口。
 type Runner struct{}
 
-// NewRunner 创建基于 Eino Flow 的 Leros 内置 Agent。
+// NewRunner 创建基于 Eino Flow 的 Lework 内置 Agent。
 func NewRunner(context.Context) (*Runner, error) {
 	return &Runner{}, nil
 }
@@ -32,7 +32,7 @@ func (r *Runner) Execute(
 	observer agent.NodeObserver,
 ) (agent.ExecutionResult, error) {
 	if r == nil {
-		return agent.ExecutionResult{}, fmt.Errorf("leros runner is not initialized")
+		return agent.ExecutionResult{}, fmt.Errorf("lework runner is not initialized")
 	}
 	if strings.TrimSpace(req.ExecutionID) == "" {
 		return agent.ExecutionResult{}, fmt.Errorf("execution id is required")
@@ -170,7 +170,7 @@ func (r *Runner) runWithState(ctx context.Context, req agent.ExecutionRequest, e
 		resultMessage = formatLLMResultForLog(message)
 	}
 
-	logs.InfoContextf(ctx, "Leros runtime final LLM result: run_id=%s result=%s",
+	logs.InfoContextf(ctx, "Lework runtime final LLM result: run_id=%s result=%s",
 		req.ExecutionID, formatLLMResultForLog(message))
 
 	return resultMessage, usage, nil

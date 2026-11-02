@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func CreateWorkerDeployment(ctx context.Context, database *gorm.DB, deployment *types.WorkerDeployment) error {

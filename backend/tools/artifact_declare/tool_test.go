@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/tools"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 func TestToolMetadata(t *testing.T) {
@@ -87,7 +87,7 @@ func TestExecute_OutsideRepoPath(t *testing.T) {
 
 func TestExecute_RuntimePath(t *testing.T) {
 	tool := NewTool()
-	tests := []string{".git/config", ".leros/runtime.json", "nested/.git/config", "tmp/report.md", "logs/report.md", "cache/report.md"}
+	tests := []string{".git/config", ".lework/runtime.json", "nested/.git/config", "tmp/report.md", "logs/report.md", "cache/report.md"}
 	for _, path := range tests {
 		t.Run(path, func(t *testing.T) {
 			ctx, _ := newToolContext(t)
@@ -225,8 +225,8 @@ func TestExecute_InfersWorkspaceFromArtifactPath(t *testing.T) {
 	repoDir := t.TempDir()
 	writeFile(t, filepath.Join(repoDir, "artifacts", "report.md"), "hello")
 
-	oldTurn := filepath.Join(repoDir, ".leros", "tasks", "task_old", "turns", "req_old")
-	latestTurn := filepath.Join(repoDir, ".leros", "tasks", "task_new", "turns", "req_new")
+	oldTurn := filepath.Join(repoDir, ".lework", "tasks", "task_old", "turns", "req_old")
+	latestTurn := filepath.Join(repoDir, ".lework", "tasks", "task_new", "turns", "req_new")
 	mkdirWithTime(t, repoDir, oldTurn, time.Now().Add(-2*time.Hour))
 	mkdirWithTime(t, repoDir, latestTurn, time.Now().Add(-1*time.Hour))
 
@@ -259,15 +259,15 @@ func TestExecute_InfersWorkspaceFromArtifactPath(t *testing.T) {
 	}
 }
 
-func TestExecute_InferWorkspaceRequiresLerosMarker(t *testing.T) {
+func TestExecute_InferWorkspaceRequiresLeworkMarker(t *testing.T) {
 	tool := NewTool()
 	dir := t.TempDir()
 	artifactPath := filepath.Join(dir, "report.md")
 	writeFile(t, artifactPath, "hello")
 
 	_, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{"path": artifactPath}))
-	if err == nil || !strings.Contains(err.Error(), ".leros not found") {
-		t.Fatalf("Execute() error = %v, want .leros marker error", err)
+	if err == nil || !strings.Contains(err.Error(), ".lework not found") {
+		t.Fatalf("Execute() error = %v, want .lework marker error", err)
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 func TestSQLiteRunInboxLifecycle(t *testing.T) {

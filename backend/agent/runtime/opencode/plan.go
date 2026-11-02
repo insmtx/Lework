@@ -6,17 +6,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 )
 
 // PlanAgentName 是 v2 计划模式的 primary agent 名。
-const PlanAgentName = "leros-plan"
+const PlanAgentName = "lework-plan"
 
 // PlanSystemPrompt 要求模型写完计划文件后调用 question 工具，
 // header/问题/选项必须与前端既有契约一致（设计文档 §8.3）。
 // v2 没有 plan_exit，确认表单只能靠提示词触发，因此这里把「必须最后一步调用」
 // 写成硬约束；仍不合规时由 PlanRetryPrompt 补一次追问。
-const PlanSystemPrompt = `You are the Leros plan agent.
+const PlanSystemPrompt = `You are the Lework plan agent.
 Write the implementation plan as Markdown to a file under .opencode/plans/ (for example .opencode/plans/plan.md).
 Do not modify files outside .opencode/plans. Do not call plan_exit; it does not exist in this runtime.
 
@@ -51,7 +51,7 @@ func ShouldRetryPlanConfirmation(mode agent.ExecutionMode, confirmed, hasPlan bo
 // configOption 在基础配置上追加 v2 段（目前只有计划模式使用）。
 type configOption func(*configContent)
 
-// withPlanMode 注入 leros-plan：deny 在前、allow 在后的相对 glob，
+// withPlanMode 注入 lework-plan：deny 在前、allow 在后的相对 glob，
 // 并显式 deny shell（否则 edit deny 可被 shell 绕过，设计文档 §8.2）。
 func withPlanMode() configOption {
 	return func(cfg *configContent) {
@@ -61,7 +61,7 @@ func withPlanMode() configOption {
 		}
 		cfg.Agents[PlanAgentName] = planAgentConfig{
 			Mode:        "primary",
-			Description: "Leros plan mode",
+			Description: "Lework plan mode",
 			System:      PlanSystemPrompt,
 			Permissions: []permissionRule{
 				{Action: "question", Resource: "*", Effect: "allow"},

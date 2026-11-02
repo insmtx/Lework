@@ -3,7 +3,7 @@ package account
 import (
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 type Org struct {

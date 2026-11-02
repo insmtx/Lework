@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // ArtifactDefinition identifies an immutable bundle through its FileUpload record.

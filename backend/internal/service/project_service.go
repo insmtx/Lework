@@ -20,18 +20,18 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/consts"
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/internal/infra/git"
-	"github.com/insmtx/Leros/backend/internal/infra/mq"
-	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
-	"github.com/insmtx/Leros/backend/internal/workspace"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/consts"
+	"github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
+	"github.com/insmtx/Lework/backend/internal/infra/git"
+	"github.com/insmtx/Lework/backend/internal/infra/mq"
+	localmemory "github.com/insmtx/Lework/backend/internal/memory/local"
+	"github.com/insmtx/Lework/backend/internal/workspace"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/encryptor/snowflake"
 	"github.com/ygpkg/yg-go/logs"
 )
@@ -982,7 +982,7 @@ func (s *projectService) SaveWorkbenchRecentContext(ctx context.Context, req *co
 	return buildWorkbenchRecentContext(project, task, usedAt), nil
 }
 
-// bindProjectMembers 创建项目时绑定默认 AI 队友与用户成员（写 leros_resource_binding）。
+// bindProjectMembers 创建项目时绑定默认 AI 队友与用户成员（写 lework_resource_binding）。
 // 创建者本人的 owner 绑定由调用方在事务内先行创建，此处跳过。
 func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, projectID, resourceID uint, caller *types.Caller, inputs []contract.MemberInput) (types.ProjectActivityPayload, bool, error) {
 	payload := types.ProjectActivityPayload{}
@@ -1053,7 +1053,7 @@ func (s *projectService) bindProjectMembers(ctx context.Context, tx *gorm.DB, pr
 	return payload, changed, nil
 }
 
-// bindProjectUserMembers 为用户成员在指定资源上创建 leros_resource_binding（带角色），跳过创建者本人。
+// bindProjectUserMembers 为用户成员在指定资源上创建 lework_resource_binding（带角色），跳过创建者本人。
 func (s *projectService) bindProjectUserMembers(ctx context.Context, tx *gorm.DB, orgID, resourceID, projectID uint, caller *types.Caller, userMembers []userMemberInput) error {
 	if len(userMembers) == 0 {
 		return nil
@@ -1093,7 +1093,7 @@ func (s *projectService) bindProjectUserMembers(ctx context.Context, tx *gorm.DB
 	return nil
 }
 
-// bindProjectAssistantMembers 为默认及额外 AI 队友在指定资源上创建 leros_resource_binding（member 角色）。
+// bindProjectAssistantMembers 为默认及额外 AI 队友在指定资源上创建 lework_resource_binding（member 角色）。
 func (s *projectService) bindProjectAssistantMembers(ctx context.Context, tx *gorm.DB, orgID, resourceID, projectID uint, caller *types.Caller, defaultAssistantID uint, assistantIDs []uint) error {
 	allIDs := append([]uint{defaultAssistantID}, assistantIDs...)
 	seen := make(map[uint]bool, len(allIDs))
@@ -1133,7 +1133,7 @@ func (s *projectService) bindProjectAssistantMembers(ctx context.Context, tx *go
 	return nil
 }
 
-// userMemberInput 表示带角色的用户成员输入，供绑定到 leros_resource_binding 使用。
+// userMemberInput 表示带角色的用户成员输入，供绑定到 lework_resource_binding 使用。
 type userMemberInput struct {
 	PublicID string
 	Role     types.ResourceRole
@@ -1214,7 +1214,7 @@ func (s *projectService) syncProjectMembers(ctx context.Context, tx *gorm.DB, pr
 		return payload, false, err
 	}
 
-	// 同步用户成员：权限与成员来源为 leros_resource_binding。
+	// 同步用户成员：权限与成员来源为 lework_resource_binding。
 	addedUserIDs, removedUserIDs, err := s.syncProjectUserMembers(ctx, tx, projectID, orgID, caller, userMembers)
 	if err != nil {
 		return payload, false, err
@@ -2005,7 +2005,7 @@ func (s *projectService) DetailProject(ctx context.Context, publicID string) (*c
 		result.Tasks = append(result.Tasks, item)
 	}
 
-	// 查询项目成员：统一从 leros_resource_binding 读取用户与 AI 队友。
+	// 查询项目成员：统一从 lework_resource_binding 读取用户与 AI 队友。
 	resource, err := db.GetResourceByBizID(ctx, s.db, caller.OrgID, types.ResourceTypeProject, project.ID)
 	if err != nil {
 		return nil, err
@@ -2590,11 +2590,11 @@ func (s *projectService) requestProjectFileRestore(
 	if err != nil {
 		return messaging.ProjectFileRestoreResult{}, fmt.Errorf("build project file command topic: %w", err)
 	}
-	name := "leros-project-file-restore"
-	email := "project-file-restore@leros.local"
+	name := "lework-project-file-restore"
+	email := "project-file-restore@lework.local"
 	if caller != nil {
-		name = fmt.Sprintf("leros-user-%d", caller.Uin)
-		email = fmt.Sprintf("user-%d@org-%d.leros.local", caller.Uin, caller.OrgID)
+		name = fmt.Sprintf("lework-user-%d", caller.Uin)
+		email = fmt.Sprintf("user-%d@org-%d.lework.local", caller.Uin, caller.OrgID)
 	}
 	command := withRequestTrace(ctx, messaging.NewProjectFileRestoreCommand(
 		"project-file-restore-"+snowflake.GenerateIDBase58(),

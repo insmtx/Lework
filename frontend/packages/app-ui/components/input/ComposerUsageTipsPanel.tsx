@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { ChevronRight, Lightbulb, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -29,7 +29,7 @@ export function ComposerUsageTipsPanel({
 
 	return (
 		<div className={cn("mb-4", className)}>
-			<div className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--leros-text-muted)]">
+			<div className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--lework-text-muted)]">
 				<Lightbulb className="size-4 shrink-0" />
 				<span>使用提示</span>
 			</div>
@@ -45,7 +45,7 @@ export function ComposerUsageTipsPanel({
 						)}
 					>
 						<Sparkles className="size-3.5 shrink-0 text-slate-400" />
-						<span className="truncate text-sm text-[var(--leros-text)]">{tip.label}</span>
+						<span className="truncate text-sm text-[var(--lework-text)]">{tip.label}</span>
 						<ChevronRight className="size-3.5 shrink-0 text-slate-300" />
 					</button>
 				))}

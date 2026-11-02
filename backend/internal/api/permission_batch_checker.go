@@ -3,9 +3,9 @@ package api
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/internal/api/handler"
-	"github.com/insmtx/Leros/backend/internal/service"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/handler"
+	"github.com/insmtx/Lework/backend/internal/service"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func NewPermissionBatchChecker(svc *service.PermissionService) handler.PermissionBatchChecker {

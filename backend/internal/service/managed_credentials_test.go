@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
 )
 
 func TestHTTPManagedCredentialProviderResolvesValuesWithLoginToken(t *testing.T) {

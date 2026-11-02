@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // CommandType 表示 server 发给 worker 的命令类型。
@@ -101,12 +101,12 @@ type RunCommandPayload struct {
 	// 业务主键 ID，用于 llm_history 等调用记录关联。
 	// 以下均为对应表的自增主键（int），区别于其它字段中的 public_id（string）。
 	//
-	//   ProjectID   leros_project.id          -> 区别于 Workspace.ProjectID（project public_id）
-	//   SessionID   leros_session.id          -> 区别于 RouteContext.SessionID（session public_id）
-	//   MessageID   leros_session_message.id  -> 当前触发 run 的消息主键
-	//   AssistantID       leros_digital_assistant.id          -> 区别于 Execution.AssistantPublicID（assistant public_id）
-	//   AssistantPublicID leros_digital_assistant.public_id    -> 用于 worker 侧展示和对外追溯
-	//   Uin               leros_user.id                        -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
+	//   ProjectID   lework_project.id          -> 区别于 Workspace.ProjectID（project public_id）
+	//   SessionID   lework_session.id          -> 区别于 RouteContext.SessionID（session public_id）
+	//   MessageID   lework_session_message.id  -> 当前触发 run 的消息主键
+	//   AssistantID       lework_digital_assistant.id          -> 区别于 Execution.AssistantPublicID（assistant public_id）
+	//   AssistantPublicID lework_digital_assistant.public_id    -> 用于 worker 侧展示和对外追溯
+	//   Uin               lework_user.id                        -> 区别于 ActorContext.UserID（fmt.Sprintf("%d", uin)）
 	ProjectID         uint   `json:"project_id"`
 	SessionID         uint   `json:"session_id"`
 	MessageID         uint   `json:"message_id"`
@@ -336,9 +336,9 @@ type ActorContext struct {
 }
 
 type ExecutionTarget struct {
-	// AssistantID 是 leros_digital_assistant.id，自增主键，用于 llm_history 关联。
+	// AssistantID 是 lework_digital_assistant.id，自增主键，用于 llm_history 关联。
 	AssistantID uint `json:"assistant_id,omitempty"`
-	// AssistantPublicID 是 leros_digital_assistant.public_id，用于 worker 侧日志展示。
+	// AssistantPublicID 是 lework_digital_assistant.public_id，用于 worker 侧日志展示。
 	AssistantPublicID string   `json:"assistant_public_id,omitempty"`
 	AssistantName     string   `json:"assistant_name,omitempty"`
 	AssistantDesc     string   `json:"assistant_desc,omitempty"`

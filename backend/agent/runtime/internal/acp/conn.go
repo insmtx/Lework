@@ -26,8 +26,8 @@ import (
 
 const (
 	// ClientName 会随 initialize 发给 agent，出现在其日志与 session 元数据里。
-	ClientName = "leros"
-	// ClientVersion 只是探针标识，不代表 Leros 产品版本。
+	ClientName = "lework"
+	// ClientVersion 只是探针标识，不代表 Lework 产品版本。
 	ClientVersion = "0.1.0"
 	// DefaultStartupTimeout 覆盖「进程启动到 initialize 返回」这一段。
 	DefaultStartupTimeout = 15 * time.Second

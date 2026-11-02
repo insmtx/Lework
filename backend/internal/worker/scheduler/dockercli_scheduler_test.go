@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/worker"
 )
 
 func TestNewDockerCLIScheduler(t *testing.T) {
 	cfg := &config.SchedulerConfig{
 		Mode:       "docker-cli",
-		WorkingDir: "/tmp/leros",
+		WorkingDir: "/tmp/lework",
 	}
 
 	scheduler := NewDockerCLIScheduler(cfg)
@@ -50,17 +50,17 @@ func TestContainerName(t *testing.T) {
 		{
 			name:     "simple worker id",
 			workerID: "worker123",
-			want:     "leros-worker-worker123",
+			want:     "lework-worker-worker123",
 		},
 		{
 			name:     "worker id with underscore",
 			workerID: "worker_456",
-			want:     "leros-worker-worker_456",
+			want:     "lework-worker-worker_456",
 		},
 		{
 			name:     "empty worker id",
 			workerID: "",
-			want:     "leros-worker-",
+			want:     "lework-worker-",
 		},
 	}
 
@@ -76,7 +76,7 @@ func TestContainerName(t *testing.T) {
 
 func TestContainerWorkingDir(t *testing.T) {
 	cfg := &config.SchedulerConfig{
-		WorkingDir: "/tmp/leros",
+		WorkingDir: "/tmp/lework",
 	}
 	scheduler := NewDockerCLIScheduler(cfg).(*DockerCLIScheduler)
 
@@ -88,12 +88,12 @@ func TestContainerWorkingDir(t *testing.T) {
 		{
 			name:     "simple worker id",
 			workerID: "worker123",
-			want:     "/tmp/leros/workspace/worker123",
+			want:     "/tmp/lework/workspace/worker123",
 		},
 		{
 			name:     "worker id with special chars",
 			workerID: "worker-456_test",
-			want:     "/tmp/leros/workspace/worker-456_test",
+			want:     "/tmp/lework/workspace/worker-456_test",
 		},
 	}
 
@@ -132,14 +132,14 @@ func TestBuildEnvVars(t *testing.T) {
 	env := scheduler.buildEnvVars(spec)
 
 	expected := map[string]string{
-		"APP_ENV":                      "production",
-		"LOG_LEVEL":                    "info",
-		"COMMON_KEY":                   "worker_override",
-		"WORKER_KEY":                   "worker_value",
-		"LEROS_SERVER_ADDR":            "localhost:8080",
-		"LEROS_WORKER_BOOTSTRAP_TOKEN": "bootstrap-token",
-		"LEROS_ORG_ID":                 "3",
-		"LEROS_WORKER_ID":              "7",
+		"APP_ENV":                       "production",
+		"LOG_LEVEL":                     "info",
+		"COMMON_KEY":                    "worker_override",
+		"WORKER_KEY":                    "worker_value",
+		"LEWORK_SERVER_ADDR":            "localhost:8080",
+		"LEWORK_WORKER_BOOTSTRAP_TOKEN": "bootstrap-token",
+		"LEWORK_ORG_ID":                 "3",
+		"LEWORK_WORKER_ID":              "7",
 	}
 
 	if len(env) != len(expected) {
@@ -169,12 +169,12 @@ func TestBuildEnvVarsNoServerAddr(t *testing.T) {
 	scheduler := NewDockerCLIScheduler(cfg).(*DockerCLIScheduler)
 	env := scheduler.buildEnvVars(spec)
 
-	if _, ok := env["LEROS_SERVER_ADDR"]; ok {
-		t.Error("LEROS_SERVER_ADDR should not be set when config has no server addr")
+	if _, ok := env["LEWORK_SERVER_ADDR"]; ok {
+		t.Error("LEWORK_SERVER_ADDR should not be set when config has no server addr")
 	}
 
-	if got, want := env["LEROS_WORKER_ID"], "worker-456"; got != want {
-		t.Errorf("LEROS_WORKER_ID = %q, want %q", got, want)
+	if got, want := env["LEWORK_WORKER_ID"], "worker-456"; got != want {
+		t.Errorf("LEWORK_WORKER_ID = %q, want %q", got, want)
 	}
 }
 
@@ -188,11 +188,11 @@ func TestBuildEnvVarsEmptyEnv(t *testing.T) {
 	env := scheduler.buildEnvVars(spec)
 
 	if len(env) != 1 {
-		t.Errorf("Expected 1 env var (LEROS_WORKER_ID), got %d", len(env))
+		t.Errorf("Expected 1 env var (LEWORK_WORKER_ID), got %d", len(env))
 	}
 
-	if got, want := env["LEROS_WORKER_ID"], "worker-789"; got != want {
-		t.Errorf("LEROS_WORKER_ID = %q, want %q", got, want)
+	if got, want := env["LEWORK_WORKER_ID"], "worker-789"; got != want {
+		t.Errorf("LEWORK_WORKER_ID = %q, want %q", got, want)
 	}
 }
 

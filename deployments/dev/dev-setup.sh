@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}Leros Dev Environment Setup${NC}"
+echo -e "${BLUE}Lework Dev Environment Setup${NC}"
 echo ""
 
 echo -e "${BLUE}Checking prerequisites...${NC}"
@@ -57,7 +57,7 @@ sleep 5
 for service in postgresql nats; do
     echo -n "Checking $service... "
     for i in {1..30}; do
-        status=$(docker inspect --format='{{.State.Health.Status}}' leros-dev-$service 2>/dev/null || echo "starting")
+        status=$(docker inspect --format='{{.State.Health.Status}}' lework-dev-$service 2>/dev/null || echo "starting")
         if [ "$status" = "healthy" ]; then
             echo -e "${GREEN}healthy${NC}"
             break

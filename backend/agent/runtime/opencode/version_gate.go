@@ -14,7 +14,7 @@ import (
 
 const (
 	// envVersionGate 是应急开关：置 warn 时版本不符只告警，不阻断注册。
-	envVersionGate = "LEROS_CLI_VERSION_GATE"
+	envVersionGate = "LEWORK_CLI_VERSION_GATE"
 	// probeCacheFile 缓存成功探测的版本，避免每次容器启动都 exec 一次冷启动很慢的 CLI。
 	probeCacheFile = "version-probe.json"
 	// probeCacheTTL 让缓存最终过期，防止二进制被替换但 stat 没变（极罕见）时一直用旧值。

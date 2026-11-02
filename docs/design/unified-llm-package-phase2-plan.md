@@ -73,7 +73,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // CreateLLMCallRecord persists an LLM call record.
@@ -128,7 +128,7 @@ Expected: PASS
 
 - [ ] **Step 5: 验证编译**
 
-Run: `go build ./backend/cmd/leros/`
+Run: `go build ./backend/cmd/lework/`
 Expected: 成功
 
 - [ ] **Step 6: 提交**
@@ -369,7 +369,7 @@ git commit -m "refactor(service): skill_description_translator 迁移到 llm.Cal
 
 ## 验收标准
 
-- [ ] `go build ./backend/cmd/leros/` 成功
+- [ ] `go build ./backend/cmd/lework/` 成功
 - [ ] `go test ./backend/internal/llm/...` 全部 PASS（含 recorder + caller 新测试 + Phase 1 旧测试）
 - [ ] `go test ./backend/internal/infra/db/... -run TestCreateAndListLLMCallRecords` PASS
 - [ ] `go vet ./backend/internal/llm/...` 无警告

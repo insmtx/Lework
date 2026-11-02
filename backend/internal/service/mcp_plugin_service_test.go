@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 	mcpsdk "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -127,7 +127,7 @@ func TestMCPPluginCreateGeneratesStableCode(t *testing.T) {
 	if !codePattern.MatchString(first.Code) || !codePattern.MatchString(second.Code) {
 		t.Fatalf("generated codes = %q, %q", first.Code, second.Code)
 	}
-	if first.Code == second.Code || first.Code == "leros" {
+	if first.Code == second.Code || first.Code == "lework" {
 		t.Fatalf("generated codes must be unique and non-reserved: %q, %q", first.Code, second.Code)
 	}
 	detail, err := service.GetPlugin(ctx, 10, 20, first.PublicID, &contract.GetPluginRequest{})
@@ -325,7 +325,7 @@ func TestMCPPluginValidationAndDuplicateCode(t *testing.T) {
 
 	for name, config := range map[string]contract.MCPPluginConfig{
 		"reserved": {
-			Code: "leros", Name: "Reserved", URL: "https://example.com/mcp",
+			Code: "lework", Name: "Reserved", URL: "https://example.com/mcp",
 		},
 		"invalid url": {
 			Code: "docs", Name: "Docs", URL: "file:///tmp/mcp",

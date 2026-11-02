@@ -5,7 +5,7 @@ package enterprise
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
 )
 
 type department struct {

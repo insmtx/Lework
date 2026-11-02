@@ -1,4 +1,4 @@
-// config 包提供 Leros 的配置加载和配置类型定义
+// config 包提供 Lework 的配置加载和配置类型定义
 //
 // 该包负责从配置文件加载各种配置项，包括 GitHub 应用配置、
 // GitLab 应用配置、NATS 消息队列配置和数据库配置等。
@@ -43,7 +43,7 @@ type LLMTranslationConfig struct {
 	IsDefault *bool  `yaml:"is_default,omitempty"` // 是否作为翻译类默认模型，缺省 false
 }
 
-// Config 是 Leros 的主配置结构，包含所有子系统的配置
+// Config 是 Lework 的主配置结构，包含所有子系统的配置
 type Config struct {
 	Server struct {
 		Port                  string    `yaml:"port,omitempty"`                    // 服务器端口

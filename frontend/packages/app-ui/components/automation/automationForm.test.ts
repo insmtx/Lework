@@ -1,4 +1,4 @@
-import type { BackendAutomationScheduleFormConfig } from "@leros/store";
+import type { BackendAutomationScheduleFormConfig } from "@lework/store";
 import { describe, expect, it } from "vitest";
 import {
 	buildFormSummary,

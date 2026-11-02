@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
 )
 
 // ResponseRequestID adds the request correlation ID to JSON object responses.

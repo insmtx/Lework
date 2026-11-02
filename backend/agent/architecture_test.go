@@ -34,7 +34,7 @@ func TestAgentCoreHasNoSingerOSDependenciesOrUntypedMaps(t *testing.T) {
 				"/backend/config",
 				"/backend/pkg/messaging",
 				"/backend/tools",
-				"/backend/pkg/leros",
+				"/backend/pkg/lework",
 			} {
 				if strings.Contains(value, forbidden) {
 					t.Errorf("%s imports forbidden package %s", path, value)

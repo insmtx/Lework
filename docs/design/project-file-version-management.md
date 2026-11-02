@@ -54,7 +54,7 @@ version_no              版本号
 任务 turn 的 manifest 位于：
 
 ```text
-repo/.leros/tasks/{taskID}/turns/{requestID}/artifacts.jsonl
+repo/.lework/tasks/{taskID}/turns/{requestID}/artifacts.jsonl
 ```
 
 产物相对路径以项目 `repo` 为根，例如：
@@ -313,7 +313,7 @@ Git diff 回退需要保证：
 - 重命名文件输出新路径，并临时携带旧路径用于继承版本链。
 - 路径统一使用 `/`。
 - 删除文件不创建新版本。
-- `.leros`、日志、临时文件继续排除。
+- `.lework`、日志、临时文件继续排除。
 
 特别需要为 Git rename/copy 的 `--name-status -z` 输出补充测试，确保解析器取到新路径，而不是把旧路径误当成产物路径。
 

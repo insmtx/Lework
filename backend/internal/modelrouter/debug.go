@@ -10,11 +10,11 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 
-	"github.com/insmtx/Leros/backend/pkg/llmprotocol"
+	"github.com/insmtx/Lework/backend/pkg/llmprotocol"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// DebugLogger — 请求级调试日志，仅当环境变量 LEROS_MODELROUTER_DEBUG=true 时启用。
+// DebugLogger — 请求级调试日志，仅当环境变量 LEWORK_MODELROUTER_DEBUG=true 时启用。
 //
 // 每次请求生成一个以 UUID 命名的 JSON Lines 文件，chunk 前后自动插入换行分隔。
 // 请求结束时通过 stderr 输出日志文件的完整路径。

@@ -3,25 +3,25 @@ version: '3.8'
 services:
   postgresql:
     image: registry.yygu.cn/library/postgres:17.9
-    container_name: leros-postgresql
+    container_name: lework-postgresql
     environment:
-      POSTGRES_DB: leros_db
-      POSTGRES_USER: leros_user
-      POSTGRES_PASSWORD: leros_password
+      POSTGRES_DB: lework_db
+      POSTGRES_USER: lework_user
+      POSTGRES_PASSWORD: lework_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD", "pg_isready -U leros_user -d leros_db"]
+      test: ["CMD", "pg_isready -U lework_user -d lework_db"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   nats:
     image: registry.yygu.cn/library/nats:2.12.7
-    container_name: leros-nats
+    container_name: lework-nats
     command: ["--jetstream"]
     environment: []
     ports:
@@ -36,9 +36,9 @@ services:
       retries: 3
       start_period: 5s
 
-  leros:
-    image: localhost/env_leros:latest
-    container_name: leros-app
+  lework:
+    image: localhost/env_lework:latest
+    container_name: lework-app
     ports:
       - "8080:8080"
     depends_on:
@@ -47,35 +47,35 @@ services:
       nats:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgres://leros_user:leros_password@postgresql:5432/leros_db
+      - DATABASE_URL=postgres://lework_user:lework_password@postgresql:5432/lework_db
       - NATS_URL=nats://nats:4222
       - GIN_MODE=release
-      - LEROS_STORAGE_LOCAL_DIR=/app/leros-storage
+      - LEWORK_STORAGE_LOCAL_DIR=/app/lework-storage
     volumes:
       - ./config.yaml:/app/config.yaml
-      - leros_storage:/app/leros-storage
+      - lework_storage:/app/lework-storage
     command: ["server", "--config", "/app/config.yaml"]
     restart: unless-stopped
 
   worker:
-    image: localhost/env_leros:latest
-    container_name: leros-worker
+    image: localhost/env_lework:latest
+    container_name: lework-worker
     depends_on:
       postgresql:
         condition: service_healthy
       nats:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgres://leros_user:leros_password@postgresql:5432/leros_db
+      - DATABASE_URL=postgres://lework_user:lework_password@postgresql:5432/lework_db
       - NATS_URL=nats://nats:4222
-      - LEROS_STORAGE_LOCAL_DIR=/app/leros-storage
+      - LEWORK_STORAGE_LOCAL_DIR=/app/lework-storage
     volumes:
       - ./config.yaml:/app/config.yaml
-      - leros_storage:/app/leros-storage
+      - lework_storage:/app/lework-storage
     command: ["worker", "--config", "/app/config.yaml"]
     restart: unless-stopped
 
 volumes:
   postgres_data:
   nats_data:
-  leros_storage:
+  lework_storage:

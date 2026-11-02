@@ -10,11 +10,11 @@ import (
 
 	"github.com/ygpkg/storage-go"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	skillcache "github.com/insmtx/Leros/backend/internal/skill/cache"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
+	skillcache "github.com/insmtx/Lework/backend/internal/skill/cache"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestProcessSkillPackageUploadedIsIdempotentAndDoesNotCreateProjectFile(t *testing.T) {

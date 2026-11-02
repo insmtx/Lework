@@ -1,6 +1,6 @@
 "use client";
 
-import type { Attachment } from "@leros/store/types/chat";
+import type { Attachment } from "@lework/store/types/chat";
 import { Folder, Loader2, X } from "lucide-react";
 import { ProjectFileTypeIcon } from "../layout/project-file-type-icon";
 

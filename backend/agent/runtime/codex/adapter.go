@@ -5,7 +5,7 @@ package codex
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // Adapter 通过 Codex CLI app-server 模式执行提示。

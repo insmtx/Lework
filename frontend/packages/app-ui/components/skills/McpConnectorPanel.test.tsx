@@ -31,7 +31,7 @@ const {
 	mockOpenExternalLink: vi.fn(),
 }));
 
-vi.mock("@leros/store", () => ({
+vi.mock("@lework/store", () => ({
 	pluginApi: {
 		addMCP: mockPluginAddMCP,
 		connectMCPPlatform: mockPluginConnectMCPPlatform,

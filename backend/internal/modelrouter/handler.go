@@ -14,9 +14,9 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
 
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/pkg/cache"
-	"github.com/insmtx/Leros/backend/pkg/llmprotocol"
+	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/Lework/backend/pkg/cache"
+	"github.com/insmtx/Lework/backend/pkg/llmprotocol"
 )
 
 const defaultBizTTL = 1 * time.Hour
@@ -174,7 +174,7 @@ func handleModelRoute(store *ModelStore, entryProtocol llmprotocol.Protocol) gin
 			return
 		}
 
-		debugEnabled := os.Getenv("LEROS_MODELROUTER_DEBUG") == "true"
+		debugEnabled := os.Getenv("LEWORK_MODELROUTER_DEBUG") == "true"
 		dl := NewDebugLogger(debugEnabled)
 		defer dl.Close()
 
@@ -317,22 +317,22 @@ func marshalJSON(v interface{}) ([]byte, error) {
 }
 
 // injectBusinessIDs 从 HTTP 请求头中提取业务 ID，注入到 context 中。
-// 客户端通过 X-Leros-Project-Id / X-Leros-Session-Id / X-Leros-Message-Id /
-// X-Leros-Assistant-Id / X-Leros-Uin 请求头传递业务 ID。
+// 客户端通过 X-Lework-Project-Id / X-Lework-Session-Id / X-Lework-Message-Id /
+// X-Lework-Assistant-Id / X-Lework-Uin 请求头传递业务 ID。
 func injectBusinessIDs(ctx context.Context, c *gin.Context) context.Context {
-	if v := parseHeaderUint(c, "X-Leros-Project-Id"); v > 0 {
+	if v := parseHeaderUint(c, "X-Lework-Project-Id"); v > 0 {
 		ctx = llm.WithCtxUint(ctx, llm.CtxProjectID, v)
 	}
-	if v := parseHeaderUint(c, "X-Leros-Session-Id"); v > 0 {
+	if v := parseHeaderUint(c, "X-Lework-Session-Id"); v > 0 {
 		ctx = llm.WithCtxUint(ctx, llm.CtxSessionID, v)
 	}
-	if v := parseHeaderUint(c, "X-Leros-Message-Id"); v > 0 {
+	if v := parseHeaderUint(c, "X-Lework-Message-Id"); v > 0 {
 		ctx = llm.WithCtxUint(ctx, llm.CtxMessageID, v)
 	}
-	if v := parseHeaderUint(c, "X-Leros-Assistant-Id"); v > 0 {
+	if v := parseHeaderUint(c, "X-Lework-Assistant-Id"); v > 0 {
 		ctx = llm.WithCtxUint(ctx, llm.CtxAssistantID, v)
 	}
-	if v := parseHeaderUint(c, "X-Leros-Uin"); v > 0 {
+	if v := parseHeaderUint(c, "X-Lework-Uin"); v > 0 {
 		ctx = llm.WithCtxUint(ctx, llm.CtxUin, v)
 	}
 	if clientIP := c.ClientIP(); clientIP != "" {

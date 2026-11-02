@@ -11,19 +11,19 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // 集成测试：连真实 Postgres，验证 RunSQLScripts 在真实库上的执行、幂等与断点续跑。
 // seed 包内无法 import testutil（testutil 依赖 seed，会形成 import cycle），
-// 因此直接通过 LEROS_TEST_DB_URL（可选覆盖）指向本地开发库建连。
+// 因此直接通过 LEWORK_TEST_DB_URL（可选覆盖）指向本地开发库建连。
 // 默认 DSN 与 deployments/dev/server.config.yaml 保持一致。
 
-const defaultTestDBURL = "postgres://postgres:123456@localhost:5432/leros_init_test?sslmode=disable"
+const defaultTestDBURL = "postgres://postgres:123456@localhost:5432/lework_init_test?sslmode=disable"
 
 func newIntegTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("LEROS_TEST_DB_URL")
+	dsn := os.Getenv("LEWORK_TEST_DB_URL")
 	if dsn == "" {
 		dsn = defaultTestDBURL
 	}
@@ -58,9 +58,9 @@ func TestRunSQLScripts_Integration_SQLAndTemplate(t *testing.T) {
 	clearIntegSeedRecords(t, db, "seed_demo_marker_integ")
 	dir := writeSQLDirInt(t, map[string]string{
 		"seed_demo_marker_integ_001.sql":    "CREATE TABLE seed_demo_marker_integ (id SERIAL PRIMARY KEY, note TEXT);\nINSERT INTO seed_demo_marker_integ (note) VALUES ('plain');\n",
-		"seed_demo_marker_integ_002.sqltpl": "INSERT INTO seed_demo_marker_integ (note) VALUES ('{{.LEROS_TEST}}');\n",
+		"seed_demo_marker_integ_002.sqltpl": "INSERT INTO seed_demo_marker_integ (note) VALUES ('{{.LEWORK_TEST}}');\n",
 	})
-	t.Setenv("LEROS_TEST", "tmpl")
+	t.Setenv("LEWORK_TEST", "tmpl")
 
 	if err := RunSQLScripts(context.Background(), db, dir); err != nil {
 		t.Fatalf("first run: %v", err)

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -42,7 +42,7 @@ func TestSeedAccountCreatesDefaultOrgUserAndWorker(t *testing.T) {
 	}
 
 	var user types.User
-	if err := db.Where("email = ?", "admin@leros.local").First(&user).Error; err != nil {
+	if err := db.Where("email = ?", "admin@lework.local").First(&user).Error; err != nil {
 		t.Fatalf("admin user missing: %v", err)
 	}
 	if string(user.Password) == "" {

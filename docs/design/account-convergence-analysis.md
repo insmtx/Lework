@@ -90,7 +90,7 @@ Lework (insmtx/Lework)
 | **Claims** | `{Uin, Issuer, IssuedAt, ExpiresAt, LoginWay, Audience}` | `{Uin}` + StandardClaims |
 | **Subject** | UIN 的 ID | `user:uin:{Uin}` |
 | **Audience** | `user` / `api` | `user` / `worker` |
-| **Issuer** | 根据域名动态设置 | 固定 `leros` |
+| **Issuer** | 根据域名动态设置 | 固定 `lework` |
 | **签名算法** | HS256 | HS256 |
 | **TTL** | 8小时（可配置） | 24小时 |
 | **秘密管理** | 按 Issuer 隔离 Secret | 单一全局 Secret |
@@ -284,16 +284,16 @@ func (s *IdentityAdapter) validateToken(tokenString string) (*Caller, error) {
 
 ```sql
 -- User 表：新增 external_id
-ALTER TABLE leros_user ADD COLUMN external_id BIGINT NULL COMMENT 'identity-platform user.id';
-CREATE INDEX idx_user_external_id ON leros_user(external_id);
+ALTER TABLE lework_user ADD COLUMN external_id BIGINT NULL COMMENT 'identity-platform user.id';
+CREATE INDEX idx_user_external_id ON lework_user(external_id);
 
 -- UserOrg 表：新增 external_uin
-ALTER TABLE leros_user_org ADD COLUMN external_uin BIGINT NULL COMMENT 'identity-platform uin.id';
-CREATE INDEX idx_user_org_external_uin ON leros_user_org(external_uin);
+ALTER TABLE lework_user_org ADD COLUMN external_uin BIGINT NULL COMMENT 'identity-platform uin.id';
+CREATE INDEX idx_user_org_external_uin ON lework_user_org(external_uin);
 
 -- Organization 表：新增 external_company_id
-ALTER TABLE leros_organization ADD COLUMN external_company_id BIGINT NULL COMMENT 'identity-platform company.id';
-CREATE INDEX idx_org_external_company_id ON leros_organization(external_company_id);
+ALTER TABLE lework_organization ADD COLUMN external_company_id BIGINT NULL COMMENT 'identity-platform company.id';
+CREATE INDEX idx_org_external_company_id ON lework_organization(external_company_id);
 ```
 
 ### 3.4 接口映射

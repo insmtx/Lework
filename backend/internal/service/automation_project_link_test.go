@@ -8,10 +8,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func seedAutomationLinkDB(t *testing.T) *gorm.DB {
@@ -479,7 +479,7 @@ func TestProvisioner_RecreatesOnUnusable(t *testing.T) {
 	}
 
 	// 2) 删除关联项目的助手绑定 => projectUsable 失败 => 创建新一代
-	if err := db.Where("assistant_id = ? AND resource_id IN (SELECT id FROM leros_resource WHERE biz_id = ?)", asst, proj.ID).
+	if err := db.Where("assistant_id = ? AND resource_id IN (SELECT id FROM lework_resource WHERE biz_id = ?)", asst, proj.ID).
 		Delete(&types.ResourceBinding{}).Error; err != nil {
 		t.Fatalf("unbind assistant: %v", err)
 	}

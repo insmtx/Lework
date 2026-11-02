@@ -7,10 +7,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	skilllinks "github.com/insmtx/Lework/backend/internal/skill/links"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestBuiltinEmailConnectorPackage(t *testing.T) {
@@ -236,7 +236,7 @@ func TestInactiveBaiduNetdiskTemplateIsPublishedBeforeActivation(t *testing.T) {
 	config := types.MCPChannelAuthConfig(channel.AuthConfig)
 	config.OAuth = &types.MCPChannelOAuthConfig{
 		AppKey: "app-key", SecretKey: "secret-key",
-		RedirectURI: "https://leros.example.com/v1/plugins/mcp/oauth/baidu-netdisk/callback",
+		RedirectURI: "https://lework.example.com/v1/plugins/mcp/oauth/baidu-netdisk/callback",
 		Scopes:      []string{"basic", "netdisk"},
 	}
 	if err := database.Model(&types.MCPChannel{}).

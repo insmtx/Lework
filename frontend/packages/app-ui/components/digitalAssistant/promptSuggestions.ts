@@ -1,4 +1,4 @@
-import type { DigitalAssistantItem } from "@leros/store";
+import type { DigitalAssistantItem } from "@lework/store";
 
 /** 构造「试试这样问我」提示语，基于队友的擅长领域与名称。 */
 export function buildPromptSuggestions(assistant: { name: string; expertise: string[] }): string[] {

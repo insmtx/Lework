@@ -10,8 +10,8 @@ const mocks = vi.hoisted(() => ({
 	listHumanMembers: vi.fn(),
 }));
 
-vi.mock("@leros/store", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@leros/store")>();
+vi.mock("@lework/store", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@lework/store")>();
 	return {
 		...actual,
 		projectMemberApi: {

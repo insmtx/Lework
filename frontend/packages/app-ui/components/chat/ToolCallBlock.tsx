@@ -1,7 +1,7 @@
 "use client";
 
-import type { ToolCall } from "@leros/store/types/chat";
-import { cn } from "@leros/ui/lib/utils";
+import type { ToolCall } from "@lework/store/types/chat";
+import { cn } from "@lework/ui/lib/utils";
 import { Check, ChevronDown, ChevronRight, FileText, Loader2, Settings, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
@@ -53,7 +53,7 @@ export function ToolCallBlock({
 								"size-3.5 shrink-0",
 								isTimelineVariant
 									? PROCESS_TIMELINE_CHEVRON_CLASS
-									: "text-[color:var(--leros-chat-text-muted)]",
+									: "text-[color:var(--lework-chat-text-muted)]",
 							)}
 						/>
 					) : (
@@ -62,7 +62,7 @@ export function ToolCallBlock({
 								"size-3.5 shrink-0",
 								isTimelineVariant
 									? PROCESS_TIMELINE_CHEVRON_CLASS
-									: "text-[color:var(--leros-chat-text-muted)]",
+									: "text-[color:var(--lework-chat-text-muted)]",
 							)}
 						/>
 					)}
@@ -188,7 +188,7 @@ function ToolCallItem({ toolCall, compact = false }: { toolCall: ToolCall; compa
 				className={cn(
 					"flex h-5 w-full min-w-0 cursor-pointer items-center gap-1 text-left leading-none",
 					compact ? "text-[13px]" : "text-sm",
-					compact ? PROCESS_TIMELINE_TEXT_CLASS : "text-[color:var(--leros-chat-text-muted)]",
+					compact ? PROCESS_TIMELINE_TEXT_CLASS : "text-[color:var(--lework-chat-text-muted)]",
 				)}
 			>
 				<ToolCallIconSlot>
@@ -197,7 +197,7 @@ function ToolCallItem({ toolCall, compact = false }: { toolCall: ToolCall; compa
 							className={
 								compact
 									? PROCESS_TIMELINE_CHEVRON_CLASS
-									: "text-[color:var(--leros-chat-text-muted)]"
+									: "text-[color:var(--lework-chat-text-muted)]"
 							}
 						/>
 					) : (
@@ -205,7 +205,7 @@ function ToolCallItem({ toolCall, compact = false }: { toolCall: ToolCall; compa
 							className={
 								compact
 									? PROCESS_TIMELINE_CHEVRON_CLASS
-									: "text-[color:var(--leros-chat-text-muted)]"
+									: "text-[color:var(--lework-chat-text-muted)]"
 							}
 						/>
 					)}
@@ -215,7 +215,7 @@ function ToolCallItem({ toolCall, compact = false }: { toolCall: ToolCall; compa
 						<Loader2
 							className={cn(
 								"animate-spin",
-								compact ? PROCESS_TIMELINE_TEXT_CLASS : "text-[color:var(--leros-chat-text-muted)]",
+								compact ? PROCESS_TIMELINE_TEXT_CLASS : "text-[color:var(--lework-chat-text-muted)]",
 							)}
 						/>
 					)}
@@ -345,7 +345,7 @@ function ToolCallDetailSection({
 					"flex w-full cursor-pointer items-center gap-1 text-left",
 					compact
 						? cn("text-[13px]", PROCESS_TIMELINE_TEXT_CLASS)
-						: "text-sm text-[color:var(--leros-chat-text-muted)]",
+						: "text-sm text-[color:var(--lework-chat-text-muted)]",
 				)}
 			>
 				{expanded ? (
@@ -354,7 +354,7 @@ function ToolCallDetailSection({
 							"size-3.5 shrink-0",
 							compact
 								? PROCESS_TIMELINE_CHEVRON_CLASS
-								: "text-[color:var(--leros-chat-text-muted)]",
+								: "text-[color:var(--lework-chat-text-muted)]",
 						)}
 					/>
 				) : (
@@ -363,14 +363,14 @@ function ToolCallDetailSection({
 							"size-3.5 shrink-0",
 							compact
 								? PROCESS_TIMELINE_CHEVRON_CLASS
-								: "text-[color:var(--leros-chat-text-muted)]",
+								: "text-[color:var(--lework-chat-text-muted)]",
 						)}
 					/>
 				)}
 				<Icon
 					className={cn(
 						"size-3.5 shrink-0",
-						compact ? PROCESS_TIMELINE_TEXT_CLASS : "text-[color:var(--leros-chat-text-muted)]",
+						compact ? PROCESS_TIMELINE_TEXT_CLASS : "text-[color:var(--lework-chat-text-muted)]",
 					)}
 				/>
 				<span className="font-medium">{label}</span>

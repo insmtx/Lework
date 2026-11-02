@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	clauderuntime "github.com/insmtx/Leros/backend/agent/runtime/claude"
-	codexruntime "github.com/insmtx/Leros/backend/agent/runtime/codex"
-	nativeruntime "github.com/insmtx/Leros/backend/agent/runtime/native"
-	opencoderuntime "github.com/insmtx/Leros/backend/agent/runtime/opencode"
+	"github.com/insmtx/Lework/backend/agent"
+	clauderuntime "github.com/insmtx/Lework/backend/agent/runtime/claude"
+	codexruntime "github.com/insmtx/Lework/backend/agent/runtime/codex"
+	nativeruntime "github.com/insmtx/Lework/backend/agent/runtime/native"
+	opencoderuntime "github.com/insmtx/Lework/backend/agent/runtime/opencode"
 	"github.com/ygpkg/yg-go/logs"
 	"go.uber.org/zap/zapcore"
 )
@@ -32,7 +32,7 @@ func firstNonEmptyEnv(keys ...string) string {
 }
 
 func isRealModelTestEnabled() bool {
-	return os.Getenv("LEROS_AGENT_REAL_MODEL_TESTS") == "1"
+	return os.Getenv("LEWORK_AGENT_REAL_MODEL_TESTS") == "1"
 }
 
 func testModelConfig() agent.ModelConfig {
@@ -40,7 +40,7 @@ func testModelConfig() agent.ModelConfig {
 		Provider: "openai",
 		Model:    "test",
 		BaseURL:  "http://127.0.0.1:8787/v1",
-		APIKey:   os.Getenv("LEROS_AGENT_TEST_API_KEY"),
+		APIKey:   os.Getenv("LEWORK_AGENT_TEST_API_KEY"),
 	}
 }
 
@@ -62,7 +62,7 @@ func projectRoot(t *testing.T) string {
 
 func testWorkDir(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(projectRoot(t), ".leros-workspace", "test")
+	dir := filepath.Join(projectRoot(t), ".lework-workspace", "test")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create test work dir: %v", err)
 	}
@@ -71,7 +71,7 @@ func testWorkDir(t *testing.T) string {
 
 // testRuntimeFilter returns the runtime name to test, or empty to test all.
 func testRuntimeFilter() string {
-	return strings.ToLower(strings.TrimSpace(os.Getenv("LEROS_AGENT_TEST_RUNTIME")))
+	return strings.ToLower(strings.TrimSpace(os.Getenv("LEWORK_AGENT_TEST_RUNTIME")))
 }
 
 // ---------- observer ----------
@@ -119,12 +119,12 @@ func TestRealModelIntegration(t *testing.T) {
 	logs.SetLevel(zapcore.DebugLevel)
 
 	if !isRealModelTestEnabled() {
-		t.Skip("set LEROS_AGENT_REAL_MODEL_TESTS=1 to run real model integration tests")
+		t.Skip("set LEWORK_AGENT_REAL_MODEL_TESTS=1 to run real model integration tests")
 	}
 
 	modelConfig := testModelConfig()
 	if modelConfig.APIKey == "" {
-		t.Skip("set LEROS_AGENT_TEST_API_KEY to run real model integration tests")
+		t.Skip("set LEWORK_AGENT_TEST_API_KEY to run real model integration tests")
 	}
 
 	workDir := testWorkDir(t)
@@ -156,7 +156,7 @@ func TestRealModelIntegration(t *testing.T) {
 			name: codexruntime.Kind,
 			kind: codexruntime.Kind,
 			setup: func(t *testing.T) (bool, agent.Runtime) {
-				binary := firstNonEmptyEnv("LEROS_AGENT_CODEX_BINARY")
+				binary := firstNonEmptyEnv("LEWORK_AGENT_CODEX_BINARY")
 				if binary == "" {
 					binary = "codex"
 				}
@@ -174,7 +174,7 @@ func TestRealModelIntegration(t *testing.T) {
 			name: opencoderuntime.Kind,
 			kind: opencoderuntime.Kind,
 			setup: func(t *testing.T) (bool, agent.Runtime) {
-				binary := firstNonEmptyEnv("LEROS_AGENT_OPENCODE_BINARY")
+				binary := firstNonEmptyEnv("LEWORK_AGENT_OPENCODE_BINARY")
 				if binary == "" {
 					binary = "opencode"
 				}
@@ -192,7 +192,7 @@ func TestRealModelIntegration(t *testing.T) {
 			name: clauderuntime.Kind,
 			kind: clauderuntime.Kind,
 			setup: func(t *testing.T) (bool, agent.Runtime) {
-				binary := firstNonEmptyEnv("LEROS_AGENT_CLAUDE_BINARY")
+				binary := firstNonEmptyEnv("LEWORK_AGENT_CLAUDE_BINARY")
 				if binary == "" {
 					binary = "claude"
 				}
@@ -211,7 +211,7 @@ func TestRealModelIntegration(t *testing.T) {
 	for _, entry := range entries {
 		t.Run(entry.name, func(t *testing.T) {
 			if filter != "" && entry.name != filter {
-				t.Skipf("LEROS_AGENT_TEST_RUNTIME=%s, skipping %s", filter, entry.name)
+				t.Skipf("LEWORK_AGENT_TEST_RUNTIME=%s, skipping %s", filter, entry.name)
 			}
 
 			skip, rt := entry.setup(t)

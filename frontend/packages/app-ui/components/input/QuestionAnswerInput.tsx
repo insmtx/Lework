@@ -1,11 +1,11 @@
 "use client";
 
-import type { QuestionRequest } from "@leros/store/types/chat";
-import { Badge } from "@leros/ui/components/ui/badge";
-import { Button } from "@leros/ui/components/ui/button";
-import { Input } from "@leros/ui/components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
-import { cn } from "@leros/ui/lib/utils";
+import type { QuestionRequest } from "@lework/store/types/chat";
+import { Badge } from "@lework/ui/components/ui/badge";
+import { Button } from "@lework/ui/components/ui/button";
+import { Input } from "@lework/ui/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
+import { cn } from "@lework/ui/lib/utils";
 import { AlertCircle, ChevronLeft, ChevronRight, Info, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getProjectChatLayoutClasses } from "../layout/project-chat-layout";

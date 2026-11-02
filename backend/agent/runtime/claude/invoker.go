@@ -9,9 +9,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
-	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/Lework/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -35,12 +35,12 @@ func (inv *Invoker) Invoke(ctx context.Context, req cli.InvocationRequest) (*cli
 	claudeConfigDir := claudeConfigDirFor(req)
 
 	var settingsPath string
-	if sp, err := lerosSettingsPath(req.SessionID); err == nil {
-		if err := writeLerosSettings(sp, buildLerosSettings(req)); err == nil {
+	if sp, err := leworkSettingsPath(req.SessionID); err == nil {
+		if err := writeLeworkSettings(sp, buildLeworkSettings(req)); err == nil {
 			args = append(args, "--settings", sp)
 			settingsPath = sp
 		} else {
-			logs.WarnContextf(ctx, "write leros settings failed: %v", err)
+			logs.WarnContextf(ctx, "write lework settings failed: %v", err)
 		}
 	}
 

@@ -66,7 +66,7 @@ Lework 采用**契约驱动的服务架构**，而不是：
 
 ```bash
 backend/
-├── cmd/leros/                  # composition root 与进程生命周期
+├── cmd/lework/                  # composition root 与进程生命周期
 ├── agent/                     # 独立、业务无关的执行层
 │   ├── executor.go
 │   ├── registry.go
@@ -579,12 +579,12 @@ type StreamPayload struct {
 
 ### 5.2 当前进程边界
 
-同一个 `leros` 二进制通过 Cobra 子命令提供 Server 与 Worker 进程入口。进程启停、
-信号和致命错误处理只存在于 `cmd/leros`；`internal/*` 不知道自己运行在哪种进程中。
+同一个 `lework` 二进制通过 Cobra 子命令提供 Server 与 Worker 进程入口。进程启停、
+信号和致命错误处理只存在于 `cmd/lework`；`internal/*` 不知道自己运行在哪种进程中。
 
 ```bash
-leros server   # API、DB、NATS、Worker 管理
-leros worker   # Worker Command、RunCoordinator、AgentRun、Agent Runtime
+lework server   # API、DB、NATS、Worker 管理
+lework worker   # Worker Command、RunCoordinator、AgentRun、Agent Runtime
 ```
 
 是否同机部署属于部署配置，不改变包边界或执行契约。

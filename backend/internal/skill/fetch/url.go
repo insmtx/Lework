@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	catalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	catalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
 )
 
 // UrlSource 通过 HTTP 直链下载 SKILL.md。

@@ -1,4 +1,4 @@
-import type { ProjectMember } from "@leros/store";
+import type { ProjectMember } from "@lework/store";
 
 export type CurrentUserProjectProfile = {
 	publicId?: string;

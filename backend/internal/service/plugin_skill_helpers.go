@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	skillarchive "github.com/insmtx/Leros/backend/internal/skill/archive"
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	skillarchive "github.com/insmtx/Lework/backend/internal/skill/archive"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
 )
 
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)

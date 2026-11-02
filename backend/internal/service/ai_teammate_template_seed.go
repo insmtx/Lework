@@ -15,11 +15,11 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/internal/infra/filestore"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/internal/infra/filestore"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 const embeddedAITeammateTemplateAvatarDir = "assets/ai-teammate-template-avatar"
@@ -143,7 +143,7 @@ func resolveAITeammateTemplateAvatarDir(avatarDir string) string {
 	if dir := strings.TrimSpace(avatarDir); dir != "" {
 		return dir
 	}
-	if dir := strings.TrimSpace(os.Getenv("LEROS_AI_TEAMMATE_TEMPLATE_AVATAR_DIR")); dir != "" {
+	if dir := strings.TrimSpace(os.Getenv("LEWORK_AI_TEAMMATE_TEMPLATE_AVATAR_DIR")); dir != "" {
 		return dir
 	}
 	return ""

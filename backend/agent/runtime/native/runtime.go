@@ -1,16 +1,16 @@
-// Package native provides the built-in Leros (Eino) Runtime.
+// Package native provides the built-in Lework (Eino) Runtime.
 package native
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 )
 
 const (
-	// Kind is the canonical runtime kind for the built-in Leros runtime.
-	Kind = agent.RuntimeKindLeros
+	// Kind is the canonical runtime kind for the built-in Lework runtime.
+	Kind = agent.RuntimeKindLework
 )
 
 // Runtime executes requests directly through the in-process Eino runner.

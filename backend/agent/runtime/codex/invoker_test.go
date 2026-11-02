@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // TestSayHi 端到端测试：通过 app-server 模式发送 "hi" 并收到真实回复。
@@ -28,9 +28,9 @@ func TestSayHi(t *testing.T) {
 		t.Fatalf("get working directory: %v", err)
 	}
 
-	apiKey := os.Getenv("LEROS_TEST_API_KEY")
+	apiKey := os.Getenv("LEWORK_TEST_API_KEY")
 	if apiKey == "" {
-		t.Skip("LEROS_TEST_API_KEY not set")
+		t.Skip("LEWORK_TEST_API_KEY not set")
 	}
 
 	adapter := NewAdapter(codexPath, nil)

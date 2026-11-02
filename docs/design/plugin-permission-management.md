@@ -53,9 +53,9 @@ erDiagram
 
 | 数据 | 表 | 表达内容 | 是否影响个人插件列表 |
 |---|---|---|---|
-| 插件属性 | `leros_plugin` | Skill/MCP、公开/私有、状态、审计信息 | 是 |
-| 个人直接权限 | `leros_resource` + `leros_resource_binding` | owner/admin/viewer | 是 |
-| 项目运行授权 | `leros_project_plugin_binding` | 项目是否启用插件 | 否 |
+| 插件属性 | `lework_plugin` | Skill/MCP、公开/私有、状态、审计信息 | 是 |
+| 个人直接权限 | `lework_resource` + `lework_resource_binding` | owner/admin/viewer | 是 |
+| 项目运行授权 | `lework_project_plugin_binding` | 项目是否启用插件 | 否 |
 
 不引入 `PluginPermissionSource`。公开访问由 `visibility` 表达，直接角色由 `resource_binding` 表达，项目运行授权由 `project_plugin_binding` 表达。
 
@@ -65,24 +65,24 @@ erDiagram
 
 本方案**不新增任何数据库表**。不创建 `plugin_permission`、`plugin_member`、`plugin_acl` 或其他插件专属权限表。
 
-插件的个人权限直接复用现有 `leros_resource` 和 `leros_resource_binding`；项目运行授权继续复用现有 `leros_project_plugin_binding`。
+插件的个人权限直接复用现有 `lework_resource` 和 `lework_resource_binding`；项目运行授权继续复用现有 `lework_project_plugin_binding`。
 
 ### 3.2 现有表改动
 
 | 表 | 当前状态 | 本次改动 | 数据库字段改动 | 索引/约束改动 |
 |---|---|---|---|---|
-| `leros_plugin` | 现有表 | 修改 | 新增 `visibility` | 新增 visibility 合法值约束、MCP 私有约束和列表索引 |
-| `leros_resource` | 现有表 | 不改表结构 | 无 | 不新增索引；通过代码新增 `type=plugin` 资源类型 |
-| `leros_resource_binding` | 现有表 | 不改表结构 | 无 | 不新增索引；通过代码新增 `resource_role=viewer` 角色 |
-| `leros_project_plugin_binding` | 现有表 | 不改表结构 | 无 | 沿用现有 `(project_id, plugin_id)` 活动唯一索引 |
-| `leros_plugin_revision` | 现有表 | 不改表结构 | 无 | 无 |
-| `leros_plugin_marketplace_item` | 现有表 | 不改表结构 | 无 | 无 |
+| `lework_plugin` | 现有表 | 修改 | 新增 `visibility` | 新增 visibility 合法值约束、MCP 私有约束和列表索引 |
+| `lework_resource` | 现有表 | 不改表结构 | 无 | 不新增索引；通过代码新增 `type=plugin` 资源类型 |
+| `lework_resource_binding` | 现有表 | 不改表结构 | 无 | 不新增索引；通过代码新增 `resource_role=viewer` 角色 |
+| `lework_project_plugin_binding` | 现有表 | 不改表结构 | 无 | 沿用现有 `(project_id, plugin_id)` 活动唯一索引 |
+| `lework_plugin_revision` | 现有表 | 不改表结构 | 无 | 无 |
+| `lework_plugin_marketplace_item` | 现有表 | 不改表结构 | 无 | 无 |
 
 因此，数据库层面的实际变更只有：
 
-1. `leros_plugin` 新增一个 `visibility` 字段。
-2. `leros_plugin` 新增 visibility 相关索引/约束。
-3. 为现有 `leros_resource`、`leros_resource_binding` 回填插件资源和 owner/admin/viewer 绑定数据；这会新增数据行，但不会新增表或字段。
+1. `lework_plugin` 新增一个 `visibility` 字段。
+2. `lework_plugin` 新增 visibility 相关索引/约束。
+3. 为现有 `lework_resource`、`lework_resource_binding` 回填插件资源和 owner/admin/viewer 绑定数据；这会新增数据行，但不会新增表或字段。
 
 `ResourceTypePlugin`、`ResourceRoleViewer`、plugin actions 和 `PluginAccessManager` 都是代码层新增，不是数据库表或数据库字段。
 
@@ -90,7 +90,7 @@ erDiagram
 
 以下是当前模型的有效字段和本功能涉及的变化。时间戳和软删除字段沿用现有 GORM 模型。
 
-### 4.1 `leros_plugin`（现有表，新增字段）
+### 4.1 `lework_plugin`（现有表，新增字段）
 
 现有插件表只新增 `visibility`，其余字段、表名和软删除模型保持不变。
 
@@ -122,13 +122,13 @@ erDiagram
 
 ```sql
 CREATE INDEX IF NOT EXISTS idx_plugin_org_kind_visibility_status
-    ON leros_plugin (org_id, kind, visibility, status)
+    ON lework_plugin (org_id, kind, visibility, status)
     WHERE deleted_at IS NULL;
 ```
 
 该索引用于插件市场、组织 Skill 列表和公开/私有筛选。权限关系查询使用现有资源和绑定索引，不为每个查询额外创建插件权限索引。
 
-### 4.2 `leros_resource`（现有表，不改字段）
+### 4.2 `lework_resource`（现有表，不改字段）
 
 表结构、字段、索引均不改，只新增代码层资源类型常量：
 
@@ -155,7 +155,7 @@ UNIQUE (org_id, type, biz_id) WHERE deleted_at IS NULL
 
 因此同一组织下一个活动插件只能对应一个活动权限资源。
 
-### 4.3 `leros_resource_binding`（现有表，不改字段）
+### 4.3 `lework_resource_binding`（现有表，不改字段）
 
 表结构、字段、索引均不改，只新增代码层通用角色常量：
 
@@ -184,7 +184,7 @@ ResourceRoleViewer = "viewer"
 - owner 不能被删除、降级或替换。
 - v1 不支持 owner 转移。
 
-### 4.4 `leros_project_plugin_binding`（现有表，不改字段）
+### 4.4 `lework_project_plugin_binding`（现有表，不改字段）
 
 表结构、字段、索引和唯一约束保持不变：
 
@@ -392,7 +392,7 @@ Skill 下载接口请求需要补充运行上下文：
 
 不能在每次启动时把全部 Skill 更新为 public，否则会覆盖上线后新建的 private Skill。迁移采用以下顺序：
 
-1. 在 `runMigrations` 的模型迁移前检测 `leros_plugin.visibility` 是否存在。
+1. 在 `runMigrations` 的模型迁移前检测 `lework_plugin.visibility` 是否存在。
 2. 列不存在时，以可空列形式新增 `visibility`。
 3. 只更新 `visibility IS NULL` 的历史行：`kind=skill` 回填 `public`，`kind=mcp` 回填 `private`。
 4. 执行 GORM AutoMigrate，使字段变为 `NOT NULL DEFAULT 'private'`，并应用合法值/MCP 私有约束。

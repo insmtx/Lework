@@ -6,15 +6,15 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
 )
 
 const (
-	headerClientApp      = "X-Leros-Client-App"
-	headerClientVersion  = "X-Leros-Client-Version"
-	headerClientPlatform = "X-Leros-Client-Platform"
-	headerClientArch     = "X-Leros-Client-Arch"
+	headerClientApp      = "X-Lework-Client-App"
+	headerClientVersion  = "X-Lework-Client-Version"
+	headerClientPlatform = "X-Lework-Client-Platform"
+	headerClientArch     = "X-Lework-Client-Arch"
 )
 
 // ClientUpdateRequiredResponse describes why a client must update before continuing.

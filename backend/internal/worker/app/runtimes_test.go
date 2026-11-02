@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
-	runtimecli "github.com/insmtx/Leros/backend/internal/cli"
-	"github.com/insmtx/Leros/backend/internal/worker/runtimehost"
+	"github.com/insmtx/Lework/backend/agent"
+	runtimecli "github.com/insmtx/Lework/backend/internal/cli"
+	"github.com/insmtx/Lework/backend/internal/worker/runtimehost"
 )
 
 type stubRuntime struct {
@@ -136,7 +136,7 @@ func TestRegisterCLIRuntimesRequiresInteractionRouter(t *testing.T) {
 
 // TestFallbackDefaultRuntime 覆盖默认 Runtime 不可用时的回退。
 func TestFallbackDefaultRuntime(t *testing.T) {
-	registered := map[string]struct{}{"leros": {}, "claude": {}}
+	registered := map[string]struct{}{"lework": {}, "claude": {}}
 	unavailable := map[string]string{"opencode": "probe timeout"}
 
 	tests := []struct {
@@ -145,9 +145,9 @@ func TestFallbackDefaultRuntime(t *testing.T) {
 		want     string
 	}{
 		{name: "available default stays", selected: "claude", want: "claude"},
-		{name: "unavailable default falls back", selected: "opencode", want: agent.RuntimeKindLeros},
-		{name: "unknown default falls back", selected: "gemini", want: agent.RuntimeKindLeros},
-		{name: "empty default falls back", selected: "", want: agent.RuntimeKindLeros},
+		{name: "unavailable default falls back", selected: "opencode", want: agent.RuntimeKindLework},
+		{name: "unknown default falls back", selected: "gemini", want: agent.RuntimeKindLework},
+		{name: "empty default falls back", selected: "", want: agent.RuntimeKindLework},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

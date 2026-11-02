@@ -12,9 +12,9 @@ import (
 
 	"gorm.io/gorm"
 
-	infradb "github.com/insmtx/Leros/backend/internal/infra/db"
-	skilllinks "github.com/insmtx/Leros/backend/internal/skill/links"
-	"github.com/insmtx/Leros/backend/types"
+	infradb "github.com/insmtx/Lework/backend/internal/infra/db"
+	skilllinks "github.com/insmtx/Lework/backend/internal/skill/links"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 const builtinWorkerOrigin = "builtin_worker"

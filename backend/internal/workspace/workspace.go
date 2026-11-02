@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 // TaskWorkspaceRequest 标识一次任务 turn 的工作区和运行目录请求。
@@ -73,7 +73,7 @@ func PrepareTaskWorkspace(ctx context.Context, req TaskWorkspaceRequest) (*TaskW
 
 // PrepareTempWorkspace 创建没有项目上下文时使用的临时兜底工作区。
 func PrepareTempWorkspace() (string, error) {
-	dir, err := leros.TempDir()
+	dir, err := lework.TempDir()
 	if err != nil {
 		return "", err
 	}
@@ -101,14 +101,14 @@ func ResolveTaskWorkspace(req TaskWorkspaceRequest) (*TaskWorkspace, error) {
 		return nil, fmt.Errorf("workspace request_id is required")
 	}
 
-	root, err := leros.WorkspaceRoot()
+	root, err := lework.WorkspaceRoot()
 	if err != nil {
 		return nil, err
 	}
 
 	projectRoot := filepath.Join(root, "projects", fmt.Sprintf("%d", req.OrgID), projectID)
 	repoDir := filepath.Join(projectRoot, "repo")
-	taskDir := filepath.Join(repoDir, ".leros", "tasks", taskID)
+	taskDir := filepath.Join(repoDir, ".lework", "tasks", taskID)
 	turnDir := filepath.Join(taskDir, "turns", requestID)
 	effectiveWorkDir, err := resolveWorkDir(repoDir, req.RequestedWorkDir)
 	if err != nil {
@@ -232,9 +232,9 @@ func isRuntimePath(path string) bool {
 	if path == ".git" || strings.HasPrefix(path, ".git/") {
 		return true
 	}
-	if path == ".leros" || strings.HasPrefix(path, ".leros/") {
-		// .leros/memory/ 目录不在运行时保护范围内，允许访问项目记忆文件
-		if path == ".leros/memory" || strings.HasPrefix(path, ".leros/memory/") {
+	if path == ".lework" || strings.HasPrefix(path, ".lework/") {
+		// .lework/memory/ 目录不在运行时保护范围内，允许访问项目记忆文件
+		if path == ".lework/memory" || strings.HasPrefix(path, ".lework/memory/") {
 			return false
 		}
 		return true
@@ -359,8 +359,8 @@ func hasRemote(ctx context.Context, repoDir string, remote string) bool {
 }
 
 // defaultGitignore 定义项目仓库初始化时创建的默认 .gitignore 内容。
-const defaultGitignore = `# Leros runtime
-.leros/tasks/
+const defaultGitignore = `# Lework runtime
+.lework/tasks/
 
 # User uploads (served from object storage, not committed)
 uploads/

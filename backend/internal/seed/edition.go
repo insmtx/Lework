@@ -1,8 +1,8 @@
 package seed
 
 import (
-	"github.com/insmtx/Leros/backend/internal/adapter"
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/adapter"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
 )
 
 // isOSS 判断当前 edition 是否为开源版（OSS）。企业版返回 false。

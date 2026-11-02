@@ -1,5 +1,5 @@
 {
-	"extends": "@leros/tsconfig/react-library.json",
+	"extends": "@lework/tsconfig/react-library.json",
 	"compilerOptions": {
 		"baseUrl": ".",
 		"ignoreDeprecations": "5.0"

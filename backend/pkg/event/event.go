@@ -1,6 +1,6 @@
 // event 包提供事件定义的共享类型
 //
-// 该包定义了 Leros 中事件的核心数据结构，
+// 该包定义了 Lework 中事件的核心数据结构，
 // 用于在不同模块间共享和传递事件信息。
 package event
 
@@ -8,7 +8,7 @@ import "time"
 
 // Event 表示系统中的一个交互事件
 //
-// 事件是 Leros 的核心数据结构，包含了来自不同渠道（如 GitHub、GitLab 等）
+// 事件是 Lework 的核心数据结构，包含了来自不同渠道（如 GitHub、GitLab 等）
 // 的交互信息，通过事件总线在系统中流转和处理。
 type Event struct {
 	EventID    string                 // 事件唯一标识符

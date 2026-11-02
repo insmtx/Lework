@@ -1,4 +1,4 @@
-import type { ComposerToken } from "@leros/store/types/chat";
+import type { ComposerToken } from "@lework/store/types/chat";
 import { describe, expect, it } from "vitest";
 import {
 	applyDocxSelectionDraftToComposer,

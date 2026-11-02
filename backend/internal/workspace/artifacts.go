@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // ManifestArtifact 表示 Agent 在一次 turn 中写入 JSON Lines manifest 的一条产物声明。

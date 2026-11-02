@@ -1,11 +1,11 @@
-import { API_BASE_URL, authenticatedFetch, projectFileApi } from "@leros/store";
+import { API_BASE_URL, authenticatedFetch, projectFileApi } from "@lework/store";
 import type {
 	PayrollEmployeeType,
 	PayrollSelectedFile,
 	PayrollStoredPerson,
 } from "./payroll-accounting-mock";
 
-const PAYROLL_SESSION_STORAGE_KEY = "leros-payroll-task-sessions";
+const PAYROLL_SESSION_STORAGE_KEY = "lework-payroll-task-sessions";
 const employeeTypeToCode: Record<PayrollEmployeeType, number> = {
 	在册: 1,
 	易通外包: 2,

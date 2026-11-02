@@ -11,16 +11,16 @@ import {
 	useAppStore,
 	useChatStore,
 	useLayoutStore,
-} from "@leros/store";
+} from "@lework/store";
 import type {
 	Message,
 	MessageArtifact,
 	MessageProcessStep,
 	ToolCall,
-} from "@leros/store/types/chat";
-import { Button } from "@leros/ui/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/store/types/chat";
+import { Button } from "@lework/ui/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	Check,
 	ChevronDown,
@@ -632,7 +632,7 @@ function ProcessStepPreviewText({ preview }: { preview: ProcessStepPreview }) {
 
 	return (
 		<span className="flex min-w-0 items-baseline">
-			<span className="leros-process-preview-wave shrink-0">{preview.loadingLabel}</span>
+			<span className="lework-process-preview-wave shrink-0">{preview.loadingLabel}</span>
 			{preview.detail ? (
 				<span className={cn("min-w-0 truncate", PROCESS_TIMELINE_TEXT_CLASS)}>
 					{" "}

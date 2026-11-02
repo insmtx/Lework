@@ -6,8 +6,8 @@ import "gorm.io/gorm"
 type MessageResource struct {
 	gorm.Model
 	ResourceID   string `gorm:"column:resource_id;type:varchar(255);not null;index"`  // DB primary key of the resource (empty if not found)
-	MessageID    uint   `gorm:"column:message_id;type:bigint;not null;index"`         // FK to leros_session_message.id
-	SessionID    uint   `gorm:"column:session_id;type:bigint;not null;index"`         // FK to leros_session.id
+	MessageID    uint   `gorm:"column:message_id;type:bigint;not null;index"`         // FK to lework_session_message.id
+	SessionID    uint   `gorm:"column:session_id;type:bigint;not null;index"`         // FK to lework_session.id
 	OrgID        uint   `gorm:"column:org_id;type:integer;not null;default:0;index"`  // org isolation
 	Uin          uint   `gorm:"column:uin;type:bigint;default:0;index"`               // user isolation
 	ResourceType string `gorm:"column:resource_type;type:varchar(50);not null;index"` // skill / MCP / tool / ...

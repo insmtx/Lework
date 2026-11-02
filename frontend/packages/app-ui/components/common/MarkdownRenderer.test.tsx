@@ -27,12 +27,12 @@ describe("MarkdownRenderer plan directive", () => {
 
 describe("MarkdownRenderer external links", () => {
 	afterEach(() => {
-		delete (window as Window & { lerosDesktop?: unknown }).lerosDesktop;
+		delete (window as Window & { leworkDesktop?: unknown }).leworkDesktop;
 	});
 
 	it("opens external links in a new browser context instead of navigating in place", () => {
 		const openExternal = vi.fn().mockResolvedValue(true);
-		(window as Window & { lerosDesktop?: { openExternal: typeof openExternal } }).lerosDesktop = {
+		(window as Window & { leworkDesktop?: { openExternal: typeof openExternal } }).leworkDesktop = {
 			openExternal,
 		};
 

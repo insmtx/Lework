@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
 )
 
 func TestListOrganizationPluginsSendsSkillFilters(t *testing.T) {

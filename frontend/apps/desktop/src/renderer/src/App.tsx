@@ -4,17 +4,17 @@ import {
 	type ClientUpgradeRequiredEvent,
 	clientUpdateApi,
 	isPrivateDeployment,
-} from "@leros/store";
-import { ThemeProvider } from "@leros/ui/components/common/theme-provider";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { ThemeProvider } from "@lework/ui/components/common/theme-provider";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Toaster } from "@leros/ui/components/ui/sonner";
+} from "@lework/ui/components/ui/dialog";
+import { Toaster } from "@lework/ui/components/ui/sonner";
 import { Download, Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { HashRouter } from "react-router-dom";
@@ -53,16 +53,16 @@ export default function App() {
 }
 
 // mac 沉浸式标题栏：仅在 mac 下给 body 挂上标记类，
-// 具体的拖拽区/红绿灯让位样式全部由 globals.css 中的 body.leros-mac-titlebar 规则控制，
+// 具体的拖拽区/红绿灯让位样式全部由 globals.css 中的 body.lework-mac-titlebar 规则控制，
 // 拖拽能力通过侧栏品牌行与右侧顶栏的 -webkit-app-region 精细划分，不再使用整块覆盖层。
 function MacTitleBarDragRegion() {
 	const isMac = window.electron?.process?.platform === "darwin";
 
 	useEffect(() => {
 		if (!isMac) return;
-		document.body.classList.add("leros-mac-titlebar");
+		document.body.classList.add("lework-mac-titlebar");
 		return () => {
-			document.body.classList.remove("leros-mac-titlebar");
+			document.body.classList.remove("lework-mac-titlebar");
 		};
 	}, [isMac]);
 
@@ -86,11 +86,11 @@ function ClientUpdateGate() {
 			// Version reporting must not block app startup when the server is temporarily unavailable.
 		});
 
-		void window.lerosDesktop
+		void window.leworkDesktop
 			.getState()
 			.then(setUpdateState)
 			.catch(() => undefined);
-		const unsubscribe = window.lerosDesktop.subscribe(setUpdateState);
+		const unsubscribe = window.leworkDesktop.subscribe(setUpdateState);
 
 		return () => {
 			window.removeEventListener(CLIENT_UPGRADE_REQUIRED_EVENT, handleUpgradeRequired);
@@ -110,7 +110,7 @@ function ClientUpdateGate() {
 				// Keep the existing dialog state when the policy endpoint is temporarily unavailable.
 			});
 
-			const state = await window.lerosDesktop.getState().catch(() => null);
+			const state = await window.leworkDesktop.getState().catch(() => null);
 			if (!state || cancelled) {
 				return;
 			}
@@ -120,7 +120,7 @@ function ClientUpdateGate() {
 				return;
 			}
 
-			const nextState = await window.lerosDesktop.checkForUpdates().catch(() => null);
+			const nextState = await window.leworkDesktop.checkForUpdates().catch(() => null);
 			if (nextState && !cancelled) {
 				setUpdateState(nextState);
 			}
@@ -142,7 +142,7 @@ function ClientUpdateGate() {
 	const handleCheckForUpdates = async () => {
 		setChecking(true);
 		try {
-			const nextState = await window.lerosDesktop.checkForUpdates();
+			const nextState = await window.leworkDesktop.checkForUpdates();
 			setUpdateState(nextState);
 			if (nextState.phase === "unsupported") {
 				toast.message(nextState.message);
@@ -164,7 +164,7 @@ function ClientUpdateGate() {
 	const handleRestart = async () => {
 		setRestarting(true);
 		try {
-			const accepted = await window.lerosDesktop.quitAndInstall();
+			const accepted = await window.leworkDesktop.quitAndInstall();
 			if (!accepted) {
 				toast.message("更新尚未下载完成，请先检查更新");
 			}

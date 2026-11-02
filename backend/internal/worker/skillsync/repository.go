@@ -12,13 +12,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/insmtx/Leros/backend/internal/worker/identity"
-	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/internal/worker/identity"
+	"github.com/insmtx/Lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
 
-const managedIgnoreRules = `# Leros worker-managed paths
+const managedIgnoreRules = `# Lework worker-managed paths
 .system/
 runs/
 .skill-install-*/

@@ -9,10 +9,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/worker"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestWorkerProvisioningEnsuresDefaultWorkerFirst(t *testing.T) {
@@ -111,7 +111,7 @@ func TestWorkerProvisioningRebindsLegacyDefaultWorker(t *testing.T) {
 		OrgID:              12,
 		DigitalAssistantID: legacyAssistant.ID,
 		WorkerID:           1,
-		DeploymentName:     "leros-worker-o12-w1",
+		DeploymentName:     "lework-worker-o12-w1",
 		Status:             string(types.WorkerDeploymentStatusReady),
 	}
 	if err := database.Create(legacyDeployment).Error; err != nil {
@@ -163,7 +163,7 @@ func TestWorkerReconcilerDoesNotRestartProvisioningDeployment(t *testing.T) {
 		OrgID:              1,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           1,
-		DeploymentName:     "leros-worker-o1-w1",
+		DeploymentName:     "lework-worker-o1-w1",
 		Status:             string(types.WorkerDeploymentStatusProvisioning),
 		BootstrapTokenHash: "stable-token-hash",
 		LastStartedAt:      &startedAt,
@@ -215,7 +215,7 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 		OrgID:              1,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           1,
-		DeploymentName:     "leros-worker-o1-w1",
+		DeploymentName:     "lework-worker-o1-w1",
 		Status:             string(types.WorkerDeploymentStatusReady),
 		BootstrapTokenHash: "old-token-hash",
 	}
@@ -225,8 +225,8 @@ func TestWorkerReconcilerRestartsReadyDeploymentWhenSpecDrifts(t *testing.T) {
 
 	scheduler := &fakeWorkerScheduler{needsReconcile: true}
 	cfg := &config.SchedulerConfig{
-		ServerAddr:  "http://leros:8080",
-		WorkerImage: "registry.yygu.cn/insmtx/leros-worker:v2",
+		ServerAddr:  "http://lework:8080",
+		WorkerImage: "registry.yygu.cn/insmtx/lework-worker:v2",
 	}
 	if err := reconcileWorkerDeployment(ctx, database, scheduler, cfg, deployment, nil); err != nil {
 		t.Fatalf("reconcile deployment: %v", err)
@@ -280,7 +280,7 @@ func TestWorkerReconcilerMarksProvisioningDeploymentReadyAfterHealthCheck(t *tes
 		OrgID:              1,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           1,
-		DeploymentName:     "leros-worker-o1-w1",
+		DeploymentName:     "lework-worker-o1-w1",
 		Status:             string(types.WorkerDeploymentStatusProvisioning),
 		BootstrapTokenHash: "stable-token-hash",
 		LastError:          "worker is not ready",
@@ -334,7 +334,7 @@ func TestWorkerReconcilerRestartsProvisioningDeploymentWhenRuntimeMissing(t *tes
 		OrgID:              1,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           1,
-		DeploymentName:     "leros-worker-o1-w1",
+		DeploymentName:     "lework-worker-o1-w1",
 		Status:             string(types.WorkerDeploymentStatusProvisioning),
 		BootstrapTokenHash: "stable-token-hash",
 		LastStartedAt:      &startedAt,

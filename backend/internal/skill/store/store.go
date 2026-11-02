@@ -1,4 +1,4 @@
-// Package store persists user-managed skills under the Leros workspace.
+// Package store persists user-managed skills under the Lework workspace.
 package store
 
 import (
@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/internal/skill/catalog"
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/internal/skill/catalog"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -89,7 +89,7 @@ type InstallRequest struct {
 	Content string            // SKILL.md 内容
 	Files   map[string]string // 附属文件：相对路径 → 内容
 	Force   bool              // 是否覆盖已有 skill
-	Source  string            // 来源（Leros / ClawHub / github / SkillsSh / url）
+	Source  string            // 来源（Lework / ClawHub / github / SkillsSh / url）
 	SkillID string            // 源内唯一标识
 }
 
@@ -128,10 +128,10 @@ type DeleteRequest struct {
 
 // DefaultSkillRoot 返回默认 workspace skills 目录。
 func DefaultSkillRoot() (string, error) {
-	return leros.SkillsDir()
+	return lework.SkillsDir()
 }
 
-// NewSkillStore 创建以 rootDir 为根目录的 SkillStore；rootDir 为空时使用默认 Leros skills 根目录。
+// NewSkillStore 创建以 rootDir 为根目录的 SkillStore；rootDir 为空时使用默认 Lework skills 根目录。
 func NewSkillStore(rootDir string) (*SkillStore, error) {
 	rootDir = strings.TrimSpace(rootDir)
 	if rootDir == "" {

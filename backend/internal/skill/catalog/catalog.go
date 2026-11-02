@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 const skillFileName = "SKILL.md"
@@ -68,7 +68,7 @@ func (c *Catalog) Root() string {
 }
 
 func defaultCatalog() (*Catalog, error) {
-	dir, err := leros.SkillsDir()
+	dir, err := lework.SkillsDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve skill directory: %w", err)
 	}
@@ -88,7 +88,7 @@ func (e *ErrSkillManifestMismatch) Error() string {
 	return fmt.Sprintf("Skill %q found at path %s but its manifest name does not match.", e.RequestedName, filepath.ToSlash(e.Path))
 }
 
-// List returns skill summaries found in the default Leros skills directory,
+// List returns skill summaries found in the default Lework skills directory,
 // sorted by name. The skills directory is created if it does not exist.
 func List() ([]Summary, error) {
 	catalog, err := defaultCatalog()
@@ -117,7 +117,7 @@ func (c *Catalog) List() ([]Summary, error) {
 	return summaries, nil
 }
 
-// Get returns a full skill entry by name from the default Leros skills directory.
+// Get returns a full skill entry by name from the default Lework skills directory.
 // It first tries the direct path <skillsDir>/<name>/SKILL.md (case-insensitive).
 // If not found, it recursively walks the skills directory looking for SKILL.md files
 // whose containing directory name matches name (case-insensitive).
@@ -238,7 +238,7 @@ func tryParseSkillFile(path, requestedName string) (*Entry, string) {
 	return entry, ""
 }
 
-// ReadFile reads a supporting file from a skill directory in the default Leros
+// ReadFile reads a supporting file from a skill directory in the default Lework
 // skills directory. It validates the path to prevent directory traversal.
 func ReadFile(name string, relativePath string) ([]byte, error) {
 	catalog, err := defaultCatalog()
@@ -269,7 +269,7 @@ func (c *Catalog) ReadFile(name string, relativePath string) ([]byte, error) {
 	return content, nil
 }
 
-// ListFiles returns supporting files in a skill directory under the default Leros
+// ListFiles returns supporting files in a skill directory under the default Lework
 // skills directory, excluding SKILL.md. Results are sorted. If limit > 0, at most
 // limit files are returned.
 func ListFiles(name string, limit int) ([]string, error) {
@@ -322,7 +322,7 @@ func (c *Catalog) ListFiles(name string, limit int) ([]string, error) {
 	return files, nil
 }
 
-// readAllSkills scans the default Leros skills directory and returns all parsed
+// readAllSkills scans the default Lework skills directory and returns all parsed
 // entries keyed by manifest name. It only scans direct subdirectories (non-recursive).
 // The skills directory is created if it does not exist.
 func (c *Catalog) readAllSkills() (map[string]*Entry, string, error) {

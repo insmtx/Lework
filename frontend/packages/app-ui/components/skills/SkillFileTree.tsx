@@ -1,6 +1,6 @@
 "use client";
 
-import type { PluginRevisionFile } from "@leros/store";
+import type { PluginRevisionFile } from "@lework/store";
 import { ChevronRight, FileText, Folder } from "lucide-react";
 import { useMemo, useState } from "react";
 import { buildSkillFileTree, type SkillFileTreeNode } from "./skillFileTreeModel";
@@ -51,13 +51,13 @@ function SkillFileTreeRow({
 				<button
 					type="button"
 					onClick={() => onToggle(node.path)}
-					className="flex w-full min-w-0 items-center gap-1.5 rounded-md py-2 pr-3 text-left text-xs text-[var(--leros-text-muted)] transition-colors hover:bg-[var(--leros-surface-soft)]"
+					className="flex w-full min-w-0 items-center gap-1.5 rounded-md py-2 pr-3 text-left text-xs text-[var(--lework-text-muted)] transition-colors hover:bg-[var(--lework-surface-soft)]"
 					style={{ paddingLeft: `${12 + depth * 18}px` }}
 				>
 					<ChevronRight
-						className={`size-3.5 shrink-0 text-[var(--leros-text-subtle)] transition-transform ${isExpanded ? "rotate-90" : ""}`}
+						className={`size-3.5 shrink-0 text-[var(--lework-text-subtle)] transition-transform ${isExpanded ? "rotate-90" : ""}`}
 					/>
-					<Folder className="size-3.5 shrink-0 text-[var(--leros-primary)]" />
+					<Folder className="size-3.5 shrink-0 text-[var(--lework-primary)]" />
 					<span className="min-w-0 truncate font-mono">{node.name}</span>
 				</button>
 				{isExpanded &&
@@ -76,14 +76,14 @@ function SkillFileTreeRow({
 
 	return (
 		<div
-			className="flex min-w-0 items-center gap-2 rounded-md py-2 pr-3 text-xs text-[var(--leros-text-muted)]"
+			className="flex min-w-0 items-center gap-2 rounded-md py-2 pr-3 text-xs text-[var(--lework-text-muted)]"
 			style={{ paddingLeft: `${30 + depth * 18}px` }}
 			title={node.path}
 		>
-			<FileText className="size-3.5 shrink-0 text-[var(--leros-text-subtle)]" />
+			<FileText className="size-3.5 shrink-0 text-[var(--lework-text-subtle)]" />
 			<span className="min-w-0 truncate font-mono">{node.name}</span>
 			{node.file && (
-				<span className="ml-auto shrink-0 text-[10px] text-[var(--leros-text-subtle)]">
+				<span className="ml-auto shrink-0 text-[10px] text-[var(--lework-text-subtle)]">
 					{formatFileSize(node.file.size_bytes)}
 				</span>
 			)}

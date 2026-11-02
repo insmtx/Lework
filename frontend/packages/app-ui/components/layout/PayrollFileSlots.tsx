@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@leros/ui/components/ui/button";
+import { Button } from "@lework/ui/components/ui/button";
 import { Eye, FileSpreadsheet, FolderOpen, Upload, X } from "lucide-react";
 import { useRef } from "react";
 import {
@@ -70,7 +70,7 @@ export function PayrollFileSlots({
 												<button
 													type="button"
 													onClick={() => onPreview(selected)}
-													className="rounded-md p-1 text-slate-400 hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]"
+													className="rounded-md p-1 text-slate-400 hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]"
 													title="预览文件"
 												>
 													<Eye className="size-4" />

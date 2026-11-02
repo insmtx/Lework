@@ -1,7 +1,7 @@
 "use client";
 
-import { Popover, PopoverContent, PopoverTrigger } from "@leros/ui/components/ui/popover";
-import { cn } from "@leros/ui/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@lework/ui/components/ui/popover";
+import { cn } from "@lework/ui/lib/utils";
 import { Clock } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -9,9 +9,9 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = Array.from({ length: 60 }, (_, i) => i);
 
 const ITEM_CLASS =
-	"flex h-8 w-full shrink-0 cursor-pointer items-center justify-center rounded-md text-sm tabular-nums outline-none transition-colors hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]";
+	"flex h-8 w-full shrink-0 cursor-pointer items-center justify-center rounded-md text-sm tabular-nums outline-none transition-colors hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]";
 const ITEM_SELECTED_CLASS =
-	"bg-[var(--leros-primary-softer)] font-medium text-[var(--leros-primary)] hover:bg-[var(--leros-primary-softer)] hover:text-[var(--leros-primary)]";
+	"bg-[var(--lework-primary-softer)] font-medium text-[var(--lework-primary)] hover:bg-[var(--lework-primary-softer)] hover:text-[var(--lework-primary)]";
 
 function pad2(n: number): string {
 	return String(n).padStart(2, "0");

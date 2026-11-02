@@ -5,8 +5,8 @@
     ],
     "swagger": "2.0",
     "info": {
-        "description": "Leros 数字助手平台 API，提供数字助手管理、技能调用、事件处理等功能",
-        "title": "Leros API",
+        "description": "Lework 数字助手平台 API，提供数字助手管理、技能调用、事件处理等功能",
+        "title": "Lework API",
         "contact": {},
         "version": "1.0"
     },

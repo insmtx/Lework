@@ -17,19 +17,19 @@ describe("inject deploy config", () => {
 	});
 
 	it("rejects unsafe mode values", () => {
-		expect(() => sanitizeDeployMode("../x")).toThrow(/Invalid LEROS_DEPLOY_MODE/);
-		expect(() => sanitizeDeployMode("acme/h3c")).toThrow(/Invalid LEROS_DEPLOY_MODE/);
+		expect(() => sanitizeDeployMode("../x")).toThrow(/Invalid LEWORK_DEPLOY_MODE/);
+		expect(() => sanitizeDeployMode("acme/h3c")).toThrow(/Invalid LEWORK_DEPLOY_MODE/);
 		expect(sanitizeDeployMode("acme")).toBe("acme");
 	});
 
 	it("rejects unsafe S3 domains", () => {
-		expect(() => sanitizeS3Domain("not-a-url")).toThrow(/Invalid LEROS_DEPLOY_S3_DOMAIN/);
-		expect(() => sanitizeS3Domain("javascript:alert(1)")).toThrow(/Invalid LEROS_DEPLOY_S3_DOMAIN/);
+		expect(() => sanitizeS3Domain("not-a-url")).toThrow(/Invalid LEWORK_DEPLOY_S3_DOMAIN/);
+		expect(() => sanitizeS3Domain("javascript:alert(1)")).toThrow(/Invalid LEWORK_DEPLOY_S3_DOMAIN/);
 		expect(sanitizeS3Domain("https://cdn.example.com/")).toBe("https://cdn.example.com");
 	});
 
 	it("keeps default logo when S3 domain is missing", async () => {
-		const root = await mkdtemp(join(tmpdir(), "leros-deploy-"));
+		const root = await mkdtemp(join(tmpdir(), "lework-deploy-"));
 		dirs.push(root);
 		const result = await injectDeployConfig({
 			mode: "acme",
@@ -45,7 +45,7 @@ describe("inject deploy config", () => {
 	});
 
 	it("downloads logo from S3 domain /fronted/{mode}/", async () => {
-		const root = await mkdtemp(join(tmpdir(), "leros-deploy-"));
+		const root = await mkdtemp(join(tmpdir(), "lework-deploy-"));
 		dirs.push(root);
 		const publicDir = join(root, "public");
 		const fetchImpl = vi.fn(async (url: string) => {
@@ -69,7 +69,7 @@ describe("inject deploy config", () => {
 	});
 
 	it("fails when S3 domain is set without mode", async () => {
-		const root = await mkdtemp(join(tmpdir(), "leros-deploy-"));
+		const root = await mkdtemp(join(tmpdir(), "lework-deploy-"));
 		dirs.push(root);
 		await expect(
 			injectDeployConfig({
@@ -78,11 +78,11 @@ describe("inject deploy config", () => {
 				deploymentMode: "private",
 				rendererPublicDir: join(root, "public"),
 			}),
-		).rejects.toThrow(/requires LEROS_DEPLOY_MODE/);
+		).rejects.toThrow(/requires LEWORK_DEPLOY_MODE/);
 	});
 
 	it("fails when S3 objects are missing", async () => {
-		const root = await mkdtemp(join(tmpdir(), "leros-deploy-"));
+		const root = await mkdtemp(join(tmpdir(), "lework-deploy-"));
 		dirs.push(root);
 		await expect(
 			injectDeployConfig({
@@ -97,7 +97,7 @@ describe("inject deploy config", () => {
 	});
 
 	it("ignores mode, appName and S3 domain for public/SaaS packages", async () => {
-		const root = await mkdtemp(join(tmpdir(), "leros-deploy-"));
+		const root = await mkdtemp(join(tmpdir(), "lework-deploy-"));
 		dirs.push(root);
 		const fetchImpl = vi.fn();
 		const result = await injectDeployConfig({

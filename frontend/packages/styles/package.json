@@ -1,5 +1,5 @@
 {
-	"name": "@leros/styles",
+	"name": "@lework/styles",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
@@ -13,7 +13,7 @@
 		}
 	},
 	"dependencies": {
-		"@leros/ui": "workspace:*",
+		"@lework/ui": "workspace:*",
 		"@tailwindcss/typography": "catalog:",
 		"katex": "^0.16.47",
 		"shadcn": "^4.1.0",

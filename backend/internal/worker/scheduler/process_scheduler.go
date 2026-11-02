@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/worker"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/worker"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -139,7 +139,7 @@ func (ps *ProcessScheduler) startProcess(instance *ProcessInstance, spec *worker
 	}
 	cmdPath := cfg.WorkerBinary
 	if cmdPath == "" {
-		cmdPath = "./bundles/leros"
+		cmdPath = "./bundles/lework"
 	}
 
 	if _, err := os.Stat(cmdPath); os.IsNotExist(err) {
@@ -151,9 +151,9 @@ func (ps *ProcessScheduler) startProcess(instance *ProcessInstance, spec *worker
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
 	if spec.BootstrapToken != "" {
-		env = append(env, "LEROS_WORKER_BOOTSTRAP_TOKEN="+spec.BootstrapToken)
+		env = append(env, "LEWORK_WORKER_BOOTSTRAP_TOKEN="+spec.BootstrapToken)
 	}
-	env = append(env, fmt.Sprintf("LEROS_PARENT_PID=%d", os.Getpid()))
+	env = append(env, fmt.Sprintf("LEWORK_PARENT_PID=%d", os.Getpid()))
 
 	workDir := cfg.WorkingDir
 	if workDir == "" {
@@ -263,10 +263,10 @@ func (ps *ProcessScheduler) healthCheck(instance *ProcessInstance) error {
 func processWorkerEndpoint(spec *worker.WorkerSpec, cfg *config.SchedulerConfig) string {
 	listenAddr := ""
 	if spec != nil && spec.Env != nil {
-		listenAddr = strings.TrimSpace(spec.Env["LEROS_WORKER_LISTEN_ADDR"])
+		listenAddr = strings.TrimSpace(spec.Env["LEWORK_WORKER_LISTEN_ADDR"])
 	}
 	if listenAddr == "" && cfg != nil && cfg.Env != nil {
-		listenAddr = strings.TrimSpace(cfg.Env["LEROS_WORKER_LISTEN_ADDR"])
+		listenAddr = strings.TrimSpace(cfg.Env["LEWORK_WORKER_LISTEN_ADDR"])
 	}
 	if listenAddr == "" {
 		workerID := uint(1)

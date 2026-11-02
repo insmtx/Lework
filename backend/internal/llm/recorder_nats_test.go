@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/insmtx/Leros/backend/internal/infra/mq"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/internal/infra/mq"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 	"github.com/nats-io/nats.go"
 )
 

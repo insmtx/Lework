@@ -3,7 +3,7 @@ package db
 import (
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/consts"
+	"github.com/insmtx/Lework/backend/internal/consts"
 )
 
 func TestMatchesProjectFileExtGroup(t *testing.T) {

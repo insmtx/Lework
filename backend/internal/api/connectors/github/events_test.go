@@ -11,7 +11,7 @@ func TestConvertPullRequestUsesRawPayload(t *testing.T) {
 	event := &gogithub.PullRequestEvent{
 		Action: gogithub.Ptr("synchronize"),
 		Repo: &gogithub.Repository{
-			FullName: gogithub.Ptr("insmtx/Leros"),
+			FullName: gogithub.Ptr("insmtx/Lework"),
 		},
 		Sender: &gogithub.User{
 			Login: gogithub.Ptr("octocat"),
@@ -19,7 +19,7 @@ func TestConvertPullRequestUsesRawPayload(t *testing.T) {
 		PullRequest: &gogithub.PullRequest{
 			Number:  gogithub.Ptr(12),
 			Title:   gogithub.Ptr("Add Eino runtime"),
-			HTMLURL: gogithub.Ptr("https://github.com/insmtx/Leros/pull/12"),
+			HTMLURL: gogithub.Ptr("https://github.com/insmtx/Lework/pull/12"),
 			Head: &gogithub.PullRequestBranch{
 				Ref: gogithub.Ptr("feature/eino"),
 				SHA: gogithub.Ptr("abc123"),
@@ -44,7 +44,7 @@ func TestConvertPullRequestUsesRawPayload(t *testing.T) {
 	if converted.Actor != "octocat" {
 		t.Fatalf("unexpected actor: %s", converted.Actor)
 	}
-	if converted.Repository != "insmtx/Leros" {
+	if converted.Repository != "insmtx/Lework" {
 		t.Fatalf("unexpected repo: %s", converted.Repository)
 	}
 	if converted.Context["action"] != "synchronize" {
@@ -88,7 +88,7 @@ func TestConvertPushUsesRawPayload(t *testing.T) {
 	event := &gogithub.PushEvent{
 		Ref: gogithub.Ptr("refs/heads/main"),
 		Repo: &gogithub.PushEventRepository{
-			FullName: gogithub.Ptr("insmtx/Leros"),
+			FullName: gogithub.Ptr("insmtx/Lework"),
 		},
 		Sender: &gogithub.User{
 			Login: gogithub.Ptr("sender-octocat"),
@@ -113,7 +113,7 @@ func TestConvertPushUsesRawPayload(t *testing.T) {
 	if converted.Actor != "sender-octocat" {
 		t.Fatalf("unexpected actor: %s", converted.Actor)
 	}
-	if converted.Repository != "insmtx/Leros" {
+	if converted.Repository != "insmtx/Lework" {
 		t.Fatalf("unexpected repository: %s", converted.Repository)
 	}
 	if converted.Context["ref"] != "refs/heads/main" {

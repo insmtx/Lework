@@ -1,4 +1,4 @@
-// Package local implements Leros built-in file-backed memory.
+// Package local implements Lework built-in file-backed memory.
 package local
 
 import (
@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 const (
@@ -96,7 +96,7 @@ func NewStore(opts Options) (*Store, error) {
 
 // DefaultMemoryRoot returns the workspace memory directory.
 func DefaultMemoryRoot() (string, error) {
-	return leros.MemoryDir()
+	return lework.MemoryDir()
 }
 
 // RootDir returns the memory directory containing USER.md and MEMORY.md.

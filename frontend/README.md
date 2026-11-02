@@ -1,6 +1,6 @@
-# Leros Frontend
+# Lework Frontend
 
-Leros 前端工程 — 基于 pnpm + Turborepo 的 monorepo 架构，包含 Web 应用和 Electron 桌面应用，共享应用级 UI、基础 UI 组件库、全局样式与状态管理包。
+Lework 前端工程 — 基于 pnpm + Turborepo 的 monorepo 架构，包含 Web 应用和 Electron 桌面应用，共享应用级 UI、基础 UI 组件库、全局样式与状态管理包。
 
 ## 项目结构
 
@@ -20,9 +20,9 @@ frontend/
 │   │   │   │   ├── skills/      # /skills
 │   │   │   │   ├── knowledge/   # /knowledge
 │   │   │   │   └── settings/    # /settings
-│   │   │   └── globals.css      # 样式入口（导入 @leros/styles + app 本地 @source）
+│   │   │   └── globals.css      # 样式入口（导入 @lework/styles + app 本地 @source）
 │   │   ├── components/          # Web 专属组件/平台适配（路由适配、页面桥接）
-│   │   │   ├── LerosShell.tsx   # Next Router -> AppNavigation 适配
+│   │   │   ├── LeworkShell.tsx   # Next Router -> AppNavigation 适配
 │   │   │   └── route-pages.tsx  # Web 路由页到共享 app-ui 页面的桥接
 │   │   ├── public/              # 静态资源
 │   │   ├── next.config.ts       # Next.js 配置 (transpilePackages)
@@ -38,7 +38,7 @@ frontend/
 │   │   │       │   ├── App.tsx  # 根组件 (BrowserRouter + ThemeProvider)
 │   │   │       │   ├── routes.tsx  # React Router 路由定义 + Desktop 导航适配
 │   │   │       │   ├── main.tsx    # 渲染入口
-│   │   │       │   ├── globals.css # 样式入口（导入 @leros/styles + app 本地 @source）
+│   │   │       │   ├── globals.css # 样式入口（导入 @lework/styles + app 本地 @source）
 │   │   │       │   ├── components/ # Desktop 专属组件/平台适配
 │   │   │       │   └── platform/   # 桌面端平台适配（预留）
 │   │   │       └── index.html     # 渲染进程 HTML
@@ -49,7 +49,7 @@ frontend/
 │   │   └── tsconfig.node.json       # 主进程 TS 配置
 │   │
 ├── packages/                    # 共享包
-│   ├── ui/                      # @leros/ui — UI 组件库
+│   ├── ui/                      # @lework/ui — UI 组件库
 │   │   ├── components/
 │   │   │   ├── ui/              # 54 个基础 UI 原语组件 (button, dialog, etc.)
 │   │   │   └── common/          # 通用业务组件 (theme-provider)
@@ -59,7 +59,7 @@ frontend/
 │   │   ├── components.json      # shadcn 配置
 │   │   └── package.json         # 导出路径映射
 │   │
-│   ├── app-ui/                  # @leros/app-ui — 双端共享应用级业务 UI
+│   ├── app-ui/                  # @lework/app-ui — 双端共享应用级业务 UI
 │   │   ├── components/
 │   │   │   ├── chat/            # 聊天消息、时间轴、欢迎页、工具调用块
 │   │   │   ├── input/           # ChatInput
@@ -68,11 +68,11 @@ frontend/
 │   │   ├── index.ts             # 统一导出应用级组件
 │   │   └── package.json         # 子路径 exports
 │   │
-│   ├── styles/                  # @leros/styles — 双端共享全局样式入口
+│   ├── styles/                  # @lework/styles — 双端共享全局样式入口
 │   │   ├── globals.css          # Tailwind/shadcn/tokens/base + shared @source + app shell styles
 │   │   └── package.json         # CSS package exports
 │   │
-│   ├── store/                   # @leros/store — Zustand 状态管理
+│   ├── store/                   # @lework/store — Zustand 状态管理
 │   │   ├── appStore.ts          # Store 入口 (合并 layoutSlice + topicSlice + chatSlice)
 │   │   ├── slices/              # 状态切片
 │   │   │   ├── layoutSlice.ts   # 布局状态 (工作区、导航、会话列开关)
@@ -83,18 +83,18 @@ frontend/
 │   │   ├── utils/               # 工具函数 (flattenActions, format)
 │   │   └── package.json         # 导出路径映射
 │   │
-│   ├── tsconfig/                # @leros/tsconfig — 共享 TS 配置
+│   ├── tsconfig/                # @lework/tsconfig — 共享 TS 配置
 │   │   ├── base.json            # 基础配置 (strict, ESNext, bundler)
 │   │   ├── next.json            # Next.js 配置 (继承 base)
 │   │   └── react-library.json   # React 库配置 (继承 base)
 │   │
-│   ├── biome/                   # @leros/biome — 共享 Biome lint 配置
+│   ├── biome/                   # @lework/biome — 共享 Biome lint 配置
 │   │   └── biome.json           # 规则定义 (recommended + 自定义)
 │   │
 ├── pnpm-workspace.yaml          # 工作空间定义 + catalog 依赖版本管理
 ├── turbo.json                   # Turborepo 任务配置 (build/dev/typecheck/test/lint)
 ├── package.json                 # 根 package.json (monorepo 脚本)
-├── biome.json                   # Biome 入口 (extends @leros/biome)
+├── biome.json                   # Biome 入口 (extends @lework/biome)
 ├── .npmrc                       # pnpm 配置 (shamefully-hoist)
 └── .gitignore                   # Git 忽略规则
 ```
@@ -103,14 +103,14 @@ frontend/
 
 | 包名 | 位置 | 技术栈 | 用途 |
 |------|------|--------|------|
-| `@leros/web` | `apps/web` | Next.js 16 + React 19 + TailwindCSS 4 | Web 端应用 |
-| `@leros/desktop` | `apps/desktop` | Electron 39 + React 19 + Vite 8 | 桌面端应用 |
-| `@leros/app-ui` | `packages/app-ui` | React 19 + TailwindCSS 4 | 双端共享应用级业务 UI |
-| `@leros/styles` | `packages/styles` | TailwindCSS 4 + shadcn/tailwind.css | 双端共享全局样式入口 |
-| `@leros/ui` | `packages/ui` | React 19 + @base-ui/react + CVA + TailwindCSS 4 | 共享 UI 组件库 |
-| `@leros/store` | `packages/store` | Zustand 5 + React 19 | 共享状态管理 |
-| `@leros/tsconfig` | `packages/tsconfig` | — | 共享 TypeScript 配置 |
-| `@leros/biome` | `packages/biome` | Biome 2 | 共享代码检查配置 |
+| `@lework/web` | `apps/web` | Next.js 16 + React 19 + TailwindCSS 4 | Web 端应用 |
+| `@lework/desktop` | `apps/desktop` | Electron 39 + React 19 + Vite 8 | 桌面端应用 |
+| `@lework/app-ui` | `packages/app-ui` | React 19 + TailwindCSS 4 | 双端共享应用级业务 UI |
+| `@lework/styles` | `packages/styles` | TailwindCSS 4 + shadcn/tailwind.css | 双端共享全局样式入口 |
+| `@lework/ui` | `packages/ui` | React 19 + @base-ui/react + CVA + TailwindCSS 4 | 共享 UI 组件库 |
+| `@lework/store` | `packages/store` | Zustand 5 + React 19 | 共享状态管理 |
+| `@lework/tsconfig` | `packages/tsconfig` | — | 共享 TypeScript 配置 |
+| `@lework/biome` | `packages/biome` | Biome 2 | 共享代码检查配置 |
 
 ## 本地开发
 
@@ -135,12 +135,12 @@ pnpm install
 # Web 应用
 cp apps/web/.env.example apps/web/.env.local
 # 然后设置：
-# NEXT_PUBLIC_LEROS_API_BASE_URL=http://192.144.198.60:8080/v1
+# NEXT_PUBLIC_LEWORK_API_BASE_URL=http://192.144.198.60:8080/v1
 
 # Desktop 应用
 cp apps/desktop/.env.example apps/desktop/.env.local
 # 然后设置：
-# VITE_LEROS_API_BASE_URL=http://192.144.198.60:8080/v1
+# VITE_LEWORK_API_BASE_URL=http://192.144.198.60:8080/v1
 ```
 
 ```bash
@@ -161,8 +161,8 @@ pnpm dev
 pnpm build
 
 # 构建指定应用
-turbo build --filter=@leros/web
-turbo build --filter=@leros/desktop
+turbo build --filter=@lework/web
+turbo build --filter=@lework/desktop
 ```
 
 ### 桌面应用打包
@@ -199,13 +199,13 @@ pnpm dist:desktop:private:dir
 
 ```bash
 # 只设客户标识，沿用官方 Logo
-LEROS_DEPLOY_MODE=acme pnpm dist:desktop:private:win:x64
+LEWORK_DEPLOY_MODE=acme pnpm dist:desktop:private:win:x64
 
 # 从 COS 下载 Logo：{S3域名}/fronted/{mode}/logo.svg（没有则再试 logo.png；都没有则打包失败）
-LEROS_DEPLOY_MODE=acme LEROS_DEPLOY_S3_DOMAIN=https://<s3-domain> pnpm dist:desktop:private:win:x64
+LEWORK_DEPLOY_MODE=acme LEWORK_DEPLOY_S3_DOMAIN=https://<s3-domain> pnpm dist:desktop:private:win:x64
 
 # 同时替换界面品牌名
-LEROS_DEPLOY_MODE=acme LEROS_DEPLOY_APP_NAME=AcmeAI pnpm dist:desktop:private:win:x64
+LEWORK_DEPLOY_MODE=acme LEWORK_DEPLOY_APP_NAME=AcmeAI pnpm dist:desktop:private:win:x64
 ```
 
 CI 私有化包上传到 COS `application/private/{mode}/`，官网隐藏入口为 `/download?edition=private&mode={mode}`；SaaS Linux 为 `/download?platform=linux`。
@@ -247,14 +247,14 @@ pnpm clean
 
 ### 添加 UI 组件
 
-使用 shadcn CLI 向 `@leros/ui` 包添加新组件：
+使用 shadcn CLI 向 `@lework/ui` 包添加新组件：
 
 ```bash
 pnpm ui:add
 # 然后在交互界面中选择要添加的组件
 ```
 
-新增组件后，需在 `packages/ui/package.json` 的 `exports` 中添加导出路径，以便其他包可通过 `@leros/ui/components/ui/<name>` 引入。
+新增组件后，需在 `packages/ui/package.json` 的 `exports` 中添加导出路径，以便其他包可通过 `@lework/ui/components/ui/<name>` 引入。
 
 ## 依赖版本管理
 
@@ -271,7 +271,7 @@ pnpm ui:add
 
 ### 双端共享策略
 
-Web 和 Desktop 应用共享同一套应用级业务 UI（`@leros/app-ui`）、全局样式入口（`@leros/styles`）、基础 UI 组件库（`@leros/ui`）和状态管理（`@leros/store`），但使用不同的框架和路由：
+Web 和 Desktop 应用共享同一套应用级业务 UI（`@lework/app-ui`）、全局样式入口（`@lework/styles`）、基础 UI 组件库（`@lework/ui`）和状态管理（`@lework/store`），但使用不同的框架和路由：
 
 | 维度 | Web (Next.js) | Desktop (Electron) |
 |------|---------------|---------------------|
@@ -314,16 +314,16 @@ type AppNavigation = {
 };
 ```
 
-- Web 适配位于 `apps/web/components/LerosShell.tsx`，使用 `next/navigation`。
+- Web 适配位于 `apps/web/components/LeworkShell.tsx`，使用 `next/navigation`。
 - Desktop 适配位于 `apps/desktop/src/renderer/src/routes.tsx`，使用 `react-router-dom`。
 - `Shell` 只负责应用壳布局；页面渲染由路由决定。保留的 `currentView` 等 store 字段仅用于过渡兼容，不应作为新增页面的主要导航入口。
 
 ### 共享包职责边界
 
-- `@leros/app-ui`：面向 Leros 产品的业务组合组件，例如 `Shell`、`LeftRail`、`ChatInput`、消息时间轴和 DigitalAssistant 面板。该包可以依赖 `@leros/ui` 和 `@leros/store`，但不直接依赖 Web/Desktop 的路由库。
-- `@leros/styles`：双端共享全局 CSS 入口，集中维护 TailwindCSS、shadcn 样式、设计 token、基础样式、应用壳样式和 workspace 共享包的 `@source`。
-- `@leros/ui`：基础 UI 原语、通用 hooks、请求/SSE/WebSocket 工具和设计系统样式，不依赖应用业务状态。
-- `@leros/store`：跨端共享状态、领域类型、API client 与 mock 数据。避免把可视组件放入 store，也避免把新增页面位置只存为全局 view 状态。
+- `@lework/app-ui`：面向 Lework 产品的业务组合组件，例如 `Shell`、`LeftRail`、`ChatInput`、消息时间轴和 DigitalAssistant 面板。该包可以依赖 `@lework/ui` 和 `@lework/store`，但不直接依赖 Web/Desktop 的路由库。
+- `@lework/styles`：双端共享全局 CSS 入口，集中维护 TailwindCSS、shadcn 样式、设计 token、基础样式、应用壳样式和 workspace 共享包的 `@source`。
+- `@lework/ui`：基础 UI 原语、通用 hooks、请求/SSE/WebSocket 工具和设计系统样式，不依赖应用业务状态。
+- `@lework/store`：跨端共享状态、领域类型、API client 与 mock 数据。避免把可视组件放入 store，也避免把新增页面位置只存为全局 view 状态。
 
 新增双端共享业务组件时，应优先放入 `packages/app-ui`；只有 Web 或 Desktop 特有的平台适配才放在对应 `apps/*/components` 下。
 
@@ -334,29 +334,29 @@ Web 应用需要显式配置 `transpilePackages` 以正确引用 workspace 包�
 ```ts
 // apps/web/next.config.ts
 const nextConfig: NextConfig = {
-  transpilePackages: ["@leros/ui", "@leros/store", "@leros/app-ui"],
+  transpilePackages: ["@lework/ui", "@lework/store", "@lework/app-ui"],
 };
 ```
 
-`@leros/styles` 是 CSS-only 包，通过 `exports["./globals.css"].style` 暴露样式入口，不需要加入 `transpilePackages`。
+`@lework/styles` 是 CSS-only 包，通过 `exports["./globals.css"].style` 暴露样式入口，不需要加入 `transpilePackages`。
 
 ### TailwindCSS 扫描共享包
 
-TailwindCSS 4 使用 CSS `@source` 声明扫描 class 来源。共享包扫描由 `@leros/styles` 集中维护，两个应用只保留最薄的样式入口：
+TailwindCSS 4 使用 CSS `@source` 声明扫描 class 来源。共享包扫描由 `@lework/styles` 集中维护，两个应用只保留最薄的样式入口：
 
 ```css
 /* apps/web/app/globals.css */
-@import "@leros/styles/globals.css";
+@import "@lework/styles/globals.css";
 
 @source "./**/*.{ts,tsx}";
 
 /* apps/desktop/src/renderer/src/globals.css */
-@import "@leros/styles/globals.css";
+@import "@lework/styles/globals.css";
 
 @source "./**/*.{ts,tsx}";
 ```
 
-`packages/styles/globals.css` 内部负责导入 `tailwindcss`、`tw-animate-css`、`shadcn/tailwind.css`、`@leros/ui` 的 token/base 样式，并扫描 `packages/ui`、`packages/store`、`packages/app-ui`。如果新增了需要 Tailwind 扫描的共享包，应优先在这里补充 `@source`。
+`packages/styles/globals.css` 内部负责导入 `tailwindcss`、`tw-animate-css`、`shadcn/tailwind.css`、`@lework/ui` 的 token/base 样式，并扫描 `packages/ui`、`packages/store`、`packages/app-ui`。如果新增了需要 Tailwind 扫描的共享包，应优先在这里补充 `@source`。
 
 ### Electron-Vite 配置
 

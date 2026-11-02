@@ -1,19 +1,19 @@
 "use client";
 
-import { Button } from "@leros/ui/components/ui/button";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import {
 	Pagination,
 	PaginationContent,
 	PaginationEllipsis,
 	PaginationItem,
-} from "@leros/ui/components/ui/pagination";
+} from "@lework/ui/components/ui/pagination";
 import { ChevronLeft, ChevronRight, FolderOpen, Upload } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";

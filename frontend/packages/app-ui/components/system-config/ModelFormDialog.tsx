@@ -5,9 +5,9 @@ import type {
 	ModelItem,
 	TestModelParams,
 	UpdateModelParams,
-} from "@leros/store";
-import { useModelStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { useModelStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -15,18 +15,18 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { Input } from "@leros/ui/components/ui/input";
-import { Label } from "@leros/ui/components/ui/label";
+} from "@lework/ui/components/ui/dialog";
+import { Input } from "@lework/ui/components/ui/input";
+import { Label } from "@lework/ui/components/ui/label";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from "@leros/ui/components/ui/select";
-import { Switch } from "@leros/ui/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
+} from "@lework/ui/components/ui/select";
+import { Switch } from "@lework/ui/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
 import { CheckCircle2, Loader2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";

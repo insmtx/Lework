@@ -9,7 +9,7 @@ const storeMocks = vi.hoisted(() => ({
 	trackPageView: vi.fn(),
 }));
 
-vi.mock("@leros/store", () => storeMocks);
+vi.mock("@lework/store", () => storeMocks);
 
 import { FrontendEventTracker } from "./FrontendEventTracker";
 

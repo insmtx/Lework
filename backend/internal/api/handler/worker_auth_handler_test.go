@@ -13,10 +13,10 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/adapter/account/oss"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/adapter/account/oss"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func setupWorkerAuthTestDatabase(t *testing.T, orgID, workerID uint) *gorm.DB {
@@ -141,7 +141,7 @@ func TestWorkerAuthHandlerIssueTokenFromDeploymentHash(t *testing.T) {
 		OrgID:              3,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           9,
-		DeploymentName:     "leros-worker-o3-w9",
+		DeploymentName:     "lework-worker-o3-w9",
 		Status:             string(types.WorkerDeploymentStatusProvisioning),
 		BootstrapTokenHash: localauth.HashBootstrapToken(bootstrapToken),
 	}).Error; err != nil {

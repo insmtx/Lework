@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
-	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
+	"github.com/insmtx/Lework/backend/agent"
+	runtimeprocess "github.com/insmtx/Lework/backend/agent/runtime/internal/process"
 )
 
 func TestEnsureOpenCodeDBPathUsesConfiguredDataDir(t *testing.T) {
@@ -265,7 +265,7 @@ func TestBuildMCPConfigBridgesSSEThroughMCPRemote(t *testing.T) {
 }
 
 func TestSanitizeConfigContentRemovesAPIKeyAndKeepsBaseURL(t *testing.T) {
-	input := `{"provider":{"leros-provider":{"options":{"apiKey":"sk-secret","baseURL":"https://llm.example.com"},
+	input := `{"provider":{"lework-provider":{"options":{"apiKey":"sk-secret","baseURL":"https://llm.example.com"},
 "models":{"gpt-test":{"limit":{"context":82144,"output":42768},"options":{"top_p":0.5,"frequency_penalty":0.1}}}}}}`
 	out := sanitizeConfigContent(input)
 	if strings.Contains(out, "sk-secret") {
@@ -285,7 +285,7 @@ func TestSanitizeConfigContentRemovesAPIKeyAndKeepsBaseURL(t *testing.T) {
 }
 
 func TestSanitizeConfigContentKeepsValidJSON(t *testing.T) {
-	out := sanitizeConfigContent(`{"provider":{"leros-provider":{"options":{"apiKey":"sk-x","baseURL":"u"}}}}`)
+	out := sanitizeConfigContent(`{"provider":{"lework-provider":{"options":{"apiKey":"sk-x","baseURL":"u"}}}}`)
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
 		t.Fatalf("sanitized config is not valid JSON: %v; out=%s", err, out)
@@ -437,7 +437,7 @@ func TestSanitizeConfigContentV2Shape(t *testing.T) {
 }
 
 func TestSanitizeConfigContentV1Headers(t *testing.T) {
-	input := `{"provider":{"leros-provider":{"options":{"apiKey":"sk-v1","headers":{"Authorization":"Bearer v1-secret"},"baseURL":"https://v1.example.com"}}}}`
+	input := `{"provider":{"lework-provider":{"options":{"apiKey":"sk-v1","headers":{"Authorization":"Bearer v1-secret"},"baseURL":"https://v1.example.com"}}}}`
 	out := sanitizeConfigContent(input)
 	if strings.Contains(out, "sk-v1") || strings.Contains(out, "v1-secret") {
 		t.Fatalf("sanitized config leaked v1 secrets: %s", out)

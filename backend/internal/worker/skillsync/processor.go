@@ -13,9 +13,9 @@ import (
 
 	"github.com/ygpkg/storage-go"
 
-	"github.com/insmtx/Leros/backend/internal/cli"
-	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/internal/cli"
+	"github.com/insmtx/Lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 	"github.com/ygpkg/yg-go/logs"
 )
 

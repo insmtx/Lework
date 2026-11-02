@@ -1,7 +1,7 @@
 "use client";
 
-import type { Action, ResourceRef } from "@leros/store";
-import { useCan } from "@leros/store";
+import type { Action, ResourceRef } from "@lework/store";
+import { useCan } from "@lework/store";
 import type { ReactNode } from "react";
 
 type CanGateProps = {

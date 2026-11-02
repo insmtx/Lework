@@ -1,7 +1,7 @@
 package contract
 
 import (
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // NewMessageRequest is the homepage new-message request that atomically creates

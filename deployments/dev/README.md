@@ -1,6 +1,6 @@
-# Leros Development Environment
+# Lework Development Environment
 
-Docker Compose-based development environment for Leros with offset ports and independent component management.
+Docker Compose-based development environment for Lework with offset ports and independent component management.
 
 ## Prerequisites
 
@@ -84,11 +84,11 @@ Notes for Windows:
 
 - `stop-dev.cmd` will auto request administrator permission when needed, because Windows may block killing the frontend process tree under normal permission.
 - `start-dev.cmd` keeps using the repo's normal frontend `dev:web` flow, so frontend still hot reloads as usual.
-- `start-dev.cmd` waits for PostgreSQL/NATS health checks, server/worker/frontend ports, and syncs `~/.leros/config.yaml` before reporting ready.
-- If `bundles/leros.exe` is missing, `start-dev.cmd` will rebuild it automatically.
+- `start-dev.cmd` waits for PostgreSQL/NATS health checks, server/worker/frontend ports, and syncs `~/.lework/config.yaml` before reporting ready.
+- If `bundles/lework.exe` is missing, `start-dev.cmd` will rebuild it automatically.
 - If the local database contains duplicate user-org UINs and the backend migration cannot create its unique index, `start-dev.cmd` will explain the conflict and ask whether to reset the local PostgreSQL/NATS volumes. The reset requires explicit `y` confirmation.
 
-The server and worker scripts support `--build` (or `-b`) to rebuild `./bundles/leros` before starting. The scripts load `deployments/dev/.env` before reading YAML config, so values like `${LLM_API_KEY}` in config files are resolved from `.env`.
+The server and worker scripts support `--build` (or `-b`) to rebuild `./bundles/lework` before starting. The scripts load `deployments/dev/.env` before reading YAML config, so values like `${LLM_API_KEY}` in config files are resolved from `.env`.
 
 ### View Logs
 

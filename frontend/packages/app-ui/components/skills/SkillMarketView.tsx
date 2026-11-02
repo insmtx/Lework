@@ -1,9 +1,9 @@
 "use client";
 
-import type { SkillMarketplaceItem } from "@leros/store";
-import { useLayoutStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@leros/ui/components/ui/tabs";
+import type { SkillMarketplaceItem } from "@lework/store";
+import { useLayoutStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@lework/ui/components/ui/tabs";
 import { Import, Plus, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../auth";
@@ -21,10 +21,10 @@ type PluginTab = "mcp" | "skills";
 type SkillSourceTab = "marketplace" | "mine" | "owned";
 
 const PLUGIN_TAB_CLASS =
-	"!h-full flex-none rounded-none border-x-0 border-t-0 border-b-2 border-b-transparent bg-transparent px-1 text-sm font-medium leading-none text-[var(--leros-text-muted)] shadow-none after:hidden hover:text-[var(--leros-text-strong)] data-active:!border-b-[var(--leros-primary)] data-active:!bg-transparent data-active:!text-[var(--leros-text-strong)] data-active:!shadow-none";
+	"!h-full flex-none rounded-none border-x-0 border-t-0 border-b-2 border-b-transparent bg-transparent px-1 text-sm font-medium leading-none text-[var(--lework-text-muted)] shadow-none after:hidden hover:text-[var(--lework-text-strong)] data-active:!border-b-[var(--lework-primary)] data-active:!bg-transparent data-active:!text-[var(--lework-text-strong)] data-active:!shadow-none";
 
 const SKILL_SOURCE_TAB_CLASS =
-	"h-8 rounded-md border border-[var(--leros-control-border)] bg-white px-3 text-xs font-medium text-[var(--leros-text-muted)] shadow-none hover:text-[var(--leros-text-strong)] data-active:border-[var(--leros-primary)] data-active:bg-[var(--leros-primary-soft)] data-active:text-[var(--leros-primary)]";
+	"h-8 rounded-md border border-[var(--lework-control-border)] bg-white px-3 text-xs font-medium text-[var(--lework-text-muted)] shadow-none hover:text-[var(--lework-text-strong)] data-active:border-[var(--lework-primary)] data-active:bg-[var(--lework-primary-soft)] data-active:text-[var(--lework-primary)]";
 
 export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) {
 	const { name: brandName } = useBrandIdentity();
@@ -159,7 +159,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 		return (
 			<div
 				data-slot="skill-market-view"
-				className="flex h-full min-h-0 flex-1 flex-col bg-[var(--leros-app-bg)]"
+				className="flex h-full min-h-0 flex-1 flex-col bg-[var(--lework-app-bg)]"
 			>
 				<SkillDetailView
 					skillId={selectedSkillId}
@@ -194,19 +194,19 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 	return (
 		<div
 			data-slot="skill-market-view"
-			className="flex h-full min-h-0 flex-1 flex-col bg-[var(--leros-app-bg)]"
+			className="flex h-full min-h-0 flex-1 flex-col bg-[var(--lework-app-bg)]"
 		>
 			<Tabs
 				value={pluginTab}
 				onValueChange={(value) => setPluginTab(value as PluginTab)}
 				className="flex min-h-0 flex-1 flex-col"
 			>
-				<header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-stretch border-b border-[var(--leros-control-border)] bg-white px-5">
+				<header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-stretch border-b border-[var(--lework-control-border)] bg-white px-5">
 					<div className="flex items-center gap-2.5">
-						<h1 className="text-lg font-semibold tracking-tight text-[var(--leros-text-strong)]">
+						<h1 className="text-lg font-semibold tracking-tight text-[var(--lework-text-strong)]">
 							插件
 						</h1>
-						<p className="text-xs text-[var(--leros-text-muted)]">统一管理连接器和技能</p>
+						<p className="text-xs text-[var(--lework-text-muted)]">统一管理连接器和技能</p>
 					</div>
 					<TabsList
 						variant="line"
@@ -232,27 +232,27 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 						onValueChange={handleSkillSourceChange}
 						className="flex min-h-0 flex-1 flex-col"
 					>
-						<section className="shrink-0 border-b border-[var(--leros-control-border)] bg-white px-5 pt-5">
+						<section className="shrink-0 border-b border-[var(--lework-control-border)] bg-white px-5 pt-5">
 							<div className="mx-auto w-full max-w-[1480px]">
 								<div>
-									<h2 className="text-xl font-semibold tracking-tight text-[var(--leros-text-strong)]">
+									<h2 className="text-xl font-semibold tracking-tight text-[var(--lework-text-strong)]">
 										技能库
 									</h2>
-									<p className="mt-1 text-xs text-[var(--leros-text-muted)]">
+									<p className="mt-1 text-xs text-[var(--lework-text-muted)]">
 										市场技能可直接使用；组织技能由成员共同维护和复用。
 									</p>
 								</div>
 
 								<div className="mt-4 flex flex-wrap items-center gap-2 pb-4">
 									<div className="relative w-[420px] min-w-[260px] max-w-full flex-none">
-										<Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--leros-text-subtle)]" />
+										<Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--lework-text-subtle)]" />
 										<input
 											type="search"
 											aria-label="搜索技能"
 											placeholder="搜索技能名称、说明"
 											value={keyword}
 											onChange={(event) => setKeyword(event.target.value)}
-											className="h-9 w-full rounded-md border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] pl-9 pr-3 text-xs text-[var(--leros-text)] outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
+											className="h-9 w-full rounded-md border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] pl-9 pr-3 text-xs text-[var(--lework-text)] outline-none transition-colors placeholder:text-[var(--lework-text-subtle)] focus:border-[var(--lework-primary)] focus:bg-white"
 										/>
 									</div>
 
@@ -278,7 +278,7 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 											导入技能
 										</Button>
 										<Button
-											className="h-8 rounded-md bg-[var(--leros-primary)] px-3 text-xs text-white hover:opacity-90"
+											className="h-8 rounded-md bg-[var(--lework-primary)] px-3 text-xs text-white hover:opacity-90"
 											onClick={openCreateSkill}
 										>
 											<Plus className="mr-1.5 size-3.5" />
@@ -289,18 +289,18 @@ export function SkillMarketView({ navigation }: { navigation?: AppNavigation }) 
 							</div>
 						</section>
 
-						<section className="min-h-0 flex-1 overflow-y-auto bg-[var(--leros-surface-soft)] px-5 py-4">
+						<section className="min-h-0 flex-1 overflow-y-auto bg-[var(--lework-surface-soft)] px-5 py-4">
 							<div className="mx-auto w-full max-w-[1480px]">
 								<div className="mb-3 flex items-start justify-between gap-4">
 									<div className="flex items-baseline gap-2.5">
-										<h3 className="text-sm font-semibold text-[var(--leros-text-strong)]">
+										<h3 className="text-sm font-semibold text-[var(--lework-text-strong)]">
 											{activeSectionTitle}
 										</h3>
-										<p className="text-xs text-[var(--leros-text-muted)]">
+										<p className="text-xs text-[var(--lework-text-muted)]">
 											{activeSectionDescription}
 										</p>
 									</div>
-									<span className="shrink-0 text-xs text-[var(--leros-text-subtle)]">
+									<span className="shrink-0 text-xs text-[var(--lework-text-subtle)]">
 										共 {activeCount} 个
 									</span>
 								</div>

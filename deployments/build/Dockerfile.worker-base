@@ -15,7 +15,7 @@ ARG OPENCODE_VERSION=2.1.4
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 # 镜像自描述：构建后可用 docker inspect 核对实际 pin
-LABEL org.leros.opencode.version="${OPENCODE_VERSION}"
+LABEL org.lework.opencode.version="${OPENCODE_VERSION}"
 ARG NODE_VERSION=22.14.0
 
 # Configure aliyun apt mirrors
@@ -201,6 +201,6 @@ RUN if [ "$EDITION" = "private" ]; then \
       npm cache clean --force; \
     fi
 
-RUN useradd -m -s /bin/bash leros \
+RUN useradd -m -s /bin/bash lework \
     && mkdir -p /workspace \
-    && chown -R leros:leros /workspace /home/leros
+    && chown -R lework:lework /workspace /home/lework

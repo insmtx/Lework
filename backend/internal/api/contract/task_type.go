@@ -3,7 +3,7 @@ package contract
 import (
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // Task 任务响应结构

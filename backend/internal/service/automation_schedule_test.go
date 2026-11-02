@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func mustLoc(t *testing.T) *time.Location {

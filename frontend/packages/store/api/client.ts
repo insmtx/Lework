@@ -1,5 +1,5 @@
-import type { HttpClient } from "@leros/ui/lib/request";
-import { createHttpClient } from "@leros/ui/lib/request";
+import type { HttpClient } from "@lework/ui/lib/request";
+import { createHttpClient } from "@lework/ui/lib/request";
 import { getValidJwtToken, readStoredAuthUser } from "../utils/authStorage";
 import {
 	dispatchClientUpgradeRequired,

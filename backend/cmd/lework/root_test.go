@@ -1,0 +1,231 @@
+package main
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"go.uber.org/zap/zapcore"
+)
+
+func TestResolveLogLevel(t *testing.T) {
+	tests := []struct {
+		name  string
+		level string
+		want  zapcore.Level
+		valid bool
+	}{
+		{name: "empty defaults to info", want: zapcore.InfoLevel, valid: true},
+		{name: "debug", level: "debug", want: zapcore.DebugLevel, valid: true},
+		{name: "info", level: "info", want: zapcore.InfoLevel, valid: true},
+		{name: "warn", level: "warn", want: zapcore.WarnLevel, valid: true},
+		{name: "error", level: "error", want: zapcore.ErrorLevel, valid: true},
+		{name: "trimmed and case insensitive", level: " WARN ", want: zapcore.WarnLevel, valid: true},
+		{name: "invalid defaults to info", level: "trace", want: zapcore.InfoLevel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envDev, "")
+			got, valid := resolveLogLevel(tt.level)
+			if got != tt.want {
+				t.Fatalf("resolveLogLevel(%q) = %s, want %s", tt.level, got, tt.want)
+			}
+			if valid != tt.valid {
+				t.Fatalf("resolveLogLevel(%q) valid = %v, want %v", tt.level, valid, tt.valid)
+			}
+		})
+	}
+}
+
+func TestResolveLogLevelUsesDevAsFallback(t *testing.T) {
+	t.Setenv(envDev, "true")
+	got, valid := resolveLogLevel("")
+	if got != zapcore.DebugLevel {
+		t.Fatalf("empty log level with LEWORK_DEV = %s, want debug", got)
+	}
+	if !valid {
+		t.Fatal("empty log level should be valid")
+	}
+
+	got, valid = resolveLogLevel("error")
+	if got != zapcore.ErrorLevel {
+		t.Fatalf("configured log level with LEWORK_DEV = %s, want error", got)
+	}
+	if !valid {
+		t.Fatal("configured error log level should be valid")
+	}
+}
+
+func TestRootCommandHelp(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "long help flag", args: []string{"--help"}},
+		{name: "short help flag", args: []string{"-h"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := executeRootCommand(tt.args...)
+			if err != nil {
+				t.Fatalf("execute help: %v", err)
+			}
+			for _, expected := range []string{"server", "worker", "login", "logout", "session", "skill"} {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("help output missing %q:\n%s", expected, output)
+				}
+			}
+		})
+	}
+}
+
+func TestHelpCommandIsNotSupported(t *testing.T) {
+	output, err := executeRootCommand("help")
+	if err == nil {
+		t.Fatalf("expected help command to fail:\n%s", output)
+	}
+	if !strings.Contains(err.Error(), `unknown command "help"`) {
+		t.Fatalf("unexpected help command error: %v", err)
+	}
+}
+
+func TestCommandHelpFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected []string
+	}{
+		{
+			name:     "login help",
+			args:     []string{"login", "--help"},
+			expected: []string{"Log in to Lework"},
+		},
+		{
+			name:     "logout help",
+			args:     []string{"logout", "--help"},
+			expected: []string{"Log out of Lework"},
+		},
+		{
+			name:     "session help",
+			args:     []string{"session", "--help"},
+			expected: []string{"Manage sessions"},
+		},
+		{
+			name:     "server help",
+			args:     []string{"server", "--help"},
+			expected: []string{"Start the HTTP server that handles API requests and publishes external events."},
+		},
+		{
+			name:     "worker help",
+			args:     []string{"worker", "--help"},
+			expected: []string{"Start the background worker service for processing asynchronous tasks and events.", "codex", "claude", "--default-runtime"},
+		},
+		{
+			name:     "worker codex help",
+			args:     []string{"worker", "codex", "--help"},
+			expected: []string{"Start a standalone Lework worker that subscribes to org.{org_id}.worker.{worker_id}.task"},
+		},
+		{
+			name:     "worker claude help",
+			args:     []string{"worker", "claude", "--help"},
+			expected: []string{"Start a standalone Lework worker that subscribes to org.{org_id}.worker.{worker_id}.task"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := executeRootCommand(tt.args...)
+			if err != nil {
+				t.Fatalf("execute help %v: %v", tt.args, err)
+			}
+			for _, expected := range tt.expected {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("help output missing %q:\n%s", expected, output)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkerShortHelp(t *testing.T) {
+	output, err := executeRootCommand("worker", "-h")
+	if err != nil {
+		t.Fatalf("execute worker help: %v", err)
+	}
+	for _, expected := range []string{"codex", "claude", "--default-runtime"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("worker help output missing %q:\n%s", expected, output)
+		}
+	}
+}
+
+func TestLegacyWorkerRuntimeCommandsAreNotSupported(t *testing.T) {
+	for _, args := range [][]string{
+		{"worker", "codex-worker"},
+		{"worker", "claude-worker"},
+	} {
+		output, err := executeRootCommand(args...)
+		if err == nil {
+			t.Fatalf("expected %v to fail:\n%s", args, output)
+		}
+		if !strings.Contains(err.Error(), "unknown command") {
+			t.Fatalf("unexpected error for %v: %v", args, err)
+		}
+	}
+}
+
+func TestPlaceholderCommands(t *testing.T) {
+	tests := []struct {
+		args     []string
+		expected []string
+	}{
+		{
+			args:     []string{"login"},
+			expected: []string{"lework login is not implemented yet"},
+		},
+		{
+			args:     []string{"logout"},
+			expected: []string{"lework logout is not implemented yet"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			output, err := executeRootCommand(tt.args...)
+			if err != nil {
+				t.Fatalf("execute %v: %v", tt.args, err)
+			}
+			for _, expected := range tt.expected {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("output missing %q:\n%s", expected, output)
+				}
+			}
+		})
+	}
+}
+
+func TestNewRootCommandDoesNotDuplicateCommands(t *testing.T) {
+	for i := 0; i < 2; i++ {
+		cmd := newRootCommand()
+		seen := make(map[string]bool)
+		for _, child := range cmd.Commands() {
+			name := child.Name()
+			if seen[name] {
+				t.Fatalf("duplicate root command %q", name)
+			}
+			seen[name] = true
+		}
+	}
+}
+
+func executeRootCommand(args ...string) (string, error) {
+	cmd := newRootCommand()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return output.String(), err
+}

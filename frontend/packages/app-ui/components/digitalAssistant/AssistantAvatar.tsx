@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@leros/ui/lib/utils";
+import { cn } from "@lework/ui/lib/utils";
 import { CUSTOM_ASSISTANT_DEFAULT_AVATAR_SRC } from "../../assets";
 import { DiceBearAvatar } from "../avatar/DiceBearAvatar";
 import { ProtectedImage } from "../avatar/ProtectedImage";

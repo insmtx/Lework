@@ -1,27 +1,27 @@
 services:
   postgresql:
     image: registry.yygu.cn/library/postgres:17.9
-    container_name: leros-dev-postgresql
+    container_name: lework-dev-postgresql
     environment:
-      POSTGRES_DB: leros_dev_db
-      POSTGRES_USER: leros_dev_user
-      POSTGRES_PASSWORD: leros_dev_password
+      POSTGRES_DB: lework_dev_db
+      POSTGRES_USER: lework_dev_user
+      POSTGRES_PASSWORD: lework_dev_password
     volumes:
       - dev_postgres_data:/var/lib/postgresql/data
       - ../env/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "leros_dev_user", "-d", "leros_dev_db"]
+      test: ["CMD", "pg_isready", "-U", "lework_dev_user", "-d", "lework_dev_db"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - leros-dev-network
+      - lework-dev-network
 
   nats:
     image: registry.yygu.cn/library/nats:2.12.7
-    container_name: leros-dev-nats
+    container_name: lework-dev-nats
     command: ["--config", "/etc/nats/nats-server.conf", "--jetstream"]
     ports:
       - "14223:4222"
@@ -38,7 +38,7 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      - leros-dev-network
+      - lework-dev-network
 
 volumes:
   dev_postgres_data:
@@ -50,5 +50,5 @@ configs:
       max_payload: 8388608
 
 networks:
-  leros-dev-network:
+  lework-dev-network:
     driver: bridge

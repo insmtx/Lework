@@ -18,15 +18,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 const onePixelPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
 func TestMultimodalImageReachesRequestBody(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x)")
 	}
 	png, err := base64.StdEncoding.DecodeString(onePixelPNGBase64)
 	if err != nil {
@@ -43,8 +43,8 @@ func TestMultimodalImageReachesRequestBody(t *testing.T) {
 }
 
 func TestFiveMiBImageReachesRequestBody(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x)")
 	}
 	// 必须是合法 PNG：opencode 会对附件做重采样，非法字节会被直接丢弃。
 	data := encodeNoisyPNG(t, 1600, 1300)
@@ -59,8 +59,8 @@ func TestFiveMiBImageReachesRequestBody(t *testing.T) {
 }
 
 func TestNonVisionModelDegradesImage(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x)")
 	}
 	png, err := base64.StdEncoding.DecodeString(onePixelPNGBase64)
 	if err != nil {

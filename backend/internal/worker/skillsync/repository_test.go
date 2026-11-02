@@ -11,10 +11,10 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/cli"
-	skillstore "github.com/insmtx/Leros/backend/internal/skill/store"
-	"github.com/insmtx/Leros/backend/internal/worker/skillstate"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/internal/cli"
+	skillstore "github.com/insmtx/Lework/backend/internal/skill/store"
+	"github.com/insmtx/Lework/backend/internal/worker/skillstate"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 func TestRepositoryDetectsOrganizationSkillChangesOnly(t *testing.T) {

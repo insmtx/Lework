@@ -7,21 +7,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 )
 
 // TestOpenCodeACPTodoProbe 验证 v2 待办链路：experimental.todo 打开后，
 // 模型调用 todowrite，ACP 帧里能拿到 RawInput.todos，且 Translator 产出 todo.updated。
 //
-//	LEROS_ACP_PROBE=1 LEROS_ACP_RECORD=1 ... \
+//	LEWORK_ACP_PROBE=1 LEWORK_ACP_RECORD=1 ... \
 //	  go test ./backend/agent/runtime/internal/acp -run TestOpenCodeACPTodoProbe -v
 func TestOpenCodeACPTodoProbe(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x and network)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x and network)")
 	}
 
-	binary := envOrDefault("LEROS_ACP_PROBE_BIN", "opencode")
-	model := envOrDefault("LEROS_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
+	binary := envOrDefault("LEWORK_ACP_PROBE_BIN", "opencode")
+	model := envOrDefault("LEWORK_ACP_PROBE_MODEL", "opencode/glm-5.3-flash-free")
 
 	root, workDir := newProbeWorkspace(t)
 	cfg, err := probeConfigMap(model)

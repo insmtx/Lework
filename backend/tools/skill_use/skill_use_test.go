@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/tools"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 func TestSkillUseToolListAndGet(t *testing.T) {
@@ -209,9 +209,9 @@ func TestSkillUseToolMissingSkillReturnsAvailableNames(t *testing.T) {
 
 func TestSkillUseToolGetSkillWithManifestMismatch(t *testing.T) {
 	rootDir := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, rootDir)
+	t.Setenv(lework.EnvWorkspaceRoot, rootDir)
 
-	skillsDir := filepath.Join(rootDir, ".leros", "skills")
+	skillsDir := filepath.Join(rootDir, ".lework", "skills")
 	mismatchDir := filepath.Join(skillsDir, "mismatch-dir")
 	if err := os.MkdirAll(mismatchDir, 0o755); err != nil {
 		t.Fatalf("mkdir failed: %v", err)
@@ -277,9 +277,9 @@ func newTestCatalog(t *testing.T) {
 	t.Helper()
 
 	rootDir := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, rootDir)
+	t.Setenv(lework.EnvWorkspaceRoot, rootDir)
 
-	skillsDir := filepath.Join(rootDir, ".leros", "skills")
+	skillsDir := filepath.Join(rootDir, ".lework", "skills")
 	skillDir := filepath.Join(skillsDir, "github-pr-review")
 	referencesDir := filepath.Join(skillDir, "references")
 	if err := os.MkdirAll(referencesDir, 0o755); err != nil {
@@ -329,13 +329,13 @@ func newBundledSkillsCatalog(t *testing.T) {
 		t.Fatalf("resolve current test file")
 	}
 
-	// Bundled skills live at backend/skills/, but ScanSkillsDir() scans <workspace>/.leros/skills/.
-	// Set workspace root to a temp dir and copy the bundled skills into .leros/skills/.
+	// Bundled skills live at backend/skills/, but ScanSkillsDir() scans <workspace>/.lework/skills/.
+	// Set workspace root to a temp dir and copy the bundled skills into .lework/skills/.
 	sourceSkillsDir := filepath.Join(filepath.Dir(currentFile), "..", "..", "skills", "worker")
 	rootDir := t.TempDir()
-	destSkillsDir := filepath.Join(rootDir, ".leros", "skills")
+	destSkillsDir := filepath.Join(rootDir, ".lework", "skills")
 	if err := os.MkdirAll(filepath.Dir(destSkillsDir), 0o755); err != nil {
-		t.Fatalf("mkdir .leros failed: %v", err)
+		t.Fatalf("mkdir .lework failed: %v", err)
 	}
 	// Copy the skills directory recursively via cp -a
 	entries, err := os.ReadDir(sourceSkillsDir)
@@ -352,7 +352,7 @@ func newBundledSkillsCatalog(t *testing.T) {
 			t.Fatalf("copy skill %s: %v", entry.Name(), err)
 		}
 	}
-	t.Setenv(leros.EnvWorkspaceRoot, rootDir)
+	t.Setenv(lework.EnvWorkspaceRoot, rootDir)
 }
 
 func copyDir(src, dst string) error {

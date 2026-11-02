@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // TestBindConnectorsToProject 覆盖连接器批量关联的权限校验、可见性校验与幂等行为。

@@ -9,9 +9,9 @@ import (
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 
-	"github.com/insmtx/Leros/backend/internal/llm"
-	"github.com/insmtx/Leros/backend/internal/modelrouter"
-	"github.com/insmtx/Leros/backend/prompts"
+	"github.com/insmtx/Lework/backend/internal/llm"
+	"github.com/insmtx/Lework/backend/internal/modelrouter"
+	"github.com/insmtx/Lework/backend/prompts"
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 )

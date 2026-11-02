@@ -3,8 +3,8 @@
 package adapter
 
 import (
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
-	"github.com/insmtx/Leros/backend/internal/adapter/account/enterprise"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/adapter/account/enterprise"
 )
 
 type enterpriseEdition struct {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/tools"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 type fakeNodeExecutor struct {
@@ -33,7 +33,7 @@ func (e *fakeNodeExecutor) Exec(ctx context.Context, req nodeExecRequest) (nodeE
 
 func TestNodeShellToolExecute(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 
 	executor := &fakeNodeExecutor{
 		results: []nodeExecResult{{
@@ -79,7 +79,7 @@ func TestNodeShellToolExecute(t *testing.T) {
 
 func TestNodeShellToolDefaultsToRuntimeWorkDir(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 	projectDir := filepath.Join(workspaceRoot, "projects", "42", "project_1", "repo")
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		t.Fatalf("create project dir: %v", err)
@@ -137,7 +137,7 @@ func TestShellCommandArgs(t *testing.T) {
 
 func TestNodeFileReadToolExecute(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 
 	path := filepath.Join(workspaceRoot, "app", "main.go")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -188,7 +188,7 @@ func TestNodeFileReadToolExecute(t *testing.T) {
 
 func TestNodeFileToolsResolveRelativeToRuntimeWorkDir(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 	projectDir := filepath.Join(workspaceRoot, "projects", "42", "project_1", "repo")
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		t.Fatalf("create project dir: %v", err)
@@ -245,7 +245,7 @@ func equalStringSlices(a []string, b []string) bool {
 
 func TestNodeFileWriteToolExecute(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
 
@@ -280,7 +280,7 @@ func TestNodeFileWriteToolExecute(t *testing.T) {
 
 func TestNodeFileWriteToolAllowsExplicitEmptyContent(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 
 	tool := newNodeFileWriteToolWithExecutor(nil)
 	rawOutput, err := tool.Execute(context.Background(), tools.JSONInput(map[string]interface{}{
@@ -311,7 +311,7 @@ func TestNodeFileWriteToolAllowsExplicitEmptyContent(t *testing.T) {
 func TestNodeFileReadRejectsSymlinkOutsideWorkspace(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	outsideRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 
 	outsidePath := filepath.Join(outsideRoot, "secret.txt")
 	if err := os.WriteFile(outsidePath, []byte("secret"), 0644); err != nil {
@@ -335,7 +335,7 @@ func TestNodeFileReadRejectsSymlinkOutsideWorkspace(t *testing.T) {
 func TestNodeFileWriteRejectsSymlinkOutsideWorkspace(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	outsideRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 
 	outsidePath := filepath.Join(outsideRoot, "secret.txt")
 	if err := os.WriteFile(outsidePath, []byte("secret"), 0644); err != nil {
@@ -368,7 +368,7 @@ func TestNodeFileWriteRejectsSymlinkOutsideWorkspace(t *testing.T) {
 func TestNodeFileWriteRejectsSymlinkParentOutsideWorkspace(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	outsideRoot := t.TempDir()
-	t.Setenv("LEROS_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv("LEWORK_WORKSPACE_ROOT", workspaceRoot)
 
 	createSymlinkOrSkip(t, outsideRoot, filepath.Join(workspaceRoot, "outside-link"))
 

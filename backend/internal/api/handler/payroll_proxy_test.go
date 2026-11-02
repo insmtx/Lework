@@ -12,10 +12,10 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/middleware"
-	"github.com/insmtx/Leros/backend/internal/service"
-	"github.com/insmtx/Leros/backend/types"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/middleware"
+	"github.com/insmtx/Lework/backend/internal/service"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 type payrollCredentialStub struct {

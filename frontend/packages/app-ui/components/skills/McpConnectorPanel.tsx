@@ -6,7 +6,7 @@ import {
 	type MCPPluginDefinition,
 	type PluginListItem,
 	pluginApi,
-} from "@leros/store";
+} from "@lework/store";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -16,8 +16,8 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
-} from "@leros/ui/components/ui/alert-dialog";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/ui/components/ui/alert-dialog";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -25,13 +25,13 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
+} from "@lework/ui/components/ui/dropdown-menu";
 import { Ellipsis, Loader2, Plus, Search, Server, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -505,14 +505,14 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<section className="shrink-0 border-b border-[var(--leros-control-border)] bg-white px-5 pb-4 pt-5">
+			<section className="shrink-0 border-b border-[var(--lework-control-border)] bg-white px-5 pb-4 pt-5">
 				<div className="mx-auto w-full max-w-[1480px]">
 					<div className="flex items-start justify-between gap-4">
 						<div>
-							<h2 className="text-xl font-semibold tracking-tight text-[var(--leros-text-strong)]">
+							<h2 className="text-xl font-semibold tracking-tight text-[var(--lework-text-strong)]">
 								MCP 连接器
 							</h2>
-							<p className="mt-1 text-xs text-[var(--leros-text-muted)]">
+							<p className="mt-1 text-xs text-[var(--lework-text-muted)]">
 								管理你添加的外部系统连接，通过项目关联决定 Worker 运行时可用的 Skill 或 MCP。
 							</p>
 						</div>
@@ -528,27 +528,27 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 					</div>
 					<div className="mt-4 flex items-center gap-3">
 						<div className="relative w-[420px] max-w-full">
-							<Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--leros-text-subtle)]" />
+							<Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--lework-text-subtle)]" />
 							<input
 								type="search"
 								aria-label="搜索 MCP 连接器"
 								placeholder="搜索连接器"
 								value={keyword}
 								onChange={(event) => setKeyword(event.target.value)}
-								className="h-9 w-full rounded-md border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] pl-9 pr-3 text-xs outline-none focus:border-[var(--leros-primary)]"
+								className="h-9 w-full rounded-md border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] pl-9 pr-3 text-xs outline-none focus:border-[var(--lework-primary)]"
 							/>
 						</div>
 					</div>
 				</div>
 			</section>
 
-			<section className="min-h-0 flex-1 overflow-y-auto bg-[var(--leros-surface-soft)] px-5 py-4">
+			<section className="min-h-0 flex-1 overflow-y-auto bg-[var(--lework-surface-soft)] px-5 py-4">
 				<div className="mx-auto w-full max-w-[1480px]">
 					{visiblePlatforms.length > 0 ? (
 						<div className="mb-5">
 							<div className="mb-3 flex items-center justify-between">
 								<h3 className="text-sm font-semibold">平台连接器</h3>
-								<span className="text-xs text-[var(--leros-text-subtle)]">选择平台快速连接</span>
+								<span className="text-xs text-[var(--lework-text-subtle)]">选择平台快速连接</span>
 							</div>
 							<div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
 								{visiblePlatforms.map((platform) => {
@@ -562,7 +562,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 									return (
 										<article
 											key={platform.code}
-											className="flex min-h-[76px] items-center gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-3 transition-colors hover:border-[var(--leros-primary-soft)]"
+											className="flex min-h-[76px] items-center gap-3 rounded-lg border border-[var(--lework-control-border)] bg-white px-4 py-3 transition-colors hover:border-[var(--lework-primary-soft)]"
 										>
 											<MCPConnectorIcon
 												code={platform.code}
@@ -583,7 +583,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 														</span>
 													) : null}
 												</div>
-												<p className="mt-0.5 truncate text-xs text-[var(--leros-text-muted)]">
+												<p className="mt-0.5 truncate text-xs text-[var(--lework-text-muted)]">
 													{platform.description}
 												</p>
 												{!platform.auto_connect_supported && !platform.connected ? (
@@ -651,22 +651,22 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 						</div>
 					) : null}
 
-					<div className="mb-3 flex items-center justify-between border-t border-[var(--leros-control-border)] pt-4">
+					<div className="mb-3 flex items-center justify-between border-t border-[var(--lework-control-border)] pt-4">
 						<h3 className="text-sm font-semibold">自定义连接器</h3>
-						<span className="text-xs text-[var(--leros-text-subtle)]">
+						<span className="text-xs text-[var(--lework-text-subtle)]">
 							共 {visibleConnectors.length} 个
 						</span>
 					</div>
 
 					{loading ? (
-						<div className="py-20 text-center text-sm text-[var(--leros-text-subtle)]">
+						<div className="py-20 text-center text-sm text-[var(--lework-text-subtle)]">
 							加载中...
 						</div>
 					) : error ? (
 						<div className="py-20 text-center text-sm text-red-500">{error}</div>
 					) : visibleConnectors.length === 0 ? (
 						<div className="flex flex-col items-center justify-center rounded-lg border border-dashed bg-white py-16 text-center">
-							<Server className="size-5 text-[var(--leros-primary)]" />
+							<Server className="size-5 text-[var(--lework-primary)]" />
 							<p className="mt-3 text-sm font-medium">
 								{!isAuthenticated
 									? "登录后查看你的连接器"
@@ -682,14 +682,14 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 								return (
 									<article
 										key={connector.public_id}
-										className="flex min-h-[76px] items-center gap-3 rounded-lg border border-[var(--leros-control-border)] bg-white px-4 py-3 transition-colors hover:border-[var(--leros-primary-soft)]"
+										className="flex min-h-[76px] items-center gap-3 rounded-lg border border-[var(--lework-control-border)] bg-white px-4 py-3 transition-colors hover:border-[var(--lework-primary-soft)]"
 									>
-										<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-surface-soft)] text-sm font-semibold">
+										<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-surface-soft)] text-sm font-semibold">
 											{displayName.charAt(0).toUpperCase()}
 										</div>
 										<div className="min-w-0 flex-1">
 											<h4 className="truncate text-[13px] font-semibold">{displayName}</h4>
-											<p className="mt-0.5 truncate text-xs text-[var(--leros-text-muted)]">工具</p>
+											<p className="mt-0.5 truncate text-xs text-[var(--lework-text-muted)]">工具</p>
 										</div>
 										<DropdownMenu>
 											<DropdownMenuTrigger
@@ -729,9 +729,9 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 			</section>
 
 			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-				<DialogContent className="flex max-h-[min(88dvh,680px)] max-w-[min(94vw,600px)] flex-col gap-0 overflow-hidden border-[var(--leros-control-border)] p-0 shadow-[0_24px_70px_rgba(15,23,42,0.16)] sm:rounded-2xl">
-					<DialogHeader className="shrink-0 flex-row items-center gap-3 border-b border-[var(--leros-control-border)] px-5 py-3.5 text-left">
-						<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--leros-primary-soft)] text-[var(--leros-primary)]">
+				<DialogContent className="flex max-h-[min(88dvh,680px)] max-w-[min(94vw,600px)] flex-col gap-0 overflow-hidden border-[var(--lework-control-border)] p-0 shadow-[0_24px_70px_rgba(15,23,42,0.16)] sm:rounded-2xl">
+					<DialogHeader className="shrink-0 flex-row items-center gap-3 border-b border-[var(--lework-control-border)] px-5 py-3.5 text-left">
+						<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--lework-primary-soft)] text-[var(--lework-primary)]">
 							<SlidersHorizontal className="size-3.5" />
 						</div>
 						<div className="min-w-0">
@@ -752,8 +752,8 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 						/>
 
 						<div className="mt-5 flex items-center justify-between">
-							<p className="text-[13px] font-semibold text-[var(--leros-text-strong)]">类型</p>
-							<div className="flex w-[220px] items-center rounded-lg bg-[var(--leros-surface-soft)] p-1">
+							<p className="text-[13px] font-semibold text-[var(--lework-text-strong)]">类型</p>
+							<div className="flex w-[220px] items-center rounded-lg bg-[var(--lework-surface-soft)] p-1">
 								<button
 									type="button"
 									disabled
@@ -761,8 +761,8 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 									aria-pressed={form.transport === "stdio"}
 									className={`h-8 flex-1 rounded-md text-xs disabled:cursor-not-allowed ${
 										form.transport === "stdio"
-											? "bg-[var(--leros-primary-soft)] font-medium text-[var(--leros-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
-											: "text-[var(--leros-text-subtle)]"
+											? "bg-[var(--lework-primary-soft)] font-medium text-[var(--lework-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
+											: "text-[var(--lework-text-subtle)]"
 									}`}
 								>
 									STDIO
@@ -773,8 +773,8 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 									onClick={() => setForm((current) => ({ ...current, transport: "http" }))}
 									className={`h-8 flex-1 rounded-md text-xs ${
 										form.transport === "http"
-											? "bg-[var(--leros-primary-soft)] font-medium text-[var(--leros-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
-											: "text-[var(--leros-text-subtle)]"
+											? "bg-[var(--lework-primary-soft)] font-medium text-[var(--lework-primary)] shadow-[0_1px_2px_rgba(79,70,229,0.08)]"
+											: "text-[var(--lework-text-subtle)]"
 									}`}
 								>
 									流式 HTTP
@@ -782,7 +782,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 							</div>
 						</div>
 
-						<div className="my-5 border-t border-[var(--leros-control-border)]" />
+						<div className="my-5 border-t border-[var(--lework-control-border)]" />
 
 						{form.transport === "http" ? (
 							<>
@@ -796,7 +796,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 								<div className="mt-5">
 									<label
 										htmlFor="mcp-bearer-token"
-										className="text-[13px] font-semibold text-[var(--leros-text-strong)]"
+										className="text-[13px] font-semibold text-[var(--lework-text-strong)]"
 									>
 										Bearer 令牌
 									</label>
@@ -812,14 +812,14 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 											}))
 										}
 										placeholder="请输入 Bearer Token"
-										className="mt-2 h-10 w-full rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
+										className="mt-2 h-10 w-full rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--lework-text-subtle)] focus:border-[var(--lework-primary)] focus:bg-white"
 									/>
-									<p className="mt-1.5 text-[11px] text-[var(--leros-text-subtle)]">
+									<p className="mt-1.5 text-[11px] text-[var(--lework-text-subtle)]">
 										请求时将自动添加 Authorization: Bearer 标头。
 									</p>
 								</div>
 
-								<div className="my-5 border-t border-[var(--leros-control-border)]" />
+								<div className="my-5 border-t border-[var(--lework-control-border)]" />
 
 								<MCPKeyValueRows
 									label="标头"
@@ -846,7 +846,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 									onChange={(command) => setForm((current) => ({ ...current, command }))}
 								/>
 
-								<div className="my-5 border-t border-[var(--leros-control-border)]" />
+								<div className="my-5 border-t border-[var(--lework-control-border)]" />
 
 								<MCPStringRows
 									label="参数"
@@ -863,7 +863,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 									}
 								/>
 
-								<div className="my-5 border-t border-[var(--leros-control-border)]" />
+								<div className="my-5 border-t border-[var(--lework-control-border)]" />
 
 								<MCPKeyValueRows
 									label="环境变量"
@@ -883,7 +883,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 							</>
 						)}
 					</div>
-					<DialogFooter className="shrink-0 border-t border-[var(--leros-control-border)] bg-white px-5 py-4">
+					<DialogFooter className="shrink-0 border-t border-[var(--lework-control-border)] bg-white px-5 py-4">
 						<Button
 							type="button"
 							disabled={saving}
@@ -916,7 +916,7 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 						{(authorizingPlatform?.auth_fields ?? []).map((field) => (
 							<label
 								key={field.key}
-								className="grid gap-1.5 text-[13px] font-semibold text-[var(--leros-text-strong)]"
+								className="grid gap-1.5 text-[13px] font-semibold text-[var(--lework-text-strong)]"
 							>
 								{field.label}
 								<input
@@ -930,10 +930,10 @@ export function McpConnectorPanel({ isAuthenticated = true }: { isAuthenticated?
 											[field.key]: event.target.value,
 										}))
 									}
-									className="h-10 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs font-normal outline-none focus:border-[var(--leros-primary)] focus:bg-white"
+									className="h-10 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 text-xs font-normal outline-none focus:border-[var(--lework-primary)] focus:bg-white"
 								/>
 								{field.description ? (
-									<span className="text-[11px] font-normal text-[var(--leros-text-muted)]">
+									<span className="text-[11px] font-normal text-[var(--lework-text-muted)]">
 										{field.description}
 									</span>
 								) : null}
@@ -1031,14 +1031,14 @@ function MCPField({
 	onChange: (value: string) => void;
 }) {
 	return (
-		<label className="grid gap-1.5 text-[13px] font-semibold text-[var(--leros-text-strong)]">
+		<label className="grid gap-1.5 text-[13px] font-semibold text-[var(--lework-text-strong)]">
 			{label}
 			<input
 				value={value}
 				placeholder={placeholder}
 				disabled={disabled}
 				onChange={(event) => onChange(event.target.value)}
-				className="h-10 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs font-normal outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white disabled:opacity-60"
+				className="h-10 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 text-xs font-normal outline-none transition-colors placeholder:text-[var(--lework-text-subtle)] focus:border-[var(--lework-primary)] focus:bg-white disabled:opacity-60"
 			/>
 		</label>
 	);
@@ -1065,7 +1065,7 @@ function MCPKeyValueRows({
 }) {
 	return (
 		<div>
-			<h4 className="text-[13px] font-semibold text-[var(--leros-text-strong)]">{label}</h4>
+			<h4 className="text-[13px] font-semibold text-[var(--lework-text-strong)]">{label}</h4>
 			<div className="mt-2 space-y-2">
 				{rows.map((row, index) => (
 					<div key={row.id} className="flex items-center gap-2">
@@ -1074,20 +1074,20 @@ function MCPKeyValueRows({
 							value={row.key}
 							placeholder="键"
 							onChange={(event) => onUpdate(row.id, "key", event.target.value)}
-							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
+							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--lework-text-subtle)] focus:border-[var(--lework-primary)] focus:bg-white"
 						/>
 						<input
 							aria-label={`${valueLabel} ${index + 1}`}
 							value={row.value}
 							placeholder="值"
 							onChange={(event) => onUpdate(row.id, "value", event.target.value)}
-							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--leros-text-subtle)] focus:border-[var(--leros-primary)] focus:bg-white"
+							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 text-xs outline-none transition-colors placeholder:text-[var(--lework-text-subtle)] focus:border-[var(--lework-primary)] focus:bg-white"
 						/>
 						<button
 							type="button"
 							aria-label={`删除${label} ${index + 1}`}
 							onClick={() => onRemove(row.id)}
-							className="flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-surface-soft)] hover:text-red-500"
+							className="flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--lework-text-subtle)] transition-colors hover:bg-[var(--lework-surface-soft)] hover:text-red-500"
 						>
 							<Trash2 className="size-4" />
 						</button>
@@ -1097,7 +1097,7 @@ function MCPKeyValueRows({
 			<button
 				type="button"
 				onClick={onAdd}
-				className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--leros-control-border)] bg-white text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)]/30 hover:text-[var(--leros-primary)]"
+				className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--lework-control-border)] bg-white text-xs font-medium text-[var(--lework-text-muted)] transition-colors hover:border-[var(--lework-primary)] hover:bg-[var(--lework-primary-soft)]/30 hover:text-[var(--lework-primary)]"
 			>
 				<Plus className="size-4" />
 				{addLabel}
@@ -1125,7 +1125,7 @@ function MCPStringRows({
 }) {
 	return (
 		<div>
-			<h4 className="text-[13px] font-semibold text-[var(--leros-text-strong)]">{label}</h4>
+			<h4 className="text-[13px] font-semibold text-[var(--lework-text-strong)]">{label}</h4>
 			<div className="mt-2 space-y-2">
 				{rows.map((row, index) => (
 					<div key={row.id} className="flex items-center gap-2">
@@ -1133,13 +1133,13 @@ function MCPStringRows({
 							aria-label={`${inputLabel} ${index + 1}`}
 							value={row.value}
 							onChange={(event) => onUpdate(row.id, event.target.value)}
-							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--leros-control-border)] bg-[var(--leros-surface-soft)] px-3 text-xs outline-none transition-colors focus:border-[var(--leros-primary)] focus:bg-white"
+							className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--lework-control-border)] bg-[var(--lework-surface-soft)] px-3 text-xs outline-none transition-colors focus:border-[var(--lework-primary)] focus:bg-white"
 						/>
 						<button
 							type="button"
 							aria-label={`删除${label} ${index + 1}`}
 							onClick={() => onRemove(row.id)}
-							className="flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] transition-colors hover:bg-[var(--leros-surface-soft)] hover:text-red-500"
+							className="flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--lework-text-subtle)] transition-colors hover:bg-[var(--lework-surface-soft)] hover:text-red-500"
 						>
 							<Trash2 className="size-4" />
 						</button>
@@ -1149,7 +1149,7 @@ function MCPStringRows({
 			<button
 				type="button"
 				onClick={onAdd}
-				className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--leros-control-border)] bg-white text-xs font-medium text-[var(--leros-text-muted)] transition-colors hover:border-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)]/30 hover:text-[var(--leros-primary)]"
+				className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--lework-control-border)] bg-white text-xs font-medium text-[var(--lework-text-muted)] transition-colors hover:border-[var(--lework-primary)] hover:bg-[var(--lework-primary-soft)]/30 hover:text-[var(--lework-primary)]"
 			>
 				<Plus className="size-4" />
 				{addLabel}

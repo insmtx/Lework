@@ -1,7 +1,7 @@
 "use client";
 
-import type { SkillMarketplaceItem } from "@leros/store";
-import { pluginApi, pluginToSkillCard } from "@leros/store";
+import type { SkillMarketplaceItem } from "@lework/store";
+import { pluginApi, pluginToSkillCard } from "@lework/store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SkillCard } from "./SkillCard";
 import { filterSkillsByCategory, type SkillCatalogCategory } from "./skillCatalog";
@@ -77,7 +77,7 @@ export function MySkillsPanel({
 	// Not yet mounted (SSR hydration guard)
 	if (!mounted) {
 		return (
-			<div className="flex items-center justify-center py-16 text-sm text-[var(--leros-text-subtle)]">
+			<div className="flex items-center justify-center py-16 text-sm text-[var(--lework-text-subtle)]">
 				加载中...
 			</div>
 		);
@@ -86,7 +86,7 @@ export function MySkillsPanel({
 	// Loading state
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center py-16 text-sm text-[var(--leros-text-subtle)]">
+			<div className="flex items-center justify-center py-16 text-sm text-[var(--lework-text-subtle)]">
 				加载中...
 			</div>
 		);
@@ -95,12 +95,12 @@ export function MySkillsPanel({
 	// Error state
 	if (error) {
 		return (
-			<div className="flex flex-col items-center justify-center py-16 text-[var(--leros-text-subtle)] gap-3">
+			<div className="flex flex-col items-center justify-center py-16 text-[var(--lework-text-subtle)] gap-3">
 				<p className="text-sm">{error}</p>
 				<button
 					type="button"
 					onClick={fetchInstalled}
-					className="rounded-md border border-[var(--leros-control-border)] px-3 py-1 text-xs text-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)] transition-colors"
+					className="rounded-md border border-[var(--lework-control-border)] px-3 py-1 text-xs text-[var(--lework-primary)] hover:bg-[var(--lework-primary-soft)] transition-colors"
 				>
 					重试
 				</button>
@@ -111,7 +111,7 @@ export function MySkillsPanel({
 	// Empty state
 	if (visibleSkills.length === 0) {
 		return (
-			<div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--leros-control-border)] bg-white py-20 text-[var(--leros-text-subtle)]">
+			<div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--lework-control-border)] bg-white py-20 text-[var(--lework-text-subtle)]">
 				<p className="text-sm">
 					{keyword || category !== "all" ? "暂无符合条件的技能" : (emptyMessage ?? "暂无组织技能")}
 				</p>

@@ -467,7 +467,7 @@ func NewLLMModelService(manager llm.Manager) contract.LLMModelService {
 
 - `go test ./backend/internal/llm/...` 通过
 - `go test ./backend/internal/service/...` 通过（contract 适配层测试不变）
-- `go build ./backend/cmd/leros/` 成功
+- `go build ./backend/cmd/lework/` 成功
 - 前端 LLM 模型管理页功能不变
 
 ### Phase 2：Caller + Recorder + 控制面调用迁移
@@ -502,7 +502,7 @@ func NewLLMModelService(manager llm.Manager) contract.LLMModelService {
 
 - `go test ./backend/internal/llm/...` 通过（含 proxy_test 从 modelrouter 迁移）
 - `go test ./backend/internal/worker/...` 通过
-- `go build ./backend/cmd/leros/` 成功
+- `go build ./backend/cmd/lework/` 成功
 - Worker agent run 全链路功能不变
 - Worker HTTP 代理（`/v1/chat/completions` 等）行为不变
 - 用量上报成功写入控制面 `llm_call_records` 表

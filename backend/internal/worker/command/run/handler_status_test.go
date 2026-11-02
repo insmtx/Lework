@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/internal/worker/agentrun"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 // multiRunRuntime 允许并发执行多个 run：每个 run 开启时递增 started，

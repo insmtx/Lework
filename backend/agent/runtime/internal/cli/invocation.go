@@ -3,8 +3,8 @@ package cli
 import (
 	"context"
 
-	"github.com/insmtx/Leros/backend/agent"
-	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
+	"github.com/insmtx/Lework/backend/agent"
+	runtimeprocess "github.com/insmtx/Lework/backend/agent/runtime/internal/process"
 )
 
 // InvocationRequest contains the provider-specific process input derived from

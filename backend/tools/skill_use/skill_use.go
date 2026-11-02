@@ -1,4 +1,4 @@
-// Package skilluse provides the runtime tool for loading Leros skill documents.
+// Package skilluse provides the runtime tool for loading Lework skill documents.
 package skilluse
 
 import (
@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
-	"github.com/insmtx/Leros/backend/tools"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 const (

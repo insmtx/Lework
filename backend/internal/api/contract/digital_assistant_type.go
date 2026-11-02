@@ -3,7 +3,7 @@ package contract
 import (
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // DigitalAssistantStatus 数字助手状态常量

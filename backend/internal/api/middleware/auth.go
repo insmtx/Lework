@@ -5,9 +5,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	localauth "github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/types"
+	localauth "github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // RequireCallerOrg 确保请求方已通过身份验证且归属于某个组织。

@@ -1,8 +1,8 @@
 "use client";
 
-import type { DigitalAssistantItem } from "@leros/store";
-import { useDAStore, useLayoutStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import type { DigitalAssistantItem } from "@lework/store";
+import { useDAStore, useLayoutStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -10,8 +10,8 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
+} from "@lework/ui/components/ui/dialog";
+import { ScrollArea } from "@lework/ui/components/ui/scroll-area";
 import { Bot, CheckCircle2, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";

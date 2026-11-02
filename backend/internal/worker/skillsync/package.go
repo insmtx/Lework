@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	skillarchive "github.com/insmtx/Leros/backend/internal/skill/archive"
-	skillcache "github.com/insmtx/Leros/backend/internal/skill/cache"
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	skillarchive "github.com/insmtx/Lework/backend/internal/skill/archive"
+	skillcache "github.com/insmtx/Lework/backend/internal/skill/cache"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
 )
 
 func buildPackage(root, code string) ([]byte, error) {

@@ -1,4 +1,4 @@
-// Package memory exposes Leros built-in memory as a runtime tool.
+// Package memory exposes Lework built-in memory as a runtime tool.
 package memory
 
 import (
@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	localmemory "github.com/insmtx/Leros/backend/internal/memory/local"
-	"github.com/insmtx/Leros/backend/internal/workspace"
-	"github.com/insmtx/Leros/backend/tools"
+	localmemory "github.com/insmtx/Lework/backend/internal/memory/local"
+	"github.com/insmtx/Lework/backend/internal/workspace"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 const (
@@ -144,7 +144,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 	content := stringValue(input, "content")
 	oldText := stringValue(input, "old_text")
 
-	// 当 target == "project" 时，写入项目 repo 下的 .leros/memory/project_memory.md
+	// 当 target == "project" 时，写入项目 repo 下的 .lework/memory/project_memory.md
 	store := t.store
 	storeTarget := target
 	if target == "project" {
@@ -156,7 +156,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (string, error)
 		if err != nil {
 			return "", fmt.Errorf("find project repo root: %w", err)
 		}
-		memoryDir := filepath.Join(repoDir, ".leros", "memory")
+		memoryDir := filepath.Join(repoDir, ".lework", "memory")
 		projStore, err := localmemory.NewStore(localmemory.Options{
 			RootDir: memoryDir,
 		})

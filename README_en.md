@@ -52,7 +52,7 @@ It is not just another open chatbot, nor a mere workflow orchestration engine. L
 
 ### Tech Stack
 
-- The server is a **Go monorepo** (module `github.com/insmtx/Leros`, Go 1.25) that can be deployed as one aggregated monolith or split on demand;
+- The server is a **Go monorepo** (module `github.com/insmtx/Lework`, Go 1.25) that can be deployed as one aggregated monolith or split on demand;
 - The frontend is a **pnpm + turbo monorepo** under `frontend/`, including the main Web UI (Next.js / React / TypeScript) and a desktop application;
 - Tasks and events are distributed over **NATS JetStream**; agent execution is handled by `backend/agent`, supporting multiple runtimes such as native / claude / codex / opencode;
 - A built-in **MCP Server** (exposes Lework's runtime capabilities externally), which at the same time acts as an **MCP client** connecting external systems and knowledge bases through connectors (e.g. CoreKG).
@@ -160,8 +160,8 @@ Lework supports two authentication modes, selected via compile-time build tags:
 
 | Mode | Description | Build command |
 |---|---|---|
-| **builtin** (default) | Built-in email / phone / Worker Token authentication, used by the open-source edition | `go build -o ./bundles/leros ./backend/cmd/leros/` |
-| **enterprise** | Delegates to the IAM (identity and access management) service, used by the enterprise edition | `go build -tags enterprise -o ./bundles/leros ./backend/cmd/leros/` |
+| **builtin** (default) | Built-in email / phone / Worker Token authentication, used by the open-source edition | `go build -o ./bundles/lework ./backend/cmd/lework/` |
+| **enterprise** | Delegates to the IAM (identity and access management) service, used by the enterprise edition | `go build -tags enterprise -o ./bundles/lework ./backend/cmd/lework/` |
 
 The enterprise edition requires configuring the IAM service address in `config.yaml`:
 
@@ -182,7 +182,7 @@ Browser / Desktop / Agent / MCP Client
         ▼
 Frontend Lework Web (Next.js) + Desktop (frontend/, pnpm + turbo monorepo)
         ▼
-Go service layer — leros (aggregated entrypoint at backend/cmd/leros, :8080)
+Go service layer — lework (aggregated entrypoint at backend/cmd/lework, :8080)
    · server     HTTP API + command entrypoints (chat / session / task / project / skill / login)
    · worker     async tasks / agent execution worker
    · agent      execution core: runtime → adapter → executor → tool / interaction / node_event
@@ -222,7 +222,7 @@ cp config.example.yaml config.yaml
 
 ```bash
 # 1) Prepare the runtime configuration (see "Configuration Conventions" above)
-# 2) Build and start (builds the localhost/env_leros image, then brings up PostgreSQL / NATS / leros / worker)
+# 2) Build and start (builds the localhost/env_lework image, then brings up PostgreSQL / NATS / lework / worker)
 make docker-compose-up
 # If the image is already built, start directly with docker-compose
 make run-detached
@@ -231,7 +231,7 @@ docker compose -f deployments/env/docker-compose.yml up -d
 
 After startup:
 
-- The server API is at **http://localhost:8080** (the `leros` container, `server --config`)
+- The server API is at **http://localhost:8080** (the `lework` container, `server --config`)
 - The NATS JetStream message-bus monitor is at **http://localhost:8222**
 - The frontend Web UI listens at **http://localhost:3005** by default
 
@@ -254,14 +254,14 @@ make dev-frontend   # frontend development container
 
 ```
 Lework/
-├── backend/            # Go backend (cmd/leros is the process entrypoint)
-│   ├── cmd/leros/      #   cobra commands: server / worker / chat / session / task / project / skill / login, etc.
+├── backend/            # Go backend (cmd/lework is the process entrypoint)
+│   ├── cmd/lework/      #   cobra commands: server / worker / chat / session / task / project / skill / login, etc.
 │   ├── agent/          #   execution core (runtime / adapter / executor / tool / interaction / node_event)
 │   ├── internal/       #   business logic (adapter, api, infra, service, worker, modelrouter, llm, etc.)
 │   ├── tools/          #   Tool registry + concrete tools (artifact_declare, memory, node, skill_manage, skill_use, todo)
 │   ├── types/          #   domain types + DB table constants
 │   └── config/         #   configuration
-├── frontend/           # Frontend (pnpm + turbo monorepo: @leros/web, @leros/desktop)
+├── frontend/           # Frontend (pnpm + turbo monorepo: @lework/web, @lework/desktop)
 ├── deployments/        # Docker / private deployment
 ├── docs/               # Documentation (architecture / product / design / frontend / operations / swagger)
 ├── config.example.yaml / minimal-config.yaml
@@ -272,7 +272,7 @@ Lework/
 
 ```bash
 # Build the backend (builtin authentication by default)
-make build                       # → bundles/leros
+make build                       # → bundles/lework
 # Enterprise build (authentication delegated to IAM)
 make build BUILD_TAGS=enterprise
 
@@ -292,8 +292,8 @@ go test ./backend/internal/<pkg>
 
 ### Conventions & Notes
 
-- **Module path**: every internal import uses the `github.com/insmtx/Leros/...` prefix;
-- **Strict layering**: `cmd/leros` (process entrypoint, lifecycle only) → `agent/**` (business-agnostic execution core) → `internal/**` (business logic) → `types/` / `config/` (shared types). Cross-layer boundaries and hard rules are in [AGENTS.md](AGENTS.md) at the repo root;
+- **Module path**: every internal import uses the `github.com/insmtx/Lework/...` prefix;
+- **Strict layering**: `cmd/lework` (process entrypoint, lifecycle only) → `agent/**` (business-agnostic execution core) → `internal/**` (business logic) → `types/` / `config/` (shared types). Cross-layer boundaries and hard rules are in [AGENTS.md](AGENTS.md) at the repo root;
 - **Tests are not isolated**: most package-level tests depend on real middleware (PostgreSQL / NATS); start `make dev-up` before running the relevant package tests;
 - **Never hand-edit generated files**: `docs/swagger/` (generated by swag) and similar generated files must not be edited manually.
 

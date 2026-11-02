@@ -12,7 +12,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // buildSeedFileList 返回目录下直接子级的 .sql 与 .sqltpl 文件，按文件名升序。

@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // CreateResource 创建统一资源记录。
@@ -30,7 +30,7 @@ func GetResourceByID(ctx context.Context, d *gorm.DB, id uint) (*types.Resource,
 }
 
 // GetResourceByBizID 按组织 ID、资源类型和业务对象 ID 查询唯一资源记录。
-// 利用唯一索引 ux_leros_resource_active_biz，未找到返回 nil, nil。
+// 利用唯一索引 ux_lework_resource_active_biz，未找到返回 nil, nil。
 func GetResourceByBizID(ctx context.Context, d *gorm.DB, orgID uint, resourceType types.ResourceType, bizID uint) (*types.Resource, error) {
 	var entity types.Resource
 	err := d.WithContext(ctx).
@@ -46,7 +46,7 @@ func GetResourceByBizID(ctx context.Context, d *gorm.DB, orgID uint, resourceTyp
 }
 
 // ListResourcesByParentID 查询指定父资源的所有直接子资源。
-// 利用索引 idx_leros_resource_parent。
+// 利用索引 idx_lework_resource_parent。
 func ListResourcesByParentID(ctx context.Context, d *gorm.DB, parentID uint) ([]*types.Resource, error) {
 	var entities []*types.Resource
 	if err := d.WithContext(ctx).

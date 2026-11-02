@@ -9,19 +9,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // TestACPInvokerProbe 是 W5 的端到端验收：真实 opencode ACP 走完
 // spawn → session → prompt → 事件流 → 结果，验证 invoker 装配正确。
 //
-//	LEROS_ACP_PROBE=1 LEROS_ACP_PROBE_CONFIG_FILE=... \
-//	  LEROS_ACP_PROBE_MODEL=magpie/yygu/deepseek-flash \
+//	LEWORK_ACP_PROBE=1 LEWORK_ACP_PROBE_CONFIG_FILE=... \
+//	  LEWORK_ACP_PROBE_MODEL=magpie/yygu/deepseek-flash \
 //	  go test ./backend/agent/runtime/opencode -run TestACPInvokerProbe -v
 func TestACPInvokerProbe(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x and network)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x and network)")
 	}
 	modelCfg, err := probeModelConfig()
 	if err != nil {
@@ -92,8 +92,8 @@ type probeProviderFile struct {
 }
 
 func probeModelConfig() (agent.ModelConfig, error) {
-	path := strings.TrimSpace(os.Getenv("LEROS_ACP_PROBE_CONFIG_FILE"))
-	model := strings.TrimSpace(os.Getenv("LEROS_ACP_PROBE_MODEL"))
+	path := strings.TrimSpace(os.Getenv("LEWORK_ACP_PROBE_CONFIG_FILE"))
+	model := strings.TrimSpace(os.Getenv("LEWORK_ACP_PROBE_MODEL"))
 	if path == "" || model == "" {
 		return agent.ModelConfig{}, os.ErrNotExist
 	}

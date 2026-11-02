@@ -17,7 +17,7 @@ import {
 	useChatStore,
 	useDAStore,
 	useLayoutStore,
-} from "@leros/store";
+} from "@lework/store";
 import type {
 	ApprovalAction,
 	ApprovalRequest,
@@ -25,13 +25,13 @@ import type {
 	Message,
 	MessageMetadata,
 	QuestionRequest,
-} from "@leros/store/types/chat";
-import { Badge } from "@leros/ui/components/ui/badge";
-import { Button } from "@leros/ui/components/ui/button";
-import { Checkbox } from "@leros/ui/components/ui/checkbox";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
-import { getRequestErrorMessage } from "@leros/ui/lib/request";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/store/types/chat";
+import { Badge } from "@lework/ui/components/ui/badge";
+import { Button } from "@lework/ui/components/ui/button";
+import { Checkbox } from "@lework/ui/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
+import { getRequestErrorMessage } from "@lework/ui/lib/request";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	AlertCircle,
 	AtSign,
@@ -661,7 +661,7 @@ export function ChatInput({
 					<div
 						className={cn(
 							"flex items-center justify-between",
-							isProjectVariant ? "border-t border-[var(--leros-chat-ai-border)] pt-3" : "px-4 pb-3",
+							isProjectVariant ? "border-t border-[var(--lework-chat-ai-border)] pt-3" : "px-4 pb-3",
 						)}
 					>
 						<div className="flex items-center gap-1">
@@ -702,7 +702,7 @@ export function ChatInput({
 											className={cn(
 												"inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:text-slate-600 hover:bg-slate-100",
 												executionMode === "plan" &&
-													"bg-[var(--leros-primary-softer)] !text-[var(--leros-primary)] hover:bg-[var(--leros-primary-soft)]",
+													"bg-[var(--lework-primary-softer)] !text-[var(--lework-primary)] hover:bg-[var(--lework-primary-soft)]",
 											)}
 										>
 											<ClipboardPenLine className="size-4" />

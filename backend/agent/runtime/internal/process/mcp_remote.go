@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 )
 
 // mcpRemoteHeaderEnvPrefix 是 SSE 桥接请求头环境变量的统一前缀。
-const mcpRemoteHeaderEnvPrefix = "LEROS_MCP_HEADER_"
+const mcpRemoteHeaderEnvPrefix = "LEWORK_MCP_HEADER_"
 
 // NeedsSSEBridge 判断该 MCP 服务端是否需要经 npx mcp-remote 桥接为 SSE。
 //
@@ -29,7 +29,7 @@ func NeedsSSEBridge(cfg agent.MCPServerConfig) bool {
 // 环境变量可以避免 access token 出现在进程命令行（ps 可见）以及 opencode/codex 的
 // MCP 配置里（opencode 的配置内容会被写入日志）。
 //
-// 返回的 args 形如 ["--header", "Authorization:${LEROS_MCP_HEADER_AUTHORIZATION_1A2B3C4D}"]，
+// 返回的 args 形如 ["--header", "Authorization:${LEWORK_MCP_HEADER_AUTHORIZATION_1A2B3C4D}"]，
 // 冒号后不留空格：mcp-remote 在请求头值包含空格时依赖 "${VAR}" 整体替换。
 // env 为需要注入 CLI 子进程的键值对，调用方必须保证它与 args 一同生效。
 func BuildMCPRemoteHeaderArgs(cfg agent.MCPServerConfig) ([]string, map[string]string) {

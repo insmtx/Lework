@@ -8,11 +8,11 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/config"
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/worker"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/config"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/worker"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // tokenAwareScheduler 在 fakeWorkerScheduler 之上模拟 k8s 调度器读取线上 token 的能力。
@@ -66,7 +66,7 @@ func newTokenTestDeployment(
 		OrgID:              1,
 		DigitalAssistantID: assistant.ID,
 		WorkerID:           1,
-		DeploymentName:     "leros-worker-o1-w1",
+		DeploymentName:     "lework-worker-o1-w1",
 		Status:             status,
 		BootstrapTokenHash: hash,
 	}

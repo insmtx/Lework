@@ -13,17 +13,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // TestSamplingParamsReachRequestBody 用本地 OpenAI 兼容 mock 抓请求体，
 // 验证 v1 config 的 sampling options 在 v2 归一时确实进入模型请求体（C-1）。
 //
-//	LEROS_ACP_PROBE=1 go test ./backend/agent/runtime/opencode -run TestSamplingParamsReachRequestBody -v
+//	LEWORK_ACP_PROBE=1 go test ./backend/agent/runtime/opencode -run TestSamplingParamsReachRequestBody -v
 func TestSamplingParamsReachRequestBody(t *testing.T) {
-	if os.Getenv("LEROS_ACP_PROBE") != "1" {
-		t.Skip("manual probe: set LEROS_ACP_PROBE=1 (needs opencode 2.1.x)")
+	if os.Getenv("LEWORK_ACP_PROBE") != "1" {
+		t.Skip("manual probe: set LEWORK_ACP_PROBE=1 (needs opencode 2.1.x)")
 	}
 
 	var mu sync.Mutex

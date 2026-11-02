@@ -1,0 +1,125 @@
+{{- $fullname := include "lework.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.server.deploymentNameOverride | default $fullname }}
+  labels:
+    {{- include "lework.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "lework.selectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lework.selectorLabels" (dict "root" . "component" "server") | nindent 8 }}
+    spec:
+      {{- with (include "lework.imagePullSecrets" . | trim) }}
+      {{ . | nindent 6 }}
+      {{- end }}
+      serviceAccountName: {{ include "lework.fullname" . }}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: chown-storage
+          image: {{ .Values.worker.workspaceInitImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /lework-storage/data
+              chown -R 999:999 /lework-storage
+          volumeMounts:
+            - name: storage
+              mountPath: {{ .Values.storage.localDir | quote }}
+        {{- if or .Values.postgresql.enabled .Values.nats.enabled }}
+        - name: wait-for-middleware
+          image: {{ .Values.worker.workspaceInitImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              {{- if .Values.postgresql.enabled }}
+              echo "waiting for postgresql at {{ include "lework.fullname" . }}-postgresql:5432"
+              until nc -z -w 2 {{ include "lework.fullname" . }}-postgresql 5432; do
+                echo "postgresql not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "postgresql is ready"
+              {{- end }}
+              {{- if .Values.nats.enabled }}
+              echo "waiting for nats at {{ include "lework.fullname" . }}-nats:4222"
+              until nc -z -w 2 {{ include "lework.fullname" . }}-nats 4222; do
+                echo "nats not ready, retry in 2s..."
+                sleep 2
+              done
+              echo "nats is ready"
+              {{- end }}
+        {{- end }}
+      containers:
+        - name: {{ .Values.server.deploymentNameOverride | default "lework" }}
+          image: {{ .Values.server.image | quote }}
+          imagePullPolicy: {{ .Values.server.imagePullPolicy }}
+          args: ["server", "--config", "/app/config.yaml"]
+          env:
+            - name: GIN_MODE
+              value: {{ .Values.server.ginMode | quote }}
+            - name: LEWORK_WORKSPACE_ROOT
+              value: "/workspace"
+            - name: LEWORK_STORAGE_LOCAL_DIR
+              value: {{ .Values.storage.localDir | quote }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lework.workerSecretName" . }}
+                  key: LLM_API_KEY
+                  optional: true
+            {{- with .Values.server.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "lework.serverSecretName" . }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            # server 本地存储（local driver 时存放上传文件）
+            - name: storage
+              mountPath: {{ .Values.storage.localDir | quote }}
+          {{- with .Values.server.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "lework.serverConfigMapName" . }}
+        - name: storage
+          hostPath:
+            path: {{ include "lework.hostPath" (dict "root" . "path" .Values.storage.hostPath) | quote }}
+            type: DirectoryOrCreate

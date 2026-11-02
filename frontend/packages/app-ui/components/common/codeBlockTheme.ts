@@ -1,7 +1,7 @@
 export type CodeBlockTheme = "light" | "dark";
 
-export const CODE_BLOCK_THEME_STORAGE_KEY = "leros-code-block-theme";
-export const CODE_BLOCK_THEME_EVENT = "leros-code-block-theme-change";
+export const CODE_BLOCK_THEME_STORAGE_KEY = "lework-code-block-theme";
+export const CODE_BLOCK_THEME_EVENT = "lework-code-block-theme-change";
 
 export function readCodeBlockTheme(): CodeBlockTheme {
 	if (typeof window === "undefined") return "light";

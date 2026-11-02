@@ -11,14 +11,14 @@ import (
 	_ "github.com/ygpkg/storage-go/driver/local"
 	_ "github.com/ygpkg/storage-go/driver/minio"
 
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Lework/backend/config"
 )
 
 const (
 	defaultBucketName  = "dev-bucket"
 	defaultDriver      = "local"
-	defaultLocalDir    = "leros-storage"
-	defaultSignSecret  = "leros-local-presign"
+	defaultLocalDir    = "lework-storage"
+	defaultSignSecret  = "lework-local-presign"
 	defaultSignBaseURL = ""
 )
 
@@ -31,7 +31,7 @@ var (
 
 func Init(cfg *config.StorageConfig) error {
 	if cfg == nil {
-		if dir := strings.TrimSpace(os.Getenv("LEROS_STORAGE_LOCAL_DIR")); dir != "" {
+		if dir := strings.TrimSpace(os.Getenv("LEWORK_STORAGE_LOCAL_DIR")); dir != "" {
 			cfg = &config.StorageConfig{
 				Driver:     defaultDriver,
 				LocalDir:   dir,

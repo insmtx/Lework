@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/bytedance/sonic"
-	"github.com/insmtx/Leros/backend/agent"
+	"github.com/insmtx/Lework/backend/agent"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -216,7 +216,7 @@ func (s *AppServer) StartTurn(ctx context.Context, threadID string, prompt strin
 func (s *AppServer) threadParams(modelCfg agent.ModelConfig, systemPrompt string) map[string]any {
 	params := map[string]any{
 		"cwd":                   s.workDir,
-		"serviceName":           "Leros",
+		"serviceName":           "Lework",
 		"approvalPolicy":        "on-request",
 		"approvalsReviewer":     "user",
 		"sandbox":               "danger-full-access",

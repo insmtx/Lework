@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 // ——— 参数构建 ———
@@ -49,18 +49,18 @@ func buildArgs(req cli.InvocationRequest) []string {
 
 // ——— Settings 文件 ———
 
-// lerosSettings 写入的 leros 专用 settings 文件结构。
-type lerosSettings struct {
+// leworkSettings 写入的 lework 专用 settings 文件结构。
+type leworkSettings struct {
 	Model string            `json:"model,omitempty"`
 	Env   map[string]string `json:"env"`
 }
 
-// buildLerosSettings 根据本次请求构建 leros settings 配置。
-func buildLerosSettings(req cli.InvocationRequest) *lerosSettings {
+// buildLeworkSettings 根据本次请求构建 lework settings 配置。
+func buildLeworkSettings(req cli.InvocationRequest) *leworkSettings {
 	model := strings.TrimSpace(req.Model.Model)
 	baseURL := withoutV1Suffix(req.Model.BaseURL)
 	apiKey := strings.TrimSpace(req.Model.APIKey)
-	return &lerosSettings{
+	return &leworkSettings{
 		Model: model,
 		Env: map[string]string{
 			"ANTHROPIC_BASE_URL":                       baseURL,
@@ -76,21 +76,21 @@ func buildLerosSettings(req cli.InvocationRequest) *lerosSettings {
 	}
 }
 
-// lerosSettingsPath 返回 ~/.claude/settings.leros.{sessionId}.json 路径，兼容 Windows。
-func lerosSettingsPath(sessionID string) (string, error) {
+// leworkSettingsPath 返回 ~/.claude/settings.lework.{sessionId}.json 路径，兼容 Windows。
+func leworkSettingsPath(sessionID string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	name := "settings.leros.json"
+	name := "settings.lework.json"
 	if sessionID != "" {
-		name = "settings.leros." + sessionID + ".json"
+		name = "settings.lework." + sessionID + ".json"
 	}
 	return filepath.Join(home, ".claude", name), nil
 }
 
-// writeLerosSettings 将配置写入 leros settings 文件。
-func writeLerosSettings(path string, settings *lerosSettings) error {
+// writeLeworkSettings 将配置写入 lework settings 文件。
+func writeLeworkSettings(path string, settings *leworkSettings) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func writeMCPConfig(dir string, servers []agent.MCPServerConfig) (string, error)
 	for _, s := range servers {
 		name := strings.TrimSpace(s.Name)
 		if name == "" {
-			name = "leros"
+			name = "lework"
 		}
 		entry := map[string]any{}
 		if s.Command != "" {

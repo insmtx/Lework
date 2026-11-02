@@ -1,7 +1,7 @@
 "use client";
 
-import { useChatStore, useLayoutStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import { useChatStore, useLayoutStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -9,7 +9,7 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { filePreviewActions } from "./file-preview-store";
@@ -149,7 +149,7 @@ export function PayrollTaskPanel({
 						type="button"
 						disabled={submitting || !canStartPayrollAccounting(files)}
 						onClick={() => void startTask()}
-						className="bg-[var(--leros-primary)] text-white hover:bg-[var(--leros-primary)]/90"
+						className="bg-[var(--lework-primary)] text-white hover:bg-[var(--lework-primary)]/90"
 					>
 						{submitting ? "提交中..." : "开始核算"}
 					</Button>

@@ -9,8 +9,8 @@ description: 通过 IMAP/SMTP 收发、搜索和管理邮箱邮件及附件。�
 
 ## 运行规则
 
-- 发信和测试 SMTP 使用 `node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js"`。
-- 收信、搜索、附件和邮件状态管理使用 `node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js"`。
+- 发信和测试 SMTP 使用 `node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js"`。
+- 收信、搜索、附件和邮件状态管理使用 `node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js"`。
 - 凭证由连接器注入 `NETEASE_EMAIL_USER` 和 `NETEASE_EMAIL_PASS`，不要向用户索取或输出授权码。
 - 命令输出 JSON。必须检查 `success`；失败时根据 `message` 向用户说明原因。
 - 发信前复述收件人、主题和附件并获得用户明确确认。
@@ -22,7 +22,7 @@ description: 通过 IMAP/SMTP 收发、搜索和管理邮箱邮件及附件。�
 ## 发信
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js" send \
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js" send \
   --to "recipient@example.com" \
   --subject "邮件主题" \
   --body "邮件正文"
@@ -39,7 +39,7 @@ node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js" send 
 发送前可测试 SMTP：
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js" test
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js" test
 ```
 
 ## 查信与搜索
@@ -47,7 +47,7 @@ node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/smtp.bundle.js" test
 查看最近邮件：
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" check --limit 10 --recent 2h
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" check --limit 10 --recent 2h
 ```
 
 可添加 `--unseen` 仅看未读，或用 `--mailbox NAME` 指定文件夹。`--recent` 支持 `30m`、`2h`、`7d`。
@@ -55,7 +55,7 @@ node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" check
 搜索邮件：
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" search \
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" search \
   --subject "发票" --recent 7d --limit 20
 ```
 
@@ -64,7 +64,7 @@ node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" searc
 获取某封邮件全文：
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" fetch 12345
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" fetch 12345
 ```
 
 UID 来自 `check` 或 `search` 的结果。
@@ -74,7 +74,7 @@ UID 来自 `check` 或 `search` 的结果。
 下载附件：
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" download 12345 \
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" download 12345 \
   --dir "$HOME/Downloads" --file "report.pdf"
 ```
 
@@ -83,14 +83,14 @@ node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" downl
 标记已读或未读：
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" mark-read 12345
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" mark-unread 12345
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" mark-read 12345
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" mark-unread 12345
 ```
 
 列出邮箱文件夹：
 
 ```bash
-node "$LEROS_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" list-mailboxes
+node "$LEWORK_RUN_SKILLS_DIR/connector-netease-mail/scripts/imap.bundle.js" list-mailboxes
 ```
 
 ## 错误处理

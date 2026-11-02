@@ -14,7 +14,7 @@ import (
 
 // runtimeInternalDirs lists directories that contain runtime-private data
 // and should never be published as artifacts.
-var runtimeInternalDirs = []string{".opencode", ".leros"}
+var runtimeInternalDirs = []string{".opencode", ".lework"}
 
 var attendanceInternalDirs = []string{".attendance-work", ".attendance-pages"}
 

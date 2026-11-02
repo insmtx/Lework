@@ -1,16 +1,16 @@
 # 构建说明
 
-本目录存放 Leros 各组件的 Dockerfile。worker-base 镜像支持两个版次，方便 SaaS 精简部署与私有化全量部署共用同一份 Dockerfile。
+本目录存放 Lework 各组件的 Dockerfile。worker-base 镜像支持两个版次，方便 SaaS 精简部署与私有化全量部署共用同一份 Dockerfile。
 
 ## Dockerfile 列表
 
 | Dockerfile | 作用 |
 |---|---|
-| `Dockerfile.base` | 通用 base 镜像（leros 服务进程的最小运行时） |
-| `Dockerfile.leros` | leros 服务器镜像 |
-| `Dockerfile.leros-dev` | 开发版 leros（含调试工具） |
+| `Dockerfile.base` | 通用 base 镜像（lework 服务进程的最小运行时） |
+| `Dockerfile.lework` | lework 服务器镜像 |
+| `Dockerfile.lework-dev` | 开发版 lework（含调试工具） |
 | `Dockerfile.web` | 前端镜像 |
-| `Dockerfile.worker` | worker 镜像（FROM `leros-worker-base`） |
+| `Dockerfile.worker` | worker 镜像（FROM `lework-worker-base`） |
 | `Dockerfile.worker-base` | worker 基础镜像：Ubuntu + LibreOffice + 字体 + Python/Node 工具链，详见下方 |
 
 ## worker-base 两个版次
@@ -55,7 +55,7 @@ make docker-build-worker-base WORKER_BASE_EDITION=private
 ```
 
 > **不打 `:latest` 别名**：saas/private 都只按版次打 tag，避免仓库里同一 tag 指向不同内容造成歧义。
-> `Dockerfile.worker` 默认 `FROM ...leros-worker-base:saas`；私有化部署需改 `WORKER_BASE_IMAGE=...:private`。
+> `Dockerfile.worker` 默认 `FROM ...lework-worker-base:saas`；私有化部署需改 `WORKER_BASE_IMAGE=...:private`。
 
 ### 版本管理
 
@@ -67,9 +67,9 @@ make docker-build-worker-base WORKER_BASE_EDITION=private
 
 ### worker 镜像如何引用 base
 
-`Dockerfile.worker` 默认 `FROM registry.yygu.cn/insmtx/leros-worker-base:private`（通过 `ARG WORKER_BASE_IMAGE`，构建时 `--build-arg WORKER_BASE_IMAGE=...:saas` 切换）。
+`Dockerfile.worker` 默认 `FROM registry.yygu.cn/insmtx/lework-worker-base:private`（通过 `ARG WORKER_BASE_IMAGE`，构建时 `--build-arg WORKER_BASE_IMAGE=...:saas` 切换）。
 SaaS 部署构建 worker 时：
 
 ```bash
-make docker-build-worker WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/leros-worker-base:saas
+make docker-build-worker WORKER_BASE_IMAGE=registry.yygu.cn/insmtx/lework-worker-base:saas
 ```

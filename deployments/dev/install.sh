@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BIN_SRC="$ROOT_DIR/bundles/leros"
+BIN_SRC="$ROOT_DIR/bundles/lework"
 
 # ---- helpers ----
 
@@ -39,21 +39,21 @@ do_install() {
   if [ ! -f "$BIN_SRC" ]; then
     echo "Binary not found, building..."
     cd "$ROOT_DIR"
-    go build -v -o "$BIN_SRC" ./backend/cmd/leros/
+    go build -v -o "$BIN_SRC" ./backend/cmd/lework/
   fi
 
   case "$os" in
     darwin|linux)
       local dest_dir="$HOME/.local/bin"
-      local dest="$dest_dir/leros"
+      local dest="$dest_dir/lework"
       mkdir -p "$dest_dir"
       ln -sf "$BIN_SRC" "$dest"
       green "→ $dest"
       check_path "$dest_dir" || true
       ;;
     windows)
-      local dest_dir="$APPDATA/leros/bin"
-      local dest="$dest_dir/leros.exe"
+      local dest_dir="$APPDATA/lework/bin"
+      local dest="$dest_dir/lework.exe"
       mkdir -p "$dest_dir"
       cp -f "$BIN_SRC" "$dest"
       green "→ $dest"
@@ -66,7 +66,7 @@ do_install() {
       ;;
   esac
 
-  green "Done. Run 'leros --help' to verify."
+  green "Done. Run 'lework --help' to verify."
 }
 
 # ---- uninstall ----
@@ -76,7 +76,7 @@ do_uninstall() {
 
   case "$os" in
     darwin|linux)
-      local dest="$HOME/.local/bin/leros"
+      local dest="$HOME/.local/bin/lework"
       if [ -f "$dest" ] || [ -L "$dest" ]; then
         rm -f "$dest"
         green "Removed $dest"
@@ -85,7 +85,7 @@ do_uninstall() {
       fi
       ;;
     windows)
-      local dest="$APPDATA/leros/bin/leros.exe"
+      local dest="$APPDATA/lework/bin/lework.exe"
       if [ -f "$dest" ]; then
         rm -f "$dest"
         green "Removed $dest"

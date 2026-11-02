@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	skilltoken "github.com/insmtx/Leros/backend/internal/skill"
-	skillcatalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
-	"github.com/insmtx/Leros/backend/pkg/leros"
-	"github.com/insmtx/Leros/backend/types"
+	skilltoken "github.com/insmtx/Lework/backend/internal/skill"
+	skillcatalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/pkg/lework"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func withChips(instruction string, codes ...string) string {
@@ -28,8 +28,8 @@ func withChips(instruction string, codes ...string) string {
 func setupSkillsRoot(t *testing.T) string {
 	t.Helper()
 	rootDir := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, rootDir)
-	skillsDir := filepath.Join(rootDir, ".leros", "skills")
+	t.Setenv(lework.EnvWorkspaceRoot, rootDir)
+	skillsDir := filepath.Join(rootDir, ".lework", "skills")
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		t.Fatalf("mkdir skills root: %v", err)
 	}
@@ -646,7 +646,7 @@ func TestBuildSkillInvokePromptSingleSkill(t *testing.T) {
 			Name: "anysearch",
 		},
 		Body:        "Search instructions",
-		AbsoluteDir: "/workspace/.leros/skills/anysearch",
+		AbsoluteDir: "/workspace/.lework/skills/anysearch",
 	}
 	filesMap := map[string][]string{
 		"anysearch": {},
@@ -668,7 +668,7 @@ func TestBuildSkillInvokePromptSingleSkill(t *testing.T) {
 	if !strings.Contains(prompt, "Search instructions") {
 		t.Fatalf("expected body, got: %s", prompt)
 	}
-	if !strings.Contains(prompt, "/workspace/.leros/skills/anysearch") {
+	if !strings.Contains(prompt, "/workspace/.lework/skills/anysearch") {
 		t.Fatalf("expected absolute dir, got: %s", prompt)
 	}
 	if !strings.Contains(prompt, "None") {
@@ -682,7 +682,7 @@ func TestBuildSkillInvokePromptWithSupportingFiles(t *testing.T) {
 			Name: "review",
 		},
 		Body:        "Review body",
-		AbsoluteDir: "/workspace/.leros/skills/review",
+		AbsoluteDir: "/workspace/.lework/skills/review",
 	}
 	filesMap := map[string][]string{
 		"review": {"references/guide.md", "references/policy.md"},
@@ -712,7 +712,7 @@ func TestBuildSkillInvokePromptDedupedEntryNotInjected(t *testing.T) {
 			Name: "xiaohongshu",
 		},
 		Body:        "RedNote writing guide",
-		AbsoluteDir: "/workspace/.leros/skills/xiaohongshu",
+		AbsoluteDir: "/workspace/.lework/skills/xiaohongshu",
 	}
 	filesMap := map[string][]string{
 		"xiaohongshu": {},

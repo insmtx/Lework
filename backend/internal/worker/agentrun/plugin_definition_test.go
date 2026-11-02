@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	"github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
 )
 
 func TestMCPServerConfigFromPluginSnapshot(t *testing.T) {
@@ -128,7 +128,7 @@ func TestPrepareConnectorRuntimeEnvRejectsReservedBindings(t *testing.T) {
 			Definition: json.RawMessage(
 				`{"schema":"connector/v1","channel":"invalid","mode":"skill_only",` +
 					`"auth":{"type":"form","values":{"skill_dir":"/tmp/escape"},` +
-					`"bindings":{"skill_env":{"LEROS_RUN_SKILLS_DIR":"skill_dir"}}},` +
+					`"bindings":{"skill_env":{"LEWORK_RUN_SKILLS_DIR":"skill_dir"}}},` +
 					`"skill":{"code":"connector-invalid","revision":1,"artifact":` +
 					`{"file_upload_id":"file_invalid","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}`,
 			),
@@ -141,7 +141,7 @@ func TestPrepareConnectorRuntimeEnvRejectsReservedBindings(t *testing.T) {
 
 func TestConnectorRuntimeEnvAllowedRejectsRuntimeAndModelVariables(t *testing.T) {
 	for _, name := range []string{
-		"LEROS_RUN_SKILLS_DIR",
+		"LEWORK_RUN_SKILLS_DIR",
 		"OPENCODE_CONFIG_DIR",
 		"CLAUDE_CONFIG_DIR",
 		"CODEX_HOME",

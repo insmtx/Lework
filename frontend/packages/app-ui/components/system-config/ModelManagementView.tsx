@@ -1,8 +1,8 @@
 "use client";
 
-import type { ModelItem } from "@leros/store";
-import { useModelStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import type { ModelItem } from "@lework/store";
+import { useModelStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -10,15 +10,15 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { ScrollArea } from "@lework/ui/components/ui/scroll-area";
 import {
 	Table,
 	TableBody,
@@ -26,7 +26,7 @@ import {
 	TableHead,
 	TableHeader,
 	TableRow,
-} from "@leros/ui/components/ui/table";
+} from "@lework/ui/components/ui/table";
 import { AlertCircle, Bot, Loader2, MoreHorizontal, Plus, Trash2, Wifi } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";

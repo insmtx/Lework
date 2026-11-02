@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	agentrundomain "github.com/insmtx/Leros/backend/internal/worker/agentrun/domain"
+	agentrundomain "github.com/insmtx/Lework/backend/internal/worker/agentrun/domain"
 )
 
 func TestContextBuilderBuildSystemPromptLayers(t *testing.T) {

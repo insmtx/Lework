@@ -72,7 +72,7 @@ reap_port() {
   for pid in $(port_pids "$port"); do
     cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
     case "$cmd" in
-      *leros*|*next*|*turbo*|*pnpm*)
+      *lework*|*next*|*turbo*|*pnpm*)
         echo -e "${YELLOW}清理 :$port 残留 $name (pid $pid)${NC}"
         kill_tree "$pid"
         ;;
@@ -149,8 +149,8 @@ cmd_start() {
   maybe_clean_next_cache
 
   # 先编译一次，避免 server/worker 同时启动时争抢构建。
-  echo -e "${BLUE}编译 bundles/leros ...${NC}"
-  (cd "$ROOT_DIR" && go build -o ./bundles/leros ./backend/cmd/leros/)
+  echo -e "${BLUE}编译 bundles/lework ...${NC}"
+  (cd "$ROOT_DIR" && go build -o ./bundles/lework ./backend/cmd/lework/)
 
   echo -e "${BLUE}启动 server (:${SERVER_PORT})${NC}"
   start_bg server "./deployments/dev/dev-server.sh"
@@ -190,7 +190,7 @@ cmd_start() {
   fi
 
   echo ""
-  echo -e "${GREEN}Leros dev stack is up${NC}"
+  echo -e "${GREEN}Lework dev stack is up${NC}"
   echo -e "  Web:    ${BLUE}http://localhost:${WEB_PORT}${NC}"
   echo -e "  API:    ${BLUE}http://localhost:${SERVER_PORT}/v1${NC}"
   echo -e "  Worker: ${BLUE}http://localhost:${WORKER_PORT}/health${NC}"

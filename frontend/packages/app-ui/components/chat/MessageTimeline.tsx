@@ -1,8 +1,8 @@
 "use client";
 
-import { useChatStore } from "@leros/store";
-import type { Message } from "@leros/store/types/chat";
-import { cn } from "@leros/ui/lib/utils";
+import { useChatStore } from "@lework/store";
+import type { Message } from "@lework/store/types/chat";
+import { cn } from "@lework/ui/lib/utils";
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { AIMessageBubble } from "./AIMessageBubble";

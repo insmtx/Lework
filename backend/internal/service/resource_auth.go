@@ -6,8 +6,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/insmtx/Leros/backend/internal/infra/db"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/infra/db"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func projectFileResourceRef(pf *types.ProjectFile) (types.ResourceRef, error) {
@@ -45,7 +45,7 @@ func isProjectFileActionCompatible(pf *types.ProjectFile, action types.Action) b
 	return action == ActionFileView || action == ActionFileDownload
 }
 
-// syncTaskResource 在任务创建后同步写入 leros_resource，挂到父项目资源树下。
+// syncTaskResource 在任务创建后同步写入 lework_resource，挂到父项目资源树下。
 func syncTaskResource(ctx context.Context, tx *gorm.DB, orgID, projectID, taskID, ownerUin uint) error {
 	projectResource, err := db.GetResourceByBizID(ctx, tx, orgID, types.ResourceTypeProject, projectID)
 	if err != nil {

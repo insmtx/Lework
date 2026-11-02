@@ -3,12 +3,12 @@ package workspace
 import (
 	"testing"
 
-	"github.com/insmtx/Leros/backend/pkg/leros"
+	"github.com/insmtx/Lework/backend/pkg/lework"
 )
 
 func TestWorkerMountedWorkspacePath(t *testing.T) {
 	serverRoot := t.TempDir()
-	t.Setenv(leros.EnvWorkspaceRoot, serverRoot)
+	t.Setenv(lework.EnvWorkspaceRoot, serverRoot)
 
 	got, err := WorkerMountedWorkspacePath(1, 1)
 	if err != nil {

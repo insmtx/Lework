@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ authenticatedFetch: vi.fn() }));
 
-vi.mock("@leros/store", () => ({
-	API_BASE_URL: "http://leros.test/v1",
+vi.mock("@lework/store", () => ({
+	API_BASE_URL: "http://lework.test/v1",
 	authenticatedFetch: mocks.authenticatedFetch,
 	projectFileApi: {
 		downloadVersion: (projectId: string, id: string) => `/files/${projectId}/${id}`,
@@ -112,7 +112,7 @@ describe("payroll-service-client", () => {
 			initialized: false,
 		});
 		expect(mocks.authenticatedFetch.mock.calls[0]?.[0]).toBe(
-			"http://leros.test/v1/PayrollProxy/PageHisSalary",
+			"http://lework.test/v1/PayrollProxy/PageHisSalary",
 		);
 		expect(JSON.parse(requestBody(0) as string)).toEqual({
 			request: { offset: 0, limit: 1, payroll_month: "2026-06", name: "张三" },
@@ -147,7 +147,7 @@ describe("payroll-service-client", () => {
 		await importPayrollRoster(file);
 		const options = mocks.authenticatedFetch.mock.calls[0]?.[1] as RequestInit;
 		expect(mocks.authenticatedFetch.mock.calls[0]?.[0]).toBe(
-			"http://leros.test/v1/PayrollProxy/ImportRoster",
+			"http://lework.test/v1/PayrollProxy/ImportRoster",
 		);
 		expect(options.method).toBe("POST");
 		expect((options.body as FormData).get("file")).toBe(file);
@@ -189,7 +189,7 @@ describe("payroll-service-client", () => {
 		expect(mocks.authenticatedFetch).toHaveBeenNthCalledWith(1, "/files/p1/f1");
 		const init = mocks.authenticatedFetch.mock.calls[1]?.[1] as RequestInit;
 		expect(mocks.authenticatedFetch.mock.calls[1]?.[0]).toBe(
-			"http://leros.test/v1/PayrollProxy/ImportHisSalary",
+			"http://lework.test/v1/PayrollProxy/ImportHisSalary",
 		);
 		expect((init.body as FormData).get("file")).toMatchObject({ name: "history.xlsx" });
 	});

@@ -10,10 +10,10 @@ import (
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/acp"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
-	runtimeprocess "github.com/insmtx/Leros/backend/agent/runtime/internal/process"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/acp"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
+	runtimeprocess "github.com/insmtx/Lework/backend/agent/runtime/internal/process"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -319,7 +319,7 @@ func (p *acpProcess) PID() int { return p.conn.PID() }
 
 func (p *acpProcess) Stop() error { return p.conn.Close() }
 
-// acpMCPServers 把 Leros 的 MCP 配置转换为 session/new 的 mcpServers。
+// acpMCPServers 把 Lework 的 MCP 配置转换为 session/new 的 mcpServers。
 func acpMCPServers(configs []agent.MCPServerConfig) []acpsdk.McpServer {
 	servers := make([]acpsdk.McpServer, 0, len(configs))
 	for _, config := range configs {

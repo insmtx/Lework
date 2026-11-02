@@ -1,7 +1,7 @@
 "use client";
 
-import type { BackendProjectFileVersion, ProjectArtifact } from "@leros/store";
-import type { Attachment, MessageAttachment } from "@leros/store/types/chat";
+import type { BackendProjectFileVersion, ProjectArtifact } from "@lework/store";
+import type { Attachment, MessageAttachment } from "@lework/store/types/chat";
 import { useSyncExternalStore } from "react";
 import {
 	artifactToFilePreviewItem,

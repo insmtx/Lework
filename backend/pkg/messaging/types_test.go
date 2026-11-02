@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestEnvelopeJSONShape(t *testing.T) {
@@ -176,7 +176,7 @@ func TestWorkerCommandResultJSONShape(t *testing.T) {
 		Success: true,
 		Action:  "list",
 		Data: []SkillListItem{
-			{Name: "skill-a", Description: "desc a", Category: "tools", Source: "Leros", Trust: "trusted"},
+			{Name: "skill-a", Description: "desc a", Category: "tools", Source: "Lework", Trust: "trusted"},
 		},
 	}
 

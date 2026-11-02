@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"github.com/insmtx/Leros/backend/internal/adapter/account"
+	"github.com/insmtx/Lework/backend/internal/adapter/account"
 )
 
 // Edition aggregates all adapter implementations for the current build

@@ -14,9 +14,9 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/internal/api/dto"
-	"github.com/insmtx/Leros/backend/pkg/messaging"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/internal/api/dto"
+	"github.com/insmtx/Lework/backend/pkg/messaging"
 )
 
 const (
@@ -30,7 +30,7 @@ type apiResponse struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
-// Chat 启动交互式聊天会话，连接至指定的 Leros 服务端。
+// Chat 启动交互式聊天会话，连接至指定的 Lework 服务端。
 // 如果 initialMessage 为非空字符串，则将其作为首条消息发送，否则提示用户输入。
 func Chat(ctx context.Context, serverAddr, authToken, initialMessage string) error {
 	httpClient := &http.Client{Timeout: defaultHTTPTimeout}

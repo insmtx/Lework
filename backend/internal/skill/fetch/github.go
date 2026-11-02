@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	catalog "github.com/insmtx/Leros/backend/internal/skill/catalog"
+	catalog "github.com/insmtx/Lework/backend/internal/skill/catalog"
 )
 
 // GitHubSource 通过下载 GitHub 仓库 ZIP 获取 Skill。
@@ -109,7 +109,7 @@ func (g *GitHubSource) extractSkill(zipBytes []byte, owner, repo, skillPath stri
 		return nil, fmt.Errorf("open zip: %w", err)
 	}
 
-	tmpDir, err := os.MkdirTemp("", "leros-skill-*")
+	tmpDir, err := os.MkdirTemp("", "lework-skill-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}

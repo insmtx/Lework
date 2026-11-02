@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Lework/backend/config"
 	"gopkg.in/yaml.v2"
 )
 
 func findConfig() string {
-	if p := os.Getenv("LEROS_TEST_CONFIG"); p != "" {
+	if p := os.Getenv("LEWORK_TEST_CONFIG"); p != "" {
 		return p
 	}
 
@@ -39,7 +39,7 @@ func LoadTestConfig(t *testing.T) *config.Config {
 
 	path := findConfig()
 	if path == "" {
-		t.Fatal("test config not found: set LEROS_TEST_CONFIG or place deployments/dev/server.config.yaml in the project root")
+		t.Fatal("test config not found: set LEWORK_TEST_CONFIG or place deployments/dev/server.config.yaml in the project root")
 	}
 
 	abs, err := filepath.Abs(path)

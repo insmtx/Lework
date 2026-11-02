@@ -17,9 +17,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	baidunetdisk "github.com/insmtx/Leros/backend/internal/infra/providers/baidunetdisk"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	baidunetdisk "github.com/insmtx/Lework/backend/internal/infra/providers/baidunetdisk"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 	"github.com/ygpkg/yg-go/logs"
 )
 
@@ -42,7 +42,7 @@ func CapturePreRunTree(ctx context.Context, repoDir string) (string, error) {
 		return "", nil
 	}
 
-	tmpIndex, err := os.CreateTemp("", "leros-git-index-*.tmp")
+	tmpIndex, err := os.CreateTemp("", "lework-git-index-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create temp git index: %w", err)
 	}

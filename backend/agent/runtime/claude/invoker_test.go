@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/insmtx/Leros/backend/agent"
-	"github.com/insmtx/Leros/backend/agent/runtime/internal/cli"
+	"github.com/insmtx/Lework/backend/agent"
+	"github.com/insmtx/Lework/backend/agent/runtime/internal/cli"
 )
 
 func TestAdapterAskCurrentTime(t *testing.T) {
 	claudePath, _ := exec.LookPath("claude")
-	apiKey := firstNonEmptyEnv("LEROS_LLM_API_KEY")
+	apiKey := firstNonEmptyEnv("LEWORK_LLM_API_KEY")
 	if apiKey == "" {
-		t.Skip("set LEROS_LLM_API_KEY to run the real claude adapter test")
+		t.Skip("set LEWORK_LLM_API_KEY to run the real claude adapter test")
 	}
 
 	workDir, _ := os.Getwd()
@@ -32,8 +32,8 @@ func TestAdapterAskCurrentTime(t *testing.T) {
 		Model: agent.ModelConfig{
 			Provider: "anthropic",
 			APIKey:   apiKey,
-			Model:    firstNonEmptyEnv("LEROS_LLM_MODEL"),
-			BaseURL:  firstNonEmptyEnv("LEROS_LLM_BASE_URL"),
+			Model:    firstNonEmptyEnv("LEWORK_LLM_MODEL"),
+			BaseURL:  firstNonEmptyEnv("LEWORK_LLM_BASE_URL"),
 		},
 	})
 

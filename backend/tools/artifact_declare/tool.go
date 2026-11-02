@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/insmtx/Leros/backend/tools"
+	"github.com/insmtx/Lework/backend/tools"
 )
 
 type artifactInput struct {
@@ -45,7 +45,7 @@ Call this after creating a file that should be shown to the user as a task artif
 Pass the complete file path to the created file. The file must be inside the current project repository. Runtime paths, directories, logs, caches, and temporary files are rejected. Set is_final=false only for non-final intermediate files.`
 )
 
-// Tool lets an internal Leros agent declare an artifact produced during task execution.
+// Tool lets an internal Lework agent declare an artifact produced during task execution.
 type Tool struct {
 	tools.BaseTool
 }
@@ -239,7 +239,7 @@ func validateArtifactRelativePath(path string) error {
 		switch segment {
 		case "..":
 			return fmt.Errorf("path must not contain '..'")
-		case ".git", ".leros":
+		case ".git", ".lework":
 			return fmt.Errorf("path must not target runtime paths")
 		case "tmp", "temp", "logs", "log", "cache", ".cache":
 			return fmt.Errorf("path must not target temporary, log, or cache paths")
@@ -258,7 +258,7 @@ func resolveArtifactWorkspace(ctx context.Context, artifactPath string) (string,
 	}
 
 	// TODO: Replace this path-based MCP fallback with run-scoped ToolContext injection
-	// once external CLI MCP requests can be bound to the active Leros run.
+	// once external CLI MCP requests can be bound to the active Lework run.
 	return inferArtifactWorkspaceFromPath(artifactPath)
 }
 
@@ -267,7 +267,7 @@ func inferArtifactWorkspaceFromPath(artifactPath string) (string, string, error)
 	if err != nil {
 		return "", "", err
 	}
-	turnDir, err := latestTurnDir(filepath.Join(repoDir, ".leros", "tasks"))
+	turnDir, err := latestTurnDir(filepath.Join(repoDir, ".lework", "tasks"))
 	if err != nil {
 		return "", "", err
 	}
@@ -280,10 +280,10 @@ func findRepoDirFromArtifactPath(artifactPath string) (string, error) {
 		if current == "" || current == "." {
 			break
 		}
-		if info, err := os.Stat(filepath.Join(current, ".leros")); err == nil && info.IsDir() {
+		if info, err := os.Stat(filepath.Join(current, ".lework")); err == nil && info.IsDir() {
 			return current, nil
 		} else if err != nil && !os.IsNotExist(err) {
-			return "", fmt.Errorf("stat leros workspace marker: %w", err)
+			return "", fmt.Errorf("stat lework workspace marker: %w", err)
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -291,7 +291,7 @@ func findRepoDirFromArtifactPath(artifactPath string) (string, error) {
 		}
 		current = parent
 	}
-	return "", fmt.Errorf("project repository marker .leros not found from artifact path")
+	return "", fmt.Errorf("project repository marker .lework not found from artifact path")
 }
 
 func latestTurnDir(tasksDir string) (string, error) {

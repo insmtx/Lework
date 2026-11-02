@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/insmtx/Leros/backend/internal/api/auth"
-	"github.com/insmtx/Leros/backend/internal/api/contract"
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/internal/api/auth"
+	"github.com/insmtx/Lework/backend/internal/api/contract"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 // errNotAuthenticated 表示认证上下文中缺少有效的组织身份。

@@ -6,10 +6,10 @@ import {
 	orgAdminApi,
 	type User,
 	useAuthStore,
-} from "@leros/store";
-import { Badge } from "@leros/ui/components/ui/badge";
-import { Button } from "@leros/ui/components/ui/button";
-import { Checkbox } from "@leros/ui/components/ui/checkbox";
+} from "@lework/store";
+import { Badge } from "@lework/ui/components/ui/badge";
+import { Button } from "@lework/ui/components/ui/button";
+import { Checkbox } from "@lework/ui/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -17,16 +17,16 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
-} from "@leros/ui/components/ui/dropdown-menu";
-import { Input } from "@leros/ui/components/ui/input";
-import { ScrollArea } from "@leros/ui/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@leros/ui/components/ui/select";
+} from "@lework/ui/components/ui/dropdown-menu";
+import { Input } from "@lework/ui/components/ui/input";
+import { ScrollArea } from "@lework/ui/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@lework/ui/components/ui/select";
 import {
 	Table,
 	TableBody,
@@ -34,8 +34,8 @@ import {
 	TableHead,
 	TableHeader,
 	TableRow,
-} from "@leros/ui/components/ui/table";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/table";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -113,13 +113,13 @@ function DepartmentTreeItem({
 			<div
 				className={cn(
 					"group flex items-center gap-1 rounded-lg pr-1",
-					selectedId === node.id && "bg-[var(--leros-primary-softer)]",
+					selectedId === node.id && "bg-[var(--lework-primary-softer)]",
 				)}
 				style={{ paddingLeft: `${level * 16 + 8}px` }}
 			>
 				<button
 					type="button"
-					className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--leros-text-subtle)] hover:bg-slate-100"
+					className="flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--lework-text-subtle)] hover:bg-slate-100"
 					onClick={() => setExpanded((value) => !value)}
 					aria-label={expanded ? "收起" : "展开"}
 				>
@@ -135,7 +135,7 @@ function DepartmentTreeItem({
 				</button>
 				<button
 					type="button"
-					className="min-w-0 flex-1 truncate py-2 text-left text-sm text-[var(--leros-text)]"
+					className="min-w-0 flex-1 truncate py-2 text-left text-sm text-[var(--lework-text)]"
 					onClick={() => onSelect(node.id)}
 				>
 					{node.name}
@@ -145,7 +145,7 @@ function DepartmentTreeItem({
 						className="rounded-md p-1 opacity-0 transition-opacity hover:bg-slate-100 group-hover:opacity-100"
 						aria-label={`管理 ${node.name}`}
 					>
-						<MoreHorizontal className="size-4 text-[var(--leros-text-subtle)]" />
+						<MoreHorizontal className="size-4 text-[var(--lework-text-subtle)]" />
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end" side="right" sideOffset={4}>
 						<DropdownMenuItem onClick={() => onCreate(node.id, node.name)}>
@@ -381,7 +381,7 @@ export function DepartmentTreePanel() {
 
 	if (!user?.currentOrg) {
 		return (
-			<div className="px-10 py-8 text-sm text-[var(--leros-text-subtle)]">
+			<div className="px-10 py-8 text-sm text-[var(--lework-text-subtle)]">
 				请先登录并选择组织后再管理部门。
 			</div>
 		);
@@ -390,11 +390,11 @@ export function DepartmentTreePanel() {
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			{/* 中文注释：小屏改为上下布局，避免固定的部门栏宽度挤压通讯录内容。 */}
-			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--leros-surface,#fff)] md:flex-row">
-				<aside className="flex h-44 w-full shrink-0 flex-col border-b border-[var(--leros-control-border)] md:h-auto md:w-[280px] md:border-b-0 md:border-r">
-					<div className="border-b border-[var(--leros-control-border)] p-3">
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--lework-surface,#fff)] md:flex-row">
+				<aside className="flex h-44 w-full shrink-0 flex-col border-b border-[var(--lework-control-border)] md:h-auto md:w-[280px] md:border-b-0 md:border-r">
+					<div className="border-b border-[var(--lework-control-border)] p-3">
 						<div className="relative">
-							<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--leros-text-subtle)]" />
+							<Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--lework-text-subtle)]" />
 							<Input
 								value={search}
 								onChange={(event) => setSearch(event.target.value)}
@@ -405,7 +405,7 @@ export function DepartmentTreePanel() {
 					</div>
 					<div className="min-h-0 flex-1 overflow-y-auto p-2">
 						{loading ? (
-							<div className="flex items-center justify-center py-10 text-sm text-[var(--leros-text-subtle)]">
+							<div className="flex items-center justify-center py-10 text-sm text-[var(--lework-text-subtle)]">
 								<Loader2 className="mr-2 size-4 animate-spin" />
 								加载中...
 							</div>
@@ -429,10 +429,10 @@ export function DepartmentTreePanel() {
 				<section className="flex min-h-0 min-w-0 flex-1 flex-col p-3 sm:p-4 md:p-6">
 					<div className="mb-4 flex shrink-0 items-center justify-between gap-3 sm:mb-6">
 						<div>
-							<h2 className="text-lg font-semibold text-[var(--leros-text-strong)]">
+							<h2 className="text-lg font-semibold text-[var(--lework-text-strong)]">
 								{selectedDepartment?.name ?? "通讯录"}
 							</h2>
-							<p className="mt-1 text-sm text-[var(--leros-text-subtle)]">
+							<p className="mt-1 text-sm text-[var(--lework-text-subtle)]">
 								当前组织共有 {departmentCount} 个部门
 							</p>
 						</div>
@@ -448,16 +448,16 @@ export function DepartmentTreePanel() {
 					</div>
 
 					{membersLoading ? (
-						<div className="flex flex-1 items-center justify-center text-sm text-[var(--leros-text-subtle)]">
+						<div className="flex flex-1 items-center justify-center text-sm text-[var(--lework-text-subtle)]">
 							<Loader2 className="mr-2 size-4 animate-spin" />
 							加载成员中...
 						</div>
 					) : members.length === 0 ? (
-						<div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-[var(--leros-control-border)] bg-[var(--leros-surface-soft,#f6f8fc)] px-4 py-10 text-center sm:px-6">
-							<p className="text-sm text-[var(--leros-text-muted)]">暂无成员</p>
+						<div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-[var(--lework-control-border)] bg-[var(--lework-surface-soft,#f6f8fc)] px-4 py-10 text-center sm:px-6">
+							<p className="text-sm text-[var(--lework-text-muted)]">暂无成员</p>
 							{isDefaultUser ? (
 								<>
-									<p className="mt-2 max-w-sm text-xs leading-relaxed text-[var(--leros-text-subtle)]">
+									<p className="mt-2 max-w-sm text-xs leading-relaxed text-[var(--lework-text-subtle)]">
 										{isPrivateDeployment
 											? "点击下方按钮通过邮箱添加成员到当前组织"
 											: "点击下方按钮通过手机号添加成员到当前组织"}
@@ -473,13 +473,13 @@ export function DepartmentTreePanel() {
 									</Button>
 								</>
 							) : (
-								<p className="mt-2 max-w-sm text-xs leading-relaxed text-[var(--leros-text-subtle)]">
+								<p className="mt-2 max-w-sm text-xs leading-relaxed text-[var(--lework-text-subtle)]">
 									暂无成员，请联系组织管理员添加
 								</p>
 							)}
 						</div>
 					) : (
-						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--leros-control-border)] p-3 sm:p-4">
+						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--lework-control-border)] p-3 sm:p-4">
 							{/* 中文注释：固定列比例并截断过长文本，避免表格最小内容宽度触发横向滚动。 */}
 							<Table className="table-fixed">
 								<colgroup>
@@ -570,7 +570,7 @@ export function DepartmentTreePanel() {
 						<div className="mt-5 space-y-2">
 							<label
 								htmlFor="department-dialog-name"
-								className="text-sm font-medium text-[var(--leros-text-strong)]"
+								className="text-sm font-medium text-[var(--lework-text-strong)]"
 							>
 								部门名称
 							</label>
@@ -720,7 +720,7 @@ function AddMemberDialog({
 					<FieldWithError error={showNameError ? "请输入成员姓名" : undefined}>
 						<label
 							htmlFor="create-member-name"
-							className="text-sm font-medium text-[var(--leros-text-strong)]"
+							className="text-sm font-medium text-[var(--lework-text-strong)]"
 						>
 							姓名
 							<RequiredMark />
@@ -747,7 +747,7 @@ function AddMemberDialog({
 						>
 							<label
 								htmlFor="create-member-phone"
-								className="text-sm font-medium text-[var(--leros-text-strong)]"
+								className="text-sm font-medium text-[var(--lework-text-strong)]"
 							>
 								手机号
 								<RequiredMark />
@@ -776,7 +776,7 @@ function AddMemberDialog({
 						>
 							<label
 								htmlFor="create-member-email"
-								className="text-sm font-medium text-[var(--leros-text-strong)]"
+								className="text-sm font-medium text-[var(--lework-text-strong)]"
 							>
 								邮箱
 								<RequiredMark />
@@ -793,7 +793,7 @@ function AddMemberDialog({
 						<div className="space-y-2">
 							<label
 								htmlFor="create-member-email"
-								className="text-sm font-medium text-[var(--leros-text-strong)]"
+								className="text-sm font-medium text-[var(--lework-text-strong)]"
 							>
 								邮箱（选填）
 							</label>
@@ -807,7 +807,7 @@ function AddMemberDialog({
 					)}
 
 					<div className="space-y-2">
-						<span className="text-sm font-medium text-[var(--leros-text-strong)]">角色</span>
+						<span className="text-sm font-medium text-[var(--lework-text-strong)]">角色</span>
 						<Select
 							value={role}
 							onValueChange={(value) =>
@@ -822,7 +822,7 @@ function AddMemberDialog({
 								<SelectItem value="sys_admin">管理员</SelectItem>
 							</SelectContent>
 						</Select>
-						<p className="text-xs text-[var(--leros-text-subtle)]">
+						<p className="text-xs text-[var(--lework-text-subtle)]">
 							管理员可管理组织成员与部门，普通成员仅可浏览通讯录。
 						</p>
 					</div>
@@ -830,17 +830,17 @@ function AddMemberDialog({
 					<FieldWithError error={showDepartmentError ? "请选择所属部门" : undefined}>
 						<div className="flex min-h-0 flex-1 flex-col gap-2">
 							<div className="flex items-center justify-between">
-								<span className="text-sm font-medium text-[var(--leros-text-strong)]">
+								<span className="text-sm font-medium text-[var(--lework-text-strong)]">
 									所属部门
 									<RequiredMark />
 								</span>
-								<span className="text-xs text-[var(--leros-text-subtle)]">
+								<span className="text-xs text-[var(--lework-text-subtle)]">
 									已选 {selectedIds.length} 个
 								</span>
 							</div>
-							<div className="flex min-h-0 flex-1 flex-col gap-2 rounded-xl border border-[var(--leros-control-border)] p-3">
+							<div className="flex min-h-0 flex-1 flex-col gap-2 rounded-xl border border-[var(--lework-control-border)] p-3">
 								{selectedDepartments.length === 0 ? (
-									<p className="text-sm text-[var(--leros-text-subtle)]">暂未选择部门</p>
+									<p className="text-sm text-[var(--lework-text-subtle)]">暂未选择部门</p>
 								) : (
 									<ScrollArea className="flex-1">
 										<div className="flex flex-wrap gap-2">
@@ -951,7 +951,7 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 					<div className="space-y-2">
 						<label
 							htmlFor="edit-user-name"
-							className="text-sm font-medium text-[var(--leros-text-strong)]"
+							className="text-sm font-medium text-[var(--lework-text-strong)]"
 						>
 							用户名
 						</label>
@@ -963,7 +963,7 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 						/>
 					</div>
 					<div className="space-y-2">
-						<span className="text-sm font-medium text-[var(--leros-text-strong)]">
+						<span className="text-sm font-medium text-[var(--lework-text-strong)]">
 							{isPrivateDeployment ? "邮箱" : "手机号"}
 						</span>
 						<Input
@@ -972,7 +972,7 @@ function EditUserDialog({ member, submitting, onClose, onSubmit }: EditUserDialo
 						/>
 					</div>
 					<div className="space-y-2">
-						<span className="text-sm font-medium text-[var(--leros-text-strong)]">角色</span>
+						<span className="text-sm font-medium text-[var(--lework-text-strong)]">角色</span>
 						<Select
 							value={role}
 							onValueChange={(value) =>
@@ -1043,7 +1043,7 @@ function DepartmentPickerDialog({
 					style={{ paddingLeft: `${level * 16 + 8}px` }}
 				>
 					<Checkbox checked={checked} onCheckedChange={() => toggle(node.id)} />
-					<span className="min-w-0 flex-1 truncate text-sm text-[var(--leros-text)]">
+					<span className="min-w-0 flex-1 truncate text-sm text-[var(--lework-text)]">
 						{node.name}
 					</span>
 				</div>

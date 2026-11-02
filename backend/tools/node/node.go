@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/tools"
-	"github.com/insmtx/Leros/backend/tools/node/security"
+	"github.com/insmtx/Lework/backend/tools"
+	"github.com/insmtx/Lework/backend/tools/node/security"
 )
 
 const (

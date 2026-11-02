@@ -7,8 +7,8 @@ import {
 	getNativeFileInputAccept,
 	projectFileApi,
 	useDAStore,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -16,16 +16,16 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 import {
 	Sheet,
 	SheetContent,
 	SheetFooter,
 	SheetHeader,
 	SheetTitle,
-} from "@leros/ui/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@leros/ui/components/ui/tooltip";
-import { cn } from "@leros/ui/lib/utils";
+} from "@lework/ui/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@lework/ui/components/ui/tooltip";
+import { cn } from "@lework/ui/lib/utils";
 import {
 	ChartNoAxesCombined,
 	FileSearch,

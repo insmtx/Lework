@@ -5,10 +5,10 @@ import (
 
 	"github.com/google/go-github/v78/github"
 
-	interactionevent "github.com/insmtx/Leros/backend/pkg/event"
+	interactionevent "github.com/insmtx/Lework/backend/pkg/event"
 )
 
-// convertEvent converts GitHub events to Leros interaction events.
+// convertEvent converts GitHub events to Lework interaction events.
 func (c *Connector) convertEvent(eventType string, event any) *interactionevent.Event {
 	switch eventType {
 	case "issue_comment":
@@ -22,7 +22,7 @@ func (c *Connector) convertEvent(eventType string, event any) *interactionevent.
 	}
 }
 
-// convertIssueComment converts GitHub IssueCommentEvent to Leros Event.
+// convertIssueComment converts GitHub IssueCommentEvent to Lework Event.
 func (c *Connector) convertIssueComment(event *github.IssueCommentEvent) *interactionevent.Event {
 	payload := rawPayloadMap(event)
 	actor := event.GetSender().GetLogin()
@@ -43,7 +43,7 @@ func (c *Connector) convertIssueComment(event *github.IssueCommentEvent) *intera
 	}
 }
 
-// convertPullRequest converts GitHub PullRequestEvent to Leros Event.
+// convertPullRequest converts GitHub PullRequestEvent to Lework Event.
 func (c *Connector) convertPullRequest(event *github.PullRequestEvent) *interactionevent.Event {
 	if !isSupportedPullRequestAction(event.GetAction()) {
 		return nil
@@ -64,7 +64,7 @@ func (c *Connector) convertPullRequest(event *github.PullRequestEvent) *interact
 	}
 }
 
-// convertPush converts GitHub PushEvent to Leros Event.
+// convertPush converts GitHub PushEvent to Lework Event.
 func (c *Connector) convertPush(event *github.PushEvent) *interactionevent.Event {
 	payload := rawPayloadMap(event)
 	actor := event.GetSender().GetLogin()

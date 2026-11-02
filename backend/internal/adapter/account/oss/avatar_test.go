@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/insmtx/Leros/backend/types"
+	"github.com/insmtx/Lework/backend/types"
 )
 
 func TestResolveSingleAvatarMap_PlainURL(t *testing.T) {

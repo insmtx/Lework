@@ -1,8 +1,8 @@
 "use client";
 
-import type { ProjectTask } from "@leros/store";
-import { useLayoutStore } from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
+import type { ProjectTask } from "@lework/store";
+import { useLayoutStore } from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -10,7 +10,7 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@leros/ui/components/ui/dialog";
+} from "@lework/ui/components/ui/dialog";
 
 export type TaskDeleteDialogProps = {
 	task: ProjectTask;

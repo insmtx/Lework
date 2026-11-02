@@ -7,7 +7,7 @@
 LLM 协议转换内核已经拆分到公共包：
 
 ```go
-github.com/insmtx/Leros/backend/pkg/llmprotocol
+github.com/insmtx/Lework/backend/pkg/llmprotocol
 ```
 
 `llmprotocol` 负责 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini 与统一 IR 之间的请求/响应/流事件转换。
@@ -37,6 +37,6 @@ github.com/insmtx/Leros/backend/pkg/llmprotocol
 ## 调试
 
 ```bash
-export LEROS_MODELROUTER_DEBUG=true
+export LEWORK_MODELROUTER_DEBUG=true
 cat logs/modelrouter/<uuid>.jsonl
 ```

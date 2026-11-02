@@ -1,7 +1,7 @@
 import process from "node:process";
 import { runDesktopDist } from "./dist-run.mjs";
 
-process.env.VITE_LEROS_DEPLOYMENT_MODE = "private";
+process.env.VITE_LEWORK_DEPLOYMENT_MODE = "private";
 
 const builderArgs = process.argv.slice(2);
 

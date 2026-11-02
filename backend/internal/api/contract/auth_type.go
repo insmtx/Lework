@@ -1,6 +1,6 @@
 package contract
 
-import "github.com/insmtx/Leros/backend/internal/adapter/account"
+import "github.com/insmtx/Lework/backend/internal/adapter/account"
 
 type RegisterByEmailRequest struct {
 	account.RegisterByEmailInput

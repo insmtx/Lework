@@ -1,6 +1,6 @@
 package account
 
-import "github.com/insmtx/Leros/backend/pkg/accounterror"
+import "github.com/insmtx/Lework/backend/pkg/accounterror"
 
 var (
 	ErrDatabaseRequired            = accounterror.ErrDatabaseRequired

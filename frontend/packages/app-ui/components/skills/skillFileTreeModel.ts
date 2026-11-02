@@ -1,4 +1,4 @@
-import type { PluginRevisionFile } from "@leros/store";
+import type { PluginRevisionFile } from "@lework/store";
 
 export interface SkillFileTreeNode {
 	name: string;

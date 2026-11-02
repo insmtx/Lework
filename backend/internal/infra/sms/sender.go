@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/insmtx/Leros/backend/config"
+	"github.com/insmtx/Lework/backend/config"
 	"github.com/ygpkg/yg-go/logs"
 )
 

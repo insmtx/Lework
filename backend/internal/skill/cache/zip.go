@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/insmtx/Leros/backend/internal/skill/fetch"
+	"github.com/insmtx/Lework/backend/internal/skill/fetch"
 )
 
 // GenerateSkillZip creates a standard Skill zip archive from the SKILL.md content and

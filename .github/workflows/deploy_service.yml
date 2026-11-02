@@ -1,4 +1,4 @@
-name: Leros 测试环境部署
+name: Lework 测试环境部署
 on:
   workflow_dispatch:
     inputs:
@@ -6,17 +6,17 @@ on:
         description: '选择要部署的服务'
         required: true
         type: choice
-        default: 'leros'
+        default: 'lework'
         options:
-          - leros
-          - leros-worker
+          - lework
+          - lework-worker
 
 jobs:
-  leros_deploy:
+  lework_deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      PROJECT: leros
+      PROJECT: lework
       REGISTRY_HOST: ${{ secrets.DOCKER_REGISTRY_HOST }}
       ENV: test
       K8S_NS: insmtx-test

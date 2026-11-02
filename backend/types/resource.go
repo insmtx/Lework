@@ -92,15 +92,15 @@ type Resource struct {
 	gorm.Model
 
 	// OrgID 将资源限定在特定组织范围内。
-	OrgID uint `gorm:"column:org_id;type:bigint;not null;index:idx_leros_resource_org_type;uniqueIndex:ux_leros_resource_active_biz,where:deleted_at IS NULL"`
+	OrgID uint `gorm:"column:org_id;type:bigint;not null;index:idx_lework_resource_org_type;uniqueIndex:ux_lework_resource_active_biz,where:deleted_at IS NULL"`
 	// Uin 记录资源创建或归属用户，不作为最终权限来源。
-	Uin uint `gorm:"column:uin;type:bigint;not null;default:0;index:idx_leros_resource_uin"`
+	Uin uint `gorm:"column:uin;type:bigint;not null;default:0;index:idx_lework_resource_uin"`
 	// Type 是资源类型，PermissionService 按资源类型和动作判断权限。
-	Type ResourceType `gorm:"column:type;type:varchar(50);not null;index:idx_leros_resource_org_type;uniqueIndex:ux_leros_resource_active_biz,where:deleted_at IS NULL"`
+	Type ResourceType `gorm:"column:type;type:varchar(50);not null;index:idx_lework_resource_org_type;uniqueIndex:ux_lework_resource_active_biz,where:deleted_at IS NULL"`
 	// BizID 指向业务对象的内部 ID，例如 projects.id、文件 ID、artifact ID。
-	BizID uint `gorm:"column:biz_id;type:bigint;not null;uniqueIndex:ux_leros_resource_active_biz,where:deleted_at IS NULL"`
+	BizID uint `gorm:"column:biz_id;type:bigint;not null;uniqueIndex:ux_lework_resource_active_biz,where:deleted_at IS NULL"`
 	// ParentResourceID 指向父资源，用于继承权限。
-	ParentResourceID *uint `gorm:"column:parent_resource_id;type:bigint;index:idx_leros_resource_parent"`
+	ParentResourceID *uint `gorm:"column:parent_resource_id;type:bigint;index:idx_lework_resource_parent"`
 	// ParentResourcePathIDs 从根到父节点存储祖先资源 ID。
 	ParentResourcePathIDs ResourcePathIDs `gorm:"column:parent_resource_path_ids;type:bigint[];not null;default:'{}'"`
 }

@@ -6,10 +6,10 @@ import {
 	orgAdminApi,
 	projectFileApi,
 	useAuthStore,
-} from "@leros/store";
-import { Button } from "@leros/ui/components/ui/button";
-import { Input } from "@leros/ui/components/ui/input";
-import { Label } from "@leros/ui/components/ui/label";
+} from "@lework/store";
+import { Button } from "@lework/ui/components/ui/button";
+import { Input } from "@lework/ui/components/ui/input";
+import { Label } from "@lework/ui/components/ui/label";
 import { Building2, Camera, Loader2 } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -195,7 +195,7 @@ export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 
 	if (!user?.currentOrg) {
 		return (
-			<div className="py-8 text-sm text-[var(--leros-text-subtle)]">
+			<div className="py-8 text-sm text-[var(--lework-text-subtle)]">
 				请先登录并选择组织后再管理组织信息。
 			</div>
 		);
@@ -203,7 +203,7 @@ export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 
 	if (loading) {
 		return (
-			<div className="flex h-full items-center justify-center py-24 text-sm text-[var(--leros-text-subtle)]">
+			<div className="flex h-full items-center justify-center py-24 text-sm text-[var(--lework-text-subtle)]">
 				<Loader2 className="mr-2 size-4 animate-spin" />
 				加载中...
 			</div>
@@ -228,10 +228,10 @@ export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 
 	return (
 		<div className="flex w-full flex-col gap-5">
-			<section className="rounded-2xl border border-[var(--leros-control-border)] bg-[var(--leros-surface)] p-5 sm:p-6">
-				<div className="mb-5 border-b border-[var(--leros-control-border)] pb-4">
-					<h2 className="text-sm font-semibold text-[var(--leros-text-strong)]">组织标识</h2>
-					<p className="mt-1 text-xs leading-5 text-[var(--leros-text-subtle)]">
+			<section className="rounded-2xl border border-[var(--lework-control-border)] bg-[var(--lework-surface)] p-5 sm:p-6">
+				<div className="mb-5 border-b border-[var(--lework-control-border)] pb-4">
+					<h2 className="text-sm font-semibold text-[var(--lework-text-strong)]">组织标识</h2>
+					<p className="mt-1 text-xs leading-5 text-[var(--lework-text-subtle)]">
 						图标与名称会展示在侧栏、组织切换与协作场景中。
 					</p>
 				</div>
@@ -240,7 +240,7 @@ export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 					<div className="flex items-start gap-4">
 						<button
 							type="button"
-							className="group relative size-24 shrink-0 overflow-hidden rounded-2xl bg-[var(--leros-primary-softer)] ring-4 ring-slate-100"
+							className="group relative size-24 shrink-0 overflow-hidden rounded-2xl bg-[var(--lework-primary-softer)] ring-4 ring-slate-100"
 							onClick={() => fileInputRef.current?.click()}
 							disabled={uploadingLogo}
 							aria-label="上传组织图标"
@@ -262,8 +262,8 @@ export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 								)}
 							</span>
 						</button>
-						<div className="min-w-0 space-y-1.5 pt-1 text-xs leading-5 text-[var(--leros-text-subtle)]">
-							<p className="flex items-center gap-1.5 font-medium text-[var(--leros-text-muted)]">
+						<div className="min-w-0 space-y-1.5 pt-1 text-xs leading-5 text-[var(--lework-text-subtle)]">
+							<p className="flex items-center gap-1.5 font-medium text-[var(--lework-text-muted)]">
 								<Building2 className="size-3.5" />
 								组织图标
 							</p>
@@ -283,7 +283,7 @@ export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="org-profile-name" className="text-xs text-[var(--leros-text-muted)]">
+						<Label htmlFor="org-profile-name" className="text-xs text-[var(--lework-text-muted)]">
 							组织名称 <span className="text-red-500">*</span>
 						</Label>
 						<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -297,7 +297,7 @@ export function OrgProfilePanel({ active = true }: { active?: boolean }) {
 							/>
 							{actions}
 						</div>
-						<p className="text-xs text-[var(--leros-text-subtle)]">
+						<p className="text-xs text-[var(--lework-text-subtle)]">
 							用于成员识别当前组织，建议使用公司或团队正式名称。
 						</p>
 					</div>
