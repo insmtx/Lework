@@ -1,0 +1,5 @@
+@import "@lework/styles/globals.css";
+
+@source "./**/*.{ts,tsx}";
+@source "../components/**/*.{ts,tsx}";
+@source "../lib/**/*.{ts,tsx}";

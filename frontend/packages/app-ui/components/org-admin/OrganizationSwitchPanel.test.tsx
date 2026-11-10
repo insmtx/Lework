@@ -102,13 +102,13 @@ describe("OrganizationSwitchPanel", () => {
 
 		await waitFor(() => {
 			expect(mockSwitchOrganization).toHaveBeenCalledWith(10002);
-			expect(goToRoute).toHaveBeenCalledWith("workbench");
+			expect(goToRoute).toHaveBeenCalledWith("chat");
 		});
 		// 中文注释：新路由尚未到达时保留切换层，避免短暂露出旧组织页面。
 		expect(onDone).not.toHaveBeenCalled();
 		rerender(
 			<OrganizationSwitchPanel
-				navigation={{ currentPath: "/workbench", goToRoute } as never}
+				navigation={{ currentPath: "/chat", goToRoute } as never}
 				onDone={onDone}
 				active
 			/>,

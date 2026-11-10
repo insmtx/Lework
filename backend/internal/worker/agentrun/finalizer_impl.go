@@ -165,11 +165,11 @@ func collectArtifacts(
 		if agentworkspace.IsRuntimeInternalPath(record.RelativePath) {
 			continue
 		}
-		absPath, resolveErr := agentworkspace.SafeJoin(plan.RepoDir, record.RelativePath)
-		if resolveErr != nil {
+		if _, resolveErr := agentworkspace.SafeJoin(plan.RepoDir, record.RelativePath); resolveErr != nil {
 			continue
 		}
-		if agentworkspace.ShouldSkipArtifactFile(absPath) {
+		// 只按仓库相对路径判断排除目录，避免工作区位于 /tmp 时误伤。
+		if agentworkspace.ShouldSkipArtifactFile(record.RelativePath) {
 			continue
 		}
 		filtered = append(filtered, record)

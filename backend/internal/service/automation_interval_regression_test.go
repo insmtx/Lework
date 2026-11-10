@@ -30,13 +30,16 @@ func TestComputeOccurrenceWindow_IntervalUTCNoDrift(t *testing.T) {
 	if !w.LatestDue.Equal(wantDue) {
 		t.Fatalf("LatestDue(CST)=%s, want 15:30 CST", w.LatestDue.In(loc).Format("15:04:05"))
 	}
+	// oldNext=15:20，now=15:34：15:20、15:25、15:30 三个周期到期，
+	// 折叠较早的两个，只保留 LatestDue=15:30，missed=1。
+	if w.MissedCount != 1 {
+		t.Fatalf("MissedCount=%d, want 1（被折叠的更早周期）", w.MissedCount)
+	}
 }
 
-// TestComputeOccurrenceWindow_IntervalOflItContinuousStep 验证 interval 采用"固定步长 from 上次触发"语义：
-// 锚点网格语义：anchor_at=00:00 是真起点，网格 = 00:00/00:05/...。
-// oldNext(15:22) 即使不在整刻度，仍锚定到 anchor 网格，不被保存时刻漂移。
-// now=15:34 → Next=15:35（00:00 起算的最近 >now 刻度），LatestDue=15:30，missed = k-1 个整周期。
-func TestComputeOccurrenceWindow_IntervalAnchorGrid(t *testing.T) {
+// TestComputeOccurrenceWindow_IntervalFromOriginOneDueNoMissed 验证 v2 interval
+// 以 oldNextRunAt 为游标：15:25 之后只有 15:30 一个到期点，missed 必须为 0。
+func TestComputeOccurrenceWindow_IntervalFromOriginOneDueNoMissed(t *testing.T) {
 	loc := mustLoc(t)
 	oldNextUTC := time.Date(2026, 8, 6, 15, 25, 0, 0, loc).UTC() // 15:25
 	now := time.Date(2026, 8, 6, 15, 34, 0, 0, loc).UTC()        // 15:34
@@ -51,14 +54,13 @@ func TestComputeOccurrenceWindow_IntervalAnchorGrid(t *testing.T) {
 
 	want := time.Date(2026, 8, 6, 15, 35, 0, 0, loc).UTC()
 	if !w.Next.Equal(want) {
-		t.Fatalf("Next(CST)=%s, want 15:35 CST (锚点网格)", w.Next.In(loc).Format("15:04:05"))
+		t.Fatalf("Next(CST)=%s, want 15:35 CST", w.Next.In(loc).Format("15:04:05"))
 	}
 	wantDue := time.Date(2026, 8, 6, 15, 30, 0, 0, loc).UTC()
 	if !w.LatestDue.Equal(wantDue) {
 		t.Fatalf("LatestDue(CST)=%s, want 15:30 CST", w.LatestDue.In(loc).Format("15:04:05"))
 	}
-	// 从 15:00(第180个5分钟) 到 15:35 之间：15:05..15:35 共有 186 个完整周期
-	if w.MissedCount <= 0 {
-		t.Fatalf("MissedCount=%d, want >0（被折叠的整周期）", w.MissedCount)
+	if w.MissedCount != 0 {
+		t.Fatalf("MissedCount=%d, want 0（只有一个到期点）", w.MissedCount)
 	}
 }

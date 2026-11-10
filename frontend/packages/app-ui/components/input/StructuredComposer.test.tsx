@@ -370,11 +370,11 @@ describe("StructuredComposer", () => {
 			<ConnectorActionBarHarness
 				connectorOptions={[
 					{
-						code: "payroll-user",
-						label: "Payroll",
+						code: "demo-user",
+						label: "Demo",
 						description: "",
 						keywords: [],
-						pluginId: "plugin-payroll",
+						pluginId: "plugin-demo",
 						projectAssociated: true,
 					},
 				]}
@@ -386,7 +386,7 @@ describe("StructuredComposer", () => {
 
 		expect(onConnectorPickerOpen).toHaveBeenCalledTimes(1);
 		expect(screen.getByText("已选连接器")).toBeInTheDocument();
-		expect(screen.getAllByText("Payroll")).toHaveLength(1);
+		expect(screen.getAllByText("Demo")).toHaveLength(1);
 	});
 
 	it("未绑定项目的连接器仍显示为可选", async () => {
@@ -395,11 +395,11 @@ describe("StructuredComposer", () => {
 			<ConnectorActionBarHarness
 				connectorOptions={[
 					{
-						code: "payroll-user",
-						label: "Payroll",
+						code: "demo-user",
+						label: "Demo",
 						description: "",
 						keywords: [],
-						pluginId: "plugin-payroll",
+						pluginId: "plugin-demo",
 						projectAssociated: false,
 					},
 				]}
@@ -410,7 +410,7 @@ describe("StructuredComposer", () => {
 
 		expect(screen.queryByText("已选连接器")).not.toBeInTheDocument();
 		expect(screen.getByText("可选连接器")).toBeInTheDocument();
-		expect(screen.getByText("Payroll")).toBeInTheDocument();
+		expect(screen.getByText("Demo")).toBeInTheDocument();
 	});
 
 	it("普通会话手动选择的连接器仍进入已选列表", async () => {
@@ -419,21 +419,21 @@ describe("StructuredComposer", () => {
 			<ConnectorActionBarHarness
 				connectorOptions={[
 					{
-						code: "payroll-user",
-						label: "Payroll",
+						code: "demo-user",
+						label: "Demo",
 						description: "",
 						keywords: [],
-						pluginId: "plugin-payroll",
+						pluginId: "plugin-demo",
 					},
 				]}
-				selectedConnectorIds={["plugin-payroll"]}
+				selectedConnectorIds={["plugin-demo"]}
 			/>,
 		);
 
 		await user.click(screen.getByRole("button", { name: /添加连接器/ }));
 
 		expect(screen.getByText("已选连接器")).toBeInTheDocument();
-		expect(screen.getAllByText("Payroll")).toHaveLength(1);
+		expect(screen.getAllByText("Demo")).toHaveLength(1);
 	});
 
 	it("中文输入法组合中按 Enter 不会触发发送", () => {

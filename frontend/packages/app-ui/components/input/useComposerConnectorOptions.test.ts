@@ -18,7 +18,7 @@ function mcpPlugin(code: string, name: string): PluginListItem {
 const ORG_LIST_RESPONSE = {
 	data: {
 		code: 0,
-		data: { plugins: [mcpPlugin("github", "GitHub"), mcpPlugin("payroll-org-user", "Payroll")] },
+		data: { plugins: [mcpPlugin("github", "GitHub"), mcpPlugin("demo-org-user", "Demo")] },
 	},
 } as Awaited<ReturnType<typeof pluginApi.list>>;
 
@@ -40,7 +40,7 @@ describe("loadComposerConnectorOptions", () => {
 		expect(result.error).toBeNull();
 		expect(result.options).toHaveLength(2);
 		expect(result.options[0]?.pluginId).toBe("connector_github");
-		expect(result.options[1]?.pluginId).toBe("connector_payroll-org-user");
+		expect(result.options[1]?.pluginId).toBe("connector_demo-org-user");
 		expect(result.options[0]?.label).toBe("GitHub");
 		expect(result.options[0]?.source).toBe("organization");
 		expect(result.options[0]?.projectAssociated).toBe(false);

@@ -77,3 +77,10 @@ deployments/helm/lework/values.yaml
 .cursor
 .dsh/
 backend/lework
+
+# Control plane browser export is generated before a release build.
+frontend/apps/control-plane/.next/
+frontend/apps/control-plane/out/
+backend/internal/controlplane/webui/dist/*
+!backend/internal/controlplane/webui/dist/.gitkeep
+deployments/dev*/

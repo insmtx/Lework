@@ -87,6 +87,10 @@ export type CreateInitialMessageParams = {
 	scene?: string;
 	/** 工具场景要求生成的最终交付格式，例如 docx、pdf、pptx、md */
 	output_format?: string;
+	/** 新建任务时直接写入的预期产出。 */
+	expected_output?: string;
+	/** 新建任务时直接写入的验收标准。 */
+	acceptance_criteria?: string;
 	metadata?: BackendMessageMetadata;
 	attachments?: OutgoingMessageAttachment[];
 };

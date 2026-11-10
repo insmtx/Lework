@@ -23,10 +23,16 @@ type Task struct {
 
 	AssigneeID *uint `gorm:"column:assignee_id;type:bigint;index"`
 
-	Title       string     `gorm:"column:title;type:varchar(500);not null"`
-	Description string     `gorm:"column:description;type:text"`
-	Status      string     `gorm:"column:status;type:varchar(50);not null;default:'created';index"`
-	Deadline    *time.Time `gorm:"column:deadline;index"`
+	Title              string     `gorm:"column:title;type:varchar(500);not null"`
+	Description        string     `gorm:"column:description;type:text"`
+	ExpectedOutput     string     `gorm:"column:expected_output;type:text"`
+	AcceptanceCriteria string     `gorm:"column:acceptance_criteria;type:text"`
+	ResultSummary      string     `gorm:"column:result_summary;type:text"`
+	Status             string     `gorm:"column:status;type:varchar(50);not null;default:'created';index"`
+	Deadline           *time.Time `gorm:"column:deadline;index"`
+	AcceptedBy         *uint      `gorm:"column:accepted_by;type:bigint"`
+	AcceptedAt         *time.Time `gorm:"column:accepted_at"`
+	AcceptanceNote     string     `gorm:"column:acceptance_note;type:text"`
 
 	// cron 任务的自动化执行记录主键，BIGINT，可空，唯一索引（防止 Dispatcher 重试重复建 Task）
 	AutomationExecutionID *uint `gorm:"column:automation_execution_id;type:bigint;index"`

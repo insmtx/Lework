@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### 单节点 OpenCode 控制面浏览器工作流
+
+I1-B 把控制面从 API 原型补成可在浏览器完成的单节点日常流程。
+
+- `lework serve` 内嵌 Next.js 静态界面，浏览器无需单独启动前端服务
+- Session 级 diff、文件浏览与 512 KiB 截断读取
+- 通过同源 WebSocket 提供 Session 绑定 PTY，支持输入、resize 与退出
+- 新增中断、权限卡片、工具卡片和 SSE `resync` 快照校准
+- 单二进制同时提供 `lework serve` 与 `lework agent`，节点无需入站端口
+
 ## [v0.7.0] - 2026-10-21
 
 ### 薪资核算独立页与考勤核对确认
