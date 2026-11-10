@@ -656,7 +656,7 @@ enrollment_tokens
 
 ---
 
-## 5. 控制面 API（草案）
+## 5. 控制面 API
 
 ### 5.1 节点与 agent
 

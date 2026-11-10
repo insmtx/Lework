@@ -84,7 +84,7 @@ lework agent (`lework agent`) ──► opencode serve (127.0.0.1)
 ```
 
 - Control plane: node registry, event hub, browser API, agent gateway, SQLite storage;
-- Node side: `lework agent` handles registration, heartbeat, OpenCode supervision, Git, PTY, and local proxy;
+- Node side: `lework agent` handles registration, heartbeat, OpenCode supervision, PTY, and local proxy (Git/config are I3/I4);
 - Source of truth: sessions, messages, diffs, approvals, and files all come from OpenCode.
 
 See [Architecture overview](docs/architecture/overview.md) and [As-built baseline](docs/architecture/as-built.md).
@@ -197,7 +197,7 @@ go vet ./...
 | [docs/operations/troubleshooting.md](docs/operations/troubleshooting.md) | Troubleshooting |
 | [docs/operations/project-structure.md](docs/operations/project-structure.md) | Repository structure index |
 | [docs/README.md](docs/README.md) | Documentation rules and index |
-| [frontend/README.md](frontend/README.md) | Frontend development guide |
+| [docs/frontend/overview.md](docs/frontend/overview.md) | Control-plane frontend architecture |
 | [lework.ai](https://lework.ai/) | Lework website |
 
 ## Contributing

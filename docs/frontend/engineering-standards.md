@@ -1,6 +1,8 @@
 # 工程规范
 
-本文档详细描述 Lework 前端的工程规范。
+> 适用范围：旧 Web/Desktop 应用（`frontend/apps/web`、`frontend/apps/desktop`）。控制面开发见 [overview.md](overview.md)。
+
+本文档详细描述 Lework 旧前端的工程规范。
 
 ## Monorepo 命令
 

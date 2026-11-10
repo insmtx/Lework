@@ -84,7 +84,7 @@ lework agent (`lework agent`) ──► opencode serve (127.0.0.1)
 ```
 
 - 控制面：节点注册表、事件中心、浏览器 API、agent 网关、SQLite 存储；
-- 节点侧：`lework agent` 负责注册、心跳、OpenCode 监管、Git、PTY 与本地代理；
+- 节点侧：`lework agent` 负责注册、心跳、OpenCode 监管、PTY 与本地代理（Git/配置能力见 I3/I4）；
 - 数据真相：Session、消息、diff、权限、文件均以 OpenCode 为准。
 
 详见 [架构概览](docs/architecture/overview.md) 与 [当前实现基线](docs/architecture/as-built.md)。
@@ -197,7 +197,7 @@ go vet ./...
 | [docs/operations/troubleshooting.md](docs/operations/troubleshooting.md) | 排障 |
 | [docs/operations/project-structure.md](docs/operations/project-structure.md) | 仓库结构索引 |
 | [docs/README.md](docs/README.md) | 文档规范与索引 |
-| [frontend/README.md](frontend/README.md) | 前端开发指南 |
+| [docs/frontend/overview.md](docs/frontend/overview.md) | 控制面前端架构 |
 | [lework.ai](https://lework.ai/) | Lework 官网 |
 
 ## 贡献指南

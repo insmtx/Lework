@@ -16,7 +16,7 @@ Build / check / test (run from repo root):
 - `./bundles/lework agent --config /etc/lework/agent.yaml` — run the node agent (OpenCode supervisor); config defaults to the platform agent.yaml path.
 - `make run` / `make run-detached` / `make stop` / `make logs` — docker-compose stack at `deployments/env/docker-compose.yml`.
 - `make dev-setup` — one-time dev bootstrap (see `deployments/dev/dev-setup.sh`); `make dev-server` / `make dev-worker` / `dev-frontend` run each process locally.
-- `make swagger` — generate swagger into `docs/swagger/` from `backend/cmd/lework/server.go` (+ handler/api/types dirs). Only output location is `docs/swagger/`.
+- `make swagger` — generate legacy `/v1` swagger into `docs/swagger/` from `backend/cmd/lework/server.go`; the control plane does not generate swagger.
 
 Test (no `make test` target exists — CONTRIBUTING.md is wrong on this):
 - `go test ./...` — all (excludes `//go:build integration` and `enterprise` files by default).
@@ -37,7 +37,7 @@ Order when finishing a change: `gofmt -s` → `go vet` → `go build ./...` → 
 Two builds share one codebase, selected via `//go:build` tags:
 - Default (`!enterprise`): builtin auth (email/phone/Worker Token) from `backend/internal/adapter/account/oss/`.
 - `enterprise`: auth delegated to IAM service from `backend/internal/adapter/account/enterprise/` (+ IAM config in `config.yaml`).
-Gate at `backend/internal/adapter/edition.go`. Never import `oss/` from `enterprise/` files or vice versa. README "认证体系" documents the user-facing side.
+Gate at `backend/internal/adapter/edition.go`. Never import `oss/` from `enterprise/` files or vice versa. 旧企业版认证的配置说明见归档文档；控制面不使用这两套认证。
 
 `integration` is a separate tag for DB/NATS-dependent tests (`backend/internal/testutil/`).
 

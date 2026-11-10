@@ -13,7 +13,7 @@
 
 ## 尚未实现
 
-- 多节点调度与跨节点 Git 任务上下文（I3）。
+- 多节点调度（I2）与跨节点 Git 任务上下文（I3）。
 - 配置 / Action / 插件 / MCP 的写入与回滚（I4）。
 - TUI 与 Lework 共享同一 OpenCode service（I1 剩余）。
 - macOS launchd / Windows Service 与 ConPTY（I2）。
@@ -28,4 +28,4 @@
 
 ## 验证状态
 
-- 以 `docs/operations/control-plane.md` 的 I1-B 说明为准；I0 结论见 `design/2026-11-01-i0-findings.md`。
+- 以 `docs/operations/control-plane.md` 的 I1-B 说明为准；I0 结论见 `../design/2026-11-01-i0-findings.md`。

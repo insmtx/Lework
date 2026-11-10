@@ -51,7 +51,7 @@
 | 文档 | 说明 |
 |------|------|
 | [frontend/overview.md](frontend/overview.md) | 控制面浏览器界面架构 |
-| [frontend/engineering-standards.md](frontend/engineering-standards.md) | 前端工程规范（如仍适用） |
+| [frontend/engineering-standards.md](frontend/engineering-standards.md) | 旧 Web/Desktop 工程规范（历史，控制面见 overview.md） |
 
 ### 运维与规范
 

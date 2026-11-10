@@ -89,5 +89,6 @@ PTY WebSocket 的二进制帧是终端输入/输出；文本帧只承载
 - Diff 依赖 OpenCode 对 git 工作区的快照。非 git 目录可能返回空 diff。
 - 终端绑定到 Session，不提供任意路径的通用终端；目录必须位于
   `workspace_roots` 内。
-- 会话和节点状态以控制面 SQLite 为准；节点心跳更新 `last_seen`，但
+- 节点注册记录与 `last_seen` 存在控制面 SQLite；Session、消息、diff、权限以
+  OpenCode 为准，控制面只做透传与索引。节点心跳更新 `last_seen`，但
   `connected` 取实时注册表。
