@@ -3,6 +3,8 @@
 Compact guidance for AI agents working in the Lework repo. Verified against the codebase on the date below; trust executable sources over any prose here if they conflict.
 
 > Module path: `github.com/insmtx/Lework`. Go 1.25.0.
+>
+> 产品定位：**个人用户、单用户多节点 OpenCode 控制面**。企业级仅作宣传层，不作为当前能力承诺。旧企业版/项目制文档见 `docs/archive/`。
 
 ## Commands
 
@@ -10,6 +12,7 @@ Build / check / test (run from repo root):
 - `go build -o ./bundles/lework ./backend/cmd/lework/` — build server (builtin/OSS auth). The same binary also exposes the node agent as `lework agent`.
 - `go build -tags enterprise -o ./bundles/lework ./backend/cmd/lework/` — enterprise build (auth delegated to IAM). See "Editions" below.
 - `make build` — same as builtin build with `-ldflags="-s -w"`.
+- `./bundles/lework serve --listen 127.0.0.1:8787 --db ~/.config/Lework/controlplane.db` — run the control plane (local browser UI; loopback by default).
 - `./bundles/lework agent --config /etc/lework/agent.yaml` — run the node agent (OpenCode supervisor); config defaults to the platform agent.yaml path.
 - `make run` / `make run-detached` / `make stop` / `make logs` — docker-compose stack at `deployments/env/docker-compose.yml`.
 - `make dev-setup` — one-time dev bootstrap (see `deployments/dev/dev-setup.sh`); `make dev-server` / `make dev-worker` / `dev-frontend` run each process locally.
@@ -43,11 +46,16 @@ Gate at `backend/internal/adapter/edition.go`. Never import `oss/` from `enterpr
 | Layer | Path | May | May NOT |
 |---|---|---|---|
 | Process entry | `backend/cmd/lework/` | cobra commands, `lifecycle.Std().WaitExit()` / `.AddCloseFunc()` / `.Exit()`, signal handling, `log.Fatal` | business logic |
-| Execution core | `backend/agent/**` | generic exec contracts, Runtime Adapter, Tool/Interaction/NodeEvent, internal process wiring | SingerOS business, NATS, business DB, Server API, Worker identity, process lifecycle |
+| Control plane | `backend/internal/controlplane/**` | node registry, event hub, browser API, agent gateway, SQLite index, UI preferences | business execution, copying OpenCode session state, org/RBAC |
+| Node agent | `backend/internal/agentd/**` | registration, heartbeat, OpenCode supervision, PTY, WSS transport | business state, direct UI state |
+| Execution core (legacy) | `backend/agent/**` | old enterprise Runtime/Adapter/Tool contracts | being used by the control plane |
 | Library code | `backend/internal/**` | business logic; surface failures via returned `error` | `os.Exit()`, `lifecycle.Std()`, `log.Fatal`, `panic`, signals, cobra deps |
 | Shared types | `backend/types/`, `backend/config/` | domain types, config structs | any business logic or external deps |
 
 Practical points:
+- 控制面是唯一主线：`controlplane` 只持有节点索引、事件路由与 UI 偏好；Session / 消息 / diff / 权限 / 文件以 OpenCode 为准，不得复制成第二状态机。
+- 节点无入站端口：`agentd` 主动出站 WSS；控制面不得直接连 OpenCode，也不要求 SSH。
+- 旧企业版模块（`backend/agent/**`、`internal/worker/**`、`tools/**`、`modelrouter`）保留但不再是主线；与控制面冲突时直接删除。
 - `internal/**` packages must not know whether they run in server, worker, or CLI — process lifecycle belongs to `cmd/`. The `lifecycle` package is third-party (`github.com/ygpkg/yg-go/lifecycle`), not under `backend/`.
 - `agent/**` is business-agnostic. A Runtime may use an API key to execute a request but must never write API keys into NodeEvent/RunEvent/Journal/NATS/logs/error text.
 - Directory names mislead: `backend/internal/cli` is *library code* for CLI-related logic — it is NOT a process entry and must not own lifecycle.
@@ -66,14 +74,18 @@ Practical points:
   - 数据回填 → 参考已有的 `backfillXxx` 函数模式新增迁移函数，在 `runMigrations` 中按依赖顺序调用。
   - GORM AutoMigrate **不会删除列、不会重命名列**，这些必须手动处理。
 
-## Modelrouter — ignore stale v1/v2 claims
+## Modelrouter — legacy, not used by the control plane
 
-Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1) is deprecated in favor of `modelrouter/v2`. **`modelrouter/v2` does not exist.** The real package is `backend/internal/modelrouter/` and is actively used by `cmd/lework/server.go`, `cmd/lework/worker.go`, `internal/worker/router`, `internal/worker/agentrun`, and several `internal/service/*` files (Invoker interface, ModelStore, proxy). A future refactor may move it to `backend/internal/llm/proxy/` (see `docs/design/unified-llm-package.md`), but until then treat `modelrouter` as the source of truth. `backend/internal/llm/` is a newer unified LLM layer (CallRequest/CallResult, recorder, usage) coexisting with it.
+> 控制面不依赖 `modelrouter`。以下仅适用于旧企业版模块。
+
+Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1) is deprecated in favor of `modelrouter/v2`. **`modelrouter/v2` does not exist.** The real package is `backend/internal/modelrouter/` and is used by the legacy `cmd/lework/server.go`, `cmd/lework/worker.go`, `internal/worker/router`, `internal/worker/agentrun`, and several `internal/service/*` files (Invoker interface, ModelStore, proxy). Treat `modelrouter` as the source of truth for those legacy paths. `backend/internal/llm/` is a newer unified LLM layer (CallRequest/CallResult, recorder, usage) coexisting with it.
 
 ## Where things actually live (structure evolved; README/old docs lag)
 
-- `backend/cmd/lework/` — cobra entrypoint. Files: `server.go`, `worker.go`, `chat.go`, `session.go`, `task.go`, `project.go`, `skill.go`, `login.go`/`logout.go`/`register.go`; node-agent CLI lives in `agent.go`/`agent_run.go` and is exposed as `lework agent`.
+- `backend/cmd/lework/` — cobra entrypoint. 控制面入口 `serve.go`（`lework serve`）；节点入口 `agent.go`/`agent_run.go`（`lework agent`）；旧命令 `server.go`、`worker.go`、`chat.go`、`session.go`、`task.go`、`project.go`、`skill.go`、`login.go`/`logout.go`/`register.go`。
+- `backend/internal/controlplane/` — 控制面：`node`（注册表）、`event`（事件中心）、`api`（浏览器 API）、`agentgw`（agent 网关）、`store`（SQLite）、`webui`（内嵌界面）。
 - `backend/internal/agentd/` — node-agent daemon: protocol, OpenCode HTTP/SSE client, process supervisor, request handler, runner, WSS transport, config.
+- `frontend/apps/control-plane/` — 当前浏览器界面。`frontend/apps/{web,desktop}/` 为旧产品，暂不维护。
 - `backend/internal/` — adapter (account/oss|enterprise, edition), api (auth, connectors, contract, dto, handler, middleware, router), cli, consts (only `paths.go`), infra (db, filestore, git, gitea, mq, providers, sms, websocket), integration (feishu), llm, memory, modelrouter, projectfile, runnable, service, skill (catalog, store, links, builtin, cache, fetch, token.go), testutil, worker (agentrun, app, command, eventpub, identity, mcp, router, run, runtimehost, scheduler, server, wsproto), workspace.
 - `backend/agent/` — execution core (runtime, adapter, executor, registry, interaction, node_event, observe, tool). `agent/runtime/` holds concrete runtimes: `native`, `claude`, `codex`, `opencode`.
 - `backend/internal/api/connectors/` — webhook/channel connectors (`github`, `gitlab`, `wework`). GitHub webhook handling lives here, not in a top-level `interaction/connectors/` tree as old docs claim.
@@ -110,7 +122,7 @@ Older docs (and prior AGENTS revisions) claim `backend/internal/modelrouter` (v1
 ## Docs
 
 - `docs/README.md` — doc index/spec. Consult first for unfamiliar tasks.
-- Architecture: `docs/architecture/{overview,backend,agent-runtime,workspace-artifact,mq-subject,system-design,design-philosophy}.md` (plus `Lework 权限与资源占用设计文档.md` and `lework-architecture.html`).
-- Design notes under `docs/design/` include multi-phase refactor plans (e.g. `unified-llm-package*.md`) — treat as proposals, not implemented state.
+- 当前主线：`docs/product/{overview,roadmap,current-limitations}.md`、`docs/architecture/{overview,as-built,agent-runtime}.md`、`docs/operations/control-plane.md`。
+- `docs/archive/` — 旧企业版 / 项目制文档，仅历史参考，不再维护；不要从这里推断当前实现。
+- `docs/design/2026-11-01-i0-findings.md` — I0 技术验证结论。
 - `docs/operations/project-structure.md` is the most accurate structural reference; `CHANGELOG.md` records history.
-- `docs/product/` holds `prd.md`/`planning.md`/`todo.md`; `docs/design/tech-design.md` (not `docs/TECH_DESIGN.md`). README links `docs/PRD.md`, `docs/ARCHITECTURE.md` etc. by basename, but those root-level files do not exist — the real files are under `docs/<category>/`. Prefer the subpathed versions.
