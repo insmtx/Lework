@@ -199,6 +199,28 @@ func handshake(t *testing.T, client *transport.Client, name string) (string, pro
 	return result.NodeID, welcome
 }
 
+// awaitRegistered 等待节点出现在注册表里。
+//
+// 网关刻意按「先写出 welcome、再登记注册表」的顺序工作，客户端读到 welcome
+// 时登记可能尚未完成；直接断言会让用例随调度顺序偶发失败。
+func awaitRegistered(t *testing.T, env *gatewayEnv, nodeID string) node.Info {
+	t.Helper()
+
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if info, ok := env.registry.Get(nodeID); ok {
+			return info
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("node %q was not registered within 3s", nodeID)
+		case <-ticker.C:
+		}
+	}
+}
+
 func listNodes(t *testing.T, st *store.Store) []store.Node {
 	t.Helper()
 
@@ -276,10 +298,7 @@ func TestHelloRegistersNodeAndSendsWelcome(t *testing.T) {
 		t.Fatalf("capabilities = %v, want 3 entries", nodes[0].Capabilities)
 	}
 
-	info, ok := env.registry.Get(nodeID)
-	if !ok {
-		t.Fatalf("registry has no node %q", nodeID)
-	}
+	info := awaitRegistered(t, env, nodeID)
 	if !info.Connected {
 		t.Fatal("registered node is not connected")
 	}
@@ -316,9 +335,9 @@ func TestReconnectWithSameNameReusesNodeID(t *testing.T) {
 	if nodes := listNodes(t, env.store); len(nodes) != 1 {
 		t.Fatalf("stored nodes = %d, want 1 after reconnect", len(nodes))
 	}
-	info, ok := env.registry.Get(firstID)
-	if !ok || !info.Connected {
-		t.Fatalf("registry entry = %+v (ok=%v), want connected", info, ok)
+	info := awaitRegistered(t, env, firstID)
+	if !info.Connected {
+		t.Fatalf("registry entry = %+v, want connected", info)
 	}
 }
 
@@ -644,7 +663,9 @@ func TestOversizedFrameClosesConnection(t *testing.T) {
 // TestHeartbeatTimeoutClosesNodeAndFailsPendingRequests 覆盖静默节点的唯一
 // 存活检测路径：心跳超时 -> 连接关闭 -> 待处理请求失败 -> 注册表移除。
 func TestHeartbeatTimeoutClosesNodeAndFailsPendingRequests(t *testing.T) {
-	env := newGatewayEnvConfig(t, 100*time.Millisecond, nil)
+	// 心跳窗口要覆盖握手、请求 goroutine 启动和首帧写出；窗口太紧时，
+	// 负载下连接会在请求帧到达前被判定超时，用例随机失败。
+	env := newGatewayEnvConfig(t, time.Second, nil)
 	client := env.connect(t)
 	nodeID, _ := handshake(t, client, "dev-box")
 
