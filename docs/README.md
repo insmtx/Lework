@@ -65,7 +65,7 @@
 
 | 目录 | 说明 |
 |------|------|
-| [archive/README.md](archive/README.md) | 企业版 / 项目制 AI 队友阶段文档，仅历史参考 |
+| [archive/README.md](archive/README.md) | 企业版阶段历史文档，仅历史参考 |
 
 ## 新增文档指引
 
