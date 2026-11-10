@@ -207,6 +207,9 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 	const sendingRef = useRef(false);
 	const [input, setInput] = useState("");
 	const [executionMode, setExecutionMode] = useState<"default" | "plan">("default");
+	const [taskDetailsOpen, setTaskDetailsOpen] = useState(false);
+	const [taskExpectedOutput, setTaskExpectedOutput] = useState("");
+	const [taskAcceptanceCriteria, setTaskAcceptanceCriteria] = useState("");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const hasUploadingAttachments = attachments.some(
 		(attachment) => attachment.uploadStatus === "uploading",
@@ -324,6 +327,8 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 				: prepared.metadata;
 			// 中文注释：NewMessage 后端按 publicId 字符串数组解析 assistant_ids。
 			const mentionedAssistantIds = mentionedAssistant ? [mentionedAssistant.id] : undefined;
+			const expectedOutput = taskExpectedOutput.trim();
+			const acceptanceCriteria = taskAcceptanceCriteria.trim();
 			const data = await sendWorkbenchMessage(
 				prepared.content,
 				activeWorkbenchProjectId,
@@ -332,6 +337,10 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 				messageMetadata,
 				mentionedAssistantIds,
 				selectedConnectorIds,
+				undefined,
+				undefined,
+				undefined,
+				expectedOutput || acceptanceCriteria ? { expectedOutput, acceptanceCriteria } : undefined,
 			);
 			const hasInvokedSkill = hasComposerSkillTokens(prepared.content);
 			if (data && activeWorkbenchProjectId && hasInvokedSkill) {
@@ -344,6 +353,9 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 			if (data) {
 				setInput("");
 				clearAttachments();
+				setTaskExpectedOutput("");
+				setTaskAcceptanceCriteria("");
+				setTaskDetailsOpen(false);
 				// 中文注释：发送成功后清空已选连接器；失败时不进入这里，保留以便重试。
 				setSelectedConnectorIds([]);
 			}
@@ -811,6 +823,45 @@ export function NewTaskPage({ navigation }: { navigation?: AppNavigation }) {
 					</div>
 
 					<ComposerUsageTipsPanel tips={workbenchUsageTips} onApply={applyUsageTip} />
+
+					<div className="mb-3 rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200/60">
+						<button
+							type="button"
+							onClick={() => setTaskDetailsOpen((open) => !open)}
+							className="flex w-full items-center justify-between text-left text-sm font-medium text-slate-700"
+							aria-expanded={taskDetailsOpen}
+						>
+							<span>任务验收信息（可选）</span>
+							<span className="text-xs font-normal text-slate-400">
+								{taskDetailsOpen ? "收起" : "填写预期产出与验收标准"}
+							</span>
+						</button>
+						{taskDetailsOpen && (
+							<div className="mt-3 grid gap-3 sm:grid-cols-2">
+								<label className="text-xs text-slate-500">
+									预期产出
+									<textarea
+										value={taskExpectedOutput}
+										onChange={(event) => setTaskExpectedOutput(event.target.value)}
+										placeholder="例如：修复补丁 + 单元测试"
+										className="mt-1 min-h-16 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-300"
+									/>
+								</label>
+								<label className="text-xs text-slate-500">
+									验收标准
+									<textarea
+										value={taskAcceptanceCriteria}
+										onChange={(event) => setTaskAcceptanceCriteria(event.target.value)}
+										placeholder="例如：go test ./... 通过"
+										className="mt-1 min-h-16 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-300"
+									/>
+								</label>
+								<p className="text-xs text-slate-400 sm:col-span-2">
+									在输入框用 @ 选择队友，该队友会成为任务执行人并收到本次消息。
+								</p>
+							</div>
+						)}
+					</div>
 
 					{/* 中文注释：新建任务输入卡片与 ChatInput 的 project 变体保持同一套边框、阴影与内边距规范。 */}
 					{/* 中文注释：输入框保持完整圆角，和 Codex 一样作为上层卡片悬浮在项目选择条之上。 */}

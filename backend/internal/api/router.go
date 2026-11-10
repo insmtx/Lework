@@ -19,14 +19,12 @@ import (
 	"github.com/insmtx/lework/backend/internal/api/middleware"
 	"github.com/insmtx/lework/backend/internal/infra/filestore"
 	eventbus "github.com/insmtx/lework/backend/internal/infra/mq"
-	"github.com/insmtx/lework/backend/internal/infra/websocket"
 	"github.com/insmtx/lework/backend/internal/llm"
 	"github.com/insmtx/lework/backend/internal/modelrouter"
 	"github.com/insmtx/lework/backend/internal/runnable"
 	"github.com/insmtx/lework/backend/internal/service"
 	"github.com/insmtx/lework/backend/internal/worker"
 	"github.com/insmtx/lework/backend/internal/worker/scheduler"
-	workerserver "github.com/insmtx/lework/backend/internal/worker/server"
 	"github.com/nats-io/nats.go"
 	ygmiddleware "github.com/ygpkg/yg-go/apis/runtime/middleware"
 	"github.com/ygpkg/yg-go/logs"
@@ -44,6 +42,11 @@ import (
 // 同时设置客户端 WebSocket 连接器，并将所有连接器的路由注册到 HTTP 服务器。
 func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.EventBus, requester eventbus.CoreRequester, db *gorm.DB, modelInvoker modelrouter.Invoker) (*gin.Engine, worker.WorkerScheduler) {
 	r := gin.New()
+
+	// 容器/一体机健康检查：不依赖数据库与消息队列，仅表示 HTTP 进程已就绪。
+	r.GET("/healthz", func(ctx *gin.Context) {
+		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	// ── 全局中间件（必须在 r.Group / RegisterRoutes 之前挂载）────────────────────
 	// Gin 的 RouterGroup.Group() 与 handle() 通过 combineHandlers 值拷贝当前
@@ -104,10 +107,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	managedCredentials := service.NewManagedCredentialService(managedCredentialProviders)
 	pluginService := service.NewPluginServiceWithManagedCredentials(db, managedCredentials, userRepo, displayTranslation)
 
-	// Worker server routes 注册公开管理端点；放在全局中间件之后以继承 CORS/Logger/Recovery。
-	workerManager := workerserver.NewServer(workerScheduler)
-	workerManager.RegisterRoutes(r)
-	logs.Info("Worker server routes registered successfully")
+	// 旧版 Worker WebSocket 管理端点（/ws/worker、/ListWorkers、/ShutdownWorker、
+	// /CreateWorker）已删除：它们不鉴权且与 NATS 运维链路重复。运维查询统一走
+	// 下方 authed 组内的 /v1/WorkerOps/*。
 
 	// ── 公开路由（无需 org 认证）──────────────────────────────────────────────────
 	fileService := service.NewFileService(db)
@@ -115,9 +117,6 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	{
 		handler.RegisterPluginOAuthCallbackRoutes(v1, pluginService)
 		logs.Info("Plugin OAuth callback routes registered successfully")
-
-		websocket.RegisterWebSocketRoutes(v1, eventbus)
-		logs.Info("WebSocket connector registered successfully")
 
 		handler.RegisterAuthRoutes(v1, authService)
 		logs.Info("Auth routes registered successfully")
@@ -149,9 +148,6 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 	permSvc := service.NewPermissionService(db, service.NewPermissionCore(db))
 	authed := v1.Group("/", middleware.RequireCallerOrg())
 	{
-		payrollProxy := handler.NewPayrollProxyHandler(cfg.PayrollProxy.Endpoint, managedCredentials)
-		handler.RegisterPayrollProxyRoutes(authed, payrollProxy)
-
 		digitalAssistantService := service.NewDigitalAssistantServiceWithProvisioningAndUserRepo(db, workerScheduler, workerProvisioningService, userRepo)
 		handler.RegisterDigitalAssistantRoutes(authed, digitalAssistantService)
 		logs.Info("Digital assistant routes registered successfully")
@@ -181,7 +177,7 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 		projectFileHandler.RegisterRoutes(authed)
 		logs.Info("Project file routes registered successfully")
 
-		taskService := service.NewTaskService(db, permSvc)
+		taskService := service.NewTaskServiceWithSession(db, permSvc, sessionService)
 		handler.RegisterTaskRoutes(authed, taskService, permSvc)
 		logs.Info("Task routes registered successfully")
 
@@ -231,6 +227,9 @@ func SetupRouter(cfg config.Config, edition adapter.Edition, eventbus eventbus.E
 			// Stream projector records the stream lane start seq for SSE replay.
 			go runnable.StartSessionRunStreamProjector(context.Background(), sessionService, eventbus)
 			logs.Info("Session run stream projector started")
+			// 任务状态投影：普通任务 run 完成后进入 pending_acceptance。
+			go runnable.StartTaskRunStateProjector(context.Background(), eventbus, db)
+			logs.Info("Task run state projector started")
 			go service.StartSkillPackageUploadedConsumer(context.Background(), db, eventbus)
 			logs.Info("Skill package uploaded consumer started")
 		} else {

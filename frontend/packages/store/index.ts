@@ -66,9 +66,6 @@ export {
 	readDeployAppName,
 	readDeployConfig,
 	readDeployLogo,
-	readXidianDemoLogin,
-	resolveXidianDemoLogin,
-	XIDIAN_DEMO_LOGIN,
 } from "./api/deploy-config";
 export type {
 	CreateDAParams,
@@ -195,6 +192,8 @@ export type {
 	BackendProjectFileVersion,
 	BackendProjectFileVersionList,
 	BackendTask,
+	BackendTaskDeliverableFile,
+	BackendTaskDeliverables,
 } from "./api/types";
 export type { UpdateCurrentUserParams, UpdateUserParams, UserInfo } from "./api/userApi";
 export { userApi } from "./api/userApi";

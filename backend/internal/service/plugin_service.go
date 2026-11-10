@@ -1176,25 +1176,7 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 
 	existingCodes := make(map[string]bool, len(rows))
 	result := make([]contract.SkillDownloadURL, 0, len(rows))
-	internalCodes := make(map[string]struct{})
-	if callerKind == types.CallerKindWorker && strings.EqualFold(strings.TrimSpace(req.Scene), "salary_accounting") {
-		internalCodes["attendance-payroll"] = struct{}{}
-	}
-	for _, code := range codes {
-		if _, ok := internalCodes[code]; !ok {
-			continue
-		}
-		download, err := s.resolveInternalSkillDownloadURL(ctx, code)
-		if err != nil {
-			logs.WarnContextf(ctx, "resolve internal Skill %q download URL failed: %v", code, err)
-			continue
-		}
-		result = append(result, download)
-	}
 	for _, row := range rows {
-		if _, internal := internalCodes[row.Code]; internal {
-			continue
-		}
 		existingCodes[row.Code] = true
 		if !allowedCodes[row.Code] {
 			logs.WarnContextf(
@@ -1228,9 +1210,6 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 
 	if callerKind == types.CallerKindWorker && callerID > 0 {
 		for _, code := range codes {
-			if _, internal := internalCodes[code]; internal {
-				continue
-			}
 			if existingCodes[code] {
 				continue
 			}
@@ -1266,38 +1245,6 @@ func (s *pluginService) ResolveSkillDownloadURLs(ctx context.Context, orgID uint
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Code < result[j].Code })
 	return &contract.ResolveSkillDownloadURLsResponse{Skills: result}, nil
-}
-
-func (s *pluginService) resolveInternalSkillDownloadURL(ctx context.Context, code string) (contract.SkillDownloadURL, error) {
-	plugin, err := infradb.GetSystemPluginByCode(ctx, s.db, "skill", code)
-	if err != nil || plugin == nil || plugin.Status != types.PluginStatusActive || plugin.Origin != builtinInternalOrigin {
-		return contract.SkillDownloadURL{}, fmt.Errorf("internal Skill %q is unavailable", code)
-	}
-	revision, err := infradb.GetCurrentPluginRevision(ctx, s.db, plugin)
-	if err != nil || revision == nil {
-		return contract.SkillDownloadURL{}, fmt.Errorf("internal Skill %q revision is unavailable", code)
-	}
-	artifact, err := ArtifactFromDefinition("skill", revision.Definition)
-	if err != nil || artifact == nil {
-		return contract.SkillDownloadURL{}, fmt.Errorf("internal Skill %q artifact is invalid", code)
-	}
-	sha, err := normalizedPluginSHA256(artifact.SHA256)
-	if err != nil {
-		return contract.SkillDownloadURL{}, err
-	}
-	file, err := infradb.GetSystemFileUploadByPublicID(ctx, s.db, artifact.FileUploadID)
-	if err != nil || file == nil || file.Status != "active" || file.Purpose != filestore.PurposeArtifact {
-		return contract.SkillDownloadURL{}, fmt.Errorf("internal Skill %q artifact is unavailable", code)
-	}
-	fileSHA, err := normalizedPluginSHA256(file.Sha256)
-	if err != nil || fileSHA != sha || (artifact.SizeBytes > 0 && file.FileSize != artifact.SizeBytes) {
-		return contract.SkillDownloadURL{}, fmt.Errorf("internal Skill %q artifact identity is invalid", code)
-	}
-	url, err := filestore.PresignDownloadForFileUpload(ctx, file, time.Hour)
-	if err != nil {
-		return contract.SkillDownloadURL{}, err
-	}
-	return contract.SkillDownloadURL{Code: code, Revision: revision.Revision, SHA256: sha, DownloadURL: url}, nil
 }
 
 func (s *pluginService) resolveConnectorSkillDownloads(

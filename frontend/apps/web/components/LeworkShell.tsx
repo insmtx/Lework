@@ -32,7 +32,6 @@ export function useWebNavigation(): AppNavigation {
 				orgDepartments: "/org/departments",
 				orgAssistants: "/org/assistants",
 				orgModels: "/org/models",
-				knowledge: "/knowledge",
 				skills: "/skills",
 				automation: "/automation",
 				settings: "/settings",

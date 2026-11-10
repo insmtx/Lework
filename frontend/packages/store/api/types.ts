@@ -372,16 +372,38 @@ export type BackendTask = {
 	public_id: string;
 	title: string;
 	description?: string;
+	expected_output?: string;
+	acceptance_criteria?: string;
+	result_summary?: string;
 	status?: string;
 	project_id: string;
 	project_name?: string;
 	assignee_id?: number;
+	accepted_by?: number;
+	accepted_at?: string;
+	acceptance_note?: string;
 	task_type?: string;
 	deadline?: string;
 	metadata?: Record<string, unknown>;
 	session?: BackendSession;
 	created_at: string;
 	updated_at: string;
+};
+
+export type BackendTaskDeliverableFile = {
+	file_public_id: string;
+	relative_path: string;
+	resource_type: string;
+	version_no: number;
+	updated_at: string;
+};
+
+export type BackendTaskDeliverables = {
+	task_id: string;
+	artifacts: BackendSessionArtifactPayload[];
+	files: BackendTaskDeliverableFile[];
+	git_commit: string;
+	result_summary: string;
 };
 
 export type BackendProjectMemberItem = {

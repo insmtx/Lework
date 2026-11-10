@@ -15,6 +15,39 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/AcceptTask": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Task"
+                ],
+                "summary": "验收通过任务",
+                "parameters": [
+                    {
+                        "description": "验收请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.AcceptTaskRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/AddMessage": {
             "post": {
                 "description": "向指定会话添加一条消息；工具场景可传 scene/output_format（或 metadata 同名字段）与带 attachment_role 的附件",
@@ -2226,6 +2259,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/GetTaskDeliverables": {
+            "post": {
+                "description": "聚合任务会话产物、项目文件与 run 结果摘要",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Task"
+                ],
+                "summary": "查询任务交付物",
+                "parameters": [
+                    {
+                        "description": "查询交付物请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.GetTaskDeliverablesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/GetUser": {
             "post": {
                 "description": "根据PublicID或Phone获取用户详情",
@@ -3149,6 +3216,39 @@ const docTemplate = `{
                         "description": "内部服务器错误",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/RejectTask": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Task"
+                ],
+                "summary": "验收驳回任务",
+                "parameters": [
+                    {
+                        "description": "驳回请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/contract.RejectTaskRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功响应",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
                         }
                     }
                 }
@@ -4356,7 +4456,7 @@ const docTemplate = `{
         },
         "/files/upload": {
             "post": {
-                "description": "上传文件到系统",
+                "description": "上传文件到系统。请求体以 multipart/form-data 流式解析，purpose/source_id/local-path 等表单字段必须位于 file part 之前，file 之后的字段不会被读取。",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -4370,21 +4470,27 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "file",
-                        "description": "上传文件",
+                        "description": "文件（须为最后一个 form part）",
                         "name": "file",
                         "in": "formData",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "文件用途（默认 attachment）",
+                        "description": "文件用途（默认 attachment；须在 file part 之前）",
                         "name": "purpose",
                         "in": "formData"
                     },
                     {
                         "type": "string",
-                        "description": "来源ID（可选）",
+                        "description": "来源ID（可选；须在 file part 之前）",
                         "name": "source_id",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "本地路径（composer 上传用，可选；须在 file part 之前）",
+                        "name": "local-path",
                         "in": "formData"
                     }
                 ],
@@ -4949,6 +5055,20 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "contract.AcceptTaskRequest": {
+            "type": "object",
+            "required": [
+                "task_id"
+            ],
+            "properties": {
+                "note": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
         "contract.AutomationIntervalInput": {
             "type": "object",
             "properties": {
@@ -5315,6 +5435,9 @@ const docTemplate = `{
                 "title"
             ],
             "properties": {
+                "acceptance_criteria": {
+                    "type": "string"
+                },
                 "assignee_id": {
                     "type": "integer"
                 },
@@ -5322,6 +5445,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "expected_output": {
                     "type": "string"
                 },
                 "metadata": {
@@ -5355,6 +5481,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "phone": {
+                    "type": "string"
+                },
+                "role": {
                     "type": "string"
                 }
             }
@@ -5488,6 +5617,17 @@ const docTemplate = `{
             ],
             "properties": {
                 "public_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.GetTaskDeliverablesRequest": {
+            "type": "object",
+            "required": [
+                "task_id"
+            ],
+            "properties": {
+                "task_id": {
                     "type": "string"
                 }
             }
@@ -5876,6 +6016,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password": {
+                    "type": "string"
+                }
+            }
+        },
+        "contract.RejectTaskRequest": {
+            "type": "object",
+            "required": [
+                "task_id"
+            ],
+            "properties": {
+                "note": {
+                    "type": "string"
+                },
+                "task_id": {
                     "type": "string"
                 }
             }
@@ -6595,6 +6749,9 @@ const docTemplate = `{
                 "public_id"
             ],
             "properties": {
+                "acceptance_criteria": {
+                    "type": "string"
+                },
                 "assignee_id": {
                     "type": "integer"
                 },
@@ -6602,6 +6759,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "expected_output": {
                     "type": "string"
                 },
                 "metadata": {
@@ -6638,6 +6798,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "public_id": {
+                    "type": "string"
+                },
+                "role": {
                     "type": "string"
                 }
             }

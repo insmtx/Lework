@@ -50,7 +50,6 @@ import {
 	Contact,
 	ExternalLink,
 	FileText,
-	Inbox,
 	LayoutDashboard,
 	Loader2,
 	LogOut,
@@ -128,7 +127,6 @@ const iconMap: Record<string, React.ReactNode> = {
 	IconProjectsHub: <ProjectIcon className="size-5" />,
 	IconWorkbench: <LayoutDashboard className="size-5" />,
 	IconSkill: <Blocks className="size-5" />,
-	IconKnowledge: <Inbox className="size-5" />,
 	IconAutomation: <Clock className="size-5" />,
 	IconProject: <ProjectIcon className="size-4" />,
 };
@@ -137,7 +135,6 @@ const navIdToView: Record<string, ViewMode> = {
 	chat: "chat",
 	workbench: "workbench",
 	"projects-hub": "projectsHub",
-	knowledge: "knowledge",
 	skills: "skills",
 	automation: "automation",
 	"org-profile": "orgProfile",
@@ -1409,9 +1406,7 @@ function AccountManagementDialog({
 											size={96}
 										/>
 									) : (
-										<span className="text-xl font-semibold">
-											{getAvatarInitial("Lework")}
-										</span>
+										<span className="text-xl font-semibold">{getAvatarInitial("Lework")}</span>
 									)
 								}
 							/>
@@ -1699,7 +1694,6 @@ function getRouteActive(path: string, view: ViewMode) {
 	if (view === "orgModels") return path.startsWith("/org/models");
 	if (view === "projectsHub") return path === "/projects";
 	if (view === "skills") return path.startsWith("/skills");
-	if (view === "knowledge") return path.startsWith("/knowledge");
 	if (view === "tasks") return path.startsWith("/tasks");
 	if (view === "automation") return path === "/automation" || path.startsWith("/automation/");
 	return false;

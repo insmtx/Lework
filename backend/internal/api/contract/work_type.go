@@ -15,6 +15,9 @@ type NewMessageRequest struct {
 	ConnectorIDs  []string            `json:"connector_ids,omitempty"`
 	MessageType   string              `json:"message_type,omitempty"`
 	Objective     string              `json:"objective,omitempty"`
+	// ExpectedOutput / AcceptanceCriteria 用于新建任务时直接写入验收闭环字段。
+	ExpectedOutput     string `json:"expected_output,omitempty"`
+	AcceptanceCriteria string `json:"acceptance_criteria,omitempty"`
 	// Scene 区分普通问答与工具场景；空或 normal 为普通问答，bid_comparison 为标书对比。
 	Scene string `json:"scene,omitempty"`
 	// OutputFormat 是工具场景要求生成的最终交付格式，如 docx、pdf、pptx、md。

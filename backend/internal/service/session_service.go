@@ -409,9 +409,19 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 		}
 	}
 
-	// 解析消息级别的 assistant 路由覆盖
+	// 解析消息级别的 assistant 路由覆盖。
+	// 任务已指派队友时，assignee 优先级最高，保证“派给谁就由谁执行”。
 	var routing *MessageRoutingOverride
-	if len(req.AssistantIDs) > 0 {
+	if session.TaskID != nil && *session.TaskID > 0 {
+		assistantID, workerID, ok, err := resolveTaskAssigneeWorker(ctx, s.db, session.OrgID, *session.TaskID, s.inferrer)
+		if err != nil {
+			return nil, fmt.Errorf("resolve task assignee worker: %w", err)
+		}
+		if ok {
+			routing = &MessageRoutingOverride{AssistantID: assistantID, WorkerID: workerID}
+		}
+	}
+	if routing == nil && len(req.AssistantIDs) > 0 {
 		assistantIDs, err := resolveAssistantIDsByPublicID(ctx, s.db, session.OrgID, req.AssistantIDs)
 		if err != nil {
 			return nil, fmt.Errorf("resolve assistant ids: %w", err)
@@ -444,7 +454,7 @@ func (s *sessionService) AddMessage(ctx context.Context, sessionID string, req *
 			}
 			routing = &MessageRoutingOverride{AssistantID: assistantID, WorkerID: workerID}
 		}
-	} else {
+	} else if routing == nil {
 		projectID := uint(0)
 		if session.ProjectID != nil {
 			projectID = *session.ProjectID

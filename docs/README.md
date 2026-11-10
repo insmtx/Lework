@@ -7,99 +7,69 @@
 | 文件名统一使用 **kebab-case**（小写 + 连字符） | `agent-runtime.md` |
 | 目录名使用 **kebab-case** | `architecture/` |
 | 每个分类目录的入口文档命名为 `overview.md` | `architecture/overview.md` |
-| 计划/规范类文件使用 `YYYY-MM-DD-description.md` 日期前缀 | `specs/2026-05-22-artifact-design.md` |
+| 计划/规范类文件使用 `YYYY-MM-DD-description.md` 日期前缀 | `design/2026-11-01-i0-findings.md` |
 | 禁止 SCREAMING_SNAKE_CASE、UPPERCASE、Pascal_Snake | ❌ `ARCHITECTURE.md`、`TODO.md`、`Orbita_Arch.md` |
 
 ## 分类体系
 
 | 目录 | 用途 | 面向读者 |
 |------|------|----------|
-| `architecture/` | 系统架构设计、组件间关系、设计原则 | 全体开发者 |
-| `product/` | 产品需求、路线图、开发 TODO | PM、全体开发者 |
-| `design/` | 技术方案设计、API 设计、存储方案 | 后端开发者 |
-| `frontend/` | 前端架构、组件、状态管理、工程规范 | 前端开发者 |
-| `operations/` | 运维排障、工程规范、项目结构索引 | 全体开发者 |
-| `swagger/` | `make swagger` 自动生成的 API 文档 | API 调用者 |
+| `product/` | 产品定位、路线图、当前能力边界 | PM、全体开发者 |
+| `architecture/` | 目标架构、当前实现基线、模块边界 | 后端开发者 |
+| `design/` | 技术验证与方案快照 | 后端开发者 |
+| `frontend/` | 控制面浏览器界面架构与工程规范 | 前端开发者 |
+| `operations/` | 安装、协议、排障、仓库结构索引 | 全体开发者 |
+| `archive/` | 历史文档，不维护，仅作参考 | 需要追溯历史的人 |
 
 ## 文档索引
 
-### 架构设计
+### 产品
 
 | 文档 | 说明 |
 |------|------|
-| [architecture/overview.md](architecture/overview.md) | AI OS 架构设计（三核架构） |
-| [architecture/backend.md](architecture/backend.md) | 后端包结构设计 |
-| [architecture/agent-runtime.md](architecture/agent-runtime.md) | Agent Runtime 架构 |
-| [architecture/workspace-artifact.md](architecture/workspace-artifact.md) | Agent 工作空间与产物设计 |
-| [architecture/mq-subject.md](architecture/mq-subject.md) | MQ Subject 架构 |
-| [architecture/system-design.md](architecture/system-design.md) | 系统架构设计 |
-| [architecture/design-philosophy.md](architecture/design-philosophy.md) | 设计哲学 |
+| [product/overview.md](product/overview.md) | 产品定位与核心概念：个人用户、单用户多节点 OpenCode 控制面 |
+| [product/roadmap.md](product/roadmap.md) | I0–I5 路线与退出标准 |
+| [product/current-limitations.md](product/current-limitations.md) | 当前实现能力边界（I1-B） |
 
-### 产品文档
+### 架构
 
 | 文档 | 说明 |
 |------|------|
-| [product/prd.md](product/prd.md) | 产品需求文档 |
-| [product/planning.md](product/planning.md) | 路线图规划 |
-| [product/todo.md](product/todo.md) | 后端开发 TODO |
-| [product/lework-product-whitepaper.md](product/lework-product-whitepaper.md) | Lework 产品功能白皮书（Markdown） |
-| [product/lework-product-whitepaper.pdf](product/lework-product-whitepaper.pdf) | Lework 产品功能白皮书（PDF） |
+| [architecture/overview.md](architecture/overview.md) | 目标架构：控制面、lework agent、OpenCode 边界 |
+| [architecture/as-built.md](architecture/as-built.md) | 当前实现基线：节点、Session、Diff、文件、PTY |
+| [architecture/agent-runtime.md](architecture/agent-runtime.md) | lework agent 与 OpenCode 进程管理 |
 
 ### 技术设计
 
 | 文档 | 说明 |
 |------|------|
-| [design/tech-design.md](design/tech-design.md) | 技术设计（技能 Schema、渲染引擎） |
-| [design/project-file-version-management.md](design/project-file-version-management.md) | 项目产物文件版本管理设计 |
-| [design/2026-07-04-agent-runtime-architecture-refactor.md](design/2026-07-04-agent-runtime-architecture-refactor.md) | Agent Runtime 最终架构优化设计 |
-| [design/2026-07-04-agent-runtime-implementation-plan.md](design/2026-07-04-agent-runtime-implementation-plan.md) | Agent Runtime 架构优化实施开发方案 |
-| [design/git-storage.md](design/git-storage.md) | 文件存储技术方案 |
-| [design/presigned-url.md](design/presigned-url.md) | 预签名 URL 设计 |
-| [design/ai-teammate-worker-deployment.md](design/ai-teammate-worker-deployment.md) | AI 队友维护与 Worker 动态部署技术设计 |
-| [design/2026-10-27-opencode-v2-runtime-migration-design.md](design/2026-10-27-opencode-v2-runtime-migration-design.md) | opencode v2 迁移方案与协议选型评估（HTTP API / ACP 对比、成本、回滚与灰度） |
+| [design/2026-11-01-i0-findings.md](design/2026-11-01-i0-findings.md) | I0 技术验证结论与限制 |
+| [operations/control-plane.md](operations/control-plane.md) | 控制面与 agent 的安装、启动、协议 |
 
-### 前端文档
+### 前端
 
 | 文档 | 说明 |
 |------|------|
-| [frontend/overview.md](frontend/overview.md) | 前端架构总览 |
-| [frontend/communication.md](frontend/communication.md) | 通信层架构 |
-| [frontend/state-management.md](frontend/state-management.md) | 状态管理架构 |
-| [frontend/components-layout.md](frontend/components-layout.md) | 组件与布局架构 |
-| [frontend/core-mechanisms.md](frontend/core-mechanisms.md) | 核心机制详解 |
-| [frontend/design-patterns.md](frontend/design-patterns.md) | 架构设计模式 |
-| [frontend/engineering-standards.md](frontend/engineering-standards.md) | 工程规范 |
-| [frontend/orbita-layout.md](frontend/orbita-layout.md) | Orbita 布局风格设计 |
-| [frontend/todo.md](frontend/todo.md) | 前端待完成事项 |
-| [frontend/ai-assistant/architecture.md](frontend/ai-assistant/architecture.md) | AI 助手子系统 - 架构规划 |
-| [frontend/ai-assistant/data-model.md](frontend/ai-assistant/data-model.md) | AI 助手子系统 - 数据模型 |
-| [frontend/ai-assistant/interaction.md](frontend/ai-assistant/interaction.md) | AI 助手子系统 - 交互规范 |
-| [frontend/ai-assistant/roadmap.md](frontend/ai-assistant/roadmap.md) | AI 助手子系统 - 实施路线图 |
+| [frontend/overview.md](frontend/overview.md) | 控制面浏览器界面架构 |
+| [frontend/engineering-standards.md](frontend/engineering-standards.md) | 旧 Web/Desktop 工程规范（历史，控制面见 overview.md） |
 
 ### 运维与规范
 
 | 文档 | 说明 |
 |------|------|
-| [operations/troubleshooting.md](operations/troubleshooting.md) | 故障排除指南 |
-| [operations/worker-status-api.md](operations/worker-status-api.md) | Worker 运维状态查询接口与响应字段 |
+| [operations/project-structure.md](operations/project-structure.md) | 当前仓库结构与边界 |
+| [operations/troubleshooting.md](operations/troubleshooting.md) | 控制面与节点排障 |
 | [operations/issue-labels.md](operations/issue-labels.md) | Issue 标签体系 |
-| [operations/project-structure.md](operations/project-structure.md) | 项目结构与文件索引 |
-| [operations/private-deployment-resources.md](operations/private-deployment-resources.md) | 私有化资源清单（硬件/镜像/端口/存储） |
-| [operations/private-deployment-config.md](operations/private-deployment-config.md) | 私有化配置清单（Helm values 与 config.yaml） |
-| [operations/private-deployment-guide.md](operations/private-deployment-guide.md) | 私有化部署手册（k3s + Helm） |
-| [operations/private-deployment-model.md](operations/private-deployment-model.md) | 私有化模型部署（vLLM + Qwen3.6-27B） |
 
-### API 文档
+### 归档
 
 | 目录 | 说明 |
 |------|------|
-| [swagger/docs.go](swagger/docs.go) | Swagger Go 集成代码（自动生成） |
-| [swagger/swagger.json](swagger/swagger.json) | OpenAPI JSON 文档（自动生成） |
-| [swagger/swagger.yaml](swagger/swagger.yaml) | OpenAPI YAML 文档（自动生成） |
+| [archive/README.md](archive/README.md) | 企业版阶段历史文档，仅历史参考 |
 
 ## 新增文档指引
 
-1. 确定文档所属分类，放入对应子目录
-2. 文件名使用 kebab-case
-3. 在本文档的索引表格中添加条目
-4. 如新增分类，需在 `AGENTS.md` 和本文档同步更新
+1. 确定文档所属分类，放入对应子目录；已废弃内容放入 `archive/`。
+2. 文件名使用 kebab-case；稳定文档不用日期前缀，计划/快照类使用 `YYYY-MM-DD-`。
+3. 在本文档的索引表格中添加条目。
+4. 如新增分类，需在 `AGENTS.md` 和本文档同步更新。

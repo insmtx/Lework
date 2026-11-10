@@ -14,7 +14,8 @@
     "./types/topic": "./types/topic.ts",
     "./api/artifactApi": "./api/artifactApi.ts",
     "./api/taskApi": "./api/taskApi.ts",
-    "./constants/upload": "./constants/upload.ts"
+    "./constants/upload": "./constants/upload.ts",
+    "./api/config": "./api/config.ts"
   },
   "dependencies": {
     "zustand": "^5.0.11",

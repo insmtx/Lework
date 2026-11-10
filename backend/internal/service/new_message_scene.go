@@ -19,8 +19,6 @@ func NormalizeMessageScene(scene string) (string, error) {
 		return "", nil
 	case string(types.MessageSceneBidComparison):
 		return string(types.MessageSceneBidComparison), nil
-	case string(types.MessageSceneSalaryAccounting):
-		return string(types.MessageSceneSalaryAccounting), nil
 	default:
 		return "", fmt.Errorf("%w: unsupported scene %q", ErrInvalidNewMessage, scene)
 	}
@@ -40,11 +38,6 @@ func ValidateMessageScene(scene string, outputFormat string, attachments []types
 			return "", "", err
 		}
 		if err := validateBidComparisonAttachments(attachments); err != nil {
-			return "", "", err
-		}
-	}
-	if normalizedScene == string(types.MessageSceneSalaryAccounting) {
-		if err := validateSalaryAccountingAttachments(attachments); err != nil {
 			return "", "", err
 		}
 	}
@@ -113,19 +106,6 @@ func validateBidComparisonAttachments(attachments []types.MessageAttachment) err
 	}
 	if compareCount < 1 || compareCount > 10 {
 		return fmt.Errorf("%w: bid_comparison requires 1-10 compare attachments, got %d", ErrInvalidNewMessage, compareCount)
-	}
-	return nil
-}
-
-func validateSalaryAccountingAttachments(attachments []types.MessageAttachment) error {
-	attendanceCount := 0
-	for _, attachment := range attachments {
-		if attachment.AttachmentRole == string(types.AttachmentRoleAttendance) {
-			attendanceCount++
-		}
-	}
-	if attendanceCount < 1 {
-		return fmt.Errorf("%w: salary_accounting requires at least 1 attendance attachment, got %d", ErrInvalidNewMessage, attendanceCount)
 	}
 	return nil
 }

@@ -38,6 +38,9 @@ export type SendProjectMessageOptions = {
 	scene?: string;
 	/** 工具场景要求生成的最终交付格式，例如 docx、pdf、pptx、md */
 	outputFormat?: string;
+	/** 新建任务：预期产出与验收标准。 */
+	expectedOutput?: string;
+	acceptanceCriteria?: string;
 };
 
 /**
@@ -79,6 +82,8 @@ export async function sendProjectMessage(
 			...(options?.connectorIds?.length ? { connector_ids: options.connectorIds } : {}),
 			...(options?.scene ? { scene: options.scene } : {}),
 			...(options?.outputFormat ? { output_format: options.outputFormat } : {}),
+			...(options?.expectedOutput ? { expected_output: options.expectedOutput } : {}),
+			...(options?.acceptanceCriteria ? { acceptance_criteria: options.acceptanceCriteria } : {}),
 			metadata: buildBackendMessageMetadata(resolvedMetadata),
 			attachments: mapOutgoingAttachments(resolvedAttachments),
 		});

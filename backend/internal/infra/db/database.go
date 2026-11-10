@@ -252,6 +252,12 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	// 存量任务可能只写了 assignee_id，没有项目 assistant 绑定；不补齐会导致新增的
+	// assignee 路由在旧任务上直接失败。
+	if err := backfillTaskAssigneeBindings(db); err != nil {
+		return err
+	}
+
 	if err := backfillFileArtifactResources(db); err != nil {
 		return err
 	}
@@ -1284,6 +1290,59 @@ func backfillTaskResources(d *gorm.DB) error {
 		logs.Warnf("[migration] backfillTaskResources: %v", err)
 	}
 
+	return nil
+}
+
+// backfillTaskAssigneeBindings 为存量任务补齐 assignee 到项目资源的 assistant 绑定。
+// 幂等：已有绑定直接跳过；无法确认项目资源或 assistant 归属的任务保持原样。
+func backfillTaskAssigneeBindings(d *gorm.DB) error {
+	if !d.Migrator().HasTable(types.TableNameTask) ||
+		!d.Migrator().HasTable(types.TableNameResource) ||
+		!d.Migrator().HasTable(types.TableNameResourceBinding) ||
+		!d.Migrator().HasTable(types.TableNameDigitalAssistant) {
+		return nil
+	}
+	ctx := context.Background()
+	var tasks []types.Task
+	if err := d.WithContext(ctx).
+		Where("assignee_id IS NOT NULL AND assignee_id > 0 AND deleted_at IS NULL").
+		Find(&tasks).Error; err != nil {
+		return fmt.Errorf("list assigned tasks: %w", err)
+	}
+	for i := range tasks {
+		task := &tasks[i]
+		resource, err := GetResourceByBizID(ctx, d, task.OrgID, types.ResourceTypeProject, task.ProjectID)
+		if err != nil {
+			return fmt.Errorf("get project resource for task %s: %w", task.PublicID, err)
+		}
+		if resource == nil {
+			continue
+		}
+		assigneeID := *task.AssigneeID
+		binding, err := GetResourceBindingByAssistantID(ctx, d, resource.ID, assigneeID)
+		if err != nil {
+			return fmt.Errorf("get assignee binding for task %s: %w", task.PublicID, err)
+		}
+		if binding != nil {
+			continue
+		}
+		assistant, err := GetDigitalAssistantByID(ctx, d, assigneeID)
+		if err != nil {
+			return fmt.Errorf("get assignee %d: %w", assigneeID, err)
+		}
+		if assistant == nil || assistant.OrgID != task.OrgID {
+			continue
+		}
+		boundID := assigneeID
+		if err := CreateResourceBinding(ctx, d, &types.ResourceBinding{
+			OrgID:       task.OrgID,
+			AssistantID: &boundID,
+			ResourceID:  resource.ID,
+			Role:        types.ResourceRoleMember,
+		}); err != nil {
+			return fmt.Errorf("bind assignee %d to project %d: %w", assigneeID, task.ProjectID, err)
+		}
+	}
 	return nil
 }
 

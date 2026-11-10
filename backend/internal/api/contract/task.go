@@ -13,4 +13,10 @@ type TaskService interface {
 	DeleteTask(ctx context.Context, publicID string) error
 
 	ListTasks(ctx context.Context, req *ListTasksRequest) (*TaskList, error)
+
+	GetTaskDeliverables(ctx context.Context, taskID string) (*TaskDeliverables, error)
+
+	AcceptTask(ctx context.Context, taskID, note string) (*Task, error)
+
+	RejectTask(ctx context.Context, taskID, note string) (*Task, error)
 }

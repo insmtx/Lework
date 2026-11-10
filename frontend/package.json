@@ -27,7 +27,9 @@
     "lint:staged": "lint-staged --cwd .",
     "prepare": "cd .. && husky frontend/.husky",
     "clean": "turbo clean && rm -rf node_modules",
-    "ui:add": "cd packages/ui && npx shadcn@latest add"
+    "ui:add": "cd packages/ui && npx shadcn@latest add",
+    "dev:control-plane": "pnpm --filter @lework/control-plane dev",
+    "build:control-plane": "pnpm --filter @lework/control-plane build"
   },
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {

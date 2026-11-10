@@ -62,6 +62,32 @@ func TestRegisterRoutesMountsMCPHandler(t *testing.T) {
 	}
 }
 
+func TestValidateTokenRejectsMissingExpectedToken(t *testing.T) {
+	if validateToken("", "") {
+		t.Fatal("empty expected token must not authenticate an empty request token")
+	}
+	if validateToken("anything", "") {
+		t.Fatal("empty expected token must not authenticate any request token")
+	}
+}
+
+func TestRegisterRoutesDeniesAnonymousWhenTokenNotConfigured(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	group := router.Group("/v1")
+	RegisterRoutes(group, NewServer())
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/mcp", strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", recorder.Code)
+	}
+}
+
 func TestRegisterRoutesRequiresTokenWhenConfigured(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	token := "test-auth-token"

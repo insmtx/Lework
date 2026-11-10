@@ -2,7 +2,7 @@ PROJECT ?= insmtx
 APP?= lework
 REGISTRY ?= registry.yygu.cn
 
-.PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend dev-up dev-all dev-down dev-status dev-logs docker-build-worker-base docker-build-worker-base-private docker-push-worker-base docker-push-worker-base-private docker-build-worker docker-build-web docker-build-tag docker-push-tag image-tag
+.PHONY: build install uninstall docker-build-base docker-push-base docker-build docker-dev-build docker-push docker-compose-up docker-compose-down run run-foreground run-detached stop logs swagger swagger-clean dev-setup dev-server dev-worker dev-frontend dev-up dev-all dev-down dev-status dev-logs docker-build-worker-base docker-build-worker-base-private docker-push-worker-base docker-push-worker-base-private docker-build-worker docker-build-web docker-build-tag docker-push-tag image-tag aio-build aio-images aio-up aio-down aio-backup
 
 # GO='GOOS=windows GOARCH=386 go'
 VERSION := $(shell git describe --tags | sed 's/\(.*\)-.*/\1/')
@@ -15,12 +15,27 @@ IMAGE_TAG := ${VERSION}_${GIT_COMMIT}
 
 BUILD_TAGS ?=
 LDFLAGS := -s -w
+CONTROL_PLANE_UI_DIR := frontend/apps/control-plane
+CONTROL_PLANE_EMBED_DIR := backend/internal/controlplane/webui/dist
 
 ifneq ($(BUILD_TAGS),)
 BUILD_TAGS_FLAG := -tags "$(BUILD_TAGS)"
 endif
 
-build:
+# Build the static browser export and copy it into the embedded asset directory.
+# The generated files are ignored; dist/.gitkeep keeps a clean checkout buildable.
+.PHONY: frontend-control-plane control-plane-ui
+frontend-control-plane:
+	cd frontend && pnpm --filter @lework/control-plane build
+	rm -rf $(CONTROL_PLANE_EMBED_DIR)
+	mkdir -p $(CONTROL_PLANE_EMBED_DIR)
+	cp -R $(CONTROL_PLANE_UI_DIR)/out/. $(CONTROL_PLANE_EMBED_DIR)/
+	touch $(CONTROL_PLANE_EMBED_DIR)/.gitkeep
+
+# Convenience alias kept for earlier I1-B notes.
+control-plane-ui: frontend-control-plane
+
+build: frontend-control-plane
 	go build $(BUILD_TAGS_FLAG) -ldflags="$(LDFLAGS)" -v -o ./bundles/lework ./backend/cmd/lework/
 
 install:
@@ -67,6 +82,31 @@ docker-build-worker:
 
 docker-build-web:
 	docker build -t $(REGISTRY)/$(PROJECT)/web:latest -f deployments/build/Dockerfile.web $(DOCKER_BUILD_ARGS) .
+
+# ── 一体机（AIO）──────────────────────────────────────────────────────────────
+# 一体机用 worker 镜像同时跑 server 与内置 worker；Web 以 /v1 同源构建。
+AIO_DIR ?= deployments/aio
+AIO_IMAGE ?= $(REGISTRY)/$(PROJECT)/worker:latest
+AIO_WEB_IMAGE ?= $(REGISTRY)/$(PROJECT)/web:latest
+
+aio-build: docker-build-worker-base docker-build-worker
+	docker build -t $(AIO_WEB_IMAGE) \
+		--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=/v1 \
+		-f deployments/build/Dockerfile.web .
+
+aio-images: aio-build
+	docker pull postgres:17 nats:2.12 nginx:1.27-alpine
+	docker save -o $(AIO_DIR)/lework-aio-images.tar \
+		$(AIO_IMAGE) $(AIO_WEB_IMAGE) postgres:17 nats:2.12 nginx:1.27-alpine
+
+aio-up:
+	cd $(AIO_DIR) && ./install.sh
+
+aio-down:
+	cd $(AIO_DIR) && ./uninstall.sh
+
+aio-backup:
+	cd $(AIO_DIR) && ./backup.sh
 
 
 # SERVICE: 服务名，默认使用 APP
@@ -146,7 +186,7 @@ stop:
 logs:
 	docker-compose -f deployments/env/docker-compose.yml logs -f
 
-# Swagger 文档生成
+# Swagger 文档生成（旧 /v1 API；控制面不生成 swagger）
 .PHONY: swagger swagger-clean
 
 swagger:

@@ -303,6 +303,9 @@ func TestConsumerNames(t *testing.T) {
 	if got := SessionRunStateConsumer(); got != "session-run-state-projector" {
 		t.Errorf("SessionRunStateConsumer: got %q", got)
 	}
+	if got := TaskRunStateConsumer(); got != "task-run-state-projector" {
+		t.Errorf("TaskRunStateConsumer: got %q", got)
+	}
 	if got := SkillPackageUploadedConsumer(); got != "server-skill-package-uploaded-consumer" {
 		t.Errorf("SkillPackageUploadedConsumer: got %q", got)
 	}

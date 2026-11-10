@@ -182,29 +182,6 @@ mcp_connectors:
           - basic
           - netdisk
 
-  # 标准 Payroll MCP 连接器，可由用户在连接器中心连接并添加到项目任务。
-  - channel: payroll
-    name: Payroll
-    description: 人员、考勤与工资核算服务
-    status: active
-    transport: http
-    url: https://payroll.test.yygu.cn/v1/payroll/mcp
-    bindings:
-      mcp_headers:
-        Authorization: "Bearer {{api_key}}"
-    auth:
-      type: managed
-      handler: payroll
-
-# Managed credential endpoints serve managed MCP binding and authenticated HTTP clients.
-managed_credentials:
-  payroll:
-    endpoint: https://payroll.test.yygu.cn/v1/credentials.Resolve
-    service_token: afda5cd2d5d26fcc87506284654182dcb49c9b811220fa1cf568f073dc4d96f4
-
-payroll_proxy:
-  endpoint: https://payroll.test.yygu.cn/
-
 # 本地启动ai队友相关配置 使用这个配置，不需要手动启动worker
 # scheduler:
 #   mode: process

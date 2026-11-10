@@ -84,11 +84,11 @@ describe("McpConnectorPanel", () => {
 							current_revision: 1,
 						},
 						{
-							public_id: "plugin_payroll",
-							code: "payroll-user",
+							public_id: "plugin_demo",
+							code: "demo-user",
 							kind: "mcp",
-							name: "Payroll",
-							description: "人员、考勤与工资核算服务",
+							name: "Demo",
+							description: "示例服务",
 							status: "active",
 							origin: "manual",
 							current_revision: 1,
@@ -130,12 +130,12 @@ describe("McpConnectorPanel", () => {
 							plugin_id: "plugin_corekg",
 						},
 						{
-							code: "payroll",
-							name: "Payroll",
-							description: "人员、考勤与工资核算服务",
+							code: "demo",
+							name: "Demo",
+							description: "示例服务",
 							auto_connect_supported: true,
 							connected: true,
-							plugin_id: "plugin_payroll",
+							plugin_id: "plugin_demo",
 						},
 					],
 				},
@@ -177,7 +177,7 @@ describe("McpConnectorPanel", () => {
 		expect(screen.getByText("平台连接器")).toBeInTheDocument();
 		expect(screen.getByText("自定义连接器")).toBeInTheDocument();
 		expect(screen.getByText("CoreKG")).toBeInTheDocument();
-		expect(screen.getAllByText("Payroll").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Demo").length).toBeGreaterThan(0);
 		expect(screen.getByText("CoreKG 连接知识库、知识图谱与智能问答能力")).toBeInTheDocument();
 		expect(screen.getAllByText("已连接")).not.toHaveLength(0);
 		expect(screen.getByRole("button", { name: "管理 CoreKG" })).toBeInTheDocument();

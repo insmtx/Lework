@@ -19,7 +19,7 @@ import { isVersionNewer, parseLinuxUpdateMetadata } from "./linux-update";
 const autoUpdateIntervalMs = 30 * 60 * 1000;
 const initialAutoUpdateDelayMs = 1 * 1000;
 const desktopUpdateBaseURL =
-	"https://lework-1395325824.cos.ap-beijing.myqcloud.com/application/stable";
+	"https://applework.insmtx.com/application/stable";
 const enableDevAutoUpdate = !app.isPackaged;
 const privateDeploymentUnsupportedMessage = "私有化版本请通过离线安装包更新";
 

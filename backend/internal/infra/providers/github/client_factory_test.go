@@ -73,7 +73,7 @@ func TestClientFactoryResolveClientUsesInstallationSelector(t *testing.T) {
 		t.Fatalf("expected one installation token exchange, got %d", installationTokenCalls)
 	}
 
-	_, _, err = resolved.Client.Repositories.Get(context.Background(), "insmtx", "Lework")
+	_, _, err = resolved.Client.Repositories.Get(context.Background(), "insmtx", "lework")
 	if err != nil {
 		t.Fatalf("call repositories get with installation client: %v", err)
 	}

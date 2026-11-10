@@ -153,6 +153,8 @@ func newRootCommand() *cobra.Command {
 		Long: `Lework CLI — manage the Lework agent platform from the command line.
 
 Core commands:
+  agent      Run the Lework node agent
+  serve      Start the local control plane
   server     Start the HTTP API server
   worker     Start a background task worker
   chat       Start an interactive chat session with a running server
@@ -163,6 +165,8 @@ Core commands:
   automation Manage scheduled automations
 
 Examples:
+  lework agent --config /etc/lework/agent.yaml
+  lework serve --enrollment-token <token>
   lework server --config config.yaml
   lework server --dev                     # development mode (auto-config)
   lework worker --worker-id 1 --default-runtime lework
@@ -182,6 +186,12 @@ Authentication:
 Use "lework [command] --help" for more information about a command.`,
 		Args: cobra.ArbitraryArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// The node agent and the control plane are standalone processes:
+			// they load their own configuration and must not inherit the legacy
+			// CLI/worker config or let it rewrite workspace env vars.
+			if isStandaloneCommand(cmd) {
+				return nil
+			}
 			path := cliConfigPath
 			if path == "" {
 				path = defaultCLIConfigPath()
@@ -208,6 +218,8 @@ Use "lework [command] --help" for more information about a command.`,
 	}
 
 	root.Flags().Var(&configPathValue{&cliConfigPath}, "config", "CLI config file path")
+	root.Version = version
+	root.SetVersionTemplate("lework {{.Version}}\n")
 
 	root.SetHelpCommand(&cobra.Command{
 		Use:    "__help_disabled",
@@ -241,6 +253,19 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 `)
 	registerCommands(root)
 	return root
+}
+
+// isStandaloneCommand reports whether cmd belongs to a subtree that owns its
+// own configuration and process lifecycle (the node agent or the control plane).
+// Root must not apply the legacy CLI persistent setup to those commands.
+func isStandaloneCommand(cmd *cobra.Command) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		switch current.Name() {
+		case "agent", "serve":
+			return true
+		}
+	}
+	return false
 }
 
 // configPathValue 将 --config 参数显示为 <path> 而非 string。

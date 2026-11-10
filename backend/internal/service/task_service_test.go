@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -350,5 +352,380 @@ func TestListTasks_GlobalListUsesProjectBindingNotTaskOwner(t *testing.T) {
 	}
 	if outsiderList.Total != 0 || len(outsiderList.Items) != 0 {
 		t.Fatalf("expected outsider to see no tasks, got total=%d items=%d", outsiderList.Total, len(outsiderList.Items))
+	}
+}
+
+func mustCreateTaskProjectForM1(t *testing.T, database *gorm.DB, publicID string) *types.Project {
+	t.Helper()
+	ctx := context.Background()
+	project := &types.Project{
+		PublicID: publicID,
+		OrgID:    1,
+		OwnerID:  1,
+		Name:     "M1 Project",
+		Status:   string(types.ProjectStatusActive),
+	}
+	if err := dbpkg.CreateProject(ctx, database, project); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	seedProjectResourceOwner(t, database, project, 1)
+	return project
+}
+
+func TestCreateTask_PersistsExpectedOutputAndAcceptanceCriteria(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	project := mustCreateTaskProjectForM1(t, database, "prj_m1_task_fields")
+
+	created, err := service.CreateTask(ctx, &contract.CreateTaskRequest{
+		ProjectID:          project.PublicID,
+		Title:              "修复空输入崩溃",
+		ExpectedOutput:     "修复补丁 + 单元测试",
+		AcceptanceCriteria: "go test ./... 通过",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if created.ExpectedOutput != "修复补丁 + 单元测试" {
+		t.Fatalf("created expected_output = %q", created.ExpectedOutput)
+	}
+	if created.AcceptanceCriteria != "go test ./... 通过" {
+		t.Fatalf("created acceptance_criteria = %q", created.AcceptanceCriteria)
+	}
+
+	got, err := service.GetTask(ctx, created.PublicID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.ExpectedOutput != created.ExpectedOutput || got.AcceptanceCriteria != created.AcceptanceCriteria {
+		t.Fatalf("round trip mismatch: got %#v, want %#v", got, created)
+	}
+}
+
+func TestUpdateTask_OnlyChangesProvidedFields(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	project := mustCreateTaskProjectForM1(t, database, "prj_m1_task_update")
+
+	created, err := service.CreateTask(ctx, &contract.CreateTaskRequest{
+		ProjectID:      project.PublicID,
+		Title:          "原始标题",
+		Description:    "原始描述",
+		ExpectedOutput: "旧产出",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	expected := "新产出"
+	criteria := "验收标准 A"
+	updated, err := service.UpdateTask(ctx, created.PublicID, &contract.UpdateTaskRequest{
+		ExpectedOutput:     &expected,
+		AcceptanceCriteria: &criteria,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+	if updated.Title != "原始标题" || updated.Description != "原始描述" {
+		t.Fatalf("unrelated fields changed: %#v", updated)
+	}
+	if updated.ExpectedOutput != expected || updated.AcceptanceCriteria != criteria {
+		t.Fatalf("expected/criteria not updated: %#v", updated)
+	}
+}
+
+func TestUpdateTask_RejectsInvalidStatusTransition(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	project := mustCreateTaskProjectForM1(t, database, "prj_m1_task_transition")
+
+	created, err := service.CreateTask(ctx, &contract.CreateTaskRequest{
+		ProjectID: project.PublicID,
+		Title:     "状态迁移",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := database.Model(&types.Task{}).
+		Where("public_id = ?", created.PublicID).
+		Update("status", string(types.TaskStatusCompleted)).Error; err != nil {
+		t.Fatalf("set completed: %v", err)
+	}
+
+	next := string(types.TaskStatusInProgress)
+	if _, err := service.UpdateTask(ctx, created.PublicID, &contract.UpdateTaskRequest{Status: &next}); err == nil {
+		t.Fatal("expected completed -> in_progress to be rejected")
+	}
+}
+
+func TestUpdateTask_AllowsAcceptanceLifecycle(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	project := mustCreateTaskProjectForM1(t, database, "prj_m1_task_lifecycle")
+
+	created, err := service.CreateTask(ctx, &contract.CreateTaskRequest{
+		ProjectID: project.PublicID,
+		Title:     "闭环任务",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	for _, status := range []types.TaskStatus{
+		types.TaskStatusInProgress,
+		types.TaskStatusPendingAcceptance,
+		types.TaskStatusCompleted,
+	} {
+		value := string(status)
+		if _, err := service.UpdateTask(ctx, created.PublicID, &contract.UpdateTaskRequest{Status: &value}); err != nil {
+			t.Fatalf("transition to %s: %v", status, err)
+		}
+	}
+}
+
+func seedAssistantForTaskM1(t *testing.T, database *gorm.DB, name, status string) *types.DigitalAssistant {
+	t.Helper()
+	assistant := &types.DigitalAssistant{
+		PublicID:   "asst_" + strings.ReplaceAll(strings.ToLower(name), " ", "_"),
+		OrgID:      1,
+		OwnerID:    1,
+		Visibility: types.DigitalAssistantVisibilityPublic,
+		Name:       name,
+		Status:     status,
+		Source:     "custom",
+	}
+	if err := dbpkg.CreateDigitalAssistant(context.Background(), database, assistant); err != nil {
+		t.Fatalf("CreateDigitalAssistant: %v", err)
+	}
+	return assistant
+}
+
+func TestCreateTask_BindsAssigneeToProject(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	project := mustCreateTaskProjectForM1(t, database, "prj_m1_assignee_bind")
+	assistant := seedAssistantForTaskM1(t, database, "Builder", string(types.DigitalAssistantStatusActive))
+
+	created, err := service.CreateTask(ctx, &contract.CreateTaskRequest{
+		ProjectID:  project.PublicID,
+		Title:      "派给 Builder",
+		AssigneeID: &assistant.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if created.AssigneeID == nil || *created.AssigneeID != assistant.ID {
+		t.Fatalf("assignee = %#v, want %d", created.AssigneeID, assistant.ID)
+	}
+
+	resource, err := dbpkg.GetResourceByBizID(ctx, database, 1, types.ResourceTypeProject, project.ID)
+	if err != nil || resource == nil {
+		t.Fatalf("project resource: %v %#v", err, resource)
+	}
+	binding, err := dbpkg.GetResourceBindingByAssistantID(ctx, database, resource.ID, assistant.ID)
+	if err != nil {
+		t.Fatalf("GetResourceBindingByAssistantID: %v", err)
+	}
+	if binding == nil {
+		t.Fatal("assignee was not bound to project")
+	}
+}
+
+func TestCreateTask_RejectsInactiveAssignee(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	project := mustCreateTaskProjectForM1(t, database, "prj_m1_assignee_inactive")
+	assistant := seedAssistantForTaskM1(t, database, "Paused", string(types.DigitalAssistantStatusPaused))
+
+	if _, err := service.CreateTask(ctx, &contract.CreateTaskRequest{
+		ProjectID:  project.PublicID,
+		Title:      "不能派给暂停队友",
+		AssigneeID: &assistant.ID,
+	}); err == nil {
+		t.Fatal("expected inactive assignee to be rejected")
+	}
+}
+
+type recordingTaskSessionService struct {
+	contract.SessionService
+	addMessageCalls []*contract.AddMessageRequest
+	addMessageIDs   []string
+	err             error
+}
+
+func (r *recordingTaskSessionService) AddMessage(_ context.Context, sessionID string, req *contract.AddMessageRequest) (*contract.SessionMessage, error) {
+	r.addMessageIDs = append(r.addMessageIDs, sessionID)
+	r.addMessageCalls = append(r.addMessageCalls, req)
+	if r.err != nil {
+		return nil, r.err
+	}
+	return &contract.SessionMessage{}, nil
+}
+
+func seedTaskWithSessionForM1(t *testing.T, database *gorm.DB, publicID string, status types.TaskStatus) (*types.Task, *types.Session) {
+	t.Helper()
+	ctx := context.Background()
+	project := mustCreateTaskProjectForM1(t, database, "prj_"+publicID)
+	task := &types.Task{
+		PublicID:  publicID,
+		OrgID:     1,
+		OwnerID:   1,
+		ProjectID: project.ID,
+		TaskType:  types.TaskTypeGeneral,
+		Title:     "交付任务",
+		Status:    string(status),
+	}
+	if err := dbpkg.CreateTask(ctx, database, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	session := &types.Session{
+		PublicID:  "sess_" + publicID,
+		Type:      types.SessionTypeTask,
+		Uin:       1,
+		OrgID:     1,
+		ProjectID: &project.ID,
+		TaskID:    &task.ID,
+		Status:    string(types.SessionStatusActive),
+	}
+	if err := dbpkg.CreateSession(ctx, database, session); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	task.SessionID = &session.ID
+	if err := dbpkg.UpdateTask(ctx, database, task); err != nil {
+		t.Fatalf("UpdateTask session: %v", err)
+	}
+	return task, session
+}
+
+func TestGetTaskDeliverablesAggregatesArtifactsWithoutDuplicates(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	task, session := seedTaskWithSessionForM1(t, database, "task_deliverables", types.TaskStatusPendingAcceptance)
+
+	artifactA := types.MessageArtifact{ArtifactID: "art_a", Title: "报告", Filename: "report.md"}
+	artifactB := types.MessageArtifact{ArtifactID: "art_b", Title: "截图", Filename: "shot.png"}
+	for i, artifacts := range []types.MessageArtifactSlice{{artifactA}, {artifactA, artifactB}} {
+		msg := &types.SessionMessage{
+			SessionID:   session.ID,
+			Role:        string(types.MessageRoleAssistant),
+			Content:     "交付",
+			MessageType: string(types.MessageTypeText),
+			Status:      string(types.MessageStatusCompleted),
+			Sequence:    int64(i + 1),
+			Timestamp:   time.Now().UnixMilli(),
+			Artifacts:   artifacts,
+		}
+		if err := dbpkg.CreateMessage(ctx, database, msg); err != nil {
+			t.Fatalf("CreateMessage: %v", err)
+		}
+	}
+
+	for _, file := range []*types.ProjectFile{
+		{FilePublicID: "file_report", OrgID: 1, ProjectID: task.ProjectID, TaskID: task.ID, ResourceType: types.ProjectFileResourceTypeArtifact, RelativePath: "report.md", InitialFilePublicID: "file_report", VersionNo: 1},
+		{FilePublicID: "file_upload", OrgID: 1, ProjectID: task.ProjectID, TaskID: task.ID, ResourceType: types.ProjectFileResourceTypeUserUpload, RelativePath: "input.txt", InitialFilePublicID: "file_upload", VersionNo: 1},
+	} {
+		if err := dbpkg.CreateProjectFile(ctx, database, file); err != nil {
+			t.Fatalf("CreateProjectFile: %v", err)
+		}
+	}
+
+	got, err := service.GetTaskDeliverables(ctx, task.PublicID)
+	if err != nil {
+		t.Fatalf("GetTaskDeliverables: %v", err)
+	}
+	if len(got.Artifacts) != 2 {
+		t.Fatalf("artifacts = %d, want 2: %#v", len(got.Artifacts), got.Artifacts)
+	}
+	if len(got.Files) != 1 {
+		t.Fatalf("files = %d, want only artifact file: %#v", len(got.Files), got.Files)
+	}
+	if got.Files[0].RelativePath != "report.md" {
+		t.Fatalf("unexpected deliverable file: %#v", got.Files[0])
+	}
+}
+
+func TestAcceptTaskOnlyFromPendingAcceptance(t *testing.T) {
+	database := setupTestDB(t)
+	service := NewTaskService(database, newTestPermissionService(database))
+	ctx := setupTestContextWithCaller(t)
+	task, _ := seedTaskWithSessionForM1(t, database, "task_accept", types.TaskStatusPendingAcceptance)
+
+	accepted, err := service.AcceptTask(ctx, task.PublicID, "验收通过")
+	if err != nil {
+		t.Fatalf("AcceptTask: %v", err)
+	}
+	if accepted.Status != string(types.TaskStatusCompleted) {
+		t.Fatalf("status = %s", accepted.Status)
+	}
+	if accepted.AcceptedBy == nil || *accepted.AcceptedBy != 1 || accepted.AcceptedAt == nil {
+		t.Fatalf("acceptance metadata = %#v", accepted)
+	}
+	if accepted.AcceptanceNote != "验收通过" {
+		t.Fatalf("note = %q", accepted.AcceptanceNote)
+	}
+
+	if _, err := service.AcceptTask(ctx, task.PublicID, "再次验收"); !errors.Is(err, ErrTaskNotPendingAcceptance) {
+		t.Fatalf("second accept error = %v, want ErrTaskNotPendingAcceptance", err)
+	}
+}
+
+func TestRejectTaskQueuesReworkMessage(t *testing.T) {
+	database := setupTestDB(t)
+	notifier := &recordingTaskSessionService{}
+	service := NewTaskServiceWithSession(database, newTestPermissionService(database), notifier)
+	ctx := setupTestContextWithCaller(t)
+	task, session := seedTaskWithSessionForM1(t, database, "task_reject", types.TaskStatusPendingAcceptance)
+
+	rejected, err := service.RejectTask(ctx, task.PublicID, "必须补充测试")
+	if err != nil {
+		t.Fatalf("RejectTask: %v", err)
+	}
+	if rejected.Status != string(types.TaskStatusInProgress) {
+		t.Fatalf("status = %s", rejected.Status)
+	}
+	if rejected.AcceptanceNote != "必须补充测试" {
+		t.Fatalf("note = %q", rejected.AcceptanceNote)
+	}
+	if len(notifier.addMessageCalls) != 1 || notifier.addMessageIDs[0] != session.PublicID {
+		t.Fatalf("notifier calls = %#v ids=%#v", notifier.addMessageCalls, notifier.addMessageIDs)
+	}
+	if !strings.Contains(notifier.addMessageCalls[0].Content, "必须补充测试") {
+		t.Fatalf("rework content = %q", notifier.addMessageCalls[0].Content)
+	}
+
+	if _, err := service.RejectTask(ctx, task.PublicID, "重复驳回"); !errors.Is(err, ErrTaskNotPendingAcceptance) {
+		t.Fatalf("second reject error = %v, want ErrTaskNotPendingAcceptance", err)
+	}
+}
+
+func TestRejectTaskRestoresPendingAcceptanceWhenReworkFails(t *testing.T) {
+	database := setupTestDB(t)
+	notifier := &recordingTaskSessionService{err: errors.New("worker not ready")}
+	service := NewTaskServiceWithSession(database, newTestPermissionService(database), notifier)
+	ctx := setupTestContextWithCaller(t)
+	task, _ := seedTaskWithSessionForM1(t, database, "task_reject_failure", types.TaskStatusPendingAcceptance)
+	if err := database.Model(&types.Task{}).Where("id = ?", task.ID).Update("acceptance_note", "旧意见").Error; err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+
+	if _, err := service.RejectTask(ctx, task.PublicID, "新意见"); err == nil {
+		t.Fatal("expected reject to fail when rework message fails")
+	}
+	var got types.Task
+	if err := database.First(&got, task.ID).Error; err != nil {
+		t.Fatalf("load task: %v", err)
+	}
+	if got.Status != string(types.TaskStatusPendingAcceptance) {
+		t.Fatalf("status = %s, want pending_acceptance", got.Status)
+	}
+	if got.AcceptanceNote != "旧意见" {
+		t.Fatalf("acceptance_note = %q, want old note", got.AcceptanceNote)
 	}
 }

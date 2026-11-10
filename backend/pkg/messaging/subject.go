@@ -178,6 +178,10 @@ func WorkerLaneConsumer(orgID, workerID uint, lane Lane) string {
 // 用于消费 run.state 事件，投影更新 session 的当前运行状态。
 func SessionRunStateConsumer() string { return "session-run-state-projector" }
 
+// TaskRunStateConsumer 返回任务状态投影器的持久化消费者名称。
+// 与 session projector 使用独立 consumer，避免两个投影互相抢占消息。
+func TaskRunStateConsumer() string { return "task-run-state-projector" }
+
 // SkillPackageUploadedConsumer returns the durable server consumer name.
 func SkillPackageUploadedConsumer() string { return "server-skill-package-uploaded-consumer" }
 

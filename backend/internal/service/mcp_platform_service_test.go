@@ -37,8 +37,8 @@ func (p *staticManagedCredentialProvider) Resolve(_ context.Context, request Man
 }
 
 func TestManagedMCPConnectorUsesConfiguredCredentialProvider(t *testing.T) {
-	const apiKey = "test-payroll-managed-key"
-	server := mcpserver.NewMCPServer("payroll-managed-test", "1.0.0")
+	const apiKey = "test-demo-managed-key"
+	server := mcpserver.NewMCPServer("demo-managed-test", "1.0.0")
 	server.AddTool(mcpsdk.NewTool("page_roster"), func(context.Context, mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 		return mcpsdk.NewToolResultText("ok"), nil
 	})
@@ -54,10 +54,10 @@ func TestManagedMCPConnectorUsesConfiguredCredentialProvider(t *testing.T) {
 
 	database := setupPluginServiceTestDB(t)
 	_, err := SyncSystemConnectorTemplate(context.Background(), database, "", types.MCPConnectorSpec{
-		Channel: "payroll", Name: "Payroll", Status: types.MCPChannelStatusActive,
+		Channel: "demo", Name: "Demo", Status: types.MCPChannelStatusActive,
 		Transport: "http", URL: httpServer.URL, AuthType: types.MCPChannelAuthTypeManaged,
 		AuthConfig: types.MCPChannelAuthConfig{
-			Handler:  "payroll",
+			Handler:  "demo",
 			Bindings: types.MCPChannelAuthBindings{MCPHeaders: map[string]string{"Authorization": "Bearer {{api_key}}"}},
 		},
 	})
@@ -65,14 +65,14 @@ func TestManagedMCPConnectorUsesConfiguredCredentialProvider(t *testing.T) {
 		t.Fatalf("SyncSystemConnectorTemplate() error = %v", err)
 	}
 	provider := &staticManagedCredentialProvider{values: map[string]string{"api_key": apiKey}}
-	credentials := NewManagedCredentialService(map[string]ManagedCredentialProvider{"payroll": provider})
+	credentials := NewManagedCredentialService(map[string]ManagedCredentialProvider{"demo": provider})
 	pluginSvc := NewPluginServiceWithManagedCredentials(database, credentials, nil, nil)
-	connected, err := pluginSvc.ConnectMCPPlatform(context.Background(), 10, 20, "payroll", nil)
+	connected, err := pluginSvc.ConnectMCPPlatform(context.Background(), 10, 20, "demo", nil)
 	if err != nil {
 		t.Fatalf("ConnectMCPPlatform() error = %v", err)
 	}
-	if connected.ToolCount != 1 || provider.request.ConnectorCode != "payroll" ||
-		provider.request.ConnectorName != "Payroll" || provider.request.Purpose != "mcp_connector" || provider.calls != 1 {
+	if connected.ToolCount != 1 || provider.request.ConnectorCode != "demo" ||
+		provider.request.ConnectorName != "Demo" || provider.request.Purpose != "mcp_connector" || provider.calls != 1 {
 		t.Fatalf("connected=%#v provider_request=%#v", connected, provider.request)
 	}
 
@@ -97,14 +97,14 @@ func TestManagedMCPConnectorUsesConfiguredCredentialProvider(t *testing.T) {
 	if err := database.Model(&types.PluginRevision{}).Where("id = ?", revision.ID).Update("definition", legacyDefinition).Error; err != nil {
 		t.Fatalf("downgrade connector revision fixture: %v", err)
 	}
-	migrated, err := pluginSvc.ConnectMCPPlatform(context.Background(), 10, 20, "payroll", nil)
+	migrated, err := pluginSvc.ConnectMCPPlatform(context.Background(), 10, 20, "demo", nil)
 	if err != nil {
 		t.Fatalf("ConnectMCPPlatform() migrate old revision error = %v", err)
 	}
 	if migrated.Plugin.CurrentRevision != 2 || migrated.ToolCount != 1 || provider.calls != 2 {
 		t.Fatalf("migrated connector=%#v provider calls=%d", migrated, provider.calls)
 	}
-	repeated, err := pluginSvc.ConnectMCPPlatform(context.Background(), 10, 20, "payroll", nil)
+	repeated, err := pluginSvc.ConnectMCPPlatform(context.Background(), 10, 20, "demo", nil)
 	if err != nil {
 		t.Fatalf("ConnectMCPPlatform() idempotent call error = %v", err)
 	}
