@@ -186,7 +186,7 @@ stop:
 logs:
 	docker-compose -f deployments/env/docker-compose.yml logs -f
 
-# Swagger 文档生成
+# Swagger 文档生成（旧 /v1 API；控制面不生成 swagger）
 .PHONY: swagger swagger-clean
 
 swagger:

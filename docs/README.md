@@ -67,8 +67,6 @@
 |------|------|
 | [archive/README.md](archive/README.md) | 企业版 / 项目制 AI 队友阶段文档，仅历史参考 |
 
-> 控制面不生成旧版 `/v1` swagger；对外协议以 `operations/control-plane.md` 为准。
-
 ## 新增文档指引
 
 1. 确定文档所属分类，放入对应子目录；已废弃内容放入 `archive/`。
