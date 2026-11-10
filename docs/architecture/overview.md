@@ -1,8 +1,8 @@
-# Lework OpenCode 控制面技术架构
+# Lework 架构概览
 
-> 状态：草案，待评审 ｜ 日期：2026-11-01 ｜ 范围：重构目标架构，不代表当前实现
+> 状态：目标架构 ｜ 更新：2026-11-10 ｜ 当前实现见 `as-built.md`
 >
-> 配套产品架构：`docs/product/2026-11-01-opencode-control-plane-product-architecture.md`
+> 配套产品概览：`docs/product/overview.md` ｜ 路线图：`docs/product/roadmap.md`
 
 ## 1. 摘要
 
