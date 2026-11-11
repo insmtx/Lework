@@ -43,15 +43,16 @@ func TestServeRequiresEnrollmentToken(t *testing.T) {
 	}
 }
 
-func TestServeRejectsNonLoopback(t *testing.T) {
+func TestServeRejectsMalformedListenAddr(t *testing.T) {
 	t.Setenv("LEWORK_ENROLLMENT_TOKEN", "test-enrollment-token")
 
-	output, err := executeServeCommand(t, "--db", ":memory:", "--listen", "0.0.0.0:8787")
+	// 非回环地址是合法绑定（是否告警由鉴权配置决定），这里改用畸形地址触发校验失败。
+	output, err := executeServeCommand(t, "--db", ":memory:", "--listen", "8787")
 	if err == nil {
-		t.Fatalf("serve bound a non-loopback address:\n%s", output)
+		t.Fatalf("serve accepted a malformed listen address:\n%s", output)
 	}
-	if !strings.Contains(err.Error(), "loopback") {
-		t.Fatalf("error = %v, want it to mention loopback", err)
+	if !strings.Contains(err.Error(), "host:port") {
+		t.Fatalf("error = %v, want it to mention host:port", err)
 	}
 	if strings.Contains(err.Error(), "test-enrollment-token") {
 		t.Fatalf("error leaks the enrollment token: %v", err)

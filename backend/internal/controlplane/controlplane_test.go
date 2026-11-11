@@ -61,9 +61,10 @@ func TestServerNewRejectsInvalidConfig(t *testing.T) {
 			want:   "enrollment_token",
 		},
 		{
-			name:   "non-loopback listen",
-			mutate: func(cfg *config.Config) { cfg.ListenAddr = "0.0.0.0:8787" },
-			want:   "loopback",
+			// 非回环地址是合法绑定，校验只拒绝畸形 host:port。
+			name:   "malformed listen",
+			mutate: func(cfg *config.Config) { cfg.ListenAddr = "8787" },
+			want:   "host:port",
 		},
 	}
 
