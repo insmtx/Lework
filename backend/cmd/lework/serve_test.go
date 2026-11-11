@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -31,20 +33,42 @@ func TestRootCommandHasServe(t *testing.T) {
 	}
 }
 
-func TestServeRequiresEnrollmentToken(t *testing.T) {
-	t.Setenv("LEWORK_ENROLLMENT_TOKEN", "")
-
-	output, err := executeServeCommand(t, "--db", ":memory:")
-	if err == nil {
-		t.Fatalf("serve without a token succeeded:\n%s", output)
+// TestServeTokenCommandPrintsAndPersists 覆盖零配置路径：没有显式令牌时，
+// `serve token` 生成新令牌、打印到 stdout，并把同一令牌持久化到文件。
+func TestServeTokenCommandPrintsAndPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "enrollment.token")
+	cmd := newServeCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"token", "--token-file", path})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("serve token: %v", err)
 	}
-	if !strings.Contains(err.Error(), "enrollment_token") {
-		t.Fatalf("error = %v, want it to mention enrollment_token", err)
+	printed := strings.TrimSpace(out.String())
+	if len(printed) != 43 {
+		t.Fatalf("printed token = %q (len %d)", printed, len(printed))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || strings.TrimSpace(string(data)) != printed {
+		t.Fatalf("file = %q, %v", data, err)
+	}
+}
+
+func TestServeTokenCommandHelpDoesNotLeakToken(t *testing.T) {
+	t.Setenv("LEWORK_ENROLLMENT_TOKEN", "super-secret-enrollment-token")
+	output, err := executeServeCommand(t, "token", "--help")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if strings.Contains(output, "super-secret-enrollment-token") {
+		t.Fatalf("help leaks token:\n%s", output)
 	}
 }
 
 func TestServeRejectsMalformedListenAddr(t *testing.T) {
 	t.Setenv("LEWORK_ENROLLMENT_TOKEN", "test-enrollment-token")
+	// runControlPlane 会先解析并持久化令牌；必须指向临时文件，避免覆盖开发者真实令牌。
+	t.Setenv("LEWORK_TOKEN_FILE", filepath.Join(t.TempDir(), "enrollment.token"))
 
 	// 非回环地址是合法绑定（是否告警由鉴权配置决定），这里改用畸形地址触发校验失败。
 	output, err := executeServeCommand(t, "--db", ":memory:", "--listen", "8787")
@@ -74,6 +98,7 @@ func TestServeHelpDoesNotLeakToken(t *testing.T) {
 
 func TestServeConfigFlagDefaults(t *testing.T) {
 	t.Setenv("LEWORK_ENROLLMENT_TOKEN", "")
+	t.Setenv("LEWORK_TOKEN_FILE", "")
 
 	flags := newServeCommand().Flags()
 	tests := []struct {
@@ -82,6 +107,7 @@ func TestServeConfigFlagDefaults(t *testing.T) {
 	}{
 		{name: "listen", want: controlplaneconfig.DefaultListenAddr},
 		{name: "db", want: controlplaneconfig.DefaultDBPath()},
+		{name: "token-file", want: controlplaneconfig.DefaultTokenPath()},
 		{name: "request-timeout", want: controlplaneconfig.DefaultRequestTimeout.String()},
 	}
 
