@@ -275,3 +275,78 @@ func TestUpsertNodeIgnoresSuppliedIDOnInsert(t *testing.T) {
 		t.Errorf("inserted node = %+v, want name beta", byID[inserted.ID])
 	}
 }
+
+func TestOpenMigratesDevicesTable(t *testing.T) {
+	s := openTestStore(t)
+
+	if !s.db.Migrator().HasTable(&Device{}) {
+		t.Fatal("expected devices table to be migrated")
+	}
+}
+
+func TestUpsertDeviceReusesRowForSameToken(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	first, err := s.UpsertDevice(ctx, Device{Name: "pixel", Platform: "android", PushToken: "tok-a"})
+	if err != nil {
+		t.Fatalf("UpsertDevice() failed: %v", err)
+	}
+	if !strings.HasPrefix(first.ID, "device_") || len(first.ID) != len("device_")+16 {
+		t.Fatalf("ID = %q, want device_ + 16 hex chars", first.ID)
+	}
+
+	second, err := s.UpsertDevice(ctx, Device{Name: "pixel2", Platform: "android", PushToken: "tok-a"})
+	if err != nil {
+		t.Fatalf("UpsertDevice() second failed: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Errorf("ID = %q, want %q (same push token)", second.ID, first.ID)
+	}
+	if second.Name != "pixel2" {
+		t.Errorf("Name = %q, want pixel2", second.Name)
+	}
+
+	all, err := s.ListDevices(ctx)
+	if err != nil {
+		t.Fatalf("ListDevices() failed: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("len(devices) = %d, want 1", len(all))
+	}
+}
+
+func TestUpsertDeviceRequiresTokenAndPlatform(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.UpsertDevice(ctx, Device{Name: "x", Platform: "android"}); err == nil {
+		t.Error("UpsertDevice() without token: want error")
+	}
+	if _, err := s.UpsertDevice(ctx, Device{Name: "x", Platform: "windows", PushToken: "t"}); err == nil {
+		t.Error("UpsertDevice() with unknown platform: want error")
+	}
+	if _, err := s.UpsertDevice(ctx, Device{Name: " ", Platform: "android", PushToken: "t"}); err == nil {
+		t.Error("UpsertDevice() without name: want error")
+	}
+}
+
+func TestDeleteDeviceReportsMissingRow(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.DeleteDevice(ctx, "device_missing"); err == nil {
+		t.Error("DeleteDevice() on missing row: want error")
+	}
+
+	device, err := s.UpsertDevice(ctx, Device{Name: "pixel", Platform: "android", PushToken: "tok-a"})
+	if err != nil {
+		t.Fatalf("UpsertDevice() failed: %v", err)
+	}
+	if err := s.DeleteDevice(ctx, device.ID); err != nil {
+		t.Fatalf("DeleteDevice() failed: %v", err)
+	}
+	if all, _ := s.ListDevices(ctx); len(all) != 0 {
+		t.Fatalf("len(devices) = %d, want 0", len(all))
+	}
+}

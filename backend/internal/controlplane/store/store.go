@@ -37,6 +37,18 @@ type Node struct {
 	UpdatedAt    time.Time
 }
 
+// Device 是注册了推送通知的终端。它只保存推送令牌，不保存认证凭据：
+// 控制面的鉴权走共享 enrollment token，设备表存在的意义是知道往哪儿推。
+type Device struct {
+	ID        string `gorm:"primaryKey"`
+	Name      string `gorm:"not null"`
+	Platform  string `gorm:"not null"`
+	PushToken string `gorm:"uniqueIndex;not null"`
+	LastSeen  time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // Store 是节点存储，持有 SQLite 连接。
 type Store struct {
 	db     *gorm.DB
@@ -78,7 +90,7 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	if err := database.AutoMigrate(&Node{}); err != nil {
+	if err := database.AutoMigrate(&Node{}, &Device{}); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		if sqlDB, dbErr := database.DB(); dbErr == nil {
 			_ = sqlDB.Close()
@@ -200,6 +212,76 @@ func (s *Store) TouchNode(ctx context.Context, id string, at time.Time) error {
 	return nil
 }
 
+// UpsertDevice 按推送令牌写入设备：同一令牌重复注册时复用原 ID 并更新
+// 名称与平台，避免重装 App 后留下永远推不到的僵尸记录。
+func (s *Store) UpsertDevice(ctx context.Context, d Device) (Device, error) {
+	if strings.TrimSpace(d.PushToken) == "" {
+		return Device{}, errors.New("push token is required")
+	}
+	if strings.TrimSpace(d.Name) == "" {
+		return Device{}, errors.New("device name is required")
+	}
+	if d.Platform != "android" && d.Platform != "ios" {
+		return Device{}, fmt.Errorf("unsupported platform %q", d.Platform)
+	}
+
+	// 与 UpsertNode 同理：用 Find 查询，未命中是正常分支，不产生日志噪声。
+	var existing []Device
+	res := s.db.WithContext(ctx).Where("push_token = ?", d.PushToken).Limit(1).Find(&existing)
+	if res.Error != nil {
+		return Device{}, fmt.Errorf("lookup device: %w", res.Error)
+	}
+
+	if len(existing) > 0 {
+		d.ID = existing[0].ID
+		d.CreatedAt = existing[0].CreatedAt
+	} else {
+		id, idErr := newDeviceID()
+		if idErr != nil {
+			return Device{}, idErr
+		}
+		d.ID = id
+	}
+
+	if err := s.db.WithContext(ctx).Save(&d).Error; err != nil {
+		return Device{}, fmt.Errorf("save device: %w", err)
+	}
+	return d, nil
+}
+
+// ListDevices 返回全部设备，按创建时间升序；空库返回空切片而非 nil。
+func (s *Store) ListDevices(ctx context.Context) ([]Device, error) {
+	devices := make([]Device, 0)
+	if err := s.db.WithContext(ctx).Order("created_at ASC").Find(&devices).Error; err != nil {
+		return nil, fmt.Errorf("list devices: %w", err)
+	}
+	return devices, nil
+}
+
+// DeleteDevice 删除设备；不存在时返回错误，让调用方能回 404 而不是假装成功。
+func (s *Store) DeleteDevice(ctx context.Context, id string) error {
+	res := s.db.WithContext(ctx).Delete(&Device{}, "id = ?", id)
+	if res.Error != nil {
+		return fmt.Errorf("delete device %q: %w", id, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("delete device %q: device not found", id)
+	}
+	return nil
+}
+
+// TouchDevice 记录设备最近一次活动时间，用于判断推送是否还有意义。
+func (s *Store) TouchDevice(ctx context.Context, id string, at time.Time) error {
+	res := s.db.WithContext(ctx).Model(&Device{}).Where("id = ?", id).Update("last_seen", at)
+	if res.Error != nil {
+		return fmt.Errorf("touch device %q: %w", id, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("touch device %q: device not found", id)
+	}
+	return nil
+}
+
 // newNodeID 生成 node 前缀的随机 ID（8 字节随机数的十六进制）。
 func newNodeID() (string, error) {
 	buf := make([]byte, 8)
@@ -207,4 +289,13 @@ func newNodeID() (string, error) {
 		return "", fmt.Errorf("generate node id: %w", err)
 	}
 	return "node_" + hex.EncodeToString(buf), nil
+}
+
+// newDeviceID 生成 device 前缀的随机 ID，规则与节点一致。
+func newDeviceID() (string, error) {
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate device id: %w", err)
+	}
+	return "device_" + hex.EncodeToString(buf), nil
 }
