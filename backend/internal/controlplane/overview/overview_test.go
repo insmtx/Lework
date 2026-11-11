@@ -1,0 +1,96 @@
+package overview
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/insmtx/lework/backend/internal/controlplane/event"
+)
+
+func TestApplyTracksPendingPermissions(t *testing.T) {
+	idx := NewIndex()
+	data, _ := json.Marshal(map[string]string{"id": "perm_1"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.asked", Data: data})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.asked", Data: data})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || len(snap[0].Sessions) != 1 {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	ses := snap[0].Sessions[0]
+	if ses.State != StateWaitingPermission || ses.Pending != 1 {
+		t.Fatalf("state = %q pending = %d, want waiting_permission/1", ses.State, ses.Pending)
+	}
+
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.replied", Data: data})
+	ses = idx.Snapshot()[0].Sessions[0]
+	if ses.State != StateRunning || ses.Pending != 0 {
+		t.Fatalf("state = %q pending = %d, want running/0", ses.State, ses.Pending)
+	}
+}
+
+func TestApplyTerminalStates(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.created"})
+	if got := idx.Snapshot()[0].Sessions[0].State; got != StateRunning {
+		t.Fatalf("state after created = %q, want running", got)
+	}
+
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.failed"})
+	if got := idx.Snapshot()[0].Sessions[0].State; got != StateError {
+		t.Fatalf("state = %q, want error", got)
+	}
+
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.succeeded"})
+	if got := idx.Snapshot()[0].Sessions[0].State; got != StateIdle {
+		t.Fatalf("state = %q, want idle", got)
+	}
+}
+
+func TestApplyKeepsWaitingWhenMessageArrives(t *testing.T) {
+	idx := NewIndex()
+	data, _ := json.Marshal(map[string]string{"id": "perm_1"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.asked", Data: data})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "message.part.updated"})
+
+	ses := idx.Snapshot()[0].Sessions[0]
+	if ses.State != StateWaitingPermission || ses.Pending != 1 {
+		t.Fatalf("state = %q pending = %d, want waiting_permission/1", ses.State, ses.Pending)
+	}
+}
+
+func TestApplyResetsNodeOnResync(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.created"})
+	idx.Apply(event.Event{NodeID: "node_2", SessionID: "ses_2", Type: "session.created"})
+
+	idx.Apply(event.Event{NodeID: "node_1", Type: "agent.resync_required"})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || snap[0].NodeID != "node_2" {
+		t.Fatalf("snapshot = %+v, want only node_2", snap)
+	}
+}
+
+func TestApplyIgnoresSessionlessEvents(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(event.Event{NodeID: "node_1", Type: "node.heartbeat"})
+	if snap := idx.Snapshot(); len(snap) != 0 {
+		t.Fatalf("snapshot = %+v, want empty", snap)
+	}
+}
+
+func TestSnapshotOrdersByRecentActivity(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(event.Event{NodeID: "node_2", SessionID: "ses_a", Type: "session.created"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_b", Type: "session.created"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_c", Type: "session.created"})
+
+	snap := idx.Snapshot()
+	if len(snap) != 2 || snap[0].NodeID != "node_1" {
+		t.Fatalf("snapshot = %+v, want node_1 first", snap)
+	}
+	if len(snap[0].Sessions) != 2 || snap[0].Sessions[0].SessionID != "ses_c" {
+		t.Fatalf("sessions = %+v, want newest first", snap[0].Sessions)
+	}
+}
