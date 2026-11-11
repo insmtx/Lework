@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
 func TestRegisterDevice(t *testing.T) {
@@ -18,12 +16,15 @@ func TestRegisterDevice(t *testing.T) {
 		t.Fatalf("status = %d, want 201: %s", rec.Code, rec.Body.String())
 	}
 
-	var device store.Device
+	var device deviceView
 	if err := json.Unmarshal(rec.Body.Bytes(), &device); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if device.ID == "" || device.Name != "pixel" || device.PushToken != "tok-a" {
 		t.Fatalf("device = %+v", device)
+	}
+	if !strings.Contains(rec.Body.String(), `"push_token":"tok-a"`) {
+		t.Fatalf("body = %s, want snake_case push_token", rec.Body.String())
 	}
 }
 
@@ -36,7 +37,7 @@ func TestRegisterDeviceIsIdempotentPerToken(t *testing.T) {
 	}
 
 	list := env.do(http.MethodGet, "/api/devices", "")
-	var devices []store.Device
+	var devices []deviceView
 	if err := json.Unmarshal(list.Body.Bytes(), &devices); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestListAndDeleteDevices(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	created := env.do(http.MethodPost, "/api/devices",
 		`{"name":"pixel","platform":"android","push_token":"tok-a"}`)
-	var device store.Device
+	var device deviceView
 	if err := json.Unmarshal(created.Body.Bytes(), &device); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
