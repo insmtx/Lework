@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -217,6 +218,79 @@ func TestNewRootCommandDoesNotDuplicateCommands(t *testing.T) {
 			}
 			seen[name] = true
 		}
+	}
+}
+
+func TestRootWithoutArgsRunsAll(t *testing.T) {
+	original := runAllCommand
+	t.Cleanup(func() { runAllCommand = original })
+
+	var got allOptions
+	runAllCommand = func(_ context.Context, opts allOptions) error { got = opts; return nil }
+
+	_, err := executeRootCommand("--listen", "127.0.0.1:9000", "--token-file", "/tmp/tok",
+		"--node-name", "box")
+	if err != nil {
+		t.Fatalf("execute root: %v", err)
+	}
+	if got.serve.ListenAddr != "127.0.0.1:9000" {
+		t.Fatalf("listen = %q", got.serve.ListenAddr)
+	}
+	if got.tokenPath != "/tmp/tok" {
+		t.Fatalf("token path = %q", got.tokenPath)
+	}
+	if got.agent.nodeName != "box" {
+		t.Fatalf("node name = %q", got.agent.nodeName)
+	}
+}
+
+func TestRootAgentConfigExplicitness(t *testing.T) {
+	original := runAllCommand
+	t.Cleanup(func() { runAllCommand = original })
+
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "default is not explicit"},
+		{name: "flag marks explicit", args: []string{"--agent-config", "/tmp/a.yaml"}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got allOptions
+			runAllCommand = func(_ context.Context, opts allOptions) error { got = opts; return nil }
+
+			if _, err := executeRootCommand(tt.args...); err != nil {
+				t.Fatalf("execute root: %v", err)
+			}
+			if got.agent.configPathExplicit != tt.want {
+				t.Fatalf("configPathExplicit = %v, want %v", got.agent.configPathExplicit, tt.want)
+			}
+		})
+	}
+}
+
+func TestRootBareDoesNotPrintHelp(t *testing.T) {
+	original := runAllCommand
+	t.Cleanup(func() { runAllCommand = original })
+	runAllCommand = func(context.Context, allOptions) error { return nil }
+	out, err := executeRootCommand()
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if strings.Contains(out, "Available Commands") {
+		t.Fatalf("bare lework printed help:\n%s", out)
+	}
+}
+
+func TestRootHelpMentionsCombinedStartup(t *testing.T) {
+	out, err := executeRootCommand("--help")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.Contains(out, "without a subcommand") {
+		t.Fatalf("help missing combined startup description:\n%s", out)
 	}
 }
 
