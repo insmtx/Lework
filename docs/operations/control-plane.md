@@ -43,6 +43,64 @@ lework serve \
 控制面默认只绑定回环地址。注册令牌用于节点首次注册，不会出现在日志中。
 浏览器打开 `http://127.0.0.1:8787/`。
 
+## 一体化启动
+
+裸 `lework` 会在同一进程内同时启动控制面与节点 agent，适合本机单机使用：
+
+```bash
+./bundles/lework
+```
+
+它只启动后端，不会构建前端静态资源；界面仍需由 `make build` 或
+`make frontend-control-plane` 预先嵌入。裸执行不再打印帮助，帮助入口是
+`lework -h`；`serve` 与 `agent` 子命令仍可各自独立启动。
+
+合并进程的 flag 只挂在根命令上：`--listen`、`--db`、`--enrollment-token`、
+`--token-file`、`--request-timeout`、`--heartbeat-timeout`、`--agent-config`、
+`--node-name`、`--workspace-root`（可重复）。
+
+节点 agent 配置按以下优先级合并：
+
+1. 命令行显式覆盖（`--node-name`、`--workspace-root`）。
+2. 显式 `--agent-config` 指定的文件；文件必须存在，否则启动失败。
+3. 默认路径下的 `agent.yaml`（存在才读取）。
+4. 派生默认值：控制面地址来自 `--listen`，令牌来自控制面解析结果，
+   节点名取主机名，工作目录取用户主目录。
+
+默认路径 `agent.yaml` 中显式写出的 `control_plane_url` 与 `enrollment_token`
+优先于派生值，不会被覆盖。
+
+组合模式通常要求 `--listen` 使用固定端口（如 `127.0.0.1:8787`）；未在 agent
+配置中显式指定 `control_plane_url` 时，端口 `0` 会被拒绝，因为 agent 无法通过
+派生地址稳定连回自身。若 agent 配置已显式给出 URL，则 `--listen` 的端口不再
+参与派生，`0` 可由系统随机分配。
+
+### 注册令牌
+
+`serve` 与裸执行都会自动解析注册令牌：显式 `--enrollment-token`
+（或 `LEWORK_ENROLLMENT_TOKEN`）优先，其次是 `--token-file`
+（或 `LEWORK_TOKEN_FILE`），文件缺失时生成并写回。
+
+默认令牌文件是 `~/.config/Lework/enrollment.token`（目录 `0700`、文件 `0600`）。
+显式传入的令牌也会落盘，保证后续启动一致。`lework serve token` 打印当前
+生效的令牌，可用于远程浏览器引导；令牌本身不会写入日志。
+
+### 非回环监听与浏览器鉴权
+
+绑定非回环地址（例如 `--listen 0.0.0.0:8787`）后，除 `/healthz` 与
+`/api/agent/connect` 外的浏览器 API 都需要注册令牌：
+
+- 首次在浏览器打开 `http://<host>:8787/?token=<token>`，校验通过后写入
+  `HttpOnly` 的 `lework_session` cookie，并 302 到去掉 `token` 的同一地址。
+- 脚本可改用 `Authorization: Bearer <token>`。
+- 直接来自回环的请求仍然放行；但只要出现 `X-Forwarded-For`、`X-Real-IP`
+  或 `Forwarded` 任一转发头，就按外部请求处理并要求令牌。
+
+反向代理需注意：代理应转发真实的客户端信息（保留 `X-Forwarded-For` 等转发头），
+浏览器也必须携带令牌访问；如果代理把请求转发到本机回环又剥掉了转发头，控制面
+会把它当成本机请求放行，此时必须由代理层自行鉴权。`?token=` 会短暂出现在
+浏览器历史与代理访问日志中，302 只能缩小暴露窗口。
+
 ## 启动节点 Agent
 
 ```yaml
