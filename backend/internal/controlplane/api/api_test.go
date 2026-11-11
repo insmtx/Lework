@@ -15,6 +15,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/agentd/protocol"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
+	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
@@ -41,6 +42,7 @@ type testEnv struct {
 	store    *store.Store
 	registry *node.Registry
 	hub      *event.Hub
+	index    *overview.Index
 	mux      *http.ServeMux
 }
 
@@ -54,11 +56,12 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 	registry := node.NewRegistry()
 	hub := event.NewHub()
 
-	api := New(st, registry, hub, timeout)
+	index := overview.NewIndex()
+	api := New(st, registry, hub, index, timeout)
 	mux := http.NewServeMux()
 	api.Register(mux)
 
-	env := &testEnv{t: t, store: st, registry: registry, hub: hub, mux: mux}
+	env := &testEnv{t: t, store: st, registry: registry, hub: hub, index: index, mux: mux}
 	t.Cleanup(func() {
 		registry.CloseAll()
 		_ = st.Close()

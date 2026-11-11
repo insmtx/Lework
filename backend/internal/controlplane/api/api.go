@@ -14,6 +14,7 @@ import (
 
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
+	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
@@ -36,11 +37,13 @@ type API struct {
 	store          *store.Store
 	registry       *node.Registry
 	hub            *event.Hub
+	index          *overview.Index
 	requestTimeout time.Duration
 }
 
 // New 组装浏览器 API；requestTimeout 非正时使用 30 秒默认值。
-func New(st *store.Store, registry *node.Registry, hub *event.Hub, requestTimeout time.Duration) *API {
+// index 是总览的派生索引，调用方负责喂事件；为 nil 时总览端点会明确报错。
+func New(st *store.Store, registry *node.Registry, hub *event.Hub, index *overview.Index, requestTimeout time.Duration) *API {
 	if requestTimeout <= 0 {
 		requestTimeout = defaultRequestTimeout
 	}
@@ -48,6 +51,7 @@ func New(st *store.Store, registry *node.Registry, hub *event.Hub, requestTimeou
 		store:          st,
 		registry:       registry,
 		hub:            hub,
+		index:          index,
 		requestTimeout: requestTimeout,
 	}
 }
@@ -73,6 +77,12 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/permissions/{permissionID}/reply", a.handlePermissionReply)
 
 	mux.HandleFunc("GET /api/events", a.handleEvents)
+
+	mux.HandleFunc("GET /api/overview", a.handleOverview)
+
+	mux.HandleFunc("GET /api/devices", a.handleListDevices)
+	mux.HandleFunc("POST /api/devices", a.handleRegisterDevice)
+	mux.HandleFunc("DELETE /api/devices/{id}", a.handleDeleteDevice)
 }
 
 // callAgent 把一次浏览器请求转发给节点，并用请求超时约束等待。

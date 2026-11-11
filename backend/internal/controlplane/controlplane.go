@@ -23,6 +23,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
+	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/controlplane/webui"
 )
@@ -49,6 +50,7 @@ type Server struct {
 	store    *store.Store
 	registry *node.Registry
 	hub      *event.Hub
+	index    *overview.Index
 	handler  http.Handler
 
 	mu         sync.Mutex
@@ -67,11 +69,12 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 
 	registry := node.NewRegistry()
 	hub := event.NewHub()
+	index := overview.NewIndex()
 	gateway := agentgw.New(agentgw.Config{
 		EnrollmentToken:  cfg.EnrollmentToken,
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
 	}, st, registry, hub)
-	browserAPI := api.New(st, registry, hub, cfg.RequestTimeout)
+	browserAPI := api.New(st, registry, hub, index, cfg.RequestTimeout)
 	ui := webui.Handler()
 
 	mux := http.NewServeMux()
@@ -85,6 +88,7 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 		store:    st,
 		registry: registry,
 		hub:      hub,
+		index:    index,
 		handler:  mux,
 	}, nil
 }
