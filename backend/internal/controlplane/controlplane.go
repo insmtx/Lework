@@ -85,7 +85,7 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 		store:    st,
 		registry: registry,
 		hub:      hub,
-		handler:  mux,
+		handler:  newAuthHandler(mux, cfg.EnrollmentToken),
 	}, nil
 }
 
@@ -118,6 +118,10 @@ func (s *Server) Run(ctx context.Context) error {
 	s.mu.Unlock()
 
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
+	if !config.IsLoopbackAddr(s.cfg.ListenAddr) {
+		logs.Warnf("control plane is listening on non-loopback address %s; "+
+			"browser API requires the enrollment token", s.cfg.ListenAddr)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
