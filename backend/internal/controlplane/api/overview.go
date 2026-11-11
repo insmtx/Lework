@@ -48,6 +48,17 @@ func (a *API) handleOverview(w http.ResponseWriter, r *http.Request) {
 		view.Connected = true
 	}
 
+	// 断线节点的会话状态是断线前的快照，继续报 running 会让用户白等。
+	// 这里统一覆盖成 offline，保留 last_activity 供人判断是什么时候停的。
+	for _, view := range views {
+		if view.Connected {
+			continue
+		}
+		for i := range view.Sessions {
+			view.Sessions[i].State = overview.StateOffline
+		}
+	}
+
 	nodes := make([]overviewNodeView, 0, len(views))
 	for _, view := range views {
 		if view.Sessions == nil {

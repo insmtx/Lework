@@ -217,29 +217,57 @@ func (s *Server) Close() error {
 	return errors.Join(errs...)
 }
 
+// eventSubscriber 是事件中心的订阅面；抽成接口让重新订阅路径可测。
+type eventSubscriber interface {
+	Subscribe(buffer int) (<-chan event.Event, func())
+}
+
 // startMonitor 把事件中心接到总览索引。
-//
-// 索引是旁路投影：这里只负责持续 Apply，不参与任何请求处理；订阅被 Hub
-// 淘汰时索引会短暂落后，客户端重新拉快照即可恢复。
 func (s *Server) startMonitor(ctx context.Context) {
-	events, cancel := s.hub.Subscribe(monitorBuffer)
-	s.mu.Lock()
-	s.monitorCancel = cancel
-	s.mu.Unlock()
+	s.startMonitorWith(ctx, s.hub)
+}
+
+// startMonitorWith 订阅事件并持续投影到索引。
+//
+// Hub 遇到慢消费者会关闭通道而不是阻塞发布方，因此这里被关闭后必须重新
+// 订阅：否则一次跟不上就会让总览停在旧状态直到进程重启。
+func (s *Server) startMonitorWith(ctx context.Context, sub eventSubscriber) {
+	events, cancel := sub.Subscribe(monitorBuffer)
+	s.setMonitorCancel(cancel)
 
 	go func() {
 		for {
-			select {
-			case <-ctx.Done():
+			s.consumeIndex(ctx, events)
+			if ctx.Err() != nil {
 				return
-			case ev, ok := <-events:
-				if !ok {
-					return
-				}
-				s.index.Apply(ev)
 			}
+			logs.Warnf("controlplane: overview subscription lost, resubscribing")
+			events, cancel = sub.Subscribe(monitorBuffer)
+			s.setMonitorCancel(cancel)
 		}
 	}()
+}
+
+// consumeIndex 处理一个订阅通道，直到它被关闭或 ctx 取消。
+func (s *Server) consumeIndex(ctx context.Context, events <-chan event.Event) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			s.index.Apply(ev)
+		}
+	}
+}
+
+// setMonitorCancel 记录当前订阅的取消函数，供 Close 释放。
+func (s *Server) setMonitorCancel(cancel func()) {
+	s.mu.Lock()
+	s.monitorCancel = cancel
+	s.mu.Unlock()
 }
 
 // handleHealthz 返回固定的健康状态，用于启动探活与命令行自检。

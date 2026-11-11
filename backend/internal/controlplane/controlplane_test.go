@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -373,5 +374,56 @@ func TestMonitorFeedsOverview(t *testing.T) {
 	srv.index.Apply(event.Event{NodeID: "node_1", Type: "agent.resync_required"})
 	if got := srv.index.Snapshot(); len(got) != 0 {
 		t.Fatalf("snapshot = %+v, want empty after resync", got)
+	}
+}
+
+// closingSubscriber 第一次订阅立刻关闭，之后投递一条事件再关闭，
+// 用来证明索引订阅被 Hub 淘汰后会自动重订。
+type closingSubscriber struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *closingSubscriber) Subscribe(int) (<-chan event.Event, func()) {
+	c.mu.Lock()
+	c.calls++
+	n := c.calls
+	c.mu.Unlock()
+
+	ch := make(chan event.Event, 4)
+	if n > 1 {
+		ch <- event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.created"}
+	}
+	close(ch)
+	return ch, func() {}
+}
+
+func (c *closingSubscriber) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
+}
+
+func TestMonitorResubscribesAfterEviction(t *testing.T) {
+	srv := newTestServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sub := &closingSubscriber{}
+	srv.startMonitorWith(ctx, sub)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(srv.index.Snapshot()) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(srv.index.Snapshot()) == 0 {
+		t.Fatal("overview never recovered after the subscription was closed")
+	}
+	if sub.count() < 2 {
+		t.Fatalf("Subscribe calls = %d, want at least 2", sub.count())
 	}
 }

@@ -3,6 +3,7 @@ package overview
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 )
@@ -92,5 +93,37 @@ func TestSnapshotOrdersByRecentActivity(t *testing.T) {
 	}
 	if len(snap[0].Sessions) != 2 || snap[0].Sessions[0].SessionID != "ses_c" {
 		t.Fatalf("sessions = %+v, want newest first", snap[0].Sessions)
+	}
+}
+
+func TestApplyPrunesFinishedSessions(t *testing.T) {
+	idx := NewIndex()
+	old := time.Now().Add(-2 * time.Hour)
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_old", Type: "session.execution.succeeded", Time: old,
+	})
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_new", Type: "session.created", Time: time.Now(),
+	})
+
+	// 下一条事件触发清理：已结束且长时间无活动的会话不应永久驻留。
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_new", Type: "message.part.updated", Time: time.Now(),
+	})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || len(snap[0].Sessions) != 1 || snap[0].Sessions[0].SessionID != "ses_new" {
+		t.Fatalf("snapshot = %+v, want only ses_new", snap)
+	}
+}
+
+func TestApplyKeepsRecentIdleSessions(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.succeeded", Time: time.Now(),
+	})
+	if snap := idx.Snapshot(); len(snap) != 1 || snap[0].Sessions[0].State != StateIdle {
+		t.Fatalf("snapshot = %+v, want a recent idle session", snap)
 	}
 }

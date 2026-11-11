@@ -62,14 +62,30 @@ func NewNotifier(devices DeviceSource, sender Sender, label func(nodeID string) 
 	}
 }
 
+// Subscriber 是事件中心的订阅面。抽成接口是为了让 Run 的重新订阅路径
+// 能在测试里被触发，而不必真的制造慢消费者。
+type Subscriber interface {
+	Subscribe(buffer int) (<-chan event.Event, func())
+}
+
 // Run 订阅事件中心并持续推送，直到 ctx 取消。
 //
-// 每个事件交给独立 goroutine 处理，用 gate 限流：推送慢时宁可丢弃事件，
-// 也不能让 Hub 的读取循环停下来。
-func (n *Notifier) Run(ctx context.Context, hub *event.Hub) {
-	events, cancel := hub.Subscribe(runBuffer)
-	defer cancel()
+// Hub 会淘汰慢消费者（关闭通道）而不是拖住发布方，所以这里必须能重新
+// 订阅；否则一次跟不上就会让推送悄悄停到进程重启。
+func (n *Notifier) Run(ctx context.Context, sub Subscriber) {
+	for ctx.Err() == nil {
+		events, cancel := sub.Subscribe(runBuffer)
+		n.consume(ctx, events)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		logs.Warnf("push: event subscription lost, resubscribing")
+	}
+}
 
+// consume 处理一个订阅通道，直到它被关闭或 ctx 取消。
+func (n *Notifier) consume(ctx context.Context, events <-chan event.Event) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -78,6 +94,7 @@ func (n *Notifier) Run(ctx context.Context, hub *event.Hub) {
 			if !ok {
 				return
 			}
+			// 推送慢时宁可丢事件，也不能让订阅通道积压到被淘汰。
 			select {
 			case n.gate <- struct{}{}:
 				go func() {
@@ -103,7 +120,6 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 		ID      string `json:"id"`
 		Action  string `json:"action"`
 		Message string `json:"message"`
-		Session string `json:"sessionID"`
 	}
 	if len(ev.Data) == 0 {
 		return
@@ -142,9 +158,9 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 			ChannelID: "permissions",
 			Priority:  "high",
 			Data: map[string]string{
-				"node":       ev.NodeID,
-				"session":    ev.SessionID,
-				"permission": payload.ID,
+				"node":          ev.NodeID,
+				"session":       ev.SessionID,
+				"permission_id": payload.ID,
 			},
 		})
 	}

@@ -26,10 +26,18 @@ const (
 	StateIdle State = "idle"
 	// StateError 表示本轮以失败告终。
 	StateError State = "error"
+	// StateOffline 表示节点已断线，最后一次已知状态不再可信。
+	// 它只由 API 层在节点断开时覆盖，索引本身不产生这个值。
+	StateOffline State = "offline"
 )
 
 // resyncEvent 由节点在重连后发出，表示它的事件流可能断档，派生状态必须丢弃重来。
 const resyncEvent = "agent.resync_required"
+
+// pruneAfter 是已结束会话的保留时长。总览只回答“现在在跑什么”，
+// 超过这个窗口还停留在 idle/error 的会话不再有人关心，必须丢弃，
+// 否则索引会随事件流无限增长。等待审批的会话不在此列。
+const pruneAfter = 30 * time.Minute
 
 // Session 是总览里的一行。
 type Session struct {
@@ -137,6 +145,30 @@ func (i *Index) Apply(ev event.Event) {
 		// 否则用户会以为已经不需要处理了。
 		if sess.state == "" {
 			sess.state = StateRunning
+		}
+	}
+
+	i.pruneLocked(at)
+}
+
+// pruneLocked 丢弃已结束且长时间无活动的会话，并清理空节点。
+// 调用方必须持有 i.mu。
+//
+// now 用事件时间而不是 time.Now()：这样重放历史事件时不会因为“测试里的
+// 旧时间戳”而误删刚建立的会话，行为也更可预测。
+func (i *Index) pruneLocked(now time.Time) {
+	cutoff := now.Add(-pruneAfter)
+	for nodeID, sessions := range i.nodes {
+		for sessionID, sess := range sessions {
+			if sess.state != StateIdle && sess.state != StateError {
+				continue
+			}
+			if sess.lastActivity.Before(cutoff) {
+				delete(sessions, sessionID)
+			}
+		}
+		if len(sessions) == 0 {
+			delete(i.nodes, nodeID)
 		}
 	}
 }

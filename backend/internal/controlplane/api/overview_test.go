@@ -51,6 +51,10 @@ func TestOverviewKeepsDisconnectedNodes(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"connected":false`) {
 		t.Fatalf("body = %s, want connected:false", rec.Body.String())
 	}
+	// 断线节点的旧会话不能再报 running，否则用户会等一个不存在的进度。
+	if !strings.Contains(rec.Body.String(), `"state":"offline"`) {
+		t.Fatalf("body = %s, want state offline for a disconnected node", rec.Body.String())
+	}
 }
 
 func TestOverviewReturnsEmptyArray(t *testing.T) {
