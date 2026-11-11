@@ -1,0 +1,4 @@
+{
+	"extends": "@lework/tsconfig/base.json",
+	"include": ["src"]
+}

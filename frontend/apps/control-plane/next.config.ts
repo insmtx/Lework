@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
 	turbopack: { root: workspaceRoot },
 	trailingSlash: true,
 	images: { unoptimized: true },
-	transpilePackages: ["@lework/ui"],
+	transpilePackages: ["@lework/ui", "@lework/api"],
 	// Dev only: the browser and the control plane share one origin in production.
 	...(isProd
 		? {}
