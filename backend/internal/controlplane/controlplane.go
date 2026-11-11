@@ -24,6 +24,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
+	"github.com/insmtx/lework/backend/internal/controlplane/push"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/controlplane/webui"
 )
@@ -34,6 +35,10 @@ const (
 
 	// shutdownTimeout 是优雅退出的上限；超时后强制关闭剩余连接。
 	shutdownTimeout = 5 * time.Second
+
+	// monitorBuffer 是总览订阅的缓冲。慢消费者被淘汰后索引落后，
+	// 客户端重新拉一次快照即可，因此不需要无限缓冲。
+	monitorBuffer = 256
 )
 
 // healthResponse 是健康检查的响应体。
@@ -51,7 +56,10 @@ type Server struct {
 	registry *node.Registry
 	hub      *event.Hub
 	index    *overview.Index
+	notifier *push.Notifier
 	handler  http.Handler
+
+	monitorCancel func()
 
 	mu         sync.Mutex
 	httpServer *http.Server
@@ -74,6 +82,12 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 		EnrollmentToken:  cfg.EnrollmentToken,
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
 	}, st, registry, hub)
+	notifier := push.NewNotifier(st, push.NewExpoSender(nil), func(nodeID string) string {
+		if info, ok := registry.Get(nodeID); ok && info.Name != "" {
+			return info.Name
+		}
+		return nodeID
+	})
 	browserAPI := api.New(st, registry, hub, index, cfg.RequestTimeout)
 	ui := webui.Handler()
 
@@ -89,6 +103,7 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 		registry: registry,
 		hub:      hub,
 		index:    index,
+		notifier: notifier,
 		handler:  mux,
 	}, nil
 }
@@ -120,6 +135,9 @@ func (s *Server) Run(ctx context.Context) error {
 	s.mu.Lock()
 	s.httpServer = srv
 	s.mu.Unlock()
+
+	s.startMonitor(runCtx)
+	go s.notifier.Run(runCtx, s.hub)
 
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
 
@@ -176,9 +194,14 @@ func (s *Server) Close() error {
 	}
 	s.closed = true
 	srv := s.httpServer
+	cancelMonitor := s.monitorCancel
 	s.mu.Unlock()
 
 	var errs []error
+
+	if cancelMonitor != nil {
+		cancelMonitor()
+	}
 
 	s.registry.CloseAll()
 
@@ -192,6 +215,31 @@ func (s *Server) Close() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// startMonitor 把事件中心接到总览索引。
+//
+// 索引是旁路投影：这里只负责持续 Apply，不参与任何请求处理；订阅被 Hub
+// 淘汰时索引会短暂落后，客户端重新拉快照即可恢复。
+func (s *Server) startMonitor(ctx context.Context) {
+	events, cancel := s.hub.Subscribe(monitorBuffer)
+	s.mu.Lock()
+	s.monitorCancel = cancel
+	s.mu.Unlock()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-events:
+				if !ok {
+					return
+				}
+				s.index.Apply(ev)
+			}
+		}
+	}()
 }
 
 // handleHealthz 返回固定的健康状态，用于启动探活与命令行自检。

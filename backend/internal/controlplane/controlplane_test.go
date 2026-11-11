@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
+	"github.com/insmtx/lework/backend/internal/controlplane/event"
+	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
@@ -336,5 +338,40 @@ func TestServerUnknownAPIPathIsNotSPA(t *testing.T) {
 	}
 	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
 		t.Fatalf("content type = %q, want application/json", got)
+	}
+}
+
+func assertOverviewState(t *testing.T, idx *overview.Index, nodeID, sessionID string, want overview.State) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		for _, n := range idx.Snapshot() {
+			if n.NodeID != nodeID {
+				continue
+			}
+			for _, s := range n.Sessions {
+				if s.SessionID == sessionID && s.State == want {
+					return
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("overview never reached %q for %s/%s: %+v", want, nodeID, sessionID, idx.Snapshot())
+}
+
+func TestMonitorFeedsOverview(t *testing.T) {
+	srv := newTestServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv.startMonitor(ctx)
+
+	srv.hub.Publish(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.created"})
+	assertOverviewState(t, srv.index, "node_1", "ses_1", overview.StateRunning)
+
+	srv.index.Apply(event.Event{NodeID: "node_1", Type: "agent.resync_required"})
+	if got := srv.index.Snapshot(); len(got) != 0 {
+		t.Fatalf("snapshot = %+v, want empty after resync", got)
 	}
 }
