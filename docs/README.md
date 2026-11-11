@@ -19,6 +19,7 @@
 | `design/` | 技术验证与方案快照 | 后端开发者 |
 | `frontend/` | 控制面浏览器界面架构与工程规范 | 前端开发者 |
 | `operations/` | 安装、协议、排障、仓库结构索引 | 全体开发者 |
+| `opencode/` | OpenCode V2 官方文档的中文整理，作为控制面 Agent 层扩展依据 | 控制面后端、集成、运维 |
 | `archive/` | 历史文档，不维护，仅作参考 | 需要追溯历史的人 |
 
 ## 文档索引
@@ -60,6 +61,34 @@
 | [operations/project-structure.md](operations/project-structure.md) | 当前仓库结构与边界 |
 | [operations/troubleshooting.md](operations/troubleshooting.md) | 控制面与节点排障 |
 | [operations/issue-labels.md](operations/issue-labels.md) | Issue 标签体系 |
+
+### OpenCode V2 参考资料
+
+> 本目录是第三方资料整理，按内容主题使用中文文件名，是本文命名规范的**例外**；目录内字段、端点、事件名仍保留官方英文原名。
+
+| 文档 | 说明 |
+|------|------|
+| [opencode/README.md](opencode/README.md) | 文档地图、核心结论与控制面边界 |
+| [opencode/01-产品与架构.md](opencode/01-产品与架构.md) | client/server、状态归属、事件模型 |
+| [opencode/02-安装与命令行.md](opencode/02-安装与命令行.md) | 安装、CLI、serve/pair/service |
+| [opencode/03-配置体系.md](opencode/03-配置体系.md) | 配置位置、合并顺序、字段与热重载 |
+| [opencode/04-Agent与子Agent.md](opencode/04-Agent与子Agent.md) | Agent 定义、模式、内置 Agent、子会话 |
+| [opencode/05-模型与提供商.md](opencode/05-模型与提供商.md) | Provider/Model/Variant、缓存与传输 |
+| [opencode/06-会话与消息模型.md](opencode/06-会话与消息模型.md) | Session/Inbox/Message、fork/move/revert |
+| [opencode/07-工具系统.md](opencode/07-工具系统.md) | 内建工具、Code Mode、browser/session 工具 |
+| [opencode/08-MCP服务器.md](opencode/08-MCP服务器.md) | local/remote MCP、OAuth、超时与资源 |
+| [opencode/09-权限与策略.md](opencode/09-权限与策略.md) | permissions、审批流、policies 与优先级 |
+| [opencode/10-技能-指令-命令.md](opencode/10-技能-指令-命令.md) | Skills、AGENTS.md、斜杠命令 |
+| [opencode/11-上下文管理.md](opencode/11-上下文管理.md) | 压缩、快照、references、附件、warming |
+| [opencode/12-HTTP-API参考.md](opencode/12-HTTP-API参考.md) | 认证、响应、SSE、端点总表 |
+| [opencode/13-客户端-SDK-ACP.md](opencode/13-客户端-SDK-ACP.md) | 客户端 SDK 与 ACP |
+| [opencode/14-插件开发.md](opencode/14-插件开发.md) | server 插件、hooks、工具注册、RPC |
+| [opencode/15-控制面Agent层集成指南.md](opencode/15-控制面Agent层集成指南.md) | 落到 lework 的节点/控制面集成方案 |
+| [opencode/16-故障排查与运维.md](opencode/16-故障排查与运维.md) | service、日志、代理、升级 |
+| [opencode/17-V1到V2迁移.md](opencode/17-V1到V2迁移.md) | 破坏性变更与迁移对照 |
+| [opencode/18-Console与Go.md](opencode/18-Console与Go.md) | Console、workspace、Go 订阅与 harness |
+| [opencode/附录A-配置字段速查.md](opencode/附录A-配置字段速查.md) | 49 个顶层配置字段与实验项 |
+| [opencode/附录B-事件与权限动作速查.md](opencode/附录B-事件与权限动作速查.md) | 96 个业务事件、权限 action 与策略 |
 
 ### 归档
 
