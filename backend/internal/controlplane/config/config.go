@@ -69,6 +69,11 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.EnrollmentToken) == "" {
 		return errors.New("enrollment_token is required")
 	}
+	// 令牌会被直接写进 Cookie 值与 Bearer 头，字符集必须事先收口，
+	// 否则直接构造的配置会得到静默失效的 Cookie。
+	if err := validateTokenCharset(c.EnrollmentToken); err != nil {
+		return err
+	}
 
 	// 只校验 host:port 格式；是否绑定非回环地址由调用方与鉴权配置决定。
 	// SplitHostPort 不校验端口是否为数字，所以还要再过一道 strconv 确认。

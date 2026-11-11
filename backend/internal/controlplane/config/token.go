@@ -36,11 +36,16 @@ func DefaultTokenPath() string {
 
 // ResolveToken 返回生效的注册令牌，优先级为：显式值 > 文件 > 新生成。
 // 显式值会写回文件，保证 `lework serve token` 与实际生效值一致。
+// 令牌必须同时能用作 Cookie 值与 Bearer 令牌，否则在写入前就拒绝。
 // 错误信息只包含路径与原因，绝不包含令牌内容。
 func ResolveToken(explicit, path string) (string, error) {
 	if explicit != "" {
 		if len(explicit) < minTokenLength {
 			return "", fmt.Errorf("explicit token is too short: at least %d characters required", minTokenLength)
+		}
+		// 先校验字符集再落盘，避免把无法使用的令牌持久化成“看似生效”的配置。
+		if err := validateTokenCharset(explicit); err != nil {
+			return "", err
 		}
 		if err := writeTokenFile(path, explicit); err != nil {
 			return "", err
@@ -53,6 +58,9 @@ func ResolveToken(explicit, path string) (string, error) {
 		token := strings.TrimSpace(string(data))
 		if len(token) < minTokenLength {
 			return "", fmt.Errorf("token file %s does not contain a valid token", path)
+		}
+		if err := validateTokenCharset(token); err != nil {
+			return "", fmt.Errorf("token file %s: %w", path, err)
 		}
 		return token, nil
 	}
@@ -69,6 +77,36 @@ func ResolveToken(explicit, path string) (string, error) {
 		return "", err
 	}
 	return token, nil
+}
+
+// tokenCharsetError 说明令牌字符集约束；单独成变量以保证错误文案唯一，且不含任何令牌内容。
+var tokenCharsetError = errors.New(
+	"enrollment token contains characters that cannot be used in a cookie or Bearer header; " +
+		"use printable ASCII without spaces, quotes, commas, semicolons or backslashes")
+
+// validateTokenCharset 校验令牌能否原样用于 RFC 6265 Cookie 与 Authorization: Bearer 头。
+// 允许 RFC 6265 cookie-octet（0x21..0x7E 去掉双引号、逗号、分号与反斜杠），
+// 这样 Cookie 值无需编码即可等于令牌，Bearer 头也能直接携带；
+// 错误只描述约束，不回显令牌，避免机密进入日志。
+func validateTokenCharset(token string) error {
+	for i := 0; i < len(token); i++ {
+		if !isTokenByte(token[i]) {
+			return tokenCharsetError
+		}
+	}
+	return nil
+}
+
+// isTokenByte 判断单个字节是否属于允许的 cookie-octet 集合。
+func isTokenByte(b byte) bool {
+	if b < 0x21 || b > 0x7E {
+		return false
+	}
+	switch b {
+	case '"', ',', ';', '\\':
+		return false
+	}
+	return true
 }
 
 // generateToken 用 crypto/rand 生成注册令牌；令牌是机密，只返回值、不写日志。

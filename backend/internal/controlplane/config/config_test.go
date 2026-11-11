@@ -144,6 +144,23 @@ func TestConfigValidateRejectsInvalidTimeouts(t *testing.T) {
 	}
 }
 
+func TestConfigValidateRejectsUnusableTokenChars(t *testing.T) {
+	const unsafe = "bad token with spaces 123"
+	cfg := validConfig()
+	cfg.EnrollmentToken = unsafe
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() accepted a token with a space")
+	}
+	if strings.Contains(err.Error(), unsafe) {
+		t.Errorf("Validate() error leaked the token (error len=%d)", len(err.Error()))
+	}
+	if !strings.Contains(err.Error(), "printable ASCII") {
+		t.Errorf("Validate() error does not name the charset constraint (error len=%d)", len(err.Error()))
+	}
+}
+
 func TestConfigValidateDoesNotLeakToken(t *testing.T) {
 	cfg := validConfig()
 	// 用畸形地址触发校验失败，不再依赖回环限制。
