@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	agentdconfig "github.com/insmtx/lework/backend/internal/agentd/config"
@@ -122,7 +123,11 @@ func deriveControlPlaneURL(listenAddr string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("derive control plane url from listen address %q: %w", listenAddr, err)
 	}
-	if port == "0" {
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return "", fmt.Errorf("derive control plane url from listen address %q: %w", listenAddr, err)
+	}
+	if n == 0 {
 		return "", fmt.Errorf("--listen port must be fixed in combined mode, got %q", listenAddr)
 	}
 	return "ws://" + controlplaneconfig.DialAddrFor(listenAddr) + "/api/agent/connect", nil

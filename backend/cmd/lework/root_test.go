@@ -294,6 +294,21 @@ func TestRootHelpMentionsCombinedStartup(t *testing.T) {
 	}
 }
 
+// TestRootHelpDoesNotLeakToken 钉住根命令的帮助输出：环境变量里的令牌不能
+// 出现在 help 里，失败信息也不打印输出内容，避免令牌再次泄漏。
+func TestRootHelpDoesNotLeakToken(t *testing.T) {
+	const secret = "super-secret-enrollment-token"
+	t.Setenv(envEnrollmentToken, secret)
+
+	out, err := executeRootCommand("--help")
+	if err != nil {
+		t.Fatalf("execute help: %v", err)
+	}
+	if strings.Contains(out, secret) {
+		t.Fatalf("root help leaked the enrollment token")
+	}
+}
+
 func executeRootCommand(args ...string) (string, error) {
 	cmd := newRootCommand()
 	var output bytes.Buffer
