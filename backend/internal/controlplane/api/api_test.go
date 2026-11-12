@@ -491,6 +491,36 @@ func TestAPIPermissionReply(t *testing.T) {
 	}
 }
 
+func TestAPIListPermissions(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `[{"id":"per_1","sessionID":"ses_1"}]`)
+	httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/permissions", "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `[{"id":"per_1","sessionID":"ses_1"}]` {
+		t.Fatalf("body = %q, want raw agent result", body)
+	}
+
+	frame := waitFrame(t, got)
+	if frame.Method != "permission.list" {
+		t.Fatalf("method = %q, want permission.list", frame.Method)
+	}
+	params := decodeParams(t, frame)
+	if params["session_id"] != "ses_1" {
+		t.Fatalf("params = %v, want session_id ses_1", params)
+	}
+}
+
+func TestAPIPermissionReplyRejectsUnknownDecision(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, _, _ := env.addNode("dev-box")
+
+	httpRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/permissions/perm_1/reply",
+		`{"decision":"maybe"}`)
+	requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+}
+
 func TestAPIErrorMapping(t *testing.T) {
 	t.Run("offline node", func(t *testing.T) {
 		env := newTestEnv(t, time.Second)

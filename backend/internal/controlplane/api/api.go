@@ -71,6 +71,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/sessions/{nodeID}/{sessionID}/pty/{ptyID}", a.handlePTYClose)
 	mux.HandleFunc("GET /api/pty/{nodeID}/{sessionID}/{ptyID}/ws", a.handlePTYWebSocket)
 	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/permissions/{permissionID}/reply", a.handlePermissionReply)
+	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/permissions", a.handleListPermissions)
 
 	mux.HandleFunc("GET /api/events", a.handleEvents)
 }

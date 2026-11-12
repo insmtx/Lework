@@ -5,16 +5,18 @@ import { Loader2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import type { PermissionRequest } from "../lib/types";
 
+type PermissionDecision = "once" | "always" | "reject";
+
 interface PermissionCardProps {
 	permission: PermissionRequest;
-	onResolve: (permission: PermissionRequest, decision: "once" | "reject") => Promise<void>;
+	onResolve: (permission: PermissionRequest, decision: PermissionDecision) => Promise<void>;
 }
 
 export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
-	const [busy, setBusy] = useState<"once" | "reject" | null>(null);
+	const [busy, setBusy] = useState<PermissionDecision | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
-	const resolve = async (decision: "once" | "reject") => {
+	const resolve = async (decision: PermissionDecision) => {
 		setBusy(decision);
 		setError(null);
 		try {
@@ -51,10 +53,19 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
 							))}
 						</div>
 					) : null}
-					<div className="mt-3 flex gap-2">
+					<div className="mt-3 flex flex-wrap gap-2">
 						<Button size="sm" onClick={() => void resolve("once")} disabled={busy !== null}>
 							{busy === "once" ? <Loader2 className="size-3.5 animate-spin" /> : null}
 							Allow once
+						</Button>
+						<Button
+							size="sm"
+							variant="secondary"
+							onClick={() => void resolve("always")}
+							disabled={busy !== null}
+						>
+							{busy === "always" ? <Loader2 className="size-3.5 animate-spin" /> : null}
+							Always allow
 						</Button>
 						<Button
 							size="sm"
@@ -66,6 +77,10 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
 							Reject
 						</Button>
 					</div>
+					<p className="mt-2 text-[11px] text-amber-900/70 dark:text-amber-200/70">
+						Always allow saves a project-level rule. Reject also declines other pending requests in
+						this session.
+					</p>
 					{error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
 				</div>
 			</div>

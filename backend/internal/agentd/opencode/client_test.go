@@ -137,6 +137,37 @@ func TestReplyPermission(t *testing.T) {
 	}
 }
 
+func TestListPermissionsDecodesPendingRequests(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/permission/request" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"data":[` +
+			`{"id":"per_1","sessionID":"ses_1","action":"shell",` +
+			`"resources":["git status"],"message":"approve"},` +
+			`{"id":"per_2","sessionID":"ses_2","action":"edit","resources":["a.go"]}` +
+			`]}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListPermissions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("permissions = %#v", got)
+	}
+	if got[0].ID != "per_1" || got[0].SessionID != "ses_1" || got[0].Action != "shell" {
+		t.Fatalf("first permission = %#v", got[0])
+	}
+	if len(got[0].Resources) != 1 || got[0].Resources[0] != "git status" {
+		t.Fatalf("resources = %#v", got[0].Resources)
+	}
+	if got[1].Message != "" {
+		t.Fatalf("message = %q, want empty", got[1].Message)
+	}
+}
+
 func TestMessagesDecodesV2Turns(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/session/ses_1/message" {

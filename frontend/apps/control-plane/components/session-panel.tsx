@@ -33,7 +33,7 @@ interface SessionPanelProps {
 	onInterrupt: () => Promise<void>;
 	onResolvePermission: (
 		permission: PermissionRequest,
-		decision: "once" | "reject",
+		decision: "once" | "always" | "reject",
 	) => Promise<void>;
 	onRefresh: () => void;
 }

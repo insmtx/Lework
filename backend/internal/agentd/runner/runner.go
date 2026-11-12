@@ -188,6 +188,7 @@ func (r *Runner) sendHello(ctx context.Context) error {
 			"session.diff",
 			"session.interrupt",
 			"permission.reply",
+			"permission.list",
 			"file.list",
 			"file.read",
 			"pty.create",

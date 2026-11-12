@@ -5,6 +5,7 @@ import type {
 	InterruptResult,
 	Message,
 	NodeView,
+	PermissionRequest,
 	PersistentTerminal,
 	Session,
 } from "./types";
@@ -105,6 +106,12 @@ export function replyPermission(
 	return request<unknown>(
 		`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/permissions/${encodeURIComponent(permissionID)}/reply`,
 		{ method: "POST", body: JSON.stringify({ decision, message }) },
+	);
+}
+
+export function listPermissions(node: string, session: string): Promise<PermissionRequest[]> {
+	return request<PermissionRequest[]>(
+		`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/permissions`,
 	);
 }
 

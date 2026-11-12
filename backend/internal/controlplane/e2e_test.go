@@ -264,6 +264,11 @@ func (c *countingOpenCode) ReplyPermission(context.Context, string, string, stri
 	return nil
 }
 
+// ListPermissions 是空实现：本测试不产生权限请求。
+func (c *countingOpenCode) ListPermissions(context.Context) ([]opencode.PermissionRequest, error) {
+	return nil, nil
+}
+
 // SessionDiff 返回空 diff。
 func (c *countingOpenCode) SessionDiff(context.Context, string, string, string, int) ([]opencode.FileDiff, error) {
 	return []opencode.FileDiff{}, nil

@@ -8,6 +8,7 @@ import {
 	interruptSession,
 	listMessages,
 	listNodes,
+	listPermissions,
 	listSessions,
 	replyPermission,
 	sendPrompt,
@@ -49,6 +50,7 @@ export default function ControlPlanePage() {
 	const [messagesError, setMessagesError] = useState<string | null>(null);
 	const [messagesRefresh, setMessagesRefresh] = useState(0);
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
+	const [permissionsRefresh, setPermissionsRefresh] = useState(0);
 	const [sending, setSending] = useState(false);
 	const [interrupting, setInterrupting] = useState(false);
 
@@ -120,10 +122,31 @@ export default function ControlPlanePage() {
 		};
 	}, [selectedNodeID, sessionsRefresh]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset cards when the selection changes
+	// 事件没有重放：选中会话先用快照补齐，再把事件新增的卡片并入。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: permissionsRefresh forces a refetch
 	useEffect(() => {
-		setPermissions([]);
-	}, [selectedNodeID, selectedSessionID]);
+		if (!selectedNodeID || !selectedSessionID) {
+			setPermissions([]);
+			return;
+		}
+		let cancelled = false;
+		listPermissions(selectedNodeID, selectedSessionID)
+			.then((snapshot) => {
+				if (cancelled) return;
+				setPermissions((current) => {
+					// 快照是权威列表；保留请求期间到达的事件卡片，避免漏掉新审批。
+					const merged = new Map(current.map((item) => [item.id, item]));
+					for (const item of snapshot) merged.set(item.id, item);
+					return [...merged.values()];
+				});
+			})
+			.catch(() => {
+				// 旧版 OpenCode 没有该端点时降级为纯事件模式，不阻塞会话。
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [selectedNodeID, selectedSessionID, permissionsRefresh]);
 
 	// The token is an intentional trigger; the effect body reads the latest IDs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: messagesRefresh forces a refetch
@@ -168,11 +191,13 @@ export default function ControlPlanePage() {
 			}
 			return;
 		}
-		if (event.type === "permission.replied" || event.type === "permission.resolved") {
-			const id =
+		if (event.type === "permission.replied") {
+			// V2 的已决事件用 requestID 指向原请求，没有 id 字段。
+			const data =
 				event.data && typeof event.data === "object"
-					? (event.data as { id?: string }).id
+					? (event.data as { requestID?: string; id?: string })
 					: undefined;
+			const id = data?.requestID ?? data?.id;
 			if (id) setPermissions((current) => current.filter((item) => item.id !== id));
 			return;
 		}
@@ -191,6 +216,7 @@ export default function ControlPlanePage() {
 		void refreshNodes();
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
+		setPermissionsRefresh((value) => value + 1);
 	};
 
 	const { connected } = useControlEvents(handleEvent, resync);
@@ -241,7 +267,10 @@ export default function ControlPlanePage() {
 		}
 	};
 
-	const resolvePermission = async (permission: PermissionRequest, decision: "once" | "reject") => {
+	const resolvePermission = async (
+		permission: PermissionRequest,
+		decision: "once" | "always" | "reject",
+	) => {
 		if (!selectedNodeID || !selectedSessionID) throw new Error("No session selected");
 		await replyPermission(selectedNodeID, selectedSessionID, permission.id, decision);
 		setPermissions((current) => current.filter((item) => item.id !== permission.id));
@@ -251,6 +280,7 @@ export default function ControlPlanePage() {
 	const refresh = () => {
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
+		setPermissionsRefresh((value) => value + 1);
 	};
 
 	const topError = nodesError || sessionsError || messagesError;

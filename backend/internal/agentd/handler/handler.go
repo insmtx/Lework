@@ -34,6 +34,7 @@ type OpenCodeAPI interface {
 	Prompt(ctx context.Context, sessionID, text string) (string, error)
 	Messages(ctx context.Context, sessionID string) ([]opencode.Message, error)
 	ReplyPermission(ctx context.Context, sessionID, permissionID, decision, message string) error
+	ListPermissions(ctx context.Context) ([]opencode.PermissionRequest, error)
 
 	SessionDiff(ctx context.Context, sessionID, from, to string, context int) ([]opencode.FileDiff, error)
 	Interrupt(ctx context.Context, sessionID string, resume bool) (opencode.InterruptResult, error)
@@ -84,6 +85,12 @@ type PermissionReplyParams struct {
 	PermissionID string `json:"permission_id"`
 	Decision     string `json:"decision"`
 	Message      string `json:"message"`
+}
+
+// PermissionListParams are the parameters for permission.list. An empty
+// SessionID means every pending request on the node.
+type PermissionListParams struct {
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // SessionDiffParams are the parameters for session.diff. Directory is the
@@ -300,10 +307,50 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		if err := decodeParams(method, params, &p); err != nil {
 			return nil, err
 		}
+		if err := validatePermissionDecision(p.Decision); err != nil {
+			return nil, err
+		}
 		return nil, h.opencode.ReplyPermission(ctx, p.SessionID, p.PermissionID, p.Decision, p.Message)
+
+	case "permission.list":
+		var p PermissionListParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		return h.listPermissions(ctx, p.SessionID)
 
 	default:
 		return nil, fmt.Errorf("%w %q", ErrUnknownMethod, method)
+	}
+}
+
+// listPermissions filters the node-wide snapshot by session so the browser
+// can reconcile one session without seeing approvals from other worktrees.
+func (h *Handler) listPermissions(ctx context.Context, sessionID string) ([]opencode.PermissionRequest, error) {
+	permissions, err := h.opencode.ListPermissions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if sessionID == "" {
+		return permissions, nil
+	}
+	filtered := make([]opencode.PermissionRequest, 0, len(permissions))
+	for _, permission := range permissions {
+		if permission.SessionID == sessionID {
+			filtered = append(filtered, permission)
+		}
+	}
+	return filtered, nil
+}
+
+// validatePermissionDecision keeps the OpenCode enum at the protocol edge;
+// forwarding an unknown value would surface as an opaque 400 from the server.
+func validatePermissionDecision(decision string) error {
+	switch decision {
+	case "once", "always", "reject":
+		return nil
+	default:
+		return fmt.Errorf("permission.reply: decision must be once, always or reject")
 	}
 }
 

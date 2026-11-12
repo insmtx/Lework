@@ -45,6 +45,10 @@ type fakeOpenCode struct {
 	replyDecision     string
 	replyMessage      string
 
+	permissionsCalls int
+	permissions      []opencode.PermissionRequest
+	permissionsErr   error
+
 	diffCalls     int
 	diffSessionID string
 	diffDirectory string
@@ -126,6 +130,11 @@ func (f *fakeOpenCode) ReplyPermission(
 	f.replyDecision = decision
 	f.replyMessage = message
 	return nil
+}
+
+func (f *fakeOpenCode) ListPermissions(context.Context) ([]opencode.PermissionRequest, error) {
+	f.permissionsCalls++
+	return f.permissions, f.permissionsErr
 }
 
 func (f *fakeOpenCode) SessionDiff(_ context.Context, sessionID, from, to string, contextLines int) ([]opencode.FileDiff, error) {
@@ -675,6 +684,56 @@ func TestPermissionReplyPassesFields(t *testing.T) {
 	if oc.replySessionID != "ses_1" || oc.replyPermissionID != "per_1" ||
 		oc.replyDecision != "once" || oc.replyMessage != "ok" {
 		t.Fatalf("reply args = %#v", oc)
+	}
+}
+
+func TestPermissionListFiltersBySession(t *testing.T) {
+	oc := &fakeOpenCode{permissions: []opencode.PermissionRequest{
+		{ID: "per_1", SessionID: "ses_1", Action: "shell"},
+		{ID: "per_2", SessionID: "ses_2", Action: "edit"},
+	}}
+	h := New(oc, fakeSupervisor{})
+
+	result, err := h.Handle(
+		context.Background(),
+		"permission.list",
+		json.RawMessage(`{"session_id":"ses_1"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.permissionsCalls != 1 {
+		t.Fatalf("list calls = %d, want 1", oc.permissionsCalls)
+	}
+	got, ok := result.([]opencode.PermissionRequest)
+	if !ok || len(got) != 1 || got[0].ID != "per_1" {
+		t.Fatalf("result = %#v, want only per_1", result)
+	}
+
+	result, err = h.Handle(context.Background(), "permission.list", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, ok := result.([]opencode.PermissionRequest)
+	if !ok || len(all) != 2 {
+		t.Fatalf("result = %#v, want both permissions", result)
+	}
+}
+
+func TestPermissionReplyRejectsUnknownDecision(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	_, err := h.Handle(
+		context.Background(),
+		"permission.reply",
+		json.RawMessage(`{"session_id":"ses_1","permission_id":"per_1","decision":"maybe"}`),
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if oc.replyCalls != 0 {
+		t.Fatalf("reply calls = %d, want 0", oc.replyCalls)
 	}
 }
 

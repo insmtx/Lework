@@ -51,6 +51,10 @@ type permissionReplyParams struct {
 	Message      string `json:"message"`
 }
 
+type permissionListParams struct {
+	SessionID string `json:"session_id,omitempty"`
+}
+
 type sessionDiffParams struct {
 	SessionID string `json:"session_id"`
 	Directory string `json:"directory"`
@@ -185,6 +189,12 @@ func (a *API) handlePermissionReply(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "decision is required")
 		return
 	}
+	switch req.Decision {
+	case "once", "always", "reject":
+	default:
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "decision must be once, always or reject")
+		return
+	}
 
 	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "permission.reply",
 		permissionReplyParams{
@@ -193,6 +203,18 @@ func (a *API) handlePermissionReply(w http.ResponseWriter, r *http.Request) {
 			Decision:     req.Decision,
 			Message:      req.Message,
 		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleListPermissions 返回会话的待审批快照；事件无重放，重连与会话切换
+// 都必须靠这个快照收敛。
+func (a *API) handleListPermissions(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "permission.list",
+		permissionListParams{SessionID: r.PathValue("sessionID")})
 	if err != nil {
 		a.writeAgentError(w, err)
 		return

@@ -16,7 +16,7 @@ interface ConversationProps {
 	onInterrupt: () => Promise<void>;
 	onResolvePermission: (
 		permission: PermissionRequest,
-		decision: "once" | "reject",
+		decision: "once" | "always" | "reject",
 	) => Promise<void>;
 	sending: boolean;
 	interrupting: boolean;
