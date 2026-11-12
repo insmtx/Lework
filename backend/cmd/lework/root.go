@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/insmtx/lework/backend/config"
+	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/pkg/lework"
 )
 
@@ -147,6 +148,13 @@ func applyLoggerConfig(module string, loggerConfig config.LogsConfig) error {
 }
 
 func newRootCommand() *cobra.Command {
+	// 裸 lework 的默认值在这里一次性取好；命令行 flag 直接绑定到 opts 的字段。
+	opts := allOptions{
+		serve:     controlplaneconfig.Default(),
+		tokenPath: defaultTokenFile(),
+		explicit:  os.Getenv(envEnrollmentToken),
+	}
+
 	root := &cobra.Command{
 		Use:   "lework",
 		Short: "Lework command line interface",
@@ -164,9 +172,15 @@ Core commands:
   task       Manage tasks
   automation Manage scheduled automations
 
+Run without a subcommand and lework starts the control plane and the node
+agent in one process, so a single local install is usable end to end.
+
 Examples:
+  lework                                  # control plane + node agent in one process
+  lework --listen 127.0.0.1:8787
   lework agent --config /etc/lework/agent.yaml
   lework serve --enrollment-token <token>
+  lework serve token
   lework server --config config.yaml
   lework server --dev                     # development mode (auto-config)
   lework worker --worker-id 1 --default-runtime lework
@@ -186,6 +200,11 @@ Authentication:
 Use "lework [command] --help" for more information about a command.`,
 		Args: cobra.ArbitraryArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// 裸 lework 是组合进程：控制面与 agent 各自加载配置，不加载旧 CLI
+			// 配置，也不让它改写 workspace 环境变量。
+			if cmd.Parent() == nil && len(args) == 0 {
+				return nil
+			}
 			// The node agent and the control plane are standalone processes:
 			// they load their own configuration and must not inherit the legacy
 			// CLI/worker config or let it rewrite workspace env vars.
@@ -211,13 +230,43 @@ Use "lework [command] --help" for more information about a command.`,
 			if len(args) > 0 {
 				return fmt.Errorf("unknown command %q for %q", args[0], cmd.Name())
 			}
-			return cmd.Help()
+			// 用 Changed 而不是“是否等于默认值”判断显式性：显式传入的路径
+			// 不存在时 resolveAgentConfig 会直接报错，而不是静默回退。
+			opts.agent.configPathExplicit = cmd.Flags().Changed("agent-config")
+			return runAllCommand(cmd.Context(), opts)
 		},
 		SilenceUsage:  false,
 		SilenceErrors: false,
 	}
 
 	root.Flags().Var(&configPathValue{&cliConfigPath}, "config", "CLI config file path")
+
+	// 组合模式的 flag 只挂在根命令上（local flags），serve/agent 子命令保留
+	// 自己的同名 flag，互不冲突。
+	flags := root.Flags()
+	flags.StringVar(&opts.serve.ListenAddr, "listen", controlplaneconfig.DefaultListenAddr,
+		"HTTP listen address (non-loopback requires the enrollment token)")
+	flags.StringVar(&opts.serve.DBPath, "db", controlplaneconfig.DefaultDBPath(),
+		"path to the control plane SQLite database")
+	flags.StringVar(&opts.explicit, "enrollment-token", opts.explicit,
+		"node enrollment token (defaults to "+envEnrollmentToken+")")
+	flags.StringVar(&opts.tokenPath, "token-file", opts.tokenPath,
+		"path to the enrollment token file (defaults to "+envTokenFile+")")
+	flags.DurationVar(&opts.serve.RequestTimeout, "request-timeout", controlplaneconfig.DefaultRequestTimeout,
+		"timeout for a single node request")
+	flags.DurationVar(&opts.serve.HeartbeatTimeout, "heartbeat-timeout", controlplaneconfig.DefaultHeartbeatTimeout,
+		"idle time after which a node is considered offline")
+	flags.StringVar(&opts.agent.configPath, "agent-config", defaultAgentConfigPath(),
+		"path to agent.yaml (defaults to the platform default location)")
+	flags.StringVar(&opts.agent.nodeName, "node-name", "", "override the node name for this process")
+	flags.StringArrayVar(&opts.agent.workspaceRoots, "workspace-root", nil,
+		"workspace root the node agent may open (repeatable)")
+
+	// 令牌是机密：即使默认值来自环境变量，也不能出现在 help 或补全输出里。
+	if flag := flags.Lookup("enrollment-token"); flag != nil {
+		flag.DefValue = ""
+	}
+
 	root.Version = version
 	root.SetVersionTemplate("lework {{.Version}}\n")
 

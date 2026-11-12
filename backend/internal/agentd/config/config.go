@@ -70,6 +70,15 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Default returns a Config with the documented defaults applied, the same
+// values Load fills for a config file. The combined-process startup uses it
+// when no agent.yaml exists, so OpenCode defaults stay in this package.
+func Default() Config {
+	var cfg Config
+	cfg.applyDefaults()
+	return cfg
+}
+
 // applyDefaults fills empty fields with the documented defaults. Home-relative
 // defaults are skipped when the home directory cannot be determined; Validate
 // still accepts an explicit path in that case.

@@ -52,16 +52,53 @@ func TestConfigValidateAcceptsLoopback(t *testing.T) {
 	}
 }
 
-func TestConfigValidateRejectsNonLoopback(t *testing.T) {
-	for _, addr := range []string{"0.0.0.0:8787", ":8787"} {
+func TestConfigValidateAcceptsAnyBindAddress(t *testing.T) {
+	for _, addr := range []string{
+		"127.0.0.1:8787", "localhost:8787", "0.0.0.0:8787", ":8787", "192.168.1.2:8787", "127.0.0.1:0",
+	} {
 		cfg := validConfig()
 		cfg.ListenAddr = addr
-		err := cfg.Validate()
-		if err == nil {
-			t.Fatalf("Validate() with ListenAddr %q should fail", addr)
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() with ListenAddr %q = %v, want nil", addr, err)
 		}
-		if !strings.Contains(err.Error(), "loopback") {
-			t.Errorf("Validate() error = %q, want it to mention loopback", err)
+	}
+}
+
+func TestConfigValidateRejectsMalformedListenAddr(t *testing.T) {
+	for _, addr := range []string{"8787", "127.0.0.1", "host:port"} {
+		cfg := validConfig()
+		cfg.ListenAddr = addr
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("Validate() with ListenAddr %q should fail", addr)
+		}
+	}
+}
+
+func TestIsLoopbackAddr(t *testing.T) {
+	tests := map[string]bool{
+		"127.0.0.1:8787": true, "localhost:8787": true, "[::1]:8787": true,
+		"0.0.0.0:8787": false, ":8787": false, "192.168.1.2:8787": false, "garbage": false,
+	}
+	for addr, want := range tests {
+		if got := IsLoopbackAddr(addr); got != want {
+			t.Errorf("IsLoopbackAddr(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}
+
+func TestDialAddrFor(t *testing.T) {
+	tests := map[string]string{
+		"127.0.0.1:8787":   "127.0.0.1:8787",
+		"localhost:8787":   "localhost:8787",
+		"0.0.0.0:8787":     "127.0.0.1:8787",
+		":8787":            "127.0.0.1:8787",
+		"[::]:8787":        "[::1]:8787",
+		"192.168.1.2:9000": "192.168.1.2:9000",
+		"garbage":          "garbage",
+	}
+	for addr, want := range tests {
+		if got := DialAddrFor(addr); got != want {
+			t.Errorf("DialAddrFor(%q) = %q, want %q", addr, got, want)
 		}
 	}
 }
@@ -107,13 +144,31 @@ func TestConfigValidateRejectsInvalidTimeouts(t *testing.T) {
 	}
 }
 
-func TestConfigValidateDoesNotLeakToken(t *testing.T) {
+func TestConfigValidateRejectsUnusableTokenChars(t *testing.T) {
+	const unsafe = "bad token with spaces 123"
 	cfg := validConfig()
-	cfg.ListenAddr = "0.0.0.0:8787"
+	cfg.EnrollmentToken = unsafe
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("Validate() should fail for non-loopback address")
+		t.Fatal("Validate() accepted a token with a space")
+	}
+	if strings.Contains(err.Error(), unsafe) {
+		t.Errorf("Validate() error leaked the token (error len=%d)", len(err.Error()))
+	}
+	if !strings.Contains(err.Error(), "printable ASCII") {
+		t.Errorf("Validate() error does not name the charset constraint (error len=%d)", len(err.Error()))
+	}
+}
+
+func TestConfigValidateDoesNotLeakToken(t *testing.T) {
+	cfg := validConfig()
+	// 用畸形地址触发校验失败，不再依赖回环限制。
+	cfg.ListenAddr = "127.0.0.1"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail for a malformed listen address")
 	}
 	if strings.Contains(err.Error(), testEnrollmentToken) {
 		t.Errorf("Validate() error leaked the enrollment token: %q", err)

@@ -12,6 +12,14 @@ I1-B 把控制面从 API 原型补成可在浏览器完成的单节点日常流�
 - 新增中断、权限卡片、工具卡片和 SSE `resync` 快照校准
 - 单二进制同时提供 `lework serve` 与 `lework agent`，节点无需入站端口
 
+### 一体化启动与远程访问鉴权
+
+裸 `lework` 改为一个进程同时运行控制面与节点 agent，非回环监听新增浏览器鉴权。
+
+- 裸 `lework` 不再打印帮助，而是在同一进程内启动控制面与节点 agent；帮助入口改为 `lework -h`
+- `lework serve` 缺令牌时自动读取或生成 `~/.config/Lework/enrollment.token`，新增 `--token-file` 与 `lework serve token`
+- 非回环监听时浏览器 API 需要注册令牌：`?token=<token>` 引导写入 `HttpOnly` cookie，`/healthz` 与 `/api/agent/connect` 豁免
+
 ## [v0.7.0] - 2026-10-21
 
 ### 薪资核算独立页与考勤核对确认

@@ -61,9 +61,10 @@ func TestServerNewRejectsInvalidConfig(t *testing.T) {
 			want:   "enrollment_token",
 		},
 		{
-			name:   "non-loopback listen",
-			mutate: func(cfg *config.Config) { cfg.ListenAddr = "0.0.0.0:8787" },
-			want:   "loopback",
+			// 非回环地址是合法绑定，校验只拒绝畸形 host:port。
+			name:   "malformed listen",
+			mutate: func(cfg *config.Config) { cfg.ListenAddr = "8787" },
+			want:   "host:port",
 		},
 	}
 
@@ -111,12 +112,19 @@ func TestServerHealthz(t *testing.T) {
 	}
 }
 
+// loopbackRequest 构造来自本机回环的请求；鉴权中间件对无转发头的本机请求放行。
+func loopbackRequest(method, target string) *http.Request {
+	req := httptest.NewRequest(method, target, nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	return req
+}
+
 // TestServerListNodesEmpty 校验空库返回空 JSON 数组。
 func TestServerListNodesEmpty(t *testing.T) {
 	srv := newTestServer(t)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/nodes", nil))
+	srv.Handler().ServeHTTP(rec, loopbackRequest(http.MethodGet, "/api/nodes"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -312,7 +320,7 @@ func TestServerServesUIOrBuildPlaceholder(t *testing.T) {
 	srv := newTestServer(t)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	srv.Handler().ServeHTTP(rec, loopbackRequest(http.MethodGet, "/"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("UI status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -330,11 +338,42 @@ func TestServerUnknownAPIPathIsNotSPA(t *testing.T) {
 	srv := newTestServer(t)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/does-not-exist", nil))
+	srv.Handler().ServeHTTP(rec, loopbackRequest(http.MethodGet, "/api/does-not-exist"))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
 		t.Fatalf("content type = %q, want application/json", got)
+	}
+}
+
+// TestServerAuthGate 校验非本机请求被令牌中间件拦截，健康检查保持豁免。
+func TestServerAuthGate(t *testing.T) {
+	srv := newTestServer(t)
+
+	tests := []struct {
+		name   string
+		target string
+		want   int
+	}{
+		{name: "remote api denied", target: "/api/nodes", want: http.StatusUnauthorized},
+		{name: "healthz exempt", target: "/healthz", want: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			req.RemoteAddr = "203.0.113.5:1"
+			rec := httptest.NewRecorder()
+
+			srv.Handler().ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d (body=%s)", rec.Code, tt.want, rec.Body)
+			}
+			if strings.Contains(rec.Body.String(), testToken) {
+				t.Fatalf("response leaked the enrollment token: %s", rec.Body)
+			}
+		})
 	}
 }
