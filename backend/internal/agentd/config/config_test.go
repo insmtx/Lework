@@ -41,6 +41,32 @@ workspace_roots:
 	}
 }
 
+func TestDefaultFillsDocumentedValues(t *testing.T) {
+	cfg := Default()
+	if cfg.OpenCode.Binary != "opencode" {
+		t.Errorf("binary = %q", cfg.OpenCode.Binary)
+	}
+	if cfg.OpenCode.Port != 4096 {
+		t.Errorf("port = %d", cfg.OpenCode.Port)
+	}
+	if cfg.OpenCode.ServiceMode != "shared" {
+		t.Errorf("service_mode = %q", cfg.OpenCode.ServiceMode)
+	}
+	if !filepath.IsAbs(cfg.WorktreeRoot) || !filepath.IsAbs(cfg.RepoCacheRoot) {
+		t.Errorf("worktree/cache roots must be absolute: %q %q", cfg.WorktreeRoot, cfg.RepoCacheRoot)
+	}
+}
+
+func TestDefaultBecomesValidAfterConnectionFields(t *testing.T) {
+	cfg := Default()
+	cfg.ControlPlaneURL = "ws://127.0.0.1:8787/api/agent/connect"
+	cfg.NodeName = "host"
+	cfg.WorkspaceRoots = []string{"/tmp"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+}
+
 func TestConfigValidateRejectsBadInput(t *testing.T) {
 	tests := []struct {
 		name string

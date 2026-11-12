@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,7 +16,7 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
-	"github.com/insmtx/lework/backend/internal/agentd/config"
+	agentdconfig "github.com/insmtx/lework/backend/internal/agentd/config"
 	"github.com/insmtx/lework/backend/internal/agentd/handler"
 	"github.com/insmtx/lework/backend/internal/agentd/opencode"
 	"github.com/insmtx/lework/backend/internal/agentd/runner"
@@ -43,26 +44,24 @@ const (
 	shutdownTimeout = 10 * time.Second
 )
 
-// runAgent wires the daemon and runs it until ctx ends. Config errors are
-// returned before any network or process work happens, which keeps a broken
-// configuration from leaving a half-started node behind.
-func runAgent(ctx context.Context, configPath string) error {
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return err
-	}
-	// config.Load fills defaults but deliberately does not validate; the daemon
-	// must reject an incomplete file before dialing.
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid agent config %s: %w", configPath, err)
-	}
+// agentRuntime 是已装配但尚未连接的节点 agent，供独立 agent 与进程内组合
+// 启动（bare lework）复用同一套构造/运行/关闭流程。
+type agentRuntime struct {
+	cfg     *agentdconfig.Config
+	client  *opencode.Client
+	service *supervisor.Supervisor
+	handler *handler.Handler
+}
 
+// buildAgent 解析 OpenCode 环境并装配客户端、监管器与请求处理器。
+// 它只做构造：不连控制面，也不启动子进程。
+func buildAgent(cfg *agentdconfig.Config) (*agentRuntime, error) {
 	// The password is shared by the client and the child process. It is derived
 	// or generated once here so a generated value reaches opencode through its
 	// environment and never has to be read back from the server output.
 	env, password, err := openCodeEnv(cfg.OpenCode.Env)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	client := opencode.New(
@@ -78,14 +77,20 @@ func runAgent(ctx context.Context, configPath string) error {
 	})
 	requestHandler := handler.New(client, service, handler.WithWorkspaceRoots(cfg.WorkspaceRoots...))
 
-	// SIGINT/SIGTERM cancel the run loop; the deferred Stop below turns the
-	// cancellation into a clean child-process shutdown.
-	ctx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
+	return &agentRuntime{
+		cfg:     cfg,
+		client:  client,
+		service: service,
+		handler: requestHandler,
+	}, nil
+}
 
-	// The shared OpenCode service outlives individual connections but not the
-	// agent: stopping it here prevents an orphan when the daemon exits.
-	defer stopService(service, cfg.EnrollmentToken)
+// Run 启动本地 OpenCode 服务并连接控制面，阻塞到 ctx 取消。
+// 信号处理由调用方负责，这里不得注册 signal。
+func (a *agentRuntime) Run(ctx context.Context) error {
+	if a == nil || a.cfg == nil || a.client == nil || a.service == nil || a.handler == nil {
+		return errors.New("agent runtime is not initialized")
+	}
 
 	// Bootstrap the local service once before dialing. The runner subscribes to
 	// OpenCode events immediately after welcome, so without a running service
@@ -93,22 +98,68 @@ func runAgent(ctx context.Context, configPath string) error {
 	// control plane could send opencode.start. A failure here is not fatal: the
 	// control plane may still start the service later via opencode.start, and
 	// the agent can register and report the failure.
-	if _, err := service.Ensure(ctx); err != nil {
+	if _, err := a.service.Ensure(ctx); err != nil {
 		if ctx.Err() == nil {
-			logs.Warnf("lework-agent: start opencode service: %s", redact(err, cfg.EnrollmentToken))
+			logs.Warnf("lework-agent: start opencode service: %s", redact(err, a.cfg.EnrollmentToken))
 		}
 	} else {
 		logs.Infof("lework-agent: opencode service ready")
 	}
 
-	logs.Infof("lework-agent: starting node %q", cfg.NodeName)
+	logs.Infof("lework-agent: starting node %q", a.cfg.NodeName)
 
-	return reconnect(ctx, cfg, client, requestHandler)
+	return reconnect(ctx, a.cfg, a.client, a.handler)
+}
+
+// Close 停止 agent 托管的 OpenCode 子进程，避免 daemon 退出后留下孤儿进程。
+// 可重复调用：supervisor.Stop 在没有受管子进程时是空操作。
+func (a *agentRuntime) Close() error {
+	if a == nil || a.cfg == nil || a.service == nil {
+		return nil
+	}
+	stopService(a.service, a.cfg.EnrollmentToken)
+	return nil
+}
+
+// runAgent wires the daemon and runs it until ctx ends. Config errors are
+// returned before any network or process work happens, which keeps a broken
+// configuration from leaving a half-started node behind.
+func runAgent(ctx context.Context, configPath string) error {
+	cfg, err := agentdconfig.Load(configPath)
+	if err != nil {
+		return err
+	}
+	// agentdconfig.Load fills defaults but deliberately does not validate; the
+	// daemon must reject an incomplete file before dialing.
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid agent config %s: %w", configPath, err)
+	}
+
+	runtime, err := buildAgent(cfg)
+	if err != nil {
+		return err
+	}
+
+	// SIGINT/SIGTERM cancel the run loop; the deferred Close below turns the
+	// cancellation into a clean child-process shutdown.
+	ctx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	// The shared OpenCode service outlives individual connections but not the
+	// agent: stopping it here prevents an orphan when the daemon exits.
+	defer func() { _ = runtime.Close() }()
+
+	return runtime.Run(ctx)
 }
 
 // reconnect dials the control plane, runs one connection, and retries with
 // exponential backoff until ctx is canceled. A nil error means a clean shutdown.
-func reconnect(ctx context.Context, cfg *config.Config, client *opencode.Client, requestHandler *handler.Handler) error {
+func reconnect(
+	ctx context.Context,
+	cfg *agentdconfig.Config,
+	client *opencode.Client,
+	requestHandler *handler.Handler,
+) error {
 	backoff := initialBackoff
 
 	for {
