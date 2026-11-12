@@ -69,13 +69,19 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 // addNode 写入持久化节点记录并注册一条活跃连接。
 func (e *testEnv) addNode(name string) (store.Node, *fakeAgent, *node.Connection) {
 	e.t.Helper()
+	return e.addNodeWithCapabilities(name, []string{"session.list", "session.create"})
+}
+
+// addNodeWithCapabilities 让测试显式声明 agent 上报的能力集合。
+func (e *testEnv) addNodeWithCapabilities(name string, capabilities []string) (store.Node, *fakeAgent, *node.Connection) {
+	e.t.Helper()
 
 	rec, err := e.store.UpsertNode(context.Background(), store.Node{
 		Name:         name,
 		OS:           "linux",
 		Arch:         "amd64",
 		AgentVersion: "0.1.0",
-		Capabilities: []string{"session.list", "session.create"},
+		Capabilities: capabilities,
 		LastSeen:     time.Now(),
 	})
 	if err != nil {
@@ -558,6 +564,42 @@ func TestAPIPermissionReplyRejectsUnknownDecision(t *testing.T) {
 	httpRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/permissions/perm_1/reply",
 		`{"decision":"maybe"}`)
 	requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPIOpenCodeLifecycle(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNodeWithCapabilities("dev-box", []string{
+		"opencode.start", "opencode.restart", "opencode.stop",
+	})
+
+	for _, tc := range []struct {
+		path   string
+		method string
+		result string
+	}{
+		{"/opencode/start", "opencode.start", `{"Running":true,"Mode":"managed","BaseURL":"http://127.0.0.1:4096"}`},
+		{"/opencode/restart", "opencode.restart", `null`},
+		{"/opencode/stop", "opencode.stop", `null`},
+	} {
+		got := replyOK(t, agent, conn, tc.result)
+		httpRec := env.do(http.MethodPost, "/api/nodes/"+rec.ID+tc.path, "")
+		requireStatus(t, httpRec, http.StatusOK)
+		if body := strings.TrimSpace(httpRec.Body.String()); body != tc.result {
+			t.Fatalf("%s body = %q, want %q", tc.path, body, tc.result)
+		}
+		frame := waitFrame(t, got)
+		if frame.Method != tc.method {
+			t.Fatalf("method = %q, want %s", frame.Method, tc.method)
+		}
+	}
+}
+
+func TestAPIOpenCodeLifecycleRejectsUnsupportedCapability(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, _, _ := env.addNodeWithCapabilities("dev-box", []string{"session.list"})
+
+	httpRec := env.do(http.MethodPost, "/api/nodes/"+rec.ID+"/opencode/restart", "")
+	requireErrorCode(t, httpRec, http.StatusConflict, "capability_unavailable")
 }
 
 func TestAPIErrorMapping(t *testing.T) {

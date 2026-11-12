@@ -4,6 +4,7 @@ import type {
 	FileReadResult,
 	InterruptResult,
 	Message,
+	NodeHealth,
 	NodeView,
 	PermissionRequest,
 	PersistentTerminal,
@@ -55,6 +56,35 @@ function query(values: Record<string, string | number | undefined>): string {
 
 export function listNodes(): Promise<NodeView[]> {
 	return request<NodeView[]>("/api/nodes");
+}
+
+interface RawNodeHealth {
+	Running: boolean;
+	Mode: string;
+	BaseURL: string;
+}
+
+export async function getNodeHealth(node: string): Promise<NodeHealth> {
+	const raw = await request<RawNodeHealth>(`/api/nodes/${encodeURIComponent(node)}/health`);
+	return { running: raw.Running, mode: raw.Mode, base_url: raw.BaseURL };
+}
+
+export function startOpenCode(node: string): Promise<unknown> {
+	return request<unknown>(`/api/nodes/${encodeURIComponent(node)}/opencode/start`, {
+		method: "POST",
+	});
+}
+
+export function restartOpenCode(node: string): Promise<unknown> {
+	return request<unknown>(`/api/nodes/${encodeURIComponent(node)}/opencode/restart`, {
+		method: "POST",
+	});
+}
+
+export function stopOpenCode(node: string): Promise<unknown> {
+	return request<unknown>(`/api/nodes/${encodeURIComponent(node)}/opencode/stop`, {
+		method: "POST",
+	});
 }
 
 export function listSessions(node: string, directory?: string): Promise<Session[]> {

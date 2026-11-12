@@ -8,16 +8,19 @@ import {
 	FolderGit2,
 	Loader2,
 	Pencil,
+	Play,
 	Plus,
 	RefreshCw,
+	RotateCcw,
 	Search,
 	Server,
+	Square,
 	TerminalSquare,
 	Trash2,
 	X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { NodeView, Session } from "../lib/types";
+import type { NodeHealth, NodeView, Session } from "../lib/types";
 
 interface NodeSidebarProps {
 	nodes: NodeView[];
@@ -33,6 +36,12 @@ interface NodeSidebarProps {
 	onFilterSessions: (directory: string) => void;
 	onRenameSession: (sessionID: string, title: string) => Promise<void>;
 	onDeleteSession: (sessionID: string) => Promise<void>;
+	nodeHealth: NodeHealth | null;
+	nodeHealthError: string | null;
+	lifecycleBusy: "start" | "restart" | "stop" | null;
+	onStartOpenCode: () => void | Promise<void>;
+	onRestartOpenCode: () => void | Promise<void>;
+	onStopOpenCode: () => void | Promise<void>;
 }
 
 function shortTime(value?: string): string {
@@ -65,6 +74,12 @@ export function NodeSidebar({
 	onFilterSessions,
 	onRenameSession,
 	onDeleteSession,
+	nodeHealth,
+	nodeHealthError,
+	lifecycleBusy,
+	onStartOpenCode,
+	onRestartOpenCode,
+	onStopOpenCode,
 }: NodeSidebarProps) {
 	const [directory, setDirectory] = useState("");
 	const [creating, setCreating] = useState(false);
@@ -197,6 +212,84 @@ export function NodeSidebar({
 					)}
 				</div>
 			</div>
+
+			{selectedNode ? (
+				<div className="border-b px-3 py-3">
+					<div className="mb-2 flex items-center justify-between px-1">
+						<span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+							OpenCode
+						</span>
+						<span
+							className={cn(
+								"rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+								nodeHealth?.running
+									? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+									: nodeHealth
+										? "bg-muted text-muted-foreground"
+										: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+							)}
+						>
+							{nodeHealth ? (nodeHealth.running ? "running" : "stopped") : "unknown"}
+						</span>
+					</div>
+					<div className="flex gap-1.5">
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-7 flex-1 text-xs"
+							onClick={() => void onStartOpenCode()}
+							disabled={
+								!selectedNode.connected || lifecycleBusy !== null || nodeHealth?.running === true
+							}
+						>
+							{lifecycleBusy === "start" ? (
+								<Loader2 className="size-3.5 animate-spin" />
+							) : (
+								<Play className="size-3.5" />
+							)}
+							Start
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-7 flex-1 text-xs"
+							onClick={() => void onRestartOpenCode()}
+							disabled={!selectedNode.connected || lifecycleBusy !== null}
+						>
+							{lifecycleBusy === "restart" ? (
+								<Loader2 className="size-3.5 animate-spin" />
+							) : (
+								<RotateCcw className="size-3.5" />
+							)}
+							Restart
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-7 flex-1 text-xs"
+							onClick={() => void onStopOpenCode()}
+							disabled={
+								!selectedNode.connected || lifecycleBusy !== null || nodeHealth?.running === false
+							}
+						>
+							{lifecycleBusy === "stop" ? (
+								<Loader2 className="size-3.5 animate-spin" />
+							) : (
+								<Square className="size-3.5" />
+							)}
+							Stop
+						</Button>
+					</div>
+					{nodeHealth?.base_url ? (
+						<p className="mt-1.5 truncate px-1 font-mono text-[10px] text-muted-foreground">
+							{nodeHealth.base_url}
+						</p>
+					) : null}
+					{nodeHealthError ? (
+						<p className="mt-1.5 px-1 text-[11px] text-destructive">{nodeHealthError}</p>
+					) : null}
+				</div>
+			) : null}
 
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="flex items-center justify-between px-4 py-3">
