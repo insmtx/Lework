@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
 	...(isProd
 		? {}
 		: {
+				// 手机上通过统一入口（如 dev.ckeyer.com）或局域网 IP 访问时，Next 会把这些
+				// Host 当成跨源，直接屏蔽 /_next/* 开发资源，页面只停在 SSR 外壳、不 hydrate。
+				// 列出允许的主机名（不含端口）才能让真机调试跑起来；生产构建不涉及。
+				allowedDevOrigins: ["localhost", "127.0.0.1", "dev.ckeyer.com"],
 				rewrites: async () => [
 					{ source: "/api/:path*", destination: "http://127.0.0.1:8787/api/:path*" },
 				],

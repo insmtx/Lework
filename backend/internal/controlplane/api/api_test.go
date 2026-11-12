@@ -684,8 +684,11 @@ func TestEventsStream(t *testing.T) {
 
 	waitBody(t, stream.rec, `"type":"session.message"`)
 	body := stream.rec.text()
-	if !strings.HasPrefix(body, "data: ") {
-		t.Fatalf("stream body %q does not start with data frame", body)
+	if !strings.HasPrefix(body, readyFrame) {
+		t.Fatalf("stream body %q does not start with the ready frame", body)
+	}
+	if !strings.Contains(body, "\n\ndata: ") {
+		t.Fatalf("stream body %q has no data frame after the ready frame", body)
 	}
 
 	stream.cancel()

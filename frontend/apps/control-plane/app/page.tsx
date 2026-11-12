@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsMobile } from "@lework/ui/hooks/use-mobile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NodeSidebar } from "../components/node-sidebar";
 import { SessionPanel } from "../components/session-panel";
@@ -32,6 +33,21 @@ function permissionFromEvent(event: ControlEvent): PermissionRequest | null {
 	};
 }
 
+/** 从跨会话待审批表里移除一个权限；没有命中时返回原对象，避免多余渲染。 */
+function removePending(
+	current: Record<string, string[]>,
+	permissionID: string,
+): Record<string, string[]> {
+	let changed = false;
+	const next: Record<string, string[]> = {};
+	for (const [sessionID, ids] of Object.entries(current)) {
+		const filtered = ids.filter((id) => id !== permissionID);
+		if (filtered.length !== ids.length) changed = true;
+		if (filtered.length > 0) next[sessionID] = filtered;
+	}
+	return changed ? next : current;
+}
+
 export default function ControlPlanePage() {
 	const [nodes, setNodes] = useState<NodeView[]>([]);
 	const [nodesLoading, setNodesLoading] = useState(true);
@@ -49,8 +65,13 @@ export default function ControlPlanePage() {
 	const [messagesError, setMessagesError] = useState<string | null>(null);
 	const [messagesRefresh, setMessagesRefresh] = useState(0);
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
+	// 全局（跨会话）待审批项：手机上看不到别的会话，列表徽标是唯一入口。
+	const [pendingBySession, setPendingBySession] = useState<Record<string, string[]>>({});
 	const [sending, setSending] = useState(false);
 	const [interrupting, setInterrupting] = useState(false);
+	// 手机端单栏：先在节点/会话列表，选中会话后切到会话面板；桌面端忽略该状态。
+	const [mobilePane, setMobilePane] = useState<"list" | "session">("list");
+	const isMobile = useIsMobile();
 
 	const selectedNode = useMemo(
 		() => nodes.find((node) => node.id === selectedNodeID) ?? null,
@@ -158,10 +179,18 @@ export default function ControlPlanePage() {
 	}, []);
 
 	const handleEvent = (event: ControlEvent) => {
-		if (event.session_id && event.session_id !== selectedSessionID) return;
 		if (event.type === "permission.asked") {
 			const permission = permissionFromEvent(event);
-			if (permission) {
+			if (!permission) return;
+			const sessionID = permission.sessionID || event.session_id || "";
+			if (sessionID) {
+				setPendingBySession((current) => {
+					const ids = current[sessionID] ?? [];
+					if (ids.includes(permission.id)) return current;
+					return { ...current, [sessionID]: [...ids, permission.id] };
+				});
+			}
+			if (sessionID && sessionID === selectedSessionID) {
 				setPermissions((current) =>
 					current.some((item) => item.id === permission.id) ? current : [...current, permission],
 				);
@@ -173,7 +202,10 @@ export default function ControlPlanePage() {
 				event.data && typeof event.data === "object"
 					? (event.data as { id?: string }).id
 					: undefined;
-			if (id) setPermissions((current) => current.filter((item) => item.id !== id));
+			if (id) {
+				setPendingBySession((current) => removePending(current, id));
+				setPermissions((current) => current.filter((item) => item.id !== id));
+			}
 			return;
 		}
 		if (!selectedSessionID || event.session_id !== selectedSessionID) return;
@@ -187,25 +219,75 @@ export default function ControlPlanePage() {
 		}
 	};
 
-	const resync = () => {
+	const resync = useCallback(() => {
 		void refreshNodes();
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
-	};
+	}, [refreshNodes]);
 
 	const { connected } = useControlEvents(handleEvent, resync);
+
+	// 流刚恢复时事件可能已经断档，先对账一次再继续增量。
+	const wasConnected = useRef(false);
+	useEffect(() => {
+		if (connected && !wasConnected.current) resync();
+		wasConnected.current = connected;
+	}, [connected, resync]);
+
+	// SSE 不可用时（反代缓冲、断线重连）用轮询兜底，保证对话仍能推进。
+	useEffect(() => {
+		if (connected) return;
+		const timer = setInterval(() => {
+			if (selectedSessionID) setMessagesRefresh((value) => value + 1);
+		}, 5_000);
+		return () => clearInterval(timer);
+	}, [connected, selectedSessionID]);
+
+	useEffect(() => {
+		if (connected) return;
+		if (!selectedNodeID) return;
+		const timer = setInterval(() => setSessionsRefresh((value) => value + 1), 15_000);
+		return () => clearInterval(timer);
+	}, [connected, selectedNodeID]);
+
+	// 手机端会话页是 pushState 出来的虚拟层级，系统返回键应回到列表而不是退出。
+	useEffect(() => {
+		if (!isMobile) return;
+		const onPopState = () => setMobilePane("list");
+		window.addEventListener("popstate", onPopState);
+		return () => window.removeEventListener("popstate", onPopState);
+	}, [isMobile]);
+
+	const openSessionPane = (sessionID: string) => {
+		setSelectedSessionID(sessionID);
+		setMobilePane("session");
+		if (isMobile) window.history.pushState({ leworkPane: "session" }, "");
+	};
+
+	const closeSessionPane = () => {
+		if (typeof window !== "undefined" && window.history.state?.leworkPane === "session") {
+			window.history.back();
+			return;
+		}
+		setMobilePane("list");
+	};
 
 	const selectNode = (nodeID: string) => {
 		setSelectedNodeID(nodeID);
 		setSelectedSessionID(null);
 		setMessages([]);
 		setPermissions([]);
+		setMobilePane("list");
+	};
+
+	const selectSession = (sessionID: string) => {
+		openSessionPane(sessionID);
 	};
 
 	const create = async (directory: string) => {
 		if (!selectedNodeID) throw new Error("Select a connected node first");
 		const session = await createSession(selectedNodeID, directory);
-		setSelectedSessionID(session.id);
+		openSessionPane(session.id);
 		setSessionsRefresh((value) => value + 1);
 	};
 
@@ -245,6 +327,7 @@ export default function ControlPlanePage() {
 		if (!selectedNodeID || !selectedSessionID) throw new Error("No session selected");
 		await replyPermission(selectedNodeID, selectedSessionID, permission.id, decision);
 		setPermissions((current) => current.filter((item) => item.id !== permission.id));
+		setPendingBySession((current) => removePending(current, permission.id));
 		setMessagesRefresh((value) => value + 1);
 	};
 
@@ -253,21 +336,66 @@ export default function ControlPlanePage() {
 		setMessagesRefresh((value) => value + 1);
 	};
 
+	// 会话级待审批数量：列表徽标与手机端头部计数都从这里取。
+	const pendingCounts = useMemo(() => {
+		const counts: Record<string, number> = {};
+		for (const [sessionID, ids] of Object.entries(pendingBySession)) {
+			if (ids.length > 0) counts[sessionID] = ids.length;
+		}
+		return counts;
+	}, [pendingBySession]);
 	const topError = nodesError || sessionsError || messagesError;
+
+	const sidebar = (
+		<NodeSidebar
+			nodes={nodes}
+			selectedNodeID={selectedNodeID}
+			onSelectNode={selectNode}
+			sessions={sessions}
+			selectedSessionID={selectedSessionID}
+			onSelectSession={selectSession}
+			onCreateSession={create}
+			onRefresh={refresh}
+			loadingSessions={sessionsLoading}
+			pendingCounts={pendingCounts}
+		/>
+	);
+
+	const panel = (
+		<SessionPanel
+			node={selectedNode}
+			session={selectedSession}
+			messages={messages}
+			permissions={permissions}
+			streamConnected={connected}
+			loadingMessages={messagesLoading}
+			sending={sending}
+			interrupting={interrupting}
+			onSend={send}
+			onInterrupt={interrupt}
+			onResolvePermission={resolvePermission}
+			onRefresh={refresh}
+			onBack={isMobile ? closeSessionPane : undefined}
+		/>
+	);
+
+	// 手机端单栏：列表与会话二选一，避免侧栏把会话区挤出屏幕。
+	if (isMobile) {
+		return (
+			<div className="flex h-dvh flex-col overflow-hidden">
+				{topError ? (
+					<div className="border-b border-destructive/20 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive md:px-4 md:py-2 md:text-xs">
+						{topError}
+					</div>
+				) : null}
+				{mobilePane === "session" && selectedSession ? panel : sidebar}
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex h-dvh overflow-hidden">
-			<NodeSidebar
-				nodes={nodes}
-				selectedNodeID={selectedNodeID}
-				onSelectNode={selectNode}
-				sessions={sessions}
-				selectedSessionID={selectedSessionID}
-				onSelectSession={setSelectedSessionID}
-				onCreateSession={create}
-				onRefresh={refresh}
-				loadingSessions={sessionsLoading}
-			/>
+			{sidebar}
 			<main className="flex min-w-0 flex-1 flex-col">
 				{nodesLoading ? (
 					<div className="flex h-14 items-center border-b px-4 text-sm text-muted-foreground">
@@ -275,24 +403,11 @@ export default function ControlPlanePage() {
 					</div>
 				) : null}
 				{topError ? (
-					<div className="border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive">
+					<div className="border-b border-destructive/20 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive md:px-4 md:py-2 md:text-xs">
 						{topError}
 					</div>
 				) : null}
-				<SessionPanel
-					node={selectedNode}
-					session={selectedSession}
-					messages={messages}
-					permissions={permissions}
-					connected={connected}
-					loadingMessages={messagesLoading}
-					sending={sending}
-					interrupting={interrupting}
-					onSend={send}
-					onInterrupt={interrupt}
-					onResolvePermission={resolvePermission}
-					onRefresh={refresh}
-				/>
+				{panel}
 			</main>
 		</div>
 	);
