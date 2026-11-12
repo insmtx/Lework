@@ -8,7 +8,8 @@
 		"userInterfaceStyle": "automatic",
 		"android": {
 			"package": "com.insmtx.lework",
-			"predictiveBackGestureEnabled": false
+			"predictiveBackGestureEnabled": false,
+			"usesCleartextTraffic": true
 		},
 		"plugins": [
 			"expo-router",

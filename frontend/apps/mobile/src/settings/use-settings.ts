@@ -12,10 +12,19 @@ export function useSettings(): { settings: Settings | null; loading: boolean; re
 	const [loading, setLoading] = useState(true);
 
 	const reload = useCallback(() => {
-		void store.load().then((loaded) => {
-			setSettings(loaded);
-			setLoading(false);
-		});
+		void store
+			.load()
+			.then((loaded) => {
+				setSettings(loaded);
+			})
+			.catch(() => {
+				// keystore 读取失败（设备锁定、条目损坏）不能让页面永远停在
+				// loading：当作未配置，让用户重新填写。
+				setSettings(null);
+			})
+			.finally(() => {
+				setLoading(false);
+			});
 	}, [store]);
 
 	useFocusEffect(

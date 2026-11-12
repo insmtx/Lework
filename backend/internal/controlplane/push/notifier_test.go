@@ -85,6 +85,42 @@ func TestNotifierSendsOneMessagePerDevice(t *testing.T) {
 	}
 }
 
+func TestNotifierPrefersSessionTitle(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "dev-box" },
+		WithSessionTitle(func(nodeID, sessionID string) string {
+			if nodeID != "node_1" || sessionID != "ses_1" {
+				t.Fatalf("sessionTitle(%q, %q)", nodeID, sessionID)
+			}
+			return "审查移动端 P1"
+		}))
+
+	n.Handle(context.Background(), permissionAsked("node_1", "ses_1", "perm_1"))
+
+	batch := sender.firstBatch()
+	if len(batch) != 1 {
+		t.Fatalf("batch = %+v, want one message", batch)
+	}
+	if !strings.Contains(batch[0].Title, "审查移动端 P1") {
+		t.Fatalf("title = %q, want the session title", batch[0].Title)
+	}
+}
+
+func TestNotifierFallsBackToNodeLabelWithoutSessionTitle(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "dev-box" },
+		WithSessionTitle(func(string, string) string { return "  " }))
+
+	n.Handle(context.Background(), permissionAsked("node_1", "ses_1", "perm_1"))
+
+	batch := sender.firstBatch()
+	if len(batch) != 1 || !strings.Contains(batch[0].Title, "dev-box") {
+		t.Fatalf("batch = %+v, want the node label in the title", batch)
+	}
+}
+
 func TestNotifierIgnoresOtherEvents(t *testing.T) {
 	sender := &fakeSender{}
 	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,

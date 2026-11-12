@@ -22,16 +22,29 @@ export function useControlEvents(
 	onEventRef.current = onEvent;
 	onResyncRef.current = onResync;
 
+	// 只依赖连接参数：settings 对象本身每次设置页保存都会换新，
+	// 直接依赖它会让流在无关改动时重建。
+	const baseUrl = settings?.baseUrl;
+	const token = settings?.token;
+
 	useEffect(() => {
-		if (!settings) {
+		if (!baseUrl || !token) {
 			setConnected(false);
 			return;
 		}
 
 		let stopped = false;
+		// foreground 控制重连：切后台必须彻底停下，否则系统会一直拉起
+		// 连接，既费电又会在回前台时出现两条流。
+		let foreground = AppState.currentState === "active";
 		let source: EventSource | null = null;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		let attempt = 0;
+
+		const clearTimer = () => {
+			if (timer) clearTimeout(timer);
+			timer = null;
+		};
 
 		const closeSource = () => {
 			source?.close();
@@ -39,7 +52,7 @@ export function useControlEvents(
 		};
 
 		const schedule = () => {
-			if (stopped || timer) return;
+			if (stopped || !foreground || timer) return;
 			const delay = nextRetryDelay(attempt);
 			attempt += 1;
 			timer = setTimeout(() => {
@@ -49,14 +62,16 @@ export function useControlEvents(
 		};
 
 		const connect = () => {
-			if (stopped) return;
+			if (stopped || !foreground) return;
+			clearTimer();
 			closeSource();
-			const next = new EventSource(`${settings.baseUrl}/api/events`, {
-				headers: { Authorization: `Bearer ${settings.token}` },
+			const next = new EventSource<"resync">(`${baseUrl}/api/events`, {
+				headers: { Authorization: `Bearer ${token}` },
 			});
 			source = next;
 
 			next.addEventListener("open", () => {
+				if (source !== next) return;
 				attempt = 0;
 				setConnected(true);
 			});
@@ -68,11 +83,20 @@ export function useControlEvents(
 					// 单条坏事件不应中断整条流；等下一次快照或事件纠正。
 				}
 			});
+			// 服务端判定慢消费者时会发具名 resync 事件：增量已经断档，
+			// 必须重新拉快照，不能继续在旧状态上叠加。
+			next.addEventListener("resync", () => {
+				if (source !== next) return;
+				onResyncRef.current();
+			});
 			next.addEventListener("error", () => {
+				// 旧连接的迟到事件不能污染新连接：source 已被替换时直接忽略。
+				if (source !== next) return;
 				setConnected(false);
 				schedule();
 			});
 			next.addEventListener("close", () => {
+				if (source !== next) return;
 				setConnected(false);
 				schedule();
 			});
@@ -81,24 +105,27 @@ export function useControlEvents(
 		connect();
 
 		const subscription = AppState.addEventListener("change", (state) => {
-			if (state === "active") {
+			const wasForeground = foreground;
+			foreground = state === "active";
+			if (foreground) {
+				if (wasForeground) return;
 				attempt = 0;
 				connect();
 				onResyncRef.current();
-			} else {
-				closeSource();
-				setConnected(false);
+				return;
 			}
+			clearTimer();
+			closeSource();
+			setConnected(false);
 		});
 
 		return () => {
 			stopped = true;
 			subscription.remove();
 			closeSource();
-			if (timer) clearTimeout(timer);
-			timer = null;
+			clearTimer();
 		};
-	}, [settings?.baseUrl, settings?.token]);
+	}, [baseUrl, token]);
 
 	return { connected };
 }

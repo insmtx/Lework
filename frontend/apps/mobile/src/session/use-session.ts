@@ -2,6 +2,7 @@ import type { Message, PendingPermission } from "@lework/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createClient } from "../api/client";
+import { isResyncEvent } from "../events/merge";
 import { useControlEvents } from "../events/use-control-events";
 import type { Settings } from "../settings/settings";
 import { mergePermission } from "./permissions";
@@ -10,6 +11,12 @@ type Decision = "once" | "always" | "reject";
 
 function idempotencyKey(nodeID: string, sessionID: string): string {
 	return `${nodeID}:${sessionID}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+// ignoreRefreshError 用于后台增量与对账：失败时保留旧数据，
+// 下一次事件、重连或手动刷新会纠正，不必打扰用户。
+function ignoreRefreshError(): void {
+	// 故意留空。
 }
 
 // useSession 维护一个会话的只读视图与审批列表。
@@ -72,6 +79,11 @@ export function useSession(
 	const { connected } = useControlEvents(
 		settings,
 		(event) => {
+			// 节点重连后事件可能断档：整页重拉一次，别在旧消息上继续叠加增量。
+			if (isResyncEvent(event, nodeID)) {
+				refresh();
+				return;
+			}
 			if (event.node_id !== nodeID || event.session_id !== sessionID) return;
 			if (
 				event.type === "permission.asked" ||
@@ -83,12 +95,12 @@ export function useSession(
 			// 消息流更新频繁，合并成一次拉取，避免每个增量都打服务端。
 			if (debounce.current) clearTimeout(debounce.current);
 			debounce.current = setTimeout(() => {
-				void loadMessages().catch(() => {});
+				void loadMessages().catch(ignoreRefreshError);
 			}, 500);
 		},
 		() => {
-			void loadMessages().catch(() => {});
-			void loadPermissions().catch(() => {});
+			void loadMessages().catch(ignoreRefreshError);
+			void loadPermissions().catch(ignoreRefreshError);
 		},
 	);
 

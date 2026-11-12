@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,10 +37,11 @@ type DeviceSource interface {
 
 // Notifier 把审批事件变成推送。它只关心“谁在等审批”，不解析会话内容。
 type Notifier struct {
-	devices DeviceSource
-	sender  Sender
-	label   func(nodeID string) string
-	now     func() time.Time
+	devices      DeviceSource
+	sender       Sender
+	label        func(nodeID string) string
+	sessionTitle func(nodeID, sessionID string) string
+	now          func() time.Time
 
 	gate chan struct{}
 
@@ -47,12 +49,25 @@ type Notifier struct {
 	seen map[string]time.Time
 }
 
+// Option 设置通知器的可选依赖，避免为了一个标签函数改动所有调用点。
+type Option func(*Notifier)
+
+// WithSessionTitle 提供会话标题查询。手机上多节点并行时，只写节点名
+// 很难判断是哪条会话在等审批，因此标题优先使用会话标题。
+func WithSessionTitle(fn func(nodeID, sessionID string) string) Option {
+	return func(n *Notifier) {
+		if fn != nil {
+			n.sessionTitle = fn
+		}
+	}
+}
+
 // NewNotifier 组装通知器。label 用来把节点 ID 换成用户认识的名字。
-func NewNotifier(devices DeviceSource, sender Sender, label func(nodeID string) string) *Notifier {
+func NewNotifier(devices DeviceSource, sender Sender, label func(nodeID string) string, opts ...Option) *Notifier {
 	if label == nil {
 		label = func(nodeID string) string { return nodeID }
 	}
-	return &Notifier{
+	n := &Notifier{
 		devices: devices,
 		sender:  sender,
 		label:   label,
@@ -60,6 +75,12 @@ func NewNotifier(devices DeviceSource, sender Sender, label func(nodeID string) 
 		gate:    make(chan struct{}, concurrency),
 		seen:    make(map[string]time.Time),
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(n)
+		}
+	}
+	return n
 }
 
 // Subscriber 是事件中心的订阅面。抽成接口是为了让 Run 的重新订阅路径
@@ -152,7 +173,7 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 	for _, device := range devices {
 		msgs = append(msgs, Message{
 			To:        device.PushToken,
-			Title:     fmt.Sprintf("需要审批 · %s", n.label(ev.NodeID)),
+			Title:     n.title(ev),
 			Body:      body,
 			Tag:       ev.SessionID,
 			ChannelID: "permissions",
@@ -169,6 +190,16 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 		// 不打印令牌与消息正文。
 		logs.Warnf("push: send %d messages: %v", len(msgs), err)
 	}
+}
+
+// title 生成通知标题：优先用会话标题，缺省时退回节点名。
+func (n *Notifier) title(ev event.Event) string {
+	if n.sessionTitle != nil {
+		if title := strings.TrimSpace(n.sessionTitle(ev.NodeID, ev.SessionID)); title != "" {
+			return fmt.Sprintf("需要审批 · %s", title)
+		}
+	}
+	return fmt.Sprintf("需要审批 · %s", n.label(ev.NodeID))
 }
 
 // firstSeen 原子地判断并记录去重键。返回 true 表示这次应该推送。

@@ -2,7 +2,12 @@ import type { OverviewNode } from "@lework/api";
 import { useCallback, useEffect, useState } from "react";
 
 import { createClient } from "../api/client";
-import { applyEvent, createOverviewState, type OverviewState } from "../events/merge";
+import {
+	applyEvent,
+	createOverviewState,
+	isResyncEvent,
+	type OverviewState,
+} from "../events/merge";
 import { useControlEvents } from "../events/use-control-events";
 import type { Settings } from "../settings/settings";
 
@@ -44,6 +49,9 @@ export function useOverview(settings: Settings | null): {
 	const { connected } = useControlEvents(
 		settings,
 		(event) => {
+			// resync 会先清掉该节点的派生状态，接着用快照补回来；
+			// 只清不拉会让总览一直空着。
+			if (isResyncEvent(event)) refresh();
 			setState((previous) => applyEvent(previous, event));
 		},
 		refresh,

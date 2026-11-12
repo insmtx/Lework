@@ -73,6 +73,24 @@ func TestApplyResetsNodeOnResync(t *testing.T) {
 	}
 }
 
+func TestTitleTracksSessionEvents(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_1", Type: "session.updated",
+		Data: json.RawMessage(`{"title":"审查移动端 P1"}`),
+	})
+
+	if got := idx.Title("node_1", "ses_1"); got != "审查移动端 P1" {
+		t.Fatalf("Title = %q, want the projected title", got)
+	}
+	if got := idx.Title("node_1", "ses_missing"); got != "" {
+		t.Fatalf("Title(unknown session) = %q, want empty", got)
+	}
+	if got := idx.Title("node_missing", "ses_1"); got != "" {
+		t.Fatalf("Title(unknown node) = %q, want empty", got)
+	}
+}
+
 func TestApplyIgnoresSessionlessEvents(t *testing.T) {
 	idx := NewIndex()
 	idx.Apply(event.Event{NodeID: "node_1", Type: "node.heartbeat"})

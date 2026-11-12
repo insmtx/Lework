@@ -212,6 +212,21 @@ func (i *Index) Snapshot() []Node {
 	return out
 }
 
+// Title 返回会话标题；未知节点或会话返回空串。
+//
+// 推送标题要在不查 OpenCode 的前提下写出“哪条会话”，因此复用事件流里
+// 已经投影好的标题，避免为一条通知再打一次节点请求。
+func (i *Index) Title(nodeID, sessionID string) string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	sess := i.nodes[nodeID][sessionID]
+	if sess == nil {
+		return ""
+	}
+	return sess.title
+}
+
 // PendingPermissions 返回某会话当前待审批项的拷贝，按 ID 升序。
 // 未知节点或会话返回空切片；调用方把它当作可丢弃的提示即可。
 func (i *Index) PendingPermissions(nodeID, sessionID string) []Permission {

@@ -87,7 +87,7 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 			return info.Name
 		}
 		return nodeID
-	})
+	}, push.WithSessionTitle(index.Title))
 	browserAPI := api.New(st, registry, hub, index, cfg.RequestTimeout)
 	ui := webui.Handler()
 

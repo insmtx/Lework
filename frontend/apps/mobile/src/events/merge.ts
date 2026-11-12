@@ -12,6 +12,14 @@ export interface OverviewState {
 
 const SEP = "\u0000";
 
+// RESYNC_EVENT 由节点在重连后发出：它的事件流可能断档，派生状态必须丢弃重来。
+export const RESYNC_EVENT = "agent.resync_required";
+
+/** 判断事件是否要求丢弃某节点的派生状态并重新拉快照。 */
+export function isResyncEvent(event: ControlEvent, nodeID?: string): boolean {
+	return event.type === RESYNC_EVENT && (!nodeID || event.node_id === nodeID);
+}
+
 function permissionKey(nodeID: string, sessionID: string, permissionID: string): string {
 	return `${nodeID}${SEP}${sessionID}${SEP}${permissionID}`;
 }
@@ -73,7 +81,7 @@ function applyState(session: OverviewSession, type: string): SessionState {
 
 // applyEvent 把一个事件并入快照。返回新的 state，不修改入参。
 export function applyEvent(state: OverviewState, event: ControlEvent): OverviewState {
-	if (event.type === "agent.resync_required") {
+	if (event.type === RESYNC_EVENT) {
 		const prefix = `${event.node_id}${SEP}`;
 		const seen = { ...state.seen };
 		dropSeen(seen, prefix);
@@ -109,7 +117,8 @@ export function applyEvent(state: OverviewState, event: ControlEvent): OverviewS
 	}
 	session.last_activity = at;
 
-	const key = (permissionID: string) => permissionKey(event.node_id, event.session_id as string, permissionID);
+	const key = (permissionID: string) =>
+		permissionKey(event.node_id, event.session_id as string, permissionID);
 
 	switch (event.type) {
 		case "permission.asked": {

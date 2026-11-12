@@ -16,6 +16,11 @@
 - 生产环境请在控制面前置 TLS（反向代理）。Android 默认禁止明文 HTTP；开发期
   若必须用 `http://`，需在 `app.json` 的 `android` 下显式开启 cleartext（见
   `expo-build-properties` 文档），并把它当作临时手段。
+
+  当前 `frontend/apps/mobile/app.json` 已设置 `android.usesCleartextTraffic: true`，
+  因为本项目的控制面入口（如 `http://dev.ckeyer.com`）还没有 TLS；**上线前应
+  改成 HTTPS 并把这一项删掉**。诊断连接问题时先确认这一项还在，否则真机上会
+  表现为 `Network request failed`，看不出是证书还是明文限制。
 - 推送需要控制面能访问 Expo Push API；设备注册复用 P0 的 `/api/devices`。
 
 ## 本地开发
