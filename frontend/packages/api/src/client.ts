@@ -1,10 +1,14 @@
 import type {
+	Device,
+	DeviceRegistration,
 	FileDiff,
 	FileInfo,
 	FileReadResult,
 	InterruptResult,
 	Message,
 	NodeView,
+	OverviewNode,
+	PendingPermission,
 	PersistentTerminal,
 	Session,
 } from "./types";
@@ -58,6 +62,11 @@ export interface ApiClient {
 		rows: number,
 	): Promise<PersistentTerminal>;
 	closePTY(node: string, session: string, ptyID: string): Promise<unknown>;
+	getOverview(): Promise<OverviewNode[]>;
+	listPendingPermissions(node: string, session: string): Promise<PendingPermission[]>;
+	registerDevice(device: DeviceRegistration): Promise<Device>;
+	listDevices(): Promise<Device[]>;
+	deleteDevice(id: string): Promise<unknown>;
 }
 
 function query(values: Record<string, string | number | undefined>): string {
@@ -164,5 +173,28 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/pty/${encodeURIComponent(ptyID)}`,
 				{ method: "DELETE" },
 			),
+
+		getOverview: async () => {
+			const body = await request<{ nodes?: OverviewNode[] }>("/api/overview");
+			return body.nodes ?? [];
+		},
+
+		listPendingPermissions: async (node, session) => {
+			const body = await request<{ permissions?: PendingPermission[] }>(
+				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/permissions`,
+			);
+			return body.permissions ?? [];
+		},
+
+		registerDevice: (device) =>
+			request<Device>("/api/devices", {
+				method: "POST",
+				body: JSON.stringify(device),
+			}),
+
+		listDevices: () => request<Device[]>("/api/devices"),
+
+		deleteDevice: (id) =>
+			request<unknown>(`/api/devices/${encodeURIComponent(id)}`, { method: "DELETE" }),
 	};
 }

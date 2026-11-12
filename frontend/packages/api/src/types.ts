@@ -96,3 +96,43 @@ export interface ControlEvent {
 	data?: unknown;
 	time: string;
 }
+
+export type SessionState = "running" | "waiting_permission" | "idle" | "error" | "offline";
+
+export interface OverviewSession {
+	session_id: string;
+	title?: string;
+	state: SessionState;
+	pending_permissions: number;
+	last_activity: string;
+}
+
+export interface OverviewNode {
+	node_id: string;
+	name: string;
+	connected: boolean;
+	sessions: OverviewSession[];
+}
+
+export interface PendingPermission {
+	id: string;
+	session_id: string;
+	action: string;
+	resources: string[];
+	message?: string;
+}
+
+export interface DeviceRegistration {
+	name: string;
+	platform: "android" | "ios";
+	push_token: string;
+}
+
+export interface Device {
+	id: string;
+	name: string;
+	platform: "android" | "ios";
+	push_token: string;
+	last_seen: string;
+	created_at: string;
+}
