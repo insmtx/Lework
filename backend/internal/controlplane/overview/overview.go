@@ -48,6 +48,16 @@ type Session struct {
 	LastActivity time.Time `json:"last_activity"`
 }
 
+// Permission 是 permission.asked 的投影，只保留渲染审批卡所需的字段。
+// 它不是审批事实：回复仍必须以 OpenCode 的 permission ID 为准。
+type Permission struct {
+	ID        string   `json:"id"`
+	SessionID string   `json:"session_id"`
+	Action    string   `json:"action"`
+	Resources []string `json:"resources"`
+	Message   string   `json:"message,omitempty"`
+}
+
 // Node 是一个节点及其在跑会话。
 type Node struct {
 	NodeID   string    `json:"node_id"`
@@ -58,7 +68,7 @@ type sessionState struct {
 	sessionID    string
 	title        string
 	state        State
-	pending      map[string]struct{}
+	pending      map[string]Permission
 	lastActivity time.Time
 }
 
@@ -103,7 +113,7 @@ func (i *Index) Apply(ev event.Event) {
 	if sess == nil {
 		sess = &sessionState{
 			sessionID: ev.SessionID,
-			pending:   make(map[string]struct{}),
+			pending:   make(map[string]Permission),
 		}
 		sessions[ev.SessionID] = sess
 	}
@@ -111,8 +121,8 @@ func (i *Index) Apply(ev event.Event) {
 
 	switch ev.Type {
 	case "permission.asked":
-		if id := permissionID(ev.Data); id != "" {
-			sess.pending[id] = struct{}{}
+		if permission, ok := permissionFrom(ev.Data, ev.SessionID); ok {
+			sess.pending[permission.ID] = permission
 		}
 		sess.state = StateWaitingPermission
 
@@ -126,11 +136,11 @@ func (i *Index) Apply(ev event.Event) {
 
 	case "session.execution.failed":
 		sess.state = StateError
-		sess.pending = make(map[string]struct{})
+		sess.pending = make(map[string]Permission)
 
 	case "session.execution.succeeded", "session.execution.interrupted":
 		sess.state = StateIdle
-		sess.pending = make(map[string]struct{})
+		sess.pending = make(map[string]Permission)
 
 	case "session.created", "session.updated":
 		if sess.state == "" {
@@ -202,11 +212,61 @@ func (i *Index) Snapshot() []Node {
 	return out
 }
 
+// PendingPermissions 返回某会话当前待审批项的拷贝，按 ID 升序。
+// 未知节点或会话返回空切片；调用方把它当作可丢弃的提示即可。
+func (i *Index) PendingPermissions(nodeID, sessionID string) []Permission {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	sessions := i.nodes[nodeID]
+	if sessions == nil {
+		return []Permission{}
+	}
+	sess := sessions[sessionID]
+	if sess == nil {
+		return []Permission{}
+	}
+
+	out := make([]Permission, 0, len(sess.pending))
+	for _, permission := range sess.pending {
+		out = append(out, permission)
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].ID < out[b].ID })
+	return out
+}
+
 // ResetNode 丢弃一个节点的全部投影。节点重连后事件从断点继续，旧值不再可信。
 func (i *Index) ResetNode(nodeID string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	delete(i.nodes, nodeID)
+}
+
+// permissionFrom 解析 permission.asked 负载；缺少 ID 或 action 时视为不可用。
+func permissionFrom(data json.RawMessage, sessionID string) (Permission, bool) {
+	if len(data) == 0 {
+		return Permission{}, false
+	}
+	var payload struct {
+		ID        string   `json:"id"`
+		Action    string   `json:"action"`
+		Resources []string `json:"resources"`
+		Message   string   `json:"message"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil || payload.ID == "" {
+		return Permission{}, false
+	}
+	resources := payload.Resources
+	if resources == nil {
+		resources = []string{}
+	}
+	return Permission{
+		ID:        payload.ID,
+		SessionID: sessionID,
+		Action:    payload.Action,
+		Resources: resources,
+		Message:   payload.Message,
+	}, true
 }
 
 // permissionID 从事件负载里取权限 ID；负载不合法时返回空串。

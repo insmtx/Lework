@@ -127,3 +127,38 @@ func TestApplyKeepsRecentIdleSessions(t *testing.T) {
 		t.Fatalf("snapshot = %+v, want a recent idle session", snap)
 	}
 }
+
+func TestPendingPermissionsKeepsDetails(t *testing.T) {
+	idx := NewIndex()
+	data, _ := json.Marshal(map[string]any{
+		"id": "perm_1", "action": "bash", "resources": []string{"rm -rf build"},
+		"message": "run build",
+	})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.asked", Data: data})
+
+	got := idx.PendingPermissions("node_1", "ses_1")
+	if len(got) != 1 || got[0].ID != "perm_1" || got[0].Action != "bash" || got[0].Message != "run build" {
+		t.Fatalf("permissions = %+v", got)
+	}
+	if len(got[0].Resources) != 1 || got[0].Resources[0] != "rm -rf build" {
+		t.Fatalf("resources = %+v", got[0].Resources)
+	}
+}
+
+func TestPendingPermissionsDropsAfterReply(t *testing.T) {
+	idx := NewIndex()
+	data, _ := json.Marshal(map[string]string{"id": "perm_1", "action": "bash"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.asked", Data: data})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.replied", Data: data})
+
+	if got := idx.PendingPermissions("node_1", "ses_1"); len(got) != 0 {
+		t.Fatalf("permissions = %+v, want empty", got)
+	}
+}
+
+func TestPendingPermissionsUnknownSessionIsEmpty(t *testing.T) {
+	idx := NewIndex()
+	if got := idx.PendingPermissions("node_x", "ses_x"); len(got) != 0 {
+		t.Fatalf("permissions = %+v, want empty", got)
+	}
+}
