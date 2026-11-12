@@ -4,6 +4,7 @@ import {
 	AutomationExecutionPage,
 	AutomationListView,
 	OrgAdminPage,
+	PayrollAccountingPage,
 	ProjectPage,
 	ProjectsHubView,
 	WorkbenchPage,
@@ -33,6 +34,12 @@ export function NewTaskRoutePage() {
 	const navigation = useWebNavigation();
 
 	return <NewTaskPage navigation={navigation} />;
+}
+
+export function PayrollAccountingRoutePage() {
+	const navigation = useWebNavigation();
+
+	return <PayrollAccountingPage navigation={navigation} />;
 }
 
 export function ProjectRoutePage({ tab = "chat" }: { tab?: ProjectTab }) {
