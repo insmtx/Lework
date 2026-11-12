@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import { createClient } from "../src/api/client";
+import { registerForPush, unregisterPush } from "../src/push/register";
 import { createSecureSettingsStore } from "../src/settings/secure-store";
 import { normalizeBaseUrl } from "../src/settings/settings";
 
@@ -44,10 +45,37 @@ export default function SettingsScreen() {
 			if (!trimmedToken) throw new Error("token is required");
 			const settings = { baseUrl: normalized, token: trimmedToken, notifications, deviceID };
 			// 先验证连通性再落盘，避免存下一个打不通的地址。
-			await createClient(settings).listNodes();
-			await store.save(settings);
+			const client = createClient(settings);
+			await client.listNodes();
+
+			// 推送登记失败不影响连接本身：保留已保存的地址与令牌，
+			// 只在状态里说明推送尚未生效。
+			let nextDeviceID = deviceID;
+			let pushNote: string | null = null;
+			if (notifications) {
+				try {
+					const registered = await registerForPush(settings, client);
+					if (registered) {
+						nextDeviceID = registered;
+					} else {
+						pushNote = "Push is not registered: grant notification permission and set the EAS project id.";
+					}
+				} catch (pushError) {
+					pushNote = pushError instanceof Error ? pushError.message : "failed to register for push";
+				}
+			} else if (deviceID) {
+				try {
+					await unregisterPush(client, deviceID);
+					nextDeviceID = undefined;
+				} catch (pushError) {
+					pushNote = pushError instanceof Error ? pushError.message : "failed to unregister push";
+				}
+			}
+
+			await store.save({ ...settings, deviceID: nextDeviceID });
+			setDeviceID(nextDeviceID);
 			setBaseUrl(normalized);
-			setStatus("Connected. Settings saved.");
+			setStatus(pushNote ? `Connected. Settings saved. ${pushNote}` : "Connected. Settings saved.");
 		} catch (error) {
 			setFailed(true);
 			setStatus(error instanceof Error ? error.message : "failed to save settings");
