@@ -36,6 +36,9 @@ interface SessionPanelProps {
 		decision: "once" | "always" | "reject",
 	) => Promise<void>;
 	onRefresh: () => void;
+	hasOlder: boolean;
+	loadingOlder: boolean;
+	onLoadOlder: () => Promise<void>;
 }
 
 const tabs: Array<{ key: Tab; label: string; icon: typeof MessageSquare }> = [
@@ -58,6 +61,9 @@ export function SessionPanel({
 	onInterrupt,
 	onResolvePermission,
 	onRefresh,
+	hasOlder,
+	loadingOlder,
+	onLoadOlder,
 }: SessionPanelProps) {
 	const [tab, setTab] = useState<Tab>("conversation");
 
@@ -168,6 +174,9 @@ export function SessionPanel({
 					interrupting={interrupting}
 					loading={loadingMessages}
 					connected={connected}
+					hasOlder={hasOlder}
+					loadingOlder={loadingOlder}
+					onLoadOlder={onLoadOlder}
 				/>
 			) : tab === "diff" ? (
 				<DiffView nodeID={node?.id ?? ""} sessionID={session.id} directory={directory} />

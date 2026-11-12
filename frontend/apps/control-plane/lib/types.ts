@@ -46,6 +46,12 @@ export interface Message {
 	error?: MessageError;
 }
 
+export interface MessagePage {
+	messages: Message[];
+	previous?: string;
+	next?: string;
+}
+
 export interface InterruptResult {
 	interrupted: boolean;
 }

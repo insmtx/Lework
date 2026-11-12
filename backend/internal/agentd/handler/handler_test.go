@@ -45,7 +45,10 @@ type fakeOpenCode struct {
 
 	messagesCalls     int
 	messagesSessionID string
+	messagesLimit     int
+	messagesCursor    string
 	messages          []opencode.Message
+	messagesPage      opencode.MessagePage
 
 	replyCalls        int
 	replySessionID    string
@@ -136,10 +139,15 @@ func (f *fakeOpenCode) Prompt(_ context.Context, sessionID, text string) (string
 	return "receipt-1", nil
 }
 
-func (f *fakeOpenCode) Messages(_ context.Context, sessionID string) ([]opencode.Message, error) {
+func (f *fakeOpenCode) Messages(_ context.Context, sessionID string, limit int, cursor string) (opencode.MessagePage, error) {
 	f.messagesCalls++
 	f.messagesSessionID = sessionID
-	return f.messages, nil
+	f.messagesLimit = limit
+	f.messagesCursor = cursor
+	if len(f.messagesPage.Messages) > 0 || f.messagesPage.Next != "" {
+		return f.messagesPage, nil
+	}
+	return opencode.MessagePage{Messages: f.messages}, nil
 }
 
 func (f *fakeOpenCode) ReplyPermission(
@@ -717,7 +725,7 @@ func TestSessionMessagesPassesSessionID(t *testing.T) {
 	result, err := h.Handle(
 		context.Background(),
 		"session.messages",
-		json.RawMessage(`{"session_id":"ses_1"}`),
+		json.RawMessage(`{"session_id":"ses_1","limit":500,"cursor":"cursor-1"}`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -725,8 +733,29 @@ func TestSessionMessagesPassesSessionID(t *testing.T) {
 	if oc.messagesSessionID != "ses_1" {
 		t.Fatalf("session_id = %q, want ses_1", oc.messagesSessionID)
 	}
-	messages, ok := result.([]opencode.Message)
-	if !ok || len(messages) != 1 || messages[0].ID != "msg_1" {
+	if oc.messagesLimit != 200 {
+		t.Fatalf("limit = %d, want clamp to 200", oc.messagesLimit)
+	}
+	if oc.messagesCursor != "cursor-1" {
+		t.Fatalf("cursor = %q, want cursor-1", oc.messagesCursor)
+	}
+	page, ok := result.(opencode.MessagePage)
+	if !ok || len(page.Messages) != 1 || page.Messages[0].ID != "msg_1" {
+		t.Fatalf("result = %#v, want one msg_1", result)
+	}
+
+	result, err = h.Handle(
+		context.Background(),
+		"session.messages",
+		json.RawMessage(`{"session_id":"ses_1"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.messagesLimit != 200 {
+		t.Fatalf("default limit = %d, want 200", oc.messagesLimit)
+	}
+	if page, ok := result.(opencode.MessagePage); !ok || len(page.Messages) != 1 {
 		t.Fatalf("result = %#v, want one msg_1", result)
 	}
 }

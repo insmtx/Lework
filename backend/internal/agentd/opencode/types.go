@@ -50,6 +50,15 @@ type PermissionRequest struct {
 	Message   string   `json:"message,omitempty"`
 }
 
+// MessagePage is one page of session messages in chronological order. Next
+// and Previous are opaque OpenCode cursors; Next points at an older page and
+// is empty when the beginning of the session has been reached.
+type MessagePage struct {
+	Messages []Message `json:"messages"`
+	Previous string    `json:"previous,omitempty"`
+	Next     string    `json:"next,omitempty"`
+}
+
 // MessageError is the structured failure attached to a failed assistant or
 // idle turn. Message is provider-supplied and may be shown to operators, but
 // callers must not treat it as a secret-free string.
