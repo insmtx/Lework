@@ -13,6 +13,11 @@ type createSessionRequest struct {
 	Directory string `json:"directory"`
 }
 
+// sessionRenameRequest 是 PATCH /api/sessions/{nodeID}/{sessionID} 的请求体。
+type sessionRenameRequest struct {
+	Title string `json:"title"`
+}
+
 // promptRequest 是 POST .../prompt 的请求体。
 type promptRequest struct {
 	Text           string `json:"text"`
@@ -32,6 +37,15 @@ type sessionListParams struct {
 
 type sessionCreateParams struct {
 	Directory string `json:"directory"`
+}
+
+type sessionRenameParams struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+}
+
+type sessionDeleteParams struct {
+	SessionID string `json:"session_id"`
 }
 
 type sessionPromptParams struct {
@@ -125,6 +139,42 @@ func (a *API) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	result, err := a.callAgent(r.Context(), req.NodeID, "session.create",
 		sessionCreateParams{Directory: req.Directory})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleRenameSession 转发会话改名；空白标题在控制面先拒绝，避免把无效
+// 值送给节点。
+func (a *API) handleRenameSession(w http.ResponseWriter, r *http.Request) {
+	var req sessionRenameRequest
+	if err := decodeRequest(w, r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "title is required")
+		return
+	}
+
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "session.rename",
+		sessionRenameParams{
+			SessionID: r.PathValue("sessionID"),
+			Title:     strings.TrimSpace(req.Title),
+		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleDeleteSession 删除会话；控制面不持有会话副本，因此只需清空选择。
+func (a *API) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "session.delete",
+		sessionDeleteParams{SessionID: r.PathValue("sessionID")})
 	if err != nil {
 		a.writeAgentError(w, err)
 		return

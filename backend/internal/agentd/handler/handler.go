@@ -29,8 +29,10 @@ const AgentVersion = "0.1.0"
 // OpenCodeAPI is the subset of opencode.Client the handler drives. Keeping it
 // narrow lets tests replace the HTTP client without a server.
 type OpenCodeAPI interface {
-	ListSessions(ctx context.Context) ([]opencode.Session, error)
+	ListSessions(ctx context.Context, directory string) ([]opencode.Session, error)
 	CreateSession(ctx context.Context, directory string) (opencode.Session, error)
+	RenameSession(ctx context.Context, sessionID, title string) error
+	DeleteSession(ctx context.Context, sessionID string) error
 	Prompt(ctx context.Context, sessionID, text string) (string, error)
 	Messages(ctx context.Context, sessionID string) ([]opencode.Message, error)
 	ReplyPermission(ctx context.Context, sessionID, permissionID, decision, message string) error
@@ -54,8 +56,8 @@ type SupervisorAPI interface {
 	Status() supervisor.Status
 }
 
-// SessionListParams are the parameters for session.list. Directory is accepted
-// for wire compatibility; I0 has no directory filter and lists every session.
+// SessionListParams are the parameters for session.list. Directory is an
+// optional location filter; an empty value lists every session on the node.
 type SessionListParams struct {
 	Directory string `json:"directory"`
 }
@@ -63,6 +65,17 @@ type SessionListParams struct {
 // SessionCreateParams are the parameters for session.create.
 type SessionCreateParams struct {
 	Directory string `json:"directory"`
+}
+
+// SessionRenameParams are the parameters for session.rename.
+type SessionRenameParams struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+}
+
+// SessionDeleteParams are the parameters for session.delete.
+type SessionDeleteParams struct {
+	SessionID string `json:"session_id"`
 }
 
 // SessionPromptParams are the parameters for session.prompt. IdempotencyKey is
@@ -245,7 +258,12 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		if err := decodeParams(method, params, &p); err != nil {
 			return nil, err
 		}
-		return h.opencode.ListSessions(ctx)
+		if p.Directory != "" {
+			if err := h.confineDirectory(p.Directory); err != nil {
+				return nil, err
+			}
+		}
+		return h.opencode.ListSessions(ctx, p.Directory)
 
 	case "session.create":
 		var p SessionCreateParams
@@ -256,6 +274,30 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 			return nil, err
 		}
 		return h.opencode.CreateSession(ctx, p.Directory)
+
+	case "session.rename":
+		var p SessionRenameParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		title := strings.TrimSpace(p.Title)
+		if p.SessionID == "" {
+			return nil, errors.New("session.rename: session_id is required")
+		}
+		if title == "" {
+			return nil, errors.New("session.rename: title is required")
+		}
+		return nil, h.opencode.RenameSession(ctx, p.SessionID, title)
+
+	case "session.delete":
+		var p SessionDeleteParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		if p.SessionID == "" {
+			return nil, errors.New("session.delete: session_id is required")
+		}
+		return nil, h.opencode.DeleteSession(ctx, p.SessionID)
 
 	case "session.prompt":
 		return h.prompt(ctx, params)

@@ -117,12 +117,33 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 // ListSessions returns the sessions known to the server, newest first.
-func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
+// A non-empty directory filters by location; an empty one lists every
+// session loaded by the server.
+func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session, error) {
+	path := "/api/session"
+	if directory != "" {
+		query := url.Values{}
+		query.Set("directory", directory)
+		path += "?" + query.Encode()
+	}
 	var sessions []Session
-	if err := c.doData(ctx, http.MethodGet, "/api/session", nil, &sessions); err != nil {
+	if err := c.doData(ctx, http.MethodGet, path, nil, &sessions); err != nil {
 		return nil, err
 	}
 	return sessions, nil
+}
+
+// RenameSession changes only the session title; other session fields keep
+// their current values. OpenCode answers 204, so there is no body to decode.
+func (c *Client) RenameSession(ctx context.Context, sessionID, title string) error {
+	path := sessionPath(sessionID)
+	return c.doJSON(ctx, http.MethodPatch, path, renameSessionRequest{Title: title}, nil)
+}
+
+// DeleteSession removes a session and its history from the server. The
+// control plane holds no copy, so nothing else needs to be cleared here.
+func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
+	return c.doJSON(ctx, http.MethodDelete, sessionPath(sessionID), nil, nil)
 }
 
 // CreateSession opens a session rooted at directory. The server rejects the
@@ -524,6 +545,10 @@ type sessionLocation struct {
 
 type promptRequest struct {
 	Text string `json:"text"`
+}
+
+type renameSessionRequest struct {
+	Title string `json:"title"`
 }
 
 // promptResponse is the admitted inbox item. Its ID is the admission identity

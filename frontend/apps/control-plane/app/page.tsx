@@ -5,10 +5,12 @@ import { NodeSidebar } from "../components/node-sidebar";
 import { SessionPanel } from "../components/session-panel";
 import {
 	createSession,
+	deleteSession,
 	interruptSession,
 	listMessages,
 	listNodes,
 	listSessions,
+	renameSession,
 	replyPermission,
 	sendPrompt,
 } from "../lib/api";
@@ -42,6 +44,7 @@ export default function ControlPlanePage() {
 	const [sessionsLoading, setSessionsLoading] = useState(false);
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
 	const [sessionsRefresh, setSessionsRefresh] = useState(0);
+	const [sessionDirectory, setSessionDirectory] = useState("");
 	const [selectedSessionID, setSelectedSessionID] = useState<string | null>(null);
 
 	const [messages, setMessages] = useState<Message[]>([]);
@@ -100,7 +103,7 @@ export default function ControlPlanePage() {
 		let cancelled = false;
 		setSessionsLoading(true);
 		setSessionsError(null);
-		listSessions(selectedNodeID)
+		listSessions(selectedNodeID, sessionDirectory)
 			.then((result) => {
 				if (cancelled) return;
 				setSessions(result);
@@ -118,7 +121,7 @@ export default function ControlPlanePage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedNodeID, sessionsRefresh]);
+	}, [selectedNodeID, sessionDirectory, sessionsRefresh]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset cards when the selection changes
 	useEffect(() => {
@@ -198,6 +201,7 @@ export default function ControlPlanePage() {
 	const selectNode = (nodeID: string) => {
 		setSelectedNodeID(nodeID);
 		setSelectedSessionID(null);
+		setSessionDirectory("");
 		setMessages([]);
 		setPermissions([]);
 	};
@@ -205,7 +209,30 @@ export default function ControlPlanePage() {
 	const create = async (directory: string) => {
 		if (!selectedNodeID) throw new Error("Select a connected node first");
 		const session = await createSession(selectedNodeID, directory);
+		// 清空过滤器，确保刚创建的会话出现在列表中。
+		setSessionDirectory("");
 		setSelectedSessionID(session.id);
+		setSessionsRefresh((value) => value + 1);
+	};
+
+	const rename = async (sessionID: string, title: string) => {
+		if (!selectedNodeID) throw new Error("Select a connected node first");
+		await renameSession(selectedNodeID, sessionID, title);
+		setSessions((current) =>
+			current.map((session) => (session.id === sessionID ? { ...session, title } : session)),
+		);
+		setSessionsRefresh((value) => value + 1);
+	};
+
+	const remove = async (sessionID: string) => {
+		if (!selectedNodeID) throw new Error("Select a connected node first");
+		await deleteSession(selectedNodeID, sessionID);
+		setSessions((current) => current.filter((session) => session.id !== sessionID));
+		if (selectedSessionID === sessionID) {
+			setSelectedSessionID(null);
+			setMessages([]);
+			setPermissions([]);
+		}
 		setSessionsRefresh((value) => value + 1);
 	};
 
@@ -267,6 +294,10 @@ export default function ControlPlanePage() {
 				onCreateSession={create}
 				onRefresh={refresh}
 				loadingSessions={sessionsLoading}
+				sessionDirectory={sessionDirectory}
+				onFilterSessions={setSessionDirectory}
+				onRenameSession={rename}
+				onDeleteSession={remove}
 			/>
 			<main className="flex min-w-0 flex-1 flex-col">
 				{nodesLoading ? (

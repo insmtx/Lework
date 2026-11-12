@@ -52,12 +52,15 @@ func TestListSessionsDecodesEnvelope(t *testing.T) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/session" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
+		if got := r.URL.Query().Get("directory"); got != "/work/foo" {
+			t.Errorf("directory = %q, want /work/foo", got)
+		}
 		_, _ = w.Write([]byte(`{"data":[{"id":"ses_1","location":{"directory":"/work/foo"},` +
 			`"title":"demo","time":{"created":1,"updated":1793529425262}}],"cursor":{}}`))
 	}))
 	defer srv.Close()
 
-	got, err := New(srv.URL, srv.Client()).ListSessions(context.Background())
+	got, err := New(srv.URL, srv.Client()).ListSessions(context.Background(), "/work/foo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +69,41 @@ func TestListSessionsDecodesEnvelope(t *testing.T) {
 	}
 	if got[0].ID != "ses_1" || got[0].Directory != "/work/foo" || got[0].Title != "demo" {
 		t.Fatalf("session = %#v", got[0])
+	}
+}
+
+func TestRenameSessionSendsTitle(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/session/ses_1" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, srv.Client()).RenameSession(context.Background(), "ses_1", "new title"); err != nil {
+		t.Fatal(err)
+	}
+	if body["title"] != "new title" {
+		t.Fatalf("body = %#v, want title", body)
+	}
+}
+
+func TestDeleteSessionUsesDelete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/api/session/ses_1" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, srv.Client()).DeleteSession(context.Background(), "ses_1"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -335,7 +373,7 @@ func TestErrorBodyIsBounded(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := New(srv.URL, srv.Client()).ListSessions(context.Background())
+	_, err := New(srv.URL, srv.Client()).ListSessions(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
