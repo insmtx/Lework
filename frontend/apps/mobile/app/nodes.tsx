@@ -11,13 +11,15 @@ import {
 	View,
 } from "react-native";
 
-import { createClient } from "../../src/api/client";
-import { useSettings } from "../../src/settings/use-settings";
+import { createClient } from "../src/api/client";
+import { useSettings } from "../src/settings/use-settings";
 
 function NodeCard({ node }: { node: NodeView }) {
 	const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleString() : "never";
+	const roots = node.workspace_roots ?? [];
+
 	return (
-		<Pressable style={[styles.card, !node.connected && styles.cardOffline]} onPress={() => router.push("/(tabs)/sessions")}>
+		<View style={[styles.card, !node.connected && styles.cardOffline]}>
 			<View style={styles.header}>
 				<Text style={styles.name} numberOfLines={1}>
 					{node.name}
@@ -30,10 +32,21 @@ function NodeCard({ node }: { node: NodeView }) {
 				{node.os}/{node.arch} · agent {node.agent_version}
 			</Text>
 			<Text style={styles.meta}>last seen {lastSeen}</Text>
-		</Pressable>
+			{roots.length > 0 ? (
+				<View style={styles.roots}>
+					<Text style={styles.rootsLabel}>工作目录</Text>
+					{roots.map((root) => (
+						<Text key={root} style={styles.root} numberOfLines={1}>
+							{root}
+						</Text>
+					))}
+				</View>
+			) : null}
+		</View>
 	);
 }
 
+/** 节点页只做诊断：节点不再进主导航，只从右上角菜单进入。 */
 export default function NodesScreen() {
 	const { settings, loading: settingsLoading } = useSettings();
 	const [nodes, setNodes] = useState<NodeView[]>([]);
@@ -109,6 +122,15 @@ const styles = StyleSheet.create({
 	online: { color: "#166534" },
 	offline: { color: "#6b7280" },
 	meta: { fontSize: 12, color: "#64748b" },
-	button: { marginTop: 8, backgroundColor: "#0f172a", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
+	roots: { marginTop: 4, gap: 2 },
+	rootsLabel: { fontSize: 12, fontWeight: "600", color: "#334155" },
+	root: { fontSize: 12, color: "#475569" },
+	button: {
+		marginTop: 8,
+		backgroundColor: "#0f172a",
+		borderRadius: 8,
+		paddingHorizontal: 16,
+		paddingVertical: 10,
+	},
 	buttonText: { color: "#fff", fontWeight: "600" },
 });

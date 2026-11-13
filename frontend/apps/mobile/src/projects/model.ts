@@ -3,6 +3,14 @@ import type { ProjectSummary, Session } from "@lework/api";
 /** INBOX_ALIAS 是「我的」项目卡的固定标题；用户别名以后可覆盖。 */
 export const INBOX_ALIAS = "我的";
 
+/** projectDisplayName 优先用用户别名，否则取 canonical 的最后一段。 */
+export function projectDisplayName(project: { canonical: string; alias?: string }): string {
+	const alias = project.alias?.trim();
+	if (alias) return alias;
+	const segments = project.canonical.replace(/\/+$/, "").split("/");
+	return segments[segments.length - 1] || project.canonical;
+}
+
 /**
  * projectKeyOf 把 OpenCode 的 project id 转成聚合键。
  *

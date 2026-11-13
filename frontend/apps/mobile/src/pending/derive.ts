@@ -1,4 +1,4 @@
-import type { NodeView, OverviewSession } from "@lework/api";
+import type { OverviewSession } from "@lework/api";
 
 // 待审批列表由客户端 join 总览快照得到：控制面保持无状态，不为推送或
 // 徽标维护第二套会话索引。
@@ -12,7 +12,8 @@ export interface PendingRow {
 }
 
 export interface NodeSessions {
-	node: NodeView;
+	/** 只需要身份与在线状态，总览快照与完整节点视图都能满足。 */
+	node: { id: string; connected: boolean };
 	sessions: OverviewSession[];
 }
 

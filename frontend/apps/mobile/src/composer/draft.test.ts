@@ -18,10 +18,11 @@ function memoryKV(): DraftKV & { values: Map<string, string> } {
 }
 
 describe("draftStorageKey", () => {
-	it("包含项目 key 与节点，不同 scope 互不覆盖", () => {
-		expect(draftStorageKey({ projectKey: "abc", nodeID: "n1" })).toBe("lework.draft.v1:abc:n1");
-		expect(draftStorageKey({ projectKey: "abc", nodeID: "n2" })).not.toBe(
-			draftStorageKey({ projectKey: "abc", nodeID: "n1" }),
+	it("只包含 SecureStore 允许的字符，且不同 scope 互不覆盖", () => {
+		const key = draftStorageKey({ projectKey: "global:/w/repo", nodeID: "n1" });
+		expect(key).toMatch(/^[a-zA-Z0-9._-]+$/);
+		expect(draftStorageKey({ projectKey: "abc", nodeID: "n1" })).not.toBe(
+			draftStorageKey({ projectKey: "abc", nodeID: "n2" }),
 		);
 	});
 });

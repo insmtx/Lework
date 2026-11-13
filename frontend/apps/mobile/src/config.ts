@@ -6,3 +6,9 @@ export const APP_SCHEME = "lework";
 export function sessionRoute(nodeID: string, sessionID: string): string {
 	return `/session/${encodeURIComponent(nodeID)}/${encodeURIComponent(sessionID)}`;
 }
+
+// projectRoute 返回项目页路径。项目 key 可能是 "global:/abs/path"，
+// 必须整体编码成一个路径段。
+export function projectRoute(key: string): string {
+	return `/projects/${encodeURIComponent(key)}`;
+}

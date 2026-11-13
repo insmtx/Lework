@@ -14,9 +14,20 @@ export interface DraftKV {
 	deleteItem(key: string): Promise<void>;
 }
 
-/** draftStorageKey 生成稳定的存储键；换 scope 不会互相覆盖。 */
+/**
+ * draftStorageKey 生成稳定的存储键；换 scope 不会互相覆盖。
+ *
+ * SecureStore 的键只允许字母数字与 ._-，而项目 key 可能是
+ * "global:/abs/path"，因此逐码点转十六进制：稳定、无冲突且合法。
+ */
 export function draftStorageKey(scope: DraftScope): string {
-	return `lework.draft.v1:${scope.projectKey}:${scope.nodeID}`;
+	return `lework.draft.v1.${encodeScopePart(scope.projectKey)}.${encodeScopePart(scope.nodeID)}`;
+}
+
+function encodeScopePart(value: string): string {
+	return Array.from(value)
+		.map((char) => char.codePointAt(0)?.toString(16) ?? "")
+		.join("");
 }
 
 export interface DraftStore {

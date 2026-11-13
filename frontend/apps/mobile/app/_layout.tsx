@@ -64,7 +64,11 @@ export default function RootLayout() {
 		<>
 			<StatusBar style="auto" />
 			<Stack screenOptions={{ headerRight: () => <AppMenu pendingCount={pendingCount} /> }}>
-				<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+				<Stack.Screen name="index" options={{ title: "我的" }} />
+				<Stack.Screen name="projects" options={{ title: "项目" }} />
+				<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
+				<Stack.Screen name="pending" options={{ title: "待审批" }} />
+				<Stack.Screen name="nodes" options={{ title: "节点" }} />
 				<Stack.Screen name="settings" options={{ title: "Settings" }} />
 				<Stack.Screen name="session/[node]/[id]" options={{ title: "Session" }} />
 			</Stack>
