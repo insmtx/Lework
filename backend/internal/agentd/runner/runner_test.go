@@ -84,6 +84,10 @@ func (stubOpenCode) ListSessions(context.Context, string) ([]opencode.Session, e
 	return nil, nil
 }
 
+func (stubOpenCode) ListProjects(context.Context) ([]opencode.Project, error) {
+	return nil, nil
+}
+
 func (stubOpenCode) CreateSession(context.Context, string) (opencode.Session, error) {
 	return opencode.Session{}, nil
 }

@@ -38,6 +38,7 @@ const (
 // narrow lets tests replace the HTTP client without a server.
 type OpenCodeAPI interface {
 	ListSessions(ctx context.Context, directory string) ([]opencode.Session, error)
+	ListProjects(ctx context.Context) ([]opencode.Project, error)
 	CreateSession(ctx context.Context, directory string) (opencode.Session, error)
 	RenameSession(ctx context.Context, sessionID, title string) error
 	DeleteSession(ctx context.Context, sessionID string) error
@@ -194,6 +195,10 @@ type NodeInfo struct {
 	OS           string `json:"os"`
 	Arch         string `json:"arch"`
 	AgentVersion string `json:"agent_version"`
+	// WorkspaceRoots are the absolute directories this agent may serve. The
+	// browser needs them to offer a valid default project directory, because
+	// session.create rejects anything outside them.
+	WorkspaceRoots []string `json:"workspace_roots"`
 }
 
 // ErrUnknownMethod reports a method the handler does not implement. It is a
@@ -270,6 +275,9 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		return nil, h.supervisor.Restart(ctx)
 	case "opencode.stop":
 		return nil, h.supervisor.Stop(ctx)
+
+	case "project.list":
+		return h.opencode.ListProjects(ctx)
 
 	case "session.list":
 		var p SessionListParams
@@ -790,11 +798,13 @@ func escapesRoot(rel string) bool {
 
 // nodeInfo reports the static node identity used during registration.
 func (h *Handler) nodeInfo() NodeInfo {
+	roots := append([]string{}, h.workspaceRoots...)
 	return NodeInfo{
-		NodeName:     nodeName(),
-		OS:           runtime.GOOS,
-		Arch:         runtime.GOARCH,
-		AgentVersion: AgentVersion,
+		NodeName:       nodeName(),
+		OS:             runtime.GOOS,
+		Arch:           runtime.GOARCH,
+		AgentVersion:   AgentVersion,
+		WorkspaceRoots: roots,
 	}
 }
 
