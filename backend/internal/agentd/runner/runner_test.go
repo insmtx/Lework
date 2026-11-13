@@ -100,6 +100,10 @@ func (stubOpenCode) ReplyPermission(context.Context, string, string, string, str
 	return nil
 }
 
+func (stubOpenCode) ListPermissions(context.Context) ([]opencode.PermissionRequest, error) {
+	return nil, nil
+}
+
 func (stubOpenCode) SessionDiff(context.Context, string, string, string, int) ([]opencode.FileDiff, error) {
 	return nil, nil
 }

@@ -325,6 +325,17 @@ func (c *Client) ReplyPermission(ctx context.Context, sessionID, permissionID, d
 	return c.doJSON(ctx, http.MethodPost, path, req, nil)
 }
 
+// ListPermissions returns every pending permission request on the server.
+// The endpoint is the only way to recover approvals that arrived while the
+// event stream was disconnected; callers filter by session when needed.
+func (c *Client) ListPermissions(ctx context.Context) ([]PermissionRequest, error) {
+	var permissions []PermissionRequest
+	if err := c.doData(ctx, http.MethodGet, "/api/permission/request", nil, &permissions); err != nil {
+		return nil, err
+	}
+	return permissions, nil
+}
+
 // SubscribeEvents opens the server event feed and returns a buffered channel of
 // decoded events. The channel is closed when the stream ends or ctx is
 // canceled; callers must keep receiving until then to avoid losing frames.

@@ -39,6 +39,17 @@ type Message struct {
 	Error   *MessageError `json:"error,omitempty"`
 }
 
+// PermissionRequest is a pending approval from OpenCode. It mirrors the
+// permission.asked payload so the browser can rebuild a card from a snapshot
+// after an event gap.
+type PermissionRequest struct {
+	ID        string   `json:"id"`
+	SessionID string   `json:"sessionID"`
+	Action    string   `json:"action"`
+	Resources []string `json:"resources,omitempty"`
+	Message   string   `json:"message,omitempty"`
+}
+
 // MessageError is the structured failure attached to a failed assistant or
 // idle turn. Message is provider-supplied and may be shown to operators, but
 // callers must not treat it as a secret-free string.
