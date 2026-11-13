@@ -3,8 +3,8 @@ import type {
 	FileInfo,
 	FileReadResult,
 	InterruptResult,
-	Message,
 	NodeHealth,
+	MessagePage,
 	NodeView,
 	PermissionRequest,
 	PersistentTerminal,
@@ -112,9 +112,14 @@ export function deleteSession(node: string, session: string): Promise<unknown> {
 	);
 }
 
-export function listMessages(node: string, session: string): Promise<Message[]> {
-	return request<Message[]>(
-		`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/messages`,
+export function listMessages(
+	node: string,
+	session: string,
+	cursor?: string,
+	limit?: number,
+): Promise<MessagePage> {
+	return request<MessagePage>(
+		`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/messages${query({ cursor, limit })}`,
 	);
 }
 

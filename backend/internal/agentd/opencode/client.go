@@ -172,15 +172,48 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string) (string, er
 	return resp.ID, nil
 }
 
-// Messages returns the messages of a session in chronological order. The
-// final assistant message is the authoritative source of the run's text.
-func (c *Client) Messages(ctx context.Context, sessionID string) ([]Message, error) {
-	path := fmt.Sprintf("%s/message?order=asc&limit=%d", sessionPath(sessionID), messagesLimit)
-	var messages []Message
-	if err := c.doData(ctx, http.MethodGet, path, nil, &messages); err != nil {
-		return nil, err
+// Messages returns one page of a session's messages in chronological order.
+// The server pages newest-first and treats order as a first-page hint, so the
+// client requests desc and reverses each page; Next then points at older
+// history and the browser can prepend pages without renumbering anything.
+func (c *Client) Messages(ctx context.Context, sessionID string, limit int, cursor string) (MessagePage, error) {
+	if limit <= 0 {
+		limit = messagesLimit
 	}
-	return messages, nil
+	if limit > messagesLimit {
+		limit = messagesLimit
+	}
+
+	query := url.Values{}
+	query.Set("order", "desc")
+	query.Set("limit", strconv.Itoa(limit))
+	if cursor != "" {
+		query.Set("cursor", cursor)
+	}
+	path := sessionPath(sessionID) + "/message?" + query.Encode()
+
+	var envelope struct {
+		Data   []Message `json:"data"`
+		Cursor struct {
+			Previous string `json:"previous"`
+			Next     string `json:"next"`
+		} `json:"cursor"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &envelope); err != nil {
+		return MessagePage{}, err
+	}
+	if envelope.Data == nil {
+		return MessagePage{}, fmt.Errorf("opencode GET %s: response missing data", path)
+	}
+
+	for i, j := 0, len(envelope.Data)-1; i < j; i, j = i+1, j-1 {
+		envelope.Data[i], envelope.Data[j] = envelope.Data[j], envelope.Data[i]
+	}
+	return MessagePage{
+		Messages: envelope.Data,
+		Previous: envelope.Cursor.Previous,
+		Next:     envelope.Cursor.Next,
+	}, nil
 }
 
 // SessionDiff returns the turn-scoped diff recorded by OpenCode. from and to

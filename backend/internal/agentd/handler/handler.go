@@ -26,6 +26,14 @@ import (
 // agent has no build-version injection yet.
 const AgentVersion = "0.1.0"
 
+// Message pagination bounds shared by the browser API and the node handler.
+// The upper bound keeps one event loop iteration from decoding an unbounded
+// session history.
+const (
+	defaultMessagesLimit = 200
+	maxMessagesLimit     = 200
+)
+
 // OpenCodeAPI is the subset of opencode.Client the handler drives. Keeping it
 // narrow lets tests replace the HTTP client without a server.
 type OpenCodeAPI interface {
@@ -34,7 +42,7 @@ type OpenCodeAPI interface {
 	RenameSession(ctx context.Context, sessionID, title string) error
 	DeleteSession(ctx context.Context, sessionID string) error
 	Prompt(ctx context.Context, sessionID, text string) (string, error)
-	Messages(ctx context.Context, sessionID string) ([]opencode.Message, error)
+	Messages(ctx context.Context, sessionID string, limit int, cursor string) (opencode.MessagePage, error)
 	ReplyPermission(ctx context.Context, sessionID, permissionID, decision, message string) error
 	ListPermissions(ctx context.Context) ([]opencode.PermissionRequest, error)
 
@@ -87,9 +95,12 @@ type SessionPromptParams struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
-// SessionMessagesParams are the parameters for session.messages.
+// SessionMessagesParams are the parameters for session.messages. Limit is
+// clamped to the agent page size; Cursor is an opaque older-page marker.
 type SessionMessagesParams struct {
 	SessionID string `json:"session_id"`
+	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
 }
 
 // PermissionReplyParams are the parameters for permission.reply.
@@ -314,7 +325,14 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		if err := decodeParams(method, params, &p); err != nil {
 			return nil, err
 		}
-		return h.opencode.Messages(ctx, p.SessionID)
+		limit := p.Limit
+		if limit <= 0 {
+			limit = defaultMessagesLimit
+		}
+		if limit > maxMessagesLimit {
+			limit = maxMessagesLimit
+		}
+		return h.opencode.Messages(ctx, p.SessionID, limit, p.Cursor)
 
 	case "session.diff":
 		return h.sessionDiff(ctx, params)

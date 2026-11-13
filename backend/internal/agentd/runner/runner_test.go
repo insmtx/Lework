@@ -94,7 +94,9 @@ func (stubOpenCode) DeleteSession(context.Context, string) error { return nil }
 
 func (stubOpenCode) Prompt(context.Context, string, string) (string, error) { return "", nil }
 
-func (stubOpenCode) Messages(context.Context, string) ([]opencode.Message, error) { return nil, nil }
+func (stubOpenCode) Messages(context.Context, string, int, string) (opencode.MessagePage, error) {
+	return opencode.MessagePage{}, nil
+}
 
 func (stubOpenCode) ReplyPermission(context.Context, string, string, string, string) error {
 	return nil

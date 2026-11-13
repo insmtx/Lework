@@ -206,60 +206,70 @@ func TestListPermissionsDecodesPendingRequests(t *testing.T) {
 	}
 }
 
-func TestMessagesDecodesV2Turns(t *testing.T) {
+func TestMessagesPaginatesNewestFirstAndReverses(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/session/ses_1/message" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		if got := r.URL.Query().Get("order"); got != "asc" {
-			t.Errorf("order = %q, want asc", got)
+		query := r.URL.Query()
+		if got := query.Get("order"); got != "desc" {
+			t.Errorf("order = %q, want desc", got)
 		}
-		if got := r.URL.Query().Get("limit"); got != "200" {
-			t.Errorf("limit = %q, want 200", got)
+		if got := query.Get("limit"); got != "50" {
+			t.Errorf("limit = %q, want 50", got)
 		}
+		if got := query.Get("cursor"); got != "cursor-1" {
+			t.Errorf("cursor = %q, want cursor-1", got)
+		}
+		// 服务端按最新优先返回；客户端负责反转成时间顺序。
 		_, _ = w.Write([]byte(`{"data":[` +
-			`{"id":"msg_1","type":"user","time":{"created":1},"text":"hi"},` +
-			`{"id":"msg_2","type":"assistant","agent":"build","content":[` +
+			`{"id":"msg_3","type":"assistant","agent":"build","content":[` +
 			`{"type":"text","text":"O"},{"type":"text","text":"K"}],"finish":"stop"},` +
-			`{"id":"msg_3","type":"idle","outcome":"succeeded"}` +
-			`],"cursor":{}}`))
+			`{"id":"msg_2","type":"user","text":"hi"},` +
+			`{"id":"msg_1","type":"idle","outcome":"succeeded"}` +
+			`],"cursor":{"previous":"prev","next":"older"}}`))
 	}))
 	defer srv.Close()
 
-	got, err := New(srv.URL, srv.Client()).Messages(context.Background(), "ses_1")
+	page, err := New(srv.URL, srv.Client()).Messages(context.Background(), "ses_1", 50, "cursor-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("messages = %#v", got)
+	if len(page.Messages) != 3 {
+		t.Fatalf("messages = %#v", page.Messages)
 	}
-	if got[0].Role != "user" || got[0].Text != "hi" {
-		t.Fatalf("user turn = %#v", got[0])
+	if page.Messages[0].ID != "msg_1" || page.Messages[1].ID != "msg_2" ||
+		page.Messages[2].ID != "msg_3" {
+		t.Fatalf("messages order = %#v, want chronological", page.Messages)
 	}
-	if got[1].Role != "assistant" || got[1].Text != "OK" || got[1].Finish != "stop" {
-		t.Fatalf("assistant turn = %#v", got[1])
+	if page.Messages[2].Role != "assistant" || page.Messages[2].Text != "OK" {
+		t.Fatalf("assistant turn = %#v", page.Messages[2])
 	}
-	if len(got[1].Parts) != 2 || got[1].Parts[0].Type != "text" {
-		t.Fatalf("parts = %#v", got[1].Parts)
-	}
-	if got[2].Role != "idle" || got[2].Outcome != "succeeded" {
-		t.Fatalf("idle turn = %#v", got[2])
+	if page.Previous != "prev" || page.Next != "older" {
+		t.Fatalf("cursor = %#v", page)
 	}
 }
 
-func TestMessagesCarriesStructuredError(t *testing.T) {
+func TestMessagesDefaultsLimitAndCarriesStructuredError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("limit"); got != "200" {
+			t.Errorf("limit = %q, want 200", got)
+		}
+		if got := r.URL.Query().Get("order"); got != "desc" {
+			t.Errorf("order = %q, want desc", got)
+		}
 		_, _ = w.Write([]byte(`{"data":[{"id":"msg_1","type":"idle","outcome":"failed",` +
 			`"error":{"type":"provider.quota","message":"limit reached","status":429}}],"cursor":{}}`))
 	}))
 	defer srv.Close()
 
-	got, err := New(srv.URL, srv.Client()).Messages(context.Background(), "ses_1")
+	page, err := New(srv.URL, srv.Client()).Messages(context.Background(), "ses_1", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].Error == nil || got[0].Error.Type != "provider.quota" || got[0].Error.Status != 429 {
-		t.Fatalf("error = %#v", got[0].Error)
+	if page.Messages[0].Error == nil || page.Messages[0].Error.Type != "provider.quota" ||
+		page.Messages[0].Error.Status != 429 {
+		t.Fatalf("error = %#v", page.Messages[0].Error)
 	}
 }
 

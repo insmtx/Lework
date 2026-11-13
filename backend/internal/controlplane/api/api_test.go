@@ -454,10 +454,10 @@ func TestAPISessionMessages(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	rec, agent, conn := env.addNode("dev-box")
 
-	got := replyOK(t, agent, conn, `[{"role":"user"}]`)
-	httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/messages", "")
+	got := replyOK(t, agent, conn, `{"messages":[{"role":"user"}],"next":"older"}`)
+	httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/messages?limit=50&cursor=cursor-1", "")
 	requireStatus(t, httpRec, http.StatusOK)
-	if body := strings.TrimSpace(httpRec.Body.String()); body != `[{"role":"user"}]` {
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `{"messages":[{"role":"user"}],"next":"older"}` {
 		t.Fatalf("body = %q, want raw agent result", body)
 	}
 
@@ -465,10 +465,22 @@ func TestAPISessionMessages(t *testing.T) {
 	if frame.Method != "session.messages" {
 		t.Fatalf("method = %q, want session.messages", frame.Method)
 	}
-	params := decodeParams(t, frame)
-	if params["session_id"] != "ses_1" {
-		t.Fatalf("params = %v, want session_id ses_1", params)
+	params := decodeParamsInto[struct {
+		SessionID string `json:"session_id"`
+		Limit     int    `json:"limit"`
+		Cursor    string `json:"cursor"`
+	}](t, frame)
+	if params.SessionID != "ses_1" {
+		t.Fatalf("params = %+v, want session_id ses_1", params)
 	}
+	if params.Limit != 50 || params.Cursor != "cursor-1" {
+		t.Fatalf("params = %+v, want limit 50 cursor cursor-1", params)
+	}
+
+	t.Run("invalid limit", func(t *testing.T) {
+		httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/messages?limit=abc", "")
+		requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+	})
 }
 
 func TestAPISessionPrompt(t *testing.T) {

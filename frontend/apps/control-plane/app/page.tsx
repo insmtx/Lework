@@ -35,6 +35,18 @@ function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
 }
 
+// mergeMessages keeps already-loaded older history while letting the newest
+// page replace tool/output state for messages it contains.
+function mergeMessages(base: Message[], incoming: Message[]): Message[] {
+	const byID = new Map(incoming.map((message) => [message.id, message]));
+	const merged = base.map((message) => byID.get(message.id) ?? message);
+	const known = new Set(merged.map((message) => message.id));
+	for (const message of incoming) {
+		if (!known.has(message.id)) merged.push(message);
+	}
+	return merged;
+}
+
 function permissionFromEvent(event: ControlEvent): PermissionRequest | null {
 	if (!event.data || typeof event.data !== "object") return null;
 	const data = event.data as Partial<PermissionRequest>;
@@ -65,6 +77,8 @@ export default function ControlPlanePage() {
 	const [messagesLoading, setMessagesLoading] = useState(false);
 	const [messagesError, setMessagesError] = useState<string | null>(null);
 	const [messagesRefresh, setMessagesRefresh] = useState(0);
+	const [nextCursor, setNextCursor] = useState<string | null>(null);
+	const [loadingOlder, setLoadingOlder] = useState(false);
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
 	const [permissionsRefresh, setPermissionsRefresh] = useState(0);
 	const [sending, setSending] = useState(false);
@@ -194,19 +208,30 @@ export default function ControlPlanePage() {
 		};
 	}, [selectedNodeID, selectedSessionID, permissionsRefresh]);
 
+	// 切换会话时清空旧消息；分页游标不能跨会话复用。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset history when the selection changes
+	useEffect(() => {
+		setMessages([]);
+		setNextCursor(null);
+		setLoadingOlder(false);
+	}, [selectedNodeID, selectedSessionID]);
+
 	// The token is an intentional trigger; the effect body reads the latest IDs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: messagesRefresh forces a refetch
 	useEffect(() => {
 		if (!selectedNodeID || !selectedSessionID) {
 			setMessages([]);
+			setNextCursor(null);
 			return;
 		}
 		let cancelled = false;
 		setMessagesLoading(true);
 		setMessagesError(null);
 		listMessages(selectedNodeID, selectedSessionID)
-			.then((result) => {
-				if (!cancelled) setMessages(result);
+			.then((page) => {
+				if (cancelled) return;
+				setMessages((current) => mergeMessages(current, page.messages));
+				setNextCursor(page.next ?? null);
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) setMessagesError(errorMessage(error, "Unable to load messages"));
@@ -218,6 +243,25 @@ export default function ControlPlanePage() {
 			cancelled = true;
 		};
 	}, [selectedNodeID, selectedSessionID, messagesRefresh]);
+
+	const loadOlder = async () => {
+		if (!selectedNodeID || !selectedSessionID || !nextCursor || loadingOlder) return;
+		setLoadingOlder(true);
+		setMessagesError(null);
+		try {
+			const page = await listMessages(selectedNodeID, selectedSessionID, nextCursor);
+			setMessages((current) => {
+				const known = new Set(current.map((message) => message.id));
+				const older = page.messages.filter((message) => !known.has(message.id));
+				return [...older, ...current];
+			});
+			setNextCursor(page.next ?? null);
+		} catch (error) {
+			setMessagesError(errorMessage(error, "Unable to load earlier messages"));
+		} finally {
+			setLoadingOlder(false);
+		}
+	};
 
 	useEffect(() => {
 		return () => {
@@ -419,6 +463,9 @@ export default function ControlPlanePage() {
 					onInterrupt={interrupt}
 					onResolvePermission={resolvePermission}
 					onRefresh={refresh}
+					hasOlder={Boolean(nextCursor)}
+					loadingOlder={loadingOlder}
+					onLoadOlder={loadOlder}
 				/>
 			</main>
 		</div>

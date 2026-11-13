@@ -56,6 +56,8 @@ type sessionPromptParams struct {
 
 type sessionMessagesParams struct {
 	SessionID string `json:"session_id"`
+	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
 }
 
 type permissionReplyParams struct {
@@ -186,10 +188,25 @@ func (a *API) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, result)
 }
 
-// handleSessionMessages 透传节点的 session.messages 结果。
+// handleSessionMessages 透传节点的 session.messages 分页结果。
 func (a *API) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit := 0
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+
 	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "session.messages",
-		sessionMessagesParams{SessionID: r.PathValue("sessionID")})
+		sessionMessagesParams{
+			SessionID: r.PathValue("sessionID"),
+			Limit:     limit,
+			Cursor:    query.Get("cursor"),
+		})
 	if err != nil {
 		a.writeAgentError(w, err)
 		return

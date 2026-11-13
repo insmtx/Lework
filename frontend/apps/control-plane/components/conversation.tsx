@@ -3,7 +3,7 @@
 import { Button } from "@lework/ui/components/ui/button";
 import { Textarea } from "@lework/ui/components/ui/textarea";
 import { cn } from "@lework/ui/lib/utils";
-import { ArrowUp, Loader2, MessageSquare, Square } from "lucide-react";
+import { ArrowUp, ChevronUp, Loader2, MessageSquare, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Message, PermissionRequest } from "../lib/types";
 import { PermissionCard } from "./permission-card";
@@ -22,6 +22,9 @@ interface ConversationProps {
 	interrupting: boolean;
 	loading: boolean;
 	connected: boolean;
+	hasOlder: boolean;
+	loadingOlder: boolean;
+	onLoadOlder: () => Promise<void>;
 }
 
 function roleLabel(role: string): string {
@@ -98,6 +101,9 @@ export function Conversation({
 	interrupting,
 	loading,
 	connected,
+	hasOlder,
+	loadingOlder,
+	onLoadOlder,
 }: ConversationProps) {
 	const [text, setText] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -150,6 +156,23 @@ export function Conversation({
 					</div>
 				) : (
 					<div className="mx-auto flex max-w-3xl flex-col gap-4">
+						{hasOlder ? (
+							<div className="flex justify-center">
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => void onLoadOlder()}
+									disabled={loadingOlder}
+								>
+									{loadingOlder ? (
+										<Loader2 className="size-3.5 animate-spin" />
+									) : (
+										<ChevronUp className="size-3.5" />
+									)}
+									Load earlier messages
+								</Button>
+							</div>
+						) : null}
 						{messages.map((message) => (
 							<MessageTurn key={message.id} message={message} />
 						))}
