@@ -418,10 +418,10 @@ func TestErrorBodyIsBounded(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "opencode GET /api/session: status 500") {
+	if !strings.Contains(err.Error(), "opencode GET /api/session") || !strings.Contains(err.Error(), "status 500") {
 		t.Fatalf("err = %v", err)
 	}
-	body := strings.TrimPrefix(err.Error(), "opencode GET /api/session: status 500: ")
+	body := err.Error()[strings.Index(err.Error(), "status 500: ")+len("status 500: "):]
 	if len(body) > maxErrorBody {
 		t.Fatalf("body length = %d, want <= %d", len(body), maxErrorBody)
 	}
@@ -717,5 +717,90 @@ func TestMessageDecodesToolPart(t *testing.T) {
 	}
 	if state.Status != "completed" || len(state.Content) != 1 || state.Content[0].Text != "a.txt" {
 		t.Fatalf("state = %#v", state)
+	}
+}
+
+func TestListProjectsDecodesBareArray(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/project" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[{"id":"abc","canonical":"/w/repo","vcs":"git",` +
+			`"time":{"created":1,"updated":2,"active":3}}]`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListProjects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("projects = %#v", got)
+	}
+	if got[0].ID != "abc" || got[0].Canonical != "/w/repo" || got[0].VCS != "git" {
+		t.Fatalf("project = %#v", got[0])
+	}
+	if got[0].Time.Active != 3 {
+		t.Fatalf("time = %#v", got[0].Time)
+	}
+}
+
+func TestListProjectsRejectsDataEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"abc","canonical":"/w/repo"}]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, srv.Client()).ListProjects(context.Background()); err == nil {
+		t.Fatal("expected an error for a wrapped response")
+	}
+}
+
+func TestListSessionsFollowsCursorOnce(t *testing.T) {
+	var calls int
+	var cursors []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cursors = append(cursors, r.URL.Query().Get("cursor"))
+		if got := r.URL.Query().Get("limit"); got != "50" {
+			t.Errorf("limit = %q, want 50", got)
+		}
+		if calls == 1 {
+			_, _ = w.Write([]byte(`{"data":[{"id":"a"},{"id":"b"}],"cursor":{"next":"c2"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"b"},{"id":"c"}],"cursor":{}}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListSessions(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("sessions = %#v", got)
+	}
+	if calls != 2 || cursors[0] != "" || cursors[1] != "c2" {
+		t.Fatalf("calls = %d, cursors = %#v", calls, cursors)
+	}
+}
+
+func TestListSessionsStopsAtPageLimit(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{"data":[{"id":"x"}],"cursor":{"next":"more"}}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListSessions(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != maxSessionPages {
+		t.Fatalf("calls = %d, want %d", calls, maxSessionPages)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sessions = %#v", got)
 	}
 }

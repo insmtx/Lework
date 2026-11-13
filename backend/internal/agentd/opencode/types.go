@@ -20,9 +20,34 @@ import (
 type Session struct {
 	ID string `json:"id"`
 	// Directory is the absolute working directory the session was created in.
-	Directory string    `json:"directory,omitempty"`
+	Directory string `json:"directory,omitempty"`
+	// ProjectID groups sessions that belong to the same repository or
+	// directory. OpenCode hashes the git root commit for repositories and the
+	// canonical path for plain directories, so the same repo cloned on two
+	// machines reports one id; uncommitted repositories all report "global".
+	ProjectID string `json:"projectID,omitempty"`
+	// Subpath is the path of Directory relative to the project root. It is
+	// empty when the session was created at the root itself.
+	Subpath   string    `json:"subpath,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+}
+
+// Project is one OpenCode project: a git repository root or a plain working
+// directory. Callers treat ID as the grouping key, except for the "global"
+// sentinel that OpenCode uses for repositories without commits.
+type Project struct {
+	ID        string      `json:"id"`
+	Canonical string      `json:"canonical"`
+	VCS       string      `json:"vcs,omitempty"`
+	Time      ProjectTime `json:"time,omitempty"`
+}
+
+// ProjectTime holds the millisecond timestamps OpenCode records per project.
+type ProjectTime struct {
+	Created int64 `json:"created,omitempty"`
+	Updated int64 `json:"updated,omitempty"`
+	Active  int64 `json:"active,omitempty"`
 }
 
 // Message is one turn in a session. Role is the wire "type" discriminator:
@@ -127,9 +152,11 @@ type InterruptResult struct {
 
 // sessionWire mirrors the v2 Session.Info envelope fields this package reads.
 type sessionWire struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Location struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"projectID"`
+	Subpath   string `json:"subpath"`
+	Title     string `json:"title"`
+	Location  struct {
 		Directory string `json:"directory"`
 	} `json:"location"`
 	Time struct {
@@ -145,6 +172,8 @@ func (s *Session) UnmarshalJSON(data []byte) error {
 	}
 	s.ID = wire.ID
 	s.Directory = wire.Location.Directory
+	s.ProjectID = wire.ProjectID
+	s.Subpath = wire.Subpath
 	s.Title = wire.Title
 	if wire.Time.Updated > 0 {
 		s.UpdatedAt = time.UnixMilli(int64(wire.Time.Updated)).UTC()
