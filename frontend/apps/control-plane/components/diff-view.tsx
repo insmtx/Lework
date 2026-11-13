@@ -2,6 +2,7 @@
 
 import { Badge } from "@lework/ui/components/ui/badge";
 import { Button } from "@lework/ui/components/ui/button";
+import { useIsMobile } from "@lework/ui/hooks/use-mobile";
 import { cn } from "@lework/ui/lib/utils";
 import { FileDiff, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -76,7 +77,48 @@ function LineNo({ value, className }: { value: number | null; className?: string
 	);
 }
 
+/**
+ * 手机宽度放不下双栏 diff：改用单栏 unified 视图，长行折行而不是横向滚动。
+ */
+function DiffRowsCompact({ rows }: { rows: DiffRow[] }) {
+	return (
+		<div className="font-mono text-[11px] leading-5">
+			{rows.map((row, index) => {
+				if (row.kind === "hunk") {
+					return (
+						<div
+							key={index}
+							className="border-y bg-muted/70 px-2 py-1 whitespace-pre-wrap break-all text-muted-foreground"
+						>
+							{row.text}
+						</div>
+					);
+				}
+				return (
+					<div
+						key={index}
+						className={cn(
+							"flex gap-2 border-b border-border/40 px-2 py-0.5",
+							row.kind === "add" && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+							row.kind === "delete" && "bg-destructive/10 text-destructive",
+						)}
+					>
+						<span className="w-9 shrink-0 select-none text-right text-muted-foreground/60">
+							{row.oldNo ?? ""}
+						</span>
+						<span className="w-3 shrink-0 select-none text-muted-foreground/60">
+							{row.kind === "add" ? "+" : row.kind === "delete" ? "-" : ""}
+						</span>
+						<pre className="min-w-0 flex-1 whitespace-pre-wrap break-all">{row.text}</pre>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
 export function DiffView({ nodeID, sessionID, directory }: DiffViewProps) {
+	const isMobile = useIsMobile();
 	const [diffs, setDiffs] = useState<FileDiffType[]>([]);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -146,19 +188,21 @@ export function DiffView({ nodeID, sessionID, directory }: DiffViewProps) {
 					</p>
 				</div>
 			) : (
-				<div className="flex min-h-0 flex-1">
-					<div className="w-64 shrink-0 overflow-y-auto border-r p-2">
+				<div className="flex min-h-0 flex-1 flex-col md:flex-row">
+					<div className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 md:block md:w-64 md:overflow-y-auto md:border-b-0 md:border-r">
 						{diffs.map((file) => (
 							<button
 								type="button"
 								key={file.file}
 								onClick={() => setSelected(file.file)}
 								className={cn(
-									"mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs hover:bg-muted",
+									"flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted md:mb-0.5 md:w-full md:py-2",
 									file.file === selected && "bg-muted",
 								)}
 							>
-								<span className="min-w-0 flex-1 truncate font-mono">{file.file}</span>
+								<span className="max-w-[12rem] min-w-0 flex-1 truncate font-mono md:max-w-none">
+									{file.file}
+								</span>
 								<span className="shrink-0 text-[10px] text-emerald-600">+{file.additions}</span>
 								<span className="shrink-0 text-[10px] text-destructive">-{file.deletions}</span>
 							</button>
@@ -171,7 +215,7 @@ export function DiffView({ nodeID, sessionID, directory }: DiffViewProps) {
 									<code className="min-w-0 flex-1 truncate text-xs">{current.file}</code>
 									<Badge variant={statusVariant(current.status)}>{current.status}</Badge>
 								</div>
-								<DiffRows rows={rows} />
+								{isMobile ? <DiffRowsCompact rows={rows} /> : <DiffRows rows={rows} />}
 							</>
 						) : null}
 					</div>

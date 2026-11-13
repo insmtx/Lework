@@ -5,6 +5,7 @@ import { Input } from "@lework/ui/components/ui/input";
 import { cn } from "@lework/ui/lib/utils";
 import {
 	Check,
+	ChevronRight,
 	FolderGit2,
 	Loader2,
 	Pencil,
@@ -19,7 +20,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { NodeHealth, NodeView, Session } from "../lib/types";
 
 interface NodeSidebarProps {
@@ -42,6 +43,8 @@ interface NodeSidebarProps {
 	onStartOpenCode: () => void | Promise<void>;
 	onRestartOpenCode: () => void | Promise<void>;
 	onStopOpenCode: () => void | Promise<void>;
+	/** 每个会话待处理的审批数量；手机上看不到别的会话，只能靠列表徽标发现。 */
+	pendingCounts: Record<string, number>;
 }
 
 function shortTime(value?: string): string {
@@ -58,6 +61,13 @@ function shortTime(value?: string): string {
 
 function sessionTitle(session: Session): string {
 	return session.title || session.id;
+}
+
+/** 手机上一屏放不下长路径，只留最后两段作为芯片标签。 */
+function shortenedPath(path: string): string {
+	const parts = path.split("/").filter(Boolean);
+	if (parts.length <= 2) return path;
+	return `…/${parts.slice(-2).join("/")}`;
 }
 
 export function NodeSidebar({
@@ -80,6 +90,7 @@ export function NodeSidebar({
 	onStartOpenCode,
 	onRestartOpenCode,
 	onStopOpenCode,
+	pendingCounts,
 }: NodeSidebarProps) {
 	const [directory, setDirectory] = useState("");
 	const [creating, setCreating] = useState(false);
@@ -96,6 +107,25 @@ export function NodeSidebar({
 	useEffect(() => {
 		setFilterDraft(sessionDirectory);
 	}, [sessionDirectory]);
+
+	// 手机输入绝对路径很痛苦：把已有会话的工作目录做成快捷芯片。
+	const recentDirectories = useMemo(() => {
+		const seen = new Set<string>();
+		const list: string[] = [];
+		for (const session of sessions) {
+			const dir = session.directory?.trim();
+			if (!dir || seen.has(dir)) continue;
+			seen.add(dir);
+			list.push(dir);
+			if (list.length >= 4) break;
+		}
+		return list;
+	}, [sessions]);
+
+	const pendingTotal = useMemo(
+		() => Object.values(pendingCounts).reduce((sum, count) => sum + count, 0),
+		[pendingCounts],
+	);
 
 	const submitFilter = (event: React.FormEvent) => {
 		event.preventDefault();
@@ -156,14 +186,25 @@ export function NodeSidebar({
 	};
 
 	return (
-		<aside className="flex h-full w-full flex-col border-r bg-muted/25 md:w-80 md:min-w-80">
-			<div className="flex items-center gap-3 border-b px-4 py-4">
+		<aside className="flex h-full w-full flex-col overflow-hidden border-r bg-muted/25 md:w-80 md:min-w-80">
+			<div className="flex items-center gap-3 border-b px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4">
 				<div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
 					<TerminalSquare className="size-5" />
 				</div>
-				<div className="min-w-0">
+				<div className="min-w-0 flex-1">
 					<div className="text-sm font-semibold tracking-tight">Lework</div>
 					<div className="text-xs text-muted-foreground">OpenCode control plane</div>
+				</div>
+				<div className="text-right text-[11px] md:hidden">
+					{pendingTotal > 0 ? (
+						<div className="font-medium text-amber-600 dark:text-amber-400">
+							{pendingTotal} approval{pendingTotal === 1 ? "" : "s"}
+						</div>
+					) : null}
+					<div className="text-muted-foreground">
+						{nodes.filter((node) => node.connected).length} online
+					</div>
+					<div className="text-muted-foreground">{sessions.length} sessions</div>
 				</div>
 			</div>
 
@@ -186,8 +227,11 @@ export function NodeSidebar({
 								key={node.id}
 								onClick={() => onSelectNode(node.id)}
 								className={cn(
-									"flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted",
-									node.id === selectedNodeID && "bg-background shadow-sm ring-1 ring-border",
+									"flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3 py-3 text-left shadow-sm transition-colors active:bg-muted",
+									"md:gap-2 md:rounded-lg md:border-transparent md:px-2 md:py-2 md:shadow-none",
+									node.id === selectedNodeID
+										? "ring-1 ring-primary/30 md:bg-background md:shadow-sm md:ring-border"
+										: "md:bg-transparent md:hover:bg-muted",
 								)}
 							>
 								<span
@@ -236,7 +280,7 @@ export function NodeSidebar({
 						<Button
 							size="sm"
 							variant="outline"
-							className="h-7 flex-1 text-xs"
+							className="h-8 flex-1 text-xs md:h-7"
 							onClick={() => void onStartOpenCode()}
 							disabled={
 								!selectedNode.connected || lifecycleBusy !== null || nodeHealth?.running === true
@@ -252,7 +296,7 @@ export function NodeSidebar({
 						<Button
 							size="sm"
 							variant="outline"
-							className="h-7 flex-1 text-xs"
+							className="h-8 flex-1 text-xs md:h-7"
 							onClick={() => void onRestartOpenCode()}
 							disabled={!selectedNode.connected || lifecycleBusy !== null}
 						>
@@ -266,7 +310,7 @@ export function NodeSidebar({
 						<Button
 							size="sm"
 							variant="outline"
-							className="h-7 flex-1 text-xs"
+							className="h-8 flex-1 text-xs md:h-7"
 							onClick={() => void onStopOpenCode()}
 							disabled={
 								!selectedNode.connected || lifecycleBusy !== null || nodeHealth?.running === false
@@ -313,7 +357,7 @@ export function NodeSidebar({
 							value={filterDraft}
 							onChange={(event) => setFilterDraft(event.target.value)}
 							placeholder="Filter by directory"
-							className="h-7 font-mono text-[11px]"
+							className="h-8 font-mono text-[11px] md:h-7"
 							aria-label="Filter sessions by directory"
 						/>
 						{sessionDirectory ? (
@@ -359,9 +403,10 @@ export function NodeSidebar({
 								<div
 									key={session.id}
 									className={cn(
-										"rounded-lg transition-colors",
-										session.id === selectedSessionID &&
-											"bg-background shadow-sm ring-1 ring-border",
+										"rounded-xl border border-border/70 bg-card shadow-sm transition-colors md:rounded-lg md:border-transparent md:bg-transparent md:shadow-none",
+										session.id === selectedSessionID
+											? "ring-1 ring-primary/30 md:bg-background md:shadow-sm md:ring-border"
+											: "md:hover:bg-muted",
 									)}
 								>
 									{renamingID === session.id ? (
@@ -373,7 +418,7 @@ export function NodeSidebar({
 												onKeyDown={(event) => {
 													if (event.key === "Escape") setRenamingID(null);
 												}}
-												className="h-7 font-mono text-xs"
+												className="h-8 font-mono text-base md:h-7 md:text-xs"
 												aria-label="Session title"
 											/>
 											<Button
@@ -403,7 +448,7 @@ export function NodeSidebar({
 											<button
 												type="button"
 												onClick={() => onSelectSession(session.id)}
-												className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-muted"
+												className="flex min-w-0 flex-1 items-start gap-3 rounded-md px-2 py-2 text-left transition-colors active:bg-muted md:gap-2 md:px-1 md:py-1 md:hover:bg-muted"
 											>
 												<FolderGit2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
 												<span className="min-w-0 flex-1">
@@ -417,8 +462,15 @@ export function NodeSidebar({
 														{shortTime(session.updatedAt)}
 													</span>
 												</span>
+												{pendingCounts[session.id] ? (
+													<span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+														<span className="size-1.5 rounded-full bg-amber-500" />
+														{pendingCounts[session.id]}
+													</span>
+												) : null}
+												<ChevronRight className="size-4 shrink-0 self-center text-muted-foreground/50 md:hidden" />
 											</button>
-											<div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+											<div className="flex shrink-0 items-center gap-0.5 pt-1.5 md:pt-0.5">
 												<Button
 													size="icon-xs"
 													variant="ghost"
@@ -477,25 +529,49 @@ export function NodeSidebar({
 					<p className="border-t px-3 py-1.5 text-[11px] text-destructive">{actionError}</p>
 				) : null}
 
-				<form onSubmit={submit} className="border-t p-3">
+				<form
+					onSubmit={submit}
+					className="border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3"
+				>
 					<label
 						className="mb-1.5 block text-[11px] font-medium text-muted-foreground"
 						htmlFor="new-directory"
 					>
 						New session directory
 					</label>
+					{recentDirectories.length > 0 ? (
+						<div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+							{recentDirectories.map((dir) => (
+								<button
+									type="button"
+									key={dir}
+									onClick={() => setDirectory(dir)}
+									title={dir}
+									className={cn(
+										"shrink-0 rounded-full border px-2.5 py-1 font-mono text-[10px] transition-colors",
+										directory === dir
+											? "border-primary/40 bg-primary/10 text-foreground"
+											: "bg-card text-muted-foreground active:bg-muted",
+									)}
+								>
+									{shortenedPath(dir)}
+								</button>
+							))}
+						</div>
+					) : null}
 					<div className="flex gap-1.5">
 						<Input
 							id="new-directory"
 							value={directory}
 							onChange={(event) => setDirectory(event.target.value)}
 							placeholder="/home/me/project"
-							className="h-8 font-mono text-xs"
+							className="h-10 font-mono text-base md:h-8 md:text-xs"
 							disabled={!selectedNode?.connected || creating}
 						/>
 						<Button
 							type="submit"
 							size="icon"
+							className="size-10 shrink-0 md:size-8"
 							disabled={!selectedNode?.connected || creating || !directory.trim()}
 							aria-label="Create session"
 						>

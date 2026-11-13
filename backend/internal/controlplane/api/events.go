@@ -19,6 +19,11 @@ const (
 
 	// resyncFrame 通知浏览器事件可能缺失，需要重新对账。
 	resyncFrame = "event: resync\ndata: {\"reason\":\"slow_consumer\"}\n\n"
+
+	// readyFrame 是建流后的首帧注释。部分反代（Next dev rewrite、nginx）
+	// 在收到首块响应体之前不会下发首部，EventSource 会长时间停在 CONNECTING；
+	// 先写一帧可以让客户端立刻进入 OPEN，也顺带验证链路可写。
+	readyFrame = ": connected\n\n"
 )
 
 // handleEvents 提供 SSE 事件流，可选按 node 与 session 过滤。
@@ -43,6 +48,10 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	header.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
+
+	if err := writeSSEFrame(r.Context(), w, flusher, readyFrame); err != nil {
+		return
+	}
 
 	ticker := time.NewTicker(sseHeartbeat)
 	defer ticker.Stop()

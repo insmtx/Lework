@@ -9,10 +9,12 @@ type PermissionDecision = "once" | "always" | "reject";
 
 interface PermissionCardProps {
 	permission: PermissionRequest;
+	/** 节点离线时按钮不可点，避免把必然失败的请求发出去。 */
+	disabled?: boolean;
 	onResolve: (permission: PermissionRequest, decision: PermissionDecision) => Promise<void>;
 }
 
-export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
+export function PermissionCard({ permission, disabled, onResolve }: PermissionCardProps) {
 	const [busy, setBusy] = useState<PermissionDecision | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +56,11 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
 						</div>
 					) : null}
 					<div className="mt-3 flex flex-wrap gap-2">
-						<Button size="sm" onClick={() => void resolve("once")} disabled={busy !== null}>
+						<Button
+							size="sm"
+							onClick={() => void resolve("once")}
+							disabled={disabled || busy !== null}
+						>
 							{busy === "once" ? <Loader2 className="size-3.5 animate-spin" /> : null}
 							Allow once
 						</Button>
@@ -62,7 +68,7 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
 							size="sm"
 							variant="secondary"
 							onClick={() => void resolve("always")}
-							disabled={busy !== null}
+							disabled={disabled || busy !== null}
 						>
 							{busy === "always" ? <Loader2 className="size-3.5 animate-spin" /> : null}
 							Always allow
@@ -71,7 +77,7 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
 							size="sm"
 							variant="outline"
 							onClick={() => void resolve("reject")}
-							disabled={busy !== null}
+							disabled={disabled || busy !== null}
 						>
 							{busy === "reject" ? <Loader2 className="size-3.5 animate-spin" /> : null}
 							Reject

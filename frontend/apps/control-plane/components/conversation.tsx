@@ -21,7 +21,10 @@ interface ConversationProps {
 	sending: boolean;
 	interrupting: boolean;
 	loading: boolean;
-	connected: boolean;
+	/** SSE 事件流是否在线；只影响提示文案，不影响能否发送。 */
+	streamConnected: boolean;
+	/** 节点是否在线决定请求能否成功，是真正的发送开关。 */
+	nodeConnected: boolean;
 	hasOlder: boolean;
 	loadingOlder: boolean;
 	onLoadOlder: () => Promise<void>;
@@ -37,7 +40,7 @@ function roleLabel(role: string): string {
 function MessageTurn({ message }: { message: Message }) {
 	if (message.role === "user") {
 		return (
-			<div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-sm text-primary-foreground shadow-sm">
+			<div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-[15px] text-primary-foreground shadow-sm md:text-sm">
 				<div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-primary-foreground/60">
 					You
 				</div>
@@ -77,7 +80,7 @@ function MessageTurn({ message }: { message: Message }) {
 				) : null}
 			</div>
 			{message.text ? (
-				<div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm border bg-card px-4 py-3 text-sm leading-relaxed shadow-sm">
+				<div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm border bg-card px-4 py-3 text-[15px] leading-relaxed shadow-sm md:text-sm">
 					{message.text}
 				</div>
 			) : null}
@@ -100,7 +103,8 @@ export function Conversation({
 	sending,
 	interrupting,
 	loading,
-	connected,
+	streamConnected,
+	nodeConnected,
 	hasOlder,
 	loadingOlder,
 	onLoadOlder,
@@ -180,12 +184,14 @@ export function Conversation({
 				)}
 			</div>
 
-			<div className="border-t bg-background/95 px-3 py-3 md:px-6">
+			{/* 键盘弹出时 composer 需要贴着可视区域底部，并让开 iPhone 的 Home 指示条。 */}
+			<div className="border-t bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:px-6 md:pb-3">
 				<div className="mx-auto max-w-3xl space-y-2">
 					{permissions.map((permission) => (
 						<PermissionCard
 							key={permission.id}
 							permission={permission}
+							disabled={!nodeConnected}
 							onResolve={onResolvePermission}
 						/>
 					))}
@@ -205,21 +211,25 @@ export function Conversation({
 								}
 							}}
 							placeholder="Ask OpenCode to build, explain, or fix something…"
-							className="min-h-14 resize-none border-0 bg-transparent px-2 py-1 text-sm shadow-none focus-visible:ring-0"
-							disabled={!connected}
+							className="min-h-14 resize-none border-0 bg-transparent px-2 py-1 text-base shadow-none focus-visible:ring-0 md:text-sm"
+							disabled={!nodeConnected}
 						/>
 						<div className="flex items-center justify-between gap-2 px-1">
 							<span className="text-[10px] text-muted-foreground">
-								{connected
-									? "Enter to send · Shift+Enter for newline"
-									: "Waiting for event stream…"}
+								{!nodeConnected ? (
+									"Node offline — cannot send"
+								) : !streamConnected ? (
+									"Live updates paused · sending still works"
+								) : (
+									<span className="hidden md:inline">Enter to send · Shift+Enter for newline</span>
+								)}
 							</span>
 							<div className="flex gap-1.5">
 								<Button
 									variant="ghost"
 									size="sm"
 									onClick={() => void onInterrupt()}
-									disabled={interrupting}
+									disabled={interrupting || !nodeConnected}
 									title="Interrupt the current run"
 								>
 									{interrupting ? (
@@ -227,12 +237,13 @@ export function Conversation({
 									) : (
 										<Square className="size-3 fill-current" />
 									)}
-									Interrupt
+									<span className="hidden md:inline">Interrupt</span>
 								</Button>
 								<Button
 									size="icon"
+									className="size-9 md:size-8"
 									onClick={() => void submit()}
-									disabled={sending || !text.trim() || !connected}
+									disabled={sending || !text.trim() || !nodeConnected}
 									aria-label="Send prompt"
 								>
 									{sending ? (

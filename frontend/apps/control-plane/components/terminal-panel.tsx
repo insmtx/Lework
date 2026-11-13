@@ -31,6 +31,8 @@ export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelPro
 		let socket: WebSocket | null = null;
 		let ptyID: string | null = null;
 		let exited = false;
+		let opened = false;
+		let connectTimer: ReturnType<typeof setTimeout> | null = null;
 		let observer: ResizeObserver | null = null;
 
 		container.innerHTML = "";
@@ -99,11 +101,19 @@ export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelPro
 				const url = `${scheme}://${window.location.host}/api/pty/${encodeURIComponent(nodeID)}/${encodeURIComponent(sessionID)}/${encodeURIComponent(pty.id)}/ws`;
 				socket = new WebSocket(url);
 				socket.binaryType = "arraybuffer";
+				connectTimer = setTimeout(() => {
+					if (disposed || opened) return;
+					setStatus("error");
+					setError("Terminal did not connect within 12s");
+					socket?.close();
+				}, 12_000);
 				socket.onopen = () => {
 					if (disposed) {
 						socket?.close();
 						return;
 					}
+					opened = true;
+					if (connectTimer) clearTimeout(connectTimer);
 					setStatus("ready");
 					sendResize();
 					terminal.focus();
@@ -128,10 +138,19 @@ export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelPro
 					terminal.write(new Uint8Array(message.data as ArrayBuffer));
 				};
 				socket.onerror = () => {
-					if (!disposed) setError("Terminal WebSocket error");
+					if (!disposed && !opened) setError("Terminal WebSocket error");
 				};
 				socket.onclose = () => {
-					if (!disposed && !exited) setStatus("disconnected");
+					if (connectTimer) clearTimeout(connectTimer);
+					if (disposed || exited) return;
+					if (!opened) {
+						setStatus("error");
+						setError(
+							"Terminal could not connect. The browser needs a WebSocket route to /api (a plain HTTP proxy will not do).",
+						);
+						return;
+					}
+					setStatus("disconnected");
 				};
 			} catch (caught) {
 				if (disposed) return;
@@ -144,6 +163,7 @@ export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelPro
 
 		return () => {
 			disposed = true;
+			if (connectTimer) clearTimeout(connectTimer);
 			observer?.disconnect();
 			socket?.close();
 			terminal.dispose();

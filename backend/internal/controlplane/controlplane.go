@@ -23,6 +23,8 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
+	"github.com/insmtx/lework/backend/internal/controlplane/overview"
+	"github.com/insmtx/lework/backend/internal/controlplane/push"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/controlplane/webui"
 )
@@ -33,6 +35,10 @@ const (
 
 	// shutdownTimeout 是优雅退出的上限；超时后强制关闭剩余连接。
 	shutdownTimeout = 5 * time.Second
+
+	// monitorBuffer 是总览订阅的缓冲。慢消费者被淘汰后索引落后，
+	// 客户端重新拉一次快照即可，因此不需要无限缓冲。
+	monitorBuffer = 256
 )
 
 // healthResponse 是健康检查的响应体。
@@ -49,7 +55,11 @@ type Server struct {
 	store    *store.Store
 	registry *node.Registry
 	hub      *event.Hub
+	index    *overview.Index
+	notifier *push.Notifier
 	handler  http.Handler
+
+	monitorCancel func()
 
 	mu         sync.Mutex
 	httpServer *http.Server
@@ -67,11 +77,18 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 
 	registry := node.NewRegistry()
 	hub := event.NewHub()
+	index := overview.NewIndex()
 	gateway := agentgw.New(agentgw.Config{
 		EnrollmentToken:  cfg.EnrollmentToken,
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
 	}, st, registry, hub)
-	browserAPI := api.New(st, registry, hub, cfg.RequestTimeout)
+	notifier := push.NewNotifier(st, push.NewExpoSender(nil), func(nodeID string) string {
+		if info, ok := registry.Get(nodeID); ok && info.Name != "" {
+			return info.Name
+		}
+		return nodeID
+	}, push.WithSessionTitle(index.Title))
+	browserAPI := api.New(st, registry, hub, index, cfg.RequestTimeout)
 	ui := webui.Handler()
 
 	mux := http.NewServeMux()
@@ -85,6 +102,8 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 		store:    st,
 		registry: registry,
 		hub:      hub,
+		index:    index,
+		notifier: notifier,
 		handler:  newAuthHandler(mux, cfg.EnrollmentToken),
 	}, nil
 }
@@ -116,6 +135,9 @@ func (s *Server) Run(ctx context.Context) error {
 	s.mu.Lock()
 	s.httpServer = srv
 	s.mu.Unlock()
+
+	s.startMonitor(runCtx)
+	go s.notifier.Run(runCtx, s.hub)
 
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
 	if !config.IsLoopbackAddr(s.cfg.ListenAddr) {
@@ -176,9 +198,14 @@ func (s *Server) Close() error {
 	}
 	s.closed = true
 	srv := s.httpServer
+	cancelMonitor := s.monitorCancel
 	s.mu.Unlock()
 
 	var errs []error
+
+	if cancelMonitor != nil {
+		cancelMonitor()
+	}
 
 	s.registry.CloseAll()
 
@@ -192,6 +219,59 @@ func (s *Server) Close() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// eventSubscriber 是事件中心的订阅面；抽成接口让重新订阅路径可测。
+type eventSubscriber interface {
+	Subscribe(buffer int) (<-chan event.Event, func())
+}
+
+// startMonitor 把事件中心接到总览索引。
+func (s *Server) startMonitor(ctx context.Context) {
+	s.startMonitorWith(ctx, s.hub)
+}
+
+// startMonitorWith 订阅事件并持续投影到索引。
+//
+// Hub 遇到慢消费者会关闭通道而不是阻塞发布方，因此这里被关闭后必须重新
+// 订阅：否则一次跟不上就会让总览停在旧状态直到进程重启。
+func (s *Server) startMonitorWith(ctx context.Context, sub eventSubscriber) {
+	events, cancel := sub.Subscribe(monitorBuffer)
+	s.setMonitorCancel(cancel)
+
+	go func() {
+		for {
+			s.consumeIndex(ctx, events)
+			if ctx.Err() != nil {
+				return
+			}
+			logs.Warnf("controlplane: overview subscription lost, resubscribing")
+			events, cancel = sub.Subscribe(monitorBuffer)
+			s.setMonitorCancel(cancel)
+		}
+	}()
+}
+
+// consumeIndex 处理一个订阅通道，直到它被关闭或 ctx 取消。
+func (s *Server) consumeIndex(ctx context.Context, events <-chan event.Event) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			s.index.Apply(ev)
+		}
+	}
+}
+
+// setMonitorCancel 记录当前订阅的取消函数，供 Close 释放。
+func (s *Server) setMonitorCancel(cancel func()) {
+	s.mu.Lock()
+	s.monitorCancel = cancel
+	s.mu.Unlock()
 }
 
 // handleHealthz 返回固定的健康状态，用于启动探活与命令行自检。
