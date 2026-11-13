@@ -88,6 +88,7 @@
 | [opencode/17-V1到V2迁移.md](opencode/17-V1到V2迁移.md) | 破坏性变更与迁移对照 |
 | [opencode/18-Console与Go.md](opencode/18-Console与Go.md) | Console、workspace、Go 订阅与 harness |
 | [opencode/19-控制面能力对齐清单.md](opencode/19-控制面能力对齐清单.md) | 控制面 vs OpenCode 能力逐项对照与缺口优先级 |
+| [opencode/20-控制面开发优先级与计划.md](opencode/20-控制面开发优先级与计划.md) | 控制面能力优先级排序、模块拆分与开发计划 |
 | [opencode/附录A-配置字段速查.md](opencode/附录A-配置字段速查.md) | 49 个顶层配置字段与实验项 |
 | [opencode/附录B-事件与权限动作速查.md](opencode/附录B-事件与权限动作速查.md) | 96 个业务事件、权限 action 与策略 |
 
