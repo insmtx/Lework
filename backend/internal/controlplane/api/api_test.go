@@ -405,6 +405,45 @@ func TestAPICreateSession(t *testing.T) {
 	})
 }
 
+func TestAPIRenameSession(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `null`)
+	httpRec := env.do(http.MethodPatch, "/api/sessions/"+rec.ID+"/ses_1", `{"title":"renamed"}`)
+	requireStatus(t, httpRec, http.StatusOK)
+
+	frame := waitFrame(t, got)
+	if frame.Method != "session.rename" {
+		t.Fatalf("method = %q, want session.rename", frame.Method)
+	}
+	params := decodeParams(t, frame)
+	if params["session_id"] != "ses_1" || params["title"] != "renamed" {
+		t.Fatalf("params = %v, want session_id ses_1 title renamed", params)
+	}
+
+	httpRec = env.do(http.MethodPatch, "/api/sessions/"+rec.ID+"/ses_1", `{"title":"  "}`)
+	requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPIDeleteSession(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `null`)
+	httpRec := env.do(http.MethodDelete, "/api/sessions/"+rec.ID+"/ses_1", "")
+	requireStatus(t, httpRec, http.StatusOK)
+
+	frame := waitFrame(t, got)
+	if frame.Method != "session.delete" {
+		t.Fatalf("method = %q, want session.delete", frame.Method)
+	}
+	params := decodeParams(t, frame)
+	if params["session_id"] != "ses_1" {
+		t.Fatalf("params = %v, want session_id ses_1", params)
+	}
+}
+
 func TestAPISessionMessages(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	rec, agent, conn := env.addNode("dev-box")

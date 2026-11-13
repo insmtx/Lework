@@ -3,8 +3,20 @@
 import { Button } from "@lework/ui/components/ui/button";
 import { Input } from "@lework/ui/components/ui/input";
 import { cn } from "@lework/ui/lib/utils";
-import { FolderGit2, Loader2, Plus, RefreshCw, Server, TerminalSquare } from "lucide-react";
-import { useState } from "react";
+import {
+	Check,
+	FolderGit2,
+	Loader2,
+	Pencil,
+	Plus,
+	RefreshCw,
+	Search,
+	Server,
+	TerminalSquare,
+	Trash2,
+	X,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import type { NodeView, Session } from "../lib/types";
 
 interface NodeSidebarProps {
@@ -17,6 +29,10 @@ interface NodeSidebarProps {
 	onCreateSession: (directory: string) => Promise<void>;
 	onRefresh: () => void;
 	loadingSessions: boolean;
+	sessionDirectory: string;
+	onFilterSessions: (directory: string) => void;
+	onRenameSession: (sessionID: string, title: string) => Promise<void>;
+	onDeleteSession: (sessionID: string) => Promise<void>;
 }
 
 function shortTime(value?: string): string {
@@ -45,11 +61,68 @@ export function NodeSidebar({
 	onCreateSession,
 	onRefresh,
 	loadingSessions,
+	sessionDirectory,
+	onFilterSessions,
+	onRenameSession,
+	onDeleteSession,
 }: NodeSidebarProps) {
 	const [directory, setDirectory] = useState("");
 	const [creating, setCreating] = useState(false);
 	const [createError, setCreateError] = useState<string | null>(null);
+	const [filterDraft, setFilterDraft] = useState(sessionDirectory);
+	const [renamingID, setRenamingID] = useState<string | null>(null);
+	const [renameDraft, setRenameDraft] = useState("");
+	const [renaming, setRenaming] = useState(false);
+	const [confirmDeleteID, setConfirmDeleteID] = useState<string | null>(null);
+	const [deletingID, setDeletingID] = useState<string | null>(null);
+	const [actionError, setActionError] = useState<string | null>(null);
 	const selectedNode = nodes.find((node) => node.id === selectedNodeID);
+
+	useEffect(() => {
+		setFilterDraft(sessionDirectory);
+	}, [sessionDirectory]);
+
+	const submitFilter = (event: React.FormEvent) => {
+		event.preventDefault();
+		onFilterSessions(filterDraft.trim());
+	};
+
+	const startRename = (session: Session) => {
+		setRenamingID(session.id);
+		setRenameDraft(sessionTitle(session));
+		setConfirmDeleteID(null);
+		setActionError(null);
+	};
+
+	const submitRename = async (event: React.FormEvent) => {
+		event.preventDefault();
+		const value = renameDraft.trim();
+		if (!renamingID || !value || renaming) return;
+		setRenaming(true);
+		setActionError(null);
+		try {
+			await onRenameSession(renamingID, value);
+			setRenamingID(null);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : "Unable to rename session");
+		} finally {
+			setRenaming(false);
+		}
+	};
+
+	const removeSession = async (sessionID: string) => {
+		if (deletingID !== null) return;
+		setDeletingID(sessionID);
+		setActionError(null);
+		try {
+			await onDeleteSession(sessionID);
+			setConfirmDeleteID(null);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : "Unable to delete session");
+		} finally {
+			setDeletingID(null);
+		}
+	};
 
 	const submit = async (event: React.FormEvent) => {
 		event.preventDefault();
@@ -141,6 +214,41 @@ export function NodeSidebar({
 					</Button>
 				</div>
 
+				{selectedNode ? (
+					<form onSubmit={submitFilter} className="flex gap-1.5 px-3 pb-2">
+						<Input
+							value={filterDraft}
+							onChange={(event) => setFilterDraft(event.target.value)}
+							placeholder="Filter by directory"
+							className="h-7 font-mono text-[11px]"
+							aria-label="Filter sessions by directory"
+						/>
+						{sessionDirectory ? (
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								aria-label="Clear session filter"
+								onClick={() => {
+									setFilterDraft("");
+									onFilterSessions("");
+								}}
+							>
+								<X className="size-3.5" />
+							</Button>
+						) : null}
+						<Button
+							type="submit"
+							size="icon-xs"
+							variant="ghost"
+							aria-label="Apply session filter"
+							disabled={filterDraft.trim() === sessionDirectory}
+						>
+							<Search className="size-3.5" />
+						</Button>
+					</form>
+				) : null}
+
 				<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 					{!selectedNode ? (
 						<p className="px-2 text-xs text-muted-foreground">Select a node to list sessions.</p>
@@ -155,33 +263,126 @@ export function NodeSidebar({
 					) : (
 						<div className="space-y-1">
 							{sessions.map((session) => (
-								<button
-									type="button"
+								<div
 									key={session.id}
-									onClick={() => onSelectSession(session.id)}
 									className={cn(
-										"flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted",
+										"rounded-lg transition-colors",
 										session.id === selectedSessionID &&
 											"bg-background shadow-sm ring-1 ring-border",
 									)}
 								>
-									<FolderGit2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-									<span className="min-w-0 flex-1">
-										<span className="block truncate text-sm font-medium">
-											{sessionTitle(session)}
-										</span>
-										<span className="block truncate font-mono text-[10px] text-muted-foreground">
-											{session.directory || "default directory"}
-										</span>
-										<span className="mt-0.5 block text-[10px] text-muted-foreground">
-											{shortTime(session.updatedAt)}
-										</span>
-									</span>
-								</button>
+									{renamingID === session.id ? (
+										<form onSubmit={submitRename} className="flex items-center gap-1 p-1.5">
+											<Input
+												autoFocus
+												value={renameDraft}
+												onChange={(event) => setRenameDraft(event.target.value)}
+												onKeyDown={(event) => {
+													if (event.key === "Escape") setRenamingID(null);
+												}}
+												className="h-7 font-mono text-xs"
+												aria-label="Session title"
+											/>
+											<Button
+												type="submit"
+												size="icon-xs"
+												disabled={renaming || !renameDraft.trim()}
+												aria-label="Save session title"
+											>
+												{renaming ? (
+													<Loader2 className="size-3.5 animate-spin" />
+												) : (
+													<Check className="size-3.5" />
+												)}
+											</Button>
+											<Button
+												type="button"
+												size="icon-xs"
+												variant="ghost"
+												onClick={() => setRenamingID(null)}
+												aria-label="Cancel rename"
+											>
+												<X className="size-3.5" />
+											</Button>
+										</form>
+									) : (
+										<div className="flex items-start gap-1 px-1 py-1">
+											<button
+												type="button"
+												onClick={() => onSelectSession(session.id)}
+												className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-muted"
+											>
+												<FolderGit2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+												<span className="min-w-0 flex-1">
+													<span className="block truncate text-sm font-medium">
+														{sessionTitle(session)}
+													</span>
+													<span className="block truncate font-mono text-[10px] text-muted-foreground">
+														{session.directory || "default directory"}
+													</span>
+													<span className="mt-0.5 block text-[10px] text-muted-foreground">
+														{shortTime(session.updatedAt)}
+													</span>
+												</span>
+											</button>
+											<div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+												<Button
+													size="icon-xs"
+													variant="ghost"
+													onClick={() => startRename(session)}
+													aria-label="Rename session"
+												>
+													<Pencil className="size-3.5" />
+												</Button>
+												{confirmDeleteID === session.id ? (
+													<>
+														<Button
+															size="icon-xs"
+															variant="destructive"
+															onClick={() => void removeSession(session.id)}
+															disabled={deletingID !== null}
+															aria-label="Confirm delete session"
+														>
+															{deletingID === session.id ? (
+																<Loader2 className="size-3.5 animate-spin" />
+															) : (
+																<Check className="size-3.5" />
+															)}
+														</Button>
+														<Button
+															size="icon-xs"
+															variant="ghost"
+															onClick={() => setConfirmDeleteID(null)}
+															aria-label="Cancel delete"
+														>
+															<X className="size-3.5" />
+														</Button>
+													</>
+												) : (
+													<Button
+														size="icon-xs"
+														variant="ghost"
+														onClick={() => {
+															setConfirmDeleteID(session.id);
+															setRenamingID(null);
+														}}
+														aria-label="Delete session"
+													>
+														<Trash2 className="size-3.5" />
+													</Button>
+												)}
+											</div>
+										</div>
+									)}
+								</div>
 							))}
 						</div>
 					)}
 				</div>
+
+				{actionError ? (
+					<p className="border-t px-3 py-1.5 text-[11px] text-destructive">{actionError}</p>
+				) : null}
 
 				<form onSubmit={submit} className="border-t p-3">
 					<label

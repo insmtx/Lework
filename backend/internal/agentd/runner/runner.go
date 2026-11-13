@@ -183,6 +183,8 @@ func (r *Runner) sendHello(ctx context.Context) error {
 			"opencode.stop",
 			"session.list",
 			"session.create",
+			"session.rename",
+			"session.delete",
 			"session.prompt",
 			"session.messages",
 			"session.diff",

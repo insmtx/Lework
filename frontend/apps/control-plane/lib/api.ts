@@ -67,6 +67,20 @@ export function createSession(node: string, directory: string): Promise<Session>
 	});
 }
 
+export function renameSession(node: string, session: string, title: string): Promise<unknown> {
+	return request<unknown>(
+		`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}`,
+		{ method: "PATCH", body: JSON.stringify({ title }) },
+	);
+}
+
+export function deleteSession(node: string, session: string): Promise<unknown> {
+	return request<unknown>(
+		`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}`,
+		{ method: "DELETE" },
+	);
+}
+
 export function listMessages(node: string, session: string): Promise<Message[]> {
 	return request<Message[]>(
 		`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/messages`,

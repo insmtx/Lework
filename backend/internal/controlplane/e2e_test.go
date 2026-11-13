@@ -239,9 +239,15 @@ func newCountingOpenCode() *countingOpenCode {
 }
 
 // ListSessions 返回空会话列表。
-func (c *countingOpenCode) ListSessions(context.Context) ([]opencode.Session, error) {
+func (c *countingOpenCode) ListSessions(context.Context, string) ([]opencode.Session, error) {
 	return []opencode.Session{}, nil
 }
+
+// RenameSession 是空实现：本测试不改会话标题。
+func (c *countingOpenCode) RenameSession(context.Context, string, string) error { return nil }
+
+// DeleteSession 是空实现：本测试不删除会话。
+func (c *countingOpenCode) DeleteSession(context.Context, string) error { return nil }
 
 // CreateSession 返回固定会话；目录沿用调用方请求，便于校验透传。
 func (c *countingOpenCode) CreateSession(_ context.Context, directory string) (opencode.Session, error) {

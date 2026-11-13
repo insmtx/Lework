@@ -28,12 +28,20 @@ type fakeOpenCode struct {
 	promptReceipt   string
 	promptErr       error
 
-	listCalls int
-	sessions  []opencode.Session
+	listCalls     int
+	listDirectory string
+	sessions      []opencode.Session
 
 	createdDirectory string
 	createCalls      int
 	createSession    opencode.Session
+
+	renameCalls     int
+	renameSessionID string
+	renameTitle     string
+
+	deleteCalls     int
+	deleteSessionID string
 
 	messagesCalls     int
 	messagesSessionID string
@@ -86,8 +94,9 @@ type fakeOpenCode struct {
 	closeTerminalID     string
 }
 
-func (f *fakeOpenCode) ListSessions(context.Context) ([]opencode.Session, error) {
+func (f *fakeOpenCode) ListSessions(_ context.Context, directory string) ([]opencode.Session, error) {
 	f.listCalls++
+	f.listDirectory = directory
 	return f.sessions, nil
 }
 
@@ -95,6 +104,19 @@ func (f *fakeOpenCode) CreateSession(_ context.Context, directory string) (openc
 	f.createCalls++
 	f.createdDirectory = directory
 	return f.createSession, nil
+}
+
+func (f *fakeOpenCode) RenameSession(_ context.Context, sessionID, title string) error {
+	f.renameCalls++
+	f.renameSessionID = sessionID
+	f.renameTitle = title
+	return nil
+}
+
+func (f *fakeOpenCode) DeleteSession(_ context.Context, sessionID string) error {
+	f.deleteCalls++
+	f.deleteSessionID = sessionID
+	return nil
 }
 
 func (f *fakeOpenCode) Prompt(_ context.Context, sessionID, text string) (string, error) {
@@ -552,8 +574,51 @@ func TestSessionListPassesThrough(t *testing.T) {
 	if oc.listCalls != 1 {
 		t.Fatalf("list calls = %d, want 1", oc.listCalls)
 	}
+	if oc.listDirectory != "/work/project" {
+		t.Fatalf("directory = %q, want /work/project", oc.listDirectory)
+	}
 	if len(sessions) != 1 || sessions[0].ID != "ses_1" {
 		t.Fatalf("sessions = %#v, want one ses_1", sessions)
+	}
+}
+
+func TestSessionRenamePassesTitle(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	if _, err := h.Handle(
+		context.Background(),
+		"session.rename",
+		json.RawMessage(`{"session_id":"ses_1","title":"  new title  "}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if oc.renameCalls != 1 || oc.renameSessionID != "ses_1" || oc.renameTitle != "new title" {
+		t.Fatalf("rename args = %#v", oc)
+	}
+
+	if _, err := h.Handle(
+		context.Background(),
+		"session.rename",
+		json.RawMessage(`{"session_id":"ses_1","title":"   "}`),
+	); err == nil {
+		t.Fatal("expected empty title to be rejected")
+	}
+}
+
+func TestSessionDeletePassesSessionID(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	if _, err := h.Handle(
+		context.Background(),
+		"session.delete",
+		json.RawMessage(`{"session_id":"ses_1"}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if oc.deleteCalls != 1 || oc.deleteSessionID != "ses_1" {
+		t.Fatalf("delete args = %#v", oc)
 	}
 }
 

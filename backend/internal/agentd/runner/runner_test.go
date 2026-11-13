@@ -80,11 +80,17 @@ func (f *fakeEvents) SubscribeEvents(context.Context) (<-chan opencode.Event, er
 // is exercised by the runner tests, so the methods stay inert.
 type stubOpenCode struct{}
 
-func (stubOpenCode) ListSessions(context.Context) ([]opencode.Session, error) { return nil, nil }
+func (stubOpenCode) ListSessions(context.Context, string) ([]opencode.Session, error) {
+	return nil, nil
+}
 
 func (stubOpenCode) CreateSession(context.Context, string) (opencode.Session, error) {
 	return opencode.Session{}, nil
 }
+
+func (stubOpenCode) RenameSession(context.Context, string, string) error { return nil }
+
+func (stubOpenCode) DeleteSession(context.Context, string) error { return nil }
 
 func (stubOpenCode) Prompt(context.Context, string, string) (string, error) { return "", nil }
 
