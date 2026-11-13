@@ -9,6 +9,12 @@ export interface NodeView {
 	last_seen: string;
 }
 
+export interface NodeHealth {
+	running: boolean;
+	mode: string;
+	base_url: string;
+}
+
 export interface Session {
 	id: string;
 	directory?: string;

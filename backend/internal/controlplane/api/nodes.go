@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -60,6 +61,45 @@ func (a *API) handleNodeHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := a.callAgent(r.Context(), r.PathValue("id"), "opencode.status", nil)
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+func (a *API) handleOpenCodeStart(w http.ResponseWriter, r *http.Request) {
+	a.handleOpenCodeLifecycle(w, r, "opencode.start")
+}
+
+func (a *API) handleOpenCodeRestart(w http.ResponseWriter, r *http.Request) {
+	a.handleOpenCodeLifecycle(w, r, "opencode.restart")
+}
+
+func (a *API) handleOpenCodeStop(w http.ResponseWriter, r *http.Request) {
+	a.handleOpenCodeLifecycle(w, r, "opencode.stop")
+}
+
+// handleOpenCodeLifecycle 转发进程启停；旧 agent 不上报 capabilities 时按
+// 支持处理，调用失败再让浏览器提示升级，避免按钮被永久隐藏。
+func (a *API) handleOpenCodeLifecycle(w http.ResponseWriter, r *http.Request, method string) {
+	nodeID := r.PathValue("id")
+	view, ok, err := a.findNode(r.Context(), nodeID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return
+	}
+	if len(view.Capabilities) > 0 && !slices.Contains(view.Capabilities, method) {
+		writeAPIError(w, http.StatusConflict, "capability_unavailable",
+			"node agent does not support "+method)
+		return
+	}
+
+	result, err := a.callAgent(r.Context(), nodeID, method, nil)
 	if err != nil {
 		a.writeAgentError(w, err)
 		return

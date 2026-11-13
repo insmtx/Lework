@@ -6,6 +6,7 @@ import { SessionPanel } from "../components/session-panel";
 import {
 	createSession,
 	deleteSession,
+	getNodeHealth,
 	interruptSession,
 	listMessages,
 	listNodes,
@@ -13,10 +14,22 @@ import {
 	listSessions,
 	renameSession,
 	replyPermission,
+	restartOpenCode,
 	sendPrompt,
+	startOpenCode,
+	stopOpenCode,
 } from "../lib/api";
-import type { ControlEvent, Message, NodeView, PermissionRequest, Session } from "../lib/types";
+import type {
+	ControlEvent,
+	Message,
+	NodeHealth,
+	NodeView,
+	PermissionRequest,
+	Session,
+} from "../lib/types";
 import { useControlEvents } from "../lib/use-control-events";
+
+type LifecycleAction = "start" | "restart" | "stop";
 
 function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
@@ -57,6 +70,10 @@ export default function ControlPlanePage() {
 	const [sending, setSending] = useState(false);
 	const [interrupting, setInterrupting] = useState(false);
 
+	const [nodeHealth, setNodeHealth] = useState<NodeHealth | null>(null);
+	const [nodeHealthError, setNodeHealthError] = useState<string | null>(null);
+	const [lifecycleBusy, setLifecycleBusy] = useState<LifecycleAction | null>(null);
+
 	const selectedNode = useMemo(
 		() => nodes.find((node) => node.id === selectedNodeID) ?? null,
 		[nodes, selectedNodeID],
@@ -93,6 +110,32 @@ export default function ControlPlanePage() {
 		const timer = setInterval(() => void refreshNodes(), 15_000);
 		return () => clearInterval(timer);
 	}, [refreshNodes]);
+
+	const refreshHealth = useCallback(async () => {
+		if (!selectedNodeID) {
+			setNodeHealth(null);
+			setNodeHealthError(null);
+			return;
+		}
+		try {
+			const health = await getNodeHealth(selectedNodeID);
+			setNodeHealth(health);
+			setNodeHealthError(null);
+		} catch (error) {
+			setNodeHealth(null);
+			setNodeHealthError(errorMessage(error, "Unable to load OpenCode status"));
+		}
+	}, [selectedNodeID]);
+
+	useEffect(() => {
+		void refreshHealth();
+	}, [refreshHealth]);
+
+	useEffect(() => {
+		if (!selectedNodeID) return;
+		const timer = setInterval(() => void refreshHealth(), 15_000);
+		return () => clearInterval(timer);
+	}, [selectedNodeID, refreshHealth]);
 
 	// The token is an intentional trigger; the effect body reads the latest IDs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionsRefresh forces a refetch
@@ -304,6 +347,23 @@ export default function ControlPlanePage() {
 		setMessagesRefresh((value) => value + 1);
 	};
 
+	const runLifecycle = async (action: LifecycleAction) => {
+		if (!selectedNodeID) return;
+		setLifecycleBusy(action);
+		setNodeHealthError(null);
+		try {
+			const call =
+				action === "start" ? startOpenCode : action === "restart" ? restartOpenCode : stopOpenCode;
+			await call(selectedNodeID);
+		} catch (error) {
+			setNodeHealthError(errorMessage(error, `Unable to ${action} OpenCode`));
+		} finally {
+			setLifecycleBusy(null);
+			await refreshHealth();
+			setSessionsRefresh((value) => value + 1);
+		}
+	};
+
 	const refresh = () => {
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
@@ -328,6 +388,12 @@ export default function ControlPlanePage() {
 				onFilterSessions={setSessionDirectory}
 				onRenameSession={rename}
 				onDeleteSession={remove}
+				nodeHealth={nodeHealth}
+				nodeHealthError={nodeHealthError}
+				lifecycleBusy={lifecycleBusy}
+				onStartOpenCode={() => runLifecycle("start")}
+				onRestartOpenCode={() => runLifecycle("restart")}
+				onStopOpenCode={() => runLifecycle("stop")}
 			/>
 			<main className="flex min-w-0 flex-1 flex-col">
 				{nodesLoading ? (

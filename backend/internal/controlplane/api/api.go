@@ -58,6 +58,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/nodes", a.handleListNodes)
 	mux.HandleFunc("GET /api/nodes/{id}", a.handleGetNode)
 	mux.HandleFunc("GET /api/nodes/{id}/health", a.handleNodeHealth)
+	mux.HandleFunc("POST /api/nodes/{id}/opencode/start", a.handleOpenCodeStart)
+	mux.HandleFunc("POST /api/nodes/{id}/opencode/restart", a.handleOpenCodeRestart)
+	mux.HandleFunc("POST /api/nodes/{id}/opencode/stop", a.handleOpenCodeStop)
 	mux.HandleFunc("GET /api/nodes/{id}/files", a.handleFileList)
 	mux.HandleFunc("GET /api/nodes/{id}/files/content", a.handleFileContent)
 
