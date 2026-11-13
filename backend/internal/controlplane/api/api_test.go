@@ -72,7 +72,7 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 // addNode 写入持久化节点记录并注册一条活跃连接。
 func (e *testEnv) addNode(name string) (store.Node, *fakeAgent, *node.Connection) {
 	e.t.Helper()
-	return e.addNodeWithCapabilities(name, []string{"session.list", "session.create"})
+	return e.addNodeWithCapabilities(name, []string{"session.list", "session.create", "project.list"})
 }
 
 // addNodeWithCapabilities 让测试显式声明 agent 上报的能力集合。
