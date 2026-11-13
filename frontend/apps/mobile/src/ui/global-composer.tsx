@@ -7,6 +7,8 @@ export interface ComposerTarget {
 	projectName: string;
 	nodeID: string | null;
 	nodeName?: string;
+	/** 会话页只知道节点，传 false 时 chip 只显示 projectName。 */
+	showNode?: boolean;
 }
 
 export interface GlobalComposerProps {
@@ -49,9 +51,11 @@ export function GlobalComposer(props: GlobalComposerProps) {
 					>
 						<Text style={styles.chipText} numberOfLines={1}>
 							{props.target.projectName}
-							{props.target.nodeID
-								? ` · ${props.target.nodeName ?? props.target.nodeID}`
-								: " · 节点离线"}
+							{props.target.showNode === false
+								? ""
+								: props.target.nodeID
+									? ` · ${props.target.nodeName ?? props.target.nodeID}`
+									: " · 节点离线"}
 							{props.onPickTarget ? "  ▾" : ""}
 						</Text>
 					</Pressable>
