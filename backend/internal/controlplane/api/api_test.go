@@ -72,13 +72,19 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 // addNode 写入持久化节点记录并注册一条活跃连接。
 func (e *testEnv) addNode(name string) (store.Node, *fakeAgent, *node.Connection) {
 	e.t.Helper()
+	return e.addNodeWithCapabilities(name, []string{"session.list", "session.create"})
+}
+
+// addNodeWithCapabilities 让测试显式声明 agent 上报的能力集合。
+func (e *testEnv) addNodeWithCapabilities(name string, capabilities []string) (store.Node, *fakeAgent, *node.Connection) {
+	e.t.Helper()
 
 	rec, err := e.store.UpsertNode(context.Background(), store.Node{
 		Name:         name,
 		OS:           "linux",
 		Arch:         "amd64",
 		AgentVersion: "0.1.0",
-		Capabilities: []string{"session.list", "session.create"},
+		Capabilities: capabilities,
 		LastSeen:     time.Now(),
 	})
 	if err != nil {
@@ -408,14 +414,53 @@ func TestAPICreateSession(t *testing.T) {
 	})
 }
 
+func TestAPIRenameSession(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `null`)
+	httpRec := env.do(http.MethodPatch, "/api/sessions/"+rec.ID+"/ses_1", `{"title":"renamed"}`)
+	requireStatus(t, httpRec, http.StatusOK)
+
+	frame := waitFrame(t, got)
+	if frame.Method != "session.rename" {
+		t.Fatalf("method = %q, want session.rename", frame.Method)
+	}
+	params := decodeParams(t, frame)
+	if params["session_id"] != "ses_1" || params["title"] != "renamed" {
+		t.Fatalf("params = %v, want session_id ses_1 title renamed", params)
+	}
+
+	httpRec = env.do(http.MethodPatch, "/api/sessions/"+rec.ID+"/ses_1", `{"title":"  "}`)
+	requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPIDeleteSession(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `null`)
+	httpRec := env.do(http.MethodDelete, "/api/sessions/"+rec.ID+"/ses_1", "")
+	requireStatus(t, httpRec, http.StatusOK)
+
+	frame := waitFrame(t, got)
+	if frame.Method != "session.delete" {
+		t.Fatalf("method = %q, want session.delete", frame.Method)
+	}
+	params := decodeParams(t, frame)
+	if params["session_id"] != "ses_1" {
+		t.Fatalf("params = %v, want session_id ses_1", params)
+	}
+}
+
 func TestAPISessionMessages(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	rec, agent, conn := env.addNode("dev-box")
 
-	got := replyOK(t, agent, conn, `[{"role":"user"}]`)
-	httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/messages", "")
+	got := replyOK(t, agent, conn, `{"messages":[{"role":"user"}],"next":"older"}`)
+	httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/messages?limit=50&cursor=cursor-1", "")
 	requireStatus(t, httpRec, http.StatusOK)
-	if body := strings.TrimSpace(httpRec.Body.String()); body != `[{"role":"user"}]` {
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `{"messages":[{"role":"user"}],"next":"older"}` {
 		t.Fatalf("body = %q, want raw agent result", body)
 	}
 
@@ -423,10 +468,22 @@ func TestAPISessionMessages(t *testing.T) {
 	if frame.Method != "session.messages" {
 		t.Fatalf("method = %q, want session.messages", frame.Method)
 	}
-	params := decodeParams(t, frame)
-	if params["session_id"] != "ses_1" {
-		t.Fatalf("params = %v, want session_id ses_1", params)
+	params := decodeParamsInto[struct {
+		SessionID string `json:"session_id"`
+		Limit     int    `json:"limit"`
+		Cursor    string `json:"cursor"`
+	}](t, frame)
+	if params.SessionID != "ses_1" {
+		t.Fatalf("params = %+v, want session_id ses_1", params)
 	}
+	if params.Limit != 50 || params.Cursor != "cursor-1" {
+		t.Fatalf("params = %+v, want limit 50 cursor cursor-1", params)
+	}
+
+	t.Run("invalid limit", func(t *testing.T) {
+		httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/messages?limit=abc", "")
+		requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+	})
 }
 
 func TestAPISessionPrompt(t *testing.T) {
@@ -492,6 +549,72 @@ func TestAPIPermissionReply(t *testing.T) {
 	if params["decision"] != "once" || params["message"] != "ok" {
 		t.Fatalf("params = %v, want decision once message ok", params)
 	}
+}
+
+func TestAPIListPermissions(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `[{"id":"per_1","sessionID":"ses_1"}]`)
+	httpRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/permissions", "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `[{"id":"per_1","sessionID":"ses_1"}]` {
+		t.Fatalf("body = %q, want raw agent result", body)
+	}
+
+	frame := waitFrame(t, got)
+	if frame.Method != "permission.list" {
+		t.Fatalf("method = %q, want permission.list", frame.Method)
+	}
+	params := decodeParams(t, frame)
+	if params["session_id"] != "ses_1" {
+		t.Fatalf("params = %v, want session_id ses_1", params)
+	}
+}
+
+func TestAPIPermissionReplyRejectsUnknownDecision(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, _, _ := env.addNode("dev-box")
+
+	httpRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/permissions/perm_1/reply",
+		`{"decision":"maybe"}`)
+	requireErrorCode(t, httpRec, http.StatusBadRequest, "invalid_request")
+}
+
+func TestAPIOpenCodeLifecycle(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNodeWithCapabilities("dev-box", []string{
+		"opencode.start", "opencode.restart", "opencode.stop",
+	})
+
+	for _, tc := range []struct {
+		path   string
+		method string
+		result string
+	}{
+		{"/opencode/start", "opencode.start", `{"Running":true,"Mode":"managed","BaseURL":"http://127.0.0.1:4096"}`},
+		{"/opencode/restart", "opencode.restart", `null`},
+		{"/opencode/stop", "opencode.stop", `null`},
+	} {
+		got := replyOK(t, agent, conn, tc.result)
+		httpRec := env.do(http.MethodPost, "/api/nodes/"+rec.ID+tc.path, "")
+		requireStatus(t, httpRec, http.StatusOK)
+		if body := strings.TrimSpace(httpRec.Body.String()); body != tc.result {
+			t.Fatalf("%s body = %q, want %q", tc.path, body, tc.result)
+		}
+		frame := waitFrame(t, got)
+		if frame.Method != tc.method {
+			t.Fatalf("method = %q, want %s", frame.Method, tc.method)
+		}
+	}
+}
+
+func TestAPIOpenCodeLifecycleRejectsUnsupportedCapability(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, _, _ := env.addNodeWithCapabilities("dev-box", []string{"session.list"})
+
+	httpRec := env.do(http.MethodPost, "/api/nodes/"+rec.ID+"/opencode/restart", "")
+	requireErrorCode(t, httpRec, http.StatusConflict, "capability_unavailable")
 }
 
 func TestAPIErrorMapping(t *testing.T) {

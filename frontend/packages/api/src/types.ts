@@ -9,6 +9,12 @@ export interface NodeView {
 	last_seen: string;
 }
 
+export interface NodeHealth {
+	running: boolean;
+	mode: string;
+	base_url?: string;
+}
+
 export interface Session {
 	id: string;
 	directory?: string;
@@ -42,6 +48,13 @@ export interface Message {
 
 export interface InterruptResult {
 	interrupted: boolean;
+}
+
+/** MessagePage 是一页按时间正序排列的消息；next 指向更早的一页。 */
+export interface MessagePage {
+	messages: Message[];
+	previous?: string;
+	next?: string;
 }
 
 export interface FileDiff {

@@ -28,22 +28,37 @@ type fakeOpenCode struct {
 	promptReceipt   string
 	promptErr       error
 
-	listCalls int
-	sessions  []opencode.Session
+	listCalls     int
+	listDirectory string
+	sessions      []opencode.Session
 
 	createdDirectory string
 	createCalls      int
 	createSession    opencode.Session
 
+	renameCalls     int
+	renameSessionID string
+	renameTitle     string
+
+	deleteCalls     int
+	deleteSessionID string
+
 	messagesCalls     int
 	messagesSessionID string
+	messagesLimit     int
+	messagesCursor    string
 	messages          []opencode.Message
+	messagesPage      opencode.MessagePage
 
 	replyCalls        int
 	replySessionID    string
 	replyPermissionID string
 	replyDecision     string
 	replyMessage      string
+
+	permissionsCalls int
+	permissions      []opencode.PermissionRequest
+	permissionsErr   error
 
 	diffCalls     int
 	diffSessionID string
@@ -86,8 +101,9 @@ type fakeOpenCode struct {
 	closeTerminalID     string
 }
 
-func (f *fakeOpenCode) ListSessions(context.Context) ([]opencode.Session, error) {
+func (f *fakeOpenCode) ListSessions(_ context.Context, directory string) ([]opencode.Session, error) {
 	f.listCalls++
+	f.listDirectory = directory
 	return f.sessions, nil
 }
 
@@ -95,6 +111,19 @@ func (f *fakeOpenCode) CreateSession(_ context.Context, directory string) (openc
 	f.createCalls++
 	f.createdDirectory = directory
 	return f.createSession, nil
+}
+
+func (f *fakeOpenCode) RenameSession(_ context.Context, sessionID, title string) error {
+	f.renameCalls++
+	f.renameSessionID = sessionID
+	f.renameTitle = title
+	return nil
+}
+
+func (f *fakeOpenCode) DeleteSession(_ context.Context, sessionID string) error {
+	f.deleteCalls++
+	f.deleteSessionID = sessionID
+	return nil
 }
 
 func (f *fakeOpenCode) Prompt(_ context.Context, sessionID, text string) (string, error) {
@@ -110,10 +139,15 @@ func (f *fakeOpenCode) Prompt(_ context.Context, sessionID, text string) (string
 	return "receipt-1", nil
 }
 
-func (f *fakeOpenCode) Messages(_ context.Context, sessionID string) ([]opencode.Message, error) {
+func (f *fakeOpenCode) Messages(_ context.Context, sessionID string, limit int, cursor string) (opencode.MessagePage, error) {
 	f.messagesCalls++
 	f.messagesSessionID = sessionID
-	return f.messages, nil
+	f.messagesLimit = limit
+	f.messagesCursor = cursor
+	if len(f.messagesPage.Messages) > 0 || f.messagesPage.Next != "" {
+		return f.messagesPage, nil
+	}
+	return opencode.MessagePage{Messages: f.messages}, nil
 }
 
 func (f *fakeOpenCode) ReplyPermission(
@@ -126,6 +160,11 @@ func (f *fakeOpenCode) ReplyPermission(
 	f.replyDecision = decision
 	f.replyMessage = message
 	return nil
+}
+
+func (f *fakeOpenCode) ListPermissions(context.Context) ([]opencode.PermissionRequest, error) {
+	f.permissionsCalls++
+	return f.permissions, f.permissionsErr
 }
 
 func (f *fakeOpenCode) SessionDiff(_ context.Context, sessionID, from, to string, contextLines int) ([]opencode.FileDiff, error) {
@@ -552,8 +591,51 @@ func TestSessionListPassesThrough(t *testing.T) {
 	if oc.listCalls != 1 {
 		t.Fatalf("list calls = %d, want 1", oc.listCalls)
 	}
+	if oc.listDirectory != "/work/project" {
+		t.Fatalf("directory = %q, want /work/project", oc.listDirectory)
+	}
 	if len(sessions) != 1 || sessions[0].ID != "ses_1" {
 		t.Fatalf("sessions = %#v, want one ses_1", sessions)
+	}
+}
+
+func TestSessionRenamePassesTitle(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	if _, err := h.Handle(
+		context.Background(),
+		"session.rename",
+		json.RawMessage(`{"session_id":"ses_1","title":"  new title  "}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if oc.renameCalls != 1 || oc.renameSessionID != "ses_1" || oc.renameTitle != "new title" {
+		t.Fatalf("rename args = %#v", oc)
+	}
+
+	if _, err := h.Handle(
+		context.Background(),
+		"session.rename",
+		json.RawMessage(`{"session_id":"ses_1","title":"   "}`),
+	); err == nil {
+		t.Fatal("expected empty title to be rejected")
+	}
+}
+
+func TestSessionDeletePassesSessionID(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	if _, err := h.Handle(
+		context.Background(),
+		"session.delete",
+		json.RawMessage(`{"session_id":"ses_1"}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if oc.deleteCalls != 1 || oc.deleteSessionID != "ses_1" {
+		t.Fatalf("delete args = %#v", oc)
 	}
 }
 
@@ -643,7 +725,7 @@ func TestSessionMessagesPassesSessionID(t *testing.T) {
 	result, err := h.Handle(
 		context.Background(),
 		"session.messages",
-		json.RawMessage(`{"session_id":"ses_1"}`),
+		json.RawMessage(`{"session_id":"ses_1","limit":500,"cursor":"cursor-1"}`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -651,8 +733,29 @@ func TestSessionMessagesPassesSessionID(t *testing.T) {
 	if oc.messagesSessionID != "ses_1" {
 		t.Fatalf("session_id = %q, want ses_1", oc.messagesSessionID)
 	}
-	messages, ok := result.([]opencode.Message)
-	if !ok || len(messages) != 1 || messages[0].ID != "msg_1" {
+	if oc.messagesLimit != 200 {
+		t.Fatalf("limit = %d, want clamp to 200", oc.messagesLimit)
+	}
+	if oc.messagesCursor != "cursor-1" {
+		t.Fatalf("cursor = %q, want cursor-1", oc.messagesCursor)
+	}
+	page, ok := result.(opencode.MessagePage)
+	if !ok || len(page.Messages) != 1 || page.Messages[0].ID != "msg_1" {
+		t.Fatalf("result = %#v, want one msg_1", result)
+	}
+
+	result, err = h.Handle(
+		context.Background(),
+		"session.messages",
+		json.RawMessage(`{"session_id":"ses_1"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.messagesLimit != 200 {
+		t.Fatalf("default limit = %d, want 200", oc.messagesLimit)
+	}
+	if page, ok := result.(opencode.MessagePage); !ok || len(page.Messages) != 1 {
 		t.Fatalf("result = %#v, want one msg_1", result)
 	}
 }
@@ -675,6 +778,56 @@ func TestPermissionReplyPassesFields(t *testing.T) {
 	if oc.replySessionID != "ses_1" || oc.replyPermissionID != "per_1" ||
 		oc.replyDecision != "once" || oc.replyMessage != "ok" {
 		t.Fatalf("reply args = %#v", oc)
+	}
+}
+
+func TestPermissionListFiltersBySession(t *testing.T) {
+	oc := &fakeOpenCode{permissions: []opencode.PermissionRequest{
+		{ID: "per_1", SessionID: "ses_1", Action: "shell"},
+		{ID: "per_2", SessionID: "ses_2", Action: "edit"},
+	}}
+	h := New(oc, fakeSupervisor{})
+
+	result, err := h.Handle(
+		context.Background(),
+		"permission.list",
+		json.RawMessage(`{"session_id":"ses_1"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.permissionsCalls != 1 {
+		t.Fatalf("list calls = %d, want 1", oc.permissionsCalls)
+	}
+	got, ok := result.([]opencode.PermissionRequest)
+	if !ok || len(got) != 1 || got[0].ID != "per_1" {
+		t.Fatalf("result = %#v, want only per_1", result)
+	}
+
+	result, err = h.Handle(context.Background(), "permission.list", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, ok := result.([]opencode.PermissionRequest)
+	if !ok || len(all) != 2 {
+		t.Fatalf("result = %#v, want both permissions", result)
+	}
+}
+
+func TestPermissionReplyRejectsUnknownDecision(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	_, err := h.Handle(
+		context.Background(),
+		"permission.reply",
+		json.RawMessage(`{"session_id":"ses_1","permission_id":"per_1","decision":"maybe"}`),
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if oc.replyCalls != 0 {
+		t.Fatalf("reply calls = %d, want 0", oc.replyCalls)
 	}
 }
 

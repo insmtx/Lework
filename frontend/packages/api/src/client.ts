@@ -6,9 +6,12 @@ import type {
 	FileReadResult,
 	InterruptResult,
 	Message,
+	MessagePage,
+	NodeHealth,
 	NodeView,
 	OverviewNode,
 	PendingPermission,
+	PermissionRequest,
 	PersistentTerminal,
 	Session,
 } from "./types";
@@ -39,9 +42,20 @@ export class ApiError extends Error {
 
 export interface ApiClient {
 	listNodes(): Promise<NodeView[]>;
+	getNodeHealth(node: string): Promise<NodeHealth>;
+	startOpenCode(node: string): Promise<unknown>;
+	restartOpenCode(node: string): Promise<unknown>;
+	stopOpenCode(node: string): Promise<unknown>;
 	listSessions(node: string, directory?: string): Promise<Session[]>;
 	createSession(node: string, directory: string): Promise<Session>;
-	listMessages(node: string, session: string): Promise<Message[]>;
+	renameSession(node: string, session: string, title: string): Promise<unknown>;
+	deleteSession(node: string, session: string): Promise<unknown>;
+	listMessages(
+		node: string,
+		session: string,
+		cursor?: string,
+		limit?: number,
+	): Promise<MessagePage>;
 	sendPrompt(node: string, session: string, text: string, idempotencyKey: string): Promise<string>;
 	interruptSession(node: string, session: string): Promise<InterruptResult>;
 	replyPermission(
@@ -51,6 +65,7 @@ export interface ApiClient {
 		decision: "once" | "always" | "reject",
 		message?: string,
 	): Promise<unknown>;
+	listPermissions(node: string, session: string): Promise<PermissionRequest[]>;
 	sessionDiff(node: string, session: string, directory: string): Promise<FileDiff[]>;
 	listFiles(node: string, directory: string, path: string): Promise<FileInfo[]>;
 	readFile(node: string, directory: string, path: string): Promise<FileReadResult>;
@@ -109,6 +124,29 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 	return {
 		listNodes: () => request<NodeView[]>("/api/nodes"),
 
+		getNodeHealth: async (node) => {
+			// 节点返回 Go 结构体的导出字段名，这里统一转成前端的小写形状。
+			const raw = await request<{ Running: boolean; Mode: string; BaseURL?: string }>(
+				`/api/nodes/${encodeURIComponent(node)}/health`,
+			);
+			return { running: raw.Running, mode: raw.Mode, base_url: raw.BaseURL ?? "" };
+		},
+
+		startOpenCode: (node) =>
+			request<unknown>(`/api/nodes/${encodeURIComponent(node)}/opencode/start`, {
+				method: "POST",
+			}),
+
+		restartOpenCode: (node) =>
+			request<unknown>(`/api/nodes/${encodeURIComponent(node)}/opencode/restart`, {
+				method: "POST",
+			}),
+
+		stopOpenCode: (node) =>
+			request<unknown>(`/api/nodes/${encodeURIComponent(node)}/opencode/stop`, {
+				method: "POST",
+			}),
+
 		listSessions: (node, directory) =>
 			request<Session[]>(`/api/sessions${query({ node, directory })}`),
 
@@ -118,10 +156,24 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 				body: JSON.stringify({ node_id: node, directory }),
 			}),
 
-		listMessages: (node, session) =>
-			request<Message[]>(
-				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/messages`,
-			),
+		renameSession: (node, session, title) =>
+			request<unknown>(`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}`, {
+				method: "PATCH",
+				body: JSON.stringify({ title }),
+			}),
+
+		deleteSession: (node, session) =>
+			request<unknown>(`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}`, {
+				method: "DELETE",
+			}),
+
+		listMessages: async (node, session, cursor, limit) => {
+			// 老控制面把 agent 的数组直接透传；统一成 MessagePage，调用方只认一种形状。
+			const body = await request<MessagePage | Message[]>(
+				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/messages${query({ cursor, limit })}`,
+			);
+			return Array.isArray(body) ? { messages: body } : body;
+		},
 
 		sendPrompt: (node, session, text, idempotencyKey) =>
 			request<string>(
@@ -142,6 +194,11 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 			request<unknown>(
 				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/permissions/${encodeURIComponent(permissionID)}/reply`,
 				{ method: "POST", body: JSON.stringify({ decision, message }) },
+			),
+
+		listPermissions: (node, session) =>
+			request<PermissionRequest[]>(
+				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/permissions`,
 			),
 
 		sessionDiff: (node, session, directory) =>
@@ -180,10 +237,18 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 		},
 
 		listPendingPermissions: async (node, session) => {
-			const body = await request<{ permissions?: PendingPermission[] }>(
+			// 控制面把 agent 的快照原样透传，形状是数组；事件里的卡片用 session_id，
+			// 这里做一次字段归一，调用方不必区分两种来源。
+			const snapshot = await request<PermissionRequest[]>(
 				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/permissions`,
 			);
-			return body.permissions ?? [];
+			return snapshot.map((permission) => ({
+				id: permission.id,
+				session_id: permission.sessionID || session,
+				action: permission.action,
+				resources: permission.resources ?? [],
+				message: permission.message ?? undefined,
+			}));
 		},
 
 		registerDevice: (device) =>

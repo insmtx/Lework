@@ -6,18 +6,46 @@ import { NodeSidebar } from "../components/node-sidebar";
 import { SessionPanel } from "../components/session-panel";
 import {
 	createSession,
+	deleteSession,
+	getNodeHealth,
 	interruptSession,
 	listMessages,
 	listNodes,
+	listPermissions,
 	listSessions,
+	renameSession,
 	replyPermission,
+	restartOpenCode,
 	sendPrompt,
+	startOpenCode,
+	stopOpenCode,
 } from "../lib/api";
-import type { ControlEvent, Message, NodeView, PermissionRequest, Session } from "../lib/types";
+import type {
+	ControlEvent,
+	Message,
+	NodeHealth,
+	NodeView,
+	PermissionRequest,
+	Session,
+} from "../lib/types";
 import { useControlEvents } from "../lib/use-control-events";
+
+type LifecycleAction = "start" | "restart" | "stop";
 
 function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
+}
+
+// mergeMessages keeps already-loaded older history while letting the newest
+// page replace tool/output state for messages it contains.
+function mergeMessages(base: Message[], incoming: Message[]): Message[] {
+	const byID = new Map(incoming.map((message) => [message.id, message]));
+	const merged = base.map((message) => byID.get(message.id) ?? message);
+	const known = new Set(merged.map((message) => message.id));
+	for (const message of incoming) {
+		if (!known.has(message.id)) merged.push(message);
+	}
+	return merged;
 }
 
 function permissionFromEvent(event: ControlEvent): PermissionRequest | null {
@@ -58,13 +86,17 @@ export default function ControlPlanePage() {
 	const [sessionsLoading, setSessionsLoading] = useState(false);
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
 	const [sessionsRefresh, setSessionsRefresh] = useState(0);
+	const [sessionDirectory, setSessionDirectory] = useState("");
 	const [selectedSessionID, setSelectedSessionID] = useState<string | null>(null);
 
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [messagesLoading, setMessagesLoading] = useState(false);
 	const [messagesError, setMessagesError] = useState<string | null>(null);
 	const [messagesRefresh, setMessagesRefresh] = useState(0);
+	const [nextCursor, setNextCursor] = useState<string | null>(null);
+	const [loadingOlder, setLoadingOlder] = useState(false);
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
+	const [permissionsRefresh, setPermissionsRefresh] = useState(0);
 	// 全局（跨会话）待审批项：手机上看不到别的会话，列表徽标是唯一入口。
 	const [pendingBySession, setPendingBySession] = useState<Record<string, string[]>>({});
 	const [sending, setSending] = useState(false);
@@ -72,6 +104,10 @@ export default function ControlPlanePage() {
 	// 手机端单栏：先在节点/会话列表，选中会话后切到会话面板；桌面端忽略该状态。
 	const [mobilePane, setMobilePane] = useState<"list" | "session">("list");
 	const isMobile = useIsMobile();
+
+	const [nodeHealth, setNodeHealth] = useState<NodeHealth | null>(null);
+	const [nodeHealthError, setNodeHealthError] = useState<string | null>(null);
+	const [lifecycleBusy, setLifecycleBusy] = useState<LifecycleAction | null>(null);
 
 	const selectedNode = useMemo(
 		() => nodes.find((node) => node.id === selectedNodeID) ?? null,
@@ -110,6 +146,32 @@ export default function ControlPlanePage() {
 		return () => clearInterval(timer);
 	}, [refreshNodes]);
 
+	const refreshHealth = useCallback(async () => {
+		if (!selectedNodeID) {
+			setNodeHealth(null);
+			setNodeHealthError(null);
+			return;
+		}
+		try {
+			const health = await getNodeHealth(selectedNodeID);
+			setNodeHealth(health);
+			setNodeHealthError(null);
+		} catch (error) {
+			setNodeHealth(null);
+			setNodeHealthError(errorMessage(error, "Unable to load OpenCode status"));
+		}
+	}, [selectedNodeID]);
+
+	useEffect(() => {
+		void refreshHealth();
+	}, [refreshHealth]);
+
+	useEffect(() => {
+		if (!selectedNodeID) return;
+		const timer = setInterval(() => void refreshHealth(), 15_000);
+		return () => clearInterval(timer);
+	}, [selectedNodeID, refreshHealth]);
+
 	// The token is an intentional trigger; the effect body reads the latest IDs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionsRefresh forces a refetch
 	useEffect(() => {
@@ -121,7 +183,7 @@ export default function ControlPlanePage() {
 		let cancelled = false;
 		setSessionsLoading(true);
 		setSessionsError(null);
-		listSessions(selectedNodeID)
+		listSessions(selectedNodeID, sessionDirectory)
 			.then((result) => {
 				if (cancelled) return;
 				setSessions(result);
@@ -139,11 +201,53 @@ export default function ControlPlanePage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedNodeID, sessionsRefresh]);
+	}, [selectedNodeID, sessionDirectory, sessionsRefresh]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset cards when the selection changes
+	// 事件没有重放：选中会话先用快照补齐，再把事件新增的卡片并入。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: permissionsRefresh forces a refetch
 	useEffect(() => {
-		setPermissions([]);
+		if (!selectedNodeID || !selectedSessionID) {
+			setPermissions([]);
+			return;
+		}
+		let cancelled = false;
+		const sessionID = selectedSessionID;
+		listPermissions(selectedNodeID, sessionID)
+			.then((snapshot) => {
+				if (cancelled) return;
+				setPermissions((current) => {
+					// 快照是权威列表；保留请求期间到达的事件卡片，避免漏掉新审批。
+					const merged = new Map(current.map((item) => [item.id, item]));
+					for (const item of snapshot) merged.set(item.id, item);
+					const list = [...merged.values()];
+					// 顺手把列表徽标对齐到服务端快照，避免断线期间漏掉或残留。
+					setPendingBySession((previous) => {
+						const ids = list.map((item) => item.id);
+						if (ids.length === 0) {
+							if (!(sessionID in previous)) return previous;
+							const next = { ...previous };
+							delete next[sessionID];
+							return next;
+						}
+						return { ...previous, [sessionID]: ids };
+					});
+					return list;
+				});
+			})
+			.catch(() => {
+				// 旧版 OpenCode 没有该端点时降级为纯事件模式，不阻塞会话。
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [selectedNodeID, selectedSessionID, permissionsRefresh]);
+
+	// 切换会话时清空旧消息；分页游标不能跨会话复用。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset history when the selection changes
+	useEffect(() => {
+		setMessages([]);
+		setNextCursor(null);
+		setLoadingOlder(false);
 	}, [selectedNodeID, selectedSessionID]);
 
 	// The token is an intentional trigger; the effect body reads the latest IDs.
@@ -151,14 +255,17 @@ export default function ControlPlanePage() {
 	useEffect(() => {
 		if (!selectedNodeID || !selectedSessionID) {
 			setMessages([]);
+			setNextCursor(null);
 			return;
 		}
 		let cancelled = false;
 		setMessagesLoading(true);
 		setMessagesError(null);
 		listMessages(selectedNodeID, selectedSessionID)
-			.then((result) => {
-				if (!cancelled) setMessages(result);
+			.then((page) => {
+				if (cancelled) return;
+				setMessages((current) => mergeMessages(current, page.messages));
+				setNextCursor(page.next ?? null);
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) setMessagesError(errorMessage(error, "Unable to load messages"));
@@ -170,6 +277,25 @@ export default function ControlPlanePage() {
 			cancelled = true;
 		};
 	}, [selectedNodeID, selectedSessionID, messagesRefresh]);
+
+	const loadOlder = async () => {
+		if (!selectedNodeID || !selectedSessionID || !nextCursor || loadingOlder) return;
+		setLoadingOlder(true);
+		setMessagesError(null);
+		try {
+			const page = await listMessages(selectedNodeID, selectedSessionID, nextCursor);
+			setMessages((current) => {
+				const known = new Set(current.map((message) => message.id));
+				const older = page.messages.filter((message) => !known.has(message.id));
+				return [...older, ...current];
+			});
+			setNextCursor(page.next ?? null);
+		} catch (error) {
+			setMessagesError(errorMessage(error, "Unable to load earlier messages"));
+		} finally {
+			setLoadingOlder(false);
+		}
+	};
 
 	useEffect(() => {
 		return () => {
@@ -198,10 +324,12 @@ export default function ControlPlanePage() {
 			return;
 		}
 		if (event.type === "permission.replied" || event.type === "permission.resolved") {
-			const id =
+			// V2 的已决事件用 requestID 指向原请求，没有 id 字段。
+			const data =
 				event.data && typeof event.data === "object"
-					? (event.data as { id?: string }).id
+					? (event.data as { requestID?: string; id?: string })
 					: undefined;
+			const id = data?.requestID ?? data?.id;
 			if (id) {
 				setPendingBySession((current) => removePending(current, id));
 				setPermissions((current) => current.filter((item) => item.id !== id));
@@ -223,6 +351,7 @@ export default function ControlPlanePage() {
 		void refreshNodes();
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
+		setPermissionsRefresh((value) => value + 1);
 	}, [refreshNodes]);
 
 	const { connected } = useControlEvents(handleEvent, resync);
@@ -275,6 +404,7 @@ export default function ControlPlanePage() {
 	const selectNode = (nodeID: string) => {
 		setSelectedNodeID(nodeID);
 		setSelectedSessionID(null);
+		setSessionDirectory("");
 		setMessages([]);
 		setPermissions([]);
 		setMobilePane("list");
@@ -287,7 +417,31 @@ export default function ControlPlanePage() {
 	const create = async (directory: string) => {
 		if (!selectedNodeID) throw new Error("Select a connected node first");
 		const session = await createSession(selectedNodeID, directory);
+		// 清空过滤器，确保刚创建的会话出现在列表中。
+		setSessionDirectory("");
 		openSessionPane(session.id);
+		setSessionsRefresh((value) => value + 1);
+	};
+
+	const rename = async (sessionID: string, title: string) => {
+		if (!selectedNodeID) throw new Error("Select a connected node first");
+		await renameSession(selectedNodeID, sessionID, title);
+		setSessions((current) =>
+			current.map((session) => (session.id === sessionID ? { ...session, title } : session)),
+		);
+		setSessionsRefresh((value) => value + 1);
+	};
+
+	const remove = async (sessionID: string) => {
+		if (!selectedNodeID) throw new Error("Select a connected node first");
+		await deleteSession(selectedNodeID, sessionID);
+		setSessions((current) => current.filter((session) => session.id !== sessionID));
+		if (selectedSessionID === sessionID) {
+			setSelectedSessionID(null);
+			setMessages([]);
+			setPermissions([]);
+			setMobilePane("list");
+		}
 		setSessionsRefresh((value) => value + 1);
 	};
 
@@ -323,7 +477,10 @@ export default function ControlPlanePage() {
 		}
 	};
 
-	const resolvePermission = async (permission: PermissionRequest, decision: "once" | "reject") => {
+	const resolvePermission = async (
+		permission: PermissionRequest,
+		decision: "once" | "always" | "reject",
+	) => {
 		if (!selectedNodeID || !selectedSessionID) throw new Error("No session selected");
 		await replyPermission(selectedNodeID, selectedSessionID, permission.id, decision);
 		setPermissions((current) => current.filter((item) => item.id !== permission.id));
@@ -331,9 +488,27 @@ export default function ControlPlanePage() {
 		setMessagesRefresh((value) => value + 1);
 	};
 
+	const runLifecycle = async (action: LifecycleAction) => {
+		if (!selectedNodeID) return;
+		setLifecycleBusy(action);
+		setNodeHealthError(null);
+		try {
+			const call =
+				action === "start" ? startOpenCode : action === "restart" ? restartOpenCode : stopOpenCode;
+			await call(selectedNodeID);
+		} catch (error) {
+			setNodeHealthError(errorMessage(error, `Unable to ${action} OpenCode`));
+		} finally {
+			setLifecycleBusy(null);
+			await refreshHealth();
+			setSessionsRefresh((value) => value + 1);
+		}
+	};
+
 	const refresh = () => {
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
+		setPermissionsRefresh((value) => value + 1);
 	};
 
 	// 会话级待审批数量：列表徽标与手机端头部计数都从这里取。
@@ -344,6 +519,7 @@ export default function ControlPlanePage() {
 		}
 		return counts;
 	}, [pendingBySession]);
+
 	const topError = nodesError || sessionsError || messagesError;
 
 	const sidebar = (
@@ -357,6 +533,16 @@ export default function ControlPlanePage() {
 			onCreateSession={create}
 			onRefresh={refresh}
 			loadingSessions={sessionsLoading}
+			sessionDirectory={sessionDirectory}
+			onFilterSessions={setSessionDirectory}
+			onRenameSession={rename}
+			onDeleteSession={remove}
+			nodeHealth={nodeHealth}
+			nodeHealthError={nodeHealthError}
+			lifecycleBusy={lifecycleBusy}
+			onStartOpenCode={() => runLifecycle("start")}
+			onRestartOpenCode={() => runLifecycle("restart")}
+			onStopOpenCode={() => runLifecycle("stop")}
 			pendingCounts={pendingCounts}
 		/>
 	);
@@ -375,6 +561,9 @@ export default function ControlPlanePage() {
 			onInterrupt={interrupt}
 			onResolvePermission={resolvePermission}
 			onRefresh={refresh}
+			hasOlder={Boolean(nextCursor)}
+			loadingOlder={loadingOlder}
+			onLoadOlder={loadOlder}
 			onBack={isMobile ? closeSessionPane : undefined}
 		/>
 	);

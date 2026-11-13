@@ -13,6 +13,11 @@ type createSessionRequest struct {
 	Directory string `json:"directory"`
 }
 
+// sessionRenameRequest 是 PATCH /api/sessions/{nodeID}/{sessionID} 的请求体。
+type sessionRenameRequest struct {
+	Title string `json:"title"`
+}
+
 // promptRequest 是 POST .../prompt 的请求体。
 type promptRequest struct {
 	Text           string `json:"text"`
@@ -34,6 +39,15 @@ type sessionCreateParams struct {
 	Directory string `json:"directory"`
 }
 
+type sessionRenameParams struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+}
+
+type sessionDeleteParams struct {
+	SessionID string `json:"session_id"`
+}
+
 type sessionPromptParams struct {
 	SessionID      string `json:"session_id"`
 	Text           string `json:"text"`
@@ -42,6 +56,8 @@ type sessionPromptParams struct {
 
 type sessionMessagesParams struct {
 	SessionID string `json:"session_id"`
+	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
 }
 
 type permissionReplyParams struct {
@@ -49,6 +65,10 @@ type permissionReplyParams struct {
 	PermissionID string `json:"permission_id"`
 	Decision     string `json:"decision"`
 	Message      string `json:"message"`
+}
+
+type permissionListParams struct {
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type sessionDiffParams struct {
@@ -132,10 +152,61 @@ func (a *API) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, result)
 }
 
-// handleSessionMessages 透传节点的 session.messages 结果。
+// handleRenameSession 转发会话改名；空白标题在控制面先拒绝，避免把无效
+// 值送给节点。
+func (a *API) handleRenameSession(w http.ResponseWriter, r *http.Request) {
+	var req sessionRenameRequest
+	if err := decodeRequest(w, r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "title is required")
+		return
+	}
+
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "session.rename",
+		sessionRenameParams{
+			SessionID: r.PathValue("sessionID"),
+			Title:     strings.TrimSpace(req.Title),
+		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleDeleteSession 删除会话；控制面不持有会话副本，因此只需清空选择。
+func (a *API) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "session.delete",
+		sessionDeleteParams{SessionID: r.PathValue("sessionID")})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleSessionMessages 透传节点的 session.messages 分页结果。
 func (a *API) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit := 0
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+
 	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "session.messages",
-		sessionMessagesParams{SessionID: r.PathValue("sessionID")})
+		sessionMessagesParams{
+			SessionID: r.PathValue("sessionID"),
+			Limit:     limit,
+			Cursor:    query.Get("cursor"),
+		})
 	if err != nil {
 		a.writeAgentError(w, err)
 		return
@@ -185,6 +256,12 @@ func (a *API) handlePermissionReply(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "decision is required")
 		return
 	}
+	switch req.Decision {
+	case "once", "always", "reject":
+	default:
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "decision must be once, always or reject")
+		return
+	}
 
 	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "permission.reply",
 		permissionReplyParams{
@@ -193,6 +270,18 @@ func (a *API) handlePermissionReply(w http.ResponseWriter, r *http.Request) {
 			Decision:     req.Decision,
 			Message:      req.Message,
 		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleListPermissions 返回会话的待审批快照；事件无重放，重连与会话切换
+// 都必须靠这个快照收敛。
+func (a *API) handleListPermissions(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "permission.list",
+		permissionListParams{SessionID: r.PathValue("sessionID")})
 	if err != nil {
 		a.writeAgentError(w, err)
 		return

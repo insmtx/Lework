@@ -46,7 +46,9 @@ export function useSession(
 
 	const loadMessages = useCallback(async () => {
 		if (!client) return;
-		setMessages(await client.listMessages(nodeID, sessionID));
+		// 只读移动端不需要回溯历史，取最新一页即可；后续要做“加载更早”再消费 next。
+		const page = await client.listMessages(nodeID, sessionID);
+		setMessages(page.messages);
 	}, [client, nodeID, sessionID]);
 
 	const loadPermissions = useCallback(async () => {

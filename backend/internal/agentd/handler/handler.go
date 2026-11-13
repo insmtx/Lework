@@ -26,14 +26,25 @@ import (
 // agent has no build-version injection yet.
 const AgentVersion = "0.1.0"
 
+// Message pagination bounds shared by the browser API and the node handler.
+// The upper bound keeps one event loop iteration from decoding an unbounded
+// session history.
+const (
+	defaultMessagesLimit = 200
+	maxMessagesLimit     = 200
+)
+
 // OpenCodeAPI is the subset of opencode.Client the handler drives. Keeping it
 // narrow lets tests replace the HTTP client without a server.
 type OpenCodeAPI interface {
-	ListSessions(ctx context.Context) ([]opencode.Session, error)
+	ListSessions(ctx context.Context, directory string) ([]opencode.Session, error)
 	CreateSession(ctx context.Context, directory string) (opencode.Session, error)
+	RenameSession(ctx context.Context, sessionID, title string) error
+	DeleteSession(ctx context.Context, sessionID string) error
 	Prompt(ctx context.Context, sessionID, text string) (string, error)
-	Messages(ctx context.Context, sessionID string) ([]opencode.Message, error)
+	Messages(ctx context.Context, sessionID string, limit int, cursor string) (opencode.MessagePage, error)
 	ReplyPermission(ctx context.Context, sessionID, permissionID, decision, message string) error
+	ListPermissions(ctx context.Context) ([]opencode.PermissionRequest, error)
 
 	SessionDiff(ctx context.Context, sessionID, from, to string, context int) ([]opencode.FileDiff, error)
 	Interrupt(ctx context.Context, sessionID string, resume bool) (opencode.InterruptResult, error)
@@ -54,8 +65,8 @@ type SupervisorAPI interface {
 	Status() supervisor.Status
 }
 
-// SessionListParams are the parameters for session.list. Directory is accepted
-// for wire compatibility; I0 has no directory filter and lists every session.
+// SessionListParams are the parameters for session.list. Directory is an
+// optional location filter; an empty value lists every session on the node.
 type SessionListParams struct {
 	Directory string `json:"directory"`
 }
@@ -63,6 +74,17 @@ type SessionListParams struct {
 // SessionCreateParams are the parameters for session.create.
 type SessionCreateParams struct {
 	Directory string `json:"directory"`
+}
+
+// SessionRenameParams are the parameters for session.rename.
+type SessionRenameParams struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+}
+
+// SessionDeleteParams are the parameters for session.delete.
+type SessionDeleteParams struct {
+	SessionID string `json:"session_id"`
 }
 
 // SessionPromptParams are the parameters for session.prompt. IdempotencyKey is
@@ -73,9 +95,12 @@ type SessionPromptParams struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
-// SessionMessagesParams are the parameters for session.messages.
+// SessionMessagesParams are the parameters for session.messages. Limit is
+// clamped to the agent page size; Cursor is an opaque older-page marker.
 type SessionMessagesParams struct {
 	SessionID string `json:"session_id"`
+	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
 }
 
 // PermissionReplyParams are the parameters for permission.reply.
@@ -84,6 +109,12 @@ type PermissionReplyParams struct {
 	PermissionID string `json:"permission_id"`
 	Decision     string `json:"decision"`
 	Message      string `json:"message"`
+}
+
+// PermissionListParams are the parameters for permission.list. An empty
+// SessionID means every pending request on the node.
+type PermissionListParams struct {
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // SessionDiffParams are the parameters for session.diff. Directory is the
@@ -245,7 +276,12 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		if err := decodeParams(method, params, &p); err != nil {
 			return nil, err
 		}
-		return h.opencode.ListSessions(ctx)
+		if p.Directory != "" {
+			if err := h.confineDirectory(p.Directory); err != nil {
+				return nil, err
+			}
+		}
+		return h.opencode.ListSessions(ctx, p.Directory)
 
 	case "session.create":
 		var p SessionCreateParams
@@ -257,6 +293,30 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		}
 		return h.opencode.CreateSession(ctx, p.Directory)
 
+	case "session.rename":
+		var p SessionRenameParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		title := strings.TrimSpace(p.Title)
+		if p.SessionID == "" {
+			return nil, errors.New("session.rename: session_id is required")
+		}
+		if title == "" {
+			return nil, errors.New("session.rename: title is required")
+		}
+		return nil, h.opencode.RenameSession(ctx, p.SessionID, title)
+
+	case "session.delete":
+		var p SessionDeleteParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		if p.SessionID == "" {
+			return nil, errors.New("session.delete: session_id is required")
+		}
+		return nil, h.opencode.DeleteSession(ctx, p.SessionID)
+
 	case "session.prompt":
 		return h.prompt(ctx, params)
 
@@ -265,7 +325,14 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		if err := decodeParams(method, params, &p); err != nil {
 			return nil, err
 		}
-		return h.opencode.Messages(ctx, p.SessionID)
+		limit := p.Limit
+		if limit <= 0 {
+			limit = defaultMessagesLimit
+		}
+		if limit > maxMessagesLimit {
+			limit = maxMessagesLimit
+		}
+		return h.opencode.Messages(ctx, p.SessionID, limit, p.Cursor)
 
 	case "session.diff":
 		return h.sessionDiff(ctx, params)
@@ -300,10 +367,50 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		if err := decodeParams(method, params, &p); err != nil {
 			return nil, err
 		}
+		if err := validatePermissionDecision(p.Decision); err != nil {
+			return nil, err
+		}
 		return nil, h.opencode.ReplyPermission(ctx, p.SessionID, p.PermissionID, p.Decision, p.Message)
+
+	case "permission.list":
+		var p PermissionListParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		return h.listPermissions(ctx, p.SessionID)
 
 	default:
 		return nil, fmt.Errorf("%w %q", ErrUnknownMethod, method)
+	}
+}
+
+// listPermissions filters the node-wide snapshot by session so the browser
+// can reconcile one session without seeing approvals from other worktrees.
+func (h *Handler) listPermissions(ctx context.Context, sessionID string) ([]opencode.PermissionRequest, error) {
+	permissions, err := h.opencode.ListPermissions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if sessionID == "" {
+		return permissions, nil
+	}
+	filtered := make([]opencode.PermissionRequest, 0, len(permissions))
+	for _, permission := range permissions {
+		if permission.SessionID == sessionID {
+			filtered = append(filtered, permission)
+		}
+	}
+	return filtered, nil
+}
+
+// validatePermissionDecision keeps the OpenCode enum at the protocol edge;
+// forwarding an unknown value would surface as an opaque 400 from the server.
+func validatePermissionDecision(decision string) error {
+	switch decision {
+	case "once", "always", "reject":
+		return nil
+	default:
+		return fmt.Errorf("permission.reply: decision must be once, always or reject")
 	}
 }
 

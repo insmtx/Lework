@@ -10,7 +10,9 @@ afterEach(() => {
 
 function stubFetch(response: Response | (() => Response)) {
 	vi.stubGlobal("fetch", fetchMock);
-	fetchMock.mockImplementation(() => Promise.resolve(typeof response === "function" ? response() : response));
+	fetchMock.mockImplementation(() =>
+		Promise.resolve(typeof response === "function" ? response() : response),
+	);
 }
 
 describe("createApiClient", () => {
@@ -85,18 +87,85 @@ describe("control plane additions", () => {
 		expect(nodes[0]?.sessions[0]?.state).toBe("waiting_permission");
 	});
 
-	it("listPendingPermissions 解包 permissions 并编码路径", async () => {
-		stubFetch(new Response(JSON.stringify({ permissions: [{ id: "perm_1" }] }), { status: 200 }));
+	it("listPendingPermissions 归一化 agent 快照并编码路径", async () => {
+		stubFetch(
+			new Response(
+				JSON.stringify([
+					{ id: "perm_1", sessionID: "ses 1", action: "bash", resources: ["rm -rf"] },
+				]),
+				{ status: 200 },
+			),
+		);
 		const api = createApiClient();
 		const permissions = await api.listPendingPermissions("node/1", "ses 1");
 		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/sessions/node%2F1/ses%201/permissions");
-		expect(permissions).toEqual([{ id: "perm_1" }]);
+		expect(permissions).toEqual([
+			{
+				id: "perm_1",
+				session_id: "ses 1",
+				action: "bash",
+				resources: ["rm -rf"],
+				message: undefined,
+			},
+		]);
+	});
+
+	it("listMessages 透传分页游标并返回整页", async () => {
+		stubFetch(
+			new Response(JSON.stringify({ messages: [{ id: "m1" }], next: "older" }), { status: 200 }),
+		);
+		const api = createApiClient();
+		const page = await api.listMessages("n1", "s1", "cursor 1", 50);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"/api/sessions/n1/s1/messages?cursor=cursor+1&limit=50",
+		);
+		expect(page.next).toBe("older");
+	});
+
+	it("listMessages 兼容老控制面的数组响应", async () => {
+		stubFetch(new Response(JSON.stringify([{ id: "m1" }]), { status: 200 }));
+		const api = createApiClient();
+		const page = await api.listMessages("n1", "s1");
+		expect(page.messages).toEqual([{ id: "m1" }]);
+	});
+
+	it("getNodeHealth 把导出字段转成小写形状", async () => {
+		stubFetch(
+			new Response(
+				JSON.stringify({ Running: true, Mode: "managed", BaseURL: "http://127.0.0.1:4096" }),
+				{
+					status: 200,
+				},
+			),
+		);
+		const api = createApiClient();
+		const health = await api.getNodeHealth("node/1");
+		expect(health).toEqual({
+			running: true,
+			mode: "managed",
+			base_url: "http://127.0.0.1:4096",
+		});
+	});
+
+	it("listPermissions 直接返回 agent 快照数组", async () => {
+		stubFetch(
+			new Response(JSON.stringify([{ id: "perm_1", sessionID: "s1", action: "bash" }]), {
+				status: 200,
+			}),
+		);
+		const api = createApiClient();
+		const permissions = await api.listPermissions("n1", "s1");
+		expect(permissions[0]?.sessionID).toBe("s1");
 	});
 
 	it("registerDevice 提交 snake_case 并返回设备", async () => {
 		stubFetch(new Response(JSON.stringify({ id: "device_1" }), { status: 201 }));
 		const api = createApiClient();
-		const device = await api.registerDevice({ name: "pixel", platform: "android", push_token: "tok" });
+		const device = await api.registerDevice({
+			name: "pixel",
+			platform: "android",
+			push_token: "tok",
+		});
 		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
 		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/devices");
 		expect(init.method).toBe("POST");

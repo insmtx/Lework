@@ -36,9 +36,12 @@ interface SessionPanelProps {
 	onInterrupt: () => Promise<void>;
 	onResolvePermission: (
 		permission: PermissionRequest,
-		decision: "once" | "reject",
+		decision: "once" | "always" | "reject",
 	) => Promise<void>;
 	onRefresh: () => void;
+	hasOlder: boolean;
+	loadingOlder: boolean;
+	onLoadOlder: () => Promise<void>;
 	/** 手机端单栏模式下的返回按钮；桌面端不传。 */
 	onBack?: () => void;
 }
@@ -63,6 +66,9 @@ export function SessionPanel({
 	onInterrupt,
 	onResolvePermission,
 	onRefresh,
+	hasOlder,
+	loadingOlder,
+	onLoadOlder,
 	onBack,
 }: SessionPanelProps) {
 	const [tab, setTab] = useState<Tab>("conversation");
@@ -216,6 +222,9 @@ export function SessionPanel({
 					loading={loadingMessages}
 					streamConnected={streamConnected}
 					nodeConnected={node?.connected ?? false}
+					hasOlder={hasOlder}
+					loadingOlder={loadingOlder}
+					onLoadOlder={onLoadOlder}
 				/>
 			) : tab === "diff" ? (
 				<DiffView nodeID={node?.id ?? ""} sessionID={session.id} directory={directory} />

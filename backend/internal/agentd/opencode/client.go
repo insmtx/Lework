@@ -117,12 +117,33 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 // ListSessions returns the sessions known to the server, newest first.
-func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
+// A non-empty directory filters by location; an empty one lists every
+// session loaded by the server.
+func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session, error) {
+	path := "/api/session"
+	if directory != "" {
+		query := url.Values{}
+		query.Set("directory", directory)
+		path += "?" + query.Encode()
+	}
 	var sessions []Session
-	if err := c.doData(ctx, http.MethodGet, "/api/session", nil, &sessions); err != nil {
+	if err := c.doData(ctx, http.MethodGet, path, nil, &sessions); err != nil {
 		return nil, err
 	}
 	return sessions, nil
+}
+
+// RenameSession changes only the session title; other session fields keep
+// their current values. OpenCode answers 204, so there is no body to decode.
+func (c *Client) RenameSession(ctx context.Context, sessionID, title string) error {
+	path := sessionPath(sessionID)
+	return c.doJSON(ctx, http.MethodPatch, path, renameSessionRequest{Title: title}, nil)
+}
+
+// DeleteSession removes a session and its history from the server. The
+// control plane holds no copy, so nothing else needs to be cleared here.
+func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
+	return c.doJSON(ctx, http.MethodDelete, sessionPath(sessionID), nil, nil)
 }
 
 // CreateSession opens a session rooted at directory. The server rejects the
@@ -151,15 +172,48 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string) (string, er
 	return resp.ID, nil
 }
 
-// Messages returns the messages of a session in chronological order. The
-// final assistant message is the authoritative source of the run's text.
-func (c *Client) Messages(ctx context.Context, sessionID string) ([]Message, error) {
-	path := fmt.Sprintf("%s/message?order=asc&limit=%d", sessionPath(sessionID), messagesLimit)
-	var messages []Message
-	if err := c.doData(ctx, http.MethodGet, path, nil, &messages); err != nil {
-		return nil, err
+// Messages returns one page of a session's messages in chronological order.
+// The server pages newest-first and treats order as a first-page hint, so the
+// client requests desc and reverses each page; Next then points at older
+// history and the browser can prepend pages without renumbering anything.
+func (c *Client) Messages(ctx context.Context, sessionID string, limit int, cursor string) (MessagePage, error) {
+	if limit <= 0 {
+		limit = messagesLimit
 	}
-	return messages, nil
+	if limit > messagesLimit {
+		limit = messagesLimit
+	}
+
+	query := url.Values{}
+	query.Set("order", "desc")
+	query.Set("limit", strconv.Itoa(limit))
+	if cursor != "" {
+		query.Set("cursor", cursor)
+	}
+	path := sessionPath(sessionID) + "/message?" + query.Encode()
+
+	var envelope struct {
+		Data   []Message `json:"data"`
+		Cursor struct {
+			Previous string `json:"previous"`
+			Next     string `json:"next"`
+		} `json:"cursor"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &envelope); err != nil {
+		return MessagePage{}, err
+	}
+	if envelope.Data == nil {
+		return MessagePage{}, fmt.Errorf("opencode GET %s: response missing data", path)
+	}
+
+	for i, j := 0, len(envelope.Data)-1; i < j; i, j = i+1, j-1 {
+		envelope.Data[i], envelope.Data[j] = envelope.Data[j], envelope.Data[i]
+	}
+	return MessagePage{
+		Messages: envelope.Data,
+		Previous: envelope.Cursor.Previous,
+		Next:     envelope.Cursor.Next,
+	}, nil
 }
 
 // SessionDiff returns the turn-scoped diff recorded by OpenCode. from and to
@@ -302,6 +356,17 @@ func (c *Client) ReplyPermission(ctx context.Context, sessionID, permissionID, d
 	path := sessionPath(sessionID) + "/permission/" + url.PathEscape(permissionID) + "/reply"
 	req := replyPermissionRequest{Decision: decision, Message: message}
 	return c.doJSON(ctx, http.MethodPost, path, req, nil)
+}
+
+// ListPermissions returns every pending permission request on the server.
+// The endpoint is the only way to recover approvals that arrived while the
+// event stream was disconnected; callers filter by session when needed.
+func (c *Client) ListPermissions(ctx context.Context) ([]PermissionRequest, error) {
+	var permissions []PermissionRequest
+	if err := c.doData(ctx, http.MethodGet, "/api/permission/request", nil, &permissions); err != nil {
+		return nil, err
+	}
+	return permissions, nil
 }
 
 // SubscribeEvents opens the server event feed and returns a buffered channel of
@@ -524,6 +589,10 @@ type sessionLocation struct {
 
 type promptRequest struct {
 	Text string `json:"text"`
+}
+
+type renameSessionRequest struct {
+	Title string `json:"title"`
 }
 
 // promptResponse is the admitted inbox item. Its ID is the admission identity

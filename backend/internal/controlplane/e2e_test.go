@@ -181,20 +181,23 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("opencode prompt calls after retry = %d, want 1 (idempotency key must be replayed)", got)
 	}
 
-	// 5. 读取消息：浏览器 API 原样透传桩返回的消息数组。
+	// 5. 读取消息：浏览器 API 原样透传桩返回的消息页。
 	messagesPath := fmt.Sprintf("/api/sessions/%s/%s/messages", node.ID, e2eSessionID)
 	status, body = api.doJSON(ctx, http.MethodGet, messagesPath, "")
 	if status != http.StatusOK {
 		t.Fatalf("messages status = %d, want 200 (body=%s)", status, body)
 	}
-	var messages []struct {
-		ID   string `json:"id"`
-		Role string `json:"role"`
-		Text string `json:"text"`
+	var page struct {
+		Messages []struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+			Text string `json:"text"`
+		} `json:"messages"`
 	}
-	if err := json.Unmarshal(body, &messages); err != nil {
+	if err := json.Unmarshal(body, &page); err != nil {
 		t.Fatalf("decode messages %s: %v", body, err)
 	}
+	messages := page.Messages
 	wantMessages := stubOpenCode.messageList()
 	if len(messages) != len(wantMessages) {
 		t.Fatalf("messages = %+v, want %d entries", messages, len(wantMessages))
@@ -239,9 +242,15 @@ func newCountingOpenCode() *countingOpenCode {
 }
 
 // ListSessions 返回空会话列表。
-func (c *countingOpenCode) ListSessions(context.Context) ([]opencode.Session, error) {
+func (c *countingOpenCode) ListSessions(context.Context, string) ([]opencode.Session, error) {
 	return []opencode.Session{}, nil
 }
+
+// RenameSession 是空实现：本测试不改会话标题。
+func (c *countingOpenCode) RenameSession(context.Context, string, string) error { return nil }
+
+// DeleteSession 是空实现：本测试不删除会话。
+func (c *countingOpenCode) DeleteSession(context.Context, string) error { return nil }
 
 // CreateSession 返回固定会话；目录沿用调用方请求，便于校验透传。
 func (c *countingOpenCode) CreateSession(_ context.Context, directory string) (opencode.Session, error) {
@@ -255,13 +264,18 @@ func (c *countingOpenCode) Prompt(context.Context, string, string) (string, erro
 }
 
 // Messages 返回固定的用户/助手消息。
-func (c *countingOpenCode) Messages(context.Context, string) ([]opencode.Message, error) {
-	return c.messageList(), nil
+func (c *countingOpenCode) Messages(context.Context, string, int, string) (opencode.MessagePage, error) {
+	return opencode.MessagePage{Messages: c.messageList()}, nil
 }
 
 // ReplyPermission 是空实现：本测试不产生权限请求。
 func (c *countingOpenCode) ReplyPermission(context.Context, string, string, string, string) error {
 	return nil
+}
+
+// ListPermissions 是空实现：本测试不产生权限请求。
+func (c *countingOpenCode) ListPermissions(context.Context) ([]opencode.PermissionRequest, error) {
+	return nil, nil
 }
 
 // SessionDiff 返回空 diff。
