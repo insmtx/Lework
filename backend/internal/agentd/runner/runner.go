@@ -59,6 +59,9 @@ type RunnerConfig struct {
 	// Heartbeat is the interval between heartbeat frames. Zero selects the
 	// 10s default.
 	Heartbeat time.Duration
+	// WorkspaceRoots are reported in hello so the browser can offer a default
+	// project directory that session.create will accept.
+	WorkspaceRoots []string
 }
 
 // Runner drives one connection. It is single-use: a Runner is created for each
@@ -165,16 +168,18 @@ func (r *Runner) Run(ctx context.Context) error {
 // dispatches so the control plane can hide features before calling them.
 func (r *Runner) sendHello(ctx context.Context) error {
 	params, err := json.Marshal(struct {
-		NodeName     string   `json:"node_name"`
-		AgentVersion string   `json:"agent_version"`
-		OS           string   `json:"os"`
-		Arch         string   `json:"arch"`
-		Capabilities []string `json:"capabilities"`
+		NodeName       string   `json:"node_name"`
+		AgentVersion   string   `json:"agent_version"`
+		OS             string   `json:"os"`
+		Arch           string   `json:"arch"`
+		Capabilities   []string `json:"capabilities"`
+		WorkspaceRoots []string `json:"workspace_roots"`
 	}{
-		NodeName:     r.cfg.NodeName,
-		AgentVersion: r.cfg.AgentVersion,
-		OS:           runtime.GOOS,
-		Arch:         runtime.GOARCH,
+		NodeName:       r.cfg.NodeName,
+		AgentVersion:   r.cfg.AgentVersion,
+		OS:             runtime.GOOS,
+		Arch:           runtime.GOARCH,
+		WorkspaceRoots: append([]string{}, r.cfg.WorkspaceRoots...),
 		Capabilities: []string{
 			"node.info",
 			"opencode.status",

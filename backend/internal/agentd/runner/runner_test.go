@@ -756,3 +756,31 @@ func contains(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestHelloCarriesWorkspaceRoots(t *testing.T) {
+	tr := newFakeTransport()
+	events := &fakeEvents{events: make(chan opencode.Event)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	r := New(tr, handler.New(stubOpenCode{}, stubSupervisor{}), events, RunnerConfig{
+		NodeName:       "roots",
+		AgentVersion:   "test",
+		WorkspaceRoots: []string{"/work/a", "/work/b"},
+	})
+	go func() { _ = r.Run(ctx) }()
+
+	frame := <-tr.writes
+	if frame.Type != protocol.FrameHello {
+		t.Fatalf("frame type = %q, want hello", frame.Type)
+	}
+	var hello struct {
+		WorkspaceRoots []string `json:"workspace_roots"`
+	}
+	if err := json.Unmarshal(frame.Params, &hello); err != nil {
+		t.Fatal(err)
+	}
+	if len(hello.WorkspaceRoots) != 2 || hello.WorkspaceRoots[1] != "/work/b" {
+		t.Fatalf("workspace roots = %#v", hello.WorkspaceRoots)
+	}
+}

@@ -26,15 +26,16 @@ import (
 
 // Node 是注册到控制面的节点记录。
 type Node struct {
-	ID           string `gorm:"primaryKey"`
-	Name         string `gorm:"uniqueIndex;not null"`
-	OS           string
-	Arch         string
-	AgentVersion string
-	Capabilities []string `gorm:"serializer:json"`
-	LastSeen     time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID             string `gorm:"primaryKey"`
+	Name           string `gorm:"uniqueIndex;not null"`
+	OS             string
+	Arch           string
+	AgentVersion   string
+	Capabilities   []string `gorm:"serializer:json"`
+	WorkspaceRoots []string `gorm:"serializer:json"`
+	LastSeen       time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Device 是注册了推送通知的终端。它只保存推送令牌，不保存认证凭据：
