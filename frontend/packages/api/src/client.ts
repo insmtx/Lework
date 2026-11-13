@@ -13,6 +13,7 @@ import type {
 	PendingPermission,
 	PermissionRequest,
 	PersistentTerminal,
+	ProjectSummary,
 	Session,
 } from "./types";
 
@@ -78,6 +79,10 @@ export interface ApiClient {
 	): Promise<PersistentTerminal>;
 	closePTY(node: string, session: string, ptyID: string): Promise<unknown>;
 	getOverview(): Promise<OverviewNode[]>;
+	listProjects(): Promise<ProjectSummary[]>;
+	setProjectPrimaryNode(projectKey: string, node: string): Promise<unknown>;
+	getPreferences(): Promise<Record<string, string>>;
+	setPreference(key: string, value: string): Promise<unknown>;
 	listPendingPermissions(node: string, session: string): Promise<PendingPermission[]>;
 	registerDevice(device: DeviceRegistration): Promise<Device>;
 	listDevices(): Promise<Device[]>;
@@ -235,6 +240,30 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 			const body = await request<{ nodes?: OverviewNode[] }>("/api/overview");
 			return body.nodes ?? [];
 		},
+
+		listProjects: async () => {
+			// 老控制面没有这个接口，会回 404；调用方需要能拿到空列表而不是崩溃，
+			// 因此这里只负责解包，缺字段一律当空。
+			const body = await request<{ projects?: ProjectSummary[] }>("/api/projects");
+			return Array.isArray(body?.projects) ? body.projects : [];
+		},
+
+		setProjectPrimaryNode: (projectKey, node) =>
+			request<unknown>(`/api/projects/${encodeURIComponent(projectKey)}/primary-node`, {
+				method: "PUT",
+				body: JSON.stringify({ node_id: node }),
+			}),
+
+		getPreferences: async () => {
+			const body = await request<{ values?: Record<string, string> }>("/api/preferences");
+			return body?.values ?? {};
+		},
+
+		setPreference: (key, value) =>
+			request<unknown>(`/api/preferences/${encodeURIComponent(key)}`, {
+				method: "PUT",
+				body: JSON.stringify({ value }),
+			}),
 
 		listPendingPermissions: async (node, session) => {
 			// 控制面把 agent 的快照原样透传，形状是数组；事件里的卡片用 session_id，
