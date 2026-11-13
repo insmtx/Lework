@@ -701,6 +701,7 @@ func TestHelloCapabilitiesIncludeI1BMethods(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		"project.list",
 		"session.diff", "session.interrupt",
 		"file.list", "file.read",
 		"pty.create", "pty.attach", "pty.write", "pty.resize", "pty.close",

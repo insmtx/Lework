@@ -186,6 +186,7 @@ func (r *Runner) sendHello(ctx context.Context) error {
 			"opencode.start",
 			"opencode.restart",
 			"opencode.stop",
+			"project.list",
 			"session.list",
 			"session.create",
 			"session.rename",
