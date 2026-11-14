@@ -32,6 +32,10 @@ type fakeOpenCode struct {
 	listDirectory string
 	sessions      []opencode.Session
 
+	projectsCalls int
+	projects      []opencode.Project
+	projectsErr   error
+
 	createdDirectory string
 	createCalls      int
 	createSession    opencode.Session
@@ -105,6 +109,11 @@ func (f *fakeOpenCode) ListSessions(_ context.Context, directory string) ([]open
 	f.listCalls++
 	f.listDirectory = directory
 	return f.sessions, nil
+}
+
+func (f *fakeOpenCode) ListProjects(context.Context) ([]opencode.Project, error) {
+	f.projectsCalls++
+	return f.projects, f.projectsErr
 }
 
 func (f *fakeOpenCode) CreateSession(_ context.Context, directory string) (opencode.Session, error) {
@@ -1121,5 +1130,62 @@ func TestConfinePath(t *testing.T) {
 	}
 	if got != filepath.Join(root, "sub", "file.txt") {
 		t.Fatalf("target = %q", got)
+	}
+}
+
+func TestHandleProjectList(t *testing.T) {
+	oc := &fakeOpenCode{projects: []opencode.Project{
+		{ID: "abc", Canonical: "/work/repo"},
+		{ID: "global", Canonical: "/work/plain"},
+	}}
+	h := New(oc, fakeSupervisor{})
+
+	result, err := h.Handle(context.Background(), "project.list", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, ok := result.([]opencode.Project)
+	if !ok {
+		t.Fatalf("result type = %T, want []opencode.Project", result)
+	}
+	if len(projects) != 2 || projects[0].ID != "abc" || projects[1].Canonical != "/work/plain" {
+		t.Fatalf("projects = %#v", projects)
+	}
+	if oc.projectsCalls != 1 {
+		t.Fatalf("projects calls = %d, want 1", oc.projectsCalls)
+	}
+}
+
+func TestHandleProjectListPropagatesError(t *testing.T) {
+	oc := &fakeOpenCode{projectsErr: errors.New("boom")}
+	if _, err := New(oc, fakeSupervisor{}).Handle(context.Background(), "project.list", nil); err == nil {
+		t.Fatal("expected the client error to surface")
+	}
+}
+
+func TestNodeInfoReportsWorkspaceRoots(t *testing.T) {
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots("/w/a", "/w/b"))
+
+	result, err := h.Handle(context.Background(), "node.info", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, ok := result.(NodeInfo)
+	if !ok {
+		t.Fatalf("result type = %T, want NodeInfo", result)
+	}
+	if len(info.WorkspaceRoots) != 2 || info.WorkspaceRoots[0] != "/w/a" || info.WorkspaceRoots[1] != "/w/b" {
+		t.Fatalf("workspace roots = %#v", info.WorkspaceRoots)
+	}
+}
+
+func TestNodeInfoWorkspaceRootsNeverNil(t *testing.T) {
+	result, err := New(&fakeOpenCode{}, fakeSupervisor{}).Handle(context.Background(), "node.info", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := result.(NodeInfo)
+	if info.WorkspaceRoots == nil {
+		t.Fatal("workspace roots must serialize as [] rather than null")
 	}
 }

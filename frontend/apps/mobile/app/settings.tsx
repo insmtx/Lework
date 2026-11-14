@@ -11,12 +11,16 @@ import {
 } from "react-native";
 
 import { createClient } from "../src/api/client";
+import { useProjects } from "../src/projects/use-projects";
 import { registerForPush, unregisterPush } from "../src/push/register";
 import { createSecureSettingsStore } from "../src/settings/secure-store";
 import { normalizeBaseUrl } from "../src/settings/settings";
+import { useSettings } from "../src/settings/use-settings";
 
 export default function SettingsScreen() {
 	const store = useMemo(() => createSecureSettingsStore(), []);
+	const { settings, reload: reloadSettings } = useSettings();
+	const { nodes, dirByNode, setInboxDir } = useProjects(settings);
 	const [baseUrl, setBaseUrl] = useState("");
 	const [token, setToken] = useState("");
 	const [notifications, setNotifications] = useState(true);
@@ -75,6 +79,7 @@ export default function SettingsScreen() {
 			await store.save({ ...settings, deviceID: nextDeviceID });
 			setDeviceID(nextDeviceID);
 			setBaseUrl(normalized);
+			reloadSettings();
 			setStatus(pushNote ? `Connected. Settings saved. ${pushNote}` : "Connected. Settings saved.");
 		} catch (error) {
 			setFailed(true);
@@ -119,6 +124,52 @@ export default function SettingsScreen() {
 				<Switch value={notifications} onValueChange={setNotifications} />
 			</View>
 
+			<Text style={[styles.label, styles.sectionTitle]}>我的目录</Text>
+			<Text style={styles.hint}>
+				首页「我的」指向这个节点上的哪个目录。目录必须位于 agent 的 workspace roots
+				之内，否则新建会话会被拒绝。
+			</Text>
+			{nodes.length === 0 ? <Text style={styles.hint}>还没有已登记的节点。</Text> : null}
+			{nodes.map((node) => {
+				const current = dirByNode[node.id];
+				const roots = node.workspace_roots ?? [];
+				return (
+					<View key={node.id} style={styles.inbox}>
+						<Text style={styles.inboxNode}>
+							{node.name}
+							{node.connected ? "" : "（离线）"}
+						</Text>
+						{current ? (
+							<Text style={styles.hint} numberOfLines={1}>
+								当前：{current}
+							</Text>
+						) : null}
+						{roots.length === 0 ? (
+							<Text style={styles.hint}>agent 未上报 workspace roots</Text>
+						) : null}
+						<View style={styles.roots}>
+							{roots.map((root) => {
+								const active = root === current;
+								return (
+									<Pressable
+										key={root}
+										style={[styles.root, active && styles.rootActive]}
+										onPress={() => void setInboxDir(node.id, root)}
+									>
+										<Text
+											style={[styles.rootText, active && styles.rootTextActive]}
+											numberOfLines={1}
+										>
+											{root}
+										</Text>
+									</Pressable>
+								);
+							})}
+						</View>
+					</View>
+				);
+			})}
+
 			<Pressable style={[styles.button, busy && styles.buttonDisabled]} onPress={save} disabled={busy}>
 				{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save</Text>}
 			</Pressable>
@@ -153,4 +204,19 @@ const styles = StyleSheet.create({
 	buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 	status: { marginTop: 12, color: "#166534" },
 	statusFailed: { color: "#b91c1c" },
+	sectionTitle: { marginTop: 16 },
+	inbox: { gap: 4, marginTop: 4 },
+	inboxNode: { fontSize: 13, fontWeight: "600", color: "#334155" },
+	roots: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+	root: {
+		borderWidth: 1,
+		borderColor: "#cbd5e1",
+		borderRadius: 8,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		maxWidth: "100%",
+	},
+	rootActive: { backgroundColor: "#0f172a", borderColor: "#0f172a" },
+	rootText: { fontSize: 12, color: "#334155" },
+	rootTextActive: { color: "#fff" },
 });

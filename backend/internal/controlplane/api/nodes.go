@@ -13,14 +13,15 @@ import (
 // 身份字段与 LastSeen 以持久化存储为准（心跳会写入 LastSeen），
 // Connected 则取实时注册表，避免把已断开节点显示为在线。
 type nodeView struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	OS           string    `json:"os"`
-	Arch         string    `json:"arch"`
-	AgentVersion string    `json:"agent_version"`
-	Capabilities []string  `json:"capabilities"`
-	Connected    bool      `json:"connected"`
-	LastSeen     time.Time `json:"last_seen"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	OS             string    `json:"os"`
+	Arch           string    `json:"arch"`
+	AgentVersion   string    `json:"agent_version"`
+	Capabilities   []string  `json:"capabilities"`
+	WorkspaceRoots []string  `json:"workspace_roots"`
+	Connected      bool      `json:"connected"`
+	LastSeen       time.Time `json:"last_seen"`
 }
 
 // handleListNodes 返回全部已登记节点。
@@ -132,18 +133,22 @@ func (a *API) listNodes(ctx context.Context) ([]nodeView, error) {
 	views := make([]nodeView, 0, len(records))
 	for _, rec := range records {
 		view := nodeView{
-			ID:           rec.ID,
-			Name:         rec.Name,
-			OS:           rec.OS,
-			Arch:         rec.Arch,
-			AgentVersion: rec.AgentVersion,
-			Capabilities: rec.Capabilities,
-			LastSeen:     rec.LastSeen,
+			ID:             rec.ID,
+			Name:           rec.Name,
+			OS:             rec.OS,
+			Arch:           rec.Arch,
+			AgentVersion:   rec.AgentVersion,
+			Capabilities:   rec.Capabilities,
+			WorkspaceRoots: rec.WorkspaceRoots,
+			LastSeen:       rec.LastSeen,
 		}
 		// hello 不带 capabilities 时存储里是 nil，直接序列化会得到 null；
 		// 浏览器端需要能安全地遍历，因此统一成空数组。
 		if view.Capabilities == nil {
 			view.Capabilities = []string{}
+		}
+		if view.WorkspaceRoots == nil {
+			view.WorkspaceRoots = []string{}
 		}
 		if info, ok := a.registry.Get(rec.ID); ok {
 			view.Connected = info.Connected

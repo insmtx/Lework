@@ -12,14 +12,15 @@ import (
 // Info 是节点在控制面内存中的实时视图。Capabilities 描述节点能处理的
 // 方法集合，Connected 只反映当前是否有活跃连接。
 type Info struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	OS           string    `json:"os"`
-	Arch         string    `json:"arch"`
-	AgentVersion string    `json:"agent_version"`
-	Capabilities []string  `json:"capabilities"`
-	Connected    bool      `json:"connected"`
-	LastSeen     time.Time `json:"last_seen"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	OS             string    `json:"os"`
+	Arch           string    `json:"arch"`
+	AgentVersion   string    `json:"agent_version"`
+	Capabilities   []string  `json:"capabilities"`
+	WorkspaceRoots []string  `json:"workspace_roots"`
+	Connected      bool      `json:"connected"`
+	LastSeen       time.Time `json:"last_seen"`
 }
 
 // Registry 跟踪每个节点当前活跃的连接。
@@ -144,5 +145,6 @@ func (r *Registry) CloseAll() {
 // cloneInfo 复制 Info 及其能力切片，避免快照与内部状态共享底层数组。
 func cloneInfo(info Info) Info {
 	info.Capabilities = slices.Clone(info.Capabilities)
+	info.WorkspaceRoots = slices.Clone(info.WorkspaceRoots)
 	return info
 }

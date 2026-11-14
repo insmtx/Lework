@@ -5,6 +5,8 @@ export interface NodeView {
 	arch: string;
 	agent_version: string;
 	capabilities: string[];
+	/** 节点允许的工作目录；老 agent 不上报时为空数组或缺省。 */
+	workspace_roots?: string[];
 	connected: boolean;
 	last_seen: string;
 }
@@ -20,6 +22,34 @@ export interface Session {
 	directory?: string;
 	title?: string;
 	updatedAt?: string;
+	/** OpenCode 的项目 id；老控制面可能不返回。 */
+	projectID?: string;
+	/** 会话在项目根之下的相对路径；在项目根创建时为空。 */
+	subpath?: string;
+}
+
+/** ProjectNode 描述项目在某个节点上的出现情况。 */
+export interface ProjectNode {
+	node_id: string;
+	online: boolean;
+	last_seen: string;
+}
+
+/**
+ * ProjectSummary 是控制面聚合后的项目视图。
+ *
+ * key 是聚合键（通常等于 id，无提交仓库为 "global:<canonical>"）；
+ * primary_node_id / alias 来自用户偏好，未设置时缺省。
+ */
+export interface ProjectSummary {
+	key: string;
+	id: string;
+	canonical: string;
+	vcs?: string;
+	primary_node_id?: string;
+	alias?: string;
+	nodes: ProjectNode[];
+	last_seen: string;
 }
 
 export interface MessageError {

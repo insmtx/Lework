@@ -185,10 +185,11 @@ func reconnect(
 				// control plane assigned (node_...) and the runner switches to
 				// it before forwarding events. NodeName is the stable identity
 				// the control plane keys node records by.
-				NodeID:       cfg.NodeName,
-				NodeName:     cfg.NodeName,
-				AgentVersion: version,
-				Heartbeat:    heartbeatInterval,
+				NodeID:         cfg.NodeName,
+				NodeName:       cfg.NodeName,
+				AgentVersion:   version,
+				Heartbeat:      heartbeatInterval,
+				WorkspaceRoots: cfg.WorkspaceRoots,
 			}).Run(ctx)
 			connectedFor := time.Since(started)
 

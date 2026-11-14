@@ -121,11 +121,12 @@ func (e *gatewayEnv) connect(t *testing.T) *transport.Client {
 
 // testHelloParams 与 runner 发送的 hello 参数保持一致。
 type testHelloParams struct {
-	NodeName     string   `json:"node_name"`
-	AgentVersion string   `json:"agent_version"`
-	OS           string   `json:"os"`
-	Arch         string   `json:"arch"`
-	Capabilities []string `json:"capabilities"`
+	NodeName       string   `json:"node_name"`
+	AgentVersion   string   `json:"agent_version"`
+	OS             string   `json:"os"`
+	Arch           string   `json:"arch"`
+	Capabilities   []string `json:"capabilities"`
+	WorkspaceRoots []string `json:"workspace_roots"`
 }
 
 func defaultHello(name string) testHelloParams {
@@ -708,5 +709,25 @@ func TestHeartbeatTimeoutClosesNodeAndFailsPendingRequests(t *testing.T) {
 			t.Fatal("node still registered after the heartbeat timeout")
 		case <-ticker.C:
 		}
+	}
+}
+
+func TestHelloRecordsWorkspaceRoots(t *testing.T) {
+	env := newGatewayEnv(t)
+	client := env.connect(t)
+
+	params := defaultHello("roots-box")
+	params.WorkspaceRoots = []string{"/work/a", "/work/b"}
+	writeHello(t, client, params, "hello-roots")
+	if frame := readFrame(t, client); frame.Type != protocol.FrameWelcome {
+		t.Fatalf("frame type = %q, want welcome", frame.Type)
+	}
+
+	nodes := listNodes(t, env.store)
+	if len(nodes) != 1 {
+		t.Fatalf("stored nodes = %d, want 1", len(nodes))
+	}
+	if len(nodes[0].WorkspaceRoots) != 2 || nodes[0].WorkspaceRoots[0] != "/work/a" {
+		t.Fatalf("workspace roots = %#v", nodes[0].WorkspaceRoots)
 	}
 }

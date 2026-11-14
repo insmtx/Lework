@@ -42,6 +42,13 @@ const (
 	// server defaults to a smaller page and returns newest first; the agent
 	// wants the whole turn, oldest first.
 	messagesLimit = 200
+
+	// sessionPageLimit is the page size requested when listing sessions.
+	sessionPageLimit = 50
+
+	// maxSessionPages bounds the cursor walk so a server that keeps answering
+	// with a next cursor cannot hold the request open.
+	maxSessionPages = 2
 )
 
 // Sentinel errors let callers branch on cause without matching message text.
@@ -119,18 +126,65 @@ func (c *Client) Health(ctx context.Context) error {
 // ListSessions returns the sessions known to the server, newest first.
 // A non-empty directory filters by location; an empty one lists every
 // session loaded by the server.
+//
+// The server pages at 50 by default and answers with forward-only cursors, so
+// this loops until the cursor is exhausted or maxSessionPages is reached: a
+// project page that silently showed only the first 50 sessions would look
+// empty for older work.
 func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session, error) {
-	path := "/api/session"
-	if directory != "" {
-		query := url.Values{}
-		query.Set("directory", directory)
-		path += "?" + query.Encode()
-	}
 	var sessions []Session
-	if err := c.doData(ctx, http.MethodGet, path, nil, &sessions); err != nil {
-		return nil, err
+	seen := make(map[string]struct{})
+	cursor := ""
+	for page := 0; page < maxSessionPages; page++ {
+		query := url.Values{}
+		query.Set("limit", strconv.Itoa(sessionPageLimit))
+		if directory != "" {
+			query.Set("directory", directory)
+		}
+		if cursor != "" {
+			query.Set("cursor", cursor)
+		}
+		path := "/api/session?" + query.Encode()
+
+		var envelope struct {
+			Data   []Session `json:"data"`
+			Cursor struct {
+				Next string `json:"next"`
+			} `json:"cursor"`
+		}
+		if err := c.doJSON(ctx, http.MethodGet, path, nil, &envelope); err != nil {
+			return nil, err
+		}
+		if envelope.Data == nil {
+			return nil, fmt.Errorf("opencode GET %s: response missing data", path)
+		}
+		for _, session := range envelope.Data {
+			if _, ok := seen[session.ID]; ok {
+				continue
+			}
+			seen[session.ID] = struct{}{}
+			sessions = append(sessions, session)
+		}
+		if envelope.Cursor.Next == "" {
+			break
+		}
+		cursor = envelope.Cursor.Next
 	}
 	return sessions, nil
+}
+
+// ListProjects returns every project the server knows about. The endpoint
+// answers with a bare array rather than the {"data": ...} envelope the rest of
+// the v2 API uses, so a wrapped response is an error instead of an empty list.
+func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
+	var projects []Project
+	if err := c.doJSON(ctx, http.MethodGet, "/api/project", nil, &projects); err != nil {
+		return nil, err
+	}
+	if projects == nil {
+		return nil, fmt.Errorf("opencode GET /api/project: response missing array")
+	}
+	return projects, nil
 }
 
 // RenameSession changes only the session title; other session fields keep

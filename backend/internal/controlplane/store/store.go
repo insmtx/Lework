@@ -22,19 +22,21 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Node 是注册到控制面的节点记录。
 type Node struct {
-	ID           string `gorm:"primaryKey"`
-	Name         string `gorm:"uniqueIndex;not null"`
-	OS           string
-	Arch         string
-	AgentVersion string
-	Capabilities []string `gorm:"serializer:json"`
-	LastSeen     time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID             string `gorm:"primaryKey"`
+	Name           string `gorm:"uniqueIndex;not null"`
+	OS             string
+	Arch           string
+	AgentVersion   string
+	Capabilities   []string `gorm:"serializer:json"`
+	WorkspaceRoots []string `gorm:"serializer:json"`
+	LastSeen       time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Device 是注册了推送通知的终端。它只保存推送令牌，不保存认证凭据：
@@ -45,6 +47,42 @@ type Device struct {
 	Platform  string `gorm:"not null"`
 	PushToken string `gorm:"uniqueIndex;not null"`
 	LastSeen  time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ProjectIndex 记录某个节点上「见过」的项目元数据。
+//
+// 只缓存项目身份（id、canonical、vcs）与最后出现时间，不缓存会话、消息
+// 或任何执行状态：那些永远以 OpenCode 为准。节点离线时浏览器仍能列出
+// 项目卡片，靠的就是这张表。
+type ProjectIndex struct {
+	// ProjectKey 是聚合键：通常等于 ProjectID，但 OpenCode 把所有无提交的
+	// git 仓库都报成 "global"，此时用 ProjectID + ":" + Canonical 区分。
+	ProjectKey string `gorm:"primaryKey;column:project_key"`
+	NodeID     string `gorm:"primaryKey;column:node_id"`
+	ProjectID  string `gorm:"column:project_id"`
+	Canonical  string
+	VCS        string
+	LastSeen   time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// ProjectPreference 保存用户对单个项目的偏好：主节点与显示别名。
+type ProjectPreference struct {
+	ProjectKey    string `gorm:"primaryKey;column:project_key"`
+	PrimaryNodeID string `gorm:"column:primary_node_id"`
+	Alias         string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Preference 是通用的键值偏好（我的目录、上次目标等）。
+// 只存用户选择，不存任何会话事实。
+type Preference struct {
+	Key       string `gorm:"primaryKey;column:key"`
+	Value     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -90,7 +128,7 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	if err := database.AutoMigrate(&Node{}, &Device{}); err != nil {
+	if err := database.AutoMigrate(&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		if sqlDB, dbErr := database.DB(); dbErr == nil {
 			_ = sqlDB.Close()
@@ -280,6 +318,102 @@ func (s *Store) TouchDevice(ctx context.Context, id string, at time.Time) error 
 		return fmt.Errorf("touch device %q: device not found", id)
 	}
 	return nil
+}
+
+// UpsertProjectIndex 批量写入节点上的项目索引。
+//
+// 同一 (project_key, node_id) 重复出现时覆盖可变字段而不是插入新行：
+// 项目可能在两次拉取之间改过 canonical（例如仓库重新初始化），以最新
+// 一次为准。rows 为空是正常情况（节点没有任何项目），直接返回。
+func (s *Store) UpsertProjectIndex(ctx context.Context, rows []ProjectIndex) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "project_key"}, {Name: "node_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"project_id", "canonical", "vcs", "last_seen", "updated_at"}),
+	}).Create(&rows).Error; err != nil {
+		return fmt.Errorf("upsert project index: %w", err)
+	}
+	return nil
+}
+
+// ListProjectIndex 返回全部项目索引（含已离线节点），按最后出现时间倒序。
+func (s *Store) ListProjectIndex(ctx context.Context) ([]ProjectIndex, error) {
+	rows := make([]ProjectIndex, 0)
+	if err := s.db.WithContext(ctx).Order("last_seen DESC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list project index: %w", err)
+	}
+	return rows, nil
+}
+
+// ListProjectPreferences 返回全部项目偏好；空库返回空切片而非 nil。
+func (s *Store) ListProjectPreferences(ctx context.Context) ([]ProjectPreference, error) {
+	prefs := make([]ProjectPreference, 0)
+	if err := s.db.WithContext(ctx).Find(&prefs).Error; err != nil {
+		return nil, fmt.Errorf("list project preferences: %w", err)
+	}
+	return prefs, nil
+}
+
+// SetProjectPrimaryNode 设置项目的主节点。首次设置时建行；重复设置覆盖
+// 主节点但保留别名，避免改节点顺手丢掉用户起的名字。
+func (s *Store) SetProjectPrimaryNode(ctx context.Context, projectKey, nodeID string) error {
+	if strings.TrimSpace(projectKey) == "" {
+		return errors.New("project key is required")
+	}
+	if strings.TrimSpace(nodeID) == "" {
+		return errors.New("node id is required")
+	}
+	row := ProjectPreference{ProjectKey: projectKey, PrimaryNodeID: nodeID}
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "project_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"primary_node_id", "updated_at"}),
+	}).Create(&row).Error; err != nil {
+		return fmt.Errorf("set primary node for %q: %w", projectKey, err)
+	}
+	return nil
+}
+
+// GetPreference 读取一条偏好；不存在时 ok 为 false 且不视为错误，
+// 因为「用户还没设置过」是正常状态。
+func (s *Store) GetPreference(ctx context.Context, key string) (string, bool, error) {
+	var rows []Preference
+	if err := s.db.WithContext(ctx).Where("key = ?", key).Limit(1).Find(&rows).Error; err != nil {
+		return "", false, fmt.Errorf("get preference %q: %w", key, err)
+	}
+	if len(rows) == 0 {
+		return "", false, nil
+	}
+	return rows[0].Value, true, nil
+}
+
+// SetPreference 写入或覆盖一条偏好。空 key 视为调用方错误。
+func (s *Store) SetPreference(ctx context.Context, key, value string) error {
+	if strings.TrimSpace(key) == "" {
+		return errors.New("preference key is required")
+	}
+	row := Preference{Key: key, Value: value}
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&row).Error; err != nil {
+		return fmt.Errorf("set preference %q: %w", key, err)
+	}
+	return nil
+}
+
+// ListPreferences 一次性返回全部偏好，供客户端启动时整包同步。
+func (s *Store) ListPreferences(ctx context.Context) (map[string]string, error) {
+	rows := make([]Preference, 0)
+	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list preferences: %w", err)
+	}
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		out[row.Key] = row.Value
+	}
+	return out, nil
 }
 
 // newNodeID 生成 node 前缀的随机 ID（8 字节随机数的十六进制）。

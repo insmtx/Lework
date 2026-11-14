@@ -350,3 +350,111 @@ func TestDeleteDeviceReportsMissingRow(t *testing.T) {
 		t.Fatalf("len(devices) = %d, want 0", len(all))
 	}
 }
+
+func TestUpsertProjectIndexIsIdempotent(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	first := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	second := first.Add(time.Hour)
+
+	rows := []ProjectIndex{{
+		ProjectKey: "abc",
+		NodeID:     "node_1",
+		ProjectID:  "abc",
+		Canonical:  "/w/repo",
+		VCS:        "git",
+		LastSeen:   first,
+	}}
+	if err := s.UpsertProjectIndex(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+	rows[0].Canonical = "/w/repo2"
+	rows[0].LastSeen = second
+	if err := s.UpsertProjectIndex(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListProjectIndex(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("rows = %#v, want one row", got)
+	}
+	if got[0].Canonical != "/w/repo2" || !got[0].LastSeen.Equal(second) {
+		t.Fatalf("row = %#v, want the second write", got[0])
+	}
+}
+
+func TestListProjectIndexKeepsOfflineNodes(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	rows := []ProjectIndex{
+		{ProjectKey: "abc", NodeID: "node_1", ProjectID: "abc", Canonical: "/w/repo"},
+		{ProjectKey: "abc", NodeID: "node_2", ProjectID: "abc", Canonical: "/w/repo"},
+	}
+	if err := s.UpsertProjectIndex(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListProjectIndex(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("rows = %#v, want two rows", got)
+	}
+}
+
+func TestSetProjectPrimaryNodeCreatesRow(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetProjectPrimaryNode(ctx, "abc", "node_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectPrimaryNode(ctx, "abc", "node_2"); err != nil {
+		t.Fatal(err)
+	}
+
+	prefs, err := s.ListProjectPreferences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prefs) != 1 || prefs[0].PrimaryNodeID != "node_2" {
+		t.Fatalf("preferences = %#v, want one row pointing at node_2", prefs)
+	}
+}
+
+func TestPreferencesRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetPreference(ctx, "inbox.dir.node_1", "/w/inbox"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPreference(ctx, "inbox.dir.node_1", "/w/other"); err != nil {
+		t.Fatal(err)
+	}
+
+	value, ok, err := s.GetPreference(ctx, "inbox.dir.node_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || value != "/w/other" {
+		t.Fatalf("value = %q, ok = %v; want the last write", value, ok)
+	}
+
+	all, err := s.ListPreferences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all["inbox.dir.node_1"] != "/w/other" {
+		t.Fatalf("preferences = %#v", all)
+	}
+
+	if _, ok, err := s.GetPreference(ctx, "missing"); err != nil || ok {
+		t.Fatalf("missing preference: ok = %v, err = %v", ok, err)
+	}
+}

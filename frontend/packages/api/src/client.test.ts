@@ -187,3 +187,64 @@ describe("control plane additions", () => {
 		expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/devices/device%2F1");
 	});
 });
+
+describe("project aggregation", () => {
+	it("listProjects 解包 projects 信封", async () => {
+		stubFetch(
+			new Response(
+				JSON.stringify({
+					projects: [
+						{
+							key: "abc",
+							id: "abc",
+							canonical: "/w/repo",
+							nodes: [{ node_id: "n1", online: true, last_seen: "2026-11-12T00:00:00Z" }],
+							last_seen: "2026-11-12T00:00:00Z",
+						},
+					],
+				}),
+				{ status: 200 },
+			),
+		);
+		const api = createApiClient();
+		const projects = await api.listProjects();
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/projects");
+		expect(projects).toHaveLength(1);
+		expect(projects[0]?.key).toBe("abc");
+	});
+
+	it("listProjects 缺少信封时返回空数组", async () => {
+		stubFetch(new Response(JSON.stringify({}), { status: 200 }));
+		const api = createApiClient();
+		await expect(api.listProjects()).resolves.toEqual([]);
+	});
+
+	it("setProjectPrimaryNode 编码含冒号与斜杠的 key", async () => {
+		stubFetch(new Response(null, { status: 204 }));
+		const api = createApiClient();
+		await api.setProjectPrimaryNode("global:/w/repo", "n1");
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"/api/projects/global%3A%2Fw%2Frepo/primary-node",
+		);
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.method).toBe("PUT");
+		expect(JSON.parse(String(init.body))).toEqual({ node_id: "n1" });
+	});
+
+	it("getPreferences 返回 values 映射", async () => {
+		stubFetch(
+			new Response(JSON.stringify({ values: { "inbox.dir.n1": "/w/inbox" } }), { status: 200 }),
+		);
+		const api = createApiClient();
+		await expect(api.getPreferences()).resolves.toEqual({ "inbox.dir.n1": "/w/inbox" });
+	});
+
+	it("setPreference 编码 key 并提交 value", async () => {
+		stubFetch(new Response(null, { status: 204 }));
+		const api = createApiClient();
+		await api.setPreference("inbox.dir.n 1", "/w/inbox");
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/preferences/inbox.dir.n%201");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(JSON.parse(String(init.body))).toEqual({ value: "/w/inbox" });
+	});
+});

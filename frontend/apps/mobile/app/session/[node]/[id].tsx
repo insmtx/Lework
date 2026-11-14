@@ -1,6 +1,6 @@
 import type { Message, PendingPermission } from "@lework/api";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	ActivityIndicator,
 	FlatList,
@@ -12,8 +12,11 @@ import {
 	View,
 } from "react-native";
 
-import { useSettings } from "../../../src/settings/use-settings";
+import { createClient } from "../../../src/api/client";
+import { runSend } from "../../../src/session/send-flow";
 import { useSession } from "../../../src/session/use-session";
+import { useSettings } from "../../../src/settings/use-settings";
+import { GlobalComposer } from "../../../src/ui/global-composer";
 
 function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -138,24 +141,57 @@ export default function SessionScreen() {
 	const sessionID = param(params.id);
 
 	const { settings, loading: settingsLoading } = useSettings();
-	const { messages, permissions, loading, error, refresh, reply, send, interrupt, connected } =
-		useSession(settings, nodeID, sessionID);
+	const {
+		messages,
+		permissions,
+		loading,
+		error,
+		refresh,
+		reply,
+		send,
+		interrupt,
+		connected,
+		sending,
+		notFound,
+	} = useSession(settings, nodeID, sessionID);
 	const [draft, setDraft] = useState("");
-	const [sending, setSending] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
+	const [nodeName, setNodeName] = useState(nodeID);
+	const [nodeOnline, setNodeOnline] = useState<boolean | null>(null);
+
+	// 会话页只从深链进来，没有项目上下文；至少把节点名字取回来，
+	// 让 chip 显示「dev-box」而不是 node_9f3a…。
+	useEffect(() => {
+		if (!settings) return;
+		let cancelled = false;
+		void createClient(settings)
+			.listNodes()
+			.then((nodes) => {
+				if (cancelled) return;
+				const node = nodes.find((item) => item.id === nodeID);
+				if (!node) return;
+				setNodeName(node.name);
+				setNodeOnline(node.connected);
+			})
+			.catch(() => {
+				// 拿不到节点信息不影响读消息，chip 退回显示节点 ID。
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [settings, nodeID]);
 
 	const submit = async () => {
 		const text = draft.trim();
 		if (!text) return;
-		setSending(true);
 		setActionError(null);
 		try {
-			await send(text);
-			setDraft("");
+			await runSend(
+				() => send(text),
+				() => setDraft(""),
+			);
 		} catch (caught) {
 			setActionError(caught instanceof Error ? caught.message : "failed to send");
-		} finally {
-			setSending(false);
 		}
 	};
 
@@ -183,6 +219,21 @@ export default function SessionScreen() {
 				<Text style={styles.hint}>Configure the control plane in Settings first.</Text>
 				<Pressable style={styles.primaryButton} onPress={() => router.push("/settings")}>
 					<Text style={styles.primaryButtonText}>Open settings</Text>
+				</Pressable>
+			</View>
+		);
+	}
+
+	if (notFound) {
+		return (
+			<View style={styles.center}>
+				<Text style={styles.title}>会话不存在</Text>
+				<Text style={styles.hint}>它可能已被删除，或这条深链已经过期。</Text>
+				<Pressable style={styles.primaryButton} onPress={() => router.replace("/pending")}>
+					<Text style={styles.primaryButtonText}>去待审批</Text>
+				</Pressable>
+				<Pressable style={styles.secondaryButton} onPress={() => router.replace("/")}>
+					<Text style={styles.secondaryButtonText}>回我的</Text>
 				</Pressable>
 			</View>
 		);
@@ -232,23 +283,19 @@ export default function SessionScreen() {
 				}
 			/>
 
-			<View style={styles.composer}>
-				<TextInput
-					style={styles.composerInput}
-					value={draft}
-					onChangeText={setDraft}
-					placeholder="Reply…"
-					multiline
-					editable={!sending}
-				/>
-				<Pressable
-					style={[styles.primaryButton, (sending || !draft.trim()) && styles.disabled]}
-					disabled={sending || !draft.trim()}
-					onPress={() => void submit()}
-				>
-					{sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Send</Text>}
-				</Pressable>
-			</View>
+			<GlobalComposer
+				target={{
+					projectKey: `${nodeID}:${sessionID}`,
+					projectName: nodeName,
+					nodeID,
+					showNode: false,
+				}}
+				disabledReason={nodeOnline === false ? "节点离线" : undefined}
+				value={draft}
+				onChangeText={setDraft}
+				onSend={submit}
+				sending={sending}
+			/>
 		</View>
 	);
 }
@@ -307,24 +354,6 @@ const styles = StyleSheet.create({
 		paddingVertical: 8,
 		fontSize: 14,
 		backgroundColor: "#fff",
-	},
-	composer: {
-		flexDirection: "row",
-		alignItems: "flex-end",
-		gap: 8,
-		padding: 12,
-		borderTopWidth: 1,
-		borderTopColor: "#e2e8f0",
-	},
-	composerInput: {
-		flex: 1,
-		maxHeight: 120,
-		borderWidth: 1,
-		borderColor: "#cbd5e1",
-		borderRadius: 8,
-		paddingHorizontal: 10,
-		paddingVertical: 8,
-		fontSize: 14,
 	},
 	primaryButton: {
 		backgroundColor: "#0f172a",

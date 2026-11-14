@@ -84,6 +84,10 @@ func (stubOpenCode) ListSessions(context.Context, string) ([]opencode.Session, e
 	return nil, nil
 }
 
+func (stubOpenCode) ListProjects(context.Context) ([]opencode.Project, error) {
+	return nil, nil
+}
+
 func (stubOpenCode) CreateSession(context.Context, string) (opencode.Session, error) {
 	return opencode.Session{}, nil
 }
@@ -697,6 +701,7 @@ func TestHelloCapabilitiesIncludeI1BMethods(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		"project.list",
 		"session.diff", "session.interrupt",
 		"file.list", "file.read",
 		"pty.create", "pty.attach", "pty.write", "pty.resize", "pty.close",
@@ -751,4 +756,32 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestHelloCarriesWorkspaceRoots(t *testing.T) {
+	tr := newFakeTransport()
+	events := &fakeEvents{events: make(chan opencode.Event)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	r := New(tr, handler.New(stubOpenCode{}, stubSupervisor{}), events, RunnerConfig{
+		NodeName:       "roots",
+		AgentVersion:   "test",
+		WorkspaceRoots: []string{"/work/a", "/work/b"},
+	})
+	go func() { _ = r.Run(ctx) }()
+
+	frame := <-tr.writes
+	if frame.Type != protocol.FrameHello {
+		t.Fatalf("frame type = %q, want hello", frame.Type)
+	}
+	var hello struct {
+		WorkspaceRoots []string `json:"workspace_roots"`
+	}
+	if err := json.Unmarshal(frame.Params, &hello); err != nil {
+		t.Fatal(err)
+	}
+	if len(hello.WorkspaceRoots) != 2 || hello.WorkspaceRoots[1] != "/work/b" {
+		t.Fatalf("workspace roots = %#v", hello.WorkspaceRoots)
+	}
 }

@@ -86,6 +86,12 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/overview", a.handleOverview)
 
+	mux.HandleFunc("GET /api/projects", a.handleListProjects)
+	mux.HandleFunc("GET /api/nodes/{id}/projects", a.handleNodeProjects)
+	mux.HandleFunc("PUT /api/projects/{key}/primary-node", a.handleSetProjectPrimaryNode)
+	mux.HandleFunc("GET /api/preferences", a.handleListPreferences)
+	mux.HandleFunc("PUT /api/preferences/{key}", a.handleSetPreference)
+
 	mux.HandleFunc("GET /api/devices", a.handleListDevices)
 	mux.HandleFunc("POST /api/devices", a.handleRegisterDevice)
 	mux.HandleFunc("DELETE /api/devices/{id}", a.handleDeleteDevice)

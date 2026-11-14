@@ -54,11 +54,12 @@ type Config struct {
 
 // helloParams 是 agent 注册帧的参数，字段与 runner 发送的 hello 一一对应。
 type helloParams struct {
-	NodeName     string   `json:"node_name"`
-	AgentVersion string   `json:"agent_version"`
-	OS           string   `json:"os"`
-	Arch         string   `json:"arch"`
-	Capabilities []string `json:"capabilities"`
+	NodeName       string   `json:"node_name"`
+	AgentVersion   string   `json:"agent_version"`
+	OS             string   `json:"os"`
+	Arch           string   `json:"arch"`
+	Capabilities   []string `json:"capabilities"`
+	WorkspaceRoots []string `json:"workspace_roots"`
 }
 
 // welcomeResult 是 welcome 帧的结果；节点 ID 由控制面分配或复用。
@@ -152,12 +153,13 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 	}
 
 	rec, err := g.store.UpsertNode(ctx, store.Node{
-		Name:         params.NodeName,
-		OS:           params.OS,
-		Arch:         params.Arch,
-		AgentVersion: params.AgentVersion,
-		Capabilities: params.Capabilities,
-		LastSeen:     time.Now(),
+		Name:           params.NodeName,
+		OS:             params.OS,
+		Arch:           params.Arch,
+		AgentVersion:   params.AgentVersion,
+		Capabilities:   params.Capabilities,
+		WorkspaceRoots: params.WorkspaceRoots,
+		LastSeen:       time.Now(),
 	})
 	if err != nil {
 		closeWithError(ws, websocket.CloseInternalServerErr, "register node failed")
@@ -190,14 +192,15 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 
 	// welcome 已成功写出，agent 进入就绪状态，此时才允许请求路由到该连接。
 	g.registry.Register(node.Info{
-		ID:           rec.ID,
-		Name:         rec.Name,
-		OS:           rec.OS,
-		Arch:         rec.Arch,
-		AgentVersion: rec.AgentVersion,
-		Capabilities: rec.Capabilities,
-		Connected:    true,
-		LastSeen:     time.Now(),
+		ID:             rec.ID,
+		Name:           rec.Name,
+		OS:             rec.OS,
+		Arch:           rec.Arch,
+		AgentVersion:   rec.AgentVersion,
+		Capabilities:   rec.Capabilities,
+		WorkspaceRoots: rec.WorkspaceRoots,
+		Connected:      true,
+		LastSeen:       time.Now(),
 	}, conn)
 
 	for {
