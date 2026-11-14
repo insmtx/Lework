@@ -11,16 +11,16 @@ import {
 } from "react-native";
 
 import { createClient } from "../src/api/client";
-import { useProjects } from "../src/projects/use-projects";
 import { registerForPush, unregisterPush } from "../src/push/register";
 import { createSecureSettingsStore } from "../src/settings/secure-store";
 import { normalizeBaseUrl } from "../src/settings/settings";
-import { useSettings } from "../src/settings/use-settings";
+import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 
 export default function SettingsScreen() {
+	useScreenTitle("设置");
 	const store = useMemo(() => createSecureSettingsStore(), []);
-	const { settings, reload: reloadSettings } = useSettings();
-	const { nodes, dirByNode, setInboxDir } = useProjects(settings);
+	const { projects, reloadSettings } = useAppShell();
+	const { nodes, dirByNode, setInboxDir } = projects;
 	const [baseUrl, setBaseUrl] = useState("");
 	const [token, setToken] = useState("");
 	const [notifications, setNotifications] = useState(true);
@@ -62,7 +62,8 @@ export default function SettingsScreen() {
 					if (registered) {
 						nextDeviceID = registered;
 					} else {
-						pushNote = "Push is not registered: grant notification permission and set the EAS project id.";
+						pushNote =
+							"Push is not registered: grant notification permission and set the EAS project id.";
 					}
 				} catch (pushError) {
 					pushNote = pushError instanceof Error ? pushError.message : "failed to register for push";
@@ -170,7 +171,11 @@ export default function SettingsScreen() {
 				);
 			})}
 
-			<Pressable style={[styles.button, busy && styles.buttonDisabled]} onPress={save} disabled={busy}>
+			<Pressable
+				style={[styles.button, busy && styles.buttonDisabled]}
+				onPress={save}
+				disabled={busy}
+			>
 				{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save</Text>}
 			</Pressable>
 
@@ -191,7 +196,12 @@ const styles = StyleSheet.create({
 		paddingVertical: 10,
 		fontSize: 16,
 	},
-	switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
+	switchRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginTop: 8,
+	},
 	switchText: { flex: 1, gap: 2 },
 	button: {
 		marginTop: 16,

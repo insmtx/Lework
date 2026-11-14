@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
@@ -16,9 +16,8 @@ import { createClient } from "../../src/api/client";
 import { createSecureDraftStore } from "../../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../../src/composer/send";
 import { projectDisplayName, resolveTarget } from "../../src/projects/model";
-import { useProjects } from "../../src/projects/use-projects";
 import { useProjectSessions } from "../../src/sessions/use-project-sessions";
-import { useSettings } from "../../src/settings/use-settings";
+import { useAppShell, useScreenTitle } from "../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../src/ui/global-composer";
 import { SessionRow } from "../../src/ui/session-row";
 
@@ -27,14 +26,16 @@ export default function ProjectScreen() {
 	const params = useLocalSearchParams<{ key?: string | string[] }>();
 	const projectKey = Array.isArray(params.key) ? (params.key[0] ?? "") : (params.key ?? "");
 
-	const { settings, loading: settingsLoading } = useSettings();
-	const { projects, nodes, loading, error, refresh, setPrimaryNode } = useProjects(settings);
+	const { settings, settingsLoading, projects: projectsState } = useAppShell();
+	const { projects, nodes, loading, error, refresh, setPrimaryNode } = projectsState;
 	const store = useMemo(() => createSecureDraftStore(), []);
 
 	const project = useMemo(
 		() => projects.find((item) => item.key === projectKey) ?? null,
 		[projects, projectKey],
 	);
+	const projectName = project ? projectDisplayName(project) : "项目";
+	useScreenTitle(projectName);
 	const nodeNameByID = useMemo(
 		() => Object.fromEntries(nodes.map((node) => [node.id, node.name])),
 		[nodes],
@@ -53,40 +54,48 @@ export default function ProjectScreen() {
 	const target = project ? resolveTarget(project, onlineNodeIDs) : null;
 	const nodeID = target?.nodeID ?? null;
 
-	const scope = project && nodeID ? { projectKey: project.key, nodeID } : null;
+	const scopeProjectKey = project?.key ?? "";
+	const scopeNodeID = nodeID ?? "";
+	const hasScope = scopeProjectKey !== "" && scopeNodeID !== "";
 
 	const [draft, setDraft] = useState("");
 	const [sending, setSending] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState(false);
 
 	useEffect(() => {
-		if (!scope) {
+		if (!hasScope) {
 			setDraft("");
 			return;
 		}
 		let cancelled = false;
 		void store
-			.load(scope)
+			.load({ projectKey: scopeProjectKey, nodeID: scopeNodeID })
 			.then((value) => {
 				if (!cancelled) setDraft(value);
 			})
-			.catch(() => {});
+			.catch(() => {
+				// 读不到草稿不是致命错误：输入框留空即可。
+			});
 		return () => {
 			cancelled = true;
 		};
-	}, [store, scope?.projectKey, scope?.nodeID]);
+	}, [store, hasScope, scopeProjectKey, scopeNodeID]);
 
 	const changeText = useCallback(
 		(text: string) => {
 			setDraft(text);
-			if (scope) void store.save(scope, text).catch(() => {});
+			if (hasScope) {
+				void store.save({ projectKey: scopeProjectKey, nodeID: scopeNodeID }, text).catch(() => {
+					// 草稿落盘失败只影响下次恢复，不能阻塞输入。
+				});
+			}
 		},
-		[scope, store],
+		[store, hasScope, scopeProjectKey, scopeNodeID],
 	);
 
 	const send = useCallback(async () => {
 		const text = draft.trim();
-		if (!settings || !project || !nodeID || !scope || text === "") return;
+		if (!settings || !project || !nodeID || !hasScope || text === "") return;
 
 		setSending(true);
 		try {
@@ -98,7 +107,7 @@ export default function ProjectScreen() {
 				text,
 				newIdempotencyKey(nodeID, "new"),
 			);
-			await store.save(scope, "");
+			await store.save({ projectKey: scopeProjectKey, nodeID: scopeNodeID }, "");
 			setDraft("");
 			sessions.refresh();
 			router.push(`/session/${encodeURIComponent(nodeID)}/${encodeURIComponent(session.id)}`);
@@ -107,7 +116,7 @@ export default function ProjectScreen() {
 		} finally {
 			setSending(false);
 		}
-	}, [settings, project, nodeID, scope, draft, store, sessions]);
+	}, [settings, project, nodeID, hasScope, scopeProjectKey, scopeNodeID, draft, store, sessions]);
 
 	const choosePrimary = useCallback(
 		(node: string) => {
@@ -163,6 +172,7 @@ export default function ProjectScreen() {
 
 	return (
 		<View style={styles.screen}>
+			<Stack.Screen options={{ title: projectName }} />
 			<FlatList
 				style={styles.list}
 				contentContainerStyle={styles.listContent}
@@ -179,7 +189,6 @@ export default function ProjectScreen() {
 				}
 				ListHeaderComponent={
 					<View style={styles.header}>
-						<Text style={styles.title}>{projectDisplayName(project)}</Text>
 						<Text style={styles.meta}>{project.canonical}</Text>
 						<Pressable style={styles.primary} onPress={() => setPickerOpen(true)}>
 							<Text style={styles.primaryText}>主节点：{primaryLabel} ▾</Text>
@@ -218,7 +227,7 @@ export default function ProjectScreen() {
 								projectKey: project.key,
 								projectName: projectDisplayName(project),
 								nodeID,
-								nodeName: nodeNameByID[nodeID],
+								showNode: false,
 							}
 						: null
 				}
@@ -229,7 +238,12 @@ export default function ProjectScreen() {
 				sending={sending}
 			/>
 
-			<Modal transparent visible={pickerOpen} animationType="fade" onRequestClose={() => setPickerOpen(false)}>
+			<Modal
+				transparent
+				visible={pickerOpen}
+				animationType="fade"
+				onRequestClose={() => setPickerOpen(false)}
+			>
 				<Pressable style={styles.backdrop} onPress={() => setPickerOpen(false)}>
 					<View style={styles.sheet}>
 						<Text style={styles.sheetTitle}>选择主节点</Text>
@@ -239,9 +253,7 @@ export default function ProjectScreen() {
 								style={styles.sheetItem}
 								onPress={() => choosePrimary(node.node_id)}
 							>
-								<Text style={styles.sheetLabel}>
-									{nodeNameByID[node.node_id] ?? node.node_id}
-								</Text>
+								<Text style={styles.sheetLabel}>{nodeNameByID[node.node_id] ?? node.node_id}</Text>
 								<Text style={node.online ? styles.online : styles.offline}>
 									{node.online ? "在线" : "离线"}
 								</Text>

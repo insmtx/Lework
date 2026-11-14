@@ -1,4 +1,13 @@
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+	ActivityIndicator,
+	KeyboardAvoidingView,
+	Platform,
+	Pressable,
+	StyleSheet,
+	Text,
+	TextInput,
+	View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /** ComposerTarget 是当前输入要发往的项目/节点。 */
@@ -21,6 +30,8 @@ export interface GlobalComposerProps {
 	sending: boolean;
 	/** 非会话页可切项目/节点；会话页不传，目标只读。 */
 	onPickTarget?: () => void;
+	/** 会话页标题已经写明了对象，再显示 chip 就是重复信息。 */
+	showChip?: boolean;
 }
 
 /**
@@ -40,10 +51,8 @@ export function GlobalComposer(props: GlobalComposerProps) {
 			keyboardVerticalOffset={80}
 		>
 			<View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-				{props.disabledReason ? (
-					<Text style={styles.reason}>{props.disabledReason}</Text>
-				) : null}
-				{props.target ? (
+				{props.disabledReason ? <Text style={styles.reason}>{props.disabledReason}</Text> : null}
+				{props.target && props.showChip !== false ? (
 					<Pressable
 						disabled={!props.onPickTarget}
 						onPress={props.onPickTarget}

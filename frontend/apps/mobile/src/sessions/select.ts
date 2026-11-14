@@ -40,6 +40,23 @@ export function selectProjectSessions(
 }
 
 /**
+ * selectSiblingSessions 选出与当前会话同项目（同节点）的会话。
+ *
+ * 会话页只知道节点和会话 id，没有项目上下文；用 projectID 或目录反查
+ * 出项目后复用同一套匹配规则，避免按字符串前缀把兄弟仓库的会话混进来。
+ */
+export function selectSiblingSessions(
+	sessions: Session[],
+	projectKey: string,
+	canonical: string,
+): Session[] {
+	const refs = sessions.map((session) => ({ nodeID: "", session }));
+	return sortSessionsByActivity(selectProjectSessions(refs, projectKey, canonical)).map(
+		(ref) => ref.session,
+	);
+}
+
+/**
  * sortSessionsByActivity 按最近更新时间倒序；缺失时间的会话保持在末尾，
  * 不参与比较，避免把服务端顺序打乱。
  */

@@ -1,6 +1,5 @@
 import type { NodeView } from "@lework/api";
 import { router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
 import {
 	ActivityIndicator,
 	FlatList,
@@ -11,8 +10,7 @@ import {
 	View,
 } from "react-native";
 
-import { createClient } from "../src/api/client";
-import { useSettings } from "../src/settings/use-settings";
+import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 
 function NodeCard({ node }: { node: NodeView }) {
 	const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleString() : "never";
@@ -46,29 +44,14 @@ function NodeCard({ node }: { node: NodeView }) {
 	);
 }
 
-/** 节点页只做诊断：节点不再进主导航，只从右上角菜单进入。 */
+/** 节点页只做诊断：节点不再进主导航，只从侧边栏设置/诊断入口进入。 */
 export default function NodesScreen() {
-	const { settings, loading: settingsLoading } = useSettings();
-	const [nodes, setNodes] = useState<NodeView[]>([]);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	const refresh = useCallback(() => {
-		if (!settings) return;
-		setLoading(true);
-		setError(null);
-		void createClient(settings)
-			.listNodes()
-			.then(setNodes)
-			.catch((caught: unknown) => {
-				setError(caught instanceof Error ? caught.message : "failed to load nodes");
-			})
-			.finally(() => setLoading(false));
-	}, [settings]);
-
-	useEffect(() => {
-		if (settings) refresh();
-	}, [settings, refresh]);
+	useScreenTitle("节点");
+	const { settings, settingsLoading, projects } = useAppShell();
+	const nodes = projects.nodes;
+	const loading = projects.loading;
+	const error = projects.error;
+	const refresh = projects.refresh;
 
 	if (settingsLoading) {
 		return (

@@ -1,91 +1,59 @@
 import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
-	FlatList,
+	KeyboardAvoidingView,
+	Platform,
 	Pressable,
-	RefreshControl,
 	StyleSheet,
 	Text,
+	TextInput,
 	View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createClient } from "../src/api/client";
 import { createSecureDraftStore } from "../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../src/composer/send";
-import { INBOX_ALIAS, projectDisplayName } from "../src/projects/model";
-import { useProjects } from "../src/projects/use-projects";
-import { useProjectSessions } from "../src/sessions/use-project-sessions";
-import { useSettings } from "../src/settings/use-settings";
-import { GlobalComposer } from "../src/ui/global-composer";
-import { SessionRow } from "../src/ui/session-row";
+import { sessionRoute } from "../src/config";
+import { resolveTaskTarget } from "../src/projects/model";
+import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
+import { DrawerButton } from "../src/ui/top-bar";
+
+// 首页草稿不跟随项目切换：用户还没决定发给谁时，字不能丢。
+const HOME_DRAFT_SCOPE = { projectKey: "home", nodeID: "home" };
 
 /**
- * 首页就是「我的」：打开 App 直接看到这个项目最近的会话，输入框常驻底部。
+ * 首页只做一件事：直接说任务。
  *
- * 「我的」是一条偏好（某节点上的目录），不是 OpenCode 的特殊项目；目录
- * 尚未对应任何项目时也允许发送——第一条消息会把项目创建出来。
+ * 没有标题、路径、会话列表或节点信息——导航在侧边栏，历史在项目页。
+ * 输入框提交时自动挑节点（主节点 → 最近在线），用户不需要先选机器。
  */
-export default function InboxScreen() {
-	const { settings, loading: settingsLoading } = useSettings();
-	const { projects, nodes, dirByNode, inbox, loading, error, refresh, connected } =
-		useProjects(settings);
+export default function HomeScreen() {
+	useScreenTitle("新任务");
+	const { settings, settingsLoading, projects, newTaskSeq } = useAppShell();
+	const insets = useSafeAreaInsets();
 	const store = useMemo(() => createSecureDraftStore(), []);
+	const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
 
-	const onlineNodeIDs = useMemo(
-		() => nodes.filter((node) => node.connected).map((node) => node.id),
-		[nodes],
-	);
-	const nodeNameByID = useMemo(
-		() => Object.fromEntries(nodes.map((node) => [node.id, node.name])),
-		[nodes],
-	);
-
-	const project = inbox.project;
-	const inboxDir = inbox.nodeID ? (dirByNode[inbox.nodeID] ?? "") : "";
-	const inboxOnline = inbox.nodeID !== null && onlineNodeIDs.includes(inbox.nodeID);
-
-	const projectOnlineNodes = useMemo(
-		() =>
-			(project?.nodes ?? [])
-				.filter((node) => node.online)
-				.map((node) => node.node_id),
-		[project],
-	);
-	const sessions = useProjectSessions(
-		settings,
-		inboxOnline ? project : null,
-		projectOnlineNodes,
-	);
-
-	const target =
-		inbox.nodeID && inboxDir
-			? {
-					projectKey:
-						project?.key ?? `inbox:${inbox.nodeID}:${inboxDir}`,
-					projectName: INBOX_ALIAS,
-					nodeID: inboxOnline ? inbox.nodeID : null,
-					nodeName: inboxOnline ? nodeNameByID[inbox.nodeID] : undefined,
-				}
-			: null;
-
-	const scope =
-		inbox.nodeID && inboxDir
-			? { projectKey: target?.projectKey ?? "", nodeID: inbox.nodeID }
-			: null;
-
+	// 草稿固定在「首页」scope：切项目或节点都不该让用户刚打的字消失。
 	const [draft, setDraft] = useState("");
 	const [sending, setSending] = useState(false);
 
+	const onlineNodeIDs = useMemo(
+		() => projects.nodes.filter((node) => node.connected).map((node) => node.id),
+		[projects.nodes],
+	);
+	const target = useMemo(
+		() => resolveTaskTarget(projects.inbox, projects.dirByNode, onlineNodeIDs),
+		[projects.inbox, projects.dirByNode, onlineNodeIDs],
+	);
+
 	useEffect(() => {
-		if (!scope) {
-			setDraft("");
-			return;
-		}
 		let cancelled = false;
 		void store
-			.load(scope)
+			.load(HOME_DRAFT_SCOPE)
 			.then((value) => {
 				if (!cancelled) setDraft(value);
 			})
@@ -95,152 +63,141 @@ export default function InboxScreen() {
 		return () => {
 			cancelled = true;
 		};
-	}, [store, scope?.projectKey, scope?.nodeID]);
+	}, [store]);
+
+	useEffect(() => {
+		if (newTaskSeq === 0) return;
+		const timer = setTimeout(() => inputRef.current?.focus(), 60);
+		return () => clearTimeout(timer);
+	}, [newTaskSeq]);
 
 	const changeText = useCallback(
 		(text: string) => {
 			setDraft(text);
-			if (scope) void store.save(scope, text).catch(() => {});
+			void store.save(HOME_DRAFT_SCOPE, text).catch(() => {
+				// 草稿落盘失败只影响下次恢复，不能阻塞输入。
+			});
 		},
-		[scope, store],
+		[store],
 	);
 
 	const send = useCallback(async () => {
-		const nodeID = target?.nodeID;
 		const text = draft.trim();
-		if (!settings || !target || !nodeID || !scope || text === "") return;
+		const nodeID = target.nodeID;
+		if (!settings || !nodeID || target.directory === "" || text === "") return;
 
 		setSending(true);
 		try {
-			const client = createClient(settings);
 			const session = await sendToProject(
-				client,
+				createClient(settings),
 				nodeID,
-				inboxDir,
+				target.directory,
 				text,
 				newIdempotencyKey(nodeID, "new"),
 			);
-			await store.save(scope, "");
+			await store.save(HOME_DRAFT_SCOPE, "");
 			setDraft("");
-			refresh();
-			sessions.refresh();
-			router.push(`/session/${encodeURIComponent(nodeID)}/${encodeURIComponent(session.id)}`);
+			projects.refresh();
+			router.push(sessionRoute(nodeID, session.id));
 		} catch (caught) {
 			// 发送失败保留草稿：用户重试时不该重新打一遍。
 			Alert.alert("发送失败", caught instanceof Error ? caught.message : "请稍后重试");
 		} finally {
 			setSending(false);
 		}
-	}, [settings, target, scope, draft, inboxDir, store, refresh, sessions]);
+	}, [settings, target, draft, store, projects]);
 
 	const disabledReason = !settings
-		? "未连接控制面"
-		: inbox.nodeID === null
-			? "还没有可用的「我的」目录"
-			: !inboxDir
-				? "「我的」目录不可用"
-				: !inboxOnline
-					? "我的节点离线"
-					: undefined;
-
-	const onRefresh = useCallback(() => {
-		refresh();
-		sessions.refresh();
-	}, [refresh, sessions]);
-
-	if (settingsLoading) {
-		return (
-			<View style={styles.center}>
-				<ActivityIndicator />
-			</View>
-		);
-	}
-
-	if (!settings) {
-		return (
-			<View style={styles.center}>
-				<Text style={styles.title}>未连接</Text>
-				<Text style={styles.hint}>先在设置里填写控制面地址与令牌。</Text>
-				<Pressable style={styles.button} onPress={() => router.push("/settings")}>
-					<Text style={styles.buttonText}>打开设置</Text>
-				</Pressable>
-			</View>
-		);
-	}
+		? "先连接控制面"
+		: target.reason === "no-dir"
+			? "还没有可用的任务目录"
+			: target.reason === "no-node"
+				? "没有在线节点"
+				: undefined;
+	const canSend =
+		!settingsLoading && disabledReason === undefined && !sending && draft.trim() !== "";
 
 	return (
 		<View style={styles.screen}>
-			<FlatList
-				style={styles.list}
-				contentContainerStyle={styles.listContent}
-				data={sessions.rows}
-				keyExtractor={(row) => `${row.nodeID}:${row.session.id}`}
-				refreshControl={
-					<RefreshControl
-						refreshing={loading || sessions.loading}
-						onRefresh={onRefresh}
+			<View style={[styles.menu, { top: insets.top + 4 }]}>
+				<DrawerButton />
+			</View>
+
+			<KeyboardAvoidingView
+				style={styles.center}
+				behavior={Platform.OS === "ios" ? "padding" : "height"}
+			>
+				<View style={styles.card}>
+					<TextInput
+						ref={inputRef}
+						style={styles.input}
+						value={draft}
+						onChangeText={changeText}
+						editable={!settingsLoading && disabledReason === undefined}
+						multiline
+						placeholder="现在要做什么？"
+						placeholderTextColor="#94a3b8"
+						textAlignVertical="top"
 					/>
-				}
-				ListHeaderComponent={
-					<View style={styles.header}>
-						<Text style={styles.title}>{INBOX_ALIAS}</Text>
-						<Text style={styles.meta} numberOfLines={1}>
-							{project
-								? `${projectDisplayName(project)} · ${project.canonical}`
-								: inboxDir
-									? `${inboxDir}（发送后自动创建项目）`
-									: "尚未在此节点初始化"}
-						</Text>
-						{!connected ? <Text style={styles.warn}>事件流未连接，正在重试</Text> : null}
-						{error ? <Text style={styles.error}>{error}</Text> : null}
-						{sessions.error ? <Text style={styles.error}>{sessions.error}</Text> : null}
+					<View style={styles.footer}>
+						<Text style={styles.reason}>{disabledReason ?? "回车换行"}</Text>
+						<Pressable
+							disabled={!canSend}
+							onPress={() => void send()}
+							style={[styles.send, !canSend && styles.sendDisabled]}
+						>
+							{sending ? (
+								<ActivityIndicator color="#fff" />
+							) : (
+								<Text style={styles.sendText}>发送</Text>
+							)}
+						</Pressable>
 					</View>
-				}
-				renderItem={({ item }) => (
-					<SessionRow
-						nodeID={item.nodeID}
-						session={item.session}
-						nodeName={nodeNameByID[item.nodeID]}
-					/>
-				)}
-				ListEmptyComponent={
-					<View style={styles.empty}>
-						<Text style={styles.hint}>
-							{sessions.loading ? "正在加载会话…" : "还没有会话，在下方输入即可开始。"}
-						</Text>
-					</View>
-				}
-			/>
-			<GlobalComposer
-				target={target}
-				disabledReason={disabledReason}
-				value={draft}
-				onChangeText={changeText}
-				onSend={send}
-				sending={sending}
-			/>
+				</View>
+
+				{!settingsLoading && !settings ? (
+					<Pressable style={styles.link} onPress={() => router.push("/settings")}>
+						<Text style={styles.linkText}>去设置连接</Text>
+					</Pressable>
+				) : null}
+			</KeyboardAvoidingView>
 		</View>
 	);
 }
 
 const styles = StyleSheet.create({
 	screen: { flex: 1, backgroundColor: "#fff" },
-	list: { flex: 1 },
-	listContent: { padding: 16, gap: 8, flexGrow: 1 },
-	header: { gap: 4, marginBottom: 8 },
-	center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
-	empty: { paddingVertical: 32, alignItems: "center" },
-	title: { fontSize: 20, fontWeight: "700" },
-	hint: { color: "#666", textAlign: "center" },
-	meta: { fontSize: 12, color: "#64748b" },
-	warn: { fontSize: 12, color: "#b45309" },
-	error: { fontSize: 12, color: "#b91c1c" },
-	button: {
-		marginTop: 8,
-		backgroundColor: "#0f172a",
-		borderRadius: 8,
-		paddingHorizontal: 16,
-		paddingVertical: 10,
+	menu: { position: "absolute", left: 8, zIndex: 1 },
+	center: { flex: 1, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 32 },
+	card: {
+		borderWidth: 1,
+		borderColor: "#e2e8f0",
+		borderRadius: 20,
+		backgroundColor: "#f8fafc",
+		padding: 16,
+		gap: 12,
 	},
-	buttonText: { color: "#fff", fontWeight: "600" },
+	input: {
+		minHeight: 96,
+		maxHeight: 220,
+		fontSize: 18,
+		lineHeight: 26,
+		color: "#0f172a",
+		padding: 0,
+	},
+	footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+	reason: { flex: 1, fontSize: 12, color: "#94a3b8" },
+	send: {
+		height: 38,
+		minWidth: 72,
+		paddingHorizontal: 18,
+		borderRadius: 19,
+		backgroundColor: "#0f172a",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	sendDisabled: { opacity: 0.35 },
+	sendText: { color: "#fff", fontWeight: "600" },
+	link: { alignSelf: "center", marginTop: 16, padding: 8 },
+	linkText: { fontSize: 14, color: "#2563eb" },
 });

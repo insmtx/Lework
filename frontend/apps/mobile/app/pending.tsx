@@ -11,14 +11,20 @@ import {
 } from "react-native";
 
 import { sessionRoute } from "../src/config";
-import { useOverview } from "../src/overview/use-overview";
 import { pendingRows } from "../src/pending/derive";
-import { useSettings } from "../src/settings/use-settings";
+import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 
 /** 待审批：从总览快照汇总所有 pending 会话，点进去逐个处理。 */
 export default function PendingScreen() {
-	const { settings, loading: settingsLoading } = useSettings();
-	const { nodes, loading, error, refresh } = useOverview(settings);
+	useScreenTitle("待审批");
+	const {
+		settings,
+		settingsLoading,
+		overviewNodes: nodes,
+		overviewLoading: loading,
+		overviewError: error,
+		refreshOverview: refresh,
+	} = useAppShell();
 
 	const rows = useMemo(
 		() =>

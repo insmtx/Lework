@@ -1,13 +1,12 @@
-import { router, Stack } from "expo-router";
 import * as Notifications from "expo-notifications";
+import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
-import { useOverview } from "../src/overview/use-overview";
 import { routeFromNotification } from "../src/push/route";
-import { useSettings } from "../src/settings/use-settings";
-import { AppMenu } from "../src/ui/app-menu";
+import { AppShell } from "../src/ui/app-shell";
+import { DrawerButton } from "../src/ui/top-bar";
 
 // 前台收到通知时也显示横幅：审批请求可能就在用户盯着 App 的时候到达。
 Notifications.setNotificationHandler({
@@ -25,15 +24,6 @@ function openFromNotification(data: unknown) {
 }
 
 export default function RootLayout() {
-	// 菜单里的待审批角标由总览快照汇总，避免为徽标新增接口。
-	const { settings } = useSettings();
-	const { nodes } = useOverview(settings);
-	const pendingCount = nodes.reduce(
-		(total, node) =>
-			total + node.sessions.reduce((sum, session) => sum + session.pending_permissions, 0),
-		0,
-	);
-
 	useEffect(() => {
 		const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
 			openFromNotification(response.notification.request.content.data);
@@ -61,17 +51,17 @@ export default function RootLayout() {
 	}, []);
 
 	return (
-		<>
+		<AppShell>
 			<StatusBar style="auto" />
-			<Stack screenOptions={{ headerRight: () => <AppMenu pendingCount={pendingCount} /> }}>
-				<Stack.Screen name="index" options={{ title: "我的" }} />
+			<Stack screenOptions={{ headerRight: () => <DrawerButton /> }}>
+				<Stack.Screen name="index" options={{ headerShown: false }} />
 				<Stack.Screen name="projects" options={{ title: "项目" }} />
 				<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
 				<Stack.Screen name="pending" options={{ title: "待审批" }} />
 				<Stack.Screen name="nodes" options={{ title: "节点" }} />
-				<Stack.Screen name="settings" options={{ title: "Settings" }} />
-				<Stack.Screen name="session/[node]/[id]" options={{ title: "Session" }} />
+				<Stack.Screen name="settings" options={{ title: "设置" }} />
+				<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
 			</Stack>
-		</>
+		</AppShell>
 	);
 }
