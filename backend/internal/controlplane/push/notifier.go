@@ -3,6 +3,7 @@ package push
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 const (
@@ -24,10 +26,6 @@ const (
 
 	// concurrency 是同时在途的推送数量。推送再慢也只排队，不阻塞订阅读取。
 	concurrency = 4
-
-	// runBuffer 是 Hub 订阅缓冲；慢消费者会被 Hub 淘汰并触发客户端 resync，
-	// 因此这里不需要无限缓冲。
-	runBuffer = 64
 )
 
 // DeviceSource 提供推送目标。抽成接口是为了让 Notifier 在测试里不依赖数据库。
@@ -83,50 +81,58 @@ func NewNotifier(devices DeviceSource, sender Sender, label func(nodeID string) 
 	return n
 }
 
-// Subscriber 是事件中心的订阅面。抽成接口是为了让 Run 的重新订阅路径
-// 能在测试里被触发，而不必真的制造慢消费者。
-type Subscriber interface {
-	Subscribe(buffer int) (<-chan event.Event, func())
-}
-
-// Run 订阅事件中心并持续推送，直到 ctx 取消。
+// PullSubscriber 是持久化消费组的订阅面。
 //
-// Hub 会淘汰慢消费者（关闭通道）而不是拖住发布方，所以这里必须能重新
-// 订阅；否则一次跟不上就会让推送悄悄停到进程重启。
-func (n *Notifier) Run(ctx context.Context, sub Subscriber) {
-	for ctx.Err() == nil {
-		events, cancel := sub.Subscribe(runBuffer)
-		n.consume(ctx, events)
-		cancel()
-		if ctx.Err() != nil {
-			return
-		}
-		logs.Warnf("push: event subscription lost, resubscribing")
-	}
+// 同一 durable 的多个实例共享一条消费流：一条审批事件只被一个实例处理，
+// 因此不需要在实例之间去重，重投则由 Handle 的内部去重兜底。
+type PullSubscriber interface {
+	SubscribePull(ctx context.Context, stream, subject, durable string, handler func(context.Context, []byte) error) error
 }
 
-// consume 处理一个订阅通道，直到它被关闭或 ctx 取消。
-func (n *Notifier) consume(ctx context.Context, events <-chan event.Event) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, ok := <-events:
-			if !ok {
-				return
-			}
-			// 推送慢时宁可丢事件，也不能让订阅通道积压到被淘汰。
-			select {
-			case n.gate <- struct{}{}:
-				go func() {
-					defer func() { <-n.gate }()
-					n.Handle(ctx, ev)
-				}()
-			default:
-				logs.Warnf("push: queue full, dropping %s", ev.Type)
-			}
-		}
+// Run 订阅控制面审批事件消费组并持续推送，直到 ctx 取消。
+//
+// 订阅阻塞到 ctx 取消；取消导致的错误属于正常退出，返回 nil。其他错误
+// 交给调用方记录，避免推送链路静默停摆。
+func (n *Notifier) Run(ctx context.Context, sub PullSubscriber) error {
+	if sub == nil {
+		return errors.New("push: pull subscriber is required")
 	}
+
+	err := sub.SubscribePull(
+		ctx,
+		messaging.StreamNameControlPlane,
+		messaging.ControlPlaneEventWildcard(),
+		messaging.ControlPlanePushConsumer,
+		n.handlePayload,
+	)
+	if err != nil && ctx.Err() == nil {
+		return fmt.Errorf("push: subscribe approval events: %w", err)
+	}
+	return nil
+}
+
+// handlePayload 解码一条审批事件并异步推送。
+//
+// 返回 nil 表示消息已被处理：坏负载记录后直接 Ack，否则会无限重投；
+// 推送本身放进 gate 控制的协程，慢发送不会拖住消费组。
+func (n *Notifier) handlePayload(ctx context.Context, payload []byte) error {
+	var ev event.Event
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		// 不打印原始负载：事件正文可能包含用户输入或密钥。
+		logs.Warnf("push: decode event payload: %v", err)
+		return nil
+	}
+
+	select {
+	case n.gate <- struct{}{}:
+		go func() {
+			defer func() { <-n.gate }()
+			n.Handle(ctx, ev)
+		}()
+	default:
+		logs.Warnf("push: queue full, dropping %s", ev.Type)
+	}
+	return nil
 }
 
 // Handle 处理单个事件。调用方可以是 Run 的 worker，也可以是测试。

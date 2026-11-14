@@ -7,11 +7,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq/mqtest"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 type fakeDevices struct {
@@ -188,89 +191,180 @@ func (b *blockingSender) Send(context.Context, []Message) error {
 	return nil
 }
 
+// countingPull 包装内存总线，记录已进入 SubscribePull 的消费组成员数。
+//
+// SubscribePull 注册后立即阻塞，调用方无法从返回值判断注册是否生效；计数
+// 是测试等待两个 Run 都加入同一 durable 的唯一可观察信号。
+type countingPull struct {
+	bus    *mqtest.Bus
+	joined int32
+}
+
+func (c *countingPull) SubscribePull(
+	ctx context.Context,
+	stream, subject, durable string,
+	handler func(context.Context, []byte) error,
+) error {
+	atomic.AddInt32(&c.joined, 1)
+	return c.bus.SubscribePull(ctx, stream, subject, durable, handler)
+}
+
+func (c *countingPull) members() int {
+	return int(atomic.LoadInt32(&c.joined))
+}
+
+// waitForPullMembers 轮询到指定数量的消费组成员进入 SubscribePull。
+func waitForPullMembers(t *testing.T, pull *countingPull, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if pull.members() == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("pull members = %d, want %d", pull.members(), want)
+}
+
+// waitForPushes 轮询到至少 want 次推送。
+func waitForPushes(t *testing.T, sender *fakeSender, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for sender.count() < want && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if sender.count() != want {
+		t.Fatalf("pushes = %d, want %d", sender.count(), want)
+	}
+}
+
+// TestNotifierPullGroupDeduplicates 证明两个实例消费同一 durable 时，
+// 一条审批事件只会产生一次推送。
+func TestNotifierPullGroupDeduplicates(t *testing.T) {
+	bus := mqtest.New()
+	sender := &fakeSender{}
+	devices := fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}
+
+	first := NewNotifier(devices, sender, func(string) string { return "n" })
+	second := NewNotifier(devices, sender, func(string) string { return "n" })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pull := &countingPull{bus: bus}
+	errCh := make(chan error, 2)
+	go func() { errCh <- first.Run(ctx, pull) }()
+	go func() { errCh <- second.Run(ctx, pull) }()
+	waitForPullMembers(t, pull, 2)
+	// members 在真正写入总线订阅表之前递增，留一点调度窗口让两个订阅生效。
+	time.Sleep(10 * time.Millisecond)
+
+	subject, err := messaging.ControlPlaneEventSubject("node_1")
+	if err != nil {
+		t.Fatalf("event subject: %v", err)
+	}
+	if err := bus.Publish(ctx, subject, permissionAsked("node_1", "ses_1", "perm_1")); err != nil {
+		t.Fatalf("publish permission event: %v", err)
+	}
+
+	waitForPushes(t, sender, 1)
+	// 消费组语义下第二条推送是重复消费：等一个去重窗口之外的短暂间隙再断言。
+	time.Sleep(50 * time.Millisecond)
+	if got := sender.count(); got != 1 {
+		t.Fatalf("pushes = %d, want exactly 1 for one event", got)
+	}
+
+	cancel()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("Run returned %v, want nil after cancellation", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Run did not exit after cancellation")
+		}
+	}
+}
+
+// TestNotifierDedupesRedelivery 模拟 Ack 前崩溃后的重投：同一事件投递两次，
+// 仍在去重窗口内，只应推送一次。
+func TestNotifierDedupesRedelivery(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "n" })
+
+	payload, err := json.Marshal(permissionAsked("node_1", "ses_1", "perm_1"))
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := n.handlePayload(ctx, payload); err != nil {
+		t.Fatalf("first handlePayload returned %v, want nil", err)
+	}
+	waitForPushes(t, sender, 1)
+
+	if err := n.handlePayload(ctx, payload); err != nil {
+		t.Fatalf("second handlePayload returned %v, want nil", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := sender.count(); got != 1 {
+		t.Fatalf("pushes = %d, want 1 after redelivery", got)
+	}
+}
+
+// TestNotifierIgnoresMalformedPayload 证明坏负载被 Ack 而不是无限重投。
+func TestNotifierIgnoresMalformedPayload(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "n" })
+
+	if err := n.handlePayload(context.Background(), []byte("not-json")); err != nil {
+		t.Fatalf("handlePayload returned %v, want nil so the message is acked", err)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	if got := sender.count(); got != 0 {
+		t.Fatalf("pushes = %d, want 0 for a malformed payload", got)
+	}
+}
+
+// TestRunExitsOnCancelWhileSending 证明阻塞的发送不会拖住 Run 的退出。
 func TestRunExitsOnCancelWhileSending(t *testing.T) {
 	sender := &blockingSender{release: make(chan struct{})}
 	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
 		func(string) string { return "n" })
 
 	ctx, cancel := context.WithCancel(context.Background())
-	hub := event.NewHub()
-	done := make(chan struct{})
-	go func() {
-		n.Run(ctx, hub)
-		close(done)
-	}()
+	defer cancel()
 
+	bus := mqtest.New()
+	pull := &countingPull{bus: bus}
+	done := make(chan error, 1)
+	go func() { done <- n.Run(ctx, pull) }()
+	waitForPullMembers(t, pull, 1)
+
+	subject, err := messaging.ControlPlaneEventSubject("node_1")
+	if err != nil {
+		t.Fatalf("event subject: %v", err)
+	}
 	for i := 0; i < 20; i++ {
-		hub.Publish(permissionAsked("node_1", "ses_1", strconv.Itoa(i)))
+		if err := bus.Publish(ctx, subject, permissionAsked("node_1", "ses_1", strconv.Itoa(i))); err != nil {
+			t.Fatalf("publish %d: %v", i, err)
+		}
 	}
 
 	cancel()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil after cancellation", err)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit after cancellation while a send was blocked")
 	}
 	close(sender.release)
-}
-
-// scriptedSubscriber 第一次订阅立刻关闭通道，模拟 Hub 淘汰慢消费者；
-// 之后每次订阅投递一条审批事件再关闭，用来证明 Run 会重新订阅。
-type scriptedSubscriber struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (s *scriptedSubscriber) Subscribe(int) (<-chan event.Event, func()) {
-	s.mu.Lock()
-	s.calls++
-	n := s.calls
-	s.mu.Unlock()
-
-	ch := make(chan event.Event, 8)
-	if n > 1 {
-		ch <- permissionAsked("node_1", "ses_1", "perm_1")
-	}
-	close(ch)
-	return ch, func() {}
-}
-
-func (s *scriptedSubscriber) count() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
-func TestRunResubscribesAfterEviction(t *testing.T) {
-	sender := &fakeSender{}
-	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
-		func(string) string { return "n" })
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sub := &scriptedSubscriber{}
-	done := make(chan struct{})
-	go func() {
-		n.Run(ctx, sub)
-		close(done)
-	}()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for sender.count() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if sender.count() == 0 {
-		t.Fatal("no push after resubscribe: Run gave up when the subscription was closed")
-	}
-	if sub.count() < 2 {
-		t.Fatalf("Subscribe calls = %d, want at least 2", sub.count())
-	}
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not exit after cancellation")
-	}
 }

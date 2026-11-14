@@ -207,7 +207,14 @@ func (s *Server) Run(ctx context.Context) error {
 	s.mu.Unlock()
 
 	s.startMonitor(runCtx)
-	go s.notifier.Run(runCtx, s.hub)
+	// 审批推送走集群消费组：多实例共享一条消费流，同一条事件只推一次。
+	go func() {
+		if err := s.notifier.Run(runCtx, s.deps.Pull); err != nil && runCtx.Err() == nil {
+			logs.Errorf("controlplane: push notifier stopped: %v", err)
+		}
+	}()
+	// 心跳超时的节点可能来不及发断开事件，由对账补充 node.offline。
+	go NewReconciler(s.store, s.publisher, s.cfg.HeartbeatTimeout).Run(runCtx)
 	// 事件只从集群总线回到本地 Hub：节点网关发布到 Bus，桥接再扇出给浏览器。
 	go s.bridge.Run(runCtx)
 	go s.publishSnapshots(runCtx)
