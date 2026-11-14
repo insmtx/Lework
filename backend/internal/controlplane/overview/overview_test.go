@@ -321,6 +321,37 @@ func TestOldSnapshotDoesNotOverwriteNewerEvent(t *testing.T) {
 	}
 }
 
+// TestSnapshotFromFreshOwnerInitializesNode 证明没有水位时，带 owner 的快照
+// 可以直接初始化一个全新节点的投影：全新实例正是靠这条路径在快照周期内
+// 收敛，而不是等 owner 的下一条实时事件。
+func TestSnapshotFromFreshOwnerInitializesNode(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-a", ClusterSeq: 4, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_1", State: StateRunning, LastActivity: at}),
+	})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || len(snap[0].Sessions) != 1 || snap[0].Sessions[0].SessionID != "ses_1" {
+		t.Fatalf("snapshot = %+v, want the stamped snapshot applied on an empty index", snap)
+	}
+	// 快照建立的水位必须与快照一致，后续旧序号事件才会被拒绝。
+	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 4 {
+		t.Fatalf("watermark = %q/%d, want owner-a/4", owner, seq)
+	}
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_2", Type: "session.created",
+		Owner: "owner-a", ClusterSeq: 3, Time: at,
+	})
+	if snap := idx.Snapshot(); len(snap) != 1 || len(snap[0].Sessions) != 1 {
+		t.Fatalf("snapshot = %+v, want the older stamped event dropped", snap)
+	}
+}
+
 // TestSnapshotFromOtherOwnerIsDropped 证明快照不能切换 epoch：只有真实事件
 // 可以声明新 owner；旧 owner 的迟到快照必须被丢弃。
 func TestSnapshotFromOtherOwnerIsDropped(t *testing.T) {

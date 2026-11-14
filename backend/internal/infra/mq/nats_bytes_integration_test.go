@@ -139,6 +139,10 @@ func setupNATSJetStream(t *testing.T) *natsBus {
 
 // TestSubscribePullDistributesOnce 验证两个使用同一 durable 的 pull 订阅者
 // 会分摊消息，且每条消息只被处理一次。
+//
+// durable 首次创建时使用 DeliverNew（推送消费者依赖该语义，不能重放历史），
+// 因此消息必须在 consumer 建立之后再发布；重放语义由
+// TestPullConsumerDeliversOnlyNewMessages 单独覆盖。
 func TestSubscribePullDistributesOnce(t *testing.T) {
 	bus := setupNATSJetStream(t)
 
@@ -151,13 +155,6 @@ func TestSubscribePullDistributesOnce(t *testing.T) {
 		t.Fatalf("add stream: %v", err)
 	}
 	t.Cleanup(func() { _ = bus.js.DeleteStream(stream) })
-
-	const total = 20
-	for i := 0; i < total; i++ {
-		if _, err := bus.js.Publish(subject, []byte(fmt.Sprintf("msg-%d", i))); err != nil {
-			t.Fatalf("publish %d: %v", i, err)
-		}
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -180,7 +177,29 @@ func TestSubscribePullDistributesOnce(t *testing.T) {
 		}()
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
+	// 等 durable 真正创建后再发布：DeliverNew 的 consumer 不会投递创建前
+	// 留在 stream 里的消息。
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := bus.js.ConsumerInfo(stream, durable); err == nil {
+			break
+		} else if !errors.Is(err, nats.ErrConsumerNotFound) {
+			t.Fatalf("inspect consumer: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("pull consumer was not created within 5s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	const total = 20
+	for i := 0; i < total; i++ {
+		if _, err := bus.js.Publish(subject, []byte(fmt.Sprintf("msg-%d", i))); err != nil {
+			t.Fatalf("publish %d: %v", i, err)
+		}
+	}
+
+	deadline = time.Now().Add(10 * time.Second)
 	for {
 		select {
 		case err := <-pullErr:
