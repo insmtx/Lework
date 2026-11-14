@@ -14,6 +14,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane"
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
 )
 
 const (
@@ -153,26 +154,53 @@ is generated and written there so later runs print the same value.`,
 // 组合启动（bare lework）复用同一套构造/运行/关闭流程。
 type controlPlaneRuntime struct {
 	srv *controlplane.Server
+	bus io.Closer
 }
 
-// openControlPlane 校验配置、打开存储并装配控制面；返回的运行时可多次 Close。
+// openControlPlane 校验配置、打开共享存储与集群总线并装配控制面。
+//
+// 控制面的运行路径只有这一条：PostgreSQL 保证节点数据跨实例共享，NATS
+// 负责事件扇出与跨实例请求，缺一不可。任一环节失败时按打开顺序回滚，
+// 错误信息绝不拼接 URL（URL 可能内嵌账号密码）。
 func openControlPlane(cfg controlplaneconfig.Config) (*controlPlaneRuntime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("control plane config: %w", err)
 	}
+	if err := cfg.ValidateCluster(); err != nil {
+		return nil, fmt.Errorf("control plane cluster config: %w", err)
+	}
+	if cfg.Database == nil {
+		return nil, errors.New("control plane database config is required")
+	}
+	if cfg.NATS == nil {
+		return nil, errors.New("control plane nats config is required")
+	}
 
-	st, err := store.Open(cfg.DBPath)
+	st, err := store.OpenPostgres(*cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("open control plane store: %w", err)
 	}
 
-	srv, err := controlplane.New(cfg, st)
+	bus, err := mq.NewNATS(cfg.NATS.URL)
 	if err != nil {
+		_ = st.Close()
+		return nil, fmt.Errorf("connect control plane bus: %w", err)
+	}
+
+	srv, err := controlplane.New(cfg, st, controlplane.Deps{
+		Bus:     bus,
+		Core:    bus,
+		CoreSub: bus,
+		Request: bus,
+		Pull:    bus,
+	})
+	if err != nil {
+		_ = bus.Close()
 		_ = st.Close()
 		return nil, fmt.Errorf("start control plane: %w", err)
 	}
 
-	return &controlPlaneRuntime{srv: srv}, nil
+	return &controlPlaneRuntime{srv: srv, bus: bus}, nil
 }
 
 // Run 启动 HTTP 服务并阻塞到 ctx 取消；信号处理由调用方负责。
@@ -183,12 +211,22 @@ func (r *controlPlaneRuntime) Run(ctx context.Context) error {
 	return r.srv.Run(ctx)
 }
 
-// Close 释放控制面资源（含存储），可重复调用。
+// Close 先释放控制面（含存储），再关闭集群总线；可重复调用。
 func (r *controlPlaneRuntime) Close() error {
 	if r == nil || r.srv == nil {
 		return nil
 	}
-	return r.srv.Close()
+
+	var errs []error
+	if err := r.srv.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if r.bus != nil {
+		if err := r.bus.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close control plane bus: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // runControlPlane 解析注册令牌、装配运行时，并服务到信号触发退出。

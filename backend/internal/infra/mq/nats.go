@@ -75,7 +75,8 @@ func NewNATS(url string) (*natsBus, error) {
 		return nil, fmt.Errorf("failed to initialize NATS streams: %w", err)
 	}
 
-	logs.Infof("Successfully connected to NATS at %s with JetStream", url)
+	// 不打印 URL：连接串可能内嵌账号密码，日志会长期留存。
+	logs.Infof("Successfully connected to NATS with JetStream")
 	return bus, nil
 }
 

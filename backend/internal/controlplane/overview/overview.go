@@ -34,6 +34,12 @@ const (
 // resyncEvent 由节点在重连后发出，表示它的事件流可能断档，派生状态必须丢弃重来。
 const resyncEvent = "agent.resync_required"
 
+// SnapshotEvent 是 owner 周期性发布的整节点投影快照。
+//
+// payload 为 {"sessions":[]Session}，语义是整节点替换：新实例启动后靠它
+// 在 10 秒内收敛到与 owner 一致的视图，不必重放历史事件。
+const SnapshotEvent = "node.snapshot"
+
 // pruneAfter 是已结束会话的保留时长。总览只回答“现在在跑什么”，
 // 超过这个窗口还停留在 idle/error 的会话不再有人关心，必须丢弃，
 // 否则索引会随事件流无限增长。等待审批的会话不在此列。
@@ -70,6 +76,12 @@ type sessionState struct {
 	state        State
 	pending      map[string]Permission
 	lastActivity time.Time
+
+	// pendingCount 记录快照给出的待审批数量。
+	//
+	// 快照只有计数、没有 permission ID；为了不伪造 ID，快照建立的会话把
+	// 计数单独存在这里，等实时事件到达后再以真实 pending 集合为准。
+	pendingCount int
 }
 
 // Index 是并发安全的事件投影。写只在 Apply，读只在 Snapshot。
@@ -85,6 +97,12 @@ func NewIndex() *Index {
 
 // Apply 把一条事件投影到索引。未知事件只刷新活跃时间，不影响状态判定。
 func (i *Index) Apply(ev event.Event) {
+	// 快照没有 session_id，必须在下面的早退之前处理；它也优先于 resync：
+	// 快照本身就是一份完整状态，直接整节点替换即可。
+	if ev.Type == SnapshotEvent {
+		i.applySnapshot(ev)
+		return
+	}
 	if ev.Type == resyncEvent {
 		i.ResetNode(ev.NodeID)
 		return
@@ -124,12 +142,14 @@ func (i *Index) Apply(ev event.Event) {
 		if permission, ok := permissionFrom(ev.Data, ev.SessionID); ok {
 			sess.pending[permission.ID] = permission
 		}
+		sess.pendingCount = len(sess.pending)
 		sess.state = StateWaitingPermission
 
 	case "permission.replied", "permission.resolved":
 		if id := permissionID(ev.Data); id != "" {
 			delete(sess.pending, id)
 		}
+		sess.pendingCount = len(sess.pending)
 		if len(sess.pending) == 0 {
 			sess.state = StateRunning
 		}
@@ -137,10 +157,12 @@ func (i *Index) Apply(ev event.Event) {
 	case "session.execution.failed":
 		sess.state = StateError
 		sess.pending = make(map[string]Permission)
+		sess.pendingCount = 0
 
 	case "session.execution.succeeded", "session.execution.interrupted":
 		sess.state = StateIdle
 		sess.pending = make(map[string]Permission)
+		sess.pendingCount = 0
 
 	case "session.created", "session.updated":
 		if sess.state == "" {
@@ -159,6 +181,68 @@ func (i *Index) Apply(ev event.Event) {
 	}
 
 	i.pruneLocked(at)
+}
+
+// applySnapshot 用 owner 的整节点快照替换该节点的全部投影。
+//
+// 坏负载被静默忽略：快照只是派生状态的纠偏，下一次 tick 会重发，绝不能
+// 因为一条坏消息清空用户正在看的会话。空 sessions 表示该节点确实没有
+// 会话，因此删除整个节点条目。
+func (i *Index) applySnapshot(ev event.Event) {
+	if ev.NodeID == "" {
+		return
+	}
+
+	at := ev.Time
+	if at.IsZero() {
+		at = time.Now()
+	}
+
+	var payload *struct {
+		Sessions []Session `json:"sessions"`
+	}
+	if err := json.Unmarshal(ev.Data, &payload); err != nil || payload == nil {
+		return
+	}
+
+	sessions := make(map[string]*sessionState, len(payload.Sessions))
+	for _, sess := range payload.Sessions {
+		if sess.SessionID == "" {
+			continue
+		}
+		lastActivity := sess.LastActivity
+		if lastActivity.IsZero() {
+			lastActivity = at
+		}
+		state := sess.State
+		if state == "" {
+			state = StateRunning
+		}
+		pendingCount := sess.Pending
+		if pendingCount < 0 {
+			pendingCount = 0
+		}
+		sessions[sess.SessionID] = &sessionState{
+			sessionID:    sess.SessionID,
+			title:        sess.Title,
+			state:        state,
+			pending:      make(map[string]Permission),
+			lastActivity: lastActivity,
+			pendingCount: pendingCount,
+		}
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if i.nodes == nil {
+		i.nodes = make(map[string]map[string]*sessionState)
+	}
+	if len(sessions) == 0 {
+		delete(i.nodes, ev.NodeID)
+		return
+	}
+	i.nodes[ev.NodeID] = sessions
 }
 
 // pruneLocked 丢弃已结束且长时间无活动的会话，并清理空节点。
@@ -199,7 +283,7 @@ func (i *Index) Snapshot() []Node {
 				SessionID:    sess.sessionID,
 				Title:        sess.title,
 				State:        sess.state,
-				Pending:      len(sess.pending),
+				Pending:      pendingTotal(sess),
 				LastActivity: sess.lastActivity,
 			})
 		}
@@ -210,6 +294,42 @@ func (i *Index) Snapshot() []Node {
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].NodeID < out[b].NodeID })
 	return out
+}
+
+// SnapshotNode 返回单个节点在跑的会话副本，按最近活动降序。
+//
+// owner 用它生成 node.snapshot；未知节点返回空切片而不是 nil，便于直接
+// 序列化成 []。
+func (i *Index) SnapshotNode(nodeID string) []Session {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	sessions := i.nodes[nodeID]
+	out := make([]Session, 0, len(sessions))
+	for _, sess := range sessions {
+		out = append(out, Session{
+			SessionID:    sess.sessionID,
+			Title:        sess.title,
+			State:        sess.state,
+			Pending:      pendingTotal(sess),
+			LastActivity: sess.lastActivity,
+		})
+	}
+	sort.Slice(out, func(a, b int) bool {
+		return out[a].LastActivity.After(out[b].LastActivity)
+	})
+	return out
+}
+
+// pendingTotal 返回会话的待审批数量。
+//
+// 有真实 permission 投影时以集合大小为准；只有快照计数时退回计数，避免
+// 为了一个徽标伪造 permission ID。
+func pendingTotal(sess *sessionState) int {
+	if n := len(sess.pending); n > 0 {
+		return n
+	}
+	return sess.pendingCount
 }
 
 // Title 返回会话标题；未知节点或会话返回空串。

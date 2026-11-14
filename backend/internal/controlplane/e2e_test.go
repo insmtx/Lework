@@ -36,6 +36,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane"
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq/mqtest"
 )
 
 const (
@@ -87,13 +88,20 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 
+	bus := mqtest.New()
 	srv, err := controlplane.New(config.Config{
 		ListenAddr:       "127.0.0.1:0",
 		DBPath:           ":memory:",
 		EnrollmentToken:  e2eToken,
 		RequestTimeout:   e2eHTTPTimeout,
 		HeartbeatTimeout: 5 * time.Second,
-	}, st)
+	}, st, controlplane.Deps{
+		Bus:     bus,
+		Core:    bus,
+		CoreSub: bus,
+		Request: bus,
+		Pull:    bus,
+	})
 	if err != nil {
 		_ = st.Close()
 		t.Fatalf("new control plane: %v", err)

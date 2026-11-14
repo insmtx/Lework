@@ -27,6 +27,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/push"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/controlplane/webui"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
 )
 
 const (
@@ -39,7 +40,56 @@ const (
 	// monitorBuffer 是总览订阅的缓冲。慢消费者被淘汰后索引落后，
 	// 客户端重新拉一次快照即可，因此不需要无限缓冲。
 	monitorBuffer = 256
+
+	// snapshotInterval 是 owner 发布整节点快照的周期。新实例最迟在这个
+	// 窗口之后收敛到与 owner 一致的视图。
+	snapshotInterval = 10 * time.Second
 )
+
+// ClusterBus 是控制面需要的完整事件总线面：既要有 EventBus 的发布能力，
+// 也要有 SubscribeBytes 供本地 Hub 桥接使用。
+type ClusterBus interface {
+	mq.EventBus
+	mq.EventSubscriber
+}
+
+// Deps 汇总控制面依赖的集群设施。
+//
+// 生产装配全部指向同一个 NATS 客户端；进程内测试用 mqtest.Bus 填充五个
+// 字段。拆成五个接口而不是一个具体类型，是为了让每个组件只依赖自己用到
+// 的最小能力。
+type Deps struct {
+	// Bus 承载进入 JetStream 的节点状态事件。
+	Bus ClusterBus
+	// Core 发布不计入 stream 的易失数据（如 pty.output）。
+	Core mq.CorePublisher
+	// CoreSub 订阅跨实例转发请求。
+	CoreSub mq.CoreSubscriber
+	// Request 发起跨实例节点请求。
+	Request mq.CoreRequesterBytes
+	// Pull 消费集群内只处理一次的审批事件。
+	Pull mq.PullSubscriber
+}
+
+// validate 校验五个依赖都已装配，错误文本点名缺失的字段。
+func (d Deps) validate() error {
+	if d.Bus == nil {
+		return errors.New("controlplane: Deps.Bus is required")
+	}
+	if d.Core == nil {
+		return errors.New("controlplane: Deps.Core is required")
+	}
+	if d.CoreSub == nil {
+		return errors.New("controlplane: Deps.CoreSub is required")
+	}
+	if d.Request == nil {
+		return errors.New("controlplane: Deps.Request is required")
+	}
+	if d.Pull == nil {
+		return errors.New("controlplane: Deps.Pull is required")
+	}
+	return nil
+}
 
 // healthResponse 是健康检查的响应体。
 type healthResponse struct {
@@ -51,13 +101,16 @@ type healthResponse struct {
 // 关闭是幂等的：第一次 Close 释放注册表、HTTP 服务器与存储，后续调用
 // 直接返回成功，便于 defer 与显式关闭并存。
 type Server struct {
-	cfg      config.Config
-	store    *store.Store
-	registry *node.Registry
-	hub      *event.Hub
-	index    *overview.Index
-	notifier *push.Notifier
-	handler  http.Handler
+	cfg       config.Config
+	store     *store.Store
+	registry  *node.Registry
+	hub       *event.Hub
+	index     *overview.Index
+	notifier  *push.Notifier
+	publisher *event.Publisher
+	bridge    *event.Bridge
+	deps      Deps
+	handler   http.Handler
 
 	monitorCancel func()
 
@@ -66,22 +119,27 @@ type Server struct {
 	closed     bool
 }
 
-// New 校验配置并装配控制面。存储由调用方打开并在 Close 时一并关闭。
-func New(cfg config.Config, st *store.Store) (*Server, error) {
+// New 校验配置与依赖并装配控制面。存储由调用方打开并在 Close 时一并关闭。
+func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("controlplane: invalid config: %w", err)
 	}
 	if st == nil {
 		return nil, errors.New("controlplane: store is required")
 	}
+	if err := deps.validate(); err != nil {
+		return nil, err
+	}
 
 	registry := node.NewRegistry()
 	hub := event.NewHub()
 	index := overview.NewIndex()
+	publisher := event.NewPublisher(deps.Bus, deps.Core)
+	bridge := event.NewBridge(deps.Bus, hub)
 	gateway := agentgw.New(agentgw.Config{
 		EnrollmentToken:  cfg.EnrollmentToken,
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
-	}, st, registry, hub)
+	}, st, registry, publisher, deps.CoreSub)
 	notifier := push.NewNotifier(st, push.NewExpoSender(nil), func(nodeID string) string {
 		if info, ok := registry.Get(nodeID); ok && info.Name != "" {
 			return info.Name
@@ -98,13 +156,16 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 	mux.Handle("/", ui)
 
 	return &Server{
-		cfg:      cfg,
-		store:    st,
-		registry: registry,
-		hub:      hub,
-		index:    index,
-		notifier: notifier,
-		handler:  newAuthHandler(mux, cfg.EnrollmentToken),
+		cfg:       cfg,
+		store:     st,
+		registry:  registry,
+		hub:       hub,
+		index:     index,
+		notifier:  notifier,
+		publisher: publisher,
+		bridge:    bridge,
+		deps:      deps,
+		handler:   newAuthHandler(mux, cfg.EnrollmentToken),
 	}, nil
 }
 
@@ -138,6 +199,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.startMonitor(runCtx)
 	go s.notifier.Run(runCtx, s.hub)
+	// 事件只从集群总线回到本地 Hub：节点网关发布到 Bus，桥接再扇出给浏览器。
+	go s.bridge.Run(runCtx)
+	go s.publishSnapshots(runCtx)
 
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
 	if !config.IsLoopbackAddr(s.cfg.ListenAddr) {
@@ -272,6 +336,50 @@ func (s *Server) setMonitorCancel(cancel func()) {
 	s.mu.Lock()
 	s.monitorCancel = cancel
 	s.mu.Unlock()
+}
+
+// snapshotPayload 是 node.snapshot 的负载；语义是整节点替换。
+type snapshotPayload struct {
+	Sessions []overview.Session `json:"sessions"`
+}
+
+// publishSnapshots 周期性地把本地节点的投影发布到集群总线。
+//
+// owner 之外的实例没有原始事件流，只能靠快照收敛；因此每轮 tick 都为
+// registry 里的每个节点发布一次，进程退出时随 runCtx 一起停止。
+func (s *Server) publishSnapshots(ctx context.Context) {
+	ticker := time.NewTicker(snapshotInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.publishSnapshotOnce(ctx)
+		}
+	}
+}
+
+// publishSnapshotOnce 发布一轮快照。单次失败只记日志：下一轮会重发，
+// 不能因为一次网络抖动让所有实例永久停留在旧视图。
+func (s *Server) publishSnapshotOnce(ctx context.Context) {
+	for _, info := range s.registry.List() {
+		data, err := json.Marshal(snapshotPayload{Sessions: s.index.SnapshotNode(info.ID)})
+		if err != nil {
+			logs.Warnf("controlplane: marshal snapshot for node %s: %v", info.ID, err)
+			continue
+		}
+		ev := event.Event{
+			NodeID: info.ID,
+			Type:   overview.SnapshotEvent,
+			Time:   time.Now(),
+			Data:   data,
+		}
+		if err := s.publisher.PublishEvent(ctx, ev); err != nil {
+			logs.Warnf("controlplane: publish snapshot for node %s: %v", info.ID, err)
+		}
+	}
 }
 
 // handleHealthz 返回固定的健康状态，用于启动探活与命令行自检。

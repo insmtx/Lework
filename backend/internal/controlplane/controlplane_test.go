@@ -16,6 +16,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq/mqtest"
 )
 
 // testToken 是测试用注册令牌；只参与校验，不写入日志。
@@ -30,6 +31,12 @@ func testConfig() config.Config {
 	return cfg
 }
 
+// testDeps 用内存总线构造控制面依赖，避免测试启动 NATS。
+func testDeps() Deps {
+	bus := mqtest.New()
+	return Deps{Bus: bus, Core: bus, CoreSub: bus, Request: bus, Pull: bus}
+}
+
 // newTestServer 用内存存储组装一台控制面，测试结束时关闭。
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
@@ -38,7 +45,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	srv, err := New(testConfig(), st)
+	srv, err := New(testConfig(), st, testDeps())
 	if err != nil {
 		_ = st.Close()
 		t.Fatalf("new server: %v", err)
@@ -82,10 +89,50 @@ func TestServerNewRejectsInvalidConfig(t *testing.T) {
 			cfg := testConfig()
 			tt.mutate(&cfg)
 
-			srv, err := New(cfg, st)
+			srv, err := New(cfg, st, testDeps())
 			if err == nil {
 				_ = srv.Close()
 				t.Fatal("New accepted an invalid config")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("New error = %v, want it to mention %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestServerNewRequiresDeps 校验五个集群依赖缺一不可，错误文本点名缺的字段。
+func TestServerNewRequiresDeps(t *testing.T) {
+	bus := mqtest.New()
+	valid := Deps{Bus: bus, Core: bus, CoreSub: bus, Request: bus, Pull: bus}
+
+	tests := []struct {
+		name string
+		drop func(*Deps)
+		want string
+	}{
+		{name: "bus", drop: func(d *Deps) { d.Bus = nil }, want: "Bus"},
+		{name: "core", drop: func(d *Deps) { d.Core = nil }, want: "Core"},
+		{name: "core subscriber", drop: func(d *Deps) { d.CoreSub = nil }, want: "CoreSub"},
+		{name: "request", drop: func(d *Deps) { d.Request = nil }, want: "Request"},
+		{name: "pull", drop: func(d *Deps) { d.Pull = nil }, want: "Pull"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, err := store.Open(":memory:")
+			if err != nil {
+				t.Fatalf("open store: %v", err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+
+			deps := valid
+			tt.drop(&deps)
+
+			srv, err := New(testConfig(), st, deps)
+			if err == nil {
+				_ = srv.Close()
+				t.Fatal("New accepted a nil dependency")
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("New error = %v, want it to mention %q", err, tt.want)
@@ -169,7 +216,7 @@ func TestServerCloseIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	srv, err := New(testConfig(), st)
+	srv, err := New(testConfig(), st, testDeps())
 	if err != nil {
 		_ = st.Close()
 		t.Fatalf("new server: %v", err)
@@ -195,7 +242,7 @@ func TestServerRunStopsOnContextCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	srv, err := New(cfg, st)
+	srv, err := New(cfg, st, testDeps())
 	if err != nil {
 		_ = st.Close()
 		t.Fatalf("new server: %v", err)
@@ -231,7 +278,7 @@ func TestServerRunShutsDownOpenEventStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	srv, err := New(cfg, st)
+	srv, err := New(cfg, st, testDeps())
 	if err != nil {
 		_ = st.Close()
 		t.Fatalf("new server: %v", err)
