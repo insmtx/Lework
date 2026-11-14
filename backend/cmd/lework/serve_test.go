@@ -71,7 +71,7 @@ func TestServeRejectsMalformedListenAddr(t *testing.T) {
 	t.Setenv("LEWORK_TOKEN_FILE", filepath.Join(t.TempDir(), "enrollment.token"))
 
 	// 非回环地址是合法绑定（是否告警由鉴权配置决定），这里改用畸形地址触发校验失败。
-	output, err := executeServeCommand(t, "--db", ":memory:", "--listen", "8787")
+	output, err := executeServeCommand(t, "--listen", "8787")
 	if err == nil {
 		t.Fatalf("serve accepted a malformed listen address:\n%s", output)
 	}
@@ -106,7 +106,6 @@ func TestServeConfigFlagDefaults(t *testing.T) {
 		want string
 	}{
 		{name: "listen", want: controlplaneconfig.DefaultListenAddr},
-		{name: "db", want: controlplaneconfig.DefaultDBPath()},
 		{name: "token-file", want: controlplaneconfig.DefaultTokenPath()},
 		{name: "request-timeout", want: controlplaneconfig.DefaultRequestTimeout.String()},
 	}

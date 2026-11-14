@@ -62,10 +62,14 @@ LEWORK_ENROLLMENT_TOKEN. When neither is set, the token is read from
 --token-file (or LEWORK_TOKEN_FILE) and generated there if missing. The token
 is never logged.
 
+The control plane stores node data in PostgreSQL and fans events out over
+NATS. Configure them with --nats-url / --database-url or the top-level
+nats: / database: sections of --config; startup fails without both.
+
 Examples:
   lework serve --enrollment-token <token>
   lework serve token
-  lework serve --listen 127.0.0.1:8787 --db ~/.config/Lework/controlplane.db`,
+  lework serve --nats-url nats://127.0.0.1:4222 --database-url postgres://127.0.0.1:5432/lework`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -85,7 +89,6 @@ Examples:
 		"unified config file (controlplane: and agent: sections)")
 	flags.StringVar(&cfg.ListenAddr, "listen", controlplaneconfig.DefaultListenAddr,
 		"HTTP listen address (non-loopback requires the enrollment token)")
-	flags.StringVar(&cfg.DBPath, "db", controlplaneconfig.DefaultDBPath(), "path to the control plane SQLite database")
 	flags.StringVar(&enrollmentToken, "enrollment-token", enrollmentToken,
 		"node enrollment token (defaults to "+envEnrollmentToken+")")
 	flags.StringVar(&tokenFile, "token-file", tokenFile,

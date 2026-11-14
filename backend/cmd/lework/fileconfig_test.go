@@ -28,7 +28,6 @@ func TestLoadUnifiedConfig(t *testing.T) {
 	path := writeConfig(t, `
 controlplane:
   listen: 127.0.0.1:9999
-  db: ~/.config/Lework/cp.db
   token_file: ~/.config/Lework/enrollment.token
   request_timeout: 12s
   heartbeat_timeout: 45s
@@ -58,9 +57,6 @@ agent:
 	}
 	if cfg.RequestTimeout != 12*time.Second || cfg.HeartbeatTimeout != 45*time.Second {
 		t.Fatalf("timeouts = %v/%v", cfg.RequestTimeout, cfg.HeartbeatTimeout)
-	}
-	if !strings.HasSuffix(cfg.DBPath, filepath.Join("Lework", "cp.db")) || strings.HasPrefix(cfg.DBPath, "~") {
-		t.Fatalf("db = %q, want expanded home path", cfg.DBPath)
 	}
 	if !strings.HasSuffix(tokenFile, filepath.Join("Lework", "enrollment.token")) {
 		t.Fatalf("token file = %q", tokenFile)

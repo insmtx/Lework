@@ -271,8 +271,6 @@ Use "lework [command] --help" for more information about a command.`,
 	flags := root.Flags()
 	flags.StringVar(&opts.serve.ListenAddr, "listen", controlplaneconfig.DefaultListenAddr,
 		"HTTP listen address (non-loopback requires the enrollment token)")
-	flags.StringVar(&opts.serve.DBPath, "db", controlplaneconfig.DefaultDBPath(),
-		"path to the control plane SQLite database")
 	flags.StringVar(&opts.explicit, "enrollment-token", opts.explicit,
 		"node enrollment token (defaults to "+envEnrollmentToken+")")
 	flags.StringVar(&opts.tokenPath, "token-file", opts.tokenPath,

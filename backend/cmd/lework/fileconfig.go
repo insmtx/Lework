@@ -19,7 +19,6 @@ import (
 //
 //	controlplane:
 //	  listen: 127.0.0.1:8787
-//	  db: ~/.config/Lework/controlplane.db
 //	  public_url: http://dev.ckeyer.com
 //	nats:
 //	  url: nats://127.0.0.1:4222
@@ -54,7 +53,6 @@ func resolveConfigPath() string {
 // 字段用指针区分“没写”与“写了零值”：只有文件里出现过的键才会覆盖默认值。
 type controlPlaneFile struct {
 	Listen           *string        `yaml:"listen"`
-	DB               *string        `yaml:"db"`
 	TokenFile        *string        `yaml:"token_file"`
 	RequestTimeout   *time.Duration `yaml:"request_timeout"`
 	HeartbeatTimeout *time.Duration `yaml:"heartbeat_timeout"`
@@ -124,9 +122,6 @@ func (c *unifiedConfig) applyControlPlane(
 	cp := c.ControlPlane
 	if cp.Listen != nil && !changed("listen") {
 		cfg.ListenAddr = expandHomePath(*cp.Listen)
-	}
-	if cp.DB != nil && !changed("db") {
-		cfg.DBPath = expandHomePath(*cp.DB)
 	}
 	c.applyTokenFile(tokenFile, changed)
 	if cp.RequestTimeout != nil && !changed("request-timeout") {

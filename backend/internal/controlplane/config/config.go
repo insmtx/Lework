@@ -36,7 +36,8 @@ const (
 type Config struct {
 	// ListenAddr 是 HTTP 监听地址，格式为 host:port；默认建议回环，非回环需配合鉴权。
 	ListenAddr string
-	// DBPath 是控制面 SQLite 数据库文件路径。
+	// DBPath 仅用于测试与向后兼容的配置结构：生产运行路径使用
+	// PostgreSQL（见 Database），控制面启动后不会再读取这个字段。
 	DBPath string
 	// EnrollmentToken 是节点注册时出示的令牌，属于机密信息，不可写入日志或错误。
 	EnrollmentToken string
