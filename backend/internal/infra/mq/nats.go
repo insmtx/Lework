@@ -7,6 +7,7 @@ package mq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -38,9 +39,14 @@ type natsBus struct {
 	mu     sync.RWMutex
 }
 
-// 编译期断言：natsBus 满足 Core Requester 契约。
+// 编译期断言：natsBus 满足 Core Requester 契约与新增字节接口契约。
 var (
-	_ CoreRequester = (*natsBus)(nil)
+	_ CoreRequester      = (*natsBus)(nil)
+	_ CorePublisher      = (*natsBus)(nil)
+	_ CoreSubscriber     = (*natsBus)(nil)
+	_ CoreRequesterBytes = (*natsBus)(nil)
+	_ PullSubscriber     = (*natsBus)(nil)
+	_ EventSubscriber    = (*natsBus)(nil)
 )
 
 // NewNATS 创建一个新的 NATS JetStream 客户端实例，并确保预配置 Stream 可用。
@@ -404,6 +410,259 @@ func (p *natsBus) RequestReply(ctx context.Context, subject string, request any)
 		return nil, nats.ErrNoResponders
 	}
 	return reply, nil
+}
+
+// PublishCore implements CorePublisher. 它通过 Core NATS 发送原始字节，
+// 不经过 JetStream，因此不落盘、无订阅者时直接丢弃。
+//
+// FlushWithContext 要求 ctx 带 deadline；调用方传入无 deadline 的 ctx 时
+// 补一个默认超时，避免把「缺少 deadline」误报成业务错误。
+func (p *natsBus) PublishCore(ctx context.Context, subject string, data []byte) error {
+	if p.closed.Load() {
+		return fmt.Errorf("NATS client is closed")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	flushCtx := ctx
+	if _, ok := flushCtx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		flushCtx, cancel = context.WithTimeout(flushCtx, publishDefaultTimeout)
+		defer cancel()
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.closed.Load() {
+		return fmt.Errorf("NATS client is closed")
+	}
+	if err := p.conn.Publish(subject, data); err != nil {
+		return fmt.Errorf("failed to publish core message to subject '%s': %w", subject, err)
+	}
+	if err := p.conn.FlushWithContext(flushCtx); err != nil {
+		return fmt.Errorf("failed to flush core message to subject '%s': %w", subject, err)
+	}
+	return nil
+}
+
+// SubscribeCore implements CoreSubscriber. queue 非空时使用队列组分摊请求；
+// handler 返回非 nil 字节时作为回复发送，返回 nil 表示无需回复。
+//
+// 订阅是同步阻塞的：一直运行到 ctx 取消后退订并返回 ctx.Err()。
+func (p *natsBus) SubscribeCore(ctx context.Context, subject, queue string, handler func(context.Context, []byte) []byte) error {
+	if handler == nil {
+		return fmt.Errorf("subscribe core subject '%s': handler is nil", subject)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if p.closed.Load() {
+		return fmt.Errorf("NATS client is closed")
+	}
+
+	cb := func(msg *nats.Msg) {
+		reply := handler(ctx, msg.Data)
+		if reply == nil {
+			return
+		}
+		if err := msg.Respond(reply); err != nil {
+			logs.WarnContextf(ctx, "Failed to respond on core subject '%s': %v", subject, err)
+		}
+	}
+
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
+	var (
+		sub *nats.Subscription
+		err error
+	)
+	if queue == "" {
+		sub, err = p.conn.Subscribe(subject, cb)
+	} else {
+		sub, err = p.conn.QueueSubscribe(subject, queue, cb)
+	}
+	p.mu.RUnlock()
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to core subject '%s' (queue '%s'): %w", subject, queue, err)
+	}
+
+	<-ctx.Done()
+
+	if err := sub.Unsubscribe(); err != nil {
+		logs.WarnContextf(ctx, "Failed to unsubscribe from core subject '%s': %v", subject, err)
+	}
+	logs.InfoContextf(ctx, "Unsubscribed from core subject: %s", subject)
+
+	return ctx.Err()
+}
+
+// RequestBytes implements CoreRequesterBytes：与 RequestReply 语义一致，
+// 但直接收发原始字节，避免上层为了拿到 payload 而依赖 nats.Msg。
+//
+// subject 没有订阅者时返回包着 ErrNoResponders 的错误，调用方可据此降级。
+func (p *natsBus) RequestBytes(ctx context.Context, subject string, request []byte) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if p.closed.Load() {
+		return nil, fmt.Errorf("NATS client is closed")
+	}
+
+	inbox := nats.NewInbox()
+	// 生命周期协议：订阅+发布在读锁内完成（与 Close 写锁互斥），随后解锁等待回复。
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("NATS client is closed")
+	}
+	sub, err := p.conn.SubscribeSync(inbox)
+	if err != nil {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("failed to subscribe to inbox %s: %w", inbox, err)
+	}
+	if err := p.conn.PublishRequest(subject, inbox, request); err != nil {
+		_ = sub.Unsubscribe()
+		p.mu.RUnlock()
+		if errors.Is(err, nats.ErrNoResponders) {
+			return nil, fmt.Errorf("request to subject '%s': %w", subject, ErrNoResponders)
+		}
+		return nil, fmt.Errorf("failed to send request to subject '%s': %w", subject, err)
+	}
+	// 发布完成，释放读锁；下方等待回复不阻塞 Close。
+	p.mu.RUnlock()
+	defer sub.Unsubscribe()
+
+	reply, err := sub.NextMsgWithContext(ctx)
+	if err != nil {
+		if errors.Is(err, nats.ErrNoResponders) {
+			return nil, fmt.Errorf("no responders for subject '%s': %w", subject, ErrNoResponders)
+		}
+		return nil, fmt.Errorf("failed to receive reply on inbox %s for subject '%s': %w", inbox, subject, err)
+	}
+	// 兜底：某些路径下 503 状态会作为普通消息投递，同样视为无订阅者。
+	if len(reply.Data) == 0 && reply.Header.Get("Status") == "503" {
+		return nil, fmt.Errorf("no responders for subject '%s': %w", subject, ErrNoResponders)
+	}
+	return reply.Data, nil
+}
+
+// SubscribeBytes implements EventSubscriber：以原始负载订阅 JetStream 事件，
+// 让不关心 nats.Msg 的调用方也能消费 stream。
+//
+// 直接复用 SubscribeFrom 的订阅生命周期：startSeq <= 0 时走 DeliverNew，
+// startSeq > 0 时从该序列号开始投递，语义与现有订阅完全一致。
+// handler 的错误只记录日志：push 订阅由 nats.go 自动 Ack，无法按单条消息 Nak。
+func (p *natsBus) SubscribeBytes(ctx context.Context, subject string, startSeq int64, handler func(context.Context, []byte) error) error {
+	if handler == nil {
+		return fmt.Errorf("subscribe bytes subject '%s': handler is nil", subject)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return p.SubscribeFrom(ctx, subject, startSeq, func(msg *nats.Msg) {
+		if err := handler(ctx, msg.Data); err != nil {
+			logs.WarnContextf(ctx, "Bytes handler failed for topic '%s': %v", subject, err)
+		}
+	})
+}
+
+// ensurePullConsumer 幂等地保证 stream 上存在名为 durable 的 pull consumer。
+//
+// 必须自己创建 consumer 再用 nats.Bind 绑定，而不是直接依赖 PullSubscribe 的
+// 自动创建：nats.go 对「由库创建」的 consumer 会在 Unsubscribe 时删除它，
+// 这会让同组的其他实例（以及重启后的自己）失去 durable consumer。
+func (p *natsBus) ensurePullConsumer(stream, subject, durable string) error {
+	if _, err := p.js.ConsumerInfo(stream, durable); err == nil {
+		return nil
+	} else if !errors.Is(err, nats.ErrConsumerNotFound) {
+		return fmt.Errorf("inspect consumer '%s' on stream '%s': %w", durable, stream, err)
+	}
+
+	_, addErr := p.js.AddConsumer(stream, &nats.ConsumerConfig{
+		Durable:       durable,
+		AckPolicy:     nats.AckExplicitPolicy,
+		FilterSubject: subject,
+	})
+	if addErr == nil {
+		return nil
+	}
+	// 并发实例可能刚创建了同名 durable；只要现在能查到就视为成功。
+	if _, infoErr := p.js.ConsumerInfo(stream, durable); infoErr != nil {
+		return fmt.Errorf("add consumer '%s' on stream '%s': %w", durable, stream, addErr)
+	}
+	return nil
+}
+
+// SubscribePull implements PullSubscriber：多个实例用相同 stream/durable
+// 拉取同一个 pull consumer，从而实现「每条消息只被一个实例处理」的消费组。
+//
+// handler 返回 nil 后 Ack；返回错误则 Nak 交给 JetStream 重投。
+func (p *natsBus) SubscribePull(ctx context.Context, stream, subject, durable string, handler func(context.Context, []byte) error) error {
+	if handler == nil {
+		return fmt.Errorf("subscribe pull subject '%s': handler is nil", subject)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if p.closed.Load() {
+		return fmt.Errorf("NATS client is closed")
+	}
+
+	p.mu.RLock()
+	if p.closed.Load() {
+		p.mu.RUnlock()
+		return fmt.Errorf("NATS client is closed")
+	}
+	if err := p.ensurePullConsumer(stream, subject, durable); err != nil {
+		p.mu.RUnlock()
+		return err
+	}
+	sub, err := p.js.PullSubscribe(subject, durable, nats.Bind(stream, durable), nats.ManualAck())
+	p.mu.RUnlock()
+	if err != nil {
+		return fmt.Errorf("failed to pull subscribe to stream '%s' subject '%s' (durable '%s'): %w",
+			stream, subject, durable, err)
+	}
+
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			logs.WarnContextf(ctx, "Failed to unsubscribe from pull subject '%s': %v", subject, err)
+		}
+		logs.InfoContextf(ctx, "Unsubscribed from pull subject: %s (durable: %s)", subject, durable)
+	}()
+
+	for {
+		// nats.go 的 Fetch 不允许同时设置 ContextOption 与 MaxWait（ErrContextAndTimeout），
+		// 因此用 1 秒子 ctx 表达单批等待上限：超时继续下一批，父 ctx 取消则立即返回。
+		fetchCtx, cancelFetch := context.WithTimeout(ctx, time.Second)
+		msgs, err := sub.Fetch(16, nats.Context(fetchCtx))
+		cancelFetch()
+		if err != nil {
+			// 先判断取消：Fetch 在取消期间也可能返回超时类错误。
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if errors.Is(err, nats.ErrTimeout) || errors.Is(err, context.DeadlineExceeded) {
+				continue
+			}
+			return fmt.Errorf("fetch from stream '%s' subject '%s': %w", stream, subject, err)
+		}
+		for _, msg := range msgs {
+			if err := handler(ctx, msg.Data); err != nil {
+				logs.WarnContextf(ctx, "Pull handler failed for subject '%s': %v", subject, err)
+				if nakErr := msg.Nak(); nakErr != nil {
+					logs.WarnContextf(ctx, "Failed to Nak message on subject '%s': %v", subject, nakErr)
+				}
+				continue
+			}
+			if ackErr := msg.Ack(); ackErr != nil {
+				logs.WarnContextf(ctx, "Failed to Ack message on subject '%s': %v", subject, ackErr)
+			}
+		}
+	}
 }
 
 // Subscribe implements the eventbus.Subscriber interface.
