@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,10 +29,12 @@ const testToken = "test-enrollment-token-9f3a"
 // gatewayEnv 是网关测试的真实依赖集合：SQLite、注册表、事件中心和
 // 一个用 httptest 启动的 WebSocket 服务端。
 type gatewayEnv struct {
-	store    *store.Store
-	registry *node.Registry
-	hub      *event.Hub
-	server   *httptest.Server
+	store     *store.Store
+	registry  *node.Registry
+	hub       *event.Hub
+	publisher *hubPublisher
+	coreSub   *noopCoreSub
+	server    *httptest.Server
 
 	// gateway 暴露网关本身，测试可以核对它持有的注册表与写入端。
 	gateway *Gateway
@@ -39,6 +42,54 @@ type gatewayEnv struct {
 	// handlers 统计仍在运行的 ServeHTTP；httptest 在连接被 hijack 后不再
 	// 等待 handler，必须由测试自己等它退出，否则会在存储关闭后继续访问。
 	handlers sync.WaitGroup
+}
+
+// hubPublisher 把网关事件直接投给本地 Hub，替代真实 NATS。
+//
+// failPrefix 非空时，类型以它开头的事件返回错误，用来分别验证状态事件与
+// PTY 事件发布失败时的两条处理路径。
+type hubPublisher struct {
+	hub        *event.Hub
+	failPrefix string
+}
+
+func (p *hubPublisher) PublishEvent(_ context.Context, ev event.Event) error {
+	if p.failPrefix != "" && strings.HasPrefix(ev.Type, p.failPrefix) {
+		return fmt.Errorf("injected publish failure for %s", ev.Type)
+	}
+	p.hub.Publish(ev)
+	return nil
+}
+
+// coreSubscription 记录一次 Core 订阅，测试据此直接驱动转发 handler。
+type coreSubscription struct {
+	subject string
+	queue   string
+	handler func(context.Context, []byte) []byte
+}
+
+// noopCoreSub 记录订阅参数后阻塞到 ctx 结束，模拟真实 Core NATS 订阅的生命周期。
+//
+// 记录使用非阻塞发送：不关心转发请求的用例不读通道，订阅协程仍必须能退出。
+type noopCoreSub struct {
+	made chan coreSubscription
+}
+
+func newNoopCoreSub() *noopCoreSub {
+	return &noopCoreSub{made: make(chan coreSubscription, 8)}
+}
+
+func (s *noopCoreSub) SubscribeCore(
+	ctx context.Context,
+	subject, queue string,
+	handler func(context.Context, []byte) []byte,
+) error {
+	select {
+	case s.made <- coreSubscription{subject: subject, queue: queue, handler: handler}:
+	default:
+	}
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func newGatewayEnv(t *testing.T) *gatewayEnv {
@@ -63,8 +114,11 @@ func newGatewayEnvConfig(t *testing.T, heartbeat time.Duration, newWriter func(*
 		store:    st,
 		registry: node.NewRegistry(),
 		hub:      event.NewHub(),
+		coreSub:  newNoopCoreSub(),
 	}
-	gw := New(Config{EnrollmentToken: testToken, HeartbeatTimeout: heartbeat}, env.store, env.registry, env.hub)
+	env.publisher = &hubPublisher{hub: env.hub}
+	gw := New(Config{EnrollmentToken: testToken, HeartbeatTimeout: heartbeat},
+		env.store, env.registry, env.publisher, env.coreSub)
 	if newWriter != nil {
 		gw.newWriter = newWriter
 	}
@@ -232,6 +286,61 @@ func listNodes(t *testing.T, st *store.Store) []store.Node {
 	return nodes
 }
 
+// writeEventFrame 让 agent 侧发出一条事件帧。
+func writeEventFrame(t *testing.T, client *transport.Client, ev *protocol.Event) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := client.Write(ctx, protocol.Frame{Type: protocol.FrameEvent, Event: ev}); err != nil {
+		t.Fatalf("write event frame: %v", err)
+	}
+}
+
+// writeRawFrame 让 agent 侧发出一条任意类型的帧。
+func writeRawFrame(t *testing.T, client *transport.Client, frame protocol.Frame) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := client.Write(ctx, frame); err != nil {
+		t.Fatalf("write frame: %v", err)
+	}
+}
+
+// awaitEvent 等待第一条满足条件的事件，跳过网关自身发布的生命周期事件。
+func awaitEvent(t *testing.T, events <-chan event.Event, match func(event.Event) bool) event.Event {
+	t.Helper()
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				t.Fatal("event subscription closed before the expected event")
+			}
+			if match(ev) {
+				return ev
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for the expected event")
+		}
+	}
+}
+
+// awaitCoreSubscription 等待网关建立转发订阅。
+func awaitCoreSubscription(t *testing.T, sub *noopCoreSub) coreSubscription {
+	t.Helper()
+
+	select {
+	case made := <-sub.made:
+		return made
+	case <-time.After(3 * time.Second):
+		t.Fatal("gateway did not subscribe for forwarded requests")
+		return coreSubscription{}
+	}
+}
+
 func TestServeHTTPRejectsMissingOrWrongToken(t *testing.T) {
 	env := newGatewayEnv(t)
 
@@ -382,22 +491,19 @@ func TestEventUsesAssignedNodeIDAndHeartbeatTouchesStore(t *testing.T) {
 		t.Fatalf("write event: %v", err)
 	}
 
-	select {
-	case ev := <-events:
-		if ev.NodeID != nodeID {
-			t.Fatalf("event node_id = %q, want %q", ev.NodeID, nodeID)
-		}
-		if ev.Type != "session.text.delta" || ev.SessionID != "ses_1" {
-			t.Fatalf("event = %+v, want forwarded payload", ev)
-		}
-		if string(ev.Data) != `{"text":"hi"}` {
-			t.Fatalf("event data = %s, want original payload", ev.Data)
-		}
-		if ev.Time.IsZero() {
-			t.Fatal("event time is zero, want it filled by the gateway")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for the published event")
+	// 网关同时会发布 node.connected 等生命周期事件，这里只取被转发的业务事件。
+	ev := awaitEvent(t, events, func(ev event.Event) bool { return ev.Type == "session.text.delta" })
+	if ev.NodeID != nodeID {
+		t.Fatalf("event node_id = %q, want %q", ev.NodeID, nodeID)
+	}
+	if ev.SessionID != "ses_1" {
+		t.Fatalf("event session_id = %q, want ses_1", ev.SessionID)
+	}
+	if string(ev.Data) != `{"text":"hi"}` {
+		t.Fatalf("event data = %s, want original payload", ev.Data)
+	}
+	if ev.Time.IsZero() {
+		t.Fatal("event time is zero, want it filled by the gateway")
 	}
 
 	if err := client.Write(ctx, protocol.Frame{Type: protocol.FrameHeartbeat}); err != nil {
@@ -729,5 +835,237 @@ func TestHelloRecordsWorkspaceRoots(t *testing.T) {
 	}
 	if len(nodes[0].WorkspaceRoots) != 2 || nodes[0].WorkspaceRoots[0] != "/work/a" {
 		t.Fatalf("workspace roots = %#v", nodes[0].WorkspaceRoots)
+	}
+}
+
+// TestGatewayPublishesEventsThroughPublisher 证明读循环把节点事件交给注入的
+// 发布器，而不是只写本地 Hub：生产环境靠发布器把事件送进集群总线。
+func TestGatewayPublishesEventsThroughPublisher(t *testing.T) {
+	env := newGatewayEnv(t)
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+
+	events, cancel := env.hub.Subscribe(8)
+	defer cancel()
+
+	writeEventFrame(t, client, &protocol.Event{
+		NodeID:    "node_spoofed",
+		SessionID: "ses_1",
+		Type:      "session.text.delta",
+		Data:      json.RawMessage(`{"text":"hi"}`),
+	})
+
+	ev := awaitEvent(t, events, func(ev event.Event) bool { return ev.Type == "session.text.delta" })
+	if ev.NodeID != nodeID {
+		t.Fatalf("event node_id = %q, want %q", ev.NodeID, nodeID)
+	}
+	if ev.SessionID != "ses_1" || string(ev.Data) != `{"text":"hi"}` {
+		t.Fatalf("event = %+v, want forwarded payload", ev)
+	}
+}
+
+// TestGatewayPublishesLifecycleEvents 覆盖连接生命周期事件的发布：
+// 订阅建立后发 node.connected，断开清理时发 node.offline。
+func TestGatewayPublishesLifecycleEvents(t *testing.T) {
+	env := newGatewayEnv(t)
+	events, cancel := env.hub.Subscribe(8)
+	defer cancel()
+
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+
+	connected := awaitEvent(t, events, func(ev event.Event) bool { return ev.Type == "node.connected" })
+	if connected.NodeID != nodeID {
+		t.Fatalf("connected event node_id = %q, want %q", connected.NodeID, nodeID)
+	}
+
+	// 主动关闭 agent 侧连接，网关清理路径应当发布离线事件。
+	if err := client.Close(); err != nil {
+		t.Fatalf("close agent connection: %v", err)
+	}
+
+	offline := awaitEvent(t, events, func(ev event.Event) bool { return ev.Type == "node.offline" })
+	if offline.NodeID != nodeID {
+		t.Fatalf("offline event node_id = %q, want %q", offline.NodeID, nodeID)
+	}
+	if offline.Time.IsZero() {
+		t.Fatal("offline event time is zero, want it filled by the gateway")
+	}
+}
+
+// TestGatewayForwardsCoreRequest 直接驱动 Core 订阅的 handler，证明跨实例
+// 转发把方法调用写到节点连接，并把结果/远端错误编码成 ForwardResponse。
+func TestGatewayForwardsCoreRequest(t *testing.T) {
+	env := newGatewayEnv(t)
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+
+	sub := awaitCoreSubscription(t, env.coreSub)
+	wantSubject := "cp.node." + nodeID + ".request"
+	if sub.subject != wantSubject {
+		t.Fatalf("forward subject = %q, want %q", sub.subject, wantSubject)
+	}
+	if sub.queue != nodeID {
+		t.Fatalf("forward queue = %q, want node id %q", sub.queue, nodeID)
+	}
+
+	// 先起读协程再接请求：agent 侧必须及时把响应回给等待中的 Connection。
+	replyErr := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		frame, err := client.Read(ctx)
+		if err != nil {
+			replyErr <- fmt.Errorf("read forwarded request: %w", err)
+			return
+		}
+		if frame.Type != protocol.FrameRequest || frame.Method != "session.list" {
+			replyErr <- fmt.Errorf("forwarded frame = %+v, want a session.list request", frame)
+			return
+		}
+		replyErr <- client.Write(ctx, protocol.Frame{
+			Type:   protocol.FrameResponse,
+			ID:     frame.ID,
+			Result: json.RawMessage(`{"ok":true}`),
+		})
+	}()
+
+	payload, err := json.Marshal(node.ForwardRequest{Method: "session.list"})
+	if err != nil {
+		t.Fatalf("encode forward request: %v", err)
+	}
+	raw := sub.handler(context.Background(), payload)
+	if err := <-replyErr; err != nil {
+		t.Fatalf("agent reply: %v", err)
+	}
+
+	var resp node.ForwardResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("decode forward response %s: %v", raw, err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("forward response error = %+v, want result", resp.Error)
+	}
+	if string(resp.Result) != `{"ok":true}` {
+		t.Fatalf("forward result = %s, want agent result", resp.Result)
+	}
+
+	// 第二轮验证远端错误映射：agent 的错误帧必须变成 ForwardError。
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		frame, err := client.Read(ctx)
+		if err != nil {
+			replyErr <- fmt.Errorf("read forwarded request: %w", err)
+			return
+		}
+		replyErr <- client.Write(ctx, protocol.Frame{
+			Type:  protocol.FrameResponse,
+			ID:    frame.ID,
+			Error: &protocol.FrameError{Code: "not_found", Message: "no such session"},
+		})
+	}()
+
+	raw = sub.handler(context.Background(), payload)
+	if err := <-replyErr; err != nil {
+		t.Fatalf("agent reply: %v", err)
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("decode forward response %s: %v", raw, err)
+	}
+	if resp.Error == nil {
+		t.Fatalf("forward response = %s, want an error", raw)
+	}
+	if resp.Error.Code != "not_found" || resp.Error.Message != "no such session" {
+		t.Fatalf("forward error = %+v, want remote error passthrough", resp.Error)
+	}
+}
+
+// TestGatewayClosesConnectionOnStatePublishFailure 证明状态事件发布失败必须
+// 断开节点：漏掉状态事件会让总览与浏览器永久落后，重连重试比继续更安全。
+func TestGatewayClosesConnectionOnStatePublishFailure(t *testing.T) {
+	env := newGatewayEnv(t)
+	env.gateway.publisher = &hubPublisher{hub: env.hub, failPrefix: "session."}
+
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+
+	writeEventFrame(t, client, &protocol.Event{
+		SessionID: "ses_1",
+		Type:      "session.text.delta",
+		Data:      json.RawMessage(`{"text":"hi"}`),
+	})
+
+	err := readUntilError(t, client)
+	if err == nil {
+		t.Fatal("connection stayed open after a state event publish failure")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("connection did not close after the publish failure: %v", err)
+	}
+
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, ok := env.registry.Get(nodeID); !ok {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("node still registered after a state event publish failure")
+		case <-ticker.C:
+		}
+	}
+}
+
+// TestGatewayKeepsConnectionOnPTYPublishFailure 证明 PTY 事件是易失数据：
+// 发布失败只记日志，连接继续处理心跳、响应与后续事件。
+func TestGatewayKeepsConnectionOnPTYPublishFailure(t *testing.T) {
+	env := newGatewayEnv(t)
+	env.gateway.publisher = &hubPublisher{hub: env.hub, failPrefix: "pty."}
+
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+
+	events, cancel := env.hub.Subscribe(8)
+	defer cancel()
+
+	writeEventFrame(t, client, &protocol.Event{
+		Type: "pty.output",
+		Data: json.RawMessage(`{"pty_id":"pty-1","data":"hello"}`),
+	})
+	writeRawFrame(t, client, protocol.Frame{Type: protocol.FrameHeartbeat})
+
+	// 心跳之后仍然能应答控制面请求，说明读循环没有被 PTY 发布失败打断。
+	requestErr := make(chan error, 1)
+	ctx, cancelRequest := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelRequest()
+	go func() {
+		_, err := env.registry.Request(ctx, nodeID, "session.list", nil)
+		requestErr <- err
+	}()
+
+	frame := readFrame(t, client)
+	if frame.Type != protocol.FrameRequest || frame.Method != "session.list" {
+		t.Fatalf("frame = %+v, want a session.list request", frame)
+	}
+	writeRawFrame(t, client, protocol.Frame{
+		Type:   protocol.FrameResponse,
+		ID:     frame.ID,
+		Result: json.RawMessage(`{"ok":true}`),
+	})
+	if err := <-requestErr; err != nil {
+		t.Fatalf("request after pty publish failure: %v", err)
+	}
+
+	writeEventFrame(t, client, &protocol.Event{
+		SessionID: "ses_1",
+		Type:      "session.text.delta",
+		Data:      json.RawMessage(`{"text":"still here"}`),
+	})
+	ev := awaitEvent(t, events, func(ev event.Event) bool { return ev.Type == "session.text.delta" })
+	if ev.NodeID != nodeID {
+		t.Fatalf("event node_id = %q, want %q", ev.NodeID, nodeID)
 	}
 }

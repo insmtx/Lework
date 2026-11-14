@@ -18,11 +18,14 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/lework/backend/internal/agentd/protocol"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 const (
@@ -42,7 +45,37 @@ const (
 	// 帧大小，没有上限时一个恶意或错乱的节点就能让控制面按帧内容分配内存；
 	// 该上限同时覆盖 hello 与后续所有帧。
 	maxFrameBytes = 1 << 20
+
+	// forwardRequestTimeout 限制单次跨实例转发的耗时。
+	//
+	// 转发 handler 拿到的是订阅的生命周期上下文，若节点迟迟不应答，请求会
+	// 一直挂在 Connection 的等待表里，即使调用方早已放弃。每次 handler 都
+	// 用该上限再包一层超时，保证待处理项一定被清理。
+	forwardRequestTimeout = 30 * time.Second
+
+	// lifecyclePublishTimeout 是清理阶段发布生命周期事件的上限。
+	//
+	// 连接退出时请求上下文可能已被取消；用脱离取消的短超时上下文发布，
+	// 才能把 node.offline 尽力送出去，而不是必然失败。
+	lifecyclePublishTimeout = 5 * time.Second
+
+	// ptyEventPrefix 标记易失的 PTY 事件：发布失败只影响当前终端视图。
+	ptyEventPrefix = "pty."
+
+	// eventTypeNodeConnected 表示节点连接已就绪、可以接收转发请求。
+	eventTypeNodeConnected = "node.connected"
+
+	// eventTypeNodeOffline 表示节点连接已断开。
+	eventTypeNodeOffline = "node.offline"
 )
+
+// EventPublisher 是网关发布节点事件的面。
+//
+// 抽成接口而非直接依赖 *event.Publisher，是为了让单测用本地 Hub 就能覆盖
+// 发布成功与失败两条路径，不必启动 NATS。
+type EventPublisher interface {
+	PublishEvent(ctx context.Context, ev event.Event) error
+}
 
 // Config 是网关的启动配置。
 type Config struct {
@@ -75,8 +108,13 @@ type Gateway struct {
 	cfg      Config
 	store    *store.Store
 	registry *node.Registry
-	hub      *event.Hub
 	upgrader websocket.Upgrader
+
+	// publisher 把节点事件送进集群总线；本地 Hub 只是它的一个订阅端。
+	publisher EventPublisher
+
+	// coreSub 用于订阅本节点的跨实例转发请求。
+	coreSub mq.CoreSubscriber
 
 	// newWriter 构造单连接写入端；默认是 wsWriter，测试可替换为可控写入端，
 	// 用于确定性地阻塞 welcome 写出。
@@ -84,15 +122,22 @@ type Gateway struct {
 }
 
 // New 创建网关；HeartbeatTimeout 非正时使用默认值。
-func New(cfg Config, st *store.Store, registry *node.Registry, hub *event.Hub) *Gateway {
+func New(
+	cfg Config,
+	st *store.Store,
+	registry *node.Registry,
+	publisher EventPublisher,
+	coreSub mq.CoreSubscriber,
+) *Gateway {
 	if cfg.HeartbeatTimeout <= 0 {
 		cfg.HeartbeatTimeout = defaultHeartbeatTimeout
 	}
 	return &Gateway{
-		cfg:      cfg,
-		store:    st,
-		registry: registry,
-		hub:      hub,
+		cfg:       cfg,
+		store:     st,
+		registry:  registry,
+		publisher: publisher,
+		coreSub:   coreSub,
 		newWriter: func(ws *websocket.Conn) node.Writer {
 			return &wsWriter{conn: ws}
 		},
@@ -141,7 +186,9 @@ func (g *Gateway) authorized(r *http.Request) bool {
 // 之前收到的所有帧，提前登记会让浏览器请求被写进一条尚未就绪的连接并
 // 静默丢失，直到 API 超时。
 //
-// 无论从哪条路径退出，都只注销本连接、刷新最后活跃时间并关闭套接字。
+// 登记之后还会订阅本节点的转发请求，使集群内任一实例都能把方法调用交给
+// 这条连接应答。无论从哪条路径退出，都只注销本连接、停止转发订阅、发布
+// 离线事件、刷新最后活跃时间并关闭套接字。
 func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 	writer := g.newWriter(ws)
 
@@ -169,10 +216,20 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 
 	conn := node.NewConnection(rec.ID, writer)
 
+	// 转发订阅的取消函数必须在 defer 之前创建：welcome 失败时登记尚未发生，
+	// 清理路径仍会调用它，不能是 nil。
+	subCtx, cancelSub := context.WithCancel(ctx)
+
 	// 退出清理必须在 welcome 写出之前安装：welcome 失败时连接尚未登记，
 	// Unregister 会按指针比较安全地跳过，存储刷新与连接关闭仍然生效。
+	//
+	// 顺序固定为「注销 -> 停止转发订阅 -> 发布离线事件 -> 关闭连接」：
+	// 先注销能让新的本地请求立刻失败，而不是写进一条正在退出的连接；
+	// 最后关闭连接保证清理期间不会再有字节被写出。
 	defer func() {
 		g.registry.Unregister(rec.ID, conn)
+		cancelSub()
+		g.publishLifecycle(ctx, rec.ID, eventTypeNodeOffline)
 		// 节点行可能已被删除，这里不因刷新失败而改变退出路径。
 		_ = g.store.TouchNode(ctx, rec.ID, time.Now())
 		_ = conn.Close()
@@ -203,6 +260,20 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 		LastSeen:       time.Now(),
 	}, conn)
 
+	// 转发订阅必须建立在登记之后：请求落到 subject 时，本实例已经能把方法
+	// 调用路由到连接的写入端。
+	subscribed := make(chan struct{})
+	go func() {
+		// SubscribeCore 没有「订阅生效」回调，这里在进入阻塞订阅前放行；
+		// 之后发布的 node.connected 因此不会早于订阅动作。
+		close(subscribed)
+		if err := g.respondRequests(subCtx, rec.ID, conn); err != nil && subCtx.Err() == nil {
+			logs.Warnf("agentgw: node %s request responder stopped: %v", rec.ID, err)
+		}
+	}()
+	<-subscribed
+	g.publishLifecycle(ctx, rec.ID, eventTypeNodeConnected)
+
 	for {
 		// 每个入站帧都必须落在心跳窗口内，否则视为节点失联。
 		if err := ws.SetReadDeadline(time.Now().Add(g.cfg.HeartbeatTimeout)); err != nil {
@@ -226,7 +297,16 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 			// 响应只交给发起请求的连接；未知 ID 由 Deliver 丢弃。
 			_ = conn.Deliver(frame)
 		case protocol.FrameEvent:
-			g.publishEvent(rec.ID, frame.Event)
+			if err := g.publishEvent(ctx, rec.ID, frame.Event); err != nil {
+				// PTY 事件是易失数据，发布失败只影响当前终端视图；丢掉它们
+				// 不能让整个节点的会话事件一起中断。
+				if frame.Event != nil && strings.HasPrefix(frame.Event.Type, ptyEventPrefix) {
+					logs.Warnf("agentgw: node %s publish %s failed: %v", rec.ID, frame.Event.Type, err)
+					continue
+				}
+				logs.Warnf("agentgw: node %s publish event failed: %v", rec.ID, err)
+				return
+			}
 		case protocol.FrameRequest:
 			// 控制面不处理节点主动发起的请求。
 			closeWithError(ws, websocket.CloseProtocolError, "unexpected request frame")
@@ -235,13 +315,13 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 	}
 }
 
-// publishEvent 把节点事件交给事件中心。
+// publishEvent 把节点事件交给集群总线。
 //
 // NodeID 一律以连接身份为准，覆盖 agent 自带的值，避免节点伪造或复用
 // 其它节点的身份；Time 缺失时补上控制面接收时间。
-func (g *Gateway) publishEvent(nodeID string, ev *protocol.Event) {
+func (g *Gateway) publishEvent(ctx context.Context, nodeID string, ev *protocol.Event) error {
 	if ev == nil {
-		return
+		return nil
 	}
 	published := event.Event{
 		NodeID:    nodeID,
@@ -254,7 +334,84 @@ func (g *Gateway) publishEvent(nodeID string, ev *protocol.Event) {
 	if published.Time.IsZero() {
 		published.Time = time.Now()
 	}
-	g.hub.Publish(published)
+	if err := g.publisher.PublishEvent(ctx, published); err != nil {
+		return fmt.Errorf("publish %s: %w", published.Type, err)
+	}
+	return nil
+}
+
+// publishLifecycle 发布连接生命周期事件。
+//
+// 生命周期事件只用于其它实例的状态投影，发布失败不能让连接建立或退出失败，
+// 因此只记日志；清理阶段的上下文可能已被取消，这里脱离取消再带短超时。
+func (g *Gateway) publishLifecycle(ctx context.Context, nodeID, eventType string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lifecyclePublishTimeout)
+	defer cancel()
+
+	ev := event.Event{NodeID: nodeID, Type: eventType, Time: time.Now()}
+	if err := g.publisher.PublishEvent(ctx, ev); err != nil {
+		logs.Warnf("agentgw: publish %s for node %s: %v", eventType, nodeID, err)
+	}
+}
+
+// respondRequests 订阅本节点的跨实例转发请求，直到 ctx 取消。
+//
+// queue 使用节点 ID：同一节点重连时新旧订阅短暂并存，队列组保证一个请求
+// 只被其中一个订阅处理。
+func (g *Gateway) respondRequests(ctx context.Context, nodeID string, conn *node.Connection) error {
+	subject, err := messaging.ControlPlaneNodeRequestSubject(nodeID)
+	if err != nil {
+		return fmt.Errorf("forward requests: %w", err)
+	}
+	err = g.coreSub.SubscribeCore(ctx, subject, nodeID, func(ctx context.Context, payload []byte) []byte {
+		return g.forwardRequest(ctx, conn, payload)
+	})
+	if err != nil {
+		return fmt.Errorf("subscribe %s: %w", subject, err)
+	}
+	return nil
+}
+
+// forwardRequest 把一条转发请求写到节点连接，并把结果编码成 ForwardResponse。
+//
+// handler 必须总是返回可解析的应答，返回 nil 只留给编码失败：请求方拿到
+// 空回复会把它当成没有 responder，更难排查。
+func (g *Gateway) forwardRequest(ctx context.Context, conn *node.Connection, payload []byte) []byte {
+	reqCtx, cancel := context.WithTimeout(ctx, forwardRequestTimeout)
+	defer cancel()
+
+	var req node.ForwardRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		// 不回显负载：转发请求可能带提示词等用户内容。
+		return marshalForwardResponse(node.ForwardResponse{
+			Error: &node.ForwardError{Code: "bad_request", Message: "invalid forward request"},
+		})
+	}
+
+	var resp node.ForwardResponse
+	result, err := conn.Request(reqCtx, req.Method, req.Params)
+	switch {
+	case err == nil:
+		resp.Result = result
+	default:
+		var remote *node.RemoteError
+		if errors.As(err, &remote) {
+			resp.Error = &node.ForwardError{Code: remote.Code, Message: remote.Message}
+		} else {
+			resp.Error = &node.ForwardError{Code: "agent_error", Message: err.Error()}
+		}
+	}
+	return marshalForwardResponse(resp)
+}
+
+// marshalForwardResponse 编码转发应答；失败时返回 nil，避免返回半截 JSON。
+func marshalForwardResponse(resp node.ForwardResponse) []byte {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		logs.Warnf("agentgw: marshal forward response: %v", err)
+		return nil
+	}
+	return data
 }
 
 // readHello 读取并校验注册帧，返回原帧（复用其 ID）与参数。
