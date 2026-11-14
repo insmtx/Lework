@@ -15,12 +15,12 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 const (
-	// ptyBridgeBuffer bounds one browser bridge. The Hub closes the
-	// subscription if the browser is slower than this, which closes the socket
-	// instead of growing memory without bound.
+	// ptyBridgeBuffer bounds one browser bridge. Terminal output is lossy:
+	// a full buffer drops new frames instead of growing memory without bound.
 	ptyBridgeBuffer = 1024
 
 	// ptyInputLimit is the largest browser binary frame accepted as terminal
@@ -106,10 +106,6 @@ func (a *API) handlePTYWebSocket(w http.ResponseWriter, r *http.Request) {
 	if !a.requireNode(w, r, nodeID) {
 		return
 	}
-	if info, ok := a.registry.Get(nodeID); !ok || !info.Connected {
-		writeAPIError(w, http.StatusConflict, "node_offline", "node is offline")
-		return
-	}
 
 	upgrader := websocket.Upgrader{
 		HandshakeTimeout: 10 * time.Second,
@@ -125,8 +121,9 @@ func (a *API) handlePTYWebSocket(w http.ResponseWriter, r *http.Request) {
 	socket := &browserSocket{conn: conn}
 
 	// Subscribe before attach so output produced during the handshake is not
-	// lost. The Hub may close this channel if the browser falls too far behind.
-	events, unsubscribe := a.hub.Subscribe(ptyBridgeBuffer)
+	// lost. 订阅走集群总线：节点可能连在另一个实例上，本实例只需关心
+	// 这个 pty 的 subject。
+	events, unsubscribe := a.subscribePTY(r.Context(), nodeID, ptyID)
 	defer unsubscribe()
 
 	attachCtx, cancelAttach := context.WithTimeout(r.Context(), a.requestTimeout)
@@ -165,6 +162,49 @@ func (a *API) handlePTYWebSocket(w http.ResponseWriter, r *http.Request) {
 		// socket is still writable; no internal detail is copied to the browser.
 		return
 	}
+}
+
+// subscribePTY starts a cluster-bus subscription for one node/pty pair.
+//
+// The returned channel is buffered: terminal output is lossy by design, so a
+// full buffer drops the newest event instead of blocking the bus callback.
+// Cancel is idempotent and causes SubscribeCore to return; the channel is left
+// open so a concurrent handler callback can never send on a closed channel.
+func (a *API) subscribePTY(ctx context.Context, nodeID, ptyID string) (<-chan event.Event, func()) {
+	events := make(chan event.Event, ptyBridgeBuffer)
+
+	subject, err := messaging.ControlPlanePTYSubject(nodeID, ptyID)
+	if err != nil || a.coreSub == nil {
+		// Invalid ids mean the route could not carry a subscription; the bridge
+		// still works for input and attach failures are reported to the browser.
+		return events, func() {}
+	}
+
+	child, cancel := context.WithCancel(ctx)
+	var once sync.Once
+	unsubscribe := func() {
+		once.Do(cancel)
+	}
+
+	go func() {
+		_ = a.coreSub.SubscribeCore(child, subject, "",
+			func(_ context.Context, payload []byte) []byte {
+				var ev event.Event
+				if err := json.Unmarshal(payload, &ev); err != nil {
+					// Malformed bus payloads are dropped; one bad frame must not
+					// tear down a working terminal.
+					return nil
+				}
+				select {
+				case events <- ev:
+				default:
+					// Slow browser: drop the frame rather than blocking the bus.
+				}
+				return nil
+			})
+	}()
+
+	return events, unsubscribe
 }
 
 // ptyEventWriter forwards only events for this node, session, and pty. Binary

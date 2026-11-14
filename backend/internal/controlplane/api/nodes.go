@@ -10,8 +10,9 @@ import (
 
 // nodeView 是浏览器看到的节点视图。
 //
-// 身份字段与 LastSeen 以持久化存储为准（心跳会写入 LastSeen），
-// Connected 则取实时注册表，避免把已断开节点显示为在线。
+// 身份字段、LastSeen 与 Connected 全部由持久化记录推导（心跳会写入
+// LastSeen）。跨实例部署时节点可能连在别的控制面实例上，因此不能再用
+// 本实例注册表判断在线。
 type nodeView struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
@@ -122,8 +123,8 @@ func (a *API) findNode(ctx context.Context, nodeID string) (nodeView, bool, erro
 	return nodeView{}, false, nil
 }
 
-// listNodes 合并持久化记录与实时连接状态。持久化记录是身份与 LastSeen
-// 的唯一来源，注册表只补充 Connected。
+// listNodes 把持久化记录投影成节点视图。存储是身份、LastSeen 与在线状态的
+// 唯一来源：心跳在任一实例上收到都会刷新 LastSeen，因此这里对集群一视同仁。
 func (a *API) listNodes(ctx context.Context) ([]nodeView, error) {
 	records, err := a.store.ListNodes(ctx)
 	if err != nil {
@@ -140,6 +141,7 @@ func (a *API) listNodes(ctx context.Context) ([]nodeView, error) {
 			AgentVersion:   rec.AgentVersion,
 			Capabilities:   rec.Capabilities,
 			WorkspaceRoots: rec.WorkspaceRoots,
+			Connected:      a.nodeConnected(rec),
 			LastSeen:       rec.LastSeen,
 		}
 		// hello 不带 capabilities 时存储里是 nil，直接序列化会得到 null；
@@ -149,9 +151,6 @@ func (a *API) listNodes(ctx context.Context) ([]nodeView, error) {
 		}
 		if view.WorkspaceRoots == nil {
 			view.WorkspaceRoots = []string{}
-		}
-		if info, ok := a.registry.Get(rec.ID); ok {
-			view.Connected = info.Connected
 		}
 		views = append(views, view)
 	}

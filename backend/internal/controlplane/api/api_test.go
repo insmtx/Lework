@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,7 +18,12 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
 )
+
+// testHeartbeatTimeout 是测试环境的离线判定窗口。取较大值是为了让
+// addNode 刚写入的记录稳定处于在线窗口内，离线用例再显式改写 LastSeen。
+const testHeartbeatTimeout = 30 * time.Second
 
 // fakeAgent 是测试用的节点写入端：把控制面发出的请求帧交给测试，
 // 由测试通过 conn.Deliver 送回响应。
@@ -36,14 +42,174 @@ func (f *fakeAgent) Write(ctx context.Context, frame protocol.Frame) error {
 
 func (f *fakeAgent) Close() error { return nil }
 
-// testEnv 组装真实的 store、registry、hub 与 API。
+// fakeForwarder 是跨实例请求的测试替身。
+//
+// 未设置 handler 时按 NATS 语义返回 ErrNoResponders，因此「节点没有任何
+// 实例持有」的用例不需要额外配置就能得到 409。
+type fakeForwarder struct {
+	mu      sync.Mutex
+	calls   []forwardedCall
+	handler func(subject string, req node.ForwardRequest) (node.ForwardResponse, error)
+}
+
+// forwardedCall 记录一次转发请求，便于断言 subject 与方法。
+type forwardedCall struct {
+	Subject string
+	Request node.ForwardRequest
+}
+
+func (f *fakeForwarder) RequestBytes(_ context.Context, subject string, request []byte) ([]byte, error) {
+	var req node.ForwardRequest
+	if err := json.Unmarshal(request, &req); err != nil {
+		return nil, fmt.Errorf("fake forwarder: decode request: %w", err)
+	}
+
+	f.mu.Lock()
+	f.calls = append(f.calls, forwardedCall{Subject: subject, Request: req})
+	handler := f.handler
+	f.mu.Unlock()
+
+	if handler == nil {
+		return nil, mq.ErrNoResponders
+	}
+	resp, err := handler(subject, req)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(resp)
+}
+
+func (f *fakeForwarder) setHandler(
+	handler func(subject string, req node.ForwardRequest) (node.ForwardResponse, error),
+) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.handler = handler
+}
+
+func (f *fakeForwarder) callsSnapshot() []forwardedCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]forwardedCall(nil), f.calls...)
+}
+
+// waitCall 等待某个方法的转发请求出现，返回它的 subject 与请求。
+func (f *fakeForwarder) waitCall(t *testing.T, method string) forwardedCall {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, call := range f.callsSnapshot() {
+			if call.Request.Method == method {
+				return call
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("no forwarded request for method %q", method)
+	return forwardedCall{}
+}
+
+// fakeCoreSub 是 CoreSubscriber 的测试替身，按 subject 精确匹配投递。
+//
+// 与生产一致：SubscribeCore 注册后阻塞到 ctx 取消，取消退订并返回。
+// publish 让测试直接把一条负载交给对应订阅者，无需真实 NATS。
+type fakeCoreSub struct {
+	mu         sync.Mutex
+	subs       []*fakeCoreSubscription
+	subscribed chan string
+}
+
+// fakeCoreSubscription 是一条按 subject 精确匹配的订阅。
+type fakeCoreSubscription struct {
+	subject string
+	handler func(context.Context, []byte) []byte
+}
+
+func newFakeCoreSub() *fakeCoreSub {
+	return &fakeCoreSub{subscribed: make(chan string, 16)}
+}
+
+func (f *fakeCoreSub) SubscribeCore(
+	ctx context.Context,
+	subject, _ string,
+	handler func(context.Context, []byte) []byte,
+) error {
+	if handler == nil {
+		return fmt.Errorf("fake core subscriber: nil handler for %s", subject)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	sub := &fakeCoreSubscription{subject: subject, handler: handler}
+	f.mu.Lock()
+	f.subs = append(f.subs, sub)
+	f.mu.Unlock()
+
+	select {
+	case f.subscribed <- subject:
+	default:
+	}
+
+	<-ctx.Done()
+
+	f.mu.Lock()
+	for i, candidate := range f.subs {
+		if candidate == sub {
+			f.subs = append(f.subs[:i], f.subs[i+1:]...)
+			break
+		}
+	}
+	f.mu.Unlock()
+	return ctx.Err()
+}
+
+// publish 把负载交给 subject 完全相同的订阅者，返回投递数量。
+func (f *fakeCoreSub) publish(subject string, payload []byte) int {
+	f.mu.Lock()
+	handlers := make([]func(context.Context, []byte) []byte, 0, len(f.subs))
+	for _, sub := range f.subs {
+		if sub.subject == subject {
+			handlers = append(handlers, sub.handler)
+		}
+	}
+	f.mu.Unlock()
+
+	for _, handler := range handlers {
+		_ = handler(context.Background(), payload)
+	}
+	return len(handlers)
+}
+
+// waitSubscribed 等待某个 subject 的订阅建立，避免测试在订阅生效前投递。
+func (f *fakeCoreSub) waitSubscribed(t *testing.T, subject string) {
+	t.Helper()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case got := <-f.subscribed:
+			if got == subject {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("no subscription for subject %q", subject)
+		}
+	}
+}
+
+// testEnv 组装真实的 store、registry、hub 与 API，以及总线替身。
 type testEnv struct {
-	t        *testing.T
-	store    *store.Store
-	registry *node.Registry
-	hub      *event.Hub
-	index    *overview.Index
-	mux      *http.ServeMux
+	t                *testing.T
+	store            *store.Store
+	registry         *node.Registry
+	hub              *event.Hub
+	index            *overview.Index
+	forward          *fakeForwarder
+	core             *fakeCoreSub
+	mux              *http.ServeMux
+	heartbeatTimeout time.Duration
 }
 
 func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
@@ -55,18 +221,41 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 	}
 	registry := node.NewRegistry()
 	hub := event.NewHub()
-
 	index := overview.NewIndex()
-	api := New(st, registry, hub, index, timeout)
+	forward := &fakeForwarder{}
+	core := newFakeCoreSub()
+
+	router := node.NewRouter(registry, forward)
+	api := New(st, registry, hub, index, router, core, timeout, testHeartbeatTimeout)
 	mux := http.NewServeMux()
 	api.Register(mux)
 
-	env := &testEnv{t: t, store: st, registry: registry, hub: hub, index: index, mux: mux}
+	env := &testEnv{
+		t:                t,
+		store:            st,
+		registry:         registry,
+		hub:              hub,
+		index:            index,
+		forward:          forward,
+		core:             core,
+		mux:              mux,
+		heartbeatTimeout: testHeartbeatTimeout,
+	}
 	t.Cleanup(func() {
 		registry.CloseAll()
 		_ = st.Close()
 	})
 	return env
+}
+
+// markNodeOffline 把存储里的 LastSeen 推到离线窗口之外，模拟心跳停止。
+func (e *testEnv) markNodeOffline(nodeID string) {
+	e.t.Helper()
+
+	at := time.Now().Add(-2 * e.heartbeatTimeout)
+	if err := e.store.TouchNode(context.Background(), nodeID, at); err != nil {
+		e.t.Fatalf("touch node %q: %v", nodeID, err)
+	}
 }
 
 // addNode 写入持久化节点记录并注册一条活跃连接。
@@ -262,20 +451,11 @@ func TestAPIListNodes(t *testing.T) {
 	}
 }
 
-// TestAPIListNodesUsesStoredLastSeen 固化控制器裁决：身份字段与 LastSeen
-// 一律取持久化记录，注册表只决定 Connected。
-func TestAPIListNodesUsesStoredLastSeen(t *testing.T) {
+// TestAPIListNodesConnectedFromLastSeen 固化控制器裁决：在线状态由存储里的
+// LastSeen 与心跳窗口推导，而不是本实例注册表是否持有连接。
+func TestAPIListNodesConnectedFromLastSeen(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	stored, _, _ := env.addNode("dev-box")
-
-	// 用明显不同的内存 LastSeen 覆盖注册表项；API 不应采用它。
-	conn := node.NewConnection(stored.ID, &fakeAgent{frames: make(chan protocol.Frame, 1)})
-	env.registry.Register(node.Info{
-		ID:        stored.ID,
-		Name:      stored.Name,
-		Connected: true,
-		LastSeen:  stored.LastSeen.Add(time.Hour),
-	}, conn)
 
 	httpRec := env.do(http.MethodGet, "/api/nodes", "")
 	requireStatus(t, httpRec, http.StatusOK)
@@ -284,24 +464,41 @@ func TestAPIListNodesUsesStoredLastSeen(t *testing.T) {
 		t.Fatalf("nodes = %d, want 1", len(nodes))
 	}
 	if !nodes[0].Connected {
-		t.Fatal("connected = false, want true while registry has a live connection")
+		t.Fatal("connected = false, want true while last_seen is inside the heartbeat window")
 	}
 	if !nodes[0].LastSeen.Equal(stored.LastSeen) {
 		t.Fatalf("last_seen = %s, want stored %s", nodes[0].LastSeen, stored.LastSeen)
 	}
 
-	env.registry.CloseAll()
+	// 心跳超出窗口：即使注册表仍持有连接，也只能显示离线。
+	env.markNodeOffline(stored.ID)
+	if _, ok := env.registry.Get(stored.ID); !ok {
+		t.Fatal("registry lost the connection; the offline decision must not depend on it")
+	}
+
 	httpRec = env.do(http.MethodGet, "/api/nodes", "")
 	requireStatus(t, httpRec, http.StatusOK)
 	nodes = decodeBody[[]nodeResponse](t, httpRec)
 	if len(nodes) != 1 {
-		t.Fatalf("nodes = %d, want 1 after disconnect", len(nodes))
+		t.Fatalf("nodes = %d, want 1 after the heartbeat expired", len(nodes))
 	}
 	if nodes[0].Connected {
-		t.Fatal("connected = true after disconnect, want false")
+		t.Fatal("connected = true after the heartbeat window, want false")
 	}
-	if !nodes[0].LastSeen.Equal(stored.LastSeen) {
-		t.Fatalf("last_seen = %s after disconnect, want stored %s", nodes[0].LastSeen, stored.LastSeen)
+	stale := nodes[0].LastSeen
+
+	// 心跳恢复后重新在线，验证判定确实只依赖时间窗口。
+	if err := env.store.TouchNode(context.Background(), stored.ID, time.Now()); err != nil {
+		t.Fatalf("touch node: %v", err)
+	}
+	httpRec = env.do(http.MethodGet, "/api/nodes", "")
+	requireStatus(t, httpRec, http.StatusOK)
+	nodes = decodeBody[[]nodeResponse](t, httpRec)
+	if !nodes[0].Connected {
+		t.Fatal("connected = false after a fresh heartbeat, want true")
+	}
+	if !nodes[0].LastSeen.After(stale) {
+		t.Fatalf("last_seen = %s, want a value after %s", nodes[0].LastSeen, stale)
 	}
 }
 

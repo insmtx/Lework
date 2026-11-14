@@ -99,6 +99,18 @@ func (r *Registry) Get(nodeID string) (Info, bool) {
 	return cloneInfo(info), true
 }
 
+// Connection 返回节点当前活跃的连接；第二个返回值表示连接是否存在。
+//
+// 与 Get 的区别在于调用方需要连接本身来发请求（例如 Router 的本地短路），
+// 而不是只要一份可序列化的快照。返回值只在注册表锁内取出，调用方不得修改。
+func (r *Registry) Connection(nodeID string) (*Connection, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	conn, ok := r.conns[nodeID]
+	return conn, ok
+}
+
 // List 返回按 ID 升序排列的节点快照。返回值与注册表内部状态完全隔离，
 // 调用方可以随意修改。
 func (r *Registry) List() []Info {

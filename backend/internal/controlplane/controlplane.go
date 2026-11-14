@@ -146,7 +146,16 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		}
 		return nodeID
 	}, push.WithSessionTitle(index.Title))
-	browserAPI := api.New(st, registry, hub, index, cfg.RequestTimeout)
+	browserAPI := api.New(
+		st,
+		registry,
+		hub,
+		index,
+		node.NewRouter(registry, deps.Request),
+		deps.CoreSub,
+		cfg.RequestTimeout,
+		cfg.HeartbeatTimeout,
+	)
 	ui := webui.Handler()
 
 	mux := http.NewServeMux()

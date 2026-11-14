@@ -83,19 +83,24 @@ func fileQuery(w http.ResponseWriter, r *http.Request) (directory, path string, 
 }
 
 // requireNode distinguishes an unregistered node (404) from a registered but
-// offline node (409, produced by callAgent).
+// offline node (409). 离线判定与列表接口共用同一个心跳窗口，因此跨实例也
+// 不会把连在别处的节点当成不可用。
 func (a *API) requireNode(w http.ResponseWriter, r *http.Request, nodeID string) bool {
 	if nodeID == "" {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "node is required")
 		return false
 	}
-	_, exists, err := a.findNode(r.Context(), nodeID)
+	view, exists, err := a.findNode(r.Context(), nodeID)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return false
 	}
 	if !exists {
 		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return false
+	}
+	if !view.Connected {
+		writeAPIError(w, http.StatusConflict, "node_offline", "node is offline")
 		return false
 	}
 	return true
