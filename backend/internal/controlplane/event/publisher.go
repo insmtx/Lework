@@ -2,8 +2,12 @@ package event
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/insmtx/lework/backend/pkg/messaging"
 )
@@ -14,6 +18,12 @@ const (
 	EventTypePTYOutput = "pty.output"
 	EventTypePTYExit   = "pty.exit"
 )
+
+// EventTypeNodeSnapshot 是 owner 周期性发布的整节点投影快照。
+//
+// 定义在 event 包而不是 overview，是为了让事件类型成为总线协议的一部分；
+// overview.SnapshotEvent 保留为别名，避免已有调用方改动。
+const EventTypeNodeSnapshot = "node.snapshot"
 
 // ClusterBus 是发布状态事件（进入 JetStream）的集群总线。
 //
@@ -32,14 +42,38 @@ type CorePublisher interface {
 //
 // 状态事件需要跨实例重放，因此进入 stream；PTY 事件只对当前连着浏览器的
 // 实例有意义，走 Core NATS 直接丢弃未订阅的流量。
+//
+// 状态事件在发布前会被盖上 owner 纪元与该节点上的单调序号，接收方据此丢弃
+// 乱序或来自旧 epoch 的事件与快照。
 type Publisher struct {
 	bus  ClusterBus
 	core CorePublisher
+
+	owner string
+
+	mu  sync.Mutex
+	seq map[string]int64
 }
 
 // NewPublisher 组装事件发布器。bus 与 core 分别对应持久化与易失两条链路。
+//
+// owner 每次进程启动随机生成：重启后的实例必须被视为新 epoch，否则旧实例
+// 遗留的序号会让新事件被误判为过期。
 func NewPublisher(bus ClusterBus, core CorePublisher) *Publisher {
-	return &Publisher{bus: bus, core: core}
+	return &Publisher{
+		bus:   bus,
+		core:  core,
+		owner: newOwnerID(),
+		seq:   make(map[string]int64),
+	}
+}
+
+// Owner 返回当前发布器的纪元标识。
+func (p *Publisher) Owner() string {
+	if p == nil {
+		return ""
+	}
+	return p.owner
 }
 
 // PublishEvent 发布单条节点事件。
@@ -52,15 +86,43 @@ func (p *Publisher) PublishEvent(ctx context.Context, ev Event) error {
 	case EventTypePTYOutput, EventTypePTYExit:
 		return p.publishPTY(ctx, ev)
 	default:
-		subject, err := messaging.ControlPlaneEventSubject(ev.NodeID)
-		if err != nil {
-			return fmt.Errorf("publish event %s: %w", ev.Type, err)
-		}
-		if err := p.bus.Publish(ctx, subject, ev); err != nil {
-			return fmt.Errorf("publish event %s to %s: %w", ev.Type, subject, err)
-		}
-		return nil
+		ev = p.stamp(ev)
+		return p.publishState(ctx, ev)
 	}
+}
+
+// PublishSnapshot 发布一条整节点快照，不改变 owner 序号。
+//
+// 快照携带生成它时的 index watermark（owner + seq），因此它既不会因为发布
+// 动作把序号推高，也不会覆盖比它更新的实时事件。
+func (p *Publisher) PublishSnapshot(ctx context.Context, ev Event) error {
+	return p.publishState(ctx, ev)
+}
+
+// stamp 为状态事件分配 owner 与节点内单调序号。
+func (p *Publisher) stamp(ev Event) Event {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.seq == nil {
+		p.seq = make(map[string]int64)
+	}
+	p.seq[ev.NodeID]++
+	ev.Owner = p.owner
+	ev.ClusterSeq = p.seq[ev.NodeID]
+	return ev
+}
+
+// publishState 把状态事件（含快照）写入节点对应的 JetStream subject。
+func (p *Publisher) publishState(ctx context.Context, ev Event) error {
+	subject, err := messaging.ControlPlaneEventSubject(ev.NodeID)
+	if err != nil {
+		return fmt.Errorf("publish event %s: %w", ev.Type, err)
+	}
+	if err := p.bus.Publish(ctx, subject, ev); err != nil {
+		return fmt.Errorf("publish event %s to %s: %w", ev.Type, subject, err)
+	}
+	return nil
 }
 
 // publishPTY 把 PTY 事件序列化后发到 Core NATS。
@@ -92,4 +154,14 @@ func (p *Publisher) publishPTY(ctx context.Context, ev Event) error {
 		return fmt.Errorf("publish %s to %s: %w", ev.Type, subject, err)
 	}
 	return nil
+}
+
+// newOwnerID 生成进程级随机 owner 标识；它不参与安全认证，只是区分 epoch。
+func newOwnerID() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		return hex.EncodeToString(buf[:])
+	}
+	// rand 失败极罕见；退化为时间标识，仍能区分重启前后的进程。
+	return fmt.Sprintf("%016x", uint64(time.Now().UnixNano()))
 }

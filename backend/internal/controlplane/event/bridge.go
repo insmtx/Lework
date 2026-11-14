@@ -3,11 +3,16 @@ package event
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/lework/backend/pkg/messaging"
 )
+
+// bridgeRetryDelay 是订阅失败后的重试间隔。抖动或 NATS 短暂不可用时不能
+// 让桥接永久停止，否则本实例会再也收不到集群事件。
+const bridgeRetryDelay = time.Second
 
 // ClusterSubscriber 是订阅 JetStream 节点事件的字节订阅面。
 //
@@ -28,23 +33,50 @@ type ClusterSubscriber interface {
 type Bridge struct {
 	sub ClusterSubscriber
 	hub *Hub
+
+	// retryDelay 允许单测缩短重试等待，生产使用 bridgeRetryDelay。
+	retryDelay time.Duration
 }
 
 // NewBridge 组装桥接。startSeq 固定为 0（DeliverNew）：历史事件由客户端
 // 通过 OpenCode 会话状态自行恢复，桥接不重放旧事件。
 func NewBridge(sub ClusterSubscriber, hub *Hub) *Bridge {
-	return &Bridge{sub: sub, hub: hub}
+	return &Bridge{sub: sub, hub: hub, retryDelay: bridgeRetryDelay}
 }
 
 // Run 订阅所有节点事件并转发到本地 Hub，直到 ctx 取消。
 //
-// SubscribeBytes 本身阻塞到 ctx 取消；返回错误只在非取消场景记录日志，
-// 因为 Run 没有错误返回值，重连由上层（如有）决定。
+// 订阅可能因为 NATS 抖动或 stream 重建而失败；失败后按固定间隔重试，
+// 不能一次失败就永久停止接收事件。SubscribeBytes 提前返回 nil 也视为
+// 需要重新订阅，避免在循环里空转。
 func (b *Bridge) Run(ctx context.Context) {
 	subject := messaging.ControlPlaneEventWildcard()
-	err := b.sub.SubscribeBytes(ctx, subject, 0, b.handle)
-	if err != nil && ctx.Err() == nil {
-		logs.Warnf("event bridge: subscribe %s: %v", subject, err)
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := b.sub.SubscribeBytes(ctx, subject, 0, b.handle)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logs.Warnf("event bridge: subscribe %s: %v; retrying", subject, err)
+		} else {
+			logs.Warnf("event bridge: subscribe %s returned without error; retrying", subject)
+		}
+
+		delay := b.retryDelay
+		if delay <= 0 {
+			delay = bridgeRetryDelay
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 	}
 }
 

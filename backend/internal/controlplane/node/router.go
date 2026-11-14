@@ -72,7 +72,14 @@ func (r *Router) Request(ctx context.Context, nodeID, method string, params json
 		return nil, fmt.Errorf("controlplane: decode forward response for %s: %w", method, err)
 	}
 	if resp.Error != nil {
-		return nil, &RemoteError{Code: resp.Error.Code, Message: resp.Error.Message}
+		switch resp.Error.Code {
+		case "node_offline":
+			return nil, fmt.Errorf("controlplane: node %s: %w", nodeID, ErrNodeOffline)
+		case "agent_timeout":
+			return nil, fmt.Errorf("controlplane: forward %s to node %s: %w", method, nodeID, context.DeadlineExceeded)
+		default:
+			return nil, &RemoteError{Code: resp.Error.Code, Message: resp.Error.Message}
+		}
 	}
 	return resp.Result, nil
 }

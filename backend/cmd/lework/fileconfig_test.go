@@ -198,18 +198,25 @@ database:
 		t.Fatal("database debug = false, want true from the file")
 	}
 
+	// 真实启动路径是 applyControlPlane + applyClusterFlags：文件先写入，
+	// 显式 flag 再覆盖 URL。这里复现该顺序，确认非 URL 字段不会被弄丢。
 	explicit := controlplaneconfig.Default()
 	explicit.NATS = &appconfig.NATSConfig{URL: "nats://flag.example:4222"}
 	explicit.Database = &appconfig.DatabaseConfig{URL: "postgres://flag.example:5432/db"}
-	file.applyControlPlane(&explicit, nil, nil, func(name string) bool {
+	changed := func(name string) bool {
 		return name == "nats-url" || name == "database-url"
-	})
+	}
+	file.applyControlPlane(&explicit, nil, nil, changed)
+	applyClusterFlags(&explicit, "nats://flag.example:4222", "postgres://flag.example:5432/db", changed)
 
 	if explicit.NATS.URL != "nats://flag.example:4222" {
 		t.Fatalf("nats url = %q, want the flag value", explicit.NATS.URL)
 	}
 	if explicit.Database.URL != "postgres://flag.example:5432/db" {
 		t.Fatalf("database url = %q, want the flag value", explicit.Database.URL)
+	}
+	if !explicit.Database.Debug {
+		t.Fatal("database debug = false, want true preserved from the file when only the flag url is set")
 	}
 }
 

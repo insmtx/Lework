@@ -130,10 +130,12 @@ func (c *unifiedConfig) applyControlPlane(
 	if cp.HeartbeatTimeout != nil && !changed("heartbeat-timeout") {
 		cfg.HeartbeatTimeout = *cp.HeartbeatTimeout
 	}
-	if c.NATS != nil && !changed("nats-url") {
+	// 文件里的 NATS / Database 段总是先应用；显式 flag 只覆盖 URL，
+	// 因此 database.debug 等非 URL 字段不会因为传了 --database-url 而丢失。
+	if c.NATS != nil {
 		cfg.NATS = &appconfig.NATSConfig{URL: strings.TrimSpace(c.NATS.URL)}
 	}
-	if c.Database != nil && !changed("database-url") {
+	if c.Database != nil {
 		cfg.Database = &appconfig.DatabaseConfig{
 			URL:   strings.TrimSpace(c.Database.URL),
 			Debug: c.Database.Debug,

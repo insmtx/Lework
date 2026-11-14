@@ -323,6 +323,12 @@ func (g *Gateway) publishEvent(ctx context.Context, nodeID string, ev *protocol.
 	if ev == nil {
 		return nil
 	}
+	// node.* 是控制面的生命周期/快照命名空间，agent 不得伪造；丢弃而不是
+	// 断开连接，避免一个有 bug 的节点因此完全失联。
+	if strings.HasPrefix(ev.Type, "node.") {
+		logs.Warnf("agentgw: node %s sent reserved event type %q; dropping", nodeID, ev.Type)
+		return nil
+	}
 	published := event.Event{
 		NodeID:    nodeID,
 		SessionID: ev.SessionID,
@@ -393,6 +399,12 @@ func (g *Gateway) forwardRequest(ctx context.Context, conn *node.Connection, pay
 	switch {
 	case err == nil:
 		resp.Result = result
+	case errors.Is(err, node.ErrNodeOffline), errors.Is(err, node.ErrConnectionClosed):
+		// 路由检查之后节点才断开：语义仍是离线，不能让调用方看到 502。
+		resp.Error = &node.ForwardError{Code: "node_offline", Message: "node is offline"}
+	case errors.Is(err, context.DeadlineExceeded):
+		// 不把内部超时细节带出去；调用方只需要知道是 agent 太慢。
+		resp.Error = &node.ForwardError{Code: "agent_timeout", Message: "agent request timed out"}
 	default:
 		var remote *node.RemoteError
 		if errors.As(err, &remote) {

@@ -38,7 +38,9 @@ const resyncEvent = "agent.resync_required"
 //
 // payload 为 {"sessions":[]Session}，语义是整节点替换：新实例启动后靠它
 // 在 10 秒内收敛到与 owner 一致的视图，不必重放历史事件。
-const SnapshotEvent = "node.snapshot"
+//
+// 实际事件类型定义在 event 包，保留这个别名兼容已有调用方。
+const SnapshotEvent = event.EventTypeNodeSnapshot
 
 // pruneAfter 是已结束会话的保留时长。总览只回答“现在在跑什么”，
 // 超过这个窗口还停留在 idle/error 的会话不再有人关心，必须丢弃，
@@ -84,15 +86,30 @@ type sessionState struct {
 	pendingCount int
 }
 
+// watermark 记录某节点最近一次被接受的状态事件纪元与序号。
+//
+// owner 区分节点重新连到哪个实例；seq 只在同一 owner 内可比。没有 watermark
+// 时不限制，保持单测与旧事件的原有行为。
+type watermark struct {
+	owner string
+	seq   int64
+}
+
 // Index 是并发安全的事件投影。写只在 Apply，读只在 Snapshot。
 type Index struct {
 	mu    sync.Mutex
 	nodes map[string]map[string]*sessionState
+	// watermarks 与 nodes 同锁保护，避免“检查序号”和“应用事件”之间插入
+	// 另一条消息导致旧快照覆盖新状态。
+	watermarks map[string]watermark
 }
 
 // NewIndex 创建空索引。
 func NewIndex() *Index {
-	return &Index{nodes: make(map[string]map[string]*sessionState)}
+	return &Index{
+		nodes:      make(map[string]map[string]*sessionState),
+		watermarks: make(map[string]watermark),
+	}
 }
 
 // Apply 把一条事件投影到索引。未知事件只刷新活跃时间，不影响状态判定。
@@ -103,13 +120,6 @@ func (i *Index) Apply(ev event.Event) {
 		i.applySnapshot(ev)
 		return
 	}
-	if ev.Type == resyncEvent {
-		i.ResetNode(ev.NodeID)
-		return
-	}
-	if ev.SessionID == "" {
-		return
-	}
 
 	at := ev.Time
 	if at.IsZero() {
@@ -118,6 +128,19 @@ func (i *Index) Apply(ev event.Event) {
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
+
+	// 先做水位裁决：过期事件既不能改投影，也不能推进水位。
+	if !i.acceptLocked(ev) {
+		return
+	}
+
+	if ev.Type == resyncEvent {
+		delete(i.nodes, ev.NodeID)
+		return
+	}
+	if ev.SessionID == "" {
+		return
+	}
 
 	if i.nodes == nil {
 		i.nodes = make(map[string]map[string]*sessionState)
@@ -235,6 +258,13 @@ func (i *Index) applySnapshot(ev event.Event) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
+	// 已有水位时，旧 owner 的快照可能在新 owner 的第一条真实事件之后到达；
+	// 快照不能切换 epoch，只有真实事件可以。没有水位时仍允许快照初始化一个
+	// 全新实例的投影，否则新实例要等真实事件才能显示节点。
+	if !i.acceptLocked(ev) {
+		return
+	}
+
 	if i.nodes == nil {
 		i.nodes = make(map[string]map[string]*sessionState)
 	}
@@ -243,6 +273,41 @@ func (i *Index) applySnapshot(ev event.Event) {
 		return
 	}
 	i.nodes[ev.NodeID] = sessions
+}
+
+// acceptLocked 按 owner + 序号决定是否接受一条事件，并推进水位。
+// 调用方必须持有 i.mu。
+//
+// 实时事件可以切换 owner（节点重连到新实例），快照则不允许：快照只是纠偏，
+// 未知 epoch 必须等真实事件先建立水位。
+func (i *Index) acceptLocked(ev event.Event) bool {
+	if ev.Owner == "" {
+		// 无 owner 的事件/快照来自单测或旧版本，保持原来的无条件语义，
+		// 且不污染水位。
+		return true
+	}
+	if i.watermarks == nil {
+		i.watermarks = make(map[string]watermark)
+	}
+
+	current, ok := i.watermarks[ev.NodeID]
+	if !ok {
+		i.watermarks[ev.NodeID] = watermark{owner: ev.Owner, seq: ev.ClusterSeq}
+		return true
+	}
+	if current.owner != ev.Owner {
+		if ev.Type == SnapshotEvent {
+			return false
+		}
+		i.watermarks[ev.NodeID] = watermark{owner: ev.Owner, seq: ev.ClusterSeq}
+		return true
+	}
+	if ev.ClusterSeq < current.seq {
+		return false
+	}
+	current.seq = ev.ClusterSeq
+	i.watermarks[ev.NodeID] = current
+	return true
 }
 
 // pruneLocked 丢弃已结束且长时间无活动的会话，并清理空节点。
@@ -303,7 +368,23 @@ func (i *Index) Snapshot() []Node {
 func (i *Index) SnapshotNode(nodeID string) []Session {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	return i.snapshotNodeLocked(nodeID)
+}
 
+// SnapshotNodeWithWatermark 返回节点投影及其 watermark，供 owner 发布快照。
+//
+// 快照必须带上生成时的 owner + seq，接收方才能判断它是否已被实时事件超越。
+// 未知节点返回空切片与零值 watermark。
+func (i *Index) SnapshotNodeWithWatermark(nodeID string) ([]Session, string, int64) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	wm := i.watermarks[nodeID]
+	return i.snapshotNodeLocked(nodeID), wm.owner, wm.seq
+}
+
+// snapshotNodeLocked 构造节点投影副本；调用方必须持有 i.mu。
+func (i *Index) snapshotNodeLocked(nodeID string) []Session {
 	sessions := i.nodes[nodeID]
 	out := make([]Session, 0, len(sessions))
 	for _, sess := range sessions {

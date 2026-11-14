@@ -157,3 +157,57 @@ func TestRouterKeepsDeadlineError(t *testing.T) {
 		t.Fatalf("Request() error = %v, want errors.Is(context.DeadlineExceeded)", err)
 	}
 }
+
+// TestRouterMapsForwardResponseErrorCodes 证明持有连接的实例把“节点已断开”
+// 与“agent 超时”编码进 ForwardError 后，路由层会还原成相同的错误语义，
+// 而不是把它们当成普通远端错误透传。
+func TestRouterMapsForwardResponseErrorCodes(t *testing.T) {
+	tests := map[string]struct {
+		code    string
+		wantIs  error
+		wantOff bool
+	}{
+		"node offline":  {code: "node_offline", wantIs: ErrNodeOffline, wantOff: true},
+		"agent timeout": {code: "agent_timeout", wantIs: context.DeadlineExceeded},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			forwarder := &fakeForwarder{}
+			forwarder.setHandler(func(_ string, _ []byte) ([]byte, error) {
+				return json.Marshal(ForwardResponse{
+					Error: &ForwardError{Code: tt.code, Message: "from the owner instance"},
+				})
+			})
+
+			_, err := NewRouter(NewRegistry(), forwarder).
+				Request(context.Background(), "node-1", "opencode.status", nil)
+			if !errors.Is(err, tt.wantIs) {
+				t.Fatalf("Request() error = %v, want errors.Is(%v)", err, tt.wantIs)
+			}
+			if got := errors.Is(err, ErrNodeOffline); got != tt.wantOff {
+				t.Fatalf("errors.Is(err, ErrNodeOffline) = %v, want %v", got, tt.wantOff)
+			}
+		})
+	}
+}
+
+// TestRouterPassesThroughOtherForwardErrorCodes 证明未知错误码仍作为远端
+// 业务错误返回，调用方可以按 Code 分类而不必依赖固定的错误清单。
+func TestRouterPassesThroughOtherForwardErrorCodes(t *testing.T) {
+	forwarder := &fakeForwarder{}
+	forwarder.setHandler(func(_ string, _ []byte) ([]byte, error) {
+		return json.Marshal(ForwardResponse{
+			Error: &ForwardError{Code: "not_found", Message: "no such session"},
+		})
+	})
+
+	_, err := NewRouter(NewRegistry(), forwarder).
+		Request(context.Background(), "node-1", "session.diff", nil)
+	var remote *RemoteError
+	if !errors.As(err, &remote) {
+		t.Fatalf("Request() error = %v, want *RemoteError", err)
+	}
+	if remote.Code != "not_found" || remote.Message != "no such session" {
+		t.Fatalf("remote error = %+v, want the forwarded code and message", remote)
+	}
+}

@@ -117,6 +117,36 @@ func TestCrossInstanceEventsReachSSE(t *testing.T) {
 	}
 }
 
+// TestCrossInstanceOverviewConverges 证明新实例启动后不需要重放历史事件，仅靠
+// owner 周期性发布的 node.snapshot 就能收敛到相同总览。
+func TestCrossInstanceOverviewConverges(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	a := miStartInstance(t, ctx, "A")
+	b := miStartInstance(t, ctx, "B")
+	agent := miStartAgent(t, ctx, a.agentWSURL(), miNodeName("overview"))
+
+	// 先证明 event 链路已就绪，避免把“事件没到 A”误判成快照问题。
+	miWaitAgentReachable(t, ctx, b.baseURL, agent.nodeID)
+
+	emitCtx, stopEmitting := context.WithCancel(ctx)
+	go miEmitUntilCanceled(emitCtx, agent, protocol.Event{
+		SessionID: miSessionID,
+		Type:      "session.updated",
+		Data:      json.RawMessage(`{"title":"overview-converge"}`),
+		Time:      time.Now(),
+	})
+	miWaitOverviewSession(t, ctx, a.baseURL, agent.nodeID, miSessionID, miWaitTimeout)
+	stopEmitting()
+
+	// 停止发布后再启动 C：C 的桥接订阅使用 DeliverNew，收不到此前的事件，
+	// 因此它只能靠 A 的整节点快照建立视图。
+	time.Sleep(200 * time.Millisecond)
+	c := miStartInstance(t, ctx, "C")
+	miWaitOverviewSession(t, ctx, c.baseURL, agent.nodeID, miSessionID, 15*time.Second)
+}
+
 // TestCrossInstanceRequestRouting 证明 HTTP 请求打在 B、agent 连在 A 时，
 // 请求会经 cp.node.<id>.request 转发给持有连接的实例，并由 agent 应答。
 func TestCrossInstanceRequestRouting(t *testing.T) {
@@ -1004,6 +1034,65 @@ func miWaitNodeConnected(
 		select {
 		case <-ctx.Done():
 			t.Fatalf("context ended while waiting for node %s: %v", nodeID, ctx.Err())
+		case <-time.After(miPollInterval):
+		}
+	}
+}
+
+// miOverviewNode 是 GET /api/overview 里的节点视图；只声明断言需要的字段。
+type miOverviewNode struct {
+	NodeID   string `json:"node_id"`
+	Sessions []struct {
+		SessionID string `json:"session_id"`
+	} `json:"sessions"`
+}
+
+// miWaitOverviewSession 轮询总览直到目标节点出现指定会话。
+//
+// 单独的等待上限让新实例收敛用例可以跨过一个完整的快照发布周期，而不必
+// 放宽所有跨实例用例的 10s 上限。
+func miWaitOverviewSession(
+	t *testing.T,
+	ctx context.Context,
+	baseURL, nodeID, sessionID string,
+	timeout time.Duration,
+) {
+	t.Helper()
+
+	client := &http.Client{Timeout: miHTTPTimeout}
+	deadline := time.Now().Add(timeout)
+	var (
+		lastStatus int
+		lastBody   []byte
+		lastErr    error
+	)
+	for {
+		status, body, err := miRequest(ctx, client, http.MethodGet, baseURL+"/api/overview", "")
+		if err == nil && status == http.StatusOK {
+			var overview struct {
+				Nodes []miOverviewNode `json:"nodes"`
+			}
+			if decodeErr := json.Unmarshal(body, &overview); decodeErr == nil {
+				for _, node := range overview.Nodes {
+					if node.NodeID != nodeID {
+						continue
+					}
+					for _, sess := range node.Sessions {
+						if sess.SessionID == sessionID {
+							return
+						}
+					}
+				}
+			}
+		}
+		lastStatus, lastBody, lastErr = status, body, err
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for overview session %s/%s: status=%d body=%s err=%v",
+				nodeID, sessionID, lastStatus, miTruncate(lastBody), lastErr)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context ended while waiting for overview session %s: %v", nodeID, ctx.Err())
 		case <-time.After(miPollInterval):
 		}
 	}

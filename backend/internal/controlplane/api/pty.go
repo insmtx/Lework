@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/pkg/messaging"
@@ -174,9 +175,15 @@ func (a *API) subscribePTY(ctx context.Context, nodeID, ptyID string) (<-chan ev
 	events := make(chan event.Event, ptyBridgeBuffer)
 
 	subject, err := messaging.ControlPlanePTYSubject(nodeID, ptyID)
-	if err != nil || a.coreSub == nil {
+	if err != nil {
 		// Invalid ids mean the route could not carry a subscription; the bridge
 		// still works for input and attach failures are reported to the browser.
+		logs.Warnf("controlplane: pty subscribe for node %s pty %s: %v", nodeID, ptyID, err)
+		return events, func() {}
+	}
+	if a.coreSub == nil {
+		logs.Warnf("controlplane: pty subscribe for node %s pty %s: core subscriber is not configured",
+			nodeID, ptyID)
 		return events, func() {}
 	}
 

@@ -229,6 +229,103 @@ func TestSubscribePullDistributesOnce(t *testing.T) {
 	}
 }
 
+// TestPullConsumerDeliversOnlyNewMessages 验证 durable pull consumer 首次创建
+// 时使用 DeliverNew：创建前留在 stream 里的历史消息不会被重新推送。
+//
+// 推送消费者依赖这个语义：stream 里可能保留很久以前的 permission.asked，
+// 新实例启动时不能把历史审批全部再推一遍。
+func TestPullConsumerDeliversOnlyNewMessages(t *testing.T) {
+	bus := setupNATSJetStream(t)
+
+	nano := time.Now().UnixNano()
+	stream := fmt.Sprintf("MQTEST_NEW_%d", nano)
+	subject := fmt.Sprintf("mqtest.new.%d", nano)
+	durable := fmt.Sprintf("mqtest_new_%d", nano)
+
+	if _, err := bus.js.AddStream(&nats.StreamConfig{Name: stream, Subjects: []string{subject}}); err != nil {
+		t.Fatalf("add stream: %v", err)
+	}
+	t.Cleanup(func() { _ = bus.js.DeleteStream(stream) })
+
+	// 先写入“历史”消息，再创建 consumer。
+	for _, old := range []string{"old-1", "old-2"} {
+		if _, err := bus.js.Publish(subject, []byte(old)); err != nil {
+			t.Fatalf("publish %s: %v", old, err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		mu       sync.Mutex
+		received []string
+	)
+	pullErr := make(chan error, 1)
+	go func() {
+		pullErr <- bus.SubscribePull(ctx, stream, subject, durable, func(_ context.Context, data []byte) error {
+			mu.Lock()
+			received = append(received, string(data))
+			mu.Unlock()
+			return nil
+		})
+	}()
+
+	// 等 durable 真正创建后再发布新消息，避免把“consumer 还没建好”当成投递失败。
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := bus.js.ConsumerInfo(stream, durable); err == nil {
+			break
+		} else if !errors.Is(err, nats.ErrConsumerNotFound) {
+			t.Fatalf("inspect consumer: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("pull consumer was not created within 5s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if _, err := bus.js.Publish(subject, []byte("new-1")); err != nil {
+		t.Fatalf("publish new message: %v", err)
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := append([]string(nil), received...)
+		mu.Unlock()
+		if len(got) > 0 {
+			if len(got) != 1 || got[0] != "new-1" {
+				t.Fatalf("pull consumer received %v, want only new-1", got)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the new message")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// 再留一段时间，确认历史消息不会被补投。
+	time.Sleep(200 * time.Millisecond)
+	mu.Lock()
+	got := append([]string(nil), received...)
+	mu.Unlock()
+	if len(got) != 1 || got[0] != "new-1" {
+		t.Fatalf("pull consumer received %v after settling, want only new-1", got)
+	}
+
+	cancel()
+	select {
+	case err := <-pullErr:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("SubscribePull returned %v, want nil or context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SubscribePull did not return after context cancel")
+	}
+}
+
 // TestSubscribeBytesDelivers 验证 SubscribeBytes 以 DeliverNew 方式投递原始负载。
 func TestSubscribeBytesDelivers(t *testing.T) {
 	bus := setupNATSJetStream(t)

@@ -21,6 +21,13 @@ type Event struct {
 	Type      string          `json:"type"`
 	Data      json.RawMessage `json:"data,omitempty"`
 	Time      time.Time       `json:"time"`
+
+	// Owner 是发布该状态事件的进程纪元。节点重连后可能由另一个实例接管，
+	// 接收方用它区分新旧 owner，避免旧快照覆盖新状态。
+	Owner string `json:"owner,omitempty"`
+	// ClusterSeq 是 owner 在该节点上的单调递增序号。它只在 owner 内可比，
+	// 不替代 OpenCode 自己的 Seq。
+	ClusterSeq int64 `json:"cluster_seq,omitempty"`
 }
 
 // subscriber 是一个订阅者的发送端与关闭状态。

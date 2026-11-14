@@ -3,7 +3,6 @@ package event
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -53,15 +52,90 @@ func TestPublisherRoutesStateEventToJetStream(t *testing.T) {
 		t.Fatalf("PublishEvent: %v", err)
 	}
 
-	got, ok := bus.published["cp.events.node.n1"]
+	got, ok := bus.published["cp.events.node.n1"].(Event)
 	if !ok {
 		t.Fatalf("no state event published on cp.events.node.n1; got %#v", bus.published)
 	}
-	if !reflect.DeepEqual(got, want) {
+	if got.NodeID != want.NodeID || got.SessionID != want.SessionID || got.Seq != want.Seq ||
+		got.Type != want.Type || string(got.Data) != string(want.Data) || !got.Time.Equal(want.Time) {
 		t.Fatalf("published event mismatch: got %#v, want %#v", got, want)
+	}
+	if got.Owner != pub.Owner() || got.Owner == "" {
+		t.Fatalf("owner = %q, want the publisher owner %q", got.Owner, pub.Owner())
+	}
+	if got.ClusterSeq != 1 {
+		t.Fatalf("cluster seq = %d, want 1 for the first state event", got.ClusterSeq)
 	}
 	if core.calls != 0 {
 		t.Fatalf("state event must not use Core NATS, got %d calls", core.calls)
+	}
+}
+
+// TestPublisherStampsMonotonicSequencePerNode 证明同一节点的状态事件序号递增，
+// 不同节点各自计数，PTY 事件不参与。
+func TestPublisherStampsMonotonicSequencePerNode(t *testing.T) {
+	bus := &fakeBus{}
+	pub := NewPublisher(bus, &fakeCore{})
+
+	publish := func(nodeID, typ string) Event {
+		t.Helper()
+		if err := pub.PublishEvent(context.Background(), Event{NodeID: nodeID, Type: typ}); err != nil {
+			t.Fatalf("PublishEvent(%s): %v", typ, err)
+		}
+		return bus.published["cp.events.node."+nodeID].(Event)
+	}
+
+	first := publish("n1", "session.created")
+	second := publish("n1", "session.updated")
+	other := publish("n2", "session.created")
+	if first.ClusterSeq != 1 || second.ClusterSeq != 2 {
+		t.Fatalf("n1 seqs = %d,%d, want 1,2", first.ClusterSeq, second.ClusterSeq)
+	}
+	if other.ClusterSeq != 1 {
+		t.Fatalf("n2 seq = %d, want an independent counter starting at 1", other.ClusterSeq)
+	}
+	if first.Owner != second.Owner || first.Owner != other.Owner {
+		t.Fatalf("owners = %q,%q,%q, want one owner per publisher", first.Owner, second.Owner, other.Owner)
+	}
+
+	// PTY 事件不应占用状态序号。
+	pty := Event{NodeID: "n1", Type: EventTypePTYOutput, Data: json.RawMessage(`{"pty_id":"p1"}`)}
+	if err := pub.PublishEvent(context.Background(), pty); err != nil {
+		t.Fatalf("publish pty: %v", err)
+	}
+	third := publish("n1", "session.updated")
+	if third.ClusterSeq != 3 {
+		t.Fatalf("seq after pty = %d, want 3 (pty must not increment)", third.ClusterSeq)
+	}
+}
+
+// TestPublisherPublishSnapshotDoesNotStamp 证明快照按调用方给出的 watermark
+// 原样发布，不会自己递增序号。
+func TestPublisherPublishSnapshotDoesNotStamp(t *testing.T) {
+	bus := &fakeBus{}
+	pub := NewPublisher(bus, &fakeCore{})
+
+	snap := Event{
+		NodeID:     "n1",
+		Type:       EventTypeNodeSnapshot,
+		Owner:      "owner-a",
+		ClusterSeq: 7,
+		Data:       json.RawMessage(`{"sessions":[]}`),
+	}
+	if err := pub.PublishSnapshot(context.Background(), snap); err != nil {
+		t.Fatalf("PublishSnapshot: %v", err)
+	}
+	got := bus.published["cp.events.node.n1"].(Event)
+	if got.Owner != "owner-a" || got.ClusterSeq != 7 {
+		t.Fatalf("snapshot watermark = %q/%d, want owner-a/7", got.Owner, got.ClusterSeq)
+	}
+	// 后续状态事件仍从 1 开始，说明快照没有推进计数器。
+	if err := pub.PublishEvent(context.Background(), Event{NodeID: "n1", Type: "session.created"}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+	ev := bus.published["cp.events.node.n1"].(Event)
+	if ev.ClusterSeq != 1 {
+		t.Fatalf("cluster seq after snapshot = %d, want 1", ev.ClusterSeq)
 	}
 }
 

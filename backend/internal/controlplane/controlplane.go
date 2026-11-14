@@ -379,20 +379,31 @@ func (s *Server) publishSnapshots(ctx context.Context) {
 
 // publishSnapshotOnce 发布一轮快照。单次失败只记日志：下一轮会重发，
 // 不能因为一次网络抖动让所有实例永久停留在旧视图。
+//
+// 快照必须携带生成它时的 index watermark：如果实时事件尚未应用到索引，
+// 快照不能反过来把它覆盖掉。索引还没有水位时使用本进程 owner + seq 0，
+// 表示“未知 epoch”：已有状态的接收方会忽略它，全新实例可以接受。
 func (s *Server) publishSnapshotOnce(ctx context.Context) {
 	for _, info := range s.registry.List() {
-		data, err := json.Marshal(snapshotPayload{Sessions: s.index.SnapshotNode(info.ID)})
+		sessions, owner, seq := s.index.SnapshotNodeWithWatermark(info.ID)
+		if owner == "" {
+			owner = s.publisher.Owner()
+			seq = 0
+		}
+		data, err := json.Marshal(snapshotPayload{Sessions: sessions})
 		if err != nil {
 			logs.Warnf("controlplane: marshal snapshot for node %s: %v", info.ID, err)
 			continue
 		}
 		ev := event.Event{
-			NodeID: info.ID,
-			Type:   overview.SnapshotEvent,
-			Time:   time.Now(),
-			Data:   data,
+			NodeID:     info.ID,
+			Type:       overview.SnapshotEvent,
+			Time:       time.Now(),
+			Data:       data,
+			Owner:      owner,
+			ClusterSeq: seq,
 		}
-		if err := s.publisher.PublishEvent(ctx, ev); err != nil {
+		if err := s.publisher.PublishSnapshot(ctx, ev); err != nil {
 			logs.Warnf("controlplane: publish snapshot for node %s: %v", info.ID, err)
 		}
 	}

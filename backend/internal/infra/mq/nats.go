@@ -586,6 +586,9 @@ func (p *natsBus) ensurePullConsumer(stream, subject, durable string) error {
 		Durable:       durable,
 		AckPolicy:     nats.AckExplicitPolicy,
 		FilterSubject: subject,
+		// 首次创建的 durable 只消费之后的新事件；默认 DeliverAll 会把 stream
+		// 里保留的历史 permission.asked 全部重推一遍。
+		DeliverPolicy: nats.DeliverNewPolicy,
 	})
 	if addErr == nil {
 		return nil

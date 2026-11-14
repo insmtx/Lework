@@ -285,3 +285,160 @@ func TestPendingPermissionsUnknownSessionIsEmpty(t *testing.T) {
 		t.Fatalf("permissions = %+v, want empty", got)
 	}
 }
+
+// snapshotData 构造 node.snapshot 的 payload，避免每个用例重复 marshal。
+func snapshotData(t *testing.T, sessions ...Session) json.RawMessage {
+	t.Helper()
+
+	data, err := json.Marshal(struct {
+		Sessions []Session `json:"sessions"`
+	}{Sessions: sessions})
+	if err != nil {
+		t.Fatalf("marshal snapshot payload: %v", err)
+	}
+	return data
+}
+
+// TestOldSnapshotDoesNotOverwriteNewerEvent 证明 owner 已经应用了更新的事件后，
+// 迟到的旧快照不能把投影回滚到旧状态。
+func TestOldSnapshotDoesNotOverwriteNewerEvent(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_new", Type: "session.created",
+		Owner: "owner-a", ClusterSeq: 5, Time: at,
+	})
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-a", ClusterSeq: 3, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_old", State: StateIdle, LastActivity: at}),
+	})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || len(snap[0].Sessions) != 1 || snap[0].Sessions[0].SessionID != "ses_new" {
+		t.Fatalf("snapshot = %+v, want the newer event to survive", snap)
+	}
+}
+
+// TestSnapshotFromOtherOwnerIsDropped 证明快照不能切换 epoch：只有真实事件
+// 可以声明新 owner；旧 owner 的迟到快照必须被丢弃。
+func TestSnapshotFromOtherOwnerIsDropped(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_a", Type: "session.created",
+		Owner: "owner-a", ClusterSeq: 1, Time: at,
+	})
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-b", ClusterSeq: 1, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_b", State: StateRunning, LastActivity: at}),
+	})
+
+	if snap := idx.Snapshot(); len(snap) != 1 || len(snap[0].Sessions) != 1 ||
+		snap[0].Sessions[0].SessionID != "ses_a" {
+		t.Fatalf("snapshot = %+v, want owner-b snapshot dropped", snap)
+	}
+
+	// 新 owner 的第一条真实事件建立新 epoch。
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_b", Type: "session.created",
+		Owner: "owner-b", ClusterSeq: 2, Time: at,
+	})
+	// 旧 owner 的更大序号不能凭序号“复活”，跨 owner 的快照一律丢弃。
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-a", ClusterSeq: 9, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_c", State: StateRunning, LastActivity: at}),
+	})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || len(snap[0].Sessions) != 2 {
+		t.Fatalf("snapshot = %+v, want ses_a and ses_b", snap)
+	}
+	for _, ses := range snap[0].Sessions {
+		if ses.SessionID == "ses_c" {
+			t.Fatalf("stale owner snapshot was applied: %+v", snap)
+		}
+	}
+}
+
+// TestSnapshotAtOrAfterWatermarkReplacesNode 证明同一 owner 的快照在序号相等
+// 时允许替换（快照是权威整节点视图），更旧的快照则必须忽略。
+func TestSnapshotAtOrAfterWatermarkReplacesNode(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_1", Type: "session.created",
+		Owner: "owner-a", ClusterSeq: 1, Time: at,
+	})
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-a", ClusterSeq: 1, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_1", State: StateWaitingPermission, Pending: 1, LastActivity: at}),
+	})
+	if snap := idx.Snapshot(); len(snap) != 1 || snap[0].Sessions[0].State != StateWaitingPermission {
+		t.Fatalf("snapshot = %+v, want the equal-seq snapshot to replace state", snap)
+	}
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-a", ClusterSeq: 2, Time: at,
+		Data: snapshotData(t),
+	})
+	if snap := idx.Snapshot(); len(snap) != 0 {
+		t.Fatalf("snapshot = %+v, want the newer empty snapshot to clear the node", snap)
+	}
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-a", ClusterSeq: 1, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_1", State: StateRunning, LastActivity: at}),
+	})
+	if snap := idx.Snapshot(); len(snap) != 0 {
+		t.Fatalf("snapshot = %+v, want the older snapshot ignored after the node was cleared", snap)
+	}
+}
+
+// TestUnstampedEventsBypassAndPreserveWatermark 证明没有 owner 的旧事件/快照
+// 保持无条件语义，同时不会污染或推进 owner 水位。
+func TestUnstampedEventsBypassAndPreserveWatermark(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+
+	idx.Apply(event.Event{
+		NodeID: "node_1", SessionID: "ses_1", Type: "session.created",
+		Owner: "owner-a", ClusterSeq: 7, Time: at,
+	})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_2", Type: "session.created", Time: at})
+
+	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 7 {
+		t.Fatalf("watermark = %q/%d after an unstamped event, want owner-a/7", owner, seq)
+	}
+
+	// 旧 owner 的较早快照仍然会被水位拒绝。
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent,
+		Owner: "owner-a", ClusterSeq: 6, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_stale", State: StateRunning, LastActivity: at}),
+	})
+	// 无 owner 的快照保持无条件替换。
+	idx.Apply(event.Event{
+		NodeID: "node_1", Type: SnapshotEvent, Time: at,
+		Data: snapshotData(t, Session{SessionID: "ses_3", State: StateIdle, LastActivity: at}),
+	})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || len(snap[0].Sessions) != 1 || snap[0].Sessions[0].SessionID != "ses_3" {
+		t.Fatalf("snapshot = %+v, want the unstamped snapshot applied and the stale one ignored", snap)
+	}
+	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 7 {
+		t.Fatalf("watermark = %q/%d after an unstamped snapshot, want owner-a/7", owner, seq)
+	}
+	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_missing"); owner != "" || seq != 0 {
+		t.Fatalf("watermark for unknown node = %q/%d, want zero", owner, seq)
+	}
+}

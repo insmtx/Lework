@@ -1,8 +1,9 @@
 // Package controlplane_test 包含控制面的进程内纵向验收测试。
 //
-// 该测试使用真实控制面（HTTP API + agent 网关 + SQLite 存储）与真实 agent
+// 该测试使用真实控制面（HTTP API + agent 网关 + SQLite 测试存储）与真实 agent
 // runner，仅把 OpenCode 客户端与 supervisor 替换为桩实现，因此可以在没有
-// opencode 二进制、没有模型调用的环境下验证 I1-A 的完整链路。
+// opencode 二进制、没有模型调用的环境下验证 I1-A 的完整链路。生产控制面使用
+// PostgreSQL 与 NATS。
 package controlplane_test
 
 import (

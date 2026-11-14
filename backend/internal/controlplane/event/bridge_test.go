@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -147,6 +148,149 @@ func TestBridgeFeedsHub(t *testing.T) {
 
 	// Run 必须在 ctx 取消后返回，否则控制面关闭时无法回收 goroutine。
 	cancelRun()
+	select {
+	case <-done:
+	case <-time.After(waitTimeout):
+		t.Fatal("Bridge.Run did not return after context cancel")
+	}
+}
+
+// retrySubscriber 记录每次订阅调用；前 fail 次返回错误，之后阻塞到 ctx 取消。
+type retrySubscriber struct {
+	mu     sync.Mutex
+	calls  int
+	fail   int
+	called chan int
+}
+
+func newRetrySubscriber(fail int) *retrySubscriber {
+	return &retrySubscriber{fail: fail, called: make(chan int, 16)}
+}
+
+func (s *retrySubscriber) SubscribeBytes(
+	ctx context.Context,
+	_ string,
+	_ int64,
+	_ func(context.Context, []byte) error,
+) error {
+	s.mu.Lock()
+	s.calls++
+	n := s.calls
+	s.mu.Unlock()
+	select {
+	case s.called <- n:
+	default:
+	}
+
+	if n <= s.fail {
+		return errors.New("temporary subscription failure")
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (s *retrySubscriber) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
+// waitForCall 等待第 want 次订阅调用。
+func waitForCall(t *testing.T, called <-chan int, want int) {
+	t.Helper()
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case n := <-called:
+			if n >= want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for subscription call %d", want)
+		}
+	}
+}
+
+// TestBridgeRetriesAfterSubscriptionError 证明订阅失败不会让桥接永久停止。
+func TestBridgeRetriesAfterSubscriptionError(t *testing.T) {
+	sub := newRetrySubscriber(1)
+	bridge := NewBridge(sub, NewHub())
+	bridge.retryDelay = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		bridge.Run(ctx)
+	}()
+
+	waitForCall(t, sub.called, 1)
+	waitForCall(t, sub.called, 2)
+	if got := sub.callCount(); got < 2 {
+		t.Fatalf("subscription calls = %d, want at least 2", got)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(waitTimeout):
+		t.Fatal("Bridge.Run did not return after context cancel")
+	}
+}
+
+// nilSubscriber 每次调用都立即返回 nil，用来模拟订阅端“提前正常返回”。
+type nilSubscriber struct {
+	mu     sync.Mutex
+	calls  int
+	called chan int
+}
+
+func newNilSubscriber() *nilSubscriber {
+	return &nilSubscriber{called: make(chan int, 16)}
+}
+
+func (s *nilSubscriber) SubscribeBytes(
+	_ context.Context,
+	_ string,
+	_ int64,
+	_ func(context.Context, []byte) error,
+) error {
+	s.mu.Lock()
+	s.calls++
+	n := s.calls
+	s.mu.Unlock()
+	select {
+	case s.called <- n:
+	default:
+	}
+	return nil
+}
+
+func (s *nilSubscriber) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
+// TestBridgeResubscribesWhenSubscribeReturnsNil 证明 SubscribeBytes 提前返回
+// nil 时也会重新订阅，而不是让 Run 退出或空转。
+func TestBridgeResubscribesWhenSubscribeReturnsNil(t *testing.T) {
+	sub := newNilSubscriber()
+	bridge := NewBridge(sub, NewHub())
+	bridge.retryDelay = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		bridge.Run(ctx)
+	}()
+
+	waitForCall(t, sub.called, 1)
+	waitForCall(t, sub.called, 3)
+
+	cancel()
 	select {
 	case <-done:
 	case <-time.After(waitTimeout):

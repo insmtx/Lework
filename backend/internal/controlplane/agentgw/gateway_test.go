@@ -1019,6 +1019,104 @@ func TestGatewayClosesConnectionOnStatePublishFailure(t *testing.T) {
 	}
 }
 
+// TestGatewayForwardMapsClosedConnectionToOffline 证明路由检查之后连接才断开
+// 时仍返回 node_offline，而不是把内部连接错误当成 agent 业务错误。
+func TestGatewayForwardMapsClosedConnectionToOffline(t *testing.T) {
+	env := newGatewayEnv(t)
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+	sub := awaitCoreSubscription(t, env.coreSub)
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("close agent connection: %v", err)
+	}
+
+	// 等清理路径注销节点，确保连接自身已经关闭而不仅是底层套接字收到 FIN。
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, ok := env.registry.Get(nodeID); !ok {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("node stayed registered after the agent connection closed")
+		case <-ticker.C:
+		}
+	}
+
+	payload, err := json.Marshal(node.ForwardRequest{Method: "session.list"})
+	if err != nil {
+		t.Fatalf("encode forward request: %v", err)
+	}
+	raw := sub.handler(context.Background(), payload)
+
+	var resp node.ForwardResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("decode forward response %s: %v", raw, err)
+	}
+	if resp.Error == nil {
+		t.Fatalf("forward response = %s, want an error after the connection closed", raw)
+	}
+	if resp.Error.Code != "node_offline" {
+		t.Fatalf("forward error code = %q, want node_offline (message %q)", resp.Error.Code, resp.Error.Message)
+	}
+}
+
+// TestGatewayDropsAgentLifecycleEvents 证明 agent 不能伪造控制面的 node.*
+// 命名空间；事件被丢弃，但连接保持可用，不会因一个有 bug 的节点完全失联。
+func TestGatewayDropsAgentLifecycleEvents(t *testing.T) {
+	env := newGatewayEnv(t)
+	events, cancel := env.hub.Subscribe(16)
+	defer cancel()
+
+	client := env.connect(t)
+	nodeID, _ := handshake(t, client, "dev-box")
+
+	// 先消费网关自己的 node.connected，后续队列里只应有 agent 事件。
+	connected := awaitEvent(t, events, func(ev event.Event) bool { return ev.Type == "node.connected" })
+	if connected.NodeID != nodeID {
+		t.Fatalf("connected event node_id = %q, want %q", connected.NodeID, nodeID)
+	}
+
+	for _, typ := range []string{"node.offline", "node.snapshot", "node.connected"} {
+		writeEventFrame(t, client, &protocol.Event{
+			NodeID: "node_spoofed",
+			Type:   typ,
+			Data:   json.RawMessage(`{"sessions":[]}`),
+		})
+	}
+	writeEventFrame(t, client, &protocol.Event{
+		SessionID: "ses_1",
+		Type:      "session.created",
+		Data:      json.RawMessage(`{"title":"still alive"}`),
+	})
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-events:
+			if strings.HasPrefix(ev.Type, "node.") {
+				t.Fatalf("agent-originated reserved event %q was published", ev.Type)
+			}
+			if ev.Type != "session.created" {
+				continue
+			}
+			if ev.NodeID != nodeID {
+				t.Fatalf("event node_id = %q, want %q", ev.NodeID, nodeID)
+			}
+			// 普通事件仍能通过，说明丢弃保留事件没有断开连接。
+			if _, ok := env.registry.Get(nodeID); !ok {
+				t.Fatal("node was unregistered after sending reserved events")
+			}
+			return
+		case <-deadline:
+			t.Fatal("timed out waiting for a normal event after reserved events")
+		}
+	}
+}
+
 // TestGatewayKeepsConnectionOnPTYPublishFailure 证明 PTY 事件是易失数据：
 // 发布失败只记日志，连接继续处理心跳、响应与后续事件。
 func TestGatewayKeepsConnectionOnPTYPublishFailure(t *testing.T) {
