@@ -154,6 +154,8 @@ func newRootCommand() *cobra.Command {
 		tokenPath: defaultTokenFile(),
 		explicit:  os.Getenv(envEnrollmentToken),
 	}
+	natsURL := ""
+	databaseURL := ""
 
 	root := &cobra.Command{
 		Use:   "lework",
@@ -247,6 +249,7 @@ Use "lework [command] --help" for more information about a command.`,
 				return err
 			}
 			file.applyControlPlane(&opts.serve, &opts.tokenPath, &opts.pair, cmd.Flags().Changed)
+			applyClusterFlags(&opts.serve, natsURL, databaseURL, cmd.Flags().Changed)
 			if !opts.agent.configPathExplicit {
 				base, err := file.agentBase()
 				if err != nil {
@@ -278,6 +281,10 @@ Use "lework [command] --help" for more information about a command.`,
 		"timeout for a single node request")
 	flags.DurationVar(&opts.serve.HeartbeatTimeout, "heartbeat-timeout", controlplaneconfig.DefaultHeartbeatTimeout,
 		"idle time after which a node is considered offline")
+	flags.StringVar(&natsURL, "nats-url", "",
+		"NATS URL for cluster event fan-out (defaults to nats.url in the config file)")
+	flags.StringVar(&databaseURL, "database-url", "",
+		"PostgreSQL URL shared by control plane instances (defaults to database.url in the config file)")
 	addPairingFlags(root, &opts.pair)
 	flags.StringVar(&opts.agent.configPath, "agent-config", defaultAgentConfigPath(),
 		"path to agent.yaml (defaults to the platform default location)")

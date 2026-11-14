@@ -44,6 +44,8 @@ func newServeCommand() *cobra.Command {
 	tokenFile := defaultTokenFile()
 	pair := pairOptions{}
 	configPath := resolveConfigPath()
+	natsURL := ""
+	databaseURL := ""
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -71,6 +73,7 @@ Examples:
 				return err
 			}
 			file.applyControlPlane(&cfg, &tokenFile, &pair, cmd.Flags().Changed)
+			applyClusterFlags(&cfg, natsURL, databaseURL, cmd.Flags().Changed)
 			return runControlPlane(cmd.Context(), cfg, enrollmentToken, tokenFile, pair, cmd.OutOrStdout())
 		},
 	}
@@ -90,6 +93,10 @@ Examples:
 		"timeout for a single node request")
 	flags.DurationVar(&cfg.HeartbeatTimeout, "heartbeat-timeout", controlplaneconfig.DefaultHeartbeatTimeout,
 		"idle time after which a node is considered offline")
+	flags.StringVar(&natsURL, "nats-url", "",
+		"NATS URL for cluster event fan-out (defaults to nats.url in the config file)")
+	flags.StringVar(&databaseURL, "database-url", "",
+		"PostgreSQL URL shared by control plane instances (defaults to database.url in the config file)")
 	addPairingFlags(cmd, &pair)
 
 	// The token is a secret: keep the value initialized from the environment

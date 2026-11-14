@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	appconfig "github.com/insmtx/lework/backend/config"
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 )
 
@@ -167,6 +168,52 @@ controlplane:
 	}
 	if _, err := loadAgentConfig(path); err == nil || !strings.Contains(err.Error(), "no agent section") {
 		t.Fatalf("loadAgentConfig error = %v", err)
+	}
+}
+
+// TestApplyControlPlaneReadsNATSandDatabase 钉住顶层 nats:/database: 段会写入
+// 控制面配置，且显式 flag（changed 为 true）永远优先于文件。
+func TestApplyControlPlaneReadsNATSandDatabase(t *testing.T) {
+	path := writeConfig(t, `
+nats:
+  url: nats://127.0.0.1:4222
+database:
+  url: postgres://lework:lework@127.0.0.1:5432/lework
+  debug: true
+`)
+	file, err := loadConfigFile(path, true)
+	if err != nil {
+		t.Fatalf("loadConfigFile: %v", err)
+	}
+
+	cfg := controlplaneconfig.Default()
+	file.applyControlPlane(&cfg, nil, nil, noFlags)
+
+	if cfg.NATS == nil || cfg.NATS.URL != "nats://127.0.0.1:4222" {
+		t.Fatalf("nats = %+v, want the url from the file", cfg.NATS)
+	}
+	if cfg.Database == nil {
+		t.Fatal("database = nil, want the url from the file")
+	}
+	if cfg.Database.URL != "postgres://lework:lework@127.0.0.1:5432/lework" {
+		t.Fatalf("database url = %q", cfg.Database.URL)
+	}
+	if !cfg.Database.Debug {
+		t.Fatal("database debug = false, want true from the file")
+	}
+
+	explicit := controlplaneconfig.Default()
+	explicit.NATS = &appconfig.NATSConfig{URL: "nats://flag.example:4222"}
+	explicit.Database = &appconfig.DatabaseConfig{URL: "postgres://flag.example:5432/db"}
+	file.applyControlPlane(&explicit, nil, nil, func(name string) bool {
+		return name == "nats-url" || name == "database-url"
+	})
+
+	if explicit.NATS.URL != "nats://flag.example:4222" {
+		t.Fatalf("nats url = %q, want the flag value", explicit.NATS.URL)
+	}
+	if explicit.Database.URL != "postgres://flag.example:5432/db" {
+		t.Fatalf("database url = %q, want the flag value", explicit.Database.URL)
 	}
 }
 

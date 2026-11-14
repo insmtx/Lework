@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	appconfig "github.com/insmtx/lework/backend/config"
 )
 
 const testEnrollmentToken = "test-enrollment-token"
@@ -172,5 +174,99 @@ func TestConfigValidateDoesNotLeakToken(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), testEnrollmentToken) {
 		t.Errorf("Validate() error leaked the enrollment token: %q", err)
+	}
+}
+
+// clusterConfig 返回一份补齐了 NATS 与 PostgreSQL 的配置。
+func clusterConfig() Config {
+	cfg := validConfig()
+	cfg.NATS = &appconfig.NATSConfig{URL: "nats://127.0.0.1:4222"}
+	cfg.Database = &appconfig.DatabaseConfig{URL: "postgres://lework:lework@127.0.0.1:5432/lework"}
+	return cfg
+}
+
+func TestValidateClusterRequiresNATSAndDatabase(t *testing.T) {
+	if err := clusterConfig().ValidateCluster(); err != nil {
+		t.Fatalf("ValidateCluster() with both URLs = %v, want nil", err)
+	}
+
+	cfg := clusterConfig()
+	cfg.NATS = nil
+	err := cfg.ValidateCluster()
+	if err == nil {
+		t.Fatal("ValidateCluster() without NATS should fail")
+	}
+	if !strings.Contains(err.Error(), "nats") {
+		t.Errorf("ValidateCluster() error = %q, want it to mention nats", err)
+	}
+
+	cfg = clusterConfig()
+	cfg.Database = nil
+	err = cfg.ValidateCluster()
+	if err == nil {
+		t.Fatal("ValidateCluster() without Database should fail")
+	}
+	if !strings.Contains(err.Error(), "database") {
+		t.Errorf("ValidateCluster() error = %q, want it to mention database", err)
+	}
+
+	// 空 URL 与 nil 一样视为未配置。
+	cfg = clusterConfig()
+	cfg.NATS = &appconfig.NATSConfig{}
+	if err := cfg.ValidateCluster(); err == nil || !strings.Contains(err.Error(), "nats") {
+		t.Errorf("ValidateCluster() with empty NATS url = %v, want a nats error", err)
+	}
+	cfg = clusterConfig()
+	cfg.Database = &appconfig.DatabaseConfig{}
+	if err := cfg.ValidateCluster(); err == nil || !strings.Contains(err.Error(), "database") {
+		t.Errorf("ValidateCluster() with empty database url = %v, want a database error", err)
+	}
+}
+
+func TestValidateClusterRejectsWrongSchemes(t *testing.T) {
+	cfg := clusterConfig()
+	cfg.NATS.URL = "http://127.0.0.1:4222"
+	if err := cfg.ValidateCluster(); err == nil || !strings.Contains(err.Error(), "nats") {
+		t.Errorf("ValidateCluster() with an http NATS url = %v, want a scheme error", err)
+	}
+
+	cfg = clusterConfig()
+	cfg.Database.URL = "mysql://lework:lework@127.0.0.1:3306/lework"
+	if err := cfg.ValidateCluster(); err == nil || !strings.Contains(err.Error(), "postgres") {
+		t.Errorf("ValidateCluster() with a mysql database url = %v, want a postgres error", err)
+	}
+
+	// postgresql:// 是 postgres 的等价写法。
+	cfg = clusterConfig()
+	cfg.Database.URL = "postgresql://lework:lework@127.0.0.1:5432/lework"
+	if err := cfg.ValidateCluster(); err != nil {
+		t.Errorf("ValidateCluster() with a postgresql url = %v, want nil", err)
+	}
+}
+
+// TestValidateClusterDoesNotLeakURL 钉住：URL 可能内嵌凭据，错误文本只描述字段。
+func TestValidateClusterDoesNotLeakURL(t *testing.T) {
+	cfg := clusterConfig()
+	cfg.Database.URL = "postgres://u:secret@h/db"
+	cfg.NATS = &appconfig.NATSConfig{URL: "http://u:secret@h:4222"}
+
+	err := cfg.ValidateCluster()
+	if err == nil {
+		t.Fatal("ValidateCluster() should fail for an invalid NATS scheme")
+	}
+	if strings.Contains(err.Error(), "secret") {
+		t.Errorf("ValidateCluster() error leaked the url: %q", err)
+	}
+}
+
+// TestValidateDoesNotRequireCluster 钉住：Validate 仍只校验本地启动参数，
+// 单测与本地 SQLite 模式都不需要 NATS/PostgreSQL。
+func TestValidateDoesNotRequireCluster(t *testing.T) {
+	cfg := validConfig()
+	if cfg.NATS != nil || cfg.Database != nil {
+		t.Fatal("Default() must not invent cluster settings")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() without cluster settings = %v, want nil", err)
 	}
 }

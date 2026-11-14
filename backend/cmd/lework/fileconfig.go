@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	appconfig "github.com/insmtx/lework/backend/config"
 	agentdconfig "github.com/insmtx/lework/backend/internal/agentd/config"
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 )
@@ -20,6 +21,10 @@ import (
 //	  listen: 127.0.0.1:8787
 //	  db: ~/.config/Lework/controlplane.db
 //	  public_url: http://dev.ckeyer.com
+//	nats:
+//	  url: nats://127.0.0.1:4222
+//	database:
+//	  url: postgres://lework:lework@127.0.0.1:5432/lework
 //	agent:
 //	  workspace_roots: [/opt/lework/me/workspace]
 //
@@ -61,6 +66,9 @@ type controlPlaneFile struct {
 type unifiedConfig struct {
 	ControlPlane controlPlaneFile     `yaml:"controlplane"`
 	Agent        *agentdconfig.Config `yaml:"agent"`
+	// NATS 与 Database 是控制面集群模式的顶层段，与旧 server 配置同名。
+	NATS     *appconfig.NATSConfig     `yaml:"nats"`
+	Database *appconfig.DatabaseConfig `yaml:"database"`
 
 	// raw 保留展开环境变量后原文，供识别旧的扁平 agent.yaml 使用。
 	raw []byte
@@ -127,6 +135,15 @@ func (c *unifiedConfig) applyControlPlane(
 	if cp.HeartbeatTimeout != nil && !changed("heartbeat-timeout") {
 		cfg.HeartbeatTimeout = *cp.HeartbeatTimeout
 	}
+	if c.NATS != nil && !changed("nats-url") {
+		cfg.NATS = &appconfig.NATSConfig{URL: strings.TrimSpace(c.NATS.URL)}
+	}
+	if c.Database != nil && !changed("database-url") {
+		cfg.Database = &appconfig.DatabaseConfig{
+			URL:   strings.TrimSpace(c.Database.URL),
+			Debug: c.Database.Debug,
+		}
+	}
 	if pair != nil {
 		if cp.PublicURL != nil && !changed("public-url") {
 			pair.publicURL = strings.TrimSpace(*cp.PublicURL)
@@ -134,6 +151,35 @@ func (c *unifiedConfig) applyControlPlane(
 		if cp.ExpoURL != nil && !changed("expo-url") {
 			pair.expoURL = strings.TrimSpace(*cp.ExpoURL)
 		}
+	}
+}
+
+// applyClusterFlags 把显式传入的 --nats-url / --database-url 写回配置。
+//
+// 只覆盖 URL 字段，保留文件里的其他字段（例如 database.debug）；
+// 显式传空值会把空 URL 交给 ValidateCluster，而不是静默回退到文件。
+func applyClusterFlags(
+	cfg *controlplaneconfig.Config,
+	natsURL, databaseURL string,
+	changed func(string) bool,
+) {
+	if cfg == nil {
+		return
+	}
+	if changed == nil {
+		changed = func(string) bool { return false }
+	}
+	if changed("nats-url") {
+		if cfg.NATS == nil {
+			cfg.NATS = &appconfig.NATSConfig{}
+		}
+		cfg.NATS.URL = strings.TrimSpace(natsURL)
+	}
+	if changed("database-url") {
+		if cfg.Database == nil {
+			cfg.Database = &appconfig.DatabaseConfig{}
+		}
+		cfg.Database.URL = strings.TrimSpace(databaseURL)
 	}
 }
 

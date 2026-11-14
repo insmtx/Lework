@@ -207,6 +207,11 @@ const (
 // （run.stream、run.state）。
 //
 //	保留 24h，每 subject 最多 10000 条。
+//
+// CONTROLPLANE_EVENT_STREAM: agent -> 控制面方向，只覆盖 cp.events.node.>。
+//
+//	节点请求（cp.node.<id>.request）与终端输出（cp.pty.<id>.<pty>）走
+//	Core NATS，不注册到任何 stream。保留 24h，每 subject 最多 10000 条。
 func StreamConfigs() map[string]nats.StreamConfig {
 	return map[string]nats.StreamConfig{
 		StreamNameWorker: {
@@ -252,6 +257,15 @@ func StreamConfigs() map[string]nats.StreamConfig {
 			Retention:         nats.LimitsPolicy,
 			Discard:           nats.DiscardOld,
 			MaxAge:            72 * time.Hour,
+			MaxMsgsPerSubject: 10000,
+		},
+		StreamNameControlPlane: {
+			Name:              StreamNameControlPlane,
+			Subjects:          []string{ControlPlaneEventWildcard()},
+			Storage:           nats.FileStorage,
+			Retention:         nats.LimitsPolicy,
+			Discard:           nats.DiscardOld,
+			MaxAge:            24 * time.Hour,
 			MaxMsgsPerSubject: 10000,
 		},
 	}
