@@ -48,6 +48,7 @@ example/
 .dsh
 
 .cache/
+.turbo/
 
 # Prevent accidental Go source files in root directory (except go.mod/go.sum)
 # Note: Actual Go test files should be in backend/tests or appropriate package directories
