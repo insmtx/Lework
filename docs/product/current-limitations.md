@@ -27,6 +27,11 @@
 - 复制 OpenCode 的 session/message/event 状态。
 - 组织、部门、成员、邀请、审计、配额。
 
+## 已知限制
+
+- 节点在实例间重连的瞬间，新旧 `cp.node.<id>.request` 队列组订阅会短暂并存。
+  若转发请求恰好被旧订阅处理，会返回 `node_offline`；重试即可落到新实例。
+
 ## 验证状态
 
 - 以 `docs/operations/control-plane.md` 的 I1-B 说明为准；I0 结论见 `../design/2026-11-01-i0-findings.md`。

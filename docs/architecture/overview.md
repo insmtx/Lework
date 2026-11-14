@@ -8,7 +8,7 @@
 
 Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 
-- 控制面：Go + SQLite，提供浏览器 API、统一 SSE、Session 级 WebSocket；
+- 控制面：Go + PostgreSQL + NATS，提供浏览器 API、统一 SSE、Session 级 WebSocket；
 - 前端：Next.js，浏览器只连控制面；
 - 节点侧：每台机器部署 `lework agent`，由 systemd 常驻；
 - 执行面：`lework agent` 管理本机 OpenCode 进程，并代理其 HTTP/SSE/WS；
@@ -24,7 +24,7 @@ Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 
 | # | 决策 | 结论 | 理由 |
 |---|---|---|---|
-| D1 | 控制面技术栈 | Go + SQLite | 复用现有 AIO、单二进制、进程与网络能力 |
+| D1 | 控制面技术栈 | Go + PostgreSQL + NATS | 复用现有 AIO、单二进制；PostgreSQL 存节点索引，NATS 负责多实例事件与请求转发 |
 | D2 | 前端 | Next.js，本地 Web 优先 | 现代 GUI、开发效率；桌面壳后置 |
 | D3 | 浏览器连接 | 只连 Lework 控制面 | 避免 CORS、token 暴露、多节点直连 |
 | D4 | 节点连接 | `lework agent` 主动出站 WSS | 节点无需入站端口，穿越 NAT/防火墙 |
@@ -63,7 +63,7 @@ Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 │  Project / Session Index                                     │
 │  Git Sync Orchestrator                                       │
 │  Config / Action Manager                                     │
-│  Local Store (SQLite)                                        │
+│  PostgreSQL Node Index / NATS Event Bus                      │
 └───────▲──────────────────▲──────────────────▲────────────────┘
         │ WSS outbound      │ WSS outbound      │ WSS outbound
 ┌───────┴──────┐   ┌───────┴──────┐   ┌───────┴───────────────┐
@@ -627,9 +627,10 @@ type Action struct {
 - 全局 Action 可被项目级覆盖；
 - 修改前展示最终 prompt 预览。
 
-### 4.9 Local Store
+### 4.9 Store
 
-SQLite，单文件；只存控制面元数据：
+PostgreSQL 存控制面元数据，NATS（需启用 JetStream）承载事件、跨实例请求与
+PTY 输出；两者都是控制面集群依赖：
 
 ```text
 nodes
@@ -652,7 +653,7 @@ enrollment_tokens
 - 组织/用户/权限；
 - 明文 node token（只存 hash）。
 
-迁移：启动时 schema migrate；备份/恢复只针对该 SQLite 文件与密钥文件。
+迁移：启动时 GORM AutoMigrate 建表；备份/恢复针对 PostgreSQL 数据库与密钥文件。
 
 ---
 
@@ -824,7 +825,7 @@ v1 不做通用 OpenCode 代理端点；浏览器只能访问上述显式 API。
 
 - 单个 Go 进程：浏览器 API + SSE + PTY Hub + Agent Gateway；
 - 静态前端可嵌入二进制；
-- SQLite 单文件；
+- PostgreSQL 存节点索引，NATS 负责事件扇出与跨实例转发（NATS 需启用 JetStream）；
 - 浏览器 API 默认 `127.0.0.1`；
 - Agent Gateway 独立监听，默认回环，多机时绑定 LAN/Tailscale + TLS；
 - 可选桌面壳（Electron/Tauri）后置。
@@ -892,7 +893,7 @@ Host (Control Plane) <-- USB-C vNIC --> Spark (lework agent)
 
 ### 8.5 备份与恢复
 
-- 备份：SQLite + 控制面密钥 + 节点配置快照；
+- 备份：PostgreSQL + 控制面密钥 + 节点配置快照；
 - 不备份 OpenCode 的 session 数据（由节点自身负责）；
 - 恢复后 agent 重连、重新同步节点状态。
 
@@ -1009,7 +1010,7 @@ backend/internal/controlplane/
   git/          # task snapshot, sync, merge
   config/       # read/write/diff/rollback
   action/       # prompt/command wrappers
-  store/        # SQLite
+  store/        # PostgreSQL 节点索引
 backend/internal/agentd/
   protocol/     # hello/request/response/stream
   opencode/     # local process + HTTP/SSE/WS

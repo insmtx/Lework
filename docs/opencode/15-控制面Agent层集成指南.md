@@ -37,7 +37,7 @@ opencode serve（每节点一个共享 server，按 Location 装载项目）
 
 | 组件 | 入口 | 关键行为 |
 |---|---|---|
-| 控制面 | `lework serve --listen 127.0.0.1:8787` | SQLite 节点库、agent 网关、浏览器 API、SSE、内嵌 UI；默认只绑定回环 |
+| 控制面 | `lework serve --listen 127.0.0.1:8787` | PostgreSQL 节点库、NATS 事件总线、agent 网关、浏览器 API、SSE、内嵌 UI；默认只绑定回环 |
 | 节点守护 | `lework agent --config ...` | 主动出站到 `/api/agent/connect`；管理 OpenCode 子进程；转发事件 |
 | OpenCode | `opencode serve --hostname 127.0.0.1 --port <port>` | 由 supervisor 启动或附着（attach）；HTTP Basic Auth |
 | 浏览器 | `http://127.0.0.1:8787/` | 只访问同源相对路径，不接触节点令牌 |
@@ -121,7 +121,7 @@ opencode serve（每节点一个共享 server，按 Location 装载项目）
 
 | 方法 | 路径 | 转发的 RPC |
 |---|---|---|
-| `GET` | `/api/nodes` | 读 SQLite + 实时注册表 |
+| `GET` | `/api/nodes` | 读 PostgreSQL + 实时注册表 |
 | `GET` | `/api/nodes/{id}` | 同上 |
 | `GET` | `/api/nodes/{id}/health` | `opencode.status` |
 | `GET` | `/api/nodes/{id}/files?directory=&path=` | `file.list` |

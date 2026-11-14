@@ -15,7 +15,7 @@
 
 ## 边界
 
-- agent 不持有业务状态；控制面 SQLite 只存节点注册信息与 `last_seen`（项目索引 / UI 偏好为后续阶段）。
+- agent 不持有业务状态；控制面 PostgreSQL 只存节点注册信息与 `last_seen`（项目索引 / UI 偏好为后续阶段），事件与跨实例请求经 NATS 转发。
 - 不允许把 API Key 写入日志、事件或 OpenCode 配置之外的位置。
 
 ## 代码位置

@@ -55,6 +55,10 @@ lework serve \
 索引都在 PostgreSQL 中，任一实例收到心跳都会刷新同一行。事件、跨实例请求
 与终端输出走 NATS，因此多实例之间不需要粘性会话。
 
+升级说明：旧版本写在本地 `controlplane.db` 里的节点数据不会自动导入
+PostgreSQL。节点重连后会重新注册并刷新 `last_seen`，不需要手工迁移；生产
+启动也不再读取该文件。
+
 统一的 `lework.yaml` 可以把两段直接并列（裸 `lework`、`serve`、`agent`
 共用同一个 `--config`）：
 
@@ -96,6 +100,10 @@ subject token，避免节点伪造其它节点的订阅。
 
 审批推送使用持久化 pull consumer `controlplane-push-consumer`，所有实例用同名
 durable 消费同一条流，因此同一条 `permission.asked` 只推一次。
+
+升级提示：`DeliverNew` 只在 durable 首次创建时生效。如果旧版本已经创建过
+`controlplane-push-consumer`，需要先删除该 consumer（或整个 stream）让新版本
+重建，否则会沿用旧策略把 stream 里的历史审批重新推送一遍。
 
 ### 多实例要求
 
