@@ -12,17 +12,15 @@ import {
 
 import { projectRoute } from "../src/config";
 import { orderProjects, projectDisplayName } from "../src/projects/model";
-import { useProjects } from "../src/projects/use-projects";
-import { useSettings } from "../src/settings/use-settings";
+import { formatRelativeTime } from "../src/sidebar/model";
+import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 
 function ProjectCard({ project }: { project: ProjectSummary }) {
-	const online = project.nodes.filter((node) => node.online).length;
-	const status =
-		online > 0 ? `${online}/${project.nodes.length} 个节点在线` : "节点离线";
+	const online = project.nodes.some((node) => node.online);
 
 	return (
 		<Pressable
-			style={[styles.card, online === 0 && styles.cardOffline]}
+			style={[styles.card, !online && styles.cardOffline]}
 			onPress={() => router.push(projectRoute(project.key))}
 		>
 			<Text style={styles.name} numberOfLines={1}>
@@ -31,15 +29,18 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
 			<Text style={styles.meta} numberOfLines={1}>
 				{project.canonical}
 			</Text>
-			<Text style={[styles.status, online === 0 && styles.statusOffline]}>{status}</Text>
+			<Text style={[styles.status, !online && styles.statusOffline]}>
+				{online ? formatRelativeTime(project.last_seen) : "节点离线"}
+			</Text>
 		</Pressable>
 	);
 }
 
-/** 项目列表：只展示「我的」之外的项目，「我的」固定在首页。 */
+/** 项目列表：「我的」已在侧边栏和首页，这里列出其余项目。 */
 export default function ProjectsScreen() {
-	const { settings, loading: settingsLoading } = useSettings();
-	const { projects, inbox, loading, error, refresh } = useProjects(settings);
+	useScreenTitle("项目");
+	const { settings, settingsLoading, projects } = useAppShell();
+	const { projects: allProjects, inbox, loading, error, refresh } = projects;
 
 	if (settingsLoading) {
 		return (
@@ -61,9 +62,7 @@ export default function ProjectsScreen() {
 		);
 	}
 
-	const others = orderProjects(
-		projects.filter((project) => project.key !== inbox.project?.key),
-	);
+	const others = orderProjects(allProjects.filter((project) => project.key !== inbox.project?.key));
 
 	return (
 		<FlatList

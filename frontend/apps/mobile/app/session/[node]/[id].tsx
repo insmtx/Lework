@@ -1,9 +1,10 @@
-import type { Message, PendingPermission } from "@lework/api";
-import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import type { Message, PendingPermission, Session } from "@lework/api";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
 	FlatList,
+	Modal,
 	Pressable,
 	RefreshControl,
 	StyleSheet,
@@ -12,11 +13,16 @@ import {
 	View,
 } from "react-native";
 
-import { createClient } from "../../../src/api/client";
+import { sessionRoute } from "../../../src/config";
+import { findProjectForSession } from "../../../src/projects/model";
 import { runSend } from "../../../src/session/send-flow";
 import { useSession } from "../../../src/session/use-session";
-import { useSettings } from "../../../src/settings/use-settings";
+import { selectSiblingSessions } from "../../../src/sessions/select";
+import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
+import { formatRelativeTime } from "../../../src/sidebar/model";
+import { useAppShell, useScreenTitle } from "../../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../../src/ui/global-composer";
+import { ScreenTopBar } from "../../../src/ui/top-bar";
 
 function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -135,12 +141,56 @@ function ApprovalCard({
 	);
 }
 
+function SessionSwitcher({
+	sessions,
+	currentID,
+	loading,
+	onPick,
+	onClose,
+}: {
+	sessions: Session[];
+	currentID: string;
+	loading: boolean;
+	onPick: (id: string) => void;
+	onClose: () => void;
+}) {
+	return (
+		<Pressable style={styles.backdrop} onPress={onClose}>
+			<View style={styles.sheet}>
+				<Text style={styles.sheetTitle}>切换会话</Text>
+				<FlatList
+					data={sessions}
+					keyExtractor={(item) => item.id}
+					renderItem={({ item }) => (
+						<Pressable style={styles.sheetItem} onPress={() => onPick(item.id)}>
+							<Text
+								style={[styles.sheetLabel, item.id === currentID && styles.sheetLabelActive]}
+								numberOfLines={1}
+							>
+								{item.title || item.id}
+							</Text>
+							<Text style={styles.sheetTime}>{formatRelativeTime(item.updatedAt)}</Text>
+						</Pressable>
+					)}
+					ListEmptyComponent={
+						loading ? (
+							<ActivityIndicator style={styles.sheetLoading} />
+						) : (
+							<Text style={styles.hint}>这个项目下还没有会话</Text>
+						)
+					}
+				/>
+			</View>
+		</Pressable>
+	);
+}
+
 export default function SessionScreen() {
 	const params = useLocalSearchParams<{ node: string; id: string }>();
 	const nodeID = param(params.node);
 	const sessionID = param(params.id);
 
-	const { settings, loading: settingsLoading } = useSettings();
+	const { settings, settingsLoading, projects } = useAppShell();
 	const {
 		messages,
 		permissions,
@@ -150,36 +200,42 @@ export default function SessionScreen() {
 		reply,
 		send,
 		interrupt,
-		connected,
 		sending,
 		notFound,
 	} = useSession(settings, nodeID, sessionID);
+
+	const nodeSessions = useNodeSessions(settings, nodeID);
+	const current = useMemo(
+		() => nodeSessions.sessions.find((session) => session.id === sessionID) ?? null,
+		[nodeSessions.sessions, sessionID],
+	);
+	const project = useMemo(
+		() => (current ? findProjectForSession(current, projects.projects) : null),
+		[current, projects.projects],
+	);
+	const title = current?.title || "会话";
+	useScreenTitle(title);
+
+	const siblings = useMemo(() => {
+		if (!current) return [];
+		// 项目还没聚合出来时退回会话自身的 projectID 与目录，至少不跨项目。
+		const key =
+			project?.key ??
+			(current.projectID === "global"
+				? `global:${current.directory ?? ""}`
+				: (current.projectID ?? ""));
+		const canonical = project?.canonical ?? current.directory ?? "";
+		if (!key && !canonical) return [current];
+		return selectSiblingSessions(nodeSessions.sessions, key, canonical);
+	}, [current, project, nodeSessions.sessions]);
+
 	const [draft, setDraft] = useState("");
 	const [actionError, setActionError] = useState<string | null>(null);
-	const [nodeName, setNodeName] = useState(nodeID);
-	const [nodeOnline, setNodeOnline] = useState<boolean | null>(null);
+	const [switcherOpen, setSwitcherOpen] = useState(false);
 
-	// 会话页只从深链进来，没有项目上下文；至少把节点名字取回来，
-	// 让 chip 显示「dev-box」而不是 node_9f3a…。
 	useEffect(() => {
-		if (!settings) return;
-		let cancelled = false;
-		void createClient(settings)
-			.listNodes()
-			.then((nodes) => {
-				if (cancelled) return;
-				const node = nodes.find((item) => item.id === nodeID);
-				if (!node) return;
-				setNodeName(node.name);
-				setNodeOnline(node.connected);
-			})
-			.catch(() => {
-				// 拿不到节点信息不影响读消息，chip 退回显示节点 ID。
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [settings, nodeID]);
+		if (switcherOpen) nodeSessions.refresh();
+	}, [switcherOpen, nodeSessions.refresh]);
 
 	const submit = async () => {
 		const text = draft.trim();
@@ -233,7 +289,7 @@ export default function SessionScreen() {
 					<Text style={styles.primaryButtonText}>去待审批</Text>
 				</Pressable>
 				<Pressable style={styles.secondaryButton} onPress={() => router.replace("/")}>
-					<Text style={styles.secondaryButtonText}>回我的</Text>
+					<Text style={styles.secondaryButtonText}>回首页</Text>
 				</Pressable>
 			</View>
 		);
@@ -241,15 +297,15 @@ export default function SessionScreen() {
 
 	return (
 		<View style={styles.screen}>
-			<Stack.Screen options={{ title: sessionID }} />
-			<View style={styles.toolbar}>
-				<Text style={styles.toolbarMeta} numberOfLines={1}>
-					{nodeID} · {connected ? "live" : "offline"}
-				</Text>
-				<Pressable style={styles.secondaryButton} onPress={() => void stop()}>
-					<Text style={styles.secondaryButtonText}>Interrupt</Text>
-				</Pressable>
-			</View>
+			<ScreenTopBar
+				title={title}
+				onTitlePress={() => setSwitcherOpen(true)}
+				extra={
+					<Pressable style={styles.stopButton} onPress={() => void stop()}>
+						<Text style={styles.stopText}>停止</Text>
+					</Pressable>
+				}
+			/>
 
 			{error ? <Text style={styles.error}>{error}</Text> : null}
 			{actionError ? <Text style={styles.error}>{actionError}</Text> : null}
@@ -285,17 +341,35 @@ export default function SessionScreen() {
 
 			<GlobalComposer
 				target={{
-					projectKey: `${nodeID}:${sessionID}`,
-					projectName: nodeName,
+					projectKey: project?.key ?? `${nodeID}:${sessionID}`,
+					projectName: title,
 					nodeID,
 					showNode: false,
 				}}
-				disabledReason={nodeOnline === false ? "节点离线" : undefined}
+				showChip={false}
 				value={draft}
 				onChangeText={setDraft}
 				onSend={submit}
 				sending={sending}
 			/>
+
+			<Modal
+				transparent
+				visible={switcherOpen}
+				animationType="fade"
+				onRequestClose={() => setSwitcherOpen(false)}
+			>
+				<SessionSwitcher
+					sessions={siblings}
+					currentID={sessionID}
+					loading={nodeSessions.loading}
+					onPick={(id) => {
+						setSwitcherOpen(false);
+						if (id !== sessionID) router.replace(sessionRoute(nodeID, id));
+					}}
+					onClose={() => setSwitcherOpen(false)}
+				/>
+			</Modal>
 		</View>
 	);
 }
@@ -306,15 +380,8 @@ const styles = StyleSheet.create({
 	title: { fontSize: 18, fontWeight: "600" },
 	hint: { color: "#666", textAlign: "center" },
 	error: { color: "#b91c1c", paddingHorizontal: 16, paddingTop: 8 },
-	toolbar: {
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "space-between",
-		paddingHorizontal: 16,
-		paddingVertical: 8,
-		gap: 8,
-	},
-	toolbarMeta: { flex: 1, fontSize: 12, color: "#64748b" },
+	stopButton: { paddingHorizontal: 6, paddingVertical: 6 },
+	stopText: { fontSize: 13, color: "#475569" },
 	messages: { flex: 1 },
 	messagesContent: { padding: 16, gap: 10 },
 	approvals: { gap: 10, marginBottom: 12 },
@@ -383,4 +450,27 @@ const styles = StyleSheet.create({
 	},
 	rejectButtonText: { color: "#b91c1c", fontWeight: "600" },
 	disabled: { opacity: 0.5 },
+	backdrop: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.28)", justifyContent: "flex-end" },
+	sheet: {
+		backgroundColor: "#fff",
+		borderTopLeftRadius: 16,
+		borderTopRightRadius: 16,
+		padding: 16,
+		gap: 8,
+		maxHeight: "65%",
+	},
+	sheetTitle: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
+	sheetItem: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: 12,
+		paddingVertical: 12,
+		borderBottomWidth: 1,
+		borderBottomColor: "#f1f5f9",
+	},
+	sheetLabel: { flex: 1, fontSize: 15, color: "#0f172a" },
+	sheetLabelActive: { fontWeight: "700", color: "#2563eb" },
+	sheetTime: { fontSize: 11, color: "#94a3b8" },
+	sheetLoading: { paddingVertical: 24 },
 });

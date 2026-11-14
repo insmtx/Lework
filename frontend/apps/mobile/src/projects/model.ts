@@ -1,8 +1,5 @@
 import type { ProjectSummary, Session } from "@lework/api";
 
-/** INBOX_ALIAS 是「我的」项目卡的固定标题；用户别名以后可覆盖。 */
-export const INBOX_ALIAS = "我的";
-
 /** projectDisplayName 优先用用户别名，否则取 canonical 的最后一段。 */
 export function projectDisplayName(project: { canonical: string; alias?: string }): string {
 	const alias = project.alias?.trim();
@@ -110,10 +107,7 @@ export interface TargetResolution {
  * 优先用户指定的主节点；主节点离线时退回该项目最近出现过的在线节点；
  * 全离线时返回 no-node，让界面禁用发送而不是静默失败。
  */
-export function resolveTarget(
-	project: ProjectSummary,
-	onlineNodeIDs: string[],
-): TargetResolution {
+export function resolveTarget(project: ProjectSummary, onlineNodeIDs: string[]): TargetResolution {
 	const online = new Set(onlineNodeIDs);
 	if (project.primary_node_id && online.has(project.primary_node_id)) {
 		return { nodeID: project.primary_node_id, reason: "ok" };
@@ -128,6 +122,80 @@ export function resolveTarget(
 	}
 	if (!best) return { nodeID: null, reason: "no-node" };
 	return { nodeID: best.nodeID, reason: "ok" };
+}
+
+export type TaskTargetReason = "ok" | "no-node" | "no-dir";
+
+/** TaskTarget 是首页「直接发任务」实际落到哪个节点、哪个目录。 */
+export interface TaskTarget {
+	nodeID: string | null;
+	directory: string;
+	/** 草稿 scope 与项目身份用的键；项目已存在时就是聚合键。 */
+	scopeKey: string;
+	reason: TaskTargetReason;
+}
+
+/**
+ * resolveTaskTarget 决定首页输入的任务发往哪里。
+ *
+ * 首页只回答「现在要做什么」，不该让用户先选机器：项目已经存在时只看项目
+ * 本身（主节点 → 最近在线节点），偏好目录所在节点离线也不影响发送。项目
+ * 还没创建时才退回偏好目录，用第一条消息把它创建出来。
+ */
+export function resolveTaskTarget(
+	inbox: InboxResolution,
+	dirByNode: Record<string, string>,
+	onlineNodeIDs: string[],
+): TaskTarget {
+	if (inbox.project) {
+		const target = resolveTarget(inbox.project, onlineNodeIDs);
+		return {
+			nodeID: target.nodeID,
+			directory: inbox.project.canonical,
+			scopeKey: inbox.project.key,
+			reason: target.reason === "ok" ? "ok" : "no-node",
+		};
+	}
+
+	const dir = inbox.nodeID ? (dirByNode[inbox.nodeID] ?? "") : "";
+	if (!inbox.nodeID || dir === "") {
+		return { nodeID: null, directory: "", scopeKey: "", reason: "no-dir" };
+	}
+
+	const online = onlineNodeIDs.includes(inbox.nodeID);
+	return {
+		nodeID: online ? inbox.nodeID : null,
+		directory: dir,
+		scopeKey: `inbox:${inbox.nodeID}:${dir}`,
+		reason: online ? "ok" : "no-node",
+	};
+}
+
+/**
+ * findProjectForSession 反查会话属于哪个聚合项目。
+ *
+ * 会话只带 OpenCode 的 projectID，而「global」被多个无提交仓库共享，
+ * 因此 global 还要用目录前缀挑出最深的那一个。返回 null 表示项目尚未
+ * 聚合出来（例如刚创建完会话、控制面还没来得及刷新）。
+ */
+export function findProjectForSession(
+	session: Session,
+	projects: ProjectSummary[],
+): ProjectSummary | null {
+	const directory = session.directory ?? "";
+	let best: ProjectSummary | null = null;
+
+	for (const project of projects) {
+		const sameProject = session.projectID
+			? session.projectID === "global"
+				? project.id === "global" && isPathPrefix(project.canonical, directory)
+				: project.key === session.projectID
+			: isPathPrefix(project.canonical, directory);
+		if (!sameProject) continue;
+		if (!best || project.canonical.length > best.canonical.length) best = project;
+	}
+
+	return best;
 }
 
 export interface SessionRef {
@@ -147,7 +215,12 @@ export function groupSessionsByProject(
 	const out: Record<string, SessionRef[]> = {};
 	for (const ref of sessions) {
 		const key = keyOf(ref.session);
-		(out[key] ??= []).push(ref);
+		const bucket = out[key];
+		if (bucket) {
+			bucket.push(ref);
+		} else {
+			out[key] = [ref];
+		}
 	}
 	return out;
 }

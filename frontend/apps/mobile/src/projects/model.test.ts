@@ -1,12 +1,14 @@
 import type { ProjectSummary, Session } from "@lework/api";
 import { describe, expect, it } from "vitest";
 import {
+	findProjectForSession,
 	groupSessionsByProject,
 	isPathPrefix,
 	orderProjects,
 	projectKeyOf,
 	resolveInbox,
 	resolveTarget,
+	resolveTaskTarget,
 } from "./model";
 
 function project(overrides: Partial<ProjectSummary> & { key: string }): ProjectSummary {
@@ -87,6 +89,93 @@ describe("resolveTarget", () => {
 	it("全部离线时返回 no-node", () => {
 		const repo = project({ key: "repo" });
 		expect(resolveTarget(repo, [])).toEqual({ nodeID: null, reason: "no-node" });
+	});
+});
+
+describe("findProjectForSession", () => {
+	it("按 projectID 直接命中项目", () => {
+		const session: Session = { id: "s1", projectID: "repo", directory: "/w/repo/sub" };
+		const repo = project({ key: "repo", canonical: "/w/repo" });
+
+		expect(findProjectForSession(session, [repo])?.key).toBe("repo");
+	});
+
+	it("global 选目录最深的那一个，避免兄弟仓库串台", () => {
+		const session: Session = { id: "s1", projectID: "global", directory: "/w/repo/pkg/sub" };
+		const shallow = project({ id: "global", key: "global:/w/repo", canonical: "/w/repo" });
+		const deep = project({ id: "global", key: "global:/w/repo/pkg", canonical: "/w/repo/pkg" });
+
+		expect(findProjectForSession(session, [shallow, deep])?.key).toBe("global:/w/repo/pkg");
+	});
+
+	it("老控制面缺 projectID 时退回目录前缀", () => {
+		const session: Session = { id: "s1", directory: "/w/repo/src" };
+		const repo = project({ key: "repo", canonical: "/w/repo" });
+
+		expect(findProjectForSession(session, [repo])?.key).toBe("repo");
+	});
+
+	it("匹配不到返回 null，调用方可以退回会话自身的 projectID", () => {
+		expect(findProjectForSession({ id: "s1", projectID: "missing" }, [])).toBeNull();
+	});
+});
+
+describe("resolveTaskTarget", () => {
+	it("项目已解析时按项目选节点，偏好节点离线也不影响发送", () => {
+		const repo = project({
+			key: "repo",
+			canonical: "/w/repo",
+			nodes: [
+				{ node_id: "pref", online: false, last_seen: "2026-11-01T00:00:00Z" },
+				{ node_id: "other", online: true, last_seen: "2026-11-12T00:00:00Z" },
+			],
+		});
+		const inbox = resolveInbox([repo], { pref: "/w/repo" }, ["other"]);
+
+		expect(resolveTaskTarget(inbox, { pref: "/w/repo" }, ["other"])).toEqual({
+			nodeID: "other",
+			directory: "/w/repo",
+			scopeKey: "repo",
+			reason: "ok",
+		});
+	});
+
+	it("项目还没创建时退回偏好目录，首条消息负责创建项目", () => {
+		const inbox = resolveInbox([], { n1: "/w/plain" }, ["n1"]);
+
+		expect(resolveTaskTarget(inbox, { n1: "/w/plain" }, ["n1"])).toEqual({
+			nodeID: "n1",
+			directory: "/w/plain",
+			scopeKey: "inbox:n1:/w/plain",
+			reason: "ok",
+		});
+	});
+
+	it("没有任何可用目录时返回 no-dir", () => {
+		const inbox = resolveInbox([], {}, []);
+
+		expect(resolveTaskTarget(inbox, {}, [])).toEqual({
+			nodeID: null,
+			directory: "",
+			scopeKey: "",
+			reason: "no-dir",
+		});
+	});
+
+	it("项目全部节点离线时保留 scopeKey，草稿不会丢", () => {
+		const repo = project({
+			key: "repo",
+			canonical: "/w/repo",
+			nodes: [{ node_id: "pref", online: false, last_seen: "2026-11-01T00:00:00Z" }],
+		});
+		const inbox = resolveInbox([repo], { pref: "/w/repo" }, []);
+
+		expect(resolveTaskTarget(inbox, { pref: "/w/repo" }, [])).toEqual({
+			nodeID: null,
+			directory: "/w/repo",
+			scopeKey: "repo",
+			reason: "no-node",
+		});
 	});
 });
 
