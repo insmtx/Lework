@@ -15,10 +15,10 @@
 - `go build -o ./bundles/lework ./backend/cmd/lework/` — 只构建后端（含 `lework serve` 与 `lework agent`，默认内建认证）。不会构建前端静态资源。
 - `go build -tags enterprise -o ./bundles/lework ./backend/cmd/lework/` — 企业版构建，认证交给 IAM。见下方“构建版本”。
 - `make frontend-control-plane` — 只构建控制面界面（别名 `control-plane-ui`）。
-- `./bundles/lework` — 不带子命令时在同一进程内启动控制面与节点 agent；裸执行不再打印帮助，帮助入口是 `lework -h`。
+- `./bundles/lework` — 不带子命令时在同一进程内启动控制面与节点 agent；裸执行不再打印帮助，帮助入口是 `lework -h`。控制面需要 PostgreSQL 与启用 JetStream 的 NATS，可用 `--nats-url` / `--database-url` 或 `--config` 里的顶层 `nats:` / `database:` 段提供，缺一个都会拒绝启动。
 - `./bundles/lework serve token` — 打印当前生效的注册令牌，文件缺失时生成到 `~/.config/Lework/enrollment.token`。
-- 裸执行接受的根命令 flag：`--listen`、`--db`、`--enrollment-token`、`--token-file`、`--request-timeout`、`--heartbeat-timeout`、`--agent-config`、`--node-name`、`--workspace-root`（可重复）。
-- `./bundles/lework serve --listen 127.0.0.1:8787 --db ~/.config/Lework/controlplane.db` — 启动控制面，默认只绑定回环。
+- 裸执行接受的根命令 flag：`--listen`、`--nats-url`、`--database-url`、`--enrollment-token`、`--token-file`、`--request-timeout`、`--heartbeat-timeout`、`--agent-config`、`--node-name`、`--workspace-root`（可重复）。
+- `./bundles/lework serve --listen 127.0.0.1:8787 --nats-url nats://127.0.0.1:4222 --database-url postgres://lework@127.0.0.1:5432/lework` — 启动控制面，默认只绑定回环；两个集群依赖同样可由 `--config` 的顶层 `nats:` / `database:` 段提供。
 - `./bundles/lework agent --config /etc/lework/agent.yaml` — 启动节点 agent；缺省配置路径按平台解析（见 `backend/cmd/lework/agent.go`）。
 - `make run` / `make run-detached` / `make stop` / `make logs` — 操作 `deployments/env/docker-compose.yml` 栈。
 - `make dev-setup`（一次性）→ `make dev-up`，然后 `make dev-status` / `make dev-logs` / `make dev-down`。`dev-up` 要求 PostgreSQL/NATS 已就绪且 `opencode` 2.1.x 在 PATH 中（见 Makefile 注释）。
@@ -29,6 +29,7 @@
 - `go test -p 1 ./...` — CI 实际执行的命令，串行运行以避免共享资源竞争；本地出现偶发失败时优先用它复现。
 - `go test ./backend/internal/<pkg>` — 单包；`go test -run ^TestName$ ./...` — 单个测试。
 - `go test -tags integration ./...` — 需要 NATS + 数据库（辅助代码在 `backend/internal/testutil/`）；`backend/internal/agentd/integration_test.go` 还需要本机 `opencode`。
+- 控制面多实例验收：设置 `LEWORK_TEST_DATABASE_URL` 与 `LEWORK_TEST_NATS_URL`（NATS 必须启用 JetStream）后运行 `go test -tags integration ./backend/internal/controlplane -run 'TestCrossInstance|TestPushNotificationOnlyOnce|TestOfflineAfterOwnerCrash' -count=1`；缺少配置或 NATS 不可用时用例自动 skip。
 - `go test -tags enterprise ./...` — 企业版测试；少数集成用例（如 `adapter/account/enterprise/enterprise_integration_test.go`）还需同时加 `-tags integration`。
 - 不存在 `make test` / `make test-cover`；`CONTRIBUTING.md` 里这两条是过时写法。
 
@@ -57,7 +58,7 @@
 | 层 | 路径 | 可以做 | 不可以做 |
 |---|---|---|---|
 | 进程入口 | `backend/cmd/lework/` | cobra 命令、`lifecycle.Std().WaitExit()` / `.AddCloseFunc()` / `.Exit()`、信号处理、启动失败的 `log.Fatal` | 业务逻辑 |
-| 控制面 | `backend/internal/controlplane/**` | 节点注册表、事件中心、浏览器 API、agent 网关、SQLite 索引、UI 偏好 | 业务执行、复制 OpenCode 会话状态、组织/RBAC |
+| 控制面 | `backend/internal/controlplane/**` | 节点注册表、事件中心、浏览器 API、agent 网关、PostgreSQL 节点索引、UI 偏好 | 业务执行、复制 OpenCode 会话状态、组织/RBAC |
 | 节点 agent | `backend/internal/agentd/**` | 注册、心跳、OpenCode 监管、PTY、WSS 传输 | 业务状态、直接持有 UI 状态 |
 | 执行内核（遗留） | `backend/agent/**` | 旧企业版 Runtime/Adapter/Tool 契约 | 被控制面依赖 |
 | 库代码 | `backend/internal/**` | 业务逻辑；通过返回 `error` 暴露失败 | `os.Exit()`、`lifecycle.Std()`、`log.Fatal`、`panic`、信号、cobra 依赖 |
@@ -92,7 +93,7 @@
 ## 各目录实际职责（结构已演进，README/旧文档可能落后）
 
 - `backend/cmd/lework/` — cobra 入口。控制面 `serve.go`（`lework serve`）；节点 `agent.go` / `agent_run.go`（`lework agent`）；旧命令 `server.go`、`worker.go`、`chat.go`、`session.go`、`task.go`、`project.go`、`skill.go`、`automation.go`、`login.go`/`logout.go`/`register.go`。
-- `backend/internal/controlplane/` — `node`（注册表）、`event`（事件中心）、`api`（浏览器 API）、`agentgw`（agent 网关）、`store`（SQLite）、`webui`（内嵌界面）、`config`。
+- `backend/internal/controlplane/` — `node`（注册表）、`event`（事件中心）、`api`（浏览器 API）、`agentgw`（agent 网关）、`push`（审批推送）、`store`（PostgreSQL 节点索引）、`webui`（内嵌界面）、`config`。
 - `backend/internal/agentd/` — 节点守护：`protocol`、`opencode`（HTTP/SSE 客户端，**不是** ACP；ACP 只在遗留 `backend/agent/runtime/internal/acp`）、`supervisor`、`handler`、`runner`、`transport`（WSS）、`config`。
 - `frontend/apps/control-plane/` — 当前浏览器界面（Next.js + pnpm workspace）。`frontend/apps/{web,desktop}/` 为旧产品，暂不维护。
 - `backend/internal/` 其他主线/遗留子包：`adapter`（account、edition）、`api`（auth/connectors/handler/middleware/router）、`cli`、`consts`（仅 `paths.go`）、`infra`（db/git/gitea/mq/websocket 等）、`integration`（feishu）、`llm`、`modelrouter`、`seed`、`service`、`skill`、`testutil`、`worker`、`workspace`。

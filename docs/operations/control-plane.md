@@ -36,12 +36,88 @@ Docker 镜像 `deployments/build/Dockerfile.lework` 包含独立的 Node 构建�
 ```bash
 lework serve \
   --listen 127.0.0.1:8787 \
-  --db ~/.config/Lework/controlplane.db \
+  --nats-url nats://127.0.0.1:4222 \
+  --database-url postgres://lework@127.0.0.1:5432/lework \
   --enrollment-token "$LEWORK_ENROLLMENT_TOKEN"
 ```
 
 控制面默认只绑定回环地址。注册令牌用于节点首次注册，不会出现在日志中。
 浏览器打开 `http://127.0.0.1:8787/`。
+
+控制面把节点注册与心跳写入 PostgreSQL，并用 NATS 扇出事件、转发跨实例请求。
+两个地址都必填（命令行或配置文件），且 NATS 必须启用 JetStream；缺任意一个
+启动都会失败并提示对应配置项。数据库连接串与 NATS 地址可能内嵌账号密码，
+控制面只回显配置项名称，不会把 URL 写进日志或错误信息。
+
+## NATS + PostgreSQL（集群依赖）
+
+控制面不再使用本地 SQLite 作为运行存储：节点身份、`last_seen`、设备与项目
+索引都在 PostgreSQL 中，任一实例收到心跳都会刷新同一行。事件、跨实例请求
+与终端输出走 NATS，因此多实例之间不需要粘性会话。
+
+统一的 `lework.yaml` 可以把两段直接并列（裸 `lework`、`serve`、`agent`
+共用同一个 `--config`）：
+
+```yaml
+controlplane:
+  listen: 127.0.0.1:8787
+  token_file: ~/.config/Lework/enrollment.token
+  request_timeout: 30s
+  heartbeat_timeout: 35s
+
+nats:
+  url: nats://<nats-host>:4222
+
+database:
+  url: postgres://<user>:<password>@<pg-host>:5432/<database>?sslmode=disable
+  debug: false
+
+agent:
+  node_name: dev-box
+  workspace_roots:
+    - /opt/lework/dev-box/workspace
+```
+
+命令行 `--nats-url` / `--database-url` 优先于文件里的 `nats:` / `database:`
+两段；显式传空值会交给启动校验直接报错，而不是静默回退。
+
+### Subject 约定
+
+控制面只使用 `cp.` 前缀，NATS 账号至少需要这些 subject 的发布/订阅权限：
+
+| Subject | 传输 | 用途 |
+|---|---|---|
+| `cp.events.node.<node_id>` | JetStream（`CONTROLPLANE_EVENT_STREAM`，`cp.events.node.>`） | 节点/会话状态事件、`node.connected`/`node.offline`、`node.snapshot`、`permission.asked` |
+| `cp.node.<node_id>.request` | Core NATS | 控制面实例之间转发节点方法调用，队列组按节点 ID 分摊 |
+| `cp.pty.<node_id>.<pty_id>` | Core NATS | 终端输入/输出与 `pty.exit`，不落盘、无订阅者即丢弃 |
+
+node/pty ID 中的点号、通配符与空白会被替换为下划线，保证每个标识只占一个
+subject token，避免节点伪造其它节点的订阅。
+
+审批推送使用持久化 pull consumer `controlplane-push-consumer`，所有实例用同名
+durable 消费同一条流，因此同一条 `permission.asked` 只推一次。
+
+### 多实例要求
+
+- 所有实例指向同一个 PostgreSQL 与同一个 NATS（同一个 JetStream 域）。
+- 每个实例都需要能主动出站访问 NATS；节点只需要能访问任意一个实例的
+  `/api/agent/connect`，不要求代理把同一节点粘到同一实例。
+- 不需要共享文件系统或本地状态：会话、消息、diff、权限仍以节点上的
+  OpenCode 为准，控制面只保存节点索引与派生投影。
+- 新实例启动后靠 owner 每 10s 发布的 `node.snapshot` 收敛视图；启动瞬间可能
+  短暂看不到正在跑的会话，属于预期。
+- 每个实例都会运行心跳对账器；对账与网关的离线事件都是幂等的，重复执行
+  不会让浏览器收到多条同样的状态。
+
+### 故障表现
+
+| 现象 | 表现 |
+|---|---|
+| 节点连在别的实例，当前实例没有本地连接 | 请求经 `cp.node.<id>.request` 转发；无人应答（节点确实离线）返回 `409 node_offline` |
+| 节点在线但响应太慢 | 超过 `request_timeout` 返回 `504 agent_timeout` |
+| 节点进程被杀或网络断开 | 超过 `heartbeat_timeout` 后 `/api/nodes` 把 `connected` 置为 `false`，对账器补发 `node.offline` |
+| NATS 不可用 | 启动失败；运行中事件扇出与跨实例转发失败，节点连接还会因事件发布失败而断开 |
+| PostgreSQL 不可用 | 启动失败；节点列表、设备与偏好等读取返回 500，心跳写入失败会让节点连接退出 |
 
 ## 配置文件
 
@@ -52,12 +128,17 @@ lework serve \
 ```yaml
 controlplane:
   listen: 127.0.0.1:8787
-  db: ~/.config/Lework/controlplane.db
   token_file: ~/.config/Lework/enrollment.token
   request_timeout: 30s
   heartbeat_timeout: 35s
   public_url: http://dev.ckeyer.com      # 手机扫码配对
   expo_url: http://dev.ckeyer.com:8082
+
+nats:
+  url: nats://127.0.0.1:4222
+
+database:
+  url: postgres://<user>:<password>@127.0.0.1:5432/<database>?sslmode=disable
 
 agent:
   node_name: dev-box
@@ -67,6 +148,9 @@ agent:
     port: 4096
     service_mode: shared
 ```
+
+`nats:` 与 `database:` 是控制面的集群依赖，与 `controlplane:` 并列写在顶层，
+不嵌套在 `controlplane:` 段内。
 
 优先级固定为 **命令行 flag > 配置文件 > 派生默认**，文件不会覆盖显式 flag。
 
@@ -96,10 +180,10 @@ agent:
 `make frontend-control-plane` 预先嵌入。裸执行不再打印帮助，帮助入口是
 `lework -h`；`serve` 与 `agent` 子命令仍可各自独立启动。
 
-合并进程的 flag 只挂在根命令上：`--config`、`--listen`、`--db`、
-`--enrollment-token`、`--token-file`、`--request-timeout`、`--heartbeat-timeout`、
-`--public-url`、`--expo-url`、`--no-qr`、`--agent-config`、`--node-name`、
-`--workspace-root`（可重复）。
+合并进程的 flag 只挂在根命令上：`--config`、`--listen`、`--nats-url`、
+`--database-url`、`--enrollment-token`、`--token-file`、`--request-timeout`、
+`--heartbeat-timeout`、`--public-url`、`--expo-url`、`--no-qr`、`--agent-config`、
+`--node-name`、`--workspace-root`（可重复）。
 
 `--config` 指向统一配置文件（默认 `/etc/lework/lework.yaml`，缺失时回退
 `agent.yaml`），文件里的 `controlplane:` 与 `agent:` 两段分别补控制面与节点
@@ -218,6 +302,7 @@ PTY WebSocket 的二进制帧是终端输入/输出；文本帧只承载
 - Diff 依赖 OpenCode 对 git 工作区的快照。非 git 目录可能返回空 diff。
 - 终端绑定到 Session，不提供任意路径的通用终端；目录必须位于
   `workspace_roots` 内。
-- 节点注册记录与 `last_seen` 存在控制面 SQLite；Session、消息、diff、权限以
-  OpenCode 为准，控制面只做透传与索引。节点心跳更新 `last_seen`，但
-  `connected` 取实时注册表。
+- 节点注册记录与 `last_seen` 存在 PostgreSQL，所有控制面实例共享；Session、
+  消息、diff、权限以 OpenCode 为准，控制面只做透传与索引。节点心跳更新
+  `last_seen`，`connected` 由心跳窗口推导，因此连在其它实例上的节点同样显示
+  在线。
