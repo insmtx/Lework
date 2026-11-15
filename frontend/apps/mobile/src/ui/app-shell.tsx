@@ -1,11 +1,14 @@
 import type { SessionState } from "@lework/api";
 import { router } from "expo-router";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useOverview } from "../overview/use-overview";
 import { useProjects } from "../projects/use-projects";
 import { isUnread as computeUnread, watermarkKey } from "../read/read-state";
 import { useReadState } from "../read/use-read-state";
+import { createSecureSettingsStore } from "../settings/secure-store";
+import { clearExpiredSession } from "../settings/session";
+import { setSessionExpiredHandler } from "../settings/session-events";
 import { useSettings } from "../settings/use-settings";
 import { buildSidebarGroups } from "../sidebar/model";
 import { useSidebarSessions } from "../sidebar/use-sidebar-sessions";
@@ -20,13 +23,34 @@ import { AppShellContext, type AppShellValue } from "./app-shell-context";
  */
 export function AppShell({ children }: { children: ReactNode }) {
 	const { settings, loading: settingsLoading, reload: reloadSettings } = useSettings();
-	const projects = useProjects(settings);
+	const settingsStore = useMemo(() => createSecureSettingsStore(), []);
+
+	useEffect(() => {
+		// 只在真的持有会话时处理：登录页与服务器校验页也会收到 401，把它们
+		// 反复送回登录页会打断用户正在输入的表单。
+		if (!settings?.sessionToken) return;
+		return setSessionExpiredHandler(() => {
+			void clearExpiredSession(settingsStore, settings)
+				.catch(() => {
+					// 清理失败也要回登录页：留在必然失败的界面上毫无意义。
+				})
+				.finally(() => {
+					reloadSettings();
+					router.replace("/login");
+				});
+		});
+	}, [settings, settingsStore, reloadSettings]);
+
+	// 未登录时不能把 settings 交给数据 hook：它们会用空令牌打一串必然 401
+	// 的请求，通知器虽然忽略，但登录页会被错误横幅刷屏。
+	const sessionSettings = settings?.sessionToken ? settings : null;
+	const projects = useProjects(sessionSettings);
 	const {
 		nodes: overviewNodes,
 		loading: overviewLoading,
 		error: overviewError,
 		refresh: refreshOverview,
-	} = useOverview(settings);
+	} = useOverview(sessionSettings);
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [screenTitle, setScreenTitle] = useState("新任务");
 	const [newTaskSeq, setNewTaskSeq] = useState(0);
@@ -35,14 +59,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 		() => projects.nodes.filter((node) => node.connected).map((node) => node.id),
 		[projects.nodes],
 	);
-	const sidebar = useSidebarSessions(settings, onlineNodeIDs);
+	const sidebar = useSidebarSessions(sessionSettings, onlineNodeIDs);
 
 	// 未读水位按「最近可见会话」剪枝：抽屉与项目页用到的键优先保留。
 	const visibleReadKeys = useMemo(
 		() => sidebar.sessions.map((ref) => watermarkKey(ref.nodeID, ref.session.id)),
 		[sidebar.sessions],
 	);
-	const read = useReadState(settings, visibleReadKeys);
+	const read = useReadState(sessionSettings, visibleReadKeys);
 
 	// overview 是唯一的执行状态来源：它由服务端事件投影而来，客户端不重建状态机。
 	const sessionState = useCallback(
