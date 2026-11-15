@@ -35,9 +35,12 @@ const (
 	channelCompletions          = "completions"
 )
 
-// DeviceSource 提供推送目标。抽成接口是为了让 Notifier 在测试里不依赖数据库。
+// DeviceSource 提供推送目标：某个节点上应该收到通知的设备。
+//
+// 接口按节点而不是全量查询，是为了让「谁在用这台机器」的判定留在 store 的
+// 一次 JOIN 里，通知器无法（也不会）不小心推给所有注册过的手机。
 type DeviceSource interface {
-	ListDevices(ctx context.Context) ([]store.Device, error)
+	ListDevicesForNode(ctx context.Context, nodeID string) ([]store.Device, error)
 }
 
 // Notifier 把审批与执行结束事件变成推送。它只关心“谁在等审批、哪条会话
@@ -186,7 +189,7 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 		return
 	}
 
-	devices, err := n.devices.ListDevices(ctx)
+	devices, err := n.devices.ListDevicesForNode(ctx, ev.NodeID)
 	if err != nil {
 		logs.Warnf("push: list devices: %v", err)
 		return

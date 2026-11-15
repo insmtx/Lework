@@ -1257,11 +1257,12 @@ func miWaitEvent(
 
 // ---- 推送假实现 ----
 
-// miPushDevices 始终返回一个设备。
+// miPushDevices 对每个节点都返回同一台设备。
 type miPushDevices struct{}
 
-// ListDevices 返回单个 iOS 设备。
-func (miPushDevices) ListDevices(context.Context) ([]store.Device, error) {
+// ListDevicesForNode 返回单个 iOS 设备；多实例用例只关心「一次事件只推一次」，
+// 不验证节点归属，因此忽略 nodeID。
+func (miPushDevices) ListDevicesForNode(context.Context, string) ([]store.Device, error) {
 	return []store.Device{{
 		ID:        "device-mi-1",
 		Name:      "test phone",
