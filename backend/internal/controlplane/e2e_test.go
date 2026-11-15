@@ -90,15 +90,16 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	bus := mqtest.New()
-	srv, err := controlplane.New(config.Config{
-		ListenAddr:      "127.0.0.1:0",
-		DBPath:          ":memory:",
-		EnrollmentToken: e2eToken,
-		RequestTimeout:  e2eHTTPTimeout,
-		// 离线判定以存储心跳窗口为准，必须明显短于 e2eNodeTimeout（5s），
-		// 否则「等待节点断开」会贴着超时边界通过。agent 心跳间隔仅 50ms。
-		HeartbeatTimeout: 2 * time.Second,
-	}, st, controlplane.Deps{
+	// 从 Default 出发保证新增的认证配置字段始终合法。
+	cfg := config.Default()
+	cfg.ListenAddr = "127.0.0.1:0"
+	cfg.DBPath = ":memory:"
+	cfg.EnrollmentToken = e2eToken
+	cfg.RequestTimeout = e2eHTTPTimeout
+	// 离线判定以存储心跳窗口为准，必须明显短于 e2eNodeTimeout（5s），
+	// 否则「等待节点断开」会贴着超时边界通过。agent 心跳间隔仅 50ms。
+	cfg.HeartbeatTimeout = 2 * time.Second
+	srv, err := controlplane.New(cfg, st, controlplane.Deps{
 		Bus:     bus,
 		Core:    bus,
 		CoreSub: bus,

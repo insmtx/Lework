@@ -28,6 +28,23 @@ const (
 	// DefaultHeartbeatTimeout 是判定节点离线的默认超时，略大于心跳周期。
 	DefaultHeartbeatTimeout = 35 * time.Second
 
+	// DefaultSessionTTL 是浏览器会话的默认有效期；个人长期使用下 30 天可避免频繁登录。
+	DefaultSessionTTL = 30 * 24 * time.Hour
+
+	// DefaultClaimTTL 是节点认领码的默认有效期，短到足以限制口令被转述的风险。
+	DefaultClaimTTL = 5 * time.Minute
+
+	// DefaultClaimCodeLength 是节点认领码的默认长度。
+	DefaultClaimCodeLength = 5
+
+	// DefaultRegistrationMode 是默认注册策略：只允许持邀请码的人注册。
+	DefaultRegistrationMode = "invite"
+
+	// minClaimCodeLength / maxClaimCodeLength 限定认领码长度：
+	// 太短容易被猜中，太长则难以在节点侧手输。
+	minClaimCodeLength = 4
+	maxClaimCodeLength = 8
+
 	dbFileName    = "controlplane.db"
 	configDirName = "Lework"
 )
@@ -45,6 +62,16 @@ type Config struct {
 	RequestTimeout time.Duration
 	// HeartbeatTimeout 是节点心跳失效的判定超时。
 	HeartbeatTimeout time.Duration
+	// RegistrationMode 决定谁可以创建账号：invite（默认，凭邀请码）/ open / closed。
+	RegistrationMode string
+	// SessionTTL 是浏览器会话的有效期。
+	SessionTTL time.Duration
+	// ClaimTTL 是节点认领码的有效期。
+	ClaimTTL time.Duration
+	// ClaimCodeLength 是节点认领码的长度，取值 4..8。
+	ClaimCodeLength int
+	// LocalAdmin 表示本机回环请求无需登录即视为管理员，默认开启。
+	LocalAdmin bool
 	// NATS 是控制面集群模式的 NATS 连接配置；单机模式保持 nil。
 	NATS *appconfig.NATSConfig
 	// Database 是控制面集群模式共享的 PostgreSQL 连接配置；单机模式保持 nil。
@@ -58,6 +85,11 @@ func Default() Config {
 		DBPath:           DefaultDBPath(),
 		RequestTimeout:   DefaultRequestTimeout,
 		HeartbeatTimeout: DefaultHeartbeatTimeout,
+		RegistrationMode: DefaultRegistrationMode,
+		SessionTTL:       DefaultSessionTTL,
+		ClaimTTL:         DefaultClaimTTL,
+		ClaimCodeLength:  DefaultClaimCodeLength,
+		LocalAdmin:       true,
 	}
 }
 
@@ -98,6 +130,23 @@ func (c Config) Validate() error {
 	}
 	if c.HeartbeatTimeout <= 0 {
 		return fmt.Errorf("heartbeat_timeout must be positive, got %s", c.HeartbeatTimeout)
+	}
+
+	switch c.RegistrationMode {
+	case "invite", "open", "closed":
+	default:
+		return fmt.Errorf("registration_mode %q is invalid: want invite, open or closed", c.RegistrationMode)
+	}
+
+	if c.SessionTTL <= 0 {
+		return fmt.Errorf("session_ttl must be positive, got %s", c.SessionTTL)
+	}
+	if c.ClaimTTL <= 0 {
+		return fmt.Errorf("claim_ttl must be positive, got %s", c.ClaimTTL)
+	}
+	if c.ClaimCodeLength < minClaimCodeLength || c.ClaimCodeLength > maxClaimCodeLength {
+		return fmt.Errorf("claim_code_length must be between %d and %d, got %d",
+			minClaimCodeLength, maxClaimCodeLength, c.ClaimCodeLength)
 	}
 
 	return nil

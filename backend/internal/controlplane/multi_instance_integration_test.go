@@ -478,12 +478,13 @@ func miStartInstance(t *testing.T, parent context.Context, name string) *miInsta
 		t.Skipf("NATS with JetStream is unavailable for multi-instance test: %v", err)
 	}
 
-	srv, err := controlplane.New(config.Config{
-		ListenAddr:       addr,
-		EnrollmentToken:  miToken,
-		RequestTimeout:   miRequestTimeout,
-		HeartbeatTimeout: miHeartbeatTimeout,
-	}, st, controlplane.Deps{
+	// 从 Default 出发保证新增的认证配置字段始终合法。
+	cfg := config.Default()
+	cfg.ListenAddr = addr
+	cfg.EnrollmentToken = miToken
+	cfg.RequestTimeout = miRequestTimeout
+	cfg.HeartbeatTimeout = miHeartbeatTimeout
+	srv, err := controlplane.New(cfg, st, controlplane.Deps{
 		Bus:     bus,
 		Core:    bus,
 		CoreSub: bus,
