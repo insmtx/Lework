@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/insmtx/lework/backend/internal/controlplane/authn"
 	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
@@ -24,9 +22,8 @@ const (
 	// defaultSessionTTL 在配置缺失时兜底，避免签发一条立刻过期的会话。
 	defaultSessionTTL = 30 * 24 * time.Hour
 
-	// registrationModeInvite 等是 RegistrationMode 的合法取值；空值按 invite
+	// registrationModeOpen 等是 RegistrationMode 的合法取值；空值按 open
 	// 处理，未知值失败关闭（拒绝注册）。
-	registrationModeInvite = "invite"
 	registrationModeOpen   = "open"
 	registrationModeClosed = "closed"
 
@@ -40,6 +37,10 @@ const (
 	// 失败登录次数；超过后返回 429。与认领码的猜码限流同形，防止在线撞库
 	// 与单点暴力破解。
 	loginAttemptsPerIdentity = 10
+
+	// registerAttemptsPerIP 是同一来源 IP 在一分钟内允许的注册次数。开放
+	// 注册让这个端点是公开写接口，没有预算就等于允许批量灌账号。
+	registerAttemptsPerIP = 10
 	// loginAttemptWindow 是登录失败计数的时间窗，从第一次失败开始计算。
 	loginAttemptWindow = time.Minute
 
@@ -56,7 +57,7 @@ const (
 type AuthConfig struct {
 	// SessionTTL 是签发会话的有效期；非正时回落到 30 天。
 	SessionTTL time.Duration
-	// RegistrationMode 是注册策略：invite / open / closed；空值按 invite 处理。
+	// RegistrationMode 是注册策略：open / closed；空值按 open 处理。
 	RegistrationMode string
 }
 
@@ -75,9 +76,8 @@ type bootstrapRequest struct {
 
 // registerRequest 是 POST /api/auth/register 的请求体。
 type registerRequest struct {
-	Email      string `json:"email"`
-	Password   string `json:"password"`
-	InviteCode string `json:"invite_code"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 // authUser 是账号的对外投影：只暴露界面需要的字段，密码哈希永不出现在响应里。
@@ -125,11 +125,11 @@ func (a *API) sessionTTL() time.Duration {
 	return defaultSessionTTL
 }
 
-// registrationMode 返回规范化后的注册策略；空值按默认的 invite 处理。
+// registrationMode 返回规范化后的注册策略；空值按默认的 open 处理。
 func (a *API) registrationMode() string {
 	mode := strings.ToLower(strings.TrimSpace(a.authCfg.RegistrationMode))
 	if mode == "" {
-		return registrationModeInvite
+		return registrationModeOpen
 	}
 	return mode
 }
@@ -275,11 +275,9 @@ func (a *API) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 // handleRegister 按注册策略创建账号并直接登录。
 //
-// invite 模式下先消费邀请码、再查重与建号：反过来的顺序会在消费失败时留下
-// 一个「没被授权却已存在」的账号，而且会让无效邀请码也能通过 409/403 的差异
-// 探测邮箱是否已注册。代价是合法邀请码遇上重复邮箱会被标记使用（需要补发），
-// 以及建号失败时邀请码已被消费——这些失败只可能来自并发重复邮箱或数据库
-// 故障，不影响安全，只是需要人工补发邀请码。
+// open 模式下按来源 IP 限流：注册是公开写接口，成功也必须计数，否则批量
+// 注册不受任何约束。closed 与未知策略一律拒绝（未知值失败关闭，避免配置
+// 写错时意外开放注册）。
 func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
@@ -291,7 +289,7 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	mode := a.registrationMode()
 	switch mode {
-	case registrationModeInvite, registrationModeOpen:
+	case registrationModeOpen:
 	case registrationModeClosed:
 		writeAPIError(w, http.StatusForbidden, "registration_closed", "registration is closed")
 		return
@@ -306,9 +304,13 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request")
 		return
 	}
-	inviteCode := strings.TrimSpace(req.InviteCode)
-	if mode == registrationModeInvite && inviteCode == "" {
-		writeAPIError(w, http.StatusForbidden, "invalid_invite", "invalid invite")
+
+	// 限流在解码、模式与输入校验之后：坏请求不算一次注册尝试。成功后不
+	// 调用 succeed——开放注册的成本就在账号本身，成功必须占预算。
+	ip := requestSourceIP(r)
+	if !a.registerAttempts.allow(ip, time.Now()) {
+		w.Header().Set("Retry-After", "60")
+		writeAPIError(w, http.StatusTooManyRequests, "too_many_attempts", "too many attempts, try again later")
 		return
 	}
 
@@ -318,24 +320,6 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 预生成用户 ID：ConsumeInvite 需要未来用户 ID，先消费再建号才能保证
-	// 「邀请码已用」一定对应一个真实账号。
-	userID := uuid.NewString()
-	if mode == registrationModeInvite {
-		consumed, err := a.store.ConsumeInvite(r.Context(), authn.HashToken(inviteCode), userID)
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
-			return
-		}
-		if !consumed {
-			writeAPIError(w, http.StatusForbidden, "invalid_invite", "invalid invite")
-			return
-		}
-	}
-
-	// 查重放在邀请码校验之后：否则任何人拿一个无效邀请码就能靠 409 与 403
-	// 的差异枚举已注册邮箱。代价是「邀请码有效但邮箱已占用」会消耗掉邀请码，
-	// 需要管理员补发——宁可让邀请码作废，也不能泄漏账号存在性。
 	if _, found, err := a.store.UserByEmail(r.Context(), email); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
@@ -345,7 +329,6 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := a.store.CreateUser(r.Context(), store.User{
-		ID:           userID,
 		Email:        email,
 		PasswordHash: hash,
 		Role:         roleUser,

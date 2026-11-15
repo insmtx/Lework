@@ -69,6 +69,9 @@ type API struct {
 	// loginAttempts 是登录失败限流：按「规范化邮箱 + 来源 IP」计数，同样只在
 	// 进程内存里，多实例部署各自持有预算。
 	loginAttempts *claimAttemptLimiter
+	// registerAttempts 是按来源 IP 的注册限流。默认开放注册后，注册端点成为
+	// 公开写接口，必须有与登录同形的预算，否则一个脚本就能把 users 表灌满。
+	registerAttempts *claimAttemptLimiter
 	// newClaimCode 生成认领码。生产指向 authn.NewShortCode；测试可替换成
 	// 确定性序列，从而稳定覆盖撞码重试（随机码空间无法构造可复现的碰撞）。
 	newClaimCode func(length int) (string, error)
@@ -118,6 +121,7 @@ func New(
 		claimCfg:         claimCfg,
 		claimAttempts:    newClaimAttemptLimiter(claimAttemptsPerAccount, claimAttemptWindowSize),
 		loginAttempts:    newClaimAttemptLimiter(loginAttemptsPerIdentity, loginAttemptWindow),
+		registerAttempts: newClaimAttemptLimiter(registerAttemptsPerIP, time.Minute),
 		newClaimCode:     authn.NewShortCode,
 		requestTimeout:   requestTimeout,
 		heartbeatTimeout: heartbeatTimeout,
