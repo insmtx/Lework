@@ -50,6 +50,7 @@ func TestOpenPostgresMigratesAndUpsertsNode(t *testing.T) {
 
 	for _, model := range []any{
 		&Node{}, &NodeMember{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{},
+		&User{}, &UserSession{}, &Invite{}, &NodeClaim{},
 	} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Fatalf("expected table for %T to be migrated", model)

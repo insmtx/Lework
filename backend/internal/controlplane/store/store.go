@@ -170,6 +170,42 @@ type Invite struct {
 	CreatedAt time.Time
 }
 
+// NodeClaim 是一次进行中的配对：agent 已经连上控制面，但还没有账号认领它。
+//
+// 单独建表而不是在 nodes 里放「未完成」行，是因为配对中的连接还没有节点身份，
+// 也不该出现在任何账号的节点列表里。PairKey 由 agent 生成并在重连时复用，
+// 唯一索引让它成为「同一次配对」的稳定标志：重连必须拿回同一行（同一个码），
+// 否则终端上显示的码会在网络抖动后失效。
+//
+// Code 是给人读的 5 位短码，明文落库（认领后即作废）。PairKey 不是凭证：
+// 拿到它只能创建或复用自己的待定连接，不能认领别人的节点，因此与节点凭证
+// 不同，泄露它不会接管任何已有节点。
+type NodeClaim struct {
+	ID           string `gorm:"primaryKey"`
+	PairKey      string `gorm:"uniqueIndex"`
+	Code         string `gorm:"index"`
+	NodeName     string
+	OS           string
+	Arch         string
+	AgentVersion string
+	Status       string // pending | claimed | expired
+	ClaimedBy    string
+	NodeID       string
+	InstanceID   string
+	Attempts     int
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+}
+
+const (
+	// ClaimStatusPending 表示配对进行中：码可以被任意登录账号认领。
+	ClaimStatusPending = "pending"
+	// ClaimStatusClaimed 表示已有账号认领，等待持有连接的实例下发凭证。
+	ClaimStatusClaimed = "claimed"
+	// ClaimStatusExpired 表示认领已作废：过期、码尝试超限或实例放弃。
+	ClaimStatusExpired = "expired"
+)
+
 // Store 是节点存储，持有 SQLite 连接。
 type Store struct {
 	db     *gorm.DB

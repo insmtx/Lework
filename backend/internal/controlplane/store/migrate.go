@@ -25,10 +25,11 @@ func migrateControlPlane(db *gorm.DB) error {
 	}
 
 	// NodeMember 排在 Node 之后：它的语义（按 node_id 归属）依赖 nodes 已存在，
-	// 让日志里的迁移错误按依赖顺序出现更容易定位。
+	// 让日志里的迁移错误按依赖顺序出现更容易定位。NodeClaim 同样引用未来的
+	// node_id，排在归属表之后。
 	models := []any{
 		&Node{}, &NodeMember{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{},
-		&User{}, &UserSession{}, &Invite{},
+		&User{}, &UserSession{}, &Invite{}, &NodeClaim{},
 	}
 	if err := db.AutoMigrate(models...); err != nil {
 		return fmt.Errorf("auto migrate control plane tables: %w", err)
