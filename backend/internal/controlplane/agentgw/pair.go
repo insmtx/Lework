@@ -522,12 +522,19 @@ func (g *Gateway) servePendingPair(
 //
 // 已有别的连接时先给它一个明确的关闭原因再替换。旧连接退出时只会删除
 // 「指针仍是自己」的条目，因此不会误删刚接管的新连接。
+//
+// 关闭帧之后必须再 Close 套接字：半开连接（休眠、切网）收不到关闭帧也不会
+// 主动断开，只写控制帧会把它连同它占用的待定配额一起留到空闲超时，恰好让
+// 重新连接的 agent 撞上配额上限。
 func (g *Gateway) registerPendingConn(claimID string, ws *websocket.Conn) {
 	g.pendingMu.Lock()
 	defer g.pendingMu.Unlock()
 
 	if prev := g.pendingConns[claimID]; prev != nil && prev != ws {
 		closeWithError(prev, websocket.ClosePolicyViolation, pairConnReplacedReason)
+		// Close 与 WriteControl 是 gorilla 明确允许并发调用的两个方法，
+		// 因此这里可以在旧连接自己的读循环仍阻塞时安全关闭它。
+		_ = prev.Close()
 	}
 	g.pendingConns[claimID] = ws
 }
