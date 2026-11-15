@@ -92,10 +92,12 @@ type pairParams struct {
 	Code    string `json:"code"`
 }
 
-// pairPendingResult 是 pair.pending 帧的结果；Code 是终端上要展示的短码。
+// pairPendingResult 是 pair.pending 帧的结果；Code 是终端上要展示的短码，
+// ExpiresAt 是服务端认领行的 TTL 截止时间（agent 写进 claim 文件供重印）。
 type pairPendingResult struct {
-	ClaimID string `json:"claim_id"`
-	Code    string `json:"code"`
+	ClaimID   string    `json:"claim_id"`
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // pairResult 是 pair.result 帧的结果；Credential 由本文件签发，只此一处明文。
@@ -475,7 +477,11 @@ func (g *Gateway) servePendingPair(
 	}()
 	<-subscribed
 
-	payload, err := json.Marshal(pairPendingResult{ClaimID: claim.ID, Code: claim.Code})
+	payload, err := json.Marshal(pairPendingResult{
+		ClaimID:   claim.ID,
+		Code:      claim.Code,
+		ExpiresAt: claim.ExpiresAt,
+	})
 	if err != nil {
 		return
 	}

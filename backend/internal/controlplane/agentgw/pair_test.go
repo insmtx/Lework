@@ -49,8 +49,9 @@ type pairHelloParams struct {
 
 // pairPendingInfo 是 pair.pending 帧的结果。
 type pairPendingInfo struct {
-	ClaimID string `json:"claim_id"`
-	Code    string `json:"code"`
+	ClaimID   string    `json:"claim_id"`
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // pairResultInfo 是 pair.result 帧的结果；Credential 是本流程唯一的明文出口。
@@ -361,6 +362,14 @@ func TestPairHandshakeCreatesPendingClaim(t *testing.T) {
 	}
 	if claim.Code != pending.Code {
 		t.Fatalf("stored code = %q, want %q from pair.pending", claim.Code, pending.Code)
+	}
+	// pair.pending 必须带上服务端的 TTL：agent 的 claim 文件靠它判断过期，
+	// 猜一个本地的 5 分钟会与配置漂移。
+	if pending.ExpiresAt.IsZero() {
+		t.Fatal("pair.pending has no expires_at")
+	}
+	if ttl := time.Until(pending.ExpiresAt); ttl < 4*time.Minute || ttl > 6*time.Minute {
+		t.Fatalf("pair.pending expires in %s, want close to 5m", ttl)
 	}
 	if claim.Status != store.ClaimStatusPending {
 		t.Fatalf("claim status = %q, want %q", claim.Status, store.ClaimStatusPending)
