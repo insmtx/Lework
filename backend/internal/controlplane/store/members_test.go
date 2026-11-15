@@ -87,6 +87,52 @@ func TestUpsertLegacyNodeSkipsCredentialedNode(t *testing.T) {
 	}
 }
 
+// 只有成员行、没有任何凭证的节点同样不能被旧令牌按名复用：
+// 「已认领」这个条件由 NOT EXISTS 子查询单独保证，credential_hash 守卫删不掉它。
+// 两个分支分别覆盖 ClaimNodeToUser 写下的 owner 行与 AddNodeMember 共享出的
+// member 行，避免只有其中一种归属被保护。
+func TestUpsertLegacyNodeSkipsNodeWithMembersOnly(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	claimed, err := s.UpsertLegacyNode(ctx, Node{Name: "claimed-box"})
+	if err != nil {
+		t.Fatalf("UpsertLegacyNode: %v", err)
+	}
+	if err := s.ClaimNodeToUser(ctx, claimed.ID, "u1"); err != nil {
+		t.Fatalf("ClaimNodeToUser: %v", err)
+	}
+
+	shared, err := s.UpsertLegacyNode(ctx, Node{Name: "shared-box"})
+	if err != nil {
+		t.Fatalf("UpsertLegacyNode: %v", err)
+	}
+	if err := s.AddNodeMember(ctx, NodeMember{
+		NodeID: shared.ID, UserID: "u1", Role: NodeRoleMember,
+	}); err != nil {
+		t.Fatalf("AddNodeMember: %v", err)
+	}
+
+	for _, id := range []string{claimed.ID, shared.ID} {
+		if stored := reloadNode(t, s, id); stored.CredentialHash != "" {
+			t.Fatalf("precondition failed: node %q has a credential %q", id, stored.CredentialHash)
+		}
+	}
+
+	for _, name := range []string{"claimed-box", "shared-box"} {
+		again, err := s.UpsertLegacyNode(ctx, Node{Name: name})
+		if err != nil {
+			t.Fatalf("UpsertLegacyNode(%q): %v", name, err)
+		}
+		if again.ID == claimed.ID || again.ID == shared.ID {
+			t.Fatalf("legacy upsert reused a node %q that already has a member row", name)
+		}
+		if again.CredentialHash != "" {
+			t.Fatalf("legacy upsert created %q with a credential", name)
+		}
+	}
+}
+
 func TestClaimNodeToUserRefusesSharedOrMissingNode(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -350,6 +396,33 @@ func TestMigrateControlPlaneDropsLegacyNameUniqueIndex(t *testing.T) {
 			t.Fatalf("insert duplicate name %d: %v", i, err)
 		}
 	}
+}
+
+// name 必须保持 NOT NULL：唯一性去掉了，但展示名不能为空。少了它，升级库
+// （列是 NOT NULL）与新建库（列可为空）的 schema 会永久漂移，而 GORM 在
+// PostgreSQL 上永远不会自动补发 DROP NOT NULL。
+func TestMigrateControlPlaneKeepsNodeNameNotNull(t *testing.T) {
+	s := newTestStore(t)
+
+	var cols []struct {
+		Name    string
+		NotNull int
+	}
+	if err := s.db.Raw(`SELECT name, "notnull" AS not_null FROM pragma_table_info('nodes')`).
+		Scan(&cols).Error; err != nil {
+		t.Fatalf("inspect nodes columns: %v", err)
+	}
+
+	for _, col := range cols {
+		if col.Name != "name" {
+			continue
+		}
+		if col.NotNull != 1 {
+			t.Fatal("nodes.name is nullable after migration")
+		}
+		return
+	}
+	t.Fatal("nodes.name column missing")
 }
 
 // reloadNode 直接从库里重读节点，避免用手里的入参自我验证。

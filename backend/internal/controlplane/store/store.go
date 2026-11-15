@@ -35,14 +35,15 @@ import (
 // Name 只用于展示，因此不再是唯一键：多台机器同名是正常现象（比如两个人的
 // 笔记本都叫 MacBook），归属由 NodeMember 表达，唯一性在应用层按 owner 保证。
 // 旧库上的唯一索引 idx_nodes_name 由 migrateControlPlane 显式删除，
-// 保留的 idx_nodes_name_lookup 只用于按名查找。
+// 保留的 idx_nodes_name_lookup 只用于按名查找。not null 必须保留：它只表达
+// 「展示名不能为空」，与唯一性无关，去掉会让升级库上的 schema 永久漂移。
 //
 // CredentialHash 存 sha256(节点凭证)，空串表示节点尚未激活（旧令牌直通或
 // 配对未完成）。它是节点身份的唯一依据；明文凭证只在签发时出现在 agent
 // 侧与 welcome 帧里，任何代码路径都不得把它写库或写日志。
 type Node struct {
 	ID             string `gorm:"primaryKey"`
-	Name           string `gorm:"index:idx_nodes_name_lookup"`
+	Name           string `gorm:"index:idx_nodes_name_lookup;not null"`
 	OS             string
 	Arch           string
 	AgentVersion   string
