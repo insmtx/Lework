@@ -22,6 +22,14 @@ import (
 // by New so a zero RunnerConfig still produces a usable runner.
 const defaultHeartbeat = 10 * time.Second
 
+// ErrCredentialPersist marks a handshake that failed because the one-shot node
+// credential could not be written locally.
+//
+// 调用方必须把它当成终止条件，而不是可重试的连接错误：控制面在发出 welcome
+// 前已经写入了 credential_hash，而旧令牌路径只复用「没有凭证、没有成员」的
+// 节点——继续用旧令牌重连只会每轮新建一个节点并再签发一份写不下的凭证。
+var ErrCredentialPersist = errors.New("persist node credential")
+
 // responseSizeCheckThreshold 让精确的帧大小检查只对可能接近上限的响应生效。
 //
 // 编码后的 JSON 会把 <、>、& 转义成 6 字节，所以原始 result 长度不能代表
@@ -297,7 +305,9 @@ func (r *Runner) applyWelcome(frame protocol.Frame) error {
 		return nil
 	}
 	if err := r.cfg.CredentialSink(result.Credential); err != nil {
-		return fmt.Errorf("agentd: persist node credential: %w", err)
+		// 双 %w 让 errors.Is(err, ErrCredentialPersist) 与底层原因（权限、
+		// 磁盘）同时可查；凭证本身仍然只进 sink，不进错误文本。
+		return fmt.Errorf("agentd: %w: %w", ErrCredentialPersist, err)
 	}
 	return nil
 }

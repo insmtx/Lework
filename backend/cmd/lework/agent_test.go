@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/insmtx/lework/backend/internal/agentd/runner"
 	"github.com/insmtx/lework/backend/internal/agentd/transport"
 )
 
@@ -133,6 +134,30 @@ func TestCredentialRejected(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := credentialRejected(tt.err); got != tt.want {
 				t.Fatalf("credentialRejected() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFatalRunError 固化「凭证落盘失败必须让进程退出」：重试只会让控制面用
+// 旧令牌再建一个节点、再签发一份永远写不下的凭证。
+func TestFatalRunError(t *testing.T) {
+	persistErr := fmt.Errorf("agentd: %w", fmt.Errorf("persist node credential: %w",
+		runner.ErrCredentialPersist))
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"credential persist failure", persistErr, true},
+		{"direct sentinel", runner.ErrCredentialPersist, true},
+		{"connection ended", errors.New("agentd: read frame: EOF"), false},
+		{"nil", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := fatalRunError(tt.err); got != tt.want {
+				t.Fatalf("fatalRunError() = %t, want %t", got, tt.want)
 			}
 		})
 	}

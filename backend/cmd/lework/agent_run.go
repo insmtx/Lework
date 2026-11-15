@@ -180,18 +180,23 @@ func reconnect(
 			return nil
 		}
 
-		// 读取失败等同于没有凭证：本次退回旧令牌路径，并在退避后重试。
-		raw, hasCredential, err := credential.Load(cfg.CredentialFile)
+		// 凭证读取错误必须显式失败，不能降级成 enrollment token：那等于把节点
+		// 从凭证模式静默切成 admin 直通。这里不拨号，只退避后重试读取。
+		nodeCredential, hasCredential, err := credential.Load(cfg.CredentialFile)
 		if err != nil {
-			logs.Warnf("lework-agent: read node credential: %s", redact(err, cfg.EnrollmentToken))
-			hasCredential = false
-			raw = ""
+			logs.Errorf("lework-agent: 读取节点凭证 %s 失败：%s（不会回落到 enrollment token；修复文件路径/权限后重启 agent）",
+				cfg.CredentialFile, redact(err, cfg.EnrollmentToken))
+			if waitErr := waitBackoff(ctx, backoff); waitErr != nil {
+				return nil
+			}
+			backoff = nextBackoff(backoff)
+			continue
 		}
 
 		conn, err := transport.Dial(ctx, transport.DialConfig{
 			URL:            cfg.ControlPlaneURL,
 			TLSFingerprint: cfg.TLSFingerprint,
-			Header:         controlPlaneHeader(raw, cfg.EnrollmentToken),
+			Header:         controlPlaneHeader(nodeCredential, cfg.EnrollmentToken),
 		})
 		if err != nil {
 			if ctx.Err() != nil {
@@ -199,10 +204,12 @@ func reconnect(
 			}
 			if hasCredential && credentialRejected(err) {
 				// 不删除凭证、不回落旧令牌、不自动转配对：自动清凭证重配对会让
-				// 一台机器静默换到别人的账号下。提示之后继续退避重试。
-				logs.Errorf("lework-agent: 节点凭证被拒绝，请重新配对（删除控制面里的该节点后重新加入）")
+				// 一台机器静默换到别人的账号下。提示之后继续退避重试；带上底层
+				// 状态行（401 Unauthorized）便于确认是凭证被拒而不是网络问题。
+				logs.Errorf("lework-agent: 节点凭证被拒绝，请重新配对（删除控制面里的该节点后重新加入）：%s",
+					redact(err, cfg.EnrollmentToken, nodeCredential))
 			} else {
-				logs.Warnf("lework-agent: connect control plane: %s", redact(err, cfg.EnrollmentToken, raw))
+				logs.Warnf("lework-agent: connect control plane: %s", redact(err, cfg.EnrollmentToken, nodeCredential))
 			}
 		} else {
 			logs.Infof("lework-agent: connected to control plane")
@@ -217,8 +224,8 @@ func reconnect(
 				WorkspaceRoots: cfg.WorkspaceRoots,
 			}
 			if cfg.CredentialFile != "" {
-				runCfg.CredentialSink = func(raw string) error {
-					if err := credential.Save(cfg.CredentialFile, raw); err != nil {
+				runCfg.CredentialSink = func(issued string) error {
+					if err := credential.Save(cfg.CredentialFile, issued); err != nil {
 						return err
 					}
 					// 路径不是秘密：记下来便于确认凭证落到了哪里。
@@ -230,12 +237,20 @@ func reconnect(
 			connectedFor := time.Since(started)
 
 			if closeErr := conn.Close(); closeErr != nil {
-				logs.Warnf("lework-agent: close connection: %s", redact(closeErr, cfg.EnrollmentToken, raw))
+				logs.Warnf("lework-agent: close connection: %s", redact(closeErr, cfg.EnrollmentToken, nodeCredential))
 			}
 			if ctx.Err() != nil || runErr == nil {
 				return nil
 			}
-			logs.Warnf("lework-agent: connection ended: %s", redact(runErr, cfg.EnrollmentToken, raw))
+			// 凭证写不下时重试没有意义：控制面已登记 hash，旧令牌每轮都会新建
+			// 一个节点。直接退出，让运维修好路径/权限再重新加入。
+			if fatalRunError(runErr) {
+				logs.Errorf("lework-agent: 控制面已为该节点登记凭证，但本地写入 %s 失败：%s；"+
+					"修复路径/权限后删除控制面里的该节点并重新配对",
+					cfg.CredentialFile, redact(runErr, cfg.EnrollmentToken, nodeCredential))
+				return fmt.Errorf("lework-agent: node credential is not persisted: %w", runErr)
+			}
+			logs.Warnf("lework-agent: connection ended: %s", redact(runErr, cfg.EnrollmentToken, nodeCredential))
 
 			// Only a connection that stayed up long enough earns a fresh
 			// ladder. A connect-then-drop loop keeps doubling the delay.
@@ -260,12 +275,22 @@ func credentialRejected(err error) bool {
 	return errors.As(err, &handshake) && handshake.StatusCode == http.StatusUnauthorized
 }
 
+// fatalRunError reports whether a connection error must stop the reconnect loop
+// instead of backing off.
+//
+// 唯一的情形是凭证落盘失败：控制面在 welcome 之前就写入了 credential_hash，
+// 旧令牌路径不会复用带凭证的节点，因此继续重试只会每轮新建一个节点并再签发
+// 一份本机写不下的凭证。修复办法是运维干预，不是重试。
+func fatalRunError(err error) bool {
+	return errors.Is(err, runner.ErrCredentialPersist)
+}
+
 // controlPlaneHeader carries the node identity in the WebSocket handshake.
 //
 // 凭证优先：节点身份是控制面签发的凭证，enrollment token 只是旧部署的 admin
 // 直通。没有凭证时才回落到旧令牌；两者都没有时不带鉴权头。
-func controlPlaneHeader(credential, enrollmentToken string) http.Header {
-	token := credential
+func controlPlaneHeader(nodeCredential, enrollmentToken string) http.Header {
+	token := nodeCredential
 	if token == "" {
 		token = enrollmentToken
 	}

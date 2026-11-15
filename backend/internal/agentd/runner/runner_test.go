@@ -885,6 +885,11 @@ func TestWelcomeCredentialSinkFailureFailsHandshake(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "persist node credential") {
 		t.Fatalf("Run() = %v, want a wrapped persist error", err)
 	}
+	// 调用方靠这个哨兵判断「控制面已登记凭证、本地没写下」，从而停止重试，
+	// 否则每轮都会用旧令牌新建一个节点。
+	if !errors.Is(err, ErrCredentialPersist) {
+		t.Fatalf("Run() = %v, want it to wrap ErrCredentialPersist", err)
+	}
 	if strings.Contains(err.Error(), "cred-secret") {
 		t.Fatal("persist error leaked the credential")
 	}

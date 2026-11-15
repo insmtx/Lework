@@ -114,8 +114,13 @@ func TestDialReportsHandshakeStatus(t *testing.T) {
 			if !strings.Contains(handshake.Error(), http.StatusText(status)) {
 				t.Fatalf("Error() = %q, want the status line", handshake.Error())
 			}
-			if strings.Contains(handshake.Error(), "http") {
-				t.Fatalf("Error() = %q, want no URL", handshake.Error())
+			// 错误会进日志：既不能带服务器地址，也不能带响应头。
+			host := strings.TrimPrefix(srv.URL, "http://")
+			if strings.Contains(handshake.Error(), host) {
+				t.Fatalf("Error() = %q, want no endpoint %q", handshake.Error(), host)
+			}
+			if strings.Contains(handshake.Error(), "Authorization") {
+				t.Fatalf("Error() = %q, want no request/response headers", handshake.Error())
 			}
 			if !errors.Is(err, websocket.ErrBadHandshake) {
 				t.Fatalf("err = %v, want it to unwrap to ErrBadHandshake", err)

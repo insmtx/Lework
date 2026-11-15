@@ -186,8 +186,32 @@ func TestDefaultPathFallsBackWithoutConfigDir(t *testing.T) {
 	userConfigDir = func() (string, error) { return "", errors.New("no home") }
 	t.Cleanup(func() { userConfigDir = original })
 
-	if got, want := DefaultPath(""), "node.credential"; got != want {
-		t.Fatalf("DefaultPath(\"\") = %q, want honest relative %q", got, want)
+	// 平台配置目录不可得时退回固定文件名，再按工作目录解析成绝对路径，
+	// 避免把凭证悄悄写进进程 CWD 的相对位置。
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(cwd, "node.credential")
+	if got := DefaultPath(""); got != want {
+		t.Fatalf("DefaultPath(\"\") = %q, want %q", got, want)
+	}
+}
+
+// TestDefaultPathAbsolutizesRelativeConfigFile 防止相对 agent.yaml 把凭证
+// 路径也变成相对路径：Save 会因此在重启目录变化时写到别处。
+func TestDefaultPathAbsolutizesRelativeConfigFile(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := DefaultPath("agent.yaml")
+	if !filepath.IsAbs(got) {
+		t.Fatalf("DefaultPath(\"agent.yaml\") = %q, want an absolute path", got)
+	}
+	if want := filepath.Join(cwd, "node.credential"); got != want {
+		t.Fatalf("DefaultPath(\"agent.yaml\") = %q, want %q", got, want)
 	}
 }
 

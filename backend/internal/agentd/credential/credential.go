@@ -26,17 +26,21 @@ var userConfigDir = os.UserConfigDir
 //
 // 显式的 agent.yaml 路径优先：凭证与配置文件同目录，运维只需记住一个目录。
 // 没有配置文件时（组合启动模式）使用平台配置目录下的 Lework/node.credential，
-// 与设计里的 ~/.config/Lework/node.credential 一致。平台目录不可得时退回
-// 相对路径 "node.credential"，让启动至少能继续，而不是凭空猜一个绝对路径。
+// 与设计里的 ~/.config/Lework/node.credential 一致。结果统一解析成绝对路径：
+// 相对路径（例如 DefaultPath("agent.yaml")）会随进程工作目录漂移，让同一个
+// 节点在重启后读到不同文件。平台目录不可得或 Abs 失败时返回未解析的原始
+// 路径，启动至少能继续。
 func DefaultPath(configPath string) string {
-	if strings.TrimSpace(configPath) == "" {
-		dir, err := userConfigDir()
-		if err != nil || dir == "" {
-			return credentialFileName
-		}
-		return filepath.Join(dir, "Lework", credentialFileName)
+	path := credentialFileName
+	if strings.TrimSpace(configPath) != "" {
+		path = filepath.Join(filepath.Dir(configPath), credentialFileName)
+	} else if dir, err := userConfigDir(); err == nil && dir != "" {
+		path = filepath.Join(dir, "Lework", credentialFileName)
 	}
-	return filepath.Join(filepath.Dir(configPath), credentialFileName)
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }
 
 // Load 读取凭证文件。
@@ -68,6 +72,10 @@ func Load(path string) (string, bool, error) {
 // 因此进程在任意时刻崩溃都只会留下旧凭证或新凭证，不会留下被截断的文件
 // （半截凭证会让节点永久 401）。目录权限 0700、文件权限 0600 保证凭证只有
 // 运行 agent 的用户可读。raw 永远不会出现在错误文本里。
+//
+// rename 之后还会 best-effort 同步一次目录项：只靠文件 Sync，掉电时新名字可能
+// 还没落盘，出现「文件丢了但控制面保留 hash」的窗口。目录 fsync 在部分平台
+// （如 Windows）不受支持，失败按 no-op 处理，不因此判定保存失败。
 func Save(path, raw string) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("save node credential: path is empty")
@@ -111,6 +119,12 @@ func Save(path, raw string) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("replace node credential %s: %w", path, err)
+	}
+	// 目录项的持久化是 best-effort：失败不改变保存结果，只是缩小崩溃后
+	// 「文件不在、控制面仍有 hash」的窗口。
+	if dirHandle, err := os.Open(dir); err == nil {
+		_ = dirHandle.Sync()
+		_ = dirHandle.Close()
 	}
 	return nil
 }
