@@ -1,4 +1,4 @@
-import type { ContentPart, Message, PendingPermission, Session } from "@lework/api";
+import type { Message, PendingPermission, Session } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -38,33 +38,11 @@ import { useThemePreference } from "../../../src/theme/theme-context";
 import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../../src/ui/global-composer";
+import { ToolCallCard } from "../../../src/ui/tool-call/tool-call-card";
 import { ScreenTopBar } from "../../../src/ui/top-bar";
 
 function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
-
-interface ToolState {
-	status?: string;
-	title?: string;
-	input?: unknown;
-	output?: unknown;
-	content?: unknown;
-	error?: unknown;
-}
-
-function pretty(value: unknown): string {
-	if (value === undefined || value === null) return "";
-	if (typeof value === "string") return value;
-	try {
-		return JSON.stringify(value, null, 2);
-	} catch {
-		return String(value);
-	}
-}
-
-function clip(value: string, limit = 4000): string {
-	return value.length > limit ? `${value.slice(0, limit)}\n… 已截断` : value;
 }
 
 /** statusColor 把状态条的语气映射到主题色，与行内状态点保持同一套语义。 */
@@ -79,58 +57,6 @@ function statusColor(theme: Theme, tone: StatusTone): string {
 		default:
 			return theme.colors.offline;
 	}
-}
-
-/** ToolSection 是展开后的单段内容，输入/输出/错误共用同一套排版。 */
-function ToolSection({ label, value, error }: { label: string; value: string; error?: boolean }) {
-	const styles = useThemedStyles(createStyles);
-
-	return (
-		<View style={styles.toolSection}>
-			<Text style={styles.toolSectionLabel}>{label}</Text>
-			<Text style={[styles.toolSectionBody, error && styles.toolSectionError]}>{clip(value)}</Text>
-		</View>
-	);
-}
-
-/**
- * ToolCall 是左侧执行过程卡片：默认形态由「工具调用」偏好决定。
- *
- * 没有输入输出的工具（例如纯状态变更）不展开，避免点开一片空白。
- */
-function ToolCall({ part, defaultExpanded }: { part: ContentPart; defaultExpanded: boolean }) {
-	const styles = useThemedStyles(createStyles);
-	const [expanded, setExpanded] = useState(defaultExpanded);
-	const state = (part.state ?? {}) as ToolState;
-	const status = state.status ?? "running";
-	const input = pretty(state.input);
-	const output = pretty(state.output ?? state.content);
-	const error = pretty(state.error ?? state.title);
-	const hasDetails = Boolean(input || output || error);
-	const failed = status === "error" || Boolean(error);
-
-	return (
-		<View style={styles.toolCard}>
-			<Pressable
-				style={styles.toolHeader}
-				disabled={!hasDetails}
-				onPress={() => setExpanded((open) => !open)}
-			>
-				<Text style={styles.toolChevron}>{hasDetails ? (expanded ? "▾" : "▸") : "•"}</Text>
-				<Text style={styles.toolName} numberOfLines={1}>
-					{part.tool || "tool"}
-				</Text>
-				<Text style={[styles.toolStatus, failed && styles.toolStatusError]}>{status}</Text>
-			</Pressable>
-			{expanded && hasDetails ? (
-				<View style={styles.toolBody}>
-					{input ? <ToolSection label="输入" value={input} /> : null}
-					{output ? <ToolSection label="输出" value={output} /> : null}
-					{error ? <ToolSection label="错误" value={error} error /> : null}
-				</View>
-			) : null}
-		</View>
-	);
 }
 
 /**
@@ -163,7 +89,15 @@ function ReasoningCard({ message, mode }: { message: Message; mode: "brief" | "f
 	);
 }
 
-function MessageRow({ message, fontScale }: { message: Message; fontScale: number }) {
+function MessageRow({
+	message,
+	fontScale,
+	nodeID,
+}: {
+	message: Message;
+	fontScale: number;
+	nodeID: string;
+}) {
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const { preferences } = useThemePreference();
@@ -216,10 +150,11 @@ function MessageRow({ message, fontScale }: { message: Message; fontScale: numbe
 			{!isUser && tools.length > 0 ? (
 				<View style={styles.tools}>
 					{tools.map((part, index) => (
-						<ToolCall
+						<ToolCallCard
 							key={part.callID || `${part.tool || "tool"}-${index}`}
 							part={part}
 							defaultExpanded={preferences.toolDisplay === "expanded"}
+							nodeID={nodeID}
 						/>
 					))}
 				</View>
@@ -610,7 +545,9 @@ export default function SessionScreen() {
 					contentContainerStyle={styles.messagesContent}
 					data={visibleMessages}
 					keyExtractor={(message) => message.id}
-					renderItem={({ item }) => <MessageRow message={item} fontScale={fontScale} />}
+					renderItem={({ item }) => (
+						<MessageRow message={item} fontScale={fontScale} nodeID={nodeID} />
+					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 					onContentSizeChange={handleContentSizeChange}
 					onLayout={() => {
@@ -768,50 +705,6 @@ function createStyles(theme: Theme) {
 		reasoningLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
 		reasoningBody: { fontSize: 12, lineHeight: 18, color: colors.textSecondary },
 		tools: { width: "100%", gap: 6 },
-		toolCard: {
-			alignSelf: "flex-start",
-			maxWidth: "88%",
-			borderWidth: 1,
-			borderColor: colors.border,
-			backgroundColor: colors.surface,
-			borderRadius: 12,
-			overflow: "hidden",
-		},
-		toolHeader: {
-			flexDirection: "row",
-			alignItems: "center",
-			gap: 6,
-			paddingHorizontal: 10,
-			paddingVertical: 8,
-		},
-		toolChevron: { width: 12, fontSize: 12, color: colors.textMuted },
-		toolName: {
-			flexShrink: 1,
-			fontFamily: "monospace",
-			fontSize: 13,
-			fontWeight: "600",
-			color: colors.text,
-		},
-		toolStatus: { marginLeft: "auto", fontSize: 11, color: colors.textSecondary },
-		toolStatusError: { color: colors.danger },
-		toolBody: { borderTopWidth: 1, borderTopColor: colors.borderSubtle, padding: 10, gap: 8 },
-		toolSection: { gap: 4 },
-		toolSectionLabel: {
-			fontSize: 10,
-			fontWeight: "700",
-			color: colors.textMuted,
-			textTransform: "uppercase",
-		},
-		toolSectionBody: {
-			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 18,
-			color: colors.textStrong,
-			backgroundColor: colors.surfaceMuted,
-			borderRadius: 8,
-			padding: 8,
-		},
-		toolSectionError: { color: colors.danger, backgroundColor: colors.dangerSurface },
 		noticeRow: { alignItems: "flex-start", paddingHorizontal: 4 },
 		noticeError: { fontSize: 12, color: colors.danger },
 		turnError: { maxWidth: "88%", paddingHorizontal: 4, fontSize: 12, color: colors.danger },

@@ -1,0 +1,175 @@
+import { StyleSheet } from "react-native";
+
+import type { Theme } from "../../theme/theme";
+
+/**
+ * createStyles 汇总工具卡片的样式。
+ *
+ * 所有子组件共用同一个工厂，样式表只随主题重建一次；卡片内部不再各自
+ * 维护一份几乎相同的字段/代码/差异排版。
+ */
+export function createStyles(theme: Theme) {
+	const { colors } = theme;
+
+	return StyleSheet.create({
+		card: {
+			alignSelf: "flex-start",
+			maxWidth: "88%",
+			borderWidth: 1,
+			borderColor: colors.border,
+			backgroundColor: colors.surface,
+			borderRadius: 12,
+			overflow: "hidden",
+		},
+		header: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 6,
+			paddingHorizontal: 10,
+			paddingVertical: 8,
+		},
+		chevron: { width: 12, fontSize: 12, color: colors.textMuted },
+		toolName: {
+			flexShrink: 1,
+			fontFamily: "monospace",
+			fontSize: 13,
+			fontWeight: "600",
+			color: colors.text,
+		},
+		status: { marginLeft: "auto", fontSize: 11 },
+		summary: {
+			paddingHorizontal: 10,
+			paddingBottom: 8,
+			marginTop: -2,
+			fontSize: 12,
+			color: colors.textSecondary,
+		},
+		body: {
+			borderTopWidth: 1,
+			borderTopColor: colors.borderSubtle,
+			padding: 10,
+			gap: 8,
+		},
+		blocks: { gap: 8 },
+		block: { gap: 4 },
+		label: {
+			fontSize: 10,
+			fontWeight: "700",
+			color: colors.textMuted,
+			textTransform: "uppercase",
+		},
+		terminal: {
+			backgroundColor: colors.codeBackground,
+			borderRadius: 8,
+			padding: 8,
+			gap: 2,
+		},
+		command: {
+			fontFamily: "monospace",
+			fontSize: 12,
+			lineHeight: 18,
+			fontWeight: "600",
+			color: colors.codeText,
+		},
+		workdir: {
+			fontFamily: "monospace",
+			fontSize: 11,
+			lineHeight: 16,
+			color: colors.textMuted,
+		},
+		terminalOutput: {
+			fontFamily: "monospace",
+			fontSize: 12,
+			lineHeight: 18,
+			color: colors.codeText,
+			marginTop: 4,
+		},
+		terminalMeta: { marginTop: 4, fontSize: 10, color: colors.textMuted },
+		code: {
+			fontFamily: "monospace",
+			fontSize: 12,
+			lineHeight: 18,
+			color: colors.codeText,
+			backgroundColor: colors.codeBackground,
+			borderRadius: 8,
+			padding: 8,
+		},
+		diff: {
+			backgroundColor: colors.codeBackground,
+			borderRadius: 8,
+			padding: 8,
+		},
+		diffLine: {
+			fontFamily: "monospace",
+			fontSize: 12,
+			lineHeight: 17,
+			color: colors.codeText,
+		},
+		diffAdd: { color: colors.success, backgroundColor: colors.surfaceMuted },
+		diffDel: { color: colors.danger, backgroundColor: colors.dangerSurface },
+		diffMeta: { color: colors.textMuted },
+		muted: { fontSize: 12, lineHeight: 18, color: colors.textMuted },
+		empty: {
+			fontSize: 12,
+			color: colors.textMuted,
+			backgroundColor: colors.codeBackground,
+			borderRadius: 8,
+			padding: 8,
+		},
+		listItem: { fontSize: 12, lineHeight: 18, color: colors.textStrong, fontFamily: "monospace" },
+		checkItem: { fontSize: 12, lineHeight: 18, color: colors.textStrong },
+		checkDone: { color: colors.textMuted, textDecorationLine: "line-through" },
+		fields: { gap: 6 },
+		fieldRow: { gap: 2 },
+		fieldLabel: {
+			fontSize: 10,
+			fontWeight: "700",
+			color: colors.textMuted,
+			textTransform: "uppercase",
+		},
+		fieldValue: { fontFamily: "monospace", fontSize: 12, lineHeight: 18, color: colors.textStrong },
+		text: { fontSize: 13, lineHeight: 19, color: colors.text },
+		textMuted: { color: colors.textMuted },
+		textError: { color: colors.danger },
+		errorText: { color: colors.danger },
+		raw: { gap: 4 },
+		rawToggle: { fontSize: 11, color: colors.textMuted },
+		rawBody: {
+			fontFamily: "monospace",
+			fontSize: 11,
+			lineHeight: 16,
+			color: colors.textSecondary,
+			backgroundColor: colors.surfaceMuted,
+			borderRadius: 8,
+			padding: 8,
+		},
+		sheetScreen: { flex: 1, backgroundColor: colors.background },
+		sheetHeader: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 12,
+			paddingHorizontal: 16,
+			paddingVertical: 12,
+			borderBottomWidth: 1,
+			borderBottomColor: colors.borderSubtle,
+		},
+		sheetHeading: { flex: 1, gap: 2 },
+		sheetTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+		sheetSubtitle: { fontSize: 12, color: colors.textSecondary },
+		sheetClose: { fontSize: 14, fontWeight: "600", color: colors.accent },
+		sheetScroll: { flex: 1 },
+		sheetContent: { padding: 16, gap: 12 },
+		sheetMeta: { gap: 4 },
+		sheetMetaText: { fontSize: 12, color: colors.textMuted },
+		sheetDescription: { fontSize: 14, lineHeight: 20, color: colors.text },
+		primaryButton: {
+			backgroundColor: colors.action,
+			borderRadius: 8,
+			paddingHorizontal: 14,
+			paddingVertical: 10,
+			alignItems: "center",
+			justifyContent: "center",
+		},
+		primaryButtonText: { color: colors.actionText, fontWeight: "600" },
+	});
+}
