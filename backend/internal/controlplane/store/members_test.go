@@ -324,6 +324,41 @@ func TestLookupNodeByCredentialRequiresNonEmptyHash(t *testing.T) {
 	}
 }
 
+// TestNodeByIDReportsPresenceAndCredential 固化凭证下发前的检查输入：网关要
+// 按 node_id 读回节点并区分「不存在」与「已有凭证」，两者都走 found 而不是
+// 把未命中当错误。
+func TestNodeByIDReportsPresenceAndCredential(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	n, err := s.UpsertLegacyNode(ctx, Node{Name: "box"})
+	if err != nil {
+		t.Fatalf("UpsertLegacyNode: %v", err)
+	}
+	got, ok, err := s.NodeByID(ctx, n.ID)
+	if err != nil || !ok {
+		t.Fatalf("NodeByID(%q) = %v, %v", n.ID, ok, err)
+	}
+	if got.ID != n.ID || got.CredentialHash != "" {
+		t.Fatalf("node = %+v, want the unactivated row", got)
+	}
+
+	if err := s.SetNodeCredential(ctx, n.ID, "hash-a"); err != nil {
+		t.Fatalf("SetNodeCredential: %v", err)
+	}
+	got, ok, err = s.NodeByID(ctx, n.ID)
+	if err != nil || !ok || got.CredentialHash != "hash-a" {
+		t.Fatalf("node after activation = %+v, %v, %v", got, ok, err)
+	}
+
+	if _, ok, err := s.NodeByID(ctx, "node_missing"); err != nil || ok {
+		t.Fatalf("missing node = %v, %v; want a miss", ok, err)
+	}
+	if _, ok, err := s.NodeByID(ctx, " "); err != nil || ok {
+		t.Fatalf("blank id = %v, %v; want a miss", ok, err)
+	}
+}
+
 // UpdateNodeMeta 是凭证路径唯一允许写节点的方式：只改展示字段，
 // 不能顺手改掉凭证、最后心跳或创建时间。
 func TestUpdateNodeMetaOnlyTouchesDisplayFields(t *testing.T) {

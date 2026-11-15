@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 
@@ -154,6 +156,38 @@ func readPairResult(t *testing.T, client *transport.Client) pairResultInfo {
 	return info
 }
 
+// requireCloseReason 断言对端关闭连接，且关闭原因与固定文案完全一致。
+//
+// 固定原因是对 agent 的可编程契约（决定提示用户重试还是重新配对），只断言
+// 「读失败」会让文案漂移悄悄通过。
+func requireCloseReason(t *testing.T, client *transport.Client, want string) {
+	t.Helper()
+
+	err := requireClosed(t, client)
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) {
+		t.Fatalf("read error = %v, want a websocket close error", err)
+	}
+	if closeErr.Text != want {
+		t.Fatalf("close reason = %q, want %q", closeErr.Text, want)
+	}
+}
+
+// requireClosed 等待服务端关闭连接，把「连接一直开着直到测试读超时」与真正的
+// 关闭区分开，避免超时被误当成通过。
+func requireClosed(t *testing.T, client *transport.Client) error {
+	t.Helper()
+
+	err := readUntilError(t, client)
+	if err == nil {
+		t.Fatal("connection stayed open, want it closed")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("connection was not closed before the read deadline: %v", err)
+	}
+	return err
+}
+
 // bindPairClaim 走生产路径认领一条待定记录：BindClaimToUser 同时建节点与
 // owner 归属行，gateway 的投递要求 claim.NodeID 已经写好。
 func bindPairClaim(t *testing.T, env *gatewayEnv, pairKey, userID, nodeName string) (store.NodeClaim, store.Node) {
@@ -201,9 +235,10 @@ func notifyClaim(t *testing.T, env *gatewayEnv, claimID string) {
 
 	subject := mustPairSubject(t, claimID)
 	awaitCoreSubject(t, env.coreSub, subject)
-	if !env.coreSub.publishCore(context.Background(), subject, nil) {
-		t.Fatalf("no Core subscription for %q", subject)
-	}
+	// 订阅可能已经被「复查发现已认领、提前投递并关闭连接」移除；那同样是一次
+	// 有效投递，调用方紧接着会读到 pair.result。因此这里不把并发时序当成失败，
+	// 真正没投递会在随后的读帧超时里暴露。
+	env.coreSub.publishCore(context.Background(), subject, nil)
 }
 
 func mustPairSubject(t *testing.T, claimID string) string {
@@ -264,6 +299,14 @@ func capturePairLogs(t *testing.T) string {
 			Logger:  &lumberjack.Logger{Filename: path},
 		}},
 	})
+	// 先注册恢复，再写 sentinel 并断言：断言失败时也要把全局日志配置还原，
+	// 否则后续用例会把内容写进这个临时文件或丢失控制台输出。
+	t.Cleanup(func() {
+		_ = logs.Sync()
+		reload(logsconfig.LogsConfig{
+			"default": {{Writer: "console", Encoder: "default", Level: zapcore.InfoLevel}},
+		})
+	})
 	logs.Infof("%s", pairLogSentinel)
 	_ = logs.Sync()
 
@@ -271,12 +314,6 @@ func capturePairLogs(t *testing.T) string {
 	if err != nil || !bytes.Contains(data, []byte(pairLogSentinel)) {
 		t.Fatalf("log capture is not active (err %v): %s", err, data)
 	}
-	t.Cleanup(func() {
-		_ = logs.Sync()
-		reload(logsconfig.LogsConfig{
-			"default": {{Writer: "console", Encoder: "default", Level: zapcore.InfoLevel}},
-		})
-	})
 	return path
 }
 
@@ -389,6 +426,9 @@ func TestPairFlowDeliversCredentialOverTheSameConnection(t *testing.T) {
 	notifyClaim(t, env, claim.ID)
 
 	resultFrame := readFrameOfType(t, client, protocol.FramePairResult)
+	if resultFrame.ID != "hello-pair" {
+		t.Fatalf("pair.result id = %q, want the hello id %q", resultFrame.ID, "hello-pair")
+	}
 	var result pairResultInfo
 	if err := json.Unmarshal(resultFrame.Result, &result); err != nil {
 		t.Fatalf("decode pair.result %s: %v", resultFrame.Result, err)
@@ -444,40 +484,135 @@ func TestPairFlowDeliversCredentialOverTheSameConnection(t *testing.T) {
 	}
 }
 
-// TestPairRedeliveryIssuesFreshCredential 证明重连复用同一个节点但换一份新凭证：
-// agent 只有在丢了凭证时才会重连，旧凭证必须随之失效。
-func TestPairRedeliveryIssuesFreshCredential(t *testing.T) {
+// TestPairReconnectAfterDeliveryIsRejected 固化「pair_key 不是永久造凭证能力」：
+// 首次投递后节点已有凭证，同 pair_key 重连必须被拒绝（agent 应提示重新配对），
+// 旧凭证继续有效，不能被重投轮换掉。
+func TestPairReconnectAfterDeliveryIsRejected(t *testing.T) {
 	env := newGatewayEnv(t)
 	ctx := context.Background()
 
-	pairKey := "pair-key-redeliver"
+	pairKey := "pair-key-no-rotate"
 	_, _, first := completePairFlow(t, env, pairKey, "work-mac", pairTestUser)
 
-	// 原连接已经被服务端关闭；用同一个 pair_key 再连一次会立刻拿到新凭证。
+	// 原连接已经被服务端关闭；用同一个 pair_key 再连一次必须被拒绝。
 	secondClient, err := dialPair(t, env, pairAuthHeader(pairKey), newPairHello("work-mac", "pair", pairKey, ""))
+	if err != nil {
+		t.Fatalf("second dial: %v", err)
+	}
+	requireCloseReason(t, secondClient, credentialAlreadyIssuedReason)
+
+	rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential))
+	if err != nil {
+		t.Fatalf("lookup old credential: %v", err)
+	}
+	if !found || rec.ID != first.NodeID {
+		t.Fatalf("old credential resolves to %+v found %v, want node %q", rec, found, first.NodeID)
+	}
+}
+
+// TestPairClaimedWithoutCredentialRedelivers 覆盖补发的唯一允许条件：认领成功、
+// 节点已建好但还没有凭证（实例在签发前挂掉）。直接构造这个库状态，不依赖
+// 原连接的重查时序；重连必须拿到凭证，否则节点永远停在未激活状态。
+func TestPairClaimedWithoutCredentialRedelivers(t *testing.T) {
+	env := newGatewayEnv(t)
+	ctx := context.Background()
+
+	pairKey := "pair-key-crash-before-issue"
+	created, err := env.store.CreateClaim(ctx, store.NodeClaim{
+		PairKey:   pairKey,
+		Code:      "AB234",
+		NodeName:  "work-mac",
+		OS:        "linux",
+		Arch:      "amd64",
+		ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("CreateClaim: %v", err)
+	}
+	node, err := env.store.BindClaimToUser(ctx, created.ID, pairTestUser, "work-mac")
+	if err != nil {
+		t.Fatalf("BindClaimToUser: %v", err)
+	}
+	stored, found, err := env.store.NodeByID(ctx, node.ID)
+	if err != nil || !found {
+		t.Fatalf("NodeByID(%q) = %v, %v", node.ID, found, err)
+	}
+	if stored.CredentialHash != "" {
+		t.Fatalf("test setup: node already has a credential")
+	}
+
+	client, err := dialPair(t, env, pairAuthHeader(pairKey), newPairHello("work-mac", "pair", pairKey, ""))
 	if err != nil {
 		t.Fatalf("redelivery dial: %v", err)
 	}
-	second := readPairResult(t, secondClient)
-
-	if second.NodeID != first.NodeID {
-		t.Fatalf("redelivery node id = %q, want %q", second.NodeID, first.NodeID)
-	}
-	if second.Credential == "" || second.Credential == first.Credential {
-		t.Fatalf("redelivery credential = %q, want a fresh value", second.Credential)
+	result := readPairResult(t, client)
+	if result.NodeID != node.ID || result.Credential == "" {
+		t.Fatalf("pair.result = %+v, want node %q and a credential", result, node.ID)
 	}
 
-	if _, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential)); err != nil {
-		t.Fatalf("lookup old credential: %v", err)
-	} else if found {
-		t.Fatal("the previous credential still resolves after redelivery")
-	}
-	rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(second.Credential))
+	rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(result.Credential))
 	if err != nil {
-		t.Fatalf("lookup new credential: %v", err)
+		t.Fatalf("LookupNodeByCredential: %v", err)
 	}
-	if !found || rec.ID != first.NodeID {
-		t.Fatalf("new credential resolves to %+v found %v, want node %q", rec, found, first.NodeID)
+	if !found || rec.ID != node.ID {
+		t.Fatalf("credential resolves to %+v found %v, want node %q", rec, found, node.ID)
+	}
+}
+
+// TestPairSecondConnectionReplacesOlderForSameClaim 固化 Important 1：同一个 claim
+// 只认一条当前连接。后到的连接接管后，前一条只收到替换通知，拿不到 pair.result，
+// 库里的 hash 必须正是后一条拿到的凭证。
+func TestPairSecondConnectionReplacesOlderForSameClaim(t *testing.T) {
+	env := newGatewayEnv(t)
+	ctx := context.Background()
+
+	pairKey := "pair-key-replace"
+	first, err := dialPairMode(t, env, pairKey, "work-mac")
+	if err != nil {
+		t.Fatalf("first dial: %v", err)
+	}
+	firstPending := readPairPending(t, first)
+
+	// 两次 await 分别确认两条连接的订阅已经生效：第一条的 made 先被消费，
+	// 第二次等待的必然是后到连接，这样下面 publish 不会落进订阅生效前的窗口。
+	subject := mustPairSubject(t, firstPending.ClaimID)
+	awaitCoreSubject(t, env.coreSub, subject)
+
+	second, err := dialPairMode(t, env, pairKey, "work-mac")
+	if err != nil {
+		t.Fatalf("second dial: %v", err)
+	}
+	secondPending := readPairPending(t, second)
+	if secondPending.ClaimID != firstPending.ClaimID {
+		t.Fatalf("second claim id = %q, want %q", secondPending.ClaimID, firstPending.ClaimID)
+	}
+	awaitCoreSubject(t, env.coreSub, subject)
+
+	claim, node := bindPairClaim(t, env, pairKey, pairTestUser, "work-mac")
+	if claim.ID != firstPending.ClaimID {
+		t.Fatalf("claim id = %q, want %q", claim.ID, firstPending.ClaimID)
+	}
+	if !env.coreSub.publishCore(ctx, subject, nil) {
+		t.Fatalf("no Core subscription for %q", subject)
+	}
+
+	result := readPairResult(t, second)
+	if result.NodeID != node.ID || result.Credential == "" {
+		t.Fatalf("pair.result = %+v, want node %q and a credential", result, node.ID)
+	}
+
+	// 第一条只能看到替换原因，任何 pair.result 都应让它读到帧而不是错误。
+	requireCloseReason(t, first, pairConnReplacedReason)
+
+	rec, found, err := env.store.NodeByID(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("NodeByID: %v", err)
+	}
+	if !found {
+		t.Fatalf("node %q disappeared", node.ID)
+	}
+	if rec.CredentialHash != authn.HashToken(result.Credential) {
+		t.Fatalf("stored credential hash does not match the credential delivered to the second connection")
 	}
 }
 
@@ -598,6 +733,172 @@ func TestPairClaimModeRejectsUnusableCode(t *testing.T) {
 				t.Fatal("connection stayed open for an unusable claim code")
 			}
 		})
+	}
+}
+
+// TestPairClaimModeLimitsFailuresPerIP 覆盖猜码的 IP 预算：同一来源第 11 次
+// 失败被拒，并使用固定原因，agent 可据此停止重试而不是无限轮询码空间。
+func TestPairClaimModeLimitsFailuresPerIP(t *testing.T) {
+	env := newGatewayEnv(t)
+
+	for i := 0; i < claimAttemptsPerIP; i++ {
+		client, err := dialPair(t, env, pairAuthHeader("claim-client"),
+			newPairHello("work-mac", "claim", "claim-key-ip", "ZZZZZ"))
+		if err != nil {
+			t.Fatalf("claim attempt #%d: %v", i, err)
+		}
+		requireCloseReason(t, client, "claim code unavailable")
+	}
+
+	client, err := dialPair(t, env, pairAuthHeader("claim-client"),
+		newPairHello("work-mac", "claim", "claim-key-ip", "ZZZZZ"))
+	if err != nil {
+		t.Fatalf("over-limit dial: %v", err)
+	}
+	requireCloseReason(t, client, claimAttemptsExceededReason)
+}
+
+// TestPairClaimModeLimitsFailuresPerPairKey 覆盖同一 agent 连续换码的预算。
+// 抬高 IP 上限是为了隔离维度：这里只允许 pair_key 计数先到上限。
+func TestPairClaimModeLimitsFailuresPerPairKey(t *testing.T) {
+	env := newGatewayEnv(t)
+	env.gateway.claimAttempts = newClaimAttemptLimiter(100, claimAttemptsPerKey, time.Minute)
+
+	for i := 0; i < claimAttemptsPerKey; i++ {
+		client, err := dialPair(t, env, pairAuthHeader("claim-client"),
+			newPairHello("work-mac", "claim", "claim-key-fixed", "ZZZZZ"))
+		if err != nil {
+			t.Fatalf("claim attempt #%d: %v", i, err)
+		}
+		requireCloseReason(t, client, "claim code unavailable")
+	}
+
+	client, err := dialPair(t, env, pairAuthHeader("claim-client"),
+		newPairHello("work-mac", "claim", "claim-key-fixed", "ZZZZZ"))
+	if err != nil {
+		t.Fatalf("over-limit dial: %v", err)
+	}
+	requireCloseReason(t, client, claimAttemptsExceededReason)
+}
+
+// TestPairClaimModeSuccessDoesNotConsumeIPBudget 证明成功不消耗 IP 配额：
+// 一次成功之后，同一 IP 仍能完整用完失败预算，下一轮才被拒。若成功也计数，
+// 第 10 次失败就会提前触发限流。
+func TestPairClaimModeSuccessDoesNotConsumeIPBudget(t *testing.T) {
+	env := newGatewayEnv(t)
+	ctx := context.Background()
+
+	if _, err := env.store.CreateClaim(ctx, store.NodeClaim{
+		PairKey:   "api-issued-success",
+		Code:      "AB234",
+		NodeName:  "placeholder",
+		OS:        "linux",
+		Arch:      "amd64",
+		ClaimedBy: pairTestUser,
+		ExpiresAt: time.Now().UTC().Add(10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("CreateClaim: %v", err)
+	}
+
+	success, err := dialPair(t, env, pairAuthHeader("claim-client"),
+		newPairHello("work-mac", "claim", "", "ab234"))
+	if err != nil {
+		t.Fatalf("dial successful claim: %v", err)
+	}
+	if result := readPairResult(t, success); result.Credential == "" {
+		t.Fatal("successful claim carried an empty credential")
+	}
+
+	for i := 0; i < claimAttemptsPerIP; i++ {
+		client, err := dialPair(t, env, pairAuthHeader("claim-client"),
+			newPairHello("work-mac", "claim", fmt.Sprintf("claim-miss-%d", i), "ZZZZZ"))
+		if err != nil {
+			t.Fatalf("failed claim #%d: %v", i, err)
+		}
+		requireCloseReason(t, client, "claim code unavailable")
+	}
+
+	over, err := dialPair(t, env, pairAuthHeader("claim-client"),
+		newPairHello("work-mac", "claim", "claim-miss-over", "ZZZZZ"))
+	if err != nil {
+		t.Fatalf("over-limit dial: %v", err)
+	}
+	requireCloseReason(t, over, claimAttemptsExceededReason)
+}
+
+// TestPendingPairIdleTimeoutClosesConnection 用缩短的空闲窗口验证：没有入站帧
+// 的连接会被关闭，不会一直占着配额。
+func TestPendingPairIdleTimeoutClosesConnection(t *testing.T) {
+	oldIdle := pendingIdleTimeout
+	pendingIdleTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { pendingIdleTimeout = oldIdle })
+
+	env := newGatewayEnv(t)
+	client, err := dialPairMode(t, env, "pair-key-idle", "work-mac")
+	if err != nil {
+		t.Fatalf("dial pending connection: %v", err)
+	}
+	readPairPending(t, client)
+
+	start := time.Now()
+	requireClosed(t, client)
+	if elapsed := time.Since(start); elapsed < 150*time.Millisecond || elapsed > 2*time.Second {
+		t.Fatalf("idle connection closed after %v, want about %v", elapsed, pendingIdleTimeout)
+	}
+}
+
+// TestPendingPairMaxLifetimeIgnoresHeartbeats 证明持续发帧不能延长绝对生存期：
+// 心跳不断续上空闲窗口，连接仍必须在建立的绝对期限到达时关闭。
+func TestPendingPairMaxLifetimeIgnoresHeartbeats(t *testing.T) {
+	oldIdle, oldMax := pendingIdleTimeout, pendingMaxLifetime
+	pendingIdleTimeout = time.Second
+	pendingMaxLifetime = 500 * time.Millisecond
+	t.Cleanup(func() {
+		pendingIdleTimeout = oldIdle
+		pendingMaxLifetime = oldMax
+	})
+
+	env := newGatewayEnv(t)
+	client, err := dialPairMode(t, env, "pair-key-lifetime", "work-mac")
+	if err != nil {
+		t.Fatalf("dial pending connection: %v", err)
+	}
+	readPairPending(t, client)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(30 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				err := client.Write(ctx, protocol.Frame{Type: protocol.FrameHeartbeat})
+				cancel()
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+	}()
+
+	start := time.Now()
+	requireClosed(t, client)
+	elapsed := time.Since(start)
+	if elapsed < 350*time.Millisecond {
+		t.Fatalf("connection closed after %v, before the absolute lifetime", elapsed)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("heartbeats extended the absolute lifetime: closed after %v", elapsed)
 	}
 }
 

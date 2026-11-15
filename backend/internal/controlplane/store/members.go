@@ -236,6 +236,30 @@ func (s *Store) LookupNodeByCredential(ctx context.Context, tokenHash string) (N
 	return rows[0], true, nil
 }
 
+// NodeByID 按主键读节点记录，供凭证下发前确认节点是否已经激活。
+//
+// 用 Find 而不是 First：节点在等待期间被清理是正常分支，不该产生
+// record not found 日志。未命中以 found=false 返回，由调用方决定关闭连接。
+func (s *Store) NodeByID(ctx context.Context, id string) (Node, bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Node{}, false, nil
+	}
+
+	var rows []Node
+	err := s.db.WithContext(ctx).
+		Where("id = ?", id).
+		Limit(1).
+		Find(&rows).Error
+	if err != nil {
+		return Node{}, false, fmt.Errorf("lookup node %q: %w", id, err)
+	}
+	if len(rows) == 0 {
+		return Node{}, false, nil
+	}
+	return rows[0], true, nil
+}
+
 // SetNodeCredential 把节点凭证的哈希写进节点记录，节点不存在时返回错误。
 //
 // 入参是哈希而不是明文：明文只存在于签发它的那个局部变量里，任何日志、错误

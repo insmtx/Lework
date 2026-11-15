@@ -54,7 +54,8 @@ func normalizeClaimCode(code string) string {
 // 因此 pair_key 走唯一索引 + ON CONFLICT DO NOTHING，冲突时只读不写：
 //
 //   - pending  → gateway 重发 pair.pending，码继续有效；
-//   - claimed  → gateway 走幂等重投，重新下发凭证；
+//   - claimed  → 节点尚未拿到凭证时 gateway 补发一次；已有凭证则拒绝，
+//     不能让 pair_key 变成轮换合法凭证的能力；
 //   - expired  → gateway 关连接，让 agent 换一个 pair_key 重新开始。
 //
 // 状态判断留给 gateway，存储层不对已有行做任何「修正」——唯一的例外是 TTL
@@ -180,16 +181,17 @@ func (s *Store) ClaimByCode(ctx context.Context, code string, now time.Time) (No
 
 // ClaimByPairKey 按 agent 的 pair_key 查认领记录，返回调用方视角的状态。
 //
-// gateway 按三态分派：pending 重发 pair.pending、claimed 走幂等重投（认领成功
-// 但凭证还没下发）、expired 关连接让 agent 换一个 pair_key。因此这里不能按状态
-// 过滤，也不能只在 SQL 里判断过期：
+// gateway 按三态分派：pending 重发 pair.pending、claimed 只在节点还没有凭证时
+// 补发一次、expired 关连接让 agent 换一个 pair_key。因此这里不能按状态过滤，
+// 也不能只在 SQL 里判断过期：
 //
 //   - TTL 已到的 pending 行按 expired 返回。库里没有任何路径会把「时间到了」
 //     落库成 expired（唯一写 expired 的是 BumpClaimAttempts 的尝试次数超限），
 //     若原样返回 pending，网关就会对着一条早该作废的认领永远重发同一个码。
 //     这只是返回值上的归一化，**不写库**，原始状态仍可在库里查到。
 //   - claimed 行无论是否过 TTL 都保持 claimed：认领成功、实例在发凭证前挂掉，
-//     agent 可能几分钟后才重连，幂等重投不能被 TTL 掐断。
+//     agent 可能几分钟后才重连，补发不能被 TTL 掐断。是否允许补发由 gateway
+//     检查节点的 credential_hash 决定：已有凭证的节点不会再被轮换。
 func (s *Store) ClaimByPairKey(ctx context.Context, pairKey string) (NodeClaim, bool, error) {
 	pairKey = strings.TrimSpace(pairKey)
 	if pairKey == "" {
@@ -265,6 +267,18 @@ func claimClaimTx(db *gorm.DB, claimID, userID string, now time.Time) (bool, err
 		return false, res.Error
 	}
 	return res.RowsAffected == 1, nil
+}
+
+// ClaimByID 按主键读一条认领记录，供网关在收到认领通知后重新确认状态。
+//
+// 投递路径按 id 读而不是按 pair_key 读：通知里携带的是 claim id，按 id 才能
+// 校验它确实是本连接那条认领，也才能在同一 pair_key 被复用时避免误读。
+func (s *Store) ClaimByID(ctx context.Context, id string) (NodeClaim, bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return NodeClaim{}, false, nil
+	}
+	return claimByID(s.db.WithContext(ctx), id)
 }
 
 // claimByID 按主键读一行认领记录；db 既可以是 *gorm.DB 也可以是事务句柄。
@@ -424,10 +438,13 @@ func freeNodeName(tx *gorm.DB, userID, base string) (string, error) {
 // MarkClaimDelivered 记录「凭证已经交给 agent」这一步的簿记。
 //
 // 正常路径上它是空操作：BindClaimToUser 已经在自己的事务里写好了 node_id。
-// 它存在是为了幂等重投——认领成功但实例在生成凭证前挂掉时，agent 用同一个
+// 它存在是为了补发——认领成功但实例在生成凭证前挂掉时，agent 用同一个
 // pair_key 重连，新实例补发凭证后再调一次这里。重复调用不报错。
 //
-// 幂等重投只认已经绑定的那个节点：node_id 为空时写入，已等于入参时视为成功，
+// 调用方必须在 pair.result 写出成功之后调用：先记账后写帧会让「库里说已投递」
+// 与「agent 实际没收到」分叉。簿记失败只影响补发判断，不影响已经写出的凭证。
+//
+// 补发只认已经绑定的那个节点：node_id 为空时写入，已等于入参时视为成功，
 // 是别的节点则返回 ErrClaimTaken 且不改动。两个实例并发补发时，后到的实例
 // 可能刚建了自己的节点，静默改绑会让先落库的节点变成没人认领的孤儿。
 //
@@ -474,6 +491,9 @@ func (s *Store) MarkClaimDelivered(ctx context.Context, claimID, nodeID string) 
 //
 // 只触碰 node_name/os/arch/agent_version：码、pair_key、状态、归属与 node_id
 // 都是身份或授权字段，不能从这条路径写入。
+//
+// 用显式列 map 而不是结构体：GORM 的结构体更新会跳过零值，agent 从 linux
+// 重连成空 os/arch 时旧信息会残留，确认页因此在描述另一台机器。
 func (s *Store) UpdateClaimMachine(ctx context.Context, claimID string, meta NodeClaim) error {
 	if strings.TrimSpace(claimID) == "" {
 		return errors.New("claim id is required")
@@ -482,11 +502,11 @@ func (s *Store) UpdateClaimMachine(ctx context.Context, claimID string, meta Nod
 	db := s.db.WithContext(ctx)
 	res := db.Model(&NodeClaim{}).
 		Where("id = ? AND status = ?", claimID, ClaimStatusPending).
-		UpdateColumns(NodeClaim{
-			NodeName:     meta.NodeName,
-			OS:           meta.OS,
-			Arch:         meta.Arch,
-			AgentVersion: meta.AgentVersion,
+		Updates(map[string]any{
+			"node_name":     meta.NodeName,
+			"os":            meta.OS,
+			"arch":          meta.Arch,
+			"agent_version": meta.AgentVersion,
 		})
 	if res.Error != nil {
 		return fmt.Errorf("update claim %q machine info: %w", claimID, res.Error)
@@ -504,7 +524,13 @@ func (s *Store) UpdateClaimMachine(ctx context.Context, claimID string, meta Nod
 	return nil
 }
 
-// BumpClaimAttempts 原子地累加码尝试次数，超过 max 就把认领标记为过期。
+// BumpClaimAttempts 原子地累加「同一条认领」的绑定重试次数，超过 max 就把
+// 认领标记为过期。
+//
+// 它服务的是同一个 claim 反复绑定失败的重试计数，不是猜码限流：mode=claim
+// 的按 IP / pair_key 失败限流在 gateway 内存里完成（见 agentgw.claimAttempts），
+// 浏览器端的猜码限流由 Task 16 负责。本方法因此没有生产调用方，保留为存储层
+// 的原子计数原语。
 //
 // 累加与作废必须是同一条 UPDATE（用 CASE 表达），否则两次并发尝试可能各自
 // 读到「还没到上限」而同时放行，限流就形同虚设。语句只匹配 pending 行：

@@ -179,8 +179,9 @@ type Invite struct {
 // 否则终端上显示的码会在网络抖动后失效。
 //
 // Code 是给人读的 5 位短码，明文落库（认领后即作废）。PairKey 不是凭证：
-// 拿到它只能创建或复用自己的待定连接，不能认领别人的节点，因此与节点凭证
-// 不同，泄露它不会接管任何已有节点。
+// 拿到它只能创建或复用自己的待定连接，不能认领别人的节点，也不能轮换节点
+// 已经拿到的凭证（gateway 只在节点还没有凭证时补发）。因此与节点凭证不同，
+// 泄露它不会接管任何已有节点。
 type NodeClaim struct {
 	ID           string `gorm:"primaryKey"`
 	PairKey      string `gorm:"uniqueIndex"`

@@ -3,8 +3,9 @@
 // agent 始终主动外拨到 /api/agent/connect，网关在握手头里按凭证识别节点：
 // Authorization: Bearer 既可能是节点凭证（sha256 查库命中），也可能是部署级
 // enrollment token（admin 直通，只用于登记新的未认领节点）；Authorization: Pair
-// 用于尚未认领的待定连接：握手值只用来建/复用自己的配对，不是身份凭证，
-// 节点要等账号认领后才产生。hello 里的 node_name 只更新展示字段，绝不参与身份
+// 用于尚未认领的待定连接：握手值只标识这次配对，不是身份凭证，安全性来自
+// 连接配额、短生存期以及认领必须在已登录账号里完成；节点要等账号认领后才产生。
+// hello 里的 node_name 只更新展示字段，绝不参与身份
 // 判定。任何凭证只在握手头与 welcome/pair.result 的下发字段中出现，不进入
 // 日志、错误信息、事件或其它帧。
 package agentgw
@@ -46,7 +47,9 @@ const (
 	// bearerScheme 是节点凭证与 admin 直通令牌在握手头中的方案名。
 	bearerScheme = "Bearer"
 
-	// pairScheme 用于尚未认领的待定连接；握手值只标识配对，不是节点身份。
+	// pairScheme 标识一条尚未认领的待定连接。握手值只是这次配对的标识而不是
+	// 认证：真正的约束来自连接配额、短暂的绝对生存期，以及认领必须在已登录
+	// 账号里完成。
 	pairScheme = "Pair"
 
 	// maxFrameBytes 是单个入站帧的上限，与协议侧共享同一个常量。
@@ -133,8 +136,9 @@ type welcomeResult struct {
 
 // Gateway 是 agent 的 WebSocket 接入点。
 //
-// 网关不持有单连接状态：每次 ServeHTTP 都在局部变量中维护该连接的
-// 注册信息与清理逻辑，因此多个节点可以并发接入。
+// 普通节点的单连接状态仍在该连接的局部变量里；网关只额外记录待定连接的当前
+// 连接（pendingConns），用于保证一个 claim 不会被并发投递两次凭证。因此多个
+// 节点可以并发接入。
 type Gateway struct {
 	cfg      Config
 	store    *store.Store
@@ -153,6 +157,18 @@ type Gateway struct {
 
 	// pending 是待定连接的并发配额：升级之前获取，连接结束时归还。
 	pending *pendingLimiter
+
+	// pendingMu 串行化「同一 claim 只有一条当前连接」的登记与凭证投递。
+	//
+	// 当前连接检查与凭证轮换必须在同一把锁下完成：否则两条连接可以各自
+	// 通过检查、各写一份 credential_hash，后写的那份让先拿到的凭证失效。
+	pendingMu sync.Mutex
+
+	// pendingConns 记录每个 claim 当前的待定连接；key 是 claim id。
+	pendingConns map[string]*websocket.Conn
+
+	// claimAttempts 限制 mode=claim 的猜码失败次数（按来源 IP 与 pair_key）。
+	claimAttempts *claimAttemptLimiter
 }
 
 // New 创建网关；HeartbeatTimeout 非正时使用默认值。
@@ -167,12 +183,15 @@ func New(
 		cfg.HeartbeatTimeout = defaultHeartbeatTimeout
 	}
 	return &Gateway{
-		cfg:       cfg,
-		store:     st,
-		registry:  registry,
-		publisher: publisher,
-		coreSub:   coreSub,
-		pending:   newPendingLimiter(),
+		cfg:          cfg,
+		store:        st,
+		registry:     registry,
+		publisher:    publisher,
+		coreSub:      coreSub,
+		pending:      newPendingLimiter(),
+		pendingConns: make(map[string]*websocket.Conn),
+		claimAttempts: newClaimAttemptLimiter(
+			claimAttemptsPerIP, claimAttemptsPerKey, claimAttemptWindowSize),
 		newWriter: func(ws *websocket.Conn) node.Writer {
 			return &wsWriter{conn: ws}
 		},
@@ -187,8 +206,9 @@ func New(
 
 // ServeHTTP 完成一次 agent 注册，并持续服务该连接直到它关闭或违规。
 //
-// 鉴权发生在升级之前：未通过时返回 401 且不占用 WebSocket 连接。成功时把
-// 鉴权方式一并传给 serve，身份解析因此只发生一次，hello 里的名字无法参与。
+// 凭证鉴权发生在升级之前：未通过时返回 401 且不占用 WebSocket 连接。Pair
+// 头只做待定连接的标识，空值仍在升级前拒绝。成功时把握手方式一并传给 serve，
+// 身份解析因此只发生一次，hello 里的名字无法参与。
 //
 // 待定连接额外受并发配额约束：配额在升级之前获取，升级失败或连接结束时归还，
 // 因此被限流的请求只消耗一次 HTTP 往返。来源 IP 解析失败时不计入每 IP 名额
@@ -227,8 +247,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // 常量时间比较，与 enrollment token 一致则降级为 admin 直通（authLegacy）。
 // 空令牌永不匹配，避免未配置密钥时被空请求头意外放行。
 //
-// Pair 头用于待定连接：握手值只标识这次配对，不参与身份判定，因此任何非空值
-// 都放行到配对流程（空值仍按 401 拒绝）。真正的约束来自并发配额与认领码。
+// Pair 头不是认证：它只是待定连接的标识。任何非空值都放行到配对流程（空值
+// 仍按 401 拒绝），安全性来自连接配额、短暂的绝对生存期，以及认领动作必须
+// 在已登录账号里完成；mode=claim 还会按来源 IP 与 pair_key 限制失败次数。
 //
 // store 查询失败时关闭放行（返回 ok=false）。错误只记日志、绝不回显请求头，
 // 因此日志里不会出现被出示的凭证。

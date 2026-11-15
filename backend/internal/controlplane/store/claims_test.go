@@ -693,6 +693,40 @@ func TestUpdateClaimMachineOnlyPending(t *testing.T) {
 	}
 }
 
+// TestUpdateClaimMachineOverwritesEmptyValues 固化「空 os/arch 也要覆盖」：
+// agent 重连时可能只带名字（或平台探测失败），结构体更新会跳过零值，让确认页
+// 继续展示上一次的机器信息，看起来像另一台机器被认领了。
+func TestUpdateClaimMachineOverwritesEmptyValues(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := newPendingClaim(t, s, "pk-machine-clear", "AB234")
+	if err := s.UpdateClaimMachine(ctx, c.ID, NodeClaim{
+		NodeName:     "renamed-box",
+		OS:           "darwin",
+		Arch:         "arm64",
+		AgentVersion: "v2.0.0",
+	}); err != nil {
+		t.Fatalf("first UpdateClaimMachine: %v", err)
+	}
+	if err := s.UpdateClaimMachine(ctx, c.ID, NodeClaim{
+		NodeName:     "renamed-box",
+		OS:           "",
+		Arch:         "",
+		AgentVersion: "",
+	}); err != nil {
+		t.Fatalf("clearing UpdateClaimMachine: %v", err)
+	}
+
+	got := mustClaimByID(t, s, c.ID)
+	if got.OS != "" || got.Arch != "" || got.AgentVersion != "" {
+		t.Fatalf("machine info = %+v, want the empty values to overwrite the old ones", got)
+	}
+	if got.NodeName != "renamed-box" {
+		t.Fatalf("node name = %q, want renamed-box", got.NodeName)
+	}
+}
+
 func TestBumpClaimAttemptsValidatesInput(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
