@@ -12,12 +12,33 @@ import (
 	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
-// PTY 事件类型。终端输出与退出信号是易失数据：它们走 Core NATS，
-// 不进入 JetStream，避免高频终端内容落盘。
+// PTY 与增量事件类型。终端输出、token 级流式增量都是易失数据：它们走
+// Core NATS，不进入 JetStream，避免高频内容落盘并在重连时被重放。
 const (
 	EventTypePTYOutput = "pty.output"
 	EventTypePTYExit   = "pty.exit"
+
+	EventTypeSessionTextDelta      = "session.text.delta"
+	EventTypeSessionReasoningDelta = "session.reasoning.delta"
+	EventTypeSessionToolInputDelta = "session.tool.input.delta"
+	EventTypeSessionToolProgress   = "session.tool.progress"
 )
+
+// IsLiveEvent 判断事件是否为 token 级增量。
+//
+// 这些事件只对正在观看会话的客户端有意义：不值得持久化，也不能参与
+// 乱序判定；丢失的片段由 text.ended 或下一次快照对齐。
+func IsLiveEvent(eventType string) bool {
+	switch eventType {
+	case EventTypeSessionTextDelta,
+		EventTypeSessionReasoningDelta,
+		EventTypeSessionToolInputDelta,
+		EventTypeSessionToolProgress:
+		return true
+	default:
+		return false
+	}
+}
 
 // EventTypeNodeSnapshot 是 owner 周期性发布的整节点投影快照。
 //
@@ -40,8 +61,8 @@ type CorePublisher interface {
 
 // Publisher 把节点事件按类型路由到 JetStream 或 Core NATS。
 //
-// 状态事件需要跨实例重放，因此进入 stream；PTY 事件只对当前连着浏览器的
-// 实例有意义，走 Core NATS 直接丢弃未订阅的流量。
+// 状态事件需要跨实例重放，因此进入 stream；PTY 与 token 级增量只对当前
+// 连着浏览器的实例有意义，走 Core NATS 直接丢弃未订阅的流量。
 //
 // 状态事件在发布前会被盖上 owner 纪元与该节点上的单调序号，接收方据此丢弃
 // 乱序或来自旧 epoch 的事件与快照。
@@ -79,13 +100,17 @@ func (p *Publisher) Owner() string {
 // PublishEvent 发布单条节点事件。
 //
 // pty.output / pty.exit 从 Data 中解析 pty_id 后发到
-// cp.pty.<node_id>.<pty_id>；其余类型整体交给 JetStream。pty 事件缺少
-// pty_id 时直接返回错误，绝不猜测 subject。
+// cp.pty.<node_id>.<pty_id>；token 级增量发到 cp.live.node.<node_id>；
+// 其余类型整体交给 JetStream。pty 事件缺少 pty_id 时直接返回错误，绝不
+// 猜测 subject。
 func (p *Publisher) PublishEvent(ctx context.Context, ev Event) error {
 	switch ev.Type {
 	case EventTypePTYOutput, EventTypePTYExit:
 		return p.publishPTY(ctx, ev)
 	default:
+		if IsLiveEvent(ev.Type) {
+			return p.publishLive(ctx, ev)
+		}
 		ev = p.stamp(ev)
 		return p.publishState(ctx, ev)
 	}
@@ -146,6 +171,28 @@ func (p *Publisher) publishPTY(ctx context.Context, ev Event) error {
 	}
 
 	// 不打印 ev 本身：PTY 负载是终端内容，可能包含密钥或用户输入。
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return fmt.Errorf("publish %s: marshal event: %w", ev.Type, err)
+	}
+	if err := p.core.PublishCore(ctx, subject, data); err != nil {
+		return fmt.Errorf("publish %s to %s: %w", ev.Type, subject, err)
+	}
+	return nil
+}
+
+// publishLive 把增量事件序列化后发到 Core NATS。
+//
+// 不盖章 owner / ClusterSeq：live 事件不参与乱序判定，丢失的片段由
+// text.ended 或下一次快照兜底。负载保留与 Hub 一致的 Event 结构，接收端
+// 只需一个解码路径。
+func (p *Publisher) publishLive(ctx context.Context, ev Event) error {
+	subject, err := messaging.ControlPlaneLiveSubject(ev.NodeID)
+	if err != nil {
+		return fmt.Errorf("publish %s: %w", ev.Type, err)
+	}
+
+	ev.Live = true
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("publish %s: marshal event: %w", ev.Type, err)

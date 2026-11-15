@@ -169,6 +169,87 @@ func TestPublisherRoutesPTYEventToCore(t *testing.T) {
 	}
 }
 
+func TestPublisherRoutesLiveEventsToCore(t *testing.T) {
+	bus := &fakeBus{}
+	core := &fakeCore{}
+	pub := NewPublisher(bus, core)
+
+	want := Event{
+		NodeID:    "node_1",
+		SessionID: "ses_1",
+		Seq:       5,
+		Type:      "session.text.delta",
+		Data:      json.RawMessage(`{"delta":"你"}`),
+		Time:      time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC),
+	}
+	if err := pub.PublishEvent(context.Background(), want); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	if len(bus.published) != 0 {
+		t.Fatalf("live event must not enter JetStream, got %#v", bus.published)
+	}
+	if core.calls != 1 || core.subject != "cp.live.node.node_1" {
+		t.Fatalf("core publish = %d calls to %q, want 1 to cp.live.node.node_1", core.calls, core.subject)
+	}
+
+	var got Event
+	if err := json.Unmarshal(core.data, &got); err != nil {
+		t.Fatalf("unmarshal live payload: %v", err)
+	}
+	if !got.Live {
+		t.Fatal("live payload must carry live=true")
+	}
+	if got.Owner != "" || got.ClusterSeq != 0 {
+		t.Fatalf("live event stamped owner=%q cluster_seq=%d, want no stamp", got.Owner, got.ClusterSeq)
+	}
+	if got.NodeID != want.NodeID || got.SessionID != want.SessionID || got.Seq != want.Seq ||
+		got.Type != want.Type || string(got.Data) != string(want.Data) || !got.Time.Equal(want.Time) {
+		t.Fatalf("live payload mismatch: got %#v, want %#v", got, want)
+	}
+}
+
+func TestPublisherKeepsStateEventsOnBus(t *testing.T) {
+	bus := &fakeBus{}
+	core := &fakeCore{}
+	pub := NewPublisher(bus, core)
+
+	ev := Event{NodeID: "node_1", Type: "session.execution.succeeded"}
+	if err := pub.PublishEvent(context.Background(), ev); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	if _, ok := bus.published["cp.events.node.node_1"]; !ok {
+		t.Fatalf("state event missing from JetStream: %#v", bus.published)
+	}
+	if core.calls != 0 {
+		t.Fatalf("state event must not use Core NATS, got %d calls", core.calls)
+	}
+}
+
+func TestIsLiveEvent(t *testing.T) {
+	for _, typ := range []string{
+		"session.text.delta",
+		"session.reasoning.delta",
+		"session.tool.input.delta",
+		"session.tool.progress",
+	} {
+		if !IsLiveEvent(typ) {
+			t.Errorf("IsLiveEvent(%q) = false, want true", typ)
+		}
+	}
+	for _, typ := range []string{
+		"session.text.ended",
+		"session.execution.succeeded",
+		"permission.asked",
+		"pty.output",
+	} {
+		if IsLiveEvent(typ) {
+			t.Errorf("IsLiveEvent(%q) = true, want false", typ)
+		}
+	}
+}
+
 func TestPublisherRejectsPTYWithoutID(t *testing.T) {
 	cases := map[string]json.RawMessage{
 		"empty object": json.RawMessage(`{}`),

@@ -182,6 +182,99 @@ func TestNotifierSkipsPermissionWithoutID(t *testing.T) {
 	}
 }
 
+func completionEvent(node, session, eventType string, at time.Time) event.Event {
+	return event.Event{NodeID: node, SessionID: session, Type: eventType, Time: at}
+}
+
+func TestNotifierPushesCompletion(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "dev-box" })
+
+	n.Handle(context.Background(), completionEvent("n1", "ses_1", "session.execution.succeeded", time.Now()))
+
+	batch := sender.firstBatch()
+	if len(batch) != 1 {
+		t.Fatalf("batch = %+v, want one message", batch)
+	}
+	msg := batch[0]
+	if !strings.HasPrefix(msg.Title, "执行完成 · ") {
+		t.Fatalf("title = %q, want the completion prefix", msg.Title)
+	}
+	if !strings.Contains(msg.Title, "dev-box") {
+		t.Fatalf("title = %q, want the node label", msg.Title)
+	}
+	if msg.Body != "点开查看结果" {
+		t.Fatalf("body = %q, want 点开查看结果", msg.Body)
+	}
+	if msg.Data["kind"] != "done" {
+		t.Fatalf("data = %+v, want kind done", msg.Data)
+	}
+	if msg.ChannelID != "completions" {
+		t.Fatalf("channel = %q, want completions", msg.ChannelID)
+	}
+	if msg.Tag != "ses_1" {
+		t.Fatalf("tag = %q, want the session id", msg.Tag)
+	}
+	if msg.Data["node"] != "n1" || msg.Data["session"] != "ses_1" {
+		t.Fatalf("data = %+v, want node and session", msg.Data)
+	}
+}
+
+func TestNotifierPushesFailure(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "dev-box" })
+
+	n.Handle(context.Background(), completionEvent("n1", "ses_1", "session.execution.failed", time.Now()))
+
+	batch := sender.firstBatch()
+	if len(batch) != 1 {
+		t.Fatalf("batch = %+v, want one message", batch)
+	}
+	msg := batch[0]
+	if !strings.HasPrefix(msg.Title, "执行失败 · ") {
+		t.Fatalf("title = %q, want the failure prefix", msg.Title)
+	}
+	if msg.Body != "点开查看错误" {
+		t.Fatalf("body = %q, want 点开查看错误", msg.Body)
+	}
+	if msg.Data["kind"] != "failed" {
+		t.Fatalf("data = %+v, want kind failed", msg.Data)
+	}
+	if msg.ChannelID != "completions" {
+		t.Fatalf("channel = %q, want completions", msg.ChannelID)
+	}
+	if msg.Tag != "ses_1" {
+		t.Fatalf("tag = %q, want the session id", msg.Tag)
+	}
+}
+
+// TestNotifierDedupesRedeliveredCompletion 固化按事件时间去重：同一条事件
+// 重投只推一次，但同一会话下一轮结束（时间不同）仍要推送。
+func TestNotifierDedupesRedeliveredCompletion(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "n" })
+
+	at := time.Now()
+	ev := completionEvent("n1", "ses_1", "session.execution.succeeded", at)
+	n.Handle(context.Background(), ev)
+	n.Handle(context.Background(), ev)
+
+	if got := sender.count(); got != 1 {
+		t.Fatalf("pushes = %d, want 1 after redelivery", got)
+	}
+
+	next := ev
+	next.Time = at.Add(time.Second)
+	n.Handle(context.Background(), next)
+
+	if got := sender.count(); got != 2 {
+		t.Fatalf("pushes = %d, want 2 for the next execution", got)
+	}
+}
+
 type blockingSender struct {
 	release chan struct{}
 }

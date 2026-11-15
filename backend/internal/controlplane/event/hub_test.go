@@ -122,6 +122,78 @@ func TestCancelClosesChannelOnceAndRemovesSubscriber(t *testing.T) {
 	hub.Publish(Event{NodeID: "node-1", Seq: 9, Type: "after-cancel"})
 }
 
+// TestHubFiltersLiveEventsForPlainSubscribers 证明不关心增量事件的订阅者
+// 不会收到 live 事件，避免总览订阅被 token 级流量拖慢。
+func TestHubFiltersLiveEventsForPlainSubscribers(t *testing.T) {
+	hub := NewHub()
+	ch, cancel := hub.Subscribe(4)
+	defer cancel()
+
+	hub.Publish(Event{NodeID: "node-1", Type: "session.text.delta", Live: true})
+	select {
+	case ev, ok := <-ch:
+		if !ok {
+			t.Fatal("plain subscriber was closed after a live event")
+		}
+		t.Fatalf("plain subscriber received live event %#v", ev)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	hub.Publish(Event{NodeID: "node-1", Type: "session.execution.succeeded"})
+	got := receive(t, ch)
+	if got.Type != "session.execution.succeeded" {
+		t.Fatalf("event type = %q, want session.execution.succeeded", got.Type)
+	}
+}
+
+// TestHubLiveSubscriberOverflowDropsFramesInsteadOfEvicting 证明 live 订阅溢出
+// 时只丢帧、不淘汰订阅者：淘汰会让手机陷入「resync → 重拉 → 再溢出」循环。
+func TestHubLiveSubscriberOverflowDropsFramesInsteadOfEvicting(t *testing.T) {
+	hub := NewHub()
+	ch, cancel := hub.Subscribe(1, WithLive())
+
+	for i := 0; i < 3; i++ {
+		hub.Publish(Event{NodeID: "node-1", Seq: int64(i + 1), Type: "session.text.delta", Live: true})
+	}
+
+	// 缓冲只有 1，第一条 live 事件应保留；后续两条被丢弃且不关闭通道。
+	if got := receive(t, ch); got.Type != "session.text.delta" || got.Seq != 1 {
+		t.Fatalf("first event = %#v, want the retained live frame", got)
+	}
+
+	hub.Publish(Event{NodeID: "node-1", Type: "session.execution.succeeded"})
+	if got := receive(t, ch); got.Type != "session.execution.succeeded" {
+		t.Fatalf("event after overflow = %#v, want the state event", got)
+	}
+
+	// 取消函数在溢出后仍应幂等安全。
+	cancel()
+	cancel()
+}
+
+// TestHubNonLiveOverflowStillEvicts 固化现有语义：状态事件不能静默丢失，
+// 缓冲满时淘汰订阅者让客户端重连并重拉快照。
+func TestHubNonLiveOverflowStillEvicts(t *testing.T) {
+	hub := NewHub()
+	ch, cancel := hub.Subscribe(1)
+	defer cancel()
+
+	hub.Publish(Event{NodeID: "node-1", Seq: 1, Type: "first"})
+	hub.Publish(Event{NodeID: "node-1", Seq: 2, Type: "second"})
+
+	if got := receive(t, ch); got.Type != "first" {
+		t.Fatalf("first event = %#v, want first", got)
+	}
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("expected the channel to be closed after a non-live overflow")
+		}
+	case <-time.After(waitTimeout):
+		t.Fatal("channel was not closed after a non-live overflow")
+	}
+}
+
 func TestSubscribeZeroBufferIsUsable(t *testing.T) {
 	hub := NewHub()
 	want := Event{NodeID: "node-1", Seq: 1, Type: "unbuffered"}

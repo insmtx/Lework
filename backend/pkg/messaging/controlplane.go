@@ -19,6 +19,7 @@ const (
 	controlPlaneEventPrefix   = "cp.events.node."
 	controlPlaneRequestPrefix = "cp.node."
 	controlPlanePTYPrefix     = "cp.pty."
+	controlPlaneLivePrefix    = "cp.live.node."
 )
 
 // ControlPlaneEventSubject 构建 agent -> 控制面的节点事件 subject。
@@ -72,6 +73,27 @@ func ControlPlanePTYSubject(nodeID, ptyID string) (string, error) {
 		return "", err
 	}
 	return controlPlanePTYPrefix + nodeToken + "." + ptyToken, nil
+}
+
+// ControlPlaneLiveSubject 构建增量事件广播的 subject。
+//
+// 格式：cp.live.node.<node_id>
+//
+// 该 subject 走 Core NATS，不进入任何 stream：token 级增量没有 durable
+// 语义，只有当前正在收听的实例需要它。
+func ControlPlaneLiveSubject(nodeID string) (string, error) {
+	token, err := sanitizeSubjectToken(nodeID, "node id")
+	if err != nil {
+		return "", err
+	}
+	return controlPlaneLivePrefix + token, nil
+}
+
+// ControlPlaneLiveWildcard 返回订阅所有节点增量事件的 wildcard subject。
+//
+// 格式：cp.live.>
+func ControlPlaneLiveWildcard() string {
+	return "cp.live.>"
 }
 
 // sanitizeSubjectToken 保证一个标识只占一个 NATS subject token。

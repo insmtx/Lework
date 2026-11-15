@@ -109,6 +109,7 @@ type Server struct {
 	notifier  *push.Notifier
 	publisher *event.Publisher
 	bridge    *event.Bridge
+	live      *event.LiveSubscriber
 	deps      Deps
 	handler   http.Handler
 
@@ -136,6 +137,7 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 	index := overview.NewIndex()
 	publisher := event.NewPublisher(deps.Bus, deps.Core)
 	bridge := event.NewBridge(deps.Bus, hub)
+	live := event.NewLiveSubscriber(hub)
 	gateway := agentgw.New(agentgw.Config{
 		EnrollmentToken:  cfg.EnrollmentToken,
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
@@ -173,6 +175,7 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		notifier:  notifier,
 		publisher: publisher,
 		bridge:    bridge,
+		live:      live,
 		deps:      deps,
 		handler:   newAuthHandler(mux, cfg.EnrollmentToken),
 	}, nil
@@ -217,6 +220,12 @@ func (s *Server) Run(ctx context.Context) error {
 	go NewReconciler(s.store, s.publisher, s.cfg.HeartbeatTimeout).Run(runCtx)
 	// 事件只从集群总线回到本地 Hub：节点网关发布到 Bus，桥接再扇出给浏览器。
 	go s.bridge.Run(runCtx)
+	// 增量事件走 Core NATS：每个实例订阅 cp.live.> 后投递给本地 Hub。
+	go func() {
+		if err := s.live.Run(runCtx, s.deps.CoreSub); err != nil && runCtx.Err() == nil {
+			logs.Errorf("controlplane: live event subscriber stopped: %v", err)
+		}
+	}()
 	go s.publishSnapshots(runCtx)
 
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
@@ -306,9 +315,19 @@ type eventSubscriber interface {
 	Subscribe(buffer int) (<-chan event.Event, func())
 }
 
+// hubSubscriber 把 *event.Hub 适配为只订阅状态事件的内部接口。
+//
+// 总览不需要增量事件，因此这里刻意不暴露 WithLive；测试仍可用更小的
+// 假实现替换 startMonitorWith 的订阅面。
+type hubSubscriber struct{ hub *event.Hub }
+
+func (s hubSubscriber) Subscribe(buffer int) (<-chan event.Event, func()) {
+	return s.hub.Subscribe(buffer)
+}
+
 // startMonitor 把事件中心接到总览索引。
 func (s *Server) startMonitor(ctx context.Context) {
-	s.startMonitorWith(ctx, s.hub)
+	s.startMonitorWith(ctx, hubSubscriber{hub: s.hub})
 }
 
 // startMonitorWith 订阅事件并持续投影到索引。

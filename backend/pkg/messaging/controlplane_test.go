@@ -91,6 +91,30 @@ func TestControlPlaneSubjects(t *testing.T) {
 	}
 }
 
+func TestControlPlaneLiveSubjects(t *testing.T) {
+	subject, err := ControlPlaneLiveSubject("node-1")
+	if err != nil {
+		t.Fatalf("ControlPlaneLiveSubject: %v", err)
+	}
+	if subject != "cp.live.node.node-1" {
+		t.Fatalf("live subject = %q, want %q", subject, "cp.live.node.node-1")
+	}
+	if got := ControlPlaneLiveWildcard(); got != "cp.live.>" {
+		t.Fatalf("live wildcard = %q, want %q", got, "cp.live.>")
+	}
+	if _, err := ControlPlaneLiveSubject(""); err == nil {
+		t.Error("empty node id should fail for the live subject")
+	}
+
+	sanitized, err := ControlPlaneLiveSubject("n.1")
+	if err != nil {
+		t.Fatalf("ControlPlaneLiveSubject(n.1): %v", err)
+	}
+	if sanitized != "cp.live.node.n_1" {
+		t.Errorf("live subject = %q, want sanitized token", sanitized)
+	}
+}
+
 func TestStreamConfigsIncludesControlPlane(t *testing.T) {
 	configs := StreamConfigs()
 	cfg, ok := configs[StreamNameControlPlane]
@@ -119,10 +143,11 @@ func TestStreamConfigsIncludesControlPlane(t *testing.T) {
 		t.Errorf("max msgs per subject = %d, want 10000", cfg.MaxMsgsPerSubject)
 	}
 
-	// 节点请求与 PTY 走 Core NATS，不得被任何 stream 捕获。
+	// 节点请求、PTY 与增量事件走 Core NATS，不得被任何 stream 捕获。
 	forbidden := []string{
 		"cp.node.node-1.request",
 		"cp.pty.node-1.pty-9",
+		"cp.live.node.node-1",
 	}
 	for name, stream := range configs {
 		for _, subject := range stream.Subjects {
