@@ -835,3 +835,41 @@ func seatClaimedNames(t *testing.T, s *Store, userID, base string, count int) {
 		}
 	}
 }
+
+func TestExpirePendingClaimOnlyTouchesPending(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	pending, err := st.CreateClaim(ctx, NodeClaim{
+		PairKey: "pair-1", Code: "AB234", Status: ClaimStatusPending,
+		ExpiresAt: time.Now().UTC().Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("CreateClaim: %v", err)
+	}
+	if err := st.ExpirePendingClaim(ctx, pending.ID); err != nil {
+		t.Fatalf("ExpirePendingClaim: %v", err)
+	}
+	if _, found, _ := st.ClaimByCode(ctx, "AB234", time.Now().UTC()); found {
+		t.Fatal("expired claim must not be visible by code")
+	}
+	// 幂等：再调一次不报错。
+	if err := st.ExpirePendingClaim(ctx, pending.ID); err != nil {
+		t.Fatalf("second ExpirePendingClaim: %v", err)
+	}
+
+	// 已认领的行不能被断连路径改成 expired：凭证还等着投递。
+	claimed, err := st.CreateClaim(ctx, NodeClaim{
+		PairKey: "pair-2", Code: "CD345", Status: ClaimStatusClaimed,
+		ExpiresAt: time.Now().UTC().Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("CreateClaim claimed: %v", err)
+	}
+	if err := st.ExpirePendingClaim(ctx, claimed.ID); err != nil {
+		t.Fatalf("ExpirePendingClaim claimed: %v", err)
+	}
+	stored, found, err := st.ClaimByPairKey(ctx, "pair-2")
+	if err != nil || !found || stored.Status != ClaimStatusClaimed {
+		t.Fatalf("claimed = %+v, %v, %v; want status %q", stored, found, err, ClaimStatusClaimed)
+	}
+}

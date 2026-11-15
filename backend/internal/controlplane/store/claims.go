@@ -179,6 +179,25 @@ func (s *Store) ClaimByCode(ctx context.Context, code string, now time.Time) (No
 	return rows[0], true, nil
 }
 
+// ExpirePendingClaim 把一条仍在 pending 的认领标记为过期。
+//
+// 只影响 pending：已被账号认领的行正处于「等凭证投递」阶段，把它改成
+// expired 会让合法 agent 拿不到凭证。断连路径与过期路径重复调用无害，
+// 因此不需要调用方先查状态。NodeClaim 没有 updated_at 列，只改 status。
+func (s *Store) ExpirePendingClaim(ctx context.Context, claimID string) error {
+	if strings.TrimSpace(claimID) == "" {
+		return nil
+	}
+	err := s.db.WithContext(ctx).
+		Model(&NodeClaim{}).
+		Where("id = ? AND status = ?", claimID, ClaimStatusPending).
+		UpdateColumn("status", ClaimStatusExpired).Error
+	if err != nil {
+		return fmt.Errorf("expire pending claim %q: %w", claimID, err)
+	}
+	return nil
+}
+
 // ClaimByPairKey 按 agent 的 pair_key 查认领记录，返回调用方视角的状态。
 //
 // gateway 按三态分派：pending 重发 pair.pending、claimed 只在节点还没有凭证时

@@ -1079,3 +1079,77 @@ func TestPairIgnoresNonHeartbeatFrames(t *testing.T) {
 		t.Fatal("pair.result carried an empty credential")
 	}
 }
+
+// TestPendingDisconnectExpiresClaim 固化「码有效」的真实语义：码有效意味着
+// 此刻确实有一台机器在等认领。连接断开后同一码必须立刻不可用。
+func TestPendingDisconnectExpiresClaim(t *testing.T) {
+	env := newGatewayEnv(t)
+	pairKey := "pair-key-disconnect"
+
+	client, err := dialPairMode(t, env, pairKey, "work-mac")
+	if err != nil {
+		t.Fatalf("dial pending connection: %v", err)
+	}
+	pending := readPairPending(t, client)
+	if err := client.Close(); err != nil {
+		t.Fatalf("close pending connection: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		claim, ok, err := env.store.ClaimByPairKey(context.Background(), pairKey)
+		if err != nil {
+			t.Fatalf("ClaimByPairKey: %v", err)
+		}
+		if ok && claim.Status == store.ClaimStatusExpired {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("claim = %+v, %v; want expired after the pending connection closed", claim, ok)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, found, _ := env.store.ClaimByCode(context.Background(), pending.Code, time.Now().UTC()); found {
+		t.Fatal("digits of a disconnected pending claim must not be claimable")
+	}
+}
+
+// TestPendingOldConnectionCloseKeepsNewClaim 保护重连契约：新连接接管同一
+// claim 后，旧连接退出不能把新码一起作废。
+func TestPendingOldConnectionCloseKeepsNewClaim(t *testing.T) {
+	env := newGatewayEnv(t)
+	pairKey := "pair-key-takeover"
+
+	first, err := dialPairMode(t, env, pairKey, "work-mac")
+	if err != nil {
+		t.Fatalf("first dial: %v", err)
+	}
+	firstPending := readPairPending(t, first)
+
+	second, err := dialPairMode(t, env, pairKey, "work-mac")
+	if err != nil {
+		t.Fatalf("second dial: %v", err)
+	}
+	secondPending := readPairPending(t, second)
+	if secondPending.ClaimID != firstPending.ClaimID {
+		t.Fatalf("reconnect claim id = %q, want %q", secondPending.ClaimID, firstPending.ClaimID)
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first connection: %v", err)
+	}
+	// 旧连接的 servePair 退出需要一点时间；给它足够时间跑完 defer 再断言。
+	time.Sleep(200 * time.Millisecond)
+
+	claim, ok, err := env.store.ClaimByPairKey(context.Background(), pairKey)
+	if err != nil || !ok {
+		t.Fatalf("ClaimByPairKey = %v, %v; want the claim kept for the new connection", ok, err)
+	}
+	if claim.Status != store.ClaimStatusPending {
+		t.Fatalf("claim status = %q, want pending after the old connection closed", claim.Status)
+	}
+	if _, found, _ := env.store.ClaimByCode(context.Background(), secondPending.Code, time.Now().UTC()); !found {
+		t.Fatal("new connection's code must stay claimable")
+	}
+}
