@@ -573,6 +573,31 @@ func TestAPIListSessions(t *testing.T) {
 	}
 }
 
+func TestAPIListSessionChildren(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `[{"id":"ses_child","parentID":"ses_parent"}]`)
+	httpRec := env.do(http.MethodGet,
+		"/api/sessions/"+rec.ID+"/ses_parent/children?directory=%2Fwork", "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := strings.TrimSpace(httpRec.Body.String()); body != `[{"id":"ses_child","parentID":"ses_parent"}]` {
+		t.Fatalf("body = %q, want raw agent result", body)
+	}
+
+	frame := waitFrame(t, got)
+	if frame.Method != "session.children" {
+		t.Fatalf("method = %q, want session.children", frame.Method)
+	}
+	params := decodeParams(t, frame)
+	if params["session_id"] != "ses_parent" {
+		t.Fatalf("params = %v, want session_id ses_parent", params)
+	}
+	if params["directory"] != "/work" {
+		t.Fatalf("params = %v, want directory /work", params)
+	}
+}
+
 func TestAPICreateSession(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	rec, agent, conn := env.addNode("dev-box")

@@ -138,16 +138,56 @@ func (c *Client) Health(ctx context.Context) error {
 // project page that silently showed only the first 50 sessions would look
 // empty for older work.
 func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session, error) {
+	query := url.Values{}
+	query.Set("parentID", "null")
+	if directory != "" {
+		query.Set("directory", directory)
+	}
+	return c.listSessions(ctx, query, func(session Session) bool {
+		return session.ParentID == ""
+	})
+}
+
+// ListChildSessions returns the sessions created by subagent runs under
+// parentID, newest first. A subagent's transcript lives in its own child
+// session, so the UI needs this to show a running subagent's conversation
+// instead of only the parent's tool record.
+//
+// An empty parentID is rejected locally: the server would treat it as "no
+// filter" and answer with unrelated top-level sessions. The ParentID guard
+// mirrors ListSessions in case a server build ignores the query parameter.
+func (c *Client) ListChildSessions(ctx context.Context, parentID, directory string) ([]Session, error) {
+	parentID = strings.TrimSpace(parentID)
+	if parentID == "" {
+		return nil, errors.New("opencode: parent session id is required")
+	}
+	query := url.Values{}
+	query.Set("parentID", parentID)
+	if directory != "" {
+		query.Set("directory", directory)
+	}
+	return c.listSessions(ctx, query, func(session Session) bool {
+		return session.ParentID == parentID
+	})
+}
+
+// listSessions walks the session endpoint with the given filters, keeping the
+// sessions accepted by keep. Both top-level and child listings page the same
+// way, so the cursor walk and de-duplication live here once.
+func (c *Client) listSessions(
+	ctx context.Context,
+	filters url.Values,
+	keep func(Session) bool,
+) ([]Session, error) {
 	var sessions []Session
 	seen := make(map[string]struct{})
 	cursor := ""
 	for page := 0; page < maxSessionPages; page++ {
 		query := url.Values{}
-		query.Set("limit", strconv.Itoa(sessionPageLimit))
-		query.Set("parentID", "null")
-		if directory != "" {
-			query.Set("directory", directory)
+		for key, values := range filters {
+			query[key] = append([]string(nil), values...)
 		}
+		query.Set("limit", strconv.Itoa(sessionPageLimit))
 		if cursor != "" {
 			query.Set("cursor", cursor)
 		}
@@ -166,7 +206,7 @@ func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session,
 			return nil, fmt.Errorf("opencode GET %s: response missing data", path)
 		}
 		for _, session := range envelope.Data {
-			if session.ParentID != "" {
+			if !keep(session) {
 				continue
 			}
 			if _, ok := seen[session.ID]; ok {

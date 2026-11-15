@@ -35,6 +35,12 @@ type sessionListParams struct {
 	Directory string `json:"directory"`
 }
 
+// sessionChildrenParams 对应 agentd 的 session.children：按父会话查子会话。
+type sessionChildrenParams struct {
+	SessionID string `json:"session_id"`
+	Directory string `json:"directory,omitempty"`
+}
+
 type sessionCreateParams struct {
 	Directory string `json:"directory"`
 }
@@ -116,6 +122,20 @@ func (a *API) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 	result, err := a.callAgent(r.Context(), nodeID, "session.list",
 		sessionListParams{Directory: query.Get("directory")})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleListSessionChildren 透传节点按父会话列子会话的结果。
+func (a *API) handleListSessionChildren(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "session.children",
+		sessionChildrenParams{
+			SessionID: r.PathValue("sessionID"),
+			Directory: r.URL.Query().Get("directory"),
+		})
 	if err != nil {
 		a.writeAgentError(w, err)
 		return

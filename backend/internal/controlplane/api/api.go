@@ -110,6 +110,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/sessions/{nodeID}/{sessionID}", a.handleRenameSession)
 	mux.HandleFunc("DELETE /api/sessions/{nodeID}/{sessionID}", a.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/messages", a.handleSessionMessages)
+	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/children", a.handleListSessionChildren)
 	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/prompt", a.handleSessionPrompt)
 	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/diff", a.handleSessionDiff)
 	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/interrupt", a.handleSessionInterrupt)
