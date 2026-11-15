@@ -92,6 +92,7 @@ agent:
 | Subject | 传输 | 用途 |
 |---|---|---|
 | `cp.events.node.<node_id>` | JetStream（`CONTROLPLANE_EVENT_STREAM`，`cp.events.node.>`） | 节点/会话状态事件、`node.connected`/`node.offline`、`node.snapshot`、`permission.asked` |
+| `cp.live.node.<node_id>` | Core NATS（各实例订阅 `cp.live.>`） | 流式增量（`session.text.delta`、`session.reasoning.delta`、`session.tool.input.delta`、`session.tool.progress`）；不落盘、无订阅者即丢弃，只有 SSE 带 `live=1` 的订阅者会收到 |
 | `cp.node.<node_id>.request` | Core NATS | 控制面实例之间转发节点方法调用，队列组按节点 ID 分摊 |
 | `cp.pty.<node_id>.<pty_id>` | Core NATS | 终端输入/输出与 `pty.exit`，不落盘、无订阅者即丢弃 |
 
@@ -99,7 +100,9 @@ node/pty ID 中的点号、通配符与空白会被替换为下划线，保证�
 subject token，避免节点伪造其它节点的订阅。
 
 审批推送使用持久化 pull consumer `controlplane-push-consumer`，所有实例用同名
-durable 消费同一条流，因此同一条 `permission.asked` 只推一次。
+durable 消费同一条流，因此同一条 `permission.asked` 只推一次。执行结束
+（`session.execution.succeeded` / `session.execution.failed`）复用同一 consumer，
+去重键带上事件时间，JetStream 重投不会重复推送，而同一会话的下一轮结束仍会推。
 
 升级提示：`DeliverNew` 只在 durable 首次创建时生效。如果旧版本已经创建过
 `controlplane-push-consumer`，需要先删除该 consumer（或整个 stream）让新版本
@@ -303,7 +306,10 @@ lework agent --config /etc/lework/lework.yaml
 - `GET /api/nodes/{node}/files/content?directory=...&path=...`
 - `POST /api/sessions/{node}/{session}/pty`、`DELETE .../pty/{ptyID}`
 - `GET /api/pty/{node}/{session}/{ptyID}/ws`
-- `GET /api/events`（SSE，含 `resync` 命名事件）
+- `GET /api/events`（SSE，含 `resync` 命名事件）；支持 `?node=`、`?session=`
+  收窄范围，`?live=1` 额外接收 token 级增量事件（默认不下发）。
+  `session` 过滤只丢弃「带 `session_id` 且不匹配」的事件，节点级事件
+  （如 `agent.resync_required`）照常送达，否则断档后页面不会重拉。
 
 PTY WebSocket 的二进制帧是终端输入/输出；文本帧只承载
 `{"type":"resize","cols":...,"rows":...}`、`{"type":"close"}`，以及服务端发出的
