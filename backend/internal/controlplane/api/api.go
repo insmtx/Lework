@@ -66,6 +66,9 @@ type API struct {
 	claimCfg ClaimConfig
 	// claimAttempts 是浏览器端按账号的猜码失败限流；只在进程内存里。
 	claimAttempts *claimAttemptLimiter
+	// loginAttempts 是登录失败限流：按「规范化邮箱 + 来源 IP」计数，同样只在
+	// 进程内存里，多实例部署各自持有预算。
+	loginAttempts *claimAttemptLimiter
 	// newClaimCode 生成认领码。生产指向 authn.NewShortCode；测试可替换成
 	// 确定性序列，从而稳定覆盖撞码重试（随机码空间无法构造可复现的碰撞）。
 	newClaimCode func(length int) (string, error)
@@ -114,6 +117,7 @@ func New(
 		authCfg:          authCfg,
 		claimCfg:         claimCfg,
 		claimAttempts:    newClaimAttemptLimiter(claimAttemptsPerAccount, claimAttemptWindowSize),
+		loginAttempts:    newClaimAttemptLimiter(loginAttemptsPerIdentity, loginAttemptWindow),
 		newClaimCode:     authn.NewShortCode,
 		requestTimeout:   requestTimeout,
 		heartbeatTimeout: heartbeatTimeout,

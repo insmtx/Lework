@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 )
 
@@ -117,6 +119,26 @@ func TestServeConfigFlagDefaults(t *testing.T) {
 		}
 		if flag.DefValue != tt.want {
 			t.Fatalf("--%s default = %q, want %q", tt.name, flag.DefValue, tt.want)
+		}
+	}
+}
+
+// TestDeprecatedPairingFlagsSurviveAsHiddenNoOps 保证旧的 systemd 单元与脚本
+// 不会因为启动配对参数消失而报 unknown flag；三个参数都必须存在且隐藏。
+func TestDeprecatedPairingFlagsSurviveAsHiddenNoOps(t *testing.T) {
+	commands := map[string]*cobra.Command{
+		"serve":  newServeCommand(),
+		"lework": newRootCommand(),
+	}
+	for label, cmd := range commands {
+		for _, name := range []string{"public-url", "expo-url", "no-qr"} {
+			flag := cmd.Flags().Lookup(name)
+			if flag == nil {
+				t.Fatalf("%s: --%s flag missing", label, name)
+			}
+			if !flag.Hidden {
+				t.Fatalf("%s: --%s flag is visible, want it hidden", label, name)
+			}
 		}
 	}
 }

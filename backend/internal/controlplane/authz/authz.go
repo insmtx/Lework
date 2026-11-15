@@ -249,21 +249,43 @@ func (v Resolver) SessionCookieName() string {
 //
 // MaxAge 跟随 ttl；ttl <= 0 时不写 MaxAge（浏览器按会话 cookie 处理），而不是
 // 传负数——负数会被序列化成 Max-Age=0，等于立即过期，语义正好相反。
-// Secure 只在 r 为 TLS 时开启：控制面允许部署在本机 HTTP 上，无条件 Secure
-// 会让这些部署登录后立刻掉线。
+// Secure 在请求本身是 TLS，或反向代理声明 X-Forwarded-Proto: https 时开启：
+// 控制面自身不终止 TLS，只按 r.TLS 会让所有代理部署的 cookie 永远不带 Secure。
+// 这里信任 X-Forwarded-Proto；直连客户端可以把它伪造成 https，但那只会让
+// cookie 多一个 Secure 标记（在自己的明文连接上不会回传），不会降低安全性。
+// 反向代理必须剥掉外部伪造的头并按实际协议重写它。
 func SetSessionCookie(w http.ResponseWriter, r *http.Request, raw string, ttl time.Duration) {
 	cookie := &http.Cookie{
 		Name:     DefaultCookieName,
 		Value:    raw,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r != nil && r.TLS != nil,
+		Secure:   secureRequest(r),
 		SameSite: http.SameSiteStrictMode,
 	}
 	if ttl > 0 {
 		cookie.MaxAge = int(ttl.Seconds())
 	}
 	http.SetCookie(w, cookie)
+}
+
+// secureRequest 判断会话 cookie 是否必须带 Secure。
+//
+// 请求本身是 TLS 时必然为真；否则取 X-Forwarded-Proto 的第一个逗号分隔值
+// （代理链最左端，即客户端到第一跳的协议），去掉空白并忽略大小写比较。
+// 没有请求对象（r == nil）时不加 Secure。
+func secureRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if idx := strings.IndexByte(proto, ','); idx >= 0 {
+		proto = proto[:idx]
+	}
+	return strings.EqualFold(strings.TrimSpace(proto), "https")
 }
 
 // ClearSessionCookie 让浏览器立即丢弃会话 cookie。

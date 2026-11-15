@@ -242,7 +242,7 @@ func (s *Server) Run(ctx context.Context) error {
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
 	if !config.IsLoopbackAddr(s.cfg.ListenAddr) {
 		logs.Warnf("control plane is listening on non-loopback address %s; "+
-			"browser API requires the enrollment token", s.cfg.ListenAddr)
+			"browser API requires an account login (or an admin Bearer token)", s.cfg.ListenAddr)
 	}
 
 	errCh := make(chan error, 1)

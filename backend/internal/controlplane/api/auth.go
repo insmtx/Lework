@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -34,6 +35,13 @@ const (
 	roleAdmin    = "admin"
 	roleUser     = "user"
 	statusActive = "active"
+
+	// loginAttemptsPerIdentity 是同一「邮箱 + 来源 IP」在一个窗口内允许的
+	// 失败登录次数；超过后返回 429。与认领码的猜码限流同形，防止在线撞库
+	// 与单点暴力破解。
+	loginAttemptsPerIdentity = 10
+	// loginAttemptWindow 是登录失败计数的时间窗，从第一次失败开始计算。
+	loginAttemptWindow = time.Minute
 
 	// dummyPasswordHash 是一个固定口令的合法 argon2id PHC 串。账号不存在时
 	// 仍用它跑一次校验，让「未知账号」与「密码错误」耗时相近，避免通过响应
@@ -130,6 +138,10 @@ func (a *API) registrationMode() string {
 //
 // 「账号不存在」与「密码错误」走同一条拒绝路径：响应体与状态码完全一致，
 // 未知账号也跑一次 argon2 校验，避免从耗时上区分两者。
+//
+// 失败尝试按「规范化邮箱 + 来源 IP」限流（10 次/分钟）。成功登录会归还本次
+// 预占的额度；空密码、未知账号、密码错误与停用账号都保留额度，因为它们都
+// 是真实的失败尝试。
 func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
@@ -143,6 +155,14 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request")
 		return
 	}
+
+	attemptKey := loginAttemptKey(email, r)
+	if !a.loginAttempts.allow(attemptKey, time.Now()) {
+		w.Header().Set("Retry-After", "60")
+		writeAPIError(w, http.StatusTooManyRequests, "too_many_attempts", "too many attempts, try again later")
+		return
+	}
+
 	if req.Password == "" {
 		writeInvalidCredentials(w)
 		return
@@ -169,7 +189,36 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// 成功不是失败尝试：归还 allow 预占的那一格，避免合法用户被之前输错
+	// 的几次挤掉额度（但不会重置已累计的失败）。
+	a.loginAttempts.succeed(attemptKey)
 	writeJSON(w, http.StatusOK, body)
+}
+
+// loginAttemptKey 返回登录限流的计数键：规范化邮箱 + 来源 IP。
+//
+// 只按邮箱计数会让任何人锁死别人的账号；只按 IP 又会让同一出口后的所有
+// 用户共享预算。两者组合仍能挡住单点暴力破解，同时限制「同一账号换 IP 试」
+// 的成本。
+func loginAttemptKey(email string, r *http.Request) string {
+	return strings.ToLower(strings.TrimSpace(email)) + "|" + requestSourceIP(r)
+}
+
+// requestSourceIP 取连接的来源 IP，用作登录失败的限流维度。
+//
+// 只读 r.RemoteAddr，不信任 X-Forwarded-For：本包没有「可信代理」配置，
+// 直接采信可伪造的头等于让攻击者自带无限预算。代价是反向代理后所有客户端
+// 共享代理 IP，此时预算退化为「每邮箱每分钟 10 次」——邮箱那半个键仍然
+// 生效，不会让单个客户端无限尝试。
+func requestSourceIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // handleBootstrap 用 enrollment token 创建第一个管理员。

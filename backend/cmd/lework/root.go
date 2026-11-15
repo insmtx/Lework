@@ -248,7 +248,7 @@ Use "lework [command] --help" for more information about a command.`,
 			if err != nil {
 				return err
 			}
-			file.applyControlPlane(&opts.serve, &opts.tokenPath, &opts.pair, cmd.Flags().Changed)
+			file.applyControlPlane(&opts.serve, &opts.tokenPath, cmd.Flags().Changed)
 			applyClusterFlags(&opts.serve, natsURL, databaseURL, cmd.Flags().Changed)
 			if !opts.agent.configPathExplicit {
 				base, err := file.agentBase()
@@ -283,7 +283,7 @@ Use "lework [command] --help" for more information about a command.`,
 		"NATS URL for cluster event fan-out (defaults to nats.url in the config file)")
 	flags.StringVar(&databaseURL, "database-url", "",
 		"PostgreSQL URL shared by control plane instances (defaults to database.url in the config file)")
-	addPairingFlags(root, &opts.pair)
+	addDeprecatedPairingFlags(root)
 	flags.StringVar(&opts.agent.configPath, "agent-config", defaultAgentConfigPath(),
 		"path to agent.yaml (defaults to the platform default location)")
 	flags.StringVar(&opts.agent.nodeName, "node-name", "", "override the node name for this process")

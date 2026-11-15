@@ -10,8 +10,9 @@ import (
 )
 
 // TestSetSessionCookie 固化会话 cookie 的属性：HttpOnly + Strict 防止脚本与
-// 跨站请求带走会话，Secure 只在 TLS 上开启（本机 HTTP 部署也要能用），
-// MaxAge 跟随 TTL。属性集中在 authz 后，登录、续期与登出不会再各写一份。
+// 跨站请求带走会话，Secure 在 TLS 或可信代理声明 X-Forwarded-Proto: https
+// 时开启（本机 HTTP 部署也要能用），MaxAge 跟随 TTL。属性集中在 authz 后，
+// 登录、续期与登出不会再各写一份。
 func TestSetSessionCookie(t *testing.T) {
 	ttl := 12 * time.Hour
 
@@ -48,6 +49,50 @@ func TestSetSessionCookie(t *testing.T) {
 
 		if cookie := sessionCookieFrom(t, rec); cookie.Secure {
 			t.Fatal("cookie is Secure on plain HTTP; local deployments would lose it")
+		}
+	})
+
+	t.Run("forwarded https marks Secure", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://cp.example.com/api/auth/login", nil)
+		req.Header.Set("X-Forwarded-Proto", "https")
+		authz.SetSessionCookie(rec, req, "raw-token", ttl)
+
+		if cookie := sessionCookieFrom(t, rec); !cookie.Secure {
+			t.Fatal("cookie is not Secure behind a TLS-terminating proxy")
+		}
+	})
+
+	t.Run("forwarded http stays not Secure", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://cp.example.com/api/auth/login", nil)
+		req.Header.Set("X-Forwarded-Proto", "http")
+		authz.SetSessionCookie(rec, req, "raw-token", ttl)
+
+		if cookie := sessionCookieFrom(t, rec); cookie.Secure {
+			t.Fatal("cookie is Secure although the proxy reports plain HTTP")
+		}
+	})
+
+	t.Run("forwarded chain uses the first hop", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://cp.example.com/api/auth/login", nil)
+		req.Header.Set("X-Forwarded-Proto", " HTTPS , http")
+		authz.SetSessionCookie(rec, req, "raw-token", ttl)
+
+		if cookie := sessionCookieFrom(t, rec); !cookie.Secure {
+			t.Fatal("cookie is not Secure for a forwarded chain whose client hop is HTTPS")
+		}
+	})
+
+	t.Run("tls wins over forwarded http", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "https://cp.example.com/api/auth/login", nil)
+		req.Header.Set("X-Forwarded-Proto", "http")
+		authz.SetSessionCookie(rec, req, "raw-token", ttl)
+
+		if cookie := sessionCookieFrom(t, rec); !cookie.Secure {
+			t.Fatal("cookie is not Secure on a direct TLS request")
 		}
 	})
 

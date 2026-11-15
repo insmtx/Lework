@@ -216,6 +216,48 @@ func TestLoginRefusesDisabledAccount(t *testing.T) {
 	}
 }
 
+// TestLoginRateLimitsFailedAttempts 覆盖登录失败限流：同一「邮箱 + 来源 IP」
+// 连续 10 次失败后第 11 次 429 并带 Retry-After；不同邮箱有自己的预算。
+func TestLoginRateLimitsFailedAttempts(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	createTestUser(t, env, "a@b.c", testLoginPassword, "admin", "active")
+
+	// 大小写与空白不同的邮箱必须落到同一个计数键。
+	body := `{"email":"  A@B.C ","password":"wrong-password"}`
+	for i := 0; i < loginAttemptsPerIdentity; i++ {
+		requireStatus(t, env.do(http.MethodPost, "/api/auth/login", body), http.StatusUnauthorized)
+	}
+
+	limited := env.do(http.MethodPost, "/api/auth/login", body)
+	requireErrorCode(t, limited, http.StatusTooManyRequests, "too_many_attempts")
+	if got := limited.Header().Get("Retry-After"); got != "60" {
+		t.Fatalf("Retry-After = %q, want 60", got)
+	}
+
+	// 另一个邮箱使用独立的计数键，仍然得到统一的 401。
+	other := env.do(http.MethodPost, "/api/auth/login",
+		`{"email":"other@example.com","password":"wrong-password"}`)
+	requireStatus(t, other, http.StatusUnauthorized)
+}
+
+// TestLoginSuccessReleasesAttemptBudget 证明成功登录会归还 allow 预占的额度：
+// 9 次失败后成功一次，紧接着的失败仍是 401 而不是 429。
+func TestLoginSuccessReleasesAttemptBudget(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	createTestUser(t, env, "a@b.c", testLoginPassword, "admin", "active")
+
+	wrong := `{"email":"a@b.c","password":"wrong-password"}`
+	for i := 0; i < loginAttemptsPerIdentity-1; i++ {
+		requireStatus(t, env.do(http.MethodPost, "/api/auth/login", wrong), http.StatusUnauthorized)
+	}
+
+	ok := env.do(http.MethodPost, "/api/auth/login",
+		`{"email":"a@b.c","password":"`+testLoginPassword+`"}`)
+	requireStatus(t, ok, http.StatusOK)
+
+	requireStatus(t, env.do(http.MethodPost, "/api/auth/login", wrong), http.StatusUnauthorized)
+}
+
 // TestBootstrapOnlyWorksWhenNoUsers 是任务书给出的验收用例：初始化只能用
 // enrollment token 做一次，之后必须 409。
 func TestBootstrapOnlyWorksWhenNoUsers(t *testing.T) {
