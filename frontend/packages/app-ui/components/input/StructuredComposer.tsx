@@ -912,6 +912,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 		const pendingCaretRef = useRef<number | null>(null);
 		const dismissedTriggerStartRef = useRef<number | null>(null);
 		const shouldAutoScrollPickerRef = useRef(false);
+		const blurDismissTimerRef = useRef<number | null>(null);
 		const valueRef = useRef(value);
 		const tokensRef = useRef<InsertedToken[]>([]);
 		const appliedPrefillIdsRef = useRef<Set<string>>(new Set());
@@ -1067,6 +1068,35 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 				return null;
 			});
 		}, []);
+
+		// 中文注释：失焦后延迟确认是否真的离开编辑器，避免弹层刚打开就被关闭。
+		// 同一时刻只保留一个待执行检查，并在卸载时清理，避免组件卸载后定时器仍访问 document。
+		const scheduleBlurDismiss = useCallback(() => {
+			if (blurDismissTimerRef.current !== null) {
+				window.clearTimeout(blurDismissTimerRef.current);
+			}
+			blurDismissTimerRef.current = window.setTimeout(() => {
+				blurDismissTimerRef.current = null;
+				const activeElement = document.activeElement;
+				if (
+					activeElement &&
+					(pickerRef.current?.contains(activeElement) || editorRef.current?.contains(activeElement))
+				) {
+					return;
+				}
+				dismissTrigger();
+			}, 100);
+		}, [dismissTrigger]);
+
+		useEffect(
+			() => () => {
+				if (blurDismissTimerRef.current !== null) {
+					window.clearTimeout(blurDismissTimerRef.current);
+					blurDismissTimerRef.current = null;
+				}
+			},
+			[],
+		);
 
 		useEffect(() => {
 			setActiveIndex(0);
@@ -1836,17 +1866,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 									role="dialog"
 									aria-label={trigger.kind === "assistant" ? "选择 AI 队友" : "选择技能"}
 									onBlur={() => {
-										setTimeout(() => {
-											const activeElement = document.activeElement;
-											if (
-												activeElement &&
-												(pickerRef.current?.contains(activeElement) ||
-													editorRef.current?.contains(activeElement))
-											) {
-												return;
-											}
-											dismissTrigger();
-										}, 100);
+										scheduleBlurDismiss();
 									}}
 									// 圆角容器需留足内边距，避免 overflow-hidden 裁切顶部标题文字
 									className={cn(
@@ -2027,11 +2047,7 @@ export const StructuredComposer = forwardRef<StructuredComposerHandle, Structure
 					onFocus={onFocus}
 					onBlur={() => {
 						onBlur();
-						setTimeout(() => {
-							const activeElement = document.activeElement;
-							if (activeElement && pickerRef.current?.contains(activeElement)) return;
-							dismissTrigger();
-						}, 100);
+						scheduleBlurDismiss();
 					}}
 					onCompositionStart={() => {
 						composingRef.current = true;

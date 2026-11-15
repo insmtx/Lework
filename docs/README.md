@@ -59,6 +59,7 @@
 | 文档 | 说明 |
 |------|------|
 | [operations/project-structure.md](operations/project-structure.md) | 当前仓库结构与边界 |
+| [operations/release.md](operations/release.md) | tag 发版：后端单二进制、Android APK、GitHub Release |
 | [operations/troubleshooting.md](operations/troubleshooting.md) | 控制面与节点排障 |
 | [operations/issue-labels.md](operations/issue-labels.md) | Issue 标签体系 |
 

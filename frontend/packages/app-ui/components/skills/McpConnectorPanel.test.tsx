@@ -51,6 +51,16 @@ vi.mock("../../utils/open-external-link", () => ({
 	openExternalLink: mockOpenExternalLink,
 }));
 
+/**
+ * Base UI 在挂载后的下一次渲染才把菜单状态同步到 trigger 上，在此之前点击会被丢弃，
+ * 因此先等 `aria-expanded` 出现再点击，避免偶发的“菜单打不开”失败。
+ */
+async function openConnectorMenu(name: string) {
+	const trigger = await screen.findByRole("button", { name });
+	await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded"));
+	fireEvent.click(trigger);
+}
+
 describe("McpConnectorPanel", () => {
 	afterEach(() => {
 		vi.useRealTimers();
@@ -259,7 +269,7 @@ describe("McpConnectorPanel", () => {
 		render(<McpConnectorPanel />);
 		await screen.findByText("浏览器连接器");
 
-		fireEvent.click(screen.getByRole("button", { name: "管理 浏览器连接器" }));
+		await openConnectorMenu("管理 浏览器连接器");
 		fireEvent.click(await screen.findByRole("menuitem", { name: "删除连接" }));
 
 		expect(screen.getByText("删除 浏览器连接器？")).toBeInTheDocument();
@@ -296,7 +306,7 @@ describe("McpConnectorPanel", () => {
 		render(<McpConnectorPanel />);
 
 		expect(await screen.findAllByText("已连接")).not.toHaveLength(0);
-		fireEvent.click(screen.getByRole("button", { name: "管理 CoreKG" }));
+		await openConnectorMenu("管理 CoreKG");
 		expect(await screen.findByRole("menuitem", { name: "测试连接" })).toBeInTheDocument();
 		expect(screen.queryByText("断开连接")).not.toBeInTheDocument();
 		fireEvent.click(screen.getByRole("menuitem", { name: "测试连接" }));
@@ -322,7 +332,7 @@ describe("McpConnectorPanel", () => {
 		});
 		render(<McpConnectorPanel />);
 
-		fireEvent.click(await screen.findByRole("button", { name: "管理 未来平台" }));
+		await openConnectorMenu("管理 未来平台");
 		expect(await screen.findByRole("menuitem", { name: "测试连接" })).toBeInTheDocument();
 		expect(screen.getByRole("menuitem", { name: "断开连接" })).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("menuitem", { name: "测试连接" }));
@@ -618,7 +628,7 @@ describe("McpConnectorPanel", () => {
 	it("hydrates and updates saved headers without sending code or description", async () => {
 		render(<McpConnectorPanel />);
 		await screen.findByText("浏览器连接器");
-		fireEvent.click(screen.getByRole("button", { name: "管理 浏览器连接器" }));
+		await openConnectorMenu("管理 浏览器连接器");
 		fireEvent.click(await screen.findByRole("menuitem", { name: "管理连接" }));
 
 		expect(await screen.findByDisplayValue("Bearer token")).toBeInTheDocument();
@@ -659,7 +669,7 @@ describe("McpConnectorPanel", () => {
 				},
 			},
 		});
-		fireEvent.click(screen.getByRole("button", { name: "管理 浏览器连接器" }));
+		await openConnectorMenu("管理 浏览器连接器");
 		fireEvent.click(await screen.findByRole("menuitem", { name: "管理连接" }));
 
 		expect(await screen.findByDisplayValue("@example/mcp")).toBeInTheDocument();
@@ -684,7 +694,7 @@ describe("McpConnectorPanel", () => {
 		});
 		render(<McpConnectorPanel />);
 		await screen.findByText("浏览器连接器");
-		fireEvent.click(screen.getByRole("button", { name: "管理 浏览器连接器" }));
+		await openConnectorMenu("管理 浏览器连接器");
 		fireEvent.click(await screen.findByRole("menuitem", { name: "测试连接" }));
 
 		await waitFor(() => expect(mockPluginGet).toHaveBeenCalledWith("plugin_mcp"));

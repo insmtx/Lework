@@ -84,6 +84,9 @@ frontend/apps/control-plane/.next/
 frontend/apps/control-plane/out/
 # Expo 本地状态（设备会话、签名 manifest 缓存），不参与构建
 frontend/apps/mobile/.expo/
+# Expo prebuild 生成的原生工程（CI 每次现生成，不提交）
+frontend/apps/mobile/android/
+frontend/apps/mobile/ios/
 # Next 生成：dev 写 .next/dev/types、build 写 .next/types，跟踪会导致反复脏 diff
 frontend/apps/control-plane/next-env.d.ts
 # Expo 生成：typedRoutes 关闭时 expo start 会删除它，跟踪则每次启动都留下脏 diff

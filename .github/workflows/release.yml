@@ -1,0 +1,413 @@
+name: Release
+
+# tag 推送时一次性产出内嵌控制面界面的 lework 二进制与 Android APK，
+# 再统一挂到同一个 GitHub Release。桌面端仍由 desktop-release.yml 负责，
+# 后续合并进本工作流时把它的 build job 加进来即可。
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.28.2"
+
+jobs:
+  prepare:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      android_version_code: ${{ steps.version.outputs.android_version_code }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Resolve version from tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            # 手动触发时没有 tag，用最近的 tag 加提交号，仅用于产出可识别的构建产物。
+            version="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)"
+            version="${version:-0.0.0}-dev.${GITHUB_SHA:0:7}"
+          fi
+
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::版本号必须是 vX.Y.Z 或 vX.Y.Z-suffix，实际收到：${version}"
+            exit 1
+          fi
+
+          major="$(printf '%s' "$version" | cut -d. -f1)"
+          minor="$(printf '%s' "$version" | cut -d. -f2)"
+          patch="$(printf '%s' "$version" | cut -d. -f3 | sed 's/[^0-9].*//')"
+          # Android 的 versionCode 单调递增，按 X*10000+Y*100+Z 映射，0.7.1 -> 701。
+          code=$((major * 10000 + minor * 100 + patch))
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "android_version_code=${code}" >> "$GITHUB_OUTPUT"
+          echo "Release version: ${version} (Android versionCode ${code})"
+
+  frontend:
+    name: Build control plane UI
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build control plane UI
+        run: pnpm --filter @lework/control-plane build
+
+      - name: Verify static export
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="apps/control-plane/out"
+          if [ ! -f "${out}/index.html" ]; then
+            echo "::error::控制面静态导出缺少 ${out}/index.html"
+            exit 1
+          fi
+
+      # 控制面界面由 lework 二进制内嵌并提供，不单独发包；后端 job 通过该
+      # artifact 把它拷进 backend/internal/controlplane/webui/dist，避免重复构建。
+      - name: Upload embedded UI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-ui
+          path: frontend/apps/control-plane/out
+          if-no-files-found: error
+          retention-days: 7
+
+  backend:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs:
+      - prepare
+      - frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download control plane UI
+        uses: actions/download-artifact@v4
+        with:
+          name: control-plane-ui
+          path: backend/internal/controlplane/webui/dist
+
+      - name: Build binary
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+
+          ext=""
+          if [ "$GOOS" = "windows" ]; then
+            ext=".exe"
+          fi
+
+          mkdir -p "${RUNNER_TEMP}/build"
+          out="${RUNNER_TEMP}/build/lework${ext}"
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$out" ./backend/cmd/lework/
+
+          # linux/amd64 与 runner 同平台，可以真的执行一次确认版本注入生效。
+          if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
+            actual="$("$out" --version)"
+            echo "$actual"
+            if [ "$actual" != "lework ${VERSION}" ]; then
+              echo "::error::版本注入失败，期望 lework ${VERSION}，实际 ${actual}"
+              exit 1
+            fi
+          fi
+
+      - name: Package archive
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+
+          name="lework_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "${RUNNER_TEMP}/package"
+
+          if [ "$GOOS" = "windows" ]; then
+            (
+              cd "${RUNNER_TEMP}/build"
+              zip -q "${RUNNER_TEMP}/package/${name}.zip" lework.exe
+            )
+          else
+            tar -C "${RUNNER_TEMP}/build" -czf "${RUNNER_TEMP}/package/${name}.tar.gz" lework
+          fi
+
+      - name: Upload backend release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-backend-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ runner.temp }}/package/*
+          if-no-files-found: error
+          retention-days: 7
+
+  android:
+    name: Build Android APK
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Set app version from tag
+        working-directory: frontend/apps/mobile
+        env:
+          APP_VERSION: ${{ needs.prepare.outputs.version }}
+          ANDROID_VERSION_CODE: ${{ needs.prepare.outputs.android_version_code }}
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const path = "app.json";
+            const app = JSON.parse(fs.readFileSync(path, "utf8"));
+            app.expo.version = process.env.APP_VERSION;
+            app.expo.android = {
+              ...app.expo.android,
+              versionCode: Number(process.env.ANDROID_VERSION_CODE),
+            };
+            fs.writeFileSync(path, `${JSON.stringify(app, null, "\t")}\n`);
+            console.log(`app.json version=${app.expo.version} versionCode=${app.expo.android.versionCode}`);
+          '
+
+      - name: Typecheck and test mobile app
+        run: |
+          pnpm --filter @lework/mobile typecheck
+          pnpm --filter @lework/mobile test
+
+      - name: Prebuild Android project
+        env:
+          CI: "1"
+          EXPO_NO_TELEMETRY: "1"
+        run: pnpm --filter @lework/mobile exec expo prebuild --platform android --no-install
+
+      - name: Bump Gradle memory
+        working-directory: frontend/apps/mobile/android
+        run: |
+          # RN release 构建在 2g 堆上容易 OOM，runner 有 16g 可用。
+          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g/' gradle.properties
+
+      - name: Build release APK
+        working-directory: frontend/apps/mobile/android
+        env:
+          CI: "1"
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK signature
+        working-directory: frontend/apps/mobile/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$apk" ]; then
+            echo "::error::未找到 release APK：${apk}"
+            exit 1
+          fi
+
+          apksigner=""
+          if [ -n "${ANDROID_HOME:-}" ] && [ -d "${ANDROID_HOME}/build-tools" ]; then
+            apksigner="$(find "${ANDROID_HOME}/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -1)"
+          fi
+          if [ -n "$apksigner" ]; then
+            # 目前用 prebuild 模板自带的 debug.keystore 签名，仅供内部分发安装。
+            "$apksigner" verify --print-certs "$apk"
+          else
+            echo "未找到 apksigner，跳过签名校验"
+          fi
+
+          du -h "$apk"
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          mkdir -p "${RUNNER_TEMP}/package"
+          cp "$apk" "${RUNNER_TEMP}/package/lework-android-${{ needs.prepare.outputs.version }}.apk"
+
+      - name: Upload Android release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: ${{ runner.temp }}/package/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - prepare
+      - backend
+      - android
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+
+      - name: Collect assets and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p upload
+          find release-assets -type f -exec cp {} upload/ \;
+
+          if [ -z "$(ls -A upload)" ]; then
+            echo "::error::没有可发布的产物"
+            exit 1
+          fi
+
+          cd upload
+          # 桌面端 workflow 也写 SHA256SUMS.txt，这里单独命名避免互相覆盖；
+          # 桌面端合并进本工作流后可统一成一个文件。
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS-release.txt' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS-release.txt
+          cat SHA256SUMS-release.txt
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          prerelease=()
+          case "$tag" in
+            *-*) prerelease+=(--prerelease) ;;
+          esac
+
+          # 桌面端 workflow 可能同一时间创建同一个 Release，创建失败就重试并改为追加。
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              if gh release upload "$tag" upload/* --clobber; then
+                echo "已把产物追加到现有 Release ${tag}"
+                exit 0
+              fi
+            else
+              if gh release create "$tag" upload/* \
+                --title "$tag" \
+                --generate-notes \
+                "${prerelease[@]}"; then
+                echo "已创建 Release ${tag}"
+                exit 0
+              fi
+            fi
+
+            echo "第 ${attempt} 次发布失败，$((attempt * 10)) 秒后重试"
+            sleep $((attempt * 10))
+          done
+
+          echo "::error::发布 ${tag} 失败"
+          exit 1

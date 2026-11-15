@@ -154,7 +154,23 @@ lework serve --public-url http://dev.ckeyer.com \
 
 ## 构建 APK
 
-首次使用需要 EAS CLI 与 Expo 账号：
+发版走 GitHub Actions：推送 `vX.Y.Z` tag 后，`.github/workflows/release.yml`
+会执行 `expo prebuild` + Gradle `assembleRelease`，把
+`lework-android-X.Y.Z.apk` 挂到该 tag 的 GitHub Release（完整流程见
+[release.md](release.md)）。CI 使用 prebuild 模板自带的 debug keystore 签名，
+不需要任何 secret，适合内部分发；debug 签名不能上架 Google Play。
+
+本地复现同样的构建（需要 Java 17 与 Android SDK）：
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm --filter @lework/mobile exec expo prebuild --platform android --no-install
+cd apps/mobile/android && ./gradlew assembleRelease
+# 产物：app/build/outputs/apk/release/app-release.apk
+```
+
+也可以改用 EAS 云构建（需要 Expo 账号；仓库目前没有 `extra.eas.projectId`）：
 
 ```bash
 cd frontend/apps/mobile

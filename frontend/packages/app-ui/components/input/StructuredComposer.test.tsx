@@ -517,6 +517,32 @@ describe("StructuredComposer", () => {
 		});
 	});
 
+	it("焦点短暂回到编辑器时不会关闭技能选择器", async () => {
+		const user = userEvent.setup();
+
+		render(
+			<TestHarness
+				skillOptions={[{ code: "docx", label: "docx", description: "", keywords: [] }]}
+			/>,
+		);
+
+		const textbox = screen.getByRole("textbox", { name: "请输入" });
+		await user.click(textbox);
+		await user.keyboard("/");
+		await screen.findByRole("dialog", { name: "选择技能" });
+		// 中文注释：等组件把焦点交接给弹层搜索框，再模拟打开弹层时焦点短暂回到编辑器。
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		textbox.focus();
+		textbox.blur();
+		textbox.focus();
+
+		// 中文注释：失焦检查延迟 100ms 执行，此时焦点仍在编辑器内，弹层应保持打开。
+		await new Promise((resolve) => setTimeout(resolve, 150));
+
+		expect(screen.getByRole("dialog", { name: "选择技能" })).toBeInTheDocument();
+	});
+
 	it("打开技能选择器时刷新一次，关闭后重开时再次刷新", async () => {
 		const user = userEvent.setup();
 		const onSkillPickerOpen = vi.fn();
