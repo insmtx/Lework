@@ -128,6 +128,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/me", a.handleMe)
 
 	mux.HandleFunc("GET /api/nodes", a.handleListNodes)
+	// 认领不走 nodeRoute：未认领节点没有成员行，成员授权必然把请求挡成 404。
+	// 这条路由的授权在 handler 里按「管理员 + 账号」判定。
+	mux.HandleFunc("POST /api/nodes/{id}/claim", a.handleClaimNode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}", a.handleGetNode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}/health", a.handleNodeHealth)
 	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/start", a.handleOpenCodeStart)

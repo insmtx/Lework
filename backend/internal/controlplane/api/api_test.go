@@ -453,6 +453,7 @@ type nodeResponse struct {
 	Arch         string    `json:"arch"`
 	AgentVersion string    `json:"agent_version"`
 	Capabilities []string  `json:"capabilities"`
+	Claimed      bool      `json:"claimed"`
 	Connected    bool      `json:"connected"`
 	LastSeen     time.Time `json:"last_seen"`
 }

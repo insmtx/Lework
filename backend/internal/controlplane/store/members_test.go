@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -31,6 +32,33 @@ func TestClaimNodeToUserIsOneShot(t *testing.T) {
 	}
 	if stored.ClaimedAt.IsZero() {
 		t.Fatal("claimed_at not recorded")
+	}
+}
+
+// TestClaimNodeToUserSentinels 固化认领失败的两个可判别原因：接口层据此回
+// 404 还是 409，靠错误文本做字符串匹配迟早会随文案漂移而失效。
+func TestClaimNodeToUserSentinels(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	err := s.ClaimNodeToUser(ctx, "node_missing", "u1")
+	if !errors.Is(err, ErrNodeNotFound) {
+		t.Fatalf("missing node error = %v, want ErrNodeNotFound", err)
+	}
+
+	n, err := s.UpsertLegacyNode(ctx, Node{Name: "work-mac"})
+	if err != nil {
+		t.Fatalf("UpsertLegacyNode: %v", err)
+	}
+	if err := s.ClaimNodeToUser(ctx, n.ID, "u1"); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	err = s.ClaimNodeToUser(ctx, n.ID, "u2")
+	if !errors.Is(err, ErrNodeAlreadyClaimed) {
+		t.Fatalf("second claim error = %v, want ErrNodeAlreadyClaimed", err)
+	}
+	if errors.Is(err, ErrNodeNotFound) {
+		t.Fatalf("second claim error = %v, must not match ErrNodeNotFound", err)
 	}
 }
 

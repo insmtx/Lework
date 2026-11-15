@@ -18,6 +18,15 @@ const (
 	NodeRoleMember = "member"
 )
 
+// ErrNodeNotFound 表示认领目标节点不存在。
+//
+// 导出成哨兵错误而不是让调用方比对错误文本：接口层要据此回 404，字符串匹配
+// 会随文案调整悄悄失效，最终把「节点不存在」变成 500。
+var ErrNodeNotFound = errors.New("node not found")
+
+// ErrNodeAlreadyClaimed 表示节点已经属于某个账号，认领必须改走共享。
+var ErrNodeAlreadyClaimed = errors.New("node already claimed")
+
 // AddNodeMember 写入一条归属行；已存在时忽略而不是报错。
 //
 // 共享按钮会被重复点击、两台控制面实例也可能同时处理同一请求，把「已经有了」
@@ -141,6 +150,9 @@ func (s *Store) ListUnclaimedNodes(ctx context.Context) ([]Node, error) {
 // PostgreSQL 会因此锁住该行、SQLite 会串行化写事务；随后在锁内再数一次成员行
 // 并插入 owner（READ COMMITTED 下这次计数能看到前一个事务刚提交的行）。
 // 后到的认领因此失败，而不是造出两个 owner。
+//
+// 两种预期失败用 ErrNodeNotFound / ErrNodeAlreadyClaimed 表达，调用方可用
+// errors.Is 区分 404 与 409，不必解析错误文本。
 func (s *Store) ClaimNodeToUser(ctx context.Context, nodeID, userID string) error {
 	if strings.TrimSpace(nodeID) == "" {
 		return errors.New("claim node id is required")
@@ -165,9 +177,9 @@ func (s *Store) ClaimNodeToUser(ctx context.Context, nodeID, userID string) erro
 				return fmt.Errorf("check node after claim: %w", err)
 			}
 			if nodeCount == 0 {
-				return errors.New("node not found")
+				return ErrNodeNotFound
 			}
-			return errors.New("node already claimed")
+			return ErrNodeAlreadyClaimed
 		}
 
 		// 拿到行锁后再数一次成员行：并发认领时后到的事务可能在上面的条件求值
@@ -178,7 +190,7 @@ func (s *Store) ClaimNodeToUser(ctx context.Context, nodeID, userID string) erro
 			return fmt.Errorf("recheck node members: %w", err)
 		}
 		if memberCount > 0 {
-			return errors.New("node already claimed")
+			return ErrNodeAlreadyClaimed
 		}
 
 		member := NodeMember{
