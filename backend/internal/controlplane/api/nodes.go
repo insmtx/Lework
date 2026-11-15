@@ -2,10 +2,14 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"time"
+
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
+	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
 // nodeView 是浏览器看到的节点视图。
@@ -13,6 +17,9 @@ import (
 // 身份字段、LastSeen 与 Connected 全部由持久化记录推导（心跳会写入
 // LastSeen）。跨实例部署时节点可能连在别的控制面实例上，因此不能再用
 // 本实例注册表判断在线。
+//
+// Claimed 区分「已归属某个账号」与「还没有成员行的历史节点」：管理员视图
+// 同时包含两类节点，界面只有靠它才能决定是否显示「认领」按钮。
 type nodeView struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
@@ -21,18 +28,67 @@ type nodeView struct {
 	AgentVersion   string    `json:"agent_version"`
 	Capabilities   []string  `json:"capabilities"`
 	WorkspaceRoots []string  `json:"workspace_roots"`
+	Claimed        bool      `json:"claimed"`
 	Connected      bool      `json:"connected"`
 	LastSeen       time.Time `json:"last_seen"`
 }
 
-// handleListNodes 返回全部已登记节点。
+// handleListNodes 返回当前身份可见的节点。
+//
+// 可见范围由 node_members 决定：普通账号只看自己的节点，管理员账号额外看到
+// 「未认领」的历史节点，但任何人（除部署级身份）都看不到别人已认领的节点。
 func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
-	views, err := a.listNodes(r.Context())
+	views, err := a.listVisibleNodes(r.Context(), a.principal(r))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, views)
+}
+
+// handleClaimNode 把无人归属的历史节点认领到当前管理员账号。
+//
+// 只对可归属的账号开放：部署级身份（本机直通、共享 enrollment token）本来就
+// 看得见所有节点，但没有账号可供写入归属行，因此回 user_required 而不是造一条
+// 没有主人的成员行。非管理员在查库之前就被拒绝，且拒绝体固定不随节点是否
+// 存在变化——认领接口不能成为节点存在性的探针。
+//
+// 成功后返回刚认领的节点视图：成员行已经写入，同一个身份紧接着走
+// nodeRoute 访问该节点会立即通过。
+func (a *API) handleClaimNode(w http.ResponseWriter, r *http.Request) {
+	principal := a.principal(r)
+	if !principal.IsAdmin() {
+		writeAPIError(w, http.StatusForbidden, "forbidden", "forbidden")
+		return
+	}
+	if principal.Kind != authz.KindUser || principal.UserID == "" {
+		writeAPIError(w, http.StatusForbidden, "user_required", "claim requires an account")
+		return
+	}
+
+	nodeID := r.PathValue("id")
+	err := a.store.ClaimNodeToUser(r.Context(), nodeID, principal.UserID)
+	switch {
+	case err == nil:
+	case errors.Is(err, store.ErrNodeNotFound):
+		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return
+	case errors.Is(err, store.ErrNodeAlreadyClaimed):
+		writeAPIError(w, http.StatusConflict, "already_claimed", "node already claimed")
+		return
+	default:
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+
+	// 认领已经提交，这里再读一次是为了返回完整的节点视图（名称、在线状态等）。
+	// 读不到只可能是并发删除，按内部错误处理而不是假装 404。
+	view, ok, err := a.findNode(r.Context(), nodeID)
+	if err != nil || !ok {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // handleGetNode 返回单个节点；未登记过的 ID 返回 404。
@@ -133,26 +189,36 @@ func (a *API) listNodes(ctx context.Context) ([]nodeView, error) {
 
 	views := make([]nodeView, 0, len(records))
 	for _, rec := range records {
-		view := nodeView{
-			ID:             rec.ID,
-			Name:           rec.Name,
-			OS:             rec.OS,
-			Arch:           rec.Arch,
-			AgentVersion:   rec.AgentVersion,
-			Capabilities:   rec.Capabilities,
-			WorkspaceRoots: rec.WorkspaceRoots,
-			Connected:      a.nodeConnected(rec),
-			LastSeen:       rec.LastSeen,
-		}
-		// hello 不带 capabilities 时存储里是 nil，直接序列化会得到 null；
-		// 浏览器端需要能安全地遍历，因此统一成空数组。
-		if view.Capabilities == nil {
-			view.Capabilities = []string{}
-		}
-		if view.WorkspaceRoots == nil {
-			view.WorkspaceRoots = []string{}
-		}
-		views = append(views, view)
+		views = append(views, a.nodeViewFromRecord(rec))
 	}
 	return views, nil
+}
+
+// nodeViewFromRecord 把一条持久化记录投影成浏览器视图。
+//
+// 节点列表、单节点查询与认领确认必须共用同一份字段映射：任何一处手写第二个
+// 投影，迟早会出现「列表里有 claimed、认领响应里没有」这类前端无法解释的
+// 分叉。
+func (a *API) nodeViewFromRecord(rec store.Node) nodeView {
+	view := nodeView{
+		ID:             rec.ID,
+		Name:           rec.Name,
+		OS:             rec.OS,
+		Arch:           rec.Arch,
+		AgentVersion:   rec.AgentVersion,
+		Capabilities:   rec.Capabilities,
+		WorkspaceRoots: rec.WorkspaceRoots,
+		Claimed:        !rec.ClaimedAt.IsZero(),
+		Connected:      a.nodeConnected(rec),
+		LastSeen:       rec.LastSeen,
+	}
+	// hello 不带 capabilities 时存储里是 nil，直接序列化会得到 null；
+	// 浏览器端需要能安全地遍历，因此统一成空数组。
+	if view.Capabilities == nil {
+		view.Capabilities = []string{}
+	}
+	if view.WorkspaceRoots == nil {
+		view.WorkspaceRoots = []string{}
+	}
+	return view
 }

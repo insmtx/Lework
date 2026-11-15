@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/insmtx/lework/backend/internal/controlplane/authn"
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
@@ -30,6 +32,12 @@ const defaultHeartbeatTimeout = 35 * time.Second
 // 先限制再解码可以避免超大请求体把内存交给对端控制。
 const maxRequestBodyBytes = 1 << 20
 
+// defaultEventsRefresh 是 SSE 连接重算可见节点集合的周期。
+//
+// 成员变更没有强一致的广播通道（node.member.* 事件也可能跨实例丢失），
+// 因此设计 §9 允许最多 30 秒的生效延迟；订阅期间按这个周期兜底重算。
+const defaultEventsRefresh = 30 * time.Second
+
 // errorResponse 是浏览器 API 的统一错误体。
 type errorResponse struct {
 	Code    string `json:"code"`
@@ -45,16 +53,39 @@ type API struct {
 	index    *overview.Index
 	router   *node.Router
 	coreSub  mq.CoreSubscriber
+	// core 发布不进 stream 的易失通知；认领确认用它通知持有待定连接的实例。
+	core mq.CorePublisher
+
+	// resolver 用于初始化接口的 enrollment token 比较；身份解析本身发生在
+	// 中间件里，API 不重复解释 cookie 与 Bearer。
+	resolver authz.Resolver
+	// authCfg 是会话有效期与注册策略。
+	authCfg AuthConfig
+	// claimCfg 是认领码的有效期上限与长度；零值由 claimTTL/claimCodeLength
+	// 回落到包内默认值。
+	claimCfg ClaimConfig
+	// claimAttempts 是浏览器端按账号的猜码失败限流；只在进程内存里。
+	claimAttempts *claimAttemptLimiter
+	// loginAttempts 是登录失败限流：按「规范化邮箱 + 来源 IP」计数，同样只在
+	// 进程内存里，多实例部署各自持有预算。
+	loginAttempts *claimAttemptLimiter
+	// newClaimCode 生成认领码。生产指向 authn.NewShortCode；测试可替换成
+	// 确定性序列，从而稳定覆盖撞码重试（随机码空间无法构造可复现的碰撞）。
+	newClaimCode func(length int) (string, error)
 
 	requestTimeout time.Duration
 	// heartbeatTimeout 决定存储里的 LastSeen 多久之后算离线。跨实例部署时
 	// 节点可能连在别的实例上，因此在线判定不能只看本实例注册表。
 	heartbeatTimeout time.Duration
+	// eventsRefresh 是 SSE 连接重算可见节点集合的周期。放进字段而不是常量，
+	// 是为了让测试能把它缩短到毫秒级，不必真的等 30 秒。
+	eventsRefresh time.Duration
 }
 
 // New 组装浏览器 API；requestTimeout 与 heartbeatTimeout 非正时使用默认值。
 // index 是总览的派生索引，调用方负责喂事件；为 nil 时总览端点会明确报错。
 // registry 保留用于同进程的节点元数据查询，在线状态以存储的心跳窗口为准。
+// core 用于发布认领通知；claimCfg 的零值回落到包内默认的 5 分钟 / 5 位。
 func New(
 	st *store.Store,
 	registry *node.Registry,
@@ -62,6 +93,10 @@ func New(
 	index *overview.Index,
 	router *node.Router,
 	coreSub mq.CoreSubscriber,
+	core mq.CorePublisher,
+	resolver authz.Resolver,
+	authCfg AuthConfig,
+	claimCfg ClaimConfig,
 	requestTimeout, heartbeatTimeout time.Duration,
 ) *API {
 	if requestTimeout <= 0 {
@@ -77,8 +112,16 @@ func New(
 		index:            index,
 		router:           router,
 		coreSub:          coreSub,
+		core:             core,
+		resolver:         resolver,
+		authCfg:          authCfg,
+		claimCfg:         claimCfg,
+		claimAttempts:    newClaimAttemptLimiter(claimAttemptsPerAccount, claimAttemptWindowSize),
+		loginAttempts:    newClaimAttemptLimiter(loginAttemptsPerIdentity, loginAttemptWindow),
+		newClaimCode:     authn.NewShortCode,
 		requestTimeout:   requestTimeout,
 		heartbeatTimeout: heartbeatTimeout,
+		eventsRefresh:    defaultEventsRefresh,
 	}
 }
 
@@ -94,38 +137,57 @@ func (a *API) nodeConnected(rec store.Node) bool {
 }
 
 // Register 把全部浏览器端点注册到 mux。方法与路径由 ServeMux 模式约束，
-// 未声明的方法自动得到 405。
+// 未声明的方法会落到静态资源处理器（通常得到 404，而不是 401）。
 func (a *API) Register(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/auth/bootstrap", a.handleBootstrap)
+	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
+	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
+	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
+	// 设计 §8 用 DELETE /api/auth/session 描述登出；任务书与前端使用
+	// POST /api/auth/logout。两个路径指向同一 handler，避免文档与实现漂移时
+	// 任一方客户端拿到 404。
+	mux.HandleFunc("DELETE /api/auth/session", a.handleLogout)
+	mux.HandleFunc("GET /api/me", a.handleMe)
+
 	mux.HandleFunc("GET /api/nodes", a.handleListNodes)
-	mux.HandleFunc("GET /api/nodes/{id}", a.handleGetNode)
-	mux.HandleFunc("GET /api/nodes/{id}/health", a.handleNodeHealth)
-	mux.HandleFunc("POST /api/nodes/{id}/opencode/start", a.handleOpenCodeStart)
-	mux.HandleFunc("POST /api/nodes/{id}/opencode/restart", a.handleOpenCodeRestart)
-	mux.HandleFunc("POST /api/nodes/{id}/opencode/stop", a.handleOpenCodeStop)
-	mux.HandleFunc("GET /api/nodes/{id}/files", a.handleFileList)
-	mux.HandleFunc("GET /api/nodes/{id}/files/content", a.handleFileContent)
+	// 认领不走 nodeRoute：未认领节点没有成员行，成员授权必然把请求挡成 404。
+	// 这条路由的授权在 handler 里按「管理员 + 账号」判定。
+	mux.HandleFunc("POST /api/nodes/{id}/claim", a.handleClaimNode)
+	// 扫码加入：agent 出码、账号侧预览并确认；网页出码给 `lework agent --code`。
+	// 三条路由都不经 nodeRoute——此时节点还不存在，没有成员行可校验。
+	mux.HandleFunc("POST /api/node-claims", a.handleCreateClaim)
+	mux.HandleFunc("GET /api/claim/{code}", a.handlePreviewClaim)
+	mux.HandleFunc("POST /api/claim/{code}", a.handleClaimCode)
+	a.nodeRoute(mux, "GET /api/nodes/{id}", a.handleGetNode)
+	a.nodeRoute(mux, "GET /api/nodes/{id}/health", a.handleNodeHealth)
+	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/start", a.handleOpenCodeStart)
+	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/restart", a.handleOpenCodeRestart)
+	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/stop", a.handleOpenCodeStop)
+	a.nodeRoute(mux, "GET /api/nodes/{id}/files", a.handleFileList)
+	a.nodeRoute(mux, "GET /api/nodes/{id}/files/content", a.handleFileContent)
 
 	mux.HandleFunc("GET /api/sessions", a.handleListSessions)
 	mux.HandleFunc("POST /api/sessions", a.handleCreateSession)
-	mux.HandleFunc("PATCH /api/sessions/{nodeID}/{sessionID}", a.handleRenameSession)
-	mux.HandleFunc("DELETE /api/sessions/{nodeID}/{sessionID}", a.handleDeleteSession)
-	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/messages", a.handleSessionMessages)
-	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/children", a.handleListSessionChildren)
-	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/prompt", a.handleSessionPrompt)
-	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/diff", a.handleSessionDiff)
-	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/interrupt", a.handleSessionInterrupt)
-	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/pty", a.handlePTYCreate)
-	mux.HandleFunc("DELETE /api/sessions/{nodeID}/{sessionID}/pty/{ptyID}", a.handlePTYClose)
-	mux.HandleFunc("GET /api/pty/{nodeID}/{sessionID}/{ptyID}/ws", a.handlePTYWebSocket)
-	mux.HandleFunc("POST /api/sessions/{nodeID}/{sessionID}/permissions/{permissionID}/reply", a.handlePermissionReply)
-	mux.HandleFunc("GET /api/sessions/{nodeID}/{sessionID}/permissions", a.handleListPermissions)
+	a.nodeRoute(mux, "PATCH /api/sessions/{nodeID}/{sessionID}", a.handleRenameSession)
+	a.nodeRoute(mux, "DELETE /api/sessions/{nodeID}/{sessionID}", a.handleDeleteSession)
+	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/messages", a.handleSessionMessages)
+	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/children", a.handleListSessionChildren)
+	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/prompt", a.handleSessionPrompt)
+	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/diff", a.handleSessionDiff)
+	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/interrupt", a.handleSessionInterrupt)
+	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/pty", a.handlePTYCreate)
+	a.nodeRoute(mux, "DELETE /api/sessions/{nodeID}/{sessionID}/pty/{ptyID}", a.handlePTYClose)
+	a.nodeRoute(mux, "GET /api/pty/{nodeID}/{sessionID}/{ptyID}/ws", a.handlePTYWebSocket)
+	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/permissions/{permissionID}/reply",
+		a.handlePermissionReply)
+	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/permissions", a.handleListPermissions)
 
 	mux.HandleFunc("GET /api/events", a.handleEvents)
 
 	mux.HandleFunc("GET /api/overview", a.handleOverview)
 
 	mux.HandleFunc("GET /api/projects", a.handleListProjects)
-	mux.HandleFunc("GET /api/nodes/{id}/projects", a.handleNodeProjects)
+	a.nodeRoute(mux, "GET /api/nodes/{id}/projects", a.handleNodeProjects)
 	mux.HandleFunc("PUT /api/projects/{key}/primary-node", a.handleSetProjectPrimaryNode)
 	mux.HandleFunc("GET /api/preferences", a.handleListPreferences)
 	mux.HandleFunc("PUT /api/preferences/{key}", a.handleSetPreference)

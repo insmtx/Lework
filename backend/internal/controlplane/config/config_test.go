@@ -259,6 +259,85 @@ func TestValidateClusterDoesNotLeakURL(t *testing.T) {
 	}
 }
 
+// TestDefaultRegistrationAndLocalAdmin 钉住注册与本地直通策略的默认值：
+// 默认收紧为邀请制，本机回环仍可直接以管理员身份操作。
+func TestDefaultRegistrationAndLocalAdmin(t *testing.T) {
+	cfg := Default()
+	if cfg.RegistrationMode != "invite" {
+		t.Errorf("RegistrationMode = %q, want %q", cfg.RegistrationMode, "invite")
+	}
+	if !cfg.LocalAdmin {
+		t.Error("LocalAdmin = false, want true")
+	}
+}
+
+func TestValidateRejectsUnknownRegistrationMode(t *testing.T) {
+	cfg := validConfig()
+	cfg.RegistrationMode = "public"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "registration_mode") {
+		t.Fatalf("Validate() = %v", err)
+	}
+}
+
+func TestDefaultClaimSettings(t *testing.T) {
+	cfg := Default()
+	if cfg.ClaimTTL != 5*time.Minute || cfg.ClaimCodeLength != 5 || cfg.SessionTTL != 30*24*time.Hour {
+		t.Fatalf("defaults = %+v", cfg)
+	}
+}
+
+func TestConfigValidateAcceptsKnownRegistrationModes(t *testing.T) {
+	for _, mode := range []string{"invite", "open", "closed"} {
+		cfg := validConfig()
+		cfg.RegistrationMode = mode
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() with RegistrationMode %q = %v, want nil", mode, err)
+		}
+	}
+}
+
+func TestConfigValidateRejectsInvalidSessionAndClaimSettings(t *testing.T) {
+	cases := []struct {
+		name   string
+		field  string
+		mutate func(*Config)
+	}{
+		{"zero session ttl", "session_ttl", func(c *Config) { c.SessionTTL = 0 }},
+		{"negative session ttl", "session_ttl", func(c *Config) { c.SessionTTL = -time.Hour }},
+		{"zero claim ttl", "claim_ttl", func(c *Config) { c.ClaimTTL = 0 }},
+		{"negative claim ttl", "claim_ttl", func(c *Config) { c.ClaimTTL = -time.Minute }},
+		{"claim code too short", "claim_code_length", func(c *Config) { c.ClaimCodeLength = 3 }},
+		{"claim code too long", "claim_code_length", func(c *Config) { c.ClaimCodeLength = 9 }},
+		{"zero claim code length", "claim_code_length", func(c *Config) { c.ClaimCodeLength = 0 }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			tc.mutate(&cfg)
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("Validate() should fail for %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.field) {
+				t.Errorf("Validate() error = %q, want it to mention %s", err, tc.field)
+			}
+		})
+	}
+}
+
+// TestConfigValidateAcceptsClaimCodeBounds 钉住 4..8 的两个端点也是合法取值。
+func TestConfigValidateAcceptsClaimCodeBounds(t *testing.T) {
+	for _, n := range []int{4, 8} {
+		cfg := validConfig()
+		cfg.ClaimCodeLength = n
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() with ClaimCodeLength %d = %v, want nil", n, err)
+		}
+	}
+}
+
 // TestValidateDoesNotRequireCluster 钉住：Validate 仍只校验本地启动参数，
 // 单测与本地 SQLite 模式都不需要 NATS/PostgreSQL。
 func TestValidateDoesNotRequireCluster(t *testing.T) {

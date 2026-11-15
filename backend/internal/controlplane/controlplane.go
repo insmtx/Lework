@@ -20,6 +20,7 @@ import (
 
 	"github.com/insmtx/lework/backend/internal/controlplane/agentgw"
 	"github.com/insmtx/lework/backend/internal/controlplane/api"
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
@@ -138,6 +139,12 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 	publisher := event.NewPublisher(deps.Bus, deps.Core)
 	bridge := event.NewBridge(deps.Bus, hub)
 	live := event.NewLiveSubscriber(hub)
+	resolver := authz.Resolver{
+		Store:           st,
+		EnrollmentToken: cfg.EnrollmentToken,
+		LocalAdmin:      cfg.LocalAdmin,
+		SessionTTL:      cfg.SessionTTL,
+	}
 	gateway := agentgw.New(agentgw.Config{
 		EnrollmentToken:  cfg.EnrollmentToken,
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
@@ -155,6 +162,10 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		index,
 		node.NewRouter(registry, deps.Request),
 		deps.CoreSub,
+		deps.Core,
+		resolver,
+		api.AuthConfig{SessionTTL: cfg.SessionTTL, RegistrationMode: cfg.RegistrationMode},
+		api.ClaimConfig{TTL: cfg.ClaimTTL, CodeLength: cfg.ClaimCodeLength},
 		cfg.RequestTimeout,
 		cfg.HeartbeatTimeout,
 	)
@@ -177,7 +188,7 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		bridge:    bridge,
 		live:      live,
 		deps:      deps,
-		handler:   newAuthHandler(mux, cfg.EnrollmentToken),
+		handler:   newAuthMiddleware(mux, resolver),
 	}, nil
 }
 
@@ -231,7 +242,7 @@ func (s *Server) Run(ctx context.Context) error {
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
 	if !config.IsLoopbackAddr(s.cfg.ListenAddr) {
 		logs.Warnf("control plane is listening on non-loopback address %s; "+
-			"browser API requires the enrollment token", s.cfg.ListenAddr)
+			"browser API requires an account login (or an admin Bearer token)", s.cfg.ListenAddr)
 	}
 
 	errCh := make(chan error, 1)

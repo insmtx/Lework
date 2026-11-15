@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/ygpkg/yg-go/logs"
+
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 )
 
@@ -19,6 +23,19 @@ const (
 	// sseHeartbeat 是空闲连接的心跳间隔，避免代理在无事件时断开。
 	sseHeartbeat = 15 * time.Second
 
+	// nodeMemberEventPrefix 是成员变更事件的类型前缀。
+	//
+	// 收到这类事件就立刻重算可见集合，成员被授予或撤销不必等满一个
+	// 刷新周期；跨实例时事件可能丢失，周期刷新仍然必须保留。
+	nodeMemberEventPrefix = "node.member."
+
+	// nodeLifecycleEventPrefix 是节点生命周期事件的类型前缀（node.connected、
+	// node.offline、节点快照等）。
+	//
+	// 可见集合来自订阅时的快照，订阅之后才登记的节点不在里面；这类事件到达
+	// 时必须就地重算一次，否则新节点的上线通知要等到下一个刷新周期。
+	nodeLifecycleEventPrefix = "node."
+
 	// resyncFrame 通知浏览器事件可能缺失，需要重新对账。
 	resyncFrame = "event: resync\ndata: {\"reason\":\"slow_consumer\"}\n\n"
 
@@ -28,7 +45,49 @@ const (
 	readyFrame = ": connected\n\n"
 )
 
+// allowedNodes 返回 p 可见的节点 ID 集合，供事件流过滤使用。
+//
+// SSE 与 /api/nodes 必须用同一套可见范围，否则「列表里看不到、事件里却收到」
+// 会直接泄漏别人的节点；因此这里只做一层薄包装，不自行解释角色。
+func (a *API) allowedNodes(ctx context.Context, p authz.Principal) (map[string]struct{}, error) {
+	visible, err := authz.VisibleNodeIDs(ctx, a.store, p)
+	if err != nil {
+		return nil, fmt.Errorf("authorize event stream nodes: %w", err)
+	}
+	return visible, nil
+}
+
+// eventVisible 判定一条事件能否下发给当前订阅者。
+//
+// 没有 NodeID 的事件无法判定归属，按不可见处理（fail closed）——resync 不是
+// Event，走的是另一条代码路径，不受这里影响。
+func eventVisible(visible map[string]struct{}, nodeID string) bool {
+	if nodeID == "" {
+		return false
+	}
+	_, ok := visible[nodeID]
+	return ok
+}
+
+// restrictToNode 把可见集合收敛到 ?node= 指定的节点。
+//
+// node 过滤只能收窄范围：请求不可见节点时返回空集合，流保持沉默而不是报错，
+// 否则状态码与错误文案就成了节点存在性的探针。
+func restrictToNode(visible map[string]struct{}, nodeID string) map[string]struct{} {
+	if nodeID == "" {
+		return visible
+	}
+	if _, ok := visible[nodeID]; !ok {
+		return nil
+	}
+	return map[string]struct{}{nodeID: {}}
+}
+
 // handleEvents 提供 SSE 事件流，可选按 node 与 session 过滤。
+//
+// 事件先按当前身份的可见节点集合过滤再写帧：非成员既拿不到别人节点的事件，
+// 也无法从「有没有事件」推断节点是否存在。可见集合在订阅时计算一次，之后
+// 每个刷新周期或收到 node.member.* 事件时重算，满足设计 §9 的 30 秒时效。
 //
 // live=1 时额外订阅 token 级增量事件；默认只收状态事件，避免总览等常驻
 // 连接被高频 token 流量拖慢。
@@ -39,10 +98,23 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+	principal := a.principal(r)
+
+	// 可见集合必须先算出来再写 SSE 头：算不出来就整体失败，绝不能带着
+	// 空集合建流——那样客户端会静默收不到任何事件，比直接 500 更难排查。
+	visible, err := a.allowedNodes(ctx, principal)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+
 	query := r.URL.Query()
 	nodeFilter := query.Get("node")
 	sessionFilter := query.Get("session")
 	includeLive := query.Get("live") == "1"
+
+	visible = restrictToNode(visible, nodeFilter)
 
 	var (
 		events <-chan event.Event
@@ -63,14 +135,18 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	if err := writeSSEFrame(r.Context(), w, flusher, readyFrame); err != nil {
+	if err := writeSSEFrame(ctx, w, flusher, readyFrame); err != nil {
 		return
 	}
 
 	ticker := time.NewTicker(sseHeartbeat)
 	defer ticker.Stop()
 
-	ctx := r.Context()
+	// 心跳与可见集合刷新各用各的 ticker：心跳必须稳定在 15 秒，不能被
+	// 成员重算拖慢或提前。
+	refresh := time.NewTicker(a.eventsRefreshInterval())
+	defer refresh.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -81,13 +157,23 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+		case <-refresh.C:
+			visible = restrictToNode(a.recomputeVisible(ctx, principal, visible), nodeFilter)
+
 		case ev, open := <-events:
 			if !open {
 				// Hub 淘汰了本订阅者：明确告知浏览器重新订阅。
 				_ = writeSSEFrame(ctx, w, flusher, resyncFrame)
 				return
 			}
-			if nodeFilter != "" && ev.NodeID != nodeFilter {
+			// 成员事件到达时先重算再判断：新授予的节点事件（包括这条成员
+			// 事件本身）应当立即生效，而不是被旧集合丢掉。订阅之后才登记的
+			// 新节点同理：node.connected 与首个快照通常会先于下一次周期刷新
+			// 到达，不就地重算就会整段丢掉。
+			if isNodeMemberEvent(ev.Type) || isUnknownNodeLifecycleEvent(ev, visible, nodeFilter) {
+				visible = restrictToNode(a.recomputeVisible(ctx, principal, visible), nodeFilter)
+			}
+			if !eventVisible(visible, ev.NodeID) {
 				continue
 			}
 			// 只有带 session_id 且不匹配才丢弃：agent.resync_required 等
@@ -105,6 +191,57 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// eventsRefreshInterval 返回重算可见集合的周期；零值或负值回落到默认值，
+// 避免测试或手工装配出的 API 用 time.NewTicker 直接 panic。
+func (a *API) eventsRefreshInterval() time.Duration {
+	if a.eventsRefresh <= 0 {
+		return defaultEventsRefresh
+	}
+	return a.eventsRefresh
+}
+
+// recomputeVisible 重算可见节点集合，失败时保留旧集合。
+//
+// 重算只是一次可见性刷新，数据库抖动不该把已经建立的事件流打断；日志只记
+// 错误本身，事件内容与身份凭据都不落日志。
+func (a *API) recomputeVisible(
+	ctx context.Context,
+	p authz.Principal,
+	prev map[string]struct{},
+) map[string]struct{} {
+	next, err := a.allowedNodes(ctx, p)
+	if err != nil {
+		logs.Debugf("event stream: recompute visible nodes: %v", err)
+		return prev
+	}
+	return next
+}
+
+// isNodeMemberEvent 判断事件类型是否属于成员变更。
+func isNodeMemberEvent(eventType string) bool {
+	return strings.HasPrefix(eventType, nodeMemberEventPrefix)
+}
+
+// isUnknownNodeLifecycleEvent 判断事件是否是「当前集合里还没有」的节点生命周期
+// 事件。
+//
+// 这类事件最可能来自订阅之后才登记的节点，需要就地重算一次才能转发；集合内
+// 的节点事件不额外查库。?node= 已把范围收窄到别的节点时，重算也改变不了
+// 「不转发」的结论，因此跳过——否则范围外的每个节点事件都会打一次库。
+func isUnknownNodeLifecycleEvent(
+	ev event.Event,
+	visible map[string]struct{},
+	nodeFilter string,
+) bool {
+	if ev.NodeID == "" || !strings.HasPrefix(ev.Type, nodeLifecycleEventPrefix) {
+		return false
+	}
+	if _, ok := visible[ev.NodeID]; ok {
+		return false
+	}
+	return nodeFilter == "" || nodeFilter == ev.NodeID
 }
 
 // writeSSEFrame 在请求仍有效时写出一帧并立即刷新。

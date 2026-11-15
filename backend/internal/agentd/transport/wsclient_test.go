@@ -89,6 +89,58 @@ func TestDialRejectsUnsupportedScheme(t *testing.T) {
 	}
 }
 
+// TestDialReportsHandshakeStatus 让 401 与任何其它拨号失败可区分：agent 只在
+// 凭证被拒时打印「重新配对」，网络故障仍然安静退避。
+func TestDialReportsHandshakeStatus(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, http.StatusText(status), status)
+			}))
+			defer srv.Close()
+
+			_, err := Dial(context.Background(), DialConfig{URL: wsURL(srv)})
+			if err == nil {
+				t.Fatalf("Dial accepted a %d response, want error", status)
+			}
+
+			var handshake *HandshakeError
+			if !errors.As(err, &handshake) {
+				t.Fatalf("err = %v, want a *HandshakeError", err)
+			}
+			if handshake.StatusCode != status {
+				t.Fatalf("StatusCode = %d, want %d", handshake.StatusCode, status)
+			}
+			if !strings.Contains(handshake.Error(), http.StatusText(status)) {
+				t.Fatalf("Error() = %q, want the status line", handshake.Error())
+			}
+			// 错误会进日志：既不能带服务器地址，也不能带响应头。
+			host := strings.TrimPrefix(srv.URL, "http://")
+			if strings.Contains(handshake.Error(), host) {
+				t.Fatalf("Error() = %q, want no endpoint %q", handshake.Error(), host)
+			}
+			if strings.Contains(handshake.Error(), "Authorization") {
+				t.Fatalf("Error() = %q, want no request/response headers", handshake.Error())
+			}
+			if !errors.Is(err, websocket.ErrBadHandshake) {
+				t.Fatalf("err = %v, want it to unwrap to ErrBadHandshake", err)
+			}
+		})
+	}
+}
+
+// TestDialTransportFailureIsNotHandshakeError 确保网络层失败不会被误报成凭证问题。
+func TestDialTransportFailureIsNotHandshakeError(t *testing.T) {
+	_, err := Dial(context.Background(), DialConfig{URL: "ws://127.0.0.1:1"})
+	if err == nil {
+		t.Fatal("Dial to a closed port returned nil error")
+	}
+	var handshake *HandshakeError
+	if errors.As(err, &handshake) {
+		t.Fatalf("err = %v, want a plain dial error", err)
+	}
+}
+
 func TestReadHonoursContextDeadline(t *testing.T) {
 	client, err := Dial(context.Background(), DialConfig{URL: wsURL(idleServer(t))})
 	if err != nil {

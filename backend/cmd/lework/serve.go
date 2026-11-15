@@ -43,7 +43,6 @@ func newServeCommand() *cobra.Command {
 	cfg := controlplaneconfig.Default()
 	enrollmentToken := os.Getenv(envEnrollmentToken)
 	tokenFile := defaultTokenFile()
-	pair := pairOptions{}
 	configPath := resolveConfigPath()
 	natsURL := ""
 	databaseURL := ""
@@ -77,9 +76,10 @@ Examples:
 			if err != nil {
 				return err
 			}
-			file.applyControlPlane(&cfg, &tokenFile, &pair, cmd.Flags().Changed)
+			file.applyControlPlane(&cfg, &tokenFile, cmd.Flags().Changed)
 			applyClusterFlags(&cfg, natsURL, databaseURL, cmd.Flags().Changed)
-			return runControlPlane(cmd.Context(), cfg, enrollmentToken, tokenFile, pair, cmd.OutOrStdout())
+			announceStartup(cmd.OutOrStdout(), cfg)
+			return runControlPlane(cmd.Context(), cfg, enrollmentToken, tokenFile)
 		},
 	}
 
@@ -101,7 +101,7 @@ Examples:
 		"NATS URL for cluster event fan-out (defaults to nats.url in the config file)")
 	flags.StringVar(&databaseURL, "database-url", "",
 		"PostgreSQL URL shared by control plane instances (defaults to database.url in the config file)")
-	addPairingFlags(cmd, &pair)
+	addDeprecatedPairingFlags(cmd)
 
 	// The token is a secret: keep the value initialized from the environment
 	// but clear the printed default so help and completion output never show it.
@@ -113,6 +113,30 @@ Examples:
 
 	return cmd
 }
+
+// addDeprecatedPairingFlags 保留已废弃的启动配对参数，避免旧部署直接失败。
+//
+// 这三个 flag 过去用于启动时打印带 enrollment token 的手机配对二维码。设计
+// §8/§12 取消该二维码后，启动不再输出任何凭据；这里仍接受这三个参数，但只在
+// help 里以 deprecated 说明并隐藏，让已有的 systemd 单元与脚本继续可用。
+func addDeprecatedPairingFlags(cmd *cobra.Command) {
+	flags := cmd.Flags()
+	flags.String("public-url", "", "deprecated: ignored; the control plane no longer prints a pairing QR")
+	_ = flags.MarkHidden("public-url")
+	flags.String("expo-url", "", "deprecated: ignored; the control plane no longer prints a pairing QR")
+	_ = flags.MarkHidden("expo-url")
+	flags.Bool("no-qr", false, "deprecated: ignored; the control plane no longer prints a pairing QR")
+	_ = flags.MarkHidden("no-qr")
+}
+
+// announceStartup 是「控制面启动不得打印任何凭据」的不变量接缝。
+//
+// 设计 §8/§12 要求启动不再打印手机配对二维码：账号体系下手机用账号登录，
+// enrollment token 只是管理员 Bearer，出现在终端回滚、截图或共享屏幕里就等于
+// 泄漏。这个函数刻意什么都不做，保留它是为了让该不变量有直接的单测（传入带
+// token 的配置，断言输出为空且不含 lework://connect / token=），避免以后有人
+// 又把二维码加回启动路径。
+func announceStartup(_ io.Writer, _ controlplaneconfig.Config) {}
 
 // newServeTokenCommand 打印当前生效的注册令牌，文件缺失时生成并持久化。
 //
@@ -234,13 +258,11 @@ func (r *controlPlaneRuntime) Close() error {
 
 // runControlPlane 解析注册令牌、装配运行时，并服务到信号触发退出。
 //
-// pairingOut 用于启动时打印手机配对二维码；只有终端输出才会真正显示。
+// 启动路径不再向终端打印任何凭据；令牌只用于节点入网与管理员 Bearer。
 func runControlPlane(
 	parent context.Context,
 	cfg controlplaneconfig.Config,
 	explicitToken, tokenPath string,
-	pair pairOptions,
-	pairingOut io.Writer,
 ) error {
 	token, err := controlplaneconfig.ResolveToken(explicitToken, tokenPath)
 	if err != nil {
@@ -256,8 +278,6 @@ func runControlPlane(
 
 	ctx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
-
-	announcePairing(pairingOut, cfg, pair)
 
 	return runtime.Run(ctx)
 }

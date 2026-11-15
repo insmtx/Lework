@@ -819,6 +819,137 @@ func TestRunnerForwardsPTYEventsAndClosesOnExit(t *testing.T) {
 	}
 }
 
+// welcomeCredentialSink 记录 welcome 下发的凭证。got 只存在于内存中；
+// 失败消息打印长度，避免把明文写进测试日志。
+type welcomeCredentialSink struct {
+	got string
+	err error
+}
+
+func (s *welcomeCredentialSink) Set(raw string) error {
+	s.got = raw
+	return s.err
+}
+
+func TestWelcomeCredentialIsPersisted(t *testing.T) {
+	sink := &welcomeCredentialSink{}
+	r, transport, _ := testRunnerWithConfig(RunnerConfig{
+		NodeID:         "node-1",
+		NodeName:       "dev-box",
+		AgentVersion:   "0.1.0-test",
+		CredentialSink: sink.Set,
+	})
+	cancel, done := runAsync(t, r)
+
+	hello := awaitHello(t, transport)
+	transport.reads <- protocol.Frame{
+		Type:   protocol.FrameWelcome,
+		ID:     hello.ID,
+		Result: json.RawMessage(`{"node_id":"node-1","credential":"cred-9"}`),
+	}
+	// 一条成功响应证明 welcome 已被处理：sink 在握手完成前就被调用。
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest, ID: "r-cred", Method: "node.info"}
+	if response := readFrame(t, transport); response.ID != "r-cred" || response.Error != nil {
+		t.Fatalf("response = %+v, want a successful handshake follow-up", response)
+	}
+
+	if want := "cred-9"; sink.got != want {
+		t.Fatalf("credential sink received %d bytes, want %d", len(sink.got), len(want))
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v, want nil after cancel", err)
+	}
+}
+
+// TestWelcomeCredentialSinkFailureFailsHandshake 固化「没写下的凭证就是没人
+// 持有的凭证」：控制面已经存了哈希，agent 落盘失败必须断开而不是继续用一个
+// 只存在于内存里的身份。
+func TestWelcomeCredentialSinkFailureFailsHandshake(t *testing.T) {
+	transport := newFakeTransport()
+	r := New(transport, nil, nil, RunnerConfig{
+		NodeID:       "node-1",
+		AgentVersion: "0.1.0-test",
+		CredentialSink: func(string) error {
+			return errors.New("disk full")
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-transport.writes // hello
+		transport.reads <- protocol.Frame{
+			Type:   protocol.FrameWelcome,
+			Result: json.RawMessage(`{"node_id":"node-1","credential":"cred-secret"}`),
+		}
+	}()
+
+	err := r.Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "persist node credential") {
+		t.Fatalf("Run() = %v, want a wrapped persist error", err)
+	}
+	// 调用方靠这个哨兵判断「控制面已登记凭证、本地没写下」，从而停止重试，
+	// 否则每轮都会用旧令牌新建一个节点。
+	if !errors.Is(err, ErrCredentialPersist) {
+		t.Fatalf("Run() = %v, want it to wrap ErrCredentialPersist", err)
+	}
+	if strings.Contains(err.Error(), "cred-secret") {
+		t.Fatal("persist error leaked the credential")
+	}
+}
+
+func TestWelcomeWithoutCredentialSkipsSink(t *testing.T) {
+	sink := &welcomeCredentialSink{}
+	r, transport, _ := testRunnerWithConfig(RunnerConfig{
+		NodeID:         "node-1",
+		AgentVersion:   "0.1.0-test",
+		CredentialSink: sink.Set,
+	})
+	cancel, done := runAsync(t, r)
+
+	completeHandshake(t, transport)
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest, ID: "r-nocred", Method: "node.info"}
+	if response := readFrame(t, transport); response.ID != "r-nocred" || response.Error != nil {
+		t.Fatalf("response = %+v, want a successful handshake follow-up", response)
+	}
+	if sink.got != "" {
+		t.Fatalf("credential sink received %d bytes, want no call", len(sink.got))
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v, want nil after cancel", err)
+	}
+}
+
+// TestWelcomeCredentialIgnoredWithoutSink 覆盖测试与嵌入式调用方：没有 sink
+// 时一次性凭证被忽略，握手仍然成功。
+func TestWelcomeCredentialIgnoredWithoutSink(t *testing.T) {
+	r, transport, _ := testRunnerWithConfig(RunnerConfig{
+		NodeID:       "node-1",
+		AgentVersion: "0.1.0-test",
+	})
+	cancel, done := runAsync(t, r)
+
+	hello := awaitHello(t, transport)
+	transport.reads <- protocol.Frame{
+		Type:   protocol.FrameWelcome,
+		ID:     hello.ID,
+		Result: json.RawMessage(`{"node_id":"node-1","credential":"cred-9"}`),
+	}
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest, ID: "r-nil-sink", Method: "node.info"}
+	if response := readFrame(t, transport); response.ID != "r-nil-sink" || response.Error != nil {
+		t.Fatalf("response = %+v, want a successful handshake follow-up", response)
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v, want nil after cancel", err)
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

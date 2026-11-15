@@ -22,6 +22,14 @@ import (
 // by New so a zero RunnerConfig still produces a usable runner.
 const defaultHeartbeat = 10 * time.Second
 
+// ErrCredentialPersist marks a handshake that failed because the one-shot node
+// credential could not be written locally.
+//
+// 调用方必须把它当成终止条件，而不是可重试的连接错误：控制面在发出 welcome
+// 前已经写入了 credential_hash，而旧令牌路径只复用「没有凭证、没有成员」的
+// 节点——继续用旧令牌重连只会每轮新建一个节点并再签发一份写不下的凭证。
+var ErrCredentialPersist = errors.New("persist node credential")
+
 // responseSizeCheckThreshold 让精确的帧大小检查只对可能接近上限的响应生效。
 //
 // 编码后的 JSON 会把 <、>、& 转义成 6 字节，所以原始 result 长度不能代表
@@ -57,8 +65,11 @@ type RunnerConfig struct {
 	// attribute it to a node. The control plane may override it during the
 	// handshake with the ID it assigns.
 	NodeID string
-	// NodeName is the stable human-readable identity reported in hello. The
-	// control plane keys node records by name, so reconnects reuse the ID.
+	// NodeName is the human-readable label reported in hello and shown in the
+	// browser. It is display-only: node identity is the credential the control
+	// plane issued, and the node ID it assigns during the handshake, never the
+	// name. Two machines may report the same name; the control plane renames
+	// the newcomer instead of reusing an existing record.
 	NodeName string
 	// AgentVersion is reported during registration.
 	AgentVersion string
@@ -68,6 +79,16 @@ type RunnerConfig struct {
 	// WorkspaceRoots are reported in hello so the browser can offer a default
 	// project directory that session.create will accept.
 	WorkspaceRoots []string
+	// CredentialSink persists a one-shot node credential the control plane may
+	// hand back in the welcome result. It runs before the connection proceeds;
+	// a sink failure fails the handshake because a credential the agent never
+	// wrote is a credential nobody holds, while the control plane has already
+	// stored its hash — continuing would leave an unusable node record.
+	//
+	// A nil sink is allowed: tests and embedded callers that do not manage a
+	// credential file simply ignore the field. The runner passes the raw
+	// credential only to the sink and never logs it or puts it in an error.
+	CredentialSink func(raw string) error
 }
 
 // Runner drives one connection. It is single-use: a Runner is created for each
@@ -186,32 +207,7 @@ func (r *Runner) sendHello(ctx context.Context) error {
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		WorkspaceRoots: append([]string{}, r.cfg.WorkspaceRoots...),
-		Capabilities: []string{
-			"node.info",
-			"opencode.status",
-			"opencode.start",
-			"opencode.restart",
-			"opencode.stop",
-			"project.list",
-			"session.list",
-			"session.children",
-			"session.create",
-			"session.rename",
-			"session.delete",
-			"session.prompt",
-			"session.messages",
-			"session.diff",
-			"session.interrupt",
-			"permission.reply",
-			"permission.list",
-			"file.list",
-			"file.read",
-			"pty.create",
-			"pty.attach",
-			"pty.write",
-			"pty.resize",
-			"pty.close",
-		},
+		Capabilities:   Capabilities(),
 	})
 	if err != nil {
 		return fmt.Errorf("agentd: encode hello params: %w", err)
@@ -226,6 +222,40 @@ func (r *Runner) sendHello(ctx context.Context) error {
 		return fmt.Errorf("agentd: send hello: %w", err)
 	}
 	return nil
+}
+
+// Capabilities lists the agent methods a register or pair hello advertises.
+//
+// 配对 hello 与正常注册必须报告同一份能力清单，否则浏览器在配对确认页会
+// 看到一个比实际上线后更弱/更强的节点。导出而不是复制：两处清单各写一遍
+// 迟早会漂移。
+func Capabilities() []string {
+	return []string{
+		"node.info",
+		"opencode.status",
+		"opencode.start",
+		"opencode.restart",
+		"opencode.stop",
+		"project.list",
+		"session.list",
+		"session.children",
+		"session.create",
+		"session.rename",
+		"session.delete",
+		"session.prompt",
+		"session.messages",
+		"session.diff",
+		"session.interrupt",
+		"permission.reply",
+		"permission.list",
+		"file.list",
+		"file.read",
+		"pty.create",
+		"pty.attach",
+		"pty.write",
+		"pty.resize",
+		"pty.close",
+	}
 }
 
 // awaitWelcome reads until the control plane acknowledges registration. Frames
@@ -252,21 +282,42 @@ func (r *Runner) awaitWelcome(ctx context.Context) error {
 	}
 }
 
-// applyWelcome adopts the control-plane-assigned node ID from a welcome frame.
+// applyWelcome adopts the control-plane-assigned node ID from a welcome frame
+// and persists a one-shot credential when the control plane sends one.
+//
 // An empty result is the I0 fallback; unparsable JSON is a protocol error and
 // fails the handshake instead of silently keeping a possibly wrong identity.
+//
+// The credential bypasses the returned error text and logs entirely: it goes
+// only to CredentialSink. A sink failure aborts the handshake (wrapped with the
+// persist context) because the control plane has already recorded the hash and
+// this agent would otherwise lose the only copy of the plaintext.
 func (r *Runner) applyWelcome(frame protocol.Frame) error {
 	if len(frame.Result) == 0 {
 		return nil
 	}
 	var result struct {
-		NodeID string `json:"node_id"`
+		NodeID     string `json:"node_id"`
+		Credential string `json:"credential"`
 	}
 	if err := json.Unmarshal(frame.Result, &result); err != nil {
 		return fmt.Errorf("agentd: decode welcome result: %w", err)
 	}
 	if result.NodeID != "" {
 		r.cfg.NodeID = result.NodeID
+	}
+	if result.Credential == "" {
+		return nil
+	}
+	if r.cfg.CredentialSink == nil {
+		// Embedded callers and tests may not own a credential file. Ignoring the
+		// field keeps the handshake successful for them.
+		return nil
+	}
+	if err := r.cfg.CredentialSink(result.Credential); err != nil {
+		// 双 %w 让 errors.Is(err, ErrCredentialPersist) 与底层原因（权限、
+		// 磁盘）同时可查；凭证本身仍然只进 sink，不进错误文本。
+		return fmt.Errorf("agentd: %w: %w", ErrCredentialPersist, err)
 	}
 	return nil
 }

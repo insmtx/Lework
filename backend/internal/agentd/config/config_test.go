@@ -78,6 +78,7 @@ func TestConfigValidateRejectsBadInput(t *testing.T) {
 		{"missing node name", Config{ControlPlaneURL: "ws://x", WorkspaceRoots: []string{"/tmp/work"}, OpenCode: OpenCodeConfig{Port: 4096, ServiceMode: "shared"}}, "node_name"},
 		{"no roots", Config{ControlPlaneURL: "ws://x", NodeName: "dev", OpenCode: OpenCodeConfig{Port: 4096}}, "workspace_roots"},
 		{"relative root", Config{ControlPlaneURL: "ws://x", NodeName: "dev", WorkspaceRoots: []string{"rel"}, OpenCode: OpenCodeConfig{Port: 4096}}, "absolute"},
+		{"relative credential file", validConfigWithCredentialFile("relative/node.credential"), "credential_file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,5 +87,33 @@ func TestConfigValidateRejectsBadInput(t *testing.T) {
 				t.Fatalf("err = %v, want substring %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// validConfigWithCredentialFile 返回除 credential_file 外全部合法的配置。
+func validConfigWithCredentialFile(path string) Config {
+	return Config{
+		ControlPlaneURL: "ws://x",
+		NodeName:        "dev",
+		WorkspaceRoots:  []string{"/tmp/work"},
+		CredentialFile:  path,
+		OpenCode:        OpenCodeConfig{Port: 4096, ServiceMode: "shared"},
+	}
+}
+
+// TestValidateAcceptsCredentialFilePath 不要求凭证文件已存在：它只在配对成功后
+// 才出现，启动时校验存在性会让首次加入永远失败。
+func TestValidateAcceptsCredentialFilePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does", "not", "exist", "node.credential")
+	cfg := validConfigWithCredentialFile(path)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil for an absolute path that is not created yet", err)
+	}
+}
+
+func TestValidateAcceptsBlankCredentialFile(t *testing.T) {
+	cfg := validConfigWithCredentialFile("")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil when credential_file is blank", err)
 	}
 }

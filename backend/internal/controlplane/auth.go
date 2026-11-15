@@ -1,150 +1,126 @@
 package controlplane
 
 import (
-	"crypto/subtle"
-	"io"
-	"net"
+	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 )
 
-const (
-	// sessionCookieName 是浏览器登录后持有的会话 cookie 名称。
-	sessionCookieName = "lework_session"
-
-	// unauthorizedMessage 是拒绝访问时的固定正文，使用占位符而非真实令牌，
-	// 避免任何响应泄漏注册令牌。
-	unauthorizedMessage = "unauthorized: open /?token=<token> in a browser"
-)
-
-// authHandler 为非本机请求提供单一共享令牌鉴权；本机请求直接放行。
+// authMiddleware 把每个请求解析成 authz.Principal 放进 context。
 //
-// 控制面默认只监听回环，一旦暴露到网络，节点管理、会话、文件与 PTY 接口
-// 都必须先通过注册令牌校验。令牌值只参与比较与 cookie 写入，不进入日志、
-// 错误信息或响应体。
-type authHandler struct {
-	next  http.Handler
-	token string
+// 鉴权只在这一处发生：API handler 从 context 读身份，不再各自解释 cookie 或
+// Bearer。未通过时写固定的 JSON 401，绝不回显任何凭据。
+type authMiddleware struct {
+	next     http.Handler
+	resolver authz.Resolver
 }
 
-// newAuthHandler 用注册令牌包装整个 HTTP 处理器。
-func newAuthHandler(next http.Handler, token string) http.Handler {
-	return &authHandler{next: next, token: token}
+// newAuthMiddleware 用 authz.Resolver 包装整个 HTTP 处理器。
+func newAuthMiddleware(next http.Handler, resolver authz.Resolver) http.Handler {
+	return &authMiddleware{next: next, resolver: resolver}
 }
 
-// ServeHTTP 按“豁免 → 本机 → 查询令牌 → cookie → Bearer”的顺序鉴权。
-func (h *authHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if isAuthExemptPath(r.URL.Path) {
-		h.next.ServeHTTP(w, r)
-		return
-	}
-
-	// 反向代理常与浏览器同机部署，此时 RemoteAddr 是回环；只要出现转发头就
-	// 说明请求可能来自外部，必须走令牌校验，避免绕过。
-	if isLocalRequest(r) && !hasForwardingHeaders(r) {
-		h.next.ServeHTTP(w, r)
-		return
-	}
-
-	if token := r.URL.Query().Get("token"); token != "" && h.tokenMatches(token) {
-		h.setSessionCookie(w, r)
-		redirectWithoutToken(w, r)
-		return
-	}
-
-	if cookie, err := r.Cookie(sessionCookieName); err == nil && h.tokenMatches(cookie.Value) {
-		h.next.ServeHTTP(w, r)
-		return
-	}
-
-	if bearer, ok := bearerToken(r.Header.Get("Authorization")); ok && h.tokenMatches(bearer) {
-		h.next.ServeHTTP(w, r)
-		return
-	}
-
-	h.deny(w)
+// authErrorResponse 是中间件拒绝请求时的响应体。
+type authErrorResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
-// tokenMatches 以常量时间比较候选令牌，空令牌不参与匹配。
-func (h *authHandler) tokenMatches(candidate string) bool {
-	if h.token == "" || candidate == "" {
+// ServeHTTP 先放行豁免路径，再解析身份；失败区分「未认证」与「基础设施故障」。
+//
+// 把 500 与 401 分开是有意的：数据库抖动时回 401 会让浏览器把所有人的会话
+// 当成失效并清掉 cookie，而真实原因是服务端暂时不可用。
+func (m *authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if authExemptPath(r.URL.Path) {
+		m.next.ServeHTTP(w, r)
+		return
+	}
+
+	principal, ok, err := m.resolver.Resolve(r)
+	if err != nil {
+		writeAuthError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	if !ok && m.firstRunLocalRequest(r) {
+		// 设计 §8：本机直通只在「没有 User 表内容」或 local_admin 开启时生效。
+		// Resolver 已覆盖后者，这里补前者——否则首次部署且关闭 local_admin 时
+		// 连登录页都打不开初始化接口之外的本机页面。
+		principal = authz.Principal{Kind: authz.KindLocal, Role: "admin"}
+		ok = true
+	}
+	if !ok {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+
+	m.refreshSessionCookie(w, r, principal)
+
+	m.next.ServeHTTP(w, r.WithContext(authz.WithPrincipal(r.Context(), principal)))
+}
+
+// refreshSessionCookie 在请求靠会话 cookie 通过校验时重签同一个 cookie。
+//
+// 服务端只在 renewSession 里推后 expires_at，浏览器却按登录那一刻的 MaxAge
+// 计算存活期：不重签的话，一直活跃的浏览器仍会在登录 30 天后被清掉 cookie，
+// 用户被迫重新登录，滑动续期只做了一半。这里不需要从 resolver 拿「本次是否
+// 真的续期了」的标志：重签是无状态的，值原样回写，MaxAge 设为 SessionTTL，
+// 最坏情况是多写一个 Set-Cookie 头；若改成只在续期时重签，就得把内部时序判断
+// 穿过 Resolver.Resolve 的返回值，接口为了一个响应头变复杂。
+//
+// 只在「请求确实带了会话 cookie 且身份是账号」时做：Bearer（移动端）没有
+// cookie 罐，local/admin_token 也没有对应会话，给它们签发 cookie 会凭空造出
+// 一条不存在的会话。SessionTTL<=0 表示显式关闭续期，此时也不该把登录时写入的
+// 持久 cookie 改成会话 cookie。
+func (m *authMiddleware) refreshSessionCookie(w http.ResponseWriter, r *http.Request, principal authz.Principal) {
+	if principal.Kind != authz.KindUser || m.resolver.SessionTTL <= 0 {
+		return
+	}
+
+	cookie, err := r.Cookie(m.resolver.SessionCookieName())
+	if err != nil || cookie.Value == "" {
+		return
+	}
+
+	authz.SetSessionCookie(w, r, cookie.Value, m.resolver.SessionTTL)
+}
+
+// firstRunLocalRequest 判断是否「本机请求且还没有任何账号」。
+//
+// 存储不可用时返回 false：无法确认「没有账号」就不该直通，宁可让用户登录。
+func (m *authMiddleware) firstRunLocalRequest(r *http.Request) bool {
+	if m.resolver.Store == nil || !authz.IsLocalRequest(r) {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(candidate), []byte(h.token)) == 1
-}
-
-// setSessionCookie 把已校验的令牌写入浏览器会话 cookie。
-func (h *authHandler) setSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    h.token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteStrictMode,
-	})
-}
-
-// deny 返回 401，正文只含固定提示，不含令牌。
-func (h *authHandler) deny(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusUnauthorized)
-	_, _ = io.WriteString(w, unauthorizedMessage+"\n")
-}
-
-// isLocalRequest 判断请求是否直接来自本机回环。
-//
-// 只信任 RemoteAddr：它由 HTTP 服务器填写，客户端无法伪造。
-func isLocalRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	count, err := m.resolver.Store.CountUsers(r.Context())
 	if err != nil {
 		return false
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return count == 0
 }
 
-// hasForwardingHeaders 判断请求是否携带任一代理转发头。
+// authExemptPath 判断路径是否豁免鉴权。
 //
-// 只看头是否存在而不看值：即使代理写入空值，也不能据此把外部请求当作本机。
-func hasForwardingHeaders(r *http.Request) bool {
-	for _, name := range []string{"X-Forwarded-For", "X-Real-IP", "Forwarded"} {
-		if len(r.Header.Values(name)) > 0 {
-			return true
-		}
+// /api 之外的路径全部放行：登录页与静态资源必须在认证之前就能加载，否则
+// 用户永远看不到登录框。 /api 下只放行显式端点——探活、agent 网关（自行校验
+// 节点凭证）与三个认证入口；其余一律要求身份，新增端点默认受保护。
+func authExemptPath(path string) bool {
+	if !strings.HasPrefix(path, "/api/") {
+		return true
 	}
-	return false
-}
-
-// isAuthExemptPath 判断路径是否豁免鉴权，只做精确匹配以免前缀绕过。
-//
-// /healthz 用于探活；/api/agent/connect 由 agent 网关自行校验注册令牌。
-func isAuthExemptPath(path string) bool {
 	switch path {
-	case "/healthz", "/api/agent/connect":
+	case "/api/agent/connect", "/api/auth/bootstrap", "/api/auth/login", "/api/auth/register":
 		return true
 	default:
 		return false
 	}
 }
 
-// bearerToken 从 Authorization 头解析 Bearer 令牌，方案名大小写不敏感。
-func bearerToken(header string) (string, bool) {
-	scheme, value, ok := strings.Cut(header, " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") {
-		return "", false
-	}
-	return strings.TrimSpace(value), true
-}
-
-// redirectWithoutToken 种下 cookie 后跳回同一个地址，并从查询串中移除令牌，
-// 同时禁止 Referer 泄漏；其余查询参数保持不变。
-func redirectWithoutToken(w http.ResponseWriter, r *http.Request) {
-	target := *r.URL
-	query := target.Query()
-	query.Del("token")
-	target.RawQuery = query.Encode()
-
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, target.RequestURI(), http.StatusFound)
+// writeAuthError 写出固定错误体；调用方保证 code 与 message 都是常量，
+// 不拼接任何用户输入或凭据。
+func writeAuthError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(authErrorResponse{Code: code, Message: message})
 }

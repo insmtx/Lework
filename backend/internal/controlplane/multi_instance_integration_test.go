@@ -478,12 +478,13 @@ func miStartInstance(t *testing.T, parent context.Context, name string) *miInsta
 		t.Skipf("NATS with JetStream is unavailable for multi-instance test: %v", err)
 	}
 
-	srv, err := controlplane.New(config.Config{
-		ListenAddr:       addr,
-		EnrollmentToken:  miToken,
-		RequestTimeout:   miRequestTimeout,
-		HeartbeatTimeout: miHeartbeatTimeout,
-	}, st, controlplane.Deps{
+	// 从 Default 出发保证新增的认证配置字段始终合法。
+	cfg := config.Default()
+	cfg.ListenAddr = addr
+	cfg.EnrollmentToken = miToken
+	cfg.RequestTimeout = miRequestTimeout
+	cfg.HeartbeatTimeout = miHeartbeatTimeout
+	srv, err := controlplane.New(cfg, st, controlplane.Deps{
 		Bus:     bus,
 		Core:    bus,
 		CoreSub: bus,
@@ -1256,11 +1257,12 @@ func miWaitEvent(
 
 // ---- 推送假实现 ----
 
-// miPushDevices 始终返回一个设备。
+// miPushDevices 对每个节点都返回同一台设备。
 type miPushDevices struct{}
 
-// ListDevices 返回单个 iOS 设备。
-func (miPushDevices) ListDevices(context.Context) ([]store.Device, error) {
+// ListDevicesForNode 返回单个 iOS 设备；多实例用例只关心「一次事件只推一次」，
+// 不验证节点归属，因此忽略 nodeID。
+func (miPushDevices) ListDevicesForNode(context.Context, string) ([]store.Device, error) {
 	return []store.Device{{
 		ID:        "device-mi-1",
 		Name:      "test phone",

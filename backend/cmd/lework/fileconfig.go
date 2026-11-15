@@ -19,7 +19,6 @@ import (
 //
 //	controlplane:
 //	  listen: 127.0.0.1:8787
-//	  public_url: http://dev.ckeyer.com
 //	nats:
 //	  url: nats://127.0.0.1:4222
 //	database:
@@ -56,8 +55,6 @@ type controlPlaneFile struct {
 	TokenFile        *string        `yaml:"token_file"`
 	RequestTimeout   *time.Duration `yaml:"request_timeout"`
 	HeartbeatTimeout *time.Duration `yaml:"heartbeat_timeout"`
-	PublicURL        *string        `yaml:"public_url"`
-	ExpoURL          *string        `yaml:"expo_url"`
 }
 
 // unifiedConfig 是 --config 文件的解析结果。
@@ -110,7 +107,6 @@ func loadUnifiedConfig(path string) (*unifiedConfig, error) {
 func (c *unifiedConfig) applyControlPlane(
 	cfg *controlplaneconfig.Config,
 	tokenFile *string,
-	pair *pairOptions,
 	changed func(string) bool,
 ) {
 	if c == nil || cfg == nil {
@@ -139,14 +135,6 @@ func (c *unifiedConfig) applyControlPlane(
 		cfg.Database = &appconfig.DatabaseConfig{
 			URL:   strings.TrimSpace(c.Database.URL),
 			Debug: c.Database.Debug,
-		}
-	}
-	if pair != nil {
-		if cp.PublicURL != nil && !changed("public-url") {
-			pair.publicURL = strings.TrimSpace(*cp.PublicURL)
-		}
-		if cp.ExpoURL != nil && !changed("expo-url") {
-			pair.expoURL = strings.TrimSpace(*cp.ExpoURL)
 		}
 	}
 }

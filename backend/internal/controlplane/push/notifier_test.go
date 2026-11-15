@@ -22,7 +22,32 @@ type fakeDevices struct {
 	err     error
 }
 
-func (f fakeDevices) ListDevices(context.Context) ([]store.Device, error) { return f.devices, f.err }
+// ListDevicesForNode 忽略节点返回固定设备：多数用例只关心「有设备可推」。
+// 节点维度的过滤由 scopedDevices 与 store 的 ListDevicesForNode 用例覆盖。
+func (f fakeDevices) ListDevicesForNode(context.Context, string) ([]store.Device, error) {
+	return f.devices, f.err
+}
+
+// scopedDevices 按节点返回各自的成员设备，模拟 store 里 devices JOIN
+// node_members 的过滤结果；同时记录调用的节点 id 供断言。
+type scopedDevices struct {
+	mu     sync.Mutex
+	byNode map[string][]store.Device
+	asked  []string
+}
+
+func (s *scopedDevices) ListDevicesForNode(_ context.Context, nodeID string) ([]store.Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asked = append(s.asked, nodeID)
+	return s.byNode[nodeID], nil
+}
+
+func (s *scopedDevices) nodes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.asked...)
+}
 
 type fakeSender struct {
 	mu      sync.Mutex
@@ -50,6 +75,16 @@ func (f *fakeSender) firstBatch() []Message {
 		return nil
 	}
 	return f.batches[0]
+}
+
+// batch 返回第 i 批消息，越界时返回 nil，避免直接读 batches 时绕过锁。
+func (f *fakeSender) batch(i int) []Message {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if i < 0 || i >= len(f.batches) {
+		return nil
+	}
+	return f.batches[i]
 }
 
 func permissionAsked(node, session, permission string) event.Event {
@@ -85,6 +120,39 @@ func TestNotifierSendsOneMessagePerDevice(t *testing.T) {
 	}
 	if !strings.Contains(msg.Body, "bash") {
 		t.Fatalf("body = %q, want the permission action", msg.Body)
+	}
+}
+
+// TestNotifierPushesOnlyDevicesOfTheEventNode 证明通知器把事件里的节点交给
+// 设备源，并且只发设备源针对该节点返回的设备：另一个账号的手机不会收到
+// 别人节点上的审批。
+func TestNotifierPushesOnlyDevicesOfTheEventNode(t *testing.T) {
+	sender := &fakeSender{}
+	devices := &scopedDevices{byNode: map[string][]store.Device{
+		"node_1": {{ID: "d1", PushToken: "tok-member", Platform: "ios"}},
+		"node_2": {{ID: "d2", PushToken: "tok-stranger", Platform: "ios"}},
+	}}
+	n := NewNotifier(devices, sender, func(string) string { return "n" })
+
+	n.Handle(context.Background(), permissionAsked("node_1", "ses_1", "perm_1"))
+
+	if got := devices.nodes(); len(got) != 1 || got[0] != "node_1" {
+		t.Fatalf("device source asked for %v, want [node_1]", got)
+	}
+	batch := sender.firstBatch()
+	if len(batch) != 1 || batch[0].To != "tok-member" {
+		t.Fatalf("batch = %+v, want exactly the member device", batch)
+	}
+
+	// 另一个节点的事件只推给那个节点的成员设备，不回退到全量。
+	n.Handle(context.Background(), permissionAsked("node_2", "ses_2", "perm_2"))
+
+	if got := sender.count(); got != 2 {
+		t.Fatalf("pushes = %d, want 2", got)
+	}
+	second := sender.batch(1)
+	if len(second) != 1 || second[0].To != "tok-stranger" {
+		t.Fatalf("second batch = %+v, want the other node's member device", second)
 	}
 }
 

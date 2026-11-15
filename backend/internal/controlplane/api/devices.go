@@ -8,6 +8,12 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
+// deviceUserRequiredMessage 是「部署级身份不能登记设备」的固定文案。
+//
+// 写成常量并原样回显，是为了让客户端能按 message 提示、也避免不同请求返回
+// 不同措辞后无法断言。文案不包含任何身份细节。
+const deviceUserRequiredMessage = "device registration requires a user account"
+
 // deviceView 是浏览器看到的设备视图。
 //
 // 与节点视图一致使用 snake_case，且不暴露任何内部字段；push_token 是
@@ -40,9 +46,23 @@ type registerDeviceRequest struct {
 	PushToken string `json:"push_token"`
 }
 
-// handleRegisterDevice 登记一个推送目标。同一 push_token 重复注册会被
-// UpsertDevice 合并，客户端因此不必在重装后先删除旧记录。
+// handleRegisterDevice 把一台终端登记为当前账号的推送目标。
+//
+// 同一 push_token 重复注册会被 UpsertDeviceForUser 合并，客户端因此不必在
+// 重装后先删除旧记录；换账号登录后重新注册会把令牌改绑到新账号。
+//
+// local 与 admin_token 没有账号，登记出来的设备永远收不到推送（推送按节点
+// 成员筛选），因此直接 403 而不是默默写入一条无人认领的记录。
 func (a *API) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	if principal.UserID == "" {
+		writeAPIError(w, http.StatusForbidden, "user_required", deviceUserRequiredMessage)
+		return
+	}
+
 	var req registerDeviceRequest
 	if err := decodeRequest(w, r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -57,11 +77,11 @@ func (a *API) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	device, err := a.store.UpsertDevice(r.Context(), store.Device{
+	device, err := a.store.UpsertDeviceForUser(r.Context(), store.Device{
 		Name:      strings.TrimSpace(req.Name),
 		Platform:  req.Platform,
 		PushToken: strings.TrimSpace(req.PushToken),
-	})
+	}, principal.UserID)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "store_error", "failed to store device")
 		return
@@ -69,13 +89,30 @@ func (a *API) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toDeviceView(device))
 }
 
-// handleListDevices 返回全部推送目标。
+// handleListDevices 返回当前身份可见的推送目标。
+//
+// 普通账号只看自己的设备；管理员与部署级身份看全部，便于换机或清理遗留
+// 记录。设备列表本身不含会话事实，放宽到管理员不会扩大节点数据的可见范围。
 func (a *API) handleListDevices(w http.ResponseWriter, r *http.Request) {
-	devices, err := a.store.ListDevices(r.Context())
+	principal, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+
+	var (
+		devices []store.Device
+		err     error
+	)
+	if principal.IsAdmin() {
+		devices, err = a.store.ListDevices(r.Context())
+	} else {
+		devices, err = a.store.ListDevicesForUser(r.Context(), principal.UserID)
+	}
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "store_error", "failed to list devices")
 		return
 	}
+
 	views := make([]deviceView, 0, len(devices))
 	for _, device := range devices {
 		views = append(views, toDeviceView(device))
@@ -83,9 +120,28 @@ func (a *API) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, views)
 }
 
-// handleDeleteDevice 删除一个推送目标；不存在时回 404，避免客户端以为撤销成功。
+// handleDeleteDevice 删除一个推送目标；不存在或不属于当前账号时回 404。
+//
+// 两种失败共用 404，避免调用方靠状态码判断「这个 id 是否存在，只是不是你的」。
+// 管理员（含 local/admin_token）可以删除任意设备，换手机与丢失设备的场景需要它。
 func (a *API) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
-	if err := a.store.DeleteDevice(r.Context(), r.PathValue("id")); err != nil {
+	principal, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+
+	userID := ""
+	if !principal.IsAdmin() {
+		if principal.UserID == "" {
+			// 理论上解析不出「非管理员的空账号」，这里仍显式拒绝：把空 userID
+			// 传给 DeleteDeviceForUser 会退化成不限制归属的删除。
+			writeAPIError(w, http.StatusForbidden, "user_required", deviceUserRequiredMessage)
+			return
+		}
+		userID = principal.UserID
+	}
+
+	if err := a.store.DeleteDeviceForUser(r.Context(), r.PathValue("id"), userID); err != nil {
 		writeAPIError(w, http.StatusNotFound, "device_not_found", "device not found")
 		return
 	}

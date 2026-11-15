@@ -3,9 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/insmtx/lework/backend/internal/agentd/runner"
+	"github.com/insmtx/lework/backend/internal/agentd/transport"
 )
 
 func TestDefaultConfigPathFor(t *testing.T) {
@@ -97,12 +102,64 @@ func TestWaitBackoffReturnsOnCancel(t *testing.T) {
 }
 
 func TestControlPlaneHeader(t *testing.T) {
-	if got := controlPlaneHeader(""); got != nil {
-		t.Fatalf("controlPlaneHeader(\"\") = %v, want nil", got)
+	if got := controlPlaneHeader("", ""); got != nil {
+		t.Fatalf("controlPlaneHeader(\"\", \"\") = %v, want nil", got)
 	}
-	header := controlPlaneHeader("secret-token")
-	if got, want := header.Get("Authorization"), "Bearer secret-token"; got != want {
-		t.Fatalf("Authorization = %q, want %q", got, want)
+	// 凭证优先于 enrollment token：节点身份只能有一个 Bearer 值。
+	if got := controlPlaneHeader("node-cred", "enroll"); got.Get("Authorization") != "Bearer node-cred" {
+		t.Fatalf("Authorization = %q, want the node credential", got.Get("Authorization"))
+	}
+	// 还没有凭证时沿用旧令牌直通，老部署无需重新配对。
+	if got := controlPlaneHeader("", "enroll"); got.Get("Authorization") != "Bearer enroll" {
+		t.Fatalf("Authorization = %q, want the enrollment token", got.Get("Authorization"))
+	}
+	if got := controlPlaneHeader("node-cred", ""); got.Get("Authorization") != "Bearer node-cred" {
+		t.Fatalf("Authorization = %q, want the node credential", got.Get("Authorization"))
+	}
+}
+
+func TestCredentialRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"401 handshake", fmt.Errorf("dial ws://cp: %w", &transport.HandshakeError{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"}), true},
+		{"403 handshake", fmt.Errorf("dial ws://cp: %w", &transport.HandshakeError{StatusCode: http.StatusForbidden, Status: "403 Forbidden"}), false},
+		{"plain handshake", &transport.HandshakeError{StatusCode: http.StatusBadGateway, Status: "502 Bad Gateway"}, false},
+		{"generic dial failure", errors.New("dial tcp: connection refused"), false},
+		{"nil", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := credentialRejected(tt.err); got != tt.want {
+				t.Fatalf("credentialRejected() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFatalRunError 固化「凭证落盘失败必须让进程退出」：重试只会让控制面用
+// 旧令牌再建一个节点、再签发一份永远写不下的凭证。
+func TestFatalRunError(t *testing.T) {
+	persistErr := fmt.Errorf("agentd: %w", fmt.Errorf("persist node credential: %w",
+		runner.ErrCredentialPersist))
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"credential persist failure", persistErr, true},
+		{"direct sentinel", runner.ErrCredentialPersist, true},
+		{"connection ended", errors.New("agentd: read frame: EOF"), false},
+		{"nil", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := fatalRunError(tt.err); got != tt.want {
+				t.Fatalf("fatalRunError() = %t, want %t", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -49,8 +49,7 @@ agent:
 
 	cfg := controlplaneconfig.Default()
 	tokenFile := ""
-	pair := pairOptions{}
-	file.applyControlPlane(&cfg, &tokenFile, &pair, noFlags)
+	file.applyControlPlane(&cfg, &tokenFile, noFlags)
 
 	if cfg.ListenAddr != "127.0.0.1:9999" {
 		t.Fatalf("listen = %q", cfg.ListenAddr)
@@ -60,9 +59,6 @@ agent:
 	}
 	if !strings.HasSuffix(tokenFile, filepath.Join("Lework", "enrollment.token")) {
 		t.Fatalf("token file = %q", tokenFile)
-	}
-	if pair.publicURL != "http://dev.ckeyer.com" || pair.expoURL != "http://dev.ckeyer.com:8082" {
-		t.Fatalf("pair = %+v", pair)
 	}
 
 	agent, err := file.agentBase()
@@ -97,16 +93,12 @@ controlplane:
 
 	cfg := controlplaneconfig.Default()
 	cfg.ListenAddr = "127.0.0.1:1234"
-	pair := pairOptions{publicURL: "http://flag.example"}
-	file.applyControlPlane(&cfg, nil, &pair, func(name string) bool {
-		return name == "listen" || name == "public-url"
+	file.applyControlPlane(&cfg, nil, func(name string) bool {
+		return name == "listen"
 	})
 
 	if cfg.ListenAddr != "127.0.0.1:1234" {
 		t.Fatalf("listen = %q, want the flag value", cfg.ListenAddr)
-	}
-	if pair.publicURL != "http://flag.example" {
-		t.Fatalf("public url = %q, want the flag value", pair.publicURL)
 	}
 }
 
@@ -183,7 +175,7 @@ database:
 	}
 
 	cfg := controlplaneconfig.Default()
-	file.applyControlPlane(&cfg, nil, nil, noFlags)
+	file.applyControlPlane(&cfg, nil, noFlags)
 
 	if cfg.NATS == nil || cfg.NATS.URL != "nats://127.0.0.1:4222" {
 		t.Fatalf("nats = %+v, want the url from the file", cfg.NATS)
@@ -206,7 +198,7 @@ database:
 	changed := func(name string) bool {
 		return name == "nats-url" || name == "database-url"
 	}
-	file.applyControlPlane(&explicit, nil, nil, changed)
+	file.applyControlPlane(&explicit, nil, changed)
 	applyClusterFlags(&explicit, "nats://flag.example:4222", "postgres://flag.example:5432/db", changed)
 
 	if explicit.NATS.URL != "nats://flag.example:4222" {

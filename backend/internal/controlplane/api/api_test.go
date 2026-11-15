@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/insmtx/lework/backend/internal/agentd/protocol"
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
@@ -24,6 +25,9 @@ import (
 // testHeartbeatTimeout 是测试环境的离线判定窗口。取较大值是为了让
 // addNode 刚写入的记录稳定处于在线窗口内，离线用例再显式改写 LastSeen。
 const testHeartbeatTimeout = 30 * time.Second
+
+// testEnrollmentToken 是测试装配使用的共享注册令牌，只参与比较。
+const testEnrollmentToken = "test-enrollment-token"
 
 // fakeAgent 是测试用的节点写入端：把控制面发出的请求帧交给测试，
 // 由测试通过 conn.Deliver 送回响应。
@@ -208,11 +212,23 @@ type testEnv struct {
 	index            *overview.Index
 	forward          *fakeForwarder
 	core             *fakeCoreSub
-	mux              *http.ServeMux
+	corePub          *fakeCorePub
+	resolver         authz.Resolver
+	mux              http.Handler
+	rawMux           *http.ServeMux
 	heartbeatTimeout time.Duration
+	// api 暴露装配好的接口，让用例可以缩短 SSE 可见集合的重算周期。
+	api *API
 }
 
 func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
+	t.Helper()
+
+	return newTestEnvWithAuth(t, timeout, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "invite"})
+}
+
+// newTestEnvWithAuth 让注册策略等鉴权配置可以按用例覆盖。
+func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig) *testEnv {
 	t.Helper()
 
 	st, err := store.Open(":memory:")
@@ -224,11 +240,21 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 	index := overview.NewIndex()
 	forward := &fakeForwarder{}
 	core := newFakeCoreSub()
+	corePub := &fakeCorePub{}
 
+	resolver := authz.Resolver{
+		Store:           st,
+		EnrollmentToken: testEnrollmentToken,
+		LocalAdmin:      true,
+	}
 	router := node.NewRouter(registry, forward)
-	api := New(st, registry, hub, index, router, core, timeout, testHeartbeatTimeout)
-	mux := http.NewServeMux()
-	api.Register(mux)
+	// claimCfg 用零值：认领码的默认值与回退逻辑属于 api 包，单测应当覆盖
+	// 生产默认值，而不是把配置层的数值搬进测试装配。
+	api := New(st, registry, hub, index, router, core, corePub, resolver, authCfg,
+		ClaimConfig{}, timeout, testHeartbeatTimeout)
+	rawMux := http.NewServeMux()
+	api.Register(rawMux)
+	mux := withDefaultPrincipal(rawMux)
 
 	env := &testEnv{
 		t:                t,
@@ -238,7 +264,11 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 		index:            index,
 		forward:          forward,
 		core:             core,
+		corePub:          corePub,
+		resolver:         resolver,
+		api:              api,
 		mux:              mux,
+		rawMux:           rawMux,
 		heartbeatTimeout: testHeartbeatTimeout,
 	}
 	t.Cleanup(func() {
@@ -268,7 +298,7 @@ func (e *testEnv) addNode(name string) (store.Node, *fakeAgent, *node.Connection
 func (e *testEnv) addNodeWithCapabilities(name string, capabilities []string) (store.Node, *fakeAgent, *node.Connection) {
 	e.t.Helper()
 
-	rec, err := e.store.UpsertNode(context.Background(), store.Node{
+	rec, err := e.store.UpsertLegacyNode(context.Background(), store.Node{
 		Name:         name,
 		OS:           "linux",
 		Arch:         "amd64",
@@ -298,6 +328,55 @@ func (e *testEnv) addNodeWithCapabilities(name string, capabilities []string) (s
 func (e *testEnv) do(method, target, body string) *httptest.ResponseRecorder {
 	e.t.Helper()
 
+	return e.serve(method, target, body, nil)
+}
+
+// doNoPrincipal 绕过默认身份中间件，用于断言「没有 principal」时的拒绝路径。
+//
+// 生产中间件不会给未认证请求补身份；测试默认注入本机管理员只是为了让既有
+// 用例不必逐条声明 principal，因此这条用例必须走未包装的 mux。
+func (e *testEnv) doNoPrincipal(method, target, body string) *httptest.ResponseRecorder {
+	e.t.Helper()
+
+	return e.serveHandler(e.rawMux, method, target, body, nil)
+}
+
+// withDefaultPrincipal 模拟鉴权中间件：请求里没有身份时补一个本机管理员。
+//
+// 本机直通在语义上就是部署者本人，既有用例因此保持「全部节点可见」；需要
+// 覆盖普通账号的用例用 doAs 显式注入 principal，显式值不会被覆盖。
+func withDefaultPrincipal(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := authz.PrincipalFrom(r.Context()); !ok {
+			principal := authz.Principal{Kind: authz.KindLocal, Role: roleAdmin}
+			r = r.WithContext(authz.WithPrincipal(r.Context(), principal))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// doAs 模拟鉴权中间件：把 principal 放进 context 后再交给 mux。
+func (e *testEnv) doAs(principal authz.Principal, method, target, body string) *httptest.ResponseRecorder {
+	e.t.Helper()
+
+	return e.serve(method, target, body, &principal)
+}
+
+// serve 构造请求并直接交给 mux；principal 非 nil 时注入 context。
+func (e *testEnv) serve(method, target, body string, principal *authz.Principal) *httptest.ResponseRecorder {
+	e.t.Helper()
+
+	return e.serveHandler(e.mux, method, target, body, principal)
+}
+
+// serveHandler 是 serve 的底层实现，允许选用未包装默认身份的 mux。
+func (e *testEnv) serveHandler(
+	handler http.Handler,
+	method, target, body string,
+	principal *authz.Principal,
+) *httptest.ResponseRecorder {
+	e.t.Helper()
+
 	var reader *strings.Reader
 	if body == "" {
 		reader = strings.NewReader("")
@@ -308,8 +387,11 @@ func (e *testEnv) do(method, target, body string) *httptest.ResponseRecorder {
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if principal != nil {
+		req = req.WithContext(authz.WithPrincipal(req.Context(), *principal))
+	}
 	rec := httptest.NewRecorder()
-	e.mux.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -377,6 +459,7 @@ type nodeResponse struct {
 	Arch         string    `json:"arch"`
 	AgentVersion string    `json:"agent_version"`
 	Capabilities []string  `json:"capabilities"`
+	Claimed      bool      `json:"claimed"`
 	Connected    bool      `json:"connected"`
 	LastSeen     time.Time `json:"last_seen"`
 }
@@ -959,8 +1042,26 @@ type eventStream struct {
 func startEvents(t *testing.T, env *testEnv, target string) *eventStream {
 	t.Helper()
 
+	return startEventsAs(t, env, nil, target)
+}
+
+// startEventsAs 以显式身份建立事件流；principal 为 nil 时交给默认身份中间件。
+//
+// 显式注入的 principal 不会被 withDefaultPrincipal 覆盖，因此账号维度的 SSE
+// 用例只需给出身份，不必复制整套连接装配。
+func startEventsAs(
+	t *testing.T,
+	env *testEnv,
+	principal *authz.Principal,
+	target string,
+) *eventStream {
+	t.Helper()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(ctx)
+	if principal != nil {
+		req = req.WithContext(authz.WithPrincipal(req.Context(), *principal))
+	}
 	rec := newStreamRecorder()
 
 	done := make(chan struct{})
@@ -1003,6 +1104,7 @@ func waitBody(t *testing.T, rec *streamRecorder, marker string) {
 
 func TestEventsStream(t *testing.T) {
 	env := newTestEnv(t, time.Second)
+	node, _, _ := env.addNode("n1")
 	stream := startEvents(t, env, "/api/events")
 	defer stream.cancel()
 
@@ -1020,7 +1122,7 @@ func TestEventsStream(t *testing.T) {
 	}
 
 	env.hub.Publish(event.Event{
-		NodeID:    "node_1",
+		NodeID:    node.ID,
 		SessionID: "ses_1",
 		Type:      "session.message",
 		Data:      json.RawMessage(`{"text":"hi"}`),
@@ -1042,12 +1144,14 @@ func TestEventsStream(t *testing.T) {
 
 func TestEventsFilters(t *testing.T) {
 	env := newTestEnv(t, time.Second)
-	stream := startEvents(t, env, "/api/events?node=node_1&session=ses_1")
+	node, _, _ := env.addNode("n1")
+	other, _, _ := env.addNode("n2")
+	stream := startEvents(t, env, "/api/events?node="+node.ID+"&session=ses_1")
 	defer stream.cancel()
 
-	env.hub.Publish(event.Event{NodeID: "node_2", SessionID: "ses_1", Type: "wrong-node", Time: time.Now()})
-	env.hub.Publish(event.Event{NodeID: "node_1", SessionID: "ses_2", Type: "wrong-session", Time: time.Now()})
-	env.hub.Publish(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "match", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: other.ID, SessionID: "ses_1", Type: "wrong-node", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: node.ID, SessionID: "ses_2", Type: "wrong-session", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: node.ID, SessionID: "ses_1", Type: "match", Time: time.Now()})
 
 	waitBody(t, stream.rec, `"type":"match"`)
 	body := stream.rec.text()
@@ -1064,6 +1168,7 @@ func TestEventsFilters(t *testing.T) {
 
 func TestEventsClientCancel(t *testing.T) {
 	env := newTestEnv(t, time.Second)
+	node, _, _ := env.addNode("n1")
 	stream := startEvents(t, env, "/api/events")
 
 	stream.cancel()
@@ -1071,7 +1176,7 @@ func TestEventsClientCancel(t *testing.T) {
 
 	// 取消之后发布事件不应再写入响应。
 	before := stream.rec.text()
-	env.hub.Publish(event.Event{NodeID: "node_1", Type: "late", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: node.ID, Type: "late", Time: time.Now()})
 	if after := stream.rec.text(); after != before {
 		t.Fatalf("body changed after cancel: %q -> %q", before, after)
 	}
@@ -1079,6 +1184,7 @@ func TestEventsClientCancel(t *testing.T) {
 
 func TestEventsResyncOnClosedSubscription(t *testing.T) {
 	env := newTestEnv(t, time.Second)
+	node, _, _ := env.addNode("n1")
 
 	// 阻塞首次正文写入，让订阅者来不及消费，从而被 Hub 淘汰。
 	blocking := newBlockingStreamRecorder()
@@ -1100,7 +1206,7 @@ func TestEventsResyncOnClosedSubscription(t *testing.T) {
 
 	// 超过订阅缓冲（256）的事件会让 Hub 关闭该订阅通道。
 	for i := 0; i < 300; i++ {
-		env.hub.Publish(event.Event{NodeID: "node_1", Type: "burst", Time: time.Now()})
+		env.hub.Publish(event.Event{NodeID: node.ID, Type: "burst", Time: time.Now()})
 	}
 
 	close(blocking.block)
@@ -1125,7 +1231,7 @@ func TestEventsResyncOnClosedSubscription(t *testing.T) {
 // capabilities 时存储为 nil，API 仍须输出 []，前端才能安全遍历。
 func TestAPICapabilitiesNeverSerializeAsNull(t *testing.T) {
 	env := newTestEnv(t, time.Second)
-	rec, err := env.store.UpsertNode(context.Background(), store.Node{
+	rec, err := env.store.UpsertLegacyNode(context.Background(), store.Node{
 		Name:     "bare",
 		LastSeen: time.Now(),
 	})

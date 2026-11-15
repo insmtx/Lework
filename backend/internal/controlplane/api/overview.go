@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 )
 
@@ -19,11 +20,14 @@ type overviewResponse struct {
 	Nodes []overviewNodeView `json:"nodes"`
 }
 
-// handleOverview 返回所有节点及其在跑会话。
+// handleOverview 返回当前身份可见的节点及其在跑会话。
 //
 // 节点集合取持久化记录：断线节点仍返回，但 connected=false——用户需要知道
 // 断线前它在跑什么，而不是看到它凭空消失。会话来自派生索引，节点集合与
 // 在线状态都只认存储里的心跳，避免把连在别的实例上的节点漏掉。
+//
+// 可见范围与 /api/nodes 共用 authz.VisibleNodeIDs：总览同样不能投影别人的
+// 节点名与在线状态。
 func (a *API) handleOverview(w http.ResponseWriter, r *http.Request) {
 	if a.index == nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "overview is not configured")
@@ -35,9 +39,17 @@ func (a *API) handleOverview(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
+	visible, err := authz.VisibleNodeIDs(r.Context(), a.store, a.principal(r))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
 
 	views := make(map[string]*overviewNodeView, len(records))
 	for _, rec := range records {
+		if _, ok := visible[rec.ID]; !ok {
+			continue
+		}
 		views[rec.ID] = &overviewNodeView{
 			NodeID:    rec.ID,
 			Name:      rec.Name,

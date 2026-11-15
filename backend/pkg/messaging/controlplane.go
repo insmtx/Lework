@@ -20,6 +20,7 @@ const (
 	controlPlaneRequestPrefix = "cp.node."
 	controlPlanePTYPrefix     = "cp.pty."
 	controlPlaneLivePrefix    = "cp.live.node."
+	controlPlanePairPrefix    = "cp.pair."
 )
 
 // ControlPlaneEventSubject 构建 agent -> 控制面的节点事件 subject。
@@ -94,6 +95,22 @@ func ControlPlaneLiveSubject(nodeID string) (string, error) {
 // 格式：cp.live.>
 func ControlPlaneLiveWildcard() string {
 	return "cp.live.>"
+}
+
+// ControlPlanePairSubject 构建认领通知的 subject（设计 §10）。
+//
+// 格式：cp.pair.<claim_id>
+//
+// 该 subject 走 Core NATS，永远不会被写进 stream：通知只携带 claim id，
+// 凭证由持有待定连接的实例本地签发并经该 WebSocket 下发，绝不经过总线。
+// Core NATS 是至多一次投递，丢失的通知由 agent 用同一 pair_key 重连后的
+// 幂等重投兜底。
+func ControlPlanePairSubject(claimID string) (string, error) {
+	token, err := sanitizeSubjectToken(claimID, "claim id")
+	if err != nil {
+		return "", err
+	}
+	return controlPlanePairPrefix + token, nil
 }
 
 // sanitizeSubjectToken 保证一个标识只占一个 NATS subject token。

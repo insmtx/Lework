@@ -38,6 +38,12 @@ const (
 	FrameEvent FrameType = "event"
 	// FrameCancel asks the agent to abandon an in-flight request.
 	FrameCancel FrameType = "cancel"
+	// FramePairPending tells an unpaired agent which claim id and short code
+	// identify this pending connection.
+	FramePairPending FrameType = "pair.pending"
+	// FramePairResult delivers the node id and one-time credential after the
+	// claim has been bound to an account.
+	FramePairResult FrameType = "pair.result"
 )
 
 // Frame is the single envelope exchanged over the control-plane WebSocket.
@@ -106,6 +112,13 @@ func (f Frame) Validate() error {
 	case FrameCancel:
 		if f.ID == "" {
 			return fmt.Errorf("cancel frame requires id")
+		}
+		return nil
+	case FramePairPending, FramePairResult:
+		// 配对帧只要求载荷：pair.pending 带 claim_id/code，pair.result 带
+		// node_id/credential；ID 用来对应 hello，不做强制。
+		if len(f.Result) == 0 {
+			return fmt.Errorf("%s frame requires result", f.Type)
 		}
 		return nil
 	default:

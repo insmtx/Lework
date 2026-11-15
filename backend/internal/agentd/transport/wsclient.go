@@ -79,12 +79,44 @@ func Dial(ctx context.Context, cfg DialConfig) (*Client, error) {
 
 	conn, resp, err := dialer.DialContext(ctx, endpoint.String(), cfg.Header)
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
+		var handshake *HandshakeError
+		if resp != nil {
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			// 升级被拒时错误里只有 ErrBadHandshake，调用方无法区分 401（凭证
+			// 失效）与其它失败。带上状态行，同时保持外层错误仍是脱敏后的 URL。
+			if errors.Is(err, websocket.ErrBadHandshake) {
+				handshake = &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status}
+				err = fmt.Errorf("%w: %w", handshake, err)
+			}
 		}
 		return nil, fmt.Errorf("dial %s: %w", endpoint.Redacted(), err)
 	}
 	return &Client{conn: conn}, nil
+}
+
+// HandshakeError 表示控制面在 WebSocket 升级阶段拒绝了请求（例如 401）。
+//
+// 它只携带状态行：响应头与会话信息可能含服务端内部细节，且这里的错误会
+// 进入日志。调用方用 errors.As 取出 StatusCode 决定是「凭证被拒、提示重新
+// 配对」还是普通退避重试。
+type HandshakeError struct {
+	StatusCode int
+	Status     string
+}
+
+// Error 只返回状态行，不包含 URL 或响应头。
+func (e *HandshakeError) Error() string {
+	if e.Status != "" {
+		return "websocket handshake rejected: " + e.Status
+	}
+	return fmt.Sprintf("websocket handshake rejected: status %d", e.StatusCode)
+}
+
+// Unwrap 让 errors.Is(err, websocket.ErrBadHandshake) 在包装后仍然成立。
+func (e *HandshakeError) Unwrap() error {
+	return websocket.ErrBadHandshake
 }
 
 // tlsConfigFor builds the TLS settings for a wss connection. An empty

@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,23 +32,53 @@ import (
 )
 
 // Node 是注册到控制面的节点记录。
+//
+// Name 只用于展示，因此不再是唯一键：多台机器同名是正常现象（比如两个人的
+// 笔记本都叫 MacBook），归属由 NodeMember 表达，唯一性在应用层按 owner 保证。
+// 旧库上的唯一索引 idx_nodes_name 由 migrateControlPlane 显式删除，
+// 保留的 idx_nodes_name_lookup 只用于按名查找。not null 必须保留：它只表达
+// 「展示名不能为空」，与唯一性无关，去掉会让升级库上的 schema 永久漂移。
+//
+// CredentialHash 存 sha256(节点凭证)，空串表示节点尚未激活（旧令牌直通或
+// 配对未完成）。它是节点身份的唯一依据；明文凭证只在签发时出现在 agent
+// 侧与 welcome 帧里，任何代码路径都不得把它写库或写日志。
 type Node struct {
 	ID             string `gorm:"primaryKey"`
-	Name           string `gorm:"uniqueIndex;not null"`
+	Name           string `gorm:"index:idx_nodes_name_lookup;not null"`
 	OS             string
 	Arch           string
 	AgentVersion   string
 	Capabilities   []string `gorm:"serializer:json"`
 	WorkspaceRoots []string `gorm:"serializer:json"`
+	CredentialHash string   `gorm:"index"`
+	ClaimedAt      time.Time
 	LastSeen       time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
+// NodeMember 是「谁可以用这台节点」的归属行；nodes 表不存 owner_id。
+//
+// 一个节点可以有多个成员（owner 共享给别人），因此主键是 (node_id, user_id)，
+// 角色只是这一行上的标记：owner 能共享/撤销，member 只能使用。撤销访问就是
+// 删行，不需要迁移。没有成员行的节点是「未认领」的历史节点，仅管理员可见。
+type NodeMember struct {
+	NodeID    string `gorm:"primaryKey;column:node_id"`
+	UserID    string `gorm:"primaryKey;column:user_id;index:idx_node_member_user"`
+	Role      string // owner | member
+	GrantedBy string
+	CreatedAt time.Time
+}
+
 // Device 是注册了推送通知的终端。它只保存推送令牌，不保存认证凭据：
 // 控制面的鉴权走共享 enrollment token，设备表存在的意义是知道往哪儿推。
+//
+// UserID 是设备主人。推送按「事件所在节点的成员」选择设备（devices JOIN
+// node_members），因此没有主人的历史设备永远收不到推送；升级前的旧行
+// user_id 为空，等设备下次登录注册时才绑定。
 type Device struct {
 	ID        string `gorm:"primaryKey"`
+	UserID    string `gorm:"index"`
 	Name      string `gorm:"not null"`
 	Platform  string `gorm:"not null"`
 	PushToken string `gorm:"uniqueIndex;not null"`
@@ -92,11 +123,118 @@ type Preference struct {
 	UpdatedAt time.Time
 }
 
+// User 是控制面的账号记录。
+//
+// 控制面自己保存账号而不是委托外部系统：部署形态是「一个人、多台机器」，
+// 引入 IdP 只会让自托管多一个必填依赖。Email 存储前统一小写并作为唯一键，
+// 因为用户输入的大小写不该产生两个账号。
+//
+// PasswordHash 只保存 argon2id 的 PHC 字符串，明文密码不落库、不进日志。
+type User struct {
+	ID           string `gorm:"primaryKey"`
+	Email        string `gorm:"uniqueIndex;not null"`
+	DisplayName  string
+	PasswordHash string
+	Role         string // admin | user
+	Status       string // active | disabled
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// UserSession 是一次浏览器/移动端登录产生的会话。
+//
+// 只保存令牌的 sha256：数据库被读走也无法直接冒用会话。明文只在登录响应的
+// cookie 里出现一次，任何代码路径都不得把它写日志。过期判断一律交给 SQL，
+// 避免「先查出来再比时间」时把时区差异和时钟偏差散落到多处。
+type UserSession struct {
+	ID         string `gorm:"primaryKey"`
+	UserID     string `gorm:"index;not null"`
+	TokenHash  string `gorm:"uniqueIndex;not null"`
+	UserAgent  string
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	CreatedAt  time.Time
+}
+
+// Invite 是注册邀请码；控制面默认 invite-only。
+//
+// 只保存 sha256 摘要：明文邀请码由调用方生成并交给用户，数据库被读走也
+// 无法反推出可用邀请码。是否可用（未使用、未过期）的判定全部在
+// ConsumeInvite 的单条 UPDATE 里完成，避免「先查后写」的并发窗口。
+type Invite struct {
+	ID        string `gorm:"primaryKey"`
+	CodeHash  string `gorm:"uniqueIndex;not null"`
+	CreatedBy string
+	ExpiresAt time.Time
+	UsedBy    string
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
+// NodeClaim 是一次进行中的配对：agent 已经连上控制面，但还没有账号认领它。
+//
+// 单独建表而不是在 nodes 里放「未完成」行，是因为配对中的连接还没有节点身份，
+// 也不该出现在任何账号的节点列表里。PairKey 由 agent 生成并在重连时复用，
+// 唯一索引让它成为「同一次配对」的稳定标志：重连必须拿回同一行（同一个码），
+// 否则终端上显示的码会在网络抖动后失效。
+//
+// Code 是给人读的 5 位短码，明文落库（认领后即作废）。PairKey 不是凭证：
+// 拿到它只能创建或复用自己的待定连接，不能认领别人的节点，也不能轮换节点
+// 已经拿到的凭证（gateway 只在节点还没有凭证时补发）。因此与节点凭证不同，
+// 泄露它不会接管任何已有节点。
+type NodeClaim struct {
+	ID           string `gorm:"primaryKey"`
+	PairKey      string `gorm:"uniqueIndex"`
+	Code         string `gorm:"index"`
+	NodeName     string
+	OS           string
+	Arch         string
+	AgentVersion string
+	Status       string // pending | claimed | expired
+	ClaimedBy    string
+	NodeID       string
+	InstanceID   string
+	Attempts     int
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+}
+
+const (
+	// ClaimStatusPending 表示配对进行中：码可以被任意登录账号认领。
+	ClaimStatusPending = "pending"
+	// ClaimStatusClaimed 表示已有账号认领，等待持有连接的实例下发凭证。
+	ClaimStatusClaimed = "claimed"
+	// ClaimStatusExpired 表示认领已作废：过期、码尝试超限或实例放弃。
+	ClaimStatusExpired = "expired"
+)
+
 // Store 是节点存储，持有 SQLite 连接。
 type Store struct {
 	db     *gorm.DB
 	mu     sync.Mutex
 	closed bool
+}
+
+// controlPlaneLogger 返回不在日志里插值 SQL 参数的 GORM logger。
+//
+// 认领短码与节点凭证都出现在 SQL 参数里：默认 logger 在慢查询（>200ms）与
+// 错误路径会把参数插值成完整语句，一次唯一约束冲突就足以把 5 位码写进日志
+// （设计 §13 明确禁止）。ParameterizedQueries 只改变日志格式，不影响执行结果
+// 与日志级别：生产环境（PostgreSQL）默认仍然静默，只有显式 debug 才输出语句。
+//
+// GORM v1.30 把这个开关放在 logger.Config 而不是 gorm.Config 上，因此这里
+// 重建一个与 logger.Default 参数相同的实例，只多打开参数化输出。
+func controlPlaneLogger(level logger.LogLevel) logger.Interface {
+	return logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  level,
+			IgnoreRecordNotFoundError: false,
+			ParameterizedQueries:      true,
+			Colorful:                  true,
+		},
+	)
 }
 
 // Open 打开 path 处的 SQLite 数据库并迁移节点表。
@@ -119,7 +257,11 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 
-	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		// SQLite 只用于单测与本地临时启动，但慢查询/失败查询同样会打到 stdout，
+		// 认领短码不能因此进日志。
+		Logger: controlPlaneLogger(logger.Warn),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
 	}
@@ -133,7 +275,7 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	if err := database.AutoMigrate(&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}); err != nil {
+	if err := migrateControlPlane(database); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		if sqlDB, dbErr := database.DB(); dbErr == nil {
 			_ = sqlDB.Close()
@@ -154,10 +296,11 @@ func OpenPostgres(cfg appconfig.DatabaseConfig) (*Store, error) {
 	}
 
 	// 默认静默：GORM 的 Info 级日志会打印每条 SQL，生产环境噪声过大；
-	// 只有显式 cfg.Debug 时才打开，便于排查连接与迁移问题。
-	gormCfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
+	// 只有显式 cfg.Debug 时才打开，便于排查连接与迁移问题。两种级别都走
+	// 参数化输出，debug 打开时 SQL 里也不会出现认领短码或凭证。
+	gormCfg := &gorm.Config{Logger: controlPlaneLogger(logger.Silent)}
 	if cfg.Debug {
-		gormCfg.Logger = logger.Default.LogMode(logger.Info)
+		gormCfg.Logger = controlPlaneLogger(logger.Info)
 	}
 
 	database, err := gorm.Open(postgres.Open(cfg.URL), gormCfg)
@@ -174,7 +317,7 @@ func OpenPostgres(cfg appconfig.DatabaseConfig) (*Store, error) {
 	sqlDB.SetMaxIdleConns(5)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	if err := database.AutoMigrate(&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}); err != nil {
+	if err := migrateControlPlane(database); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("migrate postgres tables: %w", err)
@@ -240,39 +383,6 @@ func (s *Store) Close() error {
 	return nil
 }
 
-// UpsertNode 按名称写入节点记录：已存在时复用原 ID 并更新可变字段，否则生成新 ID 插入。
-// 返回落库后的记录（含 ID 与时间戳）。
-func (s *Store) UpsertNode(ctx context.Context, n Node) (Node, error) {
-	if strings.TrimSpace(n.Name) == "" {
-		return Node{}, errors.New("node name is required")
-	}
-
-	// 用 Find 而非 First 查询：未命中是正常分支，不应产生 record not found 日志。
-	var existing []Node
-	res := s.db.WithContext(ctx).Where("name = ?", n.Name).Limit(1).Find(&existing)
-	if res.Error != nil {
-		return Node{}, fmt.Errorf("lookup node %q: %w", n.Name, res.Error)
-	}
-
-	if len(existing) > 0 {
-		n.ID = existing[0].ID
-		n.CreatedAt = existing[0].CreatedAt
-	} else {
-		// 名称不存在时一律生成新 ID：沿用调用方传入的 ID 会在 GORM Save 时
-		// 覆盖另一条节点的行，导致静默改错记录。
-		id, idErr := newNodeID()
-		if idErr != nil {
-			return Node{}, idErr
-		}
-		n.ID = id
-	}
-
-	if err := s.db.WithContext(ctx).Save(&n).Error; err != nil {
-		return Node{}, fmt.Errorf("save node %q: %w", n.Name, err)
-	}
-	return n, nil
-}
-
 // ListNodes 返回全部节点，按名称升序排列；空库返回空切片而非 nil。
 func (s *Store) ListNodes(ctx context.Context) ([]Node, error) {
 	nodes := make([]Node, 0)
@@ -290,76 +400,6 @@ func (s *Store) TouchNode(ctx context.Context, id string, at time.Time) error {
 	}
 	if res.RowsAffected == 0 {
 		return fmt.Errorf("touch node %q: node not found", id)
-	}
-	return nil
-}
-
-// UpsertDevice 按推送令牌写入设备：同一令牌重复注册时复用原 ID 并更新
-// 名称与平台，避免重装 App 后留下永远推不到的僵尸记录。
-func (s *Store) UpsertDevice(ctx context.Context, d Device) (Device, error) {
-	if strings.TrimSpace(d.PushToken) == "" {
-		return Device{}, errors.New("push token is required")
-	}
-	if strings.TrimSpace(d.Name) == "" {
-		return Device{}, errors.New("device name is required")
-	}
-	if d.Platform != "android" && d.Platform != "ios" {
-		return Device{}, fmt.Errorf("unsupported platform %q", d.Platform)
-	}
-
-	// 与 UpsertNode 同理：用 Find 查询，未命中是正常分支，不产生日志噪声。
-	var existing []Device
-	res := s.db.WithContext(ctx).Where("push_token = ?", d.PushToken).Limit(1).Find(&existing)
-	if res.Error != nil {
-		return Device{}, fmt.Errorf("lookup device: %w", res.Error)
-	}
-
-	if len(existing) > 0 {
-		d.ID = existing[0].ID
-		d.CreatedAt = existing[0].CreatedAt
-	} else {
-		id, idErr := newDeviceID()
-		if idErr != nil {
-			return Device{}, idErr
-		}
-		d.ID = id
-	}
-
-	if err := s.db.WithContext(ctx).Save(&d).Error; err != nil {
-		return Device{}, fmt.Errorf("save device: %w", err)
-	}
-	return d, nil
-}
-
-// ListDevices 返回全部设备，按创建时间升序；空库返回空切片而非 nil。
-func (s *Store) ListDevices(ctx context.Context) ([]Device, error) {
-	devices := make([]Device, 0)
-	if err := s.db.WithContext(ctx).Order("created_at ASC").Find(&devices).Error; err != nil {
-		return nil, fmt.Errorf("list devices: %w", err)
-	}
-	return devices, nil
-}
-
-// DeleteDevice 删除设备；不存在时返回错误，让调用方能回 404 而不是假装成功。
-func (s *Store) DeleteDevice(ctx context.Context, id string) error {
-	res := s.db.WithContext(ctx).Delete(&Device{}, "id = ?", id)
-	if res.Error != nil {
-		return fmt.Errorf("delete device %q: %w", id, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("delete device %q: device not found", id)
-	}
-	return nil
-}
-
-// TouchDevice 记录设备最近一次活动时间，用于判断推送是否还有意义。
-func (s *Store) TouchDevice(ctx context.Context, id string, at time.Time) error {
-	res := s.db.WithContext(ctx).Model(&Device{}).Where("id = ?", id).Update("last_seen", at)
-	if res.Error != nil {
-		return fmt.Errorf("touch device %q: %w", id, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("touch device %q: device not found", id)
 	}
 	return nil
 }
@@ -391,25 +431,96 @@ func (s *Store) ListProjectIndex(ctx context.Context) ([]ProjectIndex, error) {
 	return rows, nil
 }
 
-// ListProjectPreferences 返回全部项目偏好；空库返回空切片而非 nil。
-func (s *Store) ListProjectPreferences(ctx context.Context) ([]ProjectPreference, error) {
-	prefs := make([]ProjectPreference, 0)
-	if err := s.db.WithContext(ctx).Find(&prefs).Error; err != nil {
+// userNamespace 是偏好类表的账号隔离前缀。
+//
+// preferences / project_preferences 的主键就是键名本身，加 user_id 列意味着
+// 改 DDL 并同步所有调用点；用键名前缀 u/<user_id>/<key> 表达归属在 SQLite 与
+// PostgreSQL 上行为一致，也不需要迁移——旧键留在无前缀的历史命名空间，按
+// 设计 §12 不迁移（旧值保留不读）。前缀因此是保留的：历史命名空间里恰好以
+// u/ 开头的键不再可读。
+const userNamespace = "u/"
+
+// userKey 把裸键映射到账号命名空间；空 userID 原样返回。
+//
+// 空 userID 是 local / admin_token 这类部署级身份的共享命名空间，语义上等于
+// 改造前的全局偏好，不能与任何账号的键混在一起。
+func userKey(userID, key string) string {
+	if userID == "" {
+		return key
+	}
+	return userPrefix(userID) + key
+}
+
+// userPrefix 返回账号前缀。末尾的斜杠让 u1 与 u11 不会互相吞掉对方的键。
+func userPrefix(userID string) string {
+	return userNamespace + userID + "/"
+}
+
+// stripUserKey 判断一条已落库的键是否属于 userID 的命名空间，并剥掉前缀。
+//
+// SQL 侧的 LIKE 只用来收敛扫描范围，归属判定以这里为准：userID 里若含 SQL
+// 通配符（当前是服务端生成的 UUID，不会发生），LIKE 最多多扫几行，不会把
+// 别人的行当成自己的。
+func stripUserKey(userID, key string) (string, bool) {
+	if userID == "" {
+		return key, !strings.HasPrefix(key, userNamespace)
+	}
+	prefix := userPrefix(userID)
+	if !strings.HasPrefix(key, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(key, prefix), true
+}
+
+// ListProjectPreferencesFor 返回某个账号的全部项目偏好，ProjectKey 已剥掉前缀。
+//
+// 空 userID 只返回未加前缀的历史行：那是部署级身份的共享命名空间，把账号的
+// 偏好混进来会让「本机管理员」看到别人的项目设置。
+func (s *Store) ListProjectPreferencesFor(ctx context.Context, userID string) ([]ProjectPreference, error) {
+	rows := make([]ProjectPreference, 0)
+	query := s.db.WithContext(ctx)
+	if userID == "" {
+		query = query.Where("project_key NOT LIKE ?", userNamespace+"%")
+	} else {
+		query = query.Where("project_key LIKE ?", userPrefix(userID)+"%")
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list project preferences: %w", err)
+	}
+
+	prefs := make([]ProjectPreference, 0, len(rows))
+	for _, row := range rows {
+		key, ok := stripUserKey(userID, row.ProjectKey)
+		if !ok {
+			continue
+		}
+		row.ProjectKey = key
+		prefs = append(prefs, row)
 	}
 	return prefs, nil
 }
 
-// SetProjectPrimaryNode 设置项目的主节点。首次设置时建行；重复设置覆盖
-// 主节点但保留别名，避免改节点顺手丢掉用户起的名字。
-func (s *Store) SetProjectPrimaryNode(ctx context.Context, projectKey, nodeID string) error {
+// ListProjectPreferences 返回历史命名空间（空 userID）的全部项目偏好。
+//
+// Deprecated: 用 ListProjectPreferencesFor。等价于传空 userID，供 local /
+// admin_token 这类没有账号的部署级身份使用；账号维度的调用点必须传自己的
+// userID。
+func (s *Store) ListProjectPreferences(ctx context.Context) ([]ProjectPreference, error) {
+	return s.ListProjectPreferencesFor(ctx, "")
+}
+
+// SetProjectPrimaryNodeFor 设置某账号下项目的主节点。
+//
+// 首次设置时建行；重复设置覆盖主节点但保留别名，避免改节点顺手丢掉用户起的
+// 名字。空 projectKey / nodeID 视为调用方错误。
+func (s *Store) SetProjectPrimaryNodeFor(ctx context.Context, userID, projectKey, nodeID string) error {
 	if strings.TrimSpace(projectKey) == "" {
 		return errors.New("project key is required")
 	}
 	if strings.TrimSpace(nodeID) == "" {
 		return errors.New("node id is required")
 	}
-	row := ProjectPreference{ProjectKey: projectKey, PrimaryNodeID: nodeID}
+	row := ProjectPreference{ProjectKey: userKey(userID, projectKey), PrimaryNodeID: nodeID}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "project_key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"primary_node_id", "updated_at"}),
@@ -419,11 +530,22 @@ func (s *Store) SetProjectPrimaryNode(ctx context.Context, projectKey, nodeID st
 	return nil
 }
 
-// GetPreference 读取一条偏好；不存在时 ok 为 false 且不视为错误，
+// SetProjectPrimaryNode 设置历史命名空间（空 userID）下项目的主节点。
+//
+// Deprecated: 用 SetProjectPrimaryNodeFor。等价于传空 userID，见其说明。
+func (s *Store) SetProjectPrimaryNode(ctx context.Context, projectKey, nodeID string) error {
+	return s.SetProjectPrimaryNodeFor(ctx, "", projectKey, nodeID)
+}
+
+// GetPreferenceFor 读取某账号的一条偏好；不存在时 ok 为 false 且不视为错误，
 // 因为「用户还没设置过」是正常状态。
-func (s *Store) GetPreference(ctx context.Context, key string) (string, bool, error) {
+//
+// 错误文本只带裸 key，不拼接账号前缀：偏好键可能包含目录等用户信息，越少写进
+// 日志越好。
+func (s *Store) GetPreferenceFor(ctx context.Context, userID, key string) (string, bool, error) {
 	var rows []Preference
-	if err := s.db.WithContext(ctx).Where("key = ?", key).Limit(1).Find(&rows).Error; err != nil {
+	fullKey := userKey(userID, key)
+	if err := s.db.WithContext(ctx).Where("key = ?", fullKey).Limit(1).Find(&rows).Error; err != nil {
 		return "", false, fmt.Errorf("get preference %q: %w", key, err)
 	}
 	if len(rows) == 0 {
@@ -432,12 +554,19 @@ func (s *Store) GetPreference(ctx context.Context, key string) (string, bool, er
 	return rows[0].Value, true, nil
 }
 
-// SetPreference 写入或覆盖一条偏好。空 key 视为调用方错误。
-func (s *Store) SetPreference(ctx context.Context, key, value string) error {
+// GetPreference 读取历史命名空间（空 userID）的一条偏好。
+//
+// Deprecated: 用 GetPreferenceFor。等价于传空 userID，见其说明。
+func (s *Store) GetPreference(ctx context.Context, key string) (string, bool, error) {
+	return s.GetPreferenceFor(ctx, "", key)
+}
+
+// SetPreferenceFor 写入或覆盖某账号的一条偏好。空 key 视为调用方错误。
+func (s *Store) SetPreferenceFor(ctx context.Context, userID, key, value string) error {
 	if strings.TrimSpace(key) == "" {
 		return errors.New("preference key is required")
 	}
-	row := Preference{Key: key, Value: value}
+	row := Preference{Key: userKey(userID, key), Value: value}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
@@ -447,17 +576,45 @@ func (s *Store) SetPreference(ctx context.Context, key, value string) error {
 	return nil
 }
 
-// ListPreferences 一次性返回全部偏好，供客户端启动时整包同步。
-func (s *Store) ListPreferences(ctx context.Context) (map[string]string, error) {
+// SetPreference 写入或覆盖历史命名空间（空 userID）的一条偏好。
+//
+// Deprecated: 用 SetPreferenceFor。等价于传空 userID，见其说明。
+func (s *Store) SetPreference(ctx context.Context, key, value string) error {
+	return s.SetPreferenceFor(ctx, "", key, value)
+}
+
+// ListPreferencesFor 一次性返回某账号的全部偏好，键名已剥掉账号前缀。
+//
+// 空 userID 只返回未加前缀的历史键：local / admin_token 与账号是两条互不
+// 可见的命名空间，任何一侧的同步包都不能混入另一侧的值。
+func (s *Store) ListPreferencesFor(ctx context.Context, userID string) (map[string]string, error) {
 	rows := make([]Preference, 0)
-	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
+	query := s.db.WithContext(ctx)
+	if userID == "" {
+		query = query.Where("key NOT LIKE ?", userNamespace+"%")
+	} else {
+		query = query.Where("key LIKE ?", userPrefix(userID)+"%")
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list preferences: %w", err)
 	}
+
 	out := make(map[string]string, len(rows))
 	for _, row := range rows {
-		out[row.Key] = row.Value
+		key, ok := stripUserKey(userID, row.Key)
+		if !ok {
+			continue
+		}
+		out[key] = row.Value
 	}
 	return out, nil
+}
+
+// ListPreferences 一次性返回历史命名空间（空 userID）的全部偏好。
+//
+// Deprecated: 用 ListPreferencesFor。等价于传空 userID，见其说明。
+func (s *Store) ListPreferences(ctx context.Context) (map[string]string, error) {
+	return s.ListPreferencesFor(ctx, "")
 }
 
 // newNodeID 生成 node 前缀的随机 ID（8 字节随机数的十六进制）。

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
+	"github.com/insmtx/lework/backend/internal/agentd/credential"
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 )
 
@@ -18,7 +19,6 @@ type allOptions struct {
 	tokenPath string
 	explicit  string
 	agent     agentOverrides
-	pair      pairOptions
 }
 
 // runAllCommand 是 runAll 的测试 seam：测试替换它即可验证 root 的接线，
@@ -39,6 +39,11 @@ func runAll(parent context.Context, opts allOptions) error {
 	if err != nil {
 		return err
 	}
+	// 组合模式没有 agent.yaml 路径，凭证落到平台配置目录；进程入口负责解析
+	// 默认值，配置包本身无从得知入口参数。
+	if agentCfg.CredentialFile == "" {
+		agentCfg.CredentialFile = credential.DefaultPath("")
+	}
 
 	cp, err := openControlPlane(opts.serve)
 	if err != nil {
@@ -57,7 +62,7 @@ func runAll(parent context.Context, opts allOptions) error {
 
 	logs.Infof("lework: agent will dial %s", agentCfg.ControlPlaneURL)
 
-	announcePairing(os.Stdout, opts.serve, opts.pair)
+	announceStartup(os.Stdout, opts.serve)
 
 	return runServices(ctx, []backendService{
 		{name: "controlplane", run: cp.Run, close: cp.Close},
