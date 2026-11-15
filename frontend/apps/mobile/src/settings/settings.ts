@@ -1,7 +1,13 @@
-// 设置只保存“连到哪个控制面、用哪个令牌、要不要推送”，不保存任何会话事实。
+// 设置保存「连到哪个控制面、以谁的身份、要不要推送」，不保存任何会话事实。
 export interface Settings {
 	baseUrl: string;
-	token: string;
+	/** 登录账号；空串表示未登录。 */
+	email: string;
+	/**
+	 * 会话令牌。只存 SecureStore，通过 Authorization 头发送；
+	 * 它不是部署级 enrollment token，换账号/换服务器都必须丢弃。
+	 */
+	sessionToken: string;
 	notifications: boolean;
 	deviceID?: string;
 }
@@ -48,17 +54,25 @@ export function createSettingsStore(kv: KeyValueStore): SettingsStore {
 			const raw = await kv.getItem(SETTINGS_KEY);
 			if (!raw) return null;
 			try {
-				const parsed = JSON.parse(raw) as Partial<Settings>;
-				if (
-					typeof parsed.baseUrl !== "string" ||
-					typeof parsed.token !== "string" ||
-					typeof parsed.notifications !== "boolean"
-				) {
+				const parsed = JSON.parse(raw) as Partial<Settings> & { token?: unknown };
+				if (typeof parsed.baseUrl !== "string" || typeof parsed.notifications !== "boolean") {
 					return null;
+				}
+				// 旧版本存的是 baseUrl + token（部署级令牌）。令牌不该变成个人
+				// 会话，也不能继续留在手机上：丢弃它，只保留地址，让用户登录。
+				if (typeof parsed.sessionToken !== "string") {
+					return {
+						baseUrl: parsed.baseUrl,
+						email: "",
+						sessionToken: "",
+						notifications: parsed.notifications,
+						deviceID: typeof parsed.deviceID === "string" ? parsed.deviceID : undefined,
+					};
 				}
 				return {
 					baseUrl: parsed.baseUrl,
-					token: parsed.token,
+					email: typeof parsed.email === "string" ? parsed.email : "",
+					sessionToken: parsed.sessionToken,
 					notifications: parsed.notifications,
 					deviceID: typeof parsed.deviceID === "string" ? parsed.deviceID : undefined,
 				};
