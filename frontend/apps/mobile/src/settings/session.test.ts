@@ -1,7 +1,14 @@
 import { ApiError } from "@lework/api";
 import { describe, expect, it } from "vitest";
 
-import { type AuthClient, authErrorMessage, clearExpiredSession, signIn, signOut } from "./session";
+import {
+	type AuthClient,
+	authErrorMessage,
+	clearExpiredSession,
+	loadAuthMethods,
+	signIn,
+	signOut,
+} from "./session";
 import type { Settings, SettingsStore } from "./settings";
 
 const baseSettings: Settings = {
@@ -100,5 +107,15 @@ describe("authErrorMessage", () => {
 		[new TypeError("Network request failed"), "网络不通，请检查服务器地址"],
 	])("映射 %s", (error, want) => {
 		expect(authErrorMessage(error)).toBe(want);
+	});
+});
+
+describe("loadAuthMethods", () => {
+	it("未初始化服务器的提示来自 auth/methods", async () => {
+		const methods = await loadAuthMethods(
+			{ client: () => fakeAuthClient({ token: "" }) },
+			"http://box:8787",
+		);
+		expect(methods).toEqual({ initialized: true, registration_mode: "open" });
 	});
 });

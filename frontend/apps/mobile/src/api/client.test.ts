@@ -97,6 +97,6 @@ describe("createClient", () => {
 		};
 		await createClient(settings).listNodes();
 		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-		expect(init.headers?.Authorization).toBeUndefined();
+		expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
 	});
 });

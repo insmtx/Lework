@@ -17,6 +17,14 @@ export interface SessionDeps {
 	client: (baseUrl: string, token?: string) => AuthClient;
 }
 
+/** loadAuthMethods 读取登录页需要的公开信息；网络失败时抛给调用方展示重试。 */
+export async function loadAuthMethods(
+	deps: Pick<SessionDeps, "client">,
+	baseUrl: string,
+): Promise<{ initialized: boolean; registration_mode: "open" | "closed" }> {
+	return deps.client(baseUrl).getAuthMethods();
+}
+
 /** 登录：成功后把地址、账号与会话令牌一起落盘。 */
 export async function signIn(
 	deps: SessionDeps,

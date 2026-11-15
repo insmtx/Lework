@@ -13,7 +13,7 @@ export function createClient(
 ): ApiClient {
 	return createApiClient({
 		baseUrl: settings.baseUrl,
-		headers: () =>
+		headers: (): Record<string, string> =>
 			settings.sessionToken ? { Authorization: `Bearer ${settings.sessionToken}` } : {},
 		onUnauthorized: () => onExpired(),
 	});

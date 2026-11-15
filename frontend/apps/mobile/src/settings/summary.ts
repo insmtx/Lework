@@ -58,3 +58,8 @@ export function describeReminder(
 export function describeServer(baseUrl: string | undefined): string {
 	return baseUrl && baseUrl !== "" ? baseUrl : "未连接";
 }
+
+/** describeAccount 生成「账号」菜单行的当前值。 */
+export function describeAccount(email: string | undefined): string {
+	return email && email !== "" ? email : "登录 / 注册";
+}
