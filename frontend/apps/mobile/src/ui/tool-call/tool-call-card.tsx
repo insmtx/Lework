@@ -23,6 +23,7 @@ export function ToolCallCard({
 	fontScale,
 	isLast,
 	nodeID,
+	sessionID,
 }: {
 	part: ContentPart;
 	defaultExpanded: boolean;
@@ -31,6 +32,8 @@ export function ToolCallCard({
 	/** 是否为本轮最后一段内容；完成后仍处于末尾时先保持展开。 */
 	isLast: boolean;
 	nodeID: string;
+	/** 所属会话 id：子代理全屏页据此查它创建的子会话。 */
+	sessionID: string;
 }) {
 	const theme = useTheme();
 	const styles = useToolStyles();
@@ -127,9 +130,12 @@ export function ToolCallCard({
 					detail={detail}
 					tool={view.tool}
 					status={view.status}
+					running={running}
 					blocks={view.blocks}
 					raw={view.raw}
 					nodeID={nodeID}
+					sessionID={sessionID}
+					fontScale={fontScale}
 					onClose={() => setSheetOpen(false)}
 				/>
 			) : null}

@@ -17,14 +17,8 @@ import {
 
 import { sessionRoute } from "../../../src/config";
 import { findProjectForSession } from "../../../src/projects/model";
-import { MarkdownBody } from "../../../src/session/markdown";
-import {
-	messageText,
-	rendersMarkdown,
-	shouldRenderMessage,
-	toolParts,
-} from "../../../src/session/messages";
-import { reasoningText, visibleReasoning } from "../../../src/session/process";
+import { MessageRow } from "../../../src/session/message-row";
+import { filterVisibleMessages } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
 import { runSend } from "../../../src/session/send-flow";
 import { type StatusTone, statusLabel, statusTone } from "../../../src/session/status";
@@ -39,7 +33,6 @@ import { useThemePreference } from "../../../src/theme/theme-context";
 import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../../src/ui/global-composer";
-import { ToolCallCard } from "../../../src/ui/tool-call/tool-call-card";
 import { ScreenTopBar } from "../../../src/ui/top-bar";
 
 function param(value: string | string[] | undefined): string {
@@ -58,134 +51,6 @@ function statusColor(theme: Theme, tone: StatusTone): string {
 		default:
 			return theme.colors.offline;
 	}
-}
-
-/**
- * ReasoningCard 展示思考过程：brief 先给摘要，点开看完整；full 默认展开。
- *
- * 它和正文分开渲染：思考不是回复内容，塞进气泡会让用户以为模型说过这些话。
- */
-function ReasoningCard({
-	message,
-	mode,
-	fontScale,
-}: {
-	message: Message;
-	mode: "brief" | "full";
-	fontScale: number;
-}) {
-	const styles = useThemedStyles(createStyles);
-	const [expanded, setExpanded] = useState(mode === "full");
-	const text = reasoningText(message);
-	const preview = visibleReasoning(message, "brief");
-
-	if (!text) return null;
-
-	return (
-		<View style={styles.reasoningCard}>
-			<Pressable
-				style={styles.reasoningHeader}
-				onPress={() => setExpanded((open) => !open)}
-				accessibilityLabel="展开或收起思考过程"
-			>
-				<Text style={styles.reasoningChevron}>{expanded ? "▾" : "▸"}</Text>
-				<Text style={styles.reasoningLabel}>思考过程</Text>
-			</Pressable>
-			<Text
-				style={[styles.reasoningBody, contentTextStyle(fontScale, 12, 18)]}
-				numberOfLines={expanded ? undefined : 2}
-			>
-				{expanded ? text : preview}
-			</Text>
-		</View>
-	);
-}
-
-function MessageRow({
-	message,
-	fontScale,
-	isLastMessage,
-	nodeID,
-}: {
-	message: Message;
-	fontScale: number;
-	/** 是否为本会话最后一条消息；最后一张工具卡片据此决定完成后的折叠时机。 */
-	isLastMessage: boolean;
-	nodeID: string;
-}) {
-	const theme = useTheme();
-	const styles = useThemedStyles(createStyles);
-	const { preferences } = useThemePreference();
-
-	// 失败的 idle 是唯一会进入列表的 idle 消息：只留一行错误，不显示状态词。
-	if (message.role === "idle") {
-		return (
-			<View style={styles.noticeRow}>
-				<Text style={[styles.noticeError, contentTextStyle(fontScale, 12, 16)]}>
-					{message.error?.message ?? "本轮执行失败"}
-				</Text>
-			</View>
-		);
-	}
-
-	const isUser = message.role === "user";
-	const text = messageText(message);
-	const tools = preferences.toolDisplay === "hidden" ? [] : toolParts(message);
-	// 助手回复可能是 Markdown；用户输入保持纯文本。
-	const markdown = rendersMarkdown(message) && text !== "";
-	const reasoning =
-		!isUser && preferences.processDisplay !== "hidden" && reasoningText(message) !== "";
-
-	return (
-		<View style={[styles.turn, isUser ? styles.userTurn : styles.assistantTurn]}>
-			{text ? (
-				<View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
-					{markdown ? (
-						<MarkdownBody content={text} scheme={theme.scheme} scale={fontScale} />
-					) : (
-						<Text
-							style={[
-								styles.messageText,
-								{
-									fontSize: Math.round(15 * fontScale),
-									lineHeight: Math.round(21 * fontScale),
-								},
-								isUser && styles.userMessageText,
-							]}
-						>
-							{text}
-						</Text>
-					)}
-				</View>
-			) : null}
-			{reasoning ? (
-				<ReasoningCard
-					message={message}
-					mode={preferences.processDisplay === "full" ? "full" : "brief"}
-					fontScale={fontScale}
-				/>
-			) : null}
-			{!isUser && tools.length > 0 ? (
-				<View style={styles.tools}>
-					{tools.map((part, index) => (
-						<ToolCallCard
-							key={part.callID || `${part.tool || "tool"}-${index}`}
-							part={part}
-							defaultExpanded={preferences.toolDisplay === "expanded"}
-							fontScale={fontScale}
-							isLast={isLastMessage && index === tools.length - 1}
-							nodeID={nodeID}
-						/>
-					))}
-				</View>
-			) : null}
-			{message.error ? (
-				<Text style={[styles.turnError, contentTextStyle(fontScale, 12, 16)]}>
-					{message.error.message}
-				</Text>
-			) : null}
-		</View>
-	);
 }
 
 function ApprovalCard({
@@ -416,15 +281,8 @@ export default function SessionScreen() {
 
 	// idle 结束标记与只有被隐藏的过程内容的消息不占位，列表里只剩真正可读的内容。
 	const visibleMessages = useMemo(
-		() =>
-			messages.filter((message) => {
-				if (message.role === "idle") return shouldRenderMessage(message);
-				if (messageText(message) !== "") return true;
-				if (message.error) return true;
-				if (preferences.toolDisplay !== "hidden" && toolParts(message).length > 0) return true;
-				return visibleReasoning(message, preferences.processDisplay) !== null;
-			}),
-		[messages, preferences.processDisplay, preferences.toolDisplay],
+		() => filterVisibleMessages(messages, preferences),
+		[messages, preferences],
 	);
 
 	const listRef = useRef<FlatList<Message>>(null);
@@ -593,6 +451,7 @@ export default function SessionScreen() {
 							fontScale={fontScale}
 							isLastMessage={index === visibleMessages.length - 1}
 							nodeID={nodeID}
+							sessionID={sessionID}
 						/>
 					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
@@ -732,30 +591,6 @@ function createStyles(theme: Theme) {
 			paddingVertical: 6,
 		},
 		approvalButtons: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
-		turn: { gap: 6 },
-		userTurn: { alignItems: "flex-end" },
-		assistantTurn: { alignItems: "flex-start" },
-		bubble: { maxWidth: "82%", borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
-		userBubble: { backgroundColor: colors.userBubble, borderBottomRightRadius: 4 },
-		assistantBubble: { backgroundColor: colors.messageBubble, borderTopLeftRadius: 4 },
-		messageText: { fontSize: 15, lineHeight: 21, color: colors.text },
-		userMessageText: { color: colors.userBubbleText },
-		reasoningCard: {
-			alignSelf: "flex-start",
-			maxWidth: "88%",
-			backgroundColor: colors.surfaceMuted,
-			borderRadius: 12,
-			padding: 10,
-			gap: 4,
-		},
-		reasoningHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
-		reasoningChevron: { width: 12, fontSize: 12, color: colors.textMuted },
-		reasoningLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
-		reasoningBody: { fontSize: 12, lineHeight: 18, color: colors.textSecondary },
-		tools: { width: "100%", gap: 6 },
-		noticeRow: { alignItems: "flex-start", paddingHorizontal: 4 },
-		noticeError: { fontSize: 12, color: colors.danger },
-		turnError: { maxWidth: "88%", paddingHorizontal: 4, fontSize: 12, color: colors.danger },
 		input: {
 			borderWidth: 1,
 			borderColor: colors.inputBorder,

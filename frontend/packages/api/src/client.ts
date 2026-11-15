@@ -48,6 +48,7 @@ export interface ApiClient {
 	restartOpenCode(node: string): Promise<unknown>;
 	stopOpenCode(node: string): Promise<unknown>;
 	listSessions(node: string, directory?: string): Promise<Session[]>;
+	listChildSessions(node: string, session: string, directory?: string): Promise<Session[]>;
 	createSession(node: string, directory: string): Promise<Session>;
 	renameSession(node: string, session: string, title: string): Promise<unknown>;
 	deleteSession(node: string, session: string): Promise<unknown>;
@@ -154,6 +155,12 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 
 		listSessions: (node, directory) =>
 			request<Session[]>(`/api/sessions${query({ node, directory })}`),
+
+		listChildSessions: (node, session, directory) =>
+			request<Session[]>(
+				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/children` +
+					query({ directory }),
+			),
 
 		createSession: (node, directory) =>
 			request<Session>("/api/sessions", {

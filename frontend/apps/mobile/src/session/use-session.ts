@@ -104,7 +104,7 @@ export function useSession(
 	const messages = useMemo(() => mergeSnapshot(snapshot, buffer).messages, [snapshot, buffer]);
 
 	const loadMessages = useCallback(async () => {
-		if (!client) return;
+		if (!client || !sessionID) return;
 		// 只读移动端不需要回溯历史，取最新一页即可；后续要做“加载更早”再消费 next。
 		const page = await client.listMessages(nodeID, sessionID);
 		setSnapshot(page.messages);
@@ -113,7 +113,7 @@ export function useSession(
 	}, [client, nodeID, sessionID]);
 
 	const loadPermissions = useCallback(async () => {
-		if (!client) return;
+		if (!client || !sessionID) return;
 		setPermissions(await client.listPendingPermissions(nodeID, sessionID));
 	}, [client, nodeID, sessionID, setPermissions]);
 
