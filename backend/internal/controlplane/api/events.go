@@ -29,6 +29,13 @@ const (
 	// 刷新周期；跨实例时事件可能丢失，周期刷新仍然必须保留。
 	nodeMemberEventPrefix = "node.member."
 
+	// nodeLifecycleEventPrefix 是节点生命周期事件的类型前缀（node.connected、
+	// node.offline、节点快照等）。
+	//
+	// 可见集合来自订阅时的快照，订阅之后才登记的节点不在里面；这类事件到达
+	// 时必须就地重算一次，否则新节点的上线通知要等到下一个刷新周期。
+	nodeLifecycleEventPrefix = "node."
+
 	// resyncFrame 通知浏览器事件可能缺失，需要重新对账。
 	resyncFrame = "event: resync\ndata: {\"reason\":\"slow_consumer\"}\n\n"
 
@@ -160,8 +167,10 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// 成员事件到达时先重算再判断：新授予的节点事件（包括这条成员
-			// 事件本身）应当立即生效，而不是被旧集合丢掉。
-			if isNodeMemberEvent(ev.Type) {
+			// 事件本身）应当立即生效，而不是被旧集合丢掉。订阅之后才登记的
+			// 新节点同理：node.connected 与首个快照通常会先于下一次周期刷新
+			// 到达，不就地重算就会整段丢掉。
+			if isNodeMemberEvent(ev.Type) || isUnknownNodeLifecycleEvent(ev, visible, nodeFilter) {
 				visible = restrictToNode(a.recomputeVisible(ctx, principal, visible), nodeFilter)
 			}
 			if !eventVisible(visible, ev.NodeID) {
@@ -213,6 +222,26 @@ func (a *API) recomputeVisible(
 // isNodeMemberEvent 判断事件类型是否属于成员变更。
 func isNodeMemberEvent(eventType string) bool {
 	return strings.HasPrefix(eventType, nodeMemberEventPrefix)
+}
+
+// isUnknownNodeLifecycleEvent 判断事件是否是「当前集合里还没有」的节点生命周期
+// 事件。
+//
+// 这类事件最可能来自订阅之后才登记的节点，需要就地重算一次才能转发；集合内
+// 的节点事件不额外查库。?node= 已把范围收窄到别的节点时，重算也改变不了
+// 「不转发」的结论，因此跳过——否则范围外的每个节点事件都会打一次库。
+func isUnknownNodeLifecycleEvent(
+	ev event.Event,
+	visible map[string]struct{},
+	nodeFilter string,
+) bool {
+	if ev.NodeID == "" || !strings.HasPrefix(ev.Type, nodeLifecycleEventPrefix) {
+		return false
+	}
+	if _, ok := visible[ev.NodeID]; ok {
+		return false
+	}
+	return nodeFilter == "" || nodeFilter == ev.NodeID
 }
 
 // writeSSEFrame 在请求仍有效时写出一帧并立即刷新。

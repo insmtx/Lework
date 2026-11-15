@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -209,6 +211,8 @@ func TestEventsUnclaimedNodeVisibleOnlyToAdmin(t *testing.T) {
 	adminUser := createTestUser(t, env, "admin@x.c", testLoginPassword, roleAdmin, "active")
 	plainUser := createTestUser(t, env, "user@x.c", testLoginPassword, roleUser, "active")
 	unclaimed, _, _ := env.addNode("unclaimed")
+	owned, _, _ := env.addNode("owned")
+	mustAddMember(t, env, owned.ID, plainUser.ID, store.NodeRoleOwner)
 
 	adminStream := streamAsPrincipal(t, env, authz.Principal{
 		Kind:   authz.KindUser,
@@ -221,8 +225,13 @@ func TestEventsUnclaimedNodeVisibleOnlyToAdmin(t *testing.T) {
 	defer plainStream.cancel()
 
 	publishNodeEvent(t, env, unclaimed.ID, "node.connected")
+	// 正向锚点：先用普通用户可见的节点事件证明它的流确实处理过队列，否则
+	// 「没收到未认领节点事件」可能只是还没来得及消费。
+	publishNodeEvent(t, env, owned.ID, "session.owned")
 
 	waitBody(t, adminStream.rec, `"type":"node.connected"`)
+	waitBody(t, plainStream.rec, `"type":"session.owned"`)
+
 	if body := plainStream.rec.text(); strings.Contains(body, unclaimed.ID) {
 		t.Fatalf("plain user stream body %q contains an unclaimed node event", body)
 	}
@@ -326,4 +335,118 @@ func TestEventsRefreshesVisibilityPeriodically(t *testing.T) {
 
 	stream.cancel()
 	waitStreamDone(t, stream)
+}
+
+// TestEventsNewNodeLifecycleEventRefreshesVisibility 固化「新节点不必等刷新周期」：
+// 订阅之后才登记的节点，其 node.connected 应立即下发，否则界面最多晚 30 秒才
+// 知道节点上线。
+func TestEventsNewNodeLifecycleEventRefreshesVisibility(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	// 周期放大到用例不可能等到的长度：只有事件触发的重算才能让用例通过。
+	env.api.eventsRefresh = time.Hour
+
+	owner := createTestUser(t, env, "owner@x.c", testLoginPassword, "user", "active")
+	stream := streamAs(t, env, owner.ID, "/api/events")
+	defer stream.cancel()
+
+	// 订阅建立之后才出现的节点（扫码认领、首次上线等）。
+	fresh, _, _ := env.addNode("fresh")
+	mustAddMember(t, env, fresh.ID, owner.ID, store.NodeRoleOwner)
+	publishNodeEvent(t, env, fresh.ID, "node.connected")
+
+	waitBody(t, stream.rec, `"type":"node.connected"`)
+
+	stream.cancel()
+	waitStreamDone(t, stream)
+}
+
+// TestEventsRecomputeFailureKeepsStream 固化重算失败时的降级行为：一次数据库
+// 抖动只能让可见集合停在旧值，不能中断事件流、也不能放行集合外的事件。
+func TestEventsRecomputeFailureKeepsStream(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	owner := createTestUser(t, env, "owner@x.c", testLoginPassword, "user", "active")
+	mine, _, _ := env.addNode("mine")
+	foreign, _, _ := env.addNode("theirs")
+	mustAddMember(t, env, mine.ID, owner.ID, store.NodeRoleOwner)
+
+	stream := streamAs(t, env, owner.ID, "/api/events")
+	defer stream.cancel()
+
+	// 基线：可见节点的事件能正常到达。
+	publishNodeEvent(t, env, mine.ID, "session.before")
+	waitBody(t, stream.rec, `"type":"session.before"`)
+
+	// 关库让后续每一次重算都失败；随后用 node.member.* 事件显式触发一次。
+	if err := env.store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	publishNodeEvent(t, env, mine.ID, "node.member.granted")
+
+	publishNodeEvent(t, env, foreign.ID, "session.foreign")
+	publishNodeEvent(t, env, mine.ID, "session.after")
+	waitBody(t, stream.rec, `"type":"session.after"`)
+
+	body := stream.rec.text()
+	if strings.Contains(body, "session.foreign") {
+		t.Fatalf("stream body %q contains a foreign node event after a failed recompute", body)
+	}
+	if strings.Contains(body, "event: resync") {
+		t.Fatalf("stream body %q was resynced by a failed recompute", body)
+	}
+
+	stream.cancel()
+	waitStreamDone(t, stream)
+}
+
+// TestEventsResyncFrameSurvivesEmptyVisibleSet 固化 resync 帧不受节点过滤影响：
+// 可见集合为空（这里由不可见的 ?node= 造出）时，慢消费者仍要收到 resync，
+// 否则页面会永远停在旧数据上。
+func TestEventsResyncFrameSurvivesEmptyVisibleSet(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	owner := createTestUser(t, env, "owner@x.c", testLoginPassword, "user", "active")
+	mine, _, _ := env.addNode("mine")
+	foreign, _, _ := env.addNode("theirs")
+	mustAddMember(t, env, mine.ID, owner.ID, store.NodeRoleOwner)
+
+	blocking := newBlockingStreamRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	principal := authz.Principal{Kind: authz.KindUser, UserID: owner.ID, Role: roleUser}
+	req := httptest.NewRequest(http.MethodGet, "/api/events?node="+foreign.ID, nil).WithContext(ctx)
+	req = req.WithContext(authz.WithPrincipal(req.Context(), principal))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		env.mux.ServeHTTP(blocking, req)
+	}()
+
+	select {
+	case <-blocking.flushed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SSE handler did not flush headers")
+	}
+
+	// 超过订阅缓冲（256）的事件会让 Hub 关闭该订阅通道；这些事件全部不在
+	// 可见集合内，正好覆盖「过滤生效」与「resync 仍下发」同时成立。
+	for i := 0; i < 300; i++ {
+		publishNodeEvent(t, env, mine.ID, "burst")
+	}
+
+	close(blocking.block)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SSE handler did not return after subscription closed")
+	}
+
+	body := blocking.text()
+	if !strings.HasSuffix(body, resyncFrame) {
+		t.Fatalf("stream body does not end with resync frame: %q", body)
+	}
+	if strings.Contains(body, `"type":"burst"`) {
+		t.Fatalf("stream body %q contains an event that node filtering must drop", body)
+	}
 }
