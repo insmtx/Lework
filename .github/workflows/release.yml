@@ -378,11 +378,14 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # publish job 不 checkout，gh 只能靠 GH_REPO 判断往哪个仓库发版。
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
 
           tag="${GITHUB_REF_NAME}"
+          echo "repo=${GH_REPO} tag=${tag}"
           prerelease=()
           case "$tag" in
             *-*) prerelease+=(--prerelease) ;;
@@ -409,5 +412,7 @@ jobs:
             sleep $((attempt * 10))
           done
 
+          # 最后再直接跑一次，让 gh 的具体报错进日志，便于排查。
+          gh release view "$tag" || true
           echo "::error::发布 ${tag} 失败"
           exit 1
