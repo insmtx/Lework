@@ -1,4 +1,4 @@
-import type { ChatFontSize, Preferences, ProcessDisplay, ToolDisplay } from "./preferences";
+import type { FontSize, Preferences, ProcessDisplay, ToolDisplay } from "./preferences";
 
 const THEME_LABELS = {
 	system: "跟随系统",
@@ -6,7 +6,7 @@ const THEME_LABELS = {
 	dark: "暗色",
 } as const;
 
-const FONT_LABELS: Record<ChatFontSize, string> = {
+const FONT_LABELS: Record<FontSize, string> = {
 	small: "小字号",
 	standard: "标准字号",
 	large: "大字号",
@@ -30,7 +30,7 @@ const TOOL_LABELS: Record<ToolDisplay, string> = {
  * 设置首页只列一行，把两个偏好压成一句，用户不用进二级页就知道现在是什么。
  */
 export function describeAppearance(preferences: Preferences): string {
-	return `${THEME_LABELS[preferences.themeMode]} · ${FONT_LABELS[preferences.chatFontSize]}`;
+	return `${THEME_LABELS[preferences.themeMode]} · ${FONT_LABELS[preferences.fontSize]}`;
 }
 
 /** describeProcess 生成「过程展示」菜单行的当前值。 */

@@ -1,7 +1,7 @@
 import { clipText, type DiffLine, type ToolBlock } from "@lework/tool-view";
 import { Text, View } from "react-native";
 
-import { useToolStyles } from "./font-scale";
+import { useToolStyles } from "./use-tool-styles";
 
 /** DIFF_LINE_LIMIT 防止一次编辑把整条消息撑成几屏，超出的部分明确标注截断。 */
 const DIFF_LINE_LIMIT = 200;

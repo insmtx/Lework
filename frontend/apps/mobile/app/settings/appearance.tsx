@@ -1,5 +1,5 @@
 import { Segmented, SettingsPage, SettingsSection } from "../../src/settings/components";
-import type { ChatFontSize } from "../../src/settings/preferences";
+import type { FontSize } from "../../src/settings/preferences";
 import type { ThemeMode } from "../../src/theme/theme";
 import { useThemePreference } from "../../src/theme/theme-context";
 import { useScreenTitle } from "../../src/ui/app-shell-context";
@@ -10,7 +10,7 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 	{ value: "dark", label: "暗色" },
 ];
 
-const FONT_OPTIONS: { value: ChatFontSize; label: string }[] = [
+const FONT_OPTIONS: { value: FontSize; label: string }[] = [
 	{ value: "small", label: "小" },
 	{ value: "standard", label: "标准" },
 	{ value: "large", label: "大" },
@@ -28,13 +28,13 @@ export default function AppearanceScreen() {
 			</SettingsSection>
 
 			<SettingsSection
-				title="会话字号"
-				hint="影响消息正文、思考过程与工具输出；导航和按钮保持不变。"
+				title="界面字号"
+				hint="整体缩放界面文字：标题、状态、思考过程、工具输出与正文一起变化。"
 			>
 				<Segmented
 					options={FONT_OPTIONS}
-					value={preferences.chatFontSize}
-					onChange={(value) => setPreference("chatFontSize", value)}
+					value={preferences.fontSize}
+					onChange={(value) => setPreference("fontSize", value)}
 				/>
 			</SettingsSection>
 		</SettingsPage>

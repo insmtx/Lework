@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	CHAT_FONT_SCALE,
 	createPreferencesStore,
 	DEFAULT_PREFERENCES,
+	FONT_SCALE,
 	isThemeMode,
 	normalizePreferences,
 	PREFERENCES_KEY,
@@ -30,7 +30,7 @@ const custom: Preferences = {
 	soundEnabled: false,
 	processDisplay: "full",
 	toolDisplay: "expanded",
-	chatFontSize: "large",
+	fontSize: "large",
 };
 
 describe("normalizePreferences", () => {
@@ -49,7 +49,7 @@ describe("normalizePreferences", () => {
 				themeMode: "dark",
 				processDisplay: "verbose",
 				toolDisplay: "expanded",
-				chatFontSize: 42,
+				fontSize: 42,
 				soundEnabled: false,
 			}),
 		).toEqual({
@@ -97,6 +97,16 @@ describe("createPreferencesStore", () => {
 			themeMode: "light",
 		});
 	});
+
+	it("旧版本的 chatFontSize 迁移为 fontSize", async () => {
+		const kv = fakeStore();
+		kv.data.set(PREFERENCES_KEY, JSON.stringify({ themeMode: "light", chatFontSize: "large" }));
+		await expect(createPreferencesStore(kv).load()).resolves.toEqual({
+			...DEFAULT_PREFERENCES,
+			themeMode: "light",
+			fontSize: "large",
+		});
+	});
 });
 
 describe("isThemeMode", () => {
@@ -109,10 +119,10 @@ describe("isThemeMode", () => {
 	});
 });
 
-describe("CHAT_FONT_SCALE", () => {
+describe("FONT_SCALE", () => {
 	it("三档整体上移：标准档大于基线，各档依次递增", () => {
-		expect(CHAT_FONT_SCALE.small).toBe(1);
-		expect(CHAT_FONT_SCALE.standard).toBeGreaterThan(CHAT_FONT_SCALE.small);
-		expect(CHAT_FONT_SCALE.large).toBeGreaterThan(CHAT_FONT_SCALE.standard);
+		expect(FONT_SCALE.small).toBe(1);
+		expect(FONT_SCALE.standard).toBeGreaterThan(FONT_SCALE.small);
+		expect(FONT_SCALE.large).toBeGreaterThan(FONT_SCALE.standard);
 	});
 });

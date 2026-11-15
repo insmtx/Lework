@@ -111,7 +111,8 @@ function createStyles(theme: Theme) {
 			top: 2,
 			right: 0,
 			minWidth: 16,
-			height: 16,
+			// 跟随字号长高，避免大字号时数字被固定高度裁掉。
+			minHeight: 16,
 			paddingHorizontal: 4,
 			borderRadius: 8,
 			backgroundColor: colors.badge,

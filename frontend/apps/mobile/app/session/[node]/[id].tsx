@@ -26,9 +26,7 @@ import { SessionStatusIcon } from "../../../src/session/status-icon";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
-import { CHAT_FONT_SCALE } from "../../../src/settings/preferences";
 import { formatRelativeTime } from "../../../src/sidebar/model";
-import { contentTextStyle } from "../../../src/theme/content-scale";
 import type { Theme } from "../../../src/theme/theme";
 import { useThemePreference } from "../../../src/theme/theme-context";
 import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
@@ -42,11 +40,9 @@ function param(value: string | string[] | undefined): string {
 
 function ApprovalCard({
 	permission,
-	fontScale,
 	onReply,
 }: {
 	permission: PendingPermission;
-	fontScale: number;
 	onReply: (decision: "once" | "always" | "reject", message?: string) => Promise<void>;
 }) {
 	const theme = useTheme();
@@ -71,22 +67,12 @@ function ApprovalCard({
 	return (
 		<View style={styles.approval}>
 			<Text style={styles.approvalTitle}>Approval required</Text>
-			<Text style={[styles.approvalAction, contentTextStyle(fontScale, 15, 21)]}>
-				{permission.action || permission.id}
-			</Text>
-			{permission.message ? (
-				<Text style={[styles.approvalMessage, contentTextStyle(fontScale, 13, 19)]}>
-					{permission.message}
-				</Text>
-			) : null}
+			<Text style={styles.approvalAction}>{permission.action || permission.id}</Text>
+			{permission.message ? <Text style={styles.approvalMessage}>{permission.message}</Text> : null}
 			{permission.resources.length > 0 ? (
 				<View style={styles.resources}>
 					{permission.resources.slice(0, 6).map((resource) => (
-						<Text
-							key={resource}
-							style={[styles.resource, contentTextStyle(fontScale, 12, 16)]}
-							numberOfLines={2}
-						>
+						<Text key={resource} style={styles.resource} numberOfLines={2}>
 							{resource}
 						</Text>
 					))}
@@ -105,9 +91,7 @@ function ApprovalCard({
 				/>
 			) : null}
 
-			{error ? (
-				<Text style={[styles.error, contentTextStyle(fontScale, 13, 18)]}>{error}</Text>
-			) : null}
+			{error ? <Text style={styles.error}>{error}</Text> : null}
 
 			<View style={styles.approvalButtons}>
 				<Pressable
@@ -194,7 +178,6 @@ export default function SessionScreen() {
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const { preferences } = useThemePreference();
-	const fontScale = CHAT_FONT_SCALE[preferences.chatFontSize];
 	const nodeID = param(params.node);
 	const sessionID = param(params.id);
 
@@ -412,9 +395,7 @@ export default function SessionScreen() {
 				}
 			/>
 
-			{error ? (
-				<Text style={[styles.error, contentTextStyle(fontScale, 13, 18)]}>{error}</Text>
-			) : null}
+			{error ? <Text style={styles.error}>{error}</Text> : null}
 			{actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
 			<View style={styles.messagesWrap}>
@@ -424,12 +405,11 @@ export default function SessionScreen() {
 					contentContainerStyle={styles.messagesContent}
 					data={visibleMessages}
 					keyExtractor={(message) => message.id}
-					// 字号与展示偏好变化时，行内内容必须一起重排；FlatList 不会因为闭包变化重绘单元格。
-					extraData={`${fontScale}:${preferences.toolDisplay}:${preferences.processDisplay}`}
+					// 字号与展示偏好变化时，行内内容必须一起重排；字号通过主题样式与 context 自动更新。
+					extraData={`${preferences.toolDisplay}:${preferences.processDisplay}`}
 					renderItem={({ item, index }) => (
 						<MessageRow
 							message={item}
-							fontScale={fontScale}
 							isLastMessage={index === visibleMessages.length - 1}
 							nodeID={nodeID}
 							sessionID={sessionID}
@@ -452,7 +432,6 @@ export default function SessionScreen() {
 									<ApprovalCard
 										key={permission.id}
 										permission={permission}
-										fontScale={fontScale}
 										onReply={(decision, message) => reply(permission.id, decision, message)}
 									/>
 								))}

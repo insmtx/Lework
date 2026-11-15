@@ -2,7 +2,6 @@ import type { Message } from "@lework/api";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { contentTextStyle } from "../theme/content-scale";
 import type { Theme } from "../theme/theme";
 import { useThemePreference } from "../theme/theme-context";
 import { useTheme, useThemedStyles } from "../theme/use-theme";
@@ -16,15 +15,7 @@ import { reasoningText, visibleReasoning } from "./process";
  *
  * 它和正文分开渲染：思考不是回复内容，塞进气泡会让用户以为模型说过这些话。
  */
-export function ReasoningCard({
-	message,
-	mode,
-	fontScale,
-}: {
-	message: Message;
-	mode: "brief" | "full";
-	fontScale: number;
-}) {
+export function ReasoningCard({ message, mode }: { message: Message; mode: "brief" | "full" }) {
 	const styles = useThemedStyles(createStyles);
 	const [expanded, setExpanded] = useState(mode === "full");
 	const text = reasoningText(message);
@@ -42,10 +33,7 @@ export function ReasoningCard({
 				<Text style={styles.reasoningChevron}>{expanded ? "▾" : "▸"}</Text>
 				<Text style={styles.reasoningLabel}>思考过程</Text>
 			</Pressable>
-			<Text
-				style={[styles.reasoningBody, contentTextStyle(fontScale, 12, 18)]}
-				numberOfLines={expanded ? undefined : 2}
-			>
+			<Text style={styles.reasoningBody} numberOfLines={expanded ? undefined : 2}>
 				{expanded ? text : preview}
 			</Text>
 		</View>
@@ -61,13 +49,11 @@ export function ReasoningCard({
  */
 export function MessageRow({
 	message,
-	fontScale,
 	isLastMessage,
 	nodeID,
 	sessionID,
 }: {
 	message: Message;
-	fontScale: number;
 	/** 是否为本会话最后一条消息；最后一张工具卡片据此决定完成后的折叠时机。 */
 	isLastMessage: boolean;
 	nodeID: string;
@@ -81,9 +67,7 @@ export function MessageRow({
 	if (message.role === "idle") {
 		return (
 			<View style={styles.noticeRow}>
-				<Text style={[styles.noticeError, contentTextStyle(fontScale, 12, 16)]}>
-					{message.error?.message ?? "本轮执行失败"}
-				</Text>
+				<Text style={styles.noticeError}>{message.error?.message ?? "本轮执行失败"}</Text>
 			</View>
 		);
 	}
@@ -101,20 +85,9 @@ export function MessageRow({
 			{text ? (
 				<View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
 					{markdown ? (
-						<MarkdownBody content={text} scheme={theme.scheme} scale={fontScale} />
+						<MarkdownBody content={text} scheme={theme.scheme} />
 					) : (
-						<Text
-							style={[
-								styles.messageText,
-								{
-									fontSize: Math.round(15 * fontScale),
-									lineHeight: Math.round(21 * fontScale),
-								},
-								isUser && styles.userMessageText,
-							]}
-						>
-							{text}
-						</Text>
+						<Text style={[styles.messageText, isUser && styles.userMessageText]}>{text}</Text>
 					)}
 				</View>
 			) : null}
@@ -122,7 +95,6 @@ export function MessageRow({
 				<ReasoningCard
 					message={message}
 					mode={preferences.processDisplay === "full" ? "full" : "brief"}
-					fontScale={fontScale}
 				/>
 			) : null}
 			{!isUser && tools.length > 0 ? (
@@ -132,7 +104,6 @@ export function MessageRow({
 							key={part.callID || `${part.tool || "tool"}-${index}`}
 							part={part}
 							defaultExpanded={preferences.toolDisplay === "expanded"}
-							fontScale={fontScale}
 							isLast={isLastMessage && index === tools.length - 1}
 							nodeID={nodeID}
 							sessionID={sessionID}
@@ -140,11 +111,7 @@ export function MessageRow({
 					))}
 				</View>
 			) : null}
-			{message.error ? (
-				<Text style={[styles.turnError, contentTextStyle(fontScale, 12, 16)]}>
-					{message.error.message}
-				</Text>
-			) : null}
+			{message.error ? <Text style={styles.turnError}>{message.error.message}</Text> : null}
 		</View>
 	);
 }

@@ -1,5 +1,6 @@
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
+import { useFontScale } from "../theme/use-theme";
 import { type SessionStatus, statusGlyph, statusLabel } from "./status";
 
 export interface SessionStatusIconProps {
@@ -17,16 +18,24 @@ export interface SessionStatusIconProps {
  * 比强烈的符号，避免同一行里出现大段文案。完整含义只放在无障碍标签里。
  */
 export function SessionStatusIcon({ state, color, size = 14 }: SessionStatusIconProps) {
+	const fontScale = useFontScale();
 	if (!state) return null;
+
+	// 状态图标不是主题样式表里的 Text，单独套用同一个倍率，避免标题变大而状态仍很小。
+	const scaled = Math.round(size * fontScale);
 
 	if (state === "running") {
 		return (
 			<View
 				accessible
 				accessibilityLabel={statusLabel(state)}
-				style={[styles.spinner, { width: size, height: size }]}
+				style={[styles.spinner, { width: scaled, height: scaled }]}
 			>
-				<ActivityIndicator size="small" color={color} style={{ transform: [{ scale: 0.7 }] }} />
+				<ActivityIndicator
+					size="small"
+					color={color}
+					style={{ transform: [{ scale: 0.7 * fontScale }] }}
+				/>
 			</View>
 		);
 	}
@@ -35,7 +44,7 @@ export function SessionStatusIcon({ state, color, size = 14 }: SessionStatusIcon
 		<Text
 			accessible
 			accessibilityLabel={statusLabel(state)}
-			style={[styles.glyph, { color, fontSize: size, lineHeight: size + 2 }]}
+			style={[styles.glyph, { color, fontSize: scaled, lineHeight: scaled + 2 }]}
 		>
 			{statusGlyph(state)}
 		</Text>
