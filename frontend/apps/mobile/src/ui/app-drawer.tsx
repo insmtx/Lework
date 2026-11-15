@@ -76,8 +76,8 @@ function ProjectGroup({
 /**
  * AppDrawer 是左侧滑出的主导航（豆包式），而不是项目树。
  *
- * 顶部是当前项目/会话名与通知；中间是「新任务 / 查看全部」和按项目分组
- * 的最近会话；底部只留用户与设置。没有的能力（定时任务、插件）不占位。
+ * 顶部是当前项目/会话名与通知；中间是「新任务 / 节点管理 / 查看全部」
+ * 和按项目分组的最近会话；底部只留用户与设置。没有的能力（定时任务、插件）不占位。
  */
 export function AppDrawer() {
 	const {
@@ -186,6 +186,10 @@ export function AppDrawer() {
 						<Pressable style={styles.actionRow} onPress={startNewTask}>
 							<Text style={styles.actionIcon}>＋</Text>
 							<Text style={styles.actionLabel}>新任务</Text>
+						</Pressable>
+						<Pressable style={styles.actionRow} onPress={() => go("/nodes")}>
+							<Text style={styles.actionIcon}>▣</Text>
+							<Text style={styles.actionLabel}>节点管理</Text>
 						</Pressable>
 						<Pressable style={styles.actionRow} onPress={() => go("/projects")}>
 							<Text style={styles.actionIcon}>▤</Text>

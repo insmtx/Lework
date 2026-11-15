@@ -14,15 +14,29 @@ export const ANDROID_CHANNEL_ID = "permissions";
 // 一条横幅。两件事混在一个渠道里，用户没法只关掉其中一个。
 export const ANDROID_CHANNEL_ID_COMPLETIONS = "completions";
 
-async function ensureAndroidChannel(): Promise<void> {
+// 前台是否响铃由「提醒」里的声音开关决定。模块级变量而不是 context：
+// setNotificationHandler 在模块加载时注册，拿不到 React 状态。
+let foregroundSoundEnabled = true;
+
+/** setForegroundSoundEnabled 让前台通知处理器跟随用户的声音偏好。 */
+export function setForegroundSoundEnabled(enabled: boolean): void {
+	foregroundSoundEnabled = enabled;
+}
+
+/** isForegroundSoundEnabled 返回当前前台通知是否应响铃。 */
+export function isForegroundSoundEnabled(): boolean {
+	return foregroundSoundEnabled;
+}
+
+async function ensureAndroidChannel(soundEnabled: boolean): Promise<void> {
 	if (Platform.OS !== "android") return;
 	await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
 		name: "审批提醒",
-		description: "节点请求审批时提醒",
+		description: soundEnabled ? "节点请求审批时响铃提醒" : "节点请求审批时静默提醒",
 		importance: Notifications.AndroidImportance.HIGH,
 		lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-		sound: "default",
-		enableVibrate: true,
+		sound: soundEnabled ? "default" : null,
+		enableVibrate: soundEnabled,
 	});
 	// DEFAULT 重要性有横幅但不打断：不响铃、不震动。
 	await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID_COMPLETIONS, {
@@ -35,6 +49,18 @@ async function ensureAndroidChannel(): Promise<void> {
 	});
 }
 
+/**
+ * applySoundPreference 重建 Android 审批渠道以应用新的声音偏好。
+ *
+ * Android 8+ 创建渠道后再改 sound 不生效，只能删除重建；渠道 ID 保持不变，
+ * 服务端推送不需要跟着变。执行结果渠道本来就是静音，无需重建。
+ */
+export async function applySoundPreference(soundEnabled: boolean): Promise<void> {
+	if (Platform.OS !== "android") return;
+	await Notifications.deleteNotificationChannelAsync(ANDROID_CHANNEL_ID);
+	await ensureAndroidChannel(soundEnabled);
+}
+
 // registerForPush 申请通知权限并登记 Expo Push Token。
 //
 // 模拟器没有推送能力，projectId 缺失时拿不到 token；两种情况都静默返回
@@ -43,11 +69,12 @@ async function ensureAndroidChannel(): Promise<void> {
 export async function registerForPush(
 	settings: Settings,
 	client: ApiClient,
+	soundEnabled = true,
 ): Promise<string | null> {
 	void settings;
 	if (!Device.isDevice) return null;
 
-	await ensureAndroidChannel();
+	await ensureAndroidChannel(soundEnabled);
 
 	let permission = await Notifications.getPermissionsAsync();
 	if (permission.status !== "granted") {
