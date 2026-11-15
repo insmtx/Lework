@@ -745,6 +745,48 @@ func TestResolverSessionSlidingRenewal(t *testing.T) {
 			t.Fatalf("ExpiresAt = %s, want unchanged %s", after.ExpiresAt, before.ExpiresAt)
 		}
 	})
+
+	// 短 TTL 下续期阈值必须跟着缩小：固定 1h 阈值会让 30 分钟的会话永远到不了
+	// 续期点，滑动续期静默失效。
+	t.Run("renews when idle exceeds half of a short SessionTTL", func(t *testing.T) {
+		s := newTestStore(t)
+		u := createUser(t, s, "short-renew@b.c", "user", "active")
+		raw := createSession(t, s, u.ID, 5*time.Minute)
+		before := lookupSession(t, s, raw)
+		if err := s.TouchSession(ctx, before.ID, before.ExpiresAt, time.Now().UTC().Add(-20*time.Minute)); err != nil {
+			t.Fatalf("TouchSession: %v", err)
+		}
+
+		v := authz.Resolver{Store: s, SessionTTL: 30 * time.Minute}
+		if _, ok, err := v.Resolve(sessionBearerRequest(raw)); err != nil || !ok {
+			t.Fatalf("Resolve = %v, %v", ok, err)
+		}
+
+		after := lookupSession(t, s, raw)
+		if !after.ExpiresAt.After(time.Now().Add(29 * time.Minute)) {
+			t.Fatalf("ExpiresAt = %s, want a value near now+30m", after.ExpiresAt)
+		}
+	})
+
+	t.Run("short SessionTTL does not rewrite a recently used session", func(t *testing.T) {
+		s := newTestStore(t)
+		u := createUser(t, s, "short-fresh@b.c", "user", "active")
+		raw := createSession(t, s, u.ID, 5*time.Minute)
+		before := lookupSession(t, s, raw)
+		if err := s.TouchSession(ctx, before.ID, before.ExpiresAt, time.Now().UTC().Add(-5*time.Minute)); err != nil {
+			t.Fatalf("TouchSession: %v", err)
+		}
+
+		v := authz.Resolver{Store: s, SessionTTL: 30 * time.Minute}
+		if _, ok, err := v.Resolve(sessionBearerRequest(raw)); err != nil || !ok {
+			t.Fatalf("Resolve = %v, %v", ok, err)
+		}
+
+		after := lookupSession(t, s, raw)
+		if !after.ExpiresAt.Equal(before.ExpiresAt) {
+			t.Fatalf("ExpiresAt = %s, want unchanged %s", after.ExpiresAt, before.ExpiresAt)
+		}
+	})
 }
 
 func mustNode(t *testing.T, s *store.Store, name string) store.Node {

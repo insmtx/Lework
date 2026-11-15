@@ -432,3 +432,96 @@ func sessionCookieFromResponse(rec *httptest.ResponseRecorder) *http.Cookie {
 	}
 	return nil
 }
+
+// TestAuthMiddlewareRefreshesSessionCookie 固化「浏览器也真正滑动」：用 cookie
+// 认证成功时，中间件原样回写同一个 cookie 并把 MaxAge 挪到 SessionTTL，否则
+// 服务端续期了 expires_at，浏览器却仍在登录 30 天后被清掉 cookie。
+func TestAuthMiddlewareRefreshesSessionCookie(t *testing.T) {
+	const ttl = 12 * time.Hour
+
+	newHandler := func(t *testing.T, sessionTTL time.Duration) *authFixture {
+		t.Helper()
+		f := newAuthFixture(t, false)
+		resolver := newAuthResolver(f.store, false)
+		resolver.SessionTTL = sessionTTL
+		f.handler = newAuthMiddleware(principalRecorder(), resolver)
+		return f
+	}
+
+	t.Run("cookie auth re-issues the same value", func(t *testing.T) {
+		f := newHandler(t, ttl)
+		req := remoteRequest(http.MethodGet, "/api/nodes", "203.0.113.5:5555")
+		req.AddCookie(&http.Cookie{Name: authz.DefaultCookieName, Value: f.sessionRaw})
+
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		cookie := sessionCookieFromResponse(rec)
+		if cookie == nil {
+			t.Fatal("cookie-authenticated request did not refresh the session cookie")
+		}
+		if cookie.Value != f.sessionRaw {
+			t.Fatalf("refreshed cookie value = %q, want the original token", cookie.Value)
+		}
+		if cookie.MaxAge != int(ttl.Seconds()) {
+			t.Fatalf("MaxAge = %d, want %d", cookie.MaxAge, int(ttl.Seconds()))
+		}
+		if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/" {
+			t.Fatalf("refreshed cookie lost its attributes: %+v", cookie)
+		}
+	})
+
+	t.Run("bearer session does not get a cookie", func(t *testing.T) {
+		f := newHandler(t, ttl)
+		req := remoteRequest(http.MethodGet, "/api/nodes", "203.0.113.5:5555")
+		req.Header.Set("Authorization", "Bearer "+f.sessionRaw)
+
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if cookie := sessionCookieFromResponse(rec); cookie != nil {
+			t.Fatalf("bearer request received a session cookie: %+v", cookie)
+		}
+	})
+
+	t.Run("local pass-through does not get a cookie", func(t *testing.T) {
+		f := newAuthFixture(t, true)
+		resolver := newAuthResolver(f.store, true)
+		resolver.SessionTTL = ttl
+		f.handler = newAuthMiddleware(principalRecorder(), resolver)
+
+		req := remoteRequest(http.MethodGet, "/api/nodes", "127.0.0.1:5555")
+
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if cookie := sessionCookieFromResponse(rec); cookie != nil {
+			t.Fatalf("local request received a session cookie: %+v", cookie)
+		}
+	})
+
+	t.Run("renewal disabled leaves the cookie alone", func(t *testing.T) {
+		f := newHandler(t, 0)
+		req := remoteRequest(http.MethodGet, "/api/nodes", "203.0.113.5:5555")
+		req.AddCookie(&http.Cookie{Name: authz.DefaultCookieName, Value: f.sessionRaw})
+
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if cookie := sessionCookieFromResponse(rec); cookie != nil {
+			t.Fatalf("SessionTTL=0 re-issued a cookie: %+v", cookie)
+		}
+	})
+}

@@ -154,8 +154,10 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	return nil
 }
 
-// errSessionNotFound 标识「会话行已经不存在」。用哨兵错误是为了让续期调用方
-// 能用 errors.Is 区分「会话正常消失」与数据库故障，而不是解析错误文本。
+// errSessionNotFound 标识「会话行已经不存在」。当前唯一调用方是滑动续期，
+// 它会刻意忽略写库错误，所以还没有 errors.Is 的消费者；保留哨兵是为了让
+// 「会话已登出」与「数据库故障」在测试或未来的清理任务里仍可区分，而不必
+// 解析错误文本。
 var errSessionNotFound = errors.New("session not found")
 
 // TouchSession 刷新一条会话的过期时间与最后活跃时间，实现滑动续期。

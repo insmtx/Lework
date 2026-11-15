@@ -47,11 +47,12 @@ const (
 	roleAdmin    = "admin"
 	statusActive = "active"
 
-	// sessionRenewInterval 是滑动续期的最小写库间隔。
+	// sessionRenewCeiling 是滑动续期的最小写库间隔上限。
 	//
 	// 每次请求都写一次 last_seen_at 会让一个打开的浏览器把数据库写满；活跃
 	// 时间只需要小时级精度，1 小时既能反映「最近用过」，也把写入压到可忽略。
-	sessionRenewInterval = time.Hour
+	// 实际间隔由 renewInterval 按 SessionTTL 收缩，避免短会话永远到不了续期点。
+	sessionRenewCeiling = time.Hour
 )
 
 // Principal 是一次已认证请求的身份。
@@ -185,10 +186,10 @@ func (v Resolver) resolveSession(ctx context.Context, raw string) (Principal, bo
 
 // renewSession 把会话的过期时间与活跃时间往后推，实现滑动续期。
 //
-// 只在 SessionTTL 为正且距上次续期超过 sessionRenewInterval 时写库：打开的
-// 浏览器每个请求都写一次会把数据库写满，而小时级的活跃时间足够支撑「30 天
-// 不用才过期」的语义。LastSeenAt 为零（历史行或刚创建未初始化）也视为需要
-// 续期，避免这些会话永远停在零值上。
+// 只在 SessionTTL 为正且距上次续期超过 renewInterval 时写库：打开的浏览器
+// 每个请求都写一次会把数据库写满，而小时级的活跃时间足够支撑「30 天不用才
+// 过期」的语义。LastSeenAt 为零（历史行或刚创建未初始化）也视为需要续期，
+// 避免这些会话永远停在零值上。
 //
 // 写库失败被刻意忽略：会话本身已经通过校验，把续期失败当成认证失败会让一次
 // 数据库抖动踢掉所有在线用户；把错误向上抛则会让请求变成 500，结果相同。
@@ -200,7 +201,7 @@ func (v Resolver) renewSession(ctx context.Context, session store.UserSession) {
 	}
 
 	now := time.Now().UTC()
-	if !session.LastSeenAt.IsZero() && now.Sub(session.LastSeenAt) < sessionRenewInterval {
+	if !session.LastSeenAt.IsZero() && now.Sub(session.LastSeenAt) < v.renewInterval() {
 		return
 	}
 
@@ -212,6 +213,73 @@ func (v Resolver) renewSession(ctx context.Context, session store.UserSession) {
 		return
 	}
 	_ = touch(ctx, session.ID, now.Add(v.SessionTTL), now)
+}
+
+// renewInterval 返回两次续期写库之间的最小间隔：min(1h, SessionTTL/2)。
+//
+// 固定 1 小时的阈值只在 30 天会话上成立：若 SessionTTL 本身不超过 1 小时，
+// last_seen_at 到过期都攒不满阈值，续期永远不会发生。取 TTL 的一半保证每个
+// 会话寿命内至少有一个续期点。SessionTTL/2 为 0（纳秒级测试 TTL）时退回
+// SessionTTL，宁可每请求写一次也不能静默关闭续期；SessionTTL<=0 由调用方
+// 提前返回。
+func (v Resolver) renewInterval() time.Duration {
+	half := v.SessionTTL / 2
+	if half <= 0 {
+		return v.SessionTTL
+	}
+	if half < sessionRenewCeiling {
+		return half
+	}
+	return sessionRenewCeiling
+}
+
+// SessionCookieName 返回实际使用的会话 cookie 名称。
+//
+// 导出它是为了让写响应的一方（登录、续期、登出）与解析方共用同一份判定：
+// 自定义 CookieName 时若中间件仍按默认名回写，浏览器会同时持有两个 cookie。
+func (v Resolver) SessionCookieName() string {
+	return v.cookieName()
+}
+
+// SetSessionCookie 把会话令牌写进浏览器。
+//
+// 会话 cookie 的属性只在这里维护：登录时签发、中间件滑动续期时重签、登出时
+// 清除都调用同一份实现，避免三处 MaxAge/Secure/SameSite 各自漂移后出现
+// 「HTTPS 下 cookie 丢 Secure」或「续期后变成会话 cookie」。
+//
+// MaxAge 跟随 ttl；ttl <= 0 时不写 MaxAge（浏览器按会话 cookie 处理），而不是
+// 传负数——负数会被序列化成 Max-Age=0，等于立即过期，语义正好相反。
+// Secure 只在 r 为 TLS 时开启：控制面允许部署在本机 HTTP 上，无条件 Secure
+// 会让这些部署登录后立刻掉线。
+func SetSessionCookie(w http.ResponseWriter, r *http.Request, raw string, ttl time.Duration) {
+	cookie := &http.Cookie{
+		Name:     DefaultCookieName,
+		Value:    raw,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r != nil && r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+	}
+	if ttl > 0 {
+		cookie.MaxAge = int(ttl.Seconds())
+	}
+	http.SetCookie(w, cookie)
+}
+
+// ClearSessionCookie 让浏览器立即丢弃会话 cookie。
+//
+// 删除 cookie 不要求属性完全一致：浏览器按 (name, domain, path) 匹配，Secure
+// 与 SameSite 只影响发送条件。因此这里不需要请求对象，也就不会因为某个调用方
+// 拿不到 *http.Request 而无法登出。
+func ClearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     DefaultCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
 }
 
 // cookieName 返回实际使用的 cookie 名称。

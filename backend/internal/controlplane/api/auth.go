@@ -336,7 +336,7 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	clearSessionCookie(w, r)
+	authz.ClearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -386,29 +386,8 @@ func (a *API) issueSession(w http.ResponseWriter, r *http.Request, user store.Us
 		return authResponse{}, false
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     authz.DefaultCookieName,
-		Value:    raw,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(a.sessionTTL().Seconds()),
-	})
+	authz.SetSessionCookie(w, r, raw, a.sessionTTL())
 	return authResponse{User: toAuthUser(user), Token: raw}, true
-}
-
-// clearSessionCookie 让浏览器立即丢弃会话 cookie。
-func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     authz.DefaultCookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   -1,
-	})
 }
 
 // toAuthUser 把存储记录投影成对外结构，逐字段列出而不是直接编码 store.User，

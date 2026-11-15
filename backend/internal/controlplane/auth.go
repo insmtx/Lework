@@ -55,7 +55,35 @@ func (m *authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	m.refreshSessionCookie(w, r, principal)
+
 	m.next.ServeHTTP(w, r.WithContext(authz.WithPrincipal(r.Context(), principal)))
+}
+
+// refreshSessionCookie 在请求靠会话 cookie 通过校验时重签同一个 cookie。
+//
+// 服务端只在 renewSession 里推后 expires_at，浏览器却按登录那一刻的 MaxAge
+// 计算存活期：不重签的话，一直活跃的浏览器仍会在登录 30 天后被清掉 cookie，
+// 用户被迫重新登录，滑动续期只做了一半。这里不需要从 resolver 拿「本次是否
+// 真的续期了」的标志：重签是无状态的，值原样回写，MaxAge 设为 SessionTTL，
+// 最坏情况是多写一个 Set-Cookie 头；若改成只在续期时重签，就得把内部时序判断
+// 穿过 Resolver.Resolve 的返回值，接口为了一个响应头变复杂。
+//
+// 只在「请求确实带了会话 cookie 且身份是账号」时做：Bearer（移动端）没有
+// cookie 罐，local/admin_token 也没有对应会话，给它们签发 cookie 会凭空造出
+// 一条不存在的会话。SessionTTL<=0 表示显式关闭续期，此时也不该把登录时写入的
+// 持久 cookie 改成会话 cookie。
+func (m *authMiddleware) refreshSessionCookie(w http.ResponseWriter, r *http.Request, principal authz.Principal) {
+	if principal.Kind != authz.KindUser || m.resolver.SessionTTL <= 0 {
+		return
+	}
+
+	cookie, err := r.Cookie(m.resolver.SessionCookieName())
+	if err != nil || cookie.Value == "" {
+		return
+	}
+
+	authz.SetSessionCookie(w, r, cookie.Value, m.resolver.SessionTTL)
 }
 
 // firstRunLocalRequest 判断是否「本机请求且还没有任何账号」。
