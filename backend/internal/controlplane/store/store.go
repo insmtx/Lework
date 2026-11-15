@@ -92,6 +92,39 @@ type Preference struct {
 	UpdatedAt time.Time
 }
 
+// User 是控制面的账号记录。
+//
+// 控制面自己保存账号而不是委托外部系统：部署形态是「一个人、多台机器」，
+// 引入 IdP 只会让自托管多一个必填依赖。Email 存储前统一小写并作为唯一键，
+// 因为用户输入的大小写不该产生两个账号。
+//
+// PasswordHash 只保存 argon2id 的 PHC 字符串，明文密码不落库、不进日志。
+type User struct {
+	ID           string `gorm:"primaryKey"`
+	Email        string `gorm:"uniqueIndex;not null"`
+	DisplayName  string
+	PasswordHash string
+	Role         string // admin | user
+	Status       string // active | disabled
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// UserSession 是一次浏览器/移动端登录产生的会话。
+//
+// 只保存令牌的 sha256：数据库被读走也无法直接冒用会话。明文只在登录响应的
+// cookie 里出现一次，任何代码路径都不得把它写日志。过期判断一律交给 SQL，
+// 避免「先查出来再比时间」时把时区差异和时钟偏差散落到多处。
+type UserSession struct {
+	ID         string `gorm:"primaryKey"`
+	UserID     string `gorm:"index;not null"`
+	TokenHash  string `gorm:"uniqueIndex;not null"`
+	UserAgent  string
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	CreatedAt  time.Time
+}
+
 // Store 是节点存储，持有 SQLite 连接。
 type Store struct {
 	db     *gorm.DB
@@ -133,7 +166,9 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	if err := database.AutoMigrate(&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}); err != nil {
+	if err := database.AutoMigrate(
+		&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}, &User{}, &UserSession{},
+	); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		if sqlDB, dbErr := database.DB(); dbErr == nil {
 			_ = sqlDB.Close()
@@ -174,7 +209,9 @@ func OpenPostgres(cfg appconfig.DatabaseConfig) (*Store, error) {
 	sqlDB.SetMaxIdleConns(5)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	if err := database.AutoMigrate(&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}); err != nil {
+	if err := database.AutoMigrate(
+		&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}, &User{}, &UserSession{},
+	); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("migrate postgres tables: %w", err)
