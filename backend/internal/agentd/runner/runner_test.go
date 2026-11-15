@@ -84,6 +84,10 @@ func (stubOpenCode) ListSessions(context.Context, string) ([]opencode.Session, e
 	return nil, nil
 }
 
+func (stubOpenCode) ListChildSessions(context.Context, string, string) ([]opencode.Session, error) {
+	return nil, nil
+}
+
 func (stubOpenCode) ListProjects(context.Context) ([]opencode.Project, error) {
 	return nil, nil
 }
@@ -768,6 +772,7 @@ func TestHelloCapabilitiesIncludeI1BMethods(t *testing.T) {
 	want := []string{
 		"project.list",
 		"session.diff", "session.interrupt",
+		"session.children",
 		"file.list", "file.read",
 		"pty.create", "pty.attach", "pty.write", "pty.resize", "pty.close",
 	}

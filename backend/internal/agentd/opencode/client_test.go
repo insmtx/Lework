@@ -47,6 +47,41 @@ func TestCreateSessionSendsLocationAndDecodesEnvelope(t *testing.T) {
 	}
 }
 
+func TestSessionRunningFollowsBusyIdle(t *testing.T) {
+	cases := []struct {
+		name string
+		busy int64
+		idle int64
+		want bool
+	}{
+		{name: "新会话从未执行", want: false},
+		{name: "执行中 busy 晚于 idle", busy: 200, idle: 100, want: true},
+		{name: "执行完成后 idle 追上 busy", busy: 200, idle: 300, want: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			raw := fmt.Sprintf(`{"id":"ses_1","time":{"updated":400,"busy":%d,"idle":%d}}`, c.busy, c.idle)
+			var session Session
+			if err := json.Unmarshal([]byte(raw), &session); err != nil {
+				t.Fatal(err)
+			}
+			if session.Running != c.want {
+				t.Fatalf("running = %v, want %v", session.Running, c.want)
+			}
+		})
+	}
+}
+
+func TestSessionMarshalExposesRunning(t *testing.T) {
+	encoded, err := json.Marshal(Session{ID: "ses_1", Running: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"running":true`) {
+		t.Fatalf("encoded = %s, want running field", encoded)
+	}
+}
+
 func TestListSessionsDecodesEnvelope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/session" {
@@ -54,6 +89,10 @@ func TestListSessionsDecodesEnvelope(t *testing.T) {
 		}
 		if got := r.URL.Query().Get("directory"); got != "/work/foo" {
 			t.Errorf("directory = %q, want /work/foo", got)
+		}
+		// 子会话不能出现在会话列表里：必须显式只取顶层会话。
+		if got := r.URL.Query().Get("parentID"); got != "null" {
+			t.Errorf("parentID = %q, want null", got)
 		}
 		_, _ = w.Write([]byte(`{"data":[{"id":"ses_1","location":{"directory":"/work/foo"},` +
 			`"title":"demo","time":{"created":1,"updated":1793529425262}}],"cursor":{}}`))
@@ -69,6 +108,65 @@ func TestListSessionsDecodesEnvelope(t *testing.T) {
 	}
 	if got[0].ID != "ses_1" || got[0].Directory != "/work/foo" || got[0].Title != "demo" {
 		t.Fatalf("session = %#v", got[0])
+	}
+}
+
+func TestListSessionsSkipsSubagentSessions(t *testing.T) {
+	// 即使服务端没有按 parentID 过滤，客户端也不能把子会话当成用户会话返回。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"ses_root","title":"父会话"},` +
+			`{"id":"ses_child","parentID":"ses_root","title":"子代理"},` +
+			`{"id":"ses_root2","parentID":null,"title":"另一个会话"}],"cursor":{}}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListSessions(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("sessions = %#v", got)
+	}
+	if got[0].ID != "ses_root" || got[1].ID != "ses_root2" {
+		t.Fatalf("sessions = %#v", got)
+	}
+}
+
+func TestListChildSessionsFiltersByParent(t *testing.T) {
+	// 子会话列表必须显式带上 parentID，否则服务端会返回全部会话。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/session" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query().Get("parentID"); got != "ses_parent" {
+			t.Errorf("parentID = %q, want ses_parent", got)
+		}
+		if got := r.URL.Query().Get("directory"); got != "/work/foo" {
+			t.Errorf("directory = %q, want /work/foo", got)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"ses_child","parentID":"ses_parent",` +
+			`"title":"Review Task 16","time":{"created":2,"updated":3}}],"cursor":{}}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListChildSessions(context.Background(), "ses_parent", "/work/foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sessions = %#v", got)
+	}
+	if got[0].ID != "ses_child" || got[0].ParentID != "ses_parent" || got[0].Title != "Review Task 16" {
+		t.Fatalf("session = %#v", got[0])
+	}
+}
+
+func TestListChildSessionsRejectsEmptyParent(t *testing.T) {
+	// 空 parentID 会让服务端返回顶层会话，必须本地拒绝，不能静默降级。
+	_, err := New("http://127.0.0.1:1", http.DefaultClient).ListChildSessions(
+		context.Background(), "", "")
+	if err == nil {
+		t.Fatal("err = nil, want error for empty parent id")
 	}
 }
 

@@ -1,4 +1,4 @@
-import type { ContentPart, Message, PendingPermission, Session } from "@lework/api";
+import type { Message, PendingPermission, Session } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -17,21 +17,19 @@ import {
 
 import { sessionRoute } from "../../../src/config";
 import { findProjectForSession } from "../../../src/projects/model";
-import { MarkdownBody } from "../../../src/session/markdown";
-import {
-	messageText,
-	rendersMarkdown,
-	shouldRenderMessage,
-	toolParts,
-} from "../../../src/session/messages";
+import { MessageRow } from "../../../src/session/message-row";
+import { filterVisibleMessages } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
 import { runSend } from "../../../src/session/send-flow";
-import { type StatusTone, statusLabel, statusTone } from "../../../src/session/status";
+import { statusColor, statusLabel, statusTone } from "../../../src/session/status";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
+import { CHAT_FONT_SCALE } from "../../../src/settings/preferences";
 import { formatRelativeTime } from "../../../src/sidebar/model";
+import { contentTextStyle } from "../../../src/theme/content-scale";
 import type { Theme } from "../../../src/theme/theme";
+import { useThemePreference } from "../../../src/theme/theme-context";
 import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../../src/ui/global-composer";
@@ -41,142 +39,13 @@ function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
-interface ToolState {
-	status?: string;
-	title?: string;
-	input?: unknown;
-	output?: unknown;
-	content?: unknown;
-	error?: unknown;
-}
-
-function pretty(value: unknown): string {
-	if (value === undefined || value === null) return "";
-	if (typeof value === "string") return value;
-	try {
-		return JSON.stringify(value, null, 2);
-	} catch {
-		return String(value);
-	}
-}
-
-function clip(value: string, limit = 4000): string {
-	return value.length > limit ? `${value.slice(0, limit)}\n… 已截断` : value;
-}
-
-/** statusColor 把状态条的语气映射到主题色，与行内状态点保持同一套语义。 */
-function statusColor(theme: Theme, tone: StatusTone): string {
-	switch (tone) {
-		case "info":
-			return theme.colors.accent;
-		case "warn":
-			return theme.colors.warning;
-		case "error":
-			return theme.colors.danger;
-		default:
-			return theme.colors.offline;
-	}
-}
-
-/** ToolSection 是展开后的单段内容，输入/输出/错误共用同一套排版。 */
-function ToolSection({ label, value, error }: { label: string; value: string; error?: boolean }) {
-	const styles = useThemedStyles(createStyles);
-
-	return (
-		<View style={styles.toolSection}>
-			<Text style={styles.toolSectionLabel}>{label}</Text>
-			<Text style={[styles.toolSectionBody, error && styles.toolSectionError]}>{clip(value)}</Text>
-		</View>
-	);
-}
-
-/**
- * ToolCall 是左侧执行过程卡片：默认只露工具名与状态，点一下展开细节。
- *
- * 没有输入输出的工具（例如纯状态变更）不展开，避免点开一片空白。
- */
-function ToolCall({ part }: { part: ContentPart }) {
-	const styles = useThemedStyles(createStyles);
-	const [expanded, setExpanded] = useState(false);
-	const state = (part.state ?? {}) as ToolState;
-	const status = state.status ?? "running";
-	const input = pretty(state.input);
-	const output = pretty(state.output ?? state.content);
-	const error = pretty(state.error ?? state.title);
-	const hasDetails = Boolean(input || output || error);
-	const failed = status === "error" || Boolean(error);
-
-	return (
-		<View style={styles.toolCard}>
-			<Pressable
-				style={styles.toolHeader}
-				disabled={!hasDetails}
-				onPress={() => setExpanded((open) => !open)}
-			>
-				<Text style={styles.toolChevron}>{hasDetails ? (expanded ? "▾" : "▸") : "•"}</Text>
-				<Text style={styles.toolName} numberOfLines={1}>
-					{part.tool || "tool"}
-				</Text>
-				<Text style={[styles.toolStatus, failed && styles.toolStatusError]}>{status}</Text>
-			</Pressable>
-			{expanded && hasDetails ? (
-				<View style={styles.toolBody}>
-					{input ? <ToolSection label="输入" value={input} /> : null}
-					{output ? <ToolSection label="输出" value={output} /> : null}
-					{error ? <ToolSection label="错误" value={error} error /> : null}
-				</View>
-			) : null}
-		</View>
-	);
-}
-
-function MessageRow({ message }: { message: Message }) {
-	const theme = useTheme();
-	const styles = useThemedStyles(createStyles);
-
-	// 失败的 idle 是唯一会进入列表的 idle 消息：只留一行错误，不显示状态词。
-	if (message.role === "idle") {
-		return (
-			<View style={styles.noticeRow}>
-				<Text style={styles.noticeError}>{message.error?.message ?? "本轮执行失败"}</Text>
-			</View>
-		);
-	}
-
-	const isUser = message.role === "user";
-	const text = messageText(message);
-	const tools = toolParts(message);
-	// 助手回复可能是 Markdown；用户输入保持纯文本。
-	const markdown = rendersMarkdown(message) && text !== "";
-
-	return (
-		<View style={[styles.turn, isUser ? styles.userTurn : styles.assistantTurn]}>
-			{text ? (
-				<View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
-					{markdown ? (
-						<MarkdownBody content={text} scheme={theme.scheme} />
-					) : (
-						<Text style={[styles.messageText, isUser && styles.userMessageText]}>{text}</Text>
-					)}
-				</View>
-			) : null}
-			{!isUser && tools.length > 0 ? (
-				<View style={styles.tools}>
-					{tools.map((part, index) => (
-						<ToolCall key={part.callID || `${part.tool || "tool"}-${index}`} part={part} />
-					))}
-				</View>
-			) : null}
-			{message.error ? <Text style={styles.turnError}>{message.error.message}</Text> : null}
-		</View>
-	);
-}
-
 function ApprovalCard({
 	permission,
+	fontScale,
 	onReply,
 }: {
 	permission: PendingPermission;
+	fontScale: number;
 	onReply: (decision: "once" | "always" | "reject", message?: string) => Promise<void>;
 }) {
 	const theme = useTheme();
@@ -201,12 +70,22 @@ function ApprovalCard({
 	return (
 		<View style={styles.approval}>
 			<Text style={styles.approvalTitle}>Approval required</Text>
-			<Text style={styles.approvalAction}>{permission.action || permission.id}</Text>
-			{permission.message ? <Text style={styles.approvalMessage}>{permission.message}</Text> : null}
+			<Text style={[styles.approvalAction, contentTextStyle(fontScale, 15, 21)]}>
+				{permission.action || permission.id}
+			</Text>
+			{permission.message ? (
+				<Text style={[styles.approvalMessage, contentTextStyle(fontScale, 13, 19)]}>
+					{permission.message}
+				</Text>
+			) : null}
 			{permission.resources.length > 0 ? (
 				<View style={styles.resources}>
 					{permission.resources.slice(0, 6).map((resource) => (
-						<Text key={resource} style={styles.resource} numberOfLines={2}>
+						<Text
+							key={resource}
+							style={[styles.resource, contentTextStyle(fontScale, 12, 16)]}
+							numberOfLines={2}
+						>
 							{resource}
 						</Text>
 					))}
@@ -225,7 +104,9 @@ function ApprovalCard({
 				/>
 			) : null}
 
-			{error ? <Text style={styles.error}>{error}</Text> : null}
+			{error ? (
+				<Text style={[styles.error, contentTextStyle(fontScale, 13, 18)]}>{error}</Text>
+			) : null}
 
 			<View style={styles.approvalButtons}>
 				<Pressable
@@ -311,6 +192,8 @@ export default function SessionScreen() {
 	const params = useLocalSearchParams<{ node: string; id: string }>();
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
+	const { preferences } = useThemePreference();
+	const fontScale = CHAT_FONT_SCALE[preferences.chatFontSize];
 	const nodeID = param(params.node);
 	const sessionID = param(params.id);
 
@@ -382,8 +265,11 @@ export default function SessionScreen() {
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [switcherOpen, setSwitcherOpen] = useState(false);
 
-	// idle 结束标记与只有 reasoning 的消息在这里就被拦掉，列表里只剩真正的对话。
-	const visibleMessages = useMemo(() => messages.filter(shouldRenderMessage), [messages]);
+	// idle 结束标记与只有被隐藏的过程内容的消息不占位，列表里只剩真正可读的内容。
+	const visibleMessages = useMemo(
+		() => filterVisibleMessages(messages, preferences),
+		[messages, preferences],
+	);
 
 	const listRef = useRef<FlatList<Message>>(null);
 	// 用户手动翻过历史后，流式更新不能把它拽回底部。
@@ -531,7 +417,9 @@ export default function SessionScreen() {
 				</View>
 			) : null}
 
-			{error ? <Text style={styles.error}>{error}</Text> : null}
+			{error ? (
+				<Text style={[styles.error, contentTextStyle(fontScale, 13, 18)]}>{error}</Text>
+			) : null}
 			{actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
 			<View style={styles.messagesWrap}>
@@ -541,7 +429,17 @@ export default function SessionScreen() {
 					contentContainerStyle={styles.messagesContent}
 					data={visibleMessages}
 					keyExtractor={(message) => message.id}
-					renderItem={({ item }) => <MessageRow message={item} />}
+					// 字号与展示偏好变化时，行内内容必须一起重排；FlatList 不会因为闭包变化重绘单元格。
+					extraData={`${fontScale}:${preferences.toolDisplay}:${preferences.processDisplay}`}
+					renderItem={({ item, index }) => (
+						<MessageRow
+							message={item}
+							fontScale={fontScale}
+							isLastMessage={index === visibleMessages.length - 1}
+							nodeID={nodeID}
+							sessionID={sessionID}
+						/>
+					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 					onContentSizeChange={handleContentSizeChange}
 					onLayout={() => {
@@ -559,6 +457,7 @@ export default function SessionScreen() {
 									<ApprovalCard
 										key={permission.id}
 										permission={permission}
+										fontScale={fontScale}
 										onReply={(decision, message) => reply(permission.id, decision, message)}
 									/>
 								))}
@@ -678,62 +577,6 @@ function createStyles(theme: Theme) {
 			paddingVertical: 6,
 		},
 		approvalButtons: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
-		turn: { gap: 6 },
-		userTurn: { alignItems: "flex-end" },
-		assistantTurn: { alignItems: "flex-start" },
-		bubble: { maxWidth: "82%", borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
-		userBubble: { backgroundColor: colors.userBubble, borderBottomRightRadius: 4 },
-		assistantBubble: { backgroundColor: colors.messageBubble, borderTopLeftRadius: 4 },
-		messageText: { fontSize: 15, lineHeight: 21, color: colors.text },
-		userMessageText: { color: colors.userBubbleText },
-		tools: { width: "100%", gap: 6 },
-		toolCard: {
-			alignSelf: "flex-start",
-			maxWidth: "88%",
-			borderWidth: 1,
-			borderColor: colors.border,
-			backgroundColor: colors.surface,
-			borderRadius: 12,
-			overflow: "hidden",
-		},
-		toolHeader: {
-			flexDirection: "row",
-			alignItems: "center",
-			gap: 6,
-			paddingHorizontal: 10,
-			paddingVertical: 8,
-		},
-		toolChevron: { width: 12, fontSize: 12, color: colors.textMuted },
-		toolName: {
-			flexShrink: 1,
-			fontFamily: "monospace",
-			fontSize: 13,
-			fontWeight: "600",
-			color: colors.text,
-		},
-		toolStatus: { marginLeft: "auto", fontSize: 11, color: colors.textSecondary },
-		toolStatusError: { color: colors.danger },
-		toolBody: { borderTopWidth: 1, borderTopColor: colors.borderSubtle, padding: 10, gap: 8 },
-		toolSection: { gap: 4 },
-		toolSectionLabel: {
-			fontSize: 10,
-			fontWeight: "700",
-			color: colors.textMuted,
-			textTransform: "uppercase",
-		},
-		toolSectionBody: {
-			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 18,
-			color: colors.textStrong,
-			backgroundColor: colors.surfaceMuted,
-			borderRadius: 8,
-			padding: 8,
-		},
-		toolSectionError: { color: colors.danger, backgroundColor: colors.dangerSurface },
-		noticeRow: { alignItems: "flex-start", paddingHorizontal: 4 },
-		noticeError: { fontSize: 12, color: colors.danger },
-		turnError: { maxWidth: "88%", paddingHorizontal: 4, fontSize: 12, color: colors.danger },
 		input: {
 			borderWidth: 1,
 			borderColor: colors.inputBorder,

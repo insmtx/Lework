@@ -1,7 +1,13 @@
 import type { Message } from "@lework/api";
 import { describe, expect, it } from "vitest";
 
-import { messageText, rendersMarkdown, shouldRenderMessage, toolParts } from "./messages";
+import {
+	filterVisibleMessages,
+	messageText,
+	rendersMarkdown,
+	shouldRenderMessage,
+	toolParts,
+} from "./messages";
 
 function message(overrides: Partial<Message>): Message {
 	return { id: "msg_test", role: "assistant", ...overrides };
@@ -99,5 +105,29 @@ describe("toolParts", () => {
 
 	it("没有 parts 时返回空数组", () => {
 		expect(toolParts(message({}))).toEqual([]);
+	});
+});
+
+describe("filterVisibleMessages", () => {
+	const options = { toolDisplay: "collapsed" as const, processDisplay: "brief" as const };
+
+	it("保留有正文的消息，过滤只有成功 idle 的结束标记", () => {
+		const messages = [
+			message({ id: "m1", text: "hello" }),
+			message({ id: "m2", role: "idle", outcome: "succeeded" }),
+		];
+		expect(filterVisibleMessages(messages, options).map((item) => item.id)).toEqual(["m1"]);
+	});
+
+	it("过程内容全部隐藏时，只剩工具调用的消息也过滤掉", () => {
+		const messages = [message({ id: "m1", parts: [{ type: "tool", tool: "bash" }] })];
+		expect(
+			filterVisibleMessages(messages, { toolDisplay: "hidden", processDisplay: "hidden" }),
+		).toHaveLength(0);
+	});
+
+	it("工具调用可见时保留只有工具的消息", () => {
+		const messages = [message({ id: "m1", parts: [{ type: "tool", tool: "bash" }] })];
+		expect(filterVisibleMessages(messages, options).map((item) => item.id)).toEqual(["m1"]);
 	});
 });

@@ -1,5 +1,8 @@
 import type { ContentPart, Message } from "@lework/api";
 
+import type { ProcessDisplay, ToolDisplay } from "../settings/preferences";
+import { visibleReasoning } from "./process";
+
 /**
  * messageText 优先用聚合文本；部分消息只带 parts，需要现场拼。
  *
@@ -47,4 +50,23 @@ export function shouldRenderMessage(message: Message): boolean {
 	if (messageText(message) !== "") return true;
 	if (toolParts(message).length > 0) return true;
 	return Boolean(message.error);
+}
+
+/**
+ * filterVisibleMessages 按展示偏好挑出会话流里真正要渲染的消息。
+ *
+ * 会话页与子代理页共用同一套规则：只有被隐藏的过程内容（工具/思考）的消息
+ * 不该占位；失败的 idle 结束标记仍要显示错误。
+ */
+export function filterVisibleMessages(
+	messages: Message[],
+	options: { toolDisplay: ToolDisplay; processDisplay: ProcessDisplay },
+): Message[] {
+	return messages.filter((message) => {
+		if (message.role === "idle") return shouldRenderMessage(message);
+		if (messageText(message) !== "") return true;
+		if (message.error) return true;
+		if (options.toolDisplay !== "hidden" && toolParts(message).length > 0) return true;
+		return visibleReasoning(message, options.processDisplay) !== null;
+	});
 }

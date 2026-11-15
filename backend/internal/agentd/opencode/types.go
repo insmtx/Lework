@@ -28,9 +28,17 @@ type Session struct {
 	ProjectID string `json:"projectID,omitempty"`
 	// Subpath is the path of Directory relative to the project root. It is
 	// empty when the session was created at the root itself.
-	Subpath   string    `json:"subpath,omitempty"`
+	Subpath string `json:"subpath,omitempty"`
+	// ParentID 非空表示这是子代理创建的会话：它属于父会话的内部执行，
+	// 不是用户发起的会话，会话列表必须排除。
+	ParentID  string    `json:"parentID,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+	// Running 表示会话当前有一次执行尚未结束。OpenCode 的 time.busy 是
+	// 最近一次执行的开始时间，time.idle 是最近一次回到空闲的时间，因此
+	// busy > idle 就是「在跑」。手机端子代理页用它区分正在执行的子会话，
+	// 避免只靠标题猜归属。
+	Running bool `json:"running,omitempty"`
 }
 
 // Project is one OpenCode project: a git repository root or a plain working
@@ -153,6 +161,7 @@ type InterruptResult struct {
 // sessionWire mirrors the v2 Session.Info envelope fields this package reads.
 type sessionWire struct {
 	ID        string `json:"id"`
+	ParentID  string `json:"parentID"`
 	ProjectID string `json:"projectID"`
 	Subpath   string `json:"subpath"`
 	Title     string `json:"title"`
@@ -161,6 +170,8 @@ type sessionWire struct {
 	} `json:"location"`
 	Time struct {
 		Updated float64 `json:"updated"`
+		Busy    float64 `json:"busy"`
+		Idle    float64 `json:"idle"`
 	} `json:"time"`
 }
 
@@ -171,6 +182,7 @@ func (s *Session) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	s.ID = wire.ID
+	s.ParentID = wire.ParentID
 	s.Directory = wire.Location.Directory
 	s.ProjectID = wire.ProjectID
 	s.Subpath = wire.Subpath
@@ -178,6 +190,9 @@ func (s *Session) UnmarshalJSON(data []byte) error {
 	if wire.Time.Updated > 0 {
 		s.UpdatedAt = time.UnixMilli(int64(wire.Time.Updated)).UTC()
 	}
+	// busy > idle 表示最近一次执行开始后还没有回到空闲；新会话两者都是 0，
+	// 自然视为未运行。
+	s.Running = wire.Time.Busy > wire.Time.Idle
 	return nil
 }
 

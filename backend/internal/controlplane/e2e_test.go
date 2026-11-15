@@ -274,6 +274,10 @@ func (c *countingOpenCode) ListSessions(context.Context, string) ([]opencode.Ses
 	return []opencode.Session{}, nil
 }
 
+func (c *countingOpenCode) ListChildSessions(context.Context, string, string) ([]opencode.Session, error) {
+	return []opencode.Session{}, nil
+}
+
 // ListProjects 是空实现：端到端测试不依赖项目列表。
 func (c *countingOpenCode) ListProjects(context.Context) ([]opencode.Project, error) {
 	return []opencode.Project{}, nil

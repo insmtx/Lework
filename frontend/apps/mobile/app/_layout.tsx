@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
+import { isForegroundSoundEnabled } from "../src/push/register";
 import { routeFromNotification } from "../src/push/route";
 import { ThemeProvider } from "../src/theme/theme-context";
 import { useTheme } from "../src/theme/use-theme";
@@ -11,11 +12,12 @@ import { AppShell } from "../src/ui/app-shell";
 import { DrawerButton } from "../src/ui/top-bar";
 
 // 前台收到通知时也显示横幅：审批请求可能就在用户盯着 App 的时候到达。
+// 是否响铃跟随设置里的「声音提醒」，所以这里读模块级开关而不是写死 false。
 Notifications.setNotificationHandler({
 	handleNotification: async () => ({
 		shouldShowBanner: true,
 		shouldShowList: true,
-		shouldPlaySound: false,
+		shouldPlaySound: isForegroundSoundEnabled(),
 		shouldSetBadge: false,
 	}),
 });
@@ -79,8 +81,12 @@ function RootNavigator() {
 				<Stack.Screen name="projects" options={{ title: "项目" }} />
 				<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
 				<Stack.Screen name="pending" options={{ title: "待审批" }} />
-				<Stack.Screen name="nodes" options={{ title: "节点" }} />
-				<Stack.Screen name="settings" options={{ title: "设置" }} />
+				<Stack.Screen name="nodes" options={{ title: "我的电脑" }} />
+				<Stack.Screen name="settings/index" options={{ title: "设置" }} />
+				<Stack.Screen name="settings/appearance" options={{ title: "界面" }} />
+				<Stack.Screen name="settings/notifications" options={{ title: "提醒" }} />
+				<Stack.Screen name="settings/server" options={{ title: "服务器设置" }} />
+				<Stack.Screen name="settings/process" options={{ title: "过程展示" }} />
 				<Stack.Screen name="connect" options={{ headerShown: false }} />
 				<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
 			</Stack>

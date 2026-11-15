@@ -171,6 +171,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.nodeRoute(mux, "PATCH /api/sessions/{nodeID}/{sessionID}", a.handleRenameSession)
 	a.nodeRoute(mux, "DELETE /api/sessions/{nodeID}/{sessionID}", a.handleDeleteSession)
 	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/messages", a.handleSessionMessages)
+	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/children", a.handleListSessionChildren)
 	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/prompt", a.handleSessionPrompt)
 	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/diff", a.handleSessionDiff)
 	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/interrupt", a.handleSessionInterrupt)

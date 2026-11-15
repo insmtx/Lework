@@ -164,6 +164,7 @@ func newRootCommand() *cobra.Command {
 
 Core commands:
   agent      Run the Lework node agent
+  opencode   Start an OpenCode TUI on the agent-managed service
   serve      Start the local control plane
   server     Start the HTTP API server
   worker     Start a background task worker
@@ -182,6 +183,7 @@ Examples:
   lework --config /etc/lework/lework.yaml
   lework --listen 127.0.0.1:8787
   lework agent --config /etc/lework/lework.yaml
+  lework opencode ~/src/project          # TUI on the agent-managed service
   lework serve --enrollment-token <token>
   lework serve token
   lework server --config config.yaml
@@ -338,7 +340,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 func isStandaloneCommand(cmd *cobra.Command) bool {
 	for current := cmd; current != nil; current = current.Parent() {
 		switch current.Name() {
-		case "agent", "serve":
+		case "agent", "opencode", "serve":
 			return true
 		}
 	}

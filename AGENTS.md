@@ -20,6 +20,7 @@
 - 裸执行接受的根命令 flag：`--listen`、`--nats-url`、`--database-url`、`--enrollment-token`、`--token-file`、`--request-timeout`、`--heartbeat-timeout`、`--agent-config`、`--node-name`、`--workspace-root`（可重复）。
 - `./bundles/lework serve --listen 127.0.0.1:8787 --nats-url nats://127.0.0.1:4222 --database-url postgres://lework@127.0.0.1:5432/lework` — 启动控制面，默认只绑定回环；两个集群依赖同样可由 `--config` 的顶层 `nats:` / `database:` 段提供。
 - `./bundles/lework agent --config /etc/lework/agent.yaml` — 启动节点 agent；缺省配置路径按平台解析（见 `backend/cmd/lework/agent.go`）。
+- `./bundles/lework opencode [directory]` — 连接本机 agent 管理的 OpenCode service 启动 TUI（`opencode --server <url>`）；要求 `lework agent` 已运行且为同一 OS 用户。端点发布在 `$XDG_STATE_HOME/lework/opencode-service.json`（未设置时 `~/.local/state/lework/opencode-service.json`），权限 0600。
 - `make run` / `make run-detached` / `make stop` / `make logs` — 操作 `deployments/env/docker-compose.yml` 栈。
 - `make dev-setup`（一次性）→ `make dev-up`，然后 `make dev-status` / `make dev-logs` / `make dev-down`。`dev-up` 要求 PostgreSQL/NATS 已就绪且 `opencode` 2.1.x 在 PATH 中（见 Makefile 注释）。
 - `make swagger` — 仅生成旧 `/v1` 的 swagger 到 `docs/swagger/`；控制面不生成 swagger。
@@ -75,6 +76,7 @@
 
 ## 硬性规则
 
+- **不要随手停止或重启用户已经启动的服务。** 端口上的 dev server（`expo start`、`next dev`）、PostgreSQL/NATS、`make dev-up` 起的容器、`lework serve`/`lework agent` 都算。需要验证时另起实例换端口（如 `--port 8083`），用完只清理自己起的那个；确实必须重启原进程时先问用户，不要直接 `kill`。
 - **库代码与业务代码禁止 `panic`。** 用 `error` 向上传递。只有 `cmd/lework` 可对不可恢复的启动失败使用 `log.Fatal`。（测试桩为实现接口而 `panic` 可以接受。）
 - **业务数据禁止用 `map[string]interface{}`** 跨函数签名、接口或层边界传递——定义 struct 或具体类型 map（如 `map[string]string`）。例外：`tools.Tool` 的 Execute 契约（`backend/tools/`）确实用 `tools.JSONInput`（= `map[string]interface{}`）作为通用工具 I/O；`pkg/llmprotocol` 测试夹具也用它表示原始协议数据。不要盲目“重构”掉这两处。
 - **禁止提交被 gitignore 的文件。** 提交前先 `git status`；`bundles/`、`.env`、`docs/superpowers`、`deployments/env/config.yaml`、`deployments/dev/` 下的 `server.config.yaml`/`worker.config.yaml`、`.opencode`、`.agents/`、`example/`、日志、前端 `out/`/`.next/`、`webui/dist/`（除 `.gitkeep`）等均被忽略。误暂存要撤回。

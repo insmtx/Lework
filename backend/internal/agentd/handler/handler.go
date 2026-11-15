@@ -38,6 +38,7 @@ const (
 // narrow lets tests replace the HTTP client without a server.
 type OpenCodeAPI interface {
 	ListSessions(ctx context.Context, directory string) ([]opencode.Session, error)
+	ListChildSessions(ctx context.Context, parentID, directory string) ([]opencode.Session, error)
 	ListProjects(ctx context.Context) ([]opencode.Project, error)
 	CreateSession(ctx context.Context, directory string) (opencode.Session, error)
 	RenameSession(ctx context.Context, sessionID, title string) error
@@ -70,6 +71,13 @@ type SupervisorAPI interface {
 // optional location filter; an empty value lists every session on the node.
 type SessionListParams struct {
 	Directory string `json:"directory"`
+}
+
+// SessionChildrenParams are the parameters for session.children. SessionID is
+// the parent session whose subagent child sessions are being listed.
+type SessionChildrenParams struct {
+	SessionID string `json:"session_id"`
+	Directory string `json:"directory,omitempty"`
 }
 
 // SessionCreateParams are the parameters for session.create.
@@ -290,6 +298,22 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 			}
 		}
 		return h.opencode.ListSessions(ctx, p.Directory)
+
+	case "session.children":
+		var p SessionChildrenParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		parentID := strings.TrimSpace(p.SessionID)
+		if parentID == "" {
+			return nil, errors.New("session.children: session_id is required")
+		}
+		if p.Directory != "" {
+			if err := h.confineDirectory(p.Directory); err != nil {
+				return nil, err
+			}
+		}
+		return h.opencode.ListChildSessions(ctx, parentID, p.Directory)
 
 	case "session.create":
 		var p SessionCreateParams

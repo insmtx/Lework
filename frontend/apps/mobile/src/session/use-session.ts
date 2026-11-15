@@ -81,7 +81,10 @@ export function useSession(
 	/** jumpToLatest 恢复跟随并清掉「有新内容」。 */
 	jumpToLatest: () => void;
 } {
-	const client = useMemo(() => (settings ? createClient(settings) : null), [settings]);
+	const client = useMemo(
+		() => (settings && sessionID ? createClient(settings) : null),
+		[settings, sessionID],
+	);
 	const [snapshot, setSnapshot] = useState<Message[]>([]);
 	const [buffer, setBuffer] = useState<LiveBuffer>(createLiveBuffer);
 	const [permissions, setPermissionsState] = useState<PendingPermission[]>([]);
@@ -104,7 +107,7 @@ export function useSession(
 	const messages = useMemo(() => mergeSnapshot(snapshot, buffer).messages, [snapshot, buffer]);
 
 	const loadMessages = useCallback(async () => {
-		if (!client) return;
+		if (!client || !sessionID) return;
 		// 只读移动端不需要回溯历史，取最新一页即可；后续要做“加载更早”再消费 next。
 		const page = await client.listMessages(nodeID, sessionID);
 		setSnapshot(page.messages);
@@ -113,7 +116,7 @@ export function useSession(
 	}, [client, nodeID, sessionID]);
 
 	const loadPermissions = useCallback(async () => {
-		if (!client) return;
+		if (!client || !sessionID) return;
 		setPermissions(await client.listPendingPermissions(nodeID, sessionID));
 	}, [client, nodeID, sessionID, setPermissions]);
 
@@ -149,7 +152,7 @@ export function useSession(
 	}, []);
 
 	const { connected } = useControlEvents(
-		settings,
+		sessionID ? settings : null,
 		(event) => {
 			// 节点重连后事件可能断档：清掉本地增量与派生状态，整页重拉一次。
 			if (isResyncEvent(event, nodeID)) {
@@ -210,6 +213,8 @@ export function useSession(
 			void loadPermissions().catch(ignoreRefreshError);
 		},
 		// live=1 才收增量事件；session 过滤把这条流收窄到当前会话（节点级事件保留）。
+		// 子代理页在还没找到子会话时 sessionID 为空，此时不能订阅整节点的
+		// live 流：高频增量会白白消耗流量，也没有可归属的会话。
 		{ nodeID, sessionID, live: true },
 	);
 

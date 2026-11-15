@@ -129,6 +129,23 @@ describe("control plane additions", () => {
 		expect(page.messages).toEqual([{ id: "m1" }]);
 	});
 
+	it("listChildSessions 按父会话查询并带目录", async () => {
+		stubFetch(new Response(JSON.stringify([{ id: "ses_child" }]), { status: 200 }));
+		const api = createApiClient();
+		const children = await api.listChildSessions("n1", "ses_parent", "/work/a b");
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"/api/sessions/n1/ses_parent/children?directory=%2Fwork%2Fa+b",
+		);
+		expect(children).toEqual([{ id: "ses_child" }]);
+	});
+
+	it("listChildSessions 省略空目录", async () => {
+		stubFetch(new Response("[]", { status: 200 }));
+		const api = createApiClient();
+		await api.listChildSessions("n1", "ses_parent");
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/sessions/n1/ses_parent/children");
+	});
+
 	it("getNodeHealth 把导出字段转成小写形状", async () => {
 		stubFetch(
 			new Response(
@@ -223,9 +240,7 @@ describe("project aggregation", () => {
 		stubFetch(new Response(null, { status: 204 }));
 		const api = createApiClient();
 		await api.setProjectPrimaryNode("global:/w/repo", "n1");
-		expect(fetchMock.mock.calls[0]?.[0]).toBe(
-			"/api/projects/global%3A%2Fw%2Frepo/primary-node",
-		);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/projects/global%3A%2Fw%2Frepo/primary-node");
 		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
 		expect(init.method).toBe("PUT");
 		expect(JSON.parse(String(init.body))).toEqual({ node_id: "n1" });

@@ -19,7 +19,8 @@ WebSocket 转发 OpenCode 请求；节点不监听入站端口，也不需要 SS
 - 终端：Session 级持久 PTY，通过同源 WebSocket 传输二进制输入/输出。
 
 不包含组织/RBAC、会话级共享、OAuth、Git 任务上下文、配置/Action 控制面、
-TUI 共享和 Spark/一体机部署；这些属于后续阶段。
+Spark/一体机部署；这些属于后续阶段。本版新增 `lework opencode`，让 TUI 连接
+agent 管理的 service（见下文「启动节点 Agent」），属于 I1 的增量能力。
 
 ## 构建
 
@@ -348,6 +349,16 @@ lework agent claim --no-qr           # 只打印链接与短码
 的那台就会看到「节点凭证被拒绝」。处理方式是升级旧二进制或改掉重名的
 `node_name`。已被账号认领的节点不会被注册令牌接管，旧 agent 必须先升级才能让
 同一个节点重新上线。
+
+需要在 TUI 里同时操作同一个 service 时，在另一个终端运行：
+
+```bash
+lework opencode /home/me/projects
+```
+
+该命令读取 agent 发布的服务端点（要求同一 OS 用户），以
+`opencode --server <url>` 启动 TUI；控制面与 TUI 共享 Session、消息与审批。
+直接运行 `opencode` 或使用 `--standalone` 不会共享。
 
 裸 `lework`（控制面与 agent 同进程）不需要写 `control_plane_url`、
 `enrollment_token`、`node_name`，它们会从 `--listen`、注册令牌和主机名派生，

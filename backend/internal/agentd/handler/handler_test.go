@@ -32,6 +32,12 @@ type fakeOpenCode struct {
 	listDirectory string
 	sessions      []opencode.Session
 
+	childrenCalls     int
+	childrenParentID  string
+	childrenDirectory string
+	children          []opencode.Session
+	childrenErr       error
+
 	projectsCalls int
 	projects      []opencode.Project
 	projectsErr   error
@@ -109,6 +115,16 @@ func (f *fakeOpenCode) ListSessions(_ context.Context, directory string) ([]open
 	f.listCalls++
 	f.listDirectory = directory
 	return f.sessions, nil
+}
+
+func (f *fakeOpenCode) ListChildSessions(
+	_ context.Context,
+	parentID, directory string,
+) ([]opencode.Session, error) {
+	f.childrenCalls++
+	f.childrenParentID = parentID
+	f.childrenDirectory = directory
+	return f.children, f.childrenErr
 }
 
 func (f *fakeOpenCode) ListProjects(context.Context) ([]opencode.Project, error) {
@@ -605,6 +621,55 @@ func TestSessionListPassesThrough(t *testing.T) {
 	}
 	if len(sessions) != 1 || sessions[0].ID != "ses_1" {
 		t.Fatalf("sessions = %#v, want one ses_1", sessions)
+	}
+}
+
+func TestSessionChildrenPassesThrough(t *testing.T) {
+	oc := &fakeOpenCode{
+		children: []opencode.Session{{ID: "ses_child", ParentID: "ses_parent"}},
+	}
+	h := New(oc, fakeSupervisor{})
+
+	result, err := h.Handle(
+		context.Background(),
+		"session.children",
+		json.RawMessage(`{"session_id":"ses_parent","directory":"/work/project"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, ok := result.([]opencode.Session)
+	if !ok {
+		t.Fatalf("result type = %T, want []opencode.Session", result)
+	}
+	if oc.childrenCalls != 1 {
+		t.Fatalf("children calls = %d, want 1", oc.childrenCalls)
+	}
+	if oc.childrenParentID != "ses_parent" {
+		t.Fatalf("parent id = %q, want ses_parent", oc.childrenParentID)
+	}
+	if oc.childrenDirectory != "/work/project" {
+		t.Fatalf("directory = %q, want /work/project", oc.childrenDirectory)
+	}
+	if len(sessions) != 1 || sessions[0].ID != "ses_child" {
+		t.Fatalf("sessions = %#v, want one ses_child", sessions)
+	}
+}
+
+func TestSessionChildrenRequiresParent(t *testing.T) {
+	// 空 parent 会被服务端当成「不过滤」，必须本地拒绝。
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	if _, err := h.Handle(
+		context.Background(),
+		"session.children",
+		json.RawMessage(`{"session_id":"  "}`),
+	); err == nil {
+		t.Fatal("err = nil, want error for missing session_id")
+	}
+	if oc.childrenCalls != 0 {
+		t.Fatalf("children calls = %d, want 0", oc.childrenCalls)
 	}
 }
 

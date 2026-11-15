@@ -7,7 +7,7 @@ import { ArrowUp, ChevronUp, Loader2, MessageSquare, Square } from "lucide-react
 import { useEffect, useRef, useState } from "react";
 import type { Message, PermissionRequest } from "../lib/types";
 import { PermissionCard } from "./permission-card";
-import { ToolCardList } from "./tool-card";
+import { ToolCardList } from "./tool-call/tool-card";
 
 interface ConversationProps {
 	messages: Message[];
