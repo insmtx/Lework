@@ -92,6 +92,9 @@ importers:
       '@lework/styles':
         specifier: workspace:*
         version: link:../../packages/styles
+      '@lework/tool-view':
+        specifier: workspace:*
+        version: link:../../packages/tool-view
       '@lework/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -241,6 +244,9 @@ importers:
       '@lework/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@lework/tool-view':
+        specifier: workspace:*
+        version: link:../../packages/tool-view
       expo:
         specifier: ~58.0.24
         version: 58.0.24(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.17)(expo-router@58.0.31)(react-dom@19.2.3(react@19.3.0))(react-native-worklets@0.13.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
@@ -508,6 +514,22 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+
+  packages/tool-view:
+    dependencies:
+      '@lework/api':
+        specifier: workspace:*
+        version: link:../api
+    devDependencies:
+      '@lework/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.8(@types/node@25.9.3)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.0.16(@types/node@25.9.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.0))
 
   packages/tsconfig: {}
 

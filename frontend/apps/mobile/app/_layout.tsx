@@ -81,7 +81,7 @@ function RootNavigator() {
 				<Stack.Screen name="projects" options={{ title: "项目" }} />
 				<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
 				<Stack.Screen name="pending" options={{ title: "待审批" }} />
-				<Stack.Screen name="nodes" options={{ title: "节点管理" }} />
+				<Stack.Screen name="nodes" options={{ title: "我的电脑" }} />
 				<Stack.Screen name="settings/index" options={{ title: "设置" }} />
 				<Stack.Screen name="settings/appearance" options={{ title: "界面" }} />
 				<Stack.Screen name="settings/notifications" options={{ title: "提醒" }} />

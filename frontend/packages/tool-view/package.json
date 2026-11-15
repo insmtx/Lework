@@ -1,0 +1,19 @@
+{
+	"name": "@lework/tool-view",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": { ".": "./src/index.ts" },
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@lework/api": "workspace:*"
+	},
+	"devDependencies": {
+		"@lework/tsconfig": "workspace:*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

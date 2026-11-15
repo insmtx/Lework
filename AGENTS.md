@@ -75,6 +75,7 @@
 
 ## 硬性规则
 
+- **不要随手停止或重启用户已经启动的服务。** 端口上的 dev server（`expo start`、`next dev`）、PostgreSQL/NATS、`make dev-up` 起的容器、`lework serve`/`lework agent` 都算。需要验证时另起实例换端口（如 `--port 8083`），用完只清理自己起的那个；确实必须重启原进程时先问用户，不要直接 `kill`。
 - **库代码与业务代码禁止 `panic`。** 用 `error` 向上传递。只有 `cmd/lework` 可对不可恢复的启动失败使用 `log.Fatal`。（测试桩为实现接口而 `panic` 可以接受。）
 - **业务数据禁止用 `map[string]interface{}`** 跨函数签名、接口或层边界传递——定义 struct 或具体类型 map（如 `map[string]string`）。例外：`tools.Tool` 的 Execute 契约（`backend/tools/`）确实用 `tools.JSONInput`（= `map[string]interface{}`）作为通用工具 I/O；`pkg/llmprotocol` 测试夹具也用它表示原始协议数据。不要盲目“重构”掉这两处。
 - **禁止提交被 gitignore 的文件。** 提交前先 `git status`；`bundles/`、`.env`、`docs/superpowers`、`deployments/env/config.yaml`、`deployments/dev/` 下的 `server.config.yaml`/`worker.config.yaml`、`.opencode`、`.agents/`、`example/`、日志、前端 `out/`/`.next/`、`webui/dist/`（除 `.gitkeep`）等均被忽略。误暂存要撤回。
