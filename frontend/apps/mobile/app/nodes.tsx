@@ -14,7 +14,15 @@ import type { Theme } from "../src/theme/theme";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 
-function NodeCard({ node }: { node: NodeView }) {
+function NodeCard({
+	node,
+	currentDir,
+	onPickDir,
+}: {
+	node: NodeView;
+	currentDir?: string;
+	onPickDir: (dir: string) => void;
+}) {
 	const styles = useThemedStyles(createStyles);
 	const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleString() : "never";
 	const roots = node.workspace_roots ?? [];
@@ -33,30 +41,48 @@ function NodeCard({ node }: { node: NodeView }) {
 				{node.os}/{node.arch} · agent {node.agent_version}
 			</Text>
 			<Text style={styles.meta}>last seen {lastSeen}</Text>
-			{roots.length > 0 ? (
-				<View style={styles.roots}>
-					<Text style={styles.rootsLabel}>工作目录</Text>
-					{roots.map((root) => (
-						<Text key={root} style={styles.root} numberOfLines={1}>
-							{root}
-						</Text>
-					))}
-				</View>
-			) : null}
+
+			<View style={styles.roots}>
+				<Text style={styles.rootsLabel}>新任务目录</Text>
+				<Text style={styles.rootsHint}>
+					首页输入的任务会发到这个目录；目录必须位于 agent 的 workspace roots 之内。
+				</Text>
+				{roots.length === 0 ? (
+					<Text style={styles.meta}>agent 未上报 workspace roots</Text>
+				) : (
+					<View style={styles.rootChips}>
+						{roots.map((root) => {
+							const active = root === currentDir;
+							return (
+								<Pressable
+									key={root}
+									style={[styles.rootChip, active && styles.rootChipActive]}
+									onPress={() => onPickDir(root)}
+								>
+									<Text
+										style={[styles.rootChipText, active && styles.rootChipTextActive]}
+										numberOfLines={1}
+									>
+										{root}
+									</Text>
+								</Pressable>
+							);
+						})}
+					</View>
+				)}
+			</View>
 		</View>
 	);
 }
 
-/** 节点页只做诊断：节点不再进主导航，只从侧边栏设置/诊断入口进入。 */
+/** 节点页管理节点状态与新任务目录；从侧边栏「新任务」下方进入。 */
 export default function NodesScreen() {
-	useScreenTitle("节点");
+	useScreenTitle("节点管理");
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const { settings, settingsLoading, projects } = useAppShell();
 	const nodes = projects.nodes;
-	const loading = projects.loading;
-	const error = projects.error;
-	const refresh = projects.refresh;
+	const { dirByNode, setInboxDir, loading, error, refresh } = projects;
 
 	if (settingsLoading) {
 		return (
@@ -83,7 +109,13 @@ export default function NodesScreen() {
 			contentContainerStyle={styles.list}
 			data={nodes}
 			keyExtractor={(node) => node.id}
-			renderItem={({ item }) => <NodeCard node={item} />}
+			renderItem={({ item }) => (
+				<NodeCard
+					node={item}
+					currentDir={dirByNode[item.id]}
+					onPickDir={(dir) => void setInboxDir(item.id, dir)}
+				/>
+			)}
 			refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 			ListHeaderComponent={error ? <Text style={styles.error}>{error}</Text> : undefined}
 			ListEmptyComponent={
@@ -119,9 +151,21 @@ function createStyles(theme: Theme) {
 		online: { color: colors.success },
 		offline: { color: colors.offline },
 		meta: { fontSize: 12, color: colors.textSecondary },
-		roots: { marginTop: 4, gap: 2 },
-		rootsLabel: { fontSize: 12, fontWeight: "600", color: colors.textStrong },
-		root: { fontSize: 12, color: colors.textSecondary },
+		roots: { marginTop: 8, gap: 4 },
+		rootsLabel: { fontSize: 13, fontWeight: "600", color: colors.textStrong },
+		rootsHint: { fontSize: 12, color: colors.textMuted },
+		rootChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+		rootChip: {
+			borderWidth: 1,
+			borderColor: colors.borderStrong,
+			borderRadius: 8,
+			paddingHorizontal: 10,
+			paddingVertical: 6,
+			maxWidth: "100%",
+		},
+		rootChipActive: { backgroundColor: colors.action, borderColor: colors.action },
+		rootChipText: { fontSize: 12, color: colors.textStrong },
+		rootChipTextActive: { color: colors.actionText },
 		button: {
 			marginTop: 8,
 			backgroundColor: colors.action,

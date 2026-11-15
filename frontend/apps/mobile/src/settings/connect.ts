@@ -1,5 +1,5 @@
 import type { PairPayload } from "../pairing/link";
-import type { Settings } from "./settings";
+import { normalizeBaseUrl, type Settings } from "./settings";
 
 // ConnectDeps 把网络与存储注入进来，便于单测验证调用顺序。
 export interface ConnectDeps {
@@ -27,4 +27,40 @@ export async function connectToControlPlane(
 	await deps.verify(settings);
 	await deps.save(settings);
 	return settings;
+}
+
+/** ConnectionDraft 是服务器设置页里尚未校验的表单值。 */
+export interface ConnectionDraft {
+	baseUrl: string;
+	token: string;
+	notifications: boolean;
+	deviceID?: string;
+}
+
+/**
+ * buildConnectionSettings 把表单值收敛成可落盘的设置。
+ *
+ * 令牌必须存在：没有令牌的「已连接」只会在第一次请求时失败，不如保存前拒绝。
+ * 地址校验复用 normalizeBaseUrl，保证存储里的地址永远可以直接拼路径。
+ */
+export function buildConnectionSettings(draft: ConnectionDraft): Settings {
+	const token = draft.token.trim();
+	if (!token) throw new Error("token is required");
+	return {
+		baseUrl: normalizeBaseUrl(draft.baseUrl),
+		token,
+		notifications: draft.notifications,
+		deviceID: draft.deviceID,
+	};
+}
+
+/**
+ * connectionChanged 判断地址或令牌是否变了。
+ *
+ * 只有换了控制面才需要重新登记推送设备：设备 ID 属于某台控制面，
+ * 单纯开关通知不应该被当成换服务器。
+ */
+export function connectionChanged(previous: Settings | null, next: Settings): boolean {
+	if (!previous) return true;
+	return previous.baseUrl !== next.baseUrl || previous.token !== next.token;
 }

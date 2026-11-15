@@ -8,52 +8,54 @@ import { type ColorScheme, darkTheme, lightTheme, type Theme } from "../theme/th
  * createMarkdownStyles 把主题色板映射成 Markdown 样式。
  *
  * 代码块不再固定深色：亮色主题用浅灰底 + 深色字，暗色主题才用深色底，
- * 避免整页亮色里突然出现一块黑色区域。
+ * 避免整页亮色里突然出现一块黑色区域。字号按 scale 整体缩放，
+ * 标题、代码块跟着正文一起变，不会出现正文放大而代码仍很小的割裂感。
  */
-function createMarkdownStyles(theme: Theme) {
+function createMarkdownStyles(theme: Theme, scale: number) {
 	const { colors } = theme;
+	const size = (value: number) => Math.round(value * scale);
 	return StyleSheet.create({
-		body: { color: colors.text, fontSize: 15, lineHeight: 21 },
+		body: { color: colors.text, fontSize: size(15), lineHeight: size(21) },
 		paragraph: { marginTop: 0, marginBottom: 6 },
 		heading1: {
 			color: colors.text,
-			fontSize: 20,
-			lineHeight: 26,
+			fontSize: size(20),
+			lineHeight: size(26),
 			marginTop: 6,
 			marginBottom: 4,
 		},
 		heading2: {
 			color: colors.text,
-			fontSize: 18,
-			lineHeight: 24,
+			fontSize: size(18),
+			lineHeight: size(24),
 			marginTop: 6,
 			marginBottom: 4,
 		},
 		heading3: {
 			color: colors.text,
-			fontSize: 16,
-			lineHeight: 22,
+			fontSize: size(16),
+			lineHeight: size(22),
 			marginTop: 4,
 			marginBottom: 2,
 		},
 		heading4: {
 			color: colors.text,
-			fontSize: 15,
-			lineHeight: 21,
+			fontSize: size(15),
+			lineHeight: size(21),
 			marginTop: 4,
 			marginBottom: 2,
 		},
 		heading5: {
 			color: colors.text,
-			fontSize: 14,
-			lineHeight: 20,
+			fontSize: size(14),
+			lineHeight: size(20),
 			marginTop: 2,
 			marginBottom: 2,
 		},
 		heading6: {
 			color: colors.textSecondary,
-			fontSize: 13,
-			lineHeight: 19,
+			fontSize: size(13),
+			lineHeight: size(19),
 			marginTop: 2,
 			marginBottom: 2,
 		},
@@ -72,7 +74,7 @@ function createMarkdownStyles(theme: Theme) {
 		hr: { backgroundColor: colors.border, height: 1, marginVertical: 8 },
 		code_inline: {
 			fontFamily: "monospace",
-			fontSize: 13,
+			fontSize: size(13),
 			color: colors.inlineCodeText,
 			backgroundColor: colors.inlineCodeBackground,
 			borderWidth: 0,
@@ -82,8 +84,8 @@ function createMarkdownStyles(theme: Theme) {
 		},
 		fence: {
 			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 18,
+			fontSize: size(12),
+			lineHeight: size(18),
 			color: colors.codeText,
 			backgroundColor: colors.codeBackground,
 			borderWidth: 0,
@@ -93,8 +95,8 @@ function createMarkdownStyles(theme: Theme) {
 		},
 		code_block: {
 			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 18,
+			fontSize: size(12),
+			lineHeight: size(18),
 			color: colors.codeText,
 			backgroundColor: colors.codeBackground,
 			borderWidth: 0,
@@ -112,23 +114,33 @@ function createMarkdownStyles(theme: Theme) {
 	});
 }
 
-const stylesByScheme = {
-	light: createMarkdownStyles(lightTheme),
-	dark: createMarkdownStyles(darkTheme),
-} satisfies Record<ColorScheme, unknown>;
+// 样式按「配色 + 倍率」缓存：字号只有三档，没必要每次渲染都重建样式表。
+const styleCache = new Map<string, ReturnType<typeof createMarkdownStyles>>();
+
+function markdownStyles(scheme: ColorScheme, scale: number) {
+	const key = `${scheme}:${scale}`;
+	const cached = styleCache.get(key);
+	if (cached) return cached;
+	const theme = scheme === "dark" ? darkTheme : lightTheme;
+	const styles = createMarkdownStyles(theme, scale);
+	styleCache.set(key, styles);
+	return styles;
+}
 
 /**
  * MarkdownBody 渲染助手回复的 Markdown。
  *
- * scheme 作为 prop 参与 memo 比较：系统切换亮暗时，即使消息内容没变也要
- * 重新渲染一套颜色。
+ * scheme 与 scale 都作为 prop 参与 memo 比较：系统切换亮暗或用户改字号时，
+ * 即使消息内容没变也要重新渲染。
  */
 export const MarkdownBody = memo(function MarkdownBody({
 	content,
 	scheme,
+	scale = 1,
 }: {
 	content: string;
 	scheme: ColorScheme;
+	scale?: number;
 }) {
-	return <Markdown style={stylesByScheme[scheme]}>{content}</Markdown>;
+	return <Markdown style={markdownStyles(scheme, scale)}>{content}</Markdown>;
 });

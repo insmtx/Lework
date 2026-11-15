@@ -24,14 +24,17 @@ import {
 	shouldRenderMessage,
 	toolParts,
 } from "../../../src/session/messages";
+import { reasoningText, visibleReasoning } from "../../../src/session/process";
 import { isNearBottom } from "../../../src/session/scroll";
 import { runSend } from "../../../src/session/send-flow";
 import { type StatusTone, statusLabel, statusTone } from "../../../src/session/status";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
+import { CHAT_FONT_SCALE } from "../../../src/settings/preferences";
 import { formatRelativeTime } from "../../../src/sidebar/model";
 import type { Theme } from "../../../src/theme/theme";
+import { useThemePreference } from "../../../src/theme/theme-context";
 import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../../src/ui/global-composer";
@@ -91,13 +94,13 @@ function ToolSection({ label, value, error }: { label: string; value: string; er
 }
 
 /**
- * ToolCall 是左侧执行过程卡片：默认只露工具名与状态，点一下展开细节。
+ * ToolCall 是左侧执行过程卡片：默认形态由「工具调用」偏好决定。
  *
  * 没有输入输出的工具（例如纯状态变更）不展开，避免点开一片空白。
  */
-function ToolCall({ part }: { part: ContentPart }) {
+function ToolCall({ part, defaultExpanded }: { part: ContentPart; defaultExpanded: boolean }) {
 	const styles = useThemedStyles(createStyles);
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, setExpanded] = useState(defaultExpanded);
 	const state = (part.state ?? {}) as ToolState;
 	const status = state.status ?? "running";
 	const input = pretty(state.input);
@@ -130,9 +133,40 @@ function ToolCall({ part }: { part: ContentPart }) {
 	);
 }
 
-function MessageRow({ message }: { message: Message }) {
+/**
+ * ReasoningCard 展示思考过程：brief 先给摘要，点开看完整；full 默认展开。
+ *
+ * 它和正文分开渲染：思考不是回复内容，塞进气泡会让用户以为模型说过这些话。
+ */
+function ReasoningCard({ message, mode }: { message: Message; mode: "brief" | "full" }) {
+	const styles = useThemedStyles(createStyles);
+	const [expanded, setExpanded] = useState(mode === "full");
+	const text = reasoningText(message);
+	const preview = visibleReasoning(message, "brief");
+
+	if (!text) return null;
+
+	return (
+		<View style={styles.reasoningCard}>
+			<Pressable
+				style={styles.reasoningHeader}
+				onPress={() => setExpanded((open) => !open)}
+				accessibilityLabel="展开或收起思考过程"
+			>
+				<Text style={styles.reasoningChevron}>{expanded ? "▾" : "▸"}</Text>
+				<Text style={styles.reasoningLabel}>思考过程</Text>
+			</Pressable>
+			<Text style={styles.reasoningBody} numberOfLines={expanded ? undefined : 2}>
+				{expanded ? text : preview}
+			</Text>
+		</View>
+	);
+}
+
+function MessageRow({ message, fontScale }: { message: Message; fontScale: number }) {
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
+	const { preferences } = useThemePreference();
 
 	// 失败的 idle 是唯一会进入列表的 idle 消息：只留一行错误，不显示状态词。
 	if (message.role === "idle") {
@@ -145,25 +179,48 @@ function MessageRow({ message }: { message: Message }) {
 
 	const isUser = message.role === "user";
 	const text = messageText(message);
-	const tools = toolParts(message);
+	const tools = preferences.toolDisplay === "hidden" ? [] : toolParts(message);
 	// 助手回复可能是 Markdown；用户输入保持纯文本。
 	const markdown = rendersMarkdown(message) && text !== "";
+	const reasoning =
+		!isUser && preferences.processDisplay !== "hidden" && reasoningText(message) !== "";
 
 	return (
 		<View style={[styles.turn, isUser ? styles.userTurn : styles.assistantTurn]}>
 			{text ? (
 				<View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
 					{markdown ? (
-						<MarkdownBody content={text} scheme={theme.scheme} />
+						<MarkdownBody content={text} scheme={theme.scheme} scale={fontScale} />
 					) : (
-						<Text style={[styles.messageText, isUser && styles.userMessageText]}>{text}</Text>
+						<Text
+							style={[
+								styles.messageText,
+								{
+									fontSize: Math.round(15 * fontScale),
+									lineHeight: Math.round(21 * fontScale),
+								},
+								isUser && styles.userMessageText,
+							]}
+						>
+							{text}
+						</Text>
 					)}
 				</View>
+			) : null}
+			{reasoning ? (
+				<ReasoningCard
+					message={message}
+					mode={preferences.processDisplay === "full" ? "full" : "brief"}
+				/>
 			) : null}
 			{!isUser && tools.length > 0 ? (
 				<View style={styles.tools}>
 					{tools.map((part, index) => (
-						<ToolCall key={part.callID || `${part.tool || "tool"}-${index}`} part={part} />
+						<ToolCall
+							key={part.callID || `${part.tool || "tool"}-${index}`}
+							part={part}
+							defaultExpanded={preferences.toolDisplay === "expanded"}
+						/>
 					))}
 				</View>
 			) : null}
@@ -311,6 +368,8 @@ export default function SessionScreen() {
 	const params = useLocalSearchParams<{ node: string; id: string }>();
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
+	const { preferences } = useThemePreference();
+	const fontScale = CHAT_FONT_SCALE[preferences.chatFontSize];
 	const nodeID = param(params.node);
 	const sessionID = param(params.id);
 
@@ -382,8 +441,18 @@ export default function SessionScreen() {
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [switcherOpen, setSwitcherOpen] = useState(false);
 
-	// idle 结束标记与只有 reasoning 的消息在这里就被拦掉，列表里只剩真正的对话。
-	const visibleMessages = useMemo(() => messages.filter(shouldRenderMessage), [messages]);
+	// idle 结束标记与只有被隐藏的过程内容的消息不占位，列表里只剩真正可读的内容。
+	const visibleMessages = useMemo(
+		() =>
+			messages.filter((message) => {
+				if (message.role === "idle") return shouldRenderMessage(message);
+				if (messageText(message) !== "") return true;
+				if (message.error) return true;
+				if (preferences.toolDisplay !== "hidden" && toolParts(message).length > 0) return true;
+				return visibleReasoning(message, preferences.processDisplay) !== null;
+			}),
+		[messages, preferences.processDisplay, preferences.toolDisplay],
+	);
 
 	const listRef = useRef<FlatList<Message>>(null);
 	// 用户手动翻过历史后，流式更新不能把它拽回底部。
@@ -541,7 +610,7 @@ export default function SessionScreen() {
 					contentContainerStyle={styles.messagesContent}
 					data={visibleMessages}
 					keyExtractor={(message) => message.id}
-					renderItem={({ item }) => <MessageRow message={item} />}
+					renderItem={({ item }) => <MessageRow message={item} fontScale={fontScale} />}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 					onContentSizeChange={handleContentSizeChange}
 					onLayout={() => {
@@ -686,6 +755,18 @@ function createStyles(theme: Theme) {
 		assistantBubble: { backgroundColor: colors.messageBubble, borderTopLeftRadius: 4 },
 		messageText: { fontSize: 15, lineHeight: 21, color: colors.text },
 		userMessageText: { color: colors.userBubbleText },
+		reasoningCard: {
+			alignSelf: "flex-start",
+			maxWidth: "88%",
+			backgroundColor: colors.surfaceMuted,
+			borderRadius: 12,
+			padding: 10,
+			gap: 4,
+		},
+		reasoningHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+		reasoningChevron: { width: 12, fontSize: 12, color: colors.textMuted },
+		reasoningLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+		reasoningBody: { fontSize: 12, lineHeight: 18, color: colors.textSecondary },
 		tools: { width: "100%", gap: 6 },
 		toolCard: {
 			alignSelf: "flex-start",
