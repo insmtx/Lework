@@ -164,11 +164,27 @@ OS service manager (systemd / launchd / Windows Service)
 - 系统服务管理器（systemd / launchd / Windows Service）只负责 agent 常驻；
 - I0 由 agent 自持普通 `opencode serve`，用生成或运维配置的密码同时配置 client
   与子进程环境；不使用用户级 `--service` 注册，避免顶掉用户的 TUI 服务；
-- TUI 与 Lework 共享同一个 service 仍是目标，需要 I1 完成服务发现、XDG 隔离与
-  密码交换；在此之前，TUI 默认看不到 agent 创建的 Session；
-- 如果 TUI 使用独立 server，Lework 只显示历史，不接管实时事件；
+- agent 启动时把服务端点与凭据发布到当前用户的状态目录（0600）；
+  `lework opencode` 读取后以 `opencode --server <url>` 启动 TUI，因此 TUI 与
+  控制面共享同一个 service。直接运行 `opencode` 仍会连接 OpenCode 自己的后台
+  service，看不到 agent 创建的 Session；
+- 如果 TUI 使用独立 server（`--standalone`），Lework 只显示历史，不接管实时事件；
 - OpenCode 只绑定回环，不对外暴露；
 - 控制面通过 agent 操作 OpenCode，不直接连 OpenCode。
+
+### 5.1.2 用 `lework opencode` 打开共享 TUI
+
+```text
+lework agent（常驻，持有 opencode serve）
+  → 发布 $XDG_STATE_HOME/lework/opencode-service.json（0600）
+lework opencode [directory]
+  → 读取端点 + 健康检查
+  → OPENCODE_PASSWORD=<发布密码> opencode --server <url> [directory]
+```
+
+要求 agent 与命令使用同一 OS 用户；systemd 系统服务（root）发布的 0600 文件
+普通用户读不到。agent 停止后 TUI 会失去服务；若需要跨 agent 重启复用同一
+TUI，应在 `agent.yaml` 固定 `OPENCODE_PASSWORD`。
 
 ### 5.2 打开项目与 Session
 
@@ -195,7 +211,7 @@ OS service manager (systemd / launchd / Windows Service)
 
 原则：**Session 列表以 OpenCode 为准**；Lework 只负责把目录映射到 Project，不隐藏外部 Session。
 
-前提：TUI 与 agent 共享同一个 OpenCode service。若 TUI 使用 `--standalone` 或独立 server，Lework 只能读取持久化历史，无法接管实时审批和 PTY；UI 会标记为「外部独立服务 / 只读」。
+前提：TUI 通过 `lework opencode` 连接 agent 管理的 service。若直接运行 `opencode`（连接 OpenCode 自己的后台 service）或使用 `--standalone`/独立 server，Lework 只能读取持久化历史，无法接管实时审批和 PTY；UI 会标记为「外部独立服务 / 只读」。
 
 ### 5.3 在单节点执行任务
 

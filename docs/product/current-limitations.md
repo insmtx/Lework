@@ -16,7 +16,7 @@
 
 - 多节点调度（I2）与跨节点 Git 任务上下文（I3）。
 - 配置 / Action / 插件 / MCP 的写入与回滚（I4）。
-- TUI 与 Lework 共享同一 OpenCode service（I1 剩余）。
+- `lework opencode` 已能把 TUI 接到 agent 管理的 OpenCode service；直接运行 `opencode` 的默认后台 service 与 agent 分离，仍需 I1 剩余部分。
 - macOS launchd / Windows Service 与 ConPTY（I2）。
 - Spark USB-C 实机验收、桌面壳、自动更新（I5）。
 - 组织、RBAC、多租户、计费、知识库：不在当前产品范围。
