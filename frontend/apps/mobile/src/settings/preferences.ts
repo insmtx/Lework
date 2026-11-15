@@ -48,11 +48,14 @@ export const DEFAULT_PREFERENCES: Preferences = {
  *
  * 用倍率而不是三套固定字号：Markdown 里标题、代码块各有自己的尺寸，
  * 倍率能一次性整体缩放，不用为每种元素再写一张表。
+ *
+ * 三档整体上移一档：手机屏幕上 15px 正文偏小，标准档直接给出比基线更大
+ * 的一档，小档回落到基线，大档再往上加。
  */
 export const CHAT_FONT_SCALE: Record<ChatFontSize, number> = {
-	small: 0.9,
-	standard: 1,
-	large: 1.25,
+	small: 1,
+	standard: 1.15,
+	large: 1.4,
 };
 
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];

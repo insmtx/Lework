@@ -10,12 +10,20 @@ import { lightTheme } from "../../theme/theme";
 import { createStyles } from "./styles";
 
 describe("tool call styles", () => {
-	it("标准字号保持原有尺寸", () => {
-		const styles = createStyles(lightTheme, CHAT_FONT_SCALE.standard);
+	it("基线倍率 1 保持原始尺寸", () => {
+		const styles = createStyles(lightTheme, 1);
 
 		expect(styles.code.fontSize).toBe(12);
 		expect(styles.diffLine.lineHeight).toBe(17);
 		expect(styles.text.fontSize).toBe(13);
+	});
+
+	it("标准档已整体调大，工具输出不再停留在原始小字", () => {
+		const base = createStyles(lightTheme, 1);
+		const standard = createStyles(lightTheme, CHAT_FONT_SCALE.standard);
+
+		expect(standard.code.fontSize).toBeGreaterThan(base.code.fontSize);
+		expect(standard.text.fontSize).toBeGreaterThan(base.text.fontSize);
 	});
 
 	it("放大字号时正文、代码和 diff 一起变大", () => {

@@ -110,9 +110,9 @@ describe("isThemeMode", () => {
 });
 
 describe("CHAT_FONT_SCALE", () => {
-	it("字号从小到大递增，标准为 1", () => {
-		expect(CHAT_FONT_SCALE.small).toBeLessThan(CHAT_FONT_SCALE.standard);
-		expect(CHAT_FONT_SCALE.standard).toBe(1);
+	it("三档整体上移：标准档大于基线，各档依次递增", () => {
+		expect(CHAT_FONT_SCALE.small).toBe(1);
+		expect(CHAT_FONT_SCALE.standard).toBeGreaterThan(CHAT_FONT_SCALE.small);
 		expect(CHAT_FONT_SCALE.large).toBeGreaterThan(CHAT_FONT_SCALE.standard);
 	});
 });
