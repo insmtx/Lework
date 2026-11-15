@@ -48,13 +48,15 @@ func TestOpenPostgresMigratesAndUpsertsNode(t *testing.T) {
 		}
 	})
 
-	for _, model := range []any{&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}} {
+	for _, model := range []any{
+		&Node{}, &NodeMember{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{},
+	} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Fatalf("expected table for %T to be migrated", model)
 		}
 	}
 
-	first, err := s.UpsertNode(ctx, Node{
+	first, err := s.UpsertLegacyNode(ctx, Node{
 		Name:           name,
 		OS:             "linux",
 		Arch:           "amd64",
@@ -64,7 +66,7 @@ func TestOpenPostgresMigratesAndUpsertsNode(t *testing.T) {
 		LastSeen:       time.Now().UTC().Truncate(time.Second),
 	})
 	if err != nil {
-		t.Fatalf("UpsertNode() failed: %v", err)
+		t.Fatalf("UpsertLegacyNode() failed: %v", err)
 	}
 	if first.ID == "" {
 		t.Fatal("expected generated node ID")
@@ -91,7 +93,7 @@ func TestOpenPostgresMigratesAndUpsertsNode(t *testing.T) {
 		t.Fatalf("ListNodes() returned agent version %q, want test", found.AgentVersion)
 	}
 
-	second, err := s.UpsertNode(ctx, Node{
+	second, err := s.UpsertLegacyNode(ctx, Node{
 		Name:         name,
 		OS:           "linux",
 		Arch:         "arm64",
@@ -99,7 +101,7 @@ func TestOpenPostgresMigratesAndUpsertsNode(t *testing.T) {
 		LastSeen:     time.Now().UTC().Truncate(time.Second),
 	})
 	if err != nil {
-		t.Fatalf("second UpsertNode() failed: %v", err)
+		t.Fatalf("second UpsertLegacyNode() failed: %v", err)
 	}
 	if second.ID != first.ID {
 		t.Fatalf("repeat upsert changed ID: first %q, second %q", first.ID, second.ID)
@@ -108,6 +110,20 @@ func TestOpenPostgresMigratesAndUpsertsNode(t *testing.T) {
 	// 与首次由 GORM 在本地生成的纳秒时间戳按微秒比较才有意义。
 	if !second.CreatedAt.Truncate(time.Microsecond).Equal(first.CreatedAt.Truncate(time.Microsecond)) {
 		t.Fatalf("repeat upsert changed CreatedAt: first %v, second %v", first.CreatedAt, second.CreatedAt)
+	}
+}
+
+// TestOpenPostgresDropsLegacyNodeNameUniqueIndex 在生产方言上覆盖同一个
+// migrateControlPlane：AutoMigrate 不会删索引，旧唯一索引必须真的消失，
+// 否则升级后的库继续拒绝同名节点。
+func TestOpenPostgresDropsLegacyNodeNameUniqueIndex(t *testing.T) {
+	s := openTestPostgres(t)
+
+	if s.db.Migrator().HasIndex(&Node{}, "idx_nodes_name") {
+		t.Fatal("idx_nodes_name survived postgres migration")
+	}
+	if !s.db.Migrator().HasIndex(&Node{}, "idx_nodes_name_lookup") {
+		t.Fatal("idx_nodes_name_lookup missing on postgres")
 	}
 }
 

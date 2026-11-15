@@ -200,7 +200,7 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn) {
 		return
 	}
 
-	rec, err := g.store.UpsertNode(ctx, store.Node{
+	rec, err := g.store.UpsertLegacyNode(ctx, store.Node{
 		Name:           params.NodeName,
 		OS:             params.OS,
 		Arch:           params.Arch,

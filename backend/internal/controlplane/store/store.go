@@ -31,17 +31,41 @@ import (
 )
 
 // Node 是注册到控制面的节点记录。
+//
+// Name 只用于展示，因此不再是唯一键：多台机器同名是正常现象（比如两个人的
+// 笔记本都叫 MacBook），归属由 NodeMember 表达，唯一性在应用层按 owner 保证。
+// 旧库上的唯一索引 idx_nodes_name 由 migrateControlPlane 显式删除，
+// 保留的 idx_nodes_name_lookup 只用于按名查找。
+//
+// CredentialHash 存 sha256(节点凭证)，空串表示节点尚未激活（旧令牌直通或
+// 配对未完成）。它是节点身份的唯一依据；明文凭证只在签发时出现在 agent
+// 侧与 welcome 帧里，任何代码路径都不得把它写库或写日志。
 type Node struct {
 	ID             string `gorm:"primaryKey"`
-	Name           string `gorm:"uniqueIndex;not null"`
+	Name           string `gorm:"index:idx_nodes_name_lookup"`
 	OS             string
 	Arch           string
 	AgentVersion   string
 	Capabilities   []string `gorm:"serializer:json"`
 	WorkspaceRoots []string `gorm:"serializer:json"`
+	CredentialHash string   `gorm:"index"`
+	ClaimedAt      time.Time
 	LastSeen       time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+// NodeMember 是「谁可以用这台节点」的归属行；nodes 表不存 owner_id。
+//
+// 一个节点可以有多个成员（owner 共享给别人），因此主键是 (node_id, user_id)，
+// 角色只是这一行上的标记：owner 能共享/撤销，member 只能使用。撤销访问就是
+// 删行，不需要迁移。没有成员行的节点是「未认领」的历史节点，仅管理员可见。
+type NodeMember struct {
+	NodeID    string `gorm:"primaryKey;column:node_id"`
+	UserID    string `gorm:"primaryKey;column:user_id;index:idx_node_member_user"`
+	Role      string // owner | member
+	GrantedBy string
+	CreatedAt time.Time
 }
 
 // Device 是注册了推送通知的终端。它只保存推送令牌，不保存认证凭据：
@@ -181,10 +205,7 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	if err := database.AutoMigrate(
-		&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}, &User{}, &UserSession{},
-		&Invite{},
-	); err != nil {
+	if err := migrateControlPlane(database); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		if sqlDB, dbErr := database.DB(); dbErr == nil {
 			_ = sqlDB.Close()
@@ -225,10 +246,7 @@ func OpenPostgres(cfg appconfig.DatabaseConfig) (*Store, error) {
 	sqlDB.SetMaxIdleConns(5)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	if err := database.AutoMigrate(
-		&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}, &User{}, &UserSession{},
-		&Invite{},
-	); err != nil {
+	if err := migrateControlPlane(database); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("migrate postgres tables: %w", err)
@@ -294,39 +312,6 @@ func (s *Store) Close() error {
 	return nil
 }
 
-// UpsertNode 按名称写入节点记录：已存在时复用原 ID 并更新可变字段，否则生成新 ID 插入。
-// 返回落库后的记录（含 ID 与时间戳）。
-func (s *Store) UpsertNode(ctx context.Context, n Node) (Node, error) {
-	if strings.TrimSpace(n.Name) == "" {
-		return Node{}, errors.New("node name is required")
-	}
-
-	// 用 Find 而非 First 查询：未命中是正常分支，不应产生 record not found 日志。
-	var existing []Node
-	res := s.db.WithContext(ctx).Where("name = ?", n.Name).Limit(1).Find(&existing)
-	if res.Error != nil {
-		return Node{}, fmt.Errorf("lookup node %q: %w", n.Name, res.Error)
-	}
-
-	if len(existing) > 0 {
-		n.ID = existing[0].ID
-		n.CreatedAt = existing[0].CreatedAt
-	} else {
-		// 名称不存在时一律生成新 ID：沿用调用方传入的 ID 会在 GORM Save 时
-		// 覆盖另一条节点的行，导致静默改错记录。
-		id, idErr := newNodeID()
-		if idErr != nil {
-			return Node{}, idErr
-		}
-		n.ID = id
-	}
-
-	if err := s.db.WithContext(ctx).Save(&n).Error; err != nil {
-		return Node{}, fmt.Errorf("save node %q: %w", n.Name, err)
-	}
-	return n, nil
-}
-
 // ListNodes 返回全部节点，按名称升序排列；空库返回空切片而非 nil。
 func (s *Store) ListNodes(ctx context.Context) ([]Node, error) {
 	nodes := make([]Node, 0)
@@ -361,7 +346,7 @@ func (s *Store) UpsertDevice(ctx context.Context, d Device) (Device, error) {
 		return Device{}, fmt.Errorf("unsupported platform %q", d.Platform)
 	}
 
-	// 与 UpsertNode 同理：用 Find 查询，未命中是正常分支，不产生日志噪声。
+	// 与 UpsertLegacyNode 同理：用 Find 查询，未命中是正常分支，不产生日志噪声。
 	var existing []Device
 	res := s.db.WithContext(ctx).Where("push_token = ?", d.PushToken).Limit(1).Find(&existing)
 	if res.Error != nil {

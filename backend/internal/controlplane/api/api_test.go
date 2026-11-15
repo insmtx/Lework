@@ -268,7 +268,7 @@ func (e *testEnv) addNode(name string) (store.Node, *fakeAgent, *node.Connection
 func (e *testEnv) addNodeWithCapabilities(name string, capabilities []string) (store.Node, *fakeAgent, *node.Connection) {
 	e.t.Helper()
 
-	rec, err := e.store.UpsertNode(context.Background(), store.Node{
+	rec, err := e.store.UpsertLegacyNode(context.Background(), store.Node{
 		Name:         name,
 		OS:           "linux",
 		Arch:         "amd64",
@@ -1100,7 +1100,7 @@ func TestEventsResyncOnClosedSubscription(t *testing.T) {
 // capabilities 时存储为 nil，API 仍须输出 []，前端才能安全遍历。
 func TestAPICapabilitiesNeverSerializeAsNull(t *testing.T) {
 	env := newTestEnv(t, time.Second)
-	rec, err := env.store.UpsertNode(context.Background(), store.Node{
+	rec, err := env.store.UpsertLegacyNode(context.Background(), store.Node{
 		Name:     "bare",
 		LastSeen: time.Now(),
 	})

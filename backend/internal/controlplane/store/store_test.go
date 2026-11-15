@@ -33,12 +33,12 @@ func TestOpenMigratesNodesTable(t *testing.T) {
 	}
 }
 
-func TestUpsertNodeCreatesNodeWithGeneratedID(t *testing.T) {
+func TestUpsertLegacyNodeCreatesNodeWithGeneratedID(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	lastSeen := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
-	got, err := s.UpsertNode(ctx, Node{
+	got, err := s.UpsertLegacyNode(ctx, Node{
 		Name:         "dev-box",
 		OS:           "linux",
 		Arch:         "amd64",
@@ -47,7 +47,7 @@ func TestUpsertNodeCreatesNodeWithGeneratedID(t *testing.T) {
 		LastSeen:     lastSeen,
 	})
 	if err != nil {
-		t.Fatalf("UpsertNode() failed: %v", err)
+		t.Fatalf("UpsertLegacyNode() failed: %v", err)
 	}
 
 	if !strings.HasPrefix(got.ID, "node_") {
@@ -81,16 +81,16 @@ func TestUpsertNodeCreatesNodeWithGeneratedID(t *testing.T) {
 	}
 }
 
-func TestUpsertNodeReusesIDForSameName(t *testing.T) {
+func TestUpsertLegacyNodeReusesIDForSameName(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	first, err := s.UpsertNode(ctx, Node{Name: "dev-box", AgentVersion: "v1.0.0"})
+	first, err := s.UpsertLegacyNode(ctx, Node{Name: "dev-box", AgentVersion: "v1.0.0"})
 	if err != nil {
-		t.Fatalf("first UpsertNode() failed: %v", err)
+		t.Fatalf("first UpsertLegacyNode() failed: %v", err)
 	}
 
-	second, err := s.UpsertNode(ctx, Node{
+	second, err := s.UpsertLegacyNode(ctx, Node{
 		Name:         "dev-box",
 		OS:           "linux",
 		Arch:         "arm64",
@@ -98,7 +98,7 @@ func TestUpsertNodeReusesIDForSameName(t *testing.T) {
 		Capabilities: []string{"shell"},
 	})
 	if err != nil {
-		t.Fatalf("second UpsertNode() failed: %v", err)
+		t.Fatalf("second UpsertLegacyNode() failed: %v", err)
 	}
 
 	if second.ID != first.ID {
@@ -143,8 +143,8 @@ func TestListNodesOrdersByName(t *testing.T) {
 	ctx := context.Background()
 
 	for _, name := range []string{"web-2", "alpha", "beta"} {
-		if _, err := s.UpsertNode(ctx, Node{Name: name}); err != nil {
-			t.Fatalf("UpsertNode(%q) failed: %v", name, err)
+		if _, err := s.UpsertLegacyNode(ctx, Node{Name: name}); err != nil {
+			t.Fatalf("UpsertLegacyNode(%q) failed: %v", name, err)
 		}
 	}
 
@@ -168,9 +168,9 @@ func TestTouchNodeUpdatesLastSeen(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	node, err := s.UpsertNode(ctx, Node{Name: "dev-box"})
+	node, err := s.UpsertLegacyNode(ctx, Node{Name: "dev-box"})
 	if err != nil {
-		t.Fatalf("UpsertNode() failed: %v", err)
+		t.Fatalf("UpsertLegacyNode() failed: %v", err)
 	}
 
 	at := time.Date(2026, 11, 1, 12, 30, 0, 0, time.UTC)
@@ -231,23 +231,23 @@ func TestOpenCreatesParentDirectory(t *testing.T) {
 	}
 }
 
-// TestUpsertNodeIgnoresSuppliedIDOnInsert 防止调用方传入的 ID 覆盖已有节点的行：
+// TestUpsertLegacyNodeIgnoresSuppliedIDOnInsert 防止调用方传入的 ID 覆盖已有节点的行：
 // 名称不存在时必须生成新 ID，而不是沿用请求里的 ID。
-func TestUpsertNodeIgnoresSuppliedIDOnInsert(t *testing.T) {
+func TestUpsertLegacyNodeIgnoresSuppliedIDOnInsert(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	existing, err := s.UpsertNode(ctx, Node{Name: "alpha", AgentVersion: "v1"})
+	existing, err := s.UpsertLegacyNode(ctx, Node{Name: "alpha", AgentVersion: "v1"})
 	if err != nil {
-		t.Fatalf("first UpsertNode() failed: %v", err)
+		t.Fatalf("first UpsertLegacyNode() failed: %v", err)
 	}
 
-	inserted, err := s.UpsertNode(ctx, Node{ID: existing.ID, Name: "beta", AgentVersion: "v2"})
+	inserted, err := s.UpsertLegacyNode(ctx, Node{ID: existing.ID, Name: "beta", AgentVersion: "v2"})
 	if err != nil {
-		t.Fatalf("second UpsertNode() failed: %v", err)
+		t.Fatalf("second UpsertLegacyNode() failed: %v", err)
 	}
 	if inserted.ID == existing.ID {
-		t.Fatalf("UpsertNode() reused caller-supplied ID %q", inserted.ID)
+		t.Fatalf("UpsertLegacyNode() reused caller-supplied ID %q", inserted.ID)
 	}
 	if !strings.HasPrefix(inserted.ID, "node_") {
 		t.Errorf("ID = %q, want prefix %q", inserted.ID, "node_")
