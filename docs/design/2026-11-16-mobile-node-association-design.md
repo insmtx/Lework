@@ -181,14 +181,16 @@ UI 顺序固定「先看后确认」：预览页展示节点名、OS/arch、agen
 | `app/settings/account.tsx`（新增） | 邮箱、改密码、登出 |
 | `app/settings/server.tsx` | 保存地址改用 `GET /api/auth/methods` 校验；保存后清登录态并跳登录页 |
 | `app/nodes.tsx` | 顶部「添加」、每行「⋯ → 移除此电脑」、空状态引导、确认弹窗、SSE 静默刷新 |
-| `app/nodes/add.tsx`（新增） | 扫码 / 输码 + 预览确认（一个页面两种状态） |
+| `app/nodes/add.tsx`（新增） | 扫码 / 输码 / 预览确认集中在一个页面的三个状态，深链与空状态都落到这里 |
 | `src/pairing/link.ts` | 解析 `lework://node/pair?url&code`；保留「扫到 Expo 二维码」提示 |
 | `src/pairing/scanner.tsx` | 回调从 `{baseUrl, token}` 改为 `{baseUrl, code}` |
-| `app/connect.tsx` | 重写为「深链带 code → 预览页」（未登录先登录再回跳） |
+| `app/node/pair.tsx`（新增） | 配对深链落点：解析 `url` + `code`，地址不一致先确认切换，然后跳到添加页；旧的 `app/connect.tsx`（地址 + 部署令牌语义）删除 |
 | `packages/api/src/client.ts` | 新增 `getAuthMethods/login/register/logout/changePassword/me/claimPreview/claimConfirm/deleteNode` |
 | `packages/api/src/types.ts` | 新增 `AuthMethods`、`ClaimPreview` |
 
 **状态管理**：沿用 `src/ui/app-shell-context.tsx`（`settings` + `reloadSettings`）。`settings.sessionToken` 是登录态唯一真相，401 处理后写回 SecureStore 再 `reloadSettings()`；不新增第二份全局 store。
+
+401 的「谁通知谁」用新增的 `src/settings/session-events.ts` 模块级通知器接起来：`createClient` 有十余个调用点，逐个传回调必然漏掉新增点；改成客户端默认 `notifySessionExpired()`、外壳注册唯一接收者（清会话 + `reloadSettings` + 跳登录页），调用点不需要改动。
 
 ## 7. 安全与隐私
 
@@ -212,7 +214,7 @@ UI 顺序固定「先看后确认」：预览页展示节点名、OS/arch、agen
 - 认领：agent 待定连接断开后，同一 5 位码的预览与确认都返回 404。
 - 清理：`invites` 表与 `invite` 模式移除后配置校验报错信息明确；迁移把旧表登记进 `legacyTables` 并在启动时删除。
 
-移动端（jest）：
+移动端（vitest）：
 
 - `link.ts`：解析 `lework://node/pair?url&code`；缺 code/缺 url 报错；`exps://` 专属提示。
 - `session.ts`：登录写 settings；401 清 token；登出清 token 留 baseUrl；换地址清登录态；改密码错误映射。
@@ -233,7 +235,7 @@ UI 顺序固定「先看后确认」：预览页展示节点名、OS/arch、agen
 - 旧手机设置（`baseUrl + token`）：保留地址、丢弃 token，进登录页；不尝试用 token 换会话。
 - 已有部署（`users` 非空）：不自动创建 admin；原 bootstrap 创建的账号继续可用，只是 `POST /api/auth/bootstrap` 路径被删除。
 - 配置：`registration_mode` 只接受 `open` / `closed`；写 `invite` 直接启动失败并提示迁移。
-- 表：`invites` 删除 → 按 AGENTS.md 在 `backend/internal/infra/db/database.go` 的 `legacyTables` 注册，启动时清理；`Invite` 模型、`store/invites.go` 与其测试一并删除。`nodes` / `node_members` / `project_index` / `project_preferences` / `preferences` 结构不变。
+- 表：`invites` 删除 → 登记在 `backend/internal/controlplane/store/migrate.go` 的 `dropLegacyControlPlaneTables`，`migrateControlPlane` 末尾执行；`Invite` 模型、`store/invites.go` 与其测试一并删除。（设计初稿写的是 `infra/db/database.go` 的 `legacyTables`，但那是遗留企业版的迁移路径，控制面根本不走它。）`nodes` / `node_members` / `project_index` / `project_preferences` / `preferences` 结构不变。
 - 文档：`docs/operations/control-plane.md` 的初始化章节改为「启动即 admin/admin123 + 改密码」，并标注公网部署要求。
 
 ## 10. 待办与遗留
@@ -243,6 +245,9 @@ UI 顺序固定「先看后确认」：预览页展示节点名、OS/arch、agen
 - 节点改名、手机上的 OpenCode 启停/文件浏览。
 - 多实例下 `cp.node.<id>.close` 的可靠性（尽力而为；凭证作废已保证最终失效）。
 - 首次启动检测到默认密码未改时的强制提示（当前只警告，不阻断）。
+- 实现与设计的三处落点偏差（`app/node/pair.tsx` 取代 `connect.tsx`、`invites`
+  迁移登记在 `store/migrate.go`、401 用模块级通知器）已按下文实际实现更新，
+  设计意图未变。
 
 ## 11. 验收标准
 

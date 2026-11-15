@@ -10,7 +10,8 @@ WebSocket 转发 OpenCode 请求；节点不监听入站端口，也不需要 SS
 
 ## 能力范围
 
-- 账号：邮箱 + 密码登录、邀请码注册、首个管理员用控制面令牌初始化。
+- 账号：邮箱 + 密码登录与注册（`registration_mode` 默认 `open`，公网部署请改
+  `closed`）；空库首次启动自动创建默认管理员 `admin` / `admin123`。
 - 节点列表与会话列表：只显示自己（或共享给自己）的节点，含在线状态、OS/架构、最近心跳。
 - 会话：按绝对工作目录创建 OpenCode Session，发送 prompt，中断当前运行。
 - 会话视图：用户/助手消息、工具卡片、待处理的权限请求。
@@ -47,8 +48,30 @@ lework serve \
   --enrollment-token "$LEWORK_ENROLLMENT_TOKEN"
 ```
 
-控制面默认只绑定回环地址。注册令牌是部署级管理员凭据（初始化首个账号、脚本
-Bearer），不会出现在日志中。浏览器打开 `http://127.0.0.1:8787/` 用账号登录。
+控制面默认只绑定回环地址。浏览器打开 `http://127.0.0.1:8787/` 用账号登录。
+注册令牌是部署级管理员凭据（脚本与远程运维的 Bearer），不再用于创建账号，
+也不会出现在日志中。
+
+### 初始化与默认账号
+
+空库首次启动时，控制面自动创建管理员 `admin` / `admin123`（role `admin`），
+并在启动日志里打印一条警告。它只创建一次：库里已有任何账号时不会再写。
+
+本机（回环）请求直接解析为这个 admin 账号：在本机启动 `lework` 后，浏览器
+不用登录就能看到该账号下的节点；账号被删掉时回环请求退回 `KindLocal`（部署级
+身份），不会凭空生成账号。
+
+拿到手机或对外提供服务之前，先把默认密码改掉：
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/api/auth/password \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
+  -d '{"current_password":"admin123","new_password":"<新密码>"}'
+```
+
+手机上也有同一个入口：设置 → 账号 → 修改密码（要求旧密码，成功后其他设备
+的会话会被吊销）。密码至少 8 位。
 
 控制面把节点注册与心跳写入 PostgreSQL，并用 NATS 扇出事件、转发跨实例请求。
 两个地址都必填（命令行或配置文件），且 NATS 必须启用 JetStream；缺任意一个
@@ -241,11 +264,11 @@ agent 的配置，详见上文「配置文件」。
 
 默认令牌文件是 `~/.config/Lework/enrollment.token`（目录 `0700`、文件 `0600`）。
 显式传入的令牌也会落盘，保证后续启动一致。`lework serve token` 打印当前
-生效的令牌，用于初始化第一个账号；令牌本身不会写入日志。
+生效的令牌，供脚本与远程运维使用；令牌本身不会写入日志。
 
-有了账号体系后，这个令牌是**部署级管理员凭据**，不再充当浏览器登录态：它只
-用于 `POST /api/auth/bootstrap` 创建首个管理员，以及脚本/自动化里的
-`Authorization: Bearer`。它不会写进任何 Cookie，也不会出现在二维码里。
+这个令牌是**部署级管理员凭据**，不再充当浏览器登录态，也不再用于创建账号：
+它只用于脚本/自动化里的 `Authorization: Bearer`。它不会写进任何 Cookie，
+也不会出现在配对二维码里。
 
 令牌只接受可打印 ASCII，不能包含空格、双引号、逗号、分号和反斜杠；不满足的
 显式值会在写盘前被拒绝，文件里的此类令牌也会在启动时报错。
@@ -253,19 +276,19 @@ agent 的配置，详见上文「配置文件」。
 
 ### 浏览器鉴权（账号登录）
 
-浏览器不再用注册令牌登录。首次使用先用令牌创建管理员：
+浏览器用邮箱密码走 `POST /api/auth/login`；首次使用直接用空库自动创建的
+`admin` / `admin123`（见上文「初始化与默认账号」）。会话写在 `HttpOnly` 的
+`lework_session` cookie 里（`SameSite=Strict`），30 天滑动续期；
+`DELETE /api/auth/session` 登出。
 
-```bash
-TOKEN=$(lework serve token)
-curl -sS -X POST http://127.0.0.1:8787/api/auth/bootstrap \
-  -H 'Content-Type: application/json' \
-  -d "{\"email\":\"me@example.com\",\"password\":\"…\",\"token\":\"$TOKEN\"}"
-```
+注册默认开放（`registration_mode: open`）：`POST /api/auth/register` 只需要
+`{email, password}`，没有邀请码；注册成功直接返回会话。改成 `closed` 后注册
+接口返回 `403 registration_closed`。同一来源 IP 的注册尝试限制为 10 次/分钟，
+超出返回 `429`。
 
-之后浏览器打开控制面，用邮箱密码走 `POST /api/auth/login`。会话写在
-`HttpOnly` 的 `lework_session` cookie 里（`SameSite=Strict`），30 天滑动续期；
-`DELETE /api/auth/session` 登出。之后的注册按 `registration.mode`（默认
-`invite`，需要邀请码）。
+登录页需要的公开信息在 `GET /api/auth/methods`：
+`{initialized, registration_mode}`。`initialized=false` 表示库里还没有账号，
+页面据此提示用默认管理员登录并以 `POST /api/auth/password` 改密码。
 
 脚本与移动端可以用 `Authorization: Bearer <enrollment token>`（部署级管理员），
 也可以用登录响应返回的会话 token（移动端不保存 cookie）。同一个邮箱 + 来源 IP
@@ -343,6 +366,21 @@ lework agent claim --no-qr           # 只打印链接与短码
 凭证失效（控制面里删了该节点、或数据库被重置）时 agent 不会自动重新配对，
 只打印提示并继续重试：删除控制面里的旧节点后重新执行上面的配对流程。
 
+手机上也能走同一套配对：设置路径是「我的电脑 → 添加」或「设置 → 账号」附近
+的入口，两个按钮分别是「扫描二维码」与「输入配对码」。扫码会解析
+`lework://node/pair?url=…&code=…`；码属于另一个控制面时会先提示切换（切换
+等于退出当前登录）。列表里的「⋯ → 移除」只有节点所有者能执行。
+
+移除节点后要重新加回来，在机器上先停掉正在运行的 agent，再执行：
+
+```bash
+lework agent --reset          # 删除本地凭证与待定配对码，然后正常启动并重新出码
+```
+
+`--reset` 只动本地文件，不做远端写入；它刻意忽略 enrollment token，否则
+「没有凭证 + 有 token」会走旧直通，登记成手机看不到的未认领节点。凭证来自
+`LEWORK_NODE_CREDENTIAL` 时无法删除，命令会直接报错，先 unset 再重试。
+
 旧版本 agent（不认识 `welcome` 里的 `credential`）继续用注册令牌登记：控制面
 按名字复用同一条**未认领**记录，不会每次重连多出一个节点。但如果它和一台已
 升级的 agent 用了同一个 `node_name`，令牌每次登记都会轮换该记录的凭证，升级后
@@ -372,9 +410,10 @@ lework opencode /home/me/projects
 
 ## 浏览器协议
 
-所有浏览器请求走同源相对路径，不使用旧版 `/v1`。除 `/api/auth/login`、
-`/api/auth/bootstrap`、`/api/auth/register` 与 `/healthz` 外，其余端点都要求
-已登录（同源 `lework_session` cookie，或 `Authorization: Bearer`）：
+所有浏览器请求走同源相对路径，不使用旧版 `/v1`。除 `/api/auth/methods`、
+`/api/auth/login`、`/api/auth/register` 与 `/healthz` 外，其余端点都要求
+已登录（同源 `lework_session` cookie，或 `Authorization: Bearer`）；节点侧
+的出站入口 `/api/agent/connect` 用自己的节点凭证/注册令牌鉴权：
 
 - `GET /api/nodes`、`GET /api/sessions`
 - `POST /api/sessions`、`POST /api/sessions/{node}/{session}/prompt`
