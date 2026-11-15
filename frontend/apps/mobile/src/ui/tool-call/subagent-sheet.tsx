@@ -1,9 +1,8 @@
+import type { SubagentView, ToolBlock } from "@lework/tool-view";
 import { router } from "expo-router";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
 import { sessionRoute } from "../../config";
-import type { SubagentView, ToolBlock } from "../../session/tools";
 import { useThemedStyles } from "../../theme/use-theme";
 import { RawJson } from "./raw-json";
 import { createStyles } from "./styles";

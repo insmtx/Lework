@@ -17,7 +17,7 @@ function skillView(part: ContentPart): ToolView {
 	view.summary = asString(input.id) ?? asString(input.name) ?? "";
 
 	const text = trimmedText(toolOutputText(state));
-	if (text !== "") view.blocks.push({ kind: "text", label: "内容", text });
+	if (text !== "") view.blocks.push({ kind: "text", label: "content", text });
 	view.blocks.push(...errorBlock(state));
 	return view;
 }
@@ -85,9 +85,9 @@ function executeView(part: ContentPart): ToolView {
 	const code = trimmedText(input.code) || trimmedText(input.script);
 	view.summary = firstLine(code);
 
-	if (code !== "") view.blocks.push({ kind: "code", label: "代码", text: code });
+	if (code !== "") view.blocks.push({ kind: "code", label: "code", text: code });
 	const output = trimmedText(toolOutputText(state));
-	if (output !== "") view.blocks.push({ kind: "code", label: "输出", text: output });
+	if (output !== "") view.blocks.push({ kind: "code", label: "output", text: output });
 	view.blocks.push(...errorBlock(state));
 	return view;
 }

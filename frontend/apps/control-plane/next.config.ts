@@ -11,7 +11,8 @@ const nextConfig: NextConfig = {
 	turbopack: { root: workspaceRoot },
 	trailingSlash: true,
 	images: { unoptimized: true },
-	transpilePackages: ["@lework/ui", "@lework/api"],
+	// 这几个包直接导出 TypeScript 源码（没有预编译产物），必须交给 Next 转译。
+	transpilePackages: ["@lework/ui", "@lework/api", "@lework/tool-view"],
 	// Dev only: the browser and the control plane share one origin in production.
 	...(isProd
 		? {}

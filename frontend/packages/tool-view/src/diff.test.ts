@@ -16,8 +16,8 @@ describe("parseUnifiedDiff", () => {
 			"add",
 			"context",
 		]);
-		expect(lines[3].text).toBe("old");
-		expect(lines[4].text).toBe("new");
+		expect(lines[3]).toEqual({ kind: "del", text: "old" });
+		expect(lines[4]).toEqual({ kind: "add", text: "new" });
 	});
 
 	it("keeps binary patch markers as metadata", () => {

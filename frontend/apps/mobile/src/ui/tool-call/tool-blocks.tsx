@@ -1,8 +1,5 @@
+import { clipText, type DiffLine, type ToolBlock } from "@lework/tool-view";
 import { Text, View } from "react-native";
-
-import type { ToolBlock } from "../../session/tools";
-import type { DiffLine } from "../../session/tools/diff";
-import { clipText } from "../../session/tools/values";
 import { useThemedStyles } from "../../theme/use-theme";
 import { createStyles } from "./styles";
 

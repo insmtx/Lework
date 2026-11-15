@@ -41,8 +41,8 @@ export function subagentView(part: ContentPart): ToolView {
 		...(duration ? { duration } : {}),
 		background: input.background === true,
 	};
-	if (prompt !== "") view.blocks.push({ kind: "text", label: "任务", text: prompt });
-	if (result !== "") view.blocks.push({ kind: "code", label: "结果", text: result });
+	if (prompt !== "") view.blocks.push({ kind: "text", label: "prompt", text: prompt });
+	if (result !== "") view.blocks.push({ kind: "code", label: "result", text: result });
 	view.blocks.push(...errorBlock(state));
 	return view;
 }

@@ -20,7 +20,7 @@ describe("webfetch", () => {
 		expect(view.summary).toBe("https://example.com/docs");
 		expect(view.blocks[0]).toEqual({
 			kind: "fields",
-			fields: [{ label: "格式", value: "markdown" }],
+			fields: [{ label: "format", value: "markdown" }],
 		});
 		expect(view.blocks[1]).toEqual({ kind: "code", text: "# Docs" });
 	});

@@ -1,7 +1,6 @@
+import { clipText } from "@lework/tool-view";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-
-import { clipText } from "../../session/tools/values";
 import { useThemedStyles } from "../../theme/use-theme";
 import { createStyles } from "./styles";
 

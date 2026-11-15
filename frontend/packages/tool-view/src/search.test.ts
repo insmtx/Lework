@@ -18,7 +18,7 @@ describe("glob", () => {
 		);
 
 		expect(view.summary).toBe("**/*.test.ts");
-		expect(view.blocks[0]).toEqual({ kind: "fields", fields: [{ label: "路径", value: "src" }] });
+		expect(view.blocks[0]).toEqual({ kind: "fields", fields: [{ label: "path", value: "src" }] });
 		expect(view.blocks[1]).toEqual({ kind: "list", items: ["a.test.ts", "b.test.ts"] });
 	});
 });
@@ -34,7 +34,10 @@ describe("grep", () => {
 		);
 
 		expect(view.summary).toBe("timeout");
-		expect(view.blocks[0]).toEqual({ kind: "fields", fields: [{ label: "文件", value: "*.ts" }] });
+		expect(view.blocks[0]).toEqual({
+			kind: "fields",
+			fields: [{ label: "include", value: "*.ts" }],
+		});
 		expect(view.blocks[1]).toEqual({ kind: "code", text: "src/a.ts:12: timeout exceeded" });
 	});
 

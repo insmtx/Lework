@@ -34,7 +34,10 @@ describe("read", () => {
 
 		expect(view.blocks[0]).toEqual({
 			kind: "fields",
-			fields: [{ label: "范围", value: "从第 120 行 · 最多 80 行" }],
+			fields: [
+				{ label: "offset", value: "120" },
+				{ label: "limit", value: "80" },
+			],
 		});
 		expect(view.blocks[1]).toEqual({ kind: "code", label: "src/auth.ts", text: "120| ..." });
 	});

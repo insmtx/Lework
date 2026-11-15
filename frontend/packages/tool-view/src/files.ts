@@ -3,7 +3,7 @@ import type { ContentPart } from "@lework/api";
 import { baseView, errorBlock } from "./base";
 import { diffFromEdit, parseUnifiedDiff } from "./diff";
 import { type ToolState, toolOutputText, toolState } from "./state";
-import type { ToolBlock, ToolView } from "./types";
+import type { ToolBlock, ToolField, ToolView } from "./types";
 import { asNumber, asRecord, asString, trimmedText } from "./values";
 
 function inputOf(state: ToolState): Record<string, unknown> {
@@ -27,12 +27,10 @@ function readView(part: ContentPart): ToolView {
 
 	const offset = asNumber(input.offset);
 	const limit = asNumber(input.limit);
-	if (offset !== undefined || limit !== undefined) {
-		const range: string[] = [];
-		if (offset !== undefined) range.push(`从第 ${offset} 行`);
-		if (limit !== undefined) range.push(`最多 ${limit} 行`);
-		view.blocks.push({ kind: "fields", fields: [{ label: "范围", value: range.join(" · ") }] });
-	}
+	const fields: ToolField[] = [];
+	if (offset !== undefined) fields.push({ label: "offset", value: String(offset) });
+	if (limit !== undefined) fields.push({ label: "limit", value: String(limit) });
+	if (fields.length > 0) view.blocks.push({ kind: "fields", fields });
 	view.blocks.push(...outputBlock(state, pathOf(input)));
 	view.blocks.push(...errorBlock(state));
 	return view;
@@ -96,15 +94,17 @@ function patchText(input: Record<string, unknown>): string {
 	const strings = Object.values(input).filter(
 		(value): value is string => typeof value === "string" && value.trim() !== "",
 	);
-	return strings.length === 1 ? strings[0] : "";
+	return strings.length === 1 ? (strings[0] ?? "") : "";
 }
 
 /** patchTarget 从补丁里找第一个受影响文件，折叠态用它替代「patch」两个字。 */
 function patchTarget(text: string): string {
 	const marker = text.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/m);
-	if (marker) return marker[1].trim();
+	const markerPath = marker?.[1];
+	if (markerPath) return markerPath.trim();
 	const plus = text.match(/^\+\+\+ (?:b\/)?(.+?)(?:\s|$)/m);
-	return plus ? plus[1].trim() : "";
+	const plusPath = plus?.[1];
+	return plusPath ? plusPath.trim() : "";
 }
 
 function patchView(part: ContentPart): ToolView {
@@ -113,9 +113,9 @@ function patchView(part: ContentPart): ToolView {
 	const text = patchText(inputOf(state));
 
 	const target = patchTarget(text);
-	view.summary = target || "补丁";
+	view.summary = target || "patch";
 	if (text.trim() !== "") {
-		view.blocks.push({ kind: "diff", lines: parseUnifiedDiff(text), label: target || "补丁" });
+		view.blocks.push({ kind: "diff", lines: parseUnifiedDiff(text), label: target || "patch" });
 	}
 	view.blocks.push(...outputBlock(state));
 	view.blocks.push(...errorBlock(state));

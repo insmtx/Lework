@@ -44,4 +44,6 @@ export function toolView(part: ContentPart): ToolView | null {
 	return render ? render(part) : genericView(part);
 }
 
+export type { DiffKind, DiffLine } from "./diff";
 export * from "./types";
+export { clipText } from "./values";

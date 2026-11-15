@@ -12,9 +12,9 @@ function inputOf(part: ContentPart): Record<string, unknown> {
 function filterFields(input: Record<string, unknown>): ToolField[] {
 	const fields: ToolField[] = [];
 	const path = asString(input.path);
-	if (path) fields.push({ label: "路径", value: path });
+	if (path) fields.push({ label: "path", value: path });
 	const include = asString(input.include);
-	if (include) fields.push({ label: "文件", value: include });
+	if (include) fields.push({ label: "include", value: include });
 	return fields;
 }
 

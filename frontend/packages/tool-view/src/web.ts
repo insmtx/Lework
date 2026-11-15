@@ -16,7 +16,7 @@ function webfetchView(part: ContentPart): ToolView {
 	view.summary = asString(input.url) ?? "";
 
 	const format = asString(input.format);
-	if (format) view.blocks.push({ kind: "fields", fields: [{ label: "格式", value: format }] });
+	if (format) view.blocks.push({ kind: "fields", fields: [{ label: "format", value: format }] });
 	const output = outputText(part);
 	if (output !== "") view.blocks.push({ kind: "code", text: output });
 	view.blocks.push(...errorBlock(state));

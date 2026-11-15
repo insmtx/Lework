@@ -32,8 +32,8 @@ describe("subagent", () => {
 			background: false,
 		});
 		expect(view.blocks).toEqual([
-			{ kind: "text", label: "任务", text: "Find the authentication entrypoints." },
-			{ kind: "code", label: "结果", text: "Found 3 files." },
+			{ kind: "text", label: "prompt", text: "Find the authentication entrypoints." },
+			{ kind: "code", label: "result", text: "Found 3 files." },
 		]);
 	});
 
@@ -88,7 +88,7 @@ describe("skill", () => {
 
 		expect(view.summary).toBe("git-release");
 		expect(view.blocks).toEqual([
-			{ kind: "text", label: "内容", text: "1. Tag the commit\n2. Push" },
+			{ kind: "text", label: "content", text: "1. Tag the commit\n2. Push" },
 		]);
 	});
 });
@@ -132,8 +132,8 @@ describe("execute", () => {
 
 		expect(view.summary).toBe("return await tools.read()");
 		expect(view.blocks).toEqual([
-			{ kind: "code", label: "代码", text: "return await tools.read()" },
-			{ kind: "code", label: "输出", text: "ok" },
+			{ kind: "code", label: "code", text: "return await tools.read()" },
+			{ kind: "code", label: "output", text: "ok" },
 		]);
 	});
 });

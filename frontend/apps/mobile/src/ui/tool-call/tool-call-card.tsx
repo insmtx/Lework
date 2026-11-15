@@ -1,8 +1,7 @@
 import type { ContentPart } from "@lework/api";
+import { toolView } from "@lework/tool-view";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-
-import { toolView } from "../../session/tools";
 import { useTheme, useThemedStyles } from "../../theme/use-theme";
 import { RawJson } from "./raw-json";
 import { createStyles } from "./styles";
