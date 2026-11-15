@@ -1,7 +1,8 @@
-import type { OverviewNode } from "@lework/api";
+import type { OverviewNode, SessionState } from "@lework/api";
 import { createContext, useContext, useEffect } from "react";
 
 import type { ProjectsState } from "../projects/use-projects";
+import type { Watermarks } from "../read/read-state";
 import type { Settings } from "../settings/settings";
 import type { SidebarGroup } from "../sidebar/model";
 
@@ -19,6 +20,14 @@ export interface AppShellValue {
 	overviewLoading: boolean;
 	overviewError: string | null;
 	refreshOverview: () => void;
+	/** sessionState 从 overview 投影里取会话状态；未命中返回 undefined。 */
+	sessionState: (nodeID: string, sessionID: string) => SessionState | undefined;
+	/** 本机已读水位，决定会话行右侧的未读点。 */
+	watermarks: Watermarks;
+	/** markRead 推进某个会话的已读水位；写入失败静默，不影响本轮展示。 */
+	markRead: (nodeID: string, sessionID: string, at?: number) => void;
+	/** isUnread 判断会话是否未读；从未打开过或缺少 updatedAt 时为 false。 */
+	isUnread: (updatedAt: string | undefined, nodeID: string, sessionID: string) => boolean;
 	/** 侧边栏按项目分组的会话。 */
 	groups: SidebarGroup[];
 	sidebarLoading: boolean;

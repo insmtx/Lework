@@ -1,3 +1,4 @@
+import type { SessionState } from "@lework/api";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -18,18 +19,22 @@ import { formatRelativeTime, RECENT_SESSION_LIMIT, type SidebarGroup } from "../
 import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
+import { SessionStatusDot, UnreadDot } from "./session-status-dot";
 import { BellButton } from "./top-bar";
 
 function ProjectGroup({
 	group,
+	stateOf,
 	onOpenProject,
 	onOpenSession,
 }: {
 	group: SidebarGroup;
+	stateOf: (nodeID: string, sessionID: string) => SessionState | undefined;
 	onOpenProject: () => void;
 	onOpenSession: (nodeID: string, sessionID: string) => void;
 }) {
 	const styles = useThemedStyles(createStyles);
+	const { isUnread } = useAppShell();
 
 	return (
 		<View style={styles.group}>
@@ -39,18 +44,25 @@ function ProjectGroup({
 				</Text>
 			</Pressable>
 
-			{group.recent.map((row) => (
-				<Pressable
-					key={`${row.nodeID}:${row.session.id}`}
-					style={styles.sessionRow}
-					onPress={() => onOpenSession(row.nodeID, row.session.id)}
-				>
-					<Text style={styles.sessionTitle} numberOfLines={1}>
-						{row.session.title || row.session.id}
-					</Text>
-					<Text style={styles.sessionTime}>{formatRelativeTime(row.session.updatedAt)}</Text>
-				</Pressable>
-			))}
+			{group.recent.map((row) => {
+				const state = stateOf(row.nodeID, row.session.id);
+				const unread = isUnread(row.session.updatedAt, row.nodeID, row.session.id);
+
+				return (
+					<Pressable
+						key={`${row.nodeID}:${row.session.id}`}
+						style={[styles.sessionRow, state === "waiting_permission" && styles.sessionRowWaiting]}
+						onPress={() => onOpenSession(row.nodeID, row.session.id)}
+					>
+						<SessionStatusDot state={state} />
+						<Text style={styles.sessionTitle} numberOfLines={1}>
+							{row.session.title || row.session.id}
+						</Text>
+						<Text style={styles.sessionTime}>{formatRelativeTime(row.session.updatedAt)}</Text>
+						{unread ? <UnreadDot /> : null}
+					</Pressable>
+				);
+			})}
 
 			{group.total > RECENT_SESSION_LIMIT ? (
 				<Pressable style={styles.moreRow} onPress={onOpenProject}>
@@ -77,6 +89,7 @@ export function AppDrawer() {
 		closeDrawer,
 		screenTitle,
 		startNewTask,
+		sessionState,
 	} = useAppShell();
 	const insets = useSafeAreaInsets();
 	const styles = useThemedStyles(createStyles);
@@ -191,6 +204,7 @@ export function AppDrawer() {
 								<ProjectGroup
 									key={group.project.key}
 									group={group}
+									stateOf={sessionState}
 									onOpenProject={() => openProject(group.project.key)}
 									onOpenSession={openSession}
 								/>
@@ -286,6 +300,7 @@ function createStyles(theme: Theme) {
 			paddingVertical: 7,
 		},
 		sessionTitle: { flex: 1, fontSize: 14, color: colors.textStrong },
+		sessionRowWaiting: { backgroundColor: colors.warningSurface, borderRadius: 8 },
 		sessionTime: { fontSize: 11, color: colors.textMuted },
 		moreRow: { paddingLeft: 16, paddingVertical: 6 },
 		moreText: { fontSize: 13, color: colors.accent },

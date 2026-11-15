@@ -100,6 +100,50 @@ describe("buildSidebarGroups", () => {
 
 		expect(group.recent.map((row) => row.session.id)).toEqual(["mine"]);
 	});
+
+	it("等待审批的会话即使排第 4 也进入 recent", () => {
+		const sessions = [
+			{ nodeID: "node-1", session: session("s1", "2026-11-14T10:00:00Z") },
+			{ nodeID: "node-1", session: session("s2", "2026-11-14T11:00:00Z") },
+			{ nodeID: "node-1", session: session("s3", "2026-11-14T12:00:00Z") },
+			{ nodeID: "node-1", session: session("waiting", "2026-11-14T09:00:00Z") },
+		];
+		const stateOf = (nodeID: string, sessionID: string) =>
+			nodeID === "node-1" && sessionID === "waiting" ? ("waiting_permission" as const) : undefined;
+
+		const [group] = buildSidebarGroups([project()], sessions, ["node-1"], undefined, stateOf);
+
+		// 等待审批的会话无条件入选，剩余名额按活动时间补足。
+		expect(group.recent.map((row) => row.session.id)).toEqual(["waiting", "s3", "s2"]);
+		expect(group.total).toBe(4);
+	});
+
+	it("不重复：被提前的会话不会在补位时出现两次", () => {
+		const sessions = [
+			{ nodeID: "node-1", session: session("waiting", "2026-11-14T13:00:00Z") },
+			{ nodeID: "node-1", session: session("s1", "2026-11-14T10:00:00Z") },
+			{ nodeID: "node-1", session: session("s2", "2026-11-14T11:00:00Z") },
+			{ nodeID: "node-1", session: session("s3", "2026-11-14T12:00:00Z") },
+		];
+		const stateOf = (_nodeID: string, sessionID: string) =>
+			sessionID === "waiting" ? ("waiting_permission" as const) : undefined;
+
+		const [group] = buildSidebarGroups([project()], sessions, ["node-1"], undefined, stateOf);
+
+		expect(group.recent.map((row) => row.session.id)).toEqual(["waiting", "s3", "s2"]);
+	});
+
+	it("没有状态函数时保持原有时间序", () => {
+		const sessions = [
+			{ nodeID: "node-1", session: session("s1", "2026-11-14T10:00:00Z") },
+			{ nodeID: "node-1", session: session("s2", "2026-11-14T11:00:00Z") },
+			{ nodeID: "node-1", session: session("s3", "2026-11-14T12:00:00Z") },
+		];
+
+		const [group] = buildSidebarGroups([project()], sessions, ["node-1"]);
+
+		expect(group.recent.map((row) => row.session.id)).toEqual(["s3", "s2", "s1"]);
+	});
 });
 
 describe("formatRelativeTime", () => {

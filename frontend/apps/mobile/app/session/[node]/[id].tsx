@@ -1,6 +1,6 @@
 import type { ContentPart, Message, PendingPermission, Session } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	FlatList,
@@ -26,6 +26,7 @@ import {
 } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
 import { runSend } from "../../../src/session/send-flow";
+import { type StatusTone, statusLabel, statusTone } from "../../../src/session/status";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
@@ -61,6 +62,20 @@ function pretty(value: unknown): string {
 
 function clip(value: string, limit = 4000): string {
 	return value.length > limit ? `${value.slice(0, limit)}\n… 已截断` : value;
+}
+
+/** statusColor 把状态条的语气映射到主题色，与行内状态点保持同一套语义。 */
+function statusColor(theme: Theme, tone: StatusTone): string {
+	switch (tone) {
+		case "info":
+			return theme.colors.accent;
+		case "warn":
+			return theme.colors.warning;
+		case "error":
+			return theme.colors.danger;
+		default:
+			return theme.colors.offline;
+	}
 }
 
 /** ToolSection 是展开后的单段内容，输入/输出/错误共用同一套排版。 */
@@ -299,7 +314,8 @@ export default function SessionScreen() {
 	const nodeID = param(params.node);
 	const sessionID = param(params.id);
 
-	const { settings, settingsLoading, projects } = useAppShell();
+	const { settings, settingsLoading, projects, overviewNodes, sessionState, markRead } =
+		useAppShell();
 	const {
 		messages,
 		permissions,
@@ -311,6 +327,10 @@ export default function SessionScreen() {
 		interrupt,
 		sending,
 		notFound,
+		state: localState,
+		hasNewBelow,
+		setFollowing,
+		jumpToLatest,
 	} = useSession(settings, nodeID, sessionID);
 
 	const nodeSessions = useNodeSessions(settings, nodeID);
@@ -324,6 +344,26 @@ export default function SessionScreen() {
 	);
 	const title = current?.title || "会话";
 	useScreenTitle(title);
+
+	// overview 命中时以它为准：它是服务端事件投影，本地事件断档后仍能自愈。
+	const status = useMemo(() => {
+		const fromOverview = sessionState(nodeID, sessionID);
+		if (fromOverview) return fromOverview;
+		const node = overviewNodes.find((candidate) => candidate.node_id === nodeID);
+		if (node && !node.connected) return "offline";
+		return localState;
+	}, [sessionState, overviewNodes, nodeID, sessionID, localState]);
+
+	// 「执行完成」只短暂显示：常驻会把已完成误读成仍在跑。
+	const [idleHidden, setIdleHidden] = useState(false);
+	useEffect(() => {
+		setIdleHidden(false);
+		if (status !== "idle") return;
+		const timer = setTimeout(() => setIdleHidden(true), 5_000);
+		return () => clearTimeout(timer);
+	}, [status]);
+	const shownStatus = idleHidden ? null : status;
+	const tone = statusTone(shownStatus);
 
 	const siblings = useMemo(() => {
 		if (!current) return [];
@@ -349,6 +389,25 @@ export default function SessionScreen() {
 	// 用户手动翻过历史后，流式更新不能把它拽回底部。
 	const userScrolled = useRef(false);
 	const stickToBottom = useRef(true);
+
+	// 已读水位只在「贴底且内容有更新」时推进，并且节流 5s：
+	// 流式文本每几毫秒就变一次，每次都写 keystore 既费电又没必要。
+	const lastMarkedAt = useRef(0);
+	const markReadIfFollowing = useCallback(() => {
+		if (!stickToBottom.current) return;
+		const now = Date.now();
+		if (now - lastMarkedAt.current < 5_000) return;
+		lastMarkedAt.current = now;
+		markRead(nodeID, sessionID, now);
+	}, [markRead, nodeID, sessionID]);
+
+	// messages 的变化也包括「列表长度不变但文本被增量替换」，只看长度会漏掉
+	// 流式推进；这里的依赖是故意多出来的。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: 需要响应文本内容变化
+	useEffect(() => {
+		if (loading || visibleMessages.length === 0) return;
+		markReadIfFollowing();
+	}, [loading, visibleMessages.length, messages, markReadIfFollowing]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 切换会话时要重置滚动状态，而不是等 ref 变化
 	useEffect(() => {
@@ -380,6 +439,10 @@ export default function SessionScreen() {
 			contentHeight: contentSize.height,
 			viewportHeight: layoutMeasurement.height,
 		});
+		// 把跟随状态同步给 useSession：暂停期间的新内容只亮「有新内容」提示。
+		setFollowing(stickToBottom.current);
+		// 滚回底部即视为看完当前内容，水位继续前进。
+		if (stickToBottom.current) markReadIfFollowing();
 	};
 
 	useEffect(() => {
@@ -392,6 +455,7 @@ export default function SessionScreen() {
 		setActionError(null);
 		// 主动发言后回到最新一条，即使刚才正在往上翻历史。
 		stickToBottom.current = true;
+		setFollowing(true);
 		try {
 			await runSend(
 				() => send(text),
@@ -458,47 +522,73 @@ export default function SessionScreen() {
 				}
 			/>
 
+			{shownStatus ? (
+				<View style={styles.statusBar}>
+					<View style={[styles.statusDot, { backgroundColor: statusColor(theme, tone) }]} />
+					<Text style={[styles.statusText, { color: statusColor(theme, tone) }]}>
+						{statusLabel(shownStatus)}
+					</Text>
+				</View>
+			) : null}
+
 			{error ? <Text style={styles.error}>{error}</Text> : null}
 			{actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
-			<FlatList
-				ref={listRef}
-				style={styles.messages}
-				contentContainerStyle={styles.messagesContent}
-				data={visibleMessages}
-				keyExtractor={(message) => message.id}
-				renderItem={({ item }) => <MessageRow message={item} />}
-				refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
-				onContentSizeChange={handleContentSizeChange}
-				onLayout={() => {
-					if (!userScrolled.current) scrollToLatest(false);
-				}}
-				onScroll={handleScroll}
-				onScrollBeginDrag={() => {
-					userScrolled.current = true;
-				}}
-				scrollEventThrottle={16}
-				ListHeaderComponent={
-					permissions.length > 0 ? (
-						<View style={styles.approvals}>
-							{permissions.map((permission) => (
-								<ApprovalCard
-									key={permission.id}
-									permission={permission}
-									onReply={(decision, message) => reply(permission.id, decision, message)}
-								/>
-							))}
-						</View>
-					) : undefined
-				}
-				ListEmptyComponent={
-					loading ? undefined : (
-						<View style={styles.center}>
-							<Text style={styles.hint}>No messages yet.</Text>
-						</View>
-					)
-				}
-			/>
+			<View style={styles.messagesWrap}>
+				<FlatList
+					ref={listRef}
+					style={styles.messages}
+					contentContainerStyle={styles.messagesContent}
+					data={visibleMessages}
+					keyExtractor={(message) => message.id}
+					renderItem={({ item }) => <MessageRow message={item} />}
+					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
+					onContentSizeChange={handleContentSizeChange}
+					onLayout={() => {
+						if (!userScrolled.current) scrollToLatest(false);
+					}}
+					onScroll={handleScroll}
+					onScrollBeginDrag={() => {
+						userScrolled.current = true;
+					}}
+					scrollEventThrottle={16}
+					ListHeaderComponent={
+						permissions.length > 0 ? (
+							<View style={styles.approvals}>
+								{permissions.map((permission) => (
+									<ApprovalCard
+										key={permission.id}
+										permission={permission}
+										onReply={(decision, message) => reply(permission.id, decision, message)}
+									/>
+								))}
+							</View>
+						) : undefined
+					}
+					ListEmptyComponent={
+						loading ? undefined : (
+							<View style={styles.center}>
+								<Text style={styles.hint}>No messages yet.</Text>
+							</View>
+						)
+					}
+				/>
+
+				{hasNewBelow ? (
+					<View style={styles.newContentWrap} pointerEvents="box-none">
+						<Pressable
+							style={styles.newContent}
+							onPress={() => {
+								stickToBottom.current = true;
+								jumpToLatest();
+								scrollToLatest(true);
+							}}
+						>
+							<Text style={styles.newContentText}>有新内容 ·</Text>
+						</Pressable>
+					</View>
+				) : null}
+			</View>
 
 			<GlobalComposer
 				target={{
@@ -545,8 +635,26 @@ function createStyles(theme: Theme) {
 		error: { color: colors.danger, paddingHorizontal: 16, paddingTop: 8 },
 		stopButton: { paddingHorizontal: 6, paddingVertical: 6 },
 		stopText: { fontSize: 13, color: colors.textSecondary },
+		statusBar: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 6,
+			paddingHorizontal: 16,
+			paddingTop: 6,
+		},
+		statusDot: { width: 6, height: 6, borderRadius: 3 },
+		statusText: { fontSize: 12 },
+		messagesWrap: { flex: 1 },
 		messages: { flex: 1 },
 		messagesContent: { flexGrow: 1, justifyContent: "flex-end", padding: 16, gap: 12 },
+		newContentWrap: { position: "absolute", left: 0, right: 0, bottom: 10, alignItems: "center" },
+		newContent: {
+			borderRadius: 14,
+			paddingHorizontal: 12,
+			paddingVertical: 6,
+			backgroundColor: colors.action,
+		},
+		newContentText: { fontSize: 12, fontWeight: "600", color: colors.actionText },
 		approvals: { gap: 10, marginBottom: 12 },
 		approval: {
 			borderWidth: 1,

@@ -30,7 +30,7 @@ export default function ProjectScreen() {
 	const styles = useThemedStyles(createStyles);
 	const projectKey = Array.isArray(params.key) ? (params.key[0] ?? "") : (params.key ?? "");
 
-	const { settings, settingsLoading, projects: projectsState } = useAppShell();
+	const { settings, settingsLoading, projects: projectsState, sessionState } = useAppShell();
 	const { projects, nodes, loading, error, refresh, setPrimaryNode } = projectsState;
 	const store = useMemo(() => createSecureDraftStore(), []);
 
@@ -209,6 +209,7 @@ export default function ProjectScreen() {
 						nodeID={item.nodeID}
 						session={item.session}
 						nodeName={nodeNameByID[item.nodeID]}
+						state={sessionState(item.nodeID, item.session.id)}
 					/>
 				)}
 				ListEmptyComponent={

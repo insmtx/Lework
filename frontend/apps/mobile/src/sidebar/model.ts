@@ -1,4 +1,4 @@
-import type { ProjectSummary } from "@lework/api";
+import type { ProjectSummary, SessionState } from "@lework/api";
 
 import { orderProjects } from "../projects/model";
 import {
@@ -25,12 +25,17 @@ export interface SidebarGroup {
  * 侧边栏只回答「最近在哪个项目做了什么」：项目按最后活动时间倒序，
  * 每个项目只留最近几条会话；完整列表在项目页。离线节点的会话不出现，
  * 因为控制面没有缓存会话快照，点进去也只会失败。
+ *
+ * 名额分配是「先选后截断」：等待审批的会话无条件进前 RECENT_SESSION_LIMIT，
+ * 剩余名额按活动时间补。否则排第 4 的待审批会话永远看不见，而它恰恰是
+ * 唯一需要人立刻动手的。
  */
 export function buildSidebarGroups(
 	projects: ProjectSummary[],
 	sessions: ProjectSessionRef[],
 	onlineNodeIDs: string[],
 	inboxKey?: string | null,
+	stateOf?: (nodeID: string, sessionID: string) => SessionState | undefined,
 ): SidebarGroup[] {
 	const online = new Set(onlineNodeIDs);
 
@@ -45,10 +50,25 @@ export function buildSidebarGroups(
 
 		return {
 			project,
-			recent: sorted.slice(0, RECENT_SESSION_LIMIT),
+			recent: selectRecent(sorted, stateOf),
 			total: sorted.length,
 		};
 	});
+}
+
+// selectRecent 在活动序基础上把等待审批的会话提前，并按名额截断。
+function selectRecent(
+	sorted: ProjectSessionRef[],
+	stateOf?: (nodeID: string, sessionID: string) => SessionState | undefined,
+): ProjectSessionRef[] {
+	if (!stateOf) return sorted.slice(0, RECENT_SESSION_LIMIT);
+
+	const waiting = sorted.filter(
+		(ref) => stateOf(ref.nodeID, ref.session.id) === "waiting_permission",
+	);
+	const rest = sorted.filter((ref) => stateOf(ref.nodeID, ref.session.id) !== "waiting_permission");
+	const head = waiting.slice(0, RECENT_SESSION_LIMIT);
+	return [...head, ...rest.slice(0, RECENT_SESSION_LIMIT - head.length)];
 }
 
 /**
