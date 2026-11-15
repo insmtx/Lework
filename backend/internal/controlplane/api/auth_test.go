@@ -244,67 +244,48 @@ func TestLoginSuccessReleasesAttemptBudget(t *testing.T) {
 	requireStatus(t, env.do(http.MethodPost, "/api/auth/login", wrong), http.StatusUnauthorized)
 }
 
-// TestBootstrapOnlyWorksWhenNoUsers 是任务书给出的验收用例：初始化只能用
-// enrollment token 做一次，之后必须 409。
-func TestBootstrapOnlyWorksWhenNoUsers(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-	body := `{"token":"test-enrollment-token","email":"root@example.com","password":"secret-password"}`
-
-	first := env.do(http.MethodPost, "/api/auth/bootstrap", body)
-	requireStatus(t, first, http.StatusOK)
-	created := decodeBody[authBody](t, first)
-	if created.User == nil || created.User.Role != "admin" || created.User.Status != "active" {
-		t.Fatalf("bootstrap user = %+v, want an active admin", created.User)
+func TestAuthMethodsPublicAndMinimal(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	rec := env.doNoPrincipal(http.MethodGet, "/api/auth/methods", "") // 不带任何凭据
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if created.User.Email != "root@example.com" {
-		t.Fatalf("bootstrap email = %q", created.User.Email)
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-
-	second := env.do(http.MethodPost, "/api/auth/bootstrap", body)
-	requireStatus(t, second, http.StatusConflict)
-	if cookie := sessionCookieFrom(t, second); cookie != nil {
-		t.Fatal("second bootstrap must not issue a session")
+	if len(body) != 2 {
+		t.Fatalf("body = %v, want exactly initialized and registration_mode", body)
 	}
-
-	// 已初始化时即使换一个合法令牌也只能得到 409，不能造出第二个管理员。
-	wrong := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"another-token","email":"other@example.com","password":"secret-password"}`)
-	requireStatus(t, wrong, http.StatusConflict)
-}
-
-// TestBootstrapRejectsWrongTokenWithoutLeaking 校验错误令牌的固定响应体，
-// 既不带出提交值，也不带出真实令牌。
-func TestBootstrapRejectsWrongTokenWithoutLeaking(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-
-	rec := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"guess-token","email":"root@example.com","password":"secret-password"}`)
-	requireErrorCode(t, rec, http.StatusUnauthorized, "invalid_token")
-	if strings.Contains(rec.Body.String(), "guess-token") || strings.Contains(rec.Body.String(), "test-enrollment-token") {
-		t.Fatalf("bootstrap error leaked a token: %s", rec.Body.String())
+	if body["initialized"] != false {
+		t.Fatalf("initialized = %v, want false on an empty store", body["initialized"])
 	}
-
-	count, err := env.store.CountUsers(context.Background())
-	if err != nil || count != 0 {
-		t.Fatalf("CountUsers = %d, %v; want 0 after a rejected bootstrap", count, err)
+	if body["registration_mode"] != "open" {
+		t.Fatalf("registration_mode = %v, want open", body["registration_mode"])
 	}
 }
 
-// TestBootstrapValidatesInput 校验邮箱与密码规则；校验失败不能落库。
-func TestBootstrapValidatesInput(t *testing.T) {
-	env := newTestEnv(t, time.Second)
+func TestAuthMethodsInitializedAfterUserCreated(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "closed"})
+	createTestUser(t, env, "a@example.com", testLoginPassword, "user", "active")
+	rec := env.doNoPrincipal(http.MethodGet, "/api/auth/methods", "")
+	var body struct {
+		Initialized      bool   `json:"initialized"`
+		RegistrationMode string `json:"registration_mode"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Initialized || body.RegistrationMode != "closed" {
+		t.Fatalf("body = %+v, want initialized=true mode=closed", body)
+	}
+}
 
-	blankEmail := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"test-enrollment-token","email":" ","password":"secret-password"}`)
-	requireErrorCode(t, blankEmail, http.StatusBadRequest, "invalid_request")
-
-	shortPassword := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"test-enrollment-token","email":"root@example.com","password":"short"}`)
-	requireErrorCode(t, shortPassword, http.StatusBadRequest, "invalid_request")
-
-	count, err := env.store.CountUsers(context.Background())
-	if err != nil || count != 0 {
-		t.Fatalf("CountUsers = %d, %v; want 0 after rejected input", count, err)
+func TestBootstrapEndpointRemoved(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	if rec := env.do(http.MethodPost, "/api/auth/bootstrap",
+		`{"token":"x","email":"a","password":"password123"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 

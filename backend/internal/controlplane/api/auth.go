@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
 	"net"
 	"net/http"
 	"strings"
@@ -63,13 +61,6 @@ type AuthConfig struct {
 
 // loginRequest 是 POST /api/auth/login 的请求体。
 type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-// bootstrapRequest 是 POST /api/auth/bootstrap 的请求体。
-type bootstrapRequest struct {
-	Token    string `json:"token"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
@@ -221,56 +212,27 @@ func requestSourceIP(r *http.Request) string {
 	return host
 }
 
-// handleBootstrap 用 enrollment token 创建第一个管理员。
+// authMethodsResponse 是登录页判断「显示什么按钮」的最小信息集。
 //
-// 只允许在没有任何账号时调用：否则任何拿到令牌的人都能再造一个 admin。
-// 已初始化时先返回 409，连令牌都不比较，避免把初始化状态变成令牌校验旁路。
-func (a *API) handleBootstrap(w http.ResponseWriter, r *http.Request) {
+// 只暴露两项：有没有账号、注册是否开放。不返回账号名、节点数或版本——登录页
+// 在鉴权之前可访问，任何多余字段都是给陌生人的情报。
+type authMethodsResponse struct {
+	Initialized      bool   `json:"initialized"`
+	RegistrationMode string `json:"registration_mode"`
+}
+
+// handleAuthMethods 返回登录页所需的公开信息。
+func (a *API) handleAuthMethods(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-
-	var req bootstrapRequest
-	if err := decodeRequest(w, r, &req); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request")
-		return
-	}
-	email, ok := validateNewAccount(req.Email, req.Password)
-	if !ok {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request")
-		return
-	}
-
 	count, err := a.store.CountUsers(r.Context())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
-	if count > 0 {
-		writeAPIError(w, http.StatusConflict, "already_initialized", "already initialized")
-		return
-	}
-	if !enrollmentTokenMatches(req.Token, a.resolver.EnrollmentToken) {
-		writeAPIError(w, http.StatusUnauthorized, "invalid_token", "invalid_token")
-		return
-	}
-
-	hash, err := authn.HashPassword(req.Password)
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
-		return
-	}
-	user, err := a.store.CreateUser(r.Context(), store.User{
-		Email:        email,
-		PasswordHash: hash,
-		Role:         roleAdmin,
-		Status:       statusActive,
+	writeJSON(w, http.StatusOK, authMethodsResponse{
+		Initialized:      count > 0,
+		RegistrationMode: a.registrationMode(),
 	})
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
-		return
-	}
-
-	// 初始化不需要登录态；客户端随后用同一组邮箱密码登录即可。
-	writeJSON(w, http.StatusOK, authResponse{User: toAuthUser(user)})
 }
 
 // handleRegister 按注册策略创建账号并直接登录。
@@ -445,19 +407,6 @@ func validateNewAccount(email, password string) (string, bool) {
 		return "", false
 	}
 	return trimmed, true
-}
-
-// enrollmentTokenMatches 以恒定时间比较提交的令牌与 enrollment token。
-//
-// 两侧先各自取 sha256：长度不同时直接比较会立刻返回，攻击者能据此试探长度，
-// 定长摘要把比较收敛成「是否相等」。空令牌不参与比较。
-func enrollmentTokenMatches(candidate, want string) bool {
-	if want == "" || candidate == "" {
-		return false
-	}
-	got := sha256.Sum256([]byte(candidate))
-	expected := sha256.Sum256([]byte(want))
-	return subtle.ConstantTimeCompare(got[:], expected[:]) == 1
 }
 
 // writeInvalidCredentials 写出固定的登录失败响应；坏密码与未知账号共用它。

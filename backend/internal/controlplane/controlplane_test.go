@@ -554,10 +554,10 @@ func TestServerAuthFlowThroughMiddleware(t *testing.T) {
 		return rec
 	}
 
-	bootstrap := do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"`+testToken+`","email":"root@example.com","password":"secret-password"}`, nil)
-	if bootstrap.Code != http.StatusOK {
-		t.Fatalf("bootstrap status = %d (body=%s)", bootstrap.Code, bootstrap.Body)
+	register := do(http.MethodPost, "/api/auth/register",
+		`{"email":"root@example.com","password":"secret-password"}`, nil)
+	if register.Code != http.StatusOK {
+		t.Fatalf("register status = %d (body=%s)", register.Code, register.Body)
 	}
 
 	login := do(http.MethodPost, "/api/auth/login",

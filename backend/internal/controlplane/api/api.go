@@ -143,7 +143,7 @@ func (a *API) nodeConnected(rec store.Node) bool {
 // Register 把全部浏览器端点注册到 mux。方法与路径由 ServeMux 模式约束，
 // 未声明的方法会落到静态资源处理器（通常得到 404，而不是 401）。
 func (a *API) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/auth/bootstrap", a.handleBootstrap)
+	mux.HandleFunc("GET /api/auth/methods", a.handleAuthMethods)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
 	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)

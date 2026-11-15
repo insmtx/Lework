@@ -110,7 +110,7 @@ func authExemptPath(path string) bool {
 		return true
 	}
 	switch path {
-	case "/api/agent/connect", "/api/auth/bootstrap", "/api/auth/login", "/api/auth/register":
+	case "/api/agent/connect", "/api/auth/methods", "/api/auth/login", "/api/auth/register":
 		return true
 	default:
 		return false
