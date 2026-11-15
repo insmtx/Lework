@@ -129,7 +129,13 @@ func newClaimAttemptLimiter(limit int, window time.Duration) *claimAttemptLimite
 	}
 }
 
-// allow 判断这次请求是否还在预算内；空账号表示无法归因，跳过限流。
+// allow 原子地检查并预占一次预算；超限返回 false。
+//
+// 检查与 +1 在同一把锁里完成：先检查后计数会让并发的 N 个请求同时看到
+// 「还没到上限」而全部放行，限流因此在并发下失效。预占的预算由调用方
+// 用 succeed 归还（成功）或保留（失败）。
+//
+// 空账号表示无法归因，跳过限流。
 func (l *claimAttemptLimiter) allow(account string, now time.Time) bool {
 	if account == "" || l.limit <= 0 {
 		return true
@@ -139,24 +145,26 @@ func (l *claimAttemptLimiter) allow(account string, now time.Time) bool {
 	defer l.mu.Unlock()
 
 	l.pruneLocked(now)
-	count, _ := claimAttemptCount(l.perAccount[account], now, l.window)
-	return count < l.limit
-}
-
-// fail 记录一次失败；只有 404 的预览/确认才调用。
-func (l *claimAttemptLimiter) fail(account string, now time.Time) {
-	if account == "" || l.limit <= 0 {
-		return
-	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	count, start := claimAttemptCount(l.perAccount[account], now, l.window)
+	if count >= l.limit {
+		return false
+	}
 	l.perAccount[account] = claimAttemptWindow{count: count + 1, start: start}
+	return true
 }
 
-// succeed 清掉当前账号的失败计数；成功之后预算重新开始。
+// fail 保留 allow 预占的预算，表示这次尝试失败。
+//
+// 计数已经在 allow 里加过，这里不再写入；保留这个入口是为了让调用点显式
+// 表达「这笔预算不归还」。实际会走到 fail 的路径包括：预览/确认的 404（含
+// 跨账号不可见）、存储层报错，以及绑定失败（409 竞态与 500 内部错误）。成功
+// 路径必须调用 succeed 归还，否则一次成功会永久吃掉账号的一次失败额度。
+func (l *claimAttemptLimiter) fail(_ string, _ time.Time) {}
+
+// succeed 归还本次请求在 allow 里预占的预算。
+//
+// 成功不是失败尝试，不应挤占账号的失败额度；但它也不清空之前已经发生的
+// 失败——「每分钟 10 次失败」的语义不因中间插了一次成功而重置。
 func (l *claimAttemptLimiter) succeed(account string) {
 	if account == "" {
 		return
@@ -165,7 +173,16 @@ func (l *claimAttemptLimiter) succeed(account string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	delete(l.perAccount, account)
+	entry, ok := l.perAccount[account]
+	if !ok {
+		return
+	}
+	if entry.count <= 1 {
+		delete(l.perAccount, account)
+		return
+	}
+	entry.count--
+	l.perAccount[account] = entry
 }
 
 // pruneLocked 清理已经过窗的条目，避免大量账号把内存撑大。
@@ -200,6 +217,20 @@ func claimAccountKey(p authz.Principal) string {
 		return p.UserID
 	}
 	return ""
+}
+
+// claimVisibleTo 判断这张认领是否对当前账号可见、可确认。
+//
+// ClaimedBy 非空表示码由某个账号事先签出（`lework agent --code` 路径），
+// 码已经绑定了归属：只有签出它的账号能在浏览器里预览或确认。否则拿到码的
+// 其他人会把机器挪到自己名下，原主的 --code 随即失效——码是能力，但不是
+// 「任何人的能力」。
+//
+// ClaimedBy 为空是 agent 的 mode=pair 路径：码刚在终端上出现，还没有归属，
+// 任何人扫码确认都应当成功，这正是扫码加入的主路径。
+func claimVisibleTo(claim store.NodeClaim, userID string) bool {
+	owner := strings.TrimSpace(claim.ClaimedBy)
+	return owner == "" || owner == userID
 }
 
 // claimCodeLength 返回实际使用的码长；越界配置回落到默认值。
@@ -303,8 +334,10 @@ func (a *API) handleCreateClaim(w http.ResponseWriter, r *http.Request) {
 
 // handlePreviewClaim 返回待定认领的机器信息，供确认页判断「是不是这台机器」。
 //
-// 任何已登录身份（账号或部署级身份）都可以预览：码本身是能力，且这里不返回
-// 账号归属、pair key 或实例信息。不存在、过期、已被认领一律回同一个 404，
+// 任何已登录身份（账号或部署级身份）都可以预览「没有归属账号」的码：码本身
+// 是能力，且这里不返回账号归属、pair key 或实例信息。由某个账号事先签出的码
+// （ClaimedBy 非空）只对该账号可见——否则别人拿到码就能看到机器信息，并在
+// 确认端点把它挪到自己名下。不可见、不存在、过期、已被认领一律回同一个 404，
 // 区分它们只会把「码是否存在过」与别人认领的时机泄露给猜码者。
 func (a *API) handlePreviewClaim(w http.ResponseWriter, r *http.Request) {
 	principal, ok := a.requireUser(w, r)
@@ -321,15 +354,18 @@ func (a *API) handlePreviewClaim(w http.ResponseWriter, r *http.Request) {
 
 	claim, found, err := a.store.ClaimByCode(r.Context(), r.PathValue("code"), now)
 	if err != nil {
+		a.claimAttempts.fail(account, now)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
-	if !found {
+	if !found || !claimVisibleTo(claim, principal.UserID) {
 		a.claimAttempts.fail(account, now)
 		writeClaimNotFound(w)
 		return
 	}
 
+	// 成功不是失败尝试，归还 allow 预占的预算。
+	a.claimAttempts.succeed(account)
 	writeJSON(w, http.StatusOK, claimPreviewResponse{
 		Code:         claim.Code,
 		NodeName:     claim.NodeName,
@@ -363,10 +399,11 @@ func (a *API) handleClaimCode(w http.ResponseWriter, r *http.Request) {
 
 	claim, found, err := a.store.ClaimByCode(r.Context(), r.PathValue("code"), now)
 	if err != nil {
+		a.claimAttempts.fail(principal.UserID, now)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
-	if !found {
+	if !found || !claimVisibleTo(claim, principal.UserID) {
 		a.claimAttempts.fail(principal.UserID, now)
 		writeClaimNotFound(w)
 		return
@@ -398,14 +435,10 @@ func (a *API) handleClaimCode(w http.ResponseWriter, r *http.Request) {
 		Time:   time.Now(),
 	})
 
-	// 读回完整视图（名称、在线状态、claimed）而不是手写第二个投影：
-	// 节点列表与这里的形状必须完全一致。
-	view, ok, err := a.findNode(r.Context(), node.ID)
-	if err != nil || !ok {
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, view)
+	// 直接用绑定返回的记录投影：认领是刚提交的，再按全表查一次既浪费又打开
+	// 了「查询失败但认领已成功」的空窗。投影函数与 /api/nodes 共用，形状不会
+	// 分叉（新节点还没有心跳，因此 connected 为 false）。
+	writeJSON(w, http.StatusOK, a.nodeViewFromRecord(node))
 }
 
 // writeClaimBindConflict 把「预览之后码不能再绑定」映射成 409 或 429。
@@ -447,6 +480,9 @@ func (a *API) writeClaimBindConflict(w http.ResponseWriter, r *http.Request, cla
 // 只传 claim id：凭证由持有 WebSocket 的实例本地签发，绝不经过总线。Core
 // NATS 是至多一次投递，发布失败不影响已经落库的认领——agent 用同一 pair_key
 // 重连会在待定期限内补发，因此这里只记 warn（不含码与 pair key）。
+//
+// 浏览器可能在收到响应后立刻断开，而认领已经落库、通知仍然必须发出去：因此
+// 用 WithoutCancel 摘掉请求取消，只保留 5 秒的发布超时。
 func (a *API) publishClaimNotification(ctx context.Context, claimID string) {
 	subject, err := messaging.ControlPlanePairSubject(claimID)
 	if err != nil {
@@ -458,7 +494,7 @@ func (a *API) publishClaimNotification(ctx context.Context, claimID string) {
 		return
 	}
 
-	pubCtx, cancel := context.WithTimeout(ctx, claimNotificationTimeout)
+	pubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claimNotificationTimeout)
 	defer cancel()
 	if err := a.core.PublishCore(pubCtx, subject, nil); err != nil {
 		logs.Warnf("api: publish claim notification for claim %q: %v", claimID, err)

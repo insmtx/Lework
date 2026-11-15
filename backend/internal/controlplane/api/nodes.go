@@ -189,27 +189,36 @@ func (a *API) listNodes(ctx context.Context) ([]nodeView, error) {
 
 	views := make([]nodeView, 0, len(records))
 	for _, rec := range records {
-		view := nodeView{
-			ID:             rec.ID,
-			Name:           rec.Name,
-			OS:             rec.OS,
-			Arch:           rec.Arch,
-			AgentVersion:   rec.AgentVersion,
-			Capabilities:   rec.Capabilities,
-			WorkspaceRoots: rec.WorkspaceRoots,
-			Claimed:        !rec.ClaimedAt.IsZero(),
-			Connected:      a.nodeConnected(rec),
-			LastSeen:       rec.LastSeen,
-		}
-		// hello 不带 capabilities 时存储里是 nil，直接序列化会得到 null；
-		// 浏览器端需要能安全地遍历，因此统一成空数组。
-		if view.Capabilities == nil {
-			view.Capabilities = []string{}
-		}
-		if view.WorkspaceRoots == nil {
-			view.WorkspaceRoots = []string{}
-		}
-		views = append(views, view)
+		views = append(views, a.nodeViewFromRecord(rec))
 	}
 	return views, nil
+}
+
+// nodeViewFromRecord 把一条持久化记录投影成浏览器视图。
+//
+// 节点列表、单节点查询与认领确认必须共用同一份字段映射：任何一处手写第二个
+// 投影，迟早会出现「列表里有 claimed、认领响应里没有」这类前端无法解释的
+// 分叉。
+func (a *API) nodeViewFromRecord(rec store.Node) nodeView {
+	view := nodeView{
+		ID:             rec.ID,
+		Name:           rec.Name,
+		OS:             rec.OS,
+		Arch:           rec.Arch,
+		AgentVersion:   rec.AgentVersion,
+		Capabilities:   rec.Capabilities,
+		WorkspaceRoots: rec.WorkspaceRoots,
+		Claimed:        !rec.ClaimedAt.IsZero(),
+		Connected:      a.nodeConnected(rec),
+		LastSeen:       rec.LastSeen,
+	}
+	// hello 不带 capabilities 时存储里是 nil，直接序列化会得到 null；
+	// 浏览器端需要能安全地遍历，因此统一成空数组。
+	if view.Capabilities == nil {
+		view.Capabilities = []string{}
+	}
+	if view.WorkspaceRoots == nil {
+		view.WorkspaceRoots = []string{}
+	}
+	return view
 }

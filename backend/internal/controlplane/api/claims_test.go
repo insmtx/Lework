@@ -437,14 +437,14 @@ func TestClaimCodeRateLimitsFailedAttempts(t *testing.T) {
 	requireErrorCode(t, valid, http.StatusTooManyRequests, "too_many_attempts")
 }
 
-// TestClaimSuccessResetsOnlyItsOwnBudget 固化限流键的隔离：
-// 成功只清当前账号的失败计数，别的账号的预算不受影响。
-func TestClaimSuccessResetsOnlyItsOwnBudget(t *testing.T) {
+// TestClaimSuccessDoesNotConsumeFailureBudget 固化预占语义：成功归还自己那次
+// 尝试的预算，但不清空之前已经发生的失败；另一个账号的预算独立。
+func TestClaimSuccessDoesNotConsumeFailureBudget(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	user := createTestUser(t, env, "u@x.c", testLoginPassword, roleUser, statusActive)
 	other := createTestUser(t, env, "other@x.c", testLoginPassword, roleUser, statusActive)
 
-	// 先用掉 9 次预算，再成功认领一次：计数应被清零。
+	// 9 次失败 + 1 次成功：成功只归还预占，所以预算仍是用掉了 9 次。
 	for i := 0; i < claimAttemptsPerAccount-1; i++ {
 		rec := doJSONAs(t, env, user.ID, http.MethodPost, "/api/claim/ZZZZZ", "")
 		requireErrorCode(t, rec, http.StatusNotFound, "claim_not_found")
@@ -452,11 +452,10 @@ func TestClaimSuccessResetsOnlyItsOwnBudget(t *testing.T) {
 	createPendingClaim(t, env, "AB234", "work-mac", time.Now().Add(time.Minute))
 	requireStatus(t, doJSONAs(t, env, user.ID, http.MethodPost, "/api/claim/AB234", ""), http.StatusOK)
 
-	// 清零后还能再失败 10 次；若没有清零，第 2 次就会 429。
-	for i := 0; i < claimAttemptsPerAccount; i++ {
-		rec := doJSONAs(t, env, user.ID, http.MethodPost, "/api/claim/ZZZZY", "")
-		requireErrorCode(t, rec, http.StatusNotFound, "claim_not_found")
-	}
+	// 再失败 1 次刚好用满预算；若成功没有归还预占，这一次就已经是 429。
+	requireErrorCode(t,
+		doJSONAs(t, env, user.ID, http.MethodPost, "/api/claim/ZZZZY", ""),
+		http.StatusNotFound, "claim_not_found")
 	requireErrorCode(t,
 		doJSONAs(t, env, user.ID, http.MethodPost, "/api/claim/ZZZZY", ""),
 		http.StatusTooManyRequests, "too_many_attempts")
@@ -469,6 +468,69 @@ func TestClaimSuccessResetsOnlyItsOwnBudget(t *testing.T) {
 	requireErrorCode(t,
 		doJSONAs(t, env, other.ID, http.MethodPost, "/api/claim/ZZZZX", ""),
 		http.StatusTooManyRequests, "too_many_attempts")
+}
+
+// TestClaimPreviewAndConfirmShareFailureBudget 固件预览与确认花的是同一份
+// 账号预算：10 次混合失败之后，两条端点都直接 429。
+func TestClaimPreviewAndConfirmShareFailureBudget(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	user := createTestUser(t, env, "u@x.c", testLoginPassword, roleUser, statusActive)
+
+	for i := 0; i < claimAttemptsPerAccount/2; i++ {
+		rec := doJSONAs(t, env, user.ID, http.MethodGet, "/api/claim/ZZZZZ", "")
+		requireErrorCode(t, rec, http.StatusNotFound, "claim_not_found")
+	}
+	for i := 0; i < claimAttemptsPerAccount/2; i++ {
+		rec := doJSONAs(t, env, user.ID, http.MethodPost, "/api/claim/ZZZZZ", "")
+		requireErrorCode(t, rec, http.StatusNotFound, "claim_not_found")
+	}
+
+	requireErrorCode(t,
+		doJSONAs(t, env, user.ID, http.MethodGet, "/api/claim/ZZZZZ", ""),
+		http.StatusTooManyRequests, "too_many_attempts")
+	requireErrorCode(t,
+		doJSONAs(t, env, user.ID, http.MethodPost, "/api/claim/ZZZZZ", ""),
+		http.StatusTooManyRequests, "too_many_attempts")
+}
+
+// TestClaimAttemptLimiterReservesBudgetConcurrently 直接覆盖限流器的并发语义。
+//
+// 检查与计数必须在同一把锁内完成：20 个并发请求里只能有预算数量的请求进入
+// 处理，否则「先查后写」会让限流在并发下失效。不打 HTTP，避免依赖 SQLite
+// 的锁行为。
+func TestClaimAttemptLimiterReservesBudgetConcurrently(t *testing.T) {
+	limiter := newClaimAttemptLimiter(claimAttemptsPerAccount, claimAttemptWindowSize)
+	now := time.Now()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	allowed := 0
+	for i := 0; i < claimAttemptsPerAccount*2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if limiter.allow("u1", now) {
+				mu.Lock()
+				allowed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if allowed != claimAttemptsPerAccount {
+		t.Fatalf("allowed = %d concurrent attempts, want exactly the budget %d",
+			allowed, claimAttemptsPerAccount)
+	}
+
+	// 成功归还一次预占后，空出的名额可以被下一次尝试使用。
+	limiter.succeed("u1")
+	if !limiter.allow("u1", now) {
+		t.Fatal("allow after succeed = false, want the released slot to be reusable")
+	}
+	if limiter.allow("u1", now) {
+		t.Fatal("allow = true after the budget was refilled, want false")
+	}
 }
 
 // TestClaimCodeNameCollisionAddsSuffix 固化设计 §6：同一 owner 重装产生
@@ -529,4 +591,94 @@ func TestClaimCodeSucceedsWhenPairNotificationFails(t *testing.T) {
 	if view := decodeBody[nodeResponse](t, created); !view.Claimed {
 		t.Fatal("claimed = false, want the node to be created despite the publish failure")
 	}
+}
+
+// TestClaimCodeIssuedForAccountIsInvisibleToOthers 固化控制器裁决：
+// `POST /api/node-claims` 出的码绑定出码账号，别人既不能预览也不能确认；
+// agent 的 mode=pair 码（ClaimedBy 为空）仍然任何账号都能确认。
+func TestClaimCodeIssuedForAccountIsInvisibleToOthers(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	owner := createTestUser(t, env, "owner@x.c", testLoginPassword, roleUser, statusActive)
+	intruder := createTestUser(t, env, "intruder@x.c", testLoginPassword, roleUser, statusActive)
+	other := createTestUser(t, env, "other@x.c", testLoginPassword, roleUser, statusActive)
+
+	created := createNodeClaim(t, env, owner.ID, `{"node_name":"work-mac"}`)
+
+	// 别人预览：404，且正文与未知码完全一致（不泄漏码存在）。
+	unknown := doJSONAs(t, env, intruder.ID, http.MethodGet, "/api/claim/ZZZZZ", "")
+	foreignPreview := doJSONAs(t, env, intruder.ID, http.MethodGet, "/api/claim/"+created.Code, "")
+	requireErrorCode(t, foreignPreview, http.StatusNotFound, "claim_not_found")
+	if foreignPreview.Body.String() != unknown.Body.String() {
+		t.Fatalf("foreign preview body = %q, want identical to unknown code %q",
+			foreignPreview.Body.String(), unknown.Body.String())
+	}
+
+	// 别人确认：同样 404，且不能把这条认领变成 claimed。
+	foreignClaim := doJSONAs(t, env, intruder.ID, http.MethodPost, "/api/claim/"+created.Code, "")
+	requireErrorCode(t, foreignClaim, http.StatusNotFound, "claim_not_found")
+
+	stored, ok, err := env.store.ClaimByCode(context.Background(), created.Code, time.Now())
+	if err != nil || !ok {
+		t.Fatalf("load issued claim: ok=%v err=%v", ok, err)
+	}
+	if stored.Status != store.ClaimStatusPending || stored.ClaimedBy != owner.ID {
+		t.Fatalf("claim = %+v, want still pending and owned by the issuing account", stored)
+	}
+
+	// 出码账号自己可以预览并确认。
+	requireStatus(t, doJSONAs(t, env, owner.ID, http.MethodGet, "/api/claim/"+created.Code, ""),
+		http.StatusOK)
+	requireStatus(t, doJSONAs(t, env, owner.ID, http.MethodPost, "/api/claim/"+created.Code, ""),
+		http.StatusOK)
+
+	// mode=pair 风格的码没有归属账号，任何登录账号都能确认。
+	createPendingClaim(t, env, "PAIR2", "pair-box", time.Now().Add(time.Minute))
+	confirmed := doJSONAs(t, env, other.ID, http.MethodPost, "/api/claim/PAIR2", "")
+	requireStatus(t, confirmed, http.StatusOK)
+	if view := decodeBody[nodeResponse](t, confirmed); view.Name != "pair-box" {
+		t.Fatalf("pair-path node name = %q, want pair-box", view.Name)
+	}
+}
+
+// TestWriteClaimBindConflictMapping 直接覆盖「预览之后绑定失败」的三条分支，
+// 让 409 / 429 / 404 的映射都有实际执行，而不是靠并发窗口碰运气。
+func TestWriteClaimBindConflictMapping(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	user := createTestUser(t, env, "u@x.c", testLoginPassword, roleUser, statusActive)
+
+	newRequest := func() *http.Request {
+		return httptest.NewRequest(http.MethodPost, "/api/claim/X", nil)
+	}
+
+	t.Run("missing claim", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		env.api.writeClaimBindConflict(rec, newRequest(), "claim-missing")
+		requireErrorCode(t, rec, http.StatusNotFound, "claim_not_found")
+	})
+
+	t.Run("claimed by another account", func(t *testing.T) {
+		claim := createPendingClaim(t, env, "TAKEN", "work-mac", time.Now().Add(time.Minute))
+		if _, err := env.store.BindClaimToUser(context.Background(), claim.ID, user.ID, claim.NodeName); err != nil {
+			t.Fatalf("bind claim: %v", err)
+		}
+
+		rec := httptest.NewRecorder()
+		env.api.writeClaimBindConflict(rec, newRequest(), claim.ID)
+		requireErrorCode(t, rec, http.StatusConflict, "claim_taken")
+	})
+
+	t.Run("attempts exhausted", func(t *testing.T) {
+		claim := createPendingClaim(t, env, "EXHST", "busy-box", time.Now().Add(time.Minute))
+		for i := 0; i < maxClaimBindAttempts; i++ {
+			remaining, err := env.store.BumpClaimAttempts(context.Background(), claim.ID, maxClaimBindAttempts)
+			if err != nil || !remaining {
+				t.Fatalf("bump %d: remaining=%v err=%v", i, remaining, err)
+			}
+		}
+
+		// 第 21 次绑定失败会把认领标记为 expired，因此上限之后的响应是 429。
+		rec := httptest.NewRecorder()
+		env.api.writeClaimBindConflict(rec, newRequest(), claim.ID)
+		requireErrorCode(t, rec, http.StatusTooManyRequests, "too_many_attempts")
+	})
 }
