@@ -213,7 +213,8 @@ type testEnv struct {
 	forward          *fakeForwarder
 	core             *fakeCoreSub
 	resolver         authz.Resolver
-	mux              *http.ServeMux
+	mux              http.Handler
+	rawMux           *http.ServeMux
 	heartbeatTimeout time.Duration
 }
 
@@ -244,8 +245,9 @@ func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig)
 	}
 	router := node.NewRouter(registry, forward)
 	api := New(st, registry, hub, index, router, core, resolver, authCfg, timeout, testHeartbeatTimeout)
-	mux := http.NewServeMux()
-	api.Register(mux)
+	rawMux := http.NewServeMux()
+	api.Register(rawMux)
+	mux := withDefaultPrincipal(rawMux)
 
 	env := &testEnv{
 		t:                t,
@@ -257,6 +259,7 @@ func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig)
 		core:             core,
 		resolver:         resolver,
 		mux:              mux,
+		rawMux:           rawMux,
 		heartbeatTimeout: testHeartbeatTimeout,
 	}
 	t.Cleanup(func() {
@@ -319,6 +322,30 @@ func (e *testEnv) do(method, target, body string) *httptest.ResponseRecorder {
 	return e.serve(method, target, body, nil)
 }
 
+// doNoPrincipal 绕过默认身份中间件，用于断言「没有 principal」时的拒绝路径。
+//
+// 生产中间件不会给未认证请求补身份；测试默认注入本机管理员只是为了让既有
+// 用例不必逐条声明 principal，因此这条用例必须走未包装的 mux。
+func (e *testEnv) doNoPrincipal(method, target, body string) *httptest.ResponseRecorder {
+	e.t.Helper()
+
+	return e.serveHandler(e.rawMux, method, target, body, nil)
+}
+
+// withDefaultPrincipal 模拟鉴权中间件：请求里没有身份时补一个本机管理员。
+//
+// 本机直通在语义上就是部署者本人，既有用例因此保持「全部节点可见」；需要
+// 覆盖普通账号的用例用 doAs 显式注入 principal，显式值不会被覆盖。
+func withDefaultPrincipal(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := authz.PrincipalFrom(r.Context()); !ok {
+			principal := authz.Principal{Kind: authz.KindLocal, Role: roleAdmin}
+			r = r.WithContext(authz.WithPrincipal(r.Context(), principal))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // doAs 模拟鉴权中间件：把 principal 放进 context 后再交给 mux。
 func (e *testEnv) doAs(principal authz.Principal, method, target, body string) *httptest.ResponseRecorder {
 	e.t.Helper()
@@ -328,6 +355,17 @@ func (e *testEnv) doAs(principal authz.Principal, method, target, body string) *
 
 // serve 构造请求并直接交给 mux；principal 非 nil 时注入 context。
 func (e *testEnv) serve(method, target, body string, principal *authz.Principal) *httptest.ResponseRecorder {
+	e.t.Helper()
+
+	return e.serveHandler(e.mux, method, target, body, principal)
+}
+
+// serveHandler 是 serve 的底层实现，允许选用未包装默认身份的 mux。
+func (e *testEnv) serveHandler(
+	handler http.Handler,
+	method, target, body string,
+	principal *authz.Principal,
+) *httptest.ResponseRecorder {
 	e.t.Helper()
 
 	var reader *strings.Reader
@@ -344,7 +382,7 @@ func (e *testEnv) serve(method, target, body string, principal *authz.Principal)
 		req = req.WithContext(authz.WithPrincipal(req.Context(), *principal))
 	}
 	rec := httptest.NewRecorder()
-	e.mux.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 	return rec
 }
 

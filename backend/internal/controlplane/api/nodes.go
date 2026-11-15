@@ -25,9 +25,12 @@ type nodeView struct {
 	LastSeen       time.Time `json:"last_seen"`
 }
 
-// handleListNodes 返回全部已登记节点。
+// handleListNodes 返回当前身份可见的节点。
+//
+// 可见范围由 node_members 决定：普通账号只看自己的节点，管理员账号额外看到
+// 「未认领」的历史节点，但任何人（除部署级身份）都看不到别人已认领的节点。
 func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
-	views, err := a.listNodes(r.Context())
+	views, err := a.listVisibleNodes(r.Context(), a.principal(r))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return

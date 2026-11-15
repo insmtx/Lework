@@ -524,7 +524,7 @@ func TestLogoutAliases(t *testing.T) {
 func TestRequireUserRejectsMissingPrincipal(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 
-	rec := env.do(http.MethodPost, "/api/auth/logout", "")
+	rec := env.doNoPrincipal(http.MethodPost, "/api/auth/logout", "")
 	requireErrorCode(t, rec, http.StatusUnauthorized, "unauthorized")
 }
 
@@ -580,7 +580,7 @@ func TestMeReturnsUserOrKind(t *testing.T) {
 	})
 
 	t.Run("no principal", func(t *testing.T) {
-		rec := env.do(http.MethodGet, "/api/me", "")
+		rec := env.doNoPrincipal(http.MethodGet, "/api/me", "")
 		requireErrorCode(t, rec, http.StatusUnauthorized, "unauthorized")
 	})
 }

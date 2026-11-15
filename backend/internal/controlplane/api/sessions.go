@@ -113,6 +113,9 @@ func (a *API) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "node is required")
 		return
 	}
+	if !a.allowNode(w, r, nodeID) {
+		return
+	}
 
 	result, err := a.callAgent(r.Context(), nodeID, "session.list",
 		sessionListParams{Directory: query.Get("directory")})
@@ -140,6 +143,9 @@ func (a *API) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if !filepath.IsAbs(req.Directory) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory must be absolute")
+		return
+	}
+	if !a.allowNode(w, r, req.NodeID) {
 		return
 	}
 
