@@ -38,11 +38,14 @@ never listens for inbound connections.
 When no node credential exists and no enrollment token is configured, the agent
 starts pairing: it prints a QR code and a short code to add this machine to an
 account. Use --code to present a code minted in the web UI instead (for
-machines you cannot reach with a camera).
+machines you cannot reach with a camera). Use --reset to delete the stored
+credential and pending pairing code, then pair again; it does not stop an agent
+already running under the same OS user.
 
 Examples:
   lework agent --config /etc/lework/agent.yaml
   lework agent --code ABC12
+  lework agent --reset
   lework agent claim
   lework agent version`,
 		Version: version,
@@ -66,6 +69,8 @@ Examples:
 	cmd.Flags().StringVar(&opts.Code, "code", "",
 		"pair using a one-time code minted in the web UI (for machines you cannot reach with a camera)")
 	cmd.Flags().BoolVar(&opts.NoQR, "no-qr", false, "do not print the pairing QR code; print the link and short code only")
+	cmd.Flags().BoolVar(&opts.Reset, "reset", false,
+		"delete the local node credential and pending pairing code, then start pairing again")
 	cmd.Flags().StringVar(&opts.CredentialPath, "credential-file", "",
 		"path to the node credential file (0600); defaults to credential_file in the config or next to it")
 	cmd.AddCommand(newAgentVersionCommand())

@@ -313,7 +313,7 @@ func TestPlanPairing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan, err := planPairing(tt.hasCredential, tt.source, credentialPath, tt.code, tt.enrollmentToken)
+			plan, err := planPairing(tt.hasCredential, tt.source, credentialPath, tt.code, tt.enrollmentToken, false)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want %q", err, tt.wantErr)
@@ -339,7 +339,7 @@ func TestCodePlanConvergesAfterPairing(t *testing.T) {
 		code           = "ABC12"
 	)
 
-	plan, err := planPairing(false, "", credentialPath, code, "")
+	plan, err := planPairing(false, "", credentialPath, code, "", false)
 	if err != nil || plan != pairPlanCode {
 		t.Fatalf("startup plan = %v, %v; want pairPlanCode", plan, err)
 	}
@@ -356,7 +356,7 @@ func TestCodePlanConvergesAfterPairing(t *testing.T) {
 	}
 
 	// 对照：若错误地在第二轮重算 planPairing，会撞上冲突——这正是本次回归。
-	if _, err := planPairing(true, credentialSourceFile, credentialPath, code, ""); err == nil {
+	if _, err := planPairing(true, credentialSourceFile, credentialPath, code, "", false); err == nil {
 		t.Fatal("recomputing the plan with the consumed --code should conflict")
 	}
 }

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	agentdconfig "github.com/insmtx/lework/backend/internal/agentd/config"
 	"github.com/insmtx/lework/backend/internal/agentd/handler"
 	"github.com/insmtx/lework/backend/internal/agentd/opencode"
+	"github.com/insmtx/lework/backend/internal/agentd/pair"
 	"github.com/insmtx/lework/backend/internal/agentd/servicefile"
 	"github.com/insmtx/lework/backend/internal/agentd/supervisor"
 )
@@ -342,5 +344,49 @@ func TestAgentCloseKeepsAnotherProcessServiceFile(t *testing.T) {
 	runtime.unpublishService()
 	if _, err := servicefile.Read(); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("own service file still present: %v", err)
+	}
+}
+
+func TestResetCredentialStateRemovesFiles(t *testing.T) {
+	dir := t.TempDir()
+	credPath := filepath.Join(dir, "node.credential")
+	claimPath := pair.ClaimPath(credPath)
+	if err := os.WriteFile(credPath, []byte("cred"), 0o600); err != nil {
+		t.Fatalf("write credential: %v", err)
+	}
+	if err := os.WriteFile(claimPath, []byte("claim"), 0o600); err != nil {
+		t.Fatalf("write claim: %v", err)
+	}
+
+	if err := resetCredentialState(credPath); err != nil {
+		t.Fatalf("resetCredentialState: %v", err)
+	}
+	if _, err := os.Stat(credPath); !os.IsNotExist(err) {
+		t.Fatalf("credential file still exists: %v", err)
+	}
+	if _, err := os.Stat(claimPath); !os.IsNotExist(err) {
+		t.Fatalf("claim file still exists: %v", err)
+	}
+	// 文件本来就不存在时也成功（幂等）。
+	if err := resetCredentialState(credPath); err != nil {
+		t.Fatalf("second resetCredentialState: %v", err)
+	}
+}
+
+func TestResetCredentialStateRejectsEnvCredential(t *testing.T) {
+	t.Setenv("LEWORK_NODE_CREDENTIAL", "from-env")
+	err := resetCredentialState(filepath.Join(t.TempDir(), "node.credential"))
+	if err == nil || !strings.Contains(err.Error(), "LEWORK_NODE_CREDENTIAL") {
+		t.Fatalf("err = %v, want error mentioning LEWORK_NODE_CREDENTIAL", err)
+	}
+}
+
+func TestResetIgnoresEnrollmentToken(t *testing.T) {
+	plan, err := planPairing(false, "", "/tmp/cred", "", "token-abc", true)
+	if err != nil {
+		t.Fatalf("planPairing: %v", err)
+	}
+	if plan != pairPlanInteractive {
+		t.Fatalf("plan = %v, want interactive pairing", plan)
 	}
 }
