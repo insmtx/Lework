@@ -458,3 +458,185 @@ func TestPreferencesRoundTrip(t *testing.T) {
 		t.Fatalf("missing preference: ok = %v, err = %v", ok, err)
 	}
 }
+
+// TestPreferencesAreScopedPerUser 固化账号命名空间：同一个 key 在不同账号下
+// 互不可见，列表返回的是剥掉前缀后的裸 key。
+func TestPreferencesAreScopedPerUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.SetPreferenceFor(ctx, "u1", "last_dir", "/a"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if err := s.SetPreferenceFor(ctx, "u2", "last_dir", "/b"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	v1, _, _ := s.GetPreferenceFor(ctx, "u1", "last_dir")
+	v2, _, _ := s.GetPreferenceFor(ctx, "u2", "last_dir")
+	if v1 != "/a" || v2 != "/b" {
+		t.Fatalf("v1 = %q, v2 = %q", v1, v2)
+	}
+	if all, _ := s.ListPreferencesFor(ctx, "u1"); all["last_dir"] != "/a" || len(all) != 1 {
+		t.Fatalf("all = %v", all)
+	}
+}
+
+// TestPreferenceLegacyNamespaceIsIsolatedFromAccounts 固化空 userID 的语义：
+// local / admin_token 继续使用未加前缀的历史键，但绝不能看到任何账号的偏好。
+func TestPreferenceLegacyNamespaceIsIsolatedFromAccounts(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetPreferenceFor(ctx, "u1", "last_dir", "/a"); err != nil {
+		t.Fatalf("set account preference: %v", err)
+	}
+	if err := s.SetPreference(ctx, "legacy_dir", "/legacy"); err != nil {
+		t.Fatalf("set legacy preference: %v", err)
+	}
+
+	legacy, err := s.ListPreferencesFor(ctx, "")
+	if err != nil {
+		t.Fatalf("list legacy: %v", err)
+	}
+	if len(legacy) != 1 || legacy["legacy_dir"] != "/legacy" {
+		t.Fatalf("legacy preferences = %#v, want only the unprefixed key", legacy)
+	}
+
+	account, err := s.ListPreferencesFor(ctx, "u1")
+	if err != nil {
+		t.Fatalf("list account: %v", err)
+	}
+	if len(account) != 1 || account["last_dir"] != "/a" {
+		t.Fatalf("account preferences = %#v, want only the account key", account)
+	}
+
+	// 读写都按命名空间精确匹配，不会跨命名空间命中。
+	if _, ok, err := s.GetPreferenceFor(ctx, "", "last_dir"); err != nil || ok {
+		t.Fatalf("legacy read of an account key: ok = %v, err = %v", ok, err)
+	}
+	if _, ok, err := s.GetPreferenceFor(ctx, "u1", "legacy_dir"); err != nil || ok {
+		t.Fatalf("account read of a legacy key: ok = %v, err = %v", ok, err)
+	}
+
+	// 不改主键的代价是键名本身带上前缀：直接看底层行，防止实现退化成
+	// 「只在读接口里过滤、写接口仍写裸 key」。
+	var stored []Preference
+	if err := s.db.WithContext(ctx).Where("key = ?", "u/u1/last_dir").Find(&stored).Error; err != nil {
+		t.Fatalf("load stored rows: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Value != "/a" {
+		t.Fatalf("stored rows = %#v, want one prefixed row", stored)
+	}
+}
+
+// TestListPreferencesForDoesNotBlendSimilarUserIDs 覆盖前缀边界：u1 与 u11
+// 的前缀只差一个字符，末尾的斜杠必须把它们分开。
+func TestListPreferencesForDoesNotBlendSimilarUserIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetPreferenceFor(ctx, "u1", "last_dir", "/a"); err != nil {
+		t.Fatalf("set u1: %v", err)
+	}
+	if err := s.SetPreferenceFor(ctx, "u11", "last_dir", "/b"); err != nil {
+		t.Fatalf("set u11: %v", err)
+	}
+
+	first, err := s.ListPreferencesFor(ctx, "u1")
+	if err != nil {
+		t.Fatalf("list u1: %v", err)
+	}
+	if len(first) != 1 || first["last_dir"] != "/a" {
+		t.Fatalf("u1 preferences = %#v", first)
+	}
+
+	second, err := s.ListPreferencesFor(ctx, "u11")
+	if err != nil {
+		t.Fatalf("list u11: %v", err)
+	}
+	if len(second) != 1 || second["last_dir"] != "/b" {
+		t.Fatalf("u11 preferences = %#v", second)
+	}
+}
+
+// TestProjectPreferencesAreScopedPerUser 固化项目偏好同样按账号隔离，
+// 返回行的 ProjectKey 已剥掉前缀。
+func TestProjectPreferencesAreScopedPerUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetProjectPrimaryNodeFor(ctx, "u1", "abc", "node_1"); err != nil {
+		t.Fatalf("set u1: %v", err)
+	}
+	if err := s.SetProjectPrimaryNodeFor(ctx, "u2", "abc", "node_2"); err != nil {
+		t.Fatalf("set u2: %v", err)
+	}
+	if err := s.SetProjectPrimaryNodeFor(ctx, "u1", "abc", "node_3"); err != nil {
+		t.Fatalf("overwrite u1: %v", err)
+	}
+
+	first, err := s.ListProjectPreferencesFor(ctx, "u1")
+	if err != nil {
+		t.Fatalf("list u1: %v", err)
+	}
+	if len(first) != 1 || first[0].ProjectKey != "abc" || first[0].PrimaryNodeID != "node_3" {
+		t.Fatalf("u1 preferences = %#v, want abc -> node_3", first)
+	}
+
+	second, err := s.ListProjectPreferencesFor(ctx, "u2")
+	if err != nil {
+		t.Fatalf("list u2: %v", err)
+	}
+	if len(second) != 1 || second[0].ProjectKey != "abc" || second[0].PrimaryNodeID != "node_2" {
+		t.Fatalf("u2 preferences = %#v, want abc -> node_2", second)
+	}
+
+	// 历史命名空间里没有账号写入的行。
+	legacy, err := s.ListProjectPreferences(ctx)
+	if err != nil {
+		t.Fatalf("list legacy: %v", err)
+	}
+	if len(legacy) != 0 {
+		t.Fatalf("legacy project preferences = %#v, want none", legacy)
+	}
+}
+
+// TestDeprecatedPreferenceWrappersUseLegacyNamespace 固化旧方法只是
+// userID == "" 的包装：行为与改造前一致，且不触碰任何账号命名空间。
+func TestDeprecatedPreferenceWrappersUseLegacyNamespace(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetPreference(ctx, "last_dir", "/legacy"); err != nil {
+		t.Fatalf("set preference: %v", err)
+	}
+	if value, ok, err := s.GetPreferenceFor(ctx, "", "last_dir"); err != nil || !ok || value != "/legacy" {
+		t.Fatalf("legacy read through For = %q, %v, %v", value, ok, err)
+	}
+
+	all, err := s.ListPreferences(ctx)
+	if err != nil {
+		t.Fatalf("list preferences: %v", err)
+	}
+	if len(all) != 1 || all["last_dir"] != "/legacy" {
+		t.Fatalf("preferences = %#v", all)
+	}
+
+	if err := s.SetProjectPrimaryNode(ctx, "abc", "node_1"); err != nil {
+		t.Fatalf("set primary node: %v", err)
+	}
+	prefs, err := s.ListProjectPreferencesFor(ctx, "")
+	if err != nil {
+		t.Fatalf("list project preferences: %v", err)
+	}
+	if len(prefs) != 1 || prefs[0].ProjectKey != "abc" || prefs[0].PrimaryNodeID != "node_1" {
+		t.Fatalf("project preferences = %#v", prefs)
+	}
+
+	account, err := s.ListPreferencesFor(ctx, "u1")
+	if err != nil {
+		t.Fatalf("list account preferences: %v", err)
+	}
+	if len(account) != 0 {
+		t.Fatalf("account preferences = %#v, want none", account)
+	}
+}

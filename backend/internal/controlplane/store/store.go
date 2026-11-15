@@ -366,25 +366,96 @@ func (s *Store) ListProjectIndex(ctx context.Context) ([]ProjectIndex, error) {
 	return rows, nil
 }
 
-// ListProjectPreferences 返回全部项目偏好；空库返回空切片而非 nil。
-func (s *Store) ListProjectPreferences(ctx context.Context) ([]ProjectPreference, error) {
-	prefs := make([]ProjectPreference, 0)
-	if err := s.db.WithContext(ctx).Find(&prefs).Error; err != nil {
+// userNamespace 是偏好类表的账号隔离前缀。
+//
+// preferences / project_preferences 的主键就是键名本身，加 user_id 列意味着
+// 改 DDL 并同步所有调用点；用键名前缀 u/<user_id>/<key> 表达归属在 SQLite 与
+// PostgreSQL 上行为一致，也不需要迁移——旧键留在无前缀的历史命名空间，按
+// 设计 §12 不迁移（旧值保留不读）。前缀因此是保留的：历史命名空间里恰好以
+// u/ 开头的键不再可读。
+const userNamespace = "u/"
+
+// userKey 把裸键映射到账号命名空间；空 userID 原样返回。
+//
+// 空 userID 是 local / admin_token 这类部署级身份的共享命名空间，语义上等于
+// 改造前的全局偏好，不能与任何账号的键混在一起。
+func userKey(userID, key string) string {
+	if userID == "" {
+		return key
+	}
+	return userPrefix(userID) + key
+}
+
+// userPrefix 返回账号前缀。末尾的斜杠让 u1 与 u11 不会互相吞掉对方的键。
+func userPrefix(userID string) string {
+	return userNamespace + userID + "/"
+}
+
+// stripUserKey 判断一条已落库的键是否属于 userID 的命名空间，并剥掉前缀。
+//
+// SQL 侧的 LIKE 只用来收敛扫描范围，归属判定以这里为准：userID 里若含 SQL
+// 通配符（当前是服务端生成的 UUID，不会发生），LIKE 最多多扫几行，不会把
+// 别人的行当成自己的。
+func stripUserKey(userID, key string) (string, bool) {
+	if userID == "" {
+		return key, !strings.HasPrefix(key, userNamespace)
+	}
+	prefix := userPrefix(userID)
+	if !strings.HasPrefix(key, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(key, prefix), true
+}
+
+// ListProjectPreferencesFor 返回某个账号的全部项目偏好，ProjectKey 已剥掉前缀。
+//
+// 空 userID 只返回未加前缀的历史行：那是部署级身份的共享命名空间，把账号的
+// 偏好混进来会让「本机管理员」看到别人的项目设置。
+func (s *Store) ListProjectPreferencesFor(ctx context.Context, userID string) ([]ProjectPreference, error) {
+	rows := make([]ProjectPreference, 0)
+	query := s.db.WithContext(ctx)
+	if userID == "" {
+		query = query.Where("project_key NOT LIKE ?", userNamespace+"%")
+	} else {
+		query = query.Where("project_key LIKE ?", userPrefix(userID)+"%")
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list project preferences: %w", err)
+	}
+
+	prefs := make([]ProjectPreference, 0, len(rows))
+	for _, row := range rows {
+		key, ok := stripUserKey(userID, row.ProjectKey)
+		if !ok {
+			continue
+		}
+		row.ProjectKey = key
+		prefs = append(prefs, row)
 	}
 	return prefs, nil
 }
 
-// SetProjectPrimaryNode 设置项目的主节点。首次设置时建行；重复设置覆盖
-// 主节点但保留别名，避免改节点顺手丢掉用户起的名字。
-func (s *Store) SetProjectPrimaryNode(ctx context.Context, projectKey, nodeID string) error {
+// ListProjectPreferences 返回历史命名空间（空 userID）的全部项目偏好。
+//
+// Deprecated: 用 ListProjectPreferencesFor。等价于传空 userID，供 local /
+// admin_token 这类没有账号的部署级身份使用；账号维度的调用点必须传自己的
+// userID。
+func (s *Store) ListProjectPreferences(ctx context.Context) ([]ProjectPreference, error) {
+	return s.ListProjectPreferencesFor(ctx, "")
+}
+
+// SetProjectPrimaryNodeFor 设置某账号下项目的主节点。
+//
+// 首次设置时建行；重复设置覆盖主节点但保留别名，避免改节点顺手丢掉用户起的
+// 名字。空 projectKey / nodeID 视为调用方错误。
+func (s *Store) SetProjectPrimaryNodeFor(ctx context.Context, userID, projectKey, nodeID string) error {
 	if strings.TrimSpace(projectKey) == "" {
 		return errors.New("project key is required")
 	}
 	if strings.TrimSpace(nodeID) == "" {
 		return errors.New("node id is required")
 	}
-	row := ProjectPreference{ProjectKey: projectKey, PrimaryNodeID: nodeID}
+	row := ProjectPreference{ProjectKey: userKey(userID, projectKey), PrimaryNodeID: nodeID}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "project_key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"primary_node_id", "updated_at"}),
@@ -394,11 +465,22 @@ func (s *Store) SetProjectPrimaryNode(ctx context.Context, projectKey, nodeID st
 	return nil
 }
 
-// GetPreference 读取一条偏好；不存在时 ok 为 false 且不视为错误，
+// SetProjectPrimaryNode 设置历史命名空间（空 userID）下项目的主节点。
+//
+// Deprecated: 用 SetProjectPrimaryNodeFor。等价于传空 userID，见其说明。
+func (s *Store) SetProjectPrimaryNode(ctx context.Context, projectKey, nodeID string) error {
+	return s.SetProjectPrimaryNodeFor(ctx, "", projectKey, nodeID)
+}
+
+// GetPreferenceFor 读取某账号的一条偏好；不存在时 ok 为 false 且不视为错误，
 // 因为「用户还没设置过」是正常状态。
-func (s *Store) GetPreference(ctx context.Context, key string) (string, bool, error) {
+//
+// 错误文本只带裸 key，不拼接账号前缀：偏好键可能包含目录等用户信息，越少写进
+// 日志越好。
+func (s *Store) GetPreferenceFor(ctx context.Context, userID, key string) (string, bool, error) {
 	var rows []Preference
-	if err := s.db.WithContext(ctx).Where("key = ?", key).Limit(1).Find(&rows).Error; err != nil {
+	fullKey := userKey(userID, key)
+	if err := s.db.WithContext(ctx).Where("key = ?", fullKey).Limit(1).Find(&rows).Error; err != nil {
 		return "", false, fmt.Errorf("get preference %q: %w", key, err)
 	}
 	if len(rows) == 0 {
@@ -407,12 +489,19 @@ func (s *Store) GetPreference(ctx context.Context, key string) (string, bool, er
 	return rows[0].Value, true, nil
 }
 
-// SetPreference 写入或覆盖一条偏好。空 key 视为调用方错误。
-func (s *Store) SetPreference(ctx context.Context, key, value string) error {
+// GetPreference 读取历史命名空间（空 userID）的一条偏好。
+//
+// Deprecated: 用 GetPreferenceFor。等价于传空 userID，见其说明。
+func (s *Store) GetPreference(ctx context.Context, key string) (string, bool, error) {
+	return s.GetPreferenceFor(ctx, "", key)
+}
+
+// SetPreferenceFor 写入或覆盖某账号的一条偏好。空 key 视为调用方错误。
+func (s *Store) SetPreferenceFor(ctx context.Context, userID, key, value string) error {
 	if strings.TrimSpace(key) == "" {
 		return errors.New("preference key is required")
 	}
-	row := Preference{Key: key, Value: value}
+	row := Preference{Key: userKey(userID, key), Value: value}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
@@ -422,17 +511,45 @@ func (s *Store) SetPreference(ctx context.Context, key, value string) error {
 	return nil
 }
 
-// ListPreferences 一次性返回全部偏好，供客户端启动时整包同步。
-func (s *Store) ListPreferences(ctx context.Context) (map[string]string, error) {
+// SetPreference 写入或覆盖历史命名空间（空 userID）的一条偏好。
+//
+// Deprecated: 用 SetPreferenceFor。等价于传空 userID，见其说明。
+func (s *Store) SetPreference(ctx context.Context, key, value string) error {
+	return s.SetPreferenceFor(ctx, "", key, value)
+}
+
+// ListPreferencesFor 一次性返回某账号的全部偏好，键名已剥掉账号前缀。
+//
+// 空 userID 只返回未加前缀的历史键：local / admin_token 与账号是两条互不
+// 可见的命名空间，任何一侧的同步包都不能混入另一侧的值。
+func (s *Store) ListPreferencesFor(ctx context.Context, userID string) (map[string]string, error) {
 	rows := make([]Preference, 0)
-	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
+	query := s.db.WithContext(ctx)
+	if userID == "" {
+		query = query.Where("key NOT LIKE ?", userNamespace+"%")
+	} else {
+		query = query.Where("key LIKE ?", userPrefix(userID)+"%")
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list preferences: %w", err)
 	}
+
 	out := make(map[string]string, len(rows))
 	for _, row := range rows {
-		out[row.Key] = row.Value
+		key, ok := stripUserKey(userID, row.Key)
+		if !ok {
+			continue
+		}
+		out[key] = row.Value
 	}
 	return out, nil
+}
+
+// ListPreferences 一次性返回历史命名空间（空 userID）的全部偏好。
+//
+// Deprecated: 用 ListPreferencesFor。等价于传空 userID，见其说明。
+func (s *Store) ListPreferences(ctx context.Context) (map[string]string, error) {
+	return s.ListPreferencesFor(ctx, "")
 }
 
 // newNodeID 生成 node 前缀的随机 ID（8 字节随机数的十六进制）。

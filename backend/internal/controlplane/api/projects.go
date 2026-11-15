@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
@@ -99,14 +100,20 @@ func (a *API) handleNodeProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, nodeProjectsResponse{Projects: projects})
 }
 
-// handleListProjects 聚合全部节点的项目。
+// handleListProjects 聚合当前身份可见节点的项目。
 //
 // 在线节点实时拉取，失败只降级该节点；离线节点与拉取失败的节点用项目
 // 索引兜底，保证重启或断网后项目卡仍在。结果写回索引失败不影响响应——
 // 读接口不应因为一次缓存写失败而 500。
+//
+// 节点集合走 listVisibleNodes：项目卡会带出节点 ID、项目路径与在线状态，
+// 按设计 §9 只投影「我有权限的节点」。项目索引是全实例共享的派生缓存
+// （ProjectIndex 不按账号分区），可见性在读取时施加——既不会把别人的行投影
+// 给当前身份，也不会为看不见的节点写缓存。
 func (a *API) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	nodes, err := a.listNodes(ctx)
+	principal := a.principal(r)
+	nodes, err := a.listVisibleNodes(ctx, principal)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
@@ -116,7 +123,7 @@ func (a *API) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
-	prefs, err := a.store.ListProjectPreferences(ctx)
+	prefs, err := a.store.ListProjectPreferencesFor(ctx, principal.UserID)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
@@ -156,8 +163,10 @@ func (a *API) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	aggregated := make(map[string]*projectView)
 	seenNode := make(map[string]bool)
 	online := make(map[string]bool, len(nodes))
+	visibleNodes := make(map[string]struct{}, len(nodes))
 	for _, view := range nodes {
 		online[view.ID] = view.Connected
+		visibleNodes[view.ID] = struct{}{}
 	}
 
 	now := time.Now()
@@ -182,8 +191,12 @@ func (a *API) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 索引兜底：只补在线节点本次没成功拉取的情形；在线且成功的节点以
-	// 实时结果为准，避免已删除的项目被索引永久复活。
+	// 实时结果为准，避免已删除的项目被索引永久复活。索引里属于别人节点的
+	// 行在这里直接跳过，否则项目路径与节点 ID 会绕过成员过滤泄漏出去。
 	for _, row := range index {
+		if _, ok := visibleNodes[row.NodeID]; !ok {
+			continue
+		}
 		if seenNode[row.NodeID] {
 			continue
 		}
@@ -212,7 +225,8 @@ func (a *API) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		return projects[i].Key < projects[j].Key
 	})
 
-	// 索引写回失败只影响下次离线时的展示，不阻断本次响应。
+	// 索引写回失败只影响下次离线时的展示，不阻断本次响应。indexRows 只可能
+	// 来自本次实际拉取成功的可见节点，因此这里不会替看不见的节点写缓存。
 	_ = a.store.UpsertProjectIndex(ctx, indexRows)
 
 	writeJSON(w, http.StatusOK, projectListResponse{Projects: projects})
@@ -253,12 +267,17 @@ func addProjectNode(
 	})
 }
 
-// handleSetProjectPrimaryNode 设置项目主节点。
+// handleSetProjectPrimaryNode 设置项目主节点（写进调用方自己的偏好命名空间）。
 //
 // 未知项目与未知节点都回 404：前者说明聚合里还没见过这个项目，后者说明
 // 客户端拿的是过期节点列表。
+//
+// 节点授权与存在性共用同一条 404：非成员不能从状态码或文案推断出「这台节点
+// 存在，只是不是你的」。项目 key 也只在自己的可见索引里查找——别人节点上的
+// 项目对当前身份而言从未存在过。
 func (a *API) handleSetProjectPrimaryNode(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
+	principal := a.principal(r)
 
 	var req setPrimaryNodeRequest
 	if err := decodeRequest(w, r, &req); err != nil {
@@ -269,6 +288,10 @@ func (a *API) handleSetProjectPrimaryNode(w http.ResponseWriter, r *http.Request
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "node_id is required")
 		return
 	}
+	// 先授权再查存在性：非成员在拿到任何节点信息之前就被拒绝。
+	if !a.allowNode(w, r, req.NodeID) {
+		return
+	}
 	if _, ok, err := a.findNode(r.Context(), req.NodeID); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
@@ -277,6 +300,11 @@ func (a *API) handleSetProjectPrimaryNode(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	visible, err := authz.VisibleNodeIDs(r.Context(), a.store, principal)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
 	index, err := a.store.ListProjectIndex(r.Context())
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
@@ -284,6 +312,9 @@ func (a *API) handleSetProjectPrimaryNode(w http.ResponseWriter, r *http.Request
 	}
 	known := false
 	for _, row := range index {
+		if _, ok := visible[row.NodeID]; !ok {
+			continue
+		}
 		if row.ProjectKey == key {
 			known = true
 			break
@@ -294,16 +325,19 @@ func (a *API) handleSetProjectPrimaryNode(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := a.store.SetProjectPrimaryNode(r.Context(), key, req.NodeID); err != nil {
+	if err := a.store.SetProjectPrimaryNodeFor(r.Context(), principal.UserID, key, req.NodeID); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleListPreferences 返回全部用户偏好；客户端启动时整包同步。
+// handleListPreferences 返回当前账号的全部偏好；客户端启动时整包同步。
+//
+// local / admin_token 没有账号，读的是未加前缀的历史命名空间（与改造前的
+// 全局偏好一致）；登录账号只拿到自己的键，不会看到别人的值。
 func (a *API) handleListPreferences(w http.ResponseWriter, r *http.Request) {
-	values, err := a.store.ListPreferences(r.Context())
+	values, err := a.store.ListPreferencesFor(r.Context(), a.principal(r).UserID)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
@@ -311,8 +345,8 @@ func (a *API) handleListPreferences(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, preferencesResponse{Values: values})
 }
 
-// handleSetPreference 写入一条用户偏好。值允许为空（表示清空该偏好），
-// 因此只校验 key 非空。
+// handleSetPreference 往调用方自己的命名空间写入一条偏好。值允许为空（表示
+// 清空该偏好），因此只校验 key 非空。
 func (a *API) handleSetPreference(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	if key == "" {
@@ -324,7 +358,7 @@ func (a *API) handleSetPreference(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
 	}
-	if err := a.store.SetPreference(r.Context(), key, req.Value); err != nil {
+	if err := a.store.SetPreferenceFor(r.Context(), a.principal(r).UserID, key, req.Value); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
