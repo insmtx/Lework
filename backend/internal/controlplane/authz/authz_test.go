@@ -84,6 +84,114 @@ func TestResolverPrefersCookieOverBearer(t *testing.T) {
 	}
 }
 
+func TestResolverAcceptsBearerSessionToken(t *testing.T) {
+	s := newTestStore(t)
+	u := createUser(t, s, "mobile@b.c", "user", "active")
+	raw := createSession(t, s, u.ID, time.Hour)
+
+	v := authz.Resolver{Store: s, EnrollmentToken: "admin-token"}
+	r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+	r.RemoteAddr = "203.0.113.7:1234"
+	r.Header.Set("Authorization", "Bearer "+raw)
+
+	got, ok, err := v.Resolve(r)
+	if err != nil || !ok {
+		t.Fatalf("Resolve = %v, %v", ok, err)
+	}
+	if got.Kind != authz.KindUser || got.UserID != u.ID || got.Role != "user" {
+		t.Fatalf("principal = %+v, want user %q", got, u.ID)
+	}
+}
+
+// TestResolverBearerCredentialOrder 钉住 Bearer 的两种解释顺序与 cookie 优先级：
+// 共享 token 命中即 admin_token；否则按会话 token 认证；无效即拒绝；cookie
+// 有效时永远优先于 Bearer。
+func TestResolverBearerCredentialOrder(t *testing.T) {
+	s := newTestStore(t)
+	cookieUser := createUser(t, s, "cookie@b.c", "user", "active")
+	bearerUser := createUser(t, s, "bearer@b.c", "user", "active")
+	cookieRaw := createSession(t, s, cookieUser.ID, time.Hour)
+	bearerRaw := createSession(t, s, bearerUser.ID, time.Hour)
+
+	v := authz.Resolver{Store: s, EnrollmentToken: "admin-token", CookieName: "lework_session"}
+
+	cases := []struct {
+		name     string
+		bearer   string
+		cookie   string
+		wantOK   bool
+		wantKind string
+		wantUser string
+	}{
+		{
+			name:     "session token becomes user",
+			bearer:   bearerRaw,
+			wantOK:   true,
+			wantKind: authz.KindUser,
+			wantUser: bearerUser.ID,
+		},
+		{
+			name:     "enrollment token stays admin",
+			bearer:   "admin-token",
+			wantOK:   true,
+			wantKind: authz.KindAdminToken,
+		},
+		{
+			name:   "unknown token rejected",
+			bearer: "not-a-real-session",
+		},
+		{
+			name:     "cookie beats bearer session",
+			cookie:   cookieRaw,
+			bearer:   bearerRaw,
+			wantOK:   true,
+			wantKind: authz.KindUser,
+			wantUser: cookieUser.ID,
+		},
+		{
+			name:     "unknown cookie falls through to bearer session",
+			cookie:   "not-a-real-session",
+			bearer:   bearerRaw,
+			wantOK:   true,
+			wantKind: authz.KindUser,
+			wantUser: bearerUser.ID,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+			r.RemoteAddr = "203.0.113.7:1234"
+			if tc.bearer != "" {
+				r.Header.Set("Authorization", "Bearer "+tc.bearer)
+			}
+			if tc.cookie != "" {
+				r.AddCookie(&http.Cookie{Name: "lework_session", Value: tc.cookie})
+			}
+
+			got, ok, err := v.Resolve(r)
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if ok != tc.wantOK {
+				t.Fatalf("Resolve() ok = %v, want %v (principal %+v)", ok, tc.wantOK, got)
+			}
+			if !tc.wantOK {
+				if got != (authz.Principal{}) {
+					t.Fatalf("principal = %+v, want zero", got)
+				}
+				return
+			}
+			if got.Kind != tc.wantKind {
+				t.Fatalf("Kind = %q, want %q", got.Kind, tc.wantKind)
+			}
+			if got.UserID != tc.wantUser {
+				t.Fatalf("UserID = %q, want %q", got.UserID, tc.wantUser)
+			}
+		})
+	}
+}
+
 func TestNodeAllowedHidesForeignNode(t *testing.T) {
 	s := newTestStore(t)
 	_ = s.AddNodeMember(ctx, store.NodeMember{NodeID: "n1", UserID: "u1", Role: "owner"})
@@ -389,43 +497,107 @@ func TestNodeAllowedFailsClosed(t *testing.T) {
 	}
 }
 
+// TestNodeAllowedDoesNotWidenForAdminRole 钉住 admin 账号的边界：可见范围里
+// 出现「未认领」节点，不代表可以操作别人已认领的节点。
+func TestNodeAllowedDoesNotWidenForAdminRole(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.AddNodeMember(ctx, store.NodeMember{
+		NodeID: "n1", UserID: "u1", Role: store.NodeRoleOwner,
+	}); err != nil {
+		t.Fatalf("AddNodeMember(): %v", err)
+	}
+
+	allowed, err := authz.NodeAllowed(ctx, s, authz.Principal{
+		Kind: authz.KindUser, UserID: "u2", Role: "admin",
+	}, "n1")
+	if err != nil {
+		t.Fatalf("NodeAllowed() error = %v", err)
+	}
+	if allowed {
+		t.Fatal("admin role must not access a node claimed by someone else")
+	}
+}
+
 func TestNodeAllowedWithoutStoreFailsClosed(t *testing.T) {
 	if _, err := authz.NodeAllowed(ctx, nil, authz.Principal{Kind: authz.KindUser, UserID: "u1"}, "n1"); err == nil {
 		t.Fatal("NodeAllowed() with nil store: want error")
 	}
 }
 
-// TestVisibleNodeIDsForUser 只返回成员节点：即使账号角色是 admin，也不能看到
-// 别人的节点或未认领的历史节点。全量访问必须走 admin_token 或本机直通。
+// TestVisibleNodeIDsForUser 钉住账号可见范围的边界：普通账号只看成员节点；
+// admin 账号额外看到未认领的历史节点；两者都永远看不到别人已认领的节点。
 func TestVisibleNodeIDsForUser(t *testing.T) {
 	s := newTestStore(t)
 	owned := mustNode(t, s, "owned")
-	mustNode(t, s, "someone-else")
-	mustNode(t, s, "unclaimed")
+	foreign := mustNode(t, s, "someone-else")
+	unclaimed := mustNode(t, s, "unclaimed")
 
-	if err := s.AddNodeMember(ctx, store.NodeMember{
-		NodeID: owned.ID, UserID: "u1", Role: store.NodeRoleOwner,
-	}); err != nil {
-		t.Fatalf("AddNodeMember(): %v", err)
+	members := []store.NodeMember{
+		{NodeID: owned.ID, UserID: "u1", Role: store.NodeRoleOwner},
+		{NodeID: foreign.ID, UserID: "u2", Role: store.NodeRoleOwner},
 	}
-
-	got, err := authz.VisibleNodeIDs(ctx, s, authz.Principal{Kind: authz.KindUser, UserID: "u1", Role: "admin"})
-	if err != nil {
-		t.Fatalf("VisibleNodeIDs() error = %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("VisibleNodeIDs() = %v, want only %q", got, owned.ID)
-	}
-	if _, ok := got[owned.ID]; !ok {
-		t.Fatalf("VisibleNodeIDs() = %v, missing %q", got, owned.ID)
+	for _, m := range members {
+		if err := s.AddNodeMember(ctx, m); err != nil {
+			t.Fatalf("AddNodeMember(%q): %v", m.UserID, err)
+		}
 	}
 
-	other, err := authz.VisibleNodeIDs(ctx, s, authz.Principal{Kind: authz.KindUser, UserID: "u2"})
-	if err != nil {
-		t.Fatalf("VisibleNodeIDs() error = %v", err)
+	cases := []struct {
+		name    string
+		p       authz.Principal
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "plain user sees only member nodes",
+			p:       authz.Principal{Kind: authz.KindUser, UserID: "u1", Role: "user"},
+			want:    []string{owned.ID},
+			notWant: []string{foreign.ID, unclaimed.ID},
+		},
+		{
+			name:    "admin sees member nodes and unclaimed",
+			p:       authz.Principal{Kind: authz.KindUser, UserID: "u1", Role: "admin"},
+			want:    []string{owned.ID, unclaimed.ID},
+			notWant: []string{foreign.ID},
+		},
+		{
+			name:    "admin still cannot see foreign claimed nodes",
+			p:       authz.Principal{Kind: authz.KindUser, UserID: "u2", Role: "admin"},
+			want:    []string{foreign.ID, unclaimed.ID},
+			notWant: []string{owned.ID},
+		},
+		{
+			name:    "empty role sees only member nodes",
+			p:       authz.Principal{Kind: authz.KindUser, UserID: "u1"},
+			want:    []string{owned.ID},
+			notWant: []string{foreign.ID, unclaimed.ID},
+		},
+		{
+			name: "non member sees nothing",
+			p:    authz.Principal{Kind: authz.KindUser, UserID: "u3"},
+		},
 	}
-	if len(other) != 0 {
-		t.Fatalf("VisibleNodeIDs(u2) = %v, want empty", other)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := authz.VisibleNodeIDs(ctx, s, tc.p)
+			if err != nil {
+				t.Fatalf("VisibleNodeIDs() error = %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("VisibleNodeIDs() = %v, want %v", got, tc.want)
+			}
+			for _, id := range tc.want {
+				if _, ok := got[id]; !ok {
+					t.Fatalf("VisibleNodeIDs() = %v, missing %q", got, id)
+				}
+			}
+			for _, id := range tc.notWant {
+				if _, ok := got[id]; ok {
+					t.Fatalf("VisibleNodeIDs() = %v, must not contain %q", got, id)
+				}
+			}
+		})
 	}
 }
 

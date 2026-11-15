@@ -87,8 +87,11 @@ type Resolver struct {
 // Resolve 返回请求对应的 Principal：未认证是 (zero, false, nil)，基础设施故障
 // 是 (zero, false, err)。
 //
-// 不写响应、不写日志，也不区分「没有凭证」与「凭证无效」：调用方统一按未认证
-// 处理，既避免泄漏账号是否存在，也避免在错误文本里带出令牌。
+// 凭证顺序是「本机直通 → 会话 cookie → Bearer」，其中 Bearer 依次按部署级
+// enrollment token 与会话令牌解释：前者给脚本与旧部署，后者让没有 cookie 罐的
+// 移动端复用登录得到的同一条会话 token。不写响应、不写日志，也不区分「没有
+// 凭证」与「凭证无效」：调用方统一按未认证处理，既避免泄漏账号是否存在，也
+// 避免在错误文本里带出令牌。
 func (v Resolver) Resolve(r *http.Request) (Principal, bool, error) {
 	if r == nil {
 		return Principal{}, false, nil
@@ -108,14 +111,27 @@ func (v Resolver) Resolve(r *http.Request) (Principal, bool, error) {
 		}
 	}
 
-	if bearer, ok := bearerToken(r.Header.Get("Authorization")); ok && v.tokenMatches(bearer) {
-		return Principal{Kind: KindAdminToken}, true, nil
+	if bearer, ok := bearerToken(r.Header.Get("Authorization")); ok && bearer != "" {
+		if v.tokenMatches(bearer) {
+			return Principal{Kind: KindAdminToken}, true, nil
+		}
+		// 共享令牌未命中时再按会话令牌试一次：移动端不保存 cookie，设计让它
+		// 复用登录响应里的同一条 token 走 Bearer。复用 resolveSession 而不是
+		// 复制一份查询，保证两条入口的过期、状态与角色判定永远一致。
+		principal, found, err := v.resolveSession(r.Context(), bearer)
+		if err != nil {
+			return Principal{}, false, err
+		}
+		if found {
+			return principal, true, nil
+		}
 	}
 
 	return Principal{}, false, nil
 }
 
-// resolveSession 用 cookie 明文查会话，再确认账号仍然可用。
+// resolveSession 用会话令牌明文（cookie 或移动端 Bearer）查会话，再确认账号
+// 仍然可用。
 //
 // 库里只有 sha256，明文在哈希之后立即失去用途。哈希未命中、会话过期、账号被
 // 删除或停用都返回 found=false 而不是错误：这些是「凭证不再有效」的正常分支，
@@ -244,11 +260,14 @@ func NodeAllowed(ctx context.Context, st *store.Store, p Principal, nodeID strin
 
 // VisibleNodeIDs 返回 p 能看到的全部节点 ID，用于列表过滤与 SSE 订阅。
 //
-// Kind == user 只返回 node_members 里列出的节点：账号之间互不可见是这套节点
-// 归属设计的核心承诺，角色为 admin 的普通账号也一样——全量访问必须显式使用
-// admin_token 或本机直通。admin_token / local 返回全部节点：未认领的历史节点
-// 本来就在 nodes 表里，是「全部节点」的子集，因此不需要再单独并一次
-// ListUnclaimedNodes，也就不会因两次查询之间的写入而给出自相矛盾的结果。
+// Kind == user 永远包含 node_members 里列出的节点；角色为 admin 的账号再额外
+// 并入「未认领」的历史节点——升级前登记的节点没有归属行，不并进来就没人能在
+// 界面上认领它们。但即使是 admin 也看不到别人已认领的节点：「各自管各自的」
+// 不能因为管理角色退化成互相可见，因此 admin 的全量访问仍然只属于 admin_token
+// 与本机直通。
+//
+// admin_token / local 返回全部节点：未认领的历史节点本来就在 nodes 表里，是
+// 「全部节点」的子集，所以这两条分支不需要再单独查一次 ListUnclaimedNodes。
 //
 // 未知 Kind 返回空集合而不是 nil：调用方拿到 nil 时容易误当成「不过滤」。
 func VisibleNodeIDs(ctx context.Context, st *store.Store, p Principal) (map[string]struct{}, error) {
@@ -268,7 +287,19 @@ func VisibleNodeIDs(ctx context.Context, st *store.Store, p Principal) (map[stri
 		if err != nil {
 			return nil, fmt.Errorf("列出账号所属节点: %w", err)
 		}
-		return nodeIDSet(nodes), nil
+		ids := nodeIDSet(nodes)
+		if p.Role != roleAdmin || strings.TrimSpace(p.UserID) == "" {
+			return ids, nil
+		}
+
+		unclaimed, err := st.ListUnclaimedNodes(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("列出未认领节点: %w", err)
+		}
+		for _, n := range unclaimed {
+			ids[n.ID] = struct{}{}
+		}
+		return ids, nil
 	default:
 		return map[string]struct{}{}, nil
 	}
