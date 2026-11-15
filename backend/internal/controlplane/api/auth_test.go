@@ -482,6 +482,43 @@ func TestLogoutForLocalPrincipalKeepsSessions(t *testing.T) {
 	}
 }
 
+// TestLogoutAliases 覆盖两个登出路径：任务书的 POST /api/auth/logout 与设计
+// §8 的 DELETE /api/auth/session，二者必须都能吊销当前会话并清 cookie。
+func TestLogoutAliases(t *testing.T) {
+	paths := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/api/auth/logout"},
+		{method: http.MethodDelete, path: "/api/auth/session"},
+	}
+
+	for _, tc := range paths {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			env := newTestEnv(t, time.Second)
+			createTestUser(t, env, "a@b.c", testLoginPassword, "admin", "active")
+
+			login := env.do(http.MethodPost, "/api/auth/login",
+				`{"email":"a@b.c","password":"`+testLoginPassword+`"}`)
+			requireStatus(t, login, http.StatusOK)
+			cookie := sessionCookieFrom(t, login)
+			if cookie == nil {
+				t.Fatal("no session cookie from login")
+			}
+			principal := resolvePrincipal(t, env, cookie)
+
+			rec := env.doAs(principal, tc.method, tc.path, "")
+			requireStatus(t, rec, http.StatusNoContent)
+			if cleared := sessionCookieFrom(t, rec); cleared == nil {
+				t.Fatal("logout did not clear the session cookie")
+			}
+			if _, ok, err := env.store.SessionByTokenHash(context.Background(), authn.HashToken(cookie.Value)); err != nil || ok {
+				t.Fatalf("session still valid = %v, %v", ok, err)
+			}
+		})
+	}
+}
+
 // TestRequireUserRejectsMissingPrincipal 固化防御路径：没有经过中间件的请求
 // 不能因为「读不到身份」被当成匿名放行。
 func TestRequireUserRejectsMissingPrincipal(t *testing.T) {

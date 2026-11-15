@@ -655,6 +655,98 @@ func TestVisibleNodeIDsWithoutStoreFailsClosed(t *testing.T) {
 	}
 }
 
+// lookupSession 按明文令牌读回会话行，断言它仍然有效。
+func lookupSession(t *testing.T, s *store.Store, raw string) store.UserSession {
+	t.Helper()
+
+	session, ok, err := s.SessionByTokenHash(ctx, authn.HashToken(raw))
+	if err != nil || !ok {
+		t.Fatalf("SessionByTokenHash = %v, %v", ok, err)
+	}
+	return session
+}
+
+// sessionBearerRequest 构造一个只带会话 Bearer 的远程请求。
+func sessionBearerRequest(raw string) *http.Request {
+	r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+	r.RemoteAddr = "203.0.113.7:1234"
+	r.Header.Set("Authorization", "Bearer "+raw)
+	return r
+}
+
+// TestResolverSessionSlidingRenewal 覆盖滑动续期的三个分支：TTL 未配置时不写库、
+// 活跃时间陈旧时把过期时间往后推、刚续过的会话在间隔内不重复写库。
+func TestResolverSessionSlidingRenewal(t *testing.T) {
+	t.Run("disabled when SessionTTL is zero", func(t *testing.T) {
+		s := newTestStore(t)
+		u := createUser(t, s, "zero@b.c", "user", "active")
+		raw := createSession(t, s, u.ID, 24*time.Hour)
+		before := lookupSession(t, s, raw)
+		stale := time.Now().UTC().Add(-2 * time.Hour)
+		if err := s.TouchSession(ctx, before.ID, before.ExpiresAt, stale); err != nil {
+			t.Fatalf("TouchSession: %v", err)
+		}
+
+		v := authz.Resolver{Store: s}
+		if _, ok, err := v.Resolve(sessionBearerRequest(raw)); err != nil || !ok {
+			t.Fatalf("Resolve = %v, %v", ok, err)
+		}
+
+		after := lookupSession(t, s, raw)
+		if !after.ExpiresAt.Equal(before.ExpiresAt) {
+			t.Fatalf("ExpiresAt = %s, want unchanged %s", after.ExpiresAt, before.ExpiresAt)
+		}
+		if !after.LastSeenAt.Before(time.Now().Add(-time.Hour)) {
+			t.Fatalf("LastSeenAt = %s, want the stale value untouched", after.LastSeenAt)
+		}
+	})
+
+	t.Run("stale session is renewed", func(t *testing.T) {
+		s := newTestStore(t)
+		u := createUser(t, s, "renew@b.c", "user", "active")
+		raw := createSession(t, s, u.ID, 5*time.Minute)
+		before := lookupSession(t, s, raw)
+		stale := time.Now().UTC().Add(-2 * time.Hour)
+		if err := s.TouchSession(ctx, before.ID, before.ExpiresAt, stale); err != nil {
+			t.Fatalf("TouchSession: %v", err)
+		}
+
+		v := authz.Resolver{Store: s, SessionTTL: 24 * time.Hour}
+		principal, ok, err := v.Resolve(sessionBearerRequest(raw))
+		if err != nil || !ok || principal.Kind != authz.KindUser {
+			t.Fatalf("Resolve = %+v, %v, %v", principal, ok, err)
+		}
+
+		after := lookupSession(t, s, raw)
+		if !after.ExpiresAt.After(time.Now().Add(23 * time.Hour)) {
+			t.Fatalf("ExpiresAt = %s, want a value near now+24h", after.ExpiresAt)
+		}
+		if !after.LastSeenAt.After(time.Now().Add(-time.Minute)) {
+			t.Fatalf("LastSeenAt = %s, want a fresh value", after.LastSeenAt)
+		}
+	})
+
+	t.Run("fresh session is not rewritten", func(t *testing.T) {
+		s := newTestStore(t)
+		u := createUser(t, s, "fresh@b.c", "user", "active")
+		raw := createSession(t, s, u.ID, time.Hour)
+		before := lookupSession(t, s, raw)
+
+		v := authz.Resolver{Store: s, SessionTTL: 24 * time.Hour}
+		if _, ok, err := v.Resolve(sessionBearerRequest(raw)); err != nil || !ok {
+			t.Fatalf("Resolve = %v, %v", ok, err)
+		}
+
+		after := lookupSession(t, s, raw)
+		if after.ExpiresAt.After(time.Now().Add(2 * time.Hour)) {
+			t.Fatalf("ExpiresAt = %s, want the original ~1h value", after.ExpiresAt)
+		}
+		if !after.ExpiresAt.Equal(before.ExpiresAt) {
+			t.Fatalf("ExpiresAt = %s, want unchanged %s", after.ExpiresAt, before.ExpiresAt)
+		}
+	})
+}
+
 func mustNode(t *testing.T, s *store.Store, name string) store.Node {
 	t.Helper()
 

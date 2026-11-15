@@ -111,6 +111,10 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
 	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
+	// 设计 §8 用 DELETE /api/auth/session 描述登出；任务书与前端使用
+	// POST /api/auth/logout。两个路径指向同一 handler，避免文档与实现漂移时
+	// 任一方客户端拿到 404。
+	mux.HandleFunc("DELETE /api/auth/session", a.handleLogout)
 	mux.HandleFunc("GET /api/me", a.handleMe)
 
 	mux.HandleFunc("GET /api/nodes", a.handleListNodes)

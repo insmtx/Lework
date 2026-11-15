@@ -59,6 +59,50 @@ func TestCreateUserKeepsProvidedID(t *testing.T) {
 	}
 }
 
+// TestTouchSessionUpdatesExpiryAndLastSeen 固化滑动续期的写入语义：一次
+// UPDATE 同时刷新过期时间与活跃时间，且续期后的会话仍能按令牌哈希读到。
+func TestTouchSessionUpdatesExpiryAndLastSeen(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	u, err := s.CreateUser(ctx, User{Email: "touch@example.com", PasswordHash: "x", Role: "user", Status: "active"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_, hash, err := authn.NewToken()
+	if err != nil {
+		t.Fatalf("NewToken: %v", err)
+	}
+	session, err := s.CreateSession(ctx, u.ID, hash, "test", time.Minute)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	expiresAt := time.Now().UTC().Add(48 * time.Hour)
+	lastSeen := time.Now().UTC().Add(-2 * time.Hour)
+	if err := s.TouchSession(ctx, session.ID, expiresAt, lastSeen); err != nil {
+		t.Fatalf("TouchSession: %v", err)
+	}
+
+	got, ok, err := s.SessionByTokenHash(ctx, hash)
+	if err != nil || !ok {
+		t.Fatalf("SessionByTokenHash = %v, %v", ok, err)
+	}
+	if !got.ExpiresAt.After(time.Now().Add(47 * time.Hour)) {
+		t.Fatalf("ExpiresAt = %s, want the renewed value near %s", got.ExpiresAt, expiresAt)
+	}
+	if !got.LastSeenAt.Before(time.Now().Add(-time.Hour)) {
+		t.Fatalf("LastSeenAt = %s, want the stale value near %s", got.LastSeenAt, lastSeen)
+	}
+
+	if err := s.TouchSession(ctx, "missing-session", time.Now(), time.Now()); err == nil {
+		t.Fatal("TouchSession accepted an unknown session")
+	}
+	if err := s.TouchSession(ctx, " ", time.Now(), time.Now()); err == nil {
+		t.Fatal("TouchSession accepted a blank session id")
+	}
+}
+
 func TestSessionLookupRejectsExpired(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/insmtx/lework/backend/internal/controlplane/authn"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
@@ -45,6 +46,12 @@ const (
 	// 状态，漏填 Status 的账号必须被拒绝，而不是默默获得登录权。
 	roleAdmin    = "admin"
 	statusActive = "active"
+
+	// sessionRenewInterval 是滑动续期的最小写库间隔。
+	//
+	// 每次请求都写一次 last_seen_at 会让一个打开的浏览器把数据库写满；活跃
+	// 时间只需要小时级精度，1 小时既能反映「最近用过」，也把写入压到可忽略。
+	sessionRenewInterval = time.Hour
 )
 
 // Principal 是一次已认证请求的身份。
@@ -86,6 +93,14 @@ type Resolver struct {
 	CookieName string
 	// LocalAdmin 表示本机回环请求直接视为管理员。
 	LocalAdmin bool
+	// SessionTTL 是滑动续期后的会话有效期；非正时不做续期（会话只在登录时
+	// 设置过期时间），便于嵌入方显式关闭续期或使用自己的生命周期策略。
+	SessionTTL time.Duration
+
+	// touchSession 是续期写库的入口；生产保持 nil，由 renewSession 回落到
+	// Store.TouchSession。测试注入必定失败的实现，用来证明续期失败不会影响
+	// 本次已经通过校验的请求。
+	touchSession func(ctx context.Context, sessionID string, expiresAt, lastSeen time.Time) error
 }
 
 // Resolve 返回请求对应的 Principal：未认证是 (zero, false, nil)，基础设施故障
@@ -161,7 +176,42 @@ func (v Resolver) resolveSession(ctx context.Context, raw string) (Principal, bo
 		return Principal{}, false, nil
 	}
 
+	// 续期是尽力而为：这次请求的凭证已经验证通过，不能因为续期写失败就把它
+	// 变成未认证。详情见 renewSession。
+	v.renewSession(ctx, session)
+
 	return Principal{Kind: KindUser, UserID: user.ID, Role: user.Role, SessionID: session.ID}, true, nil
+}
+
+// renewSession 把会话的过期时间与活跃时间往后推，实现滑动续期。
+//
+// 只在 SessionTTL 为正且距上次续期超过 sessionRenewInterval 时写库：打开的
+// 浏览器每个请求都写一次会把数据库写满，而小时级的活跃时间足够支撑「30 天
+// 不用才过期」的语义。LastSeenAt 为零（历史行或刚创建未初始化）也视为需要
+// 续期，避免这些会话永远停在零值上。
+//
+// 写库失败被刻意忽略：会话本身已经通过校验，把续期失败当成认证失败会让一次
+// 数据库抖动踢掉所有在线用户；把错误向上抛则会让请求变成 500，结果相同。
+// 下一次请求会重试；若直到过期时间仍未续上，会话自然失效，失败方向依然安全。
+// 这里不记录任何 token 或会话 id 明文到日志。
+func (v Resolver) renewSession(ctx context.Context, session store.UserSession) {
+	if v.SessionTTL <= 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	if !session.LastSeenAt.IsZero() && now.Sub(session.LastSeenAt) < sessionRenewInterval {
+		return
+	}
+
+	touch := v.touchSession
+	if touch == nil && v.Store != nil {
+		touch = v.Store.TouchSession
+	}
+	if touch == nil {
+		return
+	}
+	_ = touch(ctx, session.ID, now.Add(v.SessionTTL), now)
 }
 
 // cookieName 返回实际使用的 cookie 名称。

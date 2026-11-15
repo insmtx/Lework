@@ -316,6 +316,10 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 // handleLogout 吊销当前会话并清掉浏览器 cookie。
 //
+// 同时注册为 POST /api/auth/logout（任务书与前端使用）与
+// DELETE /api/auth/session（设计 §8 的写法）：两个入口共享同一实现，文档与
+// 客户端不必为了一个路径名互相迁就，也不会出现「按设计文档实现返回 404」。
+//
 // 只删本次请求使用的那条会话：清空该账号全部会话会把手机端一起踢下线，
 // 与用户点「退出登录」的预期不符。local / admin_token 没有会话行，只清 cookie。
 func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {

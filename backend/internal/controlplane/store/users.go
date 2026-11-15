@@ -154,6 +154,40 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	return nil
 }
 
+// errSessionNotFound 标识「会话行已经不存在」。用哨兵错误是为了让续期调用方
+// 能用 errors.Is 区分「会话正常消失」与数据库故障，而不是解析错误文本。
+var errSessionNotFound = errors.New("session not found")
+
+// TouchSession 刷新一条会话的过期时间与最后活跃时间，实现滑动续期。
+//
+// 单条 UPDATE 同时写两列：分成两次写会让会话出现「过期时间已延长、活跃时间还是
+// 旧的」的中间态，续期节奏判断因此失真。过期时间由调用方计算并传入，存储层不
+// 引入 TTL 语义，避免同一策略在多层各实现一遍。
+//
+// 行不存在时返回包装了 errSessionNotFound 的错误：会话可能刚被登出，调用方
+// 需要知道这次续期没有生效，而不是默默当成成功。
+func (s *Store) TouchSession(ctx context.Context, sessionID string, expiresAt, lastSeen time.Time) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return errors.New("session id is required")
+	}
+
+	// Select + struct：选中字段即使是零值也写入，未选中的列（token_hash、
+	// user_id、user_agent、created_at）不会被这条语句碰到。
+	updates := UserSession{ExpiresAt: expiresAt.UTC(), LastSeenAt: lastSeen.UTC()}
+	res := s.db.WithContext(ctx).
+		Model(&UserSession{}).
+		Where("id = ?", sessionID).
+		Select("expires_at", "last_seen_at").
+		Updates(updates)
+	if res.Error != nil {
+		return fmt.Errorf("touch session %q: %w", sessionID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("touch session %q: %w", sessionID, errSessionNotFound)
+	}
+	return nil
+}
+
 // DeleteUserSessions 清空某个用户的全部会话。
 //
 // 改密、禁用或移除账号时必须调用：只改密码而留着旧会话，等于让泄露的令牌

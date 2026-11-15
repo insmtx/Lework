@@ -143,6 +143,7 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		Store:           st,
 		EnrollmentToken: cfg.EnrollmentToken,
 		LocalAdmin:      cfg.LocalAdmin,
+		SessionTTL:      cfg.SessionTTL,
 	}
 	gateway := agentgw.New(agentgw.Config{
 		EnrollmentToken:  cfg.EnrollmentToken,
