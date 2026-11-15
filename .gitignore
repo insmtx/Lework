@@ -86,6 +86,8 @@ frontend/apps/control-plane/out/
 frontend/apps/mobile/.expo/
 # Next 生成：dev 写 .next/dev/types、build 写 .next/types，跟踪会导致反复脏 diff
 frontend/apps/control-plane/next-env.d.ts
+# Expo 生成：typedRoutes 关闭时 expo start 会删除它，跟踪则每次启动都留下脏 diff
+frontend/apps/mobile/expo-env.d.ts
 backend/internal/controlplane/webui/dist/*
 !backend/internal/controlplane/webui/dist/.gitkeep
 deployments/dev*/
