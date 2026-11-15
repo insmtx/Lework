@@ -83,7 +83,7 @@ func runOpenCodeTUIWith(ctx context.Context, opts openCodeTUIOptions, deps tuiDe
 	}
 
 	if err := deps.health(ctx, info); err != nil {
-		return fmt.Errorf("shared OpenCode service is not available: %w", err)
+		return err
 	}
 
 	binary := opts.Binary

@@ -55,20 +55,18 @@ func TestRunOpenCodeTUIMissingServiceFile(t *testing.T) {
 }
 
 func TestRunOpenCodeTUIUnavailableService(t *testing.T) {
+	healthErr := errors.New("connection refused")
 	deps := stubTUIDeps(t)
 	deps.readInfo = func() (servicefile.Info, error) {
 		return servicefile.Info{URL: "http://127.0.0.1:4096", Password: "pw"}, nil
 	}
 	deps.health = func(context.Context, servicefile.Info) error {
-		return errors.New("connection refused")
+		return healthErr
 	}
 
 	err := runOpenCodeTUIWith(context.Background(), openCodeTUIOptions{}, deps)
-	if err == nil {
-		t.Fatal("runOpenCodeTUIWith() error = nil, want unavailable error")
-	}
-	if !strings.Contains(err.Error(), "not available") {
-		t.Fatalf("error = %v, want an unavailable-service error", err)
+	if !errors.Is(err, healthErr) {
+		t.Fatalf("runOpenCodeTUIWith() error = %v, want the health error", err)
 	}
 }
 
