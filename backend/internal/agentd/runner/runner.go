@@ -207,31 +207,7 @@ func (r *Runner) sendHello(ctx context.Context) error {
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		WorkspaceRoots: append([]string{}, r.cfg.WorkspaceRoots...),
-		Capabilities: []string{
-			"node.info",
-			"opencode.status",
-			"opencode.start",
-			"opencode.restart",
-			"opencode.stop",
-			"project.list",
-			"session.list",
-			"session.create",
-			"session.rename",
-			"session.delete",
-			"session.prompt",
-			"session.messages",
-			"session.diff",
-			"session.interrupt",
-			"permission.reply",
-			"permission.list",
-			"file.list",
-			"file.read",
-			"pty.create",
-			"pty.attach",
-			"pty.write",
-			"pty.resize",
-			"pty.close",
-		},
+		Capabilities:   Capabilities(),
 	})
 	if err != nil {
 		return fmt.Errorf("agentd: encode hello params: %w", err)
@@ -246,6 +222,39 @@ func (r *Runner) sendHello(ctx context.Context) error {
 		return fmt.Errorf("agentd: send hello: %w", err)
 	}
 	return nil
+}
+
+// Capabilities lists the agent methods a register or pair hello advertises.
+//
+// 配对 hello 与正常注册必须报告同一份能力清单，否则浏览器在配对确认页会
+// 看到一个比实际上线后更弱/更强的节点。导出而不是复制：两处清单各写一遍
+// 迟早会漂移。
+func Capabilities() []string {
+	return []string{
+		"node.info",
+		"opencode.status",
+		"opencode.start",
+		"opencode.restart",
+		"opencode.stop",
+		"project.list",
+		"session.list",
+		"session.create",
+		"session.rename",
+		"session.delete",
+		"session.prompt",
+		"session.messages",
+		"session.diff",
+		"session.interrupt",
+		"permission.reply",
+		"permission.list",
+		"file.list",
+		"file.read",
+		"pty.create",
+		"pty.attach",
+		"pty.write",
+		"pty.resize",
+		"pty.close",
+	}
 }
 
 // awaitWelcome reads until the control plane acknowledges registration. Frames
