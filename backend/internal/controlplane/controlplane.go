@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/controlplane/webui"
 	"github.com/insmtx/lework/backend/internal/infra/mq"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 const (
@@ -238,6 +240,8 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}()
 	go s.publishSnapshots(runCtx)
+	// 移除节点可能发生在另一个实例：本实例只负责关掉自己持有的连接。
+	go s.startNodeCloseSubscriber(runCtx)
 
 	logs.Infof("control plane listening on %s", s.cfg.ListenAddr)
 	if !config.IsLoopbackAddr(s.cfg.ListenAddr) {
@@ -392,6 +396,54 @@ type snapshotPayload struct {
 // publishSnapshots 周期性地把本地节点的投影发布到集群总线。
 //
 // owner 之外的实例没有原始事件流，只能靠快照收敛；因此每轮 tick 都为
+// startNodeCloseSubscriber 订阅跨实例的「关闭节点连接」通知。
+//
+// 每个实例都订阅同一 wildcard，处理器只关心本实例是否持有该连接；没有则
+// 什么都不做。消息体是节点 ID，而不是从 subject 反解——handler 拿不到
+// subject，payload 才是唯一可靠的信息来源。
+func (s *Server) startNodeCloseSubscriber(ctx context.Context) {
+	if s.deps.CoreSub == nil {
+		return
+	}
+	subject := messaging.ControlPlaneNodeCloseWildcard()
+	for ctx.Err() == nil {
+		err := s.deps.CoreSub.SubscribeCore(ctx, subject, "", func(_ context.Context, payload []byte) []byte {
+			handleNodeCloseMessage(s.registry, payload)
+			return nil
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logs.Warnf("controlplane: node close subscriber stopped: %v; retrying", err)
+		} else {
+			logs.Warnf("controlplane: node close subscriber returned without error; retrying")
+		}
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+// handleNodeCloseMessage 关闭本实例持有的节点连接；ID 不合法或没有连接都忽略。
+func handleNodeCloseMessage(registry *node.Registry, payload []byte) {
+	nodeID := strings.TrimSpace(string(payload))
+	if registry == nil || nodeID == "" {
+		return
+	}
+	conn, ok := registry.Connection(nodeID)
+	if !ok {
+		return
+	}
+	if err := conn.Close(); err != nil {
+		logs.Warnf("controlplane: close node %q connection: %v", nodeID, err)
+	}
+}
+
 // registry 里的每个节点发布一次，进程退出时随 runCtx 一起停止。
 func (s *Server) publishSnapshots(ctx context.Context) {
 	ticker := time.NewTicker(snapshotInterval)

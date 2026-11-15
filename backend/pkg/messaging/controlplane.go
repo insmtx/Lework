@@ -113,6 +113,25 @@ func ControlPlanePairSubject(claimID string) (string, error) {
 	return controlPlanePairPrefix + token, nil
 }
 
+// ControlPlaneNodeCloseSubject 构建「让持有该节点连接的实例关闭连接」的消息 subject。
+//
+// 格式：cp.node.<node_id>.close
+//
+// 走 Core NATS、不进 stream：这是一次性的尽力通知，丢失只意味着对端晚一个
+// 心跳周期才掉线，而凭证已经在出接口时被删除。
+func ControlPlaneNodeCloseSubject(nodeID string) (string, error) {
+	token, err := sanitizeSubjectToken(nodeID, "node id")
+	if err != nil {
+		return "", err
+	}
+	return controlPlaneRequestPrefix + token + ".close", nil
+}
+
+// ControlPlaneNodeCloseWildcard 订阅所有节点的关闭通知。
+func ControlPlaneNodeCloseWildcard() string {
+	return controlPlaneRequestPrefix + "*.close"
+}
+
 // sanitizeSubjectToken 保证一个标识只占一个 NATS subject token。
 //
 // 节点 id 与 pty id 来自 agent，可能带点号或通配符；直接拼接会让恶意或

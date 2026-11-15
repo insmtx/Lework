@@ -9,11 +9,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/insmtx/lework/backend/internal/agentd/protocol"
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
+	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/infra/mq/mqtest"
@@ -582,4 +585,25 @@ func TestServerAuthFlowThroughMiddleware(t *testing.T) {
 	if anonymous.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous me status = %d, want 401", anonymous.Code)
 	}
+}
+
+// recordingWriter 记录 Close 是否被调用：连接关闭的可见效果就是 writer 被关。
+type recordingWriter struct{ closed atomic.Bool }
+
+func (w *recordingWriter) Write(context.Context, protocol.Frame) error { return nil }
+func (w *recordingWriter) Close() error                                { w.closed.Store(true); return nil }
+
+func TestHandleNodeCloseMessage(t *testing.T) {
+	registry := node.NewRegistry()
+	writer := &recordingWriter{}
+	registry.Register(node.Info{ID: "node_abc"}, node.NewConnection("node_abc", writer))
+
+	handleNodeCloseMessage(registry, []byte("node_abc"))
+	if !writer.closed.Load() {
+		t.Fatal("connection was not closed")
+	}
+
+	// 未知节点不应 panic 或误关别人的连接。
+	handleNodeCloseMessage(registry, []byte("node_missing"))
+	handleNodeCloseMessage(registry, nil)
 }
