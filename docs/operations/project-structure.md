@@ -10,9 +10,9 @@
 
 ## 后端
 
-- `backend/internal/controlplane/` — 节点注册表、事件中心、浏览器 API、agent 网关、SQLite 存储、内嵌界面
+- `backend/internal/controlplane/` — 节点注册表、事件中心、浏览器 API、agent 网关、PostgreSQL 节点索引、NATS 事件桥接、内嵌界面
 - `backend/internal/agentd/` — agent 守护、OpenCode 监管、HTTP/SSE 客户端、请求处理、运行器、WSS 传输
-- `backend/internal/infra/` — SQLite、Git、日志等基础设施
+- `backend/internal/infra/` — PostgreSQL、NATS、Git、日志等基础设施
 - `backend/config/` — 控制面与 agent 配置结构
 
 ## 前端

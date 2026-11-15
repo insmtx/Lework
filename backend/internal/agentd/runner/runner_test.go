@@ -144,13 +144,20 @@ func (stubOpenCode) ClosePersistentTerminal(context.Context, string) error {
 
 // fakeRequestHandler is a deterministic RequestHandler for PTY forwarding and
 // shutdown tests. The production handler is exercised separately.
+//
+// results, when non-nil, supplies one result per Handle call so tests can drive
+// response shapes without touching shared state from another goroutine.
 type fakeRequestHandler struct {
-	events chan protocol.Event
-	closed atomic.Bool
+	events  chan protocol.Event
+	closed  atomic.Bool
+	results chan any
 }
 
 func (f *fakeRequestHandler) Handle(context.Context, string, json.RawMessage) (any, error) {
-	return nil, nil
+	if f.results == nil {
+		return nil, nil
+	}
+	return <-f.results, nil
 }
 
 func (f *fakeRequestHandler) PTYEvents() <-chan protocol.Event { return f.events }
@@ -312,6 +319,64 @@ func TestRunnerUnknownMethodReturnsErrorResponseAndKeepsConnection(t *testing.T)
 	next := readFrame(t, transport)
 	if next.ID != "r3" || next.Error != nil {
 		t.Fatalf("follow-up response = %+v, want successful r3", next)
+	}
+
+	cancel()
+	if err := waitRun(t, done); err != nil {
+		t.Fatalf("Run() = %v, want nil after cancel", err)
+	}
+}
+
+// TestRunnerBoundsResponseFrames 固化 2026-11-15 的 node_offline 回归：
+// 200 条消息页实测约 1.34 MiB，超过旧的 1 MiB 帧上限后连接被关闭，调用方
+// 收到误导性的 node_offline。合法响应必须完整发回；真正超过协议上限的响应
+// 只能降级为明确错误，且不能连坐断开连接。
+func TestRunnerBoundsResponseFrames(t *testing.T) {
+	transport := newFakeTransport()
+	requestHandler := &fakeRequestHandler{
+		events:  make(chan protocol.Event, 4),
+		results: make(chan any, 4),
+	}
+	r := New(transport, requestHandler, nil, RunnerConfig{
+		NodeID:       "node-1",
+		AgentVersion: "0.1.0-test",
+	})
+	cancel, done := runAsync(t, r)
+	completeHandshake(t, transport)
+
+	// 1.3 MiB 的页面代表长会话：必须原样返回，不能被上限误伤。
+	page := strings.Repeat("a", 13<<17)
+	requestHandler.results <- page
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest, ID: "r1", Method: "session.messages"}
+
+	response := readFrame(t, transport)
+	if response.ID != "r1" || response.Error != nil {
+		t.Fatalf("response = %+v, want the large result", response)
+	}
+	var got string
+	if err := json.Unmarshal(response.Result, &got); err != nil {
+		t.Fatalf("decode large result: %v", err)
+	}
+	if len(got) != len(page) {
+		t.Fatalf("result bytes = %d, want %d", len(got), len(page))
+	}
+
+	// HTML 转义会把每个 < 放大到 6 字节，最终帧远超上限，必须变成错误帧。
+	oversized := strings.Repeat("<", protocol.MaxFrameBytes/4)
+	requestHandler.results <- oversized
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest, ID: "r2", Method: "session.messages"}
+
+	response = readFrame(t, transport)
+	if response.Error == nil || response.Error.Code != "response_too_large" {
+		t.Fatalf("error = %+v, want code response_too_large", response.Error)
+	}
+
+	// 连接必须保持可用：后续请求仍能得到正常响应，而不是被断开重连。
+	requestHandler.results <- "ok"
+	transport.reads <- protocol.Frame{Type: protocol.FrameRequest, ID: "r3", Method: "session.messages"}
+	response = readFrame(t, transport)
+	if response.ID != "r3" || response.Error != nil {
+		t.Fatalf("follow-up response = %+v, want successful r3", response)
 	}
 
 	cancel()

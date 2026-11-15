@@ -3,7 +3,9 @@ package push
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -12,11 +14,12 @@ import (
 
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/pkg/messaging"
 )
 
 const (
-	// dedupeWindow 内同一权限只推一次。节点重连或事件重放会重复投递
-	// permission.asked，用户不需要因此收到两条一样的通知。
+	// dedupeWindow 内同一事件只推一次。节点重连或事件重放会重复投递
+	// permission.asked 与执行结束事件，用户不需要因此收到两条一样的通知。
 	dedupeWindow = 2 * time.Minute
 
 	// dedupeLimit 限制去重表大小，超过时清掉过期项，避免长期运行后无限增长。
@@ -25,9 +28,11 @@ const (
 	// concurrency 是同时在途的推送数量。推送再慢也只排队，不阻塞订阅读取。
 	concurrency = 4
 
-	// runBuffer 是 Hub 订阅缓冲；慢消费者会被 Hub 淘汰并触发客户端 resync，
-	// 因此这里不需要无限缓冲。
-	runBuffer = 64
+	eventTypePermissionAsked    = "permission.asked"
+	eventTypeExecutionSucceeded = "session.execution.succeeded"
+	eventTypeExecutionFailed    = "session.execution.failed"
+	channelPermissions          = "permissions"
+	channelCompletions          = "completions"
 )
 
 // DeviceSource 提供推送目标。抽成接口是为了让 Notifier 在测试里不依赖数据库。
@@ -35,7 +40,8 @@ type DeviceSource interface {
 	ListDevices(ctx context.Context) ([]store.Device, error)
 }
 
-// Notifier 把审批事件变成推送。它只关心“谁在等审批”，不解析会话内容。
+// Notifier 把审批与执行结束事件变成推送。它只关心“谁在等审批、哪条会话
+// 跑完了”，不解析会话内容。
 type Notifier struct {
 	devices      DeviceSource
 	sender       Sender
@@ -83,72 +89,100 @@ func NewNotifier(devices DeviceSource, sender Sender, label func(nodeID string) 
 	return n
 }
 
-// Subscriber 是事件中心的订阅面。抽成接口是为了让 Run 的重新订阅路径
-// 能在测试里被触发，而不必真的制造慢消费者。
-type Subscriber interface {
-	Subscribe(buffer int) (<-chan event.Event, func())
-}
-
-// Run 订阅事件中心并持续推送，直到 ctx 取消。
+// PullSubscriber 是持久化消费组的订阅面。
 //
-// Hub 会淘汰慢消费者（关闭通道）而不是拖住发布方，所以这里必须能重新
-// 订阅；否则一次跟不上就会让推送悄悄停到进程重启。
-func (n *Notifier) Run(ctx context.Context, sub Subscriber) {
-	for ctx.Err() == nil {
-		events, cancel := sub.Subscribe(runBuffer)
-		n.consume(ctx, events)
-		cancel()
-		if ctx.Err() != nil {
-			return
-		}
-		logs.Warnf("push: event subscription lost, resubscribing")
-	}
+// 同一 durable 的多个实例共享一条消费流：一条通知事件只被一个实例处理，
+// 因此不需要在实例之间去重，重投则由 Handle 的内部去重兜底。
+type PullSubscriber interface {
+	SubscribePull(ctx context.Context, stream, subject, durable string, handler func(context.Context, []byte) error) error
 }
 
-// consume 处理一个订阅通道，直到它被关闭或 ctx 取消。
-func (n *Notifier) consume(ctx context.Context, events <-chan event.Event) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, ok := <-events:
-			if !ok {
-				return
-			}
-			// 推送慢时宁可丢事件，也不能让订阅通道积压到被淘汰。
-			select {
-			case n.gate <- struct{}{}:
-				go func() {
-					defer func() { <-n.gate }()
-					n.Handle(ctx, ev)
-				}()
-			default:
-				logs.Warnf("push: queue full, dropping %s", ev.Type)
-			}
-		}
+// Run 订阅控制面事件消费组并持续推送，直到 ctx 取消。
+//
+// 订阅阻塞到 ctx 取消；取消导致的错误属于正常退出，返回 nil。其他错误
+// 交给调用方记录，避免推送链路静默停摆。
+func (n *Notifier) Run(ctx context.Context, sub PullSubscriber) error {
+	if sub == nil {
+		return errors.New("push: pull subscriber is required")
 	}
+
+	err := sub.SubscribePull(
+		ctx,
+		messaging.StreamNameControlPlane,
+		messaging.ControlPlaneEventWildcard(),
+		messaging.ControlPlanePushConsumer,
+		n.handlePayload,
+	)
+	if err != nil && ctx.Err() == nil {
+		return fmt.Errorf("push: subscribe approval events: %w", err)
+	}
+	return nil
+}
+
+// handlePayload 解码一条推送事件并异步推送。
+//
+// 返回 nil 表示消息已被处理：坏负载记录后直接 Ack，否则会无限重投；
+// 推送本身放进 gate 控制的协程，慢发送不会拖住消费组。
+func (n *Notifier) handlePayload(ctx context.Context, payload []byte) error {
+	var ev event.Event
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		// 不打印原始负载：事件正文可能包含用户输入或密钥。
+		logs.Warnf("push: decode event payload: %v", err)
+		return nil
+	}
+
+	select {
+	case n.gate <- struct{}{}:
+		go func() {
+			defer func() { <-n.gate }()
+			n.Handle(ctx, ev)
+		}()
+	default:
+		logs.Warnf("push: queue full, dropping %s", ev.Type)
+	}
+	return nil
+}
+
+// notification 是一条与具体事件类型解耦的待推送消息。
+//
+// 拆分出来是为了让审批与执行结束共用发送、去重与设备查询逻辑，而不是在
+// Handle 里堆叠分支。
+type notification struct {
+	// key 是去重键；同一条事件重投会生成相同的 key。
+	key          string
+	title        string
+	body         string
+	channelID    string
+	priority     string
+	permissionID string
+	kind         string
 }
 
 // Handle 处理单个事件。调用方可以是 Run 的 worker，也可以是测试。
 //
 // 去重与发送都在这里完成：去重的“查 + 插”必须原子，否则并发调用会重复推送。
 func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
-	if ev.Type != "permission.asked" || ev.SessionID == "" {
+	if ev.SessionID == "" {
 		return
 	}
 
-	var payload struct {
-		ID      string `json:"id"`
-		Action  string `json:"action"`
-		Message string `json:"message"`
-	}
-	if len(ev.Data) == 0 {
+	var (
+		note notification
+		ok   bool
+	)
+	switch ev.Type {
+	case eventTypePermissionAsked:
+		note, ok = n.permissionNotification(ev)
+	case eventTypeExecutionSucceeded, eventTypeExecutionFailed:
+		note, ok = n.completionNotification(ev)
+	default:
 		return
 	}
-	if err := json.Unmarshal(ev.Data, &payload); err != nil || payload.ID == "" {
+	if !ok {
 		return
 	}
-	if !n.firstSeen(ev.NodeID, ev.SessionID, payload.ID) {
+
+	if !n.firstSeen(note.key) {
 		return
 	}
 
@@ -161,28 +195,27 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 		return
 	}
 
-	body := payload.Action
-	if payload.Message != "" {
-		if body != "" {
-			body += " · "
-		}
-		body += payload.Message
+	data := map[string]string{
+		"node":    ev.NodeID,
+		"session": ev.SessionID,
+	}
+	if note.permissionID != "" {
+		data["permission_id"] = note.permissionID
+	}
+	if note.kind != "" {
+		data["kind"] = note.kind
 	}
 
 	msgs := make([]Message, 0, len(devices))
 	for _, device := range devices {
 		msgs = append(msgs, Message{
 			To:        device.PushToken,
-			Title:     n.title(ev),
-			Body:      body,
+			Title:     note.title,
+			Body:      note.body,
 			Tag:       ev.SessionID,
-			ChannelID: "permissions",
-			Priority:  "high",
-			Data: map[string]string{
-				"node":          ev.NodeID,
-				"session":       ev.SessionID,
-				"permission_id": payload.ID,
-			},
+			ChannelID: note.channelID,
+			Priority:  note.priority,
+			Data:      data,
 		})
 	}
 
@@ -192,19 +225,81 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 	}
 }
 
-// title 生成通知标题：优先用会话标题，缺省时退回节点名。
-func (n *Notifier) title(ev event.Event) string {
+// permissionNotification 把 permission.asked 转成审批通知。
+//
+// 缺少 permission_id 的事件无法去重，也无法让 App 对审批卡片做定位，
+// 因此直接跳过而不是推送一条无主通知。
+func (n *Notifier) permissionNotification(ev event.Event) (notification, bool) {
+	var payload struct {
+		ID      string `json:"id"`
+		Action  string `json:"action"`
+		Message string `json:"message"`
+	}
+	if len(ev.Data) == 0 {
+		return notification{}, false
+	}
+	if err := json.Unmarshal(ev.Data, &payload); err != nil || payload.ID == "" {
+		return notification{}, false
+	}
+
+	body := payload.Action
+	if payload.Message != "" {
+		if body != "" {
+			body += " · "
+		}
+		body += payload.Message
+	}
+
+	return notification{
+		key:          ev.NodeID + "/" + ev.SessionID + "/permission/" + payload.ID,
+		title:        fmt.Sprintf("需要审批 · %s", n.sessionLabel(ev)),
+		body:         body,
+		channelID:    channelPermissions,
+		priority:     "high",
+		permissionID: payload.ID,
+	}, true
+}
+
+// completionNotification 把执行结束事件转成完成/失败通知。
+//
+// 去重键使用事件时间：JetStream 重投的是同一条事件（时间相同），而同一
+// 会话下一轮结束的时间不同，不会被误吞。
+func (n *Notifier) completionNotification(ev event.Event) (notification, bool) {
+	var (
+		prefix string
+		body   string
+		kind   string
+	)
+	switch ev.Type {
+	case eventTypeExecutionSucceeded:
+		prefix, body, kind = "执行完成", "点开查看结果", "done"
+	case eventTypeExecutionFailed:
+		prefix, body, kind = "执行失败", "点开查看错误", "failed"
+	default:
+		return notification{}, false
+	}
+
+	return notification{
+		key:       ev.NodeID + "/" + ev.SessionID + "/" + ev.Type + "/" + strconv.FormatInt(ev.Time.UnixMilli(), 10),
+		title:     fmt.Sprintf("%s · %s", prefix, n.sessionLabel(ev)),
+		body:      body,
+		channelID: channelCompletions,
+		kind:      kind,
+	}, true
+}
+
+// sessionLabel 生成通知标题的二级文本：优先用会话标题，缺省时退回节点名。
+func (n *Notifier) sessionLabel(ev event.Event) string {
 	if n.sessionTitle != nil {
 		if title := strings.TrimSpace(n.sessionTitle(ev.NodeID, ev.SessionID)); title != "" {
-			return fmt.Sprintf("需要审批 · %s", title)
+			return title
 		}
 	}
-	return fmt.Sprintf("需要审批 · %s", n.label(ev.NodeID))
+	return n.label(ev.NodeID)
 }
 
 // firstSeen 原子地判断并记录去重键。返回 true 表示这次应该推送。
-func (n *Notifier) firstSeen(nodeID, sessionID, permissionID string) bool {
-	key := nodeID + "/" + sessionID + "/" + permissionID
+func (n *Notifier) firstSeen(key string) bool {
 	now := n.now()
 
 	n.mu.Lock()

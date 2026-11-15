@@ -4,7 +4,8 @@
 
 ## 今天可用
 
-- 控制面：`lework serve`，默认绑定回环，SQLite 存储。
+- 控制面：`lework serve`，默认绑定回环；节点数据存 PostgreSQL，事件与跨实例
+  请求走 NATS（需启用 JetStream），支持多实例共享，默认仍只部署一个实例。
 - 节点：`lework agent` 主动出站 WSS 注册、心跳、断线重连。
 - OpenCode：agent 管理本机 `opencode serve`，只绑定回环。
 - Session：按工作目录创建、发 prompt、中断、查看消息/工具/权限请求。
@@ -25,6 +26,11 @@
 - 自建 Agent Runtime。
 - 复制 OpenCode 的 session/message/event 状态。
 - 组织、部门、成员、邀请、审计、配额。
+
+## 已知限制
+
+- 节点在实例间重连的瞬间，新旧 `cp.node.<id>.request` 队列组订阅会短暂并存。
+  若转发请求恰好被旧订阅处理，会返回 `node_offline`；重试即可落到新实例。
 
 ## 验证状态
 

@@ -1,3 +1,4 @@
+import type { SessionState } from "@lework/api";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -15,18 +16,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { projectRoute, sessionRoute } from "../config";
 import { projectDisplayName } from "../projects/model";
 import { formatRelativeTime, RECENT_SESSION_LIMIT, type SidebarGroup } from "../sidebar/model";
+import type { Theme } from "../theme/theme";
+import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
+import { SessionStatusDot, UnreadDot } from "./session-status-dot";
 import { BellButton } from "./top-bar";
 
 function ProjectGroup({
 	group,
+	stateOf,
 	onOpenProject,
 	onOpenSession,
 }: {
 	group: SidebarGroup;
+	stateOf: (nodeID: string, sessionID: string) => SessionState | undefined;
 	onOpenProject: () => void;
 	onOpenSession: (nodeID: string, sessionID: string) => void;
 }) {
+	const styles = useThemedStyles(createStyles);
+	const { isUnread } = useAppShell();
+
 	return (
 		<View style={styles.group}>
 			<Pressable style={styles.projectRow} onPress={onOpenProject}>
@@ -35,18 +44,25 @@ function ProjectGroup({
 				</Text>
 			</Pressable>
 
-			{group.recent.map((row) => (
-				<Pressable
-					key={`${row.nodeID}:${row.session.id}`}
-					style={styles.sessionRow}
-					onPress={() => onOpenSession(row.nodeID, row.session.id)}
-				>
-					<Text style={styles.sessionTitle} numberOfLines={1}>
-						{row.session.title || row.session.id}
-					</Text>
-					<Text style={styles.sessionTime}>{formatRelativeTime(row.session.updatedAt)}</Text>
-				</Pressable>
-			))}
+			{group.recent.map((row) => {
+				const state = stateOf(row.nodeID, row.session.id);
+				const unread = isUnread(row.session.updatedAt, row.nodeID, row.session.id);
+
+				return (
+					<Pressable
+						key={`${row.nodeID}:${row.session.id}`}
+						style={[styles.sessionRow, state === "waiting_permission" && styles.sessionRowWaiting]}
+						onPress={() => onOpenSession(row.nodeID, row.session.id)}
+					>
+						<SessionStatusDot state={state} />
+						<Text style={styles.sessionTitle} numberOfLines={1}>
+							{row.session.title || row.session.id}
+						</Text>
+						<Text style={styles.sessionTime}>{formatRelativeTime(row.session.updatedAt)}</Text>
+						{unread ? <UnreadDot /> : null}
+					</Pressable>
+				);
+			})}
 
 			{group.total > RECENT_SESSION_LIMIT ? (
 				<Pressable style={styles.moreRow} onPress={onOpenProject}>
@@ -73,8 +89,10 @@ export function AppDrawer() {
 		closeDrawer,
 		screenTitle,
 		startNewTask,
+		sessionState,
 	} = useAppShell();
 	const insets = useSafeAreaInsets();
+	const styles = useThemedStyles(createStyles);
 	const { width } = useWindowDimensions();
 	const panelWidth = Math.min(Math.round(width * 0.88), 360);
 	const progress = useRef(new Animated.Value(0)).current;
@@ -186,6 +204,7 @@ export function AppDrawer() {
 								<ProjectGroup
 									key={group.project.key}
 									group={group}
+									stateOf={sessionState}
 									onOpenProject={() => openProject(group.project.key)}
 									onOpenSession={openSession}
 								/>
@@ -224,75 +243,79 @@ export function AppDrawer() {
 	);
 }
 
-const styles = StyleSheet.create({
-	root: { flex: 1 },
-	backdrop: {
-		position: "absolute",
-		top: 0,
-		right: 0,
-		bottom: 0,
-		left: 0,
-		backgroundColor: "#0f172a",
-	},
-	panel: {
-		position: "absolute",
-		top: 0,
-		bottom: 0,
-		left: 0,
-		backgroundColor: "#fff",
-		paddingHorizontal: 14,
-	},
-	topRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 10 },
-	menuButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-	menuText: { fontSize: 20, color: "#0f172a" },
-	topTitle: { flex: 1, fontSize: 15, fontWeight: "600", color: "#0f172a" },
-	scroll: { flex: 1 },
-	scrollContent: { paddingBottom: 8 },
-	actionRow: {
-		flexDirection: "row",
-		alignItems: "center",
-		gap: 12,
-		paddingVertical: 11,
-		paddingHorizontal: 4,
-	},
-	actionIcon: { width: 20, textAlign: "center", fontSize: 16, color: "#334155" },
-	actionLabel: { fontSize: 15, color: "#0f172a" },
-	separator: { height: 1, backgroundColor: "#eef2f7", marginVertical: 8 },
-	sectionTitle: {
-		fontSize: 12,
-		fontWeight: "600",
-		color: "#94a3b8",
-		paddingHorizontal: 4,
-		paddingTop: 2,
-		paddingBottom: 4,
-	},
-	empty: { fontSize: 13, color: "#94a3b8", paddingHorizontal: 4, paddingVertical: 10 },
-	group: { paddingBottom: 8 },
-	projectRow: { paddingHorizontal: 4, paddingTop: 8, paddingBottom: 4 },
-	projectName: { fontSize: 14, fontWeight: "600", color: "#0f172a" },
-	sessionRow: {
-		flexDirection: "row",
-		alignItems: "center",
-		gap: 8,
-		paddingLeft: 16,
-		paddingRight: 4,
-		paddingVertical: 7,
-	},
-	sessionTitle: { flex: 1, fontSize: 14, color: "#334155" },
-	sessionTime: { fontSize: 11, color: "#94a3b8" },
-	moreRow: { paddingLeft: 16, paddingVertical: 6 },
-	moreText: { fontSize: 13, color: "#2563eb" },
-	bottomRow: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 4 },
-	bottomButton: { paddingVertical: 10 },
-	bottomLabel: { fontSize: 15, color: "#0f172a" },
-	userCard: {
-		marginHorizontal: 4,
-		marginBottom: 4,
-		padding: 10,
-		borderRadius: 10,
-		backgroundColor: "#f8fafc",
-		gap: 2,
-	},
-	userLine: { fontSize: 12, color: "#334155" },
-	userMeta: { fontSize: 11, color: "#94a3b8" },
-});
+function createStyles(theme: Theme) {
+	const { colors } = theme;
+	return StyleSheet.create({
+		root: { flex: 1 },
+		backdrop: {
+			position: "absolute",
+			top: 0,
+			right: 0,
+			bottom: 0,
+			left: 0,
+			backgroundColor: colors.backdrop,
+		},
+		panel: {
+			position: "absolute",
+			top: 0,
+			bottom: 0,
+			left: 0,
+			backgroundColor: colors.surface,
+			paddingHorizontal: 14,
+		},
+		topRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 10 },
+		menuButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+		menuText: { fontSize: 20, color: colors.text },
+		topTitle: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.text },
+		scroll: { flex: 1 },
+		scrollContent: { paddingBottom: 8 },
+		actionRow: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 12,
+			paddingVertical: 11,
+			paddingHorizontal: 4,
+		},
+		actionIcon: { width: 20, textAlign: "center", fontSize: 16, color: colors.textStrong },
+		actionLabel: { fontSize: 15, color: colors.text },
+		separator: { height: 1, backgroundColor: colors.borderSubtle, marginVertical: 8 },
+		sectionTitle: {
+			fontSize: 12,
+			fontWeight: "600",
+			color: colors.textMuted,
+			paddingHorizontal: 4,
+			paddingTop: 2,
+			paddingBottom: 4,
+		},
+		empty: { fontSize: 13, color: colors.textMuted, paddingHorizontal: 4, paddingVertical: 10 },
+		group: { paddingBottom: 8 },
+		projectRow: { paddingHorizontal: 4, paddingTop: 8, paddingBottom: 4 },
+		projectName: { fontSize: 14, fontWeight: "600", color: colors.text },
+		sessionRow: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 8,
+			paddingLeft: 16,
+			paddingRight: 4,
+			paddingVertical: 7,
+		},
+		sessionTitle: { flex: 1, fontSize: 14, color: colors.textStrong },
+		sessionRowWaiting: { backgroundColor: colors.warningSurface, borderRadius: 8 },
+		sessionTime: { fontSize: 11, color: colors.textMuted },
+		moreRow: { paddingLeft: 16, paddingVertical: 6 },
+		moreText: { fontSize: 13, color: colors.accent },
+		bottomRow: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 4 },
+		bottomButton: { paddingVertical: 10 },
+		bottomLabel: { fontSize: 15, color: colors.text },
+		userCard: {
+			marginHorizontal: 4,
+			marginBottom: 4,
+			padding: 10,
+			borderRadius: 10,
+			backgroundColor: colors.surfaceMuted,
+			gap: 2,
+		},
+		userLine: { fontSize: 12, color: colors.textStrong },
+		userMeta: { fontSize: 11, color: colors.textMuted },
+	});
+}

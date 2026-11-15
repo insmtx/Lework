@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+// MaxFrameBytes is the largest single frame either side accepts.
+//
+// The limit is memory protection, not a payload budget: it must still fit a
+// legitimate session.messages page. A 200-message page is already ~1.3 MiB, so
+// the old 1 MiB ceiling killed the connection and surfaced as a bogus
+// "node_offline". 8 MiB matches the NATS max_payload used by the deployment
+// configs, keeping the WebSocket and cross-instance forwarding ceilings aligned.
+const MaxFrameBytes = 8 << 20
+
 // FrameType identifies the kind of message carried by a Frame. It is a string
 // so that unknown types can still be decoded and rejected by Validate instead
 // of failing during JSON unmarshalling.

@@ -37,7 +37,7 @@ opencode serve（每节点一个共享 server，按 Location 装载项目）
 
 | 组件 | 入口 | 关键行为 |
 |---|---|---|
-| 控制面 | `lework serve --listen 127.0.0.1:8787` | SQLite 节点库、agent 网关、浏览器 API、SSE、内嵌 UI；默认只绑定回环 |
+| 控制面 | `lework serve --listen 127.0.0.1:8787` | PostgreSQL 节点库、NATS 事件总线、agent 网关、浏览器 API、SSE、内嵌 UI；默认只绑定回环 |
 | 节点守护 | `lework agent --config ...` | 主动出站到 `/api/agent/connect`；管理 OpenCode 子进程；转发事件 |
 | OpenCode | `opencode serve --hostname 127.0.0.1 --port <port>` | 由 supervisor 启动或附着（attach）；HTTP Basic Auth |
 | 浏览器 | `http://127.0.0.1:8787/` | 只访问同源相对路径，不接触节点令牌 |
@@ -81,7 +81,8 @@ opencode serve（每节点一个共享 server，按 Location 装载项目）
 
 - 用常量时间比较 `Authorization: Bearer <enrollment_token>`，**令牌只出现在握手头**；
 - 拒绝带 `Origin` 的 agent 握手，避免网页借回环地址注册节点；
-- 单帧上限 1 MiB，握手 10 秒超时，帧间心跳窗口默认 35 秒；
+- 单帧上限 8 MiB，握手 10 秒超时，帧间心跳窗口默认 35 秒；
+- agent 在发送前检查响应帧大小，超过上限时返回 `response_too_large` 错误帧，而不是让对端断连（断连会被误报为 `node_offline`）；
 - 用连接身份覆盖事件里的 `node_id`，防止节点伪造其他节点。
 
 ### 2.3 已实现的节点 RPC
@@ -121,7 +122,7 @@ opencode serve（每节点一个共享 server，按 Location 装载项目）
 
 | 方法 | 路径 | 转发的 RPC |
 |---|---|---|
-| `GET` | `/api/nodes` | 读 SQLite + 实时注册表 |
+| `GET` | `/api/nodes` | 读 PostgreSQL + 实时注册表 |
 | `GET` | `/api/nodes/{id}` | 同上 |
 | `GET` | `/api/nodes/{id}/health` | `opencode.status` |
 | `GET` | `/api/nodes/{id}/files?directory=&path=` | `file.list` |

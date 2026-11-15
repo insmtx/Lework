@@ -18,6 +18,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/mark3labs/mcp-go v0.44.1
 	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/nats-io/nats.go v1.34.0
 	github.com/prometheus/client_golang v1.21.1
 	github.com/spf13/cobra v1.10.2
@@ -178,6 +179,7 @@ require (
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
+	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
@@ -191,4 +193,5 @@ require (
 	modernc.org/mathutil v1.5.0 // indirect
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/sqlite v1.23.1 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )

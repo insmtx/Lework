@@ -10,9 +10,12 @@ import {
 	View,
 } from "react-native";
 
+import type { Theme } from "../src/theme/theme";
+import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 
 function NodeCard({ node }: { node: NodeView }) {
+	const styles = useThemedStyles(createStyles);
 	const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleString() : "never";
 	const roots = node.workspace_roots ?? [];
 
@@ -47,6 +50,8 @@ function NodeCard({ node }: { node: NodeView }) {
 /** 节点页只做诊断：节点不再进主导航，只从侧边栏设置/诊断入口进入。 */
 export default function NodesScreen() {
 	useScreenTitle("节点");
+	const theme = useTheme();
+	const styles = useThemedStyles(createStyles);
 	const { settings, settingsLoading, projects } = useAppShell();
 	const nodes = projects.nodes;
 	const loading = projects.loading;
@@ -56,7 +61,7 @@ export default function NodesScreen() {
 	if (settingsLoading) {
 		return (
 			<View style={styles.center}>
-				<ActivityIndicator />
+				<ActivityIndicator color={theme.colors.accent} />
 			</View>
 		);
 	}
@@ -91,29 +96,39 @@ export default function NodesScreen() {
 	);
 }
 
-const styles = StyleSheet.create({
-	list: { padding: 16, gap: 12 },
-	center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
-	title: { fontSize: 18, fontWeight: "600" },
-	hint: { color: "#666", textAlign: "center" },
-	error: { color: "#b91c1c", marginBottom: 8 },
-	card: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, padding: 12, gap: 4 },
-	cardOffline: { opacity: 0.7 },
-	header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-	name: { fontSize: 16, fontWeight: "600", flexShrink: 1 },
-	status: { fontSize: 12, fontWeight: "600" },
-	online: { color: "#166534" },
-	offline: { color: "#6b7280" },
-	meta: { fontSize: 12, color: "#64748b" },
-	roots: { marginTop: 4, gap: 2 },
-	rootsLabel: { fontSize: 12, fontWeight: "600", color: "#334155" },
-	root: { fontSize: 12, color: "#475569" },
-	button: {
-		marginTop: 8,
-		backgroundColor: "#0f172a",
-		borderRadius: 8,
-		paddingHorizontal: 16,
-		paddingVertical: 10,
-	},
-	buttonText: { color: "#fff", fontWeight: "600" },
-});
+function createStyles(theme: Theme) {
+	const { colors } = theme;
+	return StyleSheet.create({
+		list: { padding: 16, gap: 12 },
+		center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
+		title: { fontSize: 18, fontWeight: "600", color: colors.text },
+		hint: { color: colors.textSecondary, textAlign: "center" },
+		error: { color: colors.danger, marginBottom: 8 },
+		card: {
+			borderWidth: 1,
+			borderColor: colors.border,
+			backgroundColor: colors.surface,
+			borderRadius: 12,
+			padding: 12,
+			gap: 4,
+		},
+		cardOffline: { opacity: 0.7 },
+		header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+		name: { fontSize: 16, fontWeight: "600", flexShrink: 1, color: colors.text },
+		status: { fontSize: 12, fontWeight: "600" },
+		online: { color: colors.success },
+		offline: { color: colors.offline },
+		meta: { fontSize: 12, color: colors.textSecondary },
+		roots: { marginTop: 4, gap: 2 },
+		rootsLabel: { fontSize: 12, fontWeight: "600", color: colors.textStrong },
+		root: { fontSize: 12, color: colors.textSecondary },
+		button: {
+			marginTop: 8,
+			backgroundColor: colors.action,
+			borderRadius: 8,
+			paddingHorizontal: 16,
+			paddingVertical: 10,
+		},
+		buttonText: { color: colors.actionText, fontWeight: "600" },
+	});
+}

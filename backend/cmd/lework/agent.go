@@ -43,7 +43,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", defaultConfigPath(), "path to agent.yaml")
+	cmd.Flags().StringVar(&configPath, "config", resolveConfigPath(), "path to lework.yaml or agent.yaml")
 	cmd.AddCommand(newAgentVersionCommand())
 	cmd.SetVersionTemplate("lework agent {{.Version}}\n")
 	return cmd

@@ -5,6 +5,8 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 
 import { routeFromNotification } from "../src/push/route";
+import { ThemeProvider } from "../src/theme/theme-context";
+import { useTheme } from "../src/theme/use-theme";
 import { AppShell } from "../src/ui/app-shell";
 import { DrawerButton } from "../src/ui/top-bar";
 
@@ -24,6 +26,17 @@ function openFromNotification(data: unknown) {
 }
 
 export default function RootLayout() {
+	// ThemeProvider 在导航器外层：设置页改主题时，Stack 头部与所有页面一起重绘。
+	return (
+		<ThemeProvider>
+			<RootNavigator />
+		</ThemeProvider>
+	);
+}
+
+function RootNavigator() {
+	const theme = useTheme();
+
 	useEffect(() => {
 		const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
 			openFromNotification(response.notification.request.content.data);
@@ -52,14 +65,23 @@ export default function RootLayout() {
 
 	return (
 		<AppShell>
-			<StatusBar style="auto" />
-			<Stack screenOptions={{ headerRight: () => <DrawerButton /> }}>
+			<StatusBar style={theme.scheme === "dark" ? "light" : "dark"} />
+			<Stack
+				screenOptions={{
+					headerRight: () => <DrawerButton />,
+					headerStyle: { backgroundColor: theme.colors.surface },
+					headerTintColor: theme.colors.text,
+					headerTitleStyle: { color: theme.colors.text },
+					contentStyle: { backgroundColor: theme.colors.background },
+				}}
+			>
 				<Stack.Screen name="index" options={{ headerShown: false }} />
 				<Stack.Screen name="projects" options={{ title: "项目" }} />
 				<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
 				<Stack.Screen name="pending" options={{ title: "待审批" }} />
 				<Stack.Screen name="nodes" options={{ title: "节点" }} />
 				<Stack.Screen name="settings" options={{ title: "设置" }} />
+				<Stack.Screen name="connect" options={{ headerShown: false }} />
 				<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
 			</Stack>
 		</AppShell>

@@ -82,6 +82,8 @@ backend/lework
 # Control plane browser export is generated before a release build.
 frontend/apps/control-plane/.next/
 frontend/apps/control-plane/out/
+# Expo 本地状态（设备会话、签名 manifest 缓存），不参与构建
+frontend/apps/mobile/.expo/
 # Next 生成：dev 写 .next/dev/types、build 写 .next/types，跟踪会导致反复脏 diff
 frontend/apps/control-plane/next-env.d.ts
 backend/internal/controlplane/webui/dist/*

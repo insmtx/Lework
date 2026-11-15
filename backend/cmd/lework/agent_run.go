@@ -125,9 +125,14 @@ func (a *agentRuntime) Close() error {
 // returned before any network or process work happens, which keeps a broken
 // configuration from leaving a half-started node behind.
 func runAgent(ctx context.Context, configPath string) error {
-	cfg, err := agentdconfig.Load(configPath)
+	cfg, err := loadAgentConfig(configPath)
 	if err != nil {
 		return err
+	}
+	// agent.yaml 没写 workspace_roots 时沿用组合模式的默认目录；
+	// 显式配置的目录不受影响。
+	if err := applyDefaultWorkspaceRoots(cfg); err != nil {
+		return fmt.Errorf("%w (set workspace_roots in %s)", err, configPath)
 	}
 	// agentdconfig.Load fills defaults but deliberately does not validate; the
 	// daemon must reject an incomplete file before dialing.

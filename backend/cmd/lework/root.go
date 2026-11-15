@@ -154,6 +154,8 @@ func newRootCommand() *cobra.Command {
 		tokenPath: defaultTokenFile(),
 		explicit:  os.Getenv(envEnrollmentToken),
 	}
+	natsURL := ""
+	databaseURL := ""
 
 	root := &cobra.Command{
 		Use:   "lework",
@@ -177,8 +179,9 @@ agent in one process, so a single local install is usable end to end.
 
 Examples:
   lework                                  # control plane + node agent in one process
+  lework --config /etc/lework/lework.yaml
   lework --listen 127.0.0.1:8787
-  lework agent --config /etc/lework/agent.yaml
+  lework agent --config /etc/lework/lework.yaml
   lework serve --enrollment-token <token>
   lework serve token
   lework server --config config.yaml
@@ -233,21 +236,41 @@ Use "lework [command] --help" for more information about a command.`,
 			// 用 Changed 而不是“是否等于默认值”判断显式性：显式传入的路径
 			// 不存在时 resolveAgentConfig 会直接报错，而不是静默回退。
 			opts.agent.configPathExplicit = cmd.Flags().Changed("agent-config")
+
+			// 统一配置文件同时提供控制面与 agent 两段：控制面参数只补未显式
+			// 传入的 flag，agent 段在没给 --agent-config 时作为默认来源。
+			configPath := cliConfigPath
+			explicitConfig := cmd.Flags().Changed("config")
+			if configPath == "" && !explicitConfig {
+				configPath = resolveConfigPath()
+			}
+			file, err := loadConfigFile(configPath, explicitConfig)
+			if err != nil {
+				return err
+			}
+			file.applyControlPlane(&opts.serve, &opts.tokenPath, &opts.pair, cmd.Flags().Changed)
+			applyClusterFlags(&opts.serve, natsURL, databaseURL, cmd.Flags().Changed)
+			if !opts.agent.configPathExplicit {
+				base, err := file.agentBase()
+				if err != nil {
+					return err
+				}
+				opts.agent.base = base
+			}
 			return runAllCommand(cmd.Context(), opts)
 		},
 		SilenceUsage:  false,
 		SilenceErrors: false,
 	}
 
-	root.Flags().Var(&configPathValue{&cliConfigPath}, "config", "CLI config file path")
+	root.Flags().Var(&configPathValue{&cliConfigPath}, "config",
+		"config file (lework.yaml with controlplane: and agent: sections)")
 
 	// 组合模式的 flag 只挂在根命令上（local flags），serve/agent 子命令保留
 	// 自己的同名 flag，互不冲突。
 	flags := root.Flags()
 	flags.StringVar(&opts.serve.ListenAddr, "listen", controlplaneconfig.DefaultListenAddr,
 		"HTTP listen address (non-loopback requires the enrollment token)")
-	flags.StringVar(&opts.serve.DBPath, "db", controlplaneconfig.DefaultDBPath(),
-		"path to the control plane SQLite database")
 	flags.StringVar(&opts.explicit, "enrollment-token", opts.explicit,
 		"node enrollment token (defaults to "+envEnrollmentToken+")")
 	flags.StringVar(&opts.tokenPath, "token-file", opts.tokenPath,
@@ -256,6 +279,11 @@ Use "lework [command] --help" for more information about a command.`,
 		"timeout for a single node request")
 	flags.DurationVar(&opts.serve.HeartbeatTimeout, "heartbeat-timeout", controlplaneconfig.DefaultHeartbeatTimeout,
 		"idle time after which a node is considered offline")
+	flags.StringVar(&natsURL, "nats-url", "",
+		"NATS URL for cluster event fan-out (defaults to nats.url in the config file)")
+	flags.StringVar(&databaseURL, "database-url", "",
+		"PostgreSQL URL shared by control plane instances (defaults to database.url in the config file)")
+	addPairingFlags(root, &opts.pair)
 	flags.StringVar(&opts.agent.configPath, "agent-config", defaultAgentConfigPath(),
 		"path to agent.yaml (defaults to the platform default location)")
 	flags.StringVar(&opts.agent.nodeName, "node-name", "", "override the node name for this process")

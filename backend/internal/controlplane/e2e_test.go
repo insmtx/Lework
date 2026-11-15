@@ -1,8 +1,9 @@
 // Package controlplane_test 包含控制面的进程内纵向验收测试。
 //
-// 该测试使用真实控制面（HTTP API + agent 网关 + SQLite 存储）与真实 agent
+// 该测试使用真实控制面（HTTP API + agent 网关 + SQLite 测试存储）与真实 agent
 // runner，仅把 OpenCode 客户端与 supervisor 替换为桩实现，因此可以在没有
-// opencode 二进制、没有模型调用的环境下验证 I1-A 的完整链路。
+// opencode 二进制、没有模型调用的环境下验证 I1-A 的完整链路。生产控制面使用
+// PostgreSQL 与 NATS。
 package controlplane_test
 
 import (
@@ -36,6 +37,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane"
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq/mqtest"
 )
 
 const (
@@ -87,13 +89,22 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 
+	bus := mqtest.New()
 	srv, err := controlplane.New(config.Config{
-		ListenAddr:       "127.0.0.1:0",
-		DBPath:           ":memory:",
-		EnrollmentToken:  e2eToken,
-		RequestTimeout:   e2eHTTPTimeout,
-		HeartbeatTimeout: 5 * time.Second,
-	}, st)
+		ListenAddr:      "127.0.0.1:0",
+		DBPath:          ":memory:",
+		EnrollmentToken: e2eToken,
+		RequestTimeout:  e2eHTTPTimeout,
+		// 离线判定以存储心跳窗口为准，必须明显短于 e2eNodeTimeout（5s），
+		// 否则「等待节点断开」会贴着超时边界通过。agent 心跳间隔仅 50ms。
+		HeartbeatTimeout: 2 * time.Second,
+	}, st, controlplane.Deps{
+		Bus:     bus,
+		Core:    bus,
+		CoreSub: bus,
+		Request: bus,
+		Pull:    bus,
+	})
 	if err != nil {
 		_ = st.Close()
 		t.Fatalf("new control plane: %v", err)

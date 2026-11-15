@@ -6,6 +6,7 @@ package mq
 
 import (
 	"context"
+
 	"github.com/nats-io/nats.go"
 )
 
@@ -40,6 +41,54 @@ type Subscriber interface {
 type EventBus interface {
 	Publisher
 	Subscriber
+}
+
+// ErrNoResponders 表示 Core NATS request 的 subject 当前没有任何订阅者。
+//
+// 控制面需要在「节点未注册」时降级处理，但不希望为此直接依赖 nats 包，
+// 因此在这里暴露一个可被 errors.Is 识别的哨兵错误。
+var ErrNoResponders = nats.ErrNoResponders
+
+// CorePublisher 发送不落盘的实时字节数据（如 pty.output）。
+//
+// 与 Publisher.Publish（走 JetStream）不同，Core NATS 不持久化：
+// 没有订阅者时消息直接丢弃，适用于高频、可丢的实时流。
+type CorePublisher interface {
+	// PublishCore 向 subject 发布原始字节并等待写入连接缓冲。
+	// 调用方应传入带超时的 ctx，以便区分刷新超时与连接错误。
+	PublishCore(ctx context.Context, subject string, data []byte) error
+}
+
+// CoreSubscriber 订阅 Core NATS 的字节请求，并把 handler 的返回值作为回复。
+//
+// handler 返回 nil 表示该请求无需回复（不发送 respond）。
+type CoreSubscriber interface {
+	// SubscribeCore 订阅 subject；queue 非空时使用队列组以分摊请求。
+	// 阻塞直到 ctx 取消，取消后退订并返回 ctx.Err()。
+	SubscribeCore(ctx context.Context, subject, queue string, handler func(context.Context, []byte) []byte) error
+}
+
+// CoreRequesterBytes 是 CoreRequester 的字节版，避免调用方依赖 nats.Msg。
+type CoreRequesterBytes interface {
+	// RequestBytes 向 subject 发送 Core NATS request 并返回回复负载。
+	// subject 没有订阅者时返回 ErrNoResponders；ctx 超时返回 ctx.Err()。
+	RequestBytes(ctx context.Context, subject string, request []byte) ([]byte, error)
+}
+
+// PullSubscriber 用同名 durable pull consumer 实现集群内消费组。
+//
+// 多个实例以相同 stream/durable 调用时，同一条消息只会被其中一个实例处理。
+type PullSubscriber interface {
+	// SubscribePull 订阅 stream 中 subject 的消息；handler 返回 nil 后 Ack，
+	// 返回错误则 Nak 等待重投。阻塞直到 ctx 取消。
+	SubscribePull(ctx context.Context, stream, subject, durable string, handler func(context.Context, []byte) error) error
+}
+
+// EventSubscriber 以原始负载订阅 JetStream 事件，供不关心 nats.Msg 的调用方使用。
+type EventSubscriber interface {
+	// SubscribeBytes 订阅 subject 的原始负载；startSeq <= 0 时仅接收新消息，
+	// startSeq > 0 时从该序列号开始投递。阻塞直到 ctx 取消。
+	SubscribeBytes(ctx context.Context, subject string, startSeq int64, handler func(context.Context, []byte) error) error
 }
 
 // CoreRequester 提供基于 Core NATS 的同步 request/reply 能力。

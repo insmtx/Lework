@@ -17,7 +17,7 @@ App 没有底部 tab bar，也没有常驻导航栏。首页只做一件事：**
 | 项目详情 | `/projects/[key]` | 跨节点会话、主节点选择、输入框 |
 | 待审批 | `/pending` | 汇总所有 `pending_permissions > 0` 的会话 |
 | 节点 | `/nodes` | 诊断用：在线状态、`workspace_roots` |
-| 设置 | `/settings` | 控制面地址、令牌、推送开关 |
+| 设置 | `/settings` | 扫码/粘贴配对、控制面地址、令牌、推送开关 |
 
 主导航是点 `☰` 从左侧滑出的侧边栏（自绘 Modal，不引入 drawer 依赖）：
 
@@ -112,6 +112,45 @@ pnpm --filter @lework/mobile start
 
 令牌轮换：在服务端更换 enrollment token 并重启后，手机端 Settings 里改成新
 令牌重新保存即可；旧令牌立即失效，不需要卸载 App。
+
+### 扫码配对（免手填）
+
+控制面启动时会打印一个二维码，扫码即把地址与令牌带进 App：
+
+```bash
+# 安装版 APK：码里是 lework://connect?url=…&token=…
+lework serve --public-url http://dev.ckeyer.com
+
+# Expo Go 调试：码里是 exp://<metro>/--/connect?url=…&token=…
+lework serve --public-url http://dev.ckeyer.com \
+  --expo-url http://dev.ckeyer.com:8082
+```
+
+- `--public-url` 是**手机**访问控制面的地址。不给时退回本机局域网 IP + 监听
+  端口，控制面只监听回环或手机不在同一网段时扫码会连不上。
+- `--expo-url` 指向 Metro（`expo start` 的端口）。Metro 默认端口是 8081，被
+  其它服务占用时用 `-p` 指定，例如 `expo start -p 8082`。
+- 两个地址也可以写进统一配置文件 `lework.yaml` 的 `controlplane:` 段，省掉
+  每次启动敲参数（flag 仍然优先）：
+
+  ```yaml
+  controlplane:
+    public_url: "http://dev.ckeyer.com"
+    expo_url: "http://dev.ckeyer.com:8082"
+  ```
+- 二维码只在 stdout 是终端时输出：链接含 enrollment token，重定向到文件或
+  journal 时不打印，等同于不把令牌写进日志。需要关掉用 `--no-qr`。
+- 扫码入口有两个：
+  - **App 外**：手机相机或 Expo Go 直接扫，系统把深链递给 App，落在 `/connect`；
+  - **App 内**：Settings →「扫码配对」→ 对准终端二维码（`expo-camera`，
+    Expo Go 内置该模块）。识别后复用 Save 的验证与推送登记流程，成功后直接连上。
+    相机权限被拒绝时会提示去系统设置，此时用下面的粘贴方式。
+- 扫不动时把终端打印的那行链接粘到 Settings 的「配对链接」里，点「从配对链接
+  填入」，再点 Save。链接两种 scheme 都认。
+
+配对会先把候选配置拿去请求 `GET /api/nodes`，通过后才写入；扫到过期或错误的
+码不会覆盖当前可用的配置。推送开关沿用原有偏好，deviceID 需要重新在设置页
+保存时才登记。
 
 ## 构建 APK
 

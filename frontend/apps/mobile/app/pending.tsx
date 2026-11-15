@@ -12,11 +12,15 @@ import {
 
 import { sessionRoute } from "../src/config";
 import { pendingRows } from "../src/pending/derive";
+import type { Theme } from "../src/theme/theme";
+import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 
 /** 待审批：从总览快照汇总所有 pending 会话，点进去逐个处理。 */
 export default function PendingScreen() {
 	useScreenTitle("待审批");
+	const theme = useTheme();
+	const styles = useThemedStyles(createStyles);
 	const {
 		settings,
 		settingsLoading,
@@ -40,7 +44,7 @@ export default function PendingScreen() {
 	if (settingsLoading) {
 		return (
 			<View style={styles.center}>
-				<ActivityIndicator />
+				<ActivityIndicator color={theme.colors.accent} />
 			</View>
 		);
 	}
@@ -87,20 +91,30 @@ export default function PendingScreen() {
 	);
 }
 
-const styles = StyleSheet.create({
-	list: { padding: 16, gap: 8 },
-	center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
-	title: { fontSize: 16, fontWeight: "600" },
-	meta: { fontSize: 12, color: "#64748b" },
-	hint: { color: "#666", textAlign: "center" },
-	error: { color: "#b91c1c", marginBottom: 8 },
-	row: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 10, padding: 12, gap: 2 },
-	button: {
-		marginTop: 8,
-		backgroundColor: "#0f172a",
-		borderRadius: 8,
-		paddingHorizontal: 16,
-		paddingVertical: 10,
-	},
-	buttonText: { color: "#fff", fontWeight: "600" },
-});
+function createStyles(theme: Theme) {
+	const { colors } = theme;
+	return StyleSheet.create({
+		list: { padding: 16, gap: 8 },
+		center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
+		title: { fontSize: 16, fontWeight: "600", color: colors.text },
+		meta: { fontSize: 12, color: colors.textSecondary },
+		hint: { color: colors.textSecondary, textAlign: "center" },
+		error: { color: colors.danger, marginBottom: 8 },
+		row: {
+			borderWidth: 1,
+			borderColor: colors.border,
+			backgroundColor: colors.surface,
+			borderRadius: 10,
+			padding: 12,
+			gap: 2,
+		},
+		button: {
+			marginTop: 8,
+			backgroundColor: colors.action,
+			borderRadius: 8,
+			paddingHorizontal: 16,
+			paddingVertical: 10,
+		},
+		buttonText: { color: colors.actionText, fontWeight: "600" },
+	});
+}

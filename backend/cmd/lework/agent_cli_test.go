@@ -104,8 +104,8 @@ func TestAgentConfigFlagDefaultsToPlatformPath(t *testing.T) {
 	if flag == nil {
 		t.Fatal("--config flag missing")
 	}
-	if flag.DefValue != defaultConfigPath() {
-		t.Fatalf("--config default = %q, want %q", flag.DefValue, defaultConfigPath())
+	if flag.DefValue != resolveConfigPath() {
+		t.Fatalf("--config default = %q, want %q", flag.DefValue, resolveConfigPath())
 	}
 }
 
@@ -118,7 +118,7 @@ func TestRootAgentConfigFlagIsAgentConfig(t *testing.T) {
 	if flag == nil {
 		t.Fatal("agent --config flag missing")
 	}
-	if flag.Usage != "path to agent.yaml" {
+	if flag.Usage != "path to lework.yaml or agent.yaml" {
 		t.Fatalf("agent --config usage = %q, want agent config, not legacy CLI config", flag.Usage)
 	}
 }

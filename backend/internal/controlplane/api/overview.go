@@ -7,7 +7,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 )
 
-// overviewNodeView 是总览里的一个节点：派生会话状态 + 注册表的实时连接信息。
+// overviewNodeView 是总览里的一个节点：派生会话状态 + 存储心跳推导的在线状态。
 type overviewNodeView struct {
 	NodeID    string             `json:"node_id"`
 	Name      string             `json:"name"`
@@ -21,31 +21,39 @@ type overviewResponse struct {
 
 // handleOverview 返回所有节点及其在跑会话。
 //
-// 节点集合取“索引 ∪ 注册表”：断线节点仍返回，但 connected=false——
-// 用户需要知道断线前它在跑什么，而不是看到它凭空消失。
+// 节点集合取持久化记录：断线节点仍返回，但 connected=false——用户需要知道
+// 断线前它在跑什么，而不是看到它凭空消失。会话来自派生索引，节点集合与
+// 在线状态都只认存储里的心跳，避免把连在别的实例上的节点漏掉。
 func (a *API) handleOverview(w http.ResponseWriter, r *http.Request) {
 	if a.index == nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "overview is not configured")
 		return
 	}
 
-	views := make(map[string]*overviewNodeView)
-	for _, node := range a.index.Snapshot() {
-		views[node.NodeID] = &overviewNodeView{
-			NodeID:   node.NodeID,
-			Name:     node.NodeID,
-			Sessions: node.Sessions,
+	records, err := a.store.ListNodes(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+
+	views := make(map[string]*overviewNodeView, len(records))
+	for _, rec := range records {
+		views[rec.ID] = &overviewNodeView{
+			NodeID:    rec.ID,
+			Name:      rec.Name,
+			Connected: a.nodeConnected(rec),
+			Sessions:  []overview.Session{},
 		}
 	}
 
-	for _, info := range a.registry.List() {
-		view, ok := views[info.ID]
+	// 索引里可能有已从存储删除的节点留下的会话：节点集合以存储为准，
+	// 这类残留直接忽略。
+	for _, projected := range a.index.Snapshot() {
+		view, ok := views[projected.NodeID]
 		if !ok {
-			view = &overviewNodeView{NodeID: info.ID, Sessions: []overview.Session{}}
-			views[info.ID] = view
+			continue
 		}
-		view.Name = info.Name
-		view.Connected = true
+		view.Sessions = projected.Sessions
 	}
 
 	// 断线节点的会话状态是断线前的快照，继续报 running 会让用户白等。

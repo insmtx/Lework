@@ -10,6 +10,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import type { Theme } from "../theme/theme";
+import { useTheme, useThemedStyles } from "../theme/use-theme";
+
 /** ComposerTarget 是当前输入要发往的项目/节点。 */
 export interface ComposerTarget {
 	projectKey: string;
@@ -42,6 +45,8 @@ export interface GlobalComposerProps {
  */
 export function GlobalComposer(props: GlobalComposerProps) {
 	const insets = useSafeAreaInsets();
+	const theme = useTheme();
+	const styles = useThemedStyles(createStyles);
 	const disabled = props.target === null;
 	const canSend = !disabled && !props.sending && props.value.trim() !== "";
 
@@ -78,7 +83,8 @@ export function GlobalComposer(props: GlobalComposerProps) {
 						multiline
 						placeholder={disabled ? "暂不可发送" : "说点什么…"}
 						// 16px 起步：iOS 上更小的字号会在聚焦时自动放大页面。
-						placeholderTextColor="#94a3b8"
+						placeholderTextColor={theme.colors.placeholder}
+						selectionColor={theme.colors.accent}
 					/>
 					<Pressable
 						disabled={!canSend}
@@ -86,7 +92,7 @@ export function GlobalComposer(props: GlobalComposerProps) {
 						style={[styles.send, !canSend && styles.sendDisabled]}
 					>
 						{props.sending ? (
-							<ActivityIndicator color="#fff" />
+							<ActivityIndicator color={theme.colors.actionText} />
 						) : (
 							<Text style={styles.sendText}>发送</Text>
 						)}
@@ -97,39 +103,43 @@ export function GlobalComposer(props: GlobalComposerProps) {
 	);
 }
 
-const styles = StyleSheet.create({
-	container: {
-		borderTopWidth: 1,
-		borderTopColor: "#e2e8f0",
-		backgroundColor: "#fff",
-		paddingHorizontal: 12,
-		paddingTop: 8,
-		gap: 6,
-	},
-	reason: { fontSize: 12, color: "#b45309" },
-	chip: { alignSelf: "flex-start", paddingVertical: 2 },
-	chipText: { fontSize: 12, color: "#475569", maxWidth: 280 },
-	row: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-	input: {
-		flex: 1,
-		minHeight: 40,
-		maxHeight: 120,
-		borderWidth: 1,
-		borderColor: "#e2e8f0",
-		borderRadius: 20,
-		paddingHorizontal: 14,
-		paddingVertical: 10,
-		fontSize: 16,
-		backgroundColor: "#f8fafc",
-	},
-	send: {
-		height: 40,
-		paddingHorizontal: 16,
-		borderRadius: 20,
-		backgroundColor: "#0f172a",
-		alignItems: "center",
-		justifyContent: "center",
-	},
-	sendDisabled: { opacity: 0.4 },
-	sendText: { color: "#fff", fontWeight: "600" },
-});
+function createStyles(theme: Theme) {
+	const { colors } = theme;
+	return StyleSheet.create({
+		container: {
+			borderTopWidth: 1,
+			borderTopColor: colors.border,
+			backgroundColor: colors.surface,
+			paddingHorizontal: 12,
+			paddingTop: 8,
+			gap: 6,
+		},
+		reason: { fontSize: 12, color: colors.warning },
+		chip: { alignSelf: "flex-start", paddingVertical: 2 },
+		chipText: { fontSize: 12, color: colors.textSecondary, maxWidth: 280 },
+		row: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+		input: {
+			flex: 1,
+			minHeight: 40,
+			maxHeight: 120,
+			borderWidth: 1,
+			borderColor: colors.inputBorder,
+			borderRadius: 20,
+			paddingHorizontal: 14,
+			paddingVertical: 10,
+			fontSize: 16,
+			backgroundColor: colors.inputBackground,
+			color: colors.text,
+		},
+		send: {
+			height: 40,
+			paddingHorizontal: 16,
+			borderRadius: 20,
+			backgroundColor: colors.action,
+			alignItems: "center",
+			justifyContent: "center",
+		},
+		sendDisabled: { opacity: 0.4 },
+		sendText: { color: colors.actionText, fontWeight: "600" },
+	});
+}

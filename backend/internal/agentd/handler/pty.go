@@ -19,8 +19,8 @@ const (
 	// of blocking OpenCode's websocket reader.
 	ptyEventBuffer = 1024
 
-	// ptyOutputChunk limits one base64 event so it stays under the agent's
-	// 1 MiB frame limit.
+	// ptyOutputChunk limits one base64 event so terminal output stays far
+	// below the agent frame limit and a burst cannot produce oversized frames.
 	ptyOutputChunk = 32 << 10
 
 	// ptyConnectTimeout bounds the OpenCode ticket/websocket handshake.

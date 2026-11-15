@@ -16,11 +16,15 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
 )
 
 // defaultRequestTimeout 在构造参数非正时兜底，避免零超时让所有节点调用
 // 立即失败。
 const defaultRequestTimeout = 30 * time.Second
+
+// defaultHeartbeatTimeout 在构造参数非正时兜底，避免把所有节点都判成离线。
+const defaultHeartbeatTimeout = 35 * time.Second
 
 // maxRequestBodyBytes 是浏览器请求体的上限（1 MiB）。控制面的请求体都很小，
 // 先限制再解码可以避免超大请求体把内存交给对端控制。
@@ -32,28 +36,61 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-// API 是控制面的浏览器接口。它只读取存储与实时注册表，不持有连接状态。
+// API 是控制面的浏览器接口。它只读取存储、实时注册表与集群总线，不持有
+// 任何业务状态。
 type API struct {
-	store          *store.Store
-	registry       *node.Registry
-	hub            *event.Hub
-	index          *overview.Index
+	store    *store.Store
+	registry *node.Registry
+	hub      *event.Hub
+	index    *overview.Index
+	router   *node.Router
+	coreSub  mq.CoreSubscriber
+
 	requestTimeout time.Duration
+	// heartbeatTimeout 决定存储里的 LastSeen 多久之后算离线。跨实例部署时
+	// 节点可能连在别的实例上，因此在线判定不能只看本实例注册表。
+	heartbeatTimeout time.Duration
 }
 
-// New 组装浏览器 API；requestTimeout 非正时使用 30 秒默认值。
+// New 组装浏览器 API；requestTimeout 与 heartbeatTimeout 非正时使用默认值。
 // index 是总览的派生索引，调用方负责喂事件；为 nil 时总览端点会明确报错。
-func New(st *store.Store, registry *node.Registry, hub *event.Hub, index *overview.Index, requestTimeout time.Duration) *API {
+// registry 保留用于同进程的节点元数据查询，在线状态以存储的心跳窗口为准。
+func New(
+	st *store.Store,
+	registry *node.Registry,
+	hub *event.Hub,
+	index *overview.Index,
+	router *node.Router,
+	coreSub mq.CoreSubscriber,
+	requestTimeout, heartbeatTimeout time.Duration,
+) *API {
 	if requestTimeout <= 0 {
 		requestTimeout = defaultRequestTimeout
 	}
-	return &API{
-		store:          st,
-		registry:       registry,
-		hub:            hub,
-		index:          index,
-		requestTimeout: requestTimeout,
+	if heartbeatTimeout <= 0 {
+		heartbeatTimeout = defaultHeartbeatTimeout
 	}
+	return &API{
+		store:            st,
+		registry:         registry,
+		hub:              hub,
+		index:            index,
+		router:           router,
+		coreSub:          coreSub,
+		requestTimeout:   requestTimeout,
+		heartbeatTimeout: heartbeatTimeout,
+	}
+}
+
+// nodeConnected 用存储里的最后心跳判断节点是否在线。
+//
+// LastSeen 为零（从未上报心跳）或早于心跳窗口都视为离线：只有窗口内的
+// 心跳才能证明节点仍被某个实例连着。
+func (a *API) nodeConnected(rec store.Node) bool {
+	if rec.LastSeen.IsZero() {
+		return false
+	}
+	return time.Since(rec.LastSeen) <= a.heartbeatTimeout
 }
 
 // Register 把全部浏览器端点注册到 mux。方法与路径由 ServeMux 模式约束，
@@ -97,7 +134,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/devices/{id}", a.handleDeleteDevice)
 }
 
-// callAgent 把一次浏览器请求转发给节点，并用请求超时约束等待。
+// callAgent 把一次浏览器请求交给路由器：本地连接优先，否则转发到持有连接
+// 的实例；两种路径都受同一个请求超时约束。
 // params 为 nil 时不携带参数；编码失败的错误只包含方法名，不含参数内容。
 func (a *API) callAgent(ctx context.Context, nodeID, method string, params any) (json.RawMessage, error) {
 	var raw json.RawMessage
@@ -111,7 +149,7 @@ func (a *API) callAgent(ctx context.Context, nodeID, method string, params any) 
 
 	callCtx, cancel := context.WithTimeout(ctx, a.requestTimeout)
 	defer cancel()
-	return a.registry.Request(callCtx, nodeID, method, raw)
+	return a.router.Request(callCtx, nodeID, method, raw)
 }
 
 // decodeRequest 解析 JSON 请求体，并把请求体限制在 maxRequestBodyBytes 之内；

@@ -85,7 +85,7 @@ func TestListProjectsKeepsOfflineFromIndex(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	env.registry.CloseAll()
+	env.markNodeOffline(rec.ID)
 
 	httpRec := env.do(http.MethodGet, "/api/projects", "")
 	requireStatus(t, httpRec, http.StatusOK)

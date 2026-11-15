@@ -1,11 +1,12 @@
-// Package store 提供控制面的 SQLite 节点存储。
+// Package store 提供控制面的节点存储（PostgreSQL / SQLite + GORM）。
 //
-// 控制面是单用户本地服务，节点数据量小且只需单机持久化，
-// 因此使用 SQLite + GORM；调用方通过 context 控制查询生命周期。
+// 生产环境使用 PostgreSQL（OpenPostgres），节点数据跨进程、跨实例共享；
+// SQLite（Open）只用于单元测试和本地无外部依赖的临时启动，不承载生产数据。
+// 调用方通过 context 控制查询生命周期。
 //
-// 驱动选用纯 Go 的 github.com/glebarez/sqlite（底层 modernc.org/sqlite），
+// SQLite 驱动选用纯 Go 的 github.com/glebarez/sqlite（底层 modernc.org/sqlite），
 // 而不是依赖 cgo 的 gorm.io/driver/sqlite：发布镜像与跨平台构建都在
-// CGO_ENABLED=0 下编译，cgo 驱动会让 lework serve 在这些产物里无法打开库。
+// CGO_ENABLED=0 下编译，cgo 驱动会让二进制在 CGO_ENABLED=0 的产物里无法打开库。
 package store
 
 import (
@@ -21,8 +22,12 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
+
+	appconfig "github.com/insmtx/lework/backend/config"
 )
 
 // Node 是注册到控制面的节点记录。
@@ -134,6 +139,45 @@ func Open(path string) (*Store, error) {
 			_ = sqlDB.Close()
 		}
 		return nil, fmt.Errorf("migrate nodes table: %w", err)
+	}
+
+	return &Store{db: database}, nil
+}
+
+// OpenPostgres 打开 cfg.URL 指向的 PostgreSQL 数据库并迁移全部控制面表。
+//
+// 生产环境走 PostgreSQL：控制面与节点可能分布在多台机器上，SQLite 的单机
+// 文件不满足共享存储需求。错误信息里不回显连接串，避免凭据进入日志。
+func OpenPostgres(cfg appconfig.DatabaseConfig) (*Store, error) {
+	if strings.TrimSpace(cfg.URL) == "" {
+		return nil, errors.New("database url is required")
+	}
+
+	// 默认静默：GORM 的 Info 级日志会打印每条 SQL，生产环境噪声过大；
+	// 只有显式 cfg.Debug 时才打开，便于排查连接与迁移问题。
+	gormCfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
+	if cfg.Debug {
+		gormCfg.Logger = logger.Default.LogMode(logger.Info)
+	}
+
+	database, err := gorm.Open(postgres.Open(cfg.URL), gormCfg)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+
+	sqlDB, err := database.DB()
+	if err != nil {
+		return nil, fmt.Errorf("get postgres sql database: %w", err)
+	}
+	// 连接池参数：控制面并发不高，20 条足够吸收突发且不会耗尽测试库连接数。
+	sqlDB.SetMaxOpenConns(20)
+	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+
+	if err := database.AutoMigrate(&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}); err != nil {
+		// 迁移失败时主动释放底层连接，避免句柄泄漏。
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("migrate postgres tables: %w", err)
 	}
 
 	return &Store{db: database}, nil

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/insmtx/lework/backend/internal/controlplane/event"
 )
 
 const (
@@ -27,6 +29,9 @@ const (
 )
 
 // handleEvents 提供 SSE 事件流，可选按 node 与 session 过滤。
+//
+// live=1 时额外订阅 token 级增量事件；默认只收状态事件，避免总览等常驻
+// 连接被高频 token 流量拖慢。
 func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -37,8 +42,17 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	nodeFilter := query.Get("node")
 	sessionFilter := query.Get("session")
+	includeLive := query.Get("live") == "1"
 
-	events, cancel := a.hub.Subscribe(sseBuffer)
+	var (
+		events <-chan event.Event
+		cancel func()
+	)
+	if includeLive {
+		events, cancel = a.hub.Subscribe(sseBuffer, event.WithLive())
+	} else {
+		events, cancel = a.hub.Subscribe(sseBuffer)
+	}
 	defer cancel()
 
 	header := w.Header()
@@ -76,7 +90,10 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 			if nodeFilter != "" && ev.NodeID != nodeFilter {
 				continue
 			}
-			if sessionFilter != "" && ev.SessionID != sessionFilter {
+			// 只有带 session_id 且不匹配才丢弃：agent.resync_required 等
+			// 节点级事件没有 session_id，必须照常下发，否则页面收不到
+			// 「清空缓冲 + 重拉」的信号。
+			if sessionFilter != "" && ev.SessionID != "" && ev.SessionID != sessionFilter {
 				continue
 			}
 			payload, err := json.Marshal(ev)

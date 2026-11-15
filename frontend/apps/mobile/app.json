@@ -14,6 +14,7 @@
 		"plugins": [
 			"expo-router",
 			"expo-secure-store",
+			["expo-camera", { "cameraPermission": "允许 lework 扫描配对二维码" }],
 			["expo-notifications", { "color": "#0f172a" }]
 		],
 		"experiments": {

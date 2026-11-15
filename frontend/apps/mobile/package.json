@@ -12,6 +12,7 @@
 	"dependencies": {
 		"@lework/api": "workspace:*",
 		"expo": "~58.0.24",
+		"expo-camera": "~58.0.14",
 		"expo-constants": "~58.0.16",
 		"expo-device": "58.0.5",
 		"expo-linking": "~58.0.17",
@@ -21,6 +22,7 @@
 		"expo-status-bar": "58.0.5",
 		"react": "19.3.0",
 		"react-native": "0.88.1",
+		"react-native-markdown-display": "^7.0.2",
 		"react-native-safe-area-context": "~5.11.1",
 		"react-native-screens": "~4.30.1",
 		"react-native-sse": "1.2.1"

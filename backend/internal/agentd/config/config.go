@@ -79,6 +79,14 @@ func Default() Config {
 	return cfg
 }
 
+// ApplyDefaults fills empty fields with the documented defaults.
+//
+// Load already applies them for agent.yaml; the unified config loader decodes the
+// agent section itself, so it calls this instead of duplicating the defaults.
+func (c *Config) ApplyDefaults() {
+	c.applyDefaults()
+}
+
 // applyDefaults fills empty fields with the documented defaults. Home-relative
 // defaults are skipped when the home directory cannot be determined; Validate
 // still accepts an explicit path in that case.

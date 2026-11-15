@@ -22,6 +22,12 @@ import (
 // by New so a zero RunnerConfig still produces a usable runner.
 const defaultHeartbeat = 10 * time.Second
 
+// responseSizeCheckThreshold 让精确的帧大小检查只对可能接近上限的响应生效。
+//
+// 编码后的 JSON 会把 <、>、& 转义成 6 字节，所以原始 result 长度不能代表
+// 线上大小；小响应不值得为此多序列化一次。
+const responseSizeCheckThreshold = 1 << 20
+
 // Transport is the frame-level connection to the control plane. It must support
 // one concurrent reader and one concurrent writer; the runner serializes writes
 // itself. *transport.Client satisfies it.
@@ -430,10 +436,34 @@ func (r *Runner) respond(ctx context.Context, frame protocol.Frame) error {
 		}
 	}
 
+	response = fitResponseFrame(response)
 	if writeErr := r.write(ctx, response); writeErr != nil {
 		return fmt.Errorf("agentd: write response: %w", writeErr)
 	}
 	return nil
+}
+
+// fitResponseFrame 把超过协议帧上限的响应降级为稳定错误帧。
+//
+// 直接写超限帧会让控制面按读上限关闭连接：所有在途请求一起失败，调用方还
+// 会收到误导性的 node_offline。返回明确错误至少能让客户端缩小请求范围，
+// 而连接与心跳保持可用。
+func fitResponseFrame(response protocol.Frame) protocol.Frame {
+	if len(response.Result) < responseSizeCheckThreshold {
+		return response
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil || len(encoded) <= protocol.MaxFrameBytes {
+		return response
+	}
+	return protocol.Frame{
+		Type: protocol.FrameResponse,
+		ID:   response.ID,
+		Error: &protocol.FrameError{
+			Code:    "response_too_large",
+			Message: fmt.Sprintf("response exceeds %d bytes; narrow the request", protocol.MaxFrameBytes),
+		},
+	}
 }
 
 // errorCode maps a handler error to a stable wire code. Unknown methods carry

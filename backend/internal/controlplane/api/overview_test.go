@@ -43,9 +43,13 @@ func TestOverviewIncludesConnectedFlag(t *testing.T) {
 
 func TestOverviewKeepsDisconnectedNodes(t *testing.T) {
 	env := newTestEnv(t, time.Second)
-	nodeRec, _, conn := env.addNode("dev-box")
+	nodeRec, _, _ := env.addNode("dev-box")
 	env.index.Apply(event.Event{NodeID: nodeRec.ID, SessionID: "ses_1", Type: "session.created"})
-	env.registry.Unregister(nodeRec.ID, conn)
+	// 心跳停止即离线；本实例仍持有连接也不能继续报在线。
+	if info, ok := env.registry.Get(nodeRec.ID); !ok || !info.Connected {
+		t.Fatalf("registry lost connection %q before the test could prove independence", nodeRec.ID)
+	}
+	env.markNodeOffline(nodeRec.ID)
 
 	rec := env.do(http.MethodGet, "/api/overview", "")
 	if !strings.Contains(rec.Body.String(), `"connected":false`) {

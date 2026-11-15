@@ -10,6 +10,10 @@ import type { Settings } from "../settings/settings";
 // 会把通知落到默认渠道，静音或没有横幅提示。
 export const ANDROID_CHANNEL_ID = "permissions";
 
+// 执行结果走独立渠道：审批需要打断用户（HIGH + 震动），完成/失败只需要
+// 一条横幅。两件事混在一个渠道里，用户没法只关掉其中一个。
+export const ANDROID_CHANNEL_ID_COMPLETIONS = "completions";
+
 async function ensureAndroidChannel(): Promise<void> {
 	if (Platform.OS !== "android") return;
 	await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
@@ -19,6 +23,15 @@ async function ensureAndroidChannel(): Promise<void> {
 		lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
 		sound: "default",
 		enableVibrate: true,
+	});
+	// DEFAULT 重要性有横幅但不打断：不响铃、不震动。
+	await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID_COMPLETIONS, {
+		name: "执行结果",
+		description: "会话执行完成或失败时提醒",
+		importance: Notifications.AndroidImportance.DEFAULT,
+		lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+		sound: null,
+		enableVibrate: false,
 	});
 }
 

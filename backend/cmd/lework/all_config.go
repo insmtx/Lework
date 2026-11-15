@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -12,13 +14,64 @@ import (
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 )
 
-// userHomeDir、hostname 与 defaultAgentConfigPath 是测试 seam，
-// 生产环境分别使用 os 与平台默认路径的实现。
+// defaultWorkspaceBase 是节点工作目录的父目录。
+//
+// 目录按 OS 用户分层（<base>/<user>/workspace），给同一台机器上的多用户预留；
+// 单用户时它就是一个普通目录。放在 /opt 下而不是用户主目录，避免默认项目
+// 直接挂在 /root 这种带系统权限语义的位置。
+var defaultWorkspaceBase = "/opt/lework"
+
+// currentUsername、hostname 与 defaultAgentConfigPath 是测试 seam，
+// 生产环境分别使用 os/user 与平台默认路径的实现。
 var (
-	userHomeDir            = os.UserHomeDir
+	currentUsername        = osUsername
 	hostname               = os.Hostname
 	defaultAgentConfigPath = defaultConfigPath
 )
+
+// osUsername 返回当前运行用户的名字，用于拼默认工作目录。
+func osUsername() (string, error) {
+	if name := strings.TrimSpace(os.Getenv("USER")); name != "" {
+		return name, nil
+	}
+	entry, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return entry.Username, nil
+}
+
+// defaultWorkspaceRoot 返回节点的默认工作目录。
+func defaultWorkspaceRoot() (string, error) {
+	name, err := currentUsername()
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(name) == "" {
+		return "", errors.New("current user is empty")
+	}
+	return filepath.Join(defaultWorkspaceBase, name, "workspace"), nil
+}
+
+// applyDefaultWorkspaceRoots 在未配置 workspace_roots 时补上默认目录并创建。
+//
+// 组合模式与独立 `lework agent` 共用这里，保证两条启动路径的默认值一致。
+// 显式配置的目录保持原样：启动进程不替用户创建、也不迁移已有目录。
+func applyDefaultWorkspaceRoots(cfg *agentdconfig.Config) error {
+	if cfg == nil || len(cfg.WorkspaceRoots) > 0 {
+		return nil
+	}
+	root, err := defaultWorkspaceRoot()
+	if err != nil {
+		return fmt.Errorf("determine default workspace root: %w", err)
+	}
+	// 默认目录在 /opt 下，首次启动通常还不存在；不建的话第一个会话就会被拒。
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return fmt.Errorf("create default workspace root %s: %w", root, err)
+	}
+	cfg.WorkspaceRoots = []string{root}
+	return nil
+}
 
 // derivedNodeNameFallback 在取不到主机名时使用，保证组合模式仍能启动。
 const derivedNodeNameFallback = "lework-local"
@@ -32,6 +85,9 @@ type agentOverrides struct {
 	configPathExplicit bool
 	nodeName           string
 	workspaceRoots     []string
+	// base 是统一配置文件 agent: 段的结果；非空且没有显式 --agent-config 时
+	// 优先于默认 agent.yaml，两者内容相同但省掉第二个文件。
+	base *agentdconfig.Config
 }
 
 // resolveAgentConfig 按 k3s 风格的优先级生成节点 agent 配置：
@@ -40,7 +96,7 @@ type agentOverrides struct {
 // 派生阶段只补空字段，文件里显式写出的 control_plane_url 与 enrollment_token
 // 会被原样保留。这是有意的产品决策：组合模式不覆盖用户已经配置好的地址与令牌。
 func resolveAgentConfig(serveCfg controlplaneconfig.Config, ov agentOverrides) (*agentdconfig.Config, error) {
-	cfg, err := loadBaseAgentConfig(ov)
+	cfg, err := baseAgentConfig(ov)
 	if err != nil {
 		return nil, err
 	}
@@ -60,11 +116,9 @@ func resolveAgentConfig(serveCfg controlplaneconfig.Config, ov agentOverrides) (
 		cfg.NodeName = resolveNodeName()
 	}
 	if len(cfg.WorkspaceRoots) == 0 {
-		root, err := userHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("determine default workspace root: %w (pass --workspace-root to set it explicitly)", err)
+		if err := applyDefaultWorkspaceRoots(cfg); err != nil {
+			return nil, fmt.Errorf("%w (pass --workspace-root to set it explicitly)", err)
 		}
-		cfg.WorkspaceRoots = []string{root}
 	}
 
 	if ov.nodeName != "" {
@@ -78,6 +132,17 @@ func resolveAgentConfig(serveCfg controlplaneconfig.Config, ov agentOverrides) (
 		return nil, fmt.Errorf("agent config: %w", err)
 	}
 	return cfg, nil
+}
+
+// baseAgentConfig 选择 agent 配置的来源：显式 --agent-config 优先，其次是
+// 统一文件的 agent: 段，最后才看默认路径的 agent.yaml。
+func baseAgentConfig(ov agentOverrides) (*agentdconfig.Config, error) {
+	if !ov.configPathExplicit && ov.base != nil {
+		copied := *ov.base
+		copied.WorkspaceRoots = append([]string(nil), ov.base.WorkspaceRoots...)
+		return &copied, nil
+	}
+	return loadBaseAgentConfig(ov)
 }
 
 // loadBaseAgentConfig 读取配置来源：显式路径必须成功，默认路径存在才读取，

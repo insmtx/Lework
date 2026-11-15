@@ -8,11 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	appconfig "github.com/insmtx/lework/backend/config"
 )
 
 const (
@@ -33,7 +36,8 @@ const (
 type Config struct {
 	// ListenAddr 是 HTTP 监听地址，格式为 host:port；默认建议回环，非回环需配合鉴权。
 	ListenAddr string
-	// DBPath 是控制面 SQLite 数据库文件路径。
+	// DBPath 仅用于测试与向后兼容的配置结构：生产运行路径使用
+	// PostgreSQL（见 Database），控制面启动后不会再读取这个字段。
 	DBPath string
 	// EnrollmentToken 是节点注册时出示的令牌，属于机密信息，不可写入日志或错误。
 	EnrollmentToken string
@@ -41,6 +45,10 @@ type Config struct {
 	RequestTimeout time.Duration
 	// HeartbeatTimeout 是节点心跳失效的判定超时。
 	HeartbeatTimeout time.Duration
+	// NATS 是控制面集群模式的 NATS 连接配置；单机模式保持 nil。
+	NATS *appconfig.NATSConfig
+	// Database 是控制面集群模式共享的 PostgreSQL 连接配置；单机模式保持 nil。
+	Database *appconfig.DatabaseConfig
 }
 
 // Default 返回内置默认配置。EnrollmentToken 没有默认值，必须由使用者显式提供。
@@ -93,6 +101,50 @@ func (c Config) Validate() error {
 	}
 
 	return nil
+}
+
+// ValidateCluster 校验控制面集群依赖的 NATS 与 PostgreSQL 配置。
+//
+// 只有集群模式才需要这两个地址，因此 Validate 保持只校验本地启动参数；
+// 进程入口应在真正打开连接前调用本方法。
+//
+// 错误文本只描述字段与原因，绝不拼接 URL：URL 可能内嵌账号密码。
+func (c Config) ValidateCluster() error {
+	if c.NATS == nil || strings.TrimSpace(c.NATS.URL) == "" {
+		return errors.New("nats url is required")
+	}
+	if err := validateNATSScheme(c.NATS.URL); err != nil {
+		return err
+	}
+	if c.Database == nil || strings.TrimSpace(c.Database.URL) == "" {
+		return errors.New("database url is required")
+	}
+	return validateDatabaseScheme(c.Database.URL)
+}
+
+// validateNATSScheme 只接受 nats://，避免把 HTTP 地址误当成 NATS。
+//
+// url.Parse 的错误会带上原始 URL，因此这里不包装它，只返回固定文本。
+func validateNATSScheme(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !strings.EqualFold(u.Scheme, "nats") {
+		return errors.New("nats url must use the nats scheme")
+	}
+	return nil
+}
+
+// validateDatabaseScheme 接受 postgres:// 与 postgresql:// 两种写法。
+func validateDatabaseScheme(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return errors.New("database url must use the postgres scheme")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "postgres", "postgresql":
+		return nil
+	default:
+		return errors.New("database url must use the postgres scheme")
+	}
 }
 
 // IsLoopbackAddr 判断监听地址是否只对本机可见；用于决定是否需要浏览器鉴权告警。

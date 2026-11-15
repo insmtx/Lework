@@ -18,6 +18,7 @@ type allOptions struct {
 	tokenPath string
 	explicit  string
 	agent     agentOverrides
+	pair      pairOptions
 }
 
 // runAllCommand 是 runAll 的测试 seam：测试替换它即可验证 root 的接线，
@@ -55,6 +56,8 @@ func runAll(parent context.Context, opts allOptions) error {
 	defer stopSignals()
 
 	logs.Infof("lework: agent will dial %s", agentCfg.ControlPlaneURL)
+
+	announcePairing(os.Stdout, opts.serve, opts.pair)
 
 	return runServices(ctx, []backendService{
 		{name: "controlplane", run: cp.Run, close: cp.Close},

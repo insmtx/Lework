@@ -1,0 +1,31 @@
+import { describe, expect, it } from "vitest";
+
+import { statusLabel, statusTone } from "./status";
+
+describe("statusLabel", () => {
+	it("把执行状态翻译成一行文案", () => {
+		expect(statusLabel("running")).toBe("正在执行…");
+		expect(statusLabel("waiting_permission")).toBe("等待你的批准");
+		expect(statusLabel("idle")).toBe("执行完成");
+		expect(statusLabel("error")).toBe("执行出错");
+		expect(statusLabel("offline")).toBe("节点离线");
+	});
+
+	it("null 返回空串，状态条整行不渲染", () => {
+		expect(statusLabel(null)).toBe("");
+	});
+});
+
+describe("statusTone", () => {
+	it("区分信息、警告、错误与弱化", () => {
+		expect(statusTone("running")).toBe("info");
+		expect(statusTone("waiting_permission")).toBe("warn");
+		expect(statusTone("error")).toBe("error");
+		expect(statusTone("idle")).toBe("muted");
+		expect(statusTone("offline")).toBe("muted");
+	});
+
+	it("null 用弱化色", () => {
+		expect(statusTone(null)).toBe("muted");
+	});
+});

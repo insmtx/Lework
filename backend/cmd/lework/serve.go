@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/controlplane"
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
+	"github.com/insmtx/lework/backend/internal/infra/mq"
 )
 
 const (
@@ -41,6 +43,10 @@ func newServeCommand() *cobra.Command {
 	cfg := controlplaneconfig.Default()
 	enrollmentToken := os.Getenv(envEnrollmentToken)
 	tokenFile := defaultTokenFile()
+	pair := pairOptions{}
+	configPath := resolveConfigPath()
+	natsURL := ""
+	databaseURL := ""
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -56,21 +62,33 @@ LEWORK_ENROLLMENT_TOKEN. When neither is set, the token is read from
 --token-file (or LEWORK_TOKEN_FILE) and generated there if missing. The token
 is never logged.
 
+The control plane stores node data in PostgreSQL and fans events out over
+NATS. Configure them with --nats-url / --database-url or the top-level
+nats: / database: sections of --config; startup fails without both.
+
 Examples:
   lework serve --enrollment-token <token>
   lework serve token
-  lework serve --listen 127.0.0.1:8787 --db ~/.config/Lework/controlplane.db`,
+  lework serve --nats-url nats://127.0.0.1:4222 --database-url postgres://127.0.0.1:5432/lework`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runControlPlane(cmd.Context(), cfg, enrollmentToken, tokenFile)
+			file, err := loadConfigFile(configPath, cmd.Flags().Changed("config"))
+			if err != nil {
+				return err
+			}
+			file.applyControlPlane(&cfg, &tokenFile, &pair, cmd.Flags().Changed)
+			applyClusterFlags(&cfg, natsURL, databaseURL, cmd.Flags().Changed)
+			return runControlPlane(cmd.Context(), cfg, enrollmentToken, tokenFile, pair, cmd.OutOrStdout())
 		},
 	}
 
 	flags := cmd.Flags()
+	// --config 设为持久 flag，`serve token` 也读同一份配置里的 token_file。
+	cmd.PersistentFlags().StringVar(&configPath, "config", configPath,
+		"unified config file (controlplane: and agent: sections)")
 	flags.StringVar(&cfg.ListenAddr, "listen", controlplaneconfig.DefaultListenAddr,
 		"HTTP listen address (non-loopback requires the enrollment token)")
-	flags.StringVar(&cfg.DBPath, "db", controlplaneconfig.DefaultDBPath(), "path to the control plane SQLite database")
 	flags.StringVar(&enrollmentToken, "enrollment-token", enrollmentToken,
 		"node enrollment token (defaults to "+envEnrollmentToken+")")
 	flags.StringVar(&tokenFile, "token-file", tokenFile,
@@ -79,6 +97,11 @@ Examples:
 		"timeout for a single node request")
 	flags.DurationVar(&cfg.HeartbeatTimeout, "heartbeat-timeout", controlplaneconfig.DefaultHeartbeatTimeout,
 		"idle time after which a node is considered offline")
+	flags.StringVar(&natsURL, "nats-url", "",
+		"NATS URL for cluster event fan-out (defaults to nats.url in the config file)")
+	flags.StringVar(&databaseURL, "database-url", "",
+		"PostgreSQL URL shared by control plane instances (defaults to database.url in the config file)")
+	addPairingFlags(cmd, &pair)
 
 	// The token is a secret: keep the value initialized from the environment
 	// but clear the printed default so help and completion output never show it.
@@ -107,6 +130,15 @@ The token is read from the token file; if the file does not exist, a new token
 is generated and written there so later runs print the same value.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// serve --config 是持久 flag，token 子命令也能读到；配置里写了
+			// token_file 时，两边必须指向同一个文件，否则会打印出另一份令牌。
+			if path, flagErr := cmd.Flags().GetString("config"); flagErr == nil {
+				file, loadErr := loadConfigFile(path, cmd.Flags().Changed("config"))
+				if loadErr != nil {
+					return loadErr
+				}
+				file.applyTokenFile(&tokenFile, cmd.Flags().Changed)
+			}
 			token, err := controlplaneconfig.ResolveToken("", tokenFile)
 			if err != nil {
 				return fmt.Errorf("resolve enrollment token: %w", err)
@@ -125,26 +157,53 @@ is generated and written there so later runs print the same value.`,
 // 组合启动（bare lework）复用同一套构造/运行/关闭流程。
 type controlPlaneRuntime struct {
 	srv *controlplane.Server
+	bus io.Closer
 }
 
-// openControlPlane 校验配置、打开存储并装配控制面；返回的运行时可多次 Close。
+// openControlPlane 校验配置、打开共享存储与集群总线并装配控制面。
+//
+// 控制面的运行路径只有这一条：PostgreSQL 保证节点数据跨实例共享，NATS
+// 负责事件扇出与跨实例请求，缺一不可。任一环节失败时按打开顺序回滚，
+// 错误信息绝不拼接 URL（URL 可能内嵌账号密码）。
 func openControlPlane(cfg controlplaneconfig.Config) (*controlPlaneRuntime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("control plane config: %w", err)
 	}
+	if err := cfg.ValidateCluster(); err != nil {
+		return nil, fmt.Errorf("control plane cluster config: %w", err)
+	}
+	if cfg.Database == nil {
+		return nil, errors.New("control plane database config is required")
+	}
+	if cfg.NATS == nil {
+		return nil, errors.New("control plane nats config is required")
+	}
 
-	st, err := store.Open(cfg.DBPath)
+	st, err := store.OpenPostgres(*cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("open control plane store: %w", err)
 	}
 
-	srv, err := controlplane.New(cfg, st)
+	bus, err := mq.NewNATS(cfg.NATS.URL)
 	if err != nil {
+		_ = st.Close()
+		return nil, fmt.Errorf("connect control plane bus: %w", err)
+	}
+
+	srv, err := controlplane.New(cfg, st, controlplane.Deps{
+		Bus:     bus,
+		Core:    bus,
+		CoreSub: bus,
+		Request: bus,
+		Pull:    bus,
+	})
+	if err != nil {
+		_ = bus.Close()
 		_ = st.Close()
 		return nil, fmt.Errorf("start control plane: %w", err)
 	}
 
-	return &controlPlaneRuntime{srv: srv}, nil
+	return &controlPlaneRuntime{srv: srv, bus: bus}, nil
 }
 
 // Run 启动 HTTP 服务并阻塞到 ctx 取消；信号处理由调用方负责。
@@ -155,16 +214,34 @@ func (r *controlPlaneRuntime) Run(ctx context.Context) error {
 	return r.srv.Run(ctx)
 }
 
-// Close 释放控制面资源（含存储），可重复调用。
+// Close 先释放控制面（含存储），再关闭集群总线；可重复调用。
 func (r *controlPlaneRuntime) Close() error {
 	if r == nil || r.srv == nil {
 		return nil
 	}
-	return r.srv.Close()
+
+	var errs []error
+	if err := r.srv.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if r.bus != nil {
+		if err := r.bus.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close control plane bus: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // runControlPlane 解析注册令牌、装配运行时，并服务到信号触发退出。
-func runControlPlane(parent context.Context, cfg controlplaneconfig.Config, explicitToken, tokenPath string) error {
+//
+// pairingOut 用于启动时打印手机配对二维码；只有终端输出才会真正显示。
+func runControlPlane(
+	parent context.Context,
+	cfg controlplaneconfig.Config,
+	explicitToken, tokenPath string,
+	pair pairOptions,
+	pairingOut io.Writer,
+) error {
 	token, err := controlplaneconfig.ResolveToken(explicitToken, tokenPath)
 	if err != nil {
 		return fmt.Errorf("resolve enrollment token: %w", err)
@@ -179,6 +256,8 @@ func runControlPlane(parent context.Context, cfg controlplaneconfig.Config, expl
 
 	ctx, stopSignals := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+
+	announcePairing(pairingOut, cfg, pair)
 
 	return runtime.Run(ctx)
 }

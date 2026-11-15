@@ -18,6 +18,8 @@ import { createSecureDraftStore } from "../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../src/composer/send";
 import { sessionRoute } from "../src/config";
 import { resolveTaskTarget } from "../src/projects/model";
+import type { Theme } from "../src/theme/theme";
+import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 import { DrawerButton } from "../src/ui/top-bar";
 
@@ -32,6 +34,8 @@ const HOME_DRAFT_SCOPE = { projectKey: "home", nodeID: "home" };
  */
 export default function HomeScreen() {
 	useScreenTitle("新任务");
+	const theme = useTheme();
+	const styles = useThemedStyles(createStyles);
 	const { settings, settingsLoading, projects, newTaskSeq } = useAppShell();
 	const insets = useSafeAreaInsets();
 	const store = useMemo(() => createSecureDraftStore(), []);
@@ -136,7 +140,8 @@ export default function HomeScreen() {
 						editable={!settingsLoading && disabledReason === undefined}
 						multiline
 						placeholder="现在要做什么？"
-						placeholderTextColor="#94a3b8"
+						placeholderTextColor={theme.colors.placeholder}
+						selectionColor={theme.colors.accent}
 						textAlignVertical="top"
 					/>
 					<View style={styles.footer}>
@@ -147,7 +152,7 @@ export default function HomeScreen() {
 							style={[styles.send, !canSend && styles.sendDisabled]}
 						>
 							{sending ? (
-								<ActivityIndicator color="#fff" />
+								<ActivityIndicator color={theme.colors.actionText} />
 							) : (
 								<Text style={styles.sendText}>发送</Text>
 							)}
@@ -165,39 +170,47 @@ export default function HomeScreen() {
 	);
 }
 
-const styles = StyleSheet.create({
-	screen: { flex: 1, backgroundColor: "#fff" },
-	menu: { position: "absolute", left: 8, zIndex: 1 },
-	center: { flex: 1, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 32 },
-	card: {
-		borderWidth: 1,
-		borderColor: "#e2e8f0",
-		borderRadius: 20,
-		backgroundColor: "#f8fafc",
-		padding: 16,
-		gap: 12,
-	},
-	input: {
-		minHeight: 96,
-		maxHeight: 220,
-		fontSize: 18,
-		lineHeight: 26,
-		color: "#0f172a",
-		padding: 0,
-	},
-	footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-	reason: { flex: 1, fontSize: 12, color: "#94a3b8" },
-	send: {
-		height: 38,
-		minWidth: 72,
-		paddingHorizontal: 18,
-		borderRadius: 19,
-		backgroundColor: "#0f172a",
-		alignItems: "center",
-		justifyContent: "center",
-	},
-	sendDisabled: { opacity: 0.35 },
-	sendText: { color: "#fff", fontWeight: "600" },
-	link: { alignSelf: "center", marginTop: 16, padding: 8 },
-	linkText: { fontSize: 14, color: "#2563eb" },
-});
+function createStyles(theme: Theme) {
+	const { colors } = theme;
+	return StyleSheet.create({
+		screen: { flex: 1, backgroundColor: colors.background },
+		menu: { position: "absolute", left: 8, zIndex: 1 },
+		center: { flex: 1, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 32 },
+		card: {
+			borderWidth: 1,
+			borderColor: colors.border,
+			borderRadius: 20,
+			backgroundColor: colors.surfaceMuted,
+			padding: 16,
+			gap: 12,
+		},
+		input: {
+			minHeight: 96,
+			maxHeight: 220,
+			fontSize: 18,
+			lineHeight: 26,
+			color: colors.text,
+			padding: 0,
+		},
+		footer: {
+			flexDirection: "row",
+			alignItems: "center",
+			justifyContent: "space-between",
+			gap: 12,
+		},
+		reason: { flex: 1, fontSize: 12, color: colors.textMuted },
+		send: {
+			height: 38,
+			minWidth: 72,
+			paddingHorizontal: 18,
+			borderRadius: 19,
+			backgroundColor: colors.action,
+			alignItems: "center",
+			justifyContent: "center",
+		},
+		sendDisabled: { opacity: 0.35 },
+		sendText: { color: colors.actionText, fontWeight: "600" },
+		link: { alignSelf: "center", marginTop: 16, padding: 8 },
+		linkText: { fontSize: 14, color: colors.accent },
+	});
+}

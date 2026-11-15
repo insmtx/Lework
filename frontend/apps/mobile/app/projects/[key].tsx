@@ -17,6 +17,8 @@ import { createSecureDraftStore } from "../../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../../src/composer/send";
 import { projectDisplayName, resolveTarget } from "../../src/projects/model";
 import { useProjectSessions } from "../../src/sessions/use-project-sessions";
+import type { Theme } from "../../src/theme/theme";
+import { useTheme, useThemedStyles } from "../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../src/ui/global-composer";
 import { SessionRow } from "../../src/ui/session-row";
@@ -24,9 +26,11 @@ import { SessionRow } from "../../src/ui/session-row";
 /** 项目页：一个项目跨节点的会话合并展示，主节点可改。 */
 export default function ProjectScreen() {
 	const params = useLocalSearchParams<{ key?: string | string[] }>();
+	const theme = useTheme();
+	const styles = useThemedStyles(createStyles);
 	const projectKey = Array.isArray(params.key) ? (params.key[0] ?? "") : (params.key ?? "");
 
-	const { settings, settingsLoading, projects: projectsState } = useAppShell();
+	const { settings, settingsLoading, projects: projectsState, sessionState } = useAppShell();
 	const { projects, nodes, loading, error, refresh, setPrimaryNode } = projectsState;
 	const store = useMemo(() => createSecureDraftStore(), []);
 
@@ -131,7 +135,7 @@ export default function ProjectScreen() {
 	if (settingsLoading) {
 		return (
 			<View style={styles.center}>
-				<ActivityIndicator />
+				<ActivityIndicator color={theme.colors.accent} />
 			</View>
 		);
 	}
@@ -205,6 +209,7 @@ export default function ProjectScreen() {
 						nodeID={item.nodeID}
 						session={item.session}
 						nodeName={nodeNameByID[item.nodeID]}
+						state={sessionState(item.nodeID, item.session.id)}
 					/>
 				)}
 				ListEmptyComponent={
@@ -266,45 +271,48 @@ export default function ProjectScreen() {
 	);
 }
 
-const styles = StyleSheet.create({
-	screen: { flex: 1, backgroundColor: "#fff" },
-	list: { flex: 1 },
-	listContent: { padding: 16, gap: 8, flexGrow: 1 },
-	header: { gap: 4, marginBottom: 8 },
-	center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
-	empty: { paddingVertical: 32, alignItems: "center" },
-	title: { fontSize: 20, fontWeight: "700" },
-	meta: { fontSize: 12, color: "#64748b" },
-	hint: { color: "#666", textAlign: "center" },
-	warn: { fontSize: 12, color: "#b45309" },
-	error: { fontSize: 12, color: "#b91c1c" },
-	primary: { alignSelf: "flex-start", paddingVertical: 2 },
-	primaryText: { fontSize: 13, color: "#334155" },
-	button: {
-		marginTop: 8,
-		backgroundColor: "#0f172a",
-		borderRadius: 8,
-		paddingHorizontal: 16,
-		paddingVertical: 10,
-	},
-	buttonText: { color: "#fff", fontWeight: "600" },
-	backdrop: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.25)", justifyContent: "flex-end" },
-	sheet: {
-		backgroundColor: "#fff",
-		borderTopLeftRadius: 16,
-		borderTopRightRadius: 16,
-		padding: 16,
-		gap: 8,
-	},
-	sheetTitle: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
-	sheetItem: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		paddingVertical: 12,
-		borderBottomWidth: 1,
-		borderBottomColor: "#f1f5f9",
-	},
-	sheetLabel: { fontSize: 15 },
-	online: { color: "#166534", fontSize: 12 },
-	offline: { color: "#6b7280", fontSize: 12 },
-});
+function createStyles(theme: Theme) {
+	const { colors } = theme;
+	return StyleSheet.create({
+		screen: { flex: 1, backgroundColor: colors.background },
+		list: { flex: 1 },
+		listContent: { padding: 16, gap: 8, flexGrow: 1 },
+		header: { gap: 4, marginBottom: 8 },
+		center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
+		empty: { paddingVertical: 32, alignItems: "center" },
+		title: { fontSize: 20, fontWeight: "700", color: colors.text },
+		meta: { fontSize: 12, color: colors.textSecondary },
+		hint: { color: colors.textSecondary, textAlign: "center" },
+		warn: { fontSize: 12, color: colors.warning },
+		error: { fontSize: 12, color: colors.danger },
+		primary: { alignSelf: "flex-start", paddingVertical: 2 },
+		primaryText: { fontSize: 13, color: colors.textStrong },
+		button: {
+			marginTop: 8,
+			backgroundColor: colors.action,
+			borderRadius: 8,
+			paddingHorizontal: 16,
+			paddingVertical: 10,
+		},
+		buttonText: { color: colors.actionText, fontWeight: "600" },
+		backdrop: { flex: 1, backgroundColor: colors.modalBackdrop, justifyContent: "flex-end" },
+		sheet: {
+			backgroundColor: colors.surface,
+			borderTopLeftRadius: 16,
+			borderTopRightRadius: 16,
+			padding: 16,
+			gap: 8,
+		},
+		sheetTitle: { fontSize: 16, fontWeight: "600", marginBottom: 4, color: colors.text },
+		sheetItem: {
+			flexDirection: "row",
+			justifyContent: "space-between",
+			paddingVertical: 12,
+			borderBottomWidth: 1,
+			borderBottomColor: colors.borderSubtle,
+		},
+		sheetLabel: { fontSize: 15, color: colors.text },
+		online: { color: colors.success, fontSize: 12 },
+		offline: { color: colors.offline, fontSize: 12 },
+	});
+}
