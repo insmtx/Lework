@@ -87,6 +87,117 @@ describe("buildSidebarGroups", () => {
 		expect(groups.map((group) => group.project.key)).toEqual(["inbox", "newer", "older"]);
 	});
 
+	it("项目按组内最新会话时间倒序，而不是节点心跳时间", () => {
+		// 控制面给项目盖的 last_seen 来自节点心跳：同一节点上所有项目几乎
+		// 同时刷新，只按它排序会永远停在同一个名字序。会话的 updatedAt 才是
+		// 「最近在这个项目里做了什么」的真实依据。
+		const alpha = project({
+			key: "alpha",
+			canonical: "/work/alpha",
+			last_seen: "2026-11-14T12:00:00Z",
+			nodes: [{ node_id: "node-1", online: true, last_seen: "" }],
+		});
+		const beta = project({
+			key: "beta",
+			canonical: "/work/beta",
+			last_seen: "2026-11-14T12:00:00Z",
+			nodes: [{ node_id: "node-1", online: true, last_seen: "" }],
+		});
+		const sessions = [
+			{
+				nodeID: "node-1",
+				session: session("a1", "2026-11-14T09:00:00Z", {
+					projectID: "alpha",
+					directory: "/work/alpha",
+				}),
+			},
+			{
+				nodeID: "node-1",
+				session: session("b1", "2026-11-14T11:00:00Z", {
+					projectID: "beta",
+					directory: "/work/beta",
+				}),
+			},
+		];
+
+		const groups = buildSidebarGroups([alpha, beta], sessions, ["node-1"]);
+
+		expect(groups.map((group) => group.project.key)).toEqual(["beta", "alpha"]);
+		expect(groups[0].lastActivityAt).toBe(Date.parse("2026-11-14T11:00:00Z"));
+	});
+
+	it("最新会话不在前三条时，项目排序仍按它的时间", () => {
+		// recent 会被「等待审批优先」重排，所以项目序不能取 recent[0]，
+		// 必须取全组会话的最大 updatedAt。
+		const quiet = project({
+			key: "quiet",
+			canonical: "/work/quiet",
+			last_seen: "2026-11-14T12:00:00Z",
+			nodes: [{ node_id: "node-1", online: true, last_seen: "" }],
+		});
+		const busy = project({
+			key: "busy",
+			canonical: "/work/busy",
+			last_seen: "2026-11-14T12:00:00Z",
+			nodes: [{ node_id: "node-1", online: true, last_seen: "" }],
+		});
+		const quietSession = (id: string, at: string) => ({
+			nodeID: "node-1",
+			session: session(id, at, { projectID: "quiet", directory: "/work/quiet" }),
+		});
+		const busySession = (id: string, at: string) => ({
+			nodeID: "node-1",
+			session: session(id, at, { projectID: "busy", directory: "/work/busy" }),
+		});
+		const sessions = [
+			quietSession("q1", "2026-11-14T13:00:00Z"),
+			busySession("b1", "2026-11-14T10:00:00Z"),
+			busySession("b2", "2026-11-14T10:30:00Z"),
+			busySession("b3", "2026-11-14T11:00:00Z"),
+			quietSession("q2", "2026-11-14T09:00:00Z"),
+		];
+		const stateOf = (_nodeID: string, sessionID: string) =>
+			sessionID === "b1" ? ("waiting_permission" as const) : undefined;
+
+		const groups = buildSidebarGroups([quiet, busy], sessions, ["node-1"], undefined, stateOf);
+
+		expect(groups.map((group) => group.project.key)).toEqual(["quiet", "busy"]);
+	});
+
+	it("没有会话的项目排在后面，顺序退回 last_seen 与 key", () => {
+		const emptyA = project({
+			key: "empty-a",
+			canonical: "/work/empty-a",
+			last_seen: "2026-11-14T12:00:00Z",
+			nodes: [{ node_id: "node-1", online: true, last_seen: "" }],
+		});
+		const emptyB = project({
+			key: "empty-b",
+			canonical: "/work/empty-b",
+			last_seen: "2026-11-14T12:00:00Z",
+			nodes: [{ node_id: "node-1", online: true, last_seen: "" }],
+		});
+		const active = project({
+			key: "active",
+			canonical: "/work/active",
+			last_seen: "2026-11-01T00:00:00Z",
+			nodes: [{ node_id: "node-1", online: true, last_seen: "" }],
+		});
+		const sessions = [
+			{
+				nodeID: "node-1",
+				session: session("a1", "2026-11-14T09:00:00Z", {
+					projectID: "active",
+					directory: "/work/active",
+				}),
+			},
+		];
+
+		const groups = buildSidebarGroups([emptyB, active, emptyA], sessions, ["node-1"]);
+
+		expect(groups.map((group) => group.project.key)).toEqual(["active", "empty-a", "empty-b"]);
+	});
+
 	it("按 projectID 归组，不在项目节点上的会话不混入", () => {
 		const sessions = [
 			{ nodeID: "node-1", session: session("mine", "2026-11-14T10:00:00Z") },
