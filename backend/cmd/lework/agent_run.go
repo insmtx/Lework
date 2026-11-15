@@ -20,6 +20,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/agentd/handler"
 	"github.com/insmtx/lework/backend/internal/agentd/opencode"
 	"github.com/insmtx/lework/backend/internal/agentd/runner"
+	"github.com/insmtx/lework/backend/internal/agentd/servicefile"
 	"github.com/insmtx/lework/backend/internal/agentd/supervisor"
 	"github.com/insmtx/lework/backend/internal/agentd/transport"
 )
@@ -47,10 +48,11 @@ const (
 // agentRuntime 是已装配但尚未连接的节点 agent，供独立 agent 与进程内组合
 // 启动（bare lework）复用同一套构造/运行/关闭流程。
 type agentRuntime struct {
-	cfg     *agentdconfig.Config
-	client  *opencode.Client
-	service *supervisor.Supervisor
-	handler *handler.Handler
+	cfg      *agentdconfig.Config
+	client   *opencode.Client
+	service  *supervisor.Supervisor
+	handler  *handler.Handler
+	password string
 }
 
 // buildAgent 解析 OpenCode 环境并装配客户端、监管器与请求处理器。
@@ -78,10 +80,11 @@ func buildAgent(cfg *agentdconfig.Config) (*agentRuntime, error) {
 	requestHandler := handler.New(client, service, handler.WithWorkspaceRoots(cfg.WorkspaceRoots...))
 
 	return &agentRuntime{
-		cfg:     cfg,
-		client:  client,
-		service: service,
-		handler: requestHandler,
+		cfg:      cfg,
+		client:   client,
+		service:  service,
+		handler:  requestHandler,
+		password: password,
 	}, nil
 }
 
@@ -91,6 +94,11 @@ func (a *agentRuntime) Run(ctx context.Context) error {
 	if a == nil || a.cfg == nil || a.client == nil || a.service == nil || a.handler == nil {
 		return errors.New("agent runtime is not initialized")
 	}
+
+	// Publish before Ensure so a concurrently started `lework opencode` can
+	// wait for the service instead of reporting a missing endpoint. A write
+	// failure is not fatal: the control plane path does not depend on it.
+	a.publishService()
 
 	// Bootstrap the local service once before dialing. The runner subscribes to
 	// OpenCode events immediately after welcome, so without a running service
@@ -118,7 +126,42 @@ func (a *agentRuntime) Close() error {
 		return nil
 	}
 	stopService(a.service, a.cfg.EnrollmentToken)
+	a.unpublishService()
 	return nil
+}
+
+// publishService records the agent-owned endpoint for `lework opencode`. The
+// file carries the password, so it is written 0600 by servicefile. Failure is
+// logged but never fatal: the node can still serve the control plane without a
+// local TUI.
+func (a *agentRuntime) publishService() {
+	if a == nil || a.cfg == nil {
+		return
+	}
+	info := servicefile.Info{
+		URL:      fmt.Sprintf("http://127.0.0.1:%d", a.cfg.OpenCode.Port),
+		Password: a.password,
+		Port:     a.cfg.OpenCode.Port,
+		PID:      os.Getpid(),
+	}
+	if err := servicefile.Write(info); err != nil {
+		logs.Warnf("lework-agent: publish opencode service endpoint: %s",
+			redact(err, a.cfg.EnrollmentToken))
+	}
+}
+
+// unpublishService removes the endpoint only when this process wrote it. A
+// second agent on the same node must not lose its own record because this one
+// happened to shut down first.
+func (a *agentRuntime) unpublishService() {
+	current, err := servicefile.Read()
+	if err != nil || current.PID != os.Getpid() {
+		return
+	}
+	if err := servicefile.Remove(); err != nil {
+		logs.Warnf("lework-agent: remove opencode service endpoint: %s",
+			redact(err, a.cfg.EnrollmentToken))
+	}
 }
 
 // runAgent wires the daemon and runs it until ctx ends. Config errors are
