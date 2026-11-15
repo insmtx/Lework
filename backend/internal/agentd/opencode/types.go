@@ -28,7 +28,10 @@ type Session struct {
 	ProjectID string `json:"projectID,omitempty"`
 	// Subpath is the path of Directory relative to the project root. It is
 	// empty when the session was created at the root itself.
-	Subpath   string    `json:"subpath,omitempty"`
+	Subpath string `json:"subpath,omitempty"`
+	// ParentID 非空表示这是子代理创建的会话：它属于父会话的内部执行，
+	// 不是用户发起的会话，会话列表必须排除。
+	ParentID  string    `json:"parentID,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt,omitempty"`
 }
@@ -153,6 +156,7 @@ type InterruptResult struct {
 // sessionWire mirrors the v2 Session.Info envelope fields this package reads.
 type sessionWire struct {
 	ID        string `json:"id"`
+	ParentID  string `json:"parentID"`
 	ProjectID string `json:"projectID"`
 	Subpath   string `json:"subpath"`
 	Title     string `json:"title"`
@@ -171,6 +175,7 @@ func (s *Session) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	s.ID = wire.ID
+	s.ParentID = wire.ParentID
 	s.Directory = wire.Location.Directory
 	s.ProjectID = wire.ProjectID
 	s.Subpath = wire.Subpath

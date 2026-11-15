@@ -55,6 +55,10 @@ func TestListSessionsDecodesEnvelope(t *testing.T) {
 		if got := r.URL.Query().Get("directory"); got != "/work/foo" {
 			t.Errorf("directory = %q, want /work/foo", got)
 		}
+		// 子会话不能出现在会话列表里：必须显式只取顶层会话。
+		if got := r.URL.Query().Get("parentID"); got != "null" {
+			t.Errorf("parentID = %q, want null", got)
+		}
 		_, _ = w.Write([]byte(`{"data":[{"id":"ses_1","location":{"directory":"/work/foo"},` +
 			`"title":"demo","time":{"created":1,"updated":1793529425262}}],"cursor":{}}`))
 	}))
@@ -69,6 +73,27 @@ func TestListSessionsDecodesEnvelope(t *testing.T) {
 	}
 	if got[0].ID != "ses_1" || got[0].Directory != "/work/foo" || got[0].Title != "demo" {
 		t.Fatalf("session = %#v", got[0])
+	}
+}
+
+func TestListSessionsSkipsSubagentSessions(t *testing.T) {
+	// 即使服务端没有按 parentID 过滤，客户端也不能把子会话当成用户会话返回。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"ses_root","title":"父会话"},` +
+			`{"id":"ses_child","parentID":"ses_root","title":"子代理"},` +
+			`{"id":"ses_root2","parentID":null,"title":"另一个会话"}],"cursor":{}}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ListSessions(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("sessions = %#v", got)
+	}
+	if got[0].ID != "ses_root" || got[1].ID != "ses_root2" {
+		t.Fatalf("sessions = %#v", got)
 	}
 }
 

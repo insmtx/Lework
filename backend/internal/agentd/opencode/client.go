@@ -123,9 +123,15 @@ func (c *Client) Health(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodGet, "/api/info", nil, nil)
 }
 
-// ListSessions returns the sessions known to the server, newest first.
-// A non-empty directory filters by location; an empty one lists every
+// ListSessions returns the top-level sessions known to the server, newest
+// first. A non-empty directory filters by location; an empty one lists every
 // session loaded by the server.
+//
+// Subagent sessions carry a parentID and run inside another session's turn.
+// OpenCode lists them alongside top-level sessions unless asked for
+// parentID=null, so without the filter a single subagent-heavy turn would fill
+// the user's session list with internal child sessions; they are also skipped
+// after decoding in case a server build ignores the parameter.
 //
 // The server pages at 50 by default and answers with forward-only cursors, so
 // this loops until the cursor is exhausted or maxSessionPages is reached: a
@@ -138,6 +144,7 @@ func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session,
 	for page := 0; page < maxSessionPages; page++ {
 		query := url.Values{}
 		query.Set("limit", strconv.Itoa(sessionPageLimit))
+		query.Set("parentID", "null")
 		if directory != "" {
 			query.Set("directory", directory)
 		}
@@ -159,6 +166,9 @@ func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session,
 			return nil, fmt.Errorf("opencode GET %s: response missing data", path)
 		}
 		for _, session := range envelope.Data {
+			if session.ParentID != "" {
+				continue
+			}
 			if _, ok := seen[session.ID]; ok {
 				continue
 			}
