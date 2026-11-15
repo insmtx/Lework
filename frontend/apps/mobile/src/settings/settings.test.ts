@@ -73,6 +73,10 @@ describe("createSettingsStore", () => {
 			notifications: true,
 			deviceID: undefined,
 		});
+		// 迁移必须落盘：部署级令牌不能继续留在手机存储里。
+		const raw = kv.data.get(SETTINGS_KEY) ?? "";
+		expect(raw).not.toContain("admin-token");
+		expect(JSON.parse(raw)).toEqual(loaded);
 	});
 
 	it("保存并读回登录态", async () => {

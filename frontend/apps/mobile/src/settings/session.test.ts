@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type AuthClient,
 	authErrorMessage,
+	canRegister,
 	clearExpiredSession,
 	loadAuthMethods,
 	saveServerAddress,
@@ -69,6 +70,31 @@ describe("signIn", () => {
 			notifications: true,
 		});
 		expect(saved).toHaveLength(1);
+	});
+
+	it("登录失败的提示在页面二次映射后仍不是网络错误", async () => {
+		const error = new ApiError(401, "invalid_credentials", "invalid_credentials");
+		let caught: unknown;
+		try {
+			await signIn(
+				{ store: fakeSettingsStore(baseSettings, []), client: () => rejectingClient(error) },
+				{ baseUrl: "http://box:8787", email: "a@example.com", password: "bad" },
+			);
+		} catch (thrown) {
+			caught = thrown;
+		}
+		// 页面拿到 signIn 抛出的错误后会再调一次 authErrorMessage；它必须仍是
+		// 账号密码提示，而不是把「网络不通」指给用户。
+		expect(authErrorMessage(caught)).toBe("账号或密码错误");
+	});
+
+	it("地址不完整时提示怎么写而不是报网络错误", async () => {
+		await expect(
+			signIn(
+				{ store: fakeSettingsStore(baseSettings, []), client: () => fakeAuthClient({ token: "t" }) },
+				{ baseUrl: "192.168.1.10:8787", email: "a@example.com", password: "password123" },
+			),
+		).rejects.toThrow(/完整/);
 	});
 
 	it("401 映射为账号或密码错误", async () => {
@@ -147,5 +173,13 @@ describe("saveServerAddress", () => {
 			baseSettings.baseUrl,
 		);
 		expect(next.sessionToken).toBe(baseSettings.sessionToken);
+	});
+});
+
+describe("canRegister", () => {
+	it("closed 时隐藏注册入口，其余情况保留", () => {
+		expect(canRegister(null)).toBe(true);
+		expect(canRegister({ initialized: true, registration_mode: "open" })).toBe(true);
+		expect(canRegister({ initialized: true, registration_mode: "closed" })).toBe(false);
 	});
 });

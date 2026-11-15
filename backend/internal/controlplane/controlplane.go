@@ -393,9 +393,6 @@ type snapshotPayload struct {
 	Sessions []overview.Session `json:"sessions"`
 }
 
-// publishSnapshots 周期性地把本地节点的投影发布到集群总线。
-//
-// owner 之外的实例没有原始事件流，只能靠快照收敛；因此每轮 tick 都为
 // startNodeCloseSubscriber 订阅跨实例的「关闭节点连接」通知。
 //
 // 每个实例都订阅同一 wildcard，处理器只关心本实例是否持有该连接；没有则
@@ -444,6 +441,9 @@ func handleNodeCloseMessage(registry *node.Registry, payload []byte) {
 	}
 }
 
+// publishSnapshots 周期性地把本地节点的投影发布到集群总线。
+//
+// owner 之外的实例没有原始事件流，只能靠快照收敛；因此每轮 tick 都为
 // registry 里的每个节点发布一次，进程退出时随 runCtx 一起停止。
 func (s *Server) publishSnapshots(ctx context.Context) {
 	ticker := time.NewTicker(snapshotInterval)

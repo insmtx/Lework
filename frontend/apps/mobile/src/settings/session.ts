@@ -44,6 +44,18 @@ export async function saveServerAddress(
 	return saved;
 }
 
+/**
+ * canRegister 决定登录页是否给出「注册」入口。
+ *
+ * methods 还没拿到时保留入口：提前隐藏会让网络慢的用户以为这台服务器不能
+ * 注册。只有服务端明确 closed 才藏起来，避免用户白填一遍表单再吃 403。
+ */
+export function canRegister(
+	methods: { initialized: boolean; registration_mode: "open" | "closed" } | null,
+): boolean {
+	return methods?.registration_mode !== "closed";
+}
+
 /** loadAuthMethods 读取登录页需要的公开信息；网络失败时抛给调用方展示重试。 */
 export async function loadAuthMethods(
 	deps: Pick<SessionDeps, "client">,
@@ -149,7 +161,12 @@ async function saveSession(
 	return saved;
 }
 
-/** authErrorMessage 把后端错误码/网络故障翻译成用户可照做的提示。 */
+/**
+ * authErrorMessage 把后端错误码/网络故障翻译成用户可照做的提示。
+ *
+ * 纯 Error 直接沿用它的 message：signIn/signUp 与 normalizeBaseUrl 抛出的
+ * 都是已经本地化过的提示，页面可以安全地再映射一次，不会退化成「网络不通」。
+ */
 export function authErrorMessage(error: unknown): string {
 	if (error instanceof ApiError) {
 		switch (error.code) {
@@ -167,6 +184,9 @@ export function authErrorMessage(error: unknown): string {
 				return "操作失败，请稍后重试";
 		}
 	}
+	// 网络层失败在 RN / Node 都是 TypeError（"Network request failed"）。
+	if (error instanceof TypeError) return "网络不通，请检查服务器地址";
+	if (error instanceof Error && error.message.trim() !== "") return error.message;
 	return "网络不通，请检查服务器地址";
 }
 

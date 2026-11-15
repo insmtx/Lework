@@ -7,6 +7,7 @@ import { createSettingsStyles, SettingsPage, SettingsSection } from "../src/sett
 import { createSecureSettingsStore } from "../src/settings/secure-store";
 import {
 	authErrorMessage,
+	canRegister,
 	loadAuthMethods,
 	signIn,
 	signUp,
@@ -97,6 +98,11 @@ export default function LoginScreen() {
 		}
 	};
 
+	// methods 是异步到的：用户可能已经在它返回前切到了注册模式。
+	useEffect(() => {
+		if (methods?.registration_mode === "closed" && mode === "register") setMode("login");
+	}, [methods, mode]);
+
 	const registrationClosed = methods?.registration_mode === "closed";
 	const canSubmit = baseUrl.trim() !== "" && email.trim() !== "" && password !== "" && !busy;
 
@@ -150,13 +156,15 @@ export default function LoginScreen() {
 					)}
 				</Pressable>
 
-				<View style={{ flexDirection: "row", gap: 12 }}>
-					<Pressable onPress={() => setMode(mode === "login" ? "register" : "login")}>
-						<Text style={styles.hint}>
-							{mode === "login" ? "还没有账号？注册" : "已有账号？去登录"}
-						</Text>
-					</Pressable>
-				</View>
+				{canRegister(methods) ? (
+					<View style={{ flexDirection: "row", gap: 12 }}>
+						<Pressable onPress={() => setMode(mode === "login" ? "register" : "login")}>
+							<Text style={styles.hint}>
+								{mode === "login" ? "还没有账号？注册" : "已有账号？去登录"}
+							</Text>
+						</Pressable>
+					</View>
+				) : null}
 
 				{registrationClosed ? (
 					<Text style={styles.hint}>这台服务器未开放注册</Text>

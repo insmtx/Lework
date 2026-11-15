@@ -71,6 +71,18 @@ describe("createClient", () => {
 		expect(handler).toHaveBeenCalledTimes(1);
 	});
 
+	it("401 invalid_credentials 是输入错误，不触发会话过期通知", async () => {
+		// 改密码时旧密码输错，后端也返回 401 invalid_credentials；若当成会话过期
+		// 就会把用户踢回登录页，而这恰恰是他正在处理的表单。
+		stubFetchOnce(
+			new Response(JSON.stringify({ code: "invalid_credentials" }), { status: 401 }),
+		);
+		const handler = vi.fn();
+		setSessionExpiredHandler(handler);
+		await expect(createClient(signedIn).listNodes()).rejects.toMatchObject({ status: 401 });
+		expect(handler).not.toHaveBeenCalled();
+	});
+
 	it("可以注入自定义 onExpired 而不触发全局通知", async () => {
 		stubFetchOnce(new Response(JSON.stringify({ code: "unauthorized" }), { status: 401 }));
 		const globalHandler = vi.fn();

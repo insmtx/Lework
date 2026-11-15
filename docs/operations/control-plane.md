@@ -61,14 +61,17 @@ lework serve \
 不用登录就能看到该账号下的节点；账号被删掉时回环请求退回 `KindLocal`（部署级
 身份），不会凭空生成账号。
 
-拿到手机或对外提供服务之前，先把默认密码改掉：
+拿到手机或对外提供服务之前，先把默认密码改掉。在运行控制面的本机执行即可，
+回环请求已经解析成 admin 账号，不需要额外带令牌：
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8787/api/auth/password \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $SESSION_TOKEN" \
   -d '{"current_password":"admin123","new_password":"<新密码>"}'
 ```
+
+从别的机器调用时，带 `Authorization: Bearer <会话 token>`（`POST /api/auth/login`
+响应里的 `token`）。
 
 手机上也有同一个入口：设置 → 账号 → 修改密码（要求旧密码，成功后其他设备
 的会话会被吊销）。密码至少 8 位。

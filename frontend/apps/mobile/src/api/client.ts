@@ -15,6 +15,12 @@ export function createClient(
 		baseUrl: settings.baseUrl,
 		headers: (): Record<string, string> =>
 			settings.sessionToken ? { Authorization: `Bearer ${settings.sessionToken}` } : {},
-		onUnauthorized: () => onExpired(),
+		onUnauthorized: (error) => {
+			// 401 有两种含义：会话真的过期（unauthorized），或提交的凭证字段本身
+			// 就错了（invalid_credentials，典型是改密码时旧密码输错）。后者不能
+			// 清本地会话，否则用户正在改的密码会被自己的笔误踢回登录页。
+			if (error.code === "invalid_credentials") return;
+			onExpired();
+		},
 	});
 }
