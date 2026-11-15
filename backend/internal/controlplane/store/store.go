@@ -156,21 +156,6 @@ type UserSession struct {
 	CreatedAt  time.Time
 }
 
-// Invite 是注册邀请码；控制面默认 invite-only。
-//
-// 只保存 sha256 摘要：明文邀请码由调用方生成并交给用户，数据库被读走也
-// 无法反推出可用邀请码。是否可用（未使用、未过期）的判定全部在
-// ConsumeInvite 的单条 UPDATE 里完成，避免「先查后写」的并发窗口。
-type Invite struct {
-	ID        string `gorm:"primaryKey"`
-	CodeHash  string `gorm:"uniqueIndex;not null"`
-	CreatedBy string
-	ExpiresAt time.Time
-	UsedBy    string
-	UsedAt    *time.Time
-	CreatedAt time.Time
-}
-
 // NodeClaim 是一次进行中的配对：agent 已经连上控制面，但还没有账号认领它。
 //
 // 单独建表而不是在 nodes 里放「未完成」行，是因为配对中的连接还没有节点身份，

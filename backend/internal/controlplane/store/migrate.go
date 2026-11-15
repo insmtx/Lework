@@ -29,7 +29,7 @@ func migrateControlPlane(db *gorm.DB) error {
 	// node_id，排在归属表之后。
 	models := []any{
 		&Node{}, &NodeMember{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{},
-		&User{}, &UserSession{}, &Invite{}, &NodeClaim{},
+		&User{}, &UserSession{}, &NodeClaim{},
 	}
 	if err := db.AutoMigrate(models...); err != nil {
 		return fmt.Errorf("auto migrate control plane tables: %w", err)
@@ -39,6 +39,28 @@ func migrateControlPlane(db *gorm.DB) error {
 	if migrator.HasIndex(&Node{}, legacyNodeNameIndex) {
 		if err := migrator.DropIndex(&Node{}, legacyNodeNameIndex); err != nil {
 			return fmt.Errorf("drop legacy index %q: %w", legacyNodeNameIndex, err)
+		}
+	}
+	if err := dropLegacyControlPlaneTables(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// legacyControlPlaneTables 记录已从模型删除、但旧库仍残留的表。
+//
+// GORM AutoMigrate 只建表不删表，而 invites 在邀请码机制移除后不再被任何
+// 代码读写；留着它只会让运维误以为还能发码。与控制面共库的启动路径都会
+// 走 migrateControlPlane，因此在这里统一清理。
+var legacyControlPlaneTables = []string{"invites"}
+
+func dropLegacyControlPlaneTables(db *gorm.DB) error {
+	for _, table := range legacyControlPlaneTables {
+		if !db.Migrator().HasTable(table) {
+			continue
+		}
+		if err := db.Migrator().DropTable(table); err != nil {
+			return fmt.Errorf("drop legacy table %q: %w", table, err)
 		}
 	}
 	return nil
