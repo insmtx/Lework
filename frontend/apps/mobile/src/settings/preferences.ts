@@ -52,7 +52,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export const CHAT_FONT_SCALE: Record<ChatFontSize, number> = {
 	small: 0.9,
 	standard: 1,
-	large: 1.15,
+	large: 1.25,
 };
 
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];

@@ -33,6 +33,7 @@ import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
 import { CHAT_FONT_SCALE } from "../../../src/settings/preferences";
 import { formatRelativeTime } from "../../../src/sidebar/model";
+import { contentTextStyle } from "../../../src/theme/content-scale";
 import type { Theme } from "../../../src/theme/theme";
 import { useThemePreference } from "../../../src/theme/theme-context";
 import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
@@ -64,7 +65,15 @@ function statusColor(theme: Theme, tone: StatusTone): string {
  *
  * 它和正文分开渲染：思考不是回复内容，塞进气泡会让用户以为模型说过这些话。
  */
-function ReasoningCard({ message, mode }: { message: Message; mode: "brief" | "full" }) {
+function ReasoningCard({
+	message,
+	mode,
+	fontScale,
+}: {
+	message: Message;
+	mode: "brief" | "full";
+	fontScale: number;
+}) {
 	const styles = useThemedStyles(createStyles);
 	const [expanded, setExpanded] = useState(mode === "full");
 	const text = reasoningText(message);
@@ -82,7 +91,10 @@ function ReasoningCard({ message, mode }: { message: Message; mode: "brief" | "f
 				<Text style={styles.reasoningChevron}>{expanded ? "▾" : "▸"}</Text>
 				<Text style={styles.reasoningLabel}>思考过程</Text>
 			</Pressable>
-			<Text style={styles.reasoningBody} numberOfLines={expanded ? undefined : 2}>
+			<Text
+				style={[styles.reasoningBody, contentTextStyle(fontScale, 12, 18)]}
+				numberOfLines={expanded ? undefined : 2}
+			>
 				{expanded ? text : preview}
 			</Text>
 		</View>
@@ -106,7 +118,9 @@ function MessageRow({
 	if (message.role === "idle") {
 		return (
 			<View style={styles.noticeRow}>
-				<Text style={styles.noticeError}>{message.error?.message ?? "本轮执行失败"}</Text>
+				<Text style={[styles.noticeError, contentTextStyle(fontScale, 12, 16)]}>
+					{message.error?.message ?? "本轮执行失败"}
+				</Text>
 			</View>
 		);
 	}
@@ -145,6 +159,7 @@ function MessageRow({
 				<ReasoningCard
 					message={message}
 					mode={preferences.processDisplay === "full" ? "full" : "brief"}
+					fontScale={fontScale}
 				/>
 			) : null}
 			{!isUser && tools.length > 0 ? (
@@ -154,21 +169,28 @@ function MessageRow({
 							key={part.callID || `${part.tool || "tool"}-${index}`}
 							part={part}
 							defaultExpanded={preferences.toolDisplay === "expanded"}
+							fontScale={fontScale}
 							nodeID={nodeID}
 						/>
 					))}
 				</View>
 			) : null}
-			{message.error ? <Text style={styles.turnError}>{message.error.message}</Text> : null}
+			{message.error ? (
+				<Text style={[styles.turnError, contentTextStyle(fontScale, 12, 16)]}>
+					{message.error.message}
+				</Text>
+			) : null}
 		</View>
 	);
 }
 
 function ApprovalCard({
 	permission,
+	fontScale,
 	onReply,
 }: {
 	permission: PendingPermission;
+	fontScale: number;
 	onReply: (decision: "once" | "always" | "reject", message?: string) => Promise<void>;
 }) {
 	const theme = useTheme();
@@ -193,12 +215,22 @@ function ApprovalCard({
 	return (
 		<View style={styles.approval}>
 			<Text style={styles.approvalTitle}>Approval required</Text>
-			<Text style={styles.approvalAction}>{permission.action || permission.id}</Text>
-			{permission.message ? <Text style={styles.approvalMessage}>{permission.message}</Text> : null}
+			<Text style={[styles.approvalAction, contentTextStyle(fontScale, 15, 21)]}>
+				{permission.action || permission.id}
+			</Text>
+			{permission.message ? (
+				<Text style={[styles.approvalMessage, contentTextStyle(fontScale, 13, 19)]}>
+					{permission.message}
+				</Text>
+			) : null}
 			{permission.resources.length > 0 ? (
 				<View style={styles.resources}>
 					{permission.resources.slice(0, 6).map((resource) => (
-						<Text key={resource} style={styles.resource} numberOfLines={2}>
+						<Text
+							key={resource}
+							style={[styles.resource, contentTextStyle(fontScale, 12, 16)]}
+							numberOfLines={2}
+						>
 							{resource}
 						</Text>
 					))}
@@ -217,7 +249,9 @@ function ApprovalCard({
 				/>
 			) : null}
 
-			{error ? <Text style={styles.error}>{error}</Text> : null}
+			{error ? (
+				<Text style={[styles.error, contentTextStyle(fontScale, 13, 18)]}>{error}</Text>
+			) : null}
 
 			<View style={styles.approvalButtons}>
 				<Pressable
@@ -535,7 +569,9 @@ export default function SessionScreen() {
 				</View>
 			) : null}
 
-			{error ? <Text style={styles.error}>{error}</Text> : null}
+			{error ? (
+				<Text style={[styles.error, contentTextStyle(fontScale, 13, 18)]}>{error}</Text>
+			) : null}
 			{actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
 			<View style={styles.messagesWrap}>
@@ -545,6 +581,8 @@ export default function SessionScreen() {
 					contentContainerStyle={styles.messagesContent}
 					data={visibleMessages}
 					keyExtractor={(message) => message.id}
+					// 字号与展示偏好变化时，行内内容必须一起重排；FlatList 不会因为闭包变化重绘单元格。
+					extraData={`${fontScale}:${preferences.toolDisplay}:${preferences.processDisplay}`}
 					renderItem={({ item }) => (
 						<MessageRow message={item} fontScale={fontScale} nodeID={nodeID} />
 					)}
@@ -565,6 +603,7 @@ export default function SessionScreen() {
 									<ApprovalCard
 										key={permission.id}
 										permission={permission}
+										fontScale={fontScale}
 										onReply={(decision, message) => reply(permission.id, decision, message)}
 									/>
 								))}

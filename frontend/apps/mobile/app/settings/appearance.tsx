@@ -27,7 +27,10 @@ export default function AppearanceScreen() {
 				<Segmented options={THEME_OPTIONS} value={preferences.themeMode} onChange={setMode} />
 			</SettingsSection>
 
-			<SettingsSection title="会话字号" hint="只影响消息正文，导航和按钮保持不变。">
+			<SettingsSection
+				title="会话字号"
+				hint="影响消息正文、思考过程与工具输出；导航和按钮保持不变。"
+			>
 				<Segmented
 					options={FONT_OPTIONS}
 					value={preferences.chatFontSize}

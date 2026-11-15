@@ -1,8 +1,8 @@
 import { clipText } from "@lework/tool-view";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { useThemedStyles } from "../../theme/use-theme";
-import { createStyles } from "./styles";
+
+import { useToolStyles } from "./font-scale";
 
 const RAW_LIMIT = 6000;
 
@@ -13,7 +13,7 @@ const RAW_LIMIT = 6000;
  * 但正常阅读不会被 JSON 打断。
  */
 export function RawJson({ text }: { text: string }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	const [open, setOpen] = useState(false);
 
 	if (text === "") return null;

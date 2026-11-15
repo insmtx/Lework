@@ -3,9 +3,8 @@ import { router } from "expo-router";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { sessionRoute } from "../../config";
-import { useThemedStyles } from "../../theme/use-theme";
+import { useToolStyles } from "./font-scale";
 import { RawJson } from "./raw-json";
-import { createStyles } from "./styles";
 import { ToolBlocks } from "./tool-blocks";
 
 /**
@@ -33,7 +32,7 @@ export function SubagentSheet({
 	nodeID: string;
 	onClose: () => void;
 }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	const insets = useSafeAreaInsets();
 	const meta = [tool, status, detail.duration ?? "", detail.background ? "后台运行" : ""]
 		.filter((part) => part !== "")

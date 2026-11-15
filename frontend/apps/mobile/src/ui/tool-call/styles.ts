@@ -5,11 +5,13 @@ import type { Theme } from "../../theme/theme";
 /**
  * createStyles 汇总工具卡片的样式。
  *
- * 所有子组件共用同一个工厂，样式表只随主题重建一次；卡片内部不再各自
- * 维护一份几乎相同的字段/代码/差异排版。
+ * 所有子组件共用同一个工厂，样式表只随主题与字号重建一次；卡片内部不再
+ * 各自维护一份几乎相同的字段/代码/差异排版。fontScale 来自会话字号设置，
+ * 与正文使用同一个倍率，避免正文变大而工具输出仍停留在小字。
  */
-export function createStyles(theme: Theme) {
+export function createStyles(theme: Theme, fontScale = 1) {
 	const { colors } = theme;
+	const size = (value: number) => Math.round(value * fontScale);
 
 	return StyleSheet.create({
 		card: {
@@ -28,20 +30,20 @@ export function createStyles(theme: Theme) {
 			paddingHorizontal: 10,
 			paddingVertical: 8,
 		},
-		chevron: { width: 12, fontSize: 12, color: colors.textMuted },
+		chevron: { width: size(12), fontSize: size(12), color: colors.textMuted },
 		toolName: {
 			flexShrink: 1,
 			fontFamily: "monospace",
-			fontSize: 13,
+			fontSize: size(13),
 			fontWeight: "600",
 			color: colors.text,
 		},
-		status: { marginLeft: "auto", fontSize: 11 },
+		status: { marginLeft: "auto", fontSize: size(11) },
 		summary: {
 			paddingHorizontal: 10,
 			paddingBottom: 8,
 			marginTop: -2,
-			fontSize: 12,
+			fontSize: size(12),
 			color: colors.textSecondary,
 		},
 		body: {
@@ -53,7 +55,7 @@ export function createStyles(theme: Theme) {
 		blocks: { gap: 8 },
 		block: { gap: 4 },
 		label: {
-			fontSize: 10,
+			fontSize: size(10),
 			fontWeight: "700",
 			color: colors.textMuted,
 			textTransform: "uppercase",
@@ -66,29 +68,29 @@ export function createStyles(theme: Theme) {
 		},
 		command: {
 			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 18,
+			fontSize: size(12),
+			lineHeight: size(18),
 			fontWeight: "600",
 			color: colors.codeText,
 		},
 		workdir: {
 			fontFamily: "monospace",
-			fontSize: 11,
-			lineHeight: 16,
+			fontSize: size(11),
+			lineHeight: size(16),
 			color: colors.textMuted,
 		},
 		terminalOutput: {
 			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 18,
+			fontSize: size(12),
+			lineHeight: size(18),
 			color: colors.codeText,
 			marginTop: 4,
 		},
-		terminalMeta: { marginTop: 4, fontSize: 10, color: colors.textMuted },
+		terminalMeta: { marginTop: 4, fontSize: size(10), color: colors.textMuted },
 		code: {
 			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 18,
+			fontSize: size(12),
+			lineHeight: size(18),
 			color: colors.codeText,
 			backgroundColor: colors.codeBackground,
 			borderRadius: 8,
@@ -101,43 +103,53 @@ export function createStyles(theme: Theme) {
 		},
 		diffLine: {
 			fontFamily: "monospace",
-			fontSize: 12,
-			lineHeight: 17,
+			fontSize: size(12),
+			lineHeight: size(17),
 			color: colors.codeText,
 		},
 		diffAdd: { color: colors.success, backgroundColor: colors.surfaceMuted },
 		diffDel: { color: colors.danger, backgroundColor: colors.dangerSurface },
 		diffMeta: { color: colors.textMuted },
-		muted: { fontSize: 12, lineHeight: 18, color: colors.textMuted },
+		muted: { fontSize: size(12), lineHeight: size(18), color: colors.textMuted },
 		empty: {
-			fontSize: 12,
+			fontSize: size(12),
 			color: colors.textMuted,
 			backgroundColor: colors.codeBackground,
 			borderRadius: 8,
 			padding: 8,
 		},
-		listItem: { fontSize: 12, lineHeight: 18, color: colors.textStrong, fontFamily: "monospace" },
-		checkItem: { fontSize: 12, lineHeight: 18, color: colors.textStrong },
+		listItem: {
+			fontSize: size(12),
+			lineHeight: size(18),
+			color: colors.textStrong,
+			fontFamily: "monospace",
+		},
+		checkItem: { fontSize: size(12), lineHeight: size(18), color: colors.textStrong },
 		checkDone: { color: colors.textMuted, textDecorationLine: "line-through" },
 		fields: { gap: 6 },
 		fieldRow: { gap: 2 },
 		fieldLabel: {
-			fontSize: 10,
+			fontSize: size(10),
 			fontWeight: "700",
 			color: colors.textMuted,
 			textTransform: "uppercase",
 		},
-		fieldValue: { fontFamily: "monospace", fontSize: 12, lineHeight: 18, color: colors.textStrong },
-		text: { fontSize: 13, lineHeight: 19, color: colors.text },
+		fieldValue: {
+			fontFamily: "monospace",
+			fontSize: size(12),
+			lineHeight: size(18),
+			color: colors.textStrong,
+		},
+		text: { fontSize: size(13), lineHeight: size(19), color: colors.text },
 		textMuted: { color: colors.textMuted },
 		textError: { color: colors.danger },
 		errorText: { color: colors.danger },
 		raw: { gap: 4 },
-		rawToggle: { fontSize: 11, color: colors.textMuted },
+		rawToggle: { fontSize: size(11), color: colors.textMuted },
 		rawBody: {
 			fontFamily: "monospace",
-			fontSize: 11,
-			lineHeight: 16,
+			fontSize: size(11),
+			lineHeight: size(16),
 			color: colors.textSecondary,
 			backgroundColor: colors.surfaceMuted,
 			borderRadius: 8,
@@ -154,14 +166,14 @@ export function createStyles(theme: Theme) {
 			borderBottomColor: colors.borderSubtle,
 		},
 		sheetHeading: { flex: 1, gap: 2 },
-		sheetTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-		sheetSubtitle: { fontSize: 12, color: colors.textSecondary },
-		sheetClose: { fontSize: 14, fontWeight: "600", color: colors.accent },
+		sheetTitle: { fontSize: size(16), fontWeight: "700", color: colors.text },
+		sheetSubtitle: { fontSize: size(12), color: colors.textSecondary },
+		sheetClose: { fontSize: size(14), fontWeight: "600", color: colors.accent },
 		sheetScroll: { flex: 1 },
 		sheetContent: { padding: 16, gap: 12 },
 		sheetMeta: { gap: 4 },
-		sheetMetaText: { fontSize: 12, color: colors.textMuted },
-		sheetDescription: { fontSize: 14, lineHeight: 20, color: colors.text },
+		sheetMetaText: { fontSize: size(12), color: colors.textMuted },
+		sheetDescription: { fontSize: size(14), lineHeight: size(20), color: colors.text },
 		primaryButton: {
 			backgroundColor: colors.action,
 			borderRadius: 8,

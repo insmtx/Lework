@@ -1,7 +1,7 @@
 import { clipText, type DiffLine, type ToolBlock } from "@lework/tool-view";
 import { Text, View } from "react-native";
-import { useThemedStyles } from "../../theme/use-theme";
-import { createStyles } from "./styles";
+
+import { useToolStyles } from "./font-scale";
 
 /** DIFF_LINE_LIMIT 防止一次编辑把整条消息撑成几屏，超出的部分明确标注截断。 */
 const DIFF_LINE_LIMIT = 200;
@@ -22,12 +22,12 @@ function itemKey(item: string, position: number): string {
 }
 
 function BlockLabel({ label }: { label?: string }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	return label ? <Text style={styles.label}>{label}</Text> : null;
 }
 
 function TerminalBlock({ block }: { block: Extract<ToolBlock, { kind: "terminal" }> }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	const meta = [block.exit !== undefined ? `exit ${block.exit}` : "", block.duration ?? ""]
 		.filter((part) => part !== "")
 		.join(" · ");
@@ -59,7 +59,7 @@ function TerminalBlock({ block }: { block: Extract<ToolBlock, { kind: "terminal"
 }
 
 function CodeBlock({ block }: { block: Extract<ToolBlock, { kind: "code" }> }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	return (
 		<View style={styles.block}>
 			<BlockLabel label={block.label} />
@@ -71,7 +71,7 @@ function CodeBlock({ block }: { block: Extract<ToolBlock, { kind: "code" }> }) {
 }
 
 function DiffBlock({ block }: { block: Extract<ToolBlock, { kind: "diff" }> }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	const lines = block.lines.slice(0, DIFF_LINE_LIMIT);
 	const truncated = block.lines.length > DIFF_LINE_LIMIT;
 
@@ -108,7 +108,7 @@ function diffPrefix(kind: "add" | "del" | "context" | "meta"): string {
 }
 
 function ListBlock({ block }: { block: Extract<ToolBlock, { kind: "list" }> }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	return (
 		<View style={styles.block}>
 			<BlockLabel label={block.label} />
@@ -126,7 +126,7 @@ function ListBlock({ block }: { block: Extract<ToolBlock, { kind: "list" }> }) {
 }
 
 function ChecklistBlock({ block }: { block: Extract<ToolBlock, { kind: "checklist" }> }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	return (
 		<View style={styles.block}>
 			<BlockLabel label={block.label} />
@@ -143,7 +143,7 @@ function ChecklistBlock({ block }: { block: Extract<ToolBlock, { kind: "checklis
 }
 
 function FieldsBlock({ block }: { block: Extract<ToolBlock, { kind: "fields" }> }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	return (
 		<View style={styles.block}>
 			<BlockLabel label={block.label} />
@@ -162,7 +162,7 @@ function FieldsBlock({ block }: { block: Extract<ToolBlock, { kind: "fields" }> 
 }
 
 function TextBlock({ block }: { block: Extract<ToolBlock, { kind: "text" }> }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	return (
 		<View style={styles.block}>
 			<BlockLabel label={block.label} />
@@ -182,7 +182,7 @@ function TextBlock({ block }: { block: Extract<ToolBlock, { kind: "text" }> }) {
 
 /** ToolBlocks 把展示模型的块列表渲染成手机端排版，不关心具体工具名。 */
 export function ToolBlocks({ blocks }: { blocks: ToolBlock[] }) {
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 
 	return (
 		<View style={styles.blocks}>

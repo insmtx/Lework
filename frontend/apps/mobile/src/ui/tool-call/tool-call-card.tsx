@@ -2,9 +2,10 @@ import type { ContentPart } from "@lework/api";
 import { toolView } from "@lework/tool-view";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { useTheme, useThemedStyles } from "../../theme/use-theme";
+
+import { useTheme } from "../../theme/use-theme";
+import { ToolFontScaleProvider, useToolStyles } from "./font-scale";
 import { RawJson } from "./raw-json";
-import { createStyles } from "./styles";
 import { SubagentSheet } from "./subagent-sheet";
 import { ToolBlocks } from "./tool-blocks";
 
@@ -17,14 +18,17 @@ import { ToolBlocks } from "./tool-blocks";
 export function ToolCallCard({
 	part,
 	defaultExpanded,
+	fontScale,
 	nodeID,
 }: {
 	part: ContentPart;
 	defaultExpanded: boolean;
+	/** 会话字号倍率；工具输出与正文使用同一档，避免出现两套字号。 */
+	fontScale: number;
 	nodeID: string;
 }) {
 	const theme = useTheme();
-	const styles = useThemedStyles(createStyles);
+	const styles = useToolStyles();
 	const view = useMemo(() => toolView(part), [part]);
 	const [expanded, setExpanded] = useState(defaultExpanded);
 	const [sheetOpen, setSheetOpen] = useState(false);
@@ -50,7 +54,7 @@ export function ToolCallCard({
 	};
 
 	return (
-		<>
+		<ToolFontScaleProvider scale={fontScale}>
 			<View style={styles.card}>
 				<Pressable
 					style={styles.header}
@@ -93,6 +97,6 @@ export function ToolCallCard({
 					onClose={() => setSheetOpen(false)}
 				/>
 			) : null}
-		</>
+		</ToolFontScaleProvider>
 	);
 }
