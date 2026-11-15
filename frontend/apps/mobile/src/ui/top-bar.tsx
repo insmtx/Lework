@@ -54,29 +54,34 @@ export interface ScreenTopBarProps {
 	title: string;
 	/** 会话页传切换器；其它页面不传，标题只读。 */
 	onTitlePress?: () => void;
+	/** 紧跟标题的状态标记，例如会话的运行状态；不占整行，避免正文被顶下去。 */
+	status?: ReactNode;
 	/** 标题右侧的额外操作，例如会话页的「停止」。 */
 	extra?: ReactNode;
 }
 
 /** ScreenTopBar 是首页之外的统一顶栏：菜单 + 名称 + 通知。 */
-export function ScreenTopBar({ title, onTitlePress, extra }: ScreenTopBarProps) {
+export function ScreenTopBar({ title, onTitlePress, status, extra }: ScreenTopBarProps) {
 	const insets = useSafeAreaInsets();
 	const styles = useThemedStyles(createStyles);
 
 	return (
 		<View style={[styles.bar, { paddingTop: insets.top + 4 }]}>
 			<DrawerButton />
-			<Pressable
-				disabled={!onTitlePress}
-				onPress={onTitlePress}
-				style={styles.titleWrap}
-				accessibilityLabel={onTitlePress ? "切换会话" : undefined}
-			>
-				<Text style={styles.title} numberOfLines={1}>
-					{title}
-				</Text>
-				{onTitlePress ? <Text style={styles.chevron}>⌄</Text> : null}
-			</Pressable>
+			<View style={styles.titleArea}>
+				<Pressable
+					disabled={!onTitlePress}
+					onPress={onTitlePress}
+					style={styles.titleWrap}
+					accessibilityLabel={onTitlePress ? "切换会话" : undefined}
+				>
+					<Text style={styles.title} numberOfLines={1}>
+						{title}
+					</Text>
+					{onTitlePress ? <Text style={styles.chevron}>⌄</Text> : null}
+				</Pressable>
+				{status ?? null}
+			</View>
 			<View style={styles.actions}>
 				{extra}
 				<BellButton />
@@ -114,14 +119,21 @@ function createStyles(theme: Theme) {
 			justifyContent: "center",
 		},
 		badgeText: { fontSize: 10, color: colors.badgeText, fontWeight: "700" },
-		titleWrap: {
+		titleArea: {
 			flex: 1,
+			flexDirection: "row",
+			alignItems: "center",
+			justifyContent: "center",
+			gap: 6,
+		},
+		titleWrap: {
+			flexShrink: 1,
 			flexDirection: "row",
 			alignItems: "center",
 			justifyContent: "center",
 			gap: 2,
 		},
-		title: { fontSize: 16, fontWeight: "600", color: colors.text, maxWidth: "88%" },
+		title: { flexShrink: 1, fontSize: 16, fontWeight: "600", color: colors.text },
 		chevron: { fontSize: 14, color: colors.textSecondary },
 		actions: { flexDirection: "row", alignItems: "center", gap: 2 },
 	});

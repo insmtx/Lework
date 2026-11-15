@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { statusLabel, statusTone } from "./status";
+import { statusGlyph, statusLabel, statusTone } from "./status";
 
 describe("statusLabel", () => {
 	it("把执行状态翻译成一行文案", () => {
@@ -17,15 +17,29 @@ describe("statusLabel", () => {
 });
 
 describe("statusTone", () => {
-	it("区分信息、警告、错误与弱化", () => {
+	it("区分信息、警告、错误、成功与弱化", () => {
 		expect(statusTone("running")).toBe("info");
 		expect(statusTone("waiting_permission")).toBe("warn");
 		expect(statusTone("error")).toBe("error");
-		expect(statusTone("idle")).toBe("muted");
+		expect(statusTone("idle")).toBe("success");
 		expect(statusTone("offline")).toBe("muted");
 	});
 
 	it("null 用弱化色", () => {
 		expect(statusTone(null)).toBe("muted");
+	});
+});
+
+describe("statusGlyph", () => {
+	it("每个状态有自己的单符号，running 交给转圈动画", () => {
+		expect(statusGlyph("running")).toBe("");
+		expect(statusGlyph("waiting_permission")).toBe("!");
+		expect(statusGlyph("idle")).toBe("✓");
+		expect(statusGlyph("error")).toBe("✕");
+		expect(statusGlyph("offline")).toBe("⊘");
+	});
+
+	it("null 不产生符号", () => {
+		expect(statusGlyph(null)).toBe("");
 	});
 });

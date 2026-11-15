@@ -5,8 +5,8 @@ import type { Theme } from "../theme/theme";
 /** SessionStatus 与总览的执行状态同义，不引入第二套状态名。 */
 export type SessionStatus = SessionState;
 
-/** StatusTone 决定状态条的颜色，不绑定具体主题色值。 */
-export type StatusTone = "info" | "warn" | "error" | "muted";
+/** StatusTone 决定状态标记的颜色，不绑定具体主题色值。 */
+export type StatusTone = "info" | "warn" | "error" | "success" | "muted";
 
 /**
  * statusLabel 把执行状态翻译成一行文案。
@@ -30,13 +30,37 @@ export function statusLabel(state: SessionStatus | null): string {
 	}
 }
 
-/** statusTone 给状态条配色：只有需要人动手或出错的才用醒目色。 */
+/**
+ * statusGlyph 给状态挑一个图形符号；running 不使用字形，页面改用转圈动画。
+ *
+ * 只有单个符号，避免状态文字挤占标题；完整含义放在无障碍标签里。
+ */
+export function statusGlyph(state: SessionStatus | null): string {
+	switch (state) {
+		case "running":
+			return "";
+		case "waiting_permission":
+			return "!";
+		case "idle":
+			return "✓";
+		case "error":
+			return "✕";
+		case "offline":
+			return "⊘";
+		default:
+			return "";
+	}
+}
+
+/** statusTone 给状态配色：完成用成功色，只有需要人动手或出错的才用醒目色。 */
 export function statusTone(state: SessionStatus | null): StatusTone {
 	switch (state) {
 		case "running":
 			return "info";
 		case "waiting_permission":
 			return "warn";
+		case "idle":
+			return "success";
 		case "error":
 			return "error";
 		default:
@@ -57,6 +81,8 @@ export function statusColor(theme: Theme, tone: StatusTone): string {
 			return theme.colors.warning;
 		case "error":
 			return theme.colors.danger;
+		case "success":
+			return theme.colors.success;
 		default:
 			return theme.colors.offline;
 	}
