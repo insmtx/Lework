@@ -34,6 +34,11 @@ type Session struct {
 	ParentID  string    `json:"parentID,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+	// Running 表示会话当前有一次执行尚未结束。OpenCode 的 time.busy 是
+	// 最近一次执行的开始时间，time.idle 是最近一次回到空闲的时间，因此
+	// busy > idle 就是「在跑」。手机端子代理页用它区分正在执行的子会话，
+	// 避免只靠标题猜归属。
+	Running bool `json:"running,omitempty"`
 }
 
 // Project is one OpenCode project: a git repository root or a plain working
@@ -165,6 +170,8 @@ type sessionWire struct {
 	} `json:"location"`
 	Time struct {
 		Updated float64 `json:"updated"`
+		Busy    float64 `json:"busy"`
+		Idle    float64 `json:"idle"`
 	} `json:"time"`
 }
 
@@ -183,6 +190,9 @@ func (s *Session) UnmarshalJSON(data []byte) error {
 	if wire.Time.Updated > 0 {
 		s.UpdatedAt = time.UnixMilli(int64(wire.Time.Updated)).UTC()
 	}
+	// busy > idle 表示最近一次执行开始后还没有回到空闲；新会话两者都是 0，
+	// 自然视为未运行。
+	s.Running = wire.Time.Busy > wire.Time.Idle
 	return nil
 }
 
