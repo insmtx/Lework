@@ -529,8 +529,9 @@ func pairWithCode(ctx context.Context, cfg *agentdconfig.Config, opts agentConne
 		return "", fmt.Errorf("lework-agent: 保存节点凭证到 %s 失败：%w", cfg.CredentialFile, err)
 	}
 	// --code 模式不写 claim 文件；清掉上次崩溃遗留的旧码，避免 `lework agent
-	// claim` 重印一张已经无效的配对信息。
-	removeClaimFile(pair.ClaimPath(cfg.CredentialFile), "", true)
+	// claim` 重印一张已经无效的配对信息。仍在使用中的文件属于另一个待定 agent，
+	// 不能删。
+	removeDeadClaimFile(pair.ClaimPath(cfg.CredentialFile))
 	logs.Infof("lework-agent: 使用 --code 配对成功，已保存节点凭证到 %s", cfg.CredentialFile)
 	return raw, nil
 }
@@ -556,9 +557,15 @@ func pairInteractive(ctx context.Context, cfg *agentdconfig.Config, opts agentCo
 	// 记录最后一次尝试的 pair_key：只有文件仍属于本次尝试时才清理，避免误删
 	// 另一个共用同一路径的 agent 刚写的码。defer 读取变量本身而不是当时的值。
 	var lastPairKey string
-	defer func() { removeClaimFile(claimPath, lastPairKey, false) }()
+	defer func() { removeClaimFile(claimPath, lastPairKey) }()
 
 	raw, err := pairRetry(ctx, pair.NewPairKey, func(ctx context.Context, pairKey string) (string, error) {
+		// 换 key 意味着上一轮的码已经作废：先按上一轮的 key 清掉，否则这轮在
+		// 写出新码之前就失败/被取消时，终端会一直重印一张不可能生效的旧码。
+		// 只清归属于本进程上一轮尝试的文件，避免误删另一个 agent 刚写的码。
+		if lastPairKey != "" && lastPairKey != pairKey {
+			removeClaimFile(claimPath, lastPairKey)
+		}
 		lastPairKey = pairKey
 		return pairOnce(ctx, cfg, opts, pairKey, claimPath)
 	}, waitBackoff)
@@ -654,23 +661,39 @@ func pairOnce(ctx context.Context, cfg *agentdconfig.Config, opts agentConnectOp
 	return raw, nil
 }
 
-// removeClaimFile 删除本次尝试写下的 claim 文件。文件本来就不存在是正常情况
-// （重复触发、上一轮已清理），其余删除失败只记警告：清理是 best-effort，
+// removeClaimFile 删除本进程某次尝试写下的 claim 文件。文件本来就不存在是
+// 正常情况（重复触发、上一轮已清理），其余删除失败只记警告：清理是 best-effort，
 // 不该让一次成功的配对因为删文件而变成失败。
 //
-// 两个 agent 进程可能共用同一路径，因此先读 pair_key：只有文件仍属于本次尝试
-// 才删，避免误删对方刚写的码。claim 模式（--code）从不写 claim 文件，残留的
-// 必定是旧进程留下的；文件不可解析时无法判断归属，按「可清理」处理。
-func removeClaimFile(path, pairKey string, claimMode bool) {
+// 两个 agent 进程可能共用同一路径，因此先读 pair_key：只有文件仍属于该次尝试
+// 才删，避免误删对方刚写的码。
+func removeClaimFile(path, pairKey string) {
 	if strings.TrimSpace(path) == "" {
 		return
 	}
 
 	claim, _, err := pair.ReadClaim(path)
-	if err == nil && !claimMode && claim.PairKey != pairKey {
+	if err == nil && claim.PairKey != pairKey {
 		return
 	}
 
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		logs.Warnf("lework-agent: 删除配对信息 %s 失败：%s", path, redact(err))
+	}
+}
+
+// removeDeadClaimFile 只在 claim 文件已经不可用时删除（不存在、过期或不可解析）。
+//
+// `--code` 配对不写 claim 文件，因此不能无条件删除：同一目录下另一个仍在待定
+// 连接中的 agent 可能正用这张码。只有「读出来是死码」才值得清掉，避免
+// `lework agent claim` 重印一张已经无效的配对信息。
+func removeDeadClaimFile(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if _, usable, err := pair.ReadClaim(path); err == nil && usable {
+		return
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		logs.Warnf("lework-agent: 删除配对信息 %s 失败：%s", path, redact(err))
 	}

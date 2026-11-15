@@ -477,38 +477,46 @@ func TestRemoveClaimFileOwnership(t *testing.T) {
 	}
 
 	// 不同 pair_key：文件属于另一个进程，保留。
-	write(pair.Claim{PairKey: "other-key", Code: "ZZ999"})
-	removeClaimFile(path, "my-key", false)
+	write(pair.Claim{PairKey: "other-key", Code: "ZZ999", ExpiresAt: time.Now().Add(time.Minute)})
+	removeClaimFile(path, "my-key")
 	if !exists() {
 		t.Fatal("removeClaimFile deleted another process's claim")
 	}
 
 	// 相同 pair_key：删除。
-	write(pair.Claim{PairKey: "my-key", Code: "AB234"})
-	removeClaimFile(path, "my-key", false)
+	write(pair.Claim{PairKey: "my-key", Code: "AB234", ExpiresAt: time.Now().Add(time.Minute)})
+	removeClaimFile(path, "my-key")
 	if exists() {
 		t.Fatal("removeClaimFile kept our own claim")
 	}
 
-	// claim 模式从不写 claim 文件；残留的必须清掉。
-	write(pair.Claim{PairKey: "other-key", Code: "ZZ999"})
-	removeClaimFile(path, "", true)
+	// 仍在使用的活码不能因为另一个进程跑 --code 而被删掉。
+	write(pair.Claim{PairKey: "other-key", Code: "ZZ999", ExpiresAt: time.Now().Add(time.Minute)})
+	removeDeadClaimFile(path)
+	if !exists() {
+		t.Fatal("removeDeadClaimFile deleted a live claim")
+	}
+
+	// 已过期的码属于死码，可以清理。
+	write(pair.Claim{PairKey: "other-key", Code: "ZZ999", ExpiresAt: time.Now().Add(-time.Minute)})
+	removeDeadClaimFile(path)
 	if exists() {
-		t.Fatal("claim mode kept a stale claim file")
+		t.Fatal("removeDeadClaimFile kept an expired claim")
 	}
 
 	// 不可解析：无法判断归属，按可清理处理。
 	if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
 		t.Fatalf("write corrupt claim: %v", err)
 	}
-	removeClaimFile(path, "my-key", false)
+	removeClaimFile(path, "my-key")
 	if exists() {
 		t.Fatal("removeClaimFile kept an unparsable claim")
 	}
 
 	// 已不存在、空路径都不该 panic。
-	removeClaimFile(path, "my-key", false)
-	removeClaimFile("", "my-key", false)
+	removeClaimFile(path, "my-key")
+	removeClaimFile("", "my-key")
+	removeDeadClaimFile("")
 }
 
 func TestClaimWithoutExpiryOmitsExpiresLine(t *testing.T) {
