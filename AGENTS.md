@@ -20,6 +20,7 @@
 - 裸执行接受的根命令 flag：`--listen`、`--nats-url`、`--database-url`、`--enrollment-token`、`--token-file`、`--request-timeout`、`--heartbeat-timeout`、`--agent-config`、`--node-name`、`--workspace-root`（可重复）。
 - `./bundles/lework serve --listen 127.0.0.1:8787 --nats-url nats://127.0.0.1:4222 --database-url postgres://lework@127.0.0.1:5432/lework` — 启动控制面，默认只绑定回环；两个集群依赖同样可由 `--config` 的顶层 `nats:` / `database:` 段提供。
 - `./bundles/lework agent --config /etc/lework/agent.yaml` — 启动节点 agent；缺省配置路径按平台解析（见 `backend/cmd/lework/agent.go`）。
+- `./bundles/lework opencode [directory]` — 连接本机 agent 管理的 OpenCode service 启动 TUI（`opencode --server <url>`）；要求 `lework agent` 已运行且为同一 OS 用户。端点发布在 `$XDG_STATE_HOME/lework/opencode-service.json`（未设置时 `~/.local/state/lework/opencode-service.json`），权限 0600。
 - `make run` / `make run-detached` / `make stop` / `make logs` — 操作 `deployments/env/docker-compose.yml` 栈。
 - `make dev-setup`（一次性）→ `make dev-up`，然后 `make dev-status` / `make dev-logs` / `make dev-down`。`dev-up` 要求 PostgreSQL/NATS 已就绪且 `opencode` 2.1.x 在 PATH 中（见 Makefile 注释）。
 - `make swagger` — 仅生成旧 `/v1` 的 swagger 到 `docs/swagger/`；控制面不生成 swagger。

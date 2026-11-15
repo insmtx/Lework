@@ -21,7 +21,7 @@ import { MessageRow } from "../../../src/session/message-row";
 import { filterVisibleMessages } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
 import { runSend } from "../../../src/session/send-flow";
-import { type StatusTone, statusLabel, statusTone } from "../../../src/session/status";
+import { statusColor, statusLabel, statusTone } from "../../../src/session/status";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
@@ -37,20 +37,6 @@ import { ScreenTopBar } from "../../../src/ui/top-bar";
 
 function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
-
-/** statusColor 把状态条的语气映射到主题色，与行内状态点保持同一套语义。 */
-function statusColor(theme: Theme, tone: StatusTone): string {
-	switch (tone) {
-		case "info":
-			return theme.colors.accent;
-		case "warn":
-			return theme.colors.warning;
-		case "error":
-			return theme.colors.danger;
-		default:
-			return theme.colors.offline;
-	}
 }
 
 function ApprovalCard({

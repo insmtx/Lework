@@ -1,5 +1,7 @@
 import type { SessionState } from "@lework/api";
 
+import type { Theme } from "../theme/theme";
+
 /** SessionStatus 与总览的执行状态同义，不引入第二套状态名。 */
 export type SessionStatus = SessionState;
 
@@ -39,5 +41,23 @@ export function statusTone(state: SessionStatus | null): StatusTone {
 			return "error";
 		default:
 			return "muted";
+	}
+}
+
+/**
+ * statusColor 把状态语气映射到主题色，会话页与子代理页共用同一套语义。
+ *
+ * 颜色只由语气决定，页面不再各自写一份 switch；以后加状态时只需要改这里。
+ */
+export function statusColor(theme: Theme, tone: StatusTone): string {
+	switch (tone) {
+		case "info":
+			return theme.colors.accent;
+		case "warn":
+			return theme.colors.warning;
+		case "error":
+			return theme.colors.danger;
+		default:
+			return theme.colors.offline;
 	}
 }

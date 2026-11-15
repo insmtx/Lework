@@ -118,6 +118,89 @@ describe("applyLiveEvent / mergeSnapshot", () => {
 		expect(applyLiveEvent(buffer, event("session.tool.called", { id: "tool_1" }))).toBe(buffer);
 	});
 
+	it("快照已输出到一半时，新 delta 继续追加而不是被丢弃", () => {
+		// 打开子代理页时正文已经输出到「你好」，增量从订阅点之后才开始。
+		const snapshot: Message[] = [
+			{
+				id: "msg_1",
+				role: "assistant",
+				text: "你好",
+				parts: [{ type: "text", text: "你好" }],
+			},
+		];
+		let buffer = createLiveBuffer();
+		// 第一条 delta 与快照重叠，应该被快照吸收。
+		buffer = applyLiveEvent(buffer, delta("msg_1", 0, "好"));
+		expect(textOf(mergeSnapshot(snapshot, buffer).messages, "msg_1")).toBe("你好");
+
+		// 之后的新正文必须立即可见，而不是等接口刷新。
+		buffer = applyLiveEvent(buffer, delta("msg_1", 0, "世界"));
+		const merged = mergeSnapshot(snapshot, buffer);
+
+		expect(textOf(merged.messages, "msg_1")).toBe("你好世界");
+	});
+
+	it("快照刚好等于订阅点时从末尾继续", () => {
+		const snapshot: Message[] = [
+			{
+				id: "msg_1",
+				role: "assistant",
+				text: "你好",
+				parts: [{ type: "text", text: "你好" }],
+			},
+		];
+		const buffer = applyLiveEvent(createLiveBuffer(), delta("msg_1", 0, "世界"));
+
+		expect(textOf(mergeSnapshot(snapshot, buffer).messages, "msg_1")).toBe("你好世界");
+	});
+
+	it("快照领先时去掉重叠部分，不产生重复字符", () => {
+		const snapshot: Message[] = [
+			{
+				id: "msg_1",
+				role: "assistant",
+				text: "你好世界",
+				parts: [{ type: "text", text: "你好世界" }],
+			},
+		];
+		let buffer = createLiveBuffer();
+		buffer = applyLiveEvent(buffer, delta("msg_1", 0, "世界"));
+		buffer = applyLiveEvent(buffer, delta("msg_1", 0, "你好"));
+
+		expect(textOf(mergeSnapshot(snapshot, buffer).messages, "msg_1")).toBe("你好世界你好");
+	});
+
+	it("多段正文时按 text part 对齐，ended 覆盖同段旧前缀", () => {
+		const tool = { type: "tool", tool: "bash", callID: "call_1", state: { status: "running" } };
+		const snapshot: Message[] = [
+			{
+				id: "msg_1",
+				role: "assistant",
+				text: "你世界",
+				parts: [{ type: "text", text: "你" }, tool, { type: "text", text: "世界" }],
+			},
+		];
+		// 第一段正文已经结束，完整文本比快照里的前缀长；第二段仍是快照内容。
+		const buffer = applyLiveEvent(createLiveBuffer(), ended("msg_1", 0, "你好"));
+
+		const merged = mergeSnapshot(snapshot, buffer);
+		const message = merged.messages.find((item) => item.id === "msg_1");
+
+		expect(message?.text).toBe("你好世界");
+		expect(message?.parts).toEqual([
+			{ type: "text", text: "你" },
+			tool,
+			{ type: "text", text: "世界" },
+		]);
+	});
+
+	it("ended 之后的迟到 delta 不会重复追加", () => {
+		let buffer = applyLiveEvent(createLiveBuffer(), ended("msg_1", 0, "完整正文"));
+		buffer = applyLiveEvent(buffer, delta("msg_1", 0, "完整正文"));
+
+		expect(textOf(mergeSnapshot([], buffer).messages, "msg_1")).toBe("完整正文");
+	});
+
 	it("clearBuffer 清空缓冲", () => {
 		const buffer = applyLiveEvent(createLiveBuffer(), delta("msg_1", 0, "你"));
 		expect(mergeSnapshot([], clearBuffer()).messages).toEqual([]);

@@ -13,8 +13,9 @@ SSH。
 - 文件：按目录浏览、读取文本文件、下载二进制文件；单次读取上限 512 KiB。
 - 终端：Session 级持久 PTY，通过同源 WebSocket 传输二进制输入/输出。
 
-I1-B 不包含多节点调度、Git 任务上下文、配置/Action 控制面、TUI 共享和
-Spark/一体机部署；这些属于后续阶段。
+I1-B 原范围不包含多节点调度、Git 任务上下文、配置/Action 控制面、TUI 共享和
+Spark/一体机部署；这些属于后续阶段。本分支新增 `lework opencode`，让 TUI 连接
+agent 管理的 service，属于 I1 的增量能力。
 
 ## 构建
 
@@ -283,6 +284,16 @@ agent:
 ```bash
 lework agent --config /etc/lework/lework.yaml
 ```
+
+需要在 TUI 里同时操作同一个 service 时，在另一个终端运行：
+
+```bash
+lework opencode /home/me/projects
+```
+
+该命令读取 agent 发布的服务端点（要求同一 OS 用户），以
+`opencode --server <url>` 启动 TUI；控制面与 TUI 共享 Session、消息与审批。
+直接运行 `opencode` 或使用 `--standalone` 不会共享。
 
 裸 `lework`（控制面与 agent 同进程）不需要写 `control_plane_url`、
 `enrollment_token`、`node_name`，它们会从 `--listen`、注册令牌和主机名派生，

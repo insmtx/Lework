@@ -1,9 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
+	"io/fs"
+	"os"
 	"strings"
 	"testing"
+
+	agentdconfig "github.com/insmtx/lework/backend/internal/agentd/config"
+	"github.com/insmtx/lework/backend/internal/agentd/handler"
+	"github.com/insmtx/lework/backend/internal/agentd/opencode"
+	"github.com/insmtx/lework/backend/internal/agentd/servicefile"
+	"github.com/insmtx/lework/backend/internal/agentd/supervisor"
 )
 
 // clearOpenCodePasswordEnv makes a test independent of the daemon's ambient
@@ -242,5 +252,95 @@ func TestOpenCodeEnvEmptyYAMLPasswordDoesNotShadowInherited(t *testing.T) {
 	}
 	if env["OPENCODE_LOG"] != "debug" {
 		t.Fatalf("unrelated env entry was dropped: %v", env)
+	}
+}
+
+// newTestAgentRuntime builds the smallest runtime that can exercise the
+// publish/unpublish wiring without a real OpenCode process. A canceled context
+// makes Run return as soon as it reaches the reconnect loop.
+func newTestAgentRuntime(t *testing.T, port int, password string) *agentRuntime {
+	t.Helper()
+
+	cfg := &agentdconfig.Config{
+		NodeName:        "test-node",
+		ControlPlaneURL: "ws://127.0.0.1:1",
+		OpenCode:        agentdconfig.OpenCodeConfig{Port: port},
+	}
+	client := opencode.New("http://127.0.0.1:1", nil)
+	service := supervisor.New(nil, nil, supervisor.ServiceConfig{Port: port})
+	return &agentRuntime{
+		cfg:      cfg,
+		client:   client,
+		service:  service,
+		handler:  handler.New(client, service),
+		password: password,
+	}
+}
+
+func TestAgentRunPublishesServiceAndCloseRemovesIt(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	runtime := newTestAgentRuntime(t, 4097, "pw")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runtime.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v, want nil for a canceled context", err)
+	}
+
+	info, err := servicefile.Read()
+	if err != nil {
+		t.Fatalf("Read() after Run error = %v", err)
+	}
+	if info.URL != "http://127.0.0.1:4097" {
+		t.Fatalf("published URL = %q, want http://127.0.0.1:4097", info.URL)
+	}
+	if info.Password != "pw" {
+		t.Fatalf("published password = %q, want the agent password", info.Password)
+	}
+	if info.Port != 4097 {
+		t.Fatalf("published port = %d, want 4097", info.Port)
+	}
+	if info.PID != os.Getpid() {
+		t.Fatalf("published pid = %d, want %d", info.PID, os.Getpid())
+	}
+
+	if err := runtime.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if _, err := servicefile.Read(); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Read() after Close error = %v, want fs.ErrNotExist", err)
+	}
+}
+
+func TestAgentCloseKeepsAnotherProcessServiceFile(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	runtime := newTestAgentRuntime(t, 4097, "pw")
+
+	foreign := servicefile.Info{
+		URL:      "http://127.0.0.1:4098",
+		Password: "other",
+		Port:     4098,
+		PID:      os.Getpid() + 1,
+	}
+	if err := servicefile.Write(foreign); err != nil {
+		t.Fatalf("Write() foreign info error = %v", err)
+	}
+	runtime.unpublishService()
+	if _, err := servicefile.Read(); err != nil {
+		t.Fatalf("foreign service file was removed: %v", err)
+	}
+
+	own := servicefile.Info{
+		URL:      "http://127.0.0.1:4097",
+		Password: "pw",
+		Port:     4097,
+		PID:      os.Getpid(),
+	}
+	if err := servicefile.Write(own); err != nil {
+		t.Fatalf("Write() own info error = %v", err)
+	}
+	runtime.unpublishService()
+	if _, err := servicefile.Read(); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("own service file still present: %v", err)
 	}
 }

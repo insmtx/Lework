@@ -26,6 +26,8 @@ export interface Session {
 	projectID?: string;
 	/** 会话在项目根之下的相对路径；在项目根创建时为空。 */
 	subpath?: string;
+	/** 节点当前是否仍有未结束的执行（OpenCode time.busy > time.idle）。 */
+	running?: boolean;
 }
 
 /** ProjectNode 描述项目在某个节点上的出现情况。 */

@@ -47,6 +47,41 @@ func TestCreateSessionSendsLocationAndDecodesEnvelope(t *testing.T) {
 	}
 }
 
+func TestSessionRunningFollowsBusyIdle(t *testing.T) {
+	cases := []struct {
+		name string
+		busy int64
+		idle int64
+		want bool
+	}{
+		{name: "新会话从未执行", want: false},
+		{name: "执行中 busy 晚于 idle", busy: 200, idle: 100, want: true},
+		{name: "执行完成后 idle 追上 busy", busy: 200, idle: 300, want: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			raw := fmt.Sprintf(`{"id":"ses_1","time":{"updated":400,"busy":%d,"idle":%d}}`, c.busy, c.idle)
+			var session Session
+			if err := json.Unmarshal([]byte(raw), &session); err != nil {
+				t.Fatal(err)
+			}
+			if session.Running != c.want {
+				t.Fatalf("running = %v, want %v", session.Running, c.want)
+			}
+		})
+	}
+}
+
+func TestSessionMarshalExposesRunning(t *testing.T) {
+	encoded, err := json.Marshal(Session{ID: "ses_1", Running: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"running":true`) {
+		t.Fatalf("encoded = %s, want running field", encoded)
+	}
+}
+
 func TestListSessionsDecodesEnvelope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/session" {
