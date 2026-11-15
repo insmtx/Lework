@@ -162,8 +162,10 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		index,
 		node.NewRouter(registry, deps.Request),
 		deps.CoreSub,
+		deps.Core,
 		resolver,
 		api.AuthConfig{SessionTTL: cfg.SessionTTL, RegistrationMode: cfg.RegistrationMode},
+		api.ClaimConfig{TTL: cfg.ClaimTTL, CodeLength: cfg.ClaimCodeLength},
 		cfg.RequestTimeout,
 		cfg.HeartbeatTimeout,
 	)

@@ -212,6 +212,7 @@ type testEnv struct {
 	index            *overview.Index
 	forward          *fakeForwarder
 	core             *fakeCoreSub
+	corePub          *fakeCorePub
 	resolver         authz.Resolver
 	mux              http.Handler
 	rawMux           *http.ServeMux
@@ -239,6 +240,7 @@ func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig)
 	index := overview.NewIndex()
 	forward := &fakeForwarder{}
 	core := newFakeCoreSub()
+	corePub := &fakeCorePub{}
 
 	resolver := authz.Resolver{
 		Store:           st,
@@ -246,7 +248,10 @@ func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig)
 		LocalAdmin:      true,
 	}
 	router := node.NewRouter(registry, forward)
-	api := New(st, registry, hub, index, router, core, resolver, authCfg, timeout, testHeartbeatTimeout)
+	// claimCfg 用零值：认领码的默认值与回退逻辑属于 api 包，单测应当覆盖
+	// 生产默认值，而不是把配置层的数值搬进测试装配。
+	api := New(st, registry, hub, index, router, core, corePub, resolver, authCfg,
+		ClaimConfig{}, timeout, testHeartbeatTimeout)
 	rawMux := http.NewServeMux()
 	api.Register(rawMux)
 	mux := withDefaultPrincipal(rawMux)
@@ -259,6 +264,7 @@ func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig)
 		index:            index,
 		forward:          forward,
 		core:             core,
+		corePub:          corePub,
 		resolver:         resolver,
 		api:              api,
 		mux:              mux,

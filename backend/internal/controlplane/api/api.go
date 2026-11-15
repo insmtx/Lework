@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/insmtx/lework/backend/internal/controlplane/authn"
 	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
@@ -52,12 +53,22 @@ type API struct {
 	index    *overview.Index
 	router   *node.Router
 	coreSub  mq.CoreSubscriber
+	// core 发布不进 stream 的易失通知；认领确认用它通知持有待定连接的实例。
+	core mq.CorePublisher
 
 	// resolver 用于初始化接口的 enrollment token 比较；身份解析本身发生在
 	// 中间件里，API 不重复解释 cookie 与 Bearer。
 	resolver authz.Resolver
 	// authCfg 是会话有效期与注册策略。
 	authCfg AuthConfig
+	// claimCfg 是认领码的有效期上限与长度；零值由 claimTTL/claimCodeLength
+	// 回落到包内默认值。
+	claimCfg ClaimConfig
+	// claimAttempts 是浏览器端按账号的猜码失败限流；只在进程内存里。
+	claimAttempts *claimAttemptLimiter
+	// newClaimCode 生成认领码。生产指向 authn.NewShortCode；测试可替换成
+	// 确定性序列，从而稳定覆盖撞码重试（随机码空间无法构造可复现的碰撞）。
+	newClaimCode func(length int) (string, error)
 
 	requestTimeout time.Duration
 	// heartbeatTimeout 决定存储里的 LastSeen 多久之后算离线。跨实例部署时
@@ -71,6 +82,7 @@ type API struct {
 // New 组装浏览器 API；requestTimeout 与 heartbeatTimeout 非正时使用默认值。
 // index 是总览的派生索引，调用方负责喂事件；为 nil 时总览端点会明确报错。
 // registry 保留用于同进程的节点元数据查询，在线状态以存储的心跳窗口为准。
+// core 用于发布认领通知；claimCfg 的零值回落到包内默认的 5 分钟 / 5 位。
 func New(
 	st *store.Store,
 	registry *node.Registry,
@@ -78,8 +90,10 @@ func New(
 	index *overview.Index,
 	router *node.Router,
 	coreSub mq.CoreSubscriber,
+	core mq.CorePublisher,
 	resolver authz.Resolver,
 	authCfg AuthConfig,
+	claimCfg ClaimConfig,
 	requestTimeout, heartbeatTimeout time.Duration,
 ) *API {
 	if requestTimeout <= 0 {
@@ -95,8 +109,12 @@ func New(
 		index:            index,
 		router:           router,
 		coreSub:          coreSub,
+		core:             core,
 		resolver:         resolver,
 		authCfg:          authCfg,
+		claimCfg:         claimCfg,
+		claimAttempts:    newClaimAttemptLimiter(claimAttemptsPerAccount, claimAttemptWindowSize),
+		newClaimCode:     authn.NewShortCode,
 		requestTimeout:   requestTimeout,
 		heartbeatTimeout: heartbeatTimeout,
 		eventsRefresh:    defaultEventsRefresh,
@@ -131,6 +149,11 @@ func (a *API) Register(mux *http.ServeMux) {
 	// 认领不走 nodeRoute：未认领节点没有成员行，成员授权必然把请求挡成 404。
 	// 这条路由的授权在 handler 里按「管理员 + 账号」判定。
 	mux.HandleFunc("POST /api/nodes/{id}/claim", a.handleClaimNode)
+	// 扫码加入：agent 出码、账号侧预览并确认；网页出码给 `lework agent --code`。
+	// 三条路由都不经 nodeRoute——此时节点还不存在，没有成员行可校验。
+	mux.HandleFunc("POST /api/node-claims", a.handleCreateClaim)
+	mux.HandleFunc("GET /api/claim/{code}", a.handlePreviewClaim)
+	mux.HandleFunc("POST /api/claim/{code}", a.handleClaimCode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}", a.handleGetNode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}/health", a.handleNodeHealth)
 	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/start", a.handleOpenCodeStart)
