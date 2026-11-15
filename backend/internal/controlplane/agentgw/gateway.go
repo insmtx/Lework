@@ -41,10 +41,11 @@ const (
 	// bearerPrefix 是注册令牌在握手头中的前缀。
 	bearerPrefix = "Bearer "
 
-	// maxFrameBytes 是单个入站帧的上限（1 MiB）。gorilla/websocket 默认不限
-	// 帧大小，没有上限时一个恶意或错乱的节点就能让控制面按帧内容分配内存；
-	// 该上限同时覆盖 hello 与后续所有帧。
-	maxFrameBytes = 1 << 20
+	// maxFrameBytes 是单个入站帧的上限，与协议侧共享同一个常量。
+	//
+	// gorilla/websocket 默认不限帧大小，没有上限时一个恶意或错乱的节点就能
+	// 让控制面按帧内容分配内存；该上限同时覆盖 hello 与后续所有帧。
+	maxFrameBytes = protocol.MaxFrameBytes
 
 	// forwardRequestTimeout 限制单次跨实例转发的耗时。
 	//

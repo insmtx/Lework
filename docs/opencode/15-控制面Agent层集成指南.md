@@ -81,7 +81,8 @@ opencode serve（每节点一个共享 server，按 Location 装载项目）
 
 - 用常量时间比较 `Authorization: Bearer <enrollment_token>`，**令牌只出现在握手头**；
 - 拒绝带 `Origin` 的 agent 握手，避免网页借回环地址注册节点；
-- 单帧上限 1 MiB，握手 10 秒超时，帧间心跳窗口默认 35 秒；
+- 单帧上限 8 MiB，握手 10 秒超时，帧间心跳窗口默认 35 秒；
+- agent 在发送前检查响应帧大小，超过上限时返回 `response_too_large` 错误帧，而不是让对端断连（断连会被误报为 `node_offline`）；
 - 用连接身份覆盖事件里的 `node_id`，防止节点伪造其他节点。
 
 ### 2.3 已实现的节点 RPC

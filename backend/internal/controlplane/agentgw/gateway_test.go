@@ -981,6 +981,58 @@ func TestGatewayForwardsCoreRequest(t *testing.T) {
 	}
 }
 
+// TestGatewayAcceptsLargeResponse 证明现实中的大响应不会被帧上限误杀。
+//
+// 一个 200 条消息的 session.messages 响应约 1.3 MiB，超过旧的 1 MiB 上限；
+// 网关读超限帧会直接关闭连接，等待中的请求因此收到 ErrConnectionClosed，
+// 再被 API 误报成 node_offline。帧上限必须容纳这种合法响应。
+func TestGatewayAcceptsLargeResponse(t *testing.T) {
+	env := newGatewayEnv(t)
+	client := env.connect(t)
+	handshake(t, client, "dev-box")
+
+	sub := awaitCoreSubscription(t, env.coreSub)
+
+	// 1.5 MiB 的原始结果：明显高于旧上限，也高于实测的 1.34 MiB 消息页。
+	result := json.RawMessage(`"` + strings.Repeat("a", 3<<19) + `"`)
+
+	replyErr := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		frame, err := client.Read(ctx)
+		if err != nil {
+			replyErr <- fmt.Errorf("read forwarded request: %w", err)
+			return
+		}
+		replyErr <- client.Write(ctx, protocol.Frame{
+			Type:   protocol.FrameResponse,
+			ID:     frame.ID,
+			Result: result,
+		})
+	}()
+
+	payload, err := json.Marshal(node.ForwardRequest{Method: "session.messages"})
+	if err != nil {
+		t.Fatalf("encode forward request: %v", err)
+	}
+	raw := sub.handler(context.Background(), payload)
+	if err := <-replyErr; err != nil {
+		t.Fatalf("agent reply: %v", err)
+	}
+
+	var resp node.ForwardResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("decode forward response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("forward response error = %+v, want the large result", resp.Error)
+	}
+	if len(resp.Result) != len(result) {
+		t.Fatalf("forward result bytes = %d, want %d", len(resp.Result), len(result))
+	}
+}
+
 // TestGatewayClosesConnectionOnStatePublishFailure 证明状态事件发布失败必须
 // 断开节点：漏掉状态事件会让总览与浏览器永久落后，重连重试比继续更安全。
 func TestGatewayClosesConnectionOnStatePublishFailure(t *testing.T) {

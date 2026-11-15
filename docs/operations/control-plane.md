@@ -116,6 +116,10 @@ durable 消费同一条流，因此同一条 `permission.asked` 只推一次。
   短暂看不到正在跑的会话，属于预期。
 - 每个实例都会运行心跳对账器；对账与网关的离线事件都是幂等的，重复执行
   不会让浏览器收到多条同样的状态。
+- NATS 的 `max_payload` 必须不小于 agent 单帧上限（8 MiB）；否则节点挂在别的
+  实例时，大响应（例如 200 条消息的 `session.messages`）会在转发时被拒绝。
+  `deployments/devcj/setup.sh` 与 `deployments/dev/docker-compose.dev.yml`
+  已使用 `8388608`。
 
 ### 故障表现
 
