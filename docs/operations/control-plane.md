@@ -1,20 +1,25 @@
-# 单节点控制面（I1-B）
+# 个人控制面（I1-B 起）
 
-I1-B 提供一个单用户、单节点的浏览器工作流：浏览器只访问控制面，控制面通过
-节点主动建立的 WebSocket 转发 OpenCode 请求；节点不监听入站端口，也不需要
-SSH。
+I1-B 提供浏览器工作流：浏览器只访问控制面，控制面通过节点主动建立的
+WebSocket 转发 OpenCode 请求；节点不监听入站端口，也不需要 SSH。
+
+当前版本在此之上加了账号与节点归属：每个账号只看到、只能调度自己的节点，
+节点通过 agent 出码 + 账号确认加入。所属关系落在 `node_members` 关联表，
+后续「把节点共享给另一个账号」只需插行。设计见
+`docs/design/2026-11-15-user-accounts-and-node-ownership-design.md`。
 
 ## 能力范围
 
-- 节点列表与会话列表：显示在线状态、OS/架构、最近心跳。
+- 账号：邮箱 + 密码登录、邀请码注册、首个管理员用控制面令牌初始化。
+- 节点列表与会话列表：只显示自己（或共享给自己）的节点，含在线状态、OS/架构、最近心跳。
 - 会话：按绝对工作目录创建 OpenCode Session，发送 prompt，中断当前运行。
 - 会话视图：用户/助手消息、工具卡片、待处理的权限请求。
 - Diff：按本轮用户消息读取文件改动，并提供并排视图。
 - 文件：按目录浏览、读取文本文件、下载二进制文件；单次读取上限 512 KiB。
 - 终端：Session 级持久 PTY，通过同源 WebSocket 传输二进制输入/输出。
 
-I1-B 不包含多节点调度、Git 任务上下文、配置/Action 控制面、TUI 共享和
-Spark/一体机部署；这些属于后续阶段。
+不包含组织/RBAC、会话级共享、OAuth、Git 任务上下文、配置/Action 控制面、
+TUI 共享和 Spark/一体机部署；这些属于后续阶段。
 
 ## 构建
 
@@ -41,8 +46,8 @@ lework serve \
   --enrollment-token "$LEWORK_ENROLLMENT_TOKEN"
 ```
 
-控制面默认只绑定回环地址。注册令牌用于节点首次注册，不会出现在日志中。
-浏览器打开 `http://127.0.0.1:8787/`。
+控制面默认只绑定回环地址。注册令牌是部署级管理员凭据（初始化首个账号、脚本
+Bearer），不会出现在日志中。浏览器打开 `http://127.0.0.1:8787/` 用账号登录。
 
 控制面把节点注册与心跳写入 PostgreSQL，并用 NATS 扇出事件、转发跨实例请求。
 两个地址都必填（命令行或配置文件），且 NATS 必须启用 JetStream；缺任意一个
@@ -146,8 +151,8 @@ controlplane:
   token_file: ~/.config/Lework/enrollment.token
   request_timeout: 30s
   heartbeat_timeout: 35s
-  public_url: http://dev.ckeyer.com      # 手机扫码配对
-  expo_url: http://dev.ckeyer.com:8082
+  public_url: http://dev.ckeyer.com      # 已废弃：启动不再打印二维码，保留只为兼容旧配置
+  expo_url: http://dev.ckeyer.com:8082  # 已废弃，同上
 
 nats:
   url: nats://127.0.0.1:4222
@@ -235,34 +240,58 @@ agent 的配置，详见上文「配置文件」。
 
 默认令牌文件是 `~/.config/Lework/enrollment.token`（目录 `0700`、文件 `0600`）。
 显式传入的令牌也会落盘，保证后续启动一致。`lework serve token` 打印当前
-生效的令牌，可用于远程浏览器引导；令牌本身不会写入日志。
+生效的令牌，用于初始化第一个账号；令牌本身不会写入日志。
 
-令牌会原样用作 Cookie 值与 `Authorization: Bearer` 凭据，所以只接受可打印
-ASCII，不能包含空格、双引号、逗号、分号和反斜杠；不满足的显式值会在写盘前
-被拒绝，文件里的此类令牌也会在启动时报错。
+有了账号体系后，这个令牌是**部署级管理员凭据**，不再充当浏览器登录态：它只
+用于 `POST /api/auth/bootstrap` 创建首个管理员，以及脚本/自动化里的
+`Authorization: Bearer`。它不会写进任何 Cookie，也不会出现在二维码里。
 
-### 非回环监听与浏览器鉴权
+令牌只接受可打印 ASCII，不能包含空格、双引号、逗号、分号和反斜杠；不满足的
+显式值会在写盘前被拒绝，文件里的此类令牌也会在启动时报错。
 
-绑定非回环地址（例如 `--listen 0.0.0.0:8787`）后，除 `/healthz` 与
-`/api/agent/connect` 外的浏览器 API 都需要注册令牌：
 
-- 首次在浏览器打开 `http://<host>:8787/?token=<token>`，校验通过后写入
-  `HttpOnly` 的 `lework_session` cookie，并 302 到去掉 `token` 的同一地址。
-- 脚本可改用 `Authorization: Bearer <token>`。
-- 直接来自回环的请求仍然放行；但只要出现 `X-Forwarded-For`、`X-Real-IP`
-  或 `Forwarded` 任一转发头，就按外部请求处理并要求令牌。
+### 浏览器鉴权（账号登录）
 
-反向代理需注意：代理应转发真实的客户端信息（保留 `X-Forwarded-For` 等转发头），
-浏览器也必须携带令牌访问；如果代理把请求转发到本机回环又剥掉了转发头，控制面
-会把它当成本机请求放行，此时必须由代理层自行鉴权。`?token=` 会短暂出现在
-浏览器历史与代理访问日志中，302 只能缩小暴露窗口。
+浏览器不再用注册令牌登录。首次使用先用令牌创建管理员：
+
+```bash
+TOKEN=$(lework serve token)
+curl -sS -X POST http://127.0.0.1:8787/api/auth/bootstrap \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"me@example.com\",\"password\":\"…\",\"token\":\"$TOKEN\"}"
+```
+
+之后浏览器打开控制面，用邮箱密码走 `POST /api/auth/login`。会话写在
+`HttpOnly` 的 `lework_session` cookie 里（`SameSite=Strict`），30 天滑动续期；
+`DELETE /api/auth/session` 登出。之后的注册按 `registration.mode`（默认
+`invite`，需要邀请码）。
+
+脚本与移动端可以用 `Authorization: Bearer <enrollment token>`（部署级管理员），
+也可以用登录响应返回的会话 token（移动端不保存 cookie）。同一个邮箱 + 来源 IP
+的登录失败超过 10 次/分钟后返回 `429`，正常失败的响应体仍是统一的
+`401 invalid_credentials`。
+
+绑定非回环地址（例如 `--listen 0.0.0.0:8787`）时，`local_admin` 默认开启：直接
+来自回环的请求仍然视为本机管理员。但只要出现 `X-Forwarded-For`、`X-Real-IP`
+或 `Forwarded` 任一转发头，就按外部请求处理并要求账号登录。
+
+反向代理需注意：
+
+- 代理应保留 `X-Forwarded-For` 等转发头，否则控制面会把外部请求当成本机请求
+  放行，此时必须由代理层自行鉴权。
+- cookie 的 `Secure` 判定是「请求本身是 TLS，或代理声明
+  `X-Forwarded-Proto: https`」。控制面自身不终止 TLS，所以只有可信代理才能设置
+  这个头；直连用户可以用它伪造 `Secure`，但那只会让 cookie 不被明文发送。
+- 控制面启动时不再打印手机配对二维码；由此 `--public-url`、`--expo-url`、
+  `--no-qr` 以及配置里的 `public_url` / `expo_url` 仅保留为兼容用的空操作。
 
 ## 启动节点 Agent
 
 节点 agent 与控制面共用同一个 `lework.yaml`，但独立运行的 agent 仍然需要
-显式的控制面地址、令牌和节点名（它可能连的是另一台机器上的控制面，不能从
-本文件的 `controlplane:` 段猜测）。`workspace_roots` 可以省略，省略时使用
-`/opt/lework/<用户>/workspace` 并自动创建：
+显式的控制面地址（它可能连的是另一台机器上的控制面，不能从本文件的
+`controlplane:` 段猜测）。`enrollment_token` 只在旧直通路径里用到，可以不写：
+没有本地凭证时 agent 会自己进入配对流程。`workspace_roots` 可以省略，省略时
+使用 `/opt/lework/<用户>/workspace` 并自动创建：
 
 ```yaml
 # /etc/lework/lework.yaml（Linux）
@@ -284,6 +313,35 @@ agent:
 lework agent --config /etc/lework/lework.yaml
 ```
 
+### 把节点加入账号
+
+第一次启动且本地没有凭证时，agent 会连上 `/api/agent/connect` 并打印二维码与
+5 位短码。用账号登录浏览器（或手机）后扫码/输码确认，节点就归属到该账号，
+凭证由控制面经这条出站连接下发并写到 `~/.config/Lework/node.credential`
+（`0600`；配置在别处时与配置文件同目录）。
+
+机器不在面前时，在网页「添加节点」出码，然后在机器上执行：
+
+```bash
+lework agent --code ABC12            # 一次性码，失败即退出
+lework agent --config /etc/lework/lework.yaml --code ABC12
+```
+
+终端被日志刷走时，agent 已经把配对信息写进 `node.claim`，用下面这条重印
+（要求 agent 仍在待定连接中；过期会提示重新配对）：
+
+```bash
+lework agent claim
+lework agent claim --no-qr           # 只打印链接与短码
+```
+
+自动化场景可以预置凭证文件（`--credential-file` 或 `LEWORK_NODE_CREDENTIAL`）。
+注意本轮还没有「直接签发凭证」的接口，凭证需要先配对一次再复制
+`node.credential`；文件权限保持 `0600`。
+
+凭证失效（控制面里删了该节点、或数据库被重置）时 agent 不会自动重新配对，
+只打印提示并继续重试：删除控制面里的旧节点后重新执行上面的配对流程。
+
 裸 `lework`（控制面与 agent 同进程）不需要写 `control_plane_url`、
 `enrollment_token`、`node_name`，它们会从 `--listen`、注册令牌和主机名派生，
 见上文「一体化启动」。
@@ -296,7 +354,9 @@ lework agent --config /etc/lework/lework.yaml
 
 ## 浏览器协议
 
-所有浏览器请求走同源相对路径，不使用旧版 `/v1` 或登录态：
+所有浏览器请求走同源相对路径，不使用旧版 `/v1`。除 `/api/auth/login`、
+`/api/auth/bootstrap`、`/api/auth/register` 与 `/healthz` 外，其余端点都要求
+已登录（同源 `lework_session` cookie，或 `Authorization: Bearer`）：
 
 - `GET /api/nodes`、`GET /api/sessions`
 - `POST /api/sessions`、`POST /api/sessions/{node}/{session}/prompt`

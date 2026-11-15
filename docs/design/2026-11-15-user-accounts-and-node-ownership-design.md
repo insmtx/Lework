@@ -136,7 +136,7 @@ lework agent 启动
                                          建 NodeClaim(pending, code=5 位)
                                          回 pair.pending{claim_id, code}
      终端打印二维码 + 短码
-     （非 TTY 时只写 claim.json，不打印）
+     （非 TTY 时只写 node.claim，不打印）
                                                                         登录 → 扫码/输码
                                                                         GET /api/claim/{code}
                                                                         显示节点名/OS/版本/时间
@@ -157,8 +157,8 @@ lework agent 启动
 
 - **待定连接也必须先鉴权**：握手头用 `Authorization: Pair <pair_key>`，`pair_key` 是 agent 生成的 32 字节随机串，只用来标识这条待定连接、不是凭证（拿到它也只会创建/复用自己的待定连接，不能认领别人的节点）。因此 `/api/agent/connect` 不是公开端点，每 IP ≤3 / 全局 ≤100 的配额可以在升级**之前**按 `pair_key` 与来源 IP 计数。
 - **凭证在握手头里**：正常路径沿用 `Authorization: Bearer <node credential>`；未知或已吊销凭证返回 401（不区分原因，避免探测）。
-- **凭证下发复用 welcome**：旧 token 直通路径在登记时若节点还没有 `credential_hash`，`welcome` 里带上一次性 `credential` 字段，agent 落盘后立即改用它——不需要新增服务端主动帧，也不强迫老部署重新配对。
-- **凭证被拒时不自动重配对**：agent 只打印「凭证失效/节点已被移除，请重新执行 `lework agent pair`」并保持重试；自动清凭证重配对会让一台机器静默换到别人的账号下。
+- **凭证下发复用 welcome**：旧 token 直通路径**每次登记都签发一份新凭证**，放进 `welcome` 的一次性 `credential` 字段，agent 落盘后立即改用它——不需要新增服务端主动帧，也不强迫老部署重新配对。旧二进制读不懂这个字段，会继续用 token 登记；控制面按名字复用同一条「无成员行」的记录，因此不会每次重连都多出一个节点，但每条连接都会轮换该记录的凭证哈希。
+- **凭证被拒时不自动重配对**：agent 只打印「凭证失效/节点已被移除，请重新配对」并保持重试；自动清凭证重配对会让一台机器静默换到别人的账号下。
 - **名字冲突自动加后缀**：认领时若同一 owner 名下已有同名节点，落库为 `work-mac-2` 而不是拒绝（重装系统会自然产生新节点，旧节点留给用户自己删）。
 
 - **凭证不经过 NATS、不进日志、不进错误文本**。跨实例只传 `claim_id`，凭证由持有 WS 的实例本地生成并通过这条 WS 下发。
@@ -172,16 +172,16 @@ lework agent 启动
 
 | 方式 | 用途 | 说明 |
 |---|---|---|
-| `lework agent --code ABC12` | 机器不在你面前、无法扫码 | 网页「添加节点」出 5 位码（TTL 10 分钟，绑当前账号），agent 直接出示，无需确认步骤 |
-| `lework agent claim` | 二维码被日志刷走、终端不可见 | 读 `claim.json` 重印二维码与短码；要求 agent 仍在待定连接中 |
-| `--credential-file` / `LEWORK_NODE_CREDENTIAL` | 自动化、容器、Ansible | 凭证由 `POST /api/nodes`（owner 调用，返回一次性的节点凭证）或等价的 admin 命令签发，agent 只读文件（0600）；文件内容与扫码得到的凭证同构 |
+| `lework agent --code ABC12` | 机器不在你面前、无法扫码 | 网页「添加节点」出 5 位码（TTL 跟随 `claim_ttl`，默认 5 分钟，绑当前账号），agent 直接出示，无需确认步骤 |
+| `lework agent claim` | 二维码被日志刷走、终端不可见 | 读 `node.claim` 重印二维码与短码；只在 agent 仍处于待定连接时有效 |
+| `--credential-file` / `LEWORK_NODE_CREDENTIAL` | 自动化、容器、Ansible | 凭证目前来自一次完成的配对（复制 `node.credential`）或环境变量；`POST /api/nodes` 的直接签发尚未实现（见 §12），agent 只读文件（0600），内容与扫码得到的凭证同构 |
 | `enrollment_token`（保留） | 单机自托管、旧版本 agent、本机管理员 | 视为 **admin 直通**：可注册节点、可看全部节点、可认领历史节点；不进浏览器 cookie，不出现在二维码里 |
 
-`lework agent` 不带任何参数且本地无凭证时进入配对态并打印二维码；`--no-qr` 只打印链接与短码。
+`lework agent` 不带任何参数且本地无凭证、也没有 enrollment token 时进入配对态并打印二维码；`--no-qr` 只打印链接与短码。非 TTY（日志、CI、systemd）下一律不打印二维码与短码，只输出 `node.claim` 的路径，提示用 `lework agent claim` 重印。
 
 ## 8. 认证与会话
 
-- **浏览器/手机**：`POST /api/auth/login {email, password}` → 校验 argon2id → 生成 32 字节随机会话 token → `Set-Cookie: lework_session=<raw>; HttpOnly; SameSite=Strict; Secure(按 TLS)`，库里只存 sha256。移动端用同一条 token 走 `Authorization: Bearer`。
+- **浏览器/手机**：`POST /api/auth/login {email, password}` → 校验 argon2id → 生成 32 字节随机会话 token → `Set-Cookie: lework_session=<raw>; HttpOnly; SameSite=Strict; Secure(按传输)`，库里只存 sha256。移动端用同一条 token 走 `Authorization: Bearer`。`Secure` 的判定是「请求本身是 TLS，或反向代理声明 `X-Forwarded-Proto: https`」——控制面自身不终止 TLS，代理必须可信（见 `docs/operations/control-plane.md`）。登录失败按「邮箱 + 来源 IP」限流（10 次/分钟，超限 429），与认领码的猜码限流同形。
 - **首个账号**：库里没有任何 `User` 时，登录页提供「用控制面令牌初始化」入口，输入 `lework serve token` 打印的 enrollment token，创建第一个 `admin`。
 - **之后注册**：`registration.mode`（默认 `invite`）——`invite` 需要邀请码、`open` 允许自助注册、`closed` 只能由 admin 建号。
 - **本机回环**：保留直通，但只在「没有 User 表内容」或 `local_admin` 开启时生效；语义是「本机管理员」，不是任何账号。日常使用走登录，避免「本机浏览器永远绕过授权」。
@@ -195,7 +195,7 @@ lework agent 启动
 | 路由 | 校验 |
 |---|---|
 | `GET /api/nodes` | 返回 `node_members` 里属于我的节点；`admin` 追加「未认领」节点（无成员行的历史节点），但**永远看不到别人已认领的节点**；`local_admin` 见下 |
-| `/api/nodes/{id}/claim`（新增） | 把「未认领」节点认领到当前账号；仅 `admin`（或 `local_admin`）可调用 |
+| `/api/nodes/{id}/claim`（新增） | 把「未认领」节点认领到当前账号；只有 `admin` **账号**可调用（`local_admin` 等部署级身份没有 user id，返回 403 `user_required`） |
 | `/api/nodes/{id}/...`、`/api/sessions/{nodeID}/...`、`/api/pty/{nodeID}/...` | 从 path 取 node id → membership 校验；非成员一律 **404**（不暴露存在性） |
 | `POST /api/sessions` | body 里的 node 同样校验 |
 | `/api/events` | 订阅时取当前成员的 node 集合，按 `event.NodeID` 过滤；成员变更 30 秒内重算（或订阅 `node.member.*` 事件立即重算） |
@@ -203,7 +203,7 @@ lework agent 启动
 | `/api/devices` | 设备绑定 `user_id`；推送只发给该节点成员的设备 |
 | `/api/nodes/{id}/members`（新增） | 仅 `owner` 可增删；首版只有 owner 一行 |
 
-`agentgw` 侧：凭证 → 节点身份（查 `credential_hash`），`hello` 里的 `node_name` 只写入展示字段，绝不参与身份判定。旧 token 直通仍按名字复用节点，但**只匹配没有成员行、也没有凭证的历史节点**，永远不会覆盖某个账号已认领的节点。
+`agentgw` 侧：凭证 → 节点身份（查 `credential_hash`），`hello` 里的 `node_name` 只写入展示字段，绝不参与身份判定。旧 token 直通仍按名字复用节点，但**只匹配没有成员行的历史节点**（有没有凭证都复用，因为该令牌本来就是 admin 级）；它永远不会覆盖某个账号已认领的节点，因此确认某条旧节点已被认领后，旧 agent 必须先升级（落盘 `welcome.credential`）才能继续用同一个节点上线。
 
 ## 10. 多实例与并发
 
@@ -222,21 +222,22 @@ lework agent 启动
 | `internal/controlplane/auth.go` | 拆成 `principal` 解析（cookie / bearer / local_admin）+ 路由级授权；保留 token 常量时间比较路径 |
 | `internal/controlplane/authz`（新增） | `RequireUser`、`RequireNode(role)`、`visibleNodes(user)`、`filterEvents(user)`；单测覆盖 404 与成员变更 |
 | `internal/controlplane/api/auth.go`（新增） | `POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/me`、`POST /api/auth/bootstrap`、`POST /api/auth/register` |
-| `internal/controlplane/api/claims.go`（新增） | `GET /api/claim/{code}`、`POST /api/claim/{code}`、`POST /api/claims`（网页出码）、`GET /api/nodes/{id}/members`、`POST/DELETE /api/nodes/{id}/members` |
+| `internal/controlplane/api/claims.go`（新增） | `GET /api/claim/{code}`、`POST /api/claim/{code}`、`POST /api/node-claims`（网页出码）、`POST /api/nodes/{id}/claim`（管理员认领历史节点）；成员管理 `GET/POST/DELETE /api/nodes/{id}/members` 属于 M4 |
 | `internal/controlplane/agentgw` | 握手分支：`mode=pair` 的待定连接；凭证校验（sha256 查 `credential_hash`）+ 旧 token 直通；`cp.pair.<id>` 响应端；`hello` 名字只做展示 |
 | `internal/controlplane/api/events.go` | 按可见节点集合过滤；resync 时重算 |
 | `internal/controlplane/push` | `store.ListDevices` → `ListDevicesForNode(nodeID)` |
 | `internal/controlplane/pairing` + `cmd/lework/pairing.go` | 移除启动时的手机配对二维码与 `pairing.Link` 的 token 参数；`lework serve token` 仅保留「初始化第一个账号」用途 |
 | `internal/controlplane/config` | `registration.mode`、`session_ttl`、`claim_ttl`、`claim_code_length`、`local_admin` |
-| `internal/agentd/config` + `runner` | 凭证文件读写（0600）、`mode=pair` 握手、`pair.result` 落盘、`claim.json` |
-| `cmd/lework/agent.go` | 复用 `qrterminal` 打印配对二维码（参照 `pairing.go` 的 `isTerminal` 保护）；`--code`、`--no-qr`、`claim` 子命令 |
+| `internal/agentd/config` + `runner` | 凭证文件读写（0600）、`mode=pair` 握手、`pair.result` 落盘、`node.claim`（与凭证同目录） |
+| `cmd/lework/agent.go` | 复用 `qrterminal` 打印配对二维码（复用 `isTerminal` 保护）；`--code`、`--no-qr`、`claim` 子命令 |
 | `frontend/apps/control-plane` | 登录/注册页、节点列表分组「我的 / 共享给我」、添加节点弹窗（二维码 + 命令 + 倒计时）、节点成员管理 |
 | `docs/` + `AGENTS.md` | 产品定位从「单用户多节点」改为「多账号、节点有归属」；`operations/control-plane.md` 补加入与登录流程 |
 
 ## 12. 迁移与兼容
 
-- **旧部署升级**：enrollment token 继续可用（admin 直通）；已有节点没有 `node_members` 行 → 在管理员视图里显示为「未认领」，提供一键认领到当前账号；旧 token 路径在 `welcome` 里补发凭证，认领后 agent 自动改用凭证。
-- **旧 agent**：仍用全局 token 注册，节点同样落在「未认领」；升级后按第 6 节扫码或 `--code` 认领，凭证随之写回。
+- **旧部署升级**：enrollment token 继续可用（admin 直通）；已有节点没有 `node_members` 行 → 在管理员视图里显示为「未认领」，提供一键认领到当前账号；旧 token 路径每次连接都在 `welcome` 里补发凭证，agent 落盘后自动改用凭证。
+- **旧 agent**：仍用全局 token 注册，节点同样落在「未认领」。控制面按名字复用的只是「没有成员行」的记录，所以一台旧 agent 无论重连多少次都只有一行；但它已认领的节点不会被旧 token 接管，需要先升级 agent（读得懂 `welcome.credential`）才能让同一个节点继续上线。升级后按第 6 节扫码或 `--code` 认领，凭证随之写回。
+- **凭证文件的自动化签发**：本轮只实现「配对一次后复制 `node.credential`」与 `LEWORK_NODE_CREDENTIAL`；设计中的 `POST /api/nodes`（owner 调用、一次性返回凭证）尚未实现，属于 M4 前的遗留项，已在执行 ledger 记录。
 - **DDL**：只有 `nodes.name` 的唯一索引必须显式 `DropIndex`（GORM AutoMigrate 不会删），SQLite（单测）与 PG 两种方言都要覆盖；其余新增列都是可空/带默认值，AutoMigrate 可直接处理；偏好类表不动主键。
 - **数据回填**：`devices.user_id` 保持 `NULL`，等设备下次登录/配对时绑定；偏好在前缀化后**不迁移**旧值（旧键保留不读，等于重置显示偏好），避免给不存在的用户造 ownership。
 - **不兼容点**：`lework agent` 首次启动不再需要 `enrollment_token` 才能工作；`agent.yaml` 里的该字段仍被读取，但只在「admin 直通」路径使用；控制面启动不再打印手机配对二维码。
@@ -247,16 +248,16 @@ lework agent 启动
 
 - 认领：并发双认领只有一个成功；过期码拒绝；`claimed` 但未下发凭证时可重投；码尝试超限作废。
 - 授权：非成员访问节点/会话/PTY/文件一律 404；成员被移除后立即失效。
-- 凭证：错误凭证 401；凭证 sha256 命中；旧 token 直通仅对 admin 生效；旧 token 注册在 `welcome` 里拿到凭证后，第二次连接不再需要 token。
+- 凭证：错误凭证 401；凭证 sha256 命中；旧 token 直通仅对 admin 生效；旧 token 注册在 `welcome` 里拿到凭证后，第二次连接不再需要 token；模拟「读不懂 `welcome.credential` 的旧 agent」连续两次登记只留下一条无成员行的记录。
 - 名字：同名重装产生 `-2` 后缀；用户已认领的节点不会被 `hello` 里的同名覆盖。
 - SSE：只收到可见节点事件；成员被移除后不再收到该节点事件。
-- 登录：argon2id 校验、错误密码不区分「用户不存在」、会话过期、登出即失效。
+- 登录：argon2id 校验、错误密码不区分「用户不存在」、会话过期、登出即失效、同一邮箱 + 来源 IP 的失败尝试超限后 429。
 
 集成（`-tags integration`，`LEWORK_TEST_*`）：
 
 - 双实例：agent 连 A、浏览器连 B 完成扫码认领（`cp.pair.<id>` 路径）。
 - 双实例：认领后节点事件只出现在成员实例的 SSE 里。
-- 回归：现有 `go test -p 1 ./...` 全绿；`/api/agent/connect` 旧 token 路径不变。
+- 回归：现有 `go test -p 1 ./...` 全绿；`/api/agent/connect` 旧 token 路径仍可登记并收到凭证。
 
 安全用例（必须有）：
 
