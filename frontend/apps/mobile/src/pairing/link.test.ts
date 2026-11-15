@@ -1,48 +1,56 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPairPayload, parsePairLink } from "./link";
+import { buildPairPayload, normalizeCode, parsePairLink } from "./link";
 
 describe("parsePairLink", () => {
-	it("解析 lework:// 链接", () => {
-		const payload = parsePairLink("lework://connect?url=http%3A%2F%2Fdev.ckeyer.com&token=abc-123");
-		expect(payload).toEqual({ baseUrl: "http://dev.ckeyer.com", token: "abc-123" });
+	it("解析 lework://node/pair 链接", () => {
+		const payload = parsePairLink("lework://node/pair?url=https%3A%2F%2Fbox%3A8787%2Fcp&code=ab234");
+		expect(payload).toEqual({ baseUrl: "https://box:8787/cp", code: "AB234" });
 	});
 
 	it("解析 Expo Go 的 exp:// 链接", () => {
 		const payload = parsePairLink(
-			"exp://dev.ckeyer.com:8082/--/connect?url=https%3A%2F%2Fcp.example.com&token=t1",
+			"exp://dev.ckeyer.com:8082/--/node/pair?url=http%3A%2F%2Fbox%3A8787&code=ZZ234",
 		);
-		expect(payload).toEqual({ baseUrl: "https://cp.example.com", token: "t1" });
+		expect(payload).toEqual({ baseUrl: "http://box:8787", code: "ZZ234" });
 	});
 
-	it("解码带空格的令牌", () => {
-		const payload = parsePairLink("lework://connect?url=http%3A%2F%2Fbox%3A8787&token=a%20b%2Fc");
-		expect(payload.token).toBe("a b/c");
-		expect(payload.baseUrl).toBe("http://box:8787");
+	it("缺 code 或缺 url 都报错", () => {
+		expect(() => parsePairLink("lework://node/pair?url=http%3A%2F%2Fbox%3A8787")).toThrow(/配对码/);
+		expect(() => parsePairLink("lework://node/pair?code=AB234")).toThrow(/地址/);
+		expect(() => parsePairLink("lework://node/pair?url=&code=AB234")).toThrow();
 	});
 
-	it("忽略末尾斜杠与多余空白", () => {
-		const payload = parsePairLink("  lework://connect?url=http%3A%2F%2Fbox%3A8787%2F&token=t  ");
-		expect(payload.baseUrl).toBe("http://box:8787");
+	it("扫到不带参数的 Expo 二维码时给出专属提示", () => {
+		expect(() => parsePairLink("exp://192.168.1.5:8082")).toThrow(/Expo/);
 	});
 
-	it("缺参数、缺令牌、缺地址都报错", () => {
-		expect(() => parsePairLink("lework://connect")).toThrow();
-		expect(() => parsePairLink("lework://connect?url=http%3A%2F%2Fbox%3A8787")).toThrow(/令牌/);
-		expect(() => parsePairLink("lework://connect?url=&token=t")).toThrow();
-	});
-
-	it("同名参数取第一次出现", () => {
-		const payload = parsePairLink(
-			"lework://connect?url=http%3A%2F%2Fa.example&url=http%3A%2F%2Fb.example&token=t",
+	it("码长度不在 4..8 时报错", () => {
+		expect(() => parsePairLink("lework://node/pair?url=http%3A%2F%2Fbox%3A8787&code=ABC")).toThrow(
+			/配对码/,
 		);
-		expect(payload.baseUrl).toBe("http://a.example");
+		expect(() =>
+			parsePairLink("lework://node/pair?url=http%3A%2F%2Fbox%3A8787&code=AB2345678"),
+		).toThrow(/配对码/);
+	});
+
+	it("码里的分隔符被丢弃后仍算合法", () => {
+		// 手抄或扫码枪常带空格/连字符；它们不可能出现在合法短码里，直接丢掉。
+		const payload = parsePairLink("lework://node/pair?url=http%3A%2F%2Fbox%3A8787&code=ab%20234");
+		expect(payload.code).toBe("AB234");
 	});
 });
 
 describe("buildPairPayload", () => {
-	it("拒绝空 url 与空 token", () => {
-		expect(() => buildPairPayload("", "t")).toThrow();
-		expect(() => buildPairPayload("http://box:8787", "  ")).toThrow(/令牌/);
+	it("拒绝空 url 与空 code", () => {
+		expect(() => buildPairPayload("", "AB234")).toThrow(/地址/);
+		expect(() => buildPairPayload("http://box:8787", "  ")).toThrow(/配对码/);
+	});
+});
+
+describe("normalizeCode", () => {
+	it("去空白、转大写、丢弃分隔符", () => {
+		expect(normalizeCode(" ab 234 ")).toBe("AB234");
+		expect(normalizeCode("ab-234")).toBe("AB234");
 	});
 });
