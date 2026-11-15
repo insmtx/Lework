@@ -798,3 +798,51 @@ func mustNode(t *testing.T, s *store.Store, name string) store.Node {
 	}
 	return n
 }
+
+func TestResolveLocalRequestAsAdminUser(t *testing.T) {
+	st := newTestStore(t)
+	admin, _ := st.CreateUser(context.Background(), store.User{
+		Email: "admin", PasswordHash: "x", Role: "admin", Status: "active",
+	})
+	r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+	r.RemoteAddr = "127.0.0.1:5555"
+
+	p, ok, err := authz.Resolver{Store: st, LocalAdmin: true}.Resolve(r)
+	if err != nil || !ok {
+		t.Fatalf("Resolve = %v, %v; want authenticated", ok, err)
+	}
+	if p.Kind != authz.KindUser || p.UserID != admin.ID || p.Role != "admin" {
+		t.Fatalf("principal = %+v, want user principal of admin", p)
+	}
+}
+
+func TestResolveLocalRequestFallsBackWhenNoAdmin(t *testing.T) {
+	st := newTestStore(t)
+	r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+	r.RemoteAddr = "127.0.0.1:5555"
+
+	p, ok, _ := authz.Resolver{Store: st, LocalAdmin: true}.Resolve(r)
+	if !ok || p.Kind != authz.KindLocal {
+		t.Fatalf("principal = %+v, want KindLocal fallback", p)
+	}
+}
+
+// 回环地址 + 转发头 = 经过代理的外部请求，必须按外部语义走（未认证）。
+// 反过来的实现会让任何人加一个 X-Forwarded-For 就拿到本机管理员身份。
+func TestResolveLoopbackWithForwardingHeaderIsNotLocal(t *testing.T) {
+	st := newTestStore(t)
+	_, _ = st.CreateUser(context.Background(), store.User{
+		Email: "admin", PasswordHash: "x", Role: "admin", Status: "active",
+	})
+	r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+	r.RemoteAddr = "127.0.0.1:5555"
+	r.Header.Set("X-Forwarded-For", "203.0.113.9")
+
+	_, ok, err := authz.Resolver{Store: st, LocalAdmin: true}.Resolve(r)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if ok {
+		t.Fatal("loopback request with X-Forwarded-For must not be treated as local")
+	}
+}

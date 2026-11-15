@@ -204,6 +204,29 @@ func (s *Store) DeleteUserSessions(ctx context.Context, userID string) error {
 	return nil
 }
 
+// FirstAdminUser 返回最早创建的可用管理员账号。
+//
+// 本机回环请求要落到「一个真实账号」而不是部署级身份，否则本机的节点归属
+// 与手机上同一账号看到的节点会对不上。选最早创建的那个：自动引导建的 admin
+// 永远排在最前，后续新增的管理员不会抢走本机语义。
+//
+// 停用账号不参与：一个被禁用的管理员不应该继续代表部署者。
+func (s *Store) FirstAdminUser(ctx context.Context) (User, bool, error) {
+	var rows []User
+	err := s.db.WithContext(ctx).
+		Where("role = ? AND status = ?", "admin", "active").
+		Order("created_at ASC").
+		Limit(1).
+		Find(&rows).Error
+	if err != nil {
+		return User{}, false, fmt.Errorf("lookup first admin: %w", err)
+	}
+	if len(rows) == 0 {
+		return User{}, false, nil
+	}
+	return rows[0], true, nil
+}
+
 // normalizeEmail 把邮箱收敛成存储与比较的唯一形式（小写、去首尾空格）。
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
