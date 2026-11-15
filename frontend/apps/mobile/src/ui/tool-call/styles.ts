@@ -23,6 +23,8 @@ export function createStyles(theme: Theme, fontScale = 1) {
 			borderRadius: 12,
 			overflow: "hidden",
 		},
+		/** 运行中强调边框，让进行中的调用在消息流里一眼可见。 */
+		cardRunning: { borderColor: colors.accent },
 		header: {
 			flexDirection: "row",
 			alignItems: "center",
@@ -39,6 +41,8 @@ export function createStyles(theme: Theme, fontScale = 1) {
 			color: colors.text,
 		},
 		status: { marginLeft: "auto", fontSize: size(11) },
+		statusRunning: { fontWeight: "600" },
+		spinner: { marginLeft: 6 },
 		summary: {
 			paddingHorizontal: 10,
 			paddingBottom: 8,

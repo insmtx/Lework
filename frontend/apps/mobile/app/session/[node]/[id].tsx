@@ -104,10 +104,13 @@ function ReasoningCard({
 function MessageRow({
 	message,
 	fontScale,
+	isLastMessage,
 	nodeID,
 }: {
 	message: Message;
 	fontScale: number;
+	/** 是否为本会话最后一条消息；最后一张工具卡片据此决定完成后的折叠时机。 */
+	isLastMessage: boolean;
 	nodeID: string;
 }) {
 	const theme = useTheme();
@@ -170,6 +173,7 @@ function MessageRow({
 							part={part}
 							defaultExpanded={preferences.toolDisplay === "expanded"}
 							fontScale={fontScale}
+							isLast={isLastMessage && index === tools.length - 1}
 							nodeID={nodeID}
 						/>
 					))}
@@ -583,8 +587,13 @@ export default function SessionScreen() {
 					keyExtractor={(message) => message.id}
 					// 字号与展示偏好变化时，行内内容必须一起重排；FlatList 不会因为闭包变化重绘单元格。
 					extraData={`${fontScale}:${preferences.toolDisplay}:${preferences.processDisplay}`}
-					renderItem={({ item }) => (
-						<MessageRow message={item} fontScale={fontScale} nodeID={nodeID} />
+					renderItem={({ item, index }) => (
+						<MessageRow
+							message={item}
+							fontScale={fontScale}
+							isLastMessage={index === visibleMessages.length - 1}
+							nodeID={nodeID}
+						/>
 					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 					onContentSizeChange={handleContentSizeChange}
