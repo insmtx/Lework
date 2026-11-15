@@ -465,6 +465,45 @@ func (s *Store) MarkClaimDelivered(ctx context.Context, claimID, nodeID string) 
 	return nil
 }
 
+// UpdateClaimMachine 把待定连接 hello 里的机器信息写回认领记录。
+//
+// 只允许 pending 行：claimed 行已经被账号认领并建好节点，晚到的连接不能借
+// 「更新机器信息」改写一台已归属的机器；expired 行同理。0 行时区分不存在
+// （ErrClaimNotFound）与「已被别人认领/已过期」（ErrClaimTaken），调用方据此
+// 决定关连接还是重读状态。
+//
+// 只触碰 node_name/os/arch/agent_version：码、pair_key、状态、归属与 node_id
+// 都是身份或授权字段，不能从这条路径写入。
+func (s *Store) UpdateClaimMachine(ctx context.Context, claimID string, meta NodeClaim) error {
+	if strings.TrimSpace(claimID) == "" {
+		return errors.New("claim id is required")
+	}
+
+	db := s.db.WithContext(ctx)
+	res := db.Model(&NodeClaim{}).
+		Where("id = ? AND status = ?", claimID, ClaimStatusPending).
+		UpdateColumns(NodeClaim{
+			NodeName:     meta.NodeName,
+			OS:           meta.OS,
+			Arch:         meta.Arch,
+			AgentVersion: meta.AgentVersion,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("update claim %q machine info: %w", claimID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		_, found, err := claimByID(db, claimID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("update claim %q machine info: %w", claimID, ErrClaimNotFound)
+		}
+		return fmt.Errorf("update claim %q machine info: %w", claimID, ErrClaimTaken)
+	}
+	return nil
+}
+
 // BumpClaimAttempts 原子地累加码尝试次数，超过 max 就把认领标记为过期。
 //
 // 累加与作废必须是同一条 UPDATE（用 CASE 表达），否则两次并发尝试可能各自

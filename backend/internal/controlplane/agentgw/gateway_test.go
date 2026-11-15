@@ -72,12 +72,19 @@ type coreSubscription struct {
 // noopCoreSub 记录订阅参数后阻塞到 ctx 结束，模拟真实 Core NATS 订阅的生命周期。
 //
 // 记录使用非阻塞发送：不关心转发请求的用例不读通道，订阅协程仍必须能退出。
+// 订阅 handler 同时登记在一张表里，供 publishCore 模拟「本实例收到一条消息」。
 type noopCoreSub struct {
 	made chan coreSubscription
+
+	mu   sync.Mutex
+	subs map[string][]*coreSubscription
 }
 
 func newNoopCoreSub() *noopCoreSub {
-	return &noopCoreSub{made: make(chan coreSubscription, 8)}
+	return &noopCoreSub{
+		made: make(chan coreSubscription, 8),
+		subs: make(map[string][]*coreSubscription),
+	}
 }
 
 func (s *noopCoreSub) SubscribeCore(
@@ -85,12 +92,53 @@ func (s *noopCoreSub) SubscribeCore(
 	subject, queue string,
 	handler func(context.Context, []byte) []byte,
 ) error {
+	sub := &coreSubscription{subject: subject, queue: queue, handler: handler}
+	s.mu.Lock()
+	s.subs[subject] = append(s.subs[subject], sub)
+	s.mu.Unlock()
+	defer s.forgetSub(sub)
+
 	select {
-	case s.made <- coreSubscription{subject: subject, queue: queue, handler: handler}:
+	case s.made <- *sub:
 	default:
 	}
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+// forgetSub 在订阅退出时移除登记，避免重连后的 publish 落到已关闭的连接。
+func (s *noopCoreSub) forgetSub(sub *coreSubscription) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	list := s.subs[sub.subject]
+	for i, got := range list {
+		if got == sub {
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(s.subs, sub.subject)
+		return
+	}
+	s.subs[sub.subject] = list
+}
+
+// publishCore 把一条消息交给本进程内匹配 subject 的订阅 handler，模拟 Core NATS
+// 「每个实例都收到」的投递语义；没有订阅者时返回 false。
+func (s *noopCoreSub) publishCore(ctx context.Context, subject string, payload []byte) bool {
+	s.mu.Lock()
+	handlers := make([]func(context.Context, []byte) []byte, 0, len(s.subs[subject]))
+	for _, sub := range s.subs[subject] {
+		handlers = append(handlers, sub.handler)
+	}
+	s.mu.Unlock()
+
+	for _, handler := range handlers {
+		handler(ctx, payload)
+	}
+	return len(handlers) > 0
 }
 
 func newGatewayEnv(t *testing.T) *gatewayEnv {
@@ -636,7 +684,8 @@ func TestLegacyTokenReceivesCredentialOnce(t *testing.T) {
 }
 
 // TestGatewayRejectsUnusableHandshakeHeaders 覆盖凭证路径的拒绝分支：
-// 未知凭证、已被轮换的旧凭证、尚未接通的 Pair 头与空 Bearer 都必须 401。
+// 未知凭证、已被轮换的旧凭证与空 Bearer 都必须 401。Pair 头已改走待定连接
+// 流程，它的拒绝分支（空值）由 pair_test.go 覆盖。
 func TestGatewayRejectsUnusableHandshakeHeaders(t *testing.T) {
 	env := newGatewayEnv(t)
 	ctx := context.Background()
@@ -648,8 +697,6 @@ func TestGatewayRejectsUnusableHandshakeHeaders(t *testing.T) {
 		t.Fatalf("rotate credential: %v", err)
 	}
 
-	pairHeader := http.Header{}
-	pairHeader.Set("Authorization", "Pair pair-key")
 	emptyBearer := http.Header{}
 	emptyBearer.Set("Authorization", "Bearer ")
 
@@ -659,7 +706,6 @@ func TestGatewayRejectsUnusableHandshakeHeaders(t *testing.T) {
 	}{
 		{"unknown credential", bearerHeader("not-a-credential")},
 		{"rotated credential", bearerHeader(staleCredential)},
-		{"pair header", pairHeader},
 		{"empty bearer", emptyBearer},
 	}
 	for _, tt := range tests {

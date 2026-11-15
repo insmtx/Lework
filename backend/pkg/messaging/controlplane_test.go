@@ -36,6 +36,14 @@ func TestControlPlaneSubjects(t *testing.T) {
 		t.Fatalf("pty subject = %q, want %q", pty, "cp.pty.node-1.pty-9")
 	}
 
+	pair, err := ControlPlanePairSubject("claim-1")
+	if err != nil {
+		t.Fatalf("ControlPlanePairSubject: %v", err)
+	}
+	if pair != "cp.pair.claim-1" {
+		t.Fatalf("pair subject = %q, want %q", pair, "cp.pair.claim-1")
+	}
+
 	if StreamNameControlPlane != "CONTROLPLANE_EVENT_STREAM" {
 		t.Fatalf("stream name = %q", StreamNameControlPlane)
 	}
@@ -56,6 +64,9 @@ func TestControlPlaneSubjects(t *testing.T) {
 	if _, err := ControlPlanePTYSubject("node-1", ""); err == nil {
 		t.Error("empty pty id should fail for the pty subject")
 	}
+	if _, err := ControlPlanePairSubject(""); err == nil {
+		t.Error("empty claim id should fail for the pair subject")
+	}
 
 	// 非法 token 里的分隔符与通配符必须被替换，不能伪造出额外的 subject 层级。
 	event, err = ControlPlaneEventSubject("n.1")
@@ -70,6 +81,10 @@ func TestControlPlaneSubjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ControlPlanePTYSubject(n.1, p.1): %v", err)
 	}
+	pair, err = ControlPlanePairSubject("c.1")
+	if err != nil {
+		t.Fatalf("ControlPlanePairSubject(c.1): %v", err)
+	}
 	if event != "cp.events.node.n_1" {
 		t.Errorf("event subject = %q, want sanitized token", event)
 	}
@@ -78,6 +93,9 @@ func TestControlPlaneSubjects(t *testing.T) {
 	}
 	if pty != "cp.pty.n_1.p_1" {
 		t.Errorf("pty subject = %q, want sanitized token", pty)
+	}
+	if pair != "cp.pair.c_1" {
+		t.Errorf("pair subject = %q, want sanitized token", pair)
 	}
 
 	for _, id := range []string{"n*", "n>", " n "} {
@@ -148,6 +166,7 @@ func TestStreamConfigsIncludesControlPlane(t *testing.T) {
 		"cp.node.node-1.request",
 		"cp.pty.node-1.pty-9",
 		"cp.live.node.node-1",
+		"cp.pair.claim-1",
 	}
 	for name, stream := range configs {
 		for _, subject := range stream.Subjects {

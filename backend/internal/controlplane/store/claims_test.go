@@ -645,6 +645,54 @@ func TestMarkClaimDeliveredRefusesRebinding(t *testing.T) {
 	}
 }
 
+// TestUpdateClaimMachineOnlyPending 固化待定连接写回机器信息的边界：只有
+// pending 行可以更新展示元数据，已认领/已过期的行不能被晚到的连接改写。
+func TestUpdateClaimMachineOnlyPending(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := newPendingClaim(t, s, "pk-machine", "AB234")
+	meta := NodeClaim{
+		NodeName:     "renamed-box",
+		OS:           "darwin",
+		Arch:         "arm64",
+		AgentVersion: "v9.9.9",
+	}
+	if err := s.UpdateClaimMachine(ctx, c.ID, meta); err != nil {
+		t.Fatalf("UpdateClaimMachine: %v", err)
+	}
+
+	got := mustClaimByID(t, s, c.ID)
+	if got.NodeName != "renamed-box" || got.OS != "darwin" || got.Arch != "arm64" {
+		t.Fatalf("machine info = %+v, want the update", got)
+	}
+	if got.AgentVersion != "v9.9.9" {
+		t.Fatalf("agent version = %q, want v9.9.9", got.AgentVersion)
+	}
+	// 身份相关列与码都不能被这次更新碰到。
+	if got.Status != ClaimStatusPending || got.PairKey != "pk-machine" || got.Code != "AB234" {
+		t.Fatalf("claim identity columns changed: %+v", got)
+	}
+
+	claimed := newPendingClaim(t, s, "pk-machine-claimed", "CD345")
+	if _, _, err := s.ClaimClaimForUser(ctx, claimed.ID, "u1"); err != nil {
+		t.Fatalf("ClaimClaimForUser: %v", err)
+	}
+	if err := s.UpdateClaimMachine(ctx, claimed.ID, meta); !errors.Is(err, ErrClaimTaken) {
+		t.Fatalf("update on claimed claim = %v, want ErrClaimTaken", err)
+	}
+	if got := mustClaimByID(t, s, claimed.ID); got.NodeName != "work-mac" {
+		t.Fatalf("claimed claim machine info changed: %+v", got)
+	}
+
+	if err := s.UpdateClaimMachine(ctx, "claim_missing", meta); !errors.Is(err, ErrClaimNotFound) {
+		t.Fatalf("unknown claim error = %v, want ErrClaimNotFound", err)
+	}
+	if err := s.UpdateClaimMachine(ctx, " ", meta); err == nil {
+		t.Fatal("blank claim id accepted")
+	}
+}
+
 func TestBumpClaimAttemptsValidatesInput(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

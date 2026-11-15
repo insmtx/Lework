@@ -2,10 +2,11 @@
 //
 // agent 始终主动外拨到 /api/agent/connect，网关在握手头里按凭证识别节点：
 // Authorization: Bearer 既可能是节点凭证（sha256 查库命中），也可能是部署级
-// enrollment token（admin 直通，只用于登记新的未认领节点），Authorization: Pair
-// 留给待定连接的配对流程。hello 里的 node_name 只更新展示字段，绝不参与身份
-// 判定。任何凭证只在握手头与 welcome 的 credential 字段中出现，不进入日志、
-// 错误信息、事件或其它帧。
+// enrollment token（admin 直通，只用于登记新的未认领节点）；Authorization: Pair
+// 用于尚未认领的待定连接：握手值只用来建/复用自己的配对，不是身份凭证，
+// 节点要等账号认领后才产生。hello 里的 node_name 只更新展示字段，绝不参与身份
+// 判定。任何凭证只在握手头与 welcome/pair.result 的下发字段中出现，不进入
+// 日志、错误信息、事件或其它帧。
 package agentgw
 
 import (
@@ -45,7 +46,7 @@ const (
 	// bearerScheme 是节点凭证与 admin 直通令牌在握手头中的方案名。
 	bearerScheme = "Bearer"
 
-	// pairScheme 用于尚未认领的待定连接；配对流程接通前一律拒绝。
+	// pairScheme 用于尚未认领的待定连接；握手值只标识配对，不是节点身份。
 	pairScheme = "Pair"
 
 	// maxFrameBytes 是单个入站帧的上限，与协议侧共享同一个常量。
@@ -106,7 +107,7 @@ const (
 	authCredential
 	// authLegacy 表示 Bearer 值是部署级 enrollment token（admin 直通）。
 	authLegacy
-	// authPair 保留给待定连接的 Pair 握手；配对流程接通前不会放行。
+	// authPair 表示待定连接：握手值只标识这次配对，身份在认领成功后产生。
 	authPair
 )
 
@@ -149,6 +150,9 @@ type Gateway struct {
 	// newWriter 构造单连接写入端；默认是 wsWriter，测试可替换为可控写入端，
 	// 用于确定性地阻塞 welcome 写出。
 	newWriter func(*websocket.Conn) node.Writer
+
+	// pending 是待定连接的并发配额：升级之前获取，连接结束时归还。
+	pending *pendingLimiter
 }
 
 // New 创建网关；HeartbeatTimeout 非正时使用默认值。
@@ -168,6 +172,7 @@ func New(
 		registry:  registry,
 		publisher: publisher,
 		coreSub:   coreSub,
+		pending:   newPendingLimiter(),
 		newWriter: func(ws *websocket.Conn) node.Writer {
 			return &wsWriter{conn: ws}
 		},
@@ -184,11 +189,25 @@ func New(
 //
 // 鉴权发生在升级之前：未通过时返回 401 且不占用 WebSocket 连接。成功时把
 // 鉴权方式一并传给 serve，身份解析因此只发生一次，hello 里的名字无法参与。
+//
+// 待定连接额外受并发配额约束：配额在升级之前获取，升级失败或连接结束时归还，
+// 因此被限流的请求只消耗一次 HTTP 往返。来源 IP 解析失败时不计入每 IP 名额
+// （见 pendingLimiter），但仍占用全局名额。
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mode, secret, ok := g.authorize(r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	var sourceIP string
+	if mode == authPair {
+		sourceIP = pendingSourceIP(r)
+		if !g.pending.acquire(sourceIP) {
+			http.Error(w, "too many pending pairings", http.StatusTooManyRequests)
+			return
+		}
+		defer g.pending.release(sourceIP)
 	}
 
 	ws, err := g.upgrader.Upgrade(w, r, nil)
@@ -208,8 +227,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // 常量时间比较，与 enrollment token 一致则降级为 admin 直通（authLegacy）。
 // 空令牌永不匹配，避免未配置密钥时被空请求头意外放行。
 //
-// Pair 头属于待定连接的配对流程，本任务只识别方案名并拒绝——配对会在后续
-// 任务里接通，提前接受 Pair 等于给待定连接开一个无凭证的入口。
+// Pair 头用于待定连接：握手值只标识这次配对，不参与身份判定，因此任何非空值
+// 都放行到配对流程（空值仍按 401 拒绝）。真正的约束来自并发配额与认领码。
 //
 // store 查询失败时关闭放行（返回 ok=false）。错误只记日志、绝不回显请求头，
 // 因此日志里不会出现被出示的凭证。
@@ -238,8 +257,7 @@ func (g *Gateway) authorize(r *http.Request) (authMode, string, bool) {
 		}
 		return authNone, "", false
 	case strings.EqualFold(scheme, pairScheme):
-		// 配对流程尚未接通：识别方案名但不放行，握手应得到 401 而不是 101。
-		return authPair, value, false
+		return authPair, value, true
 	default:
 		return authNone, "", false
 	}
@@ -260,6 +278,9 @@ func (g *Gateway) matchesEnrollmentToken(candidate string) bool {
 
 // serve 读取 hello、登记节点、发送 welcome，然后进入读循环。
 //
+// 待定连接（authPair）在进入登记流程之前就转给 servePair：那时还没有节点，
+// 只有一条认领码，登记与 welcome 都不适用。
+//
 // mode 与 secret 来自握手鉴权：authCredential 时 secret 是凭证命中的节点 ID，
 // authLegacy 时 secret 不参与登记（鉴权已经完成，旧令牌只能按 hello 的名字新建
 // 或复用未认领节点）。节点身份与展示字段在这里分开处理：身份只来自凭证，
@@ -273,6 +294,13 @@ func (g *Gateway) matchesEnrollmentToken(candidate string) bool {
 // 这条连接应答。无论从哪条路径退出，都只注销本连接、停止转发订阅、发布
 // 离线事件、刷新最后活跃时间并关闭套接字。
 func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, mode authMode, secret string) {
+	// 待定连接在读完 hello 之前就分派：它不参与 identify/welcome/注册表，
+	// 节点要等账号认领后才产生。servePair 自己读取并校验 hello。
+	if mode == authPair {
+		g.servePair(ctx, ws, mode, secret)
+		return
+	}
+
 	writer := g.newWriter(ws)
 
 	hello, params, err := readHello(ws)
@@ -431,7 +459,7 @@ func (g *Gateway) identify(ctx context.Context, mode authMode, secret string, pa
 		}
 		return rec.ID, raw, nil
 	default:
-		// authNone / authPair 在握手阶段就被拒绝，走到这里说明调用方漏了分支。
+		// authNone / 未知方式在握手阶段就被拒绝；authPair 由 servePair 处理。
 		return "", "", fmt.Errorf("unsupported auth mode %d", mode)
 	}
 }

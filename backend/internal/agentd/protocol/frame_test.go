@@ -58,6 +58,10 @@ func TestFrameValidateRules(t *testing.T) {
 		{name: "event", frame: Frame{Type: FrameEvent, Event: &Event{Type: "session.updated"}}},
 		{name: "cancel missing id", frame: Frame{Type: FrameCancel}, wantErr: true},
 		{name: "cancel", frame: Frame{Type: FrameCancel, ID: "1"}},
+		{name: "pair pending missing payload", frame: Frame{Type: FramePairPending}, wantErr: true},
+		{name: "pair pending", frame: Frame{Type: FramePairPending, Result: json.RawMessage(`{"claim_id":"c"}`)}},
+		{name: "pair result missing payload", frame: Frame{Type: FramePairResult}, wantErr: true},
+		{name: "pair result", frame: Frame{Type: FramePairResult, Result: json.RawMessage(`{"node_id":"n"}`)}},
 	}
 
 	for _, tt := range tests {
