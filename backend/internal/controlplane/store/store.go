@@ -125,6 +125,21 @@ type UserSession struct {
 	CreatedAt  time.Time
 }
 
+// Invite 是注册邀请码；控制面默认 invite-only。
+//
+// 只保存 sha256 摘要：明文邀请码由调用方生成并交给用户，数据库被读走也
+// 无法反推出可用邀请码。是否可用（未使用、未过期）的判定全部在
+// ConsumeInvite 的单条 UPDATE 里完成，避免「先查后写」的并发窗口。
+type Invite struct {
+	ID        string `gorm:"primaryKey"`
+	CodeHash  string `gorm:"uniqueIndex;not null"`
+	CreatedBy string
+	ExpiresAt time.Time
+	UsedBy    string
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
 // Store 是节点存储，持有 SQLite 连接。
 type Store struct {
 	db     *gorm.DB
@@ -168,6 +183,7 @@ func Open(path string) (*Store, error) {
 
 	if err := database.AutoMigrate(
 		&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}, &User{}, &UserSession{},
+		&Invite{},
 	); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		if sqlDB, dbErr := database.DB(); dbErr == nil {
@@ -211,6 +227,7 @@ func OpenPostgres(cfg appconfig.DatabaseConfig) (*Store, error) {
 
 	if err := database.AutoMigrate(
 		&Node{}, &Device{}, &ProjectIndex{}, &ProjectPreference{}, &Preference{}, &User{}, &UserSession{},
+		&Invite{},
 	); err != nil {
 		// 迁移失败时主动释放底层连接，避免句柄泄漏。
 		_ = sqlDB.Close()
