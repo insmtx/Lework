@@ -164,6 +164,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/claim/{code}", a.handlePreviewClaim)
 	mux.HandleFunc("POST /api/claim/{code}", a.handleClaimCode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}", a.handleGetNode)
+	a.nodeRoute(mux, "DELETE /api/nodes/{id}", a.handleDeleteNode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}/health", a.handleNodeHealth)
 	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/start", a.handleOpenCodeStart)
 	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/restart", a.handleOpenCodeRestart)
