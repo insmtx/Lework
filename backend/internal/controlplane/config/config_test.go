@@ -260,14 +260,40 @@ func TestValidateClusterDoesNotLeakURL(t *testing.T) {
 }
 
 // TestDefaultRegistrationAndLocalAdmin 钉住注册与本地直通策略的默认值：
-// 默认收紧为邀请制，本机回环仍可直接以管理员身份操作。
+// 默认开放注册，本机回环仍可直接以管理员身份操作。
 func TestDefaultRegistrationAndLocalAdmin(t *testing.T) {
 	cfg := Default()
-	if cfg.RegistrationMode != "invite" {
-		t.Errorf("RegistrationMode = %q, want %q", cfg.RegistrationMode, "invite")
+	if cfg.RegistrationMode != "open" {
+		t.Errorf("RegistrationMode = %q, want %q", cfg.RegistrationMode, "open")
 	}
 	if !cfg.LocalAdmin {
 		t.Error("LocalAdmin = false, want true")
+	}
+}
+
+func TestDefaultRegistrationModeIsOpen(t *testing.T) {
+	if got := Default().RegistrationMode; got != "open" {
+		t.Fatalf("Default().RegistrationMode = %q, want open", got)
+	}
+}
+
+func TestValidateRejectsInviteMode(t *testing.T) {
+	cfg := Default()
+	cfg.EnrollmentToken = "token-123456"
+	cfg.RegistrationMode = "invite"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() = nil, want error for invite mode")
+	}
+}
+
+func TestValidateAcceptsOpenAndClosed(t *testing.T) {
+	for _, mode := range []string{"open", "closed"} {
+		cfg := Default()
+		cfg.EnrollmentToken = "token-123456"
+		cfg.RegistrationMode = mode
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("Validate(%q) = %v, want nil", mode, err)
+		}
 	}
 }
 
@@ -287,7 +313,7 @@ func TestDefaultClaimSettings(t *testing.T) {
 }
 
 func TestConfigValidateAcceptsKnownRegistrationModes(t *testing.T) {
-	for _, mode := range []string{"invite", "open", "closed"} {
+	for _, mode := range []string{"open", "closed"} {
 		cfg := validConfig()
 		cfg.RegistrationMode = mode
 		if err := cfg.Validate(); err != nil {

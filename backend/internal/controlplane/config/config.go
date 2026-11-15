@@ -37,8 +37,8 @@ const (
 	// DefaultClaimCodeLength 是节点认领码的默认长度。
 	DefaultClaimCodeLength = 5
 
-	// DefaultRegistrationMode 是默认注册策略：只允许持邀请码的人注册。
-	DefaultRegistrationMode = "invite"
+	// DefaultRegistrationMode 是默认注册策略：默认开放注册；公网部署请改成 closed。
+	DefaultRegistrationMode = "open"
 
 	// minClaimCodeLength / maxClaimCodeLength 限定认领码长度：
 	// 太短容易被猜中，太长则难以在节点侧手输。
@@ -62,7 +62,7 @@ type Config struct {
 	RequestTimeout time.Duration
 	// HeartbeatTimeout 是节点心跳失效的判定超时。
 	HeartbeatTimeout time.Duration
-	// RegistrationMode 决定谁可以创建账号：invite（默认，凭邀请码）/ open / closed。
+	// RegistrationMode 决定谁可以创建账号：open（默认）/ closed。
 	RegistrationMode string
 	// SessionTTL 是浏览器会话的有效期。
 	SessionTTL time.Duration
@@ -133,9 +133,9 @@ func (c Config) Validate() error {
 	}
 
 	switch c.RegistrationMode {
-	case "invite", "open", "closed":
+	case "open", "closed":
 	default:
-		return fmt.Errorf("registration_mode %q is invalid: want invite, open or closed", c.RegistrationMode)
+		return fmt.Errorf("registration_mode %q is invalid: want open or closed", c.RegistrationMode)
 	}
 
 	if c.SessionTTL <= 0 {
