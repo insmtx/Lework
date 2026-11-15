@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
@@ -46,6 +47,12 @@ type API struct {
 	router   *node.Router
 	coreSub  mq.CoreSubscriber
 
+	// resolver 用于初始化接口的 enrollment token 比较；身份解析本身发生在
+	// 中间件里，API 不重复解释 cookie 与 Bearer。
+	resolver authz.Resolver
+	// authCfg 是会话有效期与注册策略。
+	authCfg AuthConfig
+
 	requestTimeout time.Duration
 	// heartbeatTimeout 决定存储里的 LastSeen 多久之后算离线。跨实例部署时
 	// 节点可能连在别的实例上，因此在线判定不能只看本实例注册表。
@@ -62,6 +69,8 @@ func New(
 	index *overview.Index,
 	router *node.Router,
 	coreSub mq.CoreSubscriber,
+	resolver authz.Resolver,
+	authCfg AuthConfig,
 	requestTimeout, heartbeatTimeout time.Duration,
 ) *API {
 	if requestTimeout <= 0 {
@@ -77,6 +86,8 @@ func New(
 		index:            index,
 		router:           router,
 		coreSub:          coreSub,
+		resolver:         resolver,
+		authCfg:          authCfg,
 		requestTimeout:   requestTimeout,
 		heartbeatTimeout: heartbeatTimeout,
 	}
@@ -94,8 +105,14 @@ func (a *API) nodeConnected(rec store.Node) bool {
 }
 
 // Register 把全部浏览器端点注册到 mux。方法与路径由 ServeMux 模式约束，
-// 未声明的方法自动得到 405。
+// 未声明的方法会落到静态资源处理器（通常得到 404，而不是 401）。
 func (a *API) Register(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/auth/bootstrap", a.handleBootstrap)
+	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
+	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
+	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
+	mux.HandleFunc("GET /api/me", a.handleMe)
+
 	mux.HandleFunc("GET /api/nodes", a.handleListNodes)
 	mux.HandleFunc("GET /api/nodes/{id}", a.handleGetNode)
 	mux.HandleFunc("GET /api/nodes/{id}/health", a.handleNodeHealth)

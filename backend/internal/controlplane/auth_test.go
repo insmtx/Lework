@@ -1,53 +1,132 @@
 package controlplane
 
 import (
-	"crypto/tls"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/insmtx/lework/backend/internal/controlplane/authn"
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
+	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
 
-// findSessionCookie 从响应中取出浏览器会话 cookie，没有则返回 nil。
-func findSessionCookie(w *httptest.ResponseRecorder) *http.Cookie {
-	for _, c := range w.Result().Cookies() {
-		if c.Name == sessionCookieName {
-			return c
-		}
-	}
-	return nil
+const (
+	// authTestToken 是测试用 enrollment token，只参与比较。
+	authTestToken = "secret-enrollment-token"
+
+	// authTestPassword 满足账号密码的最小长度规则。
+	authTestPassword = "secret-password"
+
+	// unauthorizedBody 是未认证请求的固定响应体；任何令牌都不得出现在里面。
+	unauthorizedBody = `{"code":"unauthorized","message":"unauthorized"}` + "\n"
+)
+
+// authFixture 是鉴权中间件的测试装配：真实的存储、真实账号与一条会话。
+type authFixture struct {
+	handler    http.Handler
+	store      *store.Store
+	user       store.User
+	sessionRaw string
 }
 
-// TestAuthHandler 覆盖鉴权中间件的全部凭据路径与豁免路径。
-func TestAuthHandler(t *testing.T) {
-	const token = "secret-token-value"
+// newAuthFixture 组装一个带账号与会话的中间件；localAdmin 决定本机直通开关。
+func newAuthFixture(t *testing.T, localAdmin bool) *authFixture {
+	t.Helper()
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	hash, err := authn.HashPassword(authTestPassword)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	user, err := st.CreateUser(context.Background(), store.User{
+		Email:        "a@b.c",
+		PasswordHash: hash,
+		Role:         "admin",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	raw, tokenHash, err := authn.NewToken()
+	if err != nil {
+		t.Fatalf("new token: %v", err)
+	}
+	if _, err := st.CreateSession(context.Background(), user.ID, tokenHash, "test", time.Hour); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	return &authFixture{
+		handler:    newAuthMiddleware(principalRecorder(), newAuthResolver(st, localAdmin)),
+		store:      st,
+		user:       user,
+		sessionRaw: raw,
+	}
+}
+
+// newAuthResolver 按生产参数装配解析器；CookieName 留空以覆盖默认名。
+func newAuthResolver(st *store.Store, localAdmin bool) authz.Resolver {
+	return authz.Resolver{
+		Store:           st,
+		EnrollmentToken: authTestToken,
+		LocalAdmin:      localAdmin,
+	}
+}
+
+// principalRecorder 把中间件放进 context 的身份写进响应头，供断言读取。
+func principalRecorder() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := authz.PrincipalFrom(r.Context())
+		if !ok {
+			w.Header().Set("X-Principal-Kind", "none")
+		} else {
+			w.Header().Set("X-Principal-Kind", principal.Kind)
+			w.Header().Set("X-Principal-User", principal.UserID)
+		}
 		w.WriteHeader(http.StatusOK)
 	})
-	h := newAuthHandler(next, token)
+}
+
+// TestAuthMiddleware 覆盖中间件的凭据路径、豁免路径与拒绝响应。
+func TestAuthMiddleware(t *testing.T) {
+	f := newAuthFixture(t, true)
 
 	tests := []struct {
 		name       string
-		method     string
 		target     string
 		remoteAddr string
 		header     http.Header
 		cookie     *http.Cookie
 		wantStatus int
-		wantCookie bool
+		wantKind   string
 	}{
 		{
 			name:       "loopback passes",
 			target:     "/api/nodes",
 			remoteAddr: "127.0.0.1:5555",
 			wantStatus: http.StatusOK,
+			wantKind:   authz.KindLocal,
 		},
 		{
 			name:       "ipv6 loopback passes",
 			target:     "/api/nodes",
 			remoteAddr: "[::1]:5555",
 			wantStatus: http.StatusOK,
+			wantKind:   authz.KindLocal,
+		},
+		{
+			name:       "localhost passes",
+			target:     "/api/nodes",
+			remoteAddr: "localhost:5555",
+			wantStatus: http.StatusOK,
+			wantKind:   authz.KindLocal,
 		},
 		{
 			name:       "remote without credentials denied",
@@ -56,25 +135,35 @@ func TestAuthHandler(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "remote with cookie passes",
+			name:       "remote with session cookie passes",
 			target:     "/api/nodes",
 			remoteAddr: "203.0.113.5:5555",
-			cookie:     &http.Cookie{Name: sessionCookieName, Value: token},
+			cookie:     &http.Cookie{Name: authz.DefaultCookieName, Value: f.sessionRaw},
 			wantStatus: http.StatusOK,
+			wantKind:   authz.KindUser,
 		},
 		{
 			name:       "remote with wrong cookie denied",
 			target:     "/api/nodes",
 			remoteAddr: "203.0.113.5:5555",
-			cookie:     &http.Cookie{Name: sessionCookieName, Value: "nope"},
+			cookie:     &http.Cookie{Name: authz.DefaultCookieName, Value: "nope"},
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "remote with bearer passes",
+			name:       "remote with session bearer passes",
 			target:     "/api/nodes",
 			remoteAddr: "203.0.113.5:5555",
-			header:     http.Header{"Authorization": {"Bearer " + token}},
+			header:     http.Header{"Authorization": {"Bearer " + f.sessionRaw}},
 			wantStatus: http.StatusOK,
+			wantKind:   authz.KindUser,
+		},
+		{
+			name:       "remote with enrollment bearer passes",
+			target:     "/api/nodes",
+			remoteAddr: "203.0.113.5:5555",
+			header:     http.Header{"Authorization": {"Bearer " + authTestToken}},
+			wantStatus: http.StatusOK,
+			wantKind:   authz.KindAdminToken,
 		},
 		{
 			name:       "remote with wrong bearer denied",
@@ -84,7 +173,7 @@ func TestAuthHandler(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "loopback with forwarding header denied",
+			name:       "loopback with forwarded header denied",
 			target:     "/api/nodes",
 			remoteAddr: "127.0.0.1:5555",
 			header:     http.Header{"X-Forwarded-For": {"198.51.100.7"}},
@@ -94,7 +183,7 @@ func TestAuthHandler(t *testing.T) {
 			name:       "loopback with real ip header denied",
 			target:     "/api/nodes",
 			remoteAddr: "127.0.0.1:5555",
-			header:     http.Header{"X-Real-Ip": {"198.51.100.7"}},
+			header:     http.Header{"X-Real-IP": {"198.51.100.7"}},
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
@@ -105,204 +194,241 @@ func TestAuthHandler(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "token query bootstraps cookie",
-			target:     "/api/nodes?token=" + token,
-			remoteAddr: "203.0.113.5:5555",
-			wantStatus: http.StatusFound,
-			wantCookie: true,
-		},
-		{
-			name:       "token query keeps other params",
-			target:     "/api/nodes?limit=10&token=" + token,
-			remoteAddr: "203.0.113.5:5555",
-			wantStatus: http.StatusFound,
-			wantCookie: true,
-		},
-		{
-			name:       "wrong token query denied",
-			target:     "/api/nodes?token=nope",
-			remoteAddr: "203.0.113.5:5555",
-			wantStatus: http.StatusUnauthorized,
-		},
-		{
 			name:       "healthz exempt",
 			target:     "/healthz",
 			remoteAddr: "203.0.113.5:5555",
 			wantStatus: http.StatusOK,
+			wantKind:   "none",
 		},
 		{
 			name:       "agent gateway exempt",
 			target:     "/api/agent/connect",
 			remoteAddr: "203.0.113.5:5555",
 			wantStatus: http.StatusOK,
+			wantKind:   "none",
+		},
+		{
+			name:       "login exempt",
+			target:     "/api/auth/login",
+			remoteAddr: "203.0.113.5:5555",
+			wantStatus: http.StatusOK,
+			wantKind:   "none",
+		},
+		{
+			name:       "bootstrap exempt",
+			target:     "/api/auth/bootstrap",
+			remoteAddr: "203.0.113.5:5555",
+			wantStatus: http.StatusOK,
+			wantKind:   "none",
+		},
+		{
+			name:       "register exempt",
+			target:     "/api/auth/register",
+			remoteAddr: "203.0.113.5:5555",
+			wantStatus: http.StatusOK,
+			wantKind:   "none",
+		},
+		{
+			name:       "static ui exempt",
+			target:     "/",
+			remoteAddr: "203.0.113.5:5555",
+			wantStatus: http.StatusOK,
+			wantKind:   "none",
+		},
+		{
+			name:       "static asset exempt",
+			target:     "/_next/static/app.js",
+			remoteAddr: "203.0.113.5:5555",
+			wantStatus: http.StatusOK,
+			wantKind:   "none",
+		},
+		{
+			name:       "me is protected",
+			target:     "/api/me",
+			remoteAddr: "203.0.113.5:5555",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "logout is protected",
+			target:     "/api/auth/logout",
+			remoteAddr: "203.0.113.5:5555",
+			wantStatus: http.StatusUnauthorized,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			method := tt.method
-			if method == "" {
-				method = http.MethodGet
-			}
-			r := httptest.NewRequest(method, tt.target, nil)
-			r.RemoteAddr = tt.remoteAddr
-			for k, vs := range tt.header {
-				for _, v := range vs {
-					r.Header.Add(k, v)
+			req := httptest.NewRequest(http.MethodPost, tt.target, nil)
+			req.RemoteAddr = tt.remoteAddr
+			for name, values := range tt.header {
+				for _, value := range values {
+					req.Header.Add(name, value)
 				}
 			}
 			if tt.cookie != nil {
-				r.AddCookie(tt.cookie)
+				req.AddCookie(tt.cookie)
 			}
 
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, r)
+			rec := httptest.NewRecorder()
+			f.handler.ServeHTTP(rec, req)
 
-			if w.Code != tt.wantStatus {
-				t.Fatalf("status = %d, want %d (body=%s)", w.Code, tt.wantStatus, w.Body)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body=%s)", rec.Code, tt.wantStatus, rec.Body)
 			}
-			if got := findSessionCookie(w); (got != nil) != tt.wantCookie {
-				t.Fatalf("cookie = %v, want present=%v", got, tt.wantCookie)
-			}
-			if w.Code == http.StatusFound {
-				location := w.Header().Get("Location")
-				if strings.Contains(location, "token=") {
-					t.Fatalf("redirect still carries token: %q", location)
-				}
-				if !strings.Contains(location, "/api/nodes") {
-					t.Fatalf("redirect lost the original path: %q", location)
-				}
-				if w.Header().Get("Referrer-Policy") != "no-referrer" {
-					t.Fatalf("Referrer-Policy = %q, want no-referrer", w.Header().Get("Referrer-Policy"))
+			if tt.wantKind != "" {
+				if got := rec.Header().Get("X-Principal-Kind"); got != tt.wantKind {
+					t.Fatalf("principal kind = %q, want %q", got, tt.wantKind)
 				}
 			}
-			if strings.Contains(w.Body.String(), token) {
-				t.Fatalf("response leaked the token: %s", w.Body)
+			if rec.Code == http.StatusUnauthorized {
+				if got := rec.Body.String(); got != unauthorizedBody {
+					t.Fatalf("401 body = %q, want %q", got, unauthorizedBody)
+				}
+				if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+					t.Fatalf("Content-Type = %q, want application/json", got)
+				}
 			}
-			if w.Code == http.StatusUnauthorized && strings.Contains(w.Body.String(), token) {
-				t.Fatalf("401 response leaked the token: %s", w.Body)
+			if strings.Contains(rec.Body.String(), authTestToken) || strings.Contains(rec.Body.String(), f.sessionRaw) {
+				t.Fatalf("response leaked a credential: %s", rec.Body)
 			}
 		})
 	}
 }
 
-// TestAuthCookieAttributes 校验会话 cookie 的安全属性。
-func TestAuthCookieAttributes(t *testing.T) {
-	const token = "secret-token-value"
+// TestAuthMiddlewareFirstRunLocalPassThrough 固化设计 §8 的本机直通条件：
+// 没有账号时即使关闭 local_admin，本机请求仍视为管理员；一旦有了账号，
+// 关闭 local_admin 就必须登录。
+func TestAuthMiddlewareFirstRunLocalPassThrough(t *testing.T) {
+	t.Run("empty user table passes without local admin", func(t *testing.T) {
+		st, err := store.Open(":memory:")
+		if err != nil {
+			t.Fatalf("open store: %v", err)
+		}
+		t.Cleanup(func() { _ = st.Close() })
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		handler := newAuthMiddleware(principalRecorder(), newAuthResolver(st, false))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, remoteRequest(http.MethodGet, "/api/nodes", "127.0.0.1:5555"))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body)
+		}
+		if got := rec.Header().Get("X-Principal-Kind"); got != authz.KindLocal {
+			t.Fatalf("principal kind = %q, want local", got)
+		}
 	})
-	h := newAuthHandler(next, token)
 
-	r := httptest.NewRequest(http.MethodGet, "/api/nodes?token="+token, nil)
-	r.RemoteAddr = "203.0.113.5:5555"
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
+	t.Run("users exist and local admin disabled denies loopback", func(t *testing.T) {
+		f := newAuthFixture(t, false)
 
-	cookie := findSessionCookie(w)
-	if cookie == nil {
-		t.Fatal("no session cookie was set")
-	}
-	if !cookie.HttpOnly {
-		t.Error("cookie is not HttpOnly")
-	}
-	if cookie.SameSite != http.SameSiteStrictMode {
-		t.Errorf("cookie SameSite = %v, want Strict", cookie.SameSite)
-	}
-	if cookie.Path != "/" {
-		t.Errorf("cookie Path = %q, want %q", cookie.Path, "/")
-	}
-	if cookie.Secure {
-		t.Error("cookie is Secure over plain HTTP")
-	}
-}
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, remoteRequest(http.MethodGet, "/api/nodes", "127.0.0.1:5555"))
 
-// TestAuthCookieSecureOnTLS 校验 HTTPS 请求下 cookie 带 Secure 标记。
-func TestAuthCookieSecureOnTLS(t *testing.T) {
-	const token = "secret-token-value"
-
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (body=%s)", rec.Code, rec.Body)
+		}
+		if got := rec.Body.String(); got != unauthorizedBody {
+			t.Fatalf("401 body = %q, want %q", got, unauthorizedBody)
+		}
 	})
-	h := newAuthHandler(next, token)
 
-	r := httptest.NewRequest(http.MethodGet, "/api/nodes?token="+token, nil)
-	r.RemoteAddr = "203.0.113.5:5555"
-	r.TLS = &tls.ConnectionState{}
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
+	t.Run("local admin enabled ignores the user table", func(t *testing.T) {
+		f := newAuthFixture(t, true)
 
-	cookie := findSessionCookie(w)
-	if cookie == nil {
-		t.Fatal("no session cookie was set")
-	}
-	if !cookie.Secure {
-		t.Error("cookie is not Secure over TLS")
-	}
-}
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, remoteRequest(http.MethodGet, "/api/nodes", "127.0.0.1:5555"))
 
-// TestAuthHandlerEmptyTokenDeniesRemote 确保未配置令牌时不会因空值比较而放行。
-func TestAuthHandlerEmptyTokenDeniesRemote(t *testing.T) {
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body)
+		}
+		if got := rec.Header().Get("X-Principal-Kind"); got != authz.KindLocal {
+			t.Fatalf("principal kind = %q, want local", got)
+		}
 	})
-	h := newAuthHandler(next, "")
 
-	r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
-	r.RemoteAddr = "203.0.113.5:5555"
-	r.Header.Set("Authorization", "Bearer ")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
+	t.Run("remote never gets the first-run pass", func(t *testing.T) {
+		st, err := store.Open(":memory:")
+		if err != nil {
+			t.Fatalf("open store: %v", err)
+		}
+		t.Cleanup(func() { _ = st.Close() })
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+		handler := newAuthMiddleware(principalRecorder(), newAuthResolver(st, false))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, remoteRequest(http.MethodGet, "/api/nodes", "203.0.113.5:5555"))
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (body=%s)", rec.Code, rec.Body)
+		}
+	})
+}
+
+// TestAuthMiddlewareStoreFailureIs500 校验基础设施故障不被伪装成「未登录」，
+// 否则一次数据库抖动会让所有人以为会话失效。
+func TestAuthMiddlewareStoreFailureIs500(t *testing.T) {
+	handler := newAuthMiddleware(principalRecorder(), authz.Resolver{EnrollmentToken: authTestToken})
+
+	req := remoteRequest(http.MethodGet, "/api/nodes", "203.0.113.5:5555")
+	req.AddCookie(&http.Cookie{Name: authz.DefaultCookieName, Value: "anything"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (body=%s)", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", got)
 	}
 }
 
-// TestIsLocalRequest 校验来源判定，包括缺失端口与畸形地址。
-func TestIsLocalRequest(t *testing.T) {
-	tests := []struct {
-		name       string
-		remoteAddr string
-		want       bool
-	}{
-		{name: "ipv4 loopback", remoteAddr: "127.0.0.1:1234", want: true},
-		{name: "ipv6 loopback", remoteAddr: "[::1]:1234", want: true},
-		{name: "public ip", remoteAddr: "203.0.113.5:1234", want: false},
-		{name: "private ip", remoteAddr: "192.168.1.10:1234", want: false},
-		{name: "missing port", remoteAddr: "127.0.0.1", want: false},
-		{name: "empty", remoteAddr: "", want: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
-			r.RemoteAddr = tt.remoteAddr
-			if got := isLocalRequest(r); got != tt.want {
-				t.Fatalf("isLocalRequest(%q) = %v, want %v", tt.remoteAddr, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestIsAuthExemptPath 校验豁免路径为精确匹配，避免前缀绕过。
-func TestIsAuthExemptPath(t *testing.T) {
+// TestAuthExemptPath 校验豁免判定：静态资源全部放行，/api 下只放行显式端点。
+func TestAuthExemptPath(t *testing.T) {
 	tests := []struct {
 		path string
 		want bool
 	}{
+		{path: "/", want: true},
+		{path: "/login", want: true},
+		{path: "/_next/static/app.js", want: true},
+		{path: "/favicon.ico", want: true},
 		{path: "/healthz", want: true},
 		{path: "/api/agent/connect", want: true},
-		{path: "/api/nodes", want: false},
-		{path: "/healthz/extra", want: false},
-		{path: "/api/agent/connect/extra", want: false},
-		{path: "/", want: false},
+		{path: "/api/auth/bootstrap", want: true},
+		{path: "/api/auth/login", want: true},
+		{path: "/api/auth/register", want: true},
+		{path: "/api/auth/logout"},
+		{path: "/api/me"},
+		{path: "/api/nodes"},
+		{path: "/api/events"},
+		{path: "/api/auth/login/extra"},
+		// 非 /api 路径整体豁免：它们由静态资源处理器兜底，不存在 /api 下的
+		// 前缀绕过面。
+		{path: "/healthz/extra", want: true},
+		{path: "/api/agent/connect/extra"},
 	}
 
 	for _, tt := range tests {
-		if got := isAuthExemptPath(tt.path); got != tt.want {
-			t.Errorf("isAuthExemptPath(%q) = %v, want %v", tt.path, got, tt.want)
+		if got := authExemptPath(tt.path); got != tt.want {
+			t.Errorf("authExemptPath(%q) = %v, want %v", tt.path, got, tt.want)
 		}
 	}
+}
+
+// remoteRequest 构造一个来源可指定的请求；RemoteAddr 由服务器填写，
+// 测试里直接改写以模拟局域网或公网来源。
+func remoteRequest(method, target, remoteAddr string) *http.Request {
+	req := httptest.NewRequest(method, target, nil)
+	req.RemoteAddr = remoteAddr
+	return req
+}
+
+// sessionCookieFromResponse 从响应里取出会话 cookie，没有则返回 nil；
+// 名称必须与解析器一致，否则登录成功也会一直处于未认证状态。
+func sessionCookieFromResponse(rec *httptest.ResponseRecorder) *http.Cookie {
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == authz.DefaultCookieName {
+			return cookie
+		}
+	}
+	return nil
 }

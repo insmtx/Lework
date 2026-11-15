@@ -82,6 +82,9 @@ func TestResolverPrefersCookieOverBearer(t *testing.T) {
 	if got.Role != "user" {
 		t.Fatalf("role = %q, want user", got.Role)
 	}
+	if got.SessionID == "" {
+		t.Fatal("principal does not carry the session id; logout cannot revoke one session")
+	}
 }
 
 func TestResolverAcceptsBearerSessionToken(t *testing.T) {
@@ -100,6 +103,9 @@ func TestResolverAcceptsBearerSessionToken(t *testing.T) {
 	}
 	if got.Kind != authz.KindUser || got.UserID != u.ID || got.Role != "user" {
 		t.Fatalf("principal = %+v, want user %q", got, u.ID)
+	}
+	if got.SessionID == "" {
+		t.Fatal("bearer session principal has no session id")
 	}
 }
 

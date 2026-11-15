@@ -34,6 +34,31 @@ func TestCreateUserNormalizesEmailAndRejectsDuplicates(t *testing.T) {
 	}
 }
 
+// TestCreateUserKeepsProvidedID 固化注册流程依赖：邀请码记录的未来用户 ID
+// 必须与最终落库的 ID 一致，否则 used_by 指向一个不存在的账号。
+func TestCreateUserKeepsProvidedID(t *testing.T) {
+	s := newTestStore(t)
+	const id = "user-preset-id"
+
+	u, err := s.CreateUser(context.Background(), User{
+		ID: id, Email: "preset@example.com", PasswordHash: "x", Role: "user", Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if u.ID != id {
+		t.Fatalf("id = %q, want the caller-provided %q", u.ID, id)
+	}
+
+	generated, err := s.CreateUser(context.Background(), User{Email: "generated@example.com", PasswordHash: "x"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if generated.ID == "" {
+		t.Fatal("CreateUser did not generate an id when none was provided")
+	}
+}
+
 func TestSessionLookupRejectsExpired(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

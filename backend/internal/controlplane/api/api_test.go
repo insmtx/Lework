@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/insmtx/lework/backend/internal/agentd/protocol"
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/overview"
@@ -24,6 +25,9 @@ import (
 // testHeartbeatTimeout 是测试环境的离线判定窗口。取较大值是为了让
 // addNode 刚写入的记录稳定处于在线窗口内，离线用例再显式改写 LastSeen。
 const testHeartbeatTimeout = 30 * time.Second
+
+// testEnrollmentToken 是测试装配使用的共享注册令牌，只参与比较。
+const testEnrollmentToken = "test-enrollment-token"
 
 // fakeAgent 是测试用的节点写入端：把控制面发出的请求帧交给测试，
 // 由测试通过 conn.Deliver 送回响应。
@@ -208,11 +212,19 @@ type testEnv struct {
 	index            *overview.Index
 	forward          *fakeForwarder
 	core             *fakeCoreSub
+	resolver         authz.Resolver
 	mux              *http.ServeMux
 	heartbeatTimeout time.Duration
 }
 
 func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
+	t.Helper()
+
+	return newTestEnvWithAuth(t, timeout, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "invite"})
+}
+
+// newTestEnvWithAuth 让注册策略等鉴权配置可以按用例覆盖。
+func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig) *testEnv {
 	t.Helper()
 
 	st, err := store.Open(":memory:")
@@ -225,8 +237,13 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 	forward := &fakeForwarder{}
 	core := newFakeCoreSub()
 
+	resolver := authz.Resolver{
+		Store:           st,
+		EnrollmentToken: testEnrollmentToken,
+		LocalAdmin:      true,
+	}
 	router := node.NewRouter(registry, forward)
-	api := New(st, registry, hub, index, router, core, timeout, testHeartbeatTimeout)
+	api := New(st, registry, hub, index, router, core, resolver, authCfg, timeout, testHeartbeatTimeout)
 	mux := http.NewServeMux()
 	api.Register(mux)
 
@@ -238,6 +255,7 @@ func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 		index:            index,
 		forward:          forward,
 		core:             core,
+		resolver:         resolver,
 		mux:              mux,
 		heartbeatTimeout: testHeartbeatTimeout,
 	}
@@ -298,6 +316,20 @@ func (e *testEnv) addNodeWithCapabilities(name string, capabilities []string) (s
 func (e *testEnv) do(method, target, body string) *httptest.ResponseRecorder {
 	e.t.Helper()
 
+	return e.serve(method, target, body, nil)
+}
+
+// doAs 模拟鉴权中间件：把 principal 放进 context 后再交给 mux。
+func (e *testEnv) doAs(principal authz.Principal, method, target, body string) *httptest.ResponseRecorder {
+	e.t.Helper()
+
+	return e.serve(method, target, body, &principal)
+}
+
+// serve 构造请求并直接交给 mux；principal 非 nil 时注入 context。
+func (e *testEnv) serve(method, target, body string, principal *authz.Principal) *httptest.ResponseRecorder {
+	e.t.Helper()
+
 	var reader *strings.Reader
 	if body == "" {
 		reader = strings.NewReader("")
@@ -307,6 +339,9 @@ func (e *testEnv) do(method, target, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, target, reader)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if principal != nil {
+		req = req.WithContext(authz.WithPrincipal(req.Context(), *principal))
 	}
 	rec := httptest.NewRecorder()
 	e.mux.ServeHTTP(rec, req)

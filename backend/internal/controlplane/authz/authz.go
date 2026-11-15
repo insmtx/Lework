@@ -56,6 +56,10 @@ type Principal struct {
 	Kind   string
 	UserID string
 	Role   string
+	// SessionID 是本次请求所用会话的行 ID，只在 Kind == user 且凭证是会话
+	// 令牌时非空。登出要精确吊销「这一条」会话；只凭 UserID 清空全部会话会
+	// 把手机端一起踢下线，与用户点「退出登录」的预期不符。
+	SessionID string
 }
 
 // IsAdmin 判断该身份能否进入管理员接口。
@@ -97,7 +101,7 @@ func (v Resolver) Resolve(r *http.Request) (Principal, bool, error) {
 		return Principal{}, false, nil
 	}
 
-	if v.LocalAdmin && isLocalRequest(r) {
+	if v.LocalAdmin && IsLocalRequest(r) {
 		return Principal{Kind: KindLocal}, true, nil
 	}
 
@@ -157,7 +161,7 @@ func (v Resolver) resolveSession(ctx context.Context, raw string) (Principal, bo
 		return Principal{}, false, nil
 	}
 
-	return Principal{Kind: KindUser, UserID: user.ID, Role: user.Role}, true, nil
+	return Principal{Kind: KindUser, UserID: user.ID, Role: user.Role, SessionID: session.ID}, true, nil
 }
 
 // cookieName 返回实际使用的 cookie 名称。
@@ -182,13 +186,16 @@ func (v Resolver) tokenMatches(candidate string) bool {
 	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 
-// isLocalRequest 判断请求是否直接来自本机回环。
+// IsLocalRequest 判断请求是否直接来自本机回环。
 //
 // 只看 RemoteAddr：它由 HTTP 服务器填写，客户端无法伪造。转发头存在时一律
 // 不算本机——反向代理常与控制面同机部署，那时所有外部请求的 RemoteAddr 都是
 // 回环，若还认作本机管理员就等于取消了鉴权。地址解析失败按非本机处理，绝不
 // 因格式怪异的 RemoteAddr 而 panic。
-func isLocalRequest(r *http.Request) bool {
+//
+// 导出它是为了让鉴权中间件复用同一份判定：中间件还要在「尚未创建任何账号」
+// 时给本机请求补一条直通，两处各写一份回环判定迟早会漂移。
+func IsLocalRequest(r *http.Request) bool {
 	if hasForwardingHeaders(r) {
 		return false
 	}

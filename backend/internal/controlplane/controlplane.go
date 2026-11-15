@@ -20,6 +20,7 @@ import (
 
 	"github.com/insmtx/lework/backend/internal/controlplane/agentgw"
 	"github.com/insmtx/lework/backend/internal/controlplane/api"
+	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
@@ -138,6 +139,11 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 	publisher := event.NewPublisher(deps.Bus, deps.Core)
 	bridge := event.NewBridge(deps.Bus, hub)
 	live := event.NewLiveSubscriber(hub)
+	resolver := authz.Resolver{
+		Store:           st,
+		EnrollmentToken: cfg.EnrollmentToken,
+		LocalAdmin:      cfg.LocalAdmin,
+	}
 	gateway := agentgw.New(agentgw.Config{
 		EnrollmentToken:  cfg.EnrollmentToken,
 		HeartbeatTimeout: cfg.HeartbeatTimeout,
@@ -155,6 +161,8 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		index,
 		node.NewRouter(registry, deps.Request),
 		deps.CoreSub,
+		resolver,
+		api.AuthConfig{SessionTTL: cfg.SessionTTL, RegistrationMode: cfg.RegistrationMode},
 		cfg.RequestTimeout,
 		cfg.HeartbeatTimeout,
 	)
@@ -177,7 +185,7 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 		bridge:    bridge,
 		live:      live,
 		deps:      deps,
-		handler:   newAuthHandler(mux, cfg.EnrollmentToken),
+		handler:   newAuthMiddleware(mux, resolver),
 	}, nil
 }
 

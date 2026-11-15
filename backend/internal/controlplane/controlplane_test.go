@@ -494,6 +494,9 @@ func TestServerAuthGate(t *testing.T) {
 	}{
 		{name: "remote api denied", target: "/api/nodes", want: http.StatusUnauthorized},
 		{name: "healthz exempt", target: "/healthz", want: http.StatusOK},
+		// 登录端点在鉴权之前就豁免；方法不对时落到静态资源处理器，得到 404
+		// 而不是 401。
+		{name: "login exempt", target: "/api/auth/login", want: http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -511,5 +514,72 @@ func TestServerAuthGate(t *testing.T) {
 				t.Fatalf("response leaked the enrollment token: %s", rec.Body)
 			}
 		})
+	}
+}
+
+// TestServerAuthFlowThroughMiddleware 校验从初始化、登录到 /api/me 的完整
+// 装配：中间件解析出的身份必须能被 API 通过 context 读到，cookie 也必须
+// 与解析器使用同一个名称。
+func TestServerAuthFlowThroughMiddleware(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	srv, err := New(testConfig(), st, testDeps())
+	if err != nil {
+		_ = st.Close()
+		t.Fatalf("new server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	do := func(method, target, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		t.Helper()
+
+		var reader *strings.Reader
+		if body == "" {
+			reader = strings.NewReader("")
+		} else {
+			reader = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, target, reader)
+		req.RemoteAddr = "203.0.113.5:1"
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	bootstrap := do(http.MethodPost, "/api/auth/bootstrap",
+		`{"token":"`+testToken+`","email":"root@example.com","password":"secret-password"}`, nil)
+	if bootstrap.Code != http.StatusOK {
+		t.Fatalf("bootstrap status = %d (body=%s)", bootstrap.Code, bootstrap.Body)
+	}
+
+	login := do(http.MethodPost, "/api/auth/login",
+		`{"email":"root@example.com","password":"secret-password"}`, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d (body=%s)", login.Code, login.Body)
+	}
+	cookie := sessionCookieFromResponse(login)
+	if cookie == nil {
+		t.Fatal("login did not set the session cookie")
+	}
+
+	me := do(http.MethodGet, "/api/me", "", cookie)
+	if me.Code != http.StatusOK {
+		t.Fatalf("me status = %d (body=%s)", me.Code, me.Body)
+	}
+	if !strings.Contains(me.Body.String(), `"kind":"user"`) || !strings.Contains(me.Body.String(), `"email":"root@example.com"`) {
+		t.Fatalf("me body = %s", me.Body)
+	}
+
+	anonymous := do(http.MethodGet, "/api/me", "", nil)
+	if anonymous.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous me status = %d, want 401", anonymous.Code)
 	}
 }

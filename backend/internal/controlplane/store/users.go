@@ -28,6 +28,9 @@ func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 // alice@example.com 会变成两个账号，登录时谁也说不清哪个才是「她」。
 // 判重同时依赖这里的预查询与 email 唯一索引——预查询给出可读错误，
 // 唯一索引兜住并发注册的竞态。
+//
+// 调用方可以预置 ID：注册流程要先消费邀请码、再建账号，而邀请码记录的是
+// 「未来用户 ID」，两处必须是同一个值，否则邀请码的 used_by 指向不存在的行。
 func (s *Store) CreateUser(ctx context.Context, u User) (User, error) {
 	email := normalizeEmail(u.Email)
 	if email == "" {
@@ -44,7 +47,9 @@ func (s *Store) CreateUser(ctx context.Context, u User) (User, error) {
 		return User{}, fmt.Errorf("create user %q: email already registered", email)
 	}
 
-	u.ID = uuid.NewString()
+	if strings.TrimSpace(u.ID) == "" {
+		u.ID = uuid.NewString()
+	}
 	u.Email = email
 	if err := s.db.WithContext(ctx).Create(&u).Error; err != nil {
 		return User{}, fmt.Errorf("create user %q: %w", email, err)
