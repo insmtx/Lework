@@ -6,6 +6,7 @@ import {
 	authErrorMessage,
 	clearExpiredSession,
 	loadAuthMethods,
+	saveServerAddress,
 	signIn,
 	signOut,
 } from "./session";
@@ -117,5 +118,34 @@ describe("loadAuthMethods", () => {
 			"http://box:8787",
 		);
 		expect(methods).toEqual({ initialized: true, registration_mode: "open" });
+	});
+});
+
+describe("saveServerAddress", () => {
+	it("保存服务器地址会清掉旧会话（不同控制面的会话不通用）", async () => {
+		const saved: Settings[] = [];
+		const store = fakeSettingsStore(baseSettings, saved);
+		const next = await saveServerAddress(
+			{ store, client: () => fakeAuthClient({ token: "" }) },
+			baseSettings,
+			" https://other.example.com/ ",
+		);
+		expect(next).toEqual({
+			baseUrl: "https://other.example.com",
+			email: "",
+			sessionToken: "",
+			notifications: true,
+			deviceID: undefined,
+		});
+		expect(saved[0]?.baseUrl).toBe("https://other.example.com");
+	});
+
+	it("地址相同则保留登录态", async () => {
+		const next = await saveServerAddress(
+			{ store: fakeSettingsStore(baseSettings, []), client: () => fakeAuthClient({ token: "" }) },
+			baseSettings,
+			baseSettings.baseUrl,
+		);
+		expect(next.sessionToken).toBe(baseSettings.sessionToken);
 	});
 });

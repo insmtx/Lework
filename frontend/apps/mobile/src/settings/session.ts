@@ -17,6 +17,33 @@ export interface SessionDeps {
 	client: (baseUrl: string, token?: string) => AuthClient;
 }
 
+/**
+ * saveServerAddress 校验并保存控制面地址。
+ *
+ * 校验用公开的 auth/methods（不需要令牌），因此未登录也能改地址。地址变化
+ * 意味着换了一个控制面：会话与设备登记都不再属于它，必须清掉并重新登录。
+ * 保存成功后由页面把用户送到登录页。
+ */
+export async function saveServerAddress(
+	deps: SessionDeps,
+	settings: Settings | null,
+	rawBaseUrl: string,
+): Promise<Settings> {
+	const baseUrl = normalizeBaseUrl(rawBaseUrl);
+	await deps.client(baseUrl).getAuthMethods();
+
+	const sameServer = settings?.baseUrl === baseUrl;
+	const saved: Settings = {
+		baseUrl,
+		email: sameServer ? (settings?.email ?? "") : "",
+		sessionToken: sameServer ? (settings?.sessionToken ?? "") : "",
+		notifications: settings?.notifications ?? true,
+		deviceID: sameServer ? settings?.deviceID : undefined,
+	};
+	await deps.store.save(saved);
+	return saved;
+}
+
 /** loadAuthMethods 读取登录页需要的公开信息；网络失败时抛给调用方展示重试。 */
 export async function loadAuthMethods(
 	deps: Pick<SessionDeps, "client">,

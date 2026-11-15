@@ -94,7 +94,6 @@ function RootNavigator() {
 				<Stack.Screen name="settings/process" options={{ title: "过程展示" }} />
 				<Stack.Screen name="login" options={{ title: "登录", headerShown: false }} />
 				<Stack.Screen name="settings/account" options={{ title: "账号" }} />
-				<Stack.Screen name="connect" options={{ headerShown: false }} />
 				<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
 			</Stack>
 		</AppShell>
