@@ -216,6 +216,8 @@ type testEnv struct {
 	mux              http.Handler
 	rawMux           *http.ServeMux
 	heartbeatTimeout time.Duration
+	// api 暴露装配好的接口，让用例可以缩短 SSE 可见集合的重算周期。
+	api *API
 }
 
 func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
@@ -258,6 +260,7 @@ func newTestEnvWithAuth(t *testing.T, timeout time.Duration, authCfg AuthConfig)
 		forward:          forward,
 		core:             core,
 		resolver:         resolver,
+		api:              api,
 		mux:              mux,
 		rawMux:           rawMux,
 		heartbeatTimeout: testHeartbeatTimeout,
@@ -1007,8 +1010,26 @@ type eventStream struct {
 func startEvents(t *testing.T, env *testEnv, target string) *eventStream {
 	t.Helper()
 
+	return startEventsAs(t, env, nil, target)
+}
+
+// startEventsAs 以显式身份建立事件流；principal 为 nil 时交给默认身份中间件。
+//
+// 显式注入的 principal 不会被 withDefaultPrincipal 覆盖，因此账号维度的 SSE
+// 用例只需给出身份，不必复制整套连接装配。
+func startEventsAs(
+	t *testing.T,
+	env *testEnv,
+	principal *authz.Principal,
+	target string,
+) *eventStream {
+	t.Helper()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(ctx)
+	if principal != nil {
+		req = req.WithContext(authz.WithPrincipal(req.Context(), *principal))
+	}
 	rec := newStreamRecorder()
 
 	done := make(chan struct{})
@@ -1051,6 +1072,7 @@ func waitBody(t *testing.T, rec *streamRecorder, marker string) {
 
 func TestEventsStream(t *testing.T) {
 	env := newTestEnv(t, time.Second)
+	node, _, _ := env.addNode("n1")
 	stream := startEvents(t, env, "/api/events")
 	defer stream.cancel()
 
@@ -1068,7 +1090,7 @@ func TestEventsStream(t *testing.T) {
 	}
 
 	env.hub.Publish(event.Event{
-		NodeID:    "node_1",
+		NodeID:    node.ID,
 		SessionID: "ses_1",
 		Type:      "session.message",
 		Data:      json.RawMessage(`{"text":"hi"}`),
@@ -1090,12 +1112,14 @@ func TestEventsStream(t *testing.T) {
 
 func TestEventsFilters(t *testing.T) {
 	env := newTestEnv(t, time.Second)
-	stream := startEvents(t, env, "/api/events?node=node_1&session=ses_1")
+	node, _, _ := env.addNode("n1")
+	other, _, _ := env.addNode("n2")
+	stream := startEvents(t, env, "/api/events?node="+node.ID+"&session=ses_1")
 	defer stream.cancel()
 
-	env.hub.Publish(event.Event{NodeID: "node_2", SessionID: "ses_1", Type: "wrong-node", Time: time.Now()})
-	env.hub.Publish(event.Event{NodeID: "node_1", SessionID: "ses_2", Type: "wrong-session", Time: time.Now()})
-	env.hub.Publish(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "match", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: other.ID, SessionID: "ses_1", Type: "wrong-node", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: node.ID, SessionID: "ses_2", Type: "wrong-session", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: node.ID, SessionID: "ses_1", Type: "match", Time: time.Now()})
 
 	waitBody(t, stream.rec, `"type":"match"`)
 	body := stream.rec.text()
@@ -1112,6 +1136,7 @@ func TestEventsFilters(t *testing.T) {
 
 func TestEventsClientCancel(t *testing.T) {
 	env := newTestEnv(t, time.Second)
+	node, _, _ := env.addNode("n1")
 	stream := startEvents(t, env, "/api/events")
 
 	stream.cancel()
@@ -1119,7 +1144,7 @@ func TestEventsClientCancel(t *testing.T) {
 
 	// 取消之后发布事件不应再写入响应。
 	before := stream.rec.text()
-	env.hub.Publish(event.Event{NodeID: "node_1", Type: "late", Time: time.Now()})
+	env.hub.Publish(event.Event{NodeID: node.ID, Type: "late", Time: time.Now()})
 	if after := stream.rec.text(); after != before {
 		t.Fatalf("body changed after cancel: %q -> %q", before, after)
 	}
@@ -1127,6 +1152,7 @@ func TestEventsClientCancel(t *testing.T) {
 
 func TestEventsResyncOnClosedSubscription(t *testing.T) {
 	env := newTestEnv(t, time.Second)
+	node, _, _ := env.addNode("n1")
 
 	// 阻塞首次正文写入，让订阅者来不及消费，从而被 Hub 淘汰。
 	blocking := newBlockingStreamRecorder()
@@ -1148,7 +1174,7 @@ func TestEventsResyncOnClosedSubscription(t *testing.T) {
 
 	// 超过订阅缓冲（256）的事件会让 Hub 关闭该订阅通道。
 	for i := 0; i < 300; i++ {
-		env.hub.Publish(event.Event{NodeID: "node_1", Type: "burst", Time: time.Now()})
+		env.hub.Publish(event.Event{NodeID: node.ID, Type: "burst", Time: time.Now()})
 	}
 
 	close(blocking.block)

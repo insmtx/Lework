@@ -31,6 +31,12 @@ const defaultHeartbeatTimeout = 35 * time.Second
 // 先限制再解码可以避免超大请求体把内存交给对端控制。
 const maxRequestBodyBytes = 1 << 20
 
+// defaultEventsRefresh 是 SSE 连接重算可见节点集合的周期。
+//
+// 成员变更没有强一致的广播通道（node.member.* 事件也可能跨实例丢失），
+// 因此设计 §9 允许最多 30 秒的生效延迟；订阅期间按这个周期兜底重算。
+const defaultEventsRefresh = 30 * time.Second
+
 // errorResponse 是浏览器 API 的统一错误体。
 type errorResponse struct {
 	Code    string `json:"code"`
@@ -57,6 +63,9 @@ type API struct {
 	// heartbeatTimeout 决定存储里的 LastSeen 多久之后算离线。跨实例部署时
 	// 节点可能连在别的实例上，因此在线判定不能只看本实例注册表。
 	heartbeatTimeout time.Duration
+	// eventsRefresh 是 SSE 连接重算可见节点集合的周期。放进字段而不是常量，
+	// 是为了让测试能把它缩短到毫秒级，不必真的等 30 秒。
+	eventsRefresh time.Duration
 }
 
 // New 组装浏览器 API；requestTimeout 与 heartbeatTimeout 非正时使用默认值。
@@ -90,6 +99,7 @@ func New(
 		authCfg:          authCfg,
 		requestTimeout:   requestTimeout,
 		heartbeatTimeout: heartbeatTimeout,
+		eventsRefresh:    defaultEventsRefresh,
 	}
 }
 
