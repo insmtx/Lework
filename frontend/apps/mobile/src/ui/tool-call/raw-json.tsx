@@ -2,7 +2,7 @@ import { clipText } from "@lework/tool-view";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { useToolStyles } from "./font-scale";
+import { useToolStyles } from "./use-tool-styles";
 
 const RAW_LIMIT = 6000;
 

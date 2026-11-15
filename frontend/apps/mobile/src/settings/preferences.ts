@@ -11,8 +11,8 @@ export type ProcessDisplay = "hidden" | "brief" | "full";
 /** ToolDisplay 控制工具调用卡片的默认形态。 */
 export type ToolDisplay = "hidden" | "collapsed" | "expanded";
 
-/** ChatFontSize 只影响会话正文，避免把导航和按钮一起放大。 */
-export type ChatFontSize = "small" | "standard" | "large";
+/** FontSize 控制整个界面的文字倍率，标题、状态与正文共用同一档。 */
+export type FontSize = "small" | "standard" | "large";
 
 /**
  * Preferences 是与连接无关的本地偏好。
@@ -25,7 +25,7 @@ export interface Preferences {
 	soundEnabled: boolean;
 	processDisplay: ProcessDisplay;
 	toolDisplay: ToolDisplay;
-	chatFontSize: ChatFontSize;
+	fontSize: FontSize;
 }
 
 export interface PreferencesStore {
@@ -40,19 +40,19 @@ export const DEFAULT_PREFERENCES: Preferences = {
 	soundEnabled: true,
 	processDisplay: "brief",
 	toolDisplay: "collapsed",
-	chatFontSize: "standard",
+	fontSize: "standard",
 };
 
 /**
- * CHAT_FONT_SCALE 把字号偏好映射成正文的放大倍率。
+ * FONT_SCALE 把字号偏好映射成界面文字的统一放大倍率。
  *
- * 用倍率而不是三套固定字号：Markdown 里标题、代码块各有自己的尺寸，
+ * 用倍率而不是三套固定字号：标题、状态、Markdown、代码块各有自己的尺寸，
  * 倍率能一次性整体缩放，不用为每种元素再写一张表。
  *
  * 三档整体上移一档：手机屏幕上 15px 正文偏小，标准档直接给出比基线更大
  * 的一档，小档回落到基线，大档再往上加。
  */
-export const CHAT_FONT_SCALE: Record<ChatFontSize, number> = {
+export const FONT_SCALE: Record<FontSize, number> = {
 	small: 1,
 	standard: 1.15,
 	large: 1.4,
@@ -61,7 +61,7 @@ export const CHAT_FONT_SCALE: Record<ChatFontSize, number> = {
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
 const PROCESS_DISPLAYS: readonly ProcessDisplay[] = ["hidden", "brief", "full"];
 const TOOL_DISPLAYS: readonly ToolDisplay[] = ["hidden", "collapsed", "expanded"];
-const CHAT_FONT_SIZES: readonly ChatFontSize[] = ["small", "standard", "large"];
+const FONT_SIZES: readonly FontSize[] = ["small", "standard", "large"];
 
 export function isThemeMode(value: unknown): value is ThemeMode {
 	return typeof value === "string" && (THEME_MODES as readonly string[]).includes(value);
@@ -84,7 +84,10 @@ export function normalizePreferences(raw: unknown): Preferences {
 		return DEFAULT_PREFERENCES;
 	}
 
-	const parsed = raw as Partial<Record<keyof Preferences, unknown>>;
+	// fontSize 在旧版本里叫 chatFontSize：读到旧值时平滑迁移，避免用户升级后丢偏好。
+	const parsed = raw as Partial<Record<keyof Preferences, unknown>> & {
+		chatFontSize?: unknown;
+	};
 	return {
 		themeMode: pick(parsed.themeMode, THEME_MODES, DEFAULT_PREFERENCES.themeMode),
 		soundEnabled:
@@ -97,7 +100,11 @@ export function normalizePreferences(raw: unknown): Preferences {
 			DEFAULT_PREFERENCES.processDisplay,
 		),
 		toolDisplay: pick(parsed.toolDisplay, TOOL_DISPLAYS, DEFAULT_PREFERENCES.toolDisplay),
-		chatFontSize: pick(parsed.chatFontSize, CHAT_FONT_SIZES, DEFAULT_PREFERENCES.chatFontSize),
+		fontSize: pick(
+			parsed.fontSize ?? parsed.chatFontSize,
+			FONT_SIZES,
+			DEFAULT_PREFERENCES.fontSize,
+		),
 	};
 }
 

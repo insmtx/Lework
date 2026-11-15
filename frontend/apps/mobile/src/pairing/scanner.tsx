@@ -1,7 +1,9 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { scaleFontStyles } from "../theme/font-scale";
+import { useFontScale } from "../theme/use-theme";
 import { type PairPayload, parsePairLink } from "./link";
 
 export interface PairScannerProps {
@@ -31,6 +33,8 @@ function explainScanFailure(data: string, scanError: unknown): string {
 }
 
 export function PairScanner({ visible, onClose, onScanned }: PairScannerProps) {
+	const fontScale = useFontScale();
+	const styles = useMemo(() => scaleFontStyles(baseStyles, fontScale), [fontScale]);
 	const [permission, requestPermission] = useCameraPermissions();
 	const [error, setError] = useState<string | null>(null);
 	const [raw, setRaw] = useState<string | null>(null);
@@ -113,7 +117,7 @@ export function PairScanner({ visible, onClose, onScanned }: PairScannerProps) {
 	);
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
 	screen: { flex: 1, backgroundColor: "#000" },
 	permission: {
 		flex: 1,

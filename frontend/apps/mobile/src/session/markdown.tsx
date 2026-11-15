@@ -3,6 +3,7 @@ import { StyleSheet } from "react-native";
 import Markdown from "react-native-markdown-display";
 
 import { type ColorScheme, darkTheme, lightTheme, type Theme } from "../theme/theme";
+import { useFontScale } from "../theme/use-theme";
 
 /**
  * createMarkdownStyles 把主题色板映射成 Markdown 样式。
@@ -130,17 +131,16 @@ function markdownStyles(scheme: ColorScheme, scale: number) {
 /**
  * MarkdownBody 渲染助手回复的 Markdown。
  *
- * scheme 与 scale 都作为 prop 参与 memo 比较：系统切换亮暗或用户改字号时，
+ * scheme 与全局字号倍率都参与 memo 比较：系统切换亮暗或用户改字号时，
  * 即使消息内容没变也要重新渲染。
  */
 export const MarkdownBody = memo(function MarkdownBody({
 	content,
 	scheme,
-	scale = 1,
 }: {
 	content: string;
 	scheme: ColorScheme;
-	scale?: number;
 }) {
+	const scale = useFontScale();
 	return <Markdown style={markdownStyles(scheme, scale)}>{content}</Markdown>;
 });

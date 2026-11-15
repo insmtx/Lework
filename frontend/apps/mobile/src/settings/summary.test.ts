@@ -6,7 +6,7 @@ import { describeAppearance, describeProcess, describeReminder, describeServer }
 const prefs: Preferences = {
 	...DEFAULT_PREFERENCES,
 	themeMode: "dark",
-	chatFontSize: "large",
+	fontSize: "large",
 	processDisplay: "full",
 	toolDisplay: "expanded",
 	soundEnabled: false,

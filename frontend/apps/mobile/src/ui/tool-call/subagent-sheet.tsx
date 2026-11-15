@@ -25,10 +25,10 @@ import { useSession } from "../../session/use-session";
 import { useThemePreference } from "../../theme/theme-context";
 import { useTheme } from "../../theme/use-theme";
 import { useAppShell } from "../app-shell-context";
-import { useToolStyles } from "./font-scale";
 import { pickSubagentSession } from "./pick-subagent-session";
 import { RawJson } from "./raw-json";
 import { ToolBlocks } from "./tool-blocks";
+import { useToolStyles } from "./use-tool-styles";
 
 // 子会话可能在打开面板后才创建（执行中），轮询间隔够跟上首个会话又不过度打服务端。
 const CHILD_POLL_MS = 2_000;
@@ -69,7 +69,6 @@ export function SubagentSheet({
 	raw,
 	nodeID,
 	sessionID,
-	fontScale,
 	onClose,
 }: {
 	visible: boolean;
@@ -83,7 +82,6 @@ export function SubagentSheet({
 	nodeID: string;
 	/** 父会话 id：用于查这次调用创建的子会话。 */
 	sessionID: string;
-	fontScale: number;
 	onClose: () => void;
 }) {
 	const styles = useToolStyles();
@@ -173,7 +171,6 @@ export function SubagentSheet({
 						child={child}
 						title={title}
 						nodeID={nodeID}
-						fontScale={fontScale}
 						paddingBottom={insets.bottom + 24}
 					/>
 				) : null}
@@ -192,7 +189,6 @@ function SubagentBody({
 	child,
 	title,
 	nodeID,
-	fontScale,
 	paddingBottom,
 }: {
 	detail: SubagentView;
@@ -204,7 +200,6 @@ function SubagentBody({
 	child: Session | null;
 	title: string;
 	nodeID: string;
-	fontScale: number;
 	paddingBottom: number;
 }) {
 	const theme = useTheme();
@@ -257,7 +252,6 @@ function SubagentBody({
 					title={title}
 					description={detail.description ?? ""}
 					meta={meta}
-					fontScale={fontScale}
 					paddingBottom={paddingBottom}
 				/>
 			) : (
@@ -267,7 +261,6 @@ function SubagentBody({
 					raw={raw}
 					meta={meta}
 					syncing={running}
-					fontScale={fontScale}
 					paddingBottom={paddingBottom}
 				/>
 			)}
@@ -288,7 +281,6 @@ function LiveConversation({
 	title,
 	description,
 	meta,
-	fontScale,
 	paddingBottom,
 }: {
 	messages: Message[];
@@ -302,7 +294,6 @@ function LiveConversation({
 	title: string;
 	description: string;
 	meta: string;
-	fontScale: number;
 	paddingBottom: number;
 }) {
 	const theme = useTheme();
@@ -340,12 +331,11 @@ function LiveConversation({
 				contentContainerStyle={[styles.sheetLiveContent, { paddingBottom }]}
 				data={visible}
 				keyExtractor={(message) => message.id}
-				// 字号与展示偏好变化时行内内容要一起重排。
-				extraData={`${fontScale}:${preferences.toolDisplay}:${preferences.processDisplay}`}
+				// 展示偏好变化时行内内容要一起重排；字号通过主题样式与 context 自动更新。
+				extraData={`${preferences.toolDisplay}:${preferences.processDisplay}`}
 				renderItem={({ item, index }) => (
 					<MessageRow
 						message={item}
-						fontScale={fontScale}
 						isLastMessage={index === visible.length - 1}
 						nodeID={nodeID}
 						sessionID={childSessionID}
@@ -406,7 +396,6 @@ function StaticDetail({
 	raw,
 	meta,
 	syncing,
-	fontScale,
 	paddingBottom,
 }: {
 	detail: SubagentView;
@@ -414,7 +403,6 @@ function StaticDetail({
 	raw: string;
 	meta: string;
 	syncing: boolean;
-	fontScale: number;
 	paddingBottom: number;
 }) {
 	const styles = useToolStyles();
@@ -469,7 +457,7 @@ function StaticDetail({
 					<Text style={styles.sheetSectionText}>{detail.description}</Text>
 				) : null}
 				{detail.prompt && detail.prompt !== detail.description ? (
-					<MarkdownBody content={detail.prompt} scheme={scheme} scale={fontScale} />
+					<MarkdownBody content={detail.prompt} scheme={scheme} />
 				) : null}
 				{!detail.description && !detail.prompt ? (
 					<Text style={styles.muted}>暂无任务说明。</Text>
@@ -479,7 +467,7 @@ function StaticDetail({
 			<View style={styles.sheetSection}>
 				<Text style={styles.sheetSectionTitle}>执行结果</Text>
 				{detail.result ? (
-					<MarkdownBody content={detail.result} scheme={scheme} scale={fontScale} />
+					<MarkdownBody content={detail.result} scheme={scheme} />
 				) : (
 					<Text style={styles.muted}>{syncing ? "正在同步子代理会话…" : "尚未产生结果。"}</Text>
 				)}

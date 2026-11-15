@@ -5,10 +5,10 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "../../theme/use-theme";
 import { resolveExpanded } from "./collapse";
-import { ToolFontScaleProvider, useToolStyles } from "./font-scale";
 import { RawJson } from "./raw-json";
 import { SubagentSheet } from "./subagent-sheet";
 import { ToolBlocks } from "./tool-blocks";
+import { useToolStyles } from "./use-tool-styles";
 
 /**
  * ToolCallCard 是一条工具调用的入口。
@@ -20,15 +20,12 @@ import { ToolBlocks } from "./tool-blocks";
 export function ToolCallCard({
 	part,
 	defaultExpanded,
-	fontScale,
 	isLast,
 	nodeID,
 	sessionID,
 }: {
 	part: ContentPart;
 	defaultExpanded: boolean;
-	/** 会话字号倍率；工具输出与正文使用同一档，避免出现两套字号。 */
-	fontScale: number;
 	/** 是否为本轮最后一段内容；完成后仍处于末尾时先保持展开。 */
 	isLast: boolean;
 	nodeID: string;
@@ -82,7 +79,7 @@ export function ToolCallCard({
 	};
 
 	return (
-		<ToolFontScaleProvider scale={fontScale}>
+		<>
 			<View style={[styles.card, running && styles.cardRunning]}>
 				<Pressable
 					style={styles.header}
@@ -135,10 +132,9 @@ export function ToolCallCard({
 					raw={view.raw}
 					nodeID={nodeID}
 					sessionID={sessionID}
-					fontScale={fontScale}
 					onClose={() => setSheetOpen(false)}
 				/>
 			) : null}
-		</ToolFontScaleProvider>
+		</>
 	);
 }

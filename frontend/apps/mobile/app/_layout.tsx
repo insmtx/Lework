@@ -7,7 +7,7 @@ import { AppState } from "react-native";
 import { isForegroundSoundEnabled } from "../src/push/register";
 import { routeFromNotification } from "../src/push/route";
 import { ThemeProvider } from "../src/theme/theme-context";
-import { useTheme } from "../src/theme/use-theme";
+import { useFontScale, useTheme } from "../src/theme/use-theme";
 import { AppShell } from "../src/ui/app-shell";
 import { DrawerButton } from "../src/ui/top-bar";
 
@@ -38,6 +38,7 @@ export default function RootLayout() {
 
 function RootNavigator() {
 	const theme = useTheme();
+	const fontScale = useFontScale();
 
 	useEffect(() => {
 		const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -73,7 +74,11 @@ function RootNavigator() {
 					headerRight: () => <DrawerButton />,
 					headerStyle: { backgroundColor: theme.colors.surface },
 					headerTintColor: theme.colors.text,
-					headerTitleStyle: { color: theme.colors.text },
+					// 原生导航头不走主题样式表，单独套用同一个字号倍率。
+					headerTitleStyle: {
+						color: theme.colors.text,
+						fontSize: Math.round(17 * fontScale),
+					},
 					contentStyle: { backgroundColor: theme.colors.background },
 				}}
 			>
