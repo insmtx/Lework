@@ -30,6 +30,12 @@ type Config struct {
 	NodeName string `yaml:"node_name"`
 	// TLSFingerprint pins the control-plane certificate when the URL is wss.
 	TLSFingerprint string `yaml:"tls_fingerprint"`
+	// CredentialFile is the 0600 file holding the node credential issued by the
+	// control plane. Blank means "derive the default from the config file's
+	// directory", which the process entry point resolves; this package has no
+	// config path to derive it from. The file may not exist yet: it appears only
+	// after the node is paired or claimed.
+	CredentialFile string `yaml:"credential_file"`
 	// WorkspaceRoots lists the absolute directories the agent may serve.
 	// session.create rejects an empty or out-of-root directory when it is set.
 	WorkspaceRoots []string `yaml:"workspace_roots"`
@@ -138,6 +144,11 @@ func (c *Config) Validate() error {
 		if !filepath.IsAbs(root) {
 			return fmt.Errorf("config: workspace root %q must be absolute", root)
 		}
+	}
+	// 只校验形状不校验存在性：凭证文件在配对成功后才出现，要求它已存在会让
+	// 首次加入永远启动不了。
+	if c.CredentialFile != "" && !filepath.IsAbs(c.CredentialFile) {
+		return fmt.Errorf("config: credential_file must be an absolute path, got %q", c.CredentialFile)
 	}
 	switch c.OpenCode.ServiceMode {
 	case "shared", "per-project":

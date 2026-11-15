@@ -9,6 +9,7 @@ import (
 
 	"github.com/ygpkg/yg-go/logs"
 
+	"github.com/insmtx/lework/backend/internal/agentd/credential"
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 )
 
@@ -38,6 +39,11 @@ func runAll(parent context.Context, opts allOptions) error {
 	agentCfg, err := resolveAgentConfig(opts.serve, opts.agent)
 	if err != nil {
 		return err
+	}
+	// 组合模式没有 agent.yaml 路径，凭证落到平台配置目录；进程入口负责解析
+	// 默认值，配置包本身无从得知入口参数。
+	if agentCfg.CredentialFile == "" {
+		agentCfg.CredentialFile = credential.DefaultPath("")
 	}
 
 	cp, err := openControlPlane(opts.serve)

@@ -57,8 +57,11 @@ type RunnerConfig struct {
 	// attribute it to a node. The control plane may override it during the
 	// handshake with the ID it assigns.
 	NodeID string
-	// NodeName is the stable human-readable identity reported in hello. The
-	// control plane keys node records by name, so reconnects reuse the ID.
+	// NodeName is the human-readable label reported in hello and shown in the
+	// browser. It is display-only: node identity is the credential the control
+	// plane issued, and the node ID it assigns during the handshake, never the
+	// name. Two machines may report the same name; the control plane renames
+	// the newcomer instead of reusing an existing record.
 	NodeName string
 	// AgentVersion is reported during registration.
 	AgentVersion string
@@ -68,6 +71,16 @@ type RunnerConfig struct {
 	// WorkspaceRoots are reported in hello so the browser can offer a default
 	// project directory that session.create will accept.
 	WorkspaceRoots []string
+	// CredentialSink persists a one-shot node credential the control plane may
+	// hand back in the welcome result. It runs before the connection proceeds;
+	// a sink failure fails the handshake because a credential the agent never
+	// wrote is a credential nobody holds, while the control plane has already
+	// stored its hash — continuing would leave an unusable node record.
+	//
+	// A nil sink is allowed: tests and embedded callers that do not manage a
+	// credential file simply ignore the field. The runner passes the raw
+	// credential only to the sink and never logs it or puts it in an error.
+	CredentialSink func(raw string) error
 }
 
 // Runner drives one connection. It is single-use: a Runner is created for each
@@ -251,21 +264,40 @@ func (r *Runner) awaitWelcome(ctx context.Context) error {
 	}
 }
 
-// applyWelcome adopts the control-plane-assigned node ID from a welcome frame.
+// applyWelcome adopts the control-plane-assigned node ID from a welcome frame
+// and persists a one-shot credential when the control plane sends one.
+//
 // An empty result is the I0 fallback; unparsable JSON is a protocol error and
 // fails the handshake instead of silently keeping a possibly wrong identity.
+//
+// The credential bypasses the returned error text and logs entirely: it goes
+// only to CredentialSink. A sink failure aborts the handshake (wrapped with the
+// persist context) because the control plane has already recorded the hash and
+// this agent would otherwise lose the only copy of the plaintext.
 func (r *Runner) applyWelcome(frame protocol.Frame) error {
 	if len(frame.Result) == 0 {
 		return nil
 	}
 	var result struct {
-		NodeID string `json:"node_id"`
+		NodeID     string `json:"node_id"`
+		Credential string `json:"credential"`
 	}
 	if err := json.Unmarshal(frame.Result, &result); err != nil {
 		return fmt.Errorf("agentd: decode welcome result: %w", err)
 	}
 	if result.NodeID != "" {
 		r.cfg.NodeID = result.NodeID
+	}
+	if result.Credential == "" {
+		return nil
+	}
+	if r.cfg.CredentialSink == nil {
+		// Embedded callers and tests may not own a credential file. Ignoring the
+		// field keeps the handshake successful for them.
+		return nil
+	}
+	if err := r.cfg.CredentialSink(result.Credential); err != nil {
+		return fmt.Errorf("agentd: persist node credential: %w", err)
 	}
 	return nil
 }

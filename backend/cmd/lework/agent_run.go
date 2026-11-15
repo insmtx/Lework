@@ -17,6 +17,7 @@ import (
 	"github.com/ygpkg/yg-go/logs"
 
 	agentdconfig "github.com/insmtx/lework/backend/internal/agentd/config"
+	"github.com/insmtx/lework/backend/internal/agentd/credential"
 	"github.com/insmtx/lework/backend/internal/agentd/handler"
 	"github.com/insmtx/lework/backend/internal/agentd/opencode"
 	"github.com/insmtx/lework/backend/internal/agentd/runner"
@@ -139,6 +140,10 @@ func runAgent(ctx context.Context, configPath string) error {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid agent config %s: %w", configPath, err)
 	}
+	// 未显式配置时，凭证与 agent.yaml 同目录：一次配置、一处运维。
+	if cfg.CredentialFile == "" {
+		cfg.CredentialFile = credential.DefaultPath(configPath)
+	}
 
 	runtime, err := buildAgent(cfg)
 	if err != nil {
@@ -159,6 +164,9 @@ func runAgent(ctx context.Context, configPath string) error {
 
 // reconnect dials the control plane, runs one connection, and retries with
 // exponential backoff until ctx is canceled. A nil error means a clean shutdown.
+//
+// 每轮都重新读取凭证文件：welcome 可能在上一轮刚把新凭证落盘，下一轮拨号就
+// 必须改用它，否则旧令牌路径会一直生效到进程退出。
 func reconnect(
 	ctx context.Context,
 	cfg *agentdconfig.Config,
@@ -172,39 +180,62 @@ func reconnect(
 			return nil
 		}
 
+		// 读取失败等同于没有凭证：本次退回旧令牌路径，并在退避后重试。
+		raw, hasCredential, err := credential.Load(cfg.CredentialFile)
+		if err != nil {
+			logs.Warnf("lework-agent: read node credential: %s", redact(err, cfg.EnrollmentToken))
+			hasCredential = false
+			raw = ""
+		}
+
 		conn, err := transport.Dial(ctx, transport.DialConfig{
 			URL:            cfg.ControlPlaneURL,
 			TLSFingerprint: cfg.TLSFingerprint,
-			Header:         controlPlaneHeader(cfg.EnrollmentToken),
+			Header:         controlPlaneHeader(raw, cfg.EnrollmentToken),
 		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			logs.Warnf("lework-agent: connect control plane: %s", redact(err, cfg.EnrollmentToken))
+			if hasCredential && credentialRejected(err) {
+				// 不删除凭证、不回落旧令牌、不自动转配对：自动清凭证重配对会让
+				// 一台机器静默换到别人的账号下。提示之后继续退避重试。
+				logs.Errorf("lework-agent: 节点凭证被拒绝，请重新配对（删除控制面里的该节点后重新加入）")
+			} else {
+				logs.Warnf("lework-agent: connect control plane: %s", redact(err, cfg.EnrollmentToken, raw))
+			}
 		} else {
 			logs.Infof("lework-agent: connected to control plane")
 			started := time.Now()
-			runErr := runner.New(conn, requestHandler, client, runner.RunnerConfig{
-				// NodeID is a placeholder: the welcome frame carries the ID the
-				// control plane assigned (node_...) and the runner switches to
-				// it before forwarding events. NodeName is the stable identity
-				// the control plane keys node records by.
+			runCfg := runner.RunnerConfig{
+				// NodeID 是占位值：welcome 帧会带回控制面分配的 node_...，runner
+				// 在转发事件前切换。NodeName 仅用于展示，节点身份是凭证。
 				NodeID:         cfg.NodeName,
 				NodeName:       cfg.NodeName,
 				AgentVersion:   version,
 				Heartbeat:      heartbeatInterval,
 				WorkspaceRoots: cfg.WorkspaceRoots,
-			}).Run(ctx)
+			}
+			if cfg.CredentialFile != "" {
+				runCfg.CredentialSink = func(raw string) error {
+					if err := credential.Save(cfg.CredentialFile, raw); err != nil {
+						return err
+					}
+					// 路径不是秘密：记下来便于确认凭证落到了哪里。
+					logs.Infof("lework-agent: 已保存节点凭证到 %s", cfg.CredentialFile)
+					return nil
+				}
+			}
+			runErr := runner.New(conn, requestHandler, client, runCfg).Run(ctx)
 			connectedFor := time.Since(started)
 
 			if closeErr := conn.Close(); closeErr != nil {
-				logs.Warnf("lework-agent: close connection: %s", redact(closeErr, cfg.EnrollmentToken))
+				logs.Warnf("lework-agent: close connection: %s", redact(closeErr, cfg.EnrollmentToken, raw))
 			}
 			if ctx.Err() != nil || runErr == nil {
 				return nil
 			}
-			logs.Warnf("lework-agent: connection ended: %s", redact(runErr, cfg.EnrollmentToken))
+			logs.Warnf("lework-agent: connection ended: %s", redact(runErr, cfg.EnrollmentToken, raw))
 
 			// Only a connection that stayed up long enough earns a fresh
 			// ladder. A connect-then-drop loop keeps doubling the delay.
@@ -218,6 +249,48 @@ func reconnect(
 		}
 		backoff = nextBackoff(backoff)
 	}
+}
+
+// credentialRejected reports whether a dial failure means the control plane
+// rejected the node credential (401). Other statuses and network failures keep
+// the quiet backoff path: only a rejected credential deserves the "re-pair"
+// warning, and 401 deliberately does not distinguish unknown from revoked.
+func credentialRejected(err error) bool {
+	var handshake *transport.HandshakeError
+	return errors.As(err, &handshake) && handshake.StatusCode == http.StatusUnauthorized
+}
+
+// controlPlaneHeader carries the node identity in the WebSocket handshake.
+//
+// 凭证优先：节点身份是控制面签发的凭证，enrollment token 只是旧部署的 admin
+// 直通。没有凭证时才回落到旧令牌；两者都没有时不带鉴权头。
+func controlPlaneHeader(credential, enrollmentToken string) http.Header {
+	token := credential
+	if token == "" {
+		token = enrollmentToken
+	}
+	if token == "" {
+		return nil
+	}
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	return header
+}
+
+// redact removes every known secret from an error message before it is logged.
+// Transport errors already drop userinfo, but a proxy or a mistyped config can
+// copy the token into a URL, so this is defense in depth.
+func redact(err error, secrets ...string) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	for _, secret := range secrets {
+		if secret != "" {
+			message = strings.ReplaceAll(message, secret, "[redacted]")
+		}
+	}
+	return message
 }
 
 // stopService terminates a managed OpenCode process within shutdownTimeout.
@@ -351,30 +424,4 @@ func envSlice(env map[string]string) []string {
 		out = append(out, key+"="+env[key])
 	}
 	return out
-}
-
-// controlPlaneHeader carries the enrollment token in the WebSocket handshake.
-// The frame protocol has no token field, and keeping the token out of frames
-// also keeps it out of frame logs.
-func controlPlaneHeader(token string) http.Header {
-	if token == "" {
-		return nil
-	}
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+token)
-	return header
-}
-
-// redact removes a known secret from an error message before it is logged.
-// Transport errors already drop userinfo, but a proxy or a mistyped config can
-// copy the token into a URL, so this is defense in depth.
-func redact(err error, secret string) string {
-	if err == nil {
-		return ""
-	}
-	message := err.Error()
-	if secret != "" {
-		message = strings.ReplaceAll(message, secret, "[redacted]")
-	}
-	return message
 }
