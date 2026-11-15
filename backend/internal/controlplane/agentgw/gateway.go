@@ -126,9 +126,9 @@ type helloParams struct {
 
 // welcomeResult 是 welcome 帧的结果；节点 ID 由控制面分配或复用。
 //
-// Credential 只在旧令牌首次登记、且节点还没有凭证时填充：agent 落盘后立即改用
-// 它重连，因此这条一次性明文只出现在该节点自己的握手响应里。凭证路径与已有
-// 凭证的节点永远不会收到它。
+// Credential 在任何一次旧令牌登记中都会填充：旧二进制忽略它并继续用令牌登记
+// （服务端按名复用同一行、每次轮换凭证哈希），升级后的 agent 读到后落盘并改用
+// 凭证重连。凭证路径的 welcome 永远不会带它。
 type welcomeResult struct {
 	NodeID     string `json:"node_id"`
 	Credential string `json:"credential,omitempty"`
@@ -444,10 +444,12 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, mode authMode, 
 // identify 按鉴权方式登记节点，返回节点 ID 与需要随 welcome 下发的凭证。
 //
 // 凭证路径只更新展示字段与在线时间：节点 ID 已经由握手鉴权确定，重写任何身份
-// 相关列都会让一条 hello 拥有改身份的能力。旧令牌路径沿用按名复用未认领节点的
-// 规则；如果返回记录还没有凭证，就签发一份并放在第二个返回值里，由调用方经
-// welcome 发给该节点本人。签发失败必须让握手失败——静默发送不带凭证的 welcome
-// 会让这个节点在每次重连时都被当成新节点。
+// 相关列都会让一条 hello 拥有改身份的能力。旧令牌路径按名复用未认领节点，并且
+// **每次**都签发一份新凭证交给调用方经 welcome 下发：连接可能来自读不懂该字段
+// 的旧二进制（哈希被轮换、行被复用），也可能来自尚未落盘凭证的升级版 agent
+// （它必须能借此迁移到凭证路径）。签发失败必须让握手失败——静默发送不带凭证
+// 的 welcome 会让这个节点在每次重连时都被当成新节点，并让升级中的 agent 永远
+// 无法迁移。
 func (g *Gateway) identify(ctx context.Context, mode authMode, secret string, params helloParams) (string, string, error) {
 	meta := nodeFromHello(params)
 
@@ -467,9 +469,6 @@ func (g *Gateway) identify(ctx context.Context, mode authMode, secret string, pa
 		rec, err := g.store.UpsertLegacyNode(ctx, meta)
 		if err != nil {
 			return "", "", fmt.Errorf("upsert legacy node: %w", err)
-		}
-		if rec.CredentialHash != "" {
-			return rec.ID, "", nil
 		}
 		raw, hash, err := authn.NewToken()
 		if err != nil {

@@ -288,15 +288,19 @@ func (s *Store) SetNodeCredential(ctx context.Context, nodeID, tokenHash string)
 	return nil
 }
 
-// UpsertLegacyNode 是旧 enrollment token 路径的登记入口：按展示名复用节点。
+// UpsertLegacyNode 是旧 enrollment token 路径的登记入口：按展示名复用未认领节点。
 //
-// 只允许匹配「没有凭证、没有任何成员行」的历史节点。旧令牌是全局共享的，它
-// 不能成为任何人已认领节点的身份：一旦节点有了凭证或归属，按名复用就等于让
-// 任何持有共享令牌的人改别人的节点，因此这种情况一律新建一条记录，让同名节点
-// 共存（名字只用于展示）。
+// 复用条件是「同名且没有任何成员行」，不再要求节点还没有凭证：enrollment token
+// 本身就是部署级管理员凭据，持有它的人本来就能注册节点；旧二进制读不懂
+// welcome.credential，只能每次都用令牌登记，若还要求「没有凭证」，它每次重连
+// 都会留下一条新的同名节点，而已被认领的旧节点也会因为成员行永不上线。按名复用
+// 因此是安全的，唯一仍然拒绝的是已经被某个账号认领/共享的节点：共享令牌不得
+// 接管他人归属，这种情况一律新建一条未认领记录，让同名节点共存（名字只用于展示）。
 //
-// 新建时强制生成 ID 且 credential_hash 为空：调用方传入的 ID 会覆盖别的行，
-// 传入的凭证则等于绕过 SetNodeCredential 私自绑定身份。
+// 复用已有行时保留它的 credential_hash、claimed_at 与 created_at：调用方随后会
+// 重新签发凭据（每次令牌登记都轮换），这里提前清空会让正在使用的凭证在新哈希
+// 写入前短暂失效。新建时仍强制 credential_hash 为空，身份只能由
+// SetNodeCredential 绑定；调用方传入的 ID 同样会被忽略，避免覆盖别的行。
 func (s *Store) UpsertLegacyNode(ctx context.Context, n Node) (Node, error) {
 	if strings.TrimSpace(n.Name) == "" {
 		return Node{}, errors.New("node name is required")
@@ -306,7 +310,7 @@ func (s *Store) UpsertLegacyNode(ctx context.Context, n Node) (Node, error) {
 	// 同名未认领节点可能不止一条，固定取最早创建的那条，让重复登记结果稳定。
 	var existing []Node
 	err := s.db.WithContext(ctx).
-		Where("name = ? AND credential_hash = ''", n.Name).
+		Where("name = ?", n.Name).
 		Where("NOT EXISTS (SELECT 1 FROM node_members WHERE node_members.node_id = nodes.id)").
 		Order("created_at ASC, id ASC").
 		Limit(1).
@@ -318,8 +322,9 @@ func (s *Store) UpsertLegacyNode(ctx context.Context, n Node) (Node, error) {
 	n.CredentialHash = ""
 	if len(existing) > 0 {
 		n.ID = existing[0].ID
-		n.CreatedAt = existing[0].CreatedAt
+		n.CredentialHash = existing[0].CredentialHash
 		n.ClaimedAt = existing[0].ClaimedAt
+		n.CreatedAt = existing[0].CreatedAt
 	} else {
 		id, idErr := newNodeID()
 		if idErr != nil {

@@ -66,9 +66,16 @@ func TestUpsertLegacyNodeNeverTouchesClaimedNode(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	n, _ := s.UpsertLegacyNode(ctx, Node{Name: "alice-mac"})
-	_ = s.ClaimNodeToUser(ctx, n.ID, "u1")
-	_ = s.SetNodeCredential(ctx, n.ID, "hash-a")
+	n, err := s.UpsertLegacyNode(ctx, Node{Name: "alice-mac"})
+	if err != nil {
+		t.Fatalf("UpsertLegacyNode: %v", err)
+	}
+	if err := s.ClaimNodeToUser(ctx, n.ID, "u1"); err != nil {
+		t.Fatalf("ClaimNodeToUser: %v", err)
+	}
+	if err := s.SetNodeCredential(ctx, n.ID, "hash-a"); err != nil {
+		t.Fatalf("SetNodeCredential: %v", err)
+	}
 
 	again, err := s.UpsertLegacyNode(ctx, Node{Name: "alice-mac"})
 	if err != nil {
@@ -76,6 +83,29 @@ func TestUpsertLegacyNodeNeverTouchesClaimedNode(t *testing.T) {
 	}
 	if again.ID == n.ID {
 		t.Fatal("legacy upsert reused a claimed node")
+	}
+	if again.CredentialHash != "" {
+		t.Fatalf("new unclaimed row has credential %q, want identity only from SetNodeCredential", again.CredentialHash)
+	}
+
+	// 被认领的节点原样保留：名字、凭证、认领时间与归属都不能被共享令牌改掉。
+	claimed := reloadNode(t, s, n.ID)
+	if claimed.Name != "alice-mac" || claimed.CredentialHash != "hash-a" {
+		t.Fatalf("claimed node changed: %+v", claimed)
+	}
+	if claimed.ClaimedAt.IsZero() {
+		t.Fatal("claimed node lost claimed_at")
+	}
+	if role, ok, err := s.NodeRole(ctx, n.ID, "u1"); err != nil || !ok || role != NodeRoleOwner {
+		t.Fatalf("claimed node role = %q, %v, %v; want owner", role, ok, err)
+	}
+
+	unclaimed, err := s.ListUnclaimedNodes(ctx)
+	if err != nil {
+		t.Fatalf("ListUnclaimedNodes: %v", err)
+	}
+	if len(unclaimed) != 1 || unclaimed[0].ID != again.ID {
+		t.Fatalf("unclaimed nodes = %+v, want only the new row %q", unclaimed, again.ID)
 	}
 }
 
@@ -92,9 +122,10 @@ func TestNodeNameIsNoLongerUnique(t *testing.T) {
 	}
 }
 
-// 旧令牌路径即使面对「有凭证但还没有成员行」的节点也不能按名复用：
-// 凭证一旦下发，节点身份就由凭证决定，名字只用于展示。
-func TestUpsertLegacyNodeSkipsCredentialedNode(t *testing.T) {
+// 旧令牌遇到「有凭证但还没有成员行」的节点必须按名复用：旧二进制读不懂
+// welcome.credential，每次都用令牌重连，不复用就会每次多出一条节点。复用
+// 不能清掉正在使用的凭证与认领时间，调用方随后才写入轮换后的新哈希。
+func TestUpsertLegacyNodeReusesCredentialedNodeWithoutMembers(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
@@ -105,13 +136,36 @@ func TestUpsertLegacyNodeSkipsCredentialedNode(t *testing.T) {
 	if err := s.SetNodeCredential(ctx, n.ID, "hash-a"); err != nil {
 		t.Fatalf("SetNodeCredential: %v", err)
 	}
-
-	again, err := s.UpsertLegacyNode(ctx, Node{Name: "paired"})
-	if err != nil {
-		t.Fatalf("UpsertLegacyNode: %v", err)
+	claimedAt := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	if err := s.db.WithContext(ctx).Model(&Node{}).Where("id = ?", n.ID).
+		Update("claimed_at", claimedAt).Error; err != nil {
+		t.Fatalf("seed claimed_at: %v", err)
 	}
-	if again.ID == n.ID {
-		t.Fatal("legacy upsert reused a node that already has a credential")
+	before := reloadNode(t, s, n.ID)
+
+	again, err := s.UpsertLegacyNode(ctx, Node{Name: "paired", AgentVersion: "v2"})
+	if err != nil {
+		t.Fatalf("second UpsertLegacyNode: %v", err)
+	}
+	if again.ID != n.ID {
+		t.Fatalf("legacy upsert reused id %q, want %q", again.ID, n.ID)
+	}
+	if again.CredentialHash != "hash-a" || !again.ClaimedAt.Equal(claimedAt) {
+		t.Fatalf("returned node = %+v, want credential %q and claimed_at %s", again, "hash-a", claimedAt)
+	}
+	if !again.CreatedAt.Equal(before.CreatedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", again.CreatedAt, before.CreatedAt)
+	}
+
+	stored := reloadNode(t, s, n.ID)
+	if stored.CredentialHash != "hash-a" {
+		t.Fatalf("stored credential = %q, want it preserved until the caller rotates it", stored.CredentialHash)
+	}
+	if !stored.ClaimedAt.Equal(claimedAt) {
+		t.Fatalf("stored claimed_at = %s, want %s", stored.ClaimedAt, claimedAt)
+	}
+	if stored.AgentVersion != "v2" {
+		t.Fatalf("stored agent version = %q, want the display metadata refreshed", stored.AgentVersion)
 	}
 }
 

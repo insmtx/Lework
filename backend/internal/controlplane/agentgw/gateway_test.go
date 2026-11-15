@@ -639,9 +639,10 @@ func TestCredentialCannotClaimAnotherNode(t *testing.T) {
 	}
 }
 
-// TestLegacyTokenReceivesCredentialOnce 证明旧令牌只在节点还没有凭证时签发一次，
-// 签发后旧令牌不能再按名字复用这条记录。
-func TestLegacyTokenReceivesCredentialOnce(t *testing.T) {
+// TestLegacyTokenReusesNodeAndRotatesCredential 证明旧令牌重连复用同一条节点
+// 记录，并每次都轮换凭证：旧二进制忽略 welcome.credential 也不会让节点列表
+// 在每次重连后多出一行。
+func TestLegacyTokenReusesNodeAndRotatesCredential(t *testing.T) {
 	env := newGatewayEnv(t)
 	ctx := context.Background()
 
@@ -649,37 +650,117 @@ func TestLegacyTokenReceivesCredentialOnce(t *testing.T) {
 	if first.Credential == "" {
 		t.Fatal("no credential issued on legacy registration")
 	}
-	rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential))
-	if err != nil {
-		t.Fatalf("lookup issued credential: %v", err)
-	}
-	if !found {
-		t.Fatal("issued credential does not resolve to a node")
-	}
-	if rec.ID != first.NodeID || rec.Name != "old-box" {
-		t.Fatalf("stored node = %+v, want id %q named old-box", rec, first.NodeID)
+	if rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential)); err != nil {
+		t.Fatalf("lookup first credential: %v", err)
+	} else if !found || rec.ID != first.NodeID || rec.Name != "old-box" {
+		t.Fatalf("first credential = %+v found %v, want node %q named old-box", rec, found, first.NodeID)
 	}
 
-	// 同一名字再用旧令牌登记：第一条记录已有凭证，旧令牌只能新建一条未认领
-	// 节点，而不是接管已经激活的节点。
 	_, second := dialHello(t, env, bearerHeader(testToken), "old-box")
-	if second.NodeID == first.NodeID {
-		t.Fatal("legacy token reused a node that already has a credential")
+	if second.NodeID != first.NodeID {
+		t.Fatalf("second legacy node id = %q, want reuse of %q", second.NodeID, first.NodeID)
 	}
 	if second.Credential == "" || second.Credential == first.Credential {
-		t.Fatalf("second legacy credential = %q, want a fresh value", second.Credential)
-	}
-	if nodes := listNodes(t, env.store); len(nodes) != 2 {
-		t.Fatalf("stored nodes = %d, want 2 (a new unclaimed node per legacy registration)", len(nodes))
+		t.Fatalf("second legacy credential = %q, want a fresh non-empty value", second.Credential)
 	}
 
-	// 第一份凭证仍然指向第一个节点。
-	rec, found, err = env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential))
-	if err != nil {
-		t.Fatalf("lookup first credential: %v", err)
+	if nodes := listNodes(t, env.store); len(nodes) != 1 {
+		t.Fatalf("stored nodes = %d, want exactly one row after two legacy connects", len(nodes))
 	}
-	if !found || rec.ID != first.NodeID {
-		t.Fatalf("first credential = %+v found %v, want node %q", rec, found, first.NodeID)
+
+	// 轮换后旧凭证立即失效，新凭证解析到同一条记录。
+	if rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential)); err != nil {
+		t.Fatalf("lookup rotated credential: %v", err)
+	} else if found {
+		t.Fatalf("rotated credential still resolves to %+v", rec)
+	}
+	if rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(second.Credential)); err != nil {
+		t.Fatalf("lookup second credential: %v", err)
+	} else if !found || rec.ID != first.NodeID {
+		t.Fatalf("second credential = %+v found %v, want node %q", rec, found, first.NodeID)
+	}
+}
+
+// TestLegacyTokenOldAgentReconnectLeavesOneUnclaimedRow 模拟读不懂
+// welcome.credential 的旧 agent：它每次都用 enrollment token 重连，控制面
+// 必须只留下一条没有成员行的记录。
+func TestLegacyTokenOldAgentReconnectLeavesOneUnclaimedRow(t *testing.T) {
+	env := newGatewayEnv(t)
+
+	// 故意丢弃第一份凭证，第二次仍然出示 enrollment token：这就是旧二进制
+	// 的行为。
+	_, _ = dialHello(t, env, bearerHeader(testToken), "legacy-box")
+	_, second := dialHello(t, env, bearerHeader(testToken), "legacy-box")
+	if second.Credential == "" {
+		t.Fatal("second legacy connect did not receive a credential")
+	}
+
+	nodes := listNodes(t, env.store)
+	if len(nodes) != 1 {
+		t.Fatalf("stored nodes = %d, want one row for an old agent", len(nodes))
+	}
+	if nodes[0].ID != second.NodeID {
+		t.Fatalf("stored node id = %q, want %q", nodes[0].ID, second.NodeID)
+	}
+	if role, ok, err := env.store.NodeRole(context.Background(), nodes[0].ID, "u1"); err != nil {
+		t.Fatalf("NodeRole: %v", err)
+	} else if ok {
+		t.Fatalf("old-agent node has a member row with role %q, want none", role)
+	}
+}
+
+// TestLegacyTokenDoesNotTakeOverClaimedNode 证明旧令牌不会按名接管已被账号
+// 认领的节点：它新建一条未认领记录，并原样保留被认领节点的凭证与归属。
+func TestLegacyTokenDoesNotTakeOverClaimedNode(t *testing.T) {
+	env := newGatewayEnv(t)
+	ctx := context.Background()
+
+	claimed, err := env.store.UpsertLegacyNode(ctx, store.Node{Name: "alice-box"})
+	if err != nil {
+		t.Fatalf("seed claimed node: %v", err)
+	}
+	if err := env.store.SetNodeCredential(ctx, claimed.ID, authn.HashToken("alice-credential")); err != nil {
+		t.Fatalf("set claimed credential: %v", err)
+	}
+	if err := env.store.ClaimNodeToUser(ctx, claimed.ID, "u1"); err != nil {
+		t.Fatalf("claim node: %v", err)
+	}
+	before, found, err := env.store.NodeByID(ctx, claimed.ID)
+	if err != nil || !found {
+		t.Fatalf("reload claimed node = %v, %v", found, err)
+	}
+
+	_, legacy := dialHello(t, env, bearerHeader(testToken), "alice-box")
+	if legacy.NodeID == claimed.ID {
+		t.Fatal("legacy token reused a node claimed by an account")
+	}
+	if legacy.Credential == "" {
+		t.Fatal("legacy connect to a claimed name did not receive a credential")
+	}
+
+	after, found, err := env.store.NodeByID(ctx, claimed.ID)
+	if err != nil || !found {
+		t.Fatalf("reload claimed node after legacy connect = %v, %v", found, err)
+	}
+	if after.Name != before.Name || after.CredentialHash != before.CredentialHash {
+		t.Fatalf("claimed node changed: before %+v, after %+v", before, after)
+	}
+	if !after.ClaimedAt.Equal(before.ClaimedAt) {
+		t.Fatalf("claimed_at changed: before %s, after %s", before.ClaimedAt, after.ClaimedAt)
+	}
+	if role, ok, err := env.store.NodeRole(ctx, claimed.ID, "u1"); err != nil || !ok || role != store.NodeRoleOwner {
+		t.Fatalf("claimed node role = %q, %v, %v; want owner", role, ok, err)
+	}
+
+	fresh, found, err := env.store.NodeByID(ctx, legacy.NodeID)
+	if err != nil || !found {
+		t.Fatalf("reload new node = %v, %v", found, err)
+	}
+	if fresh.CredentialHash != authn.HashToken(legacy.Credential) {
+		t.Fatalf("new node credential hash = %q, want the issued credential", fresh.CredentialHash)
+	}
+	if nodes := listNodes(t, env.store); len(nodes) != 2 {
+		t.Fatalf("stored nodes = %d, want the claimed node plus a new unclaimed row", len(nodes))
 	}
 }
 
