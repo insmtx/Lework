@@ -35,6 +35,7 @@ import (
 	"github.com/insmtx/lework/backend/internal/agentd/supervisor"
 	"github.com/insmtx/lework/backend/internal/agentd/transport"
 	"github.com/insmtx/lework/backend/internal/controlplane"
+	"github.com/insmtx/lework/backend/internal/controlplane/authn"
 	"github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/infra/mq/mqtest"
@@ -44,8 +45,8 @@ const (
 	// e2eToken 是注册令牌。测试断言它不会出现在任何 API 响应或日志中。
 	e2eToken = "test-token"
 
-	// e2eNodeName 是重连时复用的稳定节点名：控制面按名称登记节点，
-	// 因此同名重连必须复用同一个节点 ID。
+	// e2eNodeName 是重连时复用的稳定节点名：节点身份由凭证决定，重连必须
+	// 走凭证路径才复用同一个节点 ID；名字只用于展示。
 	e2eNodeName = "e2e-node"
 
 	// e2eSessionID 是桩 OpenCode 返回的会话 ID。
@@ -125,6 +126,14 @@ func TestEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// 节点身份由凭证决定：先写一条已激活的节点，模拟已完成配对/签发的机器。
+	// 首次连接与重连都出示这份凭证，因此必须落在同一条记录上，而不是按
+	// hello 里的名字重新登记出第二条。
+	seededNodeID, nodeCredential, err := seedCredentialNode(ctx, st, e2eNodeName)
+	if err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
 	stubOpenCode := newCountingOpenCode()
 	stubService := &stubSupervisor{status: supervisor.Status{
 		Running: true,
@@ -132,7 +141,7 @@ func TestEndToEnd(t *testing.T) {
 		BaseURL: "http://127.0.0.1:4096",
 	}}
 
-	agent := startAgent(t, ctx, wsURL, stubOpenCode, stubService)
+	agent := startAgent(t, ctx, wsURL, nodeCredential, stubOpenCode, stubService)
 	t.Cleanup(func() { agent.stop(t) })
 
 	// 1. 节点注册：真实 gateway 读取 hello、登记存储并写入注册表。
@@ -142,6 +151,9 @@ func TestEndToEnd(t *testing.T) {
 	node := nodes[0]
 	if !strings.HasPrefix(node.ID, "node_") {
 		t.Fatalf("node id = %q, want a node_ prefix", node.ID)
+	}
+	if node.ID != seededNodeID {
+		t.Fatalf("node id = %q, want the credential's node %q", node.ID, seededNodeID)
 	}
 	if node.AgentVersion != "test" {
 		t.Fatalf("node agent_version = %q, want %q", node.AgentVersion, "test")
@@ -220,13 +232,13 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
-	// 6. 断开并重连：同名节点必须复用同一个控制面节点 ID。
+	// 6. 断开并重连：同一个凭证必须复用同一个控制面节点 ID。
 	agent.stop(t)
 	api.waitForNodes(ctx, e2eNodeTimeout, "the node to disconnect", func(nodes []nodeView) bool {
 		return len(nodes) == 0 || (len(nodes) == 1 && !nodes[0].Connected)
 	})
 
-	reconnected := startAgent(t, ctx, wsURL, stubOpenCode, stubService)
+	reconnected := startAgent(t, ctx, wsURL, nodeCredential, stubOpenCode, stubService)
 	t.Cleanup(func() { reconnected.stop(t) })
 
 	nodes = api.waitForNodes(ctx, e2eNodeTimeout, "the reconnected node", func(nodes []nodeView) bool {
@@ -237,9 +249,13 @@ func TestEndToEnd(t *testing.T) {
 	}
 	t.Logf("node %s reconnected with the same id", nodes[0].ID)
 
-	// 7. 机密性：注册令牌绝不能出现在任何 API 响应或日志中。
+	// 7. 机密性：注册令牌与节点凭证都不能出现在任何 API 响应或日志中。
 	api.assertNoSecret(t, e2eToken)
+	api.assertNoSecret(t, nodeCredential)
 	assertLogCapture(t, logPath, e2eLogSentinel, e2eToken)
+	if err := checkLogCapture(logPath, e2eLogSentinel, nodeCredential); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // countingOpenCode 是 handler.OpenCodeAPI 与 runner.EventSource 的桩实现。
@@ -390,11 +406,35 @@ type agentConn struct {
 	stopErr  error
 }
 
+// seedCredentialNode 预置一条已经持有凭证的节点，返回节点 ID 与明文凭证。
+//
+// 明文只存在于测试进程的握手头里；控制面落库的是哈希，任何 API 响应与日志都
+// 不应出现它。e2e 用它模拟「已配对/已签发」的机器，使首次连接与重连都走凭证
+// 路径，从而验证同名重连不会产生第二条节点记录。
+func seedCredentialNode(ctx context.Context, st *store.Store, name string) (string, string, error) {
+	rec, err := st.UpsertLegacyNode(ctx, store.Node{Name: name})
+	if err != nil {
+		return "", "", fmt.Errorf("create node %q: %w", name, err)
+	}
+	raw, hash, err := authn.NewToken()
+	if err != nil {
+		return "", "", fmt.Errorf("generate node credential: %w", err)
+	}
+	if err := st.SetNodeCredential(ctx, rec.ID, hash); err != nil {
+		return "", "", fmt.Errorf("set node credential: %w", err)
+	}
+	return rec.ID, raw, nil
+}
+
 // startAgent 建立 WebSocket、启动真实 runner，并在测试结束时由调用方停止。
+//
+// credential 是该节点在握手头里出示的凭证；runner 本身还不读写凭证文件，
+// 所以由测试把同一个值传给首次连接与重连。
 func startAgent(
 	t *testing.T,
 	parent context.Context,
 	wsURL string,
+	credential string,
 	openCode *countingOpenCode,
 	service *stubSupervisor,
 ) *agentConn {
@@ -402,7 +442,7 @@ func startAgent(
 
 	conn, err := transport.Dial(parent, transport.DialConfig{
 		URL:    wsURL,
-		Header: http.Header{"Authorization": {"Bearer " + e2eToken}},
+		Header: http.Header{"Authorization": {"Bearer " + credential}},
 	})
 	if err != nil {
 		t.Fatalf("dial control plane: %v", err)

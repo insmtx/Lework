@@ -18,6 +18,7 @@ import (
 
 	"github.com/insmtx/lework/backend/internal/agentd/protocol"
 	"github.com/insmtx/lework/backend/internal/agentd/transport"
+	"github.com/insmtx/lework/backend/internal/controlplane/authn"
 	"github.com/insmtx/lework/backend/internal/controlplane/event"
 	"github.com/insmtx/lework/backend/internal/controlplane/node"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
@@ -254,6 +255,80 @@ func handshake(t *testing.T, client *transport.Client, name string) (string, pro
 	return result.NodeID, welcome
 }
 
+// dialHello 用给定认证头连接网关、发送一条 hello，并解码 welcome 结果。
+//
+// 与 handshake 的区别是它保留完整结果，凭证相关用例需要读取 welcome 里下发的
+// credential；两者都走真实 WebSocket，不直接调用网关内部函数。
+func dialHello(t *testing.T, env *gatewayEnv, header http.Header, name string) (*transport.Client, welcomeResult) {
+	t.Helper()
+
+	client, err := env.dial(t, header)
+	if err != nil {
+		t.Fatalf("dial gateway: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	writeHello(t, client, defaultHello(name), "hello-1")
+	frame := readFrame(t, client)
+	if frame.Type != protocol.FrameWelcome {
+		t.Fatalf("frame type = %q, want welcome", frame.Type)
+	}
+
+	var result welcomeResult
+	if err := json.Unmarshal(frame.Result, &result); err != nil {
+		t.Fatalf("decode welcome result %s: %v", frame.Result, err)
+	}
+	return client, result
+}
+
+// credentialedNode 预置一条已激活节点，返回落库记录与它的明文凭证。
+//
+// 明文只存在于测试局部变量里，节点表拿到的始终是哈希。
+func credentialedNode(t *testing.T, env *gatewayEnv, name string) (store.Node, string) {
+	t.Helper()
+
+	rec, err := env.store.UpsertLegacyNode(context.Background(), store.Node{Name: name})
+	if err != nil {
+		t.Fatalf("seed node %q: %v", name, err)
+	}
+	raw, hash, err := authn.NewToken()
+	if err != nil {
+		t.Fatalf("generate credential: %v", err)
+	}
+	if err := env.store.SetNodeCredential(context.Background(), rec.ID, hash); err != nil {
+		t.Fatalf("set credential for node %q: %v", name, err)
+	}
+	return rec, raw
+}
+
+// expectUnauthorized 断言握手头被网关以 401 拒绝，而不是连接被接受。
+func expectUnauthorized(t *testing.T, env *gatewayEnv, header http.Header) {
+	t.Helper()
+
+	client, err := env.dial(t, header)
+	if err == nil {
+		_ = client.Close()
+		t.Fatal("dial succeeded, want handshake rejection")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, env.server.URL+"/api/agent/connect", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, values := range header {
+		req.Header[key] = values
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
 // awaitRegistered 等待节点出现在注册表里。
 //
 // 网关刻意按「先写出 welcome、再登记注册表」的顺序工作，客户端读到 welcome
@@ -425,16 +500,24 @@ func TestHelloRegistersNodeAndSendsWelcome(t *testing.T) {
 	}
 }
 
-func TestReconnectWithSameNameReusesNodeID(t *testing.T) {
+// TestReconnectWithCredentialReusesNodeID 证明凭证重连复用同一个节点 ID。
+//
+// 旧令牌登记会把节点激活并下发凭证；此后的重连必须走凭证路径，才能在不按名字
+// 猜测身份的前提下保持「同一台机器 = 同一个节点」。
+func TestReconnectWithCredentialReusesNodeID(t *testing.T) {
 	env := newGatewayEnv(t)
 
-	first := env.connect(t)
-	firstID, _ := handshake(t, first, "dev-box")
+	first, legacy := dialHello(t, env, bearerHeader(testToken), "dev-box")
+	if legacy.Credential == "" {
+		t.Fatal("legacy registration did not issue a node credential")
+	}
 
-	second := env.connect(t)
-	secondID, _ := handshake(t, second, "dev-box")
-	if secondID != firstID {
-		t.Fatalf("reconnect node id = %q, want %q", secondID, firstID)
+	_, again := dialHello(t, env, bearerHeader(legacy.Credential), "dev-box")
+	if again.NodeID != legacy.NodeID {
+		t.Fatalf("reconnect node id = %q, want %q", again.NodeID, legacy.NodeID)
+	}
+	if again.Credential != "" {
+		t.Fatalf("credential reconnect received another credential: %q", again.Credential)
 	}
 
 	// 注册表会用新连接替换旧连接并主动关闭旧连接。
@@ -445,9 +528,148 @@ func TestReconnectWithSameNameReusesNodeID(t *testing.T) {
 	if nodes := listNodes(t, env.store); len(nodes) != 1 {
 		t.Fatalf("stored nodes = %d, want 1 after reconnect", len(nodes))
 	}
-	info := awaitRegistered(t, env, firstID)
+	info := awaitRegistered(t, env, legacy.NodeID)
 	if !info.Connected {
 		t.Fatalf("registry entry = %+v, want connected", info)
+	}
+}
+
+// TestCredentialHandshakeResolvesNodeIdentityByHash 证明凭证是节点身份的唯一来源：
+// hello 自称别人的名字也只能改自己的展示名，不能顶替另一条记录。
+func TestCredentialHandshakeResolvesNodeIdentityByHash(t *testing.T) {
+	env := newGatewayEnv(t)
+	owned, raw := credentialedNode(t, env, "stolen-name")
+
+	_, welcome := dialHello(t, env, bearerHeader(raw), "victim-node")
+	if welcome.NodeID != owned.ID {
+		t.Fatalf("welcome node = %q, want credential owner %q", welcome.NodeID, owned.ID)
+	}
+	if welcome.Credential != "" {
+		t.Fatalf("credential handshake re-issued a credential: %q", welcome.Credential)
+	}
+
+	// node_name 只更新展示字段：同一条记录换了名字，没有新增节点。
+	nodes := listNodes(t, env.store)
+	if len(nodes) != 1 {
+		t.Fatalf("stored nodes = %d, want 1", len(nodes))
+	}
+	if nodes[0].ID != owned.ID || nodes[0].Name != "victim-node" {
+		t.Fatalf("stored node = %+v, want id %q renamed to victim-node", nodes[0], owned.ID)
+	}
+	if nodes[0].CredentialHash == "" {
+		t.Fatal("display update cleared the node credential")
+	}
+
+	info := awaitRegistered(t, env, owned.ID)
+	if info.Name != "victim-node" {
+		t.Fatalf("registry name = %q, want the display name from hello", info.Name)
+	}
+}
+
+// TestCredentialCannotClaimAnotherNode 证明一条凭证只能操作它自己的节点：
+// hello 里写上别人的名字不会改变对方的记录。
+func TestCredentialCannotClaimAnotherNode(t *testing.T) {
+	env := newGatewayEnv(t)
+	mine, myCredential := credentialedNode(t, env, "alice-box")
+	other, otherCredential := credentialedNode(t, env, "bob-box")
+
+	_, welcome := dialHello(t, env, bearerHeader(myCredential), "bob-box")
+	if welcome.NodeID != mine.ID {
+		t.Fatalf("welcome node = %q, want %q", welcome.NodeID, mine.ID)
+	}
+
+	// 另一个节点原封不动：ID、名字与凭证都还在。
+	rec, found, err := env.store.LookupNodeByCredential(context.Background(), authn.HashToken(otherCredential))
+	if err != nil {
+		t.Fatalf("lookup other node: %v", err)
+	}
+	if !found {
+		t.Fatal("other node credential no longer resolves")
+	}
+	if rec.ID != other.ID || rec.Name != "bob-box" {
+		t.Fatalf("other node = %+v, want id %q named bob-box", rec, other.ID)
+	}
+}
+
+// TestLegacyTokenReceivesCredentialOnce 证明旧令牌只在节点还没有凭证时签发一次，
+// 签发后旧令牌不能再按名字复用这条记录。
+func TestLegacyTokenReceivesCredentialOnce(t *testing.T) {
+	env := newGatewayEnv(t)
+	ctx := context.Background()
+
+	_, first := dialHello(t, env, bearerHeader(testToken), "old-box")
+	if first.Credential == "" {
+		t.Fatal("no credential issued on legacy registration")
+	}
+	rec, found, err := env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential))
+	if err != nil {
+		t.Fatalf("lookup issued credential: %v", err)
+	}
+	if !found {
+		t.Fatal("issued credential does not resolve to a node")
+	}
+	if rec.ID != first.NodeID || rec.Name != "old-box" {
+		t.Fatalf("stored node = %+v, want id %q named old-box", rec, first.NodeID)
+	}
+
+	// 同一名字再用旧令牌登记：第一条记录已有凭证，旧令牌只能新建一条未认领
+	// 节点，而不是接管已经激活的节点。
+	_, second := dialHello(t, env, bearerHeader(testToken), "old-box")
+	if second.NodeID == first.NodeID {
+		t.Fatal("legacy token reused a node that already has a credential")
+	}
+	if second.Credential == "" || second.Credential == first.Credential {
+		t.Fatalf("second legacy credential = %q, want a fresh value", second.Credential)
+	}
+	if nodes := listNodes(t, env.store); len(nodes) != 2 {
+		t.Fatalf("stored nodes = %d, want 2 (a new unclaimed node per legacy registration)", len(nodes))
+	}
+
+	// 第一份凭证仍然指向第一个节点。
+	rec, found, err = env.store.LookupNodeByCredential(ctx, authn.HashToken(first.Credential))
+	if err != nil {
+		t.Fatalf("lookup first credential: %v", err)
+	}
+	if !found || rec.ID != first.NodeID {
+		t.Fatalf("first credential = %+v found %v, want node %q", rec, found, first.NodeID)
+	}
+}
+
+// TestGatewayRejectsUnusableHandshakeHeaders 覆盖凭证路径的拒绝分支：
+// 未知凭证、已被轮换的旧凭证、尚未接通的 Pair 头与空 Bearer 都必须 401。
+func TestGatewayRejectsUnusableHandshakeHeaders(t *testing.T) {
+	env := newGatewayEnv(t)
+	ctx := context.Background()
+
+	rotated, staleCredential := credentialedNode(t, env, "rotated-box")
+	if _, freshHash, err := authn.NewToken(); err != nil {
+		t.Fatalf("generate replacement credential: %v", err)
+	} else if err := env.store.SetNodeCredential(ctx, rotated.ID, freshHash); err != nil {
+		t.Fatalf("rotate credential: %v", err)
+	}
+
+	pairHeader := http.Header{}
+	pairHeader.Set("Authorization", "Pair pair-key")
+	emptyBearer := http.Header{}
+	emptyBearer.Set("Authorization", "Bearer ")
+
+	tests := []struct {
+		name   string
+		header http.Header
+	}{
+		{"unknown credential", bearerHeader("not-a-credential")},
+		{"rotated credential", bearerHeader(staleCredential)},
+		{"pair header", pairHeader},
+		{"empty bearer", emptyBearer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expectUnauthorized(t, env, tt.header)
+		})
+	}
+
+	if nodes := listNodes(t, env.store); len(nodes) != 1 {
+		t.Fatalf("stored nodes = %d, want only the seeded node", len(nodes))
 	}
 }
 
