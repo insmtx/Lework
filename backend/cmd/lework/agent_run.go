@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -191,10 +193,15 @@ func runAgent(ctx context.Context, configPath string, opts agentConnectOptions) 
 
 // resolveCredentialPath 按 flag > config > 派生默认的顺序解析凭证路径。
 //
+// 显式 flag 也走 filepath.Abs：运维在 systemd/容器里写的相对路径以启动目录
+// 为准，保存凭证与派生 claim 路径都必须落在同一个确定的绝对位置。
 // 纯函数便于测试：真实路径解析涉及 home 目录与工作目录，混在 runAgent 里
 // 无法稳定断言。
 func resolveCredentialPath(flagPath, configPath, configValue string) string {
 	if path := strings.TrimSpace(flagPath); path != "" {
+		if abs, err := filepath.Abs(path); err == nil {
+			return abs
+		}
 		return path
 	}
 	if path := strings.TrimSpace(configValue); path != "" {
@@ -240,7 +247,7 @@ func reconnect(
 
 		// 凭证读取错误必须显式失败，不能降级成 enrollment token：那等于把节点
 		// 从凭证模式静默切成 admin 直通。这里不拨号，只退避后重试读取。
-		nodeCredential, hasCredential, err := credential.Load(cfg.CredentialFile)
+		nodeCredential, source, hasCredential, err := findCredential(cfg.CredentialFile)
 		if err != nil {
 			logs.Errorf("lework-agent: 读取节点凭证 %s 失败：%s（不会回落到 enrollment token；修复文件路径/权限后重启 agent）",
 				cfg.CredentialFile, redact(err, cfg.EnrollmentToken))
@@ -251,31 +258,34 @@ func reconnect(
 			continue
 		}
 
-		// 容器/Ansible 场景：凭证文件不落盘，只经环境变量注入。它永远不写回
-		// 磁盘，也不会进入日志。
-		if !hasCredential {
-			if fromEnv := strings.TrimSpace(os.Getenv(nodeCredentialEnv)); fromEnv != "" {
-				nodeCredential, hasCredential = fromEnv, true
-			}
+		// 已有凭证时 --code 必须显式失败：静默忽略会让用户按 401 提示重新配对，
+		// 却永远卡在旧凭证上。错误里点名来源，用户才知道该清理哪一个。
+		mode, modeErr := pairingModeFor(opts.Code, hasCredential, source, cfg.CredentialFile, cfg.EnrollmentToken)
+		if modeErr != nil {
+			return modeErr
 		}
 
-		if !hasCredential {
-			var pairErr error
-			switch {
-			case strings.TrimSpace(opts.Code) != "":
-				// --code 的码一次性、机器不在你面前：失败就退出，不能悄悄回落到
-				// 二维码（扫不到也重印不了）。
-				nodeCredential, pairErr = pairWithCode(ctx, cfg, opts)
-			case strings.TrimSpace(cfg.EnrollmentToken) == "":
-				nodeCredential, pairErr = pairInteractive(ctx, cfg, opts)
-			}
+		switch mode {
+		case pairingModeCode:
+			// --code 的码一次性、机器不在你面前：失败就退出，不能悄悄回落到
+			// 二维码（扫不到也重印不了）。
+			raw, pairErr := pairWithCode(ctx, cfg, opts)
 			if pairErr != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
 				return pairErr
 			}
-			hasCredential = strings.TrimSpace(nodeCredential) != ""
+			nodeCredential, hasCredential = raw, true
+		case pairingModeInteractive:
+			raw, pairErr := pairInteractive(ctx, cfg, opts)
+			if pairErr != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return pairErr
+			}
+			nodeCredential, hasCredential = raw, true
 		}
 
 		conn, err := transport.Dial(ctx, transport.DialConfig{
@@ -357,6 +367,81 @@ func reconnect(
 // 避免一个遗留的环境变量悄悄覆盖运维刚配好的文件。
 const nodeCredentialEnv = "LEWORK_NODE_CREDENTIAL"
 
+// credentialSource 记录凭证是从哪里读到的，用于在 --code 冲突时点名来源。
+type credentialSource string
+
+const (
+	credentialSourceFile credentialSource = "file"
+	credentialSourceEnv  credentialSource = "env"
+)
+
+// conflictError 把「已有凭证又要 --code」翻译成可执行的错误。
+//
+// 文件场景给出路径、env 场景给出变量名：只说「已有凭证」用户不知道去哪删。
+func (s credentialSource) conflictError(path string) error {
+	switch s {
+	case credentialSourceFile:
+		return fmt.Errorf("--code given but a node credential already exists at %s", path)
+	case credentialSourceEnv:
+		return fmt.Errorf("--code given but %s is set", nodeCredentialEnv)
+	default:
+		return errors.New("--code given but a node credential already exists")
+	}
+}
+
+// findCredential 按文件 > 环境变量的顺序寻找节点凭证。
+//
+// 文件优先：一个遗留的环境变量不该悄悄覆盖运维刚配好的文件。文件读取错误
+// （而不是「文件不存在」）原样返回，调用方必须把它当成凭证模式失败，不能
+// 降级成 enrollment token 直通。
+func findCredential(path string) (raw string, source credentialSource, found bool, err error) {
+	nodeCredential, hasCredential, err := credential.Load(path)
+	if err != nil {
+		return "", "", false, err
+	}
+	if hasCredential {
+		return nodeCredential, credentialSourceFile, true, nil
+	}
+	if fromEnv := strings.TrimSpace(os.Getenv(nodeCredentialEnv)); fromEnv != "" {
+		return fromEnv, credentialSourceEnv, true, nil
+	}
+	return "", "", false, nil
+}
+
+// pairingMode 是 reconnect 在拿到（或没拿到）凭证后该走的路径。
+type pairingMode int
+
+const (
+	// pairingModeUseCredential 用已找到的凭证直接拨号。
+	pairingModeUseCredential pairingMode = iota
+	// pairingModeEnrollmentToken 没有凭证但有旧令牌，沿用 admin 直通。
+	pairingModeEnrollmentToken
+	// pairingModeCode 没有凭证且给了 --code，用一次性短码配对。
+	pairingModeCode
+	// pairingModeInteractive 既无凭证也无令牌，进入终端扫码配对。
+	pairingModeInteractive
+)
+
+// pairingModeFor 把「凭证来源 + --code + enrollment token」映射成一个动作。
+//
+// 纯函数：这是用户最容易踩的优先级，测试要能逐条覆盖而不用真的拨号。
+// 已有凭证时 --code 是错误而不是覆盖：静默覆盖会让一台机器悄悄换账号。
+func pairingModeFor(code string, hasCredential bool, source credentialSource, credentialPath, enrollmentToken string) (pairingMode, error) {
+	if hasCredential {
+		if strings.TrimSpace(code) != "" {
+			return pairingModeUseCredential, fmt.Errorf("lework-agent: %w", source.conflictError(credentialPath))
+		}
+		return pairingModeUseCredential, nil
+	}
+	if strings.TrimSpace(code) != "" {
+		return pairingModeCode, nil
+	}
+	if strings.TrimSpace(enrollmentToken) != "" {
+		return pairingModeEnrollmentToken, nil
+	}
+	return pairingModeInteractive, nil
+}
+
 // dialPairConnection 建立一条待定连接：Pair 头只是这条连接的标识，不是凭证。
 func dialPairConnection(ctx context.Context, cfg *agentdconfig.Config, pairKey string) (*transport.Client, error) {
 	header := http.Header{}
@@ -406,13 +491,57 @@ func pairWithCode(ctx context.Context, cfg *agentdconfig.Config, opts agentConne
 	return raw, nil
 }
 
+// errPairCredentialSave 表示配对已成功但凭证落盘失败。目录状态不会因为换一张
+// 码而变好，重试只会把刚成功的配对反复作废，因此与 claim 写失败同级处理。
+var errPairCredentialSave = errors.New("persist paired node credential")
+
+// pairAttempt 是 pairRetry 的一次完整尝试：给定本次的 pair_key，返回凭证或错误。
+type pairAttempt func(ctx context.Context, pairKey string) (string, error)
+
 // pairInteractive 在终端展示二维码/短码并等待账号认领。
 //
 // 每次尝试都生成新的 pair_key：过期或被接管的认领不该被复活，否则终端会
 // 一直显示一张已经不可能生效的码。网络/控制面错误按既有退避阶梯重试，
 // 直到拿到凭证或 ctx 取消。
+//
+// 无论成功、失败还是 ctx 取消，返回前都 best-effort 删除 claim 文件：它只在
+// 本进程仍维持待定连接时才有意义，留着会让 `lework agent claim` 重印一张
+// 已经作废的码。
 func pairInteractive(ctx context.Context, cfg *agentdconfig.Config, opts agentConnectOptions) (string, error) {
 	claimPath := pair.ClaimPath(cfg.CredentialFile)
+	defer removeClaimFile(claimPath)
+
+	raw, err := pairRetry(ctx, pair.NewPairKey, func(ctx context.Context, pairKey string) (string, error) {
+		return pairOnce(ctx, cfg, opts, pairKey, claimPath)
+	}, waitBackoff)
+	if err == nil {
+		return raw, nil
+	}
+
+	// 两类错误重试没有任何意义：同一个目录/节点状态不会自己变好。显式退出，
+	// 把修复动作写进日志，避免无限换码。
+	switch {
+	case errors.Is(err, pair.ErrClaimWrite):
+		logs.Errorf("lework-agent: 无法写入配对信息 %s：%s；修复目录权限后重试",
+			claimPath, redact(err))
+		return "", fmt.Errorf("lework-agent: 无法写入配对信息 %s，修复目录权限后重试：%w", claimPath, err)
+	case errors.Is(err, pair.ErrCredentialAlreadyIssued):
+		return "", fmt.Errorf("lework-agent: 该节点已有凭证，请删除控制面里的该节点后重新配对：%w", err)
+	default:
+		return "", err
+	}
+}
+
+// pairRetry 负责换新码与退避，把「一次尝试」与「怎么等」留给调用方注入。
+//
+// 纯逻辑（不含真实拨号）便于测试：每次尝试必须拿到不同的 pair_key，且失败
+// 后按既有阶梯等待，而不是在同一张码上重试。
+func pairRetry(
+	ctx context.Context,
+	newKey func() (string, error),
+	attempt pairAttempt,
+	wait func(context.Context, time.Duration) error,
+) (string, error) {
 	backoff := initialBackoff
 
 	for {
@@ -420,60 +549,83 @@ func pairInteractive(ctx context.Context, cfg *agentdconfig.Config, opts agentCo
 			return "", ctx.Err()
 		}
 
-		pairKey, err := pair.NewPairKey()
+		pairKey, err := newKey()
 		if err != nil {
 			return "", fmt.Errorf("lework-agent: %w", err)
 		}
 
-		conn, err := dialPairConnection(ctx, cfg, pairKey)
-		if err != nil {
+		raw, err := attempt(ctx, pairKey)
+		if err == nil {
+			return raw, nil
+		}
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if fatalPairError(err) {
+			return "", err
+		}
+
+		logs.Warnf("lework-agent: 配对未完成：%s", redact(err))
+		if waitErr := wait(ctx, backoff); waitErr != nil {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
-			logs.Warnf("lework-agent: 连接配对端点失败：%s", redact(err))
-			if waitBackoff(ctx, backoff) != nil {
-				return "", ctx.Err()
-			}
-			backoff = nextBackoff(backoff)
-			continue
+			return "", waitErr
 		}
-
-		raw, pairErr := pair.Run(ctx, conn, pair.Options{
-			NodeName:        cfg.NodeName,
-			AgentVersion:    version,
-			WorkspaceRoots:  cfg.WorkspaceRoots,
-			PairKey:         pairKey,
-			ClaimPath:       claimPath,
-			ControlPlaneURL: cfg.ControlPlaneURL,
-			OnPending: func(code, link string) {
-				printPendingPair(os.Stdout, code, link, claimPath, opts.NoQR)
-			},
-		})
-		_ = conn.Close()
-
-		if pairErr != nil {
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
-			// 节点已有凭证时重试没有任何意义：同一个 pair_key 会一直被拒，
-			// 换新码也一样。让运维修好控制面状态再重新配对。
-			if errors.Is(pairErr, pair.ErrCredentialAlreadyIssued) {
-				return "", fmt.Errorf("lework-agent: 该节点已有凭证，请删除控制面里的该节点后重新配对：%w", pairErr)
-			}
-			logs.Warnf("lework-agent: 配对未完成：%s", redact(pairErr))
-			if waitBackoff(ctx, backoff) != nil {
-				return "", ctx.Err()
-			}
-			backoff = nextBackoff(backoff)
-			continue
-		}
-
-		if err := credential.Save(cfg.CredentialFile, raw); err != nil {
-			return "", fmt.Errorf("lework-agent: 保存节点凭证到 %s 失败：%w", cfg.CredentialFile, err)
-		}
-		logs.Infof("lework-agent: 配对成功，已保存节点凭证到 %s", cfg.CredentialFile)
-		return raw, nil
+		backoff = nextBackoff(backoff)
 	}
+}
+
+// pairOnce 建立一条待定连接、跑完一次配对，成功后落盘凭证。
+func pairOnce(ctx context.Context, cfg *agentdconfig.Config, opts agentConnectOptions, pairKey, claimPath string) (string, error) {
+	conn, err := dialPairConnection(ctx, cfg, pairKey)
+	if err != nil {
+		return "", fmt.Errorf("lework-agent: 连接配对端点失败：%w", err)
+	}
+
+	raw, pairErr := pair.Run(ctx, conn, pair.Options{
+		NodeName:        cfg.NodeName,
+		AgentVersion:    version,
+		WorkspaceRoots:  cfg.WorkspaceRoots,
+		PairKey:         pairKey,
+		ClaimPath:       claimPath,
+		ControlPlaneURL: cfg.ControlPlaneURL,
+		OnPending: func(code, link string) {
+			printPendingPair(os.Stdout, code, link, claimPath, opts.NoQR)
+		},
+	})
+	_ = conn.Close()
+
+	if pairErr != nil {
+		return "", pairErr
+	}
+	if err := credential.Save(cfg.CredentialFile, raw); err != nil {
+		return "", fmt.Errorf("lework-agent: 保存节点凭证到 %s 失败：%w: %w", cfg.CredentialFile, errPairCredentialSave, err)
+	}
+	logs.Infof("lework-agent: 配对成功，已保存节点凭证到 %s", cfg.CredentialFile)
+	return raw, nil
+}
+
+// removeClaimFile 删除不再有效的 claim 文件。文件本来就不存在是正常情况
+// （重复触发、上一轮已清理），其余删除失败只记警告：清理是 best-effort，
+// 不该让一次成功的配对因为删文件而变成失败。
+func removeClaimFile(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		logs.Warnf("lework-agent: 删除配对信息 %s 失败：%s", path, redact(err))
+	}
+}
+
+// fatalPairError reports whether a pairing error must stop the retry loop.
+//
+// 只有三种：目录写不下（同一目录随后还要写凭证）、节点已有凭证（换码也不会
+// 生效）、以及配对成功但凭证落盘失败。其余断线/过期都是可重试的。
+func fatalPairError(err error) bool {
+	return errors.Is(err, pair.ErrClaimWrite) ||
+		errors.Is(err, pair.ErrCredentialAlreadyIssued) ||
+		errors.Is(err, errPairCredentialSave)
 }
 
 // printPendingPair 在终端打印配对二维码、链接与短码。
@@ -482,7 +634,7 @@ func pairInteractive(ctx context.Context, cfg *agentdconfig.Config, opts agentCo
 // 泄露面。此时只提示 claim 文件的位置——终端不在了还能靠它重印。
 func printPendingPair(out io.Writer, code, link, claimPath string, noQR bool) {
 	if !isTerminal(out) {
-		logs.Infof("lework-agent: 配对信息已写入 %s，请在终端运行 lework agent claim", claimPath)
+		fmt.Fprintf(out, "Pairing information written to %s; run `lework agent claim` to reprint it.\n", claimPath)
 		return
 	}
 

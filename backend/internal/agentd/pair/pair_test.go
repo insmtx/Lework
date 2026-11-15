@@ -141,7 +141,12 @@ func TestPairRunReturnsCredentialFromResultFrame(t *testing.T) {
 }
 
 func TestPairRunWithCodeSkipsPendingPrint(t *testing.T) {
-	conn := newScriptedConn(resultFrame(t, "cred-2"))
+	// 服务端不会对 mode=claim 发 pair.pending，但客户端必须忽略它，不能因此
+	// 打印一张跟本次 --code 无关的码。
+	conn := newScriptedConn(
+		pendingFrame(t, "ZZ999", time.Now().Add(time.Minute)),
+		resultFrame(t, "cred-2"),
+	)
 
 	cred, err := Run(context.Background(), conn, Options{
 		NodeName: "work-mac",
@@ -332,6 +337,29 @@ func TestRunClaimFileContents(t *testing.T) {
 	}
 }
 
+func TestRunReportsClaimWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	// 用一个普通文件当父目录，MkdirAll/CreateTemp 必然失败，且不依赖 umask 或
+	// 以 root 运行时的权限语义。
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+
+	conn := newScriptedConn(
+		pendingFrame(t, "AB234", time.Now().Add(time.Minute)),
+		resultFrame(t, "cred-7"),
+	)
+	_, err := Run(context.Background(), conn, Options{
+		PairKey:         "pk",
+		ControlPlaneURL: "ws://cp.example",
+		ClaimPath:       filepath.Join(blocker, "node.claim"),
+	})
+	if !errors.Is(err, ErrClaimWrite) {
+		t.Fatalf("Run error = %v, want ErrClaimWrite", err)
+	}
+}
+
 func TestRunIgnoresJunkFrames(t *testing.T) {
 	event := protocol.Frame{
 		Type:  protocol.FrameEvent,
@@ -340,6 +368,9 @@ func TestRunIgnoresJunkFrames(t *testing.T) {
 	conn := newScriptedConn(
 		event,
 		protocol.Frame{Type: protocol.FrameHeartbeat},
+		// 未来控制面新增的帧类型不能被当成协议错误：配对客户端只认识
+		// pair.pending / pair.result，其余一律忽略。
+		protocol.Frame{Type: protocol.FrameType("future.frame")},
 		pendingFrame(t, "AB234", time.Now().Add(time.Minute)),
 		event,
 		resultFrame(t, "cred-5"),
@@ -405,6 +436,25 @@ func TestRunSendsHeartbeatsWhileWaiting(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return after pair.result")
+	}
+}
+
+func TestRunStopsHeartbeatBeforeReturning(t *testing.T) {
+	previous := heartbeatInterval
+	heartbeatInterval = time.Millisecond
+	t.Cleanup(func() { heartbeatInterval = previous })
+
+	conn := newScriptedConn(resultFrame(t, "cred-8"))
+	if _, err := Run(context.Background(), conn, Options{PairKey: "pk"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Run 返回时心跳协程必须已经退出：否则它还会继续向 Conn 写帧，而调用方
+	// 通常就在这个时刻 Close。让心跳间隔足够小，任何残留都会在等待窗口内暴露。
+	before := len(conn.sentFrames())
+	time.Sleep(20 * heartbeatInterval)
+	if after := len(conn.sentFrames()); after != before {
+		t.Fatalf("heartbeat wrote after Run returned: %d -> %d frames", before, after)
 	}
 }
 
@@ -492,6 +542,8 @@ func TestLink(t *testing.T) {
 		{"ws to http", "ws://cp.example:8787/api/agent/connect?x=1", "http://cp.example:8787"},
 		{"wss to https", "wss://cp.example/api/agent/connect", "https://cp.example"},
 		{"http kept", "http://cp.example:9000/", "http://cp.example:9000"},
+		{"subpath deployment", "wss://cp.example/lework/api/agent/connect", "https://cp.example/lework"},
+		{"other path dropped", "ws://cp.example/other", "http://cp.example"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -541,6 +593,8 @@ func TestReadClaim(t *testing.T) {
 		ControlPlaneURL: "ws://cp.example",
 		ExpiresAt:       time.Now().Add(time.Minute),
 	})
+	noExpiry := filepath.Join(dir, "no-expiry.claim")
+	writeClaimFile(t, noExpiry, Claim{Code: "NEW42"})
 	expired := filepath.Join(dir, "expired.claim")
 	writeClaimFile(t, expired, Claim{Code: "ZZ999", ExpiresAt: time.Now().Add(-time.Minute)})
 	malformed := filepath.Join(dir, "malformed.claim")
@@ -550,6 +604,10 @@ func TestReadClaim(t *testing.T) {
 
 	if claim, ok, err := ReadClaim(valid); err != nil || !ok || claim.Code != "AB234" {
 		t.Fatalf("ReadClaim(valid) = %+v, %t, %v", claim, ok, err)
+	}
+	// 旧控制面不发 expires_at：零值表示未知，不能当成已过期。
+	if claim, ok, err := ReadClaim(noExpiry); err != nil || !ok || claim.Code != "NEW42" {
+		t.Fatalf("ReadClaim(no expiry) = %+v, %t, %v", claim, ok, err)
 	}
 	if claim, ok, err := ReadClaim(expired); err != nil || ok || claim.Code != "ZZ999" {
 		t.Fatalf("ReadClaim(expired) = %+v, %t, %v", claim, ok, err)

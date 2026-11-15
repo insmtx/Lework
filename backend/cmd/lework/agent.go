@@ -81,6 +81,7 @@ Examples:
 func newAgentClaimCommand() *cobra.Command {
 	var configPath string
 	var credentialPath string
+	var noQR bool
 
 	cmd := &cobra.Command{
 		Use:   "claim",
@@ -90,24 +91,25 @@ func newAgentClaimCommand() *cobra.Command {
 The claim file lives next to the node credential (node.claim) and expires with
 the control plane's pending claim. Run ` + "`lework agent`" + ` again to start a new
 pairing if the code has expired.`,
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAgentClaim(cmd.OutOrStdout(), configPath, credentialPath)
+			return runAgentClaim(cmd.OutOrStdout(), configPath, credentialPath, noQR)
 		},
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", resolveConfigPath(), "path to lework.yaml or agent.yaml")
 	cmd.Flags().StringVar(&credentialPath, "credential-file", "",
 		"path to the node credential file; the claim file lives in the same directory")
+	cmd.Flags().BoolVar(&noQR, "no-qr", false, "do not print the QR code; print the link and code only")
 	return cmd
 }
 
 // runAgentClaim reads node.claim and prints the QR (terminal only), link, short
 // code, and expiry. A non-terminal writer still gets the text: claim is an
-// explicit terminal command, not a background daemon.
-func runAgentClaim(out io.Writer, configPath, credentialPath string) error {
+// explicit terminal command, not a background daemon. noQR suppresses only the
+// QR bitmap, so links stay usable from terminals that cannot render it.
+func runAgentClaim(out io.Writer, configPath, credentialPath string, noQR bool) error {
 	claimPath := pair.ClaimPath(resolveAgentCredentialPath(configPath, credentialPath))
 	claim, ok, err := pair.ReadClaim(claimPath)
 	if err != nil {
@@ -122,7 +124,7 @@ func runAgentClaim(out io.Writer, configPath, credentialPath string) error {
 	}
 
 	fmt.Fprintln(out, "Pair this node with your account:")
-	if claim.Link != "" && isTerminal(out) {
+	if claim.Link != "" && !noQR && isTerminal(out) {
 		qrterminal.GenerateWithConfig(claim.Link, qrterminal.Config{
 			Level:      qrterminal.L,
 			Writer:     out,

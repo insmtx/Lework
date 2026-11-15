@@ -57,6 +57,9 @@ var (
 	ErrClaimAttemptsExceeded = errors.New("claim code attempts exceeded")
 	// ErrPairConnReplaced 表示同一认领已被更新的连接接管。
 	ErrPairConnReplaced = errors.New("pair connection replaced")
+	// ErrClaimWrite 表示 claim 文件写不下来。目录不可写会让后续的凭证落盘
+	// 同样失败，因此调用方必须把它当成致命错误而不是可重试的断线。
+	ErrClaimWrite = errors.New("write claim file")
 )
 
 // heartbeatInterval 是待定连接上发送空帧的间隔。
@@ -106,8 +109,12 @@ type Claim struct {
 // Run 完成一次配对尝试，返回节点凭证明文。
 //
 // 它先写 hello，再同时收发：一个协程按 heartbeatInterval 发空帧维持待定连接
-// （写入永远只有这一个协程，hello 在它启动前已完成），主协程读帧。任何读错误
-// 都按控制面的关闭原因归类后返回；断线重连由调用方负责。
+// （写入永远只有这一个协程，hello 在它启动前已完成），主协程读帧。返回前会
+// 等心跳协程退出，因此调用方可以在 Run 返回后立刻 Close。
+//
+// 只有 pair.pending / pair.result 会被解码；未知帧类型（未来控制面新增的帧、
+// 心跳、事件）一律忽略，不能让一次协议扩展打断配对。任何读错误都按控制面的
+// 关闭原因归类后返回；断线重连由调用方负责。
 func Run(ctx context.Context, conn Conn, opts Options) (string, error) {
 	if conn == nil {
 		return "", errors.New("agentd: pair: connection is nil")
@@ -165,12 +172,19 @@ func Run(ctx context.Context, conn Conn, opts Options) (string, error) {
 	}
 
 	// 心跳与读循环共享这个上下文：心跳写失败时取消它，读循环立刻返回。
-	// 间隔在启动协程前读取一次，避免测试改写包级变量时与协程竞争。
+	// 间隔在启动协程前读取一次，避免测试改写包级变量时与协程竞争。返回前等
+	// 心跳协程退出，把「调用方可以在 Run 之后 Close」写成显式契约。
 	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
-
 	writeErrs := make(chan error, 1)
-	go heartbeatLoop(runCtx, conn, effectiveHeartbeatInterval(), writeErrs, cancelRun)
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		heartbeatLoop(runCtx, conn, effectiveHeartbeatInterval(), writeErrs, cancelRun)
+	}()
+	defer func() {
+		cancelRun()
+		<-heartbeatDone
+	}()
 
 	for {
 		frame, readErr := conn.Read(runCtx)
@@ -180,19 +194,29 @@ func Run(ctx context.Context, conn Conn, opts Options) (string, error) {
 			}
 			return "", fmt.Errorf("agentd: pair: %w", classify(readErr))
 		}
-		if err := frame.Validate(); err != nil {
-			return "", fmt.Errorf("agentd: pair: invalid frame: %w", err)
-		}
 
+		// 不调用 Frame.Validate：它会对未知帧类型报错，而配对客户端应当忽略
+		// 自己不认识的东西。只对两个配对帧检查载荷并解码。
 		switch frame.Type {
 		case protocol.FramePairPending:
+			// --code 是单人认领，控制面不会对 claim 模式发 pending；即使未来发了
+			// 也必须忽略，否则会打印一张与本次 --code 无关的码并写 claim 文件。
+			if strings.TrimSpace(opts.Code) != "" {
+				continue
+			}
+			if len(frame.Result) == 0 {
+				return "", fmt.Errorf("agentd: pair: %s frame requires result", frame.Type)
+			}
 			if err := handlePending(frame, opts, pairKey); err != nil {
 				return "", err
 			}
 		case protocol.FramePairResult:
+			if len(frame.Result) == 0 {
+				return "", fmt.Errorf("agentd: pair: %s frame requires result", frame.Type)
+			}
 			return handleResult(frame, opts.ClaimPath)
 		}
-		// 其余帧（心跳、事件、请求）在待定连接上没有意义，忽略。
+		// 其余帧（心跳、事件、请求、未来的新类型）在待定连接上没有意义，忽略。
 	}
 }
 
@@ -207,10 +231,16 @@ func NewPairKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
+// agentConnectPath 是节点拨号的固定后缀；子路径部署（反向代理挂在 /lework）
+// 需要保留它前面的前缀，浏览器才知道控制面装在哪里。
+const agentConnectPath = "/api/agent/connect"
+
 // Link 把 ws(s) 控制面地址转成浏览器可打开的配对链接。
 //
-// 浏览器只知道 http(s) 源，因此去掉 path/query 只保留 host，并用 url.Values
-// 做转义——短码与控制面地址都由外部输入，手拼字符串迟早会漏转义。
+// 浏览器只知道 http(s) 源。标准部署的 URL 以 /api/agent/connect 结尾，这时
+// 去掉该后缀、保留前缀（/lework/api/agent/connect → https://host/lework）；
+// 其他路径形状保持既有行为，只保留 host。query 一律丢弃，短码与控制面地址
+// 都由 url.Values 转义——它们是外部输入，手拼字符串迟早会漏转义。
 func Link(controlPlaneURL, code string) (string, error) {
 	endpoint, err := url.Parse(strings.TrimSpace(controlPlaneURL))
 	if err != nil {
@@ -230,8 +260,16 @@ func Link(controlPlaneURL, code string) (string, error) {
 		return "", errors.New("control plane url has no host")
 	}
 
+	prefix := ""
+	if strings.HasSuffix(endpoint.Path, agentConnectPath) {
+		prefix = strings.TrimSuffix(endpoint.Path, agentConnectPath)
+	}
+	if prefix == "/" {
+		prefix = ""
+	}
+
 	query := url.Values{}
-	query.Set("url", scheme+"://"+endpoint.Host)
+	query.Set("url", scheme+"://"+endpoint.Host+prefix)
 	query.Set("code", code)
 	return "lework://node/pair?" + query.Encode(), nil
 }
@@ -268,7 +306,9 @@ func ReadClaim(path string) (Claim, bool, error) {
 	if err := json.Unmarshal(data, &claim); err != nil {
 		return Claim{}, false, fmt.Errorf("parse node claim %s: %w", path, err)
 	}
-	if time.Now().After(claim.ExpiresAt) {
+	// 旧控制面不发 expires_at 时零值表示「未知」，不能当成 0001 年就已过期：
+	// 那会让每一张新码都显示过期、claim 命令永远不可用。
+	if !claim.ExpiresAt.IsZero() && time.Now().After(claim.ExpiresAt) {
 		return claim, false, nil
 	}
 	return claim, true, nil
@@ -350,7 +390,9 @@ func handlePending(frame protocol.Frame, opts Options, pairKey string) error {
 			ExpiresAt:       payload.ExpiresAt,
 		}
 		if err := writeClaim(claimPath, claim); err != nil {
-			return err
+			// 同时保留哨兵与底层错误：调用方要据此判定致命退出，运维要知道
+			// 是哪个目录/权限出了问题。
+			return fmt.Errorf("agentd: pair: %w: %w", ErrClaimWrite, err)
 		}
 	}
 
@@ -385,12 +427,12 @@ func handleResult(frame protocol.Frame, claimPath string) (string, error) {
 func writeClaim(path string, claim Claim) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("agentd: pair: create claim directory %s: %w", dir, err)
+		return fmt.Errorf("create claim directory %s: %w", dir, err)
 	}
 
 	tmp, err := os.CreateTemp(dir, ".node.claim-*")
 	if err != nil {
-		return fmt.Errorf("agentd: pair: create claim temp file in %s: %w", dir, err)
+		return fmt.Errorf("create claim temp file in %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
 	cleanup := func(err error) error {
@@ -400,24 +442,30 @@ func writeClaim(path string, claim Claim) error {
 	}
 
 	if err := tmp.Chmod(0o600); err != nil {
-		return cleanup(fmt.Errorf("agentd: pair: chmod claim temp file: %w", err))
+		return cleanup(fmt.Errorf("chmod claim temp file: %w", err))
 	}
 	raw, err := json.Marshal(claim)
 	if err != nil {
-		return cleanup(fmt.Errorf("agentd: pair: encode claim: %w", err))
+		return cleanup(fmt.Errorf("encode claim: %w", err))
 	}
 	if _, err := tmp.Write(append(raw, '\n')); err != nil {
-		return cleanup(fmt.Errorf("agentd: pair: write claim temp file: %w", err))
+		return cleanup(fmt.Errorf("write claim temp file: %w", err))
 	}
 	if err := tmp.Sync(); err != nil {
-		return cleanup(fmt.Errorf("agentd: pair: sync claim temp file: %w", err))
+		return cleanup(fmt.Errorf("sync claim temp file: %w", err))
 	}
 	if err := tmp.Close(); err != nil {
-		return cleanup(fmt.Errorf("agentd: pair: close claim temp file: %w", err))
+		return cleanup(fmt.Errorf("close claim temp file: %w", err))
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
-		return fmt.Errorf("agentd: pair: replace node claim %s: %w", path, err)
+		return fmt.Errorf("replace node claim %s: %w", path, err)
+	}
+	// 与 credential.Save 对称：掉电时 rename 可能还没落盘，目录 fsync 是
+	// best-effort，失败不改变保存结果（部分平台不支持）。
+	if dirHandle, err := os.Open(dir); err == nil {
+		_ = dirHandle.Sync()
+		_ = dirHandle.Close()
 	}
 	return nil
 }
