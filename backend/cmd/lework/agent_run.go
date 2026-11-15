@@ -225,10 +225,11 @@ func resolveAgentCredentialPath(configPath, flagPath string) string {
 // reconnect dials the control plane, runs one connection, and retries with
 // exponential backoff until ctx is canceled. A nil error means a clean shutdown.
 //
-// 每轮都重新读取凭证文件：welcome 可能在上一轮刚把新凭证落盘，下一轮拨号就
-// 必须改用它，否则旧令牌路径会一直生效到进程退出。
+// 配对计划只在进入循环前计算一次：`--code` 成功落盘后，下一轮保存下来的凭证
+// 必须按「已有凭证」正常拨号，不能被同一份 `--code` 再次判成冲突。循环内仍然
+// 每轮重新读凭证，只用于决定拨号用哪个 Bearer（凭证优先，token 兜底）。
 //
-// 没有任何凭证时的顺序（设计 §7）：显式 `--code` 先跑一次账号出码配对；否则
+// 没有凭证时的策略顺序（设计 §7）：显式 `--code` 先跑一次账号出码配对；否则
 // 有 enrollment token 就沿用旧直通；两者都没有才进入终端扫码配对。旧部署只要
 // 配了 enrollment_token，行为与引入配对之前完全一致。
 func reconnect(
@@ -238,6 +239,15 @@ func reconnect(
 	requestHandler *handler.Handler,
 	opts agentConnectOptions,
 ) error {
+	_, source, hasCredential, err := findCredential(cfg.CredentialFile)
+	if err != nil {
+		return fmt.Errorf("lework-agent: 读取节点凭证 %s 失败：%w", cfg.CredentialFile, err)
+	}
+	plan, err := planPairing(hasCredential, source, cfg.CredentialFile, opts.Code, cfg.EnrollmentToken)
+	if err != nil {
+		return err
+	}
+
 	backoff := initialBackoff
 
 	for {
@@ -247,7 +257,7 @@ func reconnect(
 
 		// 凭证读取错误必须显式失败，不能降级成 enrollment token：那等于把节点
 		// 从凭证模式静默切成 admin 直通。这里不拨号，只退避后重试读取。
-		nodeCredential, source, hasCredential, err := findCredential(cfg.CredentialFile)
+		nodeCredential, _, roundHasCredential, err := findCredential(cfg.CredentialFile)
 		if err != nil {
 			logs.Errorf("lework-agent: 读取节点凭证 %s 失败：%s（不会回落到 enrollment token；修复文件路径/权限后重启 agent）",
 				cfg.CredentialFile, redact(err, cfg.EnrollmentToken))
@@ -258,34 +268,34 @@ func reconnect(
 			continue
 		}
 
-		// 已有凭证时 --code 必须显式失败：静默忽略会让用户按 401 提示重新配对，
-		// 却永远卡在旧凭证上。错误里点名来源，用户才知道该清理哪一个。
-		mode, modeErr := pairingModeFor(opts.Code, hasCredential, source, cfg.CredentialFile, cfg.EnrollmentToken)
-		if modeErr != nil {
-			return modeErr
+		// 本轮已有凭证（刚配对落盘或别的进程写入）时，一次性配对计划必须收敛：
+		// 否则凭证日后丢失会拿一张已消费的 --code 再试。
+		if roundHasCredential {
+			plan = pairPlanCredentialOnly
 		}
 
-		switch mode {
-		case pairingModeCode:
+		switch decidePairing(plan, roundHasCredential) {
+		case pairingDecisionCode:
 			// --code 的码一次性、机器不在你面前：失败就退出，不能悄悄回落到
 			// 二维码（扫不到也重印不了）。
-			raw, pairErr := pairWithCode(ctx, cfg, opts)
-			if pairErr != nil {
+			if _, pairErr := pairWithCode(ctx, cfg, opts); pairErr != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
 				return pairErr
 			}
-			nodeCredential, hasCredential = raw, true
-		case pairingModeInteractive:
-			raw, pairErr := pairInteractive(ctx, cfg, opts)
-			if pairErr != nil {
+			plan = pairPlanCredentialOnly
+			// 重新读一次刚落盘的凭证再拨号，确保 Bearer 与文件一致。
+			continue
+		case pairingDecisionInteractive:
+			if _, pairErr := pairInteractive(ctx, cfg, opts); pairErr != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
 				return pairErr
 			}
-			nodeCredential, hasCredential = raw, true
+			plan = pairPlanCredentialOnly
+			continue
 		}
 
 		conn, err := transport.Dial(ctx, transport.DialConfig{
@@ -297,7 +307,7 @@ func reconnect(
 			if ctx.Err() != nil {
 				return nil
 			}
-			if hasCredential && credentialRejected(err) {
+			if roundHasCredential && credentialRejected(err) {
 				// 不删除凭证、不回落旧令牌、不自动转配对：自动清凭证重配对会让
 				// 一台机器静默换到别人的账号下。提示之后继续退避重试；带上底层
 				// 状态行（401 Unauthorized）便于确认是凭证被拒而不是网络问题。
@@ -377,15 +387,17 @@ const (
 
 // conflictError 把「已有凭证又要 --code」翻译成可执行的错误。
 //
-// 文件场景给出路径、env 场景给出变量名：只说「已有凭证」用户不知道去哪删。
+// 文件场景给出路径、env 场景给出变量名，并附带清理动作：只说「已有凭证」
+// 用户不知道去哪删。env 分支永远不打印变量的值。
 func (s credentialSource) conflictError(path string) error {
 	switch s {
 	case credentialSourceFile:
-		return fmt.Errorf("--code given but a node credential already exists at %s", path)
+		return fmt.Errorf("--code given but a node credential already exists at %s; delete %s or unset %s and retry",
+			path, path, nodeCredentialEnv)
 	case credentialSourceEnv:
-		return fmt.Errorf("--code given but %s is set", nodeCredentialEnv)
+		return fmt.Errorf("--code given but %s is set; unset %s and retry", nodeCredentialEnv, nodeCredentialEnv)
 	default:
-		return errors.New("--code given but a node credential already exists")
+		return fmt.Errorf("--code given but a node credential already exists; delete it or unset %s and retry", nodeCredentialEnv)
 	}
 }
 
@@ -408,38 +420,67 @@ func findCredential(path string) (raw string, source credentialSource, found boo
 	return "", "", false, nil
 }
 
-// pairingMode 是 reconnect 在拿到（或没拿到）凭证后该走的路径。
-type pairingMode int
+// pairPlan 是进程启动时确定的一次性配对策略。它必须在进入 reconnect 循环前
+// 计算一次：--code 配对成功后保存的凭证，下一轮不能再被同一份 --code 判成
+// 「已有凭证」冲突。
+type pairPlan int
 
 const (
-	// pairingModeUseCredential 用已找到的凭证直接拨号。
-	pairingModeUseCredential pairingMode = iota
-	// pairingModeEnrollmentToken 没有凭证但有旧令牌，沿用 admin 直通。
-	pairingModeEnrollmentToken
-	// pairingModeCode 没有凭证且给了 --code，用一次性短码配对。
-	pairingModeCode
-	// pairingModeInteractive 既无凭证也无令牌，进入终端扫码配对。
-	pairingModeInteractive
+	// pairPlanCredentialOnly 只用已找到的凭证/令牌拨号，永不配对。
+	pairPlanCredentialOnly pairPlan = iota
+	// pairPlanCode 首次拨号前用 --code 配对一次，成功后转为 CredentialOnly。
+	pairPlanCode
+	// pairPlanLegacy 没有凭证但有 enrollment token，沿用 admin 直通。
+	pairPlanLegacy
+	// pairPlanInteractive 没有凭证也没有令牌，进入终端扫码配对。
+	pairPlanInteractive
 )
 
-// pairingModeFor 把「凭证来源 + --code + enrollment token」映射成一个动作。
+// planPairing 把启动时的「凭证来源 + --code + enrollment token」映射成策略。
 //
 // 纯函数：这是用户最容易踩的优先级，测试要能逐条覆盖而不用真的拨号。
 // 已有凭证时 --code 是错误而不是覆盖：静默覆盖会让一台机器悄悄换账号。
-func pairingModeFor(code string, hasCredential bool, source credentialSource, credentialPath, enrollmentToken string) (pairingMode, error) {
+func planPairing(hasCredential bool, source credentialSource, credentialPath, code, enrollmentToken string) (pairPlan, error) {
 	if hasCredential {
 		if strings.TrimSpace(code) != "" {
-			return pairingModeUseCredential, fmt.Errorf("lework-agent: %w", source.conflictError(credentialPath))
+			return pairPlanCredentialOnly, fmt.Errorf("lework-agent: %w", source.conflictError(credentialPath))
 		}
-		return pairingModeUseCredential, nil
+		return pairPlanCredentialOnly, nil
 	}
 	if strings.TrimSpace(code) != "" {
-		return pairingModeCode, nil
+		return pairPlanCode, nil
 	}
 	if strings.TrimSpace(enrollmentToken) != "" {
-		return pairingModeEnrollmentToken, nil
+		return pairPlanLegacy, nil
 	}
-	return pairingModeInteractive, nil
+	return pairPlanInteractive, nil
+}
+
+// pairingDecision 是当前轮在拨号前要做的事。
+type pairingDecision int
+
+const (
+	pairingDecisionDial pairingDecision = iota
+	pairingDecisionCode
+	pairingDecisionInteractive
+)
+
+// decidePairing 把启动计划与「本轮是否已有凭证」映射成当前动作。
+//
+// 纯函数：--code 成功后本轮已落盘凭证，即使计划仍残留 Code 也必须改为拨号，
+// 这正是「配对成功后第二轮不再报冲突」的守卫。
+func decidePairing(plan pairPlan, hasCredential bool) pairingDecision {
+	if hasCredential {
+		return pairingDecisionDial
+	}
+	switch plan {
+	case pairPlanCode:
+		return pairingDecisionCode
+	case pairPlanInteractive:
+		return pairingDecisionInteractive
+	default:
+		return pairingDecisionDial
+	}
 }
 
 // dialPairConnection 建立一条待定连接：Pair 头只是这条连接的标识，不是凭证。
@@ -487,6 +528,9 @@ func pairWithCode(ctx context.Context, cfg *agentdconfig.Config, opts agentConne
 	if err := credential.Save(cfg.CredentialFile, raw); err != nil {
 		return "", fmt.Errorf("lework-agent: 保存节点凭证到 %s 失败：%w", cfg.CredentialFile, err)
 	}
+	// --code 模式不写 claim 文件；清掉上次崩溃遗留的旧码，避免 `lework agent
+	// claim` 重印一张已经无效的配对信息。
+	removeClaimFile(pair.ClaimPath(cfg.CredentialFile), "", true)
 	logs.Infof("lework-agent: 使用 --code 配对成功，已保存节点凭证到 %s", cfg.CredentialFile)
 	return raw, nil
 }
@@ -509,9 +553,13 @@ type pairAttempt func(ctx context.Context, pairKey string) (string, error)
 // 已经作废的码。
 func pairInteractive(ctx context.Context, cfg *agentdconfig.Config, opts agentConnectOptions) (string, error) {
 	claimPath := pair.ClaimPath(cfg.CredentialFile)
-	defer removeClaimFile(claimPath)
+	// 记录最后一次尝试的 pair_key：只有文件仍属于本次尝试时才清理，避免误删
+	// 另一个共用同一路径的 agent 刚写的码。defer 读取变量本身而不是当时的值。
+	var lastPairKey string
+	defer func() { removeClaimFile(claimPath, lastPairKey, false) }()
 
 	raw, err := pairRetry(ctx, pair.NewPairKey, func(ctx context.Context, pairKey string) (string, error) {
+		lastPairKey = pairKey
 		return pairOnce(ctx, cfg, opts, pairKey, claimPath)
 	}, waitBackoff)
 	if err == nil {
@@ -606,13 +654,23 @@ func pairOnce(ctx context.Context, cfg *agentdconfig.Config, opts agentConnectOp
 	return raw, nil
 }
 
-// removeClaimFile 删除不再有效的 claim 文件。文件本来就不存在是正常情况
+// removeClaimFile 删除本次尝试写下的 claim 文件。文件本来就不存在是正常情况
 // （重复触发、上一轮已清理），其余删除失败只记警告：清理是 best-effort，
 // 不该让一次成功的配对因为删文件而变成失败。
-func removeClaimFile(path string) {
+//
+// 两个 agent 进程可能共用同一路径，因此先读 pair_key：只有文件仍属于本次尝试
+// 才删，避免误删对方刚写的码。claim 模式（--code）从不写 claim 文件，残留的
+// 必定是旧进程留下的；文件不可解析时无法判断归属，按「可清理」处理。
+func removeClaimFile(path, pairKey string, claimMode bool) {
 	if strings.TrimSpace(path) == "" {
 		return
 	}
+
+	claim, _, err := pair.ReadClaim(path)
+	if err == nil && !claimMode && claim.PairKey != pairKey {
+		return
+	}
+
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		logs.Warnf("lework-agent: 删除配对信息 %s 失败：%s", path, redact(err))
 	}

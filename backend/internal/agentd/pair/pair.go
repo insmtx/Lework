@@ -172,8 +172,8 @@ func Run(ctx context.Context, conn Conn, opts Options) (string, error) {
 	}
 
 	// 心跳与读循环共享这个上下文：心跳写失败时取消它，读循环立刻返回。
-	// 间隔在启动协程前读取一次，避免测试改写包级变量时与协程竞争。返回前等
-	// 心跳协程退出，把「调用方可以在 Run 之后 Close」写成显式契约。
+	// 间隔在心跳协程启动时读取一次，避免测试改写包级变量时与主协程竞争。返回前
+	// 等心跳协程退出，把「调用方可以在 Run 之后 Close」写成显式契约。
 	runCtx, cancelRun := context.WithCancel(ctx)
 	writeErrs := make(chan error, 1)
 	heartbeatDone := make(chan struct{})
@@ -314,7 +314,7 @@ func ReadClaim(path string) (Claim, bool, error) {
 	return claim, true, nil
 }
 
-// effectiveHeartbeatInterval 把零值/负值归一到 15 秒，供 Run 在启动协程前读取。
+// effectiveHeartbeatInterval 把零值/负值归一到 15 秒，供心跳协程启动时读取。
 func effectiveHeartbeatInterval() time.Duration {
 	if heartbeatInterval <= 0 {
 		return 15 * time.Second

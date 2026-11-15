@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -260,9 +259,9 @@ func TestFindCredential(t *testing.T) {
 	})
 }
 
-// TestPairingModeForPriority 固化 reconnect 的来源优先级：已有凭证永远优先，
-// 但 --code 与已有凭证同时出现时必须显式报错，不能静默丢弃 --code。
-func TestPairingModeForPriority(t *testing.T) {
+// TestPlanPairing 固化启动时的来源优先级：已有凭证永远优先，但 --code 与
+// 已有凭证同时出现时必须显式报错并给出清理动作，不能静默丢弃 --code。
+func TestPlanPairing(t *testing.T) {
 	const credentialPath = "/tmp/node.credential"
 	tests := []struct {
 		name            string
@@ -270,7 +269,7 @@ func TestPairingModeForPriority(t *testing.T) {
 		hasCredential   bool
 		source          credentialSource
 		enrollmentToken string
-		want            pairingMode
+		want            pairPlan
 		wantErr         string
 	}{
 		{
@@ -278,42 +277,43 @@ func TestPairingModeForPriority(t *testing.T) {
 			code:          "ABC12",
 			hasCredential: true,
 			source:        credentialSourceFile,
-			want:          pairingModeUseCredential,
-			wantErr:       "already exists at /tmp/node.credential",
+			want:          pairPlanCredentialOnly,
+			wantErr: "--code given but a node credential already exists at /tmp/node.credential; " +
+				"delete /tmp/node.credential or unset LEWORK_NODE_CREDENTIAL and retry",
 		},
 		{
 			name:          "code with env credential fails",
 			code:          "ABC12",
 			hasCredential: true,
 			source:        credentialSourceEnv,
-			want:          pairingModeUseCredential,
-			wantErr:       "LEWORK_NODE_CREDENTIAL is set",
+			want:          pairPlanCredentialOnly,
+			wantErr:       "--code given but LEWORK_NODE_CREDENTIAL is set; unset LEWORK_NODE_CREDENTIAL and retry",
 		},
 		{
-			name: "no credential with code claims",
+			name: "no credential with code pairs",
 			code: "ABC12",
-			want: pairingModeCode,
+			want: pairPlanCode,
 		},
 		{
 			name:          "credential without code is used",
 			hasCredential: true,
 			source:        credentialSourceFile,
-			want:          pairingModeUseCredential,
+			want:          pairPlanCredentialOnly,
 		},
 		{
 			name:            "enrollment token fallback",
 			enrollmentToken: "enroll-token",
-			want:            pairingModeEnrollmentToken,
+			want:            pairPlanLegacy,
 		},
 		{
 			name: "otherwise interactive",
-			want: pairingModeInteractive,
+			want: pairPlanInteractive,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mode, err := pairingModeFor(tt.code, tt.hasCredential, tt.source, credentialPath, tt.enrollmentToken)
+			plan, err := planPairing(tt.hasCredential, tt.source, credentialPath, tt.code, tt.enrollmentToken)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want %q", err, tt.wantErr)
@@ -321,12 +321,55 @@ func TestPairingModeForPriority(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("pairingModeFor: %v", err)
+				t.Fatalf("planPairing: %v", err)
 			}
-			if mode != tt.want {
-				t.Fatalf("mode = %v, want %v", mode, tt.want)
+			if plan != tt.want {
+				t.Fatalf("plan = %v, want %v", plan, tt.want)
 			}
 		})
+	}
+}
+
+// TestCodePlanConvergesAfterPairing 是回归守卫：--code 成功后本次保存的凭证
+// 不能被下一轮重新计算的「已有凭证 + --code」判成冲突。计划只在启动时算一次，
+// 成功配对后收敛为 CredentialOnly；decidePairing 在已有凭证时也必须直接拨号。
+func TestCodePlanConvergesAfterPairing(t *testing.T) {
+	const (
+		credentialPath = "/tmp/node.credential"
+		code           = "ABC12"
+	)
+
+	plan, err := planPairing(false, "", credentialPath, code, "")
+	if err != nil || plan != pairPlanCode {
+		t.Fatalf("startup plan = %v, %v; want pairPlanCode", plan, err)
+	}
+
+	// 第一轮没有凭证：走 --code 配对。
+	if decision := decidePairing(plan, false); decision != pairingDecisionCode {
+		t.Fatalf("first round decision = %v, want pairingDecisionCode", decision)
+	}
+
+	// 配对成功、凭证落盘；计划收敛，不再用同一份 --code 重算。
+	plan = pairPlanCredentialOnly
+	if decision := decidePairing(plan, true); decision != pairingDecisionDial {
+		t.Fatalf("second round decision = %v, want pairingDecisionDial", decision)
+	}
+
+	// 对照：若错误地在第二轮重算 planPairing，会撞上冲突——这正是本次回归。
+	if _, err := planPairing(true, credentialSourceFile, credentialPath, code, ""); err == nil {
+		t.Fatal("recomputing the plan with the consumed --code should conflict")
+	}
+}
+
+// TestDecidePairingNeverPairsCredentialOnly 固化 CredentialOnly / Legacy 永不配对。
+func TestDecidePairingNeverPairsCredentialOnly(t *testing.T) {
+	for _, plan := range []pairPlan{pairPlanCredentialOnly, pairPlanLegacy} {
+		if decision := decidePairing(plan, false); decision != pairingDecisionDial {
+			t.Fatalf("plan %v decision = %v, want dial", plan, decision)
+		}
+	}
+	if decision := decidePairing(pairPlanInteractive, false); decision != pairingDecisionInteractive {
+		t.Fatalf("interactive decision = %v", decision)
 	}
 }
 
@@ -422,18 +465,78 @@ func TestPrintPendingPairSuppressesSecretsOffTTY(t *testing.T) {
 	}
 }
 
-func TestRemoveClaimFile(t *testing.T) {
+func TestRemoveClaimFileOwnership(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "node.claim")
-	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
-		t.Fatalf("write claim: %v", err)
+	write := func(claim pair.Claim) {
+		t.Helper()
+		writeClaimForTest(t, path, claim)
 	}
-	removeClaimFile(path)
-	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("claim file still present: %v", err)
+	exists := func() bool {
+		_, err := os.Stat(path)
+		return err == nil
 	}
-	// 已不存在是正常情况，空路径也不该 panic。
-	removeClaimFile(path)
-	removeClaimFile("")
+
+	// 不同 pair_key：文件属于另一个进程，保留。
+	write(pair.Claim{PairKey: "other-key", Code: "ZZ999"})
+	removeClaimFile(path, "my-key", false)
+	if !exists() {
+		t.Fatal("removeClaimFile deleted another process's claim")
+	}
+
+	// 相同 pair_key：删除。
+	write(pair.Claim{PairKey: "my-key", Code: "AB234"})
+	removeClaimFile(path, "my-key", false)
+	if exists() {
+		t.Fatal("removeClaimFile kept our own claim")
+	}
+
+	// claim 模式从不写 claim 文件；残留的必须清掉。
+	write(pair.Claim{PairKey: "other-key", Code: "ZZ999"})
+	removeClaimFile(path, "", true)
+	if exists() {
+		t.Fatal("claim mode kept a stale claim file")
+	}
+
+	// 不可解析：无法判断归属，按可清理处理。
+	if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
+		t.Fatalf("write corrupt claim: %v", err)
+	}
+	removeClaimFile(path, "my-key", false)
+	if exists() {
+		t.Fatal("removeClaimFile kept an unparsable claim")
+	}
+
+	// 已不存在、空路径都不该 panic。
+	removeClaimFile(path, "my-key", false)
+	removeClaimFile("", "my-key", false)
+}
+
+func TestClaimWithoutExpiryOmitsExpiresLine(t *testing.T) {
+	dir := t.TempDir()
+	credentialPath := filepath.Join(dir, "node.credential")
+	writeClaimForTest(t, pair.ClaimPath(credentialPath), pair.Claim{
+		Link:      "lework://node/pair?code=NEW42",
+		PairKey:   "pair-key",
+		Code:      "NEW42",
+		ExpiresAt: time.Time{},
+	})
+
+	cmd := newAgentCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"claim", "--credential-file", credentialPath, "--config", filepath.Join(dir, "agent.yaml")})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "Code: NEW42") {
+		t.Fatalf("claim output = %q, want the code", text)
+	}
+	// 零值表示旧控制面没发 expires_at，不能打印 0001 年。
+	if strings.Contains(text, "Expires at") || strings.Contains(text, "0001-") {
+		t.Fatalf("claim printed an unknown expiry: %q", text)
+	}
 }
 
 func writeClaimForTest(t *testing.T, path string, claim pair.Claim) {

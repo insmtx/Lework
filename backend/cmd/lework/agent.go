@@ -135,7 +135,10 @@ func runAgentClaim(out io.Writer, configPath, credentialPath string, noQR bool) 
 		fmt.Fprintf(out, "Link: %s\n", claim.Link)
 	}
 	fmt.Fprintf(out, "Code: %s\n", claim.Code)
-	fmt.Fprintf(out, "Expires at: %s\n", claim.ExpiresAt.Local().Format(time.RFC3339))
+	// 旧控制面不发 expires_at 时零值表示「未知」，不能打印 0001 年这种荒谬时间。
+	if !claim.ExpiresAt.IsZero() {
+		fmt.Fprintf(out, "Expires at: %s\n", claim.ExpiresAt.Local().Format(time.RFC3339))
+	}
 	return nil
 }
 
