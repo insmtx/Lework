@@ -326,3 +326,30 @@ func containsEnv(env []string, want string) bool {
 	}
 	return false
 }
+
+func TestRootRegistersOpenCodeCommand(t *testing.T) {
+	root := newRootCommand()
+	cmd, _, err := root.Find([]string{"opencode"})
+	if err != nil {
+		t.Fatalf("find opencode command: %v", err)
+	}
+	if cmd == nil || cmd.Name() != "opencode" {
+		t.Fatalf("opencode command = %v, want the registered subcommand", cmd)
+	}
+	if cmd.Flags().Lookup("config") != nil {
+		t.Fatal("legacy --config flag was added to lework opencode")
+	}
+	if !isStandaloneCommand(cmd) {
+		t.Fatal("lework opencode must skip the legacy CLI config setup")
+	}
+}
+
+func TestRootHelpMentionsOpenCode(t *testing.T) {
+	output, err := executeRootCommand("--help")
+	if err != nil {
+		t.Fatalf("root help error = %v", err)
+	}
+	if !strings.Contains(output, "opencode") {
+		t.Fatalf("root help does not mention opencode:\n%s", output)
+	}
+}
