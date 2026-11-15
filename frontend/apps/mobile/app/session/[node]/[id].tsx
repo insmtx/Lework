@@ -21,7 +21,8 @@ import { MessageRow } from "../../../src/session/message-row";
 import { filterVisibleMessages } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
 import { runSend } from "../../../src/session/send-flow";
-import { statusColor, statusLabel, statusTone } from "../../../src/session/status";
+import { statusColor, statusTone } from "../../../src/session/status";
+import { SessionStatusIcon } from "../../../src/session/status-icon";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
@@ -401,21 +402,15 @@ export default function SessionScreen() {
 			<ScreenTopBar
 				title={title}
 				onTitlePress={() => setSwitcherOpen(true)}
+				status={
+					<SessionStatusIcon state={shownStatus} color={statusColor(theme, tone)} size={15} />
+				}
 				extra={
 					<Pressable style={styles.stopButton} onPress={() => void stop()}>
 						<Text style={styles.stopText}>停止</Text>
 					</Pressable>
 				}
 			/>
-
-			{shownStatus ? (
-				<View style={styles.statusBar}>
-					<View style={[styles.statusDot, { backgroundColor: statusColor(theme, tone) }]} />
-					<Text style={[styles.statusText, { color: statusColor(theme, tone) }]}>
-						{statusLabel(shownStatus)}
-					</Text>
-				</View>
-			) : null}
 
 			{error ? (
 				<Text style={[styles.error, contentTextStyle(fontScale, 13, 18)]}>{error}</Text>
@@ -534,15 +529,6 @@ function createStyles(theme: Theme) {
 		error: { color: colors.danger, paddingHorizontal: 16, paddingTop: 8 },
 		stopButton: { paddingHorizontal: 6, paddingVertical: 6 },
 		stopText: { fontSize: 13, color: colors.textSecondary },
-		statusBar: {
-			flexDirection: "row",
-			alignItems: "center",
-			gap: 6,
-			paddingHorizontal: 16,
-			paddingTop: 6,
-		},
-		statusDot: { width: 6, height: 6, borderRadius: 3 },
-		statusText: { fontSize: 12 },
 		messagesWrap: { flex: 1 },
 		messages: { flex: 1 },
 		messagesContent: { flexGrow: 1, justifyContent: "flex-end", padding: 16, gap: 12 },
