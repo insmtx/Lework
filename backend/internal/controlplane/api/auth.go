@@ -308,6 +308,69 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, body)
 }
 
+// passwordRequest 是 POST /api/auth/password 的请求体。
+type passwordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// handleChangePassword 校验旧密码后覆盖密码，并吊销其他设备的会话。
+//
+// 默认管理员密码是刻意的开箱配置；没有改密码路径，公网部署就等于人人管理员。
+// 这里不要求邮箱：改的是「当前会话所属账号」，要求邮箱只会让攻击者多一个
+// 枚举入口。
+func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+
+	principal, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	if principal.Kind != authz.KindUser || principal.UserID == "" {
+		writeAPIError(w, http.StatusForbidden, "user_required", "password change requires an account")
+		return
+	}
+
+	var req passwordRequest
+	if err := decodeRequest(w, r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request")
+		return
+	}
+	if len(req.NewPassword) < minPasswordLength {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request")
+		return
+	}
+
+	user, found, err := a.store.UserByID(r.Context(), principal.UserID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	if !found {
+		writeAPIError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	if !authn.VerifyPassword(user.PasswordHash, req.CurrentPassword) {
+		writeInvalidCredentials(w)
+		return
+	}
+
+	hash, err := authn.HashPassword(req.NewPassword)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	if err := a.store.UpdateUserPassword(r.Context(), user.ID, hash); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	if err := a.store.DeleteOtherUserSessions(r.Context(), user.ID, principal.SessionID); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleLogout 吊销当前会话并清掉浏览器 cookie。
 //
 // 同时注册为 POST /api/auth/logout（任务书与前端使用）与

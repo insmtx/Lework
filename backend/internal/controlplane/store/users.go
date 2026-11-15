@@ -10,10 +10,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrUserNotFound 表示账号不存在（被删除，或引用了已清理的 ID）。
+var ErrUserNotFound = errors.New("user not found")
+
 // CountUsers 返回账号总数。
 //
-// 登录页需要判断「这是不是一台刚部署的控制面」：为 0 时才允许用 enrollment
-// token 初始化第一个管理员，否则任何人都能凭令牌再造一个 admin。
+// 登录页需要判断「这是不是一台刚部署的控制面」：为 0 时展示初始化提示，
+// 自动引导也用它决定是否创建默认管理员。
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
 	if err := s.db.WithContext(ctx).Model(&User{}).Count(&n).Error; err != nil {
@@ -186,6 +189,44 @@ func (s *Store) TouchSession(ctx context.Context, sessionID string, expiresAt, l
 	}
 	if res.RowsAffected == 0 {
 		return fmt.Errorf("touch session %q: %w", sessionID, errSessionNotFound)
+	}
+	return nil
+}
+
+// UpdateUserPassword 覆盖账号的密码哈希。
+//
+// 只改哈希列：会话吊销是调用方的决定（改密码要踢掉其他设备，但当前设备
+// 应当继续可用），存储层不该替它做全量删除。
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(passwordHash) == "" {
+		return errors.New("user id and password hash are required")
+	}
+	res := s.db.WithContext(ctx).Model(&User{}).
+		Where("id = ?", userID).
+		UpdateColumns(map[string]any{"password_hash": passwordHash, "updated_at": time.Now().UTC()})
+	if res.Error != nil {
+		return fmt.Errorf("update password for user %q: %w", userID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// DeleteOtherUserSessions 吊销某账号除 keepSessionID 之外的全部会话。
+//
+// keepSessionID 为空表示「全部吊销」：本机回环身份没有会话行，改密后的
+// 清理语义与「踢掉其他设备」一致。
+func (s *Store) DeleteOtherUserSessions(ctx context.Context, userID, keepSessionID string) error {
+	if strings.TrimSpace(userID) == "" {
+		return errors.New("session user id is required")
+	}
+	query := s.db.WithContext(ctx).Where("user_id = ?", userID)
+	if strings.TrimSpace(keepSessionID) != "" {
+		query = query.Where("id <> ?", keepSessionID)
+	}
+	if err := query.Delete(&UserSession{}).Error; err != nil {
+		return fmt.Errorf("delete other sessions for user %q: %w", userID, err)
 	}
 	return nil
 }

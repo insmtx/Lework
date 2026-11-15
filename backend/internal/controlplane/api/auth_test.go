@@ -579,3 +579,109 @@ func TestMeReturnsUserOrKind(t *testing.T) {
 		requireErrorCode(t, rec, http.StatusUnauthorized, "unauthorized")
 	})
 }
+
+// sessionTokenFrom 取响应里的会话 cookie 值：手机端把同一个值当 Bearer 用。
+func sessionTokenFrom(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+
+	cookie := sessionCookieFrom(t, rec)
+	if cookie == nil {
+		t.Fatal("response must set a session cookie")
+	}
+	return cookie.Value
+}
+
+// loginSession 用密码换一条新会话（模拟另一台设备）。
+func loginSession(t *testing.T, env *testEnv, email, password string) string {
+	t.Helper()
+
+	body := fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
+	rec := env.do(http.MethodPost, "/api/auth/login", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login %q: status = %d; body=%s", email, rec.Code, rec.Body.String())
+	}
+	return sessionTokenFrom(t, rec)
+}
+
+// userForToken 用会话令牌解析出真实 principal，供 doAs 注入。
+//
+// 不走 env.do 是因为 withDefaultPrincipal 会把无身份请求补成本机管理员，
+// 那样改密码永远不会拿到 401。
+func userForToken(t *testing.T, env *testEnv, token string) authz.Principal {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	principal, ok, err := env.resolver.Resolve(req)
+	if err != nil || !ok || principal.Kind != authz.KindUser {
+		t.Fatalf("resolve token: principal=%+v ok=%v err=%v", principal, ok, err)
+	}
+	return principal
+}
+
+// createUserWithPassword 直接落一个可登录账号，跳过注册限流。
+func createUserWithPassword(t *testing.T, env *testEnv, email, password string) store.User {
+	t.Helper()
+
+	hash, err := authn.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	user, err := env.store.CreateUser(context.Background(), store.User{
+		Email: email, PasswordHash: hash, Role: "user", Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("create user %q: %v", email, err)
+	}
+	return user
+}
+
+func TestChangePasswordRequiresCurrentPassword(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	createUserWithPassword(t, env, "a@example.com", "password123")
+	token := loginSession(t, env, "a@example.com", "password123")
+
+	rec := env.doAs(userForToken(t, env, token), http.MethodPost, "/api/auth/password",
+		`{"current_password":"wrong-password","new_password":"newpassword1"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestChangePasswordRotatesAndKeepsCurrentSession(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	createUserWithPassword(t, env, "a@example.com", "password123")
+	tokenA := loginSession(t, env, "a@example.com", "password123")
+	tokenB := loginSession(t, env, "a@example.com", "password123") // 第二台设备
+
+	rec := env.doAs(userForToken(t, env, tokenA), http.MethodPost, "/api/auth/password",
+		`{"current_password":"password123","new_password":"newpassword1"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 当前会话保留，其他会话被吊销：直接看会话表，比再打一次接口更接近事实。
+	if _, ok, err := env.store.SessionByTokenHash(context.Background(), authn.HashToken(tokenA)); err != nil || !ok {
+		t.Fatalf("current session survived: ok=%v err=%v", ok, err)
+	}
+	if _, ok, _ := env.store.SessionByTokenHash(context.Background(), authn.HashToken(tokenB)); ok {
+		t.Fatal("other session must be revoked")
+	}
+	// 新密码可登录，旧密码失效。
+	if rec := env.do(http.MethodPost, "/api/auth/login", `{"email":"a@example.com","password":"newpassword1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("login with new password = %d, want 200", rec.Code)
+	}
+	if rec := env.do(http.MethodPost, "/api/auth/login", `{"email":"a@example.com","password":"password123"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("login with old password = %d, want 401", rec.Code)
+	}
+}
+
+func TestChangePasswordRejectsShortPassword(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	createUserWithPassword(t, env, "a@example.com", "password123")
+	token := loginSession(t, env, "a@example.com", "password123")
+	if rec := env.doAs(userForToken(t, env, token), http.MethodPost, "/api/auth/password",
+		`{"current_password":"password123","new_password":"short"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
