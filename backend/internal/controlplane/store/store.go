@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,6 +214,28 @@ type Store struct {
 	closed bool
 }
 
+// controlPlaneLogger 返回不在日志里插值 SQL 参数的 GORM logger。
+//
+// 认领短码与节点凭证都出现在 SQL 参数里：默认 logger 在慢查询（>200ms）与
+// 错误路径会把参数插值成完整语句，一次唯一约束冲突就足以把 5 位码写进日志
+// （设计 §13 明确禁止）。ParameterizedQueries 只改变日志格式，不影响执行结果
+// 与日志级别：生产环境（PostgreSQL）默认仍然静默，只有显式 debug 才输出语句。
+//
+// GORM v1.30 把这个开关放在 logger.Config 而不是 gorm.Config 上，因此这里
+// 重建一个与 logger.Default 参数相同的实例，只多打开参数化输出。
+func controlPlaneLogger(level logger.LogLevel) logger.Interface {
+	return logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  level,
+			IgnoreRecordNotFoundError: false,
+			ParameterizedQueries:      true,
+			Colorful:                  true,
+		},
+	)
+}
+
 // Open 打开 path 处的 SQLite 数据库并迁移节点表。
 // path 为 ":memory:" 时使用内存数据库，便于测试。
 func Open(path string) (*Store, error) {
@@ -233,7 +256,11 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 
-	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		// SQLite 只用于单测与本地临时启动，但慢查询/失败查询同样会打到 stdout，
+		// 认领短码不能因此进日志。
+		Logger: controlPlaneLogger(logger.Warn),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
 	}
@@ -268,10 +295,11 @@ func OpenPostgres(cfg appconfig.DatabaseConfig) (*Store, error) {
 	}
 
 	// 默认静默：GORM 的 Info 级日志会打印每条 SQL，生产环境噪声过大；
-	// 只有显式 cfg.Debug 时才打开，便于排查连接与迁移问题。
-	gormCfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
+	// 只有显式 cfg.Debug 时才打开，便于排查连接与迁移问题。两种级别都走
+	// 参数化输出，debug 打开时 SQL 里也不会出现认领短码或凭证。
+	gormCfg := &gorm.Config{Logger: controlPlaneLogger(logger.Silent)}
 	if cfg.Debug {
-		gormCfg.Logger = logger.Default.LogMode(logger.Info)
+		gormCfg.Logger = controlPlaneLogger(logger.Info)
 	}
 
 	database, err := gorm.Open(postgres.Open(cfg.URL), gormCfg)

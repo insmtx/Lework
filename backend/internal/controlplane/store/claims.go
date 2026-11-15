@@ -57,9 +57,15 @@ func normalizeClaimCode(code string) string {
 //   - claimed  → gateway 走幂等重投，重新下发凭证；
 //   - expired  → gateway 关连接，让 agent 换一个 pair_key 重新开始。
 //
-// 状态判断留给 gateway，存储层不对已有行做任何「修正」。码唯一性检查只作用于
-// 新建行：复用路径上即便候选码已被占用也不影响返回结果，否则重连会因为一个
-// 根本不会用到的码而失败。
+// 状态判断留给 gateway，存储层不对已有行做任何「修正」——唯一的例外是 TTL
+// 已到的 pending 行会按 expired 返回（见 ClaimByPairKey），因为从来没有人把
+// TTL 到期落库成 expired。
+//
+// 插入只有一条语句：冲突分支靠 RowsAffected 判定并回读已有行，不先查后写，
+// 所以「同时两个实例建同一条认领」也只会留下一行。码唯一性检查只针对真正
+// 会插入的新行（排除同一个 pair_key），复用路径因此不会因为候选码被占而失败；
+// 若 agent 重连时携带了一个已被别的认领占用的码，仍然会得到 ErrClaimCodeTaken，
+// 此时它应当重发第一次拿到的那个码。
 func (s *Store) CreateClaim(ctx context.Context, c NodeClaim) (NodeClaim, error) {
 	pairKey := strings.TrimSpace(c.PairKey)
 	if pairKey == "" {
@@ -80,6 +86,12 @@ func (s *Store) CreateClaim(ctx context.Context, c NodeClaim) (NodeClaim, error)
 	if c.Status == "" {
 		c.Status = ClaimStatusPending
 	}
+	// 状态是网关三态分派的唯一依据，落一个拼错的值进去会让认领永远卡住。
+	switch c.Status {
+	case ClaimStatusPending, ClaimStatusClaimed, ClaimStatusExpired:
+	default:
+		return NodeClaim{}, fmt.Errorf("unsupported claim status %q", c.Status)
+	}
 	if strings.TrimSpace(c.ID) == "" {
 		c.ID = uuid.NewString()
 	}
@@ -87,17 +99,7 @@ func (s *Store) CreateClaim(ctx context.Context, c NodeClaim) (NodeClaim, error)
 		c.CreatedAt = time.Now().UTC()
 	}
 
-	// 先按 pair_key 探一次已有行：冲突复用路径不能受码唯一性检查影响，
-	// 而下面的 ON CONFLICT 只能告诉我们「插没插进去」，说不出插入前是什么状态。
-	existing, ok, err := s.ClaimByPairKey(ctx, pairKey)
-	if err != nil {
-		return NodeClaim{}, err
-	}
-	if ok {
-		return existing, nil
-	}
-
-	taken, err := s.claimCodeInUse(ctx, code)
+	taken, err := s.claimCodeInUse(ctx, pairKey, code)
 	if err != nil {
 		return NodeClaim{}, err
 	}
@@ -114,7 +116,7 @@ func (s *Store) CreateClaim(ctx context.Context, c NodeClaim) (NodeClaim, error)
 		return NodeClaim{}, fmt.Errorf("create claim %q: %w", c.ID, res.Error)
 	}
 	if res.RowsAffected == 0 {
-		// 探查询与插入之间，另一个实例先插了同一 pair_key：以先落库的那行为准。
+		// 这个 pair_key 已经有一行：重连复用，原样返回先落库的那条。
 		existing, ok, err := s.ClaimByPairKey(ctx, pairKey)
 		if err != nil {
 			return NodeClaim{}, err
@@ -131,11 +133,15 @@ func (s *Store) CreateClaim(ctx context.Context, c NodeClaim) (NodeClaim, error)
 //
 // 只把 pending + 未过期算作占用：已认领的码已经作废，已过期的码即便还有人
 // 拿着它也认领不了任何东西，继续占用只会缩小 25 bit 的码空间。
-func (s *Store) claimCodeInUse(ctx context.Context, code string) (bool, error) {
+//
+// pairKey 用于排除「自己这条认领」：重连时 agent 会重发同一个码，若不排除，
+// 复用路径会被自己的行判成码冲突。
+func (s *Store) claimCodeInUse(ctx context.Context, pairKey, code string) (bool, error) {
 	var n int64
 	err := s.db.WithContext(ctx).
 		Model(&NodeClaim{}).
-		Where("code = ? AND status = ? AND expires_at > ?", code, ClaimStatusPending, time.Now().UTC()).
+		Where("code = ? AND status = ? AND expires_at > ? AND pair_key <> ?",
+			code, ClaimStatusPending, time.Now().UTC(), pairKey).
 		Count(&n).Error
 	if err != nil {
 		return false, fmt.Errorf("check claim code in use: %w", err)
@@ -172,11 +178,18 @@ func (s *Store) ClaimByCode(ctx context.Context, code string, now time.Time) (No
 	return rows[0], true, nil
 }
 
-// ClaimByPairKey 按 agent 的 pair_key 查认领记录，不看状态与过期时间。
+// ClaimByPairKey 按 agent 的 pair_key 查认领记录，返回调用方视角的状态。
 //
-// gateway 需要 claimed 行做幂等重投（认领成功但凭证还没落地时 agent 重连），
-// 也需要 expired 行来关连接，所以这里刻意不过滤状态；「能不能用」由调用方
-// 按 Status 判断。
+// gateway 按三态分派：pending 重发 pair.pending、claimed 走幂等重投（认领成功
+// 但凭证还没下发）、expired 关连接让 agent 换一个 pair_key。因此这里不能按状态
+// 过滤，也不能只在 SQL 里判断过期：
+//
+//   - TTL 已到的 pending 行按 expired 返回。库里没有任何路径会把「时间到了」
+//     落库成 expired（唯一写 expired 的是 BumpClaimAttempts 的尝试次数超限），
+//     若原样返回 pending，网关就会对着一条早该作废的认领永远重发同一个码。
+//     这只是返回值上的归一化，**不写库**，原始状态仍可在库里查到。
+//   - claimed 行无论是否过 TTL 都保持 claimed：认领成功、实例在发凭证前挂掉，
+//     agent 可能几分钟后才重连，幂等重投不能被 TTL 掐断。
 func (s *Store) ClaimByPairKey(ctx context.Context, pairKey string) (NodeClaim, bool, error) {
 	pairKey = strings.TrimSpace(pairKey)
 	if pairKey == "" {
@@ -194,7 +207,12 @@ func (s *Store) ClaimByPairKey(ctx context.Context, pairKey string) (NodeClaim, 
 	if len(rows) == 0 {
 		return NodeClaim{}, false, nil
 	}
-	return rows[0], true, nil
+
+	claim := rows[0]
+	if claim.Status == ClaimStatusPending && time.Now().UTC().After(claim.ExpiresAt) {
+		claim.Status = ClaimStatusExpired
+	}
+	return claim, true, nil
 }
 
 // ClaimClaimForUser 原子地把一条待定认领转给 userID，是纯状态迁移原语。
@@ -217,7 +235,7 @@ func (s *Store) ClaimClaimForUser(ctx context.Context, claimID, userID string) (
 	db := s.db.WithContext(ctx)
 	ok, err := claimClaimTx(db, claimID, userID, time.Now().UTC())
 	if err != nil {
-		return NodeClaim{}, false, err
+		return NodeClaim{}, false, fmt.Errorf("transition claim %q: %w", claimID, err)
 	}
 	if !ok {
 		return NodeClaim{}, false, nil
@@ -236,12 +254,15 @@ func (s *Store) ClaimClaimForUser(ctx context.Context, claimID, userID string) (
 // claimClaimTx 是 pending → claimed 的唯一实现，供 ClaimClaimForUser 与
 // BindClaimToUser 共用：两处若各写一份 WHERE 条件，迟早有一处漏掉过期判断，
 // 而那种洞只有并发认领时才会暴露。
+//
+// 错误原样返回，由调用方补上下文：事务里的调用方会在外层包上 bind，再包一次
+// claim id 就会得到「bind claim X: claim claim X: ...」这种没人读得下去的信息。
 func claimClaimTx(db *gorm.DB, claimID, userID string, now time.Time) (bool, error) {
 	res := db.Model(&NodeClaim{}).
 		Where("id = ? AND status = ? AND expires_at > ?", claimID, ClaimStatusPending, now).
 		UpdateColumns(NodeClaim{Status: ClaimStatusClaimed, ClaimedBy: userID})
 	if res.Error != nil {
-		return false, fmt.Errorf("claim claim %q: %w", claimID, res.Error)
+		return false, res.Error
 	}
 	return res.RowsAffected == 1, nil
 }
@@ -406,6 +427,10 @@ func freeNodeName(tx *gorm.DB, userID, base string) (string, error) {
 // 它存在是为了幂等重投——认领成功但实例在生成凭证前挂掉时，agent 用同一个
 // pair_key 重连，新实例补发凭证后再调一次这里。重复调用不报错。
 //
+// 幂等重投只认已经绑定的那个节点：node_id 为空时写入，已等于入参时视为成功，
+// 是别的节点则返回 ErrClaimTaken 且不改动。两个实例并发补发时，后到的实例
+// 可能刚建了自己的节点，静默改绑会让先落库的节点变成没人认领的孤儿。
+//
 // 只有 claimed 行可以标记：pending 行还没人认领，没有凭证可发（
 // ErrClaimNotClaimed）；行不存在说明配对已经被清理（ErrClaimNotFound）。
 func (s *Store) MarkClaimDelivered(ctx context.Context, claimID, nodeID string) error {
@@ -418,18 +443,24 @@ func (s *Store) MarkClaimDelivered(ctx context.Context, claimID, nodeID string) 
 
 	db := s.db.WithContext(ctx)
 	res := db.Model(&NodeClaim{}).
-		Where("id = ? AND status = ?", claimID, ClaimStatusClaimed).
+		Where("id = ? AND status = ? AND (node_id = '' OR node_id = ?)",
+			claimID, ClaimStatusClaimed, nodeID).
 		UpdateColumn("node_id", nodeID)
 	if res.Error != nil {
 		return fmt.Errorf("mark claim %q delivered: %w", claimID, res.Error)
 	}
 	if res.RowsAffected == 0 {
-		if _, found, err := claimByID(db, claimID); err != nil {
+		claim, found, err := claimByID(db, claimID)
+		if err != nil {
 			return err
-		} else if !found {
+		}
+		if !found {
 			return fmt.Errorf("mark claim %q delivered: %w", claimID, ErrClaimNotFound)
 		}
-		return fmt.Errorf("mark claim %q delivered: %w", claimID, ErrClaimNotClaimed)
+		if claim.Status != ClaimStatusClaimed {
+			return fmt.Errorf("mark claim %q delivered: %w", claimID, ErrClaimNotClaimed)
+		}
+		return fmt.Errorf("mark claim %q delivered: %w", claimID, ErrClaimTaken)
 	}
 	return nil
 }

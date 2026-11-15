@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -29,35 +30,82 @@ func newPendingClaim(t *testing.T, s *Store, pairKey, code string) NodeClaim {
 	return c
 }
 
+// mustClaimByID 读回一条认领记录并断言存在；测试里丢弃错误会让失败原因
+// 变成「零值断言不成立」，掩盖真正的故障。
+func mustClaimByID(t *testing.T, s *Store, id string) NodeClaim {
+	t.Helper()
+
+	claim, found, err := claimByID(s.db.WithContext(context.Background()), id)
+	if err != nil {
+		t.Fatalf("claimByID(%q): %v", id, err)
+	}
+	if !found {
+		t.Fatalf("claim %q disappeared", id)
+	}
+	return claim
+}
+
 func TestClaimClaimForUserIsAtomic(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	c, _ := s.CreateClaim(ctx, NodeClaim{PairKey: "pk", Code: "AB234", Status: "pending", ExpiresAt: time.Now().Add(time.Minute)})
 
-	got, ok1, _ := s.ClaimClaimForUser(ctx, c.ID, "u1")
-	ok2claim, ok2, _ := s.ClaimClaimForUser(ctx, c.ID, "u2")
+	c, err := s.CreateClaim(ctx, NodeClaim{
+		PairKey:   "pk",
+		Code:      "AB234",
+		Status:    ClaimStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("CreateClaim: %v", err)
+	}
+
+	got, ok1, err := s.ClaimClaimForUser(ctx, c.ID, "u1")
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	loser, ok2, err := s.ClaimClaimForUser(ctx, c.ID, "u2")
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
 	if !ok1 || ok2 {
 		t.Fatalf("ok1 = %v, ok2 = %v", ok1, ok2)
 	}
 	if got.Status != ClaimStatusClaimed || got.ClaimedBy != "u1" {
 		t.Fatalf("claimed row = %+v", got)
 	}
-	if ok2claim.Status != "" {
-		t.Fatalf("losing claim returned a row: %+v", ok2claim)
+	if loser.ID != "" {
+		t.Fatalf("losing claim returned a row: %+v", loser)
 	}
 }
 
 func TestBumpClaimAttemptsExpiresAfterMax(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	c, _ := s.CreateClaim(ctx, NodeClaim{PairKey: "pk2", Code: "CD345", Status: "pending", ExpiresAt: time.Now().Add(time.Minute)})
+
+	c, err := s.CreateClaim(ctx, NodeClaim{
+		PairKey:   "pk2",
+		Code:      "CD345",
+		Status:    ClaimStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("CreateClaim: %v", err)
+	}
 
 	for i := 0; i < 3; i++ {
-		if ok, _ := s.BumpClaimAttempts(ctx, c.ID, 3); !ok {
+		ok, err := s.BumpClaimAttempts(ctx, c.ID, 3)
+		if err != nil {
+			t.Fatalf("bump #%d: %v", i, err)
+		}
+		if !ok {
 			t.Fatalf("attempt %d rejected early", i)
 		}
 	}
-	if ok, _ := s.BumpClaimAttempts(ctx, c.ID, 3); ok {
+	ok, err := s.BumpClaimAttempts(ctx, c.ID, 3)
+	if err != nil {
+		t.Fatalf("over-limit bump: %v", err)
+	}
+	if ok {
 		t.Fatal("claim still usable after max attempts")
 	}
 
@@ -112,15 +160,42 @@ func TestCreateClaimDefaultsAndNormalizes(t *testing.T) {
 	}
 }
 
+// TestCreateClaimRejectsUnknownStatus 固化状态闭集：状态是网关三态分派的唯一
+// 依据，落一个拼错的值进去会让认领既不 pending 也不 claimed，永远卡住。
+func TestCreateClaimRejectsUnknownStatus(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	_, err := s.CreateClaim(ctx, NodeClaim{
+		PairKey:   "pk-bogus-status",
+		Code:      "AB234",
+		Status:    "bogus",
+		ExpiresAt: time.Now().UTC().Add(time.Minute),
+	})
+	if err == nil {
+		t.Fatal("CreateClaim accepted an unknown status")
+	}
+
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&NodeClaim{}).Count(&count).Error; err != nil {
+		t.Fatalf("count claims: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("claims row count = %d, want 0", count)
+	}
+}
+
 // TestCreateClaimReusesPairKeyRow 固化「重连拿到同一个码」：pair_key 是 agent
-// 生成的稳定标识，第二次建认领必须是同一行，而不是新建一条让终端上的码失效。
+// 生成的稳定标识，第二次建认领必须回读同一行（ON CONFLICT DO NOTHING 分支），
+// 而不是新建一条让终端上的码失效。
 func TestCreateClaimReusesPairKeyRow(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
 	first := newPendingClaim(t, s, "pk-reuse", "ab234")
 	second, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-reuse", Code: "ZZ999",
+		PairKey:   "pk-reuse",
+		Code:      "ZZ999",
 		ExpiresAt: time.Now().UTC().Add(time.Minute),
 	})
 	if err != nil {
@@ -144,14 +219,16 @@ func TestCreateClaimReusesPairKeyRow(t *testing.T) {
 		t.Fatalf("ClaimClaimForUser: %v", err)
 	}
 	again, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-reuse", Code: "ab234",
+		PairKey:   "pk-reuse",
+		Code:      "ab234",
 		ExpiresAt: time.Now().UTC().Add(time.Minute),
 	})
 	if err != nil {
 		t.Fatalf("CreateClaim on claimed pair key: %v", err)
 	}
 	if again.ID != first.ID || again.Status != ClaimStatusClaimed {
-		t.Fatalf("claimed reuse = {%q, %q}, want {%q, %q}", again.ID, again.Status, first.ID, ClaimStatusClaimed)
+		t.Fatalf("claimed reuse = {%q, %q}, want {%q, %q}",
+			again.ID, again.Status, first.ID, ClaimStatusClaimed)
 	}
 }
 
@@ -164,7 +241,8 @@ func TestCreateClaimRejectsCodeInUse(t *testing.T) {
 	newPendingClaim(t, s, "pk-a", "AB2CD")
 
 	_, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-b", Code: "ab2cd",
+		PairKey:   "pk-b",
+		Code:      "ab2cd",
 		ExpiresAt: time.Now().UTC().Add(time.Minute),
 	})
 	if !errors.Is(err, ErrClaimCodeTaken) {
@@ -176,13 +254,15 @@ func TestCreateClaimRejectsCodeInUse(t *testing.T) {
 
 	// 过期认领上的码可以重新使用：它已经不可能被人认领。
 	if _, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-old", Code: "ZZZZZ",
+		PairKey:   "pk-old",
+		Code:      "ZZZZZ",
 		ExpiresAt: time.Now().UTC().Add(-time.Minute),
 	}); err != nil {
 		t.Fatalf("CreateClaim(expired): %v", err)
 	}
 	if _, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-new", Code: "zzzzz",
+		PairKey:   "pk-new",
+		Code:      "zzzzz",
 		ExpiresAt: time.Now().UTC().Add(time.Minute),
 	}); err != nil {
 		t.Fatalf("code from an expired claim rejected: %v", err)
@@ -204,7 +284,8 @@ func TestClaimByCodeOnlyPendingAndUnexpired(t *testing.T) {
 	}
 
 	expired, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-expired", Code: "CD345",
+		PairKey:   "pk-expired",
+		Code:      "CD345",
 		ExpiresAt: now.Add(-time.Minute),
 	})
 	if err != nil {
@@ -230,8 +311,8 @@ func TestClaimByCodeOnlyPendingAndUnexpired(t *testing.T) {
 	}
 }
 
-// TestClaimByPairKeyIgnoresStatus 固化 gateway 的幂等重投路径：拿到已认领或
-// 已过期的行才能决定「重发凭证」还是「关连接」。这里不能按状态过滤。
+// TestClaimByPairKeyIgnoresStatus 固化 gateway 的幂等重投路径：拿到已认领的行
+// 才能决定「重发凭证」。这里不能按状态过滤，否则重连永远看不到 claimed 行。
 func TestClaimByPairKeyIgnoresStatus(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -248,26 +329,77 @@ func TestClaimByPairKeyIgnoresStatus(t *testing.T) {
 		t.Fatalf("status = %q, want %q", got.Status, ClaimStatusClaimed)
 	}
 
-	expired, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-expired", Code: "CD345",
-		ExpiresAt: time.Now().UTC().Add(-time.Minute),
-	})
-	if err != nil {
-		t.Fatalf("CreateClaim(expired): %v", err)
-	}
-	got, ok, err = s.ClaimByPairKey(ctx, "pk-expired")
-	if err != nil || !ok {
-		t.Fatalf("ClaimByPairKey(expired) = %v, %v", ok, err)
-	}
-	if got.ID != expired.ID || got.Status != ClaimStatusPending {
-		t.Fatalf("expired claim = {%q, %q}, want {%q, %q}", got.ID, got.Status, expired.ID, ClaimStatusPending)
-	}
-
 	if _, ok, err := s.ClaimByPairKey(ctx, "pk-missing"); err != nil || ok {
 		t.Fatalf("ClaimByPairKey(unknown) = %v, %v; want a miss", ok, err)
 	}
 	if _, ok, err := s.ClaimByPairKey(ctx, "  "); err != nil || ok {
 		t.Fatalf("ClaimByPairKey(blank) = %v, %v; want a miss", ok, err)
+	}
+}
+
+// TestClaimByPairKeyReportsTTLExpiry 固化三态分派的输入：TTL 到期的 pending 行
+// 必须在返回值里表现为 expired。否则 gateway 会对着一条早该作废的认领永远重发
+// 同一个码——库里没人把它改成 expired，唯一写 expired 的是尝试次数超限。
+func TestClaimByPairKeyReportsTTLExpiry(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c, err := s.CreateClaim(ctx, NodeClaim{
+		PairKey:   "pk-ttl",
+		Code:      "AB234",
+		ExpiresAt: time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("CreateClaim(expired): %v", err)
+	}
+
+	got, ok, err := s.ClaimByPairKey(ctx, "pk-ttl")
+	if err != nil || !ok {
+		t.Fatalf("ClaimByPairKey = %v, %v", ok, err)
+	}
+	if got.Status != ClaimStatusExpired {
+		t.Fatalf("status = %q, want %q", got.Status, ClaimStatusExpired)
+	}
+	if got.ID != c.ID || got.Code != c.Code {
+		t.Fatalf("TTL normalization changed the row: %+v", got)
+	}
+
+	// 只是「调用方视角的过期」，不落库改写：状态机仍然看到 pending，
+	// 清理任务与调试查询不会被内存里的展示值污染。
+	stored := mustClaimByID(t, s, c.ID)
+	if stored.Status != ClaimStatusPending {
+		t.Fatalf("stored status = %q, want %q", stored.Status, ClaimStatusPending)
+	}
+
+	if _, ok, err := s.ClaimByCode(ctx, c.Code, time.Now().UTC()); err != nil || ok {
+		t.Fatalf("ClaimByCode(expired) = %v, %v; want a miss", ok, err)
+	}
+}
+
+// TestClaimByPairKeyKeepsClaimedAfterTTL 认领成功后实例在发凭证前挂掉，
+// agent 可能几分钟后才重连：claimed 行即便过了 TTL 也必须保持 claimed，
+// 否则幂等重投会被 TTL 掐断，节点永远拿不到凭证。
+func TestClaimByPairKeyKeepsClaimedAfterTTL(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := newPendingClaim(t, s, "pk-claimed-ttl", "CD345")
+	if _, _, err := s.ClaimClaimForUser(ctx, c.ID, "u1"); err != nil {
+		t.Fatalf("ClaimClaimForUser: %v", err)
+	}
+	if err := s.db.WithContext(ctx).
+		Model(&NodeClaim{}).
+		Where("id = ?", c.ID).
+		UpdateColumn("expires_at", time.Now().UTC().Add(-time.Minute)).Error; err != nil {
+		t.Fatalf("age the claim: %v", err)
+	}
+
+	got, ok, err := s.ClaimByPairKey(ctx, "pk-claimed-ttl")
+	if err != nil || !ok {
+		t.Fatalf("ClaimByPairKey = %v, %v", ok, err)
+	}
+	if got.Status != ClaimStatusClaimed || got.ClaimedBy != "u1" {
+		t.Fatalf("status = %q, claimed_by = %q; want claimed/u1", got.Status, got.ClaimedBy)
 	}
 }
 
@@ -293,14 +425,15 @@ func TestBindClaimToUserCreatesNodeAndOwner(t *testing.T) {
 		t.Fatal("claimed_at not recorded")
 	}
 
-	if role, ok, _ := s.NodeRole(ctx, node.ID, "u1"); !ok || role != NodeRoleOwner {
+	role, ok, err := s.NodeRole(ctx, node.ID, "u1")
+	if err != nil {
+		t.Fatalf("NodeRole: %v", err)
+	}
+	if !ok || role != NodeRoleOwner {
 		t.Fatalf("role = %q, %v; want owner", role, ok)
 	}
 
-	got, ok, err := s.ClaimByPairKey(ctx, "pk-bind")
-	if err != nil || !ok {
-		t.Fatalf("ClaimByPairKey = %v, %v", ok, err)
-	}
+	got := mustClaimByID(t, s, c.ID)
 	if got.Status != ClaimStatusClaimed || got.ClaimedBy != "u1" || got.NodeID != node.ID {
 		t.Fatalf("claim after bind = %+v", got)
 	}
@@ -313,7 +446,8 @@ func TestBindClaimToUserCreatesNodeAndOwner(t *testing.T) {
 	}
 
 	expired, err := s.CreateClaim(ctx, NodeClaim{
-		PairKey: "pk-expired-bind", Code: "CD345",
+		PairKey:   "pk-expired-bind",
+		Code:      "CD345",
 		ExpiresAt: time.Now().UTC().Add(-time.Minute),
 	})
 	if err != nil {
@@ -369,6 +503,76 @@ func TestBindClaimToUserSuffixesDuplicateNames(t *testing.T) {
 	}
 }
 
+// TestBindClaimToUserRollsBackWhenNamesExhausted 覆盖后缀上限：20 个候选名全
+// 占用时必须整体回滚——认领回到 pending，且不留下没有归属行的半成品节点。
+func TestBindClaimToUserRollsBackWhenNamesExhausted(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	seatClaimedNames(t, s, "u1", "work-mac", maxNodeNameCandidates)
+
+	c := newPendingClaim(t, s, "pk-exhausted", "AB234")
+	_, err := s.BindClaimToUser(ctx, c.ID, "u1", "")
+	if err == nil {
+		t.Fatal("bind succeeded although every candidate name is taken")
+	}
+	if !strings.Contains(err.Error(), "no free node name") {
+		t.Fatalf("error = %v, want the name-exhausted message", err)
+	}
+
+	got := mustClaimByID(t, s, c.ID)
+	if got.Status != ClaimStatusPending || got.ClaimedBy != "" || got.NodeID != "" {
+		t.Fatalf("claim changed after a failed bind: %+v", got)
+	}
+
+	var nodes, members int64
+	if err := s.db.WithContext(ctx).Model(&Node{}).Count(&nodes).Error; err != nil {
+		t.Fatalf("count nodes: %v", err)
+	}
+	if err := s.db.WithContext(ctx).Model(&NodeMember{}).Count(&members).Error; err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if nodes != maxNodeNameCandidates || members != maxNodeNameCandidates {
+		t.Fatalf("nodes/members = %d/%d, want %d/%d (no partial rows)",
+			nodes, members, maxNodeNameCandidates, maxNodeNameCandidates)
+	}
+}
+
+// TestBindClaimToUserLeavesNoRowsOnRefusal 未过期/已认领之外的失败同样整体回滚：
+// 状态迁移先执行，失败后不能留下「认领已 claimed 但没有节点」的中间态。
+func TestBindClaimToUserLeavesNoRowsOnRefusal(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	expired, err := s.CreateClaim(ctx, NodeClaim{
+		PairKey:   "pk-refused",
+		Code:      "AB234",
+		ExpiresAt: time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("CreateClaim(expired): %v", err)
+	}
+	if _, err := s.BindClaimToUser(ctx, expired.ID, "u1", ""); !errors.Is(err, ErrClaimTaken) {
+		t.Fatalf("expired bind error = %v, want ErrClaimTaken", err)
+	}
+
+	var nodes, members int64
+	if err := s.db.WithContext(ctx).Model(&Node{}).Count(&nodes).Error; err != nil {
+		t.Fatalf("count nodes: %v", err)
+	}
+	if err := s.db.WithContext(ctx).Model(&NodeMember{}).Count(&members).Error; err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if nodes != 0 || members != 0 {
+		t.Fatalf("nodes/members = %d/%d, want 0/0", nodes, members)
+	}
+
+	got := mustClaimByID(t, s, expired.ID)
+	if got.Status != ClaimStatusPending {
+		t.Fatalf("stored status = %q, want %q", got.Status, ClaimStatusPending)
+	}
+}
+
 func TestBindClaimToUserValidatesInput(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -394,7 +598,7 @@ func TestMarkClaimDeliveredIsIdempotent(t *testing.T) {
 			t.Fatalf("MarkClaimDelivered #%d: %v", i, err)
 		}
 	}
-	got, _, _ := s.ClaimByPairKey(ctx, "pk-deliver")
+	got := mustClaimByID(t, s, c.ID)
 	if got.NodeID != "node_x" {
 		t.Fatalf("node_id = %q, want node_x", got.NodeID)
 	}
@@ -411,6 +615,33 @@ func TestMarkClaimDeliveredIsIdempotent(t *testing.T) {
 	}
 	if err := s.MarkClaimDelivered(ctx, c.ID, " "); err == nil {
 		t.Fatal("blank node id accepted")
+	}
+}
+
+// TestMarkClaimDeliveredRefusesRebinding 固化「幂等重投只认已绑定的那个节点」：
+// 两个实例并发补发时，后到的实例可能刚建了自己的节点，静默改绑会让先落库的
+// 节点变成没人认领的孤儿。
+func TestMarkClaimDeliveredRefusesRebinding(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := newPendingClaim(t, s, "pk-rebind", "AB234")
+	if _, _, err := s.ClaimClaimForUser(ctx, c.ID, "u1"); err != nil {
+		t.Fatalf("ClaimClaimForUser: %v", err)
+	}
+	if err := s.MarkClaimDelivered(ctx, c.ID, "node_first"); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	if err := s.MarkClaimDelivered(ctx, c.ID, "node_first"); err != nil {
+		t.Fatalf("repeated delivery: %v", err)
+	}
+	if err := s.MarkClaimDelivered(ctx, c.ID, "node_other"); !errors.Is(err, ErrClaimTaken) {
+		t.Fatalf("rebinding error = %v, want ErrClaimTaken", err)
+	}
+
+	got := mustClaimByID(t, s, c.ID)
+	if got.NodeID != "node_first" {
+		t.Fatalf("node_id = %q, want node_first", got.NodeID)
 	}
 }
 
@@ -438,10 +669,7 @@ func TestBumpClaimAttemptsValidatesInput(t *testing.T) {
 	if ok, err := s.BumpClaimAttempts(ctx, c.ID, 3); ok || err != nil {
 		t.Fatalf("bump on claimed claim = %v, %v; want false, nil", ok, err)
 	}
-	var stored NodeClaim
-	if err := s.db.WithContext(ctx).Where("id = ?", c.ID).Take(&stored).Error; err != nil {
-		t.Fatalf("reload claim: %v", err)
-	}
+	stored := mustClaimByID(t, s, c.ID)
 	if stored.Attempts != 0 || stored.Status != ClaimStatusClaimed {
 		t.Fatalf("claimed claim changed: %+v", stored)
 	}
@@ -469,6 +697,9 @@ func TestClaimSentinelsSurviveWrapping(t *testing.T) {
 	if strings.Contains(err.Error(), c.Code) {
 		t.Fatalf("error leaks the claim code: %v", err)
 	}
+	if strings.Count(err.Error(), c.ID) != 1 {
+		t.Fatalf("claim id wrapped more than once: %v", err)
+	}
 
 	pending := newPendingClaim(t, s, "pk-sentinel-pending", "CD345")
 	if err := s.MarkClaimDelivered(ctx, pending.ID, "node_x"); !errors.Is(err, ErrClaimNotClaimed) {
@@ -485,6 +716,40 @@ func TestMigrateControlPlaneCreatesClaimTable(t *testing.T) {
 	for _, idx := range []string{"idx_node_claims_pair_key", "idx_node_claims_code"} {
 		if !s.db.Migrator().HasIndex(&NodeClaim{}, idx) {
 			t.Fatalf("expected index %q on node_claims", idx)
+		}
+	}
+}
+
+// seatClaimedNames 在 userID 名下预置 count 个节点，名字依次为 base、base-2 …
+// 直接写库而不是走 20 次认领：这里要构造的是「后缀耗尽」的前置状态，
+// 认领流程本身已经由别的用例覆盖。
+func seatClaimedNames(t *testing.T, s *Store, userID, base string, count int) {
+	t.Helper()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i := 0; i < count; i++ {
+		name := base
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d", base, i+1)
+		}
+		id, err := newNodeID()
+		if err != nil {
+			t.Fatalf("newNodeID: %v", err)
+		}
+		node := Node{ID: id, Name: name, ClaimedAt: now}
+		if err := s.db.WithContext(ctx).Create(&node).Error; err != nil {
+			t.Fatalf("create node %q: %v", name, err)
+		}
+		member := NodeMember{
+			NodeID:    node.ID,
+			UserID:    userID,
+			Role:      NodeRoleOwner,
+			GrantedBy: userID,
+			CreatedAt: now,
+		}
+		if err := s.db.WithContext(ctx).Create(&member).Error; err != nil {
+			t.Fatalf("create member for %q: %v", name, err)
 		}
 	}
 }

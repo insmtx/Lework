@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func openTestStore(t *testing.T) *Store {
@@ -30,6 +33,25 @@ func TestOpenMigratesNodesTable(t *testing.T) {
 
 	if !s.db.Migrator().HasTable(&Node{}) {
 		t.Fatal("expected nodes table to be migrated")
+	}
+}
+
+// TestStoreLoggerKeepsSQLParamsOutOfLogs 固化设计 §13 的要求：短码与凭证都在
+// SQL 参数里，慢查询与唯一约束冲突会走 logger 的插值路径。参数化输出是这条
+// 保证的唯一防线，退回到 logger.Default 就会把 5 位码写进 stdout。
+func TestStoreLoggerKeepsSQLParamsOutOfLogs(t *testing.T) {
+	filter, ok := controlPlaneLogger(logger.Warn).(gorm.ParamsFilter)
+	if !ok {
+		t.Fatal("store logger does not implement gorm.ParamsFilter")
+	}
+
+	sql, vars := filter.ParamsFilter(
+		context.Background(), "SELECT * FROM node_claims WHERE code = ?", "AB234")
+	if len(vars) != 0 {
+		t.Fatalf("params = %v, want none", vars)
+	}
+	if strings.Contains(sql, "AB234") {
+		t.Fatalf("sql %q leaks the claim code", sql)
 	}
 }
 
