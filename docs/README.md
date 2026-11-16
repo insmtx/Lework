@@ -45,6 +45,7 @@
 | 文档 | 说明 |
 |------|------|
 | [design/2026-11-01-i0-findings.md](design/2026-11-01-i0-findings.md) | I0 技术验证结论与限制 |
+| [design/2026-11-16-cos-unified-release-and-mobile-update-design.md](design/2026-11-16-cos-unified-release-and-mobile-update-design.md) | 统一 COS 发布布局与移动端应用内升级方案 |
 | [operations/control-plane.md](operations/control-plane.md) | 控制面与 agent 的安装、启动、协议 |
 
 ### 前端
