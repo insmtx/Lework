@@ -47,6 +47,9 @@ func TestDeleteNodeForOwnerCascades(t *testing.T) {
 	if err := st.SetPreferenceFor(ctx, owner.ID, "inbox.dir."+node.ID, "/work"); err != nil {
 		t.Fatalf("SetPreferenceFor: %v", err)
 	}
+	if err := st.SetNodeAliasFor(ctx, owner.ID, node.ID, "客厅的电脑"); err != nil {
+		t.Fatalf("SetNodeAliasFor: %v", err)
+	}
 	// 另一账号的目录偏好不能被误删。
 	if err := st.SetPreferenceFor(ctx, other.ID, "inbox.dir."+node.ID, "/other"); err != nil {
 		t.Fatalf("SetPreferenceFor other: %v", err)
@@ -94,6 +97,9 @@ func TestDeleteNodeForOwnerCascades(t *testing.T) {
 	}
 	if v, ok, _ := st.GetPreferenceFor(ctx, owner.ID, "inbox.dir."+node.ID); ok {
 		t.Fatalf("owner inbox preference = %q, want deleted", v)
+	}
+	if _, ok, _ := st.GetNodeAliasFor(ctx, owner.ID, node.ID); ok {
+		t.Fatal("owner node alias must be deleted with the node")
 	}
 	if _, ok, _ := st.GetPreferenceFor(ctx, other.ID, "inbox.dir."+node.ID); !ok {
 		t.Fatal("other user's preference must be untouched")

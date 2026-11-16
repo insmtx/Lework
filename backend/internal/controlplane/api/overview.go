@@ -44,15 +44,24 @@ func (a *API) handleOverview(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
+	aliases, err := a.store.ListNodeAliasesFor(r.Context(), a.principal(r).UserID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
 
 	views := make(map[string]*overviewNodeView, len(records))
 	for _, rec := range records {
 		if _, ok := visible[rec.ID]; !ok {
 			continue
 		}
+		name := rec.Name
+		if alias := aliases[rec.ID]; alias != "" {
+			name = alias
+		}
 		views[rec.ID] = &overviewNodeView{
 			NodeID:    rec.ID,
-			Name:      rec.Name,
+			Name:      name,
 			Connected: a.nodeConnected(rec),
 			Sessions:  []overview.Session{},
 		}

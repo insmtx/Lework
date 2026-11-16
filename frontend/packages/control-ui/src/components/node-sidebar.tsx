@@ -35,6 +35,7 @@ interface NodeSidebarProps {
 	loadingSessions: boolean;
 	sessionDirectory: string;
 	onFilterSessions: (directory: string) => void;
+	onRenameNode: (nodeID: string, name: string) => Promise<void>;
 	onRenameSession: (sessionID: string, title: string) => Promise<void>;
 	onDeleteSession: (sessionID: string) => Promise<void>;
 	nodeHealth: NodeHealth | null;
@@ -82,6 +83,7 @@ export function NodeSidebar({
 	loadingSessions,
 	sessionDirectory,
 	onFilterSessions,
+	onRenameNode,
 	onRenameSession,
 	onDeleteSession,
 	nodeHealth,
@@ -96,6 +98,9 @@ export function NodeSidebar({
 	const [creating, setCreating] = useState(false);
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [filterDraft, setFilterDraft] = useState(sessionDirectory);
+	const [renamingNodeID, setRenamingNodeID] = useState<string | null>(null);
+	const [nodeNameDraft, setNodeNameDraft] = useState("");
+	const [renamingNode, setRenamingNode] = useState(false);
 	const [renamingID, setRenamingID] = useState<string | null>(null);
 	const [renameDraft, setRenameDraft] = useState("");
 	const [renaming, setRenaming] = useState(false);
@@ -133,6 +138,28 @@ export function NodeSidebar({
 	const submitFilter = (event: React.FormEvent) => {
 		event.preventDefault();
 		onFilterSessions(filterDraft.trim());
+	};
+
+	const startNodeRename = (node: NodeView) => {
+		setRenamingNodeID(node.id);
+		setNodeNameDraft(node.name);
+		setActionError(null);
+	};
+
+	const submitNodeRename = async (event: React.FormEvent) => {
+		event.preventDefault();
+		if (!renamingNodeID || renamingNode) return;
+		setRenamingNode(true);
+		setActionError(null);
+		try {
+			// 空串会把展示名恢复成 agent 上报的主机名。
+			await onRenameNode(renamingNodeID, nodeNameDraft.trim());
+			setRenamingNodeID(null);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : "Unable to rename node");
+		} finally {
+			setRenamingNode(false);
+		}
 	};
 
 	const startRename = (session: Session) => {
@@ -224,38 +251,90 @@ export function NodeSidebar({
 							No node registered. Start <code className="text-[11px]">lework agent</code>.
 						</div>
 					) : (
-						nodes.map((node) => (
-							<button
-								type="button"
-								key={node.id}
-								onClick={() => onSelectNode(node.id)}
-								className={cn(
-									"flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3 py-3 text-left shadow-sm transition-colors active:bg-muted",
-									"md:gap-2 md:rounded-lg md:border-transparent md:px-2 md:py-2 md:shadow-none",
-									node.id === selectedNodeID
-										? "ring-1 ring-primary/30 md:bg-background md:shadow-sm md:ring-border"
-										: "md:bg-transparent md:hover:bg-muted",
-								)}
-							>
-								<span
+						nodes.map((node) =>
+							renamingNodeID === node.id ? (
+								<form
+									key={node.id}
+									onSubmit={submitNodeRename}
+									className="flex items-center gap-1 rounded-xl border border-border/70 bg-card p-1.5 shadow-sm md:rounded-lg md:border-transparent"
+								>
+									<Input
+										autoFocus
+										value={nodeNameDraft}
+										onChange={(event) => setNodeNameDraft(event.target.value)}
+										onKeyDown={(event) => {
+											if (event.key === "Escape") setRenamingNodeID(null);
+										}}
+										placeholder="Display name (blank = hostname)"
+										className="h-9 min-w-0 flex-1 text-base md:h-7 md:text-xs"
+										aria-label="Node display name"
+									/>
+									<Button
+										type="submit"
+										size="icon-xs"
+										disabled={renamingNode}
+										aria-label="Save node display name"
+									>
+										{renamingNode ? (
+											<Loader2 className="size-3.5 animate-spin" />
+										) : (
+											<Check className="size-3.5" />
+										)}
+									</Button>
+									<Button
+										type="button"
+										size="icon-xs"
+										variant="ghost"
+										onClick={() => setRenamingNodeID(null)}
+										aria-label="Cancel node rename"
+									>
+										<X className="size-3.5" />
+									</Button>
+								</form>
+							) : (
+								<div
+									key={node.id}
 									className={cn(
-										"size-2 shrink-0 rounded-full",
-										node.connected ? "bg-emerald-500" : "bg-muted-foreground/40",
+										"flex w-full items-center gap-0.5 rounded-xl border border-border/70 bg-card p-1 shadow-sm transition-colors md:rounded-lg md:border-transparent md:shadow-none",
+										node.id === selectedNodeID
+											? "ring-1 ring-primary/30 md:bg-background md:shadow-sm md:ring-border"
+											: "md:bg-transparent md:hover:bg-muted",
 									)}
-								/>
-								<span className="min-w-0 flex-1">
-									<span className="block truncate text-sm font-medium">{node.name}</span>
-									<span className="block truncate text-[11px] text-muted-foreground">
-										{node.os}/{node.arch} · v{node.agent_version} ·{" "}
-										{node.connected ? "online" : "offline"}
-									</span>
-									<span className="block text-[10px] text-muted-foreground/80">
-										seen {shortTime(node.last_seen)}
-									</span>
-								</span>
-								<Server className="size-4 shrink-0 text-muted-foreground/60" />
-							</button>
-						))
+								>
+									<button
+										type="button"
+										onClick={() => onSelectNode(node.id)}
+										className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors active:bg-muted md:gap-2 md:px-1 md:py-1 md:active:bg-transparent"
+									>
+										<span
+											className={cn(
+												"size-2 shrink-0 rounded-full",
+												node.connected ? "bg-emerald-500" : "bg-muted-foreground/40",
+											)}
+										/>
+										<span className="min-w-0 flex-1">
+											<span className="block truncate text-sm font-medium">{node.name}</span>
+											<span className="block truncate text-[11px] text-muted-foreground">
+												{node.os}/{node.arch} · v{node.agent_version} ·{" "}
+												{node.connected ? "online" : "offline"}
+											</span>
+											<span className="block text-[10px] text-muted-foreground/80">
+												seen {shortTime(node.last_seen)}
+											</span>
+										</span>
+										<Server className="size-4 shrink-0 text-muted-foreground/60" />
+									</button>
+									<Button
+										size="icon-xs"
+										variant="ghost"
+										onClick={() => startNodeRename(node)}
+										aria-label={`Rename ${node.name}`}
+									>
+										<Pencil className="size-3.5" />
+									</Button>
+								</div>
+							),
+						)
 					)}
 				</div>
 			</div>

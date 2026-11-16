@@ -71,11 +71,18 @@ func (s *Store) DeleteNodeForOwner(ctx context.Context, nodeID, userID string) e
 				Delete(&Preference{}).Error; err != nil {
 				return fmt.Errorf("delete inbox preference: %w", err)
 			}
+			if err := tx.Where("key = ?", userPrefix(m.UserID)+nodeAliasKeyPrefix+nodeID).
+				Delete(&Preference{}).Error; err != nil {
+				return fmt.Errorf("delete node alias: %w", err)
+			}
 		}
 		// 历史命名空间（改造前没有账号前缀）的同名偏好也一并清掉：
 		// 节点已经不存在，任何残留键都只会在下次同 ID 出现时变成幽灵值。
 		if err := tx.Where("key = ?", "inbox.dir."+nodeID).Delete(&Preference{}).Error; err != nil {
 			return fmt.Errorf("delete legacy inbox preference: %w", err)
+		}
+		if err := tx.Where("key = ?", nodeAliasKeyPrefix+nodeID).Delete(&Preference{}).Error; err != nil {
+			return fmt.Errorf("delete legacy node alias: %w", err)
 		}
 
 		res := tx.Where("id = ?", nodeID).Delete(&Node{})
