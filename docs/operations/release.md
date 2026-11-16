@@ -13,6 +13,34 @@
 `backend/internal/controlplane/webui/dist/`，由 `//go:embed all:dist` 嵌进二进制，
 `lework serve` 直接提供界面。
 
+## COS 发布（客户端更新源）
+
+tag 触发的 `publish` job 在创建 GitHub Release 之前，会把产物上传到 COS：
+
+```text
+application/
+  RELEASE.txt              # 最新稳定版本，客户端用它检查更新
+  LATEST.txt               # 旧下载页沿用的指针，内容与 RELEASE.txt 相同
+  <version>/
+    SHA256SUMS.txt
+    server/
+      lework_<version>_<os>_<arch>.tar.gz   # Windows 为 .zip
+    android/
+      lework-android-<version>.apk
+```
+
+- `RELEASE.txt` / `LATEST.txt` 只在稳定 tag（不含 `-`）且新版本大于指针现值时
+  更新，重跑旧 tag 不会把版本写回去；首次统一发布时 `RELEASE.txt` 不存在，
+  会回落到旧 `LATEST.txt` 判断，避免指针回退。
+- bucket / region 默认 `leros-1395325824` / `ap-beijing`，可用仓库变量
+  `COS_BUCKET` / `COS_REGION` 覆盖；凭据来自 secrets `COS_SECRET_ID` /
+  `COS_SECRET_KEY`，缺失时 publish job 直接失败。
+- 上传逻辑在 `scripts/release/publish-cos.sh`。本地可用
+  `DRY_RUN=1 bash scripts/release/publish-cos.sh <dir> <version>` 预览上传路径，
+  `bash scripts/release/publish-cos.test.sh` 跑 dry-run 用例。
+- 桌面端产物目前仍由 `desktop-release.yml` 单独发布到 GitHub Release，尚未并入
+  COS 布局；macOS 签名/公证失败时该 workflow 会在 publish 之前中断。
+
 支持平台：`linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`、
 `windows/amd64`。二进制以 `CGO_ENABLED=0` 静态构建，未做代码签名：macOS 首次
 运行需要 `xattr -d com.apple.quarantine ./lework`（或右键打开），Windows 会弹
@@ -22,7 +50,7 @@ SmartScreen 提示。
 
 - `push` tag：`v0.7.1`、`v0.8.0-rc.1` 等，匹配 `v*.*.*`。
 - 手动 `workflow_dispatch`：只构建并上传 workflow artifact，不创建 Release，
-  用来验证流水线。
+  不写 COS，用来验证流水线。
 
 整条链首次约 15 分钟（Android 最久），之后靠 pnpm / Go / Gradle 缓存约 8–10 分钟。
 仓库是公开的，Actions 分钟数不计费；要换自建 runner 只需改各 job 的 `runs-on`。
