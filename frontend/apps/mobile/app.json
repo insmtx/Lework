@@ -9,7 +9,8 @@
 		"android": {
 			"package": "com.insmtx.lework",
 			"predictiveBackGestureEnabled": false,
-			"usesCleartextTraffic": true
+			"usesCleartextTraffic": true,
+			"permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"]
 		},
 		"plugins": [
 			"expo-router",
