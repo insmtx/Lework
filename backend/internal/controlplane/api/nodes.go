@@ -6,11 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/insmtx/lework/backend/internal/controlplane/authz"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 )
+
+// maxNodeAliasRunes 限制单个别名长度：它会被写进偏好表并跟随每次节点列表
+// 响应返回，必须挡住无上限的请求体。
+const maxNodeAliasRunes = 64
+
+// nodeRenameRequest 是 PATCH /api/nodes/{id} 的请求体；空名表示清除别名。
+type nodeRenameRequest struct {
+	Name string `json:"name"`
+}
 
 // nodeView 是浏览器看到的节点视图。
 //
@@ -83,7 +94,7 @@ func (a *API) handleClaimNode(w http.ResponseWriter, r *http.Request) {
 
 	// 认领已经提交，这里再读一次是为了返回完整的节点视图（名称、在线状态等）。
 	// 读不到只可能是并发删除，按内部错误处理而不是假装 404。
-	view, ok, err := a.findNode(r.Context(), nodeID)
+	view, ok, err := a.findNodeViewFor(r.Context(), principal.UserID, nodeID)
 	if err != nil || !ok {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
@@ -93,7 +104,43 @@ func (a *API) handleClaimNode(w http.ResponseWriter, r *http.Request) {
 
 // handleGetNode 返回单个节点；未登记过的 ID 返回 404。
 func (a *API) handleGetNode(w http.ResponseWriter, r *http.Request) {
-	view, ok, err := a.findNode(r.Context(), r.PathValue("id"))
+	view, ok, err := a.findNodeViewFor(r.Context(), a.principal(r).UserID, r.PathValue("id"))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// handleRenameNode 设置调用者自己的节点展示名。
+//
+// 别名存在调用者的偏好命名空间里，不碰 nodes.name：agent 每次 hello 都会用
+// 主机名覆盖展示字段，节点级改名无法长期保留，而「每人看到自己的名字」也
+// 不应对其他共享成员生效。空名清除别名，回退到 agent 上报的主机名。
+func (a *API) handleRenameNode(w http.ResponseWriter, r *http.Request) {
+	var req nodeRenameRequest
+	if err := decodeRequest(w, r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if utf8.RuneCountInString(name) > maxNodeAliasRunes {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "name is too long")
+		return
+	}
+
+	principal := a.principal(r)
+	nodeID := r.PathValue("id")
+	if err := a.store.SetNodeAliasFor(r.Context(), principal.UserID, nodeID, name); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+
+	view, ok, err := a.findNodeViewFor(r.Context(), principal.UserID, nodeID)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
@@ -177,6 +224,40 @@ func (a *API) findNode(ctx context.Context, nodeID string) (nodeView, bool, erro
 		}
 	}
 	return nodeView{}, false, nil
+}
+
+// findNodeViewFor 在 findNode 之上套用某个账号的展示名别名。
+//
+// 单节点响应、认领响应与改名响应必须和列表视图一致，否则用户会看到「列表里
+// 是别名、点开又变回主机名」的分叉。
+func (a *API) findNodeViewFor(ctx context.Context, userID, nodeID string) (nodeView, bool, error) {
+	view, ok, err := a.findNode(ctx, nodeID)
+	if err != nil || !ok {
+		return view, ok, err
+	}
+	alias, ok, err := a.store.GetNodeAliasFor(ctx, userID, nodeID)
+	if err != nil {
+		return nodeView{}, false, err
+	}
+	if ok {
+		view.Name = alias
+	}
+	return view, true, nil
+}
+
+// applyNodeAliases 把某账号的节点别名写进一批视图；没有别名的节点保留
+// agent 上报的主机名。
+func (a *API) applyNodeAliases(ctx context.Context, userID string, views []nodeView) error {
+	aliases, err := a.store.ListNodeAliasesFor(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for i := range views {
+		if alias := aliases[views[i].ID]; alias != "" {
+			views[i].Name = alias
+		}
+	}
+	return nil
 }
 
 // listNodes 把持久化记录投影成节点视图。存储是身份、LastSeen 与在线状态的

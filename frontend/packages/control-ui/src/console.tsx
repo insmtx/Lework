@@ -447,6 +447,15 @@ export function ControlConsole({
 		setSessionsRefresh((value) => value + 1);
 	};
 
+	// 节点展示名是每个账号自己的别名，服务端返回的就是最终生效的名字
+	//（空名已被替换回 agent 主机名），直接覆盖本地视图即可。
+	const renameNode = async (nodeID: string, name: string) => {
+		const updated = await client.renameNode(nodeID, name);
+		setNodes((current) =>
+			current.map((node) => (node.id === nodeID ? { ...node, name: updated.name } : node)),
+		);
+	};
+
 	const remove = async (sessionID: string) => {
 		if (!selectedNodeID) throw new Error("Select a connected node first");
 		await client.deleteSession(selectedNodeID, sessionID);
@@ -554,6 +563,7 @@ export function ControlConsole({
 			loadingSessions={sessionsLoading}
 			sessionDirectory={sessionDirectory}
 			onFilterSessions={setSessionDirectory}
+			onRenameNode={renameNode}
 			onRenameSession={rename}
 			onDeleteSession={remove}
 			nodeHealth={nodeHealth}
