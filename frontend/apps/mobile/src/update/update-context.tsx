@@ -34,6 +34,7 @@ export interface UpdateContextValue {
 	manualCheck: () => void;
 	install: () => void;
 	dismiss: () => void;
+	cancelDownload: () => void;
 	retry: () => void;
 }
 
@@ -62,6 +63,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 	const checkInFlightRef = useRef(false);
 	const downloadRef = useRef<AbortController | null>(null);
 	const snoozeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// 「稍后」的暂缓窗口终点：自动检查（定时/补查/首查）在窗口内让路给
+	// snooze 计时器本身，避免提前重新弹窗、把取消变成又一次自动下载。
+	const snoozedUntilRef = useRef<number | null>(null);
 	const progressAtRef = useRef(0);
 
 	const cancelActiveDownload = useCallback((): void => {
@@ -125,6 +129,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 				return;
 			}
 			if (checkInFlightRef.current) return;
+			// 「稍后」的暂缓窗口内不自动重查：提示权交给 snooze 计时器，
+			// 定时与补查不能提前把它变成又一次自动下载。手动检查不受限。
+			if (!manual && snoozedUntilRef.current !== null && Date.now() < snoozedUntilRef.current) {
+				return;
+			}
 			const phase = stateRef.current.phase;
 			// 自动检查只在 idle 时进行：error 停留等用户处理（设计文档「不静默丢弃」），
 			// available / downloading / installing 中途不能被新检查打断。手动检查额外
@@ -185,11 +194,28 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 		dispatch({ type: "dismissed" });
 		if (snoozeTimerRef.current) clearTimeout(snoozeTimerRef.current);
 		// 「稍后」= 暂缓 5 分钟后重新检查并再次提示；重启 App 会立即再查。
+		// 窗口终点与计时器同时登记：计时器触发时先清窗口再查，
+		// 其余自动检查在窗口内被 runCheck 直接跳过。
+		snoozedUntilRef.current = Date.now() + UPDATE_SNOOZE_MS;
 		snoozeTimerRef.current = setTimeout(() => {
 			snoozeTimerRef.current = null;
+			snoozedUntilRef.current = null;
 			runCheck(false);
 		}, UPDATE_SNOOZE_MS);
 	}, [cancelActiveDownload, runCheck]);
+
+	// 「取消下载」与「稍后」语义不同：中止传输、收起提示，但不安排任何
+	// 自动重查（连待触发的 snooze 计时器也取消），直到下一次常规检查时机
+	// （30 分钟定时 / 回前台补查）或用户手动检查才会重新尝试。
+	const cancelDownload = useCallback((): void => {
+		cancelActiveDownload();
+		if (snoozeTimerRef.current) {
+			clearTimeout(snoozeTimerRef.current);
+			snoozeTimerRef.current = null;
+		}
+		snoozedUntilRef.current = null;
+		dispatch({ type: "dismissed" });
+	}, [cancelActiveDownload]);
 
 	const install = useCallback((): void => {
 		const current = stateRef.current;
@@ -243,8 +269,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 	}, [currentVersion, runCheck]);
 
 	const value = useMemo<UpdateContextValue>(
-		() => ({ state, currentVersion, manualCheck, install, dismiss, retry }),
-		[state, currentVersion, manualCheck, install, dismiss, retry],
+		() => ({ state, currentVersion, manualCheck, install, dismiss, cancelDownload, retry }),
+		[state, currentVersion, manualCheck, install, dismiss, cancelDownload, retry],
 	);
 
 	return <UpdateContext.Provider value={value}>{children}</UpdateContext.Provider>;

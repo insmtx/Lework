@@ -12,6 +12,7 @@ type GateStyles = ReturnType<typeof createUpdateGateStyles>;
 
 interface GateActions {
 	onDismiss: () => void;
+	onCancelDownload: () => void;
 	onInstall: () => void;
 	onRetry: () => void;
 }
@@ -23,7 +24,7 @@ function displayVersion(version: string): string {
 }
 
 export function UpdateGate() {
-	const { state, install, dismiss, retry } = useUpdate();
+	const { state, install, dismiss, cancelDownload, retry } = useUpdate();
 	const styles = useThemedStyles(createUpdateGateStyles);
 
 	if (!isUpdateVisible(state)) return null;
@@ -34,6 +35,7 @@ export function UpdateGate() {
 				<View style={styles.card}>
 					{renderGateBody(state, styles, {
 						onDismiss: dismiss,
+						onCancelDownload: cancelDownload,
 						onInstall: install,
 						onRetry: retry,
 					})}
@@ -62,7 +64,8 @@ function renderGateBody(state: UpdateState, styles: GateStyles, actions: GateAct
 					)}
 					<View style={styles.actions}>
 						<GateButton label="稍后" onPress={actions.onDismiss} styles={styles} />
-						<GateButton label="取消下载" onPress={actions.onDismiss} styles={styles} />
+						{/* 取消下载只中止并收起，不 snooze；稍后则会 5 分钟后重新提示。 */}
+						<GateButton label="取消下载" onPress={actions.onCancelDownload} styles={styles} />
 					</View>
 				</>
 			);
