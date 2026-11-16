@@ -12,7 +12,18 @@ releaseDate: '2026-07-24T08:00:00.000Z'
 `),
 		).toEqual({
 			version: "0.3.1",
+			path: "Lework-0.3.1-linux-amd64.deb",
 			releaseDate: "2026-07-24T08:00:00.000Z",
+		});
+	});
+
+	it("parses the artifact path for manual downloads", () => {
+		expect(
+			parseLinuxUpdateMetadata("version: 0.8.0\npath: Lework-0.8.0-linux-amd64.deb\n"),
+		).toEqual({
+			version: "0.8.0",
+			path: "Lework-0.8.0-linux-amd64.deb",
+			releaseDate: undefined,
 		});
 	});
 

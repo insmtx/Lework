@@ -19,7 +19,8 @@
 			"adaptiveIcon": {
 				"foregroundImage": "./assets/adaptive-icon.png",
 				"backgroundColor": "#eef3ff"
-			}
+			},
+			"permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"]
 		},
 		"plugins": [
 			"expo-router",

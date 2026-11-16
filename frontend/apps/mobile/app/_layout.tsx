@@ -11,6 +11,8 @@ import { useFontScale, useTheme } from "../src/theme/use-theme";
 import { AppShell } from "../src/ui/app-shell";
 import { LoadingScreen } from "../src/ui/loading";
 import { DrawerButton } from "../src/ui/top-bar";
+import { UpdateProvider } from "../src/update/update-context";
+import { UpdateGate } from "../src/update/update-gate";
 
 // 前台收到通知时也显示横幅：审批请求可能就在用户盯着 App 的时候到达。
 // 是否响铃跟随设置里的「声音提醒」，所以这里读模块级开关而不是写死 false。
@@ -30,9 +32,12 @@ function openFromNotification(data: unknown) {
 
 export default function RootLayout() {
 	// ThemeProvider 在导航器外层：设置页改主题时，Stack 头部与所有页面一起重绘。
+	// UpdateProvider 在主题之内：更新 Modal 走主题样式；两者都与导航同生命周期。
 	return (
 		<ThemeProvider>
-			<RootNavigator />
+			<UpdateProvider>
+				<RootNavigator />
+			</UpdateProvider>
 		</ThemeProvider>
 	);
 }
@@ -102,6 +107,8 @@ function RootNavigator() {
 						<Stack.Screen name="settings/account" options={{ title: "账号" }} />
 						<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
 					</Stack>
+					{/* 更新 Modal 放在导航之外：任何页面都会覆盖，路由切换不打断下载提示。 */}
+					<UpdateGate />
 				</AppShell>
 			) : (
 				<LoadingScreen text="正在启动…" />

@@ -1,5 +1,6 @@
 export type LinuxUpdateMetadata = {
 	version: string;
+	path?: string;
 	releaseDate?: string;
 };
 
@@ -28,6 +29,7 @@ export function parseLinuxUpdateMetadata(source: string): LinuxUpdateMetadata {
 
 	return {
 		version,
+		path: readYamlScalar(source, "path"),
 		releaseDate: readYamlScalar(source, "releaseDate"),
 	};
 }

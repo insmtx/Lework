@@ -10,6 +10,8 @@ import {
 } from "../../src/settings/summary";
 import { useThemePreference } from "../../src/theme/theme-context";
 import { useAppShell, useScreenTitle } from "../../src/ui/app-shell-context";
+import { describeVersion } from "../../src/update/format";
+import { useUpdate } from "../../src/update/update-context";
 
 /**
  * 设置首页只做目录：每行一个主题，右侧带当前值。
@@ -21,6 +23,7 @@ export default function SettingsIndexScreen() {
 	useScreenTitle("设置");
 	const { settings } = useAppShell();
 	const { preferences } = useThemePreference();
+	const { state, currentVersion, manualCheck } = useUpdate();
 	const connected = settings !== null;
 
 	return (
@@ -50,6 +53,12 @@ export default function SettingsIndexScreen() {
 					label="过程展示"
 					value={describeProcess(preferences)}
 					onPress={() => router.push("/settings/process")}
+				/>
+				{/* 版本行不跳页：点一下就是一次手动检查，右侧文案跟随更新状态机。 */}
+				<SettingsMenuRow
+					label="版本"
+					value={describeVersion(currentVersion, state)}
+					onPress={manualCheck}
 					last
 				/>
 			</SettingsMenuCard>
