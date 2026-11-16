@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"testing"
@@ -417,5 +418,61 @@ func TestSetPrimaryNodePersistsPerAccount(t *testing.T) {
 	}
 	if bobView.Projects[0].PrimaryNodeID != "" {
 		t.Fatalf("bob saw a foreign primary node: %#v", bobView.Projects[0])
+	}
+}
+
+func TestCreateProjectForwardsTrimmedName(t *testing.T) {
+	env := newTestEnv(t, 2*time.Second)
+	node, agent, conn := env.addNode("node-a")
+	reply := replyOK(t, agent, conn, `{"canonical":"/w/新项目"}`)
+
+	rec := env.do(http.MethodPost, "/api/nodes/"+node.ID+"/projects", `{"name":"  新项目  "}`)
+	requireStatus(t, rec, http.StatusOK)
+
+	frame := waitFrame(t, reply)
+	if frame.Method != "project.create" {
+		t.Fatalf("method = %q, want project.create", frame.Method)
+	}
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(frame.Params, &params); err != nil {
+		t.Fatalf("decode params: %v", err)
+	}
+	if params.Name != "新项目" {
+		t.Fatalf("name = %q, want trimmed", params.Name)
+	}
+
+	body := decodeBody[struct {
+		Canonical string `json:"canonical"`
+	}](t, rec)
+	if body.Canonical != "/w/新项目" {
+		t.Fatalf("canonical = %q", body.Canonical)
+	}
+}
+
+func TestCreateProjectRejectsEmptyName(t *testing.T) {
+	env := newTestEnv(t, 2*time.Second)
+	node, agent, _ := env.addNode("node-a")
+
+	rec := env.do(http.MethodPost, "/api/nodes/"+node.ID+"/projects", `{"name":"   "}`)
+	requireStatus(t, rec, http.StatusBadRequest)
+	if len(agent.frames) != 0 {
+		t.Fatalf("agent received %d requests, want none", len(agent.frames))
+	}
+}
+
+func TestCreateProjectMapsAgentError(t *testing.T) {
+	env := newTestEnv(t, 2*time.Second)
+	node, agent, conn := env.addNode("node-a")
+	reply := replyErr(t, agent, conn, "invalid_params", "project.create: directory already exists")
+
+	rec := env.do(http.MethodPost, "/api/nodes/"+node.ID+"/projects", `{"name":"demo"}`)
+	requireStatus(t, rec, http.StatusBadGateway)
+	waitFrame(t, reply)
+
+	body := decodeBody[apiError](t, rec)
+	if body.Code != "agent_error" || body.Message != "project.create: directory already exists" {
+		t.Fatalf("error = %#v", body)
 	}
 }

@@ -61,6 +61,11 @@ export interface ProjectSummary {
 	last_seen: string;
 }
 
+/** ProjectCreateResult 是 agent 在 workspace root 下建好空目录后的返回值。 */
+export interface ProjectCreateResult {
+	canonical: string;
+}
+
 export interface MessageError {
 	type: string;
 	message: string;

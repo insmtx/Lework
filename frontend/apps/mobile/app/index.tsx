@@ -3,6 +3,7 @@ import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } 
 import {
 	Alert,
 	KeyboardAvoidingView,
+	Modal,
 	Platform,
 	Pressable,
 	StyleSheet,
@@ -17,9 +18,11 @@ import { createSecureDraftStore } from "../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../src/composer/send";
 import { sessionRoute } from "../src/config";
 import {
+	nodeCanCreateProject,
 	nodeCanCreateSession,
 	projectDirectoryOnNode,
 	projectDisplayName,
+	projectNameError,
 	projectsOnNode,
 	resolveSelectionTarget,
 	type TaskSelection,
@@ -37,6 +40,9 @@ const HOME_DRAFT_SCOPE = { projectKey: "home", nodeID: "home" };
 
 // 「我的目录」在项目弹层里的选项键；用前缀避免和真实项目聚合键冲突。
 const INBOX_OPTION_KEY = "__inbox__";
+// 新建项目入口与「待建项目」的选项键。
+const NEW_PROJECT_OPTION_KEY = "__new_project__";
+const PENDING_PROJECT_OPTION_KEY = "__pending_project__";
 
 /**
  * 首页只做一件事：直接说任务。
@@ -61,6 +67,10 @@ export default function HomeScreen() {
 	const [selection, setSelection] = useState<TaskSelection | null>(null);
 	const [nodeSheetOpen, setNodeSheetOpen] = useState(false);
 	const [projectSheetOpen, setProjectSheetOpen] = useState(false);
+	const [createOpen, setCreateOpen] = useState(false);
+	const [newProjectName, setNewProjectName] = useState("");
+	const [creating, setCreating] = useState(false);
+	const [createError, setCreateError] = useState<string | null>(null);
 
 	// 只把「在线且能新建会话」的节点当成可用目标：离线或旧 agent 不应该
 	// 被自动选中，选择器里也置灰。
@@ -93,8 +103,16 @@ export default function HomeScreen() {
 	);
 
 	const canPickTarget = !settingsLoading && Boolean(settings?.sessionToken);
+	const createRoot = activeNode?.workspace_roots?.[0] ?? "";
+	const canCreateProject =
+		canPickTarget &&
+		target.nodeID !== null &&
+		activeNode !== null &&
+		createRoot !== "" &&
+		nodeCanCreateProject(activeNode);
 	const nodeLabel = activeNode ? activeNode.name || activeNode.id : "未选择";
-	const projectLabel = activeProject ? projectDisplayName(activeProject) : "我的目录";
+	const projectLabel =
+		target.pendingName ?? (activeProject ? projectDisplayName(activeProject) : "我的目录");
 
 	const nodeItems = useMemo<OptionSheetItem[]>(
 		() =>
@@ -116,15 +134,23 @@ export default function HomeScreen() {
 	const projectItems = useMemo<OptionSheetItem[]>(() => {
 		if (!target.nodeID) return [];
 		const inboxDir = projects.dirByNode[target.nodeID] ?? "";
-		const items: OptionSheetItem[] = [
-			{
-				key: INBOX_OPTION_KEY,
-				label: "我的目录",
-				detail: inboxDir || "没有可用目录",
-				selected: target.projectKey === null,
-				disabled: inboxDir === "",
-			},
-		];
+		const items: OptionSheetItem[] = [];
+		// 刚创建、OpenCode 还没登记的项目置顶显示，避免选中态在刷新后消失。
+		if (target.pendingName) {
+			items.push({
+				key: PENDING_PROJECT_OPTION_KEY,
+				label: target.pendingName,
+				detail: target.directory || "刚刚创建",
+				selected: true,
+			});
+		}
+		items.push({
+			key: INBOX_OPTION_KEY,
+			label: "我的目录",
+			detail: inboxDir || "没有可用目录",
+			selected: target.projectKey === null && !target.pendingName,
+			disabled: inboxDir === "",
+		});
 		for (const project of projectsOnNode(projects.projects, target.nodeID)) {
 			items.push({
 				key: project.key,
@@ -133,8 +159,24 @@ export default function HomeScreen() {
 				selected: target.projectKey === project.key,
 			});
 		}
+		if (canCreateProject) {
+			items.push({
+				key: NEW_PROJECT_OPTION_KEY,
+				label: "＋ 新建项目",
+				detail: `在 ${createRoot} 下创建空目录`,
+			});
+		}
 		return items;
-	}, [projects.projects, projects.dirByNode, target.nodeID, target.projectKey]);
+	}, [
+		projects.projects,
+		projects.dirByNode,
+		target.nodeID,
+		target.projectKey,
+		target.pendingName,
+		target.directory,
+		canCreateProject,
+		createRoot,
+	]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -186,6 +228,13 @@ export default function HomeScreen() {
 		(key: string) => {
 			setProjectSheetOpen(false);
 			if (!target.nodeID) return;
+			if (key === NEW_PROJECT_OPTION_KEY) {
+				setNewProjectName("");
+				setCreateError(null);
+				setCreateOpen(true);
+				return;
+			}
+			if (key === PENDING_PROJECT_OPTION_KEY) return;
 			setSelection({
 				nodeID: target.nodeID,
 				projectKey: key === INBOX_OPTION_KEY ? null : key,
@@ -193,6 +242,41 @@ export default function HomeScreen() {
 		},
 		[target.nodeID],
 	);
+
+	const closeCreate = useCallback(() => {
+		if (creating) return;
+		setCreateOpen(false);
+		setCreateError(null);
+	}, [creating]);
+
+	const createProject = useCallback(async () => {
+		const nodeID = target.nodeID;
+		const name = newProjectName.trim();
+		if (!nodeID) return;
+		const invalid = projectNameError(name);
+		if (invalid) {
+			setCreateError(invalid);
+			return;
+		}
+
+		setCreating(true);
+		setCreateError(null);
+		try {
+			const created = await projects.createProject(nodeID, name);
+			// OpenCode 要等第一条会话才登记项目，先把它作为待建目标选中。
+			setSelection({
+				nodeID,
+				projectKey: null,
+				pendingProject: { name, directory: created.canonical },
+			});
+			setCreateOpen(false);
+			setNewProjectName("");
+		} catch (caught) {
+			setCreateError(caught instanceof Error ? caught.message : "创建失败，请稍后重试");
+		} finally {
+			setCreating(false);
+		}
+	}, [target.nodeID, newProjectName, projects]);
 
 	const send = useCallback(async () => {
 		const text = draft.trim();
@@ -309,6 +393,51 @@ export default function HomeScreen() {
 				onSelect={pickProject}
 				onClose={() => setProjectSheetOpen(false)}
 			/>
+
+			<Modal transparent visible={createOpen} animationType="fade" onRequestClose={closeCreate}>
+				<View style={styles.modalBackdrop}>
+					<Pressable style={StyleSheet.absoluteFill} onPress={closeCreate} />
+					<View style={[styles.modalCard, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+						<Text style={styles.modalTitle}>新建项目</Text>
+						<Text style={styles.modalHint}>
+							在 {nodeLabel} 的 {createRoot || "工作目录"} 下创建一个空目录
+						</Text>
+						<TextInput
+							style={styles.modalInput}
+							value={newProjectName}
+							onChangeText={(text) => {
+								setNewProjectName(text);
+								setCreateError(null);
+							}}
+							onSubmitEditing={() => void createProject()}
+							autoFocus
+							placeholder="项目名，例如 my-app"
+							placeholderTextColor={theme.colors.placeholder}
+							selectionColor={theme.colors.accent}
+						/>
+						<Text style={styles.modalPreview}>
+							{createRoot}/{newProjectName.trim() || "…"}
+						</Text>
+						{createError ? <Text style={styles.modalError}>{createError}</Text> : null}
+						<View style={styles.modalActions}>
+							<Pressable disabled={creating} onPress={closeCreate} style={styles.modalCancel}>
+								<Text style={styles.modalCancelText}>取消</Text>
+							</Pressable>
+							<Pressable
+								disabled={creating}
+								onPress={() => void createProject()}
+								style={[styles.modalConfirm, creating && styles.modalConfirmDisabled]}
+							>
+								{creating ? (
+									<BrandSpinner color={theme.colors.actionText} />
+								) : (
+									<Text style={styles.modalConfirmText}>创建</Text>
+								)}
+							</Pressable>
+						</View>
+					</View>
+				</View>
+			</Modal>
 		</View>
 	);
 }
@@ -355,5 +484,41 @@ function createStyles(theme: Theme) {
 		sendText: { color: colors.actionText, fontWeight: "600" },
 		link: { alignSelf: "center", marginTop: 16, padding: 8 },
 		linkText: { fontSize: 14, color: colors.accent },
+		modalBackdrop: { flex: 1, backgroundColor: colors.modalBackdrop, justifyContent: "flex-end" },
+		modalCard: {
+			backgroundColor: colors.surface,
+			borderTopLeftRadius: 16,
+			borderTopRightRadius: 16,
+			padding: 16,
+			gap: 10,
+		},
+		modalTitle: { fontSize: 16, fontWeight: "600", color: colors.text },
+		modalHint: { fontSize: 12, color: colors.textSecondary },
+		modalInput: {
+			borderWidth: 1,
+			borderColor: colors.border,
+			borderRadius: 10,
+			paddingHorizontal: 12,
+			paddingVertical: 10,
+			fontSize: 16,
+			color: colors.text,
+			backgroundColor: colors.surfaceMuted,
+		},
+		modalPreview: { fontSize: 12, color: colors.textMuted },
+		modalError: { fontSize: 12, color: colors.danger },
+		modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 4 },
+		modalCancel: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
+		modalCancelText: { fontSize: 14, color: colors.textSecondary },
+		modalConfirm: {
+			minWidth: 80,
+			alignItems: "center",
+			justifyContent: "center",
+			paddingHorizontal: 16,
+			paddingVertical: 10,
+			borderRadius: 10,
+			backgroundColor: colors.action,
+		},
+		modalConfirmDisabled: { opacity: 0.35 },
+		modalConfirmText: { fontSize: 14, color: colors.actionText, fontWeight: "600" },
 	});
 }

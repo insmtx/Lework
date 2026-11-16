@@ -112,6 +112,7 @@ func TestNodeRoutesAuthorizeEveryRouteFamily(t *testing.T) {
 		{http.MethodGet, "/api/nodes/" + node.ID + "/files?directory=%2Fwork"},
 		{http.MethodGet, "/api/nodes/" + node.ID + "/files/content?directory=%2Fwork&path=a.txt"},
 		{http.MethodGet, "/api/nodes/" + node.ID + "/projects"},
+		{http.MethodPost, "/api/nodes/" + node.ID + "/projects"},
 		{http.MethodPatch, "/api/sessions/" + node.ID + "/ses_1"},
 		{http.MethodDelete, "/api/sessions/" + node.ID + "/ses_1"},
 		{http.MethodGet, "/api/sessions/" + node.ID + "/ses_1/messages"},

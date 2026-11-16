@@ -19,6 +19,7 @@ import type {
 	PendingPermission,
 	PermissionRequest,
 	PersistentTerminal,
+	ProjectCreateResult,
 	ProjectSummary,
 	Session,
 } from "./types";
@@ -63,6 +64,7 @@ export interface ApiClient {
 	claimConfirm(code: string): Promise<NodeView>;
 	createClaim(nodeName?: string): Promise<ClaimCode>;
 	deleteNode(node: string): Promise<unknown>;
+	renameNode(node: string, name: string): Promise<NodeView>;
 	listNodes(): Promise<NodeView[]>;
 	getNode(node: string): Promise<NodeView>;
 	getNodeProjects(node: string): Promise<NodeProject[]>;
@@ -104,6 +106,7 @@ export interface ApiClient {
 	closePTY(node: string, session: string, ptyID: string): Promise<unknown>;
 	getOverview(): Promise<OverviewNode[]>;
 	listProjects(): Promise<ProjectSummary[]>;
+	createProject(node: string, name: string): Promise<ProjectCreateResult>;
 	setProjectPrimaryNode(projectKey: string, node: string): Promise<unknown>;
 	getPreferences(): Promise<Record<string, string>>;
 	setPreference(key: string, value: string): Promise<unknown>;
@@ -190,6 +193,12 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 
 		deleteNode: (node) =>
 			request<unknown>(`/api/nodes/${encodeURIComponent(node)}`, { method: "DELETE" }),
+
+		renameNode: (node, name) =>
+			request<NodeView>(`/api/nodes/${encodeURIComponent(node)}`, {
+				method: "PATCH",
+				body: JSON.stringify({ name }),
+			}),
 
 		listNodes: () => request<NodeView[]>("/api/nodes"),
 
@@ -326,6 +335,12 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 			const body = await request<{ projects?: ProjectSummary[] }>("/api/projects");
 			return Array.isArray(body?.projects) ? body.projects : [];
 		},
+
+		createProject: (node, name) =>
+			request<ProjectCreateResult>(`/api/nodes/${encodeURIComponent(node)}/projects`, {
+				method: "POST",
+				body: JSON.stringify({ name }),
+			}),
 
 		setProjectPrimaryNode: (projectKey, node) =>
 			request<unknown>(`/api/projects/${encodeURIComponent(projectKey)}/primary-node`, {

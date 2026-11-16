@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,6 +59,14 @@ type setPrimaryNodeRequest struct {
 	NodeID string `json:"node_id"`
 }
 
+type createProjectRequest struct {
+	Name string `json:"name"`
+}
+
+type createProjectResponse struct {
+	Canonical string `json:"canonical"`
+}
+
 type setPreferenceRequest struct {
 	Value string `json:"value"`
 }
@@ -75,6 +84,46 @@ func projectKeyOf(id, canonical string) string {
 		return id + ":" + canonical
 	}
 	return id
+}
+
+// handleCreateProject creates an empty project directory on one node.
+//
+// The control plane forwards rather than pre-validating the full name: the
+// agent owns the filesystem rules. Trimming and rejecting an empty name here
+// keeps an obviously bad request from waking a sleeping node.
+func (a *API) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.PathValue("id")
+	var req createProjectRequest
+	if err := decodeRequest(w, r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "name is required")
+		return
+	}
+	if _, ok, err := a.findNode(r.Context(), nodeID); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	} else if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return
+	}
+
+	raw, err := a.callAgent(r.Context(), nodeID, "project.create", createProjectRequest{Name: name})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	var result createProjectResponse
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &result); err != nil {
+			writeAPIError(w, http.StatusBadGateway, "agent_error", "invalid project create response from agent")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleNodeProjects 透传单个节点的项目列表，供调试与离线诊断使用。
