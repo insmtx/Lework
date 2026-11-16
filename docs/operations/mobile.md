@@ -17,7 +17,7 @@ App 没有底部 tab bar，也没有常驻导航栏。首页只做一件事：**
 | 项目详情 | `/projects/[key]` | 跨节点会话、主节点选择、输入框 |
 | 待审批 | `/pending` | 汇总所有 `pending_permissions > 0` 的会话 |
 | 节点 | `/nodes` | 诊断用：在线状态、`workspace_roots` |
-| 设置 | `/settings` | 扫码/粘贴配对、控制面地址、令牌、推送开关 |
+| 设置 | `/settings` | 扫码/粘贴配对、控制面地址、令牌、推送开关、版本检查 |
 
 主导航是点 `☰` 从左侧滑出的侧边栏（自绘 Modal，不引入 drawer 依赖）：
 
@@ -190,6 +190,64 @@ npx eas-cli build --profile preview --platform android
 
 缺少 `extra.eas.projectId` 或通知权限被拒绝时，Settings 仍会保存连接信息，
 只提示推送未登记；App 本体可以正常轮询与手动刷新。
+
+## 应用内升级
+
+正式版 APK 内置应用内升级：检查、下载、安装全部围绕
+`frontend/apps/mobile/src/update/` 的状态机（`idle → checking → available →
+downloading → downloaded → installing`，失败进 `error` 可重试）运转。
+更新源固定为构建期常量 `MOBILE_UPDATE_BASE_URL`（COS 发布目录，可用
+`EXPO_PUBLIC_LEWORK_UPDATE_BASE_URL` 在构建时覆盖做本地联调），**绝不**从
+Settings 里的控制面地址推导，防止控制面搬家把更新流量带偏。
+
+只有 `expo-application` 的 `applicationId` 为 `com.insmtx.lework` 且能读到
+`nativeApplicationVersion` 时才启用；Expo Go、开发宿主与 iOS 上检查完全禁用，
+设置页「版本」行点按只会说明不支持。
+
+### 检查时机
+
+- 启动约 1 秒后首查（避开冷启动首屏）。
+- App 在前台时每 30 分钟检查一次。
+- 从后台回到前台，且距上次检查超过 5 分钟时补查一次。
+- 设置 →「版本」行随时可手动检查；失败会弹可读的错误提示。
+
+自动检查失败保持静默（回到 idle 等下一次时机），不打扰用户。流程是
+`GET ${BASE}/RELEASE.txt?t=<时间戳>` 取最新版本号、比较 semver，再对 APK 产物
+做 `HEAD` 确认已上传，二者齐备才算「有更新」。
+
+### 下载与安装
+
+发现新版本后立即在后台开始下载（进度弹窗显示「发现新版本 vX · 正在下载
+xx%」），目标路径为缓存目录下的 `lework-update-<version>.apk`，下载前会删除
+同名旧半成品；「取消下载」与「稍后」都会中止进行中的下载。App 被杀后不续传，
+下次启动重新检查、重新下载。
+
+下载完成提示「更新已下载」，点「立即安装」通过 `expo-intent-launcher` 调起
+系统安装器（`android.intent.action.VIEW` + `application/vnd.android.package-archive`）。
+安装完成后当前进程通常被系统结束，App 不监听安装结果，下次启动重新读取本机
+版本即可。
+
+### 首次安装与签名要求
+
+- 首次从应用内升级需要在系统设置里允许本应用「安装未知应用」，这是一次性
+  设置；被系统拦截时更新弹窗会给出可读提示与「重试」。`app.json` 已声明
+  `REQUEST_INSTALL_PACKAGES` 权限，prebuild 会写入 Manifest。
+- 覆盖安装依赖新旧 APK **签名一致**。CI 目前统一使用 prebuild 模板自带的
+  debug keystore；一旦更换正式签名，旧签名安装的版本必须卸载重装，无法应用内
+  覆盖升级。
+
+### 手工验收步骤
+
+自动测试只覆盖纯逻辑（版本比较、状态机、调度、文案、下载/安装适配器）；
+以下需在 Android 真机或模拟器执行：
+
+1. 安装旧版本 APK。
+2. 把 `RELEASE.txt` 与新版 APK 按 `<version>/android/...` 布局上传到测试前缀
+   （构建时可用 `EXPO_PUBLIC_LEWORK_UPDATE_BASE_URL` 指向该前缀）。
+3. 启动 App：出现更新 Modal，下载进度前进。
+4. 点「立即安装」：系统安装器打开；允许安装未知应用后完成覆盖安装。
+5. 重启 App：版本号更新，不再提示。
+6. 关闭网络后在设置页手动检查：显示可读错误，不崩溃。
 
 ## 真机验收清单
 
