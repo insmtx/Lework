@@ -48,6 +48,7 @@ import {
 	ClipboardList,
 	Clock,
 	Contact,
+	Download,
 	ExternalLink,
 	FileText,
 	FolderGit2,
@@ -1587,6 +1588,7 @@ type DesktopUpdateState = {
 	message: string;
 	availableVersion?: string;
 	downloadedVersion?: string;
+	downloadUrl?: string;
 	progressPercent?: number;
 	releaseNotes?: string;
 	canCheck: boolean;
@@ -1597,6 +1599,7 @@ type DesktopUpdateApi = {
 	getState: () => Promise<DesktopUpdateState>;
 	checkForUpdates: () => Promise<DesktopUpdateState>;
 	quitAndInstall: () => Promise<boolean>;
+	openExternal: (url: string) => Promise<boolean>;
 	subscribe: (listener: (state: DesktopUpdateState) => void) => () => void;
 };
 
@@ -1670,6 +1673,17 @@ function DesktopUpdateMenuSection() {
 		}
 	};
 
+	const handleDownloadUpdate = async () => {
+		if (!updateState.downloadUrl) {
+			return;
+		}
+
+		const opened = await desktopApi.openExternal(updateState.downloadUrl).catch(() => false);
+		if (!opened) {
+			toast.error("打开下载链接失败，请稍后重试");
+		}
+	};
+
 	return (
 		<>
 			{updateState.phase === "downloading" && typeof updateState.progressPercent === "number" ? (
@@ -1683,6 +1697,13 @@ function DesktopUpdateMenuSection() {
 						/>
 					</div>
 				</div>
+			) : null}
+
+			{updateState.phase === "available" && updateState.downloadUrl ? (
+				<DropdownMenuItem onClick={() => void handleDownloadUpdate()}>
+					<Download className="size-4 shrink-0" />
+					<span>下载安装包</span>
+				</DropdownMenuItem>
 			) : null}
 
 			<DropdownMenuItem

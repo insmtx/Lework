@@ -21,6 +21,7 @@ export interface DesktopUpdateState {
 	message: string;
 	availableVersion?: string;
 	downloadedVersion?: string;
+	downloadUrl?: string;
 	progressPercent?: number;
 	releaseDate?: string;
 	releaseNotes?: string;
