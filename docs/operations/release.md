@@ -46,6 +46,11 @@ application/
 - bucket / region 默认 `leros-1395325824` / `ap-beijing`，可用仓库变量
   `COS_BUCKET` / `COS_REGION` 覆盖；凭据来自 secrets `COS_SECRET_ID` /
   `COS_SECRET_KEY`，缺失时 publish job 直接失败。
+- 上传默认走 COS 全球加速域名 `cos.accelerate.myqcloud.com`（仓库变量
+  `COS_ENDPOINT` 可覆盖），避免海外 runner 直连 `ap-beijing` 时超时；bucket
+  必须已开启全球加速。`coscmd` 请求默认 `--retry 5 --timeout 120`，脚本对单个
+  文件再包一层 3 次重试，可用 `COS_RETRY` / `COS_TIMEOUT` 调整。
+  未设置 `COS_ENDPOINT` 时回落到地域（`-r`），两者在 `coscmd` 里互斥。
 - 上传逻辑在 `scripts/release/publish-cos.sh`。本地可用
   `DRY_RUN=1 bash scripts/release/publish-cos.sh <dir> <version>` 预览上传路径，
   `bash scripts/release/publish-cos.test.sh` 跑 dry-run 用例。

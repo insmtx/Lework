@@ -62,4 +62,20 @@ if printf '%s' "$out" | grep -q "application/LATEST.txt"; then
   exit 1
 fi
 
+# 全球加速域名通过 -e 传给 coscmd（与 -r 互斥）。
+out="$(DRY_RUN=1 COS_ENDPOINT=cos.accelerate.myqcloud.com COS_RETRY=5 COS_TIMEOUT=120 \
+  RELEASE_PREFIX=application \
+  bash "$script_dir/publish-cos.sh" "$tmp" 0.8.0)"
+printf '%s' "$out" | grep -q -- "-e cos.accelerate.myqcloud.com"
+printf '%s' "$out" | grep -q -- "--retry 5 --timeout 120"
+
+# 未设置 COS_ENDPOINT 时回落到地域。
+out="$(DRY_RUN=1 COS_REGION=ap-beijing RELEASE_PREFIX=application \
+  bash "$script_dir/publish-cos.sh" "$tmp" 0.8.0)"
+printf '%s' "$out" | grep -q -- "-r ap-beijing"
+if printf '%s' "$out" | grep -q -- "-e "; then
+  echo "期望：未设置 COS_ENDPOINT 时不传 -e" >&2
+  exit 1
+fi
+
 echo "publish-cos.test.sh PASS"
