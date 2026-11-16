@@ -53,6 +53,36 @@ describe("reduceUpdateState", () => {
 		expect(reduceUpdateState({ phase: "checking" }, { type: "no-update" })).toEqual(idle);
 		expect(reduceUpdateState({ phase: "downloaded", version: "0.8.0", apkUrl: "u", fileUri: "f" }, { type: "dismissed" })).toEqual(idle);
 	});
+
+	it("cancels an active download via dismissed", () => {
+		const downloading: UpdateState = {
+			phase: "downloading",
+			version: "0.8.0",
+			apkUrl: "https://example.com/app.apk",
+			progress: 50,
+		};
+		expect(reduceUpdateState(downloading, { type: "dismissed" })).toEqual(idle);
+	});
+
+	it("retries download from error that kept version and apkUrl", () => {
+		const errored: UpdateState = {
+			phase: "error",
+			message: "网络中断",
+			version: "0.8.0",
+			apkUrl: "https://example.com/app.apk",
+		};
+		expect(reduceUpdateState(errored, { type: "download-started" })).toEqual({
+			phase: "downloading",
+			version: "0.8.0",
+			apkUrl: "https://example.com/app.apk",
+			progress: 0,
+		});
+	});
+
+	it("ignores download-started from error without apkUrl", () => {
+		const errored: UpdateState = { phase: "error", message: "检查失败", version: "0.8.0" };
+		expect(reduceUpdateState(errored, { type: "download-started" })).toBe(errored);
+	});
 });
 
 describe("isUpdateVisible", () => {

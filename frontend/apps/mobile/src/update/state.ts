@@ -1,6 +1,7 @@
 // 更新流程的纯状态机：UI 与下载/安装代码只 dispatch UpdateAction，不直接改状态。
-// reduceUpdateState 对非法迁移一律原样返回（不抛错），busy 阶段（downloading /
-// installing）拒绝被打断；error 保留出错前的版本与文件信息，供界面展示与重试。
+// reduceUpdateState 对非法迁移一律原样返回（不抛错）。error 保留出错前的版本与
+// 文件信息：version 与 apkUrl 齐全时 download-started 视为原地重试，dismissed 则是
+// 取消下载（下载层负责 abort 真实任务）。
 export type UpdateState =
 	| { phase: "idle" }
 	| { phase: "checking" }
@@ -34,9 +35,15 @@ export function reduceUpdateState(state: UpdateState, action: UpdateAction): Upd
 		case "no-update":
 			return state.phase === "checking" ? { phase: "idle" } : state;
 		case "download-started":
-			return state.phase === "available"
-				? { phase: "downloading", version: state.version, apkUrl: state.apkUrl, progress: 0 }
-				: state;
+			// 首次下载只从 available；error 若仍持有完整版本信息则走原地重试，
+			// 转入 downloading 并清零进度（message 随状态替换自然消失）。
+			if (state.phase === "available") {
+				return { phase: "downloading", version: state.version, apkUrl: state.apkUrl, progress: 0 };
+			}
+			if (state.phase === "error" && state.version && state.apkUrl) {
+				return { phase: "downloading", version: state.version, apkUrl: state.apkUrl, progress: 0 };
+			}
+			return state;
 		case "download-progress":
 			if (state.phase !== "downloading") return state;
 			return { ...state, progress: clampProgress(action.progress) };
@@ -57,8 +64,9 @@ export function reduceUpdateState(state: UpdateState, action: UpdateAction): Upd
 		case "failed":
 			return toError(state, action.message);
 		case "dismissed":
-			// 用户关闭弹窗：正在下载或安装时不可丢弃，避免留下无主任务。
-			return state.phase === "available" || state.phase === "downloaded" || state.phase === "error"
+			// 关闭弹窗回到 idle：downloading 时即为「取消下载」入口，调用方需同时
+			// abort 真实下载任务；installing 由系统安装器接管，此处不可中断。
+			return state.phase === "available" || state.phase === "downloading" || state.phase === "downloaded" || state.phase === "error"
 				? { phase: "idle" }
 				: state;
 	}
