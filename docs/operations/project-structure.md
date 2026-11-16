@@ -17,8 +17,13 @@
 
 ## 前端
 
-- `frontend/apps/control-plane/` — 当前主线：节点总览、Session、Diff、文件、终端
-- `frontend/apps/web/`、`frontend/apps/desktop/` — 旧产品，暂不维护
+- `frontend/packages/control-ui/` — 会话控制台共享实现：节点侧栏、会话、审批、Diff、文件、终端、SSE；
+  `ControlApiProvider` 注入 API/传输地址，`ControlAuthGate` 处理控制面登录。
+- `frontend/apps/control-plane/` — 内嵌浏览器控制台；由 `control-ui` 组成的薄壳。
+- `frontend/apps/web/` — PC 工作台，新增工作区/节点/审批入口，与移动端共用 `control-ui`。
+- `frontend/apps/mobile/` — Expo/React Native 客户端。
+- `frontend/apps/desktop/` — 旧产品，暂不维护，导航隐藏 OpenCode 分组。
+- `frontend/packages/design-tokens/` — 两端共用的颜色/圆角/阴影 token，移动端主题与 Web CSS 的 parity 基准。
 
 ## 旧模块
 
