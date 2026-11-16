@@ -3,16 +3,16 @@ import {
 	DESKTOP_UPDATE_BASE_URL,
 	desktopTarget,
 	feedUrl,
+	latestTxtUrl,
 	metadataUrl,
-	parseReleaseVersion,
-	releaseTxtUrl,
+	parseLatestVersion,
 } from "../update-source";
 
 describe("desktop update source", () => {
-	it("parses RELEASE.txt and rejects html", () => {
-		expect(parseReleaseVersion("0.8.0\n")).toBe("0.8.0");
-		expect(() => parseReleaseVersion("")).toThrow();
-		expect(() => parseReleaseVersion("<html>error</html>")).toThrow();
+	it("parses LATEST.txt and rejects html", () => {
+		expect(parseLatestVersion("0.8.0\n")).toBe("0.8.0");
+		expect(() => parseLatestVersion("")).toThrow();
+		expect(() => parseLatestVersion("<html>error</html>")).toThrow();
 	});
 
 	it("maps supported platform/arch to version directories", () => {
@@ -40,8 +40,8 @@ describe("desktop update source", () => {
 		expect(metadataUrl(DESKTOP_UPDATE_BASE_URL, "0.8.0", target, 123)).toBe(
 			`${feed}/latest-mac.yml?t=123`,
 		);
-		expect(releaseTxtUrl(DESKTOP_UPDATE_BASE_URL, 123)).toBe(
-			`${DESKTOP_UPDATE_BASE_URL}/RELEASE.txt?t=123`,
+		expect(latestTxtUrl(DESKTOP_UPDATE_BASE_URL, 123)).toBe(
+			`${DESKTOP_UPDATE_BASE_URL}/LATEST.txt?t=123`,
 		);
 	});
 });

@@ -1,4 +1,4 @@
-import { apkUrl, parseReleaseVersion, releaseTxtUrl } from "./source";
+import { apkUrl, latestTxtUrl, parseLatestVersion } from "./source";
 import { isVersionNewer } from "./version";
 
 export type CheckResult =
@@ -14,24 +14,24 @@ export type CheckForUpdateOptions = {
 };
 
 // checkForUpdate 只认构建期更新源（source.ts），绝不读取 settings.baseUrl。
-// 流程：GET RELEASE.txt（带时间戳防缓存）→ 解析并比较 → 有新版本再 HEAD 确认
+// 流程：GET LATEST.txt（带时间戳防缓存）→ 解析并比较 → 有新版本再 HEAD 确认
 // APK 已发布；产物缺失返回 none，任何解析/HTTP/网络失败返回 error，由上层决定
 // 自动检查静默、手动检查提示。
 export async function checkForUpdate(options: CheckForUpdateOptions): Promise<CheckResult> {
 	const fetchImpl = options.fetchImpl ?? fetch;
 
 	try {
-		const releaseResponse = await fetchImpl(releaseTxtUrl(options.baseUrl, options.now?.()), {
+		const latestResponse = await fetchImpl(latestTxtUrl(options.baseUrl, options.now?.()), {
 			cache: "no-store",
 		});
-		if (!releaseResponse.ok) {
+		if (!latestResponse.ok) {
 			return {
 				kind: "error",
-				message: `获取 RELEASE.txt 失败：HTTP ${releaseResponse.status}`,
+				message: `获取 LATEST.txt 失败：HTTP ${latestResponse.status}`,
 			};
 		}
 
-		const version = parseReleaseVersion(await releaseResponse.text());
+		const version = parseLatestVersion(await latestResponse.text());
 		if (!isVersionNewer(version, options.currentVersion)) {
 			return { kind: "none" };
 		}

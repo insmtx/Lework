@@ -6,8 +6,10 @@
 |---|---|---|
 | 后端 | 单文件 `lework` 二进制，**已内嵌控制面界面**，同时包含 `lework serve` 与 `lework agent` | `lework_<version>_<os>_<arch>.tar.gz`（Windows 为 `.zip`） |
 | Android | 可直接安装的 APK | `lework-android-<version>.apk` |
+| 桌面端 | Electron 安装包与更新元数据（mac arm64/x64、win x64、linux x64） | `Lework-<version>-<platform>-<arch>.<ext>` |
 | 校验 | 上述产物的 SHA-256 | `SHA256SUMS-release.txt` |
 
+一个 tag 只触发一条流水线：`prepare → frontend/backend/android/desktop → publish`，
 所有产物挂到同一个 GitHub Release（预发布 tag 含 `-` 时标记为 prerelease）。
 前端不再单独发包：`frontend/apps/control-plane` 的静态导出会被拷进
 `backend/internal/controlplane/webui/dist/`，由 `//go:embed all:dist` 嵌进二进制，
@@ -15,31 +17,40 @@
 
 ## COS 发布（客户端更新源）
 
-tag 触发的 `publish` job 在创建 GitHub Release 之前，会把产物上传到 COS：
+`publish` job 在创建 GitHub Release 之前，会把全部产物按版本目录上传到 COS，
+并推进指针文件：
 
 ```text
 application/
-  RELEASE.txt              # 最新稳定版本，客户端用它检查更新
-  LATEST.txt               # 旧下载页沿用的指针，内容与 RELEASE.txt 相同
+  LATEST.txt                    # 最新稳定版本，桌面端/移动端/下载页共用
+  Lework-<version>-<platform>-<arch>.<ext>   # 根目录安装包，兼容旧下载页
   <version>/
     SHA256SUMS.txt
     server/
-      lework_<version>_<os>_<arch>.tar.gz   # Windows 为 .zip
+      lework_<version>_<os>_<arch>.tar.gz    # Windows 为 .zip
     android/
       lework-android-<version>.apk
+    darwin/
+      arm64/  latest-mac.yml + dmg/zip/blockmap
+      x64/    latest-mac.yml + dmg/zip/blockmap
+    win32/
+      x64/    latest.yml + exe/blockmap
+    linux/
+      x64/    latest-linux.yml + AppImage/deb
 ```
 
-- `RELEASE.txt` / `LATEST.txt` 只在稳定 tag（不含 `-`）且新版本大于指针现值时
-  更新，重跑旧 tag 不会把版本写回去；首次统一发布时 `RELEASE.txt` 不存在，
-  会回落到旧 `LATEST.txt` 判断，避免指针回退。
+- `LATEST.txt` 沿用旧下载页的指针文件，内容是单行版本号；只在稳定 tag（不含 `-`）
+  且新版本大于现值时更新，重跑旧 tag 不会把版本写回去。桌面端和移动端都读它。
+- 根目录安装包按旧下载页的文件名约定平铺，文件名带版本号，不会互相覆盖；
+  Linux `.deb` 额外生成 `-linux-amd64.deb` 别名，兼容旧链接。
 - bucket / region 默认 `leros-1395325824` / `ap-beijing`，可用仓库变量
   `COS_BUCKET` / `COS_REGION` 覆盖；凭据来自 secrets `COS_SECRET_ID` /
   `COS_SECRET_KEY`，缺失时 publish job 直接失败。
 - 上传逻辑在 `scripts/release/publish-cos.sh`。本地可用
   `DRY_RUN=1 bash scripts/release/publish-cos.sh <dir> <version>` 预览上传路径，
   `bash scripts/release/publish-cos.test.sh` 跑 dry-run 用例。
-- 桌面端产物目前仍由 `desktop-release.yml` 单独发布到 GitHub Release，尚未并入
-  COS 布局；macOS 签名/公证失败时该 workflow 会在 publish 之前中断。
+- 桌面端 macOS 签名/公证校验失败时只告警、不阻断发布，产物仍会进入 GitHub
+  Release 与 COS；正式对外分发前需要确认公证材料配置正确。
 
 支持平台：`linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`、
 `windows/amd64`。二进制以 `CGO_ENABLED=0` 静态构建，未做代码签名：macOS 首次
@@ -52,8 +63,9 @@ SmartScreen 提示。
 - 手动 `workflow_dispatch`：只构建并上传 workflow artifact，不创建 Release，
   不写 COS，用来验证流水线。
 
-整条链首次约 15 分钟（Android 最久），之后靠 pnpm / Go / Gradle 缓存约 8–10 分钟。
-仓库是公开的，Actions 分钟数不计费；要换自建 runner 只需改各 job 的 `runs-on`。
+整条链首次约 25 分钟（桌面端 macOS 与 Android 最久），之后靠 pnpm / Go / Gradle
+缓存约 15 分钟。仓库是公开的，Actions 分钟数不计费；要换自建 runner 只需改各
+job 的 `runs-on`。
 
 ## 版本规则
 
@@ -63,6 +75,14 @@ SmartScreen 提示。
 - Android 写进 `app.json`：`expo.version=<version>`，
   `android.versionCode = major*10000 + minor*100 + patch`（`0.7.1` → `701`）。
   这两处只在 CI 里临时修改，不提交回仓库。
+- 桌面端把 tag 版本写进 `frontend/apps/desktop/package.json`，保证安装包文件名与
+  `app.getVersion()` 一致；同样不提交回仓库。
+
+## 桌面端签名
+
+macOS 构建使用 secrets `MACOS_CERTIFICATE_P12_BASE64` /
+`MACOS_CERTIFICATE_PASSWORD` 与 `APPLE_API_KEY_BASE64` / `APPLE_API_KEY_ID` /
+`APPLE_API_ISSUER`。签名/公证校验失败只告警，不阻断 GitHub Release 与 COS 上传。
 
 ## Android 签名
 
@@ -95,12 +115,9 @@ cd frontend
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm --filter @lework/mobile exec expo prebuild --platform android --no-install
 cd apps/mobile/android && ./gradlew assembleRelease
+
+# 桌面端安装包（按平台执行）
+cd frontend
+pnpm --filter @lework/desktop typecheck
+pnpm run dist:desktop:mac:arm64   # 或 mac:x64 / win:x64 / linux:x64
 ```
-
-## 与桌面端的关系
-
-桌面端（Electron）仍由 `.github/workflows/desktop-release.yml` 独立发布，同样在
-`v*.*.*` tag 触发。两个 workflow 会写同一个 Release：`release.yml` 用
-`gh release view || gh release create` 加失败重试，避免同时创建时撞车。
-桌面端将来并入本工作流后，可把 `SHA256SUMS-release.txt` 与它的
-`SHA256SUMS.txt` 合并成一个文件。

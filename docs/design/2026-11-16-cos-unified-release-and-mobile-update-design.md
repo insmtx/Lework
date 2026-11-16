@@ -18,9 +18,9 @@ GitHub Actions 里完成。
 ## 目标
 
 1. 所有发布产物统一放在 COS `application/` 下，按版本号分目录。
-2. `application/RELEASE.txt` 记录最新稳定版本号，作为客户端发现新版本的唯一入口。
+2. `application/LATEST.txt` 记录最新稳定版本号，作为客户端发现新版本的唯一入口。
 3. 移动端自动检查新版本、应用内提示、下载 APK，并拉起系统安装器完成升级。
-4. 桌面端改用同一份 `RELEASE.txt` 判断是否有新版本，再按版本目录设置更新源。
+4. 桌面端改用同一份 `LATEST.txt` 判断是否有新版本，再按版本目录设置更新源。
 5. 桌面端、Android、服务端二进制由同一个 tag 触发、使用同一个版本号。
 
 ## 非目标
@@ -52,7 +52,7 @@ GitHub Actions 里完成。
 
 ```text
 application/
-  RELEASE.txt                                  # 纯文本，内容如 "0.8.0\n"
+  LATEST.txt                                  # 纯文本，内容如 "0.8.0\n"
   0.8.0/
     SHA256SUMS.txt
     android/
@@ -103,14 +103,14 @@ Linux arm64 桌面产物本次不纳入，未来加入时按 `linux/arm64/` 扩�
   - 桌面端：沿用 `.github/workflows/desktop-release.yml` 已有的
     “Set desktop version from tag”，把 tag 版本写入
     `frontend/apps/desktop/package.json`，让安装包文件名与 `app.getVersion()` 一致。
-- `RELEASE.txt` 只记录稳定版本（tag 不带 `-`）。预发布产物仍然上传到
-  `<version>/`，用于内测，但不更新 `RELEASE.txt`。
+- `LATEST.txt` 只记录稳定版本（tag 不带 `-`）。预发布产物仍然上传到
+  `<version>/`，用于内测，但不更新 `LATEST.txt`。
 - 桌面端、Android、服务端由同一个 tag 触发的同一个 workflow 构建。最终
-  `publish` job 依赖全部构建 job，全部成功后才上传 COS 并写 `RELEASE.txt`；
+  `publish` job 依赖全部构建 job，全部成功后才上传 COS 并写 `LATEST.txt`；
   任一平台失败都不会推进指针。
-- `RELEASE.txt` 只有一个写入者：`publish` job。写入时先读旧值，只有新版本号
+- `LATEST.txt` 只有一个写入者：`publish` job。写入时先读旧值，只有新版本号
   更大才覆盖，避免重跑旧 tag 把指针写回旧版本。
-- 只有 tag 触发的运行允许写发布前缀和 `RELEASE.txt`。`workflow_dispatch`
+- 只有 tag 触发的运行允许写发布前缀和 `LATEST.txt`。`workflow_dispatch`
   只产出 workflow artifact，不上传 COS，不创建 Release。
 - 客户端在提示前仍然用 `HEAD` 检查自己的产物是否存在（移动端查 APK，桌面端
   查 `latest*.yml`），404 时保持静默。它是防御性检查，不替代发布顺序约束。
@@ -120,7 +120,7 @@ Linux arm64 桌面产物本次不纳入，未来加入时按 `linux/arm64/` 扩�
 ### 版本来源
 
 - 本机版本：`expo-application` 的 `nativeApplicationVersion`。
-- 远端版本：`GET ${BASE}/RELEASE.txt?t=<Date.now()>`，去掉空白后按 semver 比较。
+- 远端版本：`GET ${BASE}/LATEST.txt?t=<Date.now()>`，去掉空白后按 semver 比较。
   查询参数用于绕过 COS / CDN 缓存。
 - `Application.applicationId !== "com.insmtx.lework"` 或版本号读不到时，完全
   禁用更新检查（Expo Go、开发宿主）。
@@ -132,7 +132,7 @@ Linux arm64 桌面产物本次不纳入，未来加入时按 `linux/arm64/` 扩�
 - 从后台回到前台，且距上次检查超过 5 分钟时补一次。
 - 设置页「版本」行提供手动检查。
 
-自动检查失败时静默；只有手动检查失败才在界面上显示错误。网络失败、`RELEASE.txt`
+自动检查失败时静默；只有手动检查失败才在界面上显示错误。网络失败、`LATEST.txt`
 解析失败、产物 404 都视为「本次没有更新」。
 
 ### 状态机
@@ -195,7 +195,7 @@ idle → checking → available → downloading → downloaded → installing
 
 - 更新基址改为 COS `application`。
 - `checkDesktopUpdates()` 改成两段式：
-  1. 拉 `RELEASE.txt`，与本机 `app.getVersion()` 比较。没有新版本直接
+  1. 拉 `LATEST.txt`，与本机 `app.getVersion()` 比较。没有新版本直接
      显示「当前已经是最新版本」，不访问版本目录。
   2. 有新版本时，macOS / Windows 先 `HEAD` 自己的 `latest*.yml`，存在则
      `updater.setFeedURL({ provider: "generic", url: <version>/<os>/<arch> })`，
@@ -232,7 +232,7 @@ prepare → frontend ─┐
 1. 下载所有 artifact，按平台的 `latest*.yml` 与安装包保持原样。
 2. 生成 `SHA256SUMS.txt`。
 3. 上传到 COS `application/<version>/...`。
-4. 写 `RELEASE.txt`（稳定 tag 且版本更大时）。
+4. 写 `LATEST.txt`（稳定 tag 且版本更大时）。
 5. 创建 / 更新 GitHub Release，行为与现在一致。
 
 ### COS 上传
@@ -241,25 +241,25 @@ prepare → frontend ─┐
   - 输入：`COS_*`、`RELEASE_PREFIX`（默认 `application`）、`VERSION`、
     `PLATFORM_DIR`、`LOCAL_DIR`。
   - 上传 `LOCAL_DIR` 下文件到 `${RELEASE_PREFIX}/${VERSION}/${PLATFORM_DIR}/`。
-  - `update-release-txt`：下载现有 `RELEASE.txt`，仅当 `VERSION` 是稳定版且
+  - `update-release-txt`：下载现有 `LATEST.txt`，仅当 `VERSION` 是稳定版且
     大于旧值时写入。
   - 用 `coscmd` 实现；凭据来自 Organization secrets。
 - 也可以在 publish job 里直接调用 `coscmd`，但必须只有一处写
-  `RELEASE.txt` 的逻辑。
+  `LATEST.txt` 的逻辑。
 
 ### 官网下载页
 
 官网或外部下载页可能仍在读根目录的 `LATEST.txt` 与根目录安装包。删除前先确认；
-无法确认时保留一次发版的兼容写入（`LATEST.txt` 内容与 `RELEASE.txt` 一致），
+无法确认时保留一次发版的兼容写入（`LATEST.txt` 内容与 `LATEST.txt` 一致），
 确认后再移除。
 
 ## 测试
 
 自动化：
 
-- 移动端：版本比较、`RELEASE.txt` 解析、状态机（mock fetch / 文件系统）、
+- 移动端：版本比较、`LATEST.txt` 解析、状态机（mock fetch / 文件系统）、
   更新源不读取 `settings.baseUrl`。
-- 桌面端：`RELEASE.txt` 解析、按平台/架构拼 feed URL、404 静默、Linux 元数据
+- 桌面端：`LATEST.txt` 解析、按平台/架构拼 feed URL、404 静默、Linux 元数据
   解析。
 - 发布脚本：版本比较单测（稳定/预发布、旧版本重跑）、上传路径快照测试；
   CI 上用测试前缀跑一次 dry-run 上传。
@@ -274,7 +274,7 @@ prepare → frontend ─┐
   确认覆盖安装不会因签名不一致失败。
 - 桌面端旧版本启动 → 发现新版本 → 自动下载 → 重启安装；Linux 只提示手动装
   `.deb`；无更新时显示「已是最新」。
-- 断网、COS 不可达、`RELEASE.txt` 内容非法时客户端不崩溃、不误报。
+- 断网、COS 不可达、`LATEST.txt` 内容非法时客户端不崩溃、不误报。
 
 ## 风险
 
@@ -284,11 +284,11 @@ prepare → frontend ─┐
   如果历史上有一部分 APK 来自 EAS 构建，它们与 CI 的 debug 签名不同，无法
   应用内覆盖升级；这类用户需要卸载重装。
 - 把桌面端并入 `release.yml` 会拉长 tag 流水线（macOS runner 最慢），但换来
-  一个原子发布和唯一 `RELEASE.txt` 写入者。
+  一个原子发布和唯一 `LATEST.txt` 写入者。
 - GitHub Actions 需要能读取 Organization secrets；fork 或未配置 secret 的环境
   发版会失败。
 - 自动下载会消耗移动数据；v1 不限制网络类型。
-- COS 缓存可能让 `RELEASE.txt` 短暂滞后；客户端用时间戳查询参数规避。
+- COS 缓存可能让 `LATEST.txt` 短暂滞后；客户端用时间戳查询参数规避。
 
 ## 留给构建者的空间
 
@@ -298,4 +298,4 @@ prepare → frontend ─┐
 - 移动端更新 Modal 的具体视觉层次，按现有设置页/主题风格决定。
 - 桌面端是否把 `downloadUrl` 加到 `DesktopUpdateState` 并用现成 `openExternal`
   打开；不改变主流程。
-- 是否给 `RELEASE.txt` 增加第二个字段（例如发布日期）；当前客户端只读第一行。
+- 是否给 `LATEST.txt` 增加第二个字段（例如发布日期）；当前客户端只读第一行。

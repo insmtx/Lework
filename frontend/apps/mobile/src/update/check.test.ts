@@ -23,7 +23,7 @@ describe("checkForUpdate", () => {
 				"https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.apk",
 		});
 		expect(calls).toEqual([
-			"GET https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/RELEASE.txt?t=123",
+			"GET https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/LATEST.txt?t=123",
 			"HEAD https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.apk",
 		]);
 	});

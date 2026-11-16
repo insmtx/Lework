@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把桌面端、Android、服务端产物统一发布到 COS `application/`，并让移动端和桌面端都能从 `RELEASE.txt` 发现新版本、完成升级。
+**Goal:** 把桌面端、Android、服务端产物统一发布到 COS `application/`，并让移动端和桌面端都能从 `LATEST.txt` 发现新版本、完成升级。
 
-**Architecture:** GitHub Actions 的 `release.yml` 合并桌面构建 matrix，最后一个 `publish` job 等全部平台成功后上传 COS、写 `RELEASE.txt`。移动端用固定 COS 地址检查版本、下载 APK 并调起系统安装器；桌面端先读 `RELEASE.txt`，再把 `electron-updater` 的 feed 指向版本目录。
+**Architecture:** GitHub Actions 的 `release.yml` 合并桌面构建 matrix，最后一个 `publish` job 等全部平台成功后上传 COS、写 `LATEST.txt`。移动端用固定 COS 地址检查版本、下载 APK 并调起系统安装器；桌面端先读 `LATEST.txt`，再把 `electron-updater` 的 feed 指向版本目录。
 
 **Tech Stack:** Go 1.25、Expo SDK 58 / React Native 0.88、Electron 39 / electron-updater 6、GitHub Actions、腾讯云 COS / coscmd。
 
@@ -15,7 +15,7 @@
 - 发布相关改动全部在 GitHub Actions；不要修改 `.gitlab-ci.yml`，GitLab 只同步代码。
 - 固定发布源：`https://leros-1395325824.cos.ap-beijing.myqcloud.com/application`。
 - COS bucket `leros-1395325824`，region `ap-beijing`；凭据来自 Organization secrets `COS_SECRET_ID` / `COS_SECRET_KEY`。
-- 版本号只来自 tag `vX.Y.Z`；只有稳定 tag（不含 `-`）更新 `RELEASE.txt`。
+- 版本号只来自 tag `vX.Y.Z`；只有稳定 tag（不含 `-`）更新 `LATEST.txt`。
 - Android 包名 `com.insmtx.lework`；只支持 Android，不做静默安装。
 - 移动端测试：`pnpm --filter @lework/mobile test`；类型检查：`pnpm --filter @lework/mobile typecheck`。
 - 桌面端测试：`pnpm --filter @lework/desktop test`；类型检查：`pnpm --filter @lework/desktop typecheck`。
@@ -24,7 +24,7 @@
 
 ## Review Focus
 
-- `RELEASE.txt` 为空、是 HTML 错误页、或内容非法时：客户端必须保持静默，不崩溃、不弹出错误版本。Task 2 / Task 6 的解析测试覆盖。
+- `LATEST.txt` 为空、是 HTML 错误页、或内容非法时：客户端必须保持静默，不崩溃、不弹出错误版本。Task 2 / Task 6 的解析测试覆盖。
 - 远端版本等于、低于本机，或是预发布版本时：不得提示更新。Task 2 / Task 6 的比较测试覆盖。
 - 版本号存在但 APK / `latest*.yml` 返回 404（平台产物尚未发布）：静默等待，不进入错误状态。Task 2 的 HEAD 测试与 Task 7 的集成逻辑覆盖。
 - 下载中断、安装权限被拒、签名冲突时：给出可读错误，不出现永久 loading 或丢状态。Task 3 的状态机与 Task 4 的安装 intent 测试覆盖。
@@ -45,7 +45,7 @@
   - `compareVersions(left: string, right: string): number`（1 / 0 / -1，非法版本抛错）
   - `isStableVersion(value: string): boolean`
   - CLI：`node scripts/release/version.mjs gt <left> <right>` 输出 `true` / `false`
-  - `publish-cos.sh <local-version-dir> <version>`：把本地目录按相对路径上传到 `${RELEASE_PREFIX}/${version}/`，可选更新 `RELEASE.txt`。
+  - `publish-cos.sh <local-version-dir> <version>`：把本地目录按相对路径上传到 `${RELEASE_PREFIX}/${version}/`，可选更新 `LATEST.txt`。
 
 - [ ] **Step 1: 写失败的版本工具测试**
 
@@ -103,10 +103,10 @@ out="$(DRY_RUN=1 UPDATE_RELEASE_FILE=1 RELEASE_TXT_EXISTING=0.7.9 \
 printf '%s' "$out" | grep -q "coscmd upload"
 printf '%s' "$out" | grep -q "application/0.8.0/android/lework-android-0.8.0.apk"
 printf '%s' "$out" | grep -q "application/0.8.0/server/lework_0.8.0_linux_amd64.tar.gz"
-printf '%s' "$out" | grep -q "application/RELEASE.txt"
+printf '%s' "$out" | grep -q "application/LATEST.txt"
 ```
 
-再补一个断言：`RELEASE_TXT_EXISTING=0.8.0` 时不出现 `application/RELEASE.txt`；`VERSION=0.8.0-rc.1` 时也不出现。
+再补一个断言：`RELEASE_TXT_EXISTING=0.8.0` 时不出现 `application/LATEST.txt`；`VERSION=0.8.0-rc.1` 时也不出现。
 
 - [ ] **Step 5: 运行脚本测试确认失败**
 
@@ -121,7 +121,7 @@ Expected: FAIL，`publish-cos.sh: No such file`。
 - 环境变量：`RELEASE_PREFIX`（默认 `application`）、`COS_SECRET_ID`、`COS_SECRET_KEY`、`COS_BUCKET`、`COS_REGION`、`UPDATE_RELEASE_FILE`（默认 `0`）、`DRY_RUN`（默认 `0`）、`RELEASE_TXT_EXISTING`（测试用）。
 - 非 dry-run 时先 `coscmd config -a ... -s ... -b ... -r ...`；`DRY_RUN=1` 不要求 `COS_*` 凭据。
 - 版本取自第二个参数 `$2`；遍历本地目录所有文件，按相对路径上传到 `${RELEASE_PREFIX}/$2/<relative>`。
-- `UPDATE_RELEASE_FILE=1` 且版本稳定时：读取现有 `RELEASE.txt`（非 dry-run 用 `curl -fsS "${PUBLIC_BASE}/${RELEASE_PREFIX}/RELEASE.txt?t=$(date +%s)"`，404 视为空），仅当新版本更大时上传临时文件到 `${RELEASE_PREFIX}/RELEASE.txt`。
+- `UPDATE_RELEASE_FILE=1` 且版本稳定时：读取现有 `LATEST.txt`（非 dry-run 用 `curl -fsS "${PUBLIC_BASE}/${RELEASE_PREFIX}/LATEST.txt?t=$(date +%s)"`，404 视为空），仅当新版本更大时上传临时文件到 `${RELEASE_PREFIX}/LATEST.txt`。
 - `DRY_RUN=1` 只打印 `coscmd upload <local> <remote>`，不访问网络。
 
 - [ ] **Step 7: 运行测试确认通过**
@@ -209,7 +209,7 @@ import {
 } from "./source";
 
 describe("update source", () => {
-  it("parses the first line of RELEASE.txt", () => {
+  it("parses the first line of LATEST.txt", () => {
     expect(parseReleaseVersion("0.8.0\n")).toBe("0.8.0");
     expect(parseReleaseVersion("\n 0.8.0 \n")).toBe("0.8.0");
   });
@@ -224,7 +224,7 @@ describe("update source", () => {
       "https://leros-1395325824.cos.ap-beijing.myqcloud.com/application",
     );
     expect(releaseTxtUrl(MOBILE_UPDATE_BASE_URL, 1700000000000)).toBe(
-      `${MOBILE_UPDATE_BASE_URL}/RELEASE.txt?t=1700000000000`,
+      `${MOBILE_UPDATE_BASE_URL}/LATEST.txt?t=1700000000000`,
     );
     expect(apkUrl("0.8.0")).toBe(
       `${MOBILE_UPDATE_BASE_URL}/0.8.0/android/lework-android-0.8.0.apk`,
@@ -269,7 +269,7 @@ describe("checkForUpdate", () => {
         "https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.apk",
     });
     expect(calls).toEqual([
-      "GET https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/RELEASE.txt?t=123",
+      "GET https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/LATEST.txt?t=123",
       "HEAD https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.apk",
     ]);
   });
@@ -310,7 +310,7 @@ describe("checkForUpdate", () => {
 
 - [ ] **Step 7: 实现 `check.ts` 并运行全部移动端更新测试**
 
-`checkForUpdate` 必须：GET `RELEASE.txt`（带时间戳）、解析、比较；有新版本再 HEAD APK；APK 非 2xx 返回 `none`；任何解析/网络/HTTP 失败返回 `error`。不得读取 `settings.baseUrl`。
+`checkForUpdate` 必须：GET `LATEST.txt`（带时间戳）、解析、比较；有新版本再 HEAD APK；APK 非 2xx 返回 `none`；任何解析/网络/HTTP 失败返回 `error`。不得读取 `settings.baseUrl`。
 
 Run: `pnpm --filter @lework/mobile test src/update`
 Expected: 全部 PASS。
@@ -663,7 +663,7 @@ Expected: PASS。
 在 Android 真机或模拟器上：
 
 1. 安装旧版本 APK。
-2. 把 `RELEASE.txt` 与新版 APK 按布局上传到测试前缀。
+2. 把 `LATEST.txt` 与新版 APK 按布局上传到测试前缀。
 3. 启动 App：出现更新 Modal，下载进度前进。
 4. 点「立即安装」：系统安装器打开；允许安装未知应用后完成覆盖安装。
 5. 重启 App：版本号更新，不再提示。
@@ -713,7 +713,7 @@ import {
 } from "../update-source";
 
 describe("desktop update source", () => {
-  it("parses RELEASE.txt and rejects html", () => {
+  it("parses LATEST.txt and rejects html", () => {
     expect(parseReleaseVersion("0.8.0\n")).toBe("0.8.0");
     expect(() => parseReleaseVersion("")).toThrow();
     expect(() => parseReleaseVersion("<html>error</html>")).toThrow();
@@ -745,7 +745,7 @@ describe("desktop update source", () => {
       `${feed}/latest-mac.yml?t=123`,
     );
     expect(releaseTxtUrl(DESKTOP_UPDATE_BASE_URL, 123)).toBe(
-      `${DESKTOP_UPDATE_BASE_URL}/RELEASE.txt?t=123`,
+      `${DESKTOP_UPDATE_BASE_URL}/LATEST.txt?t=123`,
     );
   });
 });
@@ -814,7 +814,7 @@ import { describe, expect, it } from "vitest";
 const root = resolve(__dirname, "../../..");
 
 describe("desktop update wiring", () => {
-  it("reads RELEASE.txt before asking electron-updater", () => {
+  it("reads LATEST.txt before asking electron-updater", () => {
     const source = readFileSync(resolve(root, "src/main/auto-update.ts"), "utf8");
     expect(source).toContain("releaseTxtUrl");
     expect(source).toContain("setFeedURL");
@@ -838,7 +838,7 @@ Expected: FAIL（仍有旧域名 / 没有 `setFeedURL`）。
 按以下顺序实现：
 
 1. 私有化构建直接返回。
-2. `net.fetch(releaseTxtUrl(...), { cache: "no-store" })`，解析 `RELEASE.txt`。
+2. `net.fetch(releaseTxtUrl(...), { cache: "no-store" })`，解析 `LATEST.txt`。
 3. 用 `isVersionNewer(latest, app.getVersion())` 判断；没有新版本时设为 `up-to-date`，不访问版本目录。
 4. 计算 `desktopTarget(process.platform, process.arch)`；为 `null` 时设置 `unsupported`（平台不支持自动更新）。
 5. macOS / Windows：先 `HEAD metadataUrl(...)`；非 2xx 时设为 `up-to-date`（产物尚未发布）；成功则 `updater.setFeedURL({ provider: "generic", url: feedUrl(...) })` 后 `checkForUpdates()`。`getUpdater()` 构造时仍可传 COS 基址作为占位，真正使用的 URL 由 `setFeedURL` 决定。
@@ -865,9 +865,9 @@ Expected: PASS。
 用测试版本目录：
 
 1. 在本机启动开发版桌面端。
-2. 把 `RELEASE.txt` 指向一个更高版本，并准备该版本的 `latest-mac.yml` / `latest.yml`。
+2. 把 `LATEST.txt` 指向一个更高版本，并准备该版本的 `latest-mac.yml` / `latest.yml`。
 3. 检查更新：应进入 `available` 并开始下载。
-4. 把 `RELEASE.txt` 指回当前版本：应显示「当前已经是最新版本」。
+4. 把 `LATEST.txt` 指回当前版本：应显示「当前已经是最新版本」。
 5. 删除版本目录后再检查：应保持静默/最新，而不是 `error`。
 6. Linux：检查更新后菜单出现「下载安装包」，点击用系统浏览器打开 `.deb`。
 
@@ -894,7 +894,7 @@ git commit -m "feat(desktop): 从 COS 版本目录检查更新"
 
 **Interfaces:**
 - Consumes: Task 1 的 `scripts/release/publish-cos.sh`。
-- Produces: 单一 tag 工作流：`prepare → frontend/backend/android/desktop → publish`；`publish` 上传 COS 并写 `RELEASE.txt`。
+- Produces: 单一 tag 工作流：`prepare → frontend/backend/android/desktop → publish`；`publish` 上传 COS 并写 `LATEST.txt`。
 
 - [ ] **Step 1: 把桌面构建并入 `release.yml`**
 
@@ -920,7 +920,7 @@ staging/<version>/SHA256SUMS.txt
 
 - 在 staging 根目录生成校验和，路径用相对路径。
 
-- [ ] **Step 3: 上传 COS 并写 `RELEASE.txt`**
+- [ ] **Step 3: 上传 COS 并写 `LATEST.txt`**
 
 - 安装 `coscmd`（`python3 -m pip install --user coscmd`，把 `~/.local/bin` 加进 `PATH`）。
 - 仅当 `startsWith(github.ref, 'refs/tags/')` 时执行：
@@ -936,15 +936,15 @@ UPDATE_RELEASE_FILE=1 RELEASE_PREFIX=application \
 
 - [ ] **Step 4: 处理外部下载页兼容（如需要）**
 
-确认官网或外部下载页是否仍读 `application/LATEST.txt` / 根目录安装包。若有引用，在 `publish` job 额外上传一个 `LATEST.txt`（内容与 `RELEASE.txt` 相同）作为临时别名；确认无人读取后删除该步骤。不要同时维护两套安装包路径。
+确认官网或外部下载页是否仍读 `application/LATEST.txt` / 根目录安装包。若有引用，在 `publish` job 额外上传一个 `LATEST.txt`（内容与 `LATEST.txt` 相同）作为临时别名；确认无人读取后删除该步骤。不要同时维护两套安装包路径。
 
 - [ ] **Step 5: 更新发布文档**
 
 `docs/operations/release.md`：
 
 - 发布表增加 COS 目录说明；删掉“桌面端由独立 workflow 发布”的段落。
-- 说明只有 tag 发布写 COS / `RELEASE.txt`，`workflow_dispatch` 只出 artifact。
-- 说明 `RELEASE.txt` 只由 `publish` job 写，稳定版本才推进。
+- 说明只有 tag 发布写 COS / `LATEST.txt`，`workflow_dispatch` 只出 artifact。
+- 说明 `LATEST.txt` 只由 `publish` job 写，稳定版本才推进。
 
 `docs/README.md` 增加本计划的索引行。
 
@@ -957,7 +957,7 @@ Expected: 无输出（退出码 0）。
 
 ```bash
 test ! -e .github/workflows/desktop-release.yml
-grep -q "RELEASE.txt" docs/operations/release.md
+grep -q "LATEST.txt" docs/operations/release.md
 ```
 
 - [ ] **Step 7: 提交**
@@ -980,7 +980,7 @@ git commit -m "feat(ci): 统一发布桌面端与移动端到 COS"
 - [ ] `pnpm --filter @lework/desktop test && pnpm --filter @lework/desktop typecheck`
 - [ ] `cd frontend && pnpm typecheck`
 - [ ] `go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/release.yml`
-- [ ] 用测试前缀跑一次 `publish-cos.sh` dry-run，确认目录与 `RELEASE.txt` 路径正确
+- [ ] 用测试前缀跑一次 `publish-cos.sh` dry-run，确认目录与 `LATEST.txt` 路径正确
 
     ```bash
     mkdir -p /tmp/lework-release/0.8.0/android

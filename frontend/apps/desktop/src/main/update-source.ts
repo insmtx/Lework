@@ -7,21 +7,21 @@ export const DESKTOP_UPDATE_BASE_URL: string =
 	process.env.LEWORK_UPDATE_BASE_URL ||
 	"https://leros-1395325824.cos.ap-beijing.myqcloud.com/application";
 
-// 与 linux-update.ts 的 parseVersion 语法一致；RELEASE.txt 里只应是纯版本号，
+// 与 linux-update.ts 的 parseVersion 语法一致；LATEST.txt 里只应是纯版本号，
 // HTML 错误页会落空。可选前导 v 由 isVersionNewer 比较时容忍。
-const RELEASE_VERSION_PATTERN = /^v?\d+(?:\.\d+)*(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const LATEST_VERSION_PATTERN = /^v?\d+(?:\.\d+)*(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
-/** parseReleaseVersion 取 RELEASE.txt 首个非空行并校验为版本号，非法内容抛错。 */
-export function parseReleaseVersion(body: string): string {
+/** parseLatestVersion 取 LATEST.txt 首个非空行并校验为版本号，非法内容抛错。 */
+export function parseLatestVersion(body: string): string {
 	const line = body
 		.split(/\r?\n/)
 		.map((value) => value.trim())
 		.find((value) => value.length > 0);
 	if (!line) {
-		throw new Error("RELEASE.txt 内容为空");
+		throw new Error("LATEST.txt 内容为空");
 	}
-	if (!RELEASE_VERSION_PATTERN.test(line)) {
-		throw new Error(`RELEASE.txt 内容非法：${line}`);
+	if (!LATEST_VERSION_PATTERN.test(line)) {
+		throw new Error(`LATEST.txt 内容非法：${line}`);
 	}
 
 	return line;
@@ -71,11 +71,11 @@ export function metadataUrl(
 	return `${feedUrl(baseUrl, version, target)}/${target.metadataFile}?t=${now}`;
 }
 
-/** releaseTxtUrl 读取最新稳定版本号；now 缺省取 Date.now()。 */
-export function releaseTxtUrl(
+/** latestTxtUrl 读取最新稳定版本号；now 缺省取 Date.now()。 */
+export function latestTxtUrl(
 	baseUrl: string = DESKTOP_UPDATE_BASE_URL,
 	now: number = Date.now(),
 ): string {
 	const base = trimTrailingSlash(baseUrl);
-	return `${base}/RELEASE.txt?t=${now}`;
+	return `${base}/LATEST.txt?t=${now}`;
 }

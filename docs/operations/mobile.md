@@ -230,7 +230,7 @@ Settings 里的控制面地址推导，防止控制面搬家把更新流量带�
 - 设置 →「版本」行随时可手动检查；失败会弹可读的错误提示。
 
 自动检查失败保持静默（回到 idle 等下一次时机），不打扰用户。流程是
-`GET ${BASE}/RELEASE.txt?t=<时间戳>` 取最新版本号、比较 semver，再对 APK 产物
+`GET ${BASE}/LATEST.txt?t=<时间戳>` 取最新版本号、比较 semver，再对 APK 产物
 做 `HEAD` 确认已上传，二者齐备才算「有更新」。
 
 ### 下载与安装
@@ -262,7 +262,7 @@ App 被杀后不续传，下次启动重新检查、重新下载。
 以下需在 Android 真机或模拟器执行：
 
 1. 安装旧版本 APK。
-2. 把 `RELEASE.txt` 与新版 APK 按 `<version>/android/...` 布局上传到测试前缀
+2. 把 `LATEST.txt` 与新版 APK 按 `<version>/android/...` 布局上传到测试前缀
    （构建时可用 `EXPO_PUBLIC_LEWORK_UPDATE_BASE_URL` 指向该前缀）。
 3. 启动 App：出现更新 Modal，下载进度前进。
 4. 点「立即安装」：系统安装器打开；允许安装未知应用后完成覆盖安装。

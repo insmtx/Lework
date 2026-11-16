@@ -17,7 +17,7 @@ interface GateActions {
 	onRetry: () => void;
 }
 
-// 版本号可能带 v 前缀（RELEASE.txt 允许 v?x.y.z），统一剥掉后再补，
+// 版本号可能带 v 前缀（LATEST.txt 允许 v?x.y.z），统一剥掉后再补，
 // 避免出现「发现新版本 vv0.9.0」。
 function displayVersion(version: string): string {
 	return version.replace(/^v/i, "");
