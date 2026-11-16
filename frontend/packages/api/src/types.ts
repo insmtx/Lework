@@ -37,6 +37,11 @@ export interface ProjectNode {
 	node_id: string;
 	online: boolean;
 	last_seen: string;
+	/**
+	 * 该项目在这台节点上的检出路径。同一 git 项目在不同机器上路径可能不同，
+	 * 新建会话必须用它；老控制面缺省时退回项目顶层 canonical。
+	 */
+	canonical?: string;
 }
 
 /**

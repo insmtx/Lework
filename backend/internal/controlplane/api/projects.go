@@ -20,6 +20,9 @@ type projectNodeView struct {
 	NodeID   string    `json:"node_id"`
 	Online   bool      `json:"online"`
 	LastSeen time.Time `json:"last_seen"`
+	// Canonical 是该节点上的检出路径。同一 git 项目在不同机器上路径可能
+	// 不同，客户端新建会话时必须用目标节点自己的路径，不能用顶层的聚合值。
+	Canonical string `json:"canonical,omitempty"`
 }
 
 // projectView 是浏览器看到的项目聚合视图。
@@ -261,9 +264,10 @@ func addProjectNode(
 		}
 	}
 	view.Nodes = append(view.Nodes, projectNodeView{
-		NodeID:   nodeID,
-		Online:   online,
-		LastSeen: lastSeen,
+		NodeID:    nodeID,
+		Online:    online,
+		LastSeen:  lastSeen,
+		Canonical: project.Canonical,
 	})
 }
 

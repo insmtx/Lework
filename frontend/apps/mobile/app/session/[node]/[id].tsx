@@ -15,7 +15,7 @@ import {
 } from "react-native";
 
 import { sessionRoute } from "../../../src/config";
-import { findProjectForSession } from "../../../src/projects/model";
+import { findProjectForSession, projectDirectoryOnNode } from "../../../src/projects/model";
 import { MessageRow } from "../../../src/session/message-row";
 import { filterVisibleMessages } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
@@ -239,10 +239,11 @@ export default function SessionScreen() {
 			(current.projectID === "global"
 				? `global:${current.directory ?? ""}`
 				: (current.projectID ?? ""));
-		const canonical = project?.canonical ?? current.directory ?? "";
+		// 会话目录就在这台节点上，前缀匹配必须用该节点自己的检出路径。
+		const canonical = project ? projectDirectoryOnNode(project, nodeID) : (current.directory ?? "");
 		if (!key && !canonical) return [current];
 		return selectSiblingSessions(nodeSessions.sessions, key, canonical);
-	}, [current, project, nodeSessions.sessions]);
+	}, [current, project, nodeID, nodeSessions.sessions]);
 
 	const [draft, setDraft] = useState("");
 	const [actionError, setActionError] = useState<string | null>(null);
