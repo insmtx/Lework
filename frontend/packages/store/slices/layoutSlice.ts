@@ -218,7 +218,10 @@ export type ViewMode =
 	| "orgModels"
 	| "skills"
 	| "automation"
-	| "settings";
+	| "settings"
+	| "workspaces"
+	| "nodes"
+	| "pending";
 
 export type LayoutState = {
 	leftRailCollapsed: boolean;
@@ -563,6 +566,15 @@ const _initialState: LayoutState = {
 				{ id: "projects-hub", label: "项目", icon: "IconProjectsHub" },
 				{ id: "skills", label: "插件", icon: "IconSkill" },
 				{ id: "automation", label: "自动化", icon: "IconAutomation" },
+			],
+		},
+		{
+			id: "opencode",
+			label: "OpenCode",
+			items: [
+				{ id: "workspaces", label: "工作区", icon: "IconWorkspace" },
+				{ id: "nodes", label: "节点", icon: "IconNode" },
+				{ id: "pending", label: "审批", icon: "IconPending" },
 			],
 		},
 		{

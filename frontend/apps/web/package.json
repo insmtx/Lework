@@ -12,7 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@lework/api": "workspace:*",
     "@lework/app-ui": "workspace:*",
+    "@lework/control-ui": "workspace:*",
     "@lework/store": "workspace:*",
     "@lework/styles": "workspace:*",
     "@lework/ui": "workspace:*",

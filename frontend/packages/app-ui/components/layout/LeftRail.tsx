@@ -50,6 +50,7 @@ import {
 	Contact,
 	ExternalLink,
 	FileText,
+	FolderGit2,
 	LayoutDashboard,
 	Loader2,
 	LogOut,
@@ -59,7 +60,9 @@ import {
 	Pencil,
 	RefreshCcw,
 	Search,
+	Server,
 	Settings,
+	ShieldCheck,
 	Trash2,
 	UserRound,
 	Users,
@@ -116,6 +119,8 @@ export type AppNavigation = {
 	goToProjectTasks: (projectId: string) => void;
 	goToTaskDetail: (projectId: string, taskId: string, sessionId: string) => void;
 	goToAutomationDetail: (publicId: string) => void;
+	/** 宿主是否提供 OpenCode 工作区/节点/审批页面；未声明的旧宿主隐藏该分组。 */
+	supportsOpenCode?: boolean;
 };
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -126,6 +131,9 @@ const iconMap: Record<string, React.ReactNode> = {
 	IconOrgModels: <Bot className="size-5" />,
 	IconProjectsHub: <ProjectIcon className="size-5" />,
 	IconWorkbench: <LayoutDashboard className="size-5" />,
+	IconWorkspace: <FolderGit2 className="size-5" />,
+	IconNode: <Server className="size-5" />,
+	IconPending: <ShieldCheck className="size-5" />,
 	IconSkill: <Blocks className="size-5" />,
 	IconAutomation: <Clock className="size-5" />,
 	IconProject: <ProjectIcon className="size-4" />,
@@ -137,6 +145,9 @@ const navIdToView: Record<string, ViewMode> = {
 	"projects-hub": "projectsHub",
 	skills: "skills",
 	automation: "automation",
+	workspaces: "workspaces",
+	nodes: "nodes",
+	pending: "pending",
 	"org-profile": "orgProfile",
 	"org-departments": "orgDepartments",
 	"org-assistants": "orgAssistants",
@@ -761,7 +772,11 @@ export function LeftRail({
 					<>
 						<nav className="lework-nav shrink-0" aria-label="主导航">
 							{navGroups
-								.filter((group) => group.id !== "projects")
+								.filter(
+									(group) =>
+										group.id !== "projects" &&
+										(group.id !== "opencode" || !navigation || navigation.supportsOpenCode),
+								)
 								.map((group) => (
 									<div key={group.id} className="lework-nav-section">
 										{group.label ? (
@@ -1696,6 +1711,9 @@ function getRouteActive(path: string, view: ViewMode) {
 	if (view === "skills") return path.startsWith("/skills");
 	if (view === "tasks") return path.startsWith("/tasks");
 	if (view === "automation") return path === "/automation" || path.startsWith("/automation/");
+	if (view === "workspaces") return path === "/workspaces" || path.startsWith("/workspaces/");
+	if (view === "nodes") return path === "/nodes" || path.startsWith("/nodes/");
+	if (view === "pending") return path === "/pending" || path.startsWith("/pending/");
 	return false;
 }
 

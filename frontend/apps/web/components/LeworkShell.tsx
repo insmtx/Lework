@@ -20,6 +20,7 @@ export function useWebNavigation(): AppNavigation {
 
 	return {
 		currentPath: pathname,
+		supportsOpenCode: true,
 		goToRoute(route) {
 			const routePath = {
 				chat: "/chat",
@@ -34,6 +35,9 @@ export function useWebNavigation(): AppNavigation {
 				orgModels: "/org/models",
 				skills: "/skills",
 				automation: "/automation",
+				workspaces: "/workspaces",
+				nodes: "/nodes",
+				pending: "/pending",
 				settings: "/settings",
 			}[route];
 			if (!routePath) {
