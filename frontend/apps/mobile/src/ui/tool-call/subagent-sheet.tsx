@@ -2,7 +2,6 @@ import type { Message, Session, SessionState } from "@lework/api";
 import type { SubagentView, ToolBlock } from "@lework/tool-view";
 import { type ComponentRef, useEffect, useMemo, useRef, useState } from "react";
 import {
-	ActivityIndicator,
 	FlatList,
 	Modal,
 	type NativeScrollEvent,
@@ -25,6 +24,7 @@ import { useSession } from "../../session/use-session";
 import { useThemePreference } from "../../theme/theme-context";
 import { useTheme } from "../../theme/use-theme";
 import { useAppShell } from "../app-shell-context";
+import { BrandSpinner } from "../loading";
 import { pickSubagentSession } from "./pick-subagent-session";
 import { RawJson } from "./raw-json";
 import { ToolBlocks } from "./tool-blocks";
@@ -296,7 +296,6 @@ function LiveConversation({
 	meta: string;
 	paddingBottom: number;
 }) {
-	const theme = useTheme();
 	const styles = useToolStyles();
 	const { preferences } = useThemePreference();
 	const visible = useMemo(
@@ -352,7 +351,7 @@ function LiveConversation({
 				}
 				ListEmptyComponent={
 					loading ? (
-						<ActivityIndicator style={styles.sheetLoading} color={theme.colors.accent} />
+						<BrandSpinner size={20} style={styles.sheetLoading} />
 					) : (
 						<Text style={styles.muted}>子代理还没有输出。</Text>
 					)

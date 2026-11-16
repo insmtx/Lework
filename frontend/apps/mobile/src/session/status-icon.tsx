@@ -1,6 +1,7 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { useFontScale } from "../theme/use-theme";
+import { BrandSpinner } from "../ui/loading";
 import { type SessionStatus, statusGlyph, statusLabel } from "./status";
 
 export interface SessionStatusIconProps {
@@ -31,11 +32,7 @@ export function SessionStatusIcon({ state, color, size = 14 }: SessionStatusIcon
 				accessibilityLabel={statusLabel(state)}
 				style={[styles.spinner, { width: scaled, height: scaled }]}
 			>
-				<ActivityIndicator
-					size="small"
-					color={color}
-					style={{ transform: [{ scale: 0.7 * fontScale }] }}
-				/>
+				<BrandSpinner size={scaled} color={color} />
 			</View>
 		);
 	}

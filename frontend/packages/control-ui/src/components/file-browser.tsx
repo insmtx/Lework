@@ -14,8 +14,8 @@ import {
 	RefreshCw,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { listFiles, readFile } from "../lib/api";
-import type { FileInfo, FileReadResult } from "../lib/types";
+import { useControlApi } from "../context";
+import type { FileInfo, FileReadResult } from "../types";
 
 interface FileBrowserProps {
 	nodeID: string;
@@ -49,6 +49,7 @@ function formatBytes(value: number): string {
 
 export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
 	const isMobile = useIsMobile();
+	const { client } = useControlApi();
 	const [path, setPath] = useState("");
 	const [entries, setEntries] = useState<FileInfo[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -61,7 +62,7 @@ export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
 		setLoading(true);
 		setError(null);
 		try {
-			const result = await listFiles(nodeID, directory, path);
+			const result = await client.listFiles(nodeID, directory, path);
 			setEntries(
 				[...result].sort((a, b) => {
 					if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
@@ -73,7 +74,7 @@ export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
 		} finally {
 			setLoading(false);
 		}
-	}, [nodeID, directory, path]);
+	}, [client, nodeID, directory, path]);
 
 	useEffect(() => {
 		setSelected(null);
@@ -85,7 +86,7 @@ export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
 		setFileLoading(true);
 		setFileError(null);
 		try {
-			const result = await readFile(nodeID, directory, joinPath(path, entryPath));
+			const result = await client.readFile(nodeID, directory, joinPath(path, entryPath));
 			setSelected(result);
 		} catch (caught) {
 			setFileError(caught instanceof Error ? caught.message : "Unable to read file");
@@ -95,6 +96,10 @@ export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
 	};
 
 	const segments = path.split("/").filter(Boolean);
+	const crumbs = segments.map((segment, index) => ({
+		segment,
+		path: segments.slice(0, index + 1).join("/"),
+	}));
 	// 手机屏幕只有单栏：有选中文件时让预览占满，返回按钮回到列表。
 	const showPreviewOnly = isMobile && selected !== null;
 	const showListOnly = isMobile && selected === null;
@@ -120,15 +125,15 @@ export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
 							>
 								root
 							</button>
-							{segments.map((segment, index) => (
-								<span key={`${segment}-${index}`} className="flex min-w-0 items-center">
+							{crumbs.map((crumb) => (
+								<span key={crumb.path} className="flex min-w-0 items-center">
 									<ChevronRight className="size-3 shrink-0" />
 									<button
 										type="button"
 										className="truncate hover:text-foreground"
-										onClick={() => setPath(segments.slice(0, index + 1).join("/"))}
+										onClick={() => setPath(crumb.path)}
 									>
-										{segment}
+										{crumb.segment}
 									</button>
 								</span>
 							))}

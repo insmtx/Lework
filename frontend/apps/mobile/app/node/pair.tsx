@@ -1,14 +1,15 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { createClient } from "../../src/api/client";
 import { buildPairPayload, type PairPayload } from "../../src/pairing/link";
 import { createSecureSettingsStore } from "../../src/settings/secure-store";
-import { authErrorMessage, saveServerAddress, type SessionDeps } from "../../src/settings/session";
+import { authErrorMessage, type SessionDeps, saveServerAddress } from "../../src/settings/session";
 import type { Theme } from "../../src/theme/theme";
-import { useTheme, useThemedStyles } from "../../src/theme/use-theme";
+import { useThemedStyles } from "../../src/theme/use-theme";
 import { useAppShell } from "../../src/ui/app-shell-context";
+import { BrandSpinner } from "../../src/ui/loading";
 
 /**
  * 配对深链的落点：`lework://node/pair?url=…&code=…`。
@@ -17,7 +18,6 @@ import { useAppShell } from "../../src/ui/app-shell-context";
  * 送到确认页。判断统一放在这里，扫码与深链因此走同一套「切控制面」语义。
  */
 export default function PairDeepLinkScreen() {
-	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const { settings, settingsLoading, reloadSettings } = useAppShell();
 	const params = useLocalSearchParams<{ code?: string; url?: string }>();
@@ -72,22 +72,18 @@ export default function PairDeepLinkScreen() {
 			return;
 		}
 		if (settings.baseUrl !== payload.baseUrl) {
-			Alert.alert(
-				"这是另一个控制面的码",
-				`${payload.baseUrl}\n\n切换控制面会退出当前登录。`,
-				[
-					{
-						text: "取消",
-						style: "cancel",
-						onPress: () => router.replace("/nodes"),
-					},
-					{
-						text: "切换",
-						style: "destructive",
-						onPress: () => void switchAndLogin(payload),
-					},
-				],
-			);
+			Alert.alert("这是另一个控制面的码", `${payload.baseUrl}\n\n切换控制面会退出当前登录。`, [
+				{
+					text: "取消",
+					style: "cancel",
+					onPress: () => router.replace("/nodes"),
+				},
+				{
+					text: "切换",
+					style: "destructive",
+					onPress: () => void switchAndLogin(payload),
+				},
+			]);
 			return;
 		}
 		router.replace({ pathname: "/nodes/add", params: { code: payload.code } });
@@ -107,7 +103,7 @@ export default function PairDeepLinkScreen() {
 
 	return (
 		<View style={styles.center}>
-			<ActivityIndicator color={theme.colors.accent} />
+			<BrandSpinner size={22} />
 			<Text style={styles.hint}>正在打开配对…</Text>
 		</View>
 	);

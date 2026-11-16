@@ -103,6 +103,12 @@ function useDesktopNavigation(): AppNavigation {
 
 				automation: "/automation",
 
+				workspaces: "/workspaces",
+
+				nodes: "/nodes",
+
+				pending: "/pending",
+
 				settings: "/settings",
 			}[route];
 

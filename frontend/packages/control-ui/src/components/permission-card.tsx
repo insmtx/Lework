@@ -3,7 +3,7 @@
 import { Button } from "@lework/ui/components/ui/button";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import type { PermissionRequest } from "../lib/types";
+import type { PermissionRequest } from "../types";
 
 type PermissionDecision = "once" | "always" | "reject";
 

@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
 	trailingSlash: true,
 	images: { unoptimized: true },
 	// 这几个包直接导出 TypeScript 源码（没有预编译产物），必须交给 Next 转译。
-	transpilePackages: ["@lework/ui", "@lework/api", "@lework/tool-view"],
+	transpilePackages: ["@lework/ui", "@lework/api", "@lework/tool-view", "@lework/control-ui"],
 	// Dev only: the browser and the control plane share one origin in production.
 	...(isProd
 		? {}

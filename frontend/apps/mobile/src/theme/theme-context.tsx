@@ -28,6 +28,8 @@ export interface ThemePreference {
 	/** 实际生效的配色，system 模式下跟随系统。 */
 	scheme: ColorScheme;
 	theme: Theme;
+	/** 本地偏好是否已读完；首帧用它挡住启动画面，避免先亮后暗地闪一下。 */
+	ready: boolean;
 	setMode: (mode: ThemeMode) => void;
 	setPreference: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
 }
@@ -44,15 +46,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 	const systemScheme = useColorScheme();
 	const store = useMemo(() => createSecurePreferencesStore(), []);
 	const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
+	const [ready, setReady] = useState(false);
 	const preferencesRef = useRef(preferences);
 
 	useEffect(() => {
 		let cancelled = false;
-		void store.load().then((loaded) => {
-			if (cancelled) return;
-			preferencesRef.current = loaded;
-			setPreferences(loaded);
-		});
+		void store
+			.load()
+			.then((loaded) => {
+				if (cancelled) return;
+				preferencesRef.current = loaded;
+				setPreferences(loaded);
+			})
+			.catch(() => {
+				// 读不到偏好就用默认值启动：启动画面不能因此永远挂着。
+			})
+			.finally(() => {
+				if (!cancelled) setReady(true);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -93,10 +104,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 			mode: preferences.themeMode,
 			scheme,
 			theme: themeFor(scheme),
+			ready,
 			setMode,
 			setPreference,
 		}),
-		[preferences, scheme, setMode, setPreference],
+		[preferences, scheme, ready, setMode, setPreference],
 	);
 
 	return (

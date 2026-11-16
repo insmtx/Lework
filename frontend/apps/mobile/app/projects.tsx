@@ -1,7 +1,6 @@
 import type { ProjectSummary } from "@lework/api";
 import { router } from "expo-router";
 import {
-	ActivityIndicator,
 	FlatList,
 	Pressable,
 	RefreshControl,
@@ -16,6 +15,7 @@ import { formatRelativeTime } from "../src/sidebar/model";
 import type { Theme } from "../src/theme/theme";
 import { useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
+import { LoadingScreen } from "../src/ui/loading";
 
 function ProjectCard({
 	project,
@@ -54,9 +54,7 @@ export default function ProjectsScreen() {
 
 	if (settingsLoading) {
 		return (
-			<View style={styles.center}>
-				<ActivityIndicator />
-			</View>
+			<LoadingScreen text="正在加载项目…" />
 		);
 	}
 

@@ -1,27 +1,15 @@
 import type { NodeView } from "@lework/api";
 import { router } from "expo-router";
 import { useMemo } from "react";
-import {
-	ActivityIndicator,
-	Alert,
-	FlatList,
-	Pressable,
-	RefreshControl,
-	StyleSheet,
-	Text,
-	View,
-} from "react-native";
+import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { createClient } from "../src/api/client";
 import { sortNodes } from "../src/nodes/order";
-import {
-	describeRemoveNode,
-	removeErrorMessage,
-	visibleNodes,
-} from "../src/nodes/remove";
+import { describeRemoveNode, removeErrorMessage, visibleNodes } from "../src/nodes/remove";
 import type { Theme } from "../src/theme/theme";
-import { useTheme, useThemedStyles } from "../src/theme/use-theme";
+import { useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
+import { LoadingScreen } from "../src/ui/loading";
 
 /**
  * NodeCard 只展示这台电脑本身的状态。
@@ -77,7 +65,6 @@ function NodeCard({ node, onRemove }: { node: NodeView; onRemove: (node: NodeVie
 /** 我的电脑只做节点管理：在线优先排序，最多给一行在线统计。 */
 export default function NodesScreen() {
 	useScreenTitle("我的电脑");
-	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const { settings, settingsLoading, projects } = useAppShell();
 	// 不会出现在账号下的历史节点（未认领）不展示：手机不支持认领它们。
@@ -113,11 +100,7 @@ export default function NodesScreen() {
 	};
 
 	if (settingsLoading) {
-		return (
-			<View style={styles.center}>
-				<ActivityIndicator color={theme.colors.accent} />
-			</View>
-		);
+		return <LoadingScreen text="正在加载电脑…" />;
 	}
 
 	if (!settings?.sessionToken) {
@@ -188,7 +171,12 @@ function createStyles(theme: Theme) {
 		title: { fontSize: 18, fontWeight: "600", color: colors.text },
 		hint: { color: colors.textSecondary, textAlign: "center", lineHeight: 20 },
 		summary: { gap: 4, marginBottom: 4 },
-		summaryRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+		summaryRow: {
+			flexDirection: "row",
+			alignItems: "center",
+			justifyContent: "space-between",
+			gap: 8,
+		},
 		summaryText: { fontSize: 13, color: colors.textSecondary, flexShrink: 1 },
 		addButton: {
 			borderWidth: 1,

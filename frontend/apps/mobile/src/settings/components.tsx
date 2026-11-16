@@ -158,7 +158,7 @@ export function ToggleRow({
  * 规则集中在这里，避免各页自己写一套。
  */
 export function createSettingsStyles(theme: Theme) {
-	const { colors } = theme;
+	const { colors, radii } = theme;
 	return StyleSheet.create({
 		container: { padding: 16, gap: 20, paddingBottom: 40 },
 		section: { gap: 6 },
@@ -168,7 +168,7 @@ export function createSettingsStyles(theme: Theme) {
 			backgroundColor: colors.surface,
 			borderWidth: 1,
 			borderColor: colors.border,
-			borderRadius: 14,
+			borderRadius: radii.lg,
 			padding: 14,
 			gap: 10,
 		},
@@ -176,7 +176,7 @@ export function createSettingsStyles(theme: Theme) {
 			backgroundColor: colors.surface,
 			borderWidth: 1,
 			borderColor: colors.border,
-			borderRadius: 14,
+			borderRadius: radii.lg,
 			overflow: "hidden",
 		},
 		menuRow: {

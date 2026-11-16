@@ -1,7 +1,6 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-	ActivityIndicator,
 	Alert,
 	FlatList,
 	Modal,
@@ -18,15 +17,15 @@ import { newIdempotencyKey, sendToProject } from "../../src/composer/send";
 import { projectDisplayName, resolveTarget } from "../../src/projects/model";
 import { useProjectSessions } from "../../src/sessions/use-project-sessions";
 import type { Theme } from "../../src/theme/theme";
-import { useTheme, useThemedStyles } from "../../src/theme/use-theme";
+import { useThemedStyles } from "../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../src/ui/global-composer";
+import { LoadingScreen } from "../../src/ui/loading";
 import { SessionRow } from "../../src/ui/session-row";
 
 /** 项目页：一个项目跨节点的会话合并展示，主节点可改。 */
 export default function ProjectScreen() {
 	const params = useLocalSearchParams<{ key?: string | string[] }>();
-	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const projectKey = Array.isArray(params.key) ? (params.key[0] ?? "") : (params.key ?? "");
 
@@ -133,11 +132,7 @@ export default function ProjectScreen() {
 	);
 
 	if (settingsLoading) {
-		return (
-			<View style={styles.center}>
-				<ActivityIndicator color={theme.colors.accent} />
-			</View>
-		);
+		return <LoadingScreen text="正在加载项目…" />;
 	}
 
 	if (!settings) {

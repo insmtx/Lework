@@ -211,3 +211,17 @@ export interface ClaimPreview {
 	agent_version: string;
 	expires_at: string;
 }
+
+/** ClaimCode 是网页为 `lework agent --code` 签出的短期认领码。 */
+export interface ClaimCode {
+	code: string;
+	node_name: string;
+	expires_at: string;
+}
+
+/** NodeProject 是单个节点上报的 OpenCode workspace 记录。 */
+export interface NodeProject {
+	id: string;
+	canonical: string;
+	vcs?: string;
+}

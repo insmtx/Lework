@@ -1,3 +1,4 @@
 @import "@lework/styles/globals.css";
 
 @source "./**/*.{ts,tsx}";
+@source "../../../packages/control-ui/src/**/*.{ts,tsx}";

@@ -1,3 +1,6 @@
+// diff 行是每次拉取整体重算的渲染产物，行内容本身可以重复（空行/相同代码），
+// 只有位置能标识一行；用索引做 key 不会造成状态错位。
+// biome-ignore-all lint/suspicious/noArrayIndexKey: diff 行只整体替换，索引即稳定身份
 "use client";
 
 import { Badge } from "@lework/ui/components/ui/badge";
@@ -6,9 +9,9 @@ import { useIsMobile } from "@lework/ui/hooks/use-mobile";
 import { cn } from "@lework/ui/lib/utils";
 import { FileDiff, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { sessionDiff } from "../lib/api";
-import { type DiffRow, parsePatch } from "../lib/diff";
-import type { FileDiff as FileDiffType } from "../lib/types";
+import { useControlApi } from "../context";
+import { type DiffRow, parsePatch } from "../diff";
+import type { FileDiff as FileDiffType } from "../types";
 
 interface DiffViewProps {
 	nodeID: string;
@@ -119,6 +122,7 @@ function DiffRowsCompact({ rows }: { rows: DiffRow[] }) {
 
 export function DiffView({ nodeID, sessionID, directory }: DiffViewProps) {
 	const isMobile = useIsMobile();
+	const { client } = useControlApi();
 	const [diffs, setDiffs] = useState<FileDiffType[]>([]);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -128,7 +132,7 @@ export function DiffView({ nodeID, sessionID, directory }: DiffViewProps) {
 		setLoading(true);
 		setError(null);
 		try {
-			const result = await sessionDiff(nodeID, sessionID, directory);
+			const result = await client.sessionDiff(nodeID, sessionID, directory);
 			setDiffs(result);
 			setSelected((current) => {
 				if (current && result.some((file) => file.file === current)) return current;
@@ -139,7 +143,7 @@ export function DiffView({ nodeID, sessionID, directory }: DiffViewProps) {
 		} finally {
 			setLoading(false);
 		}
-	}, [nodeID, sessionID, directory]);
+	}, [client, nodeID, sessionID, directory]);
 
 	useEffect(() => {
 		void load();

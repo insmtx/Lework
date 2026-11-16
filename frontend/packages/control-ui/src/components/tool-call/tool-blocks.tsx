@@ -1,3 +1,6 @@
+// 工具块的数组随流式输出只追加、不重排，块内容也可能完全相同，
+// 索引是唯一稳定的身份；这些块本身没有内部状态。
+// biome-ignore-all lint/suspicious/noArrayIndexKey: 工具块只追加不重排，索引即稳定身份
 "use client";
 
 import { clipText, type DiffLine, type ToolBlock } from "@lework/tool-view";

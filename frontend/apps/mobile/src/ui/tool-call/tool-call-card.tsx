@@ -1,9 +1,10 @@
 import type { ContentPart } from "@lework/api";
 import { toolView } from "@lework/tool-view";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "../../theme/use-theme";
+import { BrandSpinner } from "../loading";
 import { resolveExpanded } from "./collapse";
 import { RawJson } from "./raw-json";
 import { SubagentSheet } from "./subagent-sheet";
@@ -102,9 +103,7 @@ export function ToolCallCard({
 					<Text style={[styles.status, running && styles.statusRunning, { color: toneColor }]}>
 						{view.status}
 					</Text>
-					{running ? (
-						<ActivityIndicator size="small" color={theme.colors.accent} style={styles.spinner} />
-					) : null}
+					{running ? <BrandSpinner size={14} color={theme.colors.accent} style={styles.spinner} /> : null}
 				</Pressable>
 
 				{(detail || !expanded) && view.summary !== "" ? (
