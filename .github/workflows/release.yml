@@ -339,7 +339,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish GitHub Release
+    name: Publish release
     needs:
       - prepare
       - backend
@@ -348,6 +348,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -375,10 +380,56 @@ jobs:
             | xargs -0 sha256sum > SHA256SUMS-release.txt
           cat SHA256SUMS-release.txt
 
+      # 客户端从 COS 发现新版本，所以先写 COS 再创建 GitHub Release，避免指针
+      # 指向一个还没传完的版本。
+      - name: Stage COS layout
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p cos-upload/server cos-upload/android
+          cp upload/lework_*.tar.gz upload/lework_*.zip cos-upload/server/ 2>/dev/null || true
+          cp upload/lework-android-*.apk cos-upload/android/ 2>/dev/null || true
+          cp upload/SHA256SUMS-release.txt cos-upload/SHA256SUMS.txt
+
+          if [ -z "$(ls -A cos-upload/server)" ] || [ -z "$(ls -A cos-upload/android)" ]; then
+            echo "::error::COS 布局缺少 server 或 android 产物"
+            exit 1
+          fi
+          find cos-upload -type f | sort
+
+      - name: Setup coscmd
+        shell: bash
+        run: |
+          # 用 venv 安装，避免 runner 的 PEP 668 externally-managed 限制。
+          python3 -m venv "${RUNNER_TEMP}/coscmd-venv"
+          "${RUNNER_TEMP}/coscmd-venv/bin/pip" install --quiet coscmd
+          echo "${RUNNER_TEMP}/coscmd-venv/bin" >> "$GITHUB_PATH"
+
+      # RELEASE.txt 是统一发布指针，LATEST.txt 沿用旧下载页逻辑，两者内容一致。
+      # 只有稳定 tag 且版本更大时 publish-cos.sh 才会推进指针。
+      - name: Upload to COS
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ vars.COS_BUCKET || 'leros-1395325824' }}
+          COS_REGION: ${{ vars.COS_REGION || 'ap-beijing' }}
+          RELEASE_PREFIX: application
+          UPDATE_RELEASE_FILE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${COS_SECRET_ID}" ] || [ -z "${COS_SECRET_KEY}" ]; then
+            echo "::error::缺少 COS_SECRET_ID / COS_SECRET_KEY，请在仓库或组织 secrets 中配置"
+            exit 1
+          fi
+          bash scripts/release/publish-cos.sh cos-upload "${VERSION}"
+
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # publish job 不 checkout，gh 只能靠 GH_REPO 判断往哪个仓库发版。
+          # 用 GH_REPO 明确发版仓库，避免 checkout 的凭据策略影响 gh 的仓库推断。
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
