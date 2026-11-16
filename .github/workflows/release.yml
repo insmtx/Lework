@@ -655,6 +655,10 @@ jobs:
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ vars.COS_BUCKET || 'leros-1395325824' }}
           COS_REGION: ${{ vars.COS_REGION || 'ap-beijing' }}
+          # 海外 runner 直连 ap-beijing 常超时，默认走 COS 全球加速（需 bucket 已开启）。
+          COS_ENDPOINT: ${{ vars.COS_ENDPOINT || 'cos.accelerate.myqcloud.com' }}
+          COS_RETRY: "5"
+          COS_TIMEOUT: "120"
           RELEASE_PREFIX: application
           UPDATE_LATEST_FILE: "1"
           ROOT_INSTALLER_DIR: cos-root
