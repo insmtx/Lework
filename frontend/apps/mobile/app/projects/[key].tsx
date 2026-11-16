@@ -14,7 +14,11 @@ import {
 import { createClient } from "../../src/api/client";
 import { createSecureDraftStore } from "../../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../../src/composer/send";
-import { projectDisplayName, resolveTarget } from "../../src/projects/model";
+import {
+	projectDirectoryOnNode,
+	projectDisplayName,
+	resolveTarget,
+} from "../../src/projects/model";
 import { useProjectSessions } from "../../src/sessions/use-project-sessions";
 import type { Theme } from "../../src/theme/theme";
 import { useThemedStyles } from "../../src/theme/use-theme";
@@ -106,7 +110,7 @@ export default function ProjectScreen() {
 			const session = await sendToProject(
 				client,
 				nodeID,
-				project.canonical,
+				projectDirectoryOnNode(project, nodeID),
 				text,
 				newIdempotencyKey(nodeID, "new"),
 			);
@@ -188,7 +192,7 @@ export default function ProjectScreen() {
 				}
 				ListHeaderComponent={
 					<View style={styles.header}>
-						<Text style={styles.meta}>{project.canonical}</Text>
+						<Text style={styles.meta}>{projectDirectoryOnNode(project, nodeID ?? "")}</Text>
 						<Pressable style={styles.primary} onPress={() => setPickerOpen(true)}>
 							<Text style={styles.primaryText}>主节点：{primaryLabel} ▾</Text>
 						</Pressable>

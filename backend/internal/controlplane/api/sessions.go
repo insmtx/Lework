@@ -168,6 +168,22 @@ func (a *API) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if !a.allowNode(w, r, req.NodeID) {
 		return
 	}
+	// 先看能力再调用：旧 agent 缺 session.create 时，浏览器应当拿到稳定的
+	// 409 与错误码，而不是等节点返回一个无法区分的 502。
+	view, ok, err := a.findNode(r.Context(), req.NodeID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found", "node not found")
+		return
+	}
+	if !supportsMethod(view, "session.create") {
+		writeAPIError(w, http.StatusConflict, "capability_unavailable",
+			"node agent does not support session.create")
+		return
+	}
 
 	result, err := a.callAgent(r.Context(), req.NodeID, "session.create",
 		sessionCreateParams{Directory: req.Directory})
