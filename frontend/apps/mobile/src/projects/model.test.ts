@@ -4,9 +4,13 @@ import {
 	findProjectForSession,
 	groupSessionsByProject,
 	isPathPrefix,
+	nodeCanCreateSession,
 	orderProjects,
+	projectDirectoryOnNode,
 	projectKeyOf,
+	projectsOnNode,
 	resolveInbox,
+	resolveSelectionTarget,
 	resolveTarget,
 	resolveTaskTarget,
 } from "./model";
@@ -136,8 +140,37 @@ describe("resolveTaskTarget", () => {
 			nodeID: "other",
 			directory: "/w/repo",
 			scopeKey: "repo",
+			projectKey: "repo",
 			reason: "ok",
 		});
+	});
+
+	it("目录用被选中节点自己的 canonical，而不是聚合单值", () => {
+		const repo = project({
+			key: "repo",
+			canonical: "/home/me/repo",
+			nodes: [
+				{
+					node_id: "laptop",
+					online: true,
+					last_seen: "2026-11-12T00:00:00Z",
+					canonical: "/home/me/repo",
+				},
+				{
+					node_id: "server",
+					online: true,
+					last_seen: "2026-11-11T00:00:00Z",
+					canonical: "/srv/repo",
+				},
+			],
+		});
+		const inbox = resolveInbox([repo], { laptop: "/home/me/repo", server: "/srv/repo" }, [
+			"server",
+		]);
+
+		const target = resolveTaskTarget(inbox, { server: "/srv/repo" }, ["server"]);
+		expect(target.nodeID).toBe("server");
+		expect(target.directory).toBe("/srv/repo");
 	});
 
 	it("项目还没创建时退回偏好目录，首条消息负责创建项目", () => {
@@ -147,6 +180,7 @@ describe("resolveTaskTarget", () => {
 			nodeID: "n1",
 			directory: "/w/plain",
 			scopeKey: "inbox:n1:/w/plain",
+			projectKey: null,
 			reason: "ok",
 		});
 	});
@@ -158,6 +192,7 @@ describe("resolveTaskTarget", () => {
 			nodeID: null,
 			directory: "",
 			scopeKey: "",
+			projectKey: null,
 			reason: "no-dir",
 		});
 	});
@@ -174,7 +209,186 @@ describe("resolveTaskTarget", () => {
 			nodeID: null,
 			directory: "/w/repo",
 			scopeKey: "repo",
+			projectKey: "repo",
 			reason: "no-node",
+		});
+	});
+});
+
+describe("projectDirectoryOnNode", () => {
+	it("节点上报了自己的路径时优先使用", () => {
+		const repo = project({
+			key: "repo",
+			canonical: "/home/me/repo",
+			nodes: [
+				{
+					node_id: "server",
+					online: true,
+					last_seen: "2026-11-12T00:00:00Z",
+					canonical: "/srv/repo",
+				},
+			],
+		});
+
+		expect(projectDirectoryOnNode(repo, "server")).toBe("/srv/repo");
+	});
+
+	it("老控制面缺节点路径时退回顶层 canonical", () => {
+		const repo = project({ key: "repo", canonical: "/w/repo" });
+		expect(projectDirectoryOnNode(repo, "n1")).toBe("/w/repo");
+		expect(projectDirectoryOnNode(repo, "missing")).toBe("/w/repo");
+	});
+});
+
+describe("projectsOnNode", () => {
+	it("只返回该节点上出现过的项目", () => {
+		const onA = project({
+			key: "a",
+			nodes: [{ node_id: "n1", online: true, last_seen: "2026-11-12T00:00:00Z" }],
+		});
+		const onB = project({
+			key: "b",
+			nodes: [{ node_id: "n2", online: true, last_seen: "2026-11-12T00:00:00Z" }],
+		});
+
+		expect(projectsOnNode([onA, onB], "n1").map((item) => item.key)).toEqual(["a"]);
+		expect(projectsOnNode([onA, onB], "n3")).toEqual([]);
+	});
+});
+
+describe("nodeCanCreateSession", () => {
+	it("离线节点一律不可选", () => {
+		expect(nodeCanCreateSession({ connected: false, capabilities: ["session.create"] })).toBe(
+			false,
+		);
+	});
+
+	it("能力列表为空按旧 agent 处理，仍然可选", () => {
+		expect(nodeCanCreateSession({ connected: true })).toBe(true);
+		expect(nodeCanCreateSession({ connected: true, capabilities: [] })).toBe(true);
+	});
+
+	it("声明了能力但缺少 session.create 时不可选", () => {
+		expect(nodeCanCreateSession({ connected: true, capabilities: ["session.list"] })).toBe(false);
+		expect(nodeCanCreateSession({ connected: true, capabilities: ["session.create"] })).toBe(true);
+	});
+});
+
+describe("resolveSelectionTarget", () => {
+	const repo = project({
+		key: "repo",
+		canonical: "/home/me/repo",
+		nodes: [
+			{
+				node_id: "laptop",
+				online: true,
+				last_seen: "2026-11-12T00:00:00Z",
+				canonical: "/home/me/repo",
+			},
+			{
+				node_id: "server",
+				online: true,
+				last_seen: "2026-11-11T00:00:00Z",
+				canonical: "/srv/repo",
+			},
+		],
+	});
+	const others = project({
+		key: "other",
+		nodes: [
+			{
+				node_id: "server",
+				online: true,
+				last_seen: "2026-11-10T00:00:00Z",
+				canonical: "/srv/other",
+			},
+		],
+	});
+	const projects = [repo, others];
+	const dirs = { laptop: "/home/me", server: "/srv" };
+	const online = ["laptop", "server"];
+	const inbox = resolveInbox(projects, dirs, online);
+
+	it("没有显式选择时沿用「我的」默认目标", () => {
+		const fallback = resolveTaskTarget(inbox, dirs, online);
+		expect(resolveSelectionTarget(null, projects, dirs, online, inbox)).toEqual(fallback);
+	});
+
+	it("显式选择项目时使用该节点上的路径", () => {
+		expect(
+			resolveSelectionTarget(
+				{ nodeID: "server", projectKey: "repo" },
+				projects,
+				dirs,
+				online,
+				inbox,
+			),
+		).toEqual({
+			nodeID: "server",
+			directory: "/srv/repo",
+			scopeKey: "repo",
+			projectKey: "repo",
+			reason: "ok",
+		});
+	});
+
+	it("选择「我的目录」时发到该节点的偏好目录，而不是项目路径", () => {
+		expect(
+			resolveSelectionTarget({ nodeID: "server", projectKey: null }, projects, dirs, online, inbox),
+		).toEqual({
+			nodeID: "server",
+			directory: "/srv",
+			scopeKey: "inbox:server:/srv",
+			projectKey: null,
+			reason: "ok",
+		});
+	});
+
+	it("切到没有该项目副本的节点时回落到该节点的「我的目录」", () => {
+		const laptopOnly = project({
+			key: "laptop-only",
+			nodes: [{ node_id: "laptop", online: true, last_seen: "2026-11-12T00:00:00Z" }],
+		});
+
+		expect(
+			resolveSelectionTarget(
+				{ nodeID: "server", projectKey: "laptop-only" },
+				[...projects, laptopOnly],
+				dirs,
+				online,
+				inbox,
+			),
+		).toEqual({
+			nodeID: "server",
+			directory: "/srv",
+			scopeKey: "inbox:server:/srv",
+			projectKey: null,
+			reason: "ok",
+		});
+	});
+
+	it("选中的节点离线时回退默认目标，不会卡在无效节点上", () => {
+		const fallback = resolveTaskTarget(inbox, dirs, ["laptop"]);
+		expect(
+			resolveSelectionTarget(
+				{ nodeID: "server", projectKey: "repo" },
+				projects,
+				dirs,
+				["laptop"],
+				inbox,
+			),
+		).toEqual(fallback);
+	});
+
+	it("节点没有任何目录时返回 no-dir", () => {
+		expect(
+			resolveSelectionTarget({ nodeID: "server", projectKey: null }, projects, {}, online, inbox),
+		).toEqual({
+			nodeID: "server",
+			directory: "",
+			scopeKey: "",
+			projectKey: null,
+			reason: "no-dir",
 		});
 	});
 });

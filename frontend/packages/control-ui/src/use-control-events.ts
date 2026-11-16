@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useControlApi } from "./context";
 import type { ControlEvent } from "./types";
 
 interface UseControlEventsResult {
@@ -20,6 +21,7 @@ export function useControlEvents(
 	onEvent: (event: ControlEvent) => void,
 	onResync: () => void,
 ): UseControlEventsResult {
+	const { eventsUrl = "/api/events" } = useControlApi();
 	const eventRef = useRef(onEvent);
 	const resyncRef = useRef(onResync);
 	const [connected, setConnected] = useState(false);
@@ -35,7 +37,7 @@ export function useControlEvents(
 
 		const connect = () => {
 			if (closed) return;
-			source = new EventSource("/api/events");
+			source = new EventSource(eventsUrl);
 			source.onopen = () => {
 				retryDelay = initialRetryDelay;
 				setConnected(true);
@@ -66,7 +68,7 @@ export function useControlEvents(
 			if (retryTimer) clearTimeout(retryTimer);
 			source?.close();
 		};
-	}, []);
+	}, [eventsUrl]);
 
 	return { connected };
 }

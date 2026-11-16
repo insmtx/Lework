@@ -89,27 +89,15 @@ importers:
       '@lework/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@lework/control-ui':
+        specifier: workspace:*
+        version: link:../../packages/control-ui
       '@lework/styles':
         specifier: workspace:*
         version: link:../../packages/styles
-      '@lework/tool-view':
-        specifier: workspace:*
-        version: link:../../packages/tool-view
       '@lework/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@xterm/addon-fit':
-        specifier: ^0.11.0
-        version: 0.11.0
-      '@xterm/xterm':
-        specifier: ^6.0.0
-        version: 6.0.0
-      clsx:
-        specifier: 'catalog:'
-        version: 2.1.1
-      lucide-react:
-        specifier: 'catalog:'
-        version: 1.17.0(react@19.2.3)
       next:
         specifier: ^16.2.3
         version: 16.2.9(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -119,9 +107,6 @@ importers:
       react-dom:
         specifier: 'catalog:'
         version: 19.2.3(react@19.2.3)
-      tailwind-merge:
-        specifier: 'catalog:'
-        version: 3.6.0
     devDependencies:
       '@lework/tsconfig':
         specifier: workspace:*
@@ -244,6 +229,9 @@ importers:
       '@lework/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@lework/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       '@lework/tool-view':
         specifier: workspace:*
         version: link:../../packages/tool-view
@@ -305,6 +293,9 @@ importers:
       '@types/react':
         specifier: ~19.3.0
         version: 19.3.0
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -314,9 +305,15 @@ importers:
 
   apps/web:
     dependencies:
+      '@lework/api':
+        specifier: workspace:*
+        version: link:../../packages/api
       '@lework/app-ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
+      '@lework/control-ui':
+        specifier: workspace:*
+        version: link:../../packages/control-ui
       '@lework/store':
         specifier: workspace:*
         version: link:../../packages/store
@@ -474,6 +471,55 @@ importers:
         version: 4.1.8(@types/node@25.9.3)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.0.16(@types/node@25.9.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.0))
 
   packages/biome: {}
+
+  packages/control-ui:
+    dependencies:
+      '@lework/api':
+        specifier: workspace:*
+        version: link:../api
+      '@lework/tool-view':
+        specifier: workspace:*
+        version: link:../tool-view
+      '@lework/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@xterm/addon-fit':
+        specifier: ^0.11.0
+        version: 0.11.0
+      '@xterm/xterm':
+        specifier: ^6.0.0
+        version: 6.0.0
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.17.0(react@19.3.0)
+      react:
+        specifier: ^19
+        version: 19.3.0
+    devDependencies:
+      '@lework/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.8(@types/node@25.9.3)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.0.16(@types/node@25.9.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.0))
+
+  packages/design-tokens:
+    devDependencies:
+      '@lework/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.8(@types/node@25.9.3)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.0.16(@types/node@25.9.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.0))
 
   packages/store:
     dependencies:
@@ -11784,6 +11830,10 @@ snapshots:
   lucide-react@1.17.0(react@19.2.3):
     dependencies:
       react: 19.2.3
+
+  lucide-react@1.17.0(react@19.3.0):
+    dependencies:
+      react: 19.3.0
 
   lz-string@1.5.0: {}
 

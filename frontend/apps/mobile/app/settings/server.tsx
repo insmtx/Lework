@@ -1,18 +1,15 @@
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 import { createClient } from "../../src/api/client";
 import { createSettingsStyles, SettingsPage, SettingsSection } from "../../src/settings/components";
 import { createSecureSettingsStore } from "../../src/settings/secure-store";
-import {
-	authErrorMessage,
-	saveServerAddress,
-	type SessionDeps,
-} from "../../src/settings/session";
+import { authErrorMessage, type SessionDeps, saveServerAddress } from "../../src/settings/session";
 import { useSettings } from "../../src/settings/use-settings";
 import { useTheme, useThemedStyles } from "../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../src/ui/app-shell-context";
+import { BrandSpinner } from "../../src/ui/loading";
 
 /**
  * 服务器设置只回答一个问题：连到哪个控制面。
@@ -88,10 +85,7 @@ export default function ServerScreen() {
 				</Text>
 			</SettingsSection>
 
-			<SettingsSection
-				title="控制面地址"
-				hint="必须是完整的 http(s) URL；换地址后需要重新登录。"
-			>
+			<SettingsSection title="控制面地址" hint="必须是完整的 http(s) URL；换地址后需要重新登录。">
 				<TextInput
 					style={styles.input}
 					value={baseUrl}
@@ -110,7 +104,7 @@ export default function ServerScreen() {
 					disabled={!canSave}
 				>
 					{busy ? (
-						<ActivityIndicator color={theme.colors.actionText} />
+						<BrandSpinner color={theme.colors.actionText} />
 					) : (
 						<Text style={styles.buttonText}>保存</Text>
 					)}

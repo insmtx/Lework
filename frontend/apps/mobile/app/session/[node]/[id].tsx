@@ -2,7 +2,6 @@ import type { Message, PendingPermission, Session } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	ActivityIndicator,
 	FlatList,
 	Modal,
 	type NativeScrollEvent,
@@ -16,7 +15,7 @@ import {
 } from "react-native";
 
 import { sessionRoute } from "../../../src/config";
-import { findProjectForSession } from "../../../src/projects/model";
+import { findProjectForSession, projectDirectoryOnNode } from "../../../src/projects/model";
 import { MessageRow } from "../../../src/session/message-row";
 import { filterVisibleMessages } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
@@ -32,6 +31,7 @@ import { useThemePreference } from "../../../src/theme/theme-context";
 import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../../src/ui/global-composer";
+import { BrandSpinner, LoadingScreen } from "../../../src/ui/loading";
 import { ScreenTopBar } from "../../../src/ui/top-bar";
 
 function param(value: string | string[] | undefined): string {
@@ -139,7 +139,6 @@ function SessionSwitcher({
 	onPick: (id: string) => void;
 	onClose: () => void;
 }) {
-	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 
 	return (
@@ -162,7 +161,7 @@ function SessionSwitcher({
 					)}
 					ListEmptyComponent={
 						loading ? (
-							<ActivityIndicator style={styles.sheetLoading} color={theme.colors.accent} />
+							<BrandSpinner size={20} style={styles.sheetLoading} />
 						) : (
 							<Text style={styles.hint}>这个项目下还没有会话</Text>
 						)
@@ -240,10 +239,11 @@ export default function SessionScreen() {
 			(current.projectID === "global"
 				? `global:${current.directory ?? ""}`
 				: (current.projectID ?? ""));
-		const canonical = project?.canonical ?? current.directory ?? "";
+		// 会话目录就在这台节点上，前缀匹配必须用该节点自己的检出路径。
+		const canonical = project ? projectDirectoryOnNode(project, nodeID) : (current.directory ?? "");
 		if (!key && !canonical) return [current];
 		return selectSiblingSessions(nodeSessions.sessions, key, canonical);
-	}, [current, project, nodeSessions.sessions]);
+	}, [current, project, nodeID, nodeSessions.sessions]);
 
 	const [draft, setDraft] = useState("");
 	const [actionError, setActionError] = useState<string | null>(null);
@@ -346,11 +346,7 @@ export default function SessionScreen() {
 	};
 
 	if (settingsLoading) {
-		return (
-			<View style={styles.center}>
-				<ActivityIndicator color={theme.colors.accent} />
-			</View>
-		);
+		return <LoadingScreen text="正在打开会话…" />;
 	}
 
 	if (!settings) {

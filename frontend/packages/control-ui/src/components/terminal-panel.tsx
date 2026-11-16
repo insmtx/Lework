@@ -6,7 +6,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Loader2, RotateCcw, TerminalSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { closePTY, createPTY } from "../lib/api";
+import { defaultPtyUrl, useControlApi } from "../context";
 
 type TerminalStatus = "creating" | "connecting" | "ready" | "disconnected" | "exited" | "error";
 
@@ -17,6 +17,8 @@ interface TerminalPanelProps {
 }
 
 export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelProps) {
+	const { client, ptyUrl } = useControlApi();
+	const resolvePtyUrl = ptyUrl ?? defaultPtyUrl;
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [status, setStatus] = useState<TerminalStatus>("creating");
 	const [error, setError] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelPro
 
 		const run = async () => {
 			try {
-				const pty = await createPTY(
+				const pty = await client.createPTY(
 					nodeID,
 					sessionID,
 					directory,
@@ -93,12 +95,11 @@ export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelPro
 				);
 				ptyID = pty.id;
 				if (disposed) {
-					void closePTY(nodeID, sessionID, pty.id);
+					void client.closePTY(nodeID, sessionID, pty.id);
 					return;
 				}
 				setStatus("connecting");
-				const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-				const url = `${scheme}://${window.location.host}/api/pty/${encodeURIComponent(nodeID)}/${encodeURIComponent(sessionID)}/${encodeURIComponent(pty.id)}/ws`;
+				const url = resolvePtyUrl({ nodeID, sessionID, ptyID: pty.id });
 				socket = new WebSocket(url);
 				socket.binaryType = "arraybuffer";
 				connectTimer = setTimeout(() => {
@@ -167,9 +168,9 @@ export function TerminalPanel({ nodeID, sessionID, directory }: TerminalPanelPro
 			observer?.disconnect();
 			socket?.close();
 			terminal.dispose();
-			if (ptyID) void closePTY(nodeID, sessionID, ptyID);
+			if (ptyID) void client.closePTY(nodeID, sessionID, ptyID);
 		};
-	}, [nodeID, sessionID, directory, attempt]);
+	}, [client, resolvePtyUrl, nodeID, sessionID, directory, attempt]);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">

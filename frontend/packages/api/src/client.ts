@@ -2,6 +2,7 @@ import type {
 	AuthMethods,
 	AuthResponse,
 	AuthUser,
+	ClaimCode,
 	ClaimPreview,
 	Device,
 	DeviceRegistration,
@@ -12,6 +13,7 @@ import type {
 	Message,
 	MessagePage,
 	NodeHealth,
+	NodeProject,
 	NodeView,
 	OverviewNode,
 	PendingPermission,
@@ -59,8 +61,11 @@ export interface ApiClient {
 	me(): Promise<{ kind: string; role: string; user: AuthUser | null }>;
 	claimPreview(code: string): Promise<ClaimPreview>;
 	claimConfirm(code: string): Promise<NodeView>;
+	createClaim(nodeName?: string): Promise<ClaimCode>;
 	deleteNode(node: string): Promise<unknown>;
 	listNodes(): Promise<NodeView[]>;
+	getNode(node: string): Promise<NodeView>;
+	getNodeProjects(node: string): Promise<NodeProject[]>;
 	getNodeHealth(node: string): Promise<NodeHealth>;
 	startOpenCode(node: string): Promise<unknown>;
 	restartOpenCode(node: string): Promise<unknown>;
@@ -177,10 +182,25 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 		claimConfirm: (code) =>
 			request<NodeView>(`/api/claim/${encodeURIComponent(code)}`, { method: "POST" }),
 
+		createClaim: (nodeName) =>
+			request<ClaimCode>("/api/node-claims", {
+				method: "POST",
+				body: JSON.stringify({ node_name: nodeName ?? "" }),
+			}),
+
 		deleteNode: (node) =>
 			request<unknown>(`/api/nodes/${encodeURIComponent(node)}`, { method: "DELETE" }),
 
 		listNodes: () => request<NodeView[]>("/api/nodes"),
+
+		getNode: (node) => request<NodeView>(`/api/nodes/${encodeURIComponent(node)}`),
+
+		getNodeProjects: async (node) => {
+			const body = await request<{ projects?: NodeProject[] }>(
+				`/api/nodes/${encodeURIComponent(node)}/projects`,
+			);
+			return Array.isArray(body?.projects) ? body.projects : [];
+		},
 
 		getNodeHealth: async (node) => {
 			// 节点返回 Go 结构体的导出字段名，这里统一转成前端的小写形状。

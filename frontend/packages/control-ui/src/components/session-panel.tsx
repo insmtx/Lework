@@ -15,7 +15,7 @@ import {
 	Workflow,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Message, NodeView, PermissionRequest, Session } from "../lib/types";
+import type { Message, NodeView, PermissionRequest, Session } from "../types";
 import { Conversation } from "./conversation";
 import { DiffView } from "./diff-view";
 import { FileBrowser } from "./file-browser";

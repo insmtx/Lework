@@ -3,7 +3,7 @@
 import { toolView } from "@lework/tool-view";
 import { cn } from "@lework/ui/lib/utils";
 import { useMemo, useState } from "react";
-import type { ContentPart } from "../../lib/types";
+import type { ContentPart } from "../../types";
 import { RawJson } from "./raw-json";
 import { SubagentDialog } from "./subagent-dialog";
 import { ToolBlocks } from "./tool-blocks";

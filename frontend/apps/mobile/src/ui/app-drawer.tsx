@@ -19,6 +19,7 @@ import { formatRelativeTime, RECENT_SESSION_LIMIT, type SidebarGroup } from "../
 import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
+import { BrandMark } from "./brand";
 import { SessionStatusDot, UnreadDot } from "./session-status-dot";
 import { BellButton } from "./top-bar";
 
@@ -167,6 +168,7 @@ export function AppDrawer() {
 						>
 							<Text style={styles.menuText}>☰</Text>
 						</Pressable>
+						<BrandMark size={22} />
 						<Text style={styles.topTitle} numberOfLines={1}>
 							{screenTitle}
 						</Text>
@@ -248,7 +250,7 @@ export function AppDrawer() {
 }
 
 function createStyles(theme: Theme) {
-	const { colors } = theme;
+	const { colors, radii } = theme;
 	return StyleSheet.create({
 		root: { flex: 1 },
 		backdrop: {
@@ -264,7 +266,9 @@ function createStyles(theme: Theme) {
 			top: 0,
 			bottom: 0,
 			left: 0,
-			backgroundColor: colors.surface,
+			backgroundColor: colors.sidebarBackground,
+			borderRightWidth: 1,
+			borderRightColor: colors.sidebarBorder,
 			paddingHorizontal: 14,
 		},
 		topRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 10 },
@@ -304,7 +308,7 @@ function createStyles(theme: Theme) {
 			paddingVertical: 7,
 		},
 		sessionTitle: { flex: 1, fontSize: 14, color: colors.textStrong },
-		sessionRowWaiting: { backgroundColor: colors.warningSurface, borderRadius: 8 },
+		sessionRowWaiting: { backgroundColor: colors.warningSurface, borderRadius: radii.sm },
 		sessionTime: { fontSize: 11, color: colors.textMuted },
 		moreRow: { paddingLeft: 16, paddingVertical: 6 },
 		moreText: { fontSize: 13, color: colors.accent },
@@ -315,7 +319,7 @@ function createStyles(theme: Theme) {
 			marginHorizontal: 4,
 			marginBottom: 4,
 			padding: 10,
-			borderRadius: 10,
+			borderRadius: radii.md,
 			backgroundColor: colors.surfaceMuted,
 			gap: 2,
 		},

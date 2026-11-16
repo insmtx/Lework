@@ -739,6 +739,31 @@ func TestAPICreateSession(t *testing.T) {
 	})
 }
 
+func TestAPICreateSessionRejectsUnsupportedCapability(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, _, _ := env.addNodeWithCapabilities("old-box", []string{"session.list"})
+
+	httpRec := env.do(http.MethodPost, "/api/sessions",
+		`{"node_id":"`+rec.ID+`","directory":"/work"}`)
+	requireErrorCode(t, httpRec, http.StatusConflict, "capability_unavailable")
+}
+
+// 能力列表为空表示旧 agent 没上报，按「可能支持」处理：不能因为缺少声明
+// 就把老版本节点整体判死。
+func TestAPICreateSessionAllowsLegacyAgentWithoutCapabilities(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNodeWithCapabilities("legacy", nil)
+
+	got := replyOK(t, agent, conn, `{"id":"ses_legacy"}`)
+	httpRec := env.do(http.MethodPost, "/api/sessions",
+		`{"node_id":"`+rec.ID+`","directory":"/work"}`)
+	requireStatus(t, httpRec, http.StatusOK)
+
+	if frame := waitFrame(t, got); frame.Method != "session.create" {
+		t.Fatalf("method = %q, want session.create", frame.Method)
+	}
+}
+
 func TestAPIRenameSession(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	rec, agent, conn := env.addNode("dev-box")

@@ -52,6 +52,37 @@ export function orderProjects(
 	});
 }
 
+/**
+ * projectDirectoryOnNode 返回项目在指定节点上的检出路径。
+ *
+ * 同一 git 项目 id 相同，但两台机器上的 checkout 路径可能不同，顶层
+ * canonical 只是聚合展示值。节点没上报路径时退回顶层值，兼容老控制面。
+ */
+export function projectDirectoryOnNode(project: ProjectSummary, nodeID: string): string {
+	const node = project.nodes.find((item) => item.node_id === nodeID);
+	const canonical = node?.canonical?.trim();
+	return canonical ? canonical : project.canonical;
+}
+
+/** projectsOnNode 列出某个节点上的项目，保持服务端给出的活动时间顺序。 */
+export function projectsOnNode(projects: ProjectSummary[], nodeID: string): ProjectSummary[] {
+	return projects.filter((project) => project.nodes.some((node) => node.node_id === nodeID));
+}
+
+/**
+ * nodeCanCreateSession 判断节点能否接收新任务。
+ *
+ * 能力列表为空表示旧 agent 没上报，按「可能支持」处理；离线节点一律不可选。
+ */
+export function nodeCanCreateSession(node: {
+	connected: boolean;
+	capabilities?: string[];
+}): boolean {
+	if (!node.connected) return false;
+	if (!node.capabilities || node.capabilities.length === 0) return true;
+	return node.capabilities.includes("session.create");
+}
+
 export interface InboxResolution {
 	project: ProjectSummary | null;
 	nodeID: string | null;
@@ -132,6 +163,8 @@ export interface TaskTarget {
 	directory: string;
 	/** 草稿 scope 与项目身份用的键；项目已存在时就是聚合键。 */
 	scopeKey: string;
+	/** 目标项目聚合键；null 表示落到节点的「我的目录」。 */
+	projectKey: string | null;
 	reason: TaskTargetReason;
 }
 
@@ -139,8 +172,9 @@ export interface TaskTarget {
  * resolveTaskTarget 决定首页输入的任务发往哪里。
  *
  * 首页只回答「现在要做什么」，不该让用户先选机器：项目已经存在时只看项目
- * 本身（主节点 → 最近在线节点），偏好目录所在节点离线也不影响发送。项目
- * 还没创建时才退回偏好目录，用第一条消息把它创建出来。
+ * 本身（主节点 → 最近在线节点），偏好目录所在节点离线也不影响发送。目录
+ * 用被选中节点自己的 canonical——同一项目在不同机器上的检出路径可能不同。
+ * 项目还没创建时才退回偏好目录，用第一条消息把它创建出来。
  */
 export function resolveTaskTarget(
 	inbox: InboxResolution,
@@ -151,15 +185,19 @@ export function resolveTaskTarget(
 		const target = resolveTarget(inbox.project, onlineNodeIDs);
 		return {
 			nodeID: target.nodeID,
-			directory: inbox.project.canonical,
+			directory:
+				target.nodeID === null
+					? inbox.project.canonical
+					: projectDirectoryOnNode(inbox.project, target.nodeID),
 			scopeKey: inbox.project.key,
-			reason: target.reason === "ok" ? "ok" : "no-node",
+			projectKey: inbox.project.key,
+			reason: target.reason,
 		};
 	}
 
 	const dir = inbox.nodeID ? (dirByNode[inbox.nodeID] ?? "") : "";
 	if (!inbox.nodeID || dir === "") {
-		return { nodeID: null, directory: "", scopeKey: "", reason: "no-dir" };
+		return { nodeID: null, directory: "", scopeKey: "", projectKey: null, reason: "no-dir" };
 	}
 
 	const online = onlineNodeIDs.includes(inbox.nodeID);
@@ -167,7 +205,60 @@ export function resolveTaskTarget(
 		nodeID: online ? inbox.nodeID : null,
 		directory: dir,
 		scopeKey: `inbox:${inbox.nodeID}:${dir}`,
+		projectKey: null,
 		reason: online ? "ok" : "no-node",
+	};
+}
+
+/** TaskSelection 是用户在新任务页的显式选择；只在本次停留有效。 */
+export interface TaskSelection {
+	nodeID: string | null;
+	/** null 表示「我的目录」，不是某个具体项目。 */
+	projectKey: string | null;
+}
+
+/**
+ * resolveSelectionTarget 把显式选择落到具体节点与目录。
+ *
+ * 选择必须能随时失效：节点离线、项目从该节点消失时回退到「我的」默认
+ * 目标，避免把任务发往已经不可用的机器。切节点后原项目不在新节点上时，
+ * 也回落到该节点自己的「我的目录」。
+ */
+export function resolveSelectionTarget(
+	selection: TaskSelection | null,
+	projects: ProjectSummary[],
+	dirByNode: Record<string, string>,
+	onlineNodeIDs: string[],
+	inbox: InboxResolution,
+): TaskTarget {
+	const fallback = resolveTaskTarget(inbox, dirByNode, onlineNodeIDs);
+	const nodeID = selection?.nodeID ?? null;
+	if (!nodeID || !onlineNodeIDs.includes(nodeID)) return fallback;
+
+	const projectKey = selection?.projectKey ?? null;
+	const project = projectKey
+		? (projectsOnNode(projects, nodeID).find((item) => item.key === projectKey) ?? null)
+		: null;
+	if (!project) {
+		const directory = dirByNode[nodeID] ?? "";
+		if (directory === "") {
+			return { nodeID, directory: "", scopeKey: "", projectKey: null, reason: "no-dir" };
+		}
+		return {
+			nodeID,
+			directory,
+			scopeKey: `inbox:${nodeID}:${directory}`,
+			projectKey: null,
+			reason: "ok",
+		};
+	}
+
+	return {
+		nodeID,
+		directory: projectDirectoryOnNode(project, nodeID),
+		scopeKey: project.key,
+		projectKey: project.key,
+		reason: "ok",
 	};
 }
 

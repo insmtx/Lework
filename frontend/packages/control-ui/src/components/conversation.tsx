@@ -5,7 +5,7 @@ import { Textarea } from "@lework/ui/components/ui/textarea";
 import { cn } from "@lework/ui/lib/utils";
 import { ArrowUp, ChevronUp, Loader2, MessageSquare, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { Message, PermissionRequest } from "../lib/types";
+import type { Message, PermissionRequest } from "../types";
 import { PermissionCard } from "./permission-card";
 import { ToolCardList } from "./tool-call/tool-card";
 

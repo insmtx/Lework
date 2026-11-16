@@ -1,7 +1,6 @@
 import { router } from "expo-router";
 import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	ActivityIndicator,
 	Alert,
 	KeyboardAvoidingView,
 	Platform,
@@ -17,20 +16,34 @@ import { createClient } from "../src/api/client";
 import { createSecureDraftStore } from "../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../src/composer/send";
 import { sessionRoute } from "../src/config";
-import { resolveTaskTarget } from "../src/projects/model";
+import {
+	nodeCanCreateSession,
+	projectDirectoryOnNode,
+	projectDisplayName,
+	projectsOnNode,
+	resolveSelectionTarget,
+	type TaskSelection,
+} from "../src/projects/model";
 import type { Theme } from "../src/theme/theme";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
+import { ComposerBar, ComposerChip } from "../src/ui/composer-bar";
+import { BrandSpinner } from "../src/ui/loading";
+import { OptionSheet, type OptionSheetItem } from "../src/ui/option-sheet";
 import { DrawerButton } from "../src/ui/top-bar";
 
 // 首页草稿不跟随项目切换：用户还没决定发给谁时，字不能丢。
 const HOME_DRAFT_SCOPE = { projectKey: "home", nodeID: "home" };
 
+// 「我的目录」在项目弹层里的选项键；用前缀避免和真实项目聚合键冲突。
+const INBOX_OPTION_KEY = "__inbox__";
+
 /**
  * 首页只做一件事：直接说任务。
  *
  * 没有标题、路径、会话列表或节点信息——导航在侧边栏，历史在项目页。
- * 输入框提交时自动挑节点（主节点 → 最近在线），用户不需要先选机器。
+ * 默认自动挑节点（主节点 → 最近在线）；输入框上方的 chip 允许用户临时
+ * 指定电脑与项目，选择只在本次停留有效。
  */
 export default function HomeScreen() {
 	useScreenTitle("新任务");
@@ -44,15 +57,84 @@ export default function HomeScreen() {
 	// 草稿固定在「首页」scope：切项目或节点都不该让用户刚打的字消失。
 	const [draft, setDraft] = useState("");
 	const [sending, setSending] = useState(false);
+	// 显式选择只在本次停留有效，不写偏好；失效时由解析函数自动回退。
+	const [selection, setSelection] = useState<TaskSelection | null>(null);
+	const [nodeSheetOpen, setNodeSheetOpen] = useState(false);
+	const [projectSheetOpen, setProjectSheetOpen] = useState(false);
 
-	const onlineNodeIDs = useMemo(
-		() => projects.nodes.filter((node) => node.connected).map((node) => node.id),
+	// 只把「在线且能新建会话」的节点当成可用目标：离线或旧 agent 不应该
+	// 被自动选中，选择器里也置灰。
+	const usableNodeIDs = useMemo(
+		() => projects.nodes.filter((node) => nodeCanCreateSession(node)).map((node) => node.id),
 		[projects.nodes],
 	);
 	const target = useMemo(
-		() => resolveTaskTarget(projects.inbox, projects.dirByNode, onlineNodeIDs),
-		[projects.inbox, projects.dirByNode, onlineNodeIDs],
+		() =>
+			resolveSelectionTarget(
+				selection,
+				projects.projects,
+				projects.dirByNode,
+				usableNodeIDs,
+				projects.inbox,
+			),
+		[selection, projects.projects, projects.dirByNode, usableNodeIDs, projects.inbox],
 	);
+
+	const activeNode = useMemo(
+		() => projects.nodes.find((node) => node.id === target.nodeID) ?? null,
+		[projects.nodes, target.nodeID],
+	);
+	const activeProject = useMemo(
+		() =>
+			target.projectKey
+				? (projects.projects.find((project) => project.key === target.projectKey) ?? null)
+				: null,
+		[projects.projects, target.projectKey],
+	);
+
+	const canPickTarget = !settingsLoading && Boolean(settings?.sessionToken);
+	const nodeLabel = activeNode ? activeNode.name || activeNode.id : "未选择";
+	const projectLabel = activeProject ? projectDisplayName(activeProject) : "我的目录";
+
+	const nodeItems = useMemo<OptionSheetItem[]>(
+		() =>
+			projects.nodes.map((node) => {
+				const usable = nodeCanCreateSession(node);
+				return {
+					key: node.id,
+					label: node.name || node.id,
+					detail: projects.dirByNode[node.id],
+					status: !node.connected ? "离线" : usable ? "在线" : "不支持新建",
+					tone: usable ? "normal" : "muted",
+					selected: node.id === target.nodeID,
+					disabled: !usable,
+				};
+			}),
+		[projects.nodes, projects.dirByNode, target.nodeID],
+	);
+
+	const projectItems = useMemo<OptionSheetItem[]>(() => {
+		if (!target.nodeID) return [];
+		const inboxDir = projects.dirByNode[target.nodeID] ?? "";
+		const items: OptionSheetItem[] = [
+			{
+				key: INBOX_OPTION_KEY,
+				label: "我的目录",
+				detail: inboxDir || "没有可用目录",
+				selected: target.projectKey === null,
+				disabled: inboxDir === "",
+			},
+		];
+		for (const project of projectsOnNode(projects.projects, target.nodeID)) {
+			items.push({
+				key: project.key,
+				label: projectDisplayName(project),
+				detail: projectDirectoryOnNode(project, target.nodeID),
+				selected: target.projectKey === project.key,
+			});
+		}
+		return items;
+	}, [projects.projects, projects.dirByNode, target.nodeID, target.projectKey]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -83,6 +165,33 @@ export default function HomeScreen() {
 			});
 		},
 		[store],
+	);
+
+	const pickNode = useCallback(
+		(nodeID: string) => {
+			setNodeSheetOpen(false);
+			const currentProjectKey = target.projectKey;
+			// 原项目在新电脑上也有时保留，否则回落到那台电脑的「我的目录」。
+			const keep =
+				currentProjectKey !== null &&
+				projectsOnNode(projects.projects, nodeID).some(
+					(project) => project.key === currentProjectKey,
+				);
+			setSelection({ nodeID, projectKey: keep ? currentProjectKey : null });
+		},
+		[target.projectKey, projects.projects],
+	);
+
+	const pickProject = useCallback(
+		(key: string) => {
+			setProjectSheetOpen(false);
+			if (!target.nodeID) return;
+			setSelection({
+				nodeID: target.nodeID,
+				projectKey: key === INBOX_OPTION_KEY ? null : key,
+			});
+		},
+		[target.nodeID],
 	);
 
 	const send = useCallback(async () => {
@@ -132,6 +241,21 @@ export default function HomeScreen() {
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 			>
 				<View style={styles.card}>
+					<ComposerBar>
+						<ComposerChip
+							label="电脑"
+							value={nodeLabel}
+							status={activeNode ? (activeNode.connected ? "online" : "offline") : "none"}
+							disabled={!canPickTarget}
+							onPress={() => setNodeSheetOpen(true)}
+						/>
+						<ComposerChip
+							label="项目"
+							value={projectLabel}
+							disabled={!canPickTarget || target.nodeID === null}
+							onPress={() => setProjectSheetOpen(true)}
+						/>
+					</ComposerBar>
 					<TextInput
 						ref={inputRef}
 						style={styles.input}
@@ -152,7 +276,7 @@ export default function HomeScreen() {
 							style={[styles.send, !canSend && styles.sendDisabled]}
 						>
 							{sending ? (
-								<ActivityIndicator color={theme.colors.actionText} />
+								<BrandSpinner color={theme.colors.actionText} />
 							) : (
 								<Text style={styles.sendText}>发送</Text>
 							)}
@@ -166,6 +290,25 @@ export default function HomeScreen() {
 					</Pressable>
 				) : null}
 			</KeyboardAvoidingView>
+
+			<OptionSheet
+				visible={nodeSheetOpen}
+				title="选择电脑"
+				subtitle="任务会发送到这台电脑上"
+				items={nodeItems}
+				emptyText="还没有关联电脑，先在设置里配对节点。"
+				onSelect={pickNode}
+				onClose={() => setNodeSheetOpen(false)}
+			/>
+			<OptionSheet
+				visible={projectSheetOpen}
+				title="选择项目"
+				subtitle={nodeLabel}
+				items={projectItems}
+				emptyText="这台电脑上还没有目录，先选「我的目录」。"
+				onSelect={pickProject}
+				onClose={() => setProjectSheetOpen(false)}
+			/>
 		</View>
 	);
 }

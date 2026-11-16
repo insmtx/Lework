@@ -72,6 +72,68 @@ func TestListProjectsSeparatesGlobalSentinel(t *testing.T) {
 	}
 }
 
+// TestListProjectsKeepsCanonicalPerNode 固化「同一 git 项目在不同机器上
+// 检出路径不同」：客户端新建会话必须用目标节点自己的 canonical。
+func TestListProjectsKeepsCanonicalPerNode(t *testing.T) {
+	env := newTestEnv(t, 2*time.Second)
+	recA, agentA, connA := env.addNode("node-a")
+	recB, agentB, connB := env.addNode("node-b")
+
+	first := replyOK(t, agentA, connA, `[{"id":"abc","canonical":"/home/me/repo","vcs":"git"}]`)
+	second := replyOK(t, agentB, connB, `[{"id":"abc","canonical":"/srv/repo","vcs":"git"}]`)
+
+	rec := env.do(http.MethodGet, "/api/projects", "")
+	requireStatus(t, rec, http.StatusOK)
+	waitFrame(t, first)
+	waitFrame(t, second)
+
+	body := decodeBody[projectListResponse](t, rec)
+	if len(body.Projects) != 1 {
+		t.Fatalf("projects = %#v, want one aggregated project", body.Projects)
+	}
+	canonicalByNode := map[string]string{}
+	for _, node := range body.Projects[0].Nodes {
+		canonicalByNode[node.NodeID] = node.Canonical
+	}
+	if canonicalByNode[recA.ID] != "/home/me/repo" {
+		t.Fatalf("node-a canonical = %q, want /home/me/repo", canonicalByNode[recA.ID])
+	}
+	if canonicalByNode[recB.ID] != "/srv/repo" {
+		t.Fatalf("node-b canonical = %q, want /srv/repo", canonicalByNode[recB.ID])
+	}
+}
+
+// 索引兜底同样要保留每个节点自己的路径，否则离线时又退回跨节点单值。
+func TestListProjectsIndexKeepsCanonicalPerNode(t *testing.T) {
+	env := newTestEnv(t, 2*time.Second)
+	recA, _, _ := env.addNode("node-a")
+	recB, _, _ := env.addNode("node-b")
+
+	if err := env.store.UpsertProjectIndex(context.Background(), []store.ProjectIndex{
+		{ProjectKey: "abc", NodeID: recA.ID, ProjectID: "abc", Canonical: "/home/me/repo", LastSeen: time.Now()},
+		{ProjectKey: "abc", NodeID: recB.ID, ProjectID: "abc", Canonical: "/srv/repo", LastSeen: time.Now()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	env.markNodeOffline(recA.ID)
+	env.markNodeOffline(recB.ID)
+
+	rec := env.do(http.MethodGet, "/api/projects", "")
+	requireStatus(t, rec, http.StatusOK)
+
+	body := decodeBody[projectListResponse](t, rec)
+	if len(body.Projects) != 1 || len(body.Projects[0].Nodes) != 2 {
+		t.Fatalf("projects = %#v, want one project on two offline nodes", body.Projects)
+	}
+	canonicalByNode := map[string]string{}
+	for _, node := range body.Projects[0].Nodes {
+		canonicalByNode[node.NodeID] = node.Canonical
+	}
+	if canonicalByNode[recA.ID] != "/home/me/repo" || canonicalByNode[recB.ID] != "/srv/repo" {
+		t.Fatalf("canonical by node = %#v", canonicalByNode)
+	}
+}
+
 func TestListProjectsKeepsOfflineFromIndex(t *testing.T) {
 	env := newTestEnv(t, 2*time.Second)
 	rec, _, _ := env.addNode("node-a")
@@ -101,6 +163,9 @@ func TestListProjectsKeepsOfflineFromIndex(t *testing.T) {
 	}
 	if len(project.Nodes) != 1 || project.Nodes[0].Online {
 		t.Fatalf("nodes = %#v, want one offline entry", project.Nodes)
+	}
+	if project.Nodes[0].Canonical != "/w/repo" {
+		t.Fatalf("canonical = %q, want the indexed path", project.Nodes[0].Canonical)
 	}
 }
 

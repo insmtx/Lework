@@ -6,17 +6,30 @@
 		"version": "0.1.0",
 		"orientation": "portrait",
 		"userInterfaceStyle": "automatic",
+		"icon": "./assets/icon.png",
+		"splash": {
+			"image": "./assets/splash-icon.png",
+			"resizeMode": "contain",
+			"backgroundColor": "#f8fafc"
+		},
 		"android": {
 			"package": "com.insmtx.lework",
 			"predictiveBackGestureEnabled": false,
 			"usesCleartextTraffic": true,
+			"adaptiveIcon": {
+				"foregroundImage": "./assets/adaptive-icon.png",
+				"backgroundColor": "#eef3ff"
+			},
 			"permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"]
 		},
 		"plugins": [
 			"expo-router",
 			"expo-secure-store",
 			["expo-camera", { "cameraPermission": "允许 lework 扫描配对二维码" }],
-			["expo-notifications", { "color": "#0f172a" }]
+			[
+				"expo-notifications",
+				{ "icon": "./assets/notification-icon.png", "color": "#4f46e5" }
+			]
 		],
 		"experiments": {
 			"typedRoutes": false
