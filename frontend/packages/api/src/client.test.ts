@@ -236,6 +236,18 @@ describe("project aggregation", () => {
 		await expect(api.listProjects()).resolves.toEqual([]);
 	});
 
+	it("createProject 提交名字并返回 canonical", async () => {
+		stubFetch(new Response(JSON.stringify({ canonical: "/w/新项目" }), { status: 200 }));
+		const api = createApiClient();
+		await expect(api.createProject("node 1", "新项目")).resolves.toEqual({
+			canonical: "/w/新项目",
+		});
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/nodes/node%201/projects");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.method).toBe("POST");
+		expect(JSON.parse(String(init.body))).toEqual({ name: "新项目" });
+	});
+
 	it("setProjectPrimaryNode 编码含冒号与斜杠的 key", async () => {
 		stubFetch(new Response(null, { status: 204 }));
 		const api = createApiClient();
@@ -316,6 +328,20 @@ describe("认证、认领与移除节点", () => {
 		).resolves.toBeNull();
 		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/nodes/node_1");
 		expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe("DELETE");
+	});
+
+	it("renameNode 用 PATCH 提交展示名", async () => {
+		stubFetch(new Response(JSON.stringify({ id: "node_1", name: "客厅的电脑" }), { status: 200 }));
+		const view = await createApiClient({ baseUrl: "http://box:8787" }).renameNode(
+			"node 1",
+			"客厅的电脑",
+		);
+
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/nodes/node%201");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.method).toBe("PATCH");
+		expect(JSON.parse(String(init.body))).toEqual({ name: "客厅的电脑" });
+		expect(view.name).toBe("客厅的电脑");
 	});
 
 	it("createClaim 提交节点名并返回短期码", async () => {

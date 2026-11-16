@@ -18,6 +18,27 @@ export function projectKeyOf(project: { id: string; canonical: string }): string
 	return project.id === "global" ? `${project.id}:${project.canonical}` : project.id;
 }
 
+/**
+ * projectNameError 校验新建项目的目录名。
+ *
+ * 只允许单段目录名：路径分隔符、相对路径与控制字符会让 agent 在
+ * workspace root 之外落点，因此必须在输入阶段就拒绝；agent 侧仍会再校验一次。
+ * 返回 null 表示合法，否则返回可直接展示给用户的中文原因。
+ */
+export function projectNameError(name: string): string | null {
+	const trimmed = name.trim();
+	if (trimmed === "") return "请输入项目名";
+	if (Array.from(trimmed).length > 64) return "项目名最多 64 个字符";
+	if (trimmed === "." || trimmed === "..") return "项目名不能是 . 或 ..";
+	if (trimmed.startsWith(".")) return "项目名不能以 . 开头";
+	if (trimmed.includes("/") || trimmed.includes("\\")) return "项目名不能包含路径分隔符";
+	for (const char of trimmed) {
+		const code = char.codePointAt(0) ?? 0;
+		if (code < 0x20 || code === 0x7f) return "项目名不能包含控制字符";
+	}
+	return null;
+}
+
 /** isPathPrefix 判断 prefix 是否是 path 的目录前缀，按 / 分段避免 /w/rep 匹配 /w/repo。 */
 export function isPathPrefix(prefix: string, path: string): boolean {
 	const clean = (value: string) => value.replace(/\/+$/, "") || "/";
@@ -81,6 +102,21 @@ export function nodeCanCreateSession(node: {
 	if (!node.connected) return false;
 	if (!node.capabilities || node.capabilities.length === 0) return true;
 	return node.capabilities.includes("session.create");
+}
+
+/**
+ * nodeCanCreateProject 判断节点能否接收「新建项目」。
+ *
+ * 与新建会话同一条兼容策略：能力列表为空表示旧 agent 没上报，先展示入口，
+ * 调用失败再提示升级；显式缺 project.create 则直接隐藏。
+ */
+export function nodeCanCreateProject(node: {
+	connected: boolean;
+	capabilities?: string[];
+}): boolean {
+	if (!node.connected) return false;
+	if (!node.capabilities || node.capabilities.length === 0) return true;
+	return node.capabilities.includes("project.create");
 }
 
 export interface InboxResolution {
@@ -165,6 +201,8 @@ export interface TaskTarget {
 	scopeKey: string;
 	/** 目标项目聚合键；null 表示落到节点的「我的目录」。 */
 	projectKey: string | null;
+	/** 刚创建、OpenCode 还没登记的项目名；有值时用来展示 chip。 */
+	pendingName?: string;
 	reason: TaskTargetReason;
 }
 
@@ -210,11 +248,19 @@ export function resolveTaskTarget(
 	};
 }
 
+/** 刚创建的空项目；OpenCode 要到第一条会话才登记它。 */
+export interface PendingProject {
+	name: string;
+	directory: string;
+}
+
 /** TaskSelection 是用户在新任务页的显式选择；只在本次停留有效。 */
 export interface TaskSelection {
 	nodeID: string | null;
 	/** null 表示「我的目录」，不是某个具体项目。 */
 	projectKey: string | null;
+	/** 新建项目成功后、发出第一条任务前的临时目标。 */
+	pendingProject?: PendingProject | null;
 }
 
 /**
@@ -234,6 +280,18 @@ export function resolveSelectionTarget(
 	const fallback = resolveTaskTarget(inbox, dirByNode, onlineNodeIDs);
 	const nodeID = selection?.nodeID ?? null;
 	if (!nodeID || !onlineNodeIDs.includes(nodeID)) return fallback;
+
+	const pending = selection?.pendingProject;
+	if (pending && pending.directory.trim() !== "") {
+		return {
+			nodeID,
+			directory: pending.directory,
+			scopeKey: `pending:${nodeID}:${pending.directory}`,
+			projectKey: null,
+			pendingName: pending.name,
+			reason: "ok",
+		};
+	}
 
 	const projectKey = selection?.projectKey ?? null;
 	const project = projectKey

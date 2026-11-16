@@ -1,4 +1,4 @@
-import type { NodeView, ProjectSummary } from "@lework/api";
+import type { NodeView, ProjectCreateResult, ProjectSummary } from "@lework/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createClient } from "../api/client";
@@ -19,6 +19,7 @@ export interface ProjectsState {
 	error: string | null;
 	refresh: () => void;
 	connected: boolean;
+	createProject: (nodeID: string, name: string) => Promise<ProjectCreateResult>;
 	setPrimaryNode: (projectKey: string, nodeID: string) => Promise<void>;
 	setInboxDir: (nodeID: string, dir: string) => Promise<void>;
 }
@@ -96,6 +97,18 @@ export function useProjects(settings: Settings | null): ProjectsState {
 		[projects, dirByNode, onlineNodeIDs],
 	);
 
+	const createProject = useCallback(
+		async (nodeID: string, name: string): Promise<ProjectCreateResult> => {
+			if (!settings) throw new Error("尚未连接控制面");
+			// 目录创建成功后 OpenCode 还没有登记这个项目，列表刷新可能暂时看不到；
+			// 调用方用返回的 canonical 维护待建选择。
+			const created = await createClient(settings).createProject(nodeID, name);
+			refresh();
+			return created;
+		},
+		[settings, refresh],
+	);
+
 	const setPrimaryNode = useCallback(
 		async (projectKey: string, nodeID: string) => {
 			if (!settings) return;
@@ -123,6 +136,7 @@ export function useProjects(settings: Settings | null): ProjectsState {
 		error,
 		refresh,
 		connected,
+		createProject,
 		setPrimaryNode,
 		setInboxDir,
 	};

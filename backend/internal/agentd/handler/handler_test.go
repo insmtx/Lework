@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1225,6 +1226,88 @@ func TestHandleProjectListPropagatesError(t *testing.T) {
 	oc := &fakeOpenCode{projectsErr: errors.New("boom")}
 	if _, err := New(oc, fakeSupervisor{}).Handle(context.Background(), "project.list", nil); err == nil {
 		t.Fatal("expected the client error to surface")
+	}
+}
+
+func TestHandleProjectCreate(t *testing.T) {
+	root := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	result, err := h.Handle(context.Background(), "project.create",
+		json.RawMessage(`{"name":"  新项目  "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, ok := result.(ProjectCreateResult)
+	if !ok {
+		t.Fatalf("result type = %T, want ProjectCreateResult", result)
+	}
+	want := filepath.Join(root, "新项目")
+	if created.Canonical != want {
+		t.Fatalf("canonical = %q, want %q", created.Canonical, want)
+	}
+	info, err := os.Stat(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a directory", want)
+	}
+}
+
+func TestHandleProjectCreateUsesFirstWorkspaceRoot(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(first, second))
+
+	if _, err := h.Handle(context.Background(), "project.create", json.RawMessage(`{"name":"demo"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(first, "demo")); err != nil {
+		t.Fatalf("project was not created under the first root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(second, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("project leaked into the second root: %v", err)
+	}
+}
+
+func TestHandleProjectCreateRejectsInvalidNames(t *testing.T) {
+	root := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	for _, name := range []string{"", "   ", ".", "..", ".git", "a/b", `a\b`, "a\x00b", strings.Repeat("a", 65)} {
+		_, err := h.Handle(context.Background(), "project.create",
+			json.RawMessage(`{"name":`+strconv.Quote(name)+`}`))
+		if err == nil {
+			t.Fatalf("name %q was accepted", name)
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("invalid names created entries: %#v", entries)
+	}
+}
+
+func TestHandleProjectCreateRequiresWorkspaceRoot(t *testing.T) {
+	h := New(&fakeOpenCode{}, fakeSupervisor{})
+	if _, err := h.Handle(context.Background(), "project.create",
+		json.RawMessage(`{"name":"demo"}`)); err == nil {
+		t.Fatal("expected a missing workspace root error")
+	}
+}
+
+func TestHandleProjectCreateRejectsExistingDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+	if _, err := h.Handle(context.Background(), "project.create",
+		json.RawMessage(`{"name":"demo"}`)); err == nil {
+		t.Fatal("expected an existing directory error")
 	}
 }
 

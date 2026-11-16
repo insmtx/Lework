@@ -157,6 +157,17 @@ type FileReadParams struct {
 	MaxBytes  int64  `json:"max_bytes,omitempty"`
 }
 
+// ProjectCreateParams are the parameters for project.create. Name is a single
+// directory segment under the node's first workspace root.
+type ProjectCreateParams struct {
+	Name string `json:"name"`
+}
+
+// ProjectCreateResult reports the absolute directory created for a new project.
+type ProjectCreateResult struct {
+	Canonical string `json:"canonical"`
+}
+
 // FileReadResult is the browser-safe projection of a file read. Content is
 // text for UTF-8 files and base64 for binary files; Path is always relative.
 type FileReadResult struct {
@@ -286,6 +297,13 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 
 	case "project.list":
 		return h.opencode.ListProjects(ctx)
+
+	case "project.create":
+		var p ProjectCreateParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		return h.createProject(p)
 
 	case "session.list":
 		var p SessionListParams
@@ -721,6 +739,61 @@ func (h *Handler) closePTY(params json.RawMessage) (any, error) {
 func validatePTYSize(cols, rows int) error {
 	if cols < 1 || cols > 1000 || rows < 1 || rows > 1000 {
 		return fmt.Errorf("invalid terminal size %dx%d", cols, rows)
+	}
+	return nil
+}
+
+// createProject makes a new empty directory under the first workspace root.
+//
+// A project is just a directory in this system: OpenCode registers it on the
+// first session, so this handler only creates the folder and never asks
+// OpenCode to do anything. Creating under the root (instead of an arbitrary
+// parent) keeps nested directories from silently joining an existing repo.
+func (h *Handler) createProject(p ProjectCreateParams) (ProjectCreateResult, error) {
+	name := strings.TrimSpace(p.Name)
+	if err := validateProjectName(name); err != nil {
+		return ProjectCreateResult{}, err
+	}
+	if len(h.workspaceRoots) == 0 {
+		return ProjectCreateResult{}, errors.New("project.create: no workspace root configured")
+	}
+
+	root, err := filepath.Abs(h.workspaceRoots[0])
+	if err != nil {
+		return ProjectCreateResult{}, fmt.Errorf("project.create: resolve workspace root: %w", err)
+	}
+	target := filepath.Join(root, name)
+	if !pathWithin(root, target) {
+		return ProjectCreateResult{}, errors.New("project.create: name escapes the workspace root")
+	}
+	if err := os.Mkdir(target, 0o755); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return ProjectCreateResult{}, errors.New("project.create: directory already exists")
+		}
+		return ProjectCreateResult{}, fmt.Errorf("project.create: create directory: %w", err)
+	}
+	return ProjectCreateResult{Canonical: target}, nil
+}
+
+// validateProjectName enforces the single-segment rule the browser also checks.
+// The agent repeats it because a browser is not a trust boundary.
+func validateProjectName(name string) error {
+	switch {
+	case name == "":
+		return errors.New("project.create: name is required")
+	case name == "." || name == "..":
+		return errors.New("project.create: name must not be . or ..")
+	case strings.HasPrefix(name, "."):
+		return errors.New("project.create: name must not start with .")
+	case strings.ContainsAny(name, `/\`):
+		return errors.New("project.create: name must not contain path separators")
+	case utf8.RuneCountInString(name) > 64:
+		return errors.New("project.create: name is too long")
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return errors.New("project.create: name must not contain control characters")
+		}
 	}
 	return nil
 }

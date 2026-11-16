@@ -237,6 +237,7 @@ func Capabilities() []string {
 		"opencode.restart",
 		"opencode.stop",
 		"project.list",
+		"project.create",
 		"session.list",
 		"session.children",
 		"session.create",

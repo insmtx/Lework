@@ -771,6 +771,7 @@ func TestHelloCapabilitiesIncludeI1BMethods(t *testing.T) {
 	}
 	want := []string{
 		"project.list",
+		"project.create",
 		"session.diff", "session.interrupt",
 		"session.children",
 		"file.list", "file.read",

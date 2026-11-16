@@ -4,10 +4,12 @@ import {
 	findProjectForSession,
 	groupSessionsByProject,
 	isPathPrefix,
+	nodeCanCreateProject,
 	nodeCanCreateSession,
 	orderProjects,
 	projectDirectoryOnNode,
 	projectKeyOf,
+	projectNameError,
 	projectsOnNode,
 	resolveInbox,
 	resolveSelectionTarget,
@@ -29,6 +31,35 @@ describe("projectKeyOf", () => {
 	it("global 拼接 canonical，普通 id 原样返回", () => {
 		expect(projectKeyOf({ id: "abc", canonical: "/w/repo" })).toBe("abc");
 		expect(projectKeyOf({ id: "global", canonical: "/w/repo" })).toBe("global:/w/repo");
+	});
+});
+
+describe("projectNameError", () => {
+	it("普通名字通过并去掉首尾空白", () => {
+		expect(projectNameError("  新项目  ")).toBeNull();
+		expect(projectNameError("mobile-app_2")).toBeNull();
+	});
+
+	it("空名字与纯空白拒绝", () => {
+		expect(projectNameError("")).not.toBeNull();
+		expect(projectNameError("   ")).not.toBeNull();
+	});
+
+	it("拒绝路径分隔符与相对路径", () => {
+		expect(projectNameError("a/b")).not.toBeNull();
+		expect(projectNameError("a\\b")).not.toBeNull();
+		expect(projectNameError(".")).not.toBeNull();
+		expect(projectNameError("..")).not.toBeNull();
+	});
+
+	it("拒绝隐藏目录与控制字符", () => {
+		expect(projectNameError(".git")).not.toBeNull();
+		expect(projectNameError("a\u0000b")).not.toBeNull();
+	});
+
+	it("名字最长 64 个字符", () => {
+		expect(projectNameError("a".repeat(64))).toBeNull();
+		expect(projectNameError("a".repeat(65))).not.toBeNull();
 	});
 });
 
@@ -274,6 +305,26 @@ describe("nodeCanCreateSession", () => {
 	});
 });
 
+describe("nodeCanCreateProject", () => {
+	it("离线节点不能新建项目", () => {
+		expect(nodeCanCreateProject({ connected: false, capabilities: ["project.create"] })).toBe(
+			false,
+		);
+	});
+
+	it("能力列表为空按旧 agent 处理，仍然尝试", () => {
+		expect(nodeCanCreateProject({ connected: true })).toBe(true);
+		expect(nodeCanCreateProject({ connected: true, capabilities: [] })).toBe(true);
+	});
+
+	it("声明了能力但缺少 project.create 时不展示入口", () => {
+		expect(nodeCanCreateProject({ connected: true, capabilities: ["session.create"] })).toBe(false);
+		expect(
+			nodeCanCreateProject({ connected: true, capabilities: ["session.create", "project.create"] }),
+		).toBe(true);
+	});
+});
+
 describe("resolveSelectionTarget", () => {
 	const repo = project({
 		key: "repo",
@@ -389,6 +440,64 @@ describe("resolveSelectionTarget", () => {
 			scopeKey: "",
 			projectKey: null,
 			reason: "no-dir",
+		});
+	});
+
+	it("待建项目使用创建时返回的目录", () => {
+		expect(
+			resolveSelectionTarget(
+				{
+					nodeID: "server",
+					projectKey: null,
+					pendingProject: { name: "新项目", directory: "/srv/新项目" },
+				},
+				projects,
+				dirs,
+				online,
+				inbox,
+			),
+		).toEqual({
+			nodeID: "server",
+			directory: "/srv/新项目",
+			scopeKey: "pending:server:/srv/新项目",
+			projectKey: null,
+			pendingName: "新项目",
+			reason: "ok",
+		});
+	});
+
+	it("待建项目所在节点离线时回退默认目标", () => {
+		const fallback = resolveTaskTarget(inbox, dirs, ["laptop"]);
+		expect(
+			resolveSelectionTarget(
+				{
+					nodeID: "server",
+					projectKey: null,
+					pendingProject: { name: "新项目", directory: "/srv/新项目" },
+				},
+				projects,
+				dirs,
+				["laptop"],
+				inbox,
+			),
+		).toEqual(fallback);
+	});
+
+	it("待建项目目录为空时忽略 pending，回落到「我的目录」", () => {
+		expect(
+			resolveSelectionTarget(
+				{ nodeID: "server", projectKey: null, pendingProject: { name: "新项目", directory: "" } },
+				projects,
+				dirs,
+				online,
+				inbox,
+			),
+		).toEqual({
+			nodeID: "server",
+			directory: "/srv",
+			scopeKey: "inbox:server:/srv",
+			projectKey: null,
+			reason: "ok",
 		});
 	});
 });
